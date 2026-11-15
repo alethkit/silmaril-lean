@@ -107,12 +107,14 @@ inductive MStep (P : Profile) (host : HostSemantics H) (body : Expr) :
       (hr : Run P host s f stk (expression sg.body) s₁ f₁ (.normal stk₁)) :
       MStep P host body ⟨.block b, stk, ls, s, f⟩
         (goto (entry body b.seq (b.idx + 1)) b.seq.length ls stk₁ s₁ f₁)
-  /-- `br l`: keep the label's top values; re-enter a loop, or leave the label's sequence. -/
+  /-- `br l`: keep the label's top values; re-enter a loop, or leave the label's sequence. The
+  step checks at run time that the stack holds the label's arity (`harity`); on a shorter stack
+  the machine does not step (Core has no branch rule there either). -/
   | br {b : BlockId} {sg : Segment} {stk stk₁ : List Val} {ls : List LFrame} {s s₁ : Store H}
       {f f₁ : Frame} {l : LabelIdx} {L : LFrame} (hb : lookup body b = some sg)
       (ht : sg.term = some (.br l))
       (hr : Run P host s f stk (expression sg.body) s₁ f₁ (.normal stk₁))
-      (hL : ls[l.toNat]? = some L) :
+      (hL : ls[l.toNat]? = some L) (harity : L.arity ≤ stk₁.length) :
       MStep P host body ⟨.block b, stk, ls, s, f⟩
         (if L.loop then
           goto (resolveT (labels body b.seq) l) (b.seq.length - l.toNat)
@@ -125,7 +127,7 @@ inductive MStep (P : Profile) (host : HostSemantics H) (body : Expr) :
       {s s₁ : Store H} {f f₁ : Frame} {l : LabelIdx} {L : LFrame} {k : BitVec 32}
       (hb : lookup body b = some sg) (ht : sg.term = some (.brIf l))
       (hr : Run P host s f stk (expression sg.body) s₁ f₁ (.normal (stk₁ ++ [.i32 k])))
-      (hk : k ≠ 0) (hL : ls[l.toNat]? = some L) :
+      (hk : k ≠ 0) (hL : ls[l.toNat]? = some L) (harity : L.arity ≤ stk₁.length) :
       MStep P host body ⟨.block b, stk, ls, s, f⟩
         (if L.loop then
           goto (resolveT (labels body b.seq) l) (b.seq.length - l.toNat)
@@ -244,5 +246,16 @@ def codeOf (body : Expr) {H : Type} (st : MState H) : Option (List Admin) :=
     | [.ref (.exn a)] => if st.lbls = [] then some (throwing a) else none
     | _ => none
   | _ => none
+
+end Silmaril.Wasm.Cfg.Machine
+
+namespace Silmaril.Wasm.Cfg.Machine
+
+/-- Whether the `k`-th enclosing structured instruction (at reversed path `rp`) is a `loop` in the
+extracted CFG. -/
+def levelLoop (body : Expr) (rp : List SeqStep) (k : Nat) : Bool :=
+  match rp.drop k with
+  | (m, _) :: rp' => isLoopAt body rp'.reverse m
+  | [] => false
 
 end Silmaril.Wasm.Cfg.Machine
