@@ -106,6 +106,23 @@ theorem mem_after_of_inv {L : LTS X (F.withInst R)} {α : Type} (Lx : α → LTS
 
 end Lift
 
+/-- A play of `Strategy.ofLTS L` ending in a Proponent move is a trace of `L`. -/
+theorem trace_of_mem_ofLTS {X F : Sig.{0}} {L : LTS X F} {s : List (Move X F)} {o : Move X F}
+    (h : s ++ [o] ∈ Strategy.ofLTS L) (ho : o.IsP) : s ++ [o] ∈ L.Traces := by
+  obtain ⟨-, u, hu, hp⟩ := Strategy.mem_generate.1 h
+  have hO : ∀ p₀ o', s ++ [o] = p₀ ++ [o'] → ¬ o'.IsO := by
+    intro p₀ o' he
+    obtain ⟨-, h'⟩ := List.append_inj' he rfl
+    obtain rfl : o = o' := by simpa using h'
+    exact Move.not_isO_of_isP ho
+  rcases hu with rfl | ⟨hu, -⟩
+  · rcases hp with hp | ⟨p₀, o', he, -, ho'⟩
+    · simpa using hp.length_le
+    · exact (hO p₀ o' he ho').elim
+  · rcases hp with hp | ⟨p₀, o', he, -, ho'⟩
+    · exact LTS.traces_of_prefix hu hp
+    · exact (hO p₀ o' he ho').elim
+
 /-! ## Run inversions -/
 
 /-- The first step of a run. -/
