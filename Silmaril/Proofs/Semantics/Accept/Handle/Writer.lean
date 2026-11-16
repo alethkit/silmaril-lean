@@ -508,12 +508,10 @@ theorem writerLang_noRet {pol : Policy H} {s : H} (hs : pol.sentinel = some s)
   Host.lang_congr (h := writer W pol) (h₂ := writer W {pol with sentinel := none})
     (fun e => ∀ op args, e ≠ .write op args s)
     (fun _ _ _ _ he => wstep_sentinel_iff hs he) rfl
-    (fun t ht e he op args h => hT t ht op args (h ▸ he))
+    (fun t ht _ he op args h => hT t ht op args (h ▸ he))
 
 /-! ## Renaming handles -/
 
-/-- The renamed policy: the sentinel moves along `π`. -/
-def renamePol (π : H ≃ H) (pol : Policy H) : Policy H := {pol with sentinel := pol.sentinel.map π}
 
 omit [DecidableEq H] in
 theorem lookupAll_rename (π : H ≃ H) (σ : Env H X) :
@@ -532,8 +530,8 @@ theorem built_rename (π : H ≃ H) (σ : Env H X) (op : Op) (args : List H) :
 
 omit [DecidableEq H] in
 theorem fresh_rename (π : H ≃ H) {pol : Policy H} {σ : Env H X} {r : H} {t : X} :
-    Fresh (renamePol π pol) (σ ∘ π.symm) (π r) t ↔ Fresh pol σ r t := by
-  simp only [Fresh, renamePol, Function.comp_apply, Equiv.symm_apply_apply]
+    Fresh (Policy.rename π pol) (σ ∘ π.symm) (π r) t ↔ Fresh pol σ r t := by
+  simp only [Fresh, Policy.rename, Function.comp_apply, Equiv.symm_apply_apply]
   constructor
   · rintro ⟨h1, h2⟩
     exact ⟨fun e => h1 (by rw [e]; rfl), h2⟩
@@ -565,7 +563,7 @@ def RenRel (π : H ≃ H) (s₁ s₂ : WState H X) : Prop :=
   s₂ = ⟨s₁.store ∘ π.symm, s₁.batch, s₁.phase⟩
 
 theorem sim_rename (π : H ≃ H) (pol : Policy H) :
-    Sim (writer W pol) (writer W (renamePol π pol)) (WEv.rename π) (RenRel (X := X) π) := by
+    Sim (writer W pol) (writer W (Policy.rename π pol)) (WEv.rename π) (RenRel (X := X) π) := by
   refine ⟨rfl, ?_⟩
   rintro s₁ s₂ e s₁' A hR hs
   subst hR
@@ -575,8 +573,8 @@ theorem sim_rename (π : H ≃ H) (pol : Policy H) :
         agrees_none, ?_, le_rfl⟩
       simp [RenRel, update_rename]
   | @writeFail σ B op args r hsn hc =>
-      refine ⟨_, _, .writeFail (by simp [renamePol, hsn]) ?_, rfl, le_rfl⟩
-      simpa [built_rename, renamePol] using hc
+      refine ⟨_, _, .writeFail (by simp [Policy.rename, hsn]) ?_, rfl, le_rfl⟩
+      simpa [built_rename, Policy.rename] using hc
   | writeChaos hb hu _ =>
       exact ⟨_, _, .writeChaos (by rw [built_rename]; exact hb) hu rfl, rfl, le_rfl⟩
   | writeFixed _ _ hfix => cases hfix
@@ -592,7 +590,7 @@ theorem sim_rename (π : H ≃ H) (pol : Policy H) :
   | chaos e => exact ⟨_, _, .chaos _, rfl, le_rfl⟩
 
 theorem writerLang_rename_subset (π : H ≃ H) (pol : Policy H) (T : Set (List (WEv Op H))) :
-    writerLang W pol T ⊆ writerLang W (renamePol π pol) (List.map (WEv.rename π) '' T) :=
+    writerLang W pol T ⊆ writerLang W (Policy.rename π pol) (List.map (WEv.rename π) '' T) :=
   lang_subset_of_sim (sim_rename π pol) T
 
 omit [DecidableEq H] in
@@ -600,16 +598,16 @@ theorem rename_rename (π : H ≃ H) (e : WEv Op H) : WEv.rename π.symm (WEv.re
   cases e <;> simp [WEv.rename, List.map_map]
 
 omit [DecidableEq H] in
-theorem renamePol_symm (π : H ≃ H) (pol : Policy H) : renamePol π.symm (renamePol π pol) = pol := by
+theorem Policy.rename_symm (π : H ≃ H) (pol : Policy H) : Policy.rename π.symm (Policy.rename π pol) = pol := by
   cases pol with
-  | mk s i a w => cases s <;> simp [renamePol]
+  | mk s i a w => cases s <;> simp [Policy.rename]
 
 theorem writerLang_rename (π : H ≃ H) (pol : Policy H) (T : Set (List (WEv Op H))) :
-    writerLang W (renamePol π pol) (List.map (WEv.rename π) '' T) = writerLang W pol T := by
+    writerLang W (Policy.rename π pol) (List.map (WEv.rename π) '' T) = writerLang W pol T := by
   apply Set.Subset.antisymm _ (writerLang_rename_subset π pol T)
-  have h := writerLang_rename_subset (W := W) π.symm (renamePol π pol)
+  have h := writerLang_rename_subset (W := W) π.symm (Policy.rename π pol)
     (List.map (WEv.rename π) '' T)
-  rw [renamePol_symm, Set.image_image] at h
+  rw [Policy.rename_symm, Set.image_image] at h
   simpa [List.map_map, Function.comp_def, rename_rename] using h
 
 end Silmaril.Proofs.Semantics.Accept.Handle

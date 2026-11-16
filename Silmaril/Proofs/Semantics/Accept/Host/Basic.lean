@@ -76,4 +76,16 @@ theorem run_congr {h₁ h₂ : Host E X S} (P : E → Prop)
       · intro h; cases h with
         | cons hr hrest => exact .cons ((hP _ _ _ _ he).2 hr) ((ih hes).2 hrest)
 
+theorem run_mem_split {h : Host E X S} {x : X} :
+    ∀ {s s' : S} {t : List E} {A : Set X}, h.Run s t s' A → x ∈ A →
+      ∃ u e v s₁ s₂ B C, t = u ++ e :: v ∧ h.Run s u s₁ B ∧ h.resp s₁ e s₂ C ∧ x ∈ C := by
+  intro s s' t A hr hx
+  induction hr with
+  | nil => simp at hx
+  | @cons s s₁ s₂ e es A B hr hrest ih =>
+      rcases hx with hx | hx
+      · exact ⟨[], e, es, s, s₁, ∅, A, rfl, .nil s, hr, hx⟩
+      · obtain ⟨u, e', v, m₁, m₂, B', C, rfl, hu, he, hxC⟩ := ih hx
+        exact ⟨e :: u, e', v, m₁, m₂, _, C, rfl, .cons hr hu, he, hxC⟩
+
 end Silmaril.Proofs.Semantics.Accept.Host

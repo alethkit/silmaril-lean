@@ -102,6 +102,12 @@ theorem lang_congr {h₂ : Host E X S} (P : E → Prop)
   · rintro ⟨t, ht, s, A, hr, hx⟩
     exact ⟨t, ht, s, A, (Run.congr P hP (hT t ht)).2 (hi ▸ hr), hx⟩
 
+/-- An accepted value is accepted by one event of the run, after a run of the prefix. -/
+theorem Run.mem_split {s s' : S} {t : List E} {A : Set X} {x : X} (hr : h.Run s t s' A)
+    (hx : x ∈ A) :
+    ∃ u e v s₁ s₂ B C, t = u ++ e :: v ∧ h.Run s u s₁ B ∧ h.resp s₁ e s₂ C ∧ x ∈ C :=
+  Silmaril.Proofs.Semantics.Accept.Host.run_mem_split hr hx
+
 theorem Sim.refl (h : Host E X S) : Sim h h id Eq :=
   ⟨rfl, fun {_ _ _ _ A} hR he => ⟨_, A, hR ▸ he, rfl, le_rfl⟩⟩
 

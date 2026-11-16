@@ -82,7 +82,7 @@ answer, and every successful write's meaning, stays correct for all later reads 
 
 A fixed environment of finite trees is an `Env H X`. An environment given *node by node*
 (`NodeEnv H N`: a label and child handles per handle) can contain cycles; it denotes trees only
-through `Unfold`, the inductive (hence finite, well-founded) unfolding, and a handle on a cycle
+through `Unfold`, unfolding to some finite depth (`UnfoldN`), and a handle on a cycle
 unfolds to nothing (`Thms`).
 
 New definitions (no source).
@@ -280,6 +280,10 @@ def WEv.rename (π : H → H) : WEv Op H → WEv Op H
   | .acceptAll => .acceptAll
   | .acceptBatch b => .acceptBatch b
 
+/-- The policy with its sentinel renamed along `π`. -/
+def Policy.rename (π : H ≃ H) (pol : Policy H) : Policy H :=
+  {pol with sentinel := pol.sentinel.map π}
+
 /-- The handles a writer event mentions as arguments (`accept` included). -/
 def WEv.uses : WEv Op H → List H
   | .write _ args _ => args
@@ -306,16 +310,19 @@ inductive OnBadRead (Q : Type u) (A : Type v) where
   | dflt (d : Q → A)
   | ub
 
+/-- The answers an invalid query may get (`none`: undefined behaviour). -/
+def badAnswers {Q : Type u} {A : Type v} (pol : OnBadRead Q A) (q : Q) : Option (Set A) :=
+  match pol with
+  | .arbitrary => some Set.univ
+  | .trap => some ∅
+  | .dflt d => some {d q}
+  | .ub => none
+
 /-- The answers allowed for a query (`none`: undefined behaviour). -/
-noncomputable def answers {Q : Type u} {A : Type v} {H' : Type w} {X' : Type x} (R : Reader Q A H' X')
-    (pol : OnBadRead Q A) (ρ : Env H' X') (q : Q) : Option (Set A) :=
+noncomputable def answers {Q : Type u} {A : Type v} {H' : Type w} {X' : Type x}
+    (R : Reader Q A H' X') (pol : OnBadRead Q A) (ρ : Env H' X') (q : Q) : Option (Set A) :=
   open Classical in
-  if R.valid ρ q then some {a | R.ok ρ q a} else
-    match pol with
-    | .arbitrary => some Set.univ
-    | .trap => some ∅
-    | .dflt d => some {d q}
-    | .ub => none
+  if R.valid ρ q then some {a | R.ok ρ q a} else badAnswers pol q
 
 /-- The default answers `d` are a **typed error**: never a correct answer. -/
 def ErrorDisjoint {Q : Type u} {A : Type v} {H' : Type w} {X' : Type x} (R : Reader Q A H' X')
@@ -405,12 +412,23 @@ universe u v w
 /-- An environment given node by node: a label and the child handles. It may have cycles. -/
 abbrev NodeEnv (H : Type u) (N : Type v) := H → Option (N × List H)
 
-/-- **The finite unfoldings** of a node environment, with node builder `mk`. -/
-inductive Unfold {H : Type u} {N : Type v} {X : Type w} (mk : N → List X → Option X)
-    (ν : NodeEnv H N) : H → X → Prop where
-  | node {h : H} {n : N} {hs : List H} {xs : List X} {x : X} :
-      ν h = some (n, hs) → List.Forall₂ (Unfold mk ν) hs xs → mk n xs = some x →
-      Unfold mk ν h x
+/-- Unfoldings of depth at most `n`, with node builder `mk`. -/
+def UnfoldN {H : Type u} {N : Type v} {X : Type w} (mk : N → List X → Option X)
+    (ν : NodeEnv H N) : Nat → H → X → Prop
+  | 0, _, _ => False
+  | n + 1, h, x => ∃ m hs xs, ν h = some (m, hs) ∧ List.Forall₂ (UnfoldN mk ν n) hs xs ∧
+      mk m xs = some x
+
+/-- **The finite unfoldings** of a node environment: of some finite depth. -/
+def Unfold {H : Type u} {N : Type v} {X : Type w} (mk : N → List X → Option X)
+    (ν : NodeEnv H N) (h : H) (x : X) : Prop :=
+  ∃ n, UnfoldN mk ν n h x
+
+/-- The tree environment of a node environment: the unique finite unfolding, if any
+(classical choice). -/
+noncomputable def realize {H : Type u} {N : Type v} {X : Type w} (mk : N → List X → Option X)
+    (ν : NodeEnv H N) : Env H X :=
+  open Classical in fun h => if hx : ∃ x, Unfold mk ν h x then some hx.choose else none
 
 /-- A tree environment **realizes** a node environment: exactly the finite unfoldings. -/
 def Realizes {H : Type u} {N : Type v} {X : Type w} (mk : N → List X → Option X)
