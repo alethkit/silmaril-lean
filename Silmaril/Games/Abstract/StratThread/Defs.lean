@@ -44,8 +44,15 @@ closure and receptiveness are structural.
 * infinitely many completed rounds: every member extends, within the trace, to
   a member with a run ending idle. As in `StratObs` this is a limit condition
   on the trace; it does not ask for one coherent run of stores through the
-  whole trace (for store-deterministic triples, `StoreDet`, the store after
-  each completed round is determined by the moves).
+  whole trace.
+
+`InfRounds t s₀ a r s` is a coherent infinite sequence of returning rounds,
+round `k` running from the store `s k` to `s (k + 1)`, and `roundsPlay a r` is
+its infinite play. The theorems show that the second kind of infinite play is
+exactly `roundsPlay a r` for rounds whose every finite prefix is completed
+rounds from `s₀` (`mem_inf_iff`); for store-deterministic triples (`StoreDet`)
+the stores then cohere (`exists_infRounds`, `mem_inf_iff_of_storeDet`), and
+without it they need not (`not_coherent`).
 
 **Observational equivalence of stores.** Threading only sees a store through
 its future observations. `RoundEq t t' R s s'` says one round at `s` (for `t`)
@@ -274,6 +281,23 @@ def threadT (t : ObsTriple E S A B) (s₀ : S) : DStrategy E (sig1 A B) :=
 (`StratOps.readback`). On play objects of triples it is `threadT` (`thread_toDStrat`). -/
 def thread (σ : DStrategy E (funSig S A B)) (s₀ : S) : DStrategy E (sig1 A B) :=
   threadT (StratOps.readback σ) s₀
+
+/-! ## Coherent infinite round sequences -/
+
+/-- **A coherent infinite sequence of returning rounds** from `s₀`: round `k` asks `a k`, makes
+the calls `(r k).1` and returns `(r k).2`, as a finished behaviour of `t` at the store `s k`
+ending at `s (k + 1)`, with `s 0 = s₀`. -/
+structure InfRounds (t : ObsTriple E S A B) (s₀ : S) (a : ℕ → A) (r : ℕ → List (Call E) × B)
+    (s : ℕ → S) : Prop where
+  /-- The rounds start at `s₀`. -/
+  zero : s 0 = s₀
+  /-- Round `k` runs from `s k` to `s (k + 1)`. -/
+  step : ∀ k, ((r k).1, .ret (r k).2 (s (k + 1))) ∈ t.1 (s k) (a k)
+
+/-- The infinite play of the rounds `a`, `r`: the limit of the moves of their first `k`
+rounds. -/
+def roundsPlay (a : ℕ → A) (r : ℕ → List (Call E) × B) : Set (List (Move E (sig1 A B))) :=
+  Chain.lim fun k => roundsMoves (streamTake (fun i => (a i, r i)) k)
 
 /-! ## Observational equivalence of stores -/
 
