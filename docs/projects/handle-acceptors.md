@@ -87,6 +87,7 @@ environments (`parseRel … Envs`).
 | symbols, byte trees, word trees, symbols+strings, symbols+bytes, symbols+strings+bytes, symbols+strings+keywords, symbols+strings+keywords+bytes | done (tree types and writer/reader signatures) | `Formats.SExp.Family.Defs`: `SymbolSExp`, `ByteSExp`, `WordSExp`, `SymStrSExp`, …, `Atom ks`, `AtomKind`; one parameterized writer `Api.sexpW α` and reader `Api.sexpR α H` instantiated per family (no per-family code duplication) |
 | Rivest canonical vs display hints | done | `RivestSExp` (hint-free, existing), `HintedSExp` with `HintedSExp.toSpki` into RFC 9804 `Spki.Sexp`, `HintedSExp.toSpki_injective`; the docstring explains that canonical encodings carry hints |
 | Wasm import decoders for string/byte-carrying imports (`symbol(string)`, `blob`, `sexp(list<i32>)`) | done (decoders, structural bound) | `Wasm.Game.HandleAccept.Memory`: `memWrite`/`memAccept` roles over memory-observing traced sessions (`memTraces` on `tagTraces`), `memWriterLang` over `SymStrBytesSExp`; `inp_of_tsession`, `memWriterLang_subset_atoms`; 12 kernel-checked decodings in `Memory.Examples`. An assume/guarantee bridge for memory-carrying traces is **not done** |
+| memory-observing soundness | done (upper bounds) | `HandleAccept.MemSound`: `MemContract` (call guarantee `pre` sees the callout and memory at the call; `ans` assumption on decoded answers; `reply` host class), `MemSat` (Hoare-logic obligation), bridge `tagTraces_pre` by induction over `TSession`; `memWriterLang_subset`, `memFixedLang_subset`, `memReaderLang_subset` with a canonical-ABI `items(h, retptr)` reader. Examples: `hiMod_sound` (accepts only the symbol `hi`), `pairMod_sound`/`pairMod_fixed_sound` (only `(a b)` of its symbols), `itemsMod_sound`/`itemsMod_sound_callTrap` (only 2-element lists). Host class: answers keep the store's functions and memory count, may rewrite memory, return the import's result shape. Export-argument chunks in memory are not expressible in `TSession` (the embedder never writes memory between export calls); pull-style `read` imports are. Non-vacuity of these examples: in progress |
 
 ### 4. Generic branch/leaves and tagged ASTs
 
@@ -190,8 +191,8 @@ environments (`parseRel … Envs`).
 ## Remaining obligations
 
 * Full recursive properness checker (unbounded depth).
-* Memory-observing assume/guarantee soundness and sound memory examples (symbol/string/blob,
-  list children, chunk inputs, `items` reader): in progress.
+* Non-vacuity of the memory examples; pull-style chunk input; string/blob/keyword family
+  examples through memory: in progress.
 * Wasm decoders and proved examples for the non-word atom families and keywords.
 * Parsing: Wasm tree constraints for `append`/`done`/chunk exports; cursor theorems under a
   call-local overrun trap.
