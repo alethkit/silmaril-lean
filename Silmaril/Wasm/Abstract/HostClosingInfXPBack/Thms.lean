@@ -4,6 +4,9 @@ public import Silmaril.Wasm.Abstract.HostClosingInfXP.Defs
 public import Silmaril.Wasm.Abstract.HostClosingXP.Thms
 public import Silmaril.Wasm.Interp.PProgress.Thms
 import Silmaril.Proofs.Wasm.Abstract.HostClosingInfXPBack.Empty
+public import Silmaril.Wasm.Abstract.HostStratXP.Thms
+import Silmaril.Proofs.Wasm.Abstract.HostClosingInfXPBack.Handler
+import Silmaril.Proofs.Wasm.Abstract.HostClosingInfXPBack.DivWhole
 
 /-!
 # Core to the canonical closure, divergent runs: theorems
@@ -49,8 +52,30 @@ so neither exists for a problem whose Core run diverges host-free (`diverges_thr
 * `wasmEvFunDXP_of_evRun_nil`: a Core run of a typed invocation with no host event, then
   host-free divergence, is `([], div)` in `wasmEvFunDXP`.
 
-Not yet: divergence after a nonempty log and productive runs, Core to `wasmEvFunDXP` and
-`wasmEvInfNXP`.
+**Splitting at a handler** (`Handler`), every profile and host:
+
+* `evDiv_handler_seq_split`: a labelled run with its host events, then host-free divergence, of a
+  `try_table` handler in place: the body diverges with the whole log, or runs to a stuck end that
+  is not at a host call with a prefix of the log, and the handler around that end goes on with
+  the rest (the handler analogue of `evDiv_label_seq_split`).
+
+**Divergence after a log** (`DivBase`, `DivCall`, `DivHead`, `DivTree`, `DivWhole`;
+deterministic profile, a host with typed answers in the host slices):
+
+* `evRun_wasmEvFunDXP_div`: a Core run of a typed invocation with the host events `cs`, then
+  host-free divergence, is `(cs, div)` in `wasmEvFunDXP`. Proof: strong induction on the length of
+  the run to its last event (`EvDiv`), then the size of the trees, as `HostEval`'s `div_wholeL`.
+  Each head tree diverges in a part (arguments, condition, a body, a callee; a loop again after
+  an iteration branching back, on a strictly shorter run; a frame-level tail call, as the next
+  call) or runs to values and the trees after it go on (`evRunN_back_vals`). A finished end of a
+  part that should diverge is a resolved logged run, hence a Core run to a final form
+  (`evalLXPh_res_evRun`, `wasmEvFunXP_evRun_call`), which rules the divergence out by
+  determinism. With no event left, the empty-log case above;
+* `wasmEvFunDXP_div_iff`: with `wasmEvFunDXP_div_evRun`, both directions at exactly the log;
+* `hostSquareXP_div`: the divergence corner of the exact-log square, unconditionally;
+* `backDivXP`: the backward divergence direction `BackDivXP` of `HostStratXP`, discharged.
+
+Not yet: productive runs, Core to `wasmEvInfNXP` (`BackInfXP`).
 -/
 
 @[expose] public section
@@ -115,5 +140,65 @@ theorem wasmEvFunDXP_of_evRun_nil {host : HostSemantics H} {s : Store H} {a : Na
     (hd : Diverges (profile o) (fun _ _ _ _ => False) c') :
     ([], .div) ∈ wasmEvFunDXP s (a, vs) :=
   Silmaril.Proofs.Wasm.Abstract.HostClosingInfXPBack.evRun_nil_div hs hok hS hts hrun hd
+
+/-- **Splitting a handler in place**: the body diverges with the whole log, or runs to a stuck
+end that is not at a host call with a prefix of the log, and the handler around that end goes
+on with the rest. -/
+theorem evDiv_handler_seq_split {P : Numerics.Profile} {host : HostSemantics H} {N : Nat}
+    {s : Store H} {f : Frame} {ws : List Val} {n : Nat} {cs₀ : List Catch} {b rest : List Admin}
+    {cs : List (Silmaril.Games.Abstract.Call (wasmHostSig H))}
+    (h : EvDiv P host N ⟨s, f, vals ws ++ [.handler n cs₀ b] ++ rest⟩ cs) :
+    EvDiv P host N ⟨s, f, b⟩ cs ∨
+      ∃ (cb : Config H) (N₁ m : Nat) (cs₁ cs₂ : List (Silmaril.Games.Abstract.Call (wasmHostSig H))),
+        cs = cs₁ ++ cs₂ ∧ m ≤ N ∧ EvRunN P host N₁ ⟨s, f, b⟩ cs₁ cb ∧
+        (∀ c', ¬ Step P SingleThreaded.Det.noHost cb c') ∧
+        SingleThreaded.decompose? cb.store cb.code = none ∧
+        EvDiv P host m ⟨cb.store, cb.frame, vals ws ++ [.handler n cs₀ cb.code] ++ rest⟩ cs₂ :=
+  Silmaril.Proofs.Wasm.Abstract.HostClosingInfXPBack.evDiv_handler_seq_split h
+
+section Div
+
+open Silmaril.Wasm.Interp (NativeHostSlice HostSliceE)
+
+variable {host : HostSemantics H}
+
+/-- **A Core run with the host events `cs`, then host-free divergence, is `(cs, div)` in
+`wasmEvFunDXP`** (deterministic profile; a typed invocation on a checked store with the tag
+invariants, which may hold host functions). -/
+theorem evRun_wasmEvFunDXP_div (hT : HostTyped host) (hH : NativeHostSlice host)
+    (hE : HostSliceE tags host) {s : Store H} {a : Nat} {vs : List Val}
+    {cs : List (Silmaril.Games.Abstract.Call (wasmHostSig H))} {c' : Config H} (hs : StoreOk s)
+    (hS : StoreChkE (ehExt tags) s.funcs) (hts : TagsOk tags s) (hok : InvokeOk s a vs)
+    (hrun : EvRun (profile o) host (invoke s a vs) cs c')
+    (hd : Diverges (profile o) (fun _ _ _ _ => False) c') :
+    (cs, .div) ∈ wasmEvFunDXP s (a, vs) :=
+  Silmaril.Proofs.Wasm.Abstract.HostClosingInfXPBack.evRun_div hT hH hE hs hS hts hok hrun hd
+
+/-- **Divergence after exactly the log `cs`, both directions** (deterministic profile). -/
+theorem wasmEvFunDXP_div_iff (hT : HostTyped host) (hH : NativeHostSlice host)
+    (hE : HostSliceE tags host) {s : Store H} {a : Nat} {vs : List Val}
+    {cs : List (Silmaril.Games.Abstract.Call (wasmHostSig H))} (hs : StoreOk s)
+    (hS : StoreChkE (ehExt tags) s.funcs) (hts : TagsOk tags s) (hok : InvokeOk s a vs) :
+    ((cs, .div) ∈ wasmEvFunDXP s (a, vs) ∧ (coreHostRel host).Consistent cs) ↔
+      ∃ c', EvRun (profile o) host (invoke s a vs) cs c' ∧
+        Diverges (profile o) (fun _ _ _ _ => False) c' :=
+  ⟨fun h => wasmEvFunDXP_div_evRun hH hE hts hS hok h.1 h.2,
+    fun ⟨_, h, hd⟩ => ⟨evRun_wasmEvFunDXP_div hT hH hE hs hS hts hok h hd, evRun_consistent h⟩⟩
+
+/-- **The divergence corner of the exact-log square**, unconditionally (deterministic profile). -/
+theorem hostSquareXP_div (hT : HostTyped host) (hH : NativeHostSlice host)
+    (hE : HostSliceE tags host) {s : Store H} {a : Nat} {vs : List Val} (hs : StoreOk s)
+    (hS : StoreChkE (ehExt tags) s.funcs) (hts : TagsOk tags s) (hok : InvokeOk s a vs)
+    (cs : List (Silmaril.Games.Abstract.Call (wasmHostSig H))) :
+    NatObsXP host s a vs (.div cs) ↔ CoreObsLXP (profile o) host s a vs (.div cs) :=
+  hostSquareXP_div_of hH hE hS hts hok
+    (fun _ _ h hd => evRun_wasmEvFunDXP_div hT hH hE hs hS hts hok h hd) cs
+
+/-- **The backward divergence direction** of `HostStratXP`, on every question of `InvOkXP`. -/
+theorem backDivXP (hT : HostTyped host) (hH : NativeHostSlice host) (hE : HostSliceE tags host) :
+    BackDivXP o host tags :=
+  fun _ _ hq _ _ h hd => evRun_wasmEvFunDXP_div hT hH hE hq.1 hq.2.1 hq.2.2.1 hq.2.2.2 h hd
+
+end Div
 
 end Silmaril.Wasm.Abstract

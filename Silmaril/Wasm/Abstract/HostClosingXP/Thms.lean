@@ -13,6 +13,7 @@ import Silmaril.Proofs.Wasm.Abstract.HostClosingXP.Cut
 import Silmaril.Proofs.Wasm.Abstract.HostClosingXP.BackWhole
 import Silmaril.Proofs.Wasm.Abstract.HostClosingXP.BackPub
 import Silmaril.Proofs.Wasm.Abstract.HostClosingXP.PendRun
+import Silmaril.Proofs.Wasm.Abstract.HostClosingXP.BackRes
 
 /-!
 # The canonical relation with host calls as an open module: theorems
@@ -124,10 +125,19 @@ of the closure; in every closed behaviour the log before a host event is a pendi
   for the simulations of divergent and productive runs (`HostClosingInfXP`);
 * `reachLXP_of_evalLXPh`: every logged call of a canonical run is reached, after the calls logged
   before it.
+* `evalLXPh_res_evRun`: a logged run resolved by returning callees, or up to a trapping callee,
+  is a Core run with exactly its resolved log to a final form (`res_evRun`);
+* `wasmEvFunXP_evRun_call`: a closed behaviour of a call is a Core run of the call, in any frame
+  and `call_ref` form, with exactly its log to a final form (`close_evRun_call`).
 
 **Facts of the backward simulation, for reuse** (`HostClosingInfXPBack`):
 
 * `outcome_ends_stuck`: a final form (`Outcome.Ends`) has no step, under any host and profile;
+* `handlerExit_labelExit`: a handler exit form is a label exit form;
+* `evRunN_handler_seq_split`: a labelled run of a handler in place runs its body alone, then the
+  handler goes on (as `evRunN_label_seq_split` for a label);
+* `evRunN_host_callRef`: a labelled run at a host call in any `call_ref` form ends there, or its
+  next event answers the call;
 * `funcType_of_callRef_cfg`, `funcType_of_indRes`, `funcType_of_returnCallRef_site`: callee
   function types from typing: a typed `call_ref` form on a function reference, a function entry
   passing an indirect call's cast against a type of the instance with a function type, and a
@@ -407,6 +417,42 @@ theorem funcType_of_returnCallRef_site {s : Store H} {f : Frame} {stk : List Val
     ∃ ps rs, DefType.funcType? fi.type = some (ps, rs) :=
   Silmaril.Proofs.Wasm.Abstract.HostClosingXP.funcType_of_returnCallRef_site ht hm hfi hfiok
 
+/-- **A handler exit form is a label exit form.** -/
+theorem handlerExit_labelExit {s : Store H} {f : Frame} {n : Nat} {cs : List Catch}
+    {b out : List Admin} (h : HandlerExit s f n cs b out) : ∃ out', LabelExit 0 [] b out' :=
+  Silmaril.Proofs.Wasm.Abstract.HostClosingXP.handlerExit_labelExit h
+
+/-- **A labelled run in a handler**: the body runs alone; then the handler around it goes on.
+If the body ends at a host call, so does the whole run. -/
+theorem evRunN_handler_seq_split {P : Silmaril.Wasm.Numerics.Profile} {host : HostSemantics H}
+    {N : Nat} {s : Store H} {f : Frame} {ws : List Val} {n : Nat} {cs₀ : List Catch}
+    {b rest : List Admin} {c : Config H} {cs : List (Call (wasmHostSig H))}
+    (hrun : EvRunN P host N ⟨s, f, vals ws ++ [.handler n cs₀ b] ++ rest⟩ cs c)
+    (hend : ∀ c', ¬ Step P SingleThreaded.Det.noHost c c') :
+    ∃ (cb : Config H) (N₁ : Nat) (cs₁ cs₂ : List (Call (wasmHostSig H))), cs = cs₁ ++ cs₂ ∧
+      N₁ ≤ N ∧ EvRunN P host N₁ ⟨s, f, b⟩ cs₁ cb ∧
+      (∀ c', ¬ Step P SingleThreaded.Det.noHost cb c') ∧
+      EvRunN P host (N - N₁) ⟨cb.store, cb.frame, vals ws ++ [.handler n cs₀ cb.code] ++ rest⟩
+        cs₂ c ∧
+      ((SingleThreaded.decompose? cb.store cb.code).isSome →
+        cs₂ = [] ∧ c = ⟨cb.store, cb.frame, vals ws ++ [.handler n cs₀ cb.code] ++ rest⟩) :=
+  Silmaril.Proofs.Wasm.Abstract.HostClosingXP.evRunN_handler_seq_split hrun hend
+
+/-- **A labelled run at a host call**, in any `call_ref` form: it ends there with no event, or
+its next event answers the call. -/
+theorem evRunN_host_callRef {P : Silmaril.Wasm.Numerics.Profile} {host : HostSemantics H}
+    {n : Nat} {s : Store H} {f : Frame} {a : Nat} {fi : FuncInst H}
+    {hh : H} {ps rs : Ty (.list .val)} {ws us : List Val} {cr : Admin}
+    {rest : List Admin} {c : Config H} {cs : List (Call (wasmHostSig H))} (hcr : cr.IsCallRef)
+    (hf : s.funcs[a]? = some fi) (hcode : fi.code = .host hh)
+    (he : Expand fi.type (.func ps rs)) (hn : us.length = ps.length)
+    (hrun : EvRunN P host n ⟨s, f, vals ws ++ vals us ++ .ref (.func a) :: cr :: rest⟩ cs c) :
+    (c = ⟨s, f, vals ws ++ vals us ++ .ref (.func a) :: cr :: rest⟩ ∧ cs = []) ∨
+      ∃ s' r m cs', m < n ∧ cs = ⟨(hh, s, us), (s', r)⟩ :: cs' ∧
+        host hh s us (.returned s' r) ∧
+        EvRunN P host m ⟨s', f, vals ws ++ r.toAdmin ++ rest⟩ cs' c :=
+  Silmaril.Proofs.Wasm.Abstract.HostClosingXP.evRunN_host_callRef hcr hf hcode he hn hrun
+
 end BackFacts
 
 /-! ## Pending calls at exactly their log -/
@@ -538,6 +584,42 @@ theorem evalLXPh_evRun (hH : NativeHostSlice host) (hE : HostSliceE tags host)
     (Silmaril.Proofs.Wasm.Abstract.HostClosingXP.substPre_mono
       (Silmaril.Proofs.Wasm.Abstract.HostClosingXP.close_le_goodCX hH hE) hq) hc
   exact ⟨d, fun hts _ _ _ hS hchk => cl hts hS hchk⟩
+
+/-- **A logged run resolved by returning callees, or up to a trapping callee, is a Core run with
+exactly its resolved log to a final form** (every profile; checked code on a checked store with
+the tag invariants). -/
+theorem evalLXPh_res_evRun (hH : NativeHostSlice host) (hE : HostSliceE tags host)
+    {s : Store H} {f : Frame} {stk : List Val} {es : List BExpr} {l : List (OCall H)}
+    {r : Store H × Frame × POut} {cs : List (Call (wasmHostSig H))}
+    {labels : List Nat} {ret : Nat} {out : Option Nat} (h : EvalLXPh s f stk es l r)
+    (hres : Shape.SubstPre (Shape.close wasmHOpenXP) (l.map OCall.lift) cs ∨
+      ∃ (l₁ l₂ : List (OCall H)) (g : Nat) (args : List Val) (s₁ : Store H) (b : List Val ⊕ Nat)
+        (s₂ : Store H) (q₁ c₁ : List (Call (wasmHostSig H))),
+        l = l₁ ++ OCall.mk g args s₁ b s₂ :: l₂ ∧
+        Shape.SubstPre (Shape.close wasmHOpenXP) (l₁.map OCall.lift) q₁ ∧
+        (c₁, .trap) ∈ Shape.close wasmHOpenXP g s₁ args ∧ cs = q₁ ++ c₁)
+    (hc : (coreHostRel host).Consistent cs) (hts : TagsOk tags s)
+    (hS : StoreChkE (ehExt tags) s.funcs)
+    (hchk : chkE (ehExt tags) s.funcs f.module f.locals.length ret labels (some stk.length) es =
+      some out) :
+    ∃ (s' : Store H) (f' : Frame) (c' : List Admin) (oc : Silmaril.Wasm.Logic.Core.Outcome),
+      EvRun P host ⟨s, f, vals stk.reverse ++ expression (BExpr.lowerList es)⟩ cs ⟨s', f', c'⟩ ∧
+        oc.Ends c' :=
+  Silmaril.Proofs.Wasm.Abstract.HostClosingXP.res_evRun hH hE h hres hc hts hS hchk
+
+/-- **A closed behaviour of a call is a Core run of the call to a final form** with exactly its
+log, in any frame and any `call_ref` form (every profile). -/
+theorem wasmEvFunXP_evRun_call (hH : NativeHostSlice host) (hE : HostSliceE tags host)
+    {a : Nat} {s : Store H} {us : List Val} {c₁ : List (Call (wasmHostSig H))}
+    {e : End (Store H) (List Val ⊕ Nat)} {fi : FuncInst H} {ps rs : List Validation.CValType}
+    (hm : (c₁, e) ∈ wasmEvFunXP s (a, us)) (hc : (coreHostRel host).Consistent c₁)
+    (hts : TagsOk tags s) (hS : StoreChkE (ehExt tags) s.funcs) (hfi : s.funcs[a]? = some fi)
+    (hty : Validation.DefType.funcType? fi.type = some (ps, rs)) (hn : us.length = ps.length)
+    (f : Frame) (cr : Admin) (hcr : cr.IsCallRef) :
+    ∃ (s' : Store H) (code : List Admin) (oc : Silmaril.Wasm.Logic.Core.Outcome), oc.Ends code ∧
+      EvRun P host ⟨s, f, vals us ++ [.ref (.func a), cr]⟩ c₁ ⟨s', f, code⟩ :=
+  Silmaril.Proofs.Wasm.Abstract.HostClosingXP.close_evRun_call hH hE hm hc hts hS hfi hty hn f cr
+    hcr
 
 end Runs
 
