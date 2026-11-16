@@ -373,6 +373,62 @@ The plain graph stays an over-approximation, and claims about it say so.
       (a stopping Core run of the invocation is terminal, a closed outcome, and the body's native
       run to it is a machine run from the CFG entry to a sink ending as that run; branches past
       the function label are ruled out by the body check).
+    - **Callee divergence of every call form, soundness side:** `Region.DivFC` and the machine's
+      `BodyCallDiv` admit a `call_indirect` resolved by `CallRes.IndRes` to a function and a
+      `call_ref` of a function reference, answered by `C` or diverging inside the callee (`D`), next
+      to direct calls. `div_soundC`, `bodyCallDiv_core` and `mdivC_core_initial` cover them under the
+      same hypotheses (`CallSoundA`, `DivCallSound`, both stated for every `call_ref` form). A null
+      table entry, null reference or failed cast traps (`RunC.callIndRes`, `RunC.callRefNull`) and
+      has no divergence constructor.
+    - **Callee divergence of every call form, completeness side:** `FragC` now has `call_indirect`
+      and `call_ref`. `GuardedCalls` guards every `call_ref` of a function reference the run
+      reaches, and a direct call's guard follows in one step (`guarded_call`). Finite completeness
+      (`completeC`, `run_completeC`) rebuilds `call_indirect` from its Core unfolding
+      `table.get; ref.cast; call_ref` (`callInd_back`, via the profile-generic inversions in
+      `Proofs/Wasm/Cfg/IndSteps.lean`), and answers `call_ref` of a function by `callRef_incl`.
+      Divergence completeness (`div_completeC`, hence `core_div_initialC`, `core_div_closed` and
+      `mdivC_iff_core_closed_typed`) has `div_callInd`/`div_callRef`: the call diverges in the
+      callee (`D`), or is answered with values and the continuation diverges. An unresolved index
+      or null reference traps and never diverges. New Core inversions: `Step.callRef_top_inv(_seq)`
+      and `Step.callIndirect_vals_inv_seq`. **Open:** completeness of divergence through a tail
+      callee (`FragC` has no `return_call*`), a `call_indirect` fixture (needs a store with a
+      table), and the function-level corollary via `invoke_diverges_iff_funDivX`.
+    - **`call_ref` fixtures (`Wasm/Cfg/ExampleRef`):** `ref_machine_div`: in the frame of the
+      validated self-call of `recMod`, `ref.func x; call_ref y` has no infinite machine run, yet
+      `MDivC` with `closedCallOk`/`closedDiv` holds through `BodyCallDivRef`, and Core 3.0 diverges.
+      `null_machine_trap`, `null_not_diverges`, `null_not_mdivC`: `ref.null; call_ref` moves to the
+      `trap` sink in one step, and never diverges.
+    - **Divergence through tail callees, soundness side:** `MDivT` is `MDivC` or a finite run to a
+      block ending in a tail call of a callee `D` names (`TailCallDiv`, read as `MStepC.tail` reads
+      it, with no answer). `mdivT_frame_initial` (and `mdivT_frame_closed`): from the CFG entry it
+      is Core 3.0 divergence of the function's frame `FRAME_n{fi} (LABEL_n{} body)` in any outer
+      frame. The tail call replaces the frame (`return_call_ref-frame-addr`, `frame_tail_div`), so
+      the body's pending code and handlers are bypassed. Fixture `Wasm/Cfg/ExampleTail`:
+      `block (return_call x); unreachable` in the frame of `recMod`'s self-call (`tail_machine_div`).
+      **Open:** the converse (Core frame divergence is `MDivT`).
+    - **Host-free function-list preservation** (`Wasm/Cfg/Restrict`): without a host, a region or
+      machine run keeps the store's whole function list `F` (instances with types, modules and
+      code), so every call and every `F`-only check (`StoreChkE`) sees `F`. Oracles agreeing on
+      stores with `F` give the same runs, steps, infinite runs, `MDivC` and `MDivT`
+      (`runC_funcs` … `mdivT_funcs`). Host-free only: nothing is claimed for host-mutated stores.
+    - **Function-level divergence, soundness side:** `Function.invoke_diverges_of_mdivT`: on the
+      fragment, `MDivT` with `CX closedCallX` and `calleeDivX o` (typed `tExt` callees whose
+      invocation diverges) is Core divergence of `invoke s a vs`. With `F = s.funcs`, `CX
+      closedCallX` answers as the Core-sound `closedXOk` (`cx_closedXOk`); the invocation steps to
+      the function's frame (`call_ref-func`), which diverges by `mdivT_frame_initial`. **Open:**
+      the converse, by the Core route (Core divergence ⇒ `MDivT`, reusing region completeness;
+      `FunDivX` then by `invoke_diverges_iff_funDivX`).
+    - **Tail calls in the fragment with calls (Core route, step 1):** `FragC` now has `return_call`,
+      `return_call_indirect`, `return_call_ref` (and the runtime `return_call_ref` of a type).
+      Core's `return_call_ref-label`/`-handler` moves all of a label's values out with the call, so
+      on untyped code the reference may come from outside the label (`ref.func a; block
+      (return_call_ref y)`), where the region semantics has no run: completeness with tail calls
+      needs the typing fact that it does not (`TailWF`, along the run `TailsOk`; from typing,
+      `tailsOk_of_typed`, via `retRef_ref_of_typed`). With it, `run_completeC` and `div_completeC`
+      cover tail calls: a tail call ends the region in a pending tail call (`labelTail`,
+      `handlerTail`, … through labels and handlers, which do not catch it), and a body never
+      diverges at a pending tail call, which is stuck outside a frame. Divergence of the tail
+      callee is frame divergence (`MDivT`), not body divergence. No EH coverage changes.
     - **Open:** divergence (finite-run equivalence does not give it): machine divergence with
       `CX closedCallX`, including divergence inside a callee (`MDivC`'s callee case), against
       Core divergence of the invocation (`invoke_diverges_iff_funDivX`); then hosts; then the
@@ -429,3 +485,13 @@ kernel-checked tables. The variants below are related to it by theorems, not by 
 - **Renderer:** TE's new edge kinds get IDs in `tools/wasm-pages/SCHEMA.md` with a version bump,
   coordinated with the explorer's renderer, before any page switches its default.
 
+
+## Paused: F6, the CFG ↔ `BodyM` correspondence (owner 0e76ca84)
+
+F6 of the typed Wasm/CFG → `BodyM` functor plan is **paused**. It is not forgotten: it resumes after the critical component work, or when the coordinator reassigns it.
+
+- **Done around it:** the CFG operational bridge, both directions, for typed trees at a deterministic profile with no host (`Cfg.Bridge.bridge_fwd`, `bridge_bwd*`, `Cfg.BridgeCfg.machine_native`; #786 #790 #791 #793 #795). The `BodyM` side is the canonical semantics `CallXP` with `ExposeP.denListXP`, `FunctorP.OpEquivP` and `BodyStrat.toDStratBody_denL_iff`.
+- **Exact goal:** for a typed function body `es`, the block-CFG runs of its graph, labelled with call events, are the logged `EvalLXP` runs of `es`. As corollaries:
+  - CFG-trace equivalence of two bodies coincides with `OpEquivP`;
+  - the CFG view has the same canonical `DStrategy` (`toDStratBody (denL es)`).
+- **Hypotheses expected:** typed trees; a deterministic profile for the bridge; the scope of #786–#795 (no host, and pending tail calls answered by every oracle).
