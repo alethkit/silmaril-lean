@@ -155,3 +155,119 @@ theorem encode_injective {S : AstSig} {tagEnc : S.Tag → SExp β} {argEnc : ∀
           simpa [AST.encode] using this
 
 end Silmaril.Proofs.Formats.SExp.Pattern
+
+namespace Silmaril.Proofs.Formats.SExp.Pattern
+
+open Silmaril.Formats
+
+variable {α : Type}
+
+theorem pat2_lang_ground : ∀ e : SExp2 α, Pat2.lang (Pat2.ground e) = {e}
+  | .nil => rfl
+  | .atom a => rfl
+  | .cons x y => by
+      ext z
+      simp only [Pat2.ground, SExp2.map, Pat2.lang, Set.mem_singleton_iff]
+      have hx := pat2_lang_ground x
+      have hy := pat2_lang_ground y
+      simp only [Pat2.ground] at hx hy
+      rw [hx, hy]
+      constructor
+      · rintro ⟨a, b, rfl, rfl, rfl⟩; rfl
+      · rintro rfl; exact ⟨x, y, rfl, rfl, rfl⟩
+
+theorem pat2_lang_mono {f : Set (SExp2 α) → Set (SExp2 α)} (hf : ∀ L, L ⊆ f L) :
+    ∀ p : Pat2 α, Pat2.lang p ⊆ Pat2.lang (p.map (Sum.map id f))
+  | .nil => le_rfl
+  | .atom (.inl a) => le_rfl
+  | .atom (.inr L) => hf L
+  | .cons p q => by
+      rintro z ⟨a, b, rfl, ha, hb⟩
+      exact ⟨a, b, rfl, pat2_lang_mono hf p ha, pat2_lang_mono hf q hb⟩
+
+theorem patAST_lang_ground {S : AstSig} : ∀ e : AST S, PatAST.lang (PatAST.ground e) = {e} := by
+  intro e
+  induction e with
+  | atom e => exact e.elim
+  | tag v n cs ih =>
+      ext x
+      simp only [PatAST.ground, TExpr.map, PatAST.lang, Set.mem_singleton_iff]
+      simp only [PatAST.ground] at ih
+      constructor
+      · rintro ⟨ds, rfl, h⟩
+        congr 1
+        funext i
+        have := h i
+        rw [ih i] at this
+        exact this
+      · rintro rfl
+        exact ⟨cs, rfl, fun i => by rw [ih i]; rfl⟩
+
+theorem patAST_lang_mono {S : AstSig} {f : Set (AST S) → Set (AST S)} (hf : ∀ L, L ⊆ f L) :
+    ∀ p : PatAST S, PatAST.lang p ⊆ PatAST.lang (p.map f) := by
+  intro p
+  induction p with
+  | atom L => exact hf L
+  | tag v n ps ih =>
+      rintro x ⟨cs, rfl, h⟩
+      exact ⟨cs, rfl, fun i => ih i (h i)⟩
+
+theorem pat2_lang_ofList : ∀ qs : List (Pat2 α),
+    Pat2.lang (SExp2.ofList qs) =
+      {x | ∃ xs, x = SExp2.ofList xs ∧ List.Forall₂ (fun x q => x ∈ Pat2.lang q) xs qs}
+  | [] => by
+      ext x
+      simp only [SExp2.ofList, Pat2.lang, Set.mem_singleton_iff]
+      constructor
+      · rintro rfl; exact ⟨[], rfl, .nil⟩
+      · rintro ⟨xs, rfl, h⟩; cases h; rfl
+  | q :: qs => by
+      ext x
+      simp only [SExp2.ofList, Pat2.lang, pat2_lang_ofList qs]
+      constructor
+      · rintro ⟨a, b, rfl, ha, xs, rfl, h⟩
+        exact ⟨a :: xs, rfl, .cons ha h⟩
+      · rintro ⟨xs, rfl, h⟩
+        rcases h with _ | ⟨ha, h⟩
+        exact ⟨_, _, rfl, ha, _, rfl, h⟩
+
+theorem forall₂_ofFn {β γ : Type} {n : Nat} {R : β → γ → Prop} {f : Fin n → β} {g : Fin n → γ} :
+    List.Forall₂ R (List.ofFn f) (List.ofFn g) ↔ ∀ i, R (f i) (g i) := by
+  rw [List.forall₂_iff_get]
+  simp only [List.length_ofFn, List.get_eq_getElem, List.getElem_ofFn, true_and]
+  exact ⟨fun h i => h i.1 i.2 i.2, fun h i h1 _ => h ⟨i, h1⟩⟩
+
+/-- **Proper patterns and their dotted translation match the same trees.** -/
+theorem toSExp2_image_lang : ∀ p : Pat α, SExp.toSExp2 '' Pat.lang p = Pat2.lang (Pat.toPat2 p) := by
+  intro p
+  induction p with
+  | atom a =>
+      rcases a with a | L
+      · simp [Pat.lang, Pat.toPat2, Pat2.lang, SExp.toSExp2]
+      · rfl
+  | list n ps ih =>
+      ext x
+      simp only [Pat.toPat2, pat2_lang_ofList, Set.mem_image, Pat.lang]
+      constructor
+      · rintro ⟨_, ⟨cs, rfl, hcs⟩, rfl⟩
+        refine ⟨List.ofFn fun i => SExp.toSExp2 (cs i), rfl, forall₂_ofFn.2 fun i => ?_⟩
+        rw [← ih i]
+        exact ⟨cs i, hcs i, rfl⟩
+      · rintro ⟨xs, rfl, h⟩
+        obtain ⟨hlen, hget⟩ := List.forall₂_iff_get.1 h
+        simp only [List.length_ofFn] at hlen
+        have hc : ∀ i : Fin n, ∃ c ∈ Pat.lang (ps i), SExp.toSExp2 c = xs[i.1]'(hlen ▸ i.2) :=
+          fun i => by
+            have := hget i.1 (hlen ▸ i.2) (by simp)
+            simp only [List.get_eq_getElem, List.getElem_ofFn] at this
+            rw [← ih i] at this
+            exact this
+        choose cs hcs hcx using hc
+        refine ⟨SExp.list n cs, ⟨cs, rfl, hcs⟩, ?_⟩
+        simp only [SExp.toSExp2, hcx]
+        congr 1
+        apply List.ext_getElem (by simp [hlen])
+        intro k h1 h2
+        simp
+
+end Silmaril.Proofs.Formats.SExp.Pattern

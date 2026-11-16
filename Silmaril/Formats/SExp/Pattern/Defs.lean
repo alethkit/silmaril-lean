@@ -73,6 +73,16 @@ def Pat2.lang : Pat2 α → Set (SExp2 α)
   | .atom (.inr L) => L
   | .cons p q => {x | ∃ a b, x = .cons a b ∧ a ∈ Pat2.lang p ∧ b ∈ Pat2.lang q}
 
+/-- The ground dotted pattern of a dotted S-expression. -/
+def Pat2.ground (e : SExp2 α) : Pat2 α := e.map .inl
+
+/-- **A proper pattern as a dotted pattern**: lists become `nil`-terminated spines and every
+hole `L` becomes the hole of its image `SExp.toSExp2 '' L`. -/
+def Pat.toPat2 : Pat α → Pat2 α
+  | .atom (.inl a) => .atom (.inl a)
+  | .atom (.inr L) => .atom (.inr (SExp.toSExp2 '' L))
+  | .list _ ps => SExp2.ofList (List.ofFn fun i => Pat.toPat2 (ps i))
+
 /-- AST patterns: tag-and-payload nodes with acceptor holes. -/
 abbrev PatAST (S : AstSig) := TExpr (Σ t, S.Arg t) (Set (AST S))
 
@@ -80,6 +90,9 @@ abbrev PatAST (S : AstSig) := TExpr (Σ t, S.Arg t) (Set (AST S))
 def PatAST.lang {S : AstSig} : PatAST S → Set (AST S)
   | .atom L => L
   | .tag v n ps => {x | ∃ cs : Fin n → AST S, x = .tag v n cs ∧ ∀ i, cs i ∈ PatAST.lang (ps i)}
+
+/-- The ground AST pattern of an AST. -/
+def PatAST.ground {S : AstSig} (e : AST S) : PatAST S := e.map Empty.elim
 
 namespace AST
 
