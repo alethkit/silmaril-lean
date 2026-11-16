@@ -47,6 +47,8 @@ an import-free exporter; scalar/record/variant types, no linear memory, no start
 * Binaries: `decodeValid b` and `ComponentAcceptor.decodeBinary b` (a `Comp CoreMod` under
   `Binary.coreModSem P`, `Param.engineSem` over `core3P P`) against `l.toRef` and `l.toComp`
   (a `Comp ImpModule` under `impSem P`). No translation from bytes to `HLinked2` exists.
+  `Examples` narrows this gap for `tupleHiBytes` (`decodeBinary_tupleHi`) and gives a concrete
+  instance of the hypotheses with an execution-backed acceptance of `"hi"`.
 -/
 
 public section
