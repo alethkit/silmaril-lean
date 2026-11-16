@@ -19,7 +19,7 @@ is claimed anywhere in the Lean sources.
 | Handle APIs: writers, readers, combined, node environments | Semantics | `Silmaril.Semantics.Accept.Handle.{Defs,Thms,Examples}` |
 | Parsing sessions | Semantics | `Silmaril.Semantics.Accept.Parse.{Defs,Thms,Examples}` |
 | Tree families, AST signatures, APIs, patterns | Formats | `Silmaril.Formats.SExp.Family`, `…SExp.Api`, `…SExp.Pattern` |
-| Wasm modules, reader checkers | Wasm | `Silmaril.Wasm.Game.HandleAccept.{Defs,Thms}`, `…HandleAccept.Checkers.{Defs,Thms}` |
+| Wasm modules, decoders, checkers | Wasm | `Silmaril.Wasm.Game.HandleAccept.{Defs,Thms}`, `…HandleAccept.Checkers.{Defs,Thms}` |
 
 Proofs longer than a few lines are under `Silmaril/Proofs/<Region>/…` and reached only through
 the `Thms` headers.
@@ -57,7 +57,7 @@ environments (`parseRel … Envs`).
 | error-return accept variant | done | `WEv.acceptErr`, `writerLang_subset_eraseErr`, `writerLang_eraseErr_eq` (`ResultOblivious`) |
 | relationships under explicit observations | done | `writerLang_mono` (`Policy.Le`), chain `writerLang_subset_fixedLang`, `fixedLang_subset`; strictness `Examples.trap_ne_ignore`, `fixed_lt_ub`, `fixed_trace_lt_ub` |
 | failure sentinel `0` or `-1` | done | `Policy.sentinel`, `writerLang_sentinel_swap` (the two correspond by the handle swap `0 ↔ -1`, not by numeric identity) |
-| acceptance with sentinel ≤ without, exact assumptions | done | `writerLang_noRet`, `writerLang_noRet_subset` (traces never receiving the sentinel); counterexample with two failures `Examples.sentinel_twice` |
+| acceptance with sentinel ≤ without, exact assumptions | done | The anticipated raw inclusion `writerLang (sentinel s) T ⊆ writerLang (no sentinel) T` is **false** (`Examples.sentinel_twice`: two failures at handle `0` for different trees cannot be read as allocations, since a sentinel-free environment never returns one handle for two trees). What holds: (1) restriction: traces that never receive the sentinel (`writerLang_noRet`, `writerLang_noRet_subset`); (2) reinterpretation: with trapping invalid writes, a trace with at most one failure whose result is never used again (`OneUnusedFailure`) accepts no more than without a sentinel, reading the failure as a successful allocation of `s` (`accepts_subset_of_oneFailure`, `writerLang_subset_of_oneFailure`, `Examples.ten_one_failure`); (3) `0` vs `-1` correspond by the handle swap (`writerLang_sentinel_swap`) |
 | finite `i32` capacity, freshness vs aliases/interning | done | `successes_nodup`, `successes_length_le` (no interning: at most `\|{h ≠ sentinel}\|` successes) |
 | consistent environments | done | stores only grow (`Run.store_extends`); fixed `ρ` must agree with every allocation |
 | constructed set as accepted, downward closed | done | `WEv.acceptAll`, `writerLang_downClosed` (`Writer.ChildRel`) |
@@ -81,15 +81,15 @@ environments (`parseRel … Envs`).
 | --- | --- | --- |
 | symbols, byte trees, word trees, symbols+strings, symbols+bytes, symbols+strings+bytes, symbols+strings+keywords, symbols+strings+keywords+bytes | done (tree types and writer/reader signatures) | `Formats.SExp.Family.Defs`: `SymbolSExp`, `ByteSExp`, `WordSExp`, `SymStrSExp`, …, `Atom ks`, `AtomKind`; one parameterized writer `Api.sexpW α` and reader `Api.sexpR α H` instantiated per family (no per-family code duplication) |
 | Rivest canonical vs display hints | done | `RivestSExp` (hint-free, existing), `HintedSExp` with `HintedSExp.toSpki` into RFC 9804 `Spki.Sexp`, `HintedSExp.toSpki_injective`; the docstring explains that canonical encodings carry hints |
-| Wasm import decoders for string/byte-carrying imports (`symbol(string)`, `blob`, `sexp(list<i32>)`) | **planned** | need memory-observing sessions (`Wasm.Game.Accept.Callout.mem`); instance plays carry no memory |
+| Wasm import decoders for string/byte-carrying imports (`symbol(string)`, `blob`, `sexp(list<i32>)`) | done (decoders, structural bound) | `Wasm.Game.HandleAccept.Memory`: `memWrite`/`memAccept` roles over memory-observing traced sessions (`memTraces` on `tagTraces`), `memWriterLang` over `SymStrBytesSExp`; `inp_of_tsession`, `memWriterLang_subset_atoms`; 12 kernel-checked decodings in `Memory.Examples`. An assume/guarantee bridge for memory-carrying traces is **not done** |
 
 ### 4. Generic branch/leaves and tagged ASTs
 
 | Item | Status | Where |
 | --- | --- | --- |
 | generic `branch(children)` + designated leaves `tag(args)` | done | `AstSig`, `AST S := TExpr1 (Σ t, S.Arg t)` (reuses `TExpr`), `AST.WellArity`, `Api.astW` |
-| typed heterogeneous WIT payloads | done (payload universe) | `PTy` (`bool`, `s32`, `u32`, `s64`, `u64`, `string`, `list<u8>`, `list<T>`), `PTy.Vals`, `WitSig.toAstSig`; relating `PTy` to `Wasm.Component…WIT.ValType` is **planned** |
-| variadic `tag(args…, children: list<i32>)`, fixed arity `tag(args…, c₁…cₙ)`, mixed arities | done (semantics) | `Arity.fixed`/`star`, `Arity.Admits`, one writer `astW` for both import shapes; Wasm decoders **planned** |
+| typed heterogeneous WIT payloads | done | `PTy`, `PTy.Vals`, `WitSig.toAstSig`; `Wasm.Game.HandleAccept.Wit`: `toWit : PTy → WIT.ValType`, `toWit_simple`, `toWit_injective`, `valEquiv E t : PTy.Val t ≃ (toWit t).Interp E`, `valsEquiv` |
+| variadic `tag(args…, children: list<i32>)`, fixed arity `tag(args…, c₁…cₙ)`, mixed arities | done | one writer `astW`; Wasm fixed-arity decoders `Wasm.Game.HandleAccept.Ast` (`moduleAstWLang`, `moduleAstWLang_wellArity` for every module, `astWLang_sound_of_gameSat`); AST reader `moduleAstLang`, `astLang_sound_of_gameSat`; variadic imports carry a memory list (see `Memory`) |
 | simple APIs are special cases | done | `Api.sexpW_hom` (writer homomorphism), `sexpLang_eq_astLang`, generic `writerLang_hom`/`writerLang_hom_subset` |
 | SExpr ≅ single payload-free variadic branch tag + atom leaves | done | `sexpSig`, `SExp.equivAST : SExp α ≃ {x // WellArity x}`; atoms are not unlabelled internal nodes: `leaf_children_not_wellArity` |
 
@@ -107,7 +107,7 @@ environments (`parseRel … Envs`).
 | --- | --- | --- |
 | union/intersection, images/preimages (incl. `SExp → SExp2`) | done | languages are `Set`s; `Set.image SExp.toSExp2` etc.; homomorphism images `writerLang_hom` |
 | combinators `(a₁ a₂)`, `(a₁ … aₙ)`, `star` | done | `pair`, `tuple`, `star`; `mem_pair`, `tuple_inter`, `pair_inter_left`, `pair_union_left`, `tuple_subset_star` |
-| patterns over SExpr/SExpr2/AST with acceptors as an extra atom | done (definitions; laws for `Pat`) | `Pat`, `Pat2`, `PatAST` and their `lang`; `Pat.lang_ground`, `Pat.lang_mono`; laws for `Pat2`/`PatAST` **planned** |
+| patterns over SExpr/SExpr2/AST with acceptors as an extra atom | done | `Pat`, `Pat2`, `PatAST` and their `lang`; `Pat.lang_ground`, `Pat.lang_mono`, `Pat2.lang_ground`, `Pat2.lang_mono`, `Pat2.lang_ofList`, `PatAST.lang_ground`, `PatAST.lang_mono`; `Pat.toPat2` with `Pat.toSExp2_image_lang` (image of a proper pattern's language along `SExp → SExp2`) |
 | AST→sexp `(tag arg₁…argₙ child₁…childₙ)`, per-tag layouts, soundness assumptions | done | `AST.encode`, `AST.encodeWith`, `AST.encode_injective` (`ArgLenFixed`), `encode_image_injective`; counterexample `Formats.Examples.enc_collides` |
 
 ### 7. Executable Wasm checkers
@@ -116,9 +116,9 @@ environments (`parseRel … Envs`).
 | --- | --- | --- |
 | module languages grounded in core Wasm | done (definitions) | `Wasm.Game.HandleAccept`: `playEvents`, `handleTraces` over `(instOf m).strategy P s` plays (every profile, every environment, any export sequence), `moduleConsLang` |
 | link from Hoare-logic specifications to language soundness | done | `readerLang_subset_of_AG` (generic), `consLang_sound_of_gameSat`, `consLang_sound_of_forall` via `GameLink.strategy_sound` |
-| proper lists in `SExp2`, `[i64]` word lists, sorted word lists, subset theorem | partial | modules `properCheck`, `wordsCheck`, `sortedCheck` (validated and instantiated by `decide +kernel`); `sortedL_subset_wordsL`, `wordsL_subset_properL`; soundness **conditional** on the frozen obligations `Task.properCheckSat`, `Task.wordsCheckSat`, `Task.sortedCheckSat` (`*_sound_of`), whose Hoare-logic proofs are **not done** |
+| proper lists in `SExp2`, `[i64]` word lists, sorted word lists, subset theorem | done (soundness) | modules `properCheck`, `wordsCheck`, `sortedCheck` (validated by `decide +kernel`); `properCheck_sat`, `wordsCheck_sat`, `sortedCheck_sat` (`GameSat` with store invariant `consInv`, every profile, every environment `ρ`); unconditional `properCheck_sound`, `wordsCheck_sound`, `sortedCheck_sound` (`moduleConsLang P m consIx .trap .trap Envs ⊆ L` for every `Envs`). `properL` is **spine** properness (`SpineProperList`: nil-terminated `cdr` spine, any elements), which is what `properCheck` checks; recursive properness `recProperL` is strictly smaller (`recProperL_ssubset_properL`, with `dottedElem_mem_properL`/`dottedElem_not_mem_recProperL`); `sortedL_subset_wordsL`, `wordsL_subset_properL` |
 | signed `i32` handles vs `i64` payloads, sorting | done (stated) | `Checkers.Defs` docstring; `sortedL` uses signed `BitVec.sle` (`i64.le_s`) |
-| n-ary `[i32]` words through `count`/`child`, binary (`Tree2`) checkers, writer-side Wasm modules, non-vacuity runs | **planned** | |
+| other styles in Wasm | partial | decoders and bridges: writer (`Writer`: cons and n-ary, `writerLang_subset_of_AG`, `fixedLang_subset_of_AG`, structural `moduleConsWLang_subset_atoms2`, `moduleSxWLang_subset_arities`, examples `wordAccept`, `consPair`, `sxPair_binary`), n-ary reader (`Nary`: `sexpLang_sound_of_gameSat`), AST (`Ast`), parsing exports (`Parse`: `moduleParseRel_input_oneShot`, `moduleParseRel_sound_of_gameSat`); proved `GameSat` examples for these styles and binary-tree decoders: in progress |
 
 ### 8. Combined writer + reader
 
@@ -136,7 +136,7 @@ environments (`parseRel … Envs`).
 | c. chunks, `done() -> (used, tree)`, cursor, failure advances, unconsumed suffix, bounds | done | `PEv.feed/finish`, `Returns`, `run_cursor`, `parseRel_slice`, `onOverrun`, `usedOfI32`/`usedOfI32_lt`, `Examples.chunk_example` |
 | repeated `done`, sessions, `reset` | done | `doneClears`, `PEv.reset`, `Examples.done_twice` |
 | projections, membership, monotonicity, unions, non-preservation of intersections | done | `inputLang`, `treeLang`, `inputLang_union`, `inputLang_inter_subset`, `parseRel_mono`, `parseRel_union`, `Examples.projection_inter_strict` |
-| trees resolved in consistent environments; mixed APIs with parsing; Wasm tie-ins | partial | environments are explicit (`parseRel … Envs`); a combined writer+parse host and Wasm decoders are **planned** |
+| trees resolved in consistent environments; mixed APIs with parsing; Wasm tie-ins | partial | environments are explicit (`parseRel … Envs`); export decoders `Wasm.Game.HandleAccept.Parse` (`parseDec`, `moduleParseRel`; trapped export calls are not events); a combined writer+parse host is **not done** |
 
 ### Cautions
 
@@ -162,16 +162,7 @@ environments (`parseRel … Envs`).
 
 ## Remaining obligations
 
-1. Prove `Task.properCheckSat`, `Task.wordsCheckSat`, `Task.sortedCheckSat`: `GameSat` for the
-   three checker modules (loop invariants relating the current handle to `ρ`, in the style of
-   `Silmaril.Proofs.Wasm.Spec.Attest.Safe`).
-2. Non-vacuity of the checker languages by a replayed play (`Silmaril.Wasm.Resource.Replay`).
-3. Wasm decoders for writer APIs, for `count`/`child` n-ary readers, binary-tree readers,
-   fixed-arity AST imports, and the parsing exports; memory-carrying imports through
-   `Silmaril.Wasm.Game.Accept` callouts.
-4. `PTy` ↔ WIT value types; laws for `Pat2`/`PatAST`; a combined writer + parsing host.
-5. The sentinel reinterpretation theorem for a single failure (only the no-failure inclusion and
-   the two-failure counterexample are proved).
+Tracked in PR #688 and updated as phases land; see the per-item tables above for status.
 
 ## Checking
 
