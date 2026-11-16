@@ -421,3 +421,26 @@ theorem cycle_unfolds_to_nothing (x : ℕ) : ¬ Unfold mkSum loopEnv 0 x :=
     (.single ⟨(), [0], rfl, List.mem_singleton_self 0⟩) x
 
 end Silmaril.Accept.Handle.Examples
+
+namespace Silmaril.Accept.Handle.Examples
+
+/-! ## One unused failure -/
+
+/-- "Allocate `10`; allocate `20`, which fails; accept the first handle." -/
+def t3one : List (WEv NOp ℕ) := [.write (.lit 10) [] 1, .write (.lit 20) [] 0, .accept 1]
+
+/-- The single failure is unused afterwards, so `10` is also accepted without a sentinel (the
+failure is read as allocating `20` at handle `0`). -/
+theorem ten_one_failure : 10 ∈ writerLang natW {polS with sentinel := none} {t3one} :=
+  writerLang_subset_of_oneFailure (W := natW) (pol := polS) rfl rfl
+    (fun t ht => by
+      rw [Set.mem_singleton_iff] at ht; subst ht
+      refine .inr ⟨[.write (.lit 10) [] 1], .lit 20, [], [.accept 1], rfl, ?_, ?_, ?_⟩
+      · intro op args h; simp at h
+      · intro op args h; simp at h
+      · intro e he; simp at he; subst he; simp [WEv.uses])
+    (Host.mem_lang.2 ⟨t3one, rfl, _, _, .cons (.writeOk (t := 10) rfl ⟨by simp [polS], .inl rfl⟩
+      agrees_none') (.cons (.writeFail rfl (.inl rfl)) (.cons (.acceptOk (t := 10) (by simp))
+        (.nil _))), by simp⟩)
+
+end Silmaril.Accept.Handle.Examples

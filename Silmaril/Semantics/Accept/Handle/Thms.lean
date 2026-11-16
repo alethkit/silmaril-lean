@@ -8,6 +8,7 @@ import Silmaril.Proofs.Semantics.Accept.Handle.Writer
 import Silmaril.Proofs.Semantics.Accept.Handle.Reader
 import Silmaril.Proofs.Semantics.Accept.Handle.Node
 import Silmaril.Proofs.Semantics.Accept.Handle.Hom
+import Silmaril.Proofs.Semantics.Accept.Handle.Sentinel
 
 /-!
 # Handle-based acceptance: laws
@@ -38,7 +39,10 @@ import Silmaril.Proofs.Semantics.Accept.Handle.Hom
   the language (`writerLang_rename`), so the sentinel `0` and the sentinel `-1` correspond by
   the swap `0 ↔ -1` of handle values (`writerLang_sentinel_swap`), not by numeric identity.
   A trace receiving the sentinel twice can accept more than any sentinel-free reading
-  (`Examples`).
+  (`Examples.sentinel_twice`), so the raw inclusion "sentinel ⊆ no sentinel" is false in
+  general; what holds is the restriction to failure-free traces and the reinterpretation of a
+  single unused failure as an allocation (`accepts_subset_of_oneFailure`,
+  `writerLang_subset_of_oneFailure`, for policies where invalid writes trap).
 
 **Readers** (`readerLang` over an explicit set `Envs` of fixed environments):
 
@@ -134,6 +138,21 @@ theorem writerLang_noRet_subset {pol : Policy H} {s : H} (hs : pol.sentinel = so
     writerLang W pol (T ∩ {t | NoRet s t}) ⊆ writerLang W {pol with sentinel := none} T := by
   rw [writerLang_noRet (T := T ∩ {t | NoRet s t}) hs (fun t ht => ht.2)]
   exact Host.lang_mono Set.inter_subset_left
+
+/-- **Reading one unused allocation failure as a successful allocation.** If invalid writes
+trap, a trace that receives the sentinel at most once and never passes it back to the API
+accepts no more with the sentinel than without one: the failed write is read as a successful
+allocation of the (otherwise unused) handle `s`. Two failures cannot be read this way
+(`Examples.sentinel_twice`), and neither can a failure whose result is used again. -/
+theorem accepts_subset_of_oneFailure {pol : Policy H} {s : H} (hs : pol.sentinel = some s)
+    (hw : pol.onWrite = .trap) {t : List (WEv Op H)} (ht : OneUnusedFailure s t) :
+    (writer W pol).accepts t ⊆ (writer W {pol with sentinel := none}).accepts t :=
+  Silmaril.Proofs.Semantics.Accept.Handle.accepts_subset_of_oneFailure hs hw ht
+
+theorem writerLang_subset_of_oneFailure {pol : Policy H} {s : H} (hs : pol.sentinel = some s)
+    (hw : pol.onWrite = .trap) {T : Set (List (WEv Op H))} (hT : ∀ t ∈ T, OneUnusedFailure s t) :
+    writerLang W pol T ⊆ writerLang W {pol with sentinel := none} T :=
+  Silmaril.Proofs.Semantics.Accept.Handle.writerLang_subset_of_oneFailure hs hw hT
 
 theorem writerLang_rename (π : H ≃ H) (pol : Policy H) (T : Set (List (WEv Op H))) :
     writerLang W (pol.rename π) (List.map (WEv.rename π) '' T) = writerLang W pol T :=

@@ -470,6 +470,12 @@ def Policy.Le (pol pol' : Policy H) : Prop :=
 def NoRet (s : H) (t : List (WEv Op H)) : Prop :=
   ∀ op args, WEv.write op args s ∉ t
 
+/-- **At most one allocation failure, never used afterwards**: the trace never receives the
+sentinel `s`, or receives it from exactly one write and then never passes `s` to the API. -/
+def OneUnusedFailure (s : H) (t : List (WEv Op H)) : Prop :=
+  NoRet s t ∨ ∃ u op args v, t = u ++ WEv.write op args s :: v ∧ NoRet s u ∧ NoRet s v ∧
+    ∀ e ∈ v, s ∉ e.uses
+
 /-- The module ignores the result of `acceptErr`: changing it gives another trace. -/
 def ResultOblivious (T : Set (List (WEv Op H))) : Prop :=
   ∀ t ∈ T, ∀ t', t'.map WEv.eraseErr = t.map WEv.eraseErr → t' ∈ T
