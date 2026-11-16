@@ -49,7 +49,10 @@ test("the page shows binaries, imports, expectations, rows, strength, assumption
       assert.ok(seen.includes(r.name), r.name);
     }
     assert.ok(h.includes(b.ref.theorem));
+    assert.ok(b.ref.strength.includes("Conformance.decodeRef reads from these bytes"), b.name);
+    assert.ok(b.ref.strength.includes("not a general binary-to-REF equivalence"), b.name);
   }
+  assert.ok(!h.includes("hand transcription"));
   assert.ok(h.includes("f: func(x: u32)"));
   assert.ok(h.includes("<code>f(1) -&gt; ()</code>, <code>f(2) -&gt; ()</code>"));
   assert.ok(h.includes("instantiation: <b>fail ()</b>"));

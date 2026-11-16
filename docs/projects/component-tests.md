@@ -1,8 +1,9 @@
 # Component tests: instantiation-time behaviour of component binaries
 
 Two real component binaries, assembled by a pinned tool, whose behaviour **at instantiation** is
-stated by reusable problem shapes and proved in Lean over the bytes; the reference machine runs a
-hand transcription of them, and wasmtime is run on the same bytes as an independent oracle.
+stated by reusable problem shapes and proved in Lean over the bytes; the reference machine runs
+the component the existing decoder `Conformance.decodeRef` reads from the same bytes (kernel-checked
+on these two binaries), and wasmtime is run on the same bytes as an independent oracle.
 
 ## The binaries
 
@@ -90,14 +91,36 @@ is there).
 
 ## The reference machine (these two examples only)
 
-`Silmaril.Wasm.Component.InstTestsRef`: `startsRef`, `trapRef` are **hand transcriptions** of the
-WAT in the reference machine's syntax (there is no translation from component binaries to it);
-their core modules are those decoded from the binaries' bytes. `starts_agree`: the IR play above,
-and the reference machine under the logging host instantiates `startsRef` with the host log
-`f(1)`, `f(2)` (`logOfCalls startsTrace`) and answers `get()` with `u32 42`. `trap_agree`: the IR
-instantiation fails and the reference instantiation traps. The reference side is one executed run
-each (`decide +kernel` on `sessSummary` and on a trap summary, then their soundness theorems). No
-general adequacy between `Comp.denI` and the reference machine is claimed.
+`Silmaril.Wasm.Component.InstTestsRef`. The REF side reads the bytes through the existing route
+`Conformance.decodeRef` (`Binary.parse`, the verified component grammar, then `Conformance.toRef`,
+which decodes the embedded core modules with the core decoder); no new decoder is introduced.
+
+* `decodeRef_starts`, `decodeRef_trap`: `decodeRef startsBytes = .ok startsRef` and
+  `decodeRef trapBytes = .ok trapRef`, one definitional check by the kernel (`kernel_rfl`).
+  `startsRef` and `trapRef` are spelled out in `InstTestsRef.Defs` only so that they can be read.
+* `starts_valid`, `trap_valid`: `∃ ct, Valid Features.p2 c ct` (`decide +kernel` on `check?`, then
+  `check?_sound`), so `Wasi.Accept.Ref.decodeValid` accepts both binaries.
+* `starts_agree P`: the IR play above, and `∃ c, decodeRef startsBytes = .ok c`, `c` valid, and the
+  reference machine under the logging host instantiates `c` with the host log `f(1)`, `f(2)`
+  (`logOfCalls startsTrace`) and then answers `get()` with `u32 42`.
+* `trap_agree P`: the IR instantiation fails, and `∃ c, decodeRef trapBytes = .ok c`, `c` valid,
+  and the reference machine's instantiation of `c` traps.
+
+The reference side is one executed run each (`decide +kernel` on the session driver and on a trap
+summary, then their soundness theorems), with the Core 3.0 stepper of `core3 neverFail` and the
+first scheduling oracle. The host function has the type the binaries import, `func(x: u32)`
+(`hostConfigX`): the reference machine compares parameter names when it links an import, and the
+generic `LinkedSession.hostConfig hostI` names the parameter `a`, so the decoded components do not
+link against it.
+
+What this covers, and what it does not:
+
+* Both sides start from the same bytes, through two decoders: `Binary.parseComponent` (the IR's
+  lowering) and `decodeRef` (the reference syntax). That they agree is shown only on these two
+  binaries, by running both; no theorem relates the two decoders in general.
+* `toRef` is the conformance runner's executable reading of `Binary`; no theorem relates it to the
+  reference's own reading of `Binary.md`.
+* No general adequacy between `Comp.denI` and the reference machine is claimed.
 
 ## Oracle: wasmtime (not a proof, not in CI)
 
@@ -133,4 +156,5 @@ observations and verdict, and the assumptions and tool provenance. Data:
 * General adequacy of `Comp.denI` with respect to the reference machine (only these examples).
 * Divergence (not observed by the shapes).
 * Other import types, several imports, nested components, resources, async.
-* A translation from component binaries to the reference syntax (the REF side is a transcription).
+* A general theorem relating the two decoders (`Binary.parseComponent`, `decodeRef`), or `toRef` to
+  the reference's own reading of `Binary.md`.
