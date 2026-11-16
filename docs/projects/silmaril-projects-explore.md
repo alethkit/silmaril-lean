@@ -339,11 +339,22 @@ ignores it), so a slow query can never write into the current page.
 `Explorer.registerViewer` adds views), `highlightWat` and `hexDump`. Everything they show is
 escaped.
 
-Status badges show a problem's summary code (THM, OPN, SAT, UNS, CSA, SAT/CSA for contingent) in a
+Status badges show a problem's summary as a three-character code (THM, OPN, SAT, UNS, CSA, UNK, and
+NOC for the stored code `contingent`) in a
 neutral style. Only what needs attention is marked: `!` for a failing verdict that nothing explains
 (not the expected status, not deprecated, not classified as a spec bug or model gap), `?` for an
 expected status (`problems.expect`) that the summary is not, and a struck-through code for a
-deprecated problem. The badge's title spells out the code, verdict, expectation and markings. A
+deprecated problem. The badge's title spells out the code with its SZS name, the stored code when
+it differs, the verdict, expectation and markings. `contingent` (SAT and CSA both hold) is shown as
+NOC, SZS's NoConsequence: "some interpretations are models of Ax, some models of Ax are models of
+C, and some models of Ax are models of ~C" (current: [SZS Success ontology](https://szs.tptp.org/success);
+historical: [Sutcliffe, The SZS Ontologies for Automated Reasoning Software (2008)](http://tptp.org/cgi-bin/SeeTPTP?Category=BibTeX&File=Sut08-KEAPPA)).
+The display is one-to-one. The database keeps `contingent`, and its meaning is the SZS catalogue's
+to define. THM is kept as stored and not shown as TAU. With no axioms THM and TAU coincide, but
+the project's name for a proved problem is THM, "all models of Ax are models of C". The display
+depends only on the stored code; the verdict shown is the database's (UNS fails a closed
+proposition only). Over an empty domain no witness exists, so SAT, and therefore `contingent`,
+cannot be established there; such problems show their stored code unchanged. A
 deprecated problem's page links its replacements, and a replacement's page links what it
 replaces.
 
