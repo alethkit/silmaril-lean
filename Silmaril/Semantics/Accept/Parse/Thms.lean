@@ -17,7 +17,9 @@ import Silmaril.Proofs.Semantics.Accept.Parse.Basic
   (`run_cursor`), and every accepted pair of a chunked module relates exactly the `used` slice
   after the cursor (`parseRel_slice`), so failures still advance the cursor. Both are stated for
   the session-abort overrun policy (`onOverrun = .sessionTrap`): a call-locally trapped overrun
-  leaves the cursor while `consumed` counts its `used`;
+  leaves the cursor while `consumed` counts its `used`. For every policy without UB, including
+  the call-local trap, see `Silmaril.Semantics.Accept.Parse.Cursor` (`run_cursor_eff`,
+  `parseRel_slice_eff`, counting only answered `finish` calls);
 * append/done: every accepted pair relates the pending append buffer (`parseRel_done`);
 * `usedOfI32_lt`: a decoded `used` count is below `2 ^ 31`.
 -/

@@ -25,10 +25,9 @@ import Silmaril.Proofs.Wasm.Game.HandleAccept.Checkers.RecProper.Sat
   (`recProperCheck_rejects_dottedElem`), unlike `properCheck`
   (`Examples.properCheck_accepts_dottedElem`).
 
-**Gap.** The bound is `nestL`, not `recProperL`: the check is depth-bounded (elements are atoms
-or proper lists of atoms). A checker for the whole of `recProperL` needs unbounded storage
-(a stack of pending handles in linear memory, or Wasm recursion); neither is covered by the
-reader-checker proof rules used here.
+**Depth.** The bound is `nestL`, not `recProperL`: the check is depth-bounded (elements are atoms
+or proper lists of atoms). The checker for the whole of `recProperL`, using Wasm recursion, is
+`Silmaril.Wasm.Game.HandleAccept.Checkers.RecFull` (`recFullCheck_sound`).
 -/
 
 @[expose] public section
