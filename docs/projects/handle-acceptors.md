@@ -120,6 +120,7 @@ environments (`parseRel … Envs`).
 | non-vacuity of the checkers | done | `Checkers.Examples`: replayed instance plays (`Silmaril.Wasm.Resource.Replay`, `replayExport_play`) decoded into reader runs (`mem_consLang_of_replay`): `properCheck_accepts_12`, `wordsCheck_accepts_12`, `sortedCheck_accepts_12` (`ofAtoms [1, 2]`), `wordsCheck_accepts_21`, `properCheck_accepts_dottedElem`, for every profile admitting the deterministic interpreter's steps (`hP`) and every specification profile (`_spec`); negative: `sortedCheck_rejects_21`, `wordsCheck_rejects_dottedElem`, `properCheck_rejects_atom`. So `sortedL ⊊ wordsL ⊊ properL` is witnessed by the modules |
 | signed `i32` handles vs `i64` payloads, sorting | done (stated) | `Checkers.Defs` docstring; `sortedL` uses signed `BitVec.sle` (`i64.le_s`) |
 | other styles in Wasm (proved examples) | done | shared rules `Proofs/Wasm/Game/HandleAccept/Checkers/Generic.lean`. N-ary reader (`count`/`child`): `pairCheck_sound`, `wordsNCheck_sound` (`SExp.ofAtoms ws`), `sortedNCheck_sound`, `sortedNL_subset_wordsNL`. AST reader: `addCheck_sound` (`add(num a, num b)`). Parsing export: `nzParse_sound`/`nzParse_input` (one-shot inputs are single nonzero words; the tree is unconstrained because the export spec cannot constrain its imports). Binary trees (`Tree2`, cons without nil): writer/reader decoders, `combCheck_sound` (right combs of words). Writer: `twoWords_sound`, `twoWords_fixed_sound` (accepts only `(x x+1)`), for policies without a sentinel (the module does not test for failures). Structural bounds for every module: `moduleConsWLang_subset_atoms2`, `moduleSxWLang_subset_arities`, `moduleAstWLang_wellArity`, `moduleParseRel_input_oneShot`, `memWriterLang_subset_atoms` |
+| non-vacuity of the other styles | done | generic replay decoding `Proofs/Wasm/Game/HandleAccept/Replay.lean` (`mem_readerLang_of_replay`, `mem_writerLang_of_replay`); `pairCheck_accepts_12`, `wordsNCheck_accepts_12`, `sortedNCheck_accepts_12`, `wordsNCheck_accepts_21`, `sortedNCheck_rejects_21`; `addCheck_accepts_12`; `combCheck_accepts_123`; `twoWords_accepts_0`, `twoWords_accepts_5` (fresh-handle host); `nzParse_relates_7` (needs `replayExportR`, which also records the export's answer). All for profiles admitting the deterministic interpreter's steps (`hP`) and every specification profile (`_spec`) |
 
 ### 8. Combined writer + reader
 
@@ -163,8 +164,6 @@ environments (`parseRel … Envs`).
 
 ## Remaining obligations
 
-* Non-vacuity replays exist for the three cons checkers only; the n-ary, AST, parsing,
-  binary-tree and writer examples are proved sound but not yet shown to accept a concrete tree.
 * No checker for recursive properness (`recProperL`).
 * No assume/guarantee bridge for memory-carrying traced sessions (only decoders and the
   structural bound); chunk lists in memory for parsing; an `items(h) -> list<i32>` reader.
