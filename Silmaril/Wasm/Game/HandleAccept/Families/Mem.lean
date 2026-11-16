@@ -30,9 +30,10 @@ the lower bounds concrete traced sessions (`Silmaril.Wasm.Game.HandleAccept.MemS
 `Silmaril.Wasm.Game.HandleAccept.MemSound.Atoms`).
 
 Still not instantiable through memory: word trees (their decoders are the `i64` instance-play
-ones of `Families`), Rivest canonical and hinted trees (no decoder of their atoms), the
-cons writer and cons reader at every memory family, and the AST APIs. Keywords have a writer
-decoder only (no memory-returning reader of `KwAtom`).
+ones of `Families`), hinted Rivest trees, the cons writer and cons reader at every memory
+family, and the AST APIs. Canonical Rivest and byte trees are instantiated through `blob` atoms
+in `Silmaril.Wasm.Game.HandleAccept.MemSound.Rivest` (`rivest_bpairMod`, `bytes_bpairMod`).
+Strings have a memory reader (`MemSound.Text`); keywords have a writer decoder only.
 
 New definitions (no source); the theorems restate `Live` and `Atoms` through the embeddings.
 -/
