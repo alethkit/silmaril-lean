@@ -36,6 +36,19 @@ abbrev instRound (cs : List (Call X)) (a : InstAns R) : Round X (F.withInst R) :
 /-- A round of an export call, at the instantiable interface. -/
 def exRound (r : Round X F) : Round X (F.withInst R) := ⟨some r.q, r.cs, r.a⟩
 
+theorem flatMap_calls {G : Sig.{0}} : ∀ cs : List (Call X),
+    (cs.flatMap fun c => [.inl (.ask c.1), .inl (.ans c.1 c.2)] : List (Move X G)) =
+      (callEvs cs).map .inl
+  | [] => rfl
+  | ⟨m, n⟩ :: cs => by
+    simp only [List.flatMap_cons, callEvs, List.map_cons, flatMap_calls cs]
+    rfl
+
+theorem instPlay_eq (cs : List (Call X)) (a : InstAns R) :
+    instPlay (F := F) cs a = (instRound (F := F) cs a).moves := by
+  simp only [instPlay, flatMap_calls]
+  rfl
+
 theorem allCalls_map_exRound : ∀ xs : List (Round X F),
     allCalls (xs.map (exRound (R := R))) = allCalls xs
   | [] => rfl

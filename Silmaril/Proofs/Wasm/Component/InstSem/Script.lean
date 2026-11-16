@@ -94,12 +94,6 @@ inductive Prog.AsksWithin {E : Sig.{0}} {A : Type} : Prog E A → List E.Op → 
   | call {m : E.Op} {k : E.Ar m → Prog E A} {L : List E.Op} :
       (∀ n, Prog.AsksWithin (k n) L) → Prog.AsksWithin (.call m k) (m :: L)
 
-/-- The lower questions of a play. -/
-def lowerAsks {E F : Sig.{0}} : List (Move E F) → List E.Op
-  | [] => []
-  | .inl (.ask m) :: p => m :: lowerAsks p
-  | _ :: p => lowerAsks p
-
 theorem lowerAsks_append {E F : Sig.{0}} : ∀ (p q : List (Move E F)),
     lowerAsks (p ++ q) = lowerAsks p ++ lowerAsks q
   | [], _ => rfl
@@ -116,9 +110,9 @@ answering, after which it is idle. -/
 theorem handler_run_asks {q : F.Op} : ∀ {P : Prog E (F.Ar q)} {L : List E.Op}
     {x : h.toReduction.toLTS.State} {p : List (Move E F)},
     Prog.AsksWithin P L → h.toReduction.toLTS.Run (.run q P) p x →
-      (lowerAsks p <+: L ∧ (∀ a, Sum.inr (Ev.ans q a) ∉ p)) ∨
+      (lowerAsks p <+: L ∧ (∀ o ∈ p, o.isLeft)) ∨
       ∃ a p₁ p₂, p = p₁ ++ .inr (.ans q a) :: p₂ ∧ lowerAsks p₁ <+: L ∧
-        (∀ a', Sum.inr (Ev.ans q a') ∉ p₁) ∧ h.toReduction.toLTS.Run .idle p₂ x := by
+        (∀ o ∈ p₁, o.isLeft) ∧ h.toReduction.toLTS.Run .idle p₂ x := by
   intro P L x p hP hr
   induction hP generalizing x p with
   | pure a L =>
@@ -146,15 +140,148 @@ theorem handler_run_asks {q : F.Op} : ∀ {P : Prog E (F.Ar q)} {L : List E.Op}
             rcases ih n hr'' with ⟨h1, h2⟩ | ⟨a, p₁, p₂, rfl, h1, h2, h3⟩
             · refine .inl ⟨?_, ?_⟩
               · simpa [lowerAsks] using h1
-              · intro a ha
-                simp only [List.mem_cons, reduceCtorEq, false_or] at ha
-                exact h2 a ha
+              · intro o ho
+                simp only [List.mem_cons] at ho
+                rcases ho with rfl | rfl | ho
+                · rfl
+                · rfl
+                · exact h2 o ho
             · refine .inr ⟨a, .inl (.ask m) :: .inl (.ans m n) :: p₁, p₂, rfl, ?_, ?_, h3⟩
               · simpa [lowerAsks] using h1
-              · intro a' ha
-                simp only [List.mem_cons, reduceCtorEq, false_or] at ha
-                exact h2 a' ha
+              · intro o ho
+                simp only [List.mem_cons] at ho
+                rcases ho with rfl | rfl | ho
+                · rfl
+                · rfl
+                · exact h2 o ho
 
 end Handler
+
+/-! ## Plays of the protocol guard over a script -/
+
+section Guard
+
+variable {E F : Sig.{0}} {R : Type}
+
+theorem lowerAsks_prefix {p q : List (Move E F)} (h : p <+: q) : lowerAsks p <+: lowerAsks q := by
+  obtain ⟨t, rfl⟩ := h
+  rw [lowerAsks_append]
+  exact List.prefix_append _ _
+
+theorem lowerAsks_isO {x : Move E F} (h : x.IsO) : lowerAsks [x] = [] := by
+  rcases x with (_ | _) | (_ | _)
+  · exact h.elim
+  · rfl
+  · rfl
+  · rfl
+
+theorem upper_of_left : ∀ {p : List (Move E F)}, (∀ o ∈ p, o.isLeft) → upper p = []
+  | [], _ => rfl
+  | .inl _ :: p, h => by
+    simp only [upper, List.filterMap_cons, Sum.getRight?_inl]
+    exact upper_of_left fun o ho => h o (.tail _ ho)
+  | .inr _ :: _, h => by simpa using h _ (.head _)
+
+/-- **The plays of the guard come from plays following the protocol.** -/
+theorem guard_plays {σ : Strategy E (F.withInst R)} {H : Handler E (F.withInst R)}
+    (hle : σ ≤ Strategy.ofHandler H) {p : List (Move E (F.withInst R))} (hp : p ∈ instGuard σ) :
+    ∃ q ∈ Strategy.ofHandler H, InstProper q ∧
+      (p <+: q ∨ ∃ q₀ x, p = q₀ ++ [x] ∧ q₀ <+: q ∧ x.IsO) := by
+  obtain ⟨-, u, hu, hpu⟩ := hp
+  rcases hu with rfl | ⟨⟨hu, hpr⟩, -⟩
+  · exact ⟨[], Strategy.nil_mem _, .inl rfl, hpu⟩
+  · exact ⟨u, hle hu, hpr, hpu⟩
+
+theorem properUp_head {u : List (Ev (F.withInst R))} {x : Ev (F.withInst R)}
+    (h : ProperUp (x :: u)) : x = .ask none := by
+  rcases h with h | h | ⟨_, h⟩ | ⟨_, h, -⟩ <;> cases h <;> rfl
+
+theorem properUp_after {a : InstAns R} {u : List (Ev (F.withInst R))}
+    (h : ProperUp (.ask none :: Ev.ans (E := F.withInst R) none a :: u)) : ∀ x ∈ u, IsExEv x := by
+  rcases h with h | h | ⟨_, h⟩ | ⟨rest, h, hr⟩
+  · cases h
+  · cases h
+  · cases h; intro _ hx; cases hx
+  · cases h; exact hr
+
+theorem properUp_fail {r : R} {u : List (Ev (F.withInst R))}
+    (h : ProperUp (.ask none :: Ev.ans (E := F.withInst R) none (.fail r) :: u)) : u = [] := by
+  rcases h with h | h | ⟨_, h⟩ | ⟨rest, h, -⟩
+  · cases h
+  · cases h
+  · cases h; rfl
+  · cases h
+
+variable {H : Handler E (F.withInst R)}
+
+theorem handler_run_ex_rounds (hex : ∀ q, ∃ a, H (some q) = .pure a) :
+    ∀ (n : Nat) (p : List (Move E (F.withInst R))) (y : H.toReduction.toLTS.State),
+      p.length ≤ n → H.toReduction.toLTS.Run .idle p y → (∀ x ∈ upper p, IsExEv x) →
+        lowerAsks p = []
+  | _, [], _, _, _, _ => rfl
+  | 0, _ :: _, _, hn, _, _ => by simp at hn
+  | n + 1, o :: p, y, hn, hr, hx => by
+    obtain ⟨q, rfl, hr₁⟩ := handler_run_idle_cons hr
+    rcases q with _ | q
+    · exact absurd (hx (.ask none) (by simp [upper])) (by simp [IsExEv])
+    obtain ⟨a, ha⟩ := hex q
+    rw [ha] at hr₁
+    rcases p with _ | ⟨o₁, p⟩
+    · rfl
+    · obtain ⟨rfl, hr₂⟩ := handler_run_pure_cons hr₁
+      have := handler_run_ex_rounds hex n p y (by simp at hn; omega) hr₂
+        (fun x hx' => hx x (by simp [upper] at hx' ⊢; exact .inr (.inr hx')))
+      simpa [lowerAsks] using this
+
+/-- **A proper play of a script makes the calls of its program for `inst`**, when its export
+calls make none. -/
+theorem handler_proper_asks {L : List E.Op} (hH : Prog.AsksWithin (H none) L)
+    (hex : ∀ q, ∃ a, H (some q) = .pure a) {q : List (Move E (F.withInst R))}
+    (hq : q ∈ Strategy.ofHandler H) (hp : InstProper q) : lowerAsks q <+: L := by
+  obtain ⟨y, hy⟩ := Strategy.mem_ofHandler.1 hq
+  rcases q with _ | ⟨o, q₁⟩
+  · exact List.nil_prefix
+  obtain ⟨q₀, rfl, hr⟩ := handler_run_idle_cons hy
+  have h0 : q₀ = none := by
+    have := properUp_head (u := upper q₁) (x := .ask q₀) (by simpa [InstProper, upper] using hp)
+    cases this; rfl
+  subst h0
+  rcases handler_run_asks hH hr with ⟨h1, -⟩ | ⟨a, p₁, p₂, rfl, h1, h2, h3⟩
+  · simpa [lowerAsks] using h1
+  · have hup : upper (Sum.inr (Ev.ask (none : Option F.Op)) :: (p₁ ++ .inr (.ans none a) :: p₂) :
+        List (Move E (F.withInst R))) =
+        .ask none :: Ev.ans (E := F.withInst R) none a :: upper p₂ := by
+      simp only [upper, List.filterMap_cons, Sum.getRight?_inr, List.filterMap_append]
+      rw [show List.filterMap Sum.getRight? p₁ = upper p₁ from rfl, upper_of_left h2]
+      rfl
+    have hx := properUp_after (by unfold InstProper at hp; rw [hup] at hp; exact hp)
+    have h4 := handler_run_ex_rounds hex _ p₂ _ le_rfl h3 hx
+    simp only [lowerAsks, lowerAsks_append, h4, List.append_nil]
+    exact h1
+
+/-- **A proper play of a script that fails at once is a prefix of `[inst, fail r]`.** -/
+theorem handler_proper_fail {r : R} (hH : H none = .pure (.fail r))
+    {q : List (Move E (F.withInst R))} (hq : q ∈ Strategy.ofHandler H) (hp : InstProper q) :
+    q <+: [askInst, ansInst (.fail r)] := by
+  obtain ⟨y, hy⟩ := Strategy.mem_ofHandler.1 hq
+  rcases q with _ | ⟨o, q₁⟩
+  · exact List.nil_prefix
+  obtain ⟨q₀, rfl, hr⟩ := handler_run_idle_cons hy
+  have h0 : q₀ = none := by
+    have := properUp_head (u := upper q₁) (x := .ask q₀) (by simpa [InstProper, upper] using hp)
+    cases this; rfl
+  subst h0
+  rw [hH] at hr
+  rcases q₁ with _ | ⟨o₁, q₂⟩
+  · exact List.cons_prefix_cons.2 ⟨rfl, List.nil_prefix⟩
+  obtain ⟨rfl, hr₁⟩ := handler_run_pure_cons hr
+  rcases q₂ with _ | ⟨o₂, q₃⟩
+  · exact List.prefix_refl _
+  obtain ⟨q₄, rfl, -⟩ := handler_run_idle_cons hr₁
+  have := properUp_fail (u := upper (.inr (.ask q₄) :: q₃)) (r := r)
+    (by simpa [InstProper, upper] using hp)
+  simp [upper] at this
+
+end Guard
 
 end Silmaril.Proofs.Wasm.Component.InstSem

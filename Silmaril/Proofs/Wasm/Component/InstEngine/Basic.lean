@@ -110,26 +110,24 @@ theorem isO_liftMove {X F : Sig.{0}} {R : Type} {o : Move X F} (h : o.IsO) :
     (liftMove (R := R) o).IsO := by
   rcases o with (_ | _) | (_ | _) <;> exact h
 
-/-- **After a successful instantiation, the exports are served as `engineStrategy` serves them
-from the store the start phase left.** -/
-theorem engine_after_start {J : IInstance E} {a : E.FuncAddr} (hI : I = some J)
-    (ha : J.start = some a) {cs : List (Σ _ : (sigN imps.length).Op, Option Payload)}
-    {c' : E.Config Nat} (hr : StartRunI E imps (J.store, E.invoke a []) cs c') {ys : List Flat}
-    (hf : E.status c'.1 c'.2 = .returned (.values ys))
+/-- After an instantiation run reaching the export phase at store `s'`, the plays of
+`engineStrategy` from `s'` are plays of `engineStrategyI`. -/
+theorem engine_after_of_run {J : IInstance E} (hI : I = some J)
+    {cs : List (Σ _ : (sigN imps.length).Op, Option Payload)} {s' : E.Store Nat}
+    (hrun₀ : (engineLTSI E I imps exps).Run .fresh
+      ((instRound (F := sigN exps.length) cs .ready).moves) (.ready (.idle s')))
     {p : List (Move (sigN imps.length) (sigN exps.length))}
-    (hp : p ∈ engineStrategy E ⟨c'.1, J.addrs⟩ imps exps) :
+    (hp : p ∈ engineStrategy E ⟨s', J.addrs⟩ imps exps) :
     (instRound (F := sigN exps.length) cs .ready).moves ++ p.map liftMove ∈
       engineStrategyI E I imps exps := by
   have hJ : addrsOf I = J.addrs := by rw [hI]; rfl
-  have hrun : ∀ {p y}, (engineLTS E ⟨c'.1, J.addrs⟩ imps exps).Run (.idle c'.1) p y →
+  have hrun : ∀ {p y}, (engineLTS E ⟨s', J.addrs⟩ imps exps).Run (.idle s') p y →
       (engineLTSI E I imps exps).Run .fresh
         ((instRound (F := sigN exps.length) cs .ready).moves ++ p.map liftMove) (.ready y) := by
     intro p y h
-    have h' : (engineLTS E ⟨c'.1, addrsOf I⟩ imps exps).Run (.idle c'.1) p y := by
+    have h' : (engineLTS E ⟨s', addrsOf I⟩ imps exps).Run (.idle s') p y := by
       rw [hJ]; exact h
-    simp only [instRound, Round.moves, List.cons_append, List.append_assoc]
-    exact .vis (ITrans.start hI ha) ((run_start_values (exps := exps) hr hf).append
-      (.vis ITrans.ready (run_lift h')))
+    exact hrun₀.append (run_lift h')
   have hlegal : ∀ {p}, Legal p →
       Legal ((instRound (F := sigN exps.length) (X := sigN imps.length) (R := Unit) cs
         .ready).moves ++
@@ -161,5 +159,68 @@ theorem engine_after_start {J : IInstance E} {a : E.FuncAddr} (hI : I = some J)
     · obtain ⟨y₁, hy₁, -⟩ := LTS.Run.of_append hy
       exact hext (Strategy.mem_ofLTS_of_mem_traces ⟨_, hrun hy₁⟩
         (hlegal (hl.of_prefix (List.prefix_append _ _)))) hl ho
+
+/-- **After a successful instantiation, the exports are served as `engineStrategy` serves them
+from the store the start phase left.** -/
+theorem engine_after_start {J : IInstance E} {a : E.FuncAddr} (hI : I = some J)
+    (ha : J.start = some a) {cs : List (Σ _ : (sigN imps.length).Op, Option Payload)}
+    {c' : E.Config Nat} (hr : StartRunI E imps (J.store, E.invoke a []) cs c') {ys : List Flat}
+    (hf : E.status c'.1 c'.2 = .returned (.values ys))
+    {p : List (Move (sigN imps.length) (sigN exps.length))}
+    (hp : p ∈ engineStrategy E ⟨c'.1, J.addrs⟩ imps exps) :
+    (instRound (F := sigN exps.length) cs .ready).moves ++ p.map liftMove ∈
+      engineStrategyI E I imps exps := by
+  refine engine_after_of_run hI ?_ hp
+  simp only [instRound, Round.moves]
+  exact .vis (ITrans.start hI ha) ((run_start_values (exps := exps) hr hf).append
+    (.vis ITrans.ready (.nil _)))
+
+/-- **Without a start function, after `[inst, ready]` the exports are served as
+`engineStrategy` serves them.** -/
+theorem engine_after_noStart {J : IInstance E} (hI : I = some J) (ha : J.start = none)
+    {p : List (Move (sigN imps.length) (sigN exps.length))}
+    (hp : p ∈ engineStrategy E J.toE imps exps) :
+    askInst :: ansInst .ready :: p.map liftMove ∈ engineStrategyI E I imps exps :=
+  engine_after_of_run (cs := []) hI (.vis (ITrans.noStart hI ha) (.vis ITrans.ready (.nil _))) hp
+
+/-- A module whose instance has no start function has the same instance under `instOf`. -/
+theorem instOf_of_instOfI {m : E.Module} {J : IInstance E}
+    (h : instOfI E m imps exps = some J) (hs : J.start = none) :
+    instOf E m imps exps = some J.toE := by
+  unfold instOfI at h
+  unfold instOf
+  revert h
+  generalize allocHosts E (E.empty Nat) 0 imps = sa
+  obtain ⟨s, as⟩ := sa
+  dsimp only
+  cases hp : E.prepare? s m (as.map E.ofFunc) with
+  | none => intro h; cases h
+  | some x =>
+    obtain ⟨s', inst, st⟩ := x
+    intro h
+    dsimp only at h
+    cases he : exportAddrs E inst exps with
+    | none => rw [he] at h; cases h
+    | some addrs =>
+      rw [he] at h
+      cases h
+      cases hs
+      dsimp only
+      rw [he]
+      rfl
+
+/-- **The engine semantics with an instantiation phase extends `engineSem` on start-free
+modules**: after `[inst, ready]` every play of `engineSem` is a play of `engineSemI`. -/
+theorem engineSem_le_after {M : Type} [CoreModule M] {emb : M → E.Module} {m : M}
+    {J : IInstance E}
+    (h : instOfI E (emb m) (CoreModule.imports m) (CoreModule.exports m) = some J)
+    (hs : J.start = none) {p : List (Move (sigN (CoreModule.imports m).length)
+      (sigN (CoreModule.exports m).length))} (hp : p ∈ (engineSem E M emb).sem m) :
+    askInst :: ansInst .ready :: p.map liftMove ∈ (engineSemI E M emb).sem m := by
+  have h' := instOf_of_instOfI h hs
+  have hp' : p ∈ engineStrategy E J.toE (CoreModule.imports m) (CoreModule.exports m) := by
+    simpa only [engineSem, h'] using hp
+  exact engine_after_noStart (I := instOfI E (emb m) (CoreModule.imports m)
+    (CoreModule.exports m)) h hs hp'
 
 end Silmaril.Proofs.Wasm.Component.InstEngine

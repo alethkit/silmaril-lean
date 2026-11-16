@@ -58,11 +58,11 @@ export is callable.
 
 ## Observations
 
-* `afterReady σ`: the plays `p` such that `[inst, ready] ++ p` (lifted, `Wasm.Game.liftMove`) is
-  a play of `σ`: the export phase after an instantiation without import calls.
-* `InstRun σ w a`: `[inst] ++ w ++ [a]` is a play, `w` the import moves of instantiation.
+* `instPlay cs a`: the instantiation play `inst`, the complete calls `cs` below, the answer `a`;
+* `lowerAsks p`: the calls made below in the play `p`, in order.
 
-The comparison with `Comp.denU` (`denIR_toI`, `afterReady_denI_toI`) is in `InstSem.Thms`.
+The comparison with `Comp.denU` (`denIR_toI`, `denI_toI_iff`: after `[inst, ready]`, lifted by
+`Wasm.Game.liftMove`, the plays are those of `Comp.denU`) is in `InstSem.Thms`.
 -/
 
 @[expose] public section
@@ -98,17 +98,17 @@ def liftH {E F : Sig.{0}} {R : Type} (h : Handler E F) : Handler (E.withInst R) 
 def withReady {E F : Sig.{0}} {R : Type} (σ : Strategy E F) : Strategy E (F.withInst R) :=
   σ.comp (Strategy.ofHandler (readyH F R))
 
-/-- The plays after an instantiation without import calls: `[inst, ready] ++ p` (lifted) is a
-play of `σ`. -/
-def afterReady {E F : Sig.{0}} {R : Type} (σ : Strategy E (F.withInst R)) :
-    Set (List (Move E F)) :=
-  {p | askInst :: ansInst .ready :: p.map liftMove ∈ σ}
+/-- **An instantiation play**: `inst`, the complete calls `cs` below (each question with its
+answer), then the answer `a`. -/
+def instPlay {E F : Sig.{0}} {R : Type} (cs : List (Σ m : E.Op, E.Ar m)) (a : InstAns R) :
+    List (Move E (F.withInst R)) :=
+  askInst :: (cs.flatMap fun c => [.inl (.ask c.1), .inl (.ans c.1 c.2)]) ++ [ansInst a]
 
-/-- **An instantiation run**: `inst` is asked, the import moves `w` are made, and the answer is
-`a`. -/
-def InstRun {E F : Sig.{0}} {R : Type} (σ : Strategy E (F.withInst R)) (w : List (Ev E))
-    (a : InstAns R) : Prop :=
-  askInst :: w.map Sum.inl ++ [ansInst a] ∈ σ
+/-- The calls made below in a play, in order. -/
+def lowerAsks {E F : Sig.{0}} : List (Move E F) → List E.Op
+  | [] => []
+  | .inl (.ask m) :: p => m :: lowerAsks p
+  | _ :: p => lowerAsks p
 
 /-! ## The protocol -/
 
