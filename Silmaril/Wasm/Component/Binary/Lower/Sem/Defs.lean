@@ -24,7 +24,8 @@ existing core decoder, the existing engine and the existing engine semantics:
 
 Inherited from `engineSem`, stated there: the imports of a core module are bound positionally
 to host functions, and a module with a start function has no engine instance, so it traps on
-every question (`instOf`).
+every question (`instOf`). `Binary.coreModSemI` (`Binary.Lower.SemI`) is the same pipeline
+through the interface with an instantiation phase, where start functions run.
 -/
 
 @[expose] public section

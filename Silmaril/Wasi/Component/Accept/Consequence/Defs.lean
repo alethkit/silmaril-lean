@@ -35,7 +35,10 @@ fixed-arity `accept(tuple<u8, …>)` components reach it (see `componentBytesSys
 
 **Execution-based default.** `componentBytesSystemCore3 P` fixes `C := Binary.coreModSem P`,
 which runs each lowered core module on the Core 3.0 engine. The loosest `topSem` is no longer
-the only choice.
+the only choice. Under `coreModSem` a lowered module with a start function has no instance (it
+traps on every question); the instantiation-aware entry points, with start functions run at
+instantiation, are `componentBytesSystemI` and `componentBytesSystemCore3I`
+(`Silmaril.Wasi.Component.Accept.Inst`).
 
 **Either shape.** `ByteAcceptor.decode` reads bytes as a core module (`decode?`) or, failing
 that, as a component. The two binary formats differ in their header's layer field, so at most
