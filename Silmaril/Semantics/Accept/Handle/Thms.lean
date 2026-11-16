@@ -7,6 +7,7 @@ public import Mathlib.Logic.Relation
 import Silmaril.Proofs.Semantics.Accept.Handle.Writer
 import Silmaril.Proofs.Semantics.Accept.Handle.Reader
 import Silmaril.Proofs.Semantics.Accept.Handle.Node
+import Silmaril.Proofs.Semantics.Accept.Handle.Hom
 
 /-!
 # Handle-based acceptance: laws
@@ -25,6 +26,10 @@ import Silmaril.Proofs.Semantics.Accept.Handle.Node
   (`successes_length_le`; for `i32`, `2 ^ 32` or `2 ^ 32 - 1`);
 * the constructed set: under a child relation of the signature, the language of
   `acceptAll`-only traces is downward closed (`writerLang_downClosed`);
+* writer homomorphisms (`Writer.Hom`: operations along `f`, trees along an injective `g`,
+  building commutes) transport languages: `writerLang_hom_subset`, and `writerLang_hom`
+  (equality without undefined behaviour; UB accepts every tree of the target, not only the
+  image);
 * error-return accept: `writerLang_subset_eraseErr`, with equality for modules that ignore the
   returned status (`writerLang_eraseErr_eq`);
 * sentinels: on traces that never receive the sentinel a sentinel policy *is* the policy
@@ -145,6 +150,20 @@ theorem writerLang_sentinel_swap {Op' : Type u} {X' : Type w} {W' : Writer Op' X
   have hp : pol.rename (Equiv.swap (0 : BitVec 32) (-1)) = {pol with sentinel := some (-1)} := by
     simp [Policy.rename, hs]
   rwa [hp] at h
+
+/-- **Writer homomorphisms transport languages**: the image module accepts at least the image
+of the language. -/
+theorem writerLang_hom_subset {Op' : Type u} {X' : Type w} {W' : Writer Op' X'} {f : Op → Op'}
+    {g : X → X'} (hW : W.Hom W' f g) (pol : Policy H) (T : Set (List (WEv Op H))) :
+    g '' writerLang W pol T ⊆ writerLang W' pol (List.map (WEv.mapOp f) '' T) :=
+  Silmaril.Proofs.Semantics.Accept.Handle.writerLang_hom_subset hW pol T
+
+/-- Without undefined behaviour, exactly the image. -/
+theorem writerLang_hom {Op' : Type u} {X' : Type w} {W' : Writer Op' X'} {f : Op → Op'}
+    {g : X → X'} (hW : W.Hom W' f g) {pol : Policy H} (ha : pol.onAccept ≠ .ub)
+    (hw : pol.onWrite ≠ .ub) (T : Set (List (WEv Op H))) :
+    writerLang W' pol (List.map (WEv.mapOp f) '' T) = g '' writerLang W pol T :=
+  Silmaril.Proofs.Semantics.Accept.Handle.writerLang_hom hW ha hw T
 
 end Writer
 

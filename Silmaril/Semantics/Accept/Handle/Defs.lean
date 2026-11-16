@@ -272,6 +272,21 @@ def WEv.eraseErr : WEv Op H → WEv Op H
   | .acceptErr h _ => .accept h
   | e => e
 
+/-- Map the operations of a writer event. -/
+def WEv.mapOp {Op' : Type u} (f : Op → Op') : WEv Op H → WEv Op' H
+  | .write op args r => .write (f op) args r
+  | .accept h => .accept h
+  | .acceptErr h b => .acceptErr h b
+  | .acceptAll => .acceptAll
+  | .acceptBatch b => .acceptBatch b
+
+/-- **A writer homomorphism**: operations map along `f`, trees along the injective `g`, and
+building commutes with both. -/
+structure Writer.Hom {Op' : Type u} {X' : Type w} (W : Writer Op X) (W' : Writer Op' X')
+    (f : Op → Op') (g : X → X') : Prop where
+  inj : Function.Injective g
+  build : ∀ op ts, W'.build (f op) (ts.map g) = (W.build op ts).map g
+
 /-- Rename handles by `π` (results, arguments and accepted handles). -/
 def WEv.rename (π : H → H) : WEv Op H → WEv Op H
   | .write op args r => .write op (args.map π) (π r)
