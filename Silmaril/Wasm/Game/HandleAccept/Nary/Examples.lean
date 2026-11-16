@@ -10,8 +10,8 @@ public import Silmaril.Wasm.Game.HandleAccept.Nary.Thms
 argument when `kind` answers list and `count` answers two. It validates and instantiates
 (`pairCheck_instance`). Its intended language is the two-element lists `pairL`; by
 `sexpLang_sound_of_forall`, `moduleSExpLang P pairCheck pairIx .trap oa Envs ⊆ pairL` follows
-from its Hoare-logic obligation `GameSat … (sexpISpec pairIx ρ pairL)`, which is **not proved**
-here.
+from its Hoare-logic obligation `GameSat … (sexpISpec pairIx ρ pairL)`, proved in
+`Silmaril.Wasm.Game.HandleAccept.Nary.Checkers.Thms` (`pairCheck_sat`, `pairCheck_sound`).
 -/
 
 @[expose] public section
