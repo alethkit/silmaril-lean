@@ -236,22 +236,26 @@ theorem instProper_rounds {Y : Sig.{0}} (cs : List (Call Y)) (rs : List (Round Y
 
 variable {M : Type} [CoreModule M]
 
-/-- **An export phase of the nodes, forwarded to the component's exports**: an instantiation
-round followed by one export round of the environment's function `r`, which the component's
-export `j` forwards (`Impl.fwd r`), is a play of the component. -/
-theorem denI_of_denNodesI_fwd (C : CoreSemI M) (I : Iface) (ns : List (Node M))
-    (xs : List Export) (cs : List (Call sigU)) {j r : Nat} {pl : Payload} (a : Option Payload)
-    (hx : (xs.map Export.impl)[j]? = some (Impl.fwd r)) (hr : r < envAfter I.length ns)
-    (h : roundsMoves [instRound (F := sigU) cs .ready, exRound (R := Unit) (⟨(r, pl), [], a⟩ : Round sigU sigU)] ∈
+/-- **An export phase of the nodes, through the component's exports**: an instantiation round
+followed by one export round of the environment's function `r` (question `pl'`, answer `a`, no
+calls below), which the component's export `j` runs (`hrun`: called on `pl`, it calls `r` on
+`pl'` and answers `a'`), is a play of the component. -/
+theorem denI_of_denNodesI_ex (C : CoreSemI M) (I : Iface) (ns : List (Node M))
+    (xs : List Export) (cs : List (Call sigU)) {j r : Nat} {pl pl' : Payload}
+    {a a' : Option Payload}
+    (hrun : Prog.Runs (liftH (R := Unit) (exportsH (envAfter I.length ns) xs) (some (j, pl)))
+      [⟨some (r, pl'), a⟩] a')
+    (h : roundsMoves [instRound (F := sigU) cs .ready,
+      exRound (R := Unit) (⟨(r, pl'), [], a⟩ : Round sigU sigU)] ∈
       denNodesI C I.length ns (withReady (Strategy.ofHandler (maskH I.length)))) :
-    roundsMoves [instRound (F := sigU) cs .ready, exRound (R := Unit) (⟨(j, pl), [], a⟩ : Round sigU sigU)] ∈
-      (Comp.mk I ns xs).denI C := by
+    roundsMoves [instRound (F := sigU) cs .ready,
+      exRound (R := Unit) (⟨(j, pl), [], a'⟩ : Round sigU sigU)] ∈ (Comp.mk I ns xs).denI C := by
   rw [Comp.denI, Comp.denIR]
   refine (mem_instGuard_iff ?_).2 ?_
-  · exact instProper_rounds cs [(⟨(j, pl), [], a⟩ : Round sigU sigU)]
+  · exact instProper_rounds cs [(⟨(j, pl), [], a'⟩ : Round sigU sigU)]
   let us : List (List (Round sigU sigUI) × Round sigUI sigUI) :=
     [([instRound cs .ready], ⟨none, [⟨none, InstAns.ready⟩], InstAns.ready⟩),
-      ([exRound (⟨(r, pl), [], a⟩ : Round sigU sigU)], ⟨some (j, pl), [⟨some (r, pl), a⟩], a⟩)]
+      ([exRound (⟨(r, pl'), [], a⟩ : Round sigU sigU)], ⟨some (j, pl), [⟨some (r, pl'), a⟩], a'⟩)]
   have hc := comp_rounds
     (σ := denNodesI C I.length ns (withReady (Strategy.ofHandler (maskH I.length))))
     (τ := Strategy.ofHandler (liftH (exportsH (envAfter I.length ns) xs))) us (by
@@ -266,8 +270,19 @@ theorem denI_of_denNodesI_fwd (C : CoreSemI M) (I : Iface) (ns : List (Node M))
         List.not_mem_nil, or_false] at hu
       rcases hu with rfl | rfl
       · exact .call (.pure _)
-      · exact liftH_exportsH_fwd_runs hx hr a)
+      · exact hrun)
   simpa only [us, List.map_cons, List.map_nil, allCalls, instRound, exRound,
     List.append_nil] using hc
+
+/-- **An export phase of the nodes, forwarded to the component's exports** (`Impl.fwd r`). -/
+theorem denI_of_denNodesI_fwd (C : CoreSemI M) (I : Iface) (ns : List (Node M))
+    (xs : List Export) (cs : List (Call sigU)) {j r : Nat} {pl : Payload} (a : Option Payload)
+    (hx : (xs.map Export.impl)[j]? = some (Impl.fwd r)) (hr : r < envAfter I.length ns)
+    (h : roundsMoves [instRound (F := sigU) cs .ready,
+      exRound (R := Unit) (⟨(r, pl), [], a⟩ : Round sigU sigU)] ∈
+      denNodesI C I.length ns (withReady (Strategy.ofHandler (maskH I.length)))) :
+    roundsMoves [instRound (F := sigU) cs .ready,
+      exRound (R := Unit) (⟨(j, pl), [], a⟩ : Round sigU sigU)] ∈ (Comp.mk I ns xs).denI C :=
+  denI_of_denNodesI_ex C I ns xs cs (liftH_exportsH_fwd_runs hx hr a) h
 
 end Silmaril.Proofs.Wasm.Component.InstSem
