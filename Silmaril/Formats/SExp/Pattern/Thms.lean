@@ -48,13 +48,13 @@ theorem Pat.lang_mono {f : Set (SExp α) → Set (SExp α)} (hf : ∀ L, L ⊆ f
     Pat.lang p ⊆ Pat.lang (p.map (Sum.map id f)) :=
   Silmaril.Proofs.Formats.SExp.Pattern.pat_lang_mono hf p
 
-theorem AST.encode_injective {S : Sig} {tagEnc : S.Tag → SExp β}
+theorem AST.encode_injective {S : AstSig} {tagEnc : S.Tag → SExp β}
     {argEnc : ∀ t, S.Arg t → List (SExp β)} (ht : Function.Injective tagEnc)
     (ha : ∀ t, Function.Injective (argEnc t)) (hl : AST.ArgLenFixed argEnc) :
     Function.Injective (AST.encode tagEnc argEnc) :=
   Silmaril.Proofs.Formats.SExp.Pattern.encode_injective ht ha hl
 
-theorem AST.encode_image_injective {S : Sig} {tagEnc : S.Tag → SExp β}
+theorem AST.encode_image_injective {S : AstSig} {tagEnc : S.Tag → SExp β}
     {argEnc : ∀ t, S.Arg t → List (SExp β)} (ht : Function.Injective tagEnc)
     (ha : ∀ t, Function.Injective (argEnc t)) (hl : AST.ArgLenFixed argEnc) :
     Function.Injective (Set.image (AST.encode tagEnc argEnc)) :=

@@ -40,7 +40,7 @@ embed with no hint (`Thms`).
 
 ## Tagged ASTs with typed payloads
 
-A signature `Sig` has tags, a payload type `Arg t` per tag and an arity per tag (`Arity`: a
+A signature `AstSig` has tags, a payload type `Arg t` per tag and an arity per tag (`Arity`: a
 natural number, or `star` for any number of children). Its trees are
 `AST S := TExpr1 (Σ t, S.Arg t)`: tagged expressions whose tag is a tag with its payload; the
 arity is the predicate `WellArity`. `WitSig` gives payloads as vectors of WIT-like value types
@@ -146,7 +146,7 @@ def Arity.Admits : Arity → Nat → Bool
   | .star, _ => true
 
 /-- **An AST signature**: tags, payloads and arities. -/
-structure Sig where
+structure AstSig where
   Tag : Type
   Arg : Tag → Type
   arity : Tag → Arity
@@ -157,14 +157,14 @@ structure WitSig where
   params : Tag → List PTy
   arity : Tag → Arity
 
-def WitSig.toSig (S : WitSig) : Sig := ⟨S.Tag, fun t => PTy.Vals (S.params t), S.arity⟩
+def WitSig.toAstSig (S : WitSig) : AstSig := ⟨S.Tag, fun t => PTy.Vals (S.params t), S.arity⟩
 
 /-- **The trees of a signature**: tagged expressions whose tag carries its payload. -/
-abbrev AST (S : Sig) := TExpr1 (Σ t, S.Arg t)
+abbrev AST (S : AstSig) := TExpr1 (Σ t, S.Arg t)
 
 namespace AST
 
-variable {S : Sig}
+variable {S : AstSig}
 
 /-- A node from a list of children. -/
 def node (t : S.Tag) (a : S.Arg t) (children : List (AST S)) : AST S :=
@@ -187,7 +187,7 @@ inductive SxTag where
 
 /-- **The S-expression signature**: a payload-free variadic branch and a nullary leaf with an
 atom. -/
-def sexpSig (α : Type) : Sig where
+def sexpSig (α : Type) : AstSig where
   Tag := SxTag
   Arg
     | .branch => Unit
@@ -218,6 +218,11 @@ def toSExp : AST (sexpSig α) → SExp α
   | .tag ⟨SxTag.branch, _⟩ n children => .list n fun i => toSExp (children i)
 
 end AST
+
+/-- **The proper part of a dotted S-expression**: its n-ary form when it is proper (the unique
+preimage under `SExp.toSExp2`, by classical choice), `none` for improper ones. -/
+noncomputable def SExp2.toSExp? {α : Type} (x : SExp2 α) : Option (SExp α) :=
+  open Classical in if h : ∃ e : SExp α, e.toSExp2 = x then some h.choose else none
 
 /-- Hinted S-expressions as RFC 9804 S-expressions. -/
 def HintedSExp.toSpki : HintedSExp → Spki.Sexp

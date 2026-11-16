@@ -53,7 +53,7 @@ theorem sexpR_mono : (sexpR α H).Mono := Silmaril.Proofs.Formats.SExp.Api.sexpR
 
 theorem consR_mono : (consR α H).Mono := Silmaril.Proofs.Formats.SExp.Api.consR_mono
 
-theorem astR_mono {S : Sig} : (astR S H).Mono := Silmaril.Proofs.Formats.SExp.Api.astR_mono
+theorem astR_mono {S : AstSig} : (astR S H).Mono := Silmaril.Proofs.Formats.SExp.Api.astR_mono
 
 theorem consChain_sound {ρ : Env H (SExp2 α)} {hist : List (ConsQ H × ConsA α H)}
     (hf : ∀ p ∈ hist, (consR α H).valid ρ p.1 ∧ (consR α H).ok ρ p.1 p.2) {h : H}

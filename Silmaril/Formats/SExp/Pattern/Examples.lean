@@ -15,7 +15,7 @@ encode as `(() (()))`. `AST.encode_injective` excludes this with `ArgLenFixed`.
 namespace Silmaril.Formats.Examples
 
 /-- One variadic tag with a list of S-expressions as payload. -/
-def listSig : Sig := ⟨Unit, fun _ => List (SExp Unit), fun _ => .star⟩
+def listSig : AstSig := ⟨Unit, fun _ => List (SExp Unit), fun _ => .star⟩
 
 def enc : AST listSig → SExp Unit := AST.encode (fun _ => .atom ()) (fun _ a => a)
 

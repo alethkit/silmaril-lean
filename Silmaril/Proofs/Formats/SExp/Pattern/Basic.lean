@@ -124,7 +124,7 @@ theorem pat_lang_mono {f : Set (SExp α) → Set (SExp α)} (hf : ∀ L, L ⊆ f
       rintro x ⟨cs, rfl, h⟩
       exact ⟨cs, rfl, fun i => ih i (h i)⟩
 
-theorem encode_injective {S : Sig} {tagEnc : S.Tag → SExp β} {argEnc : ∀ t, S.Arg t → List (SExp β)}
+theorem encode_injective {S : AstSig} {tagEnc : S.Tag → SExp β} {argEnc : ∀ t, S.Arg t → List (SExp β)}
     (ht : Function.Injective tagEnc) (ha : ∀ t, Function.Injective (argEnc t))
     (hl : AST.ArgLenFixed argEnc) : Function.Injective (AST.encode tagEnc argEnc) := by
   intro x

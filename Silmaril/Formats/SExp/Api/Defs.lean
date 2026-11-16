@@ -16,7 +16,7 @@ Wasm layer (`Silmaril.Wasm.Game.HandleAccept`) decodes calls into these operatio
   `word(i64)`, `keyword(string)` for the family's atom kinds) and `list`
   (`sexp(list<i32>) -> i32`, any number of children).
 * `astW S` (tagged ASTs): one operation per tag *with its payload*, `tag(args…, children…)`;
-  the arity (`Sig.arity`) decides how many children are admitted. Variadic imports
+  the arity (`AstSig.arity`) decides how many children are admitted. Variadic imports
   `tag(args…, children: list<i32>)` and fixed-arity imports `tag(args…, c₁, …, cₙ)` are two
   decodings of the same operation; a mixed signature uses either per tag.
 * `consW α` (dotted, `SExp2`): `nil()`, `atom a`, `cons(i32, i32)`. Improper lists are
@@ -72,7 +72,7 @@ def SxOp.toAST : SxOp α → Σ t, (sexpSig α).Arg t
 
 /-- **The generic tagged-AST writer**: a tag with its payload, and children admitted by its
 arity. -/
-def astW (S : Sig) : Writer (Σ t, S.Arg t) (AST S) where
+def astW (S : AstSig) : Writer (Σ t, S.Arg t) (AST S) where
   build op cs := if (S.arity op.1).Admits cs.length then some (TExpr.ofList op cs) else none
 
 /-- Operations of the dotted (cons) writer. -/
@@ -195,13 +195,13 @@ inductive AstQ (H : Type) where
   | child (h : H) (i : Nat)
 
 /-- AST answers. -/
-inductive AstA (S : Sig) (H : Type) where
+inductive AstA (S : AstSig) (H : Type) where
   | tag (v : Σ t, S.Arg t)
   | count (n : Nat)
   | handle (h : H)
 
 /-- **The AST reader.** -/
-def astR (S : Sig) (H : Type) : Reader (AstQ H) (AstA S H) H (AST S) where
+def astR (S : AstSig) (H : Type) : Reader (AstQ H) (AstA S H) H (AST S) where
   valid ρ
     | .tag h => ∃ x, ρ h = some x
     | .count h => ∃ x, ρ h = some x

@@ -74,16 +74,16 @@ def Pat2.lang : Pat2 α → Set (SExp2 α)
   | .cons p q => {x | ∃ a b, x = .cons a b ∧ a ∈ Pat2.lang p ∧ b ∈ Pat2.lang q}
 
 /-- AST patterns: tag-and-payload nodes with acceptor holes. -/
-abbrev PatAST (S : Sig) := TExpr (Σ t, S.Arg t) (Set (AST S))
+abbrev PatAST (S : AstSig) := TExpr (Σ t, S.Arg t) (Set (AST S))
 
 /-- **The ASTs matching a pattern.** -/
-def PatAST.lang {S : Sig} : PatAST S → Set (AST S)
+def PatAST.lang {S : AstSig} : PatAST S → Set (AST S)
   | .atom L => L
   | .tag v n ps => {x | ∃ cs : Fin n → AST S, x = .tag v n cs ∧ ∀ i, cs i ∈ PatAST.lang (ps i)}
 
 namespace AST
 
-variable {S : Sig}
+variable {S : AstSig}
 
 /-- **An AST as an S-expression** with a per-tag layout of the node. -/
 def encodeWith (node : ∀ t, S.Arg t → List (SExp β) → SExp β) : AST S → SExp β

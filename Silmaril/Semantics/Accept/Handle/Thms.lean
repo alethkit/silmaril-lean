@@ -182,6 +182,12 @@ theorem trap_reads_correct {oa : OnInvalid} (hoa : oa ≠ .ub) {ρ : Env H X} {p
     ∀ qa ∈ REv.reads t, R.valid ρ qa.1 ∧ R.ok ρ qa.1 qa.2 :=
   (Silmaril.Proofs.Semantics.Accept.Handle.trap_facts hoa hr (by simp)).2
 
+/-- Under the trapping read policy (and no accept UB) a run never reaches chaos. -/
+theorem trap_not_chaos {oa : OnInvalid} (hoa : oa ≠ .ub) {ρ : Env H X} {p : Phase}
+    {t : List (REv Q A H)} {S : Set X} (hr : (reader R .trap oa ρ).Run .live t p S) :
+    p ≠ .chaos :=
+  (Silmaril.Proofs.Semantics.Accept.Handle.trap_facts hoa hr (by simp)).1
+
 theorem dflt_read {d : Q → A} {ρ : Env H X} {q : Q} {a : A} {S : Set A}
     (hS : answers R (.dflt d) ρ q = some S) (ha : a ∈ S) :
     (R.valid ρ q ∧ R.ok ρ q a) ∨ (¬ R.valid ρ q ∧ a = d q) :=

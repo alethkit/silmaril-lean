@@ -96,7 +96,7 @@ theorem consR_mono : (consR α H).Mono := by
     · obtain ⟨x, y, hx, hh⟩ := hok; exact ⟨x, y, hext hx, hext hh⟩
     · obtain ⟨x, y, hx, hh⟩ := hok; exact ⟨x, y, hext hx, hext hh⟩
 
-theorem astR_mono {S : Sig} : (astR S H).Mono := by
+theorem astR_mono {S : AstSig} : (astR S H).Mono := by
   constructor
   · intro ρ ρ' q hext hv
     cases q with
