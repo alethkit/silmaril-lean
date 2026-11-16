@@ -119,7 +119,7 @@ environments (`parseRel … Envs`).
 | proper lists in `SExp2`, `[i64]` word lists, sorted word lists, subset theorem | done (soundness) | modules `properCheck`, `wordsCheck`, `sortedCheck` (validated by `decide +kernel`); `properCheck_sat`, `wordsCheck_sat`, `sortedCheck_sat` (`GameSat` with store invariant `consInv`, every profile, every environment `ρ`); unconditional `properCheck_sound`, `wordsCheck_sound`, `sortedCheck_sound` (`moduleConsLang P m consIx .trap .trap Envs ⊆ L` for every `Envs`). `properL` is **spine** properness (`SpineProperList`: nil-terminated `cdr` spine, any elements), which is what `properCheck` checks; recursive properness `recProperL` is strictly smaller (`recProperL_ssubset_properL`, with `dottedElem_mem_properL`/`dottedElem_not_mem_recProperL`); `sortedL_subset_wordsL`, `wordsL_subset_properL` |
 | non-vacuity of the checkers | done | `Checkers.Examples`: replayed instance plays (`Silmaril.Wasm.Resource.Replay`, `replayExport_play`) decoded into reader runs (`mem_consLang_of_replay`): `properCheck_accepts_12`, `wordsCheck_accepts_12`, `sortedCheck_accepts_12` (`ofAtoms [1, 2]`), `wordsCheck_accepts_21`, `properCheck_accepts_dottedElem`, for every profile admitting the deterministic interpreter's steps (`hP`) and every specification profile (`_spec`); negative: `sortedCheck_rejects_21`, `wordsCheck_rejects_dottedElem`, `properCheck_rejects_atom`. So `sortedL ⊊ wordsL ⊊ properL` is witnessed by the modules |
 | signed `i32` handles vs `i64` payloads, sorting | done (stated) | `Checkers.Defs` docstring; `sortedL` uses signed `BitVec.sle` (`i64.le_s`) |
-| other styles in Wasm | partial | decoders and bridges: writer (`Writer`: cons and n-ary, `writerLang_subset_of_AG`, `fixedLang_subset_of_AG`, structural `moduleConsWLang_subset_atoms2`, `moduleSxWLang_subset_arities`, examples `wordAccept`, `consPair`, `sxPair_binary`), n-ary reader (`Nary`: `sexpLang_sound_of_gameSat`), AST (`Ast`), parsing exports (`Parse`: `moduleParseRel_input_oneShot`, `moduleParseRel_sound_of_gameSat`); proved `GameSat` examples for these styles and binary-tree decoders: in progress |
+| other styles in Wasm (proved examples) | done | shared rules `Proofs/Wasm/Game/HandleAccept/Checkers/Generic.lean`. N-ary reader (`count`/`child`): `pairCheck_sound`, `wordsNCheck_sound` (`SExp.ofAtoms ws`), `sortedNCheck_sound`, `sortedNL_subset_wordsNL`. AST reader: `addCheck_sound` (`add(num a, num b)`). Parsing export: `nzParse_sound`/`nzParse_input` (one-shot inputs are single nonzero words; the tree is unconstrained because the export spec cannot constrain its imports). Binary trees (`Tree2`, cons without nil): writer/reader decoders, `combCheck_sound` (right combs of words). Writer: `twoWords_sound`, `twoWords_fixed_sound` (accepts only `(x x+1)`), for policies without a sentinel (the module does not test for failures). Structural bounds for every module: `moduleConsWLang_subset_atoms2`, `moduleSxWLang_subset_arities`, `moduleAstWLang_wellArity`, `moduleParseRel_input_oneShot`, `memWriterLang_subset_atoms` |
 
 ### 8. Combined writer + reader
 
@@ -163,7 +163,12 @@ environments (`parseRel … Envs`).
 
 ## Remaining obligations
 
-Tracked in PR #688 and updated as phases land; see the per-item tables above for status.
+* Non-vacuity replays exist for the three cons checkers only; the n-ary, AST, parsing,
+  binary-tree and writer examples are proved sound but not yet shown to accept a concrete tree.
+* No checker for recursive properness (`recProperL`).
+* No assume/guarantee bridge for memory-carrying traced sessions (only decoders and the
+  structural bound); chunk lists in memory for parsing; an `items(h) -> list<i32>` reader.
+* `twoWords` with a sentinel; a combined writer + parsing host.
 
 ## Checking
 
