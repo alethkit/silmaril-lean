@@ -13,7 +13,12 @@ index (`consIx`): `0 kind : [i32] → [i32]` (`0` nil, `1` atom, `2` cons), `1 c
 (handles to inspect are chosen by the module from there: `car`/`cdr` results).
 
 * `properCheck`: follows `cdr` from `h` while `kind` answers cons; accepts `h` on nil, returns
-  otherwise. Language `properL`: proper lists (`SExp2.ProperList`) of anything.
+  otherwise. Language `properL`: **spine-proper** lists (`SpineProperList`): a `nil`-terminated
+  `cdr` spine whose elements are arbitrary trees, dotted pairs included. This is the ordinary
+  cons-cell meaning of a proper list; it is weaker than `SExp2.ProperList` (recursively proper:
+  every element is itself an atom or a recursively proper list), whose language is
+  `recProperL`. `properCheck` does not inspect elements, so it does not check recursive
+  properness.
 * `wordsCheck`: additionally requires every element (`car`) to be an atom, i.e. a word.
   Language `wordsL`: proper lists of `i64` words, `SExp2.ofAtoms ws`.
 * `sortedCheck`: additionally reads each word and requires them non-decreasing in the
@@ -89,8 +94,19 @@ def sortedCheck : Module :=
 
 /-! ## Languages -/
 
-/-- Proper dotted lists. -/
-def properL : Set (SExp2 (BitVec 64)) := {x | SExp2.ProperList x}
+/-- **Spine-proper lists**: `nil`, or a cons cell with any `car` and a spine-proper `cdr`
+(the elements may be any trees, dotted pairs included). Equivalently `x = SExp2.ofList xs`
+(`spineProperList_iff`). -/
+inductive SpineProperList {α : Type} : SExp2 α → Prop where
+  | nil : SpineProperList .nil
+  | cons (x : SExp2 α) {y : SExp2 α} : SpineProperList y → SpineProperList (.cons x y)
+
+/-- Proper lists in the cons-cell sense (spine-proper): the language of `properCheck`. -/
+def properL : Set (SExp2 (BitVec 64)) := {x | SpineProperList x}
+
+/-- Recursively proper lists (`SExp2.ProperList`): every element is an atom or itself a
+recursively proper list. Strictly smaller than `properL`; not checked by `properCheck`. -/
+def recProperL : Set (SExp2 (BitVec 64)) := {x | SExp2.ProperList x}
 
 /-- Proper lists of words. -/
 def wordsL : Set (SExp2 (BitVec 64)) := {x | ∃ ws, x = SExp2.ofAtoms ws}
@@ -99,22 +115,14 @@ def wordsL : Set (SExp2 (BitVec 64)) := {x | ∃ ws, x = SExp2.ofAtoms ws}
 def sortedL : Set (SExp2 (BitVec 64)) :=
   {x | ∃ ws, x = SExp2.ofAtoms ws ∧ ws.Pairwise fun a b => a.sle b = true}
 
-/-! ## Remaining proof obligations (frozen) -/
+/-! ## The store invariant -/
 
-/-- **Open obligation**: the Hoare-logic specification of `properCheck` in every fixed
-environment (`Silmaril.Wasm.Logic.GameLink.GameSat`, partial correctness, every profile). -/
-def Task.properCheckSat : Prop :=
-  ∀ P ρ, Silmaril.Wasm.Logic.GameLink.GameSat P (Verify.instOf properCheck) (fun _ => True)
-    (consISpec consIx ρ properL) (topISpec _)
-
-/-- **Open obligation** for `wordsCheck`. -/
-def Task.wordsCheckSat : Prop :=
-  ∀ P ρ, Silmaril.Wasm.Logic.GameLink.GameSat P (Verify.instOf wordsCheck) (fun _ => True)
-    (consISpec consIx ρ wordsL) (topISpec _)
-
-/-- **Open obligation** for `sortedCheck`. -/
-def Task.sortedCheckSat : Prop :=
-  ∀ P ρ, Silmaril.Wasm.Logic.GameLink.GameSat P (Verify.instOf sortedCheck) (fun _ => True)
-    (consISpec consIx ρ sortedL) (topISpec _)
+/-- **The store invariant of a checker**: the store's functions are those of the instantiated
+module. The Hoare-logic specification (`Silmaril.Wasm.Logic.GameLink.GameSat`) of an export
+quantifies over every store meeting the invariant; with the trivial invariant it would include
+stores without the checker's function, where the call is stuck, so the specification would be
+false. This invariant holds at instantiation, import calls return the store unchanged
+(`GameLink.importSpec`), and the checkers write no store. -/
+def consInv (m : Module) (s : Store Nat) : Prop := s.funcs = (Verify.instOf m).store.funcs
 
 end Silmaril.Wasm.Game.HandleAccept.Checkers

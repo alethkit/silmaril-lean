@@ -61,7 +61,7 @@ theorem consLang_sound_of_gameSat {P : Profile} {m : Module} {ix : ConsImports}
     (hs : Inv (Verify.instOf m).store) {oa : OnInvalid} (hoa : oa ≠ .ub) :
     moduleConsLang P m ix .trap oa {ρ} ⊆ L :=
   readerLang_subset_of_AG
-    (fun p hp => (Silmaril.Wasm.Logic.GameLink.strategy_sound hm hs hp).2)
+    (fun _ hp => (Silmaril.Wasm.Logic.GameLink.strategy_sound hm hs hp).2)
     (fun _ _ h => h) (fun _ h hd hpre => hpre h hd)
     (consDecAns_ne_accept ix) hoa
 
