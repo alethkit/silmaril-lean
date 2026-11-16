@@ -21,7 +21,7 @@ along `SExp.toSExp2`, `SExp.toAST` or an AST encoding `AST.encode`).
 **Combinators.** `tuple [L₁, …, Lₙ]` is the list `(a₁ … aₙ)` with `aᵢ ∈ Lᵢ`,
 `pair L₁ L₂ = tuple [L₁, L₂]`, and `star L` the lists of any length with every element in `L`.
 Because a list decomposes uniquely, `tuple` preserves intersections componentwise
-(`Thms`), unlike the projections of `Silmaril.Semantics.Accept.Parse`.
+(`Thms`), unlike projections of relations.
 
 ## ASTs as S-expressions
 

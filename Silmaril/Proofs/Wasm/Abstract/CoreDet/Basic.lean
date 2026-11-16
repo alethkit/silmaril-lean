@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Abstract.BodyDet.Thms
 public import Silmaril.Wasm.Abstract.PubModule.Thms
 public import Silmaril.Wasm.Abstract.PubModuleXP.Thms
+public import Silmaril.Wasm.Abstract.HostSessionXP.Defs
 public import Silmaril.Wasm.Abstract.HostCall.Thms
 public import Silmaril.Wasm.Execution.Core.Soundness
 public import Silmaril.Wasm.Execution.Core.Inversion.Thms
@@ -29,6 +30,10 @@ public import Silmaril.Wasm.SingleThreaded.Determinism.Vals
 * `tripleDet_sat`: a triple whose finished behaviours are `FinB` from a typed start and whose
   call prefixes are reached callouts has a deterministic saturation; `pubTriple_det` transfers
   this to the public restriction.
+* `coreTripleS_det`: the store-retaining triple is deterministic given answers, from
+  `coreTriple_det` through `eraseTrap_coreTripleS` (`agree_of_map`) and the uniqueness of the trap
+  configuration after a log (`evRun_stop_unique`). `coreTripleSXP_det`: the same with exceptions,
+  from `coreTripleXP_det`.
 -/
 
 @[expose] public section
@@ -84,6 +89,26 @@ theorem agree_map {S' B' : Type u} (f : End S B → End S' B') {c₁ c₂ : List
     | cons y r' =>
       obtain ⟨m', n'⟩ := y
       exact ⟨h.1, fun hn => ih (h.2 hn)⟩
+
+theorem agree_of_map {S' B' : Type u} (f : End S B → End S' B') {c₁ c₂ : List (Call E)}
+    {e₁ e₂ : End S B} (h : AFun.Agree c₁ (f e₁) c₂ (f e₂)) (hf : c₁ = c₂ → f e₁ = f e₂ → e₁ = e₂) :
+    AFun.Agree c₁ e₁ c₂ e₂ := by
+  induction c₁ generalizing c₂ with
+  | nil =>
+    cases c₂ with
+    | nil => exact hf rfl h
+    | cons => exact h.elim
+  | cons x r ih =>
+    obtain ⟨m, n⟩ := x
+    cases c₂ with
+    | nil => exact h.elim
+    | cons y r' =>
+      obtain ⟨m', n'⟩ := y
+      obtain ⟨hm, h₂⟩ := h
+      subst hm
+      refine ⟨rfl, fun hn => ?_⟩
+      cases hn
+      exact ih (h₂ HEq.rfl) fun hc he => hf (by rw [hc]) he
 
 end Agree
 
@@ -485,6 +510,76 @@ theorem coreTripleXP_det (hT : HostTyped host)
   tripleDet_sat hT (fun s q => invoke s q.1 q.2)
     (fun s q _ ⟨hq, h⟩ => ⟨typed_invoke (hOk s q hq).1 (hOk s q hq).2, finB_coreXP h⟩)
     (fun _ _ _ h => (coreTripleXP_satP_callout h).2)
+
+/-! ### The store-retaining triple -/
+
+theorem coreTripleS_det (hT : HostTyped host)
+    (hOk : ∀ s q, Ok s q → StoreOk s ∧ InvokeOk s q.1 q.2) :
+    AFun.Det (coreTripleS (SingleThreaded.profile o) host Ok).1 := by
+  intro s q x y hx hy
+  have hmem : ∀ z ∈ (coreTripleS (SingleThreaded.profile o) host Ok).1 s q,
+      (z.1, StratSession.eraseEnd z.2) ∈ (coreTriple (SingleThreaded.profile o) host Ok).1 s q :=
+    fun z hz => by
+      rw [coreTriple, ← eraseTrap_coreTripleS]
+      exact ⟨z, hz, rfl⟩
+  refine agree_of_map StratSession.eraseEnd
+    ((coreTriple_det hT hOk).fin s q _ _ (hmem x hx) (hmem y hy)) fun hc he => ?_
+  obtain ⟨c, e₁⟩ := x
+  obtain ⟨c', e₂⟩ := y
+  simp only at hc he ⊢
+  subst hc
+  obtain ⟨-, hx⟩ := hx
+  obtain ⟨-, hy⟩ := hy
+  rcases e₁ with ⟨r₁ | u₁, s₁⟩ | _ | _ <;> rcases e₂ with ⟨r₂ | u₂, s₂⟩ | _ | _ <;>
+    simp only [StratSession.eraseEnd, End.ret.injEq, reduceCtorEq] at he
+  all_goals first
+    | exact (hx : False).elim
+    | exact (hy : False).elim
+    | rfl
+    | rw [he.1, he.2]
+    | cases u₁; cases u₂
+      cases evRun_stop_unique hx (fun _ => Step.trap_stuck) hy (fun _ => Step.trap_stuck)
+      rfl
+
+/-! ### The store-retaining triple with exceptions -/
+
+/-- A behaviour of the store-retaining triple with exceptions erases to one of `coreTripleXP`. -/
+theorem coreTripleSXP_erase {P : Numerics.Profile} {s : Store H} {q : Nat × List Val}
+    {z : CallBeh (wasmHostSig H) (Store H) ((List Val ⊕ Nat) ⊕ PUnit.{1})}
+    (hz : z ∈ (coreTripleSXP P host Ok).1 s q) :
+    (z.1, StratSession.eraseEnd z.2) ∈ (coreTripleXP P host Ok).1 s q := by
+  obtain ⟨c, e⟩ := z
+  obtain ⟨hq, h⟩ := hz
+  refine ⟨hq, ?_⟩
+  rcases e with ⟨r | _, s₂⟩ | _ | _
+  · exact .inl h
+  · exact .inl ⟨_, h⟩
+  · exact h.elim
+  · exact .inr ⟨rfl, h⟩
+
+theorem coreTripleSXP_det (hT : HostTyped host)
+    (hOk : ∀ s q, Ok s q → StoreOk s ∧ InvokeOk s q.1 q.2) :
+    AFun.Det (coreTripleSXP (SingleThreaded.profile o) host Ok).1 := by
+  intro s q x y hx hy
+  refine agree_of_map StratSession.eraseEnd
+    ((coreTripleXP_det hT hOk).fin s q _ _ (coreTripleSXP_erase hx)
+      (coreTripleSXP_erase hy)) fun hc he => ?_
+  obtain ⟨c, e₁⟩ := x
+  obtain ⟨c', e₂⟩ := y
+  simp only at hc he ⊢
+  subst hc
+  obtain ⟨-, hx⟩ := hx
+  obtain ⟨-, hy⟩ := hy
+  rcases e₁ with ⟨r₁ | u₁, s₁⟩ | _ | _ <;> rcases e₂ with ⟨r₂ | u₂, s₂⟩ | _ | _ <;>
+    simp only [StratSession.eraseEnd, End.ret.injEq, reduceCtorEq] at he
+  all_goals first
+    | exact (hx : False).elim
+    | exact (hy : False).elim
+    | rfl
+    | rw [he.1, he.2]
+    | cases u₁; cases u₂
+      cases evRun_stop_unique hx (fun _ => Step.trap_stuck) hy (fun _ => Step.trap_stuck)
+      rfl
 
 end Triple
 

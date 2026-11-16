@@ -101,6 +101,7 @@ struct RecordRows {
     operands: Vec<LanguageOperand>,
     system_interpretations: Vec<ConsequenceInterpretation>,
     systems: Vec<ConsequenceSystem>,
+    matrix_cells: Vec<ConsequenceMatrixCell>,
     system_operands: Vec<ConsequenceOperand>,
 }
 
@@ -262,6 +263,12 @@ fn record_rows(
                     sid,
                     origin: org,
                     ..x.clone()
+                });
+            }
+            Record::ConsequenceMatrix(x) => {
+                rows.matrix_cells.push(ConsequenceMatrixCell {
+                    origin: org,
+                    ..(**x).clone()
                 });
             }
             Record::ConsequenceSystem(x) => {
@@ -538,6 +545,7 @@ pub(super) fn run(
     db.push(&recs.systems);
     db.push(&recs.system_operands);
     db.push(&consequence_role_rows());
+    db.push(&recs.matrix_cells);
     db.push(&nodes.problems);
     db.push(&nodes.args);
     db.push(&nodes.inputs);
@@ -553,6 +561,8 @@ pub(super) fn run(
     db.push(&marks.deprecated_rows);
     db.push(&marks.finding_rows);
     db.push(&marks.version_rows);
+    db.push(&marks.expected_open_rows);
+    db.push(&location_rows(&cx.dump.locations));
 
     lines(
         g,

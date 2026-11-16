@@ -6,27 +6,28 @@ public import Silmaril.Formats.Spki.Defs
 /-!
 # Tree families: atom signatures and tagged ASTs with typed payloads
 
-The trees a handle API builds or inspects (`Silmaril.Formats.SExp.Api`) come in families. All
+Named S-expression families, tagged ASTs with typed payloads, and the dotted/proper
+roundtrip. All
 reuse the existing tree types: proper S-expressions `SExp α`, dotted ones `SExp2 α`, binary
 trees `Tree2 α` and tagged expressions `TExpr τ α` (`Silmaril.Formats.SExp.{Basic,Proper,Tagged}`);
 this file adds no new recursive tree type.
 
 ## Atom families (first-class S-expression APIs)
 
-An S-expression family is `SExp α` for an atom type `α`. The named families of the API are:
+An S-expression family is `SExp α` for an atom type `α`. The named families are:
 
-| family | atoms | writer imports |
-| --- | --- | --- |
-| `SymbolSExp` | `String` | `symbol(string)`, `sexp(list<i32>)` |
-| `ByteSExp` | `List UInt8` | `blob(list<u8>)`, `sexp` |
-| `WordSExp` | `BitVec 64` (an `i64`) | `word(i64)`, `sexp` |
-| `SymStrSExp` | symbols, strings | `symbol`, `string`, `sexp` |
-| `SymBytesSExp` | symbols, byte strings | `symbol`, `blob`, `sexp` |
-| `SymStrBytesSExp` | symbols, strings, byte strings | … |
-| `SymStrKwSExp` | symbols, strings, keywords | `symbol`, `string`, `keyword`, `sexp` |
-| `SymStrKwBytesSExp` | symbols, strings, keywords, byte strings | … |
-| `RivestSExp` (canonical) | octet strings | `blob`, `sexp` |
-| `HintedSExp` (display hints) | an octet string with an optional hint | `blob`, `hinted(hint, octets)`, `sexp` |
+| family | atoms |
+| --- | --- |
+| `SymbolSExp` | `String` |
+| `ByteSExp` | `List UInt8` |
+| `WordSExp` | `BitVec 64` (an `i64`) |
+| `SymStrSExp` | symbols, strings |
+| `SymBytesSExp` | symbols, byte strings |
+| `SymStrBytesSExp` | symbols, strings, byte strings |
+| `SymStrKwSExp` | symbols, strings, keywords |
+| `SymStrKwBytesSExp` | symbols, strings, keywords, byte strings |
+| `RivestSExp` (canonical) | octet strings |
+| `HintedSExp` (display hints) | an octet string with an optional hint |
 
 Mixed families use `Atom ks`: an atom of one of the kinds `ks : List AtomKind`, so a symbol
 and a string with the same text are different atoms (`Atom.kind`).

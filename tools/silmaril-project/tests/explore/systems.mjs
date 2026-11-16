@@ -54,11 +54,13 @@ try {
     `multi.lit: signed lists on both sides, a raw sequent (${byName[S + "multi.lit"][3]})`);
   // the view buttons: counts and filters from the typed shape and certifications
   const views = await p.evaluate(() => Object.fromEntries([...document.querySelectorAll("#systems-views a")].map((a) => [a.dataset.view, +a.querySelector("span").textContent])));
-  check(views.all === list.length && views.acceptor === 6 && views.rejector === 1 && views.signed === 2 && views.partial === 4 && views["raw-sequent"] === 8 && views.gentzen === 1 && views.artifact === 8,
+  check(views.all === list.length && views.acceptor === 6 && views.rejector === 1 && views.signed === 3 && views.partial === 6 && views.finset === 1 && views.set === 3 && views["raw-sequent"] === 18 && views.gentzen === 4 && views.artifact === 10,
     `view counts ${JSON.stringify(views)}`);
   await open("/systems/?view=gentzen");
   const gv = await rows("#systems-table");
-  check(gv.length === 1 && gv[0][0] === S + "gentzen.via_unsat_pairs" && /closed: Gentzen\.defaultRules/.test(gv[0][3]), `the Gentzen view: certified systems only, with the rule profile (${gv.map((r) => r[0] + " " + r[3])})`);
+  check(gv.map((r) => r[0]).sort().join(" ") === [S + "gentzen.identity", S + "gentzen.via_unsat_pairs", S + "structural.identity_renamed", S + "structural.identity_signed"].sort().join(" ") &&
+    gv.every((r) => /closed: Gentzen\.defaultRules/.test(r[3])), `the Gentzen view: certified systems only, each with its rule profile (${gv.map((r) => r[0])})`);
+  check(!gv.some((r) => /bounded3|valid_via/.test(r[0])), "uncertified raw sequents are not in the Gentzen view");
   await open("/systems/?view=raw-sequent");
   check((await rows("#systems-table")).some((r) => r[0] === S + "gentzen.via_unsat_bounded3"), "raw sequents include the uncertified bounded test");
   const rel = await p.evaluate(() => [...document.querySelectorAll("#systems-relations tbody tr")].map((tr) => [tr.dataset.standing, tr.textContent]));
@@ -94,10 +96,10 @@ try {
   check(/THM/.test(row("p_derives_r")[4]) && /holds in/.test(row("p_derives_r")[5]), "p ⊢ r: THM, holds");
   const rp = await p.evaluate((n) => { const a = [...document.querySelectorAll("#system-judgments a, #system-problems a")].find((x) => x.textContent === n);
     const st = a.closest("tr").querySelector(".st"); return { code: st.dataset.code, outcome: st.dataset.outcome, title: st.title }; }, S + "r_derives_p");
-  check(rp.code === "UNS" && rp.outcome === "match" && /closed proposition: false/.test(rp.title) && /established: .*CSA/.test(rp.title) && /does not hold/.test(row("r_derives_p")[5]),
+  check(rp.code === "UNS" && rp.outcome === "match" && /^CTH \(CounterTheorem\)/.test(rp.title) && /stored .*CSA/.test(rp.title) && /does not hold/.test(row("r_derives_p")[5]),
     `r ⊢ p: a closed refutation, stored UNS, expected, false, does not hold (${JSON.stringify(rp)})`);
   check(/sound for/.test(row("derivable_sound")[5]) && /T = .*entails/.test(row("derivable_sound")[3]), "soundness for entails");
-  check(/CSA/.test(row("derivable_complete")[4]) && /✓/.test(row("derivable_complete")[4]) && /not complete/.test(row("derivable_complete")[5]) &&
+  check(/CSA/.test(row("derivable_complete")[4]) && !/≠|expected/.test(row("derivable_complete")[4]) && /not complete/.test(row("derivable_complete")[5]) &&
     /Atom\.ff\]/.test(row("derivable_complete")[6]) && /Atom\.p/.test(row("derivable_complete")[6]), "incompleteness with the counterexample ff ⊢ p");
   check(/NOC/.test(row("derivable_universal")[4]) && /derives something, and is not universal/.test(row("derivable_universal")[5]),
     "derives: contingent is NOC, read as nonempty and not universal");
@@ -126,14 +128,14 @@ try {
   const gc = gs.find((r) => r[0] === S + "gentzen.bounded3_complete_closure") || [];
   check(/CSA/.test(gc[4] || "") && /not complete for/.test(gc[5] || "") && /Bool\.true, 2\)/.test(gc[6] || ""),
     "Gentzen: the bounded checker is not complete for its cut closure, with the cut counterexample");
-  check(gs.some((r) => r[0] === S + "gentzen.bounded3_sound" && /THM/.test(r[4])), "Gentzen: the bounded checker is sound for validity");
+  check(gs.some((r) => r[0] === S + "gentzen.bounded3_sound" && /TAU/.test(r[4])), "Gentzen: the bounded checker is sound for validity");
 
   // the multiple-conclusion fixture: ff is the empty succedent
   await open("/system/" + encodeURIComponent(S + "multi.lit"));
   const ms = await rows("#system-judgments");
   const mrow = (n) => ms.find((r) => r[0] === S + "multi." + n) || [];
   check(/THM/.test(mrow("contradiction")[4]) && /derives \[\]/.test(mrow("contradiction")[5]), "multi: p, -p ⊢ (derives the empty succedent)");
-  check(/UNS/.test(mrow("p_nil")[4]) && /does not derive \[\]/.test(mrow("p_nil")[5]), "multi: p ⊢ fails");
+  check(/CTH/.test(mrow("p_nil")[4]) && /does not derive \[\]/.test(mrow("p_nil")[5]), "multi: p ⊢ fails");
   const mo = await rows("#system-problems");
   check(mo.some((r) => r[0] === S + "multi.right_ext_complete" && r[2] === "T" && /CSA/.test(r[4])), "multi: rightExt is not complete for it (as T)");
 
@@ -161,9 +163,9 @@ try {
   check(/checkRel/.test(wd.interpretation || "") && /checkExport/.test(wd.interpretation || "") && /allHosts/.test(wd.interpretation || ""), "the interpretation row: definition, ABI, environment");
   check(/member_check\.is/.test(wd["decode evidence"] || "") && /data-code="THM"/.test(wd["decode evidence"] || ""), "the decode evidence: the value's .is certificate, proved");
   const wj = await rows("#system-judgments"), wq = await rows("#system-problems");
-  check(wj.some((r) => r[0] === S + "wasm.member_check_12_2" && /THM/.test(r[4])) && wj.some((r) => r[0] === S + "wasm.member_check_1_2" && /UNS/.test(r[4])),
+  check(wj.some((r) => r[0] === S + "wasm.member_check_12_2" && /THM/.test(r[4])) && wj.some((r) => r[0] === S + "wasm.member_check_1_2" && /CTH/.test(r[4])),
     "member_check: 1, 2 ⊢ 2 true, 1 ⊢ 2 false");
-  check(["sound_lean", "complete_lean", "sound_mem", "complete_mem"].every((n) => wq.some((r) => r[0] === S + "wasm.member_check_" + n && /THM/.test(r[4]))),
+  check(["sound_lean", "complete_lean", "sound_mem", "complete_mem"].every((n) => wq.some((r) => r[0] === S + "wasm.member_check_" + n && /TAU/.test(r[4]))),
     "member_check equals the Lean module's relation and, below the length bound, membership");
   const cid = await p.evaluate(() => decodeURIComponent((document.querySelector("#main dl a[href^='#/artifact/']") || { getAttribute: () => "" }).getAttribute("href").slice(11)));
   await open("/system/" + encodeURIComponent(S + "wasm.empty_check"));
@@ -178,7 +180,7 @@ try {
 
   // partial interpretations: defined, defined-and-empty, undefined; certificates, never inferred
   await open("/systems/?view=partial");
-  check((await rows("#systems-table")).length === 4, "the partial view lists the four systems read through a partial interpretation");
+  check((await rows("#systems-table")).length === 6, "the partial view lists the six systems read through a partial interpretation");
   const defn = async (n) => { await open("/system/" + encodeURIComponent(S + "partial." + n));
     return p.evaluate(() => { const dt = [...document.querySelectorAll("#main dl dt")].find((d) => d.textContent === "definedness"); return dt ? dt.nextElementSibling.textContent : ""; }); };
   const d6 = await defn("hello_6"), d100 = await defn("hello_100"), d2 = await defn("hello_2");
@@ -205,6 +207,52 @@ try {
   await open("/interpretations");
   const cnt = await p.evaluate(() => { const tr = [...document.querySelectorAll("#interpretations-table tbody tr[data-kind]")].find((t) => t.children[0].firstChild.textContent === "wasm.core.check_rel"); return tr ? tr.children[8].textContent : ""; });
   check(/^\d+ proved \/ \d+ counter \/ \d+ unknown$/.test(cnt), `check_rel problem counts (${cnt})`);
+
+  // Wasm modules through the protocol's partial coreInterp
+  const dsys = async (n) => { await open("/system/" + encodeURIComponent(S + n));
+    return p.evaluate(() => { const dt = [...document.querySelectorAll("#main dl dt")].find((d) => d.textContent === "definedness"); return dt ? dt.nextElementSibling.textContent : ""; }); };
+  const wm1 = await dsys("wasm_seq.member_check"), we1 = await dsys("wasm_seq.empty_check");
+  check(/defined \(certified\)/.test(wm1) && !/empty/.test(wm1), `wasm_seq.member_check: defined (${wm1.slice(0, 80)})`);
+  check(/defined, empty \(certified with/.test(we1), `wasm_seq.empty_check: defined and empty (${we1.slice(0, 80)})`);
+  await open("/system/" + encodeURIComponent(S + "wasm_seq.member_check"));
+  const wsev = await p.evaluate(() => [...document.querySelectorAll("table.system-evidence[data-standing='established'] tbody tr")].map((tr) => tr.textContent));
+  check(wsev.some((t) => /single_mem/.test(t) && /\(sound\)/.test(t)) && wsev.some((t) => /≤ 2 \^ 32 - 1/.test(t)), "wasm_seq.member_check: sound and boundedly complete, established");
+  check(wsev.some((t) => /from_check_rel/.test(t)) && wsev.some((t) => /to_check_rel/.test(t)), "the coreInterp and check_rel readings of member_check.wasm agree on single conclusions");
+  await shot("wasm-seq-member");
+
+  // finite sets, sets and translations (structural track)
+  await open("/systems/?view=set");
+  check((await rows("#systems-table")).map((r) => r[0]).sort().join(" ") ===
+    [S + "structural.neq_inf", S + "structural.neq_on_set", S + "structural.valid_set"].sort().join(" "), "the set view: the three set-context systems");
+  await open("/system/" + encodeURIComponent(S + "structural.neq_on_set"));
+  const ns = await p.evaluate(() => Object.fromEntries([...document.querySelectorAll("table.system-evidence")].map((t) => [t.dataset.standing, [...t.querySelectorAll("tbody tr")].map((tr) => tr.textContent)])));
+  check((ns.established || []).some((t) => /\(sound\)/.test(t)) && (ns.counterevidence || []).some((t) => /neq_complete/.test(t) && /Set\.univ/.test(t)),
+    "finite validity on sets: sound, not complete, with the counterexample (ℕ, ∅)");
+  await open("/system/" + encodeURIComponent(S + "structural.identity_signed"));
+  const ls = await p.evaluate(() => [...document.querySelectorAll("table.system-evidence[data-standing='established'] tbody tr")].map((tr) => tr.textContent));
+  check(ls.some((t) => /preserves/.test(t) && /Signed\.pos/.test(t)) && ls.some((t) => /reflects/.test(t)), "the signed lift: translated and reflected along Signed.pos");
+  await shot("structural-set");
+
+  // the UNSAT restriction toUnsat, rebuilt with viaUnsat, is validity (Calculus.Examples.lit_eq_viaUnsat)
+  await open("/system/" + encodeURIComponent(S + "gentzen.valid_via_unsat_restriction"));
+  const rr = await p.evaluate(() => [...document.querySelectorAll("table.system-evidence[data-standing='established'] tbody tr")].map((tr) => tr.textContent));
+  check(rr.some((t) => /restriction_sound/.test(t)) && rr.some((t) => /restriction_complete/.test(t)), "the toUnsat restriction: sound and complete for validity, established");
+
+  // restrictions under their hypotheses, and what is lost without negation rules
+  await open("/system/" + encodeURIComponent(S + "gentzen.valid_via_taut_restriction"));
+  check((await p.evaluate(() => document.querySelectorAll("table.system-evidence[data-standing='established'] tbody tr").length)) === 2, "the toTaut restriction: sound and complete, established");
+  await open("/system/" + encodeURIComponent(S + "gentzen.identity"));
+  const idc = await p.evaluate(() => [...document.querySelectorAll("table.system-evidence[data-standing='counterevidence'] tbody tr")].map((tr) => tr.textContent));
+  check(idc.some((t) => /identity_restriction_sound/.test(t) && /Bool\.true, 0/.test(t)), "the identity calculus is not sound for its UNSAT rebuild, with the counterexample p ⊢ p");
+
+  // the protocol evidence matrix: 12 cells, the owner's 2 / 2 / 8 evidence counts, verbatim
+  await open("/interpretations");
+  const mx = await p.evaluate(() => [...document.querySelectorAll("table.matrix-table tbody tr")].map((tr) => [tr.dataset.evidence, tr.dataset.strength, tr.textContent]));
+  const evc = (e) => mx.filter((r) => r[0] === e).length;
+  check(mx.length === 12 && evc("specStrategy") === 2 && evc("execution") === 2 && evc("definitions") === 8, `the matrix: 12 cells, 2 spec strategy, 2 execution, 8 definitions (${mx.length})`);
+  check(mx.some((r) => r[0] === "execution" && r[1] === "boundedComplete" && /member_completeOn/.test(r[2])), "the coreMember cell: execution, bounded complete, with member_completeOn");
+  check(await p.evaluate(() => /not a compiled component/.test(document.querySelector("#main").textContent)), "spec strategies are stated not to be compiled components");
+  await shot("matrix");
 
   check(errors.length === 0, `no page error${errors.length ? ": " + errors.join("; ") : ""}`);
 } finally {
