@@ -1,0 +1,111 @@
+{
+  "schema": "silmaril.component-tests.report.v1",
+  "semantics": "Binary.parseComponent, then Comp.denI over Binary.coreModSemI P: each core module decoded and run on the Core 3.0 engine at profile P, its start function at instantiation; core instances instantiated in program order (the reading of componentBytesSystemCore3I P before its export phase)",
+  "assumptions": [
+    "existence: one play at every profile P",
+    "exclusion: every finite play at every deterministic profile profile o (every GrowOracle o)",
+    "divergence is not observed: a start function or export call that never returns makes no move",
+    "typed host: f is answered () (unitHost); the import-call clauses hold whatever the host answers",
+    "no async, resources, streams or futures (the lowering rejects them)"
+  ],
+  "shapes": [
+    {
+      "name": "silmaril.shapes.component.test.instantiates",
+      "lean": "Silmaril.Project.Shapes.ComponentTest.Instantiates"
+    },
+    {
+      "name": "silmaril.shapes.component.test.inst_traps",
+      "lean": "Silmaril.Project.Shapes.ComponentTest.InstTraps"
+    },
+    {
+      "name": "silmaril.shapes.component.test.export_returns_after_inst",
+      "lean": "Silmaril.Project.Shapes.ComponentTest.ExportReturnsAfterInst"
+    }
+  ],
+  "binaries": [
+    {
+      "name": "starts",
+      "wasm": "starts.wasm",
+      "wat": "starts.wat",
+      "sha256": "ff543e050721e1620c89fa540559e12c9b28d9b22333942ad7e74b12ed02665f",
+      "size": 256,
+      "lean": "Silmaril.Wasm.Component.InstTests.startsBytes",
+      "imports": [
+        "f: func(x: u32)"
+      ],
+      "exports": [
+        "get: func() -> u32"
+      ],
+      "core_instances": [
+        "call1: start function calls f(1)",
+        "call2: start function calls f(2)",
+        "glob: start function writes 42 into a global (initially 0); exports get, which reads it"
+      ],
+      "expected": {
+        "instantiation": "ready",
+        "trace": [
+          "f(1) -> ()",
+          "f(2) -> ()"
+        ],
+        "exports": [
+          [
+            "get()",
+            "42"
+          ]
+        ]
+      },
+      "rows": [
+        {
+          "name": "silmaril.component_tests.starts.instantiates",
+          "shape": "silmaril.shapes.component.test.instantiates",
+          "theorem": "Silmaril.Project.ComponentTests.starts_instantiates"
+        },
+        {
+          "name": "silmaril.component_tests.starts.get_after_inst",
+          "shape": "silmaril.shapes.component.test.export_returns_after_inst",
+          "theorem": "Silmaril.Project.ComponentTests.starts_get_after_inst"
+        }
+      ],
+      "strength": "proved (kernel-checked): the play [inst, f(1), (), f(2), (), ready, get(), 42] at every profile; at every deterministic profile every play's host calls are a prefix of f(1), f(2), a complete instantiation under the typed host is exactly that trace then ready, and every answer to get() is 42",
+      "ref": {
+        "theorem": "Silmaril.Wasm.Component.InstTestsRef.starts_agree",
+        "strength": "one executed reference-machine run (decide +kernel on its drivers) on a hand transcription of the WAT: host log f(1), f(2); get() returns 42"
+      }
+    },
+    {
+      "name": "trap",
+      "wasm": "trap.wasm",
+      "wat": "trap.wat",
+      "sha256": "1cccda32d6da9ffcf4dff1f944d95836e9800656bc1ffd21817c416038649d20",
+      "size": 188,
+      "lean": "Silmaril.Wasm.Component.InstTests.trapBytes",
+      "imports": [
+        "f: func(x: u32)"
+      ],
+      "exports": [
+        "get: func() -> u32"
+      ],
+      "core_instances": [
+        "trap: start function is unreachable; exports get (returns 7)",
+        "call2: start function would call f(2)"
+      ],
+      "expected": {
+        "instantiation": "fail ()",
+        "trace": [],
+        "exports": []
+      },
+      "rows": [
+        {
+          "name": "silmaril.component_tests.trap.inst_traps",
+          "shape": "silmaril.shapes.component.test.inst_traps",
+          "theorem": "Silmaril.Project.ComponentTests.trap_inst_traps"
+        }
+      ],
+      "strength": "proved (kernel-checked): the play [inst, fail ()] at every profile; at every deterministic profile every play is a prefix of it (plus at most one unanswered Opponent move): never ready, no host call (f(2) never runs), no export answered, export phase empty",
+      "ref": {
+        "theorem": "Silmaril.Wasm.Component.InstTestsRef.trap_agree",
+        "strength": "one executed reference-machine run on a hand transcription of the WAT: the instantiation traps"
+      }
+    }
+  ]
+}
