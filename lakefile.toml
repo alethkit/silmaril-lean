@@ -712,3 +712,8 @@ name = "decompile"
 root = "Decompile"
 srcDir = "tools/decompile"
 supportInterpreter = true
+
+[[lean_exe]]
+name = "elf-staged"
+root = "ElfStaged"
+srcDir = "tools/elf-staged"
