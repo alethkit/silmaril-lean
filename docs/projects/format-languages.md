@@ -21,6 +21,7 @@ pinned in [`references.bib`](../../references.bib) with SHA-256.
 | `Formats.JsonEvents.Scalar` | `Key = List UInt16`, `Scalar` (`null`, `bool`, `number lexeme`, `string units`), `Utf16.wellFormed`, `stringValid p`, `Scalar.valid p`, `eventValid p`, `ValidStream p` | `number_valid_iff`, `ValidStream.decidable` | RFC 8259 §6, §7, §8.2 |
 | `Formats.Cbor.WellFormed` | `Cbor.wellFormed` (one well-formed item), `Item`, `Items`, `Head` | `isWellFormed_iff`, `skip_sound`, `item_skip`; all RFC 8949 Appendix F.1 vectors | RFC 8949 §3, App. C |
 | `Formats.Cbor.Value` | `Cbor.Value` (representation-level: ordered maps, floats as width and bits), `encodeHead`, `Value.encode`, `decode`, `Value.Encodable` | `decode_encode`, `encode_injective`, `encode_mem_wellFormed` | RFC 8949 §4.2.1 heads |
+| `Formats.Cbor.ModelValid` | `ModelValid.ok` (UTF-8 text, pairwise distinct key encodings, **relative to `Cbor.Value`**), `ModelValid.language` (shortest-head definite encodings only), `encodableB` | `check_iff`, `encodableB_iff`, `language_le_wellFormed` | RFC 8949 §5.3.1 (model-relative) |
 | `Formats.Cbor.Drisl` | `Drisl.language P`; `Profile` = floats, int64 range, `CidBoundary` (`exact`/`prefix`), `LinkRule` (codecs, `(multihash code, digest length)` pairs); `LinkRule.dasl`, `.bdasl`, `.none`; profiles `drislExactCid`, `drislCidPrefix`, `drislBdaslExactCid`, `drislBdaslCidPrefix`, `drislNoLinks`, `drislNoFloatsExactCid`, `atprotoCoreExactCid`; `CidPayload` | `check_iff`, `cidOk_iff`, `cidOk_mono`, `cidOk_dasl_exact_iff`, `ok_tag_of_hashes_nil`, `language_mono`, `language_le_wellFormed`, `value_unique` | DRISL 2026-10-22, DASL CID, BDASL 2026-10-19, CBOR/c-42, atproto data model |
 | `Formats.Cbor.Deterministic` | `Deterministic.language P` for `DetProfile` (`floatOk : FloatRule`, `utf8Text`); `FloatRule.none`, `.only64`, `.any`; `detOk` | `check_iff`, `language_le_wellFormed`, `value_unique`, `language_mono`, `drisl_le` | RFC 8949 §4.2.1 (relative to the float rule) |
 | `Formats.Streaming` | `derivAcceptor r`, `utf8Acceptor`, `jsonAcceptor`, `jsonLinesAcceptor`, `cborAcceptor`, `jsonDepthAcceptor` | `…_correctInterleaved` (`Semantics.Acceptors`), `jsonDepthAcceptor_soundFold`, `jsonDepthAcceptor_completeFoldOn` | — |
@@ -53,8 +54,12 @@ use the definitions above; they do not restate them.
   that the rule is "shortest value-preserving width". That rule is not implemented. The
   provided rules are `none` (no floats), `only64` (CBOR/c-42 and DRISL, not RFC preferred) and
   `any`.
-- **CBOR coverage:** generic §5.3 validity (to be named as relative to the `Cbor.Value` model)
-  is not yet defined.
+- **CBOR validity:** `ModelValid.ok` checks UTF-8 text and pairwise distinct key encodings in
+  `Cbor.Value`, which is finer than RFC 8949's generic data model. It accepts a map whose half and
+  double `1.5` keys RFC calls duplicates. `ModelValid.language` (shortest-head definite encodings
+  only) both excludes RFC-valid encodings (non-shortest heads, indefinite lengths) and includes
+  RFC-invalid ones. No inclusion with RFC-valid bytes is claimed in either direction; only
+  decidability and well-formedness are proved. Tag-content validity is not checked.
 - **DRISL tag 42:** whether bytes may follow a CID's digest is not settled by the normative DASL
   CID text. It is the profile parameter `CidBoundary`, and the named profiles carry it.
 - **CID hashes:** allowed as `(multihash code, digest length)` pairs. DASL is `(0x12, 32)` and BDASL
