@@ -101,7 +101,8 @@ theorem step_closed {pol : Policy H} (ha : pol.onAccept ≠ .ub) (hw : pol.onWri
   | writeChaos _ hu _ => exact absurd hu hw
   | writeFixed _ _ hfix => cases hfix
   | @acceptOk σ B h t hh => exact ⟨⟨hp, hst, hb⟩, by simpa using hst h t hh⟩
-  | acceptTrap => exact ⟨⟨by simp, hst, hb⟩, Set.empty_subset _⟩
+  | acceptCallTrap => exact ⟨⟨by simp, hst, hb⟩, Set.empty_subset _⟩
+  | acceptSessionTrap => exact ⟨⟨by simp, hst, hb⟩, Set.empty_subset _⟩
   | acceptIgnore => exact ⟨⟨hp, hst, hb⟩, Set.empty_subset _⟩
   | acceptChaos _ hu _ => exact absurd hu ha
   | acceptFixed _ _ hfix => cases hfix
@@ -116,6 +117,8 @@ theorem step_closed {pol : Policy H} (ha : pol.onAccept ≠ .ub) (hw : pol.onWri
       cases k
       · exact Set.empty_subset _
       · exact hb
+  | enter => exact ⟨⟨hp, hst, hb⟩, Set.empty_subset _⟩
+  | resume => exact ⟨⟨by simp, hst, hb⟩, Set.empty_subset _⟩
   | chaos => exact absurd rfl hp
 
 theorem run_closed {pol : Policy H} (ha : pol.onAccept ≠ .ub) (hw : pol.onWrite ≠ .ub)
@@ -196,7 +199,8 @@ theorem step_fixed {pol : Policy H} {ρ : Env H X} {s s' : WState H X} {e : WEv 
       simp only [Set.mem_singleton_iff] at hx
       subst hx
       exact .inl ⟨h, rfl, hst hh⟩
-  | acceptTrap => exact ⟨⟨by simp, hst, hb⟩, by simp, by simp⟩
+  | acceptCallTrap => exact ⟨⟨by simp, hst, hb⟩, by simp, by simp⟩
+  | acceptSessionTrap => exact ⟨⟨by simp, hst, hb⟩, by simp, by simp⟩
   | acceptIgnore => exact ⟨⟨hp, hst, hb⟩, by simp, by simp⟩
   | acceptChaos _ _ hfix => cases hfix
   | @acceptFixed σ B h ρ' _ _ hfix =>
@@ -207,6 +211,8 @@ theorem step_fixed {pol : Policy H} {ρ : Env H X} {s s' : WState H X} {e : WEv 
   | acceptAll => exact ⟨⟨hp, hst, hb⟩, by simp, fun _ _ => .inr (.inr (.inl rfl))⟩
   | acceptBatch k =>
       exact ⟨⟨hp, hst, Set.empty_subset _⟩, by simp, fun _ _ => .inr (.inr (.inr ⟨k, rfl⟩))⟩
+  | enter => exact ⟨⟨hp, hst, hb⟩, by simp, by simp⟩
+  | resume => exact ⟨⟨by simp, hst, hb⟩, by simp, by simp⟩
   | chaos => exact absurd rfl hp
 
 theorem run_fixed {pol : Policy H} {ρ : Env H X} {s s' : WState H X} {t : List (WEv Op H)}
@@ -242,7 +248,7 @@ theorem fixedLang_subset_of_AG {X Op : Type} {W : Writer Op X} {pol : Policy (Bi
     (hAG : ∀ p ∈ σ, AG (writerISpec W pol.sentinel dAsk dAns ρ L) (topISpec F) p)
     (hask : ∀ e ev, dAsk e = some ev → ∃ h, ev = .accept h)
     (hans : ∀ e v ev, dAns e v = some ev → ∃ op args r, ev = .write op args r) :
-    fixedLang W pol {ρ} (handleTraces σ dAsk dAns) ⊆ L := by
+    fixedLang W pol {ρ} (handleTraces σ (some .enter) dAsk dAns) ⊆ L := by
   intro x hx
   simp only [fixedLang, langOver, Set.mem_iUnion] at hx
   obtain ⟨⟨ρ', hρ'⟩, hx⟩ := hx
@@ -256,16 +262,19 @@ theorem fixedLang_subset_of_AG {X Op : Type} {W : Writer Op X} {pol : Policy (Bi
     intro o ho hO
     rcases o with (e | ⟨e, v⟩) | (q | ⟨q, r⟩)
     · simp [Move.IsO] at hO
-    · exact fun op args r hd => hwr op args r (ans_mem_playEvents (decAsk := dAsk) ho hd)
+    · exact fun op args r hd =>
+        hwr op args r (ans_mem_playEvents (enter := some .enter) (decAsk := dAsk) ho hd)
     · trivial
     · simp [Move.IsO] at hO
   have hP := ag_allP (hAG p hp) hgood
   obtain ⟨ev, hev, hby⟩ := hacc x hxA
-  rcases mem_playEvents hev with ⟨e, he, hd⟩ | ⟨e, v, _, hd⟩
+  rcases mem_playEvents hev with ⟨e, he, hd⟩ | ⟨e, v, _, hd⟩ | hd
   · obtain ⟨h, rfl⟩ := hask e ev hd
     rcases hby with ⟨h', hh', hρ⟩ | ⟨_, _, hh'⟩ | hh' | ⟨_, hh'⟩ <;> cases hh'
     exact hP _ he trivial h hd x hρ
   · obtain ⟨op, args, r, rfl⟩ := hans e v ev hd
+    rcases hby with ⟨_, hh', _⟩ | ⟨_, _, hh'⟩ | hh' | ⟨_, hh'⟩ <;> cases hh'
+  · cases hd
     rcases hby with ⟨_, hh', _⟩ | ⟨_, _, hh'⟩ | hh' | ⟨_, hh'⟩ <;> cases hh'
 
 /-- **The writer bridge** (store semantics): without undefined behaviour, if the
@@ -279,7 +288,7 @@ theorem writerLang_subset_of_AG {X Op : Type} {W : Writer Op X} {pol : Policy (B
     (hask : ∀ e ev, dAsk e = some ev → ∃ h, ev = .accept h)
     (hans : ∀ e v ev, dAns e v = some ev → ∃ op args r, ev = .write op args r)
     (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
-    writerLang W pol (handleTraces σ dAsk dAns) ⊆ L := by
+    writerLang W pol (handleTraces σ (some .enter) dAsk dAns) ⊆ L := by
   intro x hx
   have hx' := writerLang_subset_fixedLang hw ha _ hx
   rw [fixedLang, langOver, Set.mem_iUnion] at hx'
@@ -295,10 +304,12 @@ theorem write_mem_traces {Op : Type} {σ : Strategy E F}
     {dAns : (e : E.Op) → E.Ar e → Option (WEv Op (BitVec 32))} {Pw : Op → List (BitVec 32) → Prop}
     (hask : ∀ e op args r, dAsk e ≠ some (.write op args r))
     (hans : ∀ e v op args r, dAns e v = some (.write op args r) → Pw op args) :
-    ∀ t ∈ handleTraces σ dAsk dAns, ∀ op args r, WEv.write op args r ∈ t → Pw op args := by
+    ∀ t ∈ handleTraces σ (some .enter) dAsk dAns, ∀ op args r, WEv.write op args r ∈ t →
+      Pw op args := by
   rintro _ ⟨p, -, rfl⟩ op args r hm
-  rcases mem_playEvents hm with ⟨e, -, hd⟩ | ⟨e, v, -, hd⟩
+  rcases mem_playEvents hm with ⟨e, -, hd⟩ | ⟨e, v, -, hd⟩ | hd
   · exact absurd hd (hask e op args r)
   · exact hans e v op args r hd
+  · cases hd
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Writers

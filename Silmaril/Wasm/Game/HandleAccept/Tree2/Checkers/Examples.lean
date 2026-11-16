@@ -56,12 +56,13 @@ open Silmaril.Proofs.Wasm.Game.HandleAccept.Tree2 (mem_tree2Lang_of_replay)
 
 theorem combCheck_accepts_123 {P : Profile}
     (hP : ∀ c c' : Config Nat, Step (profile refOracle) Det.noHost c c' → Step P Det.noHost c c') :
-    comb [1, 2] 3 ∈ moduleTree2Lang P combCheck combIx .trap .trap {combEnv} :=
-  mem_tree2Lang_of_replay combCheck_instance hP combIx .trap .trap (Set.mem_singleton _)
+    comb [1, 2] 3 ∈ moduleTree2Lang P combCheck combIx .trap .callTrap {combEnv} :=
+  mem_tree2Lang_of_replay combCheck_instance hP combIx .trap .callTrap (Set.mem_singleton _)
     combScript refFuel 16 ⟨0, by decide +kernel⟩ 0 0 rfl (by decide +kernel) (by decide +kernel)
 
 theorem combCheck_accepts_123_spec (nd : Bool) :
-    comb [1, 2] 3 ∈ moduleTree2Lang (Profile.spec nd {}) combCheck combIx .trap .trap {combEnv} :=
+    comb [1, 2] 3 ∈
+      moduleTree2Lang (Profile.spec nd {}) combCheck combIx .trap .callTrap {combEnv} :=
   combCheck_accepts_123 fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 end Silmaril.Wasm.Game.HandleAccept.Tree2.Checkers

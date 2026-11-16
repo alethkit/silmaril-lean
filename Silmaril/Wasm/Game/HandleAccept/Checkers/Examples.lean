@@ -96,32 +96,32 @@ include hP
 open Silmaril.Proofs.Wasm.Game.HandleAccept.Checkers (mem_consLang_of_replay)
 
 theorem properCheck_accepts_12 :
-    SExp2.ofAtoms [1, 2] ∈ moduleConsLang P properCheck consIx .trap .trap {listEnv 1 2} :=
-  mem_consLang_of_replay properCheck_instance hP consIx .trap .trap (Set.mem_singleton _)
+    SExp2.ofAtoms [1, 2] ∈ moduleConsLang P properCheck consIx .trap .callTrap {listEnv 1 2} :=
+  mem_consLang_of_replay properCheck_instance hP consIx .trap .callTrap (Set.mem_singleton _)
     (cellScript consIx (listTab 1 2)) refFuel 16 ⟨0, by decide +kernel⟩ 0 0
     (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 theorem wordsCheck_accepts_12 :
-    SExp2.ofAtoms [1, 2] ∈ moduleConsLang P wordsCheck consIx .trap .trap {listEnv 1 2} :=
-  mem_consLang_of_replay wordsCheck_instance hP consIx .trap .trap (Set.mem_singleton _)
+    SExp2.ofAtoms [1, 2] ∈ moduleConsLang P wordsCheck consIx .trap .callTrap {listEnv 1 2} :=
+  mem_consLang_of_replay wordsCheck_instance hP consIx .trap .callTrap (Set.mem_singleton _)
     (cellScript consIx (listTab 1 2)) refFuel 16 ⟨0, by decide +kernel⟩ 0 0
     (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 theorem sortedCheck_accepts_12 :
-    SExp2.ofAtoms [1, 2] ∈ moduleConsLang P sortedCheck consIx .trap .trap {listEnv 1 2} :=
-  mem_consLang_of_replay sortedCheck_instance hP consIx .trap .trap (Set.mem_singleton _)
+    SExp2.ofAtoms [1, 2] ∈ moduleConsLang P sortedCheck consIx .trap .callTrap {listEnv 1 2} :=
+  mem_consLang_of_replay sortedCheck_instance hP consIx .trap .callTrap (Set.mem_singleton _)
     (cellScript consIx (listTab 1 2)) refFuel 16 ⟨0, by decide +kernel⟩ 0 0
     (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 theorem wordsCheck_accepts_21 :
-    SExp2.ofAtoms [2, 1] ∈ moduleConsLang P wordsCheck consIx .trap .trap {listEnv 2 1} :=
-  mem_consLang_of_replay wordsCheck_instance hP consIx .trap .trap (Set.mem_singleton _)
+    SExp2.ofAtoms [2, 1] ∈ moduleConsLang P wordsCheck consIx .trap .callTrap {listEnv 2 1} :=
+  mem_consLang_of_replay wordsCheck_instance hP consIx .trap .callTrap (Set.mem_singleton _)
     (cellScript consIx (listTab 2 1)) refFuel 16 ⟨0, by decide +kernel⟩ 0 0
     (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
 theorem properCheck_accepts_dottedElem :
-    dottedElem ∈ moduleConsLang P properCheck consIx .trap .trap {dotEnv} :=
-  mem_consLang_of_replay properCheck_instance hP consIx .trap .trap (Set.mem_singleton _)
+    dottedElem ∈ moduleConsLang P properCheck consIx .trap .callTrap {dotEnv} :=
+  mem_consLang_of_replay properCheck_instance hP consIx .trap .callTrap (Set.mem_singleton _)
     (cellScript consIx dotTab) refFuel 16 ⟨0, by decide +kernel⟩ 0 0
     (by decide +kernel) (by decide +kernel) (by decide +kernel)
 
@@ -130,23 +130,23 @@ end Positive
 /-! ### At the specification profiles -/
 
 theorem properCheck_accepts_12_spec (nd : Bool) : SExp2.ofAtoms [1, 2] ∈
-    moduleConsLang (Profile.spec nd {}) properCheck consIx .trap .trap {listEnv 1 2} :=
+    moduleConsLang (Profile.spec nd {}) properCheck consIx .trap .callTrap {listEnv 1 2} :=
   properCheck_accepts_12 fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 theorem wordsCheck_accepts_12_spec (nd : Bool) : SExp2.ofAtoms [1, 2] ∈
-    moduleConsLang (Profile.spec nd {}) wordsCheck consIx .trap .trap {listEnv 1 2} :=
+    moduleConsLang (Profile.spec nd {}) wordsCheck consIx .trap .callTrap {listEnv 1 2} :=
   wordsCheck_accepts_12 fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 theorem sortedCheck_accepts_12_spec (nd : Bool) : SExp2.ofAtoms [1, 2] ∈
-    moduleConsLang (Profile.spec nd {}) sortedCheck consIx .trap .trap {listEnv 1 2} :=
+    moduleConsLang (Profile.spec nd {}) sortedCheck consIx .trap .callTrap {listEnv 1 2} :=
   sortedCheck_accepts_12 fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 theorem wordsCheck_accepts_21_spec (nd : Bool) : SExp2.ofAtoms [2, 1] ∈
-    moduleConsLang (Profile.spec nd {}) wordsCheck consIx .trap .trap {listEnv 2 1} :=
+    moduleConsLang (Profile.spec nd {}) wordsCheck consIx .trap .callTrap {listEnv 2 1} :=
   wordsCheck_accepts_21 fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 theorem properCheck_accepts_dottedElem_spec (nd : Bool) :
-    dottedElem ∈ moduleConsLang (Profile.spec nd {}) properCheck consIx .trap .trap {dotEnv} :=
+    dottedElem ∈ moduleConsLang (Profile.spec nd {}) properCheck consIx .trap .callTrap {dotEnv} :=
   properCheck_accepts_dottedElem fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 /-! ## Negative examples (from soundness: every profile, every set of environments) -/
@@ -163,16 +163,16 @@ theorem not_words_dottedElem : dottedElem ∉ wordsL := by
     cases h
 
 theorem sortedCheck_rejects_21 (P : Profile) (Envs : Set (HEnv)) :
-    SExp2.ofAtoms [2, 1] ∉ moduleConsLang P sortedCheck consIx .trap .trap Envs :=
-  fun h => not_sorted_21 (sortedCheck_sound P Envs h)
+    SExp2.ofAtoms [2, 1] ∉ moduleConsLang P sortedCheck consIx .trap .callTrap Envs :=
+  fun h => not_sorted_21 (sortedCheck_sound P (by decide) Envs h)
 
 theorem wordsCheck_rejects_dottedElem (P : Profile)
     (Envs : Set (HEnv)) :
-    dottedElem ∉ moduleConsLang P wordsCheck consIx .trap .trap Envs :=
-  fun h => not_words_dottedElem (wordsCheck_sound P Envs h)
+    dottedElem ∉ moduleConsLang P wordsCheck consIx .trap .callTrap Envs :=
+  fun h => not_words_dottedElem (wordsCheck_sound P (by decide) Envs h)
 
 theorem properCheck_rejects_atom (P : Profile) (Envs : Set (HEnv))
-    (w : BitVec 64) : SExp2.atom w ∉ moduleConsLang P properCheck consIx .trap .trap Envs :=
-  fun h => nomatch (properCheck_sound P Envs h : SpineProperList (SExp2.atom w))
+    (w : BitVec 64) : SExp2.atom w ∉ moduleConsLang P properCheck consIx .trap .callTrap Envs :=
+  fun h => nomatch (properCheck_sound P (by decide) Envs h : SpineProperList (SExp2.atom w))
 
 end Silmaril.Wasm.Game.HandleAccept.Checkers

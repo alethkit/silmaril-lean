@@ -141,7 +141,7 @@ noncomputable def moduleAstLang (P : Profile) (m : Module) (ix : AstRImports S)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (AST S.toAstSig))) :
     Set (AST S.toAstSig) :=
   readerLang (astR S.toAstSig (BitVec 32)) pol oa Envs
-    (handleTraces ((Verify.instOf m).strategy P (Verify.instOf m).store)
+    (handleTraces ((Verify.instOf m).strategy P (Verify.instOf m).store) (some .enter)
       (astDecAsk ix) (astDecAns ix))
 
 /-- **The assume/guarantee specification of an AST reader checker** in the fixed environment

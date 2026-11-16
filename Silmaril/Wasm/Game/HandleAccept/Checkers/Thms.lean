@@ -21,8 +21,10 @@ import Silmaril.Proofs.Wasm.Game.HandleAccept.Checkers.Sorted
   specification `consISpec consIx ρ L` of its language (`Silmaril.Wasm.Logic.GameLink.GameSat`,
   partial correctness) with the store invariant `consInv` (proofs in
   `Silmaril.Proofs.Wasm.Game.HandleAccept.Checkers`).
-* **Soundness**: each checker's reader language under the trapping read policy, in every set of
-  environments, for every profile and every sequence of export calls, is included in its
+* **Soundness**: each checker's reader language under the trapping read policy, for every accept
+  policy but `ub` (in particular the Wasm-facing call-local trap `callTrap`, where a trapped
+  export call is followed by further export calls), in every set of environments, for every
+  profile and every sequence of export calls, is included in its
   language (`properCheck_sound`, `wordsCheck_sound`, `sortedCheck_sound`), through
   `consLang_sound_of_forall` and `Silmaril.Wasm.Logic.GameLink.strategy_sound`.
 
@@ -111,21 +113,21 @@ theorem sortedCheck_sat : ∀ P ρ, Silmaril.Wasm.Logic.GameLink.GameSat P (Veri
 /-! ## Soundness -/
 
 /-- **`properCheck` accepts only spine-proper lists.** -/
-theorem properCheck_sound (P : Profile)
+theorem properCheck_sound (P : Profile) {oa : Silmaril.Accept.Handle.OnInvalid} (hoa : oa ≠ .ub)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (SExp2 (BitVec 64)))) :
-    moduleConsLang P properCheck consIx .trap .trap Envs ⊆ properL :=
-  consLang_sound_of_forall (fun ρ _ => properCheck_sat P ρ) rfl (by decide)
+    moduleConsLang P properCheck consIx .trap oa Envs ⊆ properL :=
+  consLang_sound_of_forall (fun ρ _ => properCheck_sat P ρ) rfl hoa
 
 /-- **`wordsCheck` accepts only lists of words.** -/
-theorem wordsCheck_sound (P : Profile)
+theorem wordsCheck_sound (P : Profile) {oa : Silmaril.Accept.Handle.OnInvalid} (hoa : oa ≠ .ub)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (SExp2 (BitVec 64)))) :
-    moduleConsLang P wordsCheck consIx .trap .trap Envs ⊆ wordsL :=
-  consLang_sound_of_forall (fun ρ _ => wordsCheck_sat P ρ) rfl (by decide)
+    moduleConsLang P wordsCheck consIx .trap oa Envs ⊆ wordsL :=
+  consLang_sound_of_forall (fun ρ _ => wordsCheck_sat P ρ) rfl hoa
 
 /-- **`sortedCheck` accepts only sorted lists of words.** -/
-theorem sortedCheck_sound (P : Profile)
+theorem sortedCheck_sound (P : Profile) {oa : Silmaril.Accept.Handle.OnInvalid} (hoa : oa ≠ .ub)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (SExp2 (BitVec 64)))) :
-    moduleConsLang P sortedCheck consIx .trap .trap Envs ⊆ sortedL :=
-  consLang_sound_of_forall (fun ρ _ => sortedCheck_sat P ρ) rfl (by decide)
+    moduleConsLang P sortedCheck consIx .trap oa Envs ⊆ sortedL :=
+  consLang_sound_of_forall (fun ρ _ => sortedCheck_sat P ρ) rfl hoa
 
 end Silmaril.Wasm.Game.HandleAccept.Checkers

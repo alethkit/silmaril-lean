@@ -25,7 +25,7 @@ theorem pstep_live {s s' : PState V} {e : PEv V H} {A : Set (List V × X)}
   cases hs with
   | ret h _ _ => exact h
   | retBadIgnore h _ _ _ => exact h
-  | retBadTrap _ _ _ _ => simp at hl
+  | retBadSessionTrap _ _ _ _ => simp at hl
   | retBadUB _ _ _ _ => simp at hl
   | chaos _ h => rw [h] at hl; cases hl
   | overrunUB _ _ => simp at hl
@@ -39,7 +39,7 @@ theorem run_live {s s' : PState V} {t : List (PEv V H)} {A : Set (List V × X)}
 
 /-- **The cursor invariant** of chunked input: the buffer is the fed input after the consumed
 prefix, and the consumed count never exceeds it. -/
-theorem run_cursor (ho : pol.onOverrun = .trap) :
+theorem run_cursor (ho : pol.onOverrun = .sessionTrap) :
     ∀ {s s' : PState V} {t : List (PEv V H)} {A : Set (List V × X)},
       (parser pol ρ).Run s t s' A → ChunkOnly t → s'.phase = .live →
       s'.buf = (s.buf ++ fed t).drop (consumed t) ∧ consumed t ≤ (s.buf ++ fed t).length := by
@@ -54,7 +54,7 @@ theorem run_cursor (ho : pol.onOverrun = .trap) :
       · cases hs with
         | ret _ hR _ => simp [Returns] at hR
         | retBadIgnore _ hR _ _ => simp [Returns] at hR
-        | retBadTrap _ hR _ _ => simp [Returns] at hR
+        | retBadSessionTrap _ hR _ _ => simp [Returns] at hR
         | retBadUB _ hR _ _ => simp [Returns] at hR
         | feed _ =>
             simp only [fed, consumed, List.append_assoc] at ih1 ih2 ⊢
@@ -64,9 +64,9 @@ theorem run_cursor (ho : pol.onOverrun = .trap) :
           cases hs with
           | ret _ hR _ => exact ⟨_, _, hR⟩
           | retBadIgnore _ hR _ _ => exact ⟨_, _, hR⟩
-          | retBadTrap _ _ _ _ => simp at hl₁
+          | retBadSessionTrap _ _ _ _ => simp at hl₁
           | retBadUB _ _ _ _ => simp at hl₁
-          | overrunIgnore _ hp => rw [ho] at hp; cases hp
+          | overrunIgnore _ hp => rw [ho] at hp; simp at hp
           | overrunUB _ _ => simp at hl₁
           | chaos _ hch => rw [hch] at hl₁; cases hl₁
         obtain ⟨w, h', hle, -, -, rfl⟩ := hstep
@@ -114,7 +114,7 @@ theorem run_not_chaos (ho : pol.onOverrun ≠ .ub) (hb : pol.onBadHandle ≠ .ub
       cases hst with
       | ret _ hR _ => rw [returns_phase hR]; exact hs
       | retBadIgnore _ hR _ _ => rw [returns_phase hR]; exact hs
-      | retBadTrap _ _ _ _ => simp
+      | retBadSessionTrap _ _ _ _ => simp
       | retBadUB _ _ _ h => exact absurd h hb
       | overrunUB _ h => exact absurd h ho
       | chaos _ h => exact absurd h hs
@@ -133,7 +133,7 @@ theorem run_pending :
       cases hs with
       | ret _ hR _ => exact returns_pending hR es
       | retBadIgnore _ hR _ _ => exact returns_pending hR es
-      | retBadTrap _ _ _ _ => simp at hl₁
+      | retBadSessionTrap _ _ _ _ => simp at hl₁
       | retBadUB _ _ _ _ => simp at hl₁
       | overrunUB _ _ => simp at hl₁
       | chaos _ h => rw [h] at hl₁; cases hl₁
@@ -156,7 +156,7 @@ theorem rel_event {Envs : Set (Env H X)} {T : Set (List (PEv V H))} {p : List V 
   exact ⟨ρ, hρ, _, ht, u, e, v, s₁, s₂, B, C, rfl, hu, he, hpC⟩
 
 /-- **The accepted input of a chunked `done` is the `used` slice after the cursor.** -/
-theorem rel_slice (ho : pol.onOverrun = .trap) (hb : pol.onBadHandle ≠ .ub)
+theorem rel_slice (ho : pol.onOverrun = .sessionTrap) (hb : pol.onBadHandle ≠ .ub)
     {Envs : Set (Env H X)} {T : Set (List (PEv V H))} (hT : ∀ t ∈ T, ChunkOnly t)
     {p : List V × X} (hp : p ∈ parseRel pol Envs T) :
     ∃ t ∈ T, ∃ u n h v, t = u ++ PEv.finish n h :: v ∧
@@ -171,7 +171,7 @@ theorem rel_slice (ho : pol.onOverrun = .trap) (hb : pol.onBadHandle ≠ .ub)
   · cases he with
     | ret _ hR _ => simp [Returns] at hR
     | retBadIgnore _ hR _ _ => simp [Returns] at hR
-    | retBadTrap _ hR _ _ => simp [Returns] at hR
+    | retBadSessionTrap _ hR _ _ => simp [Returns] at hR
     | retBadUB _ hR _ _ => simp [Returns] at hR
     | feed _ => simp at hpC
     | chaos _ h => exact absurd h hnc
@@ -191,7 +191,7 @@ theorem rel_slice (ho : pol.onOverrun = .trap) (hb : pol.onBadHandle ≠ .ub)
           rw [hbuf, List.length_drop] at hle
           omega
     | retBadIgnore _ _ _ _ => simp at hpC
-    | retBadTrap _ _ _ _ => simp at hpC
+    | retBadSessionTrap _ _ _ _ => simp at hpC
     | retBadUB _ _ _ h => exact absurd h hb
     | overrunIgnore _ _ => simp at hpC
     | overrunUB _ h => rw [ho] at h; cases h
@@ -208,7 +208,7 @@ theorem rel_done (hb : pol.onBadHandle ≠ .ub) (ho : pol.onOverrun ≠ .ub)
   · cases he with
     | ret _ hR _ => simp [Returns] at hR
     | retBadIgnore _ hR _ _ => simp [Returns] at hR
-    | retBadTrap _ hR _ _ => simp [Returns] at hR
+    | retBadSessionTrap _ hR _ _ => simp [Returns] at hR
     | retBadUB _ hR _ _ => simp [Returns] at hR
     | append _ => simp at hpC
     | chaos _ h => exact absurd h hnc
@@ -224,7 +224,7 @@ theorem rel_done (hb : pol.onBadHandle ≠ .ub) (ho : pol.onOverrun ≠ .ub)
           subst hpC
           exact ⟨_, ht, u, h', v, rfl, by simpa [PState.init] using hacc⟩
     | retBadIgnore _ _ _ _ => simp at hpC
-    | retBadTrap _ _ _ _ => simp at hpC
+    | retBadSessionTrap _ _ _ _ => simp at hpC
     | retBadUB _ _ _ h => exact absurd h hb
     | chaos _ h => exact absurd h hnc
 

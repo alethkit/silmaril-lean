@@ -9,8 +9,14 @@ A toy writer `natW` builds natural numbers from literals (`lit n`) and successor
 one child); handles are `ℕ`. Each example is a concrete trace; a trace set need not be prefix
 closed, but where it matters the prefix-closed version is used.
 
-* `trap_ne_ignore`: an invalid `accept` followed by a valid one: accepted under `ignore`, not
-  under the mandatory trap.
+* `callTrap_ne_ignore`: an invalid `accept` followed by a valid one **in the same export call**:
+  accepted under `ignore`, not under the call-local trap (nor the session abort,
+  `sessionTrap_ne_ignore`).
+* `callTrap_ne_sessionTrap`: an invalid `accept` in one export call, a valid one in the next
+  (`[accept 0, enter, write (lit 7) → 1, accept 1]`): accepted under the call-local trap, not
+  under the session abort.
+* `persist_seven`: store effects persist across a call-local trap: write `7` at `1`, an invalid
+  accept (the call traps), a new export call, `accept 1` accepts `7`.
 * `fixed_lt_ub`: on the prefix-closed module "write `succ [5]` (5 unallocated), accept the
   result", the UB top accepts `0`, while no fixed environment does: the result of an invalid
   write still has the constructor's shape. `fixed_trace_lt_ub`: on one trace, a later
@@ -48,7 +54,7 @@ theorem agrees_none' {r : ℕ} {t : ℕ} : Agrees (none : Option (Env ℕ ℕ)) 
 /-- The initial state, unfolded. -/
 theorem init_eq : (WState.init : WState ℕ ℕ) = ⟨Env.empty, ∅, .live⟩ := rfl
 
-/-! ## Mandatory trap versus ignore -/
+/-! ## Call-local trap, session abort and ignore -/
 
 def t1 : List (WEv NOp ℕ) := [.accept 0, .write (.lit 7) [] 1, .accept 1]
 
@@ -57,7 +63,9 @@ theorem seven_ignore : 7 ∈ writerLang natW {onAccept := .ignore} {t1} :=
     .cons (.acceptIgnore rfl rfl) (.cons (.writeOk (t := 7) rfl ⟨by simp, .inl rfl⟩ agrees_none')
       (.cons (.acceptOk (t := 7) (by simp)) (.nil _))), by simp⟩
 
-theorem trap_t1 : writerLang natW {onAccept := .trap} {t1} = ∅ := by
+/-- Under the call-local trap the invalid accept aborts the call: the write in the same call
+is not answered. -/
+theorem callTrap_t1 : writerLang natW {onAccept := .callTrap} {t1} = ∅ := by
   rw [Set.eq_empty_iff_forall_notMem]
   intro x hx
   obtain ⟨t, ht, s, A, hr, -⟩ := mem_lang.1 hx
@@ -68,14 +76,68 @@ theorem trap_t1 : writerLang natW {onAccept := .trap} {t1} = ∅ := by
   | cons hs hrest =>
       cases hs with
       | acceptOk h => cases h
-      | acceptTrap _ _ => cases hrest with | cons hs' _ => cases hs'
+      | acceptCallTrap _ _ => cases hrest with | cons hs' _ => cases hs'
+      | acceptSessionTrap _ hp => cases hp
       | acceptIgnore _ hp => cases hp
       | acceptChaos _ hp _ => cases hp
       | acceptFixed _ _ hf => cases hf
 
-theorem trap_ne_ignore :
-    writerLang natW {onAccept := .trap} {t1} ≠ writerLang natW {onAccept := .ignore} {t1} := by
-  rw [trap_t1]; intro h; have := seven_ignore; rw [← h] at this; exact this
+theorem sessionTrap_t1 : writerLang natW {onAccept := .sessionTrap} {t1} = ∅ :=
+  Set.subset_empty_iff.1 (callTrap_t1 ▸
+    writerLang_sessionTrap_subset_callTrap (W := natW) {onAccept := .callTrap} {t1})
+
+theorem callTrap_ne_ignore :
+    writerLang natW {onAccept := .callTrap} {t1} ≠ writerLang natW {onAccept := .ignore} {t1} := by
+  rw [callTrap_t1]; intro h; have := seven_ignore; rw [← h] at this; exact this
+
+theorem sessionTrap_ne_ignore :
+    writerLang natW {onAccept := .sessionTrap} {t1} ≠
+      writerLang natW {onAccept := .ignore} {t1} := by
+  rw [sessionTrap_t1]; intro h; have := seven_ignore; rw [← h] at this; exact this
+
+/-- An invalid accept in the first export call, a valid one in the second. -/
+def t5 : List (WEv NOp ℕ) := [.accept 0, .enter, .write (.lit 7) [] 1, .accept 1]
+
+theorem seven_callTrap : 7 ∈ writerLang natW {onAccept := .callTrap} {t5} :=
+  mem_lang.2 ⟨t5, rfl, _, _,
+    .cons (.acceptCallTrap rfl rfl) (.cons .resume
+      (.cons (.writeOk (t := 7) rfl ⟨by simp, .inl rfl⟩ agrees_none')
+        (.cons (.acceptOk (t := 7) (by simp)) (.nil _)))), by simp⟩
+
+theorem sessionTrap_t5 : writerLang natW {onAccept := .sessionTrap} {t5} = ∅ := by
+  rw [Set.eq_empty_iff_forall_notMem]
+  intro x hx
+  obtain ⟨t, ht, s, A, hr, -⟩ := mem_lang.1 hx
+  rw [Set.mem_singleton_iff] at ht
+  subst ht
+  change (writer natW _).Run ⟨Env.empty, ∅, .live⟩ t5 s A at hr
+  cases hr with
+  | cons hs hrest =>
+      cases hs with
+      | acceptOk h => cases h
+      | acceptCallTrap _ hp => cases hp
+      | acceptSessionTrap _ _ => cases hrest with | cons hs' _ => cases hs'
+      | acceptIgnore _ hp => cases hp
+      | acceptChaos _ hp _ => cases hp
+      | acceptFixed _ _ hf => cases hf
+
+/-- **The call-local trap is strictly more permissive than the session abort**: a later export
+call may still accept. -/
+theorem callTrap_ne_sessionTrap :
+    writerLang natW {onAccept := .callTrap} {t5} ≠
+      writerLang natW {onAccept := .sessionTrap} {t5} := by
+  rw [sessionTrap_t5]; intro h; have := seven_callTrap; rw [h] at this; exact this
+
+/-- Write `7` at `1`, trap the call on an invalid accept, call again and accept `1`. -/
+def t6 : List (WEv NOp ℕ) := [.write (.lit 7) [] 1, .accept 2, .enter, .accept 1]
+
+/-- **Effects before a call-local trap persist**: the tree written before the trap is accepted
+in the next export call. -/
+theorem persist_seven : 7 ∈ writerLang natW {onAccept := .callTrap} {t6} :=
+  mem_lang.2 ⟨t6, rfl, _, _,
+    .cons (.writeOk (t := 7) rfl ⟨by simp, .inl rfl⟩ agrees_none')
+      (.cons (.acceptCallTrap (by simp [Env.empty]) rfl) (.cons .resume
+        (.cons (.acceptOk (t := 7) (by simp)) (.nil _)))), by simp⟩
 
 /-! ## Fixed environments versus the UB top -/
 
@@ -128,7 +190,8 @@ theorem zero_not_fixed : 0 ∉ fixedLang natW polUB Set.univ T2 := by
                     simp only [Writer.built, Env.lookupAll, List.mapM_cons, List.mapM_nil,
                       Option.bind_eq_bind] at hb
                     rcases h5 : ρ 5 with _ | m <;> simp [h5, natW] at hb
-                | acceptTrap h _ => simp at h
+                | acceptCallTrap h _ => simp at h
+                | acceptSessionTrap h _ => simp at h
                 | acceptIgnore h _ => simp at h
                 | acceptChaos h _ _ => simp at h
                 | acceptFixed h _ _ => simp at h
@@ -153,7 +216,8 @@ theorem fixed_trace : fixedLang natW polUB Set.univ {t2'} ⊆ {7} := by
           cases hnil
           cases hs with
           | acceptOk h => cases h
-          | acceptTrap _ hp => cases hp
+          | acceptCallTrap _ hp => cases hp
+          | acceptSessionTrap _ hp => cases hp
           | acceptIgnore _ hp => cases hp
           | acceptChaos _ _ hf => cases hf
           | @acceptFixed σ B h ρ' _ _ hfix =>
@@ -336,8 +400,8 @@ theorem inter_strict :
 def R0 : Reader Unit Bool ℕ ℕ := ⟨fun _ _ => False, fun _ _ _ => False⟩
 
 theorem arbitrary_ne_ub :
-    readerLang R0 .arbitrary .trap Set.univ {[.read () true]} = ∅ ∧
-    readerLang R0 .ub .trap Set.univ {[.read () true]} = Set.univ := by
+    readerLang R0 .arbitrary .callTrap Set.univ {[.read () true]} = ∅ ∧
+    readerLang R0 .ub .callTrap Set.univ {[.read () true]} = Set.univ := by
   constructor
   · rw [Set.eq_empty_iff_forall_notMem]
     intro x hx
@@ -382,8 +446,8 @@ theorem cert0_certified : Certified cert0 {[.read () true, .accept 0]} := by
 environment `0 ↦ 5` under `arbitrary`, although its certificate is sound for `∅` (and, by
 `readerLang_trap_subset`, it accepts nothing under `trap`). -/
 theorem arbitrary_uncertified :
-    5 ∈ readerLang R0 .arbitrary .trap Set.univ {[.read () true, .accept 0]} ∧
-    readerLang R0 .trap .trap Set.univ {[.read () true, .accept 0]} = ∅ := by
+    5 ∈ readerLang R0 .arbitrary .callTrap Set.univ {[.read () true, .accept 0]} ∧
+    readerLang R0 .trap .callTrap Set.univ {[.read () true, .accept 0]} = ∅ := by
   constructor
   · unfold readerLang langOver
     rw [Set.mem_iUnion]

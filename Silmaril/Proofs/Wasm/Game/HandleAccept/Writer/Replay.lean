@@ -70,7 +70,8 @@ theorem mem_consWLang_of_replay {m : Module} (hm : (instance? m).isSome = true) 
     (hbad : ∀ r, pol.sentinel = some r → bad r = true) (sc : Script) (fuel n : Nat)
     (j : Fin (instOf m).exports.length) (k : Nat) {x : SExp2 (BitVec 64)}
     (hrun : wRunB (consW (BitVec 64)) bad x Env.empty
-      (rdecG (consWAsk ix) (consWAns ix) [] (replayExport (instOf m) sc fuel n j k)) =
+      (rdecG (some .enter) (consWAsk ix) (consWAns ix) []
+        (replayExport (instOf m) sc fuel n j k)) =
         some true) :
     x ∈ moduleConsWLang P m ix pol :=
   mem_writerLang_of_replay hm hP (consWDecAsk ix) (consWDecAns ix) (consWAsk ix) (consWAns ix)

@@ -156,7 +156,7 @@ noncomputable def moduleTree2Lang (P : Profile) (m : Module) (ix : T2RImports)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (Tree2 (BitVec 64)))) :
     Set (Tree2 (BitVec 64)) :=
   readerLang (tree2R (BitVec 64) (BitVec 32)) pol oa Envs
-    (handleTraces ((Verify.instOf m).strategy P (Verify.instOf m).store)
+    (handleTraces ((Verify.instOf m).strategy P (Verify.instOf m).store) (some .enter)
       (t2DecAsk ix) (t2DecAns ix))
 
 /-- **The assume/guarantee specification of a binary-tree reader checker** in the fixed

@@ -12,13 +12,25 @@ open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game Silmaril.Wasm
   Silmaril.Wasm.Game.IOAccept Silmaril.Wasm.Game.HandleAccept.Memory Silmaril.Accept.Handle
   Silmaril.Accept.IO Silmaril.Formats Silmaril.Formats.Api
 
-theorem mem_inputsOf {X I O C : Type} {i : I} :
-    ∀ {ts : List (Tag X I O C)}, i ∈ inputsOf ts ↔ Tag.inp i ∈ ts
-  | [] => by simp [inputsOf]
-  | .inp j :: ts => by simp [inputsOf, mem_inputsOf (ts := ts)]
-  | .enter _ :: ts => by simp [inputsOf, mem_inputsOf (ts := ts)]
-  | .out _ :: ts => by simp [inputsOf, mem_inputsOf (ts := ts)]
-  | .exit _ :: ts => by simp [inputsOf, mem_inputsOf (ts := ts)]
+theorem mem_inputsOf {X I O C : Type} {enter : Option I} {i : I} :
+    ∀ {ts : List (Tag X I O C)}, i ∈ inputsOf enter ts → Tag.inp i ∈ ts ∨ enter = some i
+  | [], h => by simp [inputsOf] at h
+  | .inp j :: ts, h => by
+      simp only [inputsOf, List.mem_cons] at h
+      rcases h with rfl | h
+      · exact .inl List.mem_cons_self
+      · exact (mem_inputsOf h).imp (List.mem_cons_of_mem _) id
+  | .enter _ :: ts, h => by
+      simp only [inputsOf, List.mem_append, Option.mem_toList] at h
+      rcases h with h | h
+      · exact .inr h
+      · exact (mem_inputsOf h).imp (List.mem_cons_of_mem _) id
+  | .out _ :: ts, h => by
+      simp only [inputsOf] at h
+      exact (mem_inputsOf h).imp (List.mem_cons_of_mem _) id
+  | .exit _ :: ts, h => by
+      simp only [inputsOf] at h
+      exact (mem_inputsOf h).imp (List.mem_cons_of_mem _) id
 
 theorem calloutAt?_imp {m : Module} {memAddr : Option Nat} {c : Config Nat} {o : Callout}
     (h : calloutAt? m memAddr c = some o) :

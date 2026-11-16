@@ -33,41 +33,54 @@ theorem ag_allP {I : ISpec E} {S : ISpec F} :
         · exact hg
         · exact ag_allP hrest (fun o' h' => hall o' (List.mem_cons_of_mem _ h')) o ho hp
 
-theorem mem_playEvents {decAsk : E.Op → Option Ev} {decAns : (e : E.Op) → E.Ar e → Option Ev}
-    {ev : Ev} : ∀ {p : List (Move E F)}, ev ∈ playEvents decAsk decAns p →
+theorem mem_playEvents {enter : Option Ev} {decAsk : E.Op → Option Ev}
+    {decAns : (e : E.Op) → E.Ar e → Option Ev} {ev : Ev} :
+    ∀ {p : List (Move E F)}, ev ∈ playEvents enter decAsk decAns p →
       (∃ e, (.inl (.ask e) : Move E F) ∈ p ∧ decAsk e = some ev) ∨
-      (∃ e v, (.inl (.ans e v) : Move E F) ∈ p ∧ decAns e v = some ev)
+      (∃ e v, (.inl (.ans e v) : Move E F) ∈ p ∧ decAns e v = some ev) ∨ enter = some ev
   | [], h => by simp [playEvents] at h
   | .inl (.ask e) :: p, h => by
       simp only [playEvents, List.mem_append, Option.mem_toList] at h
       rcases h with h | h
       · exact .inl ⟨e, List.mem_cons_self, h⟩
-      · rcases mem_playEvents h with ⟨e', he, h'⟩ | ⟨e', v, he, h'⟩
+      · rcases mem_playEvents h with ⟨e', he, h'⟩ | ⟨e', v, he, h'⟩ | h'
         · exact .inl ⟨e', List.mem_cons_of_mem _ he, h'⟩
-        · exact .inr ⟨e', v, List.mem_cons_of_mem _ he, h'⟩
+        · exact .inr (.inl ⟨e', v, List.mem_cons_of_mem _ he, h'⟩)
+        · exact .inr (.inr h')
   | .inl (.ans e v) :: p, h => by
       simp only [playEvents, List.mem_append, Option.mem_toList] at h
       rcases h with h | h
-      · exact .inr ⟨e, v, List.mem_cons_self, h⟩
-      · rcases mem_playEvents h with ⟨e', he, h'⟩ | ⟨e', v', he, h'⟩
+      · exact .inr (.inl ⟨e, v, List.mem_cons_self, h⟩)
+      · rcases mem_playEvents h with ⟨e', he, h'⟩ | ⟨e', v', he, h'⟩ | h'
         · exact .inl ⟨e', List.mem_cons_of_mem _ he, h'⟩
-        · exact .inr ⟨e', v', List.mem_cons_of_mem _ he, h'⟩
-  | .inr _ :: p, h => by
+        · exact .inr (.inl ⟨e', v', List.mem_cons_of_mem _ he, h'⟩)
+        · exact .inr (.inr h')
+  | .inr (.ask _) :: p, h => by
+      simp only [playEvents, List.mem_append, Option.mem_toList] at h
+      rcases h with h | h
+      · exact .inr (.inr h)
+      · rcases mem_playEvents h with ⟨e', he, h'⟩ | ⟨e', v, he, h'⟩ | h'
+        · exact .inl ⟨e', List.mem_cons_of_mem _ he, h'⟩
+        · exact .inr (.inl ⟨e', v, List.mem_cons_of_mem _ he, h'⟩)
+        · exact .inr (.inr h')
+  | .inr (.ans _ _) :: p, h => by
       simp only [playEvents] at h
-      rcases mem_playEvents h with ⟨e', he, h'⟩ | ⟨e', v, he, h'⟩
+      rcases mem_playEvents h with ⟨e', he, h'⟩ | ⟨e', v, he, h'⟩ | h'
       · exact .inl ⟨e', List.mem_cons_of_mem _ he, h'⟩
-      · exact .inr ⟨e', v, List.mem_cons_of_mem _ he, h'⟩
+      · exact .inr (.inl ⟨e', v, List.mem_cons_of_mem _ he, h'⟩)
+      · exact .inr (.inr h')
 
-theorem ans_mem_playEvents {decAsk : E.Op → Option Ev}
+theorem ans_mem_playEvents {enter : Option Ev} {decAsk : E.Op → Option Ev}
     {decAns : (e : E.Op) → E.Ar e → Option Ev} {e : E.Op} {v : E.Ar e} {ev : Ev} :
     ∀ {p : List (Move E F)}, (.inl (.ans e v) : Move E F) ∈ p → decAns e v = some ev →
-      ev ∈ playEvents decAsk decAns p
+      ev ∈ playEvents enter decAsk decAns p
   | [], h, _ => by simp at h
   | m :: p, h, hd => by
       rcases List.mem_cons.1 h with rfl | h
       · simp [playEvents, hd]
-      · have := ans_mem_playEvents (decAsk := decAsk) h hd
-        rcases m with (e' | e') | e'
+      · have := ans_mem_playEvents (enter := enter) (decAsk := decAsk) h hd
+        rcases m with (e' | e') | (e' | e')
+        · simp [playEvents, this]
         · simp [playEvents, this]
         · simp [playEvents, this]
         · simpa [playEvents] using this
@@ -85,10 +98,16 @@ theorem mem_reads {Q A H : Type} {q : Q} {a : A} :
       rcases List.mem_cons.1 h with h | h
       · cases h
       · exact mem_reads h
+  | .enter :: t, h => by
+      simp only [REv.reads]
+      rcases List.mem_cons.1 h with h | h
+      · cases h
+      · exact mem_reads h
 
 /-- **The bridge**: if every play of `σ` is assume/guarantee correct for an import
 specification whose answers are the correct reads in `ρ` and whose `accept` calls name members
-of `L`, the reader language of `σ` in `ρ` under the trapping read policy is included in `L`. -/
+of `L`, the reader language of `σ` in `ρ` (export calls decoded as `enter`) under the trapping
+read policy is included in `L`, for every accept policy but `ub`. -/
 theorem readerLang_subset_of_AG {Q A H X : Type} {R : Reader Q A H X} {ρ : Env H X} {L : Set X}
     {σ : Strategy E F} {decAsk : E.Op → Option (REv Q A H)}
     {decAns : (e : E.Op) → E.Ar e → Option (REv Q A H)} {Ii : ISpec E}
@@ -97,7 +116,7 @@ theorem readerLang_subset_of_AG {Q A H X : Type} {R : Reader Q A H X} {ρ : Env 
       Ii.post e v)
     (hpre : ∀ e h, decAsk e = some (.accept h) → Ii.pre e → ∀ t, ρ h = some t → t ∈ L)
     (hans : ∀ e v h, decAns e v ≠ some (.accept h)) {oa : OnInvalid} (hoa : oa ≠ .ub) :
-    readerLang R .trap oa {ρ} (handleTraces σ decAsk decAns) ⊆ L := by
+    readerLang R .trap oa {ρ} (handleTraces σ (some .enter) decAsk decAns) ⊆ L := by
   intro x hx
   unfold readerLang langOver at hx
   rw [Set.mem_iUnion] at hx
@@ -111,12 +130,14 @@ theorem readerLang_subset_of_AG {Q A H X : Type} {R : Reader Q A H X} {ρ : Env 
     rcases o with (e | ⟨e, v⟩) | (q | ⟨q, r⟩)
     · simp [Move.IsO] at hO
     · exact hpost e v fun q a hd =>
-        hreads (q, a) (mem_reads (ans_mem_playEvents (decAsk := decAsk) ho hd))
+        hreads (q, a)
+          (mem_reads (ans_mem_playEvents (enter := some .enter) (decAsk := decAsk) ho hd))
     · trivial
     · simp [Move.IsO] at hO
   have hP := ag_allP (hAG p hp) hgood
   obtain ⟨u, ev, w, p₁, p₂, B, C, ht, hu, hev, hxC⟩ :=
-    Host.Run.mem_split (h := reader R .trap oa ρ) (t := playEvents decAsk decAns p) hr hxS
+    Host.Run.mem_split (h := reader R .trap oa ρ) (t := playEvents (some .enter) decAsk decAns p)
+      hr hxS
   have hfacts := trap_reads_correct hoa hu
   cases hev with
   | read _ _ => simp at hxC
@@ -127,11 +148,15 @@ theorem readerLang_subset_of_AG {Q A H X : Type} {R : Reader Q A H X} {ρ : Env 
   | @acceptOk h t' hρ =>
       simp only [Set.mem_singleton_iff] at hxC
       subst hxC
-      have hmem : REv.accept h ∈ playEvents decAsk decAns p := by rw [ht]; simp
-      rcases mem_playEvents hmem with ⟨e, he, hd⟩ | ⟨e, v, _, hd⟩
+      have hmem : REv.accept h ∈ playEvents (some .enter) decAsk decAns p := by rw [ht]; simp
+      rcases mem_playEvents hmem with ⟨e, he, hd⟩ | ⟨e, v, _, hd⟩ | hd
       · exact hpre e h hd (hP _ he trivial) _ hρ
       · exact absurd hd (hans e v h)
-  | acceptTrap _ _ => simp at hxC
+      · cases hd
+  | acceptCallTrap _ _ => simp at hxC
+  | acceptSessionTrap _ _ => simp at hxC
+  | enter => simp at hxC
+  | resume => simp at hxC
   | acceptIgnore _ _ => simp at hxC
   | acceptChaos _ h => exact absurd h hoa
   | chaos _ => exact absurd rfl (trap_not_chaos hoa hu)

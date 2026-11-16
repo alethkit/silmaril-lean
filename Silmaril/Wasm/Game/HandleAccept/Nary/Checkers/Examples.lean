@@ -78,26 +78,26 @@ include hP
 open Silmaril.Proofs.Wasm.Game.HandleAccept.Nary (mem_sexpLang_of_replay)
 
 theorem pairCheck_accepts_12 :
-    SExp.ofAtoms [1, 2] ∈ moduleSExpLang P pairCheck pairIx .trap .trap {nListEnv 1 2} :=
-  mem_sexpLang_of_replay pairCheck_instance hP pairIx .trap .trap (Set.mem_singleton _)
+    SExp.ofAtoms [1, 2] ∈ moduleSExpLang P pairCheck pairIx .trap .callTrap {nListEnv 1 2} :=
+  mem_sexpLang_of_replay pairCheck_instance hP pairIx .trap .callTrap (Set.mem_singleton _)
     (nListScript 1 2) refFuel 16 ⟨0, by decide +kernel⟩ 0 0 rfl
     (by decide +kernel) (by decide +kernel)
 
 theorem wordsNCheck_accepts_12 :
-    SExp.ofAtoms [1, 2] ∈ moduleSExpLang P wordsNCheck pairIx .trap .trap {nListEnv 1 2} :=
-  mem_sexpLang_of_replay wordsNCheck_instance hP pairIx .trap .trap (Set.mem_singleton _)
+    SExp.ofAtoms [1, 2] ∈ moduleSExpLang P wordsNCheck pairIx .trap .callTrap {nListEnv 1 2} :=
+  mem_sexpLang_of_replay wordsNCheck_instance hP pairIx .trap .callTrap (Set.mem_singleton _)
     (nListScript 1 2) refFuel 16 ⟨0, by decide +kernel⟩ 0 0 rfl
     (by decide +kernel) (by decide +kernel)
 
 theorem sortedNCheck_accepts_12 :
-    SExp.ofAtoms [1, 2] ∈ moduleSExpLang P sortedNCheck pairIx .trap .trap {nListEnv 1 2} :=
-  mem_sexpLang_of_replay sortedNCheck_instance hP pairIx .trap .trap (Set.mem_singleton _)
+    SExp.ofAtoms [1, 2] ∈ moduleSExpLang P sortedNCheck pairIx .trap .callTrap {nListEnv 1 2} :=
+  mem_sexpLang_of_replay sortedNCheck_instance hP pairIx .trap .callTrap (Set.mem_singleton _)
     (nListScript 1 2) refFuel 16 ⟨0, by decide +kernel⟩ 0 0 rfl
     (by decide +kernel) (by decide +kernel)
 
 theorem wordsNCheck_accepts_21 :
-    SExp.ofAtoms [2, 1] ∈ moduleSExpLang P wordsNCheck pairIx .trap .trap {nListEnv 2 1} :=
-  mem_sexpLang_of_replay wordsNCheck_instance hP pairIx .trap .trap (Set.mem_singleton _)
+    SExp.ofAtoms [2, 1] ∈ moduleSExpLang P wordsNCheck pairIx .trap .callTrap {nListEnv 2 1} :=
+  mem_sexpLang_of_replay wordsNCheck_instance hP pairIx .trap .callTrap (Set.mem_singleton _)
     (nListScript 2 1) refFuel 16 ⟨0, by decide +kernel⟩ 0 0 rfl
     (by decide +kernel) (by decide +kernel)
 
@@ -106,19 +106,19 @@ end Positive
 /-! ### At the specification profiles -/
 
 theorem pairCheck_accepts_12_spec (nd : Bool) : SExp.ofAtoms [1, 2] ∈
-    moduleSExpLang (Profile.spec nd {}) pairCheck pairIx .trap .trap {nListEnv 1 2} :=
+    moduleSExpLang (Profile.spec nd {}) pairCheck pairIx .trap .callTrap {nListEnv 1 2} :=
   pairCheck_accepts_12 fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 theorem wordsNCheck_accepts_12_spec (nd : Bool) : SExp.ofAtoms [1, 2] ∈
-    moduleSExpLang (Profile.spec nd {}) wordsNCheck pairIx .trap .trap {nListEnv 1 2} :=
+    moduleSExpLang (Profile.spec nd {}) wordsNCheck pairIx .trap .callTrap {nListEnv 1 2} :=
   wordsNCheck_accepts_12 fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 theorem sortedNCheck_accepts_12_spec (nd : Bool) : SExp.ofAtoms [1, 2] ∈
-    moduleSExpLang (Profile.spec nd {}) sortedNCheck pairIx .trap .trap {nListEnv 1 2} :=
+    moduleSExpLang (Profile.spec nd {}) sortedNCheck pairIx .trap .callTrap {nListEnv 1 2} :=
   sortedNCheck_accepts_12 fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 theorem wordsNCheck_accepts_21_spec (nd : Bool) : SExp.ofAtoms [2, 1] ∈
-    moduleSExpLang (Profile.spec nd {}) wordsNCheck pairIx .trap .trap {nListEnv 2 1} :=
+    moduleSExpLang (Profile.spec nd {}) wordsNCheck pairIx .trap .callTrap {nListEnv 2 1} :=
   wordsNCheck_accepts_21 fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 /-! ## Negative example (from soundness: every profile, every set of environments) -/
@@ -130,7 +130,7 @@ theorem not_sortedN_21 : SExp.ofAtoms [(2 : BitVec 64), 1] ∉ sortedNL := by
 
 theorem sortedNCheck_rejects_21 (P : Profile)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (SExp (BitVec 64)))) :
-    SExp.ofAtoms [2, 1] ∉ moduleSExpLang P sortedNCheck pairIx .trap .trap Envs :=
-  fun h => not_sortedN_21 (sortedNCheck_sound P Envs h)
+    SExp.ofAtoms [2, 1] ∉ moduleSExpLang P sortedNCheck pairIx .trap .callTrap Envs :=
+  fun h => not_sortedN_21 (sortedNCheck_sound P (by decide) Envs h)
 
 end Silmaril.Wasm.Game.HandleAccept.Nary.Checkers

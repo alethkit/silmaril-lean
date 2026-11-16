@@ -15,8 +15,19 @@ import Silmaril.Proofs.Semantics.Accept.Handle.Sentinel
 
 **Writers** (store semantics `writerLang`, fixed environments `fixedLang`):
 
-* policy order: `writerLang_mono` (`Policy.Le`: `trap ≤ ignore ≤ ub` for invalid accepts,
-  `trap ≤ fail ≤ ub` for invalid writes, no interning below interning);
+* policy order: `writerLang_mono` (`Policy.Le`: `sessionTrap ≤ callTrap ≤ ignore ≤ ub` for
+  invalid accepts, `trap ≤ fail ≤ ub` for invalid writes, no interning below interning); for the
+  accept policy alone `writerLang_onAccept_mono`, with the chain
+  `writerLang_sessionTrap_subset_callTrap`, `writerLang_callTrap_subset_ignore`,
+  `writerLang_ignore_subset_ub`. Both inclusions around `callTrap` are strict
+  (`Examples.callTrap_ne_sessionTrap`: an invalid accept in one export call, a valid one in the
+  next; `Examples.callTrap_ne_ignore`: both in the same call);
+* **call-local traps** (the Wasm-faithful mandatory trap): within one export call (no `enter`
+  after the first event) `callTrap` and `sessionTrap` have the same language
+  (`writerLang_callTrap_eq_sessionTrap`); only a later export call tells them apart. The next
+  export call after a call-local trap resumes `live` with the store and batch unchanged
+  (`WStep.aborted_inv`), and store effects persist across traps and export calls
+  (`write_persists`, from `Run.store_extends`; `Examples.persist_seven`);
 * the fixed-environment chain, for policies without write UB:
   `writerLang W pol ⊆ fixedLang W {pol with onAccept := .ub} univ ⊆ writerLang W {… ub}`
   (`writerLang_subset_fixedLang`, `fixedLang_subset`): restricting the UB reading to a fixed
@@ -47,11 +58,16 @@ import Silmaril.Proofs.Semantics.Accept.Handle.Sentinel
 **Readers** (`readerLang` over an explicit set `Envs` of fixed environments):
 
 * policy order: `readerLang_mono` (`trap ≤ dflt ≤ arbitrary ≤ ub`, accept policies by rank,
-  environments by inclusion);
+  environments by inclusion), with the accept chain `readerLang_sessionTrap_subset_callTrap`,
+  `readerLang_callTrap_subset_ignore`, `readerLang_ignore_subset_ub`, and agreement of the two
+  trap policies within one export call (`readerLang_callTrap_eq_sessionTrap`);
 * correct reads: under the trapping read policy every answered read is correct
   (`trap_reads_correct`); with a default answer, a non-default answer is correct and with a
   typed error the default answer is exactly an invalid query (`error_iff_invalid`);
-* **certified acceptance is sound** under the trapping read policy (`readerLang_trap_subset`).
+* **certified acceptance is sound** under the trapping read policy (`readerLang_trap_subset`),
+  for every accept policy but `ub`: in particular for the Wasm-facing `callTrap`
+  (`readerLang_trap_subset_callTrap`) and for `sessionTrap`; reads stay correct across export
+  calls (`trap_reads_correct`).
   It is *not* sound under `arbitrary` (`Examples`), which is why arbitrary data and UB are
   different policies even though both may answer anything.
 
@@ -81,6 +97,47 @@ theorem writerLang_mono {pol pol' : Policy H} (hle : pol.Le pol') (T : Set (List
     writerLang W pol T ⊆ writerLang W pol' T :=
   Silmaril.Proofs.Semantics.Accept.Handle.writerLang_mono hle T
 
+/-- The accept policy alone, ordered by rank. -/
+theorem writerLang_onAccept_mono (pol : Policy H) {oa oa' : OnInvalid} (h : oa.rank ≤ oa'.rank)
+    (T : Set (List (WEv Op H))) :
+    writerLang W {pol with onAccept := oa} T ⊆ writerLang W {pol with onAccept := oa'} T :=
+  writerLang_mono (Silmaril.Proofs.Semantics.Accept.Handle.le_onAccept pol h) T
+
+theorem writerLang_sessionTrap_subset_callTrap (pol : Policy H) (T : Set (List (WEv Op H))) :
+    writerLang W {pol with onAccept := .sessionTrap} T ⊆
+      writerLang W {pol with onAccept := .callTrap} T :=
+  writerLang_onAccept_mono pol (by decide) T
+
+theorem writerLang_callTrap_subset_ignore (pol : Policy H) (T : Set (List (WEv Op H))) :
+    writerLang W {pol with onAccept := .callTrap} T ⊆
+      writerLang W {pol with onAccept := .ignore} T :=
+  writerLang_onAccept_mono pol (by decide) T
+
+theorem writerLang_ignore_subset_ub (pol : Policy H) (T : Set (List (WEv Op H))) :
+    writerLang W {pol with onAccept := .ignore} T ⊆ writerLang W {pol with onAccept := .ub} T :=
+  writerLang_onAccept_mono pol (by decide) T
+
+/-- **Within one export call the two trap policies agree**: on traces with no export call
+(`enter`) after their first event, a call-local trap is indistinguishable from a session
+abort. -/
+theorem writerLang_callTrap_eq_sessionTrap (pol : Policy H) {T : Set (List (WEv Op H))}
+    (hT : ∀ t ∈ T, WEv.enter ∉ t.tail) :
+    writerLang W {pol with onAccept := .callTrap} T =
+      writerLang W {pol with onAccept := .sessionTrap} T :=
+  Silmaril.Proofs.Semantics.Accept.Handle.writerLang_callTrap_eq_sessionTrap pol hT
+
+/-- **After a call-local trap** the only allowed event is the next export call, which resumes
+`live` with the store and batch unchanged (nothing is rolled back). -/
+theorem WStep.aborted_inv {pol : Policy H} {fix : Option (Env H X)} {s s' : WState H X}
+    {e : WEv Op H} {A : Set X} (hs : WStep W pol fix s e s' A) (ha : s.phase = .aborted) :
+    e = .enter ∧ s' = ⟨s.store, s.batch, .live⟩ ∧ A = ∅ :=
+  Silmaril.Proofs.Semantics.Accept.Handle.wstep_aborted hs ha
+
+/-- Nothing follows a session abort, not even another export call. -/
+theorem WStep.not_dead {pol : Policy H} {fix : Option (Env H X)} {s s' : WState H X}
+    {e : WEv Op H} {A : Set X} (hs : WStep W pol fix s e s' A) : s.phase ≠ .dead :=
+  Silmaril.Proofs.Semantics.Accept.Handle.wstep_not_dead hs
+
 theorem fixedLang_subset (pol : Policy H) (Envs : Set (Env H X)) (T : Set (List (WEv Op H))) :
     fixedLang W pol Envs T ⊆ writerLang W pol T :=
   Silmaril.Proofs.Semantics.Accept.Handle.fixedLang_subset pol Envs T
@@ -94,6 +151,16 @@ theorem Run.store_extends {pol : Policy H} {fix : Option (Env H X)} {s s' : WSta
     {t : List (WEv Op H)} {A : Set X} (hr : (writer W pol fix).Run s t s' A) :
     s.store.Extends s'.store :=
   Silmaril.Proofs.Semantics.Accept.Handle.run_extends hr
+
+/-- **Store effects persist** across call-local traps and later export calls: after a
+successful write (a result other than the sentinel) every continuation of the run that is not in
+chaos still denotes, at the returned handle, the tree the write built. -/
+theorem write_persists {pol : Policy H} {s s' : WState H X} {u v : List (WEv Op H)} {op : Op}
+    {args : List H} {r : H} {A : Set X} (hr : pol.sentinel ≠ some r)
+    (hrun : (writer W pol).Run s (u ++ WEv.write op args r :: v) s' A)
+    (hc : s'.phase ≠ .chaos) :
+    ∃ m : WState H X, ∃ t, W.built m.store op args = some t ∧ s'.store r = some t :=
+  Silmaril.Proofs.Semantics.Accept.Handle.write_persists hr hrun hc
 
 theorem mem_successes {pol : Policy H} {h : H} {t : List (WEv Op H)}
     (hm : h ∈ successes pol t) : pol.sentinel ≠ some h :=
@@ -196,6 +263,27 @@ theorem readerLang_mono {pol pol' : OnBadRead Q A} (hle : OnBadRead.Le pol pol')
     readerLang R pol oa Envs T ⊆ readerLang R pol' oa' Envs' T :=
   Silmaril.Proofs.Semantics.Accept.Handle.readerLang_mono hle ha hE T
 
+theorem readerLang_sessionTrap_subset_callTrap (pol : OnBadRead Q A) (Envs : Set (Env H X))
+    (T : Set (List (REv Q A H))) :
+    readerLang R pol .sessionTrap Envs T ⊆ readerLang R pol .callTrap Envs T :=
+  readerLang_mono (.refl pol) (by decide) le_rfl T
+
+theorem readerLang_callTrap_subset_ignore (pol : OnBadRead Q A) (Envs : Set (Env H X))
+    (T : Set (List (REv Q A H))) :
+    readerLang R pol .callTrap Envs T ⊆ readerLang R pol .ignore Envs T :=
+  readerLang_mono (.refl pol) (by decide) le_rfl T
+
+theorem readerLang_ignore_subset_ub (pol : OnBadRead Q A) (Envs : Set (Env H X))
+    (T : Set (List (REv Q A H))) :
+    readerLang R pol .ignore Envs T ⊆ readerLang R pol .ub Envs T :=
+  readerLang_mono (.refl pol) (by decide) le_rfl T
+
+/-- Within one export call the two trap policies agree (readers). -/
+theorem readerLang_callTrap_eq_sessionTrap (pol : OnBadRead Q A) (Envs : Set (Env H X))
+    {T : Set (List (REv Q A H))} (hT : ∀ t ∈ T, REv.enter ∉ t.tail) :
+    readerLang R pol .callTrap Envs T = readerLang R pol .sessionTrap Envs T :=
+  Silmaril.Proofs.Semantics.Accept.Handle.readerLang_callTrap_eq_sessionTrap pol Envs hT
+
 theorem trap_reads_correct {oa : OnInvalid} (hoa : oa ≠ .ub) {ρ : Env H X} {p : Phase}
     {t : List (REv Q A H)} {S : Set X} (hr : (reader R .trap oa ρ).Run .live t p S) :
     ∀ qa ∈ REv.reads t, R.valid ρ qa.1 ∧ R.ok ρ qa.1 qa.2 :=
@@ -222,6 +310,13 @@ theorem readerLang_trap_subset {oa : OnInvalid} (hoa : oa ≠ .ub)
     {T : Set (List (REv Q A H))} (hT : Certified cert T) (Envs : Set (Env H X)) :
     readerLang R .trap oa Envs T ⊆ L :=
   Silmaril.Proofs.Semantics.Accept.Handle.readerLang_trap_subset hoa hc hT Envs
+
+/-- Certified acceptance under the Wasm-facing call-local trap: the module may keep making
+export calls after a trapped one. -/
+theorem readerLang_trap_subset_callTrap {cert : List (Q × A) → H → Prop} {L : Set X}
+    (hc : CertSound R cert L) {T : Set (List (REv Q A H))} (hT : Certified cert T)
+    (Envs : Set (Env H X)) : readerLang R .trap .callTrap Envs T ⊆ L :=
+  readerLang_trap_subset (by decide) hc hT Envs
 
 end Reader
 

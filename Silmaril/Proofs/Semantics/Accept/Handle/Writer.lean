@@ -65,14 +65,39 @@ omit [DecidableEq H] in
 theorem agrees_none {r : H} {t : X} : Agrees (none : Option (Env H X)) r t := by
   intro ρ h; cases h
 
-/-- The simulation relation of the policy order. -/
-def LeRel (s₁ s₂ : WState H X) : Prop := s₁ = s₂ ∨ s₁.phase = .dead ∨ s₂.phase = .chaos
+/-- A step from an `aborted` state is the next export call, back to `live` with the store and
+batch unchanged. -/
+theorem wstep_aborted {pol : Policy H} {fix : Option (Env H X)} {s s' : WState H X}
+    {e : WEv Op H} {A : Set X} (hs : WStep W pol fix s e s' A) (ha : s.phase = .aborted) :
+    e = .enter ∧ s' = ⟨s.store, s.batch, .live⟩ ∧ A = ∅ := by
+  cases hs with
+  | resume => exact ⟨rfl, rfl, rfl⟩
+  | _ => simp at ha
+
+/-- Nothing follows a session abort. -/
+theorem wstep_not_dead {pol : Policy H} {fix : Option (Env H X)} {s s' : WState H X}
+    {e : WEv Op H} {A : Set X} (hs : WStep W pol fix s e s' A) : s.phase ≠ .dead := by
+  cases hs <;> simp
+
+/-- The simulation relation of the policy order: equal states; a session abort (nothing
+follows); chaos on the right; or a call-local abort on the left matched by a live state with
+the same store and batch (the next export call resumes both). -/
+def LeRel (s₁ s₂ : WState H X) : Prop :=
+  s₁ = s₂ ∨ s₁.phase = .dead ∨ s₂.phase = .chaos ∨
+    (s₁.phase = .aborted ∧ s₂ = ⟨s₁.store, s₁.batch, .live⟩)
+
+/-- The `LeRel` case of a step from a related call-locally aborted state. -/
+theorem leRel_aborted {pol pol' : Policy H} {s₁ s₁' : WState H X} {e : WEv Op H} {A : Set X}
+    (hs : WStep W pol none s₁ e s₁' A) (ha : s₁.phase = .aborted) :
+    ∃ s₂' B, WStep W pol' none ⟨s₁.store, s₁.batch, .live⟩ e s₂' B ∧ LeRel s₁' s₂' ∧ A ⊆ B := by
+  obtain ⟨rfl, rfl, rfl⟩ := wstep_aborted hs ha
+  exact ⟨_, _, .enter, .inl rfl, le_rfl⟩
 
 theorem sim_le {pol pol' : Policy H} (hle : pol.Le pol') :
     Sim (writer W pol) (writer W pol') id (LeRel (H := H) (X := X)) := by
   refine ⟨.inl rfl, ?_⟩
   rintro s₁ s₂ e s₁' A hR hs
-  rcases hR with rfl | hd | hc
+  rcases hR with rfl | hd | hc | ⟨ha, rfl⟩
   · obtain ⟨hsen, -, hacc, hwr⟩ := id hle
     cases hs with
     | writeOk hb hf _ => exact ⟨_, _, .writeOk hb (fresh_mono hle hf) agrees_none, .inl rfl, le_rfl⟩
@@ -83,39 +108,50 @@ theorem sim_le {pol pol' : Policy H} (hle : pol.Le pol') :
           · simp [OnBadWrite.rank, hc, hw] at hwr
           · exact ⟨_, _, .writeFail (hsen ▸ hsn) (.inr hw), .inl rfl, le_rfl⟩
           · rcases hb : W.built _ _ _ with _ | t
-            · exact ⟨_, _, .writeChaos hb hw rfl, .inr (.inr rfl), Set.subset_univ _⟩
+            · exact ⟨_, _, .writeChaos hb hw rfl, .inr (.inr (.inl rfl)), Set.subset_univ _⟩
             · exact ⟨_, _, .writeFail (hsen ▸ hsn) (.inl (by simp [hb])), .inl rfl, le_rfl⟩
     | writeChaos hb hu _ =>
         have hw : pol'.onWrite = .ub := by
           rcases hw : pol'.onWrite with _ | _ | _ <;> simp [OnBadWrite.rank, hu, hw] at hwr ⊢
-        exact ⟨_, _, .writeChaos hb hw rfl, .inr (.inr rfl), le_rfl⟩
+        exact ⟨_, _, .writeChaos hb hw rfl, .inr (.inr (.inl rfl)), le_rfl⟩
     | writeFixed _ _ hfix => cases hfix
     | acceptOk h => exact ⟨_, _, .acceptOk h, .inl rfl, le_rfl⟩
-    | acceptTrap h hp =>
-        rcases ha : pol'.onAccept with _ | _ | _
-        · exact ⟨_, _, .acceptTrap h ha, .inl rfl, le_rfl⟩
+    | acceptSessionTrap h hp =>
+        rcases ha : pol'.onAccept with _ | _ | _ | _
+        · exact ⟨_, _, .acceptSessionTrap h ha, .inl rfl, le_rfl⟩
+        · exact ⟨_, _, .acceptCallTrap h ha, .inr (.inl rfl), le_rfl⟩
         · exact ⟨_, _, .acceptIgnore h ha, .inr (.inl rfl), le_rfl⟩
-        · exact ⟨_, _, .acceptChaos h ha rfl, .inr (.inr rfl), Set.empty_subset _⟩
+        · exact ⟨_, _, .acceptChaos h ha rfl, .inr (.inr (.inl rfl)), Set.empty_subset _⟩
+    | acceptCallTrap h hp =>
+        rcases ha : pol'.onAccept with _ | _ | _ | _
+        · simp [OnInvalid.rank, hp, ha] at hacc
+        · exact ⟨_, _, .acceptCallTrap h ha, .inl rfl, le_rfl⟩
+        · exact ⟨_, _, .acceptIgnore h ha, .inr (.inr (.inr ⟨rfl, rfl⟩)), le_rfl⟩
+        · exact ⟨_, _, .acceptChaos h ha rfl, .inr (.inr (.inl rfl)), Set.empty_subset _⟩
     | acceptIgnore h hp =>
-        rcases ha : pol'.onAccept with _ | _ | _
+        rcases ha : pol'.onAccept with _ | _ | _ | _
+        · simp [OnInvalid.rank, hp, ha] at hacc
         · simp [OnInvalid.rank, hp, ha] at hacc
         · exact ⟨_, _, .acceptIgnore h ha, .inl rfl, le_rfl⟩
-        · exact ⟨_, _, .acceptChaos h ha rfl, .inr (.inr rfl), Set.empty_subset _⟩
+        · exact ⟨_, _, .acceptChaos h ha rfl, .inr (.inr (.inl rfl)), Set.empty_subset _⟩
     | acceptChaos h hp _ =>
         have ha : pol'.onAccept = .ub := by
-          rcases ha : pol'.onAccept with _ | _ | _ <;> simp [OnInvalid.rank, hp, ha] at hacc ⊢
-        exact ⟨_, _, .acceptChaos h ha rfl, .inr (.inr rfl), le_rfl⟩
+          rcases ha : pol'.onAccept with _ | _ | _ | _ <;> simp [OnInvalid.rank, hp, ha] at hacc ⊢
+        exact ⟨_, _, .acceptChaos h ha rfl, .inr (.inr (.inl rfl)), le_rfl⟩
     | acceptFixed _ _ hfix => cases hfix
     | acceptErrOk h => exact ⟨_, _, .acceptErrOk h, .inl rfl, le_rfl⟩
     | acceptErrBad h => exact ⟨_, _, .acceptErrBad h, .inl rfl, le_rfl⟩
     | acceptAll => exact ⟨_, _, .acceptAll, .inl rfl, le_rfl⟩
     | acceptBatch k => exact ⟨_, _, .acceptBatch k, .inl rfl, le_rfl⟩
+    | enter => exact ⟨_, _, .enter, .inl rfl, le_rfl⟩
+    | resume => exact ⟨_, _, .resume, .inl rfl, le_rfl⟩
     | chaos e => exact ⟨_, _, .chaos e, .inl rfl, le_rfl⟩
-  · cases hs <;> simp at hd
+  · exact absurd hd (wstep_not_dead hs)
   · obtain ⟨σ, B, p⟩ := s₂
     simp only at hc
     subst hc
-    exact ⟨_, _, .chaos e, .inr (.inr rfl), Set.subset_univ _⟩
+    exact ⟨_, _, .chaos e, .inr (.inr (.inl rfl)), Set.subset_univ _⟩
+  · exact leRel_aborted hs ha
 
 theorem writerLang_mono {pol pol' : Policy H} (hle : pol.Le pol') (T : Set (List (WEv Op H))) :
     writerLang W pol T ⊆ writerLang W pol' T :=
@@ -135,7 +171,8 @@ theorem sim_fixed (pol : Policy H) (ρ : Env H X) :
     | writeChaos _ _ hfix => cases hfix
     | writeFixed hb hu _ _ _ _ => exact ⟨_, _, .writeChaos hb hu rfl, .inr rfl, Set.subset_univ _⟩
     | acceptOk h => exact ⟨_, _, .acceptOk h, .inl rfl, le_rfl⟩
-    | acceptTrap h hp => exact ⟨_, _, .acceptTrap h hp, .inl rfl, le_rfl⟩
+    | acceptCallTrap h hp => exact ⟨_, _, .acceptCallTrap h hp, .inl rfl, le_rfl⟩
+    | acceptSessionTrap h hp => exact ⟨_, _, .acceptSessionTrap h hp, .inl rfl, le_rfl⟩
     | acceptIgnore h hp => exact ⟨_, _, .acceptIgnore h hp, .inl rfl, le_rfl⟩
     | acceptChaos _ _ hfix => cases hfix
     | acceptFixed h hp _ => exact ⟨_, _, .acceptChaos h hp rfl, .inr rfl, Set.subset_univ _⟩
@@ -143,6 +180,8 @@ theorem sim_fixed (pol : Policy H) (ρ : Env H X) :
     | acceptErrBad h => exact ⟨_, _, .acceptErrBad h, .inl rfl, le_rfl⟩
     | acceptAll => exact ⟨_, _, .acceptAll, .inl rfl, le_rfl⟩
     | acceptBatch k => exact ⟨_, _, .acceptBatch k, .inl rfl, le_rfl⟩
+    | enter => exact ⟨_, _, .enter, .inl rfl, le_rfl⟩
+    | resume => exact ⟨_, _, .resume, .inl rfl, le_rfl⟩
     | chaos e => exact ⟨_, _, .chaos e, .inl rfl, le_rfl⟩
   · obtain ⟨σ, B, p⟩ := s₂
     simp only at hc
@@ -157,48 +196,62 @@ theorem fixedLang_subset (pol : Policy H) (Envs : Set (Env H X)) (T : Set (List 
   exact lang_subset_of_sim_id (sim_fixed pol ρ.1) T hx
 
 /-- The store run of a policy without write UB is a fixed-environment run (with UB accepts
-resolved through `ρ`) for every `ρ` extending its final store. -/
+resolved through `ρ`) for every `ρ` extending its final store. A call-local trap is read as an
+accept resolved through `ρ` that stays `live`, so the fixed-environment run may also start from
+the live copy of an aborted state. -/
 theorem run_fixed {pol : Policy H} (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub)
     (ρ : Env H X) :
     ∀ {s s' : WState H X} {t : List (WEv Op H)} {A : Set X},
-      (writer W pol).Run s t s' A → s'.store.Extends ρ →
-      ∃ s₂ B, (writer W {pol with onAccept := .ub} (some ρ)).Run s t s₂ B ∧ A ⊆ B := by
+      (writer W pol).Run s t s' A → s'.store.Extends ρ → ∀ s₀ : WState H X,
+      (s₀ = s ∨ (s.phase = .aborted ∧ s₀ = ⟨s.store, s.batch, .live⟩)) →
+      ∃ s₂ B, (writer W {pol with onAccept := .ub} (some ρ)).Run s₀ t s₂ B ∧ A ⊆ B := by
   intro s s' t A hr hρ
   induction hr with
-  | nil s => exact ⟨s, ∅, .nil s, le_rfl⟩
+  | nil s => intro s₀ _; exact ⟨s₀, ∅, .nil s₀, Set.empty_subset _⟩
   | @cons s s₁ s₂ e es A' B' hs hrest ih =>
       have hρ₁ : s₁.store.Extends ρ := extends_trans (run_extends hrest) hρ
-      obtain ⟨s₃, B₃, hr₃, hAB⟩ := ih hρ
-      -- the step itself
-      have step : ∃ s₁' C, WStep W {pol with onAccept := .ub} (some ρ) s e s₁' C ∧ A' ⊆ C ∧
-          (s₁' = s₁ ∨ (s₁.phase = .dead ∧ es = [] )) := by
-        cases hs with
+      intro s₀ h₀
+      have go : ∀ {s₁' : WState H X} {C : Set X},
+          WStep W {pol with onAccept := .ub} (some ρ) s₀ e s₁' C → A' ⊆ C →
+          (s₁' = s₁ ∨ (s₁.phase = .aborted ∧ s₁' = ⟨s₁.store, s₁.batch, .live⟩) ∨
+            s₁.phase = .dead) →
+          ∃ s₃ B, (writer W {pol with onAccept := .ub} (some ρ)).Run s₀ (e :: es) s₃ B ∧
+            A' ∪ B' ⊆ B := by
+        intro s₁' C hC hAC h₁
+        rcases h₁ with rfl | h₁ | hd
+        · obtain ⟨s₃, B₃, hr₃, hAB⟩ := ih hρ _ (.inl rfl)
+          exact ⟨s₃, C ∪ B₃, .cons hC hr₃, Set.union_subset_union hAC hAB⟩
+        · obtain ⟨s₃, B₃, hr₃, hAB⟩ := ih hρ _ (.inr h₁)
+          exact ⟨s₃, C ∪ B₃, .cons hC hr₃, Set.union_subset_union hAC hAB⟩
+        · cases hrest with
+          | nil => exact ⟨s₁', C ∪ ∅, .cons hC (.nil _), Set.union_subset_union hAC le_rfl⟩
+          | cons hs' _ => exact absurd hd (wstep_not_dead hs')
+      rcases h₀ with rfl | ⟨hab, rfl⟩
+      · cases hs with
         | writeOk hb hf _ =>
-            refine ⟨_, _, .writeOk hb hf ?_, le_rfl, .inl rfl⟩
+            refine go (.writeOk hb hf ?_) le_rfl (.inl rfl)
             intro ρ' h; cases h
             exact hρ₁ (by simp)
-        | writeFail hsn hc => exact ⟨_, _, .writeFail hsn hc, le_rfl, .inl rfl⟩
+        | writeFail hsn hc => exact go (.writeFail hsn hc) le_rfl (.inl rfl)
         | writeChaos _ hu _ => exact absurd hu hw
         | writeFixed _ _ hfix => cases hfix
-        | acceptOk h => exact ⟨_, _, .acceptOk h, le_rfl, .inl rfl⟩
-        | acceptTrap h _ =>
-            refine ⟨_, _, .acceptFixed h rfl rfl, Set.empty_subset _, .inr ⟨rfl, ?_⟩⟩
-            cases hrest with
-            | nil => rfl
-            | cons hs' _ => cases hs'
-        | acceptIgnore h _ => exact ⟨_, _, .acceptFixed h rfl rfl, Set.empty_subset _, .inl rfl⟩
+        | acceptOk h => exact go (.acceptOk h) le_rfl (.inl rfl)
+        | acceptCallTrap h _ =>
+            exact go (.acceptFixed h rfl rfl) (Set.empty_subset _) (.inr (.inl ⟨rfl, rfl⟩))
+        | acceptSessionTrap h _ =>
+            exact go (.acceptFixed h rfl rfl) (Set.empty_subset _) (.inr (.inr rfl))
+        | acceptIgnore h _ => exact go (.acceptFixed h rfl rfl) (Set.empty_subset _) (.inl rfl)
         | acceptChaos _ hu _ => exact absurd hu ha
         | acceptFixed _ _ hfix => cases hfix
-        | acceptErrOk h => exact ⟨_, _, .acceptErrOk h, le_rfl, .inl rfl⟩
-        | acceptErrBad h => exact ⟨_, _, .acceptErrBad h, le_rfl, .inl rfl⟩
-        | acceptAll => exact ⟨_, _, .acceptAll, le_rfl, .inl rfl⟩
-        | acceptBatch k => exact ⟨_, _, .acceptBatch k, le_rfl, .inl rfl⟩
-        | chaos e => exact ⟨_, _, .chaos e, le_rfl, .inl rfl⟩
-      obtain ⟨s₁', C, hC, hAC, h₁⟩ := step
-      rcases h₁ with rfl | ⟨-, rfl⟩
-      · exact ⟨s₃, C ∪ B₃, .cons hC hr₃, Set.union_subset_union hAC hAB⟩
-      · cases hrest
-        exact ⟨s₁', C ∪ ∅, .cons hC (.nil _), Set.union_subset_union hAC le_rfl⟩
+        | acceptErrOk h => exact go (.acceptErrOk h) le_rfl (.inl rfl)
+        | acceptErrBad h => exact go (.acceptErrBad h) le_rfl (.inl rfl)
+        | acceptAll => exact go .acceptAll le_rfl (.inl rfl)
+        | acceptBatch k => exact go (.acceptBatch k) le_rfl (.inl rfl)
+        | enter => exact go .enter le_rfl (.inl rfl)
+        | resume => exact go .resume le_rfl (.inl rfl)
+        | chaos e => exact go (.chaos e) le_rfl (.inl rfl)
+      · obtain ⟨rfl, rfl, rfl⟩ := wstep_aborted hs hab
+        exact go .enter le_rfl (.inl rfl)
 
 end Silmaril.Proofs.Semantics.Accept.Handle
 
@@ -217,7 +270,7 @@ theorem writerLang_subset_fixedLang {pol : Policy H} (hw : pol.onWrite ≠ .ub)
   intro x hx
   simp only [writerLang, mem_lang] at hx
   obtain ⟨t, ht, s, A, hr, hxA⟩ := hx
-  obtain ⟨s₂, B, hr₂, hAB⟩ := run_fixed hw ha s.store hr (extends_refl _)
+  obtain ⟨s₂, B, hr₂, hAB⟩ := run_fixed hw ha s.store hr (extends_refl _) _ (.inl rfl)
   simp only [fixedLang, langOver, Set.mem_iUnion]
   exact ⟨⟨s.store, Set.mem_univ _⟩, mem_lang.2 ⟨t, ht, s₂, B, hr₂, hAB hxA⟩⟩
 
@@ -237,6 +290,7 @@ theorem mem_successes {pol : Policy H} {h : H} :
   | .acceptErr _ _ :: es, hm => mem_successes (t := es) hm
   | .acceptAll :: es, hm => mem_successes (t := es) hm
   | .acceptBatch _ :: es, hm => mem_successes (t := es) hm
+  | .enter :: es, hm => mem_successes (t := es) hm
 
 theorem successes_fresh {pol : Policy H} (hi : pol.intern = false) (hw : pol.onWrite ≠ .ub)
     (ha : pol.onAccept ≠ .ub) :
@@ -268,7 +322,8 @@ theorem successes_fresh {pol : Policy H} (hi : pol.intern = false) (hw : pol.onW
       | writeChaos _ hu _ => exact absurd hu hw
       | writeFixed _ _ hfix => cases hfix
       | acceptOk _ => exact ih (by simp)
-      | acceptTrap _ _ => exact ih (by simp)
+      | acceptCallTrap _ _ => exact ih (by simp)
+      | acceptSessionTrap _ _ => exact ih (by simp)
       | acceptIgnore _ _ => exact ih (by simp)
       | acceptChaos _ hu _ => exact absurd hu ha
       | acceptFixed _ _ hfix => cases hfix
@@ -276,6 +331,8 @@ theorem successes_fresh {pol : Policy H} (hi : pol.intern = false) (hw : pol.onW
       | acceptErrBad _ => exact ih (by simp)
       | acceptAll => exact ih (by simp)
       | acceptBatch _ => exact ih (by simp)
+      | enter => exact ih (by simp)
+      | resume => exact ih (by simp)
       | chaos _ => exact absurd rfl hc
 
 theorem successes_length_le [Fintype H] {pol : Policy H} (hi : pol.intern = false)
@@ -368,14 +425,16 @@ theorem sim_eraseErr {pol : Policy H} (ha : pol.onAccept ≠ .ub) :
       (LeRel (H := H) (X := X)) := by
   refine ⟨.inl rfl, ?_⟩
   rintro s₁ s₂ e s₁' A hR hs
-  rcases hR with rfl | hd | hc
+  rcases hR with rfl | hd | hc | ⟨ha, rfl⟩
   · cases hs with
     | writeOk hb hf _ => exact ⟨_, _, .writeOk hb hf agrees_none, .inl rfl, le_rfl⟩
     | writeFail hsn hc => exact ⟨_, _, .writeFail hsn hc, .inl rfl, le_rfl⟩
     | writeChaos hb hu _ => exact ⟨_, _, .writeChaos hb hu rfl, .inl rfl, le_rfl⟩
     | writeFixed _ _ hfix => cases hfix
     | acceptOk h => exact ⟨_, _, .acceptOk h, .inl rfl, le_rfl⟩
-    | acceptTrap h _ => exact ⟨_, _, .acceptIgnore h rfl, .inr (.inl rfl), le_rfl⟩
+    | acceptCallTrap h _ =>
+        exact ⟨_, _, .acceptIgnore h rfl, .inr (.inr (.inr ⟨rfl, rfl⟩)), le_rfl⟩
+    | acceptSessionTrap h _ => exact ⟨_, _, .acceptIgnore h rfl, .inr (.inl rfl), le_rfl⟩
     | acceptIgnore h _ => exact ⟨_, _, .acceptIgnore h rfl, .inl rfl, le_rfl⟩
     | acceptChaos _ hu _ => exact absurd hu ha
     | acceptFixed _ _ hfix => cases hfix
@@ -383,12 +442,16 @@ theorem sim_eraseErr {pol : Policy H} (ha : pol.onAccept ≠ .ub) :
     | acceptErrBad h => exact ⟨_, _, .acceptIgnore h rfl, .inl rfl, le_rfl⟩
     | acceptAll => exact ⟨_, _, .acceptAll, .inl rfl, le_rfl⟩
     | acceptBatch k => exact ⟨_, _, .acceptBatch k, .inl rfl, le_rfl⟩
+    | enter => exact ⟨_, _, .enter, .inl rfl, le_rfl⟩
+    | resume => exact ⟨_, _, .resume, .inl rfl, le_rfl⟩
     | chaos e => exact ⟨_, _, .chaos _, .inl rfl, le_rfl⟩
-  · cases hs <;> simp at hd
+  · exact absurd hd (wstep_not_dead hs)
   · obtain ⟨σ, B, p⟩ := s₂
     simp only at hc
     subst hc
-    exact ⟨_, _, .chaos _, .inr (.inr rfl), Set.subset_univ _⟩
+    exact ⟨_, _, .chaos _, .inr (.inr (.inl rfl)), Set.subset_univ _⟩
+  · obtain ⟨rfl, rfl, rfl⟩ := wstep_aborted hs ha
+    exact ⟨_, _, .enter, .inl rfl, le_rfl⟩
 
 theorem writerLang_subset_eraseErr {pol : Policy H} (ha : pol.onAccept ≠ .ub)
     (T : Set (List (WEv Op H))) :
@@ -411,7 +474,8 @@ theorem run_unerase {pol : Policy H} (ha : pol.onAccept = .ignore) :
                   exact ⟨.acceptErr h true :: t', by simp [WEv.eraseErr, ht'], .cons (.acceptErrOk hh) hr'⟩
               | acceptIgnore hh _ =>
                   exact ⟨.acceptErr h false :: t', by simp [WEv.eraseErr, ht'], .cons (.acceptErrBad hh) hr'⟩
-              | acceptTrap _ hp => rw [ha] at hp; cases hp
+              | acceptCallTrap _ hp => rw [ha] at hp; cases hp
+              | acceptSessionTrap _ hp => rw [ha] at hp; cases hp
               | acceptChaos _ hp _ => rw [ha] at hp; cases hp
               | acceptFixed _ _ hfix => cases hfix
               | chaos _ => exact ⟨.acceptErr h b :: t', by simp [WEv.eraseErr, ht'], .cons (.chaos _) hr'⟩
@@ -419,6 +483,7 @@ theorem run_unerase {pol : Policy H} (ha : pol.onAccept = .ignore) :
           | accept h => exact ⟨_ :: t', by simp [WEv.eraseErr, ht'], .cons hs hr'⟩
           | acceptAll => exact ⟨_ :: t', by simp [WEv.eraseErr, ht'], .cons hs hr'⟩
           | acceptBatch k => exact ⟨_ :: t', by simp [WEv.eraseErr, ht'], .cons hs hr'⟩
+          | enter => exact ⟨_ :: t', by simp [WEv.eraseErr, ht'], .cons hs hr'⟩
 
 theorem writerLang_eraseErr_eq {pol : Policy H} (ha : pol.onAccept = .ignore)
     {T : Set (List (WEv Op H))} (hT : ResultOblivious T) :
@@ -472,7 +537,8 @@ theorem wstep_sentinel_iff {pol : Policy H} {s : H} (hs : pol.sentinel = some s)
         have hr : r ≠ s := fun e => he op args (by rw [e])
         exact .writeFixed hb hu hfix hb' ((fresh_sentinel_iff hs hr).1 hf) hρ
     | acceptOk h => exact .acceptOk h
-    | acceptTrap h hp => exact .acceptTrap h hp
+    | acceptCallTrap h hp => exact .acceptCallTrap h hp
+    | acceptSessionTrap h hp => exact .acceptSessionTrap h hp
     | acceptIgnore h hp => exact .acceptIgnore h hp
     | acceptChaos h hp hf => exact .acceptChaos h hp hf
     | acceptFixed h hp hf => exact .acceptFixed h hp hf
@@ -480,6 +546,8 @@ theorem wstep_sentinel_iff {pol : Policy H} {s : H} (hs : pol.sentinel = some s)
     | acceptErrBad h => exact .acceptErrBad h
     | acceptAll => exact .acceptAll
     | acceptBatch k => exact .acceptBatch k
+    | enter => exact .enter
+    | resume => exact .resume
     | chaos e => exact .chaos e
   · intro h
     cases h with
@@ -492,7 +560,8 @@ theorem wstep_sentinel_iff {pol : Policy H} {s : H} (hs : pol.sentinel = some s)
         have hr : r ≠ s := fun e => he op args (by rw [e])
         exact .writeFixed hb hu hfix hb' ((fresh_sentinel_iff hs hr).2 hf) hρ
     | acceptOk h => exact .acceptOk h
-    | acceptTrap h hp => exact .acceptTrap h hp
+    | acceptCallTrap h hp => exact .acceptCallTrap h hp
+    | acceptSessionTrap h hp => exact .acceptSessionTrap h hp
     | acceptIgnore h hp => exact .acceptIgnore h hp
     | acceptChaos h hp hf => exact .acceptChaos h hp hf
     | acceptFixed h hp hf => exact .acceptFixed h hp hf
@@ -500,6 +569,8 @@ theorem wstep_sentinel_iff {pol : Policy H} {s : H} (hs : pol.sentinel = some s)
     | acceptErrBad h => exact .acceptErrBad h
     | acceptAll => exact .acceptAll
     | acceptBatch k => exact .acceptBatch k
+    | enter => exact .enter
+    | resume => exact .resume
     | chaos e => exact .chaos e
 
 theorem writerLang_noRet {pol : Policy H} {s : H} (hs : pol.sentinel = some s)
@@ -579,7 +650,9 @@ theorem sim_rename (π : H ≃ H) (pol : Policy H) :
       exact ⟨_, _, .writeChaos (by rw [built_rename]; exact hb) hu rfl, rfl, le_rfl⟩
   | writeFixed _ _ hfix => cases hfix
   | acceptOk h => exact ⟨_, _, .acceptOk (by simpa using h), rfl, le_rfl⟩
-  | acceptTrap h hp => exact ⟨_, _, .acceptTrap (by simpa using h) hp, rfl, le_rfl⟩
+  | acceptCallTrap h hp => exact ⟨_, _, .acceptCallTrap (by simpa using h) hp, rfl, le_rfl⟩
+  | acceptSessionTrap h hp =>
+      exact ⟨_, _, .acceptSessionTrap (by simpa using h) hp, rfl, le_rfl⟩
   | acceptIgnore h hp => exact ⟨_, _, .acceptIgnore (by simpa using h) hp, rfl, le_rfl⟩
   | acceptChaos h hp _ => exact ⟨_, _, .acceptChaos (by simpa using h) hp rfl, rfl, le_rfl⟩
   | acceptFixed _ _ hfix => cases hfix
@@ -587,6 +660,8 @@ theorem sim_rename (π : H ≃ H) (pol : Policy H) :
   | acceptErrBad h => exact ⟨_, _, .acceptErrBad (by simpa using h), rfl, le_rfl⟩
   | acceptAll => exact ⟨_, _, .acceptAll, rfl, by simp [range_rename]⟩
   | acceptBatch k => exact ⟨_, _, .acceptBatch k, rfl, le_rfl⟩
+  | enter => exact ⟨_, _, .enter, rfl, le_rfl⟩
+  | resume => exact ⟨_, _, .resume, rfl, le_rfl⟩
   | chaos e => exact ⟨_, _, .chaos _, rfl, le_rfl⟩
 
 theorem writerLang_rename_subset (π : H ≃ H) (pol : Policy H) (T : Set (List (WEv Op H))) :
@@ -609,5 +684,122 @@ theorem writerLang_rename (π : H ≃ H) (pol : Policy H) (T : Set (List (WEv Op
     (List.map (WEv.rename π) '' T)
   rw [Policy.rename_symm, Set.image_image] at h
   simpa [List.map_map, Function.comp_def, rename_rename] using h
+
+end Silmaril.Proofs.Semantics.Accept.Handle
+
+namespace Silmaril.Proofs.Semantics.Accept.Handle
+
+open Silmaril.Accept Silmaril.Accept.Handle Silmaril.Accept.Host
+
+universe u v w
+
+variable {Op : Type u} {H : Type v} {X : Type w} [DecidableEq H]
+variable {W : Writer Op X}
+
+/-! ## Call-local traps -/
+
+/-- The accept policy order is the rank order, everything else fixed. -/
+theorem le_onAccept (pol : Policy H) {oa oa' : OnInvalid} (h : oa.rank ≤ oa'.rank) :
+    Policy.Le {pol with onAccept := oa} {pol with onAccept := oa'} :=
+  ⟨rfl, id, h, le_rfl⟩
+
+/-- Chaos is absorbing. -/
+theorem run_chaos {pol : Policy H} {fix : Option (Env H X)} {s s' : WState H X}
+    {t : List (WEv Op H)} {A : Set X} (hr : (writer W pol fix).Run s t s' A)
+    (hc : s.phase = .chaos) : s'.phase = .chaos := by
+  induction hr with
+  | nil => exact hc
+  | cons hs _ ih =>
+      cases hs with
+      | chaos _ => exact ih rfl
+      | _ => simp at hc
+
+/-- Away from export calls, a call-local trap step is a session-abort step (the aborted state
+read as dead). -/
+theorem wstep_callTrap_sessionTrap {pol : Policy H} {fix : Option (Env H X)}
+    {s s' : WState H X} {e : WEv Op H} {A : Set X} (he : e ≠ .enter)
+    (hs : WStep W {pol with onAccept := .callTrap} fix s e s' A) :
+    ∃ s'', WStep W {pol with onAccept := .sessionTrap} fix s e s'' A ∧
+      (s'' = s' ∨ (s'.phase = .aborted ∧ s'' = ⟨s'.store, s'.batch, .dead⟩)) := by
+  cases hs with
+  | writeOk hb hf ha => exact ⟨_, .writeOk hb hf ha, .inl rfl⟩
+  | writeFail hsn hc => exact ⟨_, .writeFail hsn hc, .inl rfl⟩
+  | writeChaos hb hu hf => exact ⟨_, .writeChaos hb hu hf, .inl rfl⟩
+  | writeFixed hb hu hfix hb' hf hρ => exact ⟨_, .writeFixed hb hu hfix hb' hf hρ, .inl rfl⟩
+  | acceptOk h => exact ⟨_, .acceptOk h, .inl rfl⟩
+  | acceptCallTrap h _ => exact ⟨_, .acceptSessionTrap h rfl, .inr ⟨rfl, rfl⟩⟩
+  | acceptSessionTrap _ hp => cases hp
+  | acceptIgnore _ hp => cases hp
+  | acceptChaos _ hp _ => cases hp
+  | acceptFixed _ hp _ => cases hp
+  | acceptErrOk h => exact ⟨_, .acceptErrOk h, .inl rfl⟩
+  | acceptErrBad h => exact ⟨_, .acceptErrBad h, .inl rfl⟩
+  | acceptAll => exact ⟨_, .acceptAll, .inl rfl⟩
+  | acceptBatch k => exact ⟨_, .acceptBatch k, .inl rfl⟩
+  | enter => exact absurd rfl he
+  | resume => exact absurd rfl he
+  | chaos e => exact ⟨_, .chaos e, .inl rfl⟩
+
+/-- Without export calls, a call-local-trap run is a session-abort run accepting the same. -/
+theorem run_callTrap_sessionTrap {pol : Policy H} {fix : Option (Env H X)} :
+    ∀ {s s' : WState H X} {t : List (WEv Op H)} {A : Set X},
+      (writer W {pol with onAccept := .callTrap} fix).Run s t s' A → WEv.enter ∉ t →
+      ∃ s'', (writer W {pol with onAccept := .sessionTrap} fix).Run s t s'' A := by
+  intro s s' t A hr ht
+  induction hr with
+  | nil s => exact ⟨s, .nil s⟩
+  | @cons s s₁ s₂ e es A B hs hrest ih =>
+      have he : e ≠ .enter := fun h => ht (h ▸ List.mem_cons_self)
+      have hes : WEv.enter ∉ es := fun h => ht (List.mem_cons_of_mem _ h)
+      obtain ⟨s'', hs'', rfl | ⟨hab, rfl⟩⟩ := wstep_callTrap_sessionTrap he hs
+      · obtain ⟨s₃, hr₃⟩ := ih hes
+        exact ⟨s₃, .cons hs'' hr₃⟩
+      · cases hrest with
+        | nil => exact ⟨_, .cons hs'' (.nil _)⟩
+        | cons hs' _ =>
+            obtain ⟨rfl, -, -⟩ := wstep_aborted hs' hab
+            exact absurd List.mem_cons_self hes
+
+/-- **Call-local and session abort agree within one export call**: on traces with no export
+call after the first event, the two trap policies have the same language. -/
+theorem writerLang_callTrap_eq_sessionTrap (pol : Policy H) {T : Set (List (WEv Op H))}
+    (hT : ∀ t ∈ T, WEv.enter ∉ t.tail) :
+    writerLang W {pol with onAccept := .callTrap} T =
+      writerLang W {pol with onAccept := .sessionTrap} T := by
+  apply Set.Subset.antisymm _ (writerLang_mono (le_onAccept pol (by decide)) T)
+  intro x hx
+  obtain ⟨t, ht, s, A, hr, hxA⟩ := mem_lang.1 hx
+  refine mem_lang.2 ⟨t, ht, ?_⟩
+  have htl := hT t ht
+  rcases t with _ | ⟨e, es⟩
+  · exact ⟨s, A, by cases hr; exact .nil _, hxA⟩
+  · by_cases he : e = .enter
+    · subst he
+      cases hr with
+      | cons hs hrest =>
+          obtain ⟨s'', hr''⟩ := run_callTrap_sessionTrap hrest htl
+          cases hs with
+          | enter => exact ⟨s'', _, .cons .enter hr'', hxA⟩
+    · obtain ⟨s'', hr''⟩ := run_callTrap_sessionTrap hr
+        (fun h => (List.mem_cons.1 h).elim (fun h' => he h'.symm) htl)
+      exact ⟨s'', A, hr'', hxA⟩
+
+/-- **Store effects persist** (also across call-local traps and later export calls): after a
+successful write, every continuation of the run (not in chaos) still denotes the written tree
+at the returned handle. -/
+theorem write_persists {pol : Policy H} {s s' : WState H X} {u v : List (WEv Op H)} {op : Op}
+    {args : List H} {r : H} {A : Set X} (hr : pol.sentinel ≠ some r)
+    (hrun : (writer W pol).Run s (u ++ WEv.write op args r :: v) s' A)
+    (hc : s'.phase ≠ .chaos) :
+    ∃ m : WState H X, ∃ t, W.built m.store op args = some t ∧ s'.store r = some t := by
+  obtain ⟨m, B, C, -, h2, -⟩ := Run.append_inv hrun
+  cases h2 with
+  | cons hs hrest =>
+      cases hs with
+      | @writeOk σ B _ _ _ t hb _ _ => exact ⟨⟨σ, B, .live⟩, t, hb, run_extends hrest (by simp)⟩
+      | writeFail hsn _ => exact absurd hsn hr
+      | writeChaos _ _ _ => exact absurd (run_chaos hrest rfl) hc
+      | writeFixed _ _ hfix => cases hfix
+      | chaos _ => exact absurd (run_chaos hrest rfl) hc
 
 end Silmaril.Proofs.Semantics.Accept.Handle

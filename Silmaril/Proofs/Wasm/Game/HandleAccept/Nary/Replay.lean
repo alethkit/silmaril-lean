@@ -202,9 +202,11 @@ theorem mem_sexpLang_of_replay {m : Module} (hm : (instance? m).isSome = true) {
     {ρ : Env (BitVec 32) (SExp (BitVec 64))} (hρ : ρ ∈ Envs) (sc : Script) (fuel n : Nat)
     (j : Fin (instOf m).exports.length) (k : Nat) (h : BitVec 32) {x : SExp (BitVec 64)}
     (hx : ρ h = some x)
-    (hall : (rdecG (sxAsk ix) (sxAns ix) [] (replayExport (instOf m) sc fuel n j k)).all
+    (hall : (rdecG (some .enter) (sxAsk ix) (sxAns ix) []
+      (replayExport (instOf m) sc fuel n j k)).all
       (revOkB (sxOkR ρ) fun h => (ρ h).isSome) = true)
-    (hacc : (rdecG (sxAsk ix) (sxAns ix) [] (replayExport (instOf m) sc fuel n j k)).any
+    (hacc : (rdecG (some .enter) (sxAsk ix) (sxAns ix) []
+      (replayExport (instOf m) sc fuel n j k)).any
       (revAcc h) = true) :
     x ∈ moduleSExpLang P m ix pol oa Envs :=
   mem_readerLang_of_replay hm hP (sxDecAsk ix) (sxDecAns ix) (sxAsk ix) (sxAns ix)

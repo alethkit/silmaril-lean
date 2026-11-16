@@ -24,11 +24,14 @@ A writer signature `Writer Op X` has operations `Op` (a constructor with its pay
 * `acceptErr h ok`: the error-return variant `accept(h) -> result`, answered `ok`;
 * `acceptAll`: accept every tree constructed since the start;
 * `acceptBatch keep`: accept (`keep`) or drop the trees constructed since the previous
-  `acceptBatch`, and start a new batch.
+  `acceptBatch`, and start a new batch;
+* `enter`: the **export-call boundary**: the environment calls an export of the module (decoded
+  from the export-call move of a game play, `Silmaril.Wasm.Game.HandleAccept.playEvents`).
 
 The environment's state `WState` holds the **store** `σ : Env H X` (the partial meaning of every
-handle allocated so far), the current batch and a `Phase` (`live`; `dead` after a mandatory
-trap; `chaos` after undefined behaviour). `WStep W pol fix` is its response relation:
+handle allocated so far), the current batch and a `Phase` (`live`; `aborted` after a call-local
+trap, until the next export call; `dead` after a session abort; `chaos` after undefined
+behaviour). `WStep W pol fix` is its response relation:
 
 * **successful writes** return a handle that is not the sentinel and is either fresh
   (`σ ret = none`) or, when the policy allows interning, already denotes the same tree
@@ -38,9 +41,19 @@ trap; `chaos` after undefined behaviour). `WStep W pol fix` is its response rela
   may return `s` (allocation failure: capacity is the host's business) and the store does not
   change. An invalid write (an argument not allocated, or `build = none`) follows `pol.onWrite`:
   `trap` (no answer), `fail` (it returns the sentinel), `ub` (undefined behaviour).
-* **invalid accept** (`accept h` with `σ h = none`) follows `pol.onAccept`: `trap` (mandatory:
-  nothing may follow), `ignore` (it returns, accepting nothing; it may still trap, like any
-  foreign call, since a trace may end anywhere), `ub`.
+* **invalid accept** (`accept h` with `σ h = none`) follows `pol.onAccept`:
+  - `callTrap`, the **Wasm-faithful mandatory trap** (the default): the current export call is
+    aborted (phase `aborted`, nothing accepted); no event but `enter` may follow, and the next
+    export call resumes in `live` **with the store and batch unchanged**. As in Wasm, a trap
+    aborts only the current export invocation: the instance and its store persist and nothing
+    performed before the trap is rolled back (successful writes stay allocated);
+  - `sessionTrap`, an optional stricter policy: the whole session is aborted (phase `dead`,
+    nothing may follow, not even another export call);
+  - `ignore`: it returns, accepting nothing (it may still trap, like any foreign call, since a
+    trace may end anywhere);
+  - `ub`.
+* **export calls** (`enter`) are answered in `live` and `aborted` (both moving to `live`, the
+  store unchanged), not in `dead`.
 * **undefined behaviour** without a fixed environment (`fix = none`) is the top element: the
   phase becomes `chaos`, the event accepts every tree, and every later event is allowed and
   accepts every tree.
@@ -63,19 +76,25 @@ A reader signature `Reader Q A H X` has queries `Q` (`tag h`, `symbol h`, `child
 `ρ : Env H X` and `ok ρ q a` which answers are correct (a relation: `sexp(h)` may name a child
 with any handle denoting it). Events `REv`: `read q a` and `accept h`. The environment is a
 **fixed** `ρ`, chosen by the quantification (`readerLang … Envs`); the module chooses which
-handles to inspect and when to accept, across any sequence of export calls. Invalid queries
-follow `OnBadRead`:
+handles to inspect and when to accept, across any sequence of export calls (`REv.enter`, the
+export-call boundary). An invalid `accept` follows `OnInvalid` as for writers (`callTrap`: the
+current call is aborted until the next `enter`; `sessionTrap`: the session is aborted). Invalid
+queries follow `OnBadRead`:
 
 * `arbitrary`: any answer, and the environment stays well-behaved (*not* undefined behaviour:
   later valid queries and accepts are still answered from `ρ`);
-* `trap`: no answer;
+* `trap`: no answer. A query without an answer is a trap of the host call; in a game play the
+  trap answer decodes to no event and the export call it belongs to ends, so the read is simply
+  absent from the trace (later export calls may still follow). Every `read` event that does occur
+  is answered correctly, which is what certificates use (`Thms.trap_reads_correct`);
 * `dflt d`: the fixed answer `d q` (a typed error when it is disjoint from every correct answer,
   `ErrorDisjoint`; a default value otherwise);
 * `ub`: undefined behaviour, the top element as for writers.
 
 ## Combined writer and reader (`CEv`, `combined`)
 
-Reads are answered from the **current store**; with a monotone reader (`Reader.Mono`) every
+Reads are answered from the **current store** (in `live` only: no read follows a call-local
+trap before the next export call, `.w .enter`); with a monotone reader (`Reader.Mono`) every
 answer, and every successful write's meaning, stays correct for all later reads (`Thms`).
 
 ## Node environments
@@ -134,17 +153,30 @@ inductive WEv (Op : Type u) (H : Type v) where
   | acceptErr (h : H) (ok : Bool)
   | acceptAll
   | acceptBatch (keep : Bool)
+  | enter
 
-/-- Phases of an environment. -/
+/-- Phases of an environment: `live`; `aborted` after a call-local trap (the current export
+call was aborted; only the next export call may follow); `dead` after a session abort (nothing
+may follow); `chaos` after undefined behaviour. -/
 inductive Phase where
   | live
+  | aborted
   | dead
   | chaos
   deriving DecidableEq
 
-/-- What an invalid `accept` does. Ordered `trap ≤ ignore ≤ ub` (`OnInvalid.rank`). -/
+/-- What an invalid `accept` does. Ordered `sessionTrap ≤ callTrap ≤ ignore ≤ ub`
+(`OnInvalid.rank`):
+
+* `callTrap`: the **Wasm-faithful mandatory trap**. The current export call is aborted; the
+  instance and its store persist, and the environment answers the next export call (`enter`).
+  Effects performed before the trap (successful writes) are not rolled back.
+* `sessionTrap`: an optional stricter policy, the whole session is aborted (nothing may follow).
+* `ignore`: the call returns, accepting nothing.
+* `ub`: undefined behaviour. -/
 inductive OnInvalid where
-  | trap
+  | sessionTrap
+  | callTrap
   | ignore
   | ub
   deriving DecidableEq
@@ -157,9 +189,10 @@ inductive OnBadWrite where
   deriving DecidableEq
 
 def OnInvalid.rank : OnInvalid → Nat
-  | .trap => 0
-  | .ignore => 1
-  | .ub => 2
+  | .sessionTrap => 0
+  | .callTrap => 1
+  | .ignore => 2
+  | .ub => 3
 
 def OnBadWrite.rank : OnBadWrite → Nat
   | .trap => 0
@@ -172,7 +205,7 @@ structure Policy (H : Type u) where
   sentinel : Option H := none
   /-- A successful write may return a handle already denoting the same tree. -/
   intern : Bool := true
-  onAccept : OnInvalid := .trap
+  onAccept : OnInvalid := .callTrap
   onWrite : OnBadWrite := .trap
 
 /-- The environment state of a writer session. -/
@@ -221,8 +254,11 @@ inductive WStep (W : Writer Op X) (pol : Policy H) (fix : Option (Env H X)) :
         ⟨Function.update σ r (some t), insert t B, .live⟩ ∅
   | acceptOk {σ : Env H X} {B : Set X} {h : H} {t : X} :
       σ h = some t → WStep W pol fix ⟨σ, B, .live⟩ (.accept h) ⟨σ, B, .live⟩ {t}
-  | acceptTrap {σ : Env H X} {B : Set X} {h : H} :
-      σ h = none → pol.onAccept = .trap →
+  | acceptCallTrap {σ : Env H X} {B : Set X} {h : H} :
+      σ h = none → pol.onAccept = .callTrap →
+      WStep W pol fix ⟨σ, B, .live⟩ (.accept h) ⟨σ, B, .aborted⟩ ∅
+  | acceptSessionTrap {σ : Env H X} {B : Set X} {h : H} :
+      σ h = none → pol.onAccept = .sessionTrap →
       WStep W pol fix ⟨σ, B, .live⟩ (.accept h) ⟨σ, B, .dead⟩ ∅
   | acceptIgnore {σ : Env H X} {B : Set X} {h : H} :
       σ h = none → pol.onAccept = .ignore →
@@ -241,6 +277,10 @@ inductive WStep (W : Writer Op X) (pol : Policy H) (fix : Option (Env H X)) :
       WStep W pol fix ⟨σ, B, .live⟩ .acceptAll ⟨σ, B, .live⟩ σ.range
   | acceptBatch {σ : Env H X} {B : Set X} (keep : Bool) :
       WStep W pol fix ⟨σ, B, .live⟩ (.acceptBatch keep) ⟨σ, ∅, .live⟩ (if keep then B else ∅)
+  | enter {σ : Env H X} {B : Set X} :
+      WStep W pol fix ⟨σ, B, .live⟩ .enter ⟨σ, B, .live⟩ ∅
+  | resume {σ : Env H X} {B : Set X} :
+      WStep W pol fix ⟨σ, B, .aborted⟩ .enter ⟨σ, B, .live⟩ ∅
   | chaos {σ : Env H X} {B : Set X} (e : WEv Op H) :
       WStep W pol fix ⟨σ, B, .chaos⟩ e ⟨σ, B, .chaos⟩ Set.univ
 
@@ -279,6 +319,7 @@ def WEv.mapOp {Op' : Type u} (f : Op → Op') : WEv Op H → WEv Op' H
   | .acceptErr h b => .acceptErr h b
   | .acceptAll => .acceptAll
   | .acceptBatch b => .acceptBatch b
+  | .enter => .enter
 
 /-- **A writer homomorphism**: operations map along `f`, trees along the injective `g`, and
 building commutes with both. -/
@@ -294,6 +335,7 @@ def WEv.rename (π : H → H) : WEv Op H → WEv Op H
   | .acceptErr h b => .acceptErr (π h) b
   | .acceptAll => .acceptAll
   | .acceptBatch b => .acceptBatch b
+  | .enter => .enter
 
 /-- The policy with its sentinel renamed along `π`. -/
 def Policy.rename (π : H ≃ H) (pol : Policy H) : Policy H :=
@@ -317,6 +359,7 @@ structure Reader (Q : Type u) (A : Type v) (H : Type w) (X : Type x) where
 inductive REv (Q : Type u) (A : Type v) (H : Type w) where
   | read (q : Q) (a : A)
   | accept (h : H)
+  | enter
 
 /-- What an invalid query answers. -/
 inductive OnBadRead (Q : Type u) (A : Type v) where
@@ -363,12 +406,16 @@ inductive RStep (R : Reader Q A H' X') (pol : OnBadRead Q A) (onAccept : OnInval
       answers R pol ρ q = none → RStep R pol onAccept ρ .live (.read q a) .chaos Set.univ
   | acceptOk {h : H'} {t : X'} :
       ρ h = some t → RStep R pol onAccept ρ .live (.accept h) .live {t}
-  | acceptTrap {h : H'} :
-      ρ h = none → onAccept = .trap → RStep R pol onAccept ρ .live (.accept h) .dead ∅
+  | acceptCallTrap {h : H'} :
+      ρ h = none → onAccept = .callTrap → RStep R pol onAccept ρ .live (.accept h) .aborted ∅
+  | acceptSessionTrap {h : H'} :
+      ρ h = none → onAccept = .sessionTrap → RStep R pol onAccept ρ .live (.accept h) .dead ∅
   | acceptIgnore {h : H'} :
       ρ h = none → onAccept = .ignore → RStep R pol onAccept ρ .live (.accept h) .live ∅
   | acceptChaos {h : H'} :
       ρ h = none → onAccept = .ub → RStep R pol onAccept ρ .live (.accept h) .chaos Set.univ
+  | enter : RStep R pol onAccept ρ .live .enter .live ∅
+  | resume : RStep R pol onAccept ρ .aborted .enter .live ∅
   | chaos (e : REv Q A H') : RStep R pol onAccept ρ .chaos e .chaos Set.univ
 
 /-- **The reader host** of the fixed environment `ρ`. -/
@@ -386,6 +433,7 @@ def REv.reads : List (REv Q A H') → List (Q × A)
   | [] => []
   | .read q a :: es => (q, a) :: REv.reads es
   | .accept _ :: es => REv.reads es
+  | .enter :: es => REv.reads es
 
 end Reader
 
@@ -461,7 +509,8 @@ variable {Op : Type u} {H : Type v} {X : Type w}
 /-! ## Orders, trace classes and certificates -/
 
 /-- `pol` is at most as permissive as `pol'`: the same sentinel, interning only if `pol'`
-interns, and invalid uses ranked `trap ≤ ignore/fail ≤ ub`. -/
+interns, and invalid uses ranked `sessionTrap ≤ callTrap ≤ ignore ≤ ub` (accepts) and
+`trap ≤ fail ≤ ub` (writes). -/
 def Policy.Le (pol pol' : Policy H) : Prop :=
   pol.sentinel = pol'.sentinel ∧ (pol.intern = true → pol'.intern = true) ∧
     pol.onAccept.rank ≤ pol'.onAccept.rank ∧ pol.onWrite.rank ≤ pol'.onWrite.rank

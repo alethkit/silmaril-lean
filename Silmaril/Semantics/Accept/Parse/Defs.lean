@@ -25,10 +25,21 @@ S-expressions, tagged ASTs):
 ## Policies (`PPolicy`)
 
 * `sentinel`: the failure result (`0` or `-1` for `i32`). A failed `done`/`parse` accepts nothing.
-* `onBadHandle`: a non-sentinel result that `ρ` does not resolve (`trap`, `ignore`, `ub` as for
-  `accept`, `Silmaril.Semantics.Accept.Handle.OnInvalid`).
-* `onOverrun`: `used` larger than the buffered input (`trap`: no answer; `ignore`: the call is
-  answered, accepts nothing and leaves the cursor; `ub`: undefined behaviour).
+* `onBadHandle`: a non-sentinel result that `ρ` does not resolve, by
+  `Silmaril.Semantics.Accept.Handle.OnInvalid`. Here **every handle-returning event is itself an
+  export call** (`parse`, `done`, `finish`), and its returned handle is the last thing that call
+  does, so no event of the same call can follow it:
+  - `callTrap` (the default, Wasm-facing): the trapped call returns nothing, i.e. it relates no
+    pair; the session continues with the next export call. The environment's buffers move as for
+    an answered call (`Returns`): the input handed over before the trap is not given back. As no
+    event of the call follows the return, this coincides with `ignore`;
+  - `sessionTrap`: the whole session is aborted (phase `dead`);
+  - `ignore`: the call is answered and relates nothing;
+  - `ub`: undefined behaviour.
+* `onOverrun`: `used` larger than the buffered input. `callTrap` (the default) and `ignore`: the
+  `done` call relates nothing and leaves the cursor; `sessionTrap`: no answer at all (the event
+  is not allowed, so nothing follows); `ub`: undefined behaviour. The cursor invariant counts the
+  `used` of every chunked `done`, so it is stated for `sessionTrap` (`Thms.run_cursor`).
 * `doneClears`: whether `done()` starts a new session (`true`: the append buffer is cleared; a
   second `done()` relates the empty input) or keeps accumulating (`false`: the next `done`
   relates every value appended since the last `reset`).
@@ -69,8 +80,8 @@ inductive PEv (V : Type u) (H : Type v) where
 /-- Parsing-session policies. -/
 structure PPolicy (H : Type v) where
   sentinel : H
-  onBadHandle : OnInvalid := .trap
-  onOverrun : OnInvalid := .trap
+  onBadHandle : OnInvalid := .callTrap
+  onOverrun : OnInvalid := .callTrap
   doneClears : Bool := true
 
 /-- The environment state: the append buffer, the chunk buffer (from the cursor on) and the
@@ -101,7 +112,8 @@ def Returns (pol : PPolicy H) : PState V → PEv V H → List V → H → PState
   | _, _, _, _, _ => False
 
 /-- **The parsing response relation** in the environment `ρ`. A handle-returning call moves
-to the state given by `Returns`; an unresolved handle then follows `onBadHandle`. -/
+to the state given by `Returns`; an unresolved handle then follows `onBadHandle` (a call-local
+trap of a handle-returning call is that call relating nothing, `retBadIgnore`). -/
 inductive PStep [DecidableEq H] (pol : PPolicy H) (ρ : Env H X) :
     PState V → PEv V H → PState V → Set (List V × X) → Prop where
   | ret {s s' : PState V} {e : PEv V H} {w : List V} {h : H} {A : Set (List V × X)} :
@@ -109,10 +121,10 @@ inductive PStep [DecidableEq H] (pol : PPolicy H) (ρ : Env H X) :
       PStep pol ρ s e s' A
   | retBadIgnore {s s' : PState V} {e : PEv V H} {w : List V} {h : H} :
       s.phase = .live → Returns pol s e w h s' → resolve pol ρ w h = none →
-      pol.onBadHandle = .ignore → PStep pol ρ s e s' ∅
-  | retBadTrap {s s' : PState V} {e : PEv V H} {w : List V} {h : H} :
+      (pol.onBadHandle = .ignore ∨ pol.onBadHandle = .callTrap) → PStep pol ρ s e s' ∅
+  | retBadSessionTrap {s s' : PState V} {e : PEv V H} {w : List V} {h : H} :
       s.phase = .live → Returns pol s e w h s' → resolve pol ρ w h = none →
-      pol.onBadHandle = .trap → PStep pol ρ s e {s' with phase := .dead} ∅
+      pol.onBadHandle = .sessionTrap → PStep pol ρ s e {s' with phase := .dead} ∅
   | retBadUB {s s' : PState V} {e : PEv V H} {w : List V} {h : H} :
       s.phase = .live → Returns pol s e w h s' → resolve pol ρ w h = none →
       pol.onBadHandle = .ub → PStep pol ρ s e {s' with phase := .chaos} Set.univ
@@ -121,7 +133,7 @@ inductive PStep [DecidableEq H] (pol : PPolicy H) (ρ : Env H X) :
   | feed {acc buf : List V} (chunk : List V) :
       PStep pol ρ ⟨acc, buf, .live⟩ (.feed chunk) ⟨acc, buf ++ chunk, .live⟩ ∅
   | overrunIgnore {acc buf : List V} {n : Nat} {h : H} :
-      buf.length < n → pol.onOverrun = .ignore →
+      buf.length < n → (pol.onOverrun = .ignore ∨ pol.onOverrun = .callTrap) →
       PStep pol ρ ⟨acc, buf, .live⟩ (.finish n h) ⟨acc, buf, .live⟩ ∅
   | overrunUB {acc buf : List V} {n : Nat} {h : H} :
       buf.length < n → pol.onOverrun = .ub →

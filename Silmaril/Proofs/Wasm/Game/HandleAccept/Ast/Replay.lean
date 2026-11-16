@@ -214,9 +214,11 @@ theorem mem_astLang_of_replay {m : Module} (hm : (instance? m).isSome = true) {P
     (heq : ∀ a b, eq a b = true → a = b) (sc : Script) (fuel n : Nat)
     (j : Fin (instOf m).exports.length) (k : Nat) (h : BitVec 32) {x : AST S.toAstSig}
     (hx : ρ h = some x)
-    (hall : (rdecG (astAsk ix) (astAns ix) [] (replayExport (instOf m) sc fuel n j k)).all
+    (hall : (rdecG (some .enter) (astAsk ix) (astAns ix) []
+      (replayExport (instOf m) sc fuel n j k)).all
       (revOkB (astOkR eq ρ) fun h => (ρ h).isSome) = true)
-    (hacc : (rdecG (astAsk ix) (astAns ix) [] (replayExport (instOf m) sc fuel n j k)).any
+    (hacc : (rdecG (some .enter) (astAsk ix) (astAns ix) []
+      (replayExport (instOf m) sc fuel n j k)).any
       (revAcc h) = true) :
     x ∈ moduleAstLang P m ix pol oa Envs :=
   mem_readerLang_of_replay hm hP (astDecAsk ix) (astDecAns ix) (astAsk ix) (astAns ix)

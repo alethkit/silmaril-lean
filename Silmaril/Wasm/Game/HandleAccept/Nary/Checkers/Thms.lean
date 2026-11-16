@@ -17,8 +17,10 @@ import Silmaril.Proofs.Wasm.Game.HandleAccept.Nary.Sorted
   specification `sexpISpec pairIx ρ L` of its language (`Silmaril.Wasm.Logic.GameLink.GameSat`,
   partial correctness) with the store invariant `consInv` (proofs in
   `Silmaril.Proofs.Wasm.Game.HandleAccept.Nary`).
-* **Soundness**: each module's reader language under the trapping read policy, in every set of
-  environments, for every profile and every sequence of export calls, is included in its
+* **Soundness**: each module's reader language under the trapping read policy, for every accept
+  policy but `ub` (in particular the Wasm-facing call-local trap `callTrap`, where a trapped
+  export call is followed by further export calls), in every set of environments, for every
+  profile and every sequence of export calls, is included in its
   language (`pairCheck_sound`: two-element lists `pairL`; `wordsNCheck_sound`: lists of words;
   `sortedNCheck_sound`: sorted lists of words), through `sexpLang_sound_of_forall`.
 -/
@@ -65,21 +67,21 @@ theorem sortedNCheck_sat : ∀ P ρ, Silmaril.Wasm.Logic.GameLink.GameSat P
 /-! ## Soundness -/
 
 /-- **`pairCheck` accepts only two-element lists.** -/
-theorem pairCheck_sound (P : Profile)
+theorem pairCheck_sound (P : Profile) {oa : Silmaril.Accept.Handle.OnInvalid} (hoa : oa ≠ .ub)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (SExp (BitVec 64)))) :
-    moduleSExpLang P pairCheck pairIx .trap .trap Envs ⊆ pairL :=
-  sexpLang_sound_of_forall (fun ρ _ => pairCheck_sat P ρ) rfl (by decide)
+    moduleSExpLang P pairCheck pairIx .trap oa Envs ⊆ pairL :=
+  sexpLang_sound_of_forall (fun ρ _ => pairCheck_sat P ρ) rfl hoa
 
 /-- **`wordsNCheck` accepts only lists of words.** -/
-theorem wordsNCheck_sound (P : Profile)
+theorem wordsNCheck_sound (P : Profile) {oa : Silmaril.Accept.Handle.OnInvalid} (hoa : oa ≠ .ub)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (SExp (BitVec 64)))) :
-    moduleSExpLang P wordsNCheck pairIx .trap .trap Envs ⊆ wordsNL :=
-  sexpLang_sound_of_forall (fun ρ _ => wordsNCheck_sat P ρ) rfl (by decide)
+    moduleSExpLang P wordsNCheck pairIx .trap oa Envs ⊆ wordsNL :=
+  sexpLang_sound_of_forall (fun ρ _ => wordsNCheck_sat P ρ) rfl hoa
 
 /-- **`sortedNCheck` accepts only sorted lists of words.** -/
-theorem sortedNCheck_sound (P : Profile)
+theorem sortedNCheck_sound (P : Profile) {oa : Silmaril.Accept.Handle.OnInvalid} (hoa : oa ≠ .ub)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (SExp (BitVec 64)))) :
-    moduleSExpLang P sortedNCheck pairIx .trap .trap Envs ⊆ sortedNL :=
-  sexpLang_sound_of_forall (fun ρ _ => sortedNCheck_sat P ρ) rfl (by decide)
+    moduleSExpLang P sortedNCheck pairIx .trap oa Envs ⊆ sortedNL :=
+  sexpLang_sound_of_forall (fun ρ _ => sortedNCheck_sat P ρ) rfl hoa
 
 end Silmaril.Wasm.Game.HandleAccept.Nary.Checkers

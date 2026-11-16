@@ -26,8 +26,9 @@ theorem projection_inter_strict :
   · ext w; simp [inputLang]
   · ext w; simp [inputLang]
 
-/-- Sentinel `0`, every other handle resolves to itself. -/
-def pol0 : PPolicy ℕ := {sentinel := 0}
+/-- Sentinel `0`, every other handle resolves to itself; an overrun aborts the session (the
+policy of the cursor invariant, `parseRel_slice`). -/
+def pol0 : PPolicy ℕ := {sentinel := 0, onOverrun := .sessionTrap}
 
 def ρid : Env ℕ ℕ := some
 

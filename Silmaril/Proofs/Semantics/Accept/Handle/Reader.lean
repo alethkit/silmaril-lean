@@ -58,35 +58,48 @@ theorem answers_none_le {pol pol' : OnBadRead Q A} (hle : OnBadRead.Le pol pol')
 theorem sim_reader_le {pol pol' : OnBadRead Q A} (hle : OnBadRead.Le pol pol')
     {oa oa' : OnInvalid} (ha : oa.rank ≤ oa'.rank) (ρ : Env H X) :
     Sim (reader R pol oa ρ) (reader R pol' oa' ρ) id
-      (fun p₁ p₂ => p₁ = p₂ ∨ p₁ = .dead ∨ p₂ = .chaos) := by
+      (fun p₁ p₂ => p₁ = p₂ ∨ p₁ = .dead ∨ p₂ = .chaos ∨ (p₁ = .aborted ∧ p₂ = .live)) := by
   refine ⟨.inl rfl, ?_⟩
   rintro p₁ p₂ e p₁' S hR hs
-  rcases hR with rfl | rfl | rfl
+  rcases hR with rfl | rfl | rfl | ⟨rfl, rfl⟩
   · cases hs with
     | read hS ha' =>
         rcases answers_le hle hS with ⟨S', hS', hsub⟩ | hn
         · exact ⟨_, _, .read hS' (hsub ha'), .inl rfl, le_rfl⟩
-        · exact ⟨_, _, .readChaos hn, .inr (.inr rfl), Set.empty_subset _⟩
+        · exact ⟨_, _, .readChaos hn, .inr (.inr (.inl rfl)), Set.empty_subset _⟩
     | readChaos hn => exact ⟨_, _, .readChaos (answers_none_le hle hn), .inl rfl, le_rfl⟩
     | acceptOk h => exact ⟨_, _, .acceptOk h, .inl rfl, le_rfl⟩
-    | acceptTrap h hp =>
-        rcases hoa : oa' with _ | _ | _
-        · exact ⟨_, _, .acceptTrap h rfl, .inl rfl, le_rfl⟩
+    | acceptSessionTrap h hp =>
+        rcases hoa : oa' with _ | _ | _ | _
+        · exact ⟨_, _, .acceptSessionTrap h rfl, .inl rfl, le_rfl⟩
+        · exact ⟨_, _, .acceptCallTrap h rfl, .inr (.inl rfl), le_rfl⟩
         · exact ⟨_, _, .acceptIgnore h rfl, .inr (.inl rfl), le_rfl⟩
-        · exact ⟨_, _, .acceptChaos h rfl, .inr (.inr rfl), Set.empty_subset _⟩
+        · exact ⟨_, _, .acceptChaos h rfl, .inr (.inr (.inl rfl)), Set.empty_subset _⟩
+    | acceptCallTrap h hp =>
+        rcases hoa : oa' with _ | _ | _ | _
+        · subst hp; simp [OnInvalid.rank, hoa] at ha
+        · exact ⟨_, _, .acceptCallTrap h rfl, .inl rfl, le_rfl⟩
+        · exact ⟨_, _, .acceptIgnore h rfl, .inr (.inr (.inr ⟨rfl, rfl⟩)), le_rfl⟩
+        · exact ⟨_, _, .acceptChaos h rfl, .inr (.inr (.inl rfl)), Set.empty_subset _⟩
     | acceptIgnore h hp =>
-        rcases hoa : oa' with _ | _ | _
+        rcases hoa : oa' with _ | _ | _ | _
+        · subst hp; simp [OnInvalid.rank, hoa] at ha
         · subst hp; simp [OnInvalid.rank, hoa] at ha
         · exact ⟨_, _, .acceptIgnore h rfl, .inl rfl, le_rfl⟩
-        · exact ⟨_, _, .acceptChaos h rfl, .inr (.inr rfl), Set.empty_subset _⟩
+        · exact ⟨_, _, .acceptChaos h rfl, .inr (.inr (.inl rfl)), Set.empty_subset _⟩
     | acceptChaos h hp =>
-        rcases hoa : oa' with _ | _ | _
+        rcases hoa : oa' with _ | _ | _ | _
+        · subst hp; simp [OnInvalid.rank, hoa] at ha
         · subst hp; simp [OnInvalid.rank, hoa] at ha
         · subst hp; simp [OnInvalid.rank, hoa] at ha
         · exact ⟨_, _, .acceptChaos h rfl, .inl rfl, le_rfl⟩
+    | enter => exact ⟨_, _, .enter, .inl rfl, le_rfl⟩
+    | resume => exact ⟨_, _, .resume, .inl rfl, le_rfl⟩
     | chaos e => exact ⟨_, _, .chaos e, .inl rfl, le_rfl⟩
   · cases hs
-  · exact ⟨_, _, .chaos e, .inr (.inr rfl), Set.subset_univ _⟩
+  · exact ⟨_, _, .chaos e, .inr (.inr (.inl rfl)), Set.subset_univ _⟩
+  · cases hs with
+    | resume => exact ⟨_, _, .enter, .inl rfl, le_rfl⟩
 
 theorem readerLang_mono {pol pol' : OnBadRead Q A} (hle : OnBadRead.Le pol pol')
     {oa oa' : OnInvalid} (ha : oa.rank ≤ oa'.rank) {Envs Envs' : Set (Env H X)}
@@ -124,7 +137,10 @@ theorem trap_facts {oa : OnInvalid} (hoa : oa ≠ .ub) {ρ : Env H X} :
           · rw [answers_valid hv] at hn; cases hn
           · rw [answers_invalid hv] at hn; cases hn
       | acceptOk _ => exact ih (by simp)
-      | acceptTrap _ _ => exact ih (by simp)
+      | acceptCallTrap _ _ => exact ih (by simp)
+      | acceptSessionTrap _ _ => exact ih (by simp)
+      | enter => exact ih (by simp)
+      | resume => exact ih (by simp)
       | acceptIgnore _ _ => exact ih (by simp)
       | acceptChaos _ h => exact absurd h hoa
       | chaos _ => exact absurd rfl hp
@@ -152,7 +168,10 @@ theorem readerLang_trap_subset {oa : OnInvalid} (hoa : oa ≠ .ub)
   | @acceptOk h t' hρ =>
       simp only [Set.mem_singleton_iff] at hxC; subst hxC
       exact hc ρ _ h hfacts (hT _ ht u v h rfl) _ hρ
-  | acceptTrap _ _ => simp at hxC
+  | acceptCallTrap _ _ => simp at hxC
+  | acceptSessionTrap _ _ => simp at hxC
+  | enter => simp at hxC
+  | resume => simp at hxC
   | acceptIgnore _ _ => simp at hxC
   | acceptChaos _ h => exact absurd h hoa
   | chaos _ => exact absurd rfl hp₁
@@ -172,6 +191,67 @@ theorem error_iff_invalid {d : Q → A} (hd : ErrorDisjoint R d) {ρ : Env H X} 
   rcases dflt_read hS ha with ⟨hv, hok⟩ | ⟨hv, rfl⟩
   · exact ⟨fun e => absurd e (hd ρ q a hok), fun h => absurd hv h⟩
   · exact ⟨fun _ => hv, fun _ => rfl⟩
+
+/-- Away from export calls, a call-local trap step is a session-abort step. -/
+theorem rstep_callTrap_sessionTrap {pol : OnBadRead Q A} {ρ : Env H X} {p p' : Phase}
+    {e : REv Q A H} {S : Set X} (he : e ≠ .enter) (hs : RStep R pol .callTrap ρ p e p' S) :
+    ∃ p'', RStep R pol .sessionTrap ρ p e p'' S ∧ (p'' = p' ∨ (p' = .aborted ∧ p'' = .dead)) := by
+  cases hs with
+  | read hS ha => exact ⟨_, .read hS ha, .inl rfl⟩
+  | readChaos hn => exact ⟨_, .readChaos hn, .inl rfl⟩
+  | acceptOk h => exact ⟨_, .acceptOk h, .inl rfl⟩
+  | acceptCallTrap h _ => exact ⟨_, .acceptSessionTrap h rfl, .inr ⟨rfl, rfl⟩⟩
+  | acceptSessionTrap _ hp => cases hp
+  | acceptIgnore _ hp => cases hp
+  | acceptChaos _ hp => cases hp
+  | enter => exact absurd rfl he
+  | resume => exact absurd rfl he
+  | chaos e => exact ⟨_, .chaos e, .inl rfl⟩
+
+theorem run_reader_callTrap_sessionTrap {pol : OnBadRead Q A} {ρ : Env H X} :
+    ∀ {p p' : Phase} {t : List (REv Q A H)} {S : Set X},
+      (reader R pol .callTrap ρ).Run p t p' S → REv.enter ∉ t →
+      ∃ p'', (reader R pol .sessionTrap ρ).Run p t p'' S := by
+  intro p p' t S hr ht
+  induction hr with
+  | nil p => exact ⟨p, .nil p⟩
+  | @cons p p₁ p₂ e es S B hs hrest ih =>
+      have he : e ≠ .enter := fun h => ht (h ▸ List.mem_cons_self)
+      have hes : REv.enter ∉ es := fun h => ht (List.mem_cons_of_mem _ h)
+      obtain ⟨p'', hs'', rfl | ⟨rfl, rfl⟩⟩ := rstep_callTrap_sessionTrap he hs
+      · obtain ⟨p₃, hr₃⟩ := ih hes
+        exact ⟨p₃, .cons hs'' hr₃⟩
+      · cases hrest with
+        | nil => exact ⟨_, .cons hs'' (.nil _)⟩
+        | cons hs' _ =>
+            cases hs' with
+            | resume => exact absurd List.mem_cons_self hes
+
+/-- **Call-local and session abort agree within one export call** (readers). -/
+theorem readerLang_callTrap_eq_sessionTrap (pol : OnBadRead Q A) (Envs : Set (Env H X))
+    {T : Set (List (REv Q A H))} (hT : ∀ t ∈ T, REv.enter ∉ t.tail) :
+    readerLang R pol .callTrap Envs T = readerLang R pol .sessionTrap Envs T := by
+  apply Set.Subset.antisymm _
+    (readerLang_mono (.refl pol) (by decide) le_rfl T)
+  intro x hx
+  simp only [readerLang, langOver, Set.mem_iUnion] at hx ⊢
+  obtain ⟨ρ, hx⟩ := hx
+  refine ⟨ρ, ?_⟩
+  obtain ⟨t, ht, p, S, hr, hxS⟩ := mem_lang.1 hx
+  refine mem_lang.2 ⟨t, ht, ?_⟩
+  have htl := hT t ht
+  rcases t with _ | ⟨e, es⟩
+  · exact ⟨p, S, by cases hr; exact .nil _, hxS⟩
+  · by_cases he : e = .enter
+    · subst he
+      cases hr with
+      | cons hs hrest =>
+          obtain ⟨p'', hr''⟩ := run_reader_callTrap_sessionTrap hrest htl
+          cases hs with
+          | enter => exact ⟨p'', _, .cons .enter hr'', hxS⟩
+    · obtain ⟨p'', hr''⟩ := run_reader_callTrap_sessionTrap hr
+        (fun h => (List.mem_cons.1 h).elim (fun h' => he h'.symm) htl)
+      exact ⟨p'', S, hr'', hxS⟩
 
 end Reader
 

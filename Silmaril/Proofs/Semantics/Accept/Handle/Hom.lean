@@ -95,7 +95,8 @@ theorem run_hom (hW : W.Hom W' f g) (pol : Policy H) :
             exact ⟨_, .writeChaos (by rw [built_map hW, hb]; rfl) hu rfl, Set.subset_univ _⟩
         | writeFixed _ _ hfix => cases hfix
         | @acceptOk σ B h t hh => exact ⟨_, .acceptOk (t := g t) (by simp [hh]), by simp⟩
-        | acceptTrap h hp => exact ⟨_, .acceptTrap (by simp [h]) hp, by simp⟩
+        | acceptCallTrap h hp => exact ⟨_, .acceptCallTrap (by simp [h]) hp, by simp⟩
+        | acceptSessionTrap h hp => exact ⟨_, .acceptSessionTrap (by simp [h]) hp, by simp⟩
         | acceptIgnore h hp => exact ⟨_, .acceptIgnore (by simp [h]) hp, by simp⟩
         | acceptChaos h hp _ =>
             exact ⟨_, .acceptChaos (by simp [h]) hp rfl, Set.subset_univ _⟩
@@ -111,6 +112,8 @@ theorem run_hom (hW : W.Hom W' f g) (pol : Policy H) :
             have := WStep.acceptBatch (W := W') (pol := pol) (fix := none)
               (σ := fun h => (σ h).map g) (B := g '' B) k
             simpa [mapSt, WEv.mapOp] using this
+        | enter => exact ⟨∅, .enter, by simp⟩
+        | resume => exact ⟨∅, .resume, by simp⟩
         | chaos e => exact ⟨_, .chaos _, Set.subset_univ _⟩
       obtain ⟨C, hC, hAC⟩ := step hs
       exact ⟨C ∪ B, .cons hC hB, by rw [Set.image_union]; exact Set.union_subset_union hAC hAB⟩
@@ -144,8 +147,12 @@ theorem step_hom_inv (hW : W.Hom W' f g) {pol : Policy H} (ha : pol.onAccept ≠
       | acceptOk hh =>
           obtain ⟨t, ht, rfl⟩ := Option.map_eq_some_iff.1 hh
           exact ⟨⟨σ, B, .live⟩, {t}, .acceptOk ht, rfl, by simp, by simp⟩
-      | acceptTrap hh hp =>
-          exact ⟨⟨σ, B, .dead⟩, ∅, .acceptTrap (by simpa using hh) hp, rfl, by simp, by simp⟩
+      | acceptCallTrap hh hp =>
+          exact ⟨⟨σ, B, .aborted⟩, ∅, .acceptCallTrap (by simpa using hh) hp, rfl, by simp,
+            by simp⟩
+      | acceptSessionTrap hh hp =>
+          exact ⟨⟨σ, B, .dead⟩, ∅, .acceptSessionTrap (by simpa using hh) hp, rfl, by simp,
+            by simp⟩
       | acceptIgnore hh hp =>
           exact ⟨⟨σ, B, .live⟩, ∅, .acceptIgnore (by simpa using hh) hp, rfl, by simp, by simp⟩
       | acceptChaos _ hp _ => exact absurd hp ha
@@ -172,6 +179,12 @@ theorem step_hom_inv (hW : W.Hom W' f g) {pol : Policy H} (ha : pol.onAccept ≠
       | acceptBatch _ =>
           exact ⟨⟨σ, ∅, .live⟩, if k then B else ∅, .acceptBatch k, by simp [mapSt],
             by cases k <;> simp, by simp⟩
+      | chaos _ => exact absurd rfl hc
+  | enter =>
+      simp only [mapSt, WEv.mapOp] at hs
+      cases hs with
+      | enter => exact ⟨⟨σ, B, .live⟩, ∅, .enter, rfl, by simp, by simp⟩
+      | resume => exact ⟨⟨σ, B, .live⟩, ∅, .resume, rfl, by simp, by simp⟩
       | chaos _ => exact absurd rfl hc
 
 /-- **Backward**: without undefined behaviour, a run of the image trace comes from a run

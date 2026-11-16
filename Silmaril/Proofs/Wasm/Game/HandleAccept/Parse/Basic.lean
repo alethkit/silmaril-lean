@@ -78,11 +78,11 @@ theorem step_oneShot {pol : PPolicy H} (hb : pol.onBadHandle ≠ .ub) {ρ : Env 
       simp only [Set.mem_singleton_iff] at hq
       subst hq
       exact ⟨w, h', rfl, hh, hx, rfl⟩
-  case inl.retBadTrap => exact ⟨by simp, by simp⟩
+  case inl.retBadSessionTrap => exact ⟨by simp, by simp⟩
   case inr.reset => exact ⟨by simp, by simp⟩
   all_goals first
     | (exfalso; simp_all [Returns]; done)
-    | (constructor <;> simp_all [Returns]; done)
+    | (constructor <;> simp_all [Returns])
 
 theorem run_oneShot {pol : PPolicy H} (hb : pol.onBadHandle ≠ .ub) {ρ : Env H X}
     {s s' : PState V} {t : List (PEv V H)} {A : Set (List V × X)}

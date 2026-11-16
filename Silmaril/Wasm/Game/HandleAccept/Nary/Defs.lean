@@ -90,7 +90,7 @@ noncomputable def moduleSExpLang (P : Profile) (m : Module) (ix : SxRImports)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (SExp (BitVec 64)))) :
     Set (SExp (BitVec 64)) :=
   readerLang (sexpR (BitVec 64) (BitVec 32)) pol oa Envs
-    (handleTraces ((Verify.instOf m).strategy P (Verify.instOf m).store)
+    (handleTraces ((Verify.instOf m).strategy P (Verify.instOf m).store) (some .enter)
       (sxDecAsk ix) (sxDecAns ix))
 
 /-- **The assume/guarantee specification of an n-ary reader checker** in the fixed environment

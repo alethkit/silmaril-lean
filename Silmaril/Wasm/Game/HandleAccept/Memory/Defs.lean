@@ -24,7 +24,8 @@ symbols, strings or byte strings (`Silmaril.Formats.SymStrBytesSExp`); imports a
 A write is the event `write op args r` of a call answered with one `i32` `r`, decoded by the
 `answerIn` role (`memWrite`), which sees the callout (arguments, memory at the call) and the
 reply; `accept(h)` is decoded at the call by the `callIn` role (`memAccept`). Both are inputs of
-`Silmaril.Accept.IO.Tag`; `memTraces` keeps them in order (`inputsOf`) over `tagTraces`, and
+`Silmaril.Accept.IO.Tag`; `memTraces` keeps them in order (`inputsOf`) over `tagTraces`, with
+every export invocation (`Tag.enter`) as the export-call boundary `WEv.enter`, and
 `memWriterLang` is the writer language (`Silmaril.Accept.Handle.writerLang`) of those traces.
 
 New definitions (no source).
@@ -99,17 +100,20 @@ def memRoles (ix : MemImports) : Roles Unit MemWEv Unit Unit where
   callIn := memAccept ix
   answerIn := memWrite ix
 
-/-- The inputs of a tag list, in order. -/
-def inputsOf {X I O C : Type} : List (Tag X I O C) → List I
+/-- The inputs of a tag list, in order, with every export invocation (`Tag.enter`) read as
+`enter`. -/
+def inputsOf {X I O C : Type} (enter : Option I) : List (Tag X I O C) → List I
   | [] => []
-  | .inp i :: ts => i :: inputsOf ts
-  | _ :: ts => inputsOf ts
+  | .inp i :: ts => i :: inputsOf enter ts
+  | .enter _ :: ts => enter.toList ++ inputsOf enter ts
+  | _ :: ts => inputsOf enter ts
 
 /-- **The writer traces of a module**: the inputs of its traced sessions (every instantiation
-and environment of `Envs`, memory index `memIdx`). -/
+and environment of `Envs`, memory index `memIdx`), every export invocation read as the
+export-call boundary `WEv.enter`. -/
 def memTraces (P : Profile) (Envs : Store Nat → SEnv UImp → Prop) (memIdx : Nat) (m : Module)
     (ix : MemImports) : Set (List MemWEv) :=
-  inputsOf '' tagTraces P Envs memIdx m (memRoles ix)
+  inputsOf (some .enter) '' tagTraces P Envs memIdx m (memRoles ix)
 
 /-- **The writer language of a module** through memory-carrying imports. -/
 def memWriterLang (P : Profile) (Envs : Store Nat → SEnv UImp → Prop) (memIdx : Nat)

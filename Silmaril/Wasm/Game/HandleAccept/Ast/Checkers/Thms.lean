@@ -15,7 +15,8 @@ import Silmaril.Proofs.Wasm.Game.HandleAccept.Ast.Checker
   (`Silmaril.Wasm.Logic.GameLink.GameSat`, partial correctness) with the store invariant
   `consInv addCheck` (the store's functions are those of the instance; proof in
   `Silmaril.Proofs.Wasm.Game.HandleAccept.Ast.Checker`).
-* **Soundness** (`addCheck_sound`): its reader language under the trapping read policy, in
+* **Soundness** (`addCheck_sound`): its reader language under the trapping read policy, for
+  every accept policy but `ub` (in particular the Wasm-facing call-local trap `callTrap`), in
   every set of environments, for every profile and every sequence of export calls, is included
   in `addL`, the trees `add(num a, num b)`, through `astLang_sound_of_forall`.
 -/
@@ -38,9 +39,9 @@ theorem addCheck_sat : ∀ P ρ, Silmaril.Wasm.Logic.GameLink.GameSat P (Verify.
   Silmaril.Proofs.Wasm.Game.HandleAccept.Ast.Checker.addCheck_sat
 
 /-- **`addCheck` accepts only the trees `add(num a, num b)`.** -/
-theorem addCheck_sound (P : Profile)
+theorem addCheck_sound (P : Profile) {oa : Silmaril.Accept.Handle.OnInvalid} (hoa : oa ≠ .ub)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (AST arithSig.toAstSig))) :
-    moduleAstLang P addCheck arithRIx .trap .trap Envs ⊆ addL :=
-  astLang_sound_of_forall (fun ρ _ => addCheck_sat P ρ) rfl (by decide)
+    moduleAstLang P addCheck arithRIx .trap oa Envs ⊆ addL :=
+  astLang_sound_of_forall (fun ρ _ => addCheck_sat P ρ) rfl hoa
 
 end Silmaril.Wasm.Game.HandleAccept.Ast.Checkers

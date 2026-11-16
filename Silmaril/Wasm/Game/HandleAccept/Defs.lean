@@ -18,11 +18,19 @@ so events are decoded **per move**:
 * `decAsk e : Option Ev`: the event of an import call, observed when it is made (for instance
   `accept(h)`);
 * `decAns e v : Option Ev`: the event of an answered call (for instance a read `kind(h) = k`, or
-  a write `word(x) = h`).
+  a write `word(x) = h`);
+* `enter : Option Ev`: the event of an **export call** `.inr (.ask _)` (the environment calling
+  the module), `some .enter` for the handle APIs (`REv.enter`, `WEv.enter`): the export-call
+  boundary at which a call-local trap (`OnInvalid.callTrap`) resumes. Export returns are not
+  events.
 
-`playEvents decAsk decAns p` is the decoded event trace of a play, `handleTraces σ …` the decoded
-traces of a strategy, and `moduleReaderLang` / `moduleWriterLang` the reader and writer languages
-(`Silmaril.Accept.Handle.readerLang`, `writerLang`) of a module's instance
+The instance keeps its store across export calls (`ScalarInstance.strategy`), so a trap aborts
+only the current export call: the decoded trace of a play contains every export call, and the
+module languages read call boundaries.
+
+`playEvents enter decAsk decAns p` is the decoded event trace of a play, `handleTraces σ …` the
+decoded traces of a strategy, and `moduleReaderLang` / `moduleWriterLang` the reader and writer
+languages (`Silmaril.Accept.Handle.readerLang`, `writerLang`) of a module's instance
 (`Silmaril.Wasm.Verify.instOf`) over every profile `P` given as a parameter.
 
 **Scope.** Game moves carry argument values and results but not memory contents, so this reading
@@ -45,7 +53,8 @@ For a fixed environment `ρ` and a language `L`, `readerISpec` is the import spe
 answers are the **correct answers in `ρ`** (`Ii.post`, per move) and whose `accept` calls must
 name a handle denoting a member of `L` (`Ii.pre`). `Silmaril.Wasm.Logic.GameLink.GameSat` for
 it is a Hoare-logic obligation on the module's code, and gives (`Thms`) that the module's reader
-language under the trapping read policy is included in `L`.
+language under the trapping read policy is included in `L`, for every accept policy but `ub`
+(in particular the Wasm-facing call-local trap).
 
 New definitions (no source).
 -/
@@ -66,19 +75,20 @@ universe u
 
 variable {E F : Sig.{0}} {Ev : Type}
 
-/-- The decoded events of a play: import calls through `decAsk`, their answers through
-`decAns`; export moves are not events. -/
-def playEvents (decAsk : E.Op → Option Ev) (decAns : (e : E.Op) → E.Ar e → Option Ev) :
-    List (Move E F) → List Ev
+/-- The decoded events of a play: export calls as `enter`, import calls through `decAsk`, their
+answers through `decAns`; export returns are not events. -/
+def playEvents (enter : Option Ev) (decAsk : E.Op → Option Ev)
+    (decAns : (e : E.Op) → E.Ar e → Option Ev) : List (Move E F) → List Ev
   | [] => []
-  | .inl (.ask e) :: p => (decAsk e).toList ++ playEvents decAsk decAns p
-  | .inl (.ans e v) :: p => (decAns e v).toList ++ playEvents decAsk decAns p
-  | .inr _ :: p => playEvents decAsk decAns p
+  | .inl (.ask e) :: p => (decAsk e).toList ++ playEvents enter decAsk decAns p
+  | .inl (.ans e v) :: p => (decAns e v).toList ++ playEvents enter decAsk decAns p
+  | .inr (.ask _) :: p => enter.toList ++ playEvents enter decAsk decAns p
+  | .inr (.ans _ _) :: p => playEvents enter decAsk decAns p
 
-/-- The decoded traces of a strategy. -/
-def handleTraces (σ : Strategy E F) (decAsk : E.Op → Option Ev)
+/-- The decoded traces of a strategy, with export calls decoded as `enter`. -/
+def handleTraces (σ : Strategy E F) (enter : Option Ev) (decAsk : E.Op → Option Ev)
     (decAns : (e : E.Op) → E.Ar e → Option Ev) : Set (List Ev) :=
-  {t | ∃ p ∈ σ, t = playEvents decAsk decAns p}
+  {t | ∃ p ∈ σ, t = playEvents enter decAsk decAns p}
 
 /-! ## Values -/
 
@@ -145,7 +155,7 @@ noncomputable def moduleConsLang (P : Profile) (m : Module) (ix : ConsImports)
     (pol : OnBadRead (ConsQ (BitVec 32)) (ConsA (BitVec 64) (BitVec 32))) (oa : OnInvalid)
     (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (SExp2 (BitVec 64)))) : Set (SExp2 (BitVec 64)) :=
   readerLang (consR (BitVec 64) (BitVec 32)) pol oa Envs
-    (handleTraces ((Verify.instOf m).strategy P (Verify.instOf m).store)
+    (handleTraces ((Verify.instOf m).strategy P (Verify.instOf m).store) (some .enter)
       (consDecAsk ix) (consDecAns ix))
 
 /-- **The assume/guarantee specification of a reader checker** in the fixed environment `ρ`:

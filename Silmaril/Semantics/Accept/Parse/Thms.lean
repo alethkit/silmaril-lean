@@ -15,7 +15,9 @@ import Silmaril.Proofs.Semantics.Accept.Parse.Basic
   `parseRel_mono_envs`) and preserves unions of trace sets (`parseRel_union`);
 * the chunk cursor: along a live run the buffer is the fed input after the consumed prefix
   (`run_cursor`), and every accepted pair of a chunked module relates exactly the `used` slice
-  after the cursor (`parseRel_slice`), so failures still advance the cursor;
+  after the cursor (`parseRel_slice`), so failures still advance the cursor. Both are stated for
+  the session-abort overrun policy (`onOverrun = .sessionTrap`): a call-locally trapped overrun
+  leaves the cursor while `consumed` counts its `used`;
 * append/done: every accepted pair relates the pending append buffer (`parseRel_done`);
 * `usedOfI32_lt`: a decoded `used` count is below `2 ^ 31`.
 -/
@@ -80,14 +82,14 @@ theorem parseRel_mono_envs {Envs Envs' : Set (Env H X)} (h : Envs ⊆ Envs')
   obtain ⟨ρ, hp⟩ := hp
   exact ⟨⟨ρ.1, h ρ.2⟩, hp⟩
 
-theorem run_cursor {ρ : Env H X} (ho : pol.onOverrun = .trap) {s s' : PState V}
+theorem run_cursor {ρ : Env H X} (ho : pol.onOverrun = .sessionTrap) {s s' : PState V}
     {t : List (PEv V H)} {A : Set (List V × X)} (hr : (parser pol ρ).Run s t s' A)
     (hc : ChunkOnly t) (hl : s'.phase = .live) :
     s'.buf = (s.buf ++ fed t).drop (consumed t) ∧ consumed t ≤ (s.buf ++ fed t).length :=
   Silmaril.Proofs.Semantics.Accept.Parse.run_cursor ho hr hc hl
 
 /-- **Chunked parsing relates the `used` slice after the cursor.** -/
-theorem parseRel_slice (ho : pol.onOverrun = .trap) (hb : pol.onBadHandle ≠ .ub)
+theorem parseRel_slice (ho : pol.onOverrun = .sessionTrap) (hb : pol.onBadHandle ≠ .ub)
     {Envs : Set (Env H X)} {T : Set (List (PEv V H))} (hT : ∀ t ∈ T, ChunkOnly t)
     {p : List V × X} (hp : p ∈ parseRel pol Envs T) :
     ∃ t ∈ T, ∃ u n h v, t = u ++ PEv.finish n h :: v ∧

@@ -92,11 +92,16 @@ theorem run_ext {pol : Policy H} {s : H} (hs : pol.sentinel = some s) (hw : pol.
           obtain ⟨b', B₂, hrun, hAB⟩ := ih hnr' huse' (b := ⟨_, B', .live⟩) ⟨rfl, hB, rfl, hsn0⟩
           exact ⟨b', _, .cons (.acceptOk (t := t) (by simpa [Function.update_of_ne hne] using hh))
             hrun, Set.union_subset_union le_rfl hAB⟩
-      | @acceptTrap σ B h hh hp =>
+      | @acceptCallTrap σ B h hh hp =>
+          have hne : h ≠ s := fun e => hue (by simp [WEv.uses, e])
+          obtain ⟨b', B₂, hrun, hAB⟩ := ih hnr' huse' (b := ⟨_, B', .aborted⟩) ⟨rfl, hB, rfl, hsn0⟩
+          exact ⟨b', _, .cons (.acceptCallTrap (by simpa [Function.update_of_ne hne] using hh) hp)
+            hrun, Set.union_subset_union le_rfl hAB⟩
+      | @acceptSessionTrap σ B h hh hp =>
           have hne : h ≠ s := fun e => hue (by simp [WEv.uses, e])
           obtain ⟨b', B₂, hrun, hAB⟩ := ih hnr' huse' (b := ⟨_, B', .dead⟩) ⟨rfl, hB, rfl, hsn0⟩
-          exact ⟨b', _, .cons (.acceptTrap (by simpa [Function.update_of_ne hne] using hh) hp)
-            hrun, Set.union_subset_union le_rfl hAB⟩
+          exact ⟨b', _, .cons (.acceptSessionTrap (by simpa [Function.update_of_ne hne] using hh)
+            hp) hrun, Set.union_subset_union le_rfl hAB⟩
       | @acceptIgnore σ B h hh hp =>
           have hne : h ≠ s := fun e => hue (by simp [WEv.uses, e])
           obtain ⟨b', B₂, hrun, hAB⟩ := ih hnr' huse' (b := ⟨_, B', .live⟩) ⟨rfl, hB, rfl, hsn0⟩
@@ -131,6 +136,12 @@ theorem run_ext {pol : Policy H} {s : H} (hs : pol.sentinel = some s) (hw : pol.
           obtain ⟨b', B₂, hrun, hAB⟩ := ih hnr' huse' (b := ⟨_, ∅, .live⟩) ⟨rfl, le_rfl, rfl, hsn0⟩
           refine ⟨b', _, .cons (.acceptBatch k) hrun, Set.union_subset_union ?_ hAB⟩
           cases k <;> simp [hB]
+      | @enter σ B =>
+          obtain ⟨b', B₂, hrun, hAB⟩ := ih hnr' huse' (b := ⟨_, B', .live⟩) ⟨rfl, hB, rfl, hsn0⟩
+          exact ⟨b', _, .cons .enter hrun, Set.union_subset_union le_rfl hAB⟩
+      | @resume σ B =>
+          obtain ⟨b', B₂, hrun, hAB⟩ := ih hnr' huse' (b := ⟨_, B', .live⟩) ⟨rfl, hB, rfl, hsn0⟩
+          exact ⟨b', _, .cons .resume hrun, Set.union_subset_union le_rfl hAB⟩
       | chaos e =>
           obtain ⟨b', B₂, hrun, hAB⟩ := ih hnr' huse' (b := ⟨_, B', .chaos⟩) ⟨rfl, hB, rfl, hsn0⟩
           exact ⟨b', _, .cons (.chaos _) hrun, Set.union_subset_union le_rfl hAB⟩

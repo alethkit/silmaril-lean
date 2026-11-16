@@ -29,7 +29,9 @@ arguments are not of the expected shape (only possible when the import is declar
 another type) is no event.
 
 **Languages.** `moduleTraces P m dAsk dAns` are the decoded traces of every play of the
-instance `Verify.instOf m` from its initial store, for the profile `P`; the writer languages
+instance `Verify.instOf m` from its initial store, for the profile `P`, every export call
+decoded as `WEv.enter` (the instance and its store persist across export calls, so a
+call-local trap is resumed by the next one); the writer languages
 are `writerLang` (store semantics) and `fixedLang` (fixed environments) of the writer over
 them: `moduleConsWLang`, `moduleSxWLang`, `moduleConsWFixedLang`, `moduleSxWFixedLang`.
 
@@ -75,12 +77,13 @@ def i64Arg : List Val → Option (BitVec 64)
 def retI32 {ft : FnType} (v : Answer ft) : Option (BitVec 32) :=
   (ansVals v).bind i32Res
 
-/-- The decoded traces of every play of a module's instance from its initial store. -/
-noncomputable def moduleTraces {Ev : Type} (P : Profile) (m : Module)
-    (dAsk : (Verify.instOf m).E.Op → Option Ev)
-    (dAns : (e : (Verify.instOf m).E.Op) → (Verify.instOf m).E.Ar e → Option Ev) :
-    Set (List Ev) :=
-  handleTraces ((Verify.instOf m).strategy P (Verify.instOf m).store) dAsk dAns
+/-- The decoded traces of every play of a module's instance from its initial store, export calls
+decoded as `enter`. -/
+noncomputable def moduleTraces {Op H : Type} (P : Profile) (m : Module)
+    (dAsk : (Verify.instOf m).E.Op → Option (WEv Op H))
+    (dAns : (e : (Verify.instOf m).E.Op) → (Verify.instOf m).E.Ar e → Option (WEv Op H)) :
+    Set (List (WEv Op H)) :=
+  handleTraces ((Verify.instOf m).strategy P (Verify.instOf m).store) (some .enter) dAsk dAns
 
 /-! ## The cons writer API -/
 

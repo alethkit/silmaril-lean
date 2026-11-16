@@ -9,11 +9,14 @@ import Silmaril.Proofs.Wasm.Game.HandleAccept.Basic
 
 * `readerLang_subset_of_AG` (generic): if every play of a strategy is assume/guarantee correct
   for an import specification whose answers are the correct reads in a fixed environment `ρ`
-  and whose `accept` calls name members of `L`, then its reader language in `ρ` under the
-  trapping read policy is included in `L`. Reads are per-move facts, so no history is needed.
+  and whose `accept` calls name members of `L`, then its reader language in `ρ` (export calls
+  decoded as `enter`) under the trapping read policy is included in `L`, for every accept policy
+  `oa ≠ .ub`: the call-local trap, the session abort and `ignore`. Reads are per-move facts, so
+  no history is needed, and they stay correct across export calls.
 * `consLang_sound_of_gameSat`: for a module using the cons reader API, the Hoare-logic
   obligation `GameSat P (instOf m) Inv (consISpec ix ρ L) (topISpec _)` (with a store invariant
-  holding initially) gives `moduleConsLang P m ix .trap oa {ρ} ⊆ L`, through
+  holding initially) gives `moduleConsLang P m ix .trap oa {ρ} ⊆ L` for every `oa ≠ .ub`
+  (`consLang_sound_callTrap` for the Wasm-facing call-local trap), through
   `Silmaril.Wasm.Logic.GameLink.strategy_sound`; `consLang_sound_of_forall` for every
   environment of a set.
 -/
@@ -39,7 +42,7 @@ theorem readerLang_subset_of_AG {Q A H X : Type} {R : Reader Q A H X} {ρ : Silm
       Ii.post e v)
     (hpre : ∀ e h, decAsk e = some (.accept h) → Ii.pre e → ∀ t, ρ h = some t → t ∈ L)
     (hans : ∀ e v h, decAns e v ≠ some (.accept h)) {oa : OnInvalid} (hoa : oa ≠ .ub) :
-    readerLang R .trap oa {ρ} (handleTraces σ decAsk decAns) ⊆ L :=
+    readerLang R .trap oa {ρ} (handleTraces σ (some .enter) decAsk decAns) ⊆ L :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.readerLang_subset_of_AG hAG hpost hpre hans hoa
 
 theorem consDecAns_ne_accept {ts : List FnType} (ix : ConsImports) (e : (ifaceSig ts).Op)
@@ -64,6 +67,14 @@ theorem consLang_sound_of_gameSat {P : Profile} {m : Module} {ix : ConsImports}
     (fun _ hp => (Silmaril.Wasm.Logic.GameLink.strategy_sound hm hs hp).2)
     (fun _ _ h => h) (fun _ h hd hpre => hpre h hd)
     (consDecAns_ne_accept ix) hoa
+
+/-- For the Wasm-facing call-local trap. -/
+theorem consLang_sound_callTrap {P : Profile} {m : Module} {ix : ConsImports}
+    {ρ : Silmaril.Accept.Handle.Env (BitVec 32) (SExp2 (BitVec 64))} {L : Set (SExp2 (BitVec 64))}
+    {Inv : Store Nat → Prop}
+    (hm : GameSat P (Verify.instOf m) Inv (consISpec ix ρ L) (topISpec _))
+    (hs : Inv (Verify.instOf m).store) : moduleConsLang P m ix .trap .callTrap {ρ} ⊆ L :=
+  consLang_sound_of_gameSat hm hs (by decide)
 
 /-- For every environment of a set. -/
 theorem consLang_sound_of_forall {P : Profile} {m : Module} {ix : ConsImports}

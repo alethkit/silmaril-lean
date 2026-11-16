@@ -64,7 +64,7 @@ theorem fixedLang_subset_of_AG {X Op : Type} {W : Writer Op X} {pol : Policy (Bi
     (hAG : ∀ p ∈ σ, AG (writerISpec W pol.sentinel dAsk dAns ρ L) (topISpec F) p)
     (hask : ∀ e ev, dAsk e = some ev → ∃ h, ev = .accept h)
     (hans : ∀ e v ev, dAns e v = some ev → ∃ op args r, ev = .write op args r) :
-    fixedLang W pol {ρ} (handleTraces σ dAsk dAns) ⊆ L :=
+    fixedLang W pol {ρ} (handleTraces σ (some .enter) dAsk dAns) ⊆ L :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.fixedLang_subset_of_AG hAG hask hans
 
 theorem writerLang_subset_of_AG {X Op : Type} {W : Writer Op X} {pol : Policy (BitVec 32)}
@@ -75,7 +75,7 @@ theorem writerLang_subset_of_AG {X Op : Type} {W : Writer Op X} {pol : Policy (B
     (hask : ∀ e ev, dAsk e = some ev → ∃ h, ev = .accept h)
     (hans : ∀ e v ev, dAns e v = some ev → ∃ op args r, ev = .write op args r)
     (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
-    writerLang W pol (handleTraces σ dAsk dAns) ⊆ L :=
+    writerLang W pol (handleTraces σ (some .enter) dAsk dAns) ⊆ L :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.writerLang_subset_of_AG hAG hask hans hw ha
 
 /-- Over a set of fixed environments. -/

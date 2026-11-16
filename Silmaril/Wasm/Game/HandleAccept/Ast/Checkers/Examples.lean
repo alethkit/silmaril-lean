@@ -65,13 +65,14 @@ open Silmaril.Proofs.Wasm.Game.HandleAccept.Ast (mem_astLang_of_replay arithTagE
 
 theorem addCheck_accepts_12 {P : Profile}
     (hP : ∀ c c' : Config Nat, Step (profile refOracle) Det.noHost c c' → Step P Det.noHost c c') :
-    addTree 1 2 ∈ moduleAstLang P addCheck arithRIx .trap .trap {addEnv 1 2} :=
-  mem_astLang_of_replay addCheck_instance hP arithRIx .trap .trap (Set.mem_singleton _)
+    addTree 1 2 ∈ moduleAstLang P addCheck arithRIx .trap .callTrap {addEnv 1 2} :=
+  mem_astLang_of_replay addCheck_instance hP arithRIx .trap .callTrap (Set.mem_singleton _)
     arithTagEq_sound (addScript 1 2) refFuel 16 ⟨0, by decide +kernel⟩ 0 0 rfl
     (by decide +kernel) (by decide +kernel)
 
 theorem addCheck_accepts_12_spec (nd : Bool) :
-    addTree 1 2 ∈ moduleAstLang (Profile.spec nd {}) addCheck arithRIx .trap .trap {addEnv 1 2} :=
+    addTree 1 2 ∈
+      moduleAstLang (Profile.spec nd {}) addCheck arithRIx .trap .callTrap {addEnv 1 2} :=
   addCheck_accepts_12 fun _ _ hs => Step.deterministic_refines_spec nd hs
 
 /-- `addTree 1 2` is a member of `addL`, the bound of `addCheck_sound`. -/

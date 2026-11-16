@@ -14,20 +14,23 @@ an export call (`Silmaril.Wasm.Resource.replayExport`) is a play of the instance
 (`replayExport_play`), so its decoded events are a handle trace of the module, for **any**
 per-move decoder that reads only the import index, the arguments and the behaviour of an answer.
 
-* `rdecG dAsk dAns pa rs`: the events of the recorded moves `rs` through the raw decoders
-  `dAsk h args` (import calls) and `dAns h args b` (answers, decoded with the arguments of the
-  pending call `pa`).
-* `playEvents_pathG`: along a path, `playEvents decAsk decAns` is `rdecG dAsk dAns` of the
-  recorded moves, when `decAsk`, `decAns` factor through `dAsk`, `dAns`.
+* `rdecG enter dAsk dAns pa rs`: the events of the recorded moves `rs`: export calls as
+  `enter`, import calls and answers through the raw decoders `dAsk h args` and `dAns h args b`
+  (answers decoded with the arguments of the pending call `pa`). A replay starts with the call
+  of its export, so its decoded trace starts with `enter` (`some .enter` for handle APIs).
+* `playEvents_pathG`: along a path, `playEvents enter decAsk decAns` is `rdecG enter dAsk dAns`
+  of the recorded moves, when `decAsk`, `decAns` factor through `dAsk`, `dAns`.
 * **`rdecG_mem_handleTraces`**: the decoded replay is a handle trace of the module, for every
   profile admitting the deterministic steps of the replay interpreter.
 
 **Readers.** `revOkB okR okA` checks a reader event with Boolean checks of reads (`okR q a`) and
-accepts (`okA h`); `run_of_revOkB`: if the checks are sound in `ρ`, a checked trace has a run of
-the reader host accepting every tree of an accepted handle; **`mem_readerLang_of_replay`**.
+accepts (`okA h`), and passes export calls; `run_of_revOkB`: if the checks are sound in `ρ`, a
+checked trace has a run of the reader host accepting every tree of an accepted handle;
+**`mem_readerLang_of_replay`**.
 
 **Writers (store semantics).** `wRunB W bad x σ t` simulates the writer host along `t` with
-fresh, non-`bad` handles (`writeOk`) and defined accepts (`acceptOk`): `none` when stuck, else
+fresh, non-`bad` handles (`writeOk`), defined accepts (`acceptOk`) and export calls (`enter`):
+`none` when stuck, else
 whether `x` is accepted; `run_of_wRunB`, **`mem_writerLang_of_replay`**.
 
 New definitions and proofs.
@@ -49,20 +52,20 @@ def bValsG : Behaviour Val → Option (List Val)
   | .returns vs => some vs
   | _ => none
 
-/-- The events of recorded moves through raw decoders; `pa` are the arguments of the pending
-call. -/
-def rdecG {Ev : Type} (dAsk : Nat → List Val → Option Ev)
+/-- The events of recorded moves: export calls as `enter`, imports through raw decoders; `pa`
+are the arguments of the pending call. -/
+def rdecG {Ev : Type} (enter : Option Ev) (dAsk : Nat → List Val → Option Ev)
     (dAns : Nat → List Val → Behaviour Val → Option Ev) : List Val → List RMove → List Ev
   | _, [] => []
-  | _, .ask h a :: rs => (dAsk h a).toList ++ rdecG dAsk dAns a rs
-  | pa, .ans h b :: rs => (dAns h pa b).toList ++ rdecG dAsk dAns pa rs
-  | pa, .call _ _ :: rs => rdecG dAsk dAns pa rs
-  | pa, .ret _ _ :: rs => rdecG dAsk dAns pa rs
+  | _, .ask h a :: rs => (dAsk h a).toList ++ rdecG enter dAsk dAns a rs
+  | pa, .ans h b :: rs => (dAns h pa b).toList ++ rdecG enter dAsk dAns pa rs
+  | pa, .call _ _ :: rs => enter.toList ++ rdecG enter dAsk dAns pa rs
+  | pa, .ret _ _ :: rs => rdecG enter dAsk dAns pa rs
 
 variable {I : ScalarInstance} {Ev : Type}
 
 /-- **Decoding a path** with decoders factoring through raw ones. -/
-theorem playEvents_pathG (decAsk : I.E.Op → Option Ev)
+theorem playEvents_pathG (enter : Option Ev) (decAsk : I.E.Op → Option Ev)
     (decAns : (e : I.E.Op) → I.E.Ar e → Option Ev) (dAsk : Nat → List Val → Option Ev)
     (dAns : Nat → List Val → Behaviour Val → Option Ev)
     (hAsk : ∀ e, decAsk e = dAsk e.1.val e.2.1)
@@ -70,7 +73,7 @@ theorem playEvents_pathG (decAsk : I.E.Op → Option Ev)
     {P : Profile} :
     ∀ {q : I.HState} {ms : List (Move I.E I.F)} {q' : I.HState}, I.Path P q ms q' →
       ∀ pa : List Val, (∀ f s t e, q = .waiting f s t e → pa = e.2.1) →
-      playEvents decAsk decAns ms = rdecG dAsk dAns pa (ms.map rmv) := by
+      playEvents enter decAsk decAns ms = rdecG enter dAsk dAns pa (ms.map rmv) := by
   intro q ms q' hp
   induction hp with
   | nil => intro _ _; rfl
@@ -78,7 +81,7 @@ theorem playEvents_pathG (decAsk : I.E.Op → Option Ev)
     intro pa hpa
     cases htr with
     | call s f =>
-      exact ih pa fun _ _ _ _ h => by cases h
+      exact congrArg (enter.toList ++ ·) (ih pa fun _ _ _ _ h => by cases h)
     | @ucall f s s' t t' h args e run callout op =>
       show (decAsk e).toList ++ _ = (dAsk e.1.val e.2.1).toList ++ _
       rw [hAsk]
@@ -96,21 +99,21 @@ theorem playEvents_pathG (decAsk : I.E.Op → Option Ev)
 deterministic steps of the replay interpreter. -/
 theorem rdecG_mem_handleTraces {m : Module} (hm : (instance? m).isSome = true) {P : Profile}
     (hP : ∀ c c' : Config Nat, Step (profile refOracle) Det.noHost c c' → Step P Det.noHost c c')
-    (decAsk : (instOf m).E.Op → Option Ev)
+    (enter : Option Ev) (decAsk : (instOf m).E.Op → Option Ev)
     (decAns : (e : (instOf m).E.Op) → (instOf m).E.Ar e → Option Ev)
     (dAsk : Nat → List Val → Option Ev) (dAns : Nat → List Val → Behaviour Val → Option Ev)
     (hAsk : ∀ e, decAsk e = dAsk e.1.val e.2.1)
     (hAns : ∀ e v, decAns e v =
       dAns e.1.val e.2.1 (Answer.toBehaviour (ft := (instOf m).imports.get e.1) v))
     (sc : Script) (fuel n : Nat) (j : Fin (instOf m).exports.length) (k : Nat) :
-    rdecG dAsk dAns [] (replayExport (instOf m) sc fuel n j k) ∈
-      handleTraces ((instOf m).strategy P (instOf m).store) decAsk decAns := by
+    rdecG enter dAsk dAns [] (replayExport (instOf m) sc fuel n j k) ∈
+      handleTraces ((instOf m).strategy P (instOf m).store) enter decAsk decAns := by
   obtain ⟨mt, hI⟩ := isInstance_instOf hm
   obtain ⟨ms, hms, hmap⟩ := replayExport_play hI.ok (sc := sc) (fuel := fuel) (n := n) hP j k
   obtain ⟨q, hp⟩ := ScalarInstance.mem_strategy_iff.1 hms
   refine ⟨ms, hms, ?_⟩
   rw [← hmap]
-  exact (playEvents_pathG decAsk decAns dAsk dAns hAsk hAns hp [] fun _ _ _ _ h => by
+  exact (playEvents_pathG enter decAsk decAns dAsk dAns hAsk hAns hp [] fun _ _ _ _ h => by
     cases h).symm
 
 /-! ## Readers -/
@@ -123,6 +126,7 @@ variable {Q A H X : Type}
 def revOkB (okR : Q → A → Bool) (okA : H → Bool) : REv Q A H → Bool
   | .read q a => okR q a
   | .accept h => okA h
+  | .enter => true
 
 /-- The event accepts the handle `h`. -/
 def revAcc [DecidableEq H] (h : H) : REv Q A H → Bool
@@ -161,6 +165,10 @@ theorem run_of_revOkB [DecidableEq H] (R : Reader Q A H X) {ρ : Env H X} {okR :
         cases hx
         exact Or.inl rfl
       · exact Or.inr (hB h x hh hx)
+    | enter =>
+      refine ⟨∅ ∪ B, .cons RStep.enter hr, fun h x hh hx => ?_⟩
+      simp only [List.any_cons, revAcc, Bool.false_or] at hh
+      exact Or.inr (hB h x hh hx)
 
 /-- **Reader acceptance from a replay**: if the decoded replay of the call of export `j`
 (candidate arguments `k`, script `sc`) passes checks sound in `ρ ∈ Envs` and accepts the handle
@@ -182,12 +190,14 @@ theorem mem_readerLang_of_replay [DecidableEq H] {m : Module} (hm : (instance? m
     (hA : ∀ h, okA h = true → (ρ h).isSome = true)
     (sc : Script) (fuel n : Nat) (j : Fin (instOf m).exports.length) (k : Nat) (h : H) {x : X}
     (hx : ρ h = some x)
-    (hall : (rdecG dAsk dAns [] (replayExport (instOf m) sc fuel n j k)).all
+    (hall : (rdecG (some .enter) dAsk dAns [] (replayExport (instOf m) sc fuel n j k)).all
       (revOkB okR okA) = true)
-    (hacc : (rdecG dAsk dAns [] (replayExport (instOf m) sc fuel n j k)).any (revAcc h) = true) :
+    (hacc : (rdecG (some .enter) dAsk dAns [] (replayExport (instOf m) sc fuel n j k)).any
+      (revAcc h) = true) :
     x ∈ readerLang R pol oa Envs
-      (handleTraces ((instOf m).strategy P (instOf m).store) decAsk decAns) := by
-  have hT := rdecG_mem_handleTraces hm hP decAsk decAns dAsk dAns hAsk hAns sc fuel n j k
+      (handleTraces ((instOf m).strategy P (instOf m).store) (some .enter) decAsk decAns) := by
+  have hT := rdecG_mem_handleTraces hm hP (some .enter) decAsk decAns dAsk dAns hAsk hAns sc
+    fuel n j k
   obtain ⟨B, hrun, hB⟩ := run_of_revOkB R hR hA (pol := pol) (oa := oa) _ hall
   exact Set.mem_iUnion.2 ⟨⟨ρ, hρ⟩, Set.mem_biUnion hT ⟨.live, B, hrun, hB h x hacc hx⟩⟩
 
@@ -214,6 +224,7 @@ def wRunB (W : Writer Op X) (bad : H → Bool) (x : X) : Env H X → List (WEv O
     match σ h with
     | some t => (wRunB W bad x σ es).map fun b => decide (t = x) || b
     | none => none
+  | σ, .enter :: es => wRunB W bad x σ es
   | _, _ :: _ => none
 
 /-- A simulated trace has a run of the writer host (store semantics, no fixed environment). -/
@@ -255,6 +266,10 @@ theorem run_of_wRunB (W : Writer Op X) {bad : H → Bool} {x : X} {pol : Policy 
       · exact Or.inl rfl
       · exact Or.inr (hA hb)
     · cases h
+  | .enter :: es, σ, B, b, h => by
+    simp only [wRunB] at h
+    obtain ⟨s, A, hr, hA⟩ := run_of_wRunB W hbad es σ B b h
+    exact ⟨s, ∅ ∪ A, .cons WStep.enter hr, fun hb => Or.inr (hA hb)⟩
   | .acceptErr _ _ :: _, _, _, _, h => by cases h
   | .acceptAll :: _, _, _, _, h => by cases h
   | .acceptBatch _ :: _, _, _, _, h => by cases h
@@ -274,10 +289,12 @@ theorem mem_writerLang_of_replay {m : Module} (hm : (instance? m).isSome = true)
     (W : Writer Op X) {pol : Policy H} {bad : H → Bool}
     (hbad : ∀ r, pol.sentinel = some r → bad r = true)
     (sc : Script) (fuel n : Nat) (j : Fin (instOf m).exports.length) (k : Nat) {x : X}
-    (hrun : wRunB W bad x Env.empty (rdecG dAsk dAns [] (replayExport (instOf m) sc fuel n j k)) =
-      some true) :
-    x ∈ writerLang W pol (handleTraces ((instOf m).strategy P (instOf m).store) decAsk decAns) := by
-  have hT := rdecG_mem_handleTraces hm hP decAsk decAns dAsk dAns hAsk hAns sc fuel n j k
+    (hrun : wRunB W bad x Env.empty
+      (rdecG (some .enter) dAsk dAns [] (replayExport (instOf m) sc fuel n j k)) = some true) :
+    x ∈ writerLang W pol
+      (handleTraces ((instOf m).strategy P (instOf m).store) (some .enter) decAsk decAns) := by
+  have hT := rdecG_mem_handleTraces hm hP (some .enter) decAsk decAns dAsk dAns hAsk hAns sc
+    fuel n j k
   obtain ⟨s, A, hr, hA⟩ := run_of_wRunB W hbad _ Env.empty ∅ true hrun
   exact Set.mem_biUnion hT ⟨s, A, hr, hA rfl⟩
 

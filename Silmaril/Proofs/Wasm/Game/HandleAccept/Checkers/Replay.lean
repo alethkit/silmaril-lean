@@ -17,11 +17,12 @@ condition for a tree to lie in a module's reader language:
 * `rdec ix pa rs`: the cons reader events of the recorded moves `rs` (`RMove`), the answer of an
   import call decoded with the arguments of the call before it (`pa`: the pending arguments);
   `playEvents_path`: along a path of the instance's transition system, the decoded events of the
-  play (`playEvents (consDecAsk ix) (consDecAns ix)`) are those of its recorded moves.
+  play (`playEvents (some .enter) (consDecAsk ix) (consDecAns ix)`) are those of its recorded
+  moves; a replay starts with its export call, so its trace starts with `enter`.
 * `consOkB ρ e`: the event `e` is correct in the environment `ρ` (a read is valid and correctly
-  answered, an accepted handle is defined); `run_of_consOkB`: a trace of correct events has a run
-  of the reader host in `ρ`, under every read and accept policy, accepting every tree denoted by
-  an accepted handle.
+  answered, an accepted handle is defined, an export call); `run_of_consOkB`: a trace of
+  correct events has a run of the reader host in `ρ`, under every read and accept policy,
+  accepting every tree denoted by an accepted handle.
 * **`mem_consLang_of_replay`**: if the decoded replay of an export call is correct in `ρ ∈ Envs`
   and accepts the handle `h` with `ρ h = some x`, then `x` is in the module's reader language,
   for every profile admitting the deterministic steps of the replay interpreter.
@@ -59,12 +60,13 @@ def rAns (ix : ConsImports) (h : Nat) (args : List Val) (b : Behaviour Val) : Op
   else if h = ix.word then return .read (.atom x) (.atom (← i64Res vs))
   else none
 
-/-- The cons reader events of recorded moves; `pa` are the arguments of the pending call. -/
+/-- The cons reader events of recorded moves (export calls as `enter`); `pa` are the arguments of
+the pending call. -/
 def rdec (ix : ConsImports) : List Val → List RMove → List ConsEv
   | _, [] => []
   | _, .ask h a :: rs => (rAsk ix h a).toList ++ rdec ix a rs
   | pa, .ans h b :: rs => (rAns ix h pa b).toList ++ rdec ix pa rs
-  | pa, .call _ _ :: rs => rdec ix pa rs
+  | pa, .call _ _ :: rs => .enter :: rdec ix pa rs
   | pa, .ret _ _ :: rs => rdec ix pa rs
 
 variable {I : ScalarInstance}
@@ -78,7 +80,7 @@ moves, when the pending arguments `pa` are those of the pending import call, if 
 theorem playEvents_path (ix : ConsImports) {P : Profile} :
     ∀ {q : I.HState} {ms : List (Move I.E I.F)} {q' : I.HState}, I.Path P q ms q' →
       ∀ pa : List Val, (∀ f s t e, q = .waiting f s t e → pa = e.2.1) →
-      playEvents (consDecAsk ix) (consDecAns ix) ms = rdec ix pa (ms.map rmv) := by
+      playEvents (some .enter) (consDecAsk ix) (consDecAns ix) ms = rdec ix pa (ms.map rmv) := by
   intro q ms q' hp
   induction hp with
   | nil => intro _ _; rfl
@@ -86,7 +88,7 @@ theorem playEvents_path (ix : ConsImports) {P : Profile} :
     intro pa hpa
     cases htr with
     | call s f =>
-      exact ih pa fun _ _ _ _ h => by cases h
+      exact congrArg (List.cons .enter) (ih pa fun _ _ _ _ h => by cases h)
     | @ucall f s s' t t' h args e run callout op =>
       show (consDecAsk ix e).toList ++ _ = (rAsk ix e.1.val e.2.1).toList ++ _
       exact congrArg _ (ih e.2.1 fun _ _ _ _ h => by cases h; rfl)
@@ -118,6 +120,7 @@ def consOkB (ρ : Env (BitVec 32) (SExp2 (BitVec 64))) : ConsEv → Bool
     | some (.cons _ y) => decide (ρ h' = some y)
     | _ => false
   | .accept h => (ρ h).isSome
+  | .enter => true
   | _ => false
 
 /-- The event accepts the handle `h`. -/
@@ -207,6 +210,10 @@ theorem run_of_consOkB {ρ : Env (BitVec 32) (SExp2 (BitVec 64))}
         cases hx
         exact Or.inl rfl
       · exact Or.inr (hB h x hh hx)
+    | enter =>
+      refine ⟨∅ ∪ B, .cons RStep.enter hr, fun h x hh hx => ?_⟩
+      simp only [List.any_cons, accIs, Bool.false_or] at hh
+      exact Or.inr (hB h x hh hx)
 
 /-! ## Acceptance from a replay -/
 
@@ -227,13 +234,14 @@ theorem mem_consLang_of_replay {m : Module} (hm : (instance? m).isSome = true) {
   obtain ⟨mt, hI⟩ := isInstance_instOf hm
   obtain ⟨ms, hms, hmap⟩ := replayExport_play hI.ok (sc := sc) (fuel := fuel) (n := n) hP j k
   obtain ⟨q, hp⟩ := ScalarInstance.mem_strategy_iff.1 hms
-  have htr : playEvents (consDecAsk ix) (consDecAns ix) ms =
+  have htr : playEvents (some .enter) (consDecAsk ix) (consDecAns ix) ms =
       rdec ix [] (replayExport (instOf m) sc fuel n j k) := by
     rw [← hmap]
     exact playEvents_path ix hp [] fun _ _ _ _ h => by cases h
   obtain ⟨A, hrun, hA⟩ := run_of_consOkB (pol := pol) (oa := oa) _ hall
   have hT : rdec ix [] (replayExport (instOf m) sc fuel n j k) ∈
-      handleTraces ((instOf m).strategy P (instOf m).store) (consDecAsk ix) (consDecAns ix) :=
+      handleTraces ((instOf m).strategy P (instOf m).store) (some .enter) (consDecAsk ix)
+        (consDecAns ix) :=
     ⟨ms, hms, htr.symm⟩
   exact Set.mem_iUnion.2 ⟨⟨ρ, hρ⟩, Set.mem_biUnion hT ⟨.live, A, hrun, hA h x hacc hx⟩⟩
 
