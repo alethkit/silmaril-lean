@@ -101,4 +101,29 @@ theorem startAdequacyFrag_of (ha : Task.nodeCallsIR) (hb : Task.firstNodeRef)
     · exact hS
     · rw [hh', hh, List.flatten_cons, logOfCalls_append]
 
+/-- **The start goal on the fragment, from (a), (b'), (c') and (d).** -/
+theorem startAdequacyFrag_of_K (ha : Task.nodeCallsIR) (hb : Task.firstNodeRefK)
+    (hc : Task.laterNodesRefK) (hd : Task.exportRef) : Task.startAdequacyFrag := by
+  intro b c r t n ws hpc hr hv hf himp hex hu hp
+  obtain ⟨-, hw, -, pre, mi, cargs, post, hs, -, -⟩ := multiImpFrag_inv hf
+  obtain ⟨ps, hnodes, hNI⟩ := nodesInst_of_startPlay hpc hr hw hp
+  rw [himp] at hNI
+  obtain ⟨ts, rfl, hF⟩ := ha b c r ps t hpc hr hf himp hnodes hu hNI
+  obtain ⟨p, ps', rfl⟩ := nodes_ne_nil hpc hr hf hnodes
+  cases hF with
+  | @cons _ t₀ _ ts' h₀ hF' =>
+    simp only [List.flatten_cons, List.mem_append] at hu
+    obtain ⟨sc, M, hM⟩ := hb b c r p ps' t₀ pre mi cargs post hpc hr hf himp hnodes
+      (fun x hx => hu x (.inl hx)) h₀ hs
+    obtain ⟨M', inst, es, hI, hh⟩ := hc b c r p ps' ts' pre mi cargs post sc _ M hpc hr hf himp
+      hnodes (fun x hx => hu x (.inr hx)) hF' hs hM
+    obtain ⟨f, M'', hl, hS, hh'⟩ := hd b c r _ n ws M' inst es hpc hr hv hf himp hex
+      (fun x hx => by
+        simp only [List.flatten_cons, List.mem_append] at hx
+        exact hu x hx) hp hI
+    refine ⟨M', inst, es, [f], M'', hI, ?_, ?_, ?_⟩
+    · simp [hl]
+    · exact hS
+    · rw [hh', hh, List.flatten_cons, logOfCalls_append]
+
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi

@@ -28,7 +28,9 @@ fragment from them, so the decomposition is checked.
   included: the IR reading drops them, so this is a condition on the REF reading alone);
 * `postDefOk`: the definitions after it are core instantiations of modules in the split
   fragment (`splitMod`: no tags, memories, tables, data or element segments) whose imports
-  resolve, through the inline core instances before the first instantiation, to trampolines;
+  resolve, through the inline core instances before the first instantiation, to trampolines, in
+  order (import `i` to trampoline `i`, `importsLowered`), at types accepting the trampolines
+  (`refTypesOk`), and which import only functions;
   primitive function types; aliases of core function exports; option-less `canon lift`s; and
   function exports;
 * the component's first export has type `func() -> u32` (`isGetTy`).
@@ -135,7 +137,9 @@ def postDefOk (n : Nat) (insts : List (List (String × Nat))) (mods : List Silma
     Syntax.Definition Silmaril.Wasm.Module → Bool
   | .coreInstance (.instantiate mi cargs) =>
     match mods[mi]? with
-    | some m => splitMod m && irTypesOk m && importsBelow cargs insts n m
+    | some m => splitMod m && irTypesOk m && importsBelow cargs insts n m &&
+        importsLowered cargs insts m && refTypesOk m &&
+        m.imports.all (fun i => match i.type with | .func _ => true | _ => false)
     | none => false
   | .type (.func ft) => funcTypePrim ft
   | .alias (.coreExport _ _ .func) => true
@@ -244,6 +248,76 @@ def Task.exportRef : Prop :=
     ∃ f M', es.lookup n = some f ∧
       LinkedSession.SessRun first.prof (Host.ofEmbedder embL) M 0 [(f, [])]
         [some (ws.map toRefVal)] M' ∧ M'.host = M.host
+
+
+/-! ## The reference machine at a definition, with its continuation
+
+`RefAtDefs` keeps the continuation `K` of the definitions only as an existential: from it, nothing
+says that the instantiation finishes once the definitions are done, so `Task.laterNodesRef` can
+only be reached through the determinism of the machine. `RefAtDefsK` records that `K` is the
+root's continuation in the only way that matters (`KFin`: from the scope of the finished
+definitions it ends the instantiation quietly, observing the instance `0` and the function exports
+of the scope), and that the run so far has observed no instantiation. -/
+
+/-- **The continuation finishes the instantiation**: from a configuration running `K sc`, the
+machine runs without host events to a configuration with the host in control and the store not
+locked down, the same host state and core store, observing the instance `0` with the function
+exports of `sc`. -/
+def KFin (K : Instantiate.Scope (core3 neverFail) →
+    Canon.P (core3 neverFail) (Unit × List HLinked2.HostEvent) (Ret (core3 neverFail))) : Prop :=
+  ∀ (sc : Instantiate.Scope (core3 neverFail))
+    (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)),
+    M.store.lockdown = false → M.ctl = [.ofProg none (K sc)] →
+    ∃ tr M', Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch M tr M' ∧
+      (∀ ev, Label.host ev ∉ tr) ∧ M'.ctl = [] ∧ M'.store.lockdown = false ∧
+      M'.host = M.host ∧ M'.store.core = M.store.core ∧
+      (traceObs tr).findSome? decodeInstantiated? = some (⟨0⟩, funcExports sc.exports)
+
+/-- **The reference machine at the definitions `post`, with a finishing continuation**:
+`RefAtDefs`, where the run so far has observed no instantiation and the continuation of the
+definitions finishes the instantiation (`KFin`). -/
+def RefAtDefsK (r post : RefComponent) (sc : Instantiate.Scope (core3 neverFail))
+    (L : List HLinked2.HostEvent)
+    (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)) : Prop :=
+  (∃ tr, Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch hostConfigX
+      (.host (instantiateTop r (importArgs hostI)) :: tr) M ∧
+    (∀ ev, Label.host ev ∉ tr) ∧ (∀ msg, Label.trap (.internal msg) ∉ tr) ∧
+    (traceObs tr).findSome? decodeInstantiated? = none) ∧
+  (∃ K, KFin K ∧
+    M.ctl = [.ofProg none (post.foldlM (Instantiate.instantiateDef Instantiate.callRecurse ⟨0⟩ []
+      (importArgs hostI)) sc >>= K)]) ∧
+  M.store.lockdown = false ∧ M.host = ((), L)
+
+/-- **Piece (b'), the first node with a finishing continuation**: `Task.firstNodeRef` with
+`RefAtDefsK`. -/
+def Task.firstNodeRefK : Prop :=
+  ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
+    (p : Binary.CoreMod × List Impl) (ps : List (Binary.CoreMod × List Impl))
+    (t₀ : List (Σ _ : sigU.Op, Option Payload)) (pre : RefComponent) (mi : Nat)
+    (cargs : List (String × Nat)) (post : RefComponent),
+    Binary.parseComponent b = .ok c → decodeRef b = .ok r → MultiImpFrag r →
+    c.imports = hostI → c.nodes = coreNodes (p :: ps) → (∀ x ∈ t₀, x.2 = InstTests.unitV) →
+    NodeCalls hostI.length .ready p.1 p.2 t₀ →
+    firstCore? r = some (pre, mi, cargs, post) →
+    ∃ sc M, RefAtDefsK r post sc (logOfCalls t₀) M
+
+/-- **Piece (c'), the later nodes from a finishing continuation**: `Task.laterNodesRef` from
+`RefAtDefsK`. -/
+def Task.laterNodesRefK : Prop :=
+  ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
+    (p : Binary.CoreMod × List Impl) (ps : List (Binary.CoreMod × List Impl))
+    (ts : List (List (Σ _ : sigU.Op, Option Payload))) (pre : RefComponent) (mi : Nat)
+    (cargs : List (String × Nat)) (post : RefComponent) (sc : Instantiate.Scope (core3 neverFail))
+    (L : List HLinked2.HostEvent)
+    (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)),
+    Binary.parseComponent b = .ok c → decodeRef b = .ok r → MultiImpFrag r →
+    c.imports = hostI → c.nodes = coreNodes (p :: ps) →
+    (∀ x ∈ ts.flatten, x.2 = InstTests.unitV) →
+    List.Forall₂ (fun q tj => NodeCalls hostI.length .ready q.1 q.2 tj) ps ts →
+    firstCore? r = some (pre, mi, cargs, post) → RefAtDefsK r post sc L M →
+    ∃ M' inst es, Instantiates first.prof embL.hr (Host.ofEmbedder embL).dispatch hostConfigX r
+        (importArgs hostI) M' inst es ∧
+      M'.host = ((), L ++ logOfCalls ts.flatten)
 
 /-- **`Task.startAdequacy` on the fragment `MultiImpFrag`.** -/
 def Task.startAdequacyFrag : Prop :=

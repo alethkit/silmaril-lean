@@ -52,6 +52,12 @@ theorem startAdequacyFrag_of_cd (hc : Task.laterNodesRef) (hd : Task.exportRef) 
     Task.startAdequacyFrag :=
   startAdequacyFrag_of nodeCallsIR firstNodeRef hc hd
 
+/-- **The start goal on the fragment, from (a), (b'), (c') and (d)**: the pieces with the
+finishing continuation (`RefAtDefsK`). -/
+theorem startAdequacyFrag_of_K (ha : Task.nodeCallsIR) (hb : Task.firstNodeRefK)
+    (hc : Task.laterNodesRefK) (hd : Task.exportRef) : Task.startAdequacyFrag :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.startAdequacyFrag_of_K ha hb hc hd
+
 /-- `starts.wasm` is in the fragment. -/
 theorem starts_multiImpFrag : MultiImpFrag startsRef := by decide +kernel
 
