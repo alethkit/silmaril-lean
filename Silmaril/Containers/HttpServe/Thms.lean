@@ -3,6 +3,7 @@ module
 public import Silmaril.Containers.HttpServe.Defs
 public import Silmaril.Containers.Lps.Thms
 public import Silmaril.Containers.HttpOnce.Thms
+public import Silmaril.Containers.Ports.Thms
 import Silmaril.Proofs.Containers.HttpServe.Basic
 
 /-!
@@ -22,10 +23,14 @@ the ELF parse). Proofs are in `Silmaril.Proofs.Containers.HttpServe`.
   connection's sent octets, read through `Http.sockTrace` and `Servers.Platform.sent` (the
   observation of `Http.platform`), are exactly `Fixtures.okResponse`; `sessionOk_exact`: so they
   are one HTTP/1.1 response, judged exactly (`HttpOnce.IsOkResponse`).
-* **The model gap.** `bind_port_unmodeled`: LPS's `bind` of a fresh socket to this address
-  (port 8080) has exactly one outcome, `unmodeled`. So under `Lps.ociRuntime` a run that reaches
-  `bind` ends in `undefined unmodeled`, and `Task.servesImage` stays open until the runtime
-  model's `bind` covers the declared port.
+* **The model gap and its extension.** `bind_port_unmodeled`: LPS's own `bind` of a fresh socket
+  to this address (port 8080) has exactly one outcome, `unmodeled`. `bind_published`: under
+  `Ports.publish [8080]` it has exactly LPS's port-0 outcomes, the injected `EADDRINUSE` or the
+  socket bound. `published_load`: the runtime model `Ports.ociRuntime` runs this image with
+  exactly its declared port `8080` published.
+* **The reduction.** `servesImage_of_sound`: `Task.serverSound` (the program's LPS executions)
+  implies `Task.servesImage` (no undefined behaviour, and `serveSpec` on every exiting run of the
+  image). `Task.serverSound` is open.
 
 What `examples/containers/http-serve/docker-test.sh` tests (not proves): Docker loads the image
 with the proved ID, the container listens on 8080 itself, `curl` receives exactly the 40-octet
@@ -93,5 +98,25 @@ theorem sessionOk_exact {t : List Ev} {c : UInt8} (h : SessionOk t c) :
     ∃ ch : Word, HttpOnce.IsOkResponse (Servers.Platform.sent ch.toNat (Http.sockTrace t)) := by
   obtain ⟨ch, hs⟩ := sessionOk_sent h
   exact ⟨ch, hs ▸ HttpOnce.okResponse_exact⟩
+
+/-- **`bind` to 8080 with 8080 published**: from a fresh socket, exactly LPS's port-0 outcomes. -/
+theorem bind_published (i : SyscallInput) (m : Silmaril.Process.LPS.Model)
+    (o : Silmaril.Process.LPS.Outcome SyscallEffect) (hno : i.sysno.toNat = 49)
+    (hclear : NativeX86.All.boundarySuspect 49 i = false) (hlen : i.arg 2 = 16)
+    (hfd : fdLookup m.fds (fd32 (i.arg 0)) = some (.socket .fresh))
+    (hmem : readBytesMap i.mem (i.arg 1) 16 = some addrBytes) :
+    Ports.publish [8080] i m o ↔
+      o = .ok ((mkEffect (errnoRet EADDRINUSE) [] []).withCopyins [(i.arg 1, 16)]) m [] ∨
+      o = .ok ((mkEffect 0 [] []).withCopyins [(i.arg 1, 16)])
+        (m.withFds (fdInsert m.fds (fd32 (i.arg 0)) (.socket .bound))) [] :=
+  Silmaril.Proofs.Containers.HttpServe.bind_published i m o hno hclear hlen hfd hmem
+
+/-- **The runtime model publishes exactly the declared port.** -/
+theorem published_load : Ports.ociRuntime.load image = .ok (probe.snapshot, [8080]) :=
+  Silmaril.Proofs.Containers.HttpServe.published_load
+
+/-- **The image obligation reduces to the program obligation.** -/
+theorem servesImage_of_sound (h : Task.serverSound) : Task.servesImage :=
+  Silmaril.Proofs.Containers.HttpServe.servesImage_of_sound h
 
 end Silmaril.Containers.HttpServe

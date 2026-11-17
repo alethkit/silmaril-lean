@@ -135,40 +135,41 @@ structure St where
   bad : Option UB
 
 /-- The LPS reference semantics the adapter steps with. -/
-abbrev LStep (s : St) (evs : List Event) (t : StepTo (isaOf s.oracle)) : Prop :=
-  SStep s.segs Probes.spec noFilter s.cfg evs t
+abbrev LStep (sp : Sys SyscallEffect) (s : St) (evs : List Event) (t : StepTo (isaOf s.oracle)) :
+    Prop :=
+  SStep s.segs sp noFilter s.cfg evs t
 
 /-- **The steps of the adapter.** -/
-inductive Step : St → Act Ev → St → Prop where
+inductive Step (sp : Sys SyscallEffect) : St → Act Ev → St → Prop where
   /-- Emit a pending event. -/
   | emit {s : St} {e : Ev} {rest : List Ev} (h : s.pending = e :: rest) :
-      Step s (.ev e) { s with pending := rest }
+      Step sp s (.ev e) { s with pending := rest }
   /-- An LPS step whose events are supported. -/
   | lps {s : St} {evs : List Event} {c' : Silmaril.Process.LPS.Config (isaOf s.oracle)} {es : List Ev}
       (hp : s.pending = []) (hb : s.bad = none) (hc : ¬ ClonePending s.cfg)
-      (h : LStep s evs (.next c')) (hm : mapEvs evs = some es) :
-      Step s .tau { s with cfg := c', pending := es }
+      (h : LStep sp s evs (.next c')) (hm : mapEvs evs = some es) :
+      Step sp s .tau { s with cfg := c', pending := es }
   /-- An LPS step with an event outside the adapter: no claim. -/
   | unsupported {s : St} {evs : List Event} {c' : Silmaril.Process.LPS.Config (isaOf s.oracle)}
       (hp : s.pending = []) (hb : s.bad = none) (hc : ¬ ClonePending s.cfg)
-      (h : LStep s evs (.next c')) (hm : mapEvs evs = none) :
-      Step s .tau { s with bad := some .unmodeled }
+      (h : LStep sp s evs (.next c')) (hm : mapEvs evs = none) :
+      Step sp s .tau { s with bad := some .unmodeled }
   /-- An LPS error at an unmodelled instruction or system call. -/
   | unmodeled {s : St} {evs : List Event}
       (hp : s.pending = []) (hb : s.bad = none) (hc : ¬ ClonePending s.cfg)
-      (h : LStep s evs .error) (hu : UnmodeledAt s.segs Probes.spec s.cfg) :
-      Step s .tau { s with bad := some .unmodeled }
+      (h : LStep sp s evs .error) (hu : UnmodeledAt s.segs sp s.cfg) :
+      Step sp s .tau { s with bad := some .unmodeled }
   /-- Any other LPS error (a fault). -/
   | fault {s : St} {evs : List Event}
       (hp : s.pending = []) (hb : s.bad = none) (hc : ¬ ClonePending s.cfg)
-      (h : LStep s evs .error) (hu : ¬ UnmodeledAt s.segs Probes.spec s.cfg) :
-      Step s .tau { s with bad := some .memory }
+      (h : LStep sp s evs .error) (hu : ¬ UnmodeledAt s.segs sp s.cfg) :
+      Step sp s .tau { s with bad := some .memory }
   /-- A task-creation request: the clone policy decides. -/
   | clone {s : St} {x8 : Word} {r : CloneReq}
       (hp : s.pending = []) (hb : s.bad = none) (hh : s.cfg.model.halted = none)
       (hx : (isaOf s.oracle).svcPending s.cfg.ms = some x8) (hn : cloneNumber x8 = true)
       (hr : cloneReq (isaOf s.oracle) s.segs s.cfg.ms x8 = some r) :
-      Step s (.clone r) s
+      Step sp s (.clone r) s
 
 /-- **How a state stops.** -/
 inductive Final : St → Stop → Prop where
@@ -186,14 +187,18 @@ def St.init (snap : X86Launch.Snapshot) (o : Oracle) (limit : Int) (en : ExecEnt
     (inp : ProcInput) : St :=
   ⟨o, snap.image.segments, X86Launch.init (isaOf o) snap en limit inp, [], none⟩
 
-/-- **The adapter**: LPS for a loaded x86-64 snapshot, as a container machine. -/
-abbrev lps : MachineSem X86Launch.Snapshot Ev where
+/-- **The adapter over a system call table** `sp`: LPS for a loaded x86-64 snapshot, as a
+container machine, with LPS's steps taken under `sp`. -/
+abbrev lpsWith (sp : Sys SyscallEffect) : MachineSem X86Launch.Snapshot Ev where
   State := St
   isIn := Ev.isInput
   load snap s := ∃ o limit en inp, Problems.CoreutilsLite.Admissible o snap en inp ∧
     s = St.init snap o limit en inp
-  step := Step
+  step := Step sp
   final := Final
+
+/-- **The adapter**: the reference semantics, LPS's native x86-64 table `Probes.spec`. -/
+abbrev lps : MachineSem X86Launch.Snapshot Ev := lpsWith Probes.spec
 
 /-! ## Programs that only exit -/
 
@@ -209,9 +214,15 @@ def StopOnly (tr : List Event) : Prop := ∀ e ∈ tr, IsStop e
 def Post {o : Oracle} (k : Word) : Omni.Post (isaOf o) := fun tr out =>
   StopOnly tr ∧ ∃ final, out = .halt final ∧ final.model.killedBy = none ∧ final.model.halted = some k
 
-/-- No reachable configuration is about to create a task. -/
-def NoCloneFrom {isa : UserIsa} (segs : List Segment) (c : Silmaril.Process.LPS.Config isa) : Prop :=
-  ∀ tr c', Star segs Probes.spec noFilter c tr c' → ¬ ClonePending c'
+/-- No reachable configuration is about to create a task, under the table `sp`. -/
+def NoCloneFromWith (sp : Sys SyscallEffect) {isa : UserIsa} (segs : List Segment)
+    (c : Silmaril.Process.LPS.Config isa) : Prop :=
+  ∀ tr c', Star segs sp noFilter c tr c' → ¬ ClonePending c'
+
+/-- No reachable configuration is about to create a task, under the native table. -/
+abbrev NoCloneFrom {isa : UserIsa} (segs : List Segment) (c : Silmaril.Process.LPS.Config isa) :
+    Prop :=
+  NoCloneFromWith Probes.spec segs c
 
 /-- The hypotheses: every admissible launch of `snap` only exits, with status `k`, and never
 reaches a task-creation request. -/
@@ -221,6 +232,27 @@ structure ExitOnly (snap : X86Launch.Snapshot) (k : Word) : Prop where
       (Post k)
   noClone : ∀ o limit en inp, Problems.CoreutilsLite.Admissible o snap en inp →
     NoCloneFrom snap.image.segments (X86Launch.init (isaOf o) snap en limit inp)
+  launch : ∃ o en inp, Problems.CoreutilsLite.Admissible o snap en inp
+
+/-! ## Programs judged by their container events -/
+
+/-- **A postcondition on container events**: every LPS event is supported by the adapter, and
+the execution halts, unkilled, with a status `k` such that `G` holds of the container events
+(after the events `pre` already read) and `k`. -/
+def EvPost {o : Oracle} (G : List Ev → Word → Prop) (pre : List Ev) : Omni.Post (isaOf o) :=
+  fun tr out => ∃ es, mapEvs tr = some es ∧ ∃ final, out = .halt final ∧
+    final.model.killedBy = none ∧ ∃ k, final.model.halted = some k ∧ G (pre ++ es) k
+
+/-- **The hypotheses of the general run theorem**, under a system call table `sp`: every
+admissible launch of `snap` has only finite, error-free LPS executions meeting `EvPost G []`; no
+reachable configuration is about to create a task; and some launch is admissible. -/
+structure Sound (sp : Sys SyscallEffect) (snap : X86Launch.Snapshot)
+    (G : List Ev → Word → Prop) : Prop where
+  exec : ∀ o limit en inp, Problems.CoreutilsLite.Admissible o snap en inp →
+    Omni.Exec snap.image.segments sp noFilter (X86Launch.init (isaOf o) snap en limit inp)
+      (EvPost G [])
+  noClone : ∀ o limit en inp, Problems.CoreutilsLite.Admissible o snap en inp →
+    NoCloneFromWith sp snap.image.segments (X86Launch.init (isaOf o) snap en limit inp)
   launch : ∃ o en inp, Problems.CoreutilsLite.Admissible o snap en inp
 
 /-! ## Programs that write a bounded output -/

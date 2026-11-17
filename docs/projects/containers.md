@@ -553,8 +553,11 @@ listener: the container owns the socket.
 | The adapter reads LPS's TCP connections: octets on channel `3 + k` are `Ev.recv` / `Ev.send` on `connSock` | Defined (the earlier theorems rebuild unchanged) | `Lps.mapEv` |
 | `SessionOk` (receive a request, send **exactly** the response, exit 0) → the connection's sent octets, as `Http.platform` reads them, are the response, judged exactly by the HTTP/1.1 reader | Proved | `sessionOk_sent`, `sessionOk_exact` |
 | `serveSpec` = `SessionOk` or a defined failure (status 10–15, at most a prefix sent) | Defined | `HttpServe.Defs` |
-| Every run of the image satisfies `wp serveSpec` | **Open** (`containers.http_serve.oci_wp`, OPN) | `Task.servesImage` |
-| Why open: LPS's `bind` of this address (port 8080) has exactly one outcome, `unmodeled` | Proved | `bind_port_unmodeled` |
+| Runtime model `Ports.ociRuntime`: the image's declared TCP ports are published; a `bind` to a published port is LPS's own `bind` with the port read as 0; nothing else changes (`publish [] = Probes.spec`) | Defined; base-preservation proved | `Ports` |
+| LPS's own `bind` to 8080 is `unmodeled`; with 8080 published it has exactly LPS's port-0 outcomes (`EADDRINUSE`, or bound); this image runs with exactly `[8080]` published | Proved | `bind_port_unmodeled`, `bind_published`, `published_load` |
+| General adapter soundness over any syscall table: if the program's LPS executions meet `G` with no task creation (`Lps.Sound`), every run has no UB and every exit meets `G` | Proved | `Lps.runs_sound` |
+| `servesImage_of_sound`: the program obligation `Task.serverSound` implies the image obligation `Task.servesImage` (no UB; every exit satisfies `serveSpec`) | Proved | `HttpServe.Thms` |
+| `Task.serverSound`: the server's LPS executions under `publish [8080]` | **Open** (`containers.http_serve.oci_wlp`, OPN) | `HttpServe.Defs` |
 | Docker: image ID, the container listens itself, `curl` gets exactly the response, exit 0 | Tested | `docker-test.sh` |
 
 The environment a successful session needs, as LPS states it (inputs of a launch, not
@@ -562,20 +565,22 @@ assumptions hidden in the program):
 
 | Assumption | In the model | If it fails |
 | --- | --- | --- |
-| Port 8080 can be bound | `bind` outcome (today: `unmodeled`; needs a runtime model that binds declared ports) | status 11 |
+| Port 8080 can be bound | published by `Ports.ociRuntime`; LPS's port-0 outcomes (injected `EADDRINUSE`) | status 11 |
 | A peer connects | the launch's `net` queue (`accept4Spec` takes its head) | `accept` waits: the run need not exit (liveness is not claimed) |
 | Socket, accept resources available | injected `ENOMEM`/`EMFILE`/`ENFILE` | status 10 or 13 |
 | The peer does not reset before the response is sent | the connection's script (`rst`, `timedOut`) | status 14 or 15 |
 | The scheduler runs the process | none (one sequential process, `seqPolicy`) | — |
 
-So the statement to prove is **successful-session correctness** (a run that exits 0 sent exactly
-the response) together with "no undefined behaviour and every exit is 0 or 10–15"; it is not
-unconditional liveness, which needs a peer.
+So the statement is **successful-session correctness** with no undefined behaviour: a run that
+exits 0 sent exactly the response, and every other exit is 10–15 (`wlp`). It is not unconditional
+liveness, which needs a peer; under this framework a process that reads input has `blocked`
+runs, so `wp` (total correctness) would need an explicit assumption on inputs.
 
-**Next step for the proof.** A runtime model whose `bind` covers declared ports (an extension of
-LPS's table, stated as such), kit rules for `socket`, `bind`, `listen`, `accept`, socket `read`
-and `sendto`, and a loop lemma for the send retry (each send moves at least one octet, so it ends
-within 40 iterations).
+**What remains** (`Task.serverSound`): the program's LPS executions under `publish [8080]`, for
+every flag oracle and admissible launch (any `net` queue). It needs flag-oracle probe-kit rules
+for system calls that change the model (`socket`, `bind`, `listen`, `accept`, `close`) and the
+memory (`read` into the image's buffer), the socket `read` and `sendto` outcomes, and a loop
+lemma for the send retry (each send moves at least one octet, so at most 40 iterations).
 
 ## Next steps
 

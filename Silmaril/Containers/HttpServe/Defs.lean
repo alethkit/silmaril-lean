@@ -4,6 +4,7 @@ public import Silmaril.Containers.Lps.Defs
 public import Silmaril.Containers.Http.Defs
 public import Silmaril.Containers.Precondition.Defs
 public import Silmaril.Containers.HttpOnce.Defs
+public import Silmaril.Containers.Ports.Defs
 
 /-!
 # A self-contained HTTP server: a static ELF that listens on 8080/tcp
@@ -25,9 +26,13 @@ in `rwx` mode (one `PT_LOAD`, the request buffer inside it).
 * a defined failure: exit with one of the statuses 10 to 15, having sent at most a prefix of
   the response.
 
-`Task.servesImage` is the open obligation: `wp` of `serveSpec` for this image under
-`Lps.ociRuntime`. It is not proved: LPS models `bind` to port 0 only, and its `bind` to 8080 is
-`unmodeled` (`Thms.bind_port_unmodeled`).
+**The runtime model** is `Ports.ociRuntime`: the image's declared TCP ports (here `8080`) are
+published, so a `bind` of `INADDR_ANY` to 8080 has the outcomes LPS gives port 0 (on LPS's own
+table it is `unmodeled`, `Thms.bind_port_unmodeled`).
+
+`Task.servesImage` (no undefined behaviour and `serveSpec` on every exiting run) is open;
+`Thms.servesImage_of_sound` reduces it to `Task.serverSound`, the statement about the program's
+LPS executions.
 
 A Silmaril addition.
 -/
@@ -226,10 +231,20 @@ def elfDigest : Oci.Digest :=
 
 /-! ## The open obligation -/
 
-/-- **Open**: on every run of the image under `Lps.ociRuntime`, no undefined behaviour, the run
-exits, and `serveSpec` holds. With the current LPS table a run that reaches `bind` takes an
-`unmodeled` step (`Thms.bind_port_unmodeled`), so discharging it needs a runtime model whose
-`bind` covers the declared port. -/
-def Task.servesImage : Prop := wp Lps.ociRuntime.toRuntime serveSpec image
+/-- `serveSpec` on a status word, as the adapter reports exits (`EvPost`). -/
+def serveG (t : List Ev) (k : Word) : Prop := serveSpec t (k.toNat % 256).toUInt8
+
+/-- **Open, the LPS-level obligation**: under the native table with `8080/tcp` published, every
+admissible launch has only finite, error-free executions with supported events whose container
+events and exit status meet `serveSpec`, and none creates a task. Everything else about the image
+is proved (`Thms.servesImage_of_sound`). -/
+def Task.serverSound : Prop := Lps.Sound (Ports.publish [8080]) probe.snapshot serveG
+
+/-- **Open, the image-level obligation**: under the runtime model that publishes the image's
+declared ports (`Ports.ociRuntime`, sequential clone policy), every run has no undefined
+behaviour, and every run that exits satisfies `serveSpec` (a successful session with exactly the
+response, or a defined failure). Partial correctness: a run waiting for a peer that never comes
+is allowed. `Thms.servesImage_of_sound` reduces it to `Task.serverSound`. -/
+def Task.servesImage : Prop := wlp (Ports.ociRuntime) serveSpec image
 
 end Silmaril.Containers.HttpServe

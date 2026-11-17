@@ -50,7 +50,7 @@ satisfaction, a comparison), `containers.mini.no_ub_check` (the judgements of `M
 | `containers.mini.check_sound_vsys` | `consequence.sound_at` (the checker for `vsys`) | THM |
 | `containers.noop.oci_wp` | `wp` of the OCI no-op image under `Lps.ociRuntime` | THM |
 | `containers.http_once.oci_wp` | `wp` of the OCI HTTP responder image under `Lps.ociRuntime` | THM |
-| `containers.http_serve.oci_wp` | `wp` of the self-contained HTTP server image under `Lps.ociRuntime` | OPN (LPS's `bind` to 8080 is `unmodeled`) |
+| `containers.http_serve.oci_wlp` | no UB and `serveSpec` on every exiting run of the self-contained HTTP server image under `Ports.ociRuntime` | OPN (reduced to `HttpServe.Task.serverSound`) |
 -/
 
 @[expose] public section
@@ -264,11 +264,13 @@ end Silmaril.LogicGraph.Consequence.Containers.Answers
 
 namespace Silmaril.LogicGraph.Consequence.Containers
 
-/-- **Open**: the self-contained HTTP server image meets its specification on every run under
-`Lps.ociRuntime` (`HttpServe.Task.servesImage`). -/
-@[conjecture "containers.http_serve.oci_wp"
-  (title := "The self-contained HTTP server ELF in its OCI image: no undefined behaviour, exit, one exact response or a defined failure (LPS, every launch and flag oracle)")]
-public def http_serve_oci_wp : Prop := HttpServe.Task.servesImage
+/-- **Open**: under the runtime model that publishes the image's declared ports, no run of the
+self-contained HTTP server image has undefined behaviour, and every exiting run is one exact
+response or a defined failure (`HttpServe.Task.servesImage`; reduced to `Task.serverSound` by
+`HttpServe.servesImage_of_sound`). -/
+@[conjecture "containers.http_serve.oci_wlp"
+  (title := "The self-contained HTTP server ELF in its OCI image, 8080/tcp published: no undefined behaviour; every exit is one exact response or a defined failure (LPS, every launch and flag oracle)")]
+public def http_serve_oci_wlp : Prop := HttpServe.Task.servesImage
 
 /-- **The registered instances**, with what each is about. -/
 public def catalogue : List (String × ObligationKind) :=
@@ -280,6 +282,6 @@ public def catalogue : List (String × ObligationKind) :=
    ("containers.monitor_correct_stdio", .security),
    ("containers.mini.vsys_sound_raw", .behaviour), ("containers.mini.raw_sound_vsys", .behaviour),
    ("containers.mini.check_sound_vsys", .behaviour), ("containers.noop.oci_wp", .behaviour),
-   ("containers.http_once.oci_wp", .behaviour), ("containers.http_serve.oci_wp", .behaviour)]
+   ("containers.http_once.oci_wp", .behaviour), ("containers.http_serve.oci_wlp", .behaviour)]
 
 end Silmaril.LogicGraph.Consequence.Containers

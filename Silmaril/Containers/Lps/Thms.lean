@@ -25,6 +25,12 @@ creation), adapter paths are finite (an infinite one would be an infinite LPS ex
 configuration). Clone freedom is a separate hypothesis because `Omni.Exec` constrains traces and
 outcomes, not intermediate states, and LPS models `fork` as a successful step.
 
+**General soundness** (`runs_sound`), over any system call table `sp` (the adapter is
+`lpsWith sp`; `lps` is `lpsWith Probes.spec`): if every admissible launch has only finite,
+error-free LPS executions with supported events whose container events and exit status satisfy
+`G` (`EvPost`), and none reaches a task-creation request (`Sound sp snap G`), then no run has
+undefined behaviour and every exiting run satisfies `G`.
+
 **Programs with bounded output.** For a snapshot that satisfies `Emits snap k w` (as `ExitOnly`,
 but the LPS events of every execution are read by the adapter as container events that form a
 prefix of `w`, and `w` has no inputs):
@@ -58,6 +64,27 @@ theorem runs_eq {snap : X86Launch.Snapshot} {k : Word} (h : ExitOnly snap k) (b 
 theorem run_exists {snap : X86Launch.Snapshot} {k : Word} (h : ExitOnly snap k) :
     lps.Run seqPolicy snap (.done [] (.exited (k.toNat % 256).toUInt8)) :=
   Silmaril.Proofs.Containers.Lps.run_exists_exit h
+
+/-- **General soundness, over any system call table `sp`**: under `Sound sp snap G`, no run has
+undefined behaviour, and every run that exits with status `c` has events `t` with `G t k` for a
+status word `k` with `c = k mod 256` (partial correctness: blocking and divergence are not
+excluded). -/
+theorem runs_sound {sp : Sys SyscallEffect} {snap : X86Launch.Snapshot} {G : List Ev → Word → Prop}
+    (h : Sound sp snap G) (b : Beh Ev) (hb : (lpsWith sp).Run seqPolicy snap b) :
+    Spec.noUB b ∧ ∀ t c, b = .done t (.exited c) → ∃ k, c = (k.toNat % 256).toUInt8 ∧ G t k :=
+  Silmaril.Proofs.Containers.Lps.runs_sound h b hb
+
+/-- A chosen finite LPS execution under `sp`, with supported events and no task creation, is a
+run. -/
+theorem run_of_starWith {sp : Sys SyscallEffect} {snap : X86Launch.Snapshot} {o : Oracle}
+    {limit : Int} {en : ExecEntry} {inp : ProcInput}
+    (ha : Problems.CoreutilsLite.Admissible o snap en inp) {tr : List Event}
+    {c' : Silmaril.Process.LPS.Config (isaOf o)} {u : List Ev} {code : Word}
+    (hn : NoCloneFromWith sp snap.image.segments (X86Launch.init (isaOf o) snap en limit inp))
+    (hs : Star snap.image.segments sp noFilter (X86Launch.init (isaOf o) snap en limit inp) tr c')
+    (hu : mapEvs tr = some u) (hh : c'.model.halted = some code) (hk : c'.model.killedBy = none) :
+    (lpsWith sp).Run seqPolicy snap (.done u (.exited (code.toNat % 256).toUInt8)) :=
+  Silmaril.Proofs.Containers.Lps.run_of_starWith ha hn hs hu hh hk
 
 /-- **Runs of a program with bounded output**: every run under `seqPolicy` exits with status
 `k mod 256` after emitting a prefix of `w`. -/
