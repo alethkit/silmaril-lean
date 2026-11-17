@@ -84,6 +84,8 @@ test("the page shows binaries, imports, expectations, rows, strength, assumption
   assert.ok(starts.bridge_semantic.includes("DecoderBridge.starts_firstImpFrag"));
   assert.ok(starts.bridge_semantic.includes("DecoderBridge.starts_of_parts"));
   assert.ok(starts.bridge_semantic.includes("DecoderBridge.nodesRefX"));
+  assert.ok(starts.bridge_semantic.includes("DecoderBridge.callLift"));
+  assert.ok(starts.bridge_semantic.includes("Task.callLift, which is proved"));
   assert.ok(starts.bridge_semantic.includes("DecoderBridge.nodesRef"));
   assert.ok(!starts.bridge_semantic.includes("Task.laterNodesRef"));
   assert.ok(!h.includes("hand transcription"));

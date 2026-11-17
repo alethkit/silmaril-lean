@@ -54,7 +54,8 @@ general shared memory, tables or the canonical ABI.
 * `Task.exportRefX` (the export call, from the invariant), split (`MultiX.Thms.exportRefX_of`)
   into `Task.exportIR` (the IR's export phase: the first export is the lift of a node export,
   which runs without host calls to one `i32`), `Task.coreRunShared` (that run in the shared core
-  store) and `Task.callLift` (the session call through `canon lift` around it).
+  store) and `Task.callLift` (the session call through `canon lift` around it; proved:
+  `MultiX.Thms.callLift`).
 -/
 
 @[expose] public noncomputable section
