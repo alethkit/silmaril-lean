@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Wasm.Component.DecoderBridge.MultiX.Defs
 public import Silmaril.Wasm.Component.DecoderBridge.Multi.Thms
-import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.ComposeX
+import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.ExportX
 
 /-!
 # The instantiation on `MultiImpFrag` with its invariant: theorems
@@ -17,6 +17,9 @@ Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi` (`FirstKX`, `Late
 * `nodesRef_of_X`: `Task.nodesRef` is its projection;
 * `startAdequacyFrag_of_X`: **`Task.startAdequacy` on the fragment from `Task.exportRefX`** (the
   export call from the invariant);
+* `exportRefX_of`: **`Task.exportRefX` from `Task.exportIR`, `Task.coreRunShared` and
+  `Task.callLift`**; `startAdequacyFrag_of_parts`, `starts_of_parts`: the start goal and the
+  `starts.wasm` instance from these three pieces;
 * `starts_of_X`: the reference half of `InstTestsRef.starts_agree`, derived from the IR's run of
   `starts.wasm` through `Task.exportRefX`. (The conclusion is also proved unconditionally by
   executing the reference machine, `InstTestsRef.starts_agree`.)
@@ -55,5 +58,24 @@ theorem starts_of_X (hd : Task.exportRefX) :
       sessRunFrom first.prof (Host.ofEmbedder embL) hostConfigX startsRef (importArgs hostI)
         [("get", [])] :=
   starts_of_frag (startAdequacyFrag_of_X hd)
+
+/-- **The export call from the invariant, from the IR's export phase, the node's run in the shared
+core store and the session call through `canon lift`.** -/
+theorem exportRefX_of (hA : Task.exportIR) (hB : Task.coreRunShared) (hC : Task.callLift) :
+    Task.exportRefX :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.exportRefX_of hA hB hC
+
+/-- **The start goal on the fragment from the three pieces of the export call.** -/
+theorem startAdequacyFrag_of_parts (hA : Task.exportIR) (hB : Task.coreRunShared)
+    (hC : Task.callLift) : Task.startAdequacyFrag :=
+  startAdequacyFrag_of_X (exportRefX_of hA hB hC)
+
+/-- **`starts.wasm` from the IR's run, given the three pieces of the export call.** -/
+theorem starts_of_parts (hA : Task.exportIR) (hB : Task.coreRunShared) (hC : Task.callLift) :
+    (([some [toRefVal (.u32 42)]] : List (Option (List Value.Val))),
+        ((), logOfCalls startsTrace)) ∈
+      sessRunFrom first.prof (Host.ofEmbedder embL) hostConfigX startsRef (importArgs hostI)
+        [("get", [])] :=
+  starts_of_X (exportRefX_of hA hB hC)
 
 end Silmaril.Wasm.Component.DecoderBridge

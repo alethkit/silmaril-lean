@@ -51,7 +51,10 @@ general shared memory, tables or the canonical ABI.
 
 * `Task.nodesRefX` (proved: `MultiX.Thms.nodesRefX`): `Task.nodesRef` with explicit node ends
   and the invariant;
-* `Task.exportRefX` (the export call, from the invariant).
+* `Task.exportRefX` (the export call, from the invariant), split (`MultiX.Thms.exportRefX_of`)
+  into `Task.exportIR` (the IR's export phase: the first export is the lift of a node export,
+  which runs without host calls to one `i32`), `Task.coreRunShared` (that run in the shared core
+  store) and `Task.callLift` (the session call through `canon lift` around it).
 -/
 
 @[expose] public noncomputable section
@@ -230,5 +233,83 @@ def Task.exportRefX : Prop :=
     ∃ f M', es.lookup n = some f ∧
       LinkedSession.SessRun first.prof (Host.ofEmbedder embL) M 0 [(f, [])]
         [some (ws.map toRefVal)] M' ∧ M'.host = M.host
+
+/-! ## The export call, in pieces -/
+
+/-- The IR function type `func() -> u32`. -/
+abbrev getTy : FuncTy := ⟨[], [.u32]⟩
+
+/-- **Open goal, the IR's export phase** (IR only): in the fragment, after the nodes' instantiation
+ending at `xs`, the IR's first export `n` answering a call with no arguments with `ws` is the
+option-less `canon lift` of type `func() -> u32` of export `e` of the environment; whenever `e` is
+export `i` (named `nm`) of the core instance `k` of the reading, that core instance is the one of
+node `j` (after the inline instances of the definitions before the first core instantiation), and
+the function exported as `nm` by the node's module instance, run in the store its start function
+left without host calls, returns one `i32` value `v`, with `ws = [u32 v]`. -/
+def Task.exportIR : Prop :=
+  ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
+    (ps : List (Binary.CoreMod × List Impl)) (xs : List NodeRun) (n : String)
+    (ws : List Silmaril.Wasm.Component.Val),
+    Binary.parseComponent b = .ok c → decodeRef b = .ok r → (∃ ct, Valid Features.p2 r ct) →
+    MultiImpFrag r → c.imports = hostI → c.nodes = coreNodes ps →
+    (c.exports.map (·.name)).head? = some n →
+    (∀ x ∈ (xs.map NodeRun.calls).flatten, x.2 = InstTests.unitV) →
+    List.Forall₂ (fun q x => NodeEnd hostI.length q.1 q.2 x) ps xs →
+    instPlay (F := sigU) (xs.map NodeRun.calls).flatten .ready ++
+        [askEx (0, .vals []), ansEx (0, .vals []) (some (.vals ws))] ∈
+      c.denI (Binary.coreModSemI (profile neverFail)) →
+    ∃ (R : RSt) (e : Nat), refRead r = some R ∧
+      R.exports.head? = some ⟨n, getTy, ⟨[.lift getTy], .call e⟩⟩ ∧
+      ∀ (pre : RefComponent) (mi : Nat) (cargs : List (String × Nat)) (post : RefComponent)
+        (k base i : Nat) (exps : CoreIface) (nm : String) (cft : CoreFuncTy),
+        firstCore? r = some (pre, mi, cargs, post) → R.coreInsts[k]? = some (.node base exps) →
+        exps[i]? = some (nm, cft) → e = base + i →
+        ∃ (j : Nat) (x : NodeRun) (a : Nat) (c' : irEng.Config Nat) (v : BitVec 32),
+          k = (preInsts pre).length + j ∧ xs[j]? = some x ∧
+          (irEng.exports x.minst).lookup nm = some (.func a) ∧
+          Silmaril.Wasm.Component.Engine.CoreEngine.Steps irEng (x.store, irEng.invoke a []) c' ∧
+          irEng.status c'.1 c'.2 = .returned (.values [⟨.int .i32, v⟩]) ∧ ws = [.u32 v]
+
+/-- **Open goal, the node's run in the shared core store**: in the fragment, a host-free run of
+an exported function of node `j` from the store its start function left, returning the values
+`ys`, is a host-free run of the relocated function from the shared core store (the node's store
+relocated along the gap `g`, followed by the objects `U` of later nodes), returning `ys`. (Without
+memories or tables only fresh structures and arrays, allocated past `U`, are not at the relocated
+addresses.) -/
+def Task.coreRunShared : Prop :=
+  ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
+    (ps : List (Binary.CoreMod × List Impl)) (xs : List NodeRun) (j : Nat)
+    (p : Binary.CoreMod × List Impl) (x : NodeRun) (g : Gap (CanonHost (core3 neverFail)))
+    (U : RStore) (nm : String) (a : Nat) (c' : irEng.Config Nat) (ys : List FlatValue),
+    Binary.parseComponent b = .ok c → decodeRef b = .ok r → MultiImpFrag r →
+    c.imports = hostI → c.nodes = coreNodes ps →
+    List.Forall₂ (fun q x => NodeEnd hostI.length q.1 q.2 x) ps xs →
+    ps[j]? = some p → xs[j]? = some x →
+    g.PreOk (Silmaril.Proofs.Wasm.Component.Reference.Store.mapH gL x.store).funcs →
+    (irEng.exports x.minst).lookup nm = some (.func a) →
+    Silmaril.Wasm.Component.Engine.CoreEngine.Steps irEng (x.store, irEng.invoke a []) c' →
+    irEng.status c'.1 c'.2 = .returned (.values ys) →
+    ∃ y : (core3 neverFail).Config (CanonHost (core3 neverFail)),
+      Silmaril.Wasm.Component.Engine.CoreEngine.Steps (core3 neverFail)
+        (Store.app (g.rel (Silmaril.Proofs.Wasm.Component.Reference.Store.mapH gL x.store)) U,
+          (core3 neverFail).invoke (g.fnMap a) []) y ∧
+      (core3 neverFail).status y.1 y.2 = .returned (.values ys)
+
+/-- **Open goal, the session call through `canon lift`**: from a configuration after an
+instantiation (host in control, no lockdown, one component instance, fresh or after one start
+thread, no top-level calls), a session call of the option-less lift (instance `0`) at a type read
+as `func() -> u32` of a core function whose host-free run from the core store returns one `i32`
+`v` returns `u32 v`, leaving the host state unchanged. -/
+def Task.callLift : Prop :=
+  ∀ (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)) (f : FuncId) (a : Nat)
+    (ty : Types.FuncType RtId) (y : (core3 neverFail).Config (CanonHost (core3 neverFail)))
+    (v : BitVec 32),
+    M.ctl = [] → M.store.lockdown = false → (∃ ι, M.store.insts = [ι] ∧ InstOk ι) →
+    M.pending = [] → M.results = [] →
+    ArenaField.funcs.get? M.store f = some (.lifted a ty {} ⟨0⟩) → TyRel ty getTy →
+    Silmaril.Wasm.Component.Engine.CoreEngine.Steps (core3 neverFail) (M.store.core, (core3 neverFail).invoke a []) y →
+    (core3 neverFail).status y.1 y.2 = .returned (.values [⟨.int .i32, v⟩]) →
+    ∃ M', LinkedSession.SessRun first.prof (Host.ofEmbedder embL) M 0 [(f, [])]
+      [some [toRefVal (.u32 v)]] M' ∧ M'.host = M.host
 
 end Silmaril.Wasm.Component.DecoderBridge
