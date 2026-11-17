@@ -22,10 +22,10 @@ type checker, the third by an invariant of the store:
 
 * `tyStep rt lt i ts`, `tyExec rt lt is ts`: the operand-stack types (top first) after `i` (`is`),
   from the stack types `ts`, with local types `lt` and result types `rt g` of the wrapped export
-  `g`; `none` when the code is ill-typed **or outside the fragment** (`FragT`: `Frag`'s
+  `g`; `none` when the code is ill-typed **or outside the fragment**. The fragment is `Frag`'s
   instructions, `memory.copy`, `if` with a value or empty block type whose branches have that
   type from an empty stack, and the integer stores of a width Wasm has at an offset below
-  `2^32`). Float loads and stores are not in the fragment;
+  `2^32`; float loads and stores are not in it;
 * `Typed lt ts f`: the frame `f` has local types `lt` and stack types `ts`;
 * `CallsTyped M rt`: every returned call of export `g` of `M` returns values of types `rt g`
   (what Core's type soundness gives for an export of result type `rt g`; a hypothesis here);
