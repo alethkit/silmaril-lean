@@ -10,7 +10,7 @@ import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.RunShared
 # The instantiation on `MultiImpFrag` with its invariant: theorems
 
 Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi` (`FirstKX`, `LaterCoreX`,
-`NodesRefX`, `ComposeX`, `ExportX`, `CallLift`).
+`NodesRefX`, `ComposeX`, `ExportX`, `CallLift`, `RunShared`).
 
 * **`nodesRefX`** (proved): in the split fragment `MultiImpFrag`, the reference machine finishes
   the instantiation with the host log of the IR's node calls, in a configuration satisfying
@@ -25,6 +25,13 @@ Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi` (`FirstKX`, `Late
 * `exportRefX_of`: **`Task.exportRefX` from `Task.exportIR`, `Task.coreRunShared` and
   `Task.callLift`**; `startAdequacyFrag_of_IR`: the start goal from the first two; `startAdequacyFrag_of_parts`, `starts_of_parts`: the start goal and the
   `starts.wasm` instance from these three pieces;
+* **`coreRunShared`** (proved, `Multi.RunShared`): `Task.coreRunShared`, the node's run of an
+  exported function in the shared core store: the node's store after its start run is split
+  (`Linking.Split`), the run is relocated along the gap (`steps_gap`) and into the store extended by
+  the later nodes' objects (`step_sim`, fresh structures and arrays renamed past them), and is an
+  interpreter run there (the shared store typed, the callee's type read off the IR run's first
+  step); `startAdequacyFrag_of_exportIR`, `starts_ref_of_ir`: the start goal and the reference
+  half of `starts.wasm` from its IR run, given the one open piece `Task.exportIR`;
 * `starts_of_X`: the reference half of `InstTestsRef.starts_agree`, derived from the IR's run of
   `starts.wasm` through `Task.exportRefX`. (The conclusion is also proved unconditionally by
   executing the reference machine, `InstTestsRef.starts_agree`.)
@@ -104,5 +111,15 @@ theorem coreRunShared : Task.coreRunShared :=
 /-- **The start goal on the fragment from the IR's export phase** (the remaining open piece). -/
 theorem startAdequacyFrag_of_exportIR (hA : Task.exportIR) : Task.startAdequacyFrag :=
   startAdequacyFrag_of_IR hA coreRunShared
+
+/-- **The reference half of `starts.wasm` from its IR run** (`InstTests.starts_inst`), through the
+start goal on the fragment, given the IR's export phase. (The conclusion is also proved
+unconditionally by executing the reference machine, `InstTestsRef.starts_agree`.) -/
+theorem starts_ref_of_ir (hA : Task.exportIR) :
+    (([some [toRefVal (.u32 42)]] : List (Option (List Value.Val))),
+        ((), logOfCalls startsTrace)) ∈
+      sessRunFrom first.prof (Host.ofEmbedder embL) hostConfigX startsRef (importArgs hostI)
+        [("get", [])] :=
+  starts_of_frag (startAdequacyFrag_of_exportIR hA)
 
 end Silmaril.Wasm.Component.DecoderBridge

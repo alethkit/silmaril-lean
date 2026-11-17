@@ -4,7 +4,6 @@ public import Silmaril.Wasm.Component.DecoderBridge.MultiX.Defs
 public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.GapMachine
 public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.ExportX
 public import Silmaril.Proofs.Wasm.Component.Reference.SplitInit
-public import Silmaril.Proofs.Wasm.Game.Machine.Profile
 
 /-!
 # A node's run in the shared core store (`Task.coreRunShared`)
