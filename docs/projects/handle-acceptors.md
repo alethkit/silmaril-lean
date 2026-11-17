@@ -57,11 +57,11 @@ Wasm examples are concrete modules.
 | 1 | writer `symbol(string)`, `sexp(list<i32>)`, `accept(i32)`; arbitrary fresh handles, interning | `Handle.Writer`, `Fresh`, `Run.store_extends` | memory `hiMod_lang`, `pairMod_lang`; instance-play `twoWords`, `sxPair` | |
 | 1 | invalid accept: mandatory trap (call-local), session abort, ignore, UB, fixed-env UB, error return | `callTrap`/`sessionTrap`/`ignore`/`ub`, `fixedLang`, chain + strictness, `writerLang_eraseErr_eq` | `callTrap` is the Wasm-facing policy (export calls decode to `enter`); error-return `accept`: `errAccept_sound` (within words and `nil`), runs `errAccept_accepts_word`, `errAccept_accepts_nil` (error branch) | |
 | 1 | sentinel 0/−1, inclusion with exact assumptions, capacity | `writerLang_noRet_subset`, `writerLang_subset_of_oneFailure`, `sentinel_twice`, `writerLang_sentinel_swap`, `successes_length_le` | `twoWordsZ`, `twoWordsM` | raw inclusion is false (counterexample) |
-| 1 | constructed set (downward closed), `accept_all` since start, batches | `writerLang_downClosed`, `batch_not_downClosed` | `allAccept_sound` (bound `allL`, `allL_downClosed`), `allAccept_accepts`; `batchAccept_sound`, `batchAccept_accepts` | Wasm batch language proved only up to the constructed set, not that the dropped batch is never accepted |
+| 1 | constructed set (downward closed), `accept_all` since start, batches | `writerLang_downClosed`, `batch_not_downClosed` | `allAccept_sound` (bound `allL`, `allL_downClosed`), `allAccept_accepts`; `batchAccept_sound`, `batchAccept_accepts`; **exact batch language** `AcceptVariants.Batch`: import-level ghost bridge `strategy_gag` (`GISpec`, `GAG`, `GhostGameSat`; ghost in the host code, as `MemSound.Ghost`), batch bridge `storeLang_subset_of_gag` (ghost = current batch, `batchGSpec`), `consXLang_sound_of_ghostSat`; `batchAccept_lang` (⊆ `keptL` = `nil` and `(w)`, the kept batch), `batchAccept_drops` (no word, the dropped batch, is accepted), `batchAccept_fixed_lang`, `batchAccept_kept` (with the run `run(3)`) | `batchAccept`: upper bound `keptL` with runs at the fixed argument `3` (not every `(w)` is exhibited); the ghost bridge covers store semantics and fixed environments for policies without UB |
 | 2 | readers `tag`/`symbol`/`sexp -> list<i32>`; `children`/`child`; fixed env; module-chosen handles, any export sequence | `Reader`, `readerLang`, `Env`/`Env.ofTotal` | cons checkers, n-ary `count`/`child` checkers, memory `items(h, retptr)`, `string_text`, `keyword_text` | |
 | 2 | invalid reads: arbitrary, trap, typed error, default, UB; arbitrary ≠ UB | `OnBadRead`, `error_iff_invalid`, `arbitrary_ne_ub`, `arbitrary_uncertified` | checkers use trap; typed error: `errD_disjoint`, `polLang_subset_of_AG` (every policy but UB), `carCheck_sound`; counterexample runs `carNoCheck_unsound_dflt`, `carCheck_unsound_arbitrary`; `carCheck_accepts` | |
 | 2 | atoms `blob`, `string`, `word(i64)`, keywords: writers and readers | Family atoms | writers `atomMod` (symbol/string/blob/keyword), `word_lang`; readers string, keyword, symbol (`symTextMod_lang`), blob (`blobMod_lang`: exactly the 2-byte blobs), `word` | |
-| 3 | first-class APIs for the ten families incl. Rivest canonical vs hinted | `Family`, one parameterized API per style | `Families`, `Families/Mem`: per-family table; `bpairMod`/`rivest_bpairMod`, `hinted_lang`, `hintedSep_lang` | not every family × every style has a module (table says which); no memory checker for lists of symbols or of byte strings |
+| 3 | first-class APIs for the ten families incl. Rivest canonical vs hinted | `Family`, one parameterized API per style | `Families`, `Families/Mem`: per-family table; `bpairMod`/`rivest_bpairMod`, `hinted_lang`, `hintedSep_lang` | not every family × every style has a module (table says which); memory checkers `MemSound.ListCheck` (`symListMod_sound`: lists of two symbols, `blobListMod_sound`: lists of two blobs, live sessions `symListMod_live_of`, `blobListMod_live_of`) for two elements only, no looped any-length checker |
 | 4 | generic branch + leaf tags with WIT payloads; variadic, fixed, mixed arity; SExp correspondence | `AstSig`, `WitSig`, `sexpW_hom`, `SExp.equivAST`, `leaf_children_not_wellArity` | `astMod`, `calcMod`, `appMod`, `binMod`, `addCheck`; canonical-ABI payloads | payload domain: `bool`, `s32/u32`, `s64/u64`, `string`, `bytes`, nested `list`; not floats, char, records, variants, options, results, flags, handles |
 | 5 | cons API with/without nil; SExp vs SExp2; properness; roundtrips | `consW`, `pairW`, `SExp2.toSExp?`, `Pat.toSExp2_image_lang` | cons checkers, `combCheck` (Tree2), `consMod`, `consMix` | |
 | 6 | union/intersection, images/preimages, list combinators, patterns, AST→sexp encodings | `Pattern`, `tuple_inter`, `AST.encode_injective`, `enc_collides` | — | abstract by nature |
@@ -226,11 +226,16 @@ Wasm examples are concrete modules.
   `char`, small integers, records, variants, enums, options, results, flags, handles) are not
   payloads. The end-to-end modules cover `s64`, `string`, `bytes` and `list<u32>`; nested lists
   (`list<string>`, `list<list<u32>>`) are covered by kernel-checked decoding examples only.
-* Wasm writer variants: `batchAccept` is bounded by the constructed set only (that the dropped
-  batch is never accepted needs ghost state); `errAccept`, `allAccept`, `readBack` are upper
-  bounds with runs at fixed arguments, not exact languages.
-* Families through memory: no memory checker for lists of symbols or of byte strings (readers
-  for single symbols, strings, keywords and blobs exist).
+* Wasm writer variants: `batchAccept_lang` bounds `batchAccept` by its kept batch `keptL` (the
+  dropped word is never accepted, `batchAccept_drops`), but the lower bound is the run at the
+  fixed argument `3` (`batchAccept_kept`), not every `(w)`; the batch bridge assumes policies
+  without undefined behaviour. `errAccept`, `allAccept`, `readBack` are upper bounds with runs at
+  fixed arguments, not exact languages.
+* Families through memory: `MemSound.ListCheck` checks lists of exactly two symbols
+  (`symListMod`) or two blobs (`blobListMod`); there is no looped checker for any length (a loop
+  computing `ptr + 4i` with `i32` arithmetic wraps modulo `2^32` while the decoder reads at the
+  natural-number offset, so it needs an overflow guard), and the live sessions exhibit lists of
+  two copies of one symbol (blob) only.
 * Parsing: `chunkRingN` is proved for capacities up to 8192 (one page); `cap = 1` has soundness
   but no non-vacuity play (it needs two values); capacities beyond one page and memory growth
   (`memory.grow`) are not done.
@@ -247,7 +252,8 @@ lake build --wfail Silmaril.Semantics.Accept.Handle.Examples Silmaril.Semantics.
   Silmaril.Wasm.Game.HandleAccept.MemSound.Exact.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.KwText.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.WordAtom.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Hinted.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.Cons.Thms \
-  Silmaril.Wasm.Game.HandleAccept.Checkers.RecFull.Thms
+  Silmaril.Wasm.Game.HandleAccept.Checkers.RecFull.Thms \
+  Silmaril.Wasm.Game.HandleAccept.AcceptVariants.Batch.Examples Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Thms
 scripts/check-layout.sh
 ```
 
