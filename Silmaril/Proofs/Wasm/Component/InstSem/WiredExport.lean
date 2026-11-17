@@ -547,4 +547,178 @@ theorem denI_ex_node {C : CoreSemI M} {I : Iface} {ps : List (M × List Impl)}
       simpa only [List.map_nil, List.map_cons, List.cons_append, List.nil_append] using hD)
   · simp at hc
 
+/-! ## At an engine semantics -/
+
+section Engine
+
+open Silmaril.Wasm.Component.Param Silmaril.Proofs.Wasm.Component.InstEngine
+open Silmaril.Wasm.Component.Reference (Engine)
+open Silmaril.Wasm.Game (liftMove)
+
+variable {E : Engine} {imps exps : CoreIface}
+
+/-- **A running export call answered with a value** is a run with the import calls `cs`
+(`StartRunI`) to returned values. -/
+theorem run_running_inv {I : EInstance E} {q : (sigN exps.length).Op} {y : Payload} :
+    ∀ (cs : List (Σ _ : (sigN imps.length).Op, Option Payload)) {s : E.Store Nat}
+      {t : E.Thread Nat} {z : EState E imps.length exps.length},
+    (engineLTS E I imps exps).Run (.running q s t)
+      ((callEvs (E := sigN imps.length) cs).map .inl ++ [.inr (.ans q (some y))]) z →
+    ∃ (c' : E.Config Nat) (ys : List Flat), StartRunI E imps (s, t) cs c' ∧
+      E.status c'.1 c'.2 = .returned (.values ys) ∧ y = .flat ys
+  | [], s, t, z, h => by
+    simp only [callEvs, List.map_nil, List.nil_append] at h
+    rcases run_cases h with ⟨hl, -⟩ | ⟨y', ⟨m, hm, -⟩, -⟩ | ⟨o, l', y', hl, ⟨m, hm, hs⟩, -⟩
+    · cases hl
+    · cases hm
+    · obtain ⟨rfl, rfl⟩ := List.cons.inj hl
+      cases hm
+      cases hs with
+      | oret run final => exact ⟨_, _, .nil run, final, rfl⟩
+  | ⟨m₀, n₀⟩ :: cs, s, t, z, h => by
+    simp only [callEvs, List.map_cons, List.cons_append] at h
+    rcases run_cases h with ⟨hl, -⟩ | ⟨y', ⟨m, hm, -⟩, -⟩ | ⟨o, l', y', hl, ⟨m, hm, hs⟩, hr⟩
+    · cases hl
+    · cases hm
+    · obtain ⟨rfl, rfl⟩ := List.cons.inj hl
+      cases hm
+      cases hs with
+      | ucall run callout hh =>
+        rcases run_cases hr with ⟨hl, -⟩ | ⟨y'', ⟨m', hm', -⟩, -⟩ |
+          ⟨o', l'', y'', hl', ⟨m', hm', hs'⟩, hr'⟩
+        · cases hl
+        · cases hm'
+        · obtain ⟨rfl, rfl⟩ := List.cons.inj hl'
+          cases hm'
+          cases hs' with
+          | uret r =>
+            obtain ⟨c', ys, hrun, hf, rfl⟩ := run_running_inv cs hr'
+            exact ⟨c', ys, .call run callout hh n₀ hrun, hf, rfl⟩
+
+/-- **An export round answered with a value** invokes the export and runs it, with the import
+calls `cs`, to returned values. -/
+theorem engine_round_inv {I : EInstance E} {x : EState E imps.length exps.length}
+    {q : (sigN exps.length).Op} {cs : List (Σ _ : (sigN imps.length).Op, Option Payload)}
+    {y : Payload} {s : E.Store Nat} {z : EState E imps.length exps.length}
+    (hx : x = .idle s)
+    (h : (engineLTS E I imps exps).Run x
+      (.inr (.ask q) :: ((callEvs (E := sigN imps.length) cs).map .inl ++
+        [.inr (.ans q (some y))])) z) :
+    ∃ (a : E.FuncAddr) (xs : List Flat) (c' : E.Config Nat) (ys : List Flat),
+      callee? I.addrs exps q = some (a, xs) ∧ StartRunI E imps (s, E.invoke a xs) cs c' ∧
+      E.status c'.1 c'.2 = .returned (.values ys) ∧ y = .flat ys := by
+  subst hx
+  rcases run_cases h with ⟨hl, -⟩ | ⟨y', ⟨m, hm, -⟩, -⟩ | ⟨o, l', y', hl, ⟨m, hm, hs⟩, hr⟩
+  · cases hl
+  · cases hm
+  · obtain ⟨rfl, rfl⟩ := List.cons.inj hl
+    cases hm
+    cases hs with
+    | call hc =>
+      obtain ⟨c', ys, hrun, hf, rfl⟩ := run_running_inv cs hr
+      exact ⟨_, _, c', ys, hc, hrun, hf, rfl⟩
+    | refuse hc =>
+      exfalso
+      rcases cs with _ | ⟨⟨m₁, n₁⟩, cs⟩
+      · simp only [callEvs, List.map_nil, List.nil_append] at hr
+        rcases run_cases hr with ⟨hl, -⟩ | ⟨y'', ⟨m', hm', -⟩, -⟩ |
+          ⟨o', l'', y'', hl', ⟨m', hm', hs'⟩, -⟩
+        · cases hl
+        · cases hm'
+        · obtain ⟨rfl, rfl⟩ := List.cons.inj hl'
+          cases hm'
+          cases hs'
+      · simp only [callEvs, List.map_cons, List.cons_append] at hr
+        rcases run_cases hr with ⟨hl, -⟩ | ⟨y'', ⟨m', hm', -⟩, -⟩ |
+          ⟨o', l'', y'', hl', ⟨m', hm', hs'⟩, -⟩
+        · cases hl
+        · cases hm'
+        · obtain ⟨rfl, rfl⟩ := List.cons.inj hl'
+          cases hm'
+          cases hs'
+
+/-- **An engine instance's instantiation round and one export round answered with a value**:
+the instance exists; its start function (if any) runs with the instantiation's import calls and
+returns, leaving the store `s'`; the export is invoked in `s'` and runs, with the export round's
+import calls, to returned values. -/
+theorem engineI_ex_inv {I : Option (IInstance E)}
+    {cs cs₂ : List (Σ _ : (sigN imps.length).Op, Option Payload)} {q : (sigN exps.length).Op}
+    {y : Payload}
+    (h : roundsMoves [instRound (F := sigN exps.length) cs .ready,
+      exRound (R := Unit) (⟨q, cs₂, some y⟩ : Round (sigN imps.length) (sigN exps.length))] ∈
+      engineStrategyI E I imps exps) :
+    ∃ J : IInstance E, I = some J ∧ ∃ s' : E.Store Nat,
+      ((J.start = none ∧ cs = [] ∧ s' = J.store) ∨
+        ∃ f c' ys, J.start = some f ∧ StartRunI E imps (J.store, E.invoke f []) cs c' ∧
+          E.status c'.1 c'.2 = .returned (.values ys) ∧ s' = c'.1) ∧
+      ∃ (a : E.FuncAddr) (xs : List Flat) (c'' : E.Config Nat) (ys : List Flat),
+        callee? J.addrs exps q = some (a, xs) ∧ StartRunI E imps (s', E.invoke a xs) cs₂ c'' ∧
+        E.status c''.1 c''.2 = .returned (.values ys) ∧ y = .flat ys := by
+  have he : roundsMoves [instRound (F := sigN exps.length) cs (InstAns.ready (R := Unit)),
+      exRound (R := Unit) (⟨q, cs₂, some y⟩ : Round (sigN imps.length) (sigN exps.length))] =
+      (askInst :: ((callEvs (E := sigN imps.length) cs).map .inl ++ ansInst .ready ::
+        (.inr (.ask (some q)) :: (callEvs (E := sigN imps.length) cs₂).map .inl))) ++
+        [.inr (.ans (some q) (some y))] := by
+    simp only [roundsMoves, instRound, exRound, Round.moves, List.append_nil, List.cons_append,
+      List.append_assoc]
+    rfl
+  rw [he] at h
+  obtain ⟨z, hz⟩ := trace_of_mem_ofLTS h (by simp [Move.IsP])
+  simp only [List.cons_append, List.append_assoc] at hz
+  obtain ⟨y₀, hy, hr⟩ := run_fresh_inv hz
+  -- the moves after `ready`, lifted
+  have hlift : (.inr (.ask (some q)) :: ((callEvs (E := sigN imps.length) cs₂).map .inl ++
+      [.inr (.ans (some q) (some y))]) :
+        List (Move (sigN imps.length) ((sigN exps.length).withInst Unit))) =
+      (.inr (.ask q) :: ((callEvs (E := sigN imps.length) cs₂).map .inl ++
+        [.inr (.ans q (some y))]) : List (Move (sigN imps.length) (sigN exps.length))).map
+        (liftMove (R := Unit)) := by
+    simp only [List.map_cons, List.map_append, List.map_map, List.map_nil]
+    rfl
+  have hround : ∀ (s : E.Store Nat) {z'}, (engineLTSI E I imps exps).Run (.ready (.idle s))
+      (.inr (.ask (some q)) :: ((callEvs (E := sigN imps.length) cs₂).map .inl ++
+        [.inr (.ans (some q) (some y))])) z' →
+      ∃ (a : E.FuncAddr) (xs : List Flat) (c'' : E.Config Nat) (ys : List Flat),
+        callee? (addrsOf I) exps q = some (a, xs) ∧ StartRunI E imps (s, E.invoke a xs) cs₂ c'' ∧
+        E.status c''.1 c''.2 = .returned (.values ys) ∧ y = .flat ys := by
+    intro s z' hrun
+    rw [hlift] at hrun
+    obtain ⟨p, y', hp, -, hr'⟩ := run_ready_inv s _ hrun
+    obtain rfl := List.map_injective_iff.2 liftMove_injective hp
+    exact engine_round_inv rfl hr'
+  cases hy with
+  | @start J f hI hf =>
+    obtain ⟨c', ys, hrun, hst, hrest⟩ := run_starting_inv cs hr
+    obtain ⟨a, xs, c'', ys', hc, hrun', hst', rfl⟩ := hround c'.1 hrest
+    rw [hI] at hc
+    exact ⟨J, hI, c'.1, .inr ⟨f, c', ys, hf, hrun, hst, rfl⟩, a, xs, c'', ys', hc, hrun', hst', rfl⟩
+  | @noStart J hI hf =>
+    rcases cs with _ | ⟨c₀, cs⟩
+    · simp only [callEvs, List.map_nil, List.nil_append] at hr
+      rcases run_readying_inv hr with hl | ⟨rest, hl, hr'⟩
+      · cases hl
+      · obtain ⟨-, rfl⟩ := List.cons.inj hl
+        obtain ⟨a, xs, c'', ys', hc, hrun', hst', rfl⟩ := hround J.store hr'
+        rw [hI] at hc
+        exact ⟨J, hI, J.store, .inl ⟨hf, rfl, rfl⟩, a, xs, c'', ys', hc, hrun', hst', rfl⟩
+    · exfalso
+      obtain ⟨m₀, n₀⟩ := c₀
+      simp only [callEvs, List.map_cons, List.cons_append] at hr
+      rcases run_readying_inv hr with hl | ⟨rest, hl, -⟩
+      · cases hl
+      · cases (List.cons.inj hl).1
+  | noInst hI =>
+    exfalso
+    rcases cs with _ | ⟨⟨m₀, n₀⟩, cs⟩
+    · simp only [callEvs, List.map_nil, List.nil_append] at hr
+      rcases run_failing_inv hr with hl | ⟨rest, hl⟩
+      · cases hl
+      · exact ansInst_ne_fail (List.cons.inj hl).1
+    · simp only [callEvs, List.map_cons, List.cons_append] at hr
+      rcases run_failing_inv hr with hl | ⟨rest, hl⟩
+      · cases hl
+      · cases (List.cons.inj hl).1
+
+end Engine
+
 end Silmaril.Proofs.Wasm.Component.InstSem
