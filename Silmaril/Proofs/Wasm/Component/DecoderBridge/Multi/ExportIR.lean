@@ -414,6 +414,70 @@ theorem exportRun_nil {imps : CoreIface} {w : List Impl} (hw : ∀ im ∈ w, im 
         rw [hk] at hy₀
         cases hy₀
 
+/-- **A typed start run with lowered imports, each call answered `()`, ends typed.** -/
+theorem startRun_rtn {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = true)
+    {w : List Impl} (hw : ∀ im ∈ w, im = lowF) (hwl : imps.length ≤ w.length) :
+    ∀ {c c' : irEng.Config Nat} {cs : List (Σ _ : (sigN imps.length).Op, Option Payload)},
+      Param.StartRunI irEng imps c cs c' → RTN c.1 c.2 →
+      ∀ {ys : List (Round sigU (sigN imps.length))}, cs = ys.map Round.call →
+      (∀ y ∈ ys, Prog.Runs (implsN 1 w imps.length y.q) y.cs y.a) →
+      (∀ x ∈ allCalls ys, x.2 = InstTests.unitV) → RTN c'.1 c'.2 := by
+  intro c c' cs hrun
+  induction hrun with
+  | nil run =>
+    intro hR _ _ _ _
+    unfold Engine.CoreEngine.Steps at run
+    rw [internalP_eqN] at run
+    exact rtN_run run hR
+  | @call s s₁ t t₁ h args c'' cs run callout hh r rest ih =>
+    intro hR ys hys hruns hu
+    cases ys with
+    | nil => cases hys
+    | cons y ys =>
+      simp only [List.map_cons, List.cons.injEq] at hys
+      obtain ⟨hy, hys⟩ := hys
+      unfold Engine.CoreEngine.Steps at run
+      rw [internalP_eqN] at run
+      have hR₁ : RTN s₁ t₁ := rtN_run run hR
+      obtain ⟨args', hst', hfl⟩ :=
+        Silmaril.Wasm.Component.Engine.Core3.Typed.flatStatus_eq_callout' callout
+      have hs₁ : status neverFail s₁ t₁ = .callout h args' :=
+        (statusP_profile s₁ t₁).symm.trans hst'
+      obtain ⟨b, rfl⟩ := args_of_calloutN hR₁ hs₁
+      simp only [List.mapM_cons, List.mapM_nil, Silmaril.Wasm.SingleThreaded.toFlat?] at hfl
+      cases hfl
+      obtain ⟨yq, ycs, ya⟩ := y
+      simp only [Round.call, Sigma.mk.injEq] at hy
+      obtain ⟨rfl, hya⟩ := hy
+      have hya' : r = ya := eq_of_heq hya
+      subst hya'
+      obtain ⟨k, hk, hk'⟩ := implsN_lowF hw (n := imps.length) (h := ⟨h, hh⟩) (by simp; omega) b
+      have hrun₀ := hruns _ List.mem_cons_self
+      simp only at hrun₀
+      rw [hk] at hrun₀
+      cases hrun₀ with
+      | @call _ _ n' cs'' _ hrk =>
+        have hn' : n' = InstTests.unitV := hu ⟨(0, .vals [.u32 b]), n'⟩ (by simp [allCalls])
+        subst hn'
+        simp only [InstTests.unitV] at hrk
+        rw [hk'] at hrk
+        cases hrk
+        have himp : imps[h].2 = fFlat := by
+          have := List.all_eq_true.mp himps _ (List.getElem_mem hh)
+          simpa using this
+        have eres : (core3P (profile neverFail)).resume s₁ t₁
+            (Param.resultOf imps[h].2.results (some (.flat []))) =
+            Silmaril.Wasm.SingleThreaded.resume s₁ t₁ (.values []) := by
+          rw [himp, resultOf_fFlat]
+          rfl
+        have hR₂ : RTN s₁ ((core3P (profile neverFail)).resume s₁ t₁
+            (Param.resultOf imps[h].2.results (some (.flat [])))) := by
+          rw [eres]
+          exact rtN_resume hR₁ hs₁
+        exact ih hR₂ hys (fun y hy => hruns y (List.mem_cons_of_mem _ hy))
+          (fun x hx => hu x (by simp only [allCalls, List.cons_append, List.nil_append]; exact
+            List.mem_cons_of_mem _ hx))
+
 end Typed
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi
