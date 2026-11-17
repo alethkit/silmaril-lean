@@ -19,8 +19,29 @@ modules=(
   CompilesToExamples.Explorer.Decompiled
   CompilesToExamples.Explorer.Rows
 )
+# Each replay has its own environment. Bound concurrent processes to avoid multiplying
+# Mathlib import memory by the host CPU count; keep a serial mode for small hosts.
+jobs="${LEAN_REPLAY_JOBS:-4}"
+if ! [[ "$jobs" =~ ^[1-9][0-9]*$ ]]; then
+  echo "LEAN_REPLAY_JOBS must be a positive integer" >&2
+  exit 1
+fi
+pids=()
+failed=0
+wait_batch() {
+  for pid in "${pids[@]}"; do
+    if ! wait "$pid"; then failed=1; fi
+  done
+  pids=()
+}
 for m in "${modules[@]}"; do
-  start=$(date +%s)
-  timeout 1200 "$LAKE" env "$checker" "$m"
-  echo "leanchecker $m: ok ($(( $(date +%s) - start )) s)"
+  (
+    start=$(date +%s)
+    timeout 1200 "$LAKE" env "$checker" "$m"
+    echo "leanchecker $m: ok ($(( $(date +%s) - start )) s)"
+  ) &
+  pids+=("$!")
+  if (( ${#pids[@]} >= jobs )); then wait_batch; fi
 done
+wait_batch
+exit "$failed"
