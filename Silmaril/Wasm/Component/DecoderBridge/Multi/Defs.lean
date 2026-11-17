@@ -9,7 +9,7 @@ public import Silmaril.Wasm.Component.DecoderBridge.Sim.Defs
 
 `Task.startAdequacy` (`Sem.Defs`) is open. This module states it on a decidable fragment of
 binaries with several core instantiations (`MultiImpFrag`, which `starts.wasm` is in), and splits
-it into four open pieces, each a `Prop`; `Multi.Thms.startAdequacyFrag_of` derives the goal on the
+it into pieces, each a `Prop`; `Multi.Thms.startAdequacyFrag_of_nodes` derives the goal on the
 fragment from them, so the decomposition is checked.
 
 ## The fragment

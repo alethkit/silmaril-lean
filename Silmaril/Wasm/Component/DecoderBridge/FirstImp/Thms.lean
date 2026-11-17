@@ -67,9 +67,9 @@ three core modules (`call1`, `call2`, `glob`), so it is not in a single-instanti
 `firstImp_ready_ref` covers its first node only, up to the return of `call1`'s start function.
 `DecoderBridge.Multi` decomposes the start goal on the fragment `MultiImpFrag` and proves the IR
 half (`NodeCalls` of each node from the IR's instantiation play) and the first node with the
-start function's epilogue; the later nodes in the shared core store (`call2`'s import resolves
-to the same trampoline, behind `call1`'s functions) and the export phase (`canon lift` of
-`get`) are open there (`Task.laterNodesRef`, `Task.exportRef`).
+start function's epilogue, and the later nodes in the shared core store (`call2`'s import resolves
+to the same trampoline, behind `call1`'s functions; `Task.nodesRef`); the export phase
+(`canon lift` of `get`) is open there (`Task.exportRef`).
 
 **Not proved.** `Task.failRefWiredRest'`: a failure of node `k ≥ 1`, and the binaries outside
 `FirstCoreFrag'` (other import shapes, the definitions `preOk` excludes, memories, tables, …).
