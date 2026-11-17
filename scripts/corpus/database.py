@@ -38,6 +38,7 @@ def main():
         source.backup(db)
         source.close()
     data = inventory(ROOT)
+    formal = json.loads((ROOT / 'corpus/measurements/formal-functions/checks.json').read_text())['statements']
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     with db:
         db.executescript('''
@@ -97,6 +98,12 @@ CREATE TABLE corpus_timings(run_id TEXT PRIMARY KEY, build_id TEXT, stage TEXT N
                  artifact['stripping'], path.name, artifact['sha256'], artifact['path'], artifact['source_id'], artifact['build_id'],
                  json.dumps(artifact), census, json.dumps(sources)))
             for ordinal, function in enumerate(functions):
+                concrete = [s for s in formal if s.get('function_symbol') == function.get('symbol', function.get('name'))
+                            and artifact['path'] in s['artifact_sha256']]
+                if concrete:
+                    function['tv_context'] = {
+                        'status': 'concrete contextual C-to-ELF statement; stated-unproved',
+                        'statements': [{k: s[k] for k in ['kind', 'status', 'declaration', 'root']} for s in concrete]}
                 db.execute('INSERT INTO corpus_functions VALUES(?,?,?,?,?,?)', (key, ordinal,
                     function.get('symbol', function.get('name')), function['value'], function['size'], json.dumps(function)))
         baseline_paths = list((ROOT / 'corpus/census/runs').glob('*.json'))
