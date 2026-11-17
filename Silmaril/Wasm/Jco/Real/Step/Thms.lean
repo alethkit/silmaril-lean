@@ -35,8 +35,9 @@ profile it would follow from determinism of Core.
 **Fragment.** Not covered here: `memory.copy` (Core 3.0 copies byte by byte), `if … else … end`
 (an `XInstr` branch runs on the whole operand stack, a Wasm block only on its parameters), and
 stores (they need a typing hypothesis on the stored value). `Silmaril.Wasm.Jco.Real.StepX`
-covers the three for well-typed code (`execT_agree`, `invokeT_agree`), and the moving
-`cabi_realloc` of `Styles/Realloc` (`reallocShimX_core`).
+covers the three for well-typed code (`execT_agree`, `invokeT_agree`), traps
+(`execT_trap`, `invokeT_trap`), and the moving `cabi_realloc` of `Styles/Realloc`
+(`reallocShimX_core`, `reallocShimX_core_trap`).
 
 New statements.
 -/

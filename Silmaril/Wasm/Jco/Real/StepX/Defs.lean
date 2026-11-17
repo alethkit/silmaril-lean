@@ -31,7 +31,9 @@ type checker, the third by an invariant of the store:
   (what Core's type soundness gives for an export of result type `rt g`; a hypothesis here);
 * `MemOk ma s`: the memory instance at `ma` exists and has at most `2^32` bytes;
   `CallsKeepMem P host mi ma`: calls of the wrapped instance preserve `MemOk` (a hypothesis: for a
-  32-bit memory whose size is its page count times `2^16` it follows from `memory.grow`'s limit).
+  32-bit memory whose size is its page count times `2^16` it follows from `memory.grow`'s limit);
+* `CallsTrapCore P host mi ma`: a trap of a call of the wrapped instance is a Core trap (used
+  only for the trap theorems).
 
 The theorems are in `Silmaril.Wasm.Jco.Real.StepX.Thms`.
 
@@ -100,5 +102,15 @@ def CallsKeepMem {H : Type} (P : Profile) (host : HostSemantics H)
     (mi : Silmaril.Wasm.Execution.Core.ModuleInst) (ma : Nat) : Prop :=
   ∀ (g : String) (args rs : List Flat) (s s' : Store H),
     (realInst H P host mi ma).call g args s (.ok rs s') → MemOk ma s → MemOk ma s'
+
+/-- A trap of a call of the wrapped instance is a Core 3.0 trap: the export exists, the invocation
+is well formed, and its `$invoke` run reaches `trap` (not an uncaught exception, an ill-typed
+invocation or a non-flat result, which `realInst` also reads as traps). -/
+def CallsTrapCore {H : Type} (P : Profile) (host : HostSemantics H)
+    (mi : Silmaril.Wasm.Execution.Core.ModuleInst) (ma : Nat) : Prop :=
+  ∀ (g : String) (args : List Flat) (s : Store H),
+    (realInst H P host mi ma).call g args s .trap →
+    ∃ a c, Silmaril.Wasm.Binaryen.exportFunc? mi g = some a ∧ InvokeOk s a (args.map toVal) ∧
+      Steps P host (invoke s a (args.map toVal)) c ∧ c.code = [.trap]
 
 end Silmaril.Wasm.Jco.Real

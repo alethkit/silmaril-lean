@@ -2,12 +2,12 @@ module
 
 public import Silmaril.Wasm.Jco.Real.StepX.Defs
 public import Silmaril.Wasm.Jco.Real.Step.Thms
-import Silmaril.Proofs.Wasm.Jco.Real.StepX
+import Silmaril.Proofs.Wasm.Jco.Real.Trap
 
 /-!
 # Adaptor code with `memory.copy`, `if` and stores against the reference engine: theorems
 
-Proofs in `Silmaril.Proofs.Wasm.Jco.Real.{Copy,Framing,StepX}`. As in
+Proofs in `Silmaril.Proofs.Wasm.Jco.Real.{Copy,Framing,StepX,Trap}`. As in
 `Silmaril.Wasm.Jco.Real.Step.Thms`, everything is over the real instance
 `realInst H P host mi ma` at every profile `P` and host `host`, in a Core frame linked to it
 (`FrameEnv`), and the direction is forward: returned runs of the abstract adaptor are runs of
@@ -29,8 +29,12 @@ before the run (`MemOk`) and after every call of the wrapped instance (`CallsKee
   `memory.copy`) is well typed when `alloc` returns one `i32`, so its Core 3.0 image computes the
   emulated `realloc` `reallocEmu`: allocate, then `memmove` the old block.
 
-Not covered: float loads and stores (outside `tyStep`), and traps (an abstract trap is not
-related to a Core trap).
+* **Traps** (`execT_trap`, `invokeT_trap`, `reallocShimX_core_trap`): when, moreover, every trap
+  of a call of the wrapped instance is a Core trap (`CallsTrapCore`), a trapping run of
+  well-typed code is matched by a Core run that reaches `trap`. Well-typed code traps only where
+  Wasm does: out-of-bounds `memory.copy`, loads and stores, and trapping calls.
+
+Not covered: float loads and stores (outside `tyStep`).
 
 New statements.
 -/
@@ -109,5 +113,52 @@ theorem reallocShimX_core (hC : CallsTyped (realInst H P host mi ma) rt)
       ⟨s', {}, vals (rs.map toVal)⟩ :=
   Silmaril.Proofs.Wasm.Jco.Real.realloc_core P host mi ma fi hC hK alloc hA
     (reallocShimX_typed alloc hA) ty hok h hb hcode he hexp hps hrts
+
+/-! ## Traps -/
+
+/-- **Trapping well-typed adaptor code reaches a Core trap.** -/
+theorem execT_trap (hC : CallsTyped (realInst H P host mi ma) rt)
+    (hK : CallsKeepMem P host mi ma) (hT : CallsTrapCore P host mi ma) {is : List XInstr}
+    {ts ts' : List NumType} (hty : tyExec rt lt is ts = some ts') {f : Silmaril.Wasm.Jco.Frame}
+    {s : Store H} (hf : Typed lt ts f) (hok : MemOk ma s)
+    (h : execX (realInst H P host mi ma) is f s .trap)
+    {cf : Silmaril.Wasm.Execution.Core.Frame} (he : FrameEnv mi ma fi cf)
+    (hl : cf.locals = localsOf f.locals) :
+    ∃ s' cf', Steps P host ⟨s, cf, stackCode f.stack ++ codeOf fi is⟩ ⟨s', cf', [.trap]⟩ :=
+  Silmaril.Proofs.Wasm.Jco.Real.trap_execT P host mi ma fi hC hK hT is hty (st := []) hf.1 hf.2
+    hok (by simpa using h) he hl
+
+/-- **An invoked well-typed adaptor function that traps reaches a Core trap.** -/
+theorem invokeT_trap (hC : CallsTyped (realInst H P host mi ma) rt)
+    (hK : CallsKeepMem P host mi ma) (hT : CallsTrapCore P host mi ma) (fn : XFn) (ty : Nat)
+    {rts : List NumType} (hty : tyExec rt (lt ++ List.replicate fn.locals tI32) fn.body [] = some rts)
+    {args : List Flat} (ha : args.map (·.type) = lt) (hn : args.length = fn.params) {s : Store H}
+    (hok : MemOk ma s) (h : fn.run (realInst H P host mi ma) args s .trap) {b : Nat}
+    {fA : FuncInst H} (hb : s.funcs[b]? = some fA)
+    (hcode : fA.code = .wasm (fn.toLime fi ty).toCore)
+    (he : FrameEnv mi ma fi { module := fA.module })
+    {ps rts' : Silmaril.Wasm.Validation.Ty (.list .val)}
+    (hexp : Silmaril.Wasm.Validation.Expand fA.type (.func ps rts'))
+    (hps : args.length = ps.length) :
+    ∃ s', Steps P host (invoke s b (args.map toVal)) ⟨s', {}, [.trap]⟩ :=
+  Silmaril.Proofs.Wasm.Jco.Real.invoke_xfnT_trap P host mi ma fi hC hK hT fn ty hty ha hn hok h hb
+    hcode he hexp hps
+
+/-- **The moving `cabi_realloc` traps as on Core 3.0**: when `reallocEmu` traps (an
+out-of-bounds copy, or a trapping `alloc`), the Core 3.0 image of `reallocShimX` reaches
+`trap`. -/
+theorem reallocShimX_core_trap (hC : CallsTyped (realInst H P host mi ma) rt)
+    (hK : CallsKeepMem P host mi ma) (hT : CallsTrapCore P host mi ma) (alloc : String)
+    (hA : rt alloc = [tI32]) (ty : Nat) {old os al ns : BitVec 32} {s : Store H}
+    (hok : MemOk ma s) (h : reallocEmu (realInst H P host mi ma) alloc old os al ns s .trap)
+    {b : Nat} {fA : FuncInst H} (hb : s.funcs[b]? = some fA)
+    (hcode : fA.code = .wasm ((reallocShimX alloc).toLime fi ty).toCore)
+    (he : FrameEnv mi ma fi { module := fA.module })
+    {ps rts' : Silmaril.Wasm.Validation.Ty (.list .val)}
+    (hexp : Silmaril.Wasm.Validation.Expand fA.type (.func ps rts')) (hps : 4 = ps.length) :
+    ∃ s', Steps P host (invoke s b ([Flat.i32 old, Flat.i32 os, Flat.i32 al, Flat.i32 ns].map toVal))
+      ⟨s', {}, [.trap]⟩ :=
+  Silmaril.Proofs.Wasm.Jco.Real.realloc_core_trap P host mi ma fi hC hK hT alloc hA
+    (reallocShimX_typed alloc hA) ty hok h hb hcode he hexp hps
 
 end Silmaril.Wasm.Jco.Real
