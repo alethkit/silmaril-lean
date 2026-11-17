@@ -232,6 +232,24 @@ def elfDigest : Oci.Digest :=
 /-- `serveSpec` on a status word, as the adapter reports exits (`EvPost`). -/
 def serveG (t : List Ev) (k : Word) : Prop := serveSpec t (k.toNat % 256).toUInt8
 
+/-- **The send loop's entry**: the instruction at segment offset 228 (`send:`), the pointer at
+the response (offset 345), 40 octets to send, the connection in `r12` as descriptor 4, a TCP
+connection on channel 3 at descriptor 4, and a live model with no lazily mapped pages. -/
+def LoopStart (P : Silmaril.Process.LPS.Probes.Probe) (core : Silmaril.X86.State)
+    (m : Silmaril.Process.LPS.Model) : Prop :=
+  core.rip.toNat = P.base + 228 ∧ core.read .rsi = BitVec.ofNat 64 (P.base + 345) ∧
+    core.read .rdx = 40 ∧ core.read .r12 = 4 ∧ m.halted = none ∧ m.vmLazy = [] ∧
+    ∃ peer rx, fdLookup m.fds 4 = some (.socket (.connected peer 3 rx))
+
+/-- **Open, the remaining obligation**: from the send loop's entry, every execution meets
+`serveSpec` (nothing has been emitted before it) and none creates a task. Everything from the
+launch to the loop is proved (`Thms.serverSound_of_loop`). -/
+def Task.serverLoop : Prop :=
+  ∀ en inp, Silmaril.Process.LPS.Probes.Probe.Checked (probe.launchAt en inp) →
+    ∀ (o : Lps.Oracle) counter core m, LoopStart (probe.launchAt en inp) core m →
+      Lps.ExecN (probe.launchAt en inp).segs (Ports.publish [8080])
+        ((probe.launchAt en inp).ocfg o core none counter m) (Lps.EvPost serveG [])
+
 /-- **Open, the LPS-level obligation**: under the native table with `8080/tcp` published, every
 admissible launch has only finite, error-free executions with supported events whose container
 events and exit status meet `serveSpec`, and none creates a task. Everything else about the image

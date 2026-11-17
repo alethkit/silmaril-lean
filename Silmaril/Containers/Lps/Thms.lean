@@ -248,6 +248,77 @@ theorem oexec_exitT (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} {post
     Omni.Exec P.segs sp noFilter (P.ocfg oracle core (some 60) counter model) post :=
   Silmaril.Proofs.Containers.Lps.Kit.oexec_exitT P oracle rdi running outcomes clear done
 
+/-! ## Execution with clone freedom (`ExecN`): the same rules, also proving `NoCloneFromWith` -/
+
+theorem noCloneW_successors {sp : Sys SyscallEffect} {isa : UserIsa} {sg : List Segment} {c : Silmaril.Process.LPS.Config isa}
+    (hc : ¬ ClonePending c)
+    (rest : ∀ evs c', SStep sg sp noFilter c evs (.next c') → NoCloneFromWith sp sg c') :
+    NoCloneFromWith sp sg c :=
+  Silmaril.Proofs.Containers.Lps.Kit.noCloneW_successors hc rest
+
+theorem noCloneW_halted {sp : Sys SyscallEffect} {isa : UserIsa} {sg : List Segment} {c : Silmaril.Process.LPS.Config isa}
+    (hh : c.model.halted ≠ none) : NoCloneFromWith sp sg c :=
+  Silmaril.Proofs.Containers.Lps.Kit.noCloneW_halted hh
+
+theorem not_clonePending_none (P : Probe) {o : Oracle} {core : Silmaril.X86.State} {counter : Nat}
+    {model : Silmaril.Process.LPS.Model} :
+    ¬ ClonePending (P.ocfg o core none counter model) :=
+  Silmaril.Proofs.Containers.Lps.Kit.not_clonePending_none P 
+
+theorem not_clonePending_some (P : Probe) {o : Oracle} {core : Silmaril.X86.State} {counter : Nat}
+    {model : Silmaril.Process.LPS.Model} {n : Word} (hn : cloneNumber n = false) :
+    ¬ ClonePending (P.ocfg o core (some n) counter model) :=
+  Silmaril.Proofs.Containers.Lps.Kit.not_clonePending_some P hn
+
+theorem oexecN_instr (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} [Probe.Checked P] {post : Omni.Post (isaOf oracle)} {off len : Nat}
+    {instruction : Silmaril.X86.Ext.Instr} {core core' : Silmaril.X86.State} {counter : Nat}
+    {model : Silmaril.Process.LPS.Model} (running : model.halted = none) (lazy : model.vmLazy = [])
+    (rip : core.rip.toNat = P.base + off) (fits : off + len ≤ P.size) (two : off + 2 ≤ P.size)
+    (notSyscall : (P.bytes.drop off).take 2 ≠ [0x0f, 0x05])
+    (decoded : Silmaril.X86.Ext.decode ((P.bytes.drop off).take len) = some (instruction, len))
+    (exec : Silmaril.X86.Ext.exec instruction core P.mem0 len = .ok core' P.mem0)
+    (rest : ExecN P.segs sp (P.ocfg oracle core' none counter model) post) :
+    ExecN P.segs sp (P.ocfg oracle core none counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexecN_instr P oracle running lazy rip fits two notSyscall decoded exec rest
+
+theorem oexecN_trap (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} [Probe.Checked P] {post : Omni.Post (isaOf oracle)} {off : Nat}
+    {core : Silmaril.X86.State} {counter : Nat} {model : Silmaril.Process.LPS.Model}
+    (running : model.halted = none) (lazy : model.vmLazy = [])
+    (rip : core.rip.toNat = P.base + off) (two : off + 2 ≤ P.size)
+    (isSyscall : (P.bytes.drop off).take 2 = [0x0f, 0x05])
+    (rest : ExecN P.segs sp (P.ocfg oracle (Probe.complete core (oracle counter))
+      (some (core.read .rax)) (counter + 1) model) post) :
+    ExecN P.segs sp (P.ocfg oracle core none counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexecN_trap P oracle running lazy rip two isSyscall rest
+
+theorem oexecN_sys (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} {post : Omni.Post (isaOf oracle)} {core : Silmaril.X86.State} {n : Word}
+    {counter : Nat} {model : Silmaril.Process.LPS.Model} {α : Type} {allowed : α → Prop}
+    {ret : α → Word} {copyins : α → List (Word × Nat)} {model' : α → Silmaril.Process.LPS.Model}
+    {events : α → List Event} (other : n ≠ 158) (notClone : cloneNumber n = false)
+    (running : model.halted = none)
+    (live : ∀ x, allowed x → (model' x).halted = none)
+    (lazy : ∀ x, allowed x → (model' x).vmLazy = [])
+    (outcomes : ∀ outcome, sp (P.sysIn core n) model outcome ↔
+      ∃ x, allowed x ∧
+        outcome = .ok ((mkEffect (ret x) [] []).withCopyins (copyins x)) (model' x) (events x))
+    (inhabited : ∃ x, allowed x)
+    (rest : ∀ x, allowed x → ExecN P.segs sp
+      (P.ocfg oracle (Probe.resume core (ret x)) none counter (model' x))
+      (fun trace outcome => post (events x ++ trace) outcome)) :
+    ExecN P.segs sp (P.ocfg oracle core (some n) counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexecN_sys P oracle other notClone running live lazy outcomes inhabited rest
+
+theorem oexecN_exit (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} {post : Omni.Post (isaOf oracle)} {core : Silmaril.X86.State}
+    {status : Word} {counter : Nat} {model : Silmaril.Process.LPS.Model}
+    (rdi : core.read .rdi = status) (running : model.halted = none)
+    (outcomes : ∀ outcome, sp (P.sysIn core 60) model outcome ↔
+      Probes.spec (P.sysIn core 60) model outcome)
+    (clear : NativeX86.All.boundarySuspect 60 (P.sysIn core 60) = false)
+    (done : post [.exitEv (status &&& 255) model.fs]
+      (.halt (P.ocfg oracle core (some 60) counter (model.withHalted (status &&& 255))))) :
+    ExecN P.segs sp (P.ocfg oracle core (some 60) counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexecN_exit P oracle rdi running outcomes clear done
+
 macro "noclone_instr " off:term:max len:term:max instr:term:max : tactic =>
   `(tactic|
     (apply Silmaril.Containers.Lps.noClone_instr _ _ (off := $off) (len := $len) (instruction := $instr)

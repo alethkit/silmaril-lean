@@ -560,7 +560,8 @@ socket.
 | LPS's own `bind` to 8080 is `unmodeled`; with 8080 published it has exactly LPS's port-0 outcomes (`EADDRINUSE`, or bound); this image runs with exactly `[8080]` published | Proved | `bind_port_unmodeled`, `bind_published`, `published_load` |
 | General adapter soundness over any syscall table: if the program's LPS executions meet `G` with no task creation (`Lps.Sound`), every run has no UB and every exit meets `G` | Proved | `Lps.runs_sound` |
 | `servesImage_of_sound`: the program obligation `Task.serverSound` implies the image obligation `Task.servesImage` (no UB; every exit satisfies `serveSpec`) | Proved | `HttpServe.Thms` |
-| `Task.serverSound`: the server's LPS executions under `publish [8080]` | **Open** (`containers.http_serve.oci_wlp`, OPN) | `HttpServe.Defs` |
+| `serverSound_of_loop`: from every admissible launch and flag oracle, the instruction walk through `socket`, `bind` (published), `listen`, `accept`; every injected failure exits 10, 11 or 13 with nothing sent; no task creation; so `Task.serverLoop` implies `Task.serverSound` (and `Task.servesImage`) | Proved | `HttpServe.Thms`, `Proofs/…/HttpServe/Walk.lean` |
+| `Task.serverLoop`: from the send loop's entry, the retry loop and the drain | **Open** (`containers.http_serve.oci_wlp`, OPN) | `HttpServe.Defs` |
 | Docker: image ID, the container listens itself, `curl` gets exactly the response, exit 0 | Tested | `docker-test.sh` |
 
 The environment a successful session needs, as LPS states it (inputs of a launch, not
@@ -579,13 +580,11 @@ exits 0 sent exactly the response, and every other exit is 10–14 (`wlp`). It i
 liveness, which needs a peer; under this framework a process that reads input has `blocked`
 runs, so `wp` (total correctness) would need an explicit assumption on inputs.
 
-**What remains** (`Task.serverSound`): walking the program's instructions with these rules for
-every flag oracle and admissible launch (any `net` queue). The `socket` step and its three
-failure branches (exit 10) go through with them (work in progress, outside the repository);
-left: the same walk through `bind`, `listen` and `accept`, the send-retry loop over symbolic
-register values (remaining count in `[0, 40]`, pointer inside the pinned response, sent octets a
-prefix of it; each send moves at least one octet), and the drain `read`, which writes the
-image's buffer and so needs flag-oracle rules over a changed memory.
+**What remains** (`Task.serverLoop`, from the loop's entry `LoopStart`): the send-retry loop over
+symbolic register values (remaining count in `[0, 40]`, pointer inside the pinned response, sent
+octets a prefix of it; each send moves at least one octet; a pending reset exits 14), and the
+drain `read`, which writes the image's buffer and so needs flag-oracle rules over a changed
+memory.
 
 ## Next steps
 

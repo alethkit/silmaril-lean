@@ -277,6 +277,11 @@ structure Emits (snap : X86Launch.Snapshot) (k : Word) (w : List Ev) : Prop wher
   launch : ∃ o en inp, Problems.CoreutilsLite.Admissible o snap en inp
   outputs : ∀ e ∈ w, e.isInput = false
 
+/-- **Execution with clone freedom** under the table `sp`: every execution meets `post`, and no reachable configuration is about to create a task. -/
+def ExecN (segs : List Segment) (sp : Sys SyscallEffect) {isa : UserIsa}
+    (c : Silmaril.Process.LPS.Config isa) (post : Omni.Post isa) : Prop :=
+  Omni.Exec segs sp noFilter c post ∧ NoCloneFromWith sp segs c
+
 /-! ## Loading ELF contents -/
 
 /-- An ELF file as LPS's loader reads it. -/

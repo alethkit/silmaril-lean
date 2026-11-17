@@ -205,4 +205,116 @@ theorem oexec_exitT {post : Omni.Post (isaOf oracle)} {core : Silmaril.X86.State
   · simp [Silmaril.Process.LPS.Model.withHalted, Silmaril.Process.LPS.Model.halted]
   · simpa only [List.append_nil] using done
 
+/-! ## Execution with clone freedom -/
+
+theorem noCloneW_successors {isa : UserIsa} {sg : List Segment} {c : Silmaril.Process.LPS.Config isa}
+    (hc : ¬ ClonePending c)
+    (rest : ∀ evs c', SStep sg sp noFilter c evs (.next c') → NoCloneFromWith sp sg c') :
+    NoCloneFromWith sp sg c := by
+  intro tr c'' hs
+  cases hs with
+  | refl => exact hc
+  | step hss hrest => exact rest _ _ hss _ _ hrest
+
+theorem noCloneW_halted {isa : UserIsa} {sg : List Segment} {c : Silmaril.Process.LPS.Config isa}
+    (hh : c.model.halted ≠ none) : NoCloneFromWith sp sg c := by
+  intro tr c' hs
+  cases hs with
+  | refl => exact fun h => hh h.1
+  | step hss => exact (hh (Omni.sstep_from_running hss)).elim
+
+theorem not_clonePending_none {o : Oracle} {core : Silmaril.X86.State} {counter : Nat}
+    {model : Silmaril.Process.LPS.Model} :
+    ¬ ClonePending (P.ocfg o core none counter model) := fun ⟨_, _, hx, _⟩ => by cases hx
+
+theorem not_clonePending_some {o : Oracle} {core : Silmaril.X86.State} {counter : Nat}
+    {model : Silmaril.Process.LPS.Model} {n : Word} (hn : cloneNumber n = false) :
+    ¬ ClonePending (P.ocfg o core (some n) counter model) := fun ⟨_, x8, hx, hc⟩ => by
+  cases hx
+  rw [hn] at hc
+  cases hc
+
+theorem oexecN_instr [Probe.Checked P] {post : Omni.Post (isaOf oracle)} {off len : Nat}
+    {instruction : Silmaril.X86.Ext.Instr} {core core' : Silmaril.X86.State} {counter : Nat}
+    {model : Silmaril.Process.LPS.Model} (running : model.halted = none) (lazy : model.vmLazy = [])
+    (rip : core.rip.toNat = P.base + off) (fits : off + len ≤ P.size) (two : off + 2 ≤ P.size)
+    (notSyscall : (P.bytes.drop off).take 2 ≠ [0x0f, 0x05])
+    (decoded : Silmaril.X86.Ext.decode ((P.bytes.drop off).take len) = some (instruction, len))
+    (exec : Silmaril.X86.Ext.exec instruction core P.mem0 len = .ok core' P.mem0)
+    (rest : ExecN P.segs sp (P.ocfg oracle core' none counter model) post) :
+    ExecN P.segs sp (P.ocfg oracle core none counter model) post := by
+  have succ := fun evs t => (sstep_table_irrel (sp₁ := sp) (sp₂ := Probes.spec) (segs := P.segs)
+    (refused := noFilter) (c := P.ocfg oracle core none counter model) (evs := evs) (t := t) rfl).trans
+    (P.osstep_instr_iff oracle running lazy rip fits two notSyscall decoded exec evs t)
+  refine ⟨Omni.exec_of_unique running succ rest.1, noCloneW_successors (not_clonePending_none P) ?_⟩
+  intro evs c' hs
+  obtain ⟨-, ht⟩ := (succ _ _).1 hs
+  cases ht
+  exact rest.2
+
+theorem oexecN_trap [Probe.Checked P] {post : Omni.Post (isaOf oracle)} {off : Nat}
+    {core : Silmaril.X86.State} {counter : Nat} {model : Silmaril.Process.LPS.Model}
+    (running : model.halted = none) (lazy : model.vmLazy = [])
+    (rip : core.rip.toNat = P.base + off) (two : off + 2 ≤ P.size)
+    (isSyscall : (P.bytes.drop off).take 2 = [0x0f, 0x05])
+    (rest : ExecN P.segs sp (P.ocfg oracle (Probe.complete core (oracle counter))
+      (some (core.read .rax)) (counter + 1) model) post) :
+    ExecN P.segs sp (P.ocfg oracle core none counter model) post := by
+  have succ := fun evs t => (sstep_table_irrel (sp₁ := sp) (sp₂ := Probes.spec) (segs := P.segs)
+    (refused := noFilter) (c := P.ocfg oracle core none counter model) (evs := evs) (t := t) rfl).trans
+    (P.osstep_trap_iff oracle running lazy rip two isSyscall evs t)
+  refine ⟨Omni.exec_of_unique running succ rest.1, noCloneW_successors (not_clonePending_none P) ?_⟩
+  intro evs c' hs
+  obtain ⟨-, ht⟩ := (succ _ _).1 hs
+  cases ht
+  exact rest.2
+
+theorem oexecN_sys {post : Omni.Post (isaOf oracle)} {core : Silmaril.X86.State} {n : Word}
+    {counter : Nat} {model : Silmaril.Process.LPS.Model} {α : Type} {allowed : α → Prop}
+    {ret : α → Word} {copyins : α → List (Word × Nat)} {model' : α → Silmaril.Process.LPS.Model}
+    {events : α → List Event} (other : n ≠ 158) (notClone : cloneNumber n = false)
+    (running : model.halted = none)
+    (live : ∀ x, allowed x → (model' x).halted = none)
+    (lazy : ∀ x, allowed x → (model' x).vmLazy = [])
+    (outcomes : ∀ outcome, sp (P.sysIn core n) model outcome ↔
+      ∃ x, allowed x ∧
+        outcome = .ok ((mkEffect (ret x) [] []).withCopyins (copyins x)) (model' x) (events x))
+    (inhabited : ∃ x, allowed x)
+    (rest : ∀ x, allowed x → ExecN P.segs sp
+      (P.ocfg oracle (Probe.resume core (ret x)) none counter (model' x))
+      (fun trace outcome => post (events x ++ trace) outcome)) :
+    ExecN P.segs sp (P.ocfg oracle core (some n) counter model) post := by
+  have succ := osstep_sys_iff P oracle (counter := counter) other running live lazy outcomes
+  refine ⟨Omni.exec_of_successors running succ inhabited fun x hx => (rest x hx).1,
+    noCloneW_successors (not_clonePending_some P notClone) ?_⟩
+  intro evs c' hs
+  obtain ⟨x, hx, -, ht⟩ := (succ _ _).1 hs
+  cases ht
+  exact (rest x hx).2
+
+theorem oexecN_exit {post : Omni.Post (isaOf oracle)} {core : Silmaril.X86.State}
+    {status : Word} {counter : Nat} {model : Silmaril.Process.LPS.Model}
+    (rdi : core.read .rdi = status) (running : model.halted = none)
+    (outcomes : ∀ outcome, sp (P.sysIn core 60) model outcome ↔
+      Probes.spec (P.sysIn core 60) model outcome)
+    (clear : NativeX86.All.boundarySuspect 60 (P.sysIn core 60) = false)
+    (done : post [.exitEv (status &&& 255) model.fs]
+      (.halt (P.ocfg oracle core (some 60) counter (model.withHalted (status &&& 255))))) :
+    ExecN P.segs sp (P.ocfg oracle core (some 60) counter model) post := by
+  refine ⟨oexec_exitT P oracle rdi running outcomes clear done, ?_⟩
+  subst rdi
+  have succ : ∀ evs t, SStep P.segs sp noFilter (P.ocfg oracle core (some 60) counter model) evs t ↔
+      evs = [.exitEv (core.read .rdi &&& 255) model.fs] ∧
+        t = .next (P.ocfg oracle core (some 60) counter (model.withHalted (core.read .rdi &&& 255))) := by
+    intro evs t
+    refine (sstep_table_congr ?_).trans (P.osstep_exit_iff oracle running clear evs t)
+    intro x8 hx o
+    cases hx
+    exact outcomes o
+  refine noCloneW_successors (not_clonePending_some P (by decide)) ?_
+  intro evs c' hs
+  obtain ⟨-, ht⟩ := (succ _ _).1 hs
+  cases ht
+  exact noCloneW_halted (by simp [Silmaril.Process.LPS.Model.withHalted, Silmaril.Process.LPS.Model.halted])
+
 end Silmaril.Proofs.Containers.Lps.Kit

@@ -5,6 +5,7 @@ public import Silmaril.Containers.Lps.Thms
 public import Silmaril.Containers.HttpOnce.Thms
 public import Silmaril.Containers.Ports.Thms
 import Silmaril.Proofs.Containers.HttpServe.Basic
+import Silmaril.Proofs.Containers.HttpServe.Walk
 
 /-!
 # A self-contained HTTP server: theorems
@@ -30,7 +31,13 @@ the ELF parse). Proofs are in `Silmaril.Proofs.Containers.HttpServe`.
   exactly its declared port `8080` published.
 * **The reduction.** `servesImage_of_sound`: `Task.serverSound` (the program's LPS executions)
   implies `Task.servesImage` (no undefined behaviour, and `serveSpec` on every exiting run of the
-  image). `Task.serverSound` is open.
+  image).
+* **The launch-to-loop walk.** `serverSound_of_loop`: from every admissible launch, under every
+  flag oracle, the program's instructions through `socket`, `bind` (8080 published), `listen` and
+  `accept` are followed with the kit rules; every injected failure exits with its status (10, 11,
+  13; nothing sent) and no path creates a task, so `Task.serverLoop` (the send loop and the drain,
+  from the loop's entry) implies `Task.serverSound`. `servesImage_of_loop` composes the two.
+  `Task.serverLoop` is open.
 
 What `examples/containers/http-serve/docker-test.sh` tests (not proves): Docker loads the image
 with the proved ID, the container listens on 8080 itself, `curl` receives exactly the 40-octet
@@ -118,5 +125,13 @@ theorem published_load : Ports.ociRuntime.load image = .ok (probe.snapshot, [808
 /-- **The image obligation reduces to the program obligation.** -/
 theorem servesImage_of_sound (h : Task.serverSound) : Task.servesImage :=
   Silmaril.Proofs.Containers.HttpServe.servesImage_of_sound h
+
+/-- **From the launch to the send loop.** -/
+theorem serverSound_of_loop (h : Task.serverLoop) : Task.serverSound :=
+  Silmaril.Proofs.Containers.HttpServe.Walk.serverSound_of_loop h
+
+/-- **What remains for the image is the send loop and the drain.** -/
+theorem servesImage_of_loop (h : Task.serverLoop) : Task.servesImage :=
+  servesImage_of_sound (serverSound_of_loop h)
 
 end Silmaril.Containers.HttpServe
