@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.SpecTec.Sim.Round9.ElseLift.Defs
 public import Silmaril.Wasm.SpecTec.Sim.Round9.CoreStrip.Defs
+public import Silmaril.Wasm.SpecTec.Sim.Round9.ElseRef.Defs
 
 /-!
 # Round 9, REH: lifting SpecTec derivations backward along export erasure (definitions)
@@ -106,5 +107,55 @@ def RuleLift (env : Env) (O : ElseI) (Prov : IL.Id → Value → Prop) (x : IL.I
     QuantsOk env (ρ₀.bindVals σ) qs → EvalExp env (ρ₀.bindVals σ) e' v₀ →
     (∀ pr ∈ prems, DPremL env O Prov (O x args i v₀) (ρ₀.bindVals σ) pr) →
     LiftV env O Prov x op args v₀
+
+/-! ## The first rule family: rebinding the state -/
+
+/-- **A `Step_read` rule lifted by rebinding its state.** It passes `ElseBwd.simpleRuleE`: every
+conclusion alternative is `(z; L, R)` with `z` a `state` quantifier and every other quantifier of
+export-free type, and every premise is an `if` outside the binding sites or `otherwise`. And at
+every alternative, `L` passes the flow check (`NxTyped.tyOk`, `NxFlow.auxE`) and is export-free
+(`NxSites.nxE`), so its value has no export list: then `L`'s value on the erased side *is* the
+original instructions, and only `z` needs rebinding, to the original state. -/
+def liftSimple : Rule → Bool
+  | .ruleD nm qs op e prems =>
+    ElseBwd.simpleRuleE (.ruleD nm qs op e prems) &&
+      (conclAlts e).all fun e' => match ElseBwd.cfgVar e' with
+        | some (_, l) => NxTyped.tyOk NxTyped.sigX NxTyped.tsigFixed (NxSites.quantsΓ qs) l &&
+            NxFlow.auxE NxRule.ctx0 l && NxSites.nxE NxTyped.sigX (NxSites.quantsΓ qs) l
+        | none => false
+
+/-- The indices of the `Step_read` rules of `m` that pass `liftSimple`. -/
+def liftSimpleIdx (m : Map RelDef) : List Nat :=
+  m.flatMap fun p => if p.1 != "Step_read" then [] else
+    (List.range p.2.2.2.2.length).filter fun i => match p.2.2.2.2[i]? with
+      | some r => liftSimple r
+      | none => false
+
+/-- **The `Step_read` rules of the fixed script that pass `liftSimple`** (74 of 103,
+`Round9.DerLift.liftSimpleIdx_fixed`). The 29 others: `block`, `loop` (0, 1), the four
+`br_on_cast` rules (2–5), `return_call_ref` at a label, handler or frame (8–11), `throw_ref` at
+instructions, a label or a frame (13–15), `try_table` (22), `vload-pack-val` (45),
+`ref.test`/`ref.cast` (65–68), `struct.new_default` (69), `struct.get-struct` (71),
+`array.new_default` (72), `array.new_data` (75, 76), `array.get-array` (79), `array.copy-le`,
+`array.copy-gt` (91, 92), `array.init_data-oob2`, `array.init_data-num` (100, 102). -/
+def liftSimpleRules : List Nat :=
+  [6, 7, 12, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+    38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62,
+    63, 64, 70, 73, 74, 77, 78, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 93, 94, 95, 96, 97, 98,
+    99, 101]
+
+/-- Every rule of every `Step_read` entry of `m` at an index of `l` passes `liftSimple`. -/
+def liftSimpleIs (m : Map RelDef) (l : List Nat) : Bool :=
+  m.all fun p => p.1 != "Step_read" || l.all fun i => match p.2.2.2.2[i]? with
+    | some r => liftSimple r
+    | none => false
+
+/-! ## What is left -/
+
+/-- **The rule obligations left** (open): `RuleLift` at every rule of `Step` (36 rules) and
+`Step_pure`, and at the 29 rules of `Step_read` outside `liftSimpleRules`. With the provenance of
+the original image, it gives `CoreStrip.EraseBwdAt` (`Round9.DerLift.eraseBwdAt_of_rest`). -/
+def RuleLiftRest (env : Env) (O : ElseI) (Prov : IL.Id → Value → Prop) : Prop :=
+  ∀ x i, liftRel x = true → ¬ (x = "Step_read" ∧ i ∈ liftSimpleRules) → RuleLift env O Prov x i
 
 end Silmaril.Wasm.SpecTec.Sim.Round9.DerLift
