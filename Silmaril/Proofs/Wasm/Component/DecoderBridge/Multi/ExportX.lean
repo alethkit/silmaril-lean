@@ -112,7 +112,7 @@ theorem exportRefX_of (hA : Task.exportIR) (hB : Task.coreRunShared) (hC : Task.
   subst ha
   obtain ⟨p, hpj, -⟩ := forall₂_getElem?_left hxs hxj
   obtain ⟨y, hy₁, hy₂⟩ := hB b c r ps xs j p x g U nm ai c' _ hpc hr hf himp hnodes hxs hpj hxj
-    hP hai hrun hst
+    hP (hU ▸ hN.core.1) hai hrun hst
   rw [← hU] at hy₁
   obtain ⟨ι, hι, hok⟩ := hN.insts
   obtain ⟨M', hS, hh⟩ := hC M fid (g.fnMap ai) ty y v hN.ctl hN.lock hN.depth ⟨ι, hι, hok⟩ hN.calls.1

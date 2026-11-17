@@ -273,12 +273,14 @@ def Task.exportIR : Prop :=
           Silmaril.Wasm.Component.Engine.CoreEngine.Steps irEng (x.store, irEng.invoke a []) c' ∧
           irEng.status c'.1 c'.2 = .returned (.values [⟨.int .i32, v⟩]) ∧ ws = [.u32 v]
 
-/-- **Open goal, the node's run in the shared core store**: in the fragment, a host-free run of
-an exported function of node `j` from the store its start function left, returning the values
-`ys`, is a host-free run of the relocated function from the shared core store (the node's store
-relocated along the gap `g`, followed by the objects `U` of later nodes), returning `ys`. (Without
-memories or tables only fresh structures and arrays, allocated past `U`, are not at the relocated
-addresses.) -/
+/-- **The node's run in the shared core store** (proved: `MultiX.Thms.coreRunShared`): in the
+fragment, a host-free run of an exported function of node `j` from the store its start function
+left, returning the values `ys`, is a host-free run of the relocated function from the shared core
+store (the node's store relocated along the gap `g`, followed by the objects `U` of later nodes,
+typed), returning `ys`. (Without memories or tables only fresh structures and arrays, allocated
+past `U`, are not at the relocated addresses. The reference engine's steps are its interpreter's,
+complete for the relational semantics on typed stores: hence the typing of the shared store, which
+`NodesInv` records.) -/
 def Task.coreRunShared : Prop :=
   ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
     (ps : List (Binary.CoreMod × List Impl)) (xs : List NodeRun) (j : Nat)
@@ -289,6 +291,8 @@ def Task.coreRunShared : Prop :=
     List.Forall₂ (fun q x => NodeEnd hostI.length q.1 q.2 x) ps xs →
     ps[j]? = some p → xs[j]? = some x →
     g.PreOk (Silmaril.Proofs.Wasm.Component.Reference.Store.mapH gL x.store).funcs →
+    Silmaril.Wasm.Execution.Core.StoreOk
+      (Store.app (g.rel (Silmaril.Proofs.Wasm.Component.Reference.Store.mapH gL x.store)) U) →
     (irEng.exports x.minst).lookup nm = some (.func a) →
     Silmaril.Wasm.Component.Engine.CoreEngine.Steps irEng (x.store, irEng.invoke a []) c' →
     irEng.status c'.1 c'.2 = .returned (.values ys) →

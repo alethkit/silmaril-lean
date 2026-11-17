@@ -4,6 +4,7 @@ public import Silmaril.Wasm.Component.DecoderBridge.MultiX.Defs
 public import Silmaril.Wasm.Component.DecoderBridge.Multi.Thms
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.ExportX
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.CallLift
+import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.RunShared
 
 /-!
 # The instantiation on `MultiImpFrag` with its invariant: theorems
@@ -92,5 +93,16 @@ core store.** -/
 theorem startAdequacyFrag_of_IR (hA : Task.exportIR) (hB : Task.coreRunShared) :
     Task.startAdequacyFrag :=
   startAdequacyFrag_of_parts hA hB callLift
+
+/-- **The node's run in the shared core store** (`Multi.RunShared`): from the split store the
+node's start function leaves (`RunInv`, `nodeEnd_own`), along the gap (`steps_gap`) and into the
+store extended by later nodes' objects (`Linking.Split.step_sim`), then as an interpreter run of
+the typed shared store. -/
+theorem coreRunShared : Task.coreRunShared :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.coreRunShared
+
+/-- **The start goal on the fragment from the IR's export phase** (the remaining open piece). -/
+theorem startAdequacyFrag_of_exportIR (hA : Task.exportIR) : Task.startAdequacyFrag :=
+  startAdequacyFrag_of_IR hA coreRunShared
 
 end Silmaril.Wasm.Component.DecoderBridge

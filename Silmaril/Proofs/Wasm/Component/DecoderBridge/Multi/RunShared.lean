@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Wasm.Component.DecoderBridge.MultiX.Defs
 public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.GapMachine
-public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.Compose
+public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.ExportX
 public import Silmaril.Proofs.Wasm.Component.Reference.SplitInit
 public import Silmaril.Proofs.Wasm.Game.Machine.Profile
 
@@ -365,5 +365,203 @@ theorem nodeSplit_frag {b : ByteArray} {c : Comp Binary.CoreMod} {r : Conformanc
   exact nodeSplit_all hN hsn
 
 end Node
+
+/-! ## The run in the shared store -/
+
+section Helpers
+
+open Silmaril.Wasm.SingleThreaded (status runC internalC)
+
+/-- An interpreter run is a run of interpreter steps. -/
+theorem steps_of_runC {stepC : Config H → Option (Config H)} :
+    ∀ (n : Nat) {s s' : Store H} {t t' : Silmaril.Wasm.SingleThreaded.Thread}
+      {st : Silmaril.Wasm.SingleThreaded.Status H},
+      runC stepC n s t = (s', t', st) →
+      Relation.ReflTransGen (fun p q => internalC stepC p = some q) (s, t) (s', t')
+  | 0, s, s', t, t', st, h => by
+    simp only [runC, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl, -⟩ := h
+    exact .refl
+  | n + 1, s, s', t, t', st, h => by
+    simp only [runC] at h
+    split at h
+    · split at h
+      · rename_i s₁ t₁ hi
+        exact .head hi (steps_of_runC n h)
+      · simp only [Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl, -⟩ := h
+        exact .refl
+    · simp only [Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl, -⟩ := h
+      exact .refl
+
+theorem status_of_vals {o : Silmaril.Wasm.SingleThreaded.GrowOracle} {s : Store H}
+    {t : Silmaril.Wasm.SingleThreaded.Thread} {ws : List Val} (h : (t.config s).code = vals ws) :
+    status o s t = .returned (.values ws) := by
+  have hex : ∃ vs, (t.config s).code = vals vs := ⟨_, h⟩
+  unfold status
+  dsimp only
+  rw [dite_eq_left hex, Silmaril.Wasm.SingleThreaded.vals_injective (hex.choose_spec.symm.trans h)]
+
+theorem toAdmin_ne_callRefType (v : Val) (d : DefType) : v.toAdmin ≠ .callRefType d := by
+  rcases v with ⟨⟨_ | _⟩, _⟩ | _ | _ <;> simp [Val.toAdmin]
+
+theorem invoke_code_ne_vals (s : Store H) (a : Nat) (ws : List Val) :
+    (invoke s a []).code ≠ vals ws := by
+  intro h
+  have hm : Admin.callRefType ((s.funcs[a]?.map FuncInst.type).getD default) ∈ vals ws := by
+    rw [← h]
+    simp [invoke]
+  simp only [vals, List.mem_map] at hm
+  obtain ⟨v, -, hv⟩ := hm
+  exact toAdmin_ne_callRefType v _ hv
+
+theorem toFlat?_ren (ρ : Ren) (δ : GShift) (v : Val) :
+    Silmaril.Wasm.SingleThreaded.toFlat? (ρ.val (δ.val v)) =
+      Silmaril.Wasm.SingleThreaded.toFlat? v := by
+  cases v <;> rfl
+
+theorem mapM_toFlat?_ren (ρ : Ren) (δ : GShift) :
+    ∀ vs : List Val, ((vs.map δ.val).map ρ.val).mapM Silmaril.Wasm.SingleThreaded.toFlat? =
+      vs.mapM Silmaril.Wasm.SingleThreaded.toFlat?
+  | [] => rfl
+  | v :: vs => by
+    simp only [List.map_cons, List.mapM_cons, toFlat?_ren, mapM_toFlat?_ren ρ δ vs]
+
+end Helpers
+
+section Shared
+
+open Silmaril.Wasm.Component Silmaril.Wasm.Component.DecoderBridge Silmaril.Wasm.Component.Reference
+open Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime
+open Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstImp (gL)
+open Silmaril.Wasm.SingleThreaded (Internal status neverFail profile runC internalC)
+
+local notation "CH" => Silmaril.Wasm.Component.Runtime.CanonHost
+  (Silmaril.Wasm.Component.Engine.core3 Silmaril.Wasm.SingleThreaded.neverFail)
+
+/-- **A node's run in the shared store**: a host-free run of an IR function from a split store
+returning values is an interpreter run of the relocated function in the store relocated along
+the gap and extended by `U` (typed), returning the same values. -/
+theorem runShared {x : Store Nat} {O : Own} (hok : OwnOk O x)
+    (hfn : ∀ a, a < x.funcs.length → O.fn a) (g : Gap CH) (U : Store CH)
+    (hP : g.PreOk (Store.mapH gL x).funcs) (hS : StoreOk (Store.app (g.rel (Store.mapH gL x)) U))
+    {a : Nat} {c' : irEng.Config Nat} {ys : List FlatValue}
+    (hrun : Engine.CoreEngine.Steps irEng (x, irEng.invoke a []) c')
+    (hst : irEng.status c'.1 c'.2 = .returned (.values ys)) :
+    ∃ y : (core3 neverFail).Config CH,
+      Engine.CoreEngine.Steps (core3 neverFail)
+        (Store.app (g.rel (Store.mapH gL x)) U, (core3 neverFail).invoke (g.fnMap a) []) y ∧
+      (core3 neverFail).status y.1 y.2 = .returned (.values ys) := by
+  obtain ⟨s₀, t₀⟩ := c'
+  unfold Engine.CoreEngine.Steps at hrun
+  rw [internalP_eqN] at hrun
+  obtain ⟨s₁, hs₁⟩ : ∃ s₁ : Store Nat, s₁ = s₀ := ⟨s₀, rfl⟩
+  subst hs₁
+  obtain ⟨t₁, ht₁⟩ : ∃ t₁ : Silmaril.Wasm.SingleThreaded.Thread, t₁ = t₀ := ⟨t₀, rfl⟩
+  subst ht₁
+  have hrun' : Relation.ReflTransGen (Internal neverFail)
+      (x, Silmaril.Wasm.SingleThreaded.Thread.invoke a []) (s₁, t₁) := hrun
+  -- the IR's end: values
+  obtain ⟨r', hr'⟩ := FirstImp.flatStatus_returned hst
+  have hend' : flatStatus (Silmaril.Wasm.Game.statusP (profile neverFail) s₁ t₁) =
+      .returned (.values ys) := hst
+  rw [hr'] at hend'
+  obtain ⟨vs, rfl, hvs⟩ : ∃ vs, r' = .values vs ∧
+      vs.mapM Silmaril.Wasm.SingleThreaded.toFlat? = some ys := by
+    rcases r' with vs | _
+    · simp only [flatStatus] at hend'
+      cases hm : vs.mapM Silmaril.Wasm.SingleThreaded.toFlat? with
+      | none => rw [hm] at hend'; cases hend'
+      | some fvs' =>
+        rw [hm] at hend'
+        cases hend'
+        exact ⟨vs, rfl, hm⟩
+    · simp only [flatStatus] at hend'
+      cases hend'
+  have hs' : status neverFail s₁ t₁ = .returned (.values vs) :=
+    (FirstImp.statusP_profile s₁ t₁).symm.trans hr'
+  -- the first step: the callee and its type
+  obtain ⟨fi, ps, rs, hfi, hexp, hps⟩ : ∃ (fi : FuncInst Nat) (ps rs : Ty (.list .val)),
+      x.funcs[a]? = some fi ∧ Expand fi.type (.func ps rs) ∧ ps.toList = [] := by
+    rcases Relation.ReflTransGen.cases_head hrun' with he | ⟨y, hy, -⟩
+    · exfalso
+      cases he
+      exact invoke_code_ne_vals x a vs (Silmaril.Wasm.SingleThreaded.status_returned_values hs')
+    · obtain ⟨s₂, t₂⟩ := y
+      obtain ⟨f₂, code₂, -, hs⟩ := hy
+      obtain ⟨pre, args, fi, ps, rs, code, hv, hfi, hexp, hn, -, -⟩ :=
+        Silmaril.Proofs.Wasm.Game.invoke_step_shape hs
+      have hargs : args = [] := (List.append_eq_nil_iff.mp hv.symm).2
+      subst hargs
+      refine ⟨fi, ps, rs, hfi, hexp, ?_⟩
+      exact List.eq_nil_of_length_eq_zero hn.symm
+  have ha : a < x.funcs.length := (List.getElem?_eq_some_iff.mp hfi).1
+  have hOa := hfn a ha
+  -- the run with renamed host code, along the gap
+  have h₁ : Relation.ReflTransGen (Step (profile neverFail) noHost)
+      (invoke (Store.mapH gL x) a []) (t₁.config (Store.mapH gL s₁)) :=
+    FirstCore.steps_of_internal (internal_mapH hrun')
+  have hg₀ : SplitGood (invoke (Store.mapH gL x) a []) :=
+    ⟨Ren.id, O, _, (hok.mapH gL).partRel_app {}, (invoke_good_of hOa).1, (invoke_good_of hOa).2⟩
+  have hinj := fnMap_injective g (PreOk.le_pre g hP)
+  obtain ⟨h₂, -, -⟩ := steps_gap g h₁ hg₀ hP hinj
+  rw [← invoke_gap g hP a] at h₂
+  -- into the store extended by `U`
+  have hO₁ := (hok.mapH gL).gap g hP
+  have hgood₁ := invoke_good_of (O := Own.gap g O) (t := g.rel (Store.mapH gL x))
+    (a := g.sh.fn a) ⟨a, hOa, rfl⟩
+  obtain ⟨ρ', O', σ', h₃, -, -, -⟩ := steps_part h₂ (hO₁.partRel_app U) hgood₁.1 hgood₁.2
+  have hfi₁ : (g.rel (Store.mapH gL x)).funcs[g.sh.fn a]? =
+      some (g.sh.finst (FuncInst.mapH gL fi)) :=
+    funcs_gap_of g hP (by simp [Store.mapH, hfi])
+  have hfi₂ : (Store.app (g.rel (Store.mapH gL x)) U).funcs[g.sh.fn a]? =
+      some (g.sh.finst (FuncInst.mapH gL fi)) := getElem?_app_left hfi₁
+  have e₀ : (⟨Store.app (g.rel (Store.mapH gL x)) U,
+      Ren.id.frame (invoke (g.rel (Store.mapH gL x)) (g.sh.fn a) []).frame,
+      Ren.id.code (invoke (g.rel (Store.mapH gL x)) (g.sh.fn a) []).code⟩ : Config CH) =
+      invoke (Store.app (g.rel (Store.mapH gL x)) U) (g.sh.fn a) [] := by
+    simp only [invoke]
+    rw [hfi₁, hfi₂]
+    simp [Ren.frame, vals]
+  rw [e₀] at h₃
+  -- the end: values
+  have hcode : (t₁.config (Store.mapH gL s₁)).code = vals vs := by
+    rw [FirstImp.code_config_mapHG]
+    exact Silmaril.Wasm.SingleThreaded.status_returned_values hs'
+  obtain ⟨t', hr, ht'⟩ := FirstCore.internal_of_steps (o := neverFail)
+    (t := Silmaril.Wasm.SingleThreaded.Thread.invoke (g.sh.fn a) []) h₃
+  have hcode' : (t'.config σ').code = vals ((vs.map g.sh.val).map ρ'.val) := by
+    rw [ht']
+    show ρ'.code (g.sh.code (t₁.config (Store.mapH gL s₁)).code) = _
+    rw [hcode, GShift.code_vals, Ren.code_vals]
+  have hstat := status_of_vals (o := neverFail) hcode'
+  -- typing of the shared store
+  obtain ⟨-, ps', rs', -, -, hok₀⟩ := Silmaril.Wasm.Execution.Core.invoke_ok hS
+    ⟨_, ps, rs, hfi₂, hexp, by rw [hps]; exact .nil⟩
+  have hok₁ : ConfigOk ((Silmaril.Wasm.SingleThreaded.Thread.invoke (g.sh.fn a) []).config
+      (Store.app (g.rel (Store.mapH gL x)) U)) rs'.toList := hok₀
+  obtain ⟨n, hn⟩ := FirstCore.runCI_complete (I := fun c => ConfigOk c rs'.toList)
+    Silmaril.Wasm.SingleThreaded.Exec.typedInv' hok₁ hr (by rw [hstat]; nofun)
+  obtain ⟨-, hok', -⟩ := Silmaril.Wasm.SingleThreaded.Exec.runCI_sound_typed n _ _ hok₁ hn
+  refine ⟨(σ', t'), steps_of_runC n hn, ?_⟩
+  show Silmaril.Wasm.Component.Engine.Core3.statusE neverFail σ' t' = _
+  rw [FirstImp.statusE_flat, Silmaril.Wasm.SingleThreaded.Exec.statusI_eq_typed hok', hstat]
+  simp only [flatStatus, mapM_toFlat?_ren, hvs]
+
+end Shared
+
+/-! ## `Task.coreRunShared` -/
+
+open Silmaril.Wasm.Component Silmaril.Wasm.Component.DecoderBridge in
+/-- **`Task.coreRunShared`.** -/
+theorem coreRunShared : Task.coreRunShared := by
+  intro b c r ps xs j p x g U nm a c' ys hpc hr hf _ hnodes hxs hpj hxj hP hS _ hrun hst
+  obtain ⟨x', hx', hend⟩ := forall₂_getElem? hxs hpj
+  rw [hxj] at hx'
+  cases hx'
+  obtain ⟨hsplit, hfun⟩ := nodeSplit_frag hpc hr hf hnodes p (List.mem_of_getElem? hpj)
+  obtain ⟨O, hok, hfn⟩ := nodeEnd_own hend hsplit hfun
+  exact runShared hok hfn g U hP hS hrun hst
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi
