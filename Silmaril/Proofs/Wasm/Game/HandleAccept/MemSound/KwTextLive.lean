@@ -5,12 +5,14 @@ public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.LiveItems
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.AtomsLive
 
 /-!
-# Proofs: `kwTextMod` accepts the keyword `hi`
+# Proofs: `kwTextMod` accepts every keyword of two UTF-8 bytes
 
-The session of `Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.TextLive` with `keyword_text`:
-against `itemsEnv 0x6968 0` the host writes `(8, 2)` at `[0, 8)` and the bytes `68 69` at
-`[8, 10)`; `keyword_text(h, 0)` is decoded as the read of the keyword `hi`, the length is `2`,
-and `accept(h)` follows.
+The session of `Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.TextLive` with `keyword_text`,
+for any two bytes `b₀ b₁` whose UTF-8 text is `s`: against `itemsEnv (kwWord b₀ b₁) 0` the host
+writes `(8, 2)` at `[0, 8)` and the bytes `b₀ b₁` at `[8, 10)` (`take2_encodeLE`);
+`keyword_text(h, 0)` is decoded as the read of the keyword `s`, the length is `2`, and
+`accept(h)` follows (`kwText_traces`). `kwTextMod_live` accepts every member of `twoByteKws`
+named by some fixed environment; the keyword `hi` is the instance `0x68 0x69`.
 -/
 
 @[expose] public section
@@ -36,6 +38,26 @@ open Silmaril.Wasm.Logic.Core (bytesAt leNat)
 
 /-- The keyword `hi`. -/
 abbrev hiKw : KwAtom := ⟨.keyword, by decide, "hi"⟩
+
+/-- The keyword of the text `s`. -/
+abbrev kwOf (s : String) : KwAtom := ⟨.keyword, by decide, s⟩
+
+/-- The `i32` whose two low little-endian bytes are `b₀ b₁` (the high bytes zero). -/
+def kwWord (b₀ b₁ : UInt8) : BitVec 32 := BitVec.ofNat 32 (b₀.toNat + 256 * b₁.toNat)
+
+/-- The first two little-endian bytes of `kwWord b₀ b₁` are `b₀ b₁`. -/
+theorem take2_encodeLE (b₀ b₁ : UInt8) :
+    ((Memory.encodeLE 4 (kwWord b₀ b₁).toNat).data.toList).take 2 = [b₀, b₁] := by
+  have h₀ := b₀.toNat_lt
+  have h₁ := b₁.toNat_lt
+  have hn : (kwWord b₀ b₁).toNat = b₀.toNat + 256 * b₁.toNat := by
+    unfold kwWord
+    rw [BitVec.toNat_ofNat]
+    exact Nat.mod_eq_of_lt (by omega)
+  rw [hn, Silmaril.Wasm.Logic.Core.toList_encodeLE, show List.range 4 = [0, 1, 2, 3] from rfl]
+  simp only [List.map_cons, List.map_nil, List.take_succ_cons, List.take_zero]
+  refine congrArg₂ (· :: ·) ?_ (congrArg₂ (· :: ·) ?_ rfl) <;> apply UInt8.toNat_inj.mp <;>
+    simp; omega
 
 theorem kwTextSpec_some : (Silmaril.Wasm.Verify.specInstance? kwTextMod).isSome = true := by
   decide +kernel
@@ -66,10 +88,11 @@ theorem kwText_param {c : Config Nat} {st : Option FuncIdx} (hp : prep kwTextMod
   exact of_decide_eq_true h
 
 /-- **The reader trace of the session.** -/
-theorem kwText_traces (P : Profile) (h : BitVec 32) :
-    [.enter, .read (.atom h) (.atom hiKw), .accept h] ∈
+theorem kwText_traces (P : Profile) (h : BitVec 32) {x₀ x₁ : UInt8} {str : String}
+    (hu : utf8? [x₀, x₁] = some str) :
+    [.enter, .read (.atom h) (.atom (kwOf str)), .accept h] ∈
       kwTextTraces P (ReplyEnvs itemsReply) 0 kwTextMod {} := by
-  let h₁ : BitVec 32 := 0x6968
+  let h₁ : BitVec 32 := kwWord x₀ x₁
   let h₂ : BitVec 32 := 0
   obtain ⟨mt, Is, c₀, hI⟩ := spec_exists kwTextSpec_some
   obtain ⟨c, st, hp, rfl, -, haddr⟩ := prep_of_spec hI
@@ -236,21 +259,21 @@ theorem kwText_traces (P : Profile) (h : BitVec 32) :
       (vals [.i32 h] ++ [.ref (.func 1), .callRefType f₁.type])⟩ =
       some (calloutIn ⟨"sexp", "accept", .func ⟨1⟩⟩ (some 0) s₁ [.i32 h]) := by
     unfold calloutAt?; rw [hd₂]; rfl
-  have hlist : bytesList b₄ 0 = some [0x68, 0x69] := by
+  have hlist : bytesList b₄ 0 = some [x₀, x₁] := by
     unfold bytesList
     have e₀ : segOf b₄ 0 8 = some ((Memory.encodeLE 4 (8 : BitVec 32).toNat).data.toList ++
         (Memory.encodeLE 4 (2 : BitVec 32).toNat).data.toList) := by
       unfold segOf
       rw [readBytes_toList (by rw [hz₄]; decide),
         show (8 : Nat) = 4 + 4 from rfl, bytesAt_append, h8, h2b]
-    have e₁ : segOf b₄ (8 : BitVec 32).toNat (2 : BitVec 32).toNat = some [0x68, 0x69] := by
+    have e₁ : segOf b₄ (8 : BitVec 32).toNat (2 : BitVec 32).toNat = some [x₀, x₁] := by
       unfold segOf
       rw [show (8 : BitVec 32).toNat = 8 from rfl, show (2 : BitVec 32).toNat = 2 from rfl,
         readBytes_toList (by rw [hz₄]; decide)]
       have : bytesAt b₄ ⟨8, 2⟩ = (bytesAt b₄ ⟨8, 4⟩).take 2 := by
         simp [bytesAt, List.take_take]
       rw [this, hh₁]
-      decide
+      exact congrArg some (take2_encodeLE x₀ x₁)
     simp only [Option.bind_eq_bind, e₀, Option.bind_some]
     rw [le32s_encode, ← List.append_nil (Memory.encodeLE 4 (2 : BitVec 32).toNat).data.toList,
       le32s_encode]
@@ -258,9 +281,9 @@ theorem kwText_traces (P : Profile) (h : BitVec 32) :
     exact e₁
   have hrd : kwTextRead {} (calloutIn ⟨"sexp", "keyword_text", .func ⟨0⟩⟩ (some 0) c.store
       [.i32 h, .i32 0]) ⟨.values [], memOf (some 0) s₁⟩ =
-      some (.read (.atom h) (.atom hiKw)) := by
+      some (.read (.atom h) (.atom (kwOf str))) := by
     have hm : memOf (some 0) s₁ = some b₄ := memOf_setMem hml
-    simp [kwTextRead, calloutIn, Val.i32, kwTextAns, hm, hlist, utf8_hi, hiKw]
+    simp [kwTextRead, calloutIn, Val.i32, kwTextAns, hm, hlist, hu, kwOf]
   have hna : kwTextAccept {} (calloutIn ⟨"sexp", "keyword_text", .func ⟨0⟩⟩ (some 0) c.store
       [.i32 h, .i32 0]) = none := by
     simp [kwTextAccept, calloutIn]
@@ -275,21 +298,40 @@ theorem kwText_traces (P : Profile) (h : BitVec 32) :
   rw [hna, hrd, hac]
   rfl
 
-/-- **`kwTextMod` accepts the keyword `hi`** whenever a fixed environment of `Rhos` names it,
-for every profile and accept policy. -/
-theorem kwTextMod_live (P : Profile) (oa : OnInvalid)
+/-- **`kwTextMod` accepts the keyword of every two-byte UTF-8 text** `b₀ b₁` whenever a fixed
+environment of `Rhos` names it, for every profile and accept policy. -/
+theorem kwTextMod_live_of (P : Profile) (oa : OnInvalid)
     {Rhos : Set (Env (BitVec 32) SymStrKwBytesSExp)} {ρ : Env (BitVec 32) SymStrKwBytesSExp}
-    (hρ : ρ ∈ Rhos) {h : BitVec 32} (e : ρ h = some (.atom hiKw)) :
-    .atom hiKw ∈ kwTextReaderLang P (ReplyEnvs itemsReply) 0 kwTextMod {} .trap oa Rhos := by
+    (hρ : ρ ∈ Rhos) {h : BitVec 32} {b₀ b₁ : UInt8} {str : String}
+    (hu : utf8? [b₀, b₁] = some str) (e : ρ h = some (.atom (kwOf str))) :
+    .atom (kwOf str) ∈ kwTextReaderLang P (ReplyEnvs itemsReply) 0 kwTextMod {} .trap oa Rhos := by
   have hans : answers (sexpR KwAtom (BitVec 32)) .trap ρ (.atom h) =
       some {a | (sexpR KwAtom (BitVec 32)).ok ρ (.atom h) a} := by
     unfold answers
     split_ifs with hv
     · rfl
-    · exact absurd ⟨hiKw, e⟩ hv
+    · exact absurd ⟨kwOf str, e⟩ hv
   simp only [kwTextReaderLang, readerLang, langOver, Host.lang]
-  refine Set.mem_iUnion.2 ⟨⟨ρ, hρ⟩, Set.mem_biUnion (kwText_traces P h)
+  refine Set.mem_iUnion.2 ⟨⟨ρ, hρ⟩, Set.mem_biUnion (kwText_traces P h hu)
     ⟨_, _, .cons .enter
-    (.cons (.read hans e) (.cons (.acceptOk (t := .atom hiKw) e) (.nil _))), by simp⟩⟩
+    (.cons (.read hans e) (.cons (.acceptOk (t := .atom (kwOf str)) e) (.nil _))), by simp⟩⟩
+
+/-- **`kwTextMod` accepts the keyword `hi`** whenever a fixed environment of `Rhos` names it. -/
+theorem kwTextMod_live (P : Profile) (oa : OnInvalid)
+    {Rhos : Set (Env (BitVec 32) SymStrKwBytesSExp)} {ρ : Env (BitVec 32) SymStrKwBytesSExp}
+    (hρ : ρ ∈ Rhos) {h : BitVec 32} (e : ρ h = some (.atom hiKw)) :
+    .atom hiKw ∈ kwTextReaderLang P (ReplyEnvs itemsReply) 0 kwTextMod {} .trap oa Rhos :=
+  kwTextMod_live_of P oa hρ utf8_hi e
+
+/-- **Every two-byte keyword named in `Rhos` is accepted.** -/
+theorem twoByteKws_subset (P : Profile) (oa : OnInvalid)
+    {Rhos : Set (Env (BitVec 32) SymStrKwBytesSExp)}
+    (hR : ∀ x ∈ twoByteKws, ∃ ρ ∈ Rhos, ∃ h, ρ h = some x) :
+    twoByteKws ⊆ kwTextReaderLang P (ReplyEnvs itemsReply) 0 kwTextMod {} .trap oa Rhos := by
+  rintro x hx
+  obtain ⟨ρ, hρ, h, e⟩ := hR x hx
+  obtain ⟨bs, str, hl, hu, rfl⟩ := hx
+  match bs, hl with
+  | [b₀, b₁], _ => exact kwTextMod_live_of P oa hρ hu e
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.KwText

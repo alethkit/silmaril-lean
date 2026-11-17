@@ -106,4 +106,24 @@ def hintedMod : Module where
 /-- The atom `[hi]hi`: hint `hi`, octets `hi`. -/
 def hiHinted : Hinted := (some [0x68, 0x69], [0x68, 0x69])
 
+/-! ## Hint and octets from separate segments -/
+
+/-- The body of `run` in `hintedSepMod`: store `68 69 61 62` (`hiab`, one little-endian `i32`) at
+`[0, 4)`; `accept(hinted(0, 2, 2, 2))`: the hint from `[0, 2)`, the octets from `[2, 4)`. -/
+def hintedSepBody : List Instr :=
+  [.intConst .i32 0, .intConst .i32 0x62616968, .intStore .i32 none ⟨0⟩ ⟨0, 0⟩,
+   .intConst .i32 0, .intConst .i32 2, .intConst .i32 2, .intConst .i32 2, .call ⟨0⟩,
+   .call ⟨1⟩]
+
+/-- **The module `hintedSepMod`**: as `hintedMod`, with hint and octets in disjoint segments. -/
+def hintedSepMod : Module where
+  types := [tyHinted, tyAcc, tyRun]
+  imports := [⟨"sexp", "hinted", .func ⟨0⟩⟩, ⟨"sexp", "accept", .func ⟨1⟩⟩]
+  memories := [⟨.i32, ⟨1, none⟩⟩]
+  funcs := [⟨⟨2⟩, [], hintedSepBody⟩]
+  exports := [⟨"run", .func ⟨2⟩⟩]
+
+/-- The atom `[hi]ab`: hint `hi`, octets `ab`. -/
+def hiabHinted : Hinted := (some [0x68, 0x69], [0x61, 0x62])
+
 end Silmaril.Wasm.Game.HandleAccept.MemSound.Hinted

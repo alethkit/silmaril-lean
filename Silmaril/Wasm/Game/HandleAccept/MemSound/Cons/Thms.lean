@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.Cons.Defs
 public import Silmaril.Semantics.Accept.Handle.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ConsLive
+import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ConsMixLive
 
 /-!
 # The cons API through linear memory: bridges, soundness and non-vacuity
@@ -23,6 +24,11 @@ profile, against every environment admitted by `consReply`:
 * `consMod_live`: it accepts `(hi)`, for every policy (traced session against the counting host);
 * `consMod_lang`: **its writer language is exactly `{(hi)}`** (no sentinel, no undefined
   behaviour).
+
+**Mixed atom kinds: `consMix`** (`symbol(0, 2)` and `string(0, 2)` over `68 69`, `nil()`, two
+`cons`, `accept`), against every environment admitted by `consMixReply`: `consMix_fixed_sound`,
+`consMix_sound`, `consMix_live`, and `consMix_lang`: **its writer language is exactly
+`{(hi "hi")}`** (a symbol and a string atom; no sentinel, no undefined behaviour).
 -/
 
 @[expose] public section
@@ -117,5 +123,37 @@ theorem consMod_lang (P : Profile) {pol : Policy (BitVec 32)} (hs : pol.sentinel
     consWriterLang P (ReplyEnvs consReply) 0 consMod {} pol = {hiList} :=
   Set.Subset.antisymm (consMod_sound P hs hw ha)
     (Set.singleton_subset_iff.2 (consMod_live P pol))
+
+/-! ## Mixed atom kinds -/
+
+/-- **In a fixed environment, `consMix` accepts only `(hi "hi")`.** -/
+theorem consMix_fixed_sound (P : Profile) {pol : Policy (BitVec 32)} (hs : pol.sentinel = none)
+    (ρ : Silmaril.Accept.Handle.Env (BitVec 32) (SExp2 MemAtom)) :
+    fixedLang (consW MemAtom) pol {ρ} (consTraces P (ReplyEnvs consMixReply) 0 consMix {}) ⊆
+      {mixList} :=
+  consFixedLang_subset
+    (by rw [hs]; exact Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Cons.consMix_sat P ρ)
+    (fun _ _ h => h)
+
+/-- **`consMix` accepts only `(hi "hi")`.** -/
+theorem consMix_sound (P : Profile) {pol : Policy (BitVec 32)} (hs : pol.sentinel = none)
+    (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
+    consWriterLang P (ReplyEnvs consMixReply) 0 consMix {} pol ⊆ {mixList} :=
+  consWriterLang_subset
+    (fun ρ => by
+      rw [hs]; exact Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Cons.consMix_sat P ρ)
+    (fun _ _ h => h) hw ha
+
+/-- **`consMix` accepts `(hi "hi")`**, for every policy. -/
+theorem consMix_live (P : Profile) (pol : Policy (BitVec 32)) :
+    mixList ∈ consWriterLang P (ReplyEnvs consMixReply) 0 consMix {} pol :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Cons.consMix_live P pol
+
+/-- **The writer language of `consMix` is exactly `{(hi "hi")}`**: a symbol and a string atom. -/
+theorem consMix_lang (P : Profile) {pol : Policy (BitVec 32)} (hs : pol.sentinel = none)
+    (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
+    consWriterLang P (ReplyEnvs consMixReply) 0 consMix {} pol = {mixList} :=
+  Set.Subset.antisymm (consMix_sound P hs hw ha)
+    (Set.singleton_subset_iff.2 (consMix_live P pol))
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.Cons

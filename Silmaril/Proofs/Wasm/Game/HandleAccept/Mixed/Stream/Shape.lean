@@ -42,8 +42,8 @@ open Silmaril.Wasm.Logic.Core (Outcome Post)
 /-! ## Executable instruction equality, with globals -/
 
 mutual
-/-- Structural equality on the instructions of `ieqG` and the global instructions; `false`
-elsewhere. -/
+/-- Structural equality on the instructions of `ieqG`, the global instructions, `unreachable`
+and the integer loads and stores; `false` elsewhere. -/
 def ieqM : Instr → Instr → Bool
   | .return_, .return_ => true
   | .drop, .drop => true
@@ -59,6 +59,9 @@ def ieqM : Instr → Instr → Bool
   | .intTestOp t o, .intTestOp t' o' => t == t' && o == o'
   | .intRelOp t o, .intRelOp t' o' => t == t' && o == o'
   | .intBinOp t o, .intBinOp t' o' => t == t' && o == o'
+  | .unreachable, .unreachable => true
+  | .intStore t p x a, .intStore t' p' x' a' => t == t' && p == p' && x == x' && a == a'
+  | .intLoad t p x a, .intLoad t' p' x' a' => t == t' && p == p' && x == x' && a == a'
   | _, _ => false
 /-- `ieqM` on lists. -/
 def ieqsM : List Instr → List Instr → Bool
@@ -95,6 +98,7 @@ theorem ieqM_sound_lt : ∀ (n : Nat) (i i' : Instr), sizeOf i < n → ieqM i i'
       | rfl
       | (subst h; rfl)
       | (obtain ⟨rfl, rfl⟩ := h; rfl)
+      | (obtain ⟨⟨⟨rfl, rfl⟩, rfl⟩, rfl⟩ := h; rfl)
       | (simp at h; done)
       | (obtain ⟨⟨rfl, h2⟩, h3⟩ := h; simp only [Instr.if_.sizeOf_spec] at hs;
          rw [hlist _ _ (by omega) h2, hlist _ _ (by omega) h3])

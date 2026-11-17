@@ -14,10 +14,13 @@ import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.KwTextLive
 * `kwTextMod_sound`: for every profile, against every host admitted by `itemsReply`,
   `kwTextMod` accepts only keywords whose UTF-8 text has two bytes (`twoByteKws`), by the
   Hoare-logic proof of `textMod` with the keyword decoder.
-* `kwTextMod_live`: `kwTextMod` accepts the keyword `hi` in every set of fixed environments one
-  of which names it (the session against `itemsEnv 0x6968 0`); `kwTextMod_bounds`: both bounds
-  together. The language is not shown to be all of `twoByteKws` (the live session is for `hi`
-  only).
+* `kwTextMod_live_of`: `kwTextMod` accepts the keyword of every two-byte UTF-8 text `b₀ b₁` in
+  every set of fixed environments one of which names it (the session against the host
+  `itemsEnv (kwWord b₀ b₁) 0`, which writes `b₀ b₁` as the text); `kwTextMod_live` is the
+  instance `hi`; `kwTextMod_bounds`: `{:hi} ⊆ lang ⊆ twoByteKws`.
+* `kwTextMod_lang`: **the language is exactly `twoByteKws`** over every set of fixed
+  environments naming every two-byte keyword (`kwTextMod_lang_univ`: over all fixed
+  environments).
 -/
 
 @[expose] public section
@@ -65,5 +68,29 @@ theorem kwTextMod_bounds (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     {.atom kwAtom} ⊆ kwTextReaderLang P (ReplyEnvs itemsReply) 0 kwTextMod {} .trap oa Rhos ∧
       kwTextReaderLang P (ReplyEnvs itemsReply) 0 kwTextMod {} .trap oa Rhos ⊆ twoByteKws :=
   ⟨Set.singleton_subset_iff.2 (kwTextMod_live P oa hρ e), kwTextMod_sound P hoa Rhos⟩
+
+/-- **`kwTextMod` accepts the keyword of every two-byte UTF-8 text** named in `Rhos`. -/
+theorem kwTextMod_live_of (P : Profile) (oa : OnInvalid)
+    {Rhos : Set (Silmaril.Accept.Handle.Env (BitVec 32) SymStrKwBytesSExp)}
+    {ρ : Silmaril.Accept.Handle.Env (BitVec 32) SymStrKwBytesSExp} (hρ : ρ ∈ Rhos)
+    {h : BitVec 32} {b₀ b₁ : UInt8} {str : String} (hu : utf8? [b₀, b₁] = some str)
+    (e : ρ h = some (.atom ⟨.keyword, by decide, str⟩)) :
+    .atom ⟨.keyword, by decide, str⟩ ∈
+      kwTextReaderLang P (ReplyEnvs itemsReply) 0 kwTextMod {} .trap oa Rhos :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.KwText.kwTextMod_live_of P oa hρ hu e
+
+/-- **The language of `kwTextMod` is exactly the keywords of two UTF-8 bytes**, over every set
+of fixed environments naming each of them. -/
+theorem kwTextMod_lang (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
+    {Rhos : Set (Silmaril.Accept.Handle.Env (BitVec 32) SymStrKwBytesSExp)}
+    (hR : ∀ x ∈ twoByteKws, ∃ ρ ∈ Rhos, ∃ h, ρ h = some x) :
+    kwTextReaderLang P (ReplyEnvs itemsReply) 0 kwTextMod {} .trap oa Rhos = twoByteKws :=
+  Set.Subset.antisymm (kwTextMod_sound P hoa Rhos)
+    (Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.KwText.twoByteKws_subset P oa hR)
+
+/-- **Over all fixed environments, the language of `kwTextMod` is `twoByteKws`.** -/
+theorem kwTextMod_lang_univ (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub) :
+    kwTextReaderLang P (ReplyEnvs itemsReply) 0 kwTextMod {} .trap oa Set.univ = twoByteKws :=
+  kwTextMod_lang P hoa fun x _ => ⟨fun _ => some x, Set.mem_univ _, 0, rfl⟩
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.KwText

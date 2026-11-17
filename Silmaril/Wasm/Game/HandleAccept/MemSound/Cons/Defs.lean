@@ -155,4 +155,48 @@ def consOut : Nat → BitVec 32 → List Val
 /-- The one-element list `(hi)`. -/
 def hiList : SExp2 MemAtom := .cons (.atom hiAtom) .nil
 
+/-! ## Mixed atom kinds: `consMix` -/
+
+/-- The body of `run` in `consMix`: `"hi"` at `[0, 2)`, `symbol(0, 2)`; `"hi"` at `[0, 2)` again
+(the host may have rewritten memory), `string(0, 2)`; `nil()`; two `cons`; `accept`. -/
+def consMixBody : List Instr :=
+  [.intConst .i32 0, .intConst .i32 0x6968, .intStore .i32 (some .i16) ⟨0⟩ ⟨0, 0⟩,
+   .intConst .i32 0, .intConst .i32 2, .call ⟨0⟩,
+   .intConst .i32 0, .intConst .i32 0x6968, .intStore .i32 (some .i16) ⟨0⟩ ⟨0, 0⟩,
+   .intConst .i32 0, .intConst .i32 2, .call ⟨1⟩,
+   .call ⟨2⟩, .call ⟨3⟩, .call ⟨3⟩, .call ⟨4⟩]
+
+/-- **The module `consMix`**: imports `0 sexp.symbol`, `1 sexp.string : [i32 i32] → [i32]`,
+`2 sexp.nil`, `3 sexp.cons`, `4 sexp.accept`; it builds `(hi "hi")`, a list of a symbol and a
+string atom read from the same bytes. -/
+def consMix : Module where
+  types := [tySym, tyAcc, tyRun, tyNil]
+  imports := [⟨"sexp", "symbol", .func ⟨0⟩⟩, ⟨"sexp", "string", .func ⟨0⟩⟩,
+    ⟨"sexp", "nil", .func ⟨3⟩⟩, ⟨"sexp", "cons", .func ⟨0⟩⟩, ⟨"sexp", "accept", .func ⟨1⟩⟩]
+  memories := [⟨.i32, ⟨1, none⟩⟩]
+  funcs := [⟨⟨2⟩, [], consMixBody⟩]
+  exports := [⟨"run", .func ⟨5⟩⟩]
+
+/-- The shape of the values returned by host code `k` in `consMix`: one `i32` from `symbol`,
+`string`, `nil` and `cons`, nothing from `accept`. -/
+def consMixShape (k : Nat) (vs : List Val) : Prop :=
+  (k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 → ∃ c, vs = [.i32 c]) ∧ (k = 4 → vs = [])
+
+/-- The admitted host replies of `consMix`. -/
+def consMixReply : UCall Nat → UReply → Prop := ShapedReply consMixShape
+
+/-- A counting host's answers for `consMix`. -/
+def consMixOut : Nat → BitVec 32 → List Val
+  | 0, q => [.i32 q]
+  | 1, q => [.i32 q]
+  | 2, q => [.i32 q]
+  | 3, q => [.i32 q]
+  | _, _ => []
+
+/-- The string atom `"hi"`. -/
+def hiStr : MemAtom := ⟨.string, by decide, "hi"⟩
+
+/-- The two-element list `(hi "hi")`: the symbol `hi` and the string `"hi"`. -/
+def mixList : SExp2 MemAtom := .cons (.atom hiAtom) (.cons (.atom hiStr) .nil)
+
 end Silmaril.Wasm.Game.HandleAccept.MemSound.Cons
