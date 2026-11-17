@@ -459,7 +459,7 @@ theorem later_run (h2 : LaterCoreStep') {pre : RefComponent} :
     subst hps
     cases hNC
     have hc' : M.ctl = [.ofProg none (K sc)] := by rw [hc]; rfl
-    obtain ⟨tr, M', hs, hn, hctl, hlock, hhost, -, hobs⟩ := hK sc M hL.lock hc'
+    obtain ⟨tr, M', hs, hn, hctl, hlock, hhost, -, hobs, -⟩ := hK sc M hL.lock hc'
     exact ⟨tr, M', hs, hn, hctl, hlock, by rw [hhost, hh]; simp [logOfCalls], _, hobs⟩
   | d :: ds, R, Rf, sc, M, K, L, ps, ts, hfold, hpost, hX, hok, hNC, hu, hF, hL, hK, hc, hh => by
     simp only [List.foldlM_cons] at hfold

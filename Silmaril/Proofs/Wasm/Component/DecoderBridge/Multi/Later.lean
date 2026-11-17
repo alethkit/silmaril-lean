@@ -50,7 +50,7 @@ local notation "Σh" => Unit × List HLinked2.HostEvent
 /-- **The continuation finishes the instantiation**: from a configuration running `K sc`, the
 machine runs without host events to a configuration with the host in control and the store not
 locked down, the same host state and core store, observing the instance `0` with the function
-exports of `sc`. -/
+exports of `sc`; the final configuration is `M` with the nesting depth decremented. -/
 def KFin (K : Scope (core3 neverFail) → Canon.P (core3 neverFail) Σh (Ret (core3 neverFail))) :
     Prop :=
   ∀ (sc : Scope (core3 neverFail)) (M : Machine.Config (core3 neverFail) Σh),
@@ -58,7 +58,8 @@ def KFin (K : Scope (core3 neverFail) → Canon.P (core3 neverFail) Σh (Ret (co
     ∃ tr M', Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch M tr M' ∧
       (∀ ev, Label.host ev ∉ tr) ∧ M'.ctl = [] ∧ M'.store.lockdown = false ∧
       M'.host = M.host ∧ M'.store.core = M.store.core ∧
-      (traceObs tr).findSome? decodeInstantiated? = some (⟨0⟩, funcExports sc.exports)
+      (traceObs tr).findSome? decodeInstantiated? = some (⟨0⟩, funcExports sc.exports) ∧
+      M' = { M with store := DispatchSt.decNestingSt M.store, ctl := [] }
 
 /-- **The reference machine at the definitions `post`, with a finishing continuation**: reached
 from the instantiation host event without host events or internal faults; the continuation `K` of the definitions finishes the instantiation (`KFin`); the
