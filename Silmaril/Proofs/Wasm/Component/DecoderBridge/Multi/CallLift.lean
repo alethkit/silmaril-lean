@@ -427,6 +427,11 @@ theorem callLift_core3
     rfl
   exact ⟨hc', hl', hr0⟩
 
+/-- **`Task.callLift`.** -/
+theorem callLift : Task.callLift := by
+  intro M f a ty y v hc hl hd hι hp hres _ _ hf hty hrun hst
+  exact callLift_core3 M f a ty y v hc hl hd hι hp hres hf hty hrun hst
+
 end Ref
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi

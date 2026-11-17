@@ -410,7 +410,10 @@ theorem nodesRefX_of (h1 : FirstKX) (h2 : LaterCoreStepX) : Task.nodesRefX := by
     simp only [traceObs, List.filterMap_append, h₀, List.nil_append] at hobs ⊢
     exact hobs
   · rw [hhost, List.map_cons, List.flatten_cons, logOfCalls_append]
-  · refine ⟨rfl, hctl, hlock, ?_, ?_, ?_, ?_, ?_⟩
+  · refine ⟨rfl, hctl, hlock, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    · rw [hM']
+      show Mf.store.nestingDepth - 1 = 0
+      rw [hLf.depth]
     · rw [hM']; exact hLf.inst
     · rw [hM']; exact hLf.func0
     · rw [hM']; exact ⟨hpf.trans hpend, hrf.trans hres⟩

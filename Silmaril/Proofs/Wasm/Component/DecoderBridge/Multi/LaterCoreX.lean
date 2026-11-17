@@ -161,7 +161,7 @@ theorem laterCoreStepX : LaterCoreStepX := by
       (segs := []) (rest := []) (by rw [hM]; simp only [bind_assoc])
     refine ⟨_, _, _, g, d, Adequacy.LRun.no_host d,
       Adequacy.LRun.no_trap d ⟨List.cons_ne_nil _ _, hI.lock⟩, by simp [traceObs, Label.obs?], rfl, ⟨hI.mods, hinsts' _,
-        hI.lock, hI.func0, hI.inst, hfunsJ, hsJ, hHT⟩, by rw [hhost, ht]; simp [logOfCalls],
+        hI.lock, hI.func0, hI.inst, hfunsJ, hsJ, hHT, hI.depth⟩, by rw [hhost, ht]; simp [logOfCalls],
       rfl, rfl, rfl, rfl, hexps, rfl, rfl, rfl, by rw [hxs]; exact hPJ, by rw [hxs]; rfl,
       ⟨[], (List.append_nil _).symm⟩, rfl, rfl⟩
   · -- a start function
@@ -300,7 +300,7 @@ theorem laterCoreStepX : LaterCoreStepX := by
         fun i hi => by rw [show (startedCfgG embL.host _ (g.sh.fn f) ι'
           (g.rel (Store.mapH FirstImp.gL c'.1)) h xs cs).store.core =
           g.rel (Store.mapH FirstImp.gL c'.1) from rfl, hfc]; exact hfunsJ i hi,
-        hRT'.store, hRT'.hosts⟩, ?_, rfl, rfl, rfl, rfl, hexps, rfl, rfl, rfl, ?_,
+        hRT'.store, hRT'.hosts, hI.depth⟩, ?_, rfl, rfl, rfl, rfl, hexps, rfl, rfl, rfl, ?_,
         by rw [hxs]; rfl, ⟨_, rfl⟩, rfl, rfl⟩
     case refine_2 =>
       have hfx : (Store.mapH FirstImp.gL c'.1).funcs = (Store.mapH FirstImp.gL nx.inst.store).funcs := by

@@ -3,12 +3,13 @@ module
 public import Silmaril.Wasm.Component.DecoderBridge.MultiX.Defs
 public import Silmaril.Wasm.Component.DecoderBridge.Multi.Thms
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.ExportX
+import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.CallLift
 
 /-!
 # The instantiation on `MultiImpFrag` with its invariant: theorems
 
 Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi` (`FirstKX`, `LaterCoreX`,
-`NodesRefX`, `ComposeX`).
+`NodesRefX`, `ComposeX`, `ExportX`, `CallLift`).
 
 * **`nodesRefX`** (proved): in the split fragment `MultiImpFrag`, the reference machine finishes
   the instantiation with the host log of the IR's node calls, in a configuration satisfying
@@ -17,8 +18,11 @@ Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi` (`FirstKX`, `Late
 * `nodesRef_of_X`: `Task.nodesRef` is its projection;
 * `startAdequacyFrag_of_X`: **`Task.startAdequacy` on the fragment from `Task.exportRefX`** (the
   export call from the invariant);
+* **`callLift`** (proved, `Multi.CallLift`): `Task.callLift`, the session call of an option-less
+  lift of `func() -> u32` from a host-ready configuration (nesting depth `0`, which `NodesInv`
+  records: the instantiation's invariant tracks depth `1` inside the host's program);
 * `exportRefX_of`: **`Task.exportRefX` from `Task.exportIR`, `Task.coreRunShared` and
-  `Task.callLift`**; `startAdequacyFrag_of_parts`, `starts_of_parts`: the start goal and the
+  `Task.callLift`**; `startAdequacyFrag_of_IR`: the start goal from the first two; `startAdequacyFrag_of_parts`, `starts_of_parts`: the start goal and the
   `starts.wasm` instance from these three pieces;
 * `starts_of_X`: the reference half of `InstTestsRef.starts_agree`, derived from the IR's run of
   `starts.wasm` through `Task.exportRefX`. (The conclusion is also proved unconditionally by
@@ -77,5 +81,16 @@ theorem starts_of_parts (hA : Task.exportIR) (hB : Task.coreRunShared) (hC : Tas
       sessRunFrom first.prof (Host.ofEmbedder embL) hostConfigX startsRef (importArgs hostI)
         [("get", [])] :=
   starts_of_X (exportRefX_of hA hB hC)
+
+/-- **The session call through `canon lift`** (from a host-ready configuration: no host code
+running, no lockdown, nesting depth `0`). -/
+theorem callLift : Task.callLift :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.callLift
+
+/-- **The start goal on the fragment from the IR's export phase and the node's run in the shared
+core store.** -/
+theorem startAdequacyFrag_of_IR (hA : Task.exportIR) (hB : Task.coreRunShared) :
+    Task.startAdequacyFrag :=
+  startAdequacyFrag_of_parts hA hB callLift
 
 end Silmaril.Wasm.Component.DecoderBridge

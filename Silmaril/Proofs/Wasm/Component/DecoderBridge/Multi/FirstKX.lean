@@ -347,7 +347,7 @@ theorem firstKX : FirstKX := by
       fun msg => Adequacy.LRun.no_trap d ⟨List.cons_ne_nil _ _, hl⟩ _⟩, ⟨K, hKF', rfl⟩, hl, hh⟩,
       ?_⟩
     exact ⟨⟨hinv.mods, hinv.insts, hinv.lock, hinv.func0, hinv.inst, hinv.tramp, hinv.ok,
-      hinv.hosts⟩, hpd, hrs, ⟨tr, .cons (.hostRun hready) d.steps, Adequacy.LRun.no_host d, hob⟩,
+      hinv.hosts, hinv.depth⟩, hpd, hrs, ⟨tr, .cons (.hostRun hready) d.steps, Adequacy.LRun.no_host d, hob⟩,
       hes, hfr⟩
   rcases hstart with ⟨hnone, rfl, rfl⟩ | ⟨f, c', fvs, hfs, hrun, hst, rfl⟩
   · -- no start function
@@ -389,7 +389,7 @@ theorem firstKX : FirstKX := by
         simp only [traceObs] at hob₁ ⊢
         simp [List.filterMap_append, Label.obs?, hob₁]) rfl rfl ⟨by simpa using hfm,
       ⟨[(core3 neverFail).exports mi₂], by simp only [hfi']; rfl⟩, rfl,
-      rfl, ⟨{}, rfl, .inl rfl⟩, htramp, hsJ, hHT⟩ rfl rfl
+      rfl, ⟨{}, rfl, .inl rfl⟩, htramp, hsJ, hHT, rfl⟩ rfl rfl
       ⟨_, by show sc'.frame.coreInstances ++ _ = _; rw [hfi']; rfl, nodeAt_gap0 rfl⟩ (hFR _)
   · -- a start function
     rw [hfs] at hpr
@@ -510,7 +510,7 @@ theorem firstKX : FirstKX := by
         simp only [Store.mapH, startRunI_funcs hrun']
       refine ⟨by simpa using hfm, ⟨[(core3 neverFail).exports mi₂], by simp only [hfi']; rfl⟩, rfl, rfl,
         ⟨ι₁, by rw [← removeThread_ι₁ hadd]; rfl, .inr rfl⟩, fun i hi => ?_, hRT'.store,
-        hRT'.hosts⟩
+        hRT'.hosts, rfl⟩
       show (Store.mapH gL c'.1).funcs[i]? = _
       rw [hfc]
       exact htramp i hi

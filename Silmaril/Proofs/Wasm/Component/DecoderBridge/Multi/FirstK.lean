@@ -176,7 +176,7 @@ theorem firstK : FirstK := by
       fun msg => Adequacy.LRun.no_trap d ⟨List.cons_ne_nil _ _, hl⟩ _⟩, ⟨K, hKF', rfl⟩, hl, hh⟩,
       ?_⟩
     exact ⟨hinv.mods, hinv.insts, hinv.lock, hinv.func0, hinv.inst, hinv.tramp, hinv.ok,
-      hinv.hosts⟩
+      hinv.hosts, hinv.depth⟩
   rcases hstart with ⟨hnone, rfl⟩ | ⟨f, c', fvs, hfs, hrun, hst⟩
   · -- no start function
     have ht₀ : t₀ = [] := by cases hF; rfl
@@ -214,7 +214,7 @@ theorem firstK : FirstK := by
           (post : List (Syntax.Definition (core3 neverFail).Module)) >>= K) (segs := []) (rest := [])
         (by simp only [bind_assoc])
     refine finish _ _ _ (d₁.trans d₂) rfl rfl ⟨by simpa using hfm, ⟨[(core3 neverFail).exports mi₂], by simp only [hfi']; rfl⟩, rfl,
-      rfl, ⟨{}, rfl, .inl rfl⟩, htramp, hsJ, hHT⟩
+      rfl, ⟨{}, rfl, .inl rfl⟩, htramp, hsJ, hHT, rfl⟩
   · -- a start function
     rw [hfs] at hpr
     have hrun' : Param.StartRunI (core3P (profile neverFail)) (CoreModule.imports p.1)
@@ -329,7 +329,7 @@ theorem firstK : FirstK := by
         simp only [Store.mapH, startRunI_funcs hrun']
       refine ⟨by simpa using hfm, ⟨[(core3 neverFail).exports mi₂], by simp only [hfi']; rfl⟩, rfl, rfl,
         ⟨ι₁, by rw [← removeThread_ι₁ hadd]; rfl, .inr rfl⟩, fun i hi => ?_, hRT'.store,
-        hRT'.hosts⟩
+        hRT'.hosts, rfl⟩
       show (Store.mapH gL c'.1).funcs[i]? = _
       rw [hfc]
       exact htramp i hi

@@ -42,7 +42,7 @@ general shared memory, tables or the canonical ABI.
   `lift ft` of `Impl.fwd e` an option-less lifted function at that address; inline core instances
   exporting only adapted functions (the trampolines); the exports in order.
 * **`NodesInv r ps xs M inst es`**: the instance is `0`; the host is in control, the store not
-  locked down, its component instance fresh or after one start thread, component function `0`
+  locked down and at nesting depth `0` (the readiness of a host event), its component instance fresh or after one start thread, component function `0`
   the root import, no pending or resolved top-level calls; the core store is typed; the final
   frame relates to the reading of `r` (`FrameRelX`), its function exports are `es`, and its
   core instances after the inline ones are the nodes' (`NodeAt`, in order).
@@ -171,7 +171,7 @@ structure FrameRelX (mods : List Silmaril.Wasm.Module) (R : RSt) (sc : Instantia
     R.exports sc.exports
 
 /-- **The reference machine after the instantiation of `r`, node by node**: instance `0`; the
-host in control, no lockdown, one component instance (fresh or after one start thread),
+host in control, no lockdown, nesting depth `0`, one component instance (fresh or after one start thread),
 component function `0` the root import, no top-level calls; a typed core store whose host
 functions are trampolines of type `fFlat`; the final frame `sc` related to the reading of `r`
 (`FrameRelX`), its function exports `es`, its core instances the inline ones of the definitions
@@ -182,6 +182,8 @@ structure NodesInv (r : RefComponent) (xs : List NodeRun)
   inst0 : inst = ⟨0⟩
   ctl : M.ctl = []
   lock : M.store.lockdown = false
+  /-- The host's instantiation program has left its `nesting_depth += 1` bracket. -/
+  depth : M.store.nestingDepth = 0
   insts : ∃ ι, M.store.insts = [ι] ∧ InstOk ι
   func0 : ArenaField.funcs.get? M.store ⟨0⟩ = some (.host fWit ⟨0⟩)
   calls : M.pending = [] ∧ M.results = []
@@ -295,8 +297,9 @@ def Task.coreRunShared : Prop :=
           (core3 neverFail).invoke (g.fnMap a) []) y ∧
       (core3 neverFail).status y.1 y.2 = .returned (.values ys)
 
-/-- **Open goal, the session call through `canon lift`**: from a configuration after an
-instantiation (host in control, no lockdown, one component instance, fresh or after one start
+/-- **The session call through `canon lift`** (proved: `MultiX.Thms.callLift`): from a
+configuration after an instantiation (host in control, no lockdown, nesting depth `0` (the
+readiness condition of the host's `invoke`), one component instance, fresh or after one start
 thread, no top-level calls, a typed core store whose host functions are the trampolines), a
 session call of the option-less lift (instance `0`) at a type read
 as `func() -> u32` of a core function whose host-free run from the core store returns one `i32`
@@ -305,8 +308,8 @@ def Task.callLift : Prop :=
   ∀ (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)) (f : FuncId) (a : Nat)
     (ty : Types.FuncType RtId) (y : (core3 neverFail).Config (CanonHost (core3 neverFail)))
     (v : BitVec 32),
-    M.ctl = [] → M.store.lockdown = false → (∃ ι, M.store.insts = [ι] ∧ InstOk ι) →
-    M.pending = [] → M.results = [] →
+    M.ctl = [] → M.store.lockdown = false → M.store.nestingDepth = 0 →
+    (∃ ι, M.store.insts = [ι] ∧ InstOk ι) → M.pending = [] → M.results = [] →
     Silmaril.Wasm.Execution.Core.StoreOk M.store.core → HostTy M.store.core →
     ArenaField.funcs.get? M.store f = some (.lifted a ty {} ⟨0⟩) → TyRel ty getTy →
     Silmaril.Wasm.Component.Engine.CoreEngine.Steps (core3 neverFail) (M.store.core, (core3 neverFail).invoke a []) y →

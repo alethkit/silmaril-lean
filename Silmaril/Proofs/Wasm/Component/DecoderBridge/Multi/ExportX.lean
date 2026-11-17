@@ -115,7 +115,7 @@ theorem exportRefX_of (hA : Task.exportIR) (hB : Task.coreRunShared) (hC : Task.
     hP hai hrun hst
   rw [← hU] at hy₁
   obtain ⟨ι, hι, hok⟩ := hN.insts
-  obtain ⟨M', hS, hh⟩ := hC M fid (g.fnMap ai) ty y v hN.ctl hN.lock ⟨ι, hι, hok⟩ hN.calls.1
+  obtain ⟨M', hS, hh⟩ := hC M fid (g.fnMap ai) ty y v hN.ctl hN.lock hN.depth ⟨ι, hι, hok⟩ hN.calls.1
     hN.calls.2 hN.core.1 hN.core.2 hfun hty hy₁ hy₂
   exact ⟨fid, M', hl, hS, hh⟩
 

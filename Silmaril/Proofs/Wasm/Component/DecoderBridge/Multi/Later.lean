@@ -22,7 +22,7 @@ whose statements are fixed here:
 the inline instances of `pre`; the store is not locked down, its component function `0` is the
 root import `f`, its only component instance is fresh or has had one start thread (`InstOk`),
 its core store starts with the trampolines of `pre`, is typed and its host functions have the core
-type `fFlat`.
+type `fFlat`; the nesting depth is `1` (inside the host's instantiation program).
 -/
 
 @[expose] public noncomputable section
@@ -95,6 +95,8 @@ structure LaterInv (pre : RefComponent) (sc : Scope (core3 neverFail))
   tramp : ∀ i, i < preLowers pre → M.store.core.funcs[i]? = some (lowFI lowH)
   ok : Silmaril.Wasm.Execution.Core.StoreOk M.store.core
   hosts : HostTy M.store.core
+  /-- Inside the host's instantiation program (`nesting_depth += 1`). -/
+  depth : M.store.nestingDepth = 1
 
 /-- **Definitions that only push frame entries and component functions keep the invariant.** -/
 theorem LaterInv.congr {pre : RefComponent} {sc sc' : Scope (core3 neverFail)}
@@ -103,9 +105,9 @@ theorem LaterInv.congr {pre : RefComponent} {sc sc' : Scope (core3 neverFail)}
     (hi : sc'.frame.coreInstances = sc.frame.coreInstances)
     {fs : List (CFuncInst (core3 neverFail))}
     (hs : M'.store = { M.store with funcs := M.store.funcs ++ fs }) : LaterInv pre sc' M' := by
-  obtain ⟨hmods, hinsts, hlock, hf0, hinst, htr, hok, hh⟩ := h
+  obtain ⟨hmods, hinsts, hlock, hf0, hinst, htr, hok, hh, hd⟩ := h
   refine ⟨hm.trans hmods, hi ▸ hinsts, by rw [hs]; exact hlock, ?_, by rw [hs]; exact hinst,
-    by rw [hs]; exact htr, by rw [hs]; exact hok, by rw [hs]; exact hh⟩
+    by rw [hs]; exact htr, by rw [hs]; exact hok, by rw [hs]; exact hh, by rw [hs]; exact hd⟩
   rw [hs]
   have h0 : M.store.funcs[0]? = some (.host fWit ⟨0⟩) := hf0
   show (M.store.funcs ++ fs)[0]? = _
