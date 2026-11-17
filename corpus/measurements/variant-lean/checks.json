@@ -1,0 +1,33 @@
+{
+  "artifacts": [
+    {
+      "path": "corpus/variants/cjson/1.7.19/default/x86_64/O0/unstripped/libcjson_utils.so.1",
+      "sha256": "786730dbfa031654dff5c7a2c4119f64bc87047746852a8c278825cf3619052e",
+      "root": "Silmaril.Elf.Staged.CorpusVariants.Cjson.N1719.Default.X8664.O0.Unstripped.LibcjsonUtilsSo1.Decomp",
+      "run_receipt": "corpus/measurements/variant-lean/runs/1448c969-1ac0-43ae-845a-b92fe332cda5.json",
+      "module_sha256": {
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonUtilsSo1/Bodies/Part0.lean": "f35f5c9a3a785e3d504a81b1492f91b39f9fbcc6b5b4c40caa810ca57e5f869c",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonUtilsSo1/Bodies/Part1.lean": "7eac97bcc7e88bf2adbdfc1dc7cedbbc026985e2c33df9c4134e579ee564d1d5",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonUtilsSo1/Bytes.lean": "44d1cf909a0f19efa53f23b7849179943ea0c06b50e5020a14485838c5c75c21",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonUtilsSo1/Decomp.lean": "189a48c509b175d2c7d6d6ab21980be09b259363d5542cf760c955442dddcc17",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonUtilsSo1/Defs.lean": "67f5a2e8ed3110493015f36554083e116e3db04db85140c62764398982bb6484",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonUtilsSo1/Functions.lean": "08e032e5d9836ea0cd42c42a64ae7fcf3b586f77b76d0d640fa016a650f346d7",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonUtilsSo1/Thms.lean": "b5a82bf7aa8d02d145545f35308fcdda8964207cf0e9edaa5e3288081beac61c"
+      }
+    },
+    {
+      "path": "corpus/variants/cjson/1.7.19/default/x86_64/O0/stripped/libcjson_utils.so.1",
+      "sha256": "867b377b9833c9d012177e7da90a70dc0d472abcc7d91f539decba5ce27d6c89",
+      "root": "Silmaril.Elf.Staged.CorpusVariants.Cjson.N1719.Default.X8664.O0.Stripped.LibcjsonUtilsSo1.Decomp",
+      "run_receipt": "corpus/measurements/variant-lean/runs/1448c969-1ac0-43ae-845a-b92fe332cda5.json",
+      "module_sha256": {
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Stripped/LibcjsonUtilsSo1/Bodies/Part0.lean": "546a98f923ad1e5108c7c6f1b9f60a3a5b65cb36f33c1b28db809347294b2dcb",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Stripped/LibcjsonUtilsSo1/Bytes.lean": "4939e9c80af9e0411adc61e07909bbaafde4324b7018fe5bb2e8b05d83f7da6b",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Stripped/LibcjsonUtilsSo1/Decomp.lean": "56024df64f75fd346201f2b70506eaa32cca4ac10e3ef4dcab802691a0732baf",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Stripped/LibcjsonUtilsSo1/Defs.lean": "c243d966f1d94f220b70e6e918602b3c7230808a1f644a8b4c1a65ad53930cce",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Stripped/LibcjsonUtilsSo1/Functions.lean": "5c635a9d6d73093ffa2eec177d0f5b6600948cac4657cdc2c4a4b56791ee5b83",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Stripped/LibcjsonUtilsSo1/Thms.lean": "028299aeb6eb2d0d34c142765acfe969e3abf842749168eacc7802b697246764"
+      }
+    }
+  ]
+}

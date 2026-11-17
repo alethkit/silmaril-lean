@@ -68,6 +68,8 @@ def main():
                     files[str(base / f"{m}.lean")] = (tmp / base / f"{m}.lean").read_text()
                 for part in sorted((tmp / base / "Functions").glob("Part*.lean")):
                     files[str(base / "Functions" / part.name)] = part.read_text()
+                for part in sorted((tmp / base / "Bodies").glob("Part*.lean")):
+                    files[str(base / "Bodies" / part.name)] = part.read_text()
                 # Whole-table body theorems of large symbol tables (tens of thousands of entries)
                 # exceed the default heartbeat budget of one kernel check; lift it for Thms only.
                 files[str(base / "Thms.lean")] = files[str(base / "Thms.lean")].replace(

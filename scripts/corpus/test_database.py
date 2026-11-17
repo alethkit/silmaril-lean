@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+import matrix
 import database
 from census import report_relative_path
 from matrix import inventory
@@ -15,6 +17,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class CorpusDatabase(unittest.TestCase):
+    def test_checked_variant_modules_are_bound(self):
+        artifacts = inventory(ROOT)['artifacts']
+        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 2)
+        check = json.loads((ROOT / 'corpus/measurements/variant-lean/checks.json').read_text())['artifacts'][0]
+        source = ROOT / next(iter(check['module_sha256']))
+        original = matrix.sha
+        with patch.object(matrix, 'sha', side_effect=lambda path: 'stale' if path == source else original(path)):
+            with self.assertRaisesRegex(ValueError, 'changed since measured Lean check'):
+                inventory(ROOT)
+
     def test_stale_census_rejected(self):
         artifact = inventory(ROOT)['artifacts'][0]
         original = json.loads((ROOT / 'corpus/census' / report_relative_path(artifact['path'])).read_text())
@@ -45,7 +57,7 @@ class CorpusDatabase(unittest.TestCase):
             db = sqlite3.connect(output)
             self.assertEqual(db.execute('SELECT value FROM preserve').fetchone(), ('unchanged',))
             self.assertGreaterEqual(db.execute('SELECT count(*) FROM corpus_artifacts').fetchone()[0], 54)
-            self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 6)
+            self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 5)
             for metadata, census in db.execute('SELECT metadata,census FROM corpus_artifacts'):
                 artifact = json.loads(metadata)
                 self.assertIsNotNone(census, artifact['path'])
