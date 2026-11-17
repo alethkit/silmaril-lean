@@ -236,6 +236,21 @@ theorem funcs_gap {t : Store H} (hP : g.PreOk t.funcs) (a : Nat) :
     rw [fnMap_ge g hb, List.getElem?_append_right (Nat.le_add_right _ _), Nat.add_sub_cancel_left,
       List.getElem?_map, List.getElem?_drop, Nat.add_sub_cancel' hb]
 
+/-- The map of function addresses is injective once `pre` has at least `b` functions. -/
+theorem fnMap_injective (hb : g.b ≤ g.pre.funcs.length) : Function.Injective g.sh.fn := by
+  intro a a' h
+  simp only [sh_fn, Gap.fnMap] at h
+  split_ifs at h <;> omega
+
+theorem PreOk.le_pre {fs : List (FuncInst H)} (hP : g.PreOk fs) : g.b ≤ g.pre.funcs.length := by
+  rcases Nat.eq_zero_or_pos g.b with h0 | hpos
+  · rw [h0]; exact Nat.zero_le _
+  · have hl : g.b - 1 < fs.length := by have := hP.1; omega
+    have e := hP.2 (g.b - 1) (by omega)
+    rw [List.getElem?_eq_getElem hl, Option.map_some] at e
+    have := (List.getElem?_eq_some_iff.mp e).1
+    omega
+
 theorem funcs_gap_of {t : Store H} (hP : g.PreOk t.funcs) {a : Nat} {fi : FuncInst H}
     (h : t.funcs[a]? = some fi) : (g.rel t).funcs[g.sh.fn a]? = some (g.sh.finst fi) := by
   rw [funcs_gap g hP, h, Option.map_some]
