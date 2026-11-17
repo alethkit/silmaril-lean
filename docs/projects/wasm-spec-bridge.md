@@ -24,9 +24,9 @@ host-language primitives (`$ibytes_`, `$growmemory`, …), supplied as `B : Buil
 
 | Version | Forward (Core ⇒ spec) | Backward (spec ⇒ Core) | Equivalence | Open whole-step `Task` |
 | --- | --- | --- | --- | --- |
-| 1.0 | proved on `Typed10 ∧ Plain10 ∧ GSetOk ∧ MemsAligned10`, `fwdB10` (`wholeStepFwd10`), also in `utf8Env10T` with export names (`stepFwd10U_holds`) | proved on `Typed10 ∧ GoodV1` at `fwdB10` (`wholeStepBwd10B`) and `floatIntB` (`wholeStepBwd10`) | **yes**, `wholeStep10_both` (`fwdB10`, `Typed10 ∧ GoodV1 ∧ Plain10 ∧ MemsAligned10`) | `Utf8Strip10.Task.unstripStep10`, reduced to `Task.unstripStep10Out` (this change) |
-| 2.0 | proved on nested fragments: `Nest20 (FwdStep20GP)` in `simEnv20S (storeB P)` (this change, widest in the corrected script); scalar stores, bulk memory, `table.fill` nested only in `simEnv20T` (`StoreBulk.fwd_good20B`) | proved on `Typed20 ∧ GoodW` (`wholeStepBwdW`, `floatIntB`; `wholeStepBwdW_growB`) | top-level only: `wholeStepTopVS20` (`growB`, forward on `TopVStep20`, backward on `GoodW`); no nested equivalence | none. `Task.wholeStepBwd` is **refuted** (this change); `Task.wholeStepValid`, `Task.wholeStepValidS`, `Task.wholeStepBwdV` are refuted |
-| 3.0 | proved on `ConfigOk ∧ BoundedSel` (`wholeStepValidR_backend`), on `BoundedSelM ∧ NoMemSimd` (`wholeStepValidRMNoMSH_backend`) | same statements (both halves) | **yes** on those domains (up to `Bwd.ConfigEq` and Core's choice) | `Round7.MemSimd.Task.wholeStepValidRM`, `Round7.Utf8.Task.wholeStepValidRE`, `Task.wholeStepValidREH` |
+| 1.0 | proved on `Typed10 ∧ Plain10 ∧ GSetOk ∧ MemsAligned10`, `fwdB10` (`wholeStepFwd10`), also in `utf8Env10T` with export names (`stepFwd10U_holds`) | proved on `Typed10 ∧ GoodV1` at `fwdB10` (`wholeStepBwd10B`) and `floatIntB` (`wholeStepBwd10`) | **yes**, `wholeStep10_both` (`fwdB10`, `Typed10 ∧ GoodV1 ∧ Plain10 ∧ MemsAligned10`) | `Utf8Strip10.Task.unstripStep10`, reduced to `Task.unstripStep10Out` (#1015) |
+| 2.0 | proved on nested fragments: `Nest20 (FwdStep20GP)` in `simEnv20S (storeB P)` (#1015, widest in the corrected script); scalar stores, bulk memory, `table.fill` nested only in `simEnv20T` (`StoreBulk.fwd_good20B`) | proved on `Typed20 ∧ GoodW` (`wholeStepBwdW`, `floatIntB`; `wholeStepBwdW_growB`) | top-level only: `wholeStepTopVS20` (`growB`, forward on `TopVStep20`, backward on `GoodW`); no nested equivalence | none. `Task.wholeStepBwd` is **refuted** (#1015); `Task.wholeStepValid`, `Task.wholeStepValidS`, `Task.wholeStepBwdV` are refuted |
+| 3.0 | proved on `ConfigOk ∧ BoundedSel` (`wholeStepValidR_backend`), on `BoundedSelM ∧ NoMemSimd` (`wholeStepValidRMNoMSH_backend`) | same statements (both halves) | **yes** on those domains (up to `Bwd.ConfigEq` and Core's choice) | `Round7.MemSimd.Task.wholeStepValidRM`, `Round7.Utf8.Task.wholeStepValidRE`, `Task.wholeStepValidREH` (reduced to `BadRules.LeavesREHBwd`, this change) |
 
 Profiles: all whole-step targets are at `Profile.spec nd r` (the spec's nondeterministic NaN and
 relaxed choices, with `nd`, `r` universally quantified), except the 2.0 nested forward theorems at
@@ -81,7 +81,7 @@ Open:
     SStepB (utf8Env10T (fwdB10 nd r)) (configV hn (stripConfig10 c)) (configV hn (stripConfig10 c')) →
     SStepB (utf8Env10T (fwdB10 nd r)) (configV hn c) (configV hn c')
   ```
-  **This change** proves `unstripStep10_of_out : Task.unstripStep10Out → Task.unstripStep10`
+  #1015 proves `unstripStep10_of_out : Task.unstripStep10Out → Task.unstripStep10`
   (and the converse), where `Task.unstripStep10Out` adds
   `¬ (Plain10 c.code ∧ GSetOk c.store c.frame c.code ∧ MemsAligned10 c.store)`; inside the
   invariants the statement is `XSwap.unstripStep10_inv`. No consumer depends on the open leg:
@@ -101,7 +101,7 @@ Refuted targets:
 - `Sim20.Task.wholeStepBwdV` (`not_wholeStepBwdV`): `vtestop-false` fires at every `all_true`
   at scalar builtins.
 - `StepFix.Task.wholeStepValidS` (`not_wholeStepValidS`).
-- **`Sim20.Task.wholeStepBwd`** (this change, `Whole.not_wholeStepBwd`):
+- **`Sim20.Task.wholeStepBwd`** (#1015, `Whole.not_wholeStepBwd`):
   ```lean
   ¬ ∀ H hn, Function.Injective hn → ∀ host nd r, ∃ B, ∀ c w, Typed20 (simEnv20 B) hn c →
       SStepB (simEnv20 B) (configV hn c) w → ∃ c', w = configV hn c' ∧ Step (Profile.spec nd r) host c c'
@@ -127,7 +127,7 @@ Proved backward (soundness):
 
 Proved forward (completeness), widest first:
 
-- **`Whole.Task.wholeStepFwd20GP`** (this change, `wholeStepFwd20GP`):
+- **`Whole.Task.wholeStepFwd20GP`** (#1015, `wholeStepFwd20GP`):
   ```lean
   ∀ H hn P c c', Typed20 (simEnv20 (storeB P)) hn c → WholePages c.store →
     Nest20 (FwdStep20GP P) c c' →
@@ -218,18 +218,70 @@ Open (frozen):
   `Task.wholeStepValidREH` (the same for export-blind hosts). Reductions:
   `CoreStrip.wholeStepValidRE_of_leaves : LeavesRE → Task.wholeStepValidRE` and
   `wholeStepValidREH_of_leaves : LeavesREH → Task.wholeStepValidREH`, each leaf being
-  `EraseFwdAt ∧ EraseBwdAt ∧ ExactAt` per configuration. `REFwd.eraseFwdAt_of_blindN` gives
-  `EraseFwdAt` at export-blind hosts from `BadN.BadFwdN`, whose seven rules are
-  `Step/call_ref-hostfunc-res`, `Step/call_ref-hostfunc-div`, `Step/table.grow-succeed`,
-  `Step/memory.grow-succeed`, `Step_read/block`, `Step_read/loop`, `Step_read/try_table`.
+  `EraseFwdAt ∧ EraseBwdAt ∧ ExactAt` per configuration. **The forward leaf is proved for
+  export-blind hosts** (this change): `BadRules.badFwdN_BI` proves `BadN.BadFwdN` at round 4's
+  primitives, and `BadRules.eraseFwdAt_blind` gives `EraseFwdAt` at every configuration (see
+  below). So REH is reduced to the backward and export leaves:
+  `BadRules.wholeStepValidREH_of_bwd : LeavesREHBwd → Task.wholeStepValidREH`.
   `EraseBwdAt` and `ExactAt` are proved only at export-free configurations
-  (`leavesAt_stripped`) or under `StripInj` and `HostModsSub` (`exactAt_of_REM`).
+  (`leavesAt_stripped`) or under `StripInj` and `HostModsSub` (`exactAt_of_REM`). For RE (any
+  host) the forward leaf is still open: `badFwdN_BI` needs `HostExportBlind` at the
+  `$hostcall` rules, and RE's leaf is stated with `stripHostAt host c.store`.
 
-Nothing in the repository proves the remaining fields (`OpenRMRestDPM`, `BadFwdN`,
-`EraseBwdAt`, `ExactAt`) in general, so none of the three open 3.0 targets closes by
-composition.
+Nothing in the repository proves `OpenRMRestDPM`, `EraseBwdAt` or `ExactAt` in general, so none
+of the three open 3.0 targets closes by composition.
 
-## This change
+### The forward leaf of REH (this change, `Round9.BadRules`)
+
+`BadN.BadFwdN env` asks that each of the seven rules of `Step`/`Step_read` failing the three
+syntactic checks go to the erased side (`Swap.eraseV`) wherever it fires under SpecTec's
+`otherwise`. Each fails only because it calls a definition the evaluator-level erasure leaves out
+(`EraseAll.excluded`). Proved rule by rule, each composed with round 8's route-2 machinery by
+`ruleFwdX` (`BadN.ruleFwdN` with the special conclusion or premise supplied); the shapes are kernel
+checks (`decide +kernel`) on the fixed script:
+
+| Rules | Excluded call | Lemma | Assumptions |
+| --- | --- | --- | --- |
+| `block`, `loop`, `try_table` | `$blocktype_` in `if $blocktype_(z, bt) = R` | `ruleFwd_block` (`applies_blocktype_erase`, `btShape_fixed`) | none |
+| `table.grow-succeed`, `memory.grow-succeed` | `$with_tableinst`/`$with_meminst` in the conclusion | `ruleFwd_grow` (`withInstBody_erase`, `callW_erase`, `growShapeN_fixed`) | none |
+| `call_ref-hostfunc-res`, `call_ref-hostfunc-div` | `$hostcall` in `if pat <- $hostcall(…)` | `ruleFwd_host` (`hostPrem_fwd`, `hostShapeN_fixed`) | `Function.Injective hn`, `HostFinite host`, `HostExportBlind host` |
+
+Results (namespace `Silmaril.Wasm.SpecTec.Sim.Round9.BadRules`, header
+`Silmaril/Wasm/SpecTec/Sim/Round9/BadRules/Thms.lean`):
+
+```lean
+theorem badFwdN_of_rules {B : Builtins} (h : ∀ nm ∈ badNames, RuleFwdNm (utf8Env B) nm) :
+    BadN.BadFwdN (utf8Env B)
+theorem badFwdN_BI (P : Profile) {hn : H → String} {host : HostSemantics H}
+    (hinj : Function.Injective hn) (hf : HostFinite host) (hb : HostExportBlind host) :
+    BadN.BadFwdN (NxPrims.envBI P hn host)
+theorem eraseFwdAt_blind (P : Profile) {hn : H → String} {host : HostSemantics H}
+    (hinj : Function.Injective hn) (hf : HostFinite host) (hb : HostExportBlind host)
+    (c : Config H) : CoreStrip.EraseFwdAt hn P host c
+theorem leavesREH_of_bwd (h : LeavesREHBwd) : CoreStrip.LeavesREH
+theorem wholeStepValidREH_of_bwd (h : LeavesREHBwd) : Round7.Task.wholeStepValidREH
+```
+
+`RuleFwdNm env nm` is `BadFwdN` at the rules named `nm` (without the hypothesis that they fail
+the checks). The remaining REH obligation, `LeavesREHBwd` (`BadRules/Defs.lean`), is
+`CoreStrip.LeavesREH` without the forward leaf:
+
+```lean
+def LeavesREHBwd : Prop :=
+  ∀ (H : Type) (hn : H → String), Function.Injective hn →
+    ∀ (host : HostSemantics H), HostFinite host → HostOk host → Round7.HostExportBlind host →
+      ∀ (nd : Bool) (r : RelaxedChoice) (c : Config H) (ts : List CValType),
+        ConfigOk c ts → BoundedSelE c →
+        CoreStrip.EraseBwdAt hn (Profile.spec nd r) host c ∧
+          CoreStrip.ExactAt hn (Profile.spec nd r) host c
+```
+
+`EraseBwdAt` (backward: a round-6 step from the stripped image lifts to a round-7 step from the
+image, up to erasure) and `ExactAt` (export lists) are not attacked here; route 2 has no backward
+derivation transfer outside `otherwise` (`ElseBwd`), so `EraseBwdAt` beyond export-free
+configurations needs a backward copy of `NxErase.nAt` and of the seven rule lemmas above.
+
+## Changes in #1015
 
 | Before | After |
 | --- | --- |
@@ -241,3 +293,13 @@ Modules: `Silmaril/Proofs/Wasm/SpecTec/Sim20/Bridge.lean` (header
 `Silmaril/Wasm/SpecTec/Sim20/Bridge/Thms.lean`) and
 `Silmaril/Proofs/Wasm/SpecTec/Sim10/Bridge10.lean` (header
 `Silmaril/Wasm/SpecTec/Sim10/Bridge10/Thms.lean`).
+
+## Changes in this pull request (stacked on #1015)
+
+| Before | After |
+| --- | --- |
+| `BadN.BadFwdN` (7 rules) open; `REFwd.eraseFwdAt_of_blindN` conditional on it | proved for injective `hn` and finite, export-blind hosts: `BadRules.badFwdN_BI` |
+| REH reduced to `LeavesREH` (`EraseFwdAt ∧ EraseBwdAt ∧ ExactAt`) | `EraseFwdAt` proved at every configuration (`eraseFwdAt_blind`); REH reduced to `LeavesREHBwd` (`EraseBwdAt ∧ ExactAt`): `wholeStepValidREH_of_bwd` |
+
+Modules: `Silmaril/Wasm/SpecTec/Sim/Round9/BadRules/{Defs,Thms}.lean` and
+`Silmaril/Proofs/Wasm/SpecTec/Sim/Round9/BadRules/{Names,Rule,Blocktype,BlockRules,GrowRules,HostRules,Assemble}.lean`.
