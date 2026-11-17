@@ -55,6 +55,7 @@ pub const SCRIPTS: &[(&str, &str)] = &[
     script!("views/compiler-artifact.js"),
     script!("views/languages.js"),
     script!("views/systems.js"),
+    script!("views/containers.js"),
     script!("views/logic.js"),
     script!("views/formal.js"),
     script!("views/sql.js"),

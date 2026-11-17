@@ -9,6 +9,8 @@ public import Silmaril.Formats.Json.RfcParser
 /-!
 # A restricted OCI image reader, with checked digests
 
+**Experimental API** (`docs/projects/containers.md`): definitions and statements may change.
+
 `Oci.load L d` reads an image from an OCI image layout's blobs (`Layout`) starting at the digest
 `d` of its manifest, into a flat image (`Silmaril.Containers.Flat`) whose files hold octets. It
 accepts **one profile** and refuses everything else (`Refusal.other` for an unsupported format,
