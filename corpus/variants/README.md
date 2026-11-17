@@ -74,7 +74,7 @@ Builds not yet completed are absent from the matrix. The existing canonical O2
 unstripped artifacts are indexed too; O2 stripped artifacts are not yet delivered.
 
 The paired executable-byte check supplies tool-derived stripped address mappings,
-not functional equivalence, source-semantic binding or a Lean proof. Two earlier cJSON variants have checked whole-file parsing and structural decompositions, with hash-bound measured receipts in [variant-lean](../measurements/variant-lean/README.md). The other 406 variants have no generated/checked Lean parsing or structural decompositions
+not functional equivalence, source-semantic binding or a Lean proof. Two cJSON and four mimalloc variants have checked whole-file parsing and structural decompositions, with hash-bound measured receipts in [variant-lean](../measurements/variant-lean/README.md). The other 402 variants have no generated/checked Lean parsing or structural decompositions
 and **zero contextual C-to-ELF or binary-equivalence statements**. Source mappings
 and those formal stages must be added separately. This tranche adds optimization
 and stripping variants of existing releases; it does not provide the requested
