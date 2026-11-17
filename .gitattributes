@@ -8,3 +8,13 @@ corpus/*/generated/** linguist-generated
 corpus/elf/** linguist-generated -diff
 corpus/*/funcmap/** linguist-generated
 corpus/*/tv/** linguist-generated
+# Variant subjects keep their upstream/generated distinction; build orchestration stays owned.
+corpus/variants/**/upstream/** linguist-vendored
+corpus/variants/**/generated/** linguist-generated
+corpus/variants/**/unstripped/** linguist-generated -diff
+corpus/variants/**/stripped/** linguist-generated -diff
+# Provenance remains reviewable text even alongside binary artifacts.
+corpus/elf/**/receipt.json diff
+corpus/elf/**/SHA256SUMS diff
+corpus/variants/**/receipt.json diff
+corpus/variants/**/SHA256SUMS diff

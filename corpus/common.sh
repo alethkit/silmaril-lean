@@ -7,7 +7,10 @@ export LC_ALL=C TZ=UTC SOURCE_DATE_EPOCH=1762128000   # 2025-11-03T00:00:00Z (th
 umask 022
 CORPUS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 CORPUS_CACHE=${CORPUS_CACHE:-/cache}
-JOBS=${JOBS:-$(nproc)}
+JOBS=${JOBS:-8}
+case "$JOBS" in [1-8]) ;; *) echo 'JOBS must be an integer in 1..8' >&2; exit 2 ;; esac
+CORPUS_OPT_LEVEL=${CORPUS_OPT_LEVEL:-O2}
+case "$CORPUS_OPT_LEVEL" in O0|Og|O1|O2|O3) ;; *) echo 'invalid CORPUS_OPT_LEVEL' >&2; exit 2 ;; esac
 
 # setup_arch ARCH: CC/AR/... for x86_64 (native gcc) or aarch64 (Debian cross gcc); RUN runs a
 # target program (empty natively, qemu-user for aarch64).
@@ -31,10 +34,10 @@ start_build() {
   rm -rf "$BUILD"; mkdir -p "$BUILD" "$OUTDIR"
   OUTDIR=$(cd "$OUTDIR" && pwd)
   rm -f "$OUTDIR/.build-info"
-  # CORPUS_DEBUG_TWIN=1 (twin.sh): the same build with -g instead of -g0. GCC does not let -g change
-  # the generated code, and twin.sh checks that: every object's .text and function symbols must be
-  # byte-identical to the pinned object's. The twin's DWARF then maps functions to source.
-  BASE_CFLAGS="-O2 $([ -n "${CORPUS_DEBUG_TWIN:-}" ] && echo -g || echo -g0) -ffile-prefix-map=$BUILD=."
+  # CORPUS_DEBUG_TWIN=1 (twin.sh): the same build with -g instead of -g0. Debug builds can change
+  # read-only-data placement and code displacements. twin.sh checks executable bytes and symbols;
+  # source mappings from a mismatching twin remain provisional (see corpus/TV.md).
+  BASE_CFLAGS="-$CORPUS_OPT_LEVEL $([ -n "${CORPUS_DEBUG_TWIN:-}" ] && echo -g || echo -g0) -ffile-prefix-map=$BUILD=."
   # CORPUS_SAVE_TEMPS=1 (frontend.sh): keep the preprocessed translation units (-save-temps=obj) and
   # copy every *.i under the build directory to OUTDIR/pp/ when the build ends.
   if [ -n "${CORPUS_SAVE_TEMPS:-}" ]; then
