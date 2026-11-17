@@ -22,42 +22,47 @@ own atom type `Fam.Atom f`: no embedding into another atom type is involved.
 One module per API shape, proved once for every atom type (no per-family proofs):
 
 * **writers** (`Silmaril.Wasm.Game.HandleAccept.MemSound.Tab`): an atom table `T : AtomTable α`
-  decodes each atom import `name(ptr, len) -> i32` from the memory bytes at the call. n-ary
-  writer: `pairAtomMod name` (calls `name(16, 1)` on `61` and on `62`, stores both handles at
-  `[0, 8)`, accepts `sexp(0, 2)`; `tab_pair_lang`: exactly `(a b)`); AST writer at `sexpSig α`:
-  the same module, its writes read as `sexpSig` operations (`tab_pairAst_lang`: the branch with
-  the leaves `a`, `b`); cons writer: `consAtomMod name` (stores `68 69`, accepts
+  gives every atom import of the family its decoder (`.seg`: `name(ptr, len) -> i32`, the bytes
+  at the call; `.seg2`: `name(p₁, l₁, p₂, l₂) -> i32`, two segments). n-ary writer:
+  `pairAtomMod name` (calls `name(16, 1)` on `61` and on `62`, stores both handles at `[0, 8)`,
+  accepts `sexp(0, 2)`; `tab_pair_lang`: exactly `(a b)`); AST writer at `sexpSig α`: the same
+  module, its writes read as `sexpSig` operations (`tab_pairAst_lang`: the branch with the
+  leaves `a`, `b`); cons writer: `consAtomMod name` (stores `68 69`, accepts
   `cons(name(0, 2), nil())`; `tab_cons_lang`: exactly `(a)`).
 * **readers** (`Silmaril.Wasm.Game.HandleAccept.MemSound.Probe`): `probeMod ix` calls
   `next(h, 0) -> i32` and `leaf(c, retptr)`, then `accept(h)`, for any reader API; the payload
-  decoder `pay` reads the atom of `leaf` off the memory after the answer. n-ary reader
+  decoder reads the atom of `leaf` off the memory after the answer. n-ary reader
   (`naryProbe`: `child`, `atom`; only `firstAtoms`), cons reader (`consProbe`: `get` = car,
   `atom`; only `carAtoms`), AST reader (`astProbe`: `child`, `leaf` = `tag`; only
-  `firstLeaves`). Payloads: `bytesPay dec` (a `list<u8>` through the return pointer) and
-  `u64Pay` (a `u64` through the return pointer).
+  `firstLeaves`). Payloads: `bytesPay dec` (a `list<u8>`), `kindPay kindD` (the record
+  `{ bytes : list<u8>, kind : u32 }`; the code `c` selects the kind `ks[c]` of the family, so
+  every kind is readable), `hintPay` (the record `{ octets : list<u8>, hint : list<u8> }`, a
+  null hint pointer is no hint) and `u64Pay` (a `u64`), all through the return pointer.
 
 ## The instantiations
 
-Each family fixes an atom table (writers), the import name of the example, and a byte decoder
-(`<family>Dec`, shared by the readers through `bytesPay`); `<family>_list : ListSpec …` records
-that the table decodes `61`, `62` to `<family>A`, `<family>B` (the list), and
-`<family>_spec : TabSpec …` that it decodes `68 69` to `<family>Hi` (the cons pair and the
-readers). Word trees use the existing
-`word(ptr)` writer (`Silmaril.Wasm.Game.HandleAccept.MemSound.WordAtom`), the instance-play
-cons writer `twoWords`, and the `u64` payload for the readers.
+Each family fixes an atom table naming **every atom import of the family** (one decoder per
+import name), the import name its writer examples call, and a reader payload decoding **every
+atom kind of the family**. `<family>_list : ListSpec …` records that the table decodes `61`,
+`62` through the example import to `<family>A`, `<family>B` (the list), `<family>_spec : TabSpec
+…` that it decodes `68 69` to `<family>Hi` (the cons pair, and the readers of the one-kind
+families). The mixed families' and hinted readers' exemplars are `<family>Rd` (`<family>_rd`:
+`kindD` decodes the bytes `k 0` of kind code `k` to it). Word trees use the existing `word(ptr)`
+writer (`Silmaril.Wasm.Game.HandleAccept.MemSound.WordAtom`), the instance-play cons writer
+`twoWords`, and the `u64` payload for the readers.
 
-| family | writer table (example import) | reader payload | `A`, `B` / `Hi` |
+| family | writer table (example import) | reader payload | `A`, `B` / `Hi` / reader exemplar |
 | --- | --- | --- | --- |
-| symbols-only | `symbol` (`symbol`) | UTF-8 symbol | `a`, `b` / `hi` |
-| byte trees | `blob` (`blob`) | bytes | `61`, `62` / `68 69` |
-| word trees | `word(ptr)`, `wordMod`; cons: `twoWords` | `u64` | `42`; cons `(0 1)`; readers `8 + 2 * 2 ^ 32` |
-| symbols+strings | `symbol`, `string` (`string`) | UTF-8 string | `"a"`, `"b"` / `"hi"` |
-| symbols+bytes | `symbol`, `blob` (`blob`) | bytes | `61`, `62` / `68 69` |
-| symbols+strings+bytes | `symbol`, `string`, `blob` (`string`) | UTF-8 string | `"a"`, `"b"` / `"hi"` |
-| symbols+strings+keywords | `symbol`, `string`, `keyword` (`keyword`) | UTF-8 keyword | `:a`, `:b` / `:hi` |
-| symbols+strings+keywords+bytes | `symbol`, `string`, `keyword`, `blob` (`keyword`) | UTF-8 keyword | `:a`, `:b` / `:hi` |
-| Rivest canonical | `blob` (`blob`) | octets | `61`, `62` / `68 69` |
-| Rivest hinted | `blob`, hint-free (`blob`) | octets, no hint | `61`, `62` / `68 69` |
+| symbols-only | `symbol` (`symbol`) | `bytesPay`, UTF-8 symbol | `a`, `b` / `hi` / `hi` |
+| byte trees | `blob` (`blob`) | `bytesPay`, bytes | `61`, `62` / `68 69` / `68 69` |
+| word trees | `word(ptr)`, `wordMod`; cons: `twoWords` | `u64Pay` | `42`; cons `(0 1)`; `8 + 2 * 2 ^ 32` |
+| symbols+strings | `symbol`, `string` (`string`) | `kindPay`: symbol, string | `"a"`, `"b"` / `"hi"` / string `01 00` |
+| symbols+bytes | `symbol`, `blob` (`blob`) | `kindPay`: symbol, bytes | `61`, `62` / `68 69` / bytes `01 00` |
+| symbols+strings+bytes | `symbol`, `string`, `blob` (`string`) | `kindPay`: symbol, string, bytes | `"a"`, `"b"` / `"hi"` / bytes `02 00` |
+| symbols+strings+keywords | `symbol`, `string`, `keyword` (`keyword`) | `kindPay`: symbol, string, keyword | `:a`, `:b` / `:hi` / keyword `02 00` |
+| symbols+strings+keywords+bytes | `symbol`, `string`, `keyword`, `blob` (`keyword`) | `kindPay`: all four | `:a`, `:b` / `:hi` / bytes `03 00` |
+| Rivest canonical | `blob` (`blob`) | `bytesPay`, octets | `61`, `62` / `68 69` / `68 69` |
+| Rivest hinted | `blob` (no hint), `hinted(hptr, hlen, ptr, len)` (`blob`) | `hintPay`: octets with optional hint | `61`, `62` / `68 69` (hint-free) / `[02 00 00 00]04 00` |
 
 For each family `f` (prefix `symbols`, `bytes`, `words`, `symStr`, `symBytes`, `symStrBytes`,
 `symStrKw`, `symStrKwBytes`, `rivest`, `hinted`):
@@ -66,10 +71,10 @@ For each family `f` (prefix `symbols`, `bytes`, `words`, `symStr`, `symBytes`, `
 | --- | --- | --- | --- |
 | n-ary writer | `f_naryW_sound`, `f_naryW_live` | `{(A B)}` (words: `{42}`) | `(A B)` (words: `42`) |
 | cons writer | `f_consW_sound`, `f_consW_live` | `{(Hi)}` (words: `twoWordsL`) | `(Hi)` (words: `(0 1)`) |
-| n-ary reader | `f_naryR_sound`, `f_naryR_live` | `firstAtoms` | `(Hi)` |
-| cons reader | `f_consR_sound`, `f_consR_live` | `carAtoms` | `(Hi . nil)` |
+| n-ary reader | `f_naryR_sound`, `f_naryR_live` | `firstAtoms` | `(Hi)` (mixed, hinted: `(Rd)`) |
+| cons reader | `f_consR_sound`, `f_consR_live` | `carAtoms` | `(Hi . nil)` (mixed, hinted: `(Rd . nil)`) |
 | AST writer | `f_astW_sound`, `f_astW_live` | `{SExp.toAST (A B)}` (words: the leaf `42`) | the same |
-| AST reader | `f_astR_sound`, `f_astR_live` | `firstLeaves` | `leafNode Hi` |
+| AST reader | `f_astR_sound`, `f_astR_live` | `firstLeaves` | `leafNode Hi` (mixed, hinted: `leafNode Rd`) |
 
 **Conditions.** Writers: every profile; policies without undefined behaviour (the cons
 writers also without sentinel; the word cons writer as in `twoWords_sound`, its live run at the
@@ -79,10 +84,17 @@ policy, every accept policy without undefined behaviour, every set of fixed envi
 (keep the code and the number of memories, may rewrite memory, return the import's result
 shape).
 
-**Scope of the examples.** The languages are small: one two-element list, one one-element
-cons list, or a reader check of one child. The mixed families' examples use one atom kind each
-(the table decodes all of the family's kinds; the reader payload decodes one). Hints of hinted atoms are not read (the
-`hinted(hptr, hlen, ptr, len)` writer with hints is `MemSound.Hinted`).
+**What is covered.** Every language is over the family's full atom type `Fam.Atom f`, and every
+writer language is decoded through the family's full import table (`<family>Tab`: a call of any
+atom import of the family decodes to an atom of that kind; `hintedTab_hinted`: the `hinted`
+import decodes to the atom with its hint). The writer examples import and call one atom import
+each (`pairAtomMod`, `consAtomMod` have one atom import), so a
+mixed family's writer run uses one kind and the hinted writer run is hint-free; the `hinted`
+entry of `hintedTab` is decoded (`.seg2`) but not called by the examples (a module calling it:
+`MemSound.Hinted.hintedMod`, n-ary only, `hinted_lang`). The readers' payloads decode every kind
+of the family, so a reader's accepted trees are not restricted to one kind; the runs read one
+kind each (code `1`, `2` or `3`, the bytes `k 0`; hinted: with a hint). The languages are small:
+one two-element list, one one-element cons list, or a reader check of one child.
 
 New definitions (the tables, decoders and exemplars); the theorems instantiate `Tab`, `Probe`,
 `WordAtom` and `Writers.Builders`.
@@ -110,6 +122,8 @@ open Silmaril.Accept.Handle renaming Env → HEnv
 theorem utf8_hi : utf8? [0x68, 0x69] = some "hi" := by decide +kernel
 theorem utf8_a : utf8? [0x61] = some "a" := by decide +kernel
 theorem utf8_b : utf8? [0x62] = some "b" := by decide +kernel
+theorem utf8_1 : utf8? [1, 0] = some "\x01\x00" := by decide +kernel
+theorem utf8_2 : utf8? [2, 0] = some "\x02\x00" := by decide +kernel
 
 /-- UTF-8 text as a symbol. -/
 def symD {ks : List AtomKind} (h : AtomKind.symbol ∈ ks) (bs : List UInt8) : Option (Atom ks) :=
@@ -127,6 +141,25 @@ def kwD {ks : List AtomKind} (h : AtomKind.keyword ∈ ks) (bs : List UInt8) : O
 def blobD {ks : List AtomKind} (h : AtomKind.bytes ∈ ks) (bs : List UInt8) : Option (Atom ks) :=
   some ⟨.bytes, h, bs⟩
 
+/-- **An atom of the kind `k`** from the bytes `bs`: UTF-8 text for symbols, strings and
+keywords, the bytes for byte strings, eight little-endian bytes for words. -/
+def atomOfKind {ks : List AtomKind} (k : AtomKind) (h : k ∈ ks) (bs : List UInt8) :
+    Option (Atom ks) :=
+  match k, h with
+  | .symbol, h => symD h bs
+  | .string, h => strD h bs
+  | .keyword, h => kwD h bs
+  | .bytes, h => blobD h bs
+  | .word, h => (WordAtom.le64 bs).map fun x => ⟨.word, h, x⟩
+
+/-- **The kind-tagged decoder** of a family of the kinds `ks` (the readers' `kindPay`): the kind
+code `c` selects the kind `ks[c]`, every kind of the family is decoded, other codes are
+unreadable. -/
+def kindD {ks : List AtomKind} (c : BitVec 32) (bs : List UInt8) : Option (Atom ks) :=
+  match h : ks[c.toNat]? with
+  | some k => atomOfKind k (List.mem_of_getElem? h) bs
+  | none => none
+
 /-! ## The examples' facts -/
 
 /-- **A table entry of an example**: `name` is an example import, `T` decodes its bytes `68 69`
@@ -134,7 +167,7 @@ to `a` by `dec`, and names none of `nil`, `cons`, `accept`. -/
 structure TabSpec {α : Type} (T : AtomTable α) (name : String) (dec : List UInt8 → Option α)
     (a : α) : Prop where
   hn : name ∈ atomNames
-  hT : T.lookup ("sexp", name) = some dec
+  hT : T.lookup ("sexp", name) = some (.seg dec)
   hd : dec [0x68, 0x69] = some a
   hnil : T.lookup ("sexp", "nil") = none
   hcons : T.lookup ("sexp", "cons") = none
@@ -164,7 +197,7 @@ end TabSpec
 structure ListSpec {α : Type} (T : AtomTable α) (name : String) (dec : List UInt8 → Option α)
     (a b : α) : Prop where
   hn : name ∈ atomNames
-  hT : T.lookup ("sexp", name) = some dec
+  hT : T.lookup ("sexp", name) = some (.seg dec)
   ha : dec [0x61] = some a
   hb : dec [0x62] = some b
   hsexp : T.lookup ("sexp", "sexp") = none
@@ -221,26 +254,44 @@ theorem pay_astR_live (P : Profile) (oa : OnInvalid) (dec : List UInt8 → Optio
       (astR (sexpSig α) (BitVec 32)) (astProbe (bytesPay dec)) .trap oa Set.univ :=
   ast_live P oa (bytesPay dec) _ fun _ _ hB hw => (bytesPay_page dec 0x68 0x69 hB hw).trans hd
 
+theorem kind_naryR_live {ks : List AtomKind} (P : Profile) (oa : OnInvalid) (k : UInt8)
+    {x : Atom ks} (hd : kindD (kindCode k) [k, 0] = some x) :
+    SExp.ofList [.atom x] ∈ probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
+      (sexpR (Atom ks) (BitVec 32)) (naryProbe (kindPay kindD)) .trap oa Set.univ :=
+  nary_live P oa (kindPay kindD) _ fun _ _ hB hw => (kindPay_page kindD k hB hw).trans hd
+
+theorem kind_consR_live {ks : List AtomKind} (P : Profile) (oa : OnInvalid) (k : UInt8)
+    {x : Atom ks} (hd : kindD (kindCode k) [k, 0] = some x) :
+    SExp2.cons (.atom x) .nil ∈ probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
+      (consR (Atom ks) (BitVec 32)) (consProbe (kindPay kindD)) .trap oa Set.univ :=
+  cons_live P oa (kindPay kindD) _ fun _ _ hB hw => (kindPay_page kindD k hB hw).trans hd
+
+theorem kind_astR_live {ks : List AtomKind} (P : Profile) (oa : OnInvalid) (k : UInt8)
+    {x : Atom ks} (hd : kindD (kindCode k) [k, 0] = some x) :
+    leafNode x ∈ probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
+      (astR (sexpSig (Atom ks)) (BitVec 32)) (astProbe (kindPay kindD)) .trap oa Set.univ :=
+  ast_live P oa (kindPay kindD) _ fun _ _ hB hw => (kindPay_page kindD k hB hw).trans hd
+
 end Readers
 
 /-! ## The families' tables, decoders and exemplars -/
 
 def symbolsDec : List UInt8 → Option (Fam.Atom .symbols) := utf8?
-def symbolsTab : AtomTable (Fam.Atom .symbols) := [(("sexp", "symbol"), symbolsDec)]
+def symbolsTab : AtomTable (Fam.Atom .symbols) := [(("sexp", "symbol"), .seg symbolsDec)]
 def symbolsHi : Fam.Atom .symbols := "hi"
 theorem symbols_spec : TabSpec symbolsTab "symbol" symbolsDec symbolsHi :=
   ⟨by decide, rfl, utf8_hi, by simp [symbolsTab], by simp [symbolsTab],
     by simp [symbolsTab]⟩
 
 def bytesDec : List UInt8 → Option (Fam.Atom .bytes) := some
-def bytesTab : AtomTable (Fam.Atom .bytes) := [(("sexp", "blob"), bytesDec)]
+def bytesTab : AtomTable (Fam.Atom .bytes) := [(("sexp", "blob"), .seg bytesDec)]
 def bytesHi : Fam.Atom .bytes := [0x68, 0x69]
 theorem bytes_spec : TabSpec bytesTab "blob" bytesDec bytesHi :=
   ⟨by decide, rfl, rfl, by simp [bytesTab], by simp [bytesTab], by simp [bytesTab]⟩
 
 def symStrDec : List UInt8 → Option (Fam.Atom .symStr) := strD (by decide)
 def symStrTab : AtomTable (Fam.Atom .symStr) :=
-  [(("sexp", "symbol"), symD (by decide)), (("sexp", "string"), symStrDec)]
+  [(("sexp", "symbol"), .seg (symD (by decide))), (("sexp", "string"), .seg symStrDec)]
 def symStrHi : Fam.Atom .symStr := ⟨.string, by decide, "hi"⟩
 theorem symStr_spec : TabSpec symStrTab "string" symStrDec symStrHi :=
   ⟨by decide, rfl, by simp [symStrDec, strD, utf8_hi, symStrHi],
@@ -248,7 +299,7 @@ theorem symStr_spec : TabSpec symStrTab "string" symStrDec symStrHi :=
 
 def symBytesDec : List UInt8 → Option (Fam.Atom .symBytes) := blobD (by decide)
 def symBytesTab : AtomTable (Fam.Atom .symBytes) :=
-  [(("sexp", "symbol"), symD (by decide)), (("sexp", "blob"), symBytesDec)]
+  [(("sexp", "symbol"), .seg (symD (by decide))), (("sexp", "blob"), .seg symBytesDec)]
 def symBytesHi : Fam.Atom .symBytes := ⟨.bytes, by decide, [0x68, 0x69]⟩
 theorem symBytes_spec : TabSpec symBytesTab "blob" symBytesDec symBytesHi :=
   ⟨by decide, rfl, rfl, by simp [symBytesTab], by simp [symBytesTab],
@@ -256,8 +307,8 @@ theorem symBytes_spec : TabSpec symBytesTab "blob" symBytesDec symBytesHi :=
 
 def symStrBytesDec : List UInt8 → Option (Fam.Atom .symStrBytes) := strD (by decide)
 def symStrBytesTab : AtomTable (Fam.Atom .symStrBytes) :=
-  [(("sexp", "symbol"), symD (by decide)), (("sexp", "string"), symStrBytesDec),
-    (("sexp", "blob"), blobD (by decide))]
+  [(("sexp", "symbol"), .seg (symD (by decide))), (("sexp", "string"), .seg symStrBytesDec),
+    (("sexp", "blob"), .seg (blobD (by decide)))]
 def symStrBytesHi : Fam.Atom .symStrBytes := ⟨.string, by decide, "hi"⟩
 theorem symStrBytes_spec : TabSpec symStrBytesTab "string" symStrBytesDec symStrBytesHi :=
   ⟨by decide, rfl, by simp [symStrBytesDec, strD, utf8_hi, symStrBytesHi],
@@ -265,8 +316,8 @@ theorem symStrBytes_spec : TabSpec symStrBytesTab "string" symStrBytesDec symStr
 
 def symStrKwDec : List UInt8 → Option (Fam.Atom .symStrKw) := kwD (by decide)
 def symStrKwTab : AtomTable (Fam.Atom .symStrKw) :=
-  [(("sexp", "symbol"), symD (by decide)), (("sexp", "string"), strD (by decide)),
-    (("sexp", "keyword"), symStrKwDec)]
+  [(("sexp", "symbol"), .seg (symD (by decide))), (("sexp", "string"), .seg (strD (by decide))),
+    (("sexp", "keyword"), .seg symStrKwDec)]
 def symStrKwHi : Fam.Atom .symStrKw := ⟨.keyword, by decide, "hi"⟩
 theorem symStrKw_spec : TabSpec symStrKwTab "keyword" symStrKwDec symStrKwHi :=
   ⟨by decide, rfl, by simp [symStrKwDec, kwD, utf8_hi, symStrKwHi],
@@ -274,8 +325,8 @@ theorem symStrKw_spec : TabSpec symStrKwTab "keyword" symStrKwDec symStrKwHi :=
 
 def symStrKwBytesDec : List UInt8 → Option (Fam.Atom .symStrKwBytes) := kwD (by decide)
 def symStrKwBytesTab : AtomTable (Fam.Atom .symStrKwBytes) :=
-  [(("sexp", "symbol"), symD (by decide)), (("sexp", "string"), strD (by decide)),
-    (("sexp", "keyword"), symStrKwBytesDec), (("sexp", "blob"), blobD (by decide))]
+  [(("sexp", "symbol"), .seg (symD (by decide))), (("sexp", "string"), .seg (strD (by decide))),
+    (("sexp", "keyword"), .seg symStrKwBytesDec), (("sexp", "blob"), .seg (blobD (by decide)))]
 def symStrKwBytesHi : Fam.Atom .symStrKwBytes := ⟨.keyword, by decide, "hi"⟩
 theorem symStrKwBytes_spec :
     TabSpec symStrKwBytesTab "keyword" symStrKwBytesDec symStrKwBytesHi :=
@@ -284,16 +335,31 @@ theorem symStrKwBytes_spec :
     by simp [symStrKwBytesTab], by simp [symStrKwBytesTab]⟩
 
 def rivestDec (bs : List UInt8) : Option (Fam.Atom .rivest) := some (Bytes.ofList bs)
-def rivestTab : AtomTable (Fam.Atom .rivest) := [(("sexp", "blob"), rivestDec)]
+def rivestTab : AtomTable (Fam.Atom .rivest) := [(("sexp", "blob"), .seg rivestDec)]
 def rivestHi : Fam.Atom .rivest := Bytes.ofList [0x68, 0x69]
 theorem rivest_spec : TabSpec rivestTab "blob" rivestDec rivestHi :=
   ⟨by decide, rfl, rfl, by simp [rivestTab], by simp [rivestTab],
     by simp [rivestTab]⟩
 
-/-- Hint-free hinted atoms. -/
+/-- Hint-free hinted atoms (`blob(ptr, len)`). -/
 def hintedDec (bs : List UInt8) : Option (Fam.Atom .hinted) := some (none, bs)
-def hintedTab : AtomTable (Fam.Atom .hinted) := [(("sexp", "blob"), hintedDec)]
+/-- Hinted atoms with a hint (`hinted(hptr, hlen, ptr, len)`). -/
+def hintedD2 (h bs : List UInt8) : Option (Fam.Atom .hinted) := some (some h, bs)
+/-- Both hinted imports: `blob` (no hint) and `hinted` (with a hint). -/
+def hintedTab : AtomTable (Fam.Atom .hinted) :=
+  [(("sexp", "blob"), .seg hintedDec), (("sexp", "hinted"), .seg2 hintedD2)]
 def hintedHi : Fam.Atom .hinted := (none, [0x68, 0x69])
+/-- The `hinted` import of `hintedTab` decodes a call to the octets with their hint. -/
+theorem hintedTab_hinted (o : Silmaril.Wasm.Game.Accept.Callout) :
+    (hintedTab.lookup ("sexp", "hinted")).bind (AtomDec.decode · o) =
+      (segs2 o).map fun (h, bs) => (some h, bs) := by
+  have hl : hintedTab.lookup ("sexp", "hinted") = some (.seg2 hintedD2) := by
+    have h : (("sexp", "hinted") == ("sexp", "blob")) = false := by decide
+    have h' : (("sexp", "hinted") == ("sexp", "hinted")) = true := by decide
+    simp only [hintedTab, List.lookup, h, h']
+  rw [hl, Option.bind_some, AtomDec.decode]
+  cases segs2 o <;> rfl
+
 theorem hinted_spec : TabSpec hintedTab "blob" hintedDec hintedHi :=
   ⟨by decide, rfl, rfl, by simp [hintedTab], by simp [hintedTab],
     by simp [hintedTab]⟩
@@ -372,6 +438,38 @@ theorem hinted_list :
   ⟨by decide, rfl, rfl,
     rfl,
     by simp [hintedTab], by simp [hintedTab]⟩
+
+/-! ### The reader exemplars
+
+The mixed families' readers decode kind-tagged payloads (`kindPay kindD`); the positive runs read
+the bytes `k 0` with the kind code `k` (`kindPay_page`). Hinted readers decode the octets with
+their hint (`hintPay`); the positive run reads the octets `4 0` with the hint `2 0 0 0`
+(`hintPay_page`). -/
+
+/-- The reader exemplar: a string, kind code `1`. -/
+def symStrRd : Fam.Atom .symStr := ⟨.string, by decide, "\x01\x00"⟩
+theorem symStr_rd : kindD (kindCode 1) [1, 0] = some symStrRd := by
+  simp [kindD, atomOfKind, strD, utf8_1, symStrRd]; rfl
+
+/-- The reader exemplar: a byte string, kind code `1`. -/
+def symBytesRd : Fam.Atom .symBytes := ⟨.bytes, by decide, [1, 0]⟩
+theorem symBytes_rd : kindD (kindCode 1) [1, 0] = some symBytesRd := rfl
+
+/-- The reader exemplar: a byte string, kind code `2`. -/
+def symStrBytesRd : Fam.Atom .symStrBytes := ⟨.bytes, by decide, [2, 0]⟩
+theorem symStrBytes_rd : kindD (kindCode 2) [2, 0] = some symStrBytesRd := rfl
+
+/-- The reader exemplar: a keyword, kind code `2`. -/
+def symStrKwRd : Fam.Atom .symStrKw := ⟨.keyword, by decide, "\x02\x00"⟩
+theorem symStrKw_rd : kindD (kindCode 2) [2, 0] = some symStrKwRd := by
+  simp [kindD, atomOfKind, kwD, utf8_2, symStrKwRd]; rfl
+
+/-- The reader exemplar: a byte string, kind code `3`. -/
+def symStrKwBytesRd : Fam.Atom .symStrKwBytes := ⟨.bytes, by decide, [3, 0]⟩
+theorem symStrKwBytes_rd : kindD (kindCode 3) [3, 0] = some symStrKwBytesRd := rfl
+
+/-- The hinted reader exemplar: the octets `4 0` with the hint `2 0 0 0`. -/
+def hintedRd : Fam.Atom .hinted := (some [2, 0, 0, 0], [4, 0])
 
 /-! ## The pairs -/
 
@@ -702,16 +800,16 @@ theorem symStr_naryR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (SExp (Fam.Atom .symStr)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
       (sexpR (Fam.Atom .symStr) (BitVec 32))
-      (naryProbe (bytesPay symStrDec)) .trap oa Rhos ⊆
+      (naryProbe (kindPay kindD)) .trap oa Rhos ⊆
       firstAtoms (Fam.Atom .symStr) :=
   nary_sound P _ hoa Rhos
 
 theorem symStr_naryR_live (P : Profile) (oa : OnInvalid) :
-    SExp.ofList [.atom symStrHi] ∈
+    SExp.ofList [.atom symStrRd] ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
         (sexpR (Fam.Atom .symStr) (BitVec 32))
-        (naryProbe (bytesPay symStrDec)) .trap oa Set.univ :=
-  pay_naryR_live P oa symStrDec symStr_spec.hd
+        (naryProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_naryR_live P oa 1 symStr_rd
 
 /-- **symbols+strings, cons reader**:
 only pairs whose car is an atom. -/
@@ -719,16 +817,16 @@ theorem symStr_consR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (SExp2 (Fam.Atom .symStr)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
       (consR (Fam.Atom .symStr) (BitVec 32))
-      (consProbe (bytesPay symStrDec)) .trap oa Rhos ⊆
+      (consProbe (kindPay kindD)) .trap oa Rhos ⊆
       carAtoms (Fam.Atom .symStr) :=
   cons_sound P _ hoa Rhos
 
 theorem symStr_consR_live (P : Profile) (oa : OnInvalid) :
-    SExp2.cons (.atom symStrHi) .nil ∈
+    SExp2.cons (.atom symStrRd) .nil ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
         (consR (Fam.Atom .symStr) (BitVec 32))
-        (consProbe (bytesPay symStrDec)) .trap oa Set.univ :=
-  pay_consR_live P oa symStrDec symStr_spec.hd
+        (consProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_consR_live P oa 1 symStr_rd
 
 /-- **symbols+strings, AST reader**:
 only nodes whose first child is a leaf. -/
@@ -736,16 +834,16 @@ theorem symStr_astR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (AST (sexpSig (Fam.Atom .symStr))))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
       (astR (sexpSig (Fam.Atom .symStr)) (BitVec 32))
-      (astProbe (bytesPay symStrDec)) .trap oa Rhos ⊆
+      (astProbe (kindPay kindD)) .trap oa Rhos ⊆
       firstLeaves (Fam.Atom .symStr) :=
   ast_sound P _ hoa Rhos
 
 theorem symStr_astR_live (P : Profile) (oa : OnInvalid) :
-    leafNode symStrHi ∈
+    leafNode symStrRd ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
         (astR (sexpSig (Fam.Atom .symStr)) (BitVec 32))
-        (astProbe (bytesPay symStrDec)) .trap oa Set.univ :=
-  pay_astR_live P oa symStrDec symStr_spec.hd
+        (astProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_astR_live P oa 1 symStr_rd
 
 /-! ### symbols+bytes (`Fam.symBytes`) -/
 
@@ -796,16 +894,16 @@ theorem symBytes_naryR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (SExp (Fam.Atom .symBytes)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
       (sexpR (Fam.Atom .symBytes) (BitVec 32))
-      (naryProbe (bytesPay symBytesDec)) .trap oa Rhos ⊆
+      (naryProbe (kindPay kindD)) .trap oa Rhos ⊆
       firstAtoms (Fam.Atom .symBytes) :=
   nary_sound P _ hoa Rhos
 
 theorem symBytes_naryR_live (P : Profile) (oa : OnInvalid) :
-    SExp.ofList [.atom symBytesHi] ∈
+    SExp.ofList [.atom symBytesRd] ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
         (sexpR (Fam.Atom .symBytes) (BitVec 32))
-        (naryProbe (bytesPay symBytesDec)) .trap oa Set.univ :=
-  pay_naryR_live P oa symBytesDec symBytes_spec.hd
+        (naryProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_naryR_live P oa 1 symBytes_rd
 
 /-- **symbols+bytes, cons reader**:
 only pairs whose car is an atom. -/
@@ -813,16 +911,16 @@ theorem symBytes_consR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (SExp2 (Fam.Atom .symBytes)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
       (consR (Fam.Atom .symBytes) (BitVec 32))
-      (consProbe (bytesPay symBytesDec)) .trap oa Rhos ⊆
+      (consProbe (kindPay kindD)) .trap oa Rhos ⊆
       carAtoms (Fam.Atom .symBytes) :=
   cons_sound P _ hoa Rhos
 
 theorem symBytes_consR_live (P : Profile) (oa : OnInvalid) :
-    SExp2.cons (.atom symBytesHi) .nil ∈
+    SExp2.cons (.atom symBytesRd) .nil ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
         (consR (Fam.Atom .symBytes) (BitVec 32))
-        (consProbe (bytesPay symBytesDec)) .trap oa Set.univ :=
-  pay_consR_live P oa symBytesDec symBytes_spec.hd
+        (consProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_consR_live P oa 1 symBytes_rd
 
 /-- **symbols+bytes, AST reader**:
 only nodes whose first child is a leaf. -/
@@ -830,16 +928,16 @@ theorem symBytes_astR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (AST (sexpSig (Fam.Atom .symBytes))))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
       (astR (sexpSig (Fam.Atom .symBytes)) (BitVec 32))
-      (astProbe (bytesPay symBytesDec)) .trap oa Rhos ⊆
+      (astProbe (kindPay kindD)) .trap oa Rhos ⊆
       firstLeaves (Fam.Atom .symBytes) :=
   ast_sound P _ hoa Rhos
 
 theorem symBytes_astR_live (P : Profile) (oa : OnInvalid) :
-    leafNode symBytesHi ∈
+    leafNode symBytesRd ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
         (astR (sexpSig (Fam.Atom .symBytes)) (BitVec 32))
-        (astProbe (bytesPay symBytesDec)) .trap oa Set.univ :=
-  pay_astR_live P oa symBytesDec symBytes_spec.hd
+        (astProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_astR_live P oa 1 symBytes_rd
 
 /-! ### symbols+strings+bytes (`Fam.symStrBytes`) -/
 
@@ -890,16 +988,16 @@ theorem symStrBytes_naryR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub
     (Rhos : Set (HEnv (BitVec 32) (SExp (Fam.Atom .symStrBytes)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
       (sexpR (Fam.Atom .symStrBytes) (BitVec 32))
-      (naryProbe (bytesPay symStrBytesDec)) .trap oa Rhos ⊆
+      (naryProbe (kindPay kindD)) .trap oa Rhos ⊆
       firstAtoms (Fam.Atom .symStrBytes) :=
   nary_sound P _ hoa Rhos
 
 theorem symStrBytes_naryR_live (P : Profile) (oa : OnInvalid) :
-    SExp.ofList [.atom symStrBytesHi] ∈
+    SExp.ofList [.atom symStrBytesRd] ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
         (sexpR (Fam.Atom .symStrBytes) (BitVec 32))
-        (naryProbe (bytesPay symStrBytesDec)) .trap oa Set.univ :=
-  pay_naryR_live P oa symStrBytesDec symStrBytes_spec.hd
+        (naryProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_naryR_live P oa 2 symStrBytes_rd
 
 /-- **symbols+strings+bytes, cons reader**:
 only pairs whose car is an atom. -/
@@ -907,16 +1005,16 @@ theorem symStrBytes_consR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub
     (Rhos : Set (HEnv (BitVec 32) (SExp2 (Fam.Atom .symStrBytes)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
       (consR (Fam.Atom .symStrBytes) (BitVec 32))
-      (consProbe (bytesPay symStrBytesDec)) .trap oa Rhos ⊆
+      (consProbe (kindPay kindD)) .trap oa Rhos ⊆
       carAtoms (Fam.Atom .symStrBytes) :=
   cons_sound P _ hoa Rhos
 
 theorem symStrBytes_consR_live (P : Profile) (oa : OnInvalid) :
-    SExp2.cons (.atom symStrBytesHi) .nil ∈
+    SExp2.cons (.atom symStrBytesRd) .nil ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
         (consR (Fam.Atom .symStrBytes) (BitVec 32))
-        (consProbe (bytesPay symStrBytesDec)) .trap oa Set.univ :=
-  pay_consR_live P oa symStrBytesDec symStrBytes_spec.hd
+        (consProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_consR_live P oa 2 symStrBytes_rd
 
 /-- **symbols+strings+bytes, AST reader**:
 only nodes whose first child is a leaf. -/
@@ -924,16 +1022,16 @@ theorem symStrBytes_astR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (AST (sexpSig (Fam.Atom .symStrBytes))))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
       (astR (sexpSig (Fam.Atom .symStrBytes)) (BitVec 32))
-      (astProbe (bytesPay symStrBytesDec)) .trap oa Rhos ⊆
+      (astProbe (kindPay kindD)) .trap oa Rhos ⊆
       firstLeaves (Fam.Atom .symStrBytes) :=
   ast_sound P _ hoa Rhos
 
 theorem symStrBytes_astR_live (P : Profile) (oa : OnInvalid) :
-    leafNode symStrBytesHi ∈
+    leafNode symStrBytesRd ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
         (astR (sexpSig (Fam.Atom .symStrBytes)) (BitVec 32))
-        (astProbe (bytesPay symStrBytesDec)) .trap oa Set.univ :=
-  pay_astR_live P oa symStrBytesDec symStrBytes_spec.hd
+        (astProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_astR_live P oa 2 symStrBytes_rd
 
 /-! ### symbols+strings+keywords (`Fam.symStrKw`) -/
 
@@ -984,16 +1082,16 @@ theorem symStrKw_naryR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (SExp (Fam.Atom .symStrKw)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
       (sexpR (Fam.Atom .symStrKw) (BitVec 32))
-      (naryProbe (bytesPay symStrKwDec)) .trap oa Rhos ⊆
+      (naryProbe (kindPay kindD)) .trap oa Rhos ⊆
       firstAtoms (Fam.Atom .symStrKw) :=
   nary_sound P _ hoa Rhos
 
 theorem symStrKw_naryR_live (P : Profile) (oa : OnInvalid) :
-    SExp.ofList [.atom symStrKwHi] ∈
+    SExp.ofList [.atom symStrKwRd] ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
         (sexpR (Fam.Atom .symStrKw) (BitVec 32))
-        (naryProbe (bytesPay symStrKwDec)) .trap oa Set.univ :=
-  pay_naryR_live P oa symStrKwDec symStrKw_spec.hd
+        (naryProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_naryR_live P oa 2 symStrKw_rd
 
 /-- **symbols+strings+keywords, cons reader**:
 only pairs whose car is an atom. -/
@@ -1001,16 +1099,16 @@ theorem symStrKw_consR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (SExp2 (Fam.Atom .symStrKw)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
       (consR (Fam.Atom .symStrKw) (BitVec 32))
-      (consProbe (bytesPay symStrKwDec)) .trap oa Rhos ⊆
+      (consProbe (kindPay kindD)) .trap oa Rhos ⊆
       carAtoms (Fam.Atom .symStrKw) :=
   cons_sound P _ hoa Rhos
 
 theorem symStrKw_consR_live (P : Profile) (oa : OnInvalid) :
-    SExp2.cons (.atom symStrKwHi) .nil ∈
+    SExp2.cons (.atom symStrKwRd) .nil ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
         (consR (Fam.Atom .symStrKw) (BitVec 32))
-        (consProbe (bytesPay symStrKwDec)) .trap oa Set.univ :=
-  pay_consR_live P oa symStrKwDec symStrKw_spec.hd
+        (consProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_consR_live P oa 2 symStrKw_rd
 
 /-- **symbols+strings+keywords, AST reader**:
 only nodes whose first child is a leaf. -/
@@ -1018,16 +1116,16 @@ theorem symStrKw_astR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (AST (sexpSig (Fam.Atom .symStrKw))))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
       (astR (sexpSig (Fam.Atom .symStrKw)) (BitVec 32))
-      (astProbe (bytesPay symStrKwDec)) .trap oa Rhos ⊆
+      (astProbe (kindPay kindD)) .trap oa Rhos ⊆
       firstLeaves (Fam.Atom .symStrKw) :=
   ast_sound P _ hoa Rhos
 
 theorem symStrKw_astR_live (P : Profile) (oa : OnInvalid) :
-    leafNode symStrKwHi ∈
+    leafNode symStrKwRd ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
         (astR (sexpSig (Fam.Atom .symStrKw)) (BitVec 32))
-        (astProbe (bytesPay symStrKwDec)) .trap oa Set.univ :=
-  pay_astR_live P oa symStrKwDec symStrKw_spec.hd
+        (astProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_astR_live P oa 2 symStrKw_rd
 
 /-! ### symbols+strings+keywords+bytes (`Fam.symStrKwBytes`) -/
 
@@ -1078,16 +1176,16 @@ theorem symStrKwBytes_naryR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .
     (Rhos : Set (HEnv (BitVec 32) (SExp (Fam.Atom .symStrKwBytes)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
       (sexpR (Fam.Atom .symStrKwBytes) (BitVec 32))
-      (naryProbe (bytesPay symStrKwBytesDec)) .trap oa Rhos ⊆
+      (naryProbe (kindPay kindD)) .trap oa Rhos ⊆
       firstAtoms (Fam.Atom .symStrKwBytes) :=
   nary_sound P _ hoa Rhos
 
 theorem symStrKwBytes_naryR_live (P : Profile) (oa : OnInvalid) :
-    SExp.ofList [.atom symStrKwBytesHi] ∈
+    SExp.ofList [.atom symStrKwBytesRd] ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
         (sexpR (Fam.Atom .symStrKwBytes) (BitVec 32))
-        (naryProbe (bytesPay symStrKwBytesDec)) .trap oa Set.univ :=
-  pay_naryR_live P oa symStrKwBytesDec symStrKwBytes_spec.hd
+        (naryProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_naryR_live P oa 3 symStrKwBytes_rd
 
 /-- **symbols+strings+keywords+bytes, cons reader**:
 only pairs whose car is an atom. -/
@@ -1095,16 +1193,16 @@ theorem symStrKwBytes_consR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .
     (Rhos : Set (HEnv (BitVec 32) (SExp2 (Fam.Atom .symStrKwBytes)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
       (consR (Fam.Atom .symStrKwBytes) (BitVec 32))
-      (consProbe (bytesPay symStrKwBytesDec)) .trap oa Rhos ⊆
+      (consProbe (kindPay kindD)) .trap oa Rhos ⊆
       carAtoms (Fam.Atom .symStrKwBytes) :=
   cons_sound P _ hoa Rhos
 
 theorem symStrKwBytes_consR_live (P : Profile) (oa : OnInvalid) :
-    SExp2.cons (.atom symStrKwBytesHi) .nil ∈
+    SExp2.cons (.atom symStrKwBytesRd) .nil ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
         (consR (Fam.Atom .symStrKwBytes) (BitVec 32))
-        (consProbe (bytesPay symStrKwBytesDec)) .trap oa Set.univ :=
-  pay_consR_live P oa symStrKwBytesDec symStrKwBytes_spec.hd
+        (consProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_consR_live P oa 3 symStrKwBytes_rd
 
 /-- **symbols+strings+keywords+bytes, AST reader**:
 only nodes whose first child is a leaf. -/
@@ -1112,16 +1210,16 @@ theorem symStrKwBytes_astR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .u
     (Rhos : Set (HEnv (BitVec 32) (AST (sexpSig (Fam.Atom .symStrKwBytes))))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
       (astR (sexpSig (Fam.Atom .symStrKwBytes)) (BitVec 32))
-      (astProbe (bytesPay symStrKwBytesDec)) .trap oa Rhos ⊆
+      (astProbe (kindPay kindD)) .trap oa Rhos ⊆
       firstLeaves (Fam.Atom .symStrKwBytes) :=
   ast_sound P _ hoa Rhos
 
 theorem symStrKwBytes_astR_live (P : Profile) (oa : OnInvalid) :
-    leafNode symStrKwBytesHi ∈
+    leafNode symStrKwBytesRd ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
         (astR (sexpSig (Fam.Atom .symStrKwBytes)) (BitVec 32))
-        (astProbe (bytesPay symStrKwBytesDec)) .trap oa Set.univ :=
-  pay_astR_live P oa symStrKwBytesDec symStrKwBytes_spec.hd
+        (astProbe (kindPay kindD)) .trap oa Set.univ :=
+  kind_astR_live P oa 3 symStrKwBytes_rd
 
 /-! ### Rivest canonical (`Fam.rivest`) -/
 
@@ -1266,16 +1364,16 @@ theorem hinted_naryR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (SExp (Fam.Atom .hinted)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
       (sexpR (Fam.Atom .hinted) (BitVec 32))
-      (naryProbe (bytesPay hintedDec)) .trap oa Rhos ⊆
+      (naryProbe hintPay) .trap oa Rhos ⊆
       firstAtoms (Fam.Atom .hinted) :=
   nary_sound P _ hoa Rhos
 
 theorem hinted_naryR_live (P : Profile) (oa : OnInvalid) :
-    SExp.ofList [.atom hintedHi] ∈
+    SExp.ofList [.atom hintedRd] ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod naryIx)
         (sexpR (Fam.Atom .hinted) (BitVec 32))
-        (naryProbe (bytesPay hintedDec)) .trap oa Set.univ :=
-  pay_naryR_live P oa hintedDec hinted_spec.hd
+        (naryProbe hintPay) .trap oa Set.univ :=
+  nary_live P oa hintPay 4 fun _ _ hB hw => hintPay_page hB hw
 
 /-- **Rivest hinted, cons reader**:
 only pairs whose car is an atom. -/
@@ -1283,16 +1381,16 @@ theorem hinted_consR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (SExp2 (Fam.Atom .hinted)))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
       (consR (Fam.Atom .hinted) (BitVec 32))
-      (consProbe (bytesPay hintedDec)) .trap oa Rhos ⊆
+      (consProbe hintPay) .trap oa Rhos ⊆
       carAtoms (Fam.Atom .hinted) :=
   cons_sound P _ hoa Rhos
 
 theorem hinted_consR_live (P : Profile) (oa : OnInvalid) :
-    SExp2.cons (.atom hintedHi) .nil ∈
+    SExp2.cons (.atom hintedRd) .nil ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod consIx)
         (consR (Fam.Atom .hinted) (BitVec 32))
-        (consProbe (bytesPay hintedDec)) .trap oa Set.univ :=
-  pay_consR_live P oa hintedDec hinted_spec.hd
+        (consProbe hintPay) .trap oa Set.univ :=
+  cons_live P oa hintPay 4 fun _ _ hB hw => hintPay_page hB hw
 
 /-- **Rivest hinted, AST reader**:
 only nodes whose first child is a leaf. -/
@@ -1300,15 +1398,15 @@ theorem hinted_astR_sound (P : Profile) {oa : OnInvalid} (hoa : oa ≠ .ub)
     (Rhos : Set (HEnv (BitVec 32) (AST (sexpSig (Fam.Atom .hinted))))) :
     probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
       (astR (sexpSig (Fam.Atom .hinted)) (BitVec 32))
-      (astProbe (bytesPay hintedDec)) .trap oa Rhos ⊆
+      (astProbe hintPay) .trap oa Rhos ⊆
       firstLeaves (Fam.Atom .hinted) :=
   ast_sound P _ hoa Rhos
 
 theorem hinted_astR_live (P : Profile) (oa : OnInvalid) :
-    leafNode hintedHi ∈
+    leafNode hintedRd ∈
       probeLang P (ReplyEnvs probeReply) 0 (probeMod astIx)
         (astR (sexpSig (Fam.Atom .hinted)) (BitVec 32))
-        (astProbe (bytesPay hintedDec)) .trap oa Set.univ :=
-  pay_astR_live P oa hintedDec hinted_spec.hd
+        (astProbe hintPay) .trap oa Set.univ :=
+  ast_live P oa hintPay 4 fun _ _ hB hw => hintPay_page hB hw
 
 end Silmaril.Wasm.Game.HandleAccept.Families

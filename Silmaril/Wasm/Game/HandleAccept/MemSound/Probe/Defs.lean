@@ -60,17 +60,20 @@ An unreadable reply decodes to an ill-typed answer (`handle 0` for `atom`, `coun
 never a correct one.
 
 Payloads: `bytesPay dec` reads the `list<u8>` at `retptr` (`(ptr, len)`, then the bytes) and
-decodes it by `dec` (UTF-8 text for symbols, strings and keywords; the bytes for byte strings,
-octet strings and hint-free hinted atoms); `u64Pay` reads the `u64` at `[retptr, retptr + 8)`
-(the canonical-ABI return area of a `u64`), for word trees.
+decodes it by `dec` (UTF-8 text for symbols and the bytes for byte strings and octet strings,
+families of one atom kind); `kindPay dec` reads the record `{ bytes : list<u8>, kind : u32 }` and
+decodes it by `dec kind bytes` (families of several atom kinds: every kind is readable);
+`hintPay` reads the record `{ octets : list<u8>, hint : list<u8> }` of a hinted atom (a null
+hint pointer is no hint); `u64Pay` reads the `u64` at `[retptr, retptr + 8)` (the canonical-ABI
+return area of a `u64`), for word trees.
 
 ## A concrete host
 
 `probeEnv c w`: host code `0` (`next`) returns `c` in the caller's store; host code `1`
 (`leaf`) writes, in the caller's memory `0`, the bytes of `Live.itemsBytes w w` (the words
 `8, 2, w, w` at `[0, 16)`) and returns nothing; other calls return nothing. Read through the
-return pointer `0`, the `list<u8>` is the two low bytes of `w`, and the `u64` is
-`8 + 2 * 2 ^ 32`.
+return pointer `0`, the `list<u8>` is the two low bytes of `w`, the kind code (`kindPay`) and
+the hint pointer and length (`hintPay`) are `w`, and the `u64` is `8 + 2 * 2 ^ 32`.
 
 New definitions (no source).
 -/
@@ -189,6 +192,30 @@ def bytesPay (dec : List UInt8 → Option α) : Payload α := fun w rp =>
 /-- **The `u64` at `[retptr, retptr + 8)`**, little-endian. -/
 def u64Pay : Payload (BitVec 64) := fun w rp =>
   (w.mem.bind fun mem => segOf mem rp.toNat 8).bind WordAtom.le64
+
+/-- The kind code `k` as a word (the live page written with `w = kindCode k`). -/
+abbrev kindCode (k : UInt8) : BitVec 32 := BitVec.ofNat 32 (k.toNat + 256 * (0 : UInt8).toNat)
+
+/-- **A kind-tagged `list<u8>` at `retptr`**: the record `{ bytes : list<u8>, kind : u32 }`,
+i.e. `(ptr, len)` at `[retptr, retptr + 8)` and the kind code at `[retptr + 8, retptr + 12)`,
+decoded by `dec kind bytes` (an atom of several kinds: the code selects the kind). -/
+def kindPay (dec : BitVec 32 → List UInt8 → Option α) : Payload α := fun w rp =>
+  w.mem.bind fun mem => (bytesList mem rp.toNat).bind fun bs =>
+    ((segOf mem (rp.toNat + 8) 4).bind le32s).bind fun ks =>
+      match ks with
+      | [k] => dec k bs
+      | _ => none
+
+/-- **A hinted octet string at `retptr`**: the record `{ octets : list<u8>, hint : list<u8> }`
+(`(ptr, len)` of the octets at `[retptr, retptr + 8)`, of the hint at `[retptr + 8,
+retptr + 16)`); a null hint pointer is no hint. -/
+def hintPay : Payload Hinted := fun w rp =>
+  w.mem.bind fun mem => (bytesList mem rp.toNat).bind fun bs =>
+    ((segOf mem (rp.toNat + 8) 4).bind le32s).bind fun ps =>
+      match ps with
+      | [p] => if p = 0 then some (none, bs) else
+          (bytesList mem (rp.toNat + 8)).map fun h => (some h, bs)
+      | _ => none
 
 /-! ## The three reader APIs -/
 

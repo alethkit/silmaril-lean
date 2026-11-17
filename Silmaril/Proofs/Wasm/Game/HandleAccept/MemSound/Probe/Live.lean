@@ -294,6 +294,56 @@ theorem u64Pay_page (w : BitVec 32) {B B' : ByteArray} (hB : B.size = 65536)
   rw [show (0 : BitVec 32).toNat = 0 from rfl, e₀]
   decide +kernel
 
+/-- The word at `[8, 12)` of the written page is `w`. -/
+theorem written_word8 {w : BitVec 32} {B : ByteArray} (hW : Written w B) :
+    (segOf B (0 + 8) 4).bind le32s = some [w] := by
+  obtain ⟨hz, -, -, hh₁, -⟩ := hW
+  have e : segOf B (0 + 8) 4 = some (Memory.encodeLE 4 w.toNat).data.toList := by
+    unfold segOf
+    rw [readBytes_toList (by rw [hz]; decide), hh₁]
+  rw [e, Option.bind_some, ← List.append_nil (Memory.encodeLE 4 w.toNat).data.toList,
+    le32s_encode]
+  rfl
+
+theorem kindPay_page (dec : BitVec 32 → List UInt8 → Option α) (k : UInt8) {B B' : ByteArray}
+    (hB : B.size = 65536) (hw : itemsBytes (symWord k 0) (symWord k 0) B = some B') :
+    kindPay dec ⟨.values [], some B'⟩ 0 = dec (symWord k 0) [k, 0] := by
+  obtain ⟨B'', hib, hW⟩ := written_of (symWord k 0) hB
+  rw [hw] at hib
+  cases hib
+  simp only [kindPay, Option.bind_some, show (0 : BitVec 32).toNat = 0 from rfl,
+    written_bytesList hW, written_word8 hW]
+
+/-- The hinted atom on the page written with `w = 4`: the octets `4 0`, the hint `2 0 0 0`. -/
+theorem hintPay_page {B B' : ByteArray} (hB : B.size = 65536)
+    (hw : itemsBytes 4 4 B = some B') :
+    hintPay ⟨.values [], some B'⟩ 0 = some (some [2, 0, 0, 0], [4, 0]) := by
+  obtain ⟨B'', hib, hW⟩ := written_of 4 hB
+  rw [hw] at hib
+  cases hib
+  have hW' : Written (symWord 4 0) B' := hW
+  obtain ⟨hz, -, h2b, hh₁, hh₂⟩ := hW
+  have e₈ : segOf B' 8 8 = some ((Memory.encodeLE 4 (4 : BitVec 32).toNat).data.toList ++
+      (Memory.encodeLE 4 (4 : BitVec 32).toNat).data.toList) := by
+    unfold segOf
+    rw [readBytes_toList (by rw [hz]; decide),
+      show (8 : Nat) = 4 + 4 from rfl, bytesAt_append, hh₁, hh₂]
+  have e₄ : segOf B' 4 4 = some (Memory.encodeLE 4 (2 : BitVec 32).toNat).data.toList := by
+    unfold segOf
+    rw [readBytes_toList (by rw [hz]; decide), h2b]
+  have hl : bytesList B' (0 + 8) = some [2, 0, 0, 0] := by
+    unfold bytesList
+    rw [show (0 + 8 : Nat) = 8 from rfl, e₈]
+    simp only [Option.bind_eq_bind, Option.bind_some]
+    rw [le32s_encode, ← List.append_nil (Memory.encodeLE 4 (4 : BitVec 32).toNat).data.toList,
+      le32s_encode]
+    simp only [le32s, Option.map_some, Option.bind_some, pair32]
+    rw [show (4 : BitVec 32).toNat = 4 from rfl, e₄]
+    rfl
+  simp only [hintPay, Option.bind_some, show (0 : BitVec 32).toNat = 0 from rfl,
+    written_bytesList hW', written_word8 hW', hl]
+  decide
+
 /-! ## The three probes -/
 
 theorem naryOk : probeOk naryIx = true := by decide +kernel

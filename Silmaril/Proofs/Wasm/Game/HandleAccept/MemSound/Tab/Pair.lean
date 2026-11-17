@@ -41,7 +41,7 @@ to `a` and `62` to `b` by `dec`, and names neither `sexp` nor `accept`. -/
 structure PairSpec (T : AtomTable α) (name : String) (dec : List UInt8 → Option α) (a b : α) :
     Prop where
   hn : name ∈ atomNames
-  hT : T.lookup ("sexp", name) = some dec
+  hT : T.lookup ("sexp", name) = some (.seg dec)
   ha : dec [0x61] = some a
   hb : dec [0x62] = some b
   hsexp : T.lookup ("sexp", "sexp") = none
@@ -67,11 +67,11 @@ theorem tabWrite_isWrite {o : Callout} {w : HostReply} {e : WEv (SxOp α) (BitVe
       · simp at h
 
 theorem tabWrite_bytes_eq {imp : String × String} {bs : List UInt8} {x : α}
-    (hT : T.lookup imp = some dec) (hd : dec bs = some x) {o : Callout} {q : BitVec 32}
+    (hT : T.lookup imp = some (.seg dec)) (hd : dec bs = some x) {o : Callout} {q : BitVec 32}
     {mem : Option ByteArray} (hi : o.imp = imp) (hbs : o.bytes32 = some bs) :
     tabWrite T {} o ⟨.values [.i32 q], mem⟩ = some (.write (.atom x) [] q) := by
   have hr : replyI32 ⟨.values [.i32 q], mem⟩ = some q := rfl
-  simp [tabWrite, hr, hi, hT, hbs, hd]
+  simp [tabWrite, hr, hi, hT, AtomDec.decode, hbs, hd]
 
 theorem tabWrite_sexp_eq (hs : T.lookup ("sexp", "sexp") = none) {o : Callout} {w : HostReply}
     {hs' : List (BitVec 32)} {r : BitVec 32} (hi : o.imp = ("sexp", "sexp"))
@@ -154,7 +154,7 @@ theorem tab_pre_other' {ρ : Env (BitVec 32) (SExp α)} {i : Import} {s : Store 
 
 /-- An atom write observing `bs` returns a handle denoting the atom `dec` decodes. -/
 theorem tab_atom_ans {ρ : Env (BitVec 32) (SExp α)} {imp : String × String} {bs : List UInt8}
-    {x : α} (hT : T.lookup imp = some dec) (hd : dec bs = some x) {o : Callout}
+    {x : α} (hT : T.lookup imp = some (.seg dec)) (hd : dec bs = some x) {o : Callout}
     {mem : Option ByteArray} {r : BitVec 32} (hi : o.imp = imp) (hbs : o.bytes32 = some bs)
     (hans : ∀ y, tabWrite T {} o ⟨.values [.i32 r], mem⟩ = some y → (tabPairK T a b ρ).ans y) :
     ρ r = some (.atom x) := by

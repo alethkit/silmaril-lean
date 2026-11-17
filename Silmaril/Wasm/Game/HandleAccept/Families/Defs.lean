@@ -37,13 +37,29 @@ bound on its language) with a positive run (a traced session accepting a tree), 
 `<family>_<api>_live` (the AST row: `_astW_` for the writer, `_astR_` for the reader). They are
 instances of generic modules proved once for every atom type:
 
-* writers over an atom table (`Silmaril.Wasm.Game.HandleAccept.MemSound.Tab`): `pairAtomMod`
-  (n-ary and AST writer: exactly the two-element list `(a b)`, resp. its `sexpSig` tree),
-  `consAtomMod` (cons writer: exactly `(a)`); word trees use `word(ptr)` (`MemSound.WordAtom`,
-  exactly `42`) and the instance-play cons writer `twoWords`;
+* writers over an atom table (`Silmaril.Wasm.Game.HandleAccept.MemSound.Tab`) naming every atom
+  import of the family, one decoder per import name: `pairAtomMod` (n-ary and AST writer:
+  exactly the two-element list `(a b)`, resp. its `sexpSig` tree), `consAtomMod` (cons writer:
+  exactly `(a)`); word trees use `word(ptr)` (`MemSound.WordAtom`, exactly `42`) and the
+  instance-play cons writer `twoWords`;
 * readers through `next(h, 0)` and a memory-returning `leaf(c, retptr)`
   (`Silmaril.Wasm.Game.HandleAccept.MemSound.Probe`): n-ary (`firstAtoms`), cons (`carAtoms`),
-  AST (`firstLeaves`), with a `list<u8>` payload (or a `u64` for words).
+  AST (`firstLeaves`), with a payload decoding every atom kind of the family: a `list<u8>`
+  (one-kind families), a kind-tagged `list<u8>` (`kindPay`, mixed families), octets with an
+  optional hint (`hintPay`, hinted) or a `u64` (words).
+
+**Coverage per family** (writer tables / reader payloads; one positive run per pair):
+
+* symbols-only `symbol` / UTF-8; byte trees `blob` / bytes; Rivest canonical `blob` / octets;
+  word trees `word(ptr)` / `u64`: the family has one atom kind, all covered;
+* symbols+strings `symbol`, `string`; symbols+bytes `symbol`, `blob`; symbols+strings+bytes
+  `symbol`, `string`, `blob`; symbols+strings+keywords `symbol`, `string`, `keyword`;
+  symbols+strings+keywords+bytes all four: the tables decode every kind and the readers'
+  `kindPay kindD` reads every kind; the writer runs use one kind (`string`, `blob` or
+  `keyword`), the reader runs one kind (string, bytes or keyword);
+* Rivest hinted: `blob` (no hint) and `hinted(hptr, hlen, ptr, len)` (with a hint, `.seg2`),
+  the reader `hintPay` reads the hint; the writer runs are hint-free (the example modules do not
+  call `hinted`), the reader runs read a hint.
 
 The older instance-play modules for word trees (`i64` atoms, below) and the memory examples of
 `Families.Mem` remain; the table names the matrix theorems first. The `i64` AST decoders take a

@@ -11,9 +11,11 @@ public import Silmaril.Wasm.Game.HandleAccept.MemSound.Pair.Defs
 decode writers over the fixed atom type `MemAtom`. This topic decodes the three writer APIs
 **over any atom type `α`**, given an atom table.
 
-* `AtomTable α`: a list of atom imports `name(ptr, len) -> i32`, each with the decoder of the
-  bytes `[ptr, ptr + len)` of the memory at the call into an atom (`none`: no event). The first
-  entry naming the called import is used (`List.lookup`).
+* `AtomTable α`: a list of atom imports, each with its decoder (`AtomDec α`), one entry per
+  import name: `.seg dec` for `name(ptr, len) -> i32` (the bytes `[ptr, ptr + len)` of the memory
+  at the call), `.seg2 dec` for `name(p₁, l₁, p₂, l₂) -> i32` (two segments, e.g. the hint and
+  the octets of `hinted(hptr, hlen, ptr, len)`); `none` from the decoder or out-of-bounds
+  segments: no event. The first entry naming the called import is used (`List.lookup`).
 * **n-ary writer** (`sexpW α`): `tabWrite T ix` decodes an atom import of `T` answered with a
   handle `r` as `write (atom a) [] r`, and `sexp(ptr, len)` (a `list<i32>` of child handles in
   memory) as a list node; `accept(h)` at the call. `tabRoles`, `tabTraces`, `tabWriterLang`.
@@ -56,8 +58,27 @@ open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game Silmaril.Wasm
 
 variable {α : Type}
 
-/-- **An atom table**: atom imports with the decoders of their memory bytes. -/
-abbrev AtomTable (α : Type) := List ((String × String) × (List UInt8 → Option α))
+/-- **The decoder of an atom import**, by its memory arguments. -/
+inductive AtomDec (α : Type) where
+  /-- `name(ptr, len) -> i32`: the bytes `[ptr, ptr + len)`. -/
+  | seg (dec : List UInt8 → Option α)
+  /-- `name(p₁, l₁, p₂, l₂) -> i32`: the bytes `[p₁, p₁ + l₁)` and `[p₂, p₂ + l₂)`. -/
+  | seg2 (dec : List UInt8 → List UInt8 → Option α)
+
+/-- `name(p₁, l₁, p₂, l₂)`: the two segments of the memory at the call, if in bounds. -/
+def segs2 (o : Callout) : Option (List UInt8 × List UInt8) :=
+  match o.args with
+  | [.num ⟨.int .i32, p₁⟩, .num ⟨.int .i32, l₁⟩, .num ⟨.int .i32, p₂⟩, .num ⟨.int .i32, l₂⟩] =>
+      (o.segment p₁.toNat l₁.toNat).bind fun x => (o.segment p₂.toNat l₂.toNat).map (x, ·)
+  | _ => none
+
+/-- The atom an atom import's call decodes to. -/
+def AtomDec.decode : AtomDec α → Callout → Option α
+  | .seg dec, o => o.bytes32.bind dec
+  | .seg2 dec, o => (segs2 o).bind fun (x, y) => dec x y
+
+/-- **An atom table**: atom imports with their decoders. -/
+abbrev AtomTable (α : Type) := List ((String × String) × AtomDec α)
 
 /-- The non-atom imports of the table writers. -/
 structure TabImports where
@@ -77,7 +98,7 @@ def tabWrite (T : AtomTable α) (ix : TabImports) (o : Callout) (w : HostReply) 
     Option (WEv (SxOp α) (BitVec 32)) := do
   let r ← replyI32 w
   match T.lookup o.imp with
-  | some dec => return .write (.atom (← dec (← o.bytes32))) [] r
+  | some d => return .write (.atom (← d.decode o)) [] r
   | none => if o.imp = ix.sexp then return .write .list (← handles32 o) r else none
 
 /-- The roles of the n-ary table writer. -/
@@ -116,7 +137,7 @@ def tabConsWrite (T : AtomTable α) (ix : TabImports) (o : Callout) (w : HostRep
     Option (WEv (ConsOp α) (BitVec 32)) := do
   let r ← replyI32 w
   match T.lookup o.imp with
-  | some dec => return .write (.atom (← dec (← o.bytes32))) [] r
+  | some d => return .write (.atom (← d.decode o)) [] r
   | none =>
     if o.imp = ix.nil then
       if o.args = [] then return .write .nil [] r else none

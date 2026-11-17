@@ -49,7 +49,7 @@ variable {α : Type} {T : AtomTable α} {name : String} {dec : List UInt8 → Op
 
 /-- `atomMod name` writes only the atom `a`. -/
 theorem tab_atom_sound (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hacc : T.lookup ("sexp", "accept") = none) {pol : Policy (BitVec 32)}
     (ha : pol.onAccept ≠ .ub) (hw : pol.onWrite ≠ .ub) :
     tabWriterLang P (ReplyEnvs hiReply) 0 (atomMod name) T {} pol ⊆ {.atom a} :=
@@ -57,14 +57,14 @@ theorem tab_atom_sound (P : Profile) (hn : name ∈ atomNames)
 
 /-- `atomMod name` writes the atom `a`, for every policy. -/
 theorem tab_atom_live (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (pol : Policy (BitVec 32)) :
     .atom a ∈ tabWriterLang P (ReplyEnvs hiReply) 0 (atomMod name) T {} pol :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Tab.tab_atom_live P hn hT hd pol
 
 /-- **The n-ary writer language of `atomMod name` is `{a}`.** -/
 theorem tab_atom_lang (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hacc : T.lookup ("sexp", "accept") = none) {pol : Policy (BitVec 32)}
     (ha : pol.onAccept ≠ .ub) (hw : pol.onWrite ≠ .ub) :
     tabWriterLang P (ReplyEnvs hiReply) 0 (atomMod name) T {} pol = {.atom a} :=
@@ -81,7 +81,7 @@ theorem tabAstWriterLang_eq {P : Profile} {Envs : Store Nat → SEnv UImp → Pr
 
 /-- **The AST writer language of `atomMod name` is the leaf `a`.** -/
 theorem tab_ast_lang (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hacc : T.lookup ("sexp", "accept") = none) {pol : Policy (BitVec 32)}
     (ha : pol.onAccept ≠ .ub) (hw : pol.onWrite ≠ .ub) :
     tabAstWriterLang P (ReplyEnvs hiReply) 0 (atomMod name) T {} pol =
@@ -90,7 +90,7 @@ theorem tab_ast_lang (P : Profile) (hn : name ∈ atomNames)
 
 /-- `consAtomMod name` writes only `(a)`. -/
 theorem tab_cons_sound (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hnil : T.lookup ("sexp", "nil") = none) (hcons : T.lookup ("sexp", "cons") = none)
     (hacc : T.lookup ("sexp", "accept") = none) {pol : Policy (BitVec 32)}
     (hs : pol.sentinel = none) (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
@@ -101,7 +101,7 @@ theorem tab_cons_sound (P : Profile) (hn : name ∈ atomNames)
 
 /-- `consAtomMod name` writes `(a)`, for every policy. -/
 theorem tab_cons_live (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hnil : T.lookup ("sexp", "nil") = none) (hcons : T.lookup ("sexp", "cons") = none)
     (hacc : T.lookup ("sexp", "accept") = none) (pol : Policy (BitVec 32)) :
     .cons (.atom a) .nil ∈ tabConsWriterLang P (ReplyEnvs consReply) 0 (consAtomMod name) T {}
@@ -111,7 +111,7 @@ theorem tab_cons_live (P : Profile) (hn : name ∈ atomNames)
 
 /-- **The cons writer language of `consAtomMod name` is `{(a)}`.** -/
 theorem tab_cons_lang (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hnil : T.lookup ("sexp", "nil") = none) (hcons : T.lookup ("sexp", "cons") = none)
     (hacc : T.lookup ("sexp", "accept") = none) {pol : Policy (BitVec 32)}
     (hs : pol.sentinel = none) (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
@@ -122,7 +122,7 @@ theorem tab_cons_lang (P : Profile) (hn : name ∈ atomNames)
 
 /-- `pairAtomMod name` writes only `(a b)`. -/
 theorem tab_pair_sound (P : Profile) {b : α} (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (ha₁ : dec [0x61] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (ha₁ : dec [0x61] = some a)
     (hb₁ : dec [0x62] = some b) (hsexp : T.lookup ("sexp", "sexp") = none)
     (hacc : T.lookup ("sexp", "accept") = none) {pol : Policy (BitVec 32)}
     (hs : pol.sentinel = none) (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
@@ -133,7 +133,7 @@ theorem tab_pair_sound (P : Profile) {b : α} (hn : name ∈ atomNames)
 
 /-- `pairAtomMod name` writes `(a b)`, for every policy. -/
 theorem tab_pair_live (P : Profile) {b : α} (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (ha₁ : dec [0x61] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (ha₁ : dec [0x61] = some a)
     (hb₁ : dec [0x62] = some b) (hsexp : T.lookup ("sexp", "sexp") = none)
     (hacc : T.lookup ("sexp", "accept") = none) (pol : Policy (BitVec 32)) :
     SExp.ofList [.atom a, .atom b] ∈
@@ -143,7 +143,7 @@ theorem tab_pair_live (P : Profile) {b : α} (hn : name ∈ atomNames)
 
 /-- **The n-ary writer language of `pairAtomMod name` is `{(a b)}`.** -/
 theorem tab_pair_lang (P : Profile) {b : α} (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (ha₁ : dec [0x61] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (ha₁ : dec [0x61] = some a)
     (hb₁ : dec [0x62] = some b) (hsexp : T.lookup ("sexp", "sexp") = none)
     (hacc : T.lookup ("sexp", "accept") = none) {pol : Policy (BitVec 32)}
     (hs : pol.sentinel = none) (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
@@ -154,7 +154,7 @@ theorem tab_pair_lang (P : Profile) {b : α} (hn : name ∈ atomNames)
 
 /-- **The AST writer language of `pairAtomMod name` is the branch with leaves `a` and `b`.** -/
 theorem tab_pairAst_lang (P : Profile) {b : α} (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (ha₁ : dec [0x61] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (ha₁ : dec [0x61] = some a)
     (hb₁ : dec [0x62] = some b) (hsexp : T.lookup ("sexp", "sexp") = none)
     (hacc : T.lookup ("sexp", "accept") = none) {pol : Policy (BitVec 32)}
     (hs : pol.sentinel = none) (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :

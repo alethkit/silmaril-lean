@@ -59,12 +59,12 @@ theorem tabConsWrite_isWrite {o : Callout} {w : HostReply} {e : WEv (ConsOp α) 
           Option.some.injEq] at h
         aesop
 
-theorem tabConsWrite_atom (hT : T.lookup ("sexp", name) = some dec)
+theorem tabConsWrite_atom (hT : T.lookup ("sexp", name) = some (.seg dec))
     (hd : dec [0x68, 0x69] = some a) {o : Callout} {r : BitVec 32} {mem : Option ByteArray}
     (hi : o.imp = ("sexp", name)) (hb : o.bytes32 = some [0x68, 0x69]) :
     tabConsWrite T {} o ⟨.values [.i32 r], mem⟩ = some (.write (.atom a) [] r) := by
   have hr : replyI32 ⟨.values [.i32 r], mem⟩ = some r := rfl
-  simp [tabConsWrite, hr, hi, hT, hb, hd]
+  simp [tabConsWrite, hr, hi, hT, AtomDec.decode, hb, hd]
 
 theorem tabConsWrite_nil (hf : TabFree T) {o : Callout} {r : BitVec 32}
     {mem : Option ByteArray} (hi : o.imp = ("sexp", "nil")) (ha : o.args = []) :
@@ -145,7 +145,7 @@ theorem tab_pre_other {ρ : Env (BitVec 32) (SExp2 α)} {i : Import} {s : Store 
 
 /-- **The body of `run`**, in the fixed environment `ρ`. -/
 theorem tabCons_body {P : Profile} (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hf : TabFree T) {ρ : Env (BitVec 32) (SExp2 α)}
     {f₀ f₁ f₂ f₃ : FuncInst Nat} (h0 : stubOk 0 2 f₀ = true) (h1 : stubOk 1 0 f₁ = true)
     (h2 : stubOk 2 2 f₂ = true) (h3 : stubOk 3 1 f₃ = true)
@@ -247,7 +247,7 @@ theorem tabCons_body {P : Profile} (hn : name ∈ atomNames)
 
 /-- **`consAtomMod name` meets the writer contract** in every fixed environment. -/
 theorem tabCons_sat (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hf : TabFree T) (ρ : Env (BitVec 32) (SExp2 α)) :
     MemSat P (consAtomMod name) 0 (tabConsRoles T {}) (tabConsK T a ρ) (consAtomInv name) := by
   intro mt Is c₀ hI
@@ -284,7 +284,7 @@ theorem tabCons_sat (P : Profile) (hn : name ∈ atomNames)
 
 /-- **`consAtomMod name` writes only `(a)`** (no sentinel, no undefined behaviour). -/
 theorem tabCons_sound (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hf : TabFree T) {pol : Policy (BitVec 32)} (hs : pol.sentinel = none)
     (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
     tabConsWriterLang P (ReplyEnvs consReply) 0 (consAtomMod name) T {} pol ⊆
@@ -297,7 +297,7 @@ theorem tabCons_sound (P : Profile) (hn : name ∈ atomNames)
 
 /-- **The writer trace of the session.** -/
 theorem tabCons_traces (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hf : TabFree T) (q : BitVec 32) :
     [.enter, .write (.atom a) [] q, .write .nil [] (q + 1),
       .write .cons [q, q + 1] (q + 1 + 1), .accept (q + 1 + 1)] ∈
@@ -441,7 +441,7 @@ theorem tabCons_traces (P : Profile) (hn : name ∈ atomNames)
 
 /-- **`consAtomMod name` writes `(a)`**, for every profile and policy. -/
 theorem tabCons_live (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hf : TabFree T) (pol : Policy (BitVec 32)) :
     .cons (.atom a) .nil ∈ tabConsWriterLang P (ReplyEnvs consReply) 0 (consAtomMod name) T {}
       pol := by

@@ -22,7 +22,9 @@ import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Probe.Live
   page the host `probeEnv 2 w` writes, the one-element list `(x)`, the pair `(x . nil)` and the
   node with the one leaf `x` are accepted over all fixed environments.
 * **Payloads on that page**: `bytesPay_page` (the `list<u8>` is the two low bytes `b₀ b₁` of
-  `w`), `u64Pay_page` (the `u64` at `0` is `8 + 2 * 2 ^ 32`).
+  `w`), `kindPay_page` (with `w = k < 256`: the bytes `k 0` of kind code `k`), `hintPay_page`
+  (with `w = 4`: the octets `4 0` with the hint `2 0 0 0`), `u64Pay_page` (the `u64` at `0` is
+  `8 + 2 * 2 ^ 32`).
 
 The upper bounds are one Hoare-logic proof of `probeMod`, generic in the reader, the decoder
 and the contract's facts (`Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Probe.probe_sat`);
@@ -106,6 +108,19 @@ theorem bytesPay_page (dec : List UInt8 → Option α) (b₀ b₁ : UInt8) {B B'
       (BitVec.ofNat 32 (b₀.toNat + 256 * b₁.toNat)) B = some B') :
     bytesPay dec ⟨.values [], some B'⟩ 0 = dec [b₀, b₁] :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Probe.bytesPay_page dec b₀ b₁ hB hw
+
+/-- The kind-tagged `list<u8>` on the page written with `w = kindCode k`: the bytes `k 0` with
+the kind code `k`. -/
+theorem kindPay_page (dec : BitVec 32 → List UInt8 → Option α) (k : UInt8) {B B' : ByteArray}
+    (hB : B.size = 65536) (hw : itemsBytes (kindCode k) (kindCode k) B = some B') :
+    kindPay dec ⟨.values [], some B'⟩ 0 = dec (kindCode k) [k, 0] :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Probe.kindPay_page dec k hB hw
+
+/-- The hinted atom on the page written with `w = 4`: the octets `4 0` with the hint
+`2 0 0 0`. -/
+theorem hintPay_page {B B' : ByteArray} (hB : B.size = 65536) (hw : itemsBytes 4 4 B = some B') :
+    hintPay ⟨.values [], some B'⟩ 0 = some (some [2, 0, 0, 0], [4, 0]) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Probe.hintPay_page hB hw
 
 /-- The `u64` at `0` on the written page is `8 + 2 * 2 ^ 32`. -/
 theorem u64Pay_page (w : BitVec 32) {B B' : ByteArray} (hB : B.size = 65536)

@@ -61,23 +61,24 @@ theorem tabAccept_none {Op : Type} {o : Callout} (h : o.imp ≠ ("sexp", "accept
     tabAccept (Op := Op) {} o = none := by
   simp [tabAccept, h]
 
-theorem tabWrite_atom (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+theorem tabWrite_atom (hT : T.lookup ("sexp", name) = some (.seg dec))
+    (hd : dec [0x68, 0x69] = some a)
     {o : Callout} {w : HostReply} {op : SxOp α} {args : List (BitVec 32)} {r : BitVec 32}
     (hi : o.imp = ("sexp", name)) (hb : o.bytes32 = some [0x68, 0x69])
     (h : tabWrite T {} o w = some (.write op args r)) : op = .atom a ∧ args = [] := by
   unfold tabWrite at h
   rcases hr : replyI32 w with _ | r'
   · simp [hr] at h
-  · simp only [hr, hi, hT, hb, hd, Option.bind_eq_bind, Option.bind_some] at h
+  · simp only [hr, hi, hT, AtomDec.decode, hb, hd, Option.bind_eq_bind, Option.bind_some] at h
     simp at h
     exact ⟨h.1.symm, h.2.1⟩
 
-theorem tabWrite_atom_eq (hT : T.lookup ("sexp", name) = some dec)
+theorem tabWrite_atom_eq (hT : T.lookup ("sexp", name) = some (.seg dec))
     (hd : dec [0x68, 0x69] = some a) {o : Callout} {q : BitVec 32} {mem : Option ByteArray}
     (hi : o.imp = ("sexp", name)) (hb : o.bytes32 = some [0x68, 0x69]) :
     tabWrite T {} o ⟨.values [.i32 q], mem⟩ = some (.write (.atom a) [] q) := by
   have hr : replyI32 ⟨.values [.i32 q], mem⟩ = some q := rfl
-  simp [tabWrite, hr, hi, hT, hb, hd]
+  simp [tabWrite, hr, hi, hT, AtomDec.decode, hb, hd]
 
 theorem tabWrite_accept (hacc : T.lookup ("sexp", "accept") = none) {o : Callout}
     {w : HostReply} (hi : o.imp = ("sexp", "accept")) : tabWrite T {} o w = none := by
@@ -109,7 +110,7 @@ theorem accept_ne_of (hn : name ∈ atomNames) : ("sexp", name) ≠ ("sexp", "ac
 
 /-- **`atomMod name` writes only the atom `a`** through a table decoding `68 69` to `a`. -/
 theorem tab_atom_sound (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (hacc : T.lookup ("sexp", "accept") = none) {pol : Policy (BitVec 32)}
     (ha : pol.onAccept ≠ .ub) (hw : pol.onWrite ≠ .ub) :
     tabWriterLang P (ReplyEnvs hiReply) 0 (atomMod name) T {} pol ⊆ {.atom a} :=
@@ -122,7 +123,7 @@ theorem tab_atom_sound (P : Profile) (hn : name ∈ atomNames)
 
 /-- **`atomMod name` writes the atom `a`**, for every policy. -/
 theorem tab_atom_live (P : Profile) (hn : name ∈ atomNames)
-    (hT : T.lookup ("sexp", name) = some dec) (hd : dec [0x68, 0x69] = some a)
+    (hT : T.lookup ("sexp", name) = some (.seg dec)) (hd : dec [0x68, 0x69] = some a)
     (pol : Policy (BitVec 32)) :
     .atom a ∈ tabWriterLang P (ReplyEnvs hiReply) 0 (atomMod name) T {} pol :=
   atom_accepts pol a (atom_traces (atomSpec_of hn) (atomMem_of hn) (atomOk_of hn)
