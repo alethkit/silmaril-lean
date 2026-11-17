@@ -87,9 +87,6 @@ def drainEcho (z : BitVec 32) : Module where
   funcs := [⟨⟨2⟩, [.i32], drainBody z⟩]
   exports := [⟨"run", .func ⟨3⟩⟩]
 
-/-- `-1` as an `i32` (all ones), the other common sentinel. -/
-def minusOne : BitVec 32 := BitVec.allOnes 32
-
 /-! ## The ghost contract -/
 
 /-- **The ghost contract of `drainEcho z`** for the writer sentinel `sent` and the writer store
