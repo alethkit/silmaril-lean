@@ -46,7 +46,8 @@ natural number, or `star` for any number of children). Its trees are
 `AST S := TExpr1 (Σ t, S.Arg t)`: tagged expressions whose tag is a tag with its payload; the
 arity is the predicate `WellArity`. `WitSig` gives payloads as vectors of WIT value types
 (`PTy`: `bool`, the eight integer types, `f32`, `f64`, `char`, `string`, `list<T>` (so
-`list<u8>`), `list<T, N>`, records, tuples, variants, enums, options, results and flags), so
+`list<u8>`), `list<T, N>`, records, tuples, variants, enums, options, results, flags and the
+handles `own<R>` (a resource representation) and `borrow<R>` (no value in a stored tree)), so
 the import `tag(args…, children…)` of a tag has typed, heterogeneous arguments (`PTy.Vals`).
 
 The S-expression signature `sexpSig α` has **one** payload-free variadic branch tag and one
@@ -107,11 +108,21 @@ abbrev HintedSExp := SExp Hinted
 /-! ## Payload types -/
 
 /-- **WIT payload value types**: the WIT value types with a canonical-ABI memory representation
-and no resource or asynchronous semantics (`Silmaril.Wasm.Game.HandleAccept.Wit.toWit` maps
-them injectively onto `WIT.ValType`). Field, case and label names are kept, as in WIT; `bytes`
-is `list<u8>` (`PTy.bytes`). Not payload types: `own`/`borrow` handles, `future`, `stream`,
-`error-context` (handles and asynchronous endpoints) and `map` (a despecialised list of pairs:
-use `list (tuple [k, v])`). -/
+and no asynchronous semantics, and the resource handles `own<r>`, `borrow<r>` of resource type
+number `r` (`Silmaril.Wasm.Game.HandleAccept.Wit.toWit` maps them injectively onto
+`WIT.ValType _ Nat`). Field, case and label names are kept, as in WIT; `bytes` is `list<u8>`
+(`PTy.bytes`). Not payload types: `future`, `stream`, `error-context` (asynchronous endpoints,
+unsupported pending async semantics) and `map` (a despecialised list of pairs: use
+`list (tuple [k, v])`).
+
+**Handles in stored trees.** A tree outlives the call that built it, so its payload values
+cannot be handle indices of the module's table:
+
+* `own r`: the value is the resource's **representation** (`Nat`, as `Value.Val.own` carries
+  it), read from an explicit resource table at the call that moves the handle into the tree
+  (`Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own`): the owned handle is consumed once;
+* `borrow r`: **no value** (`Empty`). A borrow lives only for one call, so a tree cannot store
+  one: a payload with a `borrow` field has no value and decodes to no event. -/
 inductive PTy where
   | bool
   | s32
@@ -135,6 +146,8 @@ inductive PTy where
   | option (t : PTy)
   | result (ok err : Option PTy)
   | flags (labels : List String)
+  | own (r : Nat)
+  | borrow (r : Nat)
   deriving Repr
 
 /-- `list<u8>`: byte strings. -/
@@ -147,7 +160,8 @@ type): integers as Lean's fixed-width integers, floats as their IEEE 754 bit pat
 scalar value (`Char`), records and tuples as right-nested products ending in `Unit` (names
 dropped), variants as right-nested sums ending in `Empty` (a case without payload carries
 `Unit`), `enum` with `n` cases as `Fin n`, `flags` with `n` labels as `BitVec n` (bit `i` is
-label `i`), `result` as `ok ⊕ err`. -/
+label `i`), `result` as `ok ⊕ err`, `own r` as the resource's representation `Nat` (never
+the handle index), `borrow r` as `Empty` (no stored tree holds a borrow). -/
 def PTy.Val : PTy → Type
   | .bool => Bool
   | .s32 => Int32
@@ -171,6 +185,8 @@ def PTy.Val : PTy → Type
   | .option t => Option t.Val
   | .result ok err => PTy.OptVal ok ⊕ PTy.OptVal err
   | .flags ls => BitVec ls.length
+  | .own _ => Nat
+  | .borrow _ => Empty
 
 /-- The values of a vector of payload types: a right-nested product. -/
 def PTy.Vals : List PTy → Type
@@ -209,6 +225,7 @@ def PTy.beq : PTy → PTy → Bool
   | .option a, .option b => PTy.beq a b
   | .result a b, .result c d => PTy.beqOpt a c && PTy.beqOpt b d
   | .flags ls, .flags ms => ls == ms
+  | .own r, .own q | .borrow r, .borrow q => r == q
   | _, _ => false
   termination_by structural a _ => a
 
