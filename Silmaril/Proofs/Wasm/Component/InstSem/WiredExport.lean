@@ -434,4 +434,117 @@ theorem envInvE_extI {C : CoreSemI M} {n : Nat} {pre : List (M × List Impl)}
       · rw [List.take_left' rfl]
         exact hN
 
+theorem envInvE_denNodesI {C : CoreSemI M} {n : Nat} :
+    ∀ (ps : List (M × List Impl)) {pre : List (M × List Impl)} {D : Strategy sigU sigUI},
+      EnvInv C n pre D → EnvInvE C n pre D → ImportWired n ps →
+      EnvInvE C n (pre ++ ps) (denNodesI C (n + coreWidth pre) (coreNodes ps) D)
+  | [], pre, D, _, hE, _ => by
+    simpa only [List.append_nil, coreNodes, List.map_nil, denNodesI] using hE
+  | (m, args) :: ps, pre, D, hD, hE, hw => by
+    have hs := hw _ (.head _)
+    have hD' := envInv_extI (m := m) hD hs (Nat.le_add_right n (coreWidth pre))
+    have hE' := envInvE_extI (m := m) hD hE hs
+    have := envInvE_denNodesI ps hD' hE' (fun p h => hw p (.tail _ h))
+    rw [coreWidth_append] at this
+    simpa only [coreNodes, List.map_cons, denNodesI, Node.denI, Node.width, List.append_assoc,
+      List.singleton_append, coreWidth, List.map_cons, List.map_nil, List.sum_cons, List.sum_nil,
+      Nat.add_zero, Nat.add_assoc] using this
+
+/-! ## On top -/
+
+theorem runs_interp_exH {A : Type} :
+    ∀ {P : Prog sigU A} {cs : List (Call sigUI)} {a : A},
+      Prog.Runs (P.interp (exH sigU Unit)) cs a →
+      ∃ cs' : List (Call sigU), cs = cs'.map exCall ∧ Prog.Runs P cs' a
+  | .pure _, _, _, h => by cases h; exact ⟨[], rfl, .pure _⟩
+  | .call m k, _, _, h => by
+    simp only [Prog.interp, Handler.ofHom, exHom, Prog.bind] at h
+    cases h with
+    | @call _ _ n cs _ h =>
+      obtain ⟨cs', rfl, h'⟩ := runs_interp_exH h
+      exact ⟨⟨m, n⟩ :: cs', rfl, .call h'⟩
+
+/-- **An export call after a ready instantiation of an import-wired component**: the component's
+export `j` runs its program, making the export calls `ds` of the nodes' environment, each without
+calls below, after the nodes' instantiation. -/
+theorem denI_ex_inv {C : CoreSemI M} {I : Iface} {ps : List (M × List Impl)}
+    {xs : List Export} {t : List (Call sigU)} {q : sigU.Op} {n : Option Payload}
+    (h : instPlay (F := sigU) t .ready ++ [askEx q, ansEx q n] ∈
+      (Comp.mk I (coreNodes ps) xs).denI C) :
+    ∃ ds : List (Round sigU sigU), (∀ d ∈ ds, d.cs = []) ∧
+      Prog.Runs (exportsH (envAfter I.length (coreNodes ps)) xs q) (ds.map Round.call) n ∧
+      roundsMoves (instRound (F := sigU) t .ready :: ds.map (exRound (R := Unit))) ∈
+        denNodesI C I.length (coreNodes ps) (withReady (Strategy.ofHandler (maskH I.length))) := by
+  have h' := instGuard_le _ h
+  have he : instPlay (F := sigU) t (InstAns.ready (R := Unit)) ++ [askEx q, ansEx q n] =
+      roundsMoves [instRound (F := sigU) t .ready,
+        exRound (R := Unit) (⟨q, [], n⟩ : Round sigU sigU)] := by
+    rw [instPlay_eq]
+    simp only [roundsMoves, exRound, Round.moves, callEvs, List.map_nil, List.nil_append,
+      List.append_nil]
+    rfl
+  rw [Comp.denIR, he] at h'
+  obtain ⟨s, hs, t', ht, hz⟩ := h'
+  obtain ⟨_, ps'⟩ := Strategy.legal _ hs
+  obtain ⟨_, pt⟩ := Strategy.legal _ ht
+  obtain ⟨ss, ts, rfl, rfl, hZ⟩ := zip_rounds_inv _ ps' pt hz
+  obtain ⟨xs₁, _, _, rfl, rfl, hc₁, hZ₁⟩ := zipR_cons_inv hZ
+  obtain ⟨xs₂, _, _, rfl, rfl, hc₂, hZ₂⟩ := zipR_cons_inv hZ₁
+  cases hZ₂
+  rw [List.append_nil] at hs
+  have hr := runs_of_ofHandler_rounds ht
+  have h₁ := hr _ (.head _)
+  have h₂ := hr _ (.tail _ (.head _))
+  simp only [instRound, exRound, liftH] at h₁ h₂ hc₁ hc₂
+  rcases xs₁ with _ | ⟨⟨xq, xcs, xa⟩, _ | _⟩
+  · cases h₁
+  · cases h₁ with
+    | call h₁ =>
+      cases h₁
+      simp only [allCalls, List.append_nil] at hc₁
+      subst hc₁
+      obtain ⟨cs', hcs', hrun⟩ := runs_interp_exH h₂
+      obtain ⟨ds, rfl, rfl⟩ := ex_rounds_of_calls hcs'
+      refine ⟨ds, fun d hd => ?_, hrun, ?_⟩
+      · rw [allCalls_map_exRound] at hc₂
+        exact allCalls_eq_nil hc₂.symm d hd
+      · simpa only [List.singleton_append, roundsMoves, instRound] using hs
+  · cases h₁ with
+    | call h₁ => cases h₁
+
+/-- **An export call after a ready instantiation of an import-wired component, at the node owning
+it**: if the component's export makes one call of the environment's function `r` (on `pl`,
+answered `some y`), that function is export `r - o` of a node `j`, whose instantiation round
+(after the nodes before it, from the `n` imports, offset `o`) is followed by that export round
+without calls below; the nodes' instantiations split `t`. -/
+theorem denI_ex_node {C : CoreSemI M} {I : Iface} {ps : List (M × List Impl)}
+    {xs : List Export} (hw : ImportWired I.length ps) {t : List (Call sigU)} {q : sigU.Op}
+    {n : Option Payload} {r : Nat} {pl y : Payload}
+    (hone : ∀ cs, Prog.Runs (exportsH (envAfter I.length (coreNodes ps)) xs q) cs n →
+      cs = [⟨(r, pl), some y⟩])
+    (h : instPlay (F := sigU) t .ready ++ [askEx q, ansEx q n] ∈
+      (Comp.mk I (coreNodes ps) xs).denI C) :
+    ∃ ts : List (List (Call sigU)), t = ts.flatten ∧
+      List.Forall₂ (fun p tj => instPlay (F := sigU) tj .ready ∈ coreNodeI C I.length p.1 p.2)
+        ps ts ∧
+      ∃ (j : Nat) (p : M × List Impl) (tj : List (Call sigU)), ps[j]? = some p ∧ ts[j]? = some tj ∧
+        I.length + coreWidth (ps.take j) ≤ r ∧
+        r < I.length + coreWidth (ps.take j) + (CoreModule.exports p.1).length ∧
+        roundsMoves [instRound (F := sigU) tj .ready, exRound (R := Unit)
+          (⟨(r - (I.length + coreWidth (ps.take j)), pl), [], some y⟩ : Round sigU sigU)] ∈
+          coreNodeI C I.length p.1 p.2 := by
+  obtain ⟨ds, hds, hrun, hD⟩ := denI_ex_inv h
+  have hc := hone _ hrun
+  rcases ds with _ | ⟨⟨dq, dcs, da⟩, _ | _⟩
+  · cases hc
+  · simp only [List.map_cons, List.map_nil, Round.call, List.cons.injEq, and_true] at hc
+    cases hc
+    have hdcs : dcs = [] := hds _ (.head _)
+    subst hdcs
+    have hE := envInvE_denNodesI ps (envInv_base C I.length) (envInvE_base C I.length) hw
+    simp only [List.nil_append, coreWidth, List.map_nil, List.sum_nil, Nat.add_zero] at hE
+    exact hE t [] (r, pl) y (fun _ h => nomatch h) (by
+      simpa only [List.map_nil, List.map_cons, List.cons_append, List.nil_append] using hD)
+  · simp at hc
+
 end Silmaril.Proofs.Wasm.Component.InstSem
