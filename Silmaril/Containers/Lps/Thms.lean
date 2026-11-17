@@ -263,7 +263,7 @@ theorem noCloneW_halted {sp : Sys SyscallEffect} {isa : UserIsa} {sg : List Segm
 theorem not_clonePending_none (P : Probe) {o : Oracle} {core : Silmaril.X86.State} {counter : Nat}
     {model : Silmaril.Process.LPS.Model} :
     ¬ ClonePending (P.ocfg o core none counter model) :=
-  Silmaril.Proofs.Containers.Lps.Kit.not_clonePending_none P 
+  Silmaril.Proofs.Containers.Lps.Kit.not_clonePending_none P
 
 theorem not_clonePending_some (P : Probe) {o : Oracle} {core : Silmaril.X86.State} {counter : Nat}
     {model : Silmaril.Process.LPS.Model} {n : Word} (hn : cloneNumber n = false) :
@@ -318,6 +318,64 @@ theorem oexecN_exit (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} {post
       (.halt (P.ocfg oracle core (some 60) counter (model.withHalted (status &&& 255))))) :
     ExecN P.segs sp (P.ocfg oracle core (some 60) counter model) post :=
   Silmaril.Proofs.Containers.Lps.Kit.oexecN_exit P oracle rdi running outcomes clear done
+
+/-! ## Rules over a changed memory (`ocfgM`), and calls that write memory -/
+
+theorem oexecN_instrW (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} [Probe.Checked P] {post : Omni.Post (isaOf oracle)} {mem : Silmaril.Process.Memory}
+    {off len : Nat} {instruction : Silmaril.X86.Ext.Instr} {core core' : Silmaril.X86.State}
+    {counter : Nat} {model : Silmaril.Process.LPS.Model} (running : model.halted = none)
+    (lazy : model.vmLazy = []) (rip : core.rip.toNat = P.base + off)
+    (notSyscall : (P.bytes.drop off).take 2 ≠ [0x0f, 0x05])
+    (fetched : mem.fetchBytes (P.base + off) len = some ((P.bytes.drop off).take len))
+    (prefix2 : mem.fetchBytes (P.base + off) 2 = some ((P.bytes.drop off).take 2))
+    (decoded : Silmaril.X86.Ext.decode ((P.bytes.drop off).take len) = some (instruction, len))
+    (exec : Silmaril.X86.Ext.exec instruction core mem len = .ok core' mem)
+    (rest : ExecN P.segs sp (ocfgM oracle core' mem none counter model) post) :
+    ExecN P.segs sp (ocfgM oracle core mem none counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexecN_instrW P oracle running lazy rip notSyscall fetched prefix2 decoded exec rest
+
+theorem oexecN_trapW (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} [Probe.Checked P] {post : Omni.Post (isaOf oracle)} {mem : Silmaril.Process.Memory}
+    {off : Nat} {core : Silmaril.X86.State} {counter : Nat} {model : Silmaril.Process.LPS.Model}
+    (running : model.halted = none) (lazy : model.vmLazy = [])
+    (rip : core.rip.toNat = P.base + off)
+    (prefix2 : mem.fetchBytes (P.base + off) 2 = some ((P.bytes.drop off).take 2))
+    (isSyscall : (P.bytes.drop off).take 2 = [0x0f, 0x05])
+    (rest : ExecN P.segs sp (ocfgM oracle (Probe.complete core (oracle counter)) mem
+      (some (core.read .rax)) (counter + 1) model) post) :
+    ExecN P.segs sp (ocfgM oracle core mem none counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexecN_trapW P oracle running lazy rip prefix2 isSyscall rest
+
+theorem oexecN_haltW (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} {post : Omni.Post (isaOf oracle)} {mem : Silmaril.Process.Memory}
+    {core : Silmaril.X86.State} {n : Word} {counter : Nat} {model model' : Silmaril.Process.LPS.Model}
+    {effect : SyscallEffect} {code : Word} (notClone : cloneNumber n = false)
+    (running : model.halted = none)
+    (outcomes : ∀ outcome, sp (sysInput (isaOf oracle) P.segs
+        (⟨⟨⟨core, mem⟩, some n⟩, counter⟩ : X86FlagChoices.State) n) model outcome ↔
+      outcome = .ok effect model' [])
+    (halted : model'.halted = some code) (unkilled : model'.killedBy = none)
+    (done : post [.exitEv code model'.fs] (.halt (ocfgM oracle core mem (some n) counter model'))) :
+    ExecN P.segs sp (ocfgM oracle core mem (some n) counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexecN_haltW P oracle notClone running outcomes halted unkilled done
+
+theorem oexecN_sysW (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} {post : Omni.Post (isaOf oracle)} {core : Silmaril.X86.State} {n : Word}
+    {counter : Nat} {model : Silmaril.Process.LPS.Model} {α : Type} {allowed : α → Prop}
+    {ret : α → Word} {writes : α → List (Word × List Byte)} {copyins : α → List (Word × Nat)}
+    {model' : α → Silmaril.Process.LPS.Model} {events : α → List Event}
+    {mem' : α → Silmaril.Process.Memory} (other : n ≠ 158) (notClone : cloneNumber n = false)
+    (running : model.halted = none)
+    (live : ∀ x, allowed x → (model' x).halted = none)
+    (lazy : ∀ x, allowed x → (model' x).vmLazy = [])
+    (outcomes : ∀ outcome, sp (P.sysIn core n) model outcome ↔
+      ∃ x, allowed x ∧ outcome =
+        .ok ((mkEffect (ret x) (writes x) []).withCopyins (copyins x)) (model' x) (events x))
+    (applied : ∀ x, allowed x →
+      applyMemoryEffect P.mem0 ((mkEffect (ret x) (writes x) []).withCopyins (copyins x)) = mem' x)
+    (inhabited : ∃ x, allowed x)
+    (rest : ∀ x, allowed x → ExecN P.segs sp
+      (ocfgM oracle (Probe.resume core (ret x)) (mem' x) none counter (model' x))
+      (fun trace outcome => post (events x ++ trace) outcome)) :
+    ExecN P.segs sp (P.ocfg oracle core (some n) counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexecN_sysW P oracle other notClone running live lazy outcomes applied inhabited rest
 
 macro "noclone_instr " off:term:max len:term:max instr:term:max : tactic =>
   `(tactic|

@@ -58,6 +58,11 @@ def publish (ports : List Nat) : Sys SyscallEffect := fun i m o =>
 def errOut (e : Int) (m : Silmaril.Process.LPS.Model) : Silmaril.Process.LPS.Outcome SyscallEffect :=
   .ok (mkEffect (errnoRet e) [] []) m []
 
+/-- The octets a `read` of 1024 from a connection's stream `rx` may deliver: a non-empty prefix of
+the stream, at most 1024 octets. -/
+def ReadOk (rx : Silmaril.Process.LPS.NetStream) (bs : List Silmaril.Process.LPS.Byte) : Prop :=
+  1 ≤ bs.length ∧ bs.length ≤ 1024 ∧ (rx.take bs.length).1 = bs
+
 /-- The TCP ports a configuration declares. -/
 def tcpPorts (cfg : Config) : List Nat :=
   cfg.exposed.filterMap fun p => if p.proto = .tcp then some p.port.toNat else none

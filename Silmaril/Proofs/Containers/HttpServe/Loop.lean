@@ -230,6 +230,8 @@ theorem iter_goes (en : ExecEntry) (inp : ProcInput) [Probe.Checked (probe.launc
         ((probe.launchAt en inp).ocfg o c' none cnt m) (fun tr out => Q (ds.map (.writeEv 3) ++ tr) out))
     (hdone : ∀ (c' : Silmaril.X86.State) (cnt : Nat) (ds : List Byte), SendOk k ds →
       k + ds.length = 40 → c'.rip = 4194567#64 → c'.read .r12 = 4 →
+      uns (c'.read .r10) < taskSizeMaxX86 → uns (c'.read .r8) < taskSizeMaxX86 →
+      uns (c'.read .r9) < taskSizeMaxX86 →
       ExecN (probe.launchAt en inp).segs (Ports.publish [8080])
         ((probe.launchAt en inp).ocfg o c' none cnt m) (fun tr out => Q (ds.map (.writeEv 3) ++ tr) out)) :
     ExecN (probe.launchAt en inp).segs (Ports.publish [8080])
@@ -324,11 +326,16 @@ theorem iter_goes (en : ExecEntry) (inp : ProcInput) [Probe.Checked (probe.launc
               sub_qq, Silmaril.X86.Ext.AluOp.flagsN, Silmaril.X86.Ext.subFlagsN, hzs, Silmaril.X86.Ext.kNot,
               Option.map_some, Bool.not_true, ↓reduceIte]
             rfl) ?_
-      refine hdone _ _ ds hds (by omega) ?_ ?_
+      refine hdone _ _ ds hds (by omega) ?_ ?_ ?_ ?_ ?_
       · simp [hrip, Probe.resume, Probe.complete, Silmaril.X86.State.write]
       · simp (config := {decide := true}) [Probe.resume, Probe.complete, Silmaril.X86.State.read,
           Silmaril.X86.State.write, Silmaril.Machine.RegisterFile.write, Silmaril.X86.Ext.Sz.write,
           Silmaril.X86.Ext.Sz.read, Silmaril.X86.Ext.Rex.ofByte, Silmaril.X86.Ext.mkReg, hr12']
+      all_goals
+        simp (config := {decide := true}) only [Probe.resume, Probe.complete, Silmaril.X86.State.read,
+          Silmaril.X86.State.write, Silmaril.Machine.RegisterFile.write, Silmaril.X86.Ext.Sz.write,
+          Silmaril.X86.Ext.Sz.read, Silmaril.X86.Ext.Rex.ofByte, Silmaril.X86.Ext.mkReg, ↓reduceIte]
+        smallfin
     · have hzs : @Silmaril.X86.Ext.isZeroN Silmaril.X86.Ext.Sz.q.bits
           (BitVec.ofNat 64 (40 - k) - lenWord ds) = false := by
         show (BitVec.ofNat 64 (40 - k) - lenWord ds == 0#64) = false
@@ -535,6 +542,8 @@ theorem loop (en : ExecEntry) (inp : ProcInput) [Probe.Checked (probe.launchAt e
     {peer : PeerAddr} {rx : NetStream} (m : Model) (hh : m.halted = none) (hl : m.vmLazy = [])
     (hfd : fdLookup m.fds 4 = some (.socket (.connected peer 3 rx)))
     (hdrain : ∀ (c : Silmaril.X86.State) (cnt : Nat), c.rip = 4194567#64 → c.read .r12 = 4 →
+      uns (c.read .r10) < taskSizeMaxX86 → uns (c.read .r8) < taskSizeMaxX86 →
+      uns (c.read .r9) < taskSizeMaxX86 →
       ExecN (probe.launchAt en inp).segs (Ports.publish [8080])
         ((probe.launchAt en inp).ocfg o c none cnt m) (Qk o 40)) :
     ∀ r k, 40 - k = r → k < 40 → ∀ (core : Silmaril.X86.State) (cnt : Nat), core.rip = 4194532#64 →
@@ -551,8 +560,8 @@ theorem loop (en : ExecEntry) (inp : ProcInput) [Probe.Checked (probe.launchAt e
       · intro c' cnt' ds hds hlt h1 h2 h3 h4
         exact execN_conseq (ih (40 - (k + ds.length)) (by have := hds.1; omega) (k + ds.length) rfl hlt
           c' cnt' h1 h2 h3 h4) (qk_step hds)
-      · intro c' cnt' ds hds heq h1 h2
-        exact execN_conseq (hdrain c' cnt' h1 h2) fun tr out h => qk_step hds tr out (heq ▸ h)
+      · intro c' cnt' ds hds heq h1 h2 h3 h4 h5
+        exact execN_conseq (hdrain c' cnt' h1 h2 h3 h4 h5) fun tr out h => qk_step hds tr out (heq ▸ h)
     · exact iter_err en inp o hs he k hk cnt core m hrip hrsi hrdx hr12 hh hl hfd (Qk o k)
         fun c fs h1 h2 => qk_fail h1 h2
 
@@ -561,7 +570,7 @@ theorem serverLoop_of_drain (hd : Task.serverDrain) : Task.serverLoop := by
   intro en inp hc o counter core m hs
   obtain ⟨hrip, hrsi, hrdx, hr12, hh, hl, peer, rx, hfd⟩ := hs
   have hrip' : core.rip = 4194532#64 := BitVec.eq_of_toNat_eq (by rw [hrip]; rfl)
-  have h := loop en inp o m hh hl hfd (fun c cnt h1 h2 => hd en inp hc o cnt c m peer rx h1 h2 hh hl hfd)
+  have h := loop en inp o m hh hl hfd (fun c cnt h1 h2 h3 h4 h5 => hd en inp hc o cnt c m peer rx h1 h2 h3 h4 h5 hh hl hfd)
     40 0 rfl (by decide) core counter hrip' (by rw [hrsi]; rfl) (by rw [hrdx]; rfl) hr12
   exact execN_conseq h fun tr out q => by simpa [Qk] using q
 

@@ -50,7 +50,7 @@ satisfaction, a comparison), `containers.mini.no_ub_check` (the judgements of `M
 | `containers.mini.check_sound_vsys` | `consequence.sound_at` (the checker for `vsys`) | THM |
 | `containers.noop.oci_wp` | `wp` of the OCI no-op image under `Lps.ociRuntime` | THM |
 | `containers.http_once.oci_wp` | `wp` of the OCI HTTP responder image under `Lps.ociRuntime` | THM |
-| `containers.http_serve.oci_wlp` | no UB and `serveSpec` on every exiting run of the self-contained HTTP server image under `Ports.ociRuntime` | OPN (reduced to `HttpServe.Task.serverLoop`) |
+| `containers.http_serve.oci_wlp` | no UB and `serveSpec` on every exiting run of the self-contained HTTP server image under `Ports.ociRuntime` | THM |
 -/
 
 @[expose] public section
@@ -191,6 +191,17 @@ public theorem http_once_oci_wp_answer :
     Wp Lps.ociRuntime.toRuntime HttpOnce.respondsOk HttpOnce.image :=
   HttpOnce.wp_image
 
+silmaril instance containers.http_serve.oci_wlp (expect := THM)
+  (title := "The self-contained HTTP server ELF in its OCI image, 8080/tcp published: no undefined behaviour; every exit is one exact response or a defined failure (LPS, every launch, flag oracle and connection queue)") :=
+  silmaril.shapes.containers.wlp
+  (R := Silmaril.Containers.Ports.ociRuntime) (post := Silmaril.Containers.HttpServe.serveSpec)
+  (i := Silmaril.Containers.HttpServe.image)
+
+@[answers "containers.http_serve.oci_wlp" thm]
+public theorem http_serve_oci_wlp_answer :
+    Wlp Ports.ociRuntime HttpServe.serveSpec HttpServe.image :=
+  HttpServe.servesImage
+
 /-! ## Checkers, transformers, monitors -/
 
 silmaril instance containers.mini.no_ub_check_sound (expect := THM)
@@ -263,14 +274,6 @@ end
 end Silmaril.LogicGraph.Consequence.Containers.Answers
 
 namespace Silmaril.LogicGraph.Consequence.Containers
-
-/-- **Open**: under the runtime model that publishes the image's declared ports, no run of the
-self-contained HTTP server image has undefined behaviour, and every exiting run is one exact
-response or a defined failure (`HttpServe.Task.servesImage`; reduced to the send loop and the
-drain, `Task.serverLoop`, by `HttpServe.servesImage_of_loop`). -/
-@[conjecture "containers.http_serve.oci_wlp"
-  (title := "The self-contained HTTP server ELF in its OCI image, 8080/tcp published: no undefined behaviour; every exit is one exact response or a defined failure (LPS, every launch and flag oracle)")]
-public def http_serve_oci_wlp : Prop := HttpServe.Task.servesImage
 
 /-- **The registered instances**, with what each is about. -/
 public def catalogue : List (String × ObligationKind) :=

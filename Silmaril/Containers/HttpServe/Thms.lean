@@ -7,6 +7,7 @@ public import Silmaril.Containers.Ports.Thms
 import Silmaril.Proofs.Containers.HttpServe.Basic
 import Silmaril.Proofs.Containers.HttpServe.Walk
 import Silmaril.Proofs.Containers.HttpServe.Loop
+import Silmaril.Proofs.Containers.HttpServe.Drain
 
 /-!
 # A self-contained HTTP server: theorems
@@ -43,7 +44,16 @@ the ELF parse). Proofs are in `Silmaril.Proofs.Containers.HttpServe`.
   octets in some sequence of non-empty prefixes (each short send is retried at the advanced
   pointer; the remaining count stays in `[0, 40]` and the pointer inside the pinned response) and
   reaches the drain, or meets a pending reset or timeout and exits 14 with a prefix sent; no task
-  creation. So `Task.serverDrain` implies `Task.serverLoop`. `Task.serverDrain` is open.
+  creation. So `Task.serverDrain` implies `Task.serverLoop`.
+* **The drain and the exit.** `serverDrain`: from the drain's entry, `read(4, buf, 1024)` for every
+  state of the connection's stream (`FIN`: 0; pending reset or timeout: the error; data: a
+  non-empty prefix of at most 1024 octets, written into the image's buffer at offset 385, after
+  the code and the response), then `exit(0)`, fetched from the written memory where needed; every
+  exit is a successful session.
+* **Closed.** `serverSound`, `servesImage`: under `Ports.ociRuntime` (the declared port published,
+  sequential clone policy, every flag oracle, every admissible launch and connection queue), no run
+  of the image has undefined behaviour, and every run that exits either sent exactly the response
+  and then drained the request (exit 0) or exits 10, 11, 13 or 14 having sent at most a prefix.
 
 What `examples/containers/http-serve/docker-test.sh` tests (not proves): Docker loads the image
 with the proved ID, the container listens on 8080 itself, `curl` receives exactly the 40-octet
@@ -147,5 +157,16 @@ theorem serverLoop_of_drain (h : Task.serverDrain) : Task.serverLoop :=
 /-- **What remains for the image is the drain.** -/
 theorem servesImage_of_drain (h : Task.serverDrain) : Task.servesImage :=
   servesImage_of_loop (serverLoop_of_drain h)
+
+/-- **The drain obligation holds.** -/
+theorem serverDrain : Task.serverDrain :=
+  Silmaril.Proofs.Containers.HttpServe.Drain.serverDrain
+
+/-- **The program obligation holds.** -/
+theorem serverSound : Task.serverSound := serverSound_of_loop (serverLoop_of_drain serverDrain)
+
+/-- **The image obligation holds**: no undefined behaviour, and every exiting run is one exact
+response (then the drained request) or a defined failure. -/
+theorem servesImage : Task.servesImage := servesImage_of_drain serverDrain
 
 end Silmaril.Containers.HttpServe

@@ -561,7 +561,9 @@ socket.
 | General adapter soundness over any syscall table: if the program's LPS executions meet `G` with no task creation (`Lps.Sound`), every run has no UB and every exit meets `G` | Proved | `Lps.runs_sound` |
 | `servesImage_of_sound`: the program obligation `Task.serverSound` implies the image obligation `Task.servesImage` (no UB; every exit satisfies `serveSpec`) | Proved | `HttpServe.Thms` |
 | `serverSound_of_loop`: from every admissible launch and flag oracle, the instruction walk through `socket`, `bind` (published), `listen`, `accept`; every injected failure exits 10, 11 or 13 with nothing sent; no task creation; so `Task.serverLoop` implies `Task.serverSound` (and `Task.servesImage`) | Proved | `HttpServe.Thms`, `Proofs/…/HttpServe/Walk.lean` |
-| `Task.serverLoop`: from the send loop's entry, the retry loop and the drain | **Open** (`containers.http_serve.oci_wlp`, OPN) | `HttpServe.Defs` |
+| The send-retry loop over an abstract core: every short send retried at the advanced pointer (remaining count in `[0, 40]`, pointer inside the pinned response, sent octets a prefix); a pending reset or timeout exits 14 | Proved | `serverLoop_of_drain`, `Proofs/…/HttpServe/Loop.lean` |
+| The drain: `read(4, buf, 1024)` for every stream state (`FIN`, reset, timeout, data written into the buffer after the code and the response), then `exit(0)` fetched from the written memory | Proved | `serverDrain`, `Proofs/…/HttpServe/Drain.lean` |
+| **`servesImage`**: every run of the image under `Ports.ociRuntime` has no undefined behaviour, and every exit is exactly the response then the drained request (0) or a defined failure (10, 11, 13, 14) | **Proved** (`containers.http_serve.oci_wlp`, THM; axioms `propext`, `Classical.choice`, `Quot.sound`) | `HttpServe.Thms` |
 | Docker: image ID, the container listens itself, `curl` gets exactly the response, exit 0 | Tested | `docker-test.sh` |
 
 The environment a successful session needs, as LPS states it (inputs of a launch, not
@@ -580,11 +582,11 @@ exits 0 sent exactly the response, and every other exit is 10–14 (`wlp`). It i
 liveness, which needs a peer; under this framework a process that reads input has `blocked`
 runs, so `wp` (total correctness) would need an explicit assumption on inputs.
 
-**What remains** (`Task.serverLoop`, from the loop's entry `LoopStart`): the send-retry loop over
-symbolic register values (remaining count in `[0, 40]`, pointer inside the pinned response, sent
-octets a prefix of it; each send moves at least one octet; a pending reset exits 14), and the
-drain `read`, which writes the image's buffer and so needs flag-oracle rules over a changed
-memory.
+**Scope of the theorem.** Partial correctness (`wlp`): a run may wait for a peer or for data
+without end; LPS's connection queue is never empty, and every modelled outcome of every call is
+covered (injected resource errors, short sends, resets, timeouts, `FIN`, any request octets). The
+port semantics is the named extension `Ports.publish` (a published port binds as LPS binds port
+0), not a claim about a Linux kernel.
 
 ## Next steps
 

@@ -5,6 +5,7 @@ import Silmaril.Proofs.Containers.Ports.Basic
 import Silmaril.Proofs.Containers.Ports.Socket
 public import Silmaril.Process.LPS.Sys.Socket
 public import Silmaril.Process.LPS.Probes.Kit
+public import Silmaril.Process.LPS.Probes.KitMemory
 
 /-!
 # Published ports: theorems
@@ -110,5 +111,41 @@ theorem dispatches_accept :
 theorem dispatches_sendto :
     Probes.Dispatches 44 (fun i => sendtoSpecX86 (fd32 (i.arg 0)) (i.arg 1) (i.arg 2) (i.arg 3) (i.arg 4) (i.arg 5)) :=
   Silmaril.Proofs.Containers.Ports.dispatches_sendto
+
+/-- `read(fd, buf, 1024)` on a connection whose stream has ended (`FIN`): 0, nothing changes. -/
+theorem read_fin_iff (fd buf : Word) (i : SyscallInput) (m : PModel) (o : POutcome)
+    {peer : PeerAddr} {ch : Word} {rx : NetStream}
+    (hfd : fdLookup m.fds fd = some (.socket (.connected peer ch rx)))
+    (hi : rx.item 0 = .inr .fin) (ha : accessOkbX86 buf 1024 = true) :
+    readSpecX86 fd buf 1024 i m o ↔ o = .ok (mkEffect 0 [] []) m [] :=
+  Silmaril.Proofs.Containers.Ports.read_fin_iff fd buf i m o hfd hi ha
+
+/-- The same with a pending reset or timeout: that error, the socket left reset. -/
+theorem read_err_iff (fd buf : Word) (i : SyscallInput) (m : PModel) (o : POutcome)
+    {peer : PeerAddr} {ch : Word} {rx : NetStream} {e : NetEnd} {err : Int}
+    (hfd : fdLookup m.fds fd = some (.socket (.connected peer ch rx)))
+    (hi : rx.item 0 = .inr e) (he : (e = .rst ∧ err = ECONNRESET) ∨ (e = .timedOut ∧ err = ETIMEDOUT))
+    (ha : accessOkbX86 buf 1024 = true) :
+    readSpecX86 fd buf 1024 i m o ↔
+      o = .ok (mkEffect (errnoRet err) [] []) (m.withFds (fdInsert m.fds fd (.socket (.reset peer ch)))) [] :=
+  Silmaril.Proofs.Containers.Ports.read_err_iff fd buf i m o hfd hi he ha
+
+/-- The same with data waiting, into a writable buffer: a non-empty prefix of the stream (at most
+1024 octets), written to the buffer, one `readEv` per octet, the stream advanced. -/
+theorem read_data_iff (fd buf : Word) (i : SyscallInput) (m : PModel) (o : POutcome)
+    {peer : PeerAddr} {ch : Word} {rx : NetStream} {b : Byte}
+    (hfd : fdLookup m.fds fd = some (.socket (.connected peer ch rx)))
+    (hi : rx.item 0 = .inl b)
+    (writable : ∀ k ≤ 1024, (readBytesAux i.wmem buf k).isSome = true) :
+    readSpecX86 fd buf 1024 i m o ↔ ∃ bs, ReadOk rx bs ∧
+      o = .ok (mkEffect (lenWord bs) [(buf, bs)] [])
+        (m.withFds (fdInsert m.fds fd (.socket (.connected peer ch (rx.take bs.length).2))))
+        (bs.map (.readEv ch)) :=
+  Silmaril.Proofs.Containers.Ports.read_data_iff fd buf i m o hfd hi writable
+
+set_option maxRecDepth 100000 in
+theorem dispatches_read :
+    Probes.Dispatches 0 (fun i => readSpecX86 (fd32 (i.arg 0)) (i.arg 1) (i.arg 2)) :=
+  Probes.dispatches_read
 
 end Silmaril.Containers.Ports

@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Containers.Lps.Defs
 public import Silmaril.Process.LPS.Probes.Oracle
+public import Silmaril.Process.LPS.Probes.KitMemory
 
 /-!
 # Proofs: probe-kit rules over any system call table, with model changes
@@ -316,5 +317,250 @@ theorem oexecN_exit {post : Omni.Post (isaOf oracle)} {core : Silmaril.X86.State
   obtain ⟨-, ht⟩ := (succ _ _).1 hs
   cases ht
   exact noCloneW_halted (by simp [Silmaril.Process.LPS.Model.withHalted, Silmaril.Process.LPS.Model.halted])
+
+/-! ## Rules over a changed memory -/
+
+theorem oaccountStep_instrW [Probe.Checked P] {mem : Silmaril.Process.Memory} {off len : Nat}
+    {instruction : Silmaril.X86.Ext.Instr} {core core' : Silmaril.X86.State} {counter : Nat}
+    {model : Silmaril.Process.LPS.Model} (lazy : model.vmLazy = [])
+    (rip : core.rip.toNat = P.base + off)
+    (notSyscall : (P.bytes.drop off).take 2 ≠ [0x0f, 0x05])
+    (fetched : mem.fetchBytes (P.base + off) len = some ((P.bytes.drop off).take len))
+    (prefix2 : mem.fetchBytes (P.base + off) 2 = some ((P.bytes.drop off).take 2))
+    (decoded : Silmaril.X86.Ext.decode ((P.bytes.drop off).take len) = some (instruction, len))
+    (exec : Silmaril.X86.Ext.exec instruction core mem len = .ok core' mem) :
+    accountStep (isaOf oracle) P.segs ⟨⟨⟨core, mem⟩, none⟩, counter⟩ model =
+      .ok (⟨⟨⟨core', mem⟩, none⟩, counter⟩, model) := by
+  have notTwo : mem.fetchBytes core.rip.toNat 2 ≠ some [0x0f, 0x05] := by
+    rw [rip, prefix2]
+    exact fun h => notSyscall (Option.some.inj h)
+  apply Progress.accountStep_of_noLazy _ _ model _ lazy
+  change X86FlagChoices.step oracle ⟨⟨⟨core, mem⟩, none⟩, counter⟩ = _
+  rw [X86FlagChoices.step_not_syscall _ _ notTwo]
+  rw [x86NativeStep_of_fetch (s := ⟨⟨core, mem⟩, none⟩) notTwo
+    (show mem.fetchBytes core.rip.toNat len = some _ by rw [rip, fetched]) decoded]
+  change X86FlagChoices.lift counter
+    (x86ExecResult _ (Silmaril.X86.Ext.exec instruction core mem len)) = _
+  rw [exec]
+  rfl
+
+theorem oexecN_instrW [Probe.Checked P] {post : Omni.Post (isaOf oracle)} {mem : Silmaril.Process.Memory}
+    {off len : Nat} {instruction : Silmaril.X86.Ext.Instr} {core core' : Silmaril.X86.State}
+    {counter : Nat} {model : Silmaril.Process.LPS.Model} (running : model.halted = none)
+    (lazy : model.vmLazy = []) (rip : core.rip.toNat = P.base + off)
+    (notSyscall : (P.bytes.drop off).take 2 ≠ [0x0f, 0x05])
+    (fetched : mem.fetchBytes (P.base + off) len = some ((P.bytes.drop off).take len))
+    (prefix2 : mem.fetchBytes (P.base + off) 2 = some ((P.bytes.drop off).take 2))
+    (decoded : Silmaril.X86.Ext.decode ((P.bytes.drop off).take len) = some (instruction, len))
+    (exec : Silmaril.X86.Ext.exec instruction core mem len = .ok core' mem)
+    (rest : ExecN P.segs sp (ocfgM oracle core' mem none counter model) post) :
+    ExecN P.segs sp (ocfgM oracle core mem none counter model) post := by
+  have account := oaccountStep_instrW P oracle (counter := counter) lazy rip notSyscall fetched prefix2
+    decoded exec
+  have succ : ∀ evs t, SStep P.segs sp noFilter (ocfgM oracle core mem none counter model) evs t ↔
+      evs = [] ∧ t = .next (ocfgM oracle core' mem none counter model) := by
+    intro evs t
+    constructor
+    · intro step
+      cases step with
+      | instr _ _ h => rw [account] at h; cases h; exact ⟨rfl, rfl⟩
+      | instrFault _ _ h => rw [account] at h; cases h
+      | instrUnmodeled _ _ h => rw [account] at h; cases h
+      | syscall _ p => cases p
+      | syscallMaterializationFault _ p => cases p
+      | exit _ p => cases p
+      | killed _ p => cases p
+      | syscallUnmodeled _ p => cases p
+    · rintro ⟨rfl, rfl⟩
+      exact .instr running rfl account
+  refine ⟨Omni.exec_of_unique running succ rest.1,
+    noCloneW_successors (fun ⟨_, _, hx, _⟩ => by cases hx) ?_⟩
+  intro evs c' hs
+  obtain ⟨-, ht⟩ := (succ _ _).1 hs
+  cases ht
+  exact rest.2
+
+theorem oexecN_trapW [Probe.Checked P] {post : Omni.Post (isaOf oracle)} {mem : Silmaril.Process.Memory}
+    {off : Nat} {core : Silmaril.X86.State} {counter : Nat} {model : Silmaril.Process.LPS.Model}
+    (running : model.halted = none) (lazy : model.vmLazy = [])
+    (rip : core.rip.toNat = P.base + off)
+    (prefix2 : mem.fetchBytes (P.base + off) 2 = some ((P.bytes.drop off).take 2))
+    (isSyscall : (P.bytes.drop off).take 2 = [0x0f, 0x05])
+    (rest : ExecN P.segs sp (ocfgM oracle (Probe.complete core (oracle counter)) mem
+      (some (core.read .rax)) (counter + 1) model) post) :
+    ExecN P.segs sp (ocfgM oracle core mem none counter model) post := by
+  have account : accountStep (isaOf oracle) P.segs ⟨⟨⟨core, mem⟩, none⟩, counter⟩
+      model = .ok (⟨⟨⟨Probe.complete core (oracle counter), mem⟩, some (core.read .rax)⟩,
+        counter + 1⟩, model) := by
+    apply Progress.accountStep_of_noLazy _ _ model _ lazy
+    exact X86FlagChoices.step_syscall oracle ⟨⟨⟨core, mem⟩, none⟩, counter⟩
+      (by rw [show core.rip.toNat = P.base + off from rip, prefix2, isSyscall])
+  have succ : ∀ evs t, SStep P.segs sp noFilter (ocfgM oracle core mem none counter model) evs t ↔
+      evs = [] ∧ t = .next (ocfgM oracle (Probe.complete core (oracle counter)) mem
+        (some (core.read .rax)) (counter + 1) model) := by
+    intro evs t
+    constructor
+    · intro step
+      cases step with
+      | instr _ _ h => rw [account] at h; cases h; exact ⟨rfl, rfl⟩
+      | instrFault _ _ h => rw [account] at h; cases h
+      | instrUnmodeled _ _ h => rw [account] at h; cases h
+      | syscall _ p => cases p
+      | syscallMaterializationFault _ p => cases p
+      | exit _ p => cases p
+      | killed _ p => cases p
+      | syscallUnmodeled _ p => cases p
+    · rintro ⟨rfl, rfl⟩
+      exact .instr running rfl account
+  refine ⟨Omni.exec_of_unique running succ rest.1,
+    noCloneW_successors (fun ⟨_, _, hx, _⟩ => by cases hx) ?_⟩
+  intro evs c' hs
+  obtain ⟨-, ht⟩ := (succ _ _).1 hs
+  cases ht
+  exact rest.2
+
+/-- **A call whose only outcome halts**, over any memory. -/
+theorem oexecN_haltW {post : Omni.Post (isaOf oracle)} {mem : Silmaril.Process.Memory}
+    {core : Silmaril.X86.State} {n : Word} {counter : Nat} {model model' : Silmaril.Process.LPS.Model}
+    {effect : SyscallEffect} {code : Word} (notClone : cloneNumber n = false)
+    (running : model.halted = none)
+    (outcomes : ∀ outcome, sp (sysInput (isaOf oracle) P.segs
+        (⟨⟨⟨core, mem⟩, some n⟩, counter⟩ : X86FlagChoices.State) n) model outcome ↔
+      outcome = .ok effect model' [])
+    (halted : model'.halted = some code) (unkilled : model'.killedBy = none)
+    (done : post [.exitEv code model'.fs] (.halt (ocfgM oracle core mem (some n) counter model'))) :
+    ExecN P.segs sp (ocfgM oracle core mem (some n) counter model) post := by
+  have succ : ∀ evs t, SStep P.segs sp noFilter (ocfgM oracle core mem (some n) counter model) evs t ↔
+      evs = [.exitEv code model'.fs] ∧ t = .next (ocfgM oracle core mem (some n) counter model') := by
+    intro evs t
+    constructor
+    · intro step
+      cases step with
+      | instr _ p => cases p
+      | instrFault _ p => cases p
+      | instrUnmodeled _ p => cases p
+      | syscall _ p s _ live =>
+        cases p
+        cases (outcomes _).mp s
+        rw [halted] at live
+        cases live
+      | syscallMaterializationFault _ p s _ live =>
+        cases p
+        cases (outcomes _).mp s
+        rw [halted] at live
+        cases live
+      | exit _ p s h _ =>
+        cases p
+        cases (outcomes _).mp s
+        rw [halted] at h
+        cases h
+        exact ⟨rfl, rfl⟩
+      | killed _ p s k =>
+        cases p
+        cases (outcomes _).mp s
+        rw [unkilled] at k
+        cases k
+      | syscallUnmodeled _ p s =>
+        cases p
+        cases (outcomes _).mp s
+    · rintro ⟨rfl, rfl⟩
+      exact SStep.exit (isa := isaOf oracle)
+        (ms := (⟨⟨⟨core, mem⟩, some n⟩, counter⟩ : X86FlagChoices.State))
+        running rfl ((outcomes _).mpr rfl) halted unkilled
+  have hh : model'.halted ≠ none := by rw [halted]; simp
+  refine ⟨Omni.exec_of_unique running succ (.halt hh (by simpa using done)), ?_⟩
+  refine noCloneW_successors (fun ⟨_, x8, hx, hc⟩ => by cases hx; rw [notClone] at hc; cases hc) ?_
+  intro evs c' hs
+  obtain ⟨-, ht⟩ := (succ _ _).1 hs
+  cases ht
+  exact noCloneW_halted hh
+
+theorem oresume_effectW (core : Silmaril.X86.State) (mem mem' : Silmaril.Process.Memory) (n : Word)
+    (other : n ≠ 158) (ret : Word) (writes : List (Word × List Byte)) (copyins : List (Word × Nat))
+    (counter : Nat)
+    (applied : applyMemoryEffect mem ((mkEffect ret writes []).withCopyins copyins) = mem') :
+    (isaOf oracle).advancePastSvc ((isaOf oracle).applyEffect
+      (⟨⟨⟨core, mem⟩, some n⟩, counter⟩ : X86FlagChoices.State)
+      ((mkEffect ret writes []).withCopyins copyins)) = ⟨⟨⟨Probe.resume core ret, mem'⟩, none⟩, counter⟩ := by
+  change (⟨x86ExtNative.advancePastSvc (x86ExtNative.applyEffect ⟨⟨core, mem⟩, some n⟩
+    ((mkEffect ret writes []).withCopyins copyins)), counter⟩ : X86FlagChoices.State) = _
+  rw [Probe.resume_effectW core mem mem' n other ret writes copyins applied]
+
+/-- **A returning call that may write memory and change the model.** -/
+theorem oexecN_sysW {post : Omni.Post (isaOf oracle)} {core : Silmaril.X86.State} {n : Word}
+    {counter : Nat} {model : Silmaril.Process.LPS.Model} {α : Type} {allowed : α → Prop}
+    {ret : α → Word} {writes : α → List (Word × List Byte)} {copyins : α → List (Word × Nat)}
+    {model' : α → Silmaril.Process.LPS.Model} {events : α → List Event}
+    {mem' : α → Silmaril.Process.Memory} (other : n ≠ 158) (notClone : cloneNumber n = false)
+    (running : model.halted = none)
+    (live : ∀ x, allowed x → (model' x).halted = none)
+    (lazy : ∀ x, allowed x → (model' x).vmLazy = [])
+    (outcomes : ∀ outcome, sp (P.sysIn core n) model outcome ↔
+      ∃ x, allowed x ∧ outcome =
+        .ok ((mkEffect (ret x) (writes x) []).withCopyins (copyins x)) (model' x) (events x))
+    (applied : ∀ x, allowed x →
+      applyMemoryEffect P.mem0 ((mkEffect (ret x) (writes x) []).withCopyins (copyins x)) = mem' x)
+    (inhabited : ∃ x, allowed x)
+    (rest : ∀ x, allowed x → ExecN P.segs sp
+      (ocfgM oracle (Probe.resume core (ret x)) (mem' x) none counter (model' x))
+      (fun trace outcome => post (events x ++ trace) outcome)) :
+    ExecN P.segs sp (P.ocfg oracle core (some n) counter model) post := by
+  have succ : ∀ evs t, SStep P.segs sp noFilter (P.ocfg oracle core (some n) counter model) evs t ↔
+      ∃ x, allowed x ∧ evs = events x ∧
+        t = .next (ocfgM oracle (Probe.resume core (ret x)) (mem' x) none counter (model' x)) := by
+    intro evs t
+    constructor
+    · intro step
+      cases step with
+      | instr _ p => cases p
+      | instrFault _ p => cases p
+      | instrUnmodeled _ p => cases p
+      | syscall _ p s _ _ m =>
+        cases p
+        obtain ⟨x, hx, same⟩ := (outcomes _).mp s
+        cases same
+        rw [Progress.materializeModelAccesses_noLazy _ _ (lazy x hx)] at m
+        cases m
+        refine ⟨x, hx, rfl, ?_⟩
+        rw [oresume_effectW oracle core P.mem0 (mem' x) n other _ _ _ counter (applied x hx)]
+      | syscallMaterializationFault _ p s _ _ m =>
+        cases p
+        obtain ⟨x, hx, same⟩ := (outcomes _).mp s
+        cases same
+        rw [Progress.materializeModelAccesses_noLazy _ _ (lazy x hx)] at m
+        cases m
+      | exit _ p s h _ =>
+        cases p
+        obtain ⟨x, hx, same⟩ := (outcomes _).mp s
+        cases same
+        rw [live x hx] at h
+        cases h
+      | killed _ p s k =>
+        cases p
+        obtain ⟨x, hx, same⟩ := (outcomes _).mp s
+        cases same
+        have := live x hx
+        have hk : (model' x).killedBy = none := by
+          simp [Silmaril.Process.LPS.Model.killedBy, Silmaril.Process.LPS.Model.halted] at this ⊢
+          simp [this]
+        rw [hk] at k
+        cases k
+      | syscallUnmodeled _ p s =>
+        cases p
+        obtain ⟨x, _, same⟩ := (outcomes _).mp s
+        cases same
+    · rintro ⟨x, hx, rfl, rfl⟩
+      have step := SStep.syscall (segs := P.segs) (spec := sp) (refused := noFilter)
+        (isa := isaOf oracle) (x8 := n)
+        (ms := (⟨⟨⟨core, P.mem0⟩, some n⟩, counter⟩ : X86FlagChoices.State)) running rfl
+        ((outcomes _).mpr ⟨x, hx, rfl⟩) (fun h => h) (live x hx)
+        (Progress.materializeModelAccesses_noLazy _ _ (lazy x hx))
+      rwa [oresume_effectW oracle core P.mem0 (mem' x) n other _ _ _ counter (applied x hx)] at step
+  refine ⟨Omni.exec_of_successors running succ inhabited fun x hx => (rest x hx).1,
+    noCloneW_successors (not_clonePending_some P notClone) ?_⟩
+  intro evs c' hs
+  obtain ⟨x, hx, -, ht⟩ := (succ _ _).1 hs
+  cases ht
+  exact (rest x hx).2
 
 end Silmaril.Proofs.Containers.Lps.Kit

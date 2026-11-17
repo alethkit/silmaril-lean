@@ -31,9 +31,9 @@ in `rwx` mode (one `PT_LOAD`, the request buffer inside it).
 published, so a `bind` of `INADDR_ANY` to 8080 has the outcomes LPS gives port 0 (on LPS's own
 table it is `unmodeled`, `Thms.bind_port_unmodeled`).
 
-`Task.servesImage` (no undefined behaviour and `serveSpec` on every exiting run) is open;
-`Thms.servesImage_of_sound` reduces it to `Task.serverSound`, the statement about the program's
-LPS executions.
+`Task.servesImage` (no undefined behaviour and `serveSpec` on every exiting run) is proved in
+`Thms.servesImage`, through `Task.serverSound` (the program's LPS executions), `Task.serverLoop`
+(from the send loop's entry) and `Task.serverDrain` (from the drain's entry).
 
 A Silmaril addition.
 -/
@@ -227,7 +227,7 @@ def image : Oci.Layout × Oci.Digest := (layout, manifestDigest)
 def elfDigest : Oci.Digest :=
   (Oci.digestOf? "sha256:1515fe739d0dbffcf92a6701d8a1b107df5f1c9a19dcf95400d3d904cd002f02").getD []
 
-/-! ## The open obligation -/
+/-! ## The obligations (all proved in `Thms`) -/
 
 /-- `serveSpec` on a status word, as the adapter reports exits (`EvPost`). -/
 def serveG (t : List Ev) (k : Word) : Prop := serveSpec t (k.toNat % 256).toUInt8
@@ -248,18 +248,22 @@ abbrev okBytes : List Silmaril.Process.LPS.Byte := (probe.bytes.drop 345).take 4
 def Qk (o : Lps.Oracle) (k : Nat) : Silmaril.Process.LPS.Omni.Post (Lps.isaOf o) :=
   fun tr out => Lps.EvPost serveG [] ((okBytes.take k).map (.writeEv 3) ++ tr) out
 
-/-- **Open, the drain**: from the drain's entry (segment offset 263) with all 40 octets sent and
+/-- **The drain obligation**: from the drain's entry (segment offset 263) with all 40 octets sent and
 the connection at descriptor 4, every execution meets `serveSpec` and none creates a task. -/
 def Task.serverDrain : Prop :=
   ∀ en inp, Silmaril.Process.LPS.Probes.Probe.Checked (probe.launchAt en inp) →
     ∀ (o : Lps.Oracle) counter (core : Silmaril.X86.State) (m : Silmaril.Process.LPS.Model)
       (peer : Silmaril.Process.LPS.PeerAddr) (rx : Silmaril.Process.LPS.NetStream),
-      core.rip = 4194567#64 → core.read .r12 = 4 → m.halted = none → m.vmLazy = [] →
+      core.rip = 4194567#64 → core.read .r12 = 4 →
+      Silmaril.Process.LPS.uns (core.read .r10) < Silmaril.Process.LPS.taskSizeMaxX86 →
+      Silmaril.Process.LPS.uns (core.read .r8) < Silmaril.Process.LPS.taskSizeMaxX86 →
+      Silmaril.Process.LPS.uns (core.read .r9) < Silmaril.Process.LPS.taskSizeMaxX86 →
+      m.halted = none → m.vmLazy = [] →
       Silmaril.Process.LPS.fdLookup m.fds 4 = some (.socket (.connected peer 3 rx)) →
       Lps.ExecN (probe.launchAt en inp).segs (Ports.publish [8080])
         ((probe.launchAt en inp).ocfg o core none counter m) (Qk o 40)
 
-/-- **Open, the remaining obligation**: from the send loop's entry, every execution meets
+/-- **The loop obligation**: from the send loop's entry, every execution meets
 `serveSpec` (nothing has been emitted before it) and none creates a task. Everything from the
 launch to the loop is proved (`Thms.serverSound_of_loop`). -/
 def Task.serverLoop : Prop :=
@@ -268,13 +272,13 @@ def Task.serverLoop : Prop :=
       Lps.ExecN (probe.launchAt en inp).segs (Ports.publish [8080])
         ((probe.launchAt en inp).ocfg o core none counter m) (Lps.EvPost serveG [])
 
-/-- **Open, the LPS-level obligation**: under the native table with `8080/tcp` published, every
+/-- **The LPS-level obligation**: under the native table with `8080/tcp` published, every
 admissible launch has only finite, error-free executions with supported events whose container
 events and exit status meet `serveSpec`, and none creates a task. Everything else about the image
 is proved (`Thms.servesImage_of_sound`). -/
 def Task.serverSound : Prop := Lps.Sound (Ports.publish [8080]) probe.snapshot serveG
 
-/-- **Open, the image-level obligation**: under the runtime model that publishes the image's
+/-- **The image-level obligation**: under the runtime model that publishes the image's
 declared ports (`Ports.ociRuntime`, sequential clone policy), every run has no undefined
 behaviour, and every run that exits satisfies `serveSpec` (a successful session with exactly the
 response, or a defined failure). Partial correctness: a run waiting for a peer that never comes

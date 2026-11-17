@@ -4,6 +4,7 @@ public import Silmaril.Containers.Ports.Defs
 public import Silmaril.Process.LPS.Sys.Socket
 public import Silmaril.Process.LPS.MonadIff
 public import Silmaril.Process.LPS.Probes.Kit
+public import Silmaril.Process.LPS.Probes.KitMemory
 
 /-!
 # Proofs: the outcomes of LPS's socket calls a one-connection server makes
@@ -150,5 +151,94 @@ theorem dispatches_accept :
 theorem dispatches_sendto :
     Probes.Dispatches 44 (fun i => sendtoSpecX86 (fd32 (i.arg 0)) (i.arg 1) (i.arg 2) (i.arg 3) (i.arg 4) (i.arg 5)) :=
   Probes.dispatches_slot ⟨206, 44, "sendto"⟩ (by decide) ((lookup_sock 44 (by decide +kernel)).trans rfl) (by decide)
+
+
+section Read
+open Silmaril.Process.LPS.Probes
+theorem netTakeFrom_length_le (s : NetStream) : ∀ (start k : Nat), (s.takeFrom start k).length ≤ k
+  | _, 0 => by simp [NetStream.takeFrom]
+  | start, k + 1 => by
+    unfold NetStream.takeFrom
+    split
+    · simp
+    · simp only [List.length_cons]; have := netTakeFrom_length_le s (start + 1) k; omega
+
+theorem read_fin_iff (fd buf : Word) (i : SyscallInput) (m : Model) (o : Outcome SyscallEffect)
+    {peer : PeerAddr} {ch : Word} {rx : NetStream}
+    (hfd : fdLookup m.fds fd = some (.socket (.connected peer ch rx)))
+    (hi : rx.item 0 = .inr .fin) (ha : accessOkbX86 buf 1024 = true) :
+    readSpecX86 fd buf 1024 i m o ↔ o = .ok (mkEffect 0 [] []) m [] := by
+  unfold readSpecX86 readSpecWith
+  rw [Sys.bind_input_iff, Sys.bind_getModel_iff]
+  have hm : modeledRwRangeWith accessOkbX86 buf 1024 = true := by
+    unfold modeledRwRangeWith; rw [show modeledRwCount 1024 = true by decide]; rfl
+  have hz : wIs0 (1024 : Word) = false := by decide
+  have hu : uns (1024 : Word) = 1024 := by decide
+  simp only [hfd, hm, hz, hi, Bool.not_true, Bool.false_eq_true, ↓reduceIte, accessOkZeroWith, hu, ha]
+  cases o <;> simp [retOnly, Sys.pure]
+
+theorem read_err_iff (fd buf : Word) (i : SyscallInput) (m : Model) (o : Outcome SyscallEffect)
+    {peer : PeerAddr} {ch : Word} {rx : NetStream} {e : NetEnd} {err : Int}
+    (hfd : fdLookup m.fds fd = some (.socket (.connected peer ch rx)))
+    (hi : rx.item 0 = .inr e) (he : (e = .rst ∧ err = ECONNRESET) ∨ (e = .timedOut ∧ err = ETIMEDOUT))
+    (ha : accessOkbX86 buf 1024 = true) :
+    readSpecX86 fd buf 1024 i m o ↔
+      o = .ok (mkEffect (errnoRet err) [] []) (m.withFds (fdInsert m.fds fd (.socket (.reset peer ch)))) [] := by
+  unfold readSpecX86 readSpecWith
+  rw [Sys.bind_input_iff, Sys.bind_getModel_iff]
+  have hm : modeledRwRangeWith accessOkbX86 buf 1024 = true := by
+    unfold modeledRwRangeWith; rw [show modeledRwCount 1024 = true by decide]; rfl
+  have hz : wIs0 (1024 : Word) = false := by decide
+  have hu : uns (1024 : Word) = 1024 := by decide
+  rcases he with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
+  · simp only [hfd, hm, hz, hi, Bool.not_true, Bool.false_eq_true, ↓reduceIte, socketPendingErrorWith,
+      accessOkZeroWith, hu, ha]
+    cases o with
+    | unmodeled => simp [errRet, retOnly, Sys.pure, Sys.bind, Sys.modify, Bind.bind]
+    | ok => simp [errRet, retOnly, Sys.pure, Sys.bind, Sys.modify, Bind.bind]; tauto
+
+
+theorem read_data_iff (fd buf : Word) (i : SyscallInput) (m : Model) (o : Outcome SyscallEffect)
+    {peer : PeerAddr} {ch : Word} {rx : NetStream} {b : Byte}
+    (hfd : fdLookup m.fds fd = some (.socket (.connected peer ch rx)))
+    (hi : rx.item 0 = .inl b)
+    (writable : ∀ k ≤ 1024, (readBytesAux i.wmem buf k).isSome = true) :
+    readSpecX86 fd buf 1024 i m o ↔ ∃ bs, ReadOk rx bs ∧
+      o = .ok (mkEffect (lenWord bs) [(buf, bs)] [])
+        (m.withFds (fdInsert m.fds fd (.socket (.connected peer ch (rx.take bs.length).2))))
+        (bs.map (.readEv ch)) := by
+  have hm : modeledRwRangeWith accessOkbX86 buf 1024 = true := by
+    unfold modeledRwRangeWith; rw [show modeledRwCount 1024 = true by decide]; rfl
+  have hz : wIs0 (1024 : Word) = false := by decide
+  have hclamp : rwCountClamp (1024 : Word) = 1024 := by decide
+  have writableWord (l : List Byte) (bound : l.length ≤ 1024) :
+      (readBytesMap i.wmem buf (lenWord l)).isSome = true := by
+    unfold readBytesMap
+    rw [lenWord_toNat l (by omega)]
+    exact writable _ bound
+  obtain ⟨first, firstOk⟩ := Option.isSome_iff_exists.mp (writable 1 (by omega))
+  have firstMap : readBytesMap i.wmem buf 1#64 = some first := firstOk
+  have takeBound : (rx.takeZ (1024 : Int)).1.length ≤ 1024 := by
+    unfold NetStream.takeZ NetStream.take
+    simp only [show (0 : Int) < 1024 by decide, ↓reduceIte]
+    exact netTakeFrom_length_le rx 0 _
+  obtain ⟨whole, wholeOk⟩ := Option.isSome_iff_exists.mp
+    (writableWord (rx.takeZ (1024 : Int)).1 takeBound)
+  unfold readSpecX86 readSpecWith
+  rw [Sys.bind_input_iff, Sys.bind_getModel_iff]
+  simp only [hfd, hm, hz, hi, Bool.not_true, Bool.false_eq_true, ↓reduceIte, hclamp, wholeOk]
+  have firstMap' : readBytesMap i.wmem buf 1 = some first := firstOk
+  rw [firstMap']
+  cases o with
+  | ok effect model' evs =>
+    simp [Sys.bind, Sys.choose, Sys.modify, Sys.emit, Sys.pure, bind, Bind.bind]
+    constructor
+    · rintro ⟨bs, ⟨h1, h2, h3, -⟩, ⟨rfl, rfl⟩, rfl⟩
+      exact ⟨bs, ⟨h1, h2, h3⟩, rfl, rfl, rfl⟩
+    · rintro ⟨bs, ⟨h1, h2, h3⟩, rfl, rfl, rfl⟩
+      exact ⟨bs, ⟨h1, h2, h3, writableWord bs h2⟩, ⟨rfl, rfl⟩, rfl⟩
+  | unmodeled => simp [Sys.bind, Sys.choose, Sys.modify, Sys.emit, Sys.pure, bind, Bind.bind]
+
+end Read
 
 end Silmaril.Proofs.Containers.Ports

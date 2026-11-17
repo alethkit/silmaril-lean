@@ -282,6 +282,13 @@ def ExecN (segs : List Segment) (sp : Sys SyscallEffect) {isa : UserIsa}
     (c : Silmaril.Process.LPS.Config isa) (post : Omni.Post isa) : Prop :=
   Omni.Exec segs sp noFilter c post ∧ NoCloneFromWith sp segs c
 
+/-- A flag-oracle configuration over the memory `mem` (`Probe.ocfg` is the one over the initial
+memory). -/
+abbrev ocfgM (o : Oracle) (core : Silmaril.X86.State) (mem : Silmaril.Process.Memory)
+    (pending : Option Word) (counter : Nat) (model : Silmaril.Process.LPS.Model) :
+    Silmaril.Process.LPS.Config (isaOf o) :=
+  ⟨⟨⟨⟨core, mem⟩, pending⟩, counter⟩, model⟩
+
 /-! ## Loading ELF contents -/
 
 /-- An ELF file as LPS's loader reads it. -/
