@@ -11,8 +11,8 @@ public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.LaterCore
 the first core instantiation has the index spaces of the symbolic reading (`refStep`) of the
 definitions up to and including it (`FrameRel`):
 
-* `FrameTy sc sc' k`: the frame of `sc'` has the types of `sc` and `k` more function types, and
-  the component functions of `sc`;
+* `FrameTy sc sc' fs`: the frame of `sc'` has the types of `sc` and the resolutions of the
+  primitive function types `fs` (`TyEntry`), the component functions and exports of `sc`;
 * `stepZ_*`, `prefix_runZ`: `Multi.Root.stepY_*`, `prefix_runY` with `FrameTy`;
 * `refFold_pre`: the symbolic reading of the definitions before the first core instantiation;
 * `root_firstK2`: `Multi.RootK.root_firstK` with the frame's types and component functions;
@@ -50,25 +50,55 @@ section FrameTy
 
 variable {E : CoreEngine}
 
-/-- The frame of `sc'` has the types of `sc` followed by `k` function types, and the component
-functions of `sc`. -/
-def FrameTy (sc sc' : Scope E) (k : Nat) : Prop :=
-  (∃ ts, sc'.frame.types = sc.frame.types ++ ts ∧ ts.length = k ∧ ∀ x ∈ ts, ∃ t, x = .func t) ∧
-    sc'.frame.funcs = sc.frame.funcs
+/-- The function types defined by `ds`, in order. -/
+def synTypes {M : Type} : List (Syntax.Definition M) → List Syntax.FuncType
+  | [] => []
+  | .type (.func f) :: ds => f :: synTypes ds
+  | _ :: ds => synTypes ds
+
+theorem synTypes_length {M : Type} (ds : List (Syntax.Definition M)) :
+    (synTypes ds).length = nTypes ds := by
+  induction ds with
+  | nil => rfl
+  | cons d ds ih =>
+    by_cases h : ∃ f, d = .type (.func f)
+    · obtain ⟨f, rfl⟩ := h
+      simp [synTypes, nTypes, ih]
+    · have h' : ∀ f, d = .type (.func f) → False := fun f hf => h ⟨f, hf⟩
+      rw [synTypes.eq_3 _ _ h', nTypes.eq_3 _ _ h', ih]
+
+/-- A frame type entry: the resolution of the primitive function type `f`. -/
+def TyEntry (f : Syntax.FuncType) (x : Types.TypeDef RtId E.ExternType) : Prop :=
+  funcTypePrim f = true ∧ ∃ (fr : Frame E) (t : Types.FuncType RtId), resolveFuncType? fr f = some t ∧
+    x = .func t
+
+theorem tyEntry_func {fs : List Syntax.FuncType} {ts : List (Types.TypeDef RtId E.ExternType)}
+    (h : List.Forall₂ TyEntry fs ts) : ∀ x ∈ ts, ∃ t, x = .func t := by
+  induction h with
+  | nil => simp
+  | cons hp _ ih =>
+    intro x hx
+    rcases List.mem_cons.mp hx with rfl | hx
+    · obtain ⟨-, _, t, -, rfl⟩ := hp
+      exact ⟨t, rfl⟩
+    · exact ih x hx
+
+/-- The frame of `sc'` has the types of `sc` followed by the resolutions of `fs`, and the
+component functions and exports of `sc`. -/
+def FrameTy (sc sc' : Scope E) (fs : List Syntax.FuncType) : Prop :=
+  (∃ ts, sc'.frame.types = sc.frame.types ++ ts ∧ List.Forall₂ TyEntry fs ts) ∧
+    sc'.frame.funcs = sc.frame.funcs ∧ sc'.exports = sc.exports
 
 theorem FrameTy.nil {sc sc' : Scope E} (ht : sc'.frame.types = sc.frame.types)
-    (hf : sc'.frame.funcs = sc.frame.funcs) : FrameTy sc sc' 0 :=
-  ⟨⟨[], by simp [ht], rfl, by simp⟩, hf⟩
+    (hf : sc'.frame.funcs = sc.frame.funcs) (he : sc'.exports = sc.exports) : FrameTy sc sc' [] :=
+  ⟨⟨[], by simp [ht], .nil⟩, hf, he⟩
 
-theorem FrameTy.trans {sc sc₁ sc₂ : Scope E} {k k' : Nat} (h₁ : FrameTy sc sc₁ k)
-    (h₂ : FrameTy sc₁ sc₂ k') : FrameTy sc sc₂ (k + k') := by
-  obtain ⟨⟨ts, h1, h2, h3⟩, h4⟩ := h₁
-  obtain ⟨⟨ts', h1', h2', h3'⟩, h4'⟩ := h₂
-  refine ⟨⟨ts ++ ts', by rw [h1', h1, List.append_assoc], by simp [h2, h2'], fun x hx => ?_⟩,
-    h4'.trans h4⟩
-  rcases List.mem_append.mp hx with hx | hx
-  · exact h3 x hx
-  · exact h3' x hx
+theorem FrameTy.trans {sc sc₁ sc₂ : Scope E} {fs fs' : List Syntax.FuncType}
+    (h₁ : FrameTy sc sc₁ fs) (h₂ : FrameTy sc₁ sc₂ fs') : FrameTy sc sc₂ (fs ++ fs') := by
+  obtain ⟨⟨ts, h1, h3⟩, h4, h5⟩ := h₁
+  obtain ⟨⟨ts', h1', h3'⟩, h4', h5'⟩ := h₂
+  exact ⟨⟨ts ++ ts', by rw [h1', h1, List.append_assoc], List.rel_append h3 h3'⟩, h4'.trans h4,
+    h5'.trans h5⟩
 
 end FrameTy
 
@@ -86,24 +116,24 @@ theorem stepZ_coreModule {sc : Scope (core3 o)} {m : Machine.Config (core3 o) σ
     (h : PreInv sc m nf ncf mods) (hx : PreInvX g0 fx inst sc m ncf insts)
     (mo : (core3 o).Module) :
     ∃ sc' m', TRuns (instantiateDef R inst outer args sc (.coreModule mo)) m sc' m' ∧
-      PreStepX g0 fx inst m nf ncf (mods ++ [mo]) insts sc' m' ∧ FrameTy sc sc' 0 := by
+      PreStepX g0 fx inst m nf ncf (mods ++ [mo]) insts sc' m' ∧ FrameTy sc sc' [] := by
   rw [instDef_coreModuleG]
   exact ⟨_, _, TRuns.pure _ m, preStepX_refl
     ⟨h.funcs_len, h.funcs_ok, h.coreFuncs_len, by simp [h.mods], h.lock⟩
-    ⟨hx.funcs, hx.fxGet, hx.coreFuncs, hx.coreInsts, hx.core⟩, FrameTy.nil rfl rfl⟩
+    ⟨hx.funcs, hx.fxGet, hx.coreFuncs, hx.coreInsts, hx.core⟩, FrameTy.nil rfl rfl rfl⟩
 
 theorem stepZ_funcType {sc : Scope (core3 o)} {m : Machine.Config (core3 o) σ} {nf ncf : Nat}
     {mods : List (core3 o).Module} {insts : List (List (String × Nat))}
     (h : PreInv sc m nf ncf mods) (hx : PreInvX g0 fx inst sc m ncf insts)
     {ft : Syntax.FuncType} (hft : funcTypePrim ft = true) :
     ∃ sc' m', TRuns (instantiateDef R inst outer args sc (.type (.func ft))) m sc' m' ∧
-      PreStepX g0 fx inst m nf ncf mods insts sc' m' ∧ FrameTy sc sc' 1 := by
+      PreStepX g0 fx inst m nf ncf mods insts sc' m' ∧ FrameTy sc sc' [ft] := by
   obtain ⟨t, ht⟩ := resolveFuncType_prim sc.frame hft
   rw [instDef_funcTypeG sc ht]
   exact ⟨_, _, TRuns.pure _ m, preStepX_refl
     ⟨h.funcs_len, h.funcs_ok, h.coreFuncs_len, h.mods, h.lock⟩
     ⟨hx.funcs, hx.fxGet, hx.coreFuncs, hx.coreInsts, hx.core⟩,
-    ⟨⟨[.func t], rfl, rfl, by simp⟩, rfl⟩⟩
+    ⟨⟨[.func t], rfl, .cons ⟨hft, sc.frame, t, ht, rfl⟩ .nil⟩, rfl, rfl⟩⟩
 
 theorem stepZ_lower {sc : Scope (core3 o)} {m : Machine.Config (core3 o) σ} {nf ncf : Nat}
     {mods : List (core3 o).Module} {insts : List (List (String × Nat))}
@@ -112,7 +142,7 @@ theorem stepZ_lower {sc : Scope (core3 o)} {m : Machine.Config (core3 o) σ} {nf
       Param.v1Type fFlat)
     {g : Nat} (hg : g < nf) :
     ∃ sc' m', TRuns (instantiateDef R inst outer args sc (.canon (.lower g []))) m sc' m' ∧
-      PreStepX g0 fx inst m nf (ncf + 1) mods insts sc' m' ∧ FrameTy sc sc' 0 := by
+      PreStepX g0 fx inst m nf (ncf + 1) mods insts sc' m' ∧ FrameTy sc sc' [] := by
   have hg' : g < sc.frame.funcs.length := h.funcs_len ▸ hg
   have hgg : sc.frame.funcs[g] = g0 := hx.funcs _ (List.getElem_mem hg')
   have hr : resolveLower? sc.frame g [] = some (sc.frame.funcs[g], {}) := by
@@ -122,7 +152,7 @@ theorem stepZ_lower {sc : Scope (core3 o)} {m : Machine.Config (core3 o) σ} {nf
   rw [hgg]
   have ha := TRuns.allocCoreHostG (σ := σ) (CanonHost.lowered g0 fx.ft {} inst) m
   refine ⟨_, _, (TRuns.getObjG ArenaField.funcs _ m hx.fxGet).bind (ha.bind (TRuns.pure _ _)),
-    ?_, FrameTy.nil rfl rfl⟩
+    ?_, FrameTy.nil rfl rfl rfl⟩
   rw [hty] at ha ⊢
   have hal : (core3 o).allocHost m.store.core (Param.v1Type fFlat)
       (CanonHost.lowered g0 fx.ft {} inst) =
@@ -148,12 +178,12 @@ theorem stepZ_exports {sc : Scope (core3 o)} {m : Machine.Config (core3 o) σ} {
     ∃ sc' m', TRuns (instantiateDef R inst outer args sc (.coreInstance (.exports items))) m
         sc' m' ∧
       PreStepX g0 fx inst m nf ncf mods (insts ++ [items.map fun p => (p.1, p.2.idx)]) sc' m' ∧
-        FrameTy sc sc' 0 := by
+        FrameTy sc sc' [] := by
   have hes := items_mapM_val hx.coreFuncs items hi
   simp only [instantiateDef, hes, need, orTrap, pure_bind, pushEntry, Frame.push]
   refine ⟨_, _, TRuns.pure _ m, preStepX_refl
     ⟨h.funcs_len, h.funcs_ok, h.coreFuncs_len, h.mods, h.lock⟩
-    ⟨hx.funcs, hx.fxGet, hx.coreFuncs, ?_, hx.core⟩, FrameTy.nil rfl rfl⟩
+    ⟨hx.funcs, hx.fxGet, hx.coreFuncs, ?_, hx.core⟩, FrameTy.nil rfl rfl rfl⟩
   show sc.frame.coreInstances ++ [_] = _
   rw [hx.coreInsts]
   simp only [instsVal, List.map_append, List.map_cons, List.map_nil, List.map_map]
@@ -176,10 +206,10 @@ theorem prefix_runZ (hty : ∀ at_, (CanonHost.lowered g0 fx.ft {} inst : CanonH
     PreInvX g0 fx inst sc m ncf insts →
     ∃ sc' m', TRuns (pre.foldlM (instantiateDef R inst outer args) sc) m sc' m' ∧
       PreOutX g0 fx inst m (mods ++ coreMods pre) (ncf + preLowers pre) (insts ++ preInsts pre)
-        sc' m' ∧ FrameTy sc sc' (nTypes pre)
+        sc' m' ∧ FrameTy sc sc' (synTypes pre)
   | [], nf, ncf, sc, m, mods, insts, _, _, h, hx =>
     ⟨sc, m, TRuns.pure _ m, ⟨m.store.core, nf, ncf, rfl, by simpa [coreMods] using h,
-      preInvX_core (by simpa [preLowers, preInsts] using hx) _ rfl⟩, FrameTy.nil rfl rfl⟩
+      preInvX_core (by simpa [preLowers, preInsts] using hx) _ rfl⟩, FrameTy.nil rfl rfl rfl⟩
   | d :: ds, nf, ncf, sc, m, mods, insts, hp, hni, h, hx => by
     rw [List.foldlM_cons]
     have hni' : noImport ds = true := by
@@ -188,13 +218,13 @@ theorem prefix_runZ (hty : ∀ at_, (CanonHost.lowered g0 fx.ft {} inst : CanonH
     have cont : ∀ nf' ncf' mods' insts' k, preOk nf' ncf' ds = true →
         mods' ++ coreMods ds = mods ++ coreMods (d :: ds) →
         ncf' + preLowers ds = ncf + preLowers (d :: ds) →
-        insts' ++ preInsts ds = insts ++ preInsts (d :: ds) → k + nTypes ds = nTypes (d :: ds) →
+        insts' ++ preInsts ds = insts ++ preInsts (d :: ds) → k ++ synTypes ds = synTypes (d :: ds) →
         ∀ sc₁ m₁, TRuns (instantiateDef R inst outer args sc d) m sc₁ m₁ →
           PreStepX g0 fx inst m nf' ncf' mods' insts' sc₁ m₁ → FrameTy sc sc₁ k →
           ∃ sc' m', TRuns (instantiateDef R inst outer args sc d >>= fun sc =>
               ds.foldlM (instantiateDef R inst outer args) sc) m sc' m' ∧
             PreOutX g0 fx inst m (mods ++ coreMods (d :: ds)) (ncf + preLowers (d :: ds))
-              (insts ++ preInsts (d :: ds)) sc' m' ∧ FrameTy sc sc' (nTypes (d :: ds)) := by
+              (insts ++ preInsts (d :: ds)) sc' m' ∧ FrameTy sc sc' (synTypes (d :: ds)) := by
       rintro nf' ncf' mods' insts' k hp' hmods hncf hinsts hk sc₁ m₁ h₁ ⟨c', rfl, hinv, hinvx⟩ hT₁
       obtain ⟨sc', m', h₂, ⟨c'', nf'', ncf'', rfl, hinv'', hinvx''⟩, hT₂⟩ :=
         prefix_runZ hty ds nf' ncf' sc₁ _ mods' insts' hp' hni' hinv hinvx
@@ -206,26 +236,26 @@ theorem prefix_runZ (hty : ∀ at_, (CanonHost.lowered g0 fx.ft {} inst : CanonH
     match d, hp with
     | .coreModule mo, hp =>
       obtain ⟨sc₁, m₁, h₁, hs⟩ := stepZ_coreModule (R := R) (outer := outer) (args := args) h hx mo
-      exact cont nf ncf _ insts 0 hp (by simp [coreMods]) (by simp [preLowers])
-        (by simp [preInsts]) (by simp [nTypes])
+      exact cont nf ncf _ insts [] hp (by simp [coreMods]) (by simp [preLowers])
+        (by simp [preInsts]) (by simp [synTypes])
         sc₁ m₁ h₁ hs.1 hs.2
     | .type (.func ft), hp =>
       simp only [preOk, Bool.and_eq_true] at hp
       obtain ⟨sc₁, m₁, h₁, hs⟩ := stepZ_funcType (R := R) (outer := outer) (args := args) h hx hp.1
-      exact cont nf ncf _ insts 1 hp.2 (by simp [coreMods]) (by simp [preLowers])
-        (by simp [preInsts]) (by simp [nTypes]; omega) sc₁ m₁ h₁ hs.1 hs.2
+      exact cont nf ncf _ insts [ft] hp.2 (by simp [coreMods]) (by simp [preLowers])
+        (by simp [preInsts]) (by simp [synTypes]) sc₁ m₁ h₁ hs.1 hs.2
     | .import_ n (.func t), hp =>
       simp [noImport] at hni
     | .canon (.lower g []), hp =>
       simp only [preOk, Bool.and_eq_true, decide_eq_true_eq] at hp
       obtain ⟨sc₁, m₁, h₁, hs⟩ := stepZ_lower (R := R) (outer := outer) (args := args) h hx hty hp.1
-      exact cont nf (ncf + 1) _ insts 0 hp.2 (by simp [coreMods]) (by simp [preLowers]; omega)
-        (by simp [preInsts]) (by simp [nTypes]) sc₁ m₁ h₁ hs.1 hs.2
+      exact cont nf (ncf + 1) _ insts [] hp.2 (by simp [coreMods]) (by simp [preLowers]; omega)
+        (by simp [preInsts]) (by simp [synTypes]) sc₁ m₁ h₁ hs.1 hs.2
     | .coreInstance (.exports items), hp =>
       simp only [preOk, Bool.and_eq_true] at hp
       obtain ⟨sc₁, m₁, h₁, hs⟩ := stepZ_exports (R := R) (outer := outer) (args := args) h hx hp.1
-      exact cont nf ncf _ _ 0 hp.2 (by simp [coreMods]) (by simp [preLowers])
-        (by simp [preInsts]) (by simp [nTypes])
+      exact cont nf ncf _ _ [] hp.2 (by simp [coreMods]) (by simp [preLowers])
+        (by simp [preInsts]) (by simp [synTypes])
         sc₁ m₁ h₁ hs.1 hs.2
 
 end Fold
@@ -352,7 +382,8 @@ theorem root_firstK2 {r pre post : Core3Component} {mi : Nat} {cargs : List (Str
       sc'.frame.coreModules = coreMods pre ∧ sc'.frame.coreFuncs = List.range (preLowers pre) ∧
       sc'.frame.coreInstances = instsVal (preInsts pre) ∧
       sc'.frame.types.length = nTypes pre ∧ (∀ x ∈ sc'.frame.types, ∃ t, x = .func t) ∧
-      sc'.frame.funcs.length = 1 := by
+      sc'.frame.funcs.length = 1 ∧ sc'.exports = [] ∧
+      List.Forall₂ TyEntry (synTypes pre) sc'.frame.types := by
   have hrr := firstCore?_eq r hs
   obtain ⟨pre', rfl, hni⟩ := rootShape_inv hshape
   have hrest : NoImport (pre' ++ Syntax.Definition.coreInstance (.instantiate mi cargs) :: post) :=
@@ -373,7 +404,7 @@ theorem root_firstK2 {r pre post : Core3Component} {mi : Nat} {cargs : List (Str
   have hpx : PreInvX (⟨0⟩ : FuncId) (.host fWit ⟨0⟩) ⟨0⟩
       ({ frame := { frameT with funcs := [⟨0⟩] } } : Scope (core3 neverFail)) rootCfg 0 [] :=
     ⟨fun g hg => by simpa using hg, rfl, rfl, rfl, rfl⟩
-  obtain ⟨sc', m', hrun, ⟨c', nf', ncf', rfl, hinv, hinvx⟩, ⟨⟨ts, hts, htl, htf⟩, hfn⟩⟩ :=
+  obtain ⟨sc', m', hrun, ⟨c', nf', ncf', rfl, hinv, hinvx⟩, ⟨⟨ts, hts, hTS⟩, hfn, hex⟩⟩ :=
     prefix_runZ (R := callRecurse) (outer := []) (args := importArgs hostI) coreType_lowH pre' 1 0
       _ rootCfg [] [] hpre' hni hpi hpx
   have hc : c' = lowStore (preLowers (.type (.func fFuncType) ::
@@ -385,7 +416,7 @@ theorem root_firstK2 {r pre post : Core3Component} {mi : Nat} {cargs : List (Str
   refine ⟨sc', ?_⟩
   apply Exists.intro
   refine ⟨?focus, ?fin, hinv.mods.trans rfl,
-    by rw [hinvx.coreFuncs, Nat.zero_add]; rfl, hinvx.coreInsts.trans rfl, ?_, ?_, ?_⟩
+    by rw [hinvx.coreFuncs, Nat.zero_add]; rfl, hinvx.coreInsts.trans rfl, ?_, ?_, ?_, hex, ?_⟩
   case focus =>
     unfold instantiateProg
     apply FocusAtK.silent (TRuns.modifyStore (f := DispatchSt.incNestingSt) (fun _ => rfl) _)
@@ -422,7 +453,11 @@ theorem root_firstK2 {r pre post : Core3Component} {mi : Nat} {cargs : List (Str
     erw [List.foldlM_append]
     apply FocusAtK.silent hrun
     exact FocusAtK.self _ _
+  case refine_4 =>
+    rw [hts]
+    exact .cons ⟨rfl, Frame.empty, tX, resolve_fFuncType, rfl⟩ hTS
   case refine_1 =>
+    have htl : ts.length = nTypes pre' := hTS.length_eq.symm.trans (synTypes_length _)
     rw [hts, List.length_append, htl]
     show 1 + _ = _
     rw [Nat.add_comm]
@@ -433,7 +468,7 @@ theorem root_firstK2 {r pre post : Core3Component} {mi : Nat} {cargs : List (Str
     rcases List.mem_append.mp hx with hx | hx
     · simp [frameT] at hx
       exact ⟨_, hx⟩
-    · exact htf x hx
+    · exact tyEntry_func hTS x hx
   case refine_3 =>
     rw [hfn]
     rfl
@@ -583,7 +618,7 @@ theorem firstK' : FirstK' := by
   obtain ⟨mi₂, hp⟩ := hsome J hJ
   rw [hilen] at hp
   -- the root, up to the first core instantiation
-  obtain ⟨sc', Kr, hF', hKF, hfm, hcfs, hfi', htyl, htyf, hfnl⟩ :=
+  obtain ⟨sc', Kr, hF', hKF, hfm, hcfs, hfi', htyl, htyf, hfnl, -, -⟩ :=
     root_firstK2 hs hpre hshape hpostNI
   obtain ⟨tr₁, -, d₁⟩ := hF' (fun _ => pure .unit) [] [] rfl
   generalize hK : (fun b => Kr b >>= fun _ => pure Ret.unit) = K at d₁
