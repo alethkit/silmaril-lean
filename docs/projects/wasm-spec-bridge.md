@@ -26,7 +26,7 @@ host-language primitives (`$ibytes_`, `$growmemory`, …), supplied as `B : Buil
 | --- | --- | --- | --- | --- |
 | 1.0 | proved on `Typed10 ∧ Plain10 ∧ GSetOk ∧ MemsAligned10`, `fwdB10` (`wholeStepFwd10`), also in `utf8Env10T` with export names (`stepFwd10U_holds`) | proved on `Typed10 ∧ GoodV1` at `fwdB10` (`wholeStepBwd10B`) and `floatIntB` (`wholeStepBwd10`) | **yes**, `wholeStep10_both` (`fwdB10`, `Typed10 ∧ GoodV1 ∧ Plain10 ∧ MemsAligned10`) | `Utf8Strip10.Task.unstripStep10`, reduced to `Task.unstripStep10Out` (#1015) |
 | 2.0 | proved on nested fragments: `Nest20 (FwdStep20GP)` in `simEnv20S (storeB P)` (#1015, widest in the corrected script); scalar stores, bulk memory, `table.fill` nested only in `simEnv20T` (`StoreBulk.fwd_good20B`) | proved on `Typed20 ∧ GoodW` (`wholeStepBwdW`, `floatIntB`; `wholeStepBwdW_growB`) | top-level only: `wholeStepTopVS20` (`growB`, forward on `TopVStep20`, backward on `GoodW`); no nested equivalence | none. `Task.wholeStepBwd` is **refuted** (#1015); `Task.wholeStepValid`, `Task.wholeStepValidS`, `Task.wholeStepBwdV` are refuted |
-| 3.0 | proved on `ConfigOk ∧ BoundedSel` (`wholeStepValidR_backend`), on `BoundedSelM ∧ NoMemSimd` (`wholeStepValidRMNoMSH_backend`) | same statements (both halves) | **yes** on those domains (up to `Bwd.ConfigEq` and Core's choice) | `Round7.MemSimd.Task.wholeStepValidRM`, `Round7.Utf8.Task.wholeStepValidRE`, `Task.wholeStepValidREH` (reduced to `BadRules.LeavesREHBwd`, this change) |
+| 3.0 | proved on `ConfigOk ∧ BoundedSel` (`wholeStepValidR_backend`), on `BoundedSelM ∧ NoMemSimd` (`wholeStepValidRMNoMSH_backend`) | same statements (both halves) | **yes** on those domains (up to `Bwd.ConfigEq` and Core's choice) | `Round7.MemSimd.Task.wholeStepValidRM`, `Round7.Utf8.Task.wholeStepValidRE`, `Task.wholeStepValidREH` (reduced to `BadRules.LeavesREHBwd` (#1024); its leaves are proved on `StripInj` for export-parametric or module-preserving hosts, and the backward leaf is reduced to `DerLift.RuleLiftRest` plus a provenance, this change) |
 
 Profiles: all whole-step targets are at `Profile.spec nd r` (the spec's nondeterministic NaN and
 relaxed choices, with `nd`, `r` universally quantified), except the 2.0 nested forward theorems at
@@ -223,13 +223,18 @@ Open (frozen):
   primitives, and `BadRules.eraseFwdAt_blind` gives `EraseFwdAt` at every configuration (see
   below). So REH is reduced to the backward and export leaves:
   `BadRules.wholeStepValidREH_of_bwd : LeavesREHBwd → Task.wholeStepValidREH`.
-  `EraseBwdAt` and `ExactAt` are proved only at export-free configurations
-  (`leavesAt_stripped`) or under `StripInj` and `HostModsSub` (`exactAt_of_REM`). For RE (any
+  `EraseBwdAt` and `ExactAt` are proved at export-free configurations (`leavesAt_stripped`)
+  and, this change, at `StripInj` configurations for export-parametric or module-preserving
+  hosts (`EraseBwd.leavesBwdAt_stripInj`); the backward leaf is reduced to per-rule lift
+  obligations at the rules not yet covered (`DerLift.eraseBwdAt_of_rest`, see below). For RE (any
   host) the forward leaf is still open: `badFwdN_BI` needs `HostExportBlind` at the
   `$hostcall` rules, and RE's leaf is stated with `stripHostAt host c.store`.
 
 Nothing in the repository proves `OpenRMRestDPM`, `EraseBwdAt` or `ExactAt` in general, so none
-of the three open 3.0 targets closes by composition.
+of the three open 3.0 targets closes by composition. In particular `EraseBwdAt` and `ExactAt` are
+open at every configuration with two module instances that differ only in their export lists
+(`Round7.REGap.collideCfg`), and at every host that is neither export-parametric nor
+module-preserving.
 
 ### The forward leaf of REH (this change, `Round9.BadRules`)
 
@@ -277,9 +282,132 @@ def LeavesREHBwd : Prop :=
 ```
 
 `EraseBwdAt` (backward: a round-6 step from the stripped image lifts to a round-7 step from the
-image, up to erasure) and `ExactAt` (export lists) are not attacked here; route 2 has no backward
-derivation transfer outside `otherwise` (`ElseBwd`), so `EraseBwdAt` beyond export-free
-configurations needs a backward copy of `NxErase.nAt` and of the seven rule lemmas above.
+image, up to erasure) and `ExactAt` (export lists) were not attacked in #1024; see the next
+section.
+
+### The backward leaf of REH (this change, `Round9.EraseBwd`, `Round9.ElseLift`, `Round9.DerLift`)
+
+**Why the leaf is not a Core round trip.** At a `StripInj` configuration the stripped successor
+determines the original one (`unstrip c`). Elsewhere it does not: in `collideCfg` two module
+instances differ only in their export lists, and a stripped successor does not say which one a
+frame holds. Going through Core (round 6 backward, then forward at `c`) loses that, and also
+loses which SpecTec successor (the `CALL_REF` annotations of `Bwd.ConfigEq`, Core's
+nondeterministic choice) the given one was. So the leaf needs a derivation-level lift that
+**rebinds the export-carrying quantifiers of each rule instance to their positions in the
+original input**, keeping the given successor exactly.
+
+**1. The proved case** (`Round9.EraseBwd`, header `Silmaril/Wasm/SpecTec/Sim/Round9/EraseBwd/Thms.lean`).
+On `StripInj c`, for an export-blind host that is also export-parametric or module-preserving,
+round 7's swap lifts the given stripped successor `configV hn d₀` to the exact successor
+`configV hn (mapConfig (unstrip c) d₀)`:
+
+```lean
+theorem eraseBwdAt_param (hinj : Function.Injective hn) (hf : HostFinite host) (hh : HostOk host)
+    (hb : HostExportBlind host) (hp : HostExportParam host) (c : Config H) (ts : List CValType)
+    (hc : ConfigOk c ts) (hbc : BoundedSelE c) (hic : StripInj c) :
+    CoreStrip.EraseBwdAt hn (Profile.spec nd r) host c
+theorem eraseBwdAt_modsSub … (hm : HostMods.HostModsSub host) … : CoreStrip.EraseBwdAt …
+theorem exactAt_param … (hp : HostExportParam host) … : CoreStrip.ExactAt hn (Profile.spec nd r) host c
+theorem leavesBwdAt_stripInj … (hpm : HostExportParam host ∨ HostMods.HostModsSub host) … :
+    EraseBwdAt hn (Profile.spec nd r) host c ∧ ExactAt hn (Profile.spec nd r) host c
+theorem leavesREHBwd_iff_out : BadRules.LeavesREHBwd ↔ LeavesREHBwdOut
+theorem wholeStepValidREH_of_out (h : LeavesREHBwdOut) : Round7.Task.wholeStepValidREH
+```
+
+This is the domain where `wholeStepValidREI` and `StepValidREM` already hold, so it adds nothing
+to what is known of REH. `LeavesREHBwdOut` is `LeavesREHBwd` with the extra hypothesis
+`¬ (StripInj c ∧ (HostExportParam host ∨ HostModsSub host))`: bookkeeping, not a proof.
+
+**2. `otherwise`, backward** (`Round9.ElseLift`, header `Silmaril/Wasm/SpecTec/Sim/Round9/ElseLift/Thms.lean`).
+Read from the ordered-rule definition `otherwiseAtB`: rule `i` fired on the erased side at
+`(eraseV a, b₀)` with no earlier rule firing at `eraseV a`; an earlier rule `j` that fired at
+`(a, c)` either has a head different from `i`'s (erasure keeps heads) or forms a pair of
+`ElseBwd.elsePairs` (94), where it fires forward at `(eraseV a, c')` and contradicts the erased
+side. Every earlier rule of the 94 pairs passes `goodRuleE` (`fwdPairs_fixed`, kernel), and such
+a rule fires forward (`fireFwd_goodE`: round 9's `ruleFwdE` at a rule body, premises read with
+`noElse`). Nothing in this direction is false; no `Task` is refuted.
+
+```lean
+theorem otherwiseAtB_lift_BI (P : Profile) (hn : H → String) (host : HostSemantics H)
+    (hrel : (NxPrims.envBI P hn host).findRel? "Step_read" = some (ps, op, t, rules))
+    (hri : rules[i]? = some ri) (hel : hasElse ri = true)
+    (hF : Round8.NxElse.Fired (NxPrims.envBI P hn host) "Step_read" [] i (.tuple [eraseV a, b₀]))
+    (h : otherwiseAtB (NxPrims.envBI P hn host) "Step_read" [] i (.tuple [eraseV a, b₀]))
+    (b : Value) : otherwiseAtB (NxPrims.envBI P hn host) "Step_read" [] i (.tuple [a, b])
+```
+
+**3. The lift interface and two rule families** (`Round9.DerLift`, header
+`Silmaril/Wasm/SpecTec/Sim/Round9/DerLift/Thms.lean`).
+
+* `LiftV env O Prov x op args v₀`: every original input `a` with `v₀ = (eraseV a, b₀)` and
+  provenance `Prov x a` has a derivation of `(a, b)` with `eraseV b = b₀` (the exact successor).
+* `RuleLift env O Prov x i`: an erased instance of rule `i` of `x`, whose `Step`/`Step_read`/
+  `Step_pure` premises carry `LiftV` (`DPremL`), has `LiftV` at its conclusion.
+* `dderivesB_lift` (induction on the erased derivation) and
+  `eraseBwdAt_of_lift : … → Prov "Step" (configV hn c) → CoreStrip.EraseBwdAt hn P host c`.
+
+| Family | Rules covered (kernel) | Lemma | Rebinding |
+| --- | --- | --- | --- |
+| `liftSimple` (`simpleRuleE`, export-free instruction pattern) | 74 of 103 `Step_read` rules, `otherwise` rules included (`liftSimpleIdx_fixed`) | `ruleLift_simple_BI` | the state `z` to the original state; needs `Prov` to type it |
+| `liftNx` (all quantifiers and the left-hand side export-free) | 66 of 79 `Step_pure` rules (`liftNxIdx_fixed`; none of `Step`, `Step_read`) | `ruleLift_nx_BI` | none: the original input is the erased one |
+
+The `liftSimple` lift works at colliding configurations: the state is rebound to the original
+one, not recovered from its erasure.
+
+What is left of the backward leaf, precisely (`eraseBwdAt_of_rest`):
+
+```lean
+def RuleLiftRest (env : Env) (O : ElseI) (Prov : IL.Id → Value → Prop) : Prop :=
+  ∀ x i, liftRel x = true → ¬ Covered x i → RuleLift env O Prov x i
+theorem eraseBwdAt_of_rest (hb : HostExportBlind host)
+    (hR : RuleLiftRest (NxPrims.envBI P hn host) (otherwiseB (NxPrims.envBI P hn host)) Prov)
+    (hZ : ∀ a zv lv, Prov "Step_read" a → a = .case "%;%" (.tuple [zv, lv]) →
+      HasTyp (NxPrims.envBI P hn host) VarEnv.empty (.varT "state" []) zv)
+    (c : Config H) (hc : Prov "Step" (configV hn c)) : CoreStrip.EraseBwdAt hn P host c
+```
+
+* the 36 rules of `Step` (`pure`, `read`, the four `ctxt-*` rules, the store-writing rules, the
+  grow and host-call rules);
+* 29 rules of `Step_read`: `block`, `loop`, `try_table` (`$blocktype_`), `br_on_cast*`,
+  `ref.test`, `ref.cast` (`Ref_ok`), `return_call_ref`/`throw_ref` at a label, handler or frame,
+  `vload-pack-val`, `struct.new_default`, `struct.get-struct`, `array.new_default`,
+  `array.new_data*`, `array.get-array`, `array.copy-le/gt`, `array.init_data-oob2/-num`;
+* 13 rules of `Step_pure` that hold instruction sequences or a frame (`if`, `label-vals`, `br-*`,
+  `frame-vals`, `return-*`, `trap-instrs/label/frame`);
+* a provenance `Prov` that holds at `configV hn c`, types the state, and is kept at premise
+  inputs.
+
+The uncovered rules rebind instruction sequences and frames (module-carrying values), so they
+need typing of the rebound values on the original side: a backward copy of round 8's
+`NxTyp.hasTyp_fwd` under a provenance of export lists. `ExactAt` outside `StripInj` is not
+attacked.
+
+**`wholeStepValidRE` (hosts that are not export-blind), analysis only.** RE's leaves are stated
+with the stripped host `stripHostAt host c.store`, so the backward leaf relates derivations in two
+environments, `BI P hn (stripHostAt host c.store)` on the stripped side and `BI P hn host` on the
+original one; `eraseBwdAt_of_lift` is stated in one environment and does not apply as it stands.
+The two builtins differ only at `$hostcall`. In one step every nested `Step`/`Step_read` input
+keeps the input's store (`pure`, `read` and the four `ctxt-*` rules pass `z`, or `s`, unchanged),
+so a one-step derivation calls the host only at `stripStore c.store`, where `stripHostAt` answers
+the stripped outcomes of `host` at `c.store` (`CoreStrip.HostRelAt`). So for RE the covered rules
+transfer between the two environments unchanged (they do not call `$hostcall`), and the open part
+adds to `RuleLiftRest` the two `call_ref-hostfunc` rules lifted across the two hosts at
+`c.store`, plus the forward leaf, whose `$hostcall` rules need `HostExportBlind` in `badFwdN_BI`.
+None of this is proved here.
+
+## Changes in this pull request (stacked on #1024)
+
+| Before | After |
+| --- | --- |
+| `EraseBwdAt`, `ExactAt` proved only at export-free configurations, and `ExactAt` under `StripInj ∧ HostModsSub` | both on `StripInj` for export-parametric or module-preserving export-blind hosts (`leavesBwdAt_stripInj`); `LeavesREHBwd ↔ LeavesREHBwdOut` |
+| no backward reading of `otherwise` | `otherwiseAtB_lift_BI`: `Step_read`'s `otherwise` read backward along erasure, unconditionally at round 4's primitives |
+| no backward derivation lift | `dderivesB_lift`, `eraseBwdAt_of_lift`; `RuleLift` at 74 `Step_read` and 66 `Step_pure` rules; `EraseBwdAt` reduced to `RuleLiftRest` (36 + 29 + 13 rules) and a provenance (`eraseBwdAt_of_rest`) |
+
+Open targets unchanged: `Round7.Task.wholeStepValidREH`, `Round7.Utf8.Task.wholeStepValidRE`,
+`BadRules.LeavesREHBwd` (equivalently `EraseBwd.LeavesREHBwdOut`).
+
+Modules: `Silmaril/Wasm/SpecTec/Sim/Round9/{EraseBwd,ElseLift,DerLift}/{Defs,Thms}.lean` and
+`Silmaril/Proofs/Wasm/SpecTec/Sim/Round9/{EraseBwd/StripInj,ElseLift/{Check,Lift},DerLift/{Induct,Simple,Nx,Check,Assemble}}.lean`.
 
 ## Changes in #1015
 
@@ -294,7 +422,7 @@ Modules: `Silmaril/Proofs/Wasm/SpecTec/Sim20/Bridge.lean` (header
 `Silmaril/Proofs/Wasm/SpecTec/Sim10/Bridge10.lean` (header
 `Silmaril/Wasm/SpecTec/Sim10/Bridge10/Thms.lean`).
 
-## Changes in this pull request (stacked on #1015)
+## Changes in #1024 (stacked on #1015)
 
 | Before | After |
 | --- | --- |
