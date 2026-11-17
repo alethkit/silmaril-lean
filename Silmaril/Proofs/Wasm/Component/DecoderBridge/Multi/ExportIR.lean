@@ -359,6 +359,61 @@ theorem invoke_not_callout {S : Store Nat} (hT : HostTy S) {a : Nat} {h : Nat}
     simp [Param.v1Type, fFlat, Silmaril.Wasm.Validation.Ty.length] at hd
   · cases hd
 
+/-- **The export's run makes no import call**: from a typed store whose host functions have core
+type `fFlat`, an import call of the run of an export invoked without arguments has one `i32`
+argument, which the wiring `lowF` makes a call of `f`, a call below. -/
+theorem exportRun_nil {imps : CoreIface} {w : List Impl} (hw : ∀ im ∈ w, im = lowF)
+    (hwl : imps.length ≤ w.length) {S : Store Nat} (hs : StoreOk S) (hT : HostTy S) {a : Nat}
+    {cs : List (Σ _ : (sigN imps.length).Op, Option Payload)} {c'' : irEng.Config Nat}
+    (hrun : Param.StartRunI irEng imps (S, irEng.invoke a []) cs c'')
+    {ys : List (Round sigU (sigN imps.length))} (hys : cs = ys.map Round.call)
+    (hr : ∀ y ∈ ys, Prog.Runs (implsN 1 w imps.length y.q) y.cs y.a)
+    (hnil : ∀ y ∈ ys, y.cs = []) : cs = [] := by
+  cases hrun with
+  | nil run => rfl
+  | @call _ s₁ _ t₁ h args _ _ run callout hh r rest =>
+    exfalso
+    cases ys with
+    | nil => cases hys
+    | cons y ys =>
+      simp only [List.map_cons, List.cons.injEq] at hys
+      obtain ⟨hy, -⟩ := hys
+      unfold Engine.CoreEngine.Steps at run
+      rw [internalP_eqN] at run
+      have run' : Relation.ReflTransGen (Internal neverFail)
+          (S, Silmaril.Wasm.SingleThreaded.Thread.invoke a []) (s₁, t₁) := run
+      obtain ⟨args', hst', hfl⟩ :=
+        Silmaril.Wasm.Component.Engine.Core3.Typed.flatStatus_eq_callout' callout
+      have hs₁ : status neverFail s₁ t₁ = .callout h args' :=
+        (statusP_profile s₁ t₁).symm.trans hst'
+      rcases Relation.ReflTransGen.cases_head run' with he | ⟨y₁, hy₁, -⟩
+      · cases he
+        exact invoke_not_callout hT hs₁
+      · obtain ⟨s₂, t₂⟩ := y₁
+        obtain ⟨f₂, code₂, -, hstep⟩ := hy₁
+        obtain ⟨pre, args₀, fi, ps, rs, code, hv, hfi, hexp, hn, -, -⟩ :=
+          Silmaril.Proofs.Wasm.Game.invoke_step_shape hstep
+        have ha₀ : args₀ = [] := (List.append_eq_nil_iff.mp hv.symm).2
+        subst ha₀
+        have hps : ps.toList = [] := List.eq_nil_of_length_eq_zero hn.symm
+        obtain ⟨-, ps', rs', -, -, hok⟩ := Silmaril.Wasm.Execution.Core.invoke_ok hs
+          ⟨fi, ps, rs, hfi, hexp, by rw [hps]; exact .nil⟩
+        have hR : RTNt S (Silmaril.Wasm.SingleThreaded.Thread.invoke a []) rs'.toList :=
+          ⟨hs, hok, hT⟩
+        have hR₁ := rtNt_run run' hR
+        obtain ⟨b, rfl⟩ := args_of_calloutNt hR₁ hs₁
+        simp only [List.mapM_cons, List.mapM_nil, Silmaril.Wasm.SingleThreaded.toFlat?] at hfl
+        cases hfl
+        obtain ⟨yq, ycs, ya⟩ := y
+        simp only [Round.call, Sigma.mk.injEq] at hy
+        obtain ⟨rfl, -⟩ := hy
+        obtain ⟨k, hk, -⟩ := implsN_lowF hw (n := imps.length) (h := ⟨h, hh⟩) (by simp; omega) b
+        have hy₀ := hr _ (.head _)
+        rw [hnil _ (.head _)] at hy₀
+        simp only at hy₀
+        rw [hk] at hy₀
+        cases hy₀
+
 end Typed
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi
