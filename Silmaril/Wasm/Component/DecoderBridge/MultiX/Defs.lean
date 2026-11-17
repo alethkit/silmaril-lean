@@ -51,11 +51,15 @@ general shared memory, tables or the canonical ABI.
 
 * `Task.nodesRefX` (proved: `MultiX.Thms.nodesRefX`): `Task.nodesRef` with explicit node ends
   and the invariant;
-* `Task.exportRefX` (the export call, from the invariant), split (`MultiX.Thms.exportRefX_of`)
-  into `Task.exportIR` (the IR's export phase: the first export is the lift of a node export,
-  which runs without host calls to one `i32`; open), `Task.coreRunShared` (that run in the shared
-  core store; proved: `MultiX.Thms.coreRunShared`) and `Task.callLift` (the session call through
-  `canon lift` around it; proved: `MultiX.Thms.callLift`).
+* `Task.exportRefX` (the export call, from the invariant at arbitrary node ends; open, and no
+  longer on the path to the start goal);
+* the start goal from three pieces (`MultiX.Thms.startAdequacyFrag_of_parts`): `Task.exportIR`
+  (the IR's export phase: the play's node ends `xs`, at which the first export is the lift of a
+  node export that runs without host calls to one `i32`, `ExportAt`; proved:
+  `MultiX.Thms.exportIR`), `Task.coreRunShared` (that run in the shared core store; proved:
+  `MultiX.Thms.coreRunShared`) and `Task.callLift` (the session call through `canon lift` around
+  it; proved: `MultiX.Thms.callLift`). So `Task.startAdequacyFrag` is proved
+  (`MultiX.Thms.startAdequacyFrag`).
 -/
 
 @[expose] public noncomputable section

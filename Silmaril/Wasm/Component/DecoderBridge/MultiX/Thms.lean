@@ -11,7 +11,7 @@ import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.ExportIR
 # The instantiation on `MultiImpFrag` with its invariant: theorems
 
 Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi` (`FirstKX`, `LaterCoreX`,
-`NodesRefX`, `ComposeX`, `ExportX`, `CallLift`, `RunShared`).
+`NodesRefX`, `ComposeX`, `ExportX`, `CallLift`, `RunShared`, `ExportIR`).
 
 * **`nodesRefX`** (proved): in the split fragment `MultiImpFrag`, the reference machine finishes
   the instantiation with the host log of the IR's node calls, in a configuration satisfying
@@ -23,16 +23,28 @@ Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi` (`FirstKX`, `Late
 * **`callLift`** (proved, `Multi.CallLift`): `Task.callLift`, the session call of an option-less
   lift of `func() -> u32` from a host-ready configuration (nesting depth `0`, which `NodesInv`
   records: the instantiation's invariant tracks depth `1` inside the host's program);
-* `exportRefX_of`: **`Task.exportRefX` from `Task.exportIR`, `Task.coreRunShared` and
-  `Task.callLift`**; `startAdequacyFrag_of_IR`: the start goal from the first two; `startAdequacyFrag_of_parts`, `starts_of_parts`: the start goal and the
-  `starts.wasm` instance from these three pieces;
+* `startAdequacyFrag_of_parts`, `starts_of_parts`: **the start goal and the `starts.wasm`
+  instance from `Task.exportIR`, `Task.coreRunShared` and `Task.callLift`** (the export call from
+  the invariant at the play's node ends, `Multi.exportRef_at`); `startAdequacyFrag_of_IR`: the
+  start goal from the first two;
 * **`coreRunShared`** (proved, `Multi.RunShared`): `Task.coreRunShared`, the node's run of an
   exported function in the shared core store: the node's store after its start run is split
   (`Linking.Split`), the run is relocated along the gap (`steps_gap`) and into the store extended by
   the later nodes' objects (`step_sim`, fresh structures and arrays renamed past them), and is an
   interpreter run there (the shared store typed, the callee's type read off the IR run's first
   step); `startAdequacyFrag_of_exportIR`, `starts_ref_of_ir`: the start goal and the reference
-  half of `starts.wasm` from its IR run, given the one open piece `Task.exportIR`;
+  half of `starts.wasm` from its IR run, given `Task.exportIR`;
+* **`exportIR`** (proved, `Multi.ExportIR`): `Task.exportIR`. The play is taken apart node by node
+  with one export call (`InstSem.denI_ex_node`: the environment invariant `EnvInvE` carried
+  through `extI`; an import call is forwarded, so makes a call below, which the play has not); the
+  owning node's engine instance runs its start function, then the export from the store it leaves
+  (`InstSem.engineI_ex_inv`), and the export's run makes no import call (`exportRun_nil`: a typed
+  run's import call has one `i32` argument, which `lowF` makes a call of `f`); the reading's core
+  instances are laid out as the IR's environment (`refRead_layout`, `node_of_layout`), so the
+  reading's export `e` is the IR's;
+* **`startAdequacyFrag`**: `Task.startAdequacyFrag`, unconditionally; **`starts_ref_of_ir'`**: the
+  reference half of `starts.wasm` from its IR run, unconditionally (the kernel cross-check
+  `InstTestsRef.starts_agree` stays);
 * `starts_of_X`: the reference half of `InstTestsRef.starts_agree`, derived from the IR's run of
   `starts.wasm` through `Task.exportRefX`. (The conclusion is also proved unconditionally by
   executing the reference machine, `InstTestsRef.starts_agree`.)
