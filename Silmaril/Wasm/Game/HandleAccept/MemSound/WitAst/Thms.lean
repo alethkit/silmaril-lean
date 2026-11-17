@@ -104,36 +104,32 @@ open Silmaril.Wasm.Game.HandleAccept.Wit (toWit toWitList)
 
 section Layout
 
-universe u
-
-variable {Resource : Type u}
-
 /-- **The layout of a payload type is its canonical ABI layout** (memory32). -/
 theorem layout_toWit (t : PTy) :
-    ABI.layout .i32 (toWit t : WIT.ClosedType Resource) = PTy.layout t :=
+    ABI.layout .i32 (toWit t : WIT.ClosedType Nat) = PTy.layout t :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitAst.layout_toWit t
 
 /-- The size of a payload value is REF `elem_size` of its WIT type. -/
 theorem width_toWit (t : PTy) :
-    (ABI.layout .i32 (toWit t : WIT.ClosedType Resource)).size = PTy.width t := by
+    (ABI.layout .i32 (toWit t : WIT.ClosedType Nat)).size = PTy.width t := by
   rw [layout_toWit]; rfl
 
 /-- The alignment of a payload value is REF `alignment` of its WIT type. -/
 theorem align_toWit (t : PTy) :
-    (ABI.layout .i32 (toWit t : WIT.ClosedType Resource)).alignment.bytes = PTy.align t := by
+    (ABI.layout .i32 (toWit t : WIT.ClosedType Nat)).alignment.bytes = PTy.align t := by
   rw [layout_toWit]; rfl
 
 /-- **The layout of a payload vector is the canonical ABI layout of its WIT tuple.** -/
 theorem valsLayout_toWit (ps : List PTy) :
-    ABI.layout .i32 (.tuple (toWitList ps) : WIT.ClosedType Resource) = valsLayout ps :=
+    ABI.layout .i32 (.tuple (toWitList ps) : WIT.ClosedType Nat) = valsLayout ps :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitAst.valsLayout_toWit ps
 
 theorem valsWidth_toWit (ps : List PTy) :
-    (ABI.layout .i32 (.tuple (toWitList ps) : WIT.ClosedType Resource)).size = valsWidth ps := by
+    (ABI.layout .i32 (.tuple (toWitList ps) : WIT.ClosedType Nat)).size = valsWidth ps := by
   rw [valsLayout_toWit]; rfl
 
 theorem valsAlign_toWit (ps : List PTy) :
-    (ABI.layout .i32 (.tuple (toWitList ps) : WIT.ClosedType Resource)).alignment.bytes =
+    (ABI.layout .i32 (.tuple (toWitList ps) : WIT.ClosedType Nat)).alignment.bytes =
       valsAlign ps := by
   rw [valsLayout_toWit]; rfl
 

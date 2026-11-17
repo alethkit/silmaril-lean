@@ -19,15 +19,25 @@ value types of the Component Model (`WIT.ValType`):
 | `record fs`, `tuple ts` | `record { fs }`, `tuple<ts>` |
 | `variant cs`, `enum cs`, `flags ls` | `variant { cs }`, `enum { cs }`, `flags { ls }` |
 | `option t`, `result ok err` | `option<t>`, `result<ok, err>` (either side optional) |
+| `own r`, `borrow r` | `own<r>`, `borrow<r>` (resource types numbered) |
 
-These are exactly the WIT value types without names (`ref`), `map`, resource handles
-(`own`, `borrow`), `future`, `stream` and `error-context`: `ofWit` is defined on exactly them
-and is a left inverse of `toWit` (`ofWit_toWit`).
+These are exactly the WIT value types (with resource types `Nat`) without names (`ref`), `map`,
+`future`, `stream` and `error-context`: `ofWit` is defined on exactly them and is a left inverse
+of `toWit` (`ofWit_toWit`).
 
-`toWit` is that map (for any name and resource types: the image mentions neither), and
-`valEquiv E t : PTy.Val t ≃ (toWit t).Interp E` identifies the payload values with the Lean
-interpretation of the WIT type (`WIT.ValType.Interp`) in every
-environment `E`. A payload vector `PTy.Vals ps` is the WIT tuple of its types (`valsEquiv`).
+`toWit` is that map (for any name type; resource types are numbers, `own r ↦ own r`,
+`borrow r ↦ borrow r`), and `valEquiv named t : PTy.Val t ≃ (toWit t).Interp (storedEnv named)`
+identifies the payload values with the Lean interpretation of the WIT type
+(`WIT.ValType.Interp`) in the **stored-tree environment** `storedEnv named`: owned handles are
+resource representations (`Nat`), borrows have no value (`Empty`). A payload vector
+`PTy.Vals ps` is the WIT tuple of its types (`valsEquiv`).
+
+**Handles and the environment.** The WIT interpretation leaves handles to an environment
+(`WIT.Env`); a stored tree fixes it to `storedEnv`. The *representation* of an `own` payload is
+read from an explicit resource table at the call that moves the handle into the tree, which
+consumes the handle (`Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own`): the meaning of a
+tree depends on that table only through the handles it moved.
+
 `Thms`: every image is a simple type (no `future`/`stream`), and `toWit` is injective
 (`ofWit_toWit`).
 
@@ -40,9 +50,9 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit
 
 open Silmaril.Formats Silmaril.Wasm.Component Silmaril.Wasm.Component.WIT
 
-universe u v
+universe u
 
-variable {Ref : Type u} {Resource : Type v}
+variable {Ref : Type u}
 
 /-- The primitive payload type of a WIT primitive. -/
 def ofPrim : WIT.Primitive → PTy
@@ -53,7 +63,7 @@ def ofPrim : WIT.Primitive → PTy
 
 mutual
 /-- **The WIT type of a payload type.** -/
-def toWit : PTy → WIT.ValType Ref Resource
+def toWit : PTy → WIT.ValType Ref Nat
   | .bool => .prim .bool
   | .s32 => .prim .s32
   | .u32 => .prim .u32
@@ -76,32 +86,34 @@ def toWit : PTy → WIT.ValType Ref Resource
   | .option t => .option (toWit t)
   | .result ok err => .result (toWitOpt ok) (toWitOpt err)
   | .flags ls => .flags ls
+  | .own r => .own r
+  | .borrow r => .borrow r
 
 /-- The WIT types of a payload vector. -/
-def toWitList : List PTy → List (WIT.ValType Ref Resource)
+def toWitList : List PTy → List (WIT.ValType Ref Nat)
   | [] => []
   | t :: ts => toWit t :: toWitList ts
 
 /-- The WIT fields of record fields (names kept). -/
-def toWitFields : List (String × PTy) → List (String × WIT.ValType Ref Resource)
+def toWitFields : List (String × PTy) → List (String × WIT.ValType Ref Nat)
   | [] => []
   | (n, t) :: fs => (n, toWit t) :: toWitFields fs
 
 /-- The WIT cases of variant cases (names kept). -/
-def toWitCases : List (String × Option PTy) → List (String × Option (WIT.ValType Ref Resource))
+def toWitCases : List (String × Option PTy) → List (String × Option (WIT.ValType Ref Nat))
   | [] => []
   | (n, o) :: cs => (n, toWitOpt o) :: toWitCases cs
 
 /-- The WIT type of an optional payload. -/
-def toWitOpt : Option PTy → Option (WIT.ValType Ref Resource)
+def toWitOpt : Option PTy → Option (WIT.ValType Ref Nat)
   | none => none
   | some t => some (toWit t)
 end
 
 mutual
 /-- **The payload type of a WIT type**, when it has one: the left inverse of `toWit`
-(`ofWit_toWit`). `none` for names, `map`, handles, `future`, `stream` and `error-context`. -/
-def ofWit : WIT.ValType Ref Resource → Option PTy
+(`ofWit_toWit`). `none` for names, `map`, `future`, `stream` and `error-context`. -/
+def ofWit : WIT.ValType Ref Nat → Option PTy
   | .prim p => some (ofPrim p)
   | .list t => (ofWit t).map .list
   | .fixedList t n => (ofWit t).map (.fixedList · n)
@@ -112,26 +124,28 @@ def ofWit : WIT.ValType Ref Resource → Option PTy
   | .flags ls => some (.flags ls)
   | .option t => (ofWit t).map .option
   | .result ok err => (ofWitOpt ok).bind fun a => (ofWitOpt err).map fun b => .result a b
-  | .ref _ | .map _ _ | .own _ | .borrow _ | .future _ | .stream _ | .errorContext => none
+  | .own r => some (.own r)
+  | .borrow r => some (.borrow r)
+  | .ref _ | .map _ _ | .future _ | .stream _ | .errorContext => none
 
 /-- `ofWit` on a list of types. -/
-def ofWitList : List (WIT.ValType Ref Resource) → Option (List PTy)
+def ofWitList : List (WIT.ValType Ref Nat) → Option (List PTy)
   | [] => some []
   | t :: ts => (ofWit t).bind fun a => (ofWitList ts).map (a :: ·)
 
 /-- `ofWit` on record fields. -/
-def ofWitFields : List (String × WIT.ValType Ref Resource) → Option (List (String × PTy))
+def ofWitFields : List (String × WIT.ValType Ref Nat) → Option (List (String × PTy))
   | [] => some []
   | (n, t) :: fs => (ofWit t).bind fun a => (ofWitFields fs).map ((n, a) :: ·)
 
 /-- `ofWit` on variant cases. -/
 def ofWitCases :
-    List (String × Option (WIT.ValType Ref Resource)) → Option (List (String × Option PTy))
+    List (String × Option (WIT.ValType Ref Nat)) → Option (List (String × Option PTy))
   | [] => some []
   | (n, o) :: cs => (ofWitOpt o).bind fun a => (ofWitCases cs).map ((n, a) :: ·)
 
 /-- `ofWit` on an optional payload (`some none` for an absent one). -/
-def ofWitOpt : Option (WIT.ValType Ref Resource) → Option (Option PTy)
+def ofWitOpt : Option (WIT.ValType Ref Nat) → Option (Option PTy)
   | none => some none
   | some t => (ofWit t).map some
 end
@@ -150,17 +164,26 @@ def vectorEquiv {α β : Type} (e : α ≃ β) (n : Nat) : Vector α n ≃ Vecto
   left_inv v := by simp [Vector.map_map]
   right_inv v := by simp [Vector.map_map]
 
+/-- **The stored-tree environment** of WIT handles (`WIT.Env` with resource types named by
+numbers): an owned handle stored in a tree is its resource's **representation** (`Nat`, as
+`Value.Val.own` carries it; never the handle index, which is meaningful only in the table of the
+module at the call that moved it), a `borrow` has **no value** (a borrow cannot outlive the call
+that lent it, so no stored tree holds one), and `error-context` none either (unsupported, as are
+`future` and `stream`). Names are interpreted by `named`. -/
+def storedEnv (named : Ref → Type) : WIT.Env Ref Nat := ⟨named, fun _ => Nat, fun _ => Empty, Empty⟩
+
 mutual
-/-- **Payload values are the values of their WIT type**, in every environment. -/
-def valEquiv (E : WIT.Env Ref Resource) :
-    (t : PTy) → t.Val ≃ (toWit t : WIT.ValType Ref Resource).Interp E
+/-- **Payload values are the values of their WIT type** in the stored-tree environment
+(`storedEnv`): an `own` payload is the resource's representation, a `borrow` payload has none. -/
+def valEquiv (named : Ref → Type) :
+    (t : PTy) → t.Val ≃ (toWit t : WIT.ValType Ref Nat).Interp (storedEnv named)
   | .bool => Equiv.refl Bool
   | .s32 => Equiv.refl Int32
   | .u32 => Equiv.refl UInt32
   | .s64 => Equiv.refl Int64
   | .u64 => Equiv.refl UInt64
   | .string => Equiv.refl String
-  | .list t => listEquiv (valEquiv E t)
+  | .list t => listEquiv (valEquiv named t)
   | .s8 => Equiv.refl Int8
   | .u8 => Equiv.refl UInt8
   | .s16 => Equiv.refl Int16
@@ -168,42 +191,44 @@ def valEquiv (E : WIT.Env Ref Resource) :
   | .f32 => Equiv.refl (BitVec 32)
   | .f64 => Equiv.refl (BitVec 64)
   | .char => Equiv.refl Char
-  | .fixedList t n => vectorEquiv (valEquiv E t) n
-  | .record fs => fieldsEquiv E fs
-  | .tuple ts => valsEquiv E ts
-  | .variant cs => casesEquiv E cs
+  | .fixedList t n => vectorEquiv (valEquiv named t) n
+  | .record fs => fieldsEquiv named fs
+  | .tuple ts => valsEquiv named ts
+  | .variant cs => casesEquiv named cs
   | .enum cs => Equiv.refl (Fin cs.length)
-  | .option t => Equiv.optionCongr (valEquiv E t)
-  | .result ok err => Equiv.sumCongr (optEquiv E ok) (optEquiv E err)
+  | .option t => Equiv.optionCongr (valEquiv named t)
+  | .result ok err => Equiv.sumCongr (optEquiv named ok) (optEquiv named err)
   | .flags ls => Equiv.refl (BitVec ls.length)
+  | .own _ => Equiv.refl Nat
+  | .borrow _ => Equiv.refl Empty
 
 /-- **A payload vector is the WIT tuple of its types.** -/
-def valsEquiv (E : WIT.Env Ref Resource) : (ps : List PTy) →
+def valsEquiv (named : Ref → Type) : (ps : List PTy) →
     PTy.Vals ps ≃
-      WIT.ValType.InterpList E (toWitList (Ref := Ref) (Resource := Resource) ps)
+      WIT.ValType.InterpList (storedEnv named) (toWitList (Ref := Ref) ps)
   | [] => Equiv.refl Unit
-  | t :: ps => Equiv.prodCongr (valEquiv E t) (valsEquiv E ps)
+  | t :: ps => Equiv.prodCongr (valEquiv named t) (valsEquiv named ps)
 
 /-- Record field values are the values of the WIT record. -/
-def fieldsEquiv (E : WIT.Env Ref Resource) : (fs : List (String × PTy)) →
+def fieldsEquiv (named : Ref → Type) : (fs : List (String × PTy)) →
     PTy.FieldVals fs ≃
-      WIT.ValType.InterpFields E (toWitFields (Ref := Ref) (Resource := Resource) fs)
+      WIT.ValType.InterpFields (storedEnv named) (toWitFields (Ref := Ref) fs)
   | [] => Equiv.refl Unit
-  | (_, t) :: fs => Equiv.prodCongr (valEquiv E t) (fieldsEquiv E fs)
+  | (_, t) :: fs => Equiv.prodCongr (valEquiv named t) (fieldsEquiv named fs)
 
 /-- Variant case values are the values of the WIT variant. -/
-def casesEquiv (E : WIT.Env Ref Resource) : (cs : List (String × Option PTy)) →
+def casesEquiv (named : Ref → Type) : (cs : List (String × Option PTy)) →
     PTy.CaseVals cs ≃
-      WIT.ValType.InterpCases E (toWitCases (Ref := Ref) (Resource := Resource) cs)
+      WIT.ValType.InterpCases (storedEnv named) (toWitCases (Ref := Ref) cs)
   | [] => Equiv.refl Empty
-  | (_, o) :: cs => Equiv.sumCongr (optEquiv E o) (casesEquiv E cs)
+  | (_, o) :: cs => Equiv.sumCongr (optEquiv named o) (casesEquiv named cs)
 
 /-- Optional payload values are the values of the optional WIT type. -/
-def optEquiv (E : WIT.Env Ref Resource) : (o : Option PTy) →
+def optEquiv (named : Ref → Type) : (o : Option PTy) →
     PTy.OptVal o ≃
-      WIT.ValType.InterpOpt E (toWitOpt (Ref := Ref) (Resource := Resource) o)
+      WIT.ValType.InterpOpt (storedEnv named) (toWitOpt (Ref := Ref) o)
   | none => Equiv.refl Unit
-  | some t => valEquiv E t
+  | some t => valEquiv named t
 end
 
 end Silmaril.Wasm.Game.HandleAccept.Wit

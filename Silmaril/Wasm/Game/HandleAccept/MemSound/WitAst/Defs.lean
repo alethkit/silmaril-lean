@@ -22,6 +22,7 @@ children (`strSig`, `Arity.star`). For a **WIT-typed signature** `S : WitSig` (p
   | `bool`, `s8`, `u8` | `bool`, `s8`, `u8` | 1 | 1 |
   | `s16`, `u16` | `s16`, `u16` | 2 | 2 |
   | `s32`, `u32`, `f32`, `char` | `s32`, `u32`, `f32`, `char` | 4 | 4 |
+  | `own r`, `borrow r` | `own<r>`, `borrow<r>` (an `i32` handle index) | 4 | 4 |
   | `s64`, `u64`, `f64` | `s64`, `u64`, `f64` | 8 | 8 |
   | `string`, `list t` (`bytes = list u8`) | `string`, `list<t>` | 8 (`(ptr, len)`) | 4 |
   | `fixedList t n` | `list<t, n>` | `n * t.width` | `t.align` |
@@ -68,18 +69,36 @@ children (`strSig`, `Arity.star`). For a **WIT-typed signature** `S : WitSig` (p
 
 Payloads are exactly the `Silmaril.Formats.PTy` types, i.e. (`Wit.toWit`, injective, with
 left inverse `Wit.ofWit`) **the WIT value types that have a canonical-ABI memory
-representation and no resource or asynchronous semantics**: `bool`, `s8`, `u8`, `s16`, `u16`,
+representation and no asynchronous semantics**: `bool`, `s8`, `u8`, `s16`, `u16`,
 `s32`, `u32`, `s64`, `u64`, `f32`, `f64`, `char`, `string`, `list<t>` (so `list<u8>`, `bytes`),
-`list<t, n>`, `record`, `tuple`, `variant`, `enum`, `option`, `result` (each side optional) and
-`flags`, nested to any depth. A tag's payload is a finite vector of these (`S.params t`, laid
-out as a WIT tuple); its children are separate handles, not payloads.
-**Not payloads**: `own`/`borrow` resource handles, `future`, `stream` and `error-context` (they
-need a design decision: what a handle in a tree means and who owns it), `map<k, v>` (WIT
-despecialises it to `list<tuple<k, v>>`, which is a payload type), and named types (`ref`:
-resolve them first). Field, case and label names are part of the type, not of the value
-(`PTy.Val`: records and tuples are products, variants sums, `enum` with `n` cases `Fin n`,
-`flags` with `n` labels `BitVec n`). Flag sets of more than 32 labels (outside WIT
-well-formedness) read only the 32 bits of their four bytes.
+`list<t, n>`, `record`, `tuple`, `variant`, `enum`, `option`, `result` (each side optional),
+`flags`, nested to any depth, and the resource handles `own<r>`, `borrow<r>`. A tag's payload is
+a finite vector of these (`S.params t`, laid out as a WIT tuple); its children are separate
+handles, not payloads.
+
+**Resource handles** (the stored-tree semantics, `Wit.storedEnv`):
+
+* `own<r>`: the value in the tree is the resource's **representation**, from an **explicit
+  resource table** (`Own.RT`: handle index ↦ resource type, representation, live), and the
+  handle **moves** into the tree: the call consumes the table entry, and a second move of the
+  same handle is an invalid write (`Own.ownHost`, policy `onWrite`). The memory decoder here
+  reads no handle (`readVal` of `own` is none, so `Callout.witNode` of a tag with an `own`
+  field is no event); `Own` reads **top-level** `own` fields of a payload vector as `u32` table
+  indices (`WitSig.raw`) and resolves them in the table. An `own` nested inside a list, option,
+  record, … is not resolved: it is no value, so the call is no event (not supported yet).
+  Acceptance depends on the table **only through the handles moved** (`Own.resolve_congr`,
+  `Own.run_congr`), and is otherwise trace-dependent: the table at a call is the initial one
+  with every earlier move consumed.
+* `borrow<r>`: **rejected in stored trees**. A borrow lives for one call, so a tree (which
+  outlives it) cannot hold one: `PTy.Val (.borrow r) = Empty`, a payload vector with a `borrow`
+  field has no value, and a `node` call of such a tag is no event (`Own.borrow_rejected`).
+
+**Not payloads**: `future`, `stream` and `error-context` (asynchronous endpoints: unsupported
+pending async semantics), `map<k, v>` (WIT despecialises it to `list<tuple<k, v>>`, which is a
+payload type), and named types (`ref`: resolve them first). Field, case and label names are part
+of the type, not of the value (`PTy.Val`: records and tuples are products, variants sums, `enum`
+with `n` cases `Fin n`, `flags` with `n` labels `BitVec n`). Flag sets of more than 32 labels
+(outside WIT well-formedness) read only the 32 bits of their four bytes.
 
 **Non-claims.** The layout and the trap conditions above follow the canonical ABI; the decoder
 is not proved equal to the monadic `Canon.load` programs (which run over a component store), and
@@ -189,7 +208,7 @@ four bytes. The same as `ABI.layout .i32 (Wit.toWit t)` (`layout_toWit`). -/
 def PTy.layout : PTy → ABI.Layout
   | .bool | .s8 | .u8 => ⟨.one, 1⟩
   | .s16 | .u16 => ⟨.two, 1⟩
-  | .s32 | .u32 | .f32 | .char => ⟨.four, 1⟩
+  | .s32 | .u32 | .f32 | .char | .own _ | .borrow _ => ⟨.four, 1⟩
   | .s64 | .u64 | .f64 => ⟨.eight, 1⟩
   | .string | .list _ => ABI.pointerLayout .i32
   | .fixedList t n => ⟨(PTy.layout t).alignment, n * (PTy.layout t).units⟩
@@ -298,6 +317,11 @@ memory segment `[a, a + n)` (none when out of bounds: REF `trap_if(ptr + n > len
   `trap_if(case_index >= len(cases))`); `enum` its discriminant, in range; `flags` the
   low `n` bits of its one, two or four bytes (REF `unpack_flags_from_int`: higher bits are
   ignored).
+* Handles: **none**. Memory alone gives an `own` handle no meaning (its index names an entry of
+  the module's resource table at the call); owned handles are read by the resource layer
+  `Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own` (top-level `own` payload fields, read
+  as `u32` indices and resolved in an explicit resource table). A `borrow` is never a stored
+  value (`PTy.Val (.borrow r) = Empty`).
 
 Every value consumes exactly `PTy.width t` bytes (`readVal_rest`). -/
 def readVal (seg : Nat → Nat → Option (List UInt8)) :
@@ -355,6 +379,8 @@ def readVal (seg : Nat → Nat → Option (List UInt8)) :
           (v, bs.drop (PTy.width (.result ok err)))
   | .flags ls, bs => (leN (ABI.flagsAlignment ls.length).bytes bs).map fun i =>
       (BitVec.ofNat ls.length i, bs.drop (PTy.width (.flags ls)))
+  | .own _, _ => none
+  | .borrow _, _ => none
 
 /-- **The fields of a payload vector** in the payload area `area`, from the offset `cur`
 (REF `load_record`): each field at `alignTo cur (alignment t)` (`ABI.placeField`), read from

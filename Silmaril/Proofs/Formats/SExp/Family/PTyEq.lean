@@ -44,6 +44,8 @@ theorem eq_of_beq : ∀ {a b : PTy}, PTy.beq a b = true → a = b
     exact congrArg PTy.variant (eq_of_beqCases h)
   | .enum cs, b, h => by cases b <;> simp_all [PTy.beq]
   | .flags ls, b, h => by cases b <;> simp_all [PTy.beq]
+  | .own r, b, h => by cases b <;> simp_all [PTy.beq]
+  | .borrow r, b, h => by cases b <;> simp_all [PTy.beq]
   | .result a c, b, h => by
     cases b <;> simp [PTy.beq] at h
     obtain ⟨h₁, h₂⟩ := h
@@ -81,7 +83,7 @@ end
 mutual
 theorem beq_self : ∀ a : PTy, PTy.beq a a = true
   | .bool | .s32 | .u32 | .s64 | .u64 | .string | .s8 | .u8 | .s16 | .u16 | .f32 | .f64
-  | .char | .enum _ | .flags _ => by simp [PTy.beq]
+  | .char | .enum _ | .flags _ | .own _ | .borrow _ => by simp [PTy.beq]
   | .list a | .option a => by simp [PTy.beq, beq_self a]
   | .fixedList a _ => by simp [PTy.beq, beq_self a]
   | .record fs => by simp [PTy.beq, beqFields_self fs]

@@ -93,6 +93,7 @@ theorem readVal_rest {seg : Nat → Nat → Option (List UInt8)} :
     simp only [readVal] at h
     exact (congrArg Prod.snd (Option.some.inj h)).symm
   | .u8, [], _, _, h => by simp [readVal] at h
+  | .own _, _, _, _, h | .borrow _, _, _, _, h => by simp [readVal] at h
   | .s32, _, _, _, h | .u32, _, _, _, h | .s64, _, _, _, h | .u64, _, _, _, h
   | .s8, _, _, _, h | .s16, _, _, _, h | .u16, _, _, _, h | .f32, _, _, _, h
   | .f64, _, _, _, h | .record _, _, _, _, h | .tuple _, _, _, _, h | .flags _, _, _, _, h =>
@@ -188,16 +189,12 @@ theorem readVals_single (seg : Nat → Nat → Option (List UInt8)) (t : PTy) (a
 
 section Layout
 
-universe u
-
-variable {Resource : Type u}
-
 mutual
 /-- **The layout of a payload type is its canonical ABI layout** (memory32). -/
 theorem layout_toWit : ∀ t : PTy,
-    ABI.layout .i32 (toWit t : WIT.ClosedType Resource) = PTy.layout t
+    ABI.layout .i32 (toWit t : WIT.ClosedType Nat) = PTy.layout t
   | .bool | .s32 | .u32 | .s64 | .u64 | .string | .s8 | .u8 | .s16 | .u16 | .f32 | .f64
-  | .char | .enum _ | .flags _ => by
+  | .char | .enum _ | .flags _ | .own _ | .borrow _ => by
     simp only [toWit, ABI.layout, PTy.layout, ABI.primitiveLayout]
   | .list _ => by simp only [toWit, ABI.layout, PTy.layout]
   | .fixedList t _ => by simp only [toWit, ABI.layout, PTy.layout, layout_toWit t]
@@ -209,13 +206,13 @@ theorem layout_toWit : ∀ t : PTy,
     simp only [toWit, ABI.layout, PTy.layout, layoutOption_toWit ok, layoutOption_toWit err]
 
 theorem layoutTypes_toWitList : ∀ ts : List PTy,
-    ABI.layoutTypes .i32 (toWitList ts : List (WIT.ClosedType Resource)) = PTy.layouts ts
+    ABI.layoutTypes .i32 (toWitList ts : List (WIT.ClosedType Nat)) = PTy.layouts ts
   | [] => by simp only [toWitList, ABI.layoutTypes, PTy.layouts]
   | t :: ts => by
     simp only [toWitList, ABI.layoutTypes, PTy.layouts, layout_toWit t, layoutTypes_toWitList ts]
 
 theorem layoutFields_toWit : ∀ fs : List (String × PTy),
-    ABI.layoutFields .i32 (toWitFields fs : List (String × WIT.ClosedType Resource)) =
+    ABI.layoutFields .i32 (toWitFields fs : List (String × WIT.ClosedType Nat)) =
       PTy.fieldLayouts fs
   | [] => by simp only [toWitFields, ABI.layoutFields, PTy.fieldLayouts]
   | (_, t) :: fs => by
@@ -223,7 +220,7 @@ theorem layoutFields_toWit : ∀ fs : List (String × PTy),
       layoutFields_toWit fs]
 
 theorem layoutCases_toWit : ∀ cs : List (String × Option PTy),
-    ABI.layoutCases .i32 (toWitCases cs : List (String × Option (WIT.ClosedType Resource))) =
+    ABI.layoutCases .i32 (toWitCases cs : List (String × Option (WIT.ClosedType Nat))) =
       PTy.caseLayouts cs
   | [] => by simp only [toWitCases, ABI.layoutCases, PTy.caseLayouts]
   | (_, o) :: cs => by
@@ -231,7 +228,7 @@ theorem layoutCases_toWit : ∀ cs : List (String × Option PTy),
       layoutCases_toWit cs]
 
 theorem layoutOption_toWit : ∀ o : Option PTy,
-    ABI.layoutOption .i32 (toWitOpt o : Option (WIT.ClosedType Resource)) = PTy.optLayout o
+    ABI.layoutOption .i32 (toWitOpt o : Option (WIT.ClosedType Nat)) = PTy.optLayout o
   | none => by simp only [toWitOpt, ABI.layoutOption, PTy.optLayout]
   | some t => by simp only [toWitOpt, ABI.layoutOption, PTy.optLayout, layout_toWit t]
 end
@@ -242,13 +239,13 @@ theorem layouts_eq_map : ∀ ps : List PTy, PTy.layouts ps = ps.map PTy.layout
   | t :: ps => by rw [PTy.layouts, layouts_eq_map ps, List.map_cons]
 
 theorem layoutTypes_toWit (ps : List PTy) :
-    ABI.layoutTypes .i32 (toWitList ps : List (WIT.ClosedType Resource)) =
+    ABI.layoutTypes .i32 (toWitList ps : List (WIT.ClosedType Nat)) =
       ps.map PTy.layout := by
   rw [layoutTypes_toWitList, layouts_eq_map]
 
 /-- **The layout of a payload vector is the canonical ABI layout of its tuple.** -/
 theorem valsLayout_toWit (ps : List PTy) :
-    ABI.layout .i32 (.tuple (toWitList ps) : WIT.ClosedType Resource) = valsLayout ps := by
+    ABI.layout .i32 (.tuple (toWitList ps) : WIT.ClosedType Nat) = valsLayout ps := by
   rw [ABI.layout, layoutTypes_toWit]
   rfl
 
