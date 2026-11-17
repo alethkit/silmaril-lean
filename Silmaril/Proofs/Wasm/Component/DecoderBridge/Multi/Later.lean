@@ -139,7 +139,8 @@ def LaterCoreStep : Prop :=
     (coreMods pre)[mi]? = some m →
     postDefOk (preLowers pre) (preInsts pre) (coreMods pre)
       (.coreInstance (.instantiate mi cargs)) = true →
-    Binary.coreModule p.1 = m → NodeOk p → NodeCalls hostI.length .ready p.1 p.2 t →
+    Binary.coreModule p.1 = m → (CoreModule.imports p.1).length = m.imports.length → NodeOk p →
+    NodeCalls hostI.length .ready p.1 p.2 t →
     (∀ x ∈ t, x.2 = InstTests.unitV) →
     LaterInv pre sc M →
     M.ctl = [.ofProg none
