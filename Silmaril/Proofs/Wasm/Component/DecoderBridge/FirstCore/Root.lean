@@ -261,4 +261,47 @@ theorem root_first [∀ a b, Decidable (E.ExternSub a b)] {m : Machine.Config E 
   simp only [instantiateDef]
   exact .inr ⟨(sc'.frame, c'), _, FocusAt.here _ _, rfl, hc, by simpa using hinv.mods⟩
 
+/-! ## The first core instantiation, for a module without imports -/
+
+section Core
+
+variable [∀ a b, Decidable (E.ExternSub a b)]
+
+theorem coreImportsFor_nil {s : E.Store (CanonHost E)} {md : E.Module} {cargs : List (String × Nat)}
+    {f : Frame E} (h : E.importTypes md = []) : coreImportsFor? s md cargs f = some [] := by
+  unfold coreImportsFor?
+  rw [h]
+  rfl
+
+/-- **Preparation fails**: the core instantiation traps `coreTrap`. -/
+theorem instantiateCore_none {f : Frame E} {mi : Nat} {cargs : List (String × Nat)}
+    {md : E.Module} {m₁ : Machine.Config E σ} (hmd : f.coreModule? mi = some md)
+    (himp : E.importTypes md = []) (hp : E.prepare? m₁.store.core md [] = none) :
+    ∃ tr mT, TrapsQS dispatch none (instantiateCore ⟨0⟩ f mi cargs) m₁ tr mT := by
+  have hc := coreImportsFor_nil (s := m₁.store.core) (cargs := cargs) (f := f) himp
+  unfold instantiateCore
+  simp only [hmd, need, orTrap, pure_bind]
+  obtain ⟨tr, hrun, -⟩ := SRuns.runsQ (dispatch := dispatch) (TRuns.getStore m₁) none
+  refine ⟨tr ++ [], m₁, .bind hrun ?_⟩
+  simp only [hc, pure_bind, hp]
+  exact .trap _ (isSpecTrap_trap (fun _ h => by cases h))
+
+/-- **Preparation reports a start function**: the core instantiation reaches it, the core
+store replaced. -/
+theorem instantiateCore_start {f : Frame E} {mi : Nat} {cargs : List (String × Nat)}
+    {md : E.Module} {m₁ : Machine.Config E σ} {core' : E.Store (CanonHost E)} {ci : E.Inst}
+    {sf : E.FuncAddr} (hmd : f.coreModule? mi = some md) (himp : E.importTypes md = [])
+    (hp : E.prepare? m₁.store.core md [] = some (core', ci, some sf)) :
+    FocusAt prof hr dispatch none (Instantiate.runStart ⟨0⟩ sf) (instantiateCore ⟨0⟩ f mi cargs) m₁
+      { m₁ with store := setCoreSt core' m₁.store } := by
+  have hc := coreImportsFor_nil (s := m₁.store.core) (cargs := cargs) (f := f) himp
+  unfold instantiateCore
+  simp only [hmd, need, orTrap, pure_bind]
+  refine FocusAt.silent (TRuns.getStore m₁) ?_
+  simp only [hc, pure_bind, hp]
+  refine FocusAt.silent (TRuns.modifyStore (f := setCoreSt core') (fun _ => rfl) m₁) ?_
+  exact FocusAt.here _ _
+
+end Core
+
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstCore
