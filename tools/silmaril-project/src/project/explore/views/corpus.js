@@ -64,10 +64,10 @@ async function corpusTimings(build, ctx) {
   return `<p><a href="#/corpus">← Corpus</a></p><h2>Measured pipeline stages</h2><p>${runs.length} actual run receipts. Cache state, concurrency and runner identity are recorded per run. Times cover each command's measured scope; overlapping stages must not be summed as end-to-end cost.</p><table><thead><tr><th>Stage</th><th>Wall seconds</th><th>Peak RSS KiB</th><th>Exit</th><th>Receipt</th></tr></thead><tbody>${runs.map(r=>{const m=JSON.parse(r.metadata);return `<tr><td>${esc(r.stage)}</td><td>${Number(m.wall_seconds).toFixed(3)}</td><td>${esc(m.peak_rss_kib)}</td><td>${esc(m.exit_code)}</td><td><details><summary>${esc(r.run_id.slice(0,8))}</summary><pre>${esc(JSON.stringify(m,null,2))}</pre></details></td></tr>`;}).join('')}</tbody></table>`;
 }
 async function corpusFunctions(id, ctx) {
-  const [artifact] = await ctx.tq("corpus_artifacts", "SELECT name FROM corpus_artifacts WHERE id=?", [id]);
+  const [artifact] = await ctx.tq("corpus_artifacts", "SELECT name,metadata FROM corpus_artifacts WHERE id=?", [id]);
   if (!artifact) return '<p>Artifact not found.</p>';
   return {html:`<p><a href="#/corpus-artifact/${encodeURIComponent(id)}">← Artifact</a></p><h2>${esc(artifact.name)} · Function mappings</h2>
-    <p>Symbol rows include aliases. Metadata is not source semantics; contextual TV statements remain uninstantiated.</p>
+    <p>Symbol rows include aliases. Metadata is not source semantics. This artifact has ${Number(JSON.parse(artifact.metadata).contextual_c_to_elf_statements)||0} contextual C → ELF statements (stated, unproved); see the artifact verification links for their exact scope.</p>
     <label>Symbol contains <input id="corpus-function-search" type="search"></label><p id="corpus-function-count" aria-live="polite"></p><div id="corpus-functions"></div>`,
     init:async()=>{
       let request=0;
