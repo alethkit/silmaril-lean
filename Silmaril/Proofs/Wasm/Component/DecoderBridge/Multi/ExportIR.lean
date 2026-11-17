@@ -288,4 +288,77 @@ theorem node_of_layout {n : Nat} {A : List RCI} {R : RSt} {ps : List (Binary.Cor
     refine ⟨k - A.length, p, by omega, hp, hci'.2.2.symm, ?_⟩
     rw [hb, width_take hN]
 
+/-! ## Typed runs of an export -/
+
+section Typed
+
+open Silmaril.Wasm.Execution.Core (Store StoreOk ConfigOk)
+open Silmaril.Wasm.SingleThreaded (ThreadOk)
+
+local notation "STh" => Silmaril.Wasm.SingleThreaded.Thread
+
+/-- An IR configuration typed at the result types `ts`, with host functions of core type
+`fFlat`. -/
+structure RTNt (S : Store Nat) (t : STh) (ts : List Silmaril.Wasm.Validation.CValType) : Prop where
+  store : StoreOk S
+  thread : ThreadOk S t ts
+  hosts : HostTy S
+
+theorem rtNt_run {ts : List Silmaril.Wasm.Validation.CValType} {x y : Store Nat × STh}
+    (h : Relation.ReflTransGen (Internal neverFail) x y) (hR : RTNt x.1 x.2 ts) :
+    RTNt y.1 y.2 ts := by
+  obtain ⟨hs, ht⟩ := Silmaril.Wasm.SingleThreaded.reachable_typed h hR.store hR.thread
+  have hf := funcs_steps h
+  exact ⟨hs, ht, fun fi hfi => hR.hosts fi (by rw [← hf]; exact hfi)⟩
+
+theorem args_of_calloutNt {ts : List Silmaril.Wasm.Validation.CValType} {S : Store Nat} {t : STh}
+    (hR : RTNt S t ts) {h : Nat} {args : List Silmaril.Wasm.Execution.Core.Val}
+    (hst : status neverFail S t = .callout h args) :
+    ∃ b : BitVec 32, args = [.num ⟨.int .i32, b⟩] := by
+  obtain ⟨fi, hfi, hcode, ps, rs, hexp, hargs⟩ :=
+    Silmaril.Wasm.Component.Engine.Core3.Typed.callout_args_typed hR.store hR.thread hst
+  have hty := hR.hosts fi hfi h hcode
+  rw [hty] at hexp
+  have he := Silmaril.Wasm.Execution.Core.Expand.func_eq hexp
+    (Silmaril.Wasm.Component.Engine.Core3.Typed.expand_ofFlatType (Param.v1Type fFlat))
+  injection he with he₁ he₂
+  rw [he₁] at hargs
+  simp only [Param.v1Type, fFlat, List.map_cons, List.map_nil,
+    Silmaril.Wasm.Validation.Ty.toList_ofList] at hargs
+  rcases hargs with _ | ⟨hv, hrest⟩
+  cases hrest
+  obtain ⟨b, rfl⟩ := Silmaril.Wasm.Execution.Core.ValOk.int_inv hv
+  exact ⟨b, rfl⟩
+
+/-- The invocation of a function without arguments is not a callout, when host functions take
+one argument. -/
+theorem invoke_not_callout {S : Store Nat} (hT : HostTy S) {a : Nat} {h : Nat}
+    {args : List Silmaril.Wasm.Execution.Core.Val} :
+    status neverFail S (Silmaril.Wasm.SingleThreaded.Thread.invoke a []) ≠ .callout h args := by
+  intro hst
+  obtain ⟨E, a', hd⟩ := Silmaril.Wasm.SingleThreaded.status_callout_inv hst
+  let ty : Silmaril.Wasm.Validation.DefType := (S.funcs[a]?.map Silmaril.Wasm.Execution.Core.FuncInst.type).getD default
+  have hcode : ((Silmaril.Wasm.SingleThreaded.Thread.invoke a []).config S).code =
+      Silmaril.Wasm.Execution.Core.vals [.ref (.func a)] ++ .callRefType ty :: [] := by
+    simp [Silmaril.Wasm.SingleThreaded.Thread.config, Silmaril.Wasm.SingleThreaded.Thread.invoke,
+      Silmaril.Wasm.Execution.Core.invoke,
+      Silmaril.Wasm.Execution.Core.vals, Silmaril.Wasm.Execution.Core.Val.toAdmin, ty]
+  rw [hcode, Silmaril.Wasm.SingleThreaded.decompose?_of_split
+    (Silmaril.Wasm.SingleThreaded.splitVals_vals_cons rfl [])] at hd
+  simp only [Silmaril.Wasm.SingleThreaded.decompHead, Silmaril.Wasm.Execution.Core.Admin.isCallRef,
+    ite_true, Silmaril.Wasm.SingleThreaded.topRedex, List.getLast?_singleton] at hd
+  split at hd
+  · rename_i h' n hh
+    obtain ⟨fi, ps, rs, hfi, hc, hexp, rfl⟩ := Silmaril.Wasm.SingleThreaded.hostArity?_eq_some hh
+    have hty := hT fi (List.mem_of_getElem? hfi) h' hc
+    rw [hty] at hexp
+    have he := Silmaril.Wasm.Execution.Core.Expand.func_eq hexp
+      (Silmaril.Wasm.Component.Engine.Core3.Typed.expand_ofFlatType (Param.v1Type fFlat))
+    injection he with he₁ he₂
+    rw [he₁] at hd
+    simp [Param.v1Type, fFlat, Silmaril.Wasm.Validation.Ty.length] at hd
+  · cases hd
+
+end Typed
+
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi
