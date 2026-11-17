@@ -23197,8 +23197,15 @@
       "build_id": "9a4f59bfc17dce6617dcb3aec32f5fe78efe8c2e050136c62c1a025244d85db6",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 0,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O0_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": false,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23268,9 +23275,15 @@
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.Thms",
           "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O0_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
         }
       ],
-      "functional_equivalence_statements": 1,
+      "functional_equivalence_statements": 2,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23334,8 +23347,15 @@
       "build_id": "6c9ba4c876ae43fbdebe1fb6ff161f80915556623a61ddf50038b7a1a3b12c3c",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 0,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O1_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": false,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23399,8 +23419,15 @@
       "build_id": "6c9ba4c876ae43fbdebe1fb6ff161f80915556623a61ddf50038b7a1a3b12c3c",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 468,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O1_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23464,8 +23491,15 @@
       "build_id": "40a1c3546ed1c96c5e274a958166077ecb81725e1aaee1cfcbf0cdc8abd3a79e",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 0,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O3_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": false,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23535,9 +23569,15 @@
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.Thms",
           "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O3_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
         }
       ],
-      "functional_equivalence_statements": 1,
+      "functional_equivalence_statements": 2,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23601,8 +23641,15 @@
       "build_id": "809c34c2b1a85e19a35e50940f81e970d78eb6b971e2b89b8bba5af1e3c3121f",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 0,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.Og_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": false,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23666,8 +23713,15 @@
       "build_id": "809c34c2b1a85e19a35e50940f81e970d78eb6b971e2b89b8bba5af1e3c3121f",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 601,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.Og_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -44858,7 +44912,7 @@
   ],
   "formal_statement_counts": {
     "contextual_c_to_elf": 4,
-    "functional_equivalence": 1
+    "functional_equivalence": 5
   },
   "hierarchy": [
     "project",
