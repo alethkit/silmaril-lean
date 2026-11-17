@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Component.DecoderBridge.Multi.Defs
 public import Silmaril.Wasm.Component.DecoderBridge.Sim.Thms
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.Compose
+import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.IR
 
 /-!
 # Several core instantiations with lowered imports: theorems
@@ -32,6 +33,16 @@ open Silmaril.Wasm.Component.Reference.Core3Adder (first)
 theorem startAdequacyFrag_of (ha : Task.nodeCallsIR) (hb : Task.firstNodeRef)
     (hc : Task.laterNodesRef) (hd : Task.exportRef) : Task.startAdequacyFrag :=
   Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.startAdequacyFrag_of ha hb hc hd
+
+/-- **Piece (a), the IR's node calls**: in the fragment, a ready node-by-node instantiation with
+the calls `t`, each answered `()`, is the nodes' `NodeCalls` with the calls `ts`, `t = ts.flatten`. -/
+theorem nodeCallsIR : Task.nodeCallsIR :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.nodeCallsIR
+
+/-- The start goal on the fragment from pieces (b), (c) and (d). -/
+theorem startAdequacyFrag_of_bcd (hb : Task.firstNodeRef) (hc : Task.laterNodesRef)
+    (hd : Task.exportRef) : Task.startAdequacyFrag :=
+  startAdequacyFrag_of nodeCallsIR hb hc hd
 
 /-- `starts.wasm` is in the fragment. -/
 theorem starts_multiImpFrag : MultiImpFrag startsRef := by decide +kernel
