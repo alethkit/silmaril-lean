@@ -212,4 +212,226 @@ theorem extT_inv_right {e : Nat} {N : Strategy sigU sigUI} {c c₂ : List (Call 
   · cases hf with
     | call hf' => cases hf'
 
+/-! ## The environment invariant for one export call -/
+
+/-- The number of functions the core nodes `ps` export. -/
+def coreWidth (ps : List (M × List Impl)) : Nat := (ps.map fun p => (CoreModule.exports p.1).length).sum
+
+theorem coreWidth_append (ps qs : List (M × List Impl)) :
+    coreWidth (ps ++ qs) = coreWidth ps + coreWidth qs := by
+  simp [coreWidth]
+
+theorem forall₂_snoc {α β : Type} {R : α → β → Prop} :
+    ∀ {l₁ : List α} {l₂ : List β} {x : α} {y : β}, List.Forall₂ R l₁ l₂ → R x y →
+      List.Forall₂ R (l₁ ++ [x]) (l₂ ++ [y])
+  | [], [], _, _, .nil, h => .cons h .nil
+  | _ :: _, _ :: _, _, _, .cons h₁ h₂, h => .cons h₁ (forall₂_snoc h₂ h)
+
+/-- **A ready node-by-node instantiation, split by node.** -/
+theorem nodesInst_ready_split {C : CoreSemI M} {n : Nat} :
+    ∀ {ps : List (M × List Impl)} {w : List (Call sigU)} {a : InstAns Unit},
+      NodesInst C n ps w a → a = .ready →
+      ∃ ts : List (List (Call sigU)), w = ts.flatten ∧
+        List.Forall₂ (fun p tj => instPlay (F := sigU) tj .ready ∈ coreNodeI C n p.1 p.2) ps ts := by
+  intro ps w a h
+  induction h with
+  | nil => exact fun _ => ⟨[], rfl, .nil⟩
+  | failed _ _ => exact fun h => by cases h
+  | @step pre x w w' a h hx ih =>
+    intro ha
+    subst ha
+    obtain ⟨ts, rfl, hF⟩ := ih rfl
+    exact ⟨ts ++ [w'], by simp, forall₂_snoc hF hx⟩
+
+/-- **The environment after the nodes `pre`, with one export call**: a play of an instantiation
+round, forwarded import calls and one export round without calls below answered with a value is
+the nodes' instantiations, in order, and the export round at the node `j` owning the export
+(after the `n` imports and the exports of the nodes before `j`), without calls below. -/
+def EnvInvE (C : CoreSemI M) (n : Nat) (pre : List (M × List Impl)) (D : Strategy sigU sigUI) :
+    Prop :=
+  ∀ (w : List (Call sigU)) (zs : List (Round sigU sigU)) (q : sigU.Op) (y : Payload),
+    (∀ z ∈ zs, z.q.1 < n) →
+    roundsMoves (instRound (F := sigU) w .ready :: zs.map (exRound (R := Unit)) ++
+        [exRound (R := Unit) (⟨q, [], some y⟩ : Round sigU sigU)]) ∈ D →
+    ∃ ts : List (List (Call sigU)), w = ts.flatten ∧
+      List.Forall₂ (fun p tj => instPlay (F := sigU) tj .ready ∈ coreNodeI C n p.1 p.2) pre ts ∧
+      ∃ (j : Nat) (p : M × List Impl) (tj : List (Call sigU)), pre[j]? = some p ∧ ts[j]? = some tj ∧
+        n + coreWidth (pre.take j) ≤ q.1 ∧
+        q.1 < n + coreWidth (pre.take j) + (CoreModule.exports p.1).length ∧
+        roundsMoves [instRound (F := sigU) tj .ready, exRound (R := Unit)
+          (⟨(q.1 - (n + coreWidth (pre.take j)), q.2), [], some y⟩ : Round sigU sigU)] ∈
+          coreNodeI C n p.1 p.2
+
+/-- The imports alone own no export: an import call is forwarded, so it makes a call below. -/
+theorem envInvE_base (C : CoreSemI M) (n : Nat) :
+    EnvInvE C n [] (withReady (R := Unit) (Strategy.ofHandler (maskH n))) := by
+  intro w zs q y _ h
+  exfalso
+  rw [withReady, ← Strategy.ofHandler_comp] at h
+  have hr := runs_of_ofHandler_rounds h
+  have h₁ := hr (exRound ⟨q, [], some y⟩) (List.mem_append_right _ (.head _))
+  obtain ⟨q₁, q₂⟩ := q
+  by_cases hq : q₁ < n
+  · simp only [exRound, Handler.comp, readyH, Prog.interp, maskH, Target.prog, hq, ite_true,
+      Prog.bind] at h₁
+    cases h₁
+  · simp only [exRound, Handler.comp, readyH, Prog.interp, maskH, Target.prog, hq] at h₁
+    cases h₁
+
+theorem allCalls_append {E F : Sig.{0}} : ∀ (xs ys : List (Round E F)),
+    allCalls (xs ++ ys) = allCalls xs ++ allCalls ys
+  | [], _ => rfl
+  | x :: xs, ys => by simp only [List.cons_append, allCalls, allCalls_append xs ys, List.append_assoc]
+
+theorem getElem?_append_singleton {α : Type} {l : List α} {j : Nat} {a x : α} (h : l[j]? = some a) :
+    (l ++ [x])[j]? = some a := by
+  rw [List.getElem?_append_left (List.getElem?_eq_some_iff.1 h).1, h]
+
+theorem take_append_singleton {α : Type} {l : List α} {j : Nat} {a x : α} (h : l[j]? = some a) :
+    (l ++ [x]).take j = l.take j := by
+  rw [List.take_append_of_le_length (List.getElem?_eq_some_iff.1 h).1.le]
+
+/-- **One node**: the invariant with one export call is carried from `D` to `extI e D N` for an
+import-wired core node `N`, `e` the size of the environment `D`. -/
+theorem envInvE_extI {C : CoreSemI M} {n : Nat} {pre : List (M × List Impl)}
+    {D : Strategy sigU sigUI} {m : M} {args : List Impl} (hD : EnvInv C n pre D)
+    (hE : EnvInvE C n pre D) (hs : ScopedList n args) :
+    EnvInvE C n (pre ++ [(m, args)])
+      (extI (n + coreWidth pre) D (coreNodeI C (n + coreWidth pre) m args)) := by
+  intro w zs q y hzs h
+  obtain ⟨s, hsD, t, ht, hz⟩ := h
+  obtain ⟨_, ps⟩ := D.legal hsD
+  obtain ⟨_, pt⟩ := Strategy.legal _ ht
+  obtain ⟨ss, ts, rfl, rfl, hZ⟩ := zip_rounds_inv _ ps pt hz
+  obtain ⟨xs₀, ss', ts', rfl, rfl, hc, hZ'⟩ := zipR_cons_inv hZ
+  obtain ⟨sZ, sf, tZ, tf, rfl, rfl, hZZ, hZf⟩ := zipR_append_inv hZ'
+  obtain ⟨xf, _, _, rfl, rfl, hcf, hZf'⟩ := zipR_cons_inv hZf
+  cases hZf'
+  simp only [exRound] at hc hcf
+  subst hc
+  have hX : ∀ x ∈ tZ, ∃ q : sigU.Op, x.q = some q ∧ q.1 < n + coreWidth pre := by
+    intro x hx
+    have hq : x.q ∈ tZ.map (·.q) := List.mem_map_of_mem hx
+    rw [zipR_qs hZZ, List.map_map] at hq
+    obtain ⟨z, hz, hzq⟩ := List.mem_map.1 hq
+    exact ⟨z.q, hzq.symm, by have := hzs z hz; omega⟩
+  have hne : n ≤ n + coreWidth pre := Nat.le_add_right _ _
+  by_cases hq : q.1 < n + coreWidth pre
+  · -- the export goes to the environment
+    have hX' : ∀ x ∈ tZ ++ [⟨some q, xf.map Round.call, some y⟩],
+        ∃ q : sigU.Op, x.q = some q ∧ q.1 < n + coreWidth pre := by
+      intro x hx
+      rcases List.mem_append.1 hx with hx | hx
+      · exact hX x hx
+      · rw [List.mem_singleton] at hx
+        subst hx
+        exact ⟨q, rfl, hq⟩
+    obtain ⟨hfwd, hcase⟩ := extT_inv hX' (by simpa only [instRound, exRound] using ht)
+    have hsZ := zipR_fwd hZZ fun t ht => hfwd t (List.mem_append_left _ ht)
+    subst hsZ
+    have hff := hfwd _ (List.mem_append_right _ (.head _))
+    simp only at hff
+    rcases xf with _ | ⟨⟨fq, fcs, fa⟩, _ | _⟩
+    · simp at hff
+    · simp only [List.map_cons, List.map_nil, Round.call, List.cons.injEq,
+        and_true] at hff
+      cases hff
+      simp only [allCalls, List.append_nil] at hcf
+      subst hcf
+      rcases hcase with ⟨r, hr, -⟩ | ⟨ys, hN, hc₀⟩
+      · cases hr
+      · rcases xs₀ with _ | ⟨⟨xq, xcs, xa⟩, ds⟩
+        · simp at hc₀
+        · simp only [List.map_cons, Round.call, List.cons.injEq] at hc₀
+          obtain ⟨hx₀, hds⟩ := hc₀
+          cases hx₀
+          obtain ⟨ds', rfl, hys⟩ := ex_rounds_of_calls hds
+          subst hys
+          have hlt := coreNodeI_calls_lt hs hN
+          have hzs' : ∀ z ∈ ds' ++ zs, z.q.1 < n := by
+            intro z hz
+            rcases List.mem_append.1 hz with hz | hz
+            · exact hlt _ (List.mem_map_of_mem hz)
+            · exact hzs z hz
+          have hplay : roundsMoves (instRound (F := sigU) xcs .ready ::
+              (ds' ++ zs).map (exRound (R := Unit)) ++
+              [exRound (R := Unit) (⟨q, [], some y⟩ : Round sigU sigU)]) ∈ D := by
+            simpa only [List.cons_append, roundsMoves_append, List.map_append, roundsMoves,
+              List.append_assoc, exRound, instRound, List.nil_append, List.append_nil] using hsD
+          obtain ⟨-, h₂⟩ := hD xcs .ready (ds' ++ zs) hzs'
+            (D.of_prefix hplay (by rw [roundsMoves_append]; exact List.prefix_append _ _))
+          obtain ⟨tsD, rfl, hF, j, p, tj, hpj, htj, hle, hlt', hnode⟩ :=
+            hE xcs (ds' ++ zs) q y hzs' hplay
+          have hcalls : allCalls ds' = ds'.map Round.call :=
+            allCalls_fwd fun d hd => h₂ d (List.mem_append_left _ hd)
+          rw [coreNodeI_scoped C hs hne, ← instPlay_eq] at hN
+          refine ⟨tsD ++ [ds'.map Round.call], ?_, forall₂_snoc hF hN, j, p, tj,
+            getElem?_append_singleton hpj, getElem?_append_singleton htj, ?_, ?_, ?_⟩
+          · simp only [allCalls, allCalls_map_exRound, hcalls, List.flatten_append,
+              List.flatten_cons, List.flatten_nil, List.append_nil]
+          · rwa [take_append_singleton hpj]
+          · rwa [take_append_singleton hpj]
+          · rwa [take_append_singleton hpj]
+    · simp at hff
+  · -- the export goes to the new node
+    obtain ⟨hfwd, ys, ys₂, hN, hc₀, hc₂⟩ := extT_inv_right (q := q) (n := some y) hX (by omega)
+      (by simpa only [instRound, exRound, List.cons_append] using ht)
+    have hsZ := zipR_fwd hZZ hfwd
+    subst hsZ
+    obtain ⟨xs₁, xs₂, hruns, hys, hys₂, hcase⟩ := coreNodeI_ex_inv hN
+    obtain ⟨hk, -⟩ : ∃ hk : q.1 - (n + coreWidth pre) < (CoreModule.exports m).length, True := by
+      rcases hcase with ⟨h, -⟩ | ⟨hk, -⟩
+      · cases h
+      · exact ⟨hk, trivial⟩
+    have hlt := allCalls_lt hs hruns
+    rcases xs₀ with _ | ⟨⟨xq, xcs, xa⟩, ds⟩
+    · simp at hc₀
+    · simp only [List.map_cons, Round.call, List.cons.injEq] at hc₀
+      obtain ⟨hx₀, hds⟩ := hc₀
+      cases hx₀
+      obtain ⟨ds', rfl, hys'⟩ := ex_rounds_of_calls hds
+      obtain ⟨df', rfl, hys₂'⟩ := ex_rounds_of_calls hc₂
+      have hzs' : ∀ z ∈ ds' ++ zs ++ df', z.q.1 < n := by
+        intro z hz
+        rcases List.mem_append.1 hz with hz | hz
+        · rcases List.mem_append.1 hz with hz | hz
+          · have : z.call ∈ ys := hys' ▸ List.mem_map_of_mem hz
+            rw [hys] at this
+            exact hlt _ (by rw [allCalls_append]; exact List.mem_append_left _ this)
+          · exact hzs z hz
+        · have : z.call ∈ ys₂ := hys₂' ▸ List.mem_map_of_mem hz
+          rw [hys₂] at this
+          exact hlt _ (by rw [allCalls_append]; exact List.mem_append_right _ this)
+      obtain ⟨hNI, h₂⟩ := hD xcs .ready (ds' ++ zs ++ df') hzs' (by
+        simpa only [List.cons_append, roundsMoves_append, List.map_append, roundsMoves,
+          List.append_assoc, exRound, instRound, List.nil_append, List.append_nil] using hsD)
+      have hdf : allCalls df' = df'.map Round.call :=
+        allCalls_fwd fun d hd => h₂ d (List.mem_append_right _ hd)
+      have hcalls : allCalls ds' = ds'.map Round.call :=
+        allCalls_fwd fun d hd => h₂ d (List.mem_append_left _ (List.mem_append_left _ hd))
+      rw [allCalls_map_exRound, hdf] at hcf
+      have hdf0 : df' = [] := by
+        cases df' with
+        | nil => rfl
+        | cons d ds => simp at hcf
+      subst hdf0
+      simp only [List.map_nil] at hys₂'
+      subst hys₂' hys'
+      obtain ⟨tsD, rfl, hF⟩ := nodesInst_ready_split hNI rfl
+      rw [coreNodeI_scoped C hs hne] at hN
+      have hNi : instPlay (F := sigU) (ds'.map Round.call) .ready ∈ coreNodeI C n m args := by
+        rw [instPlay_eq]
+        refine (coreNodeI C n m args).of_prefix hN ?_
+        simp only [roundsMoves, List.append_nil]
+        exact List.prefix_append _ _
+      have hlen : tsD.length = pre.length := hF.length_eq.symm
+      refine ⟨tsD ++ [ds'.map Round.call], ?_, forall₂_snoc hF hNi, pre.length, (m, args),
+        ds'.map Round.call, by simp, by simp [← hlen], ?_, ?_, ?_⟩
+      · simp only [allCalls, allCalls_map_exRound, hcalls, List.flatten_append,
+          List.flatten_cons, List.flatten_nil, List.append_nil]
+      · simp only [List.take_left']; omega
+      · simp only [List.take_left']; omega
+      · rw [List.take_left' rfl]
+        exact hN
+
 end Silmaril.Proofs.Wasm.Component.InstSem
