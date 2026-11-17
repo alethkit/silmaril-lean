@@ -689,4 +689,159 @@ theorem node_unique {M : Type} [CoreModule M] {ps : List (M × List Impl)} {o j 
     rw [coreWidth_take_succ hp'] at this
     omega
 
+/-! ## `Task.exportIR` -/
+
+theorem forall₂_set {α β : Type} {P : α → β → Prop} :
+    ∀ {l₁ : List α} {l₂ : List β}, List.Forall₂ P l₁ l₂ → ∀ {j : Nat} {a : α} {b : β},
+      l₁[j]? = some a → P a b → List.Forall₂ P l₁ (l₂.set j b)
+  | _, _, .nil, _, _, _, h, _ => by cases h
+  | _ :: _, _ :: _, .cons _ hr, 0, _, _, h, hab => by cases h; exact .cons hab hr
+  | _ :: _, _ :: _, .cons hp hr, j + 1, _, _, h, hab => .cons hp (forall₂_set hr h hab)
+
+/-- The nodes' instantiation plays, as node ends with their calls. -/
+theorem ends_of_plays :
+    ∀ {ps : List (Binary.CoreMod × List Impl)} {ts : List (List (Call sigU))},
+      List.Forall₂ (fun p tj => instPlay (F := sigU) tj .ready ∈
+        coreNodeI (Binary.coreModSemI (profile neverFail)) hostI.length p.1 p.2) ps ts →
+      (∀ p ∈ ps, NodeOk p) → (∀ x ∈ ts.flatten, x.2 = InstTests.unitV) →
+      ∃ xs : List NodeRun, xs.map NodeRun.calls = ts ∧
+        List.Forall₂ (fun q x => NodeEnd hostI.length q.1 q.2 x) ps xs
+  | [], [], .nil, _, _ => ⟨[], rfl, .nil⟩
+  | p :: ps, t :: ts, .cons h hs, hok, hu => by
+    have hp := hok p List.mem_cons_self
+    have hc := nodeCalls_of_play hp.imps hp.wl hp.wires hp.names
+      (fun x hx => hu x (by simp only [List.flatten_cons]; exact List.mem_append_left _ hx)) h
+    obtain ⟨x, rfl, hx⟩ := nodeEnd_of_calls hp hc
+    obtain ⟨xs, rfl, hxs⟩ := ends_of_plays hs (fun q hq => hok q (List.mem_cons_of_mem _ hq))
+      (fun x' hx' => hu x' (by simp only [List.flatten_cons]; exact List.mem_append_right _ hx'))
+    exact ⟨x :: xs, rfl, .cons hx hxs⟩
+
+theorem isGetTy_eq {ft : FuncTy} (h : isGetTy ft = true) : ft = getTy := by
+  unfold isGetTy at h
+  split at h
+  · rfl
+  · cases h
+
+theorem liftsCall_eq {im : Impl} (h : liftsCall im = true) :
+    ∃ e, im = ⟨[.lift getTy], .call e⟩ := by
+  unfold liftsCall at h
+  split at h
+  · next ft e => exact ⟨e, by rw [isGetTy_eq h]⟩
+  · cases h
+
+/-- A definition after the first core instantiation is not an inline core instance. -/
+theorem postDefOk_not_inline {n : Nat} {insts : List (List (String × Nat))}
+    {mods : List Silmaril.Wasm.Module} {d : RDef} (h : postDefOk n insts mods d = true) :
+    ∀ its, d ≠ .coreInstance (.exports its) := by
+  rintro its rfl
+  simp [postDefOk] at h
+
+/-- **`Task.exportIR`.** -/
+theorem exportIR : Task.exportIR := by
+  intro b c r ps t n ws hpc hr _ hf himp hnodes hex hu hp
+  have hok := nodeOk_frag hpc hr hf hnodes
+  obtain ⟨-, hw, ⟨R, hR, -, hget⟩, pre, mi, cargs, post, hfc, -, hpostOk⟩ := multiImpFrag_inv hf
+  obtain ⟨R₁, hR₁, hlift⟩ := multiImpFrag_lifts hf
+  rw [hR] at hR₁
+  cases hR₁
+  obtain ⟨R₁, hR₁, hIm, hEx, hN⟩ := relW_of_decode hpc hr (inFrag_of_hostWired hw)
+  rw [hR] at hR₁
+  cases hR₁
+  -- the first export
+  obtain ⟨x₀, xr, hx⟩ : ∃ x₀ xr, R.exports = x₀ :: xr := by
+    cases h : R.exports with
+    | nil => rw [hEx, h] at hex; cases hex
+    | cons x₀ xr => exact ⟨x₀, xr, rfl⟩
+  rw [hx] at hget hlift
+  rw [hEx, hx] at hex
+  simp only [List.map_cons, List.head?_cons, Option.some.injEq] at hex
+  simp only [List.head?_cons, Option.map_some, Option.getD_some] at hget hlift
+  obtain ⟨xn, xty, ⟨xch, xtg⟩⟩ := x₀
+  simp only at hex hget hlift
+  subst hex
+  have hty := isGetTy_eq hget
+  subst hty
+  obtain ⟨e, he⟩ := liftsCall_eq hlift
+  injection he with he₁ he₂
+  subst he₁ he₂
+  -- the IR's play
+  obtain ⟨I, ns, xs'⟩ := c
+  have hEx' : xs' = R.exports := hEx
+  have hIm' : I = R.imports := hIm
+  have hN' : List.Forall₂ NodeW ns R.nodes := hN
+  subst himp hnodes
+  have hiw : ImportWired hostI.length ps := by
+    intro p hp im him
+    rw [(hok p hp).wires im him]
+    show (0 : Nat) < 1
+    omega
+  have hone : ∀ cs, Prog.Runs (exportsH (envAfter hostI.length (coreNodes ps)) xs'
+      (0, .vals [])) cs (some (.vals ws)) → ∃ y, cs = [⟨(e, .flat []), some y⟩] := by
+    intro cs hcs
+    simp only [exportsH, implsH, hEx', hx, List.map_cons, List.getElem?_cons_zero] at hcs
+    rcases runs_liftGet hcs with ⟨r', -, rfl, hr'⟩ | hnone
+    · cases r' with
+      | none => cases hr'
+      | some y => exact ⟨y, rfl⟩
+    · cases hnone
+  obtain ⟨y, hrunP, ts, rfl, hF, j, p, tj, hpj, htj, hle, hlt, hnode⟩ := denI_ex_node hiw hone hp
+  -- the answer
+  obtain ⟨v, rfl, rfl⟩ : ∃ v : BitVec 32, y = .flat [⟨.int .i32, v⟩] ∧ ws = [.u32 v] := by
+    simp only [exportsH, implsH, hEx', hx, List.map_cons, List.getElem?_cons_zero] at hrunP
+    rcases runs_liftGet hrunP with ⟨r', -, hcs, hr'⟩ | hnone
+    · simp only [List.cons.injEq, Sigma.mk.injEq, and_true] at hcs
+      obtain ⟨-, hy⟩ := hcs
+      have hy' : some y = r' := eq_of_heq hy
+      subst hy'
+      simp only [Option.bind_some] at hr'
+      cases y with
+      | flat ys =>
+        simp only [Adapter.up] at hr'
+        cases hl : liftArgs [.u32] ys with
+        | none => rw [hl] at hr'; cases hr'
+        | some ws' =>
+          rw [hl] at hr'
+          simp only [Option.map_some, Option.some.injEq, Payload.vals.injEq] at hr'
+          subst hr'
+          obtain ⟨v, rfl, rfl⟩ := liftArgs_u32 hl
+          exact ⟨v, rfl, rfl⟩
+      | vals _ => simp [Adapter.up] at hr'
+    · cases hnone
+  -- the node owning `e`
+  have hpok := hok p (List.mem_of_getElem? hpj)
+  have hutj : ∀ x ∈ tj, x.2 = InstTests.unitV := fun x hx =>
+    hu x (List.mem_flatten.2 ⟨tj, List.mem_of_getElem? htj, hx⟩)
+  obtain ⟨x, hk, a, c', ys, hxc, hxe, hlk, hsteps, hst, hys⟩ := node_export hpok hutj hnode
+  cases hys
+  obtain ⟨xs₀, hxs₀, hF₀⟩ := ends_of_plays hF hok hu
+  have hj : j < xs₀.length := by
+    have := (List.getElem?_eq_some_iff.1 htj).1
+    rw [← hxs₀, List.length_map] at this
+    exact this
+  refine ⟨xs₀.set j x, ?_, forall₂_set hF₀ hpj hxe, R, e, hR, by simp [hx], ?_⟩
+  · rw [List.map_set, hxs₀, hxc]
+    obtain ⟨hlt', rfl⟩ := List.getElem?_eq_some_iff.1 htj
+    rw [List.set_getElem_self hlt']
+  -- the reading's core instance
+  intro pre' mi' cargs' post' k base i exps nm cft hfc' hk' hi he
+  rw [hfc] at hfc'
+  cases hfc'
+  obtain ⟨hIlen, A, hAlen, hAin, hLay⟩ := refRead_layout hR hfc
+    (fun d hd => postDefOk_not_inline (List.all_eq_true.1 hpostOk d hd))
+  obtain ⟨j', p', rfl, hpj', hexps, rfl⟩ := node_of_layout hAin hLay hN' hk'
+  rw [← hIm'] at he
+  have hilt : i < exps.length := (List.getElem?_eq_some_iff.1 hi).1
+  have hjj := node_unique hpj hpj' hle hlt (by omega) (by rw [hexps]; omega)
+  subst hjj
+  rw [hpj] at hpj'
+  cases hpj'
+  have hi' : e - (hostI.length + coreWidth (ps.take j)) = i := by omega
+  have hnm : ((CoreModule.exports p.1)[e - (hostI.length + coreWidth (ps.take j))]'hk).1 = nm := by
+    have h1 : (CoreModule.exports p.1)[e - (hostI.length + coreWidth (ps.take j))]? =
+        some (nm, cft) := by rw [hi', hexps]; exact hi
+    rw [List.getElem?_eq_getElem hk, Option.some.injEq] at h1
+    rw [h1]
+  rw [hnm] at hlk
+  exact ⟨j, x, a, c', v, by rw [hAlen], List.getElem?_set_self hj, hlk, hsteps, hst, rfl⟩
+
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi
