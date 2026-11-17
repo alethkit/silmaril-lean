@@ -6,6 +6,7 @@ public import Silmaril.Containers.HttpOnce.Thms
 public import Silmaril.Containers.Ports.Thms
 import Silmaril.Proofs.Containers.HttpServe.Basic
 import Silmaril.Proofs.Containers.HttpServe.Walk
+import Silmaril.Proofs.Containers.HttpServe.Loop
 
 /-!
 # A self-contained HTTP server: theorems
@@ -37,7 +38,12 @@ the ELF parse). Proofs are in `Silmaril.Proofs.Containers.HttpServe`.
   `accept` are followed with the kit rules; every injected failure exits with its status (10, 11,
   13; nothing sent) and no path creates a task, so `Task.serverLoop` (the send loop and the drain,
   from the loop's entry) implies `Task.serverSound`. `servesImage_of_loop` composes the two.
-  `Task.serverLoop` is open.
+* **The send-retry loop.** `serverLoop_of_drain`: from the loop's entry, over an abstract core
+  (any oracle counter, any flags, any other registers), every execution either sends all 40
+  octets in some sequence of non-empty prefixes (each short send is retried at the advanced
+  pointer; the remaining count stays in `[0, 40]` and the pointer inside the pinned response) and
+  reaches the drain, or meets a pending reset or timeout and exits 14 with a prefix sent; no task
+  creation. So `Task.serverDrain` implies `Task.serverLoop`. `Task.serverDrain` is open.
 
 What `examples/containers/http-serve/docker-test.sh` tests (not proves): Docker loads the image
 with the proved ID, the container listens on 8080 itself, `curl` receives exactly the 40-octet
@@ -133,5 +139,13 @@ theorem serverSound_of_loop (h : Task.serverLoop) : Task.serverSound :=
 /-- **What remains for the image is the send loop and the drain.** -/
 theorem servesImage_of_loop (h : Task.serverLoop) : Task.servesImage :=
   servesImage_of_sound (serverSound_of_loop h)
+
+/-- **From the drain to the send loop.** -/
+theorem serverLoop_of_drain (h : Task.serverDrain) : Task.serverLoop :=
+  Silmaril.Proofs.Containers.HttpServe.Loop.serverLoop_of_drain h
+
+/-- **What remains for the image is the drain.** -/
+theorem servesImage_of_drain (h : Task.serverDrain) : Task.servesImage :=
+  servesImage_of_loop (serverLoop_of_drain h)
 
 end Silmaril.Containers.HttpServe
