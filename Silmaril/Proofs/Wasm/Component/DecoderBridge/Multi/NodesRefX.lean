@@ -234,7 +234,7 @@ theorem later_runX (h2 : LaterCoreStepX) {pre : RefComponent} :
     cases hNC
     have hc' : M.ctl = [.ofProg none (K sc)] := by rw [hc]; rfl
     obtain ⟨tr, M', hs, hn, hctl, hlock, hhost, -, hobs, hM'⟩ := hK sc M hL.lock hc'
-    exact ⟨tr, M', sc, M, esN₀, hs, hn, hctl, hlock, by rw [hhost, hh]; simp [logOfCalls], hobs,
+    exact ⟨tr, M', sc, M, esN₀, hs.steps, hn, hctl, hlock, by rw [hhost, hh]; simp [logOfCalls], hobs,
       hF, hL, hci, by simpa using hN, rfl, rfl, hM'⟩
   | d :: ds, R, Rf, sc, M, K, L, ps, xs, xs₀, esN₀, hfold, hpost, hX, hok, hNC, hu, hF, hL, hK,
       hci, hN, hc, hh => by
