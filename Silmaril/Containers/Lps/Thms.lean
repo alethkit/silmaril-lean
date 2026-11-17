@@ -4,6 +4,7 @@ public import Silmaril.Containers.Lps.Defs
 public import Silmaril.Containers.Machine.Thms
 public import Silmaril.Process.LPS.Probes.Oracle
 import Silmaril.Proofs.Containers.Lps.Basic
+import Silmaril.Proofs.Containers.Lps.Kit
 
 /-!
 # The LPS adapter: theorems
@@ -161,6 +162,91 @@ theorem noClone_write (P : Probe) (oracle : Oracle) [Probe.Checked P] {core : Si
     NoCloneFrom P.segs (P.ocfg oracle core (some n) counter model) :=
   Silmaril.Proofs.Containers.Lps.noClone_write P oracle number running lazy lookup nonzero buffer
     modeled nonzeroCount clear clamp clampWord fits nonempty rest
+
+/-! ## Kit rules over any table, with model changes
+
+PROVED in `Silmaril.Proofs.Containers.Lps.Kit`: instruction and trap steps do not consult the
+table (`sstep_table_irrel`); tables that agree at a pending call step alike (`sstep_table_congr`);
+the flag-oracle rules `oexec_instrT`, `oexec_trapT` hold under any table; `osstep_sys_iff` /
+`oexec_sys`: a returning call may change the model; `oexec_exitT`: an exit under any table that
+agrees with the native one at the call. -/
+
+theorem sstep_table_irrel {isa : UserIsa} {segs : List Segment} {sp₁ sp₂ : Sys SyscallEffect}
+    {refused : RefusalFilter} {c : Silmaril.Process.LPS.Config isa} {evs : List Event}
+    {t : StepTo isa} (hn : isa.svcPending c.ms = none) :
+    SStep segs sp₁ refused c evs t ↔ SStep segs sp₂ refused c evs t :=
+  Silmaril.Proofs.Containers.Lps.Kit.sstep_table_irrel hn
+
+theorem sstep_table_congr {isa : UserIsa} {segs : List Segment} {sp₁ sp₂ : Sys SyscallEffect}
+    {refused : RefusalFilter} {ms : isa.State} {model : Silmaril.Process.LPS.Model}
+    {evs : List Event} {t : StepTo isa}
+    (h : ∀ x8, isa.svcPending ms = some x8 → ∀ o,
+      sp₁ (sysInput isa segs ms x8) model o ↔ sp₂ (sysInput isa segs ms x8) model o) :
+    SStep segs sp₁ refused ⟨ms, model⟩ evs t ↔ SStep segs sp₂ refused ⟨ms, model⟩ evs t :=
+  Silmaril.Proofs.Containers.Lps.Kit.sstep_table_congr h
+
+theorem oexec_instrT (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} [Probe.Checked P] {post : Omni.Post (isaOf oracle)} {off len : Nat}
+    {instruction : Silmaril.X86.Ext.Instr} {core core' : Silmaril.X86.State} {counter : Nat}
+    {model : Silmaril.Process.LPS.Model} (running : model.halted = none) (lazy : model.vmLazy = [])
+    (rip : core.rip.toNat = P.base + off) (fits : off + len ≤ P.size) (two : off + 2 ≤ P.size)
+    (notSyscall : (P.bytes.drop off).take 2 ≠ [0x0f, 0x05])
+    (decoded : Silmaril.X86.Ext.decode ((P.bytes.drop off).take len) = some (instruction, len))
+    (exec : Silmaril.X86.Ext.exec instruction core P.mem0 len = .ok core' P.mem0)
+    (rest : Omni.Exec P.segs sp noFilter (P.ocfg oracle core' none counter model) post) :
+    Omni.Exec P.segs sp noFilter (P.ocfg oracle core none counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexec_instrT P oracle running lazy rip fits two notSyscall decoded exec rest
+
+theorem oexec_trapT (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} [Probe.Checked P] {post : Omni.Post (isaOf oracle)} {off : Nat}
+    {core : Silmaril.X86.State} {counter : Nat} {model : Silmaril.Process.LPS.Model}
+    (running : model.halted = none) (lazy : model.vmLazy = [])
+    (rip : core.rip.toNat = P.base + off) (two : off + 2 ≤ P.size)
+    (isSyscall : (P.bytes.drop off).take 2 = [0x0f, 0x05])
+    (rest : Omni.Exec P.segs sp noFilter (P.ocfg oracle (Probe.complete core (oracle counter))
+      (some (core.read .rax)) (counter + 1) model) post) :
+    Omni.Exec P.segs sp noFilter (P.ocfg oracle core none counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexec_trapT P oracle running lazy rip two isSyscall rest
+
+theorem osstep_sys_iff (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} {core : Silmaril.X86.State} {n : Word} {counter : Nat}
+    {model : Silmaril.Process.LPS.Model} {α : Type} {allowed : α → Prop} {ret : α → Word}
+    {copyins : α → List (Word × Nat)} {model' : α → Silmaril.Process.LPS.Model}
+    {events : α → List Event} (other : n ≠ 158) (running : model.halted = none)
+    (live : ∀ x, allowed x → (model' x).halted = none)
+    (lazy : ∀ x, allowed x → (model' x).vmLazy = [])
+    (outcomes : ∀ outcome, sp (P.sysIn core n) model outcome ↔
+      ∃ x, allowed x ∧
+        outcome = .ok ((mkEffect (ret x) [] []).withCopyins (copyins x)) (model' x) (events x))
+    (evs : List Event) (target : StepTo (isaOf oracle)) :
+    SStep P.segs sp noFilter (P.ocfg oracle core (some n) counter model) evs target ↔
+      ∃ x, allowed x ∧ evs = events x ∧
+        target = .next (P.ocfg oracle (Probe.resume core (ret x)) none counter (model' x)) :=
+  Silmaril.Proofs.Containers.Lps.Kit.osstep_sys_iff P oracle other running live lazy outcomes evs target
+
+theorem oexec_sys (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} {post : Omni.Post (isaOf oracle)} {core : Silmaril.X86.State} {n : Word}
+    {counter : Nat} {model : Silmaril.Process.LPS.Model} {α : Type} {allowed : α → Prop}
+    {ret : α → Word} {copyins : α → List (Word × Nat)} {model' : α → Silmaril.Process.LPS.Model}
+    {events : α → List Event} (other : n ≠ 158) (running : model.halted = none)
+    (live : ∀ x, allowed x → (model' x).halted = none)
+    (lazy : ∀ x, allowed x → (model' x).vmLazy = [])
+    (outcomes : ∀ outcome, sp (P.sysIn core n) model outcome ↔
+      ∃ x, allowed x ∧
+        outcome = .ok ((mkEffect (ret x) [] []).withCopyins (copyins x)) (model' x) (events x))
+    (inhabited : ∃ x, allowed x)
+    (rest : ∀ x, allowed x → Omni.Exec P.segs sp noFilter
+      (P.ocfg oracle (Probe.resume core (ret x)) none counter (model' x))
+      (fun trace outcome => post (events x ++ trace) outcome)) :
+    Omni.Exec P.segs sp noFilter (P.ocfg oracle core (some n) counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexec_sys P oracle other running live lazy outcomes inhabited rest
+
+theorem oexec_exitT (P : Probe) (oracle : Oracle) {sp : Sys SyscallEffect} {post : Omni.Post (isaOf oracle)} {core : Silmaril.X86.State}
+    {status : Word} {counter : Nat} {model : Silmaril.Process.LPS.Model}
+    (rdi : core.read .rdi = status) (running : model.halted = none)
+    (outcomes : ∀ outcome, sp (P.sysIn core 60) model outcome ↔
+      Probes.spec (P.sysIn core 60) model outcome)
+    (clear : NativeX86.All.boundarySuspect 60 (P.sysIn core 60) = false)
+    (done : post [.exitEv (status &&& 255) model.fs]
+      (.halt (P.ocfg oracle core (some 60) counter (model.withHalted (status &&& 255))))) :
+    Omni.Exec P.segs sp noFilter (P.ocfg oracle core (some 60) counter model) post :=
+  Silmaril.Proofs.Containers.Lps.Kit.oexec_exitT P oracle rdi running outcomes clear done
 
 macro "noclone_instr " off:term:max len:term:max instr:term:max : tactic =>
   `(tactic|

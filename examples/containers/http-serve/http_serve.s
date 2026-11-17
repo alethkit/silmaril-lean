@@ -1,9 +1,9 @@
 # A one-request HTTP/1.1 server on 0.0.0.0:8080/tcp, no libc.
-#   socket, bind 8080, listen, accept one connection, read the request once,
-#   send the 40-octet response until all of it is sent (short sends are retried),
-#   shutdown the write side, close, exit 0.
-# Every failing call exits with its own status (10..15); sends use MSG_NOSIGNAL,
-# so a peer that went away is the error status 15, not SIGPIPE.
+#   socket, bind 8080, listen, accept one connection, send the 40-octet response
+#   until all of it is sent (short sends are retried), read once to drain the
+#   request, exit 0 (the kernel closes the connection).
+# Every failing call before the drain exits with its own status (10..14); sends use
+# MSG_NOSIGNAL, so a peer that went away is the error status 14, not SIGPIPE.
     .text
     .globl _start
 _start:
@@ -36,13 +36,6 @@ _start:
     test %rax, %rax
     js fail_accept
     mov %rax, %r12         # the connection
-    xor %eax, %eax         # read(conn, buf, 1024): the request (not parsed)
-    mov %r12, %rdi
-    mov $buf, %esi
-    mov $1024, %edx
-    syscall
-    test %rax, %rax
-    js fail_read
     mov $response, %esi
     mov $40, %edx
 send:
@@ -57,14 +50,12 @@ send:
     add %rax, %rsi         # retry the rest after a short send
     sub %rax, %rdx
     jnz send
-    mov $48, %eax          # shutdown(conn, SHUT_WR)
+    xor %eax, %eax         # read(conn, buf, 1024): drain the request (its result is not used)
     mov %r12, %rdi
-    mov $1, %esi
+    mov $buf, %esi
+    mov $1024, %edx
     syscall
-    mov $3, %eax           # close(conn)
-    mov %r12, %rdi
-    syscall
-    mov $60, %eax          # exit(0)
+    mov $60, %eax          # exit(0); the kernel closes the connection
     xor %edi, %edi
     syscall
 fail_socket:
@@ -79,11 +70,8 @@ fail_listen:
 fail_accept:
     mov $13, %edi
     jmp fail
-fail_read:
-    mov $14, %edi
-    jmp fail
 fail_send:
-    mov $15, %edi
+    mov $14, %edi
 fail:
     mov $60, %eax
     syscall

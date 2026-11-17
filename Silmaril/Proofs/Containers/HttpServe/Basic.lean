@@ -91,11 +91,11 @@ theorem runtime_load : ociRuntime.load image = .ok probe.snapshot := by
   simp only [runtime, hp, loadElf_elf]
 
 /-- The response is in the loaded image, where the program points `sendto` at. -/
-theorem response_in_image : ((probe.bytes.drop 390).take 40).map UInt8.ofBitVec = Fixtures.okResponse := by
+theorem response_in_image : ((probe.bytes.drop 345).take 40).map UInt8.ofBitVec = Fixtures.okResponse := by
   decide +kernel
 
 /-- The address bytes are in the loaded image, where the program points `bind` at. -/
-theorem addr_in_image : (probe.bytes.drop 374).take 16 = addrBytes := by decide +kernel
+theorem addr_in_image : (probe.bytes.drop 329).take 16 = addrBytes := by decide +kernel
 
 /-! ## LPS's `bind` to port 8080 -/
 
@@ -307,14 +307,14 @@ theorem sockTrace_send (ch : Word) (bs : List UInt8) :
     rw [ih]
     rfl
 
-theorem sent_recvs (c : Nat) (bs : List UInt8) (t : List Servers.Platform.SockEv) :
-    Servers.Platform.sent c ((bs.map fun b => .recv c [b]) ++ t) = Servers.Platform.sent c t := by
+theorem sent_recvs (c : Nat) (bs : List UInt8) :
+    Servers.Platform.sent c (bs.map fun b => .recv c [b]) = [] := by
   induction bs with
   | nil => rfl
   | cons b bs ih => simpa [Servers.Platform.sent] using ih
 
-theorem sent_sends (c : Nat) (bs : List UInt8) :
-    Servers.Platform.sent c (bs.map fun b => .send c [b]) = bs := by
+theorem sent_sends (c : Nat) (bs : List UInt8) (t : List Servers.Platform.SockEv) :
+    Servers.Platform.sent c ((bs.map fun b => .send c [b]) ++ t) = bs ++ Servers.Platform.sent c t := by
   induction bs with
   | nil => rfl
   | cons b bs ih => simpa [Servers.Platform.sent] using ih
@@ -323,7 +323,7 @@ theorem sessionOk_sent {t : List Ev} {c : UInt8} (h : SessionOk t c) :
     ∃ ch : Word, Servers.Platform.sent ch.toNat (Http.sockTrace t) = Fixtures.okResponse := by
   obtain ⟨-, ch, req, rfl⟩ := h
   refine ⟨ch, ?_⟩
-  rw [Http.sockTrace, List.filterMap_append, ← Http.sockTrace, ← Http.sockTrace, sockTrace_recv,
-    sockTrace_send, sent_recvs, sent_sends]
+  rw [Http.sockTrace, List.filterMap_append, ← Http.sockTrace, ← Http.sockTrace, sockTrace_send,
+    sockTrace_recv, sent_sends, sent_recvs, List.append_nil]
 
 end Silmaril.Proofs.Containers.HttpServe

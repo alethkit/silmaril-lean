@@ -11,9 +11,9 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../../.." && pwd)
-elf=b5958d275776a14acd6375e1671db341f6fb37887655397c83683b6a288cc105
-config=ed2c4bf8a304749970e5ca9ca9be210d95d63ed9275f68503adf1005f51b178a
-layer=249437e992376bda5108c9b513f48b990057aff12ebc4ad2ed65fd5f009230c0
+elf=1515fe739d0dbffcf92a6701d8a1b107df5f1c9a19dcf95400d3d904cd002f02
+config=ffbec51983478fd892ffb1ce3c9a703c663d5e87ca23d0517af76bbf3d9500c1
+layer=6df0e166767645942ade89b9a2c8ee854304773e1baa3503b34538e08424c87d
 tag=silmaril-http-serve:pinned
 port=${PORT:-8080}
 net=${DOCKER_NET:--p 127.0.0.1:$port:8080}

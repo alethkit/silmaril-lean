@@ -54,6 +54,10 @@ def publish (ports : List Nat) : Sys SyscallEffect := fun i m o =>
     bindSpec (fd32 (i.arg 0)) (i.arg 1) (i.arg 2) (zeroPort i (i.arg 1)) m o
   else Probes.spec i m o
 
+/-- The outcome of a call that returns the error `e` and leaves the model `m`. -/
+def errOut (e : Int) (m : Silmaril.Process.LPS.Model) : Silmaril.Process.LPS.Outcome SyscallEffect :=
+  .ok (mkEffect (errnoRet e) [] []) m []
+
 /-- The TCP ports a configuration declares. -/
 def tcpPorts (cfg : Config) : List Nat :=
   cfg.exposed.filterMap fun p => if p.proto = .tcp then some p.port.toNat else none

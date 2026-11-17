@@ -73,11 +73,11 @@ theorem declared : ∃ f, Oci.load layout manifestDigest = .ok f ∧ f.config.ex
   obtain ⟨f, hl, -, -, he⟩ := Silmaril.Proofs.Containers.HttpServe.oci_load
   exact ⟨f, hl, he, by rw [Http.Iface.Declared, he]; exact List.mem_singleton_self _⟩
 
-theorem addr_in_image : (probe.bytes.drop 374).take 16 = addrBytes :=
+theorem addr_in_image : (probe.bytes.drop 329).take 16 = addrBytes :=
   Silmaril.Proofs.Containers.HttpServe.addr_in_image
 
 theorem response_in_image :
-    ((probe.bytes.drop 390).take 40).map UInt8.ofBitVec = Fixtures.okResponse :=
+    ((probe.bytes.drop 345).take 40).map UInt8.ofBitVec = Fixtures.okResponse :=
   Silmaril.Proofs.Containers.HttpServe.response_in_image
 
 /-- **The model gap**: LPS's `bind` to port 8080 is `unmodeled`. -/
