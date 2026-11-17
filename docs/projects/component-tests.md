@@ -18,6 +18,12 @@ byte for byte (`--write` rewrites them). Lean reads them with `include_bytes`
 | `starts.wasm` | 256 B | `ff543e05…02665f` | imports `f: func(x: u32)`; core instances, in order: `call1` (start: `f(1)`), `call2` (start: `f(2)`), `glob` (start: a mutable global, initially `0`, set to `42`); exports `get: func() -> u32` (`canon lift` of `glob`'s `get`, which reads the global) |
 | `trap.wasm` | 188 B | `1cccda32…649d20` | imports `f`; core instances: `trap` (start: `unreachable`; exports `get` returning `7`), then `call2` (start: `f(2)`); exports `trap`'s `get` |
 
+The same directory holds a third binary, `instexport.{wat,wasm}`, assembled the same way: not a
+test of instantiation-time behaviour but a regression of the decoder bridge (an exported
+instance, on which the two readings name different exports; see
+[the bridge evidence](#component-bridge-evidence-the-two-readings-of-a-binary)). It has no rows
+and no oracle run.
+
 `f` reaches the core instances through `canon lower`, `get` leaves through `canon lift`, so the
 import trace is observed in component values: `f(u32 1)`, answered `()`.
 
@@ -128,6 +134,13 @@ What this covers, and what it does not:
 `Silmaril.Wasm.Component.DecoderBridge` (`Defs`, `Thms`; proofs in
 `Silmaril.Proofs.Wasm.Component.DecoderBridge`).
 
+| level | what agrees | for which binaries | status |
+|---|---|---|---|
+| structural | core modules (decoded from the same bytes) and the order of core instantiations (`rel_of_decode`) | every binary both readings accept | **proved** |
+| wiring and types | imports, exports (names, types, lift/lower chains), each node's module interface and the wiring its arguments name (`relW_of_decode`) | every binary both readings accept whose REF reading is in `InFrag` (decidable) | **proved** |
+| exported instances | the IR names `i#get`, the reference machine has no function export of that name (`DecoderBridge.InstExport`) | `instexport.wasm` | **mismatch demonstrated** (kernel runs); outside `InFrag` |
+| behaviour | `Comp.denI` (IR) against the reference machine's instantiation and sessions | none in general; `starts`/`trap` by execution of both machines | **open** (`Task.failAdequacy`, `Task.startAdequacy`) |
+
 **How the two readings are built.**
 
 | | IR reading | REF reading |
@@ -158,23 +171,77 @@ What this covers, and what it does not:
   `rel_of_decode` (from `parse_starts`/`parse_trap` and `decodeRef_starts`/`decodeRef_trap`;
   no new kernel run).
 
-`Rel` is structural. It does not relate the IR's wiring programs to the reference's
-instantiation arguments, canonical definitions, types, imports or exports, and neither reading's
-success implies the other's.
+`Rel` is structural: which core modules are instantiated, in which order, from which bytes.
+Neither reading's success implies the other's.
 
-**Open, stated as `Prop`s** (`DecoderBridge.Sem.Defs`; no theorem asserts them):
+**Wiring, imports and exports, in a fragment** (`DecoderBridge.Wire`; proofs in
+`Silmaril.Proofs.Wasm.Component.DecoderBridge.Wire`; `#print axioms`:
+`[propext, Classical.choice, Quot.sound]`).
+
+* `refRead r : Option RSt` reads the wiring a reference component names: a fold over its
+  definitions that resolves the index spaces the reference machine's instantiation builds
+  (`Instantiate.instantiateDef`), symbolically: each component function, core function and core
+  instance is the IR wiring program (`Impl`) it denotes over the IR environment (imports, then
+  the core instances' function exports), and each core instantiation's imports are resolved by
+  name through its arguments (`List.lookup`, the first match, as `Instantiate.coreImportFor?`).
+* `InFrag r` (decidable, `inFrag r = true`): `refRead r` succeeds. The fragment: top-level
+  definitions only, among core modules whose imports are all numeric functions; function types
+  over primitive non-string types (at most 16 flat parameters, 1 flat result, synchronous);
+  function imports; core instantiations and inline core instances of core functions; aliases of
+  core function exports; `canon lift`/`canon lower` without options, `lower` only of a function
+  that is not a lifted one; function exports without type ascription. No instance imports or
+  exports, nested components, component instances, values, start definitions, resources or
+  built-ins.
+* `relW_of_decode`: `parseComponent b = .ok c → decodeRef b = .ok r → InFrag r → RelW c r`, where
+  `RelW c r` says: `refRead r = some R`, `c.imports = R.imports`, `c.exports = R.exports` (names,
+  types, and the `lift`/`lower` chains with their targets), and node `k` of `c` is `.core cm w`
+  where `cm`'s bytes decode to the module of instantiation `k` of `r`, `cm`'s interface is that
+  module's (`coreIface`, what `Lower.coreMod` reads), and `w` is the wiring the instantiation's
+  arguments name.
+* `starts_inFrag`, `trap_inFrag` (`decide +kernel`), `starts_relW`, `trap_relW`.
+
+This is syntax: both readings name the same wiring. That the reference machine's run follows
+`refRead`, and any behaviour, is not proved.
+
+**A demonstrated mismatch outside the fragment: exported instances** (`DecoderBridge.InstExport`,
+`examples/component-tests/instexport.{wat,wasm}`, 117 B, SHA-256 `8ba16937…2039c5`). The binary
+imports `f` (unused), lifts a core `get` returning `42`, and exports it through an inline
+instance `i`. The IR reading flattens the exported instance to an IR export named `i#get`
+(`parse_instExport`, `instExport_ir_exports`); the REF reading keeps the instance export `i`
+(`decodeRef_instExport`, valid: `instExport_valid`; `instExport_not_inFrag`), and the reference
+machine reports the root instance's **function** exports only: on an executed run under the
+logging host it reports none (`instExport_ref_run`, `decide +kernel` on `instantiateRun`), so
+the IR's export name `i#get` is not found. This is why `Task.startAdequacy` now assumes `InFrag`;
+it is not a proof of the negation of the first statement (that needs the IR's answer to `i#get`
+and the absence of `i#get` from **every** reference run). Flattened names cannot collide with
+top-level export names of valid components (`#` is not in an extern name; `wasm-tools` rejects
+an export `i#get`). Comparing functions of exported instances needs a reference export-path
+lookup (`i`, then `get`), which the session relation `sessRunFrom` does not have: open.
+
+**Open, stated as `Prop`s** (`DecoderBridge.Sem.Defs`; no theorem asserts them): the semantic
+equivalence of the two readings is **entirely unproved** beyond the executed examples.
 
 * `Task.failAdequacy`: for every binary importing exactly `f: func(u32)` whose REF reading is
   valid, an IR instantiation (at `profile neverFail`) failing before any host call implies
   `InstResult.traps` on the reference machine under the logging host (`embL`, `hostConfigX`).
-* `Task.startAdequacy`: for such a binary, an IR play `instPlay t .ready ++ [get(), ws]` (each
-  host call answered `()`) implies the REF session from `hostConfigX` with host log
-  `logOfCalls t` and the first export (by name) returning `ws.map toRefVal`.
+* `Task.startAdequacy`: for such a binary whose REF reading is in the fragment (`InFrag r`; the
+  first statement had no fragment hypothesis, see above), an IR play
+  `instPlay t .ready ++ [get(), ws]` (each host call answered `()`) implies the REF session from
+  `hostConfigX` with host log `logOfCalls t` and the first export (by name) returning
+  `ws.map toRefVal`.
+
+What a proof needs, none of which exists yet: a Core 3.0 store embedding (the IR runs each core
+instance on its own store, imports as host stubs; the reference machine runs all of them in one
+shared store, with direct calls between instances); symbolic lemmas for the reference machine's
+instantiation of the fragment's definitions (`instantiateCore`, `runStart`, `canon lower` under
+the logging host, `canon lift` calls), relating its frames to `refRead`; and a decomposition of
+`Comp.denI` plays into the nodes' plays.
 
 `DecoderBridge.Sem.Thms`: `starts_of : Task.startAdequacy → <the REF half of starts_agree>` and
 `trap_of : Task.failAdequacy → <the REF half of trap_agree>`: the examples are instances of the
-general goals, their hypotheses discharged by the existing theorems. On these two binaries the
-conclusions are also proved outright, by execution (`starts_agree`, `trap_agree`).
+general goals, their hypotheses discharged by the existing theorems (and `starts_inFrag`). On
+these two binaries the conclusions are also proved outright, by execution (`starts_agree`,
+`trap_agree`).
 
 ## Oracle: wasmtime (not a proof, not in CI)
 
@@ -211,7 +278,11 @@ observations and verdict, and the assumptions and tool provenance. Data:
   stated as `DecoderBridge.Task.failAdequacy` and `Task.startAdequacy`).
 * Divergence (not observed by the shapes).
 * Other import types, several imports, nested components, resources, async.
-* A relation between the two readings beyond core instantiations (`DecoderBridge.rel_of_decode`
-  relates which modules are instantiated in which order, not wiring, canonical definitions,
-  imports or exports), and a theorem relating `toRef` to the reference's own reading of
-  `Binary.md`.
+* A relation between the two readings' wiring outside the fragment `InFrag`
+  (`DecoderBridge.rel_of_decode` relates core instantiations for every binary;
+  `relW_of_decode` relates wiring, imports and exports in the fragment); exported instances,
+  on which the readings name different exports (`DecoderBridge.InstExport`); and a theorem
+  relating `toRef` to the reference's own reading of `Binary.md`.
+* That the reference machine's instantiation follows the symbolic reading `refRead` (a
+  simulation between its frames and `refRead`), and every behavioural statement beyond the
+  executed examples.

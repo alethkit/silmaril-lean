@@ -45,9 +45,25 @@ const ComponentTests = (() => {
       row("rows", (b.rows || []).map((r) => `${plink(r.name)} ${badge(r.name)} <span class="muted">(${e(r.shape)}; <code>${e(r.theorem)}</code>)</span>`).join("<br>"));
       row("theorem strength", e(b.strength));
       if (b.ref) row("reference machine", `<code>${e(b.ref.theorem)}</code>: ${e(b.ref.strength)}`);
-      if (b.bridge) row("decoder bridge (IR reading vs REF reading)", `<code>${e(b.bridge.theorem)}</code>: ${e(b.bridge.strength)}`);
+      if (b.bridge) row("decoder bridge: core instantiations", `<code>${e(b.bridge.theorem)}</code>: ${e(b.bridge.strength)}`);
+      if (b.bridge_wiring) row("decoder bridge: wiring and types (fragment)", `<code>${e(b.bridge_wiring.theorem)}</code>: ${e(b.bridge_wiring.strength)}`);
+      if (b.bridge_semantic) row("IR vs REF behaviour", e(b.bridge_semantic));
       row("oracle (wasmtime)", oracleCell(x));
       h += "</tbody></table></div>";
+    }
+    if ((report.regressions || []).length) {
+      h += "<h3>Decoder bridge regressions</h3><p>Binaries on which the two readings (IR: <code>Binary.parseComponent</code>; " +
+        "REF: <code>Conformance.decodeRef</code>) are shown to disagree, from kernel runs; no rows, no oracle run.</p>";
+      for (const g of report.regressions) {
+        h += `<h4><code>${e(g.wasm)}</code></h4><div class="tablebox"><table><tbody>`;
+        const row = (k, v) => { h += `<tr><th style="text-align:left;vertical-align:top">${e(k)}</th><td>${v}</td></tr>`; };
+        row("binary", `<a href="${e(base + g.wasm)}" download>${e(g.wasm)}</a> (${e(g.size)} B, SHA-256 <code>${e(g.sha256)}</code>) · ` +
+          `<a href="${e(base + g.wat)}" target="_blank">${e(g.wat)}</a> · Lean <code>${e(g.lean)}</code>`);
+        row("content", e(g.what));
+        row("facts", (g.facts || []).map((f) => `<code>${e(f.theorem)}</code>: ${e(f.statement)}`).join("<br>"));
+        row("status", e(g.status));
+        h += "</tbody></table></div>";
+      }
     }
     if (oracle && oracle.tools) {
       h += "<p><b>Oracle provenance.</b> " + Object.entries(oracle.tools).map(([k, t]) =>

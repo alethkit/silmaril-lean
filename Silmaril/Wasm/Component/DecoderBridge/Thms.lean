@@ -33,7 +33,9 @@ the reference's instantiation arguments (the reference keeps the arguments, the 
 by name), canonical definitions, types, imports or exports, and it says nothing about behaviour.
 Neither reading's success implies the other's: `lower` rejects most of the component model
 (see `Binary.Lower.Defs`), and `toRef` rejects some forms `lower` ignores (for instance type
-definitions `lower` records as unsupported but never uses). The behavioural statements are `DecoderBridge.Sem`.
+definitions `lower` records as unsupported but never uses). For a decidable fragment of the
+reference syntax, `DecoderBridge.Wire` relates the wiring, imports and exports too
+(`relW_of_decode`). The behavioural statements are `DecoderBridge.Sem`.
 -/
 
 public section

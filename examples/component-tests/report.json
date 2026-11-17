@@ -73,8 +73,13 @@
       },
       "bridge": {
         "theorem": "Silmaril.Wasm.Component.DecoderBridge.starts_rel",
-        "strength": "proved for every binary (DecoderBridge.rel_of_decode): when Binary.parseComponent and Conformance.decodeRef both succeed, they read the same Binary.parse AST and agree on core instantiations (the same core modules, decoded from the same bytes, instantiated in the same order); this binary is an instance. Structural only: wiring, canonical definitions, imports and exports are not related, and behavioural adequacy of Comp.denI against the reference machine is the open goal DecoderBridge.Task.startAdequacy (this binary is an instance of it: DecoderBridge.starts_of)"
-      }
+        "strength": "structural, proved for every binary (DecoderBridge.rel_of_decode): when Binary.parseComponent and Conformance.decodeRef both succeed, they read the same Binary.parse AST and agree on core instantiations (the same core modules, decoded from the same bytes, instantiated in the same order); this binary is an instance"
+      },
+      "bridge_wiring": {
+        "theorem": "Silmaril.Wasm.Component.DecoderBridge.starts_relW",
+        "strength": "wiring and types, proved for every binary whose REF reading is in the decidable fragment DecoderBridge.InFrag (DecoderBridge.relW_of_decode): the IR's imports, exports (names, types, lift/lower chains) and each node's module interface and wiring are those the reference component's definitions name, resolved as the reference machine resolves names (DecoderBridge.refRead); this binary is in the fragment (starts_inFrag, decide +kernel). Syntax only: that the reference machine's run follows refRead is not proved"
+      },
+      "bridge_semantic": "open: behavioural adequacy of Comp.denI against the reference machine is the open goal DecoderBridge.Task.startAdequacy (this binary is an instance of it: DecoderBridge.starts_of); the agreement on this binary rests on executing both machines only"
     },
     {
       "name": "trap",
@@ -112,8 +117,39 @@
       },
       "bridge": {
         "theorem": "Silmaril.Wasm.Component.DecoderBridge.trap_rel",
-        "strength": "proved for every binary (DecoderBridge.rel_of_decode): when Binary.parseComponent and Conformance.decodeRef both succeed, they read the same Binary.parse AST and agree on core instantiations (the same core modules, decoded from the same bytes, instantiated in the same order); this binary is an instance. Structural only: wiring, canonical definitions, imports and exports are not related, and behavioural adequacy of Comp.denI against the reference machine is the open goal DecoderBridge.Task.failAdequacy (this binary is an instance of it: DecoderBridge.trap_of)"
-      }
+        "strength": "structural, proved for every binary (DecoderBridge.rel_of_decode): when Binary.parseComponent and Conformance.decodeRef both succeed, they read the same Binary.parse AST and agree on core instantiations (the same core modules, decoded from the same bytes, instantiated in the same order); this binary is an instance"
+      },
+      "bridge_wiring": {
+        "theorem": "Silmaril.Wasm.Component.DecoderBridge.trap_relW",
+        "strength": "wiring and types, proved for every binary whose REF reading is in the decidable fragment DecoderBridge.InFrag (DecoderBridge.relW_of_decode): the IR's imports, exports (names, types, lift/lower chains) and each node's module interface and wiring are those the reference component's definitions name, resolved as the reference machine resolves names (DecoderBridge.refRead); this binary is in the fragment (trap_inFrag, decide +kernel). Syntax only: that the reference machine's run follows refRead is not proved"
+      },
+      "bridge_semantic": "open: behavioural adequacy of Comp.denI against the reference machine is the open goal DecoderBridge.Task.failAdequacy (this binary is an instance of it: DecoderBridge.trap_of); the agreement on this binary rests on executing both machines only"
+    }
+  ],
+  "regressions": [
+    {
+      "name": "instexport",
+      "wasm": "instexport.wasm",
+      "wat": "instexport.wat",
+      "sha256": "8ba16937335f45a0115304ee7c4feed05f727ea42d1ae4bbcad70178f62039c5",
+      "size": 117,
+      "lean": "Silmaril.Wasm.Component.DecoderBridge.instExportBytes",
+      "what": "an exported instance: the core get (returning 42) is lifted and exported through an inline instance i; the component also imports f: func(x: u32), unused",
+      "facts": [
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.parse_instExport",
+          "statement": "the IR reading (Binary.parseComponent) is instExportComp; its only export is named i#get (instExport_ir_exports)"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.decodeRef_instExport",
+          "statement": "the REF reading (Conformance.decodeRef) is instExportRef, which exports the instance i; it is valid (instExport_valid) and not in the fragment InFrag (instExport_not_inFrag)"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.instExport_ref_run",
+          "statement": "an executed reference run (logging host, hostConfigX, decide +kernel on instantiateRun) instantiates it with no function export, so the lookup of i#get fails on that run"
+        }
+      ],
+      "status": "demonstrated mismatch of the two readings' export names (kernel runs), not a disproof of the first statement of Task.startAdequacy (the IR's answer to i#get and the absence of i#get from every reference run are not proved); excluded by the fragment hypothesis InFrag now in Task.startAdequacy; comparing instance-exported functions needs a reference export-path lookup, which is open"
     }
   ]
 }

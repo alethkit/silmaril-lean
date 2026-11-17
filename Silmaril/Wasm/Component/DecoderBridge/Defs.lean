@@ -39,7 +39,8 @@ This module names the parts of the shared AST and of each output that the bridge
   definition `ref` with `decode? m.bytes = some ref`.
 
 `Rel` says nothing about the IR wiring programs against the reference's instantiation
-arguments, about canonical definitions, imports or exports.
+arguments, about canonical definitions, imports or exports; `DecoderBridge.Wire` relates them on
+a decidable fragment.
 -/
 
 @[expose] public section

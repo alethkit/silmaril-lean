@@ -30,6 +30,22 @@ test("the report, the oracle and the committed binaries name the same bytes", ()
   }
 });
 
+test("the decoder bridge regressions name their bytes and do not claim a disproof", () => {
+  const regs = report.regressions || [];
+  assert.deepEqual(regs.map((g) => g.name), ["instexport"]);
+  const h = CT.render(report, oracle, {});
+  for (const g of regs) {
+    assert.equal(g.sha256, sha(g.wasm), g.wasm);
+    assert.equal(g.size, fs.statSync(path.join(dir, g.wasm)).size, g.wasm);
+    assert.ok(fs.existsSync(path.join(dir, g.wat)), g.wat);
+    assert.ok(!(g.name in oracle.binaries), g.name);
+    assert.ok(h.includes(g.wasm) && h.includes(g.sha256), g.name);
+    for (const f of g.facts) assert.ok(h.includes(f.theorem), f.theorem);
+    assert.ok(g.status.includes("not a disproof"), g.name);
+  }
+  assert.ok(h.includes("Decoder bridge regressions"));
+});
+
 test("the oracle agrees with the expectations", () => {
   const s = oracle.binaries.starts, t = oracle.binaries.trap;
   assert.deepEqual(s.observed, { instantiates: true, import_trace: [1, 2], calls: 2, get: 42 });
@@ -52,10 +68,13 @@ test("the page shows binaries, imports, expectations, rows, strength, assumption
     assert.ok(b.ref.strength.includes("Conformance.decodeRef reads from these bytes"), b.name);
     assert.ok(b.ref.strength.includes("not a general binary-to-REF equivalence"), b.name);
     assert.ok(h.includes(b.bridge.theorem), b.name);
-    assert.ok(b.bridge.strength.includes("proved for every binary (DecoderBridge.rel_of_decode)"), b.name);
+    assert.ok(b.bridge.strength.startsWith("structural, proved for every binary (DecoderBridge.rel_of_decode)"), b.name);
     assert.ok(b.bridge.strength.includes("agree on core instantiations"), b.name);
-    assert.ok(b.bridge.strength.includes("Structural only"), b.name);
-    assert.ok(b.bridge.strength.includes("is the open goal DecoderBridge.Task."), b.name);
+    assert.ok(h.includes(b.bridge_wiring.theorem), b.name);
+    assert.ok(b.bridge_wiring.strength.includes("in the decidable fragment DecoderBridge.InFrag (DecoderBridge.relW_of_decode)"), b.name);
+    assert.ok(b.bridge_wiring.strength.includes("Syntax only"), b.name);
+    assert.ok(b.bridge_semantic.startsWith("open: "), b.name);
+    assert.ok(b.bridge_semantic.includes("is the open goal DecoderBridge.Task."), b.name);
   }
   assert.ok(!h.includes("hand transcription"));
   assert.ok(h.includes("f: func(x: u32)"));
