@@ -51,10 +51,14 @@ check(report.kind === "silmaril.wasm-acceptor-harness.report/v2", `the committed
     if (c.registry_name && registry[c.registry_name]) check(registry[c.registry_name].sha256 === c.sha256, `claim: ${c.registry_name} has its registered SHA-256`);
   }
   for (const t of claims.flatMap((c) => c.theorems)) {
-    const file = path.join(repo, t.module.replace(/\./g, "/") + ".lean");
+    // a library module (Silmaril/…) or a self-test module (examples/project/ProjectSelfTest/…)
+    const rel = t.module.replace(/\./g, "/") + ".lean";
+    const file = [path.join(repo, rel), path.join(repo, "examples/project", rel)].find((f) => fs.existsSync(f)) || path.join(repo, rel);
     if (!fs.existsSync(file)) { console.log(`skip ${t.decl}: ${t.module} is not on this branch`); continue; }
     const short = t.decl.split(".").pop();
-    check(new RegExp(`^theorem ${short.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "m").test(fs.readFileSync(file, "utf8")),
+    // `theorem x`, or `public theorem <namespace>.x` (a declaration with its full name)
+    const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    check(new RegExp(`^(public )?theorem (${esc(t.decl)}|${esc(short)})\\b`, "m").test(fs.readFileSync(file, "utf8")),
       `${t.module} states ${short}`);
   } }
 
