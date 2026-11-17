@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Component.DecoderBridge.FirstCore.Defs
+public import Silmaril.Wasm.Component.InstWired.Defs
 
 /-!
 # The first core instantiation with lowered imports: the fragment
@@ -148,6 +149,23 @@ open Silmaril.Games Silmaril.Games.Inst
 open Silmaril.Wasm.Component.InstRef Silmaril.Wasm.Component.InstLitmus
 open Silmaril.Wasm.Component.InstTests Silmaril.Wasm.Component.InstTestsRef
 open Silmaril.Wasm.Component.Reference.Core3Adder (first)
+
+open Silmaril.Wasm.SingleThreaded (profile neverFail)
+
+/-- **A node outcome with import calls**: the engine instance of the decoded module `cm`
+answers `inst` with `a` (at `profile neverFail`) after the import calls `ys`, each answered by
+its wiring `args` (over the `n` imports) with **one** call `x` of the component's imports,
+whose answer is the call's: the calls `x` are `t`. (`NodeQuiet` is the case where every import
+call is answered at once and `t = []`.) -/
+def NodeCalls (n : Nat) (a : InstAns Unit) (cm : Binary.CoreMod) (args : List Impl)
+    (t : List (Σ _ : sigU.Op, Option Payload)) : Prop :=
+  ∃ ys : List (Σ _ : (sigN (CoreModule.imports cm).length).Op, Option Payload),
+    EngineInst (core3P (profile neverFail))
+      (Param.instOfI (core3P (profile neverFail)) (Binary.coreModule cm)
+        (CoreModule.imports cm) (CoreModule.exports cm))
+      (CoreModule.imports cm) ys a ∧
+    List.Forall₂ (fun y x => ∃ k, implsN n args (CoreModule.imports cm).length y.1 = .call x.1 k ∧
+      k x.2 = .pure y.2) ys t
 
 /-- **Open goal, the cases of `Task.failRefWired` not covered by `FirstCore.Thms` and
 `FirstImp.Thms`**: a failure of a node `k ≥ 1`, or a binary outside the relaxed first-core
