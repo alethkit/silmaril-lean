@@ -297,7 +297,8 @@ def Task.coreRunShared : Prop :=
 
 /-- **Open goal, the session call through `canon lift`**: from a configuration after an
 instantiation (host in control, no lockdown, one component instance, fresh or after one start
-thread, no top-level calls), a session call of the option-less lift (instance `0`) at a type read
+thread, no top-level calls, a typed core store whose host functions are the trampolines), a
+session call of the option-less lift (instance `0`) at a type read
 as `func() -> u32` of a core function whose host-free run from the core store returns one `i32`
 `v` returns `u32 v`, leaving the host state unchanged. -/
 def Task.callLift : Prop :=
@@ -306,6 +307,7 @@ def Task.callLift : Prop :=
     (v : BitVec 32),
     M.ctl = [] → M.store.lockdown = false → (∃ ι, M.store.insts = [ι] ∧ InstOk ι) →
     M.pending = [] → M.results = [] →
+    Silmaril.Wasm.Execution.Core.StoreOk M.store.core → HostTy M.store.core →
     ArenaField.funcs.get? M.store f = some (.lifted a ty {} ⟨0⟩) → TyRel ty getTy →
     Silmaril.Wasm.Component.Engine.CoreEngine.Steps (core3 neverFail) (M.store.core, (core3 neverFail).invoke a []) y →
     (core3 neverFail).status y.1 y.2 = .returned (.values [⟨.int .i32, v⟩]) →
