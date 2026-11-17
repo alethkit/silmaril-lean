@@ -34,7 +34,9 @@ admitted hosts (`blobEcho_not_exact`). For hosts that never trap `blob` it is ex
 relates three events of one invocation (the chunk read, the bytes `blob` observes, the handle
 `finish` reports): the per-call contracts of `MemContract` constrain each callout on its own,
 and `tagTraces_pre` gives no order or multiplicity of the calls of an invocation, so a proof
-needs a history-sensitive bridge, which does not exist yet.
+needs a history-sensitive bridge: see `Silmaril.Wasm.Game.HandleAccept.MemSound.Ghost`
+(ghost state in host codes) and the exact, stale-chunk-safe `drainEcho`
+(`Silmaril.Wasm.Game.HandleAccept.MemSound.Exact`, `drainEcho_exact`).
 -/
 
 @[expose] public section
