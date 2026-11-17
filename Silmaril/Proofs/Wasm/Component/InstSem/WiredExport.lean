@@ -513,18 +513,20 @@ theorem denI_ex_inv {C : CoreSemI M} {I : Iface} {ps : List (M × List Impl)}
     | call h₁ => cases h₁
 
 /-- **An export call after a ready instantiation of an import-wired component, at the node owning
-it**: if the component's export makes one call of the environment's function `r` (on `pl`,
-answered `some y`), that function is export `r - o` of a node `j`, whose instantiation round
-(after the nodes before it, from the `n` imports, offset `o`) is followed by that export round
-without calls below; the nodes' instantiations split `t`. -/
+it**: if the component's export makes one call of the environment's function `r` (on `pl`), answered
+with a value `y`, that function is export `r - o` of a node `j`, whose instantiation round (after
+the nodes before it, from the `n` imports, offset `o`) is followed by that export round without
+calls below; the nodes' instantiations split `t`. -/
 theorem denI_ex_node {C : CoreSemI M} {I : Iface} {ps : List (M × List Impl)}
     {xs : List Export} (hw : ImportWired I.length ps) {t : List (Call sigU)} {q : sigU.Op}
-    {n : Option Payload} {r : Nat} {pl y : Payload}
+    {n : Option Payload} {r : Nat} {pl : Payload}
     (hone : ∀ cs, Prog.Runs (exportsH (envAfter I.length (coreNodes ps)) xs q) cs n →
-      cs = [⟨(r, pl), some y⟩])
+      ∃ y, cs = [⟨(r, pl), some y⟩])
     (h : instPlay (F := sigU) t .ready ++ [askEx q, ansEx q n] ∈
       (Comp.mk I (coreNodes ps) xs).denI C) :
-    ∃ ts : List (List (Call sigU)), t = ts.flatten ∧
+    ∃ y : Payload,
+      Prog.Runs (exportsH (envAfter I.length (coreNodes ps)) xs q) [⟨(r, pl), some y⟩] n ∧
+      ∃ ts : List (List (Call sigU)), t = ts.flatten ∧
       List.Forall₂ (fun p tj => instPlay (F := sigU) tj .ready ∈ coreNodeI C I.length p.1 p.2)
         ps ts ∧
       ∃ (j : Nat) (p : M × List Impl) (tj : List (Call sigU)), ps[j]? = some p ∧ ts[j]? = some tj ∧
@@ -534,7 +536,8 @@ theorem denI_ex_node {C : CoreSemI M} {I : Iface} {ps : List (M × List Impl)}
           (⟨(r - (I.length + coreWidth (ps.take j)), pl), [], some y⟩ : Round sigU sigU)] ∈
           coreNodeI C I.length p.1 p.2 := by
   obtain ⟨ds, hds, hrun, hD⟩ := denI_ex_inv h
-  have hc := hone _ hrun
+  obtain ⟨y, hc⟩ := hone _ hrun
+  refine ⟨y, hc ▸ hrun, ?_⟩
   rcases ds with _ | ⟨⟨dq, dcs, da⟩, _ | _⟩
   · cases hc
   · simp only [List.map_cons, List.map_nil, Round.call, List.cons.injEq, and_true] at hc

@@ -5,8 +5,10 @@ public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.ComposeX
 /-!
 # The export call from the invariant, in pieces
 
-`exportRefX_of`: **`Task.exportRefX` from `Task.exportIR`, `Task.coreRunShared` and
-`Task.callLift`**. From `NodesInv`: the reading's first export is the reference scope's first
+`exportRef_at`: **the export call from the invariant `NodesInv` at node ends `xs` with the IR's
+export phase `ExportAt`**, from `Task.coreRunShared` and `Task.callLift`; `startAdequacyFrag_of_IR`:
+the start goal on the fragment from `Task.exportIR` (which chooses the node ends) and these two.
+From `NodesInv`: the reading's first export is the reference scope's first
 export (`FrameRelX.exports`), the option-less lift of the core function at `a`
 (`FuncRelS`), export `i` of the core instance `k` of the reading (`EnvAddr`). The IR's export phase
 names the same core instance as node `j`, whose core instance is the relocated module instance
@@ -67,11 +69,21 @@ theorem forall₂_getElem?_left {α β : Type} {P : α → β → Prop} :
   | _ :: _, _ :: _, .cons hp _, 0, _, h => by cases h; exact ⟨_, rfl, hp⟩
   | _ :: _, _ :: _, .cons _ hr, j + 1, _, h => forall₂_getElem?_left hr h
 
-/-- **The export call from the invariant, from its three pieces.** -/
-theorem exportRefX_of (hA : Task.exportIR) (hB : Task.coreRunShared) (hC : Task.callLift) :
-    Task.exportRefX := by
-  intro b c r ps xs n ws M inst es hpc hr hv hf himp hnodes hex hu hxs hp hN
-  obtain ⟨R, e, hR, hhead, hall⟩ := hA b c r ps xs n ws hpc hr hv hf himp hnodes hex hu hxs hp
+/-- **The export call from the invariant, at node ends with the IR's export phase**, from the
+node's run in the shared core store and the session call through `canon lift`. -/
+theorem exportRef_at (hB : Task.coreRunShared) (hC : Task.callLift) {b : ByteArray}
+    {c : Comp Binary.CoreMod} {r : RefComponent} {ps : List (Binary.CoreMod × List Impl)}
+    {xs : List NodeRun} {n : String} {ws : List Silmaril.Wasm.Component.Val}
+    {M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)} {inst : InstId}
+    {es : List (String × FuncId)}
+    (hpc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hf : MultiImpFrag r)
+    (himp : c.imports = hostI) (hnodes : c.nodes = coreNodes ps)
+    (hxs : List.Forall₂ (fun q x => NodeEnd hostI.length q.1 q.2 x) ps xs)
+    (hA : ExportAt r xs n ws) (hN : NodesInv r xs M inst es) :
+    ∃ f M', es.lookup n = some f ∧
+      LinkedSession.SessRun first.prof (Host.ofEmbedder embL) M 0 [(f, [])]
+        [some (ws.map toRefVal)] M' ∧ M'.host = M.host := by
+  obtain ⟨R, e, hR, hhead, hall⟩ := hA
   obtain ⟨R', sc, pre, mi, cargs, post, esN, hR', hs, hes, hF, hci, hNA⟩ := hN.frame
   rw [hR] at hR'
   cases hR'
@@ -118,5 +130,22 @@ theorem exportRefX_of (hA : Task.exportIR) (hB : Task.coreRunShared) (hC : Task.
   obtain ⟨M', hS, hh⟩ := hC M fid (g.fnMap ai) ty y v hN.ctl hN.lock hN.depth ⟨ι, hι, hok⟩ hN.calls.1
     hN.calls.2 hN.core.1 hN.core.2 hfun hty hy₁ hy₂
   exact ⟨fid, M', hl, hS, hh⟩
+
+/-- **The start goal on the fragment from the IR's export phase, the node's run in the shared core
+store and the session call through `canon lift`**: the IR's play has node ends with its calls and
+the export phase (`Task.exportIR`); the reference machine finishes the instantiation at those node
+ends with the invariant (`nodesRefX`); the export call matches (`exportRef_at`). -/
+theorem startAdequacyFrag_of_IR (hA : Task.exportIR) (hB : Task.coreRunShared)
+    (hC : Task.callLift) : Task.startAdequacyFrag := by
+  intro b c r t n ws hpc hr hv hf himp hex hu hp
+  obtain ⟨-, hw, -, -⟩ := multiImpFrag_inv hf
+  obtain ⟨ps, hnodes, -⟩ := nodesInst_of_startPlay hpc hr hw hp
+  obtain ⟨xs, rfl, hxs, hE⟩ := hA b c r ps t n ws hpc hr hv hf himp hnodes hex hu hp
+  obtain ⟨M', inst, es, hI, hh, hN⟩ := nodesRefX b c r ps xs hpc hr hf himp hnodes hu hxs
+  obtain ⟨f, M'', hl, hS, hh'⟩ := exportRef_at hB hC hpc hr hf himp hnodes hxs hE hN
+  refine ⟨M', inst, es, [f], M'', hI, ?_, ?_, ?_⟩
+  · simp [hl]
+  · exact hS
+  · rw [hh', hh]
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi

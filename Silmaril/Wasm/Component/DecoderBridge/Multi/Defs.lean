@@ -36,7 +36,9 @@ fragment from them, so the decomposition is checked.
   primitive function types; aliases of core function exports (the core modules' export names
   distinct, so that an alias finds the export the IR wires); option-less `canon lift`s; and
   function exports;
-* the component's first export has type `func() -> u32` (`isGetTy`).
+* the component's first export has type `func() -> u32` (`isGetTy`), and the reading wires it as
+  the option-less `canon lift` at that type of a function of the environment, with no other adapter
+  (`liftsCall`: so not the lift of a `canon lower`ed import, nor an import re-exported).
 
 ## The reference machine at a definition
 
@@ -116,6 +118,12 @@ def isGetTy : FuncTy → Bool
   | ⟨[], [.u32]⟩ => true
   | _ => false
 
+/-- The wiring is `lift(func() -> u32)` of a call of an environment function, with no other
+adapter. -/
+def liftsCall : Impl → Bool
+  | ⟨[.lift ft], .call _⟩ => isGetTy ft
+  | _ => false
+
 /-- The component function type `func(x: u32)`. -/
 def fFuncType : Syntax.FuncType := { params := [("x", .prim .u32)], result := none }
 
@@ -163,7 +171,7 @@ def multiImpFrag (r : RefComponent) : Bool :=
   firstImpFrag r && hostWired r &&
     (match refRead r with
       | some R => lowWired R && (R.exports.head?.map fun e => isGetTy e.ty).getD false &&
-          splitNodes R
+          splitNodes R && (R.exports.head?.map fun e => liftsCall e.impl).getD false
       | none => false) &&
     (match firstCore? r with
       | some (pre, _, _, post) =>

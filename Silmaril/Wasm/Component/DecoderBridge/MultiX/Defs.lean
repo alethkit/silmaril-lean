@@ -242,36 +242,47 @@ def Task.exportRefX : Prop :=
 /-- The IR function type `func() -> u32`. -/
 abbrev getTy : FuncTy := ⟨[], [.u32]⟩
 
-/-- **Open goal, the IR's export phase** (IR only): in the fragment, after the nodes' instantiation
-ending at `xs`, the IR's first export `n` answering a call with no arguments with `ws` is the
-option-less `canon lift` of type `func() -> u32` of export `e` of the environment; whenever `e` is
-export `i` (named `nm`) of the core instance `k` of the reading, that core instance is the one of
-node `j` (after the inline instances of the definitions before the first core instantiation), and
-the function exported as `nm` by the node's module instance, run in the store its start function
-left without host calls, returns one `i32` value `v`, with `ws = [u32 v]`. -/
+/-- **The IR's export phase at the node ends `xs`** (IR side): the reading's first export is the
+option-less `canon lift` of type `func() -> u32` of export `e` of the environment, named `n`;
+whenever `e` is export `i` (named `nm`) of the core instance `k` of the reading, that core instance
+is the one of node `j` (after the inline instances of the definitions before the first core
+instantiation), and the function exported as `nm` by the node's module instance, run in the store
+its start function left without host calls, returns one `i32` value `v`, with `ws = [u32 v]`. -/
+def ExportAt (r : RefComponent) (xs : List NodeRun) (n : String)
+    (ws : List Silmaril.Wasm.Component.Val) : Prop :=
+  ∃ (R : RSt) (e : Nat), refRead r = some R ∧
+    R.exports.head? = some ⟨n, getTy, ⟨[.lift getTy], .call e⟩⟩ ∧
+    ∀ (pre : RefComponent) (mi : Nat) (cargs : List (String × Nat)) (post : RefComponent)
+      (k base i : Nat) (exps : CoreIface) (nm : String) (cft : CoreFuncTy),
+      firstCore? r = some (pre, mi, cargs, post) → R.coreInsts[k]? = some (.node base exps) →
+      exps[i]? = some (nm, cft) → e = base + i →
+      ∃ (j : Nat) (x : NodeRun) (a : Nat) (c' : irEng.Config Nat) (v : BitVec 32),
+        k = (preInsts pre).length + j ∧ xs[j]? = some x ∧
+        (irEng.exports x.minst).lookup nm = some (.func a) ∧
+        Silmaril.Wasm.Component.Engine.CoreEngine.Steps irEng (x.store, irEng.invoke a []) c' ∧
+        irEng.status c'.1 c'.2 = .returned (.values [⟨.int .i32, v⟩]) ∧ ws = [.u32 v]
+
+/-- **The IR's export phase** (IR only; proved: `MultiX.Thms.exportIR`): in the fragment, the IR's
+instantiation play with the calls `t`, each answered `()`, followed by its first export `n`
+answering a call with no arguments with `ws`, has node ends `xs` with the calls `t`
+(`NodeEnd`, node by node) at which the export phase is `ExportAt r xs n ws`.
+
+(The node ends are chosen by the play, not given: the instantiation and the export call are read
+off one decomposition of the play, so the export's run starts from the store of the same start
+run.) -/
 def Task.exportIR : Prop :=
   ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
-    (ps : List (Binary.CoreMod × List Impl)) (xs : List NodeRun) (n : String)
-    (ws : List Silmaril.Wasm.Component.Val),
+    (ps : List (Binary.CoreMod × List Impl)) (t : List (Σ _ : sigU.Op, Option Payload))
+    (n : String) (ws : List Silmaril.Wasm.Component.Val),
     Binary.parseComponent b = .ok c → decodeRef b = .ok r → (∃ ct, Valid Features.p2 r ct) →
     MultiImpFrag r → c.imports = hostI → c.nodes = coreNodes ps →
     (c.exports.map (·.name)).head? = some n →
-    (∀ x ∈ (xs.map NodeRun.calls).flatten, x.2 = InstTests.unitV) →
-    List.Forall₂ (fun q x => NodeEnd hostI.length q.1 q.2 x) ps xs →
-    instPlay (F := sigU) (xs.map NodeRun.calls).flatten .ready ++
+    (∀ x ∈ t, x.2 = InstTests.unitV) →
+    instPlay (F := sigU) t .ready ++
         [askEx (0, .vals []), ansEx (0, .vals []) (some (.vals ws))] ∈
       c.denI (Binary.coreModSemI (profile neverFail)) →
-    ∃ (R : RSt) (e : Nat), refRead r = some R ∧
-      R.exports.head? = some ⟨n, getTy, ⟨[.lift getTy], .call e⟩⟩ ∧
-      ∀ (pre : RefComponent) (mi : Nat) (cargs : List (String × Nat)) (post : RefComponent)
-        (k base i : Nat) (exps : CoreIface) (nm : String) (cft : CoreFuncTy),
-        firstCore? r = some (pre, mi, cargs, post) → R.coreInsts[k]? = some (.node base exps) →
-        exps[i]? = some (nm, cft) → e = base + i →
-        ∃ (j : Nat) (x : NodeRun) (a : Nat) (c' : irEng.Config Nat) (v : BitVec 32),
-          k = (preInsts pre).length + j ∧ xs[j]? = some x ∧
-          (irEng.exports x.minst).lookup nm = some (.func a) ∧
-          Silmaril.Wasm.Component.Engine.CoreEngine.Steps irEng (x.store, irEng.invoke a []) c' ∧
-          irEng.status c'.1 c'.2 = .returned (.values [⟨.int .i32, v⟩]) ∧ ws = [.u32 v]
+    ∃ xs : List NodeRun, (xs.map NodeRun.calls).flatten = t ∧
+      List.Forall₂ (fun q x => NodeEnd hostI.length q.1 q.2 x) ps xs ∧ ExportAt r xs n ws
 
 /-- **The node's run in the shared core store** (proved: `MultiX.Thms.coreRunShared`): in the
 fragment, a host-free run of an exported function of node `j` from the store its start function

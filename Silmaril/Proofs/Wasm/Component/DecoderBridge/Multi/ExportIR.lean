@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Component.DecoderBridge.MultiX.Defs
 public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.IR
 public import Silmaril.Proofs.Wasm.Component.InstSem.WiredExport
+public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.ComposeX
 
 /-!
 # The IR's export phase (`Task.exportIR`)
@@ -621,5 +622,71 @@ theorem node_export {p : Binary.CoreMod × List Impl} (hno : NodeOk p)
     cases hrun with
     | nil run => exact run
   · cases hcal
+
+/-! ## The export on top -/
+
+/-- `liftArgs` at `u32`. -/
+theorem liftArgs_u32 {ys : List Flat} {ws : List Silmaril.Wasm.Component.Val}
+    (h : liftArgs [.u32] ys = some ws) : ∃ v : BitVec 32, ys = [⟨.int .i32, v⟩] ∧ ws = [.u32 v] := by
+  unfold liftArgs at h
+  split at h
+  · rename_i vs hl
+    cases h
+    match ys, hl with
+    | ⟨.int .i32, v⟩ :: r, hl =>
+      simp only [ValTy.liftList, ValTy.lift, Option.map_some, Option.some.injEq,
+        Prod.mk.injEq] at hl
+      obtain ⟨rfl, rfl⟩ := hl
+      exact ⟨v, rfl, rfl⟩
+    | [], hl => simp [ValTy.liftList, ValTy.lift] at hl
+    | ⟨.int .i64, _⟩ :: _, hl => simp [ValTy.liftList, ValTy.lift] at hl
+    | ⟨.float _, _⟩ :: _, hl => simp [ValTy.liftList, ValTy.lift] at hl
+  · cases h
+
+/-- **The option-less lift of `func() -> u32` of a call of `e`, called without arguments**: one
+call of `e` without arguments (in range), its answer lifted. -/
+theorem runs_liftGet {env e : Nat} {cs : List (Call sigU)} {a : Option Payload}
+    (h : Prog.Runs (Impl.prog env ⟨[.lift getTy], .call e⟩ (.vals [])) cs a) :
+    (∃ r : Option Payload, e < env ∧ cs = [⟨(e, .flat []), r⟩] ∧
+      a = r.bind (Adapter.lift getTy).up) ∨ a = none := by
+  simp only [Impl.prog, runChain, Adapter.down, getTy, checkLower, ValTy.checkList, ↓reduceIte,
+    lowerArgs, ValTy.lowerList, Option.map_some, Target.prog] at h
+  by_cases he : e < env
+  · simp only [he, ↓reduceIte, Prog.bind] at h
+    cases h with
+    | call h =>
+      cases h
+      exact .inl ⟨_, he, rfl, rfl⟩
+  · simp only [he, ↓reduceIte, Prog.bind] at h
+    cases h
+    exact .inr rfl
+
+theorem coreWidth_take_succ {M : Type} [CoreModule M] {ps : List (M × List Impl)} {j : Nat}
+    {p : M × List Impl} (hp : ps[j]? = some p) :
+    coreWidth (ps.take (j + 1)) = coreWidth (ps.take j) + (CoreModule.exports p.1).length := by
+  rw [List.take_add_one, hp, coreWidth_append]
+  simp [coreWidth]
+
+theorem coreWidth_take_mono {M : Type} [CoreModule M] (ps : List (M × List Impl)) {a b : Nat}
+    (h : a ≤ b) : coreWidth (ps.take a) ≤ coreWidth (ps.take b) := by
+  obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le h
+  rw [List.take_add, coreWidth_append]
+  omega
+
+/-- **Each environment function is exported by at most one node.** -/
+theorem node_unique {M : Type} [CoreModule M] {ps : List (M × List Impl)} {o j j' : Nat}
+    {p p' : M × List Impl} (hp : ps[j]? = some p) (hp' : ps[j']? = some p') {e : Nat}
+    (h₁ : o + coreWidth (ps.take j) ≤ e)
+    (h₂ : e < o + coreWidth (ps.take j) + (CoreModule.exports p.1).length)
+    (h₁' : o + coreWidth (ps.take j') ≤ e)
+    (h₂' : e < o + coreWidth (ps.take j') + (CoreModule.exports p'.1).length) : j = j' := by
+  rcases Nat.lt_trichotomy j j' with h | h | h
+  · have := coreWidth_take_mono ps (show j + 1 ≤ j' by omega)
+    rw [coreWidth_take_succ hp] at this
+    omega
+  · exact h
+  · have := coreWidth_take_mono ps (show j' + 1 ≤ j by omega)
+    rw [coreWidth_take_succ hp'] at this
+    omega
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi

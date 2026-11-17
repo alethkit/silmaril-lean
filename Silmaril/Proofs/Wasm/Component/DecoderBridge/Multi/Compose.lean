@@ -8,7 +8,7 @@ public import Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstCore.Main
 /-!
 # The start goal on `MultiImpFrag` from its pieces
 
-* `multiImpFrag_inv`: what the fragment says, unpacked;
+* `multiImpFrag_inv`, `multiImpFrag_split`, `multiImpFrag_lifts`: what the fragment says, unpacked;
 * `nodes_ne_nil`: in the fragment, the IR reading has a first node;
 * `startAdequacyFrag_of_nodes`: `Task.startAdequacyFrag` from `Task.nodeCallsIR`,
   `Task.nodesRef` and `Task.exportRef`: the IR play splits into its node-by-node instantiation
@@ -40,7 +40,7 @@ theorem multiImpFrag_inv {r : RefComponent} (h : MultiImpFrag r) :
   · split at hR
     · rename_i R hR'
       simp only [Bool.and_eq_true] at hR
-      exact ⟨R, hR', hR.1.1, hR.1.2⟩
+      exact ⟨R, hR', hR.1.1.1, hR.1.1.2⟩
     · cases hR
   · split at hp
     · rename_i pre mi cargs post hs
@@ -51,6 +51,18 @@ theorem multiImpFrag_inv {r : RefComponent} (h : MultiImpFrag r) :
 /-- In the fragment, every node of the REF reading is in the split fragment (`splitNodes`). -/
 theorem multiImpFrag_split {r : RefComponent} (h : MultiImpFrag r) :
     ∃ R, refRead r = some R ∧ splitNodes R = true := by
+  unfold MultiImpFrag multiImpFrag at h
+  simp only [Bool.and_eq_true] at h
+  obtain ⟨⟨-, hR⟩, -⟩ := h
+  split at hR
+  · rename_i R hR'
+    simp only [Bool.and_eq_true] at hR
+    exact ⟨R, hR', hR.1.2⟩
+  · cases hR
+
+/-- In the fragment, the reading wires the first export as `liftsCall`. -/
+theorem multiImpFrag_lifts {r : RefComponent} (h : MultiImpFrag r) :
+    ∃ R, refRead r = some R ∧ (R.exports.head?.map fun e => liftsCall e.impl).getD false = true := by
   unfold MultiImpFrag multiImpFrag at h
   simp only [Bool.and_eq_true] at h
   obtain ⟨⟨-, hR⟩, -⟩ := h
