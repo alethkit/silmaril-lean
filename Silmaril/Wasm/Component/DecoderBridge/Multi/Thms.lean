@@ -4,6 +4,7 @@ public import Silmaril.Wasm.Component.DecoderBridge.Multi.Defs
 public import Silmaril.Wasm.Component.DecoderBridge.Sim.Thms
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.Compose
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.IR
+import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.First
 
 /-!
 # Several core instantiations with lowered imports: theorems
@@ -39,10 +40,17 @@ the calls `t`, each answered `()`, is the nodes' `NodeCalls` with the calls `ts`
 theorem nodeCallsIR : Task.nodeCallsIR :=
   Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.nodeCallsIR
 
-/-- The start goal on the fragment from pieces (b), (c) and (d). -/
-theorem startAdequacyFrag_of_bcd (hb : Task.firstNodeRef) (hc : Task.laterNodesRef)
-    (hd : Task.exportRef) : Task.startAdequacyFrag :=
-  startAdequacyFrag_of nodeCallsIR hb hc hd
+/-- **Piece (b), the first node with its start epilogue**: if the IR's first node is ready after
+the calls `t₀`, the reference machine runs the definitions up to and including the first core
+instantiation (root checks, trampolines, preparation, the start function with its host calls and
+its epilogue), with the host log `logOfCalls t₀`. -/
+theorem firstNodeRef : Task.firstNodeRef :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.firstNodeRef
+
+/-- **The start goal on the fragment from the remaining pieces (c) and (d).** -/
+theorem startAdequacyFrag_of_cd (hc : Task.laterNodesRef) (hd : Task.exportRef) :
+    Task.startAdequacyFrag :=
+  startAdequacyFrag_of nodeCallsIR firstNodeRef hc hd
 
 /-- `starts.wasm` is in the fragment. -/
 theorem starts_multiImpFrag : MultiImpFrag startsRef := by decide +kernel
@@ -55,5 +63,13 @@ theorem starts_of_frag (h : Task.startAdequacyFrag) :
         [("get", [])] :=
   h startsBytes startsComp startsRef startsTrace "get" [.u32 42] parse_starts decodeRef_starts
     starts_valid starts_multiImpFrag rfl rfl (by simp [startsTrace]) (starts_inst _)
+
+/-- **`starts.wasm` from the IR's run, from the remaining pieces (c) and (d).** -/
+theorem starts_of_cd (hc : Task.laterNodesRef) (hd : Task.exportRef) :
+    (([some [toRefVal (.u32 42)]] : List (Option (List Value.Val))),
+        ((), logOfCalls startsTrace)) ∈
+      sessRunFrom first.prof (Host.ofEmbedder embL) hostConfigX startsRef (importArgs hostI)
+        [("get", [])] :=
+  starts_of_frag (startAdequacyFrag_of_cd hc hd)
 
 end Silmaril.Wasm.Component.DecoderBridge
