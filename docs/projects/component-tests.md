@@ -340,9 +340,10 @@ equivalence of the two readings is **entirely unproved** beyond the executed exa
   The export call after `ready` is not decomposed (a node's export phase is reached through the
   routing layer from the right; not done).
 
-What the rest needs: the remaining cases `Task.failRefWiredRest'` (a failing node `k ≥ 1` can
-now be reached through the ready nodes before it, `LaterCore`, `Nodes`; its trap in the shared
-store is not done), other import shapes, modules with memories, tables or segments; for
+What the rest needs: the remaining cases `Task.failRefWiredRest''` (a quiet failure of a node
+`k ≥ 1` of a binary of `MultiImpFrag` is proved: the ready nodes before it run as in
+`Task.nodesRef`, the failing node's preparation or start trap is mapped into the shared store,
+`LaterFail.laterFail_ref`; `failRefWiredRest'_of_rest''`; the rest is open), other import shapes, modules with memories, tables or segments; for
 `Task.startAdequacy` also the export phase on both sides (`Task.exportRef`: the IR's export call
 decomposed down to the core run of the lifted function in its node's store, and the reference
 session's call of the lifted function in the shared store, whose relation to that node's store is

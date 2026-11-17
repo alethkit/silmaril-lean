@@ -6,6 +6,7 @@ import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.Compose
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.IR
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.First
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.Inst
+import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.LaterFail
 
 /-!
 # Several core instantiations with lowered imports: theorems
@@ -56,6 +57,13 @@ theorem nodesRef : Task.nodesRef :=
 theorem startAdequacyFrag_of_nodes (ha : Task.nodeCallsIR) (hn : Task.nodesRef)
     (hd : Task.exportRef) : Task.startAdequacyFrag :=
   Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.startAdequacyFrag_of_nodes ha hn hd
+
+/-- **A later node failing in the fragment**: `Task.failRefWiredRest'` from its rest
+`Task.failRefWiredRest''`, the case of a node `k ≥ 1` of a binary of `MultiImpFrag` (quiet ready
+nodes before it, then a quiet failure) being proved: the reference instantiation traps. -/
+theorem failRefWiredRest'_of_rest'' (h : Task.failRefWiredRest'') : Task.failRefWiredRest' :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.failRefWiredRest'_of_rest''_of_firstK'
+    Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.firstK' h
 
 /-- **The start goal on the fragment from the export call (d).** -/
 theorem startAdequacyFrag_of_d (hd : Task.exportRef) : Task.startAdequacyFrag :=
