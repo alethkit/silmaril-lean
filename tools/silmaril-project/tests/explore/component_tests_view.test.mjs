@@ -18,6 +18,7 @@ const dir = path.join(root, "examples/component-tests");
 const CT = createRequire(import.meta.url)(path.join(here, "../../src/project/explore/views/component-tests.js"));
 const report = JSON.parse(fs.readFileSync(path.join(dir, "report.json"), "utf8"));
 const oracle = JSON.parse(fs.readFileSync(path.join(dir, "oracle.json"), "utf8"));
+const e = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const sha = (f) => createHash("sha256").update(fs.readFileSync(path.join(dir, f))).digest("hex");
 
 test("the report, the oracle and the committed binaries name the same bytes", () => {
@@ -57,6 +58,14 @@ test("the decoder bridge regressions name their bytes; only a proved disproof cl
     }
   }
   assert.ok(h.includes("Decoder bridge regressions"));
+  // Each mismatch states how it stands: parameter names are fixed on the named IR, exported
+  // instances are only restricted (the lowering still flattens them).
+  const pn = regs.find((g) => g.name === "paramname"), ie = regs.find((g) => g.name === "instexport");
+  assert.ok(pn.resolution.startsWith("fixed on the named IR"));
+  assert.ok(pn.facts.some((f) => f.theorem === "Silmaril.Wasm.Component.DecoderBridge.rootChecked_of_named"));
+  assert.ok(ie.resolution.startsWith("restricted, not fixed"));
+  assert.ok(ie.facts.some((f) => f.theorem === "Silmaril.Wasm.Component.DecoderBridge.exportNames_of_decode"));
+  for (const g of regs) assert.ok(h.includes(e(g.resolution)), g.name);
 });
 
 test("the oracle agrees with the expectations", () => {

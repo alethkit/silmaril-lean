@@ -141,8 +141,9 @@ What this covers, and what it does not:
 |---|---|---|---|
 | structural | core modules (decoded from the same bytes) and the order of core instantiations (`rel_of_decode`) | every binary both readings accept | **proved** |
 | wiring and types | imports, exports (names, types, lift/lower chains), each node's module interface and the wiring its arguments name (`relW_of_decode`) | every binary both readings accept whose REF reading is in `InFrag` (decidable) | **proved** |
-| exported instances | the IR names `i#get`, the reference machine has no function export of that name (`DecoderBridge.InstExport`) | `instexport.wasm` | **mismatch demonstrated** (kernel runs); outside `InFrag` |
+| exported instances | the IR names `i#get`, the reference machine has no function export of that name (`DecoderBridge.InstExport`); without exported instances (`NoInstExport`, decidable, implied by `InFrag`: `inFrag_noInstExport`) the named IR export names are the REF reading's function export names, in order (`exportNames_of_decode`; on `InFrag` the IR's too, `exportNames_ir_of_inFrag`) | the names: every binary both readings accept whose REF reading exports no instance; `instexport.wasm` is outside (`instExport_not_noInstExport`, `instExport_names`) | **restricted, not fixed**: the mismatch is demonstrated (kernel runs) and the lowering still flattens exported instances; agreement by name **proved** under `NoInstExport`; export paths open |
 | parameter names | the IR drops them (`paramname.wasm` reads as `startsComp`); the reference root check compares them and traps on every run, so `Task.startAdequacy` is false (`DecoderBridge.not_startAdequacy`); the decidable certificate `RootChecked` (the reference's own root checks) fixes the domain: outside it the reference traps and has no run (`traps_of_not_rootChecked`, `not_instantiates_of_not_rootChecked`); `starts.wasm` passes it (`starts_rootChecked`), `paramname.wasm` does not (`not_rootChecked_paramName`) | every binary both readings accept | **counterexample proved**; corrected goal `Task.startAdequacyChecked` open in general; `MultiImpFrag` passes the certificate (`rootChecked_of_multiImpFrag`) and the corrected goal is **proved** there (`startAdequacyChecked_of_multiImpFrag`, from `startAdequacyFrag`); cause [below](#parameter-names-the-cause-of-the-counterexample) |
+| parameter names, named IR | the named IR reading `Binary.parseComponentN` (`Binary.Lower.Named`: `Binary.parseComponent` with the named signature `lowerSig`, function types `NFuncTy` with parameter names, for imports and exports; `Comp` and `FuncTy` unchanged) has the named imports and exports of the REF reading, parameter names included (`named_of_decode`, through the named REF reading `refReadN`); on `InFrag` it erases to the IR's (`erase_of_decode`) and **its import typing `n.imports = hostIN` gives `RootChecked`** (`rootChecked_of_named`) | every binary both readings accept (`named_of_decode` when `refReadN r` succeeds, which `InFrag` gives: `refReadN_of_inFrag`); `paramname.wasm` reads `f: func(y: u32)` (`parseN_paramName`, `paramName_not_hostIN`), `starts.wasm` `hostIN` (`parseN_starts`) | **fixed on the named IR**: the start goal on it, `Task.startAdequacyNamed` (`n.imports = hostIN`, no certificate), follows from `Task.startAdequacyChecked` (`startAdequacyNamed_of_checked`), is **proved** on `MultiImpFrag` (`startAdequacyNamed_of_multiImpFrag`), is open in general, and `paramname.wasm` is not a counterexample to it |
 | behaviour, IR half | an IR instantiation play is node by node: each core node's own instantiation play, down to its core engine run (`InstWired.nodesInst_of_denI`, `NodesInst.fail_nil`, `coreNodeI_engine_nil`) | every binary both readings accept whose REF reading is import-wired (`HostWired`, decidable: in `InFrag`, every core instantiation's imports wired to the component's imports), for failing instantiations and for the instantiation part of start plays (`DecoderBridge.Sim`) | **proved** |
 | behaviour, reference half, first core node | a quiet failure of IR core node `0` (preparation fails, or the start function traps without an import call) makes the reference machine's instantiation trap, by a symbolic run of the machine (`DecoderBridge.firstCore_fail_ref`) | every import-wired binary in the first-core fragment (`FirstCoreFrag`, decidable: types, function imports, core modules, `canon lower`, inline core instances before the first core instantiation; its module without imports, memories, tables, tags or segments); `trap.wasm` is (`trap_firstCoreFrag`), `starts.wasm` is not | **proved** (`trap_of_firstCore`: the REF half of `trap.wasm` from the IR run, no hypothesis) |
 | behaviour, reference half, first core node with lowered imports | a quiet failure of IR core node `0` whose module imports exactly the `canon lower` trampolines of `f` defined before it makes the reference machine trap (`DecoderBridge.firstImp_fail_ref`); so does a failure **after host calls** (`firstImp_failCalls_ref`, node outcome `NodeCalls`); a node that is ready after host calls `t` brings the reference machine to the return of its start function with the host log `logOfCalls t`, or it traps earlier, or `t = []` (`firstImp_ready_ref`) | every import-wired binary importing `f: func(u32)` in the decidable fragment `FirstImpFrag` (the first module's imports resolve, in order, to the `canon lower`s before it, at core type `(func (param i32))`); `starts.wasm` is (`starts_firstImpFrag`), `trap.wasm` is not (it is in `FirstCoreFrag`) | **proved**, given the node outcome (`NodeQuiet`, `NodeCalls`); `NodeCalls` is derived from the IR play on `MultiImpFrag` (`nodeCallsIR`, next row) |
@@ -226,6 +227,13 @@ and the absence of `i#get` from **every** reference run). Flattened names cannot
 top-level export names of valid components (`#` is not in an extern name; `wasm-tools` rejects
 an export `i#get`). Comparing functions of exported instances needs a reference export-path
 lookup (`i`, then `get`), which the session relation `sessRunFrom` does not have: open.
+The comparison is **restricted** instead (`DecoderBridge.Named`): `NoInstExport r` (decidable: no
+definition of the REF reading exports an instance; `InFrag` implies it, `inFrag_noInstExport`).
+Under it, for every binary both readings accept, the export names of the named IR reading are the
+REF reading's function export names in order (`exportNames_of_decode`; on `InFrag` the IR's
+`c.exports` too, `exportNames_ir_of_inFrag`). `instexport.wasm` is outside it
+(`instExport_not_noInstExport`), and there the names differ (`instExport_names`: `[i#get]` against
+`[]`). This mismatch stays unresolved: the lowering still flattens exported instances.
 
 **Open, stated as `Prop`s** (`DecoderBridge.Sem.Defs`; no theorem asserts them): the semantic
 equivalence of the two readings is **entirely unproved** beyond the executed examples.
@@ -239,6 +247,11 @@ equivalence of the two readings is **entirely unproved** beyond the executed exa
   `hostConfigX` with host log `logOfCalls t` and the first export (by name) returning
   `ws.map toRefVal`. **False** (`DecoderBridge.not_startAdequacy`, `paramname.wasm`); the
   corrected goal is `Task.startAdequacyChecked`, with the root certificate `RootChecked`.
+* `Task.startAdequacyNamed` (`DecoderBridge.Named.Defs`): the same over the named IR reading
+  `Binary.parseComponentN`, with the import hypothesis `n.imports = hostIN` (parameter name
+  included) and no certificate; implied by `Task.startAdequacyChecked`
+  (`startAdequacyNamed_of_checked`), proved on `MultiImpFrag`
+  (`startAdequacyNamed_of_multiImpFrag`); `paramname.wasm` does not meet its hypotheses.
 
 **The IR half, on import-wired binaries** (`InstWired`, `DecoderBridge.Sim`; proofs in
 `Silmaril.Proofs.Wasm.Component.InstSem.{Unzip,Wired,WiredEngine}` and
@@ -496,8 +509,27 @@ permissive side: its type of an import (`c.imports`) forgets the names, so the h
 `c.imports = hostI` of `Task.startAdequacy` does not fix the import's specification type, and the
 statement is false. No transcription is changed; the goal is corrected instead
 (`Task.startAdequacyChecked`, with the decidable certificate `RootChecked`, the reference's own
-root checks), and holds on `MultiImpFrag` (`startAdequacyChecked_of_multiImpFrag`). An IR reading
-that keeps parameter names would exclude this binary by `c.imports = hostI` alone.
+root checks), and holds on `MultiImpFrag` (`startAdequacyChecked_of_multiImpFrag`).
+
+**The named IR reading.** `Binary.parseComponentN` (`Binary/Lower/Named`) is `Binary.parseComponent`
+together with the named signature `Binary.Lower.lowerSig`: the imports and exports, in the IR's
+order, with function types `NFuncTy` that keep parameter names (`NFuncTy.erase` forgets them). It
+is a new entry point; `Comp`, `FuncTy` and `Binary.lower` are unchanged, so no existing module is
+rebuilt. `DecoderBridge.Named` proves: it succeeds exactly when `parseComponent` does, with the same
+component (`parseComponentN_ok`, `parseComponentN_of_ok`); for every binary whose readings succeed,
+its named imports and exports are those the reference component's definitions name
+(`named_of_decode`; the named REF reading `refReadN` succeeds on `InFrag`, `refReadN_of_inFrag`);
+on `InFrag` they erase to `c.imports` and `c.exports` (`erase_of_decode`); and on `InFrag` the
+IR's own import typing `n.imports = hostIN` (`f: func(x: u32)`, name included) gives
+`RootChecked` (`rootChecked_of_named`: the reference's pre-check walk follows the named reading
+definition by definition, and at the import the frame's type is `func(x: u32)`). The start goal on
+the named IR, `Task.startAdequacyNamed` (`Named.Defs`), has the hypothesis `n.imports = hostIN`
+and no certificate; `startAdequacyNamed_of_checked : Task.startAdequacyChecked →
+Task.startAdequacyNamed`, and on `MultiImpFrag` it is proved (`startAdequacyNamed_of_multiImpFrag`).
+`paramname.wasm` reads `f: func(y: u32)` (`parseN_paramName`), so `paramName_not_hostIN`: it is
+not a counterexample. The converse `RootChecked r ∧ c.imports = hostI → n.imports = hostIN` (the
+pre-check rejects every other label) is not proved, so `Task.startAdequacyChecked` is not derived
+from `Task.startAdequacyNamed`. `Task.startAdequacy` (unnamed IR) stays false.
 
 ## Oracle: wasmtime (not a proof, not in CI)
 
@@ -534,7 +566,8 @@ observations and verdict, and the assumptions and tool provenance. Data:
   stated as `DecoderBridge.Task.failAdequacy` and `Task.startAdequacy`; on import-wired binaries
   the IR half of the failure goal is proved and its reference half `Task.failRefWired` is open
   outside the first-core cases: `Task.failRefWiredRest'`; `Task.startAdequacy` is false
-  (`paramname.wasm`), its corrected form is `Task.startAdequacyChecked`; on the
+  (`paramname.wasm`), its corrected forms are `Task.startAdequacyChecked` and, on the named IR
+  reading that keeps parameter names, `Task.startAdequacyNamed`; on the
   fragment `MultiImpFrag` the IR's node calls and the reference half of the first node with its
   start epilogue and the later nodes in the shared core store (the whole instantiation,
   `Task.nodesRef`, with the invariant `NodesInv`: `nodesRefX`) and the session call through

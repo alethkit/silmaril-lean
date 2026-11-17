@@ -147,9 +147,22 @@
         {
           "theorem": "Silmaril.Wasm.Component.DecoderBridge.instExport_ref_run",
           "statement": "an executed reference run (logging host, hostConfigX, decide +kernel on instantiateRun) instantiates it with no function export, so the lookup of i#get fails on that run"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.instExport_not_noInstExport",
+          "statement": "it is outside the decidable restriction NoInstExport (no definition exports an instance); InFrag implies the restriction (inFrag_noInstExport)"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.instExport_names",
+          "statement": "the export names differ: the IR's are [i#get], the reference reading's function export names (refFuncExportNames) are []; the named IR reading has the export i#get too (parseN_instExport)"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.exportNames_of_decode",
+          "statement": "for every binary whose two readings succeed and whose REF reading exports no instance (NoInstExport), the named IR export names are the REF reading's function export names, in order; on InFrag so are the IR's (exportNames_ir_of_inFrag)"
         }
       ],
-      "status": "demonstrated mismatch of the two readings' export names (kernel runs), not a disproof of the first statement of Task.startAdequacy (the IR's answer to i#get and the absence of i#get from every reference run are not proved); excluded by the fragment hypothesis InFrag now in Task.startAdequacy; comparing instance-exported functions needs a reference export-path lookup, which is open"
+      "status": "demonstrated mismatch of the two readings' export names (kernel runs), not a disproof of the first statement of Task.startAdequacy (the IR's answer to i#get and the absence of i#get from every reference run are not proved); excluded by the fragment hypothesis InFrag now in Task.startAdequacy; comparing instance-exported functions needs a reference export-path lookup, which is open",
+      "resolution": "restricted, not fixed: the lowering still flattens an exported instance i into a function export i#f, which is not a valid component export name and not an export the reference machine reports; the comparison is restricted by the decidable predicate NoInstExport, under which the export names agree for every binary (exportNames_of_decode); this binary is outside it (instExport_not_noInstExport). Keeping instance exports structurally (export paths) and comparing them through a reference export-path lookup is open"
     },
     {
       "name": "paramname",
@@ -180,10 +193,23 @@
         {
           "theorem": "Silmaril.Wasm.Component.DecoderBridge.not_startAdequacy",
           "statement": "Task.startAdequacy is false"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.parseN_paramName",
+          "statement": "the named IR reading (Binary.parseComponentN: Binary.parseComponent with the named signature Binary.Lower.lowerSig) imports f: func(y: u32), so not hostIN (paramName_not_hostIN): paramname.wasm is not a counterexample to Task.startAdequacyNamed"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.named_of_decode",
+          "statement": "for every binary whose readings succeed, the named IR imports and exports, parameter names included, are those of the named REF reading (refReadN, which succeeds on InFrag: refReadN_of_inFrag); on InFrag they erase to the IR's (erase_of_decode)"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.rootChecked_of_named",
+          "statement": "on InFrag, the IR's own named import typing n.imports = hostIN gives RootChecked; so Task.startAdequacyChecked implies Task.startAdequacyNamed (startAdequacyNamed_of_checked), which is proved on MultiImpFrag (startAdequacyNamed_of_multiImpFrag)"
         }
       ],
-      "status": "counterexample proved: Task.startAdequacy is false; corrected goal Task.startAdequacyChecked (hypothesis RootChecked, open in general); outside RootChecked the reference instantiation traps and has no run (traps_of_not_rootChecked, not_instantiates_of_not_rootChecked); MultiImpFrag passes RootChecked (rootChecked_of_multiImpFrag), so the corrected goal is proved there (startAdequacyChecked_of_multiImpFrag)",
-      "cause": "the IR reading drops function parameter names; the specification keeps them in the function type (Explainer functype, Binary.md paramlist) and compares function types by equality (Explainer, Type Checking), as the reference does against its host typed f: func(x: u32). Tool evidence (paramname.json, not a proof): wasm-tools 1.262.0 validates the binary alone and rejects instantiating it with a component function f: func(x: u32) (expected parameter named `y`, found `x`), as do wac 0.12.0 and wasmtime 50.0.0; a wasmtime Linker host function (func_wrap, typed by parameter types only) instantiates it, host log [1, 2], get() = 42"
+      "status": "counterexample proved: Task.startAdequacy is false; corrected goal Task.startAdequacyChecked (hypothesis RootChecked, open in general); outside RootChecked the reference instantiation traps and has no run (traps_of_not_rootChecked, not_instantiates_of_not_rootChecked); MultiImpFrag passes RootChecked (rootChecked_of_multiImpFrag), so the corrected goal is proved there (startAdequacyChecked_of_multiImpFrag); the parameter names are kept by the named IR reading, see resolution",
+      "cause": "the IR reading drops function parameter names; the specification keeps them in the function type (Explainer functype, Binary.md paramlist) and compares function types by equality (Explainer, Type Checking), as the reference does against its host typed f: func(x: u32). Tool evidence (paramname.json, not a proof): wasm-tools 1.262.0 validates the binary alone and rejects instantiating it with a component function f: func(x: u32) (expected parameter named `y`, found `x`), as do wac 0.12.0 and wasmtime 50.0.0; a wasmtime Linker host function (func_wrap, typed by parameter types only) instantiates it, host log [1, 2], get() = 42",
+      "resolution": "fixed on the named IR: Binary.parseComponentN keeps parameter names in the import and export function types (NFuncTy; Comp and FuncTy unchanged), and the start goal on it, Task.startAdequacyNamed (hypothesis n.imports = hostIN, no certificate), is open in general, follows from Task.startAdequacyChecked and is proved on MultiImpFrag; Task.startAdequacy (unnamed IR) stays false"
     }
   ]
 }
