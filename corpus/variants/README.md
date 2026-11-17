@@ -9,6 +9,23 @@ project → version components → source identity → configuration → target 
 and flags → stripping/artifact. Version components retain upstream's spelling;
 date/commit versions are not asserted to be semantic versions.
 
+Delivered inventory: **246 artifact rows** (54 canonical O2 and 192 variants;
+240 distinct content hashes). The following completed matrix covers both
+`x86_64-linux-gnu` and `aarch64-linux-gnu`, all O0/Og/O1/O3 levels, and both
+unstripped and stripped outputs:
+
+| Project | Objects per target/profile | Variant ELF rows |
+|---|---:|---:|
+| cJSON | 2 | 32 |
+| darkhttpd | 1 | 16 |
+| TCP pingpong | 2 | 32 |
+| Reference crypto | 7 | 112 |
+
+The remaining six canonical packages have no published optimization variants yet.
+All 192 delivered variants have [artifact-specific static census reports](../census/variants/),
+including decoder byte accounting and exact receipt identities; these are separate
+from the formal stages listed below.
+
 Each profile directory has:
 
 - `build.json`: archive identities, exact image/recipe hashes, source-input paths and

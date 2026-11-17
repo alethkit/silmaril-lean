@@ -9,7 +9,21 @@ import json
 from pathlib import Path
 import sqlite3
 import subprocess
+from census import report_relative_path
 from matrix import ROOT, digest, inventory
+
+
+def artifact_census(root, artifact):
+    """Load only evidence for this exact artifact and receipt, when available."""
+    path = root / 'corpus/census' / report_relative_path(artifact['path'])
+    if not path.exists():
+        return None
+    text = path.read_text()
+    report = json.loads(text)
+    if (report['sha256'] != artifact['sha256'] or report['path'] != artifact['path'] or
+            report['identity']['receipt_sha256'] != artifact['receipt_sha256']):
+        raise ValueError(f'{path}: census artifact or receipt identity mismatch')
+    return text
 
 
 def main():
@@ -49,8 +63,7 @@ CREATE TABLE corpus_timings(run_id TEXT PRIMARY KEY, build_id TEXT, stage TEXT N
             key = digest([artifact['build_id'], artifact['stripping'], artifact['path']])
             path = Path(artifact['path'])
             canonical = path.is_relative_to('corpus/elf')
-            census_path = ROOT / 'corpus/census' / artifact['project'] / artifact['build']['target'].removesuffix('-linux-gnu') / (path.name + '.json')
-            census = census_path.read_text() if canonical and census_path.exists() else None
+            census = artifact_census(ROOT, artifact)
             if canonical:
                 sources = [{'path': 'corpus/' + artifact['project'] + '/upstream.sha256',
                             'kind': 'canonical included upstream file hash inventory'}]
@@ -85,7 +98,7 @@ CREATE TABLE corpus_timings(run_id TEXT PRIMARY KEY, build_id TEXT, stage TEXT N
                 db.execute('INSERT INTO corpus_functions VALUES(?,?,?,?,?,?)', (key, ordinal,
                     function.get('symbol', function.get('name')), function['value'], function['size'], json.dumps(function)))
         baseline_paths = list((ROOT / 'corpus/census/runs').glob('*.json'))
-        baseline_paths += list((ROOT / 'corpus/measurements/lean-byte-foundations/runs').glob('*.json'))
+        baseline_paths += list((ROOT / 'corpus/measurements').glob('*/runs/*.json'))
         for run_path in baseline_paths:
             run = json.loads(run_path.read_text())
             db.execute('INSERT INTO corpus_timings VALUES(?,?,?,?)', (run['run_id'], None, run['stage'], json.dumps(run)))

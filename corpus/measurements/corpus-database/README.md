@@ -16,3 +16,14 @@ C compilation, Lean parsing/decomposition/kernel checks, canonical project expor
 and semantic problem/proof generation. It is not an end-to-end pipeline timing.
 
 Reproduction and browser checks: [scripts/corpus/README.md](../../../scripts/corpus/README.md).
+
+## Expanded catalog run
+
+The 246-artifact catalog (240 distinct content hashes, 48,723 function mapping
+rows) generated in **1.843 s wall**, 1.550 s user CPU, 0.260 s system CPU and
+**73,780 KiB peak RSS**. Exit status 0 and SQLite quick_check passed. The
+[run receipt](runs/4b5b16c7-3115-4761-80f0-3eb29cce6491.json) records this runner,
+commands, input hashes and unspecified cache state. This single run has the same
+stage boundaries as above; differing runners/inputs make the two runs unsuitable
+for a regression claim. Catalog generation ingests per-run measurement records,
+including prior database-generation runs, without mutating or merging writers.
