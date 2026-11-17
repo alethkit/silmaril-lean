@@ -130,36 +130,45 @@ theorem foldlM_layInv {e₀ : Nat} {A : List RCI} :
 
 theorem refStep_pre {R R' : RSt} {d : RDef} (hd : ¬ IsInst d) (h : refStep R d = some R') :
     R'.nodes = R.nodes ∧ R'.env = R.env ∧
-      R'.coreInsts.length = R.coreInsts.length + (preInsts [d]).length := by
+      ∃ L : List RCI, R'.coreInsts = R.coreInsts ++ L ∧ L.length = (preInsts [d]).length ∧
+        ∀ ci ∈ L, ∃ es, ci = .inline es := by
   unfold refStep at h
   split at h
   all_goals first
-    | (cases h; simp [preInsts])
+    | (cases h; exact ⟨rfl, rfl, [], by simp, by simp [preInsts], by simp⟩)
     | exact absurd trivial hd
     | cases h
     | (simp only [bind, Option.bind_eq_some_iff] at h)
+  case h_5 =>
+    obtain ⟨es, -, h⟩ := h
+    cases h
+    exact ⟨rfl, rfl, [.inline es], rfl, by simp [preInsts], by simp⟩
   all_goals aesop (add norm preInsts)
 
 theorem foldlM_pre :
     ∀ {ds : List RDef} {R R' : RSt}, (∀ d ∈ ds, ¬ IsInst d) → ds.foldlM refStep R = some R' →
       R'.nodes = R.nodes ∧ R'.env = R.env ∧
-        R'.coreInsts.length = R.coreInsts.length + (preInsts ds).length
-  | [], R, R', _, h => by simp at h; subst h; simp [preInsts]
+        ∃ L : List RCI, R'.coreInsts = R.coreInsts ++ L ∧ L.length = (preInsts ds).length ∧
+          ∀ ci ∈ L, ∃ es, ci = .inline es
+  | [], R, R', _, h => by simp at h; subst h; exact ⟨rfl, rfl, [], by simp, by simp [preInsts], by simp⟩
   | d :: ds, R, R', hd, h => by
     simp only [List.foldlM_cons, bind, Option.bind] at h
     cases hR : refStep R d with
     | none => simp [hR] at h
     | some R1 =>
       simp only [hR] at h
-      obtain ⟨h1, h2, h3⟩ := refStep_pre (hd d (.head _)) hR
-      obtain ⟨h1', h2', h3'⟩ := foldlM_pre (fun d' h' => hd d' (.tail _ h')) h
+      obtain ⟨h1, h2, L₁, hL₁, hl₁, hi₁⟩ := refStep_pre (hd d (.head _)) hR
+      obtain ⟨h1', h2', L₂, hL₂, hl₂, hi₂⟩ := foldlM_pre (fun d' h' => hd d' (.tail _ h')) h
       have hp : (preInsts (d :: ds)).length = (preInsts [d]).length + (preInsts ds).length := by
         cases d with
         | coreInstance ci => cases ci <;> simp [preInsts, Nat.add_comm]
         | _ => simp [preInsts]
-      refine ⟨h1'.trans h1, h2'.trans h2, ?_⟩
-      rw [h3', h3, hp]
-      omega
+      refine ⟨h1'.trans h1, h2'.trans h2, L₁ ++ L₂, by rw [hL₂, hL₁, List.append_assoc], ?_, ?_⟩
+      · rw [List.length_append, hl₁, hl₂, hp]
+      · intro ci hci
+        rcases List.mem_append.1 hci with h | h
+        · exact hi₁ ci h
+        · exact hi₂ ci h
 
 theorem refStep_imports_len {R R' : RSt} {d : RDef} (h : refStep R d = some R') :
     R'.imports.length = R.imports.length + (if isFuncImport d then 1 else 0) := by
@@ -194,7 +203,8 @@ theorem refRead_layout {r : RefComponent} {R : RSt} {pre : List RDef} {mi : Nat}
     (hfc : firstCore? r = some (pre, mi, cargs, post))
     (hpost : ∀ d ∈ post, ∀ its, d ≠ .coreInstance (.exports its)) :
     R.imports.length = (r.filter isFuncImport).length ∧
-      ∃ A : List RCI, A.length = (preInsts pre).length ∧ LayInv R.imports.length A R := by
+      ∃ A : List RCI, A.length = (preInsts pre).length ∧ (∀ ci ∈ A, ∃ es, ci = .inline es) ∧
+        LayInv R.imports.length A R := by
   have hi := foldlM_imports_len hR
   simp only at hi
   refine ⟨by simpa using hi, ?_⟩
@@ -205,7 +215,7 @@ theorem refRead_layout {r : RefComponent} {R : RSt} {pre : List RDef} {mi : Nat}
   rw [List.foldlM_append] at hR
   simp only [bind, Option.bind_eq_some_iff, List.foldlM_cons] at hR
   obtain ⟨R₁, h₁, R₂, h₂, hR⟩ := hR
-  obtain ⟨hn₁, he₁, hc₁⟩ := foldlM_pre hnoI h₁
+  obtain ⟨hn₁, he₁, L, hL, hc₁, hin⟩ := foldlM_pre hnoI h₁
   simp only [refStep, bind, Option.bind_eq_some_iff] at h₂
   obtain ⟨m, -, ⟨names, im, exps⟩, hci, w, -, h₂⟩ := h₂
   injection h₂ with h₂
@@ -213,7 +223,7 @@ theorem refRead_layout {r : RefComponent} {R : RSt} {pre : List RDef} {mi : Nat}
     cases hc' : coreIface m with
     | error e => rw [hc'] at hci; cases hci
     | ok v => rw [hc'] at hci; cases hci; rfl
-  refine ⟨R₁.coreInsts, by simpa using hc₁, ?_⟩
+  refine ⟨R₁.coreInsts, by simpa [hL] using hc₁, by simpa [hL] using hin, ?_⟩
   have hI : LayInv R₁.env R₁.coreInsts R₂ := by
     subst h₂
     refine ⟨[.node R₁.env exps], rfl, ?_⟩
