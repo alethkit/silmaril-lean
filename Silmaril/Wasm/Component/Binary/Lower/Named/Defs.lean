@@ -18,7 +18,7 @@ modules use:
 
 * `NFuncTy`: a function type with named parameters; `NFuncTy.erase` forgets the names, giving
   the IR's `FuncTy`;
-* `Lower.lowerSig a : Sig`: the **named imports and exports** of the AST `a`, in the order
+* `Lower.lowerSig a : NSig`: the **named imports and exports** of the AST `a`, in the order
   `Binary.lower` lists them (`Comp.imports`, `Comp.exports`): a pass over the sections that
   follows the lowering's type, function and instance index spaces (`Lower.section_`) and keeps
   each function type's parameter names (`namedFuncTy`: `Lower.funcTy`, the names zipped back
@@ -57,7 +57,7 @@ def NIface.erase (I : NIface) : Iface := I.map fun p => (p.1, p.2.erase)
 
 /-- **The named signature** of a lowered component: its imports and its exports, in order, with
 named function types. -/
-structure Sig where
+structure NSig where
   imports : NIface
   exports : NIface
   deriving Repr, DecidableEq, Inhabited
@@ -65,7 +65,7 @@ structure Sig where
 /-- **The named IR**: a lowered component and its named signature. -/
 structure NComp where
   comp : Comp CoreMod
-  sig : Sig
+  sig : NSig
 
 /-- The named imports. -/
 def NComp.imports (n : NComp) : NIface := n.sig.imports
@@ -199,7 +199,7 @@ def sigSection (s : SigSt) : Section → SigSt
   | _ => s
 
 /-- **The named signature of a component AST.** -/
-def lowerSig (a : Ast) : Sig :=
+def lowerSig (a : Ast) : NSig :=
   let s := a.sections.foldl sigSection {}
   ⟨s.imports, s.exports⟩
 
