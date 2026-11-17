@@ -29,6 +29,9 @@ reasoned about with `Memory.load`/`Memory.store` lemmas
   `2 ≤ cap ≤ 8192` (`ring_session`: the slot addresses `0` and `8` are computed from `cap`
   symbolically, `mod_small`), every profile, writer policy with sentinel (if any) `0`, and
   parsing policy with sentinel `0`.
+* **`chunkRingN_relates_7_one`**: the one-value session `feed(7)`, `finish(1)`
+  (`ring_session1`, the same runs), for every capacity `1 ≤ cap ≤ 8192`, the one-slot buffer
+  included.
 
 New proofs (no source).
 -/
@@ -746,6 +749,11 @@ def ringR : List RMove :=
   [.call 0 [.i64 7], .ret 0 (.returns []), .call 0 [.i64 8], .ret 0 (.returns [])] ++
     finR 7 1 2 3 ++ finR 8 4 5 6
 
+/-- **The recorded moves of the one-value session** `feed(7)`, `finish(1)`, the `k`-th callout
+answered with the handle `k + 1`. -/
+def ringR1 : List RMove :=
+  [.call 0 [.i64 7], .ret 0 (.returns [])] ++ finR 7 1 2 3
+
 /-- The stores of the session: after `feed(7)`, `feed(8)`, and the first `finish(1)`. -/
 abbrev S₁ (cap : Nat) (mi : MemInst) (B₁ : ByteArray) : Store Nat :=
   ((RI cap).store.setMem 0 { mi with bytes := B₁ }).setGlobal 1 (.i32 (0 + 1))
@@ -929,6 +937,138 @@ theorem ring_session {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) (P : Profi
   obtain ⟨ms, hp, hm⟩ := path_trans p₁ (path_trans p₂ (path_trans p₃ p₄))
   exact ⟨ms, _, hp, hm⟩
 
+theorem ring_session1 {cap : Nat} (h1 : 1 ≤ cap) (h8 : cap ≤ 8192) (P : Profile) :
+    ∃ ms q, (RI cap).Path P (.idle (RI cap).store) ms q ∧ ms.map rmv = ringR1 := by
+  have hcap : RingCap cap := ⟨by omega, h8⟩
+  have hc0 : capW cap ≠ 0 := capW_ne hcap
+  have hcw := capW_toNat h8
+  have hne : ∀ a : BitVec 32, a.toNat < 1 → a ≠ capW cap := fun a ha h => by
+    rw [h, hcw] at ha; omega
+  have hS := ring_shape cap
+  obtain ⟨f0, ps0, rs0, hf0, hc0', he0, hn0⟩ := hS.stub 0 (by decide)
+  obtain ⟨f1, ps1, rs1, hf1, hc1, he1, hn1⟩ := hS.stub 1 (by decide)
+  obtain ⟨f2, ps2, rs2, hf2, hc2, he2, hn2⟩ := hS.stub 2 (by decide)
+  obtain ⟨fi4, code4, ps4, rs4, hf4, hcode4, hloc4, hbody4, he4, hps4, hrs4, -, hmg4, -⟩ :=
+    hS.fn 0 (by decide)
+  obtain ⟨fi5, code5, ps5, rs5, hf5, hcode5, hloc5, hbody5, he5, hps5, hrs5, hm5, hmg5, hD5⟩ :=
+    hS.fn 1 (by decide)
+  have hf4' : (RI cap).store.funcs[4]? = some fi4 := hf4
+  have hf5' : (RI cap).store.funcs[5]? = some fi5 := hf5
+  have hmm4 : fi4.module.mems = [0] := by
+    have h := ring_mems4 cap
+    rw [hf4'] at h
+    exact Option.some.inj h
+  have hmm5 : fi5.module.mems = [0] := by
+    have h := ring_mems5 cap
+    rw [hf5'] at h
+    exact Option.some.inj h
+  have hfr4 : ∀ x : BitVec 64, Frame.forCall fi4.module [.i64 x] code4.locals =
+      ⟨[some (.i64 x)], fi4.module⟩ := fun x => by
+    unfold Frame.forCall
+    rw [hloc4]
+    rfl
+  have hfr5 : ∀ n : BitVec 32, Frame.forCall fi5.module [.i32 n] code5.locals = F₀ fi5.module n :=
+    fun n => by
+      unfold Frame.forCall
+      rw [hloc5, hD5]
+      rfl
+  -- the slots
+  have hm0 : (0 : BitVec 32) % capW cap = 0 := mod_small h8 (show 0 < cap by omega)
+  have ha0 : (((0 : BitVec 32) + 0) % capW cap * 8).toNat = 0 := by
+    rw [show (0 : BitVec 32) + 0 = 0 from by decide, hm0]; decide
+  -- the memory
+  obtain ⟨mi₀, hmi₀⟩ : ∃ mi, (RI cap).store.mems[0]? = some mi :=
+    ⟨(RI cap).store.mems[0]'(by rw [ri_memlen]; decide), List.getElem?_eq_getElem _⟩
+  have hsz : mi₀.bytes.size = 65536 := by
+    have h := ri_size cap
+    rw [hmi₀] at h
+    exact Option.some.inj h
+  obtain ⟨B₁, hB₁⟩ := Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.store_some
+    (B := mi₀.bytes) (a := (((0 : BitVec 32) + 0) % capW cap * 8).toNat) (n := 8) (7 : BitVec 64)
+    (by rw [hsz, ha0]; decide)
+  -- the stores
+  have hl₀ := ri_memlen cap
+  obtain ⟨hm₁, -, -, -⟩ := setMem_mems (s := (RI cap).store) (mi := { mi₀ with bytes := B₁ }) hl₀
+  obtain ⟨g00, hg00, hv00⟩ := glob_of (ri_gval0 cap)
+  obtain ⟨g01, hg01, hv01⟩ := glob_of (ri_gval1 cap)
+  obtain ⟨g10, hg10, hv10⟩ := glob_of (s := S₁ cap mi₀ B₁) (a := 0) (v := .i32 0) (by
+    simp [gval_setGlobal, gval_setMem, ri_gval0])
+  obtain ⟨g11, hg11, hv11⟩ := glob_of (s := S₁ cap mi₀ B₁) (a := 1) (v := .i32 (0 + 1)) (by
+    simp [gval_setGlobal, gval_setMem, ri_gval1])
+  -- the loads
+  have hld₁ : Memory.load B₁
+      (effAddr (((0 : BitVec 32) + (1 + BitVec.allOnes 32)) % capW cap * 8#32 : BitVec 32).toNat
+        ⟨0, 0⟩) (IntType.i64.width / 8) = some (7 : BitVec 64) := by
+    rw [allOnes_succ, effAddr_00]
+    exact Silmaril.Wasm.Logic.Core.load_store_same hB₁
+  -- the runs
+  have r₁ : Steps P Det.noHost (((RI cap).initThread (cF7 cap)).config (RI cap).store)
+      ⟨S₁ cap mi₀ B₁, {}, vals []⟩ := by
+    show Steps P Det.noHost (invoke (RI cap).store ((RI cap).addr (cF7 cap).1) (cF7 cap).2.1) _
+    rw [hS.addr]
+    exact feed_run hmg4 hmm4 hg00 hg01 hv00 hv01 hf4' he4 hps4 hrs4 hcode4 (hfr4 7) hbody4
+      (bool32_ne (hne 0 (by decide))) hc0 hmi₀ hB₁
+  have hdec : ∀ (s : Store Nat) (E : Ctx) (k : Nat) (fk : FuncInst Nat) (ps rs : Ty (.list .val))
+      (args : List Val), s.funcs[k]? = some fk → fk.code = .host k →
+      Expand fk.type (.func ps rs) → args.length = ps.length →
+      decompose? s (E.fill (vals args ++ [.ref (.func k), .callRefType fk.type])) =
+        some (E, k, k, args) := fun s E k fk ps rs args hf hc he hn =>
+    Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.decompose_fill E trivial hf he hn hc
+  have himp : ∀ (k : Nat) (hk : k < (RI cap).imports.length),
+      (RI cap).imports.get ⟨k, hk⟩ = twoFTs[k]'(hS.imports ▸ hk) := fun k hk => by
+    rw [List.get_eq_getElem]
+    exact List.getElem_of_eq hS.imports hk
+  have hil : (RI cap).imports.length = 4 := by rw [hS.imports]; rfl
+  -- `finish(1)` from a store
+  have fin : ∀ (s : Store Nat) (st cnt : BitVec 32) (g0 g1 : GlobalInst) (mi : MemInst)
+      (v : BitVec 64) (r a c : BitVec 32), s.funcs = (RI cap).store.funcs →
+      s.globals[0]? = some g0 → s.globals[1]? = some g1 → g0.value = .i32 st →
+      g1.value = .i32 cnt → s.mems[0]? = some mi →
+      bool32 (decide ((1 : BitVec 32).toNat > cnt.toNat)) = 0 →
+      Memory.load mi.bytes
+        (effAddr ((st + (1 + BitVec.allOnes 32)) % capW cap * 8#32 : BitVec 32).toNat ⟨0, 0⟩)
+        (IntType.i64.width / 8) = some v →
+      ∃ ms, (RI cap).Path P (.idle s) ms
+        (.idle ((s.setGlobal 0 (.i32 ((st + 1) % capW cap))).setGlobal 1 (.i32 (cnt - 1)))) ∧
+        ms.map rmv = finR v r a c := by
+    intro s st cnt g0 g1 mi v r a c hfs hg0 hg1 hv0 hv1 hmi hgt hl
+    have hfs0 : s.funcs[0]? = some f0 := by rw [hfs]; exact hf0
+    have hfs1 : s.funcs[1]? = some f1 := by rw [hfs]; exact hf1
+    have hfs2 : s.funcs[2]? = some f2 := by rw [hfs]; exact hf2
+    have hfs5 : s.funcs[5]? = some fi5 := by rw [hfs]; exact hf5'
+    refine path_call' (f := cN1 cap) ?_
+    refine path_callout' (F' := {}) (h := 0) (args := []) (vs := [.i32 r]) ?_
+      (hdec s (E₁ cap fi5.module 1) 0 f0 ps0 rs0 [] hfs0 hc0' he0 (by rw [hn0]; rfl))
+      (by rw [hil]; decide) (by rw [himp]; rfl) (by rw [himp]; rfl) ?_
+    · show Steps P Det.noHost (invoke s ((RI cap).addr (cN1 cap).1) (cN1 cap).2.1) _
+      rw [hS.addr]
+      exact fin_run₁ hmg5 hm5 hg1 hv1 hfs5 he5 hps5 hrs5 hcode5 (hfr5 1) hbody5 hgt (by decide)
+        hfs0
+    refine path_callout' (F' := {}) (h := 2) (args := [.i64 v]) (vs := [.i32 a])
+      (fin_run₂ hmg5 hmm5 hc0 hm5 hg0 hv0 (by decide) hmi hl hfs2)
+      (hdec s (EL cap fi5.module 1 (1 + BitVec.allOnes 32) r lTail) 2 f2 ps2 rs2 [.i64 v] hfs2
+        hc2 he2 (by rw [hn2]; rfl)) (by rw [hil]; decide)
+      (by rw [himp]; rfl) (by rw [himp]; rfl) ?_
+    refine path_callout' (F' := {}) (h := 1) (args := [.i32 a, .i32 r]) (vs := [.i32 c])
+      (fin_run₃ hm5 hfs1)
+      (hdec s (EL cap fi5.module 1 (1 + BitVec.allOnes 32) r [.localSet ⟨2⟩, .br ⟨0⟩]) 1 f1
+        ps1 rs1 [.i32 a, .i32 r] hfs1 hc1 he1 (by rw [hn1]; rfl))
+      (by rw [hil]; decide) (by rw [himp]; rfl) (by rw [himp]; rfl) ?_
+    exact path_ret (fin_run₄ hmg5 hc0 hg0 hg1 hv0 hv1 (by decide)) (by rw [hS.get]; rfl)
+  have p₁ := path_call' (f := cF7 cap) (path_ret r₁ (by rw [hS.get]; rfl))
+  have p₃ := fin (S₁ cap mi₀ B₁) 0 (0 + 1) g10 g11 { mi₀ with bytes := B₁ } 7 1 2 3 rfl
+    hg10 hg11 hv10 hv11 hm₁ (by decide) hld₁
+  obtain ⟨ms, hp, hm⟩ := path_trans p₁ p₃
+  exact ⟨ms, _, hp, hm⟩
+
+/-- The one-value session as a play of the instance itself. -/
+theorem ring_session1' {cap : Nat} (h1 : 1 ≤ cap) (h8 : cap ≤ 8192) (P : Profile) :
+    ∃ ms q, (Verify.instOf (chunkRingN cap)).Path P (.idle (Verify.instOf (chunkRingN cap)).store)
+      ms q ∧ ms.map rmv = ringR1 := by
+  have h := ring_session1 h1 h8 P
+  rw [RI_eq] at h
+  exact h
+
 /-- The session as a play of the instance itself. -/
 theorem ring_session' {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) (P : Profile) :
     ∃ ms q, (Verify.instOf (chunkRingN cap)).Path P (.idle (Verify.instOf (chunkRingN cap)).store)
@@ -958,5 +1098,14 @@ theorem chunkRingN_relates_8 :
     (fun r h => by simp [hs r h]) (by simp [h0]) (ring_session' h2 h8 P) (by decide +kernel)
 
 end Relates
+
+/-- **One value, every capacity `1 ≤ cap ≤ 8192`** (the one-slot buffer included): `feed(7)`,
+`finish(1)` relates `([7], (7))`. -/
+theorem chunkRingN_relates_7_one {cap : Nat} (h1 : 1 ≤ cap) (h8 : cap ≤ 8192) {P : Profile}
+    {pol : Policy (BitVec 32)} (hs : ∀ r, pol.sentinel = some r → r = 0)
+    {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0) :
+    ([7], SExp2.ofAtoms [7]) ∈ moduleMixedRel P (chunkRingN cap) twoIx ringPix pol ppol :=
+  mem_moduleMixedRel_of_path twoIx ringPix (bad := fun r => decide (r = 0))
+    (fun r h => by simp [hs r h]) (by simp [h0]) (ring_session1' h1 h8 P) (by decide +kernel)
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive

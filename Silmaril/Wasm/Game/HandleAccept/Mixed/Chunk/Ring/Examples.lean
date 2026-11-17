@@ -27,6 +27,10 @@ computed from `cap` symbolically; two values must fit the buffer):
 * `chunkRingN_relates_8`: the second relates `([8], (8))`, the value left in memory;
 * `chunkRingN_rel_eq_8`: with `chunkRingN_rel`, the relation restricted to the input `[8]` is
   exactly `{([8], (8))}`;
+* `chunkRingN_relates_7_one`: the one-value session `feed(7)`, `finish(1)` relates `([7], (7))`
+  for every capacity `1 ≤ cap ≤ 8192`; `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`: the
+  **one-slot** buffer `chunkRingN 1` (where `feed(7)` fills the buffer) relates `([7], (7))`,
+  and at the input `[7]` only that;
 * instances: `chunkRing_relates_7`, `chunkRing_relates_8`, `chunkRing_rel_eq_8` (eight slots),
   `chunkRing8192_relates_8`, `chunkRing8192_rel_eq_8` (8192 slots, the whole page).
 
@@ -75,6 +79,33 @@ theorem chunkRingN_rel_eq_8 {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) {P 
       {SExp2.ofAtoms [8]} :=
   Set.eq_singleton_iff_unique_mem.2 ⟨chunkRingN_relates_8 h2 h8 (fun r h => by simp [hsen] at h) h0,
     fun _ => chunkRingN_rel ⟨by omega, h8⟩ P hsen hw ha hb ho⟩
+
+/-! ## One value, and the one-slot buffer -/
+
+/-- **One value, every capacity `1 ≤ cap ≤ 8192`**: `feed(7)`, `finish(1)` relates
+`([7], (7))`. -/
+theorem chunkRingN_relates_7_one {cap : Nat} (h1 : 1 ≤ cap) (h8 : cap ≤ 8192) {P : Profile}
+    {pol : Policy (BitVec 32)} (hs : ∀ r, pol.sentinel = some r → r = 0)
+    {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0) :
+    ([7], SExp2.ofAtoms [7]) ∈ moduleMixedRel P (chunkRingN cap) twoIx ringPix pol ppol :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive.chunkRingN_relates_7_one h1 h8 hs h0
+
+/-- **The one-slot buffer relates `([7], (7))`.** -/
+theorem chunkRing1_relates_7 {P : Profile} {pol : Policy (BitVec 32)}
+    (hs : ∀ r, pol.sentinel = some r → r = 0) {ppol : PPolicy (BitVec 32)}
+    (h0 : ppol.sentinel = 0) :
+    ([7], SExp2.ofAtoms [7]) ∈ moduleMixedRel P (chunkRingN 1) twoIx ringPix pol ppol :=
+  chunkRingN_relates_7_one (by decide) (by decide) hs h0
+
+/-- **The relation of the one-slot buffer at the input `[7]`** is exactly `([7], (7))`. -/
+theorem chunkRing1_rel_eq_7 {P : Profile} {pol : Policy (BitVec 32)}
+    (hsen : pol.sentinel = none) (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub)
+    {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0) (hb : ppol.onBadHandle ≠ .ub)
+    (ho : ppol.onOverrun ≠ .ub) :
+    {t | ([7], t) ∈ moduleMixedRel P (chunkRingN 1) twoIx ringPix pol ppol} =
+      {SExp2.ofAtoms [7]} :=
+  Set.eq_singleton_iff_unique_mem.2 ⟨chunkRing1_relates_7 (fun r h => by simp [hsen] at h) h0,
+    fun _ => chunkRingN_rel ⟨by decide, by decide⟩ P hsen hw ha hb ho⟩
 
 /-! ## Eight values, and a full page -/
 

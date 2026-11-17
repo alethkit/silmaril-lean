@@ -26,7 +26,8 @@ the eight-value `chunkRing` (`chunkRing_*`, `ringCap_8`).
 
 Non-vacuity is in `Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.Examples`
 (`chunkRingN_relates_7`, `chunkRingN_relates_8`, `chunkRingN_rel_eq_8`, for every
-`2 ≤ cap ≤ 8192`), by a play built forwards:
+`2 ≤ cap ≤ 8192`; `chunkRingN_relates_7_one` for every `1 ≤ cap ≤ 8192`, and
+`chunkRing1_relates_7`, `chunkRing1_rel_eq_7` for the one-slot buffer), by a play built forwards:
 the replay used for `chunkTake`
 (`Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.mem_moduleMixedRel_of_replaySeqC`, by kernel
 evaluation of the interpreter) does not scale to a module with a memory page: a single
