@@ -34,7 +34,6 @@ open Silmaril.Wasm Silmaril.Wasm.Game Silmaril.Wasm.Execution.Core Silmaril.Wasm
   Silmaril.Wasm.Game.HandleAccept.Writers Silmaril.Wasm.Game.HandleAccept.Writers.Builders
   Silmaril.Wasm.Game.HandleAccept.Parsing Silmaril.Wasm.Game.HandleAccept.Mixed.Stream
   Silmaril.Wasm.Game.HandleAccept.Mixed.Stream.Stack Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk
-  Silmaril.Wasm.Game.HandleAccept.MemSound.Exact
   Silmaril.Proofs.Wasm.Game.HandleAccept.Checkers
   Silmaril.Proofs.Wasm.Game.HandleAccept.Parsing.Checkers
   Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.TwoWords

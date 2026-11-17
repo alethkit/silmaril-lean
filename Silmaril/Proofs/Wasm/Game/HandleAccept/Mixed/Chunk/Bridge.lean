@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Mixed.Stream.Thms
-public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ChunkAG
+public import Silmaril.Semantics.Accept.Mixed.Chunk.Thms
 
 /-!
 # Proofs: the chunk assume/guarantee bridge for instance plays
@@ -14,9 +14,10 @@ public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ChunkAG
 * `sag_chunkRet`: a play assume/guarantee correct for `chunkSSpec` from the ghost `g`, whose
   decoded writes agree with `σ`, has its returns related along the trace from `g`;
 * `moduleMixedRel_sound_of_chunkSat`: with `strategy_sag` and the assume/guarantee law along the
-  chunk buffer (`MemSound.ChunkAG.mixedRel_subset_of_chunkAG`), a module meeting `chunkSSpec`
+  chunk buffer (`Silmaril.Accept.Mixed.mixedRel_subset_of_chunkAG`), a module meeting `chunkSSpec`
   in every environment, from a store representing the empty buffer, has its mixed relation in
-  `R`.
+  `R`; `moduleMixedFixedRel_sound_of_chunkSat`: the same over fixed environments `Envs`
+  (`Silmaril.Accept.Mixed.mixedFixedRel_subset_of_chunkAG`), for every writer policy.
 
 New proofs (no source).
 -/
@@ -30,7 +31,7 @@ open Silmaril.Games Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Gam
   Silmaril.Formats Silmaril.Formats.Api Silmaril.Wasm.Game.HandleAccept
   Silmaril.Wasm.Game.HandleAccept.Writers Silmaril.Wasm.Game.HandleAccept.Parsing
   Silmaril.Wasm.Game.HandleAccept.Mixed Silmaril.Wasm.Game.HandleAccept.Mixed.Stream
-  Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk Silmaril.Wasm.Game.HandleAccept.MemSound.Exact
+  Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk
 open Silmaril.Wasm.Logic.Strategy (ISpec)
 
 variable {Op V H X : Type}
@@ -127,9 +128,24 @@ theorem moduleMixedRel_sound_of_chunkSat
     (hs : ∀ ρ, Inv ρ [] (Verify.instOf m).store) (hw : pol.onWrite ≠ .ub)
     (ha : pol.onAccept ≠ .ub) (hb : ppol.onBadHandle ≠ .ub) (ho : ppol.onOverrun ≠ .ub) :
     moduleMixedRel P m wix pix pol ppol ⊆ R :=
-  MemSound.ChunkAG.mixedRel_subset_of_chunkAG hw ha hb ho fun _ ⟨p, hp, ht⟩ σ hW u e v hd => by
+  mixedRel_subset_of_chunkAG hw ha hb ho fun _ ⟨p, hp, ht⟩ σ hW u e v hd => by
     subst ht
     have hS := sag_chunkRet p [] (strategy_sag (hm σ) (hs σ) hp) hW
+    rw [hd] at hS
+    exact chunkRetFrom_at hS
+
+/-- **Soundness of a chunked parser module over fixed environments**, for every writer policy. -/
+theorem moduleMixedFixedRel_sound_of_chunkSat
+    {Inv : Env (BitVec 32) (SExp2 (BitVec 64)) → List V → Store Nat → Prop}
+    {Envs : Set (Env (BitVec 32) (SExp2 (BitVec 64)))}
+    (hm : ∀ ρ ∈ Envs, SGameSat P (Verify.instOf m) (mixedISpec wix pol.sentinel ρ)
+      (chunkSSpec pix ppol ρ R (Inv ρ)))
+    (hs : ∀ ρ ∈ Envs, Inv ρ [] (Verify.instOf m).store) (hb : ppol.onBadHandle ≠ .ub)
+    (ho : ppol.onOverrun ≠ .ub) :
+    moduleMixedFixedRel P m wix pix pol ppol Envs ⊆ R :=
+  mixedFixedRel_subset_of_chunkAG hb ho fun ρ hρ _ ⟨p, hp, ht⟩ hW u e v hd => by
+    subst ht
+    have hS := sag_chunkRet p [] (strategy_sag (hm ρ hρ) (hs ρ hρ) hp) hW
     rw [hd] at hS
     exact chunkRetFrom_at hS
 

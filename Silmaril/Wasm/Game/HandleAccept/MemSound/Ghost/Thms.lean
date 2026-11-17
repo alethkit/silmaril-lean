@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.Ghost.Defs
-import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Ghost
+import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.OnePoint
 
 /-!
 # Memory-observing soundness with ghost state: the bridge
@@ -23,6 +23,11 @@ import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Ghost
   steps by `Step.mapH`, a call redex of the real store to the redex of the relabelled store with
   host code `(h, g)`, an admitted answer to a step of `gHost` that moves the ghost over the decoded
   inputs, an invocation to the invocation of the relabelled store.
+* `memSat_iff_gMemSat` (**the one-point case**): `MemSat` is `GMemSat` for the one-point ghost
+  contract `K.toG` (ghost `Unit`, guarantee `fun _ => K.pre`) and invariant `fun _ => Inv`; and
+  `tagTraces_pre_of_gpre`: the conclusion of the memory bridge
+  `Silmaril.Wasm.Game.HandleAccept.MemSound.tagTraces_pre` follows from `tagTraces_gpre` through
+  it, so the ghost bridge generalises the memory bridge.
 -/
 
 @[expose] public section
@@ -56,5 +61,25 @@ theorem tagTraces_gpre {P : Profile} {Envs : Store Nat → SEnv UImp → Prop} {
     ∃ o, (R.callIn o = some x ∧ K.pre (tagGhost K.upd g₀ u) o) ∨
       (∃ w, R.answerIn o w = some x ∧ ∃ g, K.pre g o) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Ghost.tagTraces_gpre hsat hE hts hd hu
+
+/-- **`MemSat` is the one-point case of `GMemSat`.** -/
+theorem memSat_iff_gMemSat {P : Profile} {m : Module} {memIdx : Nat} {R : Roles X I O C}
+    {K : MemContract I} {Inv : Store Nat → Prop} :
+    MemSat P m memIdx R K Inv ↔ GMemSat P m memIdx R K.toG (fun _ => Inv) () :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Ghost.memSat_iff_gMemSat
+
+/-- **The memory bridge from the ghost bridge**: the conclusion of `MemSound.tagTraces_pre`,
+derived from `tagTraces_gpre` at the one-point ghost. -/
+theorem tagTraces_pre_of_gpre {P : Profile} {Envs : Store Nat → SEnv UImp → Prop} {memIdx : Nat}
+    {m : Module} {R : Roles X I O C} {K : MemContract I} {Inv : Store Nat → Prop}
+    (hsat : MemSat P m memIdx R K Inv) (hE : ∀ s L, Envs s L → ReplyEnvs K.reply s L)
+    {ts : List (Tag X I O C)} (hts : ts ∈ tagTraces P Envs memIdx m R)
+    {u v : List (Tag X I O C)} {x : I} (hd : ts = u ++ .inp x :: v)
+    (hu : ∀ y, Tag.inp y ∈ u → K.ans y) :
+    ∃ o, K.pre o ∧ (R.callIn o = some x ∨ ∃ w, R.answerIn o w = some x) := by
+  obtain ⟨o, ⟨hc, hp⟩ | ⟨w, hw, _, hp⟩⟩ :=
+    tagTraces_gpre (K := K.toG) (memSat_iff_gMemSat.1 hsat) hE hts hd hu
+  · exact ⟨o, hp, .inl hc⟩
+  · exact ⟨o, hp, .inr ⟨w, hw⟩⟩
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.Ghost

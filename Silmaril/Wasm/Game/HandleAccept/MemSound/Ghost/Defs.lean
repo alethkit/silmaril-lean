@@ -54,7 +54,9 @@ over the inputs of a tag list: in a traced session, the ghost of the decoded pre
 may rewrite the store, it is typically a ghost-only bound (for instance "at most 16 values are
 buffered") together with the store's shape.
 
-Specialisations: `MemSat` is `GMemSat` for a one-point ghost (not proved here).
+Specialisations: `MemSat` is `GMemSat` for a one-point ghost: `MemContract.toG K` is the ghost
+contract over `Unit` with `pre _ = K.pre` (same `ans`, `reply`), and `Thms.memSat_iff_gMemSat`:
+`MemSat P m memIdx R K Inv ↔ GMemSat P m memIdx R K.toG (fun _ => Inv) ()`.
 
 New definitions (no source).
 -/
@@ -98,6 +100,15 @@ structure GContract (I G : Type) where
   reply : UCall Nat → UReply → Prop
   /-- The ghost state after a decoded input. -/
   upd : G → I → G
+
+/-- **The one-point ghost contract** of a memory contract: the ghost is `()`, the guarantee
+ignores it. -/
+def _root_.Silmaril.Wasm.Game.HandleAccept.MemSound.MemContract.toG (K : MemContract I) :
+    GContract I Unit where
+  pre _ := K.pre
+  ans := K.ans
+  reply := K.reply
+  upd _ _ := ()
 
 /-- The ghost state after an optional decoded input. -/
 def GContract.after (K : GContract I G) (g : G) (y : Option I) : G := y.elim g (K.upd g)

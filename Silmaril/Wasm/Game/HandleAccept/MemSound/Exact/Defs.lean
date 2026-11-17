@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.PullMix.Defs
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.Ghost.Defs
+public import Silmaril.Semantics.Accept.Mixed.Chunk.Defs
 
 /-!
 # Exact pull-chunk echo: a writer and pull-chunk module relating input bytes to their atom
@@ -60,18 +61,6 @@ open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game Silmaril.Acce
   Silmaril.Wasm.Game.HandleAccept.MemSound.PullMix Silmaril.Wasm.Game.HandleAccept.MemSound.Ghost
 
 /-! ## The chunk buffer -/
-
-/-- **The chunk buffer after one parsing event**, outside undefined behaviour: a chunk is
-appended; `finish(n, _)` drops `n` values when at least `n` are buffered and otherwise (an
-overrun under `callTrap` or `ignore`) leaves the buffer; `reset` clears it. -/
-def chunkStep {V H : Type} : List V → PEv V H → List V
-  | b, .feed c => b ++ c
-  | b, .finish n _ => if n ≤ b.length then b.drop n else b
-  | _, .reset => []
-  | b, _ => b
-
-/-- The chunk buffer after the parsing events of a trace, from `b`. -/
-def chunkFold {V H : Type} (b : List V) (t : List (PEv V H)) : List V := t.foldl chunkStep b
 
 /-- The ghost update of memory mixed sessions: the chunk buffer moves on parsing events. -/
 def mixUpd : List UInt8 → MixEv → List UInt8

@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.Exact.Defs
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.GhostRules
-public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ChunkAG
+public import Silmaril.Semantics.Accept.Mixed.Chunk.Thms
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.PullMix
 
 /-!
@@ -25,8 +25,8 @@ public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.PullMix
   happens with at most `16` bytes buffered.
 * **Exactness** (`exact_of_gsat`): the ghost bridge `tagTraces_gpre` gives, at every `finish(n, h)`
   of a mixed trace, the guarantee in the chunk buffer of the parsing events before it; the
-  assume/guarantee law along the chunk buffer (`ChunkAG.mixedRel_subset_of_chunkAG`) turns it into
-  `memMixedRel … ⊆ exactRel`.
+  assume/guarantee law along the chunk buffer
+  (`Silmaril.Accept.Mixed.mixedRel_subset_of_chunkAG`) turns it into `memMixedRel … ⊆ exactRel`.
 -/
 
 @[expose] public section
@@ -549,7 +549,7 @@ theorem exact_of_gsat {P : Profile} {Envs : Store Nat → SEnv UImp → Prop} {m
     (ha : pol.onAccept ≠ .ub) (hb : ppol.onBadHandle ≠ .ub) (ho : ppol.onOverrun ≠ .ub)
     (hz : ppol.sentinel = z) (hs : pol.sentinel = none ∨ pol.sentinel = some ppol.sentinel) :
     memMixedRel P Envs 0 m {} {} pol ppol ⊆ exactRel := by
-  refine ChunkAG.mixedRel_subset_of_chunkAG hw ha hb ho ?_
+  refine mixedRel_subset_of_chunkAG hw ha hb ho ?_
   intro t ht σ hWA u e v hd ps w h ps' hps hR hne x hx
   rcases pev_cases hsat hE ht hWA hd with ⟨n, h₀, rfl⟩ | ⟨c, rfl⟩
   · obtain ⟨hn, rfl, rfl, -⟩ := hR

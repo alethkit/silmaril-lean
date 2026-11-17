@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Mixed.Stream.Stack.Defs
-public import Silmaril.Wasm.Game.HandleAccept.MemSound.Exact.Defs
+public import Silmaril.Semantics.Accept.Mixed.Chunk.Defs
 
 /-!
 # Chunk exports in instance plays: the chunk buffer as ghost state
@@ -11,7 +11,7 @@ public import Silmaril.Wasm.Game.HandleAccept.MemSound.Exact.Defs
 `feed(chunk)`/`finish(n) -> (used, tree)` (`Silmaril.Accept.Parse.PEv.feed`, `PEv.finish`), the
 returned tree is constrained by the `used` values after the cursor: here the ghost state is the
 **chunk buffer** of the parsing session, moved by
-`Silmaril.Wasm.Game.HandleAccept.MemSound.Exact.chunkStep` (a chunk is appended; `finish(used, _)`
+`Silmaril.Accept.Mixed.chunkStep` (a chunk is appended; `finish(used, _)`
 drops `used` values when that many are buffered, and keeps the buffer otherwise, as an overrun
 answered by `callTrap` or `ignore` does).
 
@@ -49,11 +49,10 @@ open Silmaril.Wasm.Numerics (Profile)
 namespace Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk
 
 open Silmaril.Games Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game
-  Silmaril.Accept.Handle Silmaril.Accept.Parse Silmaril.Formats
+  Silmaril.Accept.Handle Silmaril.Accept.Parse Silmaril.Accept.Mixed Silmaril.Formats
   Silmaril.Wasm.Game.HandleAccept.Parsing Silmaril.Wasm.Game.HandleAccept.Mixed.Stream
   Silmaril.Wasm.Game.HandleAccept.Mixed.Stream.Stack
   Silmaril.Wasm.Game.HandleAccept.Writers.Examples
-  Silmaril.Wasm.Game.HandleAccept.MemSound.Exact
 
 /-! ## The chunk specification -/
 
