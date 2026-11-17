@@ -5,6 +5,7 @@ Both clean builds must match; both stripping variants must pass existing package
 tests before publication. Existing output paths are never overwritten.
 """
 import argparse
+import atexit
 import gzip
 import hashlib
 import json
@@ -20,6 +21,15 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGES = ['cjson', 'darkhttpd', 'tcp-pingpong', 'mimalloc', 'jemalloc', 'refcrypto', 'tinycc', 'coreutils', 'sqlite', 'openssl']
 TAG = 'silmaril-corpus-toolchain:trixie-20251103'
 BASE = 'debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598'
+POSTPROCESSORS = []
+
+
+def cleanup():
+    for container in POSTPROCESSORS:
+        subprocess.run(['docker', 'stop', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+atexit.register(cleanup)
 
 
 def sha(path):
@@ -80,17 +90,26 @@ def main():
                 run_id = str(uuid.uuid4())
                 work = a.work / run_id
                 work.mkdir()
+                processor = None
 
                 def docker(command, log, extra=()):
-                    cmd = ['docker', 'run', '--rm', '--network', 'host', '--cpus', '8', '--memory', '32g',
+                    nonlocal processor
+                    base_cmd = ['docker', 'run', '--rm', '--network', 'host', '--cpus', '8', '--memory', '32g',
                            '-e', 'JOBS=8', '-e', 'SOURCE_DATE_EPOCH=1762128000', '-e', f'CORPUS_OPT_LEVEL={level}',
                            '-v', f'{recipes / "corpus"}:/corpus:ro', '-v', f'{recipes / "scripts"}:/scripts:ro',
-                           '-v', f'{cache}:/cache:ro', '-v', f'{work}:/out', *extra, image, *command]
+                           '-v', f'{cache}:/cache:ro', '-v', f'{work}:/out', *extra]
                     # Measure tools inside the container, not just the Docker client.
-                    wrapped = cmd[:-len(command)] + ['python3', '-I', '/scripts/corpus/measure.py',
+                    measured = ['python3', '-I', '/scripts/corpus/measure.py',
                         '--stage', log.stem, '--target', arch + '-linux-gnu', '--output', '/out/runs',
                         '--repository-receipt', '/out/repository.json', '--concurrency', '8' if log.stem.startswith('build-') else '1',
                         '--input', f'/corpus/{pkg}/build.sh', '--input', '/corpus/common.sh', '--', *command]
+                    if log.stem.startswith('build-'):
+                        wrapped = [*base_cmd, image, *measured]
+                    else:
+                        if processor is None:
+                            processor = subprocess.check_output([*base_cmd, '-d', image, 'sleep', 'infinity'], text=True).strip()
+                            POSTPROCESSORS.append(processor)
+                        wrapped = ['docker', 'exec', processor, *measured]
                     with log.open('wb') as output:
                         subprocess.run(wrapped, stdout=output, stderr=subprocess.STDOUT, check=True)
 
@@ -129,7 +148,7 @@ def main():
                     receipt['variant'] = {'optimization': level, 'stripping': variant, 'configuration': config,
                                           'run_id': run_id, 'target': arch + '-linux-gnu'}
                     if variant == 'stripped':
-                        receipt['reproducibility_check'] = 'two byte-identical clean builds, independently stripped in fresh containers, byte-identical stripped outputs'
+                        receipt['reproducibility_check'] = 'two byte-identical clean builds, independently stripped with the pinned tool in a separate post-processing container, byte-identical stripped outputs'
                     receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                 stage = Path(tempfile.mkdtemp(prefix='variant-publish-', dir=a.work))
                 for variant in ['unstripped', 'stripped']:
@@ -176,6 +195,9 @@ def main():
                 if dest.exists():
                     raise FileExistsError(dest)
                 shutil.move(str(stage), dest)
+                if processor is not None:
+                    subprocess.run(['docker', 'stop', processor], stdout=subprocess.DEVNULL, check=True)
+                    POSTPROCESSORS.remove(processor)
                 print(f'published {relative}: {len(names) * 2} real ELF artifacts; clean reproducibility, tests, paired stripping passed', flush=True)
 
 
