@@ -3,7 +3,7 @@ import unittest
 import hashlib
 import json
 from pathlib import Path
-from census import disassembly
+from census import disassembly, report_relative_path
 
 
 class DecoderEvidence(unittest.TestCase):
@@ -22,6 +22,33 @@ class DecoderEvidence(unittest.TestCase):
                 for section in report['executable_sections']:
                     self.assertEqual(section['size'], sum(section[k] for k in ['decoded_bytes', 'undecoded_bytes', 'unreported_bytes']))
         self.assertEqual(expected, set((root / 'corpus/census').glob('*/*/*.json')))
+
+    def test_variant_report_identity_and_coverage(self):
+        root = Path(__file__).resolve().parents[2]
+        expected = set()
+        for receipt_path in (root / 'corpus/variants').glob('*/*/*/*/*/*/receipt.json'):
+            receipt = json.loads(receipt_path.read_text())
+            for artifact in receipt['outputs']:
+                report_path = root / 'corpus/census' / report_relative_path(artifact['path'])
+                expected.add(report_path)
+                report = json.loads(report_path.read_text())
+                self.assertEqual(report['path'], artifact['path'])
+                self.assertEqual(report['sha256'], artifact['sha256'])
+                self.assertEqual(report['identity']['variant'], receipt['variant'])
+                self.assertEqual(report['identity']['receipt_sha256'], hashlib.sha256(receipt_path.read_bytes()).hexdigest())
+                self.assertEqual(report['dynamic_observations']['status'], 'not measured')
+                for section in report['executable_sections']:
+                    self.assertEqual(section['size'], sum(section[k] for k in ['decoded_bytes', 'undecoded_bytes', 'unreported_bytes']))
+        self.assertEqual(expected, set((root / 'corpus/census/variants').rglob('*.json')))
+
+    def test_report_paths_do_not_alias_variants(self):
+        canonical = report_relative_path('corpus/elf/cjson/x86_64/libcjson.so.1')
+        unstripped = report_relative_path('corpus/variants/cjson/1.7.19/default/x86_64/O0/unstripped/libcjson.so.1')
+        stripped = report_relative_path('corpus/variants/cjson/1.7.19/default/x86_64/O0/stripped/libcjson.so.1')
+        self.assertEqual(str(canonical), 'cjson/x86_64/libcjson.so.1.json')
+        self.assertEqual(len({canonical, unstripped, stripped}), 3)
+        with self.assertRaises(ValueError):
+            report_relative_path('outside/elf')
 
     def test_x86(self):
         report = disassembly('''Disassembly of section .text:

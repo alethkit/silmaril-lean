@@ -26,7 +26,7 @@ try{
   await page.waitForFunction(()=>document.querySelector('#corpus-count').textContent.startsWith('2 matching'));
   await page.locator('#corpus-results a').first().click();
   await page.waitForFunction(()=>window.explore.view==='corpus-artifact'&&!window.explore.busy);
-  assert.match(await page.locator('#main').innerText(),/No canonical-build census is silently reused/);
+  assert.match(await page.locator('#main').innerText(),/Static tool evidence; runtime use and semantic support are not established/);
   assert.match(await page.locator('#main').innerText(),/Canonical ELF in Git/);
   await page.getByRole('link',{name:/Search all .* symbol rows/}).click();
   await page.waitForFunction(()=>window.explore.view==='corpus-functions'&&!window.explore.busy);

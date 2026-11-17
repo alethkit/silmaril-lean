@@ -1,16 +1,37 @@
 """Corpus database integration: real inputs, additive backup, no ELF blob storage."""
 import hashlib
+import json
 from pathlib import Path
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
+import database
+from census import report_relative_path
+from matrix import inventory
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class CorpusDatabase(unittest.TestCase):
+    def test_stale_census_rejected(self):
+        artifact = inventory(ROOT)['artifacts'][0]
+        original = json.loads((ROOT / 'corpus/census' / report_relative_path(artifact['path'])).read_text())
+        for field in ['sha256', 'path', 'receipt_sha256']:
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                report = json.loads(json.dumps(original))
+                if field == 'receipt_sha256':
+                    report['identity'][field] = 'stale'
+                else:
+                    report[field] = 'stale'
+                path = root / 'corpus/census' / report_relative_path(artifact['path'])
+                path.parent.mkdir(parents=True)
+                path.write_text(json.dumps(report))
+                with self.assertRaisesRegex(ValueError, 'census artifact or receipt identity mismatch'):
+                    database.artifact_census(root, artifact)
+
     def test_real_inputs_and_preserved_base(self):
         with tempfile.TemporaryDirectory() as tmp:
             base, output = Path(tmp) / 'base.sqlite', Path(tmp) / 'corpus.sqlite'
@@ -25,6 +46,12 @@ class CorpusDatabase(unittest.TestCase):
             self.assertEqual(db.execute('SELECT value FROM preserve').fetchone(), ('unchanged',))
             self.assertGreaterEqual(db.execute('SELECT count(*) FROM corpus_artifacts').fetchone()[0], 54)
             self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 6)
+            for metadata, census in db.execute('SELECT metadata,census FROM corpus_artifacts'):
+                artifact = json.loads(metadata)
+                self.assertIsNotNone(census, artifact['path'])
+                report = json.loads(census)
+                self.assertEqual(report['sha256'], artifact['sha256'])
+                self.assertEqual(report['path'], artifact['path'])
             self.assertGreater(db.execute('SELECT count(*) FROM corpus_functions').fetchone()[0], 42000)
             self.assertGreater(db.execute('SELECT count(*) FROM corpus_timings').fetchone()[0], 10)
             self.assertTrue(all(row[2].upper() != 'BLOB' for row in db.execute('PRAGMA table_info(corpus_artifacts)')))

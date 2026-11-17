@@ -1,6 +1,6 @@
 # Corpus evidence and measurements
 
-`census.py` reads every canonical `corpus/elf/*/*/receipt.json`, verifies each ELF's
+`census.py` reads every completed canonical and variant receipt, verifies each ELF's
 SHA-256, and writes one JSON report per artifact. Run it in the pinned corpus
 toolchain image; it needs native and AArch64 GNU binutils. It does not execute the
 artifacts. The reports contain receipt identities, `DT_NEEDED`, SONAME, interpreter,
@@ -69,6 +69,14 @@ source mapping/context files, paired stripped mappings, census reports and measu
 run receipts. ELF bytes remain in Git; the database records their paths and hashes.
 No source semantics or TV statement is inferred from mapping metadata.
 
+Variant census reports live under `corpus/census/variants/` with the full
+project/version/configuration/architecture/optimization/stripping path. Generate
+only those with `census.py --variants-only --output /out/census`; canonical report
+paths stay stable. Each report names and hashes its exact receipt and ELF. The
+catalog loads these reports for variants too and rejects a mismatching ELF hash;
+it never substitutes a canonical artifact's report for a variant. Reports retain
+linear-decoder coverage limits and distinguish static sites from runtime observations.
+
 ```sh
 mkdir -p /work/out/corpus-site
 python3 scripts/corpus/database.py --output /work/out/corpus-site/project.sqlite
@@ -103,5 +111,5 @@ node tools/silmaril-project/tests/explore/corpus.mjs /work/out/corpus-site /work
 
 CI generates the real standalone catalog and a combined public fixture and runs
 these Chromium checks. The view does not yet provide a full multiversion build
-matrix, variant-specific census runs, source code rendering, or instantiated TV
+matrix, source code rendering, or instantiated TV
 and binary-equivalence problem pages. Zero statement counts remain explicit.

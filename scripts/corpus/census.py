@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tool evidence for canonical ELFs. Run inside corpus/toolchain's pinned image.
+"""Tool evidence for canonical and optimization/stripping ELFs. Run inside corpus/toolchain's pinned image.
 
 No execution or Lean proof is implied. Each artifact is independently generated;
 readelf/objdump failures stop generation rather than silently dropping coverage.
@@ -110,17 +110,34 @@ def census(path, arch):
                        'Syscall numbers, indirect targets, signal behavior, vDSO use and runtime effects remain unknown.']}
 
 
+def report_relative_path(artifact_path):
+    """Keep canonical report URLs stable; variants retain their full build identity."""
+    path = Path(artifact_path)
+    if path.is_relative_to('corpus/elf'):
+        relative = path.relative_to('corpus/elf')
+    elif path.is_relative_to('corpus/variants'):
+        relative = Path('variants') / path.relative_to('corpus/variants')
+    else:
+        raise ValueError(f'{path}: outside corpus artifact roots')
+    return relative.parent / (relative.name + '.json')
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root', type=Path, default=Path('.'))
     p.add_argument('--output', type=Path, required=True)
+    p.add_argument('--variants-only', action='store_true', help='analyze completed variants without regenerating canonical reports')
     a = p.parse_args()
     os.chdir(a.root)
     count = 0
-    for receipt_path in sorted(Path('corpus/elf').glob('*/*/receipt.json')):
+    receipts = [] if a.variants_only else sorted(Path('corpus/elf').glob('*/*/receipt.json'))
+    receipts += sorted(Path('corpus/variants').glob('*/*/*/*/*/*/receipt.json'))
+    for receipt_path in receipts:
         receipt = json.loads(receipt_path.read_text())
         for obj in receipt['outputs']:
             path = Path(obj['path'])
+            if hashlib.file_digest(path.open('rb'), 'sha256').hexdigest() != obj['sha256']:
+                raise ValueError(f'{path}: receipt hash mismatch before analysis')
             report = census(path, receipt['arch'])
             if report['sha256'] != obj['sha256']:
                 raise ValueError(f'{path}: receipt hash mismatch')
@@ -129,7 +146,10 @@ def main():
                                   'inputs': receipt['inputs'], 'image': receipt['image'],
                                   'compiler': receipt['compiler'], 'cflags': receipt['cflags'],
                                   'configure_args': receipt['configure_args'], 'stripping': 'unstripped' if obj['has_symtab'] else 'no-symtab'}
-            out = a.output / receipt['package'] / receipt['arch'] / (path.name + '.json')
+            if 'variant' in receipt:
+                report['identity']['variant'] = receipt['variant']
+                report['identity']['stripping'] = receipt['variant']['stripping']
+            out = a.output / report_relative_path(path)
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
             count += 1
