@@ -3,8 +3,9 @@
 #   ./Configure linux-x86_64 | linux-aarch64 --cross-compile-prefix=aarch64-linux-gnu-
 #               no-asm shared no-tests --prefix=/usr/local --openssldir=/usr/local/ssl
 #               --libdir=lib CFLAGS='-O2 -g0 -ffile-prefix-map=/build/openssl=.'
-# no-asm: no perlasm/assembly modules, so every function in the outputs comes from C (wanted by the
-# later translation-validation step). Builds libcrypto.so.3, libssl.so.3 and apps/openssl only
+# no-asm disables OpenSSL's separately selected assembly modules. It does not establish that every
+# output function is a C function (crt/compiler-generated code and C inline assembly need separate
+# evidence). Builds libcrypto.so.3, libssl.so.3 and apps/openssl only
 # (make build_libs apps/openssl); providers/engines modules are not built.
 . "$(dirname "$0")/../common.sh"
 start_build openssl "$1" "$2"

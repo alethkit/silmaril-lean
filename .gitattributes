@@ -13,3 +13,8 @@ corpus/variants/**/upstream/** linguist-vendored
 corpus/variants/**/generated/** linguist-generated
 corpus/variants/**/unstripped/** linguist-generated -diff
 corpus/variants/**/stripped/** linguist-generated -diff
+# Provenance remains reviewable text even alongside binary artifacts.
+corpus/elf/**/receipt.json diff
+corpus/elf/**/SHA256SUMS diff
+corpus/variants/**/receipt.json diff
+corpus/variants/**/SHA256SUMS diff
