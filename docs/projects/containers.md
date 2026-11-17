@@ -534,25 +534,28 @@ DOCKER_NET="--network host" examples/containers/http-serve/docker-test.sh   # no
 
 ```
 1. http_serve.s rebuilds to the pinned ELF in the layer
-2. docker loaded silmaril-http-serve:pinned as sha256:ed2c4bf8…178a, exposing 8080/tcp
+2. docker loaded silmaril-http-serve:pinned as sha256:ffbec519…00c1, exposing 8080/tcp
 3. container c36b0ac1… started; it listens on 8080 itself
 4. curl http://127.0.0.1:8080/ received exactly the 40-octet response (200, body ok)
 5. the container exited 0 after the one session
 PASS (a test of this host, not a proof)
 ```
 
-`examples/containers/http-serve/http_serve.s` (98 lines, no libc): `socket`, `bind 0.0.0.0:8080`,
-`listen`, `accept` one connection, `read` the request, `sendto` the response **until all 40
-octets are sent** (short sends are retried), `shutdown`, `close`, `exit 0`. Each failing call
-exits with its own status, so failures are defined outcomes, not undefined behaviour. No host-side
-listener: the container owns the socket.
+`examples/containers/http-serve/http_serve.s` (no libc): `socket`, `bind 0.0.0.0:8080`,
+`listen`, `accept` one connection, `sendto` the response **until all 40 octets are sent** (short
+sends are retried), `read` once to drain the request, `exit 0` (the kernel closes the
+connection). Each failing call before the drain exits with its own status (10–14), so failures
+are defined outcomes, not undefined behaviour. No host-side listener: the container owns the
+socket.
 
 | Field | Status | Where |
 | --- | --- | --- |
 | Digests of ELF, layer, config, manifest; LPS loads the ELF; the OCI reader yields `/http-serve` and declares `8080/tcp` | Proved | `HttpServe.Thms` |
 | The adapter reads LPS's TCP connections: octets on channel `3 + k` are `Ev.recv` / `Ev.send` on `connSock` | Defined (the earlier theorems rebuild unchanged) | `Lps.mapEv` |
 | `SessionOk` (receive a request, send **exactly** the response, exit 0) → the connection's sent octets, as `Http.platform` reads them, are the response, judged exactly by the HTTP/1.1 reader | Proved | `sessionOk_sent`, `sessionOk_exact` |
-| `serveSpec` = `SessionOk` or a defined failure (status 10–15, at most a prefix sent) | Defined | `HttpServe.Defs` |
+| `serveSpec` = `SessionOk` or a defined failure (status 10–14, at most a prefix sent) | Defined | `HttpServe.Defs` |
+| LPS outcomes of the server's calls: `socket`, `listen`, `accept`, `sendto` (no pending error: any non-empty prefix; pending reset/timeout: that error), and their dispatch from the native table | Proved | `Ports.Thms` (`socket_iff` … `dispatches_sendto`) |
+| Flag-oracle kit rules under any table: instruction/trap steps, model-changing returns (`oexec_sys`), exit | Proved | `Lps.Thms` (kit section) |
 | Runtime model `Ports.ociRuntime`: the image's declared TCP ports are published; a `bind` to a published port is LPS's own `bind` with the port read as 0; nothing else changes (`publish [] = Probes.spec`) | Defined; base-preservation proved | `Ports` |
 | LPS's own `bind` to 8080 is `unmodeled`; with 8080 published it has exactly LPS's port-0 outcomes (`EADDRINUSE`, or bound); this image runs with exactly `[8080]` published | Proved | `bind_port_unmodeled`, `bind_published`, `published_load` |
 | General adapter soundness over any syscall table: if the program's LPS executions meet `G` with no task creation (`Lps.Sound`), every run has no UB and every exit meets `G` | Proved | `Lps.runs_sound` |
@@ -565,22 +568,24 @@ assumptions hidden in the program):
 
 | Assumption | In the model | If it fails |
 | --- | --- | --- |
-| Port 8080 can be bound | published by `Ports.ociRuntime`; LPS's port-0 outcomes (injected `EADDRINUSE`) | status 11 |
-| A peer connects | the launch's `net` queue (`accept4Spec` takes its head) | `accept` waits: the run need not exit (liveness is not claimed) |
+| Port 8080 can be bound | published by `Ports.ociRuntime` (named abstract port semantics: a published port is bound as LPS binds port 0); injected `EADDRINUSE` | status 11 |
+| A peer connects | the launch's `net` queue, never empty in LPS (`accept4Spec` takes its head) | — |
 | Socket, accept resources available | injected `ENOMEM`/`EMFILE`/`ENFILE` | status 10 or 13 |
-| The peer does not reset before the response is sent | the connection's script (`rst`, `timedOut`) | status 14 or 15 |
+| The peer does not reset before the response is sent | the connection's script (`rst`, `timedOut`) | status 14 |
 | The scheduler runs the process | none (one sequential process, `seqPolicy`) | — |
 
 So the statement is **successful-session correctness** with no undefined behaviour: a run that
-exits 0 sent exactly the response, and every other exit is 10–15 (`wlp`). It is not unconditional
+exits 0 sent exactly the response, and every other exit is 10–14 (`wlp`). It is not unconditional
 liveness, which needs a peer; under this framework a process that reads input has `blocked`
 runs, so `wp` (total correctness) would need an explicit assumption on inputs.
 
-**What remains** (`Task.serverSound`): the program's LPS executions under `publish [8080]`, for
-every flag oracle and admissible launch (any `net` queue). It needs flag-oracle probe-kit rules
-for system calls that change the model (`socket`, `bind`, `listen`, `accept`, `close`) and the
-memory (`read` into the image's buffer), the socket `read` and `sendto` outcomes, and a loop
-lemma for the send retry (each send moves at least one octet, so at most 40 iterations).
+**What remains** (`Task.serverSound`): walking the program's instructions with these rules for
+every flag oracle and admissible launch (any `net` queue). The `socket` step and its three
+failure branches (exit 10) go through with them (work in progress, outside the repository);
+left: the same walk through `bind`, `listen` and `accept`, the send-retry loop over symbolic
+register values (remaining count in `[0, 40]`, pointer inside the pinned response, sent octets a
+prefix of it; each send moves at least one octet), and the drain `read`, which writes the
+image's buffer and so needs flag-oracle rules over a changed memory.
 
 ## Next steps
 
