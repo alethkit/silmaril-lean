@@ -2258,13 +2258,25 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "537240cf9d45ddd31f8179c75333df8bbcc15f39f1cba1ffc770bce722fe9db5",
-      "contextual_c_to_elf_statements": 1,
+      "contextual_c_to_elf_statements": 3,
       "defined_nonzero_function_symbol_entries": 459,
       "formal_statements": [
         {
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.Source.Core.Task.compiles_to",
           "kind": "contextual_c_to_elf",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.Source.Core.Thms",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocClosed.ArenaNone.Task.compiles_to",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.MimallocClosed.ArenaNone.Thms",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocClosed.AllocatorDone.Task.compiles_to",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.MimallocClosed.AllocatorDone.Thms",
           "status": "stated-unproved"
         }
       ],
@@ -44838,7 +44850,7 @@
     }
   ],
   "formal_statement_counts": {
-    "contextual_c_to_elf": 1,
+    "contextual_c_to_elf": 3,
     "functional_equivalence": 1
   },
   "hierarchy": [
