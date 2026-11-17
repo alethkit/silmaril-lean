@@ -62,6 +62,7 @@ const ComponentTests = (() => {
         row("content", e(g.what));
         row("facts", (g.facts || []).map((f) => `<code>${e(f.theorem)}</code>: ${e(f.statement)}`).join("<br>"));
         row("status", e(g.status));
+        if (g.cause) row("cause", e(g.cause));
         h += "</tbody></table></div>";
       }
     }

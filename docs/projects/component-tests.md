@@ -18,11 +18,14 @@ byte for byte (`--write` rewrites them). Lean reads them with `include_bytes`
 | `starts.wasm` | 256 B | `ff543e05…02665f` | imports `f: func(x: u32)`; core instances, in order: `call1` (start: `f(1)`), `call2` (start: `f(2)`), `glob` (start: a mutable global, initially `0`, set to `42`); exports `get: func() -> u32` (`canon lift` of `glob`'s `get`, which reads the global) |
 | `trap.wasm` | 188 B | `1cccda32…649d20` | imports `f`; core instances: `trap` (start: `unreachable`; exports `get` returning `7`), then `call2` (start: `f(2)`); exports `trap`'s `get` |
 
-The same directory holds a third binary, `instexport.{wat,wasm}`, assembled the same way: not a
-test of instantiation-time behaviour but a regression of the decoder bridge (an exported
-instance, on which the two readings name different exports; see
-[the bridge evidence](#component-bridge-evidence-the-two-readings-of-a-binary)). It has no rows
-and no oracle run.
+The same directory holds two more binaries, assembled the same way: not tests of
+instantiation-time behaviour but regressions of the decoder bridge (see
+[the bridge evidence](#component-bridge-evidence-the-two-readings-of-a-binary)):
+`instexport.{wat,wasm}` (an exported instance, on which the two readings name different
+exports) and `paramname.{wat,wasm}` (256 B, SHA-256 `347583e4…3113da2`: `starts` with the import
+declared `f: func(y: u32)`, a counterexample to `Task.startAdequacy`). They have no rows and no
+oracle run; `paramname.wasm` has its own tool record (`paramname.json`,
+[below](#parameter-names-the-cause-of-the-counterexample)).
 
 `f` reaches the core instances through `canon lower`, `get` leaves through `canon lift`, so the
 import trace is observed in component values: `f(u32 1)`, answered `()`.
@@ -139,6 +142,7 @@ What this covers, and what it does not:
 | structural | core modules (decoded from the same bytes) and the order of core instantiations (`rel_of_decode`) | every binary both readings accept | **proved** |
 | wiring and types | imports, exports (names, types, lift/lower chains), each node's module interface and the wiring its arguments name (`relW_of_decode`) | every binary both readings accept whose REF reading is in `InFrag` (decidable) | **proved** |
 | exported instances | the IR names `i#get`, the reference machine has no function export of that name (`DecoderBridge.InstExport`) | `instexport.wasm` | **mismatch demonstrated** (kernel runs); outside `InFrag` |
+| parameter names | the IR drops them (`paramname.wasm` reads as `startsComp`); the reference root check compares them and traps on every run, so `Task.startAdequacy` is false (`DecoderBridge.not_startAdequacy`); the decidable certificate `RootChecked` (the reference's own root checks) fixes the domain: outside it the reference traps and has no run (`traps_of_not_rootChecked`, `not_instantiates_of_not_rootChecked`); `starts.wasm` passes it (`starts_rootChecked`), `paramname.wasm` does not (`not_rootChecked_paramName`) | every binary both readings accept | **counterexample proved**; corrected goal `Task.startAdequacyChecked` open in general; `MultiImpFrag` passes the certificate (`rootChecked_of_multiImpFrag`) and the corrected goal is **proved** there (`startAdequacyChecked_of_multiImpFrag`, from `startAdequacyFrag`); cause [below](#parameter-names-the-cause-of-the-counterexample) |
 | behaviour, IR half | an IR instantiation play is node by node: each core node's own instantiation play, down to its core engine run (`InstWired.nodesInst_of_denI`, `NodesInst.fail_nil`, `coreNodeI_engine_nil`) | every binary both readings accept whose REF reading is import-wired (`HostWired`, decidable: in `InFrag`, every core instantiation's imports wired to the component's imports), for failing instantiations and for the instantiation part of start plays (`DecoderBridge.Sim`) | **proved** |
 | behaviour, reference half, first core node | a quiet failure of IR core node `0` (preparation fails, or the start function traps without an import call) makes the reference machine's instantiation trap, by a symbolic run of the machine (`DecoderBridge.firstCore_fail_ref`) | every import-wired binary in the first-core fragment (`FirstCoreFrag`, decidable: types, function imports, core modules, `canon lower`, inline core instances before the first core instantiation; its module without imports, memories, tables, tags or segments); `trap.wasm` is (`trap_firstCoreFrag`), `starts.wasm` is not | **proved** (`trap_of_firstCore`: the REF half of `trap.wasm` from the IR run, no hypothesis) |
 | behaviour, reference half, first core node with lowered imports | a quiet failure of IR core node `0` whose module imports exactly the `canon lower` trampolines of `f` defined before it makes the reference machine trap (`DecoderBridge.firstImp_fail_ref`); so does a failure **after host calls** (`firstImp_failCalls_ref`, node outcome `NodeCalls`); a node that is ready after host calls `t` brings the reference machine to the return of its start function with the host log `logOfCalls t`, or it traps earlier, or `t = []` (`firstImp_ready_ref`) | every import-wired binary importing `f: func(u32)` in the decidable fragment `FirstImpFrag` (the first module's imports resolve, in order, to the `canon lower`s before it, at core type `(func (param i32))`); `starts.wasm` is (`starts_firstImpFrag`), `trap.wasm` is not (it is in `FirstCoreFrag`) | **proved**, given the node outcome (`NodeQuiet`, `NodeCalls`); `NodeCalls` is derived from the IR play on `MultiImpFrag` (`nodeCallsIR`, next row) |
@@ -233,7 +237,8 @@ equivalence of the two readings is **entirely unproved** beyond the executed exa
   first statement had no fragment hypothesis, see above), an IR play
   `instPlay t .ready ++ [get(), ws]` (each host call answered `()`) implies the REF session from
   `hostConfigX` with host log `logOfCalls t` and the first export (by name) returning
-  `ws.map toRefVal`.
+  `ws.map toRefVal`. **False** (`DecoderBridge.not_startAdequacy`, `paramname.wasm`); the
+  corrected goal is `Task.startAdequacyChecked`, with the root certificate `RootChecked`.
 
 **The IR half, on import-wired binaries** (`InstWired`, `DecoderBridge.Sim`; proofs in
 `Silmaril.Proofs.Wasm.Component.InstSem.{Unzip,Wired,WiredEngine}` and
@@ -340,7 +345,13 @@ equivalence of the two readings is **entirely unproved** beyond the executed exa
   `Quot.sound`): **the instantiation with its invariant, and the export call in pieces**, on the
   split fragment `MultiImpFrag` only; **`startAdequacyFrag : Task.startAdequacyFrag`** and
   `starts_ref_of_ir'` (the REF half of `starts.wasm` from its IR run) are proved without
-  hypothesis.
+  hypothesis. Every component of the fragment passes the root certificate `RootChecked`
+  (`rootChecked_of_multiImpFrag`), so `Task.startAdequacyFrag` is the corrected goal
+  `Task.startAdequacyChecked` restricted to it (`startAdequacyFrag_of_checked`), and
+  **`startAdequacyChecked_of_multiImpFrag`** proves that restriction. The instantiation on the
+  fragment is also unique (`instantiates_unique`: every finishing reference run ends at the
+  configuration, instance and exports of `nodesRef`'s run, which is a run of unique steps,
+  `LRun`, from the instantiation host event).
   `Task.exportRef` quantified over an arbitrary finished instantiation; it is replaced by
   `Task.exportRefX`, over `NodesInv r xs M inst es`: the IR's node ends `xs` (`NodeEnd`: instance,
   module instance, store after the start function), the final frame related to the reading
@@ -420,11 +431,73 @@ store is not done), other import shapes, modules with memories, tables or segmen
 `startAdequacyFrag`, see `DecoderBridge.MultiX`); outside import-wired binaries, calls between core instances (one shared
 REF store, direct calls; the IR routes them through the environment).
 
-`DecoderBridge.Sem.Thms`: `starts_of : Task.startAdequacy → <the REF half of starts_agree>` and
+`DecoderBridge.Sem.Thms`: `starts_of : Task.startAdequacyChecked → <the REF half of starts_agree>` and
 `trap_of : Task.failAdequacy → <the REF half of trap_agree>`: the examples are instances of the
-general goals, their hypotheses discharged by the existing theorems (and `starts_inFrag`). On
+general goals, their hypotheses discharged by the existing theorems (and `starts_inFrag`,
+`starts_rootChecked`). On
 these two binaries the conclusions are also proved outright, by execution (`starts_agree`,
 `trap_agree`).
+
+## Parameter names: the cause of the counterexample
+
+`paramname.wasm` is `starts.wasm` with the import declared `f: func(y: u32)`. The IR reading drops
+component function parameter names (`Binary.Lower`), so `Binary.parseComponent` returns
+`startsComp` and `c.imports = hostI` holds; the reference machine's root pre-check
+(`Instantiate.precheckImports`, `Instantiate/Root/Defs.lean`) compares the import's type with the
+type of the host's `f`, `func(x: u32)` (`InstTestsRef.hostConfigX`), by the transcription of
+wasmparser's `SubtypeCx` (`Reference/Types/Subtype/Check/Defs.lean`: `funcSub?` is equality,
+`FuncType.diff` reports `expected parameter named `y`, found `x``), and traps.
+
+**What is normative** (component-model at the pinned commit `a25fc0b`,
+<https://github.com/WebAssembly/component-model/tree/a25fc0b372dd21f07f0242c46e98bd0f1ea0c0e1/design/mvp>):
+
+* Parameter labels are part of a component function type: `Explainer.md` line 639,
+  `functype ::= (func async? (param <labellit> <valtype>)* (result <valtype>)?)`, and lines
+  877-879 ("a list of `valtype` parameters with strongly-unique names"); `Binary.md` lines 220-222,
+  `paramlist ::= lt*:vec(<labelvaltype>) => (param lt)*`.
+* `Explainer.md` "Type Checking" (lines 1046-1063): validation checks that the `with` arguments
+  of an `instantiate` are type-compatible with the imports, and "type equality is defined to be
+  AST equality"; lines 1084-1086: "subtyping is only relaxed for `module`, `instance` and
+  `component` types". So `func(y: u32)` and `func(x: u32)` are different types, and a component
+  function `f: func(x: u32)` is not a valid argument for the import `f: func(y: u32)`.
+* `definitions.py` (`design/mvp/canonical-abi/definitions.py`) keeps the names in the type
+  (`FuncType.params: list[tuple[str,ValType]]`, lines 79-81) but contains no instantiation,
+  linking or import type check: the canonical ABI never compares two function types. The root
+  pre-check is therefore not a transcription of `definitions.py`, and does not diverge from it.
+* How a *host* supplies a root import is left to the embedding. The JS embedding states that
+  "function parameter names are ignored since JavaScript doesn't have named parameters"
+  (`Explainer.md` lines 3238-3240).
+
+**What the pinned tools do** (`python3 -I tools/component-tests/paramname.py`, which writes
+`examples/component-tests/paramname.json`; evidence, not a proof, not in CI):
+
+| supply of `f` | `starts.wasm` (`x`) | `paramname.wasm` (`y`) |
+|---|---|---|
+| none: `wasm-tools 1.262.0 validate`; `component wit` | valid; `import f: func(x: u32)` | valid; `import f: func(y: u32)` |
+| host component `f: func(x: u32)` (`host.wat`), `wac 0.12.0 compose` | composes; wasmtime 50.0.0: trace `12`, `get()` = `42` | rejected: `mismatched instantiation argument `f``, `expected function parameter 0 to be named `y`, found name `x`` |
+| host component `f: func(y: u32)`, `wac compose` | rejected (the same, `x`/`y` swapped) | composes; trace `12`, `get()` = `42` |
+| both components nested in one, `instantiate ... (with "f" (func $hf))`, host `x` | `wasm-tools validate` and `wasmtime run` accept; `get()` = `42` | both reject: `type mismatch for import `f``, `expected parameter named `y`, found `x`` |
+| the same, host `y` | both reject | both accept; `get()` = `42` |
+| wasmtime 50.0.0 `Linker`, `func_wrap("f", (u32,) -> ())` (`tools/component-tests/linker-host`) | instantiates; host log `[1, 2]`; `get()` = `42` | **instantiates**; host log `[1, 2]`; `get()` = `42` |
+
+wasmtime's `Linker` checks a `func_wrap` host function by its Rust parameter and result types
+only (`crates/wasmtime/src/runtime/component/func/host.rs` at v50.0.0, `StaticHostFn::typecheck`:
+`P::typecheck(&InterfaceType::Tuple(ty.params), types)`, reached from
+`runtime/component/matching.rs`, `TypeChecker::func`); a host function has no parameter names.
+
+**Verdict.** Comparing parameter names is required by the specification when the argument is a
+typed component function (component-to-component instantiation; wasmparser, wac and wasmtime
+agree), and the reference's host supplies `f` as a component function value typed
+`func(x: u32)`, so its trap is the specification's verdict for that host. It is stricter than
+wasmtime's root linking of an untyped host function, which ignores names; the reference's
+`Instantiate/Root/Defs.lean` docstring compares its pre-check with wasmtime's `matching.rs`, and
+on this point the two differ (recorded here; the header is not changed). The **IR** is the
+permissive side: its type of an import (`c.imports`) forgets the names, so the hypothesis
+`c.imports = hostI` of `Task.startAdequacy` does not fix the import's specification type, and the
+statement is false. No transcription is changed; the goal is corrected instead
+(`Task.startAdequacyChecked`, with the decidable certificate `RootChecked`, the reference's own
+root checks), and holds on `MultiImpFrag` (`startAdequacyChecked_of_multiImpFrag`). An IR reading
+that keeps parameter names would exclude this binary by `c.imports = hostI` alone.
 
 ## Oracle: wasmtime (not a proof, not in CI)
 
@@ -460,7 +533,8 @@ observations and verdict, and the assumptions and tool provenance. Data:
 * General adequacy of `Comp.denI` with respect to the reference machine (only these examples;
   stated as `DecoderBridge.Task.failAdequacy` and `Task.startAdequacy`; on import-wired binaries
   the IR half of the failure goal is proved and its reference half `Task.failRefWired` is open
-  outside the first-core cases: `Task.failRefWiredRest'`; for `Task.startAdequacy`, on the
+  outside the first-core cases: `Task.failRefWiredRest'`; `Task.startAdequacy` is false
+  (`paramname.wasm`), its corrected form is `Task.startAdequacyChecked`; on the
   fragment `MultiImpFrag` the IR's node calls and the reference half of the first node with its
   start epilogue and the later nodes in the shared core store (the whole instantiation,
   `Task.nodesRef`, with the invariant `NodesInv`: `nodesRefX`) and the session call through

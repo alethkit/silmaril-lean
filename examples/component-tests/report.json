@@ -150,6 +150,40 @@
         }
       ],
       "status": "demonstrated mismatch of the two readings' export names (kernel runs), not a disproof of the first statement of Task.startAdequacy (the IR's answer to i#get and the absence of i#get from every reference run are not proved); excluded by the fragment hypothesis InFrag now in Task.startAdequacy; comparing instance-exported functions needs a reference export-path lookup, which is open"
+    },
+    {
+      "name": "paramname",
+      "wasm": "paramname.wasm",
+      "wat": "paramname.wat",
+      "sha256": "347583e4905a48fa04934184282b78d208ab5d430b01de4d6b797dadc3113da2",
+      "size": 256,
+      "lean": "Silmaril.Wasm.Component.DecoderBridge.paramNameBytes",
+      "disproof": "Silmaril.Wasm.Component.DecoderBridge.not_startAdequacy",
+      "what": "starts with the import declared f: func(y: u32) instead of f: func(x: u32); the binary differs from starts.wasm in that one byte",
+      "facts": [
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.parse_paramName",
+          "statement": "the IR reading (Binary.parseComponent) is startsComp: parameter names are dropped, so the IR plays are those of starts.wasm"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.decodeRef_paramName",
+          "statement": "the REF reading (Conformance.decodeRef) is paramNameRef, valid (paramName_valid) and in InFrag (paramName_inFrag)"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.not_rootChecked_paramName",
+          "statement": "the root certificate RootChecked (the reference machine's own root checks against the host f: func(x: u32)) rejects it; starts.wasm passes it (starts_rootChecked)"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.paramName_not_instantiates",
+          "statement": "no reference run (logging host, hostConfigX, first.prof) finishes the instantiation; it traps (paramName_traps)"
+        },
+        {
+          "theorem": "Silmaril.Wasm.Component.DecoderBridge.not_startAdequacy",
+          "statement": "Task.startAdequacy is false"
+        }
+      ],
+      "status": "counterexample proved: Task.startAdequacy is false; corrected goal Task.startAdequacyChecked (hypothesis RootChecked, open in general); outside RootChecked the reference instantiation traps and has no run (traps_of_not_rootChecked, not_instantiates_of_not_rootChecked); MultiImpFrag passes RootChecked (rootChecked_of_multiImpFrag), so the corrected goal is proved there (startAdequacyChecked_of_multiImpFrag)",
+      "cause": "the IR reading drops function parameter names; the specification keeps them in the function type (Explainer functype, Binary.md paramlist) and compares function types by equality (Explainer, Type Checking), as the reference does against its host typed f: func(x: u32). Tool evidence (paramname.json, not a proof): wasm-tools 1.262.0 validates the binary alone and rejects instantiating it with a component function f: func(x: u32) (expected parameter named `y`, found `x`), as do wac 0.12.0 and wasmtime 50.0.0; a wasmtime Linker host function (func_wrap, typed by parameter types only) instantiates it, host log [1, 2], get() = 42"
     }
   ]
 }
