@@ -47,6 +47,38 @@ theorem coreNodes_of_nodeW : ∀ {ns : List (Node Binary.CoreMod)}
     obtain ⟨ps, rfl, he⟩ := coreNodes_of_nodeW h
     exact ⟨(cm, p.2) :: ps, by rw [hn]; rfl, by simp [he]⟩
 
+/-- The IR reading of an import-wired binary: core nodes wired to the imports. -/
+theorem wired_of_decode {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefComponent}
+    (hc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hw : HostWired r) :
+    ∃ ps : List (Binary.CoreMod × List Impl), c.nodes = coreNodes ps ∧
+      ImportWired c.imports.length ps := by
+  obtain ⟨R, hR, hwR⟩ := hostWired_inv hw
+  obtain ⟨R', hR', hIR, -, hN⟩ := relW_of_decode hc hr (inFrag_of_hostWired hw)
+  rw [hR] at hR'
+  cases hR'
+  obtain ⟨ps, hps, hsnd⟩ := coreNodes_of_nodeW hN
+  refine ⟨ps, hps, fun p hp' im him => ?_⟩
+  have hmem : p.2 ∈ R.nodes.map Prod.snd := hsnd ▸ List.mem_map_of_mem hp'
+  obtain ⟨q, hq, hqe⟩ := List.mem_map.1 hmem
+  have := (List.all_eq_true.1 hwR) q hq
+  rw [hqe] at this
+  rw [hIR]
+  exact scoped_of_scopedB ((List.all_eq_true.1 this) im him)
+
+/-- **The instantiation part of a start play of an import-wired binary, node by node.** -/
+theorem nodesInst_of_startPlay {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefComponent}
+    (hc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hw : HostWired r)
+    {t : List (Σ _ : sigU.Op, Option Payload)} {rest : List (Move sigU sigUI)}
+    (hp : instPlay (F := sigU) t .ready ++ rest ∈ c.denI (Binary.coreModSemI (profile neverFail))) :
+    ∃ ps : List (Binary.CoreMod × List Impl), c.nodes = coreNodes ps ∧
+      NodesInst (Binary.coreModSemI (profile neverFail)) c.imports.length ps t .ready := by
+  obtain ⟨ps, hps, hiw⟩ := wired_of_decode hc hr hw
+  refine ⟨ps, hps, ?_⟩
+  obtain ⟨I, ns, xs⟩ := c
+  have hps' : ns = coreNodes ps := hps
+  subst hps'
+  exact nodesInst_of_denI hiw (Strategy.of_prefix _ hp (List.prefix_append _ _))
+
 /-- **The IR half of the failure goal on import-wired binaries.** -/
 theorem failAdequacyWired_of (h : Task.failRefWired) : Task.failAdequacyWired := by
   intro b c r hc hr hv hw hI hp

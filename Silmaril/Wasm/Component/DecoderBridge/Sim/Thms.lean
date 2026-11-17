@@ -16,6 +16,11 @@ Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Sim`.
   of its decoded module with no host call (`NodeQuiet`): `relW_of_decode` (the IR nodes are the
   REF reading's instantiations, wired as it names), then `InstWired.nodesInst_of_denI`,
   `NodesInst.fail_nil` and `coreNodeI_engine_nil`;
+* `nodesInst_of_startPlay` (proved): the instantiation part of the IR play of
+  `Task.startAdequacy` on an import-wired binary is node by node: the IR reading's nodes are
+  core nodes `ps` and `NodesInst (Binary.coreModSemI (profile neverFail)) 1 ps t .ready`, each
+  node's own instantiation play contributing its host calls to `t`, in order. The export call
+  after `ready` is not decomposed;
 * `starts_hostWired`, `trap_hostWired` (kernel, `decide +kernel`): both test binaries are
   import-wired;
 * `trap_of_wired`: the reference half of `InstTestsRef.trap_agree` from `Task.failRefWired`,
@@ -39,6 +44,18 @@ open Silmaril.Wasm.Component.Reference.Core3Adder (first)
 /-- **The reference half implies the failure goal on import-wired binaries.** -/
 theorem failAdequacyWired_of (h : Task.failRefWired) : Task.failAdequacyWired :=
   Silmaril.Proofs.Wasm.Component.DecoderBridge.failAdequacyWired_of h
+
+/-- **The instantiation part of a start play of an import-wired binary, node by node.** -/
+theorem nodesInst_of_startPlay {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefComponent}
+    (hc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hw : HostWired r)
+    {t : List (Σ _ : sigU.Op, Option Payload)} {rest : List (Move sigU sigUI)}
+    (hp : instPlay (F := sigU) t .ready ++ rest ∈
+      c.denI (Binary.coreModSemI (Silmaril.Wasm.SingleThreaded.profile
+        Silmaril.Wasm.SingleThreaded.neverFail))) :
+    ∃ ps : List (Binary.CoreMod × List Impl), c.nodes = coreNodes ps ∧
+      NodesInst (Binary.coreModSemI (Silmaril.Wasm.SingleThreaded.profile
+        Silmaril.Wasm.SingleThreaded.neverFail)) c.imports.length ps t .ready :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.nodesInst_of_startPlay hc hr hw hp
 
 /-- `starts.wasm` is import-wired. -/
 theorem starts_hostWired : HostWired startsRef := by decide +kernel
