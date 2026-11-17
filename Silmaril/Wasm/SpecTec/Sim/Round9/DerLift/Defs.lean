@@ -150,12 +150,57 @@ def liftSimpleIs (m : Map RelDef) (l : List Nat) : Bool :=
     | some r => liftSimple r
     | none => false
 
+/-! ## The second rule family: nothing to rebind -/
+
+/-- **A rule with nothing to rebind.** Every quantifier has export-free type, and at every
+conclusion alternative `(L, R)` the left-hand side `L` reads only quantifiers, passes the flow
+check and is export-free, and the alternative passes round 3's check (`EraseAll.xExp`). Then the
+original input has no export list, so it *is* the erased input, and the erased instance is
+already an instance at the original input whose successor erasure fixes. -/
+def liftNx : Rule → Bool
+  | .ruleD _ qs _ e _ =>
+    ElseRef.quantsNxL qs [] && (conclAlts e).all fun e' => match e' with
+      | .tupE [l, _] => EraseDer.varsIn (Determ.quantNames qs) (freeExp l) &&
+          NxTyped.tyOk NxTyped.sigX NxTyped.tsigFixed (NxSites.quantsΓ qs) l &&
+          NxFlow.auxE NxRule.ctx0 l && NxSites.nxE NxTyped.sigX (NxSites.quantsΓ qs) l &&
+          EraseAll.xExp EraseAll.grE EraseAll.gdE e'
+      | _ => false
+
+/-- The indices of the rules of the relation `x` of `m` that pass `liftNx`. -/
+def liftNxIdx (m : Map RelDef) (x : IL.Id) : List Nat :=
+  m.flatMap fun p => if p.1 != x then [] else
+    (List.range p.2.2.2.2.length).filter fun i => match p.2.2.2.2[i]? with
+      | some r => liftNx r
+      | none => false
+
+/-- **The `Step_pure` rules of the fixed script that pass `liftNx`** (66 of 79,
+`Round9.DerLift.liftNxIdx_fixed`; no rule of `Step` or `Step_read` does, since their left-hand
+side holds the state). The 13 others hold instruction sequences or a frame:
+`if-true`, `if-false`, `label-vals`, `br-label-zero`, `br-label-succ`, `br-handler` (5–10),
+`frame-vals`, `return-frame`, `return-label`, `return-handler` (21–24), `trap-instrs`,
+`trap-label` (26, 27), `trap-frame` (29). -/
+def liftNxRules : List Nat :=
+  [0, 1, 2, 3, 4, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 25, 28, 30, 31, 32, 33, 34, 35, 36, 37,
+    38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61,
+    62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78]
+
+/-- Every rule of every `x` entry of `m` at an index of `l` passes `liftNx`. -/
+def liftNxIs (m : Map RelDef) (x : IL.Id) (l : List Nat) : Bool :=
+  m.all fun p => p.1 != x || l.all fun i => match p.2.2.2.2[i]? with
+    | some r => liftNx r
+    | none => false
+
+/-- The rules covered: `liftSimpleRules` of `Step_read`, `liftNxRules` of `Step_pure`. -/
+def Covered (x : IL.Id) (i : Nat) : Prop :=
+  (x = "Step_read" ∧ i ∈ liftSimpleRules) ∨ (x = "Step_pure" ∧ i ∈ liftNxRules)
+
 /-! ## What is left -/
 
-/-- **The rule obligations left** (open): `RuleLift` at every rule of `Step` (36 rules) and
-`Step_pure`, and at the 29 rules of `Step_read` outside `liftSimpleRules`. With the provenance of
+/-- **The rule obligations left** (open): `RuleLift` at the rules outside `Covered`: all 36 rules
+of `Step`, the 29 rules of `Step_read` outside `liftSimpleRules` and the 13 rules of `Step_pure`
+outside `liftNxRules`. With a provenance that types the state of a `Step_read` input and holds at
 the original image, it gives `CoreStrip.EraseBwdAt` (`Round9.DerLift.eraseBwdAt_of_rest`). -/
 def RuleLiftRest (env : Env) (O : ElseI) (Prov : IL.Id → Value → Prop) : Prop :=
-  ∀ x i, liftRel x = true → ¬ (x = "Step_read" ∧ i ∈ liftSimpleRules) → RuleLift env O Prov x i
+  ∀ x i, liftRel x = true → ¬ Covered x i → RuleLift env O Prov x i
 
 end Silmaril.Wasm.SpecTec.Sim.Round9.DerLift

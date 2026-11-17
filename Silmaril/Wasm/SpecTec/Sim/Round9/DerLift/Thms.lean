@@ -23,17 +23,23 @@ theorem ruleLift_simple_BI
       HasTyp (NxPrims.envBI P hn host) VarEnv.empty (.varT "state" []) zv)
     (hi : i ∈ liftSimpleRules) :
     RuleLift (NxPrims.envBI P hn host) (otherwiseB (NxPrims.envBI P hn host)) Prov "Step_read" i
+theorem ruleLift_nx_BI (hi : i ∈ liftNxRules) :
+    RuleLift (NxPrims.envBI P hn host) (otherwiseB (NxPrims.envBI P hn host)) Prov "Step_pure" i
+theorem liftNxIdx_fixed :
+    liftNxIdx (relsOfDefs Scripts.Wasm30.fixed) "Step_pure" = liftNxRules   -- kernel, 66 of 79
 theorem eraseBwdAt_of_rest (hb : HostExportBlind host)
     (hR : RuleLiftRest (NxPrims.envBI P hn host) (otherwiseB (NxPrims.envBI P hn host)) Prov)
     (hZ : …) (c : Config H) (hc : Prov "Step" (configV hn c)) : CoreStrip.EraseBwdAt hn P host c
 ```
 
-`ruleLift_simple_BI` covers 74 of the 103 rules of `Step_read`, `otherwise` rules included (their
-`otherwise` by `Round9.ElseLift.otherwiseAtB_lift_read`), at every configuration, collisions of
-module instances included: the state is rebound to the original one, not recovered from its
-erasure. Not covered: the other 29 rules of `Step_read`, the rules of `Step` and `Step_pure`
-(`RuleLiftRest`), and a provenance `Prov` that holds at `configV hn c` and that the remaining rules
-keep at their premise inputs.
+Coverage (`Covered`): 74 of the 103 rules of `Step_read` (`ruleLift_simple_BI`; `otherwise`
+rules included, their `otherwise` by `Round9.ElseLift.otherwiseAtB_lift_read`; the state is rebound
+to the original one, not recovered from its erasure, so colliding module instances are fine), and
+66 of the 79 rules of `Step_pure` (`ruleLift_nx_BI`; nothing to rebind). Not covered
+(`RuleLiftRest`): the 36 rules of `Step`, the other 29 rules of `Step_read` and 13 of `Step_pure`,
+which rebind instruction sequences, frames or module-carrying values, call `$blocktype_`,
+`$with_tableinst`, `$with_meminst` or `$hostcall`, or read `Ref_ok`/`Expand`; and a provenance
+`Prov` that holds at `configV hn c` and that those rules keep at their premise inputs.
 -/
 
 @[expose] public section
@@ -54,6 +60,15 @@ namespace Silmaril.Wasm.SpecTec.Sim.Round9.DerLift
 
 /-- info: 'Silmaril.Wasm.SpecTec.Sim.Round9.DerLift.ruleLift_simple_BI' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in #print axioms ruleLift_simple_BI
+
+/-- info: 'Silmaril.Wasm.SpecTec.Sim.Round9.DerLift.liftNxIdx_fixed' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in #print axioms liftNxIdx_fixed
+
+/-- info: 'Silmaril.Wasm.SpecTec.Sim.Round9.DerLift.ruleLift_nx_BI' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in #print axioms ruleLift_nx_BI
+
+/-- info: 'Silmaril.Wasm.SpecTec.Sim.Round9.DerLift.ruleLift_covered_BI' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs (whitespace := lax) in #print axioms ruleLift_covered_BI
 
 /-- info: 'Silmaril.Wasm.SpecTec.Sim.Round9.DerLift.eraseBwdAt_of_rest' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs (whitespace := lax) in #print axioms eraseBwdAt_of_rest
