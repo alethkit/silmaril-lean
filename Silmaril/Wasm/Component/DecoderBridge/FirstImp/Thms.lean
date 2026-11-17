@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Wasm.Component.DecoderBridge.FirstImp.Defs
 public import Silmaril.Wasm.Component.DecoderBridge.FirstCore.Thms
-import Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstImp.Rest
+import Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstImp.Calls
 
 /-!
 # The reference half when the first core instantiation, with lowered imports, fails: theorems
@@ -39,11 +39,36 @@ Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstImp`.
   not (a `canon lower` precedes its first module, which has no imports), but it is in
   `FirstCoreFrag'` through `FirstCoreFrag`.
 
+**Host calls** (`NodeCalls`: each import call of the node's engine run answered by its wiring
+with one call of the component's imports, the calls being `t`, each answered `()`):
+
+* `firstImp_failCalls_ref` (proved): **a first node that fails after the host calls `t` makes the
+  reference machine trap** (the start function may call `f` any number of times before it
+  traps);
+* `firstImp_ready_ref` (proved): **a first node that becomes ready after the host calls `t`**:
+  the reference machine traps before the first core instantiation (a definition before it fails
+  its import check: not excluded by the hypotheses), or the module has no start function and
+  `t = []`, or the machine reaches the core activation of the start function at returned values,
+  with the host state `((), logOfCalls t)`: the logging host saw the same calls, in the same
+  order, with the same `u32` arguments. The proof runs each segment of the IR's start run in the
+  machine (`Proofs.….FirstImp.Start.call_ref`): the core activation runs to the callout of the
+  trampoline (`runCI_complete` along typing), the `canon lower` callout program lifts the `i32`
+  argument to `u32`, calls `f` through the logging host and resumes the activation with no
+  results (`Callout.hostCall_lrunX`, the `Reference.CalloutRun` path restated over any engine and
+  function type), and the resumed thread is the IR's (`HostCode.resume_mapHG`).
+
 **What a quiet failure excludes.** The failure goal (`Task.failAdequacy`) is about an IR
 instantiation that fails *before any host call*. In the fragment, a start function that calls an
-import reaches the host (`f`), so the covered failures are those before the first import call;
-a start function that calls `f` and then traps is outside `Task.failAdequacy` altogether (its IR
-play has host calls), and its reference half is not stated here.
+import reaches the host (`f`), so the failures `Task.failRefWired` covers are those before the
+first import call; failures after host calls are `firstImp_failCalls_ref`.
+
+**Not proved (the start goal).** `Task.startAdequacy` is untouched. `starts.wasm` instantiates
+three core modules (`call1`, `call2`, `glob`), so it is not in a single-instantiation fragment:
+`firstImp_ready_ref` covers its first node only, up to the return of `call1`'s start function.
+Still missing: the IR half (`NodeCalls` of each node from the IR's instantiation play), the
+start function's epilogue in the machine (the start task's return), the later nodes in the
+shared core store (`call2`'s import resolves to the same trampoline, behind `call1`'s
+functions), and the export phase (`canon lift` of `get`).
 
 **Not proved.** `Task.failRefWiredRest'`: a failure of node `k ≥ 1`, and the binaries outside
 `FirstCoreFrag'` (other import shapes, the definitions `preOk` excludes, memories, tables, …).
@@ -107,5 +132,47 @@ theorem starts_firstCoreFrag' : FirstCoreFrag' startsRef := .inr starts_firstImp
 
 /-- `trap.wasm` is in the relaxed first-core fragment. -/
 theorem trap_firstCoreFrag' : FirstCoreFrag' trapRef := .inl trap_firstCoreFrag
+
+open Silmaril.Wasm.Component.Machine Silmaril.Wasm.Component.Machine.StepDefs in
+/-- **The reference machine traps when the IR's first core node fails after host calls**, on
+every import-wired binary of the fragment with lowered imports. -/
+theorem firstImp_failCalls_ref {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefComponent}
+    {ps : List (Binary.CoreMod × List Impl)} {t : List (Σ _ : sigU.Op, Option Payload)}
+    (hc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hw : HostWired r)
+    (hf : FirstImpFrag r) (himp : c.imports = hostI) (hn : c.nodes = coreNodes ps)
+    (h0 : 0 < ps.length) (hu : ∀ x ∈ t, x.2 = InstTests.unitV)
+    (hq : NodeCalls hostI.length (.fail ()) (ps[0]'h0).1 (ps[0]'h0).2 t) :
+    InstResult.traps ∈ instBehaviours first.prof (Host.ofEmbedder embL) hostConfigX r
+      (importArgs hostI) :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstImp.firstImp_failCalls_ref hc hr hw hf himp hn
+    h0 hu hq
+
+open Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.Canon
+  Silmaril.Wasm.Component.Machine Silmaril.Wasm.Component.Machine.StepDefs in
+open Silmaril.Wasm.SingleThreaded (neverFail) in
+/-- **The reference machine when the IR's first core node is ready after host calls `t`**: it
+traps before the first core instantiation, or `t = []` (no start function), or it reaches the
+core activation of the start function at returned values with the host log `logOfCalls t`. -/
+theorem firstImp_ready_ref {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefComponent}
+    {ps : List (Binary.CoreMod × List Impl)} {t : List (Σ _ : sigU.Op, Option Payload)}
+    (hc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hw : HostWired r)
+    (hf : FirstImpFrag r) (himp : c.imports = hostI) (hn : c.nodes = coreNodes ps)
+    (h0 : 0 < ps.length) (hu : ∀ x ∈ t, x.2 = InstTests.unitV)
+    (hq : NodeCalls hostI.length .ready (ps[0]'h0).1 (ps[0]'h0).2 t) :
+    InstResult.traps ∈ instBehaviours first.prof (Host.ofEmbedder embL) hostConfigX r
+        (importArgs hostI) ∨ t = [] ∨
+    ∃ (tr : List (Label (core3 neverFail) (Unit × List HLinked2.HostEvent)))
+      (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent))
+      (thc : Option ThreadId) (K : List Flat → Canon.P (core3 neverFail) _ (Ret (core3 neverFail)))
+      (segs : List (Seg (core3 neverFail) _)) (rest : List (Activation (core3 neverFail) _))
+      (tR : Silmaril.Wasm.SingleThreaded.Thread) (fvs : List Flat),
+      Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch
+        { hostConfigX with ctl := [.ofProg none (StepDefs.runProg (instantiateProg r (importArgs hostI)))] }
+        tr M ∧
+      M.ctl = ⟨thc, .core tR K, segs⟩ :: rest ∧
+      (core3 neverFail).status M.store.core tR = .returned (.values fvs) ∧
+      M.host = ((), logOfCalls t) :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstImp.firstImp_ready_steps hc hr hw hf himp hn h0
+    hu hq
 
 end Silmaril.Wasm.Component.DecoderBridge
