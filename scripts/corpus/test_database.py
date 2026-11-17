@@ -27,6 +27,19 @@ class CorpusDatabase(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'changed since measured Lean check'):
                 inventory(ROOT)
 
+    def test_concrete_function_statement_binding(self):
+        data = inventory(ROOT)
+        self.assertEqual(data['formal_statement_counts'], {'contextual_c_to_elf': 0, 'functional_equivalence': 1})
+        participants = [a for a in data['artifacts'] if a['functional_equivalence_statements']]
+        self.assertEqual(len(participants), 2)
+        self.assertEqual({a['project'] for a in participants}, {'mimalloc'})
+        check = json.loads((ROOT / 'corpus/measurements/formal-functions/checks.json').read_text())['statements'][0]
+        source = ROOT / next(iter(check['module_sha256']))
+        original = matrix.sha
+        with patch.object(matrix, 'sha', side_effect=lambda path: 'stale' if path == source else original(path)):
+            with self.assertRaisesRegex(ValueError, 'changed since formal statement check'):
+                inventory(ROOT)
+
     def test_stale_census_rejected(self):
         artifact = inventory(ROOT)['artifacts'][0]
         original = json.loads((ROOT / 'corpus/census' / report_relative_path(artifact['path'])).read_text())
