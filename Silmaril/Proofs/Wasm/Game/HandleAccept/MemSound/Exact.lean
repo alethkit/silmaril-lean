@@ -4,6 +4,7 @@ public import Silmaril.Wasm.Game.HandleAccept.MemSound.Exact.Defs
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.GhostRules
 public import Silmaril.Semantics.Accept.Mixed.Chunk.Thms
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.PullMix
+public import Silmaril.Wasm.Verify.Kernel.Defs
 
 /-!
 # Proofs: `drainEcho` relates exactly its input bytes to their atom
@@ -23,6 +24,9 @@ public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.PullMix
   assumption makes the handle `h` of `blob` denote the byte atom of `c` in `σ` (or be the writer's
   sentinel); `finish(|c|, h)` consumes `c`. Every exit (a trap or an exception of any call)
   happens with at most `16` bytes buffered.
+* **Every sentinel** (`deOk_all`): the shape `deOk z` holds for every `z`: the shape without the
+  body comparison (`deShape_all`) and the instantiated code (`de_code`) are kernel evaluations
+  with `z` free (`kernel_rfl`), and the body compares with itself (`ieqs_drainBody`).
 * **Exactness** (`exact_of_gsat`): the ghost bridge `tagTraces_gpre` gives, at every `finish(n, h)`
   of a mixed trace, the guarantee in the chunk buffer of the parsing events before it; the
   assume/guarantee law along the chunk buffer
@@ -189,10 +193,6 @@ def deOk (z : BitVec 32) : Bool :=
        | _ => false)
   | none => false
 
-theorem deOk_zero : deOk 0 = true := by decide +kernel
-
-theorem deOk_minusOne : deOk minusOne = true := by decide +kernel
-
 theorem de_facts {z : BitVec 32} (hz : deOk z = true) {c : Config Nat} {st : Option FuncIdx}
     (hp : prep (drainEcho z) = some (c, st)) :
     st = none ∧ c.code = [] ∧ c.frame.module.mems = [0] ∧ exportFuncAddrs c.frame.module = [3] ∧
@@ -217,6 +217,78 @@ theorem de_facts {z : BitVec 32} (hz : deOk z = true) {c : Config Nat} {st : Opt
       simp only [Bool.and_eq_true] at h7
       exact ⟨f₀, f₁, f₂, f₃, hf, h7.1.1.1, h7.1.1.2, h7.1.2, h7.2⟩
     · cases h7
+
+/-! ### Every sentinel
+
+`deOk z` compares the instantiated body with `drainBody z` instruction by instruction
+(`ieqs`), which needs the bits of `z`. The rest of the shape, the instantiated code and the
+spec instance do not: the kernel evaluates them with `z` free (`kernel_rfl`), since neither
+the validator nor the instantiation reads the value of an `i32.const`. -/
+
+/-- `fnOk` without the body comparison. -/
+def fnOkNB (locals : List ValType) (np nr : Nat) (funcs mems : List Nat)
+    (D : List (Option Val)) (fi : FuncInst Nat) : Bool :=
+  (match fi.type.expand? with
+    | some (.func ps rs) => ps.length == np && rs.length == nr
+    | _ => false) &&
+  fi.module.funcs == funcs && fi.module.mems == mems &&
+  locals.map (fun t => defaultVal? ((liftVal t).substAll (fi.module.types.map .dt))) == D
+
+theorem fnOk_of_nb {locals : List ValType} {body : List Instr} {np nr : Nat}
+    {funcs mems : List Nat} {D : List (Option Val)} {fi : FuncInst Nat} {ty : TypeIdx}
+    (hc : fi.code = .wasm ⟨ty, locals, body⟩) (hb : ieqs body body = true)
+    (h : fnOkNB locals np nr funcs mems D fi = true) :
+    fnOk locals body np nr funcs mems D fi = true := by
+  unfold fnOkNB at h
+  unfold fnOk
+  rw [hc]
+  simp only [Bool.and_eq_true] at h ⊢
+  exact ⟨⟨⟨⟨⟨by simp, hb⟩, h.1.1.1⟩, h.1.1.2⟩, h.1.2⟩, h.2⟩
+
+/-- The shape of `deOk z` without the body comparison. -/
+def deShape (z : BitVec 32) : Bool :=
+  match prep (drainEcho z) with
+  | some (c, st) => st.isNone && c.code.isEmpty && c.frame.module.mems == [0] &&
+      exportFuncAddrs c.frame.module == [3] && c.store.mems.length == 1 &&
+      (c.store.mems.map fun mi => mi.bytes.size) == [65536] &&
+      (match c.store.funcs with
+       | [f₀, f₁, f₂, f₃] => stubOk 0 2 f₀ && stubOk 1 2 f₁ && stubOk 2 2 f₂ &&
+          fnOkNB [.i32] 0 0 [0, 1, 2, 3] [0] deD f₃
+       | _ => false)
+  | none => false
+
+/-- **The shape holds for every sentinel** (kernel evaluation with `z` free). -/
+theorem deShape_all (z : BitVec 32) : deShape z = true := by
+  kernel_rfl
+
+/-- **The instantiated code is `drainBody z`**, for every sentinel. -/
+theorem de_code (z : BitVec 32) :
+    (prep (drainEcho z)).bind (fun p => p.1.store.funcs[3]?.map FuncInst.code) =
+      some (.wasm ⟨⟨2⟩, [.i32], drainBody z⟩) := by
+  kernel_rfl
+
+theorem ieqs_drainBody (z : BitVec 32) : ieqs (drainBody z) (drainBody z) = true := by
+  simp [drainBody, drainCall, blobEchoBody, ieqs, ieq]
+
+/-- **`deOk z` holds for every sentinel `z`.** -/
+theorem deOk_all (z : BitVec 32) : deOk z = true := by
+  have h₁ := deShape_all z
+  have h₂ := de_code z
+  unfold deShape at h₁
+  unfold deOk
+  generalize prep (drainEcho z) = p at h₁ h₂ ⊢
+  rcases p with _ | ⟨c, st⟩
+  · cases h₁
+  · simp only [Option.bind_some] at h₂
+    simp only at h₁ ⊢
+    generalize c.store.funcs = fs at h₁ h₂ ⊢
+    rcases fs with _ | ⟨f₀, _ | ⟨f₁, _ | ⟨f₂, _ | ⟨f₃, _ | ⟨f₄, fs⟩⟩⟩⟩⟩
+    all_goals simp only [Bool.and_false] at h₁
+    all_goals try cases h₁
+    simp only [List.getElem?_cons_succ, List.getElem?_cons_zero, Option.map_some,
+      Option.some.injEq] at h₂
+    simp only [Bool.and_eq_true] at h₁ ⊢
+    exact ⟨h₁.1, ⟨h₁.2.1, fnOk_of_nb h₂ (ieqs_drainBody z) h₁.2.2⟩⟩
 
 /-- The store invariant: the instantiated functions, one memory of at least `16` bytes. -/
 def deInv (z : BitVec 32) (s : Store Nat) : Prop :=

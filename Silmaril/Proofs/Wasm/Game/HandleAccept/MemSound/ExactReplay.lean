@@ -33,16 +33,11 @@ open Silmaril.Wasm Silmaril.Wasm.Execution Silmaril.Wasm.Execution.Core Silmaril
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live
 
-theorem deSpec_some {z : BitVec 32} (hz : z = 0 ∨ z = minusOne) :
+/-- **The spec instance of `drainEcho z` exists for every sentinel `z`** (kernel evaluation with
+`z` free: neither the validator nor the instantiation reads the value of an `i32.const`). -/
+theorem deSpec_all (z : BitVec 32) :
     (Silmaril.Wasm.Verify.specInstance? (drainEcho z)).isSome = true := by
-  rcases hz with rfl | rfl
-  · decide +kernel
-  · decide +kernel
-
-theorem deOk_of {z : BitVec 32} (hz : z = 0 ∨ z = minusOne) : deOk z = true := by
-  rcases hz with rfl | rfl
-  · exact deOk_zero
-  · exact deOk_minusOne
+  kernel_rfl
 
 /-- The mixed events of the drain. -/
 abbrev drainEvs (z : BitVec 32) : List MixEv :=
@@ -97,11 +92,11 @@ section Traces
 variable (P : Profile) {z : BitVec 32}
 
 /-- **One invocation against `hiEnv q`.** -/
-theorem de_traces_hi (hz : z = 0 ∨ z = minusOne) (q : BitVec 32) :
+theorem de_traces_hi (q : BitVec 32) :
     [.w .enter] ++ drainEvs z ++ tailEvs [0x68, 0x69] q ∈
       mixTraces P (ReplyEnvs blobReply) 0 (drainEcho z) {} {} := by
-  have hok := deOk_of hz
-  obtain ⟨mt, Is, c₀, hI⟩ := spec_exists (deSpec_some hz)
+  have hok := deOk_all z
+  obtain ⟨mt, Is, c₀, hI⟩ := spec_exists (deSpec_all z)
   obtain ⟨c, st, hp, rfl, -, -⟩ := prep_of_spec hI
   obtain ⟨rfl, hcode, hmems, -, hml, ⟨mi, hmis, hsize⟩, -⟩ := de_facts hok hp
   rw [show c.withStart none = c from rfl] at hI
@@ -120,12 +115,12 @@ theorem de_traces_hi (hz : z = 0 ∨ z = minusOne) (q : BitVec 32) :
   rfl
 
 /-- **Two invocations against `twoEnv q₁ q₂`.** -/
-theorem de_traces_two (hz : z = 0 ∨ z = minusOne) (q₁ q₂ : BitVec 32) :
+theorem de_traces_two (q₁ q₂ : BitVec 32) :
     [.w .enter] ++ drainEvs z ++ tailEvs [0x68, 0x69] q₁ ++
       ([.w .enter] ++ drainEvs z ++ tailEvs [0x69, 0x68] q₂) ∈
       mixTraces P (ReplyEnvs blobReply) 0 (drainEcho z) {} {} := by
-  have hok := deOk_of hz
-  obtain ⟨mt, Is, c₀, hI⟩ := spec_exists (deSpec_some hz)
+  have hok := deOk_all z
+  obtain ⟨mt, Is, c₀, hI⟩ := spec_exists (deSpec_all z)
   obtain ⟨c, st, hp, rfl, -, -⟩ := prep_of_spec hI
   obtain ⟨rfl, hcode, hmems, -, hml, ⟨mi, hmis, hsize⟩, -⟩ := de_facts hok hp
   rw [show c.withStart none = c from rfl] at hI
@@ -152,12 +147,12 @@ theorem de_traces_two (hz : z = 0 ∨ z = minusOne) (q₁ q₂ : BitVec 32) :
   rfl
 
 /-- **The stale session against `trapEnv q`.** -/
-theorem de_traces_trap (hz : z = 0 ∨ z = minusOne) (q : BitVec 32) :
+theorem de_traces_trap (q : BitVec 32) :
     [.w .enter] ++ drainEvs z ++ [.p (.feed [0x68, 0x69])] ++
       ([.w .enter] ++ drainEvs z ++ tailEvs [0x69, 0x68] q) ∈
       mixTraces P (ReplyEnvs blobReply) 0 (drainEcho z) {} {} := by
-  have hok := deOk_of hz
-  obtain ⟨mt, Is, c₀, hI⟩ := spec_exists (deSpec_some hz)
+  have hok := deOk_all z
+  obtain ⟨mt, Is, c₀, hI⟩ := spec_exists (deSpec_all z)
   obtain ⟨c, st, hp, rfl, -, -⟩ := prep_of_spec hI
   obtain ⟨rfl, hcode, hmems, -, hml, ⟨mi, hmis, hsize⟩, -⟩ := de_facts hok hp
   rw [show c.withStart none = c from rfl] at hI
@@ -256,7 +251,7 @@ variable (P : Profile) {z : BitVec 32} (pol : Policy (BitVec 32)) (ppol : PPolic
 
 /-- **`drainEcho z` relates `68 69` to the byte atom `68 69`** (one invocation against
 `hiEnv q`). -/
-theorem de_live (hz : z = 0 ∨ z = minusOne) {q : BitVec 32} (hq : pol.sentinel ≠ some q)
+theorem de_live {q : BitVec 32} (hq : pol.sentinel ≠ some q)
     (hpq : ppol.sentinel ≠ q) (hov : ppol.onOverrun = .ignore ∨ ppol.onOverrun = .callTrap) :
     (([0x68, 0x69] : List UInt8), bytesAtom [0x68, 0x69]) ∈
       memMixedRel P (ReplyEnvs blobReply) 0 (drainEcho z) {} {} pol ppol := by
@@ -264,11 +259,11 @@ theorem de_live (hz : z = 0 ∨ z = minusOne) {q : BitVec 32} (hq : pol.sentinel
     (tail_run (σ := Env.empty) (B := ∅) (cs := [0x68, 0x69]) rfl hq hpq rfl)
   have hrun := Host.Run.cons (h := MH pol ppol) (s := MState.init) (.w .enter) r
   simp only [memMixedRel, mixedRel, Host.lang]
-  exact Set.mem_biUnion (de_traces_hi P hz q) ⟨_, _, hrun, by simp⟩
+  exact Set.mem_biUnion (de_traces_hi P q) ⟨_, _, hrun, by simp⟩
 
 /-- **Repeated invocations**: against `twoEnv q₁ q₂`, the second invocation relates `69 68` to
 the byte atom `69 68`. -/
-theorem de_repeat (hz : z = 0 ∨ z = minusOne) {q₁ q₂ : BitVec 32}
+theorem de_repeat {q₁ q₂ : BitVec 32}
     (hq₁ : pol.sentinel ≠ some q₁) (hpq₁ : ppol.sentinel ≠ q₁) (hq₂ : pol.sentinel ≠ some q₂)
     (hpq₂ : ppol.sentinel ≠ q₂) (hne : q₂ ≠ q₁)
     (hov : ppol.onOverrun = .ignore ∨ ppol.onOverrun = .callTrap) :
@@ -286,12 +281,12 @@ theorem de_repeat (hz : z = 0 ∨ z = minusOne) {q₁ q₂ : BitVec 32}
       r₂')
   have hrun := Host.Run.cons (h := MH pol ppol) (s := MState.init) (.w .enter) r₁
   simp only [memMixedRel, mixedRel, Host.lang]
-  exact Set.mem_biUnion (de_traces_two P hz q₁ q₂) ⟨_, _, hrun, by simp⟩
+  exact Set.mem_biUnion (de_traces_two P q₁ q₂) ⟨_, _, hrun, by simp⟩
 
 /-- **After an interrupted invocation**: against `trapEnv q` (the first `blob` traps after `read`
 answered `68 69`), the second invocation drains the stale bytes and relates `69 68` to the byte
 atom `69 68`. -/
-theorem de_after_trap (hz : z = 0 ∨ z = minusOne) (hsz : ppol.sentinel = z) {q : BitVec 32}
+theorem de_after_trap (hsz : ppol.sentinel = z) {q : BitVec 32}
     (hq : pol.sentinel ≠ some q) (hpq : ppol.sentinel ≠ q)
     (hov : ppol.onOverrun = .ignore ∨ ppol.onOverrun = .callTrap) :
     (([0x69, 0x68] : List UInt8), bytesAtom [0x69, 0x68]) ∈
@@ -304,7 +299,7 @@ theorem de_after_trap (hz : z = 0 ∨ z = minusOne) (hsz : ppol.sentinel = z) {q
     (Host.Run.cons (h := MH pol ppol) (.p (ws := WState.init) rfl (.feed [0x68, 0x69])) r₂')
   have hrun := Host.Run.cons (h := MH pol ppol) (s := MState.init) (.w .enter) r₁
   simp only [memMixedRel, mixedRel, Host.lang]
-  exact Set.mem_biUnion (de_traces_trap P hz q) ⟨_, _, hrun, by simp⟩
+  exact Set.mem_biUnion (de_traces_trap P q) ⟨_, _, hrun, by simp⟩
 
 end Pairs
 

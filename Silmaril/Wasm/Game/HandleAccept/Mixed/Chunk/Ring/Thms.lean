@@ -20,7 +20,9 @@ import Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.Ring
   `chunkRing_fixed_sound`, fixed environments, writer policies without a sentinel): every pair is
   `(vs, SExp2.ofAtoms vs)`, the values consumed by one `finish`, in order (`chunkRing_rel`).
 
-Non-vacuity is not proved here: the replay used for `chunkTake`
+Non-vacuity is in `Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.Examples`
+(`chunkRing_relates_7`, `chunkRing_relates_8`, `chunkRing_rel_eq_8`), by a play built forwards:
+the replay used for `chunkTake`
 (`Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.mem_moduleMixedRel_of_replaySeqC`, by kernel
 evaluation of the interpreter) does not scale to a module with a memory page: a single
 `i64.store` followed by a load on a 65536-byte `ByteArray` does not finish in kernel evaluation

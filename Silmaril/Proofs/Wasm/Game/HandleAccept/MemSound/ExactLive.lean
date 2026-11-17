@@ -6,7 +6,8 @@ public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.PullMixStale
 /-!
 # Proofs: live sessions of `drainEcho`
 
-Concrete traced sessions, for every profile and for the sentinels `0` and `-1`:
+Concrete traced sessions, for every profile and every sentinel whose shape `deOk z` holds (all
+of them, `deOk_all`):
 
 * `de_drains`: from the start of `run`, the five drain calls `finish(k, z)` are decoded at their
   calls (`k = 16, 8, 4, 2, 1`) and answered with nothing;

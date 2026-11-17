@@ -1,0 +1,71 @@
+module
+
+public import Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.Thms
+import Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive
+
+/-!
+# A ring buffer in linear memory: a play built forwards (non-vacuity)
+
+The session of **four export calls** `feed(7)`, `feed(8)`, `finish(1)`, `finish(1)`, the `k`-th
+callout answered with the fresh handle `k + 1`: `feed(7)` stores `7` at bytes `[0, 8)` of the
+memory page, `feed(8)` stores `8` at `[8, 16)`; the first `finish(1)` calls `nil() = 1`, loads
+`7` from the start slot, calls `word(7) = 2`, `cons(2, 1) = 3`, advances the start slot and
+answers `(1, 3)`, consuming **one** of the two buffered values; the second calls `nil() = 4`,
+loads `8` from the new start slot, calls `word(8) = 5`, `cons(5, 4) = 6` and answers `(1, 6)`.
+
+Kernel replay (as for `chunkTake`) does not finish on a 64 KiB page, so the play is built by
+hand (`Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive.ring_session`): the runs
+between callouts are composed from Core `Step` rules with the store symbolic, the straight-line
+code evaluated by `Silmaril.Wasm.Logic.Core.exec_sound`, the memory reasoned about with
+`Memory.store`/`Memory.load` lemmas (`load_store_same`, `load_store_disjoint`), never evaluating
+the page. Only the decoded moves (values and handles) are checked by kernel evaluation.
+
+* `chunkRing_relates_7`: the first `finish` relates `([7], (7))`;
+* `chunkRing_relates_8`: the second relates `([8], (8))`, the value left in memory;
+* `chunkRing_rel_eq_8`: with `chunkRing_rel`, the relation restricted to the input `[8]` is
+  exactly `{([8], (8))}`.
+
+**Profiles and policies.** Every profile (the steps used are profile-free), every writer policy
+whose sentinel, if any, is `0`, and every parsing policy with sentinel `0`.
+-/
+
+@[expose] public section
+
+open Silmaril.Wasm.Numerics (Profile)
+
+namespace Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring
+
+open Silmaril.Wasm Silmaril.Formats Silmaril.Accept.Handle Silmaril.Accept.Parse
+  Silmaril.Wasm.Game.HandleAccept.Mixed Silmaril.Wasm.Game.HandleAccept.Writers.Builders
+
+section Positive
+
+variable {P : Profile} {pol : Policy (BitVec 32)} (hs : ∀ r, pol.sentinel = some r → r = 0)
+  {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0)
+include hs h0
+
+/-- **The first `finish(1)` consumes one of two values buffered in memory: `([7], (7))`.** -/
+theorem chunkRing_relates_7 :
+    ([7], SExp2.ofAtoms [7]) ∈ moduleMixedRel P chunkRing twoIx ringPix pol ppol :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive.chunkRing_relates_7 hs h0
+
+/-- **The second `finish(1)` consumes the value left in memory: `([8], (8))`.** -/
+theorem chunkRing_relates_8 :
+    ([8], SExp2.ofAtoms [8]) ∈ moduleMixedRel P chunkRing twoIx ringPix pol ppol :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive.chunkRing_relates_8 hs h0
+
+end Positive
+
+/-- **The relation at the input `[8]`** is exactly `([8], (8))`. -/
+theorem chunkRing_rel_eq_8 {P : Profile} {pol : Policy (BitVec 32)} (hsen : pol.sentinel = none)
+    (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) {ppol : PPolicy (BitVec 32)}
+    (h0 : ppol.sentinel = 0) (hb : ppol.onBadHandle ≠ .ub) (ho : ppol.onOverrun ≠ .ub) :
+    {t | ([8], t) ∈ moduleMixedRel P chunkRing twoIx ringPix pol ppol} = {SExp2.ofAtoms [8]} := by
+  ext t
+  simp only [Set.mem_ofPred_eq, Set.mem_singleton_iff]
+  constructor
+  · exact chunkRing_rel P hsen hw ha hb ho
+  · rintro rfl
+    exact chunkRing_relates_8 (fun r h => by simp [hsen] at h) h0
+
+end Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring
