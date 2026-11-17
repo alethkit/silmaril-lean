@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Component.InstSem.Defs
+public import Silmaril.Wasm.Component.InstEngine.Defs
 
 /-!
 # Instantiation of components whose core instances call only the imports
@@ -19,6 +20,14 @@ node-by-node description of an instantiation play there:
   failure are instantiated in order, each node's instantiation play (`coreNodeI C n m args`, its
   import calls wired over the `n` imports) contributing its calls; a failure of a node is the
   answer, and the later nodes are not asked.
+
+For an engine semantics (`Param.engineSemI`), a node's instantiation is a run of its engine
+instance (`EngineInst`):
+
+* `EngineInst E I imps cs a`: the engine instance `I` (before its start function) answers `inst`
+  with `a` after the import calls `cs`: `ready` when it has an instance and either no start
+  function (and no call) or a start run (`Param.StartRunI`) with the calls `cs` returning values;
+  `fail` when it has no instance (and no call) or a start run with the calls `cs` trapping.
 
 `InstWired.Thms`: in the fragment, an instantiation play of `Comp.denI C (Comp.mk I (coreNodes
 ps) xs)` is exactly `NodesInst C I.length ps` (both directions, every core semantics `C`).
@@ -40,9 +49,9 @@ functions of the environment (the imports of a component with `n` imports) or tr
 def ImportWired (n : Nat) (ps : List (M × List Impl)) : Prop := ∀ p ∈ ps, ScopedList n p.2
 
 /-- **The instantiation of import-wired nodes, node by node**, with the calls `w` to the `n`
-imports and the answer `a`: no node yet is ready at once; a node is asked only after the nodes
+imports and the answer `a`: no node is ready at once; a node is asked only after the nodes
 before it are ready, and its instantiation play (its import calls wired over the imports)
-contributes its calls; the first failure is the answer. -/
+contributes its calls; the first failure is the answer, and later nodes are not asked. -/
 inductive NodesInst (C : CoreSemI M) (n : Nat) :
     List (M × List Impl) → List (Σ _ : sigU.Op, Option Payload) → InstAns Unit → Prop
   /-- No node: ready, no call. -/
@@ -56,5 +65,17 @@ inductive NodesInst (C : CoreSemI M) (n : Nat) :
       {w w' : List (Σ _ : sigU.Op, Option Payload)} {a : InstAns Unit} :
       NodesInst C n pre w .ready → instPlay (F := sigU) w' a ∈ coreNodeI C n x.1 x.2 →
       NodesInst C n (pre ++ [x]) (w ++ w') a
+
+/-- **The instantiation of an engine instance**: `I` answers `inst` with `a` after the import
+calls `cs` (each with its answer). -/
+def EngineInst (E : Reference.Engine) (I : Option (Param.IInstance E)) (imps : CoreIface)
+    (cs : List (Σ _ : (sigN imps.length).Op, Option Payload)) : InstAns Unit → Prop
+  | .ready => ∃ J, I = some J ∧ ((J.start = none ∧ cs = []) ∨
+      ∃ f c' ys, J.start = some f ∧ Param.StartRunI E imps (J.store, E.invoke f []) cs c' ∧
+        E.status c'.1 c'.2 = Engine.Status.returned (.values ys))
+  | .fail _ => (I = none ∧ cs = []) ∨
+      ∃ J f c', I = some J ∧ J.start = some f ∧
+        Param.StartRunI E imps (J.store, E.invoke f []) cs c' ∧
+        E.status c'.1 c'.2 = Engine.Status.returned .trap
 
 end Silmaril.Wasm.Component
