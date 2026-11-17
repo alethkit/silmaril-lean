@@ -326,4 +326,167 @@ theorem ref_firstImp_start {r : Core3Component} {pre post : Core3Component} {mi 
 
 end Ref
 
+/-! ## The first node after host calls -/
+
+section Bridge
+
+open Silmaril.Wasm.Component.Conformance
+
+theorem instOfI_cases {m : Silmaril.Wasm.Module} {imps exps : CoreIface}
+    (himps : imps.all (·.2 == fFlat) = true)
+    (hn : funcExportNames m = exps.map (·.1)) :
+    (Param.instOfI (core3P (profile neverFail)) m imps exps = none →
+      Core3.prepareE? (irStore imps.length) m
+        ((List.range imps.length).map Silmaril.Wasm.Execution.Core.ExternAddr.func) = none) ∧
+    (∀ J, Param.instOfI (core3P (profile neverFail)) m imps exps = some J →
+      ∃ mi', Core3.prepareE? (irStore imps.length) m
+        ((List.range imps.length).map Silmaril.Wasm.Execution.Core.ExternAddr.func) =
+          some (J.store, mi', J.start)) := by
+  have hA := allocHosts_ir (profile neverFail) imps 0 himps
+  rw [irStore_zero, Nat.zero_add, range'_zero] at hA
+  have hprep : (core3P (profile neverFail)).prepare?
+      (irStore imps.length) m ((List.range imps.length).map
+        (core3P (profile neverFail)).ofFunc) =
+      Core3.prepareE? (irStore imps.length) m
+        ((List.range imps.length).map Silmaril.Wasm.Execution.Core.ExternAddr.func) := rfl
+  have e : Param.allocHosts (core3P (profile neverFail))
+      ((core3P (profile neverFail)).empty Nat) 0 imps =
+      (irStore imps.length, List.range imps.length) := hA
+  refine ⟨fun hnone => ?_, fun J hJ => ?_⟩
+  · unfold Param.instOfI at hnone
+    rw [e] at hnone
+    dsimp only at hnone
+    rw [hprep] at hnone
+    cases hp : Core3.prepareE? (irStore imps.length) m
+        ((List.range imps.length).map Silmaril.Wasm.Execution.Core.ExternAddr.func) with
+    | none => rfl
+    | some p =>
+      obtain ⟨s', mi, st⟩ := p
+      rw [hp] at hnone
+      obtain ⟨addrs, ha⟩ := exportAddrs_someX (profile neverFail) hp hn
+      simp only [ha] at hnone
+      cases hnone
+  · unfold Param.instOfI at hJ
+    rw [e] at hJ
+    dsimp only at hJ
+    rw [hprep] at hJ
+    cases hp : Core3.prepareE? (irStore imps.length) m
+        ((List.range imps.length).map Silmaril.Wasm.Execution.Core.ExternAddr.func) with
+    | none => rw [hp] at hJ; cases hJ
+    | some p =>
+      obtain ⟨s', mi, st⟩ := p
+      rw [hp] at hJ
+      dsimp only at hJ
+      obtain ⟨addrs, -, rfl⟩ := Option.map_eq_some_iff.mp hJ
+      exact ⟨mi, rfl⟩
+
+/-- A core activation at a trap traps the instantiation. -/
+theorem traps_of_coreTrap {r : Core3Component}
+    {tr : List (Label (core3 neverFail) (Unit × List HLinked2.HostEvent))}
+    {M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)} {thc : Option ThreadId}
+    {K : List Flat → Canon.P (core3 neverFail) _ (Ret (core3 neverFail))}
+    {segs : List (Seg (core3 neverFail) _)} {rest : List (Activation (core3 neverFail) _)} {tR : STh}
+    (d : LRun first.prof embL.hr (DG embL.host) (initCfg r) tr M)
+    (hctl : M.ctl = ⟨thc, .core tR K, segs⟩ :: rest)
+    (hst : (core3 neverFail).status M.store.core tR = .returned .trap)
+    (hl : M.store.lockdown = false) :
+    InstResult.traps ∈ instBehaviours first.prof (Host.ofEmbedder embL) hostConfigX r
+      (importArgs hostI) := by
+  have hready : HostReadyCfg hostConfigX := ⟨rfl, rfl, rfl⟩
+  have hu : UniqueStep first.prof embL.hr (DG embL.host) M (.trap .coreTrap) (trapCfg M) := by
+    refine UniqueStep.of_core hctl ?_ (.coreTrap hctl hst)
+    rw [hst]
+    exact ⟨nofun, nofun⟩
+  exact ⟨_, instTraps_of_lrun hready d ⟨by rw [hctl]; exact List.cons_ne_nil _ _, hl⟩ hu.1
+    (fun _ h => by cases h)⟩
+
+/-- **The reference half when node `0` fails after host calls**: on an import-wired binary of
+the fragment `FirstImpFrag` importing `f: func(u32)`, if the IR's first core node fails after
+the host calls `t` (each answered `()`), the reference machine traps. -/
+theorem firstImp_failCalls_ref {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefComponent}
+    {ps : List (Binary.CoreMod × List Impl)} {t : List (Σ _ : sigU.Op, Option Payload)}
+    (hc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hw : HostWired r)
+    (hf : FirstImpFrag r) (himp : c.imports = hostI) (hn : c.nodes = coreNodes ps)
+    (h0 : 0 < ps.length) (hu : ∀ x ∈ t, x.2 = InstTests.unitV)
+    (hq : NodeCalls hostI.length (.fail ()) (ps[0]'h0).1 (ps[0]'h0).2 t) :
+    InstResult.traps ∈ instBehaviours first.prof (Host.ofEmbedder embL) hostConfigX r
+      (importArgs hostI) := by
+  obtain ⟨p, ps', rfl⟩ : ∃ p ps', ps = p :: ps' := by
+    cases ps with
+    | nil => cases h0
+    | cons p ps' => exact ⟨p, ps', rfl⟩
+  obtain ⟨pre, post, mi, cargs, m, hs, hpre, hm, hlen, hlow, hrt, hmod, himps, hilen, hwl, hw',
+    hnames⟩ := firstImp_setup hc hr hw hf himp hn
+  obtain ⟨ys, hEI, hF⟩ := hq
+  obtain ⟨-, hans⟩ := coreLog_eq hw' hwl hF hu
+  change EngineInst (core3P (profile neverFail))
+    (Param.instOfI (core3P (profile neverFail)) (Binary.coreModule p.1) (CoreModule.imports p.1)
+      (CoreModule.exports p.1)) (CoreModule.imports p.1) ys _ at hEI
+  rw [hmod] at hEI
+  obtain ⟨hnone, hsome⟩ := instOfI_cases himps hnames
+  rcases hEI with ⟨hI, -⟩ | ⟨J, f, c', hJ, hfs, hrun, hst⟩
+  · have := hnone hI
+    rw [hilen] at this
+    exact ref_firstImp_trap hs hpre hm hlen hlow hrt (.inl this)
+  · obtain ⟨mi', hp⟩ := hsome J hJ
+    rw [hfs, hilen] at hp
+    have hrun' : Param.StartRunI (core3P (profile neverFail)) (CoreModule.imports p.1)
+        (J.store, Silmaril.Wasm.SingleThreaded.Thread.invoke f []) ys c' := hrun
+    rcases ref_firstImp_start hs hpre hm hlen hlow hrt hp himps hrun' hans hst with
+      h | ⟨tr, M, thc, K, segs, rest, tR, d, hctl, hst', hl, -⟩
+    · exact h
+    · exact traps_of_coreTrap d hctl hst' hl
+
+/-- **The reference half when node `0` is ready after host calls**: on an import-wired binary of
+the fragment `FirstImpFrag` importing `f: func(u32)`, if the IR's first core node becomes ready
+after the host calls `t` (each answered `()`), then the reference machine traps before the first
+core instantiation (a definition before it fails its import check), or the module has no start
+function and `t = []`, or the machine reaches the core activation of the start function at the
+returned values, with the host log `logOfCalls t` (the same calls, in the same order). -/
+theorem firstImp_ready_ref {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefComponent}
+    {ps : List (Binary.CoreMod × List Impl)} {t : List (Σ _ : sigU.Op, Option Payload)}
+    (hc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hw : HostWired r)
+    (hf : FirstImpFrag r) (himp : c.imports = hostI) (hn : c.nodes = coreNodes ps)
+    (h0 : 0 < ps.length) (hu : ∀ x ∈ t, x.2 = InstTests.unitV)
+    (hq : NodeCalls hostI.length .ready (ps[0]'h0).1 (ps[0]'h0).2 t) :
+    InstResult.traps ∈ instBehaviours first.prof (Host.ofEmbedder embL) hostConfigX r
+        (importArgs hostI) ∨ t = [] ∨
+    ∃ (tr : List (Label (core3 neverFail) (Unit × List HLinked2.HostEvent)))
+      (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent))
+      (thc : Option ThreadId) (K : List Flat → Canon.P (core3 neverFail) _ (Ret (core3 neverFail)))
+      (segs : List (Seg (core3 neverFail) _)) (rest : List (Activation (core3 neverFail) _))
+      (tR : STh) (fvs : List Flat),
+      LRun first.prof embL.hr (DG embL.host) (initCfg r) tr M ∧
+      M.ctl = ⟨thc, .core tR K, segs⟩ :: rest ∧
+      (core3 neverFail).status M.store.core tR = .returned (.values fvs) ∧
+      M.store.lockdown = false ∧ M.host = ((), logOfCalls t) := by
+  obtain ⟨p, ps', rfl⟩ : ∃ p ps', ps = p :: ps' := by
+    cases ps with
+    | nil => cases h0
+    | cons p ps' => exact ⟨p, ps', rfl⟩
+  obtain ⟨pre, post, mi, cargs, m, hs, hpre, hm, hlen, hlow, hrt, hmod, himps, hilen, hwl, hw',
+    hnames⟩ := firstImp_setup hc hr hw hf himp hn
+  obtain ⟨ys, hEI, hF⟩ := hq
+  obtain ⟨hlog, hans⟩ := coreLog_eq hw' hwl hF hu
+  change EngineInst (core3P (profile neverFail))
+    (Param.instOfI (core3P (profile neverFail)) (Binary.coreModule p.1) (CoreModule.imports p.1)
+      (CoreModule.exports p.1)) (CoreModule.imports p.1) ys _ at hEI
+  rw [hmod] at hEI
+  obtain ⟨-, hsome⟩ := instOfI_cases himps hnames
+  obtain ⟨J, hJ, ⟨-, rfl⟩ | ⟨f, c', fvs, hfs, hrun, hst⟩⟩ := hEI
+  · right; left
+    cases hF
+    rfl
+  · obtain ⟨mi', hp⟩ := hsome J hJ
+    rw [hfs, hilen] at hp
+    have hrun' : Param.StartRunI (core3P (profile neverFail)) (CoreModule.imports p.1)
+        (J.store, Silmaril.Wasm.SingleThreaded.Thread.invoke f []) ys c' := hrun
+    rcases ref_firstImp_start hs hpre hm hlen hlow hrt hp himps hrun' hans hst with
+      h | ⟨tr, M, thc, K, segs, rest, tR, d, hctl, hst', hl, hh⟩
+    · exact .inl h
+    · refine .inr (.inr ⟨tr, M, thc, K, segs, rest, tR, fvs, d, hctl, hst', hl, ?_⟩)
+      rw [hh, hlog]
+
+end Bridge
+
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstImp
