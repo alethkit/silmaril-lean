@@ -199,12 +199,18 @@ theorem frameRelX_inst {pre : RefComponent} {mi : Nat} {cargs : List (String × 
     simp only [refStep, Option.bind_eq_some_iff, Option.some.injEq, bind] at hR
     obtain ⟨_, _, _, _, _, _, rfl⟩ := hR
     rfl
-  refine ⟨frameRel_inst hF.rel hR hm hci hcf hty hfn hE, ?_, ?_, ?_, ?_⟩
+  refine ⟨frameRel_inst hF.rel hR hm hci hcf hty hfn hE, ?_, ?_, ?_, ?_, ?_⟩
   · rw [hR3, hty]; exact hF.types
   · rw [hR5, hcf]
     exact forall₂_imp_mono (fun im a h e he => envAddr_mono (h e he) hRX hcX) hF.coreFuncs
   · rw [hR4, hfn]
     exact forall₂_imp_mono (fun x fid h => funcRelS_mono h hS hRX hcX) hF.funcs
+  · intro k its hk
+    rw [hR1, List.getElem?_append] at hk
+    split at hk
+    · exact hF.inline k its hk
+    · rw [List.getElem?_singleton] at hk
+      split at hk <;> simp at hk
   · rw [hRexp, hex]
     exact forall₂_imp_mono (fun x y ⟨fid, h1, h2⟩ => ⟨fid, h1, funcRelS_mono h2 hS hRX hcX⟩)
       hF.exports

@@ -39,7 +39,8 @@ general shared memory, tables or the canonical ABI.
   component store `S` against the symbolic reading `R` (`refRead`): function types resolved from
   the same definitions; a core function wiring `Impl.fwd e` (export `e` of the environment) at
   the core address `a` of that export in the frame's core instance; a component function wiring
-  `lift ft` of `Impl.fwd e` an option-less lifted function at that address; the exports in order.
+  `lift ft` of `Impl.fwd e` an option-less lifted function at that address; inline core instances
+  exporting only adapted functions (the trampolines); the exports in order.
 * **`NodesInv r ps xs M inst es`**: the instance is `0`; the host is in control, the store not
   locked down, its component instance fresh or after one start thread, component function `0`
   the root import, no pending or resolved top-level calls; the core store is typed; the final
@@ -151,7 +152,8 @@ def FuncRelS (S : CStore (core3 neverFail)) (R : RSt)
 
 /-- **The frame `sc` and the component store `S` against the reading `R`**: the index spaces
 (`FrameRel`); the function types; the core functions forwarding an export of the environment;
-the lifted component functions; the exports, in order. -/
+the lifted component functions; the inline core instances, of adapted functions only; the
+exports, in order. -/
 structure FrameRelX (mods : List Silmaril.Wasm.Module) (R : RSt) (sc : Instantiate.Scope (core3 neverFail))
     (S : CStore (core3 neverFail)) : Prop where
   rel : FrameRel mods R sc
@@ -160,6 +162,7 @@ structure FrameRelX (mods : List Silmaril.Wasm.Module) (R : RSt) (sc : Instantia
   coreFuncs : List.Forall₂ (fun (im : Impl) (a : Nat) =>
     ∀ e, im = Impl.fwd e → EnvAddr R sc.frame.coreInstances e a) R.coreFuncs sc.frame.coreFuncs
   funcs : List.Forall₂ (FuncRelS S R sc.frame.coreInstances) R.funcs sc.frame.funcs
+  inline : ∀ (k : Nat) its, R.coreInsts[k]? = some (RCI.inline its) → ∀ q ∈ its, q.2.chain ≠ []
   exports : List.Forall₂ (fun (x : Export) (y : String × Instantiate.ItemVal (core3 neverFail)) =>
     ∃ fid, y = (x.name, .func fid) ∧ FuncRelS S R sc.frame.coreInstances (x.impl, x.ty) fid)
     R.exports sc.exports
