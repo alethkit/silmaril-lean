@@ -250,74 +250,24 @@ def Task.exportRef : Prop :=
         [some (ws.map toRefVal)] M' ∧ M'.host = M.host
 
 
-/-! ## The reference machine at a definition, with its continuation
+/-- **Pieces (b) and (c) together, the instantiation**: in the fragment, if the IR's nodes are
+ready after the calls `ts`, each answered `()`, the reference machine finishes the instantiation
+with the host log `logOfCalls ts.flatten`.
 
-`RefAtDefs` keeps the continuation `K` of the definitions only as an existential: from it, nothing
-says that the instantiation finishes once the definitions are done, so `Task.laterNodesRef` can
-only be reached through the determinism of the machine. `RefAtDefsK` records that `K` is the
-root's continuation in the only way that matters (`KFin`: from the scope of the finished
-definitions it ends the instantiation quietly, observing the instance `0` and the function exports
-of the scope), and that the run so far has observed no instantiation. -/
-
-/-- **The continuation finishes the instantiation**: from a configuration running `K sc`, the
-machine runs without host events to a configuration with the host in control and the store not
-locked down, the same host state and core store, observing the instance `0` with the function
-exports of `sc`. -/
-def KFin (K : Instantiate.Scope (core3 neverFail) →
-    Canon.P (core3 neverFail) (Unit × List HLinked2.HostEvent) (Ret (core3 neverFail))) : Prop :=
-  ∀ (sc : Instantiate.Scope (core3 neverFail))
-    (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)),
-    M.store.lockdown = false → M.ctl = [.ofProg none (K sc)] →
-    ∃ tr M', Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch M tr M' ∧
-      (∀ ev, Label.host ev ∉ tr) ∧ M'.ctl = [] ∧ M'.store.lockdown = false ∧
-      M'.host = M.host ∧ M'.store.core = M.store.core ∧
-      (traceObs tr).findSome? decodeInstantiated? = some (⟨0⟩, funcExports sc.exports)
-
-/-- **The reference machine at the definitions `post`, with a finishing continuation**:
-`RefAtDefs`, where the run so far has observed no instantiation and the continuation of the
-definitions finishes the instantiation (`KFin`). -/
-def RefAtDefsK (r post : RefComponent) (sc : Instantiate.Scope (core3 neverFail))
-    (L : List HLinked2.HostEvent)
-    (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)) : Prop :=
-  (∃ tr, Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch hostConfigX
-      (.host (instantiateTop r (importArgs hostI)) :: tr) M ∧
-    (∀ ev, Label.host ev ∉ tr) ∧ (∀ msg, Label.trap (.internal msg) ∉ tr) ∧
-    (traceObs tr).findSome? decodeInstantiated? = none) ∧
-  (∃ K, KFin K ∧
-    M.ctl = [.ofProg none (post.foldlM (Instantiate.instantiateDef Instantiate.callRecurse ⟨0⟩ []
-      (importArgs hostI)) sc >>= K)]) ∧
-  M.store.lockdown = false ∧ M.host = ((), L)
-
-/-- **Piece (b'), the first node with a finishing continuation**: `Task.firstNodeRef` with
-`RefAtDefsK`. -/
-def Task.firstNodeRefK : Prop :=
+(`Task.laterNodesRef` starts from `RefAtDefs`, whose continuation `K` of the definitions is only
+an existential: nothing in it says that `K` finishes the instantiation, so (c) can only be reached
+from it through the determinism of the machine. This statement asks for the instantiation from
+the start; its proof (`Multi.Thms.nodesRef`) tracks the continuation.) -/
+def Task.nodesRef : Prop :=
   ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
-    (p : Binary.CoreMod × List Impl) (ps : List (Binary.CoreMod × List Impl))
-    (t₀ : List (Σ _ : sigU.Op, Option Payload)) (pre : RefComponent) (mi : Nat)
-    (cargs : List (String × Nat)) (post : RefComponent),
+    (ps : List (Binary.CoreMod × List Impl)) (ts : List (List (Σ _ : sigU.Op, Option Payload))),
     Binary.parseComponent b = .ok c → decodeRef b = .ok r → MultiImpFrag r →
-    c.imports = hostI → c.nodes = coreNodes (p :: ps) → (∀ x ∈ t₀, x.2 = InstTests.unitV) →
-    NodeCalls hostI.length .ready p.1 p.2 t₀ →
-    firstCore? r = some (pre, mi, cargs, post) →
-    ∃ sc M, RefAtDefsK r post sc (logOfCalls t₀) M
-
-/-- **Piece (c'), the later nodes from a finishing continuation**: `Task.laterNodesRef` from
-`RefAtDefsK`. -/
-def Task.laterNodesRefK : Prop :=
-  ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
-    (p : Binary.CoreMod × List Impl) (ps : List (Binary.CoreMod × List Impl))
-    (ts : List (List (Σ _ : sigU.Op, Option Payload))) (pre : RefComponent) (mi : Nat)
-    (cargs : List (String × Nat)) (post : RefComponent) (sc : Instantiate.Scope (core3 neverFail))
-    (L : List HLinked2.HostEvent)
-    (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)),
-    Binary.parseComponent b = .ok c → decodeRef b = .ok r → MultiImpFrag r →
-    c.imports = hostI → c.nodes = coreNodes (p :: ps) →
+    c.imports = hostI → c.nodes = coreNodes ps →
     (∀ x ∈ ts.flatten, x.2 = InstTests.unitV) →
     List.Forall₂ (fun q tj => NodeCalls hostI.length .ready q.1 q.2 tj) ps ts →
-    firstCore? r = some (pre, mi, cargs, post) → RefAtDefsK r post sc L M →
     ∃ M' inst es, Instantiates first.prof embL.hr (Host.ofEmbedder embL).dispatch hostConfigX r
         (importArgs hostI) M' inst es ∧
-      M'.host = ((), L ++ logOfCalls ts.flatten)
+      M'.host = ((), logOfCalls ts.flatten)
 
 /-- **`Task.startAdequacy` on the fragment `MultiImpFrag`.** -/
 def Task.startAdequacyFrag : Prop :=
