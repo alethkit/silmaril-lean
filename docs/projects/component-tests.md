@@ -141,9 +141,10 @@ What this covers, and what it does not:
 | exported instances | the IR names `i#get`, the reference machine has no function export of that name (`DecoderBridge.InstExport`) | `instexport.wasm` | **mismatch demonstrated** (kernel runs); outside `InFrag` |
 | behaviour, IR half | an IR instantiation play is node by node: each core node's own instantiation play, down to its core engine run (`InstWired.nodesInst_of_denI`, `NodesInst.fail_nil`, `coreNodeI_engine_nil`) | every binary both readings accept whose REF reading is import-wired (`HostWired`, decidable: in `InFrag`, every core instantiation's imports wired to the component's imports), for failing instantiations and for the instantiation part of start plays (`DecoderBridge.Sim`) | **proved** |
 | behaviour, reference half, first core node | a quiet failure of IR core node `0` (preparation fails, or the start function traps without an import call) makes the reference machine's instantiation trap, by a symbolic run of the machine (`DecoderBridge.firstCore_fail_ref`) | every import-wired binary in the first-core fragment (`FirstCoreFrag`, decidable: types, function imports, core modules, `canon lower`, inline core instances before the first core instantiation; its module without imports, memories, tables, tags or segments); `trap.wasm` is (`trap_firstCoreFrag`), `starts.wasm` is not | **proved** (`trap_of_firstCore`: the REF half of `trap.wasm` from the IR run, no hypothesis) |
-| behaviour, reference half, first core node with lowered imports | a quiet failure of IR core node `0` whose module imports exactly the `canon lower` trampolines of `f` defined before it makes the reference machine trap (`DecoderBridge.firstImp_fail_ref`); so does a failure **after host calls** (`firstImp_failCalls_ref`, node outcome `NodeCalls`); a node that is ready after host calls `t` brings the reference machine to the return of its start function with the host log `logOfCalls t`, or it traps earlier, or `t = []` (`firstImp_ready_ref`) | every import-wired binary importing `f: func(u32)` in the decidable fragment `FirstImpFrag` (the first module's imports resolve, in order, to the `canon lower`s before it, at core type `(func (param i32))`); `starts.wasm` is (`starts_firstImpFrag`), `trap.wasm` is not (it is in `FirstCoreFrag`) | **proved**, given the node outcome (`NodeQuiet`, `NodeCalls`); deriving `NodeCalls` from the IR play is not done |
+| behaviour, reference half, first core node with lowered imports | a quiet failure of IR core node `0` whose module imports exactly the `canon lower` trampolines of `f` defined before it makes the reference machine trap (`DecoderBridge.firstImp_fail_ref`); so does a failure **after host calls** (`firstImp_failCalls_ref`, node outcome `NodeCalls`); a node that is ready after host calls `t` brings the reference machine to the return of its start function with the host log `logOfCalls t`, or it traps earlier, or `t = []` (`firstImp_ready_ref`) | every import-wired binary importing `f: func(u32)` in the decidable fragment `FirstImpFrag` (the first module's imports resolve, in order, to the `canon lower`s before it, at core type `(func (param i32))`); `starts.wasm` is (`starts_firstImpFrag`), `trap.wasm` is not (it is in `FirstCoreFrag`) | **proved**, given the node outcome (`NodeQuiet`, `NodeCalls`); `NodeCalls` is derived from the IR play on `MultiImpFrag` (`nodeCallsIR`, next row) |
+| behaviour, start goal on several core instantiations | `Task.startAdequacy` restricted to the decidable fragment `MultiImpFrag` (`Task.startAdequacyFrag`) follows from four pieces (`startAdequacyFrag_of`): (a) `Task.nodeCallsIR`, the IR play of a ready instantiation splits into each node's calls as `NodeCalls` (**proved**, `nodeCallsIR`); (b) `Task.firstNodeRef`, the reference machine runs the root checks, the first core instantiation and its start function with the host calls and the start epilogue, to the definitions after it with the host log `logOfCalls t₀` (`RefAtDefs`) (**proved**, `firstNodeRef`); (c) `Task.laterNodesRef`, the later core instantiations in the shared core store and the remaining definitions finish the instantiation with the log of their calls; (d) `Task.exportRef`, the first export (`canon lift`, `func() -> u32`) answers as the IR's does | binaries in `MultiImpFrag` (decidable: `FirstImpFrag`, `HostWired`, every node's imports of core type `(func (param i32))` wired to the lowering of `f`, the root starts with `type func(x: u32)` and `import f` and imports nothing else, later definitions are split-fragment core instantiations of trampoline-importing or import-free modules, primitive types, core export aliases, option-less lifts and function exports, first export of type `func() -> u32`); `starts.wasm` is (`starts_multiImpFrag`) | (a), (b) **proved**; (c), (d) **open**: `startAdequacyFrag_of_cd : Task.laterNodesRef → Task.exportRef → Task.startAdequacyFrag`, `starts_of_cd` (the REF half of `starts.wasm` from the IR run, given (c) and (d)) |
 | behaviour, reference half, other cases | node `k ≥ 1` fails after ready nodes, or binaries outside `FirstCoreFrag' = FirstCoreFrag ∨ FirstImpFrag` | none | **open** (`Task.failRefWiredRest'`; `failRefWiredRest_of_rest'`, `failRefWired_of_rest'` and `failAdequacyWired_of_rest'` proved; `Task.failRefWiredRest` and `Task.failRefWired` unchanged and open) |
-| behaviour | `Comp.denI` (IR) against the reference machine's instantiation and sessions | none in general; `starts`/`trap` by execution of both machines | **open** (`Task.failAdequacy`, `Task.startAdequacy`; `Task.failAdequacyWired` on import-wired binaries) |
+| behaviour | `Comp.denI` (IR) against the reference machine's instantiation and sessions | none in general; `starts`/`trap` by execution of both machines | **open** (`Task.failAdequacy`, `Task.startAdequacy`; `Task.failAdequacyWired` on import-wired binaries; on `MultiImpFrag`, `Task.startAdequacyFrag` reduced to `Task.laterNodesRef` and `Task.exportRef`) |
 
 **How the two readings are built.**
 
@@ -300,21 +301,39 @@ equivalence of the two readings is **entirely unproved** beyond the executed exa
   host log `logOfCalls t`, or traps before the first core instantiation, or `t = []`). The
   remaining failure cases are `Task.failRefWiredRest'` (**open**: node `k ≥ 1`, or outside
   `FirstCoreFrag'`); `failRefWiredRest_of_rest'` proved.
+* `DecoderBridge.Multi` (proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi`;
+  `#print axioms`: `propext`, `Classical.choice`, `Quot.sound`): **the start goal on several core
+  instantiations, decomposed**. `Task.startAdequacyFrag` is `Task.startAdequacy` on the decidable
+  fragment `MultiImpFrag` (`starts.wasm` is in it, `starts_multiImpFrag`, kernel). The reference
+  machine at a definition is `RefAtDefs r post sc L M`: a run from the instantiation host event
+  (no host events, no internal faults) to the root program at the definitions `post` from the
+  scope `sc`, store unlocked, host log `L`. `startAdequacyFrag_of` derives the goal from four
+  `Prop`s: (a) `Task.nodeCallsIR`, **proved** (`nodeCallsIR`: each round of a node's play is one
+  call of `f`, since every callout of a typed start run with lowered imports has one `i32`
+  argument, `IR.startRun_calls`); (b) `Task.firstNodeRef`, **proved** (`firstNodeRef`: the root
+  checks pass without a trap on `rootShape`, two closed computations, `Root.root_firstY`; the
+  start call with its **epilogue** over any engine after host calls, `Start.start_atG`, the
+  start task's return, its thread's exit and the synchronous lift loop; the IR's start run in the
+  machine with the store it leaves, `Run.startRun_refX`; the start function returns no values by
+  typing; this also removes the "trap before the first core instantiation" case of
+  `firstImp_ready_ref` on the fragment); (c) `Task.laterNodesRef` and (d) `Task.exportRef`,
+  **open**. `startAdequacyFrag_of_cd`, `starts_of_cd`: the goal on the fragment, and the REF
+  half of `starts.wasm` from the IR run, given (c) and (d).
 * `DecoderBridge.nodesInst_of_startPlay`: on an import-wired binary, the instantiation part of
   the IR play of `Task.startAdequacy` (`instPlay t .ready`, a prefix) is `NodesInst … t .ready`.
   The export call after `ready` is not decomposed (a node's export phase is reached through the
   routing layer from the right; not done).
 
 What the rest needs: the remaining cases `Task.failRefWiredRest'`, i.e. the ready start runs of
-earlier nodes threaded through the shared core store (the start function's epilogue after its
-core activation returned, and later nodes' preparation relocated past earlier instances, with
-their imports resolving to trampolines behind earlier modules' functions), other import shapes,
+earlier nodes threaded through the shared core store (later nodes' preparation relocated past
+earlier instances, with their imports resolving to trampolines behind earlier modules' functions:
+`Task.laterNodesRef`; the start epilogue is proved, `Multi.Start.start_atG`), other import shapes,
 modules with memories, tables or segments, and symbolic lemmas for the
 reference machine's instantiation of the fragment's definitions (`instantiateCore`, `runStart`,
 `canon lower` under the logging host), relating its frames to `refRead`, and a simulation of its
 shared core store by the IR's separate stores (`prepare?_reloc` and the host-free step
 relocation `step_shift` exist for modules without memories, tables and segments); for
-`Task.startAdequacy` also the export phase on both sides; outside import-wired binaries, calls
+`Task.startAdequacy` also the export phase on both sides (`Task.exportRef`); outside import-wired binaries, calls
 between core instances (one shared REF store, direct calls; the IR routes them through the
 environment).
 
@@ -358,9 +377,10 @@ observations and verdict, and the assumptions and tool provenance. Data:
 * General adequacy of `Comp.denI` with respect to the reference machine (only these examples;
   stated as `DecoderBridge.Task.failAdequacy` and `Task.startAdequacy`; on import-wired binaries
   the IR half of the failure goal is proved and its reference half `Task.failRefWired` is open
-  outside the first-core cases: `Task.failRefWiredRest'`; for `Task.startAdequacy`, only the
-  reference half of the first node up to its start function's return is proved, given the node
-  outcome `NodeCalls`, whose derivation from the IR play is not done).
+  outside the first-core cases: `Task.failRefWiredRest'`; for `Task.startAdequacy`, on the
+  fragment `MultiImpFrag` the IR's node calls and the reference half of the first node with its
+  start epilogue are proved, and the later nodes in the shared core store and the export phase
+  are open: `Task.laterNodesRef`, `Task.exportRef`).
 * Divergence (not observed by the shapes).
 * Other import types, several imports, nested components, resources, async.
 * A relation between the two readings' wiring outside the fragment `InFrag`

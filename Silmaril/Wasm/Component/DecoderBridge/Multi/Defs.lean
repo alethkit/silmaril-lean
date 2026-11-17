@@ -63,6 +63,9 @@ store is not locked down, and the host log is `L`.
 
 The reference side of (b), (c) and (d) is stated at the first scheduling oracle (`first.prof`), as
 in `Task.startAdequacy`.
+
+**Status** (`Multi.Thms`): (a) and (b) are proved (`nodeCallsIR`, `firstNodeRef`); (c) and (d)
+are open, and `startAdequacyFrag_of_cd` derives `Task.startAdequacyFrag` from them.
 -/
 
 @[expose] public section
@@ -178,9 +181,9 @@ def RefAtDefs (r post : RefComponent) (sc : Instantiate.Scope (core3 neverFail))
 
 /-! ## The four pieces -/
 
-/-- **Open goal (a), the IR's node calls**: in the fragment, a ready node-by-node instantiation
-with the calls `t`, each answered `()`, is the nodes' instantiations with the calls `ts`, in
-order, each as `NodeCalls`. -/
+/-- **Piece (a), the IR's node calls** (proved: `Multi.Thms.nodeCallsIR`): in the fragment, a ready
+node-by-node instantiation with the calls `t`, each answered `()`, is the nodes' instantiations with
+the calls `ts`, in order, each as `NodeCalls`. -/
 def Task.nodeCallsIR : Prop :=
   ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
     (ps : List (Binary.CoreMod × List Impl)) (t : List (Σ _ : sigU.Op, Option Payload)),
@@ -190,9 +193,9 @@ def Task.nodeCallsIR : Prop :=
     ∃ ts : List (List (Σ _ : sigU.Op, Option Payload)), t = ts.flatten ∧
       List.Forall₂ (fun p tj => NodeCalls hostI.length .ready p.1 p.2 tj) ps ts
 
-/-- **Open goal (b), the first node with its start epilogue**: if the IR's first node is ready
-after the calls `t₀`, the reference machine runs the definitions up to and including the first
-core instantiation, with the host log `logOfCalls t₀`. -/
+/-- **Piece (b), the first node with its start epilogue** (proved: `Multi.Thms.firstNodeRef`): if
+the IR's first node is ready after the calls `t₀`, the reference machine runs the definitions up to
+and including the first core instantiation, with the host log `logOfCalls t₀`. -/
 def Task.firstNodeRef : Prop :=
   ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
     (p : Binary.CoreMod × List Impl) (ps : List (Binary.CoreMod × List Impl))
@@ -204,8 +207,8 @@ def Task.firstNodeRef : Prop :=
     firstCore? r = some (pre, mi, cargs, post) →
     ∃ sc M, RefAtDefs r post sc (logOfCalls t₀) M
 
-/-- **Open goal (c), the later nodes in the shared core store**: from the definitions after the
-first core instantiation, if the IR's later nodes are ready after the calls `ts`, the reference
+/-- **Open goal, piece (c), the later nodes in the shared core store**: from the definitions after
+the first core instantiation, if the IR's later nodes are ready after the calls `ts`, the reference
 machine finishes the instantiation with the host log extended by `logOfCalls ts.flatten`. -/
 def Task.laterNodesRef : Prop :=
   ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
@@ -223,9 +226,9 @@ def Task.laterNodesRef : Prop :=
         (importArgs hostI) M' inst es ∧
       M'.host = ((), L ++ logOfCalls ts.flatten)
 
-/-- **Open goal (d), the export phase**: after a finished instantiation, the IR's first export
-`n` answering a call with no arguments with `ws` is matched by a session call of the reference
-export `n` returning `ws`, leaving the host state unchanged. -/
+/-- **Open goal, piece (d), the export phase**: after a finished instantiation, the IR's first
+export `n` answering a call with no arguments with `ws` is matched by a session call of the
+reference export `n` returning `ws`, leaving the host state unchanged. -/
 def Task.exportRef : Prop :=
   ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
     (t : List (Σ _ : sigU.Op, Option Payload)) (n : String) (ws : List Silmaril.Wasm.Component.Val)
