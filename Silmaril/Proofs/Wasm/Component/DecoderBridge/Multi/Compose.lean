@@ -40,13 +40,25 @@ theorem multiImpFrag_inv {r : RefComponent} (h : MultiImpFrag r) :
   · split at hR
     · rename_i R hR'
       simp only [Bool.and_eq_true] at hR
-      exact ⟨R, hR', hR.1, hR.2⟩
+      exact ⟨R, hR', hR.1.1, hR.1.2⟩
     · cases hR
   · split at hp
     · rename_i pre mi cargs post hs
       simp only [Bool.and_eq_true] at hp
       exact ⟨pre, mi, cargs, post, hs, hp.1, hp.2⟩
     · cases hp
+
+/-- In the fragment, every node of the REF reading is in the split fragment (`splitNodes`). -/
+theorem multiImpFrag_split {r : RefComponent} (h : MultiImpFrag r) :
+    ∃ R, refRead r = some R ∧ splitNodes R = true := by
+  unfold MultiImpFrag multiImpFrag at h
+  simp only [Bool.and_eq_true] at h
+  obtain ⟨⟨-, hR⟩, -⟩ := h
+  split at hR
+  · rename_i R hR'
+    simp only [Bool.and_eq_true] at hR
+    exact ⟨R, hR', hR.2⟩
+  · cases hR
 
 /-- **In the fragment, the IR reading has a first node.** -/
 theorem nodes_ne_nil {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefComponent}

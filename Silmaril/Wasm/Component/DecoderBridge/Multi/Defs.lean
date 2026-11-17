@@ -22,6 +22,8 @@ fragment from them, so the decomposition is checked.
 * `lowWired`: **every** node the REF reading names (`refRead`) instantiates a module whose
   imports have core type `fFlat = (func (param i32))` (`irTypesOk`), each wired to the lowering
   of the component's import `0` (`lowImpl`);
+* `splitNodes`: every such node's module is in the split fragment (`splitMod`, below) and imports
+  only functions (the first node included; there is no shared memory or table);
 * `rootShape`: the definitions before the first core instantiation start with the type
   `func(x: u32)` and the import `f` of it, and import nothing else (the reference machine checks
   the root import against the host function `f: func(x: u32)` of `hostConfigX`, parameter names
@@ -102,6 +104,13 @@ def lowWired (R : RSt) : Bool :=
   R.nodes.all fun p =>
     irTypesOk p.1 && decide (p.1.imports.length ≤ p.2.length) && p.2.all isLowImpl
 
+/-- Every node the REF reading names instantiates a module in the split fragment (`splitMod`: no
+tags, memories, tables, data or element segments) that imports only functions. (For the nodes
+after the first, `postDefOk` checks this too; for the first node it is checked here.) -/
+def splitNodes (R : RSt) : Bool :=
+  R.nodes.all fun p =>
+    splitMod p.1 && p.1.imports.all (fun i => match i.type with | .func _ => true | _ => false)
+
 /-- The IR function type `func() -> u32`. -/
 def isGetTy : FuncTy → Bool
   | ⟨[], [.u32]⟩ => true
@@ -153,7 +162,8 @@ def postDefOk (n : Nat) (insts : List (List (String × Nat))) (mods : List Silma
 def multiImpFrag (r : RefComponent) : Bool :=
   firstImpFrag r && hostWired r &&
     (match refRead r with
-      | some R => lowWired R && (R.exports.head?.map fun e => isGetTy e.ty).getD false
+      | some R => lowWired R && (R.exports.head?.map fun e => isGetTy e.ty).getD false &&
+          splitNodes R
       | none => false) &&
     (match firstCore? r with
       | some (pre, _, _, post) =>
