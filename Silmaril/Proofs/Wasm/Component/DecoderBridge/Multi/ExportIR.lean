@@ -233,4 +233,59 @@ theorem refRead_layout {r : RefComponent} {R : RSt} {pre : List RDef} {mi : Nat}
   rw [he₁] at this
   simpa [hi] using this
 
+theorem forall₂_get_left {α β : Type} {P : α → β → Prop} :
+    ∀ {l₁ : List α} {l₂ : List β}, List.Forall₂ P l₁ l₂ → ∀ {j : Nat} {b : β}, l₂[j]? = some b →
+      ∃ a, l₁[j]? = some a ∧ P a b
+  | _, _, .nil, _, _, h => by cases h
+  | _ :: _, _ :: _, .cons hp _, 0, _, h => by cases h; exact ⟨_, rfl, hp⟩
+  | _ :: _, _ :: _, .cons _ hr, j + 1, _, h => forall₂_get_left hr h
+
+theorem nodeW_width {p : Binary.CoreMod × List Impl} {q : Silmaril.Wasm.Module × List Impl}
+    (h : NodeW (.core p.1 p.2) q) : ifaceWidth q.1 = (CoreModule.exports p.1).length := by
+  obtain ⟨cm, he, -, hci⟩ := h
+  injection he with he₁ he₂
+  subst he₁
+  simp [ifaceWidth, hci]
+
+/-- The reading's nodes, taken `j` at a time, have the IR nodes' widths. -/
+theorem width_take :
+    ∀ {ps : List (Binary.CoreMod × List Impl)} {ns : List (Silmaril.Wasm.Module × List Impl)},
+      List.Forall₂ NodeW (coreNodes ps) ns → ∀ j,
+        ((ns.take j).map fun q => ifaceWidth q.1).sum = coreWidth (ps.take j)
+  | [], [], .nil, j => by simp [coreWidth]
+  | p :: ps, q :: ns, .cons h hs, 0 => by simp [coreWidth]
+  | p :: ps, q :: ns, .cons h hs, j + 1 => by
+    have ih := width_take hs j
+    simp only [coreWidth] at ih
+    simp only [List.take_succ_cons, List.map_cons, List.sum_cons, coreWidth, ih,
+      nodeW_width (p := p) h]
+
+/-- **A node core instance of the reading is an IR node's**: the `j`-th after the inline instances,
+with the IR node's exports, at its base in the IR's environment. -/
+theorem node_of_layout {n : Nat} {A : List RCI} {R : RSt} {ps : List (Binary.CoreMod × List Impl)}
+    (hA : ∀ ci ∈ A, ∃ es, ci = .inline es) (hI : LayInv n A R)
+    (hN : List.Forall₂ NodeW (coreNodes ps) R.nodes) {k base : Nat} {exps : CoreIface}
+    (hk : R.coreInsts[k]? = some (.node base exps)) :
+    ∃ j p, k = A.length + j ∧ ps[j]? = some p ∧ CoreModule.exports p.1 = exps ∧
+      base = n + coreWidth (ps.take j) := by
+  obtain ⟨cis, hc, hL⟩ := hI
+  rw [hc] at hk
+  by_cases hlt : k < A.length
+  · rw [List.getElem?_append_left hlt] at hk
+    obtain ⟨es, he⟩ := hA _ (List.mem_of_getElem? hk)
+    cases he
+  · rw [List.getElem?_append_right (by omega)] at hk
+    obtain ⟨m, w, nm, im, hm, hci, hb⟩ := hL.get hk
+    obtain ⟨x, hx, hW⟩ := forall₂_get_left hN hm
+    simp only [coreNodes, List.getElem?_map, Option.map_eq_some_iff] at hx
+    obtain ⟨p, hp, rfl⟩ := hx
+    obtain ⟨cm, he, -, hci'⟩ := hW
+    injection he with he₁ he₂
+    subst he₁
+    rw [hci] at hci'
+    injection hci' with hci'
+    simp only [Prod.mk.injEq] at hci'
+    refine ⟨k - A.length, p, by omega, hp, hci'.2.2.symm, ?_⟩
+    rw [hb, width_take hN]
+
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi
