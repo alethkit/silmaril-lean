@@ -346,3 +346,33 @@ python3 -I tools/compiler-explorer/cexplorer.py serve .lake/compiler-explorer/ex
 python3 -I tools/compiler-explorer/fixtures.py build|listings|decompile   # Docker (and Lean)
 python3 -I tools/compiler-explorer/fixtures.py manifests|rows             # deterministic
 ```
+
+
+## Kernel replay driver
+
+`replay.sh` keeps the nine evidence targets and their descendants, discovers that
+set once, then runs each selected module in an isolated process with at most four
+workers (`LEAN_REPLAY_JOBS=1` selects serial execution). A discovery failure, empty
+selection, missing module, kernel error, timeout or signalled worker fails the check.
+
+The executable-only `tools/compiler-explorer/Replay.lean` calls the pinned
+[LeanChecker.replayFromImports](https://github.com/leanprover/lean4/blob/67dafde474fbaf278d6d7f822068549bf6e532fa/src/LeanChecker.lean#L17)
+operation directly. It uses the stock normal-mode target-prefix selection, search
+path and kernel operation: declarations in each target are replayed from its loaded
+imports; imported declarations are not themselves replayed (`--fresh` is a separate
+stronger check). No import-only or cached-success path replaces kernel replay.
+The driver intentionally omits `module` because the pinned `LeanChecker` is a legacy
+module; this is an explicit compatibility exception for this leaf only, which no
+library imports. No proof or axiom policy exception applies.
+
+The stock CLI scans every installed olean for each target. The driver resolves those
+paths once; workers call the same kernel operation without repeating discovery.
+Separate processes also avoid the pinned multi-target CLI crash observed in CI.
+`tests/test_replay.py` compares stock and driver selection and outcomes on positive,
+unknown, corrupt and malformed-proof fixtures, including the normal-mode import
+boundary. Scheduler tests cover bounded concurrency, discovery failure and worker
+failure/signals. Run the equivalence checks with the pinned toolchain:
+
+```sh
+lake env python3 -I tools/compiler-explorer/tests/test_replay.py
+```

@@ -36,6 +36,7 @@ if ! diff -u examples/compiler-explorer/expected-status.txt "$out/status.txt"; t
   echo "error: the statuses differ from examples/compiler-explorer/expected-status.txt" >&2
   exit 1
 fi
+"$LAKE" env "$PYTHON" -I tools/compiler-explorer/tests/test_replay.py
 LAKE="$LAKE" tools/compiler-explorer/replay.sh
 "$PYTHON" -I tools/compiler-explorer/tests/test_cexplorer.py
 node --test tools/compiler-explorer/tests/view.test.mjs
