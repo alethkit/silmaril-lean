@@ -39,6 +39,22 @@
   const fixtureBadge = (f) => f ? `<code data-fixture="${esc(f)}" title="${f === "real"
     ? "real bytes: an ELF in an OCI image, run by the LPS model of Linux"
     : "a small model program, run by a model machine"}">${esc(f)}</code>` : "";
+  // The registry's verdict in words, next to its code: Proved / Refuted / Open from the verdict,
+  // and whether that is what the problem's registered expectation says (`statusInfo`). An expected
+  // refutation (a negative example) is neutral, not an alarm; a verdict contrary to the expectation is.
+  function plainVerdict(r) {
+    const s = statusOfRow(r), i = ui.statusInfo(s);
+    const word = r.verdict === "holds" ? "Proved" : r.verdict === "fails" ? "Refuted" : "Open";
+    const met = i && i.outcome === "match", contrary = i && (i.outcome === "contrary" || i.outcome === "error");
+    const note = contrary ? "contrary to expectation" : met && r.verdict === "fails" ? "as expected: a negative example"
+      : met ? "as expected" : "not yet established";
+    const cls = contrary ? "fails" : r.verdict === "holds" && met ? "holds" : word === "Open" ? "unknown" : "";
+    // an expected refutation: a neutral grey, neither the success nor the failure colour
+    const style = cls ? "" : ` style="background:#6b7280"`;
+    const label = `<span class="${cls ? "badge " + cls : "badge"}"${style} data-verdict="${esc(word.toLowerCase())}" ` +
+      `data-expectation="${contrary ? "contrary" : met ? "met" : "pending"}" title="${esc(i ? i.title : "")}">${esc(word)}</span>`;
+    return `${label} <span class="muted" data-note="1">${esc(note)}</span> ${ui.statusBadge(s)}`;
+  }
   const experimental = `<p class="muted" data-experimental="1"><strong>Experimental API.</strong> ` +
     `Definitions and statements in <code>Silmaril.Containers</code> may change.</p>`;
 
@@ -60,15 +76,16 @@
     let h = `<h2>Containers</h2>${experimental}` +
       `<p>Each row is a container image, the way it is run, and what is verified about it. The verdict is the registry's; ` +
       `<em>real</em> examples are actual bytes run by the LPS model of Linux, <em>model</em> examples are small programs of a model machine. ` +
+      `<em>Refuted, as expected</em> marks a negative example: the verification is meant to fail, and does. ` +
       `Try them: <code>lake env lean --run examples/containers/Examples.lean</code>.</p>`;
     if (data.missing) h += `<p class="muted">Descriptions are not available: ${esc(data.missing)}.</p>`;
-    h += `<table id="containers-table"><thead><tr><th>example</th><th></th><th>profile</th><th>specification</th>` +
+    h += `<table id="containers-table"><thead><tr><th>example</th><th>kind</th><th>profile</th><th>specification</th>` +
       `<th>run</th><th>verdict</th></tr></thead><tbody>`;
     for (const r of rows) {
       const x = d(r.name);
       h += `<tr data-problem="${esc(r.name)}"><td><a href="#/container/${encodeURIComponent(r.name)}">${esc(x.title || r.title || r.name)}</a>` +
         `<div class="muted">${esc(r.name)}</div></td><td>${fixtureBadge(x.fixture)}</td><td>${esc(x.profile || "")}</td>` +
-        `<td>${esc(x.spec || r.title || "")}</td><td>${esc(x.run || "")}</td><td class="nw">${ui.statusBadge(statusOfRow(r))}</td></tr>`;
+        `<td>${esc(x.spec || r.title || "")}</td><td>${esc(x.run || "")}</td><td class="nw">${plainVerdict(r)}</td></tr>`;
     }
     h += `</tbody></table>` + details();
     return h;
@@ -104,7 +121,7 @@
     const ths = await Promise.all((x.theorems || []).map(theorem));
     const field = (k, v) => v ? `<tr><th>${esc(k)}</th><td>${v}</td></tr>` : "";
     let h = `<h2>${esc(x.title || r.title || name)} ${fixtureBadge(x.fixture)}</h2>${experimental}` +
-      `<p>Verdict (registry): ${ui.statusBadge(statusOfRow(r))} — ${ui.link("problem", name)}</p>` +
+      `<p id="container-verdict">Verdict (registry): ${plainVerdict(r)} — ${ui.link("problem", name)}</p>` +
       `<table id="container-detail"><tbody>` +
       field("image", esc(x.image || "")) +
       field("digests", (x.digests || []).map((d) => `${esc(d.name)} ${code(d.value)}`).join("<br>")) +

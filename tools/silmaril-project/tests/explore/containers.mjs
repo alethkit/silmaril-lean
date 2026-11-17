@@ -40,7 +40,9 @@ try {
   const rows = await p.evaluate(() => [...document.querySelectorAll("#containers-table tbody tr")].map((tr) => ({
     name: tr.dataset.problem, fixture: (tr.querySelector("[data-fixture]") || {}).dataset?.fixture,
     outcome: (tr.querySelector("[data-outcome]") || {}).dataset?.outcome, code: (tr.querySelector("[data-code]") || {}).dataset?.code,
-    run: tr.cells[4].textContent.trim() })));
+    run: tr.cells[4].textContent.trim(),
+    word: (tr.querySelector("[data-verdict]") || {}).textContent, expectation: (tr.querySelector("[data-expectation]") || {}).dataset?.expectation,
+    note: (tr.querySelector("[data-note]") || {}).textContent })));
   const names = rows.map((r) => r.name);
   check(JSON.stringify(names) === JSON.stringify(["containers.noop.oci_wp", "containers.examples.crash_wlp",
     "containers.examples.crash_wp", "containers.mini.thread_spawn_wlp", "containers.examples.http", "containers.examples.vsock"]),
@@ -53,6 +55,19 @@ try {
     ["containers.mini.thread_spawn_wlp", "UNS"], ["containers.examples.http", "THM"], ["containers.examples.vsock", "THM"]])
     check(by[n]?.code === c, `${n}: registry status ${c} (${by[n]?.code})`);
   check(/UNDEFINED BEHAVIOUR/.test(by["containers.mini.thread_spawn_wlp"]?.run || ""), "the thread example's run is undefined behaviour");
+  const heads = await p.evaluate(() => [...document.querySelectorAll("#containers-table thead th")].map((th) => th.textContent.trim()));
+  check(heads[1] === "kind" && heads[5] === "verdict", `column headers (${heads.join(" | ")})`);
+  for (const n of ["containers.noop.oci_wp", "containers.examples.crash_wlp", "containers.examples.http", "containers.examples.vsock"])
+    check(by[n]?.word === "Proved" && by[n]?.expectation === "met" && by[n]?.note === "as expected", `${n} reads "Proved, as expected" (${by[n]?.word}, ${by[n]?.note})`);
+  for (const n of ["containers.examples.crash_wp", "containers.mini.thread_spawn_wlp"])
+    check(by[n]?.word === "Refuted" && by[n]?.expectation === "met" && /negative example/.test(by[n]?.note || ""),
+      `${n} reads as an expected negative result, not a failure (${by[n]?.word}, ${by[n]?.note})`);
+  check(await p.evaluate(() => [...document.querySelectorAll("#containers-table [data-verdict='refuted']")]
+    .every((e) => !e.classList.contains("fails"))), "expected refutations are not styled as failures");
+  const invisible = await p.evaluate(() => [...document.querySelectorAll("#containers-table [data-verdict]")]
+    .filter((e) => { const c = getComputedStyle(e); return c.backgroundColor === "rgba(0, 0, 0, 0)" || c.backgroundColor === c.color; })
+    .map((e) => e.textContent));
+  check(invisible.length === 0, `every verdict label is visible (${invisible.join(", ")})`);
   check(await p.evaluate(() => !!document.querySelector("#containers-status")), "one details panel says what verdicts rest on");
   await shot("containers");
 
@@ -67,6 +82,7 @@ try {
   const ths = await p.evaluate(() => [...document.querySelectorAll("#container-theorems code")].map((c) => c.textContent));
   check(ths.includes("Silmaril.Containers.Noop.wp_image"), "the theorem is listed");
   check(await p.evaluate(() => /answer THM/.test(document.body.textContent)), "the registry's answer");
+  check(await p.evaluate(() => document.querySelector("#container-verdict [data-verdict]")?.textContent === "Proved"), "the page says Proved");
   await shot("container-noop");
 
   await open("/container/containers.examples.http");
