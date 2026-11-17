@@ -88,7 +88,7 @@ theorem run_gap {B : Machine.Config (core3 neverFail) Σh} (hl : B.store.lockdow
       status neverFail (g.rel (Store.mapH FirstImp.gL s₁)) tR' ≠ .running) :
     ∃ tR' tr, LRun prof (fun _ _ => false) (DG embL.host)
         (coreCfg B th K segs rest (g.rel (Store.mapH FirstImp.gL s), tR)) tr
-        (coreCfg B th K segs rest (g.rel (Store.mapH FirstImp.gL s₁), tR')) ∧
+        (coreCfg B th K segs rest (g.rel (Store.mapH FirstImp.gL s₁), tR')) ∧ traceObs tr = [] ∧
       GapThr g s₁ t₁ tR' ∧ RT (g.rel (Store.mapH FirstImp.gL s₁)) tR' ∧
       statusC (stepI neverFail) (g.rel (Store.mapH FirstImp.gL s₁)) tR' =
         status neverFail (g.rel (Store.mapH FirstImp.gL s₁)) tR' := by
@@ -101,10 +101,10 @@ theorem run_gap {B : Machine.Config (core3 neverFail) Σh} (hl : B.store.lockdow
   have hG' : GapThr g s₁ t₁ tR' := ⟨hcfg, hgood, by rw [hfs]; exact hG.pre⟩
   obtain ⟨n, hn⟩ := runCI_complete (I := fun c => ConfigOk c [])
     Silmaril.Wasm.SingleThreaded.Exec.typedInv' hR.thread hr (hend tR' hcfg)
-  obtain ⟨tr, d⟩ := lrun_runC (prof := prof) (hr := fun _ _ => false) (dispatch := DG embL.host)
+  obtain ⟨tr, d, hob⟩ := lrun_runC (prof := prof) (hr := fun _ _ => false) (dispatch := DG embL.host)
     (k := K) (segs := segs) (rest := rest) (th := th) n hn
     (coreCfg B th K segs rest (g.rel (Store.mapH FirstImp.gL s), tR)) rfl rfl hl
-  refine ⟨tR', tr, d, hG', hR', ?_⟩
+  refine ⟨tR', tr, d, hob, hG', hR', ?_⟩
   rw [Silmaril.Wasm.SingleThreaded.Exec.statusI_eq_typed hR'.thread]
 
 /-- **An import call of the IR's start run, in the shared store**: the core activation runs to the
@@ -121,7 +121,7 @@ theorem call_gapX {B : Machine.Config (core3 neverFail) Σh} (hB : CallInv B th)
         (tR' : STh),
         LRun prof (fun _ _ => false) (DG embL.host)
           (coreCfg B th K segs rest (g.rel (Store.mapH FirstImp.gL s), tR)) tr
-          (coreCfg B' th K segs rest (g.rel (Store.mapH FirstImp.gL s₁), tR')) ∧
+          (coreCfg B' th K segs rest (g.rel (Store.mapH FirstImp.gL s₁), tR')) ∧ traceObs tr = [] ∧
         GapThr g s₁ (Silmaril.Wasm.SingleThreaded.resume s₁ t₁ (.values [])) tR' ∧
         CallInv B' th ∧ B'.host = (B.host.1, B.host.2 ++ [(⟨0⟩, [toRefVal (.u32 b)], [])]) ∧
         Ext B B' ∧ RT (g.rel (Store.mapH FirstImp.gL s₁)) tR' := by
@@ -133,7 +133,7 @@ theorem call_gapX {B : Machine.Config (core3 neverFail) Σh} (hB : CallInv B th)
   have hfs : (Store.mapH FirstImp.gL s₁).funcs = (Store.mapH FirstImp.gL s).funcs :=
     funcs_stepsG (internal_mapH hrun)
   have hP₁ : g.PreOk (Store.mapH FirstImp.gL s₁).funcs := by rw [hfs]; exact hG.pre
-  obtain ⟨tR', tr₁, d₁, hG', hR', hC⟩ := run_gap (th := th) (K := K) (segs := segs)
+  obtain ⟨tR', tr₁, d₁, hob₁, hG', hR', hC⟩ := run_gap (th := th) (K := K) (segs := segs)
     (rest := rest) (prof := prof) hB.lock g hinj hrun hG hR (fun tR' hc => by
       rw [(status_gap_callout g hP₁ hc hsm).1]; nofun)
   obtain ⟨hsR, E, a, hd, hd'⟩ := status_gap_callout g hG'.pre hG'.cfg hsm
@@ -156,7 +156,7 @@ theorem call_gapX {B : Machine.Config (core3 neverFail) Σh} (hB : CallInv B th)
     rw [hC, hsR'] at e
     exact e
   obtain ⟨st, hi, hleave⟩ := hB.inst
-  obtain ⟨pos, tr₂, d₂⟩ := hostCall_lrunX (prof := prof) (g := HLinked2.logG unitG)
+  obtain ⟨pos, tr₂, d₂, hob₂⟩ := hostCall_lrunX (prof := prof) (g := HLinked2.logG unitG)
     (B := B) (th := th) (K := K) (segs := segs) (rest := rest)
     (y := (g.rel (Store.mapH FirstImp.gL s₁), tR'))
     (p := fTy) (ws := [.u32 b]) (us := []) hB.lock hE hB.entry hi hleave hB.func rfl rfl
@@ -171,8 +171,10 @@ theorem call_gapX {B : Machine.Config (core3 neverFail) Σh} (hB : CallInv B th)
   rw [resume_mapHG] at hcfg
   have hgood := splitGood_resume hG'.good hd
   rw [resume_mapHG] at hgood
-  exact ⟨b, rfl, _, _, _, d₁.trans d₂, ⟨hcfg, hgood, hG'.pre⟩,
+  refine ⟨b, rfl, _, _, _, d₁.trans d₂, ?_, ⟨hcfg, hgood, hG'.pre⟩,
     ⟨hB.lock, hB.entry, ⟨st, hi, hleave⟩, hB.func⟩, rfl, ⟨_, _, _, rfl⟩, hrt⟩
+  simp only [traceObs] at hob₁ hob₂ ⊢
+  simp only [List.filterMap_append, List.filterMap_cons, Label.obs?, hob₁, hob₂, List.nil_append]
 
 /-- **The IR's start run in the shared store**, with the store it leaves and the typing of the
 final thread (`Run.startRun_refX` for a later node). -/
@@ -190,7 +192,7 @@ theorem startRun_gapX {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = tru
         (tR' : STh),
         LRun prof (fun _ _ => false) (DG embL.host)
           (coreCfg B th K segs rest (g.rel (Store.mapH FirstImp.gL c.1), tR)) tr
-          (coreCfg B' th K segs rest (g.rel (Store.mapH FirstImp.gL c'.1), tR')) ∧
+          (coreCfg B' th K segs rest (g.rel (Store.mapH FirstImp.gL c'.1), tR')) ∧ traceObs tr = [] ∧
         (core3 neverFail).status (g.rel (Store.mapH FirstImp.gL c'.1)) tR' =
           .returned (.values fvs) ∧
         GapThr g c'.1 c'.2 tR' ∧ CallInv B' th ∧
@@ -224,7 +226,7 @@ theorem startRun_gapX {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = tru
       (statusP_profile s' t').symm.trans hr'
     have hsm : status neverFail (Store.mapH FirstImp.gL s') t' = .returned (.values vs) :=
       status_mapH_returned hs'
-    obtain ⟨tR', tr, d, hG', hR', hC⟩ := run_gap (th := th) (K := K) (segs := segs)
+    obtain ⟨tR', tr, d, hob, hG', hR', hC⟩ := run_gap (th := th) (K := K) (segs := segs)
       (rest := rest) (prof := prof) hB.lock g hinj run hG hR (fun tR' hc => by
         rw [status_gap_values g hc hsm]; nofun)
     have hsR := status_gap_values g hG'.cfg hsm
@@ -238,7 +240,7 @@ theorem startRun_gapX {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = tru
         cases v <;> rfl
     have e := statusE_flat neverFail (g.rel (Store.mapH FirstImp.gL s')) tR'
     rw [hC, hsR] at e
-    refine ⟨tr, B, tR', d, ?_, hG', hB, by simp [coreLog], Ext.refl B, hR'⟩
+    refine ⟨tr, B, tR', d, hob, ?_, hG', hB, by simp [coreLog], Ext.refl B, hR'⟩
     show Silmaril.Wasm.Component.Engine.Core3.statusE neverFail _ tR' = _
     rw [e]
     simp only [flatStatus, hmap]
@@ -246,7 +248,7 @@ theorem startRun_gapX {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = tru
     intro hans fvs hend B tR hB hG hR
     unfold Engine.CoreEngine.Steps at run
     rw [internalP_eq] at run
-    obtain ⟨b, rfl, tr₁, B₁, tR₁, d₁, hG₁, hB₁, hhost₁, hX₁, hR₁⟩ := call_gapX (th := th) (K := K)
+    obtain ⟨b, rfl, tr₁, B₁, tR₁, d₁, hob₁, hG₁, hB₁, hhost₁, hX₁, hR₁⟩ := call_gapX (th := th) (K := K)
       (segs := segs) (rest := rest) (prof := prof) hB g hinj run hG hR callout
     have hr : r = some (.flat []) := hans _ List.mem_cons_self
     subst hr
@@ -258,10 +260,12 @@ theorem startRun_gapX {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = tru
         Silmaril.Wasm.SingleThreaded.resume s₁ t₁ (.values []) := by
       rw [himp, resultOf_fFlat]
       rfl
-    obtain ⟨tr₂, B₂, tR₂, d₂, hst₂, hG₂, hB₂, hhost₂, hX₂, hR₂⟩ :=
+    obtain ⟨tr₂, B₂, tR₂, d₂, hob₂, hst₂, hG₂, hB₂, hhost₂, hX₂, hR₂⟩ :=
       ih (fun y hy => hans y (List.mem_cons_of_mem _ hy))
       hend (B := B₁) (tR := tR₁) hB₁ (by rw [eres]; exact hG₁) hR₁
-    refine ⟨tr₁ ++ tr₂, B₂, tR₂, d₁.trans d₂, hst₂, hG₂, hB₂, ?_, hX₁.trans hX₂, hR₂⟩
+    refine ⟨tr₁ ++ tr₂, B₂, tR₂, d₁.trans d₂, ?_, hst₂, hG₂, hB₂, ?_, hX₁.trans hX₂, hR₂⟩
+    · simp only [traceObs] at hob₁ hob₂ ⊢
+      simp only [List.filterMap_append, hob₁, hob₂, List.nil_append]
     rw [hhost₂, hhost₁]
     simp [coreLog, coreEvent]
 

@@ -160,7 +160,7 @@ theorem laterCoreStepX : LaterCoreStepX := by
       (fun sc => List.foldlM (instantiateDef callRecurse ⟨0⟩ [] (importArgs hostI)) sc ds >>= K)
       (segs := []) (rest := []) (by rw [hM]; simp only [bind_assoc])
     refine ⟨_, _, _, g, d, Adequacy.LRun.no_host d,
-      Adequacy.LRun.no_trap d ⟨List.cons_ne_nil _ _, hI.lock⟩, rfl, ⟨hI.mods, hinsts' _,
+      Adequacy.LRun.no_trap d ⟨List.cons_ne_nil _ _, hI.lock⟩, by simp [traceObs, Label.obs?], rfl, ⟨hI.mods, hinsts' _,
         hI.lock, hI.func0, hI.inst, hfunsJ, hsJ, hHT⟩, by rw [hhost, ht]; simp [logOfCalls],
       rfl, rfl, rfl, rfl, hexps, rfl, rfl, rfl, by rw [hxs]; exact hPJ, by rw [hxs]; rfl,
       ⟨[], (List.append_nil _).symm⟩, rfl, rfl⟩
@@ -195,7 +195,7 @@ theorem laterCoreStepX : LaterCoreStepX := by
     -- the start call, to the core activation
     obtain ⟨ι, hιs, hιok⟩ := hI.inst
     obtain ⟨ι', hadd, hrem, hι₁, hml⟩ := inst_round hιok ⟨M.store.threads.length⟩
-    obtain ⟨M₀, thc, Kc, segsc, restc, tr₃, d₃, hS⟩ := start_atG (impl := embL.host) first.prof
+    obtain ⟨M₀, thc, Kc, segsc, restc, tr₃, d₃, hob₃, hS⟩ := start_atG (impl := embL.host) first.prof
       { ({ M with store := setCoreSt (g.rel (Store.mapH FirstImp.gL nx.inst.store)) M.store } :
           Machine.Config (core3 neverFail) Σh) with
         ctl := ⟨none, .prog (Instantiate.runStart ⟨0⟩ (g.sh.fn f) >>= K'), []⟩ :: [] }
@@ -250,7 +250,7 @@ theorem laterCoreStepX : LaterCoreStepX := by
       rw [hco] at e
       exact e
     -- the start run with its host calls
-    obtain ⟨tr₄, B', tR', d₄, hst', hG', hB', hhost', hExt, hRT'⟩ := startRun_gapX
+    obtain ⟨tr₄, B', tR', d₄, hob₄, hst', hG', hB', hhost', hExt, hRT'⟩ := startRun_gapX
       (prof := first.prof) (K := Kc) (segs := segsc) (rest := restc) hno.imps g hinj hrun' hans
       hst hB hG hRT
     rw [hM₀] at d₄
@@ -264,7 +264,7 @@ theorem laterCoreStepX : LaterCoreStepX := by
       (y := (g.rel (Store.mapH FirstImp.gL c'.1), tR')) hst' hB'.lock
     -- the epilogue
     obtain ⟨h, xs, cs, rfl⟩ := hExt
-    obtain ⟨tr₆, d₆⟩ := hS.ret (g.rel (Store.mapH FirstImp.gL c'.1), tR') h xs cs
+    obtain ⟨tr₆, d₆, hob₆⟩ := hS.ret (g.rel (Store.mapH FirstImp.gL c'.1), tR') h xs cs
     -- back in the core instantiation, then the core instance on the frame
     obtain ⟨d₇, -⟩ := hK' (startedCfgG embL.host
       { ({ M with store := setCoreSt (g.rel (Store.mapH FirstImp.gL nx.inst.store)) M.store } :
@@ -292,7 +292,10 @@ theorem laterCoreStepX : LaterCoreStepX := by
         (g.rel (Store.mapH FirstImp.gL nx.inst.store)).funcs := by
       simp only [rel_funcs, Store.mapH, startRunI_funcs hrun']
     refine ⟨_, _, _, g, d, Adequacy.LRun.no_host d,
-      Adequacy.LRun.no_trap d ⟨List.cons_ne_nil _ _, hI.lock⟩, rfl, ⟨hI.mods, hinsts' _,
+      Adequacy.LRun.no_trap d ⟨List.cons_ne_nil _ _, hI.lock⟩, by
+        simp only [traceObs] at hob₃ hob₄ hob₆ ⊢
+        simp only [List.filterMap_append, List.filterMap_cons, List.filterMap_nil, Label.obs?,
+          hob₃, hob₄, hob₆, List.nil_append, List.append_nil], rfl, ⟨hI.mods, hinsts' _,
         hI.lock, funcs0_append hI.func0 _, ⟨ι₁, by rw [← hι₁]; rfl, .inr rfl⟩,
         fun i hi => by rw [show (startedCfgG embL.host _ (g.sh.fn f) ι'
           (g.rel (Store.mapH FirstImp.gL c'.1)) h xs cs).store.core =

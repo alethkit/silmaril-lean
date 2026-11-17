@@ -217,11 +217,23 @@ theorem frameRelX_inst {pre : RefComponent} {mi : Nat} {cargs : List (String × 
 
 end Mono
 
+/-- The relation does not depend on the component store beyond its functions. -/
+theorem frameRelX_funcs {mods : List Silmaril.Wasm.Module} {R : RSt} {sc : Scope (core3 neverFail)}
+    {S S' : CStore (core3 neverFail)} (h : FrameRelX mods R sc S) (hS : S'.funcs = S.funcs) :
+    FrameRelX mods R sc S' := by
+  have hS' : ∃ fs, S'.funcs = S.funcs ++ fs := ⟨[], by simp [hS]⟩
+  have hX : ∃ X, R.coreInsts = R.coreInsts ++ X := ⟨[], by simp⟩
+  have hY : ∃ Y, sc.frame.coreInstances = sc.frame.coreInstances ++ Y :=
+    ⟨[], (List.append_nil _).symm⟩
+  exact ⟨h.rel, h.types, h.coreFuncs,
+    forall₂_imp_mono (fun x fid h => funcRelS_mono h hS' hX hY) h.funcs, h.inline,
+    forall₂_imp_mono (fun x y ⟨fid, h1, h2⟩ => ⟨fid, h1, funcRelS_mono h2 hS' hX hY⟩) h.exports⟩
+
 /-! ## The pieces, with node ends and the invariant -/
 
 /-- **`FirstK'` with the node end and the invariant**: the first node ending at `x`; the first
 core instance at `x` (`NodeAt`); the frame related to the reading with the component store; no
-top-level calls. -/
+top-level calls; no observation so far. -/
 def FirstKX : Prop :=
   ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
     (p : Binary.CoreMod × List Impl) (ps : List (Binary.CoreMod × List Impl)) (x : NodeRun)
@@ -232,6 +244,9 @@ def FirstKX : Prop :=
     firstCore? r = some (pre, mi, cargs, post) →
     ∃ sc M, RefAtDefsK r post sc (logOfCalls x.calls) M ∧ LaterInv pre sc M ∧
       M.pending = [] ∧ M.results = [] ∧
+      (∃ tr, Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch hostConfigX
+        (.host (instantiateTop r (importArgs hostI)) :: tr) M ∧ (∀ ev, Label.host ev ∉ tr) ∧
+        traceObs tr = []) ∧
       (∃ es₀, sc.frame.coreInstances = instsVal (preInsts pre) ++ [es₀] ∧
         NodeAt M.store.core x es₀) ∧
       ∀ R₀, (pre ++ [Syntax.Definition.coreInstance (.instantiate mi cargs)]).foldlM refStep
@@ -241,7 +256,7 @@ def FirstKX : Prop :=
 /-- **`LaterCoreStep'` with the node end**: the shared core store after the core instantiation is
 the gap image of the IR's store after the start function, past the store before it, and the core
 instance its module instance relocated; component functions are only appended; the top-level calls
-are unchanged. -/
+are unchanged; nothing is observed. -/
 def LaterCoreStepX : Prop :=
   ∀ (pre : RefComponent) (mi : Nat) (cargs : List (String × Nat)) (ds : RefComponent)
     (sc : Scope (core3 neverFail)) (M : Machine.Config (core3 neverFail) Σh)
@@ -262,7 +277,7 @@ def LaterCoreStepX : Prop :=
     ∃ (tr : List (Label (core3 neverFail) Σh)) (M' : Machine.Config (core3 neverFail) Σh)
       (sc' : Scope (core3 neverFail)) (g : Gap (CanonHost (core3 neverFail))),
       LRun first.prof embL.hr (DG embL.host) M tr M' ∧
-      (∀ ev, Label.host ev ∉ tr) ∧ (∀ msg, Label.trap msg ∉ tr) ∧
+      (∀ ev, Label.host ev ∉ tr) ∧ (∀ msg, Label.trap msg ∉ tr) ∧ traceObs tr = [] ∧
       M'.ctl = [.ofProg none
         (ds.foldlM (instantiateDef callRecurse ⟨0⟩ [] (importArgs hostI)) sc' >>= K)] ∧
       LaterInv pre sc' M' ∧ M'.host = ((), L ++ logOfCalls x.calls) ∧

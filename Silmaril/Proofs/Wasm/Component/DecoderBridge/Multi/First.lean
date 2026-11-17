@@ -225,7 +225,7 @@ theorem firstNodeRef : Task.firstNodeRef := by
     -- the start call, to the core activation
     obtain ⟨ι', hadd, hrem⟩ : ∃ ι', ({} : InstState).addThread? ⟨0⟩ = some (1, ι') ∧
         ι'.removeThread? 1 = some (⟨0⟩, InstState.removeThread 1 ι') := ⟨_, rfl, rfl⟩
-    obtain ⟨M₀, thc, Kc, segsc, restc, tr₃, d₃, hS⟩ := start_atG (impl := embL.host) first.prof
+    obtain ⟨M₀, thc, Kc, segsc, restc, tr₃, d₃, hob₃, hS⟩ := start_atG (impl := embL.host) first.prof
       { ({ M₁ with store := setCoreSt (Store.mapH gL J.store) M₁.store } :
           Machine.Config (core3 neverFail) Σh) with
         ctl := ⟨none, .prog (Instantiate.runStart ⟨0⟩ f >>= K'), []⟩ :: [] }
@@ -269,7 +269,7 @@ theorem firstNodeRef : Task.firstNodeRef := by
       rw [hco] at e
       exact e
     -- the start run with its host calls
-    obtain ⟨tr₄, B', tR', d₄, hst', hB', hhost, hExt, hRT'⟩ := startRun_refX (prof := first.prof)
+    obtain ⟨tr₄, B', tR', d₄, hob₄, hst', hB', hhost, hExt, hRT'⟩ := startRun_refX (prof := first.prof)
       (K := Kc) (segs := segsc) (rest := restc) himps hrun' hans hst hB
       (tR := Silmaril.Wasm.SingleThreaded.Thread.invoke f []) rfl hRT
     rw [hM₀] at d₄
@@ -283,7 +283,7 @@ theorem firstNodeRef : Task.firstNodeRef := by
       (y := (Store.mapH gL c'.1, tR')) hst' hB'.lock
     -- the epilogue
     obtain ⟨h, xs, cs, rfl⟩ := hExt
-    obtain ⟨tr₆, d₆⟩ := hS.ret (Store.mapH gL c'.1, tR') h xs cs
+    obtain ⟨tr₆, d₆, hob₆⟩ := hS.ret (Store.mapH gL c'.1, tR') h xs cs
     -- back in the core instantiation, then the core instance on the frame
     obtain ⟨d₇, -⟩ := hK' (startedCfgG embL.host { ({ M₁ with store := setCoreSt (Store.mapH gL J.store) M₁.store } :
           Machine.Config (core3 neverFail) Σh) with

@@ -228,7 +228,8 @@ structure StartAtG (prof : ProfileKind) (M : Machine.Config E σ) (a : E.FuncAdd
       (retCfg { M₀ with host := h, store := { M₀.store with
           subtasks := M₀.store.subtasks ++ xs, callers := M₀.store.callers ++ cs } }
         thc Kc segsc restc y [])
-      tr { startedCfgG impl M a ι' y.1 h xs cs with ctl := ⟨th, .prog (K ()), segs⟩ :: rest }
+      tr { startedCfgG impl M a ι' y.1 h xs cs with ctl := ⟨th, .prog (K ()), segs⟩ :: rest } ∧
+    traceObs tr = []
 
 /-- **The start call with its epilogue**, over any engine and host. -/
 theorem start_atG (prof : ProfileKind) (M : Machine.Config E σ) (a : E.FuncAddr)
@@ -239,7 +240,7 @@ theorem start_atG (prof : ProfileKind) (M : Machine.Config E σ) (a : E.FuncAddr
     (hadd : ι.addThread? ⟨M.store.threads.length⟩ = some (1, ι'))
     (hrem : ι'.removeThread? 1 = some (⟨M.store.threads.length⟩, InstState.removeThread 1 ι')) :
     ∃ M₀ thc Kc segsc restc tr, LRun prof (fun _ _ => false) (DG impl) M tr M₀ ∧
-      StartAtG impl prof M a ι' th K segs rest M₀ thc Kc segsc restc := by
+      traceObs tr = [] ∧ StartAtG impl prof M a ι' th K segs rest M₀ thc Kc segsc restc := by
   obtain ⟨S, h₀, ctl₀, conts, pending, results, cancels⟩ := M
   dsimp only at hc hl hi hadd hrem ⊢
   subst hc
@@ -285,44 +286,48 @@ theorem start_atG (prof : ProfileKind) (M : Machine.Config E σ) (a : E.FuncAddr
         rfl _)
     mstepG
     exact .refl _
+  apply And.intro
+  · simp [traceObs, Label.obs?]
   · refine ⟨rfl, rfl, rfl, rfl, ?_⟩
     intro y h xs cs
     apply Exists.intro
-    apply LRun.store_congrG (S' := gStore₃X S a ι' y.1 xs cs) rfl
-    have hS₃ : (gStore₃X S a ι' y.1 xs cs).tasks =
-        S.tasks ++ [(startTask₁ S.callers ⟨S.threads.length⟩).withState .started] := rfl
-    have hcl : ArenaField.callers.get? (gStore₃X S a ι' y.1 xs cs) (⟨S.callers.length⟩ : CallerId) =
-        some (.sub .start) := by
-      show (S.callers ++ [.sub .start] ++ cs)[S.callers.length]? = _
-      rw [List.append_assoc, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self]
-      rfl
-    unfold retCfg
-    apply RunsQ.chunk2 rfl (runs_lift_nilG (impl := impl) _ _).choose_spec hl
-    apply RunsQ.chunk2 rfl (runs_returnSG (Gt := S.tasks) _ hS₃ rfl rfl hcl) hl
-    apply LRun.store_congrG (S' := gStore₄X S a ι' y.1 xs cs)
-      (by refine setTaskState_lastG (Gt := S.tasks) ?_ _; rfl)
-    apply RunsQ.chunk rfl
-      (runs_exitG (impl := impl) (Gt := S.tasks) (Gth := S.threads)
-        (y := ((startTask₁ S.callers ⟨S.threads.length⟩).withState .started).withState .resolved)
-        (z := (startThread S.tasks).withIndex 1) (ι := ι') rfl rfl rfl rfl rfl rfl rfl rfl hrem) hl
-    have e₄ : CStore.unregisterThreadSt ⟨S.tasks.length⟩ ⟨S.threads.length⟩ 1
-        (gStore₄X S a ι' y.1 xs cs) =
+    refine ⟨?_, ?_⟩
+    · apply LRun.store_congrG (S' := gStore₃X S a ι' y.1 xs cs) rfl
+      have hS₃ : (gStore₃X S a ι' y.1 xs cs).tasks =
+          S.tasks ++ [(startTask₁ S.callers ⟨S.threads.length⟩).withState .started] := rfl
+      have hcl : ArenaField.callers.get? (gStore₃X S a ι' y.1 xs cs) (⟨S.callers.length⟩ : CallerId) =
+          some (.sub .start) := by
+        show (S.callers ++ [.sub .start] ++ cs)[S.callers.length]? = _
+        rw [List.append_assoc, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self]
+        rfl
+      unfold retCfg
+      apply RunsQ.chunk2 rfl (runs_lift_nilG (impl := impl) _ _).choose_spec hl
+      apply RunsQ.chunk2 rfl (runs_returnSG (Gt := S.tasks) _ hS₃ rfl rfl hcl) hl
+      apply LRun.store_congrG (S' := gStore₄X S a ι' y.1 xs cs)
+        (by refine setTaskState_lastG (Gt := S.tasks) ?_ _; rfl)
+      apply RunsQ.chunk rfl
+        (runs_exitG (impl := impl) (Gt := S.tasks) (Gth := S.threads)
+          (y := ((startTask₁ S.callers ⟨S.threads.length⟩).withState .started).withState .resolved)
+          (z := (startThread S.tasks).withIndex 1) (ι := ι') rfl rfl rfl rfl rfl rfl rfl rfl hrem) hl
+      have e₄ : CStore.unregisterThreadSt ⟨S.tasks.length⟩ ⟨S.threads.length⟩ 1
+          (gStore₄X S a ι' y.1 xs cs) =
+            { gStore₄X S a ι' y.1 xs cs with
+              tasks := S.tasks ++ [startTaskEnd E S.callers ⟨S.threads.length⟩]
+              insts := [InstState.removeThread 1 ι'] } :=
+        unregisterThreadSt_eqG _ _ rfl rfl rfl
+      apply LRun.store_congrG (S' := { gStore₄X S a ι' y.1 xs cs with
+          tasks := S.tasks ++ [startTaskEnd E S.callers ⟨S.threads.length⟩]
+          insts := [InstState.removeThread 1 ι'] }) e₄
+      mstepG
+      have e₅ : threadStatusSt ⟨S.threads.length⟩ .exited
           { gStore₄X S a ι' y.1 xs cs with
             tasks := S.tasks ++ [startTaskEnd E S.callers ⟨S.threads.length⟩]
-            insts := [InstState.removeThread 1 ι'] } :=
-      unregisterThreadSt_eqG _ _ rfl rfl rfl
-    apply LRun.store_congrG (S' := { gStore₄X S a ι' y.1 xs cs with
-        tasks := S.tasks ++ [startTaskEnd E S.callers ⟨S.threads.length⟩]
-        insts := [InstState.removeThread 1 ι'] }) e₄
-    mstepG
-    have e₅ : threadStatusSt ⟨S.threads.length⟩ .exited
-        { gStore₄X S a ι' y.1 xs cs with
-          tasks := S.tasks ++ [startTaskEnd E S.callers ⟨S.threads.length⟩]
-          insts := [InstState.removeThread 1 ι'] } = gStore₅X S a ι' y.1 xs cs :=
-      threadStatus_lastG (z := (startThread S.tasks).withIndex 1) rfl _
-    apply LRun.store_congrG (S' := gStore₅X S a ι' y.1 xs cs) e₅
-    apply RunsQ.chunk rfl (runs_callUnit_loopG (impl := impl) (Gt := S.tasks) rfl rfl) hl
-    repeat mstepG
-    exact .refl _
+            insts := [InstState.removeThread 1 ι'] } = gStore₅X S a ι' y.1 xs cs :=
+        threadStatus_lastG (z := (startThread S.tasks).withIndex 1) rfl _
+      apply LRun.store_congrG (S' := gStore₅X S a ι' y.1 xs cs) e₅
+      apply RunsQ.chunk rfl (runs_callUnit_loopG (impl := impl) (Gt := S.tasks) rfl rfl) hl
+      repeat mstepG
+      exact .refl _
+    · simp [traceObs, Label.obs?]
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi

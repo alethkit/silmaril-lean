@@ -229,7 +229,7 @@ theorem firstKX : FirstKX := by
   -- the root, up to the first core instantiation
   obtain ⟨sc', Kr, hF', hKF, hfm, hcfs, hfi', htyl, htyf, hfnl, hex', hT'⟩ :=
     root_firstK2 hs hpre hshape hpostNI
-  obtain ⟨tr₁, -, d₁⟩ := hF' (fun _ => pure .unit) [] [] rfl
+  obtain ⟨tr₁, hob₁, d₁⟩ := hF' (fun _ => pure .unit) [] [] rfl
   generalize hK : (fun b => Kr b >>= fun _ => pure Ret.unit) = K at d₁
   have hKF' : KFin K := hK ▸ hKF
   let M₁ : Machine.Config (core3 neverFail) Σh := lowCfg hostConfigX (preLowers pre) lowH
@@ -324,7 +324,7 @@ theorem firstKX : FirstKX := by
         { hostConfigX with ctl := ⟨none, .prog (instantiateProg r (importArgs hostI) >>=
           fun _ => pure .unit), []⟩ :: [] } tr
         { M with ctl := ⟨none, .prog (List.foldlM (instantiateDef callRecurse ⟨0⟩ []
-          (importArgs hostI)) sc post >>= K), []⟩ :: [] } →
+          (importArgs hostI)) sc post >>= K), []⟩ :: [] } → traceObs tr = [] →
       M.store.lockdown = false → M.host = ((), logOfCalls t₀) → LaterInv pre sc M →
       M.pending = [] → M.results = [] →
       (∃ es₀, sc.frame.coreInstances = instsVal (preInsts pre) ++ [es₀] ∧
@@ -334,17 +334,21 @@ theorem firstKX : FirstKX := by
         FrameRelX (coreMods pre) R₀ sc M.store) →
       ∃ sc M, RefAtDefsK r post sc (logOfCalls t₀) M ∧ LaterInv pre sc M ∧
         M.pending = [] ∧ M.results = [] ∧
+        (∃ tr, Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch hostConfigX
+          (.host (instantiateTop r (importArgs hostI)) :: tr) M ∧ (∀ ev, Label.host ev ∉ tr) ∧
+          traceObs tr = []) ∧
         (∃ es₀, sc.frame.coreInstances = instsVal (preInsts pre) ++ [es₀] ∧
           NodeAt M.store.core ⟨t₀, J, mi₂, xs⟩ es₀) ∧
         ∀ R₀, (pre ++ [Syntax.Definition.coreInstance (.instantiate mi cargs)]).foldlM refStep
           ({ env := (r.filter isFuncImport).length } : RSt) = some R₀ →
           FrameRelX (coreMods pre) R₀ sc M.store := by
-    intro tr M sc d hl hh hinv hpd hrs hes hfr
+    intro tr M sc d hob hl hh hinv hpd hrs hes hfr
     refine ⟨sc, _, ⟨⟨tr, .cons (.hostRun hready) d.steps, Adequacy.LRun.no_host d,
       fun msg => Adequacy.LRun.no_trap d ⟨List.cons_ne_nil _ _, hl⟩ _⟩, ⟨K, hKF', rfl⟩, hl, hh⟩,
       ?_⟩
     exact ⟨⟨hinv.mods, hinv.insts, hinv.lock, hinv.func0, hinv.inst, hinv.tramp, hinv.ok,
-      hinv.hosts⟩, hpd, hrs, hes, hfr⟩
+      hinv.hosts⟩, hpd, hrs, ⟨tr, .cons (.hostRun hready) d.steps, Adequacy.LRun.no_host d, hob⟩,
+      hes, hfr⟩
   rcases hstart with ⟨hnone, rfl, rfl⟩ | ⟨f, c', fvs, hfs, hrun, hst, rfl⟩
   · -- no start function
     have ht₀ : t₀ = [] := by cases hF; rfl
@@ -381,7 +385,9 @@ theorem firstKX : FirstKX := by
         (fun sc => List.foldlM (instantiateDef callRecurse ⟨0⟩ [] (importArgs hostI)) sc
           (post : List (Syntax.Definition (core3 neverFail).Module)) >>= K) (segs := []) (rest := [])
         (by simp only [bind_assoc])
-    refine finish _ _ _ (d₁.trans d₂) rfl rfl ⟨by simpa using hfm,
+    refine finish _ _ _ (d₁.trans d₂) (by
+        simp only [traceObs] at hob₁ ⊢
+        simp [List.filterMap_append, Label.obs?, hob₁]) rfl rfl ⟨by simpa using hfm,
       ⟨[(core3 neverFail).exports mi₂], by simp only [hfi']; rfl⟩, rfl,
       rfl, ⟨{}, rfl, .inl rfl⟩, htramp, hsJ, hHT⟩ rfl rfl
       ⟨_, by show sc'.frame.coreInstances ++ _ = _; rw [hfi']; rfl, nodeAt_gap0 rfl⟩ (hFR _)
@@ -414,7 +420,7 @@ theorem firstKX : FirstKX := by
     -- the start call, to the core activation
     obtain ⟨ι', hadd, hrem⟩ : ∃ ι', ({} : InstState).addThread? ⟨0⟩ = some (1, ι') ∧
         ι'.removeThread? 1 = some (⟨0⟩, InstState.removeThread 1 ι') := ⟨_, rfl, rfl⟩
-    obtain ⟨M₀, thc, Kc, segsc, restc, tr₃, d₃, hS⟩ := start_atG (impl := embL.host) first.prof
+    obtain ⟨M₀, thc, Kc, segsc, restc, tr₃, d₃, hob₃, hS⟩ := start_atG (impl := embL.host) first.prof
       { ({ M₁ with store := setCoreSt (Store.mapH gL J.store) M₁.store } :
           Machine.Config (core3 neverFail) Σh) with
         ctl := ⟨none, .prog (Instantiate.runStart ⟨0⟩ f >>= K'), []⟩ :: [] }
@@ -458,7 +464,7 @@ theorem firstKX : FirstKX := by
       rw [hco] at e
       exact e
     -- the start run with its host calls
-    obtain ⟨tr₄, B', tR', d₄, hst', hB', hhost, hExt, hRT'⟩ := startRun_refX (prof := first.prof)
+    obtain ⟨tr₄, B', tR', d₄, hob₄, hst', hB', hhost, hExt, hRT'⟩ := startRun_refX (prof := first.prof)
       (K := Kc) (segs := segsc) (rest := restc) himps hrun' hans hst hB
       (tR := Silmaril.Wasm.SingleThreaded.Thread.invoke f []) rfl hRT
     rw [hM₀] at d₄
@@ -472,7 +478,7 @@ theorem firstKX : FirstKX := by
       (y := (Store.mapH gL c'.1, tR')) hst' hB'.lock
     -- the epilogue
     obtain ⟨h, xs, cs, rfl⟩ := hExt
-    obtain ⟨tr₆, d₆⟩ := hS.ret (Store.mapH gL c'.1, tR') h xs cs
+    obtain ⟨tr₆, d₆, hob₆⟩ := hS.ret (Store.mapH gL c'.1, tR') h xs cs
     -- back in the core instantiation, then the core instance on the frame
     obtain ⟨d₇, -⟩ := hK' (startedCfgG embL.host { ({ M₁ with store := setCoreSt (Store.mapH gL J.store) M₁.store } :
           Machine.Config (core3 neverFail) Σh) with
@@ -493,9 +499,13 @@ theorem firstKX : FirstKX := by
         (post : List (Syntax.Definition (core3 neverFail).Module)) >>= K) (segs := []) (rest := [])
       rfl
     refine finish _ _ _ (d₁.trans (d₂.trans (d₃.trans (d₄.trans (d₅.trans (d₆.trans
-      (d₇.trans d₈))))))) rfl ?_ ?_ rfl rfl
+      (d₇.trans d₈))))))) ?_ rfl ?_ ?_ rfl rfl
       ⟨_, by show sc'.frame.coreInstances ++ _ = _; rw [hfi']; rfl, nodeAt_gap0 rfl⟩ (hFR _)
-    case refine_2 =>
+    case refine_1 =>
+      simp only [traceObs] at hob₁ hob₃ hob₄ hob₆ ⊢
+      simp only [List.filterMap_append, List.filterMap_cons, List.filterMap_nil, Label.obs?,
+        hob₁, hob₃, hob₄, hob₆, List.nil_append, List.append_nil]
+    case refine_3 =>
       have hfc : (Store.mapH gL c'.1).funcs = (Store.mapH gL J.store).funcs := by
         simp only [Store.mapH, startRunI_funcs hrun']
       refine ⟨by simpa using hfm, ⟨[(core3 neverFail).exports mi₂], by simp only [hfi']; rfl⟩, rfl, rfl,
