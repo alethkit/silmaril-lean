@@ -5,6 +5,7 @@ public import Silmaril.Containers.Mini.Thms
 public import Silmaril.Containers.Check.Thms
 public import Silmaril.Containers.Noop.Thms
 public import Silmaril.Containers.HttpOnce.Thms
+public import Silmaril.Containers.HttpServe.Thms
 
 /-!
 # The logic graph: container obligations as problem shapes and consequence systems
@@ -49,6 +50,7 @@ satisfaction, a comparison), `containers.mini.no_ub_check` (the judgements of `M
 | `containers.mini.check_sound_vsys` | `consequence.sound_at` (the checker for `vsys`) | THM |
 | `containers.noop.oci_wp` | `wp` of the OCI no-op image under `Lps.ociRuntime` | THM |
 | `containers.http_once.oci_wp` | `wp` of the OCI HTTP responder image under `Lps.ociRuntime` | THM |
+| `containers.http_serve.oci_wp` | `wp` of the self-contained HTTP server image under `Lps.ociRuntime` | OPN (LPS's `bind` to 8080 is `unmodeled`) |
 -/
 
 @[expose] public section
@@ -262,6 +264,12 @@ end Silmaril.LogicGraph.Consequence.Containers.Answers
 
 namespace Silmaril.LogicGraph.Consequence.Containers
 
+/-- **Open**: the self-contained HTTP server image meets its specification on every run under
+`Lps.ociRuntime` (`HttpServe.Task.servesImage`). -/
+@[conjecture "containers.http_serve.oci_wp"
+  (title := "The self-contained HTTP server ELF in its OCI image: no undefined behaviour, exit, one exact response or a defined failure (LPS, every launch and flag oracle)")]
+public def http_serve_oci_wp : Prop := HttpServe.Task.servesImage
+
 /-- **The registered instances**, with what each is about. -/
 public def catalogue : List (String × ObligationKind) :=
   [("containers.mini.hello_wp", .behaviour), ("containers.mini.thread_spawn_wlp", .machine),
@@ -272,6 +280,6 @@ public def catalogue : List (String × ObligationKind) :=
    ("containers.monitor_correct_stdio", .security),
    ("containers.mini.vsys_sound_raw", .behaviour), ("containers.mini.raw_sound_vsys", .behaviour),
    ("containers.mini.check_sound_vsys", .behaviour), ("containers.noop.oci_wp", .behaviour),
-   ("containers.http_once.oci_wp", .behaviour)]
+   ("containers.http_once.oci_wp", .behaviour), ("containers.http_serve.oci_wp", .behaviour)]
 
 end Silmaril.LogicGraph.Consequence.Containers

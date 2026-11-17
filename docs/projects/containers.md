@@ -29,7 +29,8 @@ theorems), **Planned** (nothing exists yet). No module uses `sorry`, `native_dec
 | HTTP interfaces (version, transport, port), admissibility under profiles, the server platform of a runtime model, the fixture's response parsed by the verified HTTP/1.1 parser | `Containers.Http` | Proved |
 | The behaviour institution and its logic-graph registration | `Containers.Institution`, `LogicGraph.Nodes.Containers` | Proved (satisfaction condition) |
 | Static ELF images under the Linux process semantics (restricted adapter: standard channels, bounded output, task creation as undefined behaviour); a restricted OCI reader with checked digests; two real fixtures (no-op, HTTP responder) | `Containers.Lps`, `Containers.Oci`, `Containers.Noop`, `Containers.HttpOnce` | Proved; Tested (Docker, `examples/containers/`) |
-| A parallel x86-64 machine; programs with sockets or input under the adapter; Nitro Enclaves; Redis; Kubernetes | — | Planned (below) |
+| A self-contained HTTP server ELF (listens on 8080, retries short sends): artifact facts and session-level spec proved; its all-runs `wp` open | `Containers.HttpServe` | Proved (artifact, session); Open (`wp`); Tested (Docker) |
+| A parallel x86-64 machine; LPS `bind` for declared ports; Nitro Enclaves; Redis; Kubernetes | — | Planned (below) |
 
 **What the fixtures do and do not show.** Every fixture theorem is relative to `Fixtures.small`: a
 tiny program language whose semantics is written down directly. Nothing here runs Docker, runc or a
@@ -374,7 +375,7 @@ These are part of the original request and remain open after this pull request:
 * **Real images and real execution: two fixtures done.** The static no-op ELF and a static ELF
   writing one HTTP/1.1 response, each in a deterministic OCI image, are proved under the LPS adapter
   and tested under Docker (below). General OCI images, dynamically linked programs, programs that
-  read input and programs that open sockets themselves are not.
+  read input are not; a self-contained server is tested, with its all-runs proof open (below).
 * **The sequential x86-64 machine instance: restricted.** `Lps.lps` maps system calls 56, 57, 58
   and 435 to `clone` actions and LPS's unmodelled, fault and stuck outcomes to `UB`; the run
   characterisation is proved for programs with bounded standard output (`Lps.Emits`). `ClonesExplicit` as a general statement
@@ -507,11 +508,8 @@ short write), and this program does not retry, so the theorem cannot promise the
 the full response is the reference run (`full_run`). A program with a write loop would close the
 gap; its proof needs loop lemmas over symbolic register values that the probe kit does not have yet.
 
-**Why the accept loop is outside.** The adapter maps the three standard channels and treats every
-other event (a socket, a file) as undefined behaviour `unmodeled`, so a program that calls
-`socket`, `bind`, `listen` and `accept` itself would have no claim. LPS does model those calls
-(`Process.LPS.Sys.SocketCore`); mapping their events to `Ev.accept`/`Ev.send` and adding kit rules
-for them is the next step towards a self-contained server. Until then the TCP part is tested only.
+**The accept loop is the harness's.** This example writes standard output; the next section's
+server owns its socket.
 
 **The adapter generalisation** (`Lps.Thms`). `Emits snap k w` says: every admissible launch has
 only finite, error-free LPS executions whose events the adapter reads as a prefix of `w` (outputs
@@ -524,6 +522,60 @@ a write, for every short-write outcome.
 **What this is not.** A server proof (no socket is opened by the program), protocol conformance
 (one fixed response judged by one reader), or a statement about Docker, runc, a kernel or the
 accept loop.
+
+## A self-contained HTTP server: listens on 8080 itself
+
+> **Experimental API.** Names and statements in `Silmaril.Containers` may change.
+
+```
+examples/containers/http-serve/docker-test.sh          # publishes 127.0.0.1:8080
+DOCKER_NET="--network host" examples/containers/http-serve/docker-test.sh   # no bridge network
+```
+
+```
+1. http_serve.s rebuilds to the pinned ELF in the layer
+2. docker loaded silmaril-http-serve:pinned as sha256:ed2c4bf8…178a, exposing 8080/tcp
+3. container c36b0ac1… started; it listens on 8080 itself
+4. curl http://127.0.0.1:8080/ received exactly the 40-octet response (200, body ok)
+5. the container exited 0 after the one session
+PASS (a test of this host, not a proof)
+```
+
+`examples/containers/http-serve/http_serve.s` (98 lines, no libc): `socket`, `bind 0.0.0.0:8080`,
+`listen`, `accept` one connection, `read` the request, `sendto` the response **until all 40
+octets are sent** (short sends are retried), `shutdown`, `close`, `exit 0`. Each failing call
+exits with its own status, so failures are defined outcomes, not undefined behaviour. No host-side
+listener: the container owns the socket.
+
+| Field | Status | Where |
+| --- | --- | --- |
+| Digests of ELF, layer, config, manifest; LPS loads the ELF; the OCI reader yields `/http-serve` and declares `8080/tcp` | Proved | `HttpServe.Thms` |
+| The adapter reads LPS's TCP connections: octets on channel `3 + k` are `Ev.recv` / `Ev.send` on `connSock` | Defined (the earlier theorems rebuild unchanged) | `Lps.mapEv` |
+| `SessionOk` (receive a request, send **exactly** the response, exit 0) → the connection's sent octets, as `Http.platform` reads them, are the response, judged exactly by the HTTP/1.1 reader | Proved | `sessionOk_sent`, `sessionOk_exact` |
+| `serveSpec` = `SessionOk` or a defined failure (status 10–15, at most a prefix sent) | Defined | `HttpServe.Defs` |
+| Every run of the image satisfies `wp serveSpec` | **Open** (`containers.http_serve.oci_wp`, OPN) | `Task.servesImage` |
+| Why open: LPS's `bind` of this address (port 8080) has exactly one outcome, `unmodeled` | Proved | `bind_port_unmodeled` |
+| Docker: image ID, the container listens itself, `curl` gets exactly the response, exit 0 | Tested | `docker-test.sh` |
+
+The environment a successful session needs, as LPS states it (inputs of a launch, not
+assumptions hidden in the program):
+
+| Assumption | In the model | If it fails |
+| --- | --- | --- |
+| Port 8080 can be bound | `bind` outcome (today: `unmodeled`; needs a runtime model that binds declared ports) | status 11 |
+| A peer connects | the launch's `net` queue (`accept4Spec` takes its head) | `accept` waits: the run need not exit (liveness is not claimed) |
+| Socket, accept resources available | injected `ENOMEM`/`EMFILE`/`ENFILE` | status 10 or 13 |
+| The peer does not reset before the response is sent | the connection's script (`rst`, `timedOut`) | status 14 or 15 |
+| The scheduler runs the process | none (one sequential process, `seqPolicy`) | — |
+
+So the statement to prove is **successful-session correctness** (a run that exits 0 sent exactly
+the response) together with "no undefined behaviour and every exit is 0 or 10–15"; it is not
+unconditional liveness, which needs a peer.
+
+**Next step for the proof.** A runtime model whose `bind` covers declared ports (an extension of
+LPS's table, stated as such), kit rules for `socket`, `bind`, `listen`, `accept`, socket `read`
+and `sendto`, and a loop lemma for the send retry (each send moves at least one octet, so it ends
+within 40 iterations).
 
 ## Next steps
 
@@ -568,5 +620,6 @@ hashes are recorded here.
 ```
 lake build --wfail Silmaril.Containers.Fixtures.Examples Silmaril.Containers.Mini.Examples \
   Silmaril.Containers.Http.Thms Silmaril.Containers.Noop.Thms Silmaril.Containers.HttpOnce.Thms \
+  Silmaril.Containers.HttpServe.Thms \
   Silmaril.Containers.Institution.Defs Silmaril.LogicGraph.Nodes.Containers.Defs
 ```

@@ -30,10 +30,13 @@ inaccessible entry) is not described.
 * LPS steps of the reference semantics (`SStep` with the native x86-64 system call table
   `Probes.spec` and no refusal filter, LPS's `run`) are internal steps; their events become
   pending events (`mapEvs`) emitted one by one: bytes read on channel 0 are `Ev.stdin`, bytes
-  written on channels 1 and 2 are `Ev.stdout` and `Ev.stderr`, and an exit or kill event is
-  dropped (it is the run's stop). **Any other event** (a file, a socket, another channel) is
-  outside this restricted adapter: the run ends in `undefined unmodeled`, a statement that the
-  adapter makes no claim, never a silent success.
+  written on channels 1 and 2 are `Ev.stdout` and `Ev.stderr`, bytes read and written on a TCP
+  connection (LPS channel `3 + k` for the `k`-th accepted connection) are `Ev.recv` and
+  `Ev.send` on `connSock`, and an exit or kill event is dropped (it is the run's stop). LPS
+  reports no event for `socket`, `bind`, `listen` or `accept` themselves (they change its
+  descriptor table), so neither does the adapter. **Any other event** is outside this adapter:
+  the run ends in `undefined unmodeled`, a statement that the adapter makes no claim, never a
+  silent success.
 * An LPS step to an error is undefined behaviour: `unmodeled` when LPS marks the step unmodelled
   (`UnmodeledAt`: an instruction or a system call outside LPS's model), `memory` otherwise (a
   machine fault, a failed materialisation of system call accesses). A configuration with no LPS
@@ -54,7 +57,8 @@ inaccessible entry) is not described.
 **Trusted.** The LPS transcription of Linux system calls, the x86-64 decoder and instruction
 semantics behind `x86WithFlagOracle`, and the admissibility of launches. Not modelled: threads
 (task creation is undefined behaviour), signals sent by others, time, and every event outside the
-three standard channels.
+three standard channels and LPS's TCP connections. LPS itself models AF_INET stream sockets only,
+and `bind` only to port 0 (any other port is `unmodeled`).
 
 A Silmaril addition.
 -/
@@ -99,13 +103,22 @@ def ClonePending {isa : UserIsa} (c : Silmaril.Process.LPS.Config isa) : Prop :=
 
 /-! ## Events -/
 
-/-- The container event of an LPS event: `some evs` for the standard channels and the stop
-events (which are dropped), `none` for anything else. -/
+/-- **The connection of a trace channel.** LPS reports the octets of its `k`-th accepted TCP
+connection (AF_INET, stream) on channel `3 + k` (`connChannel`); the adapter names that
+connection by its channel. -/
+def connSock (ch : Word) : Sock := ⟨ch.toNat, .inet4, .stream⟩
+
+/-- The container event of an LPS event: `some evs` for the standard channels, the TCP
+connections (channels from 3: octets read are `Ev.recv`, octets written are `Ev.send`) and the
+stop events (which are dropped). -/
 def mapEv : Event → Option (List Ev)
-  | .readEv ch b => if ch = 0 then some [.stdin [UInt8.ofBitVec b]] else none
+  | .readEv ch b =>
+    if ch = 0 then some [.stdin [UInt8.ofBitVec b]]
+    else if 3 ≤ ch.toNat then some [.recv (connSock ch) [UInt8.ofBitVec b]] else none
   | .writeEv ch b =>
     if ch = 1 then some [.stdout [UInt8.ofBitVec b]]
-    else if ch = 2 then some [.stderr [UInt8.ofBitVec b]] else none
+    else if ch = 2 then some [.stderr [UInt8.ofBitVec b]]
+    else if 3 ≤ ch.toNat then some [.send (connSock ch) [UInt8.ofBitVec b]] else none
   | .exitEv _ _ | .killEv _ _ => some []
 
 /-- The container events of a list of LPS events, if all are supported. -/
