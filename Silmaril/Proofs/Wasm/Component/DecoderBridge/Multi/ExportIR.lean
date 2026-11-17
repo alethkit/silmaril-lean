@@ -480,4 +480,146 @@ theorem startRun_rtn {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = true
 
 end Typed
 
+/-! ## A node's export call -/
+
+/-- The engine instance of a module of the fragment, with its module instance and export
+addresses. -/
+theorem instOfI_mi {m : Silmaril.Wasm.Module} {imps exps : CoreIface}
+    (himps : imps.all (·.2 == fFlat) = true) {J : Param.IInstance irEng}
+    (hJ : Param.instOfI irEng m imps exps = some J) :
+    ∃ mi, Silmaril.Wasm.Component.Engine.Core3.prepareE? (irStore imps.length) m
+        ((List.range imps.length).map Silmaril.Wasm.Execution.Core.ExternAddr.func) =
+        some (J.store, mi, J.start) ∧ Param.exportAddrs irEng mi exps = some J.addrs := by
+  have hA := allocHosts_ir (profile neverFail) imps 0 himps
+  rw [irStore_zero, Nat.zero_add, range'_zero] at hA
+  have hprep : (core3P (profile neverFail)).prepare?
+      (irStore imps.length) m ((List.range imps.length).map
+        (core3P (profile neverFail)).ofFunc) =
+      Silmaril.Wasm.Component.Engine.Core3.prepareE? (irStore imps.length) m
+        ((List.range imps.length).map Silmaril.Wasm.Execution.Core.ExternAddr.func) := rfl
+  have e : Param.allocHosts (core3P (profile neverFail))
+      ((core3P (profile neverFail)).empty Nat) 0 imps =
+      (irStore imps.length, List.range imps.length) := hA
+  unfold Param.instOfI at hJ
+  rw [e] at hJ
+  dsimp only at hJ
+  rw [hprep] at hJ
+  cases hp : Silmaril.Wasm.Component.Engine.Core3.prepareE? (irStore imps.length) m
+      ((List.range imps.length).map Silmaril.Wasm.Execution.Core.ExternAddr.func) with
+  | none => rw [hp] at hJ; cases hJ
+  | some p =>
+    obtain ⟨s', mi, st⟩ := p
+    rw [hp] at hJ
+    dsimp only at hJ
+    obtain ⟨addrs, ha, rfl⟩ := Option.map_eq_some_iff.mp hJ
+    exact ⟨mi, rfl, ha⟩
+
+/-- An export address is the function the module instance exports under the export's name. -/
+theorem lookup_of_exportAddrs {mi : irEng.Inst} {exps : CoreIface}
+    {addrs : List irEng.FuncAddr} (h : Param.exportAddrs irEng mi exps = some addrs) {k : Nat}
+    (hk : k < exps.length) {a : Nat} (ha : addrs[k]? = some a) :
+    (irEng.exports mi).lookup exps[k].1 = some (.func a) := by
+  have hF := List.mapM_eq_some_iff_forall₂.mp h
+  obtain ⟨b, hb, hx⟩ := forall₂_get hF (List.getElem?_eq_getElem hk)
+  rw [ha] at hb
+  cases hb
+  change ((irEng.exports mi).lookup exps[k].1).bind irEng.asFunc? = some a at hx
+  revert hx
+  cases (irEng.exports mi).lookup exps[k].1 with
+  | none => intro hx; cases hx
+  | some ext =>
+    intro hx
+    change Silmaril.Wasm.Component.Engine.Core3.asFunc? ext = some a at hx
+    cases ext <;> first | (cases hx; rfl) | cases hx
+
+/-- The store of a module of the fragment after preparation is typed, its host functions of core
+type `fFlat`. -/
+theorem prepared_typed {m : Silmaril.Wasm.Module} {n : Nat}
+    {s' : Silmaril.Wasm.Execution.Core.Store Nat} {mi : Silmaril.Wasm.Execution.Core.ModuleInst}
+    {st : Option Nat}
+    (hp : Silmaril.Wasm.Component.Engine.Core3.prepareE? (irStore n) m
+      ((List.range n).map Silmaril.Wasm.Execution.Core.ExternAddr.func) = some (s', mi, st)) :
+    Silmaril.Wasm.Execution.Core.StoreOk s' ∧ HostTy s' ∧
+      ∀ f, st = some f → RTN s' (Silmaril.Wasm.SingleThreaded.Thread.invoke f []) := by
+  obtain ⟨hs', -, ⟨new, hnew, hwasm⟩, hcfg⟩ :=
+    Silmaril.Wasm.Component.Engine.Core3.Typed.prepareE?_typed (storeOk_irStore n) hp
+  have hT : HostTy s' := by
+    intro fi hfi h hcode
+    rw [hnew] at hfi
+    rcases List.mem_append.mp hfi with hfi | hfi
+    · simp only [irStore, List.mem_map, List.mem_range] at hfi
+      obtain ⟨i, -, rfl⟩ := hfi
+      rfl
+    · obtain ⟨c, hc⟩ := hwasm fi hfi
+      rw [hc] at hcode
+      cases hcode
+  exact ⟨hs', hT, fun f hf => ⟨hs', hcfg f hf, hT⟩⟩
+
+/-- **A node's instantiation and export call, without calls below**: the node's engine instance
+ends its start function at a node end `x` with the instantiation's calls; the export `k`, named
+as the module exports it, runs host-free from the store the start function left to the values
+answered. -/
+theorem node_export {p : Binary.CoreMod × List Impl} (hno : NodeOk p)
+    {tj : List (Call sigU)} (hu : ∀ x ∈ tj, x.2 = InstTests.unitV) {k : Nat} {y : Payload}
+    (h : roundsMoves [instRound (F := sigU) tj .ready, exRound (R := Unit)
+      (⟨(k, .flat []), [], some y⟩ : Round sigU sigU)] ∈
+      coreNodeI (Binary.coreModSemI (profile neverFail)) hostI.length p.1 p.2) :
+    ∃ (x : NodeRun) (hk : k < (CoreModule.exports p.1).length) (a : Nat) (c' : irEng.Config Nat)
+      (ys : List Flat), x.calls = tj ∧ NodeEnd hostI.length p.1 p.2 x ∧
+      (irEng.exports x.minst).lookup ((CoreModule.exports p.1)[k]).1 = some (.func a) ∧
+      Engine.CoreEngine.Steps irEng (x.store, irEng.invoke a []) c' ∧
+      irEng.status c'.1 c'.2 = .returned (.values ys) ∧ y = .flat ys := by
+  obtain ⟨xs₁, xs₂, hruns, htj, hcs, hcase⟩ := coreNodeI_ex_inv h
+  rcases hcase with ⟨hn, -⟩ | ⟨hk, hE⟩
+  · cases hn
+  change _ ∈ Param.engineStrategyI irEng (Param.instOfI irEng (Binary.coreModule p.1)
+    (CoreModule.imports p.1) (CoreModule.exports p.1)) (CoreModule.imports p.1)
+    (CoreModule.exports p.1) at hE
+  obtain ⟨J, hJ, s', hst, a, xs, c'', ys, hcal, hrun, hstat, rfl⟩ := engineI_ex_inv hE
+  -- the callee
+  simp only [Param.callee?] at hcal
+  split at hcal
+  · rename_i hft
+    obtain ⟨a', ha', he⟩ := Option.map_eq_some_iff.mp hcal
+    cases he
+    obtain ⟨mi, hprep, haddrs⟩ := instOfI_mi hno.imps hJ
+    have hlk := lookup_of_exportAddrs haddrs hk ha'
+    have hruns₁ : ∀ y ∈ xs₁, Prog.Runs (implsN hostI.length p.2 _ y.q) y.cs y.a :=
+      fun y hy => hruns y (List.mem_append_left _ hy)
+    have hruns₂ : ∀ y ∈ xs₂, Prog.Runs (implsN hostI.length p.2 _ y.q) y.cs y.a :=
+      fun y hy => hruns y (List.mem_append_right _ hy)
+    obtain ⟨hsJ, hTJ, hRJ⟩ := prepared_typed hprep
+    -- the start function and the store it leaves
+    obtain ⟨hs's, hT', hNE⟩ : Silmaril.Wasm.Execution.Core.StoreOk s' ∧ HostTy s' ∧
+        ∃ ys' : List (Σ _ : (sigN (CoreModule.imports p.1).length).Op, Option Payload),
+          List.Forall₂ (fun y z => ∃ k, implsN hostI.length p.2 (CoreModule.imports p.1).length y.1 =
+            .call z.1 k ∧ k z.2 = .pure y.2) ys' tj ∧
+          ((J.start = none ∧ ys' = [] ∧ s' = J.store) ∨
+            ∃ f c' vs, J.start = some f ∧
+              Param.StartRunI irEng (CoreModule.imports p.1) (J.store, irEng.invoke f []) ys' c' ∧
+              irEng.status c'.1 c'.2 = .returned (.values vs) ∧ s' = c'.1) := by
+      rcases hst with ⟨hf, hnil, rfl⟩ | ⟨f, c', vs, hf, hrun₀, hst₀, rfl⟩
+      · have hx₁ : xs₁ = [] := by
+          cases xs₁ with
+          | nil => rfl
+          | cons _ _ => cases hnil
+        subst hx₁
+        subst htj
+        exact ⟨hsJ, hTJ, [], .nil, .inl ⟨hf, rfl, rfl⟩⟩
+      · have hR := hRJ f hf
+        have hu' : ∀ x ∈ allCalls xs₁, x.2 = InstTests.unitV := htj ▸ hu
+        have hF := startRun_calls hno.imps hno.wires hno.wl hrun₀ hR rfl hruns₁ hu'
+        have hR' := startRun_rtn hno.imps hno.wires hno.wl hrun₀ hR rfl hruns₁ hu'
+        refine ⟨hR'.store, hR'.hosts, xs₁.map Round.call, htj ▸ hF, .inr ⟨f, c', vs, hf, hrun₀,
+          hst₀, rfl⟩⟩
+    -- the export's run makes no call
+    have hnil₂ : ∀ y ∈ xs₂, y.cs = [] := allCalls_eq_nil hcs.symm
+    have h₀ := exportRun_nil hno.wires hno.wl hs's hT' hrun rfl hruns₂ hnil₂
+    rw [h₀] at hrun
+    obtain ⟨ys', hF, hst'⟩ := hNE
+    refine ⟨⟨tj, J, mi, s'⟩, hk, a, c'', ys, rfl, ⟨hJ, hprep, ys', hF, hst'⟩, hlk, ?_, hstat, rfl⟩
+    cases hrun with
+    | nil run => exact run
+  · cases hcal
+
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi
