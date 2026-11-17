@@ -1,5 +1,17 @@
 {
   "artifacts": {
+    "core_probe": {
+      "media": "text/x-lisp",
+      "path": "examples/compiles-to/straight/core-probe.txt",
+      "sha256": "cb7f40c8b1c57d1b6ce83d1ed752e127f489600e4c51414aef091bc3f2a7f3f5",
+      "size": 27400
+    },
+    "decoded": {
+      "media": "text/plain",
+      "path": "examples/compiler-explorer/compiles-to/straight/O2/decoded.txt",
+      "sha256": "fb1092e2bc82202fc16ea7a2d7c5fd92c2017a37e86ac474c972cfdd58030986",
+      "size": 409
+    },
     "listing": {
       "media": "text/x-objdump",
       "path": "examples/compiler-explorer/compiles-to/straight/O2/listing.txt",
@@ -11,6 +23,12 @@
       "path": "examples/compiler-explorer/compiles-to/straight/O2/RECEIPT.json",
       "sha256": "eae5762f831a8f78a2ba9d7de3db0d72ddd270f3eac856e0f7d96f95e606e556",
       "size": 555
+    },
+    "macros": {
+      "media": "text/x-c",
+      "path": "examples/compiler-explorer/env/compiles-to-O2.macros.h",
+      "sha256": "39d65b7818761ff20b38679f0cbd1ee83d74e205f84623752930ba79f8f7ac8a",
+      "size": 13176
     },
     "receipt": {
       "media": "application/json",
@@ -69,6 +87,47 @@
     "version": "gcc (GCC) 13.3.0"
   },
   "direction": "compiled",
+  "dwarf_facts": [
+    {
+      "fact": "line 4 <- .text [0x0, 0x2)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 5 <- .text [0x2, 0x5)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 7 <- .text [0x5, 0x6)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "point 0 at offset 0x0, line 2",
+      "if_wrong": "the segment statements are about these offsets: a wrong one makes them unprovable, not false",
+      "kind": "point",
+      "origin": "DWARF line table (c-tv): point placement",
+      "used_by": [
+        "edge/0",
+        "point/0",
+        "mapping",
+        "translation"
+      ]
+    }
+  ],
   "edges": [
     {
       "function": "add3",
@@ -243,6 +302,46 @@
     }
   ],
   "id": "compiles-to/straight/O2/add3",
+  "include_env": {
+    "files": [
+      {
+        "name": "straight.c",
+        "sha256": "8b49538da88e3926f7c457e54fff82234e5ef0efb3c81372537b8f690f38b4b6",
+        "size": 155,
+        "where": "examples/compiles-to/straight/straight.c"
+      }
+    ],
+    "macros": "macros",
+    "note": "the files a preprocessor reads, by content; a formal preprocessor would be a stage from this environment to the preprocessed text (none is stated)",
+    "options": [
+      "gcc",
+      "-O2",
+      "-g",
+      "-c",
+      "-fdebug-prefix-map=/src=.",
+      "-std=c11",
+      "-ffreestanding",
+      "-fno-builtin",
+      "-fno-stack-protector",
+      "-fcf-protection=none",
+      "-mgeneral-regs-only",
+      "-fno-pic",
+      "-fno-pie",
+      "-fno-asynchronous-unwind-tables",
+      "-fno-unwind-tables",
+      "-fno-ident",
+      "straight.c",
+      "-o",
+      "O2/straight.o"
+    ],
+    "search": [
+      "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include",
+      "/usr/local/include",
+      "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include-fixed",
+      "/usr/include/x86_64-linux-gnu",
+      "/usr/include"
+    ]
+  },
   "lean": {
     "family": "c-function-x86",
     "modules": [
@@ -259,6 +358,7 @@
       "comorphism": "Silmaril.Project.CompilesTo.dwarf",
       "fn": "CompilesToExamples.Straight.O2.add3",
       "isa": "Silmaril.X86.Open.isa",
+      "listing": "CompilesToExamples.Straight.O2.add3Listing",
       "target_value": "silmaril.compiles_to.straight.o2.obj"
     }
   },
@@ -319,6 +419,12 @@
       "statement": "Silmaril.Project.Shapes.C.ElaboratesTo CompilesToExamples.Straight.ail \"add3\" CompilesToExamples.Straight.O2.add3.cfn"
     },
     {
+      "decl": "CompilesToExamples.Explorer.StraightO2.decoding",
+      "id": "decoding",
+      "kind": "decoding",
+      "statement": "Silmaril.Project.CompilesTo.decodesAs CompilesToExamples.Straight.O2.add3.code 0 CompilesToExamples.Straight.O2.add3Listing = true"
+    },
+    {
       "decl": "CompilesToExamples.Explorer.straight_O2_code",
       "id": "artifact",
       "kind": "artifact",
@@ -338,10 +444,71 @@
       "statement": "CompilesToExamples.Straight.O2.add3.cfn.meaning.Inhabited"
     }
   ],
+  "problem_form": "semantic",
+  "relation": {
+    "description": "the deterministic C/x86-64 compilation problem of FnData",
+    "semantics": "stated"
+  },
   "schema": "silmaril.compiler-explorer.problem/1",
+  "stages": [
+    {
+      "evidence": "#guard in CompilesToExamples.Straight.Defs (compiled evaluation)",
+      "input": "source",
+      "name": "Lean C frontend: C text -> typed Ail",
+      "output": "core_probe",
+      "side": "source",
+      "trust": "evaluated"
+    },
+    {
+      "evidence": "CompilesToExamples.Straight.elab_eq (kernel, cbv)",
+      "input": "core_probe",
+      "name": "Lean Cerberus elaborator: typed Ail -> Core",
+      "output": "core_probe",
+      "side": "source",
+      "trust": "verified"
+    },
+    {
+      "evidence": "receipt only",
+      "input": "target",
+      "name": "objdump -d (binutils 2.40)",
+      "output": "listing",
+      "side": "target",
+      "trust": "trusted"
+    },
+    {
+      "evidence": "obligation decoding (decodesAs, kernel)",
+      "input": "target",
+      "name": "Lean x86 decoder (Silmaril.X86.Ext.decode)",
+      "output": "decoded",
+      "side": "target",
+      "trust": "verified"
+    }
+  ],
   "tests": [],
   "title": "straight.c, gcc 13.3.0 -O2, add3 (object code)",
   "view": {
+    "alternatives": {
+      "source": [
+        {
+          "label": "C source",
+          "role": "source"
+        },
+        {
+          "label": "typed Ail + Core (trusted stages)",
+          "role": "core_probe"
+        }
+      ],
+      "target": [
+        {
+          "label": "objdump (untrusted tool)",
+          "role": "listing"
+        },
+        {
+          "label": "Lean decoder (kernel-checked)",
+          "role": "decoded"
+        }
+      ]
+    },
     "source": "source",
     "target": "listing",
     "target_map": [

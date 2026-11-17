@@ -1,0 +1,205 @@
+{
+  "artifacts": {
+    "core_probe": {
+      "media": "text/x-lisp",
+      "path": "examples/compiles-to/straight/core-probe.txt",
+      "sha256": "cb7f40c8b1c57d1b6ce83d1ed752e127f489600e4c51414aef091bc3f2a7f3f5",
+      "size": 27400
+    },
+    "source": {
+      "media": "text/x-c",
+      "path": "examples/compiles-to/straight/straight.c",
+      "sha256": "8b49538da88e3926f7c457e54fff82234e5ef0efb3c81372537b8f690f38b4b6",
+      "size": 155
+    },
+    "target": {
+      "media": "text/x-c",
+      "path": "examples/compiler-explorer/c2c/translations.c",
+      "sha256": "3e4dac7e30ba0b61c553b1de73e21d9039db41b390930004b1f2c33cf9e219c4",
+      "size": 610
+    },
+    "target_core_probe": {
+      "media": "text/x-lisp",
+      "path": "examples/compiler-explorer/c2c/core-probe.txt",
+      "sha256": "c4fcf4128badf6d4527f0c6dedaedb92c501d98b87e34ee6596e1e2b5e185835",
+      "size": 116065
+    }
+  },
+  "context": {
+    "abi": null,
+    "comorphism": null,
+    "mapping_relation": null,
+    "source_model": {
+      "decl": "Silmaril.Project.Shapes.C.CFn.source",
+      "family": "cerberus-core",
+      "version": "Lean port of Cerberus Core, canonical entries"
+    },
+    "target_model": {
+      "decl": "Silmaril.Project.Shapes.C.CFn.source",
+      "family": "cerberus-core",
+      "version": "Lean port of Cerberus Core, canonical entries"
+    }
+  },
+  "derivation": {
+    "claim": "the translations were written by hand for this fixture",
+    "kind": "claimed"
+  },
+  "direction": "imported",
+  "edges": [
+    {
+      "function": "add3_double",
+      "id": "nav/add3_double",
+      "kind": "navigation",
+      "note": "a hand-written function correspondence: no semantics",
+      "origin": "author: function to function",
+      "source": [
+        "4d2e68e7e32570a3675e"
+      ],
+      "target": [
+        "7333c6f9619853055569"
+      ]
+    }
+  ],
+  "fragments": [
+    {
+      "artifact": "source",
+      "id": "4d2e68e7e32570a3675e",
+      "label": "lines 2-7",
+      "ranges": [
+        [
+          75,
+          104
+        ],
+        [
+          105,
+          106
+        ],
+        [
+          107,
+          123
+        ],
+        [
+          124,
+          140
+        ],
+        [
+          141,
+          152
+        ],
+        [
+          153,
+          154
+        ]
+      ],
+      "space": "bytes"
+    },
+    {
+      "artifact": "target",
+      "id": "7333c6f9619853055569",
+      "label": "add3_double: lines 17-23",
+      "ranges": [
+        [
+          348,
+          384
+        ],
+        [
+          385,
+          386
+        ],
+        [
+          387,
+          403
+        ],
+        [
+          404,
+          420
+        ],
+        [
+          421,
+          437
+        ],
+        [
+          438,
+          449
+        ],
+        [
+          450,
+          451
+        ]
+      ],
+      "space": "bytes"
+    }
+  ],
+  "id": "c2c/add3_double",
+  "lean": {
+    "family": "c-to-c",
+    "modules": [
+      "CompilesToExamples.Explorer.C2C.Runs"
+    ],
+    "vars": {
+      "source_fn": "CompilesToExamples.Straight.add3Fn",
+      "target_fn": "CompilesToExamples.Explorer.C2C.add3DoubleFn"
+    }
+  },
+  "obligations": [
+    {
+      "decl": null,
+      "id": "translation",
+      "kind": "c2c_refines",
+      "refutation": "CompilesToExamples.Explorer.C2C.double_refuted",
+      "statement": "Silmaril.Project.Shapes.CompilesTo.CanonicalRefines CompilesToExamples.Straight.add3Fn CompilesToExamples.Explorer.C2C.add3DoubleFn"
+    }
+  ],
+  "problem_form": "semantic",
+  "relation": {
+    "description": "CanonicalRefines: from the canonical entries, every outcome of the translation is an outcome of add3 where add3 is safe",
+    "semantics": "stated"
+  },
+  "schema": "silmaril.compiler-explorer.problem/1",
+  "stages": [
+    {
+      "evidence": "#guard (typed Ail, compiled evaluation); Core quoted from the probe",
+      "input": "source",
+      "name": "Lean C frontend and Cerberus elaborator",
+      "output": "core_probe",
+      "side": "source",
+      "trust": "evaluated"
+    },
+    {
+      "evidence": "#guard (typed Ail, compiled evaluation); Core quoted from the probe",
+      "input": "target",
+      "name": "Lean C frontend and Cerberus elaborator",
+      "output": "target_core_probe",
+      "side": "target",
+      "trust": "evaluated"
+    }
+  ],
+  "tests": [],
+  "title": "add3 => add3_double (C => C): bug: returns (a + b + c) + (a + b + c); refuted on add3(1, 2, 3)",
+  "view": {
+    "alternatives": {
+      "source": [
+        {
+          "label": "C source",
+          "role": "source"
+        },
+        {
+          "label": "typed Ail + Core (trusted stages)",
+          "role": "core_probe"
+        }
+      ],
+      "target": [
+        {
+          "label": "C translation",
+          "role": "target"
+        },
+        {
+          "label": "typed Ail + Core (trusted stages)",
+          "role": "target_core_probe"
+        }
+      ]
+    },
+    "source": "source",
+    "target": "target"
+  }
+}

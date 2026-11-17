@@ -1,5 +1,17 @@
 {
   "artifacts": {
+    "core_probe": {
+      "media": "text/x-lisp",
+      "path": "examples/compiles-to/straight/core-probe.txt",
+      "sha256": "cb7f40c8b1c57d1b6ce83d1ed752e127f489600e4c51414aef091bc3f2a7f3f5",
+      "size": 27400
+    },
+    "decoded": {
+      "media": "text/plain",
+      "path": "examples/compiler-explorer/compiles-to/straight/O0/decoded.txt",
+      "sha256": "e05a042dff420e8075e14a4ab48fa287b5daeb2abca5fd4f9c715e7b677a41be",
+      "size": 1521
+    },
     "listing": {
       "media": "text/x-objdump",
       "path": "examples/compiler-explorer/compiles-to/straight/O0/listing.txt",
@@ -11,6 +23,12 @@
       "path": "examples/compiler-explorer/compiles-to/straight/O0/RECEIPT.json",
       "sha256": "06f81ebf2d2a4544a174784315401a11e957a62de6a4cd03129421c87b4a4929",
       "size": 555
+    },
+    "macros": {
+      "media": "text/x-c",
+      "path": "examples/compiler-explorer/env/compiles-to-O0.macros.h",
+      "sha256": "6f0a7a9b00c01c21221ccfcfac4a101be87d9568b19515f889ca9e0e904e0854",
+      "size": 13177
     },
     "receipt": {
       "media": "application/json",
@@ -69,6 +87,263 @@
     "version": "gcc (GCC) 13.3.0"
   },
   "direction": "compiled",
+  "dwarf_facts": [
+    {
+      "fact": "line 3 <- .text [0x0, 0xd)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 4 <- .text [0xd, 0x18)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 5 <- .text [0x18, 0x23)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 6 <- .text [0x23, 0x26)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 7 <- .text [0x26, 0x28)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "point 0 at offset 0x0, line 3",
+      "if_wrong": "the segment statements are about these offsets: a wrong one makes them unprovable, not false",
+      "kind": "point",
+      "origin": "DWARF line table (c-tv): point placement",
+      "used_by": [
+        "edge/0",
+        "point/0",
+        "mapping",
+        "translation"
+      ]
+    },
+    {
+      "fact": "point 1 at offset 0xd, line 4",
+      "if_wrong": "the segment statements are about these offsets: a wrong one makes them unprovable, not false",
+      "kind": "point",
+      "origin": "DWARF line table (c-tv): point placement",
+      "used_by": [
+        "edge/1",
+        "point/1",
+        "mapping",
+        "translation"
+      ]
+    },
+    {
+      "fact": "point 1: a (line 2) at CFA-36, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/1",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 1: b (line 2) at CFA-40, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/1",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 1: c (line 2) at CFA-44, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/1",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 1: s (line 4) at CFA-20, 4 bytes",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/1",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 1: t (line 5) at CFA-24, 4 bytes",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/1",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 2 at offset 0x18, line 5",
+      "if_wrong": "the segment statements are about these offsets: a wrong one makes them unprovable, not false",
+      "kind": "point",
+      "origin": "DWARF line table (c-tv): point placement",
+      "used_by": [
+        "edge/2",
+        "point/2",
+        "mapping",
+        "translation"
+      ]
+    },
+    {
+      "fact": "point 2: a (line 2) at CFA-36, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/2",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 2: b (line 2) at CFA-40, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/2",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 2: c (line 2) at CFA-44, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/2",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 2: s (line 4) at CFA-20, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/2",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 2: t (line 5) at CFA-24, 4 bytes",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/2",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 3 at offset 0x23, line 6",
+      "if_wrong": "the segment statements are about these offsets: a wrong one makes them unprovable, not false",
+      "kind": "point",
+      "origin": "DWARF line table (c-tv): point placement",
+      "used_by": [
+        "edge/3",
+        "point/3",
+        "mapping",
+        "translation"
+      ]
+    },
+    {
+      "fact": "point 3: a (line 2) at CFA-36, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/3",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 3: b (line 2) at CFA-40, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/3",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 3: c (line 2) at CFA-44, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/3",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 3: s (line 4) at CFA-20, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/3",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 3: t (line 5) at CFA-24, 4 bytes, defined",
+      "if_wrong": "the location relation is about these offsets (refinement holds for any); a wrong slot makes the segment statements unprovable",
+      "kind": "frame_slot",
+      "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+      "used_by": [
+        "edge/3",
+        "refinement"
+      ]
+    },
+    {
+      "fact": "point 4 at offset 0x26, line 7",
+      "if_wrong": "the segment statements are about these offsets: a wrong one makes them unprovable, not false",
+      "kind": "point",
+      "origin": "DWARF line table (c-tv): point placement",
+      "used_by": [
+        "edge/4",
+        "point/4",
+        "mapping",
+        "translation"
+      ]
+    }
+  ],
   "edges": [
     {
       "function": "add3",
@@ -324,6 +599,46 @@
     }
   ],
   "id": "compiles-to/straight/O0/add3",
+  "include_env": {
+    "files": [
+      {
+        "name": "straight.c",
+        "sha256": "8b49538da88e3926f7c457e54fff82234e5ef0efb3c81372537b8f690f38b4b6",
+        "size": 155,
+        "where": "examples/compiles-to/straight/straight.c"
+      }
+    ],
+    "macros": "macros",
+    "note": "the files a preprocessor reads, by content; a formal preprocessor would be a stage from this environment to the preprocessed text (none is stated)",
+    "options": [
+      "gcc",
+      "-O0",
+      "-g",
+      "-c",
+      "-fdebug-prefix-map=/src=.",
+      "-std=c11",
+      "-ffreestanding",
+      "-fno-builtin",
+      "-fno-stack-protector",
+      "-fcf-protection=none",
+      "-mgeneral-regs-only",
+      "-fno-pic",
+      "-fno-pie",
+      "-fno-asynchronous-unwind-tables",
+      "-fno-unwind-tables",
+      "-fno-ident",
+      "straight.c",
+      "-o",
+      "O0/straight.o"
+    ],
+    "search": [
+      "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include",
+      "/usr/local/include",
+      "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include-fixed",
+      "/usr/include/x86_64-linux-gnu",
+      "/usr/include"
+    ]
+  },
   "lean": {
     "family": "c-function-x86",
     "modules": [
@@ -340,6 +655,7 @@
       "comorphism": "Silmaril.Project.CompilesTo.dwarf",
       "fn": "CompilesToExamples.Straight.O0.add3",
       "isa": "Silmaril.X86.Open.isa",
+      "listing": "CompilesToExamples.Straight.O0.add3Listing",
       "target_value": "silmaril.compiles_to.straight.o0.obj"
     }
   },
@@ -460,6 +776,12 @@
       "statement": "Silmaril.Project.Shapes.C.ElaboratesTo CompilesToExamples.Straight.ail \"add3\" CompilesToExamples.Straight.O0.add3.cfn"
     },
     {
+      "decl": "CompilesToExamples.Explorer.StraightO0.decoding",
+      "id": "decoding",
+      "kind": "decoding",
+      "statement": "Silmaril.Project.CompilesTo.decodesAs CompilesToExamples.Straight.O0.add3.code 0 CompilesToExamples.Straight.O0.add3Listing = true"
+    },
+    {
       "decl": "CompilesToExamples.Explorer.straight_O0_code",
       "id": "artifact",
       "kind": "artifact",
@@ -479,10 +801,71 @@
       "statement": "CompilesToExamples.Straight.O0.add3.cfn.meaning.Inhabited"
     }
   ],
+  "problem_form": "semantic",
+  "relation": {
+    "description": "the deterministic C/x86-64 compilation problem of FnData",
+    "semantics": "stated"
+  },
   "schema": "silmaril.compiler-explorer.problem/1",
+  "stages": [
+    {
+      "evidence": "#guard in CompilesToExamples.Straight.Defs (compiled evaluation)",
+      "input": "source",
+      "name": "Lean C frontend: C text -> typed Ail",
+      "output": "core_probe",
+      "side": "source",
+      "trust": "evaluated"
+    },
+    {
+      "evidence": "CompilesToExamples.Straight.elab_eq (kernel, cbv)",
+      "input": "core_probe",
+      "name": "Lean Cerberus elaborator: typed Ail -> Core",
+      "output": "core_probe",
+      "side": "source",
+      "trust": "verified"
+    },
+    {
+      "evidence": "receipt only",
+      "input": "target",
+      "name": "objdump -d (binutils 2.40)",
+      "output": "listing",
+      "side": "target",
+      "trust": "trusted"
+    },
+    {
+      "evidence": "obligation decoding (decodesAs, kernel)",
+      "input": "target",
+      "name": "Lean x86 decoder (Silmaril.X86.Ext.decode)",
+      "output": "decoded",
+      "side": "target",
+      "trust": "verified"
+    }
+  ],
   "tests": [],
   "title": "straight.c, gcc 13.3.0 -O0, add3 (object code)",
   "view": {
+    "alternatives": {
+      "source": [
+        {
+          "label": "C source",
+          "role": "source"
+        },
+        {
+          "label": "typed Ail + Core (trusted stages)",
+          "role": "core_probe"
+        }
+      ],
+      "target": [
+        {
+          "label": "objdump (untrusted tool)",
+          "role": "listing"
+        },
+        {
+          "label": "Lean decoder (kernel-checked)",
+          "role": "decoded"
+        }
+      ]
+    },
     "source": "source",
     "target": "listing",
     "target_map": [

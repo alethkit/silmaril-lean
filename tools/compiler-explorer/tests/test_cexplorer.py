@@ -129,7 +129,7 @@ class Ingest(Base):
         b = cx.ingest_manifest(self.db, STRAIGHT_O0)
         self.assertEqual(a, b)
         cx.migrate(self.db)
-        self.assertEqual([r[0] for r in self.db.execute("SELECT version FROM schema_migrations")], [1, 2, 3])
+        self.assertEqual([r[0] for r in self.db.execute("SELECT version FROM schema_migrations")], [1, 2, 3, 4])
 
     def test_migration_keeps_existing_data(self):
         path = str(self.tmp / "old.sqlite")
@@ -139,7 +139,7 @@ class Ingest(Base):
         old.close()
         db = cx.connect(path)  # migrates 2 and 3
         vid = cx.ingest_manifest(db, STRAIGHT_O0)
-        self.assertEqual([r[0] for r in db.execute("SELECT version FROM schema_migrations")], [1, 2, 3])
+        self.assertEqual([r[0] for r in db.execute("SELECT version FROM schema_migrations")], [1, 2, 3, 4])
         self.assertTrue(db.execute("SELECT row FROM obligations WHERE version_id = ? AND id = 'translation'",
                                    (vid,)).fetchone()[0])
         db.close()

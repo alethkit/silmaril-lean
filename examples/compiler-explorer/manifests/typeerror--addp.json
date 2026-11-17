@@ -1,0 +1,115 @@
+{
+  "artifacts": {
+    "source": {
+      "media": "text/x-c",
+      "path": "examples/compiler-explorer/typeerror/addp.c",
+      "sha256": "cddadf4657422048c03fb27d22ee780b7cdf338988f2d4c012309340058bbba1",
+      "size": 135
+    },
+    "target": {
+      "media": "text/plain",
+      "path": "examples/compiler-explorer/typeerror/frontend.txt",
+      "sha256": "a6397adb748fe3a81c8115d4c943001bdddca7cec7216a41f47e774d7762f11e",
+      "size": 74
+    }
+  },
+  "context": {
+    "abi": null,
+    "comorphism": null,
+    "mapping_relation": null,
+    "source_model": null,
+    "target_model": null
+  },
+  "derivation": null,
+  "direction": "none",
+  "edges": [
+    {
+      "function": "addp",
+      "id": "nav/addp/plus",
+      "kind": "navigation",
+      "note": "the operator the certificate is about; the frontend did not reach a verdict",
+      "origin": "author: the expression p + q",
+      "source": [
+        "b4e85e81be30feec7019"
+      ],
+      "target": [
+        "0d8081a8f77094e8c3b1"
+      ]
+    }
+  ],
+  "fragments": [
+    {
+      "artifact": "target",
+      "id": "0d8081a8f77094e8c3b1",
+      "label": "the frontend's message",
+      "ranges": [
+        [
+          0,
+          73
+        ]
+      ],
+      "space": "bytes"
+    },
+    {
+      "artifact": "source",
+      "id": "b4e85e81be30feec7019",
+      "label": "line 4",
+      "ranges": [
+        [
+          117,
+          132
+        ]
+      ],
+      "space": "bytes"
+    }
+  ],
+  "id": "typeerror/addp",
+  "lean": {
+    "family": "c-additive",
+    "modules": [
+      "CompilesToExamples.Explorer.TypeError"
+    ],
+    "vars": {
+      "t1": "Silmaril.Project.Shapes.C.intPtrCtype",
+      "t2": "Silmaril.Project.Shapes.C.intPtrCtype"
+    }
+  },
+  "obligations": [
+    {
+      "decl": null,
+      "id": "typing",
+      "kind": "typing",
+      "refutation": "CompilesToExamples.Explorer.TypeError.addp_operands",
+      "statement": "Silmaril.Project.Shapes.C.AdditiveOperands Silmaril.Project.Shapes.C.intPtrCtype Silmaril.Project.Shapes.C.intPtrCtype"
+    },
+    {
+      "decl": null,
+      "id": "operand_types",
+      "kind": "operand_types",
+      "statement": null,
+      "unsupported": "that int *, int * are the operand types of p + q in this text is not checked: the Lean frontend does not type binary operands yet; they are the declared types"
+    }
+  ],
+  "problem_form": "judgment",
+  "relation": {
+    "description": "AdditiveOperands, the C11 6.5.6p2 constraint on the operand types of +",
+    "semantics": "stated"
+  },
+  "schema": "silmaril.compiler-explorer.problem/1",
+  "stages": [
+    {
+      "evidence": "#guard in CompilesToExamples.Explorer.TypeError: it stops, binary operands are not ported",
+      "input": "source",
+      "name": "Lean C frontend (typing)",
+      "output": "target",
+      "side": "source",
+      "trust": "evaluated"
+    }
+  ],
+  "tests": [],
+  "title": "addp.c: int * + int * violates C11 6.5.6p2 (restricted judgment)",
+  "view": {
+    "source": "source",
+    "target": "target"
+  }
+}

@@ -49,9 +49,9 @@ UI = pathlib.Path(__file__).resolve().parent / "ui"
 
 PROBLEM_SCHEMA = "silmaril.compiler-explorer.problem/1"
 EVIDENCE_SCHEMA = "silmaril.compiler-explorer.evidence/1"
-DIRECTIONS = ("compiled", "decompiled", "imported")
+DIRECTIONS = ("compiled", "decompiled", "imported", "none")
 ALLOWED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
-EXPORT_STATUSES = {"kernel", "open", "missing", "not_theorem", "mismatch", "bad_axioms", "elab_error"}
+EXPORT_STATUSES = {"kernel", "refuted", "open", "missing", "not_theorem", "mismatch", "bad_axioms", "elab_error"}
 MAX_TEXT = 1 << 20  # the largest artifact the API returns as text
 
 # ------------------------------------------------------------------------------------------------
@@ -78,6 +78,7 @@ TEMPLATES = {
             f"Silmaril.Project.Shapes.SysV.Enterable {v['isa']} {v['fn']}.placement "
             f"{v['fn']}.sig {v['fn']}.frame"),
         "point": lambda v, k, line: f"Silmaril.Project.Shapes.CompilesTo.PointOf {v['fn']} {k} {line}",
+        "decoding": lambda v, k, line: f"Silmaril.Project.CompilesTo.decodesAs {v['fn']}.code 0 {v['listing']} = true",
         "elaboration": lambda v, k, line: (
             f"Silmaril.Project.Shapes.C.ElaboratesTo {v['ail']} \"{v['cname']}\" {v['fn']}.cfn"),
         "nonvacuity_canonical": lambda v, k, line: (
@@ -103,6 +104,15 @@ def decompiled_block(v: dict, source: str) -> str:
             f'{v["n"]} [{inputs}] {lean_str(source)}')
 
 
+TEMPLATES["c-to-c"] = {
+    "c2c_refines": lambda v, k, line: (
+        f"Silmaril.Project.Shapes.CompilesTo.CanonicalRefines {v['source_fn']} {v['target_fn']}"),
+    "c2c_equivalent": lambda v, k, line: (
+        f"Silmaril.Project.Shapes.CompilesTo.CanonicalEquivalent {v['source_fn']} {v['target_fn']}"),
+}
+TEMPLATES["c-additive"] = {
+    "typing": lambda v, k, line: f"Silmaril.Project.Shapes.C.AdditiveOperands {v['t1']} {v['t2']}",
+}
 TEMPLATES["decompiled-word-block"] = {
     # the decompiler's checked block, its printed C text (this problem's source artifact), and
     # WordC.checked_output_c0 for the block's rax
@@ -170,8 +180,10 @@ ROW_SHAPES = {
 BINDING = {"c-function-x86": "artifact"}
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_']*(\.[A-Za-z_][A-Za-z0-9_']*)*$")
 KINDS = ("translation", "mapping", "edge", "refinement", "abi", "point", "elaboration", "decompilation",
+         "decoding", "c2c_refines", "c2c_equivalent", "typing", "operand_types",
          "nonvacuity", "nonvacuity_canonical", "nonvacuity_universal", "artifact")
-FAMILY_VARS = {"c-function-x86": ("fn", "ail", "cname", "isa", "comorphism", "target_value"),
+FAMILY_VARS = {"c-function-x86": ("fn", "ail", "cname", "isa", "comorphism", "target_value", "listing"),
+               "c-to-c": ("source_fn", "target_fn"), "c-additive": ("t1", "t2"),
                "decompiled-word-block": ("name", "bytes", "n", "inputs")}
 
 
@@ -317,6 +329,12 @@ MIGRATIONS = [
     """
     ALTER TABLE obligations ADD COLUMN row TEXT;
     ALTER TABLE evidence ADD COLUMN row TEXT;
+    """,
+    # 4: refutations (a theorem of the statement's negation), and where evidence is written
+    """
+    ALTER TABLE obligations ADD COLUMN refutation TEXT;
+    ALTER TABLE evidence ADD COLUMN module TEXT;
+    ALTER TABLE evidence ADD COLUMN line INTEGER;
     """,
 ]
 
@@ -485,6 +503,7 @@ def check_manifest(root: pathlib.Path, m: dict, blobs: dict[str, bytes]) -> None
         bad = [k for k in FAMILY_VARS[family] if not IDENT.match(str(vars_[k]))]
         if bad:
             raise ValueError(f"the Lean names {bad} are not identifiers")
+    if family == "c-function-x86":
         ctx = m.get("context") or {}
         if vars_["isa"] != (ctx.get("target_model") or {}).get("decl"):
             raise ValueError("the statements' target model is not the context's")
@@ -545,7 +564,8 @@ def ingest_manifest(db: sqlite3.Connection, path: pathlib.Path, root: pathlib.Pa
                "lean": {"family": lean.get("family"), "vars": lean.get("vars", {}),
                         "modules": lean.get("modules", [])}}
     ctx_hash = sha256(canonical(context))
-    extra = {k: m[k] for k in ("navigation_stats", "tests") if k in m}
+    extra = {k: m[k] for k in ("navigation_stats", "tests", "problem_form", "relation", "stages",
+                                "include_env", "dwarf_facts") if k in m}
     with db:
         for data in blobs.values():
             store_artifact(db, data)
@@ -571,9 +591,9 @@ def ingest_manifest(db: sqlite3.Connection, path: pathlib.Path, root: pathlib.Pa
                     db.execute("INSERT INTO edge_ends VALUES (?,?,?,?)", (vid, e["id"], side, fid))
         for o in m["obligations"]:
             db.execute("INSERT INTO obligations (version_id, id, kind, statement, decl, edge_id, unsupported,"
-                       " row) VALUES (?,?,?,?,?,?,?,?)",
+                       " row, refutation) VALUES (?,?,?,?,?,?,?,?,?)",
                        (vid, o["id"], o["kind"], o.get("statement"), o.get("decl"), o.get("edge"),
-                        o.get("unsupported"), o.get("row")))
+                        o.get("unsupported"), o.get("row"), o.get("refutation")))
         for t in m.get("tests", []):
             rec_bytes = blobs[t["artifact"]]
             rec = json.loads(rec_bytes)
@@ -627,7 +647,8 @@ def ingest_evidence(db: sqlite3.Connection, path: pathlib.Path, origin: str = "f
         o = obls.get(r.get("id"))
         if o is None:
             raise reject(db, what, f"obligation {r.get('id')!r} is not in the manifest")
-        if o["statement"] is None or r.get("statement") != o["statement"] or r.get("decl") != o["decl"]:
+        if (o["statement"] is None or r.get("statement") != o["statement"] or r.get("decl") != o["decl"]
+                or r.get("refutation") != o["refutation"]):
             raise reject(db, what, f"obligation {o['id']}: statement or declaration differs from the manifest")
         status = r.get("status")
         if status not in EXPORT_STATUSES:
@@ -635,16 +656,20 @@ def ingest_evidence(db: sqlite3.Connection, path: pathlib.Path, origin: str = "f
         axioms = r.get("axioms") or []
         if status == "kernel" and (o["decl"] is None or not set(axioms) <= ALLOWED_AXIOMS):
             raise reject(db, what, f"obligation {o['id']}: a kernel status needs a declaration and the standard axioms")
-        if status == "open" and o["decl"] is not None:
+        if status == "refuted" and (o["refutation"] is None or not set(axioms) <= ALLOWED_AXIOMS):
+            raise reject(db, what, f"obligation {o['id']}: a refuted status needs a refutation and the standard axioms")
+        if status == "kernel" and o["refutation"] is not None and o["decl"] is None:
+            raise reject(db, what, f"obligation {o['id']}: a refutation cannot prove the statement")
+        if status == "open" and (o["decl"] is not None or o["refutation"] is not None):
             raise reject(db, what, f"obligation {o['id']}: open, yet the manifest names a declaration")
         rows.append((ver["id"], o["id"], "lean-export", status, ver["manifest_sha256"], ver["context_hash"],
-                     o["statement"], o["decl"], json.dumps(axioms), ev["lean_version"], ev["git_commit"],
-                     esha, r.get("detail"), origin))
+                     o["statement"], o["decl"] or o["refutation"], json.dumps(axioms), ev["lean_version"],
+                     ev["git_commit"], esha, r.get("detail"), origin, r.get("module"), r.get("line")))
     with db:
         db.execute("DELETE FROM evidence WHERE version_id = ? AND evidence_sha256 = ?", (ver["id"], esha))
         db.executemany("INSERT INTO evidence (version_id, obligation_id, kind, status, manifest_sha256,"
                        " context_hash, statement, decl, axioms, lean_version, git_commit, evidence_sha256,"
-                       " detail, origin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+                       " detail, origin, module, line) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     return len(rows)
 
 
@@ -658,6 +683,7 @@ STATUS_TEXT = {
     "unchecked": "a proof is claimed but no checked evidence is recorded",
     "rejected": "the claimed proof was checked and does not prove the statement",
     "stale": "proved for another version of this problem only",
+    "refuted": "disproved: a theorem of the statement's negation, checked when Lean built it",
     "unbound": "a theorem proves it, but the Lean function is not shown to be the target's code",
     "unsupported": "not stated: no model covers it",
 }
@@ -681,12 +707,15 @@ def raw_status(db, ver, o) -> dict:
                      (ver["id"], o["id"])).fetchall()
     evs = [e for e in evs if e["context_hash"] == ver["context_hash"]
            and e["manifest_sha256"] == ver["manifest_sha256"] and e["statement"] == o["statement"]
-           and ((e["kind"] == "lean-export" and e["decl"] == o["decl"])
+           and ((e["kind"] == "lean-export" and e["decl"] == (o["decl"] or o["refutation"]))
                 or (e["kind"] == "sil-project" and o["row"] is not None and e["row"] == o["row"]))]
     if evs:
         e = evs[0]
+        checked = e["origin"] in ("exporter-run", "sil-project")
         if e["status"] == "kernel":
-            status = "proved" if e["origin"] in ("exporter-run", "sil-project") else "claimed"
+            status = "proved" if checked else "claimed"
+        elif e["status"] == "refuted":
+            status = "refuted" if checked else "claimed"
         elif e["status"] == "open":
             status = "open"
         else:
@@ -695,7 +724,8 @@ def raw_status(db, ver, o) -> dict:
             "kind": e["kind"], "export_status": e["status"], "decl": e["decl"],
             "axioms": json.loads(e["axioms"] or "[]"), "lean_version": e["lean_version"],
             "git_commit": e["git_commit"], "evidence_sha256": e["evidence_sha256"],
-            "detail": e["detail"], "origin": e["origin"], "row": e["row"]}}
+            "detail": e["detail"], "origin": e["origin"], "row": e["row"],
+            "module": e["module"], "line": e["line"]}}
     older = db.execute(
         "SELECT pv.manifest_sha256 FROM evidence ev JOIN problem_versions pv ON pv.id = ev.version_id "
         "WHERE pv.problem_id = ? AND ev.obligation_id = ? AND ev.status = 'kernel' AND ev.origin != 'file' "
@@ -703,7 +733,7 @@ def raw_status(db, ver, o) -> dict:
         (ver["problem_id"], o["id"], ver["id"])).fetchone()
     if older is not None and o["decl"] is not None:
         return {"status": "stale", "older_manifest": older[0]}
-    return {"status": "open" if o["decl"] is None else "unchecked"}
+    return {"status": "open" if o["decl"] is None and o["refutation"] is None else "unchecked"}
 
 
 def artifact_text(db, sha: str) -> str | None:
@@ -730,6 +760,74 @@ def problem_list(db) -> list[dict]:
     return out
 
 
+# Where links go. `routes` lists the routes of the silmaril explorer (Pages) that exist on main:
+# a link is made only to one of them, and only for something the explorer holds (a `sil project`
+# row, a registered artifact, a declaration it locates). The C tab (`#/c-program/…`, open PR
+# #900) is not on main; the ELF tab (`#/elf-file/<slug>`) shows only its pinned executables,
+# listed in `ELF_TAB` by SHA-256 (none of this explorer's artifacts is one of them today).
+LINKS = {
+    "repo": "https://github.com/hiloopai/silmaril-lean",
+    "explorer": "https://hiloopai.github.io/silmaril-lean/",
+    "routes": {"problem": "#/problem/{}", "artifact": "#/artifact/{}", "source": "#/source/{}",
+               "elf": "#/elf-file/{}"},
+}
+ELF_TAB: dict[str, str] = {}
+# Lean source directories of the libraries whose modules hold evidence (lakefile.toml).
+SRC_DIRS = {"CompilesToExamples": "examples/compiles-to", "Silmaril": ""}
+HEX40 = re.compile(r"^[0-9a-f]{40}$")
+
+
+def lean_path(module: str) -> str | None:
+    root = module.split(".")[0]
+    if root not in SRC_DIRS or not IDENT.match(module):
+        return None
+    base = SRC_DIRS[root]
+    return (base + "/" if base else "") + module.replace(".", "/") + ".lean"
+
+
+def explorer_link(route: str, key: str) -> str | None:
+    pattern = LINKS["routes"].get(route)
+    if pattern is None:
+        return None
+    return LINKS["explorer"] + pattern.format(urllib.parse.quote(key, safe=""))
+
+
+def obligation_links(o: dict) -> list[dict]:
+    """Links for an obligation: its proof's Lean source at the commit the evidence was computed at
+    (only a clean 40-hex commit), the `sil project` row, and the explorer's source page of the
+    row's solving theorem."""
+    out = []
+    ev = o.get("evidence") or {}
+    path = lean_path(ev["module"]) if ev.get("module") else None
+    if path and ev.get("line") and HEX40.match(ev.get("git_commit") or ""):
+        out.append({"kind": "lean", "label": f"{ev['decl']} (Lean source)",
+                    "url": f"{LINKS['repo']}/blob/{ev['git_commit']}/{path}#L{ev['line']}"})
+    if o.get("row"):
+        out.append({"kind": "explorer", "label": f"row {o['row']} (silmaril explorer)",
+                    "url": explorer_link("problem", o["row"])})
+        if ev.get("origin") == "sil-project" and ev.get("decl"):
+            out.append({"kind": "explorer", "label": f"{ev['decl']} (explorer source view)",
+                        "url": explorer_link("source", ev["decl"])})
+    return [x for x in out if x["url"]]
+
+
+def artifact_links(arts: dict, lean: dict) -> dict:
+    """Per artifact role: the explorer's page of a registered artifact, the ELF tab for a pinned
+    executable, and the file in the repository at the manifest's path (on main)."""
+    out = {}
+    registry = lean.get("registry", {})
+    for role, a in arts.items():
+        links = [{"kind": "repo", "label": a["path"], "url": f"{LINKS['repo']}/blob/main/{a['path']}"}]
+        if role in registry:
+            links.append({"kind": "explorer", "label": f"artifact {registry[role]} (silmaril explorer)",
+                          "url": explorer_link("artifact", registry[role])})
+        if a["sha256"] in ELF_TAB:
+            links.append({"kind": "explorer", "label": f"ELF tab: {ELF_TAB[a['sha256']]}",
+                          "url": explorer_link("elf", ELF_TAB[a["sha256"]])})
+        out[role] = [x for x in links if x["url"]]
+    return out
+
+
 def problem_view(db, pid: str) -> dict | None:
     ver = db.execute("SELECT pv.* FROM problems p JOIN problem_versions pv ON pv.id = p.current_version "
                      "WHERE p.id = ?", (pid,)).fetchone()
@@ -740,6 +838,9 @@ def problem_view(db, pid: str) -> dict | None:
             for r in db.execute("SELECT * FROM version_artifacts WHERE version_id = ?", (ver["id"],))}
     view = json.loads(ver["view"])
     texts = {side: artifact_text(db, arts[view[side]]["sha256"]) for side in ("source", "target")}
+    alt_texts = {alt["role"]: artifact_text(db, arts[alt["role"]]["sha256"])
+                 for side in ("source", "target") for alt in view.get("alternatives", {}).get(side, [])
+                 if alt["role"] in arts}
     frags = {r["id"]: {"id": r["id"], "role": r["role"], "space": r["space"],
                        "ranges": json.loads(r["ranges"]), "label": r["label"]}
              for r in db.execute("SELECT * FROM fragments WHERE version_id = ?", (ver["id"],))}
@@ -754,9 +855,11 @@ def problem_view(db, pid: str) -> dict | None:
     obligations = []
     for o in db.execute("SELECT * FROM obligations WHERE version_id = ? ORDER BY rowid", (ver["id"],)):
         st = obligation_status(db, ver, o)
-        obligations.append({"id": o["id"], "kind": o["kind"], "statement": o["statement"],
-                            "decl": o["decl"], "edge": o["edge_id"], "row": o["row"], **st,
-                            "status_text": STATUS_TEXT[st["status"]]})
+        ob = {"id": o["id"], "kind": o["kind"], "statement": o["statement"], "decl": o["decl"],
+              "refutation": o["refutation"], "edge": o["edge_id"], "row": o["row"], **st,
+              "status_text": STATUS_TEXT[st["status"]]}
+        ob["links"] = obligation_links(ob)
+        obligations.append(ob)
     tests = [{"id": t["id"], "kind": t["kind"], "about_sha256": t["about_sha256"], "status": t["status"],
               "record": json.loads(t["record"])}
              for t in db.execute("SELECT * FROM tests WHERE version_id = ?", (ver["id"],))]
@@ -770,6 +873,7 @@ def problem_view(db, pid: str) -> dict | None:
         "manifest_sha256": ver["manifest_sha256"], "context_hash": ver["context_hash"],
         "derivation": json.loads(ver["derivation"]), "context": json.loads(ver["context"]),
         "lean": json.loads(ver["lean"]), "artifacts": arts, "view": view, "texts": texts,
+        "alt_texts": alt_texts, "artifact_links": artifact_links(arts, json.loads(ver["lean"])),
         "fragments": frags, "edges": edges, "obligations": obligations, "tests": tests,
         "versions": versions, "extra": json.loads(ver["extra"]),
         "questions": {
@@ -779,6 +883,9 @@ def problem_view(db, pid: str) -> dict | None:
             "abi": by_kind.get("abi"),
             "mapping": by_kind.get("mapping"),
             "refinement": by_kind.get("refinement"),
+            "c2c_refines": by_kind.get("c2c_refines"),
+            "c2c_equivalent": by_kind.get("c2c_equivalent"),
+            "typing": by_kind.get("typing"),
             "edges": {"proved": sum(o["status"] == "proved" for o in edge_obls), "listed": len(edge_obls),
                       "note": ("individually proved edges do not prove the mapping: coverage of the "
                                "points nobody listed is part of the mapping obligation only")},

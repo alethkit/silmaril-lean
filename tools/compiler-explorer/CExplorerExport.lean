@@ -17,6 +17,8 @@ names (`lean.modules`, from the build Lake made), and decides the status of each
   manifest's Lean term, elaborated here, compared up to reducible unfolding only), and its
   axioms are among `propext`, `Classical.choice` and `Quot.sound`. Theorems were checked by
   Lean's kernel when Lake built their modules; this tool reads them back from that build.
+* `refuted`: the obligation names a `refutation`, a theorem whose type is the negation of the
+  statement (`¬ (statement)`), with the standard axioms.
 * `open`: the obligation names no declaration.
 * `missing`, `not_theorem`, `mismatch`, `bad_axioms`, `elab_error`: the named declaration is
   absent, is not a theorem, proves another statement, depends on another axiom (`sorryAx`
@@ -37,13 +39,16 @@ def allowedAxioms : List Name := [``propext, ``Classical.choice, ``Quot.sound]
 structure Obligation where
   id : String
   decl : Option String
+  /-- A theorem claimed to prove the statement's negation. -/
+  refutation : Option String
   statement : String
 
 def parseObligation (j : Json) : Except String Obligation := do
   let id ← j.getObjValAs? String "id"
   let statement ← j.getObjValAs? String "statement"
   let decl := (j.getObjValAs? String "decl").toOption
-  return { id, decl, statement }
+  let refutation := (j.getObjValAs? String "refutation").toOption
+  return { id, decl, refutation, statement }
 
 /-- Elaborate the statement and decide the status of one obligation. -/
 def check (o : Obligation) : MetaM Json := do
@@ -51,16 +56,20 @@ def check (o : Obligation) : MetaM Json := do
   modifyThe Core.State fun st => { st with messages := {} }
   let base : List (String × Json) := [("id", Json.str o.id), ("statement", Json.str o.statement)]
   let st (s : String) : List (String × Json) := [("status", Json.str s)]
-  let some declStr := o.decl
-    | return Json.mkObj (base ++ st "open" ++ [("decl", Json.null)])
+  -- a proof (`decl`) of the statement, or a refutation: a proof of its negation
+  let (declStr, negated) ← match o.decl, o.refutation with
+    | some d, _ => pure (d, false)
+    | none, some r => pure (r, true)
+    | none, none => return Json.mkObj (base ++ st "open" ++ [("decl", Json.null)])
   let declName := declStr.toName
-  let withDecl := base ++ [("decl", Json.str declStr)]
+  let withDecl := base ++ [(if negated then "refutation" else "decl", Json.str declStr)]
   let env ← getEnv
   let some ci := env.find? declName
     | return Json.mkObj (withDecl ++ st "missing")
   let .thmInfo _ := ci
     | return Json.mkObj (withDecl ++ st "not_theorem")
-  let stx? := Parser.runParserCategory env `term o.statement
+  let stx? := Parser.runParserCategory env `term
+    (if negated then "¬ (" ++ o.statement ++ ")" else o.statement)
   let .ok stx := stx?
     | return Json.mkObj (withDecl ++ st "elab_error" ++
         [("detail", Json.str (match stx? with | .error e => e | .ok _ => ""))])
@@ -82,9 +91,14 @@ def check (o : Obligation) : MetaM Json := do
   let typeStr := toString (← ppExpr ci.type)
   let status :=
     if !same then "mismatch"
-    else if axioms.all (allowedAxioms.contains ·) then "kernel"
+    else if axioms.all (allowedAxioms.contains ·) then (if negated then "refuted" else "kernel")
     else "bad_axioms"
-  return Json.mkObj (withDecl ++ st status ++ [("axioms", axJson), ("type", Json.str typeStr)])
+  -- where the declaration is written, for links to its source
+  let modName := (env.getModuleIdxFor? declName).bind fun i => env.header.moduleNames[i.toNat]?
+  let line := ((← findDeclarationRanges? declName).map (·.range.pos.line)).getD 0
+  return Json.mkObj (withDecl ++ st status ++ [("axioms", axJson), ("type", Json.str typeStr),
+    ("module", match modName with | some m => Json.str m.toString | none => Json.null),
+    ("line", Json.num line)])
 
 unsafe def run (manifestPath outPath : String) : IO UInt32 := do
   let text ← IO.FS.readFile manifestPath
@@ -119,7 +133,7 @@ unsafe def run (manifestPath outPath : String) : IO UInt32 := do
   IO.FS.writeFile outPath (out.pretty ++ "\n")
   let bad := results.filter fun r =>
     match r.getObjValAs? String "status" with
-    | .ok s => s != "kernel" && s != "open"
+    | .ok s => s != "kernel" && s != "open" && s != "refuted"
     | .error _ => true
   IO.println s!"{problemId}: {results.size} obligations, {bad.size} not evidence"
   -- a named proof that is not evidence fails the run (and CI)

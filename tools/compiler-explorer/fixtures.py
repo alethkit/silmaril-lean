@@ -155,6 +155,50 @@ def listings() -> None:
 
 
 # ---------------------------------------------------------------------------------------------
+# The preprocessor's environment: predefined macros, search order and included files, as the
+# pinned compiler reports them (`gcc -dM -E`, `gcc -E -v`, `gcc -M`), content-addressed.
+
+ENV = EX / "env"
+CT_FLAGS = ("-g -c -fdebug-prefix-map=/src=. -std=c11 -ffreestanding -fno-builtin -fno-stack-protector "
+            "-fcf-protection=none -mgeneral-regs-only -fno-pic -fno-pie -fno-asynchronous-unwind-tables "
+            "-fno-unwind-tables -fno-ident")
+
+
+def preprocessor_env() -> None:
+    ENV.mkdir(parents=True, exist_ok=True)
+    jobs = [(f"compiles-to-{opt}", f"-{opt} {CT_FLAGS}", None) for opt in OPTS]
+    jobs += [(f"programs-{opt}", f"-{opt} " + " ".join(S_FLAGS[:1] + S_FLAGS[2:]), None) for opt in OPTS]
+    jobs += [(f"{prog}-O2", "-O2 " + " ".join(S_FLAGS[:1] + S_FLAGS[2:]), prog) for prog in PROGRAM_LIBS]
+    for tag, flags, prog in jobs:
+        with tempfile.TemporaryDirectory() as tmp:
+            if prog is None:
+                script = (f"gcc {flags} -dM -E -x c /dev/null | LC_ALL=C sort > /out/macros.h; "
+                          f"gcc {flags} -E -v -x c /dev/null 2> /out/search.txt > /dev/null")
+            else:
+                script = (f"gcc {flags} -M {prog}.c | tr -d '\\\\' | tr ' ' '\\n' | grep '\\.h$' "
+                          f"| LC_ALL=C sort -u > /out/headers.txt; "
+                          f"for h in $(cat /out/headers.txt); do sha256sum $h; stat -c %s $h; done > /out/hashes.txt")
+            docker([(PROGRAMS, "/src", True), (pathlib.Path(tmp), "/out", False)], script)
+            t = pathlib.Path(tmp)
+            if prog is None:
+                (ENV / f"{tag}.macros.h").write_bytes((t / "macros.h").read_bytes())
+                lines = (t / "search.txt").read_text().splitlines()
+                i = lines.index("#include <...> search starts here:")
+                j = lines.index("End of search list.")
+                dump(ENV / f"{tag}.search.json", {"image": IMAGE, "flags": flags,
+                                                   "angle_search": [x.strip() for x in lines[i + 1:j]]})
+            else:
+                rows = (t / "hashes.txt").read_text().split()
+                files = [{"path": rows[k + 1], "sha256": rows[k], "size": int(rows[k + 2])}
+                         for k in range(0, len(rows), 3)]
+                dump(ENV / f"{tag}.includes.json", {
+                    "image": IMAGE, "flags": flags, "source": f"{prog}.c",
+                    "note": "headers the pinned compiler reads (gcc -M), by SHA-256; the bytes are in the image",
+                    "files": files})
+        print(f"env {tag}")
+
+
+# ---------------------------------------------------------------------------------------------
 # Fragments: content-addressed sets of ranges
 
 
@@ -290,8 +334,17 @@ def program_manifests() -> list[dict]:
                 "direction": "compiled",
                 "artifacts": {"source": src_ref, "target": asm_ref,
                               "receipt": file_ref(d / "RECEIPT.json", "application/json"),
-                              "run": file_ref(d / "run.json", "application/json")},
+                              "run": file_ref(d / "run.json", "application/json"),
+                              "macros": file_ref(ENV / f"programs-{opt}.macros.h", "text/x-c")},
                 "view": {"source": "source", "target": "target"},
+                "problem_form": "relation",
+                "relation": {"semantics": "none",
+                             "description": "gcc 13.3.0 compiled this C to this assembly (receipt); the run test "
+                                            "checks one execution; no Lean statement relates them"},
+                "stages": [{"side": "target", "name": "gcc -S (cc1, pinned image)", "trust": "trusted",
+                            "input": "source", "output": "target", "evidence": "receipt only"}],
+                "include_env": include_env(src, ENV / f"programs-{opt}.macros.h", ENV / f"programs-{opt}.search.json",
+                                           receipt["command"], ENV / f"{prog}-O2.includes.json"),
                 "derivation": {"kind": "compiler", "compiler": "gcc", "version": receipt["gcc"],
                                "image": IMAGE, "command": receipt["command"], "opt": opt,
                                "target": "x86_64-linux-gnu", "receipt": "receipt"},
@@ -340,6 +393,46 @@ def listing_rows(text: bytes) -> list[tuple[int, int, int, int]]:
     return rows
 
 
+def include_env(main: pathlib.Path, macros: pathlib.Path, search: pathlib.Path, options: str,
+                includes: pathlib.Path | None = None) -> dict:
+    """The preprocessor's environment of one compilation: the main file and the headers it reads
+    (by SHA-256), the search order, the predefined macros (an artifact) and the options."""
+    files = [{"name": main.name, "sha256": sha256(main.read_bytes()), "size": main.stat().st_size,
+              "where": main.relative_to(ROOT).as_posix()}]
+    if includes is not None:
+        for f in json.loads(includes.read_text())["files"]:
+            files.append({"name": f["path"], "sha256": f["sha256"], "size": f["size"],
+                          "where": "the pinned image " + IMAGE})
+    return {"files": files, "search": json.loads(search.read_text())["angle_search"],
+            "macros": "macros", "options": options.split(),
+            "note": ("the files a preprocessor reads, by content; a formal preprocessor would be a stage "
+                     "from this environment to the preprocessed text (none is stated)")}
+
+
+def dwarf_facts(fn: dict, base: int, have_lean: bool) -> list[dict]:
+    """What c-tv read from the object's DWARF (line table, frame slots), and what depends on it."""
+    out = []
+    for r in fn["ranges"]:
+        out.append({"kind": "line_range", "origin": "DWARF line table (c-tv, gimli: unverified)",
+                    "fact": f"line {r['line']} <- .text [{base + r['start']:#x}, {base + r['end']:#x})",
+                    "used_by": ["navigation links"],
+                    "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it"})
+    for p in fn["points"] if have_lean else []:
+        out.append({"kind": "point", "origin": "DWARF line table (c-tv): point placement",
+                    "fact": f"point {p['index']} at offset {p['off']:#x}, line {p['line']}",
+                    "used_by": [f"edge/{p['index']}", f"point/{p['index']}", "mapping", "translation"],
+                    "if_wrong": "the segment statements are about these offsets: a wrong one makes them unprovable, not false"})
+        if isinstance(p["kind"], dict):
+            for sl in p["kind"]["Slots"]:
+                out.append({"kind": "frame_slot", "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
+                            "fact": f"point {p['index']}: {sl['name']} (line {sl['decl_line']}) at CFA{sl['off']:+d}, "
+                                    f"{sl['size']} bytes{', defined' if sl['defined'] else ''}",
+                            "used_by": [f"edge/{p['index']}", "refinement"],
+                            "if_wrong": ("the location relation is about these offsets (refinement holds for any); "
+                                         "a wrong slot makes the segment statements unprovable")})
+    return out
+
+
 def compiles_to_manifests() -> list[dict]:
     cx = cexplorer()
     out = []
@@ -381,7 +474,8 @@ def compiles_to_manifests() -> list[dict]:
                 lean_vars = {"fn": F, "ail": f"CompilesToExamples.{cname}.ail", "cname": fname,
                              "isa": "Silmaril.X86.Open.isa",
                              "comorphism": "Silmaril.Project.CompilesTo.dwarf",
-                             "target_value": f"silmaril.compiles_to.{name}.{opt.lower()}.obj"}
+                             "target_value": f"silmaril.compiles_to.{name}.{opt.lower()}.obj",
+                             "listing": f"CompilesToExamples.{cname}.{opt}.{fname}Listing"}
                 X = f"CompilesToExamples.Explorer.{ns}"
 
                 row_kind = {"translation": "translation", "nonvacuity": "nonvacuous", "mapping": "mapping",
@@ -423,6 +517,7 @@ def compiles_to_manifests() -> list[dict]:
                         ob("abi", "abi", f"{X}.abi"),
                         ob("nonvacuity", "nonvacuity", f"{X}.inhabited"),
                         ob("elaboration", "elaboration", f"{X}.elaboration"),
+                        ob("decoding", "decoding", f"{X}.decoding"),
                         ob("artifact", "artifact", f"CompilesToExamples.Explorer.{name}_{opt}_code"),
                         ob("nonvacuity/canonical", "nonvacuity_canonical", f"{X}.canonical" if proved else None),
                         ob("nonvacuity/universal", "nonvacuity_universal", None),
@@ -460,11 +555,40 @@ def compiles_to_manifests() -> list[dict]:
                     "id": f"compiles-to/{name}/{opt}/{fname}",
                     "title": f"{name}.c, gcc 13.3.0 -{opt}, {fname} (object code)",
                     "direction": "compiled",
-                    "artifacts": {"source": src_ref, "target": obj_ref, "listing": lst_ref,
+                    "artifacts": {**{"source": src_ref, "target": obj_ref, "listing": lst_ref,
                                   "receipt": file_ref(receipt_path, "application/json"),
                                   "listing_receipt": file_ref(LISTINGS / name / opt / "RECEIPT.json",
-                                                              "application/json")},
-                    "view": {"source": "source", "target": "listing", "target_map": listing_map},
+                                                              "application/json"),
+                                  "core_probe": file_ref(COMPILES_TO / name / "core-probe.txt", "text/x-lisp"),
+                                  "macros": file_ref(ENV / f"compiles-to-{opt}.macros.h", "text/x-c")},
+                                  **({"decoded": file_ref(LISTINGS / name / opt / "decoded.txt", "text/plain")}
+                                     if pts else {})},
+                    "view": {"source": "source", "target": "listing", "target_map": listing_map,
+                             "alternatives": {
+                                 "source": [{"role": "source", "label": "C source"},
+                                            {"role": "core_probe", "label": "typed Ail + Core (trusted stages)"}],
+                                 "target": [{"role": "listing", "label": "objdump (untrusted tool)"}]
+                                 + ([{"role": "decoded", "label": "Lean decoder (kernel-checked)"}] if pts else [])}},
+                    "problem_form": "semantic" if pts else "relation",
+                    "relation": ({"semantics": "stated", "description": "the deterministic C/x86-64 compilation problem of FnData"}
+                                 if pts else {"semantics": "none",
+                                              "description": "gcc 13.3.0 compiled this C to this object (receipt); "
+                                                             "no Lean statement relates them"}),
+                    "stages": [
+                        {"side": "source", "name": "Lean C frontend: C text -> typed Ail", "trust": "evaluated",
+                         "input": "source", "output": "core_probe",
+                         "evidence": f"#guard in CompilesToExamples.{cname}.Defs (compiled evaluation)"},
+                        {"side": "source", "name": "Lean Cerberus elaborator: typed Ail -> Core", "trust": "verified",
+                         "input": "core_probe", "output": "core_probe",
+                         "evidence": f"CompilesToExamples.{cname}.elab_eq (kernel, cbv)" if pts else "not checked here"},
+                        {"side": "target", "name": "objdump -d (binutils 2.40)", "trust": "trusted",
+                         "input": "target", "output": "listing", "evidence": "receipt only"},
+                    ] + ([{"side": "target", "name": "Lean x86 decoder (Silmaril.X86.Ext.decode)", "trust": "verified",
+                           "input": "target", "output": "decoded", "evidence": "obligation decoding (decodesAs, kernel)"}]
+                         if pts else []),
+                    "include_env": include_env(src, ENV / f"compiles-to-{opt}.macros.h",
+                                               ENV / f"compiles-to-{opt}.search.json", receipt["command"]),
+                    "dwarf_facts": dwarf_facts(fn, base, bool(pts)),
                     "derivation": {"kind": "compiler", "compiler": "gcc", "version": receipt["gcc"],
                                    "image": receipt["image"], "command": receipt["command"], "opt": opt,
                                    "target": "x86_64-linux-gnu", "receipt": "receipt"},
@@ -673,17 +797,139 @@ def rows(check: bool = False) -> None:
     print(f"wrote {len(children)} rows")
 
 
+# ---------------------------------------------------------------------------------------------
+# C => C translations of add3, and a type-error certificate
+
+C2C = EX / "c2c"
+C2C_FUNCTIONS = {
+    # function: (Lean name, refuted?, what it is)
+    "add3_reassoc": ("add3ReassocFn", False, "a correct reassociation; equivalence not proved (open)"),
+    "add3_op": ("add3OpFn", False, "s - c instead of s + c; not decided: its Core run is not evaluated here"),
+    "add3_double": ("add3DoubleFn", True, "bug: returns (a + b + c) + (a + b + c); refuted on add3(1, 2, 3)"),
+    "add3_operand": ("add3OperandFn", True, "bug: s + a instead of s + c; refuted on add3(1, 2, 3)"),
+    "add3_drop": ("add3DropFn", True, "bug: returns a + b, dropping c; refuted on add3(1, 2, 3)"),
+}
+
+
+def function_lines(text: str, name: str) -> list[int]:
+    lines = text.split("\n")
+    start = next(i for i, l in enumerate(lines) if f" {name}(" in l)
+    end = next(i for i in range(start, len(lines)) if lines[i].startswith("}"))
+    return list(range(start + 1, end + 2))
+
+
+def c2c_manifests() -> list[dict]:
+    cx = cexplorer()
+    src = COMPILES_TO / "straight" / "straight.c"
+    tgt = C2C / "translations.c"
+    src_ref, tgt_ref = file_ref(src, "text/x-c"), file_ref(tgt, "text/x-c")
+    out = []
+    for fn, (lean_fn, refuted, what) in C2C_FUNCTIONS.items():
+        b = Builder(src.read_bytes(), src_ref["sha256"], tgt_ref["sha256"], "bytes")
+        s_frag = b.src_lines(function_lines(src.read_text(), "add3"))
+        tl = line_ranges(tgt.read_bytes())
+        t_lines = function_lines(tgt.read_text(), fn)
+        t_frag = b.tgt([list(tl[n - 1]) for n in t_lines], f"{fn}: lines {t_lines[0]}-{t_lines[-1]}")
+        b.edges.append({"id": f"nav/{fn}", "kind": "navigation", "origin": "author: function to function",
+                        "function": fn, "source": [s_frag], "target": [t_frag],
+                        "note": "a hand-written function correspondence: no semantics"})
+        vars_ = {"source_fn": "CompilesToExamples.Straight.add3Fn",
+                 "target_fn": f"CompilesToExamples.Explorer.C2C.{lean_fn}"}
+        refines = {"id": "translation", "kind": "c2c_refines", "decl": None,
+                   "statement": cx.statement_for("c-to-c", vars_, "c2c_refines", None, None)}
+        if refuted:
+            refines["refutation"] = f"CompilesToExamples.Explorer.C2C.{fn.split('_', 1)[1]}_refuted"
+        obligations = [refines]
+        if fn == "add3_reassoc":
+            obligations.append({"id": "equivalence", "kind": "c2c_equivalent", "decl": None,
+                                "statement": cx.statement_for("c-to-c", vars_, "c2c_equivalent", None, None)})
+        out.append({
+            "schema": SCHEMA, "id": f"c2c/{fn}", "direction": "imported",
+            "title": f"add3 => {fn} (C => C): {what}",
+            "artifacts": {"source": src_ref, "target": tgt_ref,
+                          "core_probe": file_ref(COMPILES_TO / "straight" / "core-probe.txt", "text/x-lisp"),
+                          "target_core_probe": file_ref(C2C / "core-probe.txt", "text/x-lisp")},
+            "view": {"source": "source", "target": "target", "alternatives": {
+                "source": [{"role": "source", "label": "C source"},
+                           {"role": "core_probe", "label": "typed Ail + Core (trusted stages)"}],
+                "target": [{"role": "target", "label": "C translation"},
+                           {"role": "target_core_probe", "label": "typed Ail + Core (trusted stages)"}]}},
+            "derivation": {"kind": "claimed", "claim": "the translations were written by hand for this fixture"},
+            "problem_form": "semantic",
+            "relation": {"semantics": "stated",
+                         "description": "CanonicalRefines: from the canonical entries, every outcome of the "
+                                        "translation is an outcome of add3 where add3 is safe"},
+            "stages": [{"side": side, "name": "Lean C frontend and Cerberus elaborator", "trust": "evaluated",
+                        "input": inp, "output": outp,
+                        "evidence": "#guard (typed Ail, compiled evaluation); Core quoted from the probe"}
+                       for side, inp, outp in (("source", "source", "core_probe"),
+                                               ("target", "target", "target_core_probe"))],
+            "context": {"source_model": {"family": "cerberus-core", "decl": "Silmaril.Project.Shapes.C.CFn.source",
+                                         "version": "Lean port of Cerberus Core, canonical entries"},
+                        "target_model": {"family": "cerberus-core", "decl": "Silmaril.Project.Shapes.C.CFn.source",
+                                         "version": "Lean port of Cerberus Core, canonical entries"},
+                        "abi": None, "mapping_relation": None, "comorphism": None},
+            "fragments": sorted(b.fragments.values(), key=lambda f: f["id"]),
+            "edges": b.edges, "obligations": obligations, "tests": [],
+            "lean": {"family": "c-to-c", "vars": vars_, "modules": ["CompilesToExamples.Explorer.C2C.Runs"]},
+        })
+    return out
+
+
+def typeerror_manifests() -> list[dict]:
+    cx = cexplorer()
+    d = EX / "typeerror"
+    src, fe = d / "addp.c", d / "frontend.txt"
+    src_ref, fe_ref = file_ref(src, "text/x-c"), file_ref(fe, "text/plain")
+    vars_ = {"t1": "Silmaril.Project.Shapes.C.intPtrCtype", "t2": "Silmaril.Project.Shapes.C.intPtrCtype"}
+    b = Builder(src.read_bytes(), src_ref["sha256"], fe_ref["sha256"], "bytes")
+    line = next(i + 1 for i, l in enumerate(src.read_text().split("\n")) if "p + q" in l)
+    s_frag = b.src_lines([line])
+    t_frag = b.tgt([[0, len(fe.read_bytes().rstrip(b"\n"))]], "the frontend's message")
+    b.edges.append({"id": "nav/addp/plus", "kind": "navigation", "origin": "author: the expression p + q",
+                    "function": "addp", "source": [s_frag], "target": [t_frag],
+                    "note": "the operator the certificate is about; the frontend did not reach a verdict"})
+    return [{
+        "schema": SCHEMA, "id": "typeerror/addp", "direction": "none",
+        "title": "addp.c: int * + int * violates C11 6.5.6p2 (restricted judgment)",
+        "artifacts": {"source": src_ref, "target": fe_ref},
+        "view": {"source": "source", "target": "target"},
+        "derivation": None,
+        "problem_form": "judgment",
+        "relation": {"semantics": "stated",
+                     "description": "AdditiveOperands, the C11 6.5.6p2 constraint on the operand types of +"},
+        "stages": [{"side": "source", "name": "Lean C frontend (typing)", "trust": "evaluated", "input": "source",
+                    "output": "target", "evidence": "#guard in CompilesToExamples.Explorer.TypeError: it stops, "
+                                                    "binary operands are not ported"}],
+        "context": {"source_model": None, "target_model": None, "abi": None, "mapping_relation": None,
+                    "comorphism": None},
+        "fragments": sorted(b.fragments.values(), key=lambda f: f["id"]),
+        "edges": b.edges,
+        "obligations": [
+            {"id": "typing", "kind": "typing", "decl": None,
+             "refutation": "CompilesToExamples.Explorer.TypeError.addp_operands",
+             "statement": cx.statement_for("c-additive", vars_, "typing", None, None)},
+            {"id": "operand_types", "kind": "operand_types", "decl": None, "statement": None,
+             "unsupported": ("that int *, int * are the operand types of p + q in this text is not checked: the "
+                             "Lean frontend does not type binary operands yet; they are the declared types")}],
+        "tests": [],
+        "lean": {"family": "c-additive", "vars": vars_, "modules": ["CompilesToExamples.Explorer.TypeError"]},
+    }]
+
+
 def manifests(out: pathlib.Path = MANIFESTS) -> None:
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.json"):
         old.unlink()
-    for m in compiles_to_manifests() + program_manifests() + decompiled_manifests() + imported_manifests():
+    for m in (compiles_to_manifests() + program_manifests() + decompiled_manifests() + imported_manifests()
+              + c2c_manifests() + typeerror_manifests()):
         dump(out / (m["id"].replace("/", "--") + ".json"), m)
         print(f"wrote {m['id']}: {len(m['edges'])} edges, {len(m['obligations'])} obligations")
 
 
 def main(argv: list[str]) -> int:
     cmds = {"build": build, "listings": listings, "decompile": decompile, "manifests": manifests,
+            "env": preprocessor_env,
             "rows": rows}
     if argv[1:] == ["rows", "--check"]:
         rows(check=True)

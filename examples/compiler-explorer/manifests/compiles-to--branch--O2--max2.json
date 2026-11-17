@@ -1,5 +1,17 @@
 {
   "artifacts": {
+    "core_probe": {
+      "media": "text/x-lisp",
+      "path": "examples/compiles-to/branch/core-probe.txt",
+      "sha256": "e368617a076712e5fded58562aaede22dbb99929733ecb4f27eb60d3cbbbff08",
+      "size": 22019
+    },
+    "decoded": {
+      "media": "text/plain",
+      "path": "examples/compiler-explorer/compiles-to/branch/O2/decoded.txt",
+      "sha256": "da5030d1ce34b5ee56d5d9092c0815796f062af52ed3996c8703360b9a30793f",
+      "size": 385
+    },
     "listing": {
       "media": "text/x-objdump",
       "path": "examples/compiler-explorer/compiles-to/branch/O2/listing.txt",
@@ -11,6 +23,12 @@
       "path": "examples/compiler-explorer/compiles-to/branch/O2/RECEIPT.json",
       "sha256": "29f56b795b0f8dae3ab340a58702c464955165ee982ed85efe6bd9fd62f6e1cf",
       "size": 549
+    },
+    "macros": {
+      "media": "text/x-c",
+      "path": "examples/compiler-explorer/env/compiles-to-O2.macros.h",
+      "sha256": "39d65b7818761ff20b38679f0cbd1ee83d74e205f84623752930ba79f8f7ac8a",
+      "size": 13176
     },
     "receipt": {
       "media": "application/json",
@@ -69,6 +87,38 @@
     "version": "gcc (GCC) 13.3.0"
   },
   "direction": "compiled",
+  "dwarf_facts": [
+    {
+      "fact": "line 4 <- .text [0x0, 0x7)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 8 <- .text [0x7, 0x8)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "point 0 at offset 0x0, line 2",
+      "if_wrong": "the segment statements are about these offsets: a wrong one makes them unprovable, not false",
+      "kind": "point",
+      "origin": "DWARF line table (c-tv): point placement",
+      "used_by": [
+        "edge/0",
+        "point/0",
+        "mapping",
+        "translation"
+      ]
+    }
+  ],
   "edges": [
     {
       "function": "max2",
@@ -210,6 +260,46 @@
     }
   ],
   "id": "compiles-to/branch/O2/max2",
+  "include_env": {
+    "files": [
+      {
+        "name": "branch.c",
+        "sha256": "6f463ede96e59be1e54fe54abc0b74d9609b7742772b5f7f14f995027fa7bcf6",
+        "size": 103,
+        "where": "examples/compiles-to/branch/branch.c"
+      }
+    ],
+    "macros": "macros",
+    "note": "the files a preprocessor reads, by content; a formal preprocessor would be a stage from this environment to the preprocessed text (none is stated)",
+    "options": [
+      "gcc",
+      "-O2",
+      "-g",
+      "-c",
+      "-fdebug-prefix-map=/src=.",
+      "-std=c11",
+      "-ffreestanding",
+      "-fno-builtin",
+      "-fno-stack-protector",
+      "-fcf-protection=none",
+      "-mgeneral-regs-only",
+      "-fno-pic",
+      "-fno-pie",
+      "-fno-asynchronous-unwind-tables",
+      "-fno-unwind-tables",
+      "-fno-ident",
+      "branch.c",
+      "-o",
+      "O2/branch.o"
+    ],
+    "search": [
+      "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include",
+      "/usr/local/include",
+      "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include-fixed",
+      "/usr/include/x86_64-linux-gnu",
+      "/usr/include"
+    ]
+  },
   "lean": {
     "family": "c-function-x86",
     "modules": [
@@ -226,6 +316,7 @@
       "comorphism": "Silmaril.Project.CompilesTo.dwarf",
       "fn": "CompilesToExamples.Branch.O2.max2",
       "isa": "Silmaril.X86.Open.isa",
+      "listing": "CompilesToExamples.Branch.O2.max2Listing",
       "target_value": "silmaril.compiles_to.branch.o2.obj"
     }
   },
@@ -286,6 +377,12 @@
       "statement": "Silmaril.Project.Shapes.C.ElaboratesTo CompilesToExamples.Branch.ail \"max2\" CompilesToExamples.Branch.O2.max2.cfn"
     },
     {
+      "decl": "CompilesToExamples.Explorer.BranchO2.decoding",
+      "id": "decoding",
+      "kind": "decoding",
+      "statement": "Silmaril.Project.CompilesTo.decodesAs CompilesToExamples.Branch.O2.max2.code 0 CompilesToExamples.Branch.O2.max2Listing = true"
+    },
+    {
       "decl": "CompilesToExamples.Explorer.branch_O2_code",
       "id": "artifact",
       "kind": "artifact",
@@ -305,10 +402,71 @@
       "statement": "CompilesToExamples.Branch.O2.max2.cfn.meaning.Inhabited"
     }
   ],
+  "problem_form": "semantic",
+  "relation": {
+    "description": "the deterministic C/x86-64 compilation problem of FnData",
+    "semantics": "stated"
+  },
   "schema": "silmaril.compiler-explorer.problem/1",
+  "stages": [
+    {
+      "evidence": "#guard in CompilesToExamples.Branch.Defs (compiled evaluation)",
+      "input": "source",
+      "name": "Lean C frontend: C text -> typed Ail",
+      "output": "core_probe",
+      "side": "source",
+      "trust": "evaluated"
+    },
+    {
+      "evidence": "CompilesToExamples.Branch.elab_eq (kernel, cbv)",
+      "input": "core_probe",
+      "name": "Lean Cerberus elaborator: typed Ail -> Core",
+      "output": "core_probe",
+      "side": "source",
+      "trust": "verified"
+    },
+    {
+      "evidence": "receipt only",
+      "input": "target",
+      "name": "objdump -d (binutils 2.40)",
+      "output": "listing",
+      "side": "target",
+      "trust": "trusted"
+    },
+    {
+      "evidence": "obligation decoding (decodesAs, kernel)",
+      "input": "target",
+      "name": "Lean x86 decoder (Silmaril.X86.Ext.decode)",
+      "output": "decoded",
+      "side": "target",
+      "trust": "verified"
+    }
+  ],
   "tests": [],
   "title": "branch.c, gcc 13.3.0 -O2, max2 (object code)",
   "view": {
+    "alternatives": {
+      "source": [
+        {
+          "label": "C source",
+          "role": "source"
+        },
+        {
+          "label": "typed Ail + Core (trusted stages)",
+          "role": "core_probe"
+        }
+      ],
+      "target": [
+        {
+          "label": "objdump (untrusted tool)",
+          "role": "listing"
+        },
+        {
+          "label": "Lean decoder (kernel-checked)",
+          "role": "decoded"
+        }
+      ]
+    },
     "source": "source",
     "target": "listing",
     "target_map": [

@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Project.Shapes.C.Additive.Thms
 public import Silmaril.Project.Shapes.C.Defs
+public meta import Silmaril.Project.Shapes.C.Defs
 
 /-!
 # A type-error certificate under a restricted judgment

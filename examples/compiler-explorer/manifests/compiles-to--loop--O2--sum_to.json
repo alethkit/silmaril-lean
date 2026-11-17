@@ -1,5 +1,11 @@
 {
   "artifacts": {
+    "core_probe": {
+      "media": "text/x-lisp",
+      "path": "examples/compiles-to/loop/core-probe.txt",
+      "sha256": "ccc94b65e5a4039b801b0002842bb6d5f5eeddc9bf811aac5880a7db55cc725e",
+      "size": 8817
+    },
     "listing": {
       "media": "text/x-objdump",
       "path": "examples/compiler-explorer/compiles-to/loop/O2/listing.txt",
@@ -11,6 +17,12 @@
       "path": "examples/compiler-explorer/compiles-to/loop/O2/RECEIPT.json",
       "sha256": "ad34e25fb188977d92f1e599dcaab1ff5cf9d52709757e29a9d3552ffd501ad8",
       "size": 544
+    },
+    "macros": {
+      "media": "text/x-c",
+      "path": "examples/compiler-explorer/env/compiles-to-O2.macros.h",
+      "sha256": "39d65b7818761ff20b38679f0cbd1ee83d74e205f84623752930ba79f8f7ac8a",
+      "size": 13176
     },
     "receipt": {
       "media": "application/json",
@@ -49,6 +61,125 @@
     "version": "gcc (GCC) 13.3.0"
   },
   "direction": "compiled",
+  "dwarf_facts": [
+    {
+      "fact": "line 6 <- .text [0x0, 0x4)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 5 <- .text [0x4, 0x6)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 4 <- .text [0x6, 0xe)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 7 <- .text [0xe, 0x13)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 8 <- .text [0x13, 0x18)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 6 <- .text [0x18, 0x20)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 8 <- .text [0x20, 0x24)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 7 <- .text [0x24, 0x27)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 8 <- .text [0x27, 0x29)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 6 <- .text [0x29, 0x2d)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 11 <- .text [0x2d, 0x30)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 4 <- .text [0x30, 0x32)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    },
+    {
+      "fact": "line 11 <- .text [0x32, 0x35)",
+      "if_wrong": "a wrong range misplaces a navigation link; no statement depends on it",
+      "kind": "line_range",
+      "origin": "DWARF line table (c-tv, gimli: unverified)",
+      "used_by": [
+        "navigation links"
+      ]
+    }
+  ],
   "edges": [
     {
       "function": "sum_to",
@@ -451,6 +582,46 @@
     }
   ],
   "id": "compiles-to/loop/O2/sum_to",
+  "include_env": {
+    "files": [
+      {
+        "name": "loop.c",
+        "sha256": "27290d697dff6003ea20638190f5f40a69cda2dc5368f9a1b96cc862c6dc34ee",
+        "size": 138,
+        "where": "examples/compiles-to/loop/loop.c"
+      }
+    ],
+    "macros": "macros",
+    "note": "the files a preprocessor reads, by content; a formal preprocessor would be a stage from this environment to the preprocessed text (none is stated)",
+    "options": [
+      "gcc",
+      "-O2",
+      "-g",
+      "-c",
+      "-fdebug-prefix-map=/src=.",
+      "-std=c11",
+      "-ffreestanding",
+      "-fno-builtin",
+      "-fno-stack-protector",
+      "-fcf-protection=none",
+      "-mgeneral-regs-only",
+      "-fno-pic",
+      "-fno-pie",
+      "-fno-asynchronous-unwind-tables",
+      "-fno-unwind-tables",
+      "-fno-ident",
+      "loop.c",
+      "-o",
+      "O2/loop.o"
+    ],
+    "search": [
+      "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include",
+      "/usr/local/include",
+      "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include-fixed",
+      "/usr/include/x86_64-linux-gnu",
+      "/usr/include"
+    ]
+  },
   "lean": {
     "family": null,
     "modules": []
@@ -492,10 +663,59 @@
       "unsupported": "C -> Core: the Lean Cerberus elaborator rejects the file: Silmaril.Cerberus.Elaboration.State.Error.message \"statement form is not ported by the actual elaborator\""
     }
   ],
+  "problem_form": "relation",
+  "relation": {
+    "description": "gcc 13.3.0 compiled this C to this object (receipt); no Lean statement relates them",
+    "semantics": "none"
+  },
   "schema": "silmaril.compiler-explorer.problem/1",
+  "stages": [
+    {
+      "evidence": "#guard in CompilesToExamples.Loop.Defs (compiled evaluation)",
+      "input": "source",
+      "name": "Lean C frontend: C text -> typed Ail",
+      "output": "core_probe",
+      "side": "source",
+      "trust": "evaluated"
+    },
+    {
+      "evidence": "not checked here",
+      "input": "core_probe",
+      "name": "Lean Cerberus elaborator: typed Ail -> Core",
+      "output": "core_probe",
+      "side": "source",
+      "trust": "verified"
+    },
+    {
+      "evidence": "receipt only",
+      "input": "target",
+      "name": "objdump -d (binutils 2.40)",
+      "output": "listing",
+      "side": "target",
+      "trust": "trusted"
+    }
+  ],
   "tests": [],
   "title": "loop.c, gcc 13.3.0 -O2, sum_to (object code)",
   "view": {
+    "alternatives": {
+      "source": [
+        {
+          "label": "C source",
+          "role": "source"
+        },
+        {
+          "label": "typed Ail + Core (trusted stages)",
+          "role": "core_probe"
+        }
+      ],
+      "target": [
+        {
+          "label": "objdump (untrusted tool)",
+          "role": "listing"
+        }
+      ]
+    },
     "source": "source",
     "target": "listing",
     "target_map": [
