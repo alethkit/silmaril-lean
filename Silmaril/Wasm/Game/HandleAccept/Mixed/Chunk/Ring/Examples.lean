@@ -20,10 +20,15 @@ code evaluated by `Silmaril.Wasm.Logic.Core.exec_sound`, the memory reasoned abo
 `Memory.store`/`Memory.load` lemmas (`load_store_same`, `load_store_disjoint`), never evaluating
 the page. Only the decoded moves (values and handles) are checked by kernel evaluation.
 
-* `chunkRing_relates_7`: the first `finish` relates `([7], (7))`;
-* `chunkRing_relates_8`: the second relates `([8], (8))`, the value left in memory;
-* `chunkRing_rel_eq_8`: with `chunkRing_rel`, the relation restricted to the input `[8]` is
-  exactly `{([8], (8))}`.
+The play is built **for every capacity** `2 ≤ cap ≤ 8192` at once (the slot addresses are
+computed from `cap` symbolically; two values must fit the buffer):
+
+* `chunkRingN_relates_7`: the first `finish` relates `([7], (7))`;
+* `chunkRingN_relates_8`: the second relates `([8], (8))`, the value left in memory;
+* `chunkRingN_rel_eq_8`: with `chunkRingN_rel`, the relation restricted to the input `[8]` is
+  exactly `{([8], (8))}`;
+* instances: `chunkRing_relates_7`, `chunkRing_relates_8`, `chunkRing_rel_eq_8` (eight slots),
+  `chunkRing8192_relates_8`, `chunkRing8192_rel_eq_8` (8192 slots, the whole page).
 
 **Profiles and policies.** Every profile (the steps used are profile-free), every writer policy
 whose sentinel, if any, is `0`, and every parsing policy with sentinel `0`.
@@ -38,7 +43,46 @@ namespace Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring
 open Silmaril.Wasm Silmaril.Formats Silmaril.Accept.Handle Silmaril.Accept.Parse
   Silmaril.Wasm.Game.HandleAccept.Mixed Silmaril.Wasm.Game.HandleAccept.Writers.Builders
 
+/-! ## Every capacity from two to 8192 -/
+
 section Positive
+
+variable {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) {P : Profile} {pol : Policy (BitVec 32)}
+  (hs : ∀ r, pol.sentinel = some r → r = 0) {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0)
+include h2 h8 hs h0
+
+/-- **The first `finish(1)` consumes one of two values buffered in memory: `([7], (7))`**, for
+every capacity `2 ≤ cap ≤ 8192`. -/
+theorem chunkRingN_relates_7 :
+    ([7], SExp2.ofAtoms [7]) ∈ moduleMixedRel P (chunkRingN cap) twoIx ringPix pol ppol :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive.chunkRingN_relates_7 h2 h8 hs h0
+
+/-- **The second `finish(1)` consumes the value left in memory: `([8], (8))`**, for every
+capacity `2 ≤ cap ≤ 8192`. -/
+theorem chunkRingN_relates_8 :
+    ([8], SExp2.ofAtoms [8]) ∈ moduleMixedRel P (chunkRingN cap) twoIx ringPix pol ppol :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive.chunkRingN_relates_8 h2 h8 hs h0
+
+end Positive
+
+/-- **The relation at the input `[8]`** is exactly `([8], (8))`, for every capacity
+`2 ≤ cap ≤ 8192`. -/
+theorem chunkRingN_rel_eq_8 {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) {P : Profile}
+    {pol : Policy (BitVec 32)} (hsen : pol.sentinel = none)
+    (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) {ppol : PPolicy (BitVec 32)}
+    (h0 : ppol.sentinel = 0) (hb : ppol.onBadHandle ≠ .ub) (ho : ppol.onOverrun ≠ .ub) :
+    {t | ([8], t) ∈ moduleMixedRel P (chunkRingN cap) twoIx ringPix pol ppol} =
+      {SExp2.ofAtoms [8]} := by
+  ext t
+  simp only [Set.mem_ofPred_eq, Set.mem_singleton_iff]
+  constructor
+  · exact chunkRingN_rel ⟨by omega, h8⟩ P hsen hw ha hb ho
+  · rintro rfl
+    exact chunkRingN_relates_8 h2 h8 (fun r h => by simp [hsen] at h) h0
+
+/-! ## Eight values, and a full page -/
+
+section Eight
 
 variable {P : Profile} {pol : Policy (BitVec 32)} (hs : ∀ r, pol.sentinel = some r → r = 0)
   {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0)
@@ -47,25 +91,35 @@ include hs h0
 /-- **The first `finish(1)` consumes one of two values buffered in memory: `([7], (7))`.** -/
 theorem chunkRing_relates_7 :
     ([7], SExp2.ofAtoms [7]) ∈ moduleMixedRel P chunkRing twoIx ringPix pol ppol :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive.chunkRing_relates_7 hs h0
+  chunkRingN_relates_7 (by decide) (by decide) hs h0
 
 /-- **The second `finish(1)` consumes the value left in memory: `([8], (8))`.** -/
 theorem chunkRing_relates_8 :
     ([8], SExp2.ofAtoms [8]) ∈ moduleMixedRel P chunkRing twoIx ringPix pol ppol :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive.chunkRing_relates_8 hs h0
+  chunkRingN_relates_8 (by decide) (by decide) hs h0
 
-end Positive
+/-- With **8192 slots** (the buffer fills the whole page), the second `finish(1)` relates
+`([8], (8))`. -/
+theorem chunkRing8192_relates_8 :
+    ([8], SExp2.ofAtoms [8]) ∈ moduleMixedRel P (chunkRingN 8192) twoIx ringPix pol ppol :=
+  chunkRingN_relates_8 (by decide) (by decide) hs h0
+
+end Eight
 
 /-- **The relation at the input `[8]`** is exactly `([8], (8))`. -/
 theorem chunkRing_rel_eq_8 {P : Profile} {pol : Policy (BitVec 32)} (hsen : pol.sentinel = none)
     (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) {ppol : PPolicy (BitVec 32)}
     (h0 : ppol.sentinel = 0) (hb : ppol.onBadHandle ≠ .ub) (ho : ppol.onOverrun ≠ .ub) :
-    {t | ([8], t) ∈ moduleMixedRel P chunkRing twoIx ringPix pol ppol} = {SExp2.ofAtoms [8]} := by
-  ext t
-  simp only [Set.mem_ofPred_eq, Set.mem_singleton_iff]
-  constructor
-  · exact chunkRing_rel P hsen hw ha hb ho
-  · rintro rfl
-    exact chunkRing_relates_8 (fun r h => by simp [hsen] at h) h0
+    {t | ([8], t) ∈ moduleMixedRel P chunkRing twoIx ringPix pol ppol} = {SExp2.ofAtoms [8]} :=
+  chunkRingN_rel_eq_8 (by decide) (by decide) hsen hw ha h0 hb ho
+
+/-- **The relation of the 8192-slot buffer at the input `[8]`** is exactly `([8], (8))`. -/
+theorem chunkRing8192_rel_eq_8 {P : Profile} {pol : Policy (BitVec 32)}
+    (hsen : pol.sentinel = none) (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub)
+    {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0) (hb : ppol.onBadHandle ≠ .ub)
+    (ho : ppol.onOverrun ≠ .ub) :
+    {t | ([8], t) ∈ moduleMixedRel P (chunkRingN 8192) twoIx ringPix pol ppol} =
+      {SExp2.ofAtoms [8]} :=
+  chunkRingN_rel_eq_8 (by decide) (by decide) hsen hw ha h0 hb ho
 
 end Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring

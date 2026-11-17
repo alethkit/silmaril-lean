@@ -240,12 +240,12 @@ theorem calc_traces (P : Profile) (q : BitVec 32) :
   have hn₁' : Callout.witNode calcSig calcTagOf
       (calloutIn impNode (some 0) s₁ [.i32 0, .i32 16, .i32 0, .i32 0]) =
       some (⟨CalcTag.num, ((1 : Int64), ())⟩, []) :=
-    witNode_eq rfl rfl (segment_of_store hst₁ _ (memOf_setMem hml)) readVals_one
+    witNode_eq rfl rfl (segment_of_store hst₁ _ (memOf_setMem hml)) (readVals_one _)
       (segment_nil (memOf_setMem hml) 0 (Nat.zero_le _)) rfl rfl
   have hn₂' : Callout.witNode calcSig calcTagOf
       (calloutIn impNode (some 0) s₂ [.i32 0, .i32 16, .i32 0, .i32 0]) =
       some (⟨CalcTag.num, ((2 : Int64), ())⟩, []) :=
-    witNode_eq rfl rfl (segment_of_store hst₂ _ (memOf_setMem hl₁)) readVals_two
+    witNode_eq rfl rfl (segment_of_store hst₂ _ (memOf_setMem hl₁)) (readVals_two _)
       (segment_nil (memOf_setMem hl₁) 0 (Nat.zero_le _)) rfl rfl
   have h₀ : bytesAt b₄ ⟨0, 4⟩ = (Memory.encodeLE 4 q.toNat).data.toList := by
     rw [Silmaril.Wasm.Logic.Core.bytesAt_store_disjoint hst₄ (.inr (by decide))]

@@ -105,7 +105,7 @@ theorem witNode_eq {o : Callout} {tg pp cp n : BitVec 32} {t : S.Tag} {bs cs : L
     {a : S.toAstSig.Arg t} {hs : List (BitVec 32)}
     (ha : o.args = [.i32 tg, .i32 pp, .i32 cp, .i32 n]) (ht : tagOf tg = some t)
     (h1 : o.segment pp.toNat (valsWidth (S.params t)) = some bs)
-    (h2 : readVals (S.params t) bs = some a) (h3 : o.segment cp.toNat (4 * n.toNat) = some cs)
+    (h2 : readVals o.segment (S.params t) bs = some a) (h3 : o.segment cp.toNat (4 * n.toNat) = some cs)
     (h4 : le32s cs = some hs) (h5 : (S.arity t).Admits hs.length = true) :
     Callout.witNode S tagOf o = some (⟨t, a⟩, hs) := by
   unfold Callout.witNode
@@ -128,14 +128,14 @@ end Decoder
 
 /-! ## Memory facts of the example -/
 
-theorem readVals_one :
-    readVals [.s64] (Memory.encodeLE (IntType.i64.width / 8)
+theorem readVals_one (seg : Nat → Nat → Option (List UInt8)) :
+    readVals seg [.s64] (Memory.encodeLE (IntType.i64.width / 8)
       (BitVec.setWidth (8 * (IntType.i64.width / 8)) (1 : BitVec 64)).toNat).data.toList =
       some ((1 : Int64), ()) := by
   rfl
 
-theorem readVals_two :
-    readVals [.s64] (Memory.encodeLE (IntType.i64.width / 8)
+theorem readVals_two (seg : Nat → Nat → Option (List UInt8)) :
+    readVals seg [.s64] (Memory.encodeLE (IntType.i64.width / 8)
       (BitVec.setWidth (8 * (IntType.i64.width / 8)) (2 : BitVec 64)).toNat).data.toList =
       some ((2 : Int64), ()) := by
   rfl
@@ -261,7 +261,7 @@ theorem calc_body {P : Profile} {ρ : Env (BitVec 32) (AST calcSig.toAstSig)}
   have hd₁ : Callout.witNode calcSig calcTagOf (calloutIn impNode (some 0)
       (s.setMem 0 { mi₀ with bytes := b₀ }) [.i32 0, .i32 16, .i32 0, .i32 0]) =
       some (⟨CalcTag.num, ((1 : Int64), ())⟩, []) :=
-    witNode_eq rfl rfl (segment_of_store hst₀ _ (memOf_setMem hml)) readVals_one
+    witNode_eq rfl rfl (segment_of_store hst₀ _ (memOf_setMem hml)) (readVals_one _)
       (segment_nil (memOf_setMem hml) 0 (Nat.zero_le _)) rfl rfl
   refine hwp_call (us := []) (args := [.i32 0, .i32 16, .i32 0, .i32 0]) (x := ⟨0⟩) (k := 0)
     (fk := f₀) (i := impNode) (by rw [hFf]; rfl) (hf0 _ (hf₁.trans hsf)) hc₀ he₀ (by simp [hn₀])
@@ -296,7 +296,7 @@ theorem calc_body {P : Profile} {ρ : Env (BitVec 32) (AST calcSig.toAstSig)}
   have hd₂ : Callout.witNode calcSig calcTagOf (calloutIn impNode (some 0)
       (s₂.setMem 0 { mi₂ with bytes := b₂ }) [.i32 0, .i32 16, .i32 0, .i32 0]) =
       some (⟨CalcTag.num, ((2 : Int64), ())⟩, []) :=
-    witNode_eq rfl rfl (segment_of_store hst₂ _ (memOf_setMem hml₂')) readVals_two
+    witNode_eq rfl rfl (segment_of_store hst₂ _ (memOf_setMem hml₂')) (readVals_two _)
       (segment_nil (memOf_setMem hml₂') 0 (Nat.zero_le _)) rfl rfl
   refine hwp_call (us := []) (args := [.i32 0, .i32 16, .i32 0, .i32 0]) (x := ⟨0⟩) (k := 0)
     (fk := f₀) (i := impNode) (by rw [hF₁f]; rfl) (hf0 _ (hf₃.trans hfs₂')) hc₀ he₀

@@ -6,7 +6,7 @@ public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.LiveRun
 public import Silmaril.Wasm.Logic.Tactic.Defs
 
 /-!
-# `chunkRing` relates `([7], (7))` and `([8], (8))`: a play built forwards
+# `chunkRingN cap` relates `([7], (7))` and `([8], (8))`: a play built forwards
 
 Kernel replay of `chunkRing` does not finish: its 64 KiB memory is a list in the kernel, and
 after one `i64.store` (`ByteArray.copySlice`, rebuilt element by element by `Array.push`) the
@@ -20,12 +20,15 @@ reasoned about with `Memory.load`/`Memory.store` lemmas
   the scripted answer, and the rest of the path), `path_call` (an export call);
   `mem_moduleMixedRel_of_path`: a path whose recorded moves decode, by `cRunB`, to a related
   pair gives a pair of the mixed relation.
-* Runs of the two exports from any store with the ring layout (`feed_run`; `fin1_run₁` …
-  `fin1_run₄`: `finish(1)` with at least one value buffered, up to `nil()`, `word(v)`,
-  `cons(a, r)` and the return).
-* **`chunkRing_relates_7`, `chunkRing_relates_8`**: the session `feed(7)`, `feed(8)`,
-  `finish(1)`, `finish(1)` (the `k`-th callout answering the handle `k + 1`), for every profile,
-  writer policy with sentinel (if any) `0`, and parsing policy with sentinel `0`.
+* Runs of the two exports from any store with the ring layout (`feed_run`; `fin_run₁` …
+  `fin_run₄`: `finish(1)` with at least one value buffered, up to `nil()`, `word(v)`,
+  `cons(a, r)` and the return), for every capacity: the straight-line pieces (`ex_f2`, `ex_l2`,
+  `ex_t`) take any non-zero `rem_u` constant.
+* **`chunkRingN_relates_7`, `chunkRingN_relates_8`**: the session `feed(7)`, `feed(8)`,
+  `finish(1)`, `finish(1)` (the `k`-th callout answering the handle `k + 1`), for every capacity
+  `2 ≤ cap ≤ 8192` (`ring_session`: the slot addresses `0` and `8` are computed from `cap`
+  symbolically, `mod_small`), every profile, writer policy with sentinel (if any) `0`, and
+  parsing policy with sentinel `0`.
 
 New proofs (no source).
 -/
@@ -182,9 +185,6 @@ theorem mem_moduleMixedRel_of_path {V : Type} [DecidableEq V] {m : Module} {P : 
 
 /-! ## Straight-line runs -/
 
-theorem remu8 (x : BitVec 32) :
-    intBinOp .i32 (.rem .unsigned) x (8#32) = .ok (show BitVec 32 from x % 8#32) := rfl
-
 @[simp] theorem idx_toNat0 {k : IndexKind} : (⟨0⟩ : Idx k).toNat = 0 := rfl
 @[simp] theorem idx_toNat1 {k : IndexKind} : (⟨1⟩ : Idx k).toNat = 1 := rfl
 @[simp] theorem idx_toNat2 {k : IndexKind} : (⟨2⟩ : Idx k).toNat = 2 := rfl
@@ -199,34 +199,35 @@ theorem global?_1 {s : Store Nat} {F : Frame} (hmg : F.module.globals = [0, 1])
 
 section Exec
 
-variable {s : Store Nat} {M : ModuleInst} (hmg : M.globals = [0, 1]) (hmm : M.mems = [0])
+variable {s : Store Nat} {M : ModuleInst} {c : BitVec 32} (hmg : M.globals = [0, 1])
+  (hmm : M.mems = [0])
   {g0 g1 : GlobalInst} {st cnt : BitVec 32} (hg0 : s.globals[0]? = some g0)
   (hg1 : s.globals[1]? = some g1) (hv0 : g0.value = .i32 st) (hv1 : g1.value = .i32 cnt)
 include hmg
 
 /-- The guard of `feed`. -/
 theorem ex_f1 (ls : List (Option Val)) (hg1 : s.globals[1]? = some g1) (hv1 : g1.value = .i32 cnt) :
-    exec s ⟨ls, M⟩ [] [.globalGet ⟨1⟩, .intConst .i32 8, .intRelOp .i32 .eq] =
-      some (s, ⟨ls, M⟩, [.i32 (bool32 (cnt == 8))]) := by
-  simp [exec, exec1, popInt, Store.global?, hmg, hg1, hv1, Val.i32, ofNat_i32_width]
+    exec s ⟨ls, M⟩ [] [.globalGet ⟨1⟩, .intConst .i32 c, .intRelOp .i32 .eq] =
+      some (s, ⟨ls, M⟩, [.i32 (bool32 (cnt == c))]) := by
+  simp [exec, exec1, popInt, Store.global?, hmg, hg1, hv1, Val.i32]
 
 include hmm in
 /-- The store and count update of `feed`. -/
-theorem ex_f2 {x : BitVec 64} (hg0 : s.globals[0]? = some g0) (hg1 : s.globals[1]? = some g1)
+theorem ex_f2 (hc : c ≠ 0) {x : BitVec 64} (hg0 : s.globals[0]? = some g0) (hg1 : s.globals[1]? = some g1)
     (hv0 : g0.value = .i32 st) (hv1 : g1.value = .i32 cnt)
     {mi : MemInst} (hmi : s.mems[0]? = some mi) {b : ByteArray}
-    (hb : Memory.store mi.bytes ((st + cnt) % 8 * 8).toNat (count := 8) x = some b) :
+    (hb : Memory.store mi.bytes ((st + cnt) % c * 8).toNat (count := 8) x = some b) :
     exec s ⟨[some (.i64 x)], M⟩ [] [.globalGet ⟨0⟩, .globalGet ⟨1⟩, .intBinOp .i32 .add,
-      .intConst .i32 8, .intBinOp .i32 (.rem .unsigned), .intConst .i32 8, .intBinOp .i32 .mul,
+      .intConst .i32 c, .intBinOp .i32 (.rem .unsigned), .intConst .i32 8, .intBinOp .i32 .mul,
       .localGet ⟨0⟩, .intStore .i64 none ⟨0⟩ ⟨0, 0⟩, .globalGet ⟨1⟩, .intConst .i32 1,
       .intBinOp .i32 .add, .globalSet ⟨1⟩] =
       some ((s.setMem 0 { mi with bytes := b }).setGlobal 1 (.i32 (cnt + 1)),
         ⟨[some (.i64 x)], M⟩, []) := by
-  have hb' : Memory.store mi.bytes (effAddr ((st + cnt) % 8#32 * 8#32 : BitVec 32).toNat ⟨0, 0⟩)
+  have hb' : Memory.store mi.bytes (effAddr ((st + cnt) % c * 8#32 : BitVec 32).toNat ⟨0, 0⟩)
       (count := IntType.i64.width / 8) (x.setWidth _) = some b := hb
   simp only [exec_cons, exec_nil, exec1, popInt, popV, localVal?, Frame.local?, Val.i32, Val.i64,
     Option.map_some, Option.bind_some, BitVec.ofNat_eq_ofNat, ofNat_i32_width, intBinOp_i32_add,
-    intBinOp_i32_mul, remu8, global?_0 (F := ⟨_, M⟩) hmg hg0, global?_1 (F := ⟨_, M⟩) hmg hg1, hv0,
+    intBinOp_i32_mul, remu_ok hc, global?_0 (F := ⟨_, M⟩) hmg hg0, global?_1 (F := ⟨_, M⟩) hmg hg1, hv0,
     hv1, Store.mem?, hmm, hmi, List.getElem?_cons_zero, idx_toNat0, Option.pure_def,
     Option.bind_eq_bind]
   erw [hb']
@@ -268,20 +269,21 @@ theorem ex_l1 {k i r : BitVec 32} :
 
 include hmm in
 /-- The load of the value `i - 1` in the loop. -/
-theorem ex_l2 {k i r m : BitVec 32} (hg0 : s.globals[0]? = some g0) (hv0 : g0.value = .i32 st)
+theorem ex_l2 (hc : c ≠ 0) {k i r m : BitVec 32} (hg0 : s.globals[0]? = some g0) (hv0 : g0.value = .i32 st)
     {mi : MemInst} (hmi : s.mems[0]? = some mi) {v : BitVec 64}
     (hl : Memory.load mi.bytes
-      (effAddr ((st + (i + m)) % 8#32 * 8#32 : BitVec 32).toNat ⟨0, 0⟩)
+      (effAddr ((st + (i + m)) % c * 8#32 : BitVec 32).toNat ⟨0, 0⟩)
       (IntType.i64.width / 8) = some v) :
     exec s ⟨[some (.i32 k), some (.i32 i), some (.i32 r)], M⟩ [] [.localGet ⟨1⟩,
       .intConst .i32 (m), .intBinOp .i32 .add, .localSet ⟨1⟩, .globalGet ⟨0⟩,
-      .localGet ⟨1⟩, .intBinOp .i32 .add, .intConst .i32 8, .intBinOp .i32 (.rem .unsigned),
+      .localGet ⟨1⟩, .intBinOp .i32 .add, .intConst .i32 c, .intBinOp .i32 (.rem .unsigned),
       .intConst .i32 8, .intBinOp .i32 .mul, .intLoad .i64 none ⟨0⟩ ⟨0, 0⟩] =
       some (s, ⟨[some (.i32 k), some (.i32 (i + m)), some (.i32 r)], M⟩,
         [.i64 v]) := by
   simp only [exec_cons, exec_nil, exec1, popInt, popV, localVal?, Frame.local?, Frame.setLocal,
     Val.i32, Val.i64, Option.map_some, Option.bind_some, BitVec.ofNat_eq_ofNat, ofNat_i32_width,
-    intBinOp_i32_add, intBinOp_i32_mul, remu8, global?_0 (F := ⟨_, M⟩) hmg hg0, hv0, Store.mem?, hmm,
+    intBinOp_i32_add, intBinOp_i32_mul, remu_ok hc, global?_0 (F := ⟨_, M⟩) hmg hg0, hv0, Store.mem?,
+    hmm,
     hmi, List.getElem?_cons_zero, List.getElem?_cons_succ, List.set_cons_zero, List.set_cons_succ,
     List.length_cons, List.length_nil, idx_toNat0, idx_toNat1, Option.pure_def, Option.bind_eq_bind,
     Nat.one_lt_succ_succ, ↓reduceIte]
@@ -303,16 +305,16 @@ theorem ex_r2 {k i r c : BitVec 32} :
   simp [exec, exec1, popV, Frame.setLocal]
 
 /-- Dropping the consumed values. -/
-theorem ex_t {k i r : BitVec 32} (hg0 : s.globals[0]? = some g0) (hg1 : s.globals[1]? = some g1)
+theorem ex_t (hc : c ≠ 0) {k i r : BitVec 32} (hg0 : s.globals[0]? = some g0) (hg1 : s.globals[1]? = some g1)
     (hv0 : g0.value = .i32 st) (hv1 : g1.value = .i32 cnt) :
     exec s ⟨[some (.i32 k), some (.i32 i), some (.i32 r)], M⟩ [] [.globalGet ⟨0⟩, .localGet ⟨0⟩,
-      .intBinOp .i32 .add, .intConst .i32 8, .intBinOp .i32 (.rem .unsigned), .globalSet ⟨0⟩,
+      .intBinOp .i32 .add, .intConst .i32 c, .intBinOp .i32 (.rem .unsigned), .globalSet ⟨0⟩,
       .globalGet ⟨1⟩, .localGet ⟨0⟩, .intBinOp .i32 .sub, .globalSet ⟨1⟩, .localGet ⟨0⟩,
       .localGet ⟨2⟩] =
-      some ((s.setGlobal 0 (.i32 ((st + k) % 8))).setGlobal 1 (.i32 (cnt - k)),
+      some ((s.setGlobal 0 (.i32 ((st + k) % c))).setGlobal 1 (.i32 (cnt - k)),
         ⟨[some (.i32 k), some (.i32 i), some (.i32 r)], M⟩, [.i32 r, .i32 k]) := by
   simp [exec, exec1, popInt, popV, localVal?, Frame.local?, Store.global?, Store.setGlobal, hmg,
-    hg0, hg1, hv0, hv1, Val.i32, remu8, ofNat_i32_width]
+    hg0, hg1, hv0, hv1, Val.i32, remu_ok hc]
 
 end Exec
 
@@ -439,18 +441,22 @@ end Runs
 
 /-! ## The bodies, cut at their control instructions -/
 
+section Bodies
+
+variable (cap : Nat)
+
 /-- The guard of `feed`. -/
-abbrev fG1 : List Instr := [.globalGet ⟨1⟩, .intConst .i32 8, .intRelOp .i32 .eq]
-/-- `if cnt = 8 then loop forever`. -/
+abbrev fG1 : List Instr := [.globalGet ⟨1⟩, .intConst .i32 (capW cap), .intRelOp .i32 .eq]
+/-- `if cnt = cap then loop forever`. -/
 abbrev fIf : Instr := .if_ .empty [.loop .empty [.br ⟨0⟩]] []
 /-- The store and the count update of `feed`. -/
 abbrev fG2 : List Instr :=
-  [.globalGet ⟨0⟩, .globalGet ⟨1⟩, .intBinOp .i32 .add, .intConst .i32 8,
+  [.globalGet ⟨0⟩, .globalGet ⟨1⟩, .intBinOp .i32 .add, .intConst .i32 (capW cap),
    .intBinOp .i32 (.rem .unsigned), .intConst .i32 8, .intBinOp .i32 .mul, .localGet ⟨0⟩,
    .intStore .i64 none ⟨0⟩ ⟨0, 0⟩, .globalGet ⟨1⟩, .intConst .i32 1, .intBinOp .i32 .add,
    .globalSet ⟨1⟩]
 
-theorem feed_body : ringFeedBody = fG1 ++ fIf :: (fG2 ++ [.return_]) := rfl
+theorem feed_body : ringFeedBody cap = fG1 cap ++ fIf :: (fG2 cap ++ [.return_]) := rfl
 
 /-- The guards of `finish`. -/
 abbrev nG1 : List Instr := [.localGet ⟨0⟩, .globalGet ⟨1⟩, .intRelOp .i32 (.gt .unsigned)]
@@ -459,40 +465,42 @@ abbrev nIf : Instr := .if_ .empty [.intConst .i32 0, .call ⟨0⟩, .return_] []
 /-- The setup of the loop. -/
 abbrev nG3 : List Instr := [.localSet ⟨2⟩, .localGet ⟨0⟩, .localSet ⟨1⟩]
 /-- After the `nil()` call. -/
-abbrev nR3 : List Instr := nG3 ++ [.block .empty [.loop .empty ringLoopBody], .unreachable]
+abbrev nR3 : List Instr := nG3 ++ [.block .empty [.loop .empty (ringLoopBody cap)], .unreachable]
 
-theorem fin_body : ringFinBody = nG1 ++ nIf :: (nG2 ++ nIf :: .call ⟨0⟩ :: nR3) := rfl
+theorem fin_body : ringFinBody cap = nG1 ++ nIf :: (nG2 ++ nIf :: .call ⟨0⟩ :: nR3 cap) := rfl
 
 /-- The exit test of the loop. -/
 abbrev lG1 : List Instr := [.localGet ⟨1⟩, .intTestOp .i32 .eqz]
 /-- The exit of the loop. -/
 abbrev lThen : List Instr :=
-  [.globalGet ⟨0⟩, .localGet ⟨0⟩, .intBinOp .i32 .add, .intConst .i32 8,
+  [.globalGet ⟨0⟩, .localGet ⟨0⟩, .intBinOp .i32 .add, .intConst .i32 (capW cap),
    .intBinOp .i32 (.rem .unsigned), .globalSet ⟨0⟩, .globalGet ⟨1⟩, .localGet ⟨0⟩,
    .intBinOp .i32 .sub, .globalSet ⟨1⟩, .localGet ⟨0⟩, .localGet ⟨2⟩]
-abbrev lIf : Instr := .if_ .empty (lThen ++ [.return_]) []
+abbrev lIf : Instr := .if_ .empty (lThen cap ++ [.return_]) []
 /-- The load of the next value. -/
 abbrev lG2 : List Instr :=
   [.localGet ⟨1⟩, .intConst .i32 (BitVec.allOnes 32), .intBinOp .i32 .add, .localSet ⟨1⟩,
-   .globalGet ⟨0⟩, .localGet ⟨1⟩, .intBinOp .i32 .add, .intConst .i32 8,
+   .globalGet ⟨0⟩, .localGet ⟨1⟩, .intBinOp .i32 .add, .intConst .i32 (capW cap),
    .intBinOp .i32 (.rem .unsigned), .intConst .i32 8, .intBinOp .i32 .mul,
    .intLoad .i64 none ⟨0⟩ ⟨0, 0⟩]
 /-- After the `word` call. -/
 abbrev lTail : List Instr := [.localGet ⟨2⟩, .call ⟨1⟩, .localSet ⟨2⟩, .br ⟨0⟩]
 /-- After the test. -/
-abbrev lRest : List Instr := lG2 ++ .call ⟨2⟩ :: lTail
+abbrev lRest : List Instr := lG2 cap ++ .call ⟨2⟩ :: lTail
 
-theorem loop_body : ringLoopBody = lG1 ++ lIf :: lRest := rfl
+theorem loop_body : ringLoopBody cap = lG1 ++ lIf cap :: lRest cap := rfl
 
 /-- The labels around the loop body: the function body, the block, the loop. -/
 abbrev LL : List (Nat × List Instr × List Admin) :=
-  [(2, [], []), (0, [], expression [.unreachable]), (0, [.loop .empty ringLoopBody], [])]
+  [(2, [], []), (0, [], expression [.unreachable]), (0, [.loop .empty (ringLoopBody cap)], [])]
+
+end Bodies
 
 /-! ## The runs of the exports -/
 
 section Exports
 
-variable {P : Profile} {host : HostSemantics Nat} {s : Store Nat} {M : ModuleInst}
+variable {cap : Nat} {P : Profile} {host : HostSemantics Nat} {s : Store Nat} {M : ModuleInst}
   {g0 g1 : GlobalInst} {st cnt : BitVec 32}
 
 /-- **`feed(x)`** with fewer than eight values buffered stores `x` in the next slot. -/
@@ -503,25 +511,25 @@ theorem feed_run (hmg : M.globals = [0, 1]) (hmm : M.mems = [0])
     (hf : s.funcs[4]? = some fi) (he : Expand fi.type (.func ps rs)) (hps : ps.length = 1)
     (hrs : rs.length = 0) (hcode : fi.code = .wasm code)
     (hfr : Frame.forCall fi.module [.i64 x] code.locals = ⟨[some (.i64 x)], M⟩)
-    (hbody : code.body = ringFeedBody) (hc : bool32 (cnt == 8) = 0)
+    (hbody : code.body = ringFeedBody cap) (hc : bool32 (cnt == capW cap) = 0) (hc0 : capW cap ≠ 0)
     {mi : MemInst} (hmi : s.mems[0]? = some mi) {b : ByteArray}
-    (hb : Memory.store mi.bytes ((st + cnt) % 8 * 8).toNat (count := 8) x = some b) :
+    (hb : Memory.store mi.bytes ((st + cnt) % capW cap * 8).toNat (count := 8) x = some b) :
     Steps P host (invoke s 4 [.i64 x])
       ⟨(s.setMem 0 { mi with bytes := b }).setGlobal 1 (.i32 (cnt + 1)), {}, vals []⟩ := by
   have h₀ := st_invoke (P := P) (host := host) (args := [.i64 x]) hf he (by rw [hps]; rfl) hcode
   rw [hrs, hfr, hbody] at h₀
-  have hin : Steps P host ⟨s, ⟨[some (.i64 x)], M⟩, expression ringFeedBody⟩
+  have hin : Steps P host ⟨s, ⟨[some (.i64 x)], M⟩, expression (ringFeedBody cap)⟩
       ⟨(s.setMem 0 { mi with bytes := b }).setGlobal 1 (.i32 (cnt + 1)), ⟨[some (.i64 x)], M⟩,
         [.plain .return_]⟩ := by
-    rw [feed_body, expr_app, show expression (fIf :: (fG2 ++ [.return_])) =
-      .plain fIf :: (expression fG2 ++ [.plain .return_]) from by simp [expression]]
-    have e₁ := ex_f1 (s := s) hmg [some (.i64 x)] hg1 hv1
+    rw [feed_body, expr_app, show expression (fIf :: (fG2 cap ++ [.return_])) =
+      .plain fIf :: (expression (fG2 cap) ++ [.plain .return_]) from by simp [expression]]
+    have e₁ := ex_f1 (s := s) (c := capW cap) hmg [some (.i64 x)] hg1 hv1
     rw [hc] at e₁
     refine (exec_sound (P := P) (host := host) (rs := [])
-      (.plain fIf :: (expression fG2 ++ [.plain .return_])) e₁).trans ?_
+      (.plain fIf :: (expression (fG2 cap) ++ [.plain .return_])) e₁).trans ?_
     refine st_ifF.trans (st_block.trans (st_labelNil.trans ?_))
     exact exec_sound (P := P) (host := host) (rs := []) [.plain .return_]
-      (ex_f2 hmg hmm hg0 hg1 hv0 hv1 hmi hb)
+      (ex_f2 hmg hmm hc0 hg0 hg1 hv0 hv1 hmi hb)
   obtain ⟨rest', hr⟩ := ret_wrap (P := P) (host := host)
     (s := (s.setMem 0 { mi with bytes := b }).setGlobal 1 (.i32 (cnt + 1)))
     (F := ⟨[some (.i64 x)], M⟩) [] [(0, [], [])] []
@@ -533,16 +541,16 @@ abbrev F₀ (M : ModuleInst) (n : BitVec 32) : Frame :=
   ⟨[some (.i32 n), some (.i32 0), some (.i32 0)], M⟩
 
 /-- The callout context of `nil()`. -/
-abbrev E₁ (M : ModuleInst) (n : BitVec 32) : Ctx :=
-  .frame [] 2 (F₀ M n) (.label [] 2 [] (.top [] (expression nR3)) []) []
+abbrev E₁ (cap : Nat) (M : ModuleInst) (n : BitVec 32) : Ctx :=
+  .frame [] 2 (F₀ M n) (.label [] 2 [] (.top [] (expression (nR3 cap))) []) []
 
 /-- The frame of the loop, the accumulator `r` and the index `i`. -/
 abbrev FL (M : ModuleInst) (n i r : BitVec 32) : Frame :=
   ⟨[some (.i32 n), some (.i32 i), some (.i32 r)], M⟩
 
 /-- The callout contexts in the loop, before `rest`. -/
-abbrev EL (M : ModuleInst) (n i r : BitVec 32) (rest : List Instr) : Ctx :=
-  .frame [] 2 (FL M n i r) (lctx LL (.top [] (expression rest))) []
+abbrev EL (cap : Nat) (M : ModuleInst) (n i r : BitVec 32) (rest : List Instr) : Ctx :=
+  .frame [] 2 (FL M n i r) (lctx (LL cap) (.top [] (expression rest))) []
 
 /-- **`finish(n)`**, `0 < n ≤ count`: up to the call `nil()`. -/
 theorem fin_run₁ (hmg : M.globals = [0, 1]) (hfuncs : M.funcs = List.range 6)
@@ -552,71 +560,72 @@ theorem fin_run₁ (hmg : M.globals = [0, 1]) (hfuncs : M.funcs = List.range 6)
     (hf : s.funcs[5]? = some fi) (he : Expand fi.type (.func ps rs)) (hps : ps.length = 1)
     (hrs : rs.length = 2) (hcode : fi.code = .wasm code)
     (hfr : Frame.forCall fi.module [.i32 n] code.locals = F₀ M n)
-    (hbody : code.body = ringFinBody) (hgt : bool32 (decide (n.toNat > cnt.toNat)) = 0)
+    (hbody : code.body = ringFinBody cap) (hgt : bool32 (decide (n.toNat > cnt.toNat)) = 0)
     (hz : bool32 (n == 0) = 0) (hf0 : s.funcs[0]? = some f0) :
     Steps P host (invoke s 5 [.i32 n])
-      ⟨s, {}, (E₁ M n).fill (vals [] ++ [.ref (.func 0), .callRefType f0.type])⟩ := by
+      ⟨s, {}, (E₁ cap M n).fill (vals [] ++ [.ref (.func 0), .callRefType f0.type])⟩ := by
   have h₀ := st_invoke (P := P) (host := host) (args := [.i32 n]) hf he (by rw [hps]; rfl) hcode
   rw [hrs, hfr, hbody] at h₀
-  have hin : Steps P host ⟨s, F₀ M n, expression ringFinBody⟩
-      ⟨s, F₀ M n, vals [] ++ [.ref (.func 0), .callRefType f0.type] ++ expression nR3⟩ := by
-    rw [fin_body, expr_app, show expression (nIf :: (nG2 ++ nIf :: .call ⟨0⟩ :: nR3)) =
-      .plain nIf :: (expression nG2 ++ .plain nIf :: .plain (.call ⟨0⟩) :: expression nR3) from
+  have hin : Steps P host ⟨s, F₀ M n, expression (ringFinBody cap)⟩
+      ⟨s, F₀ M n, vals [] ++ [.ref (.func 0), .callRefType f0.type] ++ expression (nR3 cap)⟩ := by
+    rw [fin_body, expr_app, show expression (nIf :: (nG2 ++ nIf :: .call ⟨0⟩ :: nR3 cap)) =
+      .plain nIf :: (expression nG2 ++ .plain nIf :: .plain (.call ⟨0⟩) :: expression (nR3 cap)) from
         by simp [expression]]
     have e₁ := ex_g1 (s := s) hmg (a := .i32 0) (b := .i32 0) (k := n) hg1 hv1
     rw [hgt] at e₁
     refine (exec_sound (P := P) (host := host) (rs := [])
-      (.plain nIf :: (expression nG2 ++ .plain nIf :: .plain (.call ⟨0⟩) :: expression nR3))
+      (.plain nIf :: (expression nG2 ++ .plain nIf :: .plain (.call ⟨0⟩) :: expression (nR3 cap)))
       e₁).trans ?_
     refine st_ifF.trans (st_block.trans (st_labelNil.trans ?_))
     have e₂ := ex_g2 (s := s) (M := M) (a := .i32 0) (b := .i32 0) (k := n)
     rw [hz] at e₂
     refine (exec_sound (P := P) (host := host) (rs := [])
-      (.plain nIf :: .plain (.call ⟨0⟩) :: expression nR3) e₂).trans ?_
+      (.plain nIf :: .plain (.call ⟨0⟩) :: expression (nR3 cap)) e₂).trans ?_
     refine st_ifF.trans (st_block.trans (st_labelNil.trans ?_))
-    exact st_call (pre := []) (rest := expression nR3) (by rw [hfuncs]; rfl) hf0
+    exact st_call (pre := []) (rest := expression (nR3 cap)) (by rw [hfuncs]; rfl) hf0
   exact h₀.trans (Silmaril.Wasm.Logic.Core.Steps.frame (f := {}) 2
     (steps_wrap [(2, [], [])] hin))
 
 /-- **`finish(n)`**, after `nil() = r`: the first iteration, up to the call `word(v)`. -/
-theorem fin_run₂ (hmg : M.globals = [0, 1]) (hmm : M.mems = [0])
+theorem fin_run₂ (hmg : M.globals = [0, 1]) (hmm : M.mems = [0]) (hc0 : capW cap ≠ 0)
     (hfuncs : M.funcs = List.range 6) (hg0 : s.globals[0]? = some g0) (hv0 : g0.value = .i32 st)
     {n r : BitVec 32} {f2 : FuncInst Nat} (hz : bool32 (n == 0) = 0)
     {mi : MemInst} (hmi : s.mems[0]? = some mi) {v : BitVec 64}
     (hl : Memory.load mi.bytes
-      (effAddr ((st + (n + BitVec.allOnes 32)) % 8#32 * 8#32 : BitVec 32).toNat ⟨0, 0⟩)
+      (effAddr ((st + (n + BitVec.allOnes 32)) % capW cap * 8#32 : BitVec 32).toNat ⟨0, 0⟩)
       (IntType.i64.width / 8) = some v)
     (hf2 : s.funcs[2]? = some f2) :
-    Steps P host ⟨s, {}, (E₁ M n).fill (vals [.i32 r])⟩
-      ⟨s, {}, (EL M n (n + BitVec.allOnes 32) r lTail).fill
+    Steps P host ⟨s, {}, (E₁ cap M n).fill (vals [.i32 r])⟩
+      ⟨s, {}, (EL cap M n (n + BitVec.allOnes 32) r lTail).fill
         (vals [.i64 v] ++ [.ref (.func 2), .callRefType f2.type])⟩ := by
-  have hloop : Steps P host ⟨s, FL M n n r, expression ringLoopBody⟩
+  have hloop : Steps P host ⟨s, FL M n n r, expression (ringLoopBody cap)⟩
       ⟨s, FL M n (n + BitVec.allOnes 32) r,
         vals [.i64 v] ++ [.ref (.func 2), .callRefType f2.type] ++ expression lTail⟩ := by
-    rw [loop_body, expr_app, show expression (lIf :: lRest) = .plain lIf :: expression lRest from
+    rw [loop_body, expr_app, show expression (lIf cap :: lRest cap) = .plain (lIf cap) :: expression (lRest cap) from
       rfl]
     have e₁ := ex_l1 (s := s) (M := M) (k := n) (i := n) (r := r)
     rw [hz] at e₁
-    refine (exec_sound (P := P) (host := host) (rs := []) (.plain lIf :: expression lRest)
+    refine (exec_sound (P := P) (host := host) (rs := []) (.plain (lIf cap) :: expression (lRest cap))
       e₁).trans ?_
     refine st_ifF.trans (st_block.trans (st_labelNil.trans ?_))
-    rw [show expression lRest = expression lG2 ++ .plain (.call ⟨2⟩) :: expression lTail from
+    rw [show expression (lRest cap) = expression (lG2 cap) ++ .plain (.call ⟨2⟩) :: expression lTail from
       by simp [expression]]
     refine (exec_sound (P := P) (host := host) (rs := [])
       (.plain (.call ⟨2⟩) :: expression lTail)
-      (ex_l2 hmg hmm (k := n) (i := n) (r := r) (m := BitVec.allOnes 32) hg0 hv0 hmi hl)).trans ?_
+      (ex_l2 hmg hmm hc0 (k := n) (i := n) (r := r) (m := BitVec.allOnes 32) hg0 hv0 hmi
+        hl)).trans ?_
     exact st_call (pre := [.i64 v]) (by rw [hfuncs]; rfl) hf2
-  have hin : Steps P host ⟨s, F₀ M n, wrap [(2, [], [])] (vals [.i32 r] ++ expression nR3)⟩
-      ⟨s, FL M n (n + BitVec.allOnes 32) r, wrap LL
+  have hin : Steps P host ⟨s, F₀ M n, wrap [(2, [], [])] (vals [.i32 r] ++ expression (nR3 cap))⟩
+      ⟨s, FL M n (n + BitVec.allOnes 32) r, wrap (LL cap)
         (vals [.i64 v] ++ [.ref (.func 2), .callRefType f2.type] ++ expression lTail)⟩ := by
     refine steps_wrap [(2, [], [])] ?_
     refine (exec_sound (P := P) (host := host) (rs := [.i32 r])
-      (expression [.block .empty [.loop .empty ringLoopBody], .unreachable])
+      (expression [.block .empty [.loop .empty (ringLoopBody cap)], .unreachable])
       (ex_g3 (s := s) (M := M) (a := .i32 0) (b := .i32 0) (k := n) (r := r))).trans ?_
     refine st_block.trans ?_
     refine (steps_wrap [(0, [], expression [.unreachable])] st_loop).trans ?_
     exact steps_wrap [(0, [], expression [.unreachable])]
-      (steps_wrap [(0, [.loop .empty ringLoopBody], [])] hloop)
+      (steps_wrap [(0, [.loop .empty (ringLoopBody cap)], [])] hloop)
   have := Silmaril.Wasm.Logic.Core.Steps.frame (P := P) (host := host) (f := {}) 2 hin
   simpa only [Ctx.fill, lctx_fill, wrap, vals, List.map_nil, List.nil_append, List.append_nil]
     using this
@@ -624,8 +633,8 @@ theorem fin_run₂ (hmg : M.globals = [0, 1]) (hmm : M.mems = [0])
 /-- **`finish(n)`**, after `word(v) = a`: up to the call `cons(a, r)`. -/
 theorem fin_run₃ (hfuncs : M.funcs = List.range 6) {n i r a : BitVec 32} {f1 : FuncInst Nat}
     (hf1 : s.funcs[1]? = some f1) :
-    Steps P host ⟨s, {}, (EL M n i r lTail).fill (vals [.i32 a])⟩
-      ⟨s, {}, (EL M n i r [.localSet ⟨2⟩, .br ⟨0⟩]).fill
+    Steps P host ⟨s, {}, (EL cap M n i r lTail).fill (vals [.i32 a])⟩
+      ⟨s, {}, (EL cap M n i r [.localSet ⟨2⟩, .br ⟨0⟩]).fill
         (vals [.i32 a, .i32 r] ++ [.ref (.func 1), .callRefType f1.type])⟩ := by
   have hin : Steps P host ⟨s, FL M n i r, vals [.i32 a] ++ expression lTail⟩
       ⟨s, FL M n i r, vals [.i32 a, .i32 r] ++ [.ref (.func 1), .callRefType f1.type] ++
@@ -635,48 +644,48 @@ theorem fin_run₃ (hfuncs : M.funcs = List.range 6) {n i r a : BitVec 32} {f1 :
       (ex_r1 (s := s) (M := M) (k := n) (i := i) (r := r) (a := a))).trans ?_
     exact st_call (pre := [.i32 a, .i32 r]) (by rw [hfuncs]; rfl) hf1
   have := Silmaril.Wasm.Logic.Core.Steps.frame (P := P) (host := host) (f := {}) 2
-    (steps_wrap LL hin)
+    (steps_wrap (LL cap) hin)
   simpa only [Ctx.fill, lctx_fill, wrap, vals, List.map_nil, List.nil_append, List.append_nil]
     using this
 
 /-- **`finish(n)`**, after `cons(a, r) = c`: the second iteration exits the loop and returns
 `(n, c)`, dropping the `n` consumed values. -/
-theorem fin_run₄ (hmg : M.globals = [0, 1]) (hg0 : s.globals[0]? = some g0)
+theorem fin_run₄ (hmg : M.globals = [0, 1]) (hc0 : capW cap ≠ 0) (hg0 : s.globals[0]? = some g0)
     (hg1 : s.globals[1]? = some g1) (hv0 : g0.value = .i32 st) (hv1 : g1.value = .i32 cnt)
     {n r c : BitVec 32} (hnz : bool32 ((n + BitVec.allOnes 32) == 0) ≠ 0) :
-    Steps P host ⟨s, {}, (EL M n (n + BitVec.allOnes 32) r [.localSet ⟨2⟩, .br ⟨0⟩]).fill
+    Steps P host ⟨s, {}, (EL cap M n (n + BitVec.allOnes 32) r [.localSet ⟨2⟩, .br ⟨0⟩]).fill
         (vals [.i32 c])⟩
-      ⟨(s.setGlobal 0 (.i32 ((st + n) % 8))).setGlobal 1 (.i32 (cnt - n)), {},
+      ⟨(s.setGlobal 0 (.i32 ((st + n) % capW cap))).setGlobal 1 (.i32 (cnt - n)), {},
         vals [.i32 n, .i32 c]⟩ := by
-  let s₄ := (s.setGlobal 0 (.i32 ((st + n) % 8))).setGlobal 1 (.i32 (cnt - n))
+  let s₄ := (s.setGlobal 0 (.i32 ((st + n) % capW cap))).setGlobal 1 (.i32 (cnt - n))
   let F₂ := FL M n (n + BitVec.allOnes 32) c
-  have hit : Steps P host ⟨s, F₂, expression ringLoopBody⟩
-      ⟨s₄, F₂, wrap [(0, [], expression lRest)] (vals [.i32 n, .i32 c] ++ [.plain .return_])⟩ := by
-    rw [loop_body, expr_app, show expression (lIf :: lRest) = .plain lIf :: expression lRest from
+  have hit : Steps P host ⟨s, F₂, expression (ringLoopBody cap)⟩
+      ⟨s₄, F₂, wrap [(0, [], expression (lRest cap))] (vals [.i32 n, .i32 c] ++ [.plain .return_])⟩ := by
+    rw [loop_body, expr_app, show expression (lIf cap :: lRest cap) = .plain (lIf cap) :: expression (lRest cap) from
       rfl]
-    refine (exec_sound (P := P) (host := host) (rs := []) (.plain lIf :: expression lRest)
+    refine (exec_sound (P := P) (host := host) (rs := []) (.plain (lIf cap) :: expression (lRest cap))
       (ex_l1 (s := s) (M := M) (k := n) (i := n + BitVec.allOnes 32) (r := c))).trans ?_
     refine (st_ifT hnz).trans (st_block.trans ?_)
     refine steps_wrap _ ?_
     rw [expr_app]
     exact exec_sound (P := P) (host := host) (rs := []) (expression [.return_])
-      (ex_t hmg (k := n) (i := n + BitVec.allOnes 32) (r := c) hg0 hg1 hv0 hv1)
+      (ex_t hmg hc0 (k := n) (i := n + BitVec.allOnes 32) (r := c) hg0 hg1 hv0 hv1)
   have hin : Steps P host
       ⟨s, FL M n (n + BitVec.allOnes 32) r,
-        wrap LL (vals [.i32 c] ++ expression [.localSet ⟨2⟩, .br ⟨0⟩])⟩
-      ⟨s₄, F₂, wrap (LL ++ [(0, [], expression lRest)])
+        wrap (LL cap) (vals [.i32 c] ++ expression [.localSet ⟨2⟩, .br ⟨0⟩])⟩
+      ⟨s₄, F₂, wrap (LL cap ++ [(0, [], expression (lRest cap))])
         (vals [.i32 n, .i32 c] ++ [.plain .return_])⟩ := by
-    refine (steps_wrap LL (exec_sound (P := P) (host := host) (rs := [.i32 c])
+    refine (steps_wrap (LL cap) (exec_sound (P := P) (host := host) (rs := [.i32 c])
       [.plain (.br ⟨0⟩)] (ex_r2 (s := s) (M := M) (k := n) (i := n + BitVec.allOnes 32) (r := r)
         (c := c)))).trans ?_
-    rw [show LL = [(2, [], []), (0, [], expression [.unreachable])] ++
-      [(0, [.loop .empty ringLoopBody], [])] from rfl]
+    rw [show (LL cap) = [(2, [], []), (0, [], expression [.unreachable])] ++
+      [(0, [.loop .empty (ringLoopBody cap)], [])] from rfl]
     simp only [wrap_append]
     refine (steps_wrap _ (st_br0 (rest := []) (r := []))).trans ?_
     refine (steps_wrap _ (st_loop (rest := []))).trans ?_
     exact steps_wrap _ (steps_wrap _ hit)
   obtain ⟨rest', hr⟩ := ret_wrap (P := P) (host := host) (s := s₄) (F := F₂) [.i32 n, .i32 c]
-    (LL ++ [(0, [], expression lRest)]) []
+    (LL cap ++ [(0, [], expression (lRest cap))]) []
   have h := (Silmaril.Wasm.Logic.Core.Steps.frame (P := P) (host := host) (f := {}) 2
     (hin.trans hr)).trans (st_retFrame rfl)
   simpa only [Ctx.fill, lctx_fill, wrap, vals, List.map_nil, List.nil_append, List.append_nil]
@@ -693,12 +702,36 @@ theorem glob_of {s : Store Nat} {a : Nat} {v : Val} (h : gval s a = some v) :
   | none => simp [hg] at h
   | some g => simp only [hg, Option.map_some, Option.some.injEq] at h; exact ⟨g, rfl, h⟩
 
-theorem ring_size : (RI.store.mems[0]?).map (·.bytes.size) = some 65536 := by decide +kernel
+section Session
+
+variable (cap : Nat)
+
+theorem ri_gval0 : gval (RI cap).store 0 = some (.i32 0) := by
+  rw [RI_eq]; exact ring_gval0 cap
+
+theorem ri_gval1 : gval (RI cap).store 1 = some (.i32 0) := by
+  rw [RI_eq]; exact ring_gval1 cap
+
+theorem ri_memlen : (RI cap).store.mems.length = 1 := by
+  rw [RI_eq]; exact ring_memlen cap
+
+theorem ri_size : ((RI cap).store.mems[0]?).map (·.bytes.size) = some 65536 := by
+  rw [RI_eq]; exact ring_size cap
+
+theorem ri_exports : (RI cap).exports = chunkFTs := (ring_shape cap).exports
 
 /-- The export calls of the session. -/
-abbrev cF7 : RI.F.Op := ⟨⟨0, by decide +kernel⟩, ⟨[.i64 7], typedB_sound (by decide +kernel)⟩⟩
-abbrev cF8 : RI.F.Op := ⟨⟨0, by decide +kernel⟩, ⟨[.i64 8], typedB_sound (by decide +kernel)⟩⟩
-abbrev cN1 : RI.F.Op := ⟨⟨1, by decide +kernel⟩, ⟨[.i32 1], typedB_sound (by decide +kernel)⟩⟩
+abbrev cF7 : (RI cap).F.Op :=
+  ⟨⟨0, by rw [ri_exports]; decide⟩,
+    ⟨[.i64 7], typedB_sound (by rw [(ring_shape cap).get]; rfl)⟩⟩
+abbrev cF8 : (RI cap).F.Op :=
+  ⟨⟨0, by rw [ri_exports]; decide⟩,
+    ⟨[.i64 8], typedB_sound (by rw [(ring_shape cap).get]; rfl)⟩⟩
+abbrev cN1 : (RI cap).F.Op :=
+  ⟨⟨1, by rw [ri_exports]; decide⟩,
+    ⟨[.i32 1], typedB_sound (by rw [(ring_shape cap).get]; rfl)⟩⟩
+
+end Session
 
 /-- The recorded moves of `finish(1)` with the callouts answered `r`, `a`, `c` (`nil()`, `word(v)`,
 `cons(a, r)`). -/
@@ -714,32 +747,49 @@ def ringR : List RMove :=
     finR 7 1 2 3 ++ finR 8 4 5 6
 
 /-- The stores of the session: after `feed(7)`, `feed(8)`, and the first `finish(1)`. -/
-abbrev S₁ (mi : MemInst) (B₁ : ByteArray) : Store Nat :=
-  (RI.store.setMem 0 { mi with bytes := B₁ }).setGlobal 1 (.i32 (0 + 1))
-abbrev S₂ (mi : MemInst) (B₁ B₂ : ByteArray) : Store Nat :=
-  ((S₁ mi B₁).setMem 0 { mi with bytes := B₂ }).setGlobal 1 (.i32 (0 + 1 + 1))
-abbrev S₃ (mi : MemInst) (B₁ B₂ : ByteArray) : Store Nat :=
-  ((S₂ mi B₁ B₂).setGlobal 0 (.i32 ((0 + 1) % 8))).setGlobal 1 (.i32 (0 + 1 + 1 - 1))
+abbrev S₁ (cap : Nat) (mi : MemInst) (B₁ : ByteArray) : Store Nat :=
+  ((RI cap).store.setMem 0 { mi with bytes := B₁ }).setGlobal 1 (.i32 (0 + 1))
+abbrev S₂ (cap : Nat) (mi : MemInst) (B₁ B₂ : ByteArray) : Store Nat :=
+  ((S₁ cap mi B₁).setMem 0 { mi with bytes := B₂ }).setGlobal 1 (.i32 (0 + 1 + 1))
+abbrev S₃ (cap : Nat) (mi : MemInst) (B₁ B₂ : ByteArray) : Store Nat :=
+  ((S₂ cap mi B₁ B₂).setGlobal 0 (.i32 ((0 + 1) % capW cap))).setGlobal 1 (.i32 (0 + 1 + 1 - 1))
 
-/-- **The session is a play** of `chunkRing`, in every profile. -/
-theorem ring_session (P : Profile) :
-    ∃ ms q, RI.Path P (.idle RI.store) ms q ∧ ms.map rmv = ringR := by
-  have hS := ring_shape
-  obtain ⟨f0, ps0, rs0, hf0, hc0, he0, hn0⟩ := hS.stub 0 (by decide)
+theorem bool32_ne {a c : BitVec 32} (h : a ≠ c) : bool32 (a == c) = 0 := by
+  simp [bool32, h]
+
+theorem effAddr_00 (a : Nat) : effAddr a ⟨0, 0⟩ = a := rfl
+
+theorem allOnes_succ : (1 : BitVec 32) + BitVec.allOnes 32 = 0 := by decide
+
+theorem mod_small {cap : Nat} (h8 : cap ≤ 8192) {x : BitVec 32} (hx : x.toNat < cap) :
+    x % capW cap = x :=
+  BitVec.eq_of_toNat_eq (by rw [BitVec.toNat_umod, capW_toNat h8]; exact Nat.mod_eq_of_lt hx)
+
+/-- **The session is a play** of `chunkRingN cap`, for every capacity `2 ≤ cap ≤ 8192`, in
+every profile. -/
+theorem ring_session {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) (P : Profile) :
+    ∃ ms q, (RI cap).Path P (.idle (RI cap).store) ms q ∧ ms.map rmv = ringR := by
+  have hcap : RingCap cap := ⟨by omega, h8⟩
+  have hc0 : capW cap ≠ 0 := capW_ne hcap
+  have hcw := capW_toNat h8
+  have hne : ∀ a : BitVec 32, a.toNat < 2 → a ≠ capW cap := fun a ha h => by
+    rw [h, hcw] at ha; omega
+  have hS := ring_shape cap
+  obtain ⟨f0, ps0, rs0, hf0, hc0', he0, hn0⟩ := hS.stub 0 (by decide)
   obtain ⟨f1, ps1, rs1, hf1, hc1, he1, hn1⟩ := hS.stub 1 (by decide)
   obtain ⟨f2, ps2, rs2, hf2, hc2, he2, hn2⟩ := hS.stub 2 (by decide)
   obtain ⟨fi4, code4, ps4, rs4, hf4, hcode4, hloc4, hbody4, he4, hps4, hrs4, -, hmg4, -⟩ :=
     hS.fn 0 (by decide)
   obtain ⟨fi5, code5, ps5, rs5, hf5, hcode5, hloc5, hbody5, he5, hps5, hrs5, hm5, hmg5, hD5⟩ :=
     hS.fn 1 (by decide)
-  have hf4' : RI.store.funcs[4]? = some fi4 := hf4
-  have hf5' : RI.store.funcs[5]? = some fi5 := hf5
+  have hf4' : (RI cap).store.funcs[4]? = some fi4 := hf4
+  have hf5' : (RI cap).store.funcs[5]? = some fi5 := hf5
   have hmm4 : fi4.module.mems = [0] := by
-    have h := ring_mems4
+    have h := ring_mems4 cap
     rw [hf4'] at h
     exact Option.some.inj h
   have hmm5 : fi5.module.mems = [0] := by
-    have h := ring_mems5
+    have h := ring_mems5 cap
     rw [hf5'] at h
     exact Option.some.inj h
   have hfr4 : ∀ x : BitVec 64, Frame.forCall fi4.module [.i64 x] code4.locals =
@@ -752,139 +802,160 @@ theorem ring_session (P : Profile) :
       unfold Frame.forCall
       rw [hloc5, hD5]
       rfl
+  -- the slots
+  have t1 : (1 : BitVec 32).toNat = 1 := rfl
+  have hm1 : (1 : BitVec 32) % capW cap = 1 := mod_small h8 (by rw [t1]; omega)
+  have hm0 : (0 : BitVec 32) % capW cap = 0 := mod_small h8 (show 0 < cap by omega)
+  have ha0 : (((0 : BitVec 32) + 0) % capW cap * 8).toNat = 0 := by
+    rw [show (0 : BitVec 32) + 0 = 0 from by decide, hm0]; decide
+  have ha1 : (((0 : BitVec 32) + (0 + 1)) % capW cap * 8).toNat = 8 := by
+    rw [show (0 : BitVec 32) + (0 + 1) = 1 from by decide, hm1]; decide
+  have ha0' : (((0 : BitVec 32) + 0) % capW cap * 8#32).toNat = 0 := ha0
+  have ha2 : (((0 + 1 : BitVec 32) % capW cap + 0) % capW cap * 8#32).toNat = 8 := by
+    rw [show (0 + 1 : BitVec 32) = 1 from by decide, hm1,
+      show (1 : BitVec 32) + 0 = 1 from by decide, hm1]; decide
   -- the memory
-  obtain ⟨mi₀, hmi₀⟩ : ∃ mi, RI.store.mems[0]? = some mi :=
-    ⟨RI.store.mems[0]'(by rw [ring_memlen]; decide), List.getElem?_eq_getElem _⟩
+  obtain ⟨mi₀, hmi₀⟩ : ∃ mi, (RI cap).store.mems[0]? = some mi :=
+    ⟨(RI cap).store.mems[0]'(by rw [ri_memlen]; decide), List.getElem?_eq_getElem _⟩
   have hsz : mi₀.bytes.size = 65536 := by
-    have h := ring_size
+    have h := ri_size cap
     rw [hmi₀] at h
     exact Option.some.inj h
   obtain ⟨B₁, hB₁⟩ := Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.store_some
-    (B := mi₀.bytes) (a := (((0 : BitVec 32) + 0) % 8 * 8).toNat) (n := 8) (7 : BitVec 64)
-    (by rw [hsz]; decide)
+    (B := mi₀.bytes) (a := (((0 : BitVec 32) + 0) % capW cap * 8).toNat) (n := 8) (7 : BitVec 64)
+    (by rw [hsz, ha0]; decide)
   obtain ⟨B₂, hB₂⟩ := Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.store_some
-    (B := B₁) (a := (((0 : BitVec 32) + (0 + 1)) % 8 * 8).toNat) (n := 8) (8 : BitVec 64)
-    (by rw [Silmaril.Wasm.Logic.Core.size_store hB₁, hsz]; decide)
+    (B := B₁) (a := (((0 : BitVec 32) + (0 + 1)) % capW cap * 8).toNat) (n := 8) (8 : BitVec 64)
+    (by rw [Silmaril.Wasm.Logic.Core.size_store hB₁, hsz, ha1]; decide)
   -- the stores
-  have hl₀ := ring_memlen
-  obtain ⟨hm₁, hl₁, -, -⟩ := setMem_mems (s := RI.store) (mi := { mi₀ with bytes := B₁ }) hl₀
-  obtain ⟨hm₂, -, -, -⟩ := setMem_mems (s := S₁ mi₀ B₁) (mi := { mi₀ with bytes := B₂ }) hl₁
-  obtain ⟨g00, hg00, hv00⟩ := glob_of ring_gval0
-  obtain ⟨g01, hg01, hv01⟩ := glob_of ring_gval1
-  obtain ⟨g10, hg10, hv10⟩ := glob_of (s := S₁ mi₀ B₁) (a := 0) (v := .i32 0) (by
-    simp [gval_setGlobal, gval_setMem, ring_gval0])
-  obtain ⟨g11, hg11, hv11⟩ := glob_of (s := S₁ mi₀ B₁) (a := 1) (v := .i32 (0 + 1)) (by
-    simp [gval_setGlobal, gval_setMem, ring_gval1])
-  obtain ⟨g20, hg20, hv20⟩ := glob_of (s := S₂ mi₀ B₁ B₂) (a := 0) (v := .i32 0) (by
-    simp [gval_setGlobal, gval_setMem, ring_gval0])
-  obtain ⟨g21, hg21, hv21⟩ := glob_of (s := S₂ mi₀ B₁ B₂) (a := 1) (v := .i32 (0 + 1 + 1)) (by
-    simp [gval_setGlobal, gval_setMem, ring_gval1])
-  obtain ⟨g30, hg30, hv30⟩ := glob_of (s := S₃ mi₀ B₁ B₂) (a := 0) (v := .i32 ((0 + 1) % 8)) (by
-    simp [gval_setGlobal, gval_setMem, ring_gval0])
-  obtain ⟨g31, hg31, hv31⟩ := glob_of (s := S₃ mi₀ B₁ B₂) (a := 1)
-    (v := .i32 (0 + 1 + 1 - 1)) (by simp [gval_setGlobal, gval_setMem, ring_gval1])
+  have hl₀ := ri_memlen cap
+  obtain ⟨hm₁, hl₁, -, -⟩ := setMem_mems (s := (RI cap).store) (mi := { mi₀ with bytes := B₁ }) hl₀
+  obtain ⟨hm₂, -, -, -⟩ := setMem_mems (s := S₁ cap mi₀ B₁) (mi := { mi₀ with bytes := B₂ }) hl₁
+  obtain ⟨g00, hg00, hv00⟩ := glob_of (ri_gval0 cap)
+  obtain ⟨g01, hg01, hv01⟩ := glob_of (ri_gval1 cap)
+  obtain ⟨g10, hg10, hv10⟩ := glob_of (s := S₁ cap mi₀ B₁) (a := 0) (v := .i32 0) (by
+    simp [gval_setGlobal, gval_setMem, ri_gval0])
+  obtain ⟨g11, hg11, hv11⟩ := glob_of (s := S₁ cap mi₀ B₁) (a := 1) (v := .i32 (0 + 1)) (by
+    simp [gval_setGlobal, gval_setMem, ri_gval1])
+  obtain ⟨g20, hg20, hv20⟩ := glob_of (s := S₂ cap mi₀ B₁ B₂) (a := 0) (v := .i32 0) (by
+    simp [gval_setGlobal, gval_setMem, ri_gval0])
+  obtain ⟨g21, hg21, hv21⟩ := glob_of (s := S₂ cap mi₀ B₁ B₂) (a := 1) (v := .i32 (0 + 1 + 1)) (by
+    simp [gval_setGlobal, gval_setMem, ri_gval1])
+  obtain ⟨g30, hg30, hv30⟩ := glob_of (s := S₃ cap mi₀ B₁ B₂) (a := 0)
+    (v := .i32 ((0 + 1) % capW cap)) (by simp [gval_setGlobal, gval_setMem, ri_gval0])
+  obtain ⟨g31, hg31, hv31⟩ := glob_of (s := S₃ cap mi₀ B₁ B₂) (a := 1)
+    (v := .i32 (0 + 1 + 1 - 1)) (by simp [gval_setGlobal, gval_setMem, ri_gval1])
   -- the loads
   have hld₁ : Memory.load B₂
-      (effAddr (((0 : BitVec 32) + (1 + BitVec.allOnes 32)) % 8#32 * 8#32 : BitVec 32).toNat
+      (effAddr (((0 : BitVec 32) + (1 + BitVec.allOnes 32)) % capW cap * 8#32 : BitVec 32).toNat
         ⟨0, 0⟩) (IntType.i64.width / 8) = some (7 : BitVec 64) := by
-    rw [show effAddr (((0 : BitVec 32) + (1 + BitVec.allOnes 32)) % 8#32 * 8#32 : BitVec 32).toNat
-      ⟨0, 0⟩ = (((0 : BitVec 32) + 0) % 8 * 8).toNat from by decide,
+    rw [allOnes_succ, effAddr_00,
       Silmaril.Wasm.Logic.Core.load_store_disjoint hB₂ (by
         unfold Silmaril.Wasm.Logic.Core.Region.Disjoint Silmaril.Wasm.Logic.Core.Region.stop
-        decide)]
+        rw [ha0', ha1]; decide)]
     exact Silmaril.Wasm.Logic.Core.load_store_same hB₁
   have hld₂ : Memory.load B₂
-      (effAddr (((0 + 1) % 8 + (1 + BitVec.allOnes 32)) % 8#32 * 8#32 : BitVec 32).toNat
-        ⟨0, 0⟩) (IntType.i64.width / 8) = some (8 : BitVec 64) := by
-    rw [show effAddr (((0 + 1) % 8 + (1 + BitVec.allOnes 32)) % 8#32 * 8#32 : BitVec 32).toNat
-      ⟨0, 0⟩ = (((0 : BitVec 32) + (0 + 1)) % 8 * 8).toNat from by decide]
+      (effAddr (((0 + 1) % capW cap + (1 + BitVec.allOnes 32)) % capW cap * 8#32 :
+        BitVec 32).toNat ⟨0, 0⟩) (IntType.i64.width / 8) = some (8 : BitVec 64) := by
+    rw [allOnes_succ, effAddr_00, show (((0 + 1 : BitVec 32) % capW cap + 0) % capW cap *
+      8#32).toNat = (((0 : BitVec 32) + (0 + 1)) % capW cap * 8).toNat from ha2.trans ha1.symm]
     exact Silmaril.Wasm.Logic.Core.load_store_same hB₂
   -- the runs
-  have r₁ : Steps P Det.noHost ((RI.initThread cF7).config RI.store) ⟨S₁ mi₀ B₁, {}, vals []⟩ := by
-    show Steps P Det.noHost (invoke RI.store (RI.addr cF7.1) cF7.2.1) _
+  have r₁ : Steps P Det.noHost (((RI cap).initThread (cF7 cap)).config (RI cap).store)
+      ⟨S₁ cap mi₀ B₁, {}, vals []⟩ := by
+    show Steps P Det.noHost (invoke (RI cap).store ((RI cap).addr (cF7 cap).1) (cF7 cap).2.1) _
     rw [hS.addr]
     exact feed_run hmg4 hmm4 hg00 hg01 hv00 hv01 hf4' he4 hps4 hrs4 hcode4 (hfr4 7) hbody4
-      (by decide) hmi₀ hB₁
-  have r₂ : Steps P Det.noHost ((RI.initThread cF8).config (S₁ mi₀ B₁))
-      ⟨S₂ mi₀ B₁ B₂, {}, vals []⟩ := by
-    show Steps P Det.noHost (invoke (S₁ mi₀ B₁) (RI.addr cF8.1) cF8.2.1) _
+      (bool32_ne (hne 0 (by decide))) hc0 hmi₀ hB₁
+  have r₂ : Steps P Det.noHost (((RI cap).initThread (cF8 cap)).config (S₁ cap mi₀ B₁))
+      ⟨S₂ cap mi₀ B₁ B₂, {}, vals []⟩ := by
+    show Steps P Det.noHost (invoke (S₁ cap mi₀ B₁) ((RI cap).addr (cF8 cap).1) (cF8 cap).2.1) _
     rw [hS.addr]
     exact feed_run hmg4 hmm4 hg10 hg11 hv10 hv11 hf4' he4 hps4 hrs4 hcode4 (hfr4 8) hbody4
-      (by decide) hm₁ hB₂
+      (bool32_ne (hne (0 + 1) (by decide))) hc0 hm₁ hB₂
   have hdec : ∀ (s : Store Nat) (E : Ctx) (k : Nat) (fk : FuncInst Nat) (ps rs : Ty (.list .val))
       (args : List Val), s.funcs[k]? = some fk → fk.code = .host k →
       Expand fk.type (.func ps rs) → args.length = ps.length →
       decompose? s (E.fill (vals args ++ [.ref (.func k), .callRefType fk.type])) =
         some (E, k, k, args) := fun s E k fk ps rs args hf hc he hn =>
     Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.decompose_fill E trivial hf he hn hc
-  have himp : ∀ (k : Nat) (hk : k < RI.imports.length),
-      RI.imports.get ⟨k, hk⟩ = twoFTs[k]'(hS.imports ▸ hk) := fun k hk => by
+  have himp : ∀ (k : Nat) (hk : k < (RI cap).imports.length),
+      (RI cap).imports.get ⟨k, hk⟩ = twoFTs[k]'(hS.imports ▸ hk) := fun k hk => by
     rw [List.get_eq_getElem]
     exact List.getElem_of_eq hS.imports hk
-  have hil : RI.imports.length = 4 := by rw [hS.imports]; rfl
+  have hil : (RI cap).imports.length = 4 := by rw [hS.imports]; rfl
   -- `finish(1)` from a store
   have fin : ∀ (s : Store Nat) (st cnt : BitVec 32) (g0 g1 : GlobalInst) (mi : MemInst)
-      (v : BitVec 64) (r a c : BitVec 32), s.funcs = RI.store.funcs →
+      (v : BitVec 64) (r a c : BitVec 32), s.funcs = (RI cap).store.funcs →
       s.globals[0]? = some g0 → s.globals[1]? = some g1 → g0.value = .i32 st →
       g1.value = .i32 cnt → s.mems[0]? = some mi →
       bool32 (decide ((1 : BitVec 32).toNat > cnt.toNat)) = 0 →
       Memory.load mi.bytes
-        (effAddr ((st + (1 + BitVec.allOnes 32)) % 8#32 * 8#32 : BitVec 32).toNat ⟨0, 0⟩)
+        (effAddr ((st + (1 + BitVec.allOnes 32)) % capW cap * 8#32 : BitVec 32).toNat ⟨0, 0⟩)
         (IntType.i64.width / 8) = some v →
-      ∃ ms, RI.Path P (.idle s) ms
-        (.idle ((s.setGlobal 0 (.i32 ((st + 1) % 8))).setGlobal 1 (.i32 (cnt - 1)))) ∧
+      ∃ ms, (RI cap).Path P (.idle s) ms
+        (.idle ((s.setGlobal 0 (.i32 ((st + 1) % capW cap))).setGlobal 1 (.i32 (cnt - 1)))) ∧
         ms.map rmv = finR v r a c := by
     intro s st cnt g0 g1 mi v r a c hfs hg0 hg1 hv0 hv1 hmi hgt hl
     have hfs0 : s.funcs[0]? = some f0 := by rw [hfs]; exact hf0
     have hfs1 : s.funcs[1]? = some f1 := by rw [hfs]; exact hf1
     have hfs2 : s.funcs[2]? = some f2 := by rw [hfs]; exact hf2
     have hfs5 : s.funcs[5]? = some fi5 := by rw [hfs]; exact hf5'
-    refine path_call' (f := cN1) ?_
+    refine path_call' (f := cN1 cap) ?_
     refine path_callout' (F' := {}) (h := 0) (args := []) (vs := [.i32 r]) ?_
-      (hdec s (E₁ fi5.module 1) 0 f0 ps0 rs0 [] hfs0 hc0 he0 (by rw [hn0]; rfl)) (by rw [hil]; decide)
-      (by rw [himp]; rfl) (by rw [himp]; rfl) ?_
-    · show Steps P Det.noHost (invoke s (RI.addr cN1.1) cN1.2.1) _
+      (hdec s (E₁ cap fi5.module 1) 0 f0 ps0 rs0 [] hfs0 hc0' he0 (by rw [hn0]; rfl))
+      (by rw [hil]; decide) (by rw [himp]; rfl) (by rw [himp]; rfl) ?_
+    · show Steps P Det.noHost (invoke s ((RI cap).addr (cN1 cap).1) (cN1 cap).2.1) _
       rw [hS.addr]
       exact fin_run₁ hmg5 hm5 hg1 hv1 hfs5 he5 hps5 hrs5 hcode5 (hfr5 1) hbody5 hgt (by decide)
         hfs0
     refine path_callout' (F' := {}) (h := 2) (args := [.i64 v]) (vs := [.i32 a])
-      (fin_run₂ hmg5 hmm5 hm5 hg0 hv0 (by decide) hmi hl hfs2)
-      (hdec s (EL fi5.module 1 (1 + BitVec.allOnes 32) r lTail) 2 f2 ps2 rs2 [.i64 v] hfs2 hc2 he2 (by rw [hn2]; rfl)) (by rw [hil]; decide)
+      (fin_run₂ hmg5 hmm5 hc0 hm5 hg0 hv0 (by decide) hmi hl hfs2)
+      (hdec s (EL cap fi5.module 1 (1 + BitVec.allOnes 32) r lTail) 2 f2 ps2 rs2 [.i64 v] hfs2
+        hc2 he2 (by rw [hn2]; rfl)) (by rw [hil]; decide)
       (by rw [himp]; rfl) (by rw [himp]; rfl) ?_
     refine path_callout' (F' := {}) (h := 1) (args := [.i32 a, .i32 r]) (vs := [.i32 c])
       (fin_run₃ hm5 hfs1)
-      (hdec s (EL fi5.module 1 (1 + BitVec.allOnes 32) r [.localSet ⟨2⟩, .br ⟨0⟩]) 1 f1
+      (hdec s (EL cap fi5.module 1 (1 + BitVec.allOnes 32) r [.localSet ⟨2⟩, .br ⟨0⟩]) 1 f1
         ps1 rs1 [.i32 a, .i32 r] hfs1 hc1 he1 (by rw [hn1]; rfl))
       (by rw [hil]; decide) (by rw [himp]; rfl) (by rw [himp]; rfl) ?_
-    exact path_ret (fin_run₄ hmg5 hg0 hg1 hv0 hv1 (by decide)) (by rw [hS.get]; rfl)
-  have p₁ := path_call' (f := cF7) (path_ret r₁ (by decide +kernel))
-  have p₂ := path_call' (f := cF8) (path_ret r₂ (by decide +kernel))
-  have p₃ := fin (S₂ mi₀ B₁ B₂) 0 (0 + 1 + 1) g20 g21 { mi₀ with bytes := B₂ } 7 1 2 3 rfl hg20
-    hg21 hv20 hv21 hm₂ (by decide) hld₁
-  have p₄ := fin (S₃ mi₀ B₁ B₂) ((0 + 1) % 8) (0 + 1 + 1 - 1) g30 g31 { mi₀ with bytes := B₂ } 8
-    4 5 6 rfl hg30 hg31 hv30 hv31 hm₂ (by decide) hld₂
+    exact path_ret (fin_run₄ hmg5 hc0 hg0 hg1 hv0 hv1 (by decide)) (by rw [hS.get]; rfl)
+  have p₁ := path_call' (f := cF7 cap) (path_ret r₁ (by rw [hS.get]; rfl))
+  have p₂ := path_call' (f := cF8 cap) (path_ret r₂ (by rw [hS.get]; rfl))
+  have p₃ := fin (S₂ cap mi₀ B₁ B₂) 0 (0 + 1 + 1) g20 g21 { mi₀ with bytes := B₂ } 7 1 2 3 rfl
+    hg20 hg21 hv20 hv21 hm₂ (by decide) hld₁
+  have p₄ := fin (S₃ cap mi₀ B₁ B₂) ((0 + 1) % capW cap) (0 + 1 + 1 - 1) g30 g31
+    { mi₀ with bytes := B₂ } 8 4 5 6 rfl hg30 hg31 hv30 hv31 hm₂ (by decide) hld₂
   obtain ⟨ms, hp, hm⟩ := path_trans p₁ (path_trans p₂ (path_trans p₃ p₄))
   exact ⟨ms, _, hp, hm⟩
+
+/-- The session as a play of the instance itself. -/
+theorem ring_session' {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) (P : Profile) :
+    ∃ ms q, (Verify.instOf (chunkRingN cap)).Path P (.idle (Verify.instOf (chunkRingN cap)).store)
+      ms q ∧ ms.map rmv = ringR := by
+  have h := ring_session h2 h8 P
+  rw [RI_eq] at h
+  exact h
 
 /-! ## Related pairs -/
 
 section Relates
 
-variable {P : Profile} {pol : Policy (BitVec 32)} (hs : ∀ r, pol.sentinel = some r → r = 0)
-  {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0)
-include hs h0
+variable {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) {P : Profile} {pol : Policy (BitVec 32)}
+  (hs : ∀ r, pol.sentinel = some r → r = 0) {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0)
+include h2 h8 hs h0
 
 /-- **The first `finish(1)` consumes one of two buffered values: `([7], (7))`.** -/
-theorem chunkRing_relates_7 :
-    ([7], SExp2.ofAtoms [7]) ∈ moduleMixedRel P chunkRing twoIx ringPix pol ppol :=
+theorem chunkRingN_relates_7 :
+    ([7], SExp2.ofAtoms [7]) ∈ moduleMixedRel P (chunkRingN cap) twoIx ringPix pol ppol :=
   mem_moduleMixedRel_of_path twoIx ringPix (bad := fun r => decide (r = 0))
-    (fun r h => by simp [hs r h]) (by simp [h0]) (ring_session P) (by decide +kernel)
+    (fun r h => by simp [hs r h]) (by simp [h0]) (ring_session' h2 h8 P) (by decide +kernel)
 
 /-- **The second `finish(1)` consumes the value left in memory: `([8], (8))`.** -/
-theorem chunkRing_relates_8 :
-    ([8], SExp2.ofAtoms [8]) ∈ moduleMixedRel P chunkRing twoIx ringPix pol ppol :=
+theorem chunkRingN_relates_8 :
+    ([8], SExp2.ofAtoms [8]) ∈ moduleMixedRel P (chunkRingN cap) twoIx ringPix pol ppol :=
   mem_moduleMixedRel_of_path twoIx ringPix (bad := fun r => decide (r = 0))
-    (fun r h => by simp [hs r h]) (by simp [h0]) (ring_session P) (by decide +kernel)
+    (fun r h => by simp [hs r h]) (by simp [h0]) (ring_session' h2 h8 P) (by decide +kernel)
 
 end Relates
 
