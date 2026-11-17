@@ -24,9 +24,10 @@ The condition is decidable, on the REF reading:
 * `refTypesOk m`: the validated import types of `m` (`Core3.importTypesE`) all accept a host
   function of that core type (`fExt`, the extern type of such a function);
 * `FirstImpFrag r` (`firstImpFrag r = true`): `r` has a core instantiation; the definitions
-  before it satisfy `preOk 0 0`; the module it instantiates is in the split fragment, has as
-  many imports as there are `canon lower`s before it, and they satisfy the three conditions
-  above.
+  before it satisfy `preOk 0 0`; the module it instantiates has as many imports as there are
+  `canon lower`s before it, and they satisfy the three conditions above. Unlike `FirstCoreFrag`,
+  no split condition (`splitMod`) is needed: the module is instantiated against exactly the
+  trampolines, so the two stores differ only in host code, and no relocation is involved.
 
 `FirstCoreFrag' r := FirstCoreFrag r ∨ FirstImpFrag r` is the relaxed first-core fragment.
 `starts.wasm` is in `FirstImpFrag` (`FirstImp.Thms.starts_firstImpFrag`); `trap.wasm` is in
@@ -125,13 +126,12 @@ def firstImpFrag (r : RefComponent) : Bool :=
   | some (pre, mi, cargs, _) =>
     preOk 0 0 pre &&
       match (coreMods pre)[mi]? with
-      | some m => splitMod m && impOk pre cargs m
+      | some m => impOk pre cargs m
       | none => false
 
 /-- **The first-core fragment with lowered imports**: the definitions before the first core
-instantiation are of the forms `preOk` allows, and the module it instantiates is in the split
-fragment and imports exactly the `canon lower`s defined before it, in order, at core type
-`fFlat`. -/
+instantiation are of the forms `preOk` allows, and the module it instantiates imports exactly
+the `canon lower`s defined before it, in order, at core type `fFlat`. -/
 def FirstImpFrag (r : RefComponent) : Prop := firstImpFrag r = true
 
 instance (r : RefComponent) : Decidable (FirstImpFrag r) :=
