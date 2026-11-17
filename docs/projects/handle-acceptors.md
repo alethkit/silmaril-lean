@@ -55,18 +55,18 @@ Wasm examples are concrete modules.
 | # | Requirement | Abstract | Wasm | Limits |
 | --- | --- | --- | --- | --- |
 | 1 | writer `symbol(string)`, `sexp(list<i32>)`, `accept(i32)`; arbitrary fresh handles, interning | `Handle.Writer`, `Fresh`, `Run.store_extends` | memory `hiMod_lang`, `pairMod_lang`; instance-play `twoWords`, `sxPair` | |
-| 1 | invalid accept: mandatory trap (call-local), session abort, ignore, UB, fixed-env UB, error return | `callTrap`/`sessionTrap`/`ignore`/`ub`, `fixedLang`, chain + strictness, `writerLang_eraseErr_eq` | `callTrap` is the Wasm-facing policy (export calls decode to `enter`); error-return `accept` and `accept_all` modules: pending | |
+| 1 | invalid accept: mandatory trap (call-local), session abort, ignore, UB, fixed-env UB, error return | `callTrap`/`sessionTrap`/`ignore`/`ub`, `fixedLang`, chain + strictness, `writerLang_eraseErr_eq` | `callTrap` is the Wasm-facing policy (export calls decode to `enter`); error-return `accept`: `errAccept_sound` (within words and `nil`), runs `errAccept_accepts_word`, `errAccept_accepts_nil` (error branch) | |
 | 1 | sentinel 0/−1, inclusion with exact assumptions, capacity | `writerLang_noRet_subset`, `writerLang_subset_of_oneFailure`, `sentinel_twice`, `writerLang_sentinel_swap`, `successes_length_le` | `twoWordsZ`, `twoWordsM` | raw inclusion is false (counterexample) |
-| 1 | constructed set (downward closed), `accept_all` since start, batches | `writerLang_downClosed`, `batch_not_downClosed` | pending | |
+| 1 | constructed set (downward closed), `accept_all` since start, batches | `writerLang_downClosed`, `batch_not_downClosed` | `allAccept_sound` (bound `allL`, `allL_downClosed`), `allAccept_accepts`; `batchAccept_sound`, `batchAccept_accepts` | Wasm batch language proved only up to the constructed set, not that the dropped batch is never accepted |
 | 2 | readers `tag`/`symbol`/`sexp -> list<i32>`; `children`/`child`; fixed env; module-chosen handles, any export sequence | `Reader`, `readerLang`, `Env`/`Env.ofTotal` | cons checkers, n-ary `count`/`child` checkers, memory `items(h, retptr)`, `string_text`, `keyword_text` | |
-| 2 | invalid reads: arbitrary, trap, typed error, default, UB; arbitrary ≠ UB | `OnBadRead`, `error_iff_invalid`, `arbitrary_ne_ub`, `arbitrary_uncertified` | checkers use trap; typed-error reader module: pending | |
-| 2 | atoms `blob`, `string`, `word(i64)`, keywords: writers and readers | Family atoms | writers `atomMod` (symbol/string/blob/keyword), `word_lang`; readers string, keyword, `word`; blob reader: pending | |
-| 3 | first-class APIs for the ten families incl. Rivest canonical vs hinted | `Family`, one parameterized API per style | `Families`, `Families/Mem`: per-family table; `bpairMod`/`rivest_bpairMod`, `hinted_lang`, `hintedSep_lang` | not every family × every style has a module (table says which) |
+| 2 | invalid reads: arbitrary, trap, typed error, default, UB; arbitrary ≠ UB | `OnBadRead`, `error_iff_invalid`, `arbitrary_ne_ub`, `arbitrary_uncertified` | checkers use trap; typed error: `errD_disjoint`, `polLang_subset_of_AG` (every policy but UB), `carCheck_sound`; counterexample runs `carNoCheck_unsound_dflt`, `carCheck_unsound_arbitrary`; `carCheck_accepts` | |
+| 2 | atoms `blob`, `string`, `word(i64)`, keywords: writers and readers | Family atoms | writers `atomMod` (symbol/string/blob/keyword), `word_lang`; readers string, keyword, symbol (`symTextMod_lang`), blob (`blobMod_lang`: exactly the 2-byte blobs), `word` | |
+| 3 | first-class APIs for the ten families incl. Rivest canonical vs hinted | `Family`, one parameterized API per style | `Families`, `Families/Mem`: per-family table; `bpairMod`/`rivest_bpairMod`, `hinted_lang`, `hintedSep_lang` | not every family × every style has a module (table says which); no memory checker for lists of symbols or of byte strings |
 | 4 | generic branch + leaf tags with WIT payloads; variadic, fixed, mixed arity; SExp correspondence | `AstSig`, `WitSig`, `sexpW_hom`, `SExp.equivAST`, `leaf_children_not_wellArity` | `astMod`, `calcMod`, `appMod`, `binMod`, `addCheck`; canonical-ABI payloads | payload domain: `bool`, `s32/u32`, `s64/u64`, `string`, `bytes`, nested `list`; not floats, char, records, variants, options, results, flags, handles |
 | 5 | cons API with/without nil; SExp vs SExp2; properness; roundtrips | `consW`, `pairW`, `SExp2.toSExp?`, `Pat.toSExp2_image_lang` | cons checkers, `combCheck` (Tree2), `consMod`, `consMix` | |
 | 6 | union/intersection, images/preimages, list combinators, patterns, AST→sexp encodings | `Pattern`, `tuple_inter`, `AST.encode_injective`, `enc_collides` | — | abstract by nature |
 | 7 | executable checkers: proper lists (SExp2), word lists n-ary and binary, sorted with subset | — | `properCheck` (spine), `recProperCheck`, `recFullCheck` (recursive, total), `wordsCheck`, `sortedCheck`, `wordsNCheck`, `sortedNCheck`, `combCheck`; replays | signed `i64` order; handles are opaque `i32` |
-| 8 | combined writer+reader, consistent future reads, persistent meanings | `combined_write_read`, `Reader.Mono.persist`, `write_persists` | combined Wasm module: pending | |
+| 8 | combined writer+reader, consistent future reads, persistent meanings | `combined_write_read`, `Reader.Mono.persist`, `write_persists` | `readBack` writes `(x)` and reads it back (`combLang_subset_of_AG`, `crun_facts_init`): `readBack_sound`, `readBack_accepts_0/_5` | upper bound plus runs at fixed arguments |
 | 9 | parse(data), append/done, chunks with `used`, cursor, failure advancing, projections | `Parse`, `parseRel_slice(_eff)`, `parseRel_done`, projection laws and counterexample | `nzParse`, `listParse`, `stackParse`, `chunkStack`, `chunkTake`, `chunkRingN`, pull `echoMod`, exact `drainEcho` | `stackParse`/`chunkStack` return newest-first lists |
 | F | call-local trap, pre-trap effects persist | `callTrap`, `write_persists`, `persist_seven` | export calls → `enter` | |
 | F | combined writer+parser relation with a real parser | `Mixed`, `mixedRel_subset_of_AG` | `listParse`, `stackParse`, `drainEcho` | |
@@ -226,6 +226,11 @@ Wasm examples are concrete modules.
   `char`, small integers, records, variants, enums, options, results, flags, handles) are not
   payloads. The end-to-end modules cover `s64`, `string`, `bytes` and `list<u32>`; nested lists
   (`list<string>`, `list<list<u32>>`) are covered by kernel-checked decoding examples only.
+* Wasm writer variants: `batchAccept` is bounded by the constructed set only (that the dropped
+  batch is never accepted needs ghost state); `errAccept`, `allAccept`, `readBack` are upper
+  bounds with runs at fixed arguments, not exact languages.
+* Families through memory: no memory checker for lists of symbols or of byte strings (readers
+  for single symbols, strings, keywords and blobs exist).
 * Parsing: `chunkRingN` is proved for capacities up to 8192 (one page); `cap = 1` has soundness
   but no non-vacuity play (it needs two values); capacities beyond one page and memory growth
   (`memory.grow`) are not done.
