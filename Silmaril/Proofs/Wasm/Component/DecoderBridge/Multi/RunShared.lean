@@ -46,7 +46,7 @@ structure OwnOk (O : Own) (t : Store H) : Prop where
   st : ∀ a, O.st a → ∃ si, t.structs[a]? = some si ∧ ∀ fv ∈ si.fields, O.GoodFV fv
   ar : ∀ a, O.ar a → ∃ ai, t.arrays[a]? = some ai ∧ ∀ fv ∈ ai.fields, O.GoodFV fv
 
-theorem PartRel.ownOk {ρ : Ren} {O : Own} {p σ : Store H} (h : PartRel ρ O p σ) : OwnOk O p where
+theorem ownOk_of_partRel {ρ : Ren} {O : Own} {p σ : Store H} (h : PartRel ρ O p σ) : OwnOk O p where
   fn a ha := by
     obtain ⟨fi, h1, fi', _, _, h4⟩ := h.fn a ha
     exact ⟨fi, h1, fun c hc => (h4 c hc).2⟩
@@ -274,5 +274,96 @@ theorem startRun_inv {imps : CoreIface} {c c' : irEng.Config Nat}
     rw [internalP_eqN] at run
     have h₁ := RunInv.steps (FirstCore.steps_of_internal run) hg
     exact ih (RunInv.resume h₁ (fun O => codeGood_toCR O _))
+
+/-! ## The node's store after its start run -/
+
+section Node
+
+open Silmaril.Wasm.Component Silmaril.Wasm.Component.DecoderBridge
+open Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstImp (irStore)
+open Silmaril.Proofs.Wasm.Component.Reference (storeGood_once splitGood_invoke invoke_good
+  instantiateOnce?_noStart)
+
+/-- **The store a node's start function leaves is split**: some ownership owns every function and
+its owned objects are good. -/
+theorem nodeEnd_own {n : Nat} {cm : Binary.CoreMod} {args : List Impl} {x : NodeRun}
+    (hx : NodeEnd n cm args x) (hsplit : splitMod (Binary.coreModule cm) = true)
+    (hfun : (Binary.coreModule cm).imports.all
+      (fun i => match i.type with | .func _ => true | _ => false) = true) :
+    ∃ O : Own, OwnOk O x.store ∧ ∀ a, a < x.store.funcs.length → O.fn a := by
+  obtain ⟨-, hp, ys, -, hstart⟩ := hx
+  obtain ⟨mtI, f', st₀, -, -, hi, -, hst₀⟩ :=
+    Silmaril.Wasm.Component.Engine.Core3.Typed.prepareE?_inv hp
+  have hi' : instantiateOnce? (irStore (CoreModule.imports cm).length)
+      { Binary.coreModule cm with start := none }
+      (Silmaril.Wasm.Link.GC.Preparation.imports (List.range (CoreModule.imports cm).length)) =
+      some (x.inst.store, f', none) := by
+    rw [instantiateOnce?_noStart,
+      show Silmaril.Wasm.Link.GC.Preparation.imports (List.range (CoreModule.imports cm).length) =
+        (List.range (CoreModule.imports cm).length).map ExternAddr.func from rfl, hi]
+    rfl
+  have hprof : Silmaril.Wasm.Link.GC.inProfile { Binary.coreModule cm with start := none } = true := by
+    simp only [splitMod, Bool.and_eq_true, List.isEmpty_iff] at hsplit
+    simp [Silmaril.Wasm.Link.GC.inProfile, hsplit.1.1.1.1, hsplit.1.1.1.2, hsplit.1.1.2,
+      hsplit.1.2, hsplit.2]
+    exact List.all_eq_true.mp hfun
+  obtain ⟨hgood, hmodg⟩ := storeGood_once hprof hi'
+    (fun fi hfi c hc => by
+      simp only [irStore, List.mem_map, List.mem_range] at hfi
+      obtain ⟨i, -, rfl⟩ := hfi
+      cases hc)
+    rfl rfl rfl (fun a ha => by simpa [irStore] using ha)
+  rcases hstart with ⟨-, -, hxs⟩ | ⟨f, c', vs, hfs, hrun, -, hxs⟩
+  · rw [hxs]
+    exact ⟨ownOf x.inst.store, ownOk_of_partRel hgood.partRel, fun a ha => ha⟩
+  · obtain ⟨y, -, hy⟩ := hst₀ f hfs
+    have hfa : (show Nat from f) < x.inst.store.funcs.length := hmodg.funcs f (List.mem_of_getElem? hy)
+    have h₀ : RunInv ((Silmaril.Wasm.SingleThreaded.Thread.invoke f []).config x.inst.store) :=
+      ⟨Ren.id, ownOf x.inst.store, x.inst.store, hgood.partRel, (invoke_good hfa (fun _ h => by cases h)).1,
+        (invoke_good hfa (fun _ h => by cases h)).2, fun a ha => ha⟩
+    obtain ⟨ρ, O, σ, hR, -, -, hfn⟩ := startRun_inv hrun h₀
+    have e : (c'.2.config c'.1).store = x.store := by
+      rw [hxs]; exact Silmaril.Wasm.SingleThreaded.Thread.config_store _ _
+    rw [e] at hR hfn
+    exact ⟨O, ownOk_of_partRel hR, hfn⟩
+
+theorem nodeSplit_all : ∀ {ps : List (Binary.CoreMod × List Impl)}
+    {qs : List (Silmaril.Wasm.Module × List Impl)},
+    List.Forall₂ NodeW (coreNodes ps) qs →
+    (qs.all fun p => splitMod p.1 &&
+      p.1.imports.all (fun i => match i.type with | .func _ => true | _ => false)) = true →
+    ∀ p ∈ ps, splitMod (Binary.coreModule p.1) = true ∧ (Binary.coreModule p.1).imports.all
+      (fun i => match i.type with | .func _ => true | _ => false) = true
+  | [], _, _, _ => fun _ h => by cases h
+  | p :: ps, q :: qs, .cons hW hF, hall => by
+    simp only [List.all_cons, Bool.and_eq_true] at hall
+    intro p' hp'
+    rcases List.mem_cons.mp hp' with rfl | hp'
+    · obtain ⟨cm, he, hd, -⟩ := hW
+      injection he with he₁ he₂
+      subst he₁
+      have hmod : Binary.coreModule p'.1 = q.1 := by
+        unfold Binary.coreModule
+        rw [hd]
+        rfl
+      rw [hmod]
+      exact hall.1
+    · exact nodeSplit_all hF hall.2 p' hp'
+
+/-- **In the fragment, every node's module is in the split fragment and imports only functions.** -/
+theorem nodeSplit_frag {b : ByteArray} {c : Comp Binary.CoreMod} {r : Conformance.RefComponent}
+    {ps : List (Binary.CoreMod × List Impl)} (hc : Binary.parseComponent b = .ok c)
+    (hr : Conformance.decodeRef b = .ok r) (hf : MultiImpFrag r) (hn : c.nodes = coreNodes ps) :
+    ∀ p ∈ ps, splitMod (Binary.coreModule p.1) = true ∧ (Binary.coreModule p.1).imports.all
+      (fun i => match i.type with | .func _ => true | _ => false) = true := by
+  obtain ⟨-, hw, -, -⟩ := multiImpFrag_inv hf
+  obtain ⟨R, hR, hsn⟩ := multiImpFrag_split hf
+  obtain ⟨R', hR', -, -, hN⟩ := relW_of_decode hc hr (inFrag_of_hostWired hw)
+  rw [hR] at hR'
+  cases hR'
+  rw [hn] at hN
+  exact nodeSplit_all hN hsn
+
+end Node
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi
