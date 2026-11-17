@@ -38,7 +38,8 @@ has no handler. The layers register theirs, each in its own module, and the head
 | `Registry.Predicate.Defs` | 1, relational problems | `@[predicate]`, `@[answers]`, `problem … :=`, `instance` |
 | `Registry.Artifacts.Defs` | 2, artifacts | `artifacts`, `artifact` |
 | `Registry.Value.Defs` | 3, formats and values | `artifact_type`, `format`, `format_default`, `format_law`, `value`, `problem … about` |
-| `Registry.Room.Defs` | 4, rooms | `room`, `problem … in R :=` |
+| `Registry.Room.Defs` | 4, rooms | `problem … in R :=` |
+| `Registry.Institution.Defs` | 4, the logic graph | `institution`, `comorphism`, `morphism`, `room`, `corridor`, `logic_audit` |
 | `Registry.Load.Defs` | records files | `load`: the records of TOML files (`silmaril.records.v0.2`) |
 | `Registry.Language.Defs` | 5, languages | `language_domain`, `measure`, `language_interpretation`, `language` |
 | `Registry.Attr.Defs` | attribute forms | `@[problem "N" (k := v)*]` (any arity, `room`), `@[conjecture]`, `@[value]` (a certificate) |
@@ -107,7 +108,8 @@ owns the list of kinds and fields (`schema.rs`).
 | `predicate` | `∀ x⃗, Prop`, no universe parameters | `decl`, `arity`, `args`, `room` |
 | `answer` | the theorem has the shape of its status | `decl`, `status`, `witness` (`axioms` in the dump) |
 | `instance` | arguments exist, once each; terms elaborate; values have the binder's type | `of`, `decl`, `args` |
-| `room` | `decl : Silmaril.Logic.Institution.Room`, universe-monomorphic | `sen`, `mod` |
+| `room` | `decl : Silmaril.Logic.Institution.Room`, or a family `∀ x⃗, Room` (a problem needs a closed, universe-monomorphic room) | `sen`, `mod`, `arity`, `params`, `type`, `levels`, `institution`, `signature` |
+| `institution`, `comorphism`, `morphism`, `corridor` | the declaration's type; edge endpoints among registered nodes; facts (`Registry.Institution.Defs`) | `from`, `to`, `arity`, `params`, `type`, `levels`, `doc`, `facts` |
 | `judgement` | the problem exists; `values` are values | |
 | `decomposition` / `refutation_route` | `c₁ → … → cₙ → p` / `¬c → ¬p` between problems | `parent`, `children` / `child` |
 
@@ -274,8 +276,9 @@ syntax "[" silmarilValue,* "]" : silmarilValue
 /-- A name: an identifier (`demo.config`) or a string (`"some.ns.problems.5"`). -/
 syntax silmarilName := ident <|> str
 
-/-- A field `(key := value)`; `module` is accepted as a key although it is a keyword. -/
-syntax silmarilField := "(" (&"module" <|> &"prefix" <|> ident) " := " silmarilValue ")"
+/-- A field `(key := value)`; `module`, `prefix` and `from` are accepted as keys although they are
+keywords. -/
+syntax silmarilField := "(" (&"module" <|> &"prefix" <|> &"from" <|> ident) " := " silmarilValue ")"
 
 /-- Parsed fields, plus the constant each constant-valued field resolved to. -/
 structure Fields where
@@ -558,8 +561,13 @@ def objLine (kvs : List (String × Json)) : String :=
 def linesArray (items : Array String) : String :=
   if items.isEmpty then "[]" else "[\n    " ++ ",\n    ".intercalate items.toList ++ "\n  ]"
 
+/-- The keys whose values are lists of declarations (the evidence of a catalogue entry, the
+declarations of an exclusion), located like constant-valued keys. -/
+def declListKeys : List String := ["evidence", "decls"]
+
 /-- The declaration ranges of every declaration the dump names (a problem's or solution's
-`decl`, and a record's `decl`, `proof`, `rel`, `abi` or `environment` that is a constant), one
+`decl`; a record's `decl`, `proof`, `rel`, `abi` or `environment` that is a constant; the
+declarations of its `evidence` and `decls` lists; the `proof` of each of its `facts`), one
 object per line, sorted by name: `decl` (as the dump spells it), `module`, then Lean's
 `DeclarationRanges` (`range`, then `selectionRange`; lines 1-based, columns in codepoints,
 0-based). A declaration without ranges is omitted. Locations are presentation data for source
@@ -568,10 +576,25 @@ def dumpLocations (env : Environment) : MetaM (Array String) := do
   let mut named : Std.HashMap String Name := {}
   for p in problems env do named := named.insert (toString p.decl) p.decl
   for s in solutions env do named := named.insert (toString s.decl) s.decl
+  let add (named : Std.HashMap String Name) (s : String) : Std.HashMap String Name :=
+    if env.contains s.toName then named.insert s s.toName else named
   for r in records env do
     for (k, v) in r.fields do
-      if let .str s := v then
-        if constKeys.contains k && env.contains s.toName then named := named.insert s s.toName
+      match v with
+      -- an evidence matrix cell's `reading` is a declaration too
+      | .str s => if constKeys.contains k || k == "reading" then named := add named s
+      -- lists of declarations (`evidence`, `decls`), the theorems of `facts` and the supporting
+      -- declarations of a matrix cell (`theorems`, `{name, module}` each)
+      | .arr xs =>
+        for x in xs do
+          match x with
+          | .str s => if declListKeys.contains k then named := add named s
+          | .obj _ =>
+            if let .ok (.str s) := x.getObjVal? "proof" then named := add named s
+            if k == "theorems" then
+              if let .ok (.str s) := x.getObjVal? "name" then named := add named s
+          | _ => pure ()
+      | _ => pure ()
   (named.toArray.qsort (·.1 < ·.1)).filterMapM fun (s, n) => do
     let some r ← findDeclarationRanges? n | return none
     let pos (k : String) (p : Position) : List (String × Json) :=

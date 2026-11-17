@@ -7,7 +7,7 @@ CARGO ?= cargo
 PROJECT_TARGET = $(or $(CARGO_TARGET_DIR),tools/silmaril-project/target)
 WASM_TOOLS := wasm-as wasm-dis wasm-opt wasm-merge wasm-shell wasm-ctor-eval wasm-metadce
 
-.PHONY: tools stage library cache scope check release-check process-check process-gates project-lean project-tool project-registry project-check pages elf-check demo demo-process demo-sha256 help
+.PHONY: logic-graph-check tools stage library cache scope check release-check process-check process-gates project-lean project-tool project-registry project-check pages elf-check demo demo-process demo-sha256 help
 
 tools:
 	$(LAKE) build --wfail $(WASM_TOOLS)
@@ -23,7 +23,7 @@ stage:
 	chmod +x build/bin/sil
 
 library:
-	$(LAKE) build --wfail Silmaril SilmarilSpecTec SilmarilSpecTecMeta SilmarilWasiWit SilmarilWasmProject
+	$(LAKE) build --wfail Silmaril SilmarilSpecTec SilmarilSpecTecMeta SilmarilWasiWit SilmarilWasmProject SilmarilLogicGraphData
 
 # Everything `make check` builds; a recorded build publishes exactly these. A pull
 # request narrows it to what its diff can change (`make scope`).
@@ -33,7 +33,7 @@ CERBERUS_TARGETS := CerberusTests cerb-lean ail-lean core-lean core-elab cfront 
 	ci_cerberus_parameter_call
 # The C compiler's executables (docs/projects/ccomp.md).
 CCOMP_TARGETS := ccomp ccomp-legacy ccomp-verified csem decompile
-CHECK_TARGETS ?= Silmaril SilmarilSpecTec SilmarilSpecTecMeta SilmarilWasiWit SilmarilWasmProject ProjectSelfTest wasm-pages elf-pages $(WASM_TOOLS) wasm-shell-lean $(CERBERUS_TARGETS) SysVTvExample CompilesToExamples $(CCOMP_TARGETS)
+CHECK_TARGETS ?= Silmaril SilmarilSpecTec SilmarilSpecTecMeta SilmarilWasiWit SilmarilWasmProject SilmarilLogicGraphData ProjectSelfTest wasm-pages elf-pages $(WASM_TOOLS) wasm-shell-lean $(CERBERUS_TARGETS) SysVTvExample CompilesToExamples $(CCOMP_TARGETS)
 
 # Files Lake never reads; only the source gates in `make check` read them.
 SCOPE_EXCLUDE := 'docs/**' '**/*.md' 'scripts/**' 'apps/**' 'problems/**' 'specs/wasm/**' \
@@ -66,6 +66,10 @@ RELEASE_BINARIES := wasm-opt wasm-as wasm-dis wasm-merge wasm-shell wasm-ctor-ev
 
 check:
 	scripts/check-layout.sh
+	$(PYTHON) -I scripts/check-wasm-spec.py
+	$(PYTHON) -I scripts/check-wasm-checkers.py
+	node examples/wasm-checkers/test-lrat.mjs
+	$(PYTHON) -I scripts/check-wasm-sim.py
 	@if [ -n "$(LAKE_CACHE_RECORD)" ]; then \
 		cov-lake-cache build --repository hiloopai/silmaril-lean --record "$(LAKE_CACHE_RECORD)" -- $(CHECK_TARGETS); \
 	elif [ -n "$(strip $(CHECK_TARGETS))" ]; then \
@@ -75,12 +79,20 @@ check:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
 	$(if $(filter wasm-opt,$(CHECK_TARGETS)),$(LAKE) build --wfail $(RELEASE_BINARIES) && $(MAKE) release-check)
 	$(if $(filter elf-pages,$(CHECK_TARGETS)),$(MAKE) elf-check)
+	$(if $(filter SilmarilLogicGraphData,$(CHECK_TARGETS)),$(MAKE) logic-graph-check)
+
+# The logic graph's records files: editing a records file
+# rebuilds its loader incrementally (docs/projects/logic-graph.md).
+logic-graph-check:
+	LAKE="$(LAKE)" scripts/logic-graph/test-incremental.sh
 
 # The ELF reader's pinned files, generated modules and explorer data (docs/projects/elf-reader.md).
+ELF_PINNED := $(foreach n,HelloGcc HelloClang Sha256sum ZlibChecksums ZlibLibz GlibcLibm GlibcLibc,\
+	Silmaril.Elf.Staged.Pinned.$(n).Thms Silmaril.Elf.Staged.Pinned.$(n).Functions)
 elf-check:
 	examples/elf/pin.sh --check
 	$(LAKE) build --wfail elf-staged elf-pages Silmaril.Elf.Staged.Reader.Examples \
-		Silmaril.Elf.Staged.Pinned.HelloGcc.Thms Silmaril.Elf.Staged.Pinned.HelloClang.Thms Silmaril.Elf.Staged.Pinned.Sha256sum.Thms
+		$(ELF_PINNED) Silmaril.Elf.Staged.Pinned.ZlibChecksums.Contracts
 	scripts/elf-reader/gen.sh --check
 	scripts/elf-reader/test-pages.sh
 
@@ -135,6 +147,8 @@ project-lean:
 		Silmaril.Project.Shapes.C.Thms \
 		Silmaril.Project.Shapes.SysV.Rtl.Defs \
 		Silmaril.Project.Shapes.CompilesTo.Thms \
+		Silmaril.LogicGraph.Audit.Defs \
+		Silmaril.LogicGraph.Catalogue.Defs \
 		ProjectSelfTest \
 		SysVTvExample \
 		CompilesToExamples
@@ -165,7 +179,7 @@ pages: project-tool
 	lake build wasm-pages
 	.lake/build/bin/wasm-pages silmaril/artifacts.toml _site
 	# The ELF pages read the checked theorem modules of the pinned files (tools/elf-pages).
-	lake build --wfail elf-pages Silmaril.Elf.Staged.Pinned.HelloGcc.Thms Silmaril.Elf.Staged.Pinned.HelloClang.Thms Silmaril.Elf.Staged.Pinned.Sha256sum.Thms
+	lake build --wfail elf-pages $(ELF_PINNED) Silmaril.Elf.Staged.Pinned.ZlibChecksums.Contracts
 	lake env .lake/build/bin/elf-pages _site
 
 # The registry and records checks, without Lean (what CI runs when their inputs change).
