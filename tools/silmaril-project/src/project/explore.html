@@ -142,6 +142,14 @@ pre.lean:focus-visible { outline:2px solid var(--accent); }
 .lt-error { color:#d64545; text-decoration:underline wavy #d64545; }
 @media (max-width: 800px) { #graphwrap { flex-direction:column; height:auto; } #cy { height:60vh; } #side { flex-basis:auto; } }
 </style>
+<style>
+.corpus-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin:24px 0; }
+.corpus-metrics>div { padding:20px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+.corpus-metrics h3 { margin-top:0; font-size:22px; }
+.corpus-filters { display:flex; flex-wrap:wrap; gap:16px; padding:16px 0; }
+.corpus-filters label { display:flex; flex-direction:column; gap:6px; text-transform:capitalize; }
+.corpus-filters select { min-width:130px; padding:8px; }
+</style>
 </head>
 <body>
 <header>

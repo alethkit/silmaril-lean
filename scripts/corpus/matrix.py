@@ -44,6 +44,15 @@ def inventory(root):
             artifact = root / obj['path']
             if sha(artifact) != obj['sha256'] or artifact.stat().st_size != obj['size']:
                 raise ValueError(f'{artifact}: receipt identity mismatch')
+            lean_status = 'not generated or checked'
+            if path.is_relative_to(root / 'corpus/elf'):
+                context_path = root / 'corpus' / receipt['package'] / 'tv' / receipt['arch'] / (obj['object'] + '.tsv')
+                context = json.loads(context_path.read_text().splitlines()[0].removeprefix('# '))
+                thms = root / (context['decomposition_module'].removesuffix('.Decomp').replace('.', '/') + '/Thms.lean')
+                if re.search(r'^theorem parses\b', thms.read_text(), re.M):
+                    lean_status = 'canonical: whole-file parse and structural decomposition'
+                else:
+                    lean_status = 'canonical: checked layout and structural decomposition; whole-file parse unavailable'
             artifacts.append({'project': receipt['package'], 'version': receipt['version'],
                 'version_components': re.split(r'[.+-]', receipt['version']),
                 'source_id': source_id, 'source_inputs': source, 'build_id': digest(build),
@@ -54,7 +63,7 @@ def inventory(root):
                 'defined_nonzero_function_symbol_entries': obj['func_symbols'],
                 'has_symtab': obj['has_symtab'], 'reproducible': receipt['reproducible'],
                 'runtime_tests': receipt['tests'],
-                'lean_status': 'canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions' if path.is_relative_to(root / 'corpus/elf') else 'not generated or checked',
+                'lean_status': lean_status,
                 'contextual_c_to_elf_statements': 0, 'functional_equivalence_statements': 0})
     return {'schema_version': 1,
             'hierarchy': ['project', 'version_components', 'source_id', 'build.configuration',

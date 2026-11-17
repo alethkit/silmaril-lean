@@ -23,7 +23,7 @@
       "defined_nonzero_function_symbol_entries": 92,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "MIT",
       "license_files": [
         "upstream/cJSON-1.7.19/LICENSE"
@@ -91,7 +91,7 @@
       "defined_nonzero_function_symbol_entries": 27,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "MIT",
       "license_files": [
         "upstream/cJSON-1.7.19/LICENSE"
@@ -159,7 +159,7 @@
       "defined_nonzero_function_symbol_entries": 91,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "MIT",
       "license_files": [
         "upstream/cJSON-1.7.19/LICENSE"
@@ -227,7 +227,7 @@
       "defined_nonzero_function_symbol_entries": 26,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "MIT",
       "license_files": [
         "upstream/cJSON-1.7.19/LICENSE"
@@ -295,7 +295,7 @@
       "defined_nonzero_function_symbol_entries": 129,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -410,7 +410,7 @@
       "defined_nonzero_function_symbol_entries": 102,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -525,7 +525,7 @@
       "defined_nonzero_function_symbol_entries": 130,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -640,7 +640,7 @@
       "defined_nonzero_function_symbol_entries": 138,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -755,7 +755,7 @@
       "defined_nonzero_function_symbol_entries": 276,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -870,7 +870,7 @@
       "defined_nonzero_function_symbol_entries": 101,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -985,7 +985,7 @@
       "defined_nonzero_function_symbol_entries": 159,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -1100,7 +1100,7 @@
       "defined_nonzero_function_symbol_entries": 123,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -1215,7 +1215,7 @@
       "defined_nonzero_function_symbol_entries": 107,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -1330,7 +1330,7 @@
       "defined_nonzero_function_symbol_entries": 119,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -1445,7 +1445,7 @@
       "defined_nonzero_function_symbol_entries": 131,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -1560,7 +1560,7 @@
       "defined_nonzero_function_symbol_entries": 267,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -1675,7 +1675,7 @@
       "defined_nonzero_function_symbol_entries": 105,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -1790,7 +1790,7 @@
       "defined_nonzero_function_symbol_entries": 152,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "GPL-3.0-or-later",
       "license_files": [
         "upstream/coreutils-9.12/COPYING"
@@ -1905,7 +1905,7 @@
       "defined_nonzero_function_symbol_entries": 34,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "ISC",
       "license_files": [
         "upstream/darkhttpd-1.17/COPYING"
@@ -1980,7 +1980,7 @@
       "defined_nonzero_function_symbol_entries": 50,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "ISC",
       "license_files": [
         "upstream/darkhttpd-1.17/COPYING"
@@ -2055,7 +2055,7 @@
       "defined_nonzero_function_symbol_entries": 1127,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -2115,7 +2115,7 @@
       "defined_nonzero_function_symbol_entries": 1141,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -2179,7 +2179,7 @@
       "defined_nonzero_function_symbol_entries": 442,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -2239,7 +2239,7 @@
       "defined_nonzero_function_symbol_entries": 459,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -2303,7 +2303,7 @@
       "defined_nonzero_function_symbol_entries": 12789,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -2399,7 +2399,7 @@
       "defined_nonzero_function_symbol_entries": 2512,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -2495,7 +2495,7 @@
       "defined_nonzero_function_symbol_entries": 598,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -2591,7 +2591,7 @@
       "defined_nonzero_function_symbol_entries": 12783,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -2687,7 +2687,7 @@
       "defined_nonzero_function_symbol_entries": 2513,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -2783,7 +2783,7 @@
       "defined_nonzero_function_symbol_entries": 604,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -2879,7 +2879,7 @@
       "defined_nonzero_function_symbol_entries": 5,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -2995,7 +2995,7 @@
       "defined_nonzero_function_symbol_entries": 16,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -3111,7 +3111,7 @@
       "defined_nonzero_function_symbol_entries": 19,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -3227,7 +3227,7 @@
       "defined_nonzero_function_symbol_entries": 52,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -3343,7 +3343,7 @@
       "defined_nonzero_function_symbol_entries": 47,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -3459,7 +3459,7 @@
       "defined_nonzero_function_symbol_entries": 10,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -3575,7 +3575,7 @@
       "defined_nonzero_function_symbol_entries": 15,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -3691,7 +3691,7 @@
       "defined_nonzero_function_symbol_entries": 4,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -3807,7 +3807,7 @@
       "defined_nonzero_function_symbol_entries": 15,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -3923,7 +3923,7 @@
       "defined_nonzero_function_symbol_entries": 18,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -4039,7 +4039,7 @@
       "defined_nonzero_function_symbol_entries": 51,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -4155,7 +4155,7 @@
       "defined_nonzero_function_symbol_entries": 50,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -4271,7 +4271,7 @@
       "defined_nonzero_function_symbol_entries": 9,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -4387,7 +4387,7 @@
       "defined_nonzero_function_symbol_entries": 14,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "BSD-2-Clause AND CC0-1.0 AND (CC0-1.0 OR Apache-2.0 OR OpenSSL) AND LicenseRef-PublicDomain AND (MIT OR LicenseRef-PublicDomain) AND Zlib",
       "license_files": [
         "upstream/rfc6234/rfc6234.txt",
@@ -4503,7 +4503,7 @@
       "defined_nonzero_function_symbol_entries": 1591,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "blessing",
       "license_files": [
         "upstream/sqlite-amalgamation-3540100/sqlite3.c",
@@ -4576,7 +4576,7 @@
       "defined_nonzero_function_symbol_entries": 440,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "blessing",
       "license_files": [
         "upstream/sqlite-amalgamation-3540100/sqlite3.c",
@@ -4649,7 +4649,7 @@
       "defined_nonzero_function_symbol_entries": 1620,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "blessing",
       "license_files": [
         "upstream/sqlite-amalgamation-3540100/sqlite3.c",
@@ -4722,7 +4722,7 @@
       "defined_nonzero_function_symbol_entries": 491,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "blessing",
       "license_files": [
         "upstream/sqlite-amalgamation-3540100/sqlite3.c",
@@ -4795,7 +4795,7 @@
       "defined_nonzero_function_symbol_entries": 4,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -4866,7 +4866,7 @@
       "defined_nonzero_function_symbol_entries": 5,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -4937,7 +4937,7 @@
       "defined_nonzero_function_symbol_entries": 4,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -5008,7 +5008,7 @@
       "defined_nonzero_function_symbol_entries": 5,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -5079,7 +5079,7 @@
       "defined_nonzero_function_symbol_entries": 348,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "LGPL-2.1-or-later",
       "license_files": [
         "upstream/tcc-0.9.27/COPYING"
@@ -5143,7 +5143,7 @@
       "defined_nonzero_function_symbol_entries": 367,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: see DECOMP.md and six OpenSSL whole-file parse exceptions",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "LGPL-2.1-or-later",
       "license_files": [
         "upstream/tcc-0.9.27/COPYING"
