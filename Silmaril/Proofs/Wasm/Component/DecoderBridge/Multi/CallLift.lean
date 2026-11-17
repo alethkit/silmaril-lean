@@ -167,6 +167,7 @@ section Call
 
 variable {E : CoreEngine} {σ : Type} [∀ a b, Decidable (E.ExternSub a b)] {impl : HostImpl E σ}
 
+omit [∀ a b, Decidable (E.ExternSub a b)] in
 /-- A host frame of call `c` returning its `on_cancel` at the bottom of the chain. -/
 theorem hostFinish_cancelG (m : Machine.Config E σ)
     (Pd : List (CallId × FuncId × List Silmaril.Wasm.Component.Reference.Val))
@@ -319,5 +320,113 @@ theorem invoke_atG (prof : ProfileKind) (M : Machine.Config E σ) (c : CallId) (
     exact ⟨rfl, hl, rfl, rfl⟩
 
 end Call
+
+/-! ## `Task.callLift` -/
+
+section Ref
+
+open Silmaril.Wasm.Component.DecoderBridge Silmaril.Wasm.Component.InstRef
+open Silmaril.Wasm.Component.Reference.Core3Adder (first)
+open Silmaril.Wasm.SingleThreaded (neverFail)
+
+/-- The reference type read as `func() -> u32` is `tyU32`. -/
+theorem tyRel_getTy {ty : Types.FuncType RtId} (h : TyRel ty getTy) : ty = tyU32 := by
+  obtain ⟨⟨as, ps, res⟩, fr, -, hr, ht⟩ := h
+  cases as
+  · cases ps with
+    | cons p ps =>
+      exfalso
+      simp only [refFuncTy, Bool.false_eq_true, ↓reduceIte] at hr
+      cases h1 : refVT p.2 <;> simp [h1] at hr
+      cases h2 : ps.mapM (fun p => refVT p.2) <;> simp [h2] at hr
+      rcases res with _ | t
+      · repeat' split at hr
+        all_goals simp_all [getTy]
+      · cases h3 : refVT t <;> simp only [h3, Option.map_none, Option.map_some,
+          Option.bind_none, Option.bind_some, reduceCtorEq] at hr
+        repeat' split at hr
+        all_goals simp_all [getTy]
+    | nil =>
+      rcases res with _ | (q | i)
+      · simp [refFuncTy] at hr
+      · cases q <;> first
+          | (simp [refFuncTy, refVT, refPrim] at hr; done)
+          | (simp only [Instantiate.resolveFuncType?, Instantiate.resolveOptValType?] at ht
+             cases ht; rfl)
+      · simp [refFuncTy, refVT] at hr
+  · simp [refFuncTy] at hr
+
+/-- `core3`'s internal step is only enabled at `running` threads: every engine run is a run the
+machine allows. -/
+theorem coreSteps_of_core3 {o : Silmaril.Wasm.SingleThreaded.GrowOracle} {x y : CoreSt (core3 o)}
+    (h : Engine.CoreEngine.Steps (core3 o) x y) : Relation.ReflTransGen (CoreStep (core3 o)) x y := by
+  induction h with
+  | refl => exact .refl
+  | @tail b c' _ hs ih =>
+    refine ih.tail ⟨.inl ?_, hs⟩
+    obtain ⟨s, t⟩ := b
+    by_contra hn
+    have e := Silmaril.Wasm.Component.Engine.Core3.statusE_not_running_no_step (o := o) hn
+    have hs' : Silmaril.Wasm.SingleThreaded.internalC (Silmaril.Wasm.SingleThreaded.Exec.stepI o)
+        (s, t) = some c' := hs
+    rw [e] at hs'
+    cases hs'
+
+/-- **The session call through `canon lift`** (`Task.callLift`, with the host-readiness condition
+`nestingDepth = 0` of the invoke). -/
+theorem callLift_core3
+    (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)) (f : FuncId) (a : Nat)
+    (ty : Types.FuncType RtId) (y : (core3 neverFail).Config (CanonHost (core3 neverFail)))
+    (v : BitVec 32)
+    (hc : M.ctl = []) (hl : M.store.lockdown = false) (hd : M.store.nestingDepth = 0)
+    (hι : ∃ ι, M.store.insts = [ι] ∧ InstOk ι) (hp : M.pending = []) (hres : M.results = [])
+    (hf : ArenaField.funcs.get? M.store f = some (.lifted a ty {} ⟨0⟩)) (hty : TyRel ty getTy)
+    (hrun : Engine.CoreEngine.Steps (core3 neverFail) (M.store.core, (core3 neverFail).invoke a []) y)
+    (hst : (core3 neverFail).status y.1 y.2 = .returned (.values [⟨.int .i32, v⟩])) :
+    ∃ M', LinkedSession.SessRun first.prof (Host.ofEmbedder embL) M 0 [(f, [])]
+      [some [toRefVal (.u32 v)]] M' ∧ M'.host = M.host := by
+  obtain rfl := tyRel_getTy hty
+  obtain ⟨ι, hi, hok⟩ := hι
+  obtain ⟨ι', hadd, hrem, -, -⟩ := inst_round hok ⟨M.store.threads.length⟩
+  obtain ⟨M₀, thc, Kc, segsc, restc, tr₁, h₁, hctl, hcore, hl₀, hret⟩ :=
+    invoke_atG (impl := embL.host) first.prof M ⟨0⟩ f a ι ι' hl hi hf hadd hrem
+  obtain ⟨tr₂, M', h₂, hc', hl', hh', hr'⟩ := hret y v
+  have hM₀ : M₀ = coreCfg M₀ thc Kc segsc restc (M.store.core, (core3 neverFail).invoke a []) := by
+    obtain ⟨S₀, h₀, ctl₀, conts, pending, results, cancels⟩ := M₀
+    dsimp only at hctl hcore ⊢
+    subst hctl
+    unfold coreCfg
+    rw [← hcore]
+  obtain ⟨trc, htrc, hcs⟩ := Adequacy.coreCfg_steps_of (prof := first.prof) (hr := fun _ _ => false)
+    (dispatch := DG embL.host) (B := M₀) (th := thc) (K := Kc) (segs := segsc) (rest := restc)
+    (coreSteps_of_core3 hrun)
+  have hretS : Step first.prof (fun _ _ => false) (DG embL.host)
+      (coreCfg M₀ thc Kc segsc restc y) .tau (retCfg M₀ thc Kc segsc restc y [⟨.int .i32, v⟩]) :=
+    Step.coreReturned rfl hst
+  have hinv : Step first.prof (fun _ _ => false) (DG embL.host) M
+      (.host (invokeTop ⟨0⟩ f [])) (invokedG M ⟨0⟩ f) :=
+    Step.hostInvoke ⟨hc, hl, hd⟩ (by rw [hp]; intro x hx; cases hx)
+  have hsteps := Adequacy.steps_append h₁.steps (by
+    rw [← hM₀] at hcs
+    exact Adequacy.steps_append hcs (.cons hretS h₂.steps))
+  refine ⟨M', .ret ⟨_, .cons hinv hsteps, ?_, ?_⟩ (.nil _ _), hh'⟩
+  · intro ev hm
+    rcases List.mem_append.mp hm with hm | hm
+    · exact absurd hm (Adequacy.LRun.no_host h₁ ev)
+    rcases List.mem_append.mp hm with hm | hm
+    · cases htrc _ hm
+    rcases List.mem_cons.mp hm with hm | hm
+    · cases hm
+    · exact absurd hm (Adequacy.LRun.no_host h₂ ev)
+  refine ⟨?_, ?_⟩
+  · intro e
+    cases e
+  have hr0 : M'.result? ⟨0⟩ = some (some [toRefVal (.u32 v)]) := by
+    show (M'.results.find? (·.1 == ⟨0⟩)).map Prod.snd = _
+    rw [hr', hres]
+    rfl
+  exact ⟨hc', hl', hr0⟩
+
+end Ref
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi
