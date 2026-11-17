@@ -304,7 +304,7 @@ pages: project-tool
 	# The acceptor section reads the committed Wasmtime harness report (make acceptor-report).
 	cp tools/wasm-acceptor-harness/report.json _site/acceptor-runs.json
 	# The Containers tab reads the descriptions of the worked examples (docs/projects/containers-examples.md).
-	lake build --wfail Silmaril.Containers.Noop.Thms Silmaril.Containers.Fixtures.Thms Silmaril.Containers.Mini.Thms Silmaril.Containers.Http.Thms
+	lake build --wfail Silmaril.Containers.Noop.Thms Silmaril.Containers.Fixtures.Thms Silmaril.Containers.Mini.Thms Silmaril.Containers.Http.Thms Silmaril.Containers.HttpServe.Thms
 	lake env lean --run examples/containers/Examples.lean --json _site/containers-examples.json
 	# The ELF pages read the checked theorem modules of the pinned files (tools/elf-pages).
 	lake build --wfail elf-pages $(ELF_PINNED) Silmaril.Elf.Staged.Pinned.ZlibChecksums.Contracts

@@ -328,7 +328,7 @@ public def catalogue : List (String × ObligationKind) :=
    ("containers.monitor_correct_stdio", .security),
    ("containers.mini.vsys_sound_raw", .behaviour), ("containers.mini.raw_sound_vsys", .behaviour),
    ("containers.mini.check_sound_vsys", .behaviour), ("containers.noop.oci_wp", .behaviour),
-   ("containers.http_once.oci_wp", .behaviour), ("containers.http_serve.oci_wlp", .behaviour)]
+   ("containers.http_once.oci_wp", .behaviour), ("containers.http_serve.oci_wlp", .behaviour),
    ("containers.examples.crash_wlp", .behaviour), ("containers.examples.crash_wp", .behaviour),
    ("containers.examples.http", .security), ("containers.examples.vsock", .security)]
 

@@ -134,6 +134,7 @@
       field("expected", esc(x.expected || r.expect || "")) +
       field("proved run", esc(x.run || "")) +
       field("run computed now", x.executed ? esc(x.executed) : "") +
+      field("source", x.source ? code(x.source) : "") +
       field("try it", code(x.command || "")) +
       `</tbody></table>`;
     if (ths.length) h += `<h3>Theorems</h3><ul id="container-theorems">${ths.join("")}</ul>`;

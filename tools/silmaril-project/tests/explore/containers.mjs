@@ -44,20 +44,21 @@ try {
     word: (tr.querySelector("[data-verdict]") || {}).textContent, expectation: (tr.querySelector("[data-expectation]") || {}).dataset?.expectation,
     note: (tr.querySelector("[data-note]") || {}).textContent })));
   const names = rows.map((r) => r.name);
-  check(JSON.stringify(names) === JSON.stringify(["containers.noop.oci_wp", "containers.examples.crash_wlp",
+  check(JSON.stringify(names) === JSON.stringify(["containers.noop.oci_wp", "containers.http_serve.oci_wlp", "containers.examples.crash_wlp",
     "containers.examples.crash_wp", "containers.mini.thread_spawn_wlp", "containers.examples.http", "containers.examples.vsock"]),
     `the group's examples, in order (${names.join(", ")})`);
   const by = Object.fromEntries(rows.map((r) => [r.name, r]));
   check(by["containers.noop.oci_wp"]?.fixture === "real", "the no-op is real");
+  check(by["containers.http_serve.oci_wlp"]?.fixture === "real", "http-serve is real");
   check(["containers.examples.crash_wlp", "containers.mini.thread_spawn_wlp", "containers.examples.http", "containers.examples.vsock"]
     .every((n) => by[n]?.fixture === "model"), "the others are models");
-  for (const [n, c] of [["containers.noop.oci_wp", "THM"], ["containers.examples.crash_wlp", "THM"], ["containers.examples.crash_wp", "UNS"],
+  for (const [n, c] of [["containers.noop.oci_wp", "THM"], ["containers.http_serve.oci_wlp", "THM"], ["containers.examples.crash_wlp", "THM"], ["containers.examples.crash_wp", "UNS"],
     ["containers.mini.thread_spawn_wlp", "UNS"], ["containers.examples.http", "THM"], ["containers.examples.vsock", "THM"]])
     check(by[n]?.code === c, `${n}: registry status ${c} (${by[n]?.code})`);
   check(/UNDEFINED BEHAVIOUR/.test(by["containers.mini.thread_spawn_wlp"]?.run || ""), "the thread example's run is undefined behaviour");
   const heads = await p.evaluate(() => [...document.querySelectorAll("#containers-table thead th")].map((th) => th.textContent.trim()));
   check(heads[1] === "kind" && heads[5] === "verdict", `column headers (${heads.join(" | ")})`);
-  for (const n of ["containers.noop.oci_wp", "containers.examples.crash_wlp", "containers.examples.http", "containers.examples.vsock"])
+  for (const n of ["containers.noop.oci_wp", "containers.http_serve.oci_wlp", "containers.examples.crash_wlp", "containers.examples.http", "containers.examples.vsock"])
     check(by[n]?.word === "Proved" && by[n]?.expectation === "met" && by[n]?.note === "as expected", `${n} reads "Proved, as expected" (${by[n]?.word}, ${by[n]?.note})`);
   for (const n of ["containers.examples.crash_wp", "containers.mini.thread_spawn_wlp"])
     check(by[n]?.word === "Refuted" && by[n]?.expectation === "met" && /negative example/.test(by[n]?.note || ""),
@@ -84,6 +85,19 @@ try {
   check(await p.evaluate(() => /answer THM/.test(document.body.textContent)), "the registry's answer");
   check(await p.evaluate(() => document.querySelector("#container-verdict [data-verdict]")?.textContent === "Proved"), "the page says Proved");
   await shot("container-noop");
+
+  await open("/container/containers.http_serve.oci_wlp");
+  const serve = await p.evaluate(() => Object.fromEntries([...document.querySelectorAll("#container-detail tr")]
+    .map((tr) => [tr.cells[0].textContent.trim(), tr.cells[1].textContent.trim()])));
+  check(/sha256:3f770ab28a5571ae2698a9e30cac5af8ecd4b2b8aa466c06a5872e1ef82b121a/.test(serve.digests || ""), "http-serve: the manifest digest");
+  check(/1515fe739d0dbffcf92a6701d8a1b107df5f1c9a19dcf95400d3d904cd002f02/.test(serve.digests || ""), "http-serve: the ELF digest");
+  check(/http_serve\.s/.test(serve.source || ""), "http-serve: the source");
+  check(/http-serve\/docker-test\.sh/.test(serve["try it"] || ""), "http-serve: the command");
+  check(/8080/.test(serve.runtime || "") && /seqPolicy/.test(serve["clone policy"] || ""), "http-serve: runtime and clone policy");
+  const sths = await p.evaluate(() => [...document.querySelectorAll("#container-theorems code")].map((c) => c.textContent));
+  check(sths.includes("Silmaril.Containers.HttpServe.servesImage"), "http-serve: the theorem is listed");
+  check(await p.evaluate(() => document.querySelector("#container-verdict [data-verdict]")?.textContent === "Proved"), "http-serve: the page says Proved");
+  await shot("container-http-serve");
 
   await open("/container/containers.examples.http");
   const http = await p.evaluate(() => Object.fromEntries([...document.querySelectorAll("#container-detail tr")]
