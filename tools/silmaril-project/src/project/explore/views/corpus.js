@@ -1,7 +1,7 @@
 // A dedicated corpus view over additive metadata tables. No ELF bytes are embedded.
 async function corpusPage(arg, ctx) {
   if (!tables.has("corpus_artifacts")) return '<h2>Corpus</h2><p>No corpus inventory is available in this database.</p>';
-  const counts = (await ctx.q("SELECT count(*) artifacts,count(DISTINCT project) projects,count(DISTINCT sha256) hashes FROM corpus_artifacts"))[0];
+  const counts = (await ctx.q("SELECT (SELECT count(*) FROM corpus_artifacts) artifacts,(SELECT count(DISTINCT project) FROM corpus_artifacts) projects,(SELECT count(DISTINCT sha256) FROM corpus_artifacts) hashes"))[0];
   const choices = {};
   for (const column of ["project", "version", "target", "optimization", "stripping"])
     choices[column] = await ctx.q(`SELECT DISTINCT ${column} value FROM corpus_artifacts ORDER BY ${column}`);
@@ -21,12 +21,11 @@ async function corpusPage(arg, ctx) {
           clauses.push(element.dataset.corpusFilter + " = ?"); params.push(element.value);
         }
         const where = clauses.length ? " WHERE " + clauses.join(" AND ") : "";
-        const rows = await ctx.q("SELECT * FROM corpus_artifacts" + where + " ORDER BY project,version,target,optimization,stripping,name LIMIT 1000", params);
+        const rows = await ctx.q("SELECT id,project,version,target,optimization,stripping,name,sha256,json_extract(metadata,'$.lean_status') lean_status FROM corpus_artifacts" + where + " ORDER BY project,version,target,optimization,stripping,name LIMIT 1000", params);
         if (!ctx.alive() || token !== request) return;
         document.querySelector("#corpus-count").textContent = `${rows.length} matching artifacts${rows.length === 1000 ? ' (first 1,000)' : ''}`;
         document.querySelector("#corpus-results").innerHTML = `<table><thead><tr><th>Project / release</th><th>Build</th><th>Artifact</th><th>Coverage</th></tr></thead><tbody>${rows.map(r => {
-          const m = JSON.parse(r.metadata);
-          return `<tr><td><strong>${esc(r.project)}</strong><br>${esc(r.version)}</td><td>${esc(r.target)}<br><code>-${esc(r.optimization)}</code> · ${esc(r.stripping)}</td><td><a href="#/corpus-artifact/${encodeURIComponent(r.id)}">${esc(r.name)}</a><br><small><code>${esc(r.sha256.slice(0, 16))}…</code></small></td><td>${esc(m.lean_status)}<br><span class="muted">TV: no statement</span></td></tr>`;
+          return `<tr><td><strong>${esc(r.project)}</strong><br>${esc(r.version)}</td><td>${esc(r.target)}<br><code>-${esc(r.optimization)}</code> · ${esc(r.stripping)}</td><td><a href="#/corpus-artifact/${encodeURIComponent(r.id)}">${esc(r.name)}</a><br><small><code>${esc(r.sha256.slice(0, 16))}…</code></small></td><td>${esc(r.lean_status)}<br><span class="muted">TV: no statement</span></td></tr>`;
         }).join("")}</tbody></table>`;
       };
       for (const element of document.querySelectorAll("[data-corpus-filter]")) element.addEventListener("change", () => refresh().catch(e => { if (ctx.alive()) document.querySelector("#corpus-count").textContent = e.message; }));
