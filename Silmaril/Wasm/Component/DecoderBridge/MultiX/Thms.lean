@@ -42,7 +42,10 @@ Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi` (`FirstKX`, `Late
   run's import call has one `i32` argument, which `lowF` makes a call of `f`); the reading's core
   instances are laid out as the IR's environment (`refRead_layout`, `node_of_layout`), so the
   reading's export `e` is the IR's;
-* **`startAdequacyFrag`**: `Task.startAdequacyFrag`, unconditionally; **`starts_ref_of_ir'`**: the
+* **`startAdequacyFrag`**: `Task.startAdequacyFrag`, unconditionally;
+  **`startAdequacyChecked_of_multiImpFrag`**: so the corrected start goal
+  `Task.startAdequacyChecked` holds at every component of the fragment (which passes `RootChecked`,
+  `Multi.Thms.rootChecked_of_multiImpFrag`); **`starts_ref_of_ir'`**: the
   reference half of `starts.wasm` from its IR run, unconditionally (the kernel cross-check
   `InstTestsRef.starts_agree` stays);
 * `starts_of_X`: the reference half of `InstTestsRef.starts_agree`, derived from the IR's run of
@@ -63,6 +66,7 @@ open Silmaril.Wasm.Component.Conformance
 open Silmaril.Wasm.Component.InstRef Silmaril.Wasm.Component.InstLitmus
 open Silmaril.Wasm.Component.InstTests Silmaril.Wasm.Component.InstTestsRef
 open Silmaril.Wasm.Component.Reference.Core3Adder (first)
+open Silmaril.Wasm.SingleThreaded (profile neverFail)
 
 /-- **The instantiation on the fragment, with node ends and the invariant `NodesInv`.** -/
 theorem nodesRefX : Task.nodesRefX :=
@@ -140,6 +144,25 @@ theorem exportIR : Task.exportIR :=
 /-- **`Task.startAdequacy` on the fragment `MultiImpFrag`.** -/
 theorem startAdequacyFrag : Task.startAdequacyFrag :=
   startAdequacyFrag_of_exportIR exportIR
+
+/-- **The corrected start goal on the fragment, proved**: `Task.startAdequacyChecked` at every
+component of `MultiImpFrag`. The fragment lies inside the corrected goal's domain (`InFrag` and
+`RootChecked`, `Multi.Thms.rootChecked_of_multiImpFrag`), so `Task.startAdequacyFrag` is exactly the
+corrected goal restricted to it (`Multi.Thms.startAdequacyFrag_of_checked`); here that restriction
+is discharged by `startAdequacyFrag`. -/
+theorem startAdequacyChecked_of_multiImpFrag (b : ByteArray) (c : Comp Binary.CoreMod)
+    (r : RefComponent) (t : List (Σ _ : sigU.Op, Option Payload)) (n : String)
+    (ws : List Silmaril.Wasm.Component.Val)
+    (hc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r)
+    (hv : ∃ ct, Valid Features.p2 r ct) (_ : InFrag r) (_ : RootChecked r) (hf : MultiImpFrag r)
+    (himp : c.imports = hostI) (hex : (c.exports.map (·.name)).head? = some n)
+    (hu : ∀ x ∈ t, x.2 = InstTests.unitV)
+    (hp : instPlay (F := sigU) t .ready ++
+      [askEx (0, .vals []), ansEx (0, .vals []) (some (.vals ws))] ∈
+        c.denI (Binary.coreModSemI (profile neverFail))) :
+    (([some (ws.map toRefVal)] : List (Option (List Value.Val))), ((), logOfCalls t)) ∈
+      sessRunFrom first.prof (Host.ofEmbedder embL) hostConfigX r (importArgs hostI) [(n, [])] :=
+  startAdequacyFrag b c r t n ws hc hr hv hf himp hex hu hp
 
 /-- **The reference half of `starts.wasm` from its IR run** (`InstTests.starts_inst`), through the
 start goal on the fragment. (Also proved by executing the reference machine,
