@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.Nodes
+public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.FirstK
 public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.GapMachine
 
 /-!
@@ -170,6 +171,28 @@ theorem instExports_minst (δ : GShift) {m : Silmaril.Wasm.Module} {mi : ModuleI
 
 end Exports
 
+theorem calloutEntry_gStore₃ (S : CStore (core3 neverFail)) (a : Nat) (ι' : InstState) :
+    calloutEntry (gStore₃ S a ι') (some ⟨S.threads.length⟩) lowH = none := by
+  have h₁ : ArenaField.threads.get? (gStore₃ S a ι') ⟨S.threads.length⟩ =
+      some ((startThread S.tasks).withIndex 1) := by
+    show (S.threads ++ _)[S.threads.length]? = _
+    rw [List.getElem?_concat_length]
+  have h₂ : ArenaField.tasks.get? (gStore₃ S a ι') ⟨S.tasks.length⟩ =
+      some ((startTask₁ S.callers ⟨S.threads.length⟩).withState .started) := by
+    show (S.tasks ++ _)[S.tasks.length]? = _
+    rw [List.getElem?_concat_length]
+  have h₃ : ((startThread (E := core3 neverFail) S.tasks).withIndex 1).task =
+      ⟨S.tasks.length⟩ := rfl
+  simp only [calloutEntry, instOfThread?, Option.bind_eq_bind, h₁, Option.bind_some, h₃, h₂]
+  rfl
+
+theorem funcs0_append {S : CStore (core3 neverFail)}
+    (h : ArenaField.funcs.get? S ⟨0⟩ = some (.host fWit ⟨0⟩)) (fs : List (CFuncInst (core3 neverFail))) :
+    ArenaField.funcs.get? { S with funcs := S.funcs ++ fs } ⟨0⟩ = some (.host fWit ⟨0⟩) := by
+  have h0 : S.funcs[0]? = some (.host fWit ⟨0⟩) := h
+  show (S.funcs ++ fs)[0]? = _
+  rw [List.getElem?_append_left (List.getElem?_eq_some_iff.mp h0).1, h0]
+
 /-! ## The step -/
 
 open Silmaril.Proofs.Wasm.Component.Reference (storeGood_once storeGood_mapH_iff splitGood_invoke
@@ -311,7 +334,153 @@ theorem laterCoreStep' : LaterCoreStep' := by
     rw [hfs] at hpr
     have hrun' : Param.StartRunI (core3P (profile neverFail)) (CoreModule.imports p.1)
         (J.store, Silmaril.Wasm.SingleThreaded.Thread.invoke f []) ys c' := hrun
-    sorry
+    -- the core instantiation, up to its start call
+    have hR : Reaches first.prof embL.hr (DG embL.host) none
+        (Instantiate.runStart ⟨0⟩ (g.sh.fn f)) (instantiateCore ⟨0⟩ sc.frame mi cargs) M
+        ([] ++ ([.tau] ++ ([] ++ ([.tau] ++ []))))
+        { M with store := setCoreSt (g.rel (Store.mapH FirstImp.gL J.store)) M.store }
+        (fun m₂ tr' a m' => RunsQ (DG embL.host) none
+          ((fun _ => pure ((core3 neverFail).exports (g.sh.minst mi₂))) ()) m₂ tr' a m') := by
+      unfold instantiateCore
+      simp only [hmd, need, orTrap]
+      refine Reaches.seq (tr₁ := []) (.pure _ _) ?_
+      refine Reaches.seq (tr₁ := [.tau]) (.get (.pure _ _)) ?_
+      rw [hci]
+      refine Reaches.seq (tr₁ := []) (.pure _ _) ?_
+      erw [hpr]
+      refine Reaches.seq (tr₁ := [.tau])
+        (.modify (f := setCoreSt (E := core3 neverFail) (g.rel (Store.mapH FirstImp.gL J.store)))
+          rfl (.pure _ _)) ?_
+      exact Reaches.here _ _
+    obtain ⟨K', d₂, hK'⟩ := hR (fun es =>
+        (pushEntry sc.frame (.core .instance_) (.coreInstance es) >>= fun f =>
+          pure ({ sc with frame := f } : Scope (core3 neverFail))) >>= fun sc =>
+        List.foldlM (instantiateDef callRecurse ⟨0⟩ [] (importArgs hostI)) sc ds >>= K) [] []
+        hI.lock
+    rw [← hM] at d₂
+    -- the start call, to the core activation
+    obtain ⟨ι, hιs, hιok⟩ := hI.inst
+    obtain ⟨ι', hadd, hrem, hι₁, hml⟩ := inst_round hιok ⟨M.store.threads.length⟩
+    obtain ⟨M₀, thc, Kc, segsc, restc, tr₃, d₃, hS⟩ := start_atG (impl := embL.host) first.prof
+      { ({ M with store := setCoreSt (g.rel (Store.mapH FirstImp.gL J.store)) M.store } :
+          Machine.Config (core3 neverFail) Σh) with
+        ctl := ⟨none, .prog (Instantiate.runStart ⟨0⟩ (g.sh.fn f) >>= K'), []⟩ :: [] }
+      (g.sh.fn f) ι ι' rfl hI.lock hιs hadd hrem
+    have hB : CallInv M₀ thc := by
+      have hth₀ := hS.thread
+      subst hth₀
+      refine ⟨?_, ?_, ?_, ?_⟩
+      · rw [hS.store]; exact hI.lock
+      · rw [hS.store]; exact calloutEntry_gStore₃ _ _ _
+      · rw [hS.store]; exact ⟨ι', rfl, hml⟩
+      · rw [hS.store]; exact funcs0_append hI.func0 _
+    -- the IR's instance: its store, good, and related to the shared store
+    have hsOk₀ : Silmaril.Wasm.Execution.Core.StoreOk
+        (Store.mapH FirstImp.gL (irStore m.imports.length)) := by
+      rw [mapH_irStore]
+      exact storeOk_lowStore _ _
+    have hp₀ := prepareE_mapH FirstImp.gL (irStore m.imports.length) m
+      ((List.range m.imports.length).map Silmaril.Wasm.Execution.Core.ExternAddr.func)
+    rw [hp] at hp₀
+    obtain ⟨-, -, ⟨newI, hnewI, -⟩, -⟩ :=
+      Silmaril.Wasm.Component.Engine.Core3.Typed.prepareE?_typed hsOk₀ hp₀
+    have hPJ : g.PreOk (Store.mapH FirstImp.gL J.store).funcs := by
+      rw [hnewI]
+      exact preOk_extend g hP₀
+    obtain ⟨mtI, f', st₀, -, -, hi, -, hst₀⟩ :=
+      Silmaril.Wasm.Component.Engine.Core3.Typed.prepareE?_inv hp
+    have hi' : Silmaril.Wasm.Execution.Core.instantiateOnce? (irStore m.imports.length) { m with start := none }
+        (Silmaril.Wasm.Link.GC.Preparation.imports (List.range m.imports.length)) =
+        some (J.store, f', none) := by
+      rw [instantiateOnce?_noStart,
+        show Silmaril.Wasm.Link.GC.Preparation.imports (List.range m.imports.length) =
+          (List.range m.imports.length).map Silmaril.Wasm.Execution.Core.ExternAddr.func from rfl,
+        hi]
+      rfl
+    have hprof : Silmaril.Wasm.Link.GC.inProfile { m with start := none } = true := by
+      simp only [splitMod, Bool.and_eq_true, List.isEmpty_iff] at hsplit
+      simp [Silmaril.Wasm.Link.GC.inProfile, hsplit.1.1.1.1, hsplit.1.1.1.2, hsplit.1.1.2,
+        hsplit.1.2, hsplit.2]
+      exact List.all_eq_true.mp hfun
+    obtain ⟨hgood, hmodg⟩ := storeGood_once hprof hi'
+      (fun fi hfi c hc => by
+        simp only [irStore, List.mem_map, List.mem_range] at hfi
+        obtain ⟨i, -, rfl⟩ := hfi
+        cases hc)
+      rfl rfl rfl (fun a ha => by simpa [irStore] using ha)
+    obtain ⟨x, -, hx⟩ := hst₀ f hfs
+    have hfa : (show Nat from f) < (Store.mapH FirstImp.gL J.store).funcs.length := by
+      have h1 : (show Nat from f) < J.store.funcs.length := hmodg.funcs f (List.mem_of_getElem? hx)
+      simpa [Store.mapH] using h1
+    have hgood' := (storeGood_mapH_iff FirstImp.gL J.store).mpr hgood
+    have hG : GapThr g J.store (Silmaril.Wasm.SingleThreaded.Thread.invoke f [])
+        (Silmaril.Wasm.SingleThreaded.Thread.invoke (g.sh.fn f) []) :=
+      ⟨invoke_gap g hPJ f, splitGood_invoke hgood' hfa (fun _ h => by cases h), hPJ⟩
+    have hRT : RT (g.rel (Store.mapH FirstImp.gL J.store))
+        (Silmaril.Wasm.SingleThreaded.Thread.invoke (g.sh.fn f) []) :=
+      ⟨hsJ, hcfgJ (g.sh.fn f) (by rw [hfs]; rfl), hHT⟩
+    have hM₀ : coreCfg M₀ thc Kc segsc restc
+        (g.rel (Store.mapH FirstImp.gL J.store),
+          Silmaril.Wasm.SingleThreaded.Thread.invoke (g.sh.fn f) []) = M₀ := by
+      have e := coreCfg_self hS.ctl
+      have hco : M₀.store.core = g.rel (Store.mapH FirstImp.gL J.store) := by
+        rw [hS.store]; rfl
+      rw [hco] at e
+      exact e
+    -- the start run with its host calls
+    obtain ⟨tr₄, B', tR', d₄, hst', hG', hB', hhost', hExt, hRT'⟩ := startRun_gapX
+      (prof := first.prof) (K := Kc) (segs := segsc) (rest := restc) hno.imps g hinj hrun' hans
+      hst hB hG hRT
+    rw [hM₀] at d₄
+    -- no values
+    have hfv : fvs = [] := by
+      have := Silmaril.Wasm.Component.Engine.Core3.Typed.returned_typed (o := neverFail) (rs := [])
+        ⟨hRT'.store, fun fi hfi h hc => ⟨_, hRT'.hosts fi hfi h hc⟩⟩ hRT'.thread hst'
+      simpa using this
+    subst hfv
+    have d₅ := retStep (th := thc) (K := Kc) (segs := segsc) (rest := restc)
+      (y := (g.rel (Store.mapH FirstImp.gL c'.1), tR')) hst' hB'.lock
+    -- the epilogue
+    obtain ⟨h, xs, cs, rfl⟩ := hExt
+    obtain ⟨tr₆, d₆⟩ := hS.ret (g.rel (Store.mapH FirstImp.gL c'.1), tR') h xs cs
+    -- back in the core instantiation, then the core instance on the frame
+    obtain ⟨d₇, -⟩ := hK' (startedCfgG embL.host
+      { ({ M with store := setCoreSt (g.rel (Store.mapH FirstImp.gL J.store)) M.store } :
+          Machine.Config (core3 neverFail) Σh) with
+        ctl := ⟨none, .prog (Instantiate.runStart ⟨0⟩ (g.sh.fn f) >>= K'), []⟩ :: [] }
+      (g.sh.fn f) ι' (g.rel (Store.mapH FirstImp.gL c'.1)) h xs cs) []
+      ((core3 neverFail).exports (g.sh.minst mi₂)) _ (.pure _ _) hI.lock
+    have d₈ := RunsQ.lrun_at (prof := first.prof) (hr := embL.hr)
+      (hpush ((core3 neverFail).exports (g.sh.minst mi₂))
+        { startedCfgG embL.host
+          { ({ M with store := setCoreSt (g.rel (Store.mapH FirstImp.gL J.store)) M.store } :
+              Machine.Config (core3 neverFail) Σh) with
+            ctl := ⟨none, .prog (Instantiate.runStart ⟨0⟩ (g.sh.fn f) >>= K'), []⟩ :: [] }
+          (g.sh.fn f) ι' (g.rel (Store.mapH FirstImp.gL c'.1)) h xs cs with
+          ctl := ⟨none, .prog ((pushEntry sc.frame (.core .instance_)
+            (.coreInstance ((core3 neverFail).exports (g.sh.minst mi₂))) >>= fun f =>
+              pure ({ sc with frame := f } : Scope (core3 neverFail))) >>= fun sc =>
+            List.foldlM (instantiateDef callRecurse ⟨0⟩ [] (importArgs hostI)) sc ds >>= K), []⟩ ::
+              [] })
+      hI.lock
+      (fun sc => List.foldlM (instantiateDef callRecurse ⟨0⟩ [] (importArgs hostI)) sc ds >>= K)
+      (segs := []) (rest := []) rfl
+    have d := d₂.trans (d₃.trans (d₄.trans (d₅.trans (d₆.trans (d₇.trans d₈)))))
+    have hfc : (g.rel (Store.mapH FirstImp.gL c'.1)).funcs =
+        (g.rel (Store.mapH FirstImp.gL J.store)).funcs := by
+      simp only [rel_funcs, Store.mapH, startRunI_funcs hrun']
+    refine ⟨_, _, _, _, d, Adequacy.LRun.no_host d,
+      Adequacy.LRun.no_trap d ⟨List.cons_ne_nil _ _, hI.lock⟩, rfl, ⟨hI.mods, hinsts' _,
+        hI.lock, funcs0_append hI.func0 _, ⟨ι₁, by rw [← hι₁]; rfl, .inr rfl⟩,
+        fun i hi => by rw [show (startedCfgG embL.host _ (g.sh.fn f) ι'
+          (g.rel (Store.mapH FirstImp.gL c'.1)) h xs cs).store.core =
+          g.rel (Store.mapH FirstImp.gL c'.1) from rfl, hfc]; exact hfunsJ i hi,
+        hRT'.store, hRT'.hosts⟩, ?_, rfl, rfl, rfl, rfl, hexps, rfl, rfl⟩
+    show h = _
+    have hh : h = (M₀.host.1, M₀.host.2 ++ coreLog ys) := hhost'
+    rw [hh, hS.host]
+    show ((M.host.1, M.host.2 ++ coreLog ys) : Σh) = _
+    rw [hhost, hlog]
 
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi
