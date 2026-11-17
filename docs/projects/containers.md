@@ -28,7 +28,8 @@ theorems), **Planned** (nothing exists yet). No module uses `sorry`, `native_dec
 | Fixtures under the small runtime model: no-op, crash, spin, HTTP over TCP, vsock compute | `Containers.Fixtures` | Proved; Checked (`Examples`) |
 | HTTP interfaces (version, transport, port), admissibility under profiles, the server platform of a runtime model, the fixture's response parsed by the verified HTTP/1.1 parser | `Containers.Http` | Proved |
 | The behaviour institution and its logic-graph registration | `Containers.Institution`, `LogicGraph.Nodes.Containers` | Proved (satisfaction condition) |
-| A sequential x86-64 machine instance; a parallel x86-64 machine; ELF images under the Linux process semantics; OCI octets; Nitro Enclaves; Redis; Kubernetes | — | Planned (below) |
+| Static ELF images under the Linux process semantics (restricted adapter: standard channels, bounded output, task creation as undefined behaviour); a restricted OCI reader with checked digests; two real fixtures (no-op, HTTP responder) | `Containers.Lps`, `Containers.Oci`, `Containers.Noop`, `Containers.HttpOnce` | Proved; Tested (Docker, `examples/containers/`) |
+| A parallel x86-64 machine; programs with sockets or input under the adapter; Nitro Enclaves; Redis; Kubernetes | — | Planned (below) |
 
 **What the fixtures do and do not show.** Every fixture theorem is relative to `Fixtures.small`: a
 tiny program language whose semantics is written down directly. Nothing here runs Docker, runc or a
@@ -370,12 +371,13 @@ specification, interpreted by `pre R φ` (planned `consequence_interpretation co
 
 These are part of the original request and remain open after this pull request:
 
-* **Real images and real execution: one fixture done.** The static no-op ELF in a deterministic OCI
-  image is proved under the LPS adapter and tested under Docker (above). General OCI images,
-  dynamically linked programs and programs that interact are not.
+* **Real images and real execution: two fixtures done.** The static no-op ELF and a static ELF
+  writing one HTTP/1.1 response, each in a deterministic OCI image, are proved under the LPS adapter
+  and tested under Docker (below). General OCI images, dynamically linked programs, programs that
+  read input and programs that open sockets themselves are not.
 * **The sequential x86-64 machine instance: restricted.** `Lps.lps` maps system calls 56, 57, 58
   and 435 to `clone` actions and LPS's unmodelled, fault and stuck outcomes to `UB`; the run
-  characterisation is proved for programs that only exit. `ClonesExplicit` as a general statement
+  characterisation is proved for programs with bounded standard output (`Lps.Emits`). `ClonesExplicit` as a general statement
   about LPS steps is not proved.
 * **The parallel x86-64 machine** (threads, scheduler, x86-TSO, atomics) and `SeqAgrees` proofs.
 * **Acceptors, consequence systems and tables: partly done.** Done: `Containers.Check`
@@ -460,9 +462,68 @@ empty stdout and stderr. It passed on Docker 28.5.2 on 2026-11-16.
 
 **Not done.** The instance is backed by the Lean data and its proved digests, not by a registered
 `Project.Value` artifact with a CID (no OCI format adapter exists in `Project`). The reader handles
-one profile, not OCI in general. Programs beyond the probe kit's single `PT_LOAD`, dynamically
-linked programs, and programs with events need more adapter theorems (events are mapped, but only
-the exit-only case is proved).
+one profile, not OCI in general. Programs beyond the probe kit's single `PT_LOAD` and dynamically
+linked programs are not covered. Programs whose output is bounded are covered by `Lps.Emits`
+(next section); programs that read input or use sockets are not.
+
+## A real HTTP responder: real bytes, one fixed response
+
+> **Experimental API.** Names and statements in `Silmaril.Containers` may change.
+
+Try it (Docker optional; without it the script stops after the byte checks):
+
+```
+examples/containers/http-once/docker-test.sh
+```
+
+```
+1. the layer holds the pinned ELF (ac076e372af6ece5fce3a67e3d91c2099ae5f22d390c84145f2380fb3c5a51d1)
+   http_ok.s rebuilds to it
+2. docker loaded silmaril-http-once:pinned as sha256:bec586da…5a1a, exposing 8080/tcp
+3. one run: exit 0, stdout is the 40-octet response, stderr empty
+4. curl http://127.0.0.1:8080/ through the accept loop: status 200, body ok
+PASS (a test of this host, not a proof)
+```
+
+**The program** is twelve lines of assembly, `examples/containers/http-once/http_ok.s`:
+`write(1, response, 40); exit(0)`, where `response` is
+`HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok` (the response of the model fixture
+`Fixtures.http`). Built by the LPS probe build, it is a 408-octet static ELF. It answers HTTP the
+way an `inetd` service does: on standard output, which a supervisor connects to an accepted TCP
+connection. The image declares `8080/tcp`.
+
+| Claim | Kind | Where |
+| --- | --- | --- |
+| The ELF, layer, configuration and manifest have the pinned SHA-256 digests; the layer is `Tar.encode` of the ELF | Proved (kernel evaluation) | `HttpOnce.Thms`: `elf_digest` … `layer_encode` |
+| The OCI reader returns entry point `/http-ok`, that file, and the declared port `8080/tcp`, the port of the HTTP/1.1 interface `Http.Fixtures.httpIface` | Proved | `runtime_load`, `declared` |
+| Every run under `Lps.ociRuntime` (LPS on x86-64, every flag oracle, every admissible launch, sequential clone policy): no undefined behaviour, exit 0, and the events are standard-output octets forming a **prefix** of the response | Proved | `wp_image` (registered as `containers.http_once.oci_wp`, THM) |
+| The run that writes all 40 octets exists | Proved | `full_run` |
+| Those 40 octets are one HTTP/1.1 response to `GET`, head `200 OK` with `Content-Length: 2`, content `ok`, every octet consumed, by the verified reader `Net.Http1.parseResponse` | Proved | `okResponse_exact` |
+| Docker loads the layout with the proved image ID; one run writes exactly the response; `curl` gets 200 `ok` over TCP through a host-side accept loop | Tested (this host) | `docker-test.sh` |
+| The model fixture `Fixtures.http` (listen, accept, send) | Model | `Containers.Fixtures` |
+
+**Why "a prefix".** LPS lets `write` deliver any non-empty prefix of what it is asked to write (a
+short write), and this program does not retry, so the theorem cannot promise the whole response;
+the full response is the reference run (`full_run`). A program with a write loop would close the
+gap; its proof needs loop lemmas over symbolic register values that the probe kit does not have yet.
+
+**Why the accept loop is outside.** The adapter maps the three standard channels and treats every
+other event (a socket, a file) as undefined behaviour `unmodeled`, so a program that calls
+`socket`, `bind`, `listen` and `accept` itself would have no claim. LPS does model those calls
+(`Process.LPS.Sys.SocketCore`); mapping their events to `Ev.accept`/`Ev.send` and adding kit rules
+for them is the next step towards a self-contained server. Until then the TCP part is tested only.
+
+**The adapter generalisation** (`Lps.Thms`). `Emits snap k w` says: every admissible launch has
+only finite, error-free LPS executions whose events the adapter reads as a prefix of `w` (outputs
+only), halting with status `k`, and no reachable task creation. Then `runs_prefix`: every run is
+`done t (exited k)` with `t` a prefix of `w`; and `run_of_star`: any chosen finite execution (built
+with the kit's run rules) is a run. `ExitOnly` is the case `w = []`, and the no-op fixture's
+theorems are now derived from it. `noclone_write` extends clone freedom along a probe's chain over
+a write, for every short-write outcome.
+
+**What this is not.** A server proof (no socket is opened by the program), protocol conformance
+(one fixed response judged by one reader), or a statement about Docker, runc, a kernel or the
+accept loop.
 
 ## Next steps
 
@@ -506,6 +567,6 @@ hashes are recorded here.
 
 ```
 lake build --wfail Silmaril.Containers.Fixtures.Examples Silmaril.Containers.Mini.Examples \
-  Silmaril.Containers.Http.Thms \
+  Silmaril.Containers.Http.Thms Silmaril.Containers.Noop.Thms Silmaril.Containers.HttpOnce.Thms \
   Silmaril.Containers.Institution.Defs Silmaril.LogicGraph.Nodes.Containers.Defs
 ```

@@ -210,6 +210,28 @@ structure ExitOnly (snap : X86Launch.Snapshot) (k : Word) : Prop where
     NoCloneFrom snap.image.segments (X86Launch.init (isaOf o) snap en limit inp)
   launch : ∃ o en inp, Problems.CoreutilsLite.Admissible o snap en inp
 
+/-! ## Programs that write a bounded output -/
+
+/-- **Bounded output**: every LPS event is supported by the adapter, the container events read off
+them (`mapEvs`), after the events `pre` already read, are a prefix of `w`, and the execution halts
+with status `k` and no kill. `PrefixPost w k []` is the postcondition of `Emits`. -/
+def PrefixPost {o : Oracle} (w : List Ev) (k : Word) (pre : List Ev) : Omni.Post (isaOf o) :=
+  fun tr out => (∃ es, mapEvs tr = some es ∧ pre ++ es <+: w) ∧
+    ∃ final, out = .halt final ∧ final.model.killedBy = none ∧ final.model.halted = some k
+
+/-- The hypotheses for programs with output: every admissible launch of `snap` has only finite,
+error-free LPS executions whose container events are a prefix of `w` (only outputs) and which halt
+with status `k`; no reachable configuration is about to create a task; and some launch is
+admissible. `ExitOnly snap k` is the case `w = []` (`ExitOnly.emits`). -/
+structure Emits (snap : X86Launch.Snapshot) (k : Word) (w : List Ev) : Prop where
+  exec : ∀ o limit en inp, Problems.CoreutilsLite.Admissible o snap en inp →
+    Omni.Exec snap.image.segments Probes.spec noFilter (X86Launch.init (isaOf o) snap en limit inp)
+      (PrefixPost w k [])
+  noClone : ∀ o limit en inp, Problems.CoreutilsLite.Admissible o snap en inp →
+    NoCloneFrom snap.image.segments (X86Launch.init (isaOf o) snap en limit inp)
+  launch : ∃ o en inp, Problems.CoreutilsLite.Admissible o snap en inp
+  outputs : ∀ e ∈ w, e.isInput = false
+
 /-! ## Loading ELF contents -/
 
 /-- An ELF file as LPS's loader reads it. -/
