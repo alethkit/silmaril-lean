@@ -145,4 +145,31 @@ theorem moduleParseRel_sound_of_gameSat {X : Type} {P : Numerics.Profile} {m : M
   subst hw
   exact this
 
+/-! ## Environment sets -/
+
+/-- A pair of the relation over `Envs` is a pair of the relation of one of them. -/
+theorem mem_parseRel_envs {V H X : Type} [DecidableEq H] {pol : PPolicy H}
+    {Envs : Set (Silmaril.Accept.Handle.Env H X)} {T : Set (List (PEv V H))} {q : List V × X}
+    (hq : q ∈ parseRel pol Envs T) : ∃ ρ ∈ Envs, q ∈ parseRel pol {ρ} T := by
+  rw [parseRel, langOver, Set.mem_iUnion] at hq
+  obtain ⟨⟨ρ, hρ⟩, hq⟩ := hq
+  refine ⟨ρ, hρ, ?_⟩
+  rw [parseRel, langOver, Set.mem_iUnion]
+  exact ⟨⟨ρ, rfl⟩, hq⟩
+
+/-- **One-shot parser modules relate only one-value inputs** (every module, profile and
+environment set; no obligation). -/
+theorem moduleParseRel_input_oneShot {V X : Type} {P : Numerics.Profile} {m : Module}
+    {ix : ParseExports V} {pol : PPolicy (BitVec 32)}
+    {Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) X)} (h1 : ix.OneShot)
+    (hb : pol.onBadHandle ≠ .ub) :
+    inputLang (moduleParseRel P m ix pol Envs) ⊆ {w | ∃ v, w = [v]} := by
+  rintro _ ⟨q, hq, rfl⟩
+  obtain ⟨ρ, -, hq⟩ := mem_parseRel_envs hq
+  obtain ⟨_, -, w, -, -, -, -, hw⟩ := parseRel_oneShot hb (fun t ht e he => by
+    obtain ⟨p, -, rfl⟩ := ht
+    obtain ⟨f, v, -, hd⟩ := mem_exportEvents he
+    exact parseDec_oneShot h1 hd) q hq
+  exact ⟨w, hw⟩
+
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Parsing

@@ -96,14 +96,8 @@ theorem tree2Lang_sound_of_forall {P : Profile} {m : Module} {ix : T2RImports}
     {L : Set (Tree2 (BitVec 64))} {Inv : Store Nat → Prop}
     (hm : ∀ ρ ∈ Envs, GameSat P (Verify.instOf m) Inv (tree2ISpec ix ρ L) (topISpec _))
     (hs : Inv (Verify.instOf m).store) {oa : OnInvalid} (hoa : oa ≠ .ub) :
-    moduleTree2Lang P m ix .trap oa Envs ⊆ L := by
-  intro x hx
-  unfold moduleTree2Lang readerLang langOver at hx
-  rw [Set.mem_iUnion] at hx
-  obtain ⟨⟨ρ, hρ⟩, hx⟩ := hx
-  refine tree2Lang_sound_of_gameSat (hm ρ hρ) hs hoa ?_
-  unfold moduleTree2Lang readerLang langOver
-  rw [Set.mem_iUnion]
-  exact ⟨⟨ρ, rfl⟩, hx⟩
+    moduleTree2Lang P m ix .trap oa Envs ⊆ L := fun _ hx => by
+  obtain ⟨⟨ρ, hρ⟩, hx⟩ := Silmaril.Accept.mem_langOver.1 hx
+  exact tree2Lang_sound_of_gameSat (hm ρ hρ) hs hoa (Silmaril.Accept.mem_langOver.2 ⟨⟨ρ, rfl⟩, hx⟩)
 
 end Silmaril.Wasm.Game.HandleAccept.Tree2

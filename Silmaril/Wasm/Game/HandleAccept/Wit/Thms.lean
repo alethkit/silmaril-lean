@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Defs
+import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Basic
 
 /-!
 # AST payload types as WIT value types: laws
@@ -22,36 +23,15 @@ universe u v
 
 variable {Ref : Type u} {Resource : Type v}
 
-theorem toWit_simple : ∀ t : PTy, (toWit t : WIT.ValType Ref Resource).simple = true
-  | .bool | .s32 | .u32 | .s64 | .u64 | .string => by
-      simp [toWit, WIT.ValType.simple]
-  | .bytes => by simp [toWit, WIT.ValType.simple]
-  | .list t => by simpa [toWit, WIT.ValType.simple] using toWit_simple t
+theorem toWit_simple (t : PTy) : (toWit t : WIT.ValType Ref Resource).simple = true :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.toWit_simple t
 
 /-- A payload type as a simple WIT type. -/
 def toSimple (t : PTy) : WIT.SimpleType Ref Resource := ⟨toWit t, toWit_simple t⟩
 
 theorem toWit_injective :
-    Function.Injective (toWit : PTy → WIT.ValType Ref Resource) := by
-  intro a b h
-  induction a generalizing b with
-  | list a ih =>
-      cases b with
-      | list b =>
-          simp only [toWit, WIT.ValType.list.injEq] at h
-          exact congrArg _ (ih h)
-      | bytes =>
-          simp only [toWit, WIT.ValType.list.injEq] at h
-          cases a <;> simp [toWit] at h
-      | _ => simp [toWit] at h
-  | bytes =>
-      cases b with
-      | list b =>
-          simp only [toWit, WIT.ValType.list.injEq] at h
-          cases b <;> simp [toWit] at h
-      | bytes => rfl
-      | _ => simp [toWit] at h
-  | _ => cases b <;> first | rfl | simp [toWit] at h
+    Function.Injective (toWit : PTy → WIT.ValType Ref Resource) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.toWit_injective
 
 theorem valEquiv_injective (E : WIT.Env Ref Resource) (t : PTy) :
     Function.Injective (valEquiv E t) :=

@@ -64,16 +64,9 @@ theorem listParse_rel_eq_7 {P : Profile}
     {pol : Policy (BitVec 32)} (hsen : pol.sentinel = none) (hw : pol.onWrite ≠ .ub)
     (ha : pol.onAccept ≠ .ub) {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0)
     (hb : ppol.onBadHandle ≠ .ub) (ho : ppol.onOverrun ≠ .ub) :
-    {t | ([7], t) ∈ moduleMixedRel P listParse twoIx listPix pol ppol} = {SExp2.ofAtoms [7]} := by
-  ext t
-  simp only [Set.mem_ofPred_eq, Set.mem_singleton_iff]
-  constructor
-  · intro h
-    obtain ⟨x, -, hw', rfl⟩ := listParse_rel P hsen hw ha h0 hb ho h
-    cases hw'
-    rfl
-  · rintro rfl
-    exact listParse_relates_7 hP (fun r h => by simp [hsen] at h) h0
+    {t | ([7], t) ∈ moduleMixedRel P listParse twoIx listPix pol ppol} = {SExp2.ofAtoms [7]} :=
+  Set.eq_singleton_iff_unique_mem.2 ⟨listParse_relates_7 hP (fun r h => by simp [hsen] at h) h0,
+    fun _ h => by obtain ⟨x, -, ⟨⟩, rfl⟩ := listParse_rel P hsen hw ha h0 hb ho h; rfl⟩
 
 /-! ### At the specification profiles -/
 

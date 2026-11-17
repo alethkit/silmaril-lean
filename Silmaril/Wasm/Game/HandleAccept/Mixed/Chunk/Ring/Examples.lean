@@ -72,13 +72,9 @@ theorem chunkRingN_rel_eq_8 {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) {P 
     (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) {ppol : PPolicy (BitVec 32)}
     (h0 : ppol.sentinel = 0) (hb : ppol.onBadHandle ≠ .ub) (ho : ppol.onOverrun ≠ .ub) :
     {t | ([8], t) ∈ moduleMixedRel P (chunkRingN cap) twoIx ringPix pol ppol} =
-      {SExp2.ofAtoms [8]} := by
-  ext t
-  simp only [Set.mem_ofPred_eq, Set.mem_singleton_iff]
-  constructor
-  · exact chunkRingN_rel ⟨by omega, h8⟩ P hsen hw ha hb ho
-  · rintro rfl
-    exact chunkRingN_relates_8 h2 h8 (fun r h => by simp [hsen] at h) h0
+      {SExp2.ofAtoms [8]} :=
+  Set.eq_singleton_iff_unique_mem.2 ⟨chunkRingN_relates_8 h2 h8 (fun r h => by simp [hsen] at h) h0,
+    fun _ => chunkRingN_rel ⟨by omega, h8⟩ P hsen hw ha hb ho⟩
 
 /-! ## Eight values, and a full page -/
 

@@ -74,15 +74,10 @@ theorem stackParse_rel_eq_78 {P : Profile}
     (ha : pol.onAccept ≠ .ub) {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0)
     (hc : ppol.doneClears = true) (hb : ppol.onBadHandle ≠ .ub) (ho : ppol.onOverrun ≠ .ub) :
     {t | ([7, 8], t) ∈ moduleMixedRel P stackParse twoIx stackPix pol ppol} =
-      {SExp2.ofAtoms [8, 7]} := by
-  ext t
-  simp only [Set.mem_ofPred_eq, Set.mem_singleton_iff]
-  constructor
-  · intro h
-    rw [stackParse_rel P hsen hw ha hc hb ho h]
-    rfl
-  · rintro rfl
-    exact stackParse_relates_78 hP (fun r h => by simp [hsen] at h) h0 hc
+      {SExp2.ofAtoms [8, 7]} :=
+  Set.eq_singleton_iff_unique_mem.2
+    ⟨stackParse_relates_78 hP (fun r h => by simp [hsen] at h) h0 hc,
+      fun _ h => stackParse_rel P hsen hw ha hc hb ho h⟩
 
 /-! ### At the specification profiles -/
 

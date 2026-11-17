@@ -5,6 +5,7 @@ public import Silmaril.Wasm.Game.HandleAccept.Thms
 public import Silmaril.Semantics.Accept.Handle.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Writer.Basic
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Writer.Decode
+import Silmaril.Proofs.Wasm.Game.HandleAccept.Writer.Bounds
 
 /-!
 # Writer APIs of core Wasm modules: laws
@@ -82,13 +83,8 @@ theorem writerLang_subset_of_AG {X Op : Type} {W : Writer Op X} {pol : Policy (B
 theorem fixedLang_subset_of_forall {X Op : Type} {W : Writer Op X} {pol : Policy (BitVec 32)}
     {Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) X)} {L : Set X}
     {T : Set (List (WEv Op (BitVec 32)))}
-    (h : ∀ ρ ∈ Envs, fixedLang W pol {ρ} T ⊆ L) : fixedLang W pol Envs T ⊆ L := by
-  intro x hx
-  rw [fixedLang, langOver, Set.mem_iUnion] at hx
-  obtain ⟨⟨ρ, hρ⟩, hx⟩ := hx
-  refine h ρ hρ ?_
-  rw [fixedLang, langOver, Set.mem_iUnion]
-  exact ⟨⟨ρ, rfl⟩, hx⟩
+    (h : ∀ ρ ∈ Envs, fixedLang W pol {ρ} T ⊆ L) : fixedLang W pol Envs T ⊆ L :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.fixedLang_subset_of_forall h
 
 /-! ## Decoders -/
 
@@ -179,80 +175,40 @@ theorem sxWFixedLang_sound_of_gameSat {P : Profile} {m : Module} {ix : SxWImport
 /-! ## Structural bounds -/
 
 theorem atom_writeClosed2 (w : BitVec 64) (args : List (BitVec 32)) :
-    WriteClosed (consW (BitVec 64)) atoms2 (.atom w) args := by
-  intro ts y _ hb _
-  cases ts with
-  | nil => cases hb; exact ⟨w, rfl⟩
-  | cons _ _ => cases hb
+    WriteClosed (consW (BitVec 64)) atoms2 (.atom w) args :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.atom_writeClosed2 w args
 
 /-- **A module without `nil` and `cons` imports accepts only words** (every module, profile and
 policy without UB). -/
 theorem moduleConsWLang_subset_atoms2 {P : Profile} {m : Module} {ix : ConsWImports}
     {pol : Policy (BitVec 32)} (hn : (Verify.instOf m).imports.length ≤ ix.nil)
     (hc : (Verify.instOf m).imports.length ≤ ix.cons) (ha : pol.onAccept ≠ .ub)
-    (hw : pol.onWrite ≠ .ub) : moduleConsWLang P m ix pol ⊆ atoms2 := by
-  refine writerLang_subset_of_closed ha hw
-    (Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.write_mem_traces ?_ ?_)
-  · intro e op args r hd
-    obtain ⟨_, h⟩ | ⟨-, h⟩ := Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.consWDecAsk_cases hd
-      <;> cases h
-  · intro e v op args r hd
-    have hlt := e.1.isLt
-    obtain ⟨r', ⟨-, w, h⟩ | ⟨h1, -⟩ | ⟨h1, -⟩⟩ :=
-      Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.consWDecAns_cases hd
-    · cases h; exact atom_writeClosed2 w []
-    · omega
-    · omega
+    (hw : pol.onWrite ≠ .ub) : moduleConsWLang P m ix pol ⊆ atoms2 :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.moduleConsWLang_subset_atoms2 hn hc ha hw
 
 theorem atom_writeClosed (K : Set Nat) (w : BitVec 64) (args : List (BitVec 32)) :
-    WriteClosed (sexpW (BitVec 64)) {x | ListArities K x} (.atom w) args := by
-  intro ts y _ hb _
-  cases ts with
-  | nil => cases hb; trivial
-  | cons _ _ => cases hb
+    WriteClosed (sexpW (BitVec 64)) {x | ListArities K x} (.atom w) args :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.atom_writeClosed K w args
 
 theorem list_writeClosed {K : Set Nat} {args : List (BitVec 32)} (hK : args.length ∈ K) :
-    WriteClosed (sexpW (BitVec 64)) {x | ListArities K x} .list args := by
-  intro ts y hl hb hts
-  cases hb
-  exact ⟨hl ▸ hK, fun i => hts _ (List.getElem_mem _)⟩
+    WriteClosed (sexpW (BitVec 64)) {x | ListArities K x} .list args :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.list_writeClosed hK
 
 /-- **List arities are bounded by the imports**: every list node of every tree a module
 accepts through the n-ary API has the arity of one of its list-constructor imports (every
 module, profile and policy without UB). -/
 theorem moduleSxWLang_subset_arities {P : Profile} {m : Module} {ix : SxWImports}
     {pol : Policy (BitVec 32)} (ha : pol.onAccept ≠ .ub) (hw : pol.onWrite ≠ .ub) :
-    moduleSxWLang P m ix pol ⊆ {x | ListArities (sxArities ix (Verify.instOf m).imports) x} := by
-  refine writerLang_subset_of_closed ha hw
-    (Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.write_mem_traces ?_ ?_)
-  · intro e op args r hd
-    obtain ⟨_, h⟩ | ⟨-, h⟩ := Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.sxWDecAsk_cases hd
-      <;> cases h
-  · intro e v op args r hd
-    obtain ⟨r', ⟨-, w, h⟩ | ⟨h1, args', hl, h⟩⟩ :=
-      Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.sxWDecAns_cases hd
-    · cases h; exact atom_writeClosed _ w []
-    · cases h
-      exact list_writeClosed ⟨e.1.val, h1, e.1.isLt, hl.symm⟩
+    moduleSxWLang P m ix pol ⊆ {x | ListArities (sxArities ix (Verify.instOf m).imports) x} :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.moduleSxWLang_subset_arities ha hw
 
-theorem listArities_empty {x : SExp (BitVec 64)} (h : ListArities ∅ x) : x ∈ atoms := by
-  cases x with
-  | atom w => exact ⟨w, rfl⟩
-  | list n cs => exact absurd h.1 (Set.notMem_empty n)
+theorem listArities_empty {x : SExp (BitVec 64)} (h : ListArities ∅ x) : x ∈ atoms :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.listArities_empty h
 
 /-- **A module without list-constructor imports accepts only words.** -/
 theorem moduleSxWLang_subset_atoms {P : Profile} {m : Module} {ix : SxWImports}
     {pol : Policy (BitVec 32)} (hl : ∀ j ∈ ix.lists, (Verify.instOf m).imports.length ≤ j)
-    (ha : pol.onAccept ≠ .ub) (hw : pol.onWrite ≠ .ub) : moduleSxWLang P m ix pol ⊆ atoms := by
-  intro x hx
-  refine listArities_empty ?_
-  have h := moduleSxWLang_subset_arities ha hw hx
-  have hK : sxArities ix (Verify.instOf m).imports = ∅ := by
-    ext n
-    simp only [sxArities, Set.mem_ofPred_eq, Set.mem_empty_iff_false, iff_false]
-    rintro ⟨j, hj, hlt, -⟩
-    exact absurd (hl j hj) (by omega)
-  rw [hK] at h
-  exact h
+    (ha : pol.onAccept ≠ .ub) (hw : pol.onWrite ≠ .ub) : moduleSxWLang P m ix pol ⊆ atoms :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Writers.moduleSxWLang_subset_atoms hl ha hw
 
 end Silmaril.Wasm.Game.HandleAccept.Writers

@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Memory.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Writer.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Memory.Basic
+import Silmaril.Proofs.Wasm.Game.HandleAccept.Memory.Atoms
 
 /-!
 # Memory-carrying writer imports: laws
@@ -38,20 +39,7 @@ theorem memWriterLang_subset_atoms {P : Profile} {Envs : Store Nat → SEnv UImp
     {memIdx : Nat} {m : Module} {ix : MemImports} {pol : Policy (BitVec 32)}
     (hs : ∀ i ∈ m.imports, (i.moduleName, i.name) ≠ ix.sexp) (ha : pol.onAccept ≠ .ub)
     (hw : pol.onWrite ≠ .ub) :
-    memWriterLang P Envs memIdx m ix pol ⊆ {x | ∃ a, x = .atom a} := by
-  refine writerLang_subset_of_closed ha hw ?_
-  rintro _ ⟨ts, ⟨_, _, _, -, _, _, -, _, _, _, hts⟩, rfl⟩ op args r hm
-  have hi := (Silmaril.Proofs.Wasm.Game.HandleAccept.Memory.mem_inputsOf hm).resolve_right
-    (by simp)
-  obtain ⟨o, ⟨c, hc⟩, hd | ⟨wr, hd⟩⟩ := inp_of_tsession hts _ hi
-  · exact absurd hd Silmaril.Proofs.Wasm.Game.HandleAccept.Memory.memAccept_not_write
-  · rcases Silmaril.Proofs.Wasm.Game.HandleAccept.Memory.memWrite_cases hd with
-      he | ⟨a, rfl, rfl⟩
-    · obtain ⟨i, hi, hio⟩ := Silmaril.Proofs.Wasm.Game.HandleAccept.Memory.calloutAt?_imp hc
-      exact absurd (hio ▸ he) (hs i hi)
-    · intro cs y _ hb _
-      cases cs with
-      | nil => cases hb; exact ⟨a, rfl⟩
-      | cons _ _ => cases hb
+    memWriterLang P Envs memIdx m ix pol ⊆ {x | ∃ a, x = .atom a} :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Memory.memWriterLang_subset_atoms hs ha hw
 
 end Silmaril.Wasm.Game.HandleAccept.Memory

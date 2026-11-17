@@ -49,11 +49,10 @@ theorem properCheck_imports :
 
 /-! ## Languages -/
 
-theorem ofAtoms_properList (ws : List (BitVec 64)) : SExp2.ProperList (SExp2.ofAtoms ws) := by
-  apply SExp2.properList_ofList
-  intro x hx
-  obtain ⟨w, -, rfl⟩ := List.mem_map.1 hx
-  exact .inl (.atom w)
+theorem ofAtoms_properList (ws : List (BitVec 64)) : SExp2.ProperList (SExp2.ofAtoms ws) :=
+  SExp2.properList_ofList fun _ hx => by
+    obtain ⟨w, -, rfl⟩ := List.mem_map.1 hx
+    exact .inl (.atom w)
 
 /-- Spine-proper lists are the lists `SExp2.ofList xs` of arbitrary elements. -/
 theorem spineProperList_iff {α : Type} {x : SExp2 α} :

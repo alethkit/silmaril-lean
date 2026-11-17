@@ -159,8 +159,7 @@ theorem not_sorted_21 : SExp2.ofAtoms [(2 : BitVec 64), 1] ∉ sortedL := by
 theorem not_words_dottedElem : dottedElem ∉ wordsL := by
   rintro ⟨_ | ⟨w, ws⟩, hws⟩
   · cases hws
-  · injection hws with h
-    cases h
+  · cases SExp2.cons.inj hws |>.1
 
 theorem sortedCheck_rejects_21 (P : Profile) (Envs : Set (HEnv)) :
     SExp2.ofAtoms [2, 1] ∉ moduleConsLang P sortedCheck consIx .trap .callTrap Envs :=

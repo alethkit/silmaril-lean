@@ -82,14 +82,9 @@ theorem chunkTake_rel_eq_8 {P : Profile}
     {pol : Policy (BitVec 32)} (hsen : pol.sentinel = none) (hw : pol.onWrite ≠ .ub)
     (ha : pol.onAccept ≠ .ub) {ppol : PPolicy (BitVec 32)} (h0 : ppol.sentinel = 0)
     (hb : ppol.onBadHandle ≠ .ub) (ho : ppol.onOverrun ≠ .ub) :
-    {t | ([8], t) ∈ moduleMixedRel P chunkTake twoIx takePix pol ppol} = {SExp2.ofAtoms [8]} := by
-  ext t
-  simp only [Set.mem_ofPred_eq, Set.mem_singleton_iff]
-  constructor
-  · intro h
-    exact chunkTake_rel P hsen hw ha hb ho h
-  · rintro rfl
-    exact chunkTake_relates_8 hP (fun r h => by simp [hsen] at h) h0
+    {t | ([8], t) ∈ moduleMixedRel P chunkTake twoIx takePix pol ppol} = {SExp2.ofAtoms [8]} :=
+  Set.eq_singleton_iff_unique_mem.2 ⟨chunkTake_relates_8 hP (fun r h => by simp [hsen] at h) h0,
+    fun _ => chunkTake_rel P hsen hw ha hb ho⟩
 
 /-! ### At the specification profiles -/
 

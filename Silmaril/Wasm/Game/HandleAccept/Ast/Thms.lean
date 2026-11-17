@@ -78,14 +78,8 @@ theorem astLang_sound_of_forall {P : Profile} {m : Module} {ix : AstRImports S}
     {L : Set (AST S.toAstSig)} {Inv : Store Nat → Prop}
     (hm : ∀ ρ ∈ Envs, GameSat P (Verify.instOf m) Inv (astISpec ix ρ L) (topISpec _))
     (hs : Inv (Verify.instOf m).store) {oa : OnInvalid} (hoa : oa ≠ .ub) :
-    moduleAstLang P m ix .trap oa Envs ⊆ L := by
-  intro x hx
-  unfold moduleAstLang readerLang langOver at hx
-  rw [Set.mem_iUnion] at hx
-  obtain ⟨⟨ρ, hρ⟩, hx⟩ := hx
-  refine astLang_sound_of_gameSat (hm ρ hρ) hs hoa ?_
-  unfold moduleAstLang readerLang langOver
-  rw [Set.mem_iUnion]
-  exact ⟨⟨ρ, rfl⟩, hx⟩
+    moduleAstLang P m ix .trap oa Envs ⊆ L := fun _ hx => by
+  obtain ⟨⟨ρ, hρ⟩, hx⟩ := Silmaril.Accept.mem_langOver.1 hx
+  exact astLang_sound_of_gameSat (hm ρ hρ) hs hoa (Silmaril.Accept.mem_langOver.2 ⟨⟨ρ, rfl⟩, hx⟩)
 
 end Silmaril.Wasm.Game.HandleAccept.Ast

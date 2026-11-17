@@ -46,15 +46,8 @@ theorem readerLang_subset_of_AG {Q A H X : Type} {R : Reader Q A H X} {ρ : Silm
   Silmaril.Proofs.Wasm.Game.HandleAccept.readerLang_subset_of_AG hAG hpost hpre hans hoa
 
 theorem consDecAns_ne_accept {ts : List FnType} (ix : ConsImports) (e : (ifaceSig ts).Op)
-    (v : (ifaceSig ts).Ar e) (h : BitVec 32) : consDecAns ix e v ≠ some (.accept h) := by
-  intro hd
-  unfold consDecAns at hd
-  rcases h1 : i32Arg e.2.1 with _ | k <;> rcases h2 : ansVals v with _ | vs <;>
-    simp only [h1, h2, Option.bind_eq_bind, Option.bind_none, Option.bind_some] at hd
-  · cases hd
-  · cases hd
-  · cases hd
-  · split_ifs at hd <;> revert hd <;> cases i32Res vs <;> cases i64Res vs <;> simp
+    (v : (ifaceSig ts).Ar e) (h : BitVec 32) : consDecAns ix e v ≠ some (.accept h) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.consDecAns_ne_accept ix e v h
 
 /-- **Soundness of a cons reader checker from its Hoare-logic obligation.** -/
 theorem consLang_sound_of_gameSat {P : Profile} {m : Module} {ix : ConsImports}
@@ -82,14 +75,8 @@ theorem consLang_sound_of_forall {P : Profile} {m : Module} {ix : ConsImports}
     {Inv : Store Nat → Prop}
     (hm : ∀ ρ ∈ Envs, GameSat P (Verify.instOf m) Inv (consISpec ix ρ L) (topISpec _))
     (hs : Inv (Verify.instOf m).store) {oa : OnInvalid} (hoa : oa ≠ .ub) :
-    moduleConsLang P m ix .trap oa Envs ⊆ L := by
-  intro x hx
-  unfold moduleConsLang readerLang langOver at hx
-  rw [Set.mem_iUnion] at hx
-  obtain ⟨⟨ρ, hρ⟩, hx⟩ := hx
-  refine consLang_sound_of_gameSat (hm ρ hρ) hs hoa ?_
-  unfold moduleConsLang readerLang langOver
-  rw [Set.mem_iUnion]
-  exact ⟨⟨ρ, rfl⟩, hx⟩
+    moduleConsLang P m ix .trap oa Envs ⊆ L := fun _ hx => by
+  obtain ⟨⟨ρ, hρ⟩, hx⟩ := Silmaril.Accept.mem_langOver.1 hx
+  exact consLang_sound_of_gameSat (hm ρ hρ) hs hoa (Silmaril.Accept.mem_langOver.2 ⟨⟨ρ, rfl⟩, hx⟩)
 
 end Silmaril.Wasm.Game.HandleAccept

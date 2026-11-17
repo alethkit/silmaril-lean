@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Defs
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Rules
 
 /-!
@@ -8,10 +9,15 @@ public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Rules
 
 * `le32_encode`, `readPtrLen_encode`: a `(ptr, len)` pair written as two little-endian `i32`s
   is read back;
-* `readPtrLen_rest`, `readVal_rest`: **a payload value consumes exactly `PTy.width t` bytes** of
-  the payload area (so a payload vector is packed);
+* `readPtrLen_rest`, `readVal_rest`: **a payload value consumes exactly `PTy.width t` bytes**
+  (its canonical ABI element size);
 * `readVal_string`, `readVal_bytes`, `readVal_list`: the indirect values from their pair, the
-  memory segment it names and (for strings) its UTF-8 decoding, (for lists) its elements.
+  memory segment it names and (for strings) its UTF-8 decoding, (for lists) its alignment and
+  its elements; `readVal_list_misaligned`: a misaligned list is no value;
+* `alignTo_zero`, `readVals_single`: a one-value payload vector;
+* `layout_toWit`, `layoutTypes_toWit`, `valsLayout_toWit`: **the layouts are the canonical ABI
+  layouts** `ABI.layout .i32` of the WIT types `Wit.toWit t` and of the tuple of
+  `Wit.toWitList ps`.
 
 New proofs (no source).
 -/
@@ -23,6 +29,8 @@ namespace Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitAst
 open Silmaril.Wasm Silmaril.Wasm.Execution Silmaril.Formats Silmaril.Wasm.Game.HandleAccept.Memory
   Silmaril.Wasm.Game.HandleAccept.MemSound.WordAtom
   Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound
+  Silmaril.Wasm.Component
+open Silmaril.Wasm.Game.HandleAccept.Wit (toWit toWitList)
 
 theorem length_encode4 (v : Nat) : (Memory.encodeLE 4 v).data.toList.length = 4 := by
   rw [Array.length_toList]
@@ -103,16 +111,18 @@ theorem readVal_rest {seg : Nat → Nat → Option (List UInt8)} :
     rcases hp : readPtrLen bs with _ | ⟨p, n, r⟩
     · simp [readVal, hp] at h
     · simp only [readVal, hp, Option.bind_some] at h
-      rcases hc : seg p (n * PTy.width t) with _ | es
-      · simp [hc] at h
-      · simp only [hc, Option.bind_some] at h
-        rcases hm : readMany (readVal seg t) n es with _ | ⟨vs, r'⟩
-        · simp [hm] at h
-        · simp only [hm, Option.bind_some] at h
-          split at h
-          · have e : r = rest := congrArg Prod.snd (Option.some.inj h)
-            rw [← e]; exact readPtrLen_rest hp
-          · cases h
+      split at h
+      · rcases hc : seg p (n * PTy.width t) with _ | es
+        · simp [hc] at h
+        · simp only [hc, Option.bind_some] at h
+          rcases hm : readMany (readVal seg t) n es with _ | ⟨vs, r'⟩
+          · simp [hm] at h
+          · simp only [hm, Option.bind_some] at h
+            split at h
+            · have e : r = rest := congrArg Prod.snd (Option.some.inj h)
+              rw [← e]; exact readPtrLen_rest hp
+            · cases h
+      · cases h
 
 /-- **A string payload**: its pair, the segment it names, the UTF-8 text. -/
 theorem readVal_string {seg : Nat → Nat → Option (List UInt8)} {bs rest cs : List UInt8}
@@ -132,10 +142,58 @@ theorem readVal_bytes {seg : Nat → Nat → Option (List UInt8)} {bs rest cs : 
 /-- **A list payload**: its pair, the segment of `len` packed elements, the elements. -/
 theorem readVal_list {seg : Nat → Nat → Option (List UInt8)} {t : PTy}
     {bs rest es : List UInt8} {p n : Nat} {vs : List t.Val}
-    (hp : readPtrLen bs = some (p, n, rest)) (hc : seg p (n * PTy.width t) = some es)
+    (hp : readPtrLen bs = some (p, n, rest)) (ha : p % PTy.align t = 0)
+    (hc : seg p (n * PTy.width t) = some es)
     (hm : readMany (readVal seg t) n es = some (vs, [])) :
     readVal seg (.list t) bs = some (vs, rest) := by
-  simp only [readVal, hp, Option.bind_some, hc, hm, List.isEmpty_nil, ↓reduceIte]
+  simp only [readVal, hp, Option.bind_some, ha, ↓reduceIte, hc, hm, List.isEmpty_nil]
   rfl
+
+/-- **A misaligned list is no value** (REF `trap_if(ptr != align_to(ptr, alignment))`). -/
+theorem readVal_list_misaligned {seg : Nat → Nat → Option (List UInt8)} {t : PTy}
+    {bs rest : List UInt8} {p n : Nat} (hp : readPtrLen bs = some (p, n, rest))
+    (ha : p % PTy.align t ≠ 0) : readVal seg (.list t) bs = none := by
+  simp [readVal, hp, ha]
+
+/-- A field at offset `0` is not padded. -/
+theorem alignTo_zero (a : ABI.Alignment) : ABI.alignTo 0 a = 0 := by
+  cases a <;> rfl
+
+/-- **A one-value payload vector** is its value, read from the first `t.width` bytes. -/
+theorem readVals_single (seg : Nat → Nat → Option (List UInt8)) (t : PTy) (area : List UInt8) :
+    readVals seg [t] area =
+      (readVal seg t (area.take (PTy.width t))).map fun (v, _) => (v, ()) := by
+  simp only [readVals, readFields, alignTo_zero, List.drop_zero]
+  cases readVal seg t (area.take (PTy.width t)) <;> rfl
+
+/-! ## Agreement with the canonical ABI layout -/
+
+section Layout
+
+universe u
+
+variable {Resource : Type u}
+
+/-- **The layout of a payload type is its canonical ABI layout** (memory32). -/
+theorem layout_toWit : ∀ t : PTy,
+    ABI.layout .i32 (toWit t : WIT.ClosedType Resource) = PTy.layout t
+  | .bool | .s32 | .u32 | .s64 | .u64 | .string | .bytes | .list _ => by
+    simp only [toWit, ABI.layout, PTy.layout, ABI.primitiveLayout]
+
+theorem layoutTypes_toWit : ∀ ps : List PTy,
+    ABI.layoutTypes .i32 (toWitList ps : List (WIT.ClosedType Resource)) =
+      ps.map PTy.layout
+  | [] => by simp [toWitList, ABI.layoutTypes]
+  | t :: ps => by
+    simp only [toWitList, List.map_cons, ABI.layoutTypes, layout_toWit]
+    exact congrArg _ (layoutTypes_toWit ps)
+
+/-- **The layout of a payload vector is the canonical ABI layout of its tuple.** -/
+theorem valsLayout_toWit (ps : List PTy) :
+    ABI.layout .i32 (.tuple (toWitList ps) : WIT.ClosedType Resource) = valsLayout ps := by
+  rw [ABI.layout, layoutTypes_toWit]
+  rfl
+
+end Layout
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitAst

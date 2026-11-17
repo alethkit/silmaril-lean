@@ -9,6 +9,7 @@ public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WordAtom
 
 * Decoding: `witAccept_isAccept`, `witWrite_isWrite` (so the generic bridges apply),
   `witWrite_admits` (**a decoded write always has an admitted number of children**),
+  `witWrite_none` (a call the decoder rejects has no write event),
   `witNode_eq`, `witWrite_eq`; the payloads `readVals_one`, `readVals_two` of the example and the
   two child handles `children_pair`.
 * `calc_sat`: in a fixed environment `ρ` (no sentinel), `calcMod` meets the writer contract
@@ -69,13 +70,16 @@ theorem witNode_admits {o : Callout} {op : Σ t, S.toAstSig.Arg t} {hs : List (B
     (h : Callout.witNode S tagOf o = some (op, hs)) : (S.arity op.1).Admits hs.length = true := by
   unfold Callout.witNode at h
   split at h
-  · simp only [Option.bind_eq_some_iff] at h
-    obtain ⟨t, -, bs, -, a, -, cs, -, hs', -, h⟩ := h
+  · obtain ⟨t, -, h⟩ := Option.bind_eq_some_iff.1 h
     split at h
-    · rename_i hadm
-      simp only [Option.some.injEq, Prod.mk.injEq] at h
-      obtain ⟨rfl, rfl⟩ := h
-      exact hadm
+    · simp only [Option.bind_eq_some_iff] at h
+      obtain ⟨bs, -, a, -, cs, -, hs', -, h⟩ := h
+      split at h
+      · rename_i hadm
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        exact hadm
+      · cases h
     · cases h
   · cases h
 
@@ -97,6 +101,12 @@ theorem witWrite_admits {ix : WitImports} {o : Callout} {w : HostReply}
         exact witNode_admits ht
     · simp at h
 
+/-- **A call the decoder rejects has no write event**, whatever its answer. -/
+theorem witWrite_none {ix : WitImports} {o : Callout} {w : HostReply}
+    (h : Callout.witNode S tagOf o = none) : witWrite S tagOf ix o w = none := by
+  unfold witWrite
+  rcases replyI32 w with _ | r <;> simp [h]
+
 theorem witAccept_eq_none {o : Callout} (h : o.imp ≠ ("wit", "accept")) :
     witAccept S {} o = none := by
   simp [witAccept, h]
@@ -106,12 +116,16 @@ theorem witNode_eq {o : Callout} {tg pp cp n : BitVec 32} {t : S.Tag} {bs cs : L
     (ha : o.args = [.i32 tg, .i32 pp, .i32 cp, .i32 n]) (ht : tagOf tg = some t)
     (h1 : o.segment pp.toNat (valsWidth (S.params t)) = some bs)
     (h2 : readVals o.segment (S.params t) bs = some a) (h3 : o.segment cp.toNat (4 * n.toNat) = some cs)
-    (h4 : le32s cs = some hs) (h5 : (S.arity t).Admits hs.length = true) :
+    (h4 : le32s cs = some hs) (h5 : (S.arity t).Admits hs.length = true)
+    (hal : pp.toNat % valsAlign (S.params t) = 0 ∧ cp.toNat % 4 = 0 := by decide) :
     Callout.witNode S tagOf o = some (⟨t, a⟩, hs) := by
   unfold Callout.witNode
   rw [ha]
   simp only [Val.i32]
   refine Option.bind_eq_some_iff.2 ⟨t, ht, ?_⟩
+  split
+  swap
+  · exact absurd hal ‹_›
   refine Option.bind_eq_some_iff.2 ⟨bs, h1, ?_⟩
   refine Option.bind_eq_some_iff.2 ⟨a, h2, ?_⟩
   refine Option.bind_eq_some_iff.2 ⟨cs, h3, ?_⟩

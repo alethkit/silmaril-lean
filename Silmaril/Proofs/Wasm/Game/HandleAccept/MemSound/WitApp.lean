@@ -41,9 +41,9 @@ open Silmaril.Wasm.Logic.Core (Outcome Post bytesAt Region)
 
 /-- The stored `strRef` is the pair `(24, 1)`. -/
 theorem strRef_pair :
-    readPtrLen (Memory.encodeLE (IntType.i64.width / 8)
-      (BitVec.setWidth (8 * (IntType.i64.width / 8)) strRef).toNat).data.toList =
-      some (24, 1, []) := by
+    readPtrLen ((Memory.encodeLE (IntType.i64.width / 8)
+      (BitVec.setWidth (8 * (IntType.i64.width / 8)) strRef).toNat).data.toList.take
+        (PTy.width .string)) = some (24, 1, []) := by
   decide +kernel
 
 theorem byte_f : (Memory.encodeLE (PackSize.i8.width / 8)
@@ -85,7 +85,7 @@ theorem var_node {o : Callout} {B B₀ B₁ : ByteArray} {c : BitVec 32} {b : UI
       (Memory.encodeLE (IntType.i64.width / 8)
         (BitVec.setWidth (8 * (IntType.i64.width / 8)) strRef).toNat).data.toList =
       some (str, ()) := by
-    show (readVal o.segment .string _).bind _ = _
+    refine (readVals_single o.segment .string _).trans ?_
     rw [readVal_string strRef_pair hseg hu]
     rfl
   exact witNode_eq ha rfl hpay hv (segment_nil ho 0 (Nat.zero_le _)) rfl rfl

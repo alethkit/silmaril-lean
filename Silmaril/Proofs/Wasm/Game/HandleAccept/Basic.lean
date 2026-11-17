@@ -161,4 +161,18 @@ theorem readerLang_subset_of_AG {Q A H X : Type} {R : Reader Q A H X} {ρ : Env 
   | acceptChaos _ h => exact absurd h hoa
   | chaos _ => exact absurd rfl (trap_not_chaos hoa hu)
 
+/-! ## The cons reader decoder -/
+
+/-- The answer decoder of the cons reader never decodes an `accept`. -/
+theorem consDecAns_ne_accept {ts : List FnType} (ix : ConsImports) (e : (ifaceSig ts).Op)
+    (v : (ifaceSig ts).Ar e) (h : BitVec 32) : consDecAns ix e v ≠ some (.accept h) := by
+  intro hd
+  unfold consDecAns at hd
+  rcases h1 : i32Arg e.2.1 with _ | k <;> rcases h2 : ansVals v with _ | vs <;>
+    simp only [h1, h2, Option.bind_eq_bind, Option.bind_none, Option.bind_some] at hd
+  · cases hd
+  · cases hd
+  · cases hd
+  · split_ifs at hd <;> revert hd <;> cases i32Res vs <;> cases i64Res vs <;> simp
+
 end Silmaril.Proofs.Wasm.Game.HandleAccept

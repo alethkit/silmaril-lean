@@ -76,10 +76,9 @@ theorem tagTraces_pre_of_gpre {P : Profile} {Envs : Store Nat → SEnv UImp → 
     {ts : List (Tag X I O C)} (hts : ts ∈ tagTraces P Envs memIdx m R)
     {u v : List (Tag X I O C)} {x : I} (hd : ts = u ++ .inp x :: v)
     (hu : ∀ y, Tag.inp y ∈ u → K.ans y) :
-    ∃ o, K.pre o ∧ (R.callIn o = some x ∨ ∃ w, R.answerIn o w = some x) := by
-  obtain ⟨o, ⟨hc, hp⟩ | ⟨w, hw, _, hp⟩⟩ :=
-    tagTraces_gpre (K := K.toG) (memSat_iff_gMemSat.1 hsat) hE hts hd hu
-  · exact ⟨o, hp, .inl hc⟩
-  · exact ⟨o, hp, .inr ⟨w, hw⟩⟩
+    ∃ o, K.pre o ∧ (R.callIn o = some x ∨ ∃ w, R.answerIn o w = some x) :=
+  match tagTraces_gpre (K := K.toG) (memSat_iff_gMemSat.1 hsat) hE hts hd hu with
+  | ⟨o, .inl ⟨hc, hp⟩⟩ => ⟨o, hp, .inl hc⟩
+  | ⟨o, .inr ⟨w, hw, _, hp⟩⟩ => ⟨o, hp, .inr ⟨w, hw⟩⟩
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.Ghost

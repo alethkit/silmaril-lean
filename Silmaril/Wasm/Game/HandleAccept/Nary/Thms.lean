@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Nary.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Thms
+import Silmaril.Semantics.Accept.Host.Thms
 
 /-!
 # The n-ary S-expression reader API of core Wasm modules: laws
@@ -49,14 +50,8 @@ theorem sexpLang_sound_of_forall {P : Profile} {m : Module} {ix : SxRImports}
     {L : Set (SExp (BitVec 64))} {Inv : Store Nat → Prop}
     (hm : ∀ ρ ∈ Envs, GameSat P (Verify.instOf m) Inv (sexpISpec ix ρ L) (topISpec _))
     (hs : Inv (Verify.instOf m).store) {oa : OnInvalid} (hoa : oa ≠ .ub) :
-    moduleSExpLang P m ix .trap oa Envs ⊆ L := by
-  intro x hx
-  unfold moduleSExpLang readerLang langOver at hx
-  rw [Set.mem_iUnion] at hx
-  obtain ⟨⟨ρ, hρ⟩, hx⟩ := hx
-  refine sexpLang_sound_of_gameSat (hm ρ hρ) hs hoa ?_
-  unfold moduleSExpLang readerLang langOver
-  rw [Set.mem_iUnion]
-  exact ⟨⟨ρ, rfl⟩, hx⟩
+    moduleSExpLang P m ix .trap oa Envs ⊆ L := fun _ hx => by
+  obtain ⟨⟨ρ, hρ⟩, hx⟩ := Silmaril.Accept.mem_langOver.1 hx
+  exact sexpLang_sound_of_gameSat (hm ρ hρ) hs hoa (Silmaril.Accept.mem_langOver.2 ⟨⟨ρ, rfl⟩, hx⟩)
 
 end Silmaril.Wasm.Game.HandleAccept.Nary

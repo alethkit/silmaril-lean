@@ -96,12 +96,9 @@ theorem listArities_mono {α : Type} {K K' : Set Nat} (hK : K ⊆ K') :
   | .list _ _, ⟨hn, hc⟩ => ⟨hK hn, fun i => listArities_mono hK (hc i)⟩
 
 theorem sxPair_arities : sxArities sxPairIx (Verify.instOf sxPair).imports ⊆ {2} := by
-  rintro n ⟨j, hj, hlt, rfl⟩
-  simp only [sxPairIx, List.mem_singleton] at hj
-  subst hj
-  revert hlt
   rw [sxPair_imports]
-  intro _
+  rintro n ⟨j, hj, hlt, rfl⟩
+  cases List.mem_singleton.1 hj
   rfl
 
 /-- **`sxPair` builds only binary lists**: every list node of every tree it accepts through the
