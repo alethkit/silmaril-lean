@@ -82,8 +82,9 @@ test("the page shows binaries, imports, expectations, rows, strength, assumption
   const starts = report.binaries.find((b) => b.bridge_semantic.includes("Task.startAdequacy"));
   assert.ok(starts.bridge_semantic.includes("DecoderBridge.firstImp_ready_ref"));
   assert.ok(starts.bridge_semantic.includes("DecoderBridge.starts_firstImpFrag"));
-  assert.ok(starts.bridge_semantic.includes("DecoderBridge.starts_of_cd"));
-  assert.ok(starts.bridge_semantic.includes("Task.laterNodesRef"));
+  assert.ok(starts.bridge_semantic.includes("DecoderBridge.starts_of_d"));
+  assert.ok(starts.bridge_semantic.includes("DecoderBridge.nodesRef"));
+  assert.ok(!starts.bridge_semantic.includes("Task.laterNodesRef"));
   assert.ok(!h.includes("hand transcription"));
   assert.ok(h.includes("f: func(x: u32)"));
   assert.ok(h.includes("<code>f(1) -&gt; ()</code>, <code>f(2) -&gt; ()</code>"));

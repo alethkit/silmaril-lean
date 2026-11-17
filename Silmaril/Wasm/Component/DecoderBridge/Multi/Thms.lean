@@ -5,19 +5,23 @@ public import Silmaril.Wasm.Component.DecoderBridge.Sim.Thms
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.Compose
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.IR
 import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.First
+import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.Inst
 
 /-!
 # Several core instantiations with lowered imports: theorems
 
 Proofs in `Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi`.
 
-* `startAdequacyFrag_of` (proved): **`Task.startAdequacy` on the fragment `MultiImpFrag` from
-  its four pieces** `Task.nodeCallsIR` (a), `Task.firstNodeRef` (b), `Task.laterNodesRef` (c) and
+* `startAdequacyFrag_of_nodes` (proved): **`Task.startAdequacy` on the fragment `MultiImpFrag`
+  from** `Task.nodeCallsIR` (a), the instantiation `Task.nodesRef` ((b) and (c)) and
   `Task.exportRef` (d);
+* `nodeCallsIR`, `firstNodeRef`, **`nodesRef`**: (a), (b) and the instantiation, proved;
+* `startAdequacyFrag_of_d`: the goal on the fragment from (d) alone;
 * `starts_multiImpFrag` (kernel, `decide +kernel`): `starts.wasm` is in the fragment;
-* `starts_of_frag`: the reference half of `InstTestsRef.starts_agree`, derived from the IR's run
-  of `starts.wasm` (`starts_inst`) through the pieces. The conclusion is also proved
-  unconditionally by executing the reference machine (`InstTestsRef.starts_agree`).
+* `starts_of_frag`, `starts_of_d`: the reference half of `InstTestsRef.starts_agree`, derived
+  from the IR's run of `starts.wasm` (`starts_inst`) through the start goal on the fragment,
+  resp. through (d). The conclusion is also proved unconditionally by executing the reference
+  machine (`InstTestsRef.starts_agree`).
 -/
 
 public section
@@ -29,11 +33,6 @@ open Silmaril.Wasm.Component.Conformance
 open Silmaril.Wasm.Component.InstRef Silmaril.Wasm.Component.InstLitmus
 open Silmaril.Wasm.Component.InstTests Silmaril.Wasm.Component.InstTestsRef
 open Silmaril.Wasm.Component.Reference.Core3Adder (first)
-
-/-- **The start goal on the fragment, from its four pieces.** -/
-theorem startAdequacyFrag_of (ha : Task.nodeCallsIR) (hb : Task.firstNodeRef)
-    (hc : Task.laterNodesRef) (hd : Task.exportRef) : Task.startAdequacyFrag :=
-  Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.startAdequacyFrag_of ha hb hc hd
 
 /-- **Piece (a), the IR's node calls**: in the fragment, a ready node-by-node instantiation with
 the calls `t`, each answered `()`, is the nodes' `NodeCalls` with the calls `ts`, `t = ts.flatten`. -/
@@ -47,15 +46,20 @@ its epilogue), with the host log `logOfCalls t₀`. -/
 theorem firstNodeRef : Task.firstNodeRef :=
   Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.firstNodeRef
 
-/-- **The start goal on the fragment from the remaining pieces (c) and (d).** -/
-theorem startAdequacyFrag_of_cd (hc : Task.laterNodesRef) (hd : Task.exportRef) :
-    Task.startAdequacyFrag :=
-  startAdequacyFrag_of nodeCallsIR firstNodeRef hc hd
+/-- **Pieces (b) and (c), the instantiation**: in the fragment, if the IR's nodes are ready after
+the calls `ts`, the reference machine finishes the instantiation with the host log
+`logOfCalls ts.flatten`, the later core instantiations running in the shared core store. -/
+theorem nodesRef : Task.nodesRef :=
+  Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.nodesRef
 
 /-- **The start goal on the fragment, from (a), the instantiation (`Task.nodesRef`) and (d).** -/
 theorem startAdequacyFrag_of_nodes (ha : Task.nodeCallsIR) (hn : Task.nodesRef)
     (hd : Task.exportRef) : Task.startAdequacyFrag :=
   Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.startAdequacyFrag_of_nodes ha hn hd
+
+/-- **The start goal on the fragment from the export call (d).** -/
+theorem startAdequacyFrag_of_d (hd : Task.exportRef) : Task.startAdequacyFrag :=
+  startAdequacyFrag_of_nodes nodeCallsIR nodesRef hd
 
 /-- `starts.wasm` is in the fragment. -/
 theorem starts_multiImpFrag : MultiImpFrag startsRef := by decide +kernel
@@ -69,12 +73,12 @@ theorem starts_of_frag (h : Task.startAdequacyFrag) :
   h startsBytes startsComp startsRef startsTrace "get" [.u32 42] parse_starts decodeRef_starts
     starts_valid starts_multiImpFrag rfl rfl (by simp [startsTrace]) (starts_inst _)
 
-/-- **`starts.wasm` from the IR's run, from the remaining pieces (c) and (d).** -/
-theorem starts_of_cd (hc : Task.laterNodesRef) (hd : Task.exportRef) :
+/-- **`starts.wasm` from the IR's run, given the export call (d).** -/
+theorem starts_of_d (hd : Task.exportRef) :
     (([some [toRefVal (.u32 42)]] : List (Option (List Value.Val))),
         ((), logOfCalls startsTrace)) ∈
       sessRunFrom first.prof (Host.ofEmbedder embL) hostConfigX startsRef (importArgs hostI)
         [("get", [])] :=
-  starts_of_frag (startAdequacyFrag_of_cd hc hd)
+  starts_of_frag (startAdequacyFrag_of_d hd)
 
 end Silmaril.Wasm.Component.DecoderBridge

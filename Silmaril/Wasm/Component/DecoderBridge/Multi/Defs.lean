@@ -44,7 +44,7 @@ host event, without host events or internal faults, to `M`, where the instantiat
 the remaining definitions `post` from the scope `sc` (followed by some continuation `K`), the
 store is not locked down, and the host log is `L`.
 
-## The four pieces
+## The pieces
 
 * **(a)** `Task.nodeCallsIR` (IR only): in the fragment, a node-by-node instantiation of the IR's
   nodes with the calls `t` (each answered `()`) that is `ready` splits `t` into the calls `ts` of
@@ -55,11 +55,11 @@ store is not locked down, and the host log is `L`.
   (root checks, trampolines, the module's preparation, its start function with the host calls,
   and the **start function's epilogue**: the start task's return, back in the instantiation
   program), reaching `RefAtDefs r post sc (logOfCalls t₀) M` for the definitions `post` after it;
-* **(c)** `Task.laterNodesRef`: from there, if the IR's later nodes are ready after the calls
-  `ts`, the machine runs the later core instantiations in the **shared core store** (where their
-  imports resolve to the same trampolines, behind the functions of the earlier instances) and
-  the remaining definitions, and finishes the instantiation (`Instantiates`) with the host log
-  extended by `logOfCalls ts.flatten`;
+* **(b) and (c)**, `Task.nodesRef`: if the IR's nodes are ready after the calls `ts`, the machine
+  runs the first core instantiation, the later core instantiations in the **shared core store**
+  (where their imports resolve to the same trampolines, behind the objects of the earlier
+  instances) and the other definitions, and finishes the instantiation (`Instantiates`) with the
+  host log `logOfCalls ts.flatten`;
 * **(d)** `Task.exportRef`: after a finished instantiation, the first export (a `canon lift` of
   type `func() -> u32`) answers a call with no arguments with the values the IR's first export
   answers, through a session call that leaves the host state unchanged.
@@ -67,8 +67,8 @@ store is not locked down, and the host log is `L`.
 The reference side of (b), (c) and (d) is stated at the first scheduling oracle (`first.prof`), as
 in `Task.startAdequacy`.
 
-**Status** (`Multi.Thms`): (a) and (b) are proved (`nodeCallsIR`, `firstNodeRef`); (c) and (d)
-are open, and `startAdequacyFrag_of_cd` derives `Task.startAdequacyFrag` from them.
+**Status** (`Multi.Thms`): (a), (b) and (b)+(c) are proved (`nodeCallsIR`, `firstNodeRef`,
+`nodesRef`); (d) is open, and `startAdequacyFrag_of_d` derives `Task.startAdequacyFrag` from it.
 -/
 
 @[expose] public section
@@ -184,7 +184,7 @@ def RefAtDefs (r post : RefComponent) (sc : Instantiate.Scope (core3 neverFail))
       (importArgs hostI)) sc >>= K)]) ∧
   M.store.lockdown = false ∧ M.host = ((), L)
 
-/-! ## The four pieces -/
+/-! ## The pieces -/
 
 /-- **Piece (a), the IR's node calls** (proved: `Multi.Thms.nodeCallsIR`): in the fragment, a ready
 node-by-node instantiation with the calls `t`, each answered `()`, is the nodes' instantiations with
@@ -212,25 +212,6 @@ def Task.firstNodeRef : Prop :=
     firstCore? r = some (pre, mi, cargs, post) →
     ∃ sc M, RefAtDefs r post sc (logOfCalls t₀) M
 
-/-- **Open goal, piece (c), the later nodes in the shared core store**: from the definitions after
-the first core instantiation, if the IR's later nodes are ready after the calls `ts`, the reference
-machine finishes the instantiation with the host log extended by `logOfCalls ts.flatten`. -/
-def Task.laterNodesRef : Prop :=
-  ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
-    (p : Binary.CoreMod × List Impl) (ps : List (Binary.CoreMod × List Impl))
-    (ts : List (List (Σ _ : sigU.Op, Option Payload))) (pre : RefComponent) (mi : Nat)
-    (cargs : List (String × Nat)) (post : RefComponent) (sc : Instantiate.Scope (core3 neverFail))
-    (L : List HLinked2.HostEvent)
-    (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent)),
-    Binary.parseComponent b = .ok c → decodeRef b = .ok r → MultiImpFrag r →
-    c.imports = hostI → c.nodes = coreNodes (p :: ps) →
-    (∀ x ∈ ts.flatten, x.2 = InstTests.unitV) →
-    List.Forall₂ (fun q tj => NodeCalls hostI.length .ready q.1 q.2 tj) ps ts →
-    firstCore? r = some (pre, mi, cargs, post) → RefAtDefs r post sc L M →
-    ∃ M' inst es, Instantiates first.prof embL.hr (Host.ofEmbedder embL).dispatch hostConfigX r
-        (importArgs hostI) M' inst es ∧
-      M'.host = ((), L ++ logOfCalls ts.flatten)
-
 /-- **Open goal, piece (d), the export phase**: after a finished instantiation, the IR's first
 export `n` answering a call with no arguments with `ws` is matched by a session call of the
 reference export `n` returning `ws`, leaving the host state unchanged. -/
@@ -255,10 +236,9 @@ def Task.exportRef : Prop :=
 ready after the calls `ts`, each answered `()`, the reference machine finishes the instantiation
 with the host log `logOfCalls ts.flatten`.
 
-(`Task.laterNodesRef` starts from `RefAtDefs`, whose continuation `K` of the definitions is only
-an existential: nothing in it says that `K` finishes the instantiation, so (c) can only be reached
-from it through the determinism of the machine. This statement asks for the instantiation from
-the start; its proof (`Multi.Thms.nodesRef`) tracks the continuation.) -/
+(It asks for the instantiation from the start rather than from `RefAtDefs`, whose continuation `K`
+of the definitions is only an existential: nothing in it says that `K` finishes the
+instantiation. The proof, `Multi.Thms.nodesRef`, tracks the continuation.) -/
 def Task.nodesRef : Prop :=
   ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
     (ps : List (Binary.CoreMod × List Impl)) (ts : List (List (Σ _ : sigU.Op, Option Payload))),
