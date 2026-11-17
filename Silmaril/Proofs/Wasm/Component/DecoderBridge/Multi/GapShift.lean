@@ -213,6 +213,8 @@ variable (g : Gap H)
 @[simp] theorem sh_ar : g.sh.ar = g.pre.arrays.length := rfl
 @[simp] theorem sh_ex : g.sh.ex = g.pre.exns.length := rfl
 @[simp] theorem sh_tg : g.sh.tg = g.pre.tags.length := rfl
+@[simp] theorem sh_me : g.sh.me = g.pre.mems.length := rfl
+@[simp] theorem sh_ta : g.sh.ta = g.pre.tables.length := rfl
 
 theorem fnMap_lt {a : Nat} (h : a < g.b) : g.fnMap a = a := by simp [Gap.fnMap, h]
 
