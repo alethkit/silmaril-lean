@@ -23,11 +23,15 @@ makes the reference machine trap. This module names the binaries on which its fi
   before the first one satisfy `preOk 0 0`; and the module it instantiates exists, has **no
   imports** and is in the split fragment.
 
-Both test binaries are in the fragment (`FirstCore.Thms`: `trap_firstCoreFrag`,
-`starts_firstCoreFrag`); for `starts.wasm` the first instantiated module (`call1`) imports `f`,
-so the fragment is satisfied there only through the failure of node `0`, which its IR run does
-not have. Outside the fragment, and for `k ≥ 1`, `Task.failRefWired` stays open
-(`Task.failRefWiredRest`).
+`trap.wasm` is in the fragment (`FirstCore.Thms.trap_firstCoreFrag`); `starts.wasm` is not
+(`starts_not_firstCoreFrag`: its first instantiated module, `call1`, imports `f`).
+
+## The remaining cases
+
+`Task.failRefWiredRest` is `Task.failRefWired` restricted to the cases the first-core theorem
+does not cover: a failing node `k ≥ 1` (after ready nodes), or a binary outside the fragment.
+`FirstCore.Thms.failRefWired_of_rest` derives `Task.failRefWired` from it; `Task.failRefWired`
+itself is unchanged and stays open.
 -/
 
 @[expose] public section
@@ -96,5 +100,23 @@ def FirstCoreFrag (r : RefComponent) : Prop := firstCoreFrag r = true
 
 instance (r : RefComponent) : Decidable (FirstCoreFrag r) :=
   inferInstanceAs (Decidable (firstCoreFrag r = true))
+
+open Silmaril.Games Silmaril.Games.Inst
+open Silmaril.Wasm.Component.InstRef Silmaril.Wasm.Component.InstLitmus
+open Silmaril.Wasm.Component.InstTests Silmaril.Wasm.Component.InstTestsRef
+open Silmaril.Wasm.Component.Reference.Core3Adder (first)
+
+/-- **Open goal, the cases of `Task.failRefWired` not covered by `FirstCore.Thms`**: a failure
+of a node `k ≥ 1`, or a binary outside the first-core fragment. -/
+def Task.failRefWiredRest : Prop :=
+  ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
+    (ps : List (Binary.CoreMod × List Impl)) (k : Nat) (hk : k < ps.length),
+    (0 < k ∨ ¬ FirstCoreFrag r) →
+    Binary.parseComponent b = .ok c → decodeRef b = .ok r → (∃ ct, Valid Features.p2 r ct) →
+    HostWired r → c.imports = hostI → c.nodes = coreNodes ps →
+    (∀ j (hj : j < k), NodeQuiet hostI.length .ready (ps[j]'(by omega)).1 (ps[j]'(by omega)).2) →
+    NodeQuiet hostI.length (.fail ()) ps[k].1 ps[k].2 →
+    InstResult.traps ∈
+      instBehaviours first.prof (Host.ofEmbedder embL) hostConfigX r (importArgs hostI)
 
 end Silmaril.Wasm.Component.DecoderBridge

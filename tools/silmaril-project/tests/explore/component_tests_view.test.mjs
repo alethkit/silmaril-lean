@@ -76,6 +76,9 @@ test("the page shows binaries, imports, expectations, rows, strength, assumption
     assert.ok(b.bridge_semantic.startsWith("open: "), b.name);
     assert.ok(b.bridge_semantic.includes("is the open goal DecoderBridge.Task."), b.name);
   }
+  const trap = report.binaries.find((b) => b.bridge_semantic.includes("Task.failAdequacy"));
+  assert.ok(trap.bridge_semantic.includes("DecoderBridge.trap_of_firstCore"));
+  assert.ok(trap.bridge_semantic.includes("Task.failRefWiredRest are open"));
   assert.ok(!h.includes("hand transcription"));
   assert.ok(h.includes("f: func(x: u32)"));
   assert.ok(h.includes("<code>f(1) -&gt; ()</code>, <code>f(2) -&gt; ()</code>"));
