@@ -602,9 +602,9 @@ class Server(Base):
 
 
 class ReplayTests(unittest.TestCase):
-    """Exercise scheduling and failure propagation without substituting for kernel replay."""
+    """Check complete target forwarding and failure propagation; CI runs the kernel."""
 
-    def run_replay(self, jobs="4", fail=""):
+    def run_replay(self, threads=None, fail=False):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = pathlib.Path(tmp)
             lake = tmp / "lake"
@@ -612,58 +612,52 @@ class ReplayTests(unittest.TestCase):
             lake.write_text("#!/bin/bash\nif [ \"$2\" = which ]; then echo \"$(dirname \"$0\")/lean\"; "
                             "else shift; exec \"$@\"; fi\n")
             checker.write_text("""#!/usr/bin/env python3
-import os, sys, time
-fd = os.open(os.environ["REPLAY_LOG"], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-os.write(fd, ("start " + sys.argv[1] + "\\n").encode())
-time.sleep(0.05)
-os.write(fd, ("stop " + sys.argv[1] + "\\n").encode())
-sys.exit(1 if sys.argv[1] == os.environ["REPLAY_FAIL"] else 0)
+import json, os, sys
+with open(os.environ["REPLAY_LOG"], "w") as f:
+    json.dump([sys.argv[1:], os.environ["LEAN_NUM_THREADS"]], f)
+sys.exit(1 if os.environ["REPLAY_FAIL"] == "yes" else 0)
 """)
             lake.chmod(0o755)
             checker.chmod(0o755)
             log = tmp / "log"
+            env = {**os.environ, "LAKE": str(lake), "REPLAY_LOG": str(log),
+                   "REPLAY_FAIL": "yes" if fail else "no"}
+            env.pop("LEAN_NUM_THREADS", None)
+            if threads is not None:
+                env["LEAN_NUM_THREADS"] = threads
             result = subprocess.run(["bash", str(HERE.parent / "replay.sh")],
-                                    env={**os.environ, "LAKE": str(lake),
-                                         "LEAN_REPLAY_JOBS": jobs, "REPLAY_LOG": str(log),
-                                         "REPLAY_FAIL": fail}, capture_output=True, text=True,
-                                    timeout=15)
-            lines = log.read_text().splitlines() if log.exists() else []
-            return result, lines
+                                    env=env, capture_output=True, text=True, timeout=15)
+            return result, json.loads(log.read_text()) if log.exists() else None
 
-    def test_replay_bound_and_serial_mode(self):
-        for jobs in ("1", "4"):
-            result, lines = self.run_replay(jobs)
+    def test_replay_forwards_every_target_once_and_bounds_threads(self):
+        expected = [
+            "Silmaril.Proofs.Compiler.CompilesTo.Sim.Compose",
+            "Silmaril.Proofs.Compiler.Explorer.Basic",
+            "Silmaril.Proofs.Compiler.Explorer.Det",
+            "Silmaril.Compiler.Explorer.Decompiled.Thms",
+            "Silmaril.Proofs.Project.Shapes.CompilesTo.Explorer",
+            "CompilesToExamples.Explorer.Builds",
+            "CompilesToExamples.Explorer.Code",
+            "CompilesToExamples.Explorer.Decompiled",
+            "CompilesToExamples.Explorer.Rows",
+        ]
+        for threads in (None, "1", "4"):
+            result, invocation = self.run_replay(threads)
             self.assertEqual(result.returncode, 0, result.stderr)
-            active = peak = 0
-            starts, stops = [], []
-            for line in lines:
-                kind, module = line.split()
-                if kind == "start":
-                    starts.append(module)
-                    active += 1
-                    peak = max(peak, active)
-                else:
-                    stops.append(module)
-                    active -= 1
-            self.assertEqual(len(set(starts)), 9)
-            self.assertCountEqual(starts, stops)
-            self.assertEqual(active, 0)
-            self.assertLessEqual(peak, int(jobs))
-            if jobs == "4":
-                self.assertGreater(peak, 1)
+            self.assertEqual(invocation, [["--verbose", *expected], threads or "2"])
+            self.assertEqual(result.stdout.count(": ok (batched)"), 9)
 
     def test_replay_failure_is_not_hidden(self):
-        failed = "Silmaril.Proofs.Compiler.Explorer.Basic"
-        result, lines = self.run_replay(fail=failed)
+        result, invocation = self.run_replay(fail=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("leanchecker " + failed + ": ok", result.stdout)
-        self.assertEqual(sum(line.startswith("stop ") for line in lines), 9)
+        self.assertIsNotNone(invocation)
+        self.assertNotIn(": ok", result.stdout)
 
-    def test_replay_rejects_invalid_concurrency(self):
-        for jobs in ("0", "-1", "oops"):
-            result, lines = self.run_replay(jobs)
+    def test_replay_rejects_invalid_thread_count(self):
+        for threads in ("0", "-1", "oops"):
+            result, invocation = self.run_replay(threads)
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(lines, [])
+            self.assertIsNone(invocation)
 
 
 if __name__ == "__main__":
