@@ -41588,7 +41588,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41660,7 +41660,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41732,7 +41732,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41804,7 +41804,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41876,7 +41876,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41948,7 +41948,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42020,7 +42020,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42092,7 +42092,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42164,7 +42164,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42236,7 +42236,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42308,7 +42308,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42380,7 +42380,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42452,7 +42452,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42524,7 +42524,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42596,7 +42596,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42668,7 +42668,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42740,7 +42740,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42812,7 +42812,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42884,7 +42884,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42956,7 +42956,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43028,7 +43028,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43100,7 +43100,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43172,7 +43172,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43244,7 +43244,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43316,7 +43316,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43388,7 +43388,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43460,7 +43460,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43532,7 +43532,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43604,7 +43604,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43676,7 +43676,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43748,7 +43748,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43820,7 +43820,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"

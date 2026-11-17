@@ -10,6 +10,6 @@ Eight independent kernel `CodeAt` theorems bind the actual ELF bytes. The
 formal registry hashes both ELFs, the Lean modules and paired metadata.
 No stripped symbol table is invented; matching bytes or names is not a semantic
 proof. All four obligations are stated-unproved. Total binary-equivalence
-statements become five, while source-function coverage remains three here.
+statements become five, while these binary statements do not add distinct source functions.
 
 Measured root check: `runs/6e869c39-a1b8-452a-83d0-b62975f10c69.json`.
