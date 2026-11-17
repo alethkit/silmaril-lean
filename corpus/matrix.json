@@ -22686,7 +22686,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -22747,7 +22747,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -22808,7 +22808,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -22869,7 +22869,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -22930,7 +22930,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -22991,7 +22991,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -23052,7 +23052,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -23113,7 +23113,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -23311,7 +23311,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -23376,7 +23376,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -23578,7 +23578,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
@@ -23643,7 +23643,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/mimalloc-2.1.9/LICENSE"
