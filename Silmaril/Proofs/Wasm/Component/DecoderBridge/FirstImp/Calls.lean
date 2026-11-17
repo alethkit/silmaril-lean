@@ -487,6 +487,32 @@ theorem firstImp_ready_ref {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefCom
     · refine .inr (.inr ⟨tr, M, thc, K, segs, rest, tR, fvs, d, hctl, hst', hl, ?_⟩)
       rw [hh, hlog]
 
+/-- `firstImp_ready_ref`, with the run as a run of the machine's steps (`Machine.Steps`). -/
+theorem firstImp_ready_steps {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefComponent}
+    {ps : List (Binary.CoreMod × List Impl)} {t : List (Σ _ : sigU.Op, Option Payload)}
+    (hc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hw : HostWired r)
+    (hf : FirstImpFrag r) (himp : c.imports = hostI) (hn : c.nodes = coreNodes ps)
+    (h0 : 0 < ps.length) (hu : ∀ x ∈ t, x.2 = InstTests.unitV)
+    (hq : NodeCalls hostI.length .ready (ps[0]'h0).1 (ps[0]'h0).2 t) :
+    InstResult.traps ∈ instBehaviours first.prof (Host.ofEmbedder embL) hostConfigX r
+        (importArgs hostI) ∨ t = [] ∨
+    ∃ (tr : List (Label (core3 neverFail) (Unit × List HLinked2.HostEvent)))
+      (M : Machine.Config (core3 neverFail) (Unit × List HLinked2.HostEvent))
+      (thc : Option ThreadId) (K : List Flat → Canon.P (core3 neverFail) _ (Ret (core3 neverFail)))
+      (segs : List (Seg (core3 neverFail) _)) (rest : List (Activation (core3 neverFail) _))
+      (tR : STh) (fvs : List Flat),
+      Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch
+        { hostConfigX with ctl := [.ofProg none (StepDefs.runProg (instantiateProg r (importArgs hostI)))] }
+        tr M ∧
+      M.ctl = ⟨thc, .core tR K, segs⟩ :: rest ∧
+      (core3 neverFail).status M.store.core tR = .returned (.values fvs) ∧
+      M.host = ((), logOfCalls t) := by
+  rcases firstImp_ready_ref hc hr hw hf himp hn h0 hu hq with h | h |
+    ⟨tr, M, thc, K, segs, rest, tR, fvs, d, hctl, hst, -, hh⟩
+  · exact .inl h
+  · exact .inr (.inl h)
+  · exact .inr (.inr ⟨tr, M, thc, K, segs, rest, tR, fvs, d.steps, hctl, hst, hh⟩)
+
 end Bridge
 
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstImp
