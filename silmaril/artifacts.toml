@@ -254,6 +254,16 @@ sha256 = "23f2e8e0fe7f97665952687233e5a2465f00b0dd5bc6a8714bf533c1fbd8159e"
 git_sha1 = "207dbf73c7494d2cac2c6e3df2aa6fa94f9d0597"
 
 [[artifact]]
+cid = "bafkr4iezh5xrehdgnwn6hzidx4izn43bxzwonn5p3iyikxgnm3szextzwu"
+type = "blob"
+name = "silmaril.wasm.examples.sat_accept.component"
+paths = ["examples/wasm-acceptors/sat_accept.wasm"]
+size = 951
+sha256 = "a9570103fe3a7074b0d354aebf03538e1f5b78a90fe4c4631980866dc7e2ace2"
+git_sha1 = "3bc434c82d1630495abcae2556392e630d6b06b5"
+meta = { wasm = { custom = [], exports = ["func check-stream", "func check-nested"], imports = [], layer = "component", license = "LicenseRef-silmaril-lean", version = 13 } }
+
+[[artifact]]
 cid = "bafkr4if7lm7jpnq7acg5hqxn7mnkkeuye3wrqc7i7wgfczwqjizhqf2apa"
 type = "blob"
 name = "silmaril.wasm.examples.farkas.farkas_mod"
@@ -326,6 +336,16 @@ sha256 = "ba732a1b1ef96b839ced144dfc41bd9d38f924cf7bd9477c982197306c6252fc"
 git_sha1 = "2c4ff108774004d7af6ba3ec51a912e3b0e305ac"
 derivation = "silmaril.wasm_components.gen.comp_b.world.project"
 meta = { wasm = { layer = "component", version = 13, world_of = "silmaril.wasm_components.gen.comp_b.blob" } }
+
+[[artifact]]
+cid = "bafkr4ihc3lsk4fcp2plsi7mwqub34h7edj6i6kssyqhezdahivctjiz7km"
+type = "blob"
+name = "silmaril.wasm.examples.lrat_accept.component"
+paths = ["examples/wasm-acceptors/lrat_accept.wasm"]
+size = 3198
+sha256 = "d761553e57d20813207aa1df1e19168787ec8e7dd8fcef253dc4f4369221a784"
+git_sha1 = "08b04a5c89cff872f23503c52ddf96dcf096ad53"
+meta = { wasm = { custom = [], exports = ["func check-stream", "func check-nested"], imports = [], layer = "component", license = "LicenseRef-silmaril-lean", version = 13 } }
 
 [[artifact]]
 cid = "bafkr4ihjitr643vnhzwmwj2kyxkvpad23ayzskzhpihwasjbozsyeux65q"

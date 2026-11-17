@@ -616,8 +616,50 @@ The plain graph stays an over-approximation, and claims about it say so.
           - Fixture `Wasm/Cfg/ExamplePending`: a call in a handler that is pending, answered by an
             exception (caught: exit) or by a callee trap (uncaught: trap); a tail call in a
             handler (`TailL`).
-        - Still open in H2: quiescent divergence (infinite local steps vs a finite run into a
-          diverging callee, kept distinct) and coherent productive streams.
+        - **Divergence, step D1 done**: `MachineL.closed_iff_logged`.
+          - A closed run `EvalOXP C` is exactly a store-retaining logged run (`EvalLXPS`) whose
+            entries are all `C`-answers (`CloseOk`).
+          - Answers are exact: callee values trimmed to the callee's result arity; exceptions and
+            traps with the stores `C` leaves.
+        - **Divergence, D2 done** (`Silmaril.Wasm.Cfg.MachineLDiv`). The machine's host-free
+          divergence has three distinct forms, every logged call answered by `closedCallXP`
+          (`StepK`):
+          - `InfK`: an infinite run of local steps;
+          - `CalleeDivK`: a finite run to a reached call (`ReachL`) whose callee diverges at the
+            frame (`FunDivXP`);
+          - `TailDivK`: a finite run to a pending tail call (`TailL`) whose callee diverges. This
+            one is function-level only.
+          `MDivL := InfK ∨ CalleeDivK`; `FunDivL` adds `TailDivK` at the frame, as `funDivXP_iff`
+          does.
+          - `div_iff`: `EvalDivXP s f [] (liftInstrs body) ↔ MDivL body (initial body s f)`.
+          - `funDiv_iff`: `FunDivXP s a args ↔ FunDivL s a args`.
+          - Native to machine: the infinite run is built from the native unfolding. Finite parts
+            of structured instructions go through the converse's arm clause, with a strict stop
+            state, so every unfolding makes at least one machine step.
+          - Machine to native for `InfK`: coinduction on `EvalDivXP` over positions of the run.
+            Steps are classified by depth (`MStepS`): re-entering a loop counts as leaving its
+            arm. At the first step leaving an arm, the arm's run is read natively by a forward
+            invariant relative to the arm's frame (`Proofs/Wasm/Cfg/MachineLRel`, `arm_fwd`).
+        - **Divergence after a log, D3 done.** `MLogDivL body st l`: logged steps, then a
+          boundary inside a step, then host-free divergence (`MDivL`, or a reached call whose
+          callee diverges). The log is the calls before the boundary.
+          - Native to machine, exact log: `logDiv_machine`. `LogDivXP s f [] (liftInstrs body) L`
+            gives `MLogDivL body (initial body s f) (L.map OCall.toS)`.
+          - Machine to native, up to oracle-answered calls: `machine_logDiv`. `MLogDivL ... l`
+            gives `LogDivXP ... L` with `L.map OCall.toS = l ++ c`, every entry of `c` a
+            `closedCallXP`-answer. `LogDivXP` places the boundary only where the remaining
+            subproblem diverges; the machine's may come earlier, the run then leaving that
+            sequence through closed calls. The closure resolves such entries with empty host logs.
+          - Proof of the converse:
+            - the run after the boundary eventually never leaves a sequence (`stays_point`: a
+              block, or the arm entry of a loop re-entered forever), so that point diverges
+              natively (`MachineLDivI.qx_div`);
+            - the logged run from the CFG entry to it is a `LogDivXP` prefix (`prefix_logDiv`, a
+              finite-horizon version of the coinduction, with arms left read by `arm_fwd`);
+            - a diverging callee goes through the pending-call correspondence (`reach_logDiv`).
+        - Still open after that: coherent productive streams (`InfLXP`).
+        - The closed oracle `closedCallXP` used here is the native one. These results do not
+          discharge H3, which still needs the recursive logged CFG closure.
         - Still open as fixtures: nested-loop `continue` and a tail call inside a handler.
       - **H2, both directions on bodies.**
         - Finished ends: done, throw and trap, with exact final store and log.
