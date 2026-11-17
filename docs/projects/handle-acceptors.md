@@ -248,12 +248,7 @@ Wasm examples are concrete modules.
   the module's own resources, and the stateful host is not compared with the reference machine's
   `Table` (`Silmaril.Wasm.Resource.Table`); the end-to-end examples move one handle (`ownMod`) and
   one handle twice (`twiceMod`, a trace-level negative: its whole language is not computed).
-  `borrow` is rejected in stored trees by design. **Build status (to remove once checked):**
-  `Own.Defs`, the generic proofs `Proofs/…/MemSound/WitOwn.lean` (without `run_twice`) and the
-  `ownMod` Hoare proof `WitOwnMod.lean` built with `--wfail`. These have **not** been built:
-  `WitOwnLive.lean` (its `twice_accepts` was rewritten through the generic `run_twice` after the
-  earlier version hung in the kernel check), `run_twice` itself and the header `WitAst/Own.lean`,
-  because the prove worker became unavailable. **Not payloads**: `future`, `stream`,
+  `borrow` is rejected in stored trees by design. **Not payloads**: `future`, `stream`,
   `error-context` (pending async semantics); `map` is not a separate payload type (WIT
   despecialises it to `list<tuple<k, v>>`). The flat (core-argument) decoder `Ast.ofVal?` still reads only `bool`,
   `s32`, `u32`, `s64`, `u64`.
