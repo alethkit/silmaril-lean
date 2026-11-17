@@ -88,6 +88,9 @@ class CorpusDatabase(unittest.TestCase):
                 self.assertEqual(report['path'], artifact['path'])
             bound = db.execute("SELECT mapping FROM corpus_functions WHERE symbol='mi_version'").fetchall()
             self.assertEqual(sum('concrete contextual C-to-ELF statement' in row[0] for row in bound), 1)
+            binary_bound = [json.loads(row[0]) for row in bound if any(s['kind'] == 'functional_equivalence' for s in json.loads(row[0]).get('formal_statements', []))]
+            self.assertEqual(len(binary_bound), 8)
+            self.assertTrue(all('tv_context' not in row or 'concrete contextual' not in row['tv_context'].get('status', '') for row in binary_bound))
             for name in ['_mi_arena_id_none', '_mi_allocator_done']:
                 rows = db.execute('SELECT mapping FROM corpus_functions WHERE symbol=?', (name,)).fetchall()
                 self.assertEqual(sum('concrete contextual C-to-ELF statement' in row[0] for row in rows), 1)
