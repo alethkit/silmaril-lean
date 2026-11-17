@@ -32,10 +32,11 @@ then their soundness theorems):
 **Scope.** These are agreements on two examples, one IR play against one reference run each
 (the reference runs use the Core 3.0 stepper of `core3 neverFail` with the first scheduling
 oracle). Both sides start from the same bytes, through two decoders: `Binary.parseComponent`
-(the IR's lowering) and `Conformance.decodeRef` (the reference syntax). Nothing is proved about
-how the two decoders relate in general, nor about how `toRef` relates to the reference's own
-reading of `Binary.md`, and no general theorem relating `Comp.denI` to the reference machine's
-instantiation is claimed.
+(the IR's lowering) and `Conformance.decodeRef` (the reference syntax). For every binary they
+share the parser and agree on core instantiations (`DecoderBridge.rel_of_decode`, structural
+only). Nothing is proved about how `toRef` relates to the reference's own reading of `Binary.md`,
+and no general theorem relating `Comp.denI` to the reference machine's instantiation is claimed
+(the open goals are `DecoderBridge.Task.failAdequacy` and `Task.startAdequacy`).
 -/
 
 public section

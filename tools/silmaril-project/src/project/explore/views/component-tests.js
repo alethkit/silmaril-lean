@@ -45,6 +45,7 @@ const ComponentTests = (() => {
       row("rows", (b.rows || []).map((r) => `${plink(r.name)} ${badge(r.name)} <span class="muted">(${e(r.shape)}; <code>${e(r.theorem)}</code>)</span>`).join("<br>"));
       row("theorem strength", e(b.strength));
       if (b.ref) row("reference machine", `<code>${e(b.ref.theorem)}</code>: ${e(b.ref.strength)}`);
+      if (b.bridge) row("decoder bridge (IR reading vs REF reading)", `<code>${e(b.bridge.theorem)}</code>: ${e(b.bridge.strength)}`);
       row("oracle (wasmtime)", oracleCell(x));
       h += "</tbody></table></div>";
     }

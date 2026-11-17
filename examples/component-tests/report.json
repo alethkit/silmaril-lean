@@ -70,6 +70,10 @@
       "ref": {
         "theorem": "Silmaril.Wasm.Component.InstTestsRef.starts_agree",
         "strength": "one executed reference-machine run (decide +kernel on its drivers) on the component Conformance.decodeRef reads from these bytes (kernel_rfl; validated by check?): host log f(1), f(2); get() returns 42. Example agreement only, not a general binary-to-REF equivalence"
+      },
+      "bridge": {
+        "theorem": "Silmaril.Wasm.Component.DecoderBridge.starts_rel",
+        "strength": "proved for every binary (DecoderBridge.rel_of_decode): when Binary.parseComponent and Conformance.decodeRef both succeed, they read the same Binary.parse AST and agree on core instantiations (the same core modules, decoded from the same bytes, instantiated in the same order); this binary is an instance. Structural only: wiring, canonical definitions, imports and exports are not related, and behavioural adequacy of Comp.denI against the reference machine is the open goal DecoderBridge.Task.startAdequacy (this binary is an instance of it: DecoderBridge.starts_of)"
       }
     },
     {
@@ -105,6 +109,10 @@
       "ref": {
         "theorem": "Silmaril.Wasm.Component.InstTestsRef.trap_agree",
         "strength": "one executed reference-machine run on the component Conformance.decodeRef reads from these bytes (kernel_rfl; validated by check?): the instantiation traps. Example agreement only, not a general binary-to-REF equivalence"
+      },
+      "bridge": {
+        "theorem": "Silmaril.Wasm.Component.DecoderBridge.trap_rel",
+        "strength": "proved for every binary (DecoderBridge.rel_of_decode): when Binary.parseComponent and Conformance.decodeRef both succeed, they read the same Binary.parse AST and agree on core instantiations (the same core modules, decoded from the same bytes, instantiated in the same order); this binary is an instance. Structural only: wiring, canonical definitions, imports and exports are not related, and behavioural adequacy of Comp.denI against the reference machine is the open goal DecoderBridge.Task.failAdequacy (this binary is an instance of it: DecoderBridge.trap_of)"
       }
     }
   ]

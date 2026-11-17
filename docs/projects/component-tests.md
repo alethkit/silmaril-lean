@@ -115,12 +115,66 @@ link against it.
 
 What this covers, and what it does not:
 
-* Both sides start from the same bytes, through two decoders: `Binary.parseComponent` (the IR's
-  lowering) and `decodeRef` (the reference syntax). That they agree is shown only on these two
-  binaries, by running both; no theorem relates the two decoders in general.
+* Both sides start from the same bytes, through two readings: `Binary.parseComponent` (the IR's
+  lowering) and `decodeRef` (the reference syntax). They share the parser and agree on core
+  instantiations for every binary (next section); behavioural agreement is shown only on these
+  two binaries, by running both.
 * `toRef` is the conformance runner's executable reading of `Binary`; no theorem relates it to the
   reference's own reading of `Binary.md`.
 * No general adequacy between `Comp.denI` and the reference machine is claimed.
+
+## Component bridge evidence: the two readings of a binary
+
+`Silmaril.Wasm.Component.DecoderBridge` (`Defs`, `Thms`; proofs in
+`Silmaril.Proofs.Wasm.Component.DecoderBridge`).
+
+**How the two readings are built.**
+
+| | IR reading | REF reading |
+|---|---|---|
+| entry point | `Binary.parseComponent : ByteArray → Except String (Comp Binary.CoreMod)` (`Binary/Lower/Defs.lean`) | `Conformance.decodeRef : ByteArray → Except String Core3Component` (`Conformance/ToRef/Defs.lean`) |
+| parser | `Binary.parse` (the verified component grammar) to `Binary.Ast` | the same `Binary.parse` |
+| AST to output | `Binary.lower`: a state-passing pass (`Lower.St`, `Lower.section_`) resolving indices into the nested IR (`Comp.mk imports nodes exports`) | `Conformance.toRef`: a section-by-section transcription into the reference syntax (`Syntax.Definition`) |
+| embedded core modules | `Lower.coreMod`: the core decoder `Wasm.Binary.Core.decode?`, keeping the bytes and the function interface (`Binary.CoreMod`) | `ToRef.coreModule`: the same `decode?`, keeping the decoded `Wasm.Module` |
+| core `instantiate m args` | an IR node `.core m wiring`, the wiring resolved by name through the argument instances | kept as `.coreInstance (.instantiate m args)` |
+
+**Proved for every byte string** (`#print axioms`: `[propext, Classical.choice, Quot.sound]`):
+
+* `decoders_factor`: `parseComponent b = .ok c → decodeRef b = .ok r →
+  ∃ a, Binary.parse b = .ok a ∧ Binary.lower a = .ok c ∧ toRef a = .ok r`.
+* `lower_nodes`: `Binary.lower a = .ok c →` the nodes of `c` correspond one to one, in order, to
+  `instExprs a.sections` (the top-level core instantiations), each `.core m w` with
+  `Lower.coreMod bs = .ok m` for `bs` the bytes of the core module section at the instantiation's
+  index (`modBytes a.sections`); and `noModuleSort a.sections` (no top-level import, alias or
+  export of the core module sort). `coreMod_bytes`: such an `m` has `m.bytes = bs` and `decode?`
+  accepts `bs`.
+* `toRef_insts`: `toRef a = .ok r → noModuleSort a.sections →
+  coreModSpace r = (modBytes a.sections).map decode? ∧ refInsts r = instExprs a.sections`.
+* `rel_of_decode`: `parseComponent b = .ok c → decodeRef b = .ok r → Rel c r`, where `Rel c r` is
+  `List.Forall₂ (NodeRel (coreModSpace r)) c.nodes (refInsts r)` and `NodeRel space n (i, args)`
+  is `∃ m w ref, n = .core m w ∧ space[i]? = some (some ref) ∧ decode? m.bytes = some ref`: the
+  same core modules, decoded from the same bytes, are instantiated in the same order.
+* `starts_rel : Rel startsComp startsRef`, `trap_rel : Rel trapComp trapRef`: instances of
+  `rel_of_decode` (from `parse_starts`/`parse_trap` and `decodeRef_starts`/`decodeRef_trap`;
+  no new kernel run).
+
+`Rel` is structural. It does not relate the IR's wiring programs to the reference's
+instantiation arguments, canonical definitions, types, imports or exports, and neither reading's
+success implies the other's.
+
+**Open, stated as `Prop`s** (`DecoderBridge.Sem.Defs`; no theorem asserts them):
+
+* `Task.failAdequacy`: for every binary importing exactly `f: func(u32)` whose REF reading is
+  valid, an IR instantiation (at `profile neverFail`) failing before any host call implies
+  `InstResult.traps` on the reference machine under the logging host (`embL`, `hostConfigX`).
+* `Task.startAdequacy`: for such a binary, an IR play `instPlay t .ready ++ [get(), ws]` (each
+  host call answered `()`) implies the REF session from `hostConfigX` with host log
+  `logOfCalls t` and the first export (by name) returning `ws.map toRefVal`.
+
+`DecoderBridge.Sem.Thms`: `starts_of : Task.startAdequacy → <the REF half of starts_agree>` and
+`trap_of : Task.failAdequacy → <the REF half of trap_agree>`: the examples are instances of the
+general goals, their hypotheses discharged by the existing theorems. On these two binaries the
+conclusions are also proved outright, by execution (`starts_agree`, `trap_agree`).
 
 ## Oracle: wasmtime (not a proof, not in CI)
 
@@ -153,8 +207,11 @@ observations and verdict, and the assumptions and tool provenance. Data:
 
 ## Not covered
 
-* General adequacy of `Comp.denI` with respect to the reference machine (only these examples).
+* General adequacy of `Comp.denI` with respect to the reference machine (only these examples;
+  stated as `DecoderBridge.Task.failAdequacy` and `Task.startAdequacy`).
 * Divergence (not observed by the shapes).
 * Other import types, several imports, nested components, resources, async.
-* A general theorem relating the two decoders (`Binary.parseComponent`, `decodeRef`), or `toRef` to
-  the reference's own reading of `Binary.md`.
+* A relation between the two readings beyond core instantiations (`DecoderBridge.rel_of_decode`
+  relates which modules are instantiated in which order, not wiring, canonical definitions,
+  imports or exports), and a theorem relating `toRef` to the reference's own reading of
+  `Binary.md`.

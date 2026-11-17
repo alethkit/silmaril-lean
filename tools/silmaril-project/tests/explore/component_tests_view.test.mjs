@@ -51,6 +51,11 @@ test("the page shows binaries, imports, expectations, rows, strength, assumption
     assert.ok(h.includes(b.ref.theorem));
     assert.ok(b.ref.strength.includes("Conformance.decodeRef reads from these bytes"), b.name);
     assert.ok(b.ref.strength.includes("not a general binary-to-REF equivalence"), b.name);
+    assert.ok(h.includes(b.bridge.theorem), b.name);
+    assert.ok(b.bridge.strength.includes("proved for every binary (DecoderBridge.rel_of_decode)"), b.name);
+    assert.ok(b.bridge.strength.includes("agree on core instantiations"), b.name);
+    assert.ok(b.bridge.strength.includes("Structural only"), b.name);
+    assert.ok(b.bridge.strength.includes("is the open goal DecoderBridge.Task."), b.name);
   }
   assert.ok(!h.includes("hand transcription"));
   assert.ok(h.includes("f: func(x: u32)"));
