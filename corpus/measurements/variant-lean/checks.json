@@ -28,6 +28,91 @@
         "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Stripped/LibcjsonUtilsSo1/Functions.lean": "5c635a9d6d73093ffa2eec177d0f5b6600948cac4657cdc2c4a4b56791ee5b83",
         "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Stripped/LibcjsonUtilsSo1/Thms.lean": "028299aeb6eb2d0d34c142765acfe969e3abf842749168eacc7802b697246764"
       }
+    },
+    {
+      "path": "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/unstripped/libmimalloc.so.2.1",
+      "sha256": "b89f65cbfb1a06468e1ba2b89ec908e5897a61cda109df92f112d9709e4dbf7d",
+      "root": "Silmaril.Elf.Staged.CorpusVariants.Mimalloc.N219.Default.X8664.O0.Unstripped.LibmimallocSo21.Decomp",
+      "run_receipt": "corpus/measurements/variant-lean/runs/5fcdcf3d-5ad3-4453-b5ca-004f9a46abb1.json",
+      "module_sha256": {
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part0.lean": "abe55f92a03c89ac636f502329d4a6414c09f3a20817bee87a8dd56487d0a5ed",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part1.lean": "7599d4e9410970569bc87c57690921e7d7ef1a3ef9eda0724c9ec0a8c430f3b7",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part10.lean": "fd95f42f828efac764612adb674aed1a897c2de5affc34c6bfc27ac5625d1e0c",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part11.lean": "b595274aa631fc3aa6152b4747f2e90504d98b0f4983fbd1deff1cbfc34945dd",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part12.lean": "be4a8db603ca26f5bf1a82bf08436263819add80818bfedb62b1b636156fd465",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part2.lean": "87d9744bac1393533e10545dc6494c0f161f4f9d0674d10137b06e8f0366d80f",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part3.lean": "d025ec6481afb1bbbab80952c3fa111b52a50e9dff26ec663915c54ca0638f28",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part4.lean": "85568b69bf905a5e9752f6fef220230f1c2978c2f122c9a7ed9d7eb031b9c163",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part5.lean": "01e052ad6030d05d4aab5a8d261f7c892551e538357627e616947080a2b45c96",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part6.lean": "0c19362c76d6e9fa76231cb22ad44213f22e66c8ac072ac1ef9188dca0d3ad26",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part7.lean": "6f3f7cd9aa398e167489bd5427a7f18466629e82f9b0b8ecaff807aa845a55a4",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part8.lean": "1d4e3d74e13e616d707025c02be91d4e0cdf889c4a2be0acaf4a71f0a46b776a",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bodies/Part9.lean": "a779ed6ef6cde920af769a444ada3d447b48c386c8965e74e829b853acac045a",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Bytes.lean": "75f642e21438d60f9c06e717de5ee9485dc37cdf07c40c1b0f4a7c80e951db29",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Decomp.lean": "9868dc8af5ff70f7de22a69a0f65a1faeef8fb1f2bb3fcbcb48a24f005794de8",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Defs.lean": "ba32e9b98884374e6681f1c9c4bb28407aed5c1c3b4c264c3bf4c604c7d655ae",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Functions.lean": "923705ff810a84fdf71c5aa16b2bb5dd1267fb978df5b5abb7616bbce497769f",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Unstripped/LibmimallocSo21/Thms.lean": "cb0bf21f3cc8d21c2bb5618b22a560a53419a6f3a2d6a01165147600d14df4d0"
+      }
+    },
+    {
+      "path": "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/stripped/libmimalloc.so.2.1",
+      "sha256": "2811fa0abc1ecf4d6378cc1aed2e7211555403c0d5b6b1a9f2cc78f0c9e0c616",
+      "root": "Silmaril.Elf.Staged.CorpusVariants.Mimalloc.N219.Default.X8664.O0.Stripped.LibmimallocSo21.Decomp",
+      "run_receipt": "corpus/measurements/variant-lean/runs/5fcdcf3d-5ad3-4453-b5ca-004f9a46abb1.json",
+      "module_sha256": {
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Stripped/LibmimallocSo21/Bodies/Part0.lean": "69af56775a7a6f2cd65544b61ab27513edeb10bf4a652dd5738fed4890fb8bc5",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Stripped/LibmimallocSo21/Bodies/Part1.lean": "2c73df58c2f93e9ed41a5e68869f855b236e3c57b26f058d1a78baa779efdc1e",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Stripped/LibmimallocSo21/Bodies/Part2.lean": "22ff48afa78db5fe898d0727a8e061578c4a63df22ada10b504b72bf9f3888bf",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Stripped/LibmimallocSo21/Bodies/Part3.lean": "bece7e6df04b391141986d60e9e0db9e9ab8d2d33ec02bb5a36f658d8340a62d",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Stripped/LibmimallocSo21/Bodies/Part4.lean": "77f89b58fe4a6e2c0e566bb816a2b3921b9c1cad60c9b6686850cd951a9b1eb6",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Stripped/LibmimallocSo21/Bytes.lean": "2375a4d4b66e037dec4b2f66a7f25875ae1f30c5f42f252b4592df71a0566d86",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Stripped/LibmimallocSo21/Decomp.lean": "0e5f52c9ff454602dfc58d2f25d02f5bc2b250f397dba0a0a53e76d42ae5286c",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Stripped/LibmimallocSo21/Defs.lean": "7fffee3186bf0661898019e85dfcce7062baa29dee34e7040da5456b263b2b00",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Stripped/LibmimallocSo21/Functions.lean": "577467f8caf6930f163bf28a458c06709a115ccb97f0a4f42b471dcbd842253f",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O0/Stripped/LibmimallocSo21/Thms.lean": "b4bb415646277f2ca84f7c3e5dfebda286934f4f80b3f88896eafbb535073550"
+      }
+    },
+    {
+      "path": "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/unstripped/libmimalloc.so.2.1",
+      "sha256": "d31800fec23b41fe8b9cbc2fac88762b4d4a2716b1fbe65fea1fd0aeb8b0aab3",
+      "root": "Silmaril.Elf.Staged.CorpusVariants.Mimalloc.N219.Default.X8664.O3.Unstripped.LibmimallocSo21.Decomp",
+      "run_receipt": "corpus/measurements/variant-lean/runs/5fcdcf3d-5ad3-4453-b5ca-004f9a46abb1.json",
+      "module_sha256": {
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bodies/Part0.lean": "f498e7d008d71d5a16f63faa66c881e66d94733ef13551d8222ed40f7ba355f0",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bodies/Part1.lean": "a34564c83e119cf22161f8a1723e4926467243209cc9d0be0843b95973158dfd",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bodies/Part2.lean": "3d4ba7bfbabca0438396534db91e8751bd6ea5234585559531c1749845dbe11b",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bodies/Part3.lean": "53b661fe285709a3b77ab408d53fa4550b9d50ce9b1371ea33d67324f54781f3",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bodies/Part4.lean": "2db31e9bc5d2ae9a036985b06aaf155a2e7cf3b8f56683c4a483e1e11fc4e592",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bodies/Part5.lean": "efb1639afb6ca278541c783b178804a2a4144eed2cce7f605df2e7b432c00110",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bodies/Part6.lean": "cca9e0ce8521569cd24fe75f182af6883d5f9b5228d7efb2c18312489c5303e1",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bodies/Part7.lean": "676ddf16cc62f216ac395287148e3f18cf5a0b6b40ffd3734cbd7d7a99ff6252",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bodies/Part8.lean": "761ad6432b452e6ac26ac6558f697de8f425e9bc50972b29146f4896cd3784bc",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bodies/Part9.lean": "2c6c1f1f1584a36f7c2cc89468de1e984dd4c577bd2ad7b013b8cf85c5f24372",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Bytes.lean": "efc718db5eac6ec9689a508e761998a3253c29c2321e412c49b827e59c23caa5",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Decomp.lean": "5822389bbd5d5c07522e925867fa40d70d5153df1d149f5965308e07762877a7",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Defs.lean": "dfc048d048696339d6c7b2e4be71b2b94a70a501ffa4cd4d33a170b34216fdfa",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Functions.lean": "f96966fa6fb732d17dc6a2437614b8d90333a63e8ce1f574dd998cb545b9376a",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Unstripped/LibmimallocSo21/Thms.lean": "8eca71ba0d5aa89980443f03f4d9b55d692b8cb8502c23ee9c160f530fc0c57d"
+      }
+    },
+    {
+      "path": "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/stripped/libmimalloc.so.2.1",
+      "sha256": "1aba36eebc02977f9623048cf7a15734df14c181531f65f21131bec003b48a45",
+      "root": "Silmaril.Elf.Staged.CorpusVariants.Mimalloc.N219.Default.X8664.O3.Stripped.LibmimallocSo21.Decomp",
+      "run_receipt": "corpus/measurements/variant-lean/runs/5fcdcf3d-5ad3-4453-b5ca-004f9a46abb1.json",
+      "module_sha256": {
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Stripped/LibmimallocSo21/Bodies/Part0.lean": "8f24e43f43dc7ff63c850b7e36342f5924dd2176c3fbddc822c0eb9653d8c711",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Stripped/LibmimallocSo21/Bodies/Part1.lean": "62d4efc53572ff4714809339df3f836ae904ee231a634f0c8984513b2f3b6fbc",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Stripped/LibmimallocSo21/Bodies/Part2.lean": "70b0692843aba73c01a3b019db1479586503ac51ac65ecae2d56244f04eef546",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Stripped/LibmimallocSo21/Bodies/Part3.lean": "b5bba079918ce2cd81906592c014d9c89bbe2b76efca228073b03d5cb4a136ac",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Stripped/LibmimallocSo21/Bodies/Part4.lean": "35bac5f85320150111fb19952c1522e53fe8f9d88d0a02fbef04c3649cfe0946",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Stripped/LibmimallocSo21/Bytes.lean": "386a6a9d15abb2cf01a0fca3609e8ba48c6daa4049fcd48551db801f27a7d9ff",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Stripped/LibmimallocSo21/Decomp.lean": "fcb75d596b97afdb598c46c2dfe71a478efd40ba73a91460713da68e545cb89c",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Stripped/LibmimallocSo21/Defs.lean": "e0439a203ea0202305f80b68fa29e84b518f6ba7e702460b6a1620c4a2431a75",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Stripped/LibmimallocSo21/Functions.lean": "76380b72a1c315b73355021593de9c4afe4eedd0b894ad64ff10940e069f949c",
+        "Silmaril/Elf/Staged/CorpusVariants/Mimalloc/N219/Default/X8664/O3/Stripped/LibmimallocSo21/Thms.lean": "873059cb90211231a069f652450344c427e09da8777e955154ff2a6ab5434965"
+      }
     }
   ]
 }

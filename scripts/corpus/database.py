@@ -50,6 +50,7 @@ CREATE TABLE corpus_artifacts(
  census TEXT, sources TEXT NOT NULL);
 CREATE INDEX corpus_identity ON corpus_artifacts(project,version,target,optimization,stripping);
 CREATE INDEX corpus_hash ON corpus_artifacts(sha256);
+CREATE INDEX corpus_browser ON corpus_artifacts(project,version,target,optimization,stripping,name,id,sha256,json_extract(metadata,'$.lean_status'),json_extract(metadata,'$.functional_equivalence_statements'),json_extract(metadata,'$.contextual_c_to_elf_statements'));
 CREATE TABLE corpus_functions(
  artifact TEXT NOT NULL, ordinal INTEGER NOT NULL, symbol TEXT NOT NULL,
  address INTEGER NOT NULL, size INTEGER NOT NULL, mapping TEXT NOT NULL,
@@ -58,7 +59,8 @@ CREATE INDEX corpus_function_name ON corpus_functions(artifact,symbol);
 CREATE TABLE corpus_timings(run_id TEXT PRIMARY KEY, build_id TEXT, stage TEXT NOT NULL, metadata TEXT NOT NULL);
 ''')
         db.executemany('INSERT INTO corpus_meta VALUES(?,?)', [('schema', 'corpus.catalog.v1'), ('revision', revision),
-            ('artifact_rows', str(data['artifact_rows'])), ('unique_content_hashes', str(data['unique_content_hashes']))])
+            ('artifact_rows', str(data['artifact_rows'])), ('unique_content_hashes', str(data['unique_content_hashes'])),
+            *[(kind + '_statements', str(count)) for kind, count in data['formal_statement_counts'].items()]])
         for artifact in data['artifacts']:
             key = digest([artifact['build_id'], artifact['stripping'], artifact['path']])
             path = Path(artifact['path'])

@@ -1,0 +1,19 @@
+{
+  "statements": [
+    {
+      "kind": "functional_equivalence",
+      "status": "stated-unproved",
+      "declaration": "Silmaril.Elf.Corpus.MimallocVersion.Task.mi_version_equivalent",
+      "root": "Silmaril.Elf.Corpus.MimallocVersion.Thms",
+      "run_receipt": "corpus/measurements/formal-functions/runs/6d3b930c-cbbd-49bc-b033-933acdead32a.json",
+      "artifact_sha256": {
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/unstripped/libmimalloc.so.2.1": "b89f65cbfb1a06468e1ba2b89ec908e5897a61cda109df92f112d9709e4dbf7d",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/unstripped/libmimalloc.so.2.1": "d31800fec23b41fe8b9cbc2fac88762b4d4a2716b1fbe65fea1fd0aeb8b0aab3"
+      },
+      "module_sha256": {
+        "Silmaril/Elf/Corpus/MimallocVersion/Defs.lean": "b6895331b57df449337c471756775668414f21a1718eafc374d1b2afc2a0b148",
+        "Silmaril/Elf/Corpus/MimallocVersion/Thms.lean": "6dd12e450fa04c03fa9f16e9f50f275c6c5d1e12615e723bbd6d456f9091b4ad"
+      }
+    }
+  ]
+}
