@@ -291,4 +291,96 @@ theorem call_ref {B : Machine.Config (core3 neverFail) Σh} (hB : CallInv B th)
 
 end Seg
 
+/-! ## The start run -/
+
+section Run
+
+variable {prof : ProfileKind} {th : Option ThreadId}
+  {K : List Flat → Canon.P (core3 neverFail) Σh (Ret (core3 neverFail))}
+  {segs : List (Seg (core3 neverFail) Σh)} {rest : List (Activation (core3 neverFail) Σh)}
+
+theorem internalP_eq : @Engine.CoreEngine.Internal (core3P (profile neverFail)) Nat =
+    Internal neverFail := internalP_profileR
+
+theorem resultOf_fFlat : Param.resultOf fFlat.results (some (.flat [])) = .values [] := rfl
+
+/-- **The IR's start run with host calls, in the machine**: a start run of the IR whose import
+calls are answered with no results, ending at a returned status (values or a trap), is matched
+by a live run of the machine to the core activation at the same status, the host log extended by
+one event per import call, the call of `f` on its `u32` argument (`coreLog`). -/
+theorem startRun_ref {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = true) :
+    ∀ {c c' : (core3P (profile neverFail)).Config Nat}
+      {ys : List (Σ _ : (sigN imps.length).Op, Option Payload)},
+      Param.StartRunI (core3P (profile neverFail)) imps c ys c' →
+      (∀ y ∈ ys, y.2 = some (.flat [])) →
+      ∀ {r : Engine.CallResult}, (core3P (profile neverFail)).status c'.1 c'.2 = .returned r →
+      ∀ {B : Machine.Config (core3 neverFail) Σh} {tR : STh}, CallInv B th →
+      tR.config (Store.mapH gL c.1) = c.2.config (Store.mapH gL c.1) →
+      RT (Store.mapH gL c.1) tR →
+      ∃ (tr : List (Label (core3 neverFail) Σh)) (B' : Machine.Config (core3 neverFail) Σh)
+        (tR' : STh),
+        LRun prof (fun _ _ => false) (DG embL.host)
+          (coreCfg B th K segs rest (Store.mapH gL c.1, tR)) tr
+          (coreCfg B' th K segs rest (Store.mapH gL c'.1, tR')) ∧
+        (core3 neverFail).status (Store.mapH gL c'.1) tR' = .returned r ∧ CallInv B' th ∧
+        B'.host = (B.host.1, B.host.2 ++ coreLog ys) := by
+  intro c c' ys hrun
+  induction hrun with
+  | @nil c c' run =>
+    intro _ r hend B tR hB hth hR
+    obtain ⟨s, t⟩ := c
+    obtain ⟨s', t'⟩ := c'
+    unfold Engine.CoreEngine.Steps at run
+    rw [internalP_eq] at run
+    obtain ⟨r', hr'⟩ := flatStatus_returned hend
+    have hs' : status neverFail s' t' = .returned r' := (statusP_profile s' t').symm.trans hr'
+    have hsm : status neverFail (Store.mapH gL s') t' = .returned r' := status_mapH_returned hs'
+    obtain ⟨tR', tr, d, hth', hR', hC⟩ := run_ref (th := th) (K := K) (segs := segs)
+      (rest := rest) (prof := prof) hB.lock run hth hR (by rw [hsm]; nofun)
+    have e := statusE_flat neverFail (Store.mapH gL s') tR'
+    rw [hC, hsm] at e
+    have hend' : flatStatus (Silmaril.Wasm.Game.statusP (profile neverFail) s' t') =
+        .returned r := hend
+    rw [hr'] at hend'
+    have e3 : flatStatus (Silmaril.Wasm.SingleThreaded.Status.returned
+        (H := CanonHost (core3 neverFail)) r') = .returned r := by
+      rcases r' with vs | _
+      · simp only [flatStatus] at hend' ⊢
+        cases hm : vs.mapM Silmaril.Wasm.SingleThreaded.toFlat? with
+        | none => rw [hm] at hend'; cases hend'
+        | some fvs =>
+          rw [hm] at hend'
+          cases hend'
+          rfl
+      · simp only [flatStatus] at hend' ⊢
+        cases hend'
+        rfl
+    exact ⟨tr, B, tR', d, e.trans e3, hB, by simp [coreLog]⟩
+  | @call s s₁ t t₁ h args c'' cs run callout hh r rest' ih =>
+    intro hans r₀ hend B tR hB hth hR
+    unfold Engine.CoreEngine.Steps at run
+    rw [internalP_eq] at run
+    obtain ⟨b, rfl, tr₁, B₁, d₁, hB₁, hhost₁, hR₁⟩ := call_ref (th := th) (K := K) (segs := segs)
+      (rest := rest) (prof := prof) hB run hth hR callout
+    have hr : r = some (.flat []) := hans _ List.mem_cons_self
+    subst hr
+    have himp : imps[h].2 = fFlat := by
+      have := List.all_eq_true.mp himps _ (List.getElem_mem hh)
+      simpa using this
+    have eres : (core3P (profile neverFail)).resume s₁ t₁
+        (Param.resultOf imps[h].2.results (some (.flat []))) =
+        Silmaril.Wasm.SingleThreaded.resume s₁ t₁ (.values []) := by
+      rw [himp, resultOf_fFlat]
+      rfl
+    obtain ⟨tr₂, B₂, tR₂, d₂, hst₂, hB₂, hhost₂⟩ := ih (fun y hy => hans y (List.mem_cons_of_mem _ hy))
+      hend (B := B₁) (tR := Silmaril.Wasm.SingleThreaded.resume s₁ t₁ (.values [])) hB₁
+      (by rw [eres]) (by rw [eres]; exact hR₁)
+    refine ⟨tr₁ ++ tr₂, B₂, tR₂, d₁.trans ?_, hst₂, hB₂, ?_⟩
+    · rw [eres] at d₂
+      exact d₂
+    · rw [hhost₂, hhost₁]
+      simp [coreLog, coreEvent]
+
+end Run
+
 end Silmaril.Proofs.Wasm.Component.DecoderBridge.FirstImp
