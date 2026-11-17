@@ -50,6 +50,8 @@ rust:
 # What `make project-registry` reads: the project manifest, registry and records, the Lake
 # manifests `sil project` loads, the files the registry names, and the tool itself.
 project:
+  - 'corpus/**'
+  - 'scripts/corpus/**'
   - 'silmaril.toml'
   - 'examples/wasm-components/**'
   - 'Silmaril/Project/WasmComponents/**'

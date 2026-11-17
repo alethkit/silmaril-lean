@@ -60,3 +60,48 @@ output. SQL and output databases retain the input's disclosure restrictions. Thi
 benchmark measures SQLite materialization, **not** Lean elaboration, project
 validation, canonical project SQL generation, or end-to-end regeneration. No ELF
 byte-storage representation is changed by these tools.
+
+## Corpus explorer database
+
+`matrix.py` indexes completed canonical/variant receipts and checks every ELF hash.
+`database.py` generates additive corpus metadata tables from that real inventory,
+source mapping/context files, paired stripped mappings, census reports and measured
+run receipts. ELF bytes remain in Git; the database records their paths and hashes.
+No source semantics or TV statement is inferred from mapping metadata.
+
+```sh
+mkdir -p /work/out/corpus-site
+python3 scripts/corpus/database.py --output /work/out/corpus-site/project.sqlite
+make project-tool
+build/bin/silmaril-project explore --db /work/out/corpus-site/project.sqlite \
+  --out /work/out/corpus-site/index.html
+python3 -m http.server --bind 127.0.0.1 --directory /work/out/corpus-site 8789
+# Open http://127.0.0.1:8789/index.html#/corpus
+```
+
+The Corpus view filters delivered project/version/target/optimization/stripping
+rows, links immutable Git artifacts/receipts, shows build/source identity,
+dependency/extension evidence, source mappings, searchable function rows and
+measured-stage receipts. It shows each canonical artifact's whole-file parse or
+layout-only status separately; new variants remain unchecked. The OpenSSL x86
+libcrypto debug-twin mismatch stays explicit. Function rows include aliases.
+
+For an existing project, pass `--base INPUT.sqlite`; SQLite backup copies its
+snapshot to the **new** output before adding corpus tables. The input is never
+modified. Existing project navigation remains available alongside Corpus. A
+standalone catalog has dedicated Corpus/SQL navigation. Output databases may be
+regenerated, not updated concurrently; no custom VCS/cache/sharding system exists.
+The output retains all disclosure restrictions of its base. Do not publish an
+internal base, its combined database, or screenshots containing internal content.
+
+Browser checks use the actual generated database, including project-preserving
+navigation when `combined.sqlite` is present:
+
+```sh
+node tools/silmaril-project/tests/explore/corpus.mjs /work/out/corpus-site /work/out/corpus.png
+```
+
+CI generates the real standalone catalog and a combined public fixture and runs
+these Chromium checks. The view does not yet provide a full multiversion build
+matrix, variant-specific census runs, source code rendering, or instantiated TV
+and binary-equivalence problem pages. Zero statement counts remain explicit.
