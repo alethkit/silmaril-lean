@@ -65,9 +65,14 @@ unstripped artifacts are indexed too; O2 stripped artifacts are not yet delivere
 
 The paired executable-byte check supplies tool-derived stripped address mappings,
 not functional equivalence, source-semantic binding or a Lean proof. The new
-variants have **no generated/checked Lean parsing or structural decompositions**
-and **zero contextual C-to-ELF or binary-equivalence statements**. Source mappings
-and those formal stages must be added separately. This tranche adds optimization
+variants have **zero contextual C-to-ELF or binary-equivalence statements**.
+The x86-64 O0 stripped/unstripped `libcjson_utils.so.1` pair has generated and checked
+whole-file parse and structural decomposition roots, recorded in
+[the measured Lean checks](../measurements/variant-lean/README.md).
+The remaining 190 variants have no generated/checked Lean roots yet. The stripped
+root uses the symbols actually retained in its ELF (and explicit gaps); the paired
+unstripped map is additional tool evidence, not extra proved stripped symbols.
+Source-semantic binding and functional-equivalence statements remain separate work. This tranche adds optimization
 and stripping variants of existing releases; it does not provide the requested
 rich multi-version/configuration matrix or assembly-enabled OpenSSL/BoringSSL.
 

@@ -2783,7 +2783,7 @@
       "defined_nonzero_function_symbol_entries": 604,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -6363,7 +6363,7 @@
       "defined_nonzero_function_symbol_entries": 0,
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/cJSON-1.7.19/LICENSE"
@@ -6499,7 +6499,7 @@
       "defined_nonzero_function_symbol_entries": 39,
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
       "license_files": [
         "upstream/cJSON-1.7.19/LICENSE"

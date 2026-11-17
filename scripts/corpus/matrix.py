@@ -25,6 +25,8 @@ def sha(path):
 
 def inventory(root):
     artifacts = []
+    check_path = root / 'corpus/measurements/variant-lean/checks.json'
+    checked_variants = {c['path']: c for c in json.loads(check_path.read_text())['artifacts']} if check_path.exists() else {}
     receipts = sorted((root / 'corpus/elf').glob('*/*/receipt.json'))
     receipts += sorted((root / 'corpus/variants').glob('*/*/*/*/*/*/receipt.json'))
     for path in receipts:
@@ -53,6 +55,19 @@ def inventory(root):
                     lean_status = 'canonical: whole-file parse and structural decomposition'
                 else:
                     lean_status = 'canonical: checked layout and structural decomposition; whole-file parse unavailable'
+            elif obj['path'] in checked_variants:
+                check = checked_variants[obj['path']]
+                run = json.loads((root / check['run_receipt']).read_text())
+                if check['sha256'] != obj['sha256'] or run['exit_code'] != 0 or check['root'] not in run['command']:
+                    raise ValueError(f'{artifact}: Lean check receipt mismatch')
+                prefix = check['root'].removesuffix('.Decomp').replace('.', '/')
+                required = {prefix + '/' + name + '.lean' for name in ['Bytes', 'Defs', 'Thms', 'Functions', 'Decomp']}
+                if not required.issubset(check['module_sha256']):
+                    raise ValueError(f'{artifact}: incomplete Lean module hash receipt')
+                for source_path, expected_sha in check['module_sha256'].items():
+                    if sha(root / source_path) != expected_sha:
+                        raise ValueError(f'{source_path}: changed since measured Lean check')
+                lean_status = 'variant: whole-file parse and structural decomposition; measured check receipt'
             artifacts.append({'project': receipt['package'], 'version': receipt['version'],
                 'version_components': re.split(r'[.+-]', receipt['version']),
                 'source_id': source_id, 'source_inputs': source, 'build_id': digest(build),

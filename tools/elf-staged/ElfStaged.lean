@@ -887,11 +887,15 @@ open Silmaril.Elf Silmaril.Elf.Staged Silmaril.Elf.Staged.Reader
 
 "
   let mut bodyArr : Array Body := #[]
-  let mut skipped : Array Nat := #[]
+  let mut bodyParts : Array (String × String) := #[]
   for (sec, k) in L.sections.zipIdx do
     let some b := (Parse.body shs sec.header).run src | throw (IO.userError s!"body {k} failed")
     bodyArr := bodyArr.push b
-    bnames := bnames.push s!"body_{k}.bodyIs"
+    let big := match b, maxEntries with
+      | .symbols _ es, some m => decide (min m 128 < es.length)
+      | .relas es, some m => decide (min (4 * m) 128 < es.length)
+      | _, _ => false
+    bnames := bnames.push (if big then s!"body_{k}" else s!"body_{k}.bodyIs")
     match b with
     | .symbols tab es =>
       let some strs := shs[sec.header.link]? | throw (IO.userError s!"symbol table {k}: no string table")
@@ -906,26 +910,77 @@ theorem sym_{k}_{i} : PartIs F {litSpans (footprint src (Parse.symbol strs o))} 
 
 "
       let t' := if tab == .symtab then "symtab" else "dynsym"
-      d := d ++ s!"\n/-- The body of section {k} (`{nameStr sec.name}`): {es.length} symbols. -/\ndef b{k} : Body :=\n  .symbols .{t'} [{", ".intercalate ((List.range es.length).map (s!"s{k}_{·}"))}]\n\n"
+      if big then
+        let cs := listChunks 128 ((List.range es.length).map (s!"s{k}_{·}"))
+        let names := (cs.zipIdx).map fun (_, j) => s!"b{k}_{j}"
+        for (c, j) in cs.zipIdx do
+          d := d ++ s!"def b{k}_{j} : List ObjectSymbol := [{", ".intercalate c}]\n\n"
+        let all := names.foldr (fun nm acc => s!"{nm} ++ ({acc})") "[]"
+        d := d ++ s!"def b{k} : Body := .symbols .{t'} ({all})\n\n"
+      else
+        d := d ++ s!"\n/-- The body of section {k} (`{nameStr sec.name}`): {es.length} symbols. -/\ndef b{k} : Body :=\n  .symbols .{t'} [{", ".intercalate ((List.range es.length).map (s!"s{k}_{·}"))}]\n\n"
     | .relas es =>
-      if maxEntries.isNone || es.length ≤ 4096 then
+      if !big && es.length ≤ 4096 then
         d := d ++ s!"/-- The body of section {k} (`{nameStr sec.name}`). -/\ndef b{k} : Body :=\n  {(reprStr b).replace "\n" " "}\n\n"
       else
         -- a long table as consecutive chunks, so that no single literal nests too deeply
-        let cs := listChunks 512 es
+        let width := if big then 128 else 512
+        let cs := listChunks width es
         let mut names : Array String := #[]
         for (c, j) in cs.zipIdx do
-          d := d ++ s!"/-- Entries {j * 512} to {j * 512 + c.length - 1} of section {k} (`{nameStr sec.name}`). -/\ndef b{k}_{j} : List Silmaril.Formats.ELF.Rela :=\n  {(reprStr c).replace "\n" " "}\n\n"
+          d := d ++ s!"/-- Entries {j * width} to {j * width + c.length - 1} of section {k} (`{nameStr sec.name}`). -/\ndef b{k}_{j} : List Silmaril.Formats.ELF.Rela :=\n  {(reprStr c).replace "\n" " "}\n\n"
           names := names.push s!"b{k}_{j}"
-        let all := names.toList.foldr (fun nm acc => if acc == "" then nm else s!"{nm} ++ ({acc})") ""
+        let all := if big then
+            names.toList.foldr (fun nm acc => s!"{nm} ++ ({acc})") "[]"
+          else names.toList.foldr (fun nm acc => if acc == "" then nm else s!"{nm} ++ ({acc})") ""
         d := d ++ s!"/-- The body of section {k} (`{nameStr sec.name}`): {es.length} entries. -/\ndef b{k} : Body :=\n  .relas ({if all == "" then "[]" else all})\n\n"
     | _ =>
       d := d ++ s!"/-- The body of section {k} (`{nameStr sec.name}`). -/\ndef b{k} : Body :=\n  {(reprStr b).replace "\n" " "}\n\n"
-    let big := match b, maxEntries with
-      | .symbols _ es, some m => decide (m < es.length)
-      | .relas es, some m => decide (4 * m < es.length)
-      | _, _ => false
-    if big then skipped := skipped.push k
+    if big then
+      let (reader, count, iffProof) ← match b with
+        | .symbols _ es => pure (s!"(Parse.symbol sh{sec.header.link})", es.length,
+            s!"bodyIs_symbols_iff (strs := sh{sec.header.link}) (by decide) (by decide)")
+        | .relas es => pure ("Parse.rela", es.length, "bodyIs_relas_iff (by decide)")
+        | _ => throw (IO.userError "unsupported large table")
+      let chunks := listChunks 128 (List.range count)
+      let mut entries : Array String := #[]
+      for (_, j) in chunks.zipIdx do
+        let theoremName := s!"entries_{k}_{j}"
+        let moduleName := s!"{ns}.Bodies.Part{bodyParts.size}"
+        let part := s!"module
+
+public import {ns}.Bytes
+public import {ns}.Defs
+public import Silmaril.Elf.Staged.Reader.Thms
+
+/-! # Checked table window {j} of section {k}
+
+{gen} -/
+
+set_option maxRecDepth 100000
+set_option maxHeartbeats 0
+
+@[expose] public section
+
+namespace {ns}
+
+open Silmaril.Elf Silmaril.Elf.Staged Silmaril.Elf.Staged.Reader
+
+/-- Entries checked on the pinned kernel bytes, independently of other windows. -/
+theorem {theoremName} : EntriesAt F {reader} {sec.header.offset} 24 {j * 128} b{k}_{j} :=
+  entriesAt_of_ok (sub_kbytes K.wf_true K.toByteArray_eq) (by decide +kernel)
+
+end {ns}
+"
+        bodyParts := bodyParts.push (moduleName, part)
+        entries := entries.push theoremName
+      let empty := "(entriesAt_of_ok (sub_kbytes K.wf_true K.toByteArray_eq) (by decide +kernel))"
+      let assembled := entries.foldr (fun nm acc => s!"(entriesAt_append.mpr ⟨{nm}, {acc}⟩)") empty
+      t := t ++ s!"/-- **The body of section {k}**, assembled from checked entry windows. -/
+theorem body_{k} : BodyIs F L sh{k} b{k} :=
+  ({iffProof}).mpr ⟨by decide, by decide +kernel, {assembled}⟩
+
+"
     unless big do t := t ++ s!"/-- **The body of section {k}** (`{nameStr sec.name}`). -/
 theorem body_{k} : PartIs F {litSpans (footprint src (Parse.body shs sec.header))} (Parse.body L.shs sh{k}) b{k} :=
   partIs_of_kbytes K.wf_true K.toByteArray_eq (by decide +kernel)
@@ -944,18 +999,13 @@ end {ns}
 theorem loader : PartIs F {litSpans (footprint src (readLoader L.phdrs))} (readLoader L.phdrs) ld :=
   partIs_of_kbytes K.wf_true K.toByteArray_eq (by decide +kernel)
 
-" ++ (if skipped.isEmpty then s!"/-- **The parse of the whole file** (`Silmaril.Elf.Parses`), assembled from the parts. -/
+" ++ s!"/-- **The parse of the whole file** (`Silmaril.Elf.Parses`), assembled from the parts. -/
 theorem parses : Parses F (L.assemble bodies ld) :=
   parses_assemble layout
     {forall2}
     loader.loaderIs
 
-" else s!"/-! No whole-file `parses` theorem: the tables of sections {skipped.toList} (symbol tables of more than
-{maxEntries.getD 0} entries, relocation tables of more than {4 * maxEntries.getD 0}) have no whole-table body theorem, since one kernel run over such a table
-exceeds the budget of a module. Their function entries are checked one by one (`Functions`), and the
-layout, the loader view and every other body are checked here. -/
-
-")
+"
   let mut nz : Array Span := #[]
   for (g, k) in (gaps L a.size (footprint src readLayout)).zipIdx do
     if allZero a g then
@@ -973,6 +1023,14 @@ theorem pad_{k} : ZerosAt F {g.off} {g.len} :=
   IO.FS.createDirAll base
   IO.FS.writeFile s!"{base}/Bytes.lean" bytesMod
   IO.FS.writeFile s!"{base}/Defs.lean" d
+  if !bodyParts.isEmpty then
+    let imports := String.join (bodyParts.toList.map fun (nm, _) => s!"import {nm}\n")
+    t := t.replace "public import Silmaril.Elf.Staged.Reader.Thms\n"
+      ("public import Silmaril.Elf.Staged.Reader.Thms\n" ++ imports)
+    t := t.replace "@[expose] public section" "set_option maxRecDepth 100000\n\n@[expose] public section"
+    IO.FS.createDirAll s!"{base}/Bodies"
+    for ((_, text), j) in bodyParts.toList.zipIdx do
+      IO.FS.writeFile s!"{base}/Bodies/Part{j}.lean" text
   IO.FS.writeFile s!"{base}/Thms.lean" t
   if maxEntries.isSome && fnThms.size > 1500 then
     -- many function symbols: one module per 1500 theorems, so that they are checked in parallel

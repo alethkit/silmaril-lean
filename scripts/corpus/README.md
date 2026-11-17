@@ -91,7 +91,9 @@ The Corpus view filters delivered project/version/target/optimization/stripping
 rows, links immutable Git artifacts/receipts, shows build/source identity,
 dependency/extension evidence, source mappings, searchable function rows and
 measured-stage receipts. It shows each canonical artifact's whole-file parse or
-layout-only status separately; new variants remain unchecked. The OpenSSL x86
+layout-only status separately. Measured variant checks are accepted only for their recorded ELF hash,
+Decomp root, successful run and unchanged generated module hashes; generation alone
+does not promote the status. The OpenSSL x86
 libcrypto debug-twin mismatch stays explicit. Function rows include aliases.
 
 For an existing project, pass `--base INPUT.sqlite`; SQLite backup copies its
@@ -113,3 +115,24 @@ CI generates the real standalone catalog and a combined public fixture and runs
 these Chromium checks. The view does not yet provide a full multiversion build
 matrix, source code rendering, or instantiated TV
 and binary-equivalence problem pages. Zero statement counts remain explicit.
+
+## Bounded table certificates and explicit variant generation
+
+With `--max-table-entries`, `elf-staged emit-reader` now checks symbol and RELA
+records in modules of at most 128 entries when a table exceeds the requested
+threshold or 128 entries. `EntriesAt` composition, linked string-table identity,
+entry size and exact record count assemble a `BodyIs` fact; `parses_assemble`
+then proves the whole-file parse. No native computation is used to close these
+facts. The generated candidates still require Lean elaboration/kernel checking.
+
+```sh
+python3 scripts/corpus/gen_variants.py \
+  --artifact corpus/variants/cjson/1.7.19/default/x86_64/O0/unstripped/libcjson_utils.so.1 \
+  --artifact corpus/variants/cjson/1.7.19/default/x86_64/O0/stripped/libcjson_utils.so.1 \
+  --max-table-entries 16
+# Add --check to compare regenerated headers. Build the reported Decomp roots with --wfail.
+```
+
+The low threshold forces the window path on the small checked pair. Exact artifact
+paths are required; the generator validates the completed inventory and refuses
+module-name collisions or overwriting files owned by another generator.
