@@ -11,7 +11,7 @@ whose statements are fixed here:
 
 * `FirstK`: the first node, as `Task.firstNodeRef`, reaching the definitions after the first core
   instantiation at `RefAtDefsK` (the continuation of the definitions finishes the instantiation,
-  `KFin`, and the run so far observed no instantiation) with the machine invariant `LaterInv`;
+  `KFin`) with the machine invariant `LaterInv`;
 * `LaterCoreStep`: a later core instantiation, from `LaterInv` and the IR node's `NodeCalls`, runs
   in the shared core store to the next definition with `LaterInv` again and the log of its calls;
   its core instance holds the module's exports;
@@ -61,15 +61,13 @@ def KFin (K : Scope (core3 neverFail) → Canon.P (core3 neverFail) Σh (Ret (co
       (traceObs tr).findSome? decodeInstantiated? = some (⟨0⟩, funcExports sc.exports)
 
 /-- **The reference machine at the definitions `post`, with a finishing continuation**: reached
-from the instantiation host event without host events, internal faults or an observed
-instantiation; the continuation `K` of the definitions finishes the instantiation (`KFin`); the
+from the instantiation host event without host events or internal faults; the continuation `K` of the definitions finishes the instantiation (`KFin`); the
 store is not locked down and the host log is `L`. -/
 def RefAtDefsK (r post : RefComponent) (sc : Scope (core3 neverFail))
     (L : List HLinked2.HostEvent) (M : Machine.Config (core3 neverFail) Σh) : Prop :=
   (∃ tr, Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch hostConfigX
       (.host (instantiateTop r (importArgs hostI)) :: tr) M ∧
-    (∀ ev, Label.host ev ∉ tr) ∧ (∀ msg, Label.trap (.internal msg) ∉ tr) ∧
-    (traceObs tr).findSome? decodeInstantiated? = none) ∧
+    (∀ ev, Label.host ev ∉ tr) ∧ (∀ msg, Label.trap (.internal msg) ∉ tr)) ∧
   (∃ K, KFin K ∧
     M.ctl = [.ofProg none (post.foldlM (instantiateDef callRecurse ⟨0⟩ [] (importArgs hostI)) sc
       >>= K)]) ∧
@@ -151,7 +149,7 @@ def LaterCoreStep : Prop :=
     ∃ (tr : List (Label (core3 neverFail) Σh)) (M' : Machine.Config (core3 neverFail) Σh)
       (sc' : Scope (core3 neverFail)) (es : List (String × (core3 neverFail).ExternVal)),
       LRun first.prof embL.hr (DG embL.host) M tr M' ∧
-      (∀ ev, Label.host ev ∉ tr) ∧ (∀ msg, Label.trap msg ∉ tr) ∧ traceObs tr = [] ∧
+      (∀ ev, Label.host ev ∉ tr) ∧ (∀ msg, Label.trap msg ∉ tr) ∧
       M'.ctl = [.ofProg none
         (ds.foldlM (instantiateDef callRecurse ⟨0⟩ [] (importArgs hostI)) sc' >>= K)] ∧
       LaterInv pre sc' M' ∧ M'.host = ((), L ++ logOfCalls t) ∧
