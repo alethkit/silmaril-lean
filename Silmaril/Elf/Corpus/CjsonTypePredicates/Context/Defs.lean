@@ -5,7 +5,7 @@ public import Silmaril.Elf.Corpus.CjsonTypePredicates.Source.Projection.Thms
 public import Silmaril.Project.Shapes.Contextual.Defs
 public import Silmaril.X86.Open.Thms
 
-/-! Concrete memory contexts for the six unchanged cJSON predicates in the
+/-! Concrete memory contexts for the ten unchanged cJSON predicates in the
 actual preprocessed declaration closure. Full-TU acceptance and correspondence
 of host preprocessing to canonical system headers are not established. These
 are source-to-ELF problems, not semantic proofs. No expected predicate result
@@ -20,7 +20,6 @@ structure Input where
   typeBits : BitVec 32
 
 def placement (p : Predicate) : Silmaril.Project.Shapes.Placement := ⟨p.address, p.code, 0⟩
-def intType : Ctype := .mk [] (.basic (.integer (.signed .int)))
 
 /-- Actual parameter and struct tag; typed stores establish pointer provenance
 and initialized field bytes. A failure is exposed by the entry relation, never
@@ -33,9 +32,11 @@ def prepare (p : Predicate) (i : Input) : Except String State := do
   let aggregate : Ctype := .mk [] (.struct tag)
   let layout ← (Mem.Concrete.typeLayout 64 F.file.tagDefs aggregate).mapError (fun _ => "struct layout failed")
   unless layout.size == 64 && layout.align == 8 do throw "unexpected cJSON layout"
-  let some (_, _, offset) := layout.members.find? (fun (name, _, _) => name.key == "type")
+  let some (_, fieldType, offset) := layout.members.find? (fun (name, _, _) => name.key == "type")
     | throw "missing actual type member"
   unless offset == 24 do throw "unexpected type member offset"
+  let .mk _ (.basic (.integer (.signed .int))) := fieldType
+    | throw "actual type member is not signed int"
   let memory : Mem.Concrete.State :=
     {nextId := 2, lastAddress := 4096, allocations := Map.ofList
       [(0, ⟨4096, 8, false, false, some pointerType, none, .UB064_modifying_const⟩),
@@ -43,7 +44,7 @@ def prepare (p : Predicate) (i : Input) : Except String State := do
   let (_, memory) ← (Mem.Concrete.storeTyped F.file.tagDefs memory pointerType (.allocated 0 4096)
     (.pointer aggregate (if i.isNull then .null aggregate else .allocated 1 8192))).mapError
       (fun _ => "actual pointer parameter store failed")
-  let (_, memory) ← (Mem.Concrete.storeTyped F.file.tagDefs memory intType (.allocated 1 8216)
+  let (_, memory) ← (Mem.Concrete.storeTyped F.file.tagDefs memory fieldType (.allocated 1 (8192 + offset))
     (.integer (.signed .int) i.typeBits.toInt)).mapError (fun _ => "type member store failed")
   let env := extendEnv [(symbol, .object (.pointer (.allocated 0 4096)))] ∅
   pure ⟨.effectExpr F.body env, [.procedureReturn F.bodyLabels], memory⟩
@@ -101,4 +102,16 @@ def Task.isArray : Prop := statement .isArray
 @[problem "silmaril.corpus.cjson.is_object.contextual_memory"
   (title := "Actual cJSON_IsObject pointer and type-field context")]
 def Task.isObject : Prop := statement .isObject
+@[problem "silmaril.corpus.cjson.is_invalid.contextual_memory"
+  (title := "Actual cJSON_IsInvalid pointer and type-field context")]
+def Task.isInvalid : Prop := statement .isInvalid
+@[problem "silmaril.corpus.cjson.is_false.contextual_memory"
+  (title := "Actual cJSON_IsFalse pointer and type-field context")]
+def Task.isFalse : Prop := statement .isFalse
+@[problem "silmaril.corpus.cjson.is_true.contextual_memory"
+  (title := "Actual cJSON_IsTrue pointer and type-field context")]
+def Task.isTrue : Prop := statement .isTrue
+@[problem "silmaril.corpus.cjson.is_raw.contextual_memory"
+  (title := "Actual cJSON_IsRaw pointer and type-field context")]
+def Task.isRaw : Prop := statement .isRaw
 end Silmaril.Elf.Corpus.CjsonTypePredicates.Context

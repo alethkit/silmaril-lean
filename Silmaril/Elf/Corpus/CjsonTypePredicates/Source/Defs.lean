@@ -15,6 +15,9 @@ External literal dependency checking must accompany promotion of this source clo
 namespace Silmaril.Elf.Corpus.CjsonTypePredicates.Source
 open Silmaril.Cerberus Silmaril.Project.CompilesTo Silmaril.Project.Shapes.C
 
+/-- Generated dependency marker: the static input gate checks this against every external literal. -/
+def externalInputSha256 : String := "5c402664d886493f08124896aa1cef0fdf8db90d8021ae23856a2e2f1545fc9f"
+
 def text : String := include_str "../../../../../corpus/cjson/semantic-inputs/linux-x86_64/predicates/context.c"
 set_option maxRecDepth 100000 in
 def ail : Ail.TypedProgram := ail_program% (include_str "../../../../../corpus/cjson/semantic-inputs/linux-x86_64/predicates/typed-ail.sexp")

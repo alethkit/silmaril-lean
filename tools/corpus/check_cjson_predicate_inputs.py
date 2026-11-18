@@ -2,6 +2,7 @@
 """Check recorded public cJSON source inputs; does not rebuild an ELF or prove semantics."""
 import hashlib
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,6 +14,14 @@ def sha(path):
 
 
 def main():
+    digest = hashlib.sha256()
+    for name in ['context.c', 'typed-ail.sexp', 'program.sexp', 'runtime.sexp']:
+        data = (DATA / name).read_bytes()
+        digest.update(len(data).to_bytes(8, 'little'))
+        digest.update(data)
+    source = (ROOT / 'Silmaril/Elf/Corpus/CjsonTypePredicates/Source/Defs.lean').read_text()
+    marker = re.search(r'def externalInputSha256 : String := "([0-9a-f]{64})"', source)
+    assert marker and marker[1] == digest.hexdigest(), 'external literals changed without Lean dependency marker'
     manifest = json.loads((DATA / "manifest.json").read_text())
     for entry in manifest["files"]:
         path = ROOT / entry["path"]
@@ -28,7 +37,7 @@ def main():
     for entry in receipt["input_files"]:
         if not entry["path"].startswith("/"):
             assert sha(ROOT / entry["path"]) == entry["sha256"]
-    print(f"PASS {len(manifest['files'])} public input pins and eight exact TU spans; no full-TU/semantic claim")
+    print(f"PASS {len(manifest['files'])} public input pins and {len(projection['spans'])} exact TU spans; no full-TU/semantic claim")
 
 
 if __name__ == "__main__":
