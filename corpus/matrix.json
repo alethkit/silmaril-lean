@@ -2541,7 +2541,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
