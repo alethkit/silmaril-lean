@@ -6,6 +6,7 @@ the corpus tables. Never modifies the input database or overwrites output.
 """
 import argparse
 import json
+import re
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -42,7 +43,10 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--base', type=Path, help='optional existing project database; disclosure restrictions carry over')
+    p.add_argument('--source-rev', help='public Git commit for immutable artifact/source links (Pages passes GITHUB_SHA)')
     a = p.parse_args()
+    if a.source_rev and not re.fullmatch(r'[0-9a-f]{40}', a.source_rev):
+        p.error('--source-rev must be a full lowercase Git commit SHA')
     a.output.touch(exist_ok=False)
     db = sqlite3.connect(a.output)
     if a.base:
@@ -51,7 +55,7 @@ def main():
         source.close()
     data = inventory(ROOT)
     formal = json.loads((ROOT / 'corpus/measurements/formal-functions/checks.json').read_text())['statements']
-    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    revision = a.source_rev or subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     with db:
         db.executescript('''
 CREATE TABLE corpus_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);

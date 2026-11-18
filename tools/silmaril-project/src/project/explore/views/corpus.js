@@ -9,6 +9,7 @@ async function corpusPage(arg, ctx) {
     choices[column] = await ctx.q(`SELECT DISTINCT ${column} value FROM corpus_artifacts ORDER BY ${column}`);
   const select = (column) => `<label>${esc(column)} <select data-corpus-filter="${column}" aria-label="${column}"><option value="">All</option>${choices[column].map(r => `<option>${esc(r.value)}</option>`).join("")}</select></label>`;
   return { html: `<section><h2>Software under test</h2><p class="muted">Browse projects, releases, build settings and exact artifacts.</p>
+    ${tables.has("projects") ? '<p><a href="#/compiler">Compiler explorer integration and source ↔ target viewer</a></p>' : ""}
     <div class="corpus-metrics"><div><h3>${counts.projects} projects</h3><p>${counts.artifacts} delivered artifact rows · ${counts.hashes} unique contents</p></div>
     <div><h3>${tvCount} contextual C → ELF statements</h3><p>${eqCount} function-equivalence statements · stated, unproved. Source metadata and structural decompositions remain separate from semantic validation.</p></div></div>
     <p>Only completed, hash-checked artifacts appear. Instruction census results are static tool evidence; imports do not demonstrate runtime use.</p>

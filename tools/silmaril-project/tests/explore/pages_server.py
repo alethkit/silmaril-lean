@@ -48,6 +48,8 @@ def main():
         def serve(self, head):
             u = urllib.parse.urlsplit(self.path)
             p = os.path.normpath(os.path.join(root, urllib.parse.unquote(u.path).lstrip("/") or "index.html"))
+            if u.path.endswith("/") and os.path.isdir(p):
+                p = os.path.join(p, "index.html")
             if not p.startswith(root) or not os.path.isfile(p):
                 self.send_response(404); self.end_headers(); self.record(404, 0); return
             data = open(p, "rb").read()
@@ -63,7 +65,9 @@ def main():
                 if args.validators in ("weak", "lastmod"):
                     self.send_header("Last-Modified", lastmod)
             ctype = ("text/html; charset=utf-8" if p.endswith(".html") else
-                     "text/javascript" if p.endswith(".js") else "application/octet-stream")
+                     "text/javascript" if p.endswith(".js") else
+                     "text/css" if p.endswith(".css") else
+                     "application/json" if p.endswith(".json") else "application/octet-stream")
             rng = self.headers.get("Range")
             gz = "gzip" in (self.headers.get("Accept-Encoding") or "")
             if rng and rng.startswith("bytes="):
