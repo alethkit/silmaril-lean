@@ -27,6 +27,3 @@ receipts. Canonical/historical bytes, shared indexes/browser and Lean modules
 are unchanged. No full local make check, exhaustive upstream test, source-semantic,
 formal or FIPS claim. CI required; remaining levels are still running separately.
 
-Parent stack includes #1080, whose real browser failure on corpus-timings navigation
-is owned by the explorer maintainer. Artifact validation is not a substitute for
-that check; no merge should bypass the unresolved correctness failure.
