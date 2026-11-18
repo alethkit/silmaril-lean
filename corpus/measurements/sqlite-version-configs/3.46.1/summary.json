@@ -13,6 +13,10 @@
   "retained_existing_profiles_no_new_run_claimed": [],
   "profiles": [
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O0 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=1 -MMD",
       "configuration": "default",
       "target": "x86_64-linux-gnu",
       "optimization": "O0",
@@ -85,6 +89,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O2 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=1 -MMD",
       "configuration": "default",
       "target": "x86_64-linux-gnu",
       "optimization": "O2",
@@ -157,6 +165,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O0 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=1 -MMD",
       "configuration": "default",
       "target": "aarch64-linux-gnu",
       "optimization": "O0",
@@ -229,6 +241,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O2 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=1 -MMD",
       "configuration": "default",
       "target": "aarch64-linux-gnu",
       "optimization": "O2",
@@ -301,6 +317,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O0 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_RTREE -MMD",
       "configuration": "fts5-rtree",
       "target": "x86_64-linux-gnu",
       "optimization": "O0",
@@ -373,6 +393,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O2 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_RTREE -MMD",
       "configuration": "fts5-rtree",
       "target": "x86_64-linux-gnu",
       "optimization": "O2",
@@ -445,6 +469,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O0 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_RTREE -MMD",
       "configuration": "fts5-rtree",
       "target": "aarch64-linux-gnu",
       "optimization": "O0",
@@ -517,6 +545,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O2 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_RTREE -MMD",
       "configuration": "fts5-rtree",
       "target": "aarch64-linux-gnu",
       "optimization": "O2",
@@ -589,6 +621,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O0 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_MEMSTATUS=0 -MMD",
       "configuration": "small",
       "target": "x86_64-linux-gnu",
       "optimization": "O0",
@@ -661,6 +697,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O2 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_MEMSTATUS=0 -MMD",
       "configuration": "small",
       "target": "x86_64-linux-gnu",
       "optimization": "O2",
@@ -733,6 +773,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O0 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_MEMSTATUS=0 -MMD",
       "configuration": "small",
       "target": "aarch64-linux-gnu",
       "optimization": "O0",
@@ -805,6 +849,10 @@
       ]
     },
     {
+      "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
+      "source_id_evidence": "SQLITE_SOURCE_ID in hash-verified upstream sqlite3.c; not an additional runtime observation",
+      "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+      "cflags": "-O2 -g0 -ffile-prefix-map=/build/sqlite=. -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_MEMSTATUS=0 -MMD",
       "configuration": "small",
       "target": "aarch64-linux-gnu",
       "optimization": "O2",
