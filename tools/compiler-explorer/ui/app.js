@@ -1,6 +1,6 @@
 // The compiler explorer's page. Every text from the database is inserted with textContent (syntax
 // highlighting makes token spans; no string is ever parsed as HTML).
-import { lineOffsets, indexEdges, edgeObligations, badge, uncovered, highlightLine, langOf } from "./view.js";
+import { lineOffsets, indexEdges, edgeObligations, badge, highlightText, langOf } from "./view.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -43,7 +43,8 @@ function fillBuilds(want) {
   b.replaceChildren();
   for (const p of state.list.filter((q) => groupOf(q.id) === $("program").value)) {
     const d = p.derivation || {};
-    const how = d.compiler ? `${d.compiler} ${(d.version || "").replace(/^.*\) /, "")} -${d.opt || "?"}` : (d.kind || p.direction);
+    const how = d.compiler ? `${d.compiler} ${(d.version || "").replace(/^.*\) /, "")} -${d.opt || "?"}`
+      : d.kind === "claimed" ? "supplied" : (d.kind || p.direction || "file");
     b.append(new Option(`${how} — ${p.id.split("/").slice(2).join("/") || p.id}`, p.id));
   }
   if (want && [...b.options].some((o) => o.value === want)) b.value = want;
@@ -115,6 +116,7 @@ function drawLinks(box, links) {
 
 function drawCode(box, side, text, lang) {
   box.replaceChildren();
+  const toks = highlightText(text, lang);
   text.split("\n").forEach((line, i) => {
     const n = i + 1;
     const row = el("div", "line");
@@ -129,7 +131,7 @@ function drawCode(box, side, text, lang) {
       row.setAttribute("aria-label", `${side} line ${n}: ${ids.length} link(s)`);
     }
     const tx = el("span", "tx");
-    for (const [t, cls] of highlightLine(line || " ", lang)) tx.append(cls ? el("span", cls, t) : document.createTextNode(t));
+    for (const [t, cls] of (line ? toks[i] : [[" ", ""]])) tx.append(cls ? el("span", cls, t) : document.createTextNode(t));
     row.append(el("span", "ln", n), tx);
     const pick = () => { state.locked = state.locked && state.locked.join() === ids.join() ? null : ids; highlight(ids); };
     row.onmouseenter = () => { if (!state.locked) highlight(ids); };

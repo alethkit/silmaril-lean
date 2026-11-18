@@ -289,6 +289,128 @@ registered in `tools/silmaril-project/src/project/explore.rs`. Both sit on files
 (#900, #934) and assembly-tab (#890) pull requests change. The obligations are already in the
 database; a tab would read this page's API shape (`problem_view`) from a static export.
 
+## Files first: problem forms, stages, environments
+
+The primary problem is about **text files** (`Silmaril.Compiler.Explorer.Text`):
+* `Files`: a map from names to bytes.
+* `IncludeEnv`: the files a preprocessor may read, the search order, the predefined macros and
+  the options.
+* `RelProblem`: an arbitrary relation between a source and a target.
+* `Verdict`: proved, refuted or unknown.
+* `Stage`: a named partial function with a trust tag (`verified`, `evaluated`, `trusted`).
+  - `Stage.comp` composes stages.
+  - `Stage.validated R` says that every output of the stage is related to its input by `R`. This
+    is the translation-validation problem a trusted stage becomes once it is replaced.
+
+A relation may have **no semantics**. The `programs/*` problems are relations of that kind:
+"gcc compiled this C to this assembly", recorded by a receipt and tested by one run. The page
+labels them "relation · no semantics" and shows no semantic question for them. No comorphism is
+fabricated for them.
+
+`Reading` is the semantic specialisation: parse each side with a stage and relate the parses by
+a compilation `Problem`. `Reading.toRel` is the relation that induces on files. A manifest
+records its form as `semantic`, `relation` or `judgment`.
+
+**Stages and their exact outputs.** Each side of a problem can show its source or a stage's
+output (the "show" selector).
+
+| problem | source side | target side |
+| --- | --- | --- |
+| compiles-to | C text; typed Ail and Core (`core-probe.txt`) | `objdump` listing; Lean decoder listing (`decoded.txt`) |
+| C ⇒ C | C text; typed Ail and Core | C text; typed Ail and Core |
+
+The trust of each stage:
+
+| stage | trust | checked by |
+| --- | --- | --- |
+| C text → typed Ail (Lean frontend) | evaluated | `#guard` (compiled evaluation) |
+| typed Ail → Core (Lean elaborator) | verified | `elab_eq` (kernel) |
+| `objdump` | trusted | nothing: a receipt only |
+| Lean decoder | verified | obligation `decoding`, `decodesAs` (kernel) |
+
+`decoded.txt` is a rendering of the Lean value `<f>Listing` (by `tools/compiler-explorer/decoded_listing.lean`). The
+kernel checked the value, not the text.
+
+**Preprocessor environment** (`fixtures.py env`). It records:
+* the main file, by SHA-256;
+* the headers the pinned gcc reads (`gcc -M`), by SHA-256 and size; their bytes stay in the
+  image, addressed by its digest;
+* the include search order (`gcc -E -v`);
+* the predefined macros (`gcc -dM -E`), stored as an artifact;
+* the options.
+
+No preprocessor is formalised. A future `Stage (IncludeEnv × Files) Files` would take this
+environment as its input.
+
+**Debug information → problems.** Each compiles-to problem lists the facts c-tv extracted from
+the object's DWARF with `gimli`, which is not verified. There are three kinds of fact:
+* line ranges, used by navigation links only;
+* point placements, used by the segment, mapping and translation statements;
+* frame slots, used by the location relation and the segment statements.
+
+Each fact states what depends on it and what a wrong fact would do. A wrong offset makes a
+segment statement unprovable, not false. The location relation holds for whatever offsets it is
+given. The page shows these facts as "extracted", never as checked.
+
+## More general problems, and negative results
+
+**C ⇒ C translations** (`Silmaril.Project.Shapes.CompilesTo.Translate`).
+`CanonicalRefines F G`: from the canonical entries, wherever the source is safe, every outcome
+the target halts with is one the source halts with. `CanonicalEquivalent` is refinement in both
+directions.
+
+`CanonicalRefines.refuted_of_ends` refutes a translation from two evaluated runs on the same
+arguments. The source's forced run is its only run (`Forced.terminal_unique`). The target's run
+reaches an outcome the source cannot reach. The fixture
+(`examples/compiler-explorer/c2c/translations.c`, `CompilesToExamples.Explorer.C2C`) has these
+translations of `add3`:
+
+| translation | `add3(1, 2, 3)` | status |
+| --- | --- | --- |
+| `add3_reassoc` (reassociated) | 6 | open: equivalence not proved (unknown) |
+| `add3_double` (returns twice the sum) | 12 | **disproved** |
+| `add3_operand` (`s + a` for `s + c`) | 4 | **disproved** |
+| `add3_drop` (drops `c`) | 3 | **disproved** |
+| `add3_op` (`s - c`) | not evaluated | open (unknown): its run is not evaluated here |
+
+"Disproved" means a theorem of the statement's negation, checked by the kernel and recorded as
+`refuted`. "Open" means unknown. A failed check of a named proof is "rejected". The three are
+never conflated.
+
+**A type error under a restricted judgment** (`Silmaril.Project.Shapes.C.AdditiveOperands`).
+This judgment is the constraint of C11 §6.5.6¶2 on the operand types of `+`, over Cerberus's
+`Ctype`. It is the only typing judgment stated here; struct completeness is not modelled.
+
+`examples/compiler-explorer/typeerror/addp.c` adds two `int *`.
+`CompilesToExamples.Explorer.TypeError.addp_operands` proves
+`¬ AdditiveOperands (int *) (int *)`. The link from the text to these operand types is **not**
+checked, and the page lists that link as an unsupported obligation. The reason is that the Lean
+frontend does not type binary operands yet. Its output on this file (recorded in `frontend.txt`
+and checked by `#guard`) is "typing not yet ported: binary operands". It neither accepts nor
+rejects the program, and its message is not a proof.
+
+## The page
+
+* **Highlighting.** C, assembly and Core S-expressions are highlighted. Highlighting produces
+  tokens, which are inserted as text spans, never as HTML; the tests check that every character
+  survives and that markup stays literal.
+* **Questions.** Each question is a status badge, a short title, an info button (hover shows the
+  text as a tooltip; click or keyboard toggles it, with `aria-expanded`) and links. Linked code
+  lines can be focused and activated with Enter or Space.
+* **Statuses.** "proved", "disproved" and "open" (unknown) have distinct styles. "unsupported"
+  means no statement. A relation with no semantics shows no questions at all.
+* **Links.** Links go only to targets that exist:
+  - the Lean source of a proof on GitHub, at the commit its evidence was computed at (only a
+    clean 40-hex commit, with the line from the exporter);
+  - the silmaril explorer's routes on main: `#/problem/<row>`, `#/artifact/<registered name>`,
+    and `#/source/<decl>` for a row's solving theorem;
+  - the repository file of every artifact.
+
+  The C tab (`#/c-program/…`) is in open PR #900 and not on main, so no link to it is made. The
+  ELF tab (`#/elf-file/<slug>`) shows only its pinned executables; `ELF_TAB` maps their SHA-256
+  to slugs, and none of this explorer's artifacts is one of them. Both are configuration in
+  `cexplorer.py` (`LINKS`, `ELF_TAB`), so a Wasm or C tab is one entry once it exists.
+
 ## Fixtures and results
 
 `tools/compiler-explorer/check.sh` (`make compiler-explorer-check`) writes the statuses and
@@ -322,6 +444,14 @@ canonical-entry row. Safety from every Core entry is open everywhere.
 | `sil project` | done: shapes, rows and the database adapter; the Pages tab is the remaining step (above) |
 | decompiled and imported directions | done, with fixtures; the decompiled block's machine → C0 obligation is proved (bound to the object's bytes by a tool check, to the C text by printing); no whole-function decompilation theorem |
 | kernel replay | `leanchecker` on the evidence modules in `make compiler-explorer-check` (imports from `.olean`, same kernel) |
+| syntax highlighting (C, assembly, Core) | done, as text tokens (tested for escaping) |
+| jump to Lean source, explorer routes, artifact files | done for existing routes; C tab pending #900; ELF tab has none of these artifacts |
+| toggle source / trusted stage output | done: Core document, Lean decoder listing; objdump labelled untrusted |
+| short questions, hover and keyboard info | done |
+| text-file problems, include environment, stages, no-semantics relations | done (Lean scaffolding, manifests, page); no formal preprocessor or parser |
+| C ⇒ C translations, equivalence | done: refinement and equivalence stated; three bugs disproved; reassociation open |
+| type error under a named judgment | done for C11 §6.5.6¶2 operands only; the text → types link is not checked |
+| DWARF → problem mapping | done: extracted facts, their dependents and failure modes; nothing marked checked |
 | nondeterministic segment discipline, concurrent target | not done |
 | interactive compilation (choose compiler, flags, source; compile on demand) | not done: a remaining goal. It needs a sandboxed compile service (resource limits, no network, pinned images, receipts written by the service) with an API the database can trust; the repository has none, and this page must not run compilers itself |
 

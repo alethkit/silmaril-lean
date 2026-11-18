@@ -153,3 +153,29 @@ export function highlightLine(line, lang) {
   if (lang === "sexp") return scan(line, SEXP_RULES);
   return [[line, ""]];
 }
+
+/** Tokens of every line of a text: C block comments carry over lines. */
+export function highlightText(text, lang) {
+  const out = [];
+  let open = false;
+  for (const line of text.split("\n")) {
+    if (lang === "c" && open) {
+      const end = line.indexOf("*/");
+      if (end < 0) { out.push([[line, "tok-comment"]]); continue; }
+      const rest = highlightLine(line.slice(end + 2), lang);
+      out.push([[line.slice(0, end + 2), "tok-comment"], ...rest.filter((t) => t[0].length)]);
+      open = opensComment(line.slice(end + 2));
+      continue;
+    }
+    out.push(highlightLine(line, lang));
+    open = lang === "c" && opensComment(line);
+  }
+  return out;
+}
+
+// Whether a line of C leaves a block comment open (strings and line comments respected).
+function opensComment(line) {
+  const toks = highlightLine(line, "c");
+  const last = toks[toks.length - 1];
+  return !!last && last[1] === "tok-comment" && last[0].startsWith("/*") && !last[0].endsWith("*/");
+}

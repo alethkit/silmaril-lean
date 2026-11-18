@@ -94,3 +94,14 @@ test("disproved and open are distinct, and neither is proved", () => {
   assert.notEqual(badge("refuted").cls, badge("open").cls);
   assert.match(badge("open").title, /unknown/);
 });
+
+import { highlightText } from "../ui/view.js";
+
+test("C block comments carry over lines", () => {
+  const text = "/* one\n   two */ int x; /* three\nfour */";
+  const lines = highlightText(text, "c");
+  assert.deepEqual(lines.map((l) => l.map((t) => t[0]).join("")), text.split("\n"));
+  assert.deepEqual(lines[1][0], ["   two */", "tok-comment"]);
+  assert.ok(lines[1].some(([t, k]) => t === "int" && k === "tok-keyword"));
+  assert.deepEqual(lines[2], [["four */", "tok-comment"]]);
+});
