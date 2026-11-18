@@ -1,6 +1,8 @@
 module
 
 public import Silmaril.Elf.Region.Calls.Semantic.Defs
+public import Silmaril.Elf.Region.Calls.General.Defs
+public import Silmaril.Elf.Region.Calls.Symbols.Defs
 public import Silmaril.Elf.Staged.Pinned.HelloGcc.Bytes
 public import Silmaril.Elf.Staged.Pinned.HelloGcc.Defs
 public import Silmaril.Semantics.Function.Effects.Defs
@@ -104,5 +106,27 @@ noncomputable def helloInventory : Inventory :=
 
 def arcLabels (rows : Inventory) : List (Nat × Nat) :=
   (directArcs rows).map fun (caller, dest) => (caller, nodeAddress dest)
+
+def indirectBytes : List Byte := [0xff, 0xd0, 0xc3]
+def mixedCode : List Byte := indirectBytes ++ callBytes ++ [0xc3, 0xc3] ++ indirectBytes
+def mixedObject : BinaryObject := objectOfCode mixedCode
+def mixedExternal : Stub := ⟨9, "mixed.export"⟩
+def mixedPlan : Plan := ⟨[⟨"dispatch", 0, 3⟩, ⟨"worker", 3, 6⟩, ⟨"other", 10, 3⟩], [mixedExternal], []⟩
+def mixedInventory : Inventory := extract mixedObject mixedPlan
+
+def mixedTargets (site : CallSite signature) : Option (List (Node signature)) :=
+  if site.caller = 0 then some [.localFn 3] else none
+
+def widenedTargets (site : CallSite signature) : Option (List (Node signature)) :=
+  if site.caller = 0 then some [.localFn 3, .localFn 10] else none
+
+def mixedReport : GeneralReport := queryGeneral mixedInventory mixedTargets 0 3
+def widenedReport : GeneralReport := queryGeneral mixedInventory widenedTargets 0 3
+
+def mixedInitial : MState :=
+  ⟨initial.core, ⟨[⟨0, mixedCode.length, ⟨true, false, true⟩⟩],
+    Silmaril.Process.Memory.install ∅ 0 mixedCode⟩⟩
+
+abbrev mixedMachine : Machine signature := extModel mixedPlan 60 (fun _ _ _ => True)
 
 end Silmaril.Elf.Region.Calls.Examples

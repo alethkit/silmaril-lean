@@ -11,6 +11,8 @@ graph, and a witnessed execution are different judgments.
 | Effects | `Silmaril.Semantics.Function.Effects.Thms` | Indexed bounds, state-threaded composition, and region WP |
 | Institution | `Silmaril.Logic.Function.Thms` | Typed signature renaming into the existing atomic `Room` institution |
 | Object extraction | `Silmaril.Elf.Region.Calls.Thms` | Declared ELF windows, call findings, checked partition wrapper and finite direct queries |
+| General queries | `Silmaril.Elf.Region.Calls.General.Thms` | Executable mixed direct/indirect paths and foreign frontier; reachable uncertainty stays explicit |
+| Symbol input | `Silmaril.Elf.Region.Calls.Symbols.Defs` | Candidate function windows from one selected ELF symbol table; foreign bindings remain declared |
 | x86 interpretation | `Silmaril.Elf.Region.Calls.Semantic.Thms` | Retiring direct `CALL` steps in the `Ext` profile, conditional on placement/site coverage |
 
 ## Rows and laws
@@ -61,8 +63,12 @@ transitive Silmaril import boundary.
 
 ## ELF contract and graph queries
 
-The caller declares function symbol extents, stub address-to-foreign-label
-bindings, and known tail sites. The object wrapper reads only uniquely mapped,
+The caller declares stub address-to-foreign-label bindings and known tail sites.
+Function windows can be supplied directly or derived by `readSymbolPlan` from
+one selected `.symtab` or `.dynsym`, using the existing staged layout and symbol
+readers on the same bytes. The reader accepts x86-64 `ET_EXEC`/`ET_DYN` and
+keeps nonempty `STT_FUNC` extents contained in file-backed executable sections;
+it neither resolves IFUNCs nor deduplicates aliases. The object wrapper reads only uniquely mapped,
 file-backed executable virtual addresses supplied by `PT_LOAD` records.
 Section-relative objects, zero-fill, load bias, relocation, overlapping
 mappings, dynamic symbol resolution and executable-memory preservation are not
@@ -90,12 +96,23 @@ stepping rule.
 
 The scanner recognizes the particular indirect observations `FF D0` (call) and
 `FF E0` (jump, a tail edge only if declared). Unsupported encodings are gaps,
-not proof of the absence of calls. `boundedAnalysis` adds target sets to known
-sites, preserves provenance, and embeds into the default Top analysis. A
-semantic target bound requires a separate proof for every actual indirect edge.
-`none` means all typed targets; `some ∅` means none. A known Top target can be
-a future foreign leaf, and a scan gap is not even a known indirect site. The
-finite direct report does not enumerate either kind of uncertainty.
+not proof of the absence of calls. `queryGeneral` follows direct edges and the
+listed targets of observed indirect sites. `finitePaths` computes endpoints
+of nonempty paths, while `finiteReach` includes the root. A checked fixed point
+is exact for the known finite graph, and a report without issues is exact for
+the full **declared** analysis reachable from the root. The direct graph embeds
+in the finite graph. `declared_mono` proves that widening target bounds preserves
+may paths. Replacing a list by Top may drop enumerated witnesses while still
+enlarging the declared may relation.
+
+The general report records reachable Top sites, scan gaps, missing or ambiguous
+rows, and exhausted fuel. In those cases it retains known witnesses but returns
+a conservative Top frontier bound that admits even undeclared foreign identities.
+An unreachable Top site does not open a report from another root. `none` means
+all typed targets; a known empty list means none. An empty known frontier with
+an open bound does **not** prove absence of foreign calls. For an operational
+reachable-call bound, a separate `CallGraphProblem` certificate must cover the
+actual call events, including the declared finite bounds at indirect sites.
 
 `extModel` describes only admitted direct transfers that retire with the
 required stack write. Its proof uses executable fetch, the existing decoder and
@@ -130,7 +147,8 @@ make check CHECK_TARGETS='Silmaril.Elf.Region.Calls.Examples.Thms Silmaril.Seman
 | Fixture | Checked scope |
 | --- | --- |
 | Synthetic x86 | 13 code bytes, three partition claims, two actual call retirements (`0 → 6 → 12`) and one declared foreign leaf; the direct frontier stabilizes within three rounds |
-| Pinned `hello-gcc` | 27-byte `main` window in the existing 15,960-byte fixture, one direct candidate `main → puts@plt`, foreign label declared; no loader or execution theorem for this edge |
+| Mixed x86 candidates | 13 code bytes; bounded indirect `0 → 3` then direct `3 → 9` to a declared foreign stub. Top at `10` is unreachable until widening adds `0 → 10`; reachability then stays open while retaining the known stub. The path has no consecutive witness from the tested `Ext` entry state |
+| Pinned `hello-gcc` | 27-byte `main` window in the existing 15,960-byte fixture, one direct candidate `main → puts@plt`, foreign label declared. Reading symbol table 28 derives two function windows; no loader or execution theorem for this edge |
 | Negatives | Open report on zero fuel, a recognized indirect call, an unsupported opcode, an ambiguous entry, an unclassified jump and fallthrough outside the row; adding a tail declaration exposes a tail candidate only |
 
 Pinned `hello-gcc` SHA-256:

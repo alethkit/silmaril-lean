@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Elf.Region.Calls.Examples.Defs
+public import Silmaril.Elf.Region.Calls.General.Thms
 public import Silmaril.Elf.Region.Calls.Thms
 public import Silmaril.Elf.Region.Calls.Semantic.Thms
 public import Silmaril.Semantics.Function.Effects.Thms
@@ -52,5 +53,40 @@ theorem refined_path_projection : CallPath (mayGraph (analysis inventory).may) (
 
 theorem symbolic_args_bound : argEffects.Sound (fun _ => targetBound) :=
   Effects.Problem.abstractInput_sound Proofs.entry_effects (fun _ _ _ => le_rfl)
+
+theorem mixed_frontier : mixedReport.knownFrontier = [mixedExternal] := by decide +kernel
+theorem unreachable_top_stays_closed : mixedReport.issues = [] := rfl
+theorem reachable_top_is_reported : widenedReport.issues = [.topTarget ⟨10, 10, .invoke⟩] := rfl
+theorem reachable_top_keeps_witness : widenedReport.knownFrontier = [mixedExternal] := by decide +kernel
+theorem reachable_top_opens_bound : widenedReport.frontierBound = none := rfl
+theorem empty_known_frontier_can_be_top :
+    (queryGeneral mixedInventory mixedTargets 10 3).knownFrontier = [] ∧
+    (queryGeneral mixedInventory mixedTargets 10 3).frontierBound = none := ⟨rfl, rfl⟩
+theorem scan_gap_opens_bound : (queryGeneral unsupportedInventory (fun _ => none) 0 3).frontierBound = none := rfl
+theorem fuel_opens_bound : (queryGeneral mixedInventory mixedTargets 0 0).frontierBound = none := rfl
+
+theorem unknown_is_not_empty (future : Stub) : admits widenedReport.frontierBound future := trivial
+
+theorem mixed_exact_frontier : FrontierProblem (mayGraph (declaredAnalysis mixedInventory mixedTargets).may) 0
+    {leaf | leaf ∈ mixedReport.knownFrontier} := closed_frontier unreachable_top_stays_closed
+
+theorem mixed_exact_paths : PathProblem (mayGraph (declaredAnalysis mixedInventory mixedTargets).may) (.localFn 0)
+    {dest | dest ∈ finitePaths (knownArcs mixedInventory mixedTargets) 0 3} :=
+  closed_paths unreachable_top_stays_closed rfl
+
+theorem mixed_path : CallPath (mayGraph (declaredAnalysis mixedInventory mixedTargets).may)
+    (.localFn 0) (.foreign mixedExternal) := mixed_exact_paths _ |>.mp (List.Mem.tail _ (List.Mem.head _))
+
+theorem mixed_path_is_not_execution : ¬ ∃ final,
+    Consecutive mixedMachine mixedObject (.localFn 0) mixedInitial (.foreign mixedExternal) final :=
+  Proofs.mixed_no_execution
+
+theorem widening_preserves_path : CallPath (mayGraph (declaredAnalysis mixedInventory widenedTargets).may)
+    (.localFn 0) (.foreign mixedExternal) :=
+  path_mono (declared_mono Proofs.widening_admits) (fun _ _ => trivial) mixed_path
+
+open Silmaril.Elf.Staged.Pinned.HelloGcc in
+theorem hello_symbol_window : (symbolWindow L s28_31).map (fun spec => (spec.entry, spec.size)) = some (0x1060, 27) :=
+  by decide +kernel
 
 end Silmaril.Elf.Region.Calls.Examples

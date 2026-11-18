@@ -112,4 +112,38 @@ theorem entry_effects : entryEffects.Sound (fun _ => targetBound) := by
   rintro state dest ⟨edge, post, step, rfl⟩
   exact Set.singleton_subset_iff.mpr ⟨edge, certificate.may_cover ⟨state, post, step⟩, rfl⟩
 
+theorem mixed_no_execution : ¬ ∃ final,
+    Consecutive mixedMachine mixedObject (.localFn 0) mixedInitial (.foreign mixedExternal) final := by
+  have fetched : mixedInitial.memory.fetchBytes mixedInitial.core.rip.toNat 5 = some (mixedCode.take 5) := by
+    have permitted : mixedInitial.memory.Permitted .execute 0 (mixedCode.take 5).length := by decide +kernel
+    refine Memory.readWith_eq mixedInitial.memory .execute 0 (mixedCode.take 5) permitted ?_
+    intro index bound
+    have inCode : index < mixedCode.length := by rw [List.length_take] at bound; omega
+    simpa only [mixedInitial, Nat.zero_add, List.getElem_take] using
+      Memory.install_get (∅ : ByteMemory) 0 mixedCode index inCode
+  have unsupported : observe mixedPlan mixedInitial = none := by
+    simp only [observe, fetched]
+    rfl
+  have noStep {edge : Edge signature} {post : MState} :
+      ¬ mixedMachine.callStep mixedObject edge mixedInitial post := by
+    rintro ⟨_, _, _, ⟨observed, _, _⟩, _⟩
+    rw [unsupported] at observed
+    cases observed
+  have first {model : Machine signature} {context : signature.Context}
+      {source dest : Node signature} {pre post : model.State}
+      (path : Consecutive model context source pre dest post) : ∃ edge mid, model.callStep context edge pre mid := by
+    cases path with
+    | single step => exact ⟨_, _, step⟩
+    | cons step _ => exact ⟨_, _, step⟩
+  rintro ⟨_, path⟩
+  obtain ⟨_, _, step⟩ := first path
+  exact noStep step
+
+theorem widening_admits (site : CallSite signature) (dest : Node signature)
+    (admitted : admits (targetSet mixedTargets site) dest) : admits (targetSet widenedTargets site) dest := by
+  by_cases main : site.caller = 0
+  · simp [targetSet, mixedTargets, widenedTargets, main, admits] at admitted ⊢
+    exact Or.inl admitted
+  · simp [targetSet, widenedTargets, main, admits]
+
 end Silmaril.Elf.Region.Calls.Examples.Proofs

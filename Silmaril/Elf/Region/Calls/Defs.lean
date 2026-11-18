@@ -161,18 +161,22 @@ def directArcs (inventory : Inventory) : List (Nat × Node signature) :=
     | .direct site _ callee => some (site.caller, callee)
     | _ => none
 
-def successors (inventory : Inventory) : Node signature → List (Node signature)
+def arcSuccessors (arcs : List (Nat × Node signature)) : Node signature → List (Node signature)
   | .foreign _ => []
-  | .localFn source => (directArcs inventory).filterMap fun (caller, callee) =>
+  | .localFn source => arcs.filterMap fun (caller, callee) =>
     if caller = source then some callee else none
+
+abbrev successors (inventory : Inventory) := arcSuccessors (directArcs inventory)
 
 def nodeEq : Node signature → Node signature → Bool
   | .localFn lhs, .localFn rhs => lhs == rhs
   | .foreign lhs, .foreign rhs => decide (lhs = rhs)
   | _, _ => false
 
-def expand (inventory : Inventory) (seen : List (Node signature)) : List (Node signature) :=
-  seen ++ (seen.flatMap (successors inventory)).filter fun node => !seen.any (nodeEq node)
+def expandArcs (arcs : List (Nat × Node signature)) (seen : List (Node signature)) : List (Node signature) :=
+  seen ++ (seen.flatMap (arcSuccessors arcs)).filter fun node => !seen.any (nodeEq node)
+
+abbrev expand (inventory : Inventory) := expandArcs (directArcs inventory)
 
 def reach (inventory : Inventory) (entry : Nat) (rounds : Nat) : List (Node signature) :=
   (expand inventory)^[rounds] [.localFn entry]
@@ -186,8 +190,10 @@ def openAt (inventory : Inventory) (entry : Nat) : Bool :=
     | .direct .. => false
     | _ => true
 
-def stable (inventory : Inventory) (seen : List (Node signature)) : Bool :=
-  (expand inventory seen).length == seen.length
+def stableArcs (arcs : List (Nat × Node signature)) (seen : List (Node signature)) : Bool :=
+  (expandArcs arcs seen).length == seen.length
+
+abbrev stable (inventory : Inventory) := stableArcs (directArcs inventory)
 
 structure Report where
   knownVertices : List (Node signature)

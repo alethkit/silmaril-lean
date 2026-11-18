@@ -49,7 +49,7 @@ theorem mem_directArcs {inventory : Inventory} {source : Nat} {dest : Node signa
 theorem successor_iff {inventory : Inventory} {source dest : Node signature} :
     dest ∈ successors inventory source ↔ DirectEdge inventory source dest := by
   cases source with
-  | foreign name => simp [successors, DirectEdge, directGraph, foreign_leaf]
+  | foreign name => simp [arcSuccessors, DirectEdge, directGraph, foreign_leaf]
   | localFn source =>
     constructor
     · intro mem
@@ -62,10 +62,10 @@ theorem successor_iff {inventory : Inventory} {source dest : Node signature} :
     · intro edge
       exact List.mem_filterMap.mpr ⟨(source, dest), mem_directArcs.mpr edge, by simp⟩
 
-theorem iterate_sound {inventory : Inventory} {seed : List (Node signature)} {rounds : Nat}
+theorem iterate_arcs_sound {arcs : List (Nat × Node signature)} {seed : List (Node signature)} {rounds : Nat}
     {witness : Node signature → Prop} (seed_sound : ∀ node ∈ seed, witness node)
-    (forward : ∀ source dest, witness source → DirectEdge inventory source dest → witness dest)
-    {dest : Node signature} (mem : dest ∈ (expand inventory)^[rounds] seed) : witness dest := by
+    (forward : ∀ source dest, witness source → dest ∈ arcSuccessors arcs source → witness dest)
+    {dest : Node signature} (mem : dest ∈ (expandArcs arcs)^[rounds] seed) : witness dest := by
   induction rounds generalizing dest with
   | zero => exact seed_sound dest mem
   | succ rounds ih =>
@@ -73,10 +73,16 @@ theorem iterate_sound {inventory : Inventory} {seed : List (Node signature)} {ro
     rcases List.mem_append.mp mem with known | added
     · exact ih known
     · obtain ⟨source, inSeen, edge⟩ := List.mem_flatMap.mp (List.mem_filter.mp added).1
-      exact forward source dest (ih inSeen) (successor_iff.mp edge)
+      exact forward source dest (ih inSeen) edge
 
-theorem seed_mem (inventory : Inventory) (rounds : Nat) {seed : List (Node signature)} {node : Node signature}
-    (mem : node ∈ seed) : node ∈ (expand inventory)^[rounds] seed := by
+theorem iterate_sound {inventory : Inventory} {seed : List (Node signature)} {rounds : Nat}
+    {witness : Node signature → Prop} (seed_sound : ∀ node ∈ seed, witness node)
+    (forward : ∀ source dest, witness source → DirectEdge inventory source dest → witness dest)
+    {dest : Node signature} (mem : dest ∈ (expand inventory)^[rounds] seed) : witness dest :=
+  iterate_arcs_sound seed_sound (fun _ _ path edge => forward _ _ path (successor_iff.mp edge)) mem
+
+theorem arc_seed_mem (arcs : List (Nat × Node signature)) (rounds : Nat) {seed : List (Node signature)}
+    {node : Node signature} (mem : node ∈ seed) : node ∈ (expandArcs arcs)^[rounds] seed := by
   induction rounds with
   | zero => exact mem
   | succ rounds ih =>
@@ -84,13 +90,14 @@ theorem seed_mem (inventory : Inventory) (rounds : Nat) {seed : List (Node signa
     exact List.mem_append_left _ ih
 
 theorem root_mem (inventory : Inventory) (entry rounds : Nat) : .localFn entry ∈ reach inventory entry rounds :=
-  seed_mem inventory rounds (List.Mem.head _)
+  arc_seed_mem (directArcs inventory) rounds (List.Mem.head _)
 
 theorem nodeEq_true (lhs rhs : Node signature) : nodeEq lhs rhs = true ↔ lhs = rhs := by
   cases lhs <;> cases rhs <;> simp [nodeEq]
 
-theorem step_closed {inventory : Inventory} {seen : List (Node signature)} (fixed : expand inventory seen = seen)
-    {source dest : Node signature} (source_mem : source ∈ seen) (edge : DirectEdge inventory source dest) :
+theorem arc_step_closed {arcs : List (Nat × Node signature)} {seen : List (Node signature)}
+    (fixed : expandArcs arcs seen = seen) {source dest : Node signature} (source_mem : source ∈ seen)
+    (edge : dest ∈ arcSuccessors arcs source) :
     dest ∈ seen := by
   by_contra absent
   have noMatch : seen.any (nodeEq dest) = false := by
@@ -98,17 +105,24 @@ theorem step_closed {inventory : Inventory} {seen : List (Node signature)} (fixe
     intro found
     obtain ⟨other, mem, eq⟩ := List.any_eq_true.mp found
     exact absent ((nodeEq_true dest other).mp eq |>.symm ▸ mem)
-  have new : dest ∈ expand inventory seen := List.mem_append_right _ (List.mem_filter.mpr
-    ⟨List.mem_flatMap.mpr ⟨source, source_mem, successor_iff.mpr edge⟩, by simp [noMatch]⟩)
+  have new : dest ∈ expandArcs arcs seen := List.mem_append_right _ (List.mem_filter.mpr
+    ⟨List.mem_flatMap.mpr ⟨source, source_mem, edge⟩, by simp [noMatch]⟩)
   exact absent (fixed ▸ new)
 
-theorem fixed_of_stable {inventory : Inventory} {seen : List (Node signature)}
-    (done : stable inventory seen = true) : expand inventory seen = seen := by
-  have equal : (expand inventory seen).length = seen.length := beq_iff_eq.mp done
-  unfold expand at equal ⊢
+theorem step_closed {inventory : Inventory} {seen : List (Node signature)} (fixed : expand inventory seen = seen)
+    {source dest : Node signature} (source_mem : source ∈ seen) (edge : DirectEdge inventory source dest) :
+    dest ∈ seen := arc_step_closed fixed source_mem (successor_iff.mpr edge)
+
+theorem arcs_fixed_of_stable {arcs : List (Nat × Node signature)} {seen : List (Node signature)}
+    (done : stableArcs arcs seen = true) : expandArcs arcs seen = seen := by
+  have equal : (expandArcs arcs seen).length = seen.length := beq_iff_eq.mp done
+  unfold expandArcs at equal ⊢
   simp only [List.length_append] at equal
   rw [List.length_eq_zero_iff.mp (Nat.add_left_cancel (equal.trans (Nat.add_zero seen.length).symm)),
     List.append_nil]
+
+theorem fixed_of_stable {inventory : Inventory} {seen : List (Node signature)}
+    (done : stable inventory seen = true) : expand inventory seen = seen := arcs_fixed_of_stable done
 
 theorem path_iff_reach {inventory : Inventory} {entry : Nat} {leaf : Stub} :
     CallPath (directGraph (analysis inventory).may) (.localFn entry) (.foreign leaf) ↔
@@ -123,7 +137,7 @@ theorem nonempty_complete {inventory : Inventory} {entry rounds : Nat}
     {dest : Node signature} (path : CallPath (directGraph (analysis inventory).may) (.localFn entry) dest) :
     dest ∈ nonemptyReach inventory entry rounds := by
   induction path with
-  | single edge => exact seed_mem inventory rounds (successor_iff.mpr edge)
+  | single edge => exact arc_seed_mem (directArcs inventory) rounds (successor_iff.mpr edge)
   | tail _ edge ih => exact step_closed fixed ih edge
 
 theorem mem_frontier {leaf : Stub} {seen : List (Node signature)} :
