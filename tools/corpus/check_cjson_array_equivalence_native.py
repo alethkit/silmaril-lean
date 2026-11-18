@@ -24,7 +24,10 @@ class Node(C.Structure):
 assert C.sizeof(Node)==64
 assert libs[0][1](None)==libs[1][1](None)
 for n in range(65):
- nodes=[Node() for _ in range(n+1)]
+ nodes=(Node*(n+1))()
+ base=C.addressof(nodes)
+ assert base%8==0 and 65536<=base and base+65*64<2**47
+ assert all(C.addressof(nodes[j])==base+64*j for j in range(n+1))
  for j,node in enumerate(nodes):C.memmove(C.addressof(node),bytes((j*31+k)%256 for k in range(64)),64)
  nodes[0].child=C.addressof(nodes[1]) if n else None
  for j in range(1,n+1):nodes[j].next=C.addressof(nodes[j+1]) if j<n else None
