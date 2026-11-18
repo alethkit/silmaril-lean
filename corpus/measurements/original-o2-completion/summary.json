@@ -1,9 +1,9 @@
 {
-  "actual_new_elf_rows": 52,
-  "unique_new_hashes": 52,
-  "new_profiles": 12,
-  "measured_exits_passed": 186,
-  "unstripped_matching_canonical": 25,
+  "actual_new_elf_rows": 66,
+  "unique_new_hashes": 66,
+  "new_profiles": 13,
+  "measured_exits_passed": 216,
+  "unstripped_matching_canonical": 32,
   "unstripped_canonical_mismatches": [
     {
       "object": "libjemalloc.so.2",
@@ -24,6 +24,11 @@
     }
   ],
   "projects": [
+    {
+      "project": "coreutils",
+      "actual_new_elf_rows": 14,
+      "summary": "coreutils/summary.json"
+    },
     {
       "project": "darkhttpd",
       "actual_new_elf_rows": 4,
