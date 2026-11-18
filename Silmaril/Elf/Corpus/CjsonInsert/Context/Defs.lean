@@ -105,11 +105,13 @@ def context : Context Input Observation where
   machineObservation i _ after := (some ((after.core.read .rax).setWidth 32),True,
     (updates i).map (fun (j,off,_) => Silmaril.X86.Ext.loadN after.memory (heap i j+off) 8))
   callees := []
-/-- Unregistered local obligation. Joint entries, source safety, machine first
+/-- Bounded unproved obligation. Joint entries, source safety, machine first
 returns, int32 ABI, exact heap writes and matching finite source executions are
 all demanded. Endpoints, aliases, other indices, arbitrary lists, divergence,
 whole-TU and observation adequacy remain outside this bounded draft. -/
-def obligation : Prop :=
+@[problem "silmaril.corpus.cjson.insert_item_in_array.bounded_mutation"
+  (title := "Actual cJSON insertion caller and three-helper heap mutation with O0 ELF context")]
+def Task.compilesTo : Prop :=
   Source.Projection.exact ∧
   (∀ a c, (a,c) ∈ excerpts → Silmaril.Elf.CodeAt
     Silmaril.Elf.Staged.CorpusVariants.Cjson.N1719.Default.X8664.O0.Unstripped.LibcjsonSo1.F a c) ∧
