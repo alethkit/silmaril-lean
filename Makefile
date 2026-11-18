@@ -84,6 +84,7 @@ check:
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/ShiftRuntime.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/CjsonPredicateContext.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/GnuDefaultVisibility.lean)
+	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/MimallocOsContext.lean)
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
 	$(if $(filter wasm-opt,$(CHECK_TARGETS)),$(LAKE) build --wfail $(RELEASE_BINARIES) && $(MAKE) release-check)
 	$(if $(filter elf-pages,$(CHECK_TARGETS)),$(MAKE) elf-check)
@@ -141,10 +142,12 @@ process-check:
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/ShiftRuntime.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/CjsonPredicateContext.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/GnuDefaultVisibility.lean)
+	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/MimallocOsContext.lean)
 
 # Source-only process gates; they read no build output.
 process-gates:
 	$(PYTHON) -I tools/corpus/check_cjson_predicate_inputs.py
+	$(PYTHON) -I tools/corpus/check_mimalloc_os_inputs.py
 	$(PYTHON) tools/process-release/facts.py --check
 	$(PYTHON) tools/process-release/check_headers.py
 	$(PYTHON) apps/sha256sum-min/build.py --verify-only
