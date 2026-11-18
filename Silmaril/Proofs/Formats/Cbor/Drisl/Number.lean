@@ -27,6 +27,20 @@ theorem ofInt_toInt (value : Integer) : Integer.ofInt? value.toInt = some value 
     have bound : argument.toNat < 18446744073709551616 := argument.toNat_lt
     simp [Integer.ofInt?, Integer.toInt, bound]
 
+theorem toInt_ofInt64 (value : Int64) : (Integer.ofInt64 value).toInt = value.toInt := by
+  have lower := value.le_toInt
+  unfold Integer.ofInt64
+  cases intEq : value.toInt with
+  | ofNat amount =>
+    have upper := value.toNatClampNeg_lt
+    rw [← Int64.toNat_toInt, intEq] at upper
+    have small : amount < 2 ^ 63 := upper
+    have bound : amount < 18446744073709551616 := by omega
+    simp [Integer.toInt, UInt64.toNat_ofNat', Nat.mod_eq_of_lt bound]
+  | negSucc amount =>
+    have bound : amount < 18446744073709551616 := by omega
+    simp [Integer.toInt, UInt64.toNat_ofNat', Nat.mod_eq_of_lt bound]
+
 theorem exponent_lt (bits : Float64Bits) : floatExponent bits.val < 2047 := by
   have bound := Nat.mod_lt (bits.val / 2 ^ 52) (by decide : 0 < 2048)
   have valid := bits.property

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Formats.Cbor.Drisl.Debug.Text.Defs
+public import Silmaril.Formats.Cbor.Drisl.Number.Thms
 public import Silmaril.Formats.JsonWire.Thms
 public import Silmaril.Formats.JsonWithBytes.Traverse.Thms
 
@@ -25,6 +26,19 @@ theorem atproto_agrees {index : JsonIx} (profile : CidProfile) (policy : Escape)
       encode jsonWithBytesI64Codec policy (value.mapScalar Scalar.data) := by
   induction value with
   | scalar value => cases value <;> rfl
+  | list _ ih | map _ ih => simp [encode, ih]
+  | nil | objNil => rfl
+  | cons _ _ ih tailIH | objCons _ _ _ ih tailIH => simp [encode, ih, tailIH]
+
+theorem drisl_agrees {index : JsonIx} (profile : CidProfile) (policy : Escape)
+    (value : RawSyn String (Scalar Int64 (Cid profile)) index) :
+    encode (drislCodec profile) policy (value.mapScalar widenScalar) = encode (atprotoCodec profile) policy value := by
+  induction value with
+  | scalar value =>
+    cases value with
+    | data atom => cases atom <;> simp [encode, widenScalar, drislCodec, atprotoCodec, Codec.withCid,
+        Number.toDecimal, Integer.toInt_ofInt64, Function.comp_def]
+    | link => rfl
   | list _ ih | map _ ih => simp [encode, ih]
   | nil | objNil => rfl
   | cons _ _ ih tailIH | objCons _ _ _ ih tailIH => simp [encode, ih, tailIH]

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Formats.Cbor.Drisl.Convert.Defs
+public import Silmaril.Formats.Cbor.Drisl.Number.Thms
 
 @[expose] public section
 
@@ -55,5 +56,17 @@ theorem isSome_iff_links_empty {Numeric Link : Type} {index : JsonIx}
   | cons value tail ih tailIH | objCons _ value tail ih tailIH =>
     cases headEq : removeLinks? value <;> cases tailEq : removeLinks? tail <;>
       simp_all [removeLinks?, JsonWithBytes.traverse?, links, RawSyn.scalars, List.filterMap_append]
+
+theorem narrow_widen {Link : Type} {index : JsonIx} (value : RawSyn String (Scalar Int64 Link) index) :
+    JsonWithBytes.traverse? some narrowScalar? (value.mapScalar widenScalar) = some value := by
+  induction value with
+  | scalar atom =>
+    cases atom with
+    | data atom => cases atom <;> simp [JsonWithBytes.traverse?, widenScalar, narrowScalar?, mapNumber?,
+        Integer.toInt_ofInt64, int64_toInt]
+    | link => rfl
+  | list _ ih | map _ ih => simp [JsonWithBytes.traverse?, ih]
+  | nil | objNil => rfl
+  | cons _ _ ih tailIH | objCons _ _ _ ih tailIH => simp [JsonWithBytes.traverse?, ih, tailIH]
 
 end Silmaril.Proofs.Formats.Cbor.Drisl.Convert

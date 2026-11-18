@@ -32,10 +32,10 @@ DRISL profiles are in `references.bib`.
   intermediate leaf list. The fast representation can cache link absence or
   share link-free subtrees; no such cache, layout, or benchmark is specified
   here. Do not split the shared scalar schema into bytes/no-bytes variants.
-- `Convert/Defs.lean` has `embedI64`, `removeLinks?`, `narrowATProto?`,
-  `fromJsonWithBytes?`, and `jsonWithBytesI64?` (the embedding itself lives in the
-  AST header). `Convert/Thms.lean` characterizes the link-free ATProto trees
-  exactly as the image of `embedI64`.
+- The AST header provides `embedI64`. `Convert/Defs.lean` has `removeLinks?`,
+  `widenATProto` / `narrowATProto?`, `fromJsonWithBytes?` / `toJsonWithBytes?`, `jsonWithBytesI64?`,
+  and `recodeLinks?` for fixed/any CID conversions. `Convert/Thms.lean`
+  characterizes the link-free ATProto trees exactly as the image of `embedI64`.
 
 ## Debug format
 
@@ -84,8 +84,10 @@ roundtrips are regression tested, not claimed as a universal printer theorem.
 must decode as one complete item, reproduce the input bytes on deterministic
 re-encoding, and have strict bytewise order of encoded keys. The CBOR value
 reader accepts any order of unique keys. `Model/Thms.lean` relates the byte
-language to this interpretation and the CBOR reader. A general JSON-with-bytes
-value only has a CBOR representation when it passes the DRISL lowering check.
+language to this interpretation and the CBOR reader. `renderJsonWithBytesCbor?`
+checks DRISL representability; `parseJsonWithBytesCbor?` lifts link-free DRISL
+into exact decimals. The latter accepts, for example, integral doubles; the
+preferred integer-first lowering is not an inverse for their CBOR kind.
 
 Run the targeted checks with:
 

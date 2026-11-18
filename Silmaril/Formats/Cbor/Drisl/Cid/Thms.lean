@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Formats.Cbor.Drisl.Cid.Defs
+import Silmaril.Proofs.Formats.Cbor.Drisl.Cid
 
 @[expose] public section
 
@@ -18,5 +19,10 @@ theorem CidCodec.read_render {Link : Type} (codec : CidCodec Link)
 theorem Cid.read_render (profile : CidProfile) (cid : Cid profile) :
     (Cid.codec profile).read? ((Cid.codec profile).render cid) = some cid :=
   CidCodec.read_render _ (Cid.parse_bytes profile) cid
+
+theorem Cid.read_eq_some_iff {profile : CidProfile} {text : String} {cid : Cid profile} :
+    (Cid.codec profile).read? text = some cid ↔ (Cid.codec profile).render cid = text :=
+  ⟨Proofs.Formats.Cbor.Drisl.Cid.render_read _ (fun h => Proofs.Formats.Cbor.Drisl.Cid.parse_sound h),
+    fun same => same ▸ Cid.read_render profile cid⟩
 
 end Silmaril.Formats.Cbor.Drisl

@@ -92,6 +92,11 @@ theorem keysSatisfy_mono {Key Atom : Type} {left right : Key → Prop}
   | cons _ _ ih tailIH => exact ⟨ih valid.1, tailIH valid.2⟩
   | objCons name _ _ ih tailIH => exact ⟨implies name valid.1, ih valid.2.1, tailIH valid.2.2⟩
 
+theorem keysSatisfy_mapScalar {Key Input Output : Type} (allowed : Key → Prop) (fn : Input → Output)
+    {index : JsonIx} (value : RawSyn Key Input index) :
+    KeysSatisfy allowed (value.mapScalar fn) ↔ KeysSatisfy allowed value := by
+  induction value <;> simp_all [KeysSatisfy]
+
 theorem reserved_safe {Numeric Link : Type} {index : JsonIx}
     (value : RawSyn String (Scalar Numeric Link) index) (valid : KeysSatisfy NoReserved value) :
     CollisionFree .none value := by

@@ -18,6 +18,11 @@ def Integer.ofInt? : Int → Option Integer
   | .ofNat value => if value < 2 ^ 64 then some (.uint (UInt64.ofNat value)) else none
   | .negSucc argument => if argument < 2 ^ 64 then some (.nint (UInt64.ofNat argument)) else none
 
+def Integer.ofInt64 (value : Int64) : Integer :=
+  match value.toInt with
+  | .ofNat amount => .uint (UInt64.ofNat amount)
+  | .negSucc amount => .nint (UInt64.ofNat amount)
+
 def int64? (value : Int) : Option Int64 :=
   if -(2 ^ 63 : Int) ≤ value ∧ value < 2 ^ 63 then some (Int64.ofInt value) else none
 

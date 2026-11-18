@@ -47,16 +47,22 @@ theorem atproto_agrees_with_i64 (profile : CidProfile) (policy : Escape) (value 
       encode jsonWithBytesI64Codec policy (embedI64 value) :=
   Proofs.Formats.Cbor.Drisl.DebugText.atproto_agrees profile policy value
 
+theorem drisl_agrees_with_atproto (profile : CidProfile) (policy : Escape) (value : OrderedATProto (Cid profile)) :
+    encode (drislCodec profile) policy (widenATProto value) = encode (atprotoCodec profile) policy value :=
+  Proofs.Formats.Cbor.Drisl.DebugText.drisl_agrees profile policy value
+
 theorem i64_roundtrip_unordered (profile : CidProfile) (value : JsonWithBytes.OrderedI64)
-    (valid : value.WellFormed) (safe : KeysSatisfy NoReserved (embedI64 (Cid := Cid profile) value)) :
+    (valid : value.WellFormed) (safe : KeysSatisfy NoReserved value) :
     ∃ restored : JsonWithBytes.OrderedI64,
       (decode? (atprotoCodec profile) .none (encode (atprotoCodec profile) .none (embedI64 value))).bind
           removeLinks? = some restored ∧
       ∃ restoredValid : restored.WellFormed, restored.toJson restoredValid = value.toJson valid := by
-  exact ⟨value, by rw [atproto_decode_encode _ _ _ (reserved_safe _ safe)]; exact removeLinks_embedI64 _, valid, rfl⟩
+  have safe' : KeysSatisfy NoReserved (embedI64 (Cid := Cid profile) value) :=
+    (keysSatisfy_mapScalar NoReserved Scalar.data value).mpr safe
+  exact ⟨value, by rw [atproto_decode_encode _ _ _ (reserved_safe _ safe')]; exact removeLinks_embedI64 _, valid, rfl⟩
 
 theorem i64_roundtrip_unordered_noDollar (profile : CidProfile) (value : JsonWithBytes.OrderedI64)
-    (valid : value.WellFormed) (safe : KeysSatisfy NoDollar (embedI64 (Cid := Cid profile) value)) :
+    (valid : value.WellFormed) (safe : KeysSatisfy NoDollar value) :
     ∃ restored : JsonWithBytes.OrderedI64,
       (decode? (atprotoCodec profile) .none (encode (atprotoCodec profile) .none (embedI64 value))).bind
           removeLinks? = some restored ∧

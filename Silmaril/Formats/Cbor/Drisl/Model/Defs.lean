@@ -111,6 +111,9 @@ def interpretI64Cbor? (profile : CidProfile) (value : Value) : Option JsonWithBy
   (interpretCbor? i64Cbor (Cid.codec profile) value).bind removeLinks?
 
 def i64WithBytesValues : Set Value := { value | (interpretI64Cbor? .any value).isSome }
+
+/-- Link-free DRISL values have an exact decimal interpretation. This is not
+the image of preferred integer-first decimal lowering (e.g. integral doubles). -/
 def representableJsonWithBytesValues : Set Value := cborValues drislCbor emptyCid
 
 mutual
@@ -155,5 +158,11 @@ def renderCbor? {Numeric Link : Type} (numeric : CborCodec Numeric) (cid : CidCo
     (value : RawJson (Scalar Numeric Link)) : Option (List UInt8) :=
   let bytes := (emitModel numeric cid true value).encode
   if (parseCbor? numeric cid bytes).isSome then some bytes else none
+
+def renderJsonWithBytesCbor? (value : JsonWithBytes.Ordered) : Option (List UInt8) :=
+  (fromJsonWithBytes? value).bind (renderCbor? drislCbor emptyCid)
+
+def parseJsonWithBytesCbor? (bytes : List UInt8) : Option JsonWithBytes.Ordered :=
+  (parseCbor? drislCbor emptyCid bytes).bind toJsonWithBytes?
 
 end Silmaril.Formats.Cbor.Drisl

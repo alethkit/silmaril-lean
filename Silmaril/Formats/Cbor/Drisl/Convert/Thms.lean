@@ -11,6 +11,10 @@ theorem removeLinks_embedI64 {Link : Type} (value : JsonWithBytes.OrderedI64) :
     removeLinks? (embedI64 (Cid := Link) value) = some value :=
   Proofs.Formats.Cbor.Drisl.Convert.remove_embed value
 
+theorem narrowATProto_widen {Link : Type} (value : OrderedATProto Link) :
+    narrowATProto? (widenATProto value) = some value :=
+  Proofs.Formats.Cbor.Drisl.Convert.narrow_widen value
+
 theorem embedI64_removeLinks {Link : Type} {source : OrderedATProto Link}
     {value : JsonWithBytes.OrderedI64} (readBack : removeLinks? source = some value) :
     embedI64 value = source := Proofs.Formats.Cbor.Drisl.Convert.embed_of_remove source value readBack

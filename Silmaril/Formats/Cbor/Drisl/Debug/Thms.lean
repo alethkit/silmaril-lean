@@ -24,6 +24,11 @@ theorem noDollar_noReserved {KeyAtom : Type} {index : JsonIx} (value : RawSyn St
   Proofs.Formats.Cbor.Drisl.Debug.keysSatisfy_mono
     Proofs.Formats.Cbor.Drisl.Debug.noDollar_not_reserved value valid
 
+theorem keysSatisfy_mapScalar {Key Input Output : Type} (allowed : Key → Prop) (fn : Input → Output)
+    {index : JsonIx} (value : RawSyn Key Input index) :
+    KeysSatisfy allowed (value.mapScalar fn) ↔ KeysSatisfy allowed value :=
+  Proofs.Formats.Cbor.Drisl.Debug.keysSatisfy_mapScalar allowed fn value
+
 theorem policies_agree {Input Numeric Link : Type} (codec : Codec Input Numeric Link)
     (left right : Escape) {index : JsonIx} (value : RawSyn String (Scalar Input Link) index)
     (valid : KeysSatisfy NoDollar value) : encode codec left value = encode codec right value :=
