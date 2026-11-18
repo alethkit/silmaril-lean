@@ -1,0 +1,9 @@
+# Actual cJSON insertion caller/helper source closure
+
+This unregistered candidate retains unchanged saved-TU definitions of `get_array_item`, `suffix_object`, `add_item_to_array` and `cJSON_InsertItemInArray`, including the real helper bodies. The exact type/definition spans and current upstream/TU hashes are in `projection.json`. The actual O0 insertion body is226 bytes at0x5eca; no binary or symbol is manufactured.
+
+The selected new ports follow pinned Cerberus b3e11ea334e95359907d4abf9194f0e7fedc6c6a, frontend/model/translation.lem:94–114 (pointer TestEq uses ConstantNull) and1001 (void call result uses BTy_unit). The real call, parameter-object allocation/conversion and cleanup remain intact. Floating control tests, CHERI and unsupported call domains remain unsupported.
+
+`context.c` is the exact span join, `typed-ail.sexp` the actual Lean frontend output, `program.sexp` the actual four-definition Lean elaboration output and `runtime.sexp` the unchanged pinned public runtime projection. Reproduce using `lake env lean -DwarningAsError=true --run tools/corpus/CjsonInsertInputs.lean`. This is not an upstream compiler/exporter run, frontend-adequacy theorem or corpus semantic proof.
+
+Local finite Core and machine observations cover a three-node list with disjoint new and unrelated objects, interior index1 and append index3, exact four/three pointer updates. Core observations check original caller bytes, pointer provenance, allocation/lifetime/permission records and stdout; machine observations check actual pointer words, byte/mapping preservation, ABI and private stack frame. The native observations use the existing loaded ELF. These are not registered contextual obligations, full-input coverage, termination/refinement proofs or arbitrary-continuation equivalence. The prospective nested-call source observation must explicitly retain the private-allocation/bookkeeping adequacy gap; it must not weaken earlier complete-record contexts.
