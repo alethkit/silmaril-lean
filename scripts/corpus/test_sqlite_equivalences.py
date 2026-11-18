@@ -51,16 +51,16 @@ class SqliteBinaryEquivalences(unittest.TestCase):
                     for symbol,f in endpoint['functions'].items():
                         db.execute('INSERT INTO corpus_functions VALUES(?,?,?,?)',(endpoint['id'],symbol,f['address'],f['size']))
             rows=e.export(project,out)
-            self.assertEqual(len(rows),9)
+            self.assertEqual(len(rows),15)
             registry=json.loads((ROOT/e.c.REGISTRY).read_text())['statements']
             self.assertEqual(sum(x['kind']=='functional_equivalence' for x in registry),15)
-            self.assertEqual(sum(x['kind']=='functional_equivalence' and x.get('viewer_kind')!='binary_equivalence' for x in registry),6)
+            self.assertEqual(sum(x['kind']=='functional_equivalence' and x.get('viewer_kind')!='binary_equivalence' for x in registry),0)
             for row in rows:
                 p=json.loads((out/Path(row['static_path']).name).read_text())
                 self.assertEqual(p['status'],'UNPROVED');self.assertFalse(p['source_refinement_assumed'])
                 self.assertIsNone(p['proof_evidence']);self.assertIsNone(p['exporter_run'])
                 self.assertEqual([a['role'] for a in p['artifacts']],['left','right'])
-                self.assertEqual(len(p['modules']),6 if p['pair'].get('profile')=='cjson-interior-detach-v1' else 4)
+                self.assertEqual(len(p['modules']),10 if p['pair'].get('profile','').startswith('legacy-') else 6 if p['pair'].get('profile')=='cjson-interior-detach-v1' else 4)
             for endpoint in json.loads((ROOT/e.MANIFESTS[1]).read_text())['endpoints']:
                 with sqlite3.connect(project) as db:db.execute('UPDATE corpus_functions SET address=0 WHERE artifact=?',(endpoint['id'],))
                 with self.assertRaisesRegex(ValueError,'function mismatch'):e.export(project,out)

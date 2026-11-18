@@ -31684,7 +31684,8 @@
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O0_strip_equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
       "functional_equivalence_statements": 1,
@@ -31756,13 +31757,15 @@
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.Task.mi_version_equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         },
         {
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O0_strip_equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
       "functional_equivalence_statements": 2,
@@ -31834,7 +31837,8 @@
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O1_strip_equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
       "functional_equivalence_statements": 1,
@@ -31906,7 +31910,8 @@
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O1_strip_equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
       "functional_equivalence_statements": 1,
@@ -32108,7 +32113,8 @@
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O3_strip_equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
       "functional_equivalence_statements": 1,
@@ -32180,13 +32186,15 @@
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.Task.mi_version_equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         },
         {
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O3_strip_equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
       "functional_equivalence_statements": 2,
@@ -32258,7 +32266,8 @@
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.Og_strip_equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
       "functional_equivalence_statements": 1,
@@ -32330,7 +32339,8 @@
           "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.Og_strip_equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
       "functional_equivalence_statements": 1,
@@ -77735,7 +77745,8 @@
           "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Variants.Task.equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Variants.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
       "functional_equivalence_statements": 1,
@@ -78262,7 +78273,8 @@
           "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Variants.Task.equivalent",
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Variants.Thms",
-          "status": "stated-unproved"
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
       "functional_equivalence_statements": 1,
@@ -78310,7 +78322,7 @@
       ]
     }
   ],
-  "binary_viewer_statement_count": 9,
+  "binary_viewer_statement_count": 15,
   "formal_statement_counts": {
     "contextual_c_to_elf": 31,
     "functional_equivalence": 15
