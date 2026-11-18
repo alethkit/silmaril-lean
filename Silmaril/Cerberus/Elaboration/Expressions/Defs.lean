@@ -8,9 +8,10 @@ public import Silmaril.Cerberus.Elaboration.Calls.Defs
 public import Silmaril.Cerberus.Elaboration.CallArguments.Defs
 public import Silmaril.Cerberus.Elaboration.NullPointers.Defs
 public import Silmaril.Cerberus.Elaboration.IntegerCasts.Defs
+public import Silmaril.Cerberus.Elaboration.Conditionals.Defs
 
 /-! Actual typed-Ail expression dispatcher for constants, object
-identifiers/rvalues, scalar add/sub/mul, scalar lt/le/gt/ge/eq/ne, direct integer casts, integer-zero pointer casts and normal fixed-integer direct calls.
+identifiers/rvalues, scalar add/sub/mul, scalar lt/le/gt/ge/eq/ne, integer conditionals and short-circuit operators, direct integer casts, integer-zero pointer casts and normal fixed-integer direct calls.
 The frozen constant port remains independently usable. Recursive effects,
 marker freshness, full-expression bounds and annotation order are retained.
 Other expression forms and expression-result lifetimes outside the call helper
@@ -30,6 +31,67 @@ def annotate (category : Ail.GenTypeCategory) (location : Loc) (type : Ctype)
     | .lvalue .. => expression
     | .rvalue _ => Constants.annotateIntegerEffect type expression
   addLocation location (addExpression typed)
+
+/-- Actual integer TestEq/TestNe syntax, retaining operand annotations/location. -/
+def integerTestInput (equal : Bool) (config : Target.Config) (env : Target.Environment)
+    (input : Ail.TypedExpression) : Except String Ail.TypedExpression := do
+  let test ← ControlTests.equalZero config env input
+  let .mk category annotations location (.binary left _ right) := test
+    | throw "internal: integer test is not binary"
+  return .mk category annotations location (.binary left (if equal then .eq else .ne) right)
+
+/-- Elaborate the synthesized test without recursively expanding the input AST.
+The callback is the actual operand translation; the octal-zero child uses the
+constant translator. Synthetic outer marker allocation and annotation order
+match the ordinary binary expression dispatcher. -/
+def integerTest (equal : Bool) (config : Target.Config) (env : Target.Environment)
+    (bindings : List Runtime.Binding) (input : Ail.TypedExpression)
+    (child : State.ElabM Effect) : State.ElabM Effect := do
+  let test ← Constants.liftResult (integerTestInput equal config env input)
+  let .mk category annotations location (.binary _ _ zero) := test
+    | throw (.message "internal: integer test is not binary")
+  let resultType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env test))
+  let operandType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env input))
+  match ← Constants.liftResult (Constants.marker annotations) with
+  | some _ => let _ ← State.recordObjectTypesMarker; pure ()
+  | none => pure ()
+  let core ← if equal then
+      Comparisons.equal config env bindings resultType operandType operandType child
+        (Constants.expression config env zero)
+    else
+      Comparisons.notEqual config env bindings resultType operandType operandType child
+        (Constants.expression config env zero)
+  return annotate category location resultType core
+
+def logicalLiteral (value : Int) (basis : Ail.Basis) : Ail.TypedExpression :=
+  .mk ControlTests.signedIntCategory [] .unknown (.const (.integer (.iconstant value basis none)))
+
+/-- Integer &&/|| follow the pinned typed-Ail conditional desugaring, including
+its nested equality tests and synthetic expression annotations. Core retains
+strong sequencing and evaluates only the selected RHS branch. -/
+def logical (conjunction : Bool) (config : Target.Config) (env : Target.Environment)
+    (bindings : List Runtime.Binding) (location : Loc) (left right : Ail.TypedExpression)
+    (coreLeft coreRight : State.ElabM Effect) : State.ElabM Effect := do
+  let leftTest ← Constants.liftResult (integerTestInput true config env left)
+  let rightTest ← Constants.liftResult (integerTestInput false config env right)
+  let zero := logicalLiteral 0 .octal
+  let one := logicalLiteral 1 .decimal
+  let yes := if conjunction then zero else rightTest
+  let no := if conjunction then rightTest else one
+  let conditional := Ail.Expression.mk ControlTests.signedIntCategory [] location
+    (.cond leftTest (some yes) no)
+  let resultType ← Constants.liftResult
+    (Constants.targetResult (GeneralizedTypes.expressionType config env conditional))
+  let yesType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env yes))
+  let noType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env no))
+  let test := integerTest true config env bindings leftTest
+    (integerTest true config env bindings left coreLeft)
+  let rhs := integerTest false config env bindings right coreRight
+  let coreYes := if conjunction then Constants.expression config env zero else rhs
+  let coreNo := if conjunction then rhs else Constants.expression config env one
+  let core ← Conditionals.translate true bindings location resultType yesType noType test coreYes coreNo
+  let standards := if conjunction then ["6.5.13#3", "6.5.13#4"] else ["6.5.14#3", "6.5.14#4"]
+  return addStandards standards (annotate ControlTests.signedIntCategory location resultType core)
 
 def expression (config : Target.Config) (env : Target.Environment) (bindings : List Runtime.Binding)
     (input : Ail.TypedExpression) (aliases : Designators.Aliases := []) : State.ElabM Effect :=
@@ -70,7 +132,19 @@ def expression (config : Target.Config) (env : Target.Environment) (bindings : L
             | .ne =>
                 Comparisons.notEqual config env bindings type leftType rightType
                   (expression config env bindings left aliases) (expression config env bindings right aliases)
-            | _ => throw (.message "unsupported: binary operator outside scalar add/sub/mul/lt/le/gt/ge/eq/ne")
+            | .and =>
+                logical true config env bindings location left right
+                  (expression config env bindings left aliases) (expression config env bindings right aliases)
+            | .or =>
+                logical false config env bindings location left right
+                  (expression config env bindings left aliases) (expression config env bindings right aliases)
+            | _ => throw (.message "unsupported: binary operator outside scalar add/sub/mul/lt/le/gt/ge/eq/ne/and/or")
+        | .cond condition (some yes) no => do
+            let yesType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env yes))
+            let noType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env no))
+            Conditionals.translate false bindings location type yesType noType
+              (integerTest true config env bindings condition (expression config env bindings condition aliases))
+              (expression config env bindings yes aliases) (expression config env bindings no aliases)
         | .cast _ destination operand => do
             let source ← Constants.liftResult
               (Constants.targetResult (GeneralizedTypes.expressionType config env operand))
@@ -103,7 +177,7 @@ def expression (config : Target.Config) (env : Target.Environment) (bindings : L
                 (expression config env bindings argument.val aliases))
             CallArguments.translate config bindings location standardAnnotations designatorType
               (expression config env bindings designator aliases) actuals
-        | _ => throw (.message "unsupported: actual expression form is outside constants, object rvalues, scalar operations and normal fixed-integer direct calls")
+        | _ => throw (.message "unsupported: actual expression form is outside supported scalar/object operations, integer conditionals and normal fixed-integer direct calls")
       return annotate category location type core
 termination_by sizeOf input
 decreasing_by
