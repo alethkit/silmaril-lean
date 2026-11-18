@@ -1084,6 +1084,76 @@
         "tools/corpus/check_mimalloc_os_flag_inputs.py": "16dc14afd094cb8af62065e26d540f2a44a6b3a2dd5092ac98afd19c55b436d1",
         "tools/corpus/mimalloc_os_flags_native.py": "2c0a9b96aba875794710195fd7aca337ace7b1f3ee279ddee2fe823c8e7561b1"
       }
+    },
+    {
+      "kind": "contextual_c_to_elf",
+      "status": "stated-unproved",
+      "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Task.versionNumber",
+      "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Defs",
+      "run_receipt": "corpus/measurements/formal-functions/runs/e042cb37-21ff-4623-82f9-fdf03944249d.json",
+      "artifact_sha256": {
+        "corpus/elf/sqlite/x86_64/libsqlite3.so": "fcdd0cd75ea98cee14f2743832c6ad2ed4dd4229e2b5093f8bce7dc33c9c17f8"
+      },
+      "module_sha256": {
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Context/Defs.lean": "4fcf3787914d57647a2a1e56a92384e221e8ed992cb9a8e43167ee4bcdff3184",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Defs.lean": "e6b8af81ec26286eba3d4d59b223522e202373d1e1800c64d9d52f11323c792a",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Source/Defs.lean": "efae3a0d83dcd9d4dee56386d51c34feeec4c90c568488de672d0bd6fb8ec4c2",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Source/Elaboration/Defs.lean": "cf476c010c0e05d37ed2409ae79ca426bb1d023bba9b779362185e8137b19d28",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Source/Elaboration/Thms.lean": "c7ab9167a0f7de2043bb16451ab11588e76f99059b7b6b328bff558e6c9e4e7e",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Source/Projection/Defs.lean": "0c16a157da04fd9eebe9ad4876c32eb0e5ac2a140f46624dfc2b11eb7aa221a1",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Source/Projection/Thms.lean": "340cec2f983130129df55d34b3ec56ee3308225f34ff4d6a45d1f8c5680ee4f9",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Thms.lean": "84011faeff6a73e13777b98f8ba55015d4fd5bb95cc0e9229e6d7b4a9cde719a",
+        "Silmaril/Proofs/Elf/Corpus/SqliteBuildQueries/Bindings.lean": "635bf2cbd6793f41efca96a829f0e49c7bc7dcd052a10e3f2cee480305ab2dce",
+        "Silmaril/Proofs/Elf/Corpus/SqliteBuildQueries/RunResult.lean": "708119dd25987d0cf7f8cce6ea3205746a8d6a9b162a2a4bb543805c45cf19de",
+        "Silmaril/Proofs/Elf/Corpus/SqliteBuildQueries/Source.lean": "a9a8d152faf0bd58110902e7f645fa1e7af43d856a33367a03a7475491b5c690",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/README.md": "e2083fba951c98409c9d3842f0c6e4fcdde7effc057cee19aef37db10a91ae7d",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/context.c": "fa8672b63affea57a936d76b3cd7adb67b19ef336c005cf4ed5213ee1355d028",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/manifest.json": "799bf94859c5d29588afe46a4742588dc97a735a314308ff83feb70500f363b4",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/preprocessing.json": "8f43041c7c871983a98c2b4adc324ea7e310ce5695ce806bb0a3ecc0e29ca537",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/program.sexp": "a319bf961d26528a99b34a78d1074964053a36240ac652f9bbc9dce017614a0e",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/projection.json": "de152f8f272a75f280bd813232781655e1561aa9192e706cc04150e1c6f2d217",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/runtime.sexp": "e5f04b906092c92595331d3176a2990beb797bfb0e12edc4326b07fb9454c27b",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/translation-unit.i": "31992f073781a1cdbd06ee2a00b2de14b62d87b5e81199dbb6a0fb7dfb7b6f1d",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/typed-ail.sexp": "4b18126110dd90ca54830215283d9f12916b12c345d918a79e63f48b0d612986",
+        "Silmaril/Project/Shapes/Contextual/Defs.lean": "098739d7e52b20f79b5c239612edd55ac25d62d52b073044b1994c2786ad057d"
+      },
+      "function_symbol": "sqlite3_libversion_number",
+      "function_address": 79904
+    },
+    {
+      "kind": "contextual_c_to_elf",
+      "status": "stated-unproved",
+      "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Task.threadsafe",
+      "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Defs",
+      "run_receipt": "corpus/measurements/formal-functions/runs/e042cb37-21ff-4623-82f9-fdf03944249d.json",
+      "artifact_sha256": {
+        "corpus/elf/sqlite/x86_64/libsqlite3.so": "fcdd0cd75ea98cee14f2743832c6ad2ed4dd4229e2b5093f8bce7dc33c9c17f8"
+      },
+      "module_sha256": {
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Context/Defs.lean": "4fcf3787914d57647a2a1e56a92384e221e8ed992cb9a8e43167ee4bcdff3184",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Defs.lean": "e6b8af81ec26286eba3d4d59b223522e202373d1e1800c64d9d52f11323c792a",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Source/Defs.lean": "efae3a0d83dcd9d4dee56386d51c34feeec4c90c568488de672d0bd6fb8ec4c2",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Source/Elaboration/Defs.lean": "cf476c010c0e05d37ed2409ae79ca426bb1d023bba9b779362185e8137b19d28",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Source/Elaboration/Thms.lean": "c7ab9167a0f7de2043bb16451ab11588e76f99059b7b6b328bff558e6c9e4e7e",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Source/Projection/Defs.lean": "0c16a157da04fd9eebe9ad4876c32eb0e5ac2a140f46624dfc2b11eb7aa221a1",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Source/Projection/Thms.lean": "340cec2f983130129df55d34b3ec56ee3308225f34ff4d6a45d1f8c5680ee4f9",
+        "Silmaril/Elf/Corpus/SqliteBuildQueries/Thms.lean": "84011faeff6a73e13777b98f8ba55015d4fd5bb95cc0e9229e6d7b4a9cde719a",
+        "Silmaril/Proofs/Elf/Corpus/SqliteBuildQueries/Bindings.lean": "635bf2cbd6793f41efca96a829f0e49c7bc7dcd052a10e3f2cee480305ab2dce",
+        "Silmaril/Proofs/Elf/Corpus/SqliteBuildQueries/RunResult.lean": "708119dd25987d0cf7f8cce6ea3205746a8d6a9b162a2a4bb543805c45cf19de",
+        "Silmaril/Proofs/Elf/Corpus/SqliteBuildQueries/Source.lean": "a9a8d152faf0bd58110902e7f645fa1e7af43d856a33367a03a7475491b5c690",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/README.md": "e2083fba951c98409c9d3842f0c6e4fcdde7effc057cee19aef37db10a91ae7d",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/context.c": "fa8672b63affea57a936d76b3cd7adb67b19ef336c005cf4ed5213ee1355d028",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/manifest.json": "799bf94859c5d29588afe46a4742588dc97a735a314308ff83feb70500f363b4",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/preprocessing.json": "8f43041c7c871983a98c2b4adc324ea7e310ce5695ce806bb0a3ecc0e29ca537",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/program.sexp": "a319bf961d26528a99b34a78d1074964053a36240ac652f9bbc9dce017614a0e",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/projection.json": "de152f8f272a75f280bd813232781655e1561aa9192e706cc04150e1c6f2d217",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/runtime.sexp": "e5f04b906092c92595331d3176a2990beb797bfb0e12edc4326b07fb9454c27b",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/translation-unit.i": "31992f073781a1cdbd06ee2a00b2de14b62d87b5e81199dbb6a0fb7dfb7b6f1d",
+        "corpus/sqlite/semantic-inputs/3.54.1/default/x86_64/O2/build-queries/typed-ail.sexp": "4b18126110dd90ca54830215283d9f12916b12c345d918a79e63f48b0d612986",
+        "Silmaril/Project/Shapes/Contextual/Defs.lean": "098739d7e52b20f79b5c239612edd55ac25d62d52b073044b1994c2786ad057d"
+      },
+      "function_symbol": "sqlite3_threadsafe",
+      "function_address": 79920
     }
   ]
 }

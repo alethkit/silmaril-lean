@@ -48,12 +48,14 @@ try {
   console.log('PASS published-shape compiler viewer: project navigation, static payloads, source/target/semantic modes and corpus return');
   // Real corpus statements use their own registry-backed, uniformly UNPROVED view.
   const corpusIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/corpus/index.json'),'utf8'));
-  assert.equal(corpusIndex.length,23);
+  assert.equal(corpusIndex.length,25);
   assert.ok(corpusIndex.every(p=>p.status==='UNPROVED'));
   const cases=[
     {symbol:'cJSON_IsNull',declaration:'Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isNull',address:'0x5460',bytes:'48 85 ff 74 0b 31 c0 80 7f 18 04 0f 94 c0 c3 90 31 c0 c3',source:'c09e52545b71dcc83e603c21a65821a692bffbc4cb7fd3913a6660fc0fc942ab',core:'5567495bd982a19d43237278e2ce8455609fbf87d10f8c863c92b0f13243593a',offset:37470,length:211,tu:'3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf',context:'layout.size == 64'},
     {symbol:'_mi_os_large_page_size',declaration:'Silmaril.Elf.Corpus.MimallocOsGlobals.Context.Task.largePageSize',address:'0xf240',bytes:'48 8b 05 a1 38 01 00 48 85 c0 48 0f 44 05 8e 38 01 00 c3',source:'fd758ed6f378c0485f4a5b4cd7f4f177d1480ab5dca77ebe25ec9e16781d9364',core:'7cd269ca50b04f09cae919d75e379a97a491c07d6cd5f9a208b1c843edba492f',offset:277639,length:258,tu:'4e33d7c4e78fd242acba9caef4964217e3df3ef5f8138bd15a8af33bf40805e7',context:'layout.size == 48'},
-    {symbol:'_mi_os_has_overcommit',declaration:'Silmaril.Elf.Corpus.MimallocOsFlags.Context.Task.overcommit',address:'0xf210',bytes:'0f b6 05 f1 38 01 00 c3',source:'2e3f89c48db58c79a63cee47c143bdd05a6ef81fbae56ca41760e70292890885',core:'66bf5e95d82ee9cbd83fde17d4c0ed92571df1f4f4ecd868f96ff47a66d94434',offset:277900,length:120,tu:'4e33d7c4e78fd242acba9caef4964217e3df3ef5f8138bd15a8af33bf40805e7',context:'layout.size == 48'}
+    {symbol:'_mi_os_has_overcommit',declaration:'Silmaril.Elf.Corpus.MimallocOsFlags.Context.Task.overcommit',address:'0xf210',bytes:'0f b6 05 f1 38 01 00 c3',source:'2e3f89c48db58c79a63cee47c143bdd05a6ef81fbae56ca41760e70292890885',core:'66bf5e95d82ee9cbd83fde17d4c0ed92571df1f4f4ecd868f96ff47a66d94434',offset:277900,length:120,tu:'4e33d7c4e78fd242acba9caef4964217e3df3ef5f8138bd15a8af33bf40805e7',context:'layout.size == 48'},
+    {symbol:'sqlite3_libversion_number',declaration:'Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Task.versionNumber',address:'0x13820',bytes:'b8 b1 99 2e 00 c3',source:'fa8672b63affea57a936d76b3cd7adb67b19ef336c005cf4ed5213ee1355d028',core:'a319bf961d26528a99b34a78d1074964053a36240ac652f9bbc9dce017614a0e',offset:3240508,length:54,tu:'31992f073781a1cdbd06ee2a00b2de14b62d87b5e81199dbb6a0fb7dfb7b6f1d',context:'some .int32',pureQuery:true},
+    {symbol:'sqlite3_threadsafe',declaration:'Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Task.threadsafe',address:'0x13830',bytes:'b8 01 00 00 00 c3',source:'fa8672b63affea57a936d76b3cd7adb67b19ef336c005cf4ed5213ee1355d028',core:'a319bf961d26528a99b34a78d1074964053a36240ac652f9bbc9dce017614a0e',offset:3240569,length:41,tu:'31992f073781a1cdbd06ee2a00b2de14b62d87b5e81199dbb6a0fb7dfb7b6f1d',context:'some .int32',pureQuery:true}
   ];
   const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
   for(const c of cases){
@@ -72,7 +74,17 @@ try {
     const core=await page.locator('#corpus-core').innerText();
     assert.ok(core.includes(c.symbol),'actual named Core procedure');
     const context=await page.locator('#corpus-evidence').textContent();
-    assert.ok(context.includes(c.context));assert.ok(context.includes('Permitted .read'));assert.ok(context.includes('callees := []'));assert.ok(context.includes('.UB064_modifying_const'));
+    assert.ok(context.includes(c.context));assert.ok(context.includes('callees := []'));
+    if(c.pureQuery){
+      assert.ok(context.includes('t.memory.allocations = s.memory.allocations'));
+      assert.ok(context.includes('t.memory.bytes = s.memory.bytes'));
+      assert.ok(context.includes('setWidth 32'));
+      assert.ok(context.includes('SysV.CallEntry'));
+      assert.match(await page.locator('#assumptions').innerText(),/Historical image\/header identity/);
+      assert.match(await page.locator('#assumptions').innerText(),/does not establish mutex/);
+    }else{
+      assert.ok(context.includes('Permitted .read'));assert.ok(context.includes('.UB064_modifying_const'));
+    }
     assert.match(await page.locator('#assumptions').innerText(),/unproved/i);
     if(c.symbol==='_mi_os_large_page_size'){
       assert.ok((await page.locator('#src').innerText()).includes('_mi_os_page_size()'));
@@ -109,6 +121,6 @@ try {
   await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('error: corpus evidence identity mismatch'));
   assert.equal(await page.locator('body').getAttribute('data-corpus-declaration'),null);
   await page.unroute('**/'+payload.source.static_path);
-  console.log('PASS actual registry corpus viewer:23 UNPROVED statements; cJSON/mimalloc source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
+  console.log('PASS actual registry corpus viewer:25 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
 
 } finally {await browser.close();server.kill();}
