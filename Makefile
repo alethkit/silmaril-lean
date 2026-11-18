@@ -7,7 +7,7 @@ CARGO ?= cargo
 PROJECT_TARGET = $(or $(CARGO_TARGET_DIR),tools/silmaril-project/target)
 WASM_TOOLS := wasm-as wasm-dis wasm-opt wasm-merge wasm-shell wasm-ctor-eval wasm-metadce
 
-.PHONY: compiler-explorer-check compiler-explorer-unit-check compiler-explorer-serve logic-graph-check lean-ndjson-check tools stage library cache scope check release-check process-check process-gates project-lean project-tool project-registry project-check acceptor-report pages elf-check demo demo-process demo-sha256 help
+.PHONY: compiler-explorer-check compiler-explorer-unit-check compiler-explorer-evidence-check compiler-explorer-serve logic-graph-check lean-ndjson-check tools stage library cache scope check release-check process-check process-gates project-lean project-tool project-registry project-check acceptor-report pages elf-check demo demo-process demo-sha256 help
 
 tools:
 	$(LAKE) build --wfail $(WASM_TOOLS)
@@ -90,7 +90,10 @@ lean-ndjson-check:
 # The compiler explorer end to end: the exporter on every manifest, the statuses against
 # examples/compiler-explorer/expected-status.txt, the database and view tests
 # (docs/projects/compiler-explorer.md).
-compiler-explorer-check: compiler-explorer-unit-check
+compiler-explorer-check:
+	$(MAKE) -j2 compiler-explorer-unit-check compiler-explorer-evidence-check
+
+compiler-explorer-evidence-check:
 	LAKE="$(LAKE)" PYTHON="$(PYTHON)" tools/compiler-explorer/check.sh
 
 compiler-explorer-unit-check:
