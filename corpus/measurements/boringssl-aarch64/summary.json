@@ -1,8 +1,8 @@
 {
-  "actual_elf_rows": 24,
-  "unique_hashes": 16,
-  "profiles": 4,
-  "measured_exits_passed": 72,
+  "actual_elf_rows": 30,
+  "unique_hashes": 18,
+  "profiles": 5,
+  "measured_exits_passed": 90,
   "profile_slices": [
     {
       "configuration": "asm",
@@ -25,6 +25,17 @@
         "build-b": 60.93336247500156
       },
       "source_files_hash_checked": 1307
+    },
+    {
+      "configuration": "fips-shared",
+      "optimization": "O0",
+      "actual_elf_rows": 6,
+      "summary": "fips-shared/O0/summary.json",
+      "build_wall_seconds": {
+        "build-a": 74.15611131500009,
+        "build-b": 58.15688110499832
+      },
+      "source_files_hash_checked": 1208
     },
     {
       "configuration": "no-asm",
