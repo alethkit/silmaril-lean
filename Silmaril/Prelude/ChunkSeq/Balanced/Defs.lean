@@ -69,7 +69,24 @@ def Side.index? (side : Side) (size index : Nat) : Option Nat :=
   else none
 
 /-- Element-per-node sequence, packed on the chosen side and extended at the other end. -/
-def Seq (_side : Side) (α : Type u) := {tree : Tree α // tree.Canonical}
+structure Seq (_side : Side) (α : Type u) where
+  val : Tree α
+  property : val.Canonical
+
+namespace Seq
+
+variable {side : Side}
+
+def toList (seq : Seq side α) : List α := side.orient seq.val.toList
+
+def size (seq : Seq side α) : Nat := seq.val.size
+
+def get? (seq : Seq side α) (index : Nat) : Option α :=
+  match side.index? seq.size index with
+  | none => none
+  | some index => seq.val.get? index
+
+end Seq
 
 structure Chunks (α : Type u) where
   full : Tree (Array α)
@@ -109,7 +126,23 @@ end Chunks
 
 /-- Fixed-size-chunk sequence. On the right-packed variant the partial tail in storage is
 the first chunk in logical order. -/
-def Chunked (_side : Side) (width : Nat) (α : Type u) :=
-  {chunks : Chunks α // chunks.Canonical width}
+structure Chunked (_side : Side) (width : Nat) (α : Type u) where
+  val : Chunks α
+  property : val.Canonical width
+
+namespace Chunked
+
+variable {side : Side} {width : Nat}
+
+def toList (seq : Chunked side width α) : List α := side.orient seq.val.toList
+
+def size (seq : Chunked side width α) : Nat := seq.val.size width
+
+def get? (seq : Chunked side width α) (index : Nat) : Option α :=
+  match side.index? seq.size index with
+  | none => none
+  | some index => seq.val.get? width index
+
+end Chunked
 
 end Silmaril.ChunkSeq.Balanced

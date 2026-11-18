@@ -5,6 +5,8 @@ and `Chunked` (one full array per node and one partial tail). `Chunked`'s width
 parameter is one less than the actual chunk size. For `Side.left`, `insert`
 appends; for `Side.right` it prepends, with the physical tree storing reversed
 order. Only the chunk at the insertion end can be partial.
+The direction is part of the type; a left-packed value cannot be accidentally
+used as a right-packed value without an explicit conversion.
 
 In storage order a perfect tree becomes the next left child; otherwise `push`
 descends the right spine. As a result, every nonempty tree has a perfect left
@@ -46,9 +48,9 @@ million items; list construction is outside the timed build phase:
 
 | Storage | Build | 1,000 inserts | 100,000 lookups | Process RSS |
 | --- | ---: | ---: | ---: | ---: |
-| One element per node | 86.4 ms | 0.107 ms | 23.0 ms | 62 MiB |
-| Chunk size 1 | 111.1 ms | 0.135 ms | 38.4 ms | 94 MiB |
-| Chunk size 32 | 11.0 ms | 0.032 ms | 10.9 ms | 34 MiB |
+| One element per node | 86.1 ms | 0.112 ms | 22.5 ms | 62 MiB |
+| Chunk size 1 | 108.9 ms | 0.135 ms | 40.4 ms | 94 MiB |
+| Chunk size 32 | 11.0 ms | 0.033 ms | 10.6 ms | 34 MiB |
 
 Do not implement the unchunked variant as chunk size 1 on this evidence.
 Size 32 is useful for native construction and selective queries in precomputed

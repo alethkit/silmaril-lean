@@ -181,4 +181,23 @@ theorem orient_get (side : Side) (items : List α) (index : Nat) :
       (side.orient items)[index]? := by
   by_cases inside : index < items.length <;> cases side <;> simp [Side.index?, Side.orient, inside]
 
+theorem seq_get {side : Side} (seq : Seq side α) (index : Nat) : seq.get? index = seq.toList[index]? := by
+  unfold Seq.get? Seq.size Seq.toList
+  rw [tree_size_eq (tree_sized seq.property)]
+  have oriented := orient_get side seq.val.toList index
+  generalize side.index? seq.val.toList.length index = routed at oriented ⊢
+  cases routed with
+  | none => exact oriented
+  | some offset => exact (tree_get (tree_sized seq.property) offset).trans oriented
+
+theorem chunked_get {side : Side} {width : Nat} (seq : Chunked side width α) (index : Nat) :
+    seq.get? index = seq.toList[index]? := by
+  unfold Chunked.get? Chunked.size Chunked.toList
+  rw [chunks_size_eq (chunks_formed seq.property)]
+  have oriented := orient_get side seq.val.toList index
+  generalize side.index? seq.val.toList.length index = routed at oriented ⊢
+  cases routed with
+  | none => exact oriented
+  | some offset => exact (chunks_get (chunks_formed seq.property) offset).trans oriented
+
 end Silmaril.Proofs.ChunkSeq.Balanced

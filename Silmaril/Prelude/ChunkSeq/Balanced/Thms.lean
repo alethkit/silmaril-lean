@@ -64,17 +64,11 @@ theorem Side.orient_snoc (side : Side) (items : List α) (item : α) :
 
 namespace Seq
 
+theorem ext {first second : Seq side α} (same : first.val = second.val) : first = second := by
+  cases first; cases second; cases same; rfl
+
 def ofList (side : Side) (items : List α) : Seq side α :=
   ⟨Tree.ofList (side.orient items), by rw [Tree.Canonical, Tree.toList_ofList]⟩
-
-def toList (seq : Seq side α) : List α := side.orient seq.val.toList
-
-def size (seq : Seq side α) : Nat := seq.val.size
-
-def get? (seq : Seq side α) (index : Nat) : Option α :=
-  match side.index? seq.size index with
-  | none => none
-  | some index => seq.val.get? index
 
 /-- Insert at the right of a left-packed sequence, or at the left of a right-packed one. -/
 def insert (seq : Seq side α) (item : α) : Seq side α :=
@@ -86,37 +80,24 @@ theorem toList_ofList (items : List α) : (ofList side items).toList = items := 
   simp [toList, ofList, Tree.toList_ofList, Side.orient_orient]
 
 theorem ofList_toList (seq : Seq side α) : ofList side seq.toList = seq := by
-  apply Subtype.ext
+  apply ext
   simpa [toList, ofList, Side.orient_orient] using seq.property.symm
 
 theorem toList_insert (seq : Seq side α) (item : α) : (seq.insert item).toList =
     match side with | .left => seq.toList ++ [item] | .right => item :: seq.toList := by
   cases side <;> simp [toList, insert, Tree.toList_push, Side.orient]
 
-theorem get?_eq (seq : Seq side α) (index : Nat) : seq.get? index = seq.toList[index]? := by
-  unfold get? size toList
-  rw [Tree.size_eq seq.property]
-  have oriented := orient_get side seq.val.toList index
-  generalize side.index? seq.val.toList.length index = routed at oriented ⊢
-  cases routed with
-  | none => exact oriented
-  | some offset => exact (Tree.get?_eq seq.property offset).trans oriented
+theorem get?_eq (seq : Seq side α) (index : Nat) : seq.get? index = seq.toList[index]? := seq_get seq index
 
 end Seq
 
 namespace Chunked
 
+theorem ext {first second : Chunked side width α} (same : first.val = second.val) : first = second := by
+  cases first; cases second; cases same; rfl
+
 def ofList (side : Side) (width : Nat) (items : List α) : Chunked side width α :=
   ⟨Chunks.ofList width (side.orient items), by rw [Chunks.Canonical, Chunks.toList_ofList]⟩
-
-def toList (seq : Chunked side width α) : List α := side.orient seq.val.toList
-
-def size (seq : Chunked side width α) : Nat := seq.val.size width
-
-def get? (seq : Chunked side width α) (index : Nat) : Option α :=
-  match side.index? seq.size index with
-  | none => none
-  | some index => seq.val.get? width index
 
 /-- Insert at the partial-chunk end, pushing a newly filled chunk into the tree if needed. -/
 def insert (seq : Chunked side width α) (item : α) : Chunked side width α :=
@@ -128,21 +109,15 @@ theorem toList_ofList (items : List α) : (ofList side width items).toList = ite
   simp [toList, ofList, Chunks.toList_ofList, Side.orient_orient]
 
 theorem ofList_toList (seq : Chunked side width α) : ofList side width seq.toList = seq := by
-  apply Subtype.ext
+  apply ext
   simpa [toList, ofList, Side.orient_orient] using seq.property.symm
 
 theorem toList_insert (seq : Chunked side width α) (item : α) : (seq.insert item).toList =
     match side with | .left => seq.toList ++ [item] | .right => item :: seq.toList := by
   cases side <;> simp [toList, insert, Chunks.toList_push, Side.orient]
 
-theorem get?_eq (seq : Chunked side width α) (index : Nat) : seq.get? index = seq.toList[index]? := by
-  unfold get? size toList
-  rw [Chunks.size_eq seq.property]
-  have oriented := orient_get side seq.val.toList index
-  generalize side.index? seq.val.toList.length index = routed at oriented ⊢
-  cases routed with
-  | none => exact oriented
-  | some offset => exact (Chunks.get?_eq seq.property offset).trans oriented
+theorem get?_eq (seq : Chunked side width α) (index : Nat) : seq.get? index = seq.toList[index]? :=
+  chunked_get seq index
 
 end Chunked
 end Silmaril.ChunkSeq.Balanced
