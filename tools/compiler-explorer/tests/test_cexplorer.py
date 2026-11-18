@@ -91,7 +91,7 @@ class Ingest(Base):
         self.assertEqual(block["elf_sha256"], problem["artifacts"]["target"]["sha256"])
         self.assertEqual(block["section_range"], [0, 6])
         self.assertEqual(block["file_range"], [64, 70])
-        self.assertEqual(block["parse_stage"]["output_sha256"], problem["artifacts"]["core_probe"]["sha256"])
+        self.assertEqual(block["parse_stage"]["output_sha256"], problem["artifacts"]["ail"]["sha256"])
         self.assertEqual(block["dependencies"], ["artifact", "decoding"])
         self.assertEqual(len(block["attribution"]), 3)
         self.assertNotIn("viewer", block)
@@ -554,7 +554,7 @@ class Polish(Base):
                               "refutation": o["refutation"], "status": "refuted",
                               "axioms": ["propext", "Classical.choice", "Quot.sound"],
                               "module": "CompilesToExamples.Explorer.C2C.Runs", "line": 91}
-                             for o in json.loads(self.C2C_DROP.read_bytes())["obligations"]]
+                             for o in json.loads(self.C2C_DROP.read_bytes())["obligations"] if o["id"] == "translation"]
         cx.ingest_evidence(self.db, self.write("file.json", ev))
         self.assertEqual(self.statuses("c2c/add3_drop")["translation"], "claimed")  # a file, not a run
         self.trusted(self.write("ev.json", ev))
@@ -605,13 +605,21 @@ class Polish(Base):
         cx.ingest_manifest(self.db, STRAIGHT_O0)
         v = cx.problem_view(self.db, "compiles-to/straight/O0/add3")
         alts = {a["role"] for side in ("source", "target") for a in v["view"]["alternatives"][side]}
-        self.assertEqual(alts, {"source", "core_probe", "target", "listing", "decoded"})
-        self.assertIn("BEGIN-CORE-DOCUMENT", v["alt_texts"]["core_probe"])
+        self.assertEqual(alts, {"source", "ail", "core", "target", "listing", "decoded"})
+        self.assertTrue(v["alt_texts"]["ail"].startswith("($tuple "))
+        self.assertTrue(v["alt_texts"]["core"].startswith("($document "))
+        self.assertNotEqual(v["artifacts"]["ail"]["sha256"], v["artifacts"]["core"]["sha256"])
         self.assertIn("decodesAs", v["alt_texts"]["decoded"])
         self.assertTrue(v["alt_texts"]["target"].startswith("00000000  7f 45 4c 46"))
         trusts = {s["name"]: s["trust"] for s in v["extra"]["stages"]}
         self.assertEqual(trusts["objdump -d (binutils 2.40)"], "trusted")
         self.assertIn("verified", trusts.values())
+        stages = {stage["output"]: stage for stage in v["extra"]["stages"]}
+        self.assertEqual((stages["ail"]["input"], stages["ail"]["trust"]), ("source", "evaluated"))
+        self.assertNotIn("obligation", stages["ail"])
+        self.assertEqual((stages["core"]["input"], stages["core"]["trust"]), ("ail", "verified"))
+        equality = next(obl for obl in v["obligations"] if obl["id"] == stages["core"]["obligation"])
+        self.assertEqual(equality["statement"], cx.core_equality("CompilesToExamples.Straight"))
         facts = v["extra"]["dwarf_facts"]
         self.assertTrue(any(f["kind"] == "frame_slot" and "refinement" in f["used_by"] for f in facts))
 
@@ -620,15 +628,38 @@ class Polish(Base):
         bindings = {role: cx.read_artifact(ROOT, manifest["artifacts"][role]).decode()
                     for role, _ in manifest["lean"]["bindings"]}
         cx.check_rendered_artifacts(self.db, STRAIGHT_O0, manifest, {"artifacts": bindings})
+        swapped = {**bindings, "ail": bindings["core"], "core": bindings["ail"]}
+        with self.assertRaisesRegex(cx.Rejected, "ail: artifact bytes differ"):
+            cx.check_rendered_artifacts(self.db, STRAIGHT_O0, manifest, {"artifacts": swapped})
         bindings["decoded"] += "\n"
         with self.assertRaisesRegex(cx.Rejected, "decoded: artifact bytes differ"):
             cx.check_rendered_artifacts(self.db, STRAIGHT_O0, manifest, {"artifacts": bindings})
         with self.assertRaisesRegex(cx.Rejected, "exactly the named artifact bindings"):
             cx.check_rendered_artifacts(self.db, STRAIGHT_O0, manifest, {"artifacts": {}})
 
+    def test_c2c_assigns_each_stage_its_own_values_and_equality(self):
+        cx.ingest_manifest(self.db, self.C2C_DROP)
+        problem = cx.problem_view(self.db, "c2c/add3_drop")
+        for side, prefix, namespace in [("source", "", "CompilesToExamples.Straight"),
+                                        ("target", "target_", "CompilesToExamples.Explorer.C2C")]:
+            stages = [stage for stage in problem["extra"]["stages"] if stage["side"] == side]
+            roles = [side, prefix + "ail", prefix + "core"]
+            self.assertEqual([alt["role"] for alt in problem["view"]["alternatives"][side]], roles)
+            self.assertEqual([(stage["input"], stage["output"]) for stage in stages], list(zip(roles, roles[1:])))
+            self.assertEqual(stages[0]["output_decl"], namespace + ".ail")
+            equality = next(obl for obl in problem["obligations"] if obl["id"] == stages[1]["obligation"])
+            self.assertEqual(equality["statement"], cx.core_equality(namespace))
+            self.assertEqual(equality["status"], "unchecked")
+        self.assertEqual(len({artifact["sha256"] for artifact in problem["artifacts"].values()}), 6)
+
     def test_stage_and_dependency_metadata_cannot_reference_another_input(self):
         for path, change, reason in [
             (STRAIGHT_O0, lambda m: m["stages"][0].update(output="missing"), "not a manifest artifact"),
+            (STRAIGHT_O0, lambda m: m["stages"][0].update(trust="verified", obligation="core_elaboration"), "scoped evidence"),
+            (STRAIGHT_O0, lambda m: m["stages"][1].update(input="source"), "scoped evidence"),
+            (STRAIGHT_O0, lambda m: m["stages"][1].update(obligation="elaboration"), "scoped evidence"),
+            (self.C2C_DROP, lambda m: m["stages"][3].update(obligation="core_elaboration"), "scoped evidence"),
+            (self.C2C_DROP, lambda m: m["view"]["alternatives"]["target"].append({"role": "ail"}), "only on its own side"),
             (STRAIGHT_O0, lambda m: m["dwarf_extraction"].update(profile="O2"), "target and profile"),
             (STRAIGHT_O0, lambda m: m["dwarf_facts"][0].update(used_by=["missing"]), "not an obligation"),
             (MSORT_O2, lambda m: m["include_env"]["files"][1].update(sha256="0" * 64), "dependency receipt"),
@@ -695,7 +726,7 @@ class Polish(Base):
 class Binding(Base):
     def test_function_of_another_build_is_unbound(self):
         """The branch -O2 problem, its statements about straight.c's add3: theorems exist for
-        them, but the add3 bytes are not branch.o's, so nothing is shown proved."""
+        them, but the add3 bytes are not branch.o's, so its machine obligations are unbound."""
         m = json.loads(BRANCH_O2.read_bytes())
         straight = json.loads(STRAIGHT_O0.read_bytes())
         m["lean"]["vars"]["fn"] = straight["lean"]["vars"]["fn"]
@@ -705,7 +736,8 @@ class Binding(Base):
             e = next((e for e in m["edges"] if e["id"] == o.get("edge")), None)
             o["statement"] = cx.statement_for("c-function-x86", m["lean"]["vars"], o["kind"],
                                               e and e["point"], e and e.get("line"))
-            o["decl"] = decls.get(o["id"])
+            if o["kind"] != "core_elaboration":
+                o["decl"] = decls.get(o["id"])
         p = self.write("m.json", m)
         cx.ingest_manifest(self.db, p)
         # the exporter would find every theorem but the artifact one (add3 is not in branch.o)
@@ -714,7 +746,7 @@ class Binding(Base):
         st = self.statuses("compiles-to/branch/O2/max2")
         self.assertEqual(st["artifact"], "rejected")
         self.assertEqual(st["translation"], "unbound")
-        self.assertNotIn("proved", st.values())
+        self.assertEqual([key for key, status in st.items() if status == "proved"], ["core_elaboration"])
 
 
 class Evidence(Base):

@@ -1,6 +1,6 @@
 // The compiler explorer's page. Every text from the database is inserted with textContent (syntax
 // highlighting makes token spans; no string is ever parsed as HTML).
-import { lineOffsets, indexEdges, edgeObligations, badge, highlightText, langOf, includeRows, prettyAilCore } from "./view.js";
+import { lineOffsets, indexEdges, edgeObligations, badge, highlightText, langOf, includeRows, prettySexp, stageTrust } from "./view.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -90,7 +90,7 @@ function render() {
     const role = state.show[side];
     const exact = text[side];
     if (!state.pretty.has(role)) {
-      state.pretty.set(role, langOf(p.artifacts[role]?.media) === "sexp" ? prettyAilCore(exact) : null);
+      state.pretty.set(role, langOf(p.artifacts[role]?.media) === "sexp" ? prettySexp(exact) : null);
     }
     const pretty = state.pretty.get(role);
     const showPretty = pretty !== null && !$(`${side}-exact`).checked;
@@ -106,6 +106,8 @@ function render() {
   }
   const lines = { source: lineOffsets(text.source), target: lineOffsets(text.target) };
   const linked = primary.source && primary.target;
+  state.linked = linked;
+  if (!linked) state.locked = null;
   state.index = linked ? indexEdges(p, state.mode, lines.source, lines.target)
     : { byLine: { source: new Map(), target: new Map() }, edgeLines: new Map() };
   state.colorOf = new Map();
@@ -117,6 +119,11 @@ function render() {
     const links = p.artifact_links[role] || [];
     const original = (p.artifact_links[side] || []).filter((link) => link.kind === "viewer");
     drawLinks($(`${side}-links`), role === side ? links : [...original, ...links]);
+    const stages = (p.extra.stages || []).filter((stage) => stage.side === side && stage.model);
+    const stage = stages.find((stage) => stage.output === role);
+    const input = role === side && stages.find((stage) => stage.input === role);
+    const provenance = stage ? stageRow(p, stage) : input ? stageValue(p, "C input", input.input_decl, role) : null;
+    $(`${side}-stage`).replaceChildren(...(provenance ? [provenance] : []));
     drawCode($(side), side, text[side], langOf(art ? art.media : ""));
   }
   drawProblem(p);
@@ -129,7 +136,7 @@ function render() {
   const nEdges = p.edges.filter((e) => e.kind === state.mode).length;
   $("status").textContent = linked
     ? `${nEdges} ${state.mode} link(s). Manifest ${p.manifest_sha256.slice(0, 12)}…, context ${p.context_hash.slice(0, 12)}…`
-    : "Links are drawn on the primary views (C source and the object's listing); this view is a stage's output.";
+    : "Fragment links are hidden: their coordinates apply only to the primary representations.";
   showSelection(null);
 }
 
@@ -218,6 +225,10 @@ function info(text) {
 function showSelection(ids) {
   const box = $("selection");
   box.replaceChildren(el("h2", null, "Selection"));
+  if (!state.linked) {
+    box.append(el("p", "muted", "Switch both panes back to their primary representations to show fragment links. Other stages do not use those byte coordinates."));
+    return;
+  }
   if (!ids || !ids.length) {
     box.append(el("p", "muted", state.mode === "navigation"
       ? "Navigation links say where code came from (debug information, a decompiler, an author), not that it is correct."
@@ -254,7 +265,9 @@ const KINDS = {
   c2c_equivalent: ["Equivalent", "Refinement both ways, from the canonical entries."],
   typing: ["Can these operands be added?", "C11 §6.5.6¶2: the extracted operand types must satisfy the additive constraint. The fragment recognizes only a small grammar, not all of C."],
   operand_types: ["What types does the text give?", "The kernel checks that the restricted recognizer reads these types from the displayed source."],
-  elaboration: ["C → Core", "The C function elaborates to this Core (Lean elaborator; typed Ail checked by evaluation)."],
+  elaboration: ["Core function extraction", "The modeled function is extracted from the elaboration of this typed Ail; this does not prove the frontend."],
+  core_elaboration: ["Source Ail → Core", "The elaborator returns the exact bound source Core from the bound typed Ail."],
+  target_core_elaboration: ["Target Ail → Core", "The elaborator returns the exact bound target Core from the bound typed Ail."],
   decoding: ["Disassembly", "The Lean decoder's listing is the decoding of these bytes."],
   artifact: ["Bytes = object", "The function's bytes are its symbol's code in the registered object."],
   nonvacuity_canonical: ["Canonical entry row", "c.compiles_to.canonical_entry: the placed code implements the C function from its canonical entry."],
@@ -347,19 +360,37 @@ function section(id, title) {
 function drawStages(p) {
   const stages = (p.extra || {}).stages || [];
   const d = section("stages", `Stages (${stages.length})`);
-  for (const s of stages) {
-    const r = el("div", "stage");
-    const evidence = s.obligation && p.obligations.find((o) => o.id === s.obligation);
-    const trust = s.trust === "verified" && (evidence?.status !== "proved" ||
-      (p.lean?.bindings?.length && !p.bindings_checked)) ? "unchecked" : s.trust;
-    r.append(el("span", `badge trust-${trust}`, trust), el("span", null, ` ${s.side}: ${s.name}`));
-    const trace = el("div", "muted", `${s.input} → ${s.output}; ${s.evidence} `);
-    appendLinks(trace, [s.input, s.output].map((role) => artifactDownload(p, role)));
-    if (evidence) appendLinks(trace, evidence.links || []);
-    r.append(trace);
-    d.append(r);
-  }
+  for (const stage of stages) d.append(stageRow(p, stage));
   if (!stages.length) d.append(el("p", "muted", "No stage recorded."));
+}
+
+function stageRow(p, stage) {
+  const row = el("div", "stage");
+  const evidence = p.obligations.find((obligation) => obligation.id === stage.obligation);
+  const trust = stageTrust(p, stage, evidence);
+  row.append(el("span", `badge ${trust === "unchecked" ? "st-unchecked" : `trust-${trust}`}`, trust),
+    el("span", null, ` ${stage.side}: ${stage.name}`));
+  const trace = el("div", "muted", `${stage.input} → ${stage.output}; ${stage.evidence} `);
+  appendLinks(trace, [stage.input, stage.output].map((role) => artifactDownload(p, role)));
+  if (evidence) appendLinks(trace, evidence.links || []);
+  row.append(trace);
+  if (stage.output_decl) {
+    row.append(stageValue(p, "Input", stage.input_decl, stage.input),
+      stageValue(p, "Model", stage.model), stageValue(p, "Output", stage.output_decl, stage.output));
+  }
+  return row;
+}
+
+function stageValue(p, label, decl, role) {
+  const hash = p.artifacts[role]?.sha256;
+  const value = el("div", "muted stage-value", `${label}: ${decl}`);
+  if (hash) {
+    const fingerprint = el("code", null, ` · SHA-256 ${hash.slice(0, 12)}…`);
+    fingerprint.title = `SHA-256 ${hash}`;
+    value.append(fingerprint);
+  }
+  appendLinks(value, p.definitions.filter((link) => link.label === decl));
+  return value;
 }
 
 function drawDwarf(p) {

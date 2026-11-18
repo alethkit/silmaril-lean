@@ -20,11 +20,13 @@ mkdir -p "$out"
   Silmaril.Project.Shapes.CompilesTo.Explorer.Thms CompilesToExamples.Explorer.Builds \
   CompilesToExamples.Explorer.Code CompilesToExamples.Explorer.Rows CompilesToExamples.Explorer.Decompiled \
   CompilesToExamples.Explorer.C2C.Runs CompilesToExamples.Explorer.TypeError CompilesToExamples.Explorer.Blocks \
+  CompilesToExamples.Explorer.C2C.Elaborates \
   Silmaril.Compiler.Explorer.Text.Thms
 regen="$(mktemp -d)"
 trap 'rm -rf "$regen"' EXIT
 "$PYTHON" -I tools/compiler-explorer/fixtures.py manifests --out "$regen" > /dev/null
 "$PYTHON" -I tools/compiler-explorer/fixtures.py rows --check
+"$PYTHON" -I tools/compiler-explorer/fixtures.py stages --check
 if ! diff -r "$regen" examples/compiler-explorer/manifests > /dev/null; then
   diff -r "$regen" examples/compiler-explorer/manifests | head -20 >&2
   echo "error: the committed manifests are not what fixtures.py writes" >&2

@@ -64,6 +64,9 @@ PROBE = "Silmaril.Project.CompilesTo.Probe"
 
 K0 = "∀ k0 : List Silmaril.Cerberus.Core.Dynamics.Frame,"
 
+def core_equality(namespace: str) -> str:
+    return f"Silmaril.Project.Shapes.C.ElabAil {namespace}.ail = .ok {namespace}.core"
+
 # Per family, per obligation kind: the Lean statement, from the manifest's `lean.vars` and the
 # obligation's point (`k`) and line. `None` for kinds the family does not state.
 TEMPLATES = {
@@ -86,6 +89,7 @@ TEMPLATES = {
         "decoding": lambda v, k, line: f"Silmaril.Project.CompilesTo.decodesAs {v['fn']}.code 0 {v['listing']} = true",
         "elaboration": lambda v, k, line: (
             f"Silmaril.Project.Shapes.C.ElaboratesTo {v['ail']} \"{v['cname']}\" {v['fn']}.cfn"),
+        "core_elaboration": lambda v, k, line: core_equality(v["ail"].rsplit(".", 1)[0]),
         "nonvacuity_canonical": lambda v, k, line: (
             f"Silmaril.Project.Shapes.CompilesTo.CompilesToCanonical {v['isa']} {v['fn']}.placement "
             f"{v['fn']}.frame {v['fn']}.cfn"),
@@ -110,6 +114,8 @@ def decompiled_block(v: dict, source: str) -> str:
 
 
 TEMPLATES["c-to-c"] = {
+    "core_elaboration": lambda v, k, line: core_equality(v["source_fn"].rsplit(".", 1)[0]),
+    "target_core_elaboration": lambda v, k, line: core_equality(v["target_fn"].rsplit(".", 1)[0]),
     "c2c_refines": lambda v, k, line: (
         f"Silmaril.Project.Shapes.CompilesTo.CanonicalRefines {v['source_fn']} {v['target_fn']}"),
     "c2c_equivalent": lambda v, k, line: (
@@ -269,13 +275,13 @@ ROW_SHAPES = {
     },
 }
 
-# The obligation that ties the Lean names to the target artifact, per family: until it is proved,
-# no other obligation of the problem is shown as proved (`unbound`).
+# Machine-dependent obligations need this target byte binding. An Ail/Core equality does not.
 BINDING = {"c-function-x86": "artifact"}
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_']*(\.[A-Za-z_][A-Za-z0-9_']*)*$")
+CORE_ELABORATION_KINDS = ("core_elaboration", "target_core_elaboration")
 KINDS = ("translation", "mapping", "edge", "refinement", "abi", "point", "elaboration", "decompilation",
          "decoding", "c2c_refines", "c2c_equivalent", "typing", "operand_types",
-         "nonvacuity", "nonvacuity_canonical", "nonvacuity_universal", "artifact")
+         "nonvacuity", "nonvacuity_canonical", "nonvacuity_universal", "artifact", *CORE_ELABORATION_KINDS)
 FAMILY_VARS = {"c-function-x86": ("fn", "ail", "cname", "isa", "comorphism", "target_value", "listing"),
                "c-to-c": ("source_fn", "target_fn"), "c-additive": ("t1", "t2"),
                "decompiled-word-block": ("name", "bytes", "n", "inputs")}
@@ -304,26 +310,46 @@ def statement_for(family: str, vars_: dict, kind: str, point, line, source: str 
     return t(vars_, point, line, source) if family in ("decompiled-word-block", "c-additive") else t(vars_, point, line)
 
 
-def model_bindings(family: str, vars_: dict) -> dict[str, str]:
-    def model(namespace):
-        return f"{PROBE}.modelText {namespace}.ail {namespace}.core"
-
+def frontend_models(family: str, vars_: dict) -> dict[str, str]:
     if family == "c-function-x86":
-        src = vars_["ail"].rsplit(".", 1)[0]
+        return {"source": vars_["ail"].rsplit(".", 1)[0]}
+    if family == "c-to-c":
+        return {side: vars_[f"{side}_fn"].rsplit(".", 1)[0] for side in ("source", "target")}
+    return {}
+
+
+def frontend_stages(family: str, vars_: dict) -> list[dict]:
+    stages = []
+    for side, namespace in frontend_models(family, vars_).items():
+        prefix = "target_" if side == "target" else ""
+        stages.extend([
+            {"side": side, "name": "C → typed Ail", "trust": "evaluated",
+             "input": side, "output": prefix + "ail", "model": "Silmaril.Project.Shapes.C.FrontendAil",
+             "input_decl": f"{namespace}.cText", "output_decl": f"{namespace}.ail",
+             "evidence": "Compiled #guard compares FrontendAil's typed Ail with this value; not a parser theorem."},
+            {"side": side, "name": "Typed Ail → Core", "trust": "verified",
+             "input": prefix + "ail", "output": prefix + "core", "model": "Silmaril.Project.Shapes.C.ElabAil",
+             "input_decl": f"{namespace}.ail", "output_decl": f"{namespace}.core",
+             "obligation": prefix + "core_elaboration",
+             "evidence": "Kernel equality for these exact Ail and Core values; not evidence for the preceding frontend."},
+        ])
+    return stages
+
+
+def model_bindings(family: str, vars_: dict) -> dict[str, str]:
+    bound = {}
+    for side, namespace in frontend_models(family, vars_).items():
+        prefix = "target_" if side == "target" else ""
+        bound.update({side: f"{namespace}.cText", prefix + "ail": f"{PROBE}.ailText {namespace}.ail",
+                      prefix + "core": f"{PROBE}.document {namespace}.core"})
+    if family == "c-function-x86":
         listing = vars_["listing"]
-        bound = {"source": f"{src}.cText", "core_probe": f"({model(src)}).dropEnd 1 |>.toString",
-                 "decoded": f"{PROBE}.listingText {listing} {lean_str(listing)}"}
+        bound["decoded"] = f"{PROBE}.listingText {listing} {lean_str(listing)}"
         if block := vars_.get("block_model"):
             if not isinstance(block, str) or not IDENT.fullmatch(block):
                 raise ValueError("block model must name a Lean declaration")
             bound["block_entry"] = f"toString {block}.entry ++ {lean_str(chr(10))}"
-        return bound
-    if family == "c-to-c":
-        src = vars_["source_fn"].rsplit(".", 1)[0]
-        tgt = vars_["target_fn"].rsplit(".", 1)[0]
-        return {"source": f"{src}.cText", "target": f"{tgt}.cText",
-                "core_probe": f"({model(src)}).dropEnd 1 |>.toString", "target_core_probe": model(tgt)}
-    return {}
+    return bound
 
 
 # ------------------------------------------------------------------------------------------------
@@ -670,9 +696,24 @@ def check_manifest(root: pathlib.Path, m: dict, blobs: dict[str, bytes]) -> None
             raise ValueError(f"the Lean names {bad} are not identifiers")
     if dict(bindings) != model_bindings(family, vars_):
         raise ValueError(f"{family} needs exact text and model artifact bindings")
+    expected_stages = frontend_stages(family, vars_)
+    stage_outputs = {stage["output"] for stage in expected_stages}
+    actual_stages = [stage for stage in m.get("stages", []) if stage["output"] in stage_outputs]
+    obligations_by_id = {obligation["id"]: obligation for obligation in m["obligations"]}
+    if (len(actual_stages) != len(expected_stages) or any(stage not in actual_stages for stage in expected_stages)
+            or any(obligations_by_id.get(stage["obligation"], {}).get("kind") != stage["obligation"]
+                   for stage in expected_stages if "obligation" in stage)):
+        raise ValueError("frontend stages need exact inputs, outputs and scoped evidence")
+    for stage in expected_stages:
+        sides = [side for side, alts in view.get("alternatives", {}).items()
+                 for alt in alts if alt["role"] == stage["output"]]
+        if sides != [stage["side"]]:
+            raise ValueError("a frontend artifact must be selectable only on its own side")
     if family == "c-additive" and blobs["target"] != f"some ({vars_['t1']}, {vars_['t2']})\n".encode():
         raise ValueError("the displayed operand types differ from the judgment's output")
     if family == "c-function-x86":
+        if vars_["ail"] != frontend_models(family, vars_)["source"] + ".ail":
+            raise ValueError("the function's Ail must be the frontend stage value")
         ctx = m.get("context") or {}
         if vars_["isa"] != (ctx.get("target_model") or {}).get("decl"):
             raise ValueError("the statements' target model is not the context's")
@@ -897,7 +938,7 @@ STATUS_TEXT = {
 def obligation_status(db, ver, o) -> dict:
     st = raw_status(db, ver, o)
     binding = BINDING.get(ver["family"])
-    if st["status"] == "proved" and binding and o["kind"] != binding:
+    if st["status"] == "proved" and binding and o["kind"] not in (binding, *CORE_ELABORATION_KINDS):
         b = db.execute("SELECT * FROM obligations WHERE version_id = ? AND kind = ?",
                        (ver["id"], binding)).fetchone()
         if b is None or raw_status(db, ver, b)["status"] != "proved":

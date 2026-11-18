@@ -1,10 +1,16 @@
 {
   "artifacts": {
-    "core_probe": {
+    "ail": {
       "media": "text/x-lisp",
-      "path": "examples/compiles-to/branch/core-probe.txt",
-      "sha256": "e368617a076712e5fded58562aaede22dbb99929733ecb4f27eb60d3cbbbff08",
-      "size": 22019
+      "path": "examples/compiles-to/branch/typed-ail.sexp",
+      "sha256": "6ea5bc014a1233d4548c91a8610246f0260c0a45872450911e0e6289a0537c80",
+      "size": 4024
+    },
+    "core": {
+      "media": "text/x-lisp",
+      "path": "examples/compiles-to/branch/core.sexp",
+      "sha256": "292af0589a3801c703d638868b6380b822fd2839d0b052aadddf54866ed26e2d",
+      "size": 17927
     },
     "decoded": {
       "media": "text/plain",
@@ -598,8 +604,12 @@
         "CompilesToExamples.Branch.cText"
       ],
       [
-        "core_probe",
-        "(Silmaril.Project.CompilesTo.Probe.modelText CompilesToExamples.Branch.ail CompilesToExamples.Branch.core).dropEnd 1 |>.toString"
+        "ail",
+        "Silmaril.Project.CompilesTo.Probe.ailText CompilesToExamples.Branch.ail"
+      ],
+      [
+        "core",
+        "Silmaril.Project.CompilesTo.Probe.document CompilesToExamples.Branch.core"
       ],
       [
         "decoded",
@@ -617,6 +627,8 @@
       "Silmaril.Project.CompilesTo.FnData.mapping",
       "Silmaril.Project.CompilesTo.FnData.source",
       "Silmaril.Project.CompilesTo.dwarf",
+      "Silmaril.Project.Shapes.C.ElabAil",
+      "Silmaril.Project.Shapes.C.FrontendAil",
       "Silmaril.X86.Open.isa",
       "silmaril.compiles_to.branch.o0.obj"
     ],
@@ -757,6 +769,12 @@
       "statement": "Silmaril.Project.Shapes.C.ElaboratesTo CompilesToExamples.Branch.ail \"max2\" CompilesToExamples.Branch.O0.max2.cfn"
     },
     {
+      "decl": "CompilesToExamples.Branch.elab_eq",
+      "id": "core_elaboration",
+      "kind": "core_elaboration",
+      "statement": "Silmaril.Project.Shapes.C.ElabAil CompilesToExamples.Branch.ail = .ok CompilesToExamples.Branch.core"
+    },
+    {
       "decl": "CompilesToExamples.Explorer.BranchO0.decoding",
       "id": "decoding",
       "kind": "decoding",
@@ -790,13 +808,27 @@
   "schema": "silmaril.compiler-explorer.problem/1",
   "stages": [
     {
-      "evidence": "C → Ail is compiled evaluation (#guard); the Ail → Core equality is kernel-checked",
+      "evidence": "Compiled #guard compares FrontendAil's typed Ail with this value; not a parser theorem.",
       "input": "source",
-      "name": "C frontend → typed Ail → Cerberus Core",
-      "obligation": "elaboration",
-      "output": "core_probe",
+      "input_decl": "CompilesToExamples.Branch.cText",
+      "model": "Silmaril.Project.Shapes.C.FrontendAil",
+      "name": "C → typed Ail",
+      "output": "ail",
+      "output_decl": "CompilesToExamples.Branch.ail",
       "side": "source",
       "trust": "evaluated"
+    },
+    {
+      "evidence": "Kernel equality for these exact Ail and Core values; not evidence for the preceding frontend.",
+      "input": "ail",
+      "input_decl": "CompilesToExamples.Branch.ail",
+      "model": "Silmaril.Project.Shapes.C.ElabAil",
+      "name": "Typed Ail → Core",
+      "obligation": "core_elaboration",
+      "output": "core",
+      "output_decl": "CompilesToExamples.Branch.core",
+      "side": "source",
+      "trust": "verified"
     },
     {
       "evidence": "receipt only",
@@ -826,8 +858,12 @@
           "role": "source"
         },
         {
-          "label": "Typed Ail + model Core",
-          "role": "core_probe"
+          "label": "Typed Ail",
+          "role": "ail"
+        },
+        {
+          "label": "Core",
+          "role": "core"
         }
       ],
       "target": [

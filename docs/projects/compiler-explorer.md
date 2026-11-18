@@ -344,28 +344,32 @@ output (the "show" selector).
 
 | problem | source side | target side |
 | --- | --- | --- |
-| compiles-to | C text; typed Ail and model Core (`core-probe.txt`) | raw ELF bytes; `objdump`; Lean decoder for supported functions (`decoded.txt`) |
-| C ⇒ C | C text; typed Ail and Core | C text; typed Ail and Core |
+| compiles-to | C text, typed Ail (`typed-ail.sexp`), or model Core (`core.sexp`) for supported functions | raw ELF bytes; `objdump`; Lean decoder for supported functions (`decoded.txt`) |
+| C ⇒ C | C text, typed Ail, or Core | C text, typed Ail, or Core (independent of the source selector) |
 | restricted typing | C text | extracted operand types; separate frontend diagnostic |
 
-The Ail/Core view indents the stored S-expressions for reading and marks the result as
-display-only. **Exact text** switches back to the original serialization; the artifact download
-always returns the original bytes. If the display formatter cannot recognize the document, the
-page leaves it unchanged. Formatting never changes proof inputs or byte-range links.
+The Ail and Core views indent their own stored S-expressions for reading and mark the result
+as display-only. **Exact text** switches back to the selected stage's original serialization;
+its artifact download always returns the original bytes. The pane names that stage's input,
+output and model and links to its evidence and Lean definitions when available. Fragment links
+are hidden unless both panes show their primary representations: C or listing positions are
+not Ail or Core positions. If a fixture has no bound Ail or Core artifact, it offers no such view.
 
 The trust of each stage:
 
 | stage | trust | checked by |
 | --- | --- | --- |
 | C text → typed Ail (Lean frontend) | evaluated | `#guard` (compiled evaluation) |
-| typed Ail → Core (compiles-to) | verified for these inputs | `elab_eq` (kernel) |
-| typed Ail → Core (C ⇒ C) | evaluated | `#guard` compares the serialized normalized model with the probe |
+| typed Ail → Core | verified for these inputs | `ElabAil ail = .ok core` (`elab_eq`, kernel; independently on both C ⇒ C sides) |
 | `objdump` | trusted | nothing: a receipt only |
 | Lean decoder | verified | obligation `decoding`, `decodesAs` (kernel) |
 
-Before recording evidence, `verify` compares raw C bytes and canonical serialized Ail/Core and
-decoder views against renderings of their actual Lean declarations, byte for byte. This is a
-compiled rendering/identity check, not a kernel proof about a printer. `decodesAs` proves the
+`fixtures.py stages` materializes the two standalone artifacts from the captured probe payloads.
+Before recording evidence, `verify` separately compares their bytes, and the C and decoder
+views, against renderings of the actual Lean declarations. This is a compiled rendering/identity
+check, not a kernel proof about a printer. A Core equality proves neither the evaluation that
+produced typed Ail nor a compilation relation. Without exact renderer binding and evidence, a
+generated or freshly ingested view shows the stage as unchecked. `decodesAs` proves the
 listing value for the function's code; the separate object-binding obligation links that code to
 ELF bytes. `objdump` instructions are not proved correct by either check.
 

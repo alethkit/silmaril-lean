@@ -42,19 +42,45 @@ try {
     await page.screenshot({ path: path.join(shots, "compiler-block-attribution.png") });
   }
   console.log("ok   compiler ↔ ELF block round trip and exact bytes");
-  await page.selectOption("#source-show", "core_probe");
-  await page.getByText("formatted · display only", { exact: false }).waitFor();
-  const exactText = page.getByRole("checkbox", { name: "Exact text" });
-  const artifactLink = page.locator("#source-links a[download]");
-  const core = await (await page.request.get(await artifactLink.evaluate((anchor) => anchor.href))).body();
-  assert.ok(await page.locator("#source .line").count() > 100);
-  if (shots) await page.screenshot({ path: path.join(shots, "compiler-ail-core.png") });
-  await exactText.press("Space");
-  const raw = (await page.locator("#source .tx").allTextContents()).join("\n");
-  assert.deepEqual(Buffer.from(raw), core);
-  await exactText.press("Space");
-  assert.ok(await page.locator("#source .line").count() > 100);
-  console.log("ok   keyboard Ail/Core exact toggle and byte-identical download");
+  const stageAddresses = new Set();
+  for (const [role, head, provenance] of [["ail", "($tuple", "C → typed Ail"], ["core", "($document", "Typed Ail → Core"]]) {
+    await page.selectOption("#source-show", role);
+    await page.locator("#source-title").getByText("formatted · display only", { exact: false }).waitFor();
+    const stage = page.locator("#source-stage");
+    await stage.getByText(`source: ${provenance}`, { exact: false }).waitFor();
+    await stage.getByText("unchecked", { exact: true }).waitFor();
+    const exactText = page.locator("#source-exact");
+    const artifactLink = page.locator("#source-links a[download]");
+    const address = await artifactLink.evaluate((anchor) => anchor.href);
+    stageAddresses.add(address);
+    const artifact = await (await page.request.get(address)).body();
+    const digest = createHash("sha256").update(artifact).digest("hex");
+    assert.ok(address.endsWith(digest));
+    assert.ok(await page.locator("#source .line").count() > 100);
+    assert.equal(await page.locator(".line.linked").count(), 0);
+    assert.match(await page.locator("#status").textContent(), /coordinates apply only to the primary/);
+    if (shots) await page.screenshot({ path: path.join(shots, `compiler-stage-${role}.png`) });
+    await exactText.press("Space");
+    const raw = (await page.locator("#source .tx").allTextContents()).join("\n");
+    assert.ok(raw.startsWith(head));
+    assert.deepEqual(Buffer.from(raw), artifact);
+    await exactText.press("Space");
+    assert.ok(await page.locator("#source .line").count() > 100);
+  }
+  assert.equal(stageAddresses.size, 2);
+  await page.selectOption("#source-show", "source");
+  assert.ok(await page.locator(".line.linked").count() > 0);
+  console.log("ok   distinct Ail/Core stages, keyboard exact toggle, byte-identical downloads and mapping coordinates");
+
+  await page.goto(`${base}compiler/?problem=c2c%2Fadd3_drop`);
+  await page.selectOption("#source-show", "ail");
+  await page.selectOption("#target-show", "target_core");
+  await page.locator("#source-stage").getByText("Output: CompilesToExamples.Straight.ail", { exact: false }).waitFor();
+  await page.locator("#target-stage").getByText("Output: CompilesToExamples.Explorer.C2C.core", { exact: false }).waitFor();
+  await page.locator("#target-exact").press("Space");
+  assert.equal(await page.locator("#source-exact").isChecked(), false);
+  assert.equal(await page.locator(".line.linked").count(), 0);
+  console.log("ok   C-to-C panes select and expose independent stage identities");
 
   await page.goto(`${base}compiler/?problem=programs%2Fmsort%2FO2`);
   await page.getByText("Preprocessor environment", { exact: true }).press("Enter");

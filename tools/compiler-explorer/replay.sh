@@ -9,6 +9,9 @@ cd "$(dirname "$0")/../.."
 LAKE="${LAKE:-lake}"
 modules=(
   CompilesToExamples.Explorer.C2C.Runs
+  CompilesToExamples.Explorer.C2C.Elaborates
+  CompilesToExamples.Straight.Proofs.Elaborates
+  CompilesToExamples.Branch.Proofs.Elaborates
   Silmaril.Proofs.Compiler.CompilesTo.Sim.Compose
   Silmaril.Proofs.Compiler.Explorer.Basic
   Silmaril.Proofs.Compiler.Explorer.Det

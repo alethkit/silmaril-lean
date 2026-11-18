@@ -27,6 +27,7 @@ main { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1.2fr) 400px;
 .tok-address { color:#6b7280; } .tok-bytes { color:#9ca3af; } .tok-punct { color:#9ca3af; }
 aside { overflow:auto; padding:0 12px 24px; }
 .edge, .obl, .stage, .fact { padding:4px 0; border-bottom:1px dashed var(--line); }
+.stage-value { overflow-wrap:anywhere; }
 .edge-id { font-weight:600; } .q-head, .obl-head { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
 .obl-title { font-weight:600; }
 .stmt { display:block; font-size:11.5px; white-space:pre-wrap; word-break:break-word; background:#f4f4f2; padding:4px; margin:4px 0; }

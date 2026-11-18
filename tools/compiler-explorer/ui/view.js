@@ -262,29 +262,9 @@ export function prettySexp(text, width = 88) {
   return output.join("");
 }
 
-export function prettyAilCore(text) {
-  const lines = text.split("\n");
-  const output = [];
-  let start = null;
-  let section = null;
-  let found = false;
-  for (let index = 0; index < lines.length; index++) {
-    const marker = /^(BEGIN|END)-(TYPED-AIL|CORE-DOCUMENT)\r?$/.exec(lines[index]);
-    if (marker?.[1] === "BEGIN") {
-      if (section) return null;
-      section = marker[2];
-      start = index + 1;
-      output.push(lines[index]);
-    } else if (marker?.[1] === "END") {
-      if (section !== marker[2]) return null;
-      const pretty = prettySexp(lines.slice(start, index).join("\n"));
-      if (pretty === null) return null;
-      output.push(pretty, lines[index]);
-      section = null;
-      found = true;
-    } else if (!section) {
-      output.push(lines[index]);
-    }
-  }
-  return found && !section ? output.join("\n") : null;
+export function stageTrust(problem, stage, evidence) {
+  const bound = !problem.lean?.bindings?.length || problem.bindings_checked;
+  if (stage.trust === "verified" && (!bound || evidence?.status !== "proved")) return "unchecked";
+  if (stage.trust === "evaluated" && stage.model && !problem.bindings_checked) return "unchecked";
+  return stage.trust;
 }

@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { lineOffsets, fragmentLines, indexEdges, badge, uncovered, includeRows, prettyAilCore, prettySexp } from "../ui/view.js";
+import { lineOffsets, fragmentLines, indexEdges, badge, uncovered, includeRows, prettySexp, stageTrust } from "../ui/view.js";
 
 const root = new URL("../../../", import.meta.url);
 const manifest = (name) => JSON.parse(readFileSync(new URL(`examples/compiler-explorer/manifests/${name}.json`, root)));
@@ -135,28 +135,41 @@ test("S-expression formatting preserves line and nested block comments", () => {
 });
 
 test("incomplete or malformed input does not produce a formatted view", () => {
-  for (const raw of ["", ")", "(open", '("unclosed)', '("escape\\', "(#| comment)", "(a) (b)"]) {
+  for (const raw of ["", ")", "(open", '("unclosed)', '("escape\\', "(#| comment)", "(a) (b)", "FRONTEND-ERROR: failed"]) {
     assert.equal(prettySexp(raw), null, raw);
-  }
-  for (const raw of ["no envelope", "BEGIN-TYPED-AIL\n(a)", "BEGIN-TYPED-AIL\n(a)\nEND-CORE-DOCUMENT",
-    "BEGIN-TYPED-AIL\n(a)\nEND-TYPED-AIL\nBEGIN-CORE-DOCUMENT\n(oops\nEND-CORE-DOCUMENT"]) {
-    assert.equal(prettyAilCore(raw) ?? raw, raw);
   }
 });
 
-test("the actual Ail/Core artifacts format without changing exact bytes or diagnostics", () => {
-  const paths = ["examples/compiles-to/straight/core-probe.txt", "examples/compiles-to/loop/core-probe.txt",
-    "examples/compiler-explorer/c2c/core-probe.txt"];
-  for (const path of paths) {
-    const raw = text(path);
-    const formatted = prettyAilCore(raw);
-    assert.ok(formatted.split("\n").length > 100, path);
-    assert.equal(formatted.endsWith("\n"), raw.endsWith("\n"), path);
-    assert.equal(prettyAilCore(formatted), formatted, path);
-    assert.deepEqual(formatted.match(/^(?:BEGIN-|END-|CORE-ELAB-ERROR:).*$/gm),
-      raw.match(/^(?:BEGIN-|END-|CORE-ELAB-ERROR:).*$/gm), path);
-    assert.deepEqual(Buffer.from(raw), readFileSync(new URL(path, root)), path);
+test("real standalone Ail and Core artifacts format independently", () => {
+  for (const name of ["compiles-to--straight--O0--add3", "c2c--add3_drop"]) {
+    const roles = manifest(name).artifacts;
+    for (const [role, head] of [["ail", "($tuple"], ["core", "($document"],
+      ...(roles.target_ail ? [["target_ail", "($tuple"], ["target_core", "($document"]] : [])]) {
+      const raw = text(roles[role].path);
+      const formatted = prettySexp(raw);
+      assert.ok(formatted.startsWith(head));
+      assert.ok(formatted.split("\n").length > 100, role);
+      assert.equal(prettySexp(formatted), formatted, role);
+    }
   }
+});
+
+test("frontend evaluation and elaboration evidence are not interchangeable", () => {
+  const manifestData = manifest("c2c--add3_drop");
+  const stages = Object.fromEntries(manifestData.stages.map((stage) => [stage.output, stage]));
+  const checked = { lean: manifestData.lean, bindings_checked: true };
+  const proved = { status: "proved" };
+  assert.equal(stageTrust(checked, stages.ail, proved), "evaluated");
+  assert.equal(stageTrust(checked, stages.core, proved), "verified");
+  for (const stage of [stages.core, stages.target_core]) {
+    for (const status of ["unchecked", "claimed", "stale", "rejected", "refuted"]) {
+      assert.equal(stageTrust(checked, stage, { status }), "unchecked");
+    }
+  }
+  for (const stage of Object.values(stages)) {
+    assert.equal(stageTrust({ ...checked, bindings_checked: false }, stage, proved), "unchecked");
+  }
+  assert.notEqual(stages.core.obligation, stages.target_core.obligation);
 });
 
 test("deeply nested input does not use the JavaScript call stack", () => {

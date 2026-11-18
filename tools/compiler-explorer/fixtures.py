@@ -5,6 +5,7 @@
     python3 -I tools/compiler-explorer/fixtures.py listings   # Docker: objdump the compiles-to objects
     python3 -I tools/compiler-explorer/fixtures.py decompile  # Docker and Lean: the decompiled fixture
     python3 -I tools/compiler-explorer/fixtures.py manifests [--out DIR]  # no Docker: the manifests
+    python3 -I tools/compiler-explorer/fixtures.py stages [--check]  # exact standalone Ail and Core
     python3 -I tools/compiler-explorer/fixtures.py viewer --out SITE    # exact C/ELF viewer assets
     python3 -I tools/compiler-explorer/fixtures.py include-map MANIFEST OUT  # pinned image header bytes
 
@@ -447,6 +448,34 @@ def dwarf_facts(fn: dict, base: int, have_lean: bool) -> list[dict]:
 
 
 PROBE = "Silmaril.Project.CompilesTo.Probe"
+FRONTEND_FILES = {"ail": "typed-ail.sexp", "core": "core.sexp"}
+
+
+def frontend_artifacts(directory: pathlib.Path, prefix: str = "") -> dict:
+    return {prefix + role: file_ref(directory / name, "text/x-lisp") for role, name in FRONTEND_FILES.items()}
+
+
+def frontend_alternatives(prefix: str = "") -> list[dict]:
+    return [{"role": prefix + "ail", "label": "Typed Ail"}, {"role": prefix + "core", "label": "Core"}]
+
+
+def frontend_files(check: bool = False) -> None:
+    for directory in (COMPILES_TO / "straight", COMPILES_TO / "branch", C2C):
+        probe = directory / "core-probe.txt"
+        raw = probe.read_bytes().removesuffix(b"\n")
+        begin = b"BEGIN-TYPED-AIL\n"
+        boundary = b"\nEND-TYPED-AIL\nBEGIN-CORE-DOCUMENT\n"
+        end = b"END-CORE-DOCUMENT"
+        ail, separator, core = raw.removeprefix(begin).removesuffix(end).partition(boundary)
+        if not raw.startswith(begin) or not raw.endswith(end) or not separator or not ail or not core.endswith(b"\n"):
+            raise ValueError(f"{probe}: expected one typed Ail value followed by its Core document")
+        for role, content in (("ail", ail), ("core", core)):
+            target = directory / FRONTEND_FILES[role]
+            if check:
+                if target.read_bytes() != content:
+                    raise ValueError(f"{target}: does not match its probe payload")
+            else:
+                target.write_bytes(content)
 
 
 def compiles_to_manifests() -> list[dict]:
@@ -526,6 +555,8 @@ def compiles_to_manifests() -> list[dict]:
                     obligations.append(ob(f"point/{k}", "point",
                                           f"CompilesToExamples.{cname}.{opt}.{fname}_point_{k}", eid, k, p["line"]))
                 if pts:
+                    model = f"CompilesToExamples.{cname}"
+                    stages = cx.frontend_stages("c-function-x86", lean_vars)
                     obligations += [
                         ob("translation", "translation", f"{X}.translation" if proved else None),
                         ob("mapping", "mapping", f"{X}.mapping_valid" if proved else None),
@@ -533,16 +564,17 @@ def compiles_to_manifests() -> list[dict]:
                         ob("abi", "abi", f"{X}.abi"),
                         ob("nonvacuity", "nonvacuity", f"{X}.inhabited"),
                         ob("elaboration", "elaboration", f"{X}.elaboration"),
+                        ob("core_elaboration", "core_elaboration", f"{model}.elab_eq"),
                         ob("decoding", "decoding", f"{X}.decoding"),
                         ob("artifact", "artifact", f"CompilesToExamples.Explorer.{name}_{opt}_code"),
                         ob("nonvacuity/canonical", "nonvacuity_canonical", f"{X}.canonical" if proved else None),
                         ob("nonvacuity/universal", "nonvacuity_universal", None),
                     ]
-                    model = f"CompilesToExamples.{cname}"
                     lean = {"family": "c-function-x86", "vars": lean_vars,
                             "modules": [LEAN_MODULE, "CompilesToExamples.Explorer.Code", f"{PROBE}.Defs"],
                             "bindings": list(cx.model_bindings("c-function-x86", lean_vars).items()),
-                            "definitions": [f"{model}.{part}" for part in ("cText", "ail", "core", "elab_eq")],
+                            "definitions": [f"{model}.{part}" for part in ("cText", "ail", "core", "elab_eq")] +
+                                           [stage["model"] for stage in stages],
                             "registry": {"source": f"silmaril.compiles_to.{name}.source",
                                          "target": f"silmaril.compiles_to.{name}.{opt.lower()}.object"}}
                     ctx = {
@@ -561,6 +593,7 @@ def compiles_to_manifests() -> list[dict]:
                                        "version": "C objects at their DWARF DW_OP_fbreg frame slots"},
                     }
                 else:
+                    stages = []
                     reason = unsupported_reason or "c-tv produced no program points for this function"
                     for k in ["translation", "mapping", "refinement", "abi", "nonvacuity"]:
                         obligations.append({"id": k, "kind": k, "decl": None, "statement": None,
@@ -582,12 +615,12 @@ def compiles_to_manifests() -> list[dict]:
                                   "include_search": file_ref(ENV / f"compiles-to-{opt}.search.json", "application/json"),
                                   "macros": file_ref(ENV / f"compiles-to-{opt}.macros.txt", "text/x-c")},
                                   **({"decoded": file_ref(LISTINGS / name / opt / "decoded.txt", "text/plain"),
-                                      "core_probe": file_ref(COMPILES_TO / name / "core-probe.txt", "text/x-lisp")}
+                                      **frontend_artifacts(COMPILES_TO / name)}
                                      if pts else {})},
                     "view": {"source": "source", "target": "listing", "target_map": listing_map,
                              "alternatives": {
                                  "source": [{"role": "source", "label": "C source"}]
-                                 + ([{"role": "core_probe", "label": "Typed Ail + model Core"}] if pts else []),
+                                 + (frontend_alternatives() if pts else []),
                                  "target": [{"role": "listing", "label": "objdump (unverified)"},
                                             {"role": "target", "label": "Raw ELF bytes"}]
                                  + ([{"role": "decoded", "label": "Lean decoder listing"}] if pts else [])}},
@@ -596,11 +629,7 @@ def compiles_to_manifests() -> list[dict]:
                                  if pts else {"semantics": "none",
                                               "description": "gcc 13.3.0 compiled this C to this object (receipt); "
                                                              "no Lean statement relates them"}),
-                    "stages": ([
-                        {"side": "source", "name": "C frontend → typed Ail → Cerberus Core", "trust": "evaluated",
-                         "input": "source", "output": "core_probe", "obligation": "elaboration",
-                         "evidence": "C → Ail is compiled evaluation (#guard); the Ail → Core equality is kernel-checked"},
-                    ] if pts else []) + [
+                    "stages": stages + [
                         {"side": "target", "name": "objdump -d (binutils 2.40)", "trust": "trusted",
                          "input": "target", "output": "listing", "evidence": "receipt only"},
                     ] + ([{"side": "target", "name": "Lean x86 decoder (Silmaril.X86.Ext.decode)", "trust": "verified",
@@ -632,7 +661,7 @@ def compiles_to_manifests() -> list[dict]:
                         LISTINGS / name / opt / "block-entry.txt", "text/plain")
                     out[-1]["blocks"] = [{"side": "target", "section_range": [base, base + fn["size"]],
                         "model_base": 0x401000, "model_decl": model, "symbol": fname,
-                        "decoder": "decoded", "parse": "core_probe", "object_obligation": "artifact",
+                        "decoder": "decoded", "parse": "ail", "object_obligation": "artifact",
                         "render": dict(lean["bindings"])["decoded"],
                         "attribution": [e["id"] for e in b.edges if e["kind"] == "navigation"]}]
     return out
@@ -871,6 +900,8 @@ def c2c_manifests() -> list[dict]:
                         "note": "a hand-written function correspondence: no semantics"})
         vars_ = {"source_fn": "CompilesToExamples.Straight.add3Fn",
                  "target_fn": f"CompilesToExamples.Explorer.C2C.{lean_fn}"}
+        stages = cx.frontend_stages("c-to-c", vars_)
+        models = cx.frontend_models("c-to-c", vars_)
         refines = {"id": "translation", "kind": "c2c_refines", "decl": None,
                    "statement": cx.statement_for("c-to-c", vars_, "c2c_refines", None, None)}
         if refuted:
@@ -879,27 +910,24 @@ def c2c_manifests() -> list[dict]:
         if fn == "add3_reassoc":
             obligations.append({"id": "equivalence", "kind": "c2c_equivalent", "decl": None,
                                 "statement": cx.statement_for("c-to-c", vars_, "c2c_equivalent", None, None)})
+        for stage in stages:
+            if kind := stage.get("obligation"):
+                obligations.append({"id": kind, "kind": kind, "decl": f"{models[stage['side']]}.elab_eq",
+                                    "statement": cx.statement_for("c-to-c", vars_, kind, None, None)})
         out.append({
             "schema": SCHEMA, "id": f"c2c/{fn}", "direction": "imported",
             "title": f"add3 => {fn} (C => C): {what}",
             "artifacts": {"source": src_ref, "target": tgt_ref,
-                          "core_probe": file_ref(COMPILES_TO / "straight" / "core-probe.txt", "text/x-lisp"),
-                          "target_core_probe": file_ref(C2C / "core-probe.txt", "text/x-lisp")},
+                          **frontend_artifacts(COMPILES_TO / "straight"), **frontend_artifacts(C2C, "target_")},
             "view": {"source": "source", "target": "target", "alternatives": {
-                "source": [{"role": "source", "label": "C source"},
-                           {"role": "core_probe", "label": "Typed Ail + model Core"}],
-                "target": [{"role": "target", "label": "C translation"},
-                           {"role": "target_core_probe", "label": "Typed Ail + model Core"}]}},
+                "source": [{"role": "source", "label": "C source"}] + frontend_alternatives(),
+                "target": [{"role": "target", "label": "C translation"}] + frontend_alternatives("target_")}},
             "derivation": {"kind": "claimed", "claim": "the translations were written by hand for this fixture"},
             "problem_form": "semantic",
             "relation": {"semantics": "stated",
                          "description": "CanonicalRefines: from the canonical entries, every outcome of the "
                                         "translation is an outcome of add3 where add3 is safe"},
-            "stages": [{"side": side, "name": "Lean C frontend and Cerberus elaborator", "trust": "evaluated",
-                        "input": inp, "output": outp,
-                        "evidence": "#guard checks typed Ail. The model uses the quoted Core with normalized return labels."}
-                       for side, inp, outp in (("source", "source", "core_probe"),
-                                               ("target", "target", "target_core_probe"))],
+            "stages": stages,
             "context": {"source_model": {"family": "cerberus-core", "decl": "Silmaril.Project.Shapes.C.CFn.source",
                                          "version": "Lean port of Cerberus Core, canonical entries"},
                         "target_model": {"family": "cerberus-core", "decl": "Silmaril.Project.Shapes.C.CFn.source",
@@ -908,10 +936,11 @@ def c2c_manifests() -> list[dict]:
             "fragments": sorted(b.fragments.values(), key=lambda f: f["id"]),
             "edges": b.edges, "obligations": obligations, "tests": [],
             "lean": {"family": "c-to-c", "vars": vars_,
-                     "modules": ["CompilesToExamples.Explorer.C2C.Runs", f"{PROBE}.Defs"],
+                     "modules": ["CompilesToExamples.Explorer.C2C.Runs", "CompilesToExamples.Explorer.C2C.Elaborates",
+                                 "CompilesToExamples.Straight.Proofs.Elaborates", f"{PROBE}.Defs"],
                      "bindings": list(cx.model_bindings("c-to-c", vars_).items()),
-                     "definitions": [f"{ns}.{part}" for ns in ("CompilesToExamples.Straight", "CompilesToExamples.Explorer.C2C")
-                                     for part in ("cText", "ail", "core")] +
+                     "definitions": [f"{ns}.{part}" for ns in models.values() for part in ("cText", "ail", "core")] +
+                                    list(dict.fromkeys(stage["model"] for stage in stages)) +
                                     ["Silmaril.Project.Shapes.CompilesTo.CanonicalRefines",
                                      "Silmaril.Project.Shapes.CompilesTo.CanonicalEquivalent",
                                      "CompilesToExamples.Explorer.C2C.args123",
@@ -1055,8 +1084,11 @@ def include_map(manifest_path: pathlib.Path, out: pathlib.Path) -> None:
 
 def main(argv: list[str]) -> int:
     cmds = {"build": build, "listings": listings, "decompile": decompile, "manifests": manifests,
-            "env": preprocessor_env,
+            "env": preprocessor_env, "stages": frontend_files,
             "rows": rows}
+    if argv[1:] == ["stages", "--check"]:
+        frontend_files(check=True)
+        return 0
     if argv[1:] == ["rows", "--check"]:
         rows(check=True)
         return 0

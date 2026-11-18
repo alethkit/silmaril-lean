@@ -1,10 +1,16 @@
 {
   "artifacts": {
-    "core_probe": {
+    "ail": {
       "media": "text/x-lisp",
-      "path": "examples/compiles-to/straight/core-probe.txt",
-      "sha256": "cb7f40c8b1c57d1b6ce83d1ed752e127f489600e4c51414aef091bc3f2a7f3f5",
-      "size": 27400
+      "path": "examples/compiles-to/straight/typed-ail.sexp",
+      "sha256": "87439ae537d09b428a316998ef9d07b223b1b03c12b6b66fe667ef70599c6ad5",
+      "size": 6101
+    },
+    "core": {
+      "media": "text/x-lisp",
+      "path": "examples/compiles-to/straight/core.sexp",
+      "sha256": "48a8ad0e2c76b8d7ed6ee906c783214ec9af86a8b5539936a5eb5bd16b3fc4c6",
+      "size": 21231
     },
     "source": {
       "media": "text/x-c",
@@ -18,11 +24,17 @@
       "sha256": "1b163bb57a1f283f05b223c40184ed093dbf50bf15dbd68ce49ca795846f3454",
       "size": 625
     },
-    "target_core_probe": {
+    "target_ail": {
       "media": "text/x-lisp",
-      "path": "examples/compiler-explorer/c2c/core-probe.txt",
-      "sha256": "32f3a37a718cf24f0f38a7f48a977422de91c169470457c1d6be995c4248cc00",
-      "size": 116065
+      "path": "examples/compiler-explorer/c2c/typed-ail.sexp",
+      "sha256": "98bc93c7ac5cf97d41668bf0dc834f0d6aabe75de5de5a401670dd0467b5be91",
+      "size": 30737
+    },
+    "target_core": {
+      "media": "text/x-lisp",
+      "path": "examples/compiler-explorer/c2c/core.sexp",
+      "sha256": "472f463abf1852142e6f3f181b668d1bc9d61d7cb03b23a20c341eb8ba1c5830",
+      "size": 85259
     }
   },
   "context": {
@@ -134,16 +146,24 @@
         "CompilesToExamples.Straight.cText"
       ],
       [
+        "ail",
+        "Silmaril.Project.CompilesTo.Probe.ailText CompilesToExamples.Straight.ail"
+      ],
+      [
+        "core",
+        "Silmaril.Project.CompilesTo.Probe.document CompilesToExamples.Straight.core"
+      ],
+      [
         "target",
         "CompilesToExamples.Explorer.C2C.cText"
       ],
       [
-        "core_probe",
-        "(Silmaril.Project.CompilesTo.Probe.modelText CompilesToExamples.Straight.ail CompilesToExamples.Straight.core).dropEnd 1 |>.toString"
+        "target_ail",
+        "Silmaril.Project.CompilesTo.Probe.ailText CompilesToExamples.Explorer.C2C.ail"
       ],
       [
-        "target_core_probe",
-        "Silmaril.Project.CompilesTo.Probe.modelText CompilesToExamples.Explorer.C2C.ail CompilesToExamples.Explorer.C2C.core"
+        "target_core",
+        "Silmaril.Project.CompilesTo.Probe.document CompilesToExamples.Explorer.C2C.core"
       ]
     ],
     "definitions": [
@@ -159,12 +179,16 @@
       "CompilesToExamples.Straight.cText",
       "CompilesToExamples.Straight.core",
       "Silmaril.Project.Shapes.C.CFn.source",
+      "Silmaril.Project.Shapes.C.ElabAil",
+      "Silmaril.Project.Shapes.C.FrontendAil",
       "Silmaril.Project.Shapes.CompilesTo.CanonicalEquivalent",
       "Silmaril.Project.Shapes.CompilesTo.CanonicalRefines"
     ],
     "family": "c-to-c",
     "modules": [
       "CompilesToExamples.Explorer.C2C.Runs",
+      "CompilesToExamples.Explorer.C2C.Elaborates",
+      "CompilesToExamples.Straight.Proofs.Elaborates",
       "Silmaril.Project.CompilesTo.Probe.Defs"
     ],
     "vars": {
@@ -184,6 +208,18 @@
       "id": "equivalence",
       "kind": "c2c_equivalent",
       "statement": "Silmaril.Project.Shapes.CompilesTo.CanonicalEquivalent CompilesToExamples.Straight.add3Fn CompilesToExamples.Explorer.C2C.add3ReassocFn"
+    },
+    {
+      "decl": "CompilesToExamples.Straight.elab_eq",
+      "id": "core_elaboration",
+      "kind": "core_elaboration",
+      "statement": "Silmaril.Project.Shapes.C.ElabAil CompilesToExamples.Straight.ail = .ok CompilesToExamples.Straight.core"
+    },
+    {
+      "decl": "CompilesToExamples.Explorer.C2C.elab_eq",
+      "id": "target_core_elaboration",
+      "kind": "target_core_elaboration",
+      "statement": "Silmaril.Project.Shapes.C.ElabAil CompilesToExamples.Explorer.C2C.ail = .ok CompilesToExamples.Explorer.C2C.core"
     }
   ],
   "problem_form": "semantic",
@@ -194,20 +230,50 @@
   "schema": "silmaril.compiler-explorer.problem/1",
   "stages": [
     {
-      "evidence": "#guard checks typed Ail. The model uses the quoted Core with normalized return labels.",
+      "evidence": "Compiled #guard compares FrontendAil's typed Ail with this value; not a parser theorem.",
       "input": "source",
-      "name": "Lean C frontend and Cerberus elaborator",
-      "output": "core_probe",
+      "input_decl": "CompilesToExamples.Straight.cText",
+      "model": "Silmaril.Project.Shapes.C.FrontendAil",
+      "name": "C → typed Ail",
+      "output": "ail",
+      "output_decl": "CompilesToExamples.Straight.ail",
       "side": "source",
       "trust": "evaluated"
     },
     {
-      "evidence": "#guard checks typed Ail. The model uses the quoted Core with normalized return labels.",
+      "evidence": "Kernel equality for these exact Ail and Core values; not evidence for the preceding frontend.",
+      "input": "ail",
+      "input_decl": "CompilesToExamples.Straight.ail",
+      "model": "Silmaril.Project.Shapes.C.ElabAil",
+      "name": "Typed Ail → Core",
+      "obligation": "core_elaboration",
+      "output": "core",
+      "output_decl": "CompilesToExamples.Straight.core",
+      "side": "source",
+      "trust": "verified"
+    },
+    {
+      "evidence": "Compiled #guard compares FrontendAil's typed Ail with this value; not a parser theorem.",
       "input": "target",
-      "name": "Lean C frontend and Cerberus elaborator",
-      "output": "target_core_probe",
+      "input_decl": "CompilesToExamples.Explorer.C2C.cText",
+      "model": "Silmaril.Project.Shapes.C.FrontendAil",
+      "name": "C → typed Ail",
+      "output": "target_ail",
+      "output_decl": "CompilesToExamples.Explorer.C2C.ail",
       "side": "target",
       "trust": "evaluated"
+    },
+    {
+      "evidence": "Kernel equality for these exact Ail and Core values; not evidence for the preceding frontend.",
+      "input": "target_ail",
+      "input_decl": "CompilesToExamples.Explorer.C2C.ail",
+      "model": "Silmaril.Project.Shapes.C.ElabAil",
+      "name": "Typed Ail → Core",
+      "obligation": "target_core_elaboration",
+      "output": "target_core",
+      "output_decl": "CompilesToExamples.Explorer.C2C.core",
+      "side": "target",
+      "trust": "verified"
     }
   ],
   "tests": [],
@@ -220,8 +286,12 @@
           "role": "source"
         },
         {
-          "label": "Typed Ail + model Core",
-          "role": "core_probe"
+          "label": "Typed Ail",
+          "role": "ail"
+        },
+        {
+          "label": "Core",
+          "role": "core"
         }
       ],
       "target": [
@@ -230,8 +300,12 @@
           "role": "target"
         },
         {
-          "label": "Typed Ail + model Core",
-          "role": "target_core_probe"
+          "label": "Typed Ail",
+          "role": "target_ail"
+        },
+        {
+          "label": "Core",
+          "role": "target_core"
         }
       ]
     },
