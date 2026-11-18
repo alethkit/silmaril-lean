@@ -9,7 +9,7 @@ cd "$BUILD/$ROOT"
 CONFIG=${CORPUS_BORINGSSL_CONFIG:-no-asm}
 # No network toolchain/module download or inherited build caches. RESET deletes
 # these directories before every profile in each independently initialized worker.
-export GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOMAXPROCS=3
+export CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOMAXPROCS=3
 export GOCACHE=/tmp/go-build GOMODCACHE=/tmp/go-mod
 info cflags "$BASE_CFLAGS; Release=-g0 -DNDEBUG; upstream adds its own warning/C++/ASM options (see compile_commands.json)"
 info ldflags 'upstream CMake shared crypto/ssl and bssl target link commands; see ninja-commands.txt'

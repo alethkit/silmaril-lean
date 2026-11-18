@@ -4,6 +4,7 @@
 #include <openssl/aes.h>
 #include <openssl/bio.h>
 #include <openssl/ec.h>
+#include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/nid.h>
 #include <openssl/sha.h>
@@ -88,5 +89,6 @@ int main(void) {
     SSL_free(client); SSL_free(server); SSL_CTX_free(client_ctx); SSL_CTX_free(server_ctx);
     X509_free(cert); EVP_PKEY_free(pkey);
     puts("TLS1.3 certificate signature handshake and application transfer passed");
+    printf("FIPS research configuration flag: %d\n", FIPS_mode());
     return 0;
 }
