@@ -27,17 +27,19 @@ namespace Silmaril.X86.SystemV.CApi
 
 /-- The scalar classes supported by the initial LP64 ABI adapter. -/
 inductive Scalar where
-  | boolean | int32 | uint32 | int64 | uint64 | pointer
+  | boolean | uint8 | int32 | uint32 | int64 | uint64 | pointer
   deriving DecidableEq, Repr
 
 def Scalar.Value : Scalar → Type
   | .boolean => Bool
+  | .uint8 => BitVec 8
   | .int32 | .uint32 => BitVec 32
   | .int64 | .uint64 | .pointer => BitVec 64
 
 /-- Mathematical interpretation of signed scalar bit patterns. -/
 def Scalar.signed : (kind : Scalar) → kind.Value → Int
   | .boolean, value => cond value 1 0
+  | .uint8, value => value.toNat
   | .int32, value => value.toInt
   | .int64, value => value.toInt
   | .uint32, value => value.toNat
