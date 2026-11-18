@@ -833,13 +833,15 @@ def obligation_links(o: dict) -> list[dict]:
     return [x for x in out if x["url"]]
 
 
-def artifact_links(arts: dict, lean: dict) -> dict:
+def artifact_links(arts: dict, lean: dict, commit: str | None) -> dict:
     """Per artifact role: the explorer's page of a registered artifact, the ELF tab for a pinned
-    executable, and the file in the repository at the manifest's path (on main)."""
+    executable, and the file in the repository at the manifest's path, at the commit the evidence
+    was computed at (a clean commit; else no repository link)."""
     out = {}
     registry = lean.get("registry", {})
     for role, a in arts.items():
-        links = [{"kind": "repo", "label": a["path"], "url": f"{LINKS['repo']}/blob/main/{a['path']}"}]
+        links = ([{"kind": "repo", "label": a["path"], "url": f"{LINKS['repo']}/blob/{commit}/{a['path']}"}]
+                 if commit else [])
         if role in registry:
             links.append({"kind": "explorer", "label": f"artifact {registry[role]} (silmaril explorer)",
                           "url": explorer_link("artifact", registry[role])})
@@ -895,7 +897,10 @@ def problem_view(db, pid: str) -> dict | None:
         "manifest_sha256": ver["manifest_sha256"], "context_hash": ver["context_hash"],
         "derivation": json.loads(ver["derivation"]), "context": json.loads(ver["context"]),
         "lean": json.loads(ver["lean"]), "artifacts": arts, "view": view, "texts": texts,
-        "alt_texts": alt_texts, "artifact_links": artifact_links(arts, json.loads(ver["lean"])),
+        "alt_texts": alt_texts,
+        "artifact_links": artifact_links(arts, json.loads(ver["lean"]), next(
+            (o["evidence"]["git_commit"] for o in obligations
+             if o.get("evidence") and HEX40.match(o["evidence"].get("git_commit") or "")), None)),
         "fragments": frags, "edges": edges, "obligations": obligations, "tests": tests,
         "versions": versions, "extra": json.loads(ver["extra"]),
         "questions": {

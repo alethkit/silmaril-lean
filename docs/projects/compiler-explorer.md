@@ -404,7 +404,8 @@ rejects the program, and its message is not a proof.
     clean 40-hex commit, with the line from the exporter);
   - the silmaril explorer's routes on main: `#/problem/<row>`, `#/artifact/<registered name>`,
     and `#/source/<decl>` for a row's solving theorem;
-  - the repository file of every artifact.
+  - the repository file of every artifact, at the commit its evidence was computed at (none for
+    a problem without checked evidence).
 
   The C tab (`#/c-program/…`) is in open PR #900 and not on main, so no link to it is made. The
   ELF tab (`#/elf-file/<slug>`) shows only its pinned executables; `ELF_TAB` maps their SHA-256

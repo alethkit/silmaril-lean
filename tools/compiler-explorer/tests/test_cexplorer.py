@@ -518,6 +518,8 @@ class Polish(Base):
         self.assertTrue(any(u.endswith("#/problem/silmaril.compiler_explorer.straight.o0.add3.translation")
                             for u in urls))
         src_links = [l["url"] for l in v["artifact_links"]["source"]]
+        self.assertIn("https://github.com/hiloopai/silmaril-lean/blob/" + "a" * 40 +
+                      "/examples/compiles-to/straight/straight.c", src_links)
         self.assertTrue(any(u.endswith("#/artifact/silmaril.compiles_to.straight.source") for u in src_links))
         self.assertFalse(any("#/c-program/" in u or "#/elf-file/" in u for u in src_links))
         # a dirty or unknown commit gives no Lean link
