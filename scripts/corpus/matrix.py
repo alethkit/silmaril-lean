@@ -106,6 +106,7 @@ def inventory(root):
     return {'schema_version': 1,
             'hierarchy': ['project', 'version_components', 'source_id', 'build.configuration',
                           'build.target', 'build.compiler', 'build.cflags', 'stripping', 'sha256'],
+            'binary_viewer_statement_count': sum(s.get('viewer_kind') == 'binary_equivalence' for s in formal),
             'formal_statement_counts': {kind: sum(s['kind'] == kind for s in formal) for kind in ['contextual_c_to_elf', 'functional_equivalence']},
             'artifact_rows': len(artifacts), 'unique_content_hashes': len({a['sha256'] for a in artifacts}),
             'limits': ['Only completed hash-checked outputs are indexed; no planned builds count as artifacts.',

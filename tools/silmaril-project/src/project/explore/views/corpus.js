@@ -16,7 +16,7 @@ async function corpusPage(arg, ctx) {
   return { html: `<section><h2>Software under test</h2><p class="muted">Browse projects, releases, build settings and exact artifacts.</p>
     ${tables.has("projects") ? '<p><a href="#/compiler">Compiler explorer integration and source ↔ target viewer</a></p>' : ""}
     <div class="corpus-metrics"><div><h3>${counts.projects} projects</h3><p>${counts.artifacts} delivered artifact rows · ${counts.hashes} unique contents</p></div>
-    <div><h3>${tvCount} contextual C → ELF statements</h3><p>${eqCount} function-equivalence statements · stated, unproved. Source metadata and structural decompositions remain separate from semantic validation.</p></div></div>
+    <div><h3>${tvCount} contextual C → ELF statements</h3><p>${eqCount} registered function-equivalence statements · ${statementCounts.binary_viewer_statements||0} connected binary viewer entries · stated, unproved. Source metadata and structural decompositions remain separate from semantic validation.</p></div></div>
     <p>Only completed, hash-checked artifacts appear. Instruction census results are static tool evidence; imports do not demonstrate runtime use.</p>
     <div class="corpus-filters" id="corpus-filters">${Object.keys(choices).map(select).join(" ")}</div>
     <p id="corpus-count" aria-live="polite"></p><div id="corpus-results"></div></section>`,

@@ -46,18 +46,25 @@ class SqliteBinaryEquivalences(unittest.TestCase):
             with sqlite3.connect(project) as db:
                 db.executescript('CREATE TABLE corpus_meta(key TEXT,value TEXT); CREATE TABLE corpus_artifacts(id TEXT,path TEXT,sha256 TEXT); CREATE TABLE corpus_functions(artifact TEXT,symbol TEXT,address INTEGER,size INTEGER);')
                 db.execute('INSERT INTO corpus_meta VALUES(?,?)',('revision','a'*40))
-                for endpoint in self.endpoints.values():
+                for endpoint in [x for name in e.MANIFESTS for x in json.loads((ROOT/name).read_text())['endpoints']]:
                     db.execute('INSERT INTO corpus_artifacts VALUES(?,?,?)',(endpoint['id'],endpoint['path'],endpoint['sha256']))
                     for symbol,f in endpoint['functions'].items():
                         db.execute('INSERT INTO corpus_functions VALUES(?,?,?,?)',(endpoint['id'],symbol,f['address'],f['size']))
             rows=e.export(project,out)
-            self.assertEqual(len(rows),7)
+            self.assertEqual(len(rows),8)
+            registry=json.loads((ROOT/e.c.REGISTRY).read_text())['statements']
+            self.assertEqual(sum(x['kind']=='functional_equivalence' for x in registry),14)
+            self.assertEqual(sum(x['kind']=='functional_equivalence' and x.get('viewer_kind')!='binary_equivalence' for x in registry),6)
             for row in rows:
                 p=json.loads((out/Path(row['static_path']).name).read_text())
                 self.assertEqual(p['status'],'UNPROVED');self.assertFalse(p['source_refinement_assumed'])
                 self.assertIsNone(p['proof_evidence']);self.assertIsNone(p['exporter_run'])
                 self.assertEqual([a['role'] for a in p['artifacts']],['left','right'])
                 self.assertEqual(len(p['modules']),4)
+            for endpoint in json.loads((ROOT/e.MANIFESTS[1]).read_text())['endpoints']:
+                with sqlite3.connect(project) as db:db.execute('UPDATE corpus_functions SET address=0 WHERE artifact=?',(endpoint['id'],))
+                with self.assertRaisesRegex(ValueError,'function mismatch'):e.export(project,out)
+                with sqlite3.connect(project) as db:db.execute('UPDATE corpus_functions SET address=? WHERE artifact=?',(endpoint['functions']['cJSON_GetArraySize']['address'],endpoint['id']))
             with sqlite3.connect(project) as db:db.execute('UPDATE corpus_functions SET address=0')
             with self.assertRaisesRegex(ValueError,'function mismatch'):e.export(project,out)
 

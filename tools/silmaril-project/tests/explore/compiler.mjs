@@ -45,6 +45,7 @@ try {
   await page.screenshot({path:path.join(shots,'compiler.png'),fullPage:true});
   await page.getByRole('link',{name:'Corpus catalog',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#corpus-count')?.textContent.includes('matching artifacts'),{timeout:60000});
+  assert.match(await page.locator('#main').innerText(),/14 registered function-equivalence statements · 8 connected binary viewer entries/);
   console.log('PASS published-shape compiler viewer: project navigation, static payloads, source/target/semantic modes and corpus return');
   // Real corpus statements use their own registry-backed, uniformly UNPROVED view.
   const corpusIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/corpus/index.json'),'utf8'));
@@ -159,29 +160,40 @@ try {
   console.log('PASS actual registry corpus viewer:29 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
 
   const binaryIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/equivalences/index.json'),'utf8'));
-  assert.equal(binaryIndex.length,7);
+  assert.equal(binaryIndex.length,8);
   for(const entry of binaryIndex){
     const p=JSON.parse(fs.readFileSync(path.join(site,'compiler',entry.static_path),'utf8'));
     await page.goto(base+'/compiler/?equivalence='+encodeURIComponent(entry.declaration));
     await page.waitForFunction(d=>document.body.dataset.equivalenceDeclaration===d,entry.declaration);
-    assert.match(await page.locator('#status').innerText(),/7 binary-equivalence viewer problems · UNPROVED/);
-    assert.equal(await page.locator('#binary-statement option').count(),8);
-    assert.match(await page.locator('#selection').innerText(),/independently be enterable/);
+    assert.match(await page.locator('#status').innerText(),/8 binary-equivalence viewer problems · UNPROVED/);
+    assert.equal(await page.locator('#binary-statement option').count(),9);
+    assert.match(await page.locator('#selection').innerText(),p.pair.profile==='cjson-finite-list-v1'?/joint entries for every declared finite-list/:/independently be enterable/);
     for(const [i,id] of ['src','tgt'].entries()){
       const a=p.artifacts[i],rendered=await page.locator('#'+id).innerText();
       for(const value of [a.path,a.sha256,a.bytes_hex,'0x'+a.address.toString(16),`${a.frame} bytes below entry RSP`])assert.ok(rendered.includes(value));
       assert.match(await page.locator('#provenance').innerText(),new RegExp(a.source.sha256));
       assert.ok((await page.locator('#provenance').innerText()).includes(a.source.definitions[p.function_symbol].text));
     }
-    const defs=await page.locator('[data-context-module="Silmaril/Elf/Corpus/SqliteBuildQueries/Equivalence/Defs.lean"] pre').textContent();
-    for(const required of ['SysV.Implements','Silmaril.Elf.CodeAt','Safe _ := True','leftFrame rightFrame','meaning value'])assert.ok(defs.includes(required));
-    assert.match(await page.locator('#provenance').innerText(),/different version constants/);
-    assert.match(await page.locator('#provenance').innerText(),/different SQLITE_THREADSAFE settings/);
-    assert.equal(p.source_refinement_assumed,false);assert.equal(p.proof_evidence,null);
-    if(entry.declaration.endsWith('.versionOptimization')||entry.declaration.endsWith('.smallThreadsafeOptimization')){
+    if(p.pair.profile==='cjson-finite-list-v1'){
+      const defs=await page.locator('[data-context-module="Silmaril/Elf/Corpus/CjsonArraySize/Equivalence/Defs.lean"] pre').textContent();
+      for(const required of ['SysV.CallEntry','FnContract.AbiEntry','FnContract.FirstReturn','FnContract.AbiReturn','WritesWithin','heapMatches','payload : Nat → BitVec 8','∀ i, ∃ a b'])assert.ok(defs.includes(required));
+      assert.match(await page.locator('#questions').innerText(),/arbitrary unrelated payload bytes/);
       assert.notEqual(p.artifacts[0].bytes_hex,p.artifacts[1].bytes_hex);
-      assert.equal(p.artifacts[0].frame,8);assert.equal(p.artifacts[1].frame,0);
-      if(p.function_symbol==='sqlite3_threadsafe')assert.equal(p.artifacts[1].bytes_hex,'31 c0 c3');
+      assert.deepEqual(p.artifacts.map(a=>[a.address,a.size,a.frame]),[[21378,81,32],[16528,35,0]]);
+      assert.equal(p.pair.value,null);assert.equal(p.pair.length_bound,64);
+      assert.match(await page.locator('#assumptions').innerText(),/not an equivalence proof/);
+    }else{
+      const defs=await page.locator('[data-context-module="Silmaril/Elf/Corpus/SqliteBuildQueries/Equivalence/Defs.lean"] pre').textContent();
+      for(const required of ['SysV.Implements','Silmaril.Elf.CodeAt','Safe _ := True','leftFrame rightFrame','meaning value'])assert.ok(defs.includes(required));
+      assert.match(await page.locator('#provenance').innerText(),/different version constants/);
+      assert.match(await page.locator('#provenance').innerText(),/different SQLITE_THREADSAFE settings/);
+    }
+    assert.equal(p.source_refinement_assumed,false);assert.equal(p.proof_evidence,null);
+    if(entry.declaration.endsWith('.versionOptimization')||entry.declaration.endsWith('.smallThreadsafeOptimization')||p.pair.profile==='cjson-finite-list-v1'){
+      assert.notEqual(p.artifacts[0].bytes_hex,p.artifacts[1].bytes_hex);
+      assert.equal(p.artifacts[0].frame,p.pair.profile==='cjson-finite-list-v1'?32:8);assert.equal(p.artifacts[1].frame,0);
+      if(p.pair.profile==='cjson-finite-list-v1')assert.equal(p.artifacts[0].size,81);
+      else if(p.function_symbol==='sqlite3_threadsafe')assert.equal(p.artifacts[1].bytes_hex,'31 c0 c3');
       else assert.equal(p.artifacts[0].bytes_hex,'55 48 89 e5 b8 b1 99 2e 00 5d c3');
       await page.getByRole('link',{name:'Corpus function',exact:true}).first().click();
       await page.waitForFunction(v=>document.querySelector('#corpus-function-search')?.value===v,p.function_symbol);
@@ -197,13 +209,15 @@ try {
     }
   }
   assert.deepEqual(pageErrors,[]);
-  const binaryPayload=JSON.parse(fs.readFileSync(path.join(site,'compiler',binaryIndex[0].static_path),'utf8'));
-  const contextResource=binaryPayload.modules[0];
-  await page.route('**/'+contextResource.static_path,route=>route.fulfill({status:200,contentType:'text/plain',body:'altered binary context'}));
-  await page.goto(base+'/compiler/?equivalence='+encodeURIComponent(binaryPayload.declaration));
-  await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('error: binary context identity mismatch'));
-  assert.equal(await page.locator('body').getAttribute('data-equivalence-declaration'),null);
-  await page.unroute('**/'+contextResource.static_path);
-  console.log('PASS seven actual SQLite binary-equivalence problems: both real ELF endpoints, different instructions, signed-int ABI, exact private stack frames, source/config receipts and exclusions, UNPROVED status, bidirectional catalog/function links and altered-context rejection;842/707 retained');
+  for(const selected of [binaryIndex[0],binaryIndex.find(x=>x.function_symbol==='cJSON_GetArraySize')]){
+    const binaryPayload=JSON.parse(fs.readFileSync(path.join(site,'compiler',selected.static_path),'utf8'));
+    const contextResource=binaryPayload.modules[0];
+    await page.route('**/'+contextResource.static_path,route=>route.fulfill({status:200,contentType:'text/plain',body:'altered binary context'}));
+    await page.goto(base+'/compiler/?equivalence='+encodeURIComponent(binaryPayload.declaration));
+    await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('error: binary context identity mismatch'));
+    assert.equal(await page.locator('body').getAttribute('data-equivalence-declaration'),null);
+    await page.unroute('**/'+contextResource.static_path);
+  }
+  console.log('PASS eight actual binary-equivalence viewer entries (14 registered statements; six older entries not viewer-connected): both real ELF endpoints, different instructions, signed-int ABI, exact private stack frames, source/config receipts and exclusions, UNPROVED status, bidirectional catalog/function links and altered-context rejection;842/707 retained');
 
 } finally {await browser.close();server.kill();}

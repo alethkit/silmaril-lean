@@ -9,10 +9,22 @@ _spec = importlib.util.spec_from_file_location('binary_corpus', Path(__file__).w
 c = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(c)
 MANIFEST = 'corpus/sqlite/equivalence/build-queries/manifest.json'
+MANIFESTS = [MANIFEST, 'corpus/cjson/equivalence/array-size/manifest.json']
 
 
 def validate_pair(pair, left, right):
     """Reject incompatible observed queries; this does not prove machine semantics."""
+    if pair.get('profile') == 'cjson-finite-list-v1':
+        if pair['function_symbol'] != 'cJSON_GetArraySize' or pair.get('value') is not None:
+            raise ValueError('invalid traversal observation')
+        if pair['left_frame'] != 32 or pair['right_frame'] != 0 or pair['length_bound'] != 64:
+            raise ValueError('unexpected traversal frame/domain')
+        for key in ['source_sha256', 'version', 'configuration', 'target']:
+            if left['build'][key] != right['build'][key]:
+                raise ValueError('incompatible traversal source/configuration')
+        if left['build']['optimization'] != 'O0' or right['build']['optimization'] != 'O2':
+            raise ValueError('invalid traversal optimization pair')
+        return
     key = 'version_number' if pair['function_symbol'] == 'sqlite3_libversion_number' else 'threadsafe_setting'
     if pair['function_symbol'] not in ['sqlite3_libversion_number', 'sqlite3_threadsafe']:
         raise ValueError('unsupported binary query')
@@ -24,6 +36,34 @@ def validate_pair(pair, left, right):
             raise ValueError('unexpected private stack frame')
 
 
+def validate_cjson_build(root, endpoint):
+    """Check normalized display fields against real, differently shaped old receipts."""
+    receipt = json.loads(c.public_file(root, endpoint['receipt']['path']).read_bytes())
+    build = endpoint['build']
+    if receipt['package'] != 'cjson' or receipt['version'] != build['version'] or receipt['arch'] != 'x86_64':
+        raise ValueError('traversal receipt identity mismatch')
+    if any(receipt[k] != build[k] for k in ['cflags', 'configure_args', 'compiler']):
+        raise ValueError('traversal build fields mismatch')
+    if receipt['image']['id'] != build['image_id'] or build['source_inputs'] != receipt['inputs']:
+        raise ValueError('traversal build image/source mismatch')
+    if build['source_sha256'] != endpoint['source']['sha256'] or build['configuration'] != 'default' or build['target'] != 'x86_64-linux-gnu':
+        raise ValueError('traversal source/configuration mismatch')
+    if not re.search(r'(?:^| )-O'+build['optimization'][1:]+r'(?: |$)', receipt['cflags']):
+        raise ValueError('traversal optimization mismatch')
+    outputs = [x for x in receipt['outputs'] if x['object'] == 'libcjson.so.1']
+    if len(outputs) != 1 or outputs[0]['sha256'] != endpoint['sha256']:
+        raise ValueError('traversal receipt artifact mismatch')
+    if endpoint['id'] == 'O0':
+        actual = json.loads(c.public_file(root, build['path']).read_bytes())
+        for key in ['configuration', 'version', 'optimization', 'image_id', 'source_inputs', 'target']:
+            if build[key] != actual[key]:
+                raise ValueError('traversal variant build mismatch')
+        if not any(x['path'] == endpoint['source']['path'] and x['sha256'] == endpoint['source']['sha256'] for x in actual['included_source_files']):
+            raise ValueError('traversal included source mismatch')
+    elif endpoint['id'] != 'O2' or build['path'] != endpoint['receipt']['path']:
+        raise ValueError('traversal canonical receipt mismatch')
+
+
 def export(project, output, root=c.ROOT):
     registry_data = c.public_file(root, c.REGISTRY).read_bytes()
     statements = [s for s in json.loads(registry_data)['statements'] if s.get('viewer_kind') == 'binary_equivalence']
@@ -32,14 +72,19 @@ def export(project, output, root=c.ROOT):
     if not statements:
         (output / 'index.json').write_text('[]\n')
         return []
-    data = c.public_file(root, MANIFEST).read_bytes()
-    manifest = json.loads(data)
-    if manifest['schema'] != 'silmaril.binary-equivalence.v1':
-        raise ValueError('unsupported binary manifest')
-    pairs = {p['declaration']: p for p in manifest['pairs']}
+    pairs = {}
+    for name in MANIFESTS:
+        raw = c.public_file(root, name).read_bytes()
+        m = json.loads(raw)
+        if m['schema'] != 'silmaril.binary-equivalence.v1':
+            raise ValueError('unsupported binary manifest')
+        endpoints = {e['id']: e for e in m['endpoints']}
+        for pair in m['pairs']:
+            if pair['declaration'] in pairs:
+                raise ValueError('duplicate binary manifest declaration')
+            pairs[pair['declaration']] = (pair, endpoints, m, name, raw)
     if set(pairs) != {s['declaration'] for s in statements}:
         raise ValueError('binary registry/manifest mismatch')
-    endpoints = {e['id']: e for e in manifest['endpoints']}
     listing = []
     with sqlite3.connect(project.resolve().as_uri() + '?mode=ro', uri=True) as db:
         db.row_factory = sqlite3.Row
@@ -49,13 +94,13 @@ def export(project, output, root=c.ROOT):
         for s in statements:
             if s['kind'] != 'functional_equivalence' or s['status'] != 'stated-unproved':
                 raise ValueError('unexpected binary problem status')
+            pair, endpoints, manifest, manifest_path, data = pairs[s['declaration']]
             pins = {**s['artifact_sha256'], **s['module_sha256']}
             for name, digest in pins.items():
                 if c.sha(c.public_file(root, name).read_bytes()) != digest:
                     raise ValueError('stale binary evidence: ' + name)
-            if pins.get(MANIFEST) != c.sha(data):
+            if pins.get(manifest_path) != c.sha(data):
                 raise ValueError('unpinned binary manifest')
-            pair = pairs[s['declaration']]
             validate_pair(pair, endpoints[pair['left']], endpoints[pair['right']])
             artifacts = []
             for role in ['left', 'right']:
@@ -64,19 +109,23 @@ def export(project, output, root=c.ROOT):
                     raw = c.public_file(root, evidence['path']).read_bytes()
                     if pins.get(evidence['path']) != c.sha(raw) or evidence['sha256'] != c.sha(raw):
                         raise ValueError('stale binary build/source receipt')
-                actual_receipt = json.loads(c.public_file(root, e['receipt']['path']).read_bytes())
-                actual_build = json.loads(c.public_file(root, e['build']['path']).read_bytes())
-                if any(e['build'][key] != actual_build[key] for key in ['configuration', 'version', 'optimization', 'image_id', 'source_inputs']):
-                    raise ValueError('binary build fields mismatch')
-                if e['build']['cflags'] != actual_receipt['cflags'] or e['source']['path'] not in {x['path'] for x in actual_build['included_source_files']}:
-                    raise ValueError('binary build/source correspondence mismatch')
-                setting = re.search(r'-DSQLITE_THREADSAFE=(\d)', actual_receipt['cflags'])
-                if not setting or int(setting[1]) != e['threadsafe_setting']:
-                    raise ValueError('binary THREADSAFE option mismatch')
-                raw_source = c.public_file(root, e['source']['path']).read_bytes()
-                version = re.search(rb'#define SQLITE_VERSION_NUMBER\s+(\d+)', raw_source)
-                if not version or int(version[1]) != e['version_number']:
-                    raise ValueError('binary source version mismatch')
+                if pair.get('profile') == 'cjson-finite-list-v1':
+                    validate_cjson_build(root, e)
+                    raw_source = c.public_file(root, e['source']['path']).read_bytes()
+                else:
+                    actual_receipt = json.loads(c.public_file(root, e['receipt']['path']).read_bytes())
+                    actual_build = json.loads(c.public_file(root, e['build']['path']).read_bytes())
+                    if any(e['build'][key] != actual_build[key] for key in ['configuration', 'version', 'optimization', 'image_id', 'source_inputs']):
+                        raise ValueError('binary build fields mismatch')
+                    if e['build']['cflags'] != actual_receipt['cflags'] or e['source']['path'] not in {x['path'] for x in actual_build['included_source_files']}:
+                        raise ValueError('binary build/source correspondence mismatch')
+                    setting = re.search(r'-DSQLITE_THREADSAFE=(\d)', actual_receipt['cflags'])
+                    if not setting or int(setting[1]) != e['threadsafe_setting']:
+                        raise ValueError('binary THREADSAFE option mismatch')
+                    raw_source = c.public_file(root, e['source']['path']).read_bytes()
+                    version = re.search(rb'#define SQLITE_VERSION_NUMBER\s+(\d+)', raw_source)
+                    if not version or int(version[1]) != e['version_number']:
+                        raise ValueError('binary source version mismatch')
                 span = e['source']['definitions'][pair['function_symbol']]
                 excerpt = raw_source[span['offset']:span['offset']+span['length']]
                 if c.sha(excerpt) != span['sha256'] or excerpt.decode() != span['text']:
@@ -95,7 +144,7 @@ def export(project, output, root=c.ROOT):
             if run['exit_code'] != 0 or s['root'] not in run['command']:
                 raise ValueError('binary measured check mismatch')
             modules = []
-            for name in [manifest['definition'], s['root'].replace('.', '/') + '.lean', 'Silmaril/Project/Shapes/SysV/Defs.lean', 'Silmaril/Project/Shapes/X86/Defs.lean']:
+            for name in manifest.get('context_modules', [manifest['definition'], s['root'].replace('.', '/') + '.lean', 'Silmaril/Project/Shapes/SysV/Defs.lean', 'Silmaril/Project/Shapes/X86/Defs.lean']):
                 raw = c.public_file(root, name).read_bytes()
                 if pins.get(name) != c.sha(raw) or len(raw) > c.MAX_TEXT:
                     raise ValueError('unpinned or excessive binary context')
@@ -105,7 +154,7 @@ def export(project, output, root=c.ROOT):
             payload = dict(schema='silmaril.binary-view.v1', declaration=s['declaration'], function_symbol=pair['function_symbol'], root=s['root'],
                 status='UNPROVED', kind='functional_equivalence', revision=revision, artifacts=artifacts, modules=modules, pair=pair,
                 excluded=manifest['excluded'], limits=manifest['limits'], run_receipt=s['run_receipt'], proof_evidence=None, exporter_run=None,
-                interactive_compilation=False, source_refinement_assumed=False, manifest=dict(path=MANIFEST,sha256=c.sha(data)),
+                interactive_compilation=False, source_refinement_assumed=False, manifest=dict(path=manifest_path,sha256=c.sha(data)),
                 registry=dict(path=c.REGISTRY,sha256=c.sha(registry_data)))
             key=c.sha(s['declaration'].encode())
             (output/(key+'.json')).write_text(json.dumps(payload,indent=2)+'\n')
