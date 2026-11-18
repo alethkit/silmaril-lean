@@ -7,8 +7,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 LAKE="${LAKE:-lake}"
-checker="$(dirname "$("$LAKE" env which lean)")/leanchecker"
 modules=(
+  CompilesToExamples.Explorer.C2C.Runs
   Silmaril.Proofs.Compiler.CompilesTo.Sim.Compose
   Silmaril.Proofs.Compiler.Explorer.Basic
   Silmaril.Proofs.Compiler.Explorer.Det
@@ -22,9 +22,14 @@ modules=(
   Silmaril.Project.Shapes.C.Additive.Thms
   Silmaril.Proofs.Compiler.Explorer.Text
   Silmaril.Compiler.Explorer.Text.Thms
-  CompilesToExamples.Explorer.C2C.Runs
   CompilesToExamples.Explorer.TypeError
 )
+jobs=$(nproc)
+if (( jobs > 6 )); then jobs=6; fi
 start=$(date +%s)
-LEAN_NUM_THREADS="${LEAN_NUM_THREADS:-2}" timeout 1200 "$LAKE" env "$checker" --verbose "${modules[@]}"
+printf '%s\n' "${modules[@]}" |
+  LEAN_NUM_THREADS=1 timeout 1200 "$LAKE" env xargs -r -n 1 -P "$jobs" bash -c '
+    printf "leanchecker: %s\n" "$1"
+    exec leanchecker "$1"
+  ' replay
 echo "leanchecker: ${#modules[@]} modules ok ($(( $(date +%s) - start )) s)"

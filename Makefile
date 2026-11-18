@@ -7,7 +7,7 @@ CARGO ?= cargo
 PROJECT_TARGET = $(or $(CARGO_TARGET_DIR),tools/silmaril-project/target)
 WASM_TOOLS := wasm-as wasm-dis wasm-opt wasm-merge wasm-shell wasm-ctor-eval wasm-metadce
 
-.PHONY: compiler-explorer-check logic-graph-check tools stage library cache scope check release-check process-check process-gates project-lean project-tool project-registry project-check acceptor-report pages elf-check demo demo-process demo-sha256 help
+.PHONY: compiler-explorer-check compiler-explorer-unit-check logic-graph-check tools stage library cache scope check release-check process-check process-gates project-lean project-tool project-registry project-check acceptor-report pages elf-check demo demo-process demo-sha256 help
 
 tools:
 	$(LAKE) build --wfail $(WASM_TOOLS)
@@ -70,8 +70,7 @@ check:
 	$(PYTHON) -I scripts/check-wasm-checkers.py
 	node examples/wasm-checkers/test-lrat.mjs
 	$(PYTHON) -I scripts/check-wasm-sim.py
-	$(PYTHON) -I tools/compiler-explorer/tests/test_cexplorer.py
-	node --test tools/compiler-explorer/tests/view.test.mjs
+	$(if $(filter cexplorer-export CompilesToExamples,$(CHECK_TARGETS)),,$(MAKE) compiler-explorer-unit-check)
 	@if [ -n "$(LAKE_CACHE_RECORD)" ]; then \
 		cov-lake-cache build --repository hiloopai/silmaril-lean --record "$(LAKE_CACHE_RECORD)" -- $(CHECK_TARGETS); \
 	elif [ -n "$(strip $(CHECK_TARGETS))" ]; then \
@@ -87,8 +86,12 @@ check:
 # The compiler explorer end to end: the exporter on every manifest, the statuses against
 # examples/compiler-explorer/expected-status.txt, the database and view tests
 # (docs/projects/compiler-explorer.md).
-compiler-explorer-check:
+compiler-explorer-check: compiler-explorer-unit-check
 	LAKE="$(LAKE)" PYTHON="$(PYTHON)" tools/compiler-explorer/check.sh
+
+compiler-explorer-unit-check:
+	$(PYTHON) -I tools/compiler-explorer/tests/test_cexplorer.py
+	node --test tools/compiler-explorer/tests/view.test.mjs
 
 # The logic graph's records files: editing a records file
 # rebuilds its loader incrementally (docs/projects/logic-graph.md).

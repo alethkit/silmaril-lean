@@ -8,7 +8,7 @@
 #    is not evidence: missing, another statement, other axioms);
 # 4. fail unless the statuses are examples/compiler-explorer/expected-status.txt;
 # 5. replay the kernel on the evidence modules (`replay.sh`, leanchecker);
-# 6. run the database and view tests.
+# The Make target also runs the database and view tests.
 # Docker is not needed: the builds and listings are committed (fixtures.py build|listings).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -38,6 +38,4 @@ if ! diff -u examples/compiler-explorer/expected-status.txt "$out/status.txt"; t
   exit 1
 fi
 LAKE="$LAKE" tools/compiler-explorer/replay.sh
-"$PYTHON" -I tools/compiler-explorer/tests/test_cexplorer.py
-node --test tools/compiler-explorer/tests/view.test.mjs
 echo "compiler explorer: ok ($(grep -c ' proved ' "$out/status.txt") proved obligations)"
