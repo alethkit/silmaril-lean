@@ -4,6 +4,7 @@ Unlike fixture manifests this never imports proof evidence or marks refinement
 proved. ELF function excerpts are static files, never added to the project DB.
 """
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -14,6 +15,10 @@ ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = 'corpus/measurements/formal-functions/checks.json'
 MAX_TEXT = 2 * 1024 * 1024
 STRING = r'"(?:\\.|[^"\\])*"'
+
+_data_spec = importlib.util.spec_from_file_location('corpus_data_bindings', Path(__file__).with_name('data_bindings.py'))
+data_bindings = importlib.util.module_from_spec(_data_spec)
+_data_spec.loader.exec_module(data_bindings)
 
 
 def sha(data):
@@ -184,6 +189,8 @@ def export(project, output, root=ROOT):
                     if not count:
                         raise ValueError('catalog callee mismatch')
                     artifact.setdefault('callees', []).append({'function_symbol': callee['symbol'], **actual})
+                if m.get('data_bindings'):
+                    artifact['data_bindings'] = data_bindings.export(read(name), m['data_bindings'])
                 artifacts.append(artifact)
             modules = [blob(read(name), {'path': name}) for name in m['context_modules']]
             payload = {'schema': m['schema'], 'declaration': statement['declaration'], 'root': statement['root'],
