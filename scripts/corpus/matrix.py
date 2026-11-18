@@ -100,7 +100,7 @@ def inventory(root):
                 'has_symtab': obj['has_symtab'], 'reproducible': receipt['reproducible'],
                 'runtime_tests': receipt['tests'],
                 'lean_status': lean_status,
-                'formal_statements': [{k: s[k] for k in ['kind', 'status', 'declaration', 'root']} for s in formal if obj['path'] in s['artifact_sha256']],
+                'formal_statements': [{k: s[k] for k in ['kind', 'status', 'declaration', 'root', 'viewer_kind'] if k in s} for s in formal if obj['path'] in s['artifact_sha256']],
                 'contextual_c_to_elf_statements': sum(s['kind'] == 'contextual_c_to_elf' and obj['path'] in s['artifact_sha256'] for s in formal),
                 'functional_equivalence_statements': sum(s['kind'] == 'functional_equivalence' and obj['path'] in s['artifact_sha256'] for s in formal)})
     return {'schema_version': 1,

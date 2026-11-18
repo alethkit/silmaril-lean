@@ -29,10 +29,10 @@ class CorpusDatabase(unittest.TestCase):
 
     def test_concrete_function_statement_binding(self):
         data = inventory(ROOT)
-        self.assertEqual(data['formal_statement_counts'], {'contextual_c_to_elf': 25, 'functional_equivalence': 6})
+        self.assertEqual(data['formal_statement_counts'], {'contextual_c_to_elf': 25, 'functional_equivalence': 13})
         participants = [a for a in data['artifacts'] if a['functional_equivalence_statements']]
-        self.assertEqual(len(participants), 10)
-        self.assertEqual({a['project'] for a in participants}, {'mimalloc', 'tinycc'})
+        self.assertEqual(len(participants), 16)
+        self.assertEqual({a['project'] for a in participants}, {'mimalloc', 'tinycc', 'sqlite'})
         source_participants = [a for a in data['artifacts'] if a['contextual_c_to_elf_statements']]
         self.assertEqual([a['path'] for a in source_participants], ['corpus/elf/cjson/x86_64/libcjson.so.1', 'corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1', 'corpus/elf/openssl/x86_64/libssl.so.3', 'corpus/elf/sqlite/x86_64/libsqlite3.so', 'corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc'])
         statements = json.loads((ROOT / 'corpus/measurements/formal-functions/checks.json').read_text())['statements']

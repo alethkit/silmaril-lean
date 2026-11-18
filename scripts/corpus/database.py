@@ -121,12 +121,12 @@ CREATE TABLE corpus_timings(run_id TEXT PRIMARY KEY, build_id TEXT, stage TEXT N
                             and ('function_addresses' not in s or function['value'] == s['function_addresses'][artifact['path']])
                             and ('function_size' not in s or function['size'] == s['function_size'])]
                 if concrete:
-                    function['formal_statements'] = [{k: s[k] for k in ['kind', 'status', 'declaration', 'root']} for s in concrete]
+                    function['formal_statements'] = [{k: s[k] for k in ['kind', 'status', 'declaration', 'root', 'viewer_kind'] if k in s} for s in concrete]
                 contextual = [s for s in concrete if s['kind'] == 'contextual_c_to_elf']
                 if contextual:
                     function['tv_context'] = {
                         'status': 'concrete contextual C-to-ELF statement; stated-unproved',
-                        'statements': [{k: s[k] for k in ['kind', 'status', 'declaration', 'root']} for s in contextual]}
+                        'statements': [{k: s[k] for k in ['kind', 'status', 'declaration', 'root', 'viewer_kind'] if k in s} for s in contextual]}
                 db.execute('INSERT INTO corpus_functions VALUES(?,?,?,?,?,?)', (key, ordinal,
                     function.get('symbol', function.get('name')), function['value'], function['size'], json.dumps(function)))
         baseline_paths = list((ROOT / 'corpus/census/runs').glob('*.json'))
