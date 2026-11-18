@@ -40,8 +40,14 @@ public def main : IO Unit := do
     check ((parseJsonWithBytes? policy (text "{\"$links\":\"abc\"}")).isNone) "plural key is not a wrapper"
   check ((parseJsonWithBytes? .none (text "{\"$links\":\"abc\"}")).isSome) "plural is ordinary unescaped"
   check ((parseJsonWithBytes? .none (text "{\"$bytes\":null,\"\":0}")).isSome) "reserved key only wraps singleton"
+  let literal : JsonWithBytes.Ordered := .map (.objCons "$bytes" (.scalar (.string "")) .objNil)
+  let emptyBytes : JsonWithBytes.Ordered := .scalar (.bytes [])
+  check (renderJsonWithBytes .none literal == renderJsonWithBytes .none emptyBytes) "unescaped singleton collision"
+  for policy in [Escape.prefix, .suffix] do
+    check (renderJsonWithBytes policy literal != renderJsonWithBytes policy emptyBytes) "escaping separates literal and bytes"
   let linkText := text "{\"$link\":\"bafkreifn5yxi7nkftsn46b6x26grda57ict7md2xuvfbsgkiahe2e7vnq4\"}"
   check ((parseText? (atprotoCodec .dasl) .none linkText).isSome) "DRISL example CID"
+  check ((parseI64Text? .dasl .none linkText).isNone) "i64 text restriction rejects links"
   check ((parseJsonWithBytes? .none linkText).isNone) "JSON with bytes is link-free"
   let blake := [1, 0x71, 0x1E, 32] ++ List.replicate 32 (0 : UInt8)
   check (CidProfile.bdasl.accepts blake && CidProfile.any.accepts blake && !CidProfile.dasl.accepts blake) "CID restrictions"
@@ -60,6 +66,12 @@ public def main : IO Unit := do
   match Number.ofDecimal? ⟨false, 5, -1⟩ with
   | some (.float bits) => check (bits.val == 0x3FE0000000000000) "exact decimal 0.5"
   | _ => throw (IO.userError "exact decimal 0.5 failed")
+  check ((parseText? (drislCodec .any) .prefix (text "0.5")).isSome) "ordinary exact fractional spelling"
+  check ((parseI64Text? .any .prefix (text "0.5")).isNone) "ATProto debug rejects fractional numbers"
+  let integerOne : Ordered := .scalar (.data (.number (.integer (.uint 1))))
+  let doubleOne : Ordered := .scalar (.data (.number (.float ⟨0x3FF0000000000000, by decide⟩)))
+  check (renderText (drislCodec .any) .prefix integerOne != renderText (drislCodec .any) .prefix doubleOne)
+    "exact double spelling must not collide with the equal integer"
   for bits in [0, 1, 0x000FFFFFFFFFFFFF, 0x0010000000000000, 0x3FF0000000000000,
       0x3FF0000000000001, 0x7FEFFFFFFFFFFFFF, 0xBFE0000000000000, 0x8000000000000001] do
     floatRoundtrip bits
@@ -74,3 +86,6 @@ public def main : IO Unit := do
   check ((ordered.bind (renderCbor? i64Cbor emptyCid)) == some canonical.encode) "canonical rendering"
   check ((parseCbor? i64Cbor emptyCid [0x18, 0]).isNone) "overlong CBOR head"
   check ((parseCbor? i64Cbor emptyCid [0, 0]).isNone) "trailing CBOR item"
+  let taggedCid : Value := .tag 42 (.bytes (0 :: blake))
+  check ((parseCbor? i64Cbor (Cid.codec .bdasl) taggedCid.encode).isSome) "CBOR ATProto extension accepts BDASL"
+  check ((parseI64Cbor? .bdasl taggedCid.encode).isNone) "i64 CBOR restriction rejects links"
