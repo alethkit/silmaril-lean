@@ -34,7 +34,8 @@ def boundary : Boundaries machine where
   admit _ _ _ state := state = false
   formed _ _ := True
 
-def candidates : Decomposition signature := fun _ _ => True
+def candidates : Decomposition signature :=
+  fromRegionView (fun _ _ _ entry exits => entry = false ∧ true ∈ exits) boundary.view ()
 
 def report : Analysis signature where
   direct site callee := site = observed.origin ∧ callee = observed.callee

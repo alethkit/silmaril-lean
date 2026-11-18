@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Semantics.Function.Defs
+public import Silmaril.Semantics.Region.Abstract.Named.Defs
 public import Silmaril.Semantics.Region.Semantic.Defs
 
 /-! # Interpretation of function candidates
@@ -27,6 +28,14 @@ structure Machine (sig : Signature.{u}) where
   returned : sig.Context → sig.Internal → State → State → Prop
 
 variable {sig : Signature.{u}}
+
+/-- A region relation proposes a body by its abstract CFG interface. This
+forgets neither the source context nor the function name. It does not
+classify invocation, return or tail transfer. -/
+def fromRegionView {Label : Type v}
+    (region : Region.Abstract.SegmentRegPred sig.Context sig.Internal sig.Body Label (Set Label))
+    (view : sig.Context → Graph.CFGLike sig.Body Label) (context : sig.Context) : Decomposition sig :=
+  fun name row => region context name row ((view context).entry row) ((view context).exits row)
 
 def Machine.transfer (machine : Machine.{u,v} sig) (context : sig.Context)
     (edge : Edge sig) (pre post : machine.State) : Prop :=

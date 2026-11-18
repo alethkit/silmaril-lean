@@ -10,7 +10,7 @@ namespace Silmaril.Semantics.Function.Examples
 
 theorem certificate : Correspondence boundary () candidates report := Proofs.certificate
 
-theorem body : boundary.semanticBodies () () () := certificate.body_sound trivial
+theorem body : boundary.semanticBodies () () () := certificate.body_sound ⟨rfl, rfl⟩
 
 theorem foreign_path : CallPath (mayGraph report.may) (.localFn ()) (.foreign ()) :=
   consecutive_path certificate.may_cover (.single Proofs.actual)
