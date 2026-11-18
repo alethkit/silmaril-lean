@@ -13,6 +13,8 @@ public import Silmaril.Cerberus.Elaboration.CallArguments.Defs
 public import Silmaril.Cerberus.Elaboration.NullPointers.Defs
 public import Silmaril.Cerberus.Elaboration.IntegerCasts.Defs
 public import Silmaril.Cerberus.Elaboration.Conditionals.Defs
+public import Silmaril.Cerberus.Elaboration.Assignments.Defs
+public import Silmaril.Cerberus.Elaboration.Postfix.Defs
 
 /-! Actual typed-Ail expression dispatcher for constants, object
 identifiers/rvalues, scalar add/sub/mul and AND/XOR/OR, direct aggregate members and pointer-member addresses, scalar lt/le/gt/ge/eq/ne, integer conditionals and short-circuit operators, direct integer casts, integer-zero pointer casts and normal fixed-integer direct calls.
@@ -135,6 +137,19 @@ def expression (config : Target.Config) (env : Target.Environment) (bindings : L
               (Constants.targetResult (GeneralizedTypes.expressionType config env pointer))
             Members.pointerMember config.cheri config.strictPointerArithmetic location pointerType member
               (expression config env bindings pointer aliases tags)
+        | .unary operator operand => do
+            let operandType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env operand))
+            let decrement ← match operator with
+              | .postfixIncr => pure false
+              | .postfixDecr => pure true
+              | _ => throw (.message "unsupported: unary operator outside integer postfix increment/decrement")
+            Postfix.translate config env bindings location type operandType decrement
+              (expression config env bindings operand aliases tags)
+        | .assign left right => do
+            let leftType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env left))
+            let rightType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env right))
+            Assignments.translate config bindings location leftType rightType right
+              (expression config env bindings left aliases tags) (expression config env bindings right aliases tags)
         | .binary left operator right => do
             let leftType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env left))
             let rightType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env right))
