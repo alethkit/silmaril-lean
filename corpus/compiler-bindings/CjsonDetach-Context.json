@@ -42,6 +42,7 @@
     "Target must expose all four actual pointer words and returned item address. Only32 exact heap bytes plus24 private stack bytes are writable; all unrelated bytes and ALL region metadata must be preserved. Safety, joint entry existence, first-return and all ABI/frame requirements remain obligations.",
     "Pinned distinct-provenance equality choices coincide when addresses differ; equal-address/different-provenance ambiguity remains Unsupported. Outside-allocation lifetime mapping remains Unsupported, not claimed UB classification.",
     "Finite native/Core/browser cases are observations, not proofs or coverage of all quantified addresses/payloads. Universal nondeterministic termination/divergence, allocator/startup and whole-corpus function/equivalence coverage remain unfinished.",
-    "842 artifacts/707 hashes and13 binary statements retained. Existing upstream/pre-existing alerts, unsupported FIPS, cJSON runtime/provenance and distinct jemalloc configuration limits remain."
+    "842 artifacts/707 hashes and13 binary statements retained. Existing upstream/pre-existing alerts, unsupported FIPS, cJSON runtime/provenance and distinct jemalloc configuration limits remain.",
+    "One concrete actual Open.step execution checks the returned item pointer, all320 caller bytes, callee-saved registers,24-byte private frame and unchanged other backing bytes/mapping descriptors. It is a finite model observation, not a quantified semantic/entry/ABI/refinement proof."
   ]
 }

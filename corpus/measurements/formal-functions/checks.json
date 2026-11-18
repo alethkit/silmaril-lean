@@ -2098,9 +2098,9 @@
         "Silmaril/X86/SystemV/CApi/Defs.lean": "6574f2b6b59c274b579e17a285ab8127f286a7db2cdfd26e805e732c54496930",
         "Silmaril/X86/SystemV/Defs.lean": "c0d835ce05a648f300ca61674294d16915d3f5831c3b112ec21df5b18ce3f9a9",
         "benchmarks/cerberus-elaboration/oracle/cast-sign-extend/core.sexp.gz": "0f110b37ff5a57dfe4d99d4cf22505b7371bedb92c92acea7f9e2c397a972ccf",
-        "corpus/cjson/semantic-inputs/linux-x86_64/detach-item-via-pointer/README.md": "845353758e8959df3c3d23baec587f62ce682dfa93925da8d30d85adfed5ef61",
+        "corpus/cjson/semantic-inputs/linux-x86_64/detach-item-via-pointer/README.md": "c464e91848c3bc6785008930c0c98789c0134bbe8473791cfc106e5d52a1f448",
         "corpus/cjson/semantic-inputs/linux-x86_64/detach-item-via-pointer/context.c": "dc3e68189a20294a404f896ac3611eae6a77c44c23bc89991c459bc590dab8a8",
-        "corpus/cjson/semantic-inputs/linux-x86_64/detach-item-via-pointer/manifest.json": "770343e9876a5fc3011b98f3886f4031085701bfbd85f955ed7d42342d723986",
+        "corpus/cjson/semantic-inputs/linux-x86_64/detach-item-via-pointer/manifest.json": "76b1163ebdba0d2e6dda8b99ba61f24765b14983dbed0ab8977224809eed14a5",
         "corpus/cjson/semantic-inputs/linux-x86_64/detach-item-via-pointer/program.sexp": "1e54f1805c02475ea193763bade7a524928b62e87cd99685ac0e6b28696b3e7d",
         "corpus/cjson/semantic-inputs/linux-x86_64/detach-item-via-pointer/projection.json": "b1afe72dbe541772e8f7c4b99511e06cc5eae0355c37f821c8b7b4ff2a33dfea",
         "corpus/cjson/semantic-inputs/linux-x86_64/detach-item-via-pointer/runtime.sexp": "e5f04b906092c92595331d3176a2990beb797bfb0e12edc4326b07fb9454c27b",
@@ -2109,7 +2109,7 @@
         "corpus/cjson/semantic-inputs/linux-x86_64/predicates/translation-unit.i": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf",
         "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c": "298581a04a36c0165da4b0aade235c23088cb2faa58651d720ea2f3706ed0b0d",
         "corpus/cjson/upstream/cJSON-1.7.19/cJSON.h": "25b0145150d500498e4d209cec69c18c42cf818bffcc54690be3b895a2a16dee",
-        "corpus/compiler-bindings/CjsonDetach-Context.json": "5d486bfb5061009824f9efb2b50cb4aa56ddbbba437ca38e0b5fbcd1c278e0e2",
+        "corpus/compiler-bindings/CjsonDetach-Context.json": "5cebe81fe5e1e82df9bf81be867bc4c5cba080b84075ec939d382552cb270ab2",
         "corpus/variants/cjson/1.7.19/default/x86_64/O0/build.json": "339ad3cc14b3fca5defc990a3eaba0f045e3959bd7ecef15d6e32fb84dbc389e",
         "corpus/variants/cjson/1.7.19/default/x86_64/O0/unstripped/receipt.json": "0778e34eecd2f85992fa73722d86c84675d816fb072064120ec9bf6a169292ca",
         "tests/cerberus/CjsonDetachContext.lean": "0f7e0d63fb89f4ee956daedc5c940c3235eda7f3905119a8a07e87a6b9432379",
@@ -2117,7 +2117,8 @@
         "tests/cerberus/ElaborationPointerReturns.lean": "0b2af24946aaee1b0943aa9e277e7fb6e07d8df5a1c47c3041b1eaf0122c5792",
         "tools/corpus/CjsonDetachInputs.lean": "db1c3fa7c9927bcac393cb19b80adef1bd0d543228a19b2f874f5ab75741781b",
         "tools/corpus/check_cjson_detach_inputs.py": "0fc7f257f27a1ddb329bd17e68d6c67cf51e54631c9c846de5aa89b71df195fe",
-        "tools/corpus/check_cjson_detach_native.py": "1d7102675a579dd7828d34d5fdc957a93355949d00ec1815e85ab71ebb264d30"
+        "tools/corpus/check_cjson_detach_native.py": "1d7102675a579dd7828d34d5fdc957a93355949d00ec1815e85ab71ebb264d30",
+        "tests/cerberus/CjsonDetachMachine.lean": "d7568510053f3336950d174e14c356501cb17ee9e5a797ed3f5c6c538d2ceacd"
       }
     }
   ]
