@@ -25,6 +25,11 @@
   ],
   "projects": [
     {
+      "project": "cjson",
+      "actual_new_elf_rows": 0,
+      "summary": "cjson/summary.json"
+    },
+    {
       "project": "coreutils",
       "actual_new_elf_rows": 28,
       "summary": "coreutils/summary.json"
@@ -48,6 +53,11 @@
       "project": "refcrypto",
       "actual_new_elf_rows": 28,
       "summary": "refcrypto/summary.json"
+    },
+    {
+      "project": "sqlite",
+      "actual_new_elf_rows": 0,
+      "summary": "sqlite/summary.json"
     },
     {
       "project": "tcp-pingpong",
