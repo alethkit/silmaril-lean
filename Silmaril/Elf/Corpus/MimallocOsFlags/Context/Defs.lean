@@ -100,7 +100,11 @@ def statement (g : Getter) : Prop :=
   Obligation (Source.Elaboration.function g) Silmaril.X86.Open.isa (placement g) (context g)
 
 /-- Actual overcommit getter; an unproved source/machine obligation. -/
+@[problem "silmaril.corpus.mimalloc.os_has_overcommit.contextual_bool"
+  (title := "Actual mimalloc Boolean overcommit getter with global memory and ABI")]
 def Task.overcommit : Prop := statement .overcommit
 /-- Actual virtual-reserve getter; an unproved source/machine obligation. -/
+@[problem "silmaril.corpus.mimalloc.os_has_virtual_reserve.contextual_bool"
+  (title := "Actual mimalloc Boolean virtual-reserve getter with global memory and ABI")]
 def Task.virtualReserve : Prop := statement .virtualReserve
 end Silmaril.Elf.Corpus.MimallocOsFlags.Context
