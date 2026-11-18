@@ -44,7 +44,9 @@ jobs:
           PY
       # The explorer's pure modules (status semantics, Lean tokenizer): Node unit tests, no browser.
       - name: Explorer unit tests
-        run: node --test tools/silmaril-project/tests/explore/*.test.mjs
+        run: |
+          node --test tools/silmaril-project/tests/explore/*.test.mjs
+          python3 -m unittest discover -s tools/silmaril-project/tests/explore -p '*_test.py'
       - name: Install Rust
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
