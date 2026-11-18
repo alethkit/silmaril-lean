@@ -1,6 +1,10 @@
 # Instruction reads through process images
 
-`Silmaril.Process.ImageAccess.Defs` separates three jobs:
+`Silmaril.Process.ImageAccess.Contract.{Defs,Thms}` is the ISA- and
+backing-independent contract. It fixes byte-span requests and outcomes but is
+parameterized by the result type and by the reader. It imports neither an ISA
+nor `Process.Memory`. `Silmaril.Process.ImageAccess.Defs` re-exports it and
+implements the concrete image adapter. Together they separate three jobs:
 
 | Layer | Job in this slice |
 |---|---|
@@ -18,9 +22,10 @@ create bytes that a load can observe.
 ## Proof workflow
 
 For this deterministic, read-only fragment, `Program.wp simple post` requires a
-successful answer at each request and the postcondition at the final value. The
-requirements compose through the request continuations, including when the next
-address depends on the previous answer. `Program.wp_iff_run` gives successful
+successful answer at each request and the postcondition at the final value.
+`Program.wp_bind` makes the second fragment's WP the first fragment's
+postcondition, including when the next address depends on the first reply.
+`Program.wp_iff_run` gives successful
 completion, not just the absence of UB: it also excludes unavailable views and
 concrete faults. To reuse the proof, show that `Reader.Refines complex simple`
 preserves each successful simple reply, then use `Program.wp_transfer`. Chain
@@ -44,8 +49,19 @@ theorem is relative to this repository's decoded address and memory rules; it
 does not establish architectural fault priority, exception delivery, or generic
 fetch/decode correctness.
 
+`Silmaril.Process.ImageAccess.X86.FragmentChecks` composes two loads:
+`mov eax, [rbx]` reads a pointer and `mov ecx, [rax]` follows it. The small
+reader is just a table of two admitted requests and their bytes: it has no page
+map, byte backing, or permission machinery. The full reader uses concrete
+`Memory` over the whole region. A proof checks that each admitted reply agrees;
+`wp_bind` and `wp_transfer` then prove the same fragment postcondition for both,
+and the bridge recovers two legacy `Ext.exec` steps. Removing the target table
+entry makes the small reader stop with UB; it does not establish a hardware
+fault. A bare `Reader` is only a function type: a new backend must establish any
+needed reply-shape, permission and agreement properties.
+
 ```sh
-lake build --wfail Silmaril.Process.ImageAccess.X86.Checks
+lake build --wfail Silmaril.Process.ImageAccess.X86.Checks Silmaril.Process.ImageAccess.X86.FragmentChecks
 ```
 
 There are no writes, service transitions, Linux events, scheduler steps, or
