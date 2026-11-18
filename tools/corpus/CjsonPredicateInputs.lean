@@ -28,4 +28,6 @@ public def main : IO Unit := do
   IO.FS.writeFile (root ++ "runtime.sexp") (document {doc.bindings with
     main := none, tagDefs := [], globs := [], funs := [], extern := [], funInfo := [],
     loopAttributes := [], visibleObjects := []})
+  let sealed ← IO.Process.output {cmd := "python3", args := #["-I", "tools/corpus/seal_cjson_inputs.py"]}
+  unless sealed.exitCode == 0 do throw <| IO.userError sealed.stderr
   IO.println s!"PASS exact source projection generated {bindings.funs.length} actual Core functions; no expected body/result runtime inputs"

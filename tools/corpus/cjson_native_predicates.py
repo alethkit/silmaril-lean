@@ -27,12 +27,13 @@ def main():
     library = ctypes.CDLL(str(elf))
     rows = []
     for suffix, kind in [("Null", 4), ("Bool", 3), ("Number", 8),
-                         ("String", 16), ("Array", 32), ("Object", 64)]:
+                         ("String", 16), ("Array", 32), ("Object", 64),
+                         ("Invalid", 0), ("False", 1), ("True", 2), ("Raw", 128)]:
         name = "cJSON_Is" + suffix
         function = getattr(library, name)
         function.argtypes = [ctypes.POINTER(CJSON)]
         function.restype = ctypes.c_int
-        for value in [0, kind, kind + 256, 1, -256 + kind]:
+        for value in dict.fromkeys([0, kind, kind + 256, 1, -256 + kind]):
             obj = CJSON()
             obj.type = value
             before = bytes(obj)
@@ -49,7 +50,7 @@ def main():
         "artifact_sha256": digest, "size": 64, "alignment": 8,
         "type_offset": 24, "cases": rows,
     }, indent=2))
-    print("PASS 36 canonical ELF cases; layout64/8/type24; object bytes unchanged")
+    print(f"PASS {len(rows)} canonical ELF cases; layout64/8/type24; object bytes unchanged")
 
 
 if __name__ == "__main__":

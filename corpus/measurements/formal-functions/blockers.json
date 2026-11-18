@@ -112,7 +112,7 @@
         "full translation-unit frontend acceptance unavailable outside the exact declaration closure",
         "canonical build lacks system-header hashes; host preprocessing correspondence is provenance, not proved equivalence"
       ],
-      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; six measured contextual statements"
+      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; ten measured contextual statements"
     },
     {
       "project": "cjson",
@@ -123,7 +123,7 @@
         "full translation-unit frontend acceptance unavailable outside the exact declaration closure",
         "canonical build lacks system-header hashes; host preprocessing correspondence is provenance, not proved equivalence"
       ],
-      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; six measured contextual statements"
+      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; ten measured contextual statements"
     },
     {
       "project": "cjson",
@@ -134,7 +134,7 @@
         "full translation-unit frontend acceptance unavailable outside the exact declaration closure",
         "canonical build lacks system-header hashes; host preprocessing correspondence is provenance, not proved equivalence"
       ],
-      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; six measured contextual statements"
+      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; ten measured contextual statements"
     },
     {
       "project": "cjson",
@@ -145,7 +145,7 @@
         "full translation-unit frontend acceptance unavailable outside the exact declaration closure",
         "canonical build lacks system-header hashes; host preprocessing correspondence is provenance, not proved equivalence"
       ],
-      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; six measured contextual statements"
+      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; ten measured contextual statements"
     },
     {
       "project": "cjson",
@@ -156,7 +156,7 @@
         "full translation-unit frontend acceptance unavailable outside the exact declaration closure",
         "canonical build lacks system-header hashes; host preprocessing correspondence is provenance, not proved equivalence"
       ],
-      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; six measured contextual statements"
+      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; ten measured contextual statements"
     },
     {
       "project": "cjson",
@@ -167,7 +167,51 @@
         "full translation-unit frontend acceptance unavailable outside the exact declaration closure",
         "canonical build lacks system-header hashes; host preprocessing correspondence is provenance, not proved equivalence"
       ],
-      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; six measured contextual statements"
+      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; ten measured contextual statements"
+    },
+    {
+      "project": "cjson",
+      "function": "cJSON_IsInvalid",
+      "status": "contextual-statement-unproved",
+      "blockers": [
+        "semantic refinement and safety remain unproved",
+        "full translation-unit frontend acceptance unavailable outside the exact declaration closure",
+        "canonical build lacks system-header hashes; host preprocessing correspondence is provenance, not proved equivalence"
+      ],
+      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; ten measured contextual statements"
+    },
+    {
+      "project": "cjson",
+      "function": "cJSON_IsFalse",
+      "status": "contextual-statement-unproved",
+      "blockers": [
+        "semantic refinement and safety remain unproved",
+        "full translation-unit frontend acceptance unavailable outside the exact declaration closure",
+        "canonical build lacks system-header hashes; host preprocessing correspondence is provenance, not proved equivalence"
+      ],
+      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; ten measured contextual statements"
+    },
+    {
+      "project": "cjson",
+      "function": "cJSON_IsTrue",
+      "status": "contextual-statement-unproved",
+      "blockers": [
+        "semantic refinement and safety remain unproved",
+        "full translation-unit frontend acceptance unavailable outside the exact declaration closure",
+        "canonical build lacks system-header hashes; host preprocessing correspondence is provenance, not proved equivalence"
+      ],
+      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; ten measured contextual statements"
+    },
+    {
+      "project": "cjson",
+      "function": "cJSON_IsRaw",
+      "status": "contextual-statement-unproved",
+      "blockers": [
+        "semantic refinement and safety remain unproved",
+        "full translation-unit frontend acceptance unavailable outside the exact declaration closure",
+        "canonical build lacks system-header hashes; host preprocessing correspondence is provenance, not proved equivalence"
+      ],
+      "evidence": "actual preprocessed TU byte projection, computed Core with kernel elaboration success, real struct/pointer/field entries, SysV ABI and canonical ELF CodeAt; ten measured contextual statements"
     }
   ],
   "promoted": [

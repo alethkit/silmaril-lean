@@ -8,11 +8,11 @@
     },
     {
       "path": "corpus/cjson/semantic-inputs/linux-x86_64/predicates/README.md",
-      "sha256": "8859a8189d2e5bf486e08850331c292ccf22ae5c7f8fc002d8bec45102c61444"
+      "sha256": "3e2485eab240ce4c127318d73eb03287bd6235ec8454c8b44f65b1c5f5029670"
     },
     {
       "path": "corpus/cjson/semantic-inputs/linux-x86_64/predicates/context.c",
-      "sha256": "c7a7f8da1c3a8628729a0fabaff21e86601b8e5dd9b004931272797ad9ba00ab"
+      "sha256": "c09e52545b71dcc83e603c21a65821a692bffbc4cb7fd3913a6660fc0fc942ab"
     },
     {
       "path": "corpus/cjson/semantic-inputs/linux-x86_64/predicates/licenses/gcc-copyright",
@@ -28,11 +28,11 @@
     },
     {
       "path": "corpus/cjson/semantic-inputs/linux-x86_64/predicates/program.sexp",
-      "sha256": "65ccf7e1c5232824ddaade92596c492d27c50e64626340f18a4e240cb17a7368"
+      "sha256": "5567495bd982a19d43237278e2ce8455609fbf87d10f8c863c92b0f13243593a"
     },
     {
       "path": "corpus/cjson/semantic-inputs/linux-x86_64/predicates/projection.json",
-      "sha256": "e45c1b28df74c74eebaa80f3719e4d936c41a9dfd8c24db5101876e2f90268e4"
+      "sha256": "5e7d64e59ebd1a030a10181cea2a37a2c1f3378949894becb81bdf7f5fbff661"
     },
     {
       "path": "corpus/cjson/semantic-inputs/linux-x86_64/predicates/runtime.sexp",
@@ -44,7 +44,7 @@
     },
     {
       "path": "corpus/cjson/semantic-inputs/linux-x86_64/predicates/typed-ail.sexp",
-      "sha256": "af918356414859ac9a5d681a46086fcc1981e0f30f96bc0d605bce139f483304"
+      "sha256": "be99ee653068405c40ca5a2f551bbc8b21bf2f8628c2ef1c8d5a296ce12276a2"
     },
     {
       "path": "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c",

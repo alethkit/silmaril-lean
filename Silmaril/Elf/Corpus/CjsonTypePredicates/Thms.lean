@@ -36,4 +36,24 @@ theorem object_at : Silmaril.Elf.CodeAt F objectAddress objectCode :=
     (by decide +kernel) (by decide +kernel)
 theorem object_symbol : s3_36.name = ("cJSON_IsObject".toUTF8.data.toList.map fun b => BitVec.ofNat 8 b.toNat) ∧
     s3_36.raw.value = objectAddress ∧ s3_36.raw.size = 19 ∧ s3_36.kind = 2 := by decide +kernel
+theorem invalid_at : Silmaril.Elf.CodeAt F invalidAddress invalidCode :=
+  codeAt_of_kbytes K.wf_true K.toByteArray_eq parses (ph := ph1)
+    (by decide +kernel) (by decide +kernel)
+theorem invalid_symbol : s3_37.name = ("cJSON_IsInvalid".toUTF8.data.toList.map fun b => BitVec.ofNat 8 b.toNat) ∧
+    s3_37.raw.value = invalidAddress ∧ s3_37.raw.size = 19 ∧ s3_37.kind = 2 := by decide +kernel
+theorem false_at : Silmaril.Elf.CodeAt F falseAddress falseCode :=
+  codeAt_of_kbytes K.wf_true K.toByteArray_eq parses (ph := ph1)
+    (by decide +kernel) (by decide +kernel)
+theorem false_symbol : s3_81.name = ("cJSON_IsFalse".toUTF8.data.toList.map fun b => BitVec.ofNat 8 b.toNat) ∧
+    s3_81.raw.value = falseAddress ∧ s3_81.raw.size = 19 ∧ s3_81.kind = 2 := by decide +kernel
+theorem true_at : Silmaril.Elf.CodeAt F trueAddress trueCode :=
+  codeAt_of_kbytes K.wf_true K.toByteArray_eq parses (ph := ph1)
+    (by decide +kernel) (by decide +kernel)
+theorem true_symbol : s3_48.name = ("cJSON_IsTrue".toUTF8.data.toList.map fun b => BitVec.ofNat 8 b.toNat) ∧
+    s3_48.raw.value = trueAddress ∧ s3_48.raw.size = 19 ∧ s3_48.kind = 2 := by decide +kernel
+theorem raw_at : Silmaril.Elf.CodeAt F rawAddress rawCode :=
+  codeAt_of_kbytes K.wf_true K.toByteArray_eq parses (ph := ph1)
+    (by decide +kernel) (by decide +kernel)
+theorem raw_symbol : s3_88.name = ("cJSON_IsRaw".toUTF8.data.toList.map fun b => BitVec.ofNat 8 b.toNat) ∧
+    s3_88.raw.value = rawAddress ∧ s3_88.raw.size = 19 ∧ s3_88.kind = 2 := by decide +kernel
 end Silmaril.Elf.Corpus.CjsonTypePredicates

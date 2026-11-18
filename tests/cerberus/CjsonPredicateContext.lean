@@ -10,8 +10,9 @@ They test initialized field/null behavior and preserved caller state, not refine
 def main : IO Unit := do
   let mut count := 0
   for (p, kind) in [(Predicate.isNull, (4 : Int)), (.isBool, 3), (.isNumber, 8),
-      (.isString, 16), (.isArray, 32), (.isObject, 64)] do
-    for bits in [kind, kind + 256, 0, -1, -2147483648] do
+      (.isString, 16), (.isArray, 32), (.isObject, 64),
+      (.isInvalid, 0), (.isFalse, 1), (.isTrue, 2), (.isRaw, 128)] do
+    for bits in ([kind, kind + 256, 0, -1, -2147483648] : List Int).eraseDups do
       for null in [false, true] do
         let i : Context.Input := ⟨null, BitVec.ofInt 32 bits⟩
         let entry ← match Context.prepare p i with

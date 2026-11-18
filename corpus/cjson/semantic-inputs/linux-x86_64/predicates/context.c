@@ -98,3 +98,55 @@ __attribute__((visibility("default"))) cJSON_bool cJSON_IsObject(const cJSON * c
 
     return (item->type & 0xFF) == (1 << 6);
 }
+__attribute__((visibility("default"))) cJSON_bool cJSON_IsInvalid(const cJSON * const item)
+{
+    if (item == 
+# 2959 "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c" 3 4
+               ((void *)0)
+# 2959 "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c"
+                   )
+    {
+        return ((cJSON_bool)0);
+    }
+
+    return (item->type & 0xFF) == (0);
+}
+__attribute__((visibility("default"))) cJSON_bool cJSON_IsFalse(const cJSON * const item)
+{
+    if (item == 
+# 2969 "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c" 3 4
+               ((void *)0)
+# 2969 "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c"
+                   )
+    {
+        return ((cJSON_bool)0);
+    }
+
+    return (item->type & 0xFF) == (1 << 0);
+}
+__attribute__((visibility("default"))) cJSON_bool cJSON_IsTrue(const cJSON * const item)
+{
+    if (item == 
+# 2979 "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c" 3 4
+               ((void *)0)
+# 2979 "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c"
+                   )
+    {
+        return ((cJSON_bool)0);
+    }
+
+    return (item->type & 0xff) == (1 << 1);
+}
+__attribute__((visibility("default"))) cJSON_bool cJSON_IsRaw(const cJSON * const item)
+{
+    if (item == 
+# 3049 "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c" 3 4
+               ((void *)0)
+# 3049 "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c"
+                   )
+    {
+        return ((cJSON_bool)0);
+    }
+
+    return (item->type & 0xFF) == (1 << 7);
+}

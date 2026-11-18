@@ -9,8 +9,8 @@ this was not execution in its pinned container or an ELF rebuild. The canonical
 build has no system-header hashes, so identical preprocessing environments are
 not established.
 
-`context.c` selects eight exact byte spans from that translation unit: the
-structure, boolean typedef, and six predicate definitions. `projection.json`
+`context.c` selects twelve exact byte spans from that translation unit: the
+structure, boolean typedef, and ten predicate definitions. `projection.json`
 records the spans and hashes. GNU visibility attributes and preprocessor line
 markers are retained. This is a declaration dependency closure, not full
 translation-unit frontend acceptance or a proof of semantic adequacy of the

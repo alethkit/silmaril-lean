@@ -18,9 +18,17 @@ def arrayAddress : Nat := 21776
 def arrayCode : List (BitVec 8) := [0x48, 0x85, 0xff, 0x74, 0xb, 0x31, 0xc0, 0x80, 0x7f, 0x18, 0x20, 0xf, 0x94, 0xc0, 0xc3, 0x90, 0x31, 0xc0, 0xc3]
 def objectAddress : Nat := 21808
 def objectCode : List (BitVec 8) := [0x48, 0x85, 0xff, 0x74, 0xb, 0x31, 0xc0, 0x80, 0x7f, 0x18, 0x40, 0xf, 0x94, 0xc0, 0xc3, 0x90, 0x31, 0xc0, 0xc3]
-/-- The six actual exported predicates covered by this source closure. -/
+def invalidAddress : Nat := 21472
+def invalidCode : List (BitVec 8) := [0x48, 0x85, 0xff, 0x74, 0xb, 0x31, 0xc0, 0x80, 0x7f, 0x18, 0x0, 0xf, 0x94, 0xc0, 0xc3, 0x90, 0x31, 0xc0, 0xc3]
+def falseAddress : Nat := 21504
+def falseCode : List (BitVec 8) := [0x48, 0x85, 0xff, 0x74, 0xb, 0x31, 0xc0, 0x80, 0x7f, 0x18, 0x1, 0xf, 0x94, 0xc0, 0xc3, 0x90, 0x31, 0xc0, 0xc3]
+def trueAddress : Nat := 21536
+def trueCode : List (BitVec 8) := [0x48, 0x85, 0xff, 0x74, 0xb, 0x31, 0xc0, 0x80, 0x7f, 0x18, 0x2, 0xf, 0x94, 0xc0, 0xc3, 0x90, 0x31, 0xc0, 0xc3]
+def rawAddress : Nat := 21840
+def rawCode : List (BitVec 8) := [0x48, 0x85, 0xff, 0x74, 0xb, 0x31, 0xc0, 0x80, 0x7f, 0x18, 0x80, 0xf, 0x94, 0xc0, 0xc3, 0x90, 0x31, 0xc0, 0xc3]
+/-- The ten actual exported predicates covered by this source closure. -/
 inductive Predicate where
-  | isNull | isBool | isNumber | isString | isArray | isObject
+  | isNull | isBool | isNumber | isString | isArray | isObject | isInvalid | isFalse | isTrue | isRaw
   deriving DecidableEq, Repr
 
 def Predicate.name : Predicate → String
@@ -30,6 +38,10 @@ def Predicate.name : Predicate → String
   | .isString => "cJSON_IsString"
   | .isArray => "cJSON_IsArray"
   | .isObject => "cJSON_IsObject"
+  | .isInvalid => "cJSON_IsInvalid"
+  | .isFalse => "cJSON_IsFalse"
+  | .isTrue => "cJSON_IsTrue"
+  | .isRaw => "cJSON_IsRaw"
 
 def Predicate.address : Predicate → Nat
   | .isNull => nullAddress
@@ -38,6 +50,10 @@ def Predicate.address : Predicate → Nat
   | .isString => stringAddress
   | .isArray => arrayAddress
   | .isObject => objectAddress
+  | .isInvalid => invalidAddress
+  | .isFalse => falseAddress
+  | .isTrue => trueAddress
+  | .isRaw => rawAddress
 
 def Predicate.code : Predicate → List (BitVec 8)
   | .isNull => nullCode
@@ -46,5 +62,9 @@ def Predicate.code : Predicate → List (BitVec 8)
   | .isString => stringCode
   | .isArray => arrayCode
   | .isObject => objectCode
+  | .isInvalid => invalidCode
+  | .isFalse => falseCode
+  | .isTrue => trueCode
+  | .isRaw => rawCode
 
 end Silmaril.Elf.Corpus.CjsonTypePredicates

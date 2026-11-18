@@ -157,7 +157,7 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "84a64c04a67458ca32a81918c4141838bad445c823f0e5c51e492bfe65788927",
-      "contextual_c_to_elf_statements": 6,
+      "contextual_c_to_elf_statements": 10,
       "defined_nonzero_function_symbol_entries": 91,
       "formal_statements": [
         {
@@ -192,6 +192,30 @@
         },
         {
           "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isObject",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isInvalid",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isFalse",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isTrue",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isRaw",
           "kind": "contextual_c_to_elf",
           "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
           "status": "stated-unproved"
@@ -78080,7 +78104,7 @@
     }
   ],
   "formal_statement_counts": {
-    "contextual_c_to_elf": 15,
+    "contextual_c_to_elf": 19,
     "functional_equivalence": 6
   },
   "hierarchy": [
