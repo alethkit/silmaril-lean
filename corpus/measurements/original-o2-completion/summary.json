@@ -1,0 +1,24 @@
+{
+  "actual_new_elf_rows": 16,
+  "unique_new_hashes": 16,
+  "new_profiles": 6,
+  "measured_exits_passed": 78,
+  "unstripped_matching_canonical": 8,
+  "projects": [
+    {
+      "project": "darkhttpd",
+      "actual_new_elf_rows": 4,
+      "summary": "darkhttpd/summary.json"
+    },
+    {
+      "project": "tcp-pingpong",
+      "actual_new_elf_rows": 8,
+      "summary": "tcp-pingpong/summary.json"
+    },
+    {
+      "project": "mimalloc",
+      "actual_new_elf_rows": 4,
+      "summary": "mimalloc/summary.json"
+    }
+  ]
+}
