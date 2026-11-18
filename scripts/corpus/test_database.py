@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class CorpusDatabase(unittest.TestCase):
     def test_checked_variant_modules_are_bound(self):
         artifacts = inventory(ROOT)['artifacts']
-        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 211)
+        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 227)
         check = json.loads((ROOT / 'corpus/measurements/variant-lean/checks.json').read_text())['artifacts'][0]
         source = ROOT / next(iter(check['module_sha256']))
         original = matrix.sha
@@ -86,13 +86,14 @@ class CorpusDatabase(unittest.TestCase):
             db.executescript('CREATE TABLE preserve(value TEXT); INSERT INTO preserve VALUES("unchanged");')
             db.close()
             before = hashlib.sha256(base.read_bytes()).hexdigest()
-            result = subprocess.run([sys.executable, str(ROOT / 'scripts/corpus/database.py'), '--base', str(base), '--output', str(output)], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(ROOT / 'scripts/corpus/database.py'), '--base', str(base), '--output', str(output), '--source-rev', '1' * 40], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(before, hashlib.sha256(base.read_bytes()).hexdigest())
             db = sqlite3.connect(output)
+            self.assertEqual(db.execute("SELECT value FROM corpus_meta WHERE key='revision'").fetchone()[0], '1' * 40)
             self.assertEqual(db.execute('SELECT value FROM preserve').fetchone(), ('unchanged',))
             self.assertGreaterEqual(db.execute('SELECT count(*) FROM corpus_artifacts').fetchone()[0], 54)
-            self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 3)
+            self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 0)
             for metadata, census in db.execute('SELECT metadata,census FROM corpus_artifacts'):
                 artifact = json.loads(metadata)
                 self.assertIsNotNone(census, artifact['path'])
@@ -118,9 +119,15 @@ class CorpusDatabase(unittest.TestCase):
             self.assertGreater(clones, 1, 'same-name local clones remain distinct')
             self.assertGreater(db.execute('SELECT count(*) FROM corpus_functions').fetchone()[0], 42000)
             self.assertGreater(db.execute('SELECT count(*) FROM corpus_timings').fetchone()[0], 10)
+            summaries = db.execute('SELECT * FROM corpus_timing_summary ORDER BY run_id').fetchall()
+            receipts = db.execute('SELECT * FROM corpus_timings ORDER BY run_id').fetchall()
+            self.assertEqual(len(summaries), len(receipts))
+            for summary, (run_id, build_id, stage, metadata) in zip(summaries, receipts):
+                run = json.loads(metadata)
+                self.assertEqual(summary, (run_id, build_id, stage, run.get('wall_seconds'), run.get('peak_rss_kib'), run.get('exit_code')))
             self.assertTrue(all(row[2].upper() != 'BLOB' for row in db.execute('PRAGMA table_info(corpus_artifacts)')))
             db.close()
-            again = subprocess.run([sys.executable, str(ROOT / 'scripts/corpus/database.py'), '--output', str(output)], capture_output=True)
+            again = subprocess.run([sys.executable, str(ROOT / 'scripts/corpus/database.py'), '--output', str(output), '--source-rev', '1' * 40], capture_output=True)
             self.assertNotEqual(again.returncode, 0)
 
 
