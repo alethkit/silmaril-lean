@@ -43,4 +43,13 @@ def embedI64 {Cid : Type} (value : JsonWithBytes.OrderedI64) : OrderedATProto Ci
 def links {Numeric Cid : Type} {index : JsonIx} (value : RawSyn String (Scalar Numeric Cid) index) :
     List Cid := value.scalars.filterMap fun | .link cid => some cid | .data _ => none
 
+/-- Visit links in document order without first collecting the scalar leaves. -/
+def foldLinks {Numeric Link State : Type} (visit : State → Link → State) :
+    State → {index : JsonIx} → RawSyn String (Scalar Numeric Link) index → State
+  | state, _, .scalar (.link cid) => visit state cid
+  | state, _, .list items | state, _, .map items => foldLinks visit state items
+  | state, _, .cons value tail | state, _, .objCons _ value tail =>
+    foldLinks visit (foldLinks visit state value) tail
+  | state, _, _ => state
+
 end Silmaril.Formats.Cbor.Drisl
