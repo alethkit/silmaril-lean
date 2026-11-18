@@ -97,6 +97,24 @@ condition; the arrows are not general equivalences.
 | `Model.ext` → feature configuration | [`Model.Hom`](../../Silmaril/X86/Model/Basic.lean) transports **settled** steps through a state map under the modeled effective-feature assumptions; its observation model collapses unsettled outcomes. Not a fault-classification comparison with the sentinel/open tower. |
 | Loose integer/string law → exact instances | [`sv1_le_exact` and the instance facts](../../Silmaril/X86/Exact/Thms.lean) give a checked abstract/concrete bridge on a named projection. The [`listing checker`](../../Silmaril/X86/Loose/Listing/Thms.lean) also accepts some SIMD forms; listing recognition is not a proof of vector-state effects in `Sv1`. |
 
+### What a comparison buys
+
+| Claim | What it does and does not establish |
+| --- | --- |
+| API compatibility | The existing entry point and types still work for their callers. A shim alone proves no equality of outcomes. |
+| Outcome equality | On the stated input domain, both paths have the same outcomes under a named projection. Say which successors, stops, faults, and events are compared; equality after dropping an event cannot recover that event. The [typed process pilot](typed-syscall.md) gives equality of step judgments for a constructed kernel pullback, not for arbitrary kernels. |
+| Agreement on a fragment | The models agree only after discharging stated preconditions, e.g. DF clear or successful reads of owned spans. A successful-execution theorem can exclude faults as well as UB; it says nothing about outcomes off that fragment. |
+| Directed soundness | To transfer a universal contract from a small model to a named reference, each in-scope reference observation must be allowed by the small contract. Preserving an older step in a richer ISA is useful but does not alone give this direction of coverage. |
+
+Equality composes when the intermediate projections agree. For scoped
+agreement, also show that the intermediate inputs and successors satisfy the
+next edge's preconditions. [`Str9L.run_of_str9v`](../../Silmaril/X86/Str9L/Thms.lean)
+is a checked example: the run lifts through the extension chain using the
+DF-clear condition, not an equality of the entire tower. Directed coverage
+composes by transitivity of observation inclusion with compatible projections
+and related successors. Prove progress separately: neither an empty behavior
+set nor a no-UB claim alone guarantees a successful step.
+
 ## State and outcome choices that affect proofs
 
 - **Use the result type that retains the distinction you need.** [`Ext.Outcome`](../../Silmaril/X86/Ext/Machine.lean)
@@ -154,13 +172,23 @@ condition; the arrows are not general equivalences.
 Keep decode, one-instruction effects, image access, process transitions, and
 whole-region proof boundaries separate. For an opcode change, check a concrete
 form, its feature/flag guards, read/write span and state frame before routing
-another executor through it. Keep existing proved steps as named reference
-roots. For a process change, use one existing image/ABI client and compare the
-same successor, observations, and stop outcomes under an explicit projection.
-The [typed process pilot](typed-syscall.md) exercises this separation without
-assuming any x86 decoder or replacing CLI or LPS. A later scheduler adapter
-needs a footprint and memory-order argument; a later decoder adapter needs
-its own coverage and transport proof. Neither follows from this diagram.
+another executor through it. Keep working concrete executors, entry points,
+and fixtures runnable as named references and regressions. Add a factored
+path alongside them: prove projected equality when it holds, or state a
+directed theorem with the precise domain and observation relation. Reusing
+an implementation helper need not remove the concrete path or its tests.
+
+For process/image work, first opt in one CLI loaded-image/ABI client and run
+the same fixture through both paths. Check related successors and retained
+observations, including stops. Then opt in one LPS profile only after checking
+exact ordered access spans, lazy-map fault/retry behavior, and syscall/exit
+events. Keep the old runners and fixtures callable for these comparisons;
+a future default change is a separate review with downstream evidence. Keep
+additional SSE, AVX or SHA forms independent of that default change. The
+[typed process pilot](typed-syscall.md) exercises the request/response boundary
+without assuming an x86 decoder or replacing CLI or LPS. A later scheduler
+adapter needs a footprint and memory-order argument; a later decoder adapter
+needs its own coverage and transport proof.
 
 **Glossary.** *Sentinel return*: a chosen address whose pop ends the modeled
 run. *Open step*: an ordinary instruction step, including a `ret` jump.
