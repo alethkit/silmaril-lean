@@ -439,8 +439,13 @@ function drawBlocks(p) {
       const obligation = p.obligations.find((o) => o.id === dep);
       if (obligation) card.append(obligationRow(obligation, false));
     }
-    const stage = block.parse_stage;
-    if (stage) card.append(el("p", "muted", `Opposite-side stage: ${stage.name} · ${stage.trust} · ${stage.input_sha256.slice(0, 12)}… → ${stage.output_sha256.slice(0, 12)}…`));
+    const trace = block.parse_stage;
+    if (trace) {
+      const stage = (p.extra.stages || []).find((stage) => stage.output === trace.output);
+      const evidence = stage && p.obligations.find((obligation) => obligation.id === stage.obligation);
+      const trust = stage ? stageTrust(p, stage, evidence) : "unchecked";
+      card.append(el("p", "muted", `Opposite-side stage: ${trace.name} · ${trust} · ${trace.input_sha256.slice(0, 12)}… → ${trace.output_sha256.slice(0, 12)}…`));
+    }
     const other = block.side === "target" ? "source" : "target";
     const links = el("ul");
     for (const edge of p.edges.filter((e) => block.attribution.includes(e.id))) {

@@ -24,6 +24,7 @@ try {
   const [blockId, block] = Object.entries(blockEntry.blocks)[0];
   await page.goto(`${base}compiler/?problem=${encodeURIComponent(block.problem)}`);
   await page.getByText("Block-to-fragment associations (1)").waitFor();
+  await page.getByText("Opposite-side stage: C → typed Ail · unchecked", { exact: false }).waitFor();
   const sourceDownload = page.locator("#source-links a").filter({ hasText: "Exact bytes" });
   assert.ok((await page.request.get(await sourceDownload.evaluate((a) => a.href))).ok());
   const blockLink = page.getByRole("link", { name: "Inspect this block in the ELF tab" });

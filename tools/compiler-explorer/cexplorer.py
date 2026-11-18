@@ -253,7 +253,7 @@ def block_endpoints(m: dict, blobs: dict) -> list[dict]:
                     "model_decl": block["model_decl"], "decoder_sha256": arts[block["decoder"]]["sha256"]}
         result.append({**identity, "id": sha256(canonical(identity)), "dependencies": dependencies,
                        "attribution": block["attribution"], "parse_stage": {
-                           "name": parse["name"], "input_sha256": arts[other]["sha256"],
+                           "name": parse["name"], "output": block["parse"], "input_sha256": arts[other]["sha256"],
                            "output_sha256": arts[block["parse"]]["sha256"], "trust": parse["trust"]} if parse else None})
     if len({b["id"] for b in result}) != len(result):
         raise ValueError("duplicate block endpoint")
