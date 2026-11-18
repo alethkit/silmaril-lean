@@ -1,5 +1,5 @@
 {
-  "artifact_rows": 494,
+  "artifact_rows": 500,
   "artifacts": [
     {
       "build": {
@@ -157,9 +157,46 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "84a64c04a67458ca32a81918c4141838bad445c823f0e5c51e492bfe65788927",
-      "contextual_c_to_elf_statements": 0,
+      "contextual_c_to_elf_statements": 6,
       "defined_nonzero_function_symbol_entries": 91,
-      "formal_statements": [],
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isNull",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isBool",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isNumber",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isString",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isArray",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isObject",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        }
+      ],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
       "lean_status": "canonical: whole-file parse and structural decomposition",
@@ -2347,7 +2384,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -2638,7 +2675,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -22256,7 +22293,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22317,7 +22354,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22378,7 +22415,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22439,7 +22476,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22500,7 +22537,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22561,7 +22598,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22622,7 +22659,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22683,7 +22720,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22744,7 +22781,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22809,7 +22846,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22874,7 +22911,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -22939,7 +22976,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -23004,7 +23041,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -23069,7 +23106,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -23134,7 +23171,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -23199,7 +23236,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "BSD-2-Clause",
       "license_files": [
         "upstream/jemalloc-5.3.0/COPYING"
@@ -26048,6 +26085,588 @@
       ],
       "sha256": "36e2bef070c841c20b39b075196f7cf879dcf190c17fcf6b6cd6d378aebb2e25",
       "size": 1249792,
+      "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+      "source_inputs": [
+        {
+          "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+          "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz"
+        }
+      ],
+      "stripping": "unstripped",
+      "version": "3.5.9",
+      "version_components": [
+        "3",
+        "5",
+        "9"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O3 -g0 -ffile-prefix-map=/build/openssl=. (replaces Configure's default -O3; Configure adds -fPIC/-pthread/-m64 etc.: see command lines)",
+        "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "no-asm",
+        "configure_args": "./Configure linux-aarch64 --cross-compile-prefix=aarch64-linux-gnu- no-asm shared no-tests --prefix=/usr/local --openssldir=/usr/local/ssl --libdir=lib CFLAGS=-O3 -g0 -ffile-prefix-map=/build/openssl=.",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "",
+        "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+        "target": "aarch64-linux-gnu"
+      },
+      "build_id": "ad32c68c8cb958bb323dd0ac16b9d8d414b9da004d3a55a673f9e7dba48b4bdf",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 0,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": false,
+      "lean_status": "not generated or checked",
+      "license": "Apache-2.0",
+      "license_files": [
+        "upstream/openssl-3.5.9/LICENSE.txt"
+      ],
+      "optimization": "O3",
+      "path": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/stripped/libcrypto.so.3",
+      "project": "openssl",
+      "receipt": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/stripped/receipt.json",
+      "receipt_sha256": "d546138682bc528abb75e66355081c56b651d9506727248b7363e64cad60dad3",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version",
+          "result": "pass: OpenSSL 3.5.9"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version -f (compiler flags baked in)",
+          "result": "pass: 1"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha256 -r",
+          "result": "pass: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha3-256 -r",
+          "result": "pass: 3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532 *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -blake2b512 -r",
+          "result": "pass: ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923 *stdin"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-128-ecb -K 000102..0f -nopad (FIPS 197 C.1)",
+          "result": "pass: 69c4e0d86a7b0430d8cdb78070b4c55a"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-256-cbc -pbkdf2 encrypt + decrypt round trip (5000 random bytes)",
+          "result": "pass: ok"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl genpkey ED25519; pkeyutl -sign; pkeyutl -verify",
+          "result": "pass: Signature Verified Successfully"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl req -x509 (self-signed P-256 cert) | x509 -noout -subject",
+          "result": "pass: subject=CN=localhost"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_server -tls1_3 -rev / qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_client 127.0.0.1:18444: protocol, verify, reversed reply",
+          "result": "pass: TLSv1.3|Verify return code: 0 (ok)|gnip"
+        },
+        {
+          "command": "s_client transcript (selected lines)",
+          "result": "subject=CN=localhost|New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384|Protocol: TLSv1.3|Verify return code: 0 (ok)|gnip|    Protocol  : TLSv1.3|    Verify return code: 0 (ok)|    Protocol  : TLSv1.3|"
+        }
+      ],
+      "sha256": "1cbb586eb3f60ff7fcc742335e8f10235394117f06575e8d60fcb3bd5ecbb8a1",
+      "size": 4993264,
+      "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+      "source_inputs": [
+        {
+          "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+          "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz"
+        }
+      ],
+      "stripping": "stripped",
+      "version": "3.5.9",
+      "version_components": [
+        "3",
+        "5",
+        "9"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O3 -g0 -ffile-prefix-map=/build/openssl=. (replaces Configure's default -O3; Configure adds -fPIC/-pthread/-m64 etc.: see command lines)",
+        "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "no-asm",
+        "configure_args": "./Configure linux-aarch64 --cross-compile-prefix=aarch64-linux-gnu- no-asm shared no-tests --prefix=/usr/local --openssldir=/usr/local/ssl --libdir=lib CFLAGS=-O3 -g0 -ffile-prefix-map=/build/openssl=.",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "",
+        "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+        "target": "aarch64-linux-gnu"
+      },
+      "build_id": "ad32c68c8cb958bb323dd0ac16b9d8d414b9da004d3a55a673f9e7dba48b4bdf",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 0,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": false,
+      "lean_status": "not generated or checked",
+      "license": "Apache-2.0",
+      "license_files": [
+        "upstream/openssl-3.5.9/LICENSE.txt"
+      ],
+      "optimization": "O3",
+      "path": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/stripped/libssl.so.3",
+      "project": "openssl",
+      "receipt": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/stripped/receipt.json",
+      "receipt_sha256": "d546138682bc528abb75e66355081c56b651d9506727248b7363e64cad60dad3",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version",
+          "result": "pass: OpenSSL 3.5.9"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version -f (compiler flags baked in)",
+          "result": "pass: 1"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha256 -r",
+          "result": "pass: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha3-256 -r",
+          "result": "pass: 3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532 *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -blake2b512 -r",
+          "result": "pass: ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923 *stdin"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-128-ecb -K 000102..0f -nopad (FIPS 197 C.1)",
+          "result": "pass: 69c4e0d86a7b0430d8cdb78070b4c55a"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-256-cbc -pbkdf2 encrypt + decrypt round trip (5000 random bytes)",
+          "result": "pass: ok"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl genpkey ED25519; pkeyutl -sign; pkeyutl -verify",
+          "result": "pass: Signature Verified Successfully"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl req -x509 (self-signed P-256 cert) | x509 -noout -subject",
+          "result": "pass: subject=CN=localhost"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_server -tls1_3 -rev / qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_client 127.0.0.1:18444: protocol, verify, reversed reply",
+          "result": "pass: TLSv1.3|Verify return code: 0 (ok)|gnip"
+        },
+        {
+          "command": "s_client transcript (selected lines)",
+          "result": "subject=CN=localhost|New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384|Protocol: TLSv1.3|Verify return code: 0 (ok)|gnip|    Protocol  : TLSv1.3|    Verify return code: 0 (ok)|    Protocol  : TLSv1.3|"
+        }
+      ],
+      "sha256": "6e82b9d3ee6e266268b3a27b1c8e1ac1f39ed11714429eef4f1d7ed3a030fe05",
+      "size": 1069368,
+      "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+      "source_inputs": [
+        {
+          "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+          "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz"
+        }
+      ],
+      "stripping": "stripped",
+      "version": "3.5.9",
+      "version_components": [
+        "3",
+        "5",
+        "9"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O3 -g0 -ffile-prefix-map=/build/openssl=. (replaces Configure's default -O3; Configure adds -fPIC/-pthread/-m64 etc.: see command lines)",
+        "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "no-asm",
+        "configure_args": "./Configure linux-aarch64 --cross-compile-prefix=aarch64-linux-gnu- no-asm shared no-tests --prefix=/usr/local --openssldir=/usr/local/ssl --libdir=lib CFLAGS=-O3 -g0 -ffile-prefix-map=/build/openssl=.",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "",
+        "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+        "target": "aarch64-linux-gnu"
+      },
+      "build_id": "ad32c68c8cb958bb323dd0ac16b9d8d414b9da004d3a55a673f9e7dba48b4bdf",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 0,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": false,
+      "lean_status": "not generated or checked",
+      "license": "Apache-2.0",
+      "license_files": [
+        "upstream/openssl-3.5.9/LICENSE.txt"
+      ],
+      "optimization": "O3",
+      "path": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/stripped/openssl",
+      "project": "openssl",
+      "receipt": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/stripped/receipt.json",
+      "receipt_sha256": "d546138682bc528abb75e66355081c56b651d9506727248b7363e64cad60dad3",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version",
+          "result": "pass: OpenSSL 3.5.9"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version -f (compiler flags baked in)",
+          "result": "pass: 1"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha256 -r",
+          "result": "pass: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha3-256 -r",
+          "result": "pass: 3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532 *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -blake2b512 -r",
+          "result": "pass: ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923 *stdin"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-128-ecb -K 000102..0f -nopad (FIPS 197 C.1)",
+          "result": "pass: 69c4e0d86a7b0430d8cdb78070b4c55a"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-256-cbc -pbkdf2 encrypt + decrypt round trip (5000 random bytes)",
+          "result": "pass: ok"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl genpkey ED25519; pkeyutl -sign; pkeyutl -verify",
+          "result": "pass: Signature Verified Successfully"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl req -x509 (self-signed P-256 cert) | x509 -noout -subject",
+          "result": "pass: subject=CN=localhost"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_server -tls1_3 -rev / qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_client 127.0.0.1:18444: protocol, verify, reversed reply",
+          "result": "pass: TLSv1.3|Verify return code: 0 (ok)|gnip"
+        },
+        {
+          "command": "s_client transcript (selected lines)",
+          "result": "subject=CN=localhost|New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384|Protocol: TLSv1.3|Verify return code: 0 (ok)|gnip|    Protocol  : TLSv1.3|    Verify return code: 0 (ok)|    Protocol  : TLSv1.3|"
+        }
+      ],
+      "sha256": "bc5f30b4e9c4cae62ece33fe9a7003a1076806b0e9fb7a70274177a3972bdb8a",
+      "size": 1096288,
+      "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+      "source_inputs": [
+        {
+          "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+          "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz"
+        }
+      ],
+      "stripping": "stripped",
+      "version": "3.5.9",
+      "version_components": [
+        "3",
+        "5",
+        "9"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O3 -g0 -ffile-prefix-map=/build/openssl=. (replaces Configure's default -O3; Configure adds -fPIC/-pthread/-m64 etc.: see command lines)",
+        "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "no-asm",
+        "configure_args": "./Configure linux-aarch64 --cross-compile-prefix=aarch64-linux-gnu- no-asm shared no-tests --prefix=/usr/local --openssldir=/usr/local/ssl --libdir=lib CFLAGS=-O3 -g0 -ffile-prefix-map=/build/openssl=.",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "",
+        "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+        "target": "aarch64-linux-gnu"
+      },
+      "build_id": "ad32c68c8cb958bb323dd0ac16b9d8d414b9da004d3a55a673f9e7dba48b4bdf",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 12496,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": true,
+      "lean_status": "not generated or checked",
+      "license": "Apache-2.0",
+      "license_files": [
+        "upstream/openssl-3.5.9/LICENSE.txt"
+      ],
+      "optimization": "O3",
+      "path": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/unstripped/libcrypto.so.3",
+      "project": "openssl",
+      "receipt": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/unstripped/receipt.json",
+      "receipt_sha256": "042f30e7a389a42a7f24f42bfbd4acd19d46316577389bd81b7225df40718fe1",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version",
+          "result": "pass: OpenSSL 3.5.9"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version -f (compiler flags baked in)",
+          "result": "pass: 1"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha256 -r",
+          "result": "pass: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha3-256 -r",
+          "result": "pass: 3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532 *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -blake2b512 -r",
+          "result": "pass: ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923 *stdin"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-128-ecb -K 000102..0f -nopad (FIPS 197 C.1)",
+          "result": "pass: 69c4e0d86a7b0430d8cdb78070b4c55a"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-256-cbc -pbkdf2 encrypt + decrypt round trip (5000 random bytes)",
+          "result": "pass: ok"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl genpkey ED25519; pkeyutl -sign; pkeyutl -verify",
+          "result": "pass: Signature Verified Successfully"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl req -x509 (self-signed P-256 cert) | x509 -noout -subject",
+          "result": "pass: subject=CN=localhost"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_server -tls1_3 -rev / qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_client 127.0.0.1:18444: protocol, verify, reversed reply",
+          "result": "pass: TLSv1.3|Verify return code: 0 (ok)|gnip"
+        },
+        {
+          "command": "s_client transcript (selected lines)",
+          "result": "subject=CN=localhost|New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384|Protocol: TLSv1.3|Verify return code: 0 (ok)|gnip|    Protocol  : TLSv1.3|    Verify return code: 0 (ok)|    Protocol  : TLSv1.3|"
+        }
+      ],
+      "sha256": "35e7c9ff21f67c24801c8f99718687ad885223ed9f27eb43487aa93bf6a8bb30",
+      "size": 5896168,
+      "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+      "source_inputs": [
+        {
+          "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+          "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz"
+        }
+      ],
+      "stripping": "unstripped",
+      "version": "3.5.9",
+      "version_components": [
+        "3",
+        "5",
+        "9"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O3 -g0 -ffile-prefix-map=/build/openssl=. (replaces Configure's default -O3; Configure adds -fPIC/-pthread/-m64 etc.: see command lines)",
+        "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "no-asm",
+        "configure_args": "./Configure linux-aarch64 --cross-compile-prefix=aarch64-linux-gnu- no-asm shared no-tests --prefix=/usr/local --openssldir=/usr/local/ssl --libdir=lib CFLAGS=-O3 -g0 -ffile-prefix-map=/build/openssl=.",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "",
+        "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+        "target": "aarch64-linux-gnu"
+      },
+      "build_id": "ad32c68c8cb958bb323dd0ac16b9d8d414b9da004d3a55a673f9e7dba48b4bdf",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 2431,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": true,
+      "lean_status": "not generated or checked",
+      "license": "Apache-2.0",
+      "license_files": [
+        "upstream/openssl-3.5.9/LICENSE.txt"
+      ],
+      "optimization": "O3",
+      "path": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/unstripped/libssl.so.3",
+      "project": "openssl",
+      "receipt": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/unstripped/receipt.json",
+      "receipt_sha256": "042f30e7a389a42a7f24f42bfbd4acd19d46316577389bd81b7225df40718fe1",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version",
+          "result": "pass: OpenSSL 3.5.9"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version -f (compiler flags baked in)",
+          "result": "pass: 1"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha256 -r",
+          "result": "pass: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha3-256 -r",
+          "result": "pass: 3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532 *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -blake2b512 -r",
+          "result": "pass: ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923 *stdin"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-128-ecb -K 000102..0f -nopad (FIPS 197 C.1)",
+          "result": "pass: 69c4e0d86a7b0430d8cdb78070b4c55a"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-256-cbc -pbkdf2 encrypt + decrypt round trip (5000 random bytes)",
+          "result": "pass: ok"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl genpkey ED25519; pkeyutl -sign; pkeyutl -verify",
+          "result": "pass: Signature Verified Successfully"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl req -x509 (self-signed P-256 cert) | x509 -noout -subject",
+          "result": "pass: subject=CN=localhost"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_server -tls1_3 -rev / qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_client 127.0.0.1:18444: protocol, verify, reversed reply",
+          "result": "pass: TLSv1.3|Verify return code: 0 (ok)|gnip"
+        },
+        {
+          "command": "s_client transcript (selected lines)",
+          "result": "subject=CN=localhost|New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384|Protocol: TLSv1.3|Verify return code: 0 (ok)|gnip|    Protocol  : TLSv1.3|    Verify return code: 0 (ok)|    Protocol  : TLSv1.3|"
+        }
+      ],
+      "sha256": "74941d8f2fc42bad9c2c7a816419be331d3b2372b000c08aa91eb1b2e27c5f21",
+      "size": 1257704,
+      "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+      "source_inputs": [
+        {
+          "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+          "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz"
+        }
+      ],
+      "stripping": "unstripped",
+      "version": "3.5.9",
+      "version_components": [
+        "3",
+        "5",
+        "9"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O3 -g0 -ffile-prefix-map=/build/openssl=. (replaces Configure's default -O3; Configure adds -fPIC/-pthread/-m64 etc.: see command lines)",
+        "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "no-asm",
+        "configure_args": "./Configure linux-aarch64 --cross-compile-prefix=aarch64-linux-gnu- no-asm shared no-tests --prefix=/usr/local --openssldir=/usr/local/ssl --libdir=lib CFLAGS=-O3 -g0 -ffile-prefix-map=/build/openssl=.",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "",
+        "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
+        "target": "aarch64-linux-gnu"
+      },
+      "build_id": "ad32c68c8cb958bb323dd0ac16b9d8d414b9da004d3a55a673f9e7dba48b4bdf",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 564,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": true,
+      "lean_status": "not generated or checked",
+      "license": "Apache-2.0",
+      "license_files": [
+        "upstream/openssl-3.5.9/LICENSE.txt"
+      ],
+      "optimization": "O3",
+      "path": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/unstripped/openssl",
+      "project": "openssl",
+      "receipt": "corpus/variants/openssl/3.5.9/no-asm/aarch64/O3/unstripped/receipt.json",
+      "receipt_sha256": "042f30e7a389a42a7f24f42bfbd4acd19d46316577389bd81b7225df40718fe1",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version",
+          "result": "pass: OpenSSL 3.5.9"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl version -f (compiler flags baked in)",
+          "result": "pass: 1"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha256 -r",
+          "result": "pass: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -sha3-256 -r",
+          "result": "pass: 3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532 *stdin"
+        },
+        {
+          "command": "printf abc | qemu-aarch64 -L /usr/aarch64-linux-gnu openssl dgst -blake2b512 -r",
+          "result": "pass: ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923 *stdin"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-128-ecb -K 000102..0f -nopad (FIPS 197 C.1)",
+          "result": "pass: 69c4e0d86a7b0430d8cdb78070b4c55a"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl enc -aes-256-cbc -pbkdf2 encrypt + decrypt round trip (5000 random bytes)",
+          "result": "pass: ok"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl genpkey ED25519; pkeyutl -sign; pkeyutl -verify",
+          "result": "pass: Signature Verified Successfully"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl req -x509 (self-signed P-256 cert) | x509 -noout -subject",
+          "result": "pass: subject=CN=localhost"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_server -tls1_3 -rev / qemu-aarch64 -L /usr/aarch64-linux-gnu openssl s_client 127.0.0.1:18444: protocol, verify, reversed reply",
+          "result": "pass: TLSv1.3|Verify return code: 0 (ok)|gnip"
+        },
+        {
+          "command": "s_client transcript (selected lines)",
+          "result": "subject=CN=localhost|New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384|Protocol: TLSv1.3|Verify return code: 0 (ok)|gnip|    Protocol  : TLSv1.3|    Verify return code: 0 (ok)|    Protocol  : TLSv1.3|"
+        }
+      ],
+      "sha256": "f13e61b27e141348c5241c0cb34951e90c2b4f1f374cf5493e3f71c4cece670b",
+      "size": 1248496,
       "source_id": "4283bb3c3d0ac4dd55bfa5ed2d471a099346336a52f5b40bf689f30c63140e25",
       "source_inputs": [
         {
@@ -47835,7 +48454,7 @@
     }
   ],
   "formal_statement_counts": {
-    "contextual_c_to_elf": 9,
+    "contextual_c_to_elf": 15,
     "functional_equivalence": 6
   },
   "hierarchy": [
@@ -47855,5 +48474,5 @@
     "Build identity and source metadata are not C semantics or a translation-validation statement."
   ],
   "schema_version": 1,
-  "unique_content_hashes": 481
+  "unique_content_hashes": 487
 }
