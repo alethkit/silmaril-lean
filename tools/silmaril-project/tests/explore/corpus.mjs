@@ -12,6 +12,8 @@ const localChrome='/opt/ms-playwright/chromium-1248/chrome-linux64/chrome';
 const browser=await pw.chromium.launch({executablePath:process.env.CHROME||(fs.existsSync(localChrome)?localChrome:undefined),args:['--no-sandbox']});
 try{
   const page=await browser.newPage({viewport:{width:1440,height:1000}}), errors=[];
+  const consoleMessages=[];
+  page.on('console',message=>consoleMessages.push({type:message.type(),text:message.text()}));
   page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://127.0.0.1:8789/index.html#/corpus');
   await page.waitForFunction(()=>window.explore?.ready&&!window.explore.busy,null,{timeout:60000});
@@ -53,7 +55,12 @@ try{
   const readBytes=()=>fs.readFileSync(requestLog,'utf8').trim().split('\n').map(JSON.parse).filter(r=>r.path==='/project.sqlite'&&r.method==='GET').reduce((n,r)=>n+r.bytes,0);
   const beforeTimingBytes=readBytes();
   await page.goto('http://127.0.0.1:8789/index.html#/corpus-timings');
-  await page.waitForFunction(()=>window.explore.view==='corpus-timings'&&!window.explore.busy);
+  try{
+    await page.waitForFunction(()=>window.explore.view==='corpus-timings'&&!window.explore.busy);
+  }catch(error){
+    console.error(JSON.stringify({url:page.url(),errors,consoleMessages,requests:fs.readFileSync(requestLog,'utf8').trim().split('\n').slice(-20).map(JSON.parse)}));
+    throw error;
+  }
   console.log('Timings navigation ms:',Date.now()-timingStart,'database bytes:',readBytes()-beforeTimingBytes);
   assert.ok(readBytes()-beforeTimingBytes<2*1024*1024,'Timings landing uses compact summary, not full receipts');
   assert.match(await page.locator('#main').innerText(),/actual run receipts/);
