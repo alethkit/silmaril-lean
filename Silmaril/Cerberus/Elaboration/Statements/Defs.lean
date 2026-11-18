@@ -57,6 +57,7 @@ def expressionStatement (config : Target.Config) (types : Target.Environment)
   let resultType ← match type with
     | .mk _ .void => pure BaseType.unit
     | .mk _ (.basic (.integer _)) => pure (BaseType.loaded .integer)
+    | .mk _ (.pointer ..) => pure (BaseType.loaded .pointer)
     | _ => throw (.message "expression statement result type is not ported")
   let core ← Expressions.wrappedExpression config types runtime expression aliases
   return strongSequence (wildcard resultType) core (pureEffect Construction.unit)

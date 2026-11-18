@@ -5,7 +5,7 @@
       "status": "stated-unproved",
       "declaration": "Silmaril.Elf.Corpus.MimallocVersion.Task.mi_version_equivalent",
       "root": "Silmaril.Elf.Corpus.MimallocVersion.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/6d3b930c-cbbd-49bc-b033-933acdead32a.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/unstripped/libmimalloc.so.2.1": "b89f65cbfb1a06468e1ba2b89ec908e5897a61cda109df92f112d9709e4dbf7d",
         "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/unstripped/libmimalloc.so.2.1": "d31800fec23b41fe8b9cbc2fac88762b4d4a2716b1fbe65fea1fd0aeb8b0aab3"
@@ -20,7 +20,7 @@
       "status": "stated-unproved",
       "declaration": "Silmaril.Elf.Corpus.MimallocVersion.Source.Core.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.MimallocVersion.Source.Core.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/c9bb3e04-0403-4b4a-940e-e229f0420227.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1": "3e289e6c3f60e0bf53c93dcbb782cc845500c07358dc104c5a48156bf0e67f31"
       },
@@ -40,7 +40,7 @@
       "function_symbol": "_mi_arena_id_none",
       "declaration": "Silmaril.Elf.Corpus.MimallocClosed.ArenaNone.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.MimallocClosed.ArenaNone.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/3354c37a-0314-4771-8e2d-f09cd9fb7d46.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1": "3e289e6c3f60e0bf53c93dcbb782cc845500c07358dc104c5a48156bf0e67f31"
       },
@@ -64,7 +64,7 @@
       "function_symbol": "_mi_allocator_done",
       "declaration": "Silmaril.Elf.Corpus.MimallocClosed.AllocatorDone.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.MimallocClosed.AllocatorDone.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/3354c37a-0314-4771-8e2d-f09cd9fb7d46.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1": "3e289e6c3f60e0bf53c93dcbb782cc845500c07358dc104c5a48156bf0e67f31"
       },
@@ -88,7 +88,7 @@
       "function_symbol": "ossl_quic_num_ciphers",
       "declaration": "Silmaril.Elf.Corpus.OpenSslQuicCount.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.OpenSslQuicCount.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/2b0b10f9-8218-42b8-9a47-64c75830e577.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/openssl/x86_64/libssl.so.3": "cd856f63e645e38ed5698dc3e33b6f7775dbc57dff0ae37db340851787c378b2"
       },
@@ -105,7 +105,7 @@
       "function_symbol": "mi_version",
       "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O0_strip_equivalent",
       "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/6e869c39-a1b8-452a-83d0-b62975f10c69.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/stripped/libmimalloc.so.2.1": "2811fa0abc1ecf4d6378cc1aed2e7211555403c0d5b6b1a9f2cc78f0c9e0c616",
         "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/unstripped/libmimalloc.so.2.1": "b89f65cbfb1a06468e1ba2b89ec908e5897a61cda109df92f112d9709e4dbf7d"
@@ -122,7 +122,7 @@
       "function_symbol": "mi_version",
       "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.Og_strip_equivalent",
       "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/6e869c39-a1b8-452a-83d0-b62975f10c69.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/stripped/libmimalloc.so.2.1": "94599d02484f5a1fca59893d0c2a675e8782257b4af967dfdb08d1175952e379",
         "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/unstripped/libmimalloc.so.2.1": "609c0d03494a8964e3b736dc8b8f93c2049fbdfb0df15699691292b3fe24e3f4"
@@ -139,7 +139,7 @@
       "function_symbol": "mi_version",
       "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O1_strip_equivalent",
       "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/6e869c39-a1b8-452a-83d0-b62975f10c69.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/stripped/libmimalloc.so.2.1": "58b5880abaa05d857c2008d5427c126e3a45d5b95ced48c8a4ed4fc18cf0c99a",
         "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/unstripped/libmimalloc.so.2.1": "c95e5e0299d30f67eccdc106bf6cd15d2fa84bd65ccfc71a4b9c2e7757f45f21"
@@ -156,7 +156,7 @@
       "function_symbol": "mi_version",
       "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O3_strip_equivalent",
       "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/6e869c39-a1b8-452a-83d0-b62975f10c69.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/stripped/libmimalloc.so.2.1": "1aba36eebc02977f9623048cf7a15734df14c181531f65f21131bec003b48a45",
         "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/unstripped/libmimalloc.so.2.1": "d31800fec23b41fe8b9cbc2fac88762b4d4a2716b1fbe65fea1fd0aeb8b0aab3"
@@ -175,7 +175,7 @@
       "function_size": 51,
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Space.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Space.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/bd57a77c-86e8-4004-bf99-052e67db7795.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c"
       },
@@ -207,7 +207,7 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "d249dbef021e7e65ca07294b27f8b457880917f6d0e917a07c8817bda5e863c9",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "e8b67a38a50a886dd9733618f0407d24a9ee6cb5f01283157203b1289dbdd03a",
         "Silmaril/Cerberus/Elaboration/Comparisons/Defs.lean": "07ac90087628ed7a41847fec6615e3f325a2f9dbeaa8155b06df6ce07fa33751",
         "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c",
         "Silmaril/Cerberus/Elaboration/Bitwise/Defs.lean": "babec81d4444190aa9d2bf5c144b2e353a8771cd99d1adc928698ef909b9f9fb",
@@ -224,7 +224,7 @@
       "function_size": 51,
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/bd57a77c-86e8-4004-bf99-052e67db7795.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c"
       },
@@ -256,7 +256,7 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "d249dbef021e7e65ca07294b27f8b457880917f6d0e917a07c8817bda5e863c9",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "e8b67a38a50a886dd9733618f0407d24a9ee6cb5f01283157203b1289dbdd03a",
         "Silmaril/Cerberus/Elaboration/Comparisons/Defs.lean": "07ac90087628ed7a41847fec6615e3f325a2f9dbeaa8155b06df6ce07fa33751",
         "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c",
         "Silmaril/Cerberus/Elaboration/Bitwise/Defs.lean": "babec81d4444190aa9d2bf5c144b2e353a8771cd99d1adc928698ef909b9f9fb",
@@ -273,7 +273,7 @@
       "function_size": 33,
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Digit.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Digit.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/bd57a77c-86e8-4004-bf99-052e67db7795.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c"
       },
@@ -305,7 +305,7 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "d249dbef021e7e65ca07294b27f8b457880917f6d0e917a07c8817bda5e863c9",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "e8b67a38a50a886dd9733618f0407d24a9ee6cb5f01283157203b1289dbdd03a",
         "Silmaril/Cerberus/Elaboration/Comparisons/Defs.lean": "07ac90087628ed7a41847fec6615e3f325a2f9dbeaa8155b06df6ce07fa33751",
         "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c",
         "Silmaril/Cerberus/Elaboration/Bitwise/Defs.lean": "babec81d4444190aa9d2bf5c144b2e353a8771cd99d1adc928698ef909b9f9fb",
@@ -322,7 +322,7 @@
       "function_size": 33,
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Octal.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Octal.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/bd57a77c-86e8-4004-bf99-052e67db7795.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c"
       },
@@ -354,7 +354,7 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "d249dbef021e7e65ca07294b27f8b457880917f6d0e917a07c8817bda5e863c9",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "e8b67a38a50a886dd9733618f0407d24a9ee6cb5f01283157203b1289dbdd03a",
         "Silmaril/Cerberus/Elaboration/Comparisons/Defs.lean": "07ac90087628ed7a41847fec6615e3f325a2f9dbeaa8155b06df6ce07fa33751",
         "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c",
         "Silmaril/Cerberus/Elaboration/Bitwise/Defs.lean": "babec81d4444190aa9d2bf5c144b2e353a8771cd99d1adc928698ef909b9f9fb",
@@ -371,7 +371,7 @@
       "function_size": 32,
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Upper.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Upper.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/bd57a77c-86e8-4004-bf99-052e67db7795.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c"
       },
@@ -403,7 +403,7 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "d249dbef021e7e65ca07294b27f8b457880917f6d0e917a07c8817bda5e863c9",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "e8b67a38a50a886dd9733618f0407d24a9ee6cb5f01283157203b1289dbdd03a",
         "Silmaril/Cerberus/Elaboration/Comparisons/Defs.lean": "07ac90087628ed7a41847fec6615e3f325a2f9dbeaa8155b06df6ce07fa33751",
         "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c",
         "Silmaril/Cerberus/Elaboration/Bitwise/Defs.lean": "babec81d4444190aa9d2bf5c144b2e353a8771cd99d1adc928698ef909b9f9fb",
@@ -422,7 +422,7 @@
       },
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Variants.Task.equivalent",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Variants.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/bd1d7897-b063-4795-bfa8-256309085c85.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c",
         "corpus/variants/tinycc/0.9.27/default/x86_64/Og/unstripped/tcc": "398ba6ca51236ceefa5902884ba42153959790c3b821b90a4037094d27a9b340"
@@ -468,7 +468,7 @@
       "function_address": 21600,
       "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isNull",
       "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/86baec41-7a77-4834-b63f-e570e6146a74.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
       },
@@ -510,7 +510,7 @@
       "function_address": 21568,
       "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isBool",
       "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/86baec41-7a77-4834-b63f-e570e6146a74.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
       },
@@ -552,7 +552,7 @@
       "function_address": 21632,
       "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isNumber",
       "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/86baec41-7a77-4834-b63f-e570e6146a74.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
       },
@@ -594,7 +594,7 @@
       "function_address": 21712,
       "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isString",
       "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/86baec41-7a77-4834-b63f-e570e6146a74.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
       },
@@ -636,7 +636,7 @@
       "function_address": 21776,
       "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isArray",
       "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/86baec41-7a77-4834-b63f-e570e6146a74.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
       },
@@ -678,7 +678,7 @@
       "function_address": 21808,
       "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isObject",
       "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/86baec41-7a77-4834-b63f-e570e6146a74.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
       },
@@ -720,7 +720,7 @@
       "function_address": 21472,
       "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isInvalid",
       "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/86baec41-7a77-4834-b63f-e570e6146a74.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
       },
@@ -762,7 +762,7 @@
       "function_address": 21504,
       "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isFalse",
       "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/86baec41-7a77-4834-b63f-e570e6146a74.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
       },
@@ -804,7 +804,7 @@
       "function_address": 21536,
       "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isTrue",
       "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/86baec41-7a77-4834-b63f-e570e6146a74.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
       },
@@ -846,7 +846,7 @@
       "function_address": 21840,
       "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isRaw",
       "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/86baec41-7a77-4834-b63f-e570e6146a74.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
       },
@@ -888,12 +888,12 @@
       "function_address": 62000,
       "declaration": "Silmaril.Elf.Corpus.MimallocOsGlobals.Context.Task.pageSize",
       "root": "Silmaril.Elf.Corpus.MimallocOsGlobals.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/3354c37a-0314-4771-8e2d-f09cd9fb7d46.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1": "3e289e6c3f60e0bf53c93dcbb782cc845500c07358dc104c5a48156bf0e67f31"
       },
       "module_sha256": {
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "d249dbef021e7e65ca07294b27f8b457880917f6d0e917a07c8817bda5e863c9",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "e8b67a38a50a886dd9733618f0407d24a9ee6cb5f01283157203b1289dbdd03a",
         "Silmaril/Cerberus/Elaboration/Functions/Defs.lean": "9640f009e24a1d76c728502c6f51b44b309706123e5683a557f78caaeb28e17e",
         "Silmaril/Cerberus/Elaboration/GlobalOrder/Defs.lean": "6d2dfff1529ed9116ee445d0c13cdd90a10a80f71c5e182a70f077c4e096b69e",
         "Silmaril/Cerberus/Elaboration/Globals/Defs.lean": "bbce586a8624868068a2d515f8ede77ecff2318bb1b06d4ba1ac4f2a74de6418",
@@ -935,12 +935,12 @@
       "function_address": 62016,
       "declaration": "Silmaril.Elf.Corpus.MimallocOsGlobals.Context.Task.largePageSize",
       "root": "Silmaril.Elf.Corpus.MimallocOsGlobals.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/3354c37a-0314-4771-8e2d-f09cd9fb7d46.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1": "3e289e6c3f60e0bf53c93dcbb782cc845500c07358dc104c5a48156bf0e67f31"
       },
       "module_sha256": {
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "d249dbef021e7e65ca07294b27f8b457880917f6d0e917a07c8817bda5e863c9",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "e8b67a38a50a886dd9733618f0407d24a9ee6cb5f01283157203b1289dbdd03a",
         "Silmaril/Cerberus/Elaboration/Functions/Defs.lean": "9640f009e24a1d76c728502c6f51b44b309706123e5683a557f78caaeb28e17e",
         "Silmaril/Cerberus/Elaboration/GlobalOrder/Defs.lean": "6d2dfff1529ed9116ee445d0c13cdd90a10a80f71c5e182a70f077c4e096b69e",
         "Silmaril/Cerberus/Elaboration/Globals/Defs.lean": "bbce586a8624868068a2d515f8ede77ecff2318bb1b06d4ba1ac4f2a74de6418",
@@ -982,12 +982,12 @@
       "function_address": 61968,
       "declaration": "Silmaril.Elf.Corpus.MimallocOsFlags.Context.Task.overcommit",
       "root": "Silmaril.Elf.Corpus.MimallocOsFlags.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/9299ca70-6b65-4da5-8849-37e207457462.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1": "3e289e6c3f60e0bf53c93dcbb782cc845500c07358dc104c5a48156bf0e67f31"
       },
       "module_sha256": {
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "d249dbef021e7e65ca07294b27f8b457880917f6d0e917a07c8817bda5e863c9",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "e8b67a38a50a886dd9733618f0407d24a9ee6cb5f01283157203b1289dbdd03a",
         "Silmaril/Cerberus/Elaboration/Functions/Defs.lean": "9640f009e24a1d76c728502c6f51b44b309706123e5683a557f78caaeb28e17e",
         "Silmaril/Cerberus/Elaboration/GlobalOrder/Defs.lean": "6d2dfff1529ed9116ee445d0c13cdd90a10a80f71c5e182a70f077c4e096b69e",
         "Silmaril/Cerberus/Elaboration/Globals/Defs.lean": "bbce586a8624868068a2d515f8ede77ecff2318bb1b06d4ba1ac4f2a74de6418",
@@ -1037,12 +1037,12 @@
       "function_address": 61984,
       "declaration": "Silmaril.Elf.Corpus.MimallocOsFlags.Context.Task.virtualReserve",
       "root": "Silmaril.Elf.Corpus.MimallocOsFlags.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/9299ca70-6b65-4da5-8849-37e207457462.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1": "3e289e6c3f60e0bf53c93dcbb782cc845500c07358dc104c5a48156bf0e67f31"
       },
       "module_sha256": {
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "d249dbef021e7e65ca07294b27f8b457880917f6d0e917a07c8817bda5e863c9",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "e8b67a38a50a886dd9733618f0407d24a9ee6cb5f01283157203b1289dbdd03a",
         "Silmaril/Cerberus/Elaboration/Functions/Defs.lean": "9640f009e24a1d76c728502c6f51b44b309706123e5683a557f78caaeb28e17e",
         "Silmaril/Cerberus/Elaboration/GlobalOrder/Defs.lean": "6d2dfff1529ed9116ee445d0c13cdd90a10a80f71c5e182a70f077c4e096b69e",
         "Silmaril/Cerberus/Elaboration/Globals/Defs.lean": "bbce586a8624868068a2d515f8ede77ecff2318bb1b06d4ba1ac4f2a74de6418",
@@ -1090,7 +1090,7 @@
       "status": "stated-unproved",
       "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Task.versionNumber",
       "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/e042cb37-21ff-4623-82f9-fdf03944249d.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/sqlite/x86_64/libsqlite3.so": "fcdd0cd75ea98cee14f2743832c6ad2ed4dd4229e2b5093f8bce7dc33c9c17f8"
       },
@@ -1125,7 +1125,7 @@
       "status": "stated-unproved",
       "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Task.threadsafe",
       "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/e042cb37-21ff-4623-82f9-fdf03944249d.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "artifact_sha256": {
         "corpus/elf/sqlite/x86_64/libsqlite3.so": "fcdd0cd75ea98cee14f2743832c6ad2ed4dd4229e2b5093f8bce7dc33c9c17f8"
       },
@@ -1161,7 +1161,7 @@
       "viewer_kind": "binary_equivalence",
       "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Task.versionOptimization",
       "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/f0f7c8b9-bb8f-4868-b859-7a404b508319.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "function_symbol": "sqlite3_libversion_number",
       "function_addresses": {
         "corpus/variants/sqlite/3.54.1/default/x86_64/O0/unstripped/libsqlite3.so": 958625,
@@ -1279,7 +1279,7 @@
       "viewer_kind": "binary_equivalence",
       "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Task.threadsafeOptimization",
       "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/f0f7c8b9-bb8f-4868-b859-7a404b508319.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "function_symbol": "sqlite3_threadsafe",
       "function_addresses": {
         "corpus/variants/sqlite/3.54.1/default/x86_64/O0/unstripped/libsqlite3.so": 958636,
@@ -1397,7 +1397,7 @@
       "viewer_kind": "binary_equivalence",
       "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Task.versionStripping",
       "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/f0f7c8b9-bb8f-4868-b859-7a404b508319.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "function_symbol": "sqlite3_libversion_number",
       "function_addresses": {
         "corpus/variants/sqlite/3.54.1/default/x86_64/O2/unstripped/libsqlite3.so": 79904,
@@ -1488,7 +1488,7 @@
       "viewer_kind": "binary_equivalence",
       "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Task.threadsafeStripping",
       "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/f0f7c8b9-bb8f-4868-b859-7a404b508319.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "function_symbol": "sqlite3_threadsafe",
       "function_addresses": {
         "corpus/variants/sqlite/3.54.1/default/x86_64/O2/unstripped/libsqlite3.so": 79920,
@@ -1579,7 +1579,7 @@
       "viewer_kind": "binary_equivalence",
       "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Task.versionConfiguration",
       "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/f0f7c8b9-bb8f-4868-b859-7a404b508319.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "function_symbol": "sqlite3_libversion_number",
       "function_addresses": {
         "corpus/variants/sqlite/3.54.1/default/x86_64/O2/unstripped/libsqlite3.so": 79904,
@@ -1686,7 +1686,7 @@
       "viewer_kind": "binary_equivalence",
       "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Task.smallThreadsafeOptimization",
       "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/f0f7c8b9-bb8f-4868-b859-7a404b508319.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "function_symbol": "sqlite3_threadsafe",
       "function_addresses": {
         "corpus/variants/sqlite/3.54.1/small/x86_64/O0/unstripped/libsqlite3.so": 934572,
@@ -1798,7 +1798,7 @@
       "viewer_kind": "binary_equivalence",
       "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Task.threadsafeRelease",
       "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Equivalence.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/f0f7c8b9-bb8f-4868-b859-7a404b508319.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "function_symbol": "sqlite3_threadsafe",
       "function_addresses": {
         "corpus/variants/sqlite/3.50.4/default/x86_64/O0/unstripped/libsqlite3.so": 921153,
@@ -1915,7 +1915,7 @@
       "status": "stated-unproved",
       "declaration": "Silmaril.Elf.Corpus.DarkhttpdLogEncoding.Context.Task.compilesTo",
       "root": "Silmaril.Elf.Corpus.DarkhttpdLogEncoding.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/92942282-1ad0-4c28-83d7-50c4f5877b8f.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
       "function_symbol": "needs_logencoding",
       "function_address": 20542,
       "function_size": 41,
@@ -1952,9 +1952,58 @@
         "corpus/darkhttpd/upstream/darkhttpd-1.17/darkhttpd.c": "450280b0010ee689b1984d8258afcc37d3f43a2cd8825661d275f9744e1f3ce8",
         "corpus/variants/darkhttpd/1.17/default/x86_64/O0/build.json": "607e843d8885ca948819c3cceb707d307acb0b107a995bca5a11dfb3296d3e9c",
         "corpus/variants/darkhttpd/1.17/default/x86_64/O0/unstripped/receipt.json": "1c95d7aa037fa73a31df7559b843c4ac8df9c0b669eb446d7fed48de7e805419",
-        "tests/cerberus/DarkhttpdLogEncodingContext.lean": "2337f316319e9fdef4f3b266d979a281e686da4af4643cf4de8098017be3be79",
+        "tests/cerberus/DarkhttpdLogEncodingContext.lean": "046dd79303fa0c5002f0d8f6388e4ee95bbb494ecc7ffece95d3187a5f07cc9b",
         "tools/corpus/DarkhttpdLogEncodingInputs.lean": "92a96df184789d2a00cd05fb67dca3512b794c09be315b3c802d04a866c4ddd7",
         "tools/corpus/check_darkhttpd_logencoding_inputs.py": "6566c64632f5ee059d7721441b7502b9f2e38e72c4179f16309c74764bca939b"
+      }
+    },
+    {
+      "kind": "contextual_c_to_elf",
+      "status": "stated-unproved",
+      "declaration": "Silmaril.Elf.Corpus.CjsonArraySize.Context.Task.compilesTo",
+      "root": "Silmaril.Elf.Corpus.CjsonArraySize.Context.Defs",
+      "run_receipt": "corpus/measurements/formal-functions/runs/79468fda-bbba-46a6-83f9-8546de7b2d3f.json",
+      "function_symbol": "cJSON_GetArraySize",
+      "function_address": 16528,
+      "function_size": 35,
+      "artifact_sha256": {
+        "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
+      },
+      "module_sha256": {
+        "Silmaril/Cerberus/Elaboration/Assignments/Defs.lean": "ac974bc87dd2b41b33c751490845e6c5ba09002d793108598128fb290e1cb607",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "e8b67a38a50a886dd9733618f0407d24a9ee6cb5f01283157203b1289dbdd03a",
+        "Silmaril/Cerberus/Elaboration/LocalObjects/Defs.lean": "e21086d50b851fbb932efc7125a1dc989d0b596078d806f56166313164af3842",
+        "Silmaril/Cerberus/Elaboration/Postfix/Defs.lean": "1ac0d3936b0c9be0467b46b2523680fb153e6b797a2cd1f11ef9651ff4a7bc5c",
+        "Silmaril/Cerberus/Elaboration/Statements/Defs.lean": "c5b1fca2c74b429dede00eedcdb312676e014e662536764c2a010dffaee05dd5",
+        "Silmaril/Elf/Corpus/CjsonArraySize/Context/Defs.lean": "0794eef21b2fb19ce46bc97f0fffed462e352575c505b4f6c190a5b0072d45bb",
+        "Silmaril/Elf/Corpus/CjsonArraySize/Defs.lean": "3a577d97ade36facc41caa7c660aab843b8a00c0d654e1b65749fa7cc28e1c89",
+        "Silmaril/Elf/Corpus/CjsonArraySize/Source/Defs.lean": "3143a2478345a9eb321ca031423233cc18ade584088cc45ad43d8f8bb4fab566",
+        "Silmaril/Elf/Corpus/CjsonArraySize/Source/Elaboration/Defs.lean": "d6478051a0e4bddcd2ef01e580902ce225812980b5dd1f00c3d57039f5f0a8c9",
+        "Silmaril/Elf/Corpus/CjsonArraySize/Source/Elaboration/Thms.lean": "49252d5541f231f40df297243cb5c22320cc5d7083a7344ad95f4dbb23ec874b",
+        "Silmaril/Elf/Corpus/CjsonArraySize/Source/Projection/Defs.lean": "41b9f14094f720554b7dff61033d6104c4bc7a8cf6f0c83926135836c13f4640",
+        "Silmaril/Elf/Corpus/CjsonArraySize/Source/Projection/Thms.lean": "bc26342c04233ab26495e4fcea20ecc025249d94b0b8685ce5e40e9183d87707",
+        "Silmaril/Elf/Corpus/CjsonArraySize/Thms.lean": "24a680262c17232c583ec2f0e5055703618c6761786158e60e1f1af6a8a1de84",
+        "Silmaril/Proofs/Elf/Corpus/CjsonArraySize/Bindings.lean": "1db1630126a626a19f173baac3a6fd2a00d15a58f998d18de7ae10aaf72457a2",
+        "Silmaril/Proofs/Elf/Corpus/CjsonArraySize/Projection.lean": "b3db6bbbdd963fa90748055164cee2f45b5d79eb40330f1e233895d34925edb5",
+        "Silmaril/Proofs/Elf/Corpus/CjsonArraySize/Source.lean": "055b4034e67345afbba2c3bd08fce7dbe4af4d1d436017ed5aed78975c565350",
+        "corpus/cjson/semantic-inputs/linux-x86_64/get-array-size/README.md": "021b28702cc0a072127e3fe13d1bd011dc20488e3ac92393c28e67e93b846a10",
+        "corpus/cjson/semantic-inputs/linux-x86_64/get-array-size/context.c": "e04af85a502ef41b93c99b3622720e0b9a82c47f2514efe85e9f32c89aeabf4d",
+        "corpus/cjson/semantic-inputs/linux-x86_64/get-array-size/manifest.json": "c15bbf70e53665aba24d35c8518032a6612da31761127de7804413a63eb73dbb",
+        "corpus/cjson/semantic-inputs/linux-x86_64/get-array-size/program.sexp": "b6f3ff0c2e350da276e6b4843368347f1ed5abf4b3a8ac36b8b9cbce5f26aa03",
+        "corpus/cjson/semantic-inputs/linux-x86_64/get-array-size/projection.json": "4b209fc12504662ee40cf610bd0af40d6934cbfcffdd72469b7169a962d71a60",
+        "corpus/cjson/semantic-inputs/linux-x86_64/get-array-size/runtime.sexp": "e5f04b906092c92595331d3176a2990beb797bfb0e12edc4326b07fb9454c27b",
+        "corpus/cjson/semantic-inputs/linux-x86_64/get-array-size/typed-ail.sexp": "04f40f4cd35d5164aea6db2f5bec658a78fcdad43ef62ae5bd712060478ac7c5",
+        "corpus/cjson/semantic-inputs/linux-x86_64/predicates/translation-unit.i": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf",
+        "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c": "298581a04a36c0165da4b0aade235c23088cb2faa58651d720ea2f3706ed0b0d",
+        "corpus/compiler-bindings/CjsonArraySize-Context.json": "dc551b6caaeff2e9d24c77b8e93ed4f1eef7b6a6fe840062fde182ac485b64bd",
+        "tests/cerberus/CjsonArraySizeContext.lean": "2ad423d5ae7938e530f4fc08f8b712e1ed2319b0de8be653dd938e9ac29b70ec",
+        "tools/corpus/CjsonArraySizeInputs.lean": "a3d92c44dd9f3649afa84eb89a91c0506b68218a45f57d450075c2bbc1ca7ea5",
+        "tools/corpus/check_cjson_array_size_inputs.py": "6b30047bc90e0c8c558ae8c08a720b53bb2f2c6906cf9cd0663c566282a258d7",
+        "Silmaril/Cerberus/Elaboration/Loops/Defs.lean": "0a28fdc60366edd5527d2205576923c439e967e13d408db6755c2f879ebd201f",
+        "Silmaril/Cerberus/Elaboration/LoopControl/Defs.lean": "6637a672363b876417e714c9ff6416327483265e8234b72306f236621a1571b8",
+        "Silmaril/Project/Shapes/Contextual/Defs.lean": "098739d7e52b20f79b5c239612edd55ac25d62d52b073044b1994c2786ad057d",
+        "Silmaril/X86/SystemV/Defs.lean": "c0d835ce05a648f300ca61674294d16915d3f5831c3b112ec21df5b18ce3f9a9",
+        "Silmaril/X86/SystemV/CApi/Defs.lean": "6574f2b6b59c274b579e17a285ab8127f286a7db2cdfd26e805e732c54496930"
       }
     }
   ]

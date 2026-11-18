@@ -51,3 +51,12 @@ example : Silmaril.X86.SystemV.Encodes .uint8 (0x22 : BitVec 8) (0xabcdef0123456
 example : ¬ Silmaril.X86.SystemV.Encodes .uint8 (0x23 : BitVec 8) (0xabcdef0123456722 : BitVec 64) := by
   change ¬ (0xabcdef0123456722 : BitVec 64).setWidth 8 = (0x23 : BitVec 8)
   decide
+
+/-- The diagnostic-only normalization cannot hide allocation-state mutations.
+This is an observation-definition regression, not a source/ELF refinement proof. -/
+example (s t : State) (v : _) (changed : t.memory.nextId ≠ s.memory.nextId) :
+    ¬ (Context.context.sourceObservation (0 : BitVec 8) s t v).2 := by
+  intro observed
+  change {t.memory with currentLocation := s.memory.currentLocation} = s.memory at observed
+  have same := congrArg (fun memory : Mem.Concrete.State => memory.nextId) observed
+  exact changed same
