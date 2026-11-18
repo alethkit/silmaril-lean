@@ -81,3 +81,13 @@ jobs:
           python3 scripts/corpus/database.py --base "$RUNNER_TEMP/base.sqlite" --output "$RUNNER_TEMP/corpus-site/combined.sqlite"
           build/bin/silmaril-project explore --db "$RUNNER_TEMP/corpus-site/project.sqlite" --out "$RUNNER_TEMP/corpus-site/index.html"
           node tools/silmaril-project/tests/explore/corpus.mjs "$RUNNER_TEMP/corpus-site"
+      - name: Export and check actual corpus compiler bindings
+        env:
+          PLAYWRIGHT_CORE: ${{ runner.temp }}/pw/node_modules/playwright-core/index.mjs
+        run: |
+          # The existing combined catalog has the public project schema needed by
+          # the Compiler tab. No fixture proof evidence is manufactured for it.
+          mv "$RUNNER_TEMP/corpus-site/combined.sqlite" "$RUNNER_TEMP/corpus-site/project.sqlite"
+          build/bin/silmaril-project explore --db "$RUNNER_TEMP/corpus-site/project.sqlite" --out "$RUNNER_TEMP/corpus-site/index.html"
+          python3 tools/compiler-explorer/pages.py --project "$RUNNER_TEMP/corpus-site/project.sqlite" --out "$RUNNER_TEMP/corpus-site/compiler"
+          node tools/silmaril-project/tests/explore/compiler.mjs "$RUNNER_TEMP/corpus-site" "$RUNNER_TEMP/compiler-shots"
