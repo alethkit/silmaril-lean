@@ -127,7 +127,10 @@ def declaration (config : Target.Config) (types : Target.Environment)
           (definition.params.zip parameters).map (fun (symbol, parameter) => (some symbol, parameter.2.1)),
           variadic, prototype)
         let label ← freshReturnLabel
-        let body ← Statements.translate config types runtime.stdlib ⟨returnType, label, noreturn⟩ definition.body (some symbol) runtime.aliases
+        let statement ← LoopControl.erase definition.body
+        let labelVisibles := LoopControl.collect statement
+        let body ← Statements.translate config types runtime.stdlib ⟨returnType, label, noreturn⟩ statement
+          (some symbol) runtime.aliases labelVisibles
         let temporary ← State.freshDescription .none
         let ending := returnSave program.1 symbol label temporary definition.loc returnType baseType
         return { accumulator with
