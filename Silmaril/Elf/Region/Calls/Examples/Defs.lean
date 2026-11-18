@@ -3,6 +3,7 @@ module
 public import Silmaril.Elf.Region.Calls.Semantic.Defs
 public import Silmaril.Elf.Staged.Pinned.HelloGcc.Bytes
 public import Silmaril.Elf.Staged.Pinned.HelloGcc.Defs
+public import Silmaril.Semantics.Function.Effects.Defs
 
 @[expose] public section
 namespace Silmaril.Elf.Region.Calls.Examples
@@ -49,6 +50,22 @@ def refinedOwner : Owner := fun image caller pre => owner image caller pre ∧ p
 abbrev machine : Machine signature := extModel plan 60 owner
 abbrev refinedMachine : Machine signature := extModel plan 64 refinedOwner
 
+def entryEffects : Effects.OnEntry MState (Set (Node signature)) where
+  Observation := Node signature
+  occurs state dest := ∃ edge post, machine.callStep fixture edge state post ∧ edge.callee = dest
+  observe dest := {dest}
+
+abbrev SymbolicArgs := Nat × Option (BitVec 64)
+
+/-- A caller and optional stack pointer, with no other restrictions on memory
+beyond the chosen interpretation's owner predicate. -/
+def argEffects : Effects.OnArgs SymbolicArgs (Set (Node signature)) :=
+  entryEffects.abstractInput fun args state => owner fixture args.1 state ∧
+    ∀ sp, args.2 = some sp → state.core.read .rsp = sp
+
+def targetBound : Set (Node signature) :=
+  {dest | ∃ edge, (analysis inventory).may edge ∧ edge.callee = dest}
+
 def entryBoundary : Boundaries machine where
   view _ := ⟨⟨fun row => ⟨fun source dest => row = entry ∧ source = (0 : Nat) ∧ dest = (6 : Nat)⟩⟩,
     FunctionSpec.entry, fun row => {label | row.Covers label}, fun _ => {(6 : Nat)}⟩
@@ -71,6 +88,9 @@ def tailInventory (declared : Bool) : Inventory :=
 
 def unsupportedInventory : Inventory :=
   extract (objectOfCode [0xff, 0xd1, 0xc3]) ⟨[⟨"unsupported", 0, 3⟩], [], []⟩
+
+def fallthroughInventory : Inventory :=
+  extract (objectOfCode [0x90, 0xc3]) ⟨[⟨"fallthrough", 0, 1⟩], [], []⟩
 
 def partitionCount : Option Nat :=
   match checkPartition fixture 0 fixtureCode.length ⟨[entry, worker, ⟨"stub", 12, 1⟩], [], [], []⟩ with

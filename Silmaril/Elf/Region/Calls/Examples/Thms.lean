@@ -3,6 +3,7 @@ module
 public import Silmaril.Elf.Region.Calls.Examples.Defs
 public import Silmaril.Elf.Region.Calls.Thms
 public import Silmaril.Elf.Region.Calls.Semantic.Thms
+public import Silmaril.Semantics.Function.Effects.Thms
 import Silmaril.Proofs.Elf.Region.CallExamples
 
 @[expose] public section
@@ -19,11 +20,20 @@ theorem indirect_is_open : (query indirectInventory 0 2).incomplete = true := by
 theorem ambiguous_is_open : (query ambiguousInventory 0 2).incomplete = true := by decide +kernel
 theorem unseen_opcode_is_open : (query unsupportedInventory 0 2).incomplete = true := by decide +kernel
 theorem unqualified_jump_is_open : (query (tailInventory false) 0 2).incomplete = true := by decide +kernel
+theorem fallthrough_is_open : (query fallthroughInventory 0 2).incomplete = true := by decide +kernel
 theorem declared_tail_arc : arcLabels (tailInventory true) = [(0, 2)] := by decide +kernel
+theorem direct_runner_rejects_indirect :
+    queryDirect indirectInventory 0 2 = .error (query indirectInventory 0 2) := rfl
 theorem indirect_is_not_empty : (analysis indirectInventory).may ⟨⟨0, 0, .invoke⟩, .indirect,
     .foreign external⟩ :=
   ⟨none, ⟨rfl, extractRow (objectOfCode [0xff, 0xd0, 0xc3]) ⟨[⟨"indirect", 0, 3⟩], [], []⟩
     ⟨"indirect", 0, 3⟩, List.Mem.head _, List.Mem.head _⟩, trivial⟩
+
+theorem frontier_certified : FrontierProblem (directGraph (analysis inventory).may) 0
+    {leaf | leaf ∈ (query inventory 0 3).knownFrontier} := frontier_exact rfl
+
+theorem nonempty_certified : PathProblem (directGraph (analysis inventory).may) (.localFn 0)
+    {dest | dest ∈ nonemptyReach inventory 0 3} := checked_nonempty rfl
 
 theorem actual_path : CallPath (mayGraph (analysis inventory).may) (.localFn 0) (.foreign external) :=
   consecutive_path Proofs.certificate.may_cover (.cons Proofs.actual_entry (.single Proofs.actual_worker))
@@ -39,5 +49,8 @@ theorem refined_cover : CallGraphProblem (refinedMachine.actualCalls fixture) (a
 
 theorem refined_path_projection : CallPath (mayGraph (analysis inventory).may) (.localFn 0) (.foreign external) :=
   consecutive_path refined_cover refined_path
+
+theorem symbolic_args_bound : argEffects.Sound (fun _ => targetBound) :=
+  Effects.Problem.abstractInput_sound Proofs.entry_effects (fun _ _ _ => le_rfl)
 
 end Silmaril.Elf.Region.Calls.Examples

@@ -156,6 +156,13 @@ def ReachProblem {sig : Signature.{u}} (g : Graph.RelGraph (Node sig))
     (root : Node sig) (answer : Set (Node sig)) : Prop :=
   ∀ dest, dest ∈ answer ↔ Reachable g root dest
 
+def PathProblem {sig : Signature.{u}} (g : Graph.RelGraph (Node sig))
+    (root : Node sig) (answer : Set (Node sig)) : Prop :=
+  ∀ dest, dest ∈ answer ↔ CallPath g root dest
+
+def ReachableCallsProblem {sig : Signature.{u}} (edges : Calls sig) (accept : Dispatch → Prop)
+    (entry : sig.Internal) (answer : Set (Edge sig)) : Prop := answer = reachableCalls edges accept entry
+
 def FrontierProblem {sig : Signature.{u}} (g : Graph.RelGraph (Node sig))
     (entry : sig.Internal) (answer : Set sig.Foreign) : Prop := answer = foreignFrontier g entry
 

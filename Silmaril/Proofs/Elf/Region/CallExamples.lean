@@ -108,4 +108,8 @@ theorem certificate : Correspondence entryBoundary fixture entryCandidates (anal
   · intro edge pre post step
     exact ext_covers 60 cover ⟨pre, post, step⟩
 
+theorem entry_effects : entryEffects.Sound (fun _ => targetBound) := by
+  rintro state dest ⟨edge, post, step, rfl⟩
+  exact Set.singleton_subset_iff.mpr ⟨edge, certificate.may_cover ⟨state, post, step⟩, rfl⟩
+
 end Silmaril.Elf.Region.Calls.Examples.Proofs

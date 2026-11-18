@@ -36,6 +36,7 @@ inductive Gap where
   | unsupported (site : Nat)
   | unresolvedDirect (site target : Nat)
   | unclassifiedJump (site : Nat)
+  | unclassifiedFallthrough (site target : Nat)
   deriving DecidableEq, Repr
 
 inductive Parsed where
@@ -86,7 +87,8 @@ def reportDirect (plan : Plan) (site : CallSite signature) (dest : Nat) : Findin
 
 def findings (plan : Plan) (body : FunctionSpec) : Parsed → List Finding
   | .gap addr => [.gap (.unsupported addr)]
-  | .indirectCall addr => [.indirect ⟨body.entry, addr, .invoke⟩]
+  | .indirectCall addr => .indirect ⟨body.entry, addr, .invoke⟩ ::
+      (if decide (body.Covers (addr + 2)) then [] else [.gap (.unclassifiedFallthrough addr (addr + 2))])
   | .indirectJump addr =>
     if plan.tailSites.contains addr then [.indirect ⟨body.entry, addr, .tail⟩]
     else [.gap (.unclassifiedJump addr)]
@@ -96,6 +98,7 @@ def findings (plan : Plan) (body : FunctionSpec) : Parsed → List Finding
       if plan.tailSites.contains instr.addr then [reportDirect plan ⟨body.entry, instr.addr, .tail⟩ dest]
       else if decide (body.Covers dest) then [] else [.gap (.unclassifiedJump instr.addr)]
     | .branch dest => if decide (body.Covers dest) then [] else [.gap (.unclassifiedJump instr.addr)]
+    | .fallthrough dest => if decide (body.Covers dest) then [] else [.gap (.unclassifiedFallthrough instr.addr dest)]
     | _ => []
 
 structure Row where
@@ -116,9 +119,17 @@ def extract (source : BinaryObject) (plan : Plan) : Inventory :=
 def rows (inventory : Inventory) : Decomposition signature :=
   fun name body => ∃ row ∈ inventory, row.available = true ∧ row.body = body ∧ row.body.entry = name
 
-def analysis (inventory : Inventory) : Analysis signature where
+def IndirectAt (inventory : Inventory) (site : CallSite signature) : Prop :=
+  ∃ row ∈ inventory, Finding.indirect site ∈ row.findings
+
+/-- A client can preserve Top or provide a target upper bound at each observed
+indirect site. To use a narrower bound for execution it must prove coverage. -/
+def boundedAnalysis (inventory : Inventory) (targets : CallSite signature → Option (Set (Node signature))) :
+    Analysis signature where
   direct site callee := ∃ row ∈ inventory, ∃ dest, Finding.direct site dest callee ∈ row.findings
-  indirect site bound := bound = none ∧ ∃ row ∈ inventory, Finding.indirect site ∈ row.findings
+  indirect site bound := bound = targets site ∧ IndirectAt inventory site
+
+def analysis (inventory : Inventory) : Analysis signature := boundedAnalysis inventory fun _ => none
 
 def ReadableRows (source : BinaryObject) (plan : Plan) (proposed : Decomposition signature) : Prop :=
   ∀ name body, proposed name body → body ∈ plan.functions ∧ body.entry = name ∧
@@ -175,6 +186,9 @@ def openAt (inventory : Inventory) (entry : Nat) : Bool :=
     | .direct .. => false
     | _ => true
 
+def stable (inventory : Inventory) (seen : List (Node signature)) : Bool :=
+  (expand inventory seen).length == seen.length
+
 structure Report where
   knownVertices : List (Node signature)
   knownCalls : List (Nat × Node signature)
@@ -188,7 +202,7 @@ def query (inventory : Inventory) (entry rounds : Nat) : Report :=
   let seen := reach inventory entry rounds
   ⟨seen, (directArcs inventory).filter fun (caller, _) => seen.any (nodeEq (.localFn caller)),
     seen.filterMap fun node => match node with | .foreign stub => some stub | _ => none,
-    (expand inventory seen).length != seen.length || seen.any fun node => match node with
+    !stable inventory seen || seen.any fun node => match node with
       | .localFn addr => openAt inventory addr
       | .foreign _ => false⟩
 

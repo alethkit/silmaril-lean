@@ -43,4 +43,44 @@ theorem reach_exact {inventory : Inventory} {entry rounds : Nat}
   reach_problem_of_certificate ⟨Proofs.root_mem inventory entry rounds,
     fun {_ _} h edge => Proofs.step_closed fixed h edge, fun {_} mem => reach_sound mem⟩
 
+theorem checked_reach {inventory : Inventory} {entry rounds : Nat}
+    (done : stable inventory (reach inventory entry rounds) = true) :
+    ReachProblem (directGraph (analysis inventory).may) (.localFn entry)
+      {dest | dest ∈ (query inventory entry rounds).knownVertices} :=
+  reach_exact (Proofs.fixed_of_stable done)
+
+theorem checked_nonempty {inventory : Inventory} {entry rounds : Nat}
+    (done : stable inventory (nonemptyReach inventory entry rounds) = true) :
+    PathProblem (directGraph (analysis inventory).may) (.localFn entry)
+      {dest | dest ∈ nonemptyReach inventory entry rounds} :=
+  fun _ => ⟨nonemptyReach_sound, Proofs.nonempty_complete (Proofs.fixed_of_stable done)⟩
+
+theorem frontier_sound {inventory : Inventory} {entry rounds : Nat} {leaf : Stub}
+    (mem : leaf ∈ (query inventory entry rounds).knownFrontier) :
+    leaf ∈ foreignFrontier (directGraph (analysis inventory).may) entry :=
+  Proofs.path_iff_reach.mpr (reach_sound (Proofs.mem_frontier.mp mem))
+
+theorem frontier_exact {inventory : Inventory} {entry rounds : Nat}
+    (done : stable inventory (reach inventory entry rounds) = true) :
+    FrontierProblem (directGraph (analysis inventory).may) entry
+      {leaf | leaf ∈ (query inventory entry rounds).knownFrontier} := by
+  ext leaf
+  exact Proofs.mem_frontier.trans ((checked_reach done _).trans Proofs.path_iff_reach.symm)
+
+theorem reachable_arcs_exact {inventory : Inventory} {entry rounds caller : Nat} {dest : Node signature}
+    (done : stable inventory (reach inventory entry rounds) = true) :
+    (caller, dest) ∈ (query inventory entry rounds).knownCalls ↔
+      DirectEdge inventory (.localFn caller) dest ∧
+        Reachable (directGraph (analysis inventory).may) (.localFn entry) (.localFn caller) :=
+  Proofs.mem_knownCalls.trans (and_congr_right fun _ => checked_reach done _)
+
+theorem bounded_embed (inventory : Inventory) (targets : CallSite signature → Option (Set (Node signature))) :
+    MayCover (boundedAnalysis inventory targets).may (analysis inventory).may :=
+  Proofs.bounded_embed inventory targets
+
+theorem bounded_cover {inventory : Inventory} {targets : CallSite signature → Option (Set (Node signature))}
+    {actual : Calls signature} (top : CallGraphProblem actual (analysis inventory))
+    (narrow : ∀ edge, actual edge → edge.dispatch = .indirect → admits (targets edge.origin) edge.callee) :
+    CallGraphProblem actual (boundedAnalysis inventory targets) := Proofs.bounded_cover top narrow
+
 end Silmaril.Elf.Region.Calls

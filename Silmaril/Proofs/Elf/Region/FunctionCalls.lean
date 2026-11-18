@@ -75,13 +75,16 @@ theorem iterate_sound {inventory : Inventory} {seed : List (Node signature)} {ro
     · obtain ⟨source, inSeen, edge⟩ := List.mem_flatMap.mp (List.mem_filter.mp added).1
       exact forward source dest (ih inSeen) (successor_iff.mp edge)
 
-theorem root_mem (inventory : Inventory) (entry rounds : Nat) : .localFn entry ∈ reach inventory entry rounds := by
+theorem seed_mem (inventory : Inventory) (rounds : Nat) {seed : List (Node signature)} {node : Node signature}
+    (mem : node ∈ seed) : node ∈ (expand inventory)^[rounds] seed := by
   induction rounds with
-  | zero => exact List.Mem.head _
+  | zero => exact mem
   | succ rounds ih =>
-    unfold reach at *
     rw [Function.iterate_succ_apply']
     exact List.mem_append_left _ ih
+
+theorem root_mem (inventory : Inventory) (entry rounds : Nat) : .localFn entry ∈ reach inventory entry rounds :=
+  seed_mem inventory rounds (List.Mem.head _)
 
 theorem nodeEq_true (lhs rhs : Node signature) : nodeEq lhs rhs = true ↔ lhs = rhs := by
   cases lhs <;> cases rhs <;> simp [nodeEq]
@@ -98,5 +101,69 @@ theorem step_closed {inventory : Inventory} {seen : List (Node signature)} (fixe
   have new : dest ∈ expand inventory seen := List.mem_append_right _ (List.mem_filter.mpr
     ⟨List.mem_flatMap.mpr ⟨source, source_mem, successor_iff.mpr edge⟩, by simp [noMatch]⟩)
   exact absent (fixed ▸ new)
+
+theorem fixed_of_stable {inventory : Inventory} {seen : List (Node signature)}
+    (done : stable inventory seen = true) : expand inventory seen = seen := by
+  have equal : (expand inventory seen).length = seen.length := beq_iff_eq.mp done
+  unfold expand at equal ⊢
+  simp only [List.length_append] at equal
+  rw [List.length_eq_zero_iff.mp (Nat.add_left_cancel (equal.trans (Nat.add_zero seen.length).symm)),
+    List.append_nil]
+
+theorem path_iff_reach {inventory : Inventory} {entry : Nat} {leaf : Stub} :
+    CallPath (directGraph (analysis inventory).may) (.localFn entry) (.foreign leaf) ↔
+      Reachable (directGraph (analysis inventory).may) (.localFn entry) (.foreign leaf) := by
+  refine ⟨Relation.TransGen.to_reflTransGen, fun path => ?_⟩
+  rcases Relation.reflTransGen_iff_eq_or_transGen.mp path with impossible | nonempty
+  · cases impossible
+  · exact nonempty
+
+theorem nonempty_complete {inventory : Inventory} {entry rounds : Nat}
+    (fixed : expand inventory (nonemptyReach inventory entry rounds) = nonemptyReach inventory entry rounds)
+    {dest : Node signature} (path : CallPath (directGraph (analysis inventory).may) (.localFn entry) dest) :
+    dest ∈ nonemptyReach inventory entry rounds := by
+  induction path with
+  | single edge => exact seed_mem inventory rounds (successor_iff.mpr edge)
+  | tail _ edge ih => exact step_closed fixed ih edge
+
+theorem mem_frontier {leaf : Stub} {seen : List (Node signature)} :
+    leaf ∈ seen.filterMap (fun node => match node with | .foreign stub => some stub | _ => none) ↔
+      .foreign leaf ∈ seen := by
+  rw [List.mem_filterMap]
+  refine ⟨?_, fun mem => ⟨.foreign leaf, mem, rfl⟩⟩
+  rintro ⟨node, mem, result⟩
+  cases node with
+  | localFn _ => cases result
+  | foreign _ => cases result; exact mem
+
+theorem mem_knownCalls {inventory : Inventory} {seen : List (Node signature)} {caller : Nat}
+    {dest : Node signature} :
+    (caller, dest) ∈ (directArcs inventory).filter (fun (source, _) => seen.any (nodeEq (.localFn source))) ↔
+      DirectEdge inventory (.localFn caller) dest ∧ .localFn caller ∈ seen := by
+  rw [List.mem_filter, mem_directArcs, List.any_eq_true]
+  simp [nodeEq_true]
+
+theorem bounded_cover {inventory : Inventory} {targets : CallSite signature → Option (Set (Node signature))}
+    {actual : Calls signature} (top : CallGraphProblem actual (analysis inventory))
+    (narrow : ∀ edge, actual edge → edge.dispatch = .indirect → admits (targets edge.origin) edge.callee) :
+    CallGraphProblem actual (boundedAnalysis inventory targets) := by
+  intro edge real
+  have covered := top real
+  rcases edge with ⟨origin, tag, dest⟩
+  cases tag with
+  | direct => exact covered
+  | indirect =>
+    obtain ⟨_, ⟨_, recorded⟩, _⟩ := covered
+    exact ⟨targets origin, ⟨rfl, recorded⟩, narrow _ real rfl⟩
+
+theorem bounded_embed (inventory : Inventory) (targets : CallSite signature → Option (Set (Node signature))) :
+    MayCover (boundedAnalysis inventory targets).may (analysis inventory).may := by
+  intro edge mem
+  rcases edge with ⟨origin, tag, dest⟩
+  cases tag with
+  | direct => exact mem
+  | indirect =>
+    obtain ⟨_, ⟨_, recorded⟩, _⟩ := mem
+    exact ⟨none, ⟨rfl, recorded⟩, trivial⟩
 
 end Silmaril.Elf.Region.Calls.Proofs
