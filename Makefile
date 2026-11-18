@@ -184,7 +184,7 @@ pages: project-tool
 	mkdir -p _site
 	# Add the public corpus to the same DB the published Corpus tab opens.
 	rm -f _site/project.sqlite
-	$(PYTHON) scripts/corpus/database.py --base .lake/silmaril/project.sqlite --output _site/project.sqlite \
+	PYTHONPATH="$(CURDIR)/scripts/corpus" $(PYTHON) scripts/corpus/database.py --base .lake/silmaril/project.sqlite --output _site/project.sqlite \
 	  $(if $(PAGES_SOURCE_REV),--source-rev $(PAGES_SOURCE_REV))
 	build/bin/silmaril-project explore --db _site/project.sqlite --out _site/index.html \
 	  $(if $(PAGES_SOURCE_REV),--source-url $(PAGES_SOURCE_URL) --source-rev $(PAGES_SOURCE_REV))
