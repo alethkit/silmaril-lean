@@ -144,3 +144,52 @@ module-name collisions or overwriting files owned by another generator.
 ```sh
 python3 scripts/corpus/variants.py --package openssl --configuration asm --level O2 --arch aarch64 --work /work/out/openssl-asm-o2
 ```
+
+### Persistent bounded build workers
+
+`variants.py` initializes exactly two independent workers per invocation, using the
+immutable image ID resolved at startup. Both must match the **whole** committed
+`corpus/toolchain/lock.txt` before any build. Initialization failure stops the run;
+there is no retry loop. Each worker has 3 CPUs, 12 GiB memory and 256 PIDs; builds,
+strips and tests execute serially. No third postprocessor is created. The controller
+must run within the remaining 2 CPUs / 8 GiB of the task's aggregate budget.
+
+Each container has a read-only root, private tmpfs `/build`, `/tmp`, `/root`, a
+separate writable output mount, and read-only frozen recipes and archive cache.
+Before every profile, recipes are rehashed, all writable workspaces (including
+dotfiles and `/dev/shm`) are cleared and checked empty. `env -i` supplies a fixed
+PATH, HOME, locale, timezone, epoch, job count and explicit profile options. Build
+recipes verify the archive hashes independently in each worker, extract pristine
+sources and configure from scratch. No ccache, host compiler configuration or
+previous generated files enter a build. Host kernel/page caches are **not** reset;
+measurements retain cache state `unspecified`.
+
+Each repeat runs in its own container. ELF hashes and recorded input/command facts
+must match. Stripping runs independently in those respective workers, followed by
+stripped-byte comparisons and executable-section/address maps. Both repeat outputs
+and their stripped forms run package smoke tests before publication. Frozen recipe
+hashes, image ID, package lock hash, container IDs, creation commands, profile
+sequence/reuse, environment, limits, measured commands and runtime results travel
+with the receipts. This is clean-workspace reproducibility in independent
+**persistent** containers, not a fresh-container repeat. Older receipts keep their
+original lifecycle claims. Repeated `--configuration` options allow OpenSSL asm and
+no-asm profiles to share the same bounded pool.
+
+Pool lifecycle, package-lock dumps, failed commands and logs remain beneath
+`--work`; completed profiles publish atomically to new variant paths. Containers
+are removed at normal completion and on Python exceptions/SIGTERM. SIGKILL or host
+failure can leave containers behind; the recorded IDs permit explicit cleanup.
+`--resume` hash-checks completed outputs and included sources; it claims no new
+execution for retained profiles. It initializes a new two-worker pool for this
+invocation, rather than reconnecting to an earlier pool.
+
+```sh
+python3 -B -m unittest discover -s scripts/corpus -p 'test_*.py'
+python3 scripts/corpus/variants.py --package openssl --configuration no-asm \
+  --configuration asm --level O0 --level Og --level O1 --level O2 --level O3 \
+  --resume --work /work/out/openssl-pool
+```
+
+The pool does not change `corpus/build-all.sh`, historical canonical artifacts,
+formal coverage or catalog ownership. Runtime smoke tests are observations of
+their recorded commands, not functional-equivalence or source-semantics proofs.
