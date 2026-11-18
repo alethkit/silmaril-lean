@@ -21,7 +21,7 @@ async function getJSON(url) {
 function groupOf(id) { return id.split("/").slice(0, 2).join("/"); }
 
 async function init() {
-  state.list = await getJSON("api/problems");
+  state.list = await getJSON("api/problems.json");
   const groups = [...new Set(state.list.map((p) => groupOf(p.id)))];
   const prog = $("program");
   for (const g of groups) prog.append(new Option(g, g));
@@ -51,7 +51,7 @@ function fillBuilds(want) {
 }
 
 async function load(id, source, target) {
-  state.problem = await getJSON("api/problems/" + encodeURIComponent(id));
+  state.problem = await getJSON(state.list.find(p => p.id === id)?.static_path || ("api/problems/" + encodeURIComponent(id)));
   state.locked = null;
   const mode = $("mode");
   mode.querySelector('[value="semantic"]').disabled = !state.problem.edges.some((edge) => edge.kind === "semantic");

@@ -285,8 +285,11 @@ The adapter boundary is the project database schema `silmaril.project-db.v0.1`:
 * `statuses(problem, status = 'THM', tier = 'kernel', via)` gives the solving theorem;
 * `answer_axioms(decl, axiom)` gives its axioms.
 
-The adapter refuses another schema. Pages has SHA-addressed C and ELF artifact views; the
-two-pane source↔target problem view itself still runs on the compiler explorer server.
+The adapter refuses another schema. `make pages` builds the same two-pane viewer at `compiler/`
+and links it from the main explorer's Compiler and Corpus tabs. `pages.py` ingests committed
+manifests, applies the exact project-row adapter, and writes static problem JSON. Missing
+rows remain missing; no exporter run or interactive compile service is supplied. These are
+existing fixtures, not source-to-target proofs for every corpus function.
 
 ## Files first: problem forms, stages, environments
 
@@ -459,7 +462,7 @@ canonical-entry row. Safety from every Core entry is open everywhere.
 | per-edge vs whole mapping, coverage, counterexample | done (`Det.Counterexample.edges_not_enough`) |
 | non-vacuity | done for the C instance (`compilation_inhabited`) |
 | CI | done: `make check` runs the database and view tests, and `compiler-explorer-check` when `cexplorer-export` or `CompilesToExamples` is in scope; a broken proof fails it |
-| `sil project` | done: shapes, rows and the database adapter; the Pages tab is the remaining step (above) |
+| `sil project` | shapes, rows and database adapter; static fixture viewer and integration route are published on Pages; whole-corpus manifests/segment mappings remain incomplete |
 | decompiled and imported directions | done, with fixtures; the decompiled block's machine → C0 obligation is proved (bound to the object's bytes by a tool check, to the C text by printing); no whole-function decompilation theorem |
 | kernel replay | `leanchecker` on the evidence modules in `make compiler-explorer-check` (imports from `.olean`, same kernel) |
 | syntax highlighting (C, assembly, Core) | done, as text tokens (tested for escaping) |
