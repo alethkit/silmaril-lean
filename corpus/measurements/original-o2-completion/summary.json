@@ -1,9 +1,9 @@
 {
-  "actual_new_elf_rows": 20,
-  "unique_new_hashes": 20,
-  "new_profiles": 8,
-  "measured_exits_passed": 102,
-  "unstripped_matching_canonical": 9,
+  "actual_new_elf_rows": 52,
+  "unique_new_hashes": 52,
+  "new_profiles": 12,
+  "measured_exits_passed": 186,
+  "unstripped_matching_canonical": 25,
   "unstripped_canonical_mismatches": [
     {
       "object": "libjemalloc.so.2",
@@ -30,9 +30,9 @@
       "summary": "darkhttpd/summary.json"
     },
     {
-      "project": "tcp-pingpong",
-      "actual_new_elf_rows": 8,
-      "summary": "tcp-pingpong/summary.json"
+      "project": "jemalloc",
+      "actual_new_elf_rows": 4,
+      "summary": "jemalloc/summary.json"
     },
     {
       "project": "mimalloc",
@@ -40,9 +40,19 @@
       "summary": "mimalloc/summary.json"
     },
     {
-      "project": "jemalloc",
+      "project": "refcrypto",
+      "actual_new_elf_rows": 28,
+      "summary": "refcrypto/summary.json"
+    },
+    {
+      "project": "tcp-pingpong",
+      "actual_new_elf_rows": 8,
+      "summary": "tcp-pingpong/summary.json"
+    },
+    {
+      "project": "tinycc",
       "actual_new_elf_rows": 4,
-      "summary": "jemalloc/summary.json"
+      "summary": "tinycc/summary.json"
     }
   ]
 }
