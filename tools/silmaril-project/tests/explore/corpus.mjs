@@ -107,6 +107,24 @@ c.execute('UPDATE corpus_timing_summary SET stage=?,peak_rss_kib=?,exit_code=? W
     assert.equal(await page.evaluate(()=>window.__corpus_xss),undefined);
     assert.equal(await page.locator('#main img').count(),0);
   }finally{fs.rmSync(path.join(site,evil));}
+  // Old public catalogs have receipts but no compact summary table.
+  const legacy='corpus-legacy-'+process.pid+'.sqlite';
+  try{
+    execFileSync('python3',['-c',`
+import sqlite3,sys
+source=sqlite3.connect(sys.argv[1]); target=sqlite3.connect(sys.argv[2])
+target.executescript('CREATE TABLE corpus_meta(key TEXT,value TEXT); CREATE TABLE corpus_artifacts(id TEXT); CREATE TABLE corpus_timings(run_id TEXT PRIMARY KEY,build_id TEXT,stage TEXT,metadata TEXT);')
+target.executemany('INSERT INTO corpus_meta VALUES(?,?)',source.execute('SELECT key,value FROM corpus_meta'))
+target.execute('INSERT INTO corpus_timings VALUES(?,?,?,?)',source.execute('SELECT * FROM corpus_timings WHERE run_id=?',(sys.argv[3],)).fetchone())
+target.commit();target.close();source.close()
+`,path.join(site,'project.sqlite'),path.join(site,legacy),runId]);
+    await page.goto(`http://127.0.0.1:8789/index.html?db=${legacy}#/corpus-timings`);
+    await page.waitForFunction(()=>window.explore?.ready&&!window.explore.busy);
+    assert.match(await page.locator('#main').innerText(),/1 actual run receipts/);
+    await page.locator('#timing-rows summary').click();
+    await page.waitForFunction(()=>document.querySelector('#timing-rows pre').textContent.includes('"run_id"'));
+    assert.deepEqual(JSON.parse(await page.locator('#timing-rows pre').innerText()),expected);
+  }finally{fs.rmSync(path.join(site,legacy),{force:true});}
   assert.deepEqual(errors,[]);
   console.log('PASS corpus database: filters, artifact/source links, stripped mapping search, timings, concrete stated/unproved disclosure');
 }finally{await browser.close();server.kill();}
