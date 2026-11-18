@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Cerberus.Elaboration.Arithmetic.Defs
+public import Silmaril.Cerberus.Elaboration.Bitwise.Defs
 public import Silmaril.Cerberus.Elaboration.ObjectExpressions.Defs
 public import Silmaril.Cerberus.Elaboration.Comparisons.Defs
 public import Silmaril.Cerberus.Elaboration.Designators.Defs
@@ -112,8 +113,12 @@ def expression (config : Target.Config) (env : Target.Environment) (bindings : L
             let rightType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env right))
             match operator with
             | .arithmetic arithmetic =>
-                Arithmetic.translate config env bindings location type leftType rightType arithmetic
-                  (expression config env bindings left aliases) (expression config env bindings right aliases)
+                if arithmetic == .band || arithmetic == .bxor || arithmetic == .bor then
+                  Bitwise.translate config env bindings type leftType rightType arithmetic
+                    (expression config env bindings left aliases) (expression config env bindings right aliases)
+                else
+                  Arithmetic.translate config env bindings location type leftType rightType arithmetic
+                    (expression config env bindings left aliases) (expression config env bindings right aliases)
             | .gt =>
                 Comparisons.greater config env bindings type leftType rightType
                   (expression config env bindings left aliases) (expression config env bindings right aliases)

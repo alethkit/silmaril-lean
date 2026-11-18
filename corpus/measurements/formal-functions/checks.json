@@ -175,7 +175,7 @@
       "function_size": 51,
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Space.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Space.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/99deb393-411a-4b86-a30d-c12554cda9ae.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/21f45ad0-a4c0-4b78-b201-f7ed310011a4.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c"
       },
@@ -207,9 +207,10 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "a934d2a635924ea4130d28db67e443eef09df6a7de4ad419a90e7fa14bb47e27",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "02667d55b978b56bf177335f594f84a110d593afe3ca154ed3feede865a1e4ea",
         "Silmaril/Cerberus/Elaboration/Comparisons/Defs.lean": "07ac90087628ed7a41847fec6615e3f325a2f9dbeaa8155b06df6ce07fa33751",
-        "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c"
+        "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c",
+        "Silmaril/Cerberus/Elaboration/Bitwise/Defs.lean": "babec81d4444190aa9d2bf5c144b2e353a8771cd99d1adc928698ef909b9f9fb"
       }
     },
     {
@@ -220,7 +221,7 @@
       "function_size": 51,
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/99deb393-411a-4b86-a30d-c12554cda9ae.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/21f45ad0-a4c0-4b78-b201-f7ed310011a4.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c"
       },
@@ -252,9 +253,10 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "a934d2a635924ea4130d28db67e443eef09df6a7de4ad419a90e7fa14bb47e27",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "02667d55b978b56bf177335f594f84a110d593afe3ca154ed3feede865a1e4ea",
         "Silmaril/Cerberus/Elaboration/Comparisons/Defs.lean": "07ac90087628ed7a41847fec6615e3f325a2f9dbeaa8155b06df6ce07fa33751",
-        "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c"
+        "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c",
+        "Silmaril/Cerberus/Elaboration/Bitwise/Defs.lean": "babec81d4444190aa9d2bf5c144b2e353a8771cd99d1adc928698ef909b9f9fb"
       }
     },
     {
@@ -265,7 +267,7 @@
       "function_size": 33,
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Digit.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Digit.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/99deb393-411a-4b86-a30d-c12554cda9ae.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/21f45ad0-a4c0-4b78-b201-f7ed310011a4.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c"
       },
@@ -297,9 +299,10 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "a934d2a635924ea4130d28db67e443eef09df6a7de4ad419a90e7fa14bb47e27",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "02667d55b978b56bf177335f594f84a110d593afe3ca154ed3feede865a1e4ea",
         "Silmaril/Cerberus/Elaboration/Comparisons/Defs.lean": "07ac90087628ed7a41847fec6615e3f325a2f9dbeaa8155b06df6ce07fa33751",
-        "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c"
+        "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c",
+        "Silmaril/Cerberus/Elaboration/Bitwise/Defs.lean": "babec81d4444190aa9d2bf5c144b2e353a8771cd99d1adc928698ef909b9f9fb"
       }
     },
     {
@@ -310,7 +313,7 @@
       "function_size": 33,
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Octal.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Octal.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/99deb393-411a-4b86-a30d-c12554cda9ae.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/21f45ad0-a4c0-4b78-b201-f7ed310011a4.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c"
       },
@@ -342,9 +345,10 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "a934d2a635924ea4130d28db67e443eef09df6a7de4ad419a90e7fa14bb47e27",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "02667d55b978b56bf177335f594f84a110d593afe3ca154ed3feede865a1e4ea",
         "Silmaril/Cerberus/Elaboration/Comparisons/Defs.lean": "07ac90087628ed7a41847fec6615e3f325a2f9dbeaa8155b06df6ce07fa33751",
-        "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c"
+        "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c",
+        "Silmaril/Cerberus/Elaboration/Bitwise/Defs.lean": "babec81d4444190aa9d2bf5c144b2e353a8771cd99d1adc928698ef909b9f9fb"
       }
     },
     {
@@ -355,7 +359,7 @@
       "function_size": 32,
       "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Upper.Task.compiles_to",
       "root": "Silmaril.Elf.Corpus.TinyccClosed.Upper.Thms",
-      "run_receipt": "corpus/measurements/formal-functions/runs/99deb393-411a-4b86-a30d-c12554cda9ae.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/21f45ad0-a4c0-4b78-b201-f7ed310011a4.json",
       "artifact_sha256": {
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c"
       },
@@ -387,9 +391,10 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
-        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "a934d2a635924ea4130d28db67e443eef09df6a7de4ad419a90e7fa14bb47e27",
+        "Silmaril/Cerberus/Elaboration/Expressions/Defs.lean": "02667d55b978b56bf177335f594f84a110d593afe3ca154ed3feede865a1e4ea",
         "Silmaril/Cerberus/Elaboration/Comparisons/Defs.lean": "07ac90087628ed7a41847fec6615e3f325a2f9dbeaa8155b06df6ce07fa33751",
-        "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c"
+        "Silmaril/Cerberus/Elaboration/Conditionals/Defs.lean": "beac19e17a238f97754897c93478804edab1549d306e59af6691a3522a71366c",
+        "Silmaril/Cerberus/Elaboration/Bitwise/Defs.lean": "babec81d4444190aa9d2bf5c144b2e353a8771cd99d1adc928698ef909b9f9fb"
       }
     },
     {
