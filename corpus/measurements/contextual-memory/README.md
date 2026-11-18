@@ -9,10 +9,12 @@ A context supplies entries and observations, not a refinement validity law.
 safety of every admitted actual Core entry, a machine first-return execution and
 matching actual Core final states for every machine first-return outcome. It
 also requires ABI preservation and the declared write bound. It does not prove
-all-path termination on a nondeterministic machine. Local callee assumptions have
+all-path termination on a nondeterministic machine. Local callee contract obligations have
 separate source safety/postconditions and machine strict contracts, with explicit
 nonempty entries; they never replace the actual Core bodies or machine steps.
-No callee refinement is assumed. The current instance has zero callees.
+No callee refinement is assumed. Callee contracts are conjunctive obligations,
+not implication premises; an impossible local contract cannot erase the caller
+result obligation. The current instance has zero callees.
 
 ## Actual OpenSSL global-memory instance
 

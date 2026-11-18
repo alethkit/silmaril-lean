@@ -54,14 +54,14 @@ def Context.Initial (C : Context Input Observation) (M : Model)
 
 /-- A real source procedure, actual machine placement and full-state context.
 All input instances must admit a joint entry. Source safety is an obligation,
-not a premise permitting every supported input to disappear through UB. Calls
-are conditional only on the separately exposed local callee contracts. -/
+not a premise permitting every supported input to disappear through UB. Local callee contracts are additional obligations, never an implication
+premise that could make the caller result vacuous. -/
 def Obligation {sig : Silmaril.X86.SystemV.CApi.Signature}
     (F : C.CFn sig) (M : Model) (p : Placement)
     (C : Context Input Observation) : Prop :=
   (∀ i, ∃ s m, C.Initial M i s m) ∧
   (∀ i s m, C.Initial M i s m → p.Entered m ∧ (F.source []).Safe s) ∧
-  ((∀ c ∈ C.callees, c.Holds M) →
+  (∀ c ∈ C.callees, c.Holds M) ∧
     ∀ i s m, C.Initial M i s m →
       (∃ t, FnContract.FirstReturn M m t) ∧
       ∀ t, FnContract.FirstReturn M m t →
@@ -69,6 +69,6 @@ def Obligation {sig : Silmaril.X86.SystemV.CApi.Signature}
         (M.mem m).WritesWithin (M.mem t) (C.footprint i m) ∧
         (∃ u v, Relation.ReflTransGen (F.source []).step s u ∧
           (F.source []).final u v ∧
-          C.sourceObservation i s u v = C.machineObservation i m t))
+          C.sourceObservation i s u v = C.machineObservation i m t)
 
 end Silmaril.Project.Shapes.Contextual
