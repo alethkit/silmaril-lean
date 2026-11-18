@@ -48,9 +48,10 @@ try {
   console.log('PASS published-shape compiler viewer: project navigation, static payloads, source/target/semantic modes and corpus return');
   // Real corpus statements use their own registry-backed, uniformly UNPROVED view.
   const corpusIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/corpus/index.json'),'utf8'));
-  assert.equal(corpusIndex.length,27);
+  assert.equal(corpusIndex.length,28);
   assert.ok(corpusIndex.every(p=>p.status==='UNPROVED'));
   const cases=[
+    {"symbol": "suffix_object", "declaration": "Silmaril.Elf.Corpus.CjsonSuffix.Context.Task.compilesTo", "address": "0x55ad", "bytes": "55 48 89 e5 48 89 7d f8 48 89 75 f0 48 8b 45 f8 48 8b 55 f0 48 89 10 48 8b 45 f0 48 8b 55 f8 48 89 50 08 90 5d c3", "source": "43b84fd08dec2b8a7c056cc15e6203de0789e6b1bb7d2eb41eaca7c30fecd729", "core": "30c94a6ba01e474846d0d8f84b787e008844d8271054c58ef66af0070f3032ca", "offset": 125337, "length": 101, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "expectedMemory", "mutation": true},
     {"symbol": "cJSON_GetArraySize", "declaration": "Silmaril.Elf.Corpus.CjsonArraySize.Context.Task.compilesTo", "address": "0x4090", "bytes": "48 85 ff 74 1b 48 8b 57 10 48 85 d2 74 12 31 c0 48 8b 12 48 83 c0 01 48 85 d2 75 f4 c3 0f 1f 00 31 c0 c3", "source": "e04af85a502ef41b93c99b3622720e0b9a82c47f2514efe85e9f32c89aeabf4d", "core": "b6f3ff0c2e350da276e6b4843368347f1ed5abf4b3a8ac36b8b9cbce5f26aa03", "offset": 119860, "length": 787, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "Fin 65", "traversal": true},
     {"symbol": "needs_logencoding", "declaration": "Silmaril.Elf.Corpus.DarkhttpdLogEncoding.Context.Task.compilesTo", "address": "0x503e", "bytes": "55 48 89 e5 89 f8 88 45 fc 80 7d fc 1f 76 0c 80 7d fc 7e 77 06 80 7d fc 22 75 07 b8 01 00 00 00 eb 05 b8 00 00 00 00 5d c3", "source": "ce9cbac8610df904f38a98b3db86d3b36cf1c22c286eaafdf2f6f85cf85ad749", "core": "8afeef037d7c66a599f4630f3fadceb726bf862ed47d4dd727a02d57b9a45bb7", "offset": 175434, "length": 110, "tu": "8b90d8bdc55576387362eef17ecc31fc1c0fde495ef73b2950bf10e1ad19ea82", "context": "layout.size == 1", "bytePredicate": true},
     {symbol:'cJSON_IsNull',declaration:'Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isNull',address:'0x5460',bytes:'48 85 ff 74 0b 31 c0 80 7f 18 04 0f 94 c0 c3 90 31 c0 c3',source:'c09e52545b71dcc83e603c21a65821a692bffbc4cb7fd3913a6660fc0fc942ab',core:'5567495bd982a19d43237278e2ce8455609fbf87d10f8c863c92b0f13243593a',offset:37470,length:211,tu:'3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf',context:'layout.size == 64'},
@@ -77,7 +78,14 @@ try {
     assert.ok(core.includes(c.symbol),'actual named Core procedure');
     const context=await page.locator('#corpus-evidence').textContent();
     assert.ok(context.includes(c.context));assert.ok(context.includes('callees := []'));
-    if(c.traversal){
+    if(c.mutation){
+      assert.equal(spans.spans.length,2);
+      for(const required of ['exactUpdate before.memory after.memory','nextExcluded := before.nextExcluded + 2','SysV.StackBelow machine 24','heapWrite','after.regions = before.regions','[.pointer, .pointer], none']){
+        assert.ok(context.includes(required),required);
+      }
+      assert.match(await page.locator('#assumptions').innerText(),/ONLY diagnostic currentLocation/);
+      assert.match(await page.locator('#assumptions').innerText(),/Null\/alias\/dead/);
+    }else if(c.traversal){
       assert.equal(spans.spans.length,3);
       for(const required of ["callerPreserved", "heapAddress 0 + 16", "nextWord", "SysV.StackBelow machine 0", "setWidth 32"]){
         assert.ok(context.includes(required),required);
@@ -135,7 +143,7 @@ try {
   await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('error: corpus evidence identity mismatch'));
   assert.equal(await page.locator('body').getAttribute('data-corpus-declaration'),null);
   await page.unroute('**/'+payload.source.static_path);
-  console.log('PASS actual registry corpus viewer:27 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
+  console.log('PASS actual registry corpus viewer:28 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
 
   const binaryIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/equivalences/index.json'),'utf8'));
   assert.equal(binaryIndex.length,7);
