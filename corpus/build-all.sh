@@ -31,7 +31,7 @@ IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$TAG")
 dr() {  # dr OUTDIR [extra docker args...] -- CMD...: run CMD in the image
   local out=$1; shift; local extra=()
   while [ "$1" != -- ]; do extra+=("$1"); shift; done; shift
-  docker run --rm --network host -e JOBS="${JOBS:-}" -e SOURCE_DATE_EPOCH=1762128000 \
+  docker run --rm --network host --cpus 8 --memory 32g -e JOBS="${JOBS:-8}" -e SOURCE_DATE_EPOCH=1762128000 \
     -v "$here:/corpus:ro" -v "$CORPUS_CACHE:/cache:ro" -v "$out:/out" "${extra[@]}" "$TAG" "$@"
 }
 objsums() { (cd "$1" && find . -maxdepth 1 -type f ! -name '.*' ! -name receipt.json ! -name SHA256SUMS -printf '%f\n' | sort | xargs -r sha256sum); }

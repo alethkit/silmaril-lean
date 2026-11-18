@@ -1,7 +1,8 @@
 # Source under test
 
-Everything under `corpus/<pkg>/upstream/` and `corpus/<pkg>/generated/`, and the ELF files under
-`corpus/elf/`, is **software under test**. It is not part of silmaril-lean:
+Everything under `corpus/<pkg>/upstream/`, `corpus/<pkg>/generated/`, and `corpus/<pkg>/semantic-inputs/`, and the ELF files under
+`corpus/elf/`, is **software under test**. Variant `upstream/` and `generated/` trees and
+ELF outputs under `corpus/variants/` have the same status. It is not part of silmaril-lean:
 
 * `upstream/` holds third-party releases, byte-for-byte as their authors published them
   (`upstream.sha256`, the archive hashes in `package.toml`). They are kept under their own licences

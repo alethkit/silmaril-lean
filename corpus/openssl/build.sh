@@ -3,8 +3,9 @@
 #   ./Configure linux-x86_64 | linux-aarch64 --cross-compile-prefix=aarch64-linux-gnu-
 #               no-asm shared no-tests --prefix=/usr/local --openssldir=/usr/local/ssl
 #               --libdir=lib CFLAGS='-O2 -g0 -ffile-prefix-map=/build/openssl=.'
-# no-asm: no perlasm/assembly modules, so every function in the outputs comes from C (wanted by the
-# later translation-validation step). Builds libcrypto.so.3, libssl.so.3 and apps/openssl only
+# no-asm disables OpenSSL's separately selected assembly modules. It does not establish that every
+# output function is a C function (crt/compiler-generated code and C inline assembly need separate
+# evidence). Builds libcrypto.so.3, libssl.so.3 and apps/openssl only
 # (make build_libs apps/openssl); providers/engines modules are not built.
 . "$(dirname "$0")/../common.sh"
 start_build openssl "$1" "$2"
@@ -18,7 +19,13 @@ case $ARCH in
 esac
 unset CC CXX AR RANLIB NM   # Configure derives the tools from --cross-compile-prefix
 CFLAGS="$BASE_CFLAGS"
-CONF=("${TARGET[@]}" no-asm shared no-tests --prefix=/usr/local --openssldir=/usr/local/ssl --libdir=lib "CFLAGS=$CFLAGS")
+CONFIG=${CORPUS_OPENSSL_CONFIG:-no-asm}
+case $CONFIG in
+  no-asm) ASM_OPTIONS=(no-asm) ;;
+  asm) ASM_OPTIONS=() ;;
+  *) echo "invalid CORPUS_OPENSSL_CONFIG: $CONFIG" >&2; exit 2 ;;
+esac
+CONF=("${TARGET[@]}" "${ASM_OPTIONS[@]}" shared no-tests --prefix=/usr/local --openssldir=/usr/local/ssl --libdir=lib "CFLAGS=$CFLAGS")
 info cflags "$CFLAGS (replaces Configure's default -O3; Configure adds -fPIC/-pthread/-m64 etc.: see command lines)"
 info ldflags ""
 info configure_args "./Configure ${CONF[*]}"
@@ -30,4 +37,5 @@ for pat in "libcrypto.so.3:make-libs.log" "libssl.so.3:make-libs.log" "apps/open
   info command "$(grep -m1 -B1 -A3 -- "-o ${pat%%:*} " "${pat#*:}" | tr -d '\t\\' | tr '\n' ' ' | tr -s ' ')"
 done
 cp libcrypto.so.3 libssl.so.3 apps/openssl "$OUTDIR/"
-{ depfiles "$BUILD/$ROOT"; printf '%s\n' "$BUILD/$ROOT/LICENSE.txt" "$BUILD/$ROOT/README.md" "$BUILD/$ROOT/AUTHORS.md" "$BUILD/$ROOT/NOTICE" "$BUILD/$ROOT/configdata.pm" "$BUILD/$ROOT/crypto/buildinf.h"; } | collect "$BUILD/$ROOT" $ROOT
+{ if [ "$CONFIG" = asm ] && [ -n "${CORPUS_COLLECT:-}" ]; then python3 -I "$CORPUS/openssl/assembly-inputs.py" "$BUILD/$ROOT" "/build/pristine/$ROOT" "$ARCH"; fi
+  depfiles "$BUILD/$ROOT"; printf '%s\n' "$BUILD/$ROOT/LICENSE.txt" "$BUILD/$ROOT/README.md" "$BUILD/$ROOT/AUTHORS.md" "$BUILD/$ROOT/NOTICE" "$BUILD/$ROOT/configdata.pm" "$BUILD/$ROOT/crypto/buildinf.h"; } | collect "$BUILD/$ROOT" $ROOT
