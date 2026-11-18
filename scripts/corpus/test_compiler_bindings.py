@@ -32,12 +32,18 @@ class CorpusCompilerBindings(unittest.TestCase):
                         db.execute('INSERT INTO corpus_artifacts VALUES(?,?,?)', (artifacts[name], name, digest))
                     f = corpus.elf_function((ROOT / name).read_bytes(), s['function_symbol'], s.get('function_address'))
                     db.execute('INSERT INTO corpus_functions VALUES(?,?,?,?)', (artifacts[name], s['function_symbol'], f['address'], f['size']))
+                    for manifest in (ROOT / 'corpus/compiler-bindings').glob('*.json'):
+                        m = json.loads(manifest.read_text())
+                        if m['registry_root'] == s['root']:
+                            for callee in m.get('callees', []):
+                                actual = corpus.elf_function((ROOT / name).read_bytes(), callee['symbol'], callee['address'])
+                                db.execute('INSERT INTO corpus_functions VALUES(?,?,?,?)', (artifacts[name], callee['symbol'], actual['address'], actual['size']))
 
     def test_every_registered_problem_exports_without_proof_promotion(self):
         output = self.work / 'out'
         rows = corpus.export(self.project, output)
         self.assertEqual({r['declaration'] for r in rows}, {s['declaration'] for s in self.statements})
-        self.assertEqual(len(rows), 29)
+        self.assertEqual(len(rows), 30)
         for row in rows:
             p = json.loads((output / Path(row['static_path']).name).read_text())
             self.assertEqual(p['status'], 'UNPROVED')
@@ -77,6 +83,38 @@ class CorpusCompilerBindings(unittest.TestCase):
         for expected in ['arbitrary admissible addresses', 'arbitrary320', 'provenance',
                          'RAX pointer', 'ONLY diagnostic currentLocation', 'Only32', 'Unsupported']:
             self.assertIn(expected, limits)
+
+    def test_actual_caller_helper_and_callee_catalog_rejection(self):
+        output = self.work / 'out'
+        rows = corpus.export(self.project, output)
+        row = next(r for r in rows if r['function_symbol'] == 'cJSON_GetArrayItem')
+        p = json.loads((output / Path(row['static_path']).name).read_text())
+        self.assertEqual((p['artifacts'][0]['address'], p['artifacts'][0]['size']), (0x5427, 51))
+        helper = p['artifacts'][0]['callees'][0]
+        self.assertEqual((helper['function_symbol'], helper['address'], helper['size']), ('get_array_item', 0x53d3, 84))
+        self.assertEqual(len(bytes.fromhex(helper['bytes_hex'])), 84)
+        for clause in ['signed32', 'unsigned64', 'arbitrary payload', '72 bytes', 'not full-record', 'not proofs']:
+            self.assertIn(clause, ' '.join(p['limits']))
+        with closing(sqlite3.connect(self.project)) as db, db:
+            db.execute("UPDATE corpus_functions SET address=0 WHERE symbol='get_array_item'")
+        with self.assertRaisesRegex(ValueError, 'catalog callee mismatch'):
+            corpus.export(self.project, self.work / 'wrong-callee')
+
+    def test_wrong_callee_address_size_and_unbounded_list_rejected(self):
+        name = 'CjsonArrayItem-Context.json'
+        original = Path.read_bytes
+        manifest = json.loads((ROOT / 'corpus/compiler-bindings' / name).read_text())
+        mutations = [({'symbol':'get_array_item','address':0x53d4,'size':84}, 'ambiguous/missing'),
+                     ({'symbol':'get_array_item','address':0x53d3,'size':83}, 'callee ELF size mismatch')]
+        for i, (callee, _) in enumerate(mutations):
+            changed = {**manifest, 'callees':[callee]}
+            with patch.object(Path, 'read_bytes', lambda path: json.dumps(changed).encode() if path.name == name else original(path)):
+                with self.assertRaisesRegex(ValueError, 'stale registered'):
+                    corpus.export(self.project, self.work / str(i))
+        changed = {**manifest, 'callees':manifest['callees']*9}
+        with patch.object(Path, 'read_bytes', lambda path: json.dumps(changed).encode() if path.name == name else original(path)):
+            with self.assertRaisesRegex(ValueError, 'stale registered'):
+                corpus.export(self.project, self.work / 'unbounded')
 
     def test_stale_source_and_private_path_rejected(self):
         source = 'corpus/cjson/semantic-inputs/linux-x86_64/predicates/context.c'
