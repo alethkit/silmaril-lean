@@ -12,7 +12,9 @@ const browser=await pw.chromium.launch({executablePath:process.env.CHROME||(fs.e
 try {
   const page=await browser.newPage();
   const base='http://127.0.0.1:8791';
-  for(let i=0;i<40;i++){try{const r=await fetch(base+'/index.html');if(r.ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
+  // Drain the readiness response before navigation: do not leave an unread HTTP body
+  // paused in Node's client when this connection closes. Browser assertions follow.
+  for(let i=0;i<40;i++){try{const r=await fetch(base+'/index.html');await r.arrayBuffer();if(r.ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
   await page.goto(base+'/index.html#/compiler');
   const link=page.getByRole('link',{name:'Open the source ↔ target viewer',exact:true});
   await link.waitFor({timeout:60000}); await link.click();
