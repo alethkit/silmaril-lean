@@ -18,6 +18,11 @@ modules=(
   CompilesToExamples.Explorer.Code
   CompilesToExamples.Explorer.Decompiled
   CompilesToExamples.Explorer.Rows
+  Silmaril.Proofs.Project.Shapes.CompilesTo.Translate
+  Silmaril.Project.Shapes.C.Additive.Thms
+  Silmaril.Compiler.Explorer.Text.Thms
+  CompilesToExamples.Explorer.C2C.Runs
+  CompilesToExamples.Explorer.TypeError
 )
 for m in "${modules[@]}"; do
   start=$(date +%s)

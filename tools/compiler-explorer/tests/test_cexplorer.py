@@ -129,7 +129,7 @@ class Ingest(Base):
         b = cx.ingest_manifest(self.db, STRAIGHT_O0)
         self.assertEqual(a, b)
         cx.migrate(self.db)
-        self.assertEqual([r[0] for r in self.db.execute("SELECT version FROM schema_migrations")], [1, 2, 3, 4])
+        self.assertEqual([r[0] for r in self.db.execute("SELECT version FROM schema_migrations")], [1, 2, 3, 4, 5])
 
     def test_migration_keeps_existing_data(self):
         path = str(self.tmp / "old.sqlite")
@@ -139,7 +139,7 @@ class Ingest(Base):
         old.close()
         db = cx.connect(path)  # migrates 2 and 3
         vid = cx.ingest_manifest(db, STRAIGHT_O0)
-        self.assertEqual([r[0] for r in db.execute("SELECT version FROM schema_migrations")], [1, 2, 3, 4])
+        self.assertEqual([r[0] for r in db.execute("SELECT version FROM schema_migrations")], [1, 2, 3, 4, 5])
         self.assertTrue(db.execute("SELECT row FROM obligations WHERE version_id = ? AND id = 'translation'",
                                    (vid,)).fetchone()[0])
         db.close()
@@ -428,6 +428,109 @@ class Directions(Base):
         del m["derivation"]["receipt"]
         with self.assertRaises(cx.Rejected):
             cx.ingest_manifest(self.db, self.write("m.json", m))
+
+
+class Polish(Base):
+    C2C_DROP = MANIFESTS / "c2c--add3_drop.json"
+    C2C_REASSOC = MANIFESTS / "c2c--add3_reassoc.json"
+    TYPEERR = MANIFESTS / "typeerror--addp.json"
+
+    def test_refuted_open_and_claimed_are_distinct(self):
+        cx.ingest_manifest(self.db, self.C2C_DROP)
+        cx.ingest_manifest(self.db, self.C2C_REASSOC)
+        st = self.statuses("c2c/add3_drop")
+        self.assertEqual(st["translation"], "unchecked")  # a refutation is named, not yet checked
+        ev = evidence_for(self.C2C_DROP)
+        ev["obligations"] = [{"id": "translation", "statement": o["statement"], "decl": None,
+                              "refutation": o["refutation"], "status": "refuted",
+                              "axioms": ["propext", "Classical.choice", "Quot.sound"],
+                              "module": "CompilesToExamples.Explorer.C2C.Runs", "line": 91}
+                             for o in json.loads(self.C2C_DROP.read_bytes())["obligations"]]
+        cx.ingest_evidence(self.db, self.write("file.json", ev))
+        self.assertEqual(self.statuses("c2c/add3_drop")["translation"], "claimed")  # a file, not a run
+        self.trusted(self.write("ev.json", ev))
+        self.assertEqual(self.statuses("c2c/add3_drop")["translation"], "refuted")
+        self.trusted(self.write("ev2.json", evidence_for(self.C2C_REASSOC)))
+        st = self.statuses("c2c/add3_reassoc")
+        self.assertEqual((st["translation"], st["equivalence"]), ("open", "open"))  # unknown, not refuted
+
+    def test_refutation_cannot_prove_and_proof_cannot_refute(self):
+        cx.ingest_manifest(self.db, self.C2C_DROP)
+        m = json.loads(self.C2C_DROP.read_bytes())
+        o = m["obligations"][0]
+        bad = [{"id": o["id"], "statement": o["statement"], "decl": None, "refutation": o["refutation"],
+                "status": "kernel", "axioms": []}]
+        ev = evidence_for(self.C2C_DROP, edit=lambda e: e.update(obligations=bad))
+        with self.assertRaises(cx.Rejected):
+            self.trusted(self.write("ev.json", ev))
+        cx.ingest_manifest(self.db, STRAIGHT_O0)
+        ev = evidence_for(STRAIGHT_O0, edit=lambda e: e["obligations"][0].update(status="refuted"))
+        with self.assertRaises(cx.Rejected):
+            self.trusted(self.write("ev2.json", ev))
+
+    def test_type_error_certificate_is_a_restricted_refutation(self):
+        cx.ingest_manifest(self.db, self.TYPEERR)
+        v = cx.problem_view(self.db, "typeerror/addp")
+        self.assertEqual(v["direction"], "none")
+        self.assertEqual(v["extra"]["problem_form"], "judgment")
+        typing = next(o for o in v["obligations"] if o["kind"] == "typing")
+        self.assertIn("AdditiveOperands", typing["statement"])
+        self.assertTrue(typing["refutation"].endswith("addp_operands"))
+        link = next(o for o in v["obligations"] if o["kind"] == "operand_types")
+        self.assertEqual(link["status"], "unsupported")  # the text -> types link is not claimed
+
+    def test_no_semantics_relation(self):
+        cx.ingest_manifest(self.db, MSORT_O2)
+        v = cx.problem_view(self.db, "programs/msort/O2")
+        self.assertEqual(v["extra"]["problem_form"], "relation")
+        self.assertEqual(v["extra"]["relation"]["semantics"], "none")
+        self.assertTrue(all(o["status"] == "unsupported" for o in v["obligations"]))
+        env = v["extra"]["include_env"]
+        self.assertTrue(any(f["name"].endswith("stdio.h") and len(f["sha256"]) == 64 for f in env["files"]))
+        self.assertTrue(env["search"])
+        self.assertIn("macros", v["artifacts"])
+
+    def test_alternative_views_and_stages(self):
+        cx.ingest_manifest(self.db, STRAIGHT_O0)
+        v = cx.problem_view(self.db, "compiles-to/straight/O0/add3")
+        alts = {a["role"] for side in ("source", "target") for a in v["view"]["alternatives"][side]}
+        self.assertEqual(alts, {"source", "core_probe", "listing", "decoded"})
+        self.assertIn("BEGIN-CORE-DOCUMENT", v["alt_texts"]["core_probe"])
+        self.assertIn("decodesAs", v["alt_texts"]["decoded"])
+        trusts = {s["name"]: s["trust"] for s in v["extra"]["stages"]}
+        self.assertEqual(trusts["objdump -d (binutils 2.40)"], "trusted")
+        self.assertIn("verified", trusts.values())
+        facts = v["extra"]["dwarf_facts"]
+        self.assertTrue(any(f["kind"] == "frame_slot" and "refinement" in f["used_by"] for f in facts))
+
+    def test_links_only_to_existing_routes_and_clean_commits(self):
+        cx.ingest_manifest(self.db, STRAIGHT_O0)
+        ev = evidence_for(STRAIGHT_O0)
+        for o in ev["obligations"]:
+            o.update(module="CompilesToExamples.Explorer.Builds", line=62)
+        ev["git_commit"] = "a" * 40
+        self.trusted(self.write("ev.json", ev))
+        v = cx.problem_view(self.db, "compiles-to/straight/O0/add3")
+        tr = next(o for o in v["obligations"] if o["id"] == "translation")
+        urls = [l["url"] for l in tr["links"]]
+        self.assertIn("https://github.com/hiloopai/silmaril-lean/blob/" + "a" * 40 +
+                      "/examples/compiles-to/CompilesToExamples/Explorer/Builds.lean#L62", urls)
+        self.assertTrue(any(u.endswith("#/problem/silmaril.compiler_explorer.straight.o0.add3.translation")
+                            for u in urls))
+        src_links = [l["url"] for l in v["artifact_links"]["source"]]
+        self.assertTrue(any(u.endswith("#/artifact/silmaril.compiles_to.straight.source") for u in src_links))
+        self.assertFalse(any("#/c-program/" in u or "#/elf-file/" in u for u in src_links))
+        # a dirty or unknown commit gives no Lean link
+        ev["git_commit"] = "a" * 40 + "-dirty"
+        self.trusted(self.write("ev2.json", ev))
+        v = cx.problem_view(self.db, "compiles-to/straight/O0/add3")
+        tr = next(o for o in v["obligations"] if o["id"] == "translation")
+        self.assertFalse(any(l["kind"] == "lean" for l in tr["links"]))
+
+    def test_lean_paths(self):
+        self.assertEqual(cx.lean_path("Silmaril.Compiler.Explorer.Defs"), "Silmaril/Compiler/Explorer/Defs.lean")
+        self.assertIsNone(cx.lean_path("Mathlib.Logic.Basic"))
+        self.assertIsNone(cx.lean_path("../etc"))
 
 
 class Binding(Base):

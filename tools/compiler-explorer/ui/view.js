@@ -72,10 +72,11 @@ export function badge(status) {
   const known = {
     proved: ["proved", "a theorem of exactly this statement, checked when Lean built it; read back by the exporter this database ran"],
     claimed: ["claimed", "an exporter result handed in as a file, not run by this database"],
-    open: ["open", "stated in Lean, not proved"],
+    open: ["open", "stated in Lean, neither proved nor disproved: unknown"],
     unchecked: ["unchecked", "a proof is named but no checked evidence is recorded"],
     rejected: ["rejected", "the named proof does not prove this statement"],
     stale: ["stale", "proved only for another version of these artifacts"],
+    refuted: ["disproved", "a theorem of the statement's negation, checked by Lean's kernel"],
     unbound: ["unbound", "a theorem proves it, but the Lean function is not shown to be the target's code"],
     unsupported: ["unsupported", "not stated: no model covers it"],
     passed: ["test passed", "an execution test, not a proof"],
@@ -90,4 +91,65 @@ export function uncovered(index, side, count, isCode) {
   const out = [];
   for (let n = 1; n <= count; n++) if (isCode(n) && !index.byLine[side].has(n)) out.push(n);
   return out;
+}
+
+// ---------- syntax highlighting: tokens, never HTML ----------
+// A highlighter returns, per line, a list of [text, class] tokens whose texts concatenate to the
+// line exactly; the page inserts each token with textContent, so no text is ever parsed as HTML.
+
+const C_KEYWORDS = new Set(("auto break case char const continue default do double else enum extern float for goto if " +
+  "inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void " +
+  "volatile while _Bool _Complex _Atomic _Static_assert _Noreturn _Alignas _Alignof _Generic _Thread_local").split(" "));
+
+/** The language of an artifact by its media type. */
+export function langOf(media) {
+  if (media === "text/x-c") return "c";
+  if (media === "text/x-asm" || media === "text/x-objdump") return "asm";
+  if (media === "text/x-lisp") return "sexp";
+  return "plain";
+}
+
+function scan(line, rules) {
+  const out = [];
+  let i = 0;
+  while (i < line.length) {
+    let hit = null;
+    for (const [re, cls] of rules) {
+      re.lastIndex = i;
+      const m = re.exec(line);
+      if (m && m.index === i && m[0].length) { hit = [m[0], typeof cls === "function" ? cls(m[0]) : cls]; break; }
+    }
+    if (!hit) hit = [line[i], ""];
+    if (out.length && out[out.length - 1][1] === hit[1]) out[out.length - 1][0] += hit[0];
+    else out.push(hit);
+    i += hit[0].length;
+  }
+  return out;
+}
+
+const C_RULES = [
+  [/\/\/.*/y, "tok-comment"], [/\/\*.*?(\*\/|$)/y, "tok-comment"],
+  [/"(\\.|[^"\\])*"?/y, "tok-string"], [/'(\\.|[^'\\])*'?/y, "tok-string"],
+  [/^\s*#\s*\w+/y, "tok-preproc"],
+  [/0[xX][0-9a-fA-F]+[uUlL]*|\d+(\.\d+)?([eE][+-]?\d+)?[uUlLfF]*/y, "tok-number"],
+  [/[A-Za-z_]\w*/y, (w) => (C_KEYWORDS.has(w) ? "tok-keyword" : "")],
+];
+const ASM_RULES = [
+  [/#.*/y, "tok-comment"], [/^\s*[0-9a-f]+:(?=\t)/y, "tok-address"], [/^\s*[.\w$]+:/y, "tok-label"],
+  [/(?<=\t)([0-9a-f]{2} )+(?=\s*\t)/y, "tok-bytes"],
+  [/\.[A-Za-z_][\w.]*/y, "tok-directive"], [/%[a-z0-9]+/y, "tok-register"],
+  [/\$?-?0x[0-9a-fA-F]+|\$?-?\d+/y, "tok-number"], [/"(\\.|[^"\\])*"?/y, "tok-string"],
+  [/<[^>\n]*>/y, "tok-label"],
+];
+const SEXP_RULES = [
+  [/"(\\.|[^"\\])*"?/y, "tok-string"], [/\$[A-Za-z_]+/y, "tok-keyword"], [/-?\d+/y, "tok-number"],
+  [/[()]/y, "tok-punct"],
+];
+
+/** Tokens of one line of a language. */
+export function highlightLine(line, lang) {
+  if (lang === "c") return scan(line, C_RULES);
+  if (lang === "asm") return scan(line, ASM_RULES);
+  if (lang === "sexp") return scan(line, SEXP_RULES);
+  return [[line, ""]];
 }

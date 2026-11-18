@@ -336,6 +336,28 @@ MIGRATIONS = [
     ALTER TABLE evidence ADD COLUMN module TEXT;
     ALTER TABLE evidence ADD COLUMN line INTEGER;
     """,
+    # 5: problems with no translation (a judgment about one file): direction `none`. SQLite cannot
+    # change a CHECK constraint, so the table is rebuilt with its rows.
+    """
+    CREATE TABLE problem_versions_5 (
+      id INTEGER PRIMARY KEY,
+      problem_id TEXT NOT NULL,
+      manifest_sha256 TEXT NOT NULL UNIQUE,
+      context_hash TEXT NOT NULL,
+      title TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK (direction IN ('compiled', 'decompiled', 'imported', 'none')),
+      family TEXT,
+      derivation TEXT,
+      context TEXT NOT NULL,
+      lean TEXT NOT NULL,
+      view TEXT NOT NULL,
+      extra TEXT NOT NULL
+    );
+    INSERT INTO problem_versions_5 SELECT id, problem_id, manifest_sha256, context_hash, title, direction,
+      family, derivation, context, lean, view, extra FROM problem_versions;
+    DROP TABLE problem_versions;
+    ALTER TABLE problem_versions_5 RENAME TO problem_versions;
+    """,
 ]
 
 
@@ -1058,7 +1080,7 @@ def status_report(db, pid: str | None) -> str:
         v = problem_view(db, p["id"])
         lines.append(f"{p['id']}  [{v['direction']}]  {v['title']}")
         for o in v["obligations"]:
-            lines.append(f"  {o['id']:<22} {o['status']:<12} {o.get('decl') or ''}")
+            lines.append(f"  {o['id']:<22} {o['status']:<12} {o.get('decl') or o.get('refutation') or ''}")
         for t in v["tests"]:
             lines.append(f"  test {t['id']:<17} {t['status']}")
     return "\n".join(lines)

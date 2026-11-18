@@ -62,3 +62,35 @@ test("only `proved` is shown as proved", () => {
     assert.notEqual(badge(s).cls, "st-proved", String(s));
   }
 });
+
+import { highlightLine, langOf } from "../ui/view.js";
+
+test("highlighting keeps every character and never interprets markup", () => {
+  const lines = [
+    'int *addp(int *p, int *q) { return p + q; } /* <script>alert(1)</script> */',
+    '  "<img src=x onerror=alert(1)>" 0x1F 42u',
+    "   d:\t8b 55 ec             \tmov    -0x14(%rbp),%edx",
+    "\t.loc 1 18 1 view -0",
+    "($tuple ($str \"</pre><b>\") 12)",
+  ];
+  for (const line of lines) {
+    for (const lang of ["c", "asm", "sexp", "plain"]) {
+      const toks = highlightLine(line, lang);
+      assert.equal(toks.map((t) => t[0]).join(""), line, `${lang}: ${line}`);
+      assert.ok(toks.every((t) => typeof t[1] === "string" && /^[a-z-]*$/.test(t[1])));
+    }
+  }
+  const c = highlightLine(lines[0], "c");
+  assert.ok(c.some(([t, k]) => t === "int" && k === "tok-keyword"));
+  assert.ok(c.some(([t, k]) => t.includes("<script>") && k === "tok-comment"));
+  const a = highlightLine(lines[2], "asm");
+  assert.ok(a.some(([t, k]) => t === "%rbp" && k === "tok-register"));
+  assert.equal(langOf("text/x-objdump"), "asm");
+  assert.equal(langOf("application/json"), "plain");
+});
+
+test("disproved and open are distinct, and neither is proved", () => {
+  assert.equal(badge("refuted").label, "disproved");
+  assert.notEqual(badge("refuted").cls, badge("open").cls);
+  assert.match(badge("open").title, /unknown/);
+});
