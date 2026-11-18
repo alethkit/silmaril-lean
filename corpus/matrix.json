@@ -29057,9 +29057,16 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "1ade3b3941d5143ce1e32b27d75ce7017886566826887c9c64cabbfb5fe71ece",
-      "contextual_c_to_elf_statements": 0,
+      "contextual_c_to_elf_statements": 1,
       "defined_nonzero_function_symbol_entries": 76,
-      "formal_statements": [],
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.DarkhttpdLogEncoding.Context.Task.compilesTo",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.DarkhttpdLogEncoding.Context.Defs",
+          "status": "stated-unproved"
+        }
+      ],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
@@ -78245,7 +78252,7 @@
     }
   ],
   "formal_statement_counts": {
-    "contextual_c_to_elf": 25,
+    "contextual_c_to_elf": 26,
     "functional_equivalence": 13
   },
   "hierarchy": [
