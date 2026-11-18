@@ -19,7 +19,8 @@ mkdir -p "$out"
 "$LAKE" build --wfail cexplorer-export Silmaril.Compiler.Explorer.Det.Thms \
   Silmaril.Project.Shapes.CompilesTo.Explorer.Thms CompilesToExamples.Explorer.Builds \
   CompilesToExamples.Explorer.Code CompilesToExamples.Explorer.Rows CompilesToExamples.Explorer.Decompiled \
-  CompilesToExamples.Explorer.C2C.Runs CompilesToExamples.Explorer.TypeError Silmaril.Compiler.Explorer.Text.Thms
+  CompilesToExamples.Explorer.C2C.Runs CompilesToExamples.Explorer.TypeError CompilesToExamples.Explorer.Blocks \
+  Silmaril.Compiler.Explorer.Text.Thms
 regen="$(mktemp -d)"
 trap 'rm -rf "$regen"' EXIT
 "$PYTHON" -I tools/compiler-explorer/fixtures.py manifests --out "$regen" > /dev/null

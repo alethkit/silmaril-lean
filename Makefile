@@ -7,7 +7,7 @@ CARGO ?= cargo
 PROJECT_TARGET = $(or $(CARGO_TARGET_DIR),tools/silmaril-project/target)
 WASM_TOOLS := wasm-as wasm-dis wasm-opt wasm-merge wasm-shell wasm-ctor-eval wasm-metadce
 
-.PHONY: compiler-explorer-check compiler-explorer-unit-check logic-graph-check tools stage library cache scope check release-check process-check process-gates project-lean project-tool project-registry project-check acceptor-report pages elf-check demo demo-process demo-sha256 help
+.PHONY: compiler-explorer-check compiler-explorer-unit-check compiler-explorer-serve logic-graph-check tools stage library cache scope check release-check process-check process-gates project-lean project-tool project-registry project-check acceptor-report pages elf-check demo demo-process demo-sha256 help
 
 tools:
 	$(LAKE) build --wfail $(WASM_TOOLS)
@@ -92,6 +92,12 @@ compiler-explorer-check: compiler-explorer-unit-check
 compiler-explorer-unit-check:
 	$(PYTHON) -I tools/compiler-explorer/tests/test_cexplorer.py
 	node --test tools/compiler-explorer/tests/view.test.mjs
+
+COMPILER_EXPLORER_DB ?= .lake/compiler-explorer/explorer.sqlite
+compiler-explorer-serve:
+	@mkdir -p "$(dir $(COMPILER_EXPLORER_DB))"
+	$(PYTHON) -I tools/compiler-explorer/cexplorer.py ingest "$(COMPILER_EXPLORER_DB)" examples/compiler-explorer/manifests/*.json
+	$(PYTHON) -I tools/compiler-explorer/cexplorer.py serve "$(COMPILER_EXPLORER_DB)"
 
 # The logic graph's records files: editing a records file
 # rebuilds its loader incrementally (docs/projects/logic-graph.md).
@@ -191,7 +197,8 @@ pages: project-tool
 	  $(if $(PAGES_SOURCE_REV),--source-rev $(PAGES_SOURCE_REV))
 	build/bin/silmaril-project explore --db _site/project.sqlite --out _site/index.html \
 	  $(if $(PAGES_SOURCE_REV),--source-url $(PAGES_SOURCE_URL) --source-rev $(PAGES_SOURCE_REV))
-	$(PYTHON) tools/compiler-explorer/pages.py --project _site/project.sqlite --out _site/compiler
+	$(PYTHON) -I tools/compiler-explorer/fixtures.py viewer --out _site
+	$(PYTHON) -I tools/compiler-explorer/pages.py --project _site/project.sqlite --out _site/compiler
 	# The Wasm component, module and function pages read static files next to the page.
 	lake build wasm-pages
 	.lake/build/bin/wasm-pages silmaril/artifacts.toml _site
@@ -200,7 +207,6 @@ pages: project-tool
 	# The ELF pages read the checked theorem modules of the pinned files (tools/elf-pages).
 	lake build --wfail elf-pages $(ELF_PINNED) Silmaril.Elf.Staged.Pinned.ZlibChecksums.Contracts
 	lake env .lake/build/bin/elf-pages _site
-	$(PYTHON) -I tools/compiler-explorer/fixtures.py viewer --out _site
 
 # The committed runtime report of the acceptor components (tools/wasm-acceptor-harness/report.json):
 # every suite under Wasmtime, by this fixed command (the report records it and has no timestamps,
@@ -233,6 +239,7 @@ help:
 	@echo 'make check    Build library, tools and proof roots; run native regressions'
 	@echo 'make project-tool   Build sil project (Cargo) and stage it in build/bin'
 	@echo 'make project-registry  Run the sil project checks that need no Lean: init, lock, lint'
+	@echo 'make compiler-explorer-serve  Browse compiler fixtures locally (127.0.0.1:8765)'
 	@echo 'make project-check  Run the sil project self-test: init, lock, lint, dump, check, explore'
 	@echo 'make acceptor-report  Run the Wasm acceptor suites under Wasmtime and write tools/wasm-acceptor-harness/report.json'
 	@echo 'make pages    Write the explorer page and its database to _site (needs the project libraries built)'

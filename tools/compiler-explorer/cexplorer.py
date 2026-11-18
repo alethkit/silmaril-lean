@@ -149,22 +149,107 @@ def check_decompiled_vars(v: dict, blobs: dict, m: dict) -> None:
         raise ValueError("the block's bytes are not the decompiler's input")
 
 
-def elf_text(data: bytes) -> bytes:
-    """The `.text` section of a little-endian ELF64 file."""
+def elf_text_location(data: bytes) -> tuple[int, int, int]:
+    """Section index, file offset and size of file-backed ELF64 `.text`."""
     import struct
-    if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
+    if len(data) < 64 or data[:6] != b"\x7fELF\x02\x01":
         raise ValueError("the target is not a little-endian ELF64 file")
     shoff, = struct.unpack_from("<Q", data, 0x28)
     shentsize, shnum, shstrndx = struct.unpack_from("<HHH", data, 0x3A)
+    if shentsize != 64 or shstrndx >= shnum or shoff + shentsize * shnum > len(data):
+        raise ValueError("invalid ELF section table")
     def header(i):
         return struct.unpack_from("<IIQQQQ", data, shoff + i * shentsize)
     _, _, _, _, stroff, strsize = header(shstrndx)
     names = data[stroff:stroff + strsize]
     for i in range(shnum):
-        name, _, _, _, off, size = header(i)
-        if names[name:names.index(b"\0", name)] == b".text":
-            return data[off:off + size]
+        name, kind, flags, _, off, size = header(i)
+        if names[name:names.find(b"\0", name)] == b".text":
+            if kind != 1 or not flags & 4 or off + size > len(data):
+                raise ValueError("invalid file-backed executable .text section")
+            return i, off, size
     raise ValueError("the target has no .text section")
+
+
+def elf_text(data: bytes) -> bytes:
+    _, offset, size = elf_text_location(data)
+    return data[offset:offset + size]
+
+
+def block_endpoints(m: dict, blobs: dict) -> list[dict]:
+    """Bind optional block candidates to exact ELF, decoder and opposite-side fragments.
+
+    This adapter handles section-relative x86-64 ET_REL only. Neither a geometry check
+    nor an attribution edge asserts a CFG, an ELF load, or a semantic correspondence.
+    """
+    arts = m["artifacts"]
+    fragments = {f["id"]: f for f in m["fragments"]}
+    edges = {e["id"]: e for e in m["edges"]}
+    stages = {(s["side"], s["output"]): s for s in m.get("stages", [])}
+    bindings = dict(m.get("lean", {}).get("bindings", []))
+    obligations = {o["id"]: o for o in m["obligations"]}
+    result = []
+    for block in m.get("blocks", []):
+        side = block["side"]
+        if side not in ("source", "target") or arts[side]["media"] != "application/x-elf-relocatable":
+            raise ValueError("a block endpoint must name a relocatable ELF side")
+        other = "target" if side == "source" else "source"
+        data = blobs[side]
+        section, offset, size = elf_text_location(data)
+        if data[16:20] != b"\x01\x00\x3e\x00":
+            raise ValueError("a block endpoint requires x86-64 ET_REL")
+        lo, hi = block["section_range"]
+        if not 0 <= lo < hi <= size or type(block["model_base"]) is not int or block["model_base"] < 0:
+            raise ValueError("invalid block extent or model placement")
+        decoder = stages[side, block["decoder"]]
+        parse = stages[other, block["parse"]] if "parse" in block else None
+        if decoder["input"] != side or (parse and parse["input"] != other) or not block["symbol"]:
+            raise ValueError("block decoder and parse must name the exact artifact sides")
+        if not IDENT.fullmatch(block["model_decl"]):
+            raise ValueError("invalid block model identity")
+        dependencies = []
+        if "object_obligation" in block:
+            dependencies = [block["object_obligation"], decoder["obligation"]]
+            if [obligations[dep]["kind"] for dep in dependencies] != ["artifact", "decoding"]:
+                raise ValueError("block dependencies must be the byte-binding and decoding obligations")
+            variables = m.get("lean", {}).get("vars", {})
+            if (bindings.get(block["decoder"]) != block["render"] or variables.get("cname") != block["symbol"] or
+                    variables.get("block_model") != block["model_decl"] or
+                    blobs.get("block_entry") != f"{block['model_base']}\n".encode()):
+                raise ValueError("block certificate must refer to the bound listing and symbol")
+        cursor = 0
+        for row in blobs[block["decoder"]].decode().splitlines():
+            if row.startswith("--"):
+                continue
+            start, length, _ = row.split("\t", 2)
+            if int(start, 16) != cursor or int(length) <= 0:
+                raise ValueError("noncontiguous block decoder listing")
+            cursor += int(length)
+        if cursor != hi - lo:
+            raise ValueError("block extent does not match the decoded listing")
+        if len(set(block["attribution"])) != len(block["attribution"]):
+            raise ValueError("block attribution must name distinct navigation edges")
+        for edge_id in block["attribution"]:
+            edge = edges[edge_id]
+            if edge["kind"] != "navigation" or edge.get("function") != block["symbol"] or not edge[side] or not edge[other]:
+                raise ValueError("block attribution must be navigation for this symbol")
+            for fid in edge[side]:
+                f = fragments[fid]
+                if f["space"] != "text-offset" or not all(lo <= start < end <= hi for start, end in f["ranges"]):
+                    raise ValueError("navigation range outside the block")
+            if any(fragments[fid]["space"] != "bytes" for fid in edge[other]):
+                raise ValueError("block attribution requires exact opposite-side byte ranges")
+        identity = {"side": side, "elf_sha256": arts[side]["sha256"], "section": section,
+                    "section_range": [lo, hi], "file_range": [offset + lo, offset + hi],
+                    "symbol": block["symbol"], "model_base": block["model_base"],
+                    "model_decl": block["model_decl"], "decoder_sha256": arts[block["decoder"]]["sha256"]}
+        result.append({**identity, "id": sha256(canonical(identity)), "dependencies": dependencies,
+                       "attribution": block["attribution"], "parse_stage": {
+                           "name": parse["name"], "input_sha256": arts[other]["sha256"],
+                           "output_sha256": arts[block["parse"]]["sha256"], "trust": parse["trust"]} if parse else None})
+    if len({b["id"] for b in result}) != len(result):
+        raise ValueError("duplicate block endpoint")
+    return result
 
 
 # The `sil project` shape of each obligation kind that has one, and its arguments (by position):
@@ -224,8 +309,13 @@ def model_bindings(family: str, vars_: dict) -> dict[str, str]:
     if family == "c-function-x86":
         src = vars_["ail"].rsplit(".", 1)[0]
         listing = vars_["listing"]
-        return {"source": f"{src}.cText", "core_probe": f"({model(src)}).dropEnd 1 |>.toString",
-                "decoded": f"{PROBE}.listingText {listing} {lean_str(listing)}"}
+        bound = {"source": f"{src}.cText", "core_probe": f"({model(src)}).dropEnd 1 |>.toString",
+                 "decoded": f"{PROBE}.listingText {listing} {lean_str(listing)}"}
+        if block := vars_.get("block_model"):
+            if not isinstance(block, str) or not IDENT.fullmatch(block):
+                raise ValueError("block model must name a Lean declaration")
+            bound["block_entry"] = f"toString {block}.entry ++ {lean_str(chr(10))}"
+        return bound
     if family == "c-to-c":
         src = vars_["source_fn"].rsplit(".", 1)[0]
         tgt = vars_["target_fn"].rsplit(".", 1)[0]
@@ -630,6 +720,7 @@ def check_manifest(root: pathlib.Path, m: dict, blobs: dict[str, bytes]) -> None
             raise ValueError("DWARF extraction is not a recorded input to this function")
         if any(dep not in ids and dep != "navigation links" for fact in m["dwarf_facts"] for dep in fact["used_by"]):
             raise ValueError("a DWARF dependency is not an obligation of this problem")
+    block_endpoints(m, blobs)
 
 
 def check_include_env(env: dict, receipt: dict, arts: dict, blobs: dict) -> None:
@@ -671,12 +762,13 @@ def ingest_manifest(db: sqlite3.Connection, path: pathlib.Path, root: pathlib.Pa
     context = {"artifacts": {r: a["sha256"] for r, a in sorted(m["artifacts"].items())},
                "derivation": m.get("derivation"), "context": m["context"],
                **{k: m[k] for k in ("problem_form", "relation", "stages", "include_env", "dwarf_facts",
-                                    "dwarf_extraction") if k in m},
+                                    "dwarf_extraction", "blocks") if k in m},
                "lean": {"family": lean.get("family"), "vars": lean.get("vars", {}),
                         "modules": lean.get("modules", []), "bindings": lean.get("bindings", [])}}
     ctx_hash = sha256(canonical(context))
     extra = {k: m[k] for k in ("navigation_stats", "tests", "problem_form", "relation", "stages",
                                 "include_env", "dwarf_facts", "dwarf_extraction") if k in m}
+    extra["blocks"] = block_endpoints(m, blobs)
     with db:
         for data in blobs.values():
             store_artifact(db, data)
@@ -949,7 +1041,7 @@ def artifact_links(arts: dict, lean: dict, commit: str | None, catalog: tuple[st
     for role, a in arts.items():
         links = ([{"kind": "repo", "label": a["path"], "url": f"{LINKS['repo']}/blob/{commit}/{a['path']}"}]
                  if commit else [])
-        links.append({"kind": "download", "label": "Exact bytes", "url": f"/api/artifacts/{a['sha256']}"})
+        links.append({"kind": "download", "label": "Exact bytes", "url": f"api/artifacts/{a['sha256']}"})
         if role in registry:
             links.append({"kind": "explorer", "label": f"artifact {registry[role]} (silmaril explorer)",
                           "url": explorer_link("artifact", registry[role])})
@@ -1009,6 +1101,13 @@ def problem_view(db, pid: str, catalog: tuple[str, dict] | None = None) -> dict 
         verification = db.execute("SELECT * FROM verification WHERE version_id = ?", (ver["id"],)).fetchone()
     definitions = [link for decl, loc in json.loads(verification["definitions"]).items()
                    if (link := definition_link(decl, loc, verification["git_commit"]))] if verification else []
+    extra = json.loads(ver["extra"])
+    for block in extra.get("blocks", []):
+        if catalog:
+            entry = catalog[1].get(block["elf_sha256"], {})
+            published = entry.get("blocks", {}) if isinstance(entry, dict) else {}
+            if isinstance(published, dict) and published.get(block["id"]) == {**block, "problem": pid}:
+                block["viewer"] = f"{catalog[0]}#/elf-artifact/{block['elf_sha256']}/{block['id']}"
     return {
         "id": pid, "title": ver["title"], "direction": ver["direction"], "family": ver["family"],
         "manifest_sha256": ver["manifest_sha256"], "context_hash": ver["context_hash"],
@@ -1021,7 +1120,7 @@ def problem_view(db, pid: str, catalog: tuple[str, dict] | None = None) -> dict 
              if o.get("evidence", {}).get("origin") == "exporter-run"
              and HEX40.fullmatch(o["evidence"].get("git_commit") or "")), None), catalog),
         "fragments": frags, "edges": edges, "obligations": obligations, "tests": tests,
-        "versions": versions, "extra": json.loads(ver["extra"]),
+        "versions": versions, "extra": extra,
         "questions": {
             "translation": by_kind.get("translation"),
             "nonvacuity": by_kind.get("nonvacuity"),

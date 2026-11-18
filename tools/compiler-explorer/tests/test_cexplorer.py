@@ -27,6 +27,7 @@ spec.loader.exec_module(cx)
 ROOT = cx.ROOT
 MANIFESTS = ROOT / "examples" / "compiler-explorer" / "manifests"
 STRAIGHT_O0 = MANIFESTS / "compiles-to--straight--O0--add3.json"
+STRAIGHT_O2 = MANIFESTS / "compiles-to--straight--O2--add3.json"
 BRANCH_O2 = MANIFESTS / "compiles-to--branch--O2--max2.json"
 MSORT_O2 = MANIFESTS / "programs--msort--O2.json"
 LOOP_O0 = MANIFESTS / "compiles-to--loop--O0--sum_to.json"
@@ -80,6 +81,73 @@ class Base(unittest.TestCase):
 
 
 class Ingest(Base):
+    def test_optional_block_identity_and_exact_viewer_entry(self):
+        cx.ingest_manifest(self.db, STRAIGHT_O2)
+        pid = "compiles-to/straight/O2/add3"
+        problem = cx.problem_view(self.db, pid)
+        block, = problem["extra"]["blocks"]
+        self.assertEqual(block["side"], "target")
+        self.assertEqual(block["elf_sha256"], problem["artifacts"]["target"]["sha256"])
+        self.assertEqual(block["section_range"], [0, 6])
+        self.assertEqual(block["file_range"], [64, 70])
+        self.assertEqual(block["parse_stage"]["output_sha256"], problem["artifacts"]["core_probe"]["sha256"])
+        self.assertEqual(block["dependencies"], ["artifact", "decoding"])
+        self.assertEqual(len(block["attribution"]), 3)
+        self.assertNotIn("viewer", block)
+        entry = {**block, "problem": pid}
+        catalog = ("../", {block["elf_sha256"]: {"blocks": {block["id"]: entry}}})
+        self.assertTrue(cx.problem_view(self.db, pid, catalog)["extra"]["blocks"][0]["viewer"].endswith(block["id"]))
+        entry["model_base"] += 1
+        self.assertNotIn("viewer", cx.problem_view(self.db, pid, catalog)["extra"]["blocks"][0])
+
+    def test_block_does_not_make_a_semantic_attribution(self):
+        manifest = json.loads(STRAIGHT_O2.read_bytes())
+        manifest["blocks"][0]["attribution"] = ["seg/add3/0"]
+        with self.assertRaisesRegex(cx.Rejected, "must be navigation"):
+            cx.ingest_manifest(self.db, self.write("invalid-block.json", manifest))
+        manifest = json.loads(STRAIGHT_O2.read_bytes())
+        manifest["blocks"][0]["section_range"] = [0, 5]
+        with self.assertRaisesRegex(cx.Rejected, "does not match the decoded listing"):
+            cx.ingest_manifest(self.db, self.write("truncated-block.json", manifest))
+        manifest = json.loads(STRAIGHT_O2.read_bytes())
+        manifest["blocks"][0]["model_base"] += 1
+        with self.assertRaisesRegex(cx.Rejected, "must refer to the bound listing and symbol"):
+            cx.ingest_manifest(self.db, self.write("shifted-model-entry.json", manifest))
+
+    def test_block_can_be_on_the_left_without_semantics_or_a_parse(self):
+        manifest = json.loads(STRAIGHT_O2.read_bytes())
+        opposite = {"source": "target", "target": "source"}
+        arts = manifest["artifacts"]
+        arts["source"], arts["target"] = arts["target"], arts["source"]
+        manifest["id"] = "test/reversed-block"
+        manifest["direction"] = "imported"
+        manifest["derivation"] = None
+        manifest["context"] = {}
+        manifest["relation"] = {"semantics": "none"}
+        manifest["lean"] = {"family": None, "modules": []}
+        manifest["obligations"] = []
+        manifest["view"] = {"source": "listing", "target": "target"}
+        for frag in manifest["fragments"]:
+            frag["artifact"] = opposite[frag["artifact"]]
+        manifest["edges"] = [e for e in manifest["edges"] if e["kind"] == "navigation"]
+        for edge in manifest["edges"]:
+            edge["source"], edge["target"] = edge["target"], edge["source"]
+        arts.pop("listing_receipt")
+        for field in ("dwarf_extraction", "dwarf_facts", "include_env"):
+            manifest.pop(field)
+        block, = manifest["blocks"]
+        block["side"] = "source"
+        for field in ("object_obligation", "render", "parse"):
+            block.pop(field)
+        manifest["stages"] = [{"side": "source", "input": "source", "output": "decoded", "trust": "trusted"}]
+        cx.ingest_manifest(self.db, self.write("reversed.json", manifest))
+        problem = cx.problem_view(self.db, manifest["id"])
+        block, = problem["extra"]["blocks"]
+        self.assertEqual(block["side"], "source")
+        self.assertFalse(block["dependencies"])
+        self.assertIsNone(block["parse_stage"])
+        self.assertFalse(problem["obligations"])
+
     def test_proved_only_with_evidence(self):
         cx.ingest_manifest(self.db, STRAIGHT_O0)
         before = self.statuses("compiles-to/straight/O0/add3")

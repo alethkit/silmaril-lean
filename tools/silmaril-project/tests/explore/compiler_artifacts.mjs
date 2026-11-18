@@ -20,6 +20,28 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  const [blockArtifact, blockEntry] = Object.entries(catalog.artifacts).find(([, entry]) => entry.blocks);
+  const [blockId, block] = Object.entries(blockEntry.blocks)[0];
+  await page.goto(`${base}compiler/?problem=${encodeURIComponent(block.problem)}`);
+  await page.getByText("Block-to-fragment associations (1)").waitFor();
+  const sourceDownload = page.locator("#source-links a").filter({ hasText: "Exact bytes" });
+  assert.ok((await page.request.get(await sourceDownload.evaluate((a) => a.href))).ok());
+  const blockLink = page.getByRole("link", { name: "Inspect this block in the ELF tab" });
+  const blockPage = await browser.newPage();
+  await blockPage.goto(await blockLink.evaluate((a) => a.href));
+  await blockPage.getByRole("heading", { name: "Decoded block candidate · add3" }).waitFor();
+  assert.ok(blockPage.url().endsWith(`#/elf-artifact/${blockArtifact}/${blockId}`));
+  const elf = fs.readFileSync(path.join(site, "compiler-artifacts/bytes", blockArtifact));
+  const hex = [...elf.subarray(...block.file_range)].map((byte) => byte.toString(16).padStart(2, "0")).join(" ");
+  await blockPage.getByText(hex, { exact: true }).waitFor();
+  await blockPage.getByRole("link", { name: "Inspect its source-fragment attribution" }).click();
+  await blockPage.getByText("Block-to-fragment associations (1)").waitFor();
+  await blockPage.close();
+  if (shots) {
+    fs.mkdirSync(shots, { recursive: true });
+    await page.screenshot({ path: path.join(shots, "compiler-block-attribution.png") });
+  }
+  console.log("ok   compiler ↔ ELF block round trip and exact bytes");
   for (const [tab, suffix] of [["c", "straight/straight.c"], ["elf", "straight/O0/straight.o"]]) {
     const [sha, entry] = Object.entries(catalog.artifacts).find(([, value]) => value.tab === tab &&
       value.paths.some((name) => name.endsWith(suffix)));

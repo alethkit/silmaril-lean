@@ -185,7 +185,7 @@ def preprocessor_env() -> None:
             docker([(PROGRAMS, "/src", True), (pathlib.Path(tmp), "/out", False)], script)
             t = pathlib.Path(tmp)
             if prog is None:
-                (ENV / f"{tag}.macros.h").write_bytes((t / "macros.h").read_bytes())
+                (ENV / f"{tag}.macros.txt").write_bytes((t / "macros.h").read_bytes())
                 lines = (t / "search.txt").read_text().splitlines()
                 i = lines.index("#include <...> search starts here:")
                 j = lines.index("End of search list.")
@@ -341,7 +341,7 @@ def program_manifests() -> list[dict]:
                               "run": file_ref(d / "run.json", "application/json"),
                               "include_search": file_ref(ENV / f"programs-{opt}.search.json", "application/json"),
                               "includes": file_ref(ENV / f"{prog}-O2.includes.json", "application/json"),
-                              "macros": file_ref(ENV / f"programs-{opt}.macros.h", "text/x-c")},
+                              "macros": file_ref(ENV / f"programs-{opt}.macros.txt", "text/x-c")},
                 "view": {"source": "source", "target": "target"},
                 "problem_form": "relation",
                 "relation": {"semantics": "none",
@@ -580,7 +580,7 @@ def compiles_to_manifests() -> list[dict]:
                                                               "application/json"),
                                   "dwarf_extract": file_ref(COMPILES_TO / name / "correspondence.json", "application/json"),
                                   "include_search": file_ref(ENV / f"compiles-to-{opt}.search.json", "application/json"),
-                                  "macros": file_ref(ENV / f"compiles-to-{opt}.macros.h", "text/x-c")},
+                                  "macros": file_ref(ENV / f"compiles-to-{opt}.macros.txt", "text/x-c")},
                                   **({"decoded": file_ref(LISTINGS / name / opt / "decoded.txt", "text/plain"),
                                       "core_probe": file_ref(COMPILES_TO / name / "core-probe.txt", "text/x-lisp")}
                                      if pts else {})},
@@ -621,6 +621,20 @@ def compiles_to_manifests() -> list[dict]:
                     "tests": [],
                     "lean": lean,
                 })
+                if (name, opt, fname) == ("straight", "O2", "add3"):
+                    example = "CompilesToExamples.Explorer.Blocks"
+                    model = "CompilesToExamples.Explorer.add3Block"
+                    lean["modules"].append(example)
+                    lean["definitions"].extend([model, model + "_shape"])
+                    lean_vars["block_model"] = model
+                    lean["bindings"] = list(cx.model_bindings("c-function-x86", lean_vars).items())
+                    out[-1]["artifacts"]["block_entry"] = file_ref(
+                        LISTINGS / name / opt / "block-entry.txt", "text/plain")
+                    out[-1]["blocks"] = [{"side": "target", "section_range": [base, base + fn["size"]],
+                        "model_base": 0x401000, "model_decl": model, "symbol": fname,
+                        "decoder": "decoded", "parse": "core_probe", "object_obligation": "artifact",
+                        "render": dict(lean["bindings"])["decoded"],
+                        "attribution": [e["id"] for e in b.edges if e["kind"] == "navigation"]}]
     return out
 
 
@@ -993,6 +1007,12 @@ def viewer_assets(site: pathlib.Path, manifests_dir: pathlib.Path = MANIFESTS) -
                 raise ValueError(f"conflicting artifact types for {sha}")
             if ref["path"] not in entry["paths"]:
                 entry["paths"].append(ref["path"])
+        if manifest.get("blocks"):
+            inputs = {role: cx.read_artifact(ROOT, ref) for role, ref in manifest["artifacts"].items()}
+            cx.check_manifest(ROOT, manifest, inputs)
+            for block in cx.block_endpoints(manifest, inputs):
+                index[block["elf_sha256"]].setdefault("blocks", {})[block["id"]] = {
+                    **block, "problem": manifest["id"]}
     if not index:
         raise ValueError("no compiler artifacts to publish")
     dump(dest / "index.json", {"schema": cx.VIEWER_SCHEMA, "artifacts": index})

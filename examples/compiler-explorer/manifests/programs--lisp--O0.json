@@ -14,7 +14,7 @@
     },
     "macros": {
       "media": "text/x-c",
-      "path": "examples/compiler-explorer/env/programs-O0.macros.h",
+      "path": "examples/compiler-explorer/env/programs-O0.macros.txt",
       "sha256": "fc1f95f1c35847adda64d8610d36b00d65563955a222f1987815a508b0cfbce0",
       "size": 14894
     },

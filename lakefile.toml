@@ -741,7 +741,7 @@ filter = { extension = ["py", "sh", "js", "mjs"] }
 [[input_dir]]
 name = "compilerExplorerFixtures"
 path = "examples/compiler-explorer"
-filter = { extension = ["json", "txt", "c", "s", "h"] }
+filter = { extension = ["json", "txt", "c", "s"] }
 
 [[lean_exe]]
 name = "decompile"

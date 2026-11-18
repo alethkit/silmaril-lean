@@ -53,11 +53,28 @@ function compilerElfSections(bytes) {
     `<th>File offset</th><th>Size</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
 }
 
-async function compilerArtifactPage(tab, sha) {
+function compilerElfBlock(bytes, block) {
+  const [lo, hi] = block.file_range;
+  if (!Number.isSafeInteger(lo) || !Number.isSafeInteger(hi) || lo < 0 || lo >= hi || hi > bytes.length) {
+    throw new Error("block range is outside the verified ELF bytes");
+  }
+  const hex = [...bytes.subarray(lo, hi)].map((part) => part.toString(16).padStart(2, "0")).join(" ");
+  return `<h3>Decoded block candidate · ${esc(block.symbol)}</h3>` +
+    `<p>Section ${esc(block.section)} · file bytes [${lo}, ${hi}) · model entry 0x${esc(block.model_base.toString(16))}</p>` +
+    `<pre>${esc(hex)}</pre><p>These are the exact selected bytes, not a CFG or a loader certificate. ` +
+    `<a href="compiler/?problem=${encodeURIComponent(block.problem)}">Inspect its source-fragment attribution</a>.</p>`;
+}
+
+async function compilerArtifactPage(tab, key) {
   try {
+    const [sha, blockId, ...rest] = key.split("/");
     if (!/^[a-f0-9]{64}$/.test(sha)) throw new Error("expected a full SHA-256");
     const entry = (await compilerArtifacts())[sha];
     if (!entry || entry.tab !== tab) throw new Error("no such published artifact in this tab");
+    const block = blockId && entry.blocks?.[blockId];
+    if (rest.length || (blockId && (tab !== "elf" || !/^[a-f0-9]{64}$/.test(blockId) || !block))) {
+      throw new Error("no such published block for this artifact");
+    }
     const url = `compiler-artifacts/bytes/${sha}`;
     const response = await fetch(url);
     if (!response.ok) throw new Error(`artifact bytes: HTTP ${response.status}`);
@@ -69,6 +86,9 @@ async function compilerArtifactPage(tab, sha) {
     const rendered = viewer(bytes, { total: bytes.length });
     return { html: `<h2>${tab.toUpperCase()} artifact · ${esc(entry.paths[0])}</h2>` +
       `<p>SHA-256 verified against these bytes: <code>${sha}</code> · <a href="${url}" download>download exact bytes</a></p>` +
+      (block ? compilerElfBlock(bytes, block) : "") +
+      (tab === "elf" && !block ? Object.entries(entry.blocks || {}).map(([id, b]) =>
+        `<p><a href="#/elf-artifact/${sha}/${esc(id)}">Inspect ${esc(b.symbol)} block candidate</a></p>`).join("") : "") +
       (tab === "elf" ? compilerElfSections(bytes) : "") + rendered.html, init: () => rendered.init() };
   } catch (error) {
     return `<p class="err">${esc(error.message)}</p>`;

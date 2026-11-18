@@ -26,7 +26,7 @@
     },
     "macros": {
       "media": "text/x-c",
-      "path": "examples/compiler-explorer/env/compiles-to-O2.macros.h",
+      "path": "examples/compiler-explorer/env/compiles-to-O2.macros.txt",
       "sha256": "39d65b7818761ff20b38679f0cbd1ee83d74e205f84623752930ba79f8f7ac8a",
       "size": 13176
     },

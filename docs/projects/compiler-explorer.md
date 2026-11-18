@@ -1,8 +1,24 @@
 # A verified compiler explorer: problems, mappings, comorphisms
 
+## Open the explorer
+
+From this repository, `gh pr checkout 1067` selects the working branch. Run
+`make compiler-explorer-serve` and open
+<http://127.0.0.1:8765/?problem=compiles-to%2Fstraight%2FO2%2Fadd3>. This fast path ingests
+the committed fixtures without Lean, preserves evidence for unchanged manifests if it is already
+in the database, and does not compile or execute input. To check the evidence first, run
+`make compiler-explorer-check`, then serve. Stop the server with Ctrl-C.
+
+On a generated Pages site, click **Compiler → Open the source ↔ target viewer**; on a clean
+checkout `make pages` writes `_site/`, which can be served by
+`python3 -m http.server --bind 127.0.0.1 --directory _site 8000`. Equivalent entry point:
+`/compiler/` on that site. A generated site is not a deployment; its evidence comes only from
+exact rows in the public project DB. A standalone local API can use that site's artifact catalog
+with `cexplorer.py serve … --viewer http://127.0.0.1:8000/`.
+
 A compiler explorer puts a source program beside the target code a compiler made from it and
-links fragments of the two. This page describes a vertical slice of one whose links and claims
-are Lean statements, each with a status decided from the Lean build:
+links fragments of the two. This page describes a vertical slice that keeps navigation links
+separate from Lean statements with statuses decided from the Lean build:
 
 * a **generic** Lean API (`Silmaril.Compiler.Explorer`): compilation problems over relational
   semantics with a backward refinement statement, segment mappings, segment disciplines, and the
@@ -431,6 +447,48 @@ artifact and supplies no proof.
   SHA-256, size, media kind and path. `--viewer URL` can point it at a locally served Pages build.
   Before the updated site is deployed the public Pages site will not advertise these routes.
   The C-program (#900) and Assembly (#890/#851) features remain separate.
+
+## Blocks on one side, fragments on the other
+
+The usual shape is **target block ↔ source fragments** (or the reverse for another problem).
+It is an arbitrary `RelProblem.Segments` relation: choose a block or region model's membership
+on one side and artifact byte ranges on the other. Neither side has to use the other's model.
+Zero, one, or many associations are allowed; fragment ranges may be discontiguous and shared
+by multiple blocks. There is no implicit totality, instruction correspondence, same execution
+model, or graph isomorphism. The API's optional `extra.blocks` records the modeled side; a
+navigation edge does not acquire an operational interpretation by being listed there.
+
+The `add3 -O2` example instantiates `Silmaril.Machine.Region.X86.Candidate` and `propose`
+from [#1048](https://github.com/hiloopai/silmaril-lean/pull/1048), on the existing checked decoded
+listing, not on `objdump`. `CompilesToExamples.Explorer.add3Block_shape` checks the selected
+entry and instruction starts at the compilation model's placement `0x401000`, and the
+candidate's `Top` exit allowance (`ret`). `verify` also byte-compares the displayed placement
+with a rendering of the candidate's entry. The ET_REL symbol's section-relative range `[0,6)`
+and file slice have a different coordinate system from that modeled placement. A content
+address combines the ELF hash, section and exact ranges, symbol, model placement and named
+model/decoder. The opposite side records source bytes and the exact parse-stage input and output
+when present. The generated ELF tab can open that block's exact bytes and return to its
+source-fragment associations. There is no supported full ELF CFG graph route on main.
+
+| Layer | Claim in the example |
+| --- | --- |
+| File bytes and decoder | Separate existing `ObjectFn` and `decodesAs` obligations, with their individual evidence statuses. The ELF browser checks the raw artifact hash; its locator is not a Lean loader. |
+| Block membership and boundary | A chosen contiguous candidate with exact instruction starts and `Top` allowance; no recovery or local `Valid` claim. |
+| CFG adjacency and coverage | Not certified or used to justify the associations. A candidate or valid local region does not prove graph coverage. |
+| Local semantic validity | [#1048's `jump_valid`](https://github.com/hiloopai/silmaril-lean/blob/8300ad003/Silmaril/Machine/Region/Examples/Thms.lean) is a separate checked `EB 00` loaded-byte fixture, at entry zero and exit two under its declared state assumptions. It is not a certificate for `add3` or for ELF placement. |
+| Source attribution | Three DWARF navigation links to exact C byte fragments; the extraction is unverified. No C CFG is assumed or built. |
+| Cross-side correctness | The existing `add3` function-entry segment and conditional compilation refinement are separate questions in the Semantic view. They do not certify the DWARF links. |
+
+When both sides have interpreted models, compare each admitted boundary and its observations
+using a declared relation: specify inputs, exits, faults/divergence, observations, invariants and
+placement assumptions, then ask for inclusion of corresponding behaviours, or inclusion both
+ways for equivalence. The existing `Problem.Refines`, `SegmentDiscipline`, and semi-comorphism
+specialization can express such a claim; `RelProblem.Refines` remains available without
+execution. Region ↔ region is an optional later instantiation, not a prerequisite or a shipping
+graph-equivalence feature. The proposed placement/fetch and first-return adapters in open
+[#1070](https://github.com/hiloopai/silmaril-lean/pull/1070) are not dependencies. An end-to-end
+bridge would need the exact ELF/load context, code-preservation and fetch/decode agreement,
+CFG and exit coverage (including returns), and an explicit cross-side observation theorem.
 
 ## Fixtures and results
 

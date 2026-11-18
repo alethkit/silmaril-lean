@@ -98,6 +98,7 @@ function render() {
   drawProblem(p);
   drawQuestions(p);
   drawStages(p);
+  drawBlocks(p);
   drawDwarf(p);
   drawEnv(p);
   drawProvenance(p);
@@ -207,6 +208,10 @@ function showSelection(ids) {
     card.append(el("div", null, `source: ${e.source.map(frag).join("; ")}`), el("div", null, `target: ${e.target.map(frag).join("; ")}`));
     if (e.origin) card.append(el("div", "muted", `origin: ${e.origin}`));
     if (e.note) card.append(el("div", "warn", e.note));
+    for (const block of p.extra.blocks || []) {
+      if (!block.attribution.includes(id)) continue;
+      card.append(el("div", "muted", `Attributed to ${block.side} block candidate ${block.symbol}; navigation only.`));
+    }
     if (e.kind === "semantic") for (const o of edgeObligations(p, id)) card.append(obligationRow(o, true));
     box.append(card);
   }
@@ -362,6 +367,37 @@ function drawDwarf(p) {
   }
 }
 
+function drawBlocks(p) {
+  const blocks = p.extra.blocks || [];
+  $("blocks").hidden = !blocks.length;
+  if (!blocks.length) return;
+  const d = section("blocks", `Block-to-fragment associations (${blocks.length})`);
+  d.open = true;
+  const range = ([start, end]) => `[0x${start.toString(16)}, 0x${end.toString(16)})`;
+  for (const block of blocks) {
+    const card = el("div", "stage");
+    card.append(el("h3", null, `${block.symbol} · ${block.side} block candidate`),
+      el("p", null, `ELF section ${block.section} ${range(block.section_range)} · file bytes ${range(block.file_range)} · model entry 0x${block.model_base.toString(16)} (not a loader result)`),
+      el("p", "muted", "Attribution is navigation only. Neither the decoder nor the associations certify a CFG, coverage, local execution, or source equivalence."));
+    for (const dep of block.dependencies) {
+      const obligation = p.obligations.find((o) => o.id === dep);
+      if (obligation) card.append(obligationRow(obligation, false));
+    }
+    const stage = block.parse_stage;
+    if (stage) card.append(el("p", "muted", `Opposite-side stage: ${stage.name} · ${stage.trust} · ${stage.input_sha256.slice(0, 12)}… → ${stage.output_sha256.slice(0, 12)}…`));
+    const other = block.side === "target" ? "source" : "target";
+    const links = el("ul");
+    for (const edge of p.edges.filter((e) => block.attribution.includes(e.id))) {
+      links.append(el("li", null, `${edge.origin || "recorded association"}: ${edge[other].map((fid) =>
+        `${p.fragments[fid].label} (${p.fragments[fid].ranges.map(range).join(", ")})`).join("; ")}`));
+    }
+    card.append(links);
+    appendLinks(card, p.definitions.filter((link) => link.label === block.model_decl || link.label === `${block.model_decl}_shape`));
+    if (block.viewer) appendLinks(card, [{ kind: "viewer", label: "Inspect this block in the ELF tab", url: block.viewer }]);
+    d.append(card);
+  }
+}
+
 function drawEnv(p) {
   const env = (p.extra || {}).include_env;
   const d = section("env", "Preprocessor environment");
@@ -381,8 +417,7 @@ function drawEnv(p) {
 }
 
 function artifactDownload(p, role) {
-  const art = p.artifacts[role];
-  return { kind: "download", label: role, url: `/api/artifacts/${art.sha256}` };
+  return { ...p.artifact_links[role].find((link) => link.kind === "download"), label: role };
 }
 
 function drawProvenance(p) {

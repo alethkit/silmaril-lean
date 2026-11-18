@@ -1,5 +1,11 @@
 {
   "artifacts": {
+    "block_entry": {
+      "media": "text/plain",
+      "path": "examples/compiler-explorer/compiles-to/straight/O2/block-entry.txt",
+      "sha256": "9932fb550f97b440ed5bcae38c7de3221269c3c48eb718cdcf30cfc25ed91d57",
+      "size": 8
+    },
     "core_probe": {
       "media": "text/x-lisp",
       "path": "examples/compiles-to/straight/core-probe.txt",
@@ -38,7 +44,7 @@
     },
     "macros": {
       "media": "text/x-c",
-      "path": "examples/compiler-explorer/env/compiles-to-O2.macros.h",
+      "path": "examples/compiler-explorer/env/compiles-to-O2.macros.txt",
       "sha256": "39d65b7818761ff20b38679f0cbd1ee83d74e205f84623752930ba79f8f7ac8a",
       "size": 13176
     },
@@ -61,6 +67,27 @@
       "size": 3176
     }
   },
+  "blocks": [
+    {
+      "attribution": [
+        "nav/add3/4/0",
+        "nav/add3/5/2",
+        "nav/add3/7/5"
+      ],
+      "decoder": "decoded",
+      "model_base": 4198400,
+      "model_decl": "CompilesToExamples.Explorer.add3Block",
+      "object_obligation": "artifact",
+      "parse": "core_probe",
+      "render": "Silmaril.Project.CompilesTo.Probe.listingText CompilesToExamples.Straight.O2.add3Listing \"CompilesToExamples.Straight.O2.add3Listing\"",
+      "section_range": [
+        0,
+        6
+      ],
+      "side": "target",
+      "symbol": "add3"
+    }
+  ],
   "context": {
     "abi": {
       "decl": "Silmaril.Project.CompilesTo.FnData.Holds (PointKind.entry)",
@@ -381,9 +408,15 @@
       [
         "decoded",
         "Silmaril.Project.CompilesTo.Probe.listingText CompilesToExamples.Straight.O2.add3Listing \"CompilesToExamples.Straight.O2.add3Listing\""
+      ],
+      [
+        "block_entry",
+        "toString CompilesToExamples.Explorer.add3Block.entry ++ \"\\n\""
       ]
     ],
     "definitions": [
+      "CompilesToExamples.Explorer.add3Block",
+      "CompilesToExamples.Explorer.add3Block_shape",
       "CompilesToExamples.Straight.O2.add3",
       "CompilesToExamples.Straight.O2.add3Listing",
       "CompilesToExamples.Straight.ail",
@@ -401,7 +434,8 @@
     "modules": [
       "CompilesToExamples.Explorer.Builds",
       "CompilesToExamples.Explorer.Code",
-      "Silmaril.Project.CompilesTo.Probe.Defs"
+      "Silmaril.Project.CompilesTo.Probe.Defs",
+      "CompilesToExamples.Explorer.Blocks"
     ],
     "registry": {
       "source": "silmaril.compiles_to.straight.source",
@@ -409,6 +443,7 @@
     },
     "vars": {
       "ail": "CompilesToExamples.Straight.ail",
+      "block_model": "CompilesToExamples.Explorer.add3Block",
       "cname": "add3",
       "comorphism": "Silmaril.Project.CompilesTo.dwarf",
       "fn": "CompilesToExamples.Straight.O2.add3",
