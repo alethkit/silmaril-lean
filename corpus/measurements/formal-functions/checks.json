@@ -888,7 +888,7 @@
       "function_address": 62000,
       "declaration": "Silmaril.Elf.Corpus.MimallocOsGlobals.Context.Task.pageSize",
       "root": "Silmaril.Elf.Corpus.MimallocOsGlobals.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/fb1bf5aa-3674-4782-8eae-98a48f0e8e64.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/2415b415-7be0-4c1e-bf3c-b33747f92ee7.json",
       "artifact_sha256": {
         "corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1": "3e289e6c3f60e0bf53c93dcbb782cc845500c07358dc104c5a48156bf0e67f31"
       },
@@ -901,9 +901,9 @@
         "Silmaril/Cerberus/Elaboration/StructInitializers/Defs.lean": "c9a8eefcaf5cfb0861423ec46af7942f84010a929cfddd345c8043f2d625f5ac",
         "Silmaril/Elf/Corpus/MimallocOsGlobals/Context/Defs.lean": "e142b76ef38156a7c09d560f4a509a647681aa3b6992ce6f4d6315683cb8c1b0",
         "Silmaril/Elf/Corpus/MimallocOsGlobals/Defs.lean": "3cdb12a8502335c5dddbc4e1a20b6e89ea4611ba54485574e2e4813f69ac1429",
-        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Defs.lean": "e4906106aa554e83744ea31ec9628907b862c5e3de12230dfb6d1c8501650f2a",
-        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Elaboration/Defs.lean": "dfe364635499ffb32b87f7e92204fb7164cc9981eba7a9e1c10ab023baf9ed5f",
-        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Elaboration/Thms.lean": "3a79adc9d41a4bdf88542bdee8fe47a4f31eafe3c10d24b106ca07ac87a0316d",
+        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Defs.lean": "ea7b609c591482a37f88ea51051748cdc588fc8b117f5049216b7bb8e5fcacbb",
+        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Elaboration/Defs.lean": "9bdcae260e284ea3a9c5b954fdf45969afa009cf31c017ddb4a58005e9b62d18",
+        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Elaboration/Thms.lean": "769d2211e63774ecc808e3cb09838566f3617ee621f683a6f60c8cc2dac073f1",
         "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Projection/Defs.lean": "302bc1dfe6dfe3f6ce783072367d01c9a49882a56e9977890892c36d12eaad71",
         "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Projection/Thms.lean": "acb52a6866f62e786e885b0b9d80f0f8aab7d672ce01c7eea5a709d2575d8f72",
         "Silmaril/Elf/Corpus/MimallocOsGlobals/Thms.lean": "e8b32a1833c1ba7f0269af74eabadcb113fe438e3b0ea588f3deb44c0b43db86",
@@ -912,7 +912,7 @@
         "Silmaril/Proofs/Elf/Corpus/MimallocOsGlobals/RunResult.lean": "e69f52de081d2bccf8b22a34e46dcabc264263329a7b2981cf6588ae546539d0",
         "Silmaril/Proofs/Elf/Corpus/MimallocOsGlobals/Source.lean": "2e8da1f3e5d88a1b9b671aa102dc0243013abb184d27ed7d93ad99556d10ddd1",
         "benchmarks/cerberus-elaboration/oracle/cast-sign-extend/core.sexp.gz": "0f110b37ff5a57dfe4d99d4cf22505b7371bedb92c92acea7f9e2c397a972ccf",
-        "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/os-globals/README.md": "bf9af5219ff1e223fe090196e7226216754e51f9558d1d337df302d5c83e70f4",
+        "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/os-globals/README.md": "13962624240a81e16c6afc41fe58213ca58897c33aaa74716db954e7f07d74c8",
         "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/os-globals/context.c": "fd758ed6f378c0485f4a5b4cd7f4f177d1480ab5dca77ebe25ec9e16781d9364",
         "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/os-globals/manifest.json": "e7ff4ccd979682c5aa36366f8f85493d5d0dfda450f7a8b36bd81305a097e2cb",
         "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/os-globals/program.sexp": "7cd269ca50b04f09cae919d75e379a97a491c07d6cd5f9a208b1c843edba492f",
@@ -924,7 +924,8 @@
         "tests/cerberus/MimallocOsContext.lean": "179fda2cfd21ffcf17bd6ab06a3c4d34fc035cc1d98db93e4136314bb96258df",
         "tools/corpus/MimallocOsInputs.lean": "64a82fbd597a77ff53d1ebf56cc0ff43e1f87064c5d5026663895f5d2b28a52b",
         "tools/corpus/check_mimalloc_os_inputs.py": "a581c7df70863311cb956b51cc4baba76dfa38a68522c9c1ca719cd0d1270882",
-        "tools/corpus/mimalloc_os_native.py": "13fd558b269269714c030b7d9c305d249dc9e9e45bc7abb9df76f07d00997196"
+        "tools/corpus/mimalloc_os_native.py": "13fd558b269269714c030b7d9c305d249dc9e9e45bc7abb9df76f07d00997196",
+        "Silmaril/Proofs/Elf/Corpus/MimallocOsGlobals/Bindings.lean": "57a20c9c088409fb087bdb0a47384debc5d35c810c00e7acfcf94745f7fd30da"
       }
     },
     {
@@ -934,7 +935,7 @@
       "function_address": 62016,
       "declaration": "Silmaril.Elf.Corpus.MimallocOsGlobals.Context.Task.largePageSize",
       "root": "Silmaril.Elf.Corpus.MimallocOsGlobals.Context.Defs",
-      "run_receipt": "corpus/measurements/formal-functions/runs/fb1bf5aa-3674-4782-8eae-98a48f0e8e64.json",
+      "run_receipt": "corpus/measurements/formal-functions/runs/2415b415-7be0-4c1e-bf3c-b33747f92ee7.json",
       "artifact_sha256": {
         "corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1": "3e289e6c3f60e0bf53c93dcbb782cc845500c07358dc104c5a48156bf0e67f31"
       },
@@ -947,9 +948,9 @@
         "Silmaril/Cerberus/Elaboration/StructInitializers/Defs.lean": "c9a8eefcaf5cfb0861423ec46af7942f84010a929cfddd345c8043f2d625f5ac",
         "Silmaril/Elf/Corpus/MimallocOsGlobals/Context/Defs.lean": "e142b76ef38156a7c09d560f4a509a647681aa3b6992ce6f4d6315683cb8c1b0",
         "Silmaril/Elf/Corpus/MimallocOsGlobals/Defs.lean": "3cdb12a8502335c5dddbc4e1a20b6e89ea4611ba54485574e2e4813f69ac1429",
-        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Defs.lean": "e4906106aa554e83744ea31ec9628907b862c5e3de12230dfb6d1c8501650f2a",
-        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Elaboration/Defs.lean": "dfe364635499ffb32b87f7e92204fb7164cc9981eba7a9e1c10ab023baf9ed5f",
-        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Elaboration/Thms.lean": "3a79adc9d41a4bdf88542bdee8fe47a4f31eafe3c10d24b106ca07ac87a0316d",
+        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Defs.lean": "ea7b609c591482a37f88ea51051748cdc588fc8b117f5049216b7bb8e5fcacbb",
+        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Elaboration/Defs.lean": "9bdcae260e284ea3a9c5b954fdf45969afa009cf31c017ddb4a58005e9b62d18",
+        "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Elaboration/Thms.lean": "769d2211e63774ecc808e3cb09838566f3617ee621f683a6f60c8cc2dac073f1",
         "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Projection/Defs.lean": "302bc1dfe6dfe3f6ce783072367d01c9a49882a56e9977890892c36d12eaad71",
         "Silmaril/Elf/Corpus/MimallocOsGlobals/Source/Projection/Thms.lean": "acb52a6866f62e786e885b0b9d80f0f8aab7d672ce01c7eea5a709d2575d8f72",
         "Silmaril/Elf/Corpus/MimallocOsGlobals/Thms.lean": "e8b32a1833c1ba7f0269af74eabadcb113fe438e3b0ea588f3deb44c0b43db86",
@@ -958,7 +959,7 @@
         "Silmaril/Proofs/Elf/Corpus/MimallocOsGlobals/RunResult.lean": "e69f52de081d2bccf8b22a34e46dcabc264263329a7b2981cf6588ae546539d0",
         "Silmaril/Proofs/Elf/Corpus/MimallocOsGlobals/Source.lean": "2e8da1f3e5d88a1b9b671aa102dc0243013abb184d27ed7d93ad99556d10ddd1",
         "benchmarks/cerberus-elaboration/oracle/cast-sign-extend/core.sexp.gz": "0f110b37ff5a57dfe4d99d4cf22505b7371bedb92c92acea7f9e2c397a972ccf",
-        "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/os-globals/README.md": "bf9af5219ff1e223fe090196e7226216754e51f9558d1d337df302d5c83e70f4",
+        "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/os-globals/README.md": "13962624240a81e16c6afc41fe58213ca58897c33aaa74716db954e7f07d74c8",
         "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/os-globals/context.c": "fd758ed6f378c0485f4a5b4cd7f4f177d1480ab5dca77ebe25ec9e16781d9364",
         "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/os-globals/manifest.json": "e7ff4ccd979682c5aa36366f8f85493d5d0dfda450f7a8b36bd81305a097e2cb",
         "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/os-globals/program.sexp": "7cd269ca50b04f09cae919d75e379a97a491c07d6cd5f9a208b1c843edba492f",
@@ -970,7 +971,8 @@
         "tests/cerberus/MimallocOsContext.lean": "179fda2cfd21ffcf17bd6ab06a3c4d34fc035cc1d98db93e4136314bb96258df",
         "tools/corpus/MimallocOsInputs.lean": "64a82fbd597a77ff53d1ebf56cc0ff43e1f87064c5d5026663895f5d2b28a52b",
         "tools/corpus/check_mimalloc_os_inputs.py": "a581c7df70863311cb956b51cc4baba76dfa38a68522c9c1ca719cd0d1270882",
-        "tools/corpus/mimalloc_os_native.py": "13fd558b269269714c030b7d9c305d249dc9e9e45bc7abb9df76f07d00997196"
+        "tools/corpus/mimalloc_os_native.py": "13fd558b269269714c030b7d9c305d249dc9e9e45bc7abb9df76f07d00997196",
+        "Silmaril/Proofs/Elf/Corpus/MimallocOsGlobals/Bindings.lean": "57a20c9c088409fb087bdb0a47384debc5d35c810c00e7acfcf94745f7fd30da"
       }
     }
   ]

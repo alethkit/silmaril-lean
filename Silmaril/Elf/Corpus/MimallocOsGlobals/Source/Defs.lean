@@ -30,11 +30,5 @@ def inputs : ElaborationInputs where
   runtime := {stdlib := runtimeDocument.bindings.stdlib, impl := runtimeDocument.bindings.impl, aliases := []}
   freshness := ⟨⟨[]⟩, 100, 100000⟩
 
-def core : Codec.FileBindings := {programDocument.bindings with
-  stdlib := runtimeDocument.bindings.stdlib, impl := runtimeDocument.bindings.impl}
 def signature : Silmaril.X86.SystemV.CApi.Signature := ⟨[], some .uint64⟩
-def function (name : String) : CFn signature where
-  file := core.toFile
-  params := paramsOf core name
-  body := (procParts core name).2
 end Silmaril.Elf.Corpus.MimallocOsGlobals.Source
