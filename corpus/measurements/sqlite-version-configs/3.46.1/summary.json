@@ -1,0 +1,598 @@
+{
+  "schema_version": 1,
+  "project": "sqlite",
+  "upstream_version": "3.46.1",
+  "source_archive": {
+    "root": "sqlite-amalgamation-3460100",
+    "url": "https://sqlite.org/2024/sqlite-amalgamation-3460100.zip",
+    "sha256": "77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784"
+  },
+  "new_profiles": 8,
+  "actual_new_elf_rows": 32,
+  "unique_new_elf_hashes": 28,
+  "retained_existing_profiles_no_new_run_claimed": [],
+  "profiles": [
+    {
+      "configuration": "default",
+      "target": "x86_64-linux-gnu",
+      "optimization": "O0",
+      "build": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/build.json",
+      "source_archive_sha256": "77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784",
+      "sqlite3_c_sha256": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
+      "source_files_hash_checked": 3,
+      "measured_exits_passed": 15,
+      "build_wall_seconds": {
+        "build-a": 4.376425257999472,
+        "build-b": 4.205135383999732
+      },
+      "outputs": [
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/unstripped/libsqlite3.so",
+          "size": 1292304,
+          "sha256": "288168db03843397b4ccb04feafcb6d228aeeeee9b3f364402b6603ba79817be",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 2527,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/unstripped/receipt.json",
+          "receipt_sha256": "4a1cfa6aec48f9192b2ce22e56e730aeff585a94a5f2ca2b7a81c1cffe1f6fa5",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/x86_64/O0/unstripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/unstripped/sqlite3",
+          "size": 347432,
+          "sha256": "d3115f8defd7d62544532716ec3cd42c355b263ce575fe9885459374e52e6db2",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 442,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/unstripped/receipt.json",
+          "receipt_sha256": "4a1cfa6aec48f9192b2ce22e56e730aeff585a94a5f2ca2b7a81c1cffe1f6fa5",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/x86_64/O0/unstripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/sqlite3.pair.json"
+        },
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/stripped/libsqlite3.so",
+          "size": 1171880,
+          "sha256": "23017b4454d0a31ad09d16725d98c56f93b8afaf6b25b2177d899cd2462b319d",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/stripped/receipt.json",
+          "receipt_sha256": "df489ebad4e35012aec15fdd9ff8259acc2ee8800a5e7f675533d835e037cfdd",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/x86_64/O0/stripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/stripped/sqlite3",
+          "size": 314712,
+          "sha256": "28defddd3d5556a338ed1f5a29fe1bfd21ba86ed1b6789e2ff9a68d3decde6df",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/stripped/receipt.json",
+          "receipt_sha256": "df489ebad4e35012aec15fdd9ff8259acc2ee8800a5e7f675533d835e037cfdd",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/x86_64/O0/stripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/x86_64/O0/sqlite3.pair.json"
+        }
+      ]
+    },
+    {
+      "configuration": "default",
+      "target": "x86_64-linux-gnu",
+      "optimization": "O2",
+      "build": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/build.json",
+      "source_archive_sha256": "77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784",
+      "sqlite3_c_sha256": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
+      "source_files_hash_checked": 3,
+      "measured_exits_passed": 15,
+      "build_wall_seconds": {
+        "build-a": 23.26680297999974,
+        "build-b": 23.268241469000714
+      },
+      "outputs": [
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/unstripped/libsqlite3.so",
+          "size": 1151456,
+          "sha256": "1e26aff84da4e2a1910e613167d08d72ff93d9557e14d151cd11845763135c47",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 1552,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/unstripped/receipt.json",
+          "receipt_sha256": "cefb15dfb6668eca18b3fd515c2f1ca60e9abae8da732a72252ed6a8591ed9d1",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/x86_64/O2/unstripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/unstripped/sqlite3",
+          "size": 299792,
+          "sha256": "443764a03e51451cbce1d591411efa10797cb5afe415d72ae0fa83bdf806ef24",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 350,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/unstripped/receipt.json",
+          "receipt_sha256": "cefb15dfb6668eca18b3fd515c2f1ca60e9abae8da732a72252ed6a8591ed9d1",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/x86_64/O2/unstripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/sqlite3.pair.json"
+        },
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/stripped/libsqlite3.so",
+          "size": 1073256,
+          "sha256": "c1b6a73ca9dd927b64434fb4bca4ecbe0d3c9acb58d63efc5bdfaeef90ad650d",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/stripped/receipt.json",
+          "receipt_sha256": "7f292a5020f6147437436a762a32cfd1e5312e454223d90ebdc5fcc1c753660c",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/x86_64/O2/stripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/stripped/sqlite3",
+          "size": 271512,
+          "sha256": "1f7c9c62cb43fb33bd8905d836cebe738fb95faf6906928c981b903d19c00661",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/stripped/receipt.json",
+          "receipt_sha256": "7f292a5020f6147437436a762a32cfd1e5312e454223d90ebdc5fcc1c753660c",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/x86_64/O2/stripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/x86_64/O2/sqlite3.pair.json"
+        }
+      ]
+    },
+    {
+      "configuration": "default",
+      "target": "aarch64-linux-gnu",
+      "optimization": "O0",
+      "build": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/build.json",
+      "source_archive_sha256": "77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784",
+      "sqlite3_c_sha256": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
+      "source_files_hash_checked": 3,
+      "measured_exits_passed": 15,
+      "build_wall_seconds": {
+        "build-a": 4.9797801310005525,
+        "build-b": 4.843538882999383
+      },
+      "outputs": [
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/unstripped/libsqlite3.so",
+          "size": 1385112,
+          "sha256": "dab26e92b0ff1ea075546a288b560703aaed9a2fc5aac3134319c6b30dc4e692",
+          "elf_machine": "AArch64",
+          "func_symbols": 2542,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/unstripped/receipt.json",
+          "receipt_sha256": "b3d2aee7d858f9f7b318fd4737f8ba0471ae93ec8f30fa23842ac5d6ecd4111b",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/aarch64/O0/unstripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/unstripped/sqlite3",
+          "size": 369280,
+          "sha256": "92fa10bd2b326d5255cab23f81e774bf1344e9e1d582f69ea7657587579e2635",
+          "elf_machine": "AArch64",
+          "func_symbols": 443,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/unstripped/receipt.json",
+          "receipt_sha256": "b3d2aee7d858f9f7b318fd4737f8ba0471ae93ec8f30fa23842ac5d6ecd4111b",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/aarch64/O0/unstripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/sqlite3.pair.json"
+        },
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/stripped/libsqlite3.so",
+          "size": 1262072,
+          "sha256": "d3abf0f719cf8046382883a689b6783c9e3f54fde9dcf9048e350f0172620270",
+          "elf_machine": "AArch64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/stripped/receipt.json",
+          "receipt_sha256": "a0f07e3c9ae8bd50ba6d1bafe52108ec8d6a44c1c66b44f3b51284a150689f52",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/aarch64/O0/stripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/stripped/sqlite3",
+          "size": 335000,
+          "sha256": "9abe461b8807fac0fdeaf4b57db2fb6f5691ccb4a9c5236f2ef04441941f561d",
+          "elf_machine": "AArch64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/stripped/receipt.json",
+          "receipt_sha256": "a0f07e3c9ae8bd50ba6d1bafe52108ec8d6a44c1c66b44f3b51284a150689f52",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/aarch64/O0/stripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/aarch64/O0/sqlite3.pair.json"
+        }
+      ]
+    },
+    {
+      "configuration": "default",
+      "target": "aarch64-linux-gnu",
+      "optimization": "O2",
+      "build": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/build.json",
+      "source_archive_sha256": "77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784",
+      "sqlite3_c_sha256": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
+      "source_files_hash_checked": 3,
+      "measured_exits_passed": 15,
+      "build_wall_seconds": {
+        "build-a": 29.48870742500003,
+        "build-b": 29.283676559000014
+      },
+      "outputs": [
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/unstripped/libsqlite3.so",
+          "size": 1144760,
+          "sha256": "a44e8401ba95626c540c04c79072cc18a8a129408bd2bf50676b84e56f5576f9",
+          "elf_machine": "AArch64",
+          "func_symbols": 1539,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/unstripped/receipt.json",
+          "receipt_sha256": "ea83a9893d6c93ce2051db7c34c9ad0f717e076fba9845c7583dbe68426182bf",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/aarch64/O2/unstripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/unstripped/sqlite3",
+          "size": 295832,
+          "sha256": "2c52429f536711c8537c823d9efecf0a8145032d8c6911f51b01cec4861a6ef1",
+          "elf_machine": "AArch64",
+          "func_symbols": 316,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/unstripped/receipt.json",
+          "receipt_sha256": "ea83a9893d6c93ce2051db7c34c9ad0f717e076fba9845c7583dbe68426182bf",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/aarch64/O2/unstripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/sqlite3.pair.json"
+        },
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/stripped/libsqlite3.so",
+          "size": 1065232,
+          "sha256": "4fb22d5982821e192eb836b624ba5a3081bc53fb0369ce9d5ca4d308965d6dbe",
+          "elf_machine": "AArch64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/stripped/receipt.json",
+          "receipt_sha256": "810d6db7468fb3226303efb0e2cf867dc9ca974c06fa009706380e5852272615",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/aarch64/O2/stripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/stripped/sqlite3",
+          "size": 267272,
+          "sha256": "cee492a3a09ef4bf703f8dcbca59110b097049bdafb4f18dfcdb392d817ee1ae",
+          "elf_machine": "AArch64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/stripped/receipt.json",
+          "receipt_sha256": "810d6db7468fb3226303efb0e2cf867dc9ca974c06fa009706380e5852272615",
+          "census": "corpus/census/variants/sqlite/3.46.1/default/aarch64/O2/stripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/default/aarch64/O2/sqlite3.pair.json"
+        }
+      ]
+    },
+    {
+      "configuration": "fts5-rtree",
+      "target": "x86_64-linux-gnu",
+      "optimization": "O0",
+      "build": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/build.json",
+      "source_archive_sha256": "77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784",
+      "sqlite3_c_sha256": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
+      "source_files_hash_checked": 3,
+      "measured_exits_passed": 15,
+      "build_wall_seconds": {
+        "build-a": 5.034752566000861,
+        "build-b": 4.896996913000294
+      },
+      "outputs": [
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/unstripped/libsqlite3.so",
+          "size": 1579920,
+          "sha256": "c4b6f6b6c0f95a19d76110a2ab5bffa93e205feabf87bc305028e323fc9ad93e",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 3193,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/unstripped/receipt.json",
+          "receipt_sha256": "0791d461caf1bf5d96c13f93d77735f17f249365141bcc65a51b6bca6855dde2",
+          "census": "corpus/census/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/unstripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/unstripped/sqlite3",
+          "size": 347432,
+          "sha256": "d3115f8defd7d62544532716ec3cd42c355b263ce575fe9885459374e52e6db2",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 442,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/unstripped/receipt.json",
+          "receipt_sha256": "0791d461caf1bf5d96c13f93d77735f17f249365141bcc65a51b6bca6855dde2",
+          "census": "corpus/census/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/unstripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/sqlite3.pair.json"
+        },
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/stripped/libsqlite3.so",
+          "size": 1429640,
+          "sha256": "3db954382c43cc5d333b0be6f38a5a78ac654284c5480c76c60c1478f94cc44a",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/stripped/receipt.json",
+          "receipt_sha256": "b41aaf463d020c47cfb65a48f623dc075ec60d87640c88162e9d94cf49ff5918",
+          "census": "corpus/census/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/stripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/stripped/sqlite3",
+          "size": 314712,
+          "sha256": "28defddd3d5556a338ed1f5a29fe1bfd21ba86ed1b6789e2ff9a68d3decde6df",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/stripped/receipt.json",
+          "receipt_sha256": "b41aaf463d020c47cfb65a48f623dc075ec60d87640c88162e9d94cf49ff5918",
+          "census": "corpus/census/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/stripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O0/sqlite3.pair.json"
+        }
+      ]
+    },
+    {
+      "configuration": "fts5-rtree",
+      "target": "x86_64-linux-gnu",
+      "optimization": "O2",
+      "build": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/build.json",
+      "source_archive_sha256": "77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784",
+      "sqlite3_c_sha256": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
+      "source_files_hash_checked": 3,
+      "measured_exits_passed": 15,
+      "build_wall_seconds": {
+        "build-a": 28.492678553000587,
+        "build-b": 29.33064294399992
+      },
+      "outputs": [
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/unstripped/libsqlite3.so",
+          "size": 1388176,
+          "sha256": "b0fc56616d641d061c783aec9c7c664b20e2cd981dfd598ee04ca2b0173aa6c9",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 1878,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/unstripped/receipt.json",
+          "receipt_sha256": "7a54393de3f59e46e0cabc93f23204b74d762278b6bc78e78a47eefcb05a0749",
+          "census": "corpus/census/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/unstripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/unstripped/sqlite3",
+          "size": 299792,
+          "sha256": "443764a03e51451cbce1d591411efa10797cb5afe415d72ae0fa83bdf806ef24",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 350,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/unstripped/receipt.json",
+          "receipt_sha256": "7a54393de3f59e46e0cabc93f23204b74d762278b6bc78e78a47eefcb05a0749",
+          "census": "corpus/census/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/unstripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/sqlite3.pair.json"
+        },
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/stripped/libsqlite3.so",
+          "size": 1294888,
+          "sha256": "b761481b21f70f0108bce835b08d9699f8a1d7115dd53b6cbdd55c96f05c7843",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/stripped/receipt.json",
+          "receipt_sha256": "666ad60294ae06a73d9fadbee9dc96eb82cf44f9ac2e0024765405d077cfdef4",
+          "census": "corpus/census/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/stripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/stripped/sqlite3",
+          "size": 271512,
+          "sha256": "1f7c9c62cb43fb33bd8905d836cebe738fb95faf6906928c981b903d19c00661",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/stripped/receipt.json",
+          "receipt_sha256": "666ad60294ae06a73d9fadbee9dc96eb82cf44f9ac2e0024765405d077cfdef4",
+          "census": "corpus/census/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/stripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/fts5-rtree/x86_64/O2/sqlite3.pair.json"
+        }
+      ]
+    },
+    {
+      "configuration": "small",
+      "target": "x86_64-linux-gnu",
+      "optimization": "O0",
+      "build": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/build.json",
+      "source_archive_sha256": "77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784",
+      "sqlite3_c_sha256": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
+      "source_files_hash_checked": 3,
+      "measured_exits_passed": 15,
+      "build_wall_seconds": {
+        "build-a": 4.37744713399934,
+        "build-b": 4.124104167000041
+      },
+      "outputs": [
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/unstripped/libsqlite3.so",
+          "size": 1264168,
+          "sha256": "3bd7d353367390471c1b31ad8fcfe7a6764f243c89e854becaaca16e43850eed",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 2469,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/unstripped/receipt.json",
+          "receipt_sha256": "281e39025ffc8cedf6e9e8fea3976bed9a6fcde035cfa55be31deb1cea235c99",
+          "census": "corpus/census/variants/sqlite/3.46.1/small/x86_64/O0/unstripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/unstripped/sqlite3",
+          "size": 347304,
+          "sha256": "759ab70e9b0d8ad9e355908049a9d71e532431f2e8f224c0562b1c56a46723fd",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 442,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/unstripped/receipt.json",
+          "receipt_sha256": "281e39025ffc8cedf6e9e8fea3976bed9a6fcde035cfa55be31deb1cea235c99",
+          "census": "corpus/census/variants/sqlite/3.46.1/small/x86_64/O0/unstripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/sqlite3.pair.json"
+        },
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/stripped/libsqlite3.so",
+          "size": 1147016,
+          "sha256": "31f3bab6f63dfba70ec1f507bb8da861f9f2506e7084bc0721c05342e7efb18f",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/stripped/receipt.json",
+          "receipt_sha256": "83099b200f14c2f36c46219ad484057526ee3abd56f418b3fa1f75880a9b8eec",
+          "census": "corpus/census/variants/sqlite/3.46.1/small/x86_64/O0/stripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/stripped/sqlite3",
+          "size": 314680,
+          "sha256": "a20d86d48a24d1675c459ae83cd105ca123a95ae2b5e985c5c291dbfab545d4a",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/stripped/receipt.json",
+          "receipt_sha256": "83099b200f14c2f36c46219ad484057526ee3abd56f418b3fa1f75880a9b8eec",
+          "census": "corpus/census/variants/sqlite/3.46.1/small/x86_64/O0/stripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/small/x86_64/O0/sqlite3.pair.json"
+        }
+      ]
+    },
+    {
+      "configuration": "small",
+      "target": "x86_64-linux-gnu",
+      "optimization": "O2",
+      "build": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/build.json",
+      "source_archive_sha256": "77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784",
+      "sqlite3_c_sha256": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
+      "source_files_hash_checked": 3,
+      "measured_exits_passed": 15,
+      "build_wall_seconds": {
+        "build-a": 22.963495597000474,
+        "build-b": 22.85045967699989
+      },
+      "outputs": [
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/unstripped/libsqlite3.so",
+          "size": 1115480,
+          "sha256": "b1be8daab15844f4539364e41d44aba1488dd293ff6a77908f1fb23c935b57de",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 1502,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/unstripped/receipt.json",
+          "receipt_sha256": "9e7811da5b65ffb978550cd128142ead6e70bac2ccaa55da2c06d5057a8817fc",
+          "census": "corpus/census/variants/sqlite/3.46.1/small/x86_64/O2/unstripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/unstripped/sqlite3",
+          "size": 299656,
+          "sha256": "be433409be7bf36d8e2a71246501aa493eec126f67634d0803ca9023f597ec71",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 350,
+          "has_symtab": true,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/unstripped/receipt.json",
+          "receipt_sha256": "9e7811da5b65ffb978550cd128142ead6e70bac2ccaa55da2c06d5057a8817fc",
+          "census": "corpus/census/variants/sqlite/3.46.1/small/x86_64/O2/unstripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/sqlite3.pair.json"
+        },
+        {
+          "object": "libsqlite3.so",
+          "path": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/stripped/libsqlite3.so",
+          "size": 1040200,
+          "sha256": "f8147517c2318f6c1f04d8ee68cee7e8959bfbf16713160183916059fa10e84e",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/stripped/receipt.json",
+          "receipt_sha256": "d6e9fec5b6ad64f94a475dd93f3e184f533367d0f551587d8a37dbff427be7ce",
+          "census": "corpus/census/variants/sqlite/3.46.1/small/x86_64/O2/stripped/libsqlite3.so.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/libsqlite3.so.pair.json"
+        },
+        {
+          "object": "sqlite3",
+          "path": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/stripped/sqlite3",
+          "size": 271480,
+          "sha256": "fab0e505a6d65f46d87ed644015c4859f421b71959210b9f992456aeaa2c500e",
+          "elf_machine": "Advanced Micro Devices X86-64",
+          "func_symbols": 0,
+          "has_symtab": false,
+          "has_debug_info": false,
+          "receipt": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/stripped/receipt.json",
+          "receipt_sha256": "d6e9fec5b6ad64f94a475dd93f3e184f533367d0f551587d8a37dbff427be7ce",
+          "census": "corpus/census/variants/sqlite/3.46.1/small/x86_64/O2/stripped/sqlite3.json",
+          "strip_pair": "corpus/variants/sqlite/3.46.1/small/x86_64/O2/sqlite3.pair.json"
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Only actual completed new profiles counted. Existing profiles preserved.",
+    "Two independently initialized reused pinned containers; clean independent workspace repeats, not new containers per profile.",
+    "Public upstream source under test; runtime and static census are not semantic equivalence or Lean proof.",
+    "Full local make check and exhaustive upstream tests not run."
+  ]
+}
