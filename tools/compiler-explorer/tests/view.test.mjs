@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { lineOffsets, fragmentLines, indexEdges, badge, uncovered } from "../ui/view.js";
+import { lineOffsets, fragmentLines, indexEdges, badge, uncovered, includeRows, prettyAilCore, prettySexp } from "../ui/view.js";
 
 const root = new URL("../../../", import.meta.url);
 const manifest = (name) => JSON.parse(readFileSync(new URL(`examples/compiler-explorer/manifests/${name}.json`, root)));
@@ -105,4 +105,63 @@ test("C block comments carry over lines", () => {
   assert.deepEqual(lines[1][0], ["   two */", "tok-comment"]);
   assert.ok(lines[1].some(([t, k]) => t === "int" && k === "tok-keyword"));
   assert.deepEqual(lines[2], [["four */", "tok-comment"]]);
+});
+
+test("include rows preserve path identity; basenames are only display labels", () => {
+  const env = manifest("programs--msort--O2").include_env;
+  const rows = includeRows(env);
+  assert.deepEqual(rows.map((row) => row.path), env.files.map((file) => file.name));
+  assert.deepEqual(rows.map((row) => row.sha256), env.files.map((file) => file.sha256));
+  assert.equal(rows[0].main, true);
+  const sameBasename = includeRows({ files: [
+    { name: "/a/stdio.h", size: 1, sha256: "a".repeat(64) },
+    { name: "/b/stdio.h", size: 1, sha256: "a".repeat(64) },
+  ] });
+  assert.deepEqual(sameBasename.map((row) => row.label), ["stdio.h", "stdio.h"]);
+  assert.notEqual(sameBasename[0].path, sameBasename[1].path);
+});
+
+test("S-expression formatting wraps nested lists but keeps empty lists and literals intact", () => {
+  const literal = String.raw`"a (b), \"quoted\" and \\."`;
+  const raw = `(root   (nested (a b)   ()) (text ${literal}))`;
+  assert.equal(prettySexp(raw, 26), `(root\n  (nested (a b) ())\n  (text\n    ${literal}\n  )\n)`);
+  assert.equal(prettySexp("  ( )  "), "()");
+});
+
+test("S-expression formatting preserves line and nested block comments", () => {
+  const comment = '#| one ( "\n #| inner ) |#\nlast |#';
+  const raw = `; before )\n(value ; inline (\n  ${comment} (end)) ; after "`;
+  assert.equal(prettySexp(raw), `; before )\n(value\n  ; inline (\n  ${comment}\n  (end)\n)\n; after "`);
+});
+
+test("incomplete or malformed input does not produce a formatted view", () => {
+  for (const raw of ["", ")", "(open", '("unclosed)', '("escape\\', "(#| comment)", "(a) (b)"]) {
+    assert.equal(prettySexp(raw), null, raw);
+  }
+  for (const raw of ["no envelope", "BEGIN-TYPED-AIL\n(a)", "BEGIN-TYPED-AIL\n(a)\nEND-CORE-DOCUMENT",
+    "BEGIN-TYPED-AIL\n(a)\nEND-TYPED-AIL\nBEGIN-CORE-DOCUMENT\n(oops\nEND-CORE-DOCUMENT"]) {
+    assert.equal(prettyAilCore(raw) ?? raw, raw);
+  }
+});
+
+test("the actual Ail/Core artifacts format without changing exact bytes or diagnostics", () => {
+  const paths = ["examples/compiles-to/straight/core-probe.txt", "examples/compiles-to/loop/core-probe.txt",
+    "examples/compiler-explorer/c2c/core-probe.txt"];
+  for (const path of paths) {
+    const raw = text(path);
+    const formatted = prettyAilCore(raw);
+    assert.ok(formatted.split("\n").length > 100, path);
+    assert.equal(formatted.endsWith("\n"), raw.endsWith("\n"), path);
+    assert.equal(prettyAilCore(formatted), formatted, path);
+    assert.deepEqual(formatted.match(/^(?:BEGIN-|END-|CORE-ELAB-ERROR:).*$/gm),
+      raw.match(/^(?:BEGIN-|END-|CORE-ELAB-ERROR:).*$/gm), path);
+    assert.deepEqual(Buffer.from(raw), readFileSync(new URL(path, root)), path);
+  }
+});
+
+test("deeply nested input does not use the JavaScript call stack", () => {
+  const depth = 10000;
+  const formatted = prettySexp("(".repeat(depth) + "()" + ")".repeat(depth));
+  assert.equal(formatted.replace(/\s+/g, "").length, 2 * depth + 2);
+  assert.ok(formatted.split("\n").every((line) => line.length <= 88));
 });

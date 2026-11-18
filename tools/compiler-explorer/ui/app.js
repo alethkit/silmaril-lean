@@ -1,6 +1,6 @@
 // The compiler explorer's page. Every text from the database is inserted with textContent (syntax
 // highlighting makes token spans; no string is ever parsed as HTML).
-import { lineOffsets, indexEdges, edgeObligations, badge, highlightText, langOf } from "./view.js";
+import { lineOffsets, indexEdges, edgeObligations, badge, highlightText, langOf, includeRows, prettyAilCore } from "./view.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -33,7 +33,10 @@ async function init() {
   $("mode").onchange = () => { state.mode = $("mode").value; render(); };
   const mode = params.get("mode");
   if (mode === "semantic" || mode === "navigation") { state.mode = mode; $("mode").value = mode; }
-  for (const side of ["source", "target"]) $(`${side}-show`).onchange = () => { state.show[side] = $(`${side}-show`).value; render(); };
+  for (const side of ["source", "target"]) {
+    $(`${side}-show`).onchange = () => { state.show[side] = $(`${side}-show`).value; render(); };
+    $(`${side}-exact`).onchange = render;
+  }
   fillBuilds(want);
   await load($("build").value, params.get("source"), params.get("target"));
 }
@@ -53,6 +56,7 @@ function fillBuilds(want) {
 async function load(id, source, target) {
   state.problem = await getJSON(state.list.find(p => p.id === id)?.static_path || ("api/problems/" + encodeURIComponent(id)));
   state.locked = null;
+  state.pretty = new Map();
   const mode = $("mode");
   mode.querySelector('[value="semantic"]').disabled = !state.problem.edges.some((edge) => edge.kind === "semantic");
   if (mode.selectedOptions[0]?.disabled) mode.value = "navigation";
@@ -66,6 +70,7 @@ async function load(id, source, target) {
     sel.replaceChildren(...alts.map((a) => new Option(a.label, a.role)));
     sel.value = state.show[side];
     sel.disabled = alts.length < 2;
+    $(`${side}-exact`).checked = false;
   }
   render();
 }
@@ -80,6 +85,25 @@ function render() {
   const p = state.problem;
   const primary = { source: state.show.source === p.view.source, target: state.show.target === p.view.target };
   const text = { source: textOf(p, state.show.source) ?? "(not text)", target: textOf(p, state.show.target) ?? "(not displayable text)" };
+  const format = {};
+  for (const side of ["source", "target"]) {
+    const role = state.show[side];
+    const exact = text[side];
+    if (!state.pretty.has(role)) {
+      state.pretty.set(role, langOf(p.artifacts[role]?.media) === "sexp" ? prettyAilCore(exact) : null);
+    }
+    const pretty = state.pretty.get(role);
+    const showPretty = pretty !== null && !$(`${side}-exact`).checked;
+    $(`${side}-exact-label`).hidden = pretty === null;
+    $(side).classList.toggle("pretty-code", showPretty);
+    if (pretty !== null) {
+      format[side] = showPretty ? "formatted · display only" : "exact text";
+      if (showPretty) {
+        text[side] = pretty;
+        primary[side] = false;
+      }
+    }
+  }
   const lines = { source: lineOffsets(text.source), target: lineOffsets(text.target) };
   const linked = primary.source && primary.target;
   state.index = linked ? indexEdges(p, state.mode, lines.source, lines.target)
@@ -89,7 +113,7 @@ function render() {
   for (const side of ["source", "target"]) {
     const role = state.show[side];
     const art = p.artifacts[role];
-    $(`${side}-title`).textContent = `${side === "source" ? "Source" : "Target"} · ${art ? art.path : role}`;
+    $(`${side}-title`).textContent = [side === "source" ? "Source" : "Target", art?.path || role, format[side]].filter(Boolean).join(" · ");
     const links = p.artifact_links[role] || [];
     const original = (p.artifact_links[side] || []).filter((link) => link.kind === "viewer");
     drawLinks($(`${side}-links`), role === side ? links : [...original, ...links]);
@@ -129,26 +153,27 @@ function appendLinks(box, links) {
 function drawCode(box, side, text, lang) {
   box.replaceChildren();
   const toks = highlightText(text, lang);
-  text.split("\n").forEach((line, i) => {
+  const links = state.index.byLine[side];
+  toks.forEach((tokens, i) => {
     const n = i + 1;
     const row = el("div", "line");
     row.dataset.side = side;
     row.dataset.n = n;
-    const ids = state.index.byLine[side].get(n) || [];
+    const ids = links.get(n) || [];
     if (ids.length) {
       row.classList.add("linked", `c${state.colorOf.get(ids[0])}`);
       if (ids.length > 1) row.classList.add("multi");
       row.tabIndex = 0;
       row.setAttribute("role", "button");
       row.setAttribute("aria-label", `${side} line ${n}: ${ids.length} link(s)`);
+      const pick = () => { state.locked = state.locked && state.locked.join() === ids.join() ? null : ids; highlight(ids); };
+      row.onclick = pick;
+      row.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
     }
+    if (links.size) row.onmouseenter = () => { if (!state.locked) highlight(ids); };
     const tx = el("span", "tx");
-    for (const [t, cls] of toks[i]) tx.append(cls ? el("span", cls, t) : document.createTextNode(t));
+    for (const [t, cls] of tokens) tx.append(cls ? el("span", cls, t) : document.createTextNode(t));
     row.append(el("span", "ln", n), tx);
-    const pick = () => { state.locked = state.locked && state.locked.join() === ids.join() ? null : ids; highlight(ids); };
-    row.onmouseenter = () => { if (!state.locked) highlight(ids); };
-    row.onclick = pick;
-    row.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
     box.append(row);
   });
 }
@@ -403,9 +428,47 @@ function drawEnv(p) {
   const d = section("env", "Preprocessor environment");
   if (!env) { d.append(el("p", "muted", "Not recorded.")); return; }
   d.append(el("p", "muted", env.note));
+  const compiler = p.derivation?.version || p.derivation?.compiler;
+  const provenance = el("p", "muted env-provenance", compiler ? `${compiler} · image ` : "Image ");
+  provenance.append(el("code", null, env.image));
+  d.append(provenance);
+  const table = el("table", "include-files");
+  const caption = env.dependencies
+    ? "Names are path basenames. Directive spelling, direct versus indirect, resolution history, aliases, repeats and guard effects: unknown."
+    : "Main file only. No header dependency capture for this build.";
+  table.append(el("caption", "muted", caption));
+  const heading = table.createTHead().insertRow();
+  for (const label of ["Name", "Size (B)", "SHA-256 (short)"]) {
+    const head = el("th", null, label);
+    head.scope = "col";
+    heading.append(head);
+  }
+  const body = table.createTBody();
+  for (const file of includeRows(env)) {
+    const row = body.insertRow();
+    const name = el("details");
+    const label = el("summary", null, file.label + (file.main ? " · main" : ""));
+    label.title = `Resolved path: ${file.path}`;
+    name.append(label, el("code", "file-detail", file.path));
+    row.insertCell().append(name);
+    row.insertCell().textContent = file.size.toLocaleString();
+    const fingerprint = el("details");
+    const short = el("summary");
+    short.title = `Full SHA-256: ${file.sha256}`;
+    short.append(el("code", null, `${file.sha256.slice(0, 10)}…`));
+    const full = el("textarea", "full-hash");
+    full.value = file.sha256;
+    full.readOnly = true;
+    full.rows = 4;
+    full.title = "Full fingerprint; press Ctrl+C or Command+C to copy";
+    full.setAttribute("aria-label", `Full SHA-256 for ${file.label}`);
+    full.onfocus = () => full.select();
+    fingerprint.append(short, full);
+    row.insertCell().append(fingerprint);
+  }
+  d.append(table);
   const dl = el("dl");
   const add = (k, v) => dl.append(el("dt", null, k), el("dd", null, v));
-  for (const f of env.files) add(f.name, `sha256 ${f.sha256} · ${f.size} B · ${f.where}`);
   add("search", env.search.join(" → ") || "(none)");
   add("working directory", env.workdir);
   add("macro/search probe flags", env.probe_flags);
@@ -426,9 +489,11 @@ function drawProvenance(p) {
   const add = (k, v) => { if (v !== null && v !== undefined && v !== "") dl.append(el("dt", null, k), el("dd", null, v)); };
   add("direction", p.direction);
   const g = p.derivation || {};
-  add("compiler", g.compiler ? g.version : null);
+  if (!p.extra?.include_env) {
+    add("compiler", g.compiler ? g.version : null);
+    add("image", g.image);
+  }
   add("decompiler", g.tool);
-  add("image", g.image);
   add("command", g.command);
   add("origin (a claim)", g.claim);
   for (const [role, a] of Object.entries(p.artifacts)) add(role, `${a.path} · sha256 ${a.sha256} · ${a.size} B`);

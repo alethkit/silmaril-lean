@@ -180,3 +180,111 @@ function opensComment(line) {
   const last = toks[toks.length - 1];
   return !!last && last[1] === "tok-comment" && last[0].startsWith("/*") && !last[0].endsWith("*/");
 }
+
+export function includeRows(env) {
+  return env.files.map((file) => ({
+    label: file.name.split("/").at(-1), path: file.name,
+    main: file.artifact === "source", size: file.size, sha256: file.sha256,
+  }));
+}
+
+export function prettySexp(text, width = 88) {
+  const lex = /\s+|[()]|"(?:\\[\s\S]|[^"\\])*"|;[^\r\n]*|#\||(?:(?!#\||\|#)[^\s();"])+/y;
+  const block = /#\||\|#/g;
+  const roots = [];
+  const stack = [];
+  let offset = 0;
+  while (offset < text.length) {
+    lex.lastIndex = offset;
+    const match = lex.exec(text);
+    if (!match) return null;
+    let token = match[0];
+    const start = offset;
+    offset = lex.lastIndex;
+    if (/^\s/.test(token)) continue;
+    const parent = stack.at(-1);
+    if (token === ")") {
+      if (!parent) return null;
+      stack.pop();
+      const outer = stack.at(-1);
+      if (outer) outer.flat += parent.flat;
+      continue;
+    }
+    const comment = token.startsWith(";") || token === "#|";
+    if (token === "#|") {
+      block.lastIndex = offset;
+      let depth = 1;
+      while (depth) {
+        const delimiter = block.exec(text);
+        if (!delimiter) return null;
+        depth += delimiter[0] === "#|" ? 1 : -1;
+      }
+      offset = block.lastIndex;
+      token = text.slice(start, offset);
+    }
+    const list = token === "(";
+    const node = list ? { children: [], flat: 2 } : {
+      token, comment, flat: comment || /[\r\n]/.test(token) ? Infinity : token.length,
+    };
+    const siblings = parent ? parent.children : roots;
+    if (parent) parent.flat += (siblings.length ? 1 : 0) + (list ? 0 : node.flat);
+    siblings.push(node);
+    if (list) stack.push(node);
+  }
+  if (stack.length || roots.filter((node) => !node.comment).length !== 1) return null;
+
+  const output = [];
+  let column = 0;
+  const append = (piece) => {
+    output.push(piece);
+    const lastBreak = piece.lastIndexOf("\n");
+    column = lastBreak < 0 ? column + piece.length : piece.length - lastBreak - 1;
+  };
+  const indent = (depth) => "\n" + " ".repeat(Math.min(2 * depth, 40));
+  const pending = roots.map((node, index) => ({ node, depth: 0, before: index ? "\n" : "" })).reverse();
+  while (pending.length) {
+    const { node, depth, before = "", flat = false } = pending.pop();
+    if (before) append(before);
+    if (!node.children) {
+      append(node.token);
+      continue;
+    }
+    append("(");
+    const inline = flat || !node.children.length || column - 1 + node.flat <= width;
+    pending.push({ node: { token: ")" }, depth, before: inline ? "" : indent(depth) });
+    for (let index = node.children.length - 1; index >= 0; index--) {
+      const child = node.children[index];
+      const head = index === 0 && !child.children && !child.comment;
+      pending.push({ node: child, depth: depth + 1, flat: inline,
+        before: inline ? (index ? " " : "") : (head ? "" : indent(depth + 1)) });
+    }
+  }
+  return output.join("");
+}
+
+export function prettyAilCore(text) {
+  const lines = text.split("\n");
+  const output = [];
+  let start = null;
+  let section = null;
+  let found = false;
+  for (let index = 0; index < lines.length; index++) {
+    const marker = /^(BEGIN|END)-(TYPED-AIL|CORE-DOCUMENT)\r?$/.exec(lines[index]);
+    if (marker?.[1] === "BEGIN") {
+      if (section) return null;
+      section = marker[2];
+      start = index + 1;
+      output.push(lines[index]);
+    } else if (marker?.[1] === "END") {
+      if (section !== marker[2]) return null;
+      const pretty = prettySexp(lines.slice(start, index).join("\n"));
+      if (pretty === null) return null;
+      output.push(pretty, lines[index]);
+      section = null;
+      found = true;
+    } else if (!section) {
+      output.push(lines[index]);
+    }
+  }
+  return found && !section ? output.join("\n") : null;
+}

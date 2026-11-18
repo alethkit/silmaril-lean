@@ -42,6 +42,45 @@ try {
     await page.screenshot({ path: path.join(shots, "compiler-block-attribution.png") });
   }
   console.log("ok   compiler ↔ ELF block round trip and exact bytes");
+  await page.selectOption("#source-show", "core_probe");
+  await page.getByText("formatted · display only", { exact: false }).waitFor();
+  const exactText = page.getByRole("checkbox", { name: "Exact text" });
+  const artifactLink = page.locator("#source-links a[download]");
+  const core = await (await page.request.get(await artifactLink.evaluate((anchor) => anchor.href))).body();
+  assert.ok(await page.locator("#source .line").count() > 100);
+  if (shots) await page.screenshot({ path: path.join(shots, "compiler-ail-core.png") });
+  await exactText.press("Space");
+  const raw = (await page.locator("#source .tx").allTextContents()).join("\n");
+  assert.deepEqual(Buffer.from(raw), core);
+  await exactText.press("Space");
+  assert.ok(await page.locator("#source .line").count() > 100);
+  console.log("ok   keyboard Ail/Core exact toggle and byte-identical download");
+
+  await page.goto(`${base}compiler/?problem=programs%2Fmsort%2FO2`);
+  await page.getByText("Preprocessor environment", { exact: true }).press("Enter");
+  const includeTable = page.locator(".include-files");
+  await includeTable.getByText("Directive spelling, direct versus indirect", { exact: false }).waitFor();
+  const header = includeTable.locator("tbody tr").filter({ hasText: "stdio.h" }).first();
+  const name = header.locator("summary").first();
+  const fingerprint = header.locator("summary").last();
+  const fullPath = (await name.getAttribute("title")).replace("Resolved path: ", "");
+  await name.press("Enter");
+  await header.getByText(fullPath, { exact: true }).waitFor();
+  await fingerprint.press("Enter");
+  const digest = header.getByRole("textbox", { name: "Full SHA-256 for stdio.h" });
+  await page.keyboard.press("Tab");
+  assert.equal(await digest.evaluate((field) => document.activeElement === field), true);
+  const value = await digest.inputValue();
+  assert.match(value, /^[0-9a-f]{64}$/);
+  assert.equal(await digest.evaluate((field) => field.selectionEnd - field.selectionStart), 64);
+  assert.equal(await fingerprint.getAttribute("title"), `Full SHA-256: ${value}`);
+  assert.equal(await name.evaluate((summary) => getComputedStyle(summary).textTransform), "none");
+  if (shots) {
+    await page.locator("#env > details > summary").evaluate((summary) => summary.scrollIntoView({ block: "start" }));
+    await page.locator("aside").screenshot({ path: path.join(shots, "compiler-includes.png") });
+  }
+  console.log("ok   include names are labeled fallbacks; keyboard discloses full path and selects digest");
+
   for (const [tab, suffix] of [["c", "straight/straight.c"], ["elf", "straight/O0/straight.o"]]) {
     const [sha, entry] = Object.entries(catalog.artifacts).find(([, value]) => value.tab === tab &&
       value.paths.some((name) => name.endsWith(suffix)));

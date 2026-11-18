@@ -348,6 +348,11 @@ output (the "show" selector).
 | C ⇒ C | C text; typed Ail and Core | C text; typed Ail and Core |
 | restricted typing | C text | extracted operand types; separate frontend diagnostic |
 
+The Ail/Core view indents the stored S-expressions for reading and marks the result as
+display-only. **Exact text** switches back to the original serialization; the artifact download
+always returns the original bytes. If the display formatter cannot recognize the document, the
+page leaves it unchanged. Formatting never changes proof inputs or byte-range links.
+
 The trust of each stage:
 
 | stage | trust | checked by |
@@ -371,9 +376,24 @@ ELF bytes. `objdump` instructions are not proved correct by either check.
 * include search order (`gcc -E -v`), predefined macros (`gcc -dM -E`), and their probe flags;
 * the actual build command and pinned image.
 
+The table shows abbreviated SHA-256 fingerprints. Open a name for its full path, or a
+fingerprint for the full digest; focusing the digest field selects it for copying. The current
+dependency capture is a flat set of paths, so the name column uses **resolved basenames** as a
+display fallback, not reconstructed directive spellings. Direct versus indirect includes,
+resolution in each including file, aliases, occurrence order, repetitions, and guard effects are
+unknown. A fixture without a dependency probe does not establish that it has no headers.
+
 `fixtures.py include-map MANIFEST OUT` materializes the observed filename → byte map as
 `files_hex` in JSON, reading headers from the pinned image and refusing mismatched size or
 SHA-256. This is not a complete trace, a formal preprocessor, or a verified general C parser.
+
+**Extension point:** add an occurrence trace alongside the flat file receipts, before adding a
+Lean `Includes(Name, Name*)` judgment or graph viewer. A trace can carry a typed including-file
+identity, directive location and spelling, resolved-file identity, search context, and an ordered
+list of occurrences with their resolution/guard outcomes when captured. Spelling, path and
+content hash are different projections, not interchangeable node keys. A later model can ask
+whether a given file tree and search list realize the graph, or whether any compatible tree and
+search list exist. Neither compatibility claim follows from today's dependency set.
 
 **Debug information → problems.** Each compiles-to problem lists the facts c-tv extracted from
 the object's DWARF with `gimli`, which is not verified. There are three kinds of fact:
