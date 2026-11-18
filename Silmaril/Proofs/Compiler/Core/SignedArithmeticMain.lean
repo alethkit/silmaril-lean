@@ -178,6 +178,27 @@ theorem body_elaborates (expression : Expression) (context : State.Context) (lab
   rw [body_action, run_bind _ _ _ _ _ scopeRun]
   rfl
 
+private theorem erase_return (expression : Expression) :
+    LoopControl.erase (.mk .unknown ⟨false, none⟩ (.mk []) (.return_ expression.ail)) {} =
+      pure (.mk .unknown ⟨false, none⟩ (.mk []) (.return_ expression.ail)) := by
+  rw [LoopControl.erase.eq_def]
+  rfl
+
+private theorem erase_body (expression : Expression) :
+    LoopControl.erase (body expression) = pure (body expression) := by
+  unfold body
+  rw [LoopControl.erase.eq_def]
+  simp only [List.attach_cons, List.attach_nil, List.mapM_cons, erase_return]
+  rfl
+
+private theorem collect_body (expression : Expression) :
+    LoopControl.collect (body expression) = [] := by
+  unfold body
+  rw [LoopControl.collect.eq_def]
+  simp only [List.attach_cons, List.attach_nil, List.flatMap_cons, List.append_nil]
+  rw [LoopControl.collect.eq_def]
+  rfl
+
 private theorem declaration_action (expression : Expression) :
     Functions.declaration config Silmaril.Cerberus.Target.emptyEnvironment runtime (program expression) {}
       (Literal42.sym 1 "main", .unknown, .mk [],
@@ -193,6 +214,19 @@ private theorem declaration_action (expression : Expression) :
               (Functions.returnSave (some (Literal42.sym 1 "main")) (Literal42.sym 1 "main") label temporary
                 .unknown mainType (.loaded .integer))))]
           [(Literal42.sym 1 "main", .unknown, .mk [], mainType, [], false, true)])) := by
+  change (do
+        let label ← Functions.freshReturnLabel
+        let statement ← LoopControl.erase (body expression)
+        let translated ← Statements.translate config Silmaril.Cerberus.Target.emptyEnvironment runtime.stdlib
+          ⟨mainType, label, false⟩ statement (some (Literal42.sym 1 "main")) runtime.aliases (LoopControl.collect statement)
+        let temporary ← State.freshDescription .none
+        pure (Functions.Declarations.mk []
+          [(Literal42.sym 1 "main", .procedure .unknown (some 7) (.loaded .integer) []
+            (strongSequence (wildcard .unit) translated
+              (Functions.returnSave (some (Literal42.sym 1 "main")) (Literal42.sym 1 "main") label temporary
+                .unknown mainType (.loaded .integer))))]
+          [(Literal42.sym 1 "main", .unknown, .mk [], mainType, [], false, true)])) = _
+  simp only [erase_body, pure_bind, collect_body]
   rfl
 
 private theorem label_run (context : State.Context) (room : context.freshness.next ≤ context.freshness.maximum) :
