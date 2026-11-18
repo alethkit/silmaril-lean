@@ -127,3 +127,14 @@ example (operator : Comparisons.RelationalOperator) :
     (State.run (Comparisons.relational operator {Target.pinnedApple with cheri := true}
       Target.emptyEnvironment runtime resultType leftType rightType marked right) context).1.isOk = false := by
   cases operator <;> cbv
+
+private def notEqual := State.run (Comparisons.notEqual Target.pinnedApple Target.emptyEnvironment
+  runtime resultType leftType rightType marked right) context
+example : leadingBinder notEqual.1 = some 100 ∧ notEqual.2.freshness.next = 106 := by cbv
+example : fallback notEqual.1 = some (unspecified resultType) := by cbv
+example : equalityBranch notEqual.1 = some
+    (standardPure "§6.5.9#3" (ifPure
+      (standardPure "§6.5.9#4, sentence 3" (notPure (operation .eq
+        (standardPure "§6.5.9#4, sentence 1" (converted 102))
+        (standardPure "§6.5.9#4, sentence 1" (converted 103)))))
+      (specified (integer 1)) (specified (integer 0)))) := by cbv

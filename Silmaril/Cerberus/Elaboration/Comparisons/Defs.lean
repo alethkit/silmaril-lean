@@ -139,4 +139,32 @@ def relational (operator : RelationalOperator) (config : Target.Config)
   let operands ← freshOperands objectLeft objectRight
   Constants.liftResult (finishRelational operator config env bindings resultType leftType rightType operands coreLeft coreRight)
 
+/-- Scalar Ne from pinned `translation.lem:550-584`: negate the promoted
+object equality before converting the Boolean to specified integer 1/0.
+The fallback and allocation-before-child schedule are the equality branch's. -/
+def finishNotEqual (config : Target.Config) (env : Target.Environment) (bindings : List Runtime.Binding)
+    (resultType leftType rightType : Ctype) (operands : Operands)
+    (left right : Effect) : Except String Effect := do
+  let objectLeft ← Arithmetic.scalarObjectType leftType
+  let objectRight ← Arithmetic.scalarObjectType rightType
+  let promoted ← Arithmetic.usualArithmetic config env bindings false leftType rightType
+    operands.leftObject.expression operands.rightObject.expression
+  let (promotedLeft, promotedRight) := standardPair "§6.5.9#4, sentence 1" promoted
+  let (pattern, values) ← loadedPair operands
+  let specified ← specifiedPair operands
+  let condition := standardPure "§6.5.9#4, sentence 3" (notPure (operation .eq promotedLeft promotedRight))
+  return weakSequence pattern (unseq [left, right]) (pureEffect (casePure values
+    [(specified, standardPure "§6.5.9#3" (booleanInteger condition)),
+     (wildcard (.tuple [.loaded objectLeft, .loaded objectRight]), unspecified resultType)]))
+
+def notEqual (config : Target.Config) (env : Target.Environment) (bindings : List Runtime.Binding)
+    (resultType leftType rightType : Ctype) (left right : State.ElabM Effect) : State.ElabM Effect := do
+  if config.cheri then throw (.message "unsupported: CHERI equality comparison")
+  let objectLeft ← Constants.liftResult (Arithmetic.scalarObjectType leftType)
+  let objectRight ← Constants.liftResult (Arithmetic.scalarObjectType rightType)
+  let operands ← freshOperands objectLeft objectRight
+  let coreLeft ← left
+  let coreRight ← right
+  Constants.liftResult (finishNotEqual config env bindings resultType leftType rightType operands coreLeft coreRight)
+
 end Silmaril.Cerberus.Elaboration.Comparisons
