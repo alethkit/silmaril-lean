@@ -1,3 +1,7 @@
+// Registry declaration is the stable key of the separate read-only corpus viewer.
+function corpusStatementLink(s) {
+  return s.kind === "contextual_c_to_elf" ? ` · <a href="compiler/?corpus=${encodeURIComponent(s.declaration)}">Source / Core / ELF context (UNPROVED)</a>` : "";
+}
 // A dedicated corpus view over additive metadata tables. No ELF bytes are embedded.
 async function corpusPage(arg, ctx) {
   if (!tables.has("corpus_artifacts")) return '<h2>Corpus</h2><p>No corpus inventory is available in this database.</p>';
@@ -50,7 +54,7 @@ async function corpusArtifact(id, ctx) {
     <p>${esc(row.target)} · -${esc(row.optimization)} · ${esc(row.stripping)} · ${esc(m.license)}</p>
     <p><a href="${file(row.path)}">Canonical ELF in Git</a> · <a href="${file(m.receipt)}">Build receipt</a></p>
     <dl><dt>SHA-256</dt><dd><code>${esc(row.sha256)}</code></dd><dt>Source identity</dt><dd><code>${esc(row.source_id)}</code></dd><dt>Build identity</dt><dd><code>${esc(row.build_id)}</code></dd></dl>
-    ${m.formal_statements?.length?`<h3>Concrete function problems</h3>${m.formal_statements.map(s=>`<p><a href="${file(s.root.replaceAll('.','/')+'.lean')}">${esc(s.declaration)}</a> · ${esc(s.kind)} · ${esc(s.status)}</p>`).join('')}`:''}
+    ${m.formal_statements?.length?`<h3>Concrete function problems</h3>${m.formal_statements.map(s=>`<p><a href="${file(s.root.replaceAll('.','/')+'.lean')}">${esc(s.declaration)}</a> · ${esc(s.kind)} · ${esc(s.status)}${corpusStatementLink(s)}</p>`).join('')}`:''}
     <h3>Verification coverage</h3><p>${esc(m.lean_status)}. Contextual C → ELF statements: ${Number(m.contextual_c_to_elf_statements)||0}. Functional equivalence statements: ${Number(m.functional_equivalence_statements)||0} (stated, unproved).</p>
     <h3>Build configuration</h3>${pretty(m.build)}
     <p><a href="#/corpus-timings/${encodeURIComponent(row.build_id)}">Measured build stages</a> · <a href="#/corpus-timings">All measured stages</a></p>
@@ -92,12 +96,14 @@ async function corpusTimings(build, ctx) {
     }};
 }
 
-async function corpusFunctions(id, ctx) {
+async function corpusFunctions(arg, ctx) {
+  const [id, query=""] = arg.split("?", 2);
+  const symbol = new URLSearchParams(query).get("symbol") || "";
   const [artifact] = await ctx.tq("corpus_artifacts", "SELECT name,metadata FROM corpus_artifacts WHERE id=?", [id]);
   if (!artifact) return '<p>Artifact not found.</p>';
   return {html:`<p><a href="#/corpus-artifact/${encodeURIComponent(id)}">← Artifact</a></p><h2>${esc(artifact.name)} · Function mappings</h2>
     <p>Symbol rows include aliases. Metadata is not source semantics. This artifact has ${Number(JSON.parse(artifact.metadata).contextual_c_to_elf_statements)||0} contextual C → ELF statements (stated, unproved); see the artifact verification links for their exact scope.</p>
-    <label>Symbol contains <input id="corpus-function-search" type="search"></label><p id="corpus-function-count" aria-live="polite"></p><div id="corpus-functions"></div>`,
+    <label>Symbol contains <input id="corpus-function-search" type="search" value="${esc(symbol)}"></label><p id="corpus-function-count" aria-live="polite"></p><div id="corpus-functions"></div>`,
     init:async()=>{
       let request=0;
       const refresh=async()=>{
@@ -107,7 +113,7 @@ async function corpusFunctions(id, ctx) {
         const rows=await ctx.q('SELECT * FROM corpus_functions WHERE artifact=? AND symbol LIKE ? ORDER BY symbol LIMIT 200',params);
         if(!ctx.alive()||token!==request)return;
         document.querySelector('#corpus-function-count').textContent=`${count} matching symbol rows · showing ${rows.length}`;
-        document.querySelector('#corpus-functions').innerHTML=rows.map(f=>`<details><summary><strong>${esc(f.symbol)}</strong> · 0x${Number(f.address).toString(16)} · ${esc(f.size)} bytes</summary><pre>${esc(JSON.stringify(JSON.parse(f.mapping),null,2))}</pre></details>`).join('');
+        document.querySelector('#corpus-functions').innerHTML=rows.map(f=>`<details><summary><strong>${esc(f.symbol)}</strong> · 0x${Number(f.address).toString(16)} · ${esc(f.size)} bytes</summary>${(JSON.parse(f.mapping).formal_statements || []).map(corpusStatementLink).join("")}<pre>${esc(JSON.stringify(JSON.parse(f.mapping),null,2))}</pre></details>`).join('');
       };
       document.querySelector('#corpus-function-search').addEventListener('input',()=>refresh().catch(e=>{if(ctx.alive())document.querySelector('#corpus-function-count').textContent=e.message;}));
       await refresh();
