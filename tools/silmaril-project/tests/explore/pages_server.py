@@ -47,7 +47,7 @@ def main():
 
         def serve(self, head):
             u = urllib.parse.urlsplit(self.path)
-            p = os.path.realpath(os.path.join(root, urllib.parse.unquote(u.path).lstrip("/") or "index.html"))
+            p = os.path.realpath(os.path.join(root, urllib.parse.unquote(u.path).lstrip("/")))
             # Resolve symlinks and require a complete directory boundary before
             # probing or opening any request-derived path (including indexes).
             if os.path.commonpath([root, p]) != root:
