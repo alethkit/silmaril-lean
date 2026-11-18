@@ -18,3 +18,5 @@ explicit. These are public upstream inputs under test. No full local make check,
 exhaustive upstream testing, source semantics, Lean proof, functional equivalence
 or FIPS validation is claimed. Shared index/browser and Lean modules are untouched;
 CI and normal integration remain required.
+
+[Completed pool lifecycle](container-pool-lifecycle.json) records all16 successful profiles (including no-asm followups), the same2 independently initialized workers, explicit controller reconnection and both successful removals. Both installed-package inventories match the standard complete lock. No per-profile container replacement or new-container repeat is claimed.
