@@ -10,11 +10,20 @@ in the database, and does not compile or execute input. To check the evidence fi
 `make compiler-explorer-check`, then serve. Stop the server with Ctrl-C.
 
 On a generated Pages site, click **Compiler → Open the source ↔ target viewer**; on a clean
-checkout `make pages` writes `_site/`, which can be served by
-`python3 -m http.server --bind 127.0.0.1 --directory _site 8000`. Equivalent entry point:
-`/compiler/` on that site. A generated site is not a deployment; its evidence comes only from
-exact rows in the public project DB. A standalone local API can use that site's artifact catalog
-with `cexplorer.py serve … --viewer http://127.0.0.1:8000/`.
+checkout with the project libraries built, `make pages` writes `_site/`. Serve it locally with
+the same Range-aware server as the Pages browser tests:
+
+```sh
+python3 -I tools/silmaril-project/tests/explore/pages_server.py --root _site --port 8000 \
+  --log .lake/pages-preview-requests.jsonl
+```
+
+Open <http://127.0.0.1:8000/compiler/> and stop the server with Ctrl-C. Plain `python3 -m
+http.server` does not provide the Range responses the main explorer needs to open a large
+`project.sqlite` automatically when following C or ELF tab links. A generated site is not a
+deployment; use the viewer and artifact catalog from the same checkout. Its evidence comes
+only from exact rows in the public project DB. A standalone local API can use that site's
+artifact catalog with `cexplorer.py serve … --viewer http://127.0.0.1:8000/`.
 
 A compiler explorer puts a source program beside the target code a compiler made from it and
 links fragments of the two. This page describes a vertical slice that keeps navigation links
