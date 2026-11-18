@@ -30,6 +30,7 @@ open Silmaril.Proofs.Project.Shapes.X86 (allRegion retEnc retEnc_length)
 
 /-- The word an argument is passed in: zero-extended. -/
 def argWord : (kind : Scalar) → kind.Value → Word
+  | .boolean, v => BitVec.ofNat 64 (cond v 1 0)
   | .int32, v => v.setWidth 64
   | .uint32, v => v.setWidth 64
   | .int64, v => v
@@ -44,6 +45,7 @@ theorem setWidth_setWidth32 (v : BitVec 32) : (v.setWidth 64).setWidth 32 = v :=
 
 theorem encodes_argWord : (kind : Scalar) → (v : kind.Value) →
     Silmaril.X86.SystemV.Encodes kind v (argWord kind v)
+  | .boolean, v => by cases v <;> rfl
   | .int32, v => setWidth_setWidth32 v
   | .uint32, v => setWidth_setWidth32 v
   | .int64, _ => rfl
