@@ -179,20 +179,7 @@ theorem decimal_literal (value : Decimal) : decimal? .rfc8259 value.literal.toLi
 theorem tokensOf_decimal_literal (value : Decimal) (rest : List Char)
     (follow : ∀ char ∈ rest.head?, delimiter .rfc8259 char = true) :
     tokensOf (value.literal.toList ++ rest) = (tokensOf rest).map (.number (.finite value) :: ·) :=
-  tokensOf_number_exact (decimal_literal value) follow
-
-private def printedTokens : {index : JsonIx} → Syn Decimal index → List Token
-  | _, .scalar none => [.null]
-  | _, .scalar (some (.bool flag)) => [.bool flag]
-  | _, .scalar (some (.string units)) => [.string units]
-  | _, .scalar (some (.number number)) => [.number (.finite number)]
-  | _, .list items => .arrayOpen :: (printedTokens items ++ [.arrayClose])
-  | _, .map fields => .objectOpen :: (printedTokens fields ++ [.objectClose])
-  | _, .nil => []
-  | _, .cons value tail => printedTokens value ++ (match tail with | .nil => [] | _ => [.comma]) ++ printedTokens tail
-  | _, .objNil => []
-  | _, .objCons key value tail => .string key :: .colon :: (printedTokens value ++
-      (match tail with | .objNil => [] | _ => [.comma]) ++ printedTokens tail)
+  Silmaril.Formats.JsonWire.Internal.tokensOf_number_exact (decimal_literal value) follow
 
 private theorem openArray (rest : List Char) :
     tokensOf ('[' :: rest) = (tokensOf rest).map (.arrayOpen :: ·) :=
@@ -276,12 +263,6 @@ private theorem tokens_render {index : JsonIx} (tree : Syn Decimal index) (rest 
           (printedTokens value ++ .comma :: (printedTokens tail ++ tokens)))
       rw [tokensOf_quote, colon, ih _ follows, comma, tailIH _ follow]
       simp [Option.map_map, Function.comp_def, tail]
-
-private def addFinite : Scalar Decimal → Scalar Number
-  | none => none
-  | some (.bool flag) => some (.bool flag)
-  | some (.string units) => some (.string units)
-  | some (.number number) => some (.number (.finite number))
 
 private theorem mapNumbers_finite {index : JsonIx} (tree : Syn Decimal index) :
     mapNumbers? (fun | .finite number => some number | _ => none) (tree.mapScalar addFinite) = some tree := by
@@ -414,6 +395,11 @@ private theorem read_printed {index : JsonIx} (tree : Syn Decimal index) :
         rw [readTail]
         rfl
 
+theorem value?_printedTokens (tree : Ast Decimal) (fuel : Nat)
+    (enough : (printedTokens tree).length < fuel) (rest : List Token) :
+    value? .rfc8259 fuel (printedTokens tree ++ rest) = some (tree.mapScalar addFinite, rest) :=
+  read_printed tree fuel (by simpa [closingCost] using enough) rest
+
 theorem parse_encode (tree : Ast Decimal) : parse? (encode tree) = some tree := by
   let text := render Decimal.literal tree
   have fromResult : String.fromUTF8? text.toByteArray = some text := by
@@ -429,7 +415,7 @@ theorem parse_encode (tree : Ast Decimal) : parse? (encode tree) = some tree := 
   have parsed : value? .rfc8259 (2 * result.tokens.length + 1) result.tokens =
       some (tree.mapScalar addFinite, []) := by
     rw [tokens]
-    simpa [PrintedRead] using (read_printed tree (2 * (printedTokens tree).length + 1) (by change _ + 0 < _; omega) [])
+    simpa using value?_printedTokens tree (2 * (printedTokens tree).length + 1) (by omega) []
   change parse? ⟨text.toUTF8⟩ = _
   simp [parse?, parseDecimal?, decode, fromResult, ran, parsed]
   exact mapNumbers_finite tree
