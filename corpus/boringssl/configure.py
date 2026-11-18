@@ -29,7 +29,14 @@ def inputs(root):
     """Executed compiler inputs/headers and public generator/build provenance."""
     build = root / 'build'
     for entry in json.loads((build / 'compile_commands.json').read_text()):
-        yield Path(entry['directory']) / entry['file']
+        # compile_commands covers configured but unbuilt targets too. Only
+        # preserve a translation unit as executed when its object exists.
+        arguments = shlex.split(entry.get('command', ''))
+        output = entry.get('output')
+        if output is None and '-o' in arguments:
+            output = arguments[arguments.index('-o') + 1]
+        if output is not None and (Path(entry['directory']) / output).is_file():
+            yield Path(entry['directory']) / entry['file']
     for line in (build / 'ninja-deps.txt').read_text().splitlines():
         if line.startswith('    '):
             yield (build / line.strip()).resolve()

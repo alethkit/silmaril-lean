@@ -51,11 +51,14 @@ class Profiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             build = root / 'build'; build.mkdir()
+            (build / 'crypto.o').write_bytes(b'compiled')
             (build / 'compile_commands.json').write_text(json.dumps([
-                {'directory': str(build), 'file': '../crypto.cc'}]))
+                {'directory': str(build), 'file': '../crypto.cc', 'output': 'crypto.o'},
+                {'directory': str(build), 'file': '../unbuilt.cc', 'output': 'unbuilt.o'}]))
             (build / 'ninja-deps.txt').write_text('crypto.o: #deps 1\n    ../nested.h\n')
             selected = {p.resolve() for p in embed.inputs(root)}
             self.assertIn(root / 'crypto.cc', selected)
+            self.assertNotIn(root / 'unbuilt.cc', selected)
             self.assertIn(root / 'nested.h', selected)
             self.assertIn(build / 'build.ninja', selected)
 
