@@ -23,8 +23,9 @@ The regression checks the saved functions/metadata against actual elaboration.
 
 The source context allocates and initializes the actual one-byte parameter, then
 marks it readonly. It admits every byte value, quantifies over real source safety
-and machine first-return obligations, and requires the entire source parameter
-memory to be preserved. The machine signature has one `uint8` argument: only DIL
+and machine first-return obligations, and requires all source memory fields except the interpreter diagnostic source
+location to be preserved. Allocation, byte, pointer, lifetime and output state
+are all observed; source-location updates are diagnostic rather than C effects. The machine signature has one `uint8` argument: only DIL
 is constrained; upper register bits remain unspecified. The result uses EAX's
 signed low32 bits. The O0 stack footprint is explicitly twelve bytes below entry
 RSP, covering saved RBP and the one-byte spill at RSP-12. All other machine bytes

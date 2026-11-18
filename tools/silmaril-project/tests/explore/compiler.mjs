@@ -78,7 +78,7 @@ try {
     assert.ok(context.includes(c.context));assert.ok(context.includes('callees := []'));
     if(c.bytePredicate){
       assert.ok(context.includes("[.uint8]"));assert.ok(context.includes("readonly := some .UB064_modifying_const"));
-      assert.ok(context.includes("t.memory = s.memory"));assert.ok(context.includes("SysV.StackBelow m 12"));
+      assert.ok(context.includes("{t.memory with currentLocation := s.memory.currentLocation} = s.memory"));assert.ok(context.includes("SysV.StackBelow m 12"));
       assert.match(await page.locator("#assumptions").innerText(),/upper register bits are unspecified/);
       assert.match(await page.locator("#assumptions").innerText(),/Historical image\/header identity/);
     }else if(c.pureQuery){

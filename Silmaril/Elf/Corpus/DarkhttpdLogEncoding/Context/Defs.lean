@@ -40,7 +40,8 @@ def context : Context (BitVec 8) Observation where
   footprint _ m := SysV.StackBelow m 12
   sourceObservation _ s t v :=
     (match v with | .loaded (.specified (.integer n)) => some n | _ => none,
-      t.memory = s.memory)
+      -- Diagnostic source locations are not C memory effects. Every other field is observed.
+      {t.memory with currentLocation := s.memory.currentLocation} = s.memory)
   machineObservation _ _ t := (some ((t.core.read .rax).setWidth 32).toInt, True)
   callees := []
 
