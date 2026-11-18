@@ -1,6 +1,6 @@
 {
-  "actual_new_rows": 72,
-  "unique_new_hashes": 60,
+  "actual_new_rows": 96,
+  "unique_new_hashes": 80,
   "version_slices": [
     {
       "version": "3.46.1",
@@ -14,9 +14,9 @@
     },
     {
       "version": "3.50.4",
-      "new_profiles": 6,
-      "actual_new_rows": 24,
-      "unique_new_hashes": 20,
+      "new_profiles": 12,
+      "actual_new_rows": 48,
+      "unique_new_hashes": 40,
       "source_archive_sha256": "1d3049dd0f830a025a53105fc79fd2ab9431aea99e137809d064d8ee8356b032",
       "sqlite3_c_sha256": "e3f5d6901e7492af4a1fc8c4d745cae84c264942524c3fbfc02b82a5ca8818c8",
       "upstream_source_id": "2025-07-30 19:33:53 4d8adfb30e03f9cf27f800a2c1ba3c48fb4ca1b08b0f5ed59a4d5ecbf45e20a3",

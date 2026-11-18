@@ -1,6 +1,6 @@
-# Actual SQLite 3.50.4 native configuration builds
+# Actual SQLite 3.50.4 native and AArch64 configuration builds
 
-Six completed x86_64 profiles (default, FTS5+RTree and small, each O0/O2) provide24 actual ELF rows/12 stripping pairs/20 unique hashes. AArch64 is still building and is not counted in this report. All90 measured commands exited successfully. summary.json maps exact source identities, compiler flags, receipts, ELF/census/strip maps and measured first/repeat times.
+Twelve completed x86_64/AArch64 profiles (default, FTS5+RTree and small, each O0/O2) provide48 actual ELF rows/24 stripping pairs/40 unique hashes. Both targets are complete. All180 measured commands exited successfully. summary.json maps exact source identities, compiler flags, receipts, ELF/census/strip maps and measured first/repeat times.
 
 This genuine upstream release has a different archive, sqlite3.c hash and Fossil SQLITE_SOURCE_ID from3.46.1. The source ID is read from hash-verified upstream C, not an additional runtime observation. Public-domain dedication remains in included headers. Both repeats/forms pass version/SQL/SHA3/JSON/file/integrity smoke tests and FTS5/RTree operations or small-build compile options.
 
