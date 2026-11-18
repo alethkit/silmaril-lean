@@ -1,5 +1,6 @@
 """Failure, isolation and lifetime regressions without requiring a Docker daemon."""
 from pathlib import Path
+import json
 import subprocess
 import tempfile
 import unittest
@@ -27,6 +28,61 @@ class PoolContract(unittest.TestCase):
         if 'dpkg-query' in command:
             return b'pkg\t1\n'
         self.fail(f'unexpected captured command {command}')
+
+    @patch('container_pool.subprocess.run')
+    @patch('container_pool.subprocess.check_output')
+    def test_reconnect_reuses_only_verified_idle_workers_without_reset(self, output, run):
+        output.side_effect = self.outputs
+        run.return_value = subprocess.CompletedProcess([], 0, '', '')
+        self.pool.__enter__()
+        self.pool.prepare('current', self.hashes, {})
+        for slot in range(2):
+            (self.pool.output(slot) / 'keep').write_text('completed build')
+
+        def reconnect_output(command, **kwargs):
+            if command[1] == 'inspect':
+                slot = int(command[2][-1])
+                return json.dumps([{'State': {'Running': True}, 'Image': self.pool.image,
+                    'HostConfig': {'ReadonlyRootfs': True, 'Privileged': False, 'NanoCpus': 3_000_000_000,
+                        'Memory': 12 * 1024**3, 'PidsLimit': 256, 'NetworkMode': 'host',
+                        'Tmpfs': {'/build': 'rw,exec,size=8g', '/tmp': 'rw,exec,size=1g', '/root': 'rw,size=64m'}},
+                    'Mounts': [{'Type': 'bind', 'Destination': dest, 'Source': str(source), 'RW': rw}
+                        for dest, source, rw in [('/corpus', self.recipes / 'corpus', False),
+                            ('/scripts', self.recipes / 'scripts', False), ('/cache', self.pool.cache, False),
+                            ('/out', self.pool.output(slot), True)]]}])
+            if command[1] == 'top':
+                return 'PID COMMAND\n1 sleep\n'
+            return self.outputs(command, **kwargs)
+
+        output.reset_mock(); run.reset_mock()
+        output.side_effect = reconnect_output
+        attached = ContainerPool.reconnect(self.pool.directory, self.recipes, self.pool.cache,
+                                           self.pool.image, {'test': 'controller hash'})
+        with attached:
+            attached.prepare('current', self.hashes, {})
+            self.assertTrue(attached.recovered)
+            self.assertEqual(attached.profiles, 1)
+            self.assertTrue((attached.output(0) / 'keep').exists())
+            with self.assertRaisesRegex(ValueError, 'identity differs'):
+                attached.prepare('different', self.hashes, {})
+            attached.complete()
+            self.assertFalse(attached.recovered)
+        self.assertFalse(any(c.args[0][1] == 'run' for c in output.call_args_list))
+        self.assertFalse(any(c.args[0][1] == 'exec' for c in run.call_args_list))
+
+    @patch('container_pool.subprocess.run')
+    @patch('container_pool.subprocess.check_output')
+    def test_reconnect_refuses_busy_workers_without_removing_them(self, output, run):
+        output.side_effect = self.outputs
+        run.return_value = subprocess.CompletedProcess([], 0, '', '')
+        self.pool.__enter__()
+        self.pool.prepare('current', self.hashes, {})
+        # Reject an image/limit mismatch before attempting any workspace mutation.
+        output.side_effect = [json.dumps([{'State': {'Running': True}, 'Image': 'wrong', 'HostConfig': {}}])]
+        run.reset_mock()
+        with self.assertRaisesRegex(ValueError, 'runtime/image'):
+            ContainerPool.reconnect(self.pool.directory, self.recipes, self.pool.cache, self.pool.image, {})
+        run.assert_not_called()
 
     @patch('container_pool.subprocess.run')
     @patch('container_pool.subprocess.check_output')

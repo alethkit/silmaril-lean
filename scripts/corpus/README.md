@@ -193,3 +193,29 @@ python3 scripts/corpus/variants.py --package openssl --configuration no-asm \
 The pool does not change `corpus/build-all.sh`, historical canonical artifacts,
 formal coverage or catalog ownership. Runtime smoke tests are observations of
 their recorded commands, not functional-equivalence or source-semantics proofs.
+
+### Detached controllers and recovery
+
+For a long build that must outlive its launching terminal/session, use
+`background.py`. It starts the explicit command in a new POSIX session with
+stdin closed, durable logs, an exclusive PID record and a shared two-CPU host
+affinity cap. Successful launch is not successful completion. Inspect the
+build's lifecycle and stage receipts; run the progress monitor detached too.
+
+```sh
+python3 scripts/corpus/background.py --record /work/out/build-job.json \
+  --log /work/out/build-job.log -- python3 -B scripts/corpus/variants.py \
+  --package openssl --configuration asm --work /work/out/openssl-asm
+```
+
+If the host controller was killed but both workers remain, `--resume-pool POOL`
+and `--recover-work PROFILE_WORK` (with `--resume`) can reconnect **without
+creating replacement containers**. Recovery requires an unpublished profile,
+two idle original workers, the exact immutable image, original mounts/limits/
+read-only root, and matching full package locks. It verifies the frozen recipes,
+both successful measured builds and unchanged copied outputs before rerunning
+all strip comparisons, runtime tests, receipt creation and census. Original
+logs/timings remain; reconnection time, reason and controller hashes are recorded.
+Already published profiles are retained by hash validation. Incomplete builds,
+busy workers or mismatched identities are rejected for explicit investigation.
+This does not claim a new clean build or a fresh container on recovery.
