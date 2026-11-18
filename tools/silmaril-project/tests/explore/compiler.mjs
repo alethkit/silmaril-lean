@@ -20,9 +20,9 @@ try {
   const listing=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/problems.json'),'utf8'));
   assert.ok(listing.length>0,'actual compiler fixtures exported');
   await page.selectOption('#program','compiles-to/straight');
-  await page.waitForFunction(()=>document.querySelector('#src-title').textContent.includes('straight'));
-  assert.ok(await page.locator('#src .line').count()>1,'actual source text');
-  assert.ok(await page.locator('#tgt .line').count()>1,'actual target listing');
+  await page.waitForFunction(()=>document.querySelector('#source-title').textContent.includes('straight'));
+  assert.ok(await page.locator('#source .line').count()>1,'actual source text');
+  assert.ok(await page.locator('#target .line').count()>1,'actual target listing');
   await page.selectOption('#mode','semantic');
   await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('semantic link'));
   assert.match(await page.locator('body').innerText(),/not every corpus function/);
