@@ -43,7 +43,7 @@ class CorpusCompilerBindings(unittest.TestCase):
         output = self.work / 'out'
         rows = corpus.export(self.project, output)
         self.assertEqual({r['declaration'] for r in rows}, {s['declaration'] for s in self.statements})
-        self.assertEqual(len(rows), 30)
+        self.assertEqual(len(rows), 31)
         for row in rows:
             p = json.loads((output / Path(row['static_path']).name).read_text())
             self.assertEqual(p['status'], 'UNPROVED')
@@ -57,6 +57,23 @@ class CorpusCompilerBindings(unittest.TestCase):
         self.assertEqual(p['core']['sha256'], '5567495bd982a19d43237278e2ce8455609fbf87d10f8c863c92b0f13243593a')
         self.assertEqual(p['artifacts'][0]['address'], 21600)
         self.assertEqual(p['artifacts'][0]['bytes_hex'], '48 85 ff 74 0b 31 c0 80 7f 18 04 0f 94 c0 c3 90 31 c0 c3')
+
+    def test_sqlite_global_pointer_data_is_distinct_from_code(self):
+        output = self.work / 'out'
+        rows = corpus.export(self.project, output)
+        row = next(r for r in rows if r['function_symbol'] == 'sqlite3_libversion')
+        p = json.loads((output / Path(row['static_path']).name).read_text())
+        artifact, = p['artifacts']
+        self.assertEqual(artifact['address'], 0x13810)
+        self.assertEqual(artifact['bytes_hex'], '48 8b 05 b1 b7 0f 00 c3')
+        data, = artifact['data_bindings']
+        self.assertEqual(data['symbol'], 'sqlite3_version')
+        self.assertEqual(data['address'], 0xed572)
+        self.assertEqual(data['bytes_hex'], '33 2e 35 34 2e 31 00')
+        self.assertEqual(data['relocation']['slot'], 0x10efc8)
+        self.assertEqual(data['relocation']['symbol_index'], 233)
+        self.assertIn('post-loader', ' '.join(p['limits']))
+        self.assertIn('ONLY diagnostic currentLocation', ' '.join(p['limits']))
 
     def test_actual_boolean_getter_identity_and_limits(self):
         output = self.work / 'out'

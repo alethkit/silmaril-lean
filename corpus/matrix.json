@@ -4822,7 +4822,7 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "d61a78d59ce34226278f02170ab23bb1d644351d7096fac0cb47e16e171a93a2",
-      "contextual_c_to_elf_statements": 2,
+      "contextual_c_to_elf_statements": 3,
       "defined_nonzero_function_symbol_entries": 1620,
       "formal_statements": [
         {
@@ -4835,6 +4835,12 @@
           "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Task.threadsafe",
           "kind": "contextual_c_to_elf",
           "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.SqliteGlobalVersion.Context.Task.compilesTo",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.SqliteGlobalVersion.Context.Defs",
           "status": "stated-unproved"
         }
       ],
@@ -78306,7 +78312,7 @@
   ],
   "binary_viewer_statement_count": 9,
   "formal_statement_counts": {
-    "contextual_c_to_elf": 30,
+    "contextual_c_to_elf": 31,
     "functional_equivalence": 15
   },
   "hierarchy": [

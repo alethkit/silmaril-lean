@@ -3,7 +3,7 @@ public import Silmaril.Elf.Corpus.SqliteGlobalVersion.Initialization.Defs
 public import Silmaril.Elf.Corpus.SqliteGlobalVersion.Thms
 public import Silmaril.Project.Shapes.Contextual.Defs
 public import Silmaril.X86.Open.Thms
-/-! Local, unregistered candidate obligation. Fixed distinct ELF/global/GOT and
+/-! Bounded candidate obligation. Fixed distinct ELF/global/GOT and
 caller-storage addresses, arbitrary caller payload. This post-loader context
 selects the actual non-interposed global binding. Neither dynamic-loader
 correctness nor whole-TU/global-startup adequacy follows from it. -/
@@ -41,7 +41,7 @@ def context : Context Input Observation where
 /-- Joint entry for every payload, source safety, actual first returns, ABI,
 zero private frame, all unrelated machine bytes/mappings and complete source
 memory preservation are demanded; no desired result is an entry premise.
-No registry attribute: full evidence/export/regression integration is pending. -/
+The registered proposition remains unproved. -/
 def statement : Prop :=
   Silmaril.Elf.CodeAt Silmaril.Elf.Staged.Corpus.Sqlite.X8664.Libsqlite3So.F functionAddress functionCode ∧
   Silmaril.Elf.Staged.Reader.PartIs Silmaril.Elf.Staged.Corpus.Sqlite.X8664.Libsqlite3So.F
@@ -50,4 +50,8 @@ def statement : Prop :=
     [⟨53296, 24⟩] (Silmaril.Elf.Link.DynElf.Rd.read 53296 24 .pure) 18460161865934271123737998847944 ∧
   C.ElaboratesWith Source.inputs Source.ail "sqlite3_libversion" Source.Elaboration.function ∧
   Obligation Source.Elaboration.function Silmaril.X86.Open.isa placement context
+
+@[problem "silmaril.corpus.sqlite.libversion.global-pointer.contextual"
+  (title := "Actual SQLite global version pointer with restricted resolved GOT binding")]
+def Task.compilesTo : Prop := statement
 end Silmaril.Elf.Corpus.SqliteGlobalVersion.Context
