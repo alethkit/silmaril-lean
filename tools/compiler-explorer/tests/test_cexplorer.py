@@ -15,6 +15,7 @@ import json
 import pathlib
 import shutil
 import sqlite3
+import struct
 import tempfile
 import threading
 import unittest
@@ -113,6 +114,17 @@ class Ingest(Base):
         manifest["blocks"][0]["model_base"] += 1
         with self.assertRaisesRegex(cx.Rejected, "must refer to the bound listing and symbol"):
             cx.ingest_manifest(self.db, self.write("shifted-model-entry.json", manifest))
+
+    def test_block_cannot_reuse_function_evidence_for_an_unbound_section_slice(self):
+        manifest = json.loads(STRAIGHT_O2.read_bytes())
+        blobs = {role: cx.read_artifact(ROOT, ref) for role, ref in manifest["artifacts"].items()}
+        elf = bytearray(blobs["target"])
+        section, _, size = cx.elf_text_location(elf)
+        table, = struct.unpack_from("<Q", elf, 0x28)
+        struct.pack_into("<Q", elf, table + 64 * section + 32, size + 1)
+        blobs["target"] = bytes(elf)
+        with self.assertRaisesRegex(ValueError, "smaller slices need a symbol-offset binding"):
+            cx.block_endpoints(manifest, blobs)
 
     def test_block_can_be_on_the_left_without_semantics_or_a_parse(self):
         manifest = json.loads(STRAIGHT_O2.read_bytes())

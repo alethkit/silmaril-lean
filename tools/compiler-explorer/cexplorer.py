@@ -227,6 +227,8 @@ def block_endpoints(m: dict, blobs: dict) -> list[dict]:
             cursor += int(length)
         if cursor != hi - lo:
             raise ValueError("block extent does not match the decoded listing")
+        if dependencies and (lo != 0 or hi != size):
+            raise ValueError("certified block dependencies require the whole .text section; smaller slices need a symbol-offset binding")
         if len(set(block["attribution"])) != len(block["attribution"]):
             raise ValueError("block attribution must name distinct navigation edges")
         for edge_id in block["attribution"]:

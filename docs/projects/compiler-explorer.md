@@ -472,7 +472,7 @@ source-fragment associations. There is no supported full ELF CFG graph route on 
 
 | Layer | Claim in the example |
 | --- | --- |
-| File bytes and decoder | Separate existing `ObjectFn` and `decodesAs` obligations, with their individual evidence statuses. The ELF browser checks the raw artifact hash; its locator is not a Lean loader. |
+| File bytes and decoder | Separate existing `ObjectFn` and `decodesAs` obligations, with their individual evidence statuses. The certificate adapter requires the selected symbol to fill `.text`; smaller slices need their own symbol-offset binding. The ELF browser checks the raw artifact hash; its locator is not a Lean loader. |
 | Block membership and boundary | A chosen contiguous candidate with exact instruction starts and `Top` allowance; no recovery or local `Valid` claim. |
 | CFG adjacency and coverage | Not certified or used to justify the associations. A candidate or valid local region does not prove graph coverage. |
 | Local semantic validity | [#1048's `jump_valid`](https://github.com/hiloopai/silmaril-lean/blob/8300ad003/Silmaril/Machine/Region/Examples/Thms.lean) is a separate checked `EB 00` loaded-byte fixture, at entry zero and exit two under its declared state assumptions. It is not a certificate for `add3` or for ELF placement. |
