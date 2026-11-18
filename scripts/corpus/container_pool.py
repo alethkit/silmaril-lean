@@ -88,7 +88,8 @@ class ContainerPool:
     def exec(self, slot, command, env=None, capture=False, log=None):
         # env -i also removes Docker image ENV, proxy/credential/cache/compiler overrides.
         clean = {**ENV, **(env or {})}
-        if set(clean) - set(ENV) - {'CORPUS_OPT_LEVEL', 'CORPUS_OPENSSL_CONFIG', 'CORPUS_COLLECT'}:
+        if set(clean) - set(ENV) - {'CORPUS_OPT_LEVEL', 'CORPUS_OPENSSL_CONFIG', 'CORPUS_COLLECT',
+                                  'CORPUS_SQLITE_VERSION', 'CORPUS_SQLITE_CONFIG', 'CORPUS_BORINGSSL_CONFIG'}:
             raise ValueError('unexpected environment override')
         command = ['docker', 'exec', self.containers[slot], 'env', '-i',
                    *(f'{k}={v}' for k, v in clean.items()), *command]
