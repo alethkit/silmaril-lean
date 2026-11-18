@@ -81,6 +81,91 @@
         "corpus/mimalloc/semantic-inputs/2.1.9/default/x86_64/O2/closed-leaves/_mi_allocator_done.c": "841fad1c24521f77fe20bfcfa422508d38bdd257acf7dfd9122d2b6796d7a531",
         "Silmaril/Cerberus/Elaboration/Functions/Defs.lean": "ae17c99141fdab2c3825556cc979f7837a07469045b8274515ed8222b1465351"
       }
+    },
+    {
+      "kind": "contextual_c_to_elf",
+      "status": "stated-unproved",
+      "function_symbol": "ossl_quic_num_ciphers",
+      "declaration": "Silmaril.Elf.Corpus.OpenSslQuicCount.Task.compiles_to",
+      "root": "Silmaril.Elf.Corpus.OpenSslQuicCount.Thms",
+      "run_receipt": "corpus/measurements/formal-functions/runs/2b0b10f9-8218-42b8-9a47-64c75830e577.json",
+      "artifact_sha256": {
+        "corpus/elf/openssl/x86_64/libssl.so.3": "cd856f63e645e38ed5698dc3e33b6f7775dbc57dff0ae37db340851787c378b2"
+      },
+      "module_sha256": {
+        "Silmaril/Elf/Corpus/OpenSslQuicCount/Thms.lean": "0bef5276a180c5bf26b0a297510b3222c892c4cd268d5953b868b7227e5d52e1",
+        "Silmaril/Elf/Corpus/OpenSslQuicCount/Defs.lean": "4bda227171cb2790e6dc5ecd9b4604eb3a95fc704e6a480008ea3c21a292e971",
+        "Silmaril/Proofs/Elf/Corpus/OpenSslQuicCount.lean": "2297e4843812b72ba9af1d3de3fc50cd34a4c0386ba1b8a093a9119933cfa232",
+        "corpus/openssl/upstream/openssl-3.5.9/ssl/quic/quic_impl.c": "91936212cbc1c446ab512b2b33a1887e788e83c09c82051115eac3b79eb92937"
+      }
+    },
+    {
+      "kind": "functional_equivalence",
+      "status": "stated-unproved",
+      "function_symbol": "mi_version",
+      "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O0_strip_equivalent",
+      "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+      "run_receipt": "corpus/measurements/formal-functions/runs/6e869c39-a1b8-452a-83d0-b62975f10c69.json",
+      "artifact_sha256": {
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/stripped/libmimalloc.so.2.1": "2811fa0abc1ecf4d6378cc1aed2e7211555403c0d5b6b1a9f2cc78f0c9e0c616",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/unstripped/libmimalloc.so.2.1": "b89f65cbfb1a06468e1ba2b89ec908e5897a61cda109df92f112d9709e4dbf7d"
+      },
+      "module_sha256": {
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Defs.lean": "5f9edcff6ea5e71a65daa42ada6afa2161328c8d36f1ba91f6025ee30874aae6",
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Thms.lean": "1c3aa2baade978ba99eeb7895257408d48cc186145e2fb4119ecdc375e42e823",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/libmimalloc.so.2.1.pair.json": "a5d05a63adbb62b66dd98bb364742f06443c2c44a2d7382d4d5a8809cd3b51ec"
+      }
+    },
+    {
+      "kind": "functional_equivalence",
+      "status": "stated-unproved",
+      "function_symbol": "mi_version",
+      "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.Og_strip_equivalent",
+      "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+      "run_receipt": "corpus/measurements/formal-functions/runs/6e869c39-a1b8-452a-83d0-b62975f10c69.json",
+      "artifact_sha256": {
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/stripped/libmimalloc.so.2.1": "94599d02484f5a1fca59893d0c2a675e8782257b4af967dfdb08d1175952e379",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/unstripped/libmimalloc.so.2.1": "609c0d03494a8964e3b736dc8b8f93c2049fbdfb0df15699691292b3fe24e3f4"
+      },
+      "module_sha256": {
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Defs.lean": "5f9edcff6ea5e71a65daa42ada6afa2161328c8d36f1ba91f6025ee30874aae6",
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Thms.lean": "1c3aa2baade978ba99eeb7895257408d48cc186145e2fb4119ecdc375e42e823",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/libmimalloc.so.2.1.pair.json": "dd88e56ed4253116af8b94b20da1b9a9ae2cccfa2ebaec8a14e067531fe525f7"
+      }
+    },
+    {
+      "kind": "functional_equivalence",
+      "status": "stated-unproved",
+      "function_symbol": "mi_version",
+      "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O1_strip_equivalent",
+      "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+      "run_receipt": "corpus/measurements/formal-functions/runs/6e869c39-a1b8-452a-83d0-b62975f10c69.json",
+      "artifact_sha256": {
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/stripped/libmimalloc.so.2.1": "58b5880abaa05d857c2008d5427c126e3a45d5b95ced48c8a4ed4fc18cf0c99a",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/unstripped/libmimalloc.so.2.1": "c95e5e0299d30f67eccdc106bf6cd15d2fa84bd65ccfc71a4b9c2e7757f45f21"
+      },
+      "module_sha256": {
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Defs.lean": "5f9edcff6ea5e71a65daa42ada6afa2161328c8d36f1ba91f6025ee30874aae6",
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Thms.lean": "1c3aa2baade978ba99eeb7895257408d48cc186145e2fb4119ecdc375e42e823",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/libmimalloc.so.2.1.pair.json": "2763bfc25fd264922639115e1ca7f12661e6af65a4c43de4d13b0bc71b60af0a"
+      }
+    },
+    {
+      "kind": "functional_equivalence",
+      "status": "stated-unproved",
+      "function_symbol": "mi_version",
+      "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O3_strip_equivalent",
+      "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+      "run_receipt": "corpus/measurements/formal-functions/runs/6e869c39-a1b8-452a-83d0-b62975f10c69.json",
+      "artifact_sha256": {
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/stripped/libmimalloc.so.2.1": "1aba36eebc02977f9623048cf7a15734df14c181531f65f21131bec003b48a45",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/unstripped/libmimalloc.so.2.1": "d31800fec23b41fe8b9cbc2fac88762b4d4a2716b1fbe65fea1fd0aeb8b0aab3"
+      },
+      "module_sha256": {
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Defs.lean": "5f9edcff6ea5e71a65daa42ada6afa2161328c8d36f1ba91f6025ee30874aae6",
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Thms.lean": "1c3aa2baade978ba99eeb7895257408d48cc186145e2fb4119ecdc375e42e823",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/libmimalloc.so.2.1.pair.json": "49d8cc68963b14db9559193c1ad1708a548e7855d379a9a2814e0deff08548fc"
+      }
     }
   ]
 }

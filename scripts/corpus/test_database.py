@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class CorpusDatabase(unittest.TestCase):
     def test_checked_variant_modules_are_bound(self):
         artifacts = inventory(ROOT)['artifacts']
-        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 64)
+        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 96)
         check = json.loads((ROOT / 'corpus/measurements/variant-lean/checks.json').read_text())['artifacts'][0]
         source = ROOT / next(iter(check['module_sha256']))
         original = matrix.sha
@@ -29,12 +29,12 @@ class CorpusDatabase(unittest.TestCase):
 
     def test_concrete_function_statement_binding(self):
         data = inventory(ROOT)
-        self.assertEqual(data['formal_statement_counts'], {'contextual_c_to_elf': 3, 'functional_equivalence': 1})
+        self.assertEqual(data['formal_statement_counts'], {'contextual_c_to_elf': 4, 'functional_equivalence': 5})
         participants = [a for a in data['artifacts'] if a['functional_equivalence_statements']]
-        self.assertEqual(len(participants), 2)
+        self.assertEqual(len(participants), 8)
         self.assertEqual({a['project'] for a in participants}, {'mimalloc'})
         source_participants = [a for a in data['artifacts'] if a['contextual_c_to_elf_statements']]
-        self.assertEqual([a['path'] for a in source_participants], ['corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1'])
+        self.assertEqual([a['path'] for a in source_participants], ['corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1', 'corpus/elf/openssl/x86_64/libssl.so.3'])
         check = json.loads((ROOT / 'corpus/measurements/formal-functions/checks.json').read_text())['statements'][0]
         source = ROOT / next(iter(check['module_sha256']))
         original = matrix.sha
@@ -79,7 +79,7 @@ class CorpusDatabase(unittest.TestCase):
             db = sqlite3.connect(output)
             self.assertEqual(db.execute('SELECT value FROM preserve').fetchone(), ('unchanged',))
             self.assertGreaterEqual(db.execute('SELECT count(*) FROM corpus_artifacts').fetchone()[0], 54)
-            self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 5)
+            self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 3)
             for metadata, census in db.execute('SELECT metadata,census FROM corpus_artifacts'):
                 artifact = json.loads(metadata)
                 self.assertIsNotNone(census, artifact['path'])
@@ -88,6 +88,9 @@ class CorpusDatabase(unittest.TestCase):
                 self.assertEqual(report['path'], artifact['path'])
             bound = db.execute("SELECT mapping FROM corpus_functions WHERE symbol='mi_version'").fetchall()
             self.assertEqual(sum('concrete contextual C-to-ELF statement' in row[0] for row in bound), 1)
+            binary_bound = [json.loads(row[0]) for row in bound if any(s['kind'] == 'functional_equivalence' for s in json.loads(row[0]).get('formal_statements', []))]
+            self.assertEqual(len(binary_bound), 8)
+            self.assertTrue(all('tv_context' not in row or 'concrete contextual' not in row['tv_context'].get('status', '') for row in binary_bound))
             for name in ['_mi_arena_id_none', '_mi_allocator_done']:
                 rows = db.execute('SELECT mapping FROM corpus_functions WHERE symbol=?', (name,)).fetchall()
                 self.assertEqual(sum('concrete contextual C-to-ELF statement' in row[0] for row in rows), 1)

@@ -1,5 +1,5 @@
 {
-  "artifact_rows": 462,
+  "artifact_rows": 470,
   "artifacts": [
     {
       "build": {
@@ -2444,7 +2444,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -2730,12 +2730,19 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "e2a46f70b897681d862ea15a49dfc3d6044da8517c1fb76706432f8a1738110b",
-      "contextual_c_to_elf_statements": 0,
+      "contextual_c_to_elf_statements": 1,
       "defined_nonzero_function_symbol_entries": 2513,
-      "formal_statements": [],
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.OpenSslQuicCount.Task.compiles_to",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.OpenSslQuicCount.Thms",
+          "status": "stated-unproved"
+        }
+      ],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "canonical: checked layout and structural decomposition; whole-file parse unavailable",
+      "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "Apache-2.0",
       "license_files": [
         "upstream/openssl-3.5.9/LICENSE.txt"
@@ -5814,6 +5821,282 @@
       "build": {
         "SOURCE_DATE_EPOCH": 1762128000,
         "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O2 -g0 -ffile-prefix-map=/build/cjson=. -std=c89 -pedantic -Wall -fstack-protector-strong -fvisibility=hidden -DCJSON_EXPORT_SYMBOLS -DCJSON_API_VISIBILITY -DENABLE_LOCALES -fPIC -MMD",
+        "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "default",
+        "configure_args": "(none: CMake defaults reproduced as gcc commands, ENABLE_CJSON_UTILS=On)",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "-shared",
+        "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+        "target": "aarch64-linux-gnu"
+      },
+      "build_id": "1a34fc95c45a1d5dac7f63d1cd0e20afda3d4de7bd8566f5fa5354ff0b548a91",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 0,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": false,
+      "lean_status": "not generated or checked",
+      "license": "MIT",
+      "license_files": [
+        "upstream/cJSON-1.7.19/LICENSE"
+      ],
+      "optimization": "O2",
+      "path": "corpus/variants/cjson/1.7.19/default/aarch64/O2/stripped/libcjson.so.1",
+      "project": "cjson",
+      "receipt": "corpus/variants/cjson/1.7.19/default/aarch64/O2/stripped/receipt.json",
+      "receipt_sha256": "7c335dcede3e5753fa80c3fd1922d5632be0f39d9f4d23de210e541c7c78741f",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu cjson_test (upstream test.c linked against libcjson.so.1): exit status",
+          "result": "pass: 0"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu cjson_test output: 47 lines, sha256 3b5c2dfae1639d493cdccbd1d16b30e31aa03eae9d4b38776016a9f518252757",
+          "result": "Version: 1.7.19 { \t\"name\":\t\"Jack (\\\"Bee\\\") Nimble\", \t\"format\":\t{ \t\t\"type\":\t\"rect\", \t\t\"width\":\t1920, \t\t\"height\":\t1080, \t\t\"interlace\":\tfalse, "
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu utils_smoke (local/utils_smoke.c against libcjson_utils.so.1 + libcjson.so.1)",
+          "result": "pass: 0 4 ok"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu utils_smoke output",
+          "result": "ok GetPointer /tags/1: y ok GeneratePatches (cJSON sorts keys first): [{\"op\":\"add\",\"path\":\"/m\",\"value\":2},{\"op\":\"remove\",\"path\":\"/n\"},{\"op\":\"replace\",\"path\":\"/tags/1\",\"value\":\"z\"}] ok ApplyPatches rc=0 equal=1 ok MergePatch (RFC 7386 example): {\"a\":\"z\",\"c\":{\"d\":\"e\"}} cJSON_Version 1.7.19"
+        }
+      ],
+      "sha256": "ec7136bcc0572017df70615efc27959ebc5ae99240a0a768d9bca398b55ec598",
+      "size": 67720,
+      "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+      "source_inputs": [
+        {
+          "sha256": "7fa616e3046edfa7a28a32d5f9eacfd23f92900fe1f8ccd988c1662f30454562",
+          "url": "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.19.tar.gz"
+        }
+      ],
+      "stripping": "stripped",
+      "version": "1.7.19",
+      "version_components": [
+        "1",
+        "7",
+        "19"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O2 -g0 -ffile-prefix-map=/build/cjson=. -std=c89 -pedantic -Wall -fstack-protector-strong -fvisibility=hidden -DCJSON_EXPORT_SYMBOLS -DCJSON_API_VISIBILITY -DENABLE_LOCALES -fPIC -MMD",
+        "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "default",
+        "configure_args": "(none: CMake defaults reproduced as gcc commands, ENABLE_CJSON_UTILS=On)",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "-shared",
+        "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+        "target": "aarch64-linux-gnu"
+      },
+      "build_id": "1a34fc95c45a1d5dac7f63d1cd0e20afda3d4de7bd8566f5fa5354ff0b548a91",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 0,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": false,
+      "lean_status": "not generated or checked",
+      "license": "MIT",
+      "license_files": [
+        "upstream/cJSON-1.7.19/LICENSE"
+      ],
+      "optimization": "O2",
+      "path": "corpus/variants/cjson/1.7.19/default/aarch64/O2/stripped/libcjson_utils.so.1",
+      "project": "cjson",
+      "receipt": "corpus/variants/cjson/1.7.19/default/aarch64/O2/stripped/receipt.json",
+      "receipt_sha256": "7c335dcede3e5753fa80c3fd1922d5632be0f39d9f4d23de210e541c7c78741f",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu cjson_test (upstream test.c linked against libcjson.so.1): exit status",
+          "result": "pass: 0"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu cjson_test output: 47 lines, sha256 3b5c2dfae1639d493cdccbd1d16b30e31aa03eae9d4b38776016a9f518252757",
+          "result": "Version: 1.7.19 { \t\"name\":\t\"Jack (\\\"Bee\\\") Nimble\", \t\"format\":\t{ \t\t\"type\":\t\"rect\", \t\t\"width\":\t1920, \t\t\"height\":\t1080, \t\t\"interlace\":\tfalse, "
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu utils_smoke (local/utils_smoke.c against libcjson_utils.so.1 + libcjson.so.1)",
+          "result": "pass: 0 4 ok"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu utils_smoke output",
+          "result": "ok GetPointer /tags/1: y ok GeneratePatches (cJSON sorts keys first): [{\"op\":\"add\",\"path\":\"/m\",\"value\":2},{\"op\":\"remove\",\"path\":\"/n\"},{\"op\":\"replace\",\"path\":\"/tags/1\",\"value\":\"z\"}] ok ApplyPatches rc=0 equal=1 ok MergePatch (RFC 7386 example): {\"a\":\"z\",\"c\":{\"d\":\"e\"}} cJSON_Version 1.7.19"
+        }
+      ],
+      "sha256": "020c9a8a3695625f494b34493c5e5c99ee3d5177bb64044699bdec9e8a7ceead",
+      "size": 67648,
+      "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+      "source_inputs": [
+        {
+          "sha256": "7fa616e3046edfa7a28a32d5f9eacfd23f92900fe1f8ccd988c1662f30454562",
+          "url": "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.19.tar.gz"
+        }
+      ],
+      "stripping": "stripped",
+      "version": "1.7.19",
+      "version_components": [
+        "1",
+        "7",
+        "19"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O2 -g0 -ffile-prefix-map=/build/cjson=. -std=c89 -pedantic -Wall -fstack-protector-strong -fvisibility=hidden -DCJSON_EXPORT_SYMBOLS -DCJSON_API_VISIBILITY -DENABLE_LOCALES -fPIC -MMD",
+        "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "default",
+        "configure_args": "(none: CMake defaults reproduced as gcc commands, ENABLE_CJSON_UTILS=On)",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "-shared",
+        "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+        "target": "aarch64-linux-gnu"
+      },
+      "build_id": "1a34fc95c45a1d5dac7f63d1cd0e20afda3d4de7bd8566f5fa5354ff0b548a91",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 92,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": true,
+      "lean_status": "not generated or checked",
+      "license": "MIT",
+      "license_files": [
+        "upstream/cJSON-1.7.19/LICENSE"
+      ],
+      "optimization": "O2",
+      "path": "corpus/variants/cjson/1.7.19/default/aarch64/O2/unstripped/libcjson.so.1",
+      "project": "cjson",
+      "receipt": "corpus/variants/cjson/1.7.19/default/aarch64/O2/unstripped/receipt.json",
+      "receipt_sha256": "91a79a2f3f18a723bb3e97adbcd76eefaaae67490bad4e56f84f98bf27e0a479",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu cjson_test (upstream test.c linked against libcjson.so.1): exit status",
+          "result": "pass: 0"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu cjson_test output: 47 lines, sha256 3b5c2dfae1639d493cdccbd1d16b30e31aa03eae9d4b38776016a9f518252757",
+          "result": "Version: 1.7.19 { \t\"name\":\t\"Jack (\\\"Bee\\\") Nimble\", \t\"format\":\t{ \t\t\"type\":\t\"rect\", \t\t\"width\":\t1920, \t\t\"height\":\t1080, \t\t\"interlace\":\tfalse, "
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu utils_smoke (local/utils_smoke.c against libcjson_utils.so.1 + libcjson.so.1)",
+          "result": "pass: 0 4 ok"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu utils_smoke output",
+          "result": "ok GetPointer /tags/1: y ok GeneratePatches (cJSON sorts keys first): [{\"op\":\"add\",\"path\":\"/m\",\"value\":2},{\"op\":\"remove\",\"path\":\"/n\"},{\"op\":\"replace\",\"path\":\"/tags/1\",\"value\":\"z\"}] ok ApplyPatches rc=0 equal=1 ok MergePatch (RFC 7386 example): {\"a\":\"z\",\"c\":{\"d\":\"e\"}} cJSON_Version 1.7.19"
+        }
+      ],
+      "sha256": "861b728675a20d7f0403e22a71670934fafdd2e7c0d54d75ba6b2d4d54031053",
+      "size": 74712,
+      "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+      "source_inputs": [
+        {
+          "sha256": "7fa616e3046edfa7a28a32d5f9eacfd23f92900fe1f8ccd988c1662f30454562",
+          "url": "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.19.tar.gz"
+        }
+      ],
+      "stripping": "unstripped",
+      "version": "1.7.19",
+      "version_components": [
+        "1",
+        "7",
+        "19"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O2 -g0 -ffile-prefix-map=/build/cjson=. -std=c89 -pedantic -Wall -fstack-protector-strong -fvisibility=hidden -DCJSON_EXPORT_SYMBOLS -DCJSON_API_VISIBILITY -DENABLE_LOCALES -fPIC -MMD",
+        "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "default",
+        "configure_args": "(none: CMake defaults reproduced as gcc commands, ENABLE_CJSON_UTILS=On)",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "-shared",
+        "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+        "target": "aarch64-linux-gnu"
+      },
+      "build_id": "1a34fc95c45a1d5dac7f63d1cd0e20afda3d4de7bd8566f5fa5354ff0b548a91",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 27,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": true,
+      "lean_status": "not generated or checked",
+      "license": "MIT",
+      "license_files": [
+        "upstream/cJSON-1.7.19/LICENSE"
+      ],
+      "optimization": "O2",
+      "path": "corpus/variants/cjson/1.7.19/default/aarch64/O2/unstripped/libcjson_utils.so.1",
+      "project": "cjson",
+      "receipt": "corpus/variants/cjson/1.7.19/default/aarch64/O2/unstripped/receipt.json",
+      "receipt_sha256": "91a79a2f3f18a723bb3e97adbcd76eefaaae67490bad4e56f84f98bf27e0a479",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu cjson_test (upstream test.c linked against libcjson.so.1): exit status",
+          "result": "pass: 0"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu cjson_test output: 47 lines, sha256 3b5c2dfae1639d493cdccbd1d16b30e31aa03eae9d4b38776016a9f518252757",
+          "result": "Version: 1.7.19 { \t\"name\":\t\"Jack (\\\"Bee\\\") Nimble\", \t\"format\":\t{ \t\t\"type\":\t\"rect\", \t\t\"width\":\t1920, \t\t\"height\":\t1080, \t\t\"interlace\":\tfalse, "
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu utils_smoke (local/utils_smoke.c against libcjson_utils.so.1 + libcjson.so.1)",
+          "result": "pass: 0 4 ok"
+        },
+        {
+          "command": "qemu-aarch64 -L /usr/aarch64-linux-gnu utils_smoke output",
+          "result": "ok GetPointer /tags/1: y ok GeneratePatches (cJSON sorts keys first): [{\"op\":\"add\",\"path\":\"/m\",\"value\":2},{\"op\":\"remove\",\"path\":\"/n\"},{\"op\":\"replace\",\"path\":\"/tags/1\",\"value\":\"z\"}] ok ApplyPatches rc=0 equal=1 ok MergePatch (RFC 7386 example): {\"a\":\"z\",\"c\":{\"d\":\"e\"}} cJSON_Version 1.7.19"
+        }
+      ],
+      "sha256": "7fd00406f2c1182959f60f35ee6bf5047f9b2c63952f61ff15a077be26794604",
+      "size": 72424,
+      "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+      "source_inputs": [
+        {
+          "sha256": "7fa616e3046edfa7a28a32d5f9eacfd23f92900fe1f8ccd988c1662f30454562",
+          "url": "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.19.tar.gz"
+        }
+      ],
+      "stripping": "unstripped",
+      "version": "1.7.19",
+      "version_components": [
+        "1",
+        "7",
+        "19"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
         "cflags": "-O3 -g0 -ffile-prefix-map=/build/cjson=. -std=c89 -pedantic -Wall -fstack-protector-strong -fvisibility=hidden -DCJSON_EXPORT_SYMBOLS -DCJSON_API_VISIBILITY -DENABLE_LOCALES -fPIC -MMD",
         "compiler": "aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0",
         "configuration": "default",
@@ -6899,6 +7182,282 @@
       ],
       "sha256": "fe6478722ea49621d972f1dbc49596bb3ef056f35026caa5551cc35b32ef04ad",
       "size": 22488,
+      "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+      "source_inputs": [
+        {
+          "sha256": "7fa616e3046edfa7a28a32d5f9eacfd23f92900fe1f8ccd988c1662f30454562",
+          "url": "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.19.tar.gz"
+        }
+      ],
+      "stripping": "unstripped",
+      "version": "1.7.19",
+      "version_components": [
+        "1",
+        "7",
+        "19"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O2 -g0 -ffile-prefix-map=/build/cjson=. -std=c89 -pedantic -Wall -fstack-protector-strong -fvisibility=hidden -DCJSON_EXPORT_SYMBOLS -DCJSON_API_VISIBILITY -DENABLE_LOCALES -fPIC -MMD",
+        "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "default",
+        "configure_args": "(none: CMake defaults reproduced as gcc commands, ENABLE_CJSON_UTILS=On)",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "-shared",
+        "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+        "target": "x86_64-linux-gnu"
+      },
+      "build_id": "6aeb54d1113b8614d8635042a2d074de064937b36d998e649222d421039591c6",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 0,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": false,
+      "lean_status": "not generated or checked",
+      "license": "MIT",
+      "license_files": [
+        "upstream/cJSON-1.7.19/LICENSE"
+      ],
+      "optimization": "O2",
+      "path": "corpus/variants/cjson/1.7.19/default/x86_64/O2/stripped/libcjson.so.1",
+      "project": "cjson",
+      "receipt": "corpus/variants/cjson/1.7.19/default/x86_64/O2/stripped/receipt.json",
+      "receipt_sha256": "39862d6160903559c77a60c7b3c780a30ca634ca9c5c69c61fab83730a77bf33",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "cjson_test (upstream test.c linked against libcjson.so.1): exit status",
+          "result": "pass: 0"
+        },
+        {
+          "command": "cjson_test output: 47 lines, sha256 3b5c2dfae1639d493cdccbd1d16b30e31aa03eae9d4b38776016a9f518252757",
+          "result": "Version: 1.7.19 { \t\"name\":\t\"Jack (\\\"Bee\\\") Nimble\", \t\"format\":\t{ \t\t\"type\":\t\"rect\", \t\t\"width\":\t1920, \t\t\"height\":\t1080, \t\t\"interlace\":\tfalse, "
+        },
+        {
+          "command": "utils_smoke (local/utils_smoke.c against libcjson_utils.so.1 + libcjson.so.1)",
+          "result": "pass: 0 4 ok"
+        },
+        {
+          "command": "utils_smoke output",
+          "result": "ok GetPointer /tags/1: y ok GeneratePatches (cJSON sorts keys first): [{\"op\":\"add\",\"path\":\"/m\",\"value\":2},{\"op\":\"remove\",\"path\":\"/n\"},{\"op\":\"replace\",\"path\":\"/tags/1\",\"value\":\"z\"}] ok ApplyPatches rc=0 equal=1 ok MergePatch (RFC 7386 example): {\"a\":\"z\",\"c\":{\"d\":\"e\"}} cJSON_Version 1.7.19"
+        }
+      ],
+      "sha256": "4234f3ba67e7b15220d4d65803c9921d15e7f2de782c4a6b64645bf9de5bba45",
+      "size": 34984,
+      "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+      "source_inputs": [
+        {
+          "sha256": "7fa616e3046edfa7a28a32d5f9eacfd23f92900fe1f8ccd988c1662f30454562",
+          "url": "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.19.tar.gz"
+        }
+      ],
+      "stripping": "stripped",
+      "version": "1.7.19",
+      "version_components": [
+        "1",
+        "7",
+        "19"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O2 -g0 -ffile-prefix-map=/build/cjson=. -std=c89 -pedantic -Wall -fstack-protector-strong -fvisibility=hidden -DCJSON_EXPORT_SYMBOLS -DCJSON_API_VISIBILITY -DENABLE_LOCALES -fPIC -MMD",
+        "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "default",
+        "configure_args": "(none: CMake defaults reproduced as gcc commands, ENABLE_CJSON_UTILS=On)",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "-shared",
+        "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+        "target": "x86_64-linux-gnu"
+      },
+      "build_id": "6aeb54d1113b8614d8635042a2d074de064937b36d998e649222d421039591c6",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 0,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": false,
+      "lean_status": "not generated or checked",
+      "license": "MIT",
+      "license_files": [
+        "upstream/cJSON-1.7.19/LICENSE"
+      ],
+      "optimization": "O2",
+      "path": "corpus/variants/cjson/1.7.19/default/x86_64/O2/stripped/libcjson_utils.so.1",
+      "project": "cjson",
+      "receipt": "corpus/variants/cjson/1.7.19/default/x86_64/O2/stripped/receipt.json",
+      "receipt_sha256": "39862d6160903559c77a60c7b3c780a30ca634ca9c5c69c61fab83730a77bf33",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "cjson_test (upstream test.c linked against libcjson.so.1): exit status",
+          "result": "pass: 0"
+        },
+        {
+          "command": "cjson_test output: 47 lines, sha256 3b5c2dfae1639d493cdccbd1d16b30e31aa03eae9d4b38776016a9f518252757",
+          "result": "Version: 1.7.19 { \t\"name\":\t\"Jack (\\\"Bee\\\") Nimble\", \t\"format\":\t{ \t\t\"type\":\t\"rect\", \t\t\"width\":\t1920, \t\t\"height\":\t1080, \t\t\"interlace\":\tfalse, "
+        },
+        {
+          "command": "utils_smoke (local/utils_smoke.c against libcjson_utils.so.1 + libcjson.so.1)",
+          "result": "pass: 0 4 ok"
+        },
+        {
+          "command": "utils_smoke output",
+          "result": "ok GetPointer /tags/1: y ok GeneratePatches (cJSON sorts keys first): [{\"op\":\"add\",\"path\":\"/m\",\"value\":2},{\"op\":\"remove\",\"path\":\"/n\"},{\"op\":\"replace\",\"path\":\"/tags/1\",\"value\":\"z\"}] ok ApplyPatches rc=0 equal=1 ok MergePatch (RFC 7386 example): {\"a\":\"z\",\"c\":{\"d\":\"e\"}} cJSON_Version 1.7.19"
+        }
+      ],
+      "sha256": "0165f50f1bf953dca311de8ef0dd43a6b92f6b496c7bfa8caa1b5fd3b7903fc0",
+      "size": 18544,
+      "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+      "source_inputs": [
+        {
+          "sha256": "7fa616e3046edfa7a28a32d5f9eacfd23f92900fe1f8ccd988c1662f30454562",
+          "url": "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.19.tar.gz"
+        }
+      ],
+      "stripping": "stripped",
+      "version": "1.7.19",
+      "version_components": [
+        "1",
+        "7",
+        "19"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O2 -g0 -ffile-prefix-map=/build/cjson=. -std=c89 -pedantic -Wall -fstack-protector-strong -fvisibility=hidden -DCJSON_EXPORT_SYMBOLS -DCJSON_API_VISIBILITY -DENABLE_LOCALES -fPIC -MMD",
+        "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "default",
+        "configure_args": "(none: CMake defaults reproduced as gcc commands, ENABLE_CJSON_UTILS=On)",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "-shared",
+        "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+        "target": "x86_64-linux-gnu"
+      },
+      "build_id": "6aeb54d1113b8614d8635042a2d074de064937b36d998e649222d421039591c6",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 91,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": true,
+      "lean_status": "not generated or checked",
+      "license": "MIT",
+      "license_files": [
+        "upstream/cJSON-1.7.19/LICENSE"
+      ],
+      "optimization": "O2",
+      "path": "corpus/variants/cjson/1.7.19/default/x86_64/O2/unstripped/libcjson.so.1",
+      "project": "cjson",
+      "receipt": "corpus/variants/cjson/1.7.19/default/x86_64/O2/unstripped/receipt.json",
+      "receipt_sha256": "1383c172386cf2b965d59057ae4fb310df6de20eb200b69894d28096b97208f2",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "cjson_test (upstream test.c linked against libcjson.so.1): exit status",
+          "result": "pass: 0"
+        },
+        {
+          "command": "cjson_test output: 47 lines, sha256 3b5c2dfae1639d493cdccbd1d16b30e31aa03eae9d4b38776016a9f518252757",
+          "result": "Version: 1.7.19 { \t\"name\":\t\"Jack (\\\"Bee\\\") Nimble\", \t\"format\":\t{ \t\t\"type\":\t\"rect\", \t\t\"width\":\t1920, \t\t\"height\":\t1080, \t\t\"interlace\":\tfalse, "
+        },
+        {
+          "command": "utils_smoke (local/utils_smoke.c against libcjson_utils.so.1 + libcjson.so.1)",
+          "result": "pass: 0 4 ok"
+        },
+        {
+          "command": "utils_smoke output",
+          "result": "ok GetPointer /tags/1: y ok GeneratePatches (cJSON sorts keys first): [{\"op\":\"add\",\"path\":\"/m\",\"value\":2},{\"op\":\"remove\",\"path\":\"/n\"},{\"op\":\"replace\",\"path\":\"/tags/1\",\"value\":\"z\"}] ok ApplyPatches rc=0 equal=1 ok MergePatch (RFC 7386 example): {\"a\":\"z\",\"c\":{\"d\":\"e\"}} cJSON_Version 1.7.19"
+        }
+      ],
+      "sha256": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2",
+      "size": 40816,
+      "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+      "source_inputs": [
+        {
+          "sha256": "7fa616e3046edfa7a28a32d5f9eacfd23f92900fe1f8ccd988c1662f30454562",
+          "url": "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.19.tar.gz"
+        }
+      ],
+      "stripping": "unstripped",
+      "version": "1.7.19",
+      "version_components": [
+        "1",
+        "7",
+        "19"
+      ]
+    },
+    {
+      "build": {
+        "SOURCE_DATE_EPOCH": 1762128000,
+        "binutils": "GNU ld (GNU Binutils for Debian) 2.44",
+        "cflags": "-O2 -g0 -ffile-prefix-map=/build/cjson=. -std=c89 -pedantic -Wall -fstack-protector-strong -fvisibility=hidden -DCJSON_EXPORT_SYMBOLS -DCJSON_API_VISIBILITY -DENABLE_LOCALES -fPIC -MMD",
+        "compiler": "gcc (Debian 14.2.0-19) 14.2.0",
+        "configuration": "default",
+        "configure_args": "(none: CMake defaults reproduced as gcc commands, ENABLE_CJSON_UTILS=On)",
+        "image": {
+          "base": "debian:trixie-20251103@sha256:01a723bf5bfb21b9dda0c9a33e0538106e4d02cce8f557e118dd61259553d598",
+          "id": "sha256:e73131e3a3d3d30961f85398597532548b39d4dc708ce071d77e2637049fb5f2",
+          "tag": "silmaril-corpus-toolchain:trixie-20251103"
+        },
+        "ldflags": "-shared",
+        "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
+        "target": "x86_64-linux-gnu"
+      },
+      "build_id": "6aeb54d1113b8614d8635042a2d074de064937b36d998e649222d421039591c6",
+      "contextual_c_to_elf_statements": 0,
+      "defined_nonzero_function_symbol_entries": 26,
+      "formal_statements": [],
+      "functional_equivalence_statements": 0,
+      "has_symtab": true,
+      "lean_status": "not generated or checked",
+      "license": "MIT",
+      "license_files": [
+        "upstream/cJSON-1.7.19/LICENSE"
+      ],
+      "optimization": "O2",
+      "path": "corpus/variants/cjson/1.7.19/default/x86_64/O2/unstripped/libcjson_utils.so.1",
+      "project": "cjson",
+      "receipt": "corpus/variants/cjson/1.7.19/default/x86_64/O2/unstripped/receipt.json",
+      "receipt_sha256": "1383c172386cf2b965d59057ae4fb310df6de20eb200b69894d28096b97208f2",
+      "reproducible": true,
+      "runtime_tests": [
+        {
+          "command": "cjson_test (upstream test.c linked against libcjson.so.1): exit status",
+          "result": "pass: 0"
+        },
+        {
+          "command": "cjson_test output: 47 lines, sha256 3b5c2dfae1639d493cdccbd1d16b30e31aa03eae9d4b38776016a9f518252757",
+          "result": "Version: 1.7.19 { \t\"name\":\t\"Jack (\\\"Bee\\\") Nimble\", \t\"format\":\t{ \t\t\"type\":\t\"rect\", \t\t\"width\":\t1920, \t\t\"height\":\t1080, \t\t\"interlace\":\tfalse, "
+        },
+        {
+          "command": "utils_smoke (local/utils_smoke.c against libcjson_utils.so.1 + libcjson.so.1)",
+          "result": "pass: 0 4 ok"
+        },
+        {
+          "command": "utils_smoke output",
+          "result": "ok GetPointer /tags/1: y ok GeneratePatches (cJSON sorts keys first): [{\"op\":\"add\",\"path\":\"/m\",\"value\":2},{\"op\":\"remove\",\"path\":\"/n\"},{\"op\":\"replace\",\"path\":\"/tags/1\",\"value\":\"z\"}] ok ApplyPatches rc=0 equal=1 ok MergePatch (RFC 7386 example): {\"a\":\"z\",\"c\":{\"d\":\"e\"}} cJSON_Version 1.7.19"
+        }
+      ],
+      "sha256": "23f386e03d9ee4534f2557061b60dbf4c261139512f6952d9d30a6d1d273ac5f",
+      "size": 22208,
       "source_id": "e4c79cb3df912c9d6c1c45b6a47ce219510268aa690424f878944936beaaf539",
       "source_inputs": [
         {
@@ -23190,8 +23749,15 @@
       "build_id": "9a4f59bfc17dce6617dcb3aec32f5fe78efe8c2e050136c62c1a025244d85db6",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 0,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O0_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": false,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23261,9 +23827,15 @@
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.Thms",
           "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O0_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
         }
       ],
-      "functional_equivalence_statements": 1,
+      "functional_equivalence_statements": 2,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23327,8 +23899,15 @@
       "build_id": "6c9ba4c876ae43fbdebe1fb6ff161f80915556623a61ddf50038b7a1a3b12c3c",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 0,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O1_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": false,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23392,8 +23971,15 @@
       "build_id": "6c9ba4c876ae43fbdebe1fb6ff161f80915556623a61ddf50038b7a1a3b12c3c",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 468,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O1_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23457,8 +24043,15 @@
       "build_id": "40a1c3546ed1c96c5e274a958166077ecb81725e1aaee1cfcbf0cdc8abd3a79e",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 0,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O3_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": false,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23528,9 +24121,15 @@
           "kind": "functional_equivalence",
           "root": "Silmaril.Elf.Corpus.MimallocVersion.Thms",
           "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.O3_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
         }
       ],
-      "functional_equivalence_statements": 1,
+      "functional_equivalence_statements": 2,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23594,8 +24193,15 @@
       "build_id": "809c34c2b1a85e19a35e50940f81e970d78eb6b971e2b89b8bba5af1e3c3121f",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 0,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.Og_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": false,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -23659,8 +24265,15 @@
       "build_id": "809c34c2b1a85e19a35e50940f81e970d78eb6b971e2b89b8bba5af1e3c3121f",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 601,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Task.Og_strip_equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.MimallocVersion.AllVariants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -41527,7 +42140,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41599,7 +42212,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41671,7 +42284,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41743,7 +42356,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41815,7 +42428,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41887,7 +42500,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -41959,7 +42572,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42031,7 +42644,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42103,7 +42716,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42175,7 +42788,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42247,7 +42860,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42319,7 +42932,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42391,7 +43004,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42463,7 +43076,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42535,7 +43148,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42607,7 +43220,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42679,7 +43292,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42751,7 +43364,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42823,7 +43436,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42895,7 +43508,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -42967,7 +43580,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43039,7 +43652,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43111,7 +43724,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43183,7 +43796,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43255,7 +43868,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43327,7 +43940,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43399,7 +44012,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43471,7 +44084,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43543,7 +44156,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43615,7 +44228,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43687,7 +44300,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -43759,7 +44372,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LicenseRef-Beej-PublicDomain",
       "license_files": [
         "local/LICENSE-NOTE.txt"
@@ -44850,8 +45463,8 @@
     }
   ],
   "formal_statement_counts": {
-    "contextual_c_to_elf": 3,
-    "functional_equivalence": 1
+    "contextual_c_to_elf": 4,
+    "functional_equivalence": 5
   },
   "hierarchy": [
     "project",
@@ -44870,5 +45483,5 @@
     "Build identity and source metadata are not C semantics or a translation-validation statement."
   ],
   "schema_version": 1,
-  "unique_content_hashes": 456
+  "unique_content_hashes": 460
 }
