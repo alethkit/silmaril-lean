@@ -11,6 +11,9 @@
   "actual_new_elf_rows": 48,
   "unique_new_elf_hashes": 40,
   "retained_existing_profiles_no_new_run_claimed": [],
+  "retained_existing_outputs": [],
+  "source_archive_bytes_checked": 2764032,
+  "included_source_archive_comparison": "all new included source bytes equal exact hash-verified release ZIP members",
   "profiles": [
     {
       "upstream_source_id": "2024-08-13 09:16:08 c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69a1e33",
