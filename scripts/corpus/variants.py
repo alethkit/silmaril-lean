@@ -40,6 +40,8 @@ def main():
     p.add_argument('--configuration', choices=['asm', 'no-asm', 'default', 'fts5-rtree', 'small'], action='append', help='OpenSSL only; default remains no-asm')
     p.add_argument('--version', action='append', help='SQLite only: a pinned genuine upstream release')
     p.add_argument('--work', type=Path, required=True)
+    p.add_argument('--resume-pool', type=Path, help='reconnect to the same idle workers; never create replacements')
+    p.add_argument('--recover-work', type=Path, help='unpublished profile with two successfully measured builds')
     p.add_argument('--resume', action='store_true', help='validate and retain already published builds')
     a = p.parse_args()
     if a.configuration is not None:
@@ -51,6 +53,8 @@ def main():
         releases = tomllib.loads((ROOT / 'corpus/sqlite/releases.toml').read_text())
         if a.package != ['sqlite'] or not set(a.version) <= releases.keys():
             p.error('--version requires exactly --package sqlite and a pinned release')
+    if bool(a.resume_pool) != bool(a.recover_work) or (a.resume_pool and not a.resume):
+        p.error('--resume-pool and --recover-work require each other and --resume')
     os.chdir(ROOT)
     cache = Path(os.environ.get('CORPUS_CACHE', str(Path.home() / '.cache/silmaril-corpus'))).resolve()
     cache.mkdir(parents=True, exist_ok=True)
@@ -59,13 +63,31 @@ def main():
     image = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', TAG], text=True).strip()
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
     dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], text=True).strip())
-    # Freeze recipes so an editor or another branch cannot change a long build midway.
-    recipes = a.work / ('recipes-' + str(uuid.uuid4()))
-    shutil.copytree(ROOT / 'corpus', recipes / 'corpus', ignore=shutil.ignore_patterns('upstream', 'generated', 'elf', 'funcmap', 'tv', 'census', 'variants', 'measurements', '__pycache__'))
-    shutil.copytree(ROOT / 'scripts/corpus', recipes / 'scripts/corpus', ignore=shutil.ignore_patterns('__pycache__'))
-    recipe_hashes = {str(f.relative_to(recipes)): sha(f) for f in recipes.rglob('*') if f.is_file()}
+    if a.resume_pool:
+        a.resume_pool = a.resume_pool.resolve()
+        a.recover_work = a.recover_work.resolve()
+        if not a.recover_work.is_relative_to(a.work) or not a.resume_pool.is_relative_to(a.work):
+            p.error('recovery paths must be inside --work')
+        pool_record = json.loads((a.resume_pool / 'lifecycle.json').read_text())
+        creation = pool_record['workers'][0]['creation_command']
+        recipes = Path(next(item for item in creation if item.endswith(':/corpus:ro')).removesuffix(':/corpus:ro')).parent
+        repository = json.loads((a.recover_work / 'repository.json').read_text())
+        if repository != json.loads((a.resume_pool / '0/repository.json').read_text()):
+            raise ValueError('recovery repository/recipe identity mismatch')
+        revision, dirty, recipe_hashes = repository['commit'], repository['dirty'], repository['recipe_hashes']
+        controller = {'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+                      'hashes': {name: sha(ROOT / name) for name in
+                                 ['scripts/corpus/variants.py', 'scripts/corpus/container_pool.py']}}
+        pool_context = ContainerPool.reconnect(a.resume_pool, recipes, cache, image, controller)
+    else:
+        # Freeze recipes so an editor or another branch cannot change a long build midway.
+        recipes = a.work / ('recipes-' + str(uuid.uuid4()))
+        shutil.copytree(ROOT / 'corpus', recipes / 'corpus', ignore=shutil.ignore_patterns('upstream', 'generated', 'elf', 'funcmap', 'tv', 'census', 'variants', 'measurements', '__pycache__'))
+        shutil.copytree(ROOT / 'scripts/corpus', recipes / 'scripts/corpus', ignore=shutil.ignore_patterns('__pycache__'))
+        recipe_hashes = {str(f.relative_to(recipes)): sha(f) for f in recipes.rglob('*') if f.is_file()}
+        pool_context = ContainerPool(image, recipes, cache, a.work / ('pool-' + str(uuid.uuid4())))
 
-    with ContainerPool(image, recipes, cache, a.work / ('pool-' + str(uuid.uuid4()))) as pool:
+    with pool_context as pool:
         for pkg in a.package or PACKAGES:
             metadata = tomllib.loads((recipes / 'corpus' / pkg / 'package.toml').read_text())
             for version in a.version or [metadata['version']]:
@@ -98,9 +120,10 @@ def main():
                                         raise ValueError(f'{dest}: included source changed')
                                 print(f'retained {relative}: existing hashes validated; no new run claimed', flush=True)
                                 continue
-                            run_id = str(uuid.uuid4())
-                            work = a.work / run_id
-                            work.mkdir()
+                            run_id = a.recover_work.name if pool.recovered else str(uuid.uuid4())
+                            work = a.recover_work if pool.recovered else a.work / run_id
+                            if not pool.recovered:
+                                work.mkdir()
                             repository = {'commit': revision, 'dirty': dirty, 'recipe_hashes': recipe_hashes}
                             lifecycle = pool.prepare(str(relative), recipe_hashes, repository)
                             first, second = pool.output(0), pool.output(1)
@@ -120,14 +143,26 @@ def main():
                                     '--repository-receipt', '/out/repository.json',
                                     '--concurrency', '3' if log.stem.startswith('build-') else '1',
                                     '--input', f'/corpus/{pkg}/build.sh', '--input', '/corpus/common.sh', '--', *command]
+                                if log.exists():
+                                    log.rename(log.with_name(log.stem + '.pre-reconnect-' + str(uuid.uuid4()) + '.log'))
                                 pool.exec(slot, measured, env=env, log=log)
 
                             (work / 'repository.json').write_text(json.dumps({'commit': revision, 'dirty': dirty, 'recipe_hashes': recipe_hashes}))
-                            for slot, repeat in enumerate(['a', 'b']):
-                                (pool.output(slot) / repeat).mkdir()
-                                docker(['bash', f'/corpus/{pkg}/build.sh', arch, '/out/' + repeat],
-                                       work / f'build-{repeat}.log', slot=slot, collect=(slot == 0))
-                                shutil.copytree(pool.output(slot) / repeat, work / repeat)
+                            if pool.recovered:
+                                for slot, repeat in enumerate(['a', 'b']):
+                                    runs = [json.loads(f.read_text()) for f in (pool.output(slot) / 'runs').glob('*.json')]
+                                    builds = [r for r in runs if r['stage'] == 'build-' + repeat]
+                                    if len(builds) != 1 or builds[0]['exit_code'] != 0 or builds[0]['repository'] != repository:
+                                        raise ValueError('recovery requires two successful measured builds of the same frozen inputs')
+                                    for name in names + ['.build-info']:
+                                        if sha(work / repeat / name) != sha(pool.output(slot) / repeat / name):
+                                            raise ValueError('completed build changed before recovery')
+                            else:
+                                for slot, repeat in enumerate(['a', 'b']):
+                                    (pool.output(slot) / repeat).mkdir()
+                                    docker(['bash', f'/corpus/{pkg}/build.sh', arch, '/out/' + repeat],
+                                           work / f'build-{repeat}.log', slot=slot, collect=(slot == 0))
+                                    shutil.copytree(pool.output(slot) / repeat, work / repeat)
                             if (work / 'a/.build-info').read_bytes() != (work / 'b/.build-info').read_bytes():
                                 raise ValueError(f'{relative}: independently recorded build inputs/commands differ')
                             for name in names:
@@ -145,10 +180,10 @@ def main():
                                     'stripping': 'not stripped; no strip-all linkability claim',
                                     'reproducibility': 'byte-identical independent workspace repeats'})
                             for variant in ['unstripped', 'stripped']:
-                                (first / variant).mkdir()
+                                (first / variant).mkdir(exist_ok=True)
                                 for name in names + ['.build-info']:
                                     shutil.copy(work / 'a' / name, first / variant / name)
-                            (second / 'stripped-b').mkdir()
+                            (second / 'stripped-b').mkdir(exist_ok=True)
                             prefix = '' if arch == 'x86_64' else 'aarch64-linux-gnu-'
                             for name in names:
                                 docker([prefix + 'strip', '--strip-all', '/out/stripped/' + name], work / ('strip-' + name + '.log'))
