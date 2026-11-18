@@ -1,9 +1,9 @@
 {
-  "actual_new_elf_rows": 66,
-  "unique_new_hashes": 66,
-  "new_profiles": 13,
-  "measured_exits_passed": 216,
-  "unstripped_matching_canonical": 32,
+  "actual_new_elf_rows": 80,
+  "unique_new_hashes": 80,
+  "new_profiles": 14,
+  "measured_exits_passed": 246,
+  "unstripped_matching_canonical": 39,
   "unstripped_canonical_mismatches": [
     {
       "object": "libjemalloc.so.2",
@@ -26,7 +26,7 @@
   "projects": [
     {
       "project": "coreutils",
-      "actual_new_elf_rows": 14,
+      "actual_new_elf_rows": 28,
       "summary": "coreutils/summary.json"
     },
     {
