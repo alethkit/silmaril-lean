@@ -181,6 +181,13 @@ project-tool:
 # local or build-service HEAD may be a commit GitHub does not have, and its links would be broken.
 PAGES_SOURCE_URL ?= https://github.com/hiloopai/silmaril-lean
 PAGES_SOURCE_REV ?=
+# Compress only the worker-to-runner transport; Pages still serves the original
+# SQLite bytes after extraction. This keeps large public catalogs below the
+# prove service's per-output-file transfer limit without changing that limit.
+.PHONY: pages-archive
+pages-archive: pages
+	tar -czf pages-site.tar.gz _site
+
 pages: project-tool
 	build/bin/silmaril-project dump --lake lake
 	build/bin/silmaril-project check
