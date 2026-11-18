@@ -1,6 +1,7 @@
 // Exercise the same static compiler payloads Pages deploys, through its project navigation.
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
+import {get} from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
 const pw=await import(process.env.PLAYWRIGHT_CORE||'/usr/local/lib/node_modules/playwright-core/index.mjs');
@@ -12,9 +13,22 @@ const browser=await pw.chromium.launch({executablePath:process.env.CHROME||(fs.e
 try {
   const page=await browser.newPage();
   const base='http://127.0.0.1:8791';
-  // Drain the readiness response before navigation: do not leave an unread HTTP body
-  // paused in Node's client when this connection closes. Browser assertions follow.
-  for(let i=0;i<40;i++){try{const r=await fetch(base+'/index.html');await r.arrayBuffer();if(r.ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
+  // The local Python HTTP/1.0 server closes each response. Node24 fetch/Undici
+  // can assert in Parser.finish on this readiness request, even with a drained
+  // body. Use the standard HTTP client and wait for the complete response.
+  for(let i=0;i<40;i++){
+    try{
+      const ready=await new Promise((resolve,reject)=>{
+        get(base+'/index.html',response=>{
+          response.resume();
+          response.on('end',()=>resolve(response.statusCode===200));
+          response.on('error',reject);
+        }).on('error',reject);
+      });
+      if(ready)break;
+    }catch{}
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
   await page.goto(base+'/index.html#/compiler');
   const link=page.getByRole('link',{name:'Open the source ↔ target viewer',exact:true});
   await link.waitFor({timeout:60000}); await link.click();
