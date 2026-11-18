@@ -1,6 +1,6 @@
 {
-  "actual_new_rows": 116,
-  "unique_new_hashes": 98,
+  "actual_new_rows": 136,
+  "unique_new_hashes": 116,
   "version_slices": [
     {
       "version": "3.46.1",
@@ -24,13 +24,16 @@
     },
     {
       "version": "3.54.1",
-      "new_profiles": 5,
-      "actual_new_rows": 20,
-      "unique_new_hashes": 18,
+      "new_profiles": 10,
+      "actual_new_rows": 40,
+      "unique_new_hashes": 36,
       "source_archive_sha256": "0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9",
       "sqlite3_c_sha256": "0c657666d819f261cc4007526ad57e1669de9949df7a8ea847aa284a2bf0ee52",
       "upstream_source_id": "2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76",
       "summary": "3.54.1/summary.json"
     }
-  ]
+  ],
+  "retained_existing_rows_no_new_execution_claimed": 8,
+  "combined_delivered_hierarchy_rows": 144,
+  "combined_delivered_unique_hashes": 120
 }
