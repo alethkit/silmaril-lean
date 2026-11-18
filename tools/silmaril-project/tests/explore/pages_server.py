@@ -32,7 +32,17 @@ def main():
     ap.add_argument("--log", required=True)
     ap.add_argument("--validators", choices=["strong", "weak", "lastmod", "none"], default="strong")
     args = ap.parse_args()
-    root = os.path.abspath(args.root)
+    root = os.path.realpath(args.root)
+
+    # Snapshot a trusted static file allowlist before accepting requests. Request
+    # text only selects a key; it never becomes a filesystem path.
+    files = {}
+    for directory, _, names in os.walk(root):
+        for name in names:
+            candidate = os.path.join(directory, name)
+            resolved = os.path.realpath(candidate)
+            if resolved.startswith(root + os.sep) and os.path.isfile(resolved):
+                files["/" + os.path.relpath(candidate, root).replace(os.sep, "/")] = resolved
 
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -47,8 +57,11 @@ def main():
 
         def serve(self, head):
             u = urllib.parse.urlsplit(self.path)
-            p = os.path.normpath(os.path.join(root, urllib.parse.unquote(u.path).lstrip("/") or "index.html"))
-            if not p.startswith(root) or not os.path.isfile(p):
+            key = urllib.parse.unquote(u.path)
+            if key.endswith("/"):
+                key += "index.html"
+            p = files.get(key)
+            if p is None:
                 self.send_response(404); self.end_headers(); self.record(404, 0); return
             data = open(p, "rb").read()
             st = os.stat(p)
@@ -63,7 +76,9 @@ def main():
                 if args.validators in ("weak", "lastmod"):
                     self.send_header("Last-Modified", lastmod)
             ctype = ("text/html; charset=utf-8" if p.endswith(".html") else
-                     "text/javascript" if p.endswith(".js") else "application/octet-stream")
+                     "text/javascript" if p.endswith(".js") else
+                     "text/css" if p.endswith(".css") else
+                     "application/json" if p.endswith(".json") else "application/octet-stream")
             rng = self.headers.get("Range")
             gz = "gzip" in (self.headers.get("Accept-Encoding") or "")
             if rng and rng.startswith("bytes="):

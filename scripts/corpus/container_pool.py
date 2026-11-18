@@ -34,6 +34,7 @@ class ContainerPool:
         self.directory = directory
         self.directory.mkdir(parents=True, exist_ok=False)
         self.containers = []
+        self.recovered = False
         self.profiles = 0
         self.record = {'pool_id': str(uuid.uuid4()), 'image_id': image,
                        'lifecycle': 'two independently initialized persistent containers; reused across profiles',
@@ -49,12 +50,66 @@ class ContainerPool:
         return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     def save(self):
-        (self.directory / 'lifecycle.json').write_text(json.dumps(self.record, indent=2) + '\n')
+        temporary = self.directory / 'lifecycle.json.tmp'
+        temporary.write_text(json.dumps(self.record, indent=2) + '\n')
+        temporary.replace(self.directory / 'lifecycle.json')
+
+    @classmethod
+    def reconnect(cls, directory, recipes, cache, image, controller):
+        """Attach only to two idle, unchanged workers; never initialize replacements.
+
+        A supported recovery reruns all validation of two successfully measured
+        builds. An incomplete build needs explicit operator recovery instead.
+        """
+        obj = cls.__new__(cls)
+        obj.directory, obj.recipes, obj.cache, obj.image = directory, recipes, cache, image
+        obj.record = json.loads((directory / 'lifecycle.json').read_text())
+        if obj.record['image_id'] != image or 'stopped_utc' in obj.record or 'failure' in obj.record:
+            raise ValueError('pool cannot be reconnected: changed image, stopped or failed')
+        obj.containers = [w['container_id'] for w in obj.record['workers']]
+        if len(obj.containers) != 2 or len(set(obj.containers)) != 2:
+            raise ValueError('reconnect requires exactly two independent workers')
+        if not obj.record['profiles'] or obj.record['profiles'][-1]['status'] != 'running':
+            raise ValueError('reconnect requires an unpublished running profile')
+        expected_lock = (recipes / 'corpus/toolchain/lock.txt').read_bytes()
+        for slot, container in enumerate(obj.containers):
+            actual = json.loads(subprocess.check_output(['docker', 'inspect', container], text=True))[0]
+            limits = actual['HostConfig']
+            if (not actual['State']['Running'] or actual['Image'] != image or
+                not limits['ReadonlyRootfs'] or limits['Privileged'] or
+                limits['NanoCpus'] != 3_000_000_000 or limits['Memory'] != 12 * 1024**3 or
+                limits['PidsLimit'] != 256 or limits['NetworkMode'] != 'host' or
+                limits.get('Tmpfs') != {'/build': 'rw,exec,size=8g', '/tmp': 'rw,exec,size=1g', '/root': 'rw,size=64m'}):
+                raise ValueError(f'worker {slot}: runtime/image/limits/isolation changed')
+            expected_mounts = {'/corpus': (str(recipes / 'corpus'), False),
+                               '/scripts': (str(recipes / 'scripts'), False),
+                               '/cache': (str(cache), False), '/out': (str(obj.output(slot)), True)}
+            mounts = {m['Destination']: (m['Source'], m['RW']) for m in actual['Mounts'] if m['Type'] == 'bind'}
+            if mounts != expected_mounts or len(actual['Mounts']) != len(expected_mounts):
+                raise ValueError(f'worker {slot}: mounts changed')
+            processes = subprocess.check_output(['docker', 'top', container, '-eo', 'pid,comm'], text=True).splitlines()
+            if len(processes) != 2 or processes[1].split()[1:] != ['sleep']:
+                raise ValueError(f'worker {slot}: not idle; refuse concurrent recovery')
+            lock = obj.exec(slot, ['dpkg-query', '-W', '-f=${binary:Package}\t${Version}\n'], capture=True)
+            if lock != expected_lock or (directory / f'packages-{slot}.txt').read_bytes() != expected_lock:
+                raise ValueError(f'worker {slot}: whole installed package lock differs on reconnect')
+        obj.profiles = len(obj.record['profiles'])
+        obj.recovered = True
+        obj.record.setdefault('controller_reconnections', []).append({
+            'utc': obj.now(), 'profile': obj.record['profiles'][-1]['identity'],
+            'reason': 'previous host controller ended; existing idle workers preserved',
+            'validation': 'image, exact mounts, limits, isolation, idle processes and whole package locks rechecked',
+            'strategy': 'verify two successful measured builds; rerun all stripping, runtime tests, receipts and census',
+            'controller': controller})
+        obj.save()
+        return obj
 
     def output(self, slot):
         return self.directory / str(slot)
 
     def __enter__(self):
+        if self.recovered:
+            return self
         try:
             for slot in range(2):
                 self.output(slot).mkdir()
@@ -106,6 +161,11 @@ class ContainerPool:
         for name, expected in recipe_hashes.items():
             if sha(self.recipes / name) != expected:
                 raise ValueError(f'frozen recipe changed: {name}')
+        if self.recovered:
+            profile = self.record['profiles'][-1]
+            if profile['identity'] != identity:
+                raise ValueError('recovered profile identity differs; refuse workspace reset')
+            return {**self.record, 'profiles': [dict(profile)]}
         for slot in range(2):
             self.exec(slot, RESET)
             for path in self.output(slot).iterdir():
@@ -125,6 +185,7 @@ class ContainerPool:
     def complete(self):
         self.record['profiles'][-1].update(status='passed', finished_utc=self.now())
         self.save()
+        self.recovered = False
 
     def __exit__(self, kind, error, traceback):
         if error is not None:
