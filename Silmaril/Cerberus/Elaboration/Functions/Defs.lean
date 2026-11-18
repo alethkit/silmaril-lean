@@ -102,6 +102,7 @@ def declaration (config : Target.Config) (types : Target.Environment)
   | .object _ alignment qualifiers type => do
       let global ← Globals.declaration config types runtime.stdlib program.2.objectDefinitions
         symbol location attributes alignment qualifiers type
+        (program.2.tagDefinitions.map fun (tag, _, _, definition) => (tag, definition))
       return { accumulator with globals := (symbol, global) :: accumulator.globals }
   | .function prototype (_, returnType) parameters variadic _ noreturn => do
     let baseType ← liftError (resultType returnType)
