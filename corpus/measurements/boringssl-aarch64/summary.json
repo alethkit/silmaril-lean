@@ -1,9 +1,20 @@
 {
-  "actual_elf_rows": 12,
-  "unique_hashes": 12,
-  "profiles": 2,
-  "measured_exits_passed": 36,
+  "actual_elf_rows": 18,
+  "unique_hashes": 14,
+  "profiles": 3,
+  "measured_exits_passed": 54,
   "profile_slices": [
+    {
+      "configuration": "asm",
+      "optimization": "O0",
+      "actual_elf_rows": 6,
+      "summary": "asm/O0/summary.json",
+      "build_wall_seconds": {
+        "build-a": 69.7248447130005,
+        "build-b": 53.06677021299947
+      },
+      "source_files_hash_checked": 1307
+    },
     {
       "configuration": "no-asm",
       "optimization": "O0",
