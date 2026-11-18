@@ -32,7 +32,7 @@ def main():
     ap.add_argument("--log", required=True)
     ap.add_argument("--validators", choices=["strong", "weak", "lastmod", "none"], default="strong")
     args = ap.parse_args()
-    root = os.path.abspath(args.root)
+    root = os.path.realpath(args.root)
 
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -47,10 +47,14 @@ def main():
 
         def serve(self, head):
             u = urllib.parse.urlsplit(self.path)
-            p = os.path.normpath(os.path.join(root, urllib.parse.unquote(u.path).lstrip("/") or "index.html"))
-            if u.path.endswith("/") and os.path.isdir(p):
-                p = os.path.join(p, "index.html")
-            if not p.startswith(root) or not os.path.isfile(p):
+            p = os.path.realpath(os.path.join(root, urllib.parse.unquote(u.path).lstrip("/") or "index.html"))
+            # Resolve symlinks and require a complete directory boundary before
+            # probing or opening any request-derived path (including indexes).
+            if os.path.commonpath([root, p]) != root:
+                self.send_response(404); self.end_headers(); self.record(404, 0); return
+            if u.path.endswith("/"):
+                p = os.path.realpath(os.path.join(p, "index.html"))
+            if os.path.commonpath([root, p]) != root or not os.path.isfile(p):
                 self.send_response(404); self.end_headers(); self.record(404, 0); return
             data = open(p, "rb").read()
             st = os.stat(p)

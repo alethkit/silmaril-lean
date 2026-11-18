@@ -110,6 +110,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/site" && tar -xf "$RUNNER_TEMP/pages/artifact.tar" -C "$RUNNER_TEMP/site"
           cd tools/silmaril-project/tests/explore
+          python3 -I test_pages_server.py
           node wasm_cfg.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots"
           node wasm_cfg_variants.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots"
           node shell.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots"
