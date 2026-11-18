@@ -122,3 +122,7 @@ does not discharge those assumptions, justify call resumptions or upgrade
 unresolved targets to finite closed regions. The abstract region-law lattices
 are unchanged; source certificates and partial extraction helpers are a
 separate interpretation layer.
+
+[Module provenance and automatic production](wasm-module-byte-maps.md) add
+checked whole-module framing, import-adjusted body identities, module byte
+coordinates and a producer which still requires nested validation and coverage.
