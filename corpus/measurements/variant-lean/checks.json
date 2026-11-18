@@ -1421,6 +1421,57 @@
         "Silmaril/Elf/Staged/CorpusVariants/TcpPingpong/Bgnet34fb9d78/Default/X8664/Og/Unstripped/PingpongServer/Functions.lean": "1c9542048ea83aae99e6c2ece10281e36e04d0405731aaac439e5b43d7132fb0",
         "Silmaril/Elf/Staged/CorpusVariants/TcpPingpong/Bgnet34fb9d78/Default/X8664/Og/Unstripped/PingpongServer/Thms.lean": "b7a45753818144b59049b088f031ea0a69ea921107510db46a026c9061842586"
       }
+    },
+    {
+      "path": "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc",
+      "sha256": "516d5364f354cdebcc3c6cd43df76f504cf17f8b0000a16a6ba061b9b1bec67c",
+      "root": "Silmaril.Elf.Staged.CorpusVariants.Tinycc.N0927.Default.X8664.O0.Unstripped.Tcc.Decomp",
+      "run_receipt": "corpus/measurements/variant-lean/runs/d0647266-e40a-4927-afde-466e3edbaca0.json",
+      "module_sha256": {
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bytes.lean": "87441326292df242e5be33634d0db4de0f1b4459570a0ad62e35b048d37f2b15",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Decomp.lean": "5436981ec0904accc1c33c181a1cd187582914050046dac641e03672b4053a50",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Defs.lean": "0c1ddf125022a817a9893f15141567a8076ccf15d80dfebdef4f6998dd5574df",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Functions.lean": "0dd4cbaf91d711d56079ad491d0e761755afb2b8ac00b169f54e75d43c9854fa",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Thms.lean": "1e6bbfa165febd8c4bd4668259817dab007b1192d81cbeeaf014231f1d9bc714",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part0.lean": "4097e447a1c1c8d70e06d332602eda638740d361c324f493e96155c84430ce55",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part1.lean": "543c8f1461261e09def6581518dfd0046343ba7f804763588b9b6043d9601d11",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part2.lean": "7f64a4989dd95b6ead3f671c7ed62b2f7a78ae991addd16a5a58b773a0f26b1c",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part3.lean": "0ada853b75c69e0dc17074802fd79c0ed4f38c4998e7b24c1423a0c1b15dc8da",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0"
+      }
+    },
+    {
+      "path": "corpus/variants/tinycc/0.9.27/default/x86_64/O0/stripped/tcc",
+      "sha256": "e71efc2dbfdbccea6a46ab8dc9fa28281335a6f5ec8abfe5c2ee1e90ed9287b5",
+      "root": "Silmaril.Elf.Staged.CorpusVariants.Tinycc.N0927.Default.X8664.O0.Stripped.Tcc.Decomp",
+      "run_receipt": "corpus/measurements/variant-lean/runs/0791c144-996c-4989-ab4e-198d1aa7fac1.json",
+      "module_sha256": {
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Stripped/Tcc/Bytes.lean": "05b50e0f07c5e11841ad22ef25980c8332842ce61c7a9b58747ff89395a92e07",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Stripped/Tcc/Decomp.lean": "7e618a08effabfcc777c0eb9631fcd4717c2127838d2e2a745ee59882a12fea0",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Stripped/Tcc/Defs.lean": "2234a1f19a219dc6aaff050f9714f21269001c45891feb69456f93282c6a53b0",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Stripped/Tcc/Functions.lean": "93c3a164b6fed3ca1b06e8521c02f412b4f350b21521476320c995a3fa49f6a0",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Stripped/Tcc/Thms.lean": "caedaf190c3fec6d23692e13425d8185bc2476507278b9964725cac042bdf174"
+      }
+    },
+    {
+      "path": "corpus/variants/tinycc/0.9.27/default/x86_64/Og/unstripped/tcc",
+      "sha256": "398ba6ca51236ceefa5902884ba42153959790c3b821b90a4037094d27a9b340",
+      "root": "Silmaril.Elf.Staged.CorpusVariants.Tinycc.N0927.Default.X8664.Og.Unstripped.Tcc.Decomp",
+      "run_receipt": "corpus/measurements/variant-lean/runs/0791c144-996c-4989-ab4e-198d1aa7fac1.json",
+      "module_sha256": {
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Bytes.lean": "e4001161f075a6034e01e98644e1d04247c1f91e0b2bd212947be712160a3f1d",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Decomp.lean": "087071aa8755105d2d1a0060769b8abffbfc60cee796e8f2f529d4ac8d48a6aa",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Defs.lean": "d267c6a546f85b16b8fe3ee7c76d1d1889a5d72ea0ee33f3592128985360e465",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Functions.lean": "5db79ebff0daa3cfc84682da835cc5e03a442d4b6d3f8dad898715e2f6cc9fd6",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Thms.lean": "720fd5a7fa8818c5583cc3e38c64d5ec0ff2f2ffa3d5fc48ca2067fc9c373577",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Bodies/Part0.lean": "73886e1e8b344da5ec51d5f35ff0e691c15fb7d6f651440937ac58e15cb277de",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Bodies/Part1.lean": "17312bcb738efcaf0c9c041bdff51578b5a99f576bc8676e6da78939564ef372",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Bodies/Part2.lean": "3d139c0a62e85c800a3b05c670b5d220e75b183bfa9f7ca12a73670c44b1c409",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Bodies/Part3.lean": "8fb0662e10d4e0a15c7db89491d0b48facaf91377d163b390cfa5629cb8d1c12",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Bodies/Part4.lean": "f86f6dc87e94fdf65c6f46e78fbfb465739831f71952f66255e55f10e48bafa4",
+        "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/Og/Unstripped/Tcc/Bodies/Part5.lean": "40d513295fe21d61672670f6cf0a22341738a956bf3271d5e74c0d11dddf359f"
+      }
     }
   ]
 }

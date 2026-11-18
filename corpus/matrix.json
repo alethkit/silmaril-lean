@@ -44964,7 +44964,7 @@
       "formal_statements": [],
       "functional_equivalence_statements": 0,
       "has_symtab": false,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LGPL-2.1-or-later",
       "license_files": [
         "upstream/tcc-0.9.27/COPYING"
@@ -45024,12 +45024,49 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "00812a220b7658ac2ca1985bae084dba2b3869814b0ea8b5c00f86ce17138aac",
-      "contextual_c_to_elf_statements": 0,
+      "contextual_c_to_elf_statements": 5,
       "defined_nonzero_function_symbol_entries": 524,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Space.Task.compiles_to",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.TinyccClosed.Space.Thms",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Task.compiles_to",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Thms",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Digit.Task.compiles_to",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.TinyccClosed.Digit.Thms",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Octal.Task.compiles_to",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.TinyccClosed.Octal.Thms",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Upper.Task.compiles_to",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.TinyccClosed.Upper.Thms",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Variants.Task.equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Variants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LGPL-2.1-or-later",
       "license_files": [
         "upstream/tcc-0.9.27/COPYING"
@@ -45416,10 +45453,17 @@
       "build_id": "c0b988d1ac5ffade160903b9ae27cc82d64019d80bcfa649e8f8e43d7dffa23e",
       "contextual_c_to_elf_statements": 0,
       "defined_nonzero_function_symbol_entries": 499,
-      "formal_statements": [],
-      "functional_equivalence_statements": 0,
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Variants.Task.equivalent",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Variants.Thms",
+          "status": "stated-unproved"
+        }
+      ],
+      "functional_equivalence_statements": 1,
       "has_symtab": true,
-      "lean_status": "not generated or checked",
+      "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "LGPL-2.1-or-later",
       "license_files": [
         "upstream/tcc-0.9.27/COPYING"
@@ -45463,8 +45507,8 @@
     }
   ],
   "formal_statement_counts": {
-    "contextual_c_to_elf": 4,
-    "functional_equivalence": 5
+    "contextual_c_to_elf": 9,
+    "functional_equivalence": 6
   },
   "hierarchy": [
     "project",
