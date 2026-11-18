@@ -186,9 +186,13 @@ events. Keep the old runners and fixtures callable for these comparisons;
 a future default change is a separate review with downstream evidence. Keep
 additional SSE, AVX or SHA forms independent of that default change. The
 [typed process pilot](typed-syscall.md) exercises the request/response boundary
-without assuming an x86 decoder or replacing CLI or LPS. A later scheduler
-adapter needs a footprint and memory-order argument; a later decoder adapter
-needs its own coverage and transport proof.
+without assuming an x86 decoder or replacing CLI or LPS. Its
+[container/stream bridge](typed-syscall.md#container-execution-and-event-streams)
+uses the existing runtime and monitor for a typed read and exit. An x86
+[`MemEvent`](../../Silmaril/X86/MemEvent/Defs.lean) footprint is a different
+observation from a syscall or container event. A later scheduler adapter needs
+a footprint and memory-order argument; a later decoder adapter needs its own
+coverage and transport proof.
 
 **Glossary.** *Sentinel return*: a chosen address whose pop ends the modeled
 run. *Open step*: an ordinary instruction step, including a `ret` jump.
