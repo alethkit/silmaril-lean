@@ -46,7 +46,8 @@
       "relocation": {
         "file_offset": 53296,
         "slot": 1109960,
-        "symbol_index": 233
+        "symbol_index": 233,
+        "slot_bytes_hex": "00 00 00 00 00 00 00 00"
       }
     }
   ]

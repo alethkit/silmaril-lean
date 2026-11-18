@@ -75,7 +75,7 @@ try {
     assert.equal(spans.tu_sha256,'31992f073781a1cdbd06ee2a00b2de14b62d87b5e81199dbb6a0fb7dfb7b6f1d');
     assert.deepEqual(spans.spans.map(s=>[s.offset,s.length]),[[529,50],[3240421,64]]);
     const target=await page.locator('#tgt').innerText();
-    for(const expected of ['0x13810','48 8b 05 b1 b7 0f 00 c3','Actual ELF data object','sqlite3_version @ 0xed572','33 2e 35 34 2e 31 00','Actual raw RELA @ file offset 53296','R_X86_64_GLOB_DAT','symbol index 233','GOT slot 0x10efc8','No dynamic-loader'])assert.ok(target.includes(expected),expected);
+    for(const expected of ['0x13810','48 8b 05 b1 b7 0f 00 c3','Actual ELF data object','sqlite3_version @ 0xed572','33 2e 35 34 2e 31 00','Actual raw RELA @ file offset 53296','R_X86_64_GLOB_DAT','symbol index 233','GOT slot 0x10efc8','Raw GOT slot bytes 00 00 00 00 00 00 00 00 (before loader resolution)','No dynamic-loader'])assert.ok(target.includes(expected),expected);
     const context=await page.locator('#corpus-evidence').textContent();
     for(const expected of ['Initialization.prepare input','memoryUnchanged before.memory after.memory','SysV.StackBelow machine 0','returnedAddress value'])assert.ok(context.includes(expected),expected);
     assert.match(await page.locator('#assumptions').innerText(),/post-loader/);
