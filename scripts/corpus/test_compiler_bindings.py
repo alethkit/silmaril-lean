@@ -37,7 +37,7 @@ class CorpusCompilerBindings(unittest.TestCase):
         output = self.work / 'out'
         rows = corpus.export(self.project, output)
         self.assertEqual({r['declaration'] for r in rows}, {s['declaration'] for s in self.statements})
-        self.assertEqual(len(rows), 21)
+        self.assertEqual(len(rows), 23)
         for row in rows:
             p = json.loads((output / Path(row['static_path']).name).read_text())
             self.assertEqual(p['status'], 'UNPROVED')
@@ -51,6 +51,19 @@ class CorpusCompilerBindings(unittest.TestCase):
         self.assertEqual(p['core']['sha256'], '5567495bd982a19d43237278e2ce8455609fbf87d10f8c863c92b0f13243593a')
         self.assertEqual(p['artifacts'][0]['address'], 21600)
         self.assertEqual(p['artifacts'][0]['bytes_hex'], '48 85 ff 74 0b 31 c0 80 7f 18 04 0f 94 c0 c3 90 31 c0 c3')
+
+    def test_actual_boolean_getter_identity_and_limits(self):
+        output = self.work / 'out'
+        rows = corpus.export(self.project, output)
+        for symbol, address, code in [('_mi_os_has_overcommit', 61968, '0f b6 05 f1 38 01 00 c3'),
+                                      ('_mi_os_has_virtual_reserve', 61984, '0f b6 05 e3 38 01 00 c3')]:
+            row = next(r for r in rows if r['function_symbol'] == symbol)
+            p = json.loads((output / Path(row['static_path']).name).read_text())
+            self.assertEqual(p['source']['sha256'], '2e3f89c48db58c79a63cee47c143bdd05a6ef81fbae56ca41760e70292890885')
+            self.assertEqual(p['core']['sha256'], '66bf5e95d82ee9cbd83fde17d4c0ed92571df1f4f4ecd868f96ff47a66d94434')
+            self.assertEqual(p['artifacts'][0]['address'], address)
+            self.assertEqual(p['artifacts'][0]['bytes_hex'], code)
+            self.assertIn('Noncanonical _Bool bytes', ' '.join(p['limits']))
 
     def test_stale_source_and_private_path_rejected(self):
         source = 'corpus/cjson/semantic-inputs/linux-x86_64/predicates/context.c'
