@@ -9,11 +9,23 @@ _spec = importlib.util.spec_from_file_location('binary_corpus', Path(__file__).w
 c = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(c)
 MANIFEST = 'corpus/sqlite/equivalence/build-queries/manifest.json'
-MANIFESTS = [MANIFEST, 'corpus/cjson/equivalence/array-size/manifest.json', 'corpus/cjson/equivalence/detach/manifest.json']
+MANIFESTS = [MANIFEST, 'corpus/cjson/equivalence/array-size/manifest.json', 'corpus/cjson/equivalence/detach/manifest.json', 'corpus/legacy/equivalence/manifest.json']
 
 
 def validate_pair(pair, left, right):
     """Reject incompatible observed queries; this does not prove machine semantics."""
+    if pair.get('profile') in ['legacy-mimalloc-version-v1', 'legacy-tinycc-isid-v1']:
+        version = pair['profile'] == 'legacy-mimalloc-version-v1'
+        if pair['function_symbol'] != ('mi_version' if version else 'isid') or pair['value'] != (219 if version else None):
+            raise ValueError('invalid legacy contract meaning')
+        if pair['left_frame'] != (8 if version else 16) or pair['right_frame'] != (8 if version else 16):
+            raise ValueError('changed original legacy contract frame')
+        for key in ['configuration', 'version', 'project', 'target', 'source_inputs']:
+            if left['build'][key] != right['build'][key]:
+                raise ValueError('incompatible legacy build pair')
+        if left['source'] != right['source']:
+            raise ValueError('incompatible legacy included source')
+        return
     if pair.get('profile') == 'cjson-interior-detach-v1':
         if pair['function_symbol'] != 'cJSON_DetachItemViaPointer' or pair.get('value') is not None:
             raise ValueError('invalid detachment observation')
@@ -122,6 +134,21 @@ def export(project, output, root=c.ROOT):
                         raise ValueError('stale binary build/source receipt')
                 if pair.get('profile') in ['cjson-finite-list-v1', 'cjson-interior-detach-v1']:
                     validate_cjson_build(root, e)
+                    raw_source = c.public_file(root, e['source']['path']).read_bytes()
+                elif pair.get('profile') in ['legacy-mimalloc-version-v1', 'legacy-tinycc-isid-v1']:
+                    receipt = json.loads(c.public_file(root, e['receipt']['path']).read_bytes())
+                    build = json.loads(c.public_file(root, e['build']['path']).read_bytes())
+                    for key in ['configuration', 'version', 'optimization', 'image_id', 'source_inputs', 'project', 'target']:
+                        if e['build'][key] != build[key]:
+                            raise ValueError('legacy build fields mismatch')
+                    if receipt['cflags'] != e['build']['cflags'] or receipt['image']['id'] != build['image_id']:
+                        raise ValueError('legacy receipt flags/image mismatch')
+                    if receipt['package'] != build['project'] or receipt['version'] != build['version']:
+                        raise ValueError('legacy receipt package/version mismatch')
+                    if not any(x['path'] == e['source']['path'] and x['sha256'] == e['source']['sha256'] for x in build['included_source_files']):
+                        raise ValueError('legacy included-source identity mismatch')
+                    if not any(x['sha256'] == e['sha256'] for x in receipt['outputs']):
+                        raise ValueError('legacy receipt artifact mismatch')
                     raw_source = c.public_file(root, e['source']['path']).read_bytes()
                 else:
                     actual_receipt = json.loads(c.public_file(root, e['receipt']['path']).read_bytes())

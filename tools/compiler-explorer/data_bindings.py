@@ -40,8 +40,9 @@ def export(data, specs):
         if (slot,info>>32,info&0xffffffff,addend)!=(relocation['slot'],relocation['symbol_index'],6,0):
             raise ValueError('GLOB_DAT relocation mismatch')
         if symbol(section(tables[0][6]),info>>32)!=expected:raise ValueError('relocation data symbol mismatch')
-        mapped(slot,8)
+        slot_offset,slot_raw=mapped(slot,8)
+        if slot_raw.hex(' ')!=relocation['slot_bytes_hex']:raise ValueError('ELF GOT slot bytes mismatch')
         result.append({'symbol':spec['symbol'],'address':spec['address'],'size':len(raw),'file_offset':offset,'bytes_hex':raw.hex(' '),'sha256':hashlib.sha256(raw).hexdigest(),
-            'relocation':{'file_offset':at,'size':24,'bytes_hex':data[at:at+24].hex(' '),'slot':slot,'symbol_index':info>>32,'type':'R_X86_64_GLOB_DAT','addend':addend},
+            'relocation':{'file_offset':at,'size':24,'bytes_hex':data[at:at+24].hex(' '),'slot':slot,'slot_file_offset':slot_offset,'slot_bytes_hex':slot_raw.hex(' '),'symbol_index':info>>32,'type':'R_X86_64_GLOB_DAT','addend':addend},
             'limit':'Actual file data/symbol/relocation evidence only; the context restricts post-loader slot resolution. No dynamic-loader, interposition or source-refinement theorem.'})
     return result

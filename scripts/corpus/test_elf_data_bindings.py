@@ -15,12 +15,14 @@ class DataBindings(unittest.TestCase):
         cls.data = (ROOT / 'corpus/elf/sqlite/x86_64/libsqlite3.so').read_bytes()
         cls.spec = dict(symbol='sqlite3_version', address=0xed572, size=7,
                         bytes_hex='33 2e 35 34 2e 31 00',
-                        relocation=dict(file_offset=53296, slot=0x10efc8, symbol_index=233))
+                        relocation=dict(file_offset=53296, slot=0x10efc8, symbol_index=233,
+                                        slot_bytes_hex='00 00 00 00 00 00 00 00'))
 
     def test_actual_object_and_raw_relocation(self):
         item, = bindings.export(self.data, [self.spec])
         self.assertEqual(item['bytes_hex'], self.spec['bytes_hex'])
         self.assertEqual(item['relocation']['slot'], 0x10efc8)
+        self.assertEqual(item['relocation']['slot_bytes_hex'], '00 00 00 00 00 00 00 00')
         self.assertEqual(len(bytes.fromhex(item['relocation']['bytes_hex'])), 24)
         self.assertIn('No dynamic-loader', item['limit'])
 
@@ -37,7 +39,7 @@ class DataBindings(unittest.TestCase):
 
     def test_actual_bytes_and_relocation_mutations(self):
         item, = bindings.export(self.data, [self.spec])
-        for offset in [item['file_offset'], 53296, 53304, 53312]:
+        for offset in [item['file_offset'], 53296, 53304, 53312, item['relocation']['slot_file_offset']]:
             with self.subTest(offset=offset):
                 data = bytearray(self.data); data[offset] ^= 1
                 with self.assertRaises(ValueError): bindings.export(data, [self.spec])
