@@ -3,66 +3,6 @@
   "status": "inspected blockers; not formal statements or proofs",
   "candidates": [
     {
-      "project": "tinycc",
-      "function": "is_space",
-      "artifact": "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc",
-      "source": "corpus/tinycc/upstream/tcc-0.9.27/tcc.h",
-      "status": "blocked",
-      "blockers": [
-        "Core elaboration lacks short-circuit/conditional and required comparison/character operations",
-        "O0 duplicate local symbols require address/TU-specific mapping; canonical O2 helpers eliminated/inlined"
-      ],
-      "probe": "not individually run; syntax/framework blockers inspected"
-    },
-    {
-      "project": "tinycc",
-      "function": "isid",
-      "artifact": "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc",
-      "source": "corpus/tinycc/upstream/tcc-0.9.27/tcc.h",
-      "status": "blocked",
-      "blockers": [
-        "Core elaboration lacks short-circuit/conditional and required comparison/character operations",
-        "O0 duplicate local symbols require address/TU-specific mapping; canonical O2 helpers eliminated/inlined"
-      ],
-      "probe": "not individually run; syntax/framework blockers inspected"
-    },
-    {
-      "project": "tinycc",
-      "function": "isnum",
-      "artifact": "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc",
-      "source": "corpus/tinycc/upstream/tcc-0.9.27/tcc.h",
-      "status": "blocked",
-      "blockers": [
-        "Core elaboration lacks short-circuit/conditional and required comparison/character operations",
-        "O0 duplicate local symbols require address/TU-specific mapping; canonical O2 helpers eliminated/inlined"
-      ],
-      "probe": "isnum exact closed source passed typed frontend; actual Core error: unsupported binary operator outside scalar add/sub/mul/gt/eq"
-    },
-    {
-      "project": "tinycc",
-      "function": "isoct",
-      "artifact": "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc",
-      "source": "corpus/tinycc/upstream/tcc-0.9.27/tcc.h",
-      "status": "blocked",
-      "blockers": [
-        "Core elaboration lacks short-circuit/conditional and required comparison/character operations",
-        "O0 duplicate local symbols require address/TU-specific mapping; canonical O2 helpers eliminated/inlined"
-      ],
-      "probe": "not individually run; syntax/framework blockers inspected"
-    },
-    {
-      "project": "tinycc",
-      "function": "toup",
-      "artifact": "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc",
-      "source": "corpus/tinycc/upstream/tcc-0.9.27/tcc.h",
-      "status": "blocked",
-      "blockers": [
-        "Core elaboration lacks short-circuit/conditional and required comparison/character operations",
-        "O0 duplicate local symbols require address/TU-specific mapping; canonical O2 helpers eliminated/inlined"
-      ],
-      "probe": "not individually run; syntax/framework blockers inspected"
-    },
-    {
       "project": "mimalloc",
       "function": "_mi_option_get_fast",
       "status": "blocked",
@@ -162,6 +102,43 @@
         "bitwise macro lowering/config binding required"
       ],
       "evidence": "actual symbol0xff10,size7 and upstream conditional definitions inspected; identity definition deliberately not substituted"
+    }
+  ],
+  "promoted": [
+    {
+      "project": "tinycc",
+      "function": "is_space",
+      "status": "stated-unproved",
+      "function_address": 29909,
+      "root": "Silmaril.Elf.Corpus.TinyccClosed.Space.Thms"
+    },
+    {
+      "project": "tinycc",
+      "function": "isid",
+      "status": "stated-unproved",
+      "function_address": 29960,
+      "root": "Silmaril.Elf.Corpus.TinyccClosed.Identifier.Thms"
+    },
+    {
+      "project": "tinycc",
+      "function": "isnum",
+      "status": "stated-unproved",
+      "function_address": 30011,
+      "root": "Silmaril.Elf.Corpus.TinyccClosed.Digit.Thms"
+    },
+    {
+      "project": "tinycc",
+      "function": "isoct",
+      "status": "stated-unproved",
+      "function_address": 30044,
+      "root": "Silmaril.Elf.Corpus.TinyccClosed.Octal.Thms"
+    },
+    {
+      "project": "tinycc",
+      "function": "toup",
+      "status": "stated-unproved",
+      "function_address": 30077,
+      "root": "Silmaril.Elf.Corpus.TinyccClosed.Upper.Thms"
     }
   ]
 }

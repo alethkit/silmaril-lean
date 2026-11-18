@@ -32,6 +32,14 @@ def inventory(root):
     for statement in formal:
         if statement['kind'] not in ['functional_equivalence', 'contextual_c_to_elf'] or statement['status'] != 'stated-unproved':
             raise ValueError('unsupported formal statement status')
+        if 'function_address' in statement:
+            address = statement['function_address']
+            if type(address) is not int or address < 0:
+                raise ValueError('invalid function address scope')
+        if 'function_addresses' in statement:
+            addresses = statement['function_addresses']
+            if set(addresses) != set(statement['artifact_sha256']) or any(type(a) is not int or a < 0 for a in addresses.values()):
+                raise ValueError('incomplete function address scopes')
         run = json.loads((root / statement['run_receipt']).read_text())
         if run['exit_code'] != 0 or statement['root'] not in run['command']:
             raise ValueError('formal statement check receipt mismatch')

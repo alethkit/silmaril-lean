@@ -26,6 +26,18 @@ def artifact_census(root, artifact):
     return text
 
 
+def measurement_runs(paths):
+    """Merge repeated references to one immutable run; reject conflicting writers."""
+    runs = {}
+    for path in paths:
+        run = json.loads(path.read_text())
+        key = run['run_id']
+        if key in runs and runs[key] != run:
+            raise ValueError(f'conflicting measurements for run {key}')
+        runs[key] = run
+    return runs.values()
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output', type=Path, required=True)
@@ -99,7 +111,10 @@ CREATE TABLE corpus_timings(run_id TEXT PRIMARY KEY, build_id TEXT, stage TEXT N
                  json.dumps(artifact), census, json.dumps(sources)))
             for ordinal, function in enumerate(functions):
                 concrete = [s for s in formal if s.get('function_symbol') == function.get('symbol', function.get('name'))
-                            and artifact['path'] in s['artifact_sha256']]
+                            and artifact['path'] in s['artifact_sha256']
+                            and ('function_address' not in s or function['value'] == s['function_address'])
+                            and ('function_addresses' not in s or function['value'] == s['function_addresses'][artifact['path']])
+                            and ('function_size' not in s or function['size'] == s['function_size'])]
                 if concrete:
                     function['formal_statements'] = [{k: s[k] for k in ['kind', 'status', 'declaration', 'root']} for s in concrete]
                 contextual = [s for s in concrete if s['kind'] == 'contextual_c_to_elf']
@@ -111,8 +126,7 @@ CREATE TABLE corpus_timings(run_id TEXT PRIMARY KEY, build_id TEXT, stage TEXT N
                     function.get('symbol', function.get('name')), function['value'], function['size'], json.dumps(function)))
         baseline_paths = list((ROOT / 'corpus/census/runs').glob('*.json'))
         baseline_paths += list((ROOT / 'corpus/measurements').glob('*/runs/*.json'))
-        for run_path in baseline_paths:
-            run = json.loads(run_path.read_text())
+        for run in measurement_runs(baseline_paths):
             db.execute('INSERT INTO corpus_timings VALUES(?,?,?,?)', (run['run_id'], None, run['stage'], json.dumps(run)))
     assert db.execute('PRAGMA quick_check').fetchall() == [('ok',)]
     print(json.dumps({'artifacts': data['artifact_rows'], 'unique_content_hashes': data['unique_content_hashes'],

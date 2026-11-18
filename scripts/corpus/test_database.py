@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class CorpusDatabase(unittest.TestCase):
     def test_checked_variant_modules_are_bound(self):
         artifacts = inventory(ROOT)['artifacts']
-        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 208)
+        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 211)
         check = json.loads((ROOT / 'corpus/measurements/variant-lean/checks.json').read_text())['artifacts'][0]
         source = ROOT / next(iter(check['module_sha256']))
         original = matrix.sha
@@ -29,12 +29,12 @@ class CorpusDatabase(unittest.TestCase):
 
     def test_concrete_function_statement_binding(self):
         data = inventory(ROOT)
-        self.assertEqual(data['formal_statement_counts'], {'contextual_c_to_elf': 4, 'functional_equivalence': 5})
+        self.assertEqual(data['formal_statement_counts'], {'contextual_c_to_elf': 9, 'functional_equivalence': 6})
         participants = [a for a in data['artifacts'] if a['functional_equivalence_statements']]
-        self.assertEqual(len(participants), 8)
-        self.assertEqual({a['project'] for a in participants}, {'mimalloc'})
+        self.assertEqual(len(participants), 10)
+        self.assertEqual({a['project'] for a in participants}, {'mimalloc', 'tinycc'})
         source_participants = [a for a in data['artifacts'] if a['contextual_c_to_elf_statements']]
-        self.assertEqual([a['path'] for a in source_participants], ['corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1', 'corpus/elf/openssl/x86_64/libssl.so.3'])
+        self.assertEqual([a['path'] for a in source_participants], ['corpus/elf/mimalloc/x86_64/libmimalloc.so.2.1', 'corpus/elf/openssl/x86_64/libssl.so.3', 'corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/tcc'])
         check = json.loads((ROOT / 'corpus/measurements/formal-functions/checks.json').read_text())['statements'][0]
         source = ROOT / next(iter(check['module_sha256']))
         original = matrix.sha
@@ -66,6 +66,19 @@ class CorpusDatabase(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'census artifact or receipt identity mismatch'):
                     database.artifact_census(root, artifact)
 
+    def test_measurement_identity_merge(self):
+        receipt = next((ROOT / 'corpus/measurements/formal-functions/runs').glob('*.json'))
+        original = json.loads(receipt.read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            first, second = Path(tmp) / 'formal.json', Path(tmp) / 'structural.json'
+            first.write_text(json.dumps(original))
+            second.write_text(json.dumps(original))
+            self.assertEqual(list(database.measurement_runs([first, second])), [original])
+            conflicting = {**original, 'wall_seconds': original['wall_seconds'] + 1}
+            second.write_text(json.dumps(conflicting))
+            with self.assertRaisesRegex(ValueError, 'conflicting measurements for run'):
+                list(database.measurement_runs([first, second]))
+
     def test_real_inputs_and_preserved_base(self):
         with tempfile.TemporaryDirectory() as tmp:
             base, output = Path(tmp) / 'base.sqlite', Path(tmp) / 'corpus.sqlite'
@@ -94,6 +107,15 @@ class CorpusDatabase(unittest.TestCase):
             for name in ['_mi_arena_id_none', '_mi_allocator_done']:
                 rows = db.execute('SELECT mapping FROM corpus_functions WHERE symbol=?', (name,)).fetchall()
                 self.assertEqual(sum('concrete contextual C-to-ELF statement' in row[0] for row in rows), 1)
+            for name, address in [('is_space',29909),('isid',29960),('isnum',30011),('isoct',30044),('toup',30077)]:
+                rows = db.execute('SELECT address,mapping FROM corpus_functions WHERE symbol=?', (name,)).fetchall()
+                selected = [addr for addr,mapping in rows if 'concrete contextual C-to-ELF statement' in mapping]
+                self.assertEqual(selected, [address], name)
+            paired = db.execute("SELECT address,mapping FROM corpus_functions WHERE symbol='isid'").fetchall()
+            binary_addresses = [addr for addr,mapping in paired if any(s['kind']=='functional_equivalence' for s in json.loads(mapping).get('formal_statements', []))]
+            self.assertEqual(sorted(binary_addresses), [24069,29960])
+            clones = db.execute("SELECT count(*) FROM corpus_functions WHERE symbol='isnum'").fetchone()[0]
+            self.assertGreater(clones, 1, 'same-name local clones remain distinct')
             self.assertGreater(db.execute('SELECT count(*) FROM corpus_functions').fetchone()[0], 42000)
             self.assertGreater(db.execute('SELECT count(*) FROM corpus_timings').fetchone()[0], 10)
             self.assertTrue(all(row[2].upper() != 'BLOB' for row in db.execute('PRAGMA table_info(corpus_artifacts)')))
