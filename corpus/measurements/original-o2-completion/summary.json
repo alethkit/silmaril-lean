@@ -1,9 +1,28 @@
 {
-  "actual_new_elf_rows": 16,
-  "unique_new_hashes": 16,
-  "new_profiles": 6,
-  "measured_exits_passed": 78,
-  "unstripped_matching_canonical": 8,
+  "actual_new_elf_rows": 20,
+  "unique_new_hashes": 20,
+  "new_profiles": 8,
+  "measured_exits_passed": 102,
+  "unstripped_matching_canonical": 9,
+  "unstripped_canonical_mismatches": [
+    {
+      "object": "libjemalloc.so.2",
+      "path": "corpus/variants/jemalloc/5.3.0/default/x86_64/O2/unstripped/libjemalloc.so.2",
+      "size": 757944,
+      "sha256": "4f87f072a249eb62c91cea7f1eebe272a1d2f68ec563731dccaf13c05e0dee5d",
+      "elf_machine": "Advanced Micro Devices X86-64",
+      "func_symbols": 1141,
+      "has_symtab": true,
+      "has_debug_info": false,
+      "stripping": "unstripped",
+      "receipt": "corpus/variants/jemalloc/5.3.0/default/x86_64/O2/unstripped/receipt.json",
+      "receipt_sha256": "85196c945415398f5eadfab183e9d1d7ace407ae2ddfd8bb76673ccf973b9650",
+      "census": "corpus/census/variants/jemalloc/5.3.0/default/x86_64/O2/unstripped/libjemalloc.so.2.json",
+      "strip_pair": "corpus/variants/jemalloc/5.3.0/default/x86_64/O2/libjemalloc.so.2.pair.json",
+      "canonical_sha256": "ce0ef2ae0354cbe866f229013cada094e54f8d304282b784b0528f4c349e8cd7",
+      "matches_canonical": false
+    }
+  ],
   "projects": [
     {
       "project": "darkhttpd",
@@ -19,6 +38,11 @@
       "project": "mimalloc",
       "actual_new_elf_rows": 4,
       "summary": "mimalloc/summary.json"
+    },
+    {
+      "project": "jemalloc",
+      "actual_new_elf_rows": 4,
+      "summary": "jemalloc/summary.json"
     }
   ]
 }
