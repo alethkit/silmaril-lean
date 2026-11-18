@@ -767,6 +767,8 @@ def check_manifest(root: pathlib.Path, m: dict, blobs: dict[str, bytes]) -> None
 
 
 def check_include_env(env: dict, receipt: dict, arts: dict, blobs: dict) -> None:
+    if "trace" in env:
+        raise ValueError("include traces belong in the dependency receipt")
     search = json.loads(blobs[env["search_receipt"]])
     main = env["files"][0]
     if (main.get("artifact") != "source" or main["sha256"] != arts["source"]["sha256"]
@@ -784,8 +786,47 @@ def check_include_env(env: dict, receipt: dict, arts: dict, blobs: dict) -> None
                 or captured["flags"] != dependencies["flags"]
                 or files != [(entry["path"], entry["sha256"], entry["size"]) for entry in captured["files"]]):
             raise ValueError("include environment differs from its dependency receipt")
+        if "trace" in captured:
+            command = env["options"]
+            if (captured["source_sha256"] != arts["source"]["sha256"]
+                    or command[0] != "gcc" or command[-3:-1] != [captured["source"], "-o"]
+                    or captured["flags"].split() != [flag for flag in command[1:-3] if flag != "-S"]):
+                raise ValueError("include trace does not match the build input and options")
+            check_include_trace(captured["trace"], main["name"], {entry[0] for entry in files})
     elif files:
         raise ValueError("header entries need a dependency receipt")
+
+
+def check_include_trace(trace: dict, main: str, files: set[str]) -> None:
+    events = trace["occurrences"]
+    if trace["method"] != "gcc -E -dI -H" or not isinstance(events, list):
+        raise ValueError("unrecognized include trace method")
+    chain = []
+    observed = set()
+    for index, event in enumerate(events):
+        parent, dest = event["parent"], event["resolved"]
+        if parent is None:
+            chain.clear()
+        elif type(parent) is not int or parent not in chain:
+            raise ValueError("include trace parent does not name an active header entry")
+        else:
+            del chain[chain.index(parent) + 1:]
+        if event["directive"] == "implicit":
+            if parent is not None or dest is None or "operand" in event:
+                raise ValueError("malformed implicit include trace entry")
+        else:
+            operand = event["operand"]
+            if (event["directive"] not in ("include", "include_next", "import")
+                    or not re.fullmatch(r'<[^>\n]+>|"[^"\n]+"', operand)
+                    or event["from"] != (main if parent is None else events[parent]["resolved"])
+                    or type(event["line"]) is not int or event["line"] < 1
+                    or type(event["literal"]) is not bool):
+                raise ValueError("malformed include directive or its provenance")
+        if dest is not None:
+            observed.add(dest)
+            chain.append(index)
+    if observed != files:
+        raise ValueError("include trace does not match the dependency files")
 
 
 def ingest_manifest(db: sqlite3.Connection, path: pathlib.Path, root: pathlib.Path = ROOT,
@@ -927,6 +968,8 @@ STATUS_TEXT = {
     "claimed": "an exporter result handed in as a file: not run here, so not counted as proved",
     "open": "stated in Lean, not proved",
     "unchecked": "a proof is claimed but no checked evidence is recorded",
+    "unavailable": "this project database does not contain the required row; no theorem was checked",
+    "incompatible": "this project database row has different shape or arguments; no theorem was checked",
     "rejected": "the claimed proof was checked and does not prove the statement",
     "stale": "proved for another version of this problem only",
     "refuted": "disproved: a theorem of the statement's negation, checked when Lean built it",
@@ -949,7 +992,8 @@ def obligation_status(db, ver, o) -> dict:
 def raw_status(db, ver, o) -> dict:
     if o["unsupported"]:
         return {"status": "unsupported", "reason": o["unsupported"]}
-    evs = db.execute("SELECT * FROM evidence WHERE version_id = ? AND obligation_id = ? ORDER BY id DESC",
+    evs = db.execute("SELECT * FROM evidence WHERE version_id = ? AND obligation_id = ? "
+                     "ORDER BY CASE origin WHEN 'exporter-run' THEN 0 WHEN 'sil-project' THEN 1 ELSE 2 END, id DESC",
                      (ver["id"], o["id"])).fetchall()
     evs = [e for e in evs if e["context_hash"] == ver["context_hash"]
            and e["manifest_sha256"] == ver["manifest_sha256"] and e["statement"] == o["statement"]
@@ -964,8 +1008,12 @@ def raw_status(db, ver, o) -> dict:
             status = "refuted" if checked else "claimed"
         elif e["status"] == "open":
             status = "open"
+        elif e["kind"] == "sil-project" and e["status"] in ("missing", "mismatch"):
+            status = "unavailable" if e["status"] == "missing" else "incompatible"
         else:
             status = "rejected"
+        if status in ("unavailable", "incompatible"):
+            return {"status": status, "reason": e["detail"]}
         return {"status": status, "evidence": {
             "kind": e["kind"], "export_status": e["status"], "decl": e["decl"],
             "axioms": json.loads(e["axioms"] or "[]"), "lean_version": e["lean_version"],
@@ -1059,7 +1107,7 @@ def obligation_links(o: dict) -> list[dict]:
         link = definition_link(ev["decl"], ev, ev.get("git_commit"))
         if link:
             out.append(link)
-    if o.get("row"):
+    if o.get("row") and o["status"] not in ("unavailable", "incompatible"):
         out.append({"kind": "explorer", "label": f"row {o['row']} (silmaril explorer)",
                     "url": explorer_link("problem", o["row"])})
         if ev.get("origin") == "sil-project" and ev.get("decl"):
@@ -1145,6 +1193,10 @@ def problem_view(db, pid: str, catalog: tuple[str, dict] | None = None) -> dict 
     definitions = [link for decl, loc in json.loads(verification["definitions"]).items()
                    if (link := definition_link(decl, loc, verification["git_commit"]))] if verification else []
     extra = json.loads(ver["extra"])
+    if extra.get("include_env") and (dependencies := extra["include_env"].get("dependencies")):
+        captured = artifact_text(db, arts[dependencies["artifact"]]["sha256"])
+        if captured and (trace := json.loads(captured).get("trace")):
+            extra["include_env"]["trace"] = trace
     for block in extra.get("blocks", []):
         if catalog:
             entry = catalog[1].get(block["elf_sha256"], {})
@@ -1286,7 +1338,7 @@ def ingest_project(db: sqlite3.Connection, project: pathlib.Path) -> int:
                             "WHERE o.version_id = ? AND o.row IS NOT NULL", (ver["id"],)):
             shape, args = ROW_SHAPES[family][o["kind"]]
             prob = pdb.execute("SELECT * FROM problems WHERE name = ?", (o["row"],)).fetchone()
-            status, detail, decl, axioms = "missing", "no such row in the project database", None, []
+            status, detail, decl, axioms = "missing", "Required row absent from this project database", None, []
             if prob is not None:
                 parent = pdb.execute("SELECT parent FROM edges WHERE kind = 'instance' AND child = ?",
                                      (o["row"],)).fetchone()

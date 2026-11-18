@@ -318,6 +318,12 @@ function drawQuestions(p) {
   const box = $("questions");
   box.replaceChildren(el("h2", null, "Questions"));
   const x = p.extra || {};
+  if (p.obligations.some((obligation) => obligation.status === "unavailable" || obligation.status === "incompatible")) {
+    box.append(el("p", "muted", "Some project evidence is missing or does not match. These are database states, not rejected theorems. " +
+      "Regenerate the site from the same checkout, or run make compiler-explorer-check for exact local evidence."));
+  } else if (p.obligations.some((obligation) => obligation.status === "unchecked")) {
+    box.append(el("p", "muted", "Some evidence is not loaded. Run make compiler-explorer-check, then open the local viewer."));
+  }
   const shown = p.obligations.filter((o) => MAIN.includes(o.kind) && !(x.problem_form === "relation" && o.status === "unsupported"));
   shown.sort((a, b) => MAIN.indexOf(a.kind) - MAIN.indexOf(b.kind));
   for (const o of shown) box.append(obligationRow(o, false, true));
@@ -469,7 +475,9 @@ function drawEnv(p) {
   provenance.append(el("code", null, env.image));
   d.append(provenance);
   const table = el("table", "include-files");
-  const caption = env.dependencies
+  const caption = env.trace
+    ? "GCC include trace: direct from the main file, indirect from a header. Repeats are grouped; open a name for ordered occurrences. “Not entered” does not establish why GCC skipped a file."
+    : env.dependencies
     ? "Names are path basenames. Directive spelling, direct versus indirect, resolution history, aliases, repeats and guard effects: unknown."
     : "Main file only. No header dependency capture for this build.";
   table.append(el("caption", "muted", caption));
@@ -484,10 +492,28 @@ function drawEnv(p) {
     const row = body.insertRow();
     const name = el("details");
     const label = el("summary", null, file.label + (file.main ? " · main" : ""));
-    label.title = `Resolved path: ${file.path}`;
-    name.append(label, el("code", "file-detail", file.path));
+    if (file.kind) label.append(el("span", "muted", ` · ${file.kind}`));
+    if (file.events?.length > 1) label.append(el("span", "muted", ` ×${file.events.length}`));
+    const resolution = file.path ? `Resolved path: ${file.path}` : "No file entry recorded; resolution unknown";
+    const first = file.events?.[0];
+    label.title = first?.operand ? `${resolution}\n${first.operand} from ${first.from}:${first.line} (${file.kind})` : resolution;
+    name.append(label, el("code", "file-detail", file.path || "Not entered · resolution unknown"));
+    for (const event of file.events || []) {
+      if (!event.operand) {
+        name.append(el("div", "muted", `#${event.index + 1} · implicit compiler entry; no source directive`));
+        continue;
+      }
+      const origin = event.literal ? "literal" : "GCC-reported operand; literal spelling not confirmed";
+      const parent = event.parent === null ? "main file" : `inside #${event.parent + 1}`;
+      name.append(el("div", "file-detail", `#${event.index + 1} · #${event.directive} ${event.operand} · ` +
+        `${event.from}:${event.line} · ${parent} · ${origin}`));
+    }
     row.insertCell().append(name);
-    row.insertCell().textContent = file.size.toLocaleString();
+    row.insertCell().textContent = file.size?.toLocaleString() ?? "—";
+    if (!file.sha256) {
+      row.insertCell().textContent = "—";
+      continue;
+    }
     const fingerprint = el("details");
     const short = el("summary");
     short.title = `Full SHA-256: ${file.sha256}`;

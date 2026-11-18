@@ -9,9 +9,9 @@
     python3 -I tools/compiler-explorer/fixtures.py viewer --out SITE    # exact C/ELF viewer assets
     python3 -I tools/compiler-explorer/fixtures.py include-map MANIFEST OUT  # pinned image header bytes
 
-`build` and `listings` run the pinned gcc image of tools/c-tv (by digest) with no network
-(`--network none`), the caller's uid and the sources mounted read-only. They write what they
-produced and a receipt (image digest, command, tool versions and hashes, input and output
+`build` and `listings` run the pinned gcc image of tools/c-tv (by digest), with no network by
+default (`CEXPLORER_DOCKER_NETWORK` overrides it), the caller's uid and sources mounted read-only.
+They write what they produced and a receipt (image digest, command, tool versions and hashes, input and output
 SHA-256) under examples/compiler-explorer/. `manifests` reads only committed files and is
 deterministic: the manifests are a function of the sources, the receipts, the listings and
 the c-tv correspondences.
@@ -44,6 +44,7 @@ LISTINGS = EX / "compiles-to"
 
 IMAGE = ("gcc:13.3.0@sha256:"
          "1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818")
+DOCKER_NETWORK = os.environ.get("CEXPLORER_DOCKER_NETWORK", "none")
 OPTS = ["O0", "O2"]
 S_FLAGS = ["-g", "-S", "-std=c11", "-fno-asynchronous-unwind-tables",
            "-fdebug-prefix-map=/src=."]
@@ -78,7 +79,8 @@ def dump(path: pathlib.Path, obj) -> None:
 
 
 def docker(mounts: list[tuple[pathlib.Path, str, bool]], script: str) -> None:
-    cmd = ["docker", "run", "--rm", "--network", "none", "-u", f"{os.getuid()}:{os.getgid()}"]
+    cmd = ["docker", "run", "--rm", "--network", DOCKER_NETWORK,
+           "-u", f"{os.getuid()}:{os.getgid()}"]
     for host, guest, ro in mounts:
         cmd += ["-v", f"{host}:{guest}" + (":ro" if ro else "")]
     cmd += ["-w", "/src", IMAGE, "sh", "-eu", "-c", script]
@@ -108,7 +110,7 @@ def build() -> None:
                 (out / f"{prog}.s").write_bytes(asm)
                 stdout = (t / "stdout.txt").read_bytes()
                 receipt = {
-                    "image": IMAGE, "workdir": "/src", "network": "none",
+                    "image": IMAGE, "workdir": "/src", "network": DOCKER_NETWORK,
                     "command": compile_cmd.replace("/out/", ""),
                     "gcc": (t / "gcc.txt").read_text().strip(),
                     "as": (t / "as.txt").read_text().strip(),
@@ -150,7 +152,7 @@ def listings() -> None:
                 text = (t / "listing.txt").read_bytes()
                 (out / "listing.txt").write_bytes(text)
                 dump(out / "RECEIPT.json", {
-                    "image": IMAGE, "workdir": "/src", "network": "none", "command": cmd,
+                    "image": IMAGE, "workdir": "/src", "network": DOCKER_NETWORK, "command": cmd,
                     "objdump": (t / "objdump.txt").read_text().strip(),
                     "object": {"path": f"examples/compiles-to/{name}/{opt}/{name}.o",
                                "sha256": sha256(obj.read_bytes())},
@@ -161,7 +163,7 @@ def listings() -> None:
 
 # ---------------------------------------------------------------------------------------------
 # The preprocessor's environment: predefined macros, search order and included files, as the
-# pinned compiler reports them (`gcc -dM -E`, `gcc -E -v`, `gcc -M`), content-addressed.
+# pinned compiler reports them (`gcc -dM -E`, `gcc -E -v`, `gcc -M`, `gcc -E -dI -H`).
 
 ENV = EX / "env"
 CT_FLAGS = ("-g -c -fdebug-prefix-map=/src=. -std=c11 -ffreestanding -fno-builtin -fno-stack-protector "
@@ -169,23 +171,113 @@ CT_FLAGS = ("-g -c -fdebug-prefix-map=/src=. -std=c11 -ffreestanding -fno-builti
             "-fno-unwind-tables -fno-ident")
 
 
+PP_MARKER = re.compile(r'# (\d+) "([^"\\]*)"((?: [1-4])*)')
+PP_INCLUDE = re.compile(r'#(include|include_next|import) (<[^>\n]+>|"[^"\n]+")')
+LITERAL_INCLUDE = re.compile(r'^\s*#\s*(include|include_next|import)\s*(<[^>\n]+>|"[^"\n]+")'
+                             r'\s*(?://.*|/\*[^\n]*\*/\s*)?$')
+HEADER_ENTRY = re.compile(r'(\.+) (.+)')
+
+
+def include_path(name: str) -> str:
+    return name if name.startswith(('/', '<')) else '/src/' + name
+
+
+def include_occurrences(pp: str, headers: str, source: str, contents: dict[str, bytes]) -> list[dict]:
+    """Pair GCC's -dI events with enter/return markers, checking physical entries against -H."""
+    out = []
+    stack = []
+    opened = []
+    path, number, pending = include_path(source), 0, None
+    lines = {name: data.decode('utf-8', errors='replace').split('\n') for name, data in contents.items()}
+    for line in pp.split('\n'):
+        if match := PP_INCLUDE.fullmatch(line):
+            directive, operand = match.groups()
+            parent = stack[-1] if stack else None
+            if path != (out[parent]['resolved'] if parent is not None else include_path(source)):
+                raise ValueError(f"unexpected include location {path}:{number}")
+            physical = lines[path][number - 1] if 0 < number <= len(lines[path]) else ''
+            literal = LITERAL_INCLUDE.fullmatch(physical)
+            pending = len(out)
+            out.append({"directive": directive, "operand": operand, "from": path, "line": number,
+                        "literal": literal is not None and literal.groups() == (directive, operand),
+                        "parent": parent, "resolved": None})
+            number += 1
+        elif match := PP_MARKER.fullmatch(line):
+            lineno, file, flags = match.groups()
+            dest = include_path(file)
+            flags = flags.split()
+            if '1' in flags:
+                if dest not in contents:
+                    raise ValueError(f"GCC entered a file missing from the input set: {dest}")
+                if pending is not None:
+                    out[pending]['resolved'] = dest
+                    opened.append((len(stack) + 1, dest))
+                elif path == '<command-line>' and not stack:
+                    pending = len(out)
+                    out.append({"directive": "implicit", "parent": None, "resolved": dest})
+                else:
+                    raise ValueError(f"unpaired GCC file entry {dest}")
+                stack.append(pending)
+                pending = None
+            elif '2' in flags:
+                if not stack or out[stack.pop()].get('from', '<command-line>') != dest:
+                    raise ValueError(f"unpaired GCC file return {dest}")
+                pending = None
+            elif pending is not None and (dest != path or int(lineno) != out[pending]['line']):
+                pending = None
+            path, number = dest, int(lineno)
+        else:
+            number += 1
+            pending = None
+    expected = [(len(match[1]), include_path(match[2])) for line in headers.splitlines()
+                if (match := HEADER_ENTRY.fullmatch(line))]
+    if stack or opened != expected:
+        raise ValueError("GCC include directives and header entries did not agree")
+    return out
+
+
+def capture_includes(prog: str, flags: str, directory: pathlib.Path) -> dict:
+    source = f"{prog}.c"
+    mounts = [(PROGRAMS, "/src", True), (directory, "/out", False)]
+    docker(mounts, f"gcc {flags} -M -MT fixture {source} > /out/deps; "
+                   f"gcc {flags} -E -dI -H {source} > /out/preprocessed 2> /out/headers")
+    stem, deps = (directory / "deps").read_text().replace('\\\n', ' ').split(':', 1)
+    names = deps.split()
+    if stem != 'fixture' or not names or names[0] != source or any(
+            not re.fullmatch(r'[a-zA-Z0-9._+/\-]+', name) for name in names):
+        raise ValueError("unsupported GCC make dependency spelling; refusing to guess header paths")
+    headers = sorted(set(names[1:]))
+    (directory / 'header-paths').write_text(''.join(f'{name}\n' for name in headers))
+    docker(mounts, "tar -chf /out/headers.tar --no-recursion --verbatim-files-from -T /out/header-paths")
+    files, contents = [], {include_path(source): (PROGRAMS / source).read_bytes()}
+    with tarfile.open(directory / 'headers.tar') as archive:
+        for name in headers:
+            data = archive.extractfile(name.lstrip('/')).read()
+            path = include_path(name)
+            files.append({"path": path, "sha256": sha256(data), "size": len(data)})
+            contents[path] = data
+    occurrences = include_occurrences((directory / 'preprocessed').read_text(),
+                                      (directory / 'headers').read_text(), source, contents)
+    if {event['resolved'] for event in occurrences if event['resolved']} != {entry['path'] for entry in files}:
+        raise ValueError("GCC include entries and dependency files did not agree")
+    return {"image": IMAGE, "flags": flags, "source": source, "files": files,
+            "source_sha256": sha256(contents[include_path(source)]),
+            "trace": {"method": "gcc -E -dI -H", "occurrences": occurrences}}
+
+
 def preprocessor_env() -> None:
     ENV.mkdir(parents=True, exist_ok=True)
     jobs = [(f"compiles-to-{opt}", f"-{opt} {CT_FLAGS}", None) for opt in OPTS]
     jobs += [(f"programs-{opt}", f"-{opt} " + " ".join(S_FLAGS[:1] + S_FLAGS[2:]), None) for opt in OPTS]
-    jobs += [(f"{prog}-O2", "-O2 " + " ".join(S_FLAGS[:1] + S_FLAGS[2:]), prog) for prog in PROGRAM_LIBS]
+    jobs += [(f"{prog}-{opt}", f"-{opt} " + " ".join(S_FLAGS[:1] + S_FLAGS[2:]), prog)
+             for prog in PROGRAM_LIBS for opt in OPTS]
     for tag, flags, prog in jobs:
         with tempfile.TemporaryDirectory() as tmp:
+            t = pathlib.Path(tmp)
             if prog is None:
                 script = (f"gcc {flags} -dM -E -x c /dev/null | LC_ALL=C sort > /out/macros.h; "
                           f"gcc {flags} -E -v -x c /dev/null 2> /out/search.txt > /dev/null")
-            else:
-                script = (f"gcc {flags} -M {prog}.c | tr -d '\\\\' | tr ' ' '\\n' | grep '\\.h$' "
-                          f"| LC_ALL=C sort -u > /out/headers.txt; "
-                          f"for h in $(cat /out/headers.txt); do sha256sum $h; stat -c %s $h; done > /out/hashes.txt")
-            docker([(PROGRAMS, "/src", True), (pathlib.Path(tmp), "/out", False)], script)
-            t = pathlib.Path(tmp)
-            if prog is None:
+                docker([(PROGRAMS, "/src", True), (t, "/out", False)], script)
                 (ENV / f"{tag}.macros.txt").write_bytes((t / "macros.h").read_bytes())
                 lines = (t / "search.txt").read_text().splitlines()
                 i = lines.index("#include <...> search starts here:")
@@ -193,13 +285,7 @@ def preprocessor_env() -> None:
                 dump(ENV / f"{tag}.search.json", {"image": IMAGE, "flags": flags,
                                                    "angle_search": [x.strip() for x in lines[i + 1:j]]})
             else:
-                rows = (t / "hashes.txt").read_text().split()
-                files = [{"path": rows[k + 1], "sha256": rows[k], "size": int(rows[k + 2])}
-                         for k in range(0, len(rows), 3)]
-                dump(ENV / f"{tag}.includes.json", {
-                    "image": IMAGE, "flags": flags, "source": f"{prog}.c",
-                    "note": "headers the pinned compiler reads (gcc -M), by SHA-256; the bytes are in the image",
-                    "files": files})
+                dump(ENV / f"{tag}.includes.json", capture_includes(prog, flags, t))
         print(f"env {tag}")
 
 
@@ -341,7 +427,7 @@ def program_manifests() -> list[dict]:
                               "receipt": file_ref(d / "RECEIPT.json", "application/json"),
                               "run": file_ref(d / "run.json", "application/json"),
                               "include_search": file_ref(ENV / f"programs-{opt}.search.json", "application/json"),
-                              "includes": file_ref(ENV / f"{prog}-O2.includes.json", "application/json"),
+                              "includes": file_ref(ENV / f"{prog}-{opt}.includes.json", "application/json"),
                               "macros": file_ref(ENV / f"programs-{opt}.macros.txt", "text/x-c")},
                 "view": {"source": "source", "target": "target"},
                 "problem_form": "relation",
@@ -351,7 +437,7 @@ def program_manifests() -> list[dict]:
                 "stages": [{"side": "target", "name": "gcc -S (cc1, pinned image)", "trust": "trusted",
                             "input": "source", "output": "target", "evidence": "receipt only"}],
                 "include_env": include_env(src, ENV / f"programs-{opt}.search.json", receipt,
-                                           ENV / f"{prog}-O2.includes.json"),
+                                           ENV / f"{prog}-{opt}.includes.json"),
                 "derivation": {"kind": "compiler", "compiler": "gcc", "version": receipt["gcc"],
                                "image": IMAGE, "command": receipt["command"], "opt": opt,
                                "target": "x86_64-linux-gnu", "receipt": "receipt"},
@@ -410,15 +496,17 @@ def include_env(main: pathlib.Path, search: pathlib.Path, receipt: dict,
     if includes is not None:
         dependency_run = json.loads(includes.read_text())
         dependencies = {"artifact": "includes", "flags": dependency_run["flags"]}
-        for f in dependency_run["files"]:
-            files.append({"name": f["path"], "sha256": f["sha256"], "size": f["size"],
-                          "where": "the pinned image " + IMAGE})
+        for header in dependency_run["files"]:
+            files.append({"name": header["path"], "sha256": header["sha256"], "size": header["size"]})
     search_result = json.loads(search.read_text())
     return {"files": files, "workdir": workdir, "image": receipt["image"],
             "search": search_result["angle_search"], "search_receipt": "include_search",
             "macros": "macros", "probe_flags": search_result["flags"], "dependencies": dependencies,
             "options": receipt["command"].split(),
             "note": ("Main file and observed headers by content; macros/search come from a separate probe. "
+                     "Header dependencies and include occurrences are GCC observations from a separate "
+                     "preprocessing probe, not a verified preprocessor." if includes else
+                     "Main file and observed headers by content; macros/search come from a separate probe. "
                      "Header dependencies, when present, are from the recorded gcc -M flags, not a replay "
                      "of every build. This is not a complete include map or a verified preprocessor.")}
 
@@ -687,7 +775,7 @@ def decompile() -> None:
         listing = (t / "listing.txt").read_bytes().replace(b"/out/", b"")
         (DECOMPILE / "listing.txt").write_bytes(listing)
         dump(DECOMPILE / "RECEIPT.json", {
-            "image": IMAGE, "workdir": "/src", "network": "none", "command": cmd.replace("/out/", ""),
+            "image": IMAGE, "workdir": "/src", "network": DOCKER_NETWORK, "command": cmd.replace("/out/", ""),
             "gcc": (t / "gcc.txt").read_text().strip(),
             "source": {"path": "scale.c", "sha256": sha256((DECOMPILE / "scale.c").read_bytes())},
             "object": {"path": "scale.o", "sha256": sha256(obj), "size": len(obj)},
@@ -1063,7 +1151,7 @@ def include_map(manifest_path: pathlib.Path, out: pathlib.Path) -> None:
     data = {entries[0]["name"]: blobs["source"]}
     if paths:
         result = subprocess.run(["docker", "run", "--rm", "--platform", "linux/amd64", "--read-only",
-                                 "--network", os.environ.get("CEXPLORER_DOCKER_NETWORK", "none"),
+                                 "--network", DOCKER_NETWORK,
                                  "--entrypoint", "tar", "-i", IMAGE, "-chf", "-", "--no-recursion",
                                  "--verbatim-files-from", "-T", "-"],
                                 input=("\n".join(paths) + "\n").encode(), capture_output=True, check=True, timeout=120)

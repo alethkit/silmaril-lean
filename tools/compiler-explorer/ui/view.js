@@ -73,7 +73,9 @@ export function badge(status) {
     proved: ["proved", "a theorem of exactly this statement, checked when Lean built it; read back by the exporter this database ran"],
     claimed: ["claimed", "an exporter result handed in as a file, not run by this database"],
     open: ["open", "stated in Lean, neither proved nor disproved: unknown"],
-    unchecked: ["unchecked", "a proof is named but no checked evidence is recorded"],
+    unchecked: ["not loaded", "a proof is named but no checked evidence is recorded"],
+    unavailable: ["evidence unavailable", "the project database lacks the required row; no theorem was checked"],
+    incompatible: ["incompatible evidence", "the project row does not match this problem; no theorem was checked"],
     rejected: ["rejected", "the named proof does not prove this statement"],
     stale: ["stale", "proof or refutation only for another version of these artifacts"],
     refuted: ["disproved", "a theorem of the statement's negation, checked by Lean's kernel"],
@@ -182,10 +184,22 @@ function opensComment(line) {
 }
 
 export function includeRows(env) {
-  return env.files.map((file) => ({
+  const files = env.files.map((file) => ({
     label: file.name.split("/").at(-1), path: file.name,
     main: file.artifact === "source", size: file.size, sha256: file.sha256,
   }));
+  if (!env.trace) return files;
+  const byPath = new Map(files.map((file) => [file.path, file]));
+  const rows = new Map();
+  env.trace.occurrences.forEach((event, index) => {
+    const file = byPath.get(event.resolved);
+    const kind = event.directive === "implicit" ? "implicit" : event.parent === null ? "direct" : "indirect";
+    const label = event.operand?.slice(1, -1) ?? file?.label ?? "(unknown)";
+    const key = JSON.stringify([label, event.resolved, kind]);
+    if (!rows.has(key)) rows.set(key, { ...file, label, path: event.resolved, kind, events: [] });
+    rows.get(key).events.push({ ...event, index });
+  });
+  return [...files.filter((file) => file.main), ...rows.values()];
 }
 
 export function prettySexp(text, width = 88) {

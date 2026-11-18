@@ -121,6 +121,30 @@ test("include rows preserve path identity; basenames are only display labels", (
   assert.notEqual(sameBasename[0].path, sameBasename[1].path);
 });
 
+test("include rows preserve directive aliases, resolution contexts and skipped repeats", () => {
+  const operand = (spelling, dest, parent) => ({ directive: "include", operand: spelling, resolved: dest, parent });
+  const shared = "/a/bits/name.h";
+  const alternate = "/b/bits/name.h";
+  const env = { files: [shared, alternate].map((name) => ({ name, size: 4, sha256: "a".repeat(64) })),
+    trace: { occurrences: [operand("<bits/name.h>", shared, null), operand('"name.h"', shared, 0),
+      operand("<bits/name.h>", alternate, null), operand("<alias.h>", shared, null),
+      operand("<bits/name.h>", null, null), operand("<bits/name.h>", null, null)] } };
+  const rows = includeRows(env);
+  assert.deepEqual(rows.map(({ label, path, kind }) => [label, path, kind]), [
+    ["bits/name.h", shared, "direct"], ["name.h", shared, "indirect"],
+    ["bits/name.h", alternate, "direct"], ["alias.h", shared, "direct"], ["bits/name.h", null, "direct"],
+  ]);
+  assert.deepEqual(rows.at(-1).events.map((event) => event.index), [4, 5]);
+  assert.equal(rows.at(-1).sha256, undefined);
+});
+
+test("missing and incompatible evidence have neutral badges, not rejection", () => {
+  for (const status of ["unchecked", "unavailable", "incompatible"]) {
+    assert.notEqual(badge(status).cls, badge("rejected").cls);
+    assert.notEqual(badge(status).cls, badge("refuted").cls);
+  }
+});
+
 test("S-expression formatting wraps nested lists but keeps empty lists and literals intact", () => {
   const literal = String.raw`"a (b), \"quoted\" and \\."`;
   const raw = `(root   (nested (a b)   ()) (text ${literal}))`;

@@ -429,6 +429,12 @@ class Project(Base):
         translation = next(o for o in view['obligations'] if o['kind'] == 'translation')
         self.assertEqual(translation['status'], 'proved')
         self.assertEqual(view['manifest_sha256'], cx.sha256(STRAIGHT_O0.read_bytes()))
+        other = views['compiles-to/straight/O2/add3']
+        absent = next(o for o in other['obligations'] if o['kind'] == 'translation')
+        self.assertEqual(absent['status'], 'unavailable')
+        self.assertNotIn('evidence', absent)
+        self.assertFalse(absent['links'])
+        self.assertNotIn('rejected', [o['status'] for o in other['obligations']])
         missing = views['programs/msort/O2']
         self.assertNotIn('proved', [o['status'] for o in missing['obligations']])
         self.assertIn('not every corpus function', (output / 'index.html').read_text())
@@ -464,7 +470,13 @@ class Project(Base):
         cx.ingest_manifest(self.db, STRAIGHT_O0)
         cx.ingest_project(self.db, self.project_db(edit))
         st = self.statuses("compiles-to/straight/O0/add3")
-        self.assertEqual(st["translation"], "rejected")
+        self.assertEqual(st["translation"], "incompatible")
+
+    def test_local_evidence_is_not_superseded_by_a_later_incompatible_project(self):
+        cx.ingest_manifest(self.db, STRAIGHT_O0)
+        self.trusted(self.write("ev.json", evidence_for(STRAIGHT_O0)))
+        cx.ingest_project(self.db, self.project_db(lambda pdb: pdb.execute("DELETE FROM problems")))
+        self.assertEqual(self.statuses("compiles-to/straight/O0/add3")["translation"], "proved")
 
     def test_open_row_and_other_axioms(self):
         def edit(pdb):
@@ -482,6 +494,47 @@ class Project(Base):
         cx.ingest_manifest(self.db, STRAIGHT_O0)
         with self.assertRaises(cx.Rejected):
             cx.ingest_project(self.db, self.project_db(edit))
+
+
+class IncludeTrace(Base):
+    def test_program_profiles_load_exact_distinct_trace_receipts(self):
+        for opt in ("O0", "O2"):
+            path = MANIFESTS / f"programs--msort--{opt}.json"
+            cx.ingest_manifest(self.db, path)
+            view = cx.problem_view(self.db, f"programs/msort/{opt}")
+            env = view["extra"]["include_env"]
+            self.assertEqual(env["dependencies"]["flags"].split()[0], f"-{opt}")
+            implicit, direct, indirect, *_ = env["trace"]["occurrences"]
+            self.assertEqual(implicit["directive"], "implicit")
+            self.assertEqual((direct["operand"], direct["literal"], direct["parent"], direct["line"]),
+                             ("<stdio.h>", True, None, 2))
+            self.assertEqual(indirect["parent"], 1)
+            self.assertEqual(indirect["operand"], "<bits/libc-header-start.h>")
+            self.assertNotEqual(indirect["operand"].strip("<>"), indirect["resolved"].split("/")[-1])
+            self.assertTrue(any(event["resolved"] is None for event in env["trace"]["occurrences"]))
+
+    def test_trace_requires_active_parent_and_exact_dependency_paths(self):
+        path = ROOT / "examples/compiler-explorer/env/msort-O2.includes.json"
+        receipt = json.loads(path.read_bytes())
+        files = {record["path"] for record in receipt["files"]}
+        with self.assertRaisesRegex(ValueError, "dependency files"):
+            cx.check_include_trace(receipt["trace"], "/src/msort.c", files | {"/elsewhere"})
+        receipt["trace"]["occurrences"][2]["parent"] = 0
+        with self.assertRaisesRegex(ValueError, "active header entry"):
+            cx.check_include_trace(receipt["trace"], "/src/msort.c", files)
+
+    def test_trace_is_tied_to_the_exact_source_and_optimization_profile(self):
+        manifest = json.loads(MSORT_O2.read_bytes())
+        arts = manifest["artifacts"]
+        blobs = {role: cx.read_artifact(ROOT, ref) for role, ref in arts.items()}
+        wrong = ROOT / "examples/compiler-explorer/env/msort-O0.includes.json"
+        blobs["includes"] = wrong.read_bytes()
+        env = manifest["include_env"]
+        env["dependencies"]["flags"] = json.loads(blobs["includes"])["flags"]
+        env["files"][1:] = [{"name": row["path"], "sha256": row["sha256"], "size": row["size"]}
+                            for row in json.loads(blobs["includes"])["files"]]
+        with self.assertRaisesRegex(ValueError, "build input and options"):
+            cx.check_include_env(env, json.loads(blobs["receipt"]), arts, blobs)
 
 
 class Directions(Base):

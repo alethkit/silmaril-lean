@@ -2,12 +2,21 @@
 
 ## Open the explorer
 
-From this repository, `gh pr checkout 1067` selects the working branch. Run
-`make compiler-explorer-serve` and open
-<http://127.0.0.1:8765/?problem=compiles-to%2Fstraight%2FO2%2Fadd3>. This fast path ingests
-the committed fixtures without Lean, preserves evidence for unchanged manifests if it is already
-in the database, and does not compile or execute input. To check the evidence first, run
-`make compiler-explorer-check`, then serve. Stop the server with Ctrl-C.
+From this repository, `gh pr checkout 1067` selects the working branch. Use the default database
+location for the verified quickstart:
+
+```sh
+make compiler-explorer-check
+make compiler-explorer-serve
+```
+
+Open <http://127.0.0.1:8765/?problem=compiles-to%2Fstraight%2FO2%2Fadd3>. The first command
+rebuilds `.lake/compiler-explorer/explorer.sqlite` with exporter evidence for the exact manifest
+and model bytes from this checkout. After switching revisions or changing a fixture, stop the
+viewer, run both commands again, then reload. To browse without building Lean, skip the first
+command: the viewer shows **not loaded** where no exact evidence is available and preserves only
+matching evidence. C, typed Ail and Core are separate selections; the Ail pane shows the evaluated
+frontend result, while Core has its own checked elaboration equality. Stop the server with Ctrl-C.
 
 On a generated Pages site, click **Compiler → Open the source ↔ target viewer**; on a clean
 checkout with the project libraries built, `make pages` writes `_site/`. Serve it locally with
@@ -21,9 +30,13 @@ python3 -I tools/silmaril-project/tests/explore/pages_server.py --root _site --p
 Open <http://127.0.0.1:8000/compiler/> and stop the server with Ctrl-C. Plain `python3 -m
 http.server` does not provide the Range responses the main explorer needs to open a large
 `project.sqlite` automatically when following C or ELF tab links. A generated site is not a
-deployment; use the viewer and artifact catalog from the same checkout. Its evidence comes
-only from exact rows in the public project DB. A standalone local API can use that site's
-artifact catalog with `cexplorer.py serve … --viewer http://127.0.0.1:8000/`.
+deployment; use the viewer, `project.sqlite`, and artifact catalog from the same checkout.
+The generated viewer only imports project rows with matching shape and arguments. A database
+without the expected row says **evidence unavailable**; the wrong row shape or arguments says
+**incompatible evidence**. Neither is a theorem rejection or a refutation. Rebuild the site and
+database together to refresh those rows, or use the standalone quickstart to run the exact Lean
+exporter. The standalone local API can still use that site's artifact catalog with
+`cexplorer.py serve … --viewer http://127.0.0.1:8000/` without importing its evidence.
 
 A compiler explorer puts a source program beside the target code a compiler made from it and
 links fragments of the two. This page describes a vertical slice that keeps navigation links
@@ -384,29 +397,33 @@ ELF bytes. `objdump` instructions are not proved correct by either check.
 
 **Preprocessor environment** (`fixtures.py env`). It records:
 * the main file under its build working-directory path, by SHA-256;
-* observed headers (`gcc -M`), by path, SHA-256 and size, with the dependency-probe flags
-  exposed separately (the program fixtures use the O2 probe; no re-use is called an O0 trace);
+* observed headers (`gcc -M`), by path, SHA-256 and size, for each program and optimization profile;
+* ordered active include directives (`gcc -E -dI`), paired with enter/return line markers and
+  cross-checked against the ordered opened headers and depths (`-H`);
 * include search order (`gcc -E -v`), predefined macros (`gcc -dM -E`), and their probe flags;
 * the actual build command and pinned image.
 
-The table shows abbreviated SHA-256 fingerprints. Open a name for its full path, or a
-fingerprint for the full digest; focusing the digest field selects it for copying. The current
-dependency capture is a flat set of paths, so the name column uses **resolved basenames** as a
-display fallback, not reconstructed directive spellings. Direct versus indirect includes,
-resolution in each including file, aliases, occurrence order, repetitions, and guard effects are
-unknown. A fixture without a dependency probe does not establish that it has no headers.
+The table uses the operand spelling inside quotes or brackets and labels **direct** (from the
+main file), **indirect** (from a header), and **implicit** (no source directive). Open a name
+for its resolved path, including-file position, and ordered occurrences; open a fingerprint
+for the full digest. Repeats group for display only, retaining the identities of their parent
+file entries; aliases and the same spelling resolving to different paths stay separate. A
+source line that matches the emitted operand confirms a literal spelling. `-dI` can report a
+macro-expanded operand; if not matched, the original spelling is not claimed. An emitted
+directive with no file entry is shown as **not entered**: the resolved bytes and reason (guard,
+once-only behavior, etc.) are not emitted by this probe. Inactive conditional branches do not
+appear. A fixture without a dependency probe does not establish that it has no headers.
 
 `fixtures.py include-map MANIFEST OUT` materializes the observed filename → byte map as
 `files_hex` in JSON, reading headers from the pinned image and refusing mismatched size or
-SHA-256. This is not a complete trace, a formal preprocessor, or a verified general C parser.
+SHA-256. The receipt binds the probe flags and main-file hash. This is a trusted observation,
+not a complete preprocessor trace, a formal preprocessor, or a verified general C parser.
 
-**Extension point:** add an occurrence trace alongside the flat file receipts, before adding a
-Lean `Includes(Name, Name*)` judgment or graph viewer. A trace can carry a typed including-file
-identity, directive location and spelling, resolved-file identity, search context, and an ordered
-list of occurrences with their resolution/guard outcomes when captured. Spelling, path and
-content hash are different projections, not interchangeable node keys. A later model can ask
+**Extension point:** the occurrence trace and its parent indices can feed a Lean
+`Includes(Name, Name*)` judgment or graph viewer later. Spelling, path, entered occurrence,
+and content hash are different projections, not interchangeable node keys. A later model can ask
 whether a given file tree and search list realize the graph, or whether any compatible tree and
-search list exist. Neither compatibility claim follows from today's dependency set.
+search list exist. Neither compatibility claim follows from today's trace.
 
 **Debug information → problems.** Each compiles-to problem lists the facts c-tv extracted from
 the object's DWARF with `gimli`, which is not verified. There are three kinds of fact:

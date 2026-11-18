@@ -86,13 +86,15 @@ try {
   await page.goto(`${base}compiler/?problem=programs%2Fmsort%2FO2`);
   await page.getByText("Preprocessor environment", { exact: true }).press("Enter");
   const includeTable = page.locator(".include-files");
-  await includeTable.getByText("Directive spelling, direct versus indirect", { exact: false }).waitFor();
-  const header = includeTable.locator("tbody tr").filter({ hasText: "stdio.h" }).first();
+  await includeTable.getByText("direct from the main file, indirect from a header", { exact: false }).waitFor();
+  const header = includeTable.locator("tbody tr").filter({ hasText: "stdio.h · direct" });
+  await includeTable.getByText("bits/libc-header-start.h · indirect", { exact: true }).waitFor();
   const name = header.locator("summary").first();
   const fingerprint = header.locator("summary").last();
-  const fullPath = (await name.getAttribute("title")).replace("Resolved path: ", "");
+  const fullPath = (await name.getAttribute("title")).split("\n")[0].replace("Resolved path: ", "");
   await name.press("Enter");
   await header.getByText(fullPath, { exact: true }).waitFor();
+  await header.getByText("#include <stdio.h> · /src/msort.c:2 · main file · literal", { exact: false }).waitFor();
   await fingerprint.press("Enter");
   const digest = header.getByRole("textbox", { name: "Full SHA-256 for stdio.h" });
   await page.keyboard.press("Tab");
@@ -106,7 +108,7 @@ try {
     await page.locator("#env > details > summary").evaluate((summary) => summary.scrollIntoView({ block: "start" }));
     await page.locator("aside").screenshot({ path: path.join(shots, "compiler-includes.png") });
   }
-  console.log("ok   include names are labeled fallbacks; keyboard discloses full path and selects digest");
+  console.log("ok   literal include names and nesting; keyboard discloses full path and selects digest");
 
   for (const [tab, suffix] of [["c", "straight/straight.c"], ["elf", "straight/O0/straight.o"]]) {
     const [sha, entry] = Object.entries(catalog.artifacts).find(([, value]) => value.tab === tab &&
