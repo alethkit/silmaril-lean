@@ -20,6 +20,11 @@ def integerType : Ctype → Bool
   | .mk _ (.basic (.integer _)) => true
   | _ => false
 
+/-- Direct integer-element arrays only; nested/floating/struct arrays remain out. -/
+def integerArrayType : Ctype → Bool
+  | .mk _ (.array (.mk _ (.basic (.integer _))) _) => true
+  | _ => false
+
 def constantExpression : Ail.TypedExpression → Bool
   | .mk _ _ _ (.const _) => true
   | _ => false
@@ -30,6 +35,16 @@ def closedScalarInitializer : Ail.TypedExpression → Bool
   | .mk _ _ _ (.const _) => true
   | .mk _ _ _ (.binary left (.arithmetic _) right) =>
       closedScalarInitializer left && closedScalarInitializer right
+  | _ => false
+
+/-- Closed integer constants and casts have no global identifier substitution. -/
+def closedIntegerExpression : Ail.TypedExpression → Bool
+  | .mk _ _ _ (.const _) => true
+  | .mk _ _ _ (.cast _ _ child) => closedIntegerExpression child
+  | _ => false
+
+def closedIntegerArrayInitializer : Ail.TypedExpression → Bool
+  | .mk _ _ _ (.array _ _ elements) => elements.all (fun e => e.all closedIntegerExpression)
   | _ => false
 
 def closedStructInitializer : Ail.TypedExpression → Bool
@@ -54,8 +69,8 @@ def declaration (config : Target.Config) (types : Target.Environment)
     (tags : StructInitializers.Tags := []) :
     State.ElabM (Global Codec.wireModel Unit Unit) := do
   if config.cheri then throw (.message "unsupported: CHERI global-object elaboration")
-  unless integerType type || Constants.isPointer type || aggregateType type do
-    throw (.message "unsupported: global object is not a direct integer, pointer or struct")
+  unless integerType type || Constants.isPointer type || aggregateType type || integerArrayType type do
+    throw (.message "unsupported: global object is not a direct integer, pointer, struct or integer array")
   let .mk [] := attributes
     | throw (.message "unsupported: global object attributes are not ported")
   let coreType := ailCtype type
@@ -71,6 +86,7 @@ def declaration (config : Target.Config) (types : Target.Environment)
         else do
           unless constantExpression input ||
               (aggregateType type && closedStructInitializer input) ||
+              (integerArrayType type && closedIntegerArrayInitializer input) ||
               (Constants.isPointer type && NullPointers.integerNullCast input) do
             throw (.message (if integerType type then
               "unsupported: global initializer is not a constant expression"
@@ -85,10 +101,14 @@ def declaration (config : Target.Config) (types : Target.Environment)
             | .mk _ (.basic (.integer _)) => pure ObjectType.integer
             | .mk _ (.pointer _ _) => pure ObjectType.pointer
             | .mk _ (.struct tag) => pure (ObjectType.struct tag)
+            | .mk _ (.array (.mk _ (.basic (.integer _))) _) => pure (ObjectType.array .integer)
             | _ => throw (.message "unsupported: global initializer is not a direct integer or pointer")
           if integerType type then
             unless integerType sourceType do
               throw (.message "unsupported: global constant initializer is not a direct integer")
+          else if integerArrayType type then
+            unless integerArrayType sourceType do
+              throw (.message "unsupported: global integer-array initializer is not an integer array")
           else if aggregateType type then
             unless aggregateType sourceType do
               throw (.message "unsupported: global struct initializer is not a struct")

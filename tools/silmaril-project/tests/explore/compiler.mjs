@@ -49,7 +49,7 @@ try {
   console.log('PASS published-shape compiler viewer: project navigation, static payloads, source/target/semantic modes and corpus return');
   // Real corpus statements use their own registry-backed, uniformly UNPROVED view.
   const corpusIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/corpus/index.json'),'utf8'));
-  assert.equal(corpusIndex.length,30);
+  assert.equal(corpusIndex.length,31);
   assert.ok(corpusIndex.every(p=>p.status==='UNPROVED'));
   const cases=[
     {"symbol": "cJSON_GetArrayItem", "declaration": "Silmaril.Elf.Corpus.CjsonArrayItem.Context.Task.compilesTo", "address": "0x5427", "bytes": "55 48 89 e5 48 83 ec 10 48 89 7d f8 89 75 f4 83 7d f4 00 79 07 b8 00 00 00 00 eb 15 8b 45 f4 48 63 d0 48 8b 45 f8 48 89 d6 48 89 c7 e8 7b ff ff ff c9 c3", "source": "c2de1199e9c8b0b2bc57d49490a269be893b34893e99f8c0a9d564032801a353", "core": "12735aa82853ce768a8b02641594fc70ee57ac18545a338ba621f43cd19314cf", "offset": 120649, "length": 1348, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "callerPreserved", "caller": true, "helperBytes": "55 48 89 e5 48 89 7d e8 48 89 75 e0 48 c7 45 f8 00 00 00 00 48 83 7d e8 00 75 07 b8 00 00 00 00 eb 30 48 8b 45 e8 48 8b 40 10 48 89 45 f8 eb 10 48 83 6d e0 01 48 8b 45 f8 48 8b 00 48 89 45 f8 48 83 7d f8 00 74 07 48 83 7d e0 00 75 e2 48 8b 45 f8 5d c3", "helperHash": "83a93716e5f22ed741d2bc1db8042b5550173564c8cfe257cf156eba339a4330"},
@@ -64,6 +64,33 @@ try {
     {symbol:'sqlite3_threadsafe',declaration:'Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Task.threadsafe',address:'0x13830',bytes:'b8 01 00 00 00 c3',source:'fa8672b63affea57a936d76b3cd7adb67b19ef336c005cf4ed5213ee1355d028',core:'a319bf961d26528a99b34a78d1074964053a36240ac652f9bbc9dce017614a0e',offset:3240569,length:41,tu:'31992f073781a1cdbd06ee2a00b2de14b62d87b5e81199dbb6a0fb7dfb7b6f1d',context:'some .int32',pureQuery:true}
   ];
   const pageErrors=[];page.on('pageerror',e=>pageErrors.push(e.message));
+  {
+    const declaration='Silmaril.Elf.Corpus.SqliteGlobalVersion.Context.Task.compilesTo';
+    await page.goto(base+'/compiler/?corpus='+encodeURIComponent(declaration));
+    await page.waitForFunction(d=>document.body.dataset.corpusDeclaration===d,declaration);
+    assert.match(await page.locator('#selection').innerText(),/UNPROVED/);
+    assert.ok((await page.locator('[data-evidence-role="Source"]').innerText()).includes('d28acc15b04eb9fe7377e76026b006d36214ad39159ee797f795bacfb0974d38'));
+    assert.ok((await page.locator('[data-evidence-role="Core"]').innerText()).includes('4e0bd85c2d333bb68b1f9d3b55772375eb2a02dcbb0d1b58fa1d8a683ed4c7d4'));
+    const spans=JSON.parse(await page.locator('#corpus-source-spans').innerText());
+    assert.equal(spans.tu_sha256,'31992f073781a1cdbd06ee2a00b2de14b62d87b5e81199dbb6a0fb7dfb7b6f1d');
+    assert.deepEqual(spans.spans.map(s=>[s.offset,s.length]),[[529,50],[3240421,64]]);
+    const target=await page.locator('#tgt').innerText();
+    for(const expected of ['0x13810','48 8b 05 b1 b7 0f 00 c3','Actual ELF data object','sqlite3_version @ 0xed572','33 2e 35 34 2e 31 00','Actual raw RELA @ file offset 53296','R_X86_64_GLOB_DAT','symbol index 233','GOT slot 0x10efc8','Raw GOT slot bytes 00 00 00 00 00 00 00 00 (before loader resolution)','No dynamic-loader'])assert.ok(target.includes(expected),expected);
+    const context=await page.locator('#corpus-evidence').textContent();
+    for(const expected of ['Initialization.prepare input','memoryUnchanged before.memory after.memory','SysV.StackBelow machine 0','returnedAddress value'])assert.ok(context.includes(expected),expected);
+    assert.match(await page.locator('#assumptions').innerText(),/post-loader/);
+    assert.match(await page.locator('#assumptions').innerText(),/ONLY diagnostic currentLocation/);
+    await page.getByRole('link',{name:'Corpus function',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('#corpus-function-search')?.value==='sqlite3_libversion');
+    await page.waitForFunction(()=>document.querySelector('#corpus-functions details'));
+    await page.locator('#corpus-functions details').filter({hasText:'0x13810'}).first().locator('summary').click();
+    await page.locator('#corpus-functions a[href*="'+encodeURIComponent(declaration)+'"]').click();
+    await page.waitForFunction(d=>document.body.dataset.corpusDeclaration===d,declaration);
+    await page.getByRole('link',{name:'Corpus artifact',exact:true}).click();
+    await page.waitForFunction(()=>window.explore.view==='corpus-artifact'&&!window.explore.busy);
+    await page.locator('a[href*="'+encodeURIComponent(declaration)+'"]').click();
+    await page.waitForFunction(d=>document.body.dataset.corpusDeclaration===d,declaration);
+  }
   for(const c of cases){
     await page.goto(base+'/index.html#/compiler');
     await page.getByRole('link',{name:c.symbol+' (UNPROVED)',exact:true}).click();
@@ -174,7 +201,7 @@ try {
   await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('error: corpus evidence identity mismatch'));
   assert.equal(await page.locator('body').getAttribute('data-corpus-declaration'),null);
   await page.unroute('**/'+payload.source.static_path);
-  console.log('PASS actual registry corpus viewer:30 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
+  console.log('PASS actual registry corpus viewer:31 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
 
   const binaryIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/equivalences/index.json'),'utf8'));
   assert.equal(binaryIndex.length,15);

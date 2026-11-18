@@ -5,6 +5,7 @@ public import Silmaril.Cerberus.Elaboration.Bitwise.Defs
 public import Silmaril.Cerberus.Elaboration.Members.Defs
 public import Silmaril.Cerberus.Elaboration.Shifts.Defs
 public import Silmaril.Cerberus.Elaboration.StructInitializers.Defs
+public import Silmaril.Cerberus.Elaboration.ArrayInitializers.Defs
 public import Silmaril.Cerberus.Elaboration.ObjectExpressions.Defs
 public import Silmaril.Cerberus.Elaboration.Comparisons.Defs
 public import Silmaril.Cerberus.Elaboration.Designators.Defs
@@ -114,6 +115,17 @@ def expression (config : Target.Config) (env : Target.Environment) (bindings : L
             pure (.markerObjectTypes marker :: annotations)
         | none => pure annotations
       let core ← match _hnode : node with
+        | .array _ _ elements => do
+            let .mk _ (.array elementType _) := type
+              | throw (.message "ill-typed AilEarray: result type is not an array")
+            let inputs ← elements.attach.mapM fun element => do
+              match _helement : element.val with
+              | none => pure none
+              | some child => do
+                let childType ← Constants.liftResult
+                  (Constants.targetResult (GeneralizedTypes.expressionType config env child))
+                pure (some (childType, expression config env bindings child aliases tags))
+            ArrayInitializers.translate bindings elementType inputs
         | .struct tag fields => do
             let inputs ← fields.attach.mapM fun field => do
               let input ← match _hinput : field.val.2 with
@@ -229,6 +241,9 @@ def expression (config : Target.Config) (env : Target.Environment) (bindings : L
         | .rvalue child => do
             let childType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env child))
             ObjectExpressions.rvalue config location childType (expression config env bindings child aliases tags)
+        | .arrayDecay child =>
+            ObjectExpressions.arrayDecay config child type
+              (expression config env bindings child aliases tags)
         | .functionDecay child => do
             let childType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env child))
             Designators.direct config aliases childType child
@@ -256,6 +271,11 @@ decreasing_by
     first
     | omega
     | have memberBound := List.sizeOf_lt_of_mem argument.property
+      omega
+    | have memberBound := List.sizeOf_lt_of_mem element.property
+      have optionBound : sizeOf child < sizeOf element.val := by
+        rw [_helement]
+        simp
       omega
     | have memberBound := List.sizeOf_lt_of_mem field.property
       have optionBound : sizeOf child < sizeOf field.val.2 := by
