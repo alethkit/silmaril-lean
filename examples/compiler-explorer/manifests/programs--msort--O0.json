@@ -1,5 +1,17 @@
 {
   "artifacts": {
+    "include_search": {
+      "media": "application/json",
+      "path": "examples/compiler-explorer/env/programs-O0.search.json",
+      "sha256": "102a1f6705bb3240949b3300ce5bd97429a42c2bef3d580bcddf7563e107b3bd",
+      "size": 417
+    },
+    "includes": {
+      "media": "application/json",
+      "path": "examples/compiler-explorer/env/msort-O2.includes.json",
+      "sha256": "592d51565eff2e3198f60a68b7cb9b02b8c74a6606cb88682b20d5a5aafb4db0",
+      "size": 4959
+    },
     "macros": {
       "media": "text/x-c",
       "path": "examples/compiler-explorer/env/programs-O0.macros.h",
@@ -1703,9 +1715,14 @@
   ],
   "id": "programs/msort/O0",
   "include_env": {
+    "dependencies": {
+      "artifact": "includes",
+      "flags": "-O2 -g -std=c11 -fno-asynchronous-unwind-tables -fdebug-prefix-map=/src=."
+    },
     "files": [
       {
-        "name": "msort.c",
+        "artifact": "source",
+        "name": "/src/msort.c",
         "sha256": "d48b0e6ea33321d880bf0d852707aea394e90a3f52ae46950951100ee8bb4e18",
         "size": 767,
         "where": "examples/compiler-explorer/programs/msort.c"
@@ -1867,8 +1884,9 @@
         "where": "the pinned image gcc:13.3.0@sha256:1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818"
       }
     ],
+    "image": "gcc:13.3.0@sha256:1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818",
     "macros": "macros",
-    "note": "the files a preprocessor reads, by content; a formal preprocessor would be a stage from this environment to the preprocessed text (none is stated)",
+    "note": "Main file and observed headers by content; macros/search come from a separate probe. Header dependencies, when present, are from the recorded gcc -M flags, not a replay of every build. This is not a complete include map or a verified preprocessor.",
     "options": [
       "gcc",
       "-O0",
@@ -1881,13 +1899,16 @@
       "-o",
       "msort.s"
     ],
+    "probe_flags": "-O0 -g -std=c11 -fno-asynchronous-unwind-tables -fdebug-prefix-map=/src=.",
     "search": [
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include",
       "/usr/local/include",
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include-fixed",
       "/usr/include/x86_64-linux-gnu",
       "/usr/include"
-    ]
+    ],
+    "search_receipt": "include_search",
+    "workdir": "/src"
   },
   "lean": {
     "family": null,

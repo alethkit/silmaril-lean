@@ -193,6 +193,7 @@ pages: project-tool
 	# The ELF pages read the checked theorem modules of the pinned files (tools/elf-pages).
 	lake build --wfail elf-pages $(ELF_PINNED) Silmaril.Elf.Staged.Pinned.ZlibChecksums.Contracts
 	lake env .lake/build/bin/elf-pages _site
+	$(PYTHON) -I tools/compiler-explorer/fixtures.py viewer --out _site
 
 # The committed runtime report of the acceptor components (tools/wasm-acceptor-harness/report.json):
 # every suite under Wasmtime, by this fixed command (the report records it and has no timestamps,

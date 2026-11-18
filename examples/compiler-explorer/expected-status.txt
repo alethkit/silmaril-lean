@@ -2,11 +2,11 @@ c2c/add3_double  [imported]  add3 => add3_double (C => C): bug: returns (a + b +
   translation            refuted      CompilesToExamples.Explorer.C2C.double_refuted
 c2c/add3_drop  [imported]  add3 => add3_drop (C => C): bug: returns a + b, dropping c; refuted on add3(1, 2, 3)
   translation            refuted      CompilesToExamples.Explorer.C2C.drop_refuted
-c2c/add3_op  [imported]  add3 => add3_op (C => C): s - c instead of s + c; not decided: its Core run is not evaluated here
+c2c/add3_op  [imported]  add3 => add3_op (C => C): s - c instead of s + c; no checked counterexample recorded
   translation            open         
 c2c/add3_operand  [imported]  add3 => add3_operand (C => C): bug: s + a instead of s + c; refuted on add3(1, 2, 3)
   translation            refuted      CompilesToExamples.Explorer.C2C.operand_refuted
-c2c/add3_reassoc  [imported]  add3 => add3_reassoc (C => C): a correct reassociation; equivalence not proved (open)
+c2c/add3_reassoc  [imported]  add3 => add3_reassoc (C => C): reassociation changes where signed overflow can occur; refinement open
   translation            open         
   equivalence            open         
 compiles-to/branch/O0/max2  [compiled]  branch.c, gcc 13.3.0 -O0, max2 (object code)
@@ -158,6 +158,6 @@ programs/msort/O2  [compiled]  msort.c, gcc 13.3.0 -O2 (assembly)
   mapping                unsupported  
   refinement             unsupported  
   test run               passed
-typeerror/addp  [none]  addp.c: int * + int * violates C11 6.5.6p2 (restricted judgment)
-  typing                 refuted      CompilesToExamples.Explorer.TypeError.addp_operands
-  operand_types          unsupported  
+typeerror/addp  [none]  addp.c: does pointer + pointer typecheck?
+  typing                 refuted      CompilesToExamples.Explorer.TypeError.addp_type_error
+  operand_types          proved       CompilesToExamples.Explorer.TypeError.addp_parses

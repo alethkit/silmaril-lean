@@ -15,13 +15,13 @@
     "target": {
       "media": "text/x-c",
       "path": "examples/compiler-explorer/c2c/translations.c",
-      "sha256": "3e4dac7e30ba0b61c553b1de73e21d9039db41b390930004b1f2c33cf9e219c4",
-      "size": 610
+      "sha256": "1b163bb57a1f283f05b223c40184ed093dbf50bf15dbd68ce49ca795846f3454",
+      "size": 625
     },
     "target_core_probe": {
       "media": "text/x-lisp",
       "path": "examples/compiler-explorer/c2c/core-probe.txt",
-      "sha256": "c4fcf4128badf6d4527f0c6dedaedb92c501d98b87e34ee6596e1e2b5e185835",
+      "sha256": "32f3a37a718cf24f0f38a7f48a977422de91c169470457c1d6be995c4248cc00",
       "size": 116065
     }
   },
@@ -56,11 +56,43 @@
         "4d2e68e7e32570a3675e"
       ],
       "target": [
-        "c0d9528a3a4cb6e3f4b9"
+        "3ce30d7821d89db1de79"
       ]
     }
   ],
   "fragments": [
+    {
+      "artifact": "target",
+      "id": "3ce30d7821d89db1de79",
+      "label": "add3_op: lines 10-15",
+      "ranges": [
+        [
+          279,
+          311
+        ],
+        [
+          312,
+          313
+        ],
+        [
+          314,
+          330
+        ],
+        [
+          331,
+          347
+        ],
+        [
+          348,
+          359
+        ],
+        [
+          360,
+          361
+        ]
+      ],
+      "space": "bytes"
+    },
     {
       "artifact": "source",
       "id": "4d2e68e7e32570a3675e",
@@ -92,45 +124,47 @@
         ]
       ],
       "space": "bytes"
-    },
-    {
-      "artifact": "target",
-      "id": "c0d9528a3a4cb6e3f4b9",
-      "label": "add3_op: lines 10-15",
-      "ranges": [
-        [
-          264,
-          296
-        ],
-        [
-          297,
-          298
-        ],
-        [
-          299,
-          315
-        ],
-        [
-          316,
-          332
-        ],
-        [
-          333,
-          344
-        ],
-        [
-          345,
-          346
-        ]
-      ],
-      "space": "bytes"
     }
   ],
   "id": "c2c/add3_op",
   "lean": {
+    "bindings": [
+      [
+        "source",
+        "CompilesToExamples.Straight.cText"
+      ],
+      [
+        "target",
+        "CompilesToExamples.Explorer.C2C.cText"
+      ],
+      [
+        "core_probe",
+        "(Silmaril.Project.CompilesTo.Probe.modelText CompilesToExamples.Straight.ail CompilesToExamples.Straight.core).dropEnd 1 |>.toString"
+      ],
+      [
+        "target_core_probe",
+        "Silmaril.Project.CompilesTo.Probe.modelText CompilesToExamples.Explorer.C2C.ail CompilesToExamples.Explorer.C2C.core"
+      ]
+    ],
+    "definitions": [
+      "CompilesToExamples.Explorer.C2C.add3OpFn",
+      "CompilesToExamples.Explorer.C2C.ail",
+      "CompilesToExamples.Explorer.C2C.args123",
+      "CompilesToExamples.Explorer.C2C.cText",
+      "CompilesToExamples.Explorer.C2C.core",
+      "CompilesToExamples.Explorer.C2C.source_run",
+      "CompilesToExamples.Straight.add3Fn",
+      "CompilesToExamples.Straight.ail",
+      "CompilesToExamples.Straight.cText",
+      "CompilesToExamples.Straight.core",
+      "Silmaril.Project.Shapes.C.CFn.source",
+      "Silmaril.Project.Shapes.CompilesTo.CanonicalEquivalent",
+      "Silmaril.Project.Shapes.CompilesTo.CanonicalRefines"
+    ],
     "family": "c-to-c",
     "modules": [
-      "CompilesToExamples.Explorer.C2C.Runs"
+      "CompilesToExamples.Explorer.C2C.Runs",
+      "Silmaril.Project.CompilesTo.Probe.Defs"
     ],
     "vars": {
       "source_fn": "CompilesToExamples.Straight.add3Fn",
@@ -153,7 +187,7 @@
   "schema": "silmaril.compiler-explorer.problem/1",
   "stages": [
     {
-      "evidence": "#guard (typed Ail, compiled evaluation); Core quoted from the probe",
+      "evidence": "#guard checks typed Ail. The model uses the quoted Core with normalized return labels.",
       "input": "source",
       "name": "Lean C frontend and Cerberus elaborator",
       "output": "core_probe",
@@ -161,7 +195,7 @@
       "trust": "evaluated"
     },
     {
-      "evidence": "#guard (typed Ail, compiled evaluation); Core quoted from the probe",
+      "evidence": "#guard checks typed Ail. The model uses the quoted Core with normalized return labels.",
       "input": "target",
       "name": "Lean C frontend and Cerberus elaborator",
       "output": "target_core_probe",
@@ -170,7 +204,7 @@
     }
   ],
   "tests": [],
-  "title": "add3 => add3_op (C => C): s - c instead of s + c; not decided: its Core run is not evaluated here",
+  "title": "add3 => add3_op (C => C): s - c instead of s + c; no checked counterexample recorded",
   "view": {
     "alternatives": {
       "source": [
@@ -179,7 +213,7 @@
           "role": "source"
         },
         {
-          "label": "typed Ail + Core (trusted stages)",
+          "label": "Typed Ail + model Core",
           "role": "core_probe"
         }
       ],
@@ -189,7 +223,7 @@
           "role": "target"
         },
         {
-          "label": "typed Ail + Core (trusted stages)",
+          "label": "Typed Ail + model Core",
           "role": "target_core_probe"
         }
       ]

@@ -1,5 +1,17 @@
 {
   "artifacts": {
+    "include_search": {
+      "media": "application/json",
+      "path": "examples/compiler-explorer/env/programs-O2.search.json",
+      "sha256": "51fd4486fa002194e0f3ebd7970e9fc08d40fca56fbaefedd6e3ef16f6cbc2cc",
+      "size": 417
+    },
+    "includes": {
+      "media": "application/json",
+      "path": "examples/compiler-explorer/env/hello-O2.includes.json",
+      "sha256": "2b7c6bc289483b09cf36199421b792ca131177b979d6cb57917850279266cf41",
+      "size": 4959
+    },
     "macros": {
       "media": "text/x-c",
       "path": "examples/compiler-explorer/env/programs-O2.macros.h",
@@ -175,9 +187,14 @@
   ],
   "id": "programs/hello/O2",
   "include_env": {
+    "dependencies": {
+      "artifact": "includes",
+      "flags": "-O2 -g -std=c11 -fno-asynchronous-unwind-tables -fdebug-prefix-map=/src=."
+    },
     "files": [
       {
-        "name": "hello.c",
+        "artifact": "source",
+        "name": "/src/hello.c",
         "sha256": "fa0082bb81c671967198902abe06f2ab917586e769c8ef452a9257921749d1b2",
         "size": 124,
         "where": "examples/compiler-explorer/programs/hello.c"
@@ -339,8 +356,9 @@
         "where": "the pinned image gcc:13.3.0@sha256:1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818"
       }
     ],
+    "image": "gcc:13.3.0@sha256:1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818",
     "macros": "macros",
-    "note": "the files a preprocessor reads, by content; a formal preprocessor would be a stage from this environment to the preprocessed text (none is stated)",
+    "note": "Main file and observed headers by content; macros/search come from a separate probe. Header dependencies, when present, are from the recorded gcc -M flags, not a replay of every build. This is not a complete include map or a verified preprocessor.",
     "options": [
       "gcc",
       "-O2",
@@ -353,13 +371,16 @@
       "-o",
       "hello.s"
     ],
+    "probe_flags": "-O2 -g -std=c11 -fno-asynchronous-unwind-tables -fdebug-prefix-map=/src=.",
     "search": [
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include",
       "/usr/local/include",
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include-fixed",
       "/usr/include/x86_64-linux-gnu",
       "/usr/include"
-    ]
+    ],
+    "search_receipt": "include_search",
+    "workdir": "/src"
   },
   "lean": {
     "family": null,

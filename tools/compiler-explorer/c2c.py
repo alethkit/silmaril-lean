@@ -68,10 +68,9 @@ public meta import Silmaril.Project.CompilesTo.Probe.Defs
 /-!
 # C => C translations of `add3`: the C text, its typed Ail and its Core
 
-The trusted stages of `examples/compiler-explorer/c2c/translations.c`, exactly as the explorer
-shows them: the frontend's typed Ail (quoted; checked against the frontend by `#guard`, compiled
-evaluation, because its typing pass is `partial`) and the elaborator's Core document (quoted, the
-probe's output `core-probe.txt`). Each function is a `CFn` of that Core.
+The frontend's typed Ail and the elaborator's Core from `translations.c`. The explorer checks
+their exact renderings. The `#guard`s are compiled evaluation, not general correctness theorems
+for the frontend or elaborator. Each function is a `CFn` of the normalized Core.
 -/
 
 namespace CompilesToExamples.Explorer.C2C
@@ -100,6 +99,9 @@ def doc : Silmaril.Cerberus.Codec.Document := core_document% {lean_string(doc)}
 
 /-- The quoted Core with the return labels named as the elaborator names them. -/
 def core : Silmaril.Cerberus.Codec.FileBindings := fixRet doc.bindings
+
+#guard Silmaril.Project.CompilesTo.Probe.modelText ail core ==
+  Silmaril.Project.CompilesTo.Probe.docText cText ++ "\\n"
 
 {fns}
 end

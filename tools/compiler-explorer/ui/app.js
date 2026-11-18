@@ -53,6 +53,10 @@ function fillBuilds(want) {
 async function load(id, source, target) {
   state.problem = await getJSON("api/problems/" + encodeURIComponent(id));
   state.locked = null;
+  const mode = $("mode");
+  mode.querySelector('[value="semantic"]').disabled = !state.problem.edges.some((edge) => edge.kind === "semantic");
+  if (mode.selectedOptions[0]?.disabled) mode.value = "navigation";
+  state.mode = mode.value;
   const v = state.problem.view;
   state.show = { source: v.source, target: v.target };
   for (const [side, want] of [["source", source], ["target", target]]) {
@@ -86,7 +90,9 @@ function render() {
     const role = state.show[side];
     const art = p.artifacts[role];
     $(`${side}-title`).textContent = `${side === "source" ? "Source" : "Target"} · ${art ? art.path : role}`;
-    drawLinks($(`${side}-links`), (p.artifact_links || {})[role] || []);
+    const links = p.artifact_links[role] || [];
+    const original = (p.artifact_links[side] || []).filter((link) => link.kind === "viewer");
+    drawLinks($(`${side}-links`), role === side ? links : [...original, ...links]);
     drawCode($(side), side, text[side], langOf(art ? art.media : ""));
   }
   drawProblem(p);
@@ -104,12 +110,17 @@ function render() {
 
 function drawLinks(box, links) {
   box.replaceChildren();
+  appendLinks(box, links);
+}
+
+function appendLinks(box, links) {
   for (const l of links) {
-    const a = el("a", "ext", l.kind === "explorer" ? "explorer ↗" : l.kind === "lean" ? "Lean ↗" : "repo ↗");
+    const a = el("a", "ext", l.kind === "viewer" || l.kind === "download" ? l.label :
+      l.kind === "explorer" ? "explorer ↗" : l.kind === "lean" ? "Lean ↗" : "repo ↗");
     a.href = l.url;
     a.title = l.label;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
+    if (l.kind === "download") a.download = "";
+    else { a.target = "_blank"; a.rel = "noopener noreferrer"; }
     box.append(a);
   }
 }
@@ -131,7 +142,7 @@ function drawCode(box, side, text, lang) {
       row.setAttribute("aria-label", `${side} line ${n}: ${ids.length} link(s)`);
     }
     const tx = el("span", "tx");
-    for (const [t, cls] of (line ? toks[i] : [[" ", ""]])) tx.append(cls ? el("span", cls, t) : document.createTextNode(t));
+    for (const [t, cls] of toks[i]) tx.append(cls ? el("span", cls, t) : document.createTextNode(t));
     row.append(el("span", "ln", n), tx);
     const pick = () => { state.locked = state.locked && state.locked.join() === ids.join() ? null : ids; highlight(ids); };
     row.onmouseenter = () => { if (!state.locked) highlight(ids); };
@@ -203,7 +214,7 @@ function showSelection(ids) {
 
 // Short names and one-line explanations of the obligation kinds.
 const KINDS = {
-  translation: ["Translation", "From every related entry whose source state is safe (no run from it has undefined behaviour, every run from it is finite), every target run is safe, finite, stops only at a final state, and returns a result some source run produces."],
+  translation: ["Does the target refine the source?", "From every related entry whose source state is safe (no run from it has undefined behaviour, every run from it is finite), every target run is safe, finite, stops only at a final state, and returns a result some source run produces."],
   nonvacuity: ["Not vacuous", "Some related entry has a safe source state (one canonical entry, empty caller)."],
   abi: ["ABI entry", "For every argument tuple a System V entry state exists (existence). Return-side ABI conditions are part of the translation."],
   mapping: ["All segments", "Every segment is simulated, including points nobody listed. Individually proved links do not imply it."],
@@ -211,23 +222,26 @@ const KINDS = {
   decompilation: ["Decompiled block", "The decompiler's checked block prints as this C text, and the machine's rax is the C0 value of its expression. ret and the calling convention are outside the block."],
   c2c_refines: ["Refines the source", "From the canonical entries: wherever the source is safe, every outcome of the target is an outcome of the source."],
   c2c_equivalent: ["Equivalent", "Refinement both ways, from the canonical entries."],
-  typing: ["Typing (C11 §6.5.6¶2)", "The operand types of + satisfy the additive constraint: a restricted judgment, not a typing of the whole program."],
-  operand_types: ["Operand types", "That these are the operand types in the text."],
+  typing: ["Can these operands be added?", "C11 §6.5.6¶2: the extracted operand types must satisfy the additive constraint. The fragment recognizes only a small grammar, not all of C."],
+  operand_types: ["What types does the text give?", "The kernel checks that the restricted recognizer reads these types from the displayed source."],
   elaboration: ["C → Core", "The C function elaborates to this Core (Lean elaborator; typed Ail checked by evaluation)."],
   decoding: ["Disassembly", "The Lean decoder's listing is the decoding of these bytes."],
   artifact: ["Bytes = object", "The function's bytes are its symbol's code in the registered object."],
   nonvacuity_canonical: ["Canonical entry row", "c.compiles_to.canonical_entry: the placed code implements the C function from its canonical entry."],
   nonvacuity_universal: ["Safe from every entry", "The C function is safe on some tuple from every Core entry (needed for c.compiles_to)."],
   point: ["Point ↔ statement", "The point's Core fragment is the Core of its C statement."],
+  edge: ["Is this segment simulated?", "This is a statement about the selected semantic cut-point, not the DWARF reader."],
 };
 const MAIN = ["translation", "c2c_refines", "c2c_equivalent", "decompilation", "typing", "nonvacuity", "abi", "mapping", "refinement"];
 
-function obligationRow(o, full) {
+function obligationRow(o, full, anchor = false) {
   const [title, text] = KINDS[o.kind] || [o.kind, ""];
   const row = el("div", "obl");
+  if (anchor) row.id = `obligation-${o.id}`;
   const head = el("div", "obl-head");
-  head.append(statusBadge(o.status), el("span", "obl-title", title));
+  head.append(statusBadge(o.status), el("span", "obl-title", o.edge ? `${title} · ${o.id}` : title));
   const [btn, box] = info(`${text}${o.statement ? `\nStatement: ${o.statement}` : ""}${o.reason ? `\n${o.reason}` : ""}`);
+  btn.setAttribute("aria-label", `Explain ${title}`);
   head.append(btn);
   for (const l of o.links || []) {
     const a = el("a", "ext", l.kind === "lean" ? "Lean ↗" : "explorer ↗");
@@ -238,7 +252,7 @@ function obligationRow(o, full) {
   if (full && o.statement) row.append(el("code", "stmt", o.statement));
   if (o.status === "unsupported" && o.reason) row.append(el("div", "muted", o.reason));
   if (o.evidence && o.evidence.detail && o.status !== "proved") row.append(el("div", "warn", o.evidence.detail));
-  if (o.status === "stale") row.append(el("div", "warn", `proved for manifest ${o.older_manifest.slice(0, 12)}…, not for these artifacts`));
+  if (o.status === "stale") row.append(el("div", "warn", `Evidence exists for manifest ${o.older_manifest.slice(0, 12)}…, not for these artifacts`));
   return row;
 }
 
@@ -263,7 +277,7 @@ function drawQuestions(p) {
   const x = p.extra || {};
   const shown = p.obligations.filter((o) => MAIN.includes(o.kind) && !(x.problem_form === "relation" && o.status === "unsupported"));
   shown.sort((a, b) => MAIN.indexOf(a.kind) - MAIN.indexOf(b.kind));
-  for (const o of shown) box.append(obligationRow(o, false));
+  for (const o of shown) box.append(obligationRow(o, false, true));
   if (!shown.length) box.append(el("p", "muted", "No statement is attempted for this problem."));
   const ed = p.questions.edges;
   if (ed.listed) {
@@ -274,11 +288,11 @@ function drawQuestions(p) {
     r.append(h, t);
     box.append(r);
   }
-  const rest = p.obligations.filter((o) => !MAIN.includes(o.kind) && o.kind !== "edge" && o.kind !== "point");
+  const rest = p.obligations.filter((o) => !MAIN.includes(o.kind));
   if (rest.length) {
     const more = el("details", "more");
     more.append(el("summary", null, `Supporting obligations (${rest.length})`));
-    for (const o of rest) more.append(obligationRow(o, false));
+    for (const o of rest) more.append(obligationRow(o, false, true));
     box.append(more);
   }
   for (const t of p.tests) {
@@ -305,8 +319,14 @@ function drawStages(p) {
   const d = section("stages", `Stages (${stages.length})`);
   for (const s of stages) {
     const r = el("div", "stage");
-    r.append(el("span", `badge trust-${s.trust}`, s.trust), el("span", null, ` ${s.side}: ${s.name}`));
-    r.append(el("div", "muted", `${s.input} → ${s.output}; ${s.evidence}`));
+    const evidence = s.obligation && p.obligations.find((o) => o.id === s.obligation);
+    const trust = s.trust === "verified" && (evidence?.status !== "proved" ||
+      (p.lean?.bindings?.length && !p.bindings_checked)) ? "unchecked" : s.trust;
+    r.append(el("span", `badge trust-${trust}`, trust), el("span", null, ` ${s.side}: ${s.name}`));
+    const trace = el("div", "muted", `${s.input} → ${s.output}; ${s.evidence} `);
+    appendLinks(trace, [s.input, s.output].map((role) => artifactDownload(p, role)));
+    if (evidence) appendLinks(trace, evidence.links || []);
+    r.append(trace);
     d.append(r);
   }
   if (!stages.length) d.append(el("p", "muted", "No stage recorded."));
@@ -315,11 +335,29 @@ function drawStages(p) {
 function drawDwarf(p) {
   const facts = (p.extra || {}).dwarf_facts || [];
   const d = section("dwarf", `Debug information → statements (${facts.length})`);
-  d.append(el("p", "muted", "Facts extracted from DWARF by an unverified reader; each says what depends on it and what a wrong fact would do."));
-  for (const f of facts.slice(0, 200)) {
+  const extraction = p.extra?.dwarf_extraction;
+  if (extraction) {
+    const summary = el("p", "muted", `${extraction.tool} · ${extraction.profile}/${extraction.function} · unverified extraction `);
+    appendLinks(summary, [artifactDownload(p, extraction.input), artifactDownload(p, extraction.output)]);
+    d.append(summary);
+  }
+  for (const f of facts) {
     const r = el("div", "fact");
     r.append(el("span", "badge st-unchecked", "extracted"), el("span", null, ` ${f.fact}`));
-    r.append(el("div", "muted", `${f.origin}; used by ${f.used_by.join(", ")}; if wrong: ${f.if_wrong}`));
+    const use = el("div", "muted", `${f.origin}; used by `);
+    for (const dep of f.used_by) {
+      const target = document.getElementById(`obligation-${dep}`);
+      const button = el(target ? "button" : "span", target ? "ext" : null, dep);
+      if (target) button.onclick = () => {
+        const details = target.closest("details");
+        if (details) details.open = true;
+        target.scrollIntoView({ block: "center" });
+        target.querySelector("button")?.focus({ preventScroll: true });
+      };
+      use.append(button, " ");
+    }
+    use.append(`· ${f.if_wrong}`);
+    r.append(use);
     d.append(r);
   }
 }
@@ -333,9 +371,18 @@ function drawEnv(p) {
   const add = (k, v) => dl.append(el("dt", null, k), el("dd", null, v));
   for (const f of env.files) add(f.name, `sha256 ${f.sha256} · ${f.size} B · ${f.where}`);
   add("search", env.search.join(" → ") || "(none)");
+  add("working directory", env.workdir);
+  add("macro/search probe flags", env.probe_flags);
+  if (env.dependencies) add("dependency probe flags", env.dependencies.flags);
   add("options", env.options.join(" "));
   add("macros", `${p.artifacts[env.macros]?.path || env.macros} (gcc -dM -E)`);
   d.append(dl);
+  appendLinks(d, [env.macros, env.search_receipt, env.dependencies?.artifact].filter(Boolean).map((role) => artifactDownload(p, role)));
+}
+
+function artifactDownload(p, role) {
+  const art = p.artifacts[role];
+  return { kind: "download", label: role, url: `/api/artifacts/${art.sha256}` };
 }
 
 function drawProvenance(p) {
@@ -350,9 +397,30 @@ function drawProvenance(p) {
   add("command", g.command);
   add("origin (a claim)", g.claim);
   for (const [role, a] of Object.entries(p.artifacts)) add(role, `${a.path} · sha256 ${a.sha256} · ${a.size} B`);
-  for (const [k, v] of Object.entries(p.context || {})) if (v) add(k.replace("_", " "), `${v.decl} — ${v.version}`);
   add("manifest", p.manifest_sha256);
   d.append(dl);
+  if (p.lean?.bindings?.length) d.append(el("p", "muted", p.bindings_checked ?
+    "Displayed C, model data and decoder renderings match the Lean build byte for byte (compiled rendering check)." :
+    "The model artifact renderings have not been checked against this Lean build."));
+  for (const [key, val] of Object.entries(p.context || {})) {
+    const item = el("details", "more");
+    item.append(el("summary", null, key.replaceAll("_", " ") + (val ? "" : " · not selected")));
+    if (val) {
+      item.append(el("p", "muted", `${val.decl} — ${val.version}`));
+      appendLinks(item, p.definitions.filter((link) => val.decl.startsWith(link.label)));
+    }
+    d.append(item);
+  }
+  if (p.definitions.length) {
+    const defs = el("details", "more");
+    defs.append(el("summary", null, "Exact Lean inputs, outputs and definitions"));
+    for (const link of p.definitions) {
+      const item = el("div", "muted", `${link.label} `);
+      appendLinks(item, [link]);
+      defs.append(item);
+    }
+    d.append(defs);
+  }
 }
 
 init().catch((e) => { $("status").textContent = `error: ${e.message}`; });

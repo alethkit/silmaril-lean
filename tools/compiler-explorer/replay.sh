@@ -20,12 +20,11 @@ modules=(
   CompilesToExamples.Explorer.Rows
   Silmaril.Proofs.Project.Shapes.CompilesTo.Translate
   Silmaril.Project.Shapes.C.Additive.Thms
+  Silmaril.Proofs.Compiler.Explorer.Text
   Silmaril.Compiler.Explorer.Text.Thms
   CompilesToExamples.Explorer.C2C.Runs
   CompilesToExamples.Explorer.TypeError
 )
-for m in "${modules[@]}"; do
-  start=$(date +%s)
-  timeout 1200 "$LAKE" env "$checker" "$m"
-  echo "leanchecker $m: ok ($(( $(date +%s) - start )) s)"
-done
+start=$(date +%s)
+LEAN_NUM_THREADS="${LEAN_NUM_THREADS:-2}" timeout 1200 "$LAKE" env "$checker" --verbose "${modules[@]}"
+echo "leanchecker: ${#modules[@]} modules ok ($(( $(date +%s) - start )) s)"

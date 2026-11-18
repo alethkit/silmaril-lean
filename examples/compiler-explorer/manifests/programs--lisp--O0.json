@@ -1,5 +1,17 @@
 {
   "artifacts": {
+    "include_search": {
+      "media": "application/json",
+      "path": "examples/compiler-explorer/env/programs-O0.search.json",
+      "sha256": "102a1f6705bb3240949b3300ce5bd97429a42c2bef3d580bcddf7563e107b3bd",
+      "size": 417
+    },
+    "includes": {
+      "media": "application/json",
+      "path": "examples/compiler-explorer/env/lisp-O2.includes.json",
+      "sha256": "8c271d526e00b05fb66e4c41ff5abbc8d310404e99fba0117d950bc89df2e1d3",
+      "size": 5626
+    },
     "macros": {
       "media": "text/x-c",
       "path": "examples/compiler-explorer/env/programs-O0.macros.h",
@@ -4115,9 +4127,14 @@
   ],
   "id": "programs/lisp/O0",
   "include_env": {
+    "dependencies": {
+      "artifact": "includes",
+      "flags": "-O2 -g -std=c11 -fno-asynchronous-unwind-tables -fdebug-prefix-map=/src=."
+    },
     "files": [
       {
-        "name": "lisp.c",
+        "artifact": "source",
+        "name": "/src/lisp.c",
         "sha256": "889fc81545e493ea8598034b68d0f94f4d04e8c7769ba74a881db5d6c511df04",
         "size": 2847,
         "where": "examples/compiler-explorer/programs/lisp.c"
@@ -4303,8 +4320,9 @@
         "where": "the pinned image gcc:13.3.0@sha256:1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818"
       }
     ],
+    "image": "gcc:13.3.0@sha256:1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818",
     "macros": "macros",
-    "note": "the files a preprocessor reads, by content; a formal preprocessor would be a stage from this environment to the preprocessed text (none is stated)",
+    "note": "Main file and observed headers by content; macros/search come from a separate probe. Header dependencies, when present, are from the recorded gcc -M flags, not a replay of every build. This is not a complete include map or a verified preprocessor.",
     "options": [
       "gcc",
       "-O0",
@@ -4317,13 +4335,16 @@
       "-o",
       "lisp.s"
     ],
+    "probe_flags": "-O0 -g -std=c11 -fno-asynchronous-unwind-tables -fdebug-prefix-map=/src=.",
     "search": [
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include",
       "/usr/local/include",
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include-fixed",
       "/usr/include/x86_64-linux-gnu",
       "/usr/include"
-    ]
+    ],
+    "search_receipt": "include_search",
+    "workdir": "/src"
   },
   "lean": {
     "family": null,

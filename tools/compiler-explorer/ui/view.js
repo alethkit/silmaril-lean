@@ -75,7 +75,7 @@ export function badge(status) {
     open: ["open", "stated in Lean, neither proved nor disproved: unknown"],
     unchecked: ["unchecked", "a proof is named but no checked evidence is recorded"],
     rejected: ["rejected", "the named proof does not prove this statement"],
-    stale: ["stale", "proved only for another version of these artifacts"],
+    stale: ["stale", "proof or refutation only for another version of these artifacts"],
     refuted: ["disproved", "a theorem of the statement's negation, checked by Lean's kernel"],
     unbound: ["unbound", "a theorem proves it, but the Lean function is not shown to be the target's code"],
     unsupported: ["unsupported", "not stated: no model covers it"],
@@ -140,6 +140,7 @@ const ASM_RULES = [
   [/\.[A-Za-z_][\w.]*/y, "tok-directive"], [/%[a-z0-9]+/y, "tok-register"],
   [/\$?-?0x[0-9a-fA-F]+|\$?-?\d+/y, "tok-number"], [/"(\\.|[^"\\])*"?/y, "tok-string"],
   [/<[^>\n]*>/y, "tok-label"],
+  [/(?<=^\s+|\t)[A-Za-z][A-Za-z0-9]*(?=\s|$)/y, "tok-keyword"],
 ];
 const SEXP_RULES = [
   [/"(\\.|[^"\\])*"?/y, "tok-string"], [/\$[A-Za-z_]+/y, "tok-keyword"], [/-?\d+/y, "tok-number"],

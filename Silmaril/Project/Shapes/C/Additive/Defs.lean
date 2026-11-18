@@ -13,10 +13,8 @@ conversion; qualifiers and annotations ignored).
 This is the **only** typing judgment the explorer states: it is not a typing judgment for C
 programs. Completeness of object types is approximated by excluding `void`, function types and
 incomplete arrays (struct and union completeness, which needs the tag environment, is not
-modelled: a pointer to a struct counts as a pointer to a complete object). A type-error
-certificate for a program is a proof of `¬ AdditiveOperands t₁ t₂` for the operand types of one
-`+` in it; that those *are* its operand types is a separate link (the Lean frontend does not yet
-type binary operands, so today it is read from the declarations, not checked).
+modelled: a pointer to a struct counts as a pointer to a complete object). `AdditionFragment`
+independently recognizes a tiny source grammar in which the two types come from parameters.
 -/
 
 @[expose] public section
@@ -56,6 +54,42 @@ def intCtype : Ctype := .mk [] (.basic (.integer (.signed .int)))
 
 /-- `int *`. -/
 def intPtrCtype : Ctype := .mk [] (.pointer ⟨false, false, false⟩ intCtype)
+
+namespace AdditionFragment
+
+/-- Split the punctuation and whitespace of the restricted grammar. -/
+def tokens (pending : List Char) : List Char → List (List Char)
+  | [] => if pending.isEmpty then [] else [pending.reverse]
+  | ch :: rest =>
+    let flush tail := if pending.isEmpty then tail else pending.reverse :: tail
+    if ch.isWhitespace then flush (tokens [] rest)
+    else if ['*', '+', '(', ')', '{', '}', ',', ';'].contains ch then flush ([ch] :: tokens [] rest)
+    else tokens (ch :: pending) rest
+
+/-- Read an `int` or `int *` parameter with the indicated name. -/
+def parameter (name : Char) : List (List Char) → Option (Ctype × List (List Char))
+  | ['i', 'n', 't'] :: ['*'] :: [ident] :: rest => if ident == name then some (intPtrCtype, rest) else none
+  | ['i', 'n', 't'] :: [ident] :: rest => if ident == name then some (intCtype, rest) else none
+  | _ => none
+
+/-- Recognize `int *addp(…, …) { return p + q; }` with `int` or `int *` parameters named
+`p` and `q` and either operand order. No preprocessing, comments or other declarators.
+Success supplies the declared types in operand order; this does not check the return type. -/
+def operands (text : String) : Option (Ctype × Ctype) :=
+  do
+    let ['i', 'n', 't'] :: ['*'] :: ['a', 'd', 'd', 'p'] :: ['('] :: rest := tokens [] text.toList | none
+    let (pType, [','] :: rest) ← parameter 'p' rest | none
+    let (qType, [[')'], ['{'], ['r', 'e', 't', 'u', 'r', 'n'], [lhs], ['+'], [rhs], [';'], ['}']]) ←
+      parameter 'q' rest | none
+    if lhs == 'p' && rhs == 'q' then some (pType, qType)
+    else if lhs == 'q' && rhs == 'p' then some (qType, pType)
+    else none
+
+/-- A recognized expression, whose input types must satisfy C's additive constraint. -/
+def Accepts (text : String) : Prop :=
+  ∃ pair, operands text = some pair ∧ AdditiveOperands pair.1 pair.2
+
+end AdditionFragment
 
 end Silmaril.Project.Shapes.C
 

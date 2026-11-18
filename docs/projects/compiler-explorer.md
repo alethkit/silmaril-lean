@@ -252,9 +252,10 @@ A status comes from one of three origins. Only the first two can make an obligat
 
 ## Database
 
-The schema is at version 3 (`schema_migrations`). Migration 2 records the origin of evidence;
-migration 3 records the `sil project` row of each obligation. Tests migrate a version-1 database
-with its data.
+The schema is at version 6 (`schema_migrations`). Migrations 2–5 record evidence origin,
+project rows, refutations and declaration locations, and judgments without a translation
+direction. Migration 6 records the exporter run's model-artifact binding and declaration
+locations. Tests migrate a version-1 database with its data.
 
 The tables:
 * `artifacts`: bytes by SHA-256, insert-only.
@@ -283,11 +284,8 @@ The adapter boundary is the project database schema `silmaril.project-db.v0.1`:
 * `statuses(problem, status = 'THM', tier = 'kernel', via)` gives the solving theorem;
 * `answer_axioms(decl, axiom)` gives its axioms.
 
-The adapter refuses another schema. The source↔target view itself is not a tab of the Pages
-explorer yet. That needs the manifests and artifact bytes in what Pages serves, and a view
-registered in `tools/silmaril-project/src/project/explore.rs`. Both sit on files the open C TV
-(#900, #934) and assembly-tab (#890) pull requests change. The obligations are already in the
-database; a tab would read this page's API shape (`problem_view`) from a static export.
+The adapter refuses another schema. Pages has SHA-addressed C and ELF artifact views; the
+two-pane source↔target problem view itself still runs on the compiler explorer server.
 
 ## Files first: problem forms, stages, environments
 
@@ -295,52 +293,67 @@ The primary problem is about **text files** (`Silmaril.Compiler.Explorer.Text`):
 * `Files`: a map from names to bytes.
 * `IncludeEnv`: the files a preprocessor may read, the search order, the predefined macros and
   the options.
-* `RelProblem`: an arbitrary relation between a source and a target.
+* `RelProblem`: an arbitrary relation between a source and a target. `RelProblem.Segments`
+  relates chosen fragments with separate membership relations, with no execution or coverage
+  requirement. A morphism maps the pair and preserves the relation; it transports proofs
+  forward and refutations backward. Identity and composition obey the usual laws.
+  `RelProblem.Refines` is pointwise implication (reflexive and transitive).
 * `Verdict`: proved, refuted or unknown.
 * `Stage`: a named partial function with a trust tag (`verified`, `evaluated`, `trusted`).
   - `Stage.comp` composes stages.
-  - `Stage.validated R` says that every output of the stage is related to its input by `R`. This
-    is the translation-validation problem a trusted stage becomes once it is replaced.
+  - `Stage.validated R` says that every successful output is related to its input by `R`.
+    Validation composes; it does not establish that a stage succeeds.
+  - `Stage.pullback` interprets any relation through independent source and target stages;
+    refining that relation refines its pullback.
 
-A relation may have **no semantics**. The `programs/*` problems are relations of that kind:
+A relation may have **no operational semantics** and still have a Lean statement. When there
+is only a receipt, the presentation uses `Semantics.none`. The `programs/*` problems are of that kind:
 "gcc compiled this C to this assembly", recorded by a receipt and tested by one run. The page
 labels them "relation · no semantics" and shows no semantic question for them. No comorphism is
 fabricated for them.
 
 `Reading` is the semantic specialisation: parse each side with a stage and relate the parses by
 a compilation `Problem`. `Reading.toRel` is the relation that induces on files. A manifest
-records its form as `semantic`, `relation` or `judgment`.
+records its form as `semantic`, `relation` or `judgment`. Stage views, segment-link mode, each
+side's model, and the comorphism are presented independently. Switching a view never changes
+the theorem. Choosing a different model or comorphism for a new problem requires a new manifest
+and new evidence, not a client-side toggle that carries evidence forward.
 
 **Stages and their exact outputs.** Each side of a problem can show its source or a stage's
 output (the "show" selector).
 
 | problem | source side | target side |
 | --- | --- | --- |
-| compiles-to | C text; typed Ail and Core (`core-probe.txt`) | `objdump` listing; Lean decoder listing (`decoded.txt`) |
+| compiles-to | C text; typed Ail and model Core (`core-probe.txt`) | raw ELF bytes; `objdump`; Lean decoder for supported functions (`decoded.txt`) |
 | C ⇒ C | C text; typed Ail and Core | C text; typed Ail and Core |
+| restricted typing | C text | extracted operand types; separate frontend diagnostic |
 
 The trust of each stage:
 
 | stage | trust | checked by |
 | --- | --- | --- |
 | C text → typed Ail (Lean frontend) | evaluated | `#guard` (compiled evaluation) |
-| typed Ail → Core (Lean elaborator) | verified | `elab_eq` (kernel) |
+| typed Ail → Core (compiles-to) | verified for these inputs | `elab_eq` (kernel) |
+| typed Ail → Core (C ⇒ C) | evaluated | `#guard` compares the serialized normalized model with the probe |
 | `objdump` | trusted | nothing: a receipt only |
 | Lean decoder | verified | obligation `decoding`, `decodesAs` (kernel) |
 
-`decoded.txt` is a rendering of the Lean value `<f>Listing` (by `tools/compiler-explorer/decoded_listing.lean`). The
-kernel checked the value, not the text.
+Before recording evidence, `verify` compares raw C bytes and canonical serialized Ail/Core and
+decoder views against renderings of their actual Lean declarations, byte for byte. This is a
+compiled rendering/identity check, not a kernel proof about a printer. `decodesAs` proves the
+listing value for the function's code; the separate object-binding obligation links that code to
+ELF bytes. `objdump` instructions are not proved correct by either check.
 
 **Preprocessor environment** (`fixtures.py env`). It records:
-* the main file, by SHA-256;
-* the headers the pinned gcc reads (`gcc -M`), by SHA-256 and size; their bytes stay in the
-  image, addressed by its digest;
-* the include search order (`gcc -E -v`);
-* the predefined macros (`gcc -dM -E`), stored as an artifact;
-* the options.
+* the main file under its build working-directory path, by SHA-256;
+* observed headers (`gcc -M`), by path, SHA-256 and size, with the dependency-probe flags
+  exposed separately (the program fixtures use the O2 probe; no re-use is called an O0 trace);
+* include search order (`gcc -E -v`), predefined macros (`gcc -dM -E`), and their probe flags;
+* the actual build command and pinned image.
 
-No preprocessor is formalised. A future `Stage (IncludeEnv × Files) Files` would take this
-environment as its input.
+`fixtures.py include-map MANIFEST OUT` materializes the observed filename → byte map as
+`files_hex` in JSON, reading headers from the pinned image and refusing mismatched size or
+SHA-256. This is not a complete trace, a formal preprocessor, or a verified general C parser.
 
 **Debug information → problems.** Each compiles-to problem lists the facts c-tv extracted from
 the object's DWARF with `gimli`, which is not verified. There are three kinds of fact:
@@ -348,16 +361,17 @@ the object's DWARF with `gimli`, which is not verified. There are three kinds of
 * point placements, used by the segment, mapping and translation statements;
 * frame slots, used by the location relation and the segment statements.
 
-Each fact states what depends on it and what a wrong fact would do. A wrong offset makes a
-segment statement unprovable, not false. The location relation holds for whatever offsets it is
-given. The page shows these facts as "extracted", never as checked.
+Each fact links to the obligations that depend on it. The view supplies the input ELF and
+recorded `correspondence.json` bytes, compiler profile and function. A wrong offset can change
+the statement or the relation it proves; proving a statement about the chosen offsets does not
+validate the extractor. Facts are shown as "extracted", never as checked.
 
 ## More general problems, and negative results
 
 **C ⇒ C translations** (`Silmaril.Project.Shapes.CompilesTo.Translate`).
 `CanonicalRefines F G`: from the canonical entries, wherever the source is safe, every outcome
 the target halts with is one the source halts with. `CanonicalEquivalent` is refinement in both
-directions.
+directions. This is inclusion of terminating outcomes, not a target progress or liveness theorem.
 
 `CanonicalRefines.refuted_of_ends` refutes a translation from two evaluated runs on the same
 arguments. The source's forced run is its only run (`Forced.terminal_unique`). The target's run
@@ -367,27 +381,27 @@ translations of `add3`:
 
 | translation | `add3(1, 2, 3)` | status |
 | --- | --- | --- |
-| `add3_reassoc` (reassociated) | 6 | open: equivalence not proved (unknown) |
+| `add3_reassoc` (reassociated) | 6 | open: different intermediate signed overflow is possible |
 | `add3_double` (returns twice the sum) | 12 | **disproved** |
 | `add3_operand` (`s + a` for `s + c`) | 4 | **disproved** |
 | `add3_drop` (drops `c`) | 3 | **disproved** |
-| `add3_op` (`s - c`) | not evaluated | open (unknown): its run is not evaluated here |
+| `add3_op` (`s - c`) | no checked run | open |
 
 "Disproved" means a theorem of the statement's negation, checked by the kernel and recorded as
 `refuted`. "Open" means unknown. A failed check of a named proof is "rejected". The three are
 never conflated.
 
-**A type error under a restricted judgment** (`Silmaril.Project.Shapes.C.AdditiveOperands`).
+**A type error under a restricted judgment** (`Silmaril.Project.Shapes.C.AdditionFragment`).
 This judgment is the constraint of C11 §6.5.6¶2 on the operand types of `+`, over Cerberus's
 `Ctype`. It is the only typing judgment stated here; struct completeness is not modelled.
 
 `examples/compiler-explorer/typeerror/addp.c` adds two `int *`.
-`CompilesToExamples.Explorer.TypeError.addp_operands` proves
-`¬ AdditiveOperands (int *) (int *)`. The link from the text to these operand types is **not**
-checked, and the page lists that link as an unsupported obligation. The reason is that the Lean
-frontend does not type binary operands yet. Its output on this file (recorded in `frontend.txt`
-and checked by `#guard`) is "typing not yet ported: binary operands". It neither accepts nor
-rejects the program, and its message is not a proof.
+`addp_parses` kernel-checks that a small source recognizer extracts two `int *` operands from the
+exact source literal, and `addp_type_error` proves that the recognized source does not satisfy
+the additive constraint. `addp_int_accepted` checks a pointer-plus-integer counterpart under
+the same judgment. The recognizer does not preprocess, parse arbitrary C or check the rest of
+the program. The general frontend's "typing not yet ported" message is a separate evaluated
+artifact and supplies no proof.
 
 ## The page
 
@@ -399,18 +413,20 @@ rejects the program, and its message is not a proof.
   lines can be focused and activated with Enter or Space.
 * **Statuses.** "proved", "disproved" and "open" (unknown) have distinct styles. "unsupported"
   means no statement. A relation with no semantics shows no questions at all.
-* **Links.** Links go only to targets that exist:
-  - the Lean source of a proof on GitHub, at the commit its evidence was computed at (only a
-    clean 40-hex commit, with the line from the exporter);
+* **Links.** Every obligation, including individual edges and points, is reachable from the
+  questions panel. Proofs and exact model definitions link to their Lean files and lines at the
+  clean commit recorded by `verify`:
   - the silmaril explorer's routes on main: `#/problem/<row>`, `#/artifact/<registered name>`,
     and `#/source/<decl>` for a row's solving theorem;
-  - the repository file of every artifact, at the commit its evidence was computed at (none for
-    a problem without checked evidence).
+  - immutable exact-byte downloads, including artifacts with no Lean evidence;
+  - the C (`#/c-artifact/<sha>`) and ELF (`#/elf-artifact/<sha>`) tabs on sites generated by
+    `make pages`. Both verify the full SHA-256 in the browser. ELF sections are labeled as
+    unverified; this route neither needs nor extends the pinned-file ELF theorems.
 
-  The C tab (`#/c-program/…`) is in open PR #900 and not on main, so no link to it is made. The
-  ELF tab (`#/elf-file/<slug>`) shows only its pinned executables; `ELF_TAB` maps their SHA-256
-  to slugs, and none of this explorer's artifacts is one of them. Both are configuration in
-  `cexplorer.py` (`LINKS`, `ELF_TAB`), so a Wasm or C tab is one entry once it exists.
+  The server checks the deployed catalog at startup and only emits C/ELF links for a matching
+  SHA-256, size, media kind and path. `--viewer URL` can point it at a locally served Pages build.
+  Before the updated site is deployed the public Pages site will not advertise these routes.
+  The C-program (#900) and Assembly (#890/#851) features remain separate.
 
 ## Fixtures and results
 
@@ -446,13 +462,13 @@ canonical-entry row. Safety from every Core entry is open everywhere.
 | decompiled and imported directions | done, with fixtures; the decompiled block's machine → C0 obligation is proved (bound to the object's bytes by a tool check, to the C text by printing); no whole-function decompilation theorem |
 | kernel replay | `leanchecker` on the evidence modules in `make compiler-explorer-check` (imports from `.olean`, same kernel) |
 | syntax highlighting (C, assembly, Core) | done, as text tokens (tested for escaping) |
-| jump to Lean source, explorer routes, artifact files | done for existing routes; C tab pending #900; ELF tab has none of these artifacts |
-| toggle source / trusted stage output | done: Core document, Lean decoder listing; objdump labelled untrusted |
+| jump to Lean source, explorer routes, artifact files | Lean definitions and evidence; exact C and ELF routes tested on generated site, public links after Pages deployment |
+| toggle source / trusted stage output | checked artifact renderings; raw ELF, objdump and Lean decoder are distinct |
 | short questions, hover and keyboard info | done |
-| text-file problems, include environment, stages, no-semantics relations | done (Lean scaffolding, manifests, page); no formal preprocessor or parser |
-| C ⇒ C translations, equivalence | done: refinement and equivalence stated; three bugs disproved; reassociation open |
-| type error under a named judgment | done for C11 §6.5.6¶2 operands only; the text → types link is not checked |
-| DWARF → problem mapping | done: extracted facts, their dependents and failure modes; nothing marked checked |
+| text-file and segment problems, stages, morphisms, optional semantics | relation and refinement API; receipt-only examples; observed include bytes materializable, no verified C preprocessor |
+| C ⇒ C translations, equivalence | canonical outcome inclusion and equivalence stated; three translations disproved; reassociation and subtraction variant open |
+| type error under a named judgment | exact source → operand types and rejection of the additive constraint, checked for the restricted grammar |
+| DWARF → problem mapping | exact extract linked to its object and dependents; extractor itself unverified |
 | nondeterministic segment discipline, concurrent target | not done |
 | interactive compilation (choose compiler, flags, source; compile on demand) | not done: a remaining goal. It needs a sandboxed compile service (resource limits, no network, pinned images, receipts written by the service) with an API the database can trust; the repository has none, and this page must not run compilers itself |
 

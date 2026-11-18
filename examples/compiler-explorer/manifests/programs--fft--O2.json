@@ -1,5 +1,17 @@
 {
   "artifacts": {
+    "include_search": {
+      "media": "application/json",
+      "path": "examples/compiler-explorer/env/programs-O2.search.json",
+      "sha256": "51fd4486fa002194e0f3ebd7970e9fc08d40fca56fbaefedd6e3ef16f6cbc2cc",
+      "size": 417
+    },
+    "includes": {
+      "media": "application/json",
+      "path": "examples/compiler-explorer/env/fft-O2.includes.json",
+      "sha256": "ce9580b775866ba214db7b9af069d158575f5fea178d51e24dfb66ec132cd4ae",
+      "size": 6918
+    },
     "macros": {
       "media": "text/x-c",
       "path": "examples/compiler-explorer/env/programs-O2.macros.h",
@@ -1527,9 +1539,14 @@
   ],
   "id": "programs/fft/O2",
   "include_env": {
+    "dependencies": {
+      "artifact": "includes",
+      "flags": "-O2 -g -std=c11 -fno-asynchronous-unwind-tables -fdebug-prefix-map=/src=."
+    },
     "files": [
       {
-        "name": "fft.c",
+        "artifact": "source",
+        "name": "/src/fft.c",
         "sha256": "acd6576a6a17429cb80aa7f696727ae98758c9843ca0c04729d09b93eacb0347",
         "size": 1083,
         "where": "examples/compiler-explorer/programs/fft.c"
@@ -1757,8 +1774,9 @@
         "where": "the pinned image gcc:13.3.0@sha256:1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818"
       }
     ],
+    "image": "gcc:13.3.0@sha256:1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818",
     "macros": "macros",
-    "note": "the files a preprocessor reads, by content; a formal preprocessor would be a stage from this environment to the preprocessed text (none is stated)",
+    "note": "Main file and observed headers by content; macros/search come from a separate probe. Header dependencies, when present, are from the recorded gcc -M flags, not a replay of every build. This is not a complete include map or a verified preprocessor.",
     "options": [
       "gcc",
       "-O2",
@@ -1771,13 +1789,16 @@
       "-o",
       "fft.s"
     ],
+    "probe_flags": "-O2 -g -std=c11 -fno-asynchronous-unwind-tables -fdebug-prefix-map=/src=.",
     "search": [
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include",
       "/usr/local/include",
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include-fixed",
       "/usr/include/x86_64-linux-gnu",
       "/usr/include"
-    ]
+    ],
+    "search_receipt": "include_search",
+    "workdir": "/src"
   },
   "lean": {
     "family": null,

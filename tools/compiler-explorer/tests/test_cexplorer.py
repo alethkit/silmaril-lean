@@ -129,7 +129,7 @@ class Ingest(Base):
         b = cx.ingest_manifest(self.db, STRAIGHT_O0)
         self.assertEqual(a, b)
         cx.migrate(self.db)
-        self.assertEqual([r[0] for r in self.db.execute("SELECT version FROM schema_migrations")], [1, 2, 3, 4, 5])
+        self.assertEqual([r[0] for r in self.db.execute("SELECT version FROM schema_migrations")], [1, 2, 3, 4, 5, 6])
 
     def test_migration_keeps_existing_data(self):
         path = str(self.tmp / "old.sqlite")
@@ -139,7 +139,7 @@ class Ingest(Base):
         old.close()
         db = cx.connect(path)  # migrates 2 and 3
         vid = cx.ingest_manifest(db, STRAIGHT_O0)
-        self.assertEqual([r[0] for r in db.execute("SELECT version FROM schema_migrations")], [1, 2, 3, 4, 5])
+        self.assertEqual([r[0] for r in db.execute("SELECT version FROM schema_migrations")], [1, 2, 3, 4, 5, 6])
         self.assertTrue(db.execute("SELECT row FROM obligations WHERE version_id = ? AND id = 'translation'",
                                    (vid,)).fetchone()[0])
         db.close()
@@ -474,10 +474,12 @@ class Polish(Base):
         self.assertEqual(v["direction"], "none")
         self.assertEqual(v["extra"]["problem_form"], "judgment")
         typing = next(o for o in v["obligations"] if o["kind"] == "typing")
-        self.assertIn("AdditiveOperands", typing["statement"])
-        self.assertTrue(typing["refutation"].endswith("addp_operands"))
+        self.assertIn("AdditionFragment.Accepts", typing["statement"])
+        self.assertIn(cx.lean_str(v["texts"]["source"]), typing["statement"])
+        self.assertTrue(typing["refutation"].endswith("addp_type_error"))
         link = next(o for o in v["obligations"] if o["kind"] == "operand_types")
-        self.assertEqual(link["status"], "unsupported")  # the text -> types link is not claimed
+        self.assertIn("AdditionFragment.operands", link["statement"])
+        self.assertTrue(link["decl"].endswith("addp_parses"))
 
     def test_no_semantics_relation(self):
         cx.ingest_manifest(self.db, MSORT_O2)
@@ -494,14 +496,60 @@ class Polish(Base):
         cx.ingest_manifest(self.db, STRAIGHT_O0)
         v = cx.problem_view(self.db, "compiles-to/straight/O0/add3")
         alts = {a["role"] for side in ("source", "target") for a in v["view"]["alternatives"][side]}
-        self.assertEqual(alts, {"source", "core_probe", "listing", "decoded"})
+        self.assertEqual(alts, {"source", "core_probe", "target", "listing", "decoded"})
         self.assertIn("BEGIN-CORE-DOCUMENT", v["alt_texts"]["core_probe"])
         self.assertIn("decodesAs", v["alt_texts"]["decoded"])
+        self.assertTrue(v["alt_texts"]["target"].startswith("00000000  7f 45 4c 46"))
         trusts = {s["name"]: s["trust"] for s in v["extra"]["stages"]}
         self.assertEqual(trusts["objdump -d (binutils 2.40)"], "trusted")
         self.assertIn("verified", trusts.values())
         facts = v["extra"]["dwarf_facts"]
         self.assertTrue(any(f["kind"] == "frame_slot" and "refinement" in f["used_by"] for f in facts))
+
+    def test_executed_rendering_must_match_every_named_artifact(self):
+        manifest = json.loads(STRAIGHT_O0.read_bytes())
+        bindings = {role: cx.read_artifact(ROOT, manifest["artifacts"][role]).decode()
+                    for role, _ in manifest["lean"]["bindings"]}
+        cx.check_rendered_artifacts(self.db, STRAIGHT_O0, manifest, {"artifacts": bindings})
+        bindings["decoded"] += "\n"
+        with self.assertRaisesRegex(cx.Rejected, "decoded: artifact bytes differ"):
+            cx.check_rendered_artifacts(self.db, STRAIGHT_O0, manifest, {"artifacts": bindings})
+        with self.assertRaisesRegex(cx.Rejected, "exactly the named artifact bindings"):
+            cx.check_rendered_artifacts(self.db, STRAIGHT_O0, manifest, {"artifacts": {}})
+
+    def test_stage_and_dependency_metadata_cannot_reference_another_input(self):
+        for path, change, reason in [
+            (STRAIGHT_O0, lambda m: m["stages"][0].update(output="missing"), "not a manifest artifact"),
+            (STRAIGHT_O0, lambda m: m["dwarf_extraction"].update(profile="O2"), "target and profile"),
+            (STRAIGHT_O0, lambda m: m["dwarf_facts"][0].update(used_by=["missing"]), "not an obligation"),
+            (MSORT_O2, lambda m: m["include_env"]["files"][1].update(sha256="0" * 64), "dependency receipt"),
+            (MSORT_O2, lambda m: m["include_env"].update(search=["/tmp"]), "search receipt"),
+        ]:
+            with self.subTest(reason=reason):
+                manifest = json.loads(path.read_bytes())
+                change(manifest)
+                with self.assertRaisesRegex(cx.Rejected, reason):
+                    cx.ingest_manifest(self.db, self.write("changed.json", manifest))
+
+    def test_catalog_routes_are_for_published_exact_bytes(self):
+        fixtures_spec = importlib.util.spec_from_file_location("fixtures", HERE.parent / "fixtures.py")
+        fixtures = importlib.util.module_from_spec(fixtures_spec)
+        fixtures_spec.loader.exec_module(fixtures)
+        fixtures.viewer_assets(self.tmp)
+        dest = self.tmp / "compiler-artifacts"
+        catalog = json.loads((dest / "index.json").read_text())["artifacts"]
+        cx.ingest_manifest(self.db, STRAIGHT_O0)
+        base = "http://localhost:8991/"
+        pid = "compiles-to/straight/O0/add3"
+        view = cx.problem_view(self.db, pid, (base, catalog))
+        for role, tab in (("source", "c"), ("target", "elf")):
+            ref = view["artifacts"][role]
+            sha = ref["sha256"]
+            self.assertEqual((dest / "bytes" / sha).read_bytes(), (ROOT / ref["path"]).read_bytes())
+            self.assertEqual(view["artifact_links"][role][0]["url"], f"{base}#/{tab}-artifact/{sha}")
+            catalog[sha]["size"] += 1
+        view = cx.problem_view(self.db, pid, (base, catalog))
+        self.assertFalse(any(link["kind"] == "viewer" for links in view["artifact_links"].values() for link in links))
 
     def test_links_only_to_existing_routes_and_clean_commits(self):
         cx.ingest_manifest(self.db, STRAIGHT_O0)

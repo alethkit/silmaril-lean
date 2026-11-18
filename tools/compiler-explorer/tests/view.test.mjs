@@ -85,6 +85,7 @@ test("highlighting keeps every character and never interprets markup", () => {
   assert.ok(c.some(([t, k]) => t.includes("<script>") && k === "tok-comment"));
   const a = highlightLine(lines[2], "asm");
   assert.ok(a.some(([t, k]) => t === "%rbp" && k === "tok-register"));
+  assert.ok(a.some(([t, k]) => t === "mov" && k === "tok-keyword"));
   assert.equal(langOf("text/x-objdump"), "asm");
   assert.equal(langOf("application/json"), "plain");
 });

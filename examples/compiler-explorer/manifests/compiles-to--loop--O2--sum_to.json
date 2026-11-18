@@ -1,10 +1,16 @@
 {
   "artifacts": {
-    "core_probe": {
-      "media": "text/x-lisp",
-      "path": "examples/compiles-to/loop/core-probe.txt",
-      "sha256": "ccc94b65e5a4039b801b0002842bb6d5f5eeddc9bf811aac5880a7db55cc725e",
-      "size": 8817
+    "dwarf_extract": {
+      "media": "application/json",
+      "path": "examples/compiles-to/loop/correspondence.json",
+      "sha256": "df4ebea471799dd87d8184349b1c526484c53f594f48024abf686a62aba915a6",
+      "size": 10884
+    },
+    "include_search": {
+      "media": "application/json",
+      "path": "examples/compiler-explorer/env/compiles-to-O2.search.json",
+      "sha256": "82909567539eedd9f035a23bdcc0b29c1fc1a0aeb841524067ba2837c6ac66fc",
+      "size": 558
     },
     "listing": {
       "media": "text/x-objdump",
@@ -61,6 +67,14 @@
     "version": "gcc (GCC) 13.3.0"
   },
   "direction": "compiled",
+  "dwarf_extraction": {
+    "function": "sum_to",
+    "input": "target",
+    "output": "dwarf_extract",
+    "profile": "O2",
+    "tool": "c-tv (gimli)",
+    "trust": "trusted"
+  },
   "dwarf_facts": [
     {
       "fact": "line 6 <- .text [0x0, 0x4)",
@@ -583,16 +597,19 @@
   ],
   "id": "compiles-to/loop/O2/sum_to",
   "include_env": {
+    "dependencies": null,
     "files": [
       {
-        "name": "loop.c",
+        "artifact": "source",
+        "name": "/src/loop.c",
         "sha256": "27290d697dff6003ea20638190f5f40a69cda2dc5368f9a1b96cc862c6dc34ee",
         "size": 138,
         "where": "examples/compiles-to/loop/loop.c"
       }
     ],
+    "image": "gcc:13.3.0@sha256:1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818",
     "macros": "macros",
-    "note": "the files a preprocessor reads, by content; a formal preprocessor would be a stage from this environment to the preprocessed text (none is stated)",
+    "note": "Main file and observed headers by content; macros/search come from a separate probe. Header dependencies, when present, are from the recorded gcc -M flags, not a replay of every build. This is not a complete include map or a verified preprocessor.",
     "options": [
       "gcc",
       "-O2",
@@ -614,13 +631,16 @@
       "-o",
       "O2/loop.o"
     ],
+    "probe_flags": "-O2 -g -c -fdebug-prefix-map=/src=. -std=c11 -ffreestanding -fno-builtin -fno-stack-protector -fcf-protection=none -mgeneral-regs-only -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-ident",
     "search": [
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include",
       "/usr/local/include",
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include-fixed",
       "/usr/include/x86_64-linux-gnu",
       "/usr/include"
-    ]
+    ],
+    "search_receipt": "include_search",
+    "workdir": "/src"
   },
   "lean": {
     "family": null,
@@ -671,22 +691,6 @@
   "schema": "silmaril.compiler-explorer.problem/1",
   "stages": [
     {
-      "evidence": "#guard in CompilesToExamples.Loop.Defs (compiled evaluation)",
-      "input": "source",
-      "name": "Lean C frontend: C text -> typed Ail",
-      "output": "core_probe",
-      "side": "source",
-      "trust": "evaluated"
-    },
-    {
-      "evidence": "not checked here",
-      "input": "core_probe",
-      "name": "Lean Cerberus elaborator: typed Ail -> Core",
-      "output": "core_probe",
-      "side": "source",
-      "trust": "verified"
-    },
-    {
       "evidence": "receipt only",
       "input": "target",
       "name": "objdump -d (binutils 2.40)",
@@ -703,16 +707,16 @@
         {
           "label": "C source",
           "role": "source"
-        },
-        {
-          "label": "typed Ail + Core (trusted stages)",
-          "role": "core_probe"
         }
       ],
       "target": [
         {
-          "label": "objdump (untrusted tool)",
+          "label": "objdump (unverified)",
           "role": "listing"
+        },
+        {
+          "label": "Raw ELF bytes",
+          "role": "target"
         }
       ]
     },

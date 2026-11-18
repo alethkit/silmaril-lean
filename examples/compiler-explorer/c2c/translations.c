@@ -1,5 +1,5 @@
 /* C => C translations of add3 (examples/compiles-to/straight/straight.c), one per function.
-   add3_reassoc is a correct reassociation; the others carry a deliberate bug. */
+   Reassociation has different signed-overflow conditions; the other cases change the result. */
 int add3_reassoc(int a, int b, int c)
 {
   int s = b + c;

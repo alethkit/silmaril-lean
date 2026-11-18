@@ -5,6 +5,8 @@
     python3 -I tools/compiler-explorer/fixtures.py listings   # Docker: objdump the compiles-to objects
     python3 -I tools/compiler-explorer/fixtures.py decompile  # Docker and Lean: the decompiled fixture
     python3 -I tools/compiler-explorer/fixtures.py manifests [--out DIR]  # no Docker: the manifests
+    python3 -I tools/compiler-explorer/fixtures.py viewer --out SITE    # exact C/ELF viewer assets
+    python3 -I tools/compiler-explorer/fixtures.py include-map MANIFEST OUT  # pinned image header bytes
 
 `build` and `listings` run the pinned gcc image of tools/c-tv (by digest) with no network
 (`--network none`), the caller's uid and the sources mounted read-only. They write what they
@@ -21,12 +23,14 @@ the status from the Lean build.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import pathlib
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -335,6 +339,8 @@ def program_manifests() -> list[dict]:
                 "artifacts": {"source": src_ref, "target": asm_ref,
                               "receipt": file_ref(d / "RECEIPT.json", "application/json"),
                               "run": file_ref(d / "run.json", "application/json"),
+                              "include_search": file_ref(ENV / f"programs-{opt}.search.json", "application/json"),
+                              "includes": file_ref(ENV / f"{prog}-O2.includes.json", "application/json"),
                               "macros": file_ref(ENV / f"programs-{opt}.macros.h", "text/x-c")},
                 "view": {"source": "source", "target": "target"},
                 "problem_form": "relation",
@@ -343,8 +349,8 @@ def program_manifests() -> list[dict]:
                                             "checks one execution; no Lean statement relates them"},
                 "stages": [{"side": "target", "name": "gcc -S (cc1, pinned image)", "trust": "trusted",
                             "input": "source", "output": "target", "evidence": "receipt only"}],
-                "include_env": include_env(src, ENV / f"programs-{opt}.macros.h", ENV / f"programs-{opt}.search.json",
-                                           receipt["command"], ENV / f"{prog}-O2.includes.json"),
+                "include_env": include_env(src, ENV / f"programs-{opt}.search.json", receipt,
+                                           ENV / f"{prog}-O2.includes.json"),
                 "derivation": {"kind": "compiler", "compiler": "gcc", "version": receipt["gcc"],
                                "image": IMAGE, "command": receipt["command"], "opt": opt,
                                "target": "x86_64-linux-gnu", "receipt": "receipt"},
@@ -393,20 +399,27 @@ def listing_rows(text: bytes) -> list[tuple[int, int, int, int]]:
     return rows
 
 
-def include_env(main: pathlib.Path, macros: pathlib.Path, search: pathlib.Path, options: str,
+def include_env(main: pathlib.Path, search: pathlib.Path, receipt: dict,
                 includes: pathlib.Path | None = None) -> dict:
-    """The preprocessor's environment of one compilation: the main file and the headers it reads
-    (by SHA-256), the search order, the predefined macros (an artifact) and the options."""
-    files = [{"name": main.name, "sha256": sha256(main.read_bytes()), "size": main.stat().st_size,
-              "where": main.relative_to(ROOT).as_posix()}]
+    """A content-addressed include environment observation, not a complete preprocessor trace."""
+    workdir = receipt["workdir"]
+    files = [{"name": f"{workdir}/{main.name}", "sha256": sha256(main.read_bytes()), "size": main.stat().st_size,
+              "artifact": "source", "where": main.relative_to(ROOT).as_posix()}]
+    dependencies = None
     if includes is not None:
-        for f in json.loads(includes.read_text())["files"]:
+        dependency_run = json.loads(includes.read_text())
+        dependencies = {"artifact": "includes", "flags": dependency_run["flags"]}
+        for f in dependency_run["files"]:
             files.append({"name": f["path"], "sha256": f["sha256"], "size": f["size"],
                           "where": "the pinned image " + IMAGE})
-    return {"files": files, "search": json.loads(search.read_text())["angle_search"],
-            "macros": "macros", "options": options.split(),
-            "note": ("the files a preprocessor reads, by content; a formal preprocessor would be a stage "
-                     "from this environment to the preprocessed text (none is stated)")}
+    search_result = json.loads(search.read_text())
+    return {"files": files, "workdir": workdir, "image": receipt["image"],
+            "search": search_result["angle_search"], "search_receipt": "include_search",
+            "macros": "macros", "probe_flags": search_result["flags"], "dependencies": dependencies,
+            "options": receipt["command"].split(),
+            "note": ("Main file and observed headers by content; macros/search come from a separate probe. "
+                     "Header dependencies, when present, are from the recorded gcc -M flags, not a replay "
+                     "of every build. This is not a complete include map or a verified preprocessor.")}
 
 
 def dwarf_facts(fn: dict, base: int, have_lean: bool) -> list[dict]:
@@ -421,16 +434,19 @@ def dwarf_facts(fn: dict, base: int, have_lean: bool) -> list[dict]:
         out.append({"kind": "point", "origin": "DWARF line table (c-tv): point placement",
                     "fact": f"point {p['index']} at offset {p['off']:#x}, line {p['line']}",
                     "used_by": [f"edge/{p['index']}", f"point/{p['index']}", "mapping", "translation"],
-                    "if_wrong": "the segment statements are about these offsets: a wrong one makes them unprovable, not false"})
+                    "if_wrong": "the segment statements refer to these selected points, not to correctness of the extraction"})
         if isinstance(p["kind"], dict):
             for sl in p["kind"]["Slots"]:
                 out.append({"kind": "frame_slot", "origin": "DWARF DW_AT_location (c-tv, gimli: unverified)",
                             "fact": f"point {p['index']}: {sl['name']} (line {sl['decl_line']}) at CFA{sl['off']:+d}, "
                                     f"{sl['size']} bytes{', defined' if sl['defined'] else ''}",
                             "used_by": [f"edge/{p['index']}", "refinement"],
-                            "if_wrong": ("the location relation is about these offsets (refinement holds for any); "
-                                         "a wrong slot makes the segment statements unprovable")})
+                            "if_wrong": ("the chosen location relation changes; proving a theorem about it does not "
+                                         "establish that this is the source variable's actual DWARF slot")})
     return out
+
+
+PROBE = "Silmaril.Project.CompilesTo.Probe"
 
 
 def compiles_to_manifests() -> list[dict]:
@@ -522,8 +538,11 @@ def compiles_to_manifests() -> list[dict]:
                         ob("nonvacuity/canonical", "nonvacuity_canonical", f"{X}.canonical" if proved else None),
                         ob("nonvacuity/universal", "nonvacuity_universal", None),
                     ]
+                    model = f"CompilesToExamples.{cname}"
                     lean = {"family": "c-function-x86", "vars": lean_vars,
-                            "modules": [LEAN_MODULE, "CompilesToExamples.Explorer.Code"],
+                            "modules": [LEAN_MODULE, "CompilesToExamples.Explorer.Code", f"{PROBE}.Defs"],
+                            "bindings": list(cx.model_bindings("c-function-x86", lean_vars).items()),
+                            "definitions": [f"{model}.{part}" for part in ("cText", "ail", "core", "elab_eq")],
                             "registry": {"source": f"silmaril.compiles_to.{name}.source",
                                          "target": f"silmaril.compiles_to.{name}.{opt.lower()}.object"}}
                     ctx = {
@@ -559,35 +578,38 @@ def compiles_to_manifests() -> list[dict]:
                                   "receipt": file_ref(receipt_path, "application/json"),
                                   "listing_receipt": file_ref(LISTINGS / name / opt / "RECEIPT.json",
                                                               "application/json"),
-                                  "core_probe": file_ref(COMPILES_TO / name / "core-probe.txt", "text/x-lisp"),
+                                  "dwarf_extract": file_ref(COMPILES_TO / name / "correspondence.json", "application/json"),
+                                  "include_search": file_ref(ENV / f"compiles-to-{opt}.search.json", "application/json"),
                                   "macros": file_ref(ENV / f"compiles-to-{opt}.macros.h", "text/x-c")},
-                                  **({"decoded": file_ref(LISTINGS / name / opt / "decoded.txt", "text/plain")}
+                                  **({"decoded": file_ref(LISTINGS / name / opt / "decoded.txt", "text/plain"),
+                                      "core_probe": file_ref(COMPILES_TO / name / "core-probe.txt", "text/x-lisp")}
                                      if pts else {})},
                     "view": {"source": "source", "target": "listing", "target_map": listing_map,
                              "alternatives": {
-                                 "source": [{"role": "source", "label": "C source"},
-                                            {"role": "core_probe", "label": "typed Ail + Core (trusted stages)"}],
-                                 "target": [{"role": "listing", "label": "objdump (untrusted tool)"}]
-                                 + ([{"role": "decoded", "label": "Lean decoder (kernel-checked)"}] if pts else [])}},
+                                 "source": [{"role": "source", "label": "C source"}]
+                                 + ([{"role": "core_probe", "label": "Typed Ail + model Core"}] if pts else []),
+                                 "target": [{"role": "listing", "label": "objdump (unverified)"},
+                                            {"role": "target", "label": "Raw ELF bytes"}]
+                                 + ([{"role": "decoded", "label": "Lean decoder listing"}] if pts else [])}},
                     "problem_form": "semantic" if pts else "relation",
                     "relation": ({"semantics": "stated", "description": "the deterministic C/x86-64 compilation problem of FnData"}
                                  if pts else {"semantics": "none",
                                               "description": "gcc 13.3.0 compiled this C to this object (receipt); "
                                                              "no Lean statement relates them"}),
-                    "stages": [
-                        {"side": "source", "name": "Lean C frontend: C text -> typed Ail", "trust": "evaluated",
-                         "input": "source", "output": "core_probe",
-                         "evidence": f"#guard in CompilesToExamples.{cname}.Defs (compiled evaluation)"},
-                        {"side": "source", "name": "Lean Cerberus elaborator: typed Ail -> Core", "trust": "verified",
-                         "input": "core_probe", "output": "core_probe",
-                         "evidence": f"CompilesToExamples.{cname}.elab_eq (kernel, cbv)" if pts else "not checked here"},
+                    "stages": ([
+                        {"side": "source", "name": "C frontend → typed Ail → Cerberus Core", "trust": "evaluated",
+                         "input": "source", "output": "core_probe", "obligation": "elaboration",
+                         "evidence": "C → Ail is compiled evaluation (#guard); the Ail → Core equality is kernel-checked"},
+                    ] if pts else []) + [
                         {"side": "target", "name": "objdump -d (binutils 2.40)", "trust": "trusted",
                          "input": "target", "output": "listing", "evidence": "receipt only"},
                     ] + ([{"side": "target", "name": "Lean x86 decoder (Silmaril.X86.Ext.decode)", "trust": "verified",
-                           "input": "target", "output": "decoded", "evidence": "obligation decoding (decodesAs, kernel)"}]
+                           "input": "target", "output": "decoded", "obligation": "decoding",
+                           "evidence": "function bytes, not an ELF parser; decodesAs checks the listing's Lean value"}]
                          if pts else []),
-                    "include_env": include_env(src, ENV / f"compiles-to-{opt}.macros.h",
-                                               ENV / f"compiles-to-{opt}.search.json", receipt["command"]),
+                    "include_env": include_env(src, ENV / f"compiles-to-{opt}.search.json", receipt),
+                    "dwarf_extraction": {"input": "target", "output": "dwarf_extract", "profile": opt,
+                                         "function": fname, "tool": "c-tv (gimli)", "trust": "trusted"},
                     "dwarf_facts": dwarf_facts(fn, base, bool(pts)),
                     "derivation": {"kind": "compiler", "compiler": "gcc", "version": receipt["gcc"],
                                    "image": receipt["image"], "command": receipt["command"], "opt": opt,
@@ -803,8 +825,8 @@ def rows(check: bool = False) -> None:
 C2C = EX / "c2c"
 C2C_FUNCTIONS = {
     # function: (Lean name, refuted?, what it is)
-    "add3_reassoc": ("add3ReassocFn", False, "a correct reassociation; equivalence not proved (open)"),
-    "add3_op": ("add3OpFn", False, "s - c instead of s + c; not decided: its Core run is not evaluated here"),
+    "add3_reassoc": ("add3ReassocFn", False, "reassociation changes where signed overflow can occur; refinement open"),
+    "add3_op": ("add3OpFn", False, "s - c instead of s + c; no checked counterexample recorded"),
     "add3_double": ("add3DoubleFn", True, "bug: returns (a + b + c) + (a + b + c); refuted on add3(1, 2, 3)"),
     "add3_operand": ("add3OperandFn", True, "bug: s + a instead of s + c; refuted on add3(1, 2, 3)"),
     "add3_drop": ("add3DropFn", True, "bug: returns a + b, dropping c; refuted on add3(1, 2, 3)"),
@@ -851,9 +873,9 @@ def c2c_manifests() -> list[dict]:
                           "target_core_probe": file_ref(C2C / "core-probe.txt", "text/x-lisp")},
             "view": {"source": "source", "target": "target", "alternatives": {
                 "source": [{"role": "source", "label": "C source"},
-                           {"role": "core_probe", "label": "typed Ail + Core (trusted stages)"}],
+                           {"role": "core_probe", "label": "Typed Ail + model Core"}],
                 "target": [{"role": "target", "label": "C translation"},
-                           {"role": "target_core_probe", "label": "typed Ail + Core (trusted stages)"}]}},
+                           {"role": "target_core_probe", "label": "Typed Ail + model Core"}]}},
             "derivation": {"kind": "claimed", "claim": "the translations were written by hand for this fixture"},
             "problem_form": "semantic",
             "relation": {"semantics": "stated",
@@ -861,7 +883,7 @@ def c2c_manifests() -> list[dict]:
                                         "translation is an outcome of add3 where add3 is safe"},
             "stages": [{"side": side, "name": "Lean C frontend and Cerberus elaborator", "trust": "evaluated",
                         "input": inp, "output": outp,
-                        "evidence": "#guard (typed Ail, compiled evaluation); Core quoted from the probe"}
+                        "evidence": "#guard checks typed Ail. The model uses the quoted Core with normalized return labels."}
                        for side, inp, outp in (("source", "source", "core_probe"),
                                                ("target", "target", "target_core_probe"))],
             "context": {"source_model": {"family": "cerberus-core", "decl": "Silmaril.Project.Shapes.C.CFn.source",
@@ -871,7 +893,16 @@ def c2c_manifests() -> list[dict]:
                         "abi": None, "mapping_relation": None, "comorphism": None},
             "fragments": sorted(b.fragments.values(), key=lambda f: f["id"]),
             "edges": b.edges, "obligations": obligations, "tests": [],
-            "lean": {"family": "c-to-c", "vars": vars_, "modules": ["CompilesToExamples.Explorer.C2C.Runs"]},
+            "lean": {"family": "c-to-c", "vars": vars_,
+                     "modules": ["CompilesToExamples.Explorer.C2C.Runs", f"{PROBE}.Defs"],
+                     "bindings": list(cx.model_bindings("c-to-c", vars_).items()),
+                     "definitions": [f"{ns}.{part}" for ns in ("CompilesToExamples.Straight", "CompilesToExamples.Explorer.C2C")
+                                     for part in ("cText", "ail", "core")] +
+                                    ["Silmaril.Project.Shapes.CompilesTo.CanonicalRefines",
+                                     "Silmaril.Project.Shapes.CompilesTo.CanonicalEquivalent",
+                                     "CompilesToExamples.Explorer.C2C.args123",
+                                     "CompilesToExamples.Explorer.C2C.source_run"] +
+                                    ([f"CompilesToExamples.Explorer.C2C.{fn.split('_', 1)[1]}_run"] if fn != "add3_op" else [])},
         })
     return out
 
@@ -879,41 +910,48 @@ def c2c_manifests() -> list[dict]:
 def typeerror_manifests() -> list[dict]:
     cx = cexplorer()
     d = EX / "typeerror"
-    src, fe = d / "addp.c", d / "frontend.txt"
-    src_ref, fe_ref = file_ref(src, "text/x-c"), file_ref(fe, "text/plain")
+    src, fe, operands = d / "addp.c", d / "frontend.txt", d / "operand-types.txt"
+    src_ref, operands_ref = file_ref(src, "text/x-c"), file_ref(operands, "text/plain")
     vars_ = {"t1": "Silmaril.Project.Shapes.C.intPtrCtype", "t2": "Silmaril.Project.Shapes.C.intPtrCtype"}
-    b = Builder(src.read_bytes(), src_ref["sha256"], fe_ref["sha256"], "bytes")
+    b = Builder(src.read_bytes(), src_ref["sha256"], operands_ref["sha256"], "bytes")
     line = next(i + 1 for i, l in enumerate(src.read_text().split("\n")) if "p + q" in l)
     s_frag = b.src_lines([line])
-    t_frag = b.tgt([[0, len(fe.read_bytes().rstrip(b"\n"))]], "the frontend's message")
+    t_frag = b.tgt([[0, len(operands.read_bytes().rstrip(b"\n"))]], "the extracted operand types")
     b.edges.append({"id": "nav/addp/plus", "kind": "navigation", "origin": "author: the expression p + q",
                     "function": "addp", "source": [s_frag], "target": [t_frag],
-                    "note": "the operator the certificate is about; the frontend did not reach a verdict"})
+                    "note": "the operator the restricted typing certificate is about"})
     return [{
         "schema": SCHEMA, "id": "typeerror/addp", "direction": "none",
-        "title": "addp.c: int * + int * violates C11 6.5.6p2 (restricted judgment)",
-        "artifacts": {"source": src_ref, "target": fe_ref},
-        "view": {"source": "source", "target": "target"},
+        "title": "addp.c: does pointer + pointer typecheck?",
+        "artifacts": {"source": src_ref, "target": operands_ref, "frontend": file_ref(fe, "text/plain")},
+        "view": {"source": "source", "target": "target", "alternatives": {
+            "target": [{"role": "target", "label": "Lean operand types"},
+                       {"role": "frontend", "label": "Separate frontend diagnostic"}]}},
         "derivation": None,
         "problem_form": "judgment",
         "relation": {"semantics": "stated",
-                     "description": "AdditiveOperands, the C11 6.5.6p2 constraint on the operand types of +"},
-        "stages": [{"side": "source", "name": "Lean C frontend (typing)", "trust": "evaluated", "input": "source",
-                    "output": "target", "evidence": "#guard in CompilesToExamples.Explorer.TypeError: it stops, "
-                                                    "binary operands are not ported"}],
+                     "description": "The exact source is recognized by AdditionFragment and violates the C11 "
+                                    "6.5.6p2 additive constraint. This is not a whole-C typing judgment."},
+        "stages": [{"side": "source", "name": "Restricted operand extraction", "trust": "verified", "input": "source",
+                    "output": "target", "obligation": "operand_types",
+                    "evidence": "Kernel equality for this text; independent of the general frontend"},
+                   {"side": "source", "name": "General Lean C frontend (typing)", "trust": "evaluated", "input": "source",
+                    "output": "frontend", "evidence": "#guard checks its unsupported-feature message, not a type error"}],
         "context": {"source_model": None, "target_model": None, "abi": None, "mapping_relation": None,
                     "comorphism": None},
         "fragments": sorted(b.fragments.values(), key=lambda f: f["id"]),
         "edges": b.edges,
         "obligations": [
             {"id": "typing", "kind": "typing", "decl": None,
-             "refutation": "CompilesToExamples.Explorer.TypeError.addp_operands",
-             "statement": cx.statement_for("c-additive", vars_, "typing", None, None)},
-            {"id": "operand_types", "kind": "operand_types", "decl": None, "statement": None,
-             "unsupported": ("that int *, int * are the operand types of p + q in this text is not checked: the "
-                             "Lean frontend does not type binary operands yet; they are the declared types")}],
+             "refutation": "CompilesToExamples.Explorer.TypeError.addp_type_error",
+             "statement": cx.statement_for("c-additive", vars_, "typing", None, None, src.read_text())},
+            {"id": "operand_types", "kind": "operand_types", "decl": "CompilesToExamples.Explorer.TypeError.addp_parses",
+             "statement": cx.statement_for("c-additive", vars_, "operand_types", None, None, src.read_text())}],
         "tests": [],
-        "lean": {"family": "c-additive", "vars": vars_, "modules": ["CompilesToExamples.Explorer.TypeError"]},
+        "lean": {"family": "c-additive", "vars": vars_, "modules": ["CompilesToExamples.Explorer.TypeError"],
+                 "definitions": ["Silmaril.Project.Shapes.C.AdditionFragment.Accepts",
+                                 "Silmaril.Project.Shapes.C.AdditionFragment.operands",
+                                 "CompilesToExamples.Explorer.TypeError.cText"]},
     }]
 
 
@@ -923,8 +961,76 @@ def manifests(out: pathlib.Path = MANIFESTS) -> None:
         old.unlink()
     for m in (compiles_to_manifests() + program_manifests() + decompiled_manifests() + imported_manifests()
               + c2c_manifests() + typeerror_manifests()):
+        lean = m["lean"]
+        if lean["modules"]:
+            names = [*lean.get("definitions", []), *lean.get("vars", {}).values()]
+            names += [v["decl"].split()[0] for v in m["context"].values() if v and v.get("decl")]
+            lean["definitions"] = sorted({name for name in names if isinstance(name, str) and "." in name})
         dump(out / (m["id"].replace("/", "--") + ".json"), m)
         print(f"wrote {m['id']}: {len(m['edges'])} edges, {len(m['obligations'])} obligations")
+
+
+def viewer_assets(site: pathlib.Path, manifests_dir: pathlib.Path = MANIFESTS) -> None:
+    """Publish exact C and ELF artifacts for the explorer's content-addressed routes."""
+    cx = cexplorer()
+    index = {}
+    dest = site / "compiler-artifacts"
+    blobs = dest / "bytes"
+    blobs.mkdir(parents=True, exist_ok=True)
+    for path in sorted(manifests_dir.glob("*.json")):
+        manifest = json.loads(path.read_bytes())
+        for role in ("source", "target"):
+            ref = manifest["artifacts"][role]
+            media = ref["media"]
+            tab = cx.VIEWER_MEDIA.get(media)
+            if tab is None:
+                continue
+            data = cx.read_artifact(ROOT, ref)
+            sha = ref["sha256"]
+            (blobs / sha).write_bytes(data)
+            entry = index.setdefault(sha, {"tab": tab, "size": len(data), "paths": []})
+            if entry["tab"] != tab:
+                raise ValueError(f"conflicting artifact types for {sha}")
+            if ref["path"] not in entry["paths"]:
+                entry["paths"].append(ref["path"])
+    if not index:
+        raise ValueError("no compiler artifacts to publish")
+    dump(dest / "index.json", {"schema": cx.VIEWER_SCHEMA, "artifacts": index})
+
+
+def include_map(manifest_path: pathlib.Path, out: pathlib.Path) -> None:
+    """Materialize the observed filename-to-bytes map; reject any missing or mismatched bytes."""
+    cx = cexplorer()
+    manifest = json.loads(manifest_path.read_bytes())
+    blobs = {role: cx.read_artifact(ROOT, ref) for role, ref in manifest["artifacts"].items()}
+    cx.check_manifest(ROOT, manifest, blobs)
+    env = manifest["include_env"]
+    if env["image"] != IMAGE:
+        raise ValueError("include-map supports only the fixture image digest")
+    entries = env["files"]
+    paths = [entry["name"] for entry in entries[1:]]
+    if any(not name.startswith("/") or ".." in pathlib.PurePosixPath(name).parts or "\n" in name for name in paths):
+        raise ValueError("the dependency receipt contains an invalid filename")
+    data = {entries[0]["name"]: blobs["source"]}
+    if paths:
+        result = subprocess.run(["docker", "run", "--rm", "--platform", "linux/amd64", "--read-only",
+                                 "--network", os.environ.get("CEXPLORER_DOCKER_NETWORK", "none"),
+                                 "--entrypoint", "tar", "-i", IMAGE, "-chf", "-", "--no-recursion",
+                                 "--verbatim-files-from", "-T", "-"],
+                                input=("\n".join(paths) + "\n").encode(), capture_output=True, check=True, timeout=120)
+        with tarfile.open(fileobj=io.BytesIO(result.stdout)) as archive:
+            for entry in entries[1:]:
+                name = entry["name"]
+                member = archive.getmember(name.lstrip("/"))
+                if not member.isfile() or member.size != entry["size"]:
+                    raise ValueError(f"{name}: not the recorded regular file and size")
+                stream = archive.extractfile(member)
+                with stream:
+                    data[name] = stream.read()
+                if sha256(data[name]) != entry["sha256"]:
+                    raise ValueError(f"{name}: bytes differ from the recorded header SHA-256")
+    dump(out, {"image": env["image"], "dependency_probe": env["dependencies"],
+               "files_hex": {name: content.hex() for name, content in data.items()}})
 
 
 def main(argv: list[str]) -> int:
@@ -936,6 +1042,12 @@ def main(argv: list[str]) -> int:
         return 0
     if len(argv) == 4 and argv[1] == "manifests" and argv[2] == "--out":
         manifests(pathlib.Path(argv[3]))
+        return 0
+    if len(argv) == 4 and argv[1] == "viewer" and argv[2] == "--out":
+        viewer_assets(pathlib.Path(argv[3]))
+        return 0
+    if len(argv) == 4 and argv[1] == "include-map":
+        include_map(pathlib.Path(argv[2]), pathlib.Path(argv[3]))
         return 0
     if len(argv) != 2 or argv[1] not in cmds:
         print(__doc__, file=sys.stderr)

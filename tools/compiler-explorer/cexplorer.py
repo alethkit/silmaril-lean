@@ -6,7 +6,7 @@
     python3 -I tools/compiler-explorer/cexplorer.py evidence DB EVIDENCE... # an exporter file (recorded as a claim)
     python3 -I tools/compiler-explorer/cexplorer.py project DB PROJECT.sqlite # statuses of `sil project` rows
     python3 -I tools/compiler-explorer/cexplorer.py status DB [PROBLEM]     # a text report
-    python3 -I tools/compiler-explorer/cexplorer.py serve DB [--host 127.0.0.1] [--port 8765]
+    python3 -I tools/compiler-explorer/cexplorer.py serve DB [--host 127.0.0.1] [--port 8765] [--viewer URL]
 
 docs/projects/compiler-explorer.md describes the model. In short:
 
@@ -43,6 +43,7 @@ import sys
 import tempfile
 import tomllib
 import urllib.parse
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 UI = pathlib.Path(__file__).resolve().parent / "ui"
@@ -53,6 +54,10 @@ DIRECTIONS = ("compiled", "decompiled", "imported", "none")
 ALLOWED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
 EXPORT_STATUSES = {"kernel", "refuted", "open", "missing", "not_theorem", "mismatch", "bad_axioms", "elab_error"}
 MAX_TEXT = 1 << 20  # the largest artifact the API returns as text
+VIEWER_SCHEMA = "silmaril.compiler-artifacts/1"
+VIEWER_MEDIA = {"text/x-c": "c", "application/x-elf-relocatable": "elf", "application/x-elf": "elf"}
+VIEWER_ROUTES = {"c": "c-artifact", "elf": "elf-artifact"}
+PROBE = "Silmaril.Project.CompilesTo.Probe"
 
 # ------------------------------------------------------------------------------------------------
 # Statement templates
@@ -111,7 +116,9 @@ TEMPLATES["c-to-c"] = {
         f"Silmaril.Project.Shapes.CompilesTo.CanonicalEquivalent {v['source_fn']} {v['target_fn']}"),
 }
 TEMPLATES["c-additive"] = {
-    "typing": lambda v, k, line: f"Silmaril.Project.Shapes.C.AdditiveOperands {v['t1']} {v['t2']}",
+    "typing": lambda v, k, line, source: f"Silmaril.Project.Shapes.C.AdditionFragment.Accepts {lean_str(source)}",
+    "operand_types": lambda v, k, line, source: (
+        f"Silmaril.Project.Shapes.C.AdditionFragment.operands {lean_str(source)} = some ({v['t1']}, {v['t2']})"),
 }
 TEMPLATES["decompiled-word-block"] = {
     # the decompiler's checked block, its printed C text (this problem's source artifact), and
@@ -207,7 +214,24 @@ def statement_for(family: str, vars_: dict, kind: str, point, line, source: str 
     t = TEMPLATES.get(family, {}).get(kind)
     if t is None:
         return None
-    return t(vars_, point, line, source) if kind == "decompilation" else t(vars_, point, line)
+    return t(vars_, point, line, source) if family in ("decompiled-word-block", "c-additive") else t(vars_, point, line)
+
+
+def model_bindings(family: str, vars_: dict) -> dict[str, str]:
+    def model(namespace):
+        return f"{PROBE}.modelText {namespace}.ail {namespace}.core"
+
+    if family == "c-function-x86":
+        src = vars_["ail"].rsplit(".", 1)[0]
+        listing = vars_["listing"]
+        return {"source": f"{src}.cText", "core_probe": f"({model(src)}).dropEnd 1 |>.toString",
+                "decoded": f"{PROBE}.listingText {listing} {lean_str(listing)}"}
+    if family == "c-to-c":
+        src = vars_["source_fn"].rsplit(".", 1)[0]
+        tgt = vars_["target_fn"].rsplit(".", 1)[0]
+        return {"source": f"{src}.cText", "target": f"{tgt}.cText",
+                "core_probe": f"({model(src)}).dropEnd 1 |>.toString", "target_core_probe": model(tgt)}
+    return {}
 
 
 # ------------------------------------------------------------------------------------------------
@@ -358,6 +382,13 @@ MIGRATIONS = [
     DROP TABLE problem_versions;
     ALTER TABLE problem_versions_5 RENAME TO problem_versions;
     """,
+    """
+    CREATE TABLE verification (
+      version_id INTEGER PRIMARY KEY REFERENCES problem_versions(id),
+      git_commit TEXT NOT NULL,
+      definitions TEXT NOT NULL
+    );
+    """,
 ]
 
 
@@ -452,6 +483,17 @@ def check_manifest(root: pathlib.Path, m: dict, blobs: dict[str, bytes]) -> None
     for side in ("source", "target"):
         if view.get(side) not in arts:
             raise ValueError(f"the view's {side} is not an artifact of the manifest")
+        if any(alt["role"] not in arts for alt in view.get("alternatives", {}).get(side, [])):
+            raise ValueError(f"an alternative view of {side} is not a manifest artifact")
+    for stage in m.get("stages", []):
+        if stage["side"] not in ("source", "target") or stage["trust"] not in ("trusted", "evaluated", "verified"):
+            raise ValueError("invalid stage side or trust")
+        if stage["input"] not in arts or stage["output"] not in arts:
+            raise ValueError("a stage input or output is not a manifest artifact")
+    if "listing_receipt" in blobs:
+        listing = json.loads(blobs["listing_receipt"])
+        if listing["object"]["sha256"] != shas["target"] or listing["listing"]["sha256"] != shas["listing"]:
+            raise ValueError("the listing receipt is about other object or listing bytes")
     # the derivation, by direction. compiled: the receipt of a compiler run (in a pinned image)
     # read the source and wrote the target. decompiled: the receipt of a decompiler run read the
     # target and wrote the source. imported: no derivation is claimed as checked; whatever the
@@ -465,8 +507,10 @@ def check_manifest(root: pathlib.Path, m: dict, blobs: dict[str, bytes]) -> None
         made = {rec.get(k, {}).get("sha256") for k in ("object", "assembly", "output")} - {None}
         if shas["source"] not in about or shas["target"] not in made:
             raise ValueError("the receipt is about other bytes than the source and target artifacts")
-        if rec.get("image") != d["image"]:
-            raise ValueError("the receipt's image is not the derivation's")
+        if rec.get("image") != d["image"] or rec.get("command") != d["command"]:
+            raise ValueError("the receipt's image or command is not the derivation's")
+        if env := m.get("include_env"):
+            check_include_env(env, rec, arts, blobs)
     elif m["direction"] == "decompiled":
         if not d or not all(d.get(k) for k in ("tool", "version", "receipt")):
             raise ValueError("a decompiled problem records its decompiler, version and receipt")
@@ -511,6 +555,13 @@ def check_manifest(root: pathlib.Path, m: dict, blobs: dict[str, bytes]) -> None
     lean = m.get("lean", {})
     family = lean.get("family")
     vars_ = lean.get("vars", {})
+    relation = m.get("relation", {})
+    if relation.get("semantics") == "none" and (family is not None or any(e["kind"] == "semantic" for e in edges.values())):
+        raise ValueError("a receipt without semantic interpretation cannot have a model family or semantic edges")
+    bindings = lean.get("bindings", [])
+    if len(bindings) != len({role for role, _ in bindings}) or any(
+            role not in arts or not isinstance(term, str) or not term for role, term in bindings):
+        raise ValueError("Lean artifact bindings need distinct manifest roles and render terms")
     if family is not None:
         if family not in TEMPLATES:
             raise ValueError(f"unknown family {family!r}")
@@ -525,6 +576,10 @@ def check_manifest(root: pathlib.Path, m: dict, blobs: dict[str, bytes]) -> None
         bad = [k for k in FAMILY_VARS[family] if not IDENT.match(str(vars_[k]))]
         if bad:
             raise ValueError(f"the Lean names {bad} are not identifiers")
+    if dict(bindings) != model_bindings(family, vars_):
+        raise ValueError(f"{family} needs exact text and model artifact bindings")
+    if family == "c-additive" and blobs["target"] != f"some ({vars_['t1']}, {vars_['t2']})\n".encode():
+        raise ValueError("the displayed operand types differ from the judgment's output")
     if family == "c-function-x86":
         ctx = m.get("context") or {}
         if vars_["isa"] != (ctx.get("target_model") or {}).get("decl"):
@@ -547,7 +602,7 @@ def check_manifest(root: pathlib.Path, m: dict, blobs: dict[str, bytes]) -> None
         if o.get("statement") is None:
             if not o.get("unsupported"):
                 raise ValueError(f"obligation {o['id']}: no statement and no reason")
-            if o.get("decl"):
+            if o.get("decl") or o.get("refutation"):
                 raise ValueError(f"obligation {o['id']}: a declaration without a statement")
             continue
         if family is None:
@@ -566,10 +621,42 @@ def check_manifest(root: pathlib.Path, m: dict, blobs: dict[str, bytes]) -> None
     for role, name in lean.get("registry", {}).items():
         if registry_sha(root, name) != shas.get(role):
             raise ValueError(f"the registry's {name} is not the {role} artifact")
+    if extraction := m.get("dwarf_extraction"):
+        if extraction["input"] != "target" or extraction["profile"] != d["opt"]:
+            raise ValueError("DWARF extraction does not name this target and profile")
+        if extraction["trust"] != "trusted" or not any(
+            fn["name"] == extraction["function"] for fn in json.loads(blobs[extraction["output"]])[extraction["profile"]]
+        ):
+            raise ValueError("DWARF extraction is not a recorded input to this function")
+        if any(dep not in ids and dep != "navigation links" for fact in m["dwarf_facts"] for dep in fact["used_by"]):
+            raise ValueError("a DWARF dependency is not an obligation of this problem")
 
 
-def ingest_manifest(db: sqlite3.Connection, path: pathlib.Path, root: pathlib.Path = ROOT) -> int:
-    raw = path.read_bytes()
+def check_include_env(env: dict, receipt: dict, arts: dict, blobs: dict) -> None:
+    search = json.loads(blobs[env["search_receipt"]])
+    main = env["files"][0]
+    if (main.get("artifact") != "source" or main["sha256"] != arts["source"]["sha256"]
+            or main["size"] != len(blobs["source"]) or env["workdir"] != receipt["workdir"]
+            or main["name"] != f"{receipt['workdir']}/{receipt['source']['path']}"
+            or env["image"] != receipt["image"] or search["image"] != env["image"]
+            or env["search"] != search["angle_search"] or env["probe_flags"] != search["flags"]
+            or env["options"] != receipt["command"].split() or env["macros"] not in arts):
+        raise ValueError("include environment differs from its source, build or search receipt")
+    files = [(entry["name"], entry["sha256"], entry["size"]) for entry in env["files"][1:]]
+    dependencies = env["dependencies"]
+    if dependencies:
+        captured = json.loads(blobs[dependencies["artifact"]])
+        if (captured["source"] != receipt["source"]["path"] or captured["image"] != env["image"]
+                or captured["flags"] != dependencies["flags"]
+                or files != [(entry["path"], entry["sha256"], entry["size"]) for entry in captured["files"]]):
+            raise ValueError("include environment differs from its dependency receipt")
+    elif files:
+        raise ValueError("header entries need a dependency receipt")
+
+
+def ingest_manifest(db: sqlite3.Connection, path: pathlib.Path, root: pathlib.Path = ROOT,
+                    raw: bytes | None = None) -> int:
+    raw = path.read_bytes() if raw is None else raw
     msha = sha256(raw)
     try:
         m = json.loads(raw)
@@ -583,11 +670,13 @@ def ingest_manifest(db: sqlite3.Connection, path: pathlib.Path, root: pathlib.Pa
     lean = m.get("lean", {})
     context = {"artifacts": {r: a["sha256"] for r, a in sorted(m["artifacts"].items())},
                "derivation": m.get("derivation"), "context": m["context"],
+               **{k: m[k] for k in ("problem_form", "relation", "stages", "include_env", "dwarf_facts",
+                                    "dwarf_extraction") if k in m},
                "lean": {"family": lean.get("family"), "vars": lean.get("vars", {}),
-                        "modules": lean.get("modules", [])}}
+                        "modules": lean.get("modules", []), "bindings": lean.get("bindings", [])}}
     ctx_hash = sha256(canonical(context))
     extra = {k: m[k] for k in ("navigation_stats", "tests", "problem_form", "relation", "stages",
-                                "include_env", "dwarf_facts") if k in m}
+                                "include_env", "dwarf_facts", "dwarf_extraction") if k in m}
     with db:
         for data in blobs.values():
             store_artifact(db, data)
@@ -750,10 +839,10 @@ def raw_status(db, ver, o) -> dict:
             "module": e["module"], "line": e["line"]}}
     older = db.execute(
         "SELECT pv.manifest_sha256 FROM evidence ev JOIN problem_versions pv ON pv.id = ev.version_id "
-        "WHERE pv.problem_id = ? AND ev.obligation_id = ? AND ev.status = 'kernel' AND ev.origin != 'file' "
-        "AND pv.id != ?",
+        "WHERE pv.problem_id = ? AND ev.obligation_id = ? AND ev.status IN ('kernel', 'refuted') "
+        "AND ev.origin != 'file' AND pv.id != ? ORDER BY pv.id DESC LIMIT 1",
         (ver["problem_id"], o["id"], ver["id"])).fetchone()
-    if older is not None and o["decl"] is not None:
+    if older is not None and (o["decl"] is not None or o["refutation"] is not None):
         return {"status": "stale", "older_manifest": older[0]}
     return {"status": "open" if o["decl"] is None and o["refutation"] is None else "unchecked"}
 
@@ -767,6 +856,16 @@ def artifact_text(db, sha: str) -> str | None:
     except UnicodeDecodeError:
         return None
 
+
+def artifact_display(db, artifact: dict) -> str | None:
+    if not artifact["media"].startswith("application/x-elf"):
+        return artifact_text(db, artifact["sha256"])
+    row = db.execute("SELECT content FROM artifacts WHERE sha256 = ? AND size <= ?",
+                     (artifact["sha256"], MAX_TEXT)).fetchone()
+    if row is None:
+        return None
+    data = row["content"]
+    return "".join(f"{off:08x}  {data[off:off + 16].hex(' ')}\n" for off in range(0, len(data), 16))
 
 def problem_list(db) -> list[dict]:
     out = []
@@ -782,18 +881,11 @@ def problem_list(db) -> list[dict]:
     return out
 
 
-# Where links go. `routes` lists the routes of the silmaril explorer (Pages) that exist on main:
-# a link is made only to one of them, and only for something the explorer holds (a `sil project`
-# row, a registered artifact, a declaration it locates). The C tab (`#/c-program/…`, open PR
-# #900) is not on main; the ELF tab (`#/elf-file/<slug>`) shows only its pinned executables,
-# listed in `ELF_TAB` by SHA-256 (none of this explorer's artifacts is one of them today).
 LINKS = {
     "repo": "https://github.com/hiloopai/silmaril-lean",
     "explorer": "https://hiloopai.github.io/silmaril-lean/",
-    "routes": {"problem": "#/problem/{}", "artifact": "#/artifact/{}", "source": "#/source/{}",
-               "elf": "#/elf-file/{}"},
+    "routes": {"problem": "#/problem/{}", "artifact": "#/artifact/{}", "source": "#/source/{}"},
 }
-ELF_TAB: dict[str, str] = {}
 # Lean source directories of the libraries whose modules hold evidence (lakefile.toml).
 SRC_DIRS = {"CompilesToExamples": "examples/compiles-to", "Silmaril": ""}
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
@@ -814,16 +906,24 @@ def explorer_link(route: str, key: str) -> str | None:
     return LINKS["explorer"] + pattern.format(urllib.parse.quote(key, safe=""))
 
 
+def definition_link(decl: str, loc: dict, commit: str) -> dict | None:
+    path = lean_path(loc["module"]) if loc.get("module") else None
+    line = loc.get("line")
+    if path and isinstance(line, int) and line > 0 and HEX40.fullmatch(commit or ""):
+        return {"kind": "lean", "label": decl, "url": f"{LINKS['repo']}/blob/{commit}/{path}#L{line}"}
+    return None
+
+
 def obligation_links(o: dict) -> list[dict]:
     """Links for an obligation: its proof's Lean source at the commit the evidence was computed at
     (only a clean 40-hex commit), the `sil project` row, and the explorer's source page of the
     row's solving theorem."""
     out = []
     ev = o.get("evidence") or {}
-    path = lean_path(ev["module"]) if ev.get("module") else None
-    if path and ev.get("line") and HEX40.match(ev.get("git_commit") or ""):
-        out.append({"kind": "lean", "label": f"{ev['decl']} (Lean source)",
-                    "url": f"{LINKS['repo']}/blob/{ev['git_commit']}/{path}#L{ev['line']}"})
+    if ev.get("origin") == "exporter-run" and ev.get("decl"):
+        link = definition_link(ev["decl"], ev, ev.get("git_commit"))
+        if link:
+            out.append(link)
     if o.get("row"):
         out.append({"kind": "explorer", "label": f"row {o['row']} (silmaril explorer)",
                     "url": explorer_link("problem", o["row"])})
@@ -833,26 +933,38 @@ def obligation_links(o: dict) -> list[dict]:
     return [x for x in out if x["url"]]
 
 
-def artifact_links(arts: dict, lean: dict, commit: str | None) -> dict:
-    """Per artifact role: the explorer's page of a registered artifact, the ELF tab for a pinned
-    executable, and the file in the repository at the manifest's path, at the commit the evidence
-    was computed at (a clean commit; else no repository link)."""
+def viewer_catalog(base: str) -> tuple[str, dict]:
+    """Discover deployed tab entries, not inferred slugs. A pre-deployment site has no catalog."""
+    with urllib.request.urlopen(base + "compiler-artifacts/index.json", timeout=4) as res:
+        doc = json.loads(res.read(MAX_TEXT + 1))
+    if doc.get("schema") != VIEWER_SCHEMA or not isinstance(doc.get("artifacts"), dict):
+        raise ValueError("unrecognized compiler artifact catalog")
+    return base, doc["artifacts"]
+
+
+def artifact_links(arts: dict, lean: dict, commit: str | None, catalog: tuple[str, dict] | None = None) -> dict:
+    """Link exact blob downloads, registry targets, and known entries of the deployed catalog."""
     out = {}
     registry = lean.get("registry", {})
     for role, a in arts.items():
         links = ([{"kind": "repo", "label": a["path"], "url": f"{LINKS['repo']}/blob/{commit}/{a['path']}"}]
                  if commit else [])
+        links.append({"kind": "download", "label": "Exact bytes", "url": f"/api/artifacts/{a['sha256']}"})
         if role in registry:
             links.append({"kind": "explorer", "label": f"artifact {registry[role]} (silmaril explorer)",
                           "url": explorer_link("artifact", registry[role])})
-        if a["sha256"] in ELF_TAB:
-            links.append({"kind": "explorer", "label": f"ELF tab: {ELF_TAB[a['sha256']]}",
-                          "url": explorer_link("elf", ELF_TAB[a["sha256"]])})
+        if catalog:
+            tab = VIEWER_MEDIA.get(a["media"])
+            entry = catalog[1].get(a["sha256"], {})
+            if (tab and isinstance(entry, dict) and entry.get("tab") == tab and entry.get("size") == a["size"]
+                    and a["path"] in entry.get("paths", [])):
+                links.insert(0, {"kind": "viewer", "label": f"{tab.upper()} tab",
+                                 "url": f"{catalog[0]}#/{VIEWER_ROUTES[tab]}/{a['sha256']}"})
         out[role] = [x for x in links if x["url"]]
     return out
 
 
-def problem_view(db, pid: str) -> dict | None:
+def problem_view(db, pid: str, catalog: tuple[str, dict] | None = None) -> dict | None:
     ver = db.execute("SELECT pv.* FROM problems p JOIN problem_versions pv ON pv.id = p.current_version "
                      "WHERE p.id = ?", (pid,)).fetchone()
     if ver is None:
@@ -862,7 +974,7 @@ def problem_view(db, pid: str) -> dict | None:
             for r in db.execute("SELECT * FROM version_artifacts WHERE version_id = ?", (ver["id"],))}
     view = json.loads(ver["view"])
     texts = {side: artifact_text(db, arts[view[side]]["sha256"]) for side in ("source", "target")}
-    alt_texts = {alt["role"]: artifact_text(db, arts[alt["role"]]["sha256"])
+    alt_texts = {alt["role"]: artifact_display(db, arts[alt["role"]])
                  for side in ("source", "target") for alt in view.get("alternatives", {}).get(side, [])
                  if alt["role"] in arts}
     frags = {r["id"]: {"id": r["id"], "role": r["role"], "space": r["space"],
@@ -892,15 +1004,22 @@ def problem_view(db, pid: str) -> dict | None:
                 for r in db.execute("SELECT * FROM problem_versions WHERE problem_id = ? ORDER BY id", (pid,))]
     by_kind = {o["kind"]: o for o in obligations if o["kind"] not in ("edge", "point")}
     edge_obls = [o for o in obligations if o["kind"] == "edge"]
+    verification = None
+    if db.execute("SELECT 1 FROM schema_migrations WHERE version = 6").fetchone():
+        verification = db.execute("SELECT * FROM verification WHERE version_id = ?", (ver["id"],)).fetchone()
+    definitions = [link for decl, loc in json.loads(verification["definitions"]).items()
+                   if (link := definition_link(decl, loc, verification["git_commit"]))] if verification else []
     return {
         "id": pid, "title": ver["title"], "direction": ver["direction"], "family": ver["family"],
         "manifest_sha256": ver["manifest_sha256"], "context_hash": ver["context_hash"],
         "derivation": json.loads(ver["derivation"]), "context": json.loads(ver["context"]),
         "lean": json.loads(ver["lean"]), "artifacts": arts, "view": view, "texts": texts,
         "alt_texts": alt_texts,
+        "definitions": definitions, "bindings_checked": verification is not None,
         "artifact_links": artifact_links(arts, json.loads(ver["lean"]), next(
             (o["evidence"]["git_commit"] for o in obligations
-             if o.get("evidence") and HEX40.match(o["evidence"].get("git_commit") or "")), None)),
+             if o.get("evidence", {}).get("origin") == "exporter-run"
+             and HEX40.fullmatch(o["evidence"].get("git_commit") or "")), None), catalog),
         "fragments": frags, "edges": edges, "obligations": obligations, "tests": tests,
         "versions": versions, "extra": json.loads(ver["extra"]),
         "questions": {
@@ -925,6 +1044,7 @@ def problem_view(db, pid: str) -> dict | None:
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
+    catalog = None
     db_path = ""
     server_version = "silmaril-compiler-explorer"
     STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -960,8 +1080,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.json(200, problem_list(db))
             elif path.startswith("/api/problems/"):
                 pid = urllib.parse.unquote(path[len("/api/problems/"):])
-                v = problem_view(db, pid)
+                v = problem_view(db, pid, self.catalog)
                 self.json(200 if v else 404, v or {"error": "no such problem"})
+            elif path.startswith("/api/artifacts/"):
+                sha = path.rsplit("/", 1)[-1]
+                row = db.execute("SELECT content FROM artifacts WHERE sha256 = ?", (sha,)).fetchone()
+                if row is None:
+                    self.json(404, {"error": "no such artifact"})
+                else:
+                    self.send(200, row["content"], "application/octet-stream")
             else:
                 self.json(404, {"error": "not found"})
         finally:
@@ -978,8 +1105,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
 
 
-def serve(db_path: str, host: str, port: int) -> None:
+def serve(db_path: str, host: str, port: int, viewer: str = LINKS["explorer"]) -> None:
     connect(db_path, readonly=True).close()
+    if not urllib.parse.urlsplit(viewer).scheme in ("http", "https"):
+        raise ValueError("viewer URL must be HTTP(S)")
+    try:
+        Handler.catalog = viewer_catalog(viewer.rstrip("/") + "/")
+    except (OSError, ValueError) as exc:
+        print(f"No deployed C/ELF catalog at {viewer}: {exc}", file=sys.stderr)
+        Handler.catalog = None
     Handler.db_path = db_path
     srv = http.server.ThreadingHTTPServer((host, port), Handler)
     print(f"serving {db_path} on http://{host}:{port}/", flush=True)
@@ -1057,24 +1191,58 @@ def git_commit() -> str:
         return os.environ.get("GITHUB_SHA", "unknown")
 
 
-def verify(db: sqlite3.Connection, manifest: pathlib.Path, lake: str = "lake") -> int:
-    """Ingest the manifest, run the exporter on it (from the Lean build in this checkout), and
-    record its result as checked evidence. Returns the exporter's exit code (non-zero when a named
-    proof is not evidence)."""
-    ingest_manifest(db, manifest)
-    m = json.loads(manifest.read_bytes())
-    if not m.get("lean", {}).get("modules"):
-        return 0
+def verify(db: sqlite3.Connection, manifests: list[pathlib.Path], lake: str = "lake") -> int:
+    """Record evidence against exact snapshots; reuse the loaded environment within each group."""
+    status = 0
+    jobs = []
     with tempfile.TemporaryDirectory() as tmp:
-        out = pathlib.Path(tmp) / "evidence.json"
-        env = dict(os.environ, EXPLORER_MANIFEST_SHA256=sha256(manifest.read_bytes()),
-                   EXPLORER_GIT_COMMIT=git_commit())
+        for index, path in enumerate(manifests):
+            try:
+                raw = path.read_bytes()
+                version = ingest_manifest(db, path, raw=raw)
+            except Rejected as exc:
+                print(f"rejected: {exc}", file=sys.stderr)
+                status = 1
+                continue
+            manifest = json.loads(raw)
+            if manifest.get("lean", {}).get("modules"):
+                snapshot = pathlib.Path(tmp) / f"manifest-{index}.json"
+                out = pathlib.Path(tmp) / f"evidence-{index}.json"
+                snapshot.write_bytes(raw)
+                jobs.append((path, snapshot, out, version, manifest, sha256(raw)))
+        if not jobs:
+            return status
+        jobs.sort(key=lambda job: tuple(job[4]["lean"]["modules"]))
+        args = [arg for _, snapshot, out, _, _, digest in jobs for arg in (str(snapshot), str(out), digest)]
+        env = dict(os.environ, EXPLORER_GIT_COMMIT=git_commit())
         proc = subprocess.run([lake, "env", str(ROOT / ".lake" / "build" / "bin" / "cexplorer-export"),
-                               str(manifest.resolve()), str(out)], cwd=ROOT, env=env)
-        if not out.exists():
-            raise reject(db, f"verify {manifest}", f"the exporter produced no output (exit {proc.returncode})")
-        ingest_evidence(db, out, origin="exporter-run")
-        return proc.returncode
+                               "--batch", *args], cwd=ROOT, env=env, timeout=300)
+        for path, _, out, version, manifest, digest in jobs:
+            try:
+                if not out.exists():
+                    raise reject(db, f"verify {path}", f"the exporter produced no output (exit {proc.returncode})")
+                ev = json.loads(out.read_bytes())
+                if ev.get("manifest_sha256") != digest:
+                    raise reject(db, f"verify {path}", "the exporter returned evidence for another manifest")
+                check_rendered_artifacts(db, path, manifest, ev)
+                ingest_evidence(db, out, origin="exporter-run")
+                with db:
+                    db.execute("INSERT OR REPLACE INTO verification VALUES (?, ?, ?)",
+                               (version, ev["git_commit"], json.dumps(ev.get("definitions", {}))))
+            except Rejected as exc:
+                print(f"rejected: {exc}", file=sys.stderr)
+                status = 1
+        return status or proc.returncode
+
+
+def check_rendered_artifacts(db, path: pathlib.Path, manifest: dict, evidence: dict) -> None:
+    rendered = evidence.get("artifacts", {})
+    expected = {role: manifest["artifacts"][role]["sha256"] for role, _ in manifest["lean"].get("bindings", [])}
+    if set(rendered) != set(expected):
+        raise reject(db, f"verify {path}", "the exporter did not render exactly the named artifact bindings")
+    for role, text in rendered.items():
+        if not isinstance(text, str) or sha256(text.encode()) != expected[role]:
+            raise reject(db, f"verify {path}", f"{role}: artifact bytes differ from its Lean rendering")
 
 
 def status_report(db, pid: str | None) -> str:
@@ -1102,18 +1270,13 @@ def main(argv: list[str]) -> int:
             host = rest[rest.index("--host") + 1]
         if "--port" in rest:
             port = int(rest[rest.index("--port") + 1])
-        serve(db_path, host, port)
+        viewer = rest[rest.index("--viewer") + 1] if "--viewer" in rest else LINKS["explorer"]
+        serve(db_path, host, port, viewer)
         return 0
     db = connect(db_path)
     status = 0
     if cmd == "verify":
-        for f in rest:
-            try:
-                rc = verify(db, pathlib.Path(f), os.environ.get("LAKE", "lake"))
-                status = status or rc
-            except Rejected as exc:
-                print(f"rejected: {exc}", file=sys.stderr)
-                status = 1
+        status = verify(db, [pathlib.Path(path) for path in rest], os.environ.get("LAKE", "lake"))
     elif cmd == "project":
         try:
             print(f"{rest[0]}: {ingest_project(db, pathlib.Path(rest[0]))} rows read")

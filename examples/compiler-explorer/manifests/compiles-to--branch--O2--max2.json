@@ -12,6 +12,18 @@
       "sha256": "da5030d1ce34b5ee56d5d9092c0815796f062af52ed3996c8703360b9a30793f",
       "size": 385
     },
+    "dwarf_extract": {
+      "media": "application/json",
+      "path": "examples/compiles-to/branch/correspondence.json",
+      "sha256": "8ee70e82f681236ba1c5f4c881d1d98a1e63629fc6294ba270ef3817b0fe7f3b",
+      "size": 4584
+    },
+    "include_search": {
+      "media": "application/json",
+      "path": "examples/compiler-explorer/env/compiles-to-O2.search.json",
+      "sha256": "82909567539eedd9f035a23bdcc0b29c1fc1a0aeb841524067ba2837c6ac66fc",
+      "size": 558
+    },
     "listing": {
       "media": "text/x-objdump",
       "path": "examples/compiler-explorer/compiles-to/branch/O2/listing.txt",
@@ -87,6 +99,14 @@
     "version": "gcc (GCC) 13.3.0"
   },
   "direction": "compiled",
+  "dwarf_extraction": {
+    "function": "max2",
+    "input": "target",
+    "output": "dwarf_extract",
+    "profile": "O2",
+    "tool": "c-tv (gimli)",
+    "trust": "trusted"
+  },
   "dwarf_facts": [
     {
       "fact": "line 4 <- .text [0x0, 0x7)",
@@ -108,7 +128,7 @@
     },
     {
       "fact": "point 0 at offset 0x0, line 2",
-      "if_wrong": "the segment statements are about these offsets: a wrong one makes them unprovable, not false",
+      "if_wrong": "the segment statements refer to these selected points, not to correctness of the extraction",
       "kind": "point",
       "origin": "DWARF line table (c-tv): point placement",
       "used_by": [
@@ -261,16 +281,19 @@
   ],
   "id": "compiles-to/branch/O2/max2",
   "include_env": {
+    "dependencies": null,
     "files": [
       {
-        "name": "branch.c",
+        "artifact": "source",
+        "name": "/src/branch.c",
         "sha256": "6f463ede96e59be1e54fe54abc0b74d9609b7742772b5f7f14f995027fa7bcf6",
         "size": 103,
         "where": "examples/compiles-to/branch/branch.c"
       }
     ],
+    "image": "gcc:13.3.0@sha256:1d71f0f3450214bef38fe09e6f610fb6cca90cf97b43f4ce845bfc32a4168818",
     "macros": "macros",
-    "note": "the files a preprocessor reads, by content; a formal preprocessor would be a stage from this environment to the preprocessed text (none is stated)",
+    "note": "Main file and observed headers by content; macros/search come from a separate probe. Header dependencies, when present, are from the recorded gcc -M flags, not a replay of every build. This is not a complete include map or a verified preprocessor.",
     "options": [
       "gcc",
       "-O2",
@@ -292,19 +315,51 @@
       "-o",
       "O2/branch.o"
     ],
+    "probe_flags": "-O2 -g -c -fdebug-prefix-map=/src=. -std=c11 -ffreestanding -fno-builtin -fno-stack-protector -fcf-protection=none -mgeneral-regs-only -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-ident",
     "search": [
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include",
       "/usr/local/include",
       "/usr/local/lib/gcc/x86_64-linux-gnu/13.3.0/include-fixed",
       "/usr/include/x86_64-linux-gnu",
       "/usr/include"
-    ]
+    ],
+    "search_receipt": "include_search",
+    "workdir": "/src"
   },
   "lean": {
+    "bindings": [
+      [
+        "source",
+        "CompilesToExamples.Branch.cText"
+      ],
+      [
+        "core_probe",
+        "(Silmaril.Project.CompilesTo.Probe.modelText CompilesToExamples.Branch.ail CompilesToExamples.Branch.core).dropEnd 1 |>.toString"
+      ],
+      [
+        "decoded",
+        "Silmaril.Project.CompilesTo.Probe.listingText CompilesToExamples.Branch.O2.max2Listing \"CompilesToExamples.Branch.O2.max2Listing\""
+      ]
+    ],
+    "definitions": [
+      "CompilesToExamples.Branch.O2.max2",
+      "CompilesToExamples.Branch.O2.max2Listing",
+      "CompilesToExamples.Branch.ail",
+      "CompilesToExamples.Branch.cText",
+      "CompilesToExamples.Branch.core",
+      "CompilesToExamples.Branch.elab_eq",
+      "Silmaril.Project.CompilesTo.FnData.Holds",
+      "Silmaril.Project.CompilesTo.FnData.mapping",
+      "Silmaril.Project.CompilesTo.FnData.source",
+      "Silmaril.Project.CompilesTo.dwarf",
+      "Silmaril.X86.Open.isa",
+      "silmaril.compiles_to.branch.o2.obj"
+    ],
     "family": "c-function-x86",
     "modules": [
       "CompilesToExamples.Explorer.Builds",
-      "CompilesToExamples.Explorer.Code"
+      "CompilesToExamples.Explorer.Code",
+      "Silmaril.Project.CompilesTo.Probe.Defs"
     ],
     "registry": {
       "source": "silmaril.compiles_to.branch.source",
@@ -410,20 +465,13 @@
   "schema": "silmaril.compiler-explorer.problem/1",
   "stages": [
     {
-      "evidence": "#guard in CompilesToExamples.Branch.Defs (compiled evaluation)",
+      "evidence": "C → Ail is compiled evaluation (#guard); the Ail → Core equality is kernel-checked",
       "input": "source",
-      "name": "Lean C frontend: C text -> typed Ail",
+      "name": "C frontend → typed Ail → Cerberus Core",
+      "obligation": "elaboration",
       "output": "core_probe",
       "side": "source",
       "trust": "evaluated"
-    },
-    {
-      "evidence": "CompilesToExamples.Branch.elab_eq (kernel, cbv)",
-      "input": "core_probe",
-      "name": "Lean Cerberus elaborator: typed Ail -> Core",
-      "output": "core_probe",
-      "side": "source",
-      "trust": "verified"
     },
     {
       "evidence": "receipt only",
@@ -434,9 +482,10 @@
       "trust": "trusted"
     },
     {
-      "evidence": "obligation decoding (decodesAs, kernel)",
+      "evidence": "function bytes, not an ELF parser; decodesAs checks the listing's Lean value",
       "input": "target",
       "name": "Lean x86 decoder (Silmaril.X86.Ext.decode)",
+      "obligation": "decoding",
       "output": "decoded",
       "side": "target",
       "trust": "verified"
@@ -452,17 +501,21 @@
           "role": "source"
         },
         {
-          "label": "typed Ail + Core (trusted stages)",
+          "label": "Typed Ail + model Core",
           "role": "core_probe"
         }
       ],
       "target": [
         {
-          "label": "objdump (untrusted tool)",
+          "label": "objdump (unverified)",
           "role": "listing"
         },
         {
-          "label": "Lean decoder (kernel-checked)",
+          "label": "Raw ELF bytes",
+          "role": "target"
+        },
+        {
+          "label": "Lean decoder listing",
           "role": "decoded"
         }
       ]

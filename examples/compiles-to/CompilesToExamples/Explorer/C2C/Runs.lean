@@ -21,7 +21,7 @@ checks the evaluation:
 | --- | --- |
 | `CompilesToExamples.Straight.add3Fn` | 6 |
 | `add3ReassocFn` | 6 |
-| `add3DoubleFn` | 7 |
+| `add3DoubleFn` | 12 |
 | `add3OperandFn` | 4 |
 | `add3DropFn` | 3 |
 
