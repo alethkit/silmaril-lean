@@ -5,7 +5,7 @@ public import Silmaril.Cerberus.Target.Defs
 public import Silmaril.Cerberus.Elaboration.MemoryActions.Defs
 public import Silmaril.Cerberus.Elaboration.Lifetimes.Defs
 
-/-! Selected normal-convention, fixed nonvariadic integer/pointer calls from
+/-! Selected normal-convention, fixed nonvariadic integer/pointer-argument calls from
 Cerberus `b3e11ea334e95359907d4abf9194f0e7fedc6c6a`,
 `translation.lem:835–1155`. The function and argument children are actual
 recursive translations. The extracted OCaml `mapi` allocates argument object names tail first, before
@@ -15,7 +15,9 @@ parameter objects, calls, kills those objects and returns the bound result.
 CHERI, inner-argument convention, variadic, floating and atomic parameter branches
 remain outside this selected successful domain. Pointer parameters retain loaded
 pointer values, without integer conversion; only pointer-to-pointer arguments
-are selected (integer null constants and pointer-to-Bool conversion remain outside). -/
+are selected (integer null constants and pointer-to-Bool conversion remain outside).
+Void results use the actual unit binding from translation.lem:1001, retaining
+the real call and the same parameter-object cleanup before returning that unit. -/
 
 @[expose] public section
 namespace Silmaril.Cerberus.Elaboration.CallArguments
@@ -36,6 +38,10 @@ def directPointer : Ctype → Bool
   | _ => false
 
 def directScalar (type : Ctype) : Bool := directInteger type || directPointer type
+
+def directVoid : Ctype → Bool
+  | .mk _ .void => true
+  | _ => false
 
 def matchingArgument (expected actual : Ctype) : Bool :=
   (directInteger expected && directInteger actual) ||
@@ -92,9 +98,9 @@ def translate (config : Target.Config) (runtime : List Runtime.Binding) (locatio
     | _ => throw (.message "unsupported: nonempty call requires a fixed nonvariadic prototype")
   if arguments.isEmpty || arguments.length != parameterTypes.length then
     throw (.message "unsupported: nonempty call requires exactly its fixed arguments")
-  if !directScalar returnType ||
+  if !(directScalar returnType || directVoid returnType) ||
       !(parameterTypes.zip arguments).all (fun (expected, argument) => matchingArgument expected argument.type) then
-    throw (.message "unsupported: nonempty call requires matching direct integer/pointer arguments and scalar return")
+    throw (.message "unsupported: nonempty call requires matching direct integer/pointer arguments and scalar or void return")
   let .normal ← State.getCallingConvention
     | throw (.message "unsupported: nonempty call requires the normal calling convention")
   let function ← State.wrappedFreshSymbol (.loaded .pointer)
@@ -112,7 +118,9 @@ def translate (config : Target.Config) (runtime : List Runtime.Binding) (locatio
   let elaborated ← arguments.mapM elaborateArgument
   let creates ← (parameterTypes.zip elaborated).zipIdx.mapM fun ((type, (loaded, _)), index) =>
     createParameter runtime location parameters.expression index type loaded.expression
-  let returned ← State.wrappedFreshSymbol (.loaded (if directPointer returnType then .pointer else .integer))
+  -- Pinned translation.lem:1001: absent object type gives BTy_unit.
+  let returned ← State.wrappedFreshSymbol (if directVoid returnType then .unit
+    else .loaded (if directPointer returnType then .pointer else .integer))
   let signature ← Calls.liftError <| tuplePattern
     [result.pattern, parameters.pattern, variadic.pattern, prototype.pattern]
   let functionPattern ← Calls.liftError <| tuplePattern [called.pattern, signature]
