@@ -34,15 +34,20 @@ def main():
     args = ap.parse_args()
     root = os.path.realpath(args.root)
 
-    # Snapshot a trusted static file allowlist before accepting requests. Request
-    # text only selects a key; it never becomes a filesystem path.
+    # Enumerate trusted paths independently of request text. Refresh on a miss
+    # so tests can create additional database fixtures while the server runs.
     files = {}
-    for directory, _, names in os.walk(root):
-        for name in names:
-            candidate = os.path.join(directory, name)
-            resolved = os.path.realpath(candidate)
-            if resolved.startswith(root + os.sep) and os.path.isfile(resolved):
-                files["/" + os.path.relpath(candidate, root).replace(os.sep, "/")] = resolved
+    def refresh_files():
+        nonlocal files
+        refreshed = {}
+        for directory, _, names in os.walk(root):
+            for name in names:
+                candidate = os.path.join(directory, name)
+                resolved = os.path.realpath(candidate)
+                if resolved.startswith(root + os.sep) and os.path.isfile(resolved):
+                    refreshed["/" + os.path.relpath(candidate, root).replace(os.sep, "/")] = resolved
+        files = refreshed
+    refresh_files()
 
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -61,6 +66,9 @@ def main():
             if key.endswith("/"):
                 key += "index.html"
             p = files.get(key)
+            if p is None:
+                refresh_files()
+                p = files.get(key)
             if p is None:
                 self.send_response(404); self.end_headers(); self.record(404, 0); return
             data = open(p, "rb").read()

@@ -14,5 +14,7 @@ with tempfile.TemporaryDirectory() as tmp:
         for path in ['/../site-secret/index.html','/%2e%2e/site-secret/','/escape/','/escape/index.html']:
             try: urllib.request.urlopen(f'http://127.0.0.1:{port}'+path); raise AssertionError(path)
             except urllib.error.HTTPError as e: assert e.code==404
+        (root/'new.json').write_text('new fixture')
+        assert urllib.request.urlopen(f'http://127.0.0.1:{port}/new.json').read()==b'new fixture'
         print('PASS: public index; sibling-prefix, encoded traversal, symlink directory/file rejected')
     finally: proc.terminate(); proc.wait()
