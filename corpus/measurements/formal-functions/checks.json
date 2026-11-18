@@ -1952,7 +1952,7 @@
         "corpus/darkhttpd/upstream/darkhttpd-1.17/darkhttpd.c": "450280b0010ee689b1984d8258afcc37d3f43a2cd8825661d275f9744e1f3ce8",
         "corpus/variants/darkhttpd/1.17/default/x86_64/O0/build.json": "607e843d8885ca948819c3cceb707d307acb0b107a995bca5a11dfb3296d3e9c",
         "corpus/variants/darkhttpd/1.17/default/x86_64/O0/unstripped/receipt.json": "1c95d7aa037fa73a31df7559b843c4ac8df9c0b669eb446d7fed48de7e805419",
-        "tests/cerberus/DarkhttpdLogEncodingContext.lean": "2337f316319e9fdef4f3b266d979a281e686da4af4643cf4de8098017be3be79",
+        "tests/cerberus/DarkhttpdLogEncodingContext.lean": "046dd79303fa0c5002f0d8f6388e4ee95bbb494ecc7ffece95d3187a5f07cc9b",
         "tools/corpus/DarkhttpdLogEncodingInputs.lean": "92a96df184789d2a00cd05fb67dca3512b794c09be315b3c802d04a866c4ddd7",
         "tools/corpus/check_darkhttpd_logencoding_inputs.py": "6566c64632f5ee059d7721441b7502b9f2e38e72c4179f16309c74764bca939b"
       }
