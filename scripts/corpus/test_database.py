@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class CorpusDatabase(unittest.TestCase):
     def test_checked_variant_modules_are_bound(self):
         artifacts = inventory(ROOT)['artifacts']
-        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 211)
+        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 227)
         check = json.loads((ROOT / 'corpus/measurements/variant-lean/checks.json').read_text())['artifacts'][0]
         source = ROOT / next(iter(check['module_sha256']))
         original = matrix.sha
@@ -93,7 +93,7 @@ class CorpusDatabase(unittest.TestCase):
             self.assertEqual(db.execute("SELECT value FROM corpus_meta WHERE key='revision'").fetchone()[0], '1' * 40)
             self.assertEqual(db.execute('SELECT value FROM preserve').fetchone(), ('unchanged',))
             self.assertGreaterEqual(db.execute('SELECT count(*) FROM corpus_artifacts').fetchone()[0], 54)
-            self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 3)
+            self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 2)
             for metadata, census in db.execute('SELECT metadata,census FROM corpus_artifacts'):
                 artifact = json.loads(metadata)
                 self.assertIsNotNone(census, artifact['path'])
