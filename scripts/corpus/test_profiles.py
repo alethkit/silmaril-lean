@@ -9,7 +9,7 @@ import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location('boringssl_embed', ROOT / 'corpus/boringssl/embed.py')
+spec = importlib.util.spec_from_file_location('boringssl_configure', ROOT / 'corpus/boringssl/configure.py')
 embed = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(embed)
 
@@ -32,28 +32,32 @@ class Profiles(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn('pinned release', result.stderr)
 
-    def test_bcm_boundary_is_upstream_target_with_no_generated_asm_claim(self):
+    def test_upstream_cmake_configuration_and_release_flags(self):
+        for config in ['asm', 'no-asm', 'fips-shared']:
+            args = embed.command('aarch64-linux-gnu-', '-O2 -g0', config)
+            self.assertIn('-DBUILD_SHARED_LIBS=ON', args)
+            self.assertIn('-DBUILD_TESTING=OFF', args)
+            self.assertIn('-DFIPS=' + ('ON' if config == 'fips-shared' else 'OFF'), args)
+            self.assertIn('-DOPENSSL_NO_ASM=' + ('ON' if config == 'no-asm' else 'OFF'), args)
+            self.assertIn('-DCMAKE_SYSTEM_PROCESSOR=aarch64', args)
+            self.assertIn('-DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc', args)
+            for language in ['C', 'CXX', 'ASM']:
+                self.assertIn(f'-DCMAKE_{language}_FLAGS=-O2 -g0', args)
+                self.assertIn(f'-DCMAKE_{language}_FLAGS_RELEASE=-g0 -DNDEBUG', args)
+        with self.assertRaisesRegex(ValueError, 'unsupported'):
+            embed.command('', '-O2', 'fabricated')
+
+    def test_compiler_and_ninja_inputs_include_transitive_headers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / 'gen').mkdir()
-            sources = {name: {'srcs': [f'{name}.cc'], 'asm': [f'{name}.S']}
-                       for name in ['bcm', 'crypto', 'ssl', 'bssl']}
-            (root / 'gen/sources.json').write_text(json.dumps(sources))
-            for name in sources:
-                for suffix in ['.cc', '.S']:
-                    (root / (name + suffix)).write_text('upstream input')
-            for config in ['asm', 'no-asm']:
-                embed.generate(root, 'aarch64-linux-gnu-', '-O2 -g0', config)
-                plan = json.loads((root / 'embedding-plan.json').read_text())
-                bcm = next(p for p in plan['planned_commands'] if p['output'] == 'boringcrypto-bcm.o')
-                self.assertEqual(bcm['inputs'], ['obj/bcm.cc.o'] + (['obj/bcm.S.o'] if config == 'asm' else []))
-                self.assertEqual(bcm['command'][:2], ['aarch64-linux-gnu-ld', '-r'])
-                self.assertEqual(plan['generators_invoked'], [])
-                self.assertTrue(all('BORINGSSL_FIPS' not in arg for p in plan['planned_commands'] for arg in p['command']))
-                self.assertEqual(any('-DOPENSSL_NO_ASM' in p['command'] for p in plan['planned_commands']), config == 'no-asm')
-            (root / 'bcm.cc').unlink()
-            with self.assertRaisesRegex(ValueError, 'missing upstream compiler input'):
-                embed.generate(root, '', '-O2', 'asm')
+            build = root / 'build'; build.mkdir()
+            (build / 'compile_commands.json').write_text(json.dumps([
+                {'directory': str(build), 'file': '../crypto.cc'}]))
+            (build / 'ninja-deps.txt').write_text('crypto.o: #deps 1\n    ../nested.h\n')
+            selected = {p.resolve() for p in embed.inputs(root)}
+            self.assertIn(root / 'crypto.cc', selected)
+            self.assertIn(root / 'nested.h', selected)
+            self.assertIn(build / 'build.ninja', selected)
 
 
 if __name__ == '__main__':

@@ -1,7 +1,7 @@
 name = "boringssl"
 version = "git.ebd922adc708a48b0cccfcdf81e854a3fdc1b7b6"
 category = "TLS and cryptography; BoringCrypto module"
-summary = "Representative non-FIPS embedding build from upstream's committed source lists. BCM is a module of this same upstream revision, not a separate project or validated build."
+summary = "Upstream CMake/Ninja shared-library research builds (no-asm, asm, fips-shared). BCM is a module of this same upstream revision, not a separate project or validated build."
 license = "Apache-2.0"
 license_files = ["LICENSE"]
 homepage = "https://boringssl.googlesource.com/boringssl/"
@@ -16,7 +16,7 @@ retrieved = "2026-11-18"
 [[object]]
 name = "libcrypto.so"
 kind = "shared"
-notes = "Upstream gen/sources.json crypto + bcm targets; no BORINGSSL_FIPS define or integrity-hash injection."
+notes = "Upstream crypto target with the same-checkout BCM module; FIPS_SHARED research configuration uses upstream Go integrity tooling, without validation/certification."
 
 [[object]]
 name = "libssl.so"

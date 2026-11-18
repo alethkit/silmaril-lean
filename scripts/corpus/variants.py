@@ -37,7 +37,7 @@ def main():
     p.add_argument('--arch', choices=['x86_64', 'aarch64'], action='append')
     p.add_argument('--level', choices=['O0', 'Og', 'O1', 'O2', 'O3'], action='append',
                    help='explicit O2 builds add separately repeated strip pairs; default remains O0/Og/O1/O3')
-    p.add_argument('--configuration', choices=['asm', 'no-asm', 'default', 'fts5-rtree', 'small'], action='append', help='OpenSSL only; default remains no-asm')
+    p.add_argument('--configuration', choices=['asm', 'no-asm', 'default', 'fts5-rtree', 'small', 'fips-shared'], action='append', help='package-specific build configuration; OpenSSL/BoringSSL default remains no-asm')
     p.add_argument('--version', action='append', help='SQLite only: a pinned genuine upstream release')
     p.add_argument('--work', type=Path, required=True)
     p.add_argument('--resume-pool', type=Path, help='reconnect to the same idle workers; never create replacements')
@@ -45,22 +45,26 @@ def main():
     p.add_argument('--resume', action='store_true', help='validate and retain already published builds')
     a = p.parse_args()
     if a.configuration is not None:
-        allowed = {'openssl': {'asm', 'no-asm'}, 'boringssl': {'asm', 'no-asm'},
+        allowed = {'openssl': {'asm', 'no-asm'}, 'boringssl': {'asm', 'no-asm', 'fips-shared'},
                    'sqlite': {'default', 'fts5-rtree', 'small'}}
         if not a.package or len(a.package) != 1 or not set(a.configuration) <= allowed.get(a.package[0], set()):
-            p.error('--configuration requires exactly --package openssl (asm/no-asm), boringssl (asm/no-asm), or sqlite (default/fts5-rtree/small)')
+            p.error('--configuration requires exactly --package openssl (asm/no-asm), boringssl (asm/no-asm/fips-shared), or sqlite (default/fts5-rtree/small)')
     if a.version:
         releases = tomllib.loads((ROOT / 'corpus/sqlite/releases.toml').read_text())
         if a.package != ['sqlite'] or not set(a.version) <= releases.keys():
             p.error('--version requires exactly --package sqlite and a pinned release')
     if bool(a.resume_pool) != bool(a.recover_work) or (a.resume_pool and not a.resume):
         p.error('--resume-pool and --recover-work require each other and --resume')
+    if 'boringssl' in (a.package or []) and a.package != ['boringssl']:
+        p.error('BoringSSL requires a separate invocation with its extended pinned toolchain')
+    tag = 'silmaril-corpus-toolchain-boringssl:trixie-20251103-go1.27.4' if a.package == ['boringssl'] else TAG
+    toolchain = 'corpus/toolchain/boringssl' if a.package == ['boringssl'] else 'corpus/toolchain'
     os.chdir(ROOT)
     cache = Path(os.environ.get('CORPUS_CACHE', str(Path.home() / '.cache/silmaril-corpus'))).resolve()
     cache.mkdir(parents=True, exist_ok=True)
     a.work = a.work.resolve()
     a.work.mkdir(parents=True, exist_ok=True)
-    image = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', TAG], text=True).strip()
+    image = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', tag], text=True).strip()
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
     dirty = bool(subprocess.check_output(['git', 'status', '--porcelain'], text=True).strip())
     if a.resume_pool:
@@ -78,17 +82,17 @@ def main():
         controller = {'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                       'hashes': {name: sha(ROOT / name) for name in
                                  ['scripts/corpus/variants.py', 'scripts/corpus/container_pool.py']}}
-        pool_context = ContainerPool.reconnect(a.resume_pool, recipes, cache, image, controller)
+        pool_context = ContainerPool.reconnect(a.resume_pool, recipes, cache, image, controller, toolchain=toolchain)
     else:
         # Freeze recipes so an editor or another branch cannot change a long build midway.
         recipes = a.work / ('recipes-' + str(uuid.uuid4()))
         shutil.copytree(ROOT / 'corpus', recipes / 'corpus', ignore=shutil.ignore_patterns('upstream', 'generated', 'elf', 'funcmap', 'tv', 'census', 'variants', 'measurements', '__pycache__'))
         shutil.copytree(ROOT / 'scripts/corpus', recipes / 'scripts/corpus', ignore=shutil.ignore_patterns('__pycache__'))
         recipe_hashes = {str(f.relative_to(recipes)): sha(f) for f in recipes.rglob('*') if f.is_file()}
-        pool_context = ContainerPool(image, recipes, cache, a.work / ('pool-' + str(uuid.uuid4())))
+        pool_context = ContainerPool(image, recipes, cache, a.work / ('pool-' + str(uuid.uuid4())), toolchain=toolchain)
 
     with pool_context as pool:
-        for pkg in a.package or PACKAGES:
+        for pkg in a.package or [pkg for pkg in PACKAGES if pkg != 'boringssl']:
             metadata = tomllib.loads((recipes / 'corpus' / pkg / 'package.toml').read_text())
             for version in a.version or [metadata['version']]:
                 package = {**metadata, 'version': version}
@@ -202,7 +206,7 @@ def main():
                             lifecycle['profiles'][0].update(status='passed', finished_utc=pool.now())
                             for variant in ['unstripped', 'stripped']:
                                 docker(['python3', '-I', '/corpus/receipt.py', '/corpus/' + pkg, arch, '/out/' + variant,
-                                        'true', TAG, image, BASE], work / f'receipt-{variant}.log')
+                                        'true', tag, image, BASE], work / f'receipt-{variant}.log')
                                 receipt_path = first / variant / 'receipt.json'
                                 receipt = json.loads(receipt_path.read_text())
                                 for obj in receipt['outputs']:

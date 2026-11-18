@@ -1,33 +1,12 @@
-# Representative BoringSSL / BoringCrypto inputs under test
+# Representative BoringSSL / BoringCrypto (BCM) is `crypto/fipsmodule` in that same tree. All configurations here are research builds without FIPS validation or certification.
 
-This is upstream BoringSSL at commit
-[`ebd922adc708a48b0cccfcdf81e854a3fdc1b7b6`](https://github.com/google/boringssl/tree/ebd922adc708a48b0cccfcdf81e854a3fdc1b7b6).
-BoringCrypto (BCM) is the cryptographic module in that same tree, not a separate
-upstream project. These are non-FIPS research builds. They are not certified or
-validated, do not define `BORINGSSL_FIPS`, and do not run integrity-hash injection.
-Upstream FIPS_SHARED/FIPS_DELOCATE configurations are not built here.
+Builds use upstream CMake/Ninja targets `crypto`, `ssl`, `bssl`, with a separately pinned [toolchain extension](../toolchain/boringssl/README.md). Both independent workers compare the complete extended package lock and recompute the Go tree/tool executable inventory before compiling. Release flags explicitly select the requested optimization and `-g0 -DNDEBUG`, replacing CMake's default optimization. Upstream also adds its own options: in particular GNU assembly compilation uses `-Wa,-g`, so unstripped assembly profiles can contain assembly debug metadata despite C/C++ `-g0`. Exact commands are retained rather than claiming debug-free assembly.
 
-The pinned corpus image is unchanged. The repository-authored `embed.py` consumes
-upstream's committed `gen/sources.json`, as supported in upstream's
-[Build support contract](https://github.com/google/boringssl/blob/ebd922adc708a48b0cccfcdf81e854a3fdc1b7b6/INCORPORATING.md#build-support).
-Its `bcm`, `crypto`, `ssl`, and `bssl` targets define the exact boundaries. The
-BCM object-library branch in upstream `CMakeLists.txt` combines the BCM source and
-assembly inputs; this recipe packages that same boundary with GNU `ld -r` before
-linking it into libcrypto. The supplementary `boringcrypto-bcm.o` is ET_REL, not a
-standalone executable or shared library. Its receipt includes relocation and
-unresolved-symbol requirements. Both repeats must match. It is preserved
-unstripped; no strip-all linkability or symmetric module stripping claim is made.
-The linked libraries and bssl have independently compared stripping pairs.
+`no-asm` sets `OPENSSL_NO_ASM=ON`; `asm` enables upstream assembly. `fips-shared` sets `FIPS=ON` and `BUILD_SHARED_LIBS=ON`: upstream selects FIPS_SHARED, creates its genuine `bcm.o` with `fips_shared.lds`, and runs the pinned Go integrity-hash tool on libcrypto. The module and intermediate archive are preserved. This configuration does not establish validation, certification, or an approved cryptographic operating environment.
 
-Configuration `no-asm` omits the assembly source lists and defines
-`OPENSSL_NO_ASM`. Configuration `asm` compiles the upstream assembly lists;
-upstream preprocessor/platform guards select the actual architecture. The `.S`
-files in `gen/` were generated upstream and are consumed verbatim as pinned source
-inputs. No generator is invoked here; included `.pl` and pregeneration sources are
-available provenance, not evidence of execution or the historical generator's
-tool version. `embedding-plan.json` records planned commands; `embed-build.log`
-records executed Make commands. Depfiles preserve actual compiler inputs and
-headers; exact raw input/archive hashes remain with the completed profile.
+For ordinary non-FIPS configurations, the supplementary `boringcrypto-bcm.o` combines the actual upstream `fipsmodule` object-library objects using our explicit `ld -r` packaging command. Upstream links the original objects directly; the combined object is not falsely presented as upstream's FIPS_SHARED module. It is ET_REL, preserved unstripped with relocation/unresolved-symbol reports; both repeats must match. Linked libraries and CLI receive independent stripping comparisons and runtime observations.
+
+Committed `gen/*.S` are upstream pregenerated compiler inputs, consumed verbatim. We preserve actual compiler dependencies, public perlasm/pregeneration/Go tooling sources, source-list manifests and licenses. No local perlasm regeneration is claimed. The FIPS_SHARED Go integrity invocation is recorded separately from pregenerated assembly. `configure-command.json`, verbose build log, `compile_commands.json`, CMake cache, Ninja build graph/commands/dependencies record actual selections and execution. Go uses local-only toolchain and disabled module network access, with fresh private cache directories per profile.
 
 Smoke tests use the actual shared libraries for SHA-256/AES known answers,
 Ed25519 signature acceptance/rejection, certificate signatures and a TLS 1.3
@@ -39,6 +18,7 @@ exercise certificate-chain/path validation or network I/O.
 
 ```sh
 corpus/toolchain/image.sh
+bash corpus/toolchain/boringssl/image.sh /work/out/boringssl-toolchain
 python3 scripts/corpus/variants.py --package boringssl --configuration no-asm \
   --configuration asm --level O2 --work /work/out/boringssl-pool
 ```
