@@ -81,7 +81,7 @@ jobs:
   # The explorer's browser tests on the site just built (tools/silmaril-project/tests/explore):
   # the Wasm function pages' graphs, counts, links and keys, the variant fixtures, and the shared
   # shell (navigation, source dialog, status badges, database switches). Deploying
-  # does not wait for them; a failure marks the run red.
+  # waits for them, including the corpus and compiler viewer checks.
   browser-tests:
     needs: build
     runs-on: ubuntu-24.04
@@ -110,6 +110,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/site" && tar -xf "$RUNNER_TEMP/pages/artifact.tar" -C "$RUNNER_TEMP/site"
           cd tools/silmaril-project/tests/explore
+          python3 -I test_pages_server.py
           node wasm_cfg.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots"
           node wasm_cfg_variants.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots"
           node shell.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots"
@@ -123,6 +124,8 @@ jobs:
           node elf.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots"
           node logic.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots"
           node formal.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots"
+          node corpus.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots/corpus.png"
+          node compiler.mjs "$RUNNER_TEMP/site" "$RUNNER_TEMP/shots"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -131,7 +134,7 @@ jobs:
           if-no-files-found: ignore
 
   deploy:
-    needs: build
+    needs: [build, browser-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -162,3 +165,5 @@ jobs:
           echo "$headers" | grep -qi '^content-range: bytes 0-99/[0-9]' || { echo "no Content-Range total"; exit 1; }
           head -c 15 /tmp/head.bin | grep -q 'SQLite format 3' || { echo "not the SQLite header"; exit 1; }
           curl -sSf -o /dev/null "${PAGE_URL%/}/explore-sw.js"
+          curl -sSf -o /dev/null "${PAGE_URL%/}/compiler/api/problems.json"
+          curl -sSf -o /dev/null "${PAGE_URL%/}/compiler/integration.json"

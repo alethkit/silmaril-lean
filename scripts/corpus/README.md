@@ -219,3 +219,18 @@ logs/timings remain; reconnection time, reason and controller hashes are recorde
 Already published profiles are retained by hash validation. Incomplete builds,
 busy workers or mismatched identities are rejected for explicit investigation.
 This does not claim a new clean build or a fresh container on recovery.
+
+### Published Pages catalog
+
+[Corpus](https://hiloopai.github.io/silmaril-lean/#/corpus) reads the same public
+`project.sqlite` as the other project views. `make pages` backs up the freshly
+checked public project database into a new output and adds corpus tables **before**
+generating the HTML and its database size/hash. It does not publish a private base
+database. `PAGES_SOURCE_REV` is also passed to the corpus generator, so artifact
+links use the public pushed Git commit rather than a build-service checkout HEAD.
+The deployment waits for actual corpus and compiler-viewer browser checks.
+
+[Compiler integration](https://hiloopai.github.io/silmaril-lean/#/compiler) links
+the existing static source/target fixture viewer and explains its coverage.
+The full corpus is not automatically a set of compiler-explorer mappings or
+semantic proofs; per-artifact/function statuses remain explicit.

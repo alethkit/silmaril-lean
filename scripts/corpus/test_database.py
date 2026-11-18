@@ -86,10 +86,11 @@ class CorpusDatabase(unittest.TestCase):
             db.executescript('CREATE TABLE preserve(value TEXT); INSERT INTO preserve VALUES("unchanged");')
             db.close()
             before = hashlib.sha256(base.read_bytes()).hexdigest()
-            result = subprocess.run([sys.executable, str(ROOT / 'scripts/corpus/database.py'), '--base', str(base), '--output', str(output)], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(ROOT / 'scripts/corpus/database.py'), '--base', str(base), '--output', str(output), '--source-rev', '1' * 40], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(before, hashlib.sha256(base.read_bytes()).hexdigest())
             db = sqlite3.connect(output)
+            self.assertEqual(db.execute("SELECT value FROM corpus_meta WHERE key='revision'").fetchone()[0], '1' * 40)
             self.assertEqual(db.execute('SELECT value FROM preserve').fetchone(), ('unchanged',))
             self.assertGreaterEqual(db.execute('SELECT count(*) FROM corpus_artifacts').fetchone()[0], 54)
             self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 3)
@@ -120,7 +121,7 @@ class CorpusDatabase(unittest.TestCase):
             self.assertGreater(db.execute('SELECT count(*) FROM corpus_timings').fetchone()[0], 10)
             self.assertTrue(all(row[2].upper() != 'BLOB' for row in db.execute('PRAGMA table_info(corpus_artifacts)')))
             db.close()
-            again = subprocess.run([sys.executable, str(ROOT / 'scripts/corpus/database.py'), '--output', str(output)], capture_output=True)
+            again = subprocess.run([sys.executable, str(ROOT / 'scripts/corpus/database.py'), '--output', str(output), '--source-rev', '1' * 40], capture_output=True)
             self.assertNotEqual(again.returncode, 0)
 
 

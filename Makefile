@@ -182,9 +182,13 @@ pages: project-tool
 	build/bin/silmaril-project check
 	build/bin/silmaril-project sqlite --httpvfs > /dev/null
 	mkdir -p _site
-	cp .lake/silmaril/project.sqlite _site/project.sqlite
+	# Add the public corpus to the same DB the published Corpus tab opens.
+	rm -f _site/project.sqlite
+	$(PYTHON) scripts/corpus/database.py --base .lake/silmaril/project.sqlite --output _site/project.sqlite \
+	  $(if $(PAGES_SOURCE_REV),--source-rev $(PAGES_SOURCE_REV))
 	build/bin/silmaril-project explore --db _site/project.sqlite --out _site/index.html \
 	  $(if $(PAGES_SOURCE_REV),--source-url $(PAGES_SOURCE_URL) --source-rev $(PAGES_SOURCE_REV))
+	$(PYTHON) tools/compiler-explorer/pages.py --project _site/project.sqlite --out _site/compiler
 	# The Wasm component, module and function pages read static files next to the page.
 	lake build wasm-pages
 	.lake/build/bin/wasm-pages silmaril/artifacts.toml _site
