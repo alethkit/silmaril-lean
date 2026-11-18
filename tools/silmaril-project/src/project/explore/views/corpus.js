@@ -65,7 +65,7 @@ async function corpusTimings(build, ctx) {
   // Older catalog files predate the compact index. Preserve their readability.
   if(!runs.length) runs=(await ctx.tq('corpus_timings',`SELECT run_id,build_id,stage,json_extract(metadata,'$.wall_seconds') wall_seconds,json_extract(metadata,'$.peak_rss_kib') peak_rss_kib,json_extract(metadata,'$.exit_code') exit_code FROM corpus_timings`+(build?' WHERE build_id=?':'')+' ORDER BY stage,run_id',build?[build]:[]));
   return {html:`<p><a href="#/corpus">← Corpus</a></p><h2>Measured pipeline stages</h2><p>${runs.length} actual run receipts. Cache state, concurrency and runner identity are recorded per run. Times cover each command's measured scope; overlapping stages must not be summed as end-to-end cost.</p>
-    <p><label>Stage <select id="timing-stage"><option value="">All stages</option>${[...new Set(runs.map(r=>r.stage))].map(stage=>`<option>${esc(stage)}</option>`).join('')}</select></label></p><p>Full receipts load when opened. <button id="timing-prev">Previous</button> <span id="timing-page"></span> <button id="timing-next">Next</button></p>
+    <p><label>Stage <select id="timing-stage" aria-label="Stage"><option value="">All stages</option>${[...new Set(runs.map(r=>r.stage))].map(stage=>`<option>${esc(stage)}</option>`).join('')}</select></label></p><p>Full receipts load when opened. <button id="timing-prev">Previous</button> <span id="timing-page"></span> <button id="timing-next">Next</button></p>
     <table><thead><tr><th>Stage</th><th>Wall seconds</th><th>Peak RSS KiB</th><th>Exit</th><th>Receipt</th></tr></thead><tbody id="timing-rows"></tbody></table>`,
     init:async()=>{
       let start=0; const size=100; let filtered=runs;
