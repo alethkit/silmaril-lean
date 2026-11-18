@@ -15,6 +15,13 @@ spec.loader.exec_module(embed)
 
 
 class Profiles(unittest.TestCase):
+    def test_profile_recipes_are_valid_shell(self):
+        for package in ['sqlite', 'boringssl']:
+            for name in ['build.sh', 'test.sh', 'fetch.sh']:
+                result = subprocess.run(['bash', '-n', str(ROOT / 'corpus' / package / name)],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_distinct_sqlite_upstream_versions_and_exact_sources(self):
         releases = tomllib.loads((ROOT / 'corpus/sqlite/releases.toml').read_text())
         self.assertEqual(len({r['sha256'] for r in releases.values()}), len(releases))
