@@ -43,7 +43,7 @@ theorem checkWindow_sound (source expected : KBytes) (offset : Nat)
     materialized_size source sourceWf ▸ bounds
   simp only [Decode.readBytes, StateT.run_bind, StateT.run_get, pure_bind]
   simp only [byteBounds, ite_true, StateT.run_bind, StateT.run_set, pure_bind, StateT.run_pure,
-    extracted]
+    Decode.extractForKernel_eq, extracted]
   exact congrArg (fun (payload : ByteArray) =>
     Except.ok (payload, Decode.Cursor.mk source.toByteArray (offset + expected.len)))
     (ByteArray.ext (Array.ext' bytesEq))
