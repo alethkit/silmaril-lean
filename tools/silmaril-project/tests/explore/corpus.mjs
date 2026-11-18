@@ -23,8 +23,14 @@ try{
   assert.equal(await page.locator('#nav a').count(),2,'standalone corpus database gets dedicated navigation');
   assert.equal(await page.locator('#source .err').count(),0,'recognized corpus schema');
   if(screenshot)await page.screenshot({path:screenshot,fullPage:false});
+  // Compare the rendered project filter with an independent SQLite query.
+  // Delivered profiles may add rows without changing the explorer's behavior.
+  const cjsonCount=Number(execFileSync('python3',['-c',
+    "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute(\"SELECT count(*) FROM corpus_artifacts WHERE project='cjson'\").fetchone()[0]); c.close()",
+    path.join(site,'project.sqlite')],{encoding:'utf8'}).trim());
+  assert.ok(cjsonCount>0,'fixture includes real cJSON artifacts');
   await page.getByLabel('project',{exact:true}).selectOption('cjson');
-  await page.waitForFunction(()=>document.querySelector('#corpus-count').textContent.startsWith('36 matching'));
+  await page.waitForFunction(expected=>document.querySelector('#corpus-count').textContent.startsWith(`${expected} matching`),cjsonCount);
   await page.getByLabel('target',{exact:true}).selectOption('aarch64-linux-gnu');
   await page.getByLabel('optimization',{exact:true}).selectOption('O0');
   await page.getByLabel('stripping',{exact:true}).selectOption('stripped');
