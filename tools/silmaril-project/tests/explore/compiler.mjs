@@ -49,9 +49,10 @@ try {
   console.log('PASS published-shape compiler viewer: project navigation, static payloads, source/target/semantic modes and corpus return');
   // Real corpus statements use their own registry-backed, uniformly UNPROVED view.
   const corpusIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/corpus/index.json'),'utf8'));
-  assert.equal(corpusIndex.length,29);
+  assert.equal(corpusIndex.length,30);
   assert.ok(corpusIndex.every(p=>p.status==='UNPROVED'));
   const cases=[
+    {"symbol": "cJSON_GetArrayItem", "declaration": "Silmaril.Elf.Corpus.CjsonArrayItem.Context.Task.compilesTo", "address": "0x5427", "bytes": "55 48 89 e5 48 83 ec 10 48 89 7d f8 89 75 f4 83 7d f4 00 79 07 b8 00 00 00 00 eb 15 8b 45 f4 48 63 d0 48 8b 45 f8 48 89 d6 48 89 c7 e8 7b ff ff ff c9 c3", "source": "c2de1199e9c8b0b2bc57d49490a269be893b34893e99f8c0a9d564032801a353", "core": "12735aa82853ce768a8b02641594fc70ee57ac18545a338ba621f43cd19314cf", "offset": 120649, "length": 1348, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "callerPreserved", "caller": true, "helperBytes": "55 48 89 e5 48 89 7d e8 48 89 75 e0 48 c7 45 f8 00 00 00 00 48 83 7d e8 00 75 07 b8 00 00 00 00 eb 30 48 8b 45 e8 48 8b 40 10 48 89 45 f8 eb 10 48 83 6d e0 01 48 8b 45 f8 48 8b 00 48 89 45 f8 48 83 7d f8 00 74 07 48 83 7d e0 00 75 e2 48 8b 45 f8 5d c3", "helperHash": "83a93716e5f22ed741d2bc1db8042b5550173564c8cfe257cf156eba339a4330"},
     {"symbol": "cJSON_DetachItemViaPointer", "declaration": "Silmaril.Elf.Corpus.CjsonDetach.Context.Task.compilesTo", "address": "0x5cac", "bytes": "55 48 89 e5 48 89 7d f8 48 89 75 f0 48 83 7d f8 00 74 22 48 83 7d f0 00 74 1b 48 8b 45 f8 48 8b 40 10 48 39 45 f0 74 17 48 8b 45 f0 48 8b 40 08 48 85 c0 75 0a b8 00 00 00 00 e9 99 00 00 00 48 8b 45 f8 48 8b 40 10 48 39 45 f0 74 12 48 8b 45 f0 48 8b 40 08 48 8b 55 f0 48 8b 12 48 89 10 48 8b 45 f0 48 8b 00 48 85 c0 74 13 48 8b 45 f0 48 8b 00 48 8b 55 f0 48 8b 52 08 48 89 50 08 48 8b 45 f8 48 8b 40 10 48 39 45 f0 75 11 48 8b 45 f0 48 8b 10 48 8b 45 f8 48 89 50 10 eb 20 48 8b 45 f0 48 8b 00 48 85 c0 75 14 48 8b 45 f8 48 8b 40 10 48 8b 55 f0 48 8b 52 08 48 89 50 08 48 8b 45 f0 48 c7 40 08 00 00 00 00 48 8b 45 f0 48 c7 00 00 00 00 00 48 8b 45 f0 5d c3", "source": "dc3e68189a20294a404f896ac3611eae6a77c44c23bc89991c459bc590dab8a8", "core": "1e54f1805c02475ea193763bade7a524928b62e87cd99685ac0e6b28696b3e7d", "offset": 136693, "length": 2069, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "returnMatches", "detachment": true},
     {"symbol": "suffix_object", "declaration": "Silmaril.Elf.Corpus.CjsonSuffix.Context.Task.compilesTo", "address": "0x55ad", "bytes": "55 48 89 e5 48 89 7d f8 48 89 75 f0 48 8b 45 f8 48 8b 55 f0 48 89 10 48 8b 45 f0 48 8b 55 f8 48 89 50 08 90 5d c3", "source": "43b84fd08dec2b8a7c056cc15e6203de0789e6b1bb7d2eb41eaca7c30fecd729", "core": "30c94a6ba01e474846d0d8f84b787e008844d8271054c58ef66af0070f3032ca", "offset": 125337, "length": 101, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "expectedMemory", "mutation": true},
     {"symbol": "cJSON_GetArraySize", "declaration": "Silmaril.Elf.Corpus.CjsonArraySize.Context.Task.compilesTo", "address": "0x4090", "bytes": "48 85 ff 74 1b 48 8b 57 10 48 85 d2 74 12 31 c0 48 8b 12 48 83 c0 01 48 85 d2 75 f4 c3 0f 1f 00 31 c0 c3", "source": "e04af85a502ef41b93c99b3622720e0b9a82c47f2514efe85e9f32c89aeabf4d", "core": "b6f3ff0c2e350da276e6b4843368347f1ed5abf4b3a8ac36b8b9cbce5f26aa03", "offset": 119860, "length": 787, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "Fin 65", "traversal": true},
@@ -80,7 +81,23 @@ try {
     assert.ok(core.includes(c.symbol),'actual named Core procedure');
     const context=await page.locator('#corpus-evidence').textContent();
     assert.ok(context.includes(c.context));assert.ok(context.includes('callees := []'));
-    if(c.detachment){
+    if(c.caller){
+      assert.equal(spans.spans.length,3);
+      for(const required of ['pointerWord', 'callerPreserved', 'SysV.StackBelow m 72', 'Source.signature', 'entryOffset']){
+        assert.ok(context.includes(required),required);
+      }
+      for(const required of ['get_array_item @ 0x53d3', '84 bytes', c.helperBytes, c.helperHash, 'not a substituted contract']){
+        assert.ok(target.includes(required),required);
+      }
+      assert.ok((await page.locator('#src').innerText()).includes('get_array_item'));
+      assert.ok(core.includes('get_array_item'));
+      const assumptions=await page.locator('#assumptions').innerText();
+      for(const required of ['signed32','unsigned64','72 bytes','not full-record','not proofs','arbitrary payload'])assert.ok(assumptions.includes(required),required);
+      await page.getByRole('link',{name:'Actual callee get_array_item',exact:true}).click();
+      await page.waitForFunction(()=>document.querySelector('#corpus-function-search')?.value==='get_array_item');
+      await page.goto(base+'/compiler/?corpus='+encodeURIComponent(c.declaration));
+      await page.waitForFunction(d=>document.body.dataset.corpusDeclaration===d,c.declaration);
+    }else if(c.detachment){
       assert.equal(spans.spans.length,2);
       for(const required of ['address : Fin 5 → Nat','payload : Fin 5 → Fin 64 → BitVec 8',
         'exactUpdate input before.memory after.memory','returnMatches input value',
@@ -157,7 +174,7 @@ try {
   await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('error: corpus evidence identity mismatch'));
   assert.equal(await page.locator('body').getAttribute('data-corpus-declaration'),null);
   await page.unroute('**/'+payload.source.static_path);
-  console.log('PASS actual registry corpus viewer:29 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
+  console.log('PASS actual registry corpus viewer:30 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
 
   const binaryIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/equivalences/index.json'),'utf8'));
   assert.equal(binaryIndex.length,8);

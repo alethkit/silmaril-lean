@@ -163,7 +163,28 @@ def export(project, output, root=ROOT):
                     (row['id'], statement['function_symbol'], function['address'], function['size'])).fetchone()[0]
                 if not count:
                     raise ValueError('catalog function mismatch')
-                artifacts.append({'id': row['id'], 'path': name, 'sha256': digest, **function})
+                artifact = {'id': row['id'], 'path': name, 'sha256': digest, **function}
+                # Optional actual callees are excerpts from this SAME pinned ELF,
+                # never a contract, a generated body or an additional proof.
+                callees = m.get('callees', [])
+                if not isinstance(callees, list) or len(callees) > 8:
+                    raise ValueError('unbounded corpus callee list')
+                seen_callees = set()
+                for callee in callees:
+                    if set(callee) != {'symbol', 'address', 'size'} or not isinstance(callee['symbol'], str) or not isinstance(callee['address'], int) or not isinstance(callee['size'], int):
+                        raise ValueError('invalid corpus callee identity')
+                    if callee['symbol'] in seen_callees or callee['symbol'] == statement['function_symbol']:
+                        raise ValueError('duplicate corpus callee')
+                    seen_callees.add(callee['symbol'])
+                    actual = elf_function(read(name), callee['symbol'], callee['address'])
+                    if actual['size'] != callee['size']:
+                        raise ValueError('callee ELF size mismatch')
+                    count = db.execute('SELECT count(*) FROM corpus_functions WHERE artifact=? AND symbol=? AND address=? AND size=?',
+                        (row['id'], callee['symbol'], actual['address'], actual['size'])).fetchone()[0]
+                    if not count:
+                        raise ValueError('catalog callee mismatch')
+                    artifact.setdefault('callees', []).append({'function_symbol': callee['symbol'], **actual})
+                artifacts.append(artifact)
             modules = [blob(read(name), {'path': name}) for name in m['context_modules']]
             payload = {'schema': m['schema'], 'declaration': statement['declaration'], 'root': statement['root'],
                 'status': 'UNPROVED', 'registry_status': statement['status'], 'function_symbol': statement['function_symbol'],

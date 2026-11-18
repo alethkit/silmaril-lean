@@ -53,7 +53,8 @@ export async function initCorpus() {
   $('src-title').textContent = `Actual source closure · ${p.function_symbol}`;
   $('tgt-title').textContent = 'Real ELF function bytes · tool-checked excerpt';
   lines($('src'), await text(p.source));
-  const target = p.artifacts.map(a => `${a.path}\nELF sha256 ${a.sha256}\n${p.function_symbol} @ 0x${a.address.toString(16)} · ${a.size} bytes · file offset ${a.file_offset}\n${a.bytes_hex}\nFunction bytes sha256 ${a.code_sha256}\n${a.identity_check}`).join('\n\n');
+  const excerpt = (symbol, f) => `${symbol} @ 0x${f.address.toString(16)} · ${f.size} bytes · file offset ${f.file_offset}\n${f.bytes_hex}\nFunction bytes sha256 ${f.code_sha256}\n${f.identity_check}`;
+  const target = p.artifacts.map(a => `${a.path}\nELF sha256 ${a.sha256}\n${excerpt(p.function_symbol, a)}${(a.callees || []).map(c => '\n\nActual callee excerpt (not a substituted contract)\n' + excerpt(c.function_symbol, c)).join('')}`).join('\n\n');
   lines($('tgt'), target);
   const selection = $('selection');
   selection.replaceChildren(el('h2', 'Registered corpus problem'), el('span', 'UNPROVED', 'badge st-open'), el('code', p.declaration, 'stmt'), el('p', p.mapping));
@@ -68,6 +69,11 @@ export async function initCorpus() {
     row.append(link('Corpus artifact', '../#/corpus-artifact/' + encodeURIComponent(a.id)), document.createTextNode(' · '),
       link('Corpus function', '../#/corpus-functions/' + encodeURIComponent(a.id) + '?symbol=' + encodeURIComponent(p.function_symbol)), document.createTextNode(' · '), link('ELF in Git', git(a.path)));
     selection.append(row);
+    for (const c of a.callees || []) {
+      const callee = el('p');
+      callee.append(link(`Actual callee ${c.function_symbol}`, '../#/corpus-functions/' + encodeURIComponent(a.id) + '?symbol=' + encodeURIComponent(c.function_symbol)), document.createTextNode(` · 0x${c.address.toString(16)} · ${c.size} bytes · same pinned ELF`));
+      selection.append(callee);
+    }
   }
   $('questions').replaceChildren(el('h2', 'Context obligations'), el('p', 'Joint entry existence, source safety, ABI return and memory/callee effects remain obligations, not proved facts. Read the exact defining context below.'));
   const provenance = $('provenance');
