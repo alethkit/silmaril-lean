@@ -89,6 +89,30 @@ checks DRISL representability; `parseJsonWithBytesCbor?` lifts link-free DRISL
 into exact decimals. The latter accepts, for example, integral doubles; the
 preferred integer-first lowering is not an inverse for their CBOR kind.
 
+### Compatibility with the named CBOR languages
+
+`Model/Thms.lean` proves byte-language equality for DRISL with either exact
+DASL or exact BDASL CIDs and for the signed-i64, no-float ATProto core with
+either CID rule. The proof compares the two real readers on every decoded
+item; `Cbor.encodable_of_decode` supplies the head and size bounds and strict
+encoded-key ordering rules out duplicate decoded names.
+
+These equalities are for exact boundaries and the corresponding link rules:
+the legacy CID-prefix reader accepts a digest followed by an extra byte,
+which the exact reader rejects. Conversely, the default `.any` reader can
+accept a canonical two-byte CID codec varint that neither fixed rule accepts.
+The legacy “no floats” profile alone is not ATProto: it still accepts the
+unsigned argument `2^63`. The theorem header checks these distinctions.
+
+For all three built-in CID profiles, rendering any successful DRISL or ATProto
+read returns the original bytes. Reading after rendering preserves the exact
+ordered AST if its unsorted CBOR emission is encodable and already has strictly
+ordered keys throughout; these guards do not assume any parser equality.
+Exact AST recovery without the order guard is false: the writer sorts `b, a`
+to `a, b`. The general writer is partial, and arbitrary caller-supplied
+numeric/CID codecs are not assumed to be inverses. No theorem about equality
+modulo key order for arbitrary input order is claimed here.
+
 Run the targeted checks with:
 
 ```sh
