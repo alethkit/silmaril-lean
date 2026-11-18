@@ -10745,13 +10745,19 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "6e1e72a2763f3cf494d70cca1033cfa71edcfe554a59415633cc0770a9390bfd",
-      "contextual_c_to_elf_statements": 1,
+      "contextual_c_to_elf_statements": 2,
       "defined_nonzero_function_symbol_entries": 115,
       "formal_statements": [
         {
           "declaration": "Silmaril.Elf.Corpus.CjsonSuffix.Context.Task.compilesTo",
           "kind": "contextual_c_to_elf",
           "root": "Silmaril.Elf.Corpus.CjsonSuffix.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonDetach.Context.Task.compilesTo",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonDetach.Context.Defs",
           "status": "stated-unproved"
         }
       ],
@@ -78265,7 +78271,7 @@
     }
   ],
   "formal_statement_counts": {
-    "contextual_c_to_elf": 28,
+    "contextual_c_to_elf": 29,
     "functional_equivalence": 13
   },
   "hierarchy": [

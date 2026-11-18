@@ -29,7 +29,7 @@ class CorpusDatabase(unittest.TestCase):
 
     def test_concrete_function_statement_binding(self):
         data = inventory(ROOT)
-        self.assertEqual(data['formal_statement_counts'], {'contextual_c_to_elf': 28, 'functional_equivalence': 13})
+        self.assertEqual(data['formal_statement_counts'], {'contextual_c_to_elf': 29, 'functional_equivalence': 13})
         participants = [a for a in data['artifacts'] if a['functional_equivalence_statements']]
         self.assertEqual(len(participants), 16)
         self.assertEqual({a['project'] for a in participants}, {'mimalloc', 'tinycc', 'sqlite'})

@@ -116,8 +116,9 @@ def declaration (config : Target.Config) (types : Target.Environment)
           info := insertSymbol (metadataSymbol runtime symbol) info accumulator.info }
     | some (_, definition) =>
         unless !variadic && !noreturn &&
-            (integerType returnType || voidType returnType) do
-          throw (.message "defined-function variadics, noreturn or noninteger/nonvoid returns are not ported")
+            (integerType returnType || voidType returnType ||
+              (!config.cheri && Constants.isPointer returnType)) do
+          throw (.message "defined-function variadics, noreturn or unsupported return types are not ported")
         -- Explicitly restricted successful-equation domain: upstream relies on
         -- frontend typing and zips these lists without a local mismatch check.
         unless parameters.length == definition.params.length do

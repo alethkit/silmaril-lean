@@ -183,6 +183,9 @@ def expression (config : Target.Config) (env : Target.Environment) (bindings : L
                 else if Constants.isPointer leftType && NullPointers.isNullPointerConstant right then
                   NullPointers.compareNull config false location leftType
                     (expression config env bindings left aliases tags)
+                else if Constants.isPointer leftType && Constants.isPointer rightType then
+                  Comparisons.pointers config false location
+                    (expression config env bindings left aliases tags) (expression config env bindings right aliases tags)
                 else
                   Comparisons.equal config env bindings type leftType rightType
                     (expression config env bindings left aliases tags) (expression config env bindings right aliases tags)
@@ -193,6 +196,9 @@ def expression (config : Target.Config) (env : Target.Environment) (bindings : L
                 else if Constants.isPointer leftType && NullPointers.isNullPointerConstant right then
                   NullPointers.compareNull config true location leftType
                     (expression config env bindings left aliases tags)
+                else if Constants.isPointer leftType && Constants.isPointer rightType then
+                  Comparisons.pointers config true location
+                    (expression config env bindings left aliases tags) (expression config env bindings right aliases tags)
                 else
                   Comparisons.notEqual config env bindings type leftType rightType
                     (expression config env bindings left aliases tags) (expression config env bindings right aliases tags)
