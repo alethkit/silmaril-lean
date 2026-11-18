@@ -13,3 +13,4 @@ __pycache__/
 /target/
 /tools/wasm-vc/target/
 /tools/component-tests/linker-host/target/
+/tools/wasm-spec-fuzz/target/
