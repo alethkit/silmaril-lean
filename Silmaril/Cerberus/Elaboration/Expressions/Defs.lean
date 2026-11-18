@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Cerberus.Elaboration.Arithmetic.Defs
 public import Silmaril.Cerberus.Elaboration.Bitwise.Defs
+public import Silmaril.Cerberus.Elaboration.Members.Defs
 public import Silmaril.Cerberus.Elaboration.ObjectExpressions.Defs
 public import Silmaril.Cerberus.Elaboration.Comparisons.Defs
 public import Silmaril.Cerberus.Elaboration.Designators.Defs
@@ -12,7 +13,7 @@ public import Silmaril.Cerberus.Elaboration.IntegerCasts.Defs
 public import Silmaril.Cerberus.Elaboration.Conditionals.Defs
 
 /-! Actual typed-Ail expression dispatcher for constants, object
-identifiers/rvalues, scalar add/sub/mul, scalar lt/le/gt/ge/eq/ne, integer conditionals and short-circuit operators, direct integer casts, integer-zero pointer casts and normal fixed-integer direct calls.
+identifiers/rvalues, scalar add/sub/mul and AND/XOR/OR, pointer-member addresses, scalar lt/le/gt/ge/eq/ne, integer conditionals and short-circuit operators, direct integer casts, integer-zero pointer casts and normal fixed-integer direct calls.
 The frozen constant port remains independently usable. Recursive effects,
 marker freshness, full-expression bounds and annotation order are retained.
 Other expression forms and expression-result lifetimes outside the call helper
@@ -108,6 +109,11 @@ def expression (config : Target.Config) (env : Target.Environment) (bindings : L
             pure (.markerObjectTypes marker :: annotations)
         | none => pure annotations
       let core ← match _hnode : node with
+        | .memberofptr pointer member => do
+            let pointerType ← Constants.liftResult
+              (Constants.targetResult (GeneralizedTypes.expressionType config env pointer))
+            Members.pointerMember config.cheri config.strictPointerArithmetic location pointerType member
+              (expression config env bindings pointer aliases)
         | .binary left operator right => do
             let leftType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env left))
             let rightType ← Constants.liftResult (Constants.targetResult (GeneralizedTypes.expressionType config env right))
