@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "run_id": "236cbc6c-b133-4101-8560-2226ad4fe013",
+  "stage": "openssl-global-context-final-kernel-replay",
+  "measurement_tool_sha256": "73b879b4211a225b213deb84986411385e6506134c39de6f42768fb60ffeb07a",
+  "started_utc": "2026-11-18T00:58:33.481194+00:00",
+  "command": [
+    "lake",
+    "build",
+    "--wfail",
+    "Silmaril.Elf.Corpus.OpenSslSecureInitialized.Thms",
+    "Silmaril.Project.Shapes.Contextual.Thms"
+  ],
+  "cwd": "/work/isolated-frontend",
+  "target": "x86_64-linux-gnu",
+  "repository": {
+    "commit": "bccbf0979b258cd240cfb45f754ac2b4a3fce66b",
+    "dirty": true,
+    "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "cache": "unspecified",
+  "concurrency": 2,
+  "lean_toolchain": "leanprover/lean4:nightly-2026-11-05",
+  "runner": {
+    "hostname": "modal",
+    "platform": "Linux-4.19.0-gvisor-x86_64-with-glibc2.41",
+    "cpu_model": "unknown",
+    "visible_cpus": 24,
+    "task_cpu_budget": 8,
+    "task_memory_budget_bytes": 34359738368,
+    "cgroup": {}
+  },
+  "inputs": [
+    {
+      "path": "Silmaril/Project/Shapes/Contextual/Defs.lean",
+      "sha256": "884638c36908da02bf391aa447762715600dc06d7a1f81b0516bd80a4a4b7e87"
+    },
+    {
+      "path": "Silmaril/Project/Shapes/Contextual/Thms.lean",
+      "sha256": "6af7dd72f91e65e341a314d10a4bacab6684cbbe42d8a0aa6eab61eceda26282"
+    },
+    {
+      "path": "Silmaril/Elf/Corpus/OpenSslSecureInitialized/Defs.lean",
+      "sha256": "25da67ebdce2ab9edc5ced90df1fd99b16e70e68a92d9c8acb8b5d887d0ab928"
+    },
+    {
+      "path": "Silmaril/Proofs/Elf/Corpus/OpenSslSecureInitialized.lean",
+      "sha256": "ed1e112bfcec27dccc817daded6e6ebff9be3569f1504b089a5440a565f1310a"
+    },
+    {
+      "path": "Silmaril/Elf/Corpus/OpenSslSecureInitialized/Thms.lean",
+      "sha256": "6cb9184568a8073a508413ea50ece2ba84480d52451d99059d035441ad5e33a5"
+    },
+    {
+      "path": "corpus/openssl/upstream/openssl-3.5.9/crypto/mem_sec.c",
+      "sha256": "20eee550c464825f803f63d53e573995108aa0a3b23fc76d9eab0a4ab7b410c2"
+    },
+    {
+      "path": "corpus/elf/openssl/x86_64/libcrypto.so.3",
+      "sha256": "516a8f5ce20913ab80d03a1b195458171399a9470f2e93b075f38e634d9c866b"
+    },
+    {
+      "path": "corpus/openssl/generated/x86_64/include/openssl/configuration.h",
+      "sha256": "24794fa32f3b5af0f0af9fea23cf747e8e1a74c135236e078a0cd28124a3e134"
+    }
+  ],
+  "wall_seconds": 18.94469360400035,
+  "exit_code": 0,
+  "user_cpu_seconds": 15.78,
+  "system_cpu_seconds": 22.93,
+  "peak_rss_kib": 3863356,
+  "measurement": "Linux wait4 child accounting; includes waited-for descendants; RSS is maximum, not sum"
+}
