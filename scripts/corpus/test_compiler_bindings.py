@@ -37,7 +37,7 @@ class CorpusCompilerBindings(unittest.TestCase):
         output = self.work / 'out'
         rows = corpus.export(self.project, output)
         self.assertEqual({r['declaration'] for r in rows}, {s['declaration'] for s in self.statements})
-        self.assertEqual(len(rows), 28)
+        self.assertEqual(len(rows), 29)
         for row in rows:
             p = json.loads((output / Path(row['static_path']).name).read_text())
             self.assertEqual(p['status'], 'UNPROVED')
@@ -64,6 +64,19 @@ class CorpusCompilerBindings(unittest.TestCase):
             self.assertEqual(p['artifacts'][0]['address'], address)
             self.assertEqual(p['artifacts'][0]['bytes_hex'], code)
             self.assertIn('Noncanonical _Bool bytes', ' '.join(p['limits']))
+
+    def test_actual_detachment_pointer_return_and_exact_heap_context(self):
+        output = self.work / 'out'
+        rows = corpus.export(self.project, output)
+        row = next(r for r in rows if r['function_symbol'] == 'cJSON_DetachItemViaPointer')
+        p = json.loads((output / Path(row['static_path']).name).read_text())
+        self.assertEqual(p['status'], 'UNPROVED')
+        self.assertEqual(p['artifacts'][0]['address'], 23724)
+        self.assertEqual(len(bytes.fromhex(p['artifacts'][0]['bytes_hex'])), 218)
+        limits = ' '.join(p['limits'])
+        for expected in ['arbitrary admissible addresses', 'arbitrary320', 'provenance',
+                         'RAX pointer', 'ONLY diagnostic currentLocation', 'Only32', 'Unsupported']:
+            self.assertIn(expected, limits)
 
     def test_stale_source_and_private_path_rejected(self):
         source = 'corpus/cjson/semantic-inputs/linux-x86_64/predicates/context.c'

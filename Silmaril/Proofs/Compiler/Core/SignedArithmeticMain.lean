@@ -69,9 +69,10 @@ theorem return_elaborates (expression : Expression) (context : State.Context) (l
       (.ok (returnCore expression context.freshness.digest context.freshness.next label),
         advance context (5 * expression.operations + 1)) := by
   have captured : State.run Lifetimes.captureVisible context = (.ok [], context) := capture_visible_run context visible
+  have nonPointer : Constants.isPointer mainType = false := rfl
   unfold Statements.returnExpression
   dsimp only
-  simp only [Bool.false_eq_true, ite_false]
+  simp only [nonPointer, Bool.false_eq_true, ite_false]
   rw [run_bind _ _ _ _ _ captured]
   rw [actual_type expression]
   have bothInteger : (Statements.integerType intType && Statements.integerType mainType) = true := rfl
