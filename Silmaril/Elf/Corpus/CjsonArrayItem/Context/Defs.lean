@@ -75,7 +75,9 @@ def prepare (i : Input) : Except String State := do
 observations; caller parameter objects are checked too. New private automatic/
 argument allocations must be dead. Diagnostic currentLocation is not observed.
 Private automatic-allocation bytes and allocator/excluded-action bookkeeping
-are outside this caller observation; this is not full-record memory equality. -/
+are outside this caller observation. Their context-unobservability is NOT proved:
+this observation-adequacy abstraction gap is specific to this nested-call problem,
+not full-record memory equality or arbitrary-continuation equivalence. -/
 def callerPreserved (i : Input) (a b : Mem.Concrete.State) : Prop :=
   a.enumTypes = b.enumTypes ∧ a.functions = b.functions ∧ a.stdout = b.stdout ∧
   (∀ id : Int, 0 ≤ id → id < i.length.val+4 →
