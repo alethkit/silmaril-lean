@@ -95,6 +95,15 @@ def Input.TableChecks (input : Input) (entries : List ByteMapEntry) : Prop :=
 instance (input : Input) (entries : List ByteMapEntry) : Decidable (input.TableChecks entries) :=
   inferInstanceAs (Decidable (_ ∧ _))
 
+/-- Coverage of root instruction positions is separate from table validity.
+This finite criterion does not claim coverage of nested sequence paths. -/
+def Input.RootCovered (input : Input) (entries : List ByteMapEntry) : Prop :=
+  ∀ k : Fin input.body.length, ∃ m ∈ entries,
+    m.decoded = ⟨input.functionIndex, [], k.val⟩
+
+instance (input : Input) (entries : List ByteMapEntry) : Decidable (input.RootCovered entries) :=
+  inferInstanceAs (Decidable (∀ _k : Fin input.body.length, _))
+
 /-- A full source-body certificate plus a possibly partial validated table.
 Coverage is separate; an empty successful table says nothing about coverage. -/
 structure Certified (input : Input) where

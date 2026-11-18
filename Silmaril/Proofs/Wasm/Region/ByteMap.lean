@@ -17,7 +17,8 @@ open Silmaril.Wasm.Binary Silmaril.Wasm.Binary.Core
     · rename_i rest
       cases h
       obtain ⟨_, pre, hr, hg⟩ := sound run
-      have eq : bytes = pre := by simpa [Decode.Cursor.rest, rest] using hr
+      rw [rest, List.append_nil] at hr
+      have eq : bytes = pre := by simpa [Decode.Cursor.rest] using hr
       simpa only [← eq] using hg
     · contradiction
 
@@ -27,18 +28,22 @@ open Silmaril.Wasm.Binary Silmaril.Wasm.Binary.Core
   obtain ⟨hb, pre, hr, hg⟩ := (Decode.readInstr_readSeq_sound fuel).1 op hi
   obtain ⟨hb₀, pre₀, hr₀, hg₀⟩ := Decode.readByte_sound hop
   cases hg₀
-  exact ⟨hb.trans hb₀, [op] ++ pre, by simp [hr₀, hr, List.append_assoc], hg⟩
+  exact ⟨hb.trans hb₀, [op] ++ pre, by simp [hr₀, hr], hg⟩
+
+theorem expr_inversion {bytes : Bytes} {is : Silmaril.Wasm.Expr}
+    (h : Binary.Core.Expr Forms.all bytes is) :
+    ∃ b, bytes = b ++ [0x0B] ∧ Instrs Forms.all b is := by
+  cases h with | mk encoded => exact ⟨_, rfl, encoded⟩
 
  theorem span_sound {input : Input} {m : ByteMapEntry} (h : input.SpanChecks m) :
     input.DecodesAt m.decoded m.bytes := by
-  obtain ⟨hf, hp, start, _, _, prefix, existsI, instr⟩ := h
-  have prefix := parseAll_sound Decode.readExpr_sound prefix
+  obtain ⟨hf, hp, start, _, _, prefixFact, existsI, instr⟩ := h
+  have prefixFact := parseAll_sound Decode.readExpr_sound prefixFact
   have prefix' : Instrs Forms.all (input.prefixBytes m.bytes)
       (input.body.take m.decoded.instructionOffset) := by
-    cases prefix with
-    | @mk b is hb =>
-      have eq : b = input.prefixBytes m.bytes := List.append_cancel_right (by assumption)
-      simpa [eq] using hb
+    obtain ⟨b, eq, encoded⟩ := expr_inversion prefixFact
+    have eq : input.prefixBytes m.bytes = b := List.append_cancel_right eq
+    simpa only [← eq] using encoded
   cases hi : input.body[m.decoded.instructionOffset]? with
   | none => simp [hi] at existsI
   | some i =>
@@ -52,7 +57,7 @@ open Silmaril.Wasm.Binary Silmaril.Wasm.Binary.Core
   have hl := Decode.vec_map expandLocal (fun _ _ h => h) hl₀
   have he := parseAll_sound Decode.readExpr_sound expr
   refine ⟨hl, he, ?_, ⟨entries, ?_, ?_, table.2.1, table.2.2⟩⟩
-  · simpa only [List.take_append_drop] using Func.mk hl he size
+  · simpa only [List.take_append_drop, List.flatMap_def] using Binary.Core.Func.mk hl he size
   · exact fun m hm => span_sound (table.1 m hm)
   · intro m hm
     exact ⟨(table.1 m hm).2.2.2.1, (table.1 m hm).2.2.2.2.1⟩

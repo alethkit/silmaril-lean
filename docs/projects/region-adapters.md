@@ -81,6 +81,13 @@ The benign kernel fixtures in `Wasm.Region.Examples.Thms` cover two accepted
 tables (locals/repeated instructions and a structured block), and four rejected
 proposals (wrong repeated occurrence, immediate byte, nested path, delimiter).
 They are a six-case regression set, **not a measured Wasm corpus**.
+Separate `RootCovered` theorems certify all 3/3 root positions in the repeated
+fixture and 2/2 in the structured fixture: 5/5 root positions across these two
+hand-authored bodies. There is one nested nop and no nested row (0/1); it is
+excluded explicitly from the root denominator. `root_coverage_sound` connects
+successful validation and this coverage witness to per-position grammar
+certificates. Function index 7 is supplied by these fixtures, not extracted
+from a linked module. General module/nested coverage remains a prerequisite.
 
 ## x86: ELF placement and calls
 
@@ -123,7 +130,7 @@ contracts remain unknown.
 | Fixed-signature segment/label/tree lattices | Raw and fixed-positive-rule closed complete lattices; ceilings and transport | Optional adapter-specific rule families need independent compatibility/ceiling proofs |
 | Primitive trees and CFG relationships | Loss-aware projections, adjacency separate from dominance, witnessed finite dominance lifting | No unconditional unique CFG from region families or dominator inference from composition |
 | Wasm CFG operational coverage | Step coverage and conditional semantic first-exit soundness, reusing existing machine | Finite nested allowances need an ancestor-handler coverage theorem; smaller trap sets need typing/profile proofs |
-| Wasm byte map | Executable proof-carrying root-table validator, source `Func` and per-span grammar certificates | Nested delimiter/path location theorem; module/body extraction and function-index binding; automatic span proposal and complete-table coverage |
+| Wasm byte map | Executable proof-carrying root-table validator, source `Func` and per-span grammar certificates | Nested delimiter/path location theorem; module/body extraction and function-index binding; automatic span proposal and general nested-table coverage (fixture roots have explicit coverage proofs) |
 | CFG block to instruction/byte coordinates | Coordinate distinction and validated instruction rows | Prove block-segmentation prefix lengths correspond to instruction indices, then compose with complete nested maps |
 | Wasm Core/native coverage | Existing public adequacy reused with its actual hypotheses | Arbitrary-call Core completeness needs callee adequacy; all-extension coverage is not established |
 | x86 direct subset | Existing actual Ext listing proof and loaded direct-jump fixture | Wider hardware semantics remain outside handwritten Ext; decode rejection remains a distinguished halt |

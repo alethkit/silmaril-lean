@@ -12,6 +12,13 @@ theorem repeated_valid : (ByteMap.validate? repeated repeatedRows).isSome = true
 
 theorem structured_valid : (ByteMap.validate? structured structuredRows).isSome = true := by decide +kernel
 
+/-- Fixture coverage: all 3 root instruction positions are represented. -/
+theorem repeated_root_coverage : repeated.RootCovered repeatedRows := by decide +kernel
+
+/-- Fixture coverage: both root positions are represented; the inner nop is
+outside this denominator and is not silently counted as a validated row. -/
+theorem structured_root_coverage : structured.RootCovered structuredRows := by decide +kernel
+
 /-- Matching bytes do not suffice: the second nop cannot borrow the first's
 span, because its validated prefix must contain one instruction. -/
 theorem repeated_wrong_occurrence :

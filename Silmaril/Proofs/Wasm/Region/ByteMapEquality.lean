@@ -12,6 +12,12 @@ theorem equal_iff (a : Instr) : ∀ b, equal a b = true ↔ a = b := by
   induction a using Instr.rec
       (motive_2 := fun xs => ∀ ys, equalList xs ys = true ↔ xs = ys) <;>
     (first | (intro b; cases b) | (rename_i b; cases b)) <;>
-    simp_all [equal, equalList]
+    dsimp only [equal, equalList] <;> simp_all [and_assoc]
+  all_goals
+    constructor
+    · rintro ⟨h, eq⟩; cases h
+      exact ⟨rfl, heq_of_eq eq⟩
+    · rintro ⟨h, heq⟩; cases h
+      exact ⟨rfl, eq_of_heq heq⟩
 
 end Silmaril.Wasm.Region.ByteMap.Equality.Proofs
