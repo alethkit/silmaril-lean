@@ -136,7 +136,7 @@ contracts remain unknown.
 | x86 direct subset | Existing actual Ext listing proof and loaded direct-jump fixture | Wider hardware semantics remain outside handwritten Ext; decode rejection remains a distinguished halt |
 | ELF placement | Checked-image executable windows imply actual listing fetch contract | Concrete workload must prove parse, image membership, placement/loading and code preservation; no whole-executable corpus run here |
 | x86 call summaries | Strict first-return results/labels/frame under existing contract semantics | Actual callee contract, ABI admission, appropriate machine agreement and no earlier support crossing; unresolved calls stay Top |
-| Corpus coverage | Earlier seven-fixture x86 candidate classification; six new Wasm checker fixtures | No repository-wide extraction corpus denominator or throughput claim; requires an agreed corpus and executable exporter |
+| Corpus coverage | Seven-fixture x86 candidate classification; six Wasm checker cases | No repository-wide extraction corpus denominator or throughput claim; requires a selected corpus and executable exporter |
 | Queries, Hoare/WP and gluing | Abstract semantic queries, partial/total rules and actual-edge wiring | Adapter-specific effect traces, syscall/foreign/UB policies beyond these chosen machines remain separate obligations |
 
 ## Scoped verification
@@ -148,8 +148,9 @@ lake build --wfail Silmaril.Wasm.Region.Examples.Thms \
   Silmaril.Elf.Region.X86.Thms Silmaril.Machine.Region.Calls.Thms
 ```
 
-Pass those and the earlier region roots as `CHECK_TARGETS` to `make check` for
+Pass these targets and any additional affected region roots as `CHECK_TARGETS`
+to `make check` for
 source, layout, browser-unit and offline process gates as well. Targeted local
 success is not a claim that the full native release suite was run locally.
-The PR's CI runs the selected repository checks independently. A timing-gate
-failure must be reported even when its correctness jobs pass.
+CI evaluates correctness and timing separately; passing either check does
+not establish that the other passed.
