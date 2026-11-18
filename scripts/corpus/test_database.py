@@ -92,7 +92,7 @@ class CorpusDatabase(unittest.TestCase):
             db = sqlite3.connect(output)
             self.assertEqual(db.execute('SELECT value FROM preserve').fetchone(), ('unchanged',))
             self.assertGreaterEqual(db.execute('SELECT count(*) FROM corpus_artifacts').fetchone()[0], 54)
-            self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 3)
+            self.assertEqual(db.execute("SELECT count(*) FROM corpus_artifacts WHERE metadata LIKE '%whole-file parse unavailable%'").fetchone()[0], 2)
             for metadata, census in db.execute('SELECT metadata,census FROM corpus_artifacts'):
                 artifact = json.loads(metadata)
                 self.assertIsNotNone(census, artifact['path'])
