@@ -50,11 +50,11 @@ def main():
             p = os.path.realpath(os.path.join(root, urllib.parse.unquote(u.path).lstrip("/")))
             # Resolve symlinks and require a complete directory boundary before
             # probing or opening any request-derived path (including indexes).
-            if os.path.commonpath([root, p]) != root:
+            if not (p == root or p.startswith(root + os.sep)):
                 self.send_response(404); self.end_headers(); self.record(404, 0); return
             if u.path.endswith("/"):
                 p = os.path.realpath(os.path.join(p, "index.html"))
-            if os.path.commonpath([root, p]) != root or not os.path.isfile(p):
+            if not (p == root or p.startswith(root + os.sep)) or not os.path.isfile(p):
                 self.send_response(404); self.end_headers(); self.record(404, 0); return
             data = open(p, "rb").read()
             st = os.stat(p)
