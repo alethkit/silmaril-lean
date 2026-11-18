@@ -1,6 +1,6 @@
 // Registry declaration is the stable key of the separate read-only corpus viewer.
 function corpusStatementLink(s) {
-  return s.kind === "contextual_c_to_elf" ? ` · <a href="compiler/?corpus=${encodeURIComponent(s.declaration)}">Source / Core / ELF context (UNPROVED)</a>` : "";
+  return s.kind === "contextual_c_to_elf" ? ` · <a href="compiler/?corpus=${encodeURIComponent(s.declaration)}">Source / Core / ELF context (UNPROVED)</a>` : s.viewer_kind === "binary_equivalence" ? ` · <a href="compiler/?equivalence=${encodeURIComponent(s.declaration)}">Binary equivalence (UNPROVED)</a>` : "";
 }
 // A dedicated corpus view over additive metadata tables. No ELF bytes are embedded.
 async function corpusPage(arg, ctx) {

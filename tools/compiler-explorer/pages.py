@@ -22,6 +22,10 @@ corpus = importlib.util.module_from_spec(_corpus_spec)
 _corpus_spec.loader.exec_module(corpus)
 
 
+_equivalence_spec = importlib.util.spec_from_file_location("cexplorer_equivalence", Path(__file__).with_name("equivalence.py"))
+equivalence = importlib.util.module_from_spec(_equivalence_spec)
+_equivalence_spec.loader.exec_module(equivalence)
+
 def export(project, output, *, include_corpus=True):
     output.mkdir(parents=True, exist_ok=True)
     (output / 'api/problems').mkdir(parents=True, exist_ok=True)
@@ -43,17 +47,18 @@ def export(project, output, *, include_corpus=True):
         finally:
             db.close()
     corpus_statements = corpus.export(project, output / 'api/corpus') if include_corpus else []
+    binary_statements = equivalence.export(project, output / 'api/equivalences') if include_corpus else []
     (output / 'integration.json').write_text(json.dumps({'compiler_problems': len(problems),
         'obligation_status_counts': dict(statuses), 'project_obligation_rows_read': matched,
         'scope': 'committed fixtures and separately registered unproved corpus statements; not whole-corpus coverage',
-        'corpus_contextual_statements': len(corpus_statements), 'corpus_refinement_status': 'UNPROVED',
+        'corpus_contextual_statements': len(corpus_statements), 'binary_equivalence_viewer_statements': len(binary_statements), 'corpus_refinement_status': 'UNPROVED',
         'interactive_compilation': False}, indent=2) + '\n')
-    for name in ['index.html', 'app.js', 'view.js', 'style.css', 'corpus.js']:
+    for name in ['index.html', 'app.js', 'view.js', 'style.css', 'corpus.js', 'equivalence.js']:
         shutil.copyfile(cx.UI / name, output / name)
     index = output / 'index.html'
     index.write_text(index.read_text().replace('</header>', '''<p class="note"><a href="../#/corpus">Corpus catalog</a> · <a href="../#/compiler">Integration status</a>.
 This viewer covers committed compiler fixtures and registered corpus statements, not every corpus function. Corpus refinements are UNPROVED. Missing evidence remains missing; no compile service runs here.</p></header>'''))
-    print(json.dumps({'compiler_problems': len(problems), 'corpus_contextual_statements': len(corpus_statements),
+    print(json.dumps({'compiler_problems': len(problems), 'corpus_contextual_statements': len(corpus_statements), 'binary_equivalence_viewer_statements': len(binary_statements),
                       'corpus_refinement_status': 'UNPROVED', 'project_obligation_rows_read': matched,
                       'output': str(output), 'evidence': 'exact public project row adapter; no invented exporter runs'}))
 

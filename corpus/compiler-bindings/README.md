@@ -23,3 +23,5 @@ Pages generation runs this export after public catalog generation. Artifact and
 function pages use registered declaration identities as viewer links. Regression
 coverage checks actual cJSON pointer and mimalloc global cases through the full
 artifact/function → statement → source/Core/ELF → artifact/function roundtrip.
+
+Binary-to-binary problems use the separate bounded `tools/compiler-explorer/equivalence.py` export and `?equivalence=` viewer routes. The SQLite pair manifest is `corpus/sqlite/equivalence/build-queries/manifest.json`; these are unproved ABI/memory obligations, not source/Core fixtures. Existing six binary statements without pair manifests are not silently converted to viewer evidence.

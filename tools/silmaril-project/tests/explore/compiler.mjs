@@ -123,4 +123,52 @@ try {
   await page.unroute('**/'+payload.source.static_path);
   console.log('PASS actual registry corpus viewer:25 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
 
+  const binaryIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/equivalences/index.json'),'utf8'));
+  assert.equal(binaryIndex.length,7);
+  for(const entry of binaryIndex){
+    const p=JSON.parse(fs.readFileSync(path.join(site,'compiler',entry.static_path),'utf8'));
+    await page.goto(base+'/compiler/?equivalence='+encodeURIComponent(entry.declaration));
+    await page.waitForFunction(d=>document.body.dataset.equivalenceDeclaration===d,entry.declaration);
+    assert.match(await page.locator('#status').innerText(),/7 binary-equivalence viewer problems · UNPROVED/);
+    assert.equal(await page.locator('#binary-statement option').count(),8);
+    assert.match(await page.locator('#selection').innerText(),/independently be enterable/);
+    for(const [i,id] of ['src','tgt'].entries()){
+      const a=p.artifacts[i],rendered=await page.locator('#'+id).innerText();
+      for(const value of [a.path,a.sha256,a.bytes_hex,'0x'+a.address.toString(16),`${a.frame} bytes below entry RSP`])assert.ok(rendered.includes(value));
+      assert.match(await page.locator('#provenance').innerText(),new RegExp(a.source.sha256));
+      assert.ok((await page.locator('#provenance').innerText()).includes(a.source.definitions[p.function_symbol].text));
+    }
+    const defs=await page.locator('[data-context-module="Silmaril/Elf/Corpus/SqliteBuildQueries/Equivalence/Defs.lean"] pre').textContent();
+    for(const required of ['SysV.Implements','Silmaril.Elf.CodeAt','Safe _ := True','leftFrame rightFrame','meaning value'])assert.ok(defs.includes(required));
+    assert.match(await page.locator('#provenance').innerText(),/different version constants/);
+    assert.match(await page.locator('#provenance').innerText(),/different SQLITE_THREADSAFE settings/);
+    assert.equal(p.source_refinement_assumed,false);assert.equal(p.proof_evidence,null);
+    if(entry.declaration.endsWith('.versionOptimization')||entry.declaration.endsWith('.smallThreadsafeOptimization')){
+      assert.notEqual(p.artifacts[0].bytes_hex,p.artifacts[1].bytes_hex);
+      assert.equal(p.artifacts[0].frame,8);assert.equal(p.artifacts[1].frame,0);
+      if(p.function_symbol==='sqlite3_threadsafe')assert.equal(p.artifacts[1].bytes_hex,'31 c0 c3');
+      else assert.equal(p.artifacts[0].bytes_hex,'55 48 89 e5 b8 b1 99 2e 00 5d c3');
+      await page.getByRole('link',{name:'Corpus function',exact:true}).first().click();
+      await page.waitForFunction(v=>document.querySelector('#corpus-function-search')?.value===v,p.function_symbol);
+      await page.waitForFunction(()=>document.querySelector('#corpus-functions details'));
+      await page.locator('#corpus-functions details').first().locator('summary').click();
+      await page.locator('#corpus-functions a[href*="'+encodeURIComponent(p.declaration)+'"]').click();
+      await page.waitForFunction(d=>document.body.dataset.equivalenceDeclaration===d,p.declaration);
+      await page.getByRole('link',{name:'Corpus artifact',exact:true}).last().click();
+      await page.waitForFunction(()=>window.explore.view==='corpus-artifact'&&!window.explore.busy);
+      await page.locator('a[href*="'+encodeURIComponent(p.declaration)+'"]').click();
+      await page.waitForFunction(d=>document.body.dataset.equivalenceDeclaration===d,p.declaration);
+      await page.screenshot({path:path.join(shots,'sqlite-equivalence-'+p.pair.name+'.png'),fullPage:false});
+    }
+  }
+  assert.deepEqual(pageErrors,[]);
+  const binaryPayload=JSON.parse(fs.readFileSync(path.join(site,'compiler',binaryIndex[0].static_path),'utf8'));
+  const contextResource=binaryPayload.modules[0];
+  await page.route('**/'+contextResource.static_path,route=>route.fulfill({status:200,contentType:'text/plain',body:'altered binary context'}));
+  await page.goto(base+'/compiler/?equivalence='+encodeURIComponent(binaryPayload.declaration));
+  await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('error: binary context identity mismatch'));
+  assert.equal(await page.locator('body').getAttribute('data-equivalence-declaration'),null);
+  await page.unroute('**/'+contextResource.static_path);
+  console.log('PASS seven actual SQLite binary-equivalence problems: both real ELF endpoints, different instructions, signed-int ABI, exact private stack frames, source/config receipts and exclusions, UNPROVED status, bidirectional catalog/function links and altered-context rejection;842/707 retained');
+
 } finally {await browser.close();server.kill();}
