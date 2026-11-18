@@ -129,6 +129,7 @@ unsafe def run (current : IO.Ref (Option (Array String × Environment)))
   let env ← match env with
     | some env => pure env
     | none =>
+      enableInitializersExecution
       let env ← importModules (modules.map fun m => { module := m.toName }) {} (loadExts := true)
       current.set (some (modules, env))
       pure env
@@ -176,7 +177,6 @@ end ExplorerExport
 
 unsafe def main (args : List String) : IO UInt32 := do
   initSearchPath (← findSysroot)
-  enableInitializersExecution
   let current ← IO.mkRef none
   match args with
   | [manifest, out] => ExplorerExport.run current manifest out ((← IO.getEnv "EXPLORER_MANIFEST_SHA256").getD "")

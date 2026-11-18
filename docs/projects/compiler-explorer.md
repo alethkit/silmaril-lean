@@ -238,8 +238,9 @@ A status comes from one of three origins. Only the first two can make an obligat
     - the imports themselves are not replayed (no `--fresh`, which would include Mathlib);
     - it is the same kernel as the build, not an independent checker.
 
-    Locally, all 9 modules replay in 16–19 s each (`leanchecker-paranoid` on `Builds`: same
-    result).
+    The script replays the named modules in one bounded `leanchecker` invocation. The exporter
+    reuses an environment only for manifests with the same module list, while retaining separate
+    snapshots, render checks and verdicts for each manifest.
 
 **Conditional and unconditional.**
 * The translation holds from every related entry whose Core state is safe: no Core run from it
