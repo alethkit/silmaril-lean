@@ -10745,9 +10745,16 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "6e1e72a2763f3cf494d70cca1033cfa71edcfe554a59415633cc0770a9390bfd",
-      "contextual_c_to_elf_statements": 0,
+      "contextual_c_to_elf_statements": 1,
       "defined_nonzero_function_symbol_entries": 115,
-      "formal_statements": [],
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonSuffix.Context.Task.compilesTo",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonSuffix.Context.Defs",
+          "status": "stated-unproved"
+        }
+      ],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
@@ -78258,7 +78265,7 @@
     }
   ],
   "formal_statement_counts": {
-    "contextual_c_to_elf": 27,
+    "contextual_c_to_elf": 28,
     "functional_equivalence": 13
   },
   "hierarchy": [
