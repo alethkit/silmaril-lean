@@ -9,11 +9,22 @@ _spec = importlib.util.spec_from_file_location('binary_corpus', Path(__file__).w
 c = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(c)
 MANIFEST = 'corpus/sqlite/equivalence/build-queries/manifest.json'
-MANIFESTS = [MANIFEST, 'corpus/cjson/equivalence/array-size/manifest.json']
+MANIFESTS = [MANIFEST, 'corpus/cjson/equivalence/array-size/manifest.json', 'corpus/cjson/equivalence/detach/manifest.json']
 
 
 def validate_pair(pair, left, right):
     """Reject incompatible observed queries; this does not prove machine semantics."""
+    if pair.get('profile') == 'cjson-interior-detach-v1':
+        if pair['function_symbol'] != 'cJSON_DetachItemViaPointer' or pair.get('value') is not None:
+            raise ValueError('invalid detachment observation')
+        if pair['left_frame'] != 24 or pair['right_frame'] != 0 or pair['object_count'] != 5:
+            raise ValueError('unexpected detachment frame/domain')
+        for key in ['source_sha256', 'version', 'configuration', 'target']:
+            if left['build'][key] != right['build'][key]:
+                raise ValueError('incompatible detachment source/configuration')
+        if left['build']['optimization'] != 'O0' or right['build']['optimization'] != 'O2':
+            raise ValueError('invalid detachment optimization pair')
+        return
     if pair.get('profile') == 'cjson-finite-list-v1':
         if pair['function_symbol'] != 'cJSON_GetArraySize' or pair.get('value') is not None:
             raise ValueError('invalid traversal observation')
@@ -109,7 +120,7 @@ def export(project, output, root=c.ROOT):
                     raw = c.public_file(root, evidence['path']).read_bytes()
                     if pins.get(evidence['path']) != c.sha(raw) or evidence['sha256'] != c.sha(raw):
                         raise ValueError('stale binary build/source receipt')
-                if pair.get('profile') == 'cjson-finite-list-v1':
+                if pair.get('profile') in ['cjson-finite-list-v1', 'cjson-interior-detach-v1']:
                     validate_cjson_build(root, e)
                     raw_source = c.public_file(root, e['source']['path']).read_bytes()
                 else:

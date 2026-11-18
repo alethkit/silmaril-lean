@@ -2252,6 +2252,55 @@
         "tools/corpus/check_cjson_array_item_inputs.py": "97b076d41dbc2aee9d7d9cceb77906afa2feaca7112968f247be30d376d4dbd2",
         "tools/corpus/check_cjson_array_item_native.py": "347cfad6553053087b6a2cedddf73872e1882dfd55340739fca78a3fbbf7940d"
       }
+    },
+    {
+      "artifact_sha256": {
+        "corpus/variants/cjson/1.7.19/default/x86_64/O0/unstripped/libcjson.so.1": "0c7ab3d1ba9aa7808bab6e22695e2fee1702753ad0f4570ce53952120629b456",
+        "corpus/elf/cjson/x86_64/libcjson.so.1": "2cfb516d75b79b4ee7ba9e9645fc5f53daa4f428daf349d445d3bbd43e4576c2"
+      },
+      "kind": "functional_equivalence",
+      "status": "stated-unproved",
+      "viewer_kind": "binary_equivalence",
+      "declaration": "Silmaril.Elf.Corpus.CjsonDetach.Equivalence.Task.optimization",
+      "root": "Silmaril.Elf.Corpus.CjsonDetach.Equivalence.Thms",
+      "run_receipt": "corpus/measurements/formal-functions/runs/252f0246-700a-4417-bb13-5379863c2b09.json",
+      "function_symbol": "cJSON_DetachItemViaPointer",
+      "function_addresses": {
+        "corpus/variants/cjson/1.7.19/default/x86_64/O0/unstripped/libcjson.so.1": 23724,
+        "corpus/elf/cjson/x86_64/libcjson.so.1": 17248
+      },
+      "module_sha256": {
+        "Silmaril/Elf/Corpus/CjsonDetach/Equivalence/Defs.lean": "1907b2decef2bcfc051205e6342919a1911f1874b0b384274d6bb0bd80430e8c",
+        "Silmaril/Elf/Corpus/CjsonDetach/Equivalence/Thms.lean": "4cf71468da794f217bcb62e44cb3983a8486448f954ae7ef6accf700351a7270",
+        "Silmaril/Elf/Staged/Corpus/Cjson/X8664/LibcjsonSo1/Bytes.lean": "739b34f745bdbb36bfaa0e4e33725d5257e267c0cd9c0aa1e0f758a120a6bb9e",
+        "Silmaril/Elf/Staged/Corpus/Cjson/X8664/LibcjsonSo1/Decomp.lean": "619fdd31df72a1f79f9fa8293ed4f1465d96526bcbb6ecba64db9479ce729d34",
+        "Silmaril/Elf/Staged/Corpus/Cjson/X8664/LibcjsonSo1/Defs.lean": "6b1bfbba6d36e17d936c01a1ae1ccf6d71429f4785691c635f19d1f0f2140d57",
+        "Silmaril/Elf/Staged/Corpus/Cjson/X8664/LibcjsonSo1/Functions.lean": "0794d7794a297fc3cde1962d82355ca553e44aa49553a1706f297de2efc05cd8",
+        "Silmaril/Elf/Staged/Corpus/Cjson/X8664/LibcjsonSo1/Thms.lean": "b1f54c7c512e7689f8f7a96f88ed8a84a2b19bb3d3647b2c009f437ee6e6165e",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonSo1/Bytes.lean": "03f9d4cc6971936587be647983c4661a8b2cbe058661833d2c6cd9ab1efdb6b0",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonSo1/Decomp.lean": "b3bf2d892de95987e24a4776df3f7fb5e41d9e04cc565b334ccd1a5dffcc5dc6",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonSo1/Defs.lean": "c66aa1f864840f38c317776cb147a07279432f92339bc215ddf90b08e6c4a895",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonSo1/Functions.lean": "6f3af08f77da255d240152d910b2e07781f72c75a0e11f1fb4dafc7ba8e52ea4",
+        "Silmaril/Elf/Staged/CorpusVariants/Cjson/N1719/Default/X8664/O0/Unstripped/LibcjsonSo1/Thms.lean": "280b41d3f58446354c0f09328cf7958bd175a4e31142cfec64ebd79a59060ab4",
+        "Silmaril/Process/Memory.lean": "844096de1757146f6c01638e36748bc9eb603b95a25c3eefabe2322e08b0b94d",
+        "Silmaril/Project/Shapes/SysV/Defs.lean": "de4b651ecbb3f59ca41fa3f93c0927bc8f8e017131f4e11221e7ac80da8a9edb",
+        "Silmaril/Project/Shapes/X86/Defs.lean": "49c9e9ffedf0c47faef68b813d3efc95e65ffa96e797f05f86f066e780ab6d5d",
+        "Silmaril/X86/FnContract/Defs.lean": "075f3ab5877e6dc9f575ee74c429e3cacb80fe8e8ceb4333b0102bf5e1b72902",
+        "Silmaril/X86/Open/Defs.lean": "971a44870ca43b5f884a781e10c3928c84cd64982448bdf83f9b8034c12751da",
+        "Silmaril/X86/Open9/Defs.lean": "a1900b512b043f8e57d4b7ea0ece4c53f956780be257b18248fb176b31a9f01a",
+        "Silmaril/X86/Sse9/Defs.lean": "b582a7f118fb77f59bc8481edc81dddfe50ef6deea89ea1029ac75894729fdc6",
+        "Silmaril/X86/Sse9/Thms.lean": "2d3b1989f3946b598415bb4d8b53af808bdff4ad84189a0a1fcaa9721c8768fc",
+        "corpus/cjson/equivalence/detach/README.md": "421e322899156c36d2e8bba31550b012f32f7b184bdbc9fd25d39a7d67cf3cb6",
+        "corpus/cjson/equivalence/detach/manifest.json": "d81e594f0dd3ed0805ace6f9f08595d1a2915795abcd5ac6aebce4033ff77bf5",
+        "corpus/cjson/equivalence/detach/observations/machine.txt": "9ce0ce9d5f5614cecea1f685e526b4a53f29126e8ddcf6b41baa871e8d2a5274",
+        "corpus/cjson/equivalence/detach/observations/native.json": "cf3876430b5c59ae556b02b2e9a9533ebe58aae1feea67955b0a34133455c324",
+        "corpus/cjson/upstream/cJSON-1.7.19/cJSON.c": "298581a04a36c0165da4b0aade235c23088cb2faa58651d720ea2f3706ed0b0d",
+        "corpus/elf/cjson/x86_64/receipt.json": "4370a88ff99c2ddfe6a60e565198d75921ef798e3a0111de9f7f081e963f63e1",
+        "corpus/variants/cjson/1.7.19/default/x86_64/O0/build.json": "339ad3cc14b3fca5defc990a3eaba0f045e3959bd7ecef15d6e32fb84dbc389e",
+        "corpus/variants/cjson/1.7.19/default/x86_64/O0/unstripped/receipt.json": "0778e34eecd2f85992fa73722d86c84675d816fb072064120ec9bf6a169292ca",
+        "tests/cerberus/CjsonDetachEquivalence.lean": "d9723b9acfa8ec4bbc7cea0aa5554e2bbc7c9151e19e963533cad5a9550606d1",
+        "tools/corpus/check_cjson_detach_equivalence_native.py": "5afcfdad30211e84b231b20593438b8b2d6f4e4987c7a14b21273fc864923dc9"
+      }
     }
   ]
 }
