@@ -4802,9 +4802,22 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "d61a78d59ce34226278f02170ab23bb1d644351d7096fac0cb47e16e171a93a2",
-      "contextual_c_to_elf_statements": 0,
+      "contextual_c_to_elf_statements": 2,
       "defined_nonzero_function_symbol_entries": 1620,
-      "formal_statements": [],
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Task.versionNumber",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Task.threadsafe",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.SqliteBuildQueries.Context.Defs",
+          "status": "stated-unproved"
+        }
+      ],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
       "lean_status": "canonical: whole-file parse and structural decomposition",
@@ -78128,7 +78141,7 @@
     }
   ],
   "formal_statement_counts": {
-    "contextual_c_to_elf": 23,
+    "contextual_c_to_elf": 25,
     "functional_equivalence": 6
   },
   "hierarchy": [
