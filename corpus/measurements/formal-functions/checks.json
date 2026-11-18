@@ -12,7 +12,27 @@
       },
       "module_sha256": {
         "Silmaril/Elf/Corpus/MimallocVersion/Defs.lean": "b6895331b57df449337c471756775668414f21a1718eafc374d1b2afc2a0b148",
-        "Silmaril/Elf/Corpus/MimallocVersion/Thms.lean": "6dd12e450fa04c03fa9f16e9f50f275c6c5d1e12615e723bbd6d456f9091b4ad"
+        "Silmaril/Elf/Corpus/MimallocVersion/Thms.lean": "6dd12e450fa04c03fa9f16e9f50f275c6c5d1e12615e723bbd6d456f9091b4ad",
+        "corpus/legacy/equivalence/manifest.json": "9500319e65a9144446f5df2fa97ba20e07e909409f0be8b380baa13674f823af",
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Defs.lean": "5f9edcff6ea5e71a65daa42ada6afa2161328c8d36f1ba91f6025ee30874aae6",
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Thms.lean": "1c3aa2baade978ba99eeb7895257408d48cc186145e2fb4119ecdc375e42e823",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Defs.lean": "df46b68e2ac2bf1368b3cc089d7727ebd091788790e93b0b51a9fbbe955155c3",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Thms.lean": "f93548f863fcf8e44408c8138baa61939a7ba16edf918389ab538f4372a4eceb",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Variants/Defs.lean": "62204984f74ee847e697e737f916e778528c4bf3391bb64d019bae93a53274af",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Variants/Thms.lean": "5d47c54f50bb02badf69ab1258c185bce0273bff70235d91a667f2edf56f25fe",
+        "Silmaril/Project/Shapes/SysV/Defs.lean": "de4b651ecbb3f59ca41fa3f93c0927bc8f8e017131f4e11221e7ac80da8a9edb",
+        "Silmaril/Project/Shapes/X86/Defs.lean": "49c9e9ffedf0c47faef68b813d3efc95e65ffa96e797f05f86f066e780ab6d5d",
+        "corpus/mimalloc/upstream/mimalloc-2.1.9/src/options.c": "b1f9cab7a0d877df83e290a01927743867e5af2c8d0131fd2af76480dbd739e0",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/unstripped/receipt.json": "272146f87bf12bc2279b5de12f4b1fbc20334f6d3993e880783538e4d2095ce2",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/build.json": "1033d8bc5941aaf54419e2073b5efcf730e0bd9aa951e85b4ae8596a631349d2",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/unstripped/receipt.json": "f5a619d65b19d420f5700767ce04b8b9314016ca73237dbf96192fe504c36db9",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/build.json": "83454d48e3d8018aaac629a7bc53826751ea1e5c688b03ba67c36dcaca170d43"
+      },
+      "viewer_kind": "binary_equivalence",
+      "function_symbol": "mi_version",
+      "function_addresses": {
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/unstripped/libmimalloc.so.2.1": 73263,
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/unstripped/libmimalloc.so.2.1": 64240
       }
     },
     {
@@ -113,7 +133,25 @@
       "module_sha256": {
         "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Defs.lean": "5f9edcff6ea5e71a65daa42ada6afa2161328c8d36f1ba91f6025ee30874aae6",
         "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Thms.lean": "1c3aa2baade978ba99eeb7895257408d48cc186145e2fb4119ecdc375e42e823",
-        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/libmimalloc.so.2.1.pair.json": "a5d05a63adbb62b66dd98bb364742f06443c2c44a2d7382d4d5a8809cd3b51ec"
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/libmimalloc.so.2.1.pair.json": "a5d05a63adbb62b66dd98bb364742f06443c2c44a2d7382d4d5a8809cd3b51ec",
+        "corpus/legacy/equivalence/manifest.json": "9500319e65a9144446f5df2fa97ba20e07e909409f0be8b380baa13674f823af",
+        "Silmaril/Elf/Corpus/MimallocVersion/Defs.lean": "b6895331b57df449337c471756775668414f21a1718eafc374d1b2afc2a0b148",
+        "Silmaril/Elf/Corpus/MimallocVersion/Thms.lean": "6dd12e450fa04c03fa9f16e9f50f275c6c5d1e12615e723bbd6d456f9091b4ad",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Defs.lean": "df46b68e2ac2bf1368b3cc089d7727ebd091788790e93b0b51a9fbbe955155c3",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Thms.lean": "f93548f863fcf8e44408c8138baa61939a7ba16edf918389ab538f4372a4eceb",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Variants/Defs.lean": "62204984f74ee847e697e737f916e778528c4bf3391bb64d019bae93a53274af",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Variants/Thms.lean": "5d47c54f50bb02badf69ab1258c185bce0273bff70235d91a667f2edf56f25fe",
+        "Silmaril/Project/Shapes/SysV/Defs.lean": "de4b651ecbb3f59ca41fa3f93c0927bc8f8e017131f4e11221e7ac80da8a9edb",
+        "Silmaril/Project/Shapes/X86/Defs.lean": "49c9e9ffedf0c47faef68b813d3efc95e65ffa96e797f05f86f066e780ab6d5d",
+        "corpus/mimalloc/upstream/mimalloc-2.1.9/src/options.c": "b1f9cab7a0d877df83e290a01927743867e5af2c8d0131fd2af76480dbd739e0",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/unstripped/receipt.json": "272146f87bf12bc2279b5de12f4b1fbc20334f6d3993e880783538e4d2095ce2",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/build.json": "1033d8bc5941aaf54419e2073b5efcf730e0bd9aa951e85b4ae8596a631349d2",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/stripped/receipt.json": "395b03a8c129f15f2d33ca072ce52bbfe2173efec125c6b1e1213f550c658066"
+      },
+      "viewer_kind": "binary_equivalence",
+      "function_addresses": {
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/unstripped/libmimalloc.so.2.1": 73263,
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O0/stripped/libmimalloc.so.2.1": 73263
       }
     },
     {
@@ -130,7 +168,25 @@
       "module_sha256": {
         "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Defs.lean": "5f9edcff6ea5e71a65daa42ada6afa2161328c8d36f1ba91f6025ee30874aae6",
         "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Thms.lean": "1c3aa2baade978ba99eeb7895257408d48cc186145e2fb4119ecdc375e42e823",
-        "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/libmimalloc.so.2.1.pair.json": "dd88e56ed4253116af8b94b20da1b9a9ae2cccfa2ebaec8a14e067531fe525f7"
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/libmimalloc.so.2.1.pair.json": "dd88e56ed4253116af8b94b20da1b9a9ae2cccfa2ebaec8a14e067531fe525f7",
+        "corpus/legacy/equivalence/manifest.json": "9500319e65a9144446f5df2fa97ba20e07e909409f0be8b380baa13674f823af",
+        "Silmaril/Elf/Corpus/MimallocVersion/Defs.lean": "b6895331b57df449337c471756775668414f21a1718eafc374d1b2afc2a0b148",
+        "Silmaril/Elf/Corpus/MimallocVersion/Thms.lean": "6dd12e450fa04c03fa9f16e9f50f275c6c5d1e12615e723bbd6d456f9091b4ad",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Defs.lean": "df46b68e2ac2bf1368b3cc089d7727ebd091788790e93b0b51a9fbbe955155c3",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Thms.lean": "f93548f863fcf8e44408c8138baa61939a7ba16edf918389ab538f4372a4eceb",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Variants/Defs.lean": "62204984f74ee847e697e737f916e778528c4bf3391bb64d019bae93a53274af",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Variants/Thms.lean": "5d47c54f50bb02badf69ab1258c185bce0273bff70235d91a667f2edf56f25fe",
+        "Silmaril/Project/Shapes/SysV/Defs.lean": "de4b651ecbb3f59ca41fa3f93c0927bc8f8e017131f4e11221e7ac80da8a9edb",
+        "Silmaril/Project/Shapes/X86/Defs.lean": "49c9e9ffedf0c47faef68b813d3efc95e65ffa96e797f05f86f066e780ab6d5d",
+        "corpus/mimalloc/upstream/mimalloc-2.1.9/src/options.c": "b1f9cab7a0d877df83e290a01927743867e5af2c8d0131fd2af76480dbd739e0",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/unstripped/receipt.json": "e45b054297b1954536ece72f288147d6f4ae11596ab9baff234d5e4e6e36f515",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/build.json": "feef56c31f9287f1e55eeb09d611b410c76741fcce92485cf9ddf909ba756d02",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/stripped/receipt.json": "de13655e46d2641cb1134a381d12af1c341469594b1009d48a5bc04298988ca9"
+      },
+      "viewer_kind": "binary_equivalence",
+      "function_addresses": {
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/unstripped/libmimalloc.so.2.1": 53387,
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/Og/stripped/libmimalloc.so.2.1": 53387
       }
     },
     {
@@ -147,7 +203,25 @@
       "module_sha256": {
         "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Defs.lean": "5f9edcff6ea5e71a65daa42ada6afa2161328c8d36f1ba91f6025ee30874aae6",
         "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Thms.lean": "1c3aa2baade978ba99eeb7895257408d48cc186145e2fb4119ecdc375e42e823",
-        "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/libmimalloc.so.2.1.pair.json": "2763bfc25fd264922639115e1ca7f12661e6af65a4c43de4d13b0bc71b60af0a"
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/libmimalloc.so.2.1.pair.json": "2763bfc25fd264922639115e1ca7f12661e6af65a4c43de4d13b0bc71b60af0a",
+        "corpus/legacy/equivalence/manifest.json": "9500319e65a9144446f5df2fa97ba20e07e909409f0be8b380baa13674f823af",
+        "Silmaril/Elf/Corpus/MimallocVersion/Defs.lean": "b6895331b57df449337c471756775668414f21a1718eafc374d1b2afc2a0b148",
+        "Silmaril/Elf/Corpus/MimallocVersion/Thms.lean": "6dd12e450fa04c03fa9f16e9f50f275c6c5d1e12615e723bbd6d456f9091b4ad",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Defs.lean": "df46b68e2ac2bf1368b3cc089d7727ebd091788790e93b0b51a9fbbe955155c3",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Thms.lean": "f93548f863fcf8e44408c8138baa61939a7ba16edf918389ab538f4372a4eceb",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Variants/Defs.lean": "62204984f74ee847e697e737f916e778528c4bf3391bb64d019bae93a53274af",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Variants/Thms.lean": "5d47c54f50bb02badf69ab1258c185bce0273bff70235d91a667f2edf56f25fe",
+        "Silmaril/Project/Shapes/SysV/Defs.lean": "de4b651ecbb3f59ca41fa3f93c0927bc8f8e017131f4e11221e7ac80da8a9edb",
+        "Silmaril/Project/Shapes/X86/Defs.lean": "49c9e9ffedf0c47faef68b813d3efc95e65ffa96e797f05f86f066e780ab6d5d",
+        "corpus/mimalloc/upstream/mimalloc-2.1.9/src/options.c": "b1f9cab7a0d877df83e290a01927743867e5af2c8d0131fd2af76480dbd739e0",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/unstripped/receipt.json": "28cdadedf6246593a356f514d4f6c4b4fcf9d4ab3b9bb75f15906c084e6e3689",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/build.json": "0070fadd82bdcad3b48db9c639c9a4d49ee5c4ba04942a2f311a76e5713a3dac",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/stripped/receipt.json": "07975f2a60e5980bf2d0b8a8b17f077249c2a567e53bd51f56387e4333d77a49"
+      },
+      "viewer_kind": "binary_equivalence",
+      "function_addresses": {
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/unstripped/libmimalloc.so.2.1": 54710,
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O1/stripped/libmimalloc.so.2.1": 54710
       }
     },
     {
@@ -164,7 +238,25 @@
       "module_sha256": {
         "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Defs.lean": "5f9edcff6ea5e71a65daa42ada6afa2161328c8d36f1ba91f6025ee30874aae6",
         "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Thms.lean": "1c3aa2baade978ba99eeb7895257408d48cc186145e2fb4119ecdc375e42e823",
-        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/libmimalloc.so.2.1.pair.json": "49d8cc68963b14db9559193c1ad1708a548e7855d379a9a2814e0deff08548fc"
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/libmimalloc.so.2.1.pair.json": "49d8cc68963b14db9559193c1ad1708a548e7855d379a9a2814e0deff08548fc",
+        "corpus/legacy/equivalence/manifest.json": "9500319e65a9144446f5df2fa97ba20e07e909409f0be8b380baa13674f823af",
+        "Silmaril/Elf/Corpus/MimallocVersion/Defs.lean": "b6895331b57df449337c471756775668414f21a1718eafc374d1b2afc2a0b148",
+        "Silmaril/Elf/Corpus/MimallocVersion/Thms.lean": "6dd12e450fa04c03fa9f16e9f50f275c6c5d1e12615e723bbd6d456f9091b4ad",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Defs.lean": "df46b68e2ac2bf1368b3cc089d7727ebd091788790e93b0b51a9fbbe955155c3",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Thms.lean": "f93548f863fcf8e44408c8138baa61939a7ba16edf918389ab538f4372a4eceb",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Variants/Defs.lean": "62204984f74ee847e697e737f916e778528c4bf3391bb64d019bae93a53274af",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Variants/Thms.lean": "5d47c54f50bb02badf69ab1258c185bce0273bff70235d91a667f2edf56f25fe",
+        "Silmaril/Project/Shapes/SysV/Defs.lean": "de4b651ecbb3f59ca41fa3f93c0927bc8f8e017131f4e11221e7ac80da8a9edb",
+        "Silmaril/Project/Shapes/X86/Defs.lean": "49c9e9ffedf0c47faef68b813d3efc95e65ffa96e797f05f86f066e780ab6d5d",
+        "corpus/mimalloc/upstream/mimalloc-2.1.9/src/options.c": "b1f9cab7a0d877df83e290a01927743867e5af2c8d0131fd2af76480dbd739e0",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/unstripped/receipt.json": "f5a619d65b19d420f5700767ce04b8b9314016ca73237dbf96192fe504c36db9",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/build.json": "83454d48e3d8018aaac629a7bc53826751ea1e5c688b03ba67c36dcaca170d43",
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/stripped/receipt.json": "eb5c454d6a83879498ec74df18a3e6fee9bada7c6da7d99dd4b2e976a3abd7e1"
+      },
+      "viewer_kind": "binary_equivalence",
+      "function_addresses": {
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/unstripped/libmimalloc.so.2.1": 64240,
+        "corpus/variants/mimalloc/2.1.9/default/x86_64/O3/stripped/libmimalloc.so.2.1": 64240
       }
     },
     {
@@ -458,8 +550,23 @@
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part4.lean": "ae07673ba08de93445487ca4486cd8139fd657f74b547531564f529a14a21eaf",
         "Silmaril/Elf/Staged/CorpusVariants/Tinycc/N0927/Default/X8664/O0/Unstripped/Tcc/Bodies/Part5.lean": "f34f39fbd2fe6379b9ff1f986863996da914b37a0a57ce7eb744d98c7a8729d0",
         "corpus/variants/tinycc/0.9.27/default/x86_64/O0/tcc.pair.json": "e358013e479dae4bc4535d2c4edcc29ff0e536c3a4f4f900cef0f1cb4b72bb6f",
-        "corpus/variants/tinycc/0.9.27/default/x86_64/Og/tcc.pair.json": "32f0df6b73b5ec89caed966d45d056b0d59299dcf60c9270a34a7bfb8d52dfc1"
-      }
+        "corpus/variants/tinycc/0.9.27/default/x86_64/Og/tcc.pair.json": "32f0df6b73b5ec89caed966d45d056b0d59299dcf60c9270a34a7bfb8d52dfc1",
+        "corpus/legacy/equivalence/manifest.json": "9500319e65a9144446f5df2fa97ba20e07e909409f0be8b380baa13674f823af",
+        "Silmaril/Elf/Corpus/MimallocVersion/Defs.lean": "b6895331b57df449337c471756775668414f21a1718eafc374d1b2afc2a0b148",
+        "Silmaril/Elf/Corpus/MimallocVersion/Thms.lean": "6dd12e450fa04c03fa9f16e9f50f275c6c5d1e12615e723bbd6d456f9091b4ad",
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Defs.lean": "5f9edcff6ea5e71a65daa42ada6afa2161328c8d36f1ba91f6025ee30874aae6",
+        "Silmaril/Elf/Corpus/MimallocVersion/AllVariants/Thms.lean": "1c3aa2baade978ba99eeb7895257408d48cc186145e2fb4119ecdc375e42e823",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Defs.lean": "df46b68e2ac2bf1368b3cc089d7727ebd091788790e93b0b51a9fbbe955155c3",
+        "Silmaril/Elf/Corpus/TinyccClosed/Identifier/Thms.lean": "f93548f863fcf8e44408c8138baa61939a7ba16edf918389ab538f4372a4eceb",
+        "Silmaril/Project/Shapes/SysV/Defs.lean": "de4b651ecbb3f59ca41fa3f93c0927bc8f8e017131f4e11221e7ac80da8a9edb",
+        "Silmaril/Project/Shapes/X86/Defs.lean": "49c9e9ffedf0c47faef68b813d3efc95e65ffa96e797f05f86f066e780ab6d5d",
+        "corpus/tinycc/upstream/tcc-0.9.27/tcc.h": "bdc8d9b6904b36b071bb6fe93fe7f72ef069de00228c383347193053fbae75c3",
+        "corpus/variants/tinycc/0.9.27/default/x86_64/O0/unstripped/receipt.json": "7ab7220291262d8652e211d360d30476897730b4b2a5c3bf7ac5b96e1f8e3739",
+        "corpus/variants/tinycc/0.9.27/default/x86_64/O0/build.json": "9108c6c7a351e236f9014eab8ae6abd6dc2b3b6fb75054252282996f6e57e3ac",
+        "corpus/variants/tinycc/0.9.27/default/x86_64/Og/unstripped/receipt.json": "b449eeb8789148e4fcd2d798f606fc62b7b4c5004bf6464d406a42688ac4c5a2",
+        "corpus/variants/tinycc/0.9.27/default/x86_64/Og/build.json": "d9e6d1bffb04e1a099c225745ebee6719c2d1a1ec1d6f784d28faeb72a5efa0d"
+      },
+      "viewer_kind": "binary_equivalence"
     },
     {
       "kind": "contextual_c_to_elf",
