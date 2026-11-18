@@ -225,9 +225,16 @@
           "kind": "contextual_c_to_elf",
           "root": "Silmaril.Elf.Corpus.CjsonArraySize.Context.Defs",
           "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonArraySize.Equivalence.Task.optimization",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.CjsonArraySize.Equivalence.Thms",
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
-      "functional_equivalence_statements": 0,
+      "functional_equivalence_statements": 1,
       "has_symtab": true,
       "lean_status": "canonical: whole-file parse and structural decomposition",
       "license": "MIT",
@@ -10759,9 +10766,16 @@
           "kind": "contextual_c_to_elf",
           "root": "Silmaril.Elf.Corpus.CjsonDetach.Context.Defs",
           "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonArraySize.Equivalence.Task.optimization",
+          "kind": "functional_equivalence",
+          "root": "Silmaril.Elf.Corpus.CjsonArraySize.Equivalence.Thms",
+          "status": "stated-unproved",
+          "viewer_kind": "binary_equivalence"
         }
       ],
-      "functional_equivalence_statements": 0,
+      "functional_equivalence_statements": 1,
       "has_symtab": true,
       "lean_status": "variant: whole-file parse and structural decomposition; measured check receipt",
       "license": "MIT",
@@ -78270,9 +78284,10 @@
       ]
     }
   ],
+  "binary_viewer_statement_count": 8,
   "formal_statement_counts": {
     "contextual_c_to_elf": 29,
-    "functional_equivalence": 13
+    "functional_equivalence": 14
   },
   "hierarchy": [
     "project",

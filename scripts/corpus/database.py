@@ -78,6 +78,7 @@ CREATE TABLE corpus_timings(run_id TEXT PRIMARY KEY, build_id TEXT, stage TEXT N
 ''')
         db.executemany('INSERT INTO corpus_meta VALUES(?,?)', [('schema', 'corpus.catalog.v1'), ('revision', revision),
             ('artifact_rows', str(data['artifact_rows'])), ('unique_content_hashes', str(data['unique_content_hashes'])),
+            ('binary_viewer_statements', str(data['binary_viewer_statement_count'])),
             *[(kind + '_statements', str(count)) for kind, count in data['formal_statement_counts'].items()]])
         for artifact in data['artifacts']:
             key = digest([artifact['build_id'], artifact['stripping'], artifact['path']])
