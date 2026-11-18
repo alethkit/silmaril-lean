@@ -77,3 +77,12 @@ and symbol selection; byte and source-span equations require no axioms.
 | AArch64 functions | ELF structural work only | No AArch64 execution semantics/context instantiation |
 
 This is a bounded feature sample, not a complete classification of all corpus functions.
+
+Additional finite Core LTS regression: `tests/cerberus/SourceGlobalContext.lean`
+executes the bound getter for 0,1,INT_MAX,INT_MIN,-1. Each returns its actual
+stored global after82transitions and preserves the checked bytes/lifetime/stdout.
+Removing the allocation produces the port's explicit `Unsupported` outcome
+(`outside allocation lifetime UB mapping`), not an invented defined result or
+an assertion that this diagnostic is a proved C UB classification. Run with
+`lake env lean -DwarningAsError=true --run tests/cerberus/SourceGlobalContext.lean`.
+These six observations are not semantic proofs or all-input safety evidence.
