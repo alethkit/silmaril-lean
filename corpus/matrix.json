@@ -157,9 +157,46 @@
         "target": "x86_64-linux-gnu"
       },
       "build_id": "84a64c04a67458ca32a81918c4141838bad445c823f0e5c51e492bfe65788927",
-      "contextual_c_to_elf_statements": 0,
+      "contextual_c_to_elf_statements": 6,
       "defined_nonzero_function_symbol_entries": 91,
-      "formal_statements": [],
+      "formal_statements": [
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isNull",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isBool",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isNumber",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isString",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isArray",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        },
+        {
+          "declaration": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Task.isObject",
+          "kind": "contextual_c_to_elf",
+          "root": "Silmaril.Elf.Corpus.CjsonTypePredicates.Context.Defs",
+          "status": "stated-unproved"
+        }
+      ],
       "functional_equivalence_statements": 0,
       "has_symtab": true,
       "lean_status": "canonical: whole-file parse and structural decomposition",
@@ -78043,7 +78080,7 @@
     }
   ],
   "formal_statement_counts": {
-    "contextual_c_to_elf": 9,
+    "contextual_c_to_elf": 15,
     "functional_equivalence": 6
   },
   "hierarchy": [
