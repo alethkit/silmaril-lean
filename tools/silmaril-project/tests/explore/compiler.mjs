@@ -49,9 +49,10 @@ try {
   console.log('PASS published-shape compiler viewer: project navigation, static payloads, source/target/semantic modes and corpus return');
   // Real corpus statements use their own registry-backed, uniformly UNPROVED view.
   const corpusIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/corpus/index.json'),'utf8'));
-  assert.equal(corpusIndex.length,31);
+  assert.equal(corpusIndex.length,32);
   assert.ok(corpusIndex.every(p=>p.status==='UNPROVED'));
   const cases=[
+    {"symbol": "cJSON_InsertItemInArray", "declaration": "Silmaril.Elf.Corpus.CjsonInsert.Context.Task.compilesTo", "address": "0x5eca", "bytes": "55 48 89 e5 48 83 ec 28 48 89 7d e8 89 75 e4 48 89 55 d8 48 c7 45 f8 00 00 00 00 83 7d e4 00 78 07 48 83 7d d8 00 75 0a b8 00 00 00 00 e9 ae 00 00 00 8b 45 e4 48 63 d0 48 8b 45 e8 48 89 d6 48 89 c7 e8 c2 f4 ff ff 48 89 45 f8 48 83 7d f8 00 75 15 48 8b 55 d8 48 8b 45 e8 48 89 d6 48 89 c7 e8 40 f7 ff ff eb 79 48 8b 45 e8 48 8b 40 10 48 39 45 f8 74 14 48 8b 45 f8 48 8b 40 08 48 85 c0 75 07 b8 00 00 00 00 eb 57 48 8b 45 d8 48 8b 55 f8 48 89 10 48 8b 45 f8 48 8b 50 08 48 8b 45 d8 48 89 50 08 48 8b 45 f8 48 8b 55 d8 48 89 50 08 48 8b 45 e8 48 8b 40 10 48 39 45 f8 75 0e 48 8b 45 e8 48 8b 55 d8 48 89 50 10 eb 0f 48 8b 45 d8 48 8b 40 08 48 8b 55 d8 48 89 10 b8 01 00 00 00 c9 c3", "source": "02ab0ecd20b076cab3def2fc07074476993b79ee38532e1903507c44891086a0", "core": "eb22ccb1326729d07ff9f384a9f3241f2ab44299911d06466a4a6e4904316854", "offset": 140177, "length": 1571, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "callerUpdate i before.memory after.memory", "insertion": true, "helpers": [{"symbol": "get_array_item", "address": 21459, "size": 84, "file_offset": 21459, "bytes_hex": "55 48 89 e5 48 89 7d e8 48 89 75 e0 48 c7 45 f8 00 00 00 00 48 83 7d e8 00 75 07 b8 00 00 00 00 eb 30 48 8b 45 e8 48 8b 40 10 48 89 45 f8 eb 10 48 83 6d e0 01 48 8b 45 f8 48 8b 00 48 89 45 f8 48 83 7d f8 00 74 07 48 83 7d e0 00 75 e2 48 8b 45 f8 5d c3", "code_sha256": "83a93716e5f22ed741d2bc1db8042b5550173564c8cfe257cf156eba339a4330", "identity_check": "ELF symbol + executable PT_LOAD bytes checked by Python; kernel CodeAt lives in the linked Lean modules"}, {"symbol": "suffix_object", "address": 21933, "size": 38, "file_offset": 21933, "bytes_hex": "55 48 89 e5 48 89 7d f8 48 89 75 f0 48 8b 45 f8 48 8b 55 f0 48 89 10 48 8b 45 f0 48 8b 55 f8 48 89 50 08 90 5d c3", "code_sha256": "7bb9605318ee7e45e38154c9acbc3a70cf2ed8516bc8bdb560a7ed7815e9b5d0", "identity_check": "ELF symbol + executable PT_LOAD bytes checked by Python; kernel CodeAt lives in the linked Lean modules"}, {"symbol": "add_item_to_array", "address": 22127, "size": 170, "file_offset": 22127, "bytes_hex": "55 48 89 e5 48 83 ec 20 48 89 7d e8 48 89 75 e0 48 c7 45 f8 00 00 00 00 48 83 7d e0 00 74 11 48 83 7d e8 00 74 0a 48 8b 45 e8 48 3b 45 e0 75 07 b8 00 00 00 00 eb 71 48 8b 45 e8 48 8b 40 10 48 89 45 f8 48 83 7d f8 00 75 25 48 8b 45 e8 48 8b 55 e0 48 89 50 10 48 8b 45 e0 48 8b 55 e0 48 89 50 08 48 8b 45 e0 48 c7 00 00 00 00 00 eb 34 48 8b 45 f8 48 8b 40 08 48 85 c0 74 27 48 8b 45 f8 48 8b 40 08 48 8b 55 e0 48 89 d6 48 89 c7 e8 ab fe ff ff 48 8b 45 e8 48 8b 40 10 48 8b 55 e0 48 89 50 08 b8 01 00 00 00 c9 c3", "code_sha256": "847da6a0f670a132bebd6214cf309ec9a92c511d27d267fc9f67189309409f07", "identity_check": "ELF symbol + executable PT_LOAD bytes checked by Python; kernel CodeAt lives in the linked Lean modules"}]},
     {"symbol": "cJSON_GetArrayItem", "declaration": "Silmaril.Elf.Corpus.CjsonArrayItem.Context.Task.compilesTo", "address": "0x5427", "bytes": "55 48 89 e5 48 83 ec 10 48 89 7d f8 89 75 f4 83 7d f4 00 79 07 b8 00 00 00 00 eb 15 8b 45 f4 48 63 d0 48 8b 45 f8 48 89 d6 48 89 c7 e8 7b ff ff ff c9 c3", "source": "c2de1199e9c8b0b2bc57d49490a269be893b34893e99f8c0a9d564032801a353", "core": "12735aa82853ce768a8b02641594fc70ee57ac18545a338ba621f43cd19314cf", "offset": 120649, "length": 1348, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "callerPreserved", "caller": true, "helperBytes": "55 48 89 e5 48 89 7d e8 48 89 75 e0 48 c7 45 f8 00 00 00 00 48 83 7d e8 00 75 07 b8 00 00 00 00 eb 30 48 8b 45 e8 48 8b 40 10 48 89 45 f8 eb 10 48 83 6d e0 01 48 8b 45 f8 48 8b 00 48 89 45 f8 48 83 7d f8 00 74 07 48 83 7d e0 00 75 e2 48 8b 45 f8 5d c3", "helperHash": "83a93716e5f22ed741d2bc1db8042b5550173564c8cfe257cf156eba339a4330"},
     {"symbol": "cJSON_DetachItemViaPointer", "declaration": "Silmaril.Elf.Corpus.CjsonDetach.Context.Task.compilesTo", "address": "0x5cac", "bytes": "55 48 89 e5 48 89 7d f8 48 89 75 f0 48 83 7d f8 00 74 22 48 83 7d f0 00 74 1b 48 8b 45 f8 48 8b 40 10 48 39 45 f0 74 17 48 8b 45 f0 48 8b 40 08 48 85 c0 75 0a b8 00 00 00 00 e9 99 00 00 00 48 8b 45 f8 48 8b 40 10 48 39 45 f0 74 12 48 8b 45 f0 48 8b 40 08 48 8b 55 f0 48 8b 12 48 89 10 48 8b 45 f0 48 8b 00 48 85 c0 74 13 48 8b 45 f0 48 8b 00 48 8b 55 f0 48 8b 52 08 48 89 50 08 48 8b 45 f8 48 8b 40 10 48 39 45 f0 75 11 48 8b 45 f0 48 8b 10 48 8b 45 f8 48 89 50 10 eb 20 48 8b 45 f0 48 8b 00 48 85 c0 75 14 48 8b 45 f8 48 8b 40 10 48 8b 55 f0 48 8b 52 08 48 89 50 08 48 8b 45 f0 48 c7 40 08 00 00 00 00 48 8b 45 f0 48 c7 00 00 00 00 00 48 8b 45 f0 5d c3", "source": "dc3e68189a20294a404f896ac3611eae6a77c44c23bc89991c459bc590dab8a8", "core": "1e54f1805c02475ea193763bade7a524928b62e87cd99685ac0e6b28696b3e7d", "offset": 136693, "length": 2069, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "returnMatches", "detachment": true},
     {"symbol": "suffix_object", "declaration": "Silmaril.Elf.Corpus.CjsonSuffix.Context.Task.compilesTo", "address": "0x55ad", "bytes": "55 48 89 e5 48 89 7d f8 48 89 75 f0 48 8b 45 f8 48 8b 55 f0 48 89 10 48 8b 45 f0 48 8b 55 f8 48 89 50 08 90 5d c3", "source": "43b84fd08dec2b8a7c056cc15e6203de0789e6b1bb7d2eb41eaca7c30fecd729", "core": "30c94a6ba01e474846d0d8f84b787e008844d8271054c58ef66af0070f3032ca", "offset": 125337, "length": 101, "tu": "3dc319de3487c6aaed4cf1244ddfd167b66a280571c5e9651f4fb487018b97cf", "context": "expectedMemory", "mutation": true},
@@ -108,7 +109,23 @@ try {
     assert.ok(core.includes(c.symbol),'actual named Core procedure');
     const context=await page.locator('#corpus-evidence').textContent();
     assert.ok(context.includes(c.context));assert.ok(context.includes('callees := []'));
-    if(c.caller){
+    if(c.insertion){
+      assert.equal(spans.spans.length,7);
+      for(const required of ['payload : Nat → BitVec 8','before.nextId ≤ id','SysV.StackBelow m 128','expectedMemory i before','heapWrite i a','Contextual','All input instances']){
+        assert.ok(context.includes(required),required);
+      }
+      for(const helper of c.helpers){
+        for(const required of [helper.symbol+' @ 0x'+helper.address.toString(16),helper.bytes_hex,helper.code_sha256])assert.ok(target.includes(required),required);
+        assert.ok((await page.locator('#src').innerText()).includes(helper.symbol));
+        assert.ok(core.includes(helper.symbol));
+        await page.getByRole('link',{name:'Actual callee '+helper.symbol,exact:true}).click();
+        await page.waitForFunction(name=>document.querySelector('#corpus-function-search')?.value===name,helper.symbol);
+        await page.goto(base+'/compiler/?corpus='+encodeURIComponent(c.declaration));
+        await page.waitForFunction(d=>document.body.dataset.corpusDeclaration===d,c.declaration);
+      }
+      const assumptions=await page.locator('#assumptions').innerText();
+      for(const required of ['ConstantNull','BTy_unit','128-byte','not full-record','observation','UNPROVED'])assert.ok(assumptions.includes(required),required);
+    }else if(c.caller){
       assert.equal(spans.spans.length,3);
       for(const required of ['pointerWord', 'callerPreserved', 'SysV.StackBelow m 72', 'Source.signature', 'entryOffset']){
         assert.ok(context.includes(required),required);
@@ -201,7 +218,7 @@ try {
   await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('error: corpus evidence identity mismatch'));
   assert.equal(await page.locator('body').getAttribute('data-corpus-declaration'),null);
   await page.unroute('**/'+payload.source.static_path);
-  console.log('PASS actual registry corpus viewer:31 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
+  console.log('PASS actual registry corpus viewer:32 UNPROVED statements; cJSON/mimalloc/SQLite source hashes/spans, Core identities, real ELF bytes/addresses, ABI/memory/callee/UB context and bidirectional artifact/function links;842 rows retained');
 
   const binaryIndex=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/equivalences/index.json'),'utf8'));
   assert.equal(binaryIndex.length,15);

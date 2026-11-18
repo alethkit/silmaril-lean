@@ -43,7 +43,7 @@ class CorpusCompilerBindings(unittest.TestCase):
         output = self.work / 'out'
         rows = corpus.export(self.project, output)
         self.assertEqual({r['declaration'] for r in rows}, {s['declaration'] for s in self.statements})
-        self.assertEqual(len(rows), 31)
+        self.assertEqual(len(rows), 32)
         for row in rows:
             p = json.loads((output / Path(row['static_path']).name).read_text())
             self.assertEqual(p['status'], 'UNPROVED')
