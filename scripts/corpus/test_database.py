@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class CorpusDatabase(unittest.TestCase):
     def test_checked_variant_modules_are_bound(self):
         artifacts = inventory(ROOT)['artifacts']
-        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 96)
+        self.assertEqual(sum(a['lean_status'].startswith('variant: whole-file') for a in artifacts), 208)
         check = json.loads((ROOT / 'corpus/measurements/variant-lean/checks.json').read_text())['artifacts'][0]
         source = ROOT / next(iter(check['module_sha256']))
         original = matrix.sha
