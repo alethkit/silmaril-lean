@@ -41,3 +41,5 @@ Three additional delivered TinyCC variants are structurally checked: x86_64 O0
 unstripped/stripped and Og unstripped. This tranche alone raises checked variants
 96→99; the separate coreutils tranche raises its own baseline 96→208. Combining
 both gives 211/416 at this artifact snapshot, with canonical coverage 51/54.
+
+Integration with merged #1064 preserves all 112 coreutils checks: combined variant coverage is 211/416, canonical coverage 51/54.
