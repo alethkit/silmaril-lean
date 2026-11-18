@@ -28,6 +28,12 @@ theorem interpretI64Cbor_iff (profile : CidProfile) (value : Value) (tree : Json
       interpretCbor? i64Cbor (Cid.codec profile) value = some (embedI64 tree) :=
   restrictToI64_iff _ tree
 
+theorem i64_values_iff (value : Value) : value ∈ i64WithBytesValues ↔
+    ∃ tree, interpretCbor? i64Cbor (Cid.codec .any) value = some tree ∧ links tree = [] := by
+  change (interpretI64Cbor? .any value).isSome ↔ _
+  simp only [Option.isSome_iff_exists, interpretI64Cbor_iff, linkFree_i64_iff]
+  grind
+
 theorem parseI64Cbor_iff (profile : CidProfile) (bytes : List UInt8) (tree : JsonWithBytes.OrderedI64) :
     parseI64Cbor? profile bytes = some tree ↔ parseCbor? i64Cbor (Cid.codec profile) bytes = some (embedI64 tree) :=
   restrictToI64_iff _ tree
