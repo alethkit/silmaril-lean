@@ -119,6 +119,15 @@ Wasm examples are concrete modules.
 
 ### 4. Generic branch/leaves and tagged ASTs
 
+`Wit.Fragments.Thms` provides named `ScalarType` and `CompoundType` families, with
+injective embeddings and partial inverses for `PTy` and WIT types. Scalars include
+`char` and floats but not `string`. Compound constructors use existing payload types
+for their members, and do not certify well-formedness or resource support.
+`MemSound.WitAst.Fragments.Thms` relates their memory32 layouts and transports
+existing decoder results without changing success or failure. The scalar `calcSig`
+and compound `glyphSig` examples recover the existing signatures, so they use the
+same ASTs, Core modules and accepted languages after embedding.
+
 | Item | Status | Where |
 | --- | --- | --- |
 | generic `branch(children)` + designated leaves `tag(args)` | done | `AstSig`, `AST S := TExpr1 (Σ t, S.Arg t)` (reuses `TExpr`), `AST.WellArity`, `Api.astW` |
