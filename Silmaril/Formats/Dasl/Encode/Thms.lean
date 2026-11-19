@@ -32,6 +32,9 @@ def PartialCodec.listCodec (codec : PartialCodec Source Target) : PartialCodec (
 def TotalCodec.listCodec (codec : TotalCodec Source Target) : TotalCodec (List Source) (List Target) :=
   ⟨codec.listEncode, codec.partial.listDecode, Proofs.Formats.Dasl.Encode.list_roundtrip codec⟩
 
+theorem TotalCodec.listCodec_encode (codec : TotalCodec Source Target) (items : List Source) :
+    codec.listCodec.encode items = codec.listEncode items := by rw [TotalCodec.listCodec]
+
 def listOf (item : TotalCodec Source (Tree Ref Name)) : TotalCodec (List Source) (Tree Ref Name) :=
   item.listCodec.then list
 
