@@ -384,4 +384,87 @@ theorem embedder_admitted_plain (sig : PlainSignature) {grow : SingleThreaded.Gr
   exact memory_plain sig state.nextTicket contract memory args reference oldHost
     (state.enter name type args) writer (some thread)
 
+theorem embedder_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig.val)) (name : String) (type : V1.FuncType)
+    (contract : Contract sig.val) (memory : Option Nat) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig.val))
+    (oldHost : Stored.Endpoints.Core.Scheduled.HostState sig.val) (thread : Option ThreadId)
+    (segments : List (Machine.Seg (core3 grow) (HostState sig.val)))
+    (rest : List (Machine.Activation (core3 grow) (HostState sig.val)))
+    (profile : ProfileKind) (ready : HostReady (HostState sig.val))
+    (focused : start.ctl = ⟨thread, .prog (.flat <$> (host (grow := grow) bindings).embedder name type args),
+      segments⟩ :: rest)
+    (linked : resolveBinding bindings name type = .ok ⟨contract.name.2, contract.inst, .accept contract memory⟩)
+    (caller : Plain.callerInstance start.store thread = .ok (some contract.inst))
+    (mayLeave : (start.store.inst? contract.inst).any (·.mayLeave) = true)
+    (writer : start.host.writer = (Claims.Core.Plain.embedWorld sig (⟨start.store, oldHost.writer⟩ :
+      Stored.Endpoints.Core.World grow sig.val)).writer) :
+    let old := Stored.Endpoints.Core.Scheduled.acceptAttempt contract memory oldHost start.store args
+    ∃ (labels : List (Machine.Label (core3 grow) (HostState sig.val))) (reached : HostState sig.val),
+      (∀ label ∈ labels, label = .tau) ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with
+          store := old.1
+          host := reached
+          ctl := ⟨thread, .prog (.pure (.flat old.2.2)), segments⟩ :: rest } ∧
+      reached.writer = (Claims.Core.Plain.embedWorld sig (⟨old.1, old.2.1.writer⟩ :
+        Stored.Endpoints.Core.World grow sig.val)).writer ∧
+      old.2.1.refusals = (reached.newestFirst.head?.bind fun event => match event with
+        | .refused _ issue => Plain.oldIssue issue
+        | _ => none).toList ++ oldHost.refusals := by
+  intro old
+  let program := (host (grow := grow) bindings).embedder name type args
+  let reached := Plain.runBody program start.store start.host (some thread)
+  have agreed := embedder_admitted_plain sig bindings name type contract memory args start.store
+    oldHost start.host thread linked caller mayLeave writer
+  change reached.1 = old.1 ∧ _ ∧ reached.2.2 = .ok old.2.2 ∧ _ at agreed
+  have ran : Plain.runBody program start.store start.host (some thread) = (old.1, reached.2.1, .ok old.2.2) := by
+    change reached = _
+    rw [← agreed.1, ← agreed.2.2.1]
+  obtain ⟨labels, silent, steps⟩ := body_steps_at program start old.1 reached.2.1 old.2.2
+    (fun words => .pure (.flat words)) thread segments rest profile ready
+    (specDispatch ready (host (grow := grow) bindings))
+    focused (some thread) (.inr rfl) ran
+  refine ⟨labels, reached.2.1, ?_, steps, agreed.2.1, agreed.2.2.2⟩
+  intro label member
+  have tau := List.all_eq_true.mp silent label member
+  cases label <;> first | rfl | contradiction
+
+theorem embedder_caller_refusal_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
+    (contract : Contract sig) (memory : Option Nat) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (segments : List (Machine.Seg (core3 grow) (HostState sig)))
+    (rest : List (Machine.Activation (core3 grow) (HostState sig)))
+    (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (focused : start.ctl = ⟨thread, .prog (.flat <$> (host (grow := grow) bindings).embedder name type args),
+      segments⟩ :: rest)
+    (linked : resolveBinding bindings name type = .ok ⟨contract.name.2, contract.inst, .accept contract memory⟩)
+    (caller : Option InstId) (resolved : Plain.callerInstance start.store thread = .ok caller)
+    (refused : ¬(caller = some contract.inst ∧ (start.store.inst? contract.inst).any (·.mayLeave))) :
+    let reached := (start.host.enter name type args).record (.refused start.host.nextTicket .wrongContext)
+    ∃ (labels : List (Machine.Label (core3 grow) (HostState sig))),
+      (∀ label ∈ labels, label = .tau) ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with
+          host := reached
+          ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } ∧
+      reached.writer = start.host.writer ∧ reached.publications = start.host.publications := by
+  intro reached
+  have ran : Plain.runBody ((host (grow := grow) bindings).embedder name type args) start.store start.host
+      (some thread) =
+      (start.store, reached, .ok [i32Flat 1, i32Flat 0]) := by
+    rw [embedder_memory bindings name type contract memory args start.store start.host thread linked, resolved]
+    simp [refused, reached]
+  obtain ⟨labels, silent, steps⟩ := body_steps_at ((host (grow := grow) bindings).embedder name type args)
+    start start.store reached [i32Flat 1, i32Flat 0] (fun words => .pure (.flat words))
+    thread segments rest profile ready (specDispatch ready (host (grow := grow) bindings)) focused
+    (some thread) (.inr rfl) ran
+  refine ⟨labels, ?_, steps, rfl, ?_⟩
+  · intro label member
+    have tau := List.all_eq_true.mp silent label member
+    cases label <;> first | rfl | contradiction
+  · simp [reached, HostState.publications, HostState.transcript, HostState.record, HostState.enter,
+      Event.publication]
+
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled

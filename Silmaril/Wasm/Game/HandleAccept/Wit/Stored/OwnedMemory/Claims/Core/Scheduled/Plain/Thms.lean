@@ -167,4 +167,84 @@ theorem embedder_admitted_plain (sig : PlainSignature) {grow : SingleThreaded.Gr
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.embedder_admitted_plain
     sig bindings name type contract memory args reference oldHost state thread linked caller mayLeave writer
 
+/-- The scheduled machine reaches the actual parked Core reply for an admitted plain
+memory import. Both success and a typed payload refusal advance to the same reference
+store, embedded writer and status as the endpoint-only attempt. -/
+theorem embedder_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig.val)) (name : String) (type : V1.FuncType)
+    (contract : Contract sig.val) (memory : Option Nat) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig.val))
+    (oldHost : Endpoints.Core.Scheduled.HostState sig.val) (thread : Option ThreadId)
+    (segments : List (Machine.Seg (core3 grow) (HostState sig.val)))
+    (rest : List (Machine.Activation (core3 grow) (HostState sig.val)))
+    (profile : ProfileKind) (ready : HostReady (HostState sig.val))
+    (focused : start.ctl = ⟨thread, .prog (.flat <$> (host (grow := grow) bindings).embedder name type args),
+      segments⟩ :: rest)
+    (linked : resolveBinding bindings name type = .ok ⟨contract.name.2, contract.inst, .accept contract memory⟩)
+    (caller : callerInstance start.store thread = .ok (some contract.inst))
+    (mayLeave : (start.store.inst? contract.inst).any (·.mayLeave) = true)
+    (writer : start.host.writer = (Core.Plain.embedWorld sig (⟨start.store, oldHost.writer⟩ :
+      Endpoints.Core.World grow sig.val)).writer) :
+    let old := Endpoints.Core.Scheduled.acceptAttempt contract memory oldHost start.store args
+    ∃ (labels : List (Machine.Label (core3 grow) (HostState sig.val))) (reached : HostState sig.val),
+      (∀ label ∈ labels, label = .tau) ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with
+          store := old.1
+          host := reached
+          ctl := ⟨thread, .prog (.pure (.flat old.2.2)), segments⟩ :: rest } ∧
+      reached.writer = (Core.Plain.embedWorld sig (⟨old.1, old.2.1.writer⟩ :
+        Endpoints.Core.World grow sig.val)).writer ∧
+      old.2.1.refusals = (reached.newestFirst.head?.bind fun event => match event with
+        | .refused _ issue => oldIssue issue
+        | _ => none).toList ++ oldHost.refusals :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.embedder_admitted_plain_steps
+    sig bindings name type contract memory args start oldHost thread segments rest profile ready focused
+    linked caller mayLeave writer
+
+/-- A caller that does not satisfy the admission check gets an ordinary typed
+refusal. The machine preserves the store, writer, prior publication journal and
+continuation; unlike canonical lockdown, this does not prevent a later retry. -/
+theorem embedder_caller_refusal_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
+    (contract : Contract sig) (memory : Option Nat) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (segments : List (Machine.Seg (core3 grow) (HostState sig)))
+    (rest : List (Machine.Activation (core3 grow) (HostState sig)))
+    (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (focused : start.ctl = ⟨thread, .prog (.flat <$> (host (grow := grow) bindings).embedder name type args),
+      segments⟩ :: rest)
+    (linked : resolveBinding bindings name type = .ok ⟨contract.name.2, contract.inst, .accept contract memory⟩)
+    (caller : Option InstId) (resolved : callerInstance start.store thread = .ok caller)
+    (refused : ¬(caller = some contract.inst ∧ (start.store.inst? contract.inst).any (·.mayLeave))) :
+    let reached := (start.host.enter name type args).record (.refused start.host.nextTicket .wrongContext)
+    ∃ (labels : List (Machine.Label (core3 grow) (HostState sig))),
+      (∀ label ∈ labels, label = .tau) ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with
+          host := reached
+          ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } ∧
+      reached.writer = start.host.writer ∧ reached.publications = start.host.publications :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.embedder_caller_refusal_steps
+    bindings name type contract memory args start thread segments rest profile ready focused linked caller resolved refused
+
+/-- Binding failures in the actual scheduler retain their typed diagnostic in
+the journal and take the reference lockdown transition, rather than replying
+with an ordinary call-local status. -/
+theorem embedder_binding_trap_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (segments : List (Machine.Seg (core3 grow) (HostState sig)))
+    (rest : List (Machine.Activation (core3 grow) (HostState sig)))
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) (issue : Issue)
+    (focused : start.ctl = ⟨thread, .prog (.flat <$> (host (grow := grow) bindings).embedder name type args),
+      segments⟩ :: rest)
+    (unresolved : resolveBinding bindings name type = .error issue) :
+    let reached := (start.host.enter name type args).record (.bindingTrap start.host.nextTicket issue)
+    let reason := TrapReason.hostTrap "invalid mixed acceptor import binding"
+    ∃ count, Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start
+      (List.replicate count .tau ++ [.trap reason]) (Machine.StepDefs.trapCfg { start with host := reached }) :=
+  runBody_trap_steps _ start start.store _ _ (fun words => .pure (.flat words)) thread segments rest
+    profile ready _ focused (embedder_unresolved bindings name type args start.store start.host thread issue unresolved)
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain
