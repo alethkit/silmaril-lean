@@ -23,6 +23,9 @@ theorem graph_binding (read : Name → Option Payload) : Binding (graph read) :=
   intro name left right first second
   exact Option.some.inj (first.symm.trans second)
 
+@[simp] theorem mem_names {name : Name} {payload : Payload} :
+    name ∈ names rel payload ↔ rel name payload := Iff.rfl
+
 @[simp] theorem Binding.lookup_eq_some (bound : Binding rel) {name payload} :
     bound.lookup name = some payload ↔ rel name payload :=
   Proofs.Semantics.Naming.lookup_eq_some bound
@@ -33,6 +36,48 @@ theorem graph_binding (read : Name → Option Payload) : Binding (graph read) :=
 theorem Binding.push (bound : Binding rel) {serializes : Payload → Wire → Prop}
     (deterministic : Binding serializes) : Binding (push rel serializes) :=
   Proofs.Semantics.Naming.push_binding bound deterministic
+
+theorem Binding.project (bound : Binding rel) (decode : Payload → Option Wire) :
+    Binding (project rel decode) := bound.push (graph_binding decode)
+
+theorem Binding.lookup_project (bound : Binding rel) (decode : Payload → Option Wire)
+    (name : Name) : (bound.project decode).lookup name = (bound.lookup name).bind decode :=
+  Proofs.Semantics.Naming.lookup_project bound decode name (bound.project decode)
+
+theorem Binding.quotient (bound : Binding rel) (equiv : Setoid Payload) :
+    Binding (quotient rel equiv) := bound.project (fun repr => some (Quotient.mk equiv repr))
+
+theorem mem_names_project {decode : Payload → Option Wire} {name : Name} {value : Wire} :
+    name ∈ names (project rel decode) value ↔
+      ∃ repr, name ∈ names rel repr ∧ decode repr = some value := Iff.rfl
+
+theorem mem_names_quotient {equiv : Setoid Payload} {name : Name} {repr : Payload} :
+    name ∈ names (quotient rel equiv) (Quotient.mk equiv repr) ↔
+      ∃ otherRepr, name ∈ names rel otherRepr ∧ equiv.r otherRepr repr :=
+  Proofs.Semantics.Naming.mem_names_quotient
+
+theorem names_quotient_congr {equiv : Setoid Payload} {left right : Payload}
+    (equivalent : equiv.r left right) :
+    names (quotient rel equiv) (Quotient.mk equiv left) =
+      names (quotient rel equiv) (Quotient.mk equiv right) :=
+  congrArg (names (quotient rel equiv)) (Quotient.sound equivalent)
+
+/-- Canonicality among named representations is sufficient to transfer unique
+naming to semantic values. It is not needed for binding or lookup. -/
+theorem UniqueNames.project (unique : UniqueNames rel) {decode : Payload → Option Wire}
+    (canonical : ∀ ⦃firstName secondName left right value⦄,
+      rel firstName left → rel secondName right →
+      decode left = some value → decode right = some value → left = right) :
+    UniqueNames (project rel decode) :=
+  Proofs.Semantics.Naming.project_uniqueNames unique canonical
+
+/-- Use uniqueness on the semantic relation, not on its raw representation store. -/
+theorem UniqueNames.payload_ne_of_name_ne (unique : UniqueNames rel)
+    {firstName secondName : Name} {left right : Payload}
+    (first : firstName ∈ names rel left) (second : secondName ∈ names rel right)
+    (different : firstName ≠ secondName) : left ≠ right := by
+  rintro rfl
+  exact different (unique first second)
 
 /-- A functional parser recovers the particular source of a serialized byte string. -/
 theorem push_parse_iff {serializes : Payload → Wire → Prop} {parse : Wire → Option Payload}
