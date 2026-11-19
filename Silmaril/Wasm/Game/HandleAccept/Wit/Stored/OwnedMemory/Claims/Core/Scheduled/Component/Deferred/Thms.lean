@@ -15,6 +15,43 @@ open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
 
 variable {sig : Signature} {grow : SingleThreaded.GrowOracle}
 
+/-- With no deferred callees, every run has the original eager dispatch, including
+imports using the proposed control name. This equality also preserves trap labels. -/
+theorem dispatch_no_deferred (bindings : List (Binding sig)) (callees : List (Callee sig))
+    (control : String) (ready : HostReady (HostState sig)) :
+    specDispatch ready (hostWithDeferred (grow := grow) bindings callees [] control) =
+      specDispatch ready (hostWithComponent (grow := grow) bindings callees) := rfl
+
+/-- A capacity refusal records the current ticket without queuing, lifting payloads,
+or publishing. The original continuation receives the reference cancel token. -/
+theorem table_full_steps {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    (config : Config (core3 grow) (HostState sig)) (thread : Option Runtime.ThreadId)
+    (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (pending : config.ctl = ⟨thread, .prog (refuseTableFull ticket), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau]
+      { config with
+        host := config.host.record (.refused ticket .subtaskTableFull)
+        ctl := ⟨thread, .prog (.pure (.cancel .none)), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.Component.Deferred.table_full_steps
+    config thread segments rest ticket pending
+
+/-- At the reference allocation boundary, fullness traps and locks down the reached
+store, leaving the host journal (including the recorded refusal) untouched. -/
+theorem reference_table_full_steps {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    (config : Config (core3 grow) (HostState sig)) (thread : Option Runtime.ThreadId)
+    (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (inst : InstId) (subtask : SubtaskId)
+    (instance_ : InstState) (live : config.store.inst? inst = some instance_)
+    (full : instance_.addHandle? (.waitable (.subtask subtask)) = none)
+    (next : Nat → Session grow sig (Ret (core3 grow)))
+    (pending : config.ctl = ⟨thread, .prog (handlesAddSubtask inst subtask >>= next), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .trap .tableFull] (StepDefs.trapCfg config) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.Component.Deferred.reference_table_full_steps
+    config thread segments rest inst subtask instance_ live full next pending
+
 /-- Recycling a waitable slot for another nominal subtask cannot authorize the former
 callback. The actual start import also reselects against the live table. -/
 theorem recycled_slot (entry : PendingAccept) (store : CStore (core3 grow)) (index : Nat)

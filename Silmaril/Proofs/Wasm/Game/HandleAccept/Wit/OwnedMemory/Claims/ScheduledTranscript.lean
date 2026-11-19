@@ -855,6 +855,29 @@ private theorem take_safe (state : HostState sig) (entry : PendingAccept) :
     CheckedWrite state (ComponentCall.Deferred.HostState.take state entry) :=
   ⟨⟨List.prefix_rfl, le_rfl⟩, .same _, publication_refl _⟩
 
+theorem table_full_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (pending : config.ctl = ⟨thread, .prog (refuseTableFull ticket), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau]
+      { config with
+        host := config.host.record (.refused ticket .subtaskTableFull)
+        ctl := ⟨thread, .prog (.pure (.cancel .none)), segments⟩ :: rest } :=
+  .cons (.hostGet pending) (.cons (.hostSet rfl) (.refl _))
+
+theorem reference_table_full_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (inst : InstId) (subtask : SubtaskId)
+    (instance_ : InstState) (live : config.store.inst? inst = some instance_)
+    (full : instance_.addHandle? (.waitable (.subtask subtask)) = none)
+    (next : Nat → Session grow sig (Ret (core3 grow)))
+    (pending : config.ctl = ⟨thread, .prog (handlesAddSubtask inst subtask >>= next), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .trap .tableFull] (StepDefs.trapCfg config) := by
+  refine .cons (.get pending) ?_
+  have liveAt : ArenaField.insts.get? config.store inst = some instance_ := live
+  simp only [Prog.pure_eq, Prog.bind, liveAt, full]
+  exact .cons (.trap rfl) (.refl _)
+
 private theorem stage_safe (callee : Callee sig) (caller : CallerId) (ticket : Nat) (subtask : SubtaskId)
     (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
     (ft : WIT.FuncType Empty RtId) (limits results : Nat) :
@@ -868,14 +891,16 @@ private theorem stage_safe (callee : Callee sig) (caller : CallerId) (ticket : N
   split
   · exact reject_safe _ _
   split
-  · exact before_lift_safe _ _ _
-  split
-  · exact .pure none _
-  · refine .get none fun current => ?_
+  · split
+    · exact before_lift_safe _ _ _
+    split
+    · exact .get none fun current => .set (record_safe current _ rfl) (.pure none _)
+    refine .get none fun current => ?_
     dsimp only [Prog.bind]
     split
     · exact rebase (reject_safe _ _)
     · exact .set (queue_safe _ _) (.pure none _)
+  · exact reject_safe _ _
 
 theorem stage_frame (callee : Callee sig) (caller : CallerId) (ticket : Nat) (subtask : SubtaskId)
     (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
@@ -890,13 +915,16 @@ theorem stage_frame (callee : Callee sig) (caller : CallerId) (ticket : Nat) (su
   split
   · exact reject_frame _ _ _
   split
-  · exact refusal_frame _ _ _ _
-  split
-  · exact P.Inv.pure _
-  · refine P.Inv.bind P.Inv.hostGet fun _ => ?_
+  · split
+    · exact refusal_frame _ _ _ _
+    split
+    · exact P.Inv.bind P.Inv.hostGet fun current =>
+        P.Inv.bind (P.Inv.hostSet (current.record (.refused ticket .subtaskTableFull)) trivial) fun _ => P.Inv.pure _
+    refine P.Inv.bind P.Inv.hostGet fun _ => ?_
     split
     · exact reject_frame _ _ _
     · exact P.Inv.bind (P.Inv.hostSet _ trivial) fun _ => P.Inv.pure _
+  · exact reject_frame _ _ _
 
 private theorem begin_safe (callee : Callee sig) (caller : CallerId) :
     Safe (begin (grow := grow) callee caller) := by
@@ -977,10 +1005,13 @@ theorem host_safe (bindings : List (Binding sig)) (callees : List (Callee sig))
     (deferred : List HostFuncId) (control : String) :
     HostImplSafe CheckedWrite (hostWithDeferred (grow := grow) bindings callees deferred control) := by
   have eager := hostWithComponent_safe (grow := grow) bindings callees
+  unfold hostWithDeferred
+  dsimp only
+  split
+  · exact eager
   refine { eager with funcs := ?_, embedder := dispatch_start_safe _ _ _, cancel := cancel_safe }
   intro id caller
-  unfold hostWithDeferred
-  simp only
+  dsimp only
   split
   · split
     · exact begin_safe _ _

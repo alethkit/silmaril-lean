@@ -26,6 +26,12 @@ itself does not grant permission to resume an unpublished or recycled subtask sl
 def linked (entry : PendingAccept) (store : CStore (core3 grow)) (index : Nat) : Bool :=
   (store.inst? entry.inst).bind (·.handles.get? index) == some (.waitable (.subtask entry.subtask))
 
+/-- Do not enqueue a callback that cannot be reached. Leave the canonical lower
+continuation in charge of trapping `tableFull` after the host returns. -/
+def refuseTableFull (ticket : Nat) : Session grow sig (Ret (core3 grow)) := do
+  hostSet ((← hostGet).record (.refused ticket .subtaskTableFull))
+  return .cancel .none
+
 def stage (callee : Callee sig) (caller : CallerId) (ticket : Nat) (subtask : SubtaskId)
     (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
     (ft : WIT.FuncType Empty RtId) (limits results : Nat) : Session grow sig (Ret (core3 grow)) := do
@@ -34,10 +40,11 @@ def stage (callee : Callee sig) (caller : CallerId) (ticket : Nat) (subtask : Su
   if (← currentInst?) != some callee.inst then return ← reject ticket .wrongContext
   if let .error issue := callee.check store subtask cx args pos ft (limits, results) then
     return ← reject ticket issue
+  let some instance_ := store.inst? callee.inst | reject ticket .wrongContext
   if let .error issue := OwnedMemory.checkSchema (sig.payload callee.tag) then
     return ← refuseBeforeLift ticket caller (.accept (.claims (.lift (.schema issue))))
-  if ((store.inst? callee.inst).bind (·.addHandle? (.waitable (.subtask subtask)))).isNone then
-    return .cancel .none
+  if (instance_.addHandle? (.waitable (.subtask subtask))).isNone then
+    return ← refuseTableFull ticket
   let current ← hostGet
   if current.pendingAccepts.any (fun entry => entry.caller == caller || entry.subtask == subtask) then
     return ← reject ticket .stalePendingAccept
@@ -139,11 +146,12 @@ def dispatchStart (bindings : List (Binding sig)) (callees : List (Callee sig)) 
 
 /-- Deferred acceptance stages only the reference caller's identity. The reference
 lowering owns the pending slot, progress and cancellation; payload lifting occurs at
-the explicit start import, not at queue time. Other callees use eager resolution. -/
+the explicit start import, not at queue time. Other callees use eager resolution.
+With no deferred callees, there is no reserved control name or cancellation override. -/
 def hostWithDeferred (bindings : List (Binding sig)) (callees : List (Callee sig))
     (deferred : List HostFuncId) (control : String) : HostImpl (core3 grow) (HostState sig) :=
   let eager := hostWithComponent (grow := grow) bindings callees
-  { eager with
+  if deferred.isEmpty then eager else { eager with
     funcs := fun id caller =>
       if deferred.contains id then
         match callees.filter (·.hostId == id) with

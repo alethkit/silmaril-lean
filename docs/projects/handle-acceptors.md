@@ -659,6 +659,10 @@ lifts and resolves in one callback; it does not expose a suspended post-lift pha
 The deferred session theorem conserves the writer and journal on arbitrary ordinary
 prefixes. Linked direct/spilled replays check cancel, drop, slot reuse, start,
 resolution, and stale start after dropping the waitable.
+With no configured deferred callees, the complete dispatch is the eager dispatch;
+the control name is not reserved. When a live instance has no room for a waitable,
+staging records `subtaskTableFull` under the original call ticket without lifting,
+queuing or publishing, then returns to canonical lowering for the reference `tableFull` trap.
 
 ## Checking
 
