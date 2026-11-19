@@ -78,18 +78,21 @@ private theorem admits_of_nameNode (nameBlock? : Block Name Key Payload → Opti
       obtain ⟨childName, named, _⟩ := Option.map_eq_some_iff.mp (childOk child inNode)
       exact (ih child.2 childName named).1 block occurs
 
+theorem replayAddress_spec (tree : Tree Key Payload) (nameBlock? : Block Name Key Payload → Option Name)
+    (root offDomain : Name) (hit : tree.rootName? nameBlock? = some root) :
+    tree.Admits nameBlock? (replayAddress nameBlock? offDomain) ∧
+      tree.rootName (replayAddress nameBlock? offDomain) = root := by
+  have agrees : ∀ block name, nameBlock? block = some name → name = replayAddress nameBlock? offDomain block := by
+    intro block name named
+    simp [replayAddress, named]
+  obtain ⟨ok, eq⟩ := admits_of_nameNode nameBlock? _ agrees tree.level tree.root root hit
+  exact ⟨ok, eq.symm⟩
+
 theorem rootName_spec (tree : Tree Key Payload) (nameBlock? : Block Name Key Payload → Option Name)
     (root : Name) : tree.rootName? nameBlock? = some root ↔
       ∃ address, tree.Admits nameBlock? address ∧ tree.rootName address = root := by
-  constructor
-  · intro hit
-    let address := fun block => (nameBlock? block).getD root
-    have agrees : ∀ block name, nameBlock? block = some name → name = address block := by
-      intro block name named
-      simp [address, named]
-    obtain ⟨ok, eq⟩ := admits_of_nameNode nameBlock? address agrees tree.level tree.root root hit
-    exact ⟨address, ok, eq.symm⟩
-  · rintro ⟨address, ok, rfl⟩
-    exact nameNode_of_admits nameBlock? address tree.level tree.root ok
+  refine ⟨fun hit => ⟨_, replayAddress_spec tree nameBlock? root root hit⟩, ?_⟩
+  rintro ⟨address, ok, rfl⟩
+  exact nameNode_of_admits nameBlock? address tree.level tree.root ok
 
 end Silmaril.Proofs.Semantics.Prolly
