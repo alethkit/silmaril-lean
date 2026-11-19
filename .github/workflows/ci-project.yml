@@ -64,6 +64,7 @@ jobs:
         run: make project-registry
       - name: Install Chromium for corpus navigation checks
         run: |
+          sudo sh .devcontainer/ubuntu-archive-https.sh
           mkdir -p "$RUNNER_TEMP/pw"
           cd "$RUNNER_TEMP/pw"
           npm install --no-save --no-audit --no-fund playwright-core@1.64.1
@@ -105,6 +106,7 @@ jobs:
         run: make project-tool
       - name: Install Chromium for corpus navigation checks
         run: |
+          sudo sh .devcontainer/ubuntu-archive-https.sh
           mkdir -p "$RUNNER_TEMP/pw"
           cd "$RUNNER_TEMP/pw"
           npm install --no-save --no-audit --no-fund playwright-core@1.64.1
