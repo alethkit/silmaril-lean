@@ -128,6 +128,16 @@ existing decoder results without changing success or failure. The scalar `calcSi
 and compound `glyphSig` examples recover the existing signatures, so they use the
 same ASTs, Core modules and accepted languages after embedding.
 
+`WIT.Endpoints.Thms` embeds the non-async WIT fragment in the endpoint-capable
+interpretation. Extending the environment with stream and future carriers leaves
+the old value interpretation unchanged and induces an equivalence on sets of
+those values. `Wit.Async` adds typed endpoint identities and dispatches creation,
+copy, cancellation, polling and closure to the reference component built-ins.
+An old call list yields the identical effect program (`runCalls_legacy`). The
+machine examples resolve and close a future, cancel a pending stream read, and
+reject inspection of a closed slot. These are component-machine sessions, not
+yet Core acceptor tree payloads; the checked tree writer still rejects async types.
+
 | Item | Status | Where |
 | --- | --- | --- |
 | generic `branch(children)` + designated leaves `tag(args)` | done | `AstSig`, `AST S := TExpr1 (Σ t, S.Arg t)` (reuses `TExpr`), `AST.WellArity`, `Api.astW` |
