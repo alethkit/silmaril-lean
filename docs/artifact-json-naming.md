@@ -54,7 +54,7 @@ and exports its bytes for external naming:
 ```sh
 lake build --wfail +Silmaril.Formats.Dasl.JsonObject.Thms
 lake env lean -DwarningAsError=true --run tests/formats/ArtifactJsonObject.lean /tmp/sj1.cbor
-python3 -BEs tools/artifact-naming/verify.py name dasl drisl sha256 /tmp/sj1.cbor
+python3 -BEs tools/verification-projects/artifact-naming/verify.py name dasl drisl sha256 /tmp/sj1.cbor
 ```
 
 The fixture's externally computed binary CID in hex is
