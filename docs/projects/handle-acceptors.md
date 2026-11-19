@@ -442,9 +442,11 @@ the unmodified reference dispatcher. The two-instance Core regression creates a 
 owners, rejects an unused nested borrow, accepts the owning stream into a tree, hands it off once,
 cancels and retries a read, polls completion, transfers and drops both owners, observes peer
 closure, and traps on a stale canonical read without erasing the accepted tree. The bounded
-driver has a relational trace theorem. These are not an exact accepted-language theorem for
-arbitrary export sequences, a Core future lifecycle replay, or a replacement for the earlier
-trap-returning ABI.
+driver has a relational trace theorem. The same linked scheduler also runs a one-element
+`future<record{word: u16, owner: own<R>}>` through Core exports: cancellation and retry, handoff,
+copy, poll, owner drop, both endpoint drops, and a stale read. The future has its own two-operand
+copy ABI and completion payload, independent of the stream count. Neither replay states an
+exact accepted language for arbitrary exports or replaces the earlier trap-returning ABI.
 
 `Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
 immutable arena object exists in the current reference store. Unlike endpoint handoff, this
@@ -469,14 +471,17 @@ before canonical lower updates ownership. Neither a late table trap nor an alloc
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
-`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records with plain
-data fields, readable endpoints, dynamic endpoint lists and error contexts. It checks the complete
-schema, allocation preconditions and cross-field aliases (including across record depths) before
+`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records and options
+with plain data fields, readable endpoints, dynamic endpoint lists and error contexts. It checks
+the complete schema, allocation preconditions and cross-field aliases before
 any field is written. Fields follow canonical record layout and flat order. A field error identifies
 the path to the failing field; completed fields and any realloc effects remain visible. Reference-machine
 replays cover both outputs, nested padding, inactive unsupported fields, alias and missing-context
-rejection, reentrancy and allocator traps. Effectful list elements other than direct readable
-endpoints, non-record effectful wrappers and mixed nominal owners still reject.
+rejection, reentrancy and allocator traps. An empty option checks its full element schema but
+does not allocate; a present option reuses canonical discriminant layout and flat slot coercion.
+An allocator trap retains the written discriminant and any allocator effects, but not an
+unperformed transfer. General variants, other effectful list elements and mixed nominal owners
+still reject.
 
 ## Checking
 
