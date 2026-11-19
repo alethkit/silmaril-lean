@@ -10,6 +10,28 @@ namespace Silmaril.Wasm.Binary.Core.PassiveSerialize
 
 open Validation
 
+namespace Reader
+
+open Core.Decode
+open Silmaril.Wasm.Tools.Meta (encU32)
+
+theorem byte_at {bytes : ByteArray} {pos : Nat} {byte : UInt8} {tail : List UInt8}
+    (rest : (Cursor.mk bytes pos).rest = byte :: tail) :
+    readByte.run ⟨bytes, pos⟩ = .ok (byte, ⟨bytes, pos + 1⟩) :=
+  Proofs.Wasm.Binary.Core.PassiveSerialize.byte_at rest
+
+theorem u32_at {bytes : ByteArray} {pos number : Nat} {tail : List UInt8}
+    (bound : number < 2 ^ 32) (rest : (Cursor.mk bytes pos).rest = encU32 number ++ tail) :
+    (readU 32).run ⟨bytes, pos⟩ = .ok (number, ⟨bytes, pos + (encU32 number).length⟩) :=
+  Proofs.Wasm.Binary.Core.PassiveSerialize.u32_at bound rest
+
+theorem bytes_at {bytes : ByteArray} {pos : Nat} {part tail : List UInt8}
+    (rest : (Cursor.mk bytes pos).rest = part ++ tail) (bound : pos ≤ bytes.size) :
+    (readBytes part.length).run ⟨bytes, pos⟩ = .ok (part.toByteArray, ⟨bytes, pos + part.length⟩) :=
+  Proofs.Wasm.Binary.Core.PassiveSerialize.bytes_at rest bound
+
+end Reader
+
 theorem raw_sound (bytes : ByteArray) : ModuleOk (raw bytes) iface := (typed bytes).sound
 
 @[expose] def IntrinsicModule.toRaw (mod : IntrinsicModule) : RawModule :=
