@@ -286,37 +286,22 @@ are rejected before any transfer effects.
   reference loader (none is pure). The end-to-end modules cover `s64`, `string`, `bytes`,
   `list<u32>` and a `record { char, option<u8> }`; nested lists, variants, enums, results,
   flags, fixed lists and floats are covered by kernel-checked decoding examples only.
-  **Resource handles** (`MemSound.WitAst.Own`): `own<r>` payloads follow the resource-table
-  semantics (the tree holds the representation from an explicit table; the move consumes the
-  handle; trace- and table-dependence proved), but only **top-level** `own` fields of a payload
-  vector are resolved. The checked boundary rejects the entire selected schema for nested
-  `own`, stored `borrow` and unsupported WIT kinds, even in inactive cases and empty lists.
-  Its typed diagnostics also distinguish unknown, dead, wrong-type and repeated handles.
-  Rejection leaves the caller's resource table and Core store in place, including earlier
-  effects; it traps this call, not the whole session. The legacy trace projection omits failed
-  decodes, and is not itself a checked host contract. The checked boundary does not yet have
-  the legacy trace language's whole-module bridge. Handle **creation** is not modelled (the table
-  is the initial environment `rt₀`, e.g.
-  handles received earlier; no `resource.new`/`new_res` import), nor `resource.drop` or `rep` of
-  the module's own resources, and the stateful host is not compared with the reference machine's
-  `Table` (`Silmaril.Wasm.Resource.Table`); the end-to-end examples move one handle (`ownMod`) and
-  one handle twice (`twiceMod`, a trace-level negative: its whole language is not computed).
-  `borrow` is rejected in stored trees by design. **Not payloads**: `future`, `stream`,
-  `error-context` (pending async semantics); `map` is not a separate payload type (WIT
-  despecialises it to `list<tuple<k, v>>`). The flat (core-argument) decoder `Ast.ofVal?` still reads only `bool`,
-  `s32`, `u32`, `s64`, `u64`.
-  The separate `MemSound.WitAst.Own.Nested` checked entry point resolves owned fields in
-  lists, fixed lists, records, tuples and active sum arms. It reserves distinct live slots
-  before committing their moves; an error keeps the table at the start of the import.
-  Inactive arms do not move owners, but the complete schema must admit stored values.
-  This uses the Core writer table and its representation-valued `PTy`: it does not yet
-  relate slot moves or trap effects to the reference component store or replace the legacy
-  whole-session bridge. `Own.Session` supplies a checked `SEnv UImp` for nested nodes:
-  a rejection answers the actual Core redex with a call-local trap, preserving the
-  store at that call and the state from earlier imports. `session_le` proves that
-  no sequence of exports resurrects a moved slot in this move-only host. This is a
-  session safety contract, not yet a characterization of the accepted tree language,
-  and the host does not implement resource allocation or drop.
+  **Resource handles**: the public Core host entry point is `MemSound.WitAst.Own`. Use
+  `Contract.link` to check the import's name, uniqueness and Core function type and to resolve the
+  actual instance memory for `Contract.env`. `Contract.traces` uses that checked host over all
+  permitted export sequences, not an arbitrary reply environment. There is no acceptor CLI driver.
+  The host validates the complete selected schema, including inactive cases and empty lists.
+  It resolves `own` fields recursively and reserves distinct live slots before committing their
+  moves. `Contract.attempt` retains typed diagnostics, including unknown, dead, wrong-type and
+  repeated handles. Rejection answers the Core redex with a call-local trap and leaves the store,
+  resource table and writer state at the import unchanged. `reject_then_invoke` proves a later
+  typed export can use that state; `session_le` rules out resurrecting moved slots in this host.
+  Stored `borrow` and unsupported async kinds are rejected.
+  The Core writer stores representations and has no allocation/drop imports; the separate
+  reference resource machine is not a simulation of these slot moves or call-local trap effects.
+  `Own.Projection` contains the legacy `ownMod` and `twiceMod` trace-language results. It omits
+  failed decodes and is not a host. Connecting checked sessions to exact writer languages, rather
+  than only showing that rejection preserves the writer state, remains open.
 * Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
   exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
   Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
@@ -357,7 +342,9 @@ lake build --wfail Silmaril.Semantics.Accept.Handle.Examples Silmaril.Semantics.
   Silmaril.Semantics.Accept.Mixed.Chunk.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.Ghost.Thms \
   Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Take.Examples Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.Examples \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Ast.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Thms \
-  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Canon Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Canon \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Examples \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Projection \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Exact.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.KwText.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.WordAtom.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Hinted.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.Cons.Thms \
