@@ -47,6 +47,25 @@ theorem finish_steps (config : Config (core3 grow) (HostState sig))
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.finish_steps
     config thread segments rest ticket result pending
 
+/-- Journal a complete flat payload and its status, including shape-correct padding on refusal. -/
+theorem finish_flat_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat) (shape : List NumType)
+    (result : Except Issue (List FlatValue))
+    (pending : config.ctl = ⟨thread, .prog (.flat <$> writeCompletion (flatCompletion ticket shape result)),
+      segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau]
+      { config with
+        host := config.host.record (flatCompletion ticket shape result).1
+        ctl := ⟨thread, .prog (.pure (.flat (flatCompletion ticket shape result).2)), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.write_completion_steps
+    config thread segments rest _ pending
+
+theorem flatCompletion_type (ticket : Nat) (shape : List NumType) (result : Except Issue (List FlatValue)) :
+    (flatCompletion ticket shape result).2.map Stored.flatType = .int .i32 :: shape :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.flatCompletion_type
+    ticket shape result
+
 /-- A linking error records the typed diagnostic before the real reference trap, not a
 status return. A destructor trap follows its own path and never calls this handler. -/
 theorem binding_trap_steps (config : Config (core3 grow) (HostState sig))
