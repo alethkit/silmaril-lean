@@ -24,19 +24,21 @@ def trie(entries, bit=0):
 def fixture(count):
     entries = [(0x01550000 + index, index + 1) for index in range(count)]
     rows = [f"({list(key.to_bytes(4, 'big'))}, {value})" for key, value in entries]
-    chunks = ["[" + ", ".join(rows[start:start + 64]) + "]" for start in range(0, count, 64)]
-    declarations = "\n".join(
-        f"def chunk{index} : List (List UInt8 × Nat) := {chunk}" for index, chunk in enumerate(chunks)
-    )
-    chunk_names = ", ".join(f"chunk{index}" for index in range(len(chunks)))
+    chunks = [rows[start:start + 64] for start in range(0, count, 64)]
+    declarations = []
+    for index in reversed(range(len(chunks))):
+        tail = "[]" if index + 1 == len(chunks) else f"chunk{index + 1}"
+        items = " :: ".join(chunks[index])
+        declarations.append(f"def chunk{index} : List (List UInt8 × Nat) := {items} :: {tail}")
+    chunk_defs = "\n".join(declarations)
     return f"""module
 public import Silmaril.Semantics.Naming.Table.Defs
 set_option maxRecDepth 8192
 @[expose] public section
 open Silmaril.Semantics.Naming
 def radixIndex : Table Nat := {trie(entries)}
-{declarations}
-def linearIndex : List (List UInt8 × Nat) := [{chunk_names}].flatten
+{chunk_defs}
+def linearIndex : List (List UInt8 × Nat) := chunk0
 def key (index : Nat) : List UInt8 := [1, 0x55, UInt8.ofNat (index / 256), UInt8.ofNat index]
 def radix (index : Nat) : Option Nat := radixIndex.lookup (Table.byteRoute (key index))
 def linear (index : Nat) : Option Nat :=

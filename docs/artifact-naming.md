@@ -76,3 +76,15 @@ timed loop checks the same queries and verifies its checksum. Construction
 and import-only time are reported separately. These are lookup experiments,
 not end-to-end measurements of CID import, hashing, or parsing. Neither this
 benchmark nor the external tool is a new mandatory CI hook.
+
+One local run with the pinned Lean 4.37 nightly (median of three):
+
+| Rows | Kernel wall: radix / linear (32 queries) | Compiled VM: radix / linear (8,192 queries) |
+| ---: | ---: | ---: |
+| 64 | 497 / 734 ms | 49 / 211 ms |
+| 256 | 434 / 1,603 ms | 50 / 793 ms |
+| 1,024 | 434 / 5,114 ms | 57 / 3,065 ms |
+
+Import-only wall time was about 320 ms; fixture elaboration grew from
+439 ms to 1,490 ms. Last-hit/miss probes favor an index; these results do
+not claim a throughput ratio across evaluation engines or for other workloads.
