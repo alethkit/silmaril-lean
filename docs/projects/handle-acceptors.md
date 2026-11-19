@@ -388,6 +388,15 @@ stream into one tree, transfers them back, completes the future, copies two dist
 and closes both channels. This gives endpoints individually; it does not lower an entire compound
 endpoint payload in one operation or connect the Core checked writer to the reference machine.
 
+`Wit.Stored.Endpoints.Stream.Examples` moves an `option<stream<record{word: u16,
+item: own<resource>}>>` into a tree and hands the readable endpoint to another instance once.
+Accepting the endpoint does not lift the later elements or turn observations into ownership.
+The reference copy moves two owners and their distinct scalar fields after a cancelled read and
+retry; the reader drops both owners, observes peer closure, and a stale read traps without
+erasing the accepted tree. Direct owned payloads still require identity receipts, even if
+inactive, and stored borrows still reject throughout the schema, including endpoint elements.
+This is a reference-machine replay, not checked Core export integration.
+
 `Wit.Stored.Examples` records an `option<future>` from memory and a flat `stream<u8>` as typed
 trees in actual reference-machine runs; a repeated slot traps with no new tree and does not
 resurrect the slot. The examples do not route Core writer imports into component sessions or
