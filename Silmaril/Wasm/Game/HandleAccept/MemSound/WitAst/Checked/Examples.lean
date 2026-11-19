@@ -56,11 +56,32 @@ theorem async_kinds_reject :
 
 theorem invalid_abi_modes_reject :
     checkNodeMode { address := .i64 } = .error (.addressWidth .i64) ∧
-    checkNodeMode { encoding := .utf16 } = .error (.stringEncoding .utf16) ∧
-    checkNodeMode { encoding := .latin1Utf16 } = .error (.stringEncoding .latin1Utf16) ∧
     checkNodeMode { passing := .flat } = .error .flatPayload ∧
     checkNodeMode { asynchronous := true } = .error .asyncCall :=
-  ⟨rfl, rfl, rfl, rfl, rfl⟩
+  ⟨rfl, rfl, rfl⟩
+
+def stringTypes : List PTy := [.option .string]
+
+def stringNode (encoding : ABI.StringEncoding) (memory : List UInt8) :=
+  checkedNode (signature stringTypes) (tagOf stringTypes) { encoding } (node memory)
+
+theorem utf16_nested_string :
+    stringNode .utf16 [1, 0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 0, 233, 0] =
+      .ok (⟨(), (some "é", ())⟩, []) := rfl
+
+theorem latin1_nested_string :
+    stringNode .latin1Utf16 [1, 0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 0, 233] =
+      .ok (⟨(), (some "é", ())⟩, []) := rfl
+
+theorem tagged_utf16_nested_string :
+    stringNode .latin1Utf16 [1, 0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 128, 233, 0] =
+      .ok (⟨(), (some "é", ())⟩, []) := rfl
+
+theorem invalid_utf16_rejects :
+    issue (stringNode .utf16 [1, 0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 0, 0, 216]) =
+      some .badPayload ∧
+    issue (stringNode .latin1Utf16 [1, 0, 0, 0, 13, 0, 0, 0, 1, 0, 0, 0, 0, 233]) =
+      some .badPayload := ⟨rfl, rfl⟩
 
 theorem memory64_store_rejects :
     issue (checkedCallout ("wit", "node") 0
