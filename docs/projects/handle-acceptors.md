@@ -207,6 +207,15 @@ yet Core acceptor tree payloads; the checked tree writer still rejects async typ
 | sentinel inclusion via observations/renamings, allocation failure | `writerLang_rename`, `writerLang_sentinel_swap`, `writerLang_noRet_subset`, `sentinel_twice` |
 | intersection is not preserved by projection or trace languages | `Host.lang_inter_subset`, `inputLang_inter_subset`, `Examples.inter_strict`, `projection_inter_strict` |
 
+### Reference resource lifecycle
+
+`Wit.Resources` runs the reference `resource.new`, `resource.rep` and `resource.drop`
+built-ins, including their destructor dispatcher. `take` uses canonical `liftOwn` and
+retains the consumed handle's arena identity as well as its representation. The machine
+examples check slot reuse with two different identities that share a representation,
+drop, and the observable early slot removal on a wrong-type lift that locks down the
+component. This is a reference adapter, not a simulation of the checked Core writer table.
+
 ## Modelling choices to review
 
 * **Traps are call-local.** The Wasm-facing mandatory trap on an invalid `accept` is
@@ -283,7 +292,12 @@ yet Core acceptor tree payloads; the checked tree writer still rejects async typ
   Inactive arms do not move owners, but the complete schema must admit stored values.
   This uses the Core writer table and its representation-valued `PTy`: it does not yet
   relate slot moves or trap effects to the reference component store or replace the legacy
-  whole-session bridge.
+  whole-session bridge. `Own.Session` supplies a checked `SEnv UImp` for nested nodes:
+  a rejection answers the actual Core redex with a call-local trap, preserving the
+  store at that call and the state from earlier imports. `session_le` proves that
+  no sequence of exports resurrects a moved slot in this move-only host. This is a
+  session safety contract, not yet a characterization of the accepted tree language,
+  and the host does not implement resource allocation or drop.
 * Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
   exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
   Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
