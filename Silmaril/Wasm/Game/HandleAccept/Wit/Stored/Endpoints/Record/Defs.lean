@@ -25,6 +25,7 @@ inductive Field where
       (payload : Payload (.list (ListLower.endpointType channel element)))
   | context (id : ErrCtxId)
   | record (types : List (String × TypeOf)) (fields : List Field)
+  | option (type : TypeOf) (field : Option Field)
 
 def Field.type : Field → TypeOf
   | .data type _ => type
@@ -32,6 +33,25 @@ def Field.type : Field → TypeOf
   | .endpoints channel element _ => .list (ListLower.endpointType channel element)
   | .context _ => .errorContext
   | .record types _ => .record types
+  | .option type _ => .option type
+
+namespace Internal
+
+mutual
+def supportedField : TypeOf → Bool
+  | .record fields => supportedFields fields
+  | .option type => supportedField type
+  | .future _ | .stream _ | .list (.future _) | .list (.stream _) | .errorContext => true
+  | type => (Stored.Lower.checkSchema type).isOk
+termination_by structural type => type
+
+def supportedFields : List (String × TypeOf) → Bool
+  | [] => true
+  | (_, type) :: rest => supportedField type && supportedFields rest
+termination_by structural fields => fields
+end
+
+end Internal
 
 mutual
 def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
@@ -40,6 +60,15 @@ def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Low
     let .record values := value | throw (.preflight .decodedType)
     let (fields, plan) ← (compileFields cx output 0 types values).mapError (.nested index)
     return (.record types fields, plan)
+  | .option type, value => do
+    match value with
+    | .variant 0 none =>
+      if Internal.supportedField type then return (.option type none, [])
+      else throw (.unsupportedField index)
+    | .variant 1 (some value) => do
+      let (field, plan) ← (compileField cx output 0 type value).mapError (.nested index)
+      return (.option type (some field), plan)
+    | _ => throw (.preflight .decodedType)
   | type, value => do
     let payload ← (checkValue type value).mapError (.preflight ∘ .schema)
     match type, payload with
@@ -70,9 +99,8 @@ def compileFields {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lo
 end
 
 /-- Inspect every field before starting any field write or guest allocation. Plain fields
-use the canonical data path; effects in nested records participate in the same whole-record
-plan. Effectful fields other than nested records, readable endpoints, lists of those endpoints,
-and error contexts fail closed. -/
+use the canonical data path; nested records and options participate in the same whole-record
+plan. An empty option still checks that its payload schema is supported. -/
 def preflight {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
     (payload : Payload type) (output : Stored.Lower.Output) :
     Except Issue (List Field × List Lower.Object) := do
@@ -113,6 +141,23 @@ def runField {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (qui
     | .memory ptr => do
       checkInBounds cx ptr (layout width (.record types)).size
       return (← runMemory limits quirks cx width fields ptr 0).mapError (.nested index)
+  | .option type field =>
+    match output with
+    | .flat => do
+      let slots := flatten width type
+      match field with
+      | none => return .ok (← lowerFlatVariantWith 2 slots 0 [] (pure []))
+      | some field =>
+        match ← runField limits quirks cx width field 0 .flat with
+        | .error issue => return .error (.nested index issue)
+        | .ok words => return .ok (← lowerFlatVariantWith 2 slots 1 slots (pure words))
+    | .memory ptr => do
+      let tag := if field.isSome then 1 else 0
+      let address ← storeVariantHead cx 2 (layout width type).alignment tag ptr
+      match field with
+      | none => return .ok ()
+      | some field =>
+        return (← runField limits quirks cx width field 0 (.memory address)).mapError (.nested index)
 
 def runMemory {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (quirks : Quirks)
     (cx : LiftLowerContext E) (width : AddrType) :
