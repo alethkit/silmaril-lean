@@ -380,8 +380,9 @@ yet lower a compound containing multiple claims in one call.
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
 including nested futures and streams. Already-built children are not lifted again and create no
-claims. `give` spends a claim only after canonical lowering succeeds; it checks the reference
-endpoint's kind, element type, liveness, idle state and ownership. A tree remains an observation
+claims. `give` checks the reference endpoint's kind, element type, liveness, idle state and
+ownership before spending its claim. Spending precedes the canonical owner update and table
+insertion, which can trap after the owner changes. A tree remains an observation
 after handoff, not a second right to lower it. A verified mixed session lifts a future and a byte
 stream into one tree, transfers them back, completes the future, copies two distinct stream bytes,
 and closes both channels. This gives endpoints individually; it does not lower an entire compound
