@@ -112,10 +112,11 @@ jobs:
           node-version: '24'
       - name: Install Chromium for Playwright
         run: |
-          sudo sh .devcontainer/ubuntu-archive-https.sh
           mkdir -p "$RUNNER_TEMP/pw" && cd "$RUNNER_TEMP/pw"
           npm install --no-save --no-audit --no-fund playwright-core@1.64.1
-          npx playwright-core install --with-deps chromium
+          # ubuntu-24.04 provides Chromium's native libraries; install the pinned browser.
+          # The browser launch and full suites still validate the actual runner environment.
+          npx playwright-core install chromium
       - name: Run the explorer's browser tests
         env:
           PLAYWRIGHT_CORE: ${{ runner.temp }}/pw/node_modules/playwright-core/index.mjs
