@@ -57,3 +57,17 @@ lake env lean -DwarningAsError=true --run tests/formats/DaslMst.lean
 lake build --wfail +Silmaril.Formats.Dasl.Mst.Route.Thms
 lake env lean -DwarningAsError=true --run tests/formats/DaslMstRoute.lean
 ```
+## Sufficient fuel on the selected path
+
+`Reaches` describes requests reached after exact, valid predecessor reads for
+the query key. `PathCovers` requires exact decoding only at those requests;
+it does not require a reader to serve a sibling subtree or any record payload.
+`route_root_complete` proves resolution to the represented map's lookup result
+under binding, sound reads, and path coverage, using fuel of at least the root
+layer plus one. In a valid node a linked gap strictly decreases the layer; at
+layer zero every child link must be absent. The fixture checks path coverage
+for an inline hit even with a missing named sibling in the reference.
+
+Without coverage the prior result-soundness theorem still applies: a missing
+selected child is not a verified absence. This does not construct a canonical
+rooted tree, certify arbitrary raw roots, or implement publication or updates.
