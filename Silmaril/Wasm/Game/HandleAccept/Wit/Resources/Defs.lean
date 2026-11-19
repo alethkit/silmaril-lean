@@ -27,11 +27,8 @@ variable {E : CoreEngine} {World : Type}
 liveness and lending checks of `lift_own` still run. Its early removal and its trapping
 effects belong to the component machine; this is not the Core checked import's preflight. -/
 def take (limits : Component.Limits) (cx : LiftLowerContext E) (resource : RtId)
-    (slot : Nat) : P E World ((WIT.ValType.own (Ref := Empty) resource).Interp treeEnv) := do
-  let entry ← handlesGet cx.inst slot
-  let representation ← liftOwn limits cx resource slot
-  let identity ← expectResource entry
-  return (⟨identity, representation⟩ : Owned resource)
+    (slot : Nat) : P E World ((WIT.ValType.own (Ref := Empty) resource).Interp treeEnv) :=
+  liftOwnWith limits cx resource slot (Owned.mk (resource := resource))
 
 inductive Call where
   | create (resource : RtId) (representation : Nat)
