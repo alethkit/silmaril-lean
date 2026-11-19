@@ -91,6 +91,26 @@ theorem inactive_borrow_rejected :
     checkSchema (.result (some (.own resource)) (some (.list (.borrow resource)))) =
       .error .storedBorrow := rfl
 
+private def otherResource : RtId := ⟨1⟩
+
+private def nominalPayloadType : TypeOf :=
+  .record [("entries", .map .u8 (.own resource)),
+    ("choice", .result (some (.own otherResource)) (some (.own resource)))]
+
+private def nominalPayload : Val :=
+  .record [.list [.record [.int .u8 3, .own 77]], .variant 0 (some (.own 77))]
+
+private def nominalReceipts : List Receipt :=
+  [⟨resource, ⟨⟨4⟩, 77⟩⟩, ⟨otherResource, ⟨⟨9⟩, 77⟩⟩]
+
+theorem equal_rep_receipts_in_nominal_order_are_admitted :
+    (checkValue nominalPayloadType ⟨nominalPayload, nominalReceipts⟩).isOk = true := by decide
+
+theorem equal_rep_receipts_in_wrong_nominal_order_are_refused :
+    (match checkValue nominalPayloadType ⟨nominalPayload, nominalReceipts.reverse⟩ with
+      | .error .incompleteReceipts => true
+      | _ => false) = true := by decide
+
 private def flatInput (lastSlot : Nat) : Input :=
   .flat ([16, 1, 1, lastSlot].map i32Flat)
 

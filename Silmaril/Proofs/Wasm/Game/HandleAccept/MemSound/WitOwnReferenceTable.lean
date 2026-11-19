@@ -122,7 +122,7 @@ private theorem checkedLookup_rep (table : RT) (resource : Nat) (slot : BitVec 3
     · have dead : entry.live = false := Bool.eq_false_of_not_eq_true live
       simp [lookupChecked, found, dead] at checked
 
-private theorem reserve_rep (table : RT) (resource : Nat) (slot : BitVec 32)
+theorem reserve_rep (table : RT) (resource : Nat) (slot : BitVec 32)
     (before after : Nested.Reservations) (rep : Nat)
     (reserved : (Nested.reserve table resource slot).run before = .ok (rep, after)) :
     table.lookup resource slot = some rep := by
@@ -137,17 +137,17 @@ private theorem reserve_rep (table : RT) (resource : Nat) (slot : BitVec 32)
       exact checkedLookup_rep table resource slot rep checked
   · cases reserved
 
-theorem reserve_refines_take (limits : Component.Limits) (cx : LiftLowerContext E) (store : CStore E)
-    (table : RT) (resource : RtId) (slot : BitVec 32) (before after : Nested.Reservations) (rep : Nat)
+theorem lookup_refines_take (limits : Component.Limits) (cx : LiftLowerContext E) (store : CStore E)
+    (table : RT) (resource : RtId) (slot : BitVec 32) (rep : Nat)
     (matched : Matches table store cx.inst)
-    (reserved : (Nested.reserve table resource.idx slot).run before = .ok (rep, after)) :
+    (found : table.lookup resource.idx slot = some rep) :
     ∃ owner : Resources.Owned resource,
       ownerAt store cx.inst resource slot = some owner ∧ owner.representation = rep ∧
       let updated := ArenaField.insts.modify store cx.inst (InstState.removeHandle slot.toNat)
       Stored.Endpoints.Core.runLocal (Resources.take limits cx resource slot.toNat) store = (updated, .ok owner) ∧
       Matches (table.killAll [slot]) updated cx.inst := by
   have projected := (lookup_ownerAt store cx.inst resource slot).symm.trans
-    ((matched resource.idx slot).symm.trans (reserve_rep table resource.idx slot before after rep reserved))
+    ((matched resource.idx slot).symm.trans found)
   cases instanceGet : store.inst? cx.inst with
   | none => simp [ownerAt, atSlot, instanceGet] at projected
   | some state =>
@@ -171,5 +171,17 @@ theorem reserve_refines_take (limits : Component.Limits) (cx : LiftLowerContext 
           rw [take_removes_first limits cx store slot resource state identity handle instanceGet entryGet objectGet]
           simp [checks.1, checks.2.1, checks.2.2]
         · simp at projected
+
+theorem reserve_refines_take (limits : Component.Limits) (cx : LiftLowerContext E) (store : CStore E)
+    (table : RT) (resource : RtId) (slot : BitVec 32) (before after : Nested.Reservations) (rep : Nat)
+    (matched : Matches table store cx.inst)
+    (reserved : (Nested.reserve table resource.idx slot).run before = .ok (rep, after)) :
+    ∃ owner : Resources.Owned resource,
+      ownerAt store cx.inst resource slot = some owner ∧ owner.representation = rep ∧
+      let updated := ArenaField.insts.modify store cx.inst (InstState.removeHandle slot.toNat)
+      Stored.Endpoints.Core.runLocal (Resources.take limits cx resource slot.toNat) store = (updated, .ok owner) ∧
+      Matches (table.killAll [slot]) updated cx.inst :=
+  lookup_refines_take limits cx store table resource slot rep matched
+    (reserve_rep table resource.idx slot before after rep reserved)
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceTable
