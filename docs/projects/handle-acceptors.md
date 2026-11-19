@@ -337,8 +337,13 @@ not a scheduling theorem or a Core adapter.
   directions, including export retries; `Audit.reject_then_invoke` records the rejection
   without changing the reached store or writer. `Replay.audited_accepts_then_traps` checks
   the exact three answered imports in the two-export replay. That proof reads only the written
-  handle bytes, with the rest of memory symbolic. This is a lower bound with a checked negative
-  replay, not the exact checked writer language across arbitrary export sequences.
+  handle bytes, with the rest of memory symbolic. `Own.Session.Replay.Language.Thms` closes the
+  upper bound for this checked example: a Hoare contract fixes the actual node arguments and
+  handle bytes on every reached import, and the checked writer can only build then accept one
+  tree in an arbitrary export prefix. The language is exactly `{res(rep)}` if slot `1` is live
+  at type `0`, and empty if it is absent, dead or of a different type. Live slots elsewhere
+  are unrestricted. This theorem describes the move-only example, not the reference-machine
+  scheduler's accepted language.
 * Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
   exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
   Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
