@@ -24,6 +24,24 @@ bytes present: the two occurrences agree on the object binding. The regression
 also exhibits two algorithm tags sharing one payload in a binding but
 not-`UniqueNames` relation. Neither example assumes anything about real hashes.
 
+`Naming.names` gives the set of names for a payload. `Naming.project` lifts a
+store relation through a deterministic partial decoder. The semantic name-set
+is the union of the name-sets of all representations that decode to the value.
+`Naming.quotient` and the opt-in `Formats.PER.Naming.Thms` specialize this to
+equivalence classes and supported PER classes, respectively. Class name-sets
+do not depend on the chosen representative. An unsupported representation
+contributes no semantic names, but its raw binding still exists. A miss in
+this filtered view therefore does not establish absence from the raw store.
+
+Binding alone gives an `Option` lookup on the semantic relation: look up the
+raw payload, then project it. For two root names to imply semantic disequality,
+the root relation must instead have at most one name per **semantic value**.
+Two raw representations can each have a unique name and still belong to one
+class with two names. `UniqueNames.project` gives a sufficient condition: named
+representations of the same value must coincide, in addition to raw unique
+naming. For a content-addressed tree, the representation includes child names;
+normalizing only key order or tree shape does not establish that condition.
+
 `Partial.ConsistentWith` says the union of the store and observed bindings is
 binding. It allows missing names but rejects incompatible *present* bindings.
 `PartialNames` is stronger: the root and all known witnesses must already be in
@@ -65,8 +83,8 @@ full expansion; possessing only the shallow root is not enough.
   conditions and extend the completion theorem to raw stores retaining malformed
   bindings as invalid, not as fillable missing entries.
 - [ ] **Encodings and bounds:** add first-class total/partial encodings with
-  recovery and bottom-up naming proofs (`UniqueNames` or fixed hash and a
-  deterministic naming graph, not binding alone). Add association-pair and
+  recovery and prove when bottom-up naming (including child names) implies
+  unique root names on semantic values. Add association-pair and
   `{k,v}`-record map encodings, ordering/duplicate checks, and set encoding.
   Prove per-node and total bounds for inline structure, link depth and serialized
   bytes, distinguishing occurrences from distinct CAS names. Any probabilistic
