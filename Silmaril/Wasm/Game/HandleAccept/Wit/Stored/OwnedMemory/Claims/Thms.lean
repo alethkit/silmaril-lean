@@ -17,6 +17,12 @@ theorem register_claims {sig : Signature} {state registered : State sig} {tree :
       registered.endpoints = rootEndpoints tree ++ state.endpoints :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.register_claims success
 
+theorem register_retains_retirement {sig : Signature} {state registered : State sig}
+    {tree : Tree sig} {id : HandleObjId}
+    (success : state.register tree = .ok registered) (retired : state.retiredOwner id) :
+    registered.retiredOwner id :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.register_retains_retirement success retired
+
 theorem prepare_preserves_endpoints {sig : Signature} {state spent : State sig}
     {resource : RtId} {id : HandleObjId} {representation : Nat}
     (success : state.prepare resource id = .ok (representation, spent)) :
@@ -54,6 +60,6 @@ theorem spendEndpoint_preserves_owners {sig : Signature} {state spent : State si
     spent.accepted = state.accepted ∧ spent.held = state.held ∧ id ∉ spent.endpoints := by
   unfold State.spendEndpoint at success
   split at success <;> cases success
-  simp
+  simp [Spend.apply]
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims
