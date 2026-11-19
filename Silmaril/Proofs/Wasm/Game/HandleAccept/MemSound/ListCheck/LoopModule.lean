@@ -16,15 +16,16 @@ open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game
 open Silmaril.Wasm.Game.HandleAccept.Memory (MemAtom)
 
 open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound in
-def preparedShape (prepared : Option (Config Nat × Option FuncIdx)) : Bool :=
+def preparedShape (prepared : Option (Config Nat × Option FuncIdx))
+    (params : List CValType := [.i32]) (locals : List ValType := [.i32, .i32, .i32])
+    (code : List Instr := body) : Bool :=
   match prepared with
   | some (cfg, start) => start.isNone && cfg.code.isEmpty && cfg.frame.module.mems == [0] &&
       exportFuncAddrs cfg.frame.module == [3] && cfg.store.mems.length == 1 &&
       (match cfg.store.funcs with
        | [items, child, accept, check] => stubOk 0 2 items && stubOk 1 2 child && stubOk 2 1 accept &&
-          check.type.expand? == some (Ty.funcOf [.i32] []) &&
-          fnOk [.i32, .i32, .i32] body 1 0 [0, 1, 2, 3] [0]
-            [some (.i32 0), some (.i32 0), some (.i32 0)] check
+          check.type.expand? == some (Ty.funcOf params []) &&
+          fnOk locals code params.length 0 [0, 1, 2, 3] [0] (locals.map fun _ => some (.i32 0)) check
        | _ => false)
   | none => false
 
@@ -41,7 +42,7 @@ open Silmaril.Proofs.Wasm.Game.HandleAccept.Checkers (X.loop)
 open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck
   (ChildKind listReaderLang_subset symTextAns_kind blobAns_kind)
 
-private theorem checkModule_ignore_checked_memories (module_ : Module)
+theorem checkModule_ignore_checked_memories (module_ : Module)
     (checked : ∀ memory ∈ module_.memories, defaultCheckers.mem memory = true) :
     validate? module_ = checkModule? { defaultCheckers with mem := fun _ => true } module_ := by
   have actual : module_.memories.all defaultCheckers.mem = true := List.all_eq_true.mpr checked
@@ -94,6 +95,26 @@ def StoreInv (ix : ListImports) (pages : InitialPages) (store : Store Nat) : Pro
   ∃ cfg start, prep (Loop.mod ix pages) = some (cfg, start) ∧
     store.funcs = cfg.store.funcs ∧ store.mems.length = 1
 
+theorem preparedShape_facts {cfg : Config Nat} {start : Option FuncIdx}
+    {params : List CValType} {locals : List ValType} {code : List Instr}
+    (valid : preparedShape (some (cfg, start)) params locals code = true) :
+    start = none ∧ cfg.code = [] ∧ cfg.frame.module.mems = [0] ∧
+    exportFuncAddrs cfg.frame.module = [3] ∧ cfg.store.mems.length = 1 ∧
+    ∃ items child accept check, cfg.store.funcs = [items, child, accept, check] ∧
+      stubOk 0 2 items = true ∧ stubOk 1 2 child = true ∧ stubOk 2 1 accept = true ∧
+      check.type.expand? = some (Ty.funcOf params []) ∧
+      fnOk locals code params.length 0 [0, 1, 2, 3] [0] (locals.map fun _ => some (.i32 0)) check = true := by
+  simp only [preparedShape, Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none,
+    List.isEmpty_iff] at valid
+  obtain ⟨⟨⟨⟨⟨noStart, noCode⟩, memory⟩, exports⟩, count⟩, funcs⟩ := valid
+  refine ⟨noStart, noCode, memory, exports, count, ?_⟩
+  split at funcs
+  · rename_i items child accept check found
+    simp only [Bool.and_eq_true, beq_iff_eq] at funcs
+    obtain ⟨⟨⟨⟨okItems, okChild⟩, okAccept⟩, type⟩, okCheck⟩ := funcs
+    exact ⟨items, child, accept, check, found, okItems, okChild, okAccept, type, okCheck⟩
+  · cases funcs
+
 theorem shape_facts {ix : ListImports} {pages : InitialPages} (valid : shapeOk ix pages = true)
     {cfg : Config Nat} {start : Option FuncIdx} (prepared : prep (Loop.mod ix pages) = some (cfg, start)) :
     ix.child ≠ ix.items ∧ start = none ∧ cfg.code = [] ∧ cfg.frame.module.mems = [0] ∧
@@ -105,16 +126,9 @@ theorem shape_facts {ix : ListImports} {pages : InitialPages} (valid : shapeOk i
         [some (.i32 0), some (.i32 0), some (.i32 0)] check = true := by
   unfold shapeOk at valid
   rw [prepared] at valid
-  simp only [preparedShape, Bool.and_eq_true, bne_iff_ne, ne_eq, beq_iff_eq, Option.isNone_iff_eq_none,
-    List.isEmpty_iff] at valid
-  obtain ⟨distinct, ⟨⟨⟨⟨⟨noStart, noCode⟩, memory⟩, exports⟩, count⟩, funcs⟩⟩ := valid
-  refine ⟨distinct, noStart, noCode, memory, exports, count, ?_⟩
-  split at funcs
-  · rename_i items child accept check found
-    simp only [Bool.and_eq_true, beq_iff_eq] at funcs
-    obtain ⟨⟨⟨⟨okItems, okChild⟩, okAccept⟩, type⟩, okCheck⟩ := funcs
-    exact ⟨items, child, accept, check, found, okItems, okChild, okAccept, type, okCheck⟩
-  · cases funcs
+  rw [Bool.and_eq_true] at valid
+  obtain ⟨distinct, shape⟩ := valid
+  exact ⟨by simpa using distinct, preparedShape_facts shape⟩
 
 theorem sat (profile : Profile) {ix : ListImports} {pages : InitialPages} (valid : shapeOk ix pages = true)
     {ans : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)} {kind : Set SymStrBytesSExp}
@@ -159,12 +173,13 @@ theorem sat (profile : Profile) {ix : ListImports} {pages : InitialPages} (valid
     rw [locals, defaultLocals]
     rfl
   rw [hasBody]
-  refine X.loop (Inv := Inv kind env root check.module cfg.store.funcs)
-    (fun st frame invariant => round childKind distinct funcs memory
+  refine X.loop (Inv := fun st fr => True ∧ Inv kind env root check.module cfg.store.funcs st fr)
+    (fun st frame invariant => round rfl (fun _ _ reply => ⟨reply, fun _ => trivial⟩)
+      childKind distinct funcs memory
       (by rw [storeFuncs]; rfl) (by rw [storeFuncs]; rfl) (by rw [storeFuncs]; rfl)
-      okItems okChild okAccept invariant (fun st same count f => (exits st
+      okItems okChild okAccept invariant.2 invariant.1 (fun st same count _ f => (exits st
         ⟨cfg, none, prepared, same, count⟩ f).2)) ?_
-  exact ⟨stable store inv, storeMemory, 0, 0, 0, frameEq, by decide,
+  exact ⟨trivial, stable store inv, storeMemory, 0, 0, 0, frameEq, by decide,
     fun children denotes => ⟨denotes, Nat.zero_le _, fun _ _ before => by simp at before⟩⟩
 
 theorem symbols_bounded (profile : Profile) {policy : OnInvalid} (noUB : policy ≠ .ub)
