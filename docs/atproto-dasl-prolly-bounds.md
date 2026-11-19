@@ -1,4 +1,6 @@
-# A probabilistic bound for one Prolly layer
+# Prolly bounds
+
+## One layer
 
 [`chunk_count`](../Silmaril/Semantics/Prolly/Bounds/Thms.lean) charges every
 cut either to a full-width group or to a bucket hit. A possible final chunk
@@ -22,7 +24,25 @@ then `E[chunks] ≤ 1 + (1/w + p) * E[input length]`. The regression exhibits
 unconditional hit probability `1/2` for each key but probability `1` for a
 key selected using the same draw; the unconditional cap is not sufficient.
 
-Neither theorem bounds the height, total number of blocks, or edit cost of
-the whole randomized tree. A whole-tree argument must connect the conditional
-model to the actual sequence of input lists and prove a stopping or summation
-bound for the builder.
+Both theorems are local to one layer.
+
+## Whole-tree bounds
+
+`promotions` projects the actual builder to separator keys. The proofs identify
+the root level with the number of promotions and the unfolded block count with
+one root plus the sum of non-initial frontier sizes. A root-only map, including an
+empty map, emits one block. `frontierAt` pads the trajectory with empty lists
+after its last frontier, so stopped samples pay no later cut cost.
+
+`FrontierCap` conditions on the entire active frontier at each step. For cap
+`p = numerator / denominator`, write `q = 2 / width + p`. If `q < 1` in a
+nonempty uniform experiment, the expected number of non-root block occurrences
+is at most `n * q / (1 - q)` and the depth tail satisfies
+`Pr[depth > t] ≤ n / (width + 1) * q^t`. These are scaled natural inequalities
+in Lean. The extra `1 / width` in `q` pays for the final chunk only on active
+samples; this sufficient condition is not necessary (in particular, it is not
+sharp for small widths).
+
+These are bounds on the existing builder for the stated conditional model, not
+claims that a concrete hash satisfies it. The proof does not bound distinct CID
+bytes, incremental update locality, or expected depth by a closed log formula.
