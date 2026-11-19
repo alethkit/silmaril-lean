@@ -437,6 +437,12 @@ chronological order. The proof preserves the initial accepted trees and includes
 prefixes, instantiation calls, and later exports after a trap. This is a publication trace
 invariant, not a characterization of which payload trees a particular guest can produce.
 
+`Wit.Stored.OwnedMemory.Payload` checks the ordered nominal type and representation at
+every active owner leaf against its receipt, including maps and nested sum arms. Equal
+representations do not make different nominal owners interchangeable. The receipt carries
+the arena identity obtained by canonical lifting; shape validation does not by itself
+authorize another transfer.
+
 The separately linked `Wit.Stored.Endpoints.Core` contract accepts an indirect payload in a
 synchronous atomic `accept-node` import. The canonical load reads the reached Core call's
 memory and resolves endpoints in a persistent reference arena. Schema or ABI rejection leaves
@@ -461,6 +467,16 @@ driver has a relational trace theorem. The same linked scheduler also runs a one
 copy, poll, owner drop, both endpoint drops, and a stale read. The future has its own two-operand
 copy ABI and completion payload, independent of the stream count. Neither replay states an
 exact accepted language for arbitrary exports or replaces the earlier trap-returning ABI.
+
+The mixed owner/endpoint dispatcher `Wit.Stored.OwnedMemory.Claims.Core.Scheduled` records
+each import's signature and arguments under a fresh ticket before dispatch. Status returns and
+typed refusals record the same ticket; an invalid binding records a diagnostic before its
+reference trap. A canonical destructor trap keeps the prior journal and does not manufacture
+a status return. `extends_of_session` proves append-only history for arbitrary ordinary
+reference-machine sessions, and `extends_of_steps` also permits host programs preserving the
+same policy. The reentrant destructor replay checks exact journal order in both successful and
+trapping runs. Journal preservation alone does not prove claim conservation or an exact
+accepted payload language across all scheduled calls.
 
 `Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
 immutable arena object exists in the current reference store. Unlike endpoint handoff, this

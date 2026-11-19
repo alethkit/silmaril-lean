@@ -66,6 +66,12 @@ def State.spendEndpoint {sig : Signature} (state : State sig) (id : EndId) : Exc
 
 variable {E : CoreEngine}
 
+structure Access (E : CoreEngine) (World : Type) (sig : Signature) where
+  read : P E World (State sig)
+  write : State sig → P E World Unit
+
+def Access.direct {sig : Signature} : Access E (State sig) sig := ⟨hostGet, hostSet⟩
+
 /-- The shared canonical loader resolves owners and endpoints in one payload. Whole-schema
 validation precedes lifting; a later trap does not publish any of the incomplete node's claims. -/
 def acceptNode (sig : Signature) (limits : Component.Limits) (quirks : Quirks)
@@ -82,41 +88,57 @@ def acceptNode (sig : Signature) (limits : Component.Limits) (quirks : Quirks)
 
 /-- Use canonical `lower_own` to issue a fresh guest handle. The original claim is spent
 only after insertion succeeds. A canonical trap retains its own effects. -/
-def give {sig : Signature} (limits : Component.Limits) (cx : LiftLowerContext E)
-    (resource : RtId) (id : HandleObjId) : P E (State sig) (Except Issue Nat) := do
-  match (← hostGet).prepare resource id with
+def Access.give {World : Type} {sig : Signature} (access : Access E World sig)
+    (limits : Component.Limits) (cx : LiftLowerContext E) (resource : RtId) (id : HandleObjId) :
+    P E World (Except Issue Nat) := do
+  match (← access.read).prepare resource id with
   | .error issue => return .error issue
   | .ok (representation, spent) =>
     let slot ← lowerOwn limits cx resource representation
-    hostSet spent
+    access.write spent
     return .ok slot
 
 /-- Canonical lower of an endpoint can transfer its owner before a failing table insertion.
 Commit spending before that effect, after validating the arena identity and whole element type. -/
-def giveEndpoint {sig : Signature} (limits : Component.Limits) (cx : LiftLowerContext E)
+def Access.giveEndpoint {World : Type} {sig : Signature} (access : Access E World sig)
+    (limits : Component.Limits) (cx : LiftLowerContext E)
     (channel : Channel) (element : Element) (endpoint : Endpoint (channel.endKind .read) element) :
-    P E (State sig) (Except Issue Nat) := do
-  match (← hostGet).spendEndpoint endpoint.id with
+    P E World (Except Issue Nat) := do
+  match (← access.read).spendEndpoint endpoint.id with
   | .error issue => return .error issue
   | .ok spent =>
     match Async.Transfer.readyToGive (← getStore) channel element endpoint with
     | .error issue => return .error (.endpointTransfer issue)
     | .ok () =>
-      hostSet spent
+      access.write spent
       return .ok (← lowerAsyncValue limits (channel.endKind .read) cx endpoint.id)
 
 /-- Spend the host claim before entering the actual resource destructor, so a trapping
 or reentrant destructor cannot make the same claim available a second time. -/
-def drop {sig : Signature} (destructor : InstId → DtorRequest E → P E (State sig) Unit)
-    (resource : RtId) (id : HandleObjId) : P E (State sig) (Except Issue Unit) := do
-  match (← hostGet).prepare resource id with
+def Access.drop {World : Type} {sig : Signature} (access : Access E World sig)
+    (destructor : InstId → DtorRequest E → P E World Unit) (resource : RtId) (id : HandleObjId) :
+    P E World (Except Issue Unit) := do
+  match (← access.read).prepare resource id with
   | .error issue => return .error issue
   | .ok (representation, spent) =>
     let inst ← Builtins.resourceEnter
     let some request ← dropHandleTail resource { rt := resource, rep := representation, own := true }
       | internal "an owning resource drop must request its destructor"
-    hostSet spent
+    access.write spent
     destructor inst request
     return .ok ()
+
+def give {sig : Signature} (limits : Component.Limits) (cx : LiftLowerContext E)
+    (resource : RtId) (id : HandleObjId) : P E (State sig) (Except Issue Nat) :=
+  Access.direct.give limits cx resource id
+
+def giveEndpoint {sig : Signature} (limits : Component.Limits) (cx : LiftLowerContext E)
+    (channel : Channel) (element : Element) (endpoint : Endpoint (channel.endKind .read) element) :
+    P E (State sig) (Except Issue Nat) :=
+  Access.direct.giveEndpoint limits cx channel element endpoint
+
+def drop {sig : Signature} (destructor : InstId → DtorRequest E → P E (State sig) Unit)
+    (resource : RtId) (id : HandleObjId) : P E (State sig) (Except Issue Unit) :=
+  Access.direct.drop destructor resource id
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims
