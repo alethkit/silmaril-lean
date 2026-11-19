@@ -478,6 +478,13 @@ and the published handle. Both directions preserve all export prefixes, includin
 Core stores and tag traces after rejections and retries. This is a conservative extension
 result for this pair of dispatchers, not yet for the scheduled canonical lifecycle API.
 
+`Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain` joins that correspondence to the
+scheduled memory accept body after the binding check. Its reference steps preserve the
+parked Core continuation and implement the same arena effects, embedded writer and status
+or typed refusal. The receipt-aware journal records successful publication and its return
+separately; a refusal does not publish. This comparison does not yet cover scheduling and
+canonical lifecycle calls around the body, flat bindings, or deferred reply delivery.
+
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
 including nested futures and streams. Already-built children are not lifted again and create no
