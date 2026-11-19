@@ -123,20 +123,6 @@ theorem exists_full_below {root : Name} (accessible : Acc (Depends store) root)
       exact ⟨target, source, read, expanded⟩
   exact descend .refl accessible present
 
-theorem expands_accessible (bound : store.Binding) {source : Shallow Name} {target : Named Name}
-    (expanded : Expands store source target) :
-    ∀ child, Link.obj child ∈ source.directLinks → Acc (Depends store) child := by
-  induction expanded with
-  | obj read _ ih =>
-    intro child linked
-    cases linked
-    refine Acc.intro _ fun next ⟨candidate, found, edge⟩ => ?_
-    exact ih next (bound.1 found read ▸ edge)
-  | dict _ ih | list _ ih =>
-    intro child ⟨index, linked⟩
-    exact ih index child linked
-  | _ => intro _ linked; cases linked
-
 theorem expands_covers {source : Shallow Name} {target : Named Name}
     (expanded : Expands store source target) :
     (∀ child, Link.obj child ∈ source.directLinks → ∃ value, FullNames store child value) ∧
@@ -155,12 +141,36 @@ theorem expands_covers {source : Shallow Name} {target : Named Name}
       fun child ⟨index, hit⟩ => (ih index).2 child hit⟩
   | _ => constructor <;> intro _ linked <;> cases linked
 
+private theorem expanded_dependencies_accessible (bound : store.Binding)
+    {source : Shallow Name} {target : Named Name} (expanded : Expands store source target) :
+    ∀ name, Link.obj name ∈ source.directLinks → Acc (Depends store) name := by
+  induction expanded with
+  | @obj name source target hit _ ih =>
+    intro child linked
+    change Link.obj child = Link.obj name at linked
+    cases linked
+    refine Acc.intro _ ?_
+    rintro descendant ⟨other, stored, edge⟩
+    exact ih descendant (bound.1 stored hit ▸ edge)
+  | blob => intro name linked; cases linked
+  | dict _ ih | list _ ih =>
+    rintro name ⟨index, linked⟩
+    exact ih index name linked
+  | _ => intro name linked; exact linked.elim
+
+theorem full_accessible (bound : store.Binding) {root : Name} {target : Named Name}
+    (full : FullNames store root target) : Acc (Depends store) root := by
+  obtain ⟨source, hit, expanded⟩ := full
+  refine Acc.intro _ ?_
+  rintro name ⟨other, stored, edge⟩
+  exact expanded_dependencies_accessible bound expanded name (bound.1 stored hit ▸ edge)
+
 theorem full_requirements (bound : store.Binding) {root : Name} {target : Named Name}
     (full : FullNames store root target) :
     (∃ source, store.objects root source) ∧ Acc (Depends store) root ∧ ClosedBelow store root := by
+  have accessible := full_accessible bound full
   obtain ⟨source, read, expanded⟩ := full
-  refine ⟨⟨source, read⟩, Acc.intro root (fun child ⟨candidate, found, edge⟩ =>
-    expands_accessible bound expanded child (bound.1 found read ▸ edge)), ?_⟩
+  refine ⟨⟨source, read⟩, accessible, ?_⟩
   have reachableFull {name} (reachable : Reachable store root name) : ∃ value, FullNames store name value := by
     induction reachable with
     | refl => exact ⟨target, source, read, expanded⟩

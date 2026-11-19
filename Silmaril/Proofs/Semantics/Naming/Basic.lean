@@ -45,6 +45,33 @@ theorem lookup_eq_some (bound : Binding rel) {name payload} :
   · rename_i absent
     exact ⟨(fun eq => by cases eq), fun hit => (absent ⟨payload, hit⟩).elim⟩
 
+theorem lookup_project (bound : Binding rel) (decode : Payload → Option Wire) (name : Name) :
+    ∀ projected : Binding (project rel decode),
+      projected.lookup name = (bound.lookup name).bind decode := by
+  intro projected
+  apply Option.ext
+  intro value
+  rw [lookup_eq_some, Option.bind_eq_some_iff]
+  exact exists_congr fun _ => and_congr (lookup_eq_some bound).symm Iff.rfl
+
+theorem mem_names_quotient {equiv : Setoid Payload} {name : Name} {repr : Payload} :
+    name ∈ names (quotient rel equiv) (Quotient.mk equiv repr) ↔
+      ∃ otherRepr, name ∈ names rel otherRepr ∧ equiv.r otherRepr repr := by
+  constructor
+  · rintro ⟨otherRepr, hit, same⟩
+    exact ⟨otherRepr, hit, Quotient.exact (Option.some.inj same)⟩
+  · rintro ⟨otherRepr, hit, equivalent⟩
+    exact ⟨otherRepr, hit, congrArg some (Quotient.sound equivalent)⟩
+
+theorem project_uniqueNames (unique : UniqueNames rel) {decode : Payload → Option Wire}
+    (canonical : ∀ ⦃firstName secondName left right value⦄,
+      rel firstName left → rel secondName right →
+      decode left = some value → decode right = some value → left = right) :
+    UniqueNames (project rel decode) := by
+  rintro value firstName secondName ⟨left, first, leftDecoded⟩ ⟨right, second, rightDecoded⟩
+  have same := canonical first second leftDecoded rightDecoded
+  exact unique first (same ▸ second)
+
 theorem push_binding (bound : Binding rel) {serializes : Payload → Wire → Prop}
     (deterministic : Binding serializes) : Binding (push rel serializes) := by
   rintro name left right ⟨first, firstHit, firstWire⟩ ⟨second, secondHit, secondWire⟩
