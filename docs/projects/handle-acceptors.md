@@ -347,6 +347,12 @@ trees in actual reference-machine runs; a repeated slot traps with no new tree a
 resurrect the slot. The examples do not route Core writer imports into component sessions or
 provide a correspondence for their accepted languages.
 
+`Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
+immutable arena object exists in the current reference store. Unlike endpoint handoff, this
+does not spend a claim. A verified session lifts an `option<error-context>`, drops the original
+slot, rejects a missing identity, then gives the same object twice; dropping the first copy does
+not invalidate the second. This operation does not lower arbitrary compound tree payloads.
+
 ## Checking
 
 ```
