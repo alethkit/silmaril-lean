@@ -372,9 +372,14 @@ not a scheduling theorem or a Core adapter.
   takes the empty vector straight to `accept`, and reloads each repeated handle at its own
   position without retaining memory across child replies. `compact_reply_plan` constructs
   that plan with the checked `items` encoder when the header and vector fit and the child reply
-  bytes keep the same memory size. This lower bound does not establish equality with the
-  general memory32 upper bound or termination under arbitrary replies. The older `symListMod`
-  and `blobListMod` remain two-child examples.
+  bytes keep the same memory size. `checkedPageShape_all` and `checker_instance_pages`
+  prove the checked shape and actual specification instance for every memory32 initial
+  page count, including zero and the address-space maximum, without evaluating memory
+  contents. `byte_reply_accepts_pages` needs only a fitting, correctly denoting byte
+  script, not a separately supplied shape or instance proof. The two-page run writes
+  a 65,537-byte reply into its actual memory. This lower bound does not establish
+  equality with the general memory32 upper bound, guest growth, or termination under
+  arbitrary replies. The older `symListMod` and `blobListMod` remain two-child examples.
 * Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
   `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
   bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness
