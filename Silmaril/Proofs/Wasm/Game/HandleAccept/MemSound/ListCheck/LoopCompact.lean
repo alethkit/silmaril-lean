@@ -22,19 +22,33 @@ open Silmaril.Wasm.Game.HandleAccept.Memory (MemAtom utf8?)
 open Silmaril.Wasm.Numerics Silmaril.Accept.Handle Silmaril.Formats Silmaril.Wasm.Validation
 open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound (setMem_mems memOf_setMem)
 
-theorem checker_instance (checker : Checker) :
-    ∃ mt instance_ initial, IsSpecInstance (Loop.mod checker.imports) mt instance_ initial ∧
-      ReplySpace 65536 initial.store := by
-  have valid : (Silmaril.Wasm.Verify.specInstance? (Loop.mod checker.imports)).isSome = true := by
-    cases checker <;> decide +kernel
-  have page : Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.memSizes (Loop.mod checker.imports) =
-      [65536] := by
-    cases checker <;> decide +kernel
+open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound (prep)
+
+theorem checker_instance_pages (checker : Checker) (pages : InitialPages) :
+    ∃ mt instance_ initial, IsSpecInstance (Loop.mod checker.imports pages) mt instance_ initial ∧
+      ReplySpace (pages.val * 65536) initial.store := by
+  have valid : (Silmaril.Wasm.Verify.specInstance? (Loop.mod checker.imports pages)).isSome = true := by
+    unfold Silmaril.Wasm.Verify.specInstance?
+    rw [LoopSound.validate_shape]
+    rfl
+  have page : Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.memSizes (Loop.mod checker.imports pages) =
+      [pages.val * 65536] := by
+    simp only [Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.memSizes, prep,
+      LoopSound.validate_shape, Option.bind_some]
+    change [(Array.replicate (pages.val * 65536) (0 : UInt8)).size] = [pages.val * 65536]
+    rw [Array.size_replicate]
   obtain ⟨mt, instance_, initial, spec⟩ := Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.spec_exists valid
   obtain ⟨cfg, start, prepared, rfl, _, _⟩ :=
     Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.prep_of_spec spec
-  have space := Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.one_page page prepared
+  unfold Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.memSizes at page
+  rw [prepared] at page
+  have space : ReplySpace (pages.val * 65536) cfg.store := by simpa [ReplySpace] using page
   exact ⟨mt, instance_, cfg.withStart start, spec, by cases start <;> exact space⟩
+
+theorem checker_instance (checker : Checker) :
+    ∃ mt instance_ initial, IsSpecInstance (Loop.mod checker.imports) mt instance_ initial ∧
+      ReplySpace 65536 initial.store :=
+  checker_instance_pages checker InitialPages.one
 
 theorem script_admitted {handles : List (BitVec 32)}
     {encodeChild : ByteArray → BitVec 32 → Except ReplyIssue ByteArray}
@@ -133,17 +147,23 @@ theorem bytes_accepts_pages {profile : Profile} (checker : Checker) {pages : Ini
 theorem checker_instance_two (checker : Checker) :
     ∃ mt instance_ initial, IsSpecInstance (Loop.mod checker.imports ⟨2, by decide⟩) mt instance_ initial ∧
       ReplySpace 131072 initial.store := by
-  have valid : (Silmaril.Wasm.Verify.specInstance? (Loop.mod checker.imports ⟨2, by decide⟩)).isSome = true := by
-    cases checker <;> decide +kernel
-  have page : Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.memSizes
-      (Loop.mod checker.imports ⟨2, by decide⟩) = [131072] := by
-    cases checker <;> decide +kernel
-  obtain ⟨mt, instance_, initial, spec⟩ := Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.spec_exists valid
-  obtain ⟨cfg, start, prepared, rfl, _, _⟩ :=
-    Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.prep_of_spec spec
-  unfold Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.memSizes at page
-  rw [prepared] at page
-  have space : ReplySpace 131072 cfg.store := by simpa [ReplySpace] using page
-  exact ⟨mt, instance_, cfg.withStart start, spec, by cases start <;> exact space⟩
+  have size : (⟨2, by decide⟩ : InitialPages).val * 65536 = 131072 := rfl
+  simpa only [size] using checker_instance_pages checker ⟨2, by decide⟩
+
+theorem bytes_accepts_initial {profile : Profile} (checker : Checker) (pages : InitialPages)
+    (policy : OnInvalid) {Rhos : Set (Env (BitVec 32) SymStrBytesSExp)}
+    {rho : Env (BitVec 32) SymStrBytesSExp} (allowed : rho ∈ Rhos) {root : BitVec 32}
+    {handles : List (BitVec 32)} (fits : 8 + 4 * handles.length ≤ pages.val * 65536)
+    (raw : BitVec 32 → List UInt8) (space : ∀ handle ∈ handles, 8 + (raw handle).length ≤ pages.val * 65536)
+    {children : List SymStrBytesSExp} (rootDenotes : rho root = some (SExp.ofList children))
+    (denotes : List.Forall₂ (fun handle child => rho handle = some child) handles children)
+    (atoms : ∀ handle ∈ handles, ∃ atom,
+      checker.decodeBytes (raw handle) = some atom ∧ rho handle = some (.atom atom)) :
+    SExp.ofList children ∈ listReaderLang profile (ReplyEnvs itemsReply) 0 (Loop.mod checker.imports pages)
+      checker.imports checker.decodeChild .trap policy Rhos := by
+  obtain ⟨_, _, _, spec, ready⟩ := checker_instance_pages checker pages
+  have shape := (LoopSound.shape_pages checker.imports pages InitialPages.one).trans (checker_shape checker)
+  have width : pages.val * 65536 ≤ 2 ^ 32 := Nat.mul_le_mul_right 65536 pages.property
+  exact bytes_accepts_pages checker shape spec width ready policy allowed fits raw space rootDenotes denotes atoms
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun

@@ -54,7 +54,11 @@ private theorem loadedWord {mem : ByteArray} {addr : Nat} {actual : BitVec 32}
   obtain rfl := Option.some.inj (loaded.symm.trans (load_eq bound))
   simp
 
-theorem round {P : Profile} {ix : ListImports}
+theorem round {P : Profile} {ix : ListImports} {module_ : Module}
+    (imports : module_.imports = (Loop.mod ix).imports)
+    {reply : UCall Nat → UReply → Prop} {Stable : Store Nat → Prop}
+    (replyOK : ∀ call answer, reply call answer →
+      itemsReply call answer ∧ (Stable call.store → Stable answer.store))
     {ans : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)} {kind : Set SymStrBytesSExp}
     (childKind : ChildKind ans kind) (distinct : ix.child ≠ ix.items)
     {env : Env (BitVec 32) SymStrBytesSExp} {root : BitVec 32}
@@ -64,28 +68,32 @@ theorem round {P : Profile} {ix : ListImports}
     (atAccept : funcs[2]? = some accept) (stubItems : stubOk 0 2 items = true)
     (stubChild : stubOk 1 2 child = true) (stubAccept : stubOk 2 1 accept = true)
     {store : Store Nat} {frame : Frame} (initial : Inv kind env root inst funcs store frame)
-    {Q : Post Nat} (exits : ∀ st : Store Nat, st.funcs = funcs → st.mems.length = 1 → Leaves Q st) :
-    HWP P (memHost (Loop.mod ix) (some 0) (listRoles ix ans) (Contract ix kind env)) store frame
+    (entryStable : Stable store) {Q : Post Nat}
+    (exits : ∀ st : Store Nat, st.funcs = funcs → st.mems.length = 1 → Stable st → Leaves Q st) :
+    HWP P (memHost module_ (some 0) (listRoles ix ans)
+      (readerContract ix.toRead env (boundedListsOf kind) reply)) store frame
       (vals [] ++ expression iteration)
-      (loopPost 0 [] (fun st fr stack => stack = [] ∧ Inv kind env root inst funcs st fr) Q) := by
+      (loopPost 0 [] (fun st fr stack => stack = [] ∧ Stable st ∧ Inv kind env root inst funcs st fr) Q) := by
   obtain ⟨entryFuncs, entryMems, index, oldBase, oldOffset, rfl, bounded, invariant⟩ := initial
   obtain ⟨_, _, itemsCode, itemsType, itemsCount⟩ := stubOk_spec stubItems
   obtain ⟨_, _, childCode, childType, childCount⟩ := stubOk_spec stubChild
   obtain ⟨_, _, acceptCode, acceptType, acceptCount⟩ := stubOk_spec stubAccept
-  let post := loopPost 0 [] (fun st fr stack => stack = [] ∧ Inv kind env root inst funcs st fr) Q
-  have leave : ∀ st : Store Nat, st.funcs = funcs → st.mems.length = 1 → Leaves post st :=
-    fun st hfs hms => (exits st hfs hms).loop
+  let post := loopPost 0 [] (fun st fr stack => stack = [] ∧ Stable st ∧ Inv kind env root inst funcs st fr) Q
+  have leave : ∀ st : Store Nat, st.funcs = funcs → st.mems.length = 1 → Stable st → Leaves post st :=
+    fun st hfs hms stable => (exits st hfs hms stable).loop
   unfold iteration
   refine X.localGet (v := .i32 root) rfl ?_
   refine X.i32Const (us := [] ++ [.i32 root]) ?_
   refine hwp_call (us := []) (args := [.i32 root, .i32 0]) (x := ⟨0⟩) (k := 0)
     (fk := items) (i := ⟨ix.items.1, ix.items.2, .func ⟨0⟩⟩) (by rw [hFuncs]; rfl)
-    (by rw [entryFuncs]; exact atItems) itemsCode itemsType (by simp [itemsCount]) rfl
+    (by rw [entryFuncs]; exact atItems) itemsCode itemsType (by simp [itemsCount]) (by rw [imports]; rfl)
     (fun _ read => absurd read (readAccept_two rfl)) ?_
-  rintro readStore reply ⟨⟨readFuncs, readMems⟩, readShape⟩ readOK
+  intro readStore readResult readReply readOK
+  obtain ⟨⟨⟨readFuncs, readMems⟩, readShape⟩, readStable⟩ := replyOK _ _ readReply
   have readFuncs' := readFuncs.trans entryFuncs
   have readMems' := readMems.trans entryMems
-  have readLeaves := leave readStore readFuncs' readMems'
+  have readStable' := readStable entryStable
+  have readLeaves := leave readStore readFuncs' readMems' readStable'
   refine ⟨fun result values => ?_, fun _ => (readLeaves _).2.1,
     fun error _ => (readLeaves _).2.2 error⟩
   obtain rfl := readShape result values
@@ -111,7 +119,8 @@ theorem round {P : Profile} {ix : ListImports}
     refine X.localGet (v := .i32 root) rfl ?_
     refine hwp_call (us := []) (args := [.i32 root]) (x := ⟨2⟩) (k := 2)
       (fk := accept) (i := ⟨ix.accept.1, ix.accept.2, .func ⟨1⟩⟩) (by rw [hFuncs]; rfl)
-      (by rw [readFuncs']; exact atAccept) acceptCode acceptType (by simp [acceptCount]) rfl ?_ ?_
+      (by rw [readFuncs']; exact atAccept) acceptCode acceptType (by simp [acceptCount])
+      (by rw [imports]; rfl) ?_ ?_
     · intro handle decoded tree found
       have sameHandle : handle = root := i32_inj (readAccept_inv' rfl decoded)
       subst handle
@@ -120,8 +129,10 @@ theorem round {P : Profile} {ix : ListImports}
       obtain ⟨position, atPosition⟩ := List.mem_iff_getElem?.mp member
       obtain ⟨within, rfl⟩ := List.getElem?_eq_some_iff.mp atPosition
       exact checked.2.2 position within (complete.symm ▸ within)
-    rintro final result ⟨⟨finalFuncs, finalMems⟩, finalShape⟩ -
+    intro final result finalReply _
+    obtain ⟨⟨⟨finalFuncs, finalMems⟩, finalShape⟩, finalStable⟩ := replyOK _ _ finalReply
     have finalLeaves := leave final (finalFuncs.trans readFuncs') (finalMems.trans readMems')
+      (finalStable readStable')
     refine ⟨fun vals returned => ?_, fun _ => (finalLeaves _).2.1,
       fun error _ => (finalLeaves _).2.2 error⟩
     obtain rfl := finalShape vals returned
@@ -190,22 +201,24 @@ theorem round {P : Profile} {ix : ListImports}
     refine hwp_call (us := []) (args := [.i32 handles[index.toNat], .i32 0]) (x := ⟨1⟩) (k := 1)
       (fk := child) (i := ⟨ix.child.1, ix.child.2, .func ⟨0⟩⟩)
       (by change inst.funcs[1]? = some 1; rw [hFuncs]; rfl)
-      (by rw [readFuncs']; exact atChild) childCode childType (by simp [childCount]) rfl
+      (by rw [readFuncs']; exact atChild) childCode childType (by simp [childCount]) (by rw [imports]; rfl)
       (fun _ decoded => absurd decoded (readAccept_two rfl)) ?_
-    rintro next result ⟨⟨nextFuncs, nextMems⟩, nextShape⟩ replyOK
+    intro next result nextReply childOK
+    obtain ⟨⟨⟨nextFuncs, nextMems⟩, nextShape⟩, nextStable⟩ := replyOK _ _ nextReply
     have nextFuncs' := nextFuncs.trans readFuncs'
     have nextMems' := nextMems.trans readMems'
-    have nextLeaves := leave next nextFuncs' nextMems'
+    have nextStable' := nextStable readStable'
+    have nextLeaves := leave next nextFuncs' nextMems' nextStable'
     refine ⟨fun res returned => ?_, fun _ => (nextLeaves _).2.1, fun error _ => (nextLeaves _).2.2 error⟩
     obtain rfl := nextShape res returned
     subst returned
     have checkedMore := advance_prefix checked before (handleAt index.toNat within before)
-      (list_child_ans (s := readStore) childKind distinct replyOK)
+      (list_child_ans (s := readStore) childKind distinct childOK)
     refine X.localGet (v := .i32 index) rfl ?_
     refine X.i32Const (us := [] ++ [.i32 index]) ?_
     refine X.add32 (us := []) ?_
     refine X.localSet (x := ⟨1⟩) (by change 1 < 4; decide) ?_
-    refine X.br0 ⟨[], [], rfl, rfl, rfl, nextFuncs', nextMems', _, _, _, rfl, ?_⟩
+    refine X.br0 ⟨[], [], rfl, rfl, rfl, nextStable', nextFuncs', nextMems', _, _, _, rfl, ?_⟩
     refine ⟨?_, ?_⟩
     · change (index + (1 : BitVec 32)).toNat ≤ 2 ^ 30
       rw [next_index guarded]

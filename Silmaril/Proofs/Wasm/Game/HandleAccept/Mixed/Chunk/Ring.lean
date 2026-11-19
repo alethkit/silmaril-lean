@@ -78,7 +78,7 @@ theorem RI_eq : RI cap = Verify.instOf (chunkRingN cap) := by
 
 /-- The exported functions. -/
 abbrev ringFnsWith (preludeCode : List Instr) : List (List ValType × List Instr × List (Option Val)) :=
-  [([], preludeCode ++ ringFeedBody cap, []),
+  [([], ringFeedWith cap preludeCode, []),
     ([.i32, .i32], ringFinBody cap, [some (.i32 0), some (.i32 0)])]
 
 abbrev ringFns := ringFnsWith cap []
@@ -171,7 +171,7 @@ theorem ring_code5 : ((Verify.instOf (chunkRingN cap)).store.funcs[5]?).map Func
 private theorem ring_shape_of {I : ScalarInstance} {preludeCode : List Instr}
     (shape : mshapeOkNB I twoFTs chunkFTs (ringFnsWith cap preludeCode) [0, 1] = true)
     (feed : (I.store.funcs[4]?).map FuncInst.code =
-      some (.wasm ⟨⟨4⟩, [], preludeCode ++ ringFeedBody cap⟩))
+      some (.wasm ⟨⟨4⟩, [], ringFeedWith cap preludeCode⟩))
     (finish : (I.store.funcs[5]?).map FuncInst.code =
       some (.wasm ⟨⟨5⟩, [.i32, .i32], ringFinBody cap⟩)) :
     MShape I twoFTs chunkFTs (ringFnsWith cap preludeCode) [0, 1] := by
@@ -594,9 +594,9 @@ private theorem ringSat {I : ScalarInstance} {cap : Nat} {preludeCode : List Ins
     (mem5 : (I.store.funcs[5]?).map (·.module.mems) = some [0])
     (prepare : ∀ {s : Store Nat} {g st cnt f Q}, RingRep cap g s st cnt → f.module.mems = [0] →
       (∀ current, current.funcs = s.funcs → RingRep cap g current st cnt →
-        HWP P (gameHost I (WSpec I ρ Set.univ)) current f (vals [] ++ expression (ringFeedBody cap)) Q) →
+        HWP P (gameHost I (WSpec I ρ Set.univ)) current f (vals [] ++ expression (ringWriteBody cap)) Q) →
       (∀ current, current.funcs = s.funcs → RingRep cap g current st cnt → Q current f .trap) →
-      HWP P (gameHost I (WSpec I ρ Set.univ)) s f (vals [] ++ expression (preludeCode ++ ringFeedBody cap)) Q) :
+      HWP P (gameHost I (WSpec I ρ Set.univ)) s f (vals [] ++ expression (preludeCode ++ ringWriteBody cap)) Q) :
     SGameSat P I (WSpec I ρ Set.univ) (chunkSSpec ringPix ppol ρ takeR (ringInvFor I cap)) := by
   refine sgameSat_ofM hS (fun g s h => h.1) (fun g g' s h h' => ringInv_uniq h h')
     (fun g e v hv => ⟨fun e' hd => by simp [parseDec, hv] at hd, by
@@ -620,20 +620,21 @@ private theorem ringSat {I : ScalarInstance} {cap : Nat} {preludeCode : List Ins
       rcases ht' with _ | ⟨⟨x, rfl⟩, hnil⟩
       cases hnil
       exact ⟨x, rfl⟩
-    show HWP P _ s ⟨[some (.i64 x)], fi.module⟩ (vals [] ++ expression (preludeCode ++ ringFeedBody cap)) Q
-    refine prepare hrep hFm (fun s eqFuncs rep => ?_)
-      (fun current eqFuncs rep => (hT current ⟨eqFuncs.trans hfs, st, cnt, rep⟩ _).1)
-    have hfsCurrent := eqFuncs.trans hfs
-    clear hrep eqFuncs hfs
-    have hinv : ringInvFor I cap g s := ⟨hfsCurrent, st, cnt, rep⟩
-    obtain ⟨h0, h1, hst, hcg, hgc, hml, hwidth, hld⟩ := rep
-    simp only [ringFeedBody, ringGuard, slotAddr, List.cons_append, List.nil_append]
-    refine X.globalGet (us := []) (x := ⟨1⟩) (a := 1) (by rw [hmg]; rfl) h1 ?_
+    show HWP P _ s ⟨[some (.i64 x)], fi.module⟩ (vals [] ++ expression (ringFeedWith cap preludeCode)) Q
+    simp only [ringFeedWith, ringGuard, List.cons_append, List.nil_append]
+    refine X.globalGet (us := []) (x := ⟨1⟩) (a := 1) (by rw [hmg]; rfl) hrep.2.1 ?_
     refine X.i32Const (us := [] ++ [.i32 cnt]) ?_
     refine X.rel32 (us := []) ?_
     refine X.if_ (us := []) (fun _ => ?_) (fun hc => ?_)
-    · exact Wp.unreachable (m := .part) (hT s hinv _).1
+    · exact Wp.unreachable (m := .part) (hT s ⟨hfs, st, cnt, hrep⟩ _).1
     · have hc8 := rel_eq_z hc
+      refine prepare hrep hFm (fun s eqFuncs rep => ?_)
+        (fun current eqFuncs rep => (hT current ⟨eqFuncs.trans hfs, st, cnt, rep⟩ _).1)
+      have hfsCurrent := eqFuncs.trans hfs
+      clear hrep eqFuncs hfs
+      have hinv : ringInvFor I cap g s := ⟨hfsCurrent, st, cnt, rep⟩
+      obtain ⟨h0, h1, hst, hcg, hgc, hml, hwidth, hld⟩ := rep
+      simp only [ringWriteBody, slotAddr, List.cons_append, List.nil_append]
       have hlt : cnt.toNat < cap := by
         have : cnt.toNat ≠ cap := fun h =>
           hc8 (BitVec.eq_of_toNat_eq (by rw [h, capW_toNat hcap.2]))
