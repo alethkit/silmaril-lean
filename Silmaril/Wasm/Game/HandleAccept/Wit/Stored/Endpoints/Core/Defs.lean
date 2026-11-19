@@ -14,6 +14,7 @@ open Silmaril.Formats Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Compon
 open Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst
   (NodeIssue NodeMode NodeArgs checkNodeMode checkedCallout nodeOperands requireSome)
 open Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session (LinkIssue)
+open Silmaril.Wasm.Game.Accept (Callout)
 
 /-- Node loading does not invoke guest code or suspend the caller. Reject any operation
 outside the supported call-local interpreter rather than dropping it from the trace. -/
@@ -95,6 +96,18 @@ def childFromHistory {Value : Type} (history : List Value) (handle : BitVec 32) 
 def childAt (state : Endpoints.State sig) (handle : BitVec 32) : Option (Tree sig) :=
   childFromHistory state.accepted handle
 
+def checkChildren (sig : Signature) (tag : sig.Tag) (historyLength childrenPtr count : Nat) : Except Issue Unit := do
+  if !(sig.arity tag).Admits count then throw (.boundary .badArity)
+  if childrenPtr % 4 ≠ 0 then throw (.boundary .unalignedChildren)
+  if 4 * count > Component.Limits.spec.maxListBytes then throw (.boundary .childrenTooLong)
+  if historyLength + 1 ≥ 2 ^ 32 then throw .exhaustedHandles
+
+def decodeChildren {Value : Type} (observed : Callout) (history : List Value)
+    (childrenPtr count : Nat) : Except Issue (List Value) := do
+  let bytes ← requireSome (.boundary .childrenOutOfBounds) (observed.segment childrenPtr (4 * count))
+  let handles ← requireSome (.boundary .badChildren) (le32s bytes)
+  handles.mapM fun handle => requireSome (.invalidChild handle) (childFromHistory history handle)
+
 /-- Shared argument checks after dispatch validates the target. The carrier supplies
 its whole-schema check, not the guest. -/
 def Contract.preflightOperands {Value : Type} (contract : Contract sig) (check : TypeOf → Except Stored.Issue Unit)
@@ -107,16 +120,11 @@ def Contract.preflightOperands {Value : Type} (contract : Contract sig) (check :
     requireSome (.boundary .badArguments) (nodeOperands contract.mode.address observed.args)
   let tag ← requireSome (.boundary (.unknownTag rawTag)) (contract.tagOf rawTag)
   (check (sig.payload tag)).mapError (Issue.stored ∘ Endpoints.Issue.lift)
-  if !(sig.arity tag).Admits count then throw (.boundary .badArity)
-  if childrenPtr % 4 ≠ 0 then throw (.boundary .unalignedChildren)
-  if 4 * count > Component.Limits.spec.maxListBytes then throw (.boundary .childrenTooLong)
-  if history.length + 1 ≥ 2 ^ 32 then throw .exhaustedHandles
+  checkChildren sig tag history.length childrenPtr count
   let layout := ABI.layout contract.mode.address (sig.payload tag)
   if payload % layout.alignment.bytes ≠ 0 then throw (.boundary .unalignedPayload)
   let _ ← requireSome (.boundary .payloadOutOfBounds) (observed.segment payload layout.size)
-  let bytes ← requireSome (.boundary .childrenOutOfBounds) (observed.segment childrenPtr (4 * count))
-  let handles ← requireSome (.boundary .badChildren) (le32s bytes)
-  let children ← handles.mapM fun handle => requireSome (.invalidChild handle) (childFromHistory history handle)
+  let children ← decodeChildren observed history childrenPtr count
   return (⟨tag, payload, childrenPtr, count⟩, children)
 
 def Contract.preflight (contract : Contract sig) (memory : Option Nat) (writer : Endpoints.State sig)

@@ -10,7 +10,7 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core
 open Silmaril.Wasm Silmaril.Wasm.Game Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
   Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Execution.Core
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core (Contract runLocal)
-open Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst (NodeArgs)
+open Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst (NodeArgs checkedCallout)
 
 inductive Issue where
   | boundary (issue : Endpoints.Core.Issue)
@@ -41,6 +41,47 @@ def load (contract : Contract sig) (memory : Option Nat) (state : World grow sig
       (OwnedMemory.buildNode sig Component.Limits.spec Quirks.none cx args.tag (.memory args.payload) children) live
     ({ after with core := state.reference.core },
       (result.mapError .localEffect).bind fun lifted => lifted.mapError (Issue.claims ∘ Claims.Issue.lift))
+
+/-- A fixed tag selects the flat WIT schema. Child handles and indirect list/string
+contents are still read from the linked memory. This import does not suspend the caller. -/
+structure FlatSource (sig : Signature) where
+  name : String × String
+  inst : InstId
+  memory : Nat
+  width : AddrType
+  encoding : ABI.StringEncoding
+  tag : sig.Tag
+
+def checkFlatSchema (payload : Stored.TypeOf) : Except Issue Unit :=
+  (OwnedMemory.checkSchema payload).mapError (.claims ∘ .lift ∘ .schema)
+
+def FlatSource.preflight (source : FlatSource sig) (state : World grow sig) (args : List FlatValue) :
+    Except Issue (List FlatValue × List (Tree sig)) := do
+  checkFlatSchema (sig.payload source.tag)
+  let call : UCall Nat := ⟨0, { mems := state.reference.core.mems }, []⟩
+  let observed ← (checkedCallout source.name source.memory call source.width).mapError (.boundary ∘ .boundary)
+  let pointer :: count :: payload := args | throw (.boundary (.boundary .badArguments))
+  let word := ABI.pointerType source.width
+  if Stored.flatType pointer != word || Stored.flatType count != word then
+    throw (.boundary (.boundary .badArguments))
+  if payload.map Stored.flatType != ABI.flatten source.width (sig.payload source.tag) then
+    throw (.claims (.lift (.schema .flatTypes)))
+  (Endpoints.Core.checkChildren sig source.tag state.writer.accepted.length (flatNat pointer)
+    (flatNat count)).mapError .boundary
+  let children ← (Endpoints.Core.decodeChildren observed state.writer.accepted (flatNat pointer)
+    (flatNat count)).mapError .boundary
+  return (payload, children)
+
+def FlatSource.load (source : FlatSource sig) (state : World grow sig) (args : List FlatValue) :
+    CStore (core3 grow) × Except Issue (Tree sig) :=
+  match source.preflight state args with
+  | .error issue => (state.reference, .error issue)
+  | .ok (payload, children) =>
+    let cx : LiftLowerContext (core3 grow) :=
+      { opts := { memory := some source.memory, encoding := source.encoding }, inst := source.inst }
+    let (after, result) := runLocal
+      (OwnedMemory.buildNode sig Component.Limits.spec Quirks.none cx source.tag (.flat payload) children) state.reference
+    (after, (result.mapError .localEffect).bind fun lifted => lifted.mapError (Issue.claims ∘ Claims.Issue.lift))
 
 /-- Receipt-aware atomic `accept-node`. A load trap preserves canonical table effects,
 but no rejected call can publish a tree or either class of claim. -/
