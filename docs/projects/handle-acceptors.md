@@ -399,6 +399,12 @@ borrow, accepts an owner and stream in one root, traps after moving both in a la
 accepts a fresh root in a subsequent export. The `accept-node` contract does not yet expose
 mixed handoff or scheduled lifecycle imports.
 
+The publication theorem in `Wit.Stored.OwnedMemory.Claims.Core.Trace` uses the same session
+invariant as the endpoint-only contract. Across all permitted export sequences and prefixes,
+successful replies are exactly the chronological handles of newly published roots. Rejections
+never contribute a handle, including in an invocation that traps before a later successful
+export. This identifies publication history, not a particular guest's exact payload language.
+
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
 including nested futures and streams. Already-built children are not lifted again and create no

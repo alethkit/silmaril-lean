@@ -9,6 +9,16 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core.Trace
 
 open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game Silmaril.Wasm.Game.IOAccept
 
+theorem rootHistory_of_session {Root : Type} {env : SEnv UImp} (roots : env.S → List Root)
+    {profile : Numerics.Profile} {module_ : Module} {memory : Option Nat} {state : env.S}
+    {start : Config Nat} {addrs : List Nat} {phase : Phase} {pending : Bool}
+    {current : Config Nat × env.S} {tags : List CommitTag}
+    (effect : ∀ prior call reply next, env.Ans prior call reply next →
+      Publishes module_ call.target reply (roots prior) (roots next))
+    (session : TSession profile env module_ memory roles start state addrs phase pending current tags) :
+    RootHistory (roots state) (roots current.2) tags :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core.Trace.rootHistory_of_session roots effect session
+
 /-- Across arbitrary permitted export sequences and finite prefixes, the observed
 successful replies are exactly the handles of the newly published trees, in order.
 The theorem includes instantiation calls and sessions that continue after a trap. -/
