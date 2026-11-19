@@ -87,32 +87,42 @@ def Contract.link (contract : Contract sig) (module_ : Module) (instanceInfo : S
     throw (.wrongType contract.code contract.importType)
   return initial.frame.module.mems[memoryIndex]?
 
-def childAt (state : Endpoints.State sig) (handle : BitVec 32) : Option (Tree sig) := do
+def childFromHistory {Value : Type} (history : List Value) (handle : BitVec 32) : Option Value := do
   let index := handle.toNat
-  guard (0 < index && index ≤ state.accepted.length)
-  state.accepted[state.accepted.length - index]?
+  guard (0 < index && index ≤ history.length)
+  history[history.length - index]?
 
-def Contract.preflight (contract : Contract sig) (memory : Option Nat) (writer : Endpoints.State sig)
-    (call : UCall Nat) : Except Issue (NodeArgs sig.Tag × List (Tree sig)) := do
-  if call.target != contract.code then throw (.unexpectedImport call.target)
+def childAt (state : Endpoints.State sig) (handle : BitVec 32) : Option (Tree sig) :=
+  childFromHistory state.accepted handle
+
+/-- Shared argument checks after dispatch validates the target. The carrier supplies
+its whole-schema check, not the guest. -/
+def Contract.preflightOperands {Value : Type} (contract : Contract sig) (check : TypeOf → Except Stored.Issue Unit)
+    (memory : Option Nat) (history : List Value) (call : UCall Nat) :
+    Except Issue (NodeArgs sig.Tag × List Value) := do
   (checkNodeMode contract.mode).mapError .boundary
   let memory ← requireSome (.boundary .missingMemory) memory
   let observed ← (checkedCallout contract.name memory call contract.mode.address).mapError .boundary
   let (rawTag, payload, childrenPtr, count) ←
     requireSome (.boundary .badArguments) (nodeOperands contract.mode.address observed.args)
   let tag ← requireSome (.boundary (.unknownTag rawTag)) (contract.tagOf rawTag)
-  (checkSchema (sig.payload tag)).mapError (Issue.stored ∘ Endpoints.Issue.lift)
+  (check (sig.payload tag)).mapError (Issue.stored ∘ Endpoints.Issue.lift)
   if !(sig.arity tag).Admits count then throw (.boundary .badArity)
   if childrenPtr % 4 ≠ 0 then throw (.boundary .unalignedChildren)
   if 4 * count > Component.Limits.spec.maxListBytes then throw (.boundary .childrenTooLong)
-  if writer.accepted.length + 1 ≥ 2 ^ 32 then throw .exhaustedHandles
+  if history.length + 1 ≥ 2 ^ 32 then throw .exhaustedHandles
   let layout := ABI.layout contract.mode.address (sig.payload tag)
   if payload % layout.alignment.bytes ≠ 0 then throw (.boundary .unalignedPayload)
   let _ ← requireSome (.boundary .payloadOutOfBounds) (observed.segment payload layout.size)
   let bytes ← requireSome (.boundary .childrenOutOfBounds) (observed.segment childrenPtr (4 * count))
   let handles ← requireSome (.boundary .badChildren) (le32s bytes)
-  let children ← handles.mapM fun handle => requireSome (.invalidChild handle) (childAt writer handle)
+  let children ← handles.mapM fun handle => requireSome (.invalidChild handle) (childFromHistory history handle)
   return (⟨tag, payload, childrenPtr, count⟩, children)
+
+def Contract.preflight (contract : Contract sig) (memory : Option Nat) (writer : Endpoints.State sig)
+    (call : UCall Nat) : Except Issue (NodeArgs sig.Tag × List (Tree sig)) := do
+  if call.target != contract.code then throw (.unexpectedImport call.target)
+  contract.preflightOperands checkSchema memory writer.accepted call
 
 /-- Lift using the call's linear memory and persisted component arena. The temporary
 Core projection supplies memory only: the reference node load cannot call into it. -/

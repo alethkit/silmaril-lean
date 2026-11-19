@@ -381,8 +381,15 @@ issued handle object creates a fresh claim, not another claim on the earlier han
 A mixed record replay lifts an owner and a stream from memory and gives each back once after
 wrong-type refusals. A late flat-lift trap retains both successful removals but publishes
 neither claim nor a tree. The full schema still rejects stored borrows before lifting. This is
-a reference host session, not a checked Core import adapter, and does not yet lower a compound
-containing multiple claims in one call.
+a reference host session and does not yet lower a compound containing multiple claims in one call.
+
+`Wit.Stored.OwnedMemory.Claims.Core` uses that same receipt-aware loader and claim state in
+the separately linked, synchronous `accept-node` Core contract. A preflight refusal preserves
+the entire call-entry state. A later canonical trap keeps prior Core writes and canonical table
+effects, but publishes no root or claim. An executable Core replay rejects an inactive nested
+borrow, accepts an owner and stream in one root, traps after moving both in a later call, and
+accepts a fresh root in a subsequent export. The `accept-node` contract does not yet expose
+mixed handoff or scheduled lifecycle imports.
 
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
