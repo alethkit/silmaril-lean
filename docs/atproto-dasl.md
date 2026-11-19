@@ -86,7 +86,6 @@ an unresolved reference; only a missing root returns `none`.
   roundtrips for `Wire.render?` need the existing DRISL ordered correspondence
   lifted to the typed CID codec and a proof that recursive canonical sorting
   preserves the projection. Keep debug JSON out of byte-hash serialization.
-
 - [ ] **Partial resolution:** in `Resolve`, prove that every compatible partial
   observation refines into the full tree under binding, characterize when a
   partial-only root has a nontrivial observation, and prove necessary closure
@@ -119,4 +118,4 @@ lake env lean -DwarningAsError=true --run tests/formats/Dasl.lean
 lake env lean -DwarningAsError=true --run tests/formats/DrislDebug.lean
 ```
 
-`make check` runs `DrislDebug.lean` when it builds `Silmaril`. Run `Dasl.lean` separately.
+`make check` runs both format regressions when it builds `Silmaril`.
