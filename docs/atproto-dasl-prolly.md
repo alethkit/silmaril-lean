@@ -37,11 +37,22 @@ authenticate raw byte sources by itself. Local validation does not establish
 canonical chunking for an arbitrary store. The theorem uses a canonical
 reference witness; it does not assert every input has one.
 
+[Routed lookup](../Silmaril/Formats/Dasl/Prolly/Route/Thms.lean) visits only
+the first child whose inclusive upper bound covers the key. The builder
+provably has strictly ordered leaf entries and truthful child maxima,
+including on recursively lifted chunks. These global invariants justify
+skipping siblings, even unreadable ones, and returning absence beyond the
+last separator. A missing selected child is never absence. The checks on
+the visited path do **not** certify an arbitrary root: negative and positive
+soundness both require a rooted representation in the binding reference.
+`routedLookup_build_sound` makes the two inclusion hypotheses explicit:
+the reference must include the stored tree and the successful reader
+observations. It does not need unique names.
+
 ## Follow-up
 
-- Prove the separator/interval and canonical-boundary invariants of the built
-  tree as reusable lemmas; use them to verify a routed (not closed-scan) lookup,
-  and prove sufficient-fuel completeness against a fully supplied canonical store.
+- Prove a declarative canonical-cut characterization and sufficient-fuel
+  completeness for routed lookup against a fully supplied canonical store.
 - Add update/admission proofs: successful updates preserve all old bindings,
   reject collisions, and do not rewrite missing or invalid blocks. Connect
   address derivation to a checked serializer and fixed hash on successful blocks.
