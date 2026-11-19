@@ -27,6 +27,8 @@ private def wordFn (params results : Nat) : V1.FuncType :=
 
 private def imports : List (String × V1.FuncType × CanonHost engine) :=
   let accept := Endpoints.Core.Scheduled.acceptType contract
+  let flat : V1.FuncType := ⟨[.int .i32], .int .i32 :: ABI.flatten .i32 (signature.payload true)⟩
+  let recordFlat : V1.FuncType := ⟨[.int .i32], .int .i32 :: ABI.flatten .i32 (signature.payload false)⟩
   [("accept-node", accept, .embedder "accept-node" accept),
     ("give-record", wordFn 2 2, .embedder "give-record" (wordFn 2 2)),
     ("give-payload", wordFn 2 2, .embedder "give-payload" (wordFn 2 2)),
@@ -36,7 +38,9 @@ private def imports : List (String × V1.FuncType × CanonHost engine) :=
     ("new-stream", ⟨[], [.int .i64]⟩, .builtin (.streamNew element) ⟨0⟩),
     ("rep", wordFn 1 1, .builtin (.resourceRep resource .i32) ⟨0⟩),
     ("close-reader", wordFn 1 0, .builtin (.streamDropReadable element) ⟨0⟩),
-    ("close-writer", wordFn 1 0, .builtin (.streamDropWritable element) ⟨0⟩)]
+    ("close-writer", wordFn 1 0, .builtin (.streamDropWritable element) ⟨0⟩),
+    ("give-flat", flat, .embedder "give-flat" flat),
+    ("wrong-flat-schema", recordFlat, .embedder "wrong-flat-schema" recordFlat)]
 
 private def indexOf {kind : IndexKind} (index : Nat) : Idx kind := ⟨Fin.ofNat _ index⟩
 private def word (value : Nat) : Instr := .intConst .i32 (BitVec.ofNat 32 value)
@@ -151,5 +155,55 @@ private def regression (useTuple : Bool) : Bool :=
 
 #guard regression false
 #guard regression true
+
+private def flatSession (inst : ModuleInst) : Session grow signature (Ret engine) := do
+  let run (name : String) (args : List Nat) (expected : List FlatValue) := do
+    let some addr := exportAddr inst name | internal s!"missing Core export {name}"
+    trapIf ((← callCore addr (args.map i32Flat)) != expected) (.internal s!"unexpected result: {name}")
+  run "new-own" [77] [i32Flat 1]
+  run "new-own" [77] [i32Flat 2]
+  run "new-stream" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
+  run "accept-node" [1, 32, 0, 0] ([0, 1].map i32Flat)
+  run "wrong-flat-schema" [1] ([1, 0, 0, 0, 0].map i32Flat)
+  run "give-flat" [1] ([0, 3, 2, 1, 1].map i32Flat)
+  run "give-flat" [1] ([1, 0, 0, 0, 0].map i32Flat)
+  run "rep" [3] [i32Flat 77]
+  run "rep" [2] [i32Flat 77]
+  run "close-reader" [1] []
+  run "close-writer" [4] []
+  return .unit
+
+private def flatSetup : Option (List (Binding signature) × Machine.Config engine (HostState signature)) := do
+  let (store, inst) ← instantiate
+  let .ok flat := Binding.giveFlat "give-flat" ⟨0⟩ inst 0 .i32 .utf8 (signature.payload true) | none
+  let .ok wrong := Binding.giveFlat "wrong-flat-schema" ⟨0⟩ inst 0 .i32 .utf8 (signature.payload false) | none
+  let (_, initial) ← setup true
+  let reference := { initial.store with core := store }
+  return ([Binding.accept contract inst 0, flat, wrong],
+    { initial with store := reference, ctl := [Machine.Activation.ofProg (some ⟨0⟩) (flatSession inst)] })
+
+private def flatRegression : Bool :=
+  match flatSetup with
+  | none => false
+  | some (bindings, config) =>
+    let result := run bindings config
+    let writer := result.config.host.writer
+    let enter := fun ticket name type args => Event.entered ticket name type (args.map i32Flat)
+    let flat : V1.FuncType := ⟨[.int .i32], .int .i32 :: ABI.flatten .i32 (signature.payload true)⟩
+    let spent := Issue.lowerPayload (.claims .unclaimed)
+    result.outcome == .resolved && writer.accepted.length == 1 &&
+    writer.held.isEmpty && writer.endpoints.isEmpty &&
+    result.config.host.transcript == [enter 0 "accept-node" (Endpoints.Core.Scheduled.acceptType contract) [1, 32, 0, 0],
+      .returned 0 1, enter 1 "wrong-flat-schema" flat [1], .refused 1 .wrongPayloadType,
+      enter 2 "give-flat" flat [1], .returnedFlat 2 ([3, 2, 1, 1].map i32Flat),
+      enter 3 "give-flat" flat [1], .refused 3 spent]
+
+#guard flatRegression
+
+#guard (flatCompletion 0 [.int .i64, .float .f32] (.error .badSelection)).2 ==
+  [i32Flat 1, .int .i64 0, .float .f32 0]
+
+#guard (flatCompletion 0 [.int .i64, .float .f32] (.ok [i32Flat 3, .float .f32 7])).1 ==
+  .refused 0 .wrongResultType
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.RecordExamples

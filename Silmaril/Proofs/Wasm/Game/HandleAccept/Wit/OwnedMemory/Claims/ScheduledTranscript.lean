@@ -36,6 +36,16 @@ theorem enter_steps (config : Config (core3 grow) (HostState sig))
         ctl := ⟨thread, .prog (.flat <$> route config.host.nextTicket bindings name type args), segments⟩ :: rest } :=
   .cons (.hostGet pending) (.cons (.hostSet rfl) (.refl _))
 
+theorem write_completion_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (reply : Event × List FlatValue)
+    (pending : config.ctl = ⟨thread, .prog (.flat <$> writeCompletion reply), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau]
+      { config with
+        host := config.host.record reply.1
+        ctl := ⟨thread, .prog (.pure (.flat reply.2)), segments⟩ :: rest } :=
+  .cons (.hostGet pending) (.cons (.hostSet rfl) (.refl _))
+
 theorem finish_steps (config : Config (core3 grow) (HostState sig))
     (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
     (rest : List (Activation (core3 grow) (HostState sig)))
@@ -44,8 +54,28 @@ theorem finish_steps (config : Config (core3 grow) (HostState sig))
     Steps prof ready dispatch config [.tau, .tau]
       { config with
         host := config.host.record (completion ticket result).1
-        ctl := ⟨thread, .prog (.pure (.flat (completion ticket result).2)), segments⟩ :: rest } := by
-  cases result <;> exact .cons (.hostGet pending) (.cons (.hostSet rfl) (.refl _))
+        ctl := ⟨thread, .prog (.pure (.flat (completion ticket result).2)), segments⟩ :: rest } :=
+  write_completion_steps config thread segments rest _ pending
+
+theorem flatCompletion_type (ticket : Nat) (shape : List NumType) (result : Except Issue (List FlatValue)) :
+    (flatCompletion ticket shape result).2.map Stored.flatType = .int .i32 :: shape := by
+  have zeroTypes : (shape.map zeroWord).map Stored.flatType = shape := by
+    induction shape with
+    | nil => rfl
+    | cons head tail ih =>
+      change Stored.flatType (zeroWord head) :: (tail.map zeroWord).map Stored.flatType = head :: tail
+      rw [ih]
+      cases head with
+      | int kind => cases kind <;> rfl
+      | float kind => cases kind <;> rfl
+  cases result with
+  | error issue => exact congrArg (.int .i32 :: ·) zeroTypes
+  | ok values =>
+    by_cases typed : values.map Stored.flatType = shape
+    · simp only [flatCompletion, ite_eq_left typed]
+      exact congrArg (.int .i32 :: ·) typed
+    · simp only [flatCompletion, ite_eq_right typed]
+      exact congrArg (.int .i32 :: ·) zeroTypes
 
 theorem binding_trap_steps (config : Config (core3 grow) (HostState sig))
     (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
@@ -209,6 +239,28 @@ private theorem withTree_safe (args : List FlatValue)
     | some tree => exact safe tree _
   · exact .pure none _
 
+private theorem give_flat_safe (inst : InstId) (destination : RecordDestination) (payload : Stored.TypeOf)
+    (args : List FlatValue) : Safe (giveFlat (grow := grow) (sig := sig) inst destination payload args) := by
+  unfold giveFlat
+  refine HostWrite.bind (readOnly P.Inv.currentInst?) fun current => ?_
+  refine HostWrite.bind (readOnly P.Inv.getStore) fun store => ?_
+  dsimp only
+  split
+  · exact .pure none _
+  · split
+    · refine HostWrite.bind (readOnly P.Inv.getStore) fun store => ?_
+      split
+      · exact .pure none _
+      · refine HostWrite.bind (.get none fun _ => .pure _ _) fun selected => ?_
+        cases selected with
+        | none => exact .pure none _
+        | some tree =>
+          change Safe (if (!rootHasSchema tree payload) = true then pure (Except.error Issue.wrongPayloadType) else _)
+          split
+          · exact .pure none _
+          · exact HostWrite.bind (lower_payload_safe _ tree .flat) fun _ => .pure none _
+    · exact .pure none _
+
 private theorem invoke_safe (binding : Binding sig) (args : List FlatValue) :
     Safe (Stored.OwnedMemory.Claims.Core.Scheduled.invoke (grow := grow) binding args) := by
   unfold Stored.OwnedMemory.Claims.Core.Scheduled.invoke
@@ -242,10 +294,15 @@ private theorem invoke_safe (binding : Binding sig) (args : List FlatValue) :
       · exact .pure none _
     case giveRecord => exact give_memory_safe _ _ _ _ _ fun cx tree ptr => lower_root_safe cx tree (.memory ptr)
     case givePayload => exact give_memory_safe _ _ _ _ _ fun cx tree ptr => lower_payload_safe cx tree (.memory ptr)
+    case giveFlat => exact .pure none _
+
+private theorem write_completion_safe (reply : Event × List FlatValue) :
+    Safe (writeCompletion (grow := grow) (sig := sig) reply) :=
+  .get none fun state => .set (record_safe state _) (.pure none _)
 
 private theorem finish_safe (ticket : Nat) (result : Except Issue Nat) :
-    Safe (finish (grow := grow) (sig := sig) ticket result) := by
-  cases result <;> exact .get none fun state => .set (record_safe state _) (.pure none _)
+    Safe (finish (grow := grow) (sig := sig) ticket result) :=
+  write_completion_safe _
 
 private theorem binding_trap_safe (ticket : Nat) (issue : Issue) :
     Safe (rejectBinding (grow := grow) (sig := sig) ticket issue) :=
@@ -258,7 +315,9 @@ private theorem route_safe (ticket : Nat) (bindings : List (Binding sig)) (name 
   · exact binding_trap_safe _ _
   · split
     · exact binding_trap_safe _ _
-    · exact HostWrite.bind (invoke_safe _ _) (finish_safe _)
+    · split
+      · exact HostWrite.bind (give_flat_safe _ _ _ _) fun _ => write_completion_safe _
+      · exact HostWrite.bind (invoke_safe _ _) (finish_safe _)
   · exact binding_trap_safe _ _
 
 private theorem host_safe (bindings : List (Binding sig)) :

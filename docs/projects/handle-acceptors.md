@@ -539,8 +539,17 @@ roots, rather than requiring a record at the outermost level. It checks the whol
 type, receipt plan and destination range before transferring the first claim, then uses the
 same effect-aware emitter as the record binding. The Core replay also exercises a tuple root
 with both owners and an optional stream, distinct typed refusal diagnostics, and exact
-destination bytes. Neither binding is an exact payload-language theorem, a proof of all
-allocator behavior, or a Core binding for arbitrary flat return vectors.
+destination bytes.
+`Binding.giveFlat` links a checked payload schema and returns a Core status followed by
+the canonical multivalue vector for that schema. A tree with a different schema is refused
+before lowering, even when its flat shape is identical. The transcript records successful
+vectors or typed diagnostics; refusal padding has the declared Core types. The same
+arbitrary-session writer conservation theorem applies. The Core replay covers a wrong
+schema followed by a successful compound owner/stream handoff and then a spent-claim
+refusal. This is an explicit Core import convention, not the component ABI's
+call-lowering decision about direct versus indirect results. The defensive result-shape
+check does not roll back effects of the emitter. Flat inputs and exact accepted payload
+languages across exports remain to be connected to this dispatcher.
 
 ## Checking
 

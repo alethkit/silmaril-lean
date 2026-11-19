@@ -24,6 +24,8 @@ inductive Issue where
   | badLoweringRealloc
   | wrongContext
   | wrongType
+  | wrongPayloadType
+  | wrongResultType
   | unlinkedImport
   | ambiguousBinding
   | badSelection
@@ -34,6 +36,7 @@ observed in the machine's labels; the started call has no status return in this 
 inductive Event where
   | entered (ticket : Nat) (name : String) (type : V1.FuncType) (args : List FlatValue)
   | returned (ticket : Nat) (value : Nat)
+  | returnedFlat (ticket : Nat) (values : List FlatValue)
   | refused (ticket : Nat) (issue : Issue)
   | bindingTrap (ticket : Nat) (issue : Issue)
   deriving BEq
@@ -64,6 +67,22 @@ def HostState.record (state : HostState sig) (event : Event) : HostState sig :=
 def completion (ticket : Nat) : Except Issue Nat → Event × List FlatValue
   | .ok value => (.returned ticket value, [i32Flat 0, i32Flat value])
   | .error issue => (.refused ticket issue, [i32Flat 1, i32Flat 0])
+
+def zeroWord : NumType → FlatValue
+  | .int kind => .int kind 0
+  | .float kind => .float kind 0
+
+/-- A Core-only multivalue import convention: status, then the linked payload vector.
+Refusals carry typed zero padding. The defensive shape check is after lowering:
+a `wrongResultType` refusal does not undo completed canonical effects. -/
+def flatCompletion (ticket : Nat) (shape : List NumType) (result : Except Issue (List FlatValue)) :
+    Event × List FlatValue :=
+  let refuse := fun issue => (Event.refused ticket issue, i32Flat 1 :: shape.map zeroWord)
+  match result with
+  | .error issue => refuse issue
+  | .ok values =>
+    if values.map Stored.flatType = shape then (.returnedFlat ticket values, i32Flat 0 :: values)
+    else refuse .wrongResultType
 
 /-- The journal is append-only; neither a callback nor a trap can roll back its entries. -/
 def Extends (before after : HostState sig) : Prop :=
@@ -120,6 +139,7 @@ inductive Action (sig : Signature) where
   | giveEndpoint (channel : Channel) (element : Element)
   | giveRecord (destination : RecordDestination)
   | givePayload (destination : RecordDestination)
+  | giveFlat (destination : RecordDestination) (payload : Stored.TypeOf)
 
 structure Binding (sig : Signature) where
   name : String
@@ -144,17 +164,27 @@ def Binding.givePayload (name : String) (inst : InstId) (linked : ModuleInst) (m
   (RecordDestination.link linked memoryIndex width encoding reallocIndex).map fun dest =>
     ⟨name, inst, .givePayload dest⟩
 
+def Binding.giveFlat (name : String) (inst : InstId) (linked : ModuleInst) (memoryIndex : Nat)
+    (width : AddrType) (encoding : StringEncoding) (payload : Stored.TypeOf) (reallocIndex : Option Nat := none) :
+    Except Issue (Binding sig) := do
+  (OwnedMemory.checkSchema payload).mapError (.lowerPayload ∘ .preflight ∘ .schema)
+  let dest ← RecordDestination.link linked memoryIndex width encoding reallocIndex
+  return ⟨name, inst, .giveFlat dest payload⟩
+
 def Binding.type (binding : Binding sig) : V1.FuncType :=
   match binding.action with
   | .accept contract _ => Endpoints.Core.Scheduled.acceptType contract
   | .giveRecord destination | .givePayload destination =>
     ⟨[.int .i32, ABI.pointerType destination.width], [.int .i32, .int .i32]⟩
+  | .giveFlat destination payload => ⟨[.int .i32], .int .i32 :: ABI.flatten destination.width payload⟩
   | _ => Endpoints.Core.Scheduled.giveType
 
-def finish (ticket : Nat) (result : Except Issue Nat) : Session grow sig (List FlatValue) := do
-  let (event, flat) := completion ticket result
-  hostSet ((← hostGet).record event)
-  return flat
+def writeCompletion (reply : Event × List FlatValue) : Session grow sig (List FlatValue) := do
+  hostSet ((← hostGet).record reply.1)
+  return reply.2
+
+def finish (ticket : Nat) (result : Except Issue Nat) : Session grow sig (List FlatValue) :=
+  writeCompletion (completion ticket result)
 
 def publishRoot (tree : Tree sig) : Session grow sig (Except Issue Nat) := do
   let current ← hostGet
@@ -215,6 +245,26 @@ def givePayload (inst : InstId) (destination : RecordDestination) (args : List F
   giveToMemory inst destination args (fun cx tree ptr =>
     Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none cx tree (.memory ptr)) .lowerPayload
 
+def rootHasSchema (tree : Tree sig) (type : Stored.TypeOf) : Bool :=
+  match tree with
+  | .atom impossible => impossible.elim
+  | .tag payload _ _ => decide (sig.payload payload.1 = type)
+
+/-- Type selection is a preflight check on the accepted tree. It cannot spend a claim
+or enter realloc; the emitter handles effects only after it succeeds. -/
+def giveFlat (inst : InstId) (destination : RecordDestination) (payload : Stored.TypeOf)
+    (args : List FlatValue) : Session grow sig (Except Issue (List FlatValue)) := do
+  if (← currentInst?) != some inst || !((← getStore).inst? inst).any (·.mayLeave) then
+    return .error .wrongContext
+  let [.int .i32 handle] := args | return .error .wrongType
+  if let .error issue := destination.check (← getStore) then return .error issue
+  let some tree ← select handle | return .error .badSelection
+  if !rootHasSchema tree payload then return .error .wrongPayloadType
+  let cx : LiftLowerContext (core3 grow) :=
+    { inst
+      opts := { memory := some destination.memory, realloc := destination.realloc, encoding := destination.encoding } }
+  return (← Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none cx tree .flat).mapError .lowerPayload
+
 def withTree (args : List FlatValue) (use : Tree sig → Nat → Session grow sig (Except Issue Nat)) :
     Session grow sig (Except Issue Nat) := do
   match args with
@@ -245,6 +295,7 @@ def invoke (binding : Binding sig) (args : List FlatValue) : Session grow sig (E
     return (← claims.giveEndpoint Limits.spec cx channel element ⟨id⟩).mapError .claim
   | .giveRecord destination => giveRecord binding.inst destination args
   | .givePayload destination => givePayload binding.inst destination args
+  | .giveFlat _ _ => return .error .wrongType
 
 def rejectBinding (ticket : Nat) (issue : Issue) : Session grow sig (List FlatValue) := do
   hostSet ((← hostGet).record (.bindingTrap ticket issue))
@@ -256,7 +307,11 @@ def route (ticket : Nat) (bindings : List (Binding sig)) (name : String) (type :
   | [] => rejectBinding ticket .unlinkedImport
   | [binding] =>
     if type != binding.type then return ← rejectBinding ticket .wrongType
-    finish ticket (← invoke binding args)
+    match binding.action with
+    | .giveFlat destination payload =>
+      let result ← giveFlat binding.inst destination payload args
+      writeCompletion (flatCompletion ticket (ABI.flatten destination.width payload) result)
+    | _ => finish ticket (← invoke binding args)
   | _ => rejectBinding ticket .ambiguousBinding
 
 def dispatchImport (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
