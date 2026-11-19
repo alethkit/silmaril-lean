@@ -170,7 +170,8 @@ numbers): an owned handle stored in a tree is its resource's **representation** 
 module at the call that moved it), a `borrow` has **no value** (a borrow cannot outlive the call
 that lent it, so no stored tree holds one), and `error-context` none either (unsupported, as are
 `future` and `stream`). Names are interpreted by `named`. -/
-def storedEnv (named : Ref → Type) : WIT.Env Ref Nat := ⟨named, fun _ => Nat, fun _ => Empty, Empty⟩
+def storedEnv (named : Ref → Type) : WIT.Env Ref Nat :=
+  { named, own := fun _ => Nat, borrow := fun _ => Empty, errorContext := Empty }
 
 mutual
 /-- **Payload values are the values of their WIT type** in the stored-tree environment

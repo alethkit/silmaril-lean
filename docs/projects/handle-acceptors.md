@@ -128,6 +128,16 @@ existing decoder results without changing success or failure. The scalar `calcSi
 and compound `glyphSig` examples recover the existing signatures, so they use the
 same ASTs, Core modules and accepted languages after embedding.
 
+`WIT.Endpoints.Thms` embeds the non-async WIT fragment in the endpoint-capable
+interpretation. Extending the environment with stream and future carriers leaves
+the old value interpretation unchanged and induces an equivalence on sets of
+those values. `Wit.Async` adds typed endpoint identities and dispatches creation,
+copy, cancellation, polling and closure to the reference component built-ins.
+An old call list yields the identical effect program (`runCalls_legacy`). The
+machine examples resolve and close a future, cancel a pending stream read, and
+reject inspection of a closed slot. These are component-machine sessions, not
+yet Core acceptor tree payloads; the checked tree writer still rejects async types.
+
 | Item | Status | Where |
 | --- | --- | --- |
 | generic `branch(children)` + designated leaves `tag(args)` | done | `AstSig`, `AST S := TExpr1 (Σ t, S.Arg t)` (reuses `TExpr`), `AST.WellArity`, `Api.astW` |
@@ -196,6 +206,15 @@ same ASTs, Core modules and accepted languages after embedding.
 | well-founded fixed environments, no silent cycles | `NodeEnv`, `UnfoldN`/`Unfold`, `not_unfold_of_cycle`, `realize_realizes`, `Examples.cycle_unfolds_to_nothing` |
 | sentinel inclusion via observations/renamings, allocation failure | `writerLang_rename`, `writerLang_sentinel_swap`, `writerLang_noRet_subset`, `sentinel_twice` |
 | intersection is not preserved by projection or trace languages | `Host.lang_inter_subset`, `inputLang_inter_subset`, `Examples.inter_strict`, `projection_inter_strict` |
+
+### Reference resource lifecycle
+
+`Wit.Resources` runs the reference `resource.new`, `resource.rep` and `resource.drop`
+built-ins, including their destructor dispatcher. `take` uses canonical `liftOwn` and
+retains the consumed handle's arena identity as well as its representation. The machine
+examples check slot reuse with two different identities that share a representation,
+drop, and the observable early slot removal on a wrong-type lift that locks down the
+component. This is a reference adapter, not a simulation of the checked Core writer table.
 
 ## Modelling choices to review
 
@@ -281,7 +300,12 @@ same ASTs, Core modules and accepted languages after embedding.
   Inactive arms do not move owners, but the complete schema must admit stored values.
   This uses the Core writer table and its representation-valued `PTy`: it does not yet
   relate slot moves or trap effects to the reference component store or replace the legacy
-  whole-session bridge.
+  whole-session bridge. `Own.Session` supplies a checked `SEnv UImp` for nested nodes:
+  a rejection answers the actual Core redex with a call-local trap, preserving the
+  store at that call and the state from earlier imports. `session_le` proves that
+  no sequence of exports resurrects a moved slot in this move-only host. This is a
+  session safety contract, not yet a characterization of the accepted tree language,
+  and the host does not implement resource allocation or drop.
 * Wasm writer variants: `batchAccept_lang` bounds `batchAccept` by its kept batch `keptL` (the
   dropped word is never accepted, `batchAccept_drops`), but the lower bound is the run at the
   fixed argument `3` (`batchAccept_kept`), not every `(w)`; the batch bridge assumes policies
