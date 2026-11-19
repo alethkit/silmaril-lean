@@ -3,17 +3,34 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Run.Defs
 import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Replies.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Rules
+import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.LiveRun
 
 @[expose] public section
 
 namespace Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun
 
-open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game.IOAccept Silmaril.Formats.Api
+open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game Silmaril.Wasm.Game.IOAccept
+  Silmaril.Formats.Api
 open Silmaril.Wasm.Game.HandleAccept.MemSound
 open Silmaril.Wasm.Game.HandleAccept.MemSound.Items (itemsReply)
+open Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck
 open Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop
 open Silmaril.Wasm.Game.HandleAccept.Memory (MemAtom)
 open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound (setMem_mems memOf_setMem)
+
+theorem checker_instance (checker : Checker) :
+    ∃ mt instance_ initial, IsSpecInstance (Loop.mod checker.imports) mt instance_ initial ∧
+      ReplySpace 65536 initial.store := by
+  have valid : (Silmaril.Wasm.Verify.specInstance? (Loop.mod checker.imports)).isSome = true := by
+    cases checker <;> decide +kernel
+  have page : Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.memSizes (Loop.mod checker.imports) =
+      [65536] := by
+    cases checker <;> decide +kernel
+  obtain ⟨mt, instance_, initial, spec⟩ := Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.spec_exists valid
+  obtain ⟨cfg, start, prepared, rfl, _, _⟩ :=
+    Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.prep_of_spec spec
+  have space := Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.one_page page prepared
+  exact ⟨mt, instance_, cfg.withStart start, spec, by cases start <;> exact space⟩
 
 theorem compact_admitted {handles : List (BitVec 32)} {childBytes : BitVec 32 → ByteArray}
     (store : Store Nat) : ReplyEnvs itemsReply store (compactHost handles childBytes) := by

@@ -51,6 +51,12 @@ theorem compact_reply_plan {capacity : Nat} (width : capacity ≤ 2 ^ 32)
       (fun handle => decode ⟨.values [], some (childBytes handle)⟩ 0) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.compact_plan width fits childFits decode
 
+/-- Both checkers have a validated instance with one initial memory page. -/
+theorem checker_instance (checker : Checker) :
+    ∃ mt instance_ initial, IsSpecInstance (Loop.mod checker.imports) mt instance_ initial ∧
+      ReplySpace 65536 initial.store :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.checker_instance checker
+
 /-- The compact script realizes the accepted tree in an actual module instance, using
 only shaped host replies. The required capacity includes the eight-byte list header. -/
 theorem compact_accepts {profile : Profile} (checker : Checker)
