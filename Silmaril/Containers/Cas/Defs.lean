@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Crypto.Interface.Defs
+public import Silmaril.Semantics.Naming.Defs
 
 /-!
 # Content-addressed stores: digests, contents and integrity
@@ -43,6 +44,9 @@ abbrev Store (D C : Type) : Type := D → Option C
 namespace Store
 
 variable {D C C' : Type}
+
+/-- The relational view of the existing partial map, with no new integrity assumptions. -/
+def relation (S : Store D C) : Semantics.Naming.Relation D C := Semantics.Naming.graph S
 
 /-- The empty store. -/
 def empty : Store D C := fun _ => none
