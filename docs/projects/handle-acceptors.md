@@ -315,8 +315,12 @@ not a scheduling theorem or a Core adapter.
   The Core writer stores representations and has no allocation/drop imports; the separate
   reference resource machine is not a simulation of these slot moves or call-local trap effects.
   `Own.Projection` contains the legacy `ownMod` and `twiceMod` trace-language results. It omits
-  failed decodes and is not a host. Connecting checked sessions to exact writer languages, rather
-  than only showing that rejection preserves the writer state, remains open.
+  failed decodes and is not a host. `Own.Session.Replay.accepts_then_traps` instead uses the linked
+  checked host for two actual `ownMod` invocations: the first consumes the live slot and accepts
+  `res(rep)`; the second diagnoses that slot as dead and traps without erasing the earlier tree
+  or reviving the slot. The proof reads only the written handle bytes, with the rest of memory
+  symbolic. This is a lower bound with a checked negative replay, not the exact checked writer
+  language across arbitrary export sequences.
 * Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
   exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
   Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
@@ -427,6 +431,7 @@ lake build --wfail Silmaril.Semantics.Accept.Handle.Examples Silmaril.Semantics.
   Silmaril.Wasm.Game.HandleAccept.MemSound.Ast.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Canon \
   Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Examples \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Replay.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Projection \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Exact.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.KwText.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.WordAtom.Thms \
