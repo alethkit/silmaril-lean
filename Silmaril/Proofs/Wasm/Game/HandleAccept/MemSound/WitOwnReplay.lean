@@ -61,7 +61,8 @@ theorem attempt_on_slice {store : Store Nat} {mem : MemInst} (rt : RT)
     (observed mem.bytes)).bind _ = _
   rw [contents]
   have schema : checkPTys .recursiveOwn [.own 0] = .ok () := rfl
-  simp only [bind, Except.bind, Nested.reserveOp, ownSig, Nested.resolveTypes, Nested.resolve,
+  simp only [bind, Except.bind, Nested.reserveOp, ownSig, Nested.resolveTypes, Nested.resolveTypesWith,
+    Nested.resolveWith,
     Nested.reserve, StateT.run, StateT.bind, StateT.pure, get, getThe, MonadStateOf.get,
     set, schema, Except.mapError, pure, Except.pure, StateT.get,
     List.not_mem_nil, UInt32.toBitVec_ofNat]
@@ -87,19 +88,19 @@ private theorem no_answer_tags (call : Option Callout) (reply : HostReply) :
     (call.elim [] fun observed => roles.answerTags observed reply) = [] := by
   cases call <;> rfl
 
-theorem accepts_then_traps (P : Profile) (rt : RT) (rep : Nat)
+theorem audited_accepts_then_traps (P : Profile) (rt : RT) (rep : Nat)
     (entry : rt 1 = some ⟨0, rep, true⟩) :
     ∃ mt instanceInfo initial, IsSpecInstance ownMod mt instanceInfo initial ∧
       contract.link ownMod instanceInfo initial 0 = .ok (some 0) ∧
       ∃ afterAccept afterTrap : Store Nat,
-        TSession P (contract.env (some 0)) ownMod (some 0) roles initial ⟨rt, {}⟩
+        TSession P (Audit.env contract (some 0)) ownMod (some 0) roles initial ⟨⟨rt, {}⟩, []⟩
           instanceInfo.addrs .idle false
-          (⟨afterAccept, {}, []⟩, ⟨rt.killAll [1], ⟨none, [resTree rep]⟩⟩)
+          (⟨afterAccept, {}, []⟩, ⟨⟨rt.killAll [1], ⟨none, [resTree rep]⟩⟩, acceptedEntries⟩)
           [.enter none, .exit (some ())] ∧
         contract.attempt (some 0) (rt.killAll [1]) ⟨0, afterTrap, nodeArgs⟩ = .error (.resource (.dead 1)) ∧
-        TSession P (contract.env (some 0)) ownMod (some 0) roles initial ⟨rt, {}⟩
+        TSession P (Audit.env contract (some 0)) ownMod (some 0) roles initial ⟨⟨rt, {}⟩, []⟩
           instanceInfo.addrs .idle false
-          (⟨afterTrap, {}, [.trap]⟩, ⟨rt.killAll [1], ⟨none, [resTree rep]⟩⟩)
+          (⟨afterTrap, {}, [.trap]⟩, ⟨⟨rt.killAll [1], ⟨none, [resTree rep]⟩⟩, rejectedEntries⟩)
           [.enter none, .exit (some ()), .enter none, .exit none] := by
   obtain ⟨mt, inst, preparedConfig, hi⟩ := spec_exists ownSpec_some
   obtain ⟨initial, start, prepared, rfl, -, exports⟩ := prep_of_spec hi
@@ -188,8 +189,8 @@ theorem accepts_then_traps (P : Profile) (rt : RT) (rep : Nat)
     · exact decompose_fill _ trivial (lookup next nextFuncs).1 nodeType (by rw [nodeIndex]; rfl) nodeCode
   obtain ⟨afterAccept, memAfter, same, memOne, memSize, memWidth, firstAttempt, target,
     rfl, targetFrame, steps, redex⟩ := reachNode initial.store mem rfl one size width
-  let startSession : TSession P (contract.env (some 0)) ownMod (some 0) roles initial ⟨rt, {}⟩
-      inst.addrs .inst false (initial, ⟨rt, {}⟩) [] := .start
+  let startSession : TSession P (Audit.env contract (some 0)) ownMod (some 0) roles
+      initial ⟨⟨rt, {}⟩, []⟩ inst.addrs .inst false (initial, ⟨⟨rt, {}⟩, []⟩) [] := .start
   have firstCall := TSession.call (TSession.of_core_steps
     (TSession.invoke startSession (by decide) ⟨[], empty⟩ exportRun (wellTyped initial.store rfl)) steps) redex
   have success : contract.attempt (some 0) rt ⟨0, target.store, nodeArgs⟩ =
@@ -203,8 +204,12 @@ theorem accepts_then_traps (P : Profile) (rt : RT) (rep : Nat)
       ⟨target.store, .values [.i32 9]⟩ pending := by
     apply Session.Answer.returnHandle rfl success ⟨rfl, rfl⟩
     exact ⟨rfl, rfl, rfl, rfl⟩
+  let committed : Audit.Event := ⟨0, nodeArgs, .values [.i32 9], .committed⟩
+  have nodeLog : Audit.observe contract (some 0) ⟨rt, {}⟩ ⟨0, target.store, nodeArgs⟩
+      ⟨target.store, .values [.i32 9]⟩ = committed := by
+    simp only [Audit.observe, show contract.code = (0 : Nat) from rfl, ite_true, success, committed]
   have firstAnswer := TSession.answer firstCall redex (a := ⟨target.store, .values [.i32 9]⟩)
-    (q' := pending) (by exact nodeAnswer)
+    (q' := Audit.Journal.mk pending [committed]) (by exact ⟨nodeAnswer, congrArg (· :: []) nodeLog.symm⟩)
   have goAccept : Step P NH ⟨target.store, target.frame, nodeCtx.fill (Result.values [.i32 9]).toAdmin⟩
       ⟨target.store, target.frame, acceptCtx.fill (vals [.i32 9] ++ [.ref (.func 1), .callRefType accept.type])⟩ :=
     step_body (step_mid [.i32 9] [] (step_call (x := ⟨1⟩) (by rw [frameFuncs]; rfl) (lookup _ same).2.1))
@@ -218,7 +223,7 @@ theorem accepts_then_traps (P : Profile) (rt : RT) (rep : Nat)
     apply Session.Answer.other (by change (1 : Nat) ≠ 0; decide)
     exact ⟨rfl, rfl, rfl, resTree rep, rfl, rfl⟩
   have acceptAnswer := TSession.answer acceptCall acceptRedex (a := ⟨target.store, .values []⟩)
-    (q' := accepted) (by exact acceptedAnswer)
+    (q' := Audit.Journal.mk accepted acceptedEntries) (by exact ⟨acceptedAnswer, rfl⟩)
   have finish : Steps P NH ⟨target.store, target.frame, acceptCtx.fill (Result.values []).toAdmin⟩
       ⟨target.store, {}, []⟩ := by
     rw [targetFrame]
@@ -245,8 +250,12 @@ theorem accepts_then_traps (P : Profile) (rt : RT) (rep : Nat)
     rw [show accepted.resources = rt.killAll [1] from rfl, dead]; rfl
   have deadAnswer : Session.Answer contract (some 0) accepted ⟨0, retry.store, nodeArgs⟩
       ⟨retry.store, .trap⟩ accepted := .reject rfl rejected
+  have trapLog : Audit.observe contract (some 0) accepted ⟨0, retry.store, nodeArgs⟩
+      ⟨retry.store, .trap⟩ = ⟨0, nodeArgs, .trap, .rejected (.resource (.dead 1))⟩ := by
+    simp only [Audit.observe, show contract.code = (0 : Nat) from rfl, ite_true, rejected]
   have trapAnswer := TSession.answer secondCall retryCall
-    (a := ⟨retry.store, .trap⟩) (q' := accepted) (by exact deadAnswer)
+    (a := ⟨retry.store, .trap⟩) (q' := Audit.Journal.mk accepted rejectedEntries)
+    (by exact ⟨deadAnswer, congrArg (· :: acceptedEntries) trapLog.symm⟩)
   have unwind := Linking.fill_trap_steps P retry.store nodeCtx retry.frame
   have trapDone := TSession.ret (TSession.of_core_steps trapAnswer unwind) (r := .trap) rfl
   rw [retryFrame] at trapDone

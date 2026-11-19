@@ -2,12 +2,14 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.ReferenceTable.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceTable
+import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceReservations
+import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceResolution
 
 @[expose] public section
 
 namespace Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.ReferenceTable
 
-open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
+open Silmaril.Formats Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
   Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Game.HandleAccept.Wit
 
 variable {E : CoreEngine}
@@ -50,5 +52,31 @@ theorem take_removes_first (limits : Component.Limits) (cx : LiftLowerContext E)
         else .ok ⟨identity, handle.rep⟩) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceTable.take_removes_first
     limits cx store slot resource instanceState identity handle instanceGet entryGet objectGet
+
+/-- A successful recursive reservation has an eager canonical move replay, in the
+original traversal order. Every move yields its reference owner, and the remaining
+live table agrees with the atomic commit. This does not relate failed compound loads. -/
+theorem reserveOp_commit (limits : Component.Limits) (cx : LiftLowerContext E)
+    (store : CStore E) (table : RT) (sig : WitSig) (raw : Op (Nested.rawSignature sig))
+    (matched : Matches table store cx.inst) {node : Op sig} {reserved : Nested.Reservations}
+    (success : Nested.reserveOp sig table raw = .ok (node, reserved)) :
+    ∃ owners final, Commit limits cx store reserved.val.reverse owners final ∧
+      Matches (table.killAll reserved.val) final cx.inst :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceReservations.reserveOp_commit
+    limits cx store table sig raw matched success
+
+/-- From the same already-decoded payload, a successful atomic resolution and the
+eager canonical moves produce the same entire typed value. The final reference state
+agrees on live lookups and retains nominal receipts in the reservation order. This
+is not a statement about byte decoding or agreement on unsuccessful resolutions. -/
+theorem resolveTypes_refines_eager (limits : Component.Limits) (cx : LiftLowerContext E) (table : RT)
+    (types : List PTy) (raw : PTy.Vals (Nested.rawTypes types))
+    {before after : Nested.Reservations} {state : Resolution E} {values : PTy.Vals types}
+    (matched : state.Matches cx.inst table before)
+    (success : (Nested.resolveTypes table types raw).run before = .ok (values, after)) :
+    ∃ final, (Nested.resolveTypesWith (takeIndex limits cx) types raw).run.run state = (.ok values, final) ∧
+      final.Matches cx.inst table after :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceResolution.resolveTypes_refines_eager
+    limits cx table types raw matched success
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.ReferenceTable
