@@ -78,6 +78,7 @@ check:
 		$(LAKE) build --wfail $(CHECK_TARGETS); \
 	fi
 	$(MAKE) process-gates
+	$(if $(filter Silmaril +Silmaril.Wasm.Binaryen.Intrinsic.% +Silmaril.Proofs.Wasm.Binaryen.Intrinsic.%,$(CHECK_TARGETS)),LAKE="$(LAKE)" bash tests/wasm/binaryen-intrinsic/check.sh)
 	$(if $(filter Silmaril,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/DrislDebug.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/NullPointerEquality.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/BitwiseRuntime.lean)
