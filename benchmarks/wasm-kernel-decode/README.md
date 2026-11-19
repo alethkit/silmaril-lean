@@ -1,5 +1,54 @@
 # Kernel Wasm source agreement
 
+## Packed framing stage
+
+`Silmaril.Wasm.Binary.Packed` reads directly from a well-formed `KBytes` tree.
+The cursor uses the proved cached length, and a section payload is itself a
+packed cursor with a relative position and its own bound. Header, signed and
+unsigned LEB, slice, and section-envelope correspondence compare both the
+reference reader's result (including errors) and its final cursor. The ordered
+scan also checks the Core section order and consumes the complete input. The
+compiled Core decoder is unchanged by this stage.
+
+The framing proposition is **not** `Core.decode? bytes = some module`.
+In particular, the scan does not read section bodies, code entries, or custom
+section names. It can accept envelopes of files the decoder rejects.
+
+```sh
+python3 benchmarks/wasm-kernel-decode/run.py /tmp/wasm-frames --mode framing \
+  --seconds 15 --memory 4096 --cases empty-check lrat bodies-512 data-1024k
+python3 benchmarks/wasm-kernel-decode/run.py /tmp/wasm-full --mode kernel \
+  --seconds 15 --memory 4096 --cases empty-check lrat bodies-512 data-1024k
+lake env lean -DautoImplicit=false -E warning benchmarks/wasm-kernel-decode/PackedRegression.lean
+```
+
+The two framing modes prove the identical `scanFramesSpec.run cursor.spec =
+.ok (frames, finalCursor)` for each fixture. The direct baseline runs Core's
+list-slice `readBytes` and demands the resulting span's size. The packed proof
+computes with the cached size and applies `scanFramesSpec_of_ok`. The full
+list-slice and `decodeF` baselines prove a separate, identical-to-each-other
+full decode equation on the same bytes. The harness checks the checked-in
+fixture hashes and records SHA-256 for every generated fixture. It records
+whole-process wall time, GNU `time` peak RSS, and the timed kernel declaration
+check; 15 seconds is a wall limit and 4096 MiB is the Lean allocator limit,
+not an OS-enforced RSS limit. Compare only like propositions.
+
+One run on Lean `nightly-2026-11-05` illustrates the stage boundary (wall seconds):
+
+| Fixture | Packed framing | Direct framing | Full list slice | Full `decodeF` |
+| --- | ---: | ---: | ---: | ---: |
+| empty-check | 4.24 | 4.06 | 3.11 | 3.03 |
+| LRAT | 3.04 | 4.27 | memory limit | memory limit |
+| 512 bodies | 3.00 | 3.53 | memory limit | memory limit |
+| 1 MiB passive data | 3.52 | timeout | memory limit | memory limit |
+
+Packed framing peaked at 1.95 GiB and spent 7–12 ms in the timed kernel
+declaration check, with imports accounting for most wall time. This one run is
+not a throughput estimate. The benchmark does not show any speedup of full
+module decoding on the packed source.
+
+## Full-decoder slice baseline
+
 `Decode.readBytes` now slices the logical list rather than using the kernel's
 indexed array-extract loop. `Decode.extractForKernel_eq` proves equality for
 all inputs and endpoints, and `@[csimp]` retains `ByteArray.extract` in compiled
