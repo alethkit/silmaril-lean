@@ -9,19 +9,22 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Sch
 
 open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.AsyncRef Silmaril.Wasm.Component.Canon
   Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Execution.Core
+open Silmaril.Wasm.Game.HandleAccept.Wit.Async (Channel Channel.endKind)
 
 public abbrev grow := SingleThreaded.neverFail
 public abbrev engine := core3 grow
 @[expose] public def resource : RtId := ⟨0⟩
 @[expose] public def element : Option (WIT.ClosedType RtId) :=
   some (.record [("word", .prim .u16), ("resource", .own resource)])
-@[expose] public def signature : Signature := ⟨Bool, (fun isTuple =>
+@[expose] public def signatureFor (channel : Channel) : Signature := ⟨Bool, (fun isTuple =>
   let owners : WIT.ClosedType RtId := .fixedList (.own resource) 2
-  let reader : WIT.ClosedType RtId := .option (.stream element)
+  let reader : WIT.ClosedType RtId := .option (match channel with | .stream => .stream element | .future => .future element)
   if isTuple then .tuple [owners, reader] else .record [("owners", owners), ("reader", reader)]), fun _ => .fixed 0⟩
-private def contract : Endpoints.Core.Contract signature :=
+@[expose] public def signature : Signature := signatureFor .stream
+private def contractFor (channel : Channel) : Endpoints.Core.Contract (signatureFor channel) :=
   ⟨0, ("host", "accept-node"), (fun tag => if tag == 0 then some false else if tag == 1 then some true else none),
     {}, ⟨0⟩⟩
+private def contract : Endpoints.Core.Contract signature := contractFor .stream
 
 private def wordFn (params results : Nat) : V1.FuncType :=
   ⟨List.replicate params (.int .i32), List.replicate results (.int .i32)⟩
@@ -29,42 +32,53 @@ private def wordFn (params results : Nat) : V1.FuncType :=
 private def coreMemory : engine.MemAddr := (0 : Nat)
 private def readerMemory : engine.MemAddr := (1 : Nat)
 
-private def imports : List (String × V1.FuncType × CanonHost engine) :=
-  let accept := Endpoints.Core.Scheduled.acceptType contract
+private def imports (channel : Channel) : List (String × V1.FuncType × CanonHost engine) :=
+  let signature := signatureFor channel
+  let accept := Endpoints.Core.Scheduled.acceptType (contractFor channel)
   let flat : V1.FuncType := ⟨[.int .i32], .int .i32 :: ABI.flatten .i32 (signature.payload true)⟩
   let recordFlat : V1.FuncType := ⟨[.int .i32], .int .i32 :: ABI.flatten .i32 (signature.payload false)⟩
   let flatIn := wordFn 6 2
   let wideIn : V1.FuncType := ⟨.int .i64 :: .int .i64 :: ABI.flatten .i64 (signature.payload true), flatIn.results⟩
   let asyncOpts : CanonOpts engine := { memory := some coreMemory, async_ := true }
+  let (create, dropReader, dropWriter, write, arity) : ResolvedBuiltin engine × ResolvedBuiltin engine ×
+      ResolvedBuiltin engine × ResolvedBuiltin engine × Nat := match channel with
+    | .stream => (.streamNew element, .streamDropReadable element, .streamDropWritable element,
+        .streamWrite element asyncOpts, 3)
+    | .future => (.futureNew element, .futureDropReadable element, .futureDropWritable element,
+        .futureWrite element asyncOpts, 2)
   [("accept-node", accept, .embedder "accept-node" accept),
     ("give-record", wordFn 2 2, .embedder "give-record" (wordFn 2 2)),
     ("give-payload", wordFn 2 2, .embedder "give-payload" (wordFn 2 2)),
     ("bad-memory", wordFn 2 2, .embedder "bad-memory" (wordFn 2 2)),
     ("bad-realloc", wordFn 2 2, .embedder "bad-realloc" (wordFn 2 2)),
     ("new-own", wordFn 1 1, .builtin (.resourceNew resource .i32) ⟨0⟩),
-    ("new-stream", ⟨[], [.int .i64]⟩, .builtin (.streamNew element) ⟨0⟩),
+    ("new-channel", ⟨[], [.int .i64]⟩, .builtin create ⟨0⟩),
     ("rep", wordFn 1 1, .builtin (.resourceRep resource .i32) ⟨0⟩),
-    ("close-reader", wordFn 1 0, .builtin (.streamDropReadable element) ⟨0⟩),
-    ("close-writer", wordFn 1 0, .builtin (.streamDropWritable element) ⟨0⟩),
+    ("close-reader", wordFn 1 0, .builtin dropReader ⟨0⟩),
+    ("close-writer", wordFn 1 0, .builtin dropWriter ⟨0⟩),
     ("give-flat", flat, .embedder "give-flat" flat),
     ("wrong-flat-schema", recordFlat, .embedder "wrong-flat-schema" recordFlat),
     ("accept-flat", flatIn, .embedder "accept-flat" flatIn),
     ("wide-flat", wideIn, .embedder "wide-flat" wideIn),
-    ("write", wordFn 3 1, .builtin (.streamWrite element asyncOpts) ⟨0⟩)]
+    ("write", wordFn arity 1, .builtin write ⟨0⟩)]
 
-private def readerImports : List (String × V1.FuncType × CanonHost engine) :=
-  let flat : V1.FuncType := ⟨[.int .i32], .int .i32 :: ABI.flatten .i32 (signature.payload true)⟩
+private def readerImports (channel : Channel) : List (String × V1.FuncType × CanonHost engine) :=
+  let flat : V1.FuncType := ⟨[.int .i32], .int .i32 :: ABI.flatten .i32 ((signatureFor channel).payload true)⟩
   let asyncOpts : CanonOpts engine := { memory := some readerMemory, async_ := true }
+  let (read, cancel, close, arity) : ResolvedBuiltin engine × ResolvedBuiltin engine ×
+      ResolvedBuiltin engine × Nat := match channel with
+    | .stream => (.streamRead element asyncOpts, .streamCancelRead element true, .streamDropReadable element, 3)
+    | .future => (.futureRead element asyncOpts, .futureCancelRead element true, .futureDropReadable element, 2)
   [("give-flat", flat, .embedder "give-flat" flat),
-    ("read", wordFn 3 1, .builtin (.streamRead element asyncOpts) ⟨1⟩),
-    ("cancel-read", wordFn 1 1, .builtin (.streamCancelRead element true) ⟨1⟩),
+    ("read", wordFn arity 1, .builtin read ⟨1⟩),
+    ("cancel-read", wordFn 1 1, .builtin cancel ⟨1⟩),
     ("new-set", wordFn 0 1, .builtin .waitableSetNew ⟨1⟩),
     ("join", wordFn 2 0, .builtin .waitableJoin ⟨1⟩),
     ("poll", wordFn 2 1, .builtin (.waitableSetPoll readerMemory) ⟨1⟩),
     ("close-set", wordFn 1 0, .builtin .waitableSetDrop ⟨1⟩),
     ("rep", wordFn 1 1, .builtin (.resourceRep resource .i32) ⟨1⟩),
     ("drop-own", wordFn 1 0, .builtin (.resourceDrop resource) ⟨1⟩),
-    ("close-reader", wordFn 1 0, .builtin (.streamDropReadable element) ⟨1⟩)]
+    ("close-reader", wordFn 1 0, .builtin close ⟨1⟩)]
 
 private def indexOf {kind : IndexKind} (index : Nat) : Idx kind := ⟨Fin.ofNat _ index⟩
 private def word (value : Nat) : Instr := .intConst .i32 (BitVec.ofNat 32 value)
@@ -92,8 +106,8 @@ private def instantiateWith (initial : Store (CanonHost engine))
   let (store, inst, none) ← Core3.prepareE? store module_ addrs | none
   return (store, inst)
 
-private def instantiate : Option (Store (CanonHost engine) × ModuleInst) := do
-  let (store, inst) ← instantiateWith {} imports fun name => match name with
+private def instantiate (channel : Channel := .stream) : Option (Store (CanonHost engine) × ModuleInst) := do
+  let (store, inst) ← instantiateWith {} (imports channel) fun name => match name with
     | "accept-node" => storeWord 32 1 ++ storeWord 36 2 ++ storeWord 40 1 ++ storeWord 44 3
     | "write" => storeWord 64 257 ++ storeWord 68 3
     | _ => []
@@ -114,7 +128,7 @@ private def session (inst : ModuleInst) (useTuple : Bool) : Session grow signatu
   let give := if useTuple then "give-payload" else "give-record"
   run "new-own" [77] [i32Flat 1]
   run "new-own" [77] [i32Flat 2]
-  run "new-stream" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
+  run "new-channel" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
   run "accept-node" [tag, 32, 0, 0] (success 1)
   run "bad-memory" [1, 0] refused
   run "bad-realloc" [1, 0] refused
@@ -129,7 +143,7 @@ private def session (inst : ModuleInst) (useTuple : Bool) : Session grow signatu
   run "close-writer" [4] []
   return .unit
 
-private def ready : HostReady (HostState signature) := fun _ _ => false
+private def ready {sig : Signature} : HostReady (HostState sig) := fun _ _ => false
 
 private def setup (useTuple : Bool) : Option (List (Binding signature) × Machine.Config engine (HostState signature)) := do
   let (store, inst) ← instantiate
@@ -150,7 +164,7 @@ private def setup (useTuple : Bool) : Option (List (Binding signature) × Machin
     store := reference, host := {}, conts := [none]
     ctl := [Machine.Activation.ofProg (some ⟨0⟩) (session inst useTuple)] })
 
-private def run (bindings : List (Binding signature)) (config : Machine.Config engine (HostState signature)) :=
+private def run {sig : Signature} (bindings : List (Binding sig)) (config : Machine.Config engine (HostState sig)) :=
   Machine.run ready (specDispatch ready (host bindings)) (core3Exec grow) Machine.Oracle.first 1500 config
 
 private theorem run_sound (bindings : List (Binding signature)) (config : Machine.Config engine (HostState signature)) :
@@ -195,7 +209,7 @@ private def flatSession (inst : ModuleInst) : Session grow signature (Ret engine
     trapIf ((← callCore addr (args.map i32Flat)) != expected) (.internal s!"unexpected result: {name}")
   run "new-own" [77] [i32Flat 1]
   run "new-own" [77] [i32Flat 2]
-  run "new-stream" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
+  run "new-channel" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
   run "accept-node" [1, 32, 0, 0] ([0, 1].map i32Flat)
   run "wrong-flat-schema" [1] ([1, 0, 0, 0, 0].map i32Flat)
   run "give-flat" [1] ([0, 3, 2, 1, 1].map i32Flat)
@@ -247,7 +261,7 @@ private def flatInputSession (inst : ModuleInst) : Session grow signature (Ret e
   let inputs := [1, 2, 1, 3].map i32Flat
   run "new-own" [i32Flat 77] [i32Flat 1]
   run "new-own" [i32Flat 77] [i32Flat 2]
-  run "new-stream" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
+  run "new-channel" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
   run "wide-flat" (.int .i64 0 :: .int .i64 0 :: inputs) refused
   run "accept-flat" (i32Flat 0 :: i32Flat 1 :: inputs) refused
   run "accept-flat" (i32Flat 0 :: i32Flat 0 :: inputs) [i32Flat 0, i32Flat 1]
@@ -291,42 +305,51 @@ private def flatInputRegression : Bool :=
 
 #guard flatInputRegression
 
-private def expect (inst : ModuleInst) (name : String) (args : List Nat) (expected : List FlatValue) :
-    Session grow signature Unit := do
+private def expect {sig : Signature} (inst : ModuleInst) (name : String) (args : List Nat) (expected : List FlatValue) :
+    Session grow sig Unit := do
   let some addr := exportAddr inst name | internal s!"missing Core export {name}"
   let result ← callCore addr (args.map i32Flat)
   trapIf (result != expected) (.internal s!"unexpected result: {name} {args} got {repr result}")
 
-private def flatStreamWriter (inst : ModuleInst) : Session grow signature (Ret engine) := do
-  let run := expect inst
+private def channelArgs (channel : Channel) (slot address : Nat) : List Nat :=
+  match channel with | .stream => [slot, address, 1] | .future => [slot, address]
+
+private def copyResult (channel : Channel) (result : CopyResult) (count : Nat) : Nat :=
+  match channel with | .stream => packStreamCopyResult result count | .future => futureCopyPayload result
+
+private def flatChannelWriter (channel : Channel) (inst : ModuleInst) :
+    Session grow (signatureFor channel) (Ret engine) := do
+  let run := expect (sig := signatureFor channel) inst
   run "new-own" [77] [i32Flat 1]
   run "new-own" [77] [i32Flat 2]
-  run "new-stream" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
+  run "new-channel" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
   run "accept-flat" [0, 0, 1, 2, 1, 3] ([0, 1].map i32Flat)
   run "new-own" [97] [i32Flat 3]
   block (some ⟨1⟩)
-  run "write" [4, 64, 1] [i32Flat (packStreamCopyResult .completed 1)]
+  run "write" (channelArgs channel 4 64) [i32Flat (copyResult channel .completed 1)]
   resumeThread ⟨1⟩
   run "close-writer" [4] []
   resumeThread ⟨1⟩
   return .unit
 
-private def flatStreamReader (inst : ModuleInst) (stale : Bool) : Session grow signature (Ret engine) := do
-  let run := expect inst
-  let complete := packStreamCopyResult .completed 1
+private def flatChannelReader (channel : Channel) (inst : ModuleInst) (stale : Bool) :
+    Session grow (signatureFor channel) (Ret engine) := do
+  let run := expect (sig := signatureFor channel) inst
+  let complete := copyResult channel .completed 1
+  let args := channelArgs channel 3 80
   let cx : LiftLowerContext engine := { inst := ⟨1⟩, opts := { memory := some readerMemory } }
   run "give-flat" [1] ([0, 1, 2, 1, 3].map i32Flat)
   run "new-set" [] [i32Flat 4]
   run "join" [3, 4] []
-  run "read" [3, 80, 1] [i32Flat blocked]
+  run "read" args [i32Flat blocked]
   run "poll" [4, 96] [i32Flat EventCode.none.toNat]
-  run "cancel-read" [3] [i32Flat (packStreamCopyResult .cancelled 0)]
+  run "cancel-read" [3] [i32Flat (copyResult channel .cancelled 0)]
   trapIf ((← readMem cx 80 8).data != #[0, 0, 0, 0, 0, 0, 0, 0]) (.internal "cancel wrote memory")
-  run "read" [3, 80, 1] [i32Flat blocked]
+  run "read" args [i32Flat blocked]
   block (some ⟨0⟩)
-  run "poll" [4, 96] [i32Flat EventCode.streamRead.toNat]
+  run "poll" [4, 96] [i32Flat (channel.endKind .read).eventCode.toNat]
   trapIf ((← readMem cx 96 8).data != (u32Bytes 3).data ++ (u32Bytes complete).data)
-    (.internal "unexpected stream readiness record")
+    (.internal "unexpected endpoint readiness record")
   run "rep" [5] [i32Flat 97]
   run "rep" [1] [i32Flat 77]
   run "rep" [2] [i32Flat 77]
@@ -334,16 +357,18 @@ private def flatStreamReader (inst : ModuleInst) (stale : Bool) : Session grow s
   run "drop-own" [1] []
   run "drop-own" [2] []
   block none
-  run "read" [3, 80, 1] [i32Flat (packStreamCopyResult .dropped 0)]
+  if channel == .stream then run "read" args [i32Flat (copyResult channel .dropped 0)]
   run "join" [3, 0] []
   run "close-reader" [3] []
   run "close-set" [4] []
-  if stale then run "read" [3, 80, 1] []
+  if stale then run "read" args []
   return .unit
 
-private def flatStreamSetup (stale : Bool) : Option (List (Binding signature) × Machine.Config engine (HostState signature)) := do
-  let (store, writer) ← instantiate
-  let (store, reader) ← instantiateWith store readerImports (fun _ => [])
+private def flatChannelSetup (channel : Channel) (stale : Bool) :
+    Option (List (Binding (signatureFor channel)) × Machine.Config engine (HostState (signatureFor channel))) := do
+  let signature := signatureFor channel
+  let (store, writer) ← instantiate channel
+  let (store, reader) ← instantiateWith store (readerImports channel) (fun _ => [])
   guard (reader.mems == [(1 : Nat)])
   let .ok input := Binding.acceptFlat ("host", "accept-flat") ⟨0⟩ writer 0 { passing := .flat } true | none
   let .ok output := Binding.giveFlat "give-flat" ⟨1⟩ reader 0 .i32 .utf8 (signature.payload true) | none
@@ -355,12 +380,12 @@ private def flatStreamSetup (stale : Bool) : Option (List (Binding signature) ×
   let config : Machine.Config engine (HostState signature) := {
     store := reference
     host := {}
-    conts := [none, some (Machine.Activation.ofProg (some ⟨1⟩) (flatStreamReader reader stale))],
-    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (flatStreamWriter writer)] }
+    conts := [none, some (Machine.Activation.ofProg (some ⟨1⟩) (flatChannelReader channel reader stale))],
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (flatChannelWriter channel writer)] }
   return ([input, output], config)
 
-private def flatStreamRegression (stale : Bool) : Bool :=
-  match flatStreamSetup stale with
+private def flatChannelRegression (channel : Channel) (stale : Bool) : Bool :=
+  match flatChannelSetup channel stale with
   | some (bindings, config) =>
     let result := run bindings config
     let writer := result.config.host.writer
@@ -375,8 +400,10 @@ private def flatStreamRegression (stale : Bool) : Bool :=
       [[none, none, none, none, none], [none, none, none, none, none]]
   | none => false
 
-#guard flatStreamRegression false
-#guard flatStreamRegression true
+#guard flatChannelRegression .stream false
+#guard flatChannelRegression .stream true
+#guard flatChannelRegression .future false
+#guard flatChannelRegression .future true
 
 private def flatBindingIssue {sig : Signature} (result : Except Issue (Binding sig)) : Option Issue :=
   match result with
