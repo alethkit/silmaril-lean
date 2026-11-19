@@ -88,3 +88,17 @@ emitted witness and theorems. Each Lean process has a 30 s timeout and a
 imports and peak RSS. Section-indexed certificates establish byte agreement,
 not stack/index typing, so they do not provide a competing operand for these
 intrinsic queries.
+
+One warm run on Linux x86-64 (seconds; raw / raw plus intrinsic witness):
+
+| Fixture | Construct | Import | Query | Prove `ModuleValid` | Separate byte agreement |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Call through an import | 3.02 / 3.08 | 3.02 / 3.02 | 4.59 / 3.11 | 3.10 / 3.45 | 4.42 |
+| Checked-in `sum8-closed` | 3.13 / 3.71 | 3.02 / 3.48 | 3.15 / 3.21 | 3.29 / 3.03 | 4.04 |
+| 64 nop bodies | 3.01 / 3.11 | 3.06 / 3.06 | 3.05 / 3.11 | 3.15 / 3.22 | 6.73 |
+
+Peak RSS was 2.10–2.13 GiB for construction, import, query and validity;
+separate byte agreement used 2.13, 2.32 and 3.07 GiB respectively. Most wall
+ time is Lean process and import cost. These are single-run measurements, not
+ evidence of a speedup. The byte agreement column uses the existing
+ `wasm_prove_source` proof, not the packed bounded reader.
