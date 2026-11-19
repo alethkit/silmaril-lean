@@ -422,6 +422,13 @@ and canonical traps. Primitive node construction preserves this equality through
 arity check and maps arbitrary existing children in order. This is not a conservative
 extension theorem for compound loaders or for an entire Core export session.
 
+`OwnedMemory.Plain.Thms` gives a typed equivalence for every payload and tree admitted
+by the older stored-value schema check. Its recursive proof rules out own receipts in
+all compound cases; the inverse preserves values, tags and children. Endpoint identities
+stay unchanged even when their element schema contains owners, because lifting an endpoint
+does not lift its elements. A borrow anywhere in the schema still rejects. This equivalence
+of typed observations does not grant authority or equate the two compound lifting programs.
+
 `Wit.Stored.OwnedMemory.Claims` registers owner receipts and readable endpoint claims together
 from a freshly lifted root. Held claims, not the accepted observations, authorize a canonical
 `lower_own`, destructor request or endpoint transfer. `give` commits spending after insertion
