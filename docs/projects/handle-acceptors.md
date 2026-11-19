@@ -320,10 +320,13 @@ are rejected before any transfer effects.
   overwrites the scratch vector with each child reply. The older `symListMod` and `blobListMod`
   remain two-child examples. This is not an exact accepted-language or full session-termination
   result for the looped checkers.
-* Parsing: `chunkRingN` is proved for capacities up to 8192 (one page), with non-vacuity for
-  every `1 ≤ cap ≤ 8192` (one value: `chunkRingN_relates_7_one`; the one-slot buffer:
-  `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`) and for `2 ≤ cap` with two values; capacities
-  beyond one page and memory growth (`memory.grow`) are not done.
+* Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
+  `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
+  bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness
+  proof. A growth refusal traps before writes or cursor updates and keeps the buffer.
+  The executable regression retries after refusal, fills 8193 slots, and finishes a chunk.
+  This is not exact acceptance or a termination theorem; `feed` on a full buffer still
+  diverges, and progress depends on available memory and the execution profile.
 
 ## Reference component payloads
 

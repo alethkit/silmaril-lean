@@ -771,15 +771,17 @@ theorem allOnes_succ : (1 : BitVec 32) + BitVec.allOnes 32 = 0 := by decide
 
 theorem mod_small {cap : Nat} (h8 : cap ≤ 8192) {x : BitVec 32} (hx : x.toNat < cap) :
     x % capW cap = x :=
-  BitVec.eq_of_toNat_eq (by rw [BitVec.toNat_umod, capW_toNat h8]; exact Nat.mod_eq_of_lt hx)
+  BitVec.eq_of_toNat_eq (by
+    rw [BitVec.toNat_umod, capW_toNat (by omega)]
+    exact Nat.mod_eq_of_lt hx)
 
 /-- **The session is a play** of `chunkRingN cap`, for every capacity `2 ≤ cap ≤ 8192`, in
 every profile. -/
 theorem ring_session {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) (P : Profile) :
     ∃ ms q, (RI cap).Path P (.idle (RI cap).store) ms q ∧ ms.map rmv = ringR := by
-  have hcap : RingCap cap := ⟨by omega, h8⟩
+  have hcap : RingCap cap := ⟨by omega, by omega⟩
   have hc0 : capW cap ≠ 0 := capW_ne hcap
-  have hcw := capW_toNat h8
+  have hcw := capW_toNat hcap.2
   have hne : ∀ a : BitVec 32, a.toNat < 2 → a ≠ capW cap := fun a ha h => by
     rw [h, hcw] at ha; omega
   have hS := ring_shape cap
@@ -939,9 +941,9 @@ theorem ring_session {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) (P : Profi
 
 theorem ring_session1 {cap : Nat} (h1 : 1 ≤ cap) (h8 : cap ≤ 8192) (P : Profile) :
     ∃ ms q, (RI cap).Path P (.idle (RI cap).store) ms q ∧ ms.map rmv = ringR1 := by
-  have hcap : RingCap cap := ⟨by omega, h8⟩
+  have hcap : RingCap cap := ⟨by omega, by omega⟩
   have hc0 : capW cap ≠ 0 := capW_ne hcap
-  have hcw := capW_toNat h8
+  have hcw := capW_toNat hcap.2
   have hne : ∀ a : BitVec 32, a.toNat < 1 → a ≠ capW cap := fun a ha h => by
     rw [h, hcw] at ha; omega
   have hS := ring_shape cap

@@ -67,7 +67,16 @@ children = ["silmaril.shapes.containers.vpre", "silmaril.shapes.containers.wlp",
   "containers.mini.no_ub_check_sound", "containers.mini.restrict_preserves_ub",
   "containers.monitor_correct_stdio", "containers.mini.vsys_sound_raw",
   "containers.mini.raw_sound_vsys", "containers.mini.check_sound_vsys", "containers.noop.oci_wp",
-  "containers.http_once.oci_wp", "containers.http_serve.oci_wlp"]
+  "containers.http_once.oci_wp", "containers.http_serve.oci_wlp", "containers.examples"]
+
+# The worked examples, in the order of docs/projects/containers-examples.md and the explorer's
+# Containers tab.
+[[group]]
+name = "containers.examples"
+title = "Containers: worked examples (experimental)"
+children = ["containers.noop.oci_wp", "containers.http_serve.oci_wlp", "containers.examples.crash_wlp",
+  "containers.examples.crash_wp",
+  "containers.mini.thread_spawn_wlp", "containers.examples.http", "containers.examples.vsock"]
 
 [[group]]
 name = "silmaril.selftest.formats"
