@@ -78,8 +78,22 @@ uses the same function and memory indices as the one-page example. -/
 def checkedPageShape (checker : Checker) (pages : InitialPages) : Bool :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopSound.shapeOk checker.imports pages
 
-theorem checkedPageShape_two (checker : Checker) : checkedPageShape checker ⟨2, by decide⟩ = true := by
-  cases checker <;> decide +kernel
+/-- All permitted initial page counts have the same checked code, imports and memory
+address. Validation and shape checks do not depend on evaluating the allocated bytes. -/
+theorem checkedPageShape_all (checker : Checker) (pages : InitialPages) : checkedPageShape checker pages = true :=
+  (Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopSound.shape_pages
+    checker.imports pages InitialPages.one).trans
+    (Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.checker_shape checker)
+
+theorem checkedPageShape_two (checker : Checker) : checkedPageShape checker ⟨2, by decide⟩ = true :=
+  checkedPageShape_all checker ⟨2, by decide⟩
+
+/-- A validated instance at any allowed memory32 minimum comes with exactly that
+initial capacity. This is a specification instance, not a claim about physical memory. -/
+theorem checker_instance_pages (checker : Checker) (pages : InitialPages) :
+    ∃ mt instance_ initial, IsSpecInstance (Loop.mod checker.imports pages) mt instance_ initial ∧
+      ReplySpace (pages.val * 65536) initial.store :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.checker_instance_pages checker pages
 
 /-- The same child-kind and addressability bound holds for arbitrary export prefixes
 from any checked page configuration. -/
@@ -90,6 +104,13 @@ theorem checker_bounded_in (profile : Profile) (checker : Checker) {pages : Init
       checker.imports checker.decodeChild .trap policy envs ⊆ boundedListsOf checker.kind :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.checker_bounded_pages
     profile checker shape noUB envs
+
+theorem checker_bounded_pages (profile : Profile) (checker : Checker) (pages : InitialPages)
+    {policy : OnInvalid} (noUB : policy ≠ .ub)
+    (envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp)) :
+    listReaderLang profile (ReplyEnvs itemsReply) 0 (Loop.mod checker.imports pages)
+      checker.imports checker.decodeChild .trap policy envs ⊆ boundedListsOf checker.kind :=
+  checker_bounded_in profile checker (checkedPageShape_all checker pages) noUB envs
 
 theorem checker_instance_two (checker : Checker) :
     ∃ mt instance_ initial, IsSpecInstance (Loop.mod checker.imports ⟨2, by decide⟩) mt instance_ initial ∧
@@ -135,6 +156,22 @@ theorem byte_reply_accepts_in {profile : Profile} (checker : Checker) {pages : I
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.bytes_accepts_pages
     checker shape spec width ready policy allowed fits raw space rootDenotes denotes atoms
 
+/-- Any correctly denoting byte script that fits the configured initial memory produces
+an actual accepting export prefix. Instance validation and shape follow from `pages`. -/
+theorem byte_reply_accepts_pages {profile : Profile} (checker : Checker) (pages : InitialPages)
+    (policy : OnInvalid) {Rhos : Set (Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp)}
+    {rho : Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp} (allowed : rho ∈ Rhos) {root : BitVec 32}
+    {handles : List (BitVec 32)} (fits : 8 + 4 * handles.length ≤ pages.val * 65536)
+    (raw : BitVec 32 → List UInt8) (space : ∀ handle ∈ handles, 8 + (raw handle).length ≤ pages.val * 65536)
+    {children : List SymStrBytesSExp} (rootDenotes : rho root = some (SExp.ofList children))
+    (denotes : List.Forall₂ (fun handle child => rho handle = some child) handles children)
+    (atoms : ∀ handle ∈ handles, ∃ atom,
+      checker.decodeBytes (raw handle) = some atom ∧ rho handle = some (.atom atom)) :
+    SExp.ofList children ∈ listReaderLang profile (ReplyEnvs itemsReply) 0 (Loop.mod checker.imports pages)
+      checker.imports checker.decodeChild .trap policy Rhos :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.bytes_accepts_initial
+    checker pages policy allowed fits raw space rootDenotes denotes atoms
+
 /-- The validated one-page checker accepts any correctly denoting byte script fitting the
 page. The checked encoders construct both kinds of reply in place. -/
 theorem byte_reply_accepts {profile : Profile} (checker : Checker)
@@ -147,10 +184,7 @@ theorem byte_reply_accepts {profile : Profile} (checker : Checker)
     (atoms : ∀ handle ∈ handles, ∃ atom,
       checker.decodeBytes (raw handle) = some atom ∧ rho handle = some (.atom atom)) :
     SExp.ofList children ∈ listReaderLang profile (ReplyEnvs itemsReply) 0 (Loop.mod checker.imports)
-      checker.imports checker.decodeChild .trap policy Rhos := by
-  obtain ⟨_, _, _, spec, ready⟩ := checker_instance checker
-  exact byte_reply_accepts_in checker
-    (Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.checker_shape checker)
-    spec (by decide) ready policy allowed fits raw space rootDenotes denotes atoms
+      checker.imports checker.decodeChild .trap policy Rhos :=
+  byte_reply_accepts_pages checker InitialPages.one policy allowed fits raw space rootDenotes denotes atoms
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop
