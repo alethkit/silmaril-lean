@@ -6,7 +6,8 @@ public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Audit.
 
 namespace Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Replay
 
-open Silmaril.Formats Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game.IOAccept
+open Silmaril.Formats Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game Silmaril.Wasm.Game.IOAccept
+  Silmaril.Wasm.Numerics
 
 abbrev Tree := AST ownSig.toAstSig
 
@@ -43,5 +44,14 @@ def contract : Contract ownSig Writer where
 retained at `Contract.attempt`, not encoded as a Core value. -/
 def roles : Roles Unit Unit Unit Unit where
   result := fun _ _ => some ()
+
+/-- Trees actually accepted by the checked `ownMod` host over all linked instances and
+all export prefixes. A pending tree (only a `node` reply) is not an acceptance. -/
+def language (P : Profile) (rt : RT) : Set Tree :=
+  { tree | ∃ mt inst initial, IsSpecInstance ownMod mt inst initial ∧
+      ∃ memory, contract.link ownMod inst initial 0 = .ok memory ∧
+      ∃ phase pending current state tags,
+        TSession P (contract.env memory) ownMod memory roles initial ⟨rt, {}⟩ inst.addrs
+          phase pending (current, state) tags ∧ tree ∈ state.writer.accepted }
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Replay

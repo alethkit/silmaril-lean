@@ -21,9 +21,9 @@ open Silmaril.Wasm Silmaril.Wasm.Execution Silmaril.Wasm.Execution.Core Silmaril
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnMod
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.WitOwn
 
-def observed (bytes : ByteArray) : Callout := ⟨("wit", "node"), nodeArgs, some bytes⟩
+@[expose] def observed (bytes : ByteArray) : Callout := ⟨("wit", "node"), nodeArgs, some bytes⟩
 
-def decoded : Nat → Op ownSig := fun rep => ⟨OwnTag.res, (rep, ())⟩
+@[expose] def decoded : Nat → Op ownSig := fun rep => ⟨OwnTag.res, (rep, ())⟩
 
 theorem attempt_on_slice {store : Store Nat} {mem : MemInst} (rt : RT)
     (found : store.mems[0]? = some mem) (width : mem.type.address = .i32)
