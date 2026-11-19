@@ -408,7 +408,12 @@ requires its own checked transfer; this path rejects those schemas, including in
 before passing a compound payload to the same reference store/flatten programs. A typed
 rejection retains the claims for a corrected retry; a successful transfer spends each claim
 once. This entry point rejects schemas that can require guest realloc, even in an inactive
-arm, until there is a frame for transferring the claims across the guest call.
+arm. The separate `Wit.Stored.Endpoints.ListLower` path supports dynamic lists of
+readable futures or streams. It rechecks all claims after canonical realloc, distinguishes
+refusal before allocation from refusal after the allocator's effects, and spends each claim
+before canonical lower updates ownership. Neither a late table trap nor an allocator's
+reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
+rejected by the general entry point.
 
 ## Checking
 
