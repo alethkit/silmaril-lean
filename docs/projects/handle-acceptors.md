@@ -312,11 +312,12 @@ are rejected before any transfer effects.
   no sequence of exports resurrects a moved slot in this move-only host. This is a
   session safety contract, not yet a characterization of the accepted tree language,
   and the host does not implement resource allocation or drop.
-* Wasm writer variants: `batchAccept_lang` bounds `batchAccept` by its kept batch `keptL` (the
-  dropped word is never accepted, `batchAccept_drops`), but the lower bound is the run at the
-  fixed argument `3` (`batchAccept_kept`), not every `(w)`; the batch bridge assumes policies
-  without undefined behaviour. `errAccept`, `allAccept`, `readBack` are upper bounds with runs at
-  fixed arguments, not exact languages.
+* Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
+  exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
+  Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
+  witness. `batchAccept_drops` still rules out the dropped words, and the batch bridge still
+  assumes policies without undefined behaviour. `readBack` still has a fixed witness and an
+  upper bound, not an exact language.
 * Families through memory: `MemSound.ListCheck` checks lists of exactly two symbols
   (`symListMod`) or two blobs (`blobListMod`); there is no looped checker for any length (a loop
   computing `ptr + 4i` with `i32` arithmetic wraps modulo `2^32` while the decoder reads at the
