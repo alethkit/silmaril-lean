@@ -52,10 +52,13 @@ full expansion; possessing only the shallow root is not enough.
 
 ## Remaining work
 
-- [ ] **Canonical representation:** in `Wire`, prove both abstract roundtrips
-  between canonical CBOR and key-extensional shallow trees. Use the existing
-  DRISL correspondence and prove the key-permutation and array-index lemmas
-  for this adapter. Keep debug JSON out of the byte-hash serialization path.
+- [ ] **Canonical representation:** `Wire.lower_toOrdered` checks the abstract
+  projection, including bounded array indices and finite maps; `lower_map_perm`
+  checks invariance under permutations of distinct keys. `parse_eq_some_iff`
+  characterizes accepted canonical wire and its abstract value. The remaining
+  roundtrips for `Wire.render?` need the existing DRISL ordered correspondence
+  lifted to the typed CID codec and a proof that recursive canonical sorting
+  preserves the projection. Keep debug JSON out of byte-hash serialization.
 - [ ] **Partial resolution:** in `Resolve`, implement a fuel/policy-indexed
   deterministic observation and prove it satisfies `PartialNames`, preserves
   existing observations under increased fuel, and agrees with a finite expansion
@@ -89,4 +92,4 @@ lake env lean -DwarningAsError=true --run tests/formats/Dasl.lean
 lake env lean -DwarningAsError=true --run tests/formats/DrislDebug.lean
 ```
 
-`make check` runs both format regressions when it builds `Silmaril`.
+`make check` runs `DrislDebug.lean` when it builds `Silmaril`. Run `Dasl.lean` separately.
