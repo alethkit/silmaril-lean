@@ -4,6 +4,7 @@ public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
 public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Deferred.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Thms
 import Silmaril.Wasm.Component.Reference.HostWrite.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Builtins.Resource.Thms
@@ -769,16 +770,11 @@ private theorem tree_safe (ticket : Nat) (caller : CallerId) (tree : Stored.Owne
       · exact HostWrite.bind (write_completion_safe _ rfl) fun _ => .pure none _
   · exact refused_safe _ _ _
 
-private theorem invoke_lower_safe (callee : Callee sig) (caller : CallerId) (state : HostState sig)
-    (subtask : SubtaskId) (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
-    (ft : WIT.FuncType Empty RtId) (limits results : Nat) :
-    Safe (invokeLower callee caller state subtask cx args pos ft limits results) := by
-  unfold invokeLower
-  refine HostWrite.bind (readOnly P.Inv.getStore) fun store => HostWrite.bind (readOnly P.Inv.currentInst?) fun _ => ?_
-  split
-  · exact reject_safe _ _
-  split
-  · exact reject_safe _ _
+private theorem accept_caller_safe (callee : Callee sig) (caller : CallerId) (ticket : Nat)
+    (history : List (Stored.OwnedMemory.Tree sig)) (store : CStore (core3 grow))
+    (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) :
+    Safe (acceptCaller callee caller ticket history store cx args) := by
+  unfold acceptCaller
   split
   · exact before_lift_safe _ _ _
   split
@@ -793,6 +789,18 @@ private theorem invoke_lower_safe (callee : Callee sig) (caller : CallerId) (sta
         · exact tree_safe _ _ _
       · exact reject_safe _ _
     · exact reject_safe _ _
+
+private theorem invoke_lower_safe (callee : Callee sig) (caller : CallerId) (state : HostState sig)
+    (subtask : SubtaskId) (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (ft : WIT.FuncType Empty RtId) (limits results : Nat) :
+    Safe (invokeLower callee caller state subtask cx args pos ft limits results) := by
+  unfold invokeLower
+  refine HostWrite.bind (readOnly P.Inv.getStore) fun store => HostWrite.bind (readOnly P.Inv.currentInst?) fun _ => ?_
+  split
+  · exact reject_safe _ _
+  split
+  · exact reject_safe _ _
+  · exact accept_caller_safe _ _ _ _ _ _ _
 
 private theorem enter_safe (state : HostState sig) (name : String) (type : V1.FuncType) (args : List FlatValue) :
     CheckedWrite state (state.enter name type args) :=
@@ -827,6 +835,169 @@ theorem checked_of_component_steps (bindings : List (Binding sig)) (callees : Li
     Extends initial.host final.host ∧ WriterRun initial.host.writer final.host.writer ∧
       PublicationDelta initial.host final.host :=
   checked_host_of_steps (hostWithComponent_safe bindings callees) steps safe runSafe
+
+namespace Deferred
+
+open ComponentCall.Deferred
+
+private theorem rebase {Result : Type} {program : Session grow sig Result} {pending : Option (HostState sig)}
+    (safe : Safe program) : HostSafe CheckedWrite pending program := by
+  cases safe with
+  | pure _ value => exact .pure pending value
+  | op _ plain tail => exact .op pending plain tail
+  | get _ tail => exact .get pending tail
+
+private theorem queue_safe (state : HostState sig) (entry : PendingAccept) :
+    CheckedWrite state (ComponentCall.Deferred.HostState.queue state entry) :=
+  record_safe state (.queued entry.ticket) rfl
+
+private theorem take_safe (state : HostState sig) (entry : PendingAccept) :
+    CheckedWrite state (ComponentCall.Deferred.HostState.take state entry) :=
+  ⟨⟨List.prefix_rfl, le_rfl⟩, .same _, publication_refl _⟩
+
+private theorem stage_safe (callee : Callee sig) (caller : CallerId) (ticket : Nat) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (ft : WIT.FuncType Empty RtId) (limits results : Nat) :
+    Safe (stage callee caller ticket subtask cx args pos ft limits results) := by
+  unfold stage
+  split
+  · exact reject_safe _ _
+  refine HostWrite.bind (readOnly P.Inv.getStore) fun _ => HostWrite.bind (readOnly P.Inv.currentInst?) fun _ => ?_
+  split
+  · exact reject_safe _ _
+  split
+  · exact reject_safe _ _
+  split
+  · exact before_lift_safe _ _ _
+  split
+  · exact .pure none _
+  · refine .get none fun current => ?_
+    dsimp only [Prog.bind]
+    split
+    · exact rebase (reject_safe _ _)
+    · exact .set (queue_safe _ _) (.pure none _)
+
+theorem stage_frame (callee : Callee sig) (caller : CallerId) (ticket : Nat) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (ft : WIT.FuncType Empty RtId) (limits results : Nat) (before : CStore (core3 grow)) :
+    P.InvW (SameAuthority before) (fun _ => True) (stage callee caller ticket subtask cx args pos ft limits results) := by
+  unfold stage
+  split
+  · exact reject_frame _ _ _
+  refine P.Inv.bind P.Inv.getStore fun _ => P.Inv.bind P.Inv.currentInst? fun _ => ?_
+  split
+  · exact reject_frame _ _ _
+  split
+  · exact reject_frame _ _ _
+  split
+  · exact refusal_frame _ _ _ _
+  split
+  · exact P.Inv.pure _
+  · refine P.Inv.bind P.Inv.hostGet fun _ => ?_
+    split
+    · exact reject_frame _ _ _
+    · exact P.Inv.bind (P.Inv.hostSet _ trivial) fun _ => P.Inv.pure _
+
+private theorem begin_safe (callee : Callee sig) (caller : CallerId) :
+    Safe (begin (grow := grow) callee caller) := by
+  unfold begin
+  refine HostWrite.bind (readOnly (P.Inv.getObj _ _)) fun record => .get none fun state => ?_
+  cases record <;> refine .set (enter_safe _ _ _ _) ?_
+  case lower => exact stage_safe _ _ _ _ _ _ _ _ _ _
+  all_goals exact reject_safe _ _
+
+private theorem start_safe (callees : List (Callee sig)) (ticket index : Nat) :
+    Safe (start (grow := grow) callees ticket index) := by
+  unfold start
+  refine HostWrite.bind (readOnly P.Inv.getStore) fun _ =>
+    HostWrite.bind (readOnly P.Inv.currentInst?) fun _ => .get none fun state => ?_
+  dsimp only [Prog.bind]
+  split
+  · exact rebase (binding_trap_safe _ _)
+  · split
+    · exact rebase (binding_trap_safe _ _)
+    · exact .set (take_safe _ _)
+        (HostWrite.bind (next := fun _ => writeCompletion (.returned ticket 0, [i32Flat 0]))
+          (accept_caller_safe _ _ _ _ _ _ _) (fun _ => write_completion_safe _ rfl))
+
+private theorem cancel_safe (token : Nat) : Safe (ComponentCall.Deferred.cancel (grow := grow) (sig := sig) token) := by
+  unfold ComponentCall.Deferred.cancel
+  have failure : Safe (rejectCancellation (grow := grow) (sig := sig)) := by
+    unfold rejectCancellation
+    refine .get none fun state => .set (enter_safe state _ _ _) ?_
+    exact HostWrite.bind (next := fun _ => pure ())
+      (binding_trap_safe state.nextTicket .stalePendingAccept) (fun _ => .pure none ())
+  refine HostWrite.bind (readOnly P.Inv.getStore) fun _ =>
+    HostWrite.bind (readOnly P.Inv.currentInst?) fun _ => .get none fun state => ?_
+  dsimp only [Prog.bind]
+  split
+  · exact rebase failure
+  · exact rebase (HostWrite.bind (readOnly (P.Inv.lowerOnResolve lowerPres _ _ _ _)) fun _ =>
+      .get none fun current => .set (record_safe current _ rfl) (.pure none ()))
+
+private theorem lower_cancel_frame (caller : CallerId) (before : CStore (core3 grow)) :
+    P.InvW (SameAuthority before) (fun _ : HostState sig => True)
+      (lowerOnResolve Limits.spec Quirks.none caller none) := by
+  unfold lowerOnResolve
+  refine P.Inv.bind (P.Inv.getObj _ _) fun _ => ?_
+  split
+  · refine P.Inv.bind (progress_frame _ before) fun _ => P.Inv.bind (P.Inv.pure _) fun _ => ?_
+    refine P.Inv.bind (P.Inv.getObj _ _) fun _ => ?_
+    split <;> exact P.Inv.modifyStore (fun _ same => same)
+  · exact P.Inv.internal _
+
+theorem cancel_frame (token : Nat) (before : CStore (core3 grow)) :
+    P.InvW (SameAuthority before) (fun _ => True) (ComponentCall.Deferred.cancel (grow := grow) (sig := sig) token) := by
+  unfold ComponentCall.Deferred.cancel
+  refine P.Inv.bind P.Inv.getStore fun _ => P.Inv.bind P.Inv.currentInst? fun _ =>
+    P.Inv.bind P.Inv.hostGet fun _ => ?_
+  split
+  · unfold rejectCancellation rejectBinding
+    exact P.Inv.bind P.Inv.hostGet fun _ => P.Inv.bind (P.Inv.hostSet _ trivial) fun _ =>
+      P.Inv.bind (P.Inv.bind P.Inv.hostGet fun _ => P.Inv.bind (P.Inv.hostSet _ trivial) fun _ => P.Inv.trap _) fun _ =>
+        P.Inv.pure _
+  · exact P.Inv.bind (lower_cancel_frame _ _) fun _ => P.Inv.bind P.Inv.hostGet fun _ => P.Inv.hostSet _ trivial
+
+private theorem dispatch_start_safe (bindings : List (Binding sig)) (callees : List (Callee sig))
+    (control name : String) (type : V1.FuncType) (args : List FlatValue) :
+    Safe (dispatchStart (grow := grow) bindings callees control name type args) := by
+  unfold dispatchStart
+  split
+  · exact (host_safe bindings).embedder _ _ _
+  · refine .get none fun state => .set (enter_safe _ _ _ _) ?_
+    split
+    · exact binding_trap_safe _ _
+    split
+    · exact binding_trap_safe _ _
+    split
+    · exact start_safe _ _ _
+    · exact binding_trap_safe _ _
+
+theorem host_safe (bindings : List (Binding sig)) (callees : List (Callee sig))
+    (deferred : List HostFuncId) (control : String) :
+    HostImplSafe CheckedWrite (hostWithDeferred (grow := grow) bindings callees deferred control) := by
+  have eager := hostWithComponent_safe (grow := grow) bindings callees
+  refine { eager with funcs := ?_, embedder := dispatch_start_safe _ _ _, cancel := cancel_safe }
+  intro id caller
+  unfold hostWithDeferred
+  simp only
+  split
+  · split
+    · exact begin_safe _ _
+    · exact eager.funcs _ _
+  · exact eager.funcs _ _
+
+theorem checked_of_steps (bindings : List (Binding sig)) (callees : List (Callee sig))
+    (deferred : List HostFuncId) (control : String)
+    {initial final : Config (core3 grow) (HostState sig)}
+    {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (hostWithDeferred bindings callees deferred control))
+      initial labels final) (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels) :
+    Extends initial.host final.host ∧ WriterRun initial.host.writer final.host.writer ∧
+      PublicationDelta initial.host final.host :=
+  checked_host_of_steps (host_safe bindings callees deferred control) steps safe runSafe
+
+end Deferred
 
 end Component
 

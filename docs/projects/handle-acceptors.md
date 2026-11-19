@@ -684,8 +684,22 @@ inactive nested borrow rejection, bad memory width, recycled owner slots, a doub
 trap and a result range trap. In the joined channel replay the async canonical accept
 publishes a root with owners and a readable endpoint; another linked instance receives
 it via `giveFlat` and exercises a non-unit resource-bearing stream or future, including
-read cancellation, polling, closure (stream) and stale handles. The callee resolves
-eagerly; a pending accept callback and its cancellation semantics are not yet provided.
+read cancellation, polling, closure (stream) and stale handles.
+
+`ComponentCall.Deferred.hostWithDeferred` adds a pending mode for explicitly configured
+asynchronous callees. Queuing validates the link and the full schema without lifting
+the arguments. The reference `canon lower` installs a waitable; the linked start import
+selects its live nominal subtask in the caller's instance, checks the saved caller
+record, and invokes the same checked acceptance and publication as the eager route.
+The start import acknowledges the callback; the accepted handle or typed WIT error is
+written into the original caller's canonical result area. Starting in the wrong
+instance, behind a no-leave boundary, or from a stale slot fails with a typed diagnostic.
+Before start, `subtask.cancel` calls the checked cancellation callback and resolves via
+the reference cancellation path, without moving owners or publishing a tree. Start
+lifts and resolves in one callback; it does not expose a suspended post-lift phase.
+The deferred session theorem conserves the writer and journal on arbitrary ordinary
+prefixes. Linked direct/spilled replays check cancel, drop, slot reuse, start,
+resolution, and stale start after dropping the waitable.
 
 ## Checking
 
