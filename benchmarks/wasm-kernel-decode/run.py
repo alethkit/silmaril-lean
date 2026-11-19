@@ -314,11 +314,62 @@ def framing_cases(out, selected, args):
                     csv_file.flush()
 
 
+def passive_cases(out, selected, args):
+    build, env = build_kernel_harness(out, args)
+    subprocess.run(["lake", "build", "--wfail", "+Silmaril.Wasm.Binary.Packed.Passive.Thms"],
+                   cwd=ROOT, check=True)
+    with (out / "passive.csv").open("w") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(["case", "run", "phase", "wall_s", "peak_rss_kib", "exit", "agreement_ns"])
+        for case, binary, _ in selected:
+            directory = binary.parent
+            width = int(case.removeprefix("data-").removesuffix("k")) * 1024
+            start = binary.stat().st_size - width
+            mode_end = start - len(uleb(width))
+            (directory / "passive.bin").write_bytes(binary.read_bytes()[start:])
+            defs = directory / "PassiveInput.lean"
+            defs.write_text('module\npublic import Quote\npublic import Silmaril.Wasm.Binary.Packed.Passive.Thms\n'
+                            'open Silmaril.Wasm.Binary.Packed\n'
+                            'wasm_bench_defs source expected from "source.wasm"\n'
+                            'kbytes_def payload from_file "passive.bin"\n'
+                            f'@[expose] public def plan : PassivePlan := ⟨{mode_end - 2}, {mode_end - 1}, '
+                            f'{mode_end}, {start}⟩\n')
+            olean = build / "PassiveInput.olean"
+            source = directory / "MeasurePassive.lean"
+            statement = f"{REF} source.toByteArray = some expected"
+            phases = {
+                "import": "",
+                "reference": f"wasm_bench_agreement agreed {REF} source expected\n",
+                "fast": (f"wasm_bench_agreement fastAgreed {FAST} source expected\n"
+                         f"theorem agreed : {statement} := WasmKernelBench.reference_agrees _ _ fastAgreed\n"),
+                "packed": (
+                    "wasm_bench_refl spanOK : (source.slice plan.payloadStart payload.len).sameBytes 4096 payload = true\n"
+                    "theorem verified : plan.Verified source source.wf_true payload where\n"
+                    "  sectionPresent := by decide +kernel\n  countFits := by decide +kernel\n"
+                    "  consumesInput := rfl\n  header := rfl\n  id := rfl\n  size := rfl\n  count := rfl\n"
+                    "  mode := rfl\n  length := rfl\n  payloadMatches := spanOK\n"
+                    f"theorem agreed : {statement} := verified.sound payload.wf_true\n"
+                ),
+            }
+            result = sample(directory, "passive-construct",
+                            lean_command(args, defs, f"--root={directory}", "-o", str(olean)), args.seconds, env)
+            writer.writerow([case, 1, "construct", *result[1:]])
+            for repeat in range(1, args.runs + 1):
+                if result[3]:
+                    break
+                for phase, body in phases.items():
+                    source.write_text("module\npublic import PassiveInput\n\n" + body)
+                    result_phase = sample(directory, f"{repeat}-passive-{phase}",
+                                          lean_command(args, source), args.seconds, env)
+                    writer.writerow([case, repeat, phase, *result_phase[1:]])
+                    csv_file.flush()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--cases", nargs="+")
-    parser.add_argument("--mode", choices=("kernel", "native", "window", "framing", "bounded", "both"),
+    parser.add_argument("--mode", choices=("kernel", "native", "window", "framing", "passive", "bounded", "both"),
                         default="both")
     parser.add_argument("--seconds", type=int, default=30)
     parser.add_argument("--memory", type=int, default=4096, help="Lean allocator limit in MiB")
@@ -330,7 +381,7 @@ def main():
     selected = []
     manifest = {}
     for case, source, data in fixtures():
-        if args.cases and case not in args.cases:
+        if (args.cases and case not in args.cases) or (args.mode == "passive" and not data):
             continue
         directory = output / case
         directory.mkdir(exist_ok=True)
@@ -352,6 +403,8 @@ def main():
         window_cases(output, selected, args)
     if args.mode == "framing":
         framing_cases(output, selected, args)
+    if args.mode == "passive":
+        passive_cases(output, selected, args)
 
 
 if __name__ == "__main__":
