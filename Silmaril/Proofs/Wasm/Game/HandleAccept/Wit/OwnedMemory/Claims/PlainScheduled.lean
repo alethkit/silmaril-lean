@@ -19,13 +19,14 @@ open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core (Contract checkCh
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core.Scheduled (nodeCall)
 open Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst (NodeArgs)
 
-theorem body_steps {E : CoreEngine} {Host Result : Type} (body : P E Host Result)
+theorem body_steps_at {E : CoreEngine} {Host Result : Type} (body : P E Host Result)
     (start : Machine.Config E Host) (updated : CStore E) (host : Host) (result : Result)
     (finish : Result → P E Host (Ret E)) (thread : Option ThreadId)
     (segs : List (Machine.Seg E Host)) (rest : List (Machine.Activation E Host))
     (profile : ProfileKind) (ready : HostReady Host) (dispatch : Call E → P E Host (Ret E))
     (focused : start.ctl = ⟨thread, .prog (body >>= finish), segs⟩ :: rest)
-    (success : Plain.runBody body start.store start.host = (updated, host, .ok result)) :
+    (activation : Option (Option ThreadId)) (matchesThread : activation = none ∨ activation = some thread)
+    (success : Plain.runBody body start.store start.host activation = (updated, host, .ok result)) :
     ∃ labels, labels.all (· matches .tau) = true ∧
       Machine.Steps profile ready dispatch start labels
         { start with store := updated, host, ctl := ⟨thread, .prog (finish result), segs⟩ :: rest } := by
@@ -60,7 +61,60 @@ theorem body_steps {E : CoreEngine} {Host Result : Type} (body : P E Host Result
         { start with host := newHost, ctl := ⟨thread, .prog (next () >>= finish), segs⟩ :: rest }
         rfl success
       exact ⟨.tau :: labels, silent, .cons (.hostSet focused) tail⟩
+    case currentThread =>
+      rcases matchesThread with missing | known
+      · rw [missing] at success
+        cases success
+      · rw [known] at success
+        obtain ⟨labels, silent, tail⟩ := ih thread
+          { start with ctl := ⟨thread, .prog (next thread >>= finish), segs⟩ :: rest } rfl
+          (by simpa only [known] using success)
+        exact ⟨.tau :: labels, silent, .cons (.currentThread focused) tail⟩
     all_goals cases success
+
+theorem resolve_caller {E : CoreEngine} {Host Result : Type} (rest : Option InstId → P E Host Result)
+    (reference : CStore E) (host : Host) (thread : Option ThreadId) :
+    Plain.runBody (currentInst? >>= rest) reference host (some thread) =
+      match Plain.callerInstance reference thread with
+      | .ok caller => Plain.runBody (rest caller) reference host (some thread)
+      | .error issue => (reference, host, .error issue) := by
+  cases thread with
+  | none => rfl
+  | some thread =>
+    cases active : ArenaField.threads.get? reference thread with
+    | none =>
+      simp [currentInst?, currentTask?, currentThread, getThread, getObj, getStore,
+        perform, internal, trap, Plain.runBody, Plain.callerInstance, active,
+        Prog.bind_assoc]
+    | some activeThread =>
+      cases task : ArenaField.tasks.get? reference activeThread.task <;>
+        simp [currentInst?, currentTask?, currentThread, getThread, getTask, getObj, getStore,
+          perform, internal, trap, Plain.runBody, Plain.callerInstance, active, task,
+          Prog.bind_assoc]
+
+theorem invoke_memory {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (ticket : Nat) (contract : Contract sig) (memory : Option Nat) (args : List FlatValue)
+    (reference : CStore (core3 grow)) (host : HostState sig) (thread : Option ThreadId) :
+    let binding : Binding sig := ⟨contract.name.2, contract.inst, .accept contract memory⟩
+    Plain.runBody (do finish ticket (← invoke ticket binding args)) reference host (some thread) =
+      match Plain.callerInstance reference thread with
+      | .error issue => (reference, host, .error issue)
+      | .ok caller =>
+        if caller = some contract.inst ∧ (reference.inst? contract.inst).any (·.mayLeave) then
+          Plain.runBody (do finish ticket (← accept ticket contract memory args)) reference host (some thread)
+        else
+          (reference, host.record (.refused ticket .wrongContext), .ok [i32Flat 1, i32Flat 0]) := by
+  dsimp only
+  simp only [invoke, Prog.bind_eq, Prog.bind_assoc]
+  rw [← Prog.bind_eq, resolve_caller]
+  cases evaluated : Plain.callerInstance reference thread with
+  | error _ => rfl
+  | ok caller =>
+    by_cases same : caller = some contract.inst
+    · subst caller
+      cases available : (reference.inst? contract.inst).any (·.mayLeave) <;>
+        simp [getStore, perform, Plain.runBody, available, finish, writeCompletion, hostGet, hostSet, completion]
+    · simp [same, bne_iff_ne, finish, writeCompletion, completion, hostGet, hostSet, perform, Plain.runBody]
 
 private theorem bind_ok {Error Input Output : Type} {input : Except Error Input}
     {next : Input → Except Error Output} {output : Output} (success : input >>= next = .ok output) :

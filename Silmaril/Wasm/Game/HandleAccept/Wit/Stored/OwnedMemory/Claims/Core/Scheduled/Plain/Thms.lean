@@ -24,8 +24,41 @@ theorem runBody_steps {E : CoreEngine} {Host Result : Type} (body : P E Host Res
     ∃ labels, labels.all (· matches .tau) = true ∧
       Machine.Steps profile ready dispatch start labels
         { start with store := updated, host, ctl := ⟨thread, .prog (finish result), segs⟩ :: rest } :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.body_steps
-    body start updated host result finish thread segs rest profile ready dispatch focused success
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.body_steps_at
+    body start updated host result finish thread segs rest profile ready dispatch focused none (.inl rfl) success
+
+/-- A body that reads the current thread still gives silent machine steps when
+that read takes its answer from the actual activation. -/
+theorem runBody_thread_steps {E : CoreEngine} {Host Result : Type} (body : P E Host Result)
+    (start : Machine.Config E Host) (updated : CStore E) (host : Host) (result : Result)
+    (finish : Result → P E Host (Ret E)) (thread : Option ThreadId)
+    (segs : List (Machine.Seg E Host)) (rest : List (Machine.Activation E Host))
+    (profile : ProfileKind) (ready : HostReady Host) (dispatch : Call E → P E Host (Ret E))
+    (focused : start.ctl = ⟨thread, .prog (body >>= finish), segs⟩ :: rest)
+    (success : runBody body start.store start.host (some thread) = (updated, host, .ok result)) :
+    ∃ labels, labels.all (· matches .tau) = true ∧
+      Machine.Steps profile ready dispatch start labels
+        { start with store := updated, host, ctl := ⟨thread, .prog (finish result), segs⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.body_steps_at
+    body start updated host result finish thread segs rest profile ready dispatch focused (some thread) (.inr rfl) success
+
+/-- A resolved memory binding checks the actual caller and live `mayLeave` bit
+before lifting. An ordinary refusal has the same canonical store and authority
+as entry; the only effect is its typed reply in the journal. -/
+theorem invoke_memory {sig : Stored.Signature} {grow : SingleThreaded.GrowOracle}
+    (ticket : Nat) (contract : Contract sig) (memory : Option Nat) (args : List FlatValue)
+    (reference : CStore (core3 grow)) (host : HostState sig) (thread : Option ThreadId) :
+    let binding : Binding sig := ⟨contract.name.2, contract.inst, .accept contract memory⟩
+    runBody (do Scheduled.finish ticket (← Scheduled.invoke ticket binding args)) reference host (some thread) =
+      match callerInstance reference thread with
+      | .error issue => (reference, host, .error issue)
+      | .ok caller =>
+        if caller = some contract.inst ∧ (reference.inst? contract.inst).any (·.mayLeave) then
+          runBody (do Scheduled.finish ticket (← Scheduled.accept ticket contract memory args)) reference host (some thread)
+        else
+          (reference, host.record (.refused ticket .wrongContext), .ok [i32Flat 1, i32Flat 0]) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.invoke_memory
+    ticket contract memory args reference host thread
 
 /-- The memory accept body writes exactly the checked arena result. It records a
 publication followed by a successful return, or a typed refusal without publishing. -/
