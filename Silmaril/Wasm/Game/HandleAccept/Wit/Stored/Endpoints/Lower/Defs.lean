@@ -97,8 +97,33 @@ def preflight {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
   (Stored.Lower.checkOptions cx type output).mapError .abi
   objects type payload.val
 
+def transferred {E : CoreEngine} (store : CStore E) (plan : List Object) (id : EndId) : Bool :=
+  plan.any (fun
+    | .endpoint _ _ endpoint => endpoint == id
+    | .errorContext _ => false) && (store.end? id).any (·.owner.isSome)
+
+/-- `prepare` found every planned endpoint detached. Direct emission does not run a
+realloc or suspend the thread. If a canonical operation assigned the owner before a
+trap, that claim is already spent; untouched and unrelated claims remain as they were. -/
+def afterTrap {E : CoreEngine} {sig : Signature} (store : CStore E) (plan : List Object)
+    (state : State sig) : State sig :=
+  { state with held := state.held.filter (fun id => !(transferred store plan id)) }
+
+/-- Settle the checked direct-lowering plan against the reached store, then issue the
+original trap. The canonical read and update operations are not replaced. -/
+def settleTrap {E : CoreEngine} {sig : Signature} {Value : Type} (plan : List Object) :
+    P E (State sig) Value → P E (State sig) Value
+  | .pure value => .pure value
+  | .op (.trap reason) _ => do
+    let store ← getStore
+    hostSet (afterTrap store plan (← hostGet))
+    trap reason
+  | .op op resume => .op op (fun result => settleTrap plan (resume result))
+termination_by structural program => program
+
 /-- Lower a complete compound payload, not just a selected endpoint. A typed refusal
-does not spend claims. Canonical traps retain their own effects and lock down the machine. -/
+does not spend claims. Canonical traps retain their own effects, including claims spent
+by an earlier owner assignment, and lock down the machine. -/
 def lower {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (quirks : Quirks)
     (cx : LiftLowerContext E) (type : TypeOf) (payload : Payload type)
     (output : Stored.Lower.Output) : P E (State sig) (Except Issue output.Result) :=
@@ -109,7 +134,7 @@ def lower {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (quirks
     | .error issue => return .error issue
     | .ok next =>
       let width ← ptrType cx
-      let value ← Stored.Lower.emit limits quirks cx width type payload output
+      let value ← settleTrap plan (Stored.Lower.emit limits quirks cx width type payload output)
       hostSet next
       return .ok value
 
