@@ -338,18 +338,24 @@ def rejectBinding (ticket : Nat) (issue : Issue) : Session grow sig (List FlatVa
   hostSet ((← hostGet).record (.bindingTrap ticket issue))
   trap (.hostTrap "invalid mixed acceptor import binding")
 
+def resolveBinding (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) :
+    Except Issue (Binding sig) :=
+  match bindings.filter (·.name == name) with
+  | [] => .error .unlinkedImport
+  | [binding] =>
+    if type != binding.type then .error .wrongType else .ok binding
+  | _ => .error .ambiguousBinding
+
 def route (ticket : Nat) (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
     (args : List FlatValue) : Session grow sig (List FlatValue) := do
-  match bindings.filter (·.name == name) with
-  | [] => rejectBinding ticket .unlinkedImport
-  | [binding] =>
-    if type != binding.type then return ← rejectBinding ticket .wrongType
+  match resolveBinding bindings name type with
+  | .error issue => rejectBinding ticket issue
+  | .ok binding =>
     match binding.action with
     | .giveFlat destination payload =>
       let result ← giveFlat binding.inst destination payload args
       writeCompletion (flatCompletion ticket (ABI.flatten destination.width payload) result)
     | _ => finish ticket (← invoke ticket binding args)
-  | _ => rejectBinding ticket .ambiguousBinding
 
 def dispatchImport (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
     (args : List FlatValue) : Session grow sig (List FlatValue) := do

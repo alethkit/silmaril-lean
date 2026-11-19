@@ -223,6 +223,20 @@ theorem binding_trap_steps (config : Config (core3 grow) (HostState sig))
       (StepDefs.trapCfg { config with host := config.host.record (.bindingTrap ticket issue) }) := by
   exact .cons (.hostGet pending) (.cons (.hostSet rfl) (.cons (.trap rfl) (.refl _)))
 
+theorem import_binding_trap_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (bindings : List (Binding sig))
+    (name : String) (type : V1.FuncType) (args : List FlatValue) (issue : Issue)
+    (unresolved : resolveBinding bindings name type = .error issue)
+    (pending : config.ctl = ⟨thread, .prog (.flat <$> dispatchImport bindings name type args), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .trap (.hostTrap "invalid mixed acceptor import binding")]
+      (StepDefs.trapCfg { config with
+        host := (config.host.enter name type args).record (.bindingTrap config.host.nextTicket issue) }) := by
+  have entered := enter_steps (prof := prof) (ready := ready) (dispatch := dispatch)
+    config thread segments rest bindings name type args pending
+  simp only [route, unresolved] at entered
+  exact steps_append entered (binding_trap_steps _ thread segments rest config.host.nextTicket issue rfl)
+
 private abbrev Safe {Value : Type} (program : Session grow sig Value) := HostSafe CheckedWrite none program
 
 private theorem readOnly {Value : Type} {program : Session grow sig Value}
@@ -507,11 +521,8 @@ private theorem route_safe (ticket : Nat) (bindings : List (Binding sig)) (name 
   split
   · exact binding_trap_safe _ _
   · split
-    · exact binding_trap_safe _ _
-    · split
-      · exact HostWrite.bind (give_flat_safe _ _ _ _) (flat_completion_safe _ _)
-      · exact HostWrite.bind (invoke_safe _ _ _) (finish_safe _)
-  · exact binding_trap_safe _ _
+    · exact HostWrite.bind (give_flat_safe _ _ _ _) (flat_completion_safe _ _)
+    · exact HostWrite.bind (invoke_safe _ _ _) (finish_safe _)
 
 private theorem host_safe (bindings : List (Binding sig)) :
     HostImplSafe CheckedWrite (host (grow := grow) bindings) := by
