@@ -5,6 +5,7 @@ public import Silmaril.Wasm.Game.HandleAccept.MemSound.WordAtom.Defs
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Support.Defs
 public import Silmaril.Wasm.Component.Reference.ABI.Layout.Defs
 public import Silmaril.Wasm.Component.Reference.ABI.FloatChar.Defs
+public import Silmaril.Wasm.Component.Reference.ABI.String.Defs
 public import Silmaril.Wasm.Logic.Memory.Defs
 
 /-!
@@ -297,16 +298,28 @@ def vecOf? {α : Type} (n : Nat) (vs : List α) : Option (Vector α n) :=
 /-- A case index below `n`. -/
 def finOf? (n i : Nat) : Option (Fin n) := if h : i < n then some ⟨i, h⟩ else none
 
+/-- Indirect list ranges and the string encoding are independent ABI operations. -/
+structure PayloadReader where
+  segment : Nat → Nat → Option (List UInt8)
+  string : Nat → Nat → Option String
+
+/-- Preserve the legacy UTF-8, unbounded-range reader used by the trace model. -/
+def PayloadReader.legacy (seg : Nat → Nat → Option (List UInt8)) : PayloadReader :=
+  ⟨seg, fun ptr length => (seg ptr length).bind utf8?⟩
+
+theorem PayloadReader.legacy_segment (seg : Nat → Nat → Option (List UInt8)) :
+    (legacy seg).segment = seg := rfl
+
 mutual
-/-- **One payload value** at the head of `bs`, and the rest (REF `load`). `seg a n` is the
-memory segment `[a, a + n)` (none when out of bounds: REF `trap_if(ptr + n > len(memory))`).
+/-- **One payload value** at the head of `bs`, and the rest (REF `load`). The reader supplies
+string decoding and list segments (none when unavailable).
 
 * Scalars little-endian (signed ones as two's complement); `bool` any nonzero byte (REF
   `convert_int_to_bool`); `f32`, `f64` with NaNs canonicalised (REF `decode_i32_as_float`:
   `ABI.canonicalizeNaN`); `char` a Unicode scalar value (REF `convert_i32_to_char`:
   `ABI.convertI32ToChar?`, surrogates and values `≥ 0x110000` are no value).
-* Strings: the UTF-8 bytes `[ptr, ptr + len)` (REF `load_string_from_range`: alignment `1`,
-  invalid UTF-8 traps); `list t` (REF `load_list_from_range`): `ptr` must be aligned to `t`
+* Strings: decoded by `reader.string` (REF `load_string_from_range`); `list t`
+  (REF `load_list_from_range`): `ptr` must be aligned to `t`
   (`unalignedPointer`), then `len` elements of `t` at `ptr + i * t.width` (`len * t.width`
   bytes, every byte consumed), each read in turn, indirections included; `bytes = list<u8>`
   is the octets.
@@ -325,7 +338,7 @@ memory segment `[a, a + n)` (none when out of bounds: REF `trap_if(ptr + n > len
   value (`PTy.Val (.borrow r) = Empty`).
 
 Every value consumes exactly `PTy.width t` bytes (`readVal_rest`). -/
-def readVal (seg : Nat → Nat → Option (List UInt8)) :
+def readValWith (reader : PayloadReader) :
     (t : PTy) → List UInt8 → Option (t.Val × List UInt8)
   | .bool, b :: bs => some (b != 0, bs)
   | .bool, [] => none
@@ -334,11 +347,11 @@ def readVal (seg : Nat → Nat → Option (List UInt8)) :
   | .s64, bs => (le64 (bs.take 8)).map fun v => (Int64.ofBitVec v, bs.drop 8)
   | .u64, bs => (le64 (bs.take 8)).map fun v => (UInt64.ofBitVec v, bs.drop 8)
   | .string, bs => (readPtrLen bs).bind fun (p, n, rest) =>
-      (seg p n).bind fun cs => (utf8? cs).map fun str => (str, rest)
+      (reader.string p n).map fun str => (str, rest)
   | .list t, bs => (readPtrLen bs).bind fun (p, n, rest) =>
       if p % PTy.align t = 0 then
-        (seg p (n * PTy.width t)).bind fun es =>
-          (readMany (readVal seg t) n es).bind fun (vs, r) =>
+        (reader.segment p (n * PTy.width t)).bind fun es =>
+          (readMany (readValWith reader t) n es).bind fun (vs, r) =>
             if r.isEmpty then some (vs, rest) else none
       else none
   | .s8, bs => (leN 1 bs).map fun v => (Int8.ofBitVec (BitVec.ofNat 8 v), bs.drop 1)
@@ -350,16 +363,16 @@ def readVal (seg : Nat → Nat → Option (List UInt8)) :
   | .f64, bs => (le64 (bs.take 8)).map fun v => (ABI.canonicalizeNaN .f64 v, bs.drop 8)
   | .char, bs => (le32 (bs.take 4)).bind fun v =>
       (ABI.convertI32ToChar? v).map fun c => (c, bs.drop 4)
-  | .fixedList t n, bs => (readMany (readVal seg t) n bs).bind fun x =>
+  | .fixedList t n, bs => (readMany (readValWith reader t) n bs).bind fun x =>
       (vecOf? n x.1).map fun v => (v, bs.drop (PTy.width (.fixedList t n)))
   | .record fs, bs =>
-      (readFieldsAt seg fs 0 (bs.take (PTy.width (.record fs)))).map fun v =>
+      (readFieldsAtWith reader fs 0 (bs.take (PTy.width (.record fs)))).map fun v =>
         (v, bs.drop (PTy.width (.record fs)))
   | .tuple ts, bs =>
-      (readFields seg ts 0 (bs.take (PTy.width (.tuple ts)))).map fun v =>
+      (readFieldsWith reader ts 0 (bs.take (PTy.width (.tuple ts)))).map fun v =>
         (v, bs.drop (PTy.width (.tuple ts)))
   | .variant cs, bs => (leN (discBytes cs.length) bs).bind fun i =>
-      (readCase seg cs i (((bs.take (PTy.width (.variant cs))).drop
+      (readCaseWith reader cs i (((bs.take (PTy.width (.variant cs))).drop
           (caseOffset (PTy.caseLayouts cs))))).map fun v =>
         (v, bs.drop (PTy.width (.variant cs)))
   | .enum cs, bs => (leN (discBytes cs.length) bs).bind fun i =>
@@ -367,14 +380,14 @@ def readVal (seg : Nat → Nat → Option (List UInt8)) :
   | .option t, bs => (leN 1 bs).bind fun i =>
       (match i with
         | 0 => some none
-        | 1 => (readVal seg t ((bs.take (PTy.width (.option t))).drop
+        | 1 => (readValWith reader t ((bs.take (PTy.width (.option t))).drop
             (caseOffset [none, some (PTy.layout t)]))).map fun x => some x.1
         | _ => none : Option (Option t.Val)).map fun v => (v, bs.drop (PTy.width (.option t)))
   | .result ok err, bs => (leN 1 bs).bind fun i =>
       (match i with
-        | 0 => (readOpt seg ok ((bs.take (PTy.width (.result ok err))).drop
+        | 0 => (readOptWith reader ok ((bs.take (PTy.width (.result ok err))).drop
             (caseOffset [PTy.optLayout ok, PTy.optLayout err]))).map Sum.inl
-        | 1 => (readOpt seg err ((bs.take (PTy.width (.result ok err))).drop
+        | 1 => (readOptWith reader err ((bs.take (PTy.width (.result ok err))).drop
             (caseOffset [PTy.optLayout ok, PTy.optLayout err]))).map Sum.inr
         | _ => none : Option (PTy.OptVal ok ⊕ PTy.OptVal err)).map fun v =>
           (v, bs.drop (PTy.width (.result ok err)))
@@ -387,36 +400,42 @@ def readVal (seg : Nat → Nat → Option (List UInt8)) :
 (REF `load_record`): each field at `alignTo cur (alignment t)` (`ABI.placeField`), read from
 exactly its `t.width` bytes; the next field from the end of this one. Padding bytes are not
 read. -/
-def readFields (seg : Nat → Nat → Option (List UInt8)) :
+def readFieldsWith (reader : PayloadReader) :
     (ps : List PTy) → Nat → List UInt8 → Option (PTy.Vals ps)
   | [], _, _ => some ()
   | t :: ps, cur, area =>
       let off := ABI.alignTo cur (PTy.layout t).alignment
-      (readVal seg t ((area.drop off).take (PTy.width t))).bind fun (v, _) =>
-        (readFields seg ps (off + PTy.width t) area).map fun vs => (v, vs)
+      (readValWith reader t ((area.drop off).take (PTy.width t))).bind fun (v, _) =>
+        (readFieldsWith reader ps (off + PTy.width t) area).map fun vs => (v, vs)
 
-/-- The fields of a record, as `readFields` (names are not read). -/
-def readFieldsAt (seg : Nat → Nat → Option (List UInt8)) :
+/-- The fields of a record, as `readFieldsWith` (names are not read). -/
+def readFieldsAtWith (reader : PayloadReader) :
     (fs : List (String × PTy)) → Nat → List UInt8 → Option (PTy.FieldVals fs)
   | [], _, _ => some ()
   | (_, t) :: fs, cur, area =>
       let off := ABI.alignTo cur (PTy.layout t).alignment
-      (readVal seg t ((area.drop off).take (PTy.width t))).bind fun (v, _) =>
-        (readFieldsAt seg fs (off + PTy.width t) area).map fun vs => (v, vs)
+      (readValWith reader t ((area.drop off).take (PTy.width t))).bind fun (v, _) =>
+        (readFieldsAtWith reader fs (off + PTy.width t) area).map fun vs => (v, vs)
 
 /-- The payload of case `i` of a variant, at the head of `bs`; none past the last case. -/
-def readCase (seg : Nat → Nat → Option (List UInt8)) :
+def readCaseWith (reader : PayloadReader) :
     (cs : List (String × Option PTy)) → Nat → List UInt8 → Option (PTy.CaseVals cs)
   | [], _, _ => none
-  | (_, o) :: _, 0, bs => (readOpt seg o bs).map Sum.inl
-  | _ :: cs, i + 1, bs => (readCase seg cs i bs).map Sum.inr
+  | (_, o) :: _, 0, bs => (readOptWith reader o bs).map Sum.inl
+  | _ :: cs, i + 1, bs => (readCaseWith reader cs i bs).map Sum.inr
 
 /-- An optional payload at the head of `bs`: nothing to read when absent. -/
-def readOpt (seg : Nat → Nat → Option (List UInt8)) :
+def readOptWith (reader : PayloadReader) :
     (o : Option PTy) → List UInt8 → Option (PTy.OptVal o)
   | none, _ => some ()
-  | some t, bs => (readVal seg t bs).map Prod.fst
+  | some t, bs => (readValWith reader t bs).map Prod.fst
 end
+
+abbrev readVal (seg : Nat → Nat → Option (List UInt8)) := readValWith (PayloadReader.legacy seg)
+abbrev readFields (seg : Nat → Nat → Option (List UInt8)) := readFieldsWith (PayloadReader.legacy seg)
+abbrev readFieldsAt (seg : Nat → Nat → Option (List UInt8)) := readFieldsAtWith (PayloadReader.legacy seg)
+abbrev readCase (seg : Nat → Nat → Option (List UInt8)) := readCaseWith (PayloadReader.legacy seg)
+abbrev readOpt (seg : Nat → Nat → Option (List UInt8)) := readOptWith (PayloadReader.legacy seg)
 
 /-- **A payload vector** in its payload area (the `valsWidth ps` bytes at an address aligned to
 `valsAlign ps`): the canonical ABI tuple of its types. -/
