@@ -413,8 +413,21 @@ both stores unchanged at call entry. Canonical load traps retain earlier arena u
 no tree, and trap only the current Core call. The proofs relate the local load's read/update
 prefix to reference machine steps (including the reference machine's own lockdown on trap).
 An executable export replay checks an inactive nested borrow refusal, a successful compound
-stream move, stale-slot rejection, and a later successful export. This contract does not yet
-run async built-ins from Core exports or cover the older split `node`/`accept` writer ABI.
+stream move, stale-slot rejection, and a later successful export. This trap-returning contract
+does not cover the older split `node`/`accept` writer ABI or interpret scheduling operations.
+
+`Wit.Stored.Endpoints.Core.Scheduled` puts separately linked checked accept and handoff imports
+inside the reference scheduler. These imports return `(status, value)` to Core and retain the
+typed diagnostic on refusal, so a rejected import does not force reference-machine lockdown.
+Acceptance reuses the call-local checked load; handoff checks a separate held claim, the
+destination instance, and the live arena kind and element type. Canonical built-ins still use
+the unmodified reference dispatcher. The two-instance Core regression creates a stream and two
+owners, rejects an unused nested borrow, accepts the owning stream into a tree, hands it off once,
+cancels and retries a read, polls completion, transfers and drops both owners, observes peer
+closure, and traps on a stale canonical read without erasing the accepted tree. The bounded
+driver has a relational trace theorem. These are not an exact accepted-language theorem for
+arbitrary export sequences, a Core future lifecycle replay, or a replacement for the earlier
+trap-returning ABI.
 
 `Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
 immutable arena object exists in the current reference store. Unlike endpoint handoff, this
