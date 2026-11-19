@@ -41,9 +41,39 @@ inductive Input where
   | memory (ptr : Nat)
   | flat (values : List FlatValue)
 
+mutual
+/-- Look for owners lifted by this value's canonical load. Loading a stream or future
+moves only its readable endpoint; its element schema describes a separate, later copy. -/
+def payloadContainsOwn : TypeOf → Bool
+  | .own _ => true
+  | .list t | .fixedList t _ | .option t | .map _ t => payloadContainsOwn t
+  | .record fields => payloadFieldsContainOwn fields
+  | .tuple types => payloadTypesContainOwn types
+  | .variant cases => payloadCasesContainOwn cases
+  | .result success failure => payloadOptContainsOwn success || payloadOptContainsOwn failure
+  | .prim _ | .borrow _ | .flags _ | .enum _ | .errorContext | .stream _ | .future _ => false
+  | .ref impossible => nomatch impossible
+
+def payloadFieldsContainOwn : List (String × TypeOf) → Bool
+  | [] => false
+  | (_, t) :: rest => payloadContainsOwn t || payloadFieldsContainOwn rest
+
+def payloadTypesContainOwn : List TypeOf → Bool
+  | [] => false
+  | t :: rest => payloadContainsOwn t || payloadTypesContainOwn rest
+
+def payloadCasesContainOwn : List (String × Option TypeOf) → Bool
+  | [] => false
+  | (_, t) :: rest => payloadOptContainsOwn t || payloadCasesContainOwn rest
+
+def payloadOptContainsOwn : Option TypeOf → Bool
+  | none => false
+  | some t => payloadContainsOwn t
+end
+
 def checkSchema (type : TypeOf) : Except Issue Unit :=
   if containsBorrow type then .error .storedBorrow
-  else if contains (fun | .own _ => true | _ => false) type then .error .ownedResourceNeedsIdentity
+  else if payloadContainsOwn type then .error .ownedResourceNeedsIdentity
   else if ABI.ValType.WellFormedCM type then .ok ()
   else .error .malformedType
 
