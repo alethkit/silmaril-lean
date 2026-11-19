@@ -280,6 +280,13 @@ async types.
   `error-context` (pending async semantics); `map` is not a separate payload type (WIT
   despecialises it to `list<tuple<k, v>>`). The flat (core-argument) decoder `Ast.ofVal?` still reads only `bool`,
   `s32`, `u32`, `s64`, `u64`.
+  The separate `MemSound.WitAst.Own.Nested` checked entry point resolves owned fields in
+  lists, fixed lists, records, tuples and active sum arms. It reserves distinct live slots
+  before committing their moves; an error keeps the table at the start of the import.
+  Inactive arms do not move owners, but the complete schema must admit stored values.
+  This uses the Core writer table and its representation-valued `PTy`: it does not yet
+  relate slot moves or trap effects to the reference component store or replace the legacy
+  whole-session bridge.
 * Wasm writer variants: `batchAccept_lang` bounds `batchAccept` by its kept batch `keptL` (the
   dropped word is never accepted, `batchAccept_drops`), but the lower bound is the run at the
   fixed argument `3` (`batchAccept_kept`), not every `(w)`; the batch bridge assumes policies
