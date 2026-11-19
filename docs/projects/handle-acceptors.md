@@ -210,6 +210,14 @@ async types.
 | sentinel inclusion via observations/renamings, allocation failure | `writerLang_rename`, `writerLang_sentinel_swap`, `writerLang_noRet_subset`, `sentinel_twice` |
 | intersection is not preserved by projection or trace languages | `Host.lang_inter_subset`, `inputLang_inter_subset`, `Examples.inter_strict`, `projection_inter_strict` |
 
+### Hinted family writer coverage
+
+`Families.Hinted.Thms` proves that the family table and the dedicated hinted writer
+decode the same call and answer events. Its n-ary and AST writer languages for
+`hintedSepMod` are exactly the atom `[hi]ab` (respectively the corresponding typed leaf)
+for non-UB policies. This exercises the real four-operand import with disjoint hint
+and octet segments. It does not add a hinted cons-writer witness or mixed-kind writers.
+
 ### Reference resource lifecycle
 
 `Wit.Resources` runs the reference `resource.new`, `resource.rep` and `resource.drop`
