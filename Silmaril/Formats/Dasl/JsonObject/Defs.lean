@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Formats.Cbor.Drisl.Model.Defs
+public import Silmaril.Formats.Cbor.Value.Defs
 public import Silmaril.Formats.JsonWire.Defs
 public import Silmaril.Semantics.Naming.Defs
 
@@ -68,21 +68,13 @@ def encode (object : Object) : List UInt8 := (Value.bytes (body object.val)).enc
 
 /-- Read the versioned envelope, checking the canonical byte representative as well as the type. -/
 def decode? (bytes : List UInt8) : Option Object := do
-  let .scalar (.data (.bytes (0x53 :: 0x4a :: 0x01 :: json))) ←
-    Drisl.parseCbor? Drisl.i64Cbor (Drisl.Cid.codec .dasl) bytes | none
+  let .bytes (0x53 :: 0x4a :: 0x01 :: json) ← Cbor.decode bytes | none
   let .map fields ← JsonWire.parse? (Bytes.ofList json) | none
   let object ← admit? fields
   if encode object = bytes then some object else none
 
-/-- A fixed, total, single-valued byte naming convention, restricted to DASL object CIDs.
-This interface does not assert that the relation computes a digest or that names are injective. -/
-structure Profile where
-  observe : Relation (Drisl.Cid .dasl) (List UInt8)
-  objectCodec : ∀ ⦃name bytes⦄, observe name bytes → name.val[1]? = some 0x71
-  coherent : UniqueNames observe
-  total : ∀ bytes, ∃ name, observe name bytes
-
-def names (profile : Profile) : Relation (Drisl.Cid .dasl) Object :=
-  fun name object => profile.observe name (encode object)
+/-- Pull any byte naming relation back along the canonical encoder. -/
+def names {Name : Type} (observe : Relation Name (List UInt8)) : Relation Name Object :=
+  fun name object => observe name (encode object)
 
 end Silmaril.Formats.Dasl.JsonObject

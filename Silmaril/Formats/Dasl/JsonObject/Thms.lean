@@ -18,15 +18,17 @@ theorem encode_injective : Function.Injective encode :=
 theorem encoded_eq_iff {left right : Object} : encode left = encode right ↔ left = right :=
   ⟨fun same => encode_injective same, congrArg encode⟩
 
-/-- A total, coherent *fixed* profile gives exactly one name per supported object.
-The theorem asserts neither that all profiles agree nor that different objects cannot collide. -/
-theorem exactly_one_name (profile : Profile) (object : Object) :
-    ∃! name, names profile name object := by
-  obtain ⟨name, found⟩ := profile.total (encode object)
-  exact ⟨name, found, fun _ other => profile.coherent other found⟩
+/-- A total, coherent *fixed* relation gives exactly one name per supported object.
+It need not be binding in the other direction. -/
+theorem exactly_one_name {Name : Type} {observe : Relation Name (List UInt8)}
+    (coherent : UniqueNames observe) (total : ∀ bytes, ∃ name, observe name bytes)
+    (object : Object) : ∃! name, names observe name object := by
+  obtain ⟨name, found⟩ := total (encode object)
+  exact ⟨name, found, fun _ other => coherent other found⟩
 
 /-- Distinct objects cannot share a name if the observed byte relation is also binding. -/
-theorem names_binding (profile : Profile) (bound : Binding profile.observe) : Binding (names profile) :=
+theorem names_binding {Name : Type} {observe : Relation Name (List UInt8)}
+    (bound : Binding observe) : Binding (names observe) :=
   fun _ _ _ first second => encode_injective (bound first second)
 
 end Silmaril.Formats.Dasl.JsonObject

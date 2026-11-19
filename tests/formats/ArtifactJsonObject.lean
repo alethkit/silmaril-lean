@@ -17,6 +17,13 @@ example : JsonObject.decode? (JsonObject.encode emptyObject) = some emptyObject 
 example : JsonObject.encode emptyObject = [0x45, 0x53, 0x4a, 0x01, 0x7b, 0x7d] := by
   with_unfolding_all rfl
 
+private def localName (name : String) (_ : List UInt8) : Prop := name = "local"
+
+example : ∃! name, JsonObject.names localName name emptyObject := by
+  apply JsonObject.exactly_one_name (observe := localName) _ (fun _ => ⟨"local", rfl⟩)
+  intro bytes firstName secondName first second
+  exact first.trans second.symm
+
 private def utf8 (text : String) : Bytes := ⟨text.toUTF8⟩
 
 private def check (condition : Bool) (label : String) : IO Unit :=

@@ -3,9 +3,9 @@
 [`JsonObject`](../Silmaril/Formats/Dasl/JsonObject/Defs.lean) adds a separate
 wire profile to the [artifact naming prototype](artifact-naming.md). It is
 not JCS, ATProto record validation, or an encoding of the RFC 8259 concrete
-syntax. It uses the existing JSON wire reader/printer and DRISL model,
-including the [JSON byte-roundtrip](https://github.com/hiloopai/silmaril-lean/pull/1135)
-and the [canonical CBOR roundtrip](https://github.com/hiloopai/silmaril-lean/pull/1139).
+syntax. It uses the existing JSON wire reader/printer, including the
+[JSON byte-roundtrip](https://github.com/hiloopai/silmaril-lean/pull/1135),
+and the definite-length CBOR byte-string codec also used by DRISL.
 The [debug JSON layer](drisl-debug.md) is separate: its `$bytes`/`$link`
 wrappers are **ordinary property names** in SJ/1, not reserved syntax.
 
@@ -39,11 +39,12 @@ alternate byte spellings are not accepted as canonical. `decode_encode`
 proves recovery of every supported object, and `encoded_eq_iff` proves exact
 agreement between canonical byte equality and profile object equality.
 
-Fix a `Profile` whose relation has a name for every byte string, has at most
-one name for each byte string, and emits only DASL object CIDs. Then
-`exactly_one_name` proves `∃! name, names profile name object` for each
-supported object. It is not a theorem about arbitrary relations or sparse
-tables: aliases and missing bindings break the assumptions. Equal objects
+Fix an abstract naming relation `R` that has a name for every byte string
+and has at most one name for each byte string. Then `exactly_one_name`
+proves `∃! name, names R name object` for each supported object. The caller
+can choose DASL object CIDs as the name type, but the theorem does not require
+a name format or know how any name was obtained. Aliases and missing bindings
+break the assumptions, so this is not a theorem about arbitrary tables. Equal objects
 cannot receive different names under this profile; the converse holds under
 binding of the byte relation as an explicit extra hypothesis (`names_binding`).
 This is not a claim about injectivity or correctness of SHA-256. The test
@@ -53,7 +54,7 @@ and exports its bytes for external naming:
 ```sh
 lake build --wfail +Silmaril.Formats.Dasl.JsonObject.Thms
 lake env lean -DwarningAsError=true --run tests/formats/ArtifactJsonObject.lean /tmp/sj1.cbor
-python3 -I tools/artifact-naming/verify.py name dasl drisl sha256 /tmp/sj1.cbor
+python3 -BEs tools/artifact-naming/verify.py name dasl drisl sha256 /tmp/sj1.cbor
 ```
 
 The fixture's externally computed binary CID in hex is
