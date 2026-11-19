@@ -17,6 +17,10 @@ variable {Key Payload Item Name : Type}
 theorem chunk_canonical (cut : Nat → Item → Bool) (items : List Item) :
     chunk cut (chunk cut items).flatten = chunk cut items := by rw [flatten_chunk]
 
+theorem lift_entries (level : Nat) (chunks : List (Node Key Payload level)) :
+    flatten (level + 1) (lift chunks) = flatten level chunks.flatten :=
+  Proofs.Semantics.Prolly.lift_entries level chunks
+
 @[simp] theorem build_entries [LinearOrder Key] (policy : Policy Key) (map : OrderedMap Key Payload) :
     (build policy map).entries = map.entries :=
   Proofs.Semantics.Prolly.grow_entries policy map.entries.length 0 map.entries
