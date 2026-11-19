@@ -15,6 +15,7 @@ inductive Issue where
   | notRecord
   | unsupportedField (index : Nat)
   | field (index : Nat) (issue : ListLower.Issue)
+  | nested (index : Nat) (issue : Issue)
   deriving DecidableEq, Repr
 
 inductive Field where
@@ -23,36 +24,55 @@ inductive Field where
   | endpoints (channel : Channel) (element : Element)
       (payload : Payload (.list (ListLower.endpointType channel element)))
   | context (id : ErrCtxId)
+  | record (types : List (String × TypeOf)) (fields : List Field)
 
 def Field.type : Field → TypeOf
   | .data type _ => type
   | .endpoint channel element _ => ListLower.endpointType channel element
   | .endpoints channel element _ => .list (ListLower.endpointType channel element)
   | .context _ => .errorContext
+  | .record types _ => .record types
 
+mutual
 def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
-    (index : Nat) (type : TypeOf) (value : Val) : Except Issue (Field × List Lower.Object) := do
-  let payload ← (checkValue type value).mapError (.preflight ∘ .schema)
-  match type, payload with
-  | .future element, ⟨.future id, _⟩ =>
-    return (.endpoint .future element id, [.endpoint .future element id])
-  | .stream element, ⟨.stream id, _⟩ =>
-    return (.endpoint .stream element id, [.endpoint .stream element id])
-  | .list (.future element), payload =>
-    let (_, plan) ← (ListLower.preflight cx .future element payload output).mapError .preflight
-    return (.endpoints .future element payload, plan)
-  | .list (.stream element), payload =>
-    let (_, plan) ← (ListLower.preflight cx .stream element payload output).mapError .preflight
-    return (.endpoints .stream element payload, plan)
-  | .errorContext, ⟨.errorContext id, _⟩ => return (.context id, [.errorContext id])
-  | type, payload =>
-    match Stored.Lower.checkSchema type with
-    | .ok () => return (.data type payload, [])
-    | .error _ => throw (.unsupportedField index)
+    (index : Nat) : (type : TypeOf) → Val → Except Issue (Field × List Lower.Object)
+  | .record types, value => do
+    let .record values := value | throw (.preflight .decodedType)
+    let (fields, plan) ← (compileFields cx output 0 types values).mapError (.nested index)
+    return (.record types fields, plan)
+  | type, value => do
+    let payload ← (checkValue type value).mapError (.preflight ∘ .schema)
+    match type, payload with
+    | .future element, ⟨.future id, _⟩ =>
+      return (.endpoint .future element id, [.endpoint .future element id])
+    | .stream element, ⟨.stream id, _⟩ =>
+      return (.endpoint .stream element id, [.endpoint .stream element id])
+    | .list (.future element), payload =>
+      let (_, plan) ← (ListLower.preflight cx .future element payload output).mapError .preflight
+      return (.endpoints .future element payload, plan)
+    | .list (.stream element), payload =>
+      let (_, plan) ← (ListLower.preflight cx .stream element payload output).mapError .preflight
+      return (.endpoints .stream element payload, plan)
+    | .errorContext, ⟨.errorContext id, _⟩ => return (.context id, [.errorContext id])
+    | type, payload =>
+      match Stored.Lower.checkSchema type with
+      | .ok () => return (.data type payload, [])
+      | .error _ => throw (.unsupportedField index)
+
+def compileFields {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
+    (index : Nat) : List (String × TypeOf) → List Val → Except Issue (List Field × List Lower.Object)
+  | [], [] => .ok ([], [])
+  | (_, type) :: types, value :: values => do
+    let (field, objects) ← compileField cx output index type value
+    let (fields, rest) ← compileFields cx output (index + 1) types values
+    return (field :: fields, objects ++ rest)
+  | _, _ => .error (.preflight .decodedType)
+end
 
 /-- Inspect every field before starting any field write or guest allocation. Plain fields
-use the canonical data path; effectful fields are readable endpoints, lists of those
-endpoints, or error contexts. More deeply nested effects fail closed in this domain. -/
+use the canonical data path; effects in nested records participate in the same whole-record
+plan. Effectful fields other than nested records, readable endpoints, lists of those endpoints,
+and error contexts fail closed. -/
 def preflight {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
     (payload : Payload type) (output : Stored.Lower.Output) :
     Except Issue (List Field × List Lower.Object) := do
@@ -60,10 +80,7 @@ def preflight {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
   (Stored.checkSchema type).mapError (.preflight ∘ .schema)
   (Stored.Lower.checkOptions cx type output).mapError (.preflight ∘ .abi)
   let .record values := payload.val | throw (.preflight .decodedType)
-  if types.length != values.length then throw (.preflight .decodedType)
-  let parts ← (types.zip values).zipIdx.mapM fun (((_, type), value), index) =>
-    compileField cx output index type value
-  return (parts.map Prod.fst, (parts.map Prod.snd).flatten)
+  compileFields cx output 0 types values
 
 namespace Internal
 
@@ -72,22 +89,30 @@ def publishSlot {E : CoreEngine} {World : Type} (cx : LiftLowerContext E) (slot 
   | .flat => pure [i32Flat slot]
   | .memory ptr => storeInt cx slot ptr 4
 
+mutual
 def runField {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (quirks : Quirks)
-    (cx : LiftLowerContext E) (field : Field) (output : Stored.Lower.Output) :
-    P E (State sig) (Except ListLower.Issue output.Result) := do
+    (cx : LiftLowerContext E) (width : AddrType) (field : Field) (index : Nat)
+    (output : Stored.Lower.Output) : P E (State sig) (Except Issue output.Result) :=
   match field with
-  | .data type payload =>
+  | .data type payload => do
     return (← Stored.Lower.lower limits quirks cx type payload output).mapError
-      (.beforeAllocation ∘ .abi)
-  | .endpoints channel element payload => ListLower.lower limits cx channel element payload output
-  | .endpoint channel element id =>
+      (.field index ∘ .beforeAllocation ∘ .abi)
+  | .endpoints channel element payload => do
+    return (← ListLower.lower limits cx channel element payload output).mapError (.field index)
+  | .endpoint channel element id => do
     match ← ListLower.transfer limits cx channel element id with
-    | .error issue => return .error (.beforeAllocation issue)
+    | .error issue => return .error (.field index (.beforeAllocation issue))
     | .ok slot => return .ok (← publishSlot cx slot output)
-  | .context id =>
+  | .context id => do
     if ((← getStore).errCtx? id).isNone then
-      return .error (.beforeAllocation .missingContext)
+      return .error (.field index (.beforeAllocation .missingContext))
     return .ok (← publishSlot cx (← lowerErrorContext limits cx id) output)
+  | .record types fields =>
+    match output with
+    | .flat => do return (← runFlat limits quirks cx width fields 0).mapError (.nested index)
+    | .memory ptr => do
+      checkInBounds cx ptr (layout width (.record types)).size
+      return (← runMemory limits quirks cx width fields ptr 0).mapError (.nested index)
 
 def runMemory {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (quirks : Quirks)
     (cx : LiftLowerContext E) (width : AddrType) :
@@ -96,24 +121,26 @@ def runMemory {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (qu
   | field :: rest, cursor, index => do
     let area := layout width field.type
     let ptr := alignTo cursor area.alignment
-    match ← runField limits quirks cx field (.memory ptr) with
-    | .error issue => return .error (.field index issue)
+    match ← runField limits quirks cx width field index (.memory ptr) with
+    | .error issue => return .error issue
     | .ok () => runMemory limits quirks cx width rest (ptr + area.size) (index + 1)
 
 def runFlat {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (quirks : Quirks)
-    (cx : LiftLowerContext E) : List Field → Nat → P E (State sig) (Except Issue (List FlatValue))
+    (cx : LiftLowerContext E) (width : AddrType) :
+    List Field → Nat → P E (State sig) (Except Issue (List FlatValue))
   | [], _ => pure (.ok [])
   | field :: rest, index => do
-    match ← runField limits quirks cx field .flat with
-    | .error issue => return .error (.field index issue)
+    match ← runField limits quirks cx width field index .flat with
+    | .error issue => return .error issue
     | .ok words =>
       let headWords : List FlatValue := words
-      return (← runFlat limits quirks cx rest (index + 1)).map (headWords ++ ·)
+      return (← runFlat limits quirks cx width rest (index + 1)).map (headWords ++ ·)
+end
 
 def emitRecord {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (quirks : Quirks)
     (cx : LiftLowerContext E) (width : AddrType) (type : TypeOf) (fields : List Field) :
     (output : Stored.Lower.Output) → P E (State sig) (Except Issue output.Result)
-  | .flat => runFlat limits quirks cx fields 0
+  | .flat => runFlat limits quirks cx width fields 0
   | .memory ptr => do
     let area := layout width type
     checkAligned ptr area.alignment.bytes
