@@ -459,11 +459,15 @@ Core stores and tag traces after rejections and retries. This is a conservative 
 result for this pair of dispatchers, not yet for the scheduled canonical lifecycle API.
 
 `Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain` joins that correspondence to the
-scheduled memory accept body after the binding check. Its reference steps preserve the
-parked Core continuation and implement the same arena effects, embedded writer and status
-or typed refusal. The receipt-aware journal records successful publication and its return
-separately; a refusal does not publish. This comparison does not yet cover scheduling and
-canonical lifecycle calls around the body, flat bindings, or deferred reply delivery.
+actual checked Core embedder for a linked memory accept. Caller admission reads the active
+thread, its instance and the live `mayLeave` bit; a wrong caller returns a typed refusal
+without lifting or publishing. An admitted plain call agrees with the endpoint-only attempt
+on arena effects, embedded writer, status and typed refusal. Success and refusal preserve
+the parked Core continuation; a canonical trap locks down the reached store, keeps prior
+journal effects and discards the continuations. Binding-resolution traps keep their typed
+reason in the journal. Publication and reply remain distinct events. This is a single-call
+comparison, not yet a correspondence for scheduled export prefixes, flat bindings or
+deferred reply delivery.
 
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
