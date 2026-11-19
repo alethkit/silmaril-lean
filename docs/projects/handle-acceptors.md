@@ -225,7 +225,15 @@ built-ins, including their destructor dispatcher. `take` uses canonical `liftOwn
 retains the consumed handle's arena identity as well as its representation. The machine
 examples check slot reuse with two different identities that share a representation,
 drop, and the observable early slot removal on a wrong-type lift that locks down the
-component. This is a reference adapter, not a simulation of the checked Core writer table.
+component.
+
+`Own.ReferenceTable` relates usable Core table lookups to the current reference arena.
+Successful `Nested.reserve` refines one canonical owner move, whose witness retains the
+arena identity; committing that slot preserves the relation at every other lookup. The
+relation does not identify equal representations or use guest slots as identity. A failed
+checked preflight does not perform the canonical removal: a wrong-type, lent or non-owning
+canonical lift removes the slot before trapping. This is one-move refinement, not a simulation
+of a whole nested decoder or a failure equivalence between the two host contracts.
 
 ## Modelling choices to review
 
