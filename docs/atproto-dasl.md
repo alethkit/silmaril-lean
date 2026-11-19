@@ -11,7 +11,7 @@ implementation, or an implementation of the ATProto repository format.
 | [`Formats.Dasl`](../Silmaril/Formats/Dasl/Defs.lean) | One non-mutual indexed tree, with `Empty` ruling out edges and `Unit` erasing names. `Value.obj` and `Value.blob` expose nameless constructors. Dicts have a finite string key set, with one child per key; lists have one child per bounded index. Blob links are not inline bytes. |
 | [`Formats.Dasl.Thms`](../Silmaril/Formats/Dasl/Thms.lean) | Shallow renaming respects identity and composition. `Extends` is a partial order preserving names, keys and lengths; it preserves shallow projection and only adds to the known bindings. |
 | [`Semantics.Naming`](../Silmaril/Semantics/Naming/Thms.lean) | `Binding` is functionality by name. `UniqueNames` is functionality in reverse. Collisions are explicit; merging binding observations is associative, commutative and idempotent with a conflict top. Object serialization is a relational pushforward; determinism transfers binding, and a parser inverse recovers the source. |
-| [`Containers.Cas`](../Silmaril/Containers/Cas/Thms.lean) | The existing Docker/OCI store is the graph of its `Option` lookup. Its graph is binding whether or not its contents are sound. `Store.Sound` is graph compatibility with the hash; it does not imply hash injectivity. |
+| [`Containers.Cas.Naming`](../Silmaril/Containers/Cas/Naming/Thms.lean) | An opt-in adapter views the existing Docker/OCI store as the graph of its `Option` lookup. Its graph is binding whether or not its contents are sound. `Store.Sound` is graph compatibility with the hash; it does not imply hash injectivity. |
 | [`Formats.Dasl.Wire`](../Silmaril/Formats/Dasl/Wire/Defs.lean) | `Drisl.parseCbor?` → ordered ATProto syntax → shallow tree. Rendering takes the reverse adapter and uses `Drisl.renderCbor?`, which sorts encoded keys. The parser rejects duplicate keys and noncanonical encodings before the abstraction drops order. The adapter validates the link tag against the DASL codec byte (`0x71` object, `0x55` raw). |
 | [`Formats.Dasl.Resolve`](../Silmaril/Formats/Dasl/Resolve/Thms.lean) | A root name binds a shallow object, which may have many partial observations but at most one finite full expansion under binding (also after name erasure). The logical `fullLookup` does not promise executable termination. |
 
@@ -82,7 +82,7 @@ full expansion; possessing only the shallow root is not enough.
 ## Checks
 
 ```sh
-lake build --wfail Silmaril.Containers.Cas.Thms Silmaril.Formats.Dasl.Thms \
+lake build --wfail Silmaril.Containers.Cas.Naming.Thms Silmaril.Formats.Dasl.Thms \
   Silmaril.Formats.Dasl.Resolve.Thms Silmaril.Formats.Dasl.Wire.Thms \
   Silmaril.Formats.Cbor.Drisl.Debug.Text.Thms Silmaril.Formats.Cbor.Drisl.Model.Thms
 lake env lean -DwarningAsError=true --run tests/formats/Dasl.lean

@@ -1,7 +1,6 @@
 module
 
 public import Silmaril.Containers.Cas.Defs
-public import Silmaril.Semantics.Naming.Thms
 import Silmaril.Proofs.Containers.Cas.Basic
 
 /-!
@@ -28,14 +27,6 @@ public section
 namespace Silmaril.Containers.Cas.Store
 
 variable {D C C' : Type}
-
-theorem relation_binding (S : Store D C) : Semantics.Naming.Binding S.relation :=
-  Semantics.Naming.graph_binding S
-
-theorem sound_iff_hashCompatible (h : C → D) (S : Store D C) :
-    Sound h S ↔ Semantics.Naming.HashCompatible h S.relation :=
-  ⟨fun sound => by intro digest payload hit; exact sound digest payload hit,
-   fun compatible digest payload hit => compatible (name := digest) (wire := payload) hit⟩
 
 theorem sound_empty (h : C → D) : Sound h (empty : Store D C) := by
   intro d c hc; cases hc
