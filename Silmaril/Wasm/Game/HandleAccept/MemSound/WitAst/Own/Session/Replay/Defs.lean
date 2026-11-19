@@ -1,0 +1,39 @@
+module
+
+public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Defs
+
+@[expose] public section
+
+namespace Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Replay
+
+open Silmaril.Formats Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game.IOAccept
+
+abbrev Tree := AST ownSig.toAstSig
+
+structure Writer where
+  pending : Option Tree := none
+  accepted : List Tree := []
+
+/-- The four operands of the node call in `ownMod`. -/
+def nodeArgs : List Val := [.i32 0, .i32 16, .i32 0, .i32 0]
+
+/-- A one-slot writer for the `ownMod` replay. An accepted tree must have been built at
+`node`, then named by `accept`; merely returning a handle does not accept a tree. -/
+def contract : Contract ownSig Writer where
+  code := 0
+  name := ("wit", "node")
+  tagOf := ownTagOf
+  mode := {}
+  node before op children call reply after :=
+    before.pending = none ∧ children = [] ∧ reply = ⟨call.store, .values [.i32 9]⟩ ∧
+      after = { before with pending := some (resTree op.2.1) }
+  other before call reply after :=
+    call.target = 1 ∧ call.args = [.i32 9] ∧ reply = ⟨call.store, .values []⟩ ∧
+      ∃ tree, before.pending = some tree ∧ after = ⟨none, tree :: before.accepted⟩
+
+/-- Distinguish normal return from trap in this replay. The diagnostic itself is
+retained at `Contract.attempt`, not encoded as a Core value. -/
+def roles : Roles Unit Unit Unit Unit where
+  result := fun _ _ => some ()
+
+end Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Replay
