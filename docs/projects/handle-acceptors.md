@@ -232,8 +232,14 @@ Successful `Nested.reserve` refines one canonical owner move, whose witness reta
 arena identity; committing that slot preserves the relation at every other lookup. The
 relation does not identify equal representations or use guest slots as identity. A failed
 checked preflight does not perform the canonical removal: a wrong-type, lent or non-owning
-canonical lift removes the slot before trapping. This is one-move refinement, not a simulation
-of a whole nested decoder or a failure equivalence between the two host contracts.
+canonical lift removes the slot before trapping. `resolveTypes_refines_eager` lifts the
+success refinement through the shared traversal of an entire already-decoded payload, including
+nested lists, products and sums. It preserves the typed value, live lookups and reservation
+order; the eager path records nominal receipts. An executable compact-UTF-16 record example
+compares both memory decoders with two equal-representation owners in different nested fields.
+Malformed text gives a checked refusal, but the canonical trap retains both prior removals.
+The general refinement starts after byte decoding; it is not whole-memory-decoder equivalence
+or a failure equivalence between the host contracts.
 
 ## Modelling choices to review
 

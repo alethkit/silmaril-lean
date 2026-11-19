@@ -55,4 +55,29 @@ inductive Commit {E : CoreEngine} (limits : Component.Limits) (cx : LiftLowerCon
       (rest : Commit limits cx updated tail owners final) :
       Commit limits cx store (slot :: tail) (⟨resource, owner⟩ :: owners) final
 
+/-- Canonical stores and nominal move receipts are retained even if a later move
+traps. Receipts are newest first, as in the atomic reservation state. -/
+structure Resolution (E : CoreEngine) where
+  store : CStore E
+  receipts : List (BitVec 32 × Sigma Resources.Owned) := []
+
+abbrev Eager (E : CoreEngine) := ExceptT Stored.Endpoints.Core.LocalIssue (StateM (Resolution E))
+
+/-- Eager ownership lift for an already decoded index. There is no atomic rollback:
+the reference removal occurs before the nominal type and ownership checks. -/
+def takeIndex {E : CoreEngine} (limits : Component.Limits) (cx : LiftLowerContext E)
+    (resource : Nat) (slot : BitVec 32) : Eager E Nat := ExceptT.mk <| fun state =>
+  let (store, result) := Stored.Endpoints.Core.runLocal
+    (Resources.take limits cx ⟨resource⟩ slot.toNat) state.store
+  match result with
+  | .ok owner => (.ok owner.representation, ⟨store, (slot, ⟨⟨resource⟩, owner⟩) :: state.receipts⟩)
+  | .error issue => (.error issue, { state with store })
+
+/-- Compare the live lookup view and the order of successful moves, retaining nominal
+receipts rather than trying to recover identity from a representation. -/
+def Resolution.Matches {E : CoreEngine} (state : Resolution E) (inst : InstId) (table : RT)
+    (reserved : Nested.Reservations) : Prop :=
+  ReferenceTable.Matches (table.killAll reserved.val) state.store inst ∧
+    state.receipts.map Prod.fst = reserved.val
+
 end Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.ReferenceTable
