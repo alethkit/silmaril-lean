@@ -28,6 +28,12 @@ def childrenType : TypeOf := .list (.prim .u32)
 
 def resultType : TypeOf := .result (some (.prim .u32)) none
 
+/-- The checked refusal may write the guest's result and advance the subtask without
+changing any instance handle table, owner, endpoint, or error context. -/
+def SameAuthority (before after : CStore (core3 grow)) : Prop :=
+  after.insts = before.insts ∧ after.resHandles = before.resHandles ∧
+    after.ends = before.ends ∧ after.errCtxs = before.errCtxs
+
 def Callee.funcType (callee : Callee sig) : WIT.FuncType Empty RtId :=
   ⟨[("children", childrenType), ("payload", sig.payload callee.tag)],
     some resultType, callee.async_⟩
@@ -99,19 +105,35 @@ def planChildren (callee : Callee sig) (cx : LiftLowerContext (core3 grow))
   | .error (.trapped _) => .ok none
   | .error issue => .error (.accept (.localEffect issue))
 
+/-- Specialize the reference resolve continuation to the checked, non-allocating
+error result; a different caller record cannot become a general lowering route. -/
+def resolveError (ticket : Nat) (caller : CallerId) : Session grow sig (Ret (core3 grow)) := do
+  let .lower subtask cx args pos ft _ maxResults ← getObj ArenaField.callers caller
+    | reject ticket .wrongContext
+  if ft.result != some resultType then return ← reject ticket .wrongResultType
+  if maxResults > 1 then return ← reject ticket .wrongPassingMode
+  maybeOnProgress subtask
+  let flat ← lowerFlatValues Limits.spec Quirks.none cx maxResults
+    [.variant 1 none] [resultType] (some ⟨args, pos⟩)
+  Subtask.resolve subtask .returned flat
+  return .cancel .none
+
 def resolveRefused (ticket : Nat) (caller : CallerId) (issue : Issue) :
     Session grow sig (Ret (core3 grow)) := do
   hostSet ((← hostGet).record (.refused ticket issue))
-  lowerOnResolve Limits.spec Quirks.none caller (some [.variant 1 none])
-  return .cancel .none
+  resolveError ticket caller
 
-/-- With the exact flat signature already checked, the only result pointer is its final
-word. A checked refusal can resolve the WIT error without lifting any of the payload.
-This is intentionally not the reference removal-first path for a malformed payload. -/
+/-- Advance the caller only as far as the result pointer. The exact linked signature
+has already been checked, so that pointer is the last argument. -/
+def skipArguments (caller : CallerId) : Session grow sig (List Unit) :=
+  OwnedMemory.lowerOnStartWith (fun _ _ cursor _ =>
+    pure (([] : List Unit), { cursor with pos := cursor.values.length - 1 })) caller
+
+/-- Resolve the WIT error without lifting the rejected payload. This is intentionally
+not the reference removal-first path for a malformed payload. -/
 def refuseBeforeLift (ticket : Nat) (caller : CallerId) (issue : Issue) :
     Session grow sig (Ret (core3 grow)) := do
-  let _ ← lowerOnStartWith (fun _ _ cursor _ =>
-    pure (([] : List Unit), { cursor with pos := cursor.values.length - 1 })) caller
+  let _ ← skipArguments caller
   resolveRefused ticket caller issue
 
 /-- Resolve first, then publish using the current writer. The result is non-allocating;

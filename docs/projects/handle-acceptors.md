@@ -625,6 +625,12 @@ checked storage boundary.
 through actual `canon lower` Core imports. A linked callee checks the caller's instance,
 memory width, options, signature, whole storable payload schema and child selection. It
 resolves a typed WIT `result<u32>` error before lifting owners on preflight refusal.
+`ComponentCall.refusal_frame` preserves the instance handle tables, owners, endpoints
+and error contexts, including if the error write traps. Guest result bytes and subtask
+bookkeeping may change. `ComponentCall.resolve_error_agrees` proves that, given the
+same guarded caller record, result resolution has the reference continuation, including
+its write and possible traps. It does not equate refusal without a payload lift with a
+canonical trap during a lift.
 Once lifting starts, canonical traps retain prior reference effects; e.g., a second use
 of the same slot traps after the first move. Indirect result writes must finish before
 publishing, and publication rechecks the current writer and the already returned handle.

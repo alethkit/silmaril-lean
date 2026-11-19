@@ -641,27 +641,118 @@ private theorem reject_safe (ticket : Nat) (issue : Issue) :
     Safe (ComponentCall.reject (grow := grow) (sig := sig) ticket issue) :=
   HostWrite.bind (binding_trap_safe _ _) fun _ => .pure none _
 
-private theorem refused_safe (ticket : Nat) (caller : CallerId) (issue : Issue) :
-    Safe (resolveRefused (grow := grow) (sig := sig) ticket caller issue) := by
-  refine .get none fun state => .set (record_safe state _ rfl) ?_
-  change Safe ((lowerOnResolve Limits.spec Quirks.none caller (some [.variant 1 none]) : Session grow sig Unit)
-    >>= fun _ => (pure (.cancel .none) : Session grow sig (Ret (core3 grow))))
-  exact HostWrite.bind (resolve_safe (grow := grow) (sig := sig) caller [.variant 1 none]) fun _ => .pure none _
+private theorem progress_frame (subtask : SubtaskId) (before : CStore (core3 grow))
+    {allow : HostState sig → Prop} :
+    P.InvW (SameAuthority before) allow (maybeOnProgress subtask) := by
+  unfold maybeOnProgress
+  refine P.Inv.bind (P.Inv.getObj _ _) fun _ => ?_
+  split
+  · exact P.Inv.modifyStore (fun _ same => same)
+  · exact P.Inv.pure _
 
-private theorem before_lift_safe (ticket : Nat) (caller : CallerId) (issue : Issue) :
-    Safe (refuseBeforeLift (grow := grow) (sig := sig) ticket caller issue) := by
-  unfold refuseBeforeLift
-  apply HostWrite.bind _ (fun _ => refused_safe _ _ _)
-  apply readOnly
-  unfold lowerOnStartWith
+theorem skip_arguments_frame (caller : CallerId) (before : CStore (core3 grow))
+    {allow : HostState sig → Prop} :
+    P.InvW (SameAuthority before) allow
+      (skipArguments (grow := grow) (sig := sig) caller) := by
+  unfold skipArguments Stored.OwnedMemory.lowerOnStartWith
   refine P.Inv.bind (P.Inv.getObj _ _) fun record => ?_
   cases record
   case lower subtask _ _ _ _ _ _ =>
-    exact P.Inv.bind (P.Inv.maybeOnProgress lowerPres subtask) fun _ =>
-      P.Inv.bind (P.Inv.modifyStore (fun _ _ => trivial)) fun _ =>
-      P.Inv.bind (P.Inv.pure _) fun _ => P.Inv.bind (P.Inv.modifyStore (fun _ _ => trivial)) fun _ =>
+    exact P.Inv.bind (progress_frame subtask before) fun _ => P.Inv.bind (P.Inv.modifyStore (fun _ same => same)) fun _ =>
+      P.Inv.bind (P.Inv.pure _) fun _ => P.Inv.bind (P.Inv.modifyStore (fun _ same => same)) fun _ =>
         P.Inv.pure _
   all_goals exact P.Inv.internal _
+
+private theorem write_frame (before : CStore (core3 grow)) (memory ptr : Nat) (bytes : ByteArray)
+    (after : CStore (core3 grow)) (same : SameAuthority before after) :
+    SameAuthority before (writeMemSt memory ptr bytes after) := by
+  unfold writeMemSt
+  split <;> exact same
+
+private theorem error_result_store_frame (before : CStore (core3 grow))
+    (cx : LiftLowerContext (core3 grow)) (ptr : Nat) {allow : HostState sig → Prop} :
+    P.InvW (SameAuthority before) allow
+      (store Limits.spec Quirks.none cx (.record [.variant 1 none]) (.tuple [resultType]) ptr) := by
+  simp only [store, storeTuple, resultType, storeOpt]
+  refine P.Inv.bind (P.Inv.ptrType _) fun _ => P.Inv.bind ?_ fun _ => P.Inv.pure _
+  refine P.Inv.bind (P.Inv.ptrType _) fun _ => ?_
+  exact P.Inv.bind (P.Inv.storeVariantHead _ _ _ _ _ (write_frame before)) fun _ => P.Inv.pure _
+
+theorem lower_refusal_frame (before : CStore (core3 grow)) (cx : LiftLowerContext (core3 grow))
+    (cursor : FlatCursor) (maxResults : Nat) (indirect : maxResults ≤ 1) {allow : HostState sig → Prop} :
+    P.InvW (SameAuthority before) allow
+      (lowerFlatValues Limits.spec Quirks.none cx maxResults [.variant 1 none] [resultType] (some cursor)) := by
+  unfold lowerFlatValues
+  refine P.Inv.bind (P.Inv.ptrType _) fun width => ?_
+  have widthCount : (ABI.flattenTypes width [resultType]).length = 2 := by
+    simp [resultType, ABI.flattenTypes, ABI.flatten, ABI.flattenOption, ABI.flattenPrimitive]
+  simp only [widthCount, show maxResults < 2 by omega, ite_true]
+  refine P.Inv.bind ?_ fun (ptr, _) => P.Inv.bind (P.Inv.trapIf _ _) fun _ =>
+    P.Inv.bind (P.Inv.checkInBounds _ _ _) fun _ =>
+    P.Inv.bind (error_result_store_frame before cx ptr) fun _ => P.Inv.pure _
+  exact P.Inv.bind (P.Inv.next cursor _) fun _ => P.Inv.pure _
+
+private theorem error_safety (ticket : Nat) (caller : CallerId) :
+    Safe (resolveError (grow := grow) (sig := sig) ticket caller) := by
+  unfold resolveError
+  refine HostWrite.bind (readOnly (P.Inv.getObj _ _)) fun _ => ?_
+  split
+  · split
+    · exact reject_safe _ _
+    · split
+      · exact reject_safe _ _
+      · rename_i indirect
+        exact HostWrite.bind (HostWrite.hostSafe_of_invW (progress_frame _ CStore.empty) none) fun _ =>
+          HostWrite.bind (HostWrite.hostSafe_of_invW (lower_refusal_frame CStore.empty _ _ _ (by omega)) none)
+            fun _ => HostWrite.bind (readOnly (P.Inv.modifyStore (fun _ _ => trivial))) fun _ => .pure none _
+  · exact reject_safe _ _
+
+private theorem refused_safe (ticket : Nat) (caller : CallerId) (issue : Issue) :
+    Safe (resolveRefused (grow := grow) (sig := sig) ticket caller issue) :=
+  .get none fun state => .set (record_safe state _ rfl) (error_safety _ _)
+
+private theorem reject_frame (ticket : Nat) (issue : Issue) (before : CStore (core3 grow)) :
+    P.InvW (SameAuthority before) (fun _ => True) (reject (grow := grow) (sig := sig) ticket issue) := by
+  unfold reject rejectBinding
+  refine P.Inv.bind (P.Inv.bind P.Inv.hostGet fun _ =>
+    P.Inv.bind (P.Inv.hostSet _ trivial) fun _ => P.Inv.trap _) fun _ => P.Inv.pure _
+
+theorem refusal_frame (ticket : Nat) (caller : CallerId) (issue : Issue) (before : CStore (core3 grow)) :
+    P.InvW (SameAuthority before) (fun _ => True) (refuseBeforeLift (grow := grow) (sig := sig) ticket caller issue) := by
+  unfold refuseBeforeLift resolveRefused
+  refine P.Inv.bind (skip_arguments_frame _ _) fun _ => P.Inv.bind P.Inv.hostGet fun _ =>
+    P.Inv.bind (P.Inv.hostSet _ trivial) fun _ => ?_
+  unfold resolveError
+  refine P.Inv.bind (P.Inv.getObj _ _) fun _ => ?_
+  split
+  · split
+    · exact reject_frame _ _ _
+    · split
+      · exact reject_frame _ _ _
+      · rename_i indirect
+        exact P.Inv.bind (progress_frame _ before) fun _ =>
+          P.Inv.bind (lower_refusal_frame before _ _ _ (by omega)) fun _ =>
+            P.Inv.bind (P.Inv.modifyStore (fun _ same => same)) fun _ => P.Inv.pure _
+  · exact reject_frame _ _ _
+
+theorem resolve_error_agrees (ticket : Nat) (caller : CallerId) (snapshot : CStore (core3 grow))
+    (subtask : SubtaskId) (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (ft : WIT.FuncType Empty RtId) (limits results : Nat)
+    (record : ArenaField.callers.get? snapshot caller = some (.lower subtask cx args pos ft limits results))
+    (type : ft.result = some resultType) (mode : results ≤ 1) :
+    ∃ checked reference : CStore (core3 grow) → Session grow sig (Ret (core3 grow)),
+      resolveError ticket caller = .op (S := Eff (core3 grow) (HostState sig)) .get checked ∧
+      (do
+        lowerOnResolve Limits.spec Quirks.none caller (some [.variant 1 none])
+        pure (Ret.cancel (E := core3 grow) .none)) = .op (S := Eff (core3 grow) (HostState sig)) .get reference ∧
+      checked snapshot = reference snapshot := by
+  refine ⟨_, _, rfl, rfl, ?_⟩
+  simp [Prog.bind, record, type, show ¬ results > 1 by omega, Quirks.none, Prog.bind_assoc]
+
+private theorem before_lift_safe (ticket : Nat) (caller : CallerId) (issue : Issue) :
+    Safe (refuseBeforeLift (grow := grow) (sig := sig) ticket caller issue) :=
+  HostWrite.bind (HostWrite.hostSafe_of_invW (skip_arguments_frame caller CStore.empty) none)
+    (fun _ => refused_safe _ _ _)
 
 private theorem tree_safe (ticket : Nat) (caller : CallerId) (tree : Stored.OwnedMemory.Tree sig) :
     Safe (resolveTree (grow := grow) ticket caller tree) := by

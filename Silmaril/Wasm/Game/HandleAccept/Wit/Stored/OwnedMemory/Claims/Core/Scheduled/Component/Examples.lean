@@ -124,16 +124,20 @@ private def regression (spill async_ : Bool) : Bool :=
 private def ownerSlots (store : CStore engine) : Option (Option HandleEntry × Option HandleEntry) :=
   (store.insts.get? 0).map fun inst => (inst.handles.get? 1, inst.handles.get? 2)
 
-private def rejectedSchema : Bool :=
-  match config true true true (.one 2 128) with
+private def rejectedSchema (out : Nat) (resultTraps : Bool) : Bool :=
+  match config true true true (.one 2 out) with
   | none => false
   | some start =>
     let result := Machine.run ready (specDispatch ready (hostWithComponent [] [callee true true true]))
       (core3Exec grow) Machine.Oracle.first 900 start
-    result.outcome == .resolved && result.config.host.publications.isEmpty &&
+    result.config.host.publications.isEmpty && result.config.host.writer.accepted.isEmpty &&
       result.config.host.refusals == [.accept (.claims (.lift (.schema .storedBorrow)))] &&
       ownerSlots result.config.store == some (some (.resource ⟨0⟩), some (.resource ⟨1⟩)) &&
-      result.config.store.core.mems[0]?.bind (·.bytes.data[128]?) == some 1
+      (if resultTraps then
+        result.outcome == .trap && result.labels.any (fun label => match label with
+          | .trap .outOfBounds => true
+          | _ => false)
+      else result.outcome == .resolved && result.config.store.core.mems[0]?.bind (·.bytes.data[out]?) == some 1)
 
 private def rejectedMemoryWidth : Bool :=
   match config false false false (.one 2 128) with
@@ -157,7 +161,8 @@ private def canonicalTrap (second out : Nat) (reason : TrapReason)
       result.labels.any (fun label => match label with | .trap actual => actual == reason | _ => false) &&
       ownerSlots result.config.store == some slots
 
-#guard rejectedSchema
+#guard rejectedSchema 128 false
+#guard rejectedSchema 65536 true
 #guard rejectedMemoryWidth
 #guard canonicalTrap 1 128 (.unknownHandle 1) (none, some (.resource ⟨1⟩))
 #guard canonicalTrap 2 65536 .outOfBounds (none, none)

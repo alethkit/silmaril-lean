@@ -13,8 +13,33 @@ open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
   Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Machine Silmaril.Wasm.Component.Runtime
   Silmaril.Wasm.Execution.Core
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored (Signature)
+open Silmaril.Wasm.Component.Value
 
 variable {sig : Signature} {grow : SingleThreaded.GrowOracle}
+
+/-- Refusing before payload lift preserves component authorities, even if writing the
+error result traps. It does not undo earlier effects or forbid result/subtask updates. -/
+theorem refusal_frame (ticket : Nat) (caller : CallerId) (issue : Issue) (before : CStore (core3 grow)) :
+    P.InvW (SameAuthority before) (fun _ => True)
+      (refuseBeforeLift (grow := grow) (sig := sig) ticket caller issue) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.Component.refusal_frame
+    ticket caller issue before
+
+/-- Given the same guarded caller record, the checked error and reference resolution
+have identical continuations after the store read, including the indirect write and traps. -/
+theorem resolve_error_agrees (ticket : Nat) (caller : CallerId) (snapshot : CStore (core3 grow))
+    (subtask : SubtaskId) (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (ft : WIT.FuncType Empty RtId) (limits results : Nat)
+    (record : ArenaField.callers.get? snapshot caller = some (.lower subtask cx args pos ft limits results))
+    (type : ft.result = some resultType) (mode : results ≤ 1) :
+    ∃ checked reference : CStore (core3 grow) → Session grow sig (Ret (core3 grow)),
+      resolveError ticket caller = .op (S := Eff (core3 grow) (HostState sig)) .get checked ∧
+      (do
+        lowerOnResolve Limits.spec Quirks.none caller (some [.variant 1 none])
+        pure (Ret.cancel (E := core3 grow) .none)) = .op (S := Eff (core3 grow) (HostState sig)) .get reference ∧
+      checked snapshot = reference snapshot :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.Component.resolve_error_agrees
+    ticket caller snapshot subtask cx args pos ft limits results record type mode
 
 theorem host_checked (bindings : List (Binding sig)) (callees : List (Callee sig)) :
     HostImplSafe CheckedWrite (hostWithComponent (grow := grow) bindings callees) :=
