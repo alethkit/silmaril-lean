@@ -29,4 +29,15 @@ def writeItemsReply (memory : ByteArray) (handles : List (BitVec 32)) : Except R
     | some updated => .ok updated
     | none => .error .insufficientSpace
 
+/-- A compact `list<u8>` reply for `symbol_text` or `blob_bytes`. The memory32
+check and header-space check precede narrowing the byte count to i32. -/
+def writeByteReply (memory : ByteArray) (payload : List UInt8) : Except ReplyIssue ByteArray :=
+  if 2 ^ 32 < memory.size then .error .oversizedMemory32
+  else if memory.size < 8 + payload.length then .error .insufficientSpace
+  else
+    let header := encodeWords [8, BitVec.ofNat 32 payload.length]
+    match Memory.writeBytes memory 0 (header ++ payload).toByteArray with
+    | some updated => .ok updated
+    | none => .error .insufficientSpace
+
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop

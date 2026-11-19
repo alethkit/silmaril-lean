@@ -11,6 +11,8 @@ namespace Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Examples
 
 open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.SingleThreaded
 open Silmaril.Wasm.Game.HandleAccept.MemSound (itemsList)
+open Silmaril.Wasm.Game.HandleAccept.Memory (MemAtom)
+open Silmaril.Formats (SExp SymStrBytesSExp)
 open Silmaril.Wasm.Resource (runTo?)
 
 private def vectorReply : ByteArray :=
@@ -113,5 +115,45 @@ theorem accepts_empty_list (profile : Silmaril.Wasm.Numerics.Profile) (checker :
   obtain ⟨_, _, _, spec, page⟩ := checker_instance checker
   exact compact_accepts checker spec (by decide) page (handles := []) (by decide)
     (childBytes := fun _ => ByteArray.empty) (by simp) policy present named .nil (by simp)
+
+private def mixedHandles : List (BitVec 32) := [41, 323, 5, 41]
+
+private def mixedBlobBytes (handle : BitVec 32) : List UInt8 :=
+  if handle = 41 then [] else if handle = 323 then [0, 255] else [128]
+
+private def mixedBlobAtom (handle : BitVec 32) : MemAtom :=
+  ⟨.bytes, by decide, mixedBlobBytes handle⟩
+
+private def mixedBlobTree : SymStrBytesSExp := SExp.ofList (mixedHandles.map fun handle => .atom (mixedBlobAtom handle))
+
+private def mixedBlobEnv : Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp :=
+  fun handle => if handle = 7 then some mixedBlobTree else some (.atom (mixedBlobAtom handle))
+
+/-- An actual one-page checker run uses distinct byte lengths and revisits the first child. -/
+theorem accepts_mixed_blob_sizes (profile : Silmaril.Wasm.Numerics.Profile)
+    (policy : Silmaril.Accept.Handle.OnInvalid) :
+    mixedBlobTree ∈ listReaderLang profile
+      (Silmaril.Wasm.Game.HandleAccept.MemSound.ReplyEnvs
+        Silmaril.Wasm.Game.HandleAccept.MemSound.Items.itemsReply)
+      0 (mod Checker.blobs.imports) Checker.blobs.imports Checker.blobs.decodeChild .trap policy {mixedBlobEnv} := by
+  refine byte_reply_accepts .blobs policy (rho := mixedBlobEnv) (Set.mem_singleton _) (root := 7)
+    (handles := mixedHandles) (by decide) mixedBlobBytes ?_ rfl ?_ ?_
+  · intro handle _
+    unfold mixedBlobBytes
+    split
+    · decide
+    · split <;> decide
+  · exact .cons rfl (.cons rfl (.cons rfl (.cons rfl .nil)))
+  · intro handle member
+    refine ⟨mixedBlobAtom handle, rfl, ?_⟩
+    have other : handle ≠ 7 := by
+      intro root
+      subst handle
+      simp [mixedHandles] at member
+    simp only [mixedBlobEnv, ite_eq_right other]
+
+theorem refuses_short_child_memory :
+    writeByteReply ⟨Array.replicate 8 0⟩ [0] = .error .insufficientSpace := by
+  apply writeByteReply_rejects_short_memory <;> decide +kernel
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Examples

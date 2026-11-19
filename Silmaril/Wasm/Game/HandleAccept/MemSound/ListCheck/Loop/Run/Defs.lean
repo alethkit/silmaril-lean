@@ -9,7 +9,7 @@ namespace Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop
 
 open Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game Silmaril.Wasm.Game.IOAccept
   Silmaril.Wasm.Game.HandleAccept.MemSound Silmaril.Formats.Api
-open Silmaril.Wasm.Game.HandleAccept.Memory (MemAtom)
+open Silmaril.Wasm.Game.HandleAccept.Memory (MemAtom utf8?)
 open Silmaril.Wasm.Game.HandleAccept.MemSound.Readers (symTextAns blobAns)
 
 /-- The actual executable loop checker variants. -/
@@ -24,6 +24,12 @@ def Checker.imports : Checker → ListImports
 def Checker.decodeChild : Checker → HostReply → BitVec 32 → SxA MemAtom (BitVec 32)
   | .symbols => symTextAns
   | .blobs => blobAns
+
+/-- The semantic child denoted by the payload, before constructing a Core reply.
+Malformed UTF-8 is not a symbol; all byte sequences are valid blobs. -/
+def Checker.decodeBytes : Checker → List UInt8 → Option MemAtom
+  | .symbols, bytes => (utf8? bytes).map fun text => ⟨.symbol, by decide, text⟩
+  | .blobs, bytes => some ⟨.bytes, by decide, bytes⟩
 
 /-- A host can supply a fixed logical vector and any child payloads, while rewriting bytes
 on each answer. `ready` records what must survive each answer to keep the script available. -/
