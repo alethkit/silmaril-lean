@@ -44,6 +44,7 @@ theorem readVals_handle (seg : Nat → Nat → Option (List UInt8)) :
     readVals seg [.u32] (Memory.encodeLE (IntType.i32.width / 8)
       (BitVec.setWidth (8 * (IntType.i32.width / 8)) (1 : BitVec 32)).toNat).data.toList =
       some ((1 : UInt32), ()) := by
+  simp only [readVals, readFieldsWith, readValWith]
   rfl
 
 theorem resolveVals_res (rt₀ : RT) :

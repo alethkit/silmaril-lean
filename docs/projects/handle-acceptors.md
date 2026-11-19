@@ -135,8 +135,11 @@ those values. `Wit.Async` adds typed endpoint identities and dispatches creation
 copy, cancellation, polling and closure to the reference component built-ins.
 An old call list yields the identical effect program (`runCalls_legacy`). The
 machine examples resolve and close a future, cancel a pending stream read, and
-reject inspection of a closed slot. These are component-machine sessions, not
-yet Core acceptor tree payloads; the checked tree writer still rejects async types.
+reject inspection of a closed slot. A `stream<u8>` session additionally checks no
+event before a matching read, the copied bytes and exact write-completion event,
+then disconnects and closes the set and both endpoints. These are component-machine
+sessions, not yet Core acceptor tree payloads; the checked tree writer still rejects
+async types.
 
 | Item | Status | Where |
 | --- | --- | --- |
@@ -218,6 +221,14 @@ component. This is a reference adapter, not a simulation of the checked Core wri
 
 ## Modelling choices to review
 
+`Wit.Async.Transfer` gives the endpoint interpretation a canonical lift/lower boundary:
+it removes the guest slot on successful lift and retains the arena object in the typed
+value. Lowering checks that this object is live, correctly typed, idle, not registered
+with a waitable set, and currently detached. Duplicate Lean values do not duplicate
+ownership. The reference-machine examples exercise a byte stream and a completing unit
+future, including rejected retagging and repeat lowering. Schemas containing a borrow
+are rejected before any transfer effects.
+
 * **Traps are call-local.** The Wasm-facing mandatory trap on an invalid `accept` is
   `OnInvalid.callTrap` (the default): as in Wasm, a trap aborts only the current export
   invocation, while the instance and its store persist (the game strategy
@@ -257,9 +268,17 @@ component. This is a reference adapter, not a simulation of the checked Core wri
   fields), and any equation with the monadic `Canon.load` programs over a component store. The
   legacy memory decoder checks bounds but not `MAX_STRING_BYTE_LENGTH`/`MAX_LIST_BYTE_LENGTH`.
   The checked host boundary (`MemSound.WitAst.Checked.Thms`) applies both limits to payload
-  indirections and the list limit to child handles. It explicitly rejects flat arguments,
-  non-UTF-8 encodings, memory64, and asynchronous calls. This is not a proof of interoperability
-  with canonical component-ABI lifting. Floats, `char` and single scalars agree with the pure
+  indirections and the list limit to child handles. `checked_string_reference` identifies
+  UTF-8, UTF-16 and tagged Latin-1/UTF-16 text decoding with the pure canonical range
+  loader, including failure. This uses bounded slices and leaves the legacy UTF-8 trace
+  decoder unchanged. The checked path also accepts memory64: `layoutFor_toWit` relates
+  the layouts at both widths, and `checked_string_reference` covers all string modes at
+  both widths. Its memory64 `node` operands use `i64` payload pointer, child pointer and
+  child count; tag, child handles and owning slot indices remain `i32`. Width mismatches,
+  high out-of-bounds pointers and overlong child vectors are rejected without narrowing.
+  Flat arguments and asynchronous calls are still rejected at this Core entry point.
+  This is not a proof of interoperability with monadic component-ABI lifting.
+  Floats, `char` and single scalars agree with the pure
   reference loaders (`loadVal_f32`, `loadVal_f64`, `loadVal_char`, `loadVal_scalar`); lists,
   fixed lists, records with non-scalar fields, tuples, variants, enums, options, results and
   flags follow the reference layout (`layout_toWit`) and trap conditions (discriminant range,
@@ -267,51 +286,96 @@ component. This is a reference adapter, not a simulation of the checked Core wri
   reference loader (none is pure). The end-to-end modules cover `s64`, `string`, `bytes`,
   `list<u32>` and a `record { char, option<u8> }`; nested lists, variants, enums, results,
   flags, fixed lists and floats are covered by kernel-checked decoding examples only.
-  **Resource handles** (`MemSound.WitAst.Own`): `own<r>` payloads follow the resource-table
-  semantics (the tree holds the representation from an explicit table; the move consumes the
-  handle; trace- and table-dependence proved), but only **top-level** `own` fields of a payload
-  vector are resolved. The checked boundary rejects the entire selected schema for nested
-  `own`, stored `borrow` and unsupported WIT kinds, even in inactive cases and empty lists.
-  Its typed diagnostics also distinguish unknown, dead, wrong-type and repeated handles.
-  Rejection leaves the caller's resource table and Core store in place, including earlier
-  effects; it traps this call, not the whole session. The legacy trace projection omits failed
-  decodes, and is not itself a checked host contract. The checked boundary does not yet have
-  the legacy trace language's whole-module bridge. Handle **creation** is not modelled (the table
-  is the initial environment `rt₀`, e.g.
-  handles received earlier; no `resource.new`/`new_res` import), nor `resource.drop` or `rep` of
-  the module's own resources, and the stateful host is not compared with the reference machine's
-  `Table` (`Silmaril.Wasm.Resource.Table`); the end-to-end examples move one handle (`ownMod`) and
-  one handle twice (`twiceMod`, a trace-level negative: its whole language is not computed).
-  `borrow` is rejected in stored trees by design. **Not payloads**: `future`, `stream`,
-  `error-context` (pending async semantics); `map` is not a separate payload type (WIT
-  despecialises it to `list<tuple<k, v>>`). The flat (core-argument) decoder `Ast.ofVal?` still reads only `bool`,
-  `s32`, `u32`, `s64`, `u64`.
-  The separate `MemSound.WitAst.Own.Nested` checked entry point resolves owned fields in
-  lists, fixed lists, records, tuples and active sum arms. It reserves distinct live slots
-  before committing their moves; an error keeps the table at the start of the import.
-  Inactive arms do not move owners, but the complete schema must admit stored values.
-  This uses the Core writer table and its representation-valued `PTy`: it does not yet
-  relate slot moves or trap effects to the reference component store or replace the legacy
-  whole-session bridge. `Own.Session` supplies a checked `SEnv UImp` for nested nodes:
-  a rejection answers the actual Core redex with a call-local trap, preserving the
-  store at that call and the state from earlier imports. `session_le` proves that
-  no sequence of exports resurrects a moved slot in this move-only host. This is a
-  session safety contract, not yet a characterization of the accepted tree language,
-  and the host does not implement resource allocation or drop.
-* Wasm writer variants: `batchAccept_lang` bounds `batchAccept` by its kept batch `keptL` (the
-  dropped word is never accepted, `batchAccept_drops`), but the lower bound is the run at the
-  fixed argument `3` (`batchAccept_kept`), not every `(w)`; the batch bridge assumes policies
-  without undefined behaviour. `errAccept`, `allAccept`, `readBack` are upper bounds with runs at
-  fixed arguments, not exact languages.
-* Families through memory: `MemSound.ListCheck` checks lists of exactly two symbols
-  (`symListMod`) or two blobs (`blobListMod`); there is no looped checker for any length (a loop
-  computing `ptr + 4i` with `i32` arithmetic wraps modulo `2^32` while the decoder reads at the
-  natural-number offset, so it needs an overflow guard), and the live sessions exhibit lists of
-  two copies of one symbol (blob) only.
+  **Resource handles**: the public Core host entry point is `MemSound.WitAst.Own`. Use
+  `Contract.link` to check the import's name, uniqueness and Core function type and to resolve the
+  actual instance memory for `Contract.env`. `Contract.traces` uses that checked host over all
+  permitted export sequences, not an arbitrary reply environment. There is no acceptor CLI driver.
+  The host validates the complete selected schema, including inactive cases and empty lists.
+  It resolves `own` fields recursively and reserves distinct live slots before committing their
+  moves. `Contract.attempt` retains typed diagnostics, including unknown, dead, wrong-type and
+  repeated handles. Rejection answers the Core redex with a call-local trap and leaves the store,
+  resource table and writer state at the import unchanged. `reject_then_invoke` proves a later
+  typed export can use that state; `session_le` rules out resurrecting moved slots in this host.
+  Stored `borrow` and unsupported async kinds are rejected.
+  The Core writer stores representations and has no allocation/drop imports; the separate
+  reference resource machine is not a simulation of these slot moves or call-local trap effects.
+  `Own.Projection` contains the legacy `ownMod` and `twiceMod` trace-language results. It omits
+  failed decodes and is not a host. Connecting checked sessions to exact writer languages, rather
+  than only showing that rejection preserves the writer state, remains open.
+* Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
+  exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
+  Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
+  witness. `batchAccept_drops` still rules out the dropped words, and the batch bridge still
+  assumes policies without undefined behaviour. `Combined.Exact.Thms.readBack_exact` gives
+  exactly the singleton word lists for any sentinel under the same non-UB and profile
+  assumptions. Its replay picks one of two disjoint sets of fresh handles.
+* Families through memory: `MemSound.ListCheck.Loop` adds variable-length Core checkers for
+  symbols and blobs. `symbols_sound` and `blobs_sound` bound the accepted language across all
+  permitted export calls under shaped replies and the trapping read policy, excluding UB
+  acceptance. The checker rereads `items` after each child call. The invariant tracks the
+  denoted prefix, not the memory or the numeric child handles. It traps before any word load
+  that would wrap the scaled index or cross the memory32 range; `address_eq` relates the guarded
+  Wasm address to the decoder's natural address. `remaining_decreases` supplies the decreasing
+  measure on a guarded back edge. The interpreter regression checks three distinct handles and
+  overwrites the scratch vector with each child reply. The older `symListMod` and `blobListMod`
+  remain two-child examples. This is not an exact accepted-language or full session-termination
+  result for the looped checkers.
 * Parsing: `chunkRingN` is proved for capacities up to 8192 (one page), with non-vacuity for
   every `1 ≤ cap ≤ 8192` (one value: `chunkRingN_relates_7_one`; the one-slot buffer:
   `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`) and for `2 ≤ cap` with two values; capacities
   beyond one page and memory growth (`memory.grow`) are not done.
+
+## Reference component payloads
+
+`Wit.Stored` builds the existing `AST` family over closed WIT types and reference `Val` values.
+Its memory and flat entry points check their ABI preconditions, then run the canonical effect
+programs rather than interpreting an endpoint as a number. A successful lift uses the reference
+arena identity while consuming the guest slot. A later reference trap retains earlier moves.
+Stored borrows and `own` types are rejected recursively before effects: the reference `Val.own`
+alone carries a representation, not the owning identity this tree boundary needs.
+
+`Wit.Stored.OwnedMemory` is the separate ownership-aware tree boundary. Its shared canonical
+loader records an ordered, typed receipt at each active `own` leaf, including inside lists,
+records and variants. Erasing the receipts recovers the entire canonical memory-load program,
+including access checks, handle removals and traps in their original order. The reference
+machine examples distinguish two owners with equal representations and show that a repeated
+move traps without publishing a tree or undoing the first move. Whole-schema validation still
+rejects stored borrows, even in inactive branches. Flat owned inputs are rejected explicitly;
+the receipts do not by themselves authorize a transfer back to a guest or connect the checked
+Core host to the reference resource machine.
+
+`Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
+Lifting a root from memory or flat operands registers the arena identities in its active payload,
+including nested futures and streams. Already-built children are not lifted again and create no
+claims. `give` spends a claim only after canonical lowering succeeds; it checks the reference
+endpoint's kind, element type, liveness, idle state and ownership. A tree remains an observation
+after handoff, not a second right to lower it. A verified mixed session lifts a future and a byte
+stream into one tree, transfers them back, completes the future, copies two distinct stream bytes,
+and closes both channels. This gives endpoints individually; it does not lower an entire compound
+endpoint payload in one operation or connect the Core checked writer to the reference machine.
+
+`Wit.Stored.Examples` records an `option<future>` from memory and a flat `stream<u8>` as typed
+trees in actual reference-machine runs; a repeated slot traps with no new tree and does not
+resurrect the slot. The examples do not route Core writer imports into component sessions or
+provide a correspondence for their accepted languages.
+
+`Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
+immutable arena object exists in the current reference store. Unlike endpoint handoff, this
+does not spend a claim. A verified session lifts an `option<error-context>`, drops the original
+slot, rejects a missing identity, then gives the same object twice; dropping the first copy does
+not invalidate the second. This operation does not lower arbitrary compound tree payloads.
+
+`Wit.Stored.Lower` sends resource-free tree payloads to memory or an exact flat vector through
+the reference canonical store/flatten programs. It checks ABI options and nested list/string
+allocation preconditions before writing; canonical traps retain their reference effects. The
+examples round-trip a nested record in memory64 and as flat operands and show that an
+out-of-bounds destination writes nothing. Lowering an endpoint or error-context observation
+requires its own checked transfer; this path rejects those schemas, including inactive cases.
+`Wit.Stored.Endpoints.Lower` checks all active endpoint claims and error-context identities
+before passing a compound payload to the same reference store/flatten programs. A typed
+rejection retains the claims for a corrected retry; a successful transfer spends each claim
+once. This entry point rejects schemas that can require guest realloc, even in an inactive
+arm, until there is a frame for transferring the claims across the guest call.
 
 ## Checking
 
@@ -322,7 +386,9 @@ lake build --wfail Silmaril.Semantics.Accept.Handle.Examples Silmaril.Semantics.
   Silmaril.Semantics.Accept.Mixed.Chunk.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.Ghost.Thms \
   Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Take.Examples Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.Examples \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Ast.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Thms \
-  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Canon Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Canon \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Examples \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Projection \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Exact.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.KwText.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.WordAtom.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Hinted.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.Cons.Thms \

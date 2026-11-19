@@ -54,11 +54,15 @@ mutual
 /-- Structural equality on the instructions of the examples; `false` elsewhere. -/
 def ieq : Instr → Instr → Bool
   | .return_, .return_ => true
+  | .unreachable, .unreachable => true
+  | .loop bt b, .loop bt' b' => bt == bt' && ieqs b b'
+  | .br label, .br label' => label == label'
   | .if_ bt t e, .if_ bt' t' e' => bt == bt' && ieqs t t' && ieqs e e'
   | .call f, .call f' => f == f'
   | .localGet x, .localGet x' | .localSet x, .localSet x' => x == x'
   | .intConst t b, .intConst t' b' => t == t' && b.toNat == b'.toNat
   | .intRelOp t o, .intRelOp t' o' => t == t' && o == o'
+  | .intBinOp t o, .intBinOp t' o' => t == t' && o == o'
   | .intStore t p x a, .intStore t' p' x' a' => t == t' && p == p' && x == x' && a == a'
   | .intLoad t p x a, .intLoad t' p' x' a' => t == t' && p == p' && x == x' && a == a'
   | _, _ => false
@@ -101,6 +105,8 @@ theorem ieq_sound_lt : ∀ (n : Nat) (i i' : Instr), sizeOf i < n → ieq i i' =
       | (exact absurd h Bool.false_ne_true)
       | (obtain ⟨⟨rfl, h2⟩, h3⟩ := h; simp only [Instr.if_.sizeOf_spec] at hs;
          rw [hlist _ _ (by omega) h2, hlist _ _ (by omega) h3])
+      | (obtain ⟨rfl, hbody⟩ := h; simp only [Instr.loop.sizeOf_spec] at hs;
+         rw [hlist _ _ (by omega) hbody])
       | (obtain ⟨rfl, h2⟩ := h; rw [BitVec.eq_of_toNat_eq h2])
 
 theorem ieqs_sound {is is' : List Instr} (h : ieqs is is' = true) : is = is' :=

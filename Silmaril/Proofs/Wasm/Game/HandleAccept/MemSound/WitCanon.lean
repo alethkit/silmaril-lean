@@ -127,7 +127,7 @@ theorem readVal_scalar (seg : Nat → Nat → Option (List UInt8)) (q : SPTy) (l
       exact bool_bits b
   · simp only [SPTy.scalar, ABI.Scalar.byteCount] at hl
     refine ⟨Int32.ofBitVec (BitVec.ofNat 32 (leNat l)), ?_, ?_⟩
-    · simp only [SPTy.pty, readVal, List.take_of_length_le (Nat.le_of_eq hl), le32_eq l hl,
+    · simp only [SPTy.pty, readVal, readValWith, List.take_of_length_le (Nat.le_of_eq hl), le32_eq l hl,
         Option.map_some, List.drop_eq_nil_of_le (Nat.le_of_eq hl)]
     · apply scalarValue_congr
       simp only [SPTy.scalar, Int32.toBitVec_ofBitVec, ABI.Scalar.liftBits,
@@ -136,7 +136,7 @@ theorem readVal_scalar (seg : Nat → Nat → Option (List UInt8)) (q : SPTy) (l
       simp [BitVec.toNat_ofNat, ABI.Scalar.width, ABI.Scalar.byteCount]
   · simp only [SPTy.scalar, ABI.Scalar.byteCount] at hl
     refine ⟨UInt32.ofBitVec (BitVec.ofNat 32 (leNat l)), ?_, ?_⟩
-    · simp only [SPTy.pty, readVal, List.take_of_length_le (Nat.le_of_eq hl), le32_eq l hl,
+    · simp only [SPTy.pty, readVal, readValWith, List.take_of_length_le (Nat.le_of_eq hl), le32_eq l hl,
         Option.map_some, List.drop_eq_nil_of_le (Nat.le_of_eq hl)]
     · apply scalarValue_congr
       simp only [SPTy.scalar, ABI.Scalar.liftBits,
@@ -145,7 +145,7 @@ theorem readVal_scalar (seg : Nat → Nat → Option (List UInt8)) (q : SPTy) (l
       simp [BitVec.toNat_ofNat, ABI.Scalar.width, ABI.Scalar.byteCount]
   · simp only [SPTy.scalar, ABI.Scalar.byteCount] at hl
     refine ⟨Int64.ofBitVec (BitVec.ofNat 64 (leNat l)), ?_, ?_⟩
-    · simp only [SPTy.pty, readVal, List.take_of_length_le (Nat.le_of_eq hl), le64_eq l hl,
+    · simp only [SPTy.pty, readVal, readValWith, List.take_of_length_le (Nat.le_of_eq hl), le64_eq l hl,
         Option.map_some, List.drop_eq_nil_of_le (Nat.le_of_eq hl)]
     · apply scalarValue_congr
       simp only [SPTy.scalar, Int64.toBitVec_ofBitVec, ABI.Scalar.liftBits,
@@ -154,7 +154,7 @@ theorem readVal_scalar (seg : Nat → Nat → Option (List UInt8)) (q : SPTy) (l
       simp [BitVec.toNat_ofNat, ABI.Scalar.width, ABI.Scalar.byteCount]
   · simp only [SPTy.scalar, ABI.Scalar.byteCount] at hl
     refine ⟨UInt64.ofBitVec (BitVec.ofNat 64 (leNat l)), ?_, ?_⟩
-    · simp only [SPTy.pty, readVal, List.take_of_length_le (Nat.le_of_eq hl), le64_eq l hl,
+    · simp only [SPTy.pty, readVal, readValWith, List.take_of_length_le (Nat.le_of_eq hl), le64_eq l hl,
         Option.map_some, List.drop_eq_nil_of_le (Nat.le_of_eq hl)]
     · apply scalarValue_congr
       simp only [SPTy.scalar, ABI.Scalar.liftBits,
@@ -164,7 +164,7 @@ theorem readVal_scalar (seg : Nat → Nat → Option (List UInt8)) (q : SPTy) (l
 
   · simp only [SPTy.scalar, ABI.Scalar.byteCount] at hl
     refine ⟨Int8.ofBitVec (BitVec.ofNat 8 (leNat l)), ?_, ?_⟩
-    · simp only [SPTy.pty, readVal, leN, hl, Nat.le_refl, ↓reduceIte,
+    · simp only [SPTy.pty, readVal, readValWith, leN, hl, Nat.le_refl, ↓reduceIte,
         List.take_of_length_le (Nat.le_of_eq hl), Option.map_some,
         List.drop_eq_nil_of_le (Nat.le_of_eq hl)]
     · apply scalarValue_congr
@@ -181,7 +181,7 @@ theorem readVal_scalar (seg : Nat → Nat → Option (List UInt8)) (q : SPTy) (l
       simp [ABI.Scalar.width, ABI.Scalar.byteCount, leNat]
   · simp only [SPTy.scalar, ABI.Scalar.byteCount] at hl
     refine ⟨Int16.ofBitVec (BitVec.ofNat 16 (leNat l)), ?_, ?_⟩
-    · simp only [SPTy.pty, readVal, leN, hl, Nat.le_refl, ↓reduceIte,
+    · simp only [SPTy.pty, readVal, readValWith, leN, hl, Nat.le_refl, ↓reduceIte,
         List.take_of_length_le (Nat.le_of_eq hl), Option.map_some,
         List.drop_eq_nil_of_le (Nat.le_of_eq hl)]
     · apply scalarValue_congr
@@ -191,7 +191,7 @@ theorem readVal_scalar (seg : Nat → Nat → Option (List UInt8)) (q : SPTy) (l
       simp [BitVec.toNat_ofNat, ABI.Scalar.width, ABI.Scalar.byteCount]
   · simp only [SPTy.scalar, ABI.Scalar.byteCount] at hl
     refine ⟨UInt16.ofBitVec (BitVec.ofNat 16 (leNat l)), ?_, ?_⟩
-    · simp only [SPTy.pty, readVal, leN, hl, Nat.le_refl, ↓reduceIte,
+    · simp only [SPTy.pty, readVal, readValWith, leN, hl, Nat.le_refl, ↓reduceIte,
         List.take_of_length_le (Nat.le_of_eq hl), Option.map_some,
         List.drop_eq_nil_of_le (Nat.le_of_eq hl)]
     · apply scalarValue_congr
@@ -246,12 +246,16 @@ theorem readFields_cons_map (seg : Nat → Nat → Option (List UInt8)) (q : SPT
         (readFields seg (qs.map SPTy.pty)
           (ABI.alignTo cur (PTy.layout q.pty).alignment + PTy.width q.pty) area).map fun vs =>
             q.toScalarValue x.1 :: SPTy.toScalarValues qs vs := by
-  show Option.map _ ((readVal seg q.pty _).bind _) = _
+  let offset := ABI.alignTo cur (PTy.layout q.pty).alignment
+  change Option.map (SPTy.toScalarValues (q :: qs))
+    ((readVal seg q.pty ((area.drop offset).take (PTy.width q.pty))).bind fun (value, _) =>
+      (readFields seg (qs.map SPTy.pty) (offset + PTy.width q.pty) area).map (value, ·)) = _
   rcases readVal seg q.pty ((area.drop (ABI.alignTo cur (PTy.layout q.pty).alignment)).take
       (PTy.width q.pty)) with _ | ⟨v, r⟩
   · rfl
   · simp only [Option.bind_some]
-    cases readFields seg (qs.map SPTy.pty)
+    simp only [readFields, offset]
+    cases readFieldsWith (PayloadReader.legacy seg) (qs.map SPTy.pty)
       (ABI.alignTo cur (PTy.layout q.pty).alignment + PTy.width q.pty) area <;> rfl
 
 theorem readFields_loadFields (mem : ByteArray) (start W : Nat) (hW : start + W ≤ mem.size) :
@@ -393,7 +397,8 @@ theorem readVal_string_loadStringFromRange (mem : ByteArray) {bs rest : List UIn
         (readVal (segOf mem) .string bs).map fun x => (⟨x.1, .utf8, n⟩, x.2)
       else none := by
   have hsz : mem.data.toList.length = mem.size := Array.length_toList
-  simp only [ABI.loadStringFromRange?, ABI.loadRange, readVal, hp, Option.bind_some, hsz,
+  simp only [ABI.loadStringFromRange?, ABI.loadRange, readVal, readValWith,
+    hp, Option.bind_some, hsz,
     ABI.alignTo, ABI.Alignment.bytes, Nat.add_sub_cancel, Nat.div_one, Nat.mul_one, ne_eq,
     not_true_eq_false, ↓reduceIte, gt_iff_lt]
   by_cases hn : n ≤ ABI.maxStringByteLength
@@ -405,7 +410,8 @@ theorem readVal_string_loadStringFromRange (mem : ByteArray) {bs rest : List UIn
         simp_all [ABI.Codec.decode?, ABI.utf8Decode?, utf8?, bytesAt] <;>
         first | rfl | exact ⟨_, rfl, rfl⟩
     · simp only [show mem.size < p + n by omega, ↓reduceIte, segOf_of_lt (Nat.lt_of_not_le hb),
-        Option.bind_none, Option.map_none]
+        Option.bind_none]
+      rfl
   · simp only [show ABI.maxStringByteLength < n by omega, ↓reduceIte, hn, Option.map_none]
 
 /-! ## Single values, floats and chars -/
@@ -439,7 +445,8 @@ theorem loadVal_f32 (mem : ByteArray) (a : Nat) : loadVal mem .f32 a = ABI.loadF
   by_cases hb : a + 4 ≤ mem.size
   · have hl := length_bytesAt hb
     rw [loadVal_of_le _ hb, segOf_of_le hb]
-    simp only [show PTy.width .f32 = 4 from rfl, readVal, List.take_of_length_le (Nat.le_of_eq hl),
+    simp only [show PTy.width .f32 = 4 from rfl, readVal, readValWith,
+      List.take_of_length_le (Nat.le_of_eq hl),
       le32_eq _ hl, Option.map_some]
     rfl
   · rw [loadVal_of_lt _ (show mem.size < a + PTy.width .f32 by
@@ -453,7 +460,8 @@ theorem loadVal_f64 (mem : ByteArray) (a : Nat) : loadVal mem .f64 a = ABI.loadF
   by_cases hb : a + 8 ≤ mem.size
   · have hl := length_bytesAt hb
     rw [loadVal_of_le _ hb, segOf_of_le hb]
-    simp only [show PTy.width .f64 = 8 from rfl, readVal, List.take_of_length_le (Nat.le_of_eq hl),
+    simp only [show PTy.width .f64 = 8 from rfl, readVal, readValWith,
+      List.take_of_length_le (Nat.le_of_eq hl),
       le64_eq _ hl, Option.map_some]
     rfl
   · rw [loadVal_of_lt _ (show mem.size < a + PTy.width .f64 by
@@ -468,7 +476,8 @@ theorem loadVal_char (mem : ByteArray) (a : Nat) : loadVal mem .char a = ABI.loa
   by_cases hb : a + 4 ≤ mem.size
   · have hl := length_bytesAt hb
     rw [loadVal_of_le _ hb, segOf_of_le hb]
-    simp only [show PTy.width .char = 4 from rfl, readVal, List.take_of_length_le (Nat.le_of_eq hl),
+    simp only [show PTy.width .char = 4 from rfl, readVal, readValWith,
+      List.take_of_length_le (Nat.le_of_eq hl),
       le32_eq _ hl, Option.bind_some, Option.map_some]
     cases ABI.convertI32ToChar? (BitVec.ofNat 32 (leNat (bytesAt mem ⟨a, 4⟩))) <;> rfl
   · rw [loadVal_of_lt _ (show mem.size < a + PTy.width .char by

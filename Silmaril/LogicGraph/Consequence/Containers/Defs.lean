@@ -4,6 +4,8 @@ public import Silmaril.Project.Shapes.Consequence.Defs
 public import Silmaril.Containers.Mini.Thms
 public import Silmaril.Containers.Check.Thms
 public import Silmaril.Containers.Noop.Thms
+public import Silmaril.Containers.HttpOnce.Thms
+public import Silmaril.Containers.HttpServe.Thms
 
 /-!
 # The logic graph: container obligations as problem shapes and consequence systems
@@ -47,6 +49,8 @@ satisfaction, a comparison), `containers.mini.no_ub_check` (the judgements of `M
 | `containers.mini.raw_sound_vsys` | `consequence.sound_at` (`raw` for `vsys`) | CSA |
 | `containers.mini.check_sound_vsys` | `consequence.sound_at` (the checker for `vsys`) | THM |
 | `containers.noop.oci_wp` | `wp` of the OCI no-op image under `Lps.ociRuntime` | THM |
+| `containers.http_once.oci_wp` | `wp` of the OCI HTTP responder image under `Lps.ociRuntime` | THM |
+| `containers.http_serve.oci_wlp` | no UB and `serveSpec` on every exiting run of the self-contained HTTP server image under `Ports.ociRuntime` | THM |
 -/
 
 @[expose] public section
@@ -176,6 +180,28 @@ public theorem noop_oci_wp_answer :
     Wp Lps.ociRuntime.toRuntime Noop.exitZeroNoEvents Noop.image :=
   Noop.wp_image
 
+silmaril instance containers.http_once.oci_wp (expect := THM)
+  (title := "A static ELF writing one HTTP/1.1 200 response, in its OCI image: no undefined behaviour, exit 0, a prefix of the response on stdout (LPS, every launch and flag oracle)") :=
+  silmaril.shapes.containers.wp
+  (R := Silmaril.Containers.Mach.MachRuntime.toRuntime Silmaril.Containers.Lps.ociRuntime)
+  (post := Silmaril.Containers.HttpOnce.respondsOk) (i := Silmaril.Containers.HttpOnce.image)
+
+@[answers "containers.http_once.oci_wp" thm]
+public theorem http_once_oci_wp_answer :
+    Wp Lps.ociRuntime.toRuntime HttpOnce.respondsOk HttpOnce.image :=
+  HttpOnce.wp_image
+
+silmaril instance containers.http_serve.oci_wlp (expect := THM)
+  (title := "The self-contained HTTP server ELF in its OCI image, 8080/tcp published: no undefined behaviour; every exit is one exact response or a defined failure (LPS, every launch, flag oracle and connection queue)") :=
+  silmaril.shapes.containers.wlp
+  (R := Silmaril.Containers.Ports.ociRuntime) (post := Silmaril.Containers.HttpServe.serveSpec)
+  (i := Silmaril.Containers.HttpServe.image)
+
+@[answers "containers.http_serve.oci_wlp" thm]
+public theorem http_serve_oci_wlp_answer :
+    Wlp Ports.ociRuntime HttpServe.serveSpec HttpServe.image :=
+  HttpServe.servesImage
+
 /-! ## Checkers, transformers, monitors -/
 
 silmaril instance containers.mini.no_ub_check_sound (expect := THM)
@@ -258,6 +284,7 @@ public def catalogue : List (String × ObligationKind) :=
    ("containers.mini.restrict_preserves_ub", .machine),
    ("containers.monitor_correct_stdio", .security),
    ("containers.mini.vsys_sound_raw", .behaviour), ("containers.mini.raw_sound_vsys", .behaviour),
-   ("containers.mini.check_sound_vsys", .behaviour), ("containers.noop.oci_wp", .behaviour)]
+   ("containers.mini.check_sound_vsys", .behaviour), ("containers.noop.oci_wp", .behaviour),
+   ("containers.http_once.oci_wp", .behaviour), ("containers.http_serve.oci_wlp", .behaviour)]
 
 end Silmaril.LogicGraph.Consequence.Containers

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Checked.Thms
+import Silmaril.Wasm.Verify.Kernel.Defs
 
 namespace Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.CheckedExamples
 
@@ -55,17 +56,64 @@ theorem async_kinds_reject :
   ⟨rfl, rfl, rfl⟩
 
 theorem invalid_abi_modes_reject :
-    checkNodeMode { address := .i64 } = .error (.addressWidth .i64) ∧
-    checkNodeMode { encoding := .utf16 } = .error (.stringEncoding .utf16) ∧
-    checkNodeMode { encoding := .latin1Utf16 } = .error (.stringEncoding .latin1Utf16) ∧
     checkNodeMode { passing := .flat } = .error .flatPayload ∧
     checkNodeMode { asynchronous := true } = .error .asyncCall :=
-  ⟨rfl, rfl, rfl, rfl, rfl⟩
+  ⟨rfl, rfl⟩
 
-theorem memory64_store_rejects :
+def stringTypes : List PTy := [.option .string]
+
+def stringNode (encoding : ABI.StringEncoding) (memory : List UInt8) :=
+  checkedNode (signature stringTypes) (tagOf stringTypes) { encoding } (node memory)
+
+theorem utf16_nested_string :
+    stringNode .utf16 [1, 0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 0, 233, 0] =
+      .ok (⟨(), (some "é", ())⟩, []) := rfl
+
+theorem latin1_nested_string :
+    stringNode .latin1Utf16 [1, 0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 0, 233] =
+      .ok (⟨(), (some "é", ())⟩, []) := rfl
+
+theorem tagged_utf16_nested_string :
+    stringNode .latin1Utf16 [1, 0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 128, 233, 0] =
+      .ok (⟨(), (some "é", ())⟩, []) := rfl
+
+theorem invalid_utf16_rejects :
+    issue (stringNode .utf16 [1, 0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 0, 0, 216]) =
+      some .badPayload ∧
+    issue (stringNode .latin1Utf16 [1, 0, 0, 0, 13, 0, 0, 0, 1, 0, 0, 0, 0, 233]) =
+      some .badPayload := ⟨rfl, rfl⟩
+
+theorem width_mismatch_rejects :
     issue (checkedCallout ("wit", "node") 0
       ⟨0, { mems := [⟨⟨.i64, ⟨0, none⟩⟩, ByteArray.empty⟩] }, []⟩) =
       some (.addressWidth .i64) := rfl
+
+def node64 (bytes : List UInt8) (payload : BitVec 64 := 0) (count : BitVec 64 := 0) : Callout :=
+  ⟨("wit", "node"), [.i32 0, .i64 payload, .i64 0, .i64 count], some bytes.toByteArray⟩
+
+theorem memory64_nested_string :
+    checkedNode (signature stringTypes) (tagOf stringTypes) { address := .i64, encoding := .latin1Utf16 }
+      (node64 [1, 0, 0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 128, 233, 0]) =
+      .ok (⟨(), (some "é", ())⟩, []) := by kernel_rfl
+
+theorem memory64_typed_operands :
+    issue (checkedNode (signature []) (tagOf []) { address := .i64 } (node [])) =
+      some .badArguments ∧
+    issue (plainNode [] (node64 [])) = some .badArguments := ⟨rfl, rfl⟩
+
+theorem memory64_bounds_no_truncation :
+    issue (checkedNode (signature []) (tagOf []) { address := .i64 } (node64 [] (2 ^ 32))) =
+      some .payloadOutOfBounds ∧
+    issue (checkedNode (signature []) (tagOf []) { address := .i64 } (node64 [] 0 (2 ^ 32))) =
+      some .childrenTooLong ∧
+    issue (checkedNode (signature [.list .u8]) (tagOf [.list .u8]) { address := .i64 }
+      (node64 [16, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 99])) = some .badPayload :=
+  ⟨rfl, rfl, by kernel_rfl⟩
+
+theorem memory64_resource_stays_i32 :
+    (Own.checkedOwnNode (signature [.own 3]) (tagOf [.own 3]) { address := .i64 }
+      aliasTable (node64 [1, 0, 0, 0])).toOption.map (·.1.1.2) = some ((77 : Nat), ()) :=
+  by kernel_rfl
 
 theorem bad_memory_rejects :
     issue (plainNode [.u32] (node [1, 0, 0, 0] 1)) = some .unalignedPayload ∧
