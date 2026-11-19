@@ -643,8 +643,9 @@ and spilled arguments, an indirect async result, equal representations with diff
 owner identities, and cancellation before and after start. The observer alone is not a
 checked storage boundary.
 
-`ComponentCall.hostWithComponent` joins that observer to the public scheduled writer
-through actual `canon lower` Core imports. A linked callee checks the caller's instance,
+Install `ComponentCall.hostWithComponent` to join that observer to the public scheduled
+writer through actual `canon lower` Core imports. The status-pair dispatcher `host`
+does not enable these component callees. A linked callee checks the caller's instance,
 memory width, options, signature, whole storable payload schema and child selection. It
 resolves a typed WIT `result<u32>` error before lifting owners on preflight refusal.
 `ComponentCall.refusal_frame` preserves the instance handle tables, owners, endpoints
