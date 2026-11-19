@@ -14,8 +14,8 @@ memory32); the fixed-page module can still trap on a feed outside its one page. 
 `0`: the start slot `st` (global `0`) and the count `cnt` (global `1`). The buffered values are,
 oldest first, the `i64`s at the byte addresses `8 * ((st + i) mod cap)` for `i < cnt`. Exports:
 
-* `0 feed : [i64] → []`: if `cnt = cap`, loop forever (the buffer is full: the call never
-  answers, so it buffers nothing and is observed as nothing); otherwise store `x` at
+* `0 feed : [i64] → []`: if `cnt = cap`, trap before writing the buffer or cursors;
+  otherwise store `x` at
   `8 * ((st + cnt) mod cap)` and increment `cnt`;
 * `1 finish : [i32] → [i32 i32]`: if `n > cnt` or `n = 0`, return `(0, nil())`; otherwise build,
   with a loop from the newest consumed value down to the oldest, the list
@@ -59,10 +59,10 @@ def reserveBody (cap : Nat) : List Instr :=
      [.intConst .i32 (capW (reservePages cap - 1)), .memoryGrow ⟨0⟩,
       .intConst .i32 (BitVec.allOnes 32), .intRelOp .i32 .eq, .if_ .empty [.unreachable] []] []]
 
-/-- `if cnt = cap then loop forever`. -/
+/-- Trap on a full buffer before writing a slot or advancing the count. -/
 def ringGuard (cap : Nat) : List Instr :=
   [.globalGet ⟨1⟩, .intConst .i32 (capW cap), .intRelOp .i32 .eq,
-   .if_ .empty [.loop .empty [.br ⟨0⟩]] []]
+   .if_ .empty [.unreachable] []]
 
 /-- `8 * ((st + k) mod cap)`, with `k` on the stack below. -/
 def slotAddr (cap : Nat) : List Instr :=

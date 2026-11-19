@@ -26,7 +26,7 @@ Every proof here is generic in the capacity `cap` (`RingCap cap` bounds its slot
   environment `ρ` and every profile, assuming the writer answers agree with `ρ` (no writer
   sentinel), the instance meets `chunkSSpec ringPix ppol ρ takeR (ringInv cap)`: `feed(x)` stores
   `x` in the slot after the buffered values and moves the represented buffer from `g` to
-  `g ++ [x]` (or diverges with `cap` values buffered); `finish(n)` with `n = 0` or `n` above the
+  `g ++ [x]` (or traps with `cap` values buffered); `finish(n)` with `n = 0` or `n` above the
   count returns `(0, h)`, `h` denoting `()`, keeping the buffer; otherwise its loop (invariant
   `RingLoop`: the accumulated handle denotes the list of the buffered values `i … n - 1`) builds
   the list of the first `n` buffered values, and the call returns `(n, h)` and drops them from
@@ -632,8 +632,7 @@ private theorem ringSat {I : ScalarInstance} {cap : Nat} {preludeCode : List Ins
     refine X.i32Const (us := [] ++ [.i32 cnt]) ?_
     refine X.rel32 (us := []) ?_
     refine X.if_ (us := []) (fun _ => ?_) (fun hc => ?_)
-    · refine X.loop (Inv := fun _ _ => True) (fun _ _ _ => ?_) trivial
-      exact HWP.of_exits (o := .br 0 []) ⟨⟨0⟩, [], rfl, rfl⟩ ⟨[], [], rfl, rfl, rfl, trivial⟩
+    · exact Wp.unreachable (m := .part) (hT s hinv _).1
     · have hc8 := rel_eq_z hc
       have hlt : cnt.toNat < cap := by
         have : cnt.toNat ≠ cap := fun h =>

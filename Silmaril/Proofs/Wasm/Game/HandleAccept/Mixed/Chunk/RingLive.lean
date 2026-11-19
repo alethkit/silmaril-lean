@@ -450,8 +450,8 @@ variable (cap : Nat)
 
 /-- The guard of `feed`. -/
 abbrev fG1 : List Instr := [.globalGet ⟨1⟩, .intConst .i32 (capW cap), .intRelOp .i32 .eq]
-/-- `if cnt = cap then loop forever`. -/
-abbrev fIf : Instr := .if_ .empty [.loop .empty [.br ⟨0⟩]] []
+/-- Trap if `cnt = cap`. -/
+abbrev fIf : Instr := .if_ .empty [.unreachable] []
 /-- The store and the count update of `feed`. -/
 abbrev fG2 : List Instr :=
   [.globalGet ⟨0⟩, .globalGet ⟨1⟩, .intBinOp .i32 .add, .intConst .i32 (capW cap),
