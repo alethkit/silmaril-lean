@@ -20,6 +20,30 @@ theorem register_claims {sig : Signature} {state registered : State sig}
   split at success <;> cases success
   exact ⟨rfl, rfl, rfl⟩
 
+theorem register_retains_retirement {sig : Signature} {state registered : State sig}
+    {tree : OwnedMemory.Tree sig} {id : HandleObjId}
+    (success : state.register tree = .ok registered) (retired : state.retiredOwner id) :
+    registered.retiredOwner id := by
+  have history := register_claims success
+  have fresh : id ∉ (rootReceipts tree).map receiptId := by
+    unfold State.register at success
+    dsimp only at success
+    split at success
+    next allowed =>
+      intro member
+      have known : id ∈ ((state.accepted.flatMap rootReceipts ++ state.held).map receiptId) := by
+        simp [retired.1]
+      have noneKnown : ((rootReceipts tree).map receiptId).any
+          (((state.accepted.flatMap rootReceipts ++ state.held).map receiptId).contains) = false := by
+        simpa using allowed.2.1
+      have absent := List.any_eq_false.mp noneKnown id member
+      rw [List.contains_iff_mem.mpr known] at absent
+      contradiction
+    next => contradiction
+  unfold State.retiredOwner
+  rw [history.1, history.2.1]
+  simp [retired.1, retired.2, fresh]
+
 theorem prepare_preserves_endpoints {sig : Signature} {state spent : State sig}
     {resource : RtId} {id : HandleObjId} {representation : Nat}
     (success : state.prepare resource id = .ok (representation, spent)) :
@@ -57,7 +81,7 @@ theorem prepare_spends {sig : Signature} {state spent : State sig}
   · split at success
     · contradiction
     · cases success
-      exact ⟨rfl, fun _ => by simp⟩
+      exact ⟨rfl, fun _ => by simp [Spend.apply]⟩
 
 theorem prepare_no_repeat {sig : Signature} {state spent : State sig}
     {resource : RtId} {id : HandleObjId} {representation : Nat}

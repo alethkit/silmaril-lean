@@ -58,9 +58,8 @@ theorem binding_trap_steps (config : Config (core3 grow) (HostState sig))
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.binding_trap_steps
     config thread segments rest ticket issue pending
 
-/-- For arbitrary machine prefixes, including trapping or suspended calls, the scheduled
-dispatcher preserves diagnostic history and the ticket counter never decreases. Host-supplied raw programs
-must respect the same append-only policy; ordinary invokes, ticks and cancels need no such premise. -/
+/-- The diagnostic history is append-only even for host-injected programs whose writes
+need not follow the stronger writer policy. -/
 theorem extends_of_steps (bindings : List (Binding sig))
     {initial final : Config (core3 grow) (HostState sig)}
     {labels : List (Label (core3 grow) (HostState sig))}
@@ -69,13 +68,45 @@ theorem extends_of_steps (bindings : List (Binding sig))
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.extends_of_steps
     bindings steps safe runSafe
 
+/-- For arbitrary machine prefixes, including trapping or suspended calls, diagnostic history
+only grows and every writer change follows the publication and spend policy. Host-supplied
+raw programs must respect the same write policy. -/
+theorem checked_of_steps (bindings : List (Binding sig))
+    {initial final : Config (core3 grow) (HostState sig)}
+    {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (host bindings)) initial labels final)
+    (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels) :
+    Extends initial.host final.host ∧ WriterRun initial.host.writer final.host.writer :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.checked_of_steps
+    bindings steps safe runSafe
+
 /-- An initialized session admits arbitrary ordinary host events and internal scheduling
 without any hypothesis about the component or its export sequence. -/
+theorem checked_of_session (bindings : List (Binding sig)) (store : CStore (core3 grow)) (state : HostState sig)
+    {final : Config (core3 grow) (HostState sig)} {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (host bindings)) (Config.init store state) labels final)
+    (ordinary : ∀ program, Label.host (.run program) ∉ labels) :
+    Extends state final.host ∧ WriterRun state.writer final.host.writer :=
+  checked_of_steps bindings steps (Component.Reference.HostWrite.cfgSafe_init _ _)
+    (fun program member => (ordinary program member).elim)
+
 theorem extends_of_session (bindings : List (Binding sig)) (store : CStore (core3 grow)) (state : HostState sig)
     {final : Config (core3 grow) (HostState sig)} {labels : List (Label (core3 grow) (HostState sig))}
     (steps : Steps prof ready (specDispatch ready (host bindings)) (Config.init store state) labels final)
     (ordinary : ∀ program, Label.host (.run program) ∉ labels) : Extends state final.host :=
-  extends_of_steps bindings steps (Component.Reference.HostWrite.cfgSafe_init _ _)
-    (fun program member => (ordinary program member).elim)
+  (checked_of_session bindings store state steps ordinary).1
+
+/-- Once spent, an owner that was observed in an accepted root cannot be reacquired as the
+same arena identity, even if a later Core call reuses the guest slot or representation. -/
+theorem WriterRun.owner_retired {before after : State sig} {id : HandleObjId}
+    (run : WriterRun before after) (retired : before.retiredOwner id) : after.retiredOwner id :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.owner_retired run retired
+
+/-- Readable endpoint identity can be acquired again, but only through a new root
+publication. Spending or a rejected call cannot restore an earlier claim. -/
+theorem WriterRun.endpoint_publications {before after : State sig} (run : WriterRun before after) :
+    ∃ roots, after.accepted = roots ++ before.accepted ∧
+      ∀ id ∈ after.endpoints, id ∈ before.endpoints ∨ id ∈ roots.flatMap rootEndpoints :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.endpoint_publications run
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled

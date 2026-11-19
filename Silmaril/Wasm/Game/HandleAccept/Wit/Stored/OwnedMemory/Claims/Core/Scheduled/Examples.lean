@@ -16,11 +16,17 @@ public abbrev engine := core3 grow
 @[expose] public def element : Option (WIT.ClosedType RtId) := some (.prim .u16)
 
 @[expose] public def signature : Signature :=
-  ⟨Bool, fun unsupported => if unsupported then .option (.borrow resource)
-    else .tuple [.own resource, .own resource, .stream element], fun _ => .fixed 0⟩
+  ⟨Option Bool, (fun
+    | some false => .tuple [.own resource, .own resource, .stream element]
+    | some true => .option (.borrow resource)
+    | none => .stream element), fun _ => .fixed 0⟩
 
 private def contract : Endpoints.Core.Contract signature :=
-  ⟨0, ("host", "accept-node"), fun raw => if raw < 2 then some (raw == 1) else none, {}, ⟨0⟩⟩
+  ⟨0, ("host", "accept-node"), (fun
+    | 0 => some (some false)
+    | 1 => some (some true)
+    | 2 => some none
+    | _ => none), {}, ⟨0⟩⟩
 
 private def transfers : List (Binding signature) :=
   [⟨"give-owner", ⟨0⟩, .giveOwner resource⟩, ⟨"drop-owner", ⟨0⟩, .dropOwner resource⟩,
@@ -55,7 +61,7 @@ private def instantiate (trapping : Bool) : Option (Store (CanonHost engine) × 
   let names := imports.map (·.1)
   let wrapper := fun (index : Nat) =>
     let params := (imports[index]?.map (·.2.1.params.length)).getD 0
-    let setup := if index == 0 then storeWord 32 1 ++ storeWord 36 2 ++ storeWord 40 3 else []
+    let setup := if index == 0 then storeWord 32 1 ++ storeWord 36 2 ++ storeWord 40 3 ++ storeWord 48 2 else []
     (⟨idx index, [], setup ++ (List.range params).map (fun param => .localGet (idx param)) ++
       [.call (idx index)]⟩ : Func)
   let destructor := [word 16, .localGet (idx 0), .intStore .i32 none ⟨0⟩ ⟨0, 0⟩,
@@ -93,6 +99,9 @@ private def session (inst : ModuleInst) : Session grow signature (Ret engine) :=
   run "drop-owner" [1, 1] refused
   run "give-reader" [1, 0] (success 2)
   run "give-reader" [1, 0] refused
+  run "accept-node" [2, 48, 0, 0] (success 2)
+  run "give-owner" [1, 0] refused
+  run "give-reader" [2, 0] (success 2)
   run "close-reader" [2] []
   run "close-writer" [4] []
   return .unit
@@ -131,7 +140,11 @@ private def expectedTranscript (trapping : Bool) : List Event :=
     [.returned 5 0,
       transfer 7 "drop-owner" 1, .refused 7 (.claim .unclaimed),
       transfer 8 "give-reader" 0, .returned 8 2,
-      transfer 9 "give-reader" 0, .refused 9 (.claim .unclaimedEndpoint)]
+      transfer 9 "give-reader" 0, .refused 9 (.claim .unclaimedEndpoint),
+      .entered 10 "accept-node" (Endpoints.Core.Scheduled.acceptType contract)
+        [i32Flat 2, i32Flat 48, i32Flat 0, i32Flat 0], .returned 10 2,
+      transfer 11 "give-owner" 0, .refused 11 (.claim .unclaimed),
+      .entered 12 "give-reader" Endpoints.Core.Scheduled.giveType [i32Flat 2, i32Flat 0], .returned 12 2]
 
 private def regression (trapping : Bool) : Bool :=
   match initial trapping with
@@ -145,14 +158,15 @@ private def regression (trapping : Bool) : Bool :=
       .accept (.boundary (.stored (.lift .storedBorrow)))]
     result.outcome == (if trapping then .trap else .resolved) &&
     traps == (if trapping then [.coreTrap] else []) && writer.held.isEmpty &&
-    writer.accepted.length == 1 &&
+    writer.accepted.length == (if trapping then 1 else 2) &&
     ((writer.accepted.flatMap rootReceipts).map receiptId == [⟨0⟩, ⟨1⟩]) &&
+    writer.accepted.flatMap rootEndpoints == (if trapping then [⟨0⟩] else [⟨0⟩, ⟨0⟩]) &&
     writer.endpoints == (if trapping then [⟨0⟩] else []) &&
     (store.insts[0]?.bind fun state => state.handles.get? 3) == some (.resource ⟨2⟩) &&
     (store.core.mems[0]?.map fun mem => (mem.bytes.extract 16 20).data) == some #[77, 0, 0, 0] &&
     result.config.host.transcript == expectedTranscript trapping &&
     result.config.host.refusals == (if trapping then expected
-      else .claim .unclaimedEndpoint :: .claim .unclaimed :: expected)
+      else .claim .unclaimed :: .claim .unclaimedEndpoint :: .claim .unclaimed :: expected)
 
 #guard regression false
 #guard regression true

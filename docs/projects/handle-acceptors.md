@@ -473,10 +473,14 @@ each import's signature and arguments under a fresh ticket before dispatch. Stat
 typed refusals record the same ticket; an invalid binding records a diagnostic before its
 reference trap. A canonical destructor trap keeps the prior journal and does not manufacture
 a status return. `extends_of_session` proves append-only history for arbitrary ordinary
-reference-machine sessions, and `extends_of_steps` also permits host programs preserving the
-same policy. The reentrant destructor replay checks exact journal order in both successful and
-trapping runs. Journal preservation alone does not prove claim conservation or an exact
-accepted payload language across all scheduled calls.
+reference-machine sessions. `checked_of_session` additionally restricts every writer change
+to registration of a lifted root or a targeted spend; `checked_of_steps` permits raw host
+programs only under the same write policy. An observed and spent owner identity cannot
+return, even if a Core slot or representation is reused. A newly held endpoint requires a
+new publication; unlike an owner receipt, it can be lifted again after a completed handoff.
+The reentrant destructor replay checks exact journal order in both successful and trapping
+runs, and refusal cannot republish claims. The writer theorem is not an exact accepted
+payload language or a conformance theorem for every canonical store transition.
 
 `Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
 immutable arena object exists in the current reference store. Unlike endpoint handoff, this
