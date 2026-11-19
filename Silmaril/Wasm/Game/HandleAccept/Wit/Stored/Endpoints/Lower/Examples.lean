@@ -17,7 +17,9 @@ def mixed : Signature := ⟨Unit, fun _ => mixedType, fun _ => .fixed 0⟩
 theorem rejects_inactive_allocation :
     let cx : LiftLowerContext Mock.mock := { opts := {}, inst := ⟨0⟩ }
     preflight cx (.option (.list (.future none))) ⟨.variant 0 none, by decide⟩ .flat =
-      .error .indirectPayload := by kernel_rfl
+      .error .indirectPayload := by
+  dsimp only
+  kernel_rfl
 
 /-- Reject a wrong stream type after preflighting a valid future, then retry the same
 tree with its actual type and lower both endpoints together. -/
