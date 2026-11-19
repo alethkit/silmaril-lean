@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.ReferenceTable.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Defs
 import Silmaril.Wasm.Component.Reference.Engine.Mock.Defs
 import Silmaril.Wasm.Verify.Kernel.Defs
 
@@ -9,6 +10,7 @@ namespace Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.ReferenceTable.Exa
 open Silmaril.Formats Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
   Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime
 open Silmaril.Wasm.Game.HandleAccept.Wit
+open Silmaril.Wasm.Game.Accept Silmaril.Wasm.Execution.Core
 
 noncomputable section
 
@@ -47,6 +49,53 @@ theorem eager_duplicate_keeps_the_first_removal :
     Stored.Endpoints.Core.runLocal (Resources.take Limits.spec context resource 1) (removed store 1) =
       (removed store 1, .error (.trapped (.unknownHandle 1))) := by
   kernel_rfl
+
+theorem eager_nested_resolution_produces_typed_values_and_receipts :
+    (Nested.resolveTypesWith (takeIndex Limits.spec context) (sig.params ()) (input 2).2).run.run ⟨store, []⟩ =
+      (.ok ((some (77 : Nat), ([(77 : Nat)], ())), ()),
+        ⟨removed (removed store 1) 2, [(2, ⟨resource, ⟨⟨1⟩, 77⟩⟩), (1, ⟨resource, ⟨⟨0⟩, 77⟩⟩)]⟩) := by
+  kernel_rfl
+
+private def textRecord : PTy :=
+  .record [("first", .option (.own 3)), ("rest", .list (.own 3)), ("text", .string)]
+
+private def textSig : WitSig := ⟨Unit, fun _ => [textRecord], fun _ => .fixed 0⟩
+
+private def textBytes (low high : UInt8) : ByteArray :=
+  ⟨#[1, 0, 0, 0, 1, 0, 0, 0, 24, 0, 0, 0, 1, 0, 0, 0,
+    28, 0, 0, 0, 1, 0, 0, 128, 2, 0, 0, 0, low, high]⟩
+
+private def checkedText (bytes : ByteArray) :=
+  Nested.checkedNode textSig (fun _ => some ()) { encoding := .latin1Utf16 } table
+    (⟨("wit", "node"), [.i32 0, .i32 0, .i32 0, .i32 0], some bytes⟩ : Callout)
+
+private def referenceText (bytes : ByteArray) :=
+  let initial : CStore Mock.mock := { store with core := { mems := [⟨.i32, bytes⟩] } }
+  let cx := { context with opts := { memory := some 0, encoding := .latin1Utf16 } }
+  Stored.Endpoints.Core.runLocal (Stored.OwnedMemory.lift Limits.spec Quirks.none cx
+    (.record [("first", .option (.own resource)), ("rest", .list (.own resource)), ("text", .prim .string)])
+    (.memory 0)) initial
+
+private def referenceObservation (bytes : ByteArray) : Option (String × List (HandleObjId × Nat)) := do
+  let .ok (.ok payload) := (referenceText bytes).2 | none
+  let .record [.variant 1 (some (.own 77)), .list [.own 77], .string text] := payload.val.value | none
+  return (text.v.str, payload.val.owners.map fun receipt => (receipt.2.identity, receipt.2.representation))
+
+theorem compact_text_keeps_both_nested_owners :
+    (checkedText (textBytes 233 0)).map (fun result => (result.1.1.2, result.1.2)) =
+      .ok (((some (77 : Nat), ([(77 : Nat)], ("é", ()))), ()), []) ∧
+    referenceObservation (textBytes 233 0) = some ("é", [(⟨0⟩, 77), (⟨1⟩, 77)]) := by
+  constructor <;> kernel_rfl
+
+private def trapObservation (bytes : ByteArray) :=
+  let (final, outcome) := referenceText bytes
+  (outcome.map (fun _ => ()), (final.inst? context.inst).map fun (inst : InstState) =>
+    (inst.handles.get? 1, inst.handles.get? 2))
+
+theorem invalid_compact_text_separates_rejection_from_eager_trap :
+    checkedText (textBytes 0 216) = .error .badPayload ∧
+    trapObservation (textBytes 0 216) = (.error (.trapped .invalidUtf16), some (none, none)) := by
+  constructor <;> kernel_rfl
 
 end
 

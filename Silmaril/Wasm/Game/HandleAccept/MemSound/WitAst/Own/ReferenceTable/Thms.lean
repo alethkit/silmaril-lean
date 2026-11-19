@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.ReferenceTable.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceTable
 import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceReservations
+import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceResolution
 
 @[expose] public section
 
@@ -63,5 +64,19 @@ theorem reserveOp_commit (limits : Component.Limits) (cx : LiftLowerContext E)
       Matches (table.killAll reserved.val) final cx.inst :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceReservations.reserveOp_commit
     limits cx store table sig raw matched success
+
+/-- From the same already-decoded payload, a successful atomic resolution and the
+eager canonical moves produce the same entire typed value. The final reference state
+agrees on live lookups and retains nominal receipts in the reservation order. This
+is not a statement about byte decoding or agreement on unsuccessful resolutions. -/
+theorem resolveTypes_refines_eager (limits : Component.Limits) (cx : LiftLowerContext E) (table : RT)
+    (types : List PTy) (raw : PTy.Vals (Nested.rawTypes types))
+    {before after : Nested.Reservations} {state : Resolution E} {values : PTy.Vals types}
+    (matched : state.Matches cx.inst table before)
+    (success : (Nested.resolveTypes table types raw).run before = .ok (values, after)) :
+    ∃ final, (Nested.resolveTypesWith (takeIndex limits cx) types raw).run.run state = (.ok values, final) ∧
+      final.Matches cx.inst table after :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitOwnReferenceResolution.resolveTypes_refines_eager
+    limits cx table types raw matched success
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.ReferenceTable

@@ -61,7 +61,8 @@ theorem attempt_on_slice {store : Store Nat} {mem : MemInst} (rt : RT)
     (observed mem.bytes)).bind _ = _
   rw [contents]
   have schema : checkPTys .recursiveOwn [.own 0] = .ok () := rfl
-  simp only [bind, Except.bind, Nested.reserveOp, ownSig, Nested.resolveTypes, Nested.resolve,
+  simp only [bind, Except.bind, Nested.reserveOp, ownSig, Nested.resolveTypes, Nested.resolveTypesWith,
+    Nested.resolveWith,
     Nested.reserve, StateT.run, StateT.bind, StateT.pure, get, getThe, MonadStateOf.get,
     set, schema, Except.mapError, pure, Except.pure, StateT.get,
     List.not_mem_nil, UInt32.toBitVec_ofNat]
