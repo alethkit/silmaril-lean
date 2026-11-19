@@ -3,10 +3,13 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
 public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Thms
 import Silmaril.Wasm.Component.Reference.HostWrite.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Builtins.Resource.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Lift.Thms
+import Silmaril.Wasm.Component.Reference.Canon.Lower.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.RecordEffects
 
 public section
@@ -276,19 +279,22 @@ private theorem spend_safe (update : Stored.OwnedMemory.Claims.Spend) :
 private theorem read_safe : Safe ((claims (grow := grow) (sig := sig)).read) :=
   .get none fun state => .pure _ state.writer
 
-private theorem publish_safe (ticket : Nat) (tree : Stored.OwnedMemory.Tree sig) :
-    Safe (publishRoot (grow := grow) ticket tree) := by
+private theorem publish_at_safe (ticket : Nat) (tree : Stored.OwnedMemory.Tree sig) (expected : Option Nat) :
+    Safe (publishRootAt (grow := grow) ticket tree expected) := by
   refine .get none fun current => ?_
   change HostSafe CheckedWrite (some current) ((match current.writer.register tree with
     | .error issue => pure (.error (.accept (.claims issue)))
     | .ok writer => do
       let handle := writer.accepted.length
+      if expected.any (· != handle) then return .error .wrongResultType
       if handle ≥ 2 ^ 32 then return .error (.accept (.boundary .exhaustedHandles))
       hostSet (({ current with writer } : HostState sig).record (.published ticket handle))
       return .ok handle) : Session grow sig (Except Issue Nat))
   split <;> rename_i writer registered
   · exact .pure (some current) _
   · dsimp only
+    split
+    · exact .pure (some current) _
     split
     · exact .pure (some current) _
     · rename_i exhausted
@@ -304,6 +310,10 @@ private theorem publish_safe (ticket : Nat) (tree : Stored.OwnedMemory.Tree sig)
         have equal : handle = writer.accepted.length := congrArg Prod.snd (Option.some.inj entry).symm
         exact ⟨by simp [equal, accepted], equal ▸ Nat.lt_of_not_ge exhausted⟩
       | succ index => simp at entry
+
+private theorem publish_safe (ticket : Nat) (tree : Stored.OwnedMemory.Tree sig) :
+    Safe (publishRoot (grow := grow) ticket tree) :=
+  publish_at_safe _ _ _
 
 private theorem accept_with_safe (ticket : Nat)
     (loadNode : Stored.OwnedMemory.Claims.Core.World grow sig →
@@ -567,14 +577,15 @@ theorem extends_of_steps (bindings : List (Binding sig))
     · rwa [same] at tail
     · exact ⟨extended.1.trans tail.1, le_trans extended.2 tail.2⟩
 
-theorem checked_of_steps (bindings : List (Binding sig))
+private theorem checked_host_of_steps {implementation : HostImpl (core3 grow) (HostState sig)}
+    (hostSafe : HostImplSafe CheckedWrite implementation)
     {initial final : Config (core3 grow) (HostState sig)}
     {labels : List (Label (core3 grow) (HostState sig))}
-    (steps : Steps prof ready (specDispatch ready (host bindings)) initial labels final)
+    (steps : Steps prof ready (specDispatch ready implementation) initial labels final)
     (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels) :
     Extends initial.host final.host ∧ WriterRun initial.host.writer final.host.writer ∧
       PublicationDelta initial.host final.host := by
-  have checked := HostWrite.hostSafe_dispatch (host_safe (grow := grow) bindings) Limits.spec Quirks.none ready
+  have checked := HostWrite.hostSafe_dispatch hostSafe Limits.spec Quirks.none ready
   induction steps with
   | refl => exact ⟨⟨List.prefix_rfl, le_rfl⟩, .refl _, publication_refl _⟩
   | cons first _ ih =>
@@ -584,6 +595,149 @@ theorem checked_of_steps (bindings : List (Binding sig))
     · rwa [same] at tail
     · exact ⟨⟨extended.1.1.trans tail.1.1, le_trans extended.1.2 tail.1.2⟩, .cons extended.2.1 tail.2.1,
         publication_trans extended.2.2 tail.2.2⟩
+
+theorem checked_of_steps (bindings : List (Binding sig))
+    {initial final : Config (core3 grow) (HostState sig)}
+    {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (host bindings)) initial labels final)
+    (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels) :
+    Extends initial.host final.host ∧ WriterRun initial.host.writer final.host.writer ∧
+      PublicationDelta initial.host final.host :=
+  checked_host_of_steps (host_safe bindings) steps safe runSafe
+
+private theorem safe_of_map {Source Target : Type} {pending : Option (HostState sig)}
+    {program : Session grow sig Source} {project : Source → Target}
+    (safe : HostSafe CheckedWrite pending (project <$> program)) :
+    HostSafe CheckedWrite pending program := by
+  rw [map_eq_pure_bind] at safe
+  induction program generalizing pending with
+  | pure value => exact .pure pending value
+  | op effect next ih =>
+    change HostSafe CheckedWrite pending (.op effect (fun reply => next reply >>= fun value => pure (project value))) at safe
+    cases safe with
+    | op _ plain tail => exact .op _ plain fun reply => ih reply (by simpa only [map_eq_pure_bind] using tail reply)
+    | get _ tail => exact .get _ fun state => ih state (by simpa only [map_eq_pure_bind] using tail state)
+    | set allowed tail => exact .set allowed (ih () (by simpa only [map_eq_pure_bind] using tail))
+
+namespace Component
+
+open ComponentCall
+open Stored.OwnedMemory (Observed observeLowerOnStart projectLowerOnStart)
+
+private theorem lowerPres : P.Inv.LowerPres (fun _ : CStore (core3 grow) => True) := by
+  constructor <;> first | (intros; exact True.intro) | (constructor <;> (repeat intro) <;> exact True.intro)
+
+private theorem resolve_safe (caller : CallerId) (values : List Value.Val) :
+    Safe (lowerOnResolve (E := core3 grow) (σ := HostState sig) Limits.spec Quirks.none caller (some values)) :=
+  readOnly (P.Inv.lowerOnResolve lowerPres _ _ _ _)
+
+private theorem observe_safe (caller : CallerId) : Safe (observeLowerOnStart
+    (E := core3 grow) (World := HostState sig) Limits.spec Quirks.none caller) := by
+  apply safe_of_map (project := List.map Observed.value)
+  rw [projectLowerOnStart]
+  exact readOnly (P.Inv.lowerOnStart lowerPres _ _ _)
+
+private theorem reject_safe (ticket : Nat) (issue : Issue) :
+    Safe (ComponentCall.reject (grow := grow) (sig := sig) ticket issue) :=
+  HostWrite.bind (binding_trap_safe _ _) fun _ => .pure none _
+
+private theorem refused_safe (ticket : Nat) (caller : CallerId) (issue : Issue) :
+    Safe (resolveRefused (grow := grow) (sig := sig) ticket caller issue) := by
+  refine .get none fun state => .set (record_safe state _ rfl) ?_
+  change Safe ((lowerOnResolve Limits.spec Quirks.none caller (some [.variant 1 none]) : Session grow sig Unit)
+    >>= fun _ => (pure (.cancel .none) : Session grow sig (Ret (core3 grow))))
+  exact HostWrite.bind (resolve_safe (grow := grow) (sig := sig) caller [.variant 1 none]) fun _ => .pure none _
+
+private theorem before_lift_safe (ticket : Nat) (caller : CallerId) (issue : Issue) :
+    Safe (refuseBeforeLift (grow := grow) (sig := sig) ticket caller issue) := by
+  unfold refuseBeforeLift
+  apply HostWrite.bind _ (fun _ => refused_safe _ _ _)
+  apply readOnly
+  unfold lowerOnStartWith
+  refine P.Inv.bind (P.Inv.getObj _ _) fun record => ?_
+  cases record
+  case lower subtask _ _ _ _ _ _ =>
+    exact P.Inv.bind (P.Inv.maybeOnProgress lowerPres subtask) fun _ =>
+      P.Inv.bind (P.Inv.modifyStore (fun _ _ => trivial)) fun _ =>
+      P.Inv.bind (P.Inv.pure _) fun _ => P.Inv.bind (P.Inv.modifyStore (fun _ _ => trivial)) fun _ =>
+        P.Inv.pure _
+  all_goals exact P.Inv.internal _
+
+private theorem tree_safe (ticket : Nat) (caller : CallerId) (tree : Stored.OwnedMemory.Tree sig) :
+    Safe (resolveTree (grow := grow) ticket caller tree) := by
+  unfold resolveTree
+  apply HostWrite.bind (readOnly P.Inv.hostGet)
+  intro state
+  split
+  · dsimp only
+    split
+    · exact reject_safe _ _
+    · refine HostWrite.bind (resolve_safe _ _) fun _ => HostWrite.bind (publish_at_safe _ _ _) fun result => ?_
+      cases result
+      · exact reject_safe _ _
+      · exact HostWrite.bind (write_completion_safe _ rfl) fun _ => .pure none _
+  · exact refused_safe _ _ _
+
+private theorem invoke_lower_safe (callee : Callee sig) (caller : CallerId) (state : HostState sig)
+    (subtask : SubtaskId) (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (ft : WIT.FuncType Empty RtId) (limits results : Nat) :
+    Safe (invokeLower callee caller state subtask cx args pos ft limits results) := by
+  unfold invokeLower
+  refine HostWrite.bind (readOnly P.Inv.getStore) fun store => HostWrite.bind (readOnly P.Inv.currentInst?) fun _ => ?_
+  split
+  · exact reject_safe _ _
+  split
+  · exact reject_safe _ _
+  split
+  · exact before_lift_safe _ _ _
+  split
+  · exact before_lift_safe _ _ _
+  split
+  · exact before_lift_safe _ _ _
+  · refine HostWrite.bind (observe_safe _) fun _ => ?_
+    split
+    · split
+      · split
+        · exact refused_safe _ _ _
+        · exact tree_safe _ _ _
+      · exact reject_safe _ _
+    · exact reject_safe _ _
+
+private theorem enter_safe (state : HostState sig) (name : String) (type : V1.FuncType) (args : List FlatValue) :
+    CheckedWrite state (state.enter name type args) :=
+  ⟨⟨by simp [HostState.enter, HostState.transcript], Nat.le_succ _⟩, .same _,
+    ⟨[], by simp [HostState.publications, HostState.enter, HostState.transcript, Event.publication],
+      by simp [HostState.enter], by simp⟩⟩
+
+private theorem invoke_safe (callee : Callee sig) (caller : CallerId) :
+    Safe (ComponentCall.invoke (grow := grow) callee caller) := by
+  unfold ComponentCall.invoke
+  refine HostWrite.bind (readOnly (P.Inv.getObj _ _)) fun record => .get none fun state => ?_
+  cases record <;> refine .set (enter_safe _ _ _ _) ?_
+  case lower => exact invoke_lower_safe _ _ _ _ _ _ _ _ _ _
+  all_goals exact reject_safe _ _
+
+theorem hostWithComponent_safe (bindings : List (Binding sig)) (callees : List (Callee sig)) :
+    HostImplSafe CheckedWrite (hostWithComponent (grow := grow) bindings callees) := by
+  refine { host_safe bindings with funcs := ?_ }
+  intro id caller
+  change Safe ((hostWithComponent bindings callees).funcs id caller)
+  unfold hostWithComponent
+  simp only
+  split
+  · exact invoke_safe _ _
+  · exact .get none fun state => .set (enter_safe _ _ _ _) (reject_safe _ _)
+
+theorem checked_of_component_steps (bindings : List (Binding sig)) (callees : List (Callee sig))
+    {initial final : Config (core3 grow) (HostState sig)}
+    {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (hostWithComponent bindings callees)) initial labels final)
+    (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels) :
+    Extends initial.host final.host ∧ WriterRun initial.host.writer final.host.writer ∧
+      PublicationDelta initial.host final.host :=
+  checked_host_of_steps (hostWithComponent_safe bindings callees) steps safe runSafe
+
+end Component
 
 theorem owner_retired {before after : Stored.OwnedMemory.Claims.State sig} {id : HandleObjId}
     (run : WriterRun before after) (retired : before.retiredOwner id) : after.retiredOwner id := by

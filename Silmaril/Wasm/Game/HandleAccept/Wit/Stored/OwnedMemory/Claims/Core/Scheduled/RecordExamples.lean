@@ -1,8 +1,10 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Defs
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Defs
 import Silmaril.Wasm.Component.Reference.Machine.Soundness.Thms
 meta import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Defs
+meta import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Defs
 meta import Silmaril.Wasm.Component.Reference.Machine.Exec.Defs
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.RecordExamples
@@ -106,9 +108,17 @@ private def instantiateWith (initial : Store (CanonHost engine))
   let (store, inst, none) ← Core3.prepareE? store module_ addrs | none
   return (store, inst)
 
-private def instantiate (channel : Channel := .stream) : Option (Store (CanonHost engine) × ModuleInst) := do
-  let (store, inst) ← instantiateWith {} (imports channel) fun name => match name with
+private def canonicalCallee (channel : Channel) : ComponentCall.Callee (signatureFor channel) :=
+  ⟨"accept-canonical", ⟨0⟩, ⟨0⟩, 0, .i32, .utf8, true, true⟩
+
+private def instantiate (channel : Channel := .stream) (canonical : Bool := false) :
+    Option (Store (CanonHost engine) × ModuleInst) := do
+  let c := canonicalCallee channel
+  let entries := imports channel ++ if canonical then [(c.name, c.coreType, c.lowered ⟨0⟩)] else []
+  let (store, inst) ← instantiateWith {} entries fun name => match name with
     | "accept-node" => storeWord 32 1 ++ storeWord 36 2 ++ storeWord 40 1 ++ storeWord 44 3
+    | "accept-canonical" => storeWord 24 0 ++ storeWord 28 0 ++ storeWord 32 1 ++ storeWord 36 2 ++
+        storeWord 40 1 ++ storeWord 44 3
     | "write" => storeWord 64 257 ++ storeWord 68 3
     | _ => []
   guard (inst.mems == [(0 : Nat)])
@@ -345,13 +355,17 @@ private def channelArgs (channel : Channel) (slot address : Nat) : List Nat :=
 private def copyResult (channel : Channel) (result : CopyResult) (count : Nat) : Nat :=
   match channel with | .stream => packStreamCopyResult result count | .future => futureCopyPayload result
 
-private def flatChannelWriter (channel : Channel) (inst : ModuleInst) :
+private def flatChannelWriter (channel : Channel) (inst : ModuleInst) (canonical : Bool) :
     Session grow (signatureFor channel) (Ret engine) := do
   let run := expect (sig := signatureFor channel) inst
   run "new-own" [77] [i32Flat 1]
   run "new-own" [77] [i32Flat 2]
   run "new-channel" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
-  run "accept-flat" [0, 0, 1, 2, 1, 3] ([0, 1].map i32Flat)
+  if canonical then
+    run "accept-canonical" [24, 112] [i32Flat AsyncLowerResult.returned.pack]
+    let result ← readMem { inst := ⟨0⟩, opts := { memory := some coreMemory } } 112 8
+    trapIf (result.data != #[0, 0, 0, 0, 1, 0, 0, 0]) (.internal "unexpected canonical accept result")
+  else run "accept-flat" [0, 0, 1, 2, 1, 3] ([0, 1].map i32Flat)
   run "new-own" [97] [i32Flat 3]
   block (some ⟨1⟩)
   run "write" (channelArgs channel 4 64) [i32Flat (copyResult channel .completed 1)]
@@ -392,16 +406,17 @@ private def flatChannelReader (channel : Channel) (inst : ModuleInst) (stale : B
   if stale then run "read" args []
   return .unit
 
-private def flatChannelSetup (channel : Channel) (stale : Bool) :
+private def flatChannelSetup (channel : Channel) (stale canonical : Bool) :
     Option (List (Binding (signatureFor channel)) × Machine.Config engine (HostState (signatureFor channel))) := do
   let signature := signatureFor channel
-  let (store, writer) ← instantiate channel
+  let (store, writer) ← instantiate channel canonical
   let (store, reader) ← instantiateWith store (readerImports channel) (fun _ => [])
   guard (reader.mems == [(1 : Nat)])
   let .ok input := Binding.acceptFlat ("host", "accept-flat") ⟨0⟩ writer 0 { passing := .flat } true | none
   let .ok output := Binding.giveFlat "give-flat" ⟨1⟩ reader 0 .i32 .utf8 (signature.payload true) | none
   let reference : CStore engine := { CStore.empty with
     core := store, insts := [{}, {}], resourceTypes := [{ impl := some ⟨0⟩ }],
+    funcs := if canonical then [.host (canonicalCallee channel).funcType ⟨0⟩] else [],
     tasks := [{ ft := ⟨[], none, false⟩, opts := {}, inst := ⟨0⟩, caller := ⟨0⟩ },
       { ft := ⟨[], none, false⟩, opts := {}, inst := ⟨1⟩, caller := ⟨1⟩ }],
     threads := [{ status := .running, task := ⟨0⟩ }, { status := .blocked, task := ⟨1⟩ }] }
@@ -409,13 +424,15 @@ private def flatChannelSetup (channel : Channel) (stale : Bool) :
     store := reference
     host := {}
     conts := [none, some (Machine.Activation.ofProg (some ⟨1⟩) (flatChannelReader channel reader stale))],
-    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (flatChannelWriter channel writer)] }
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (flatChannelWriter channel writer canonical)] }
   return ([input, output], config)
 
-private def flatChannelRegression (channel : Channel) (stale : Bool) : Bool :=
-  match flatChannelSetup channel stale with
+private def flatChannelRegression (channel : Channel) (stale : Bool) (canonical : Bool := false) : Bool :=
+  match flatChannelSetup channel stale canonical with
   | some (bindings, config) =>
-    let result := run bindings config
+    let implementation := if canonical then ComponentCall.hostWithComponent bindings [canonicalCallee channel]
+      else host bindings
+    let result := Machine.run ready (specDispatch ready implementation) (core3Exec grow) Machine.Oracle.first 5000 config
     let writer := result.config.host.writer
     let traps := result.labels.filterMap fun | .trap reason => some reason | _ => none
     result.outcome == (if stale then .trap else .resolved) &&
@@ -432,6 +449,10 @@ private def flatChannelRegression (channel : Channel) (stale : Bool) : Bool :=
 #guard flatChannelRegression .stream true
 #guard flatChannelRegression .future false
 #guard flatChannelRegression .future true
+#guard flatChannelRegression .stream false true
+#guard flatChannelRegression .stream true true
+#guard flatChannelRegression .future false true
+#guard flatChannelRegression .future true true
 
 private def flatBindingIssue {sig : Signature} (result : Except Issue (Binding sig)) : Option Issue :=
   match result with

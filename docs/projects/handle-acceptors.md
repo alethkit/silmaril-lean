@@ -618,9 +618,27 @@ and argument cursor as the reference, including the single-pointer spill path. E
 owner receipts yields the entire reference start program, including its effects and
 failures, rather than just equal returned values. Reference machine replays check direct
 and spilled arguments, an indirect async result, equal representations with different
-owner identities, and cancellation before and after start. The observer is not a checked
-storage boundary. The public acceptor scheduler does not yet dispatch async canonical
-accept calls; its unsupported calling conventions remain refused.
+owner identities, and cancellation before and after start. The observer alone is not a
+checked storage boundary.
+
+`ComponentCall.hostWithComponent` joins that observer to the public scheduled writer
+through actual `canon lower` Core imports. A linked callee checks the caller's instance,
+memory width, options, signature, whole storable payload schema and child selection. It
+resolves a typed WIT `result<u32>` error before lifting owners on preflight refusal.
+Once lifting starts, canonical traps retain prior reference effects; e.g., a second use
+of the same slot traps after the first move. Indirect result writes must finish before
+publishing, and publication rechecks the current writer and the already returned handle.
+`ComponentCall.checked_of_session` gives publication, writer and transcript conservation
+across every ordinary machine prefix, including traps and refusals. It does not assert
+an exact language for every guest or atomic rollback of reference operations.
+
+Linked Core replays check sync and async direct and spilled calls, refusal and retry,
+inactive nested borrow rejection, bad memory width, recycled owner slots, a double-move
+trap and a result range trap. In the joined channel replay the async canonical accept
+publishes a root with owners and a readable endpoint; another linked instance receives
+it via `giveFlat` and exercises a non-unit resource-bearing stream or future, including
+read cancellation, polling, closure (stream) and stale handles. The callee resolves
+eagerly; a pending accept callback and its cancellation semantics are not yet provided.
 
 ## Checking
 
