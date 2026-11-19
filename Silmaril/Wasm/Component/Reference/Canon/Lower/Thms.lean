@@ -55,7 +55,7 @@ theorem maybeOnProgress (h : LowerPres I) (s : SubtaskId) :
 
 theorem lowerOnStart (h : LowerPres I) (lim : Limits) (q : Quirks) (c : CallerId) :
     P.InvW I W (Canon.lowerOnStart lim q c : P E σ (List Val)) := by
-  unfold Canon.lowerOnStart Canon.lowerOnStartWith
+  unfold Canon.lowerOnStart
   refine bind (getObj _ _) fun x => ?_
   cases x with
   | lower s cx flatArgs pos ft maxParams _ =>

@@ -386,7 +386,7 @@ theorem lift_make_eq (cx : LiftLowerContext (E3 P)) (vi : FlatCursor) :
     (liftFlatValues Limits.spec Quirks.none cx ABI.maxFlatResults vi (resultTypes ftMake) :
       Canon.P (E3 P) Unit _) =
       ptrType cx >>= fun p => liftFlatTypes Limits.spec Quirks.none cx p [.own ⟨0⟩] vi := by
-  unfold liftFlatValues liftFlatValuesWith
+  unfold liftFlatValues
   congr 1
   funext p
   cases p <;> (rw [ite_eq_right_iff.mpr (by intro h; exact absurd h (by decide +kernel))]; rfl)
