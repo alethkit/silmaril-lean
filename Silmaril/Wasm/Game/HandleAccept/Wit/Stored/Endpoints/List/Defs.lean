@@ -39,22 +39,17 @@ def allocateRange {E : CoreEngine} {World : Type} (cx : LiftLowerContext E)
   checkInBounds cx ptr size
   return ptr
 
-/-- Spend before canonical lower takes ownership, not after table insertion: that
-insertion can trap after the endpoint's owner has already changed. -/
+/-- Validate the live claim even when called outside list lowering. Spend before
+canonical lower takes ownership, not after table insertion: that insertion can
+trap after the endpoint's owner has already changed. -/
 def transfer {E : CoreEngine} {sig : Signature} (limits : Component.Limits)
-    (cx : LiftLowerContext E) (channel : Channel) (id : EndId) : P E (State sig) Nat := do
-  match (← hostGet).spend id with
-  | .error _ => internal "endpoint list: checked claim missing"
+    (cx : LiftLowerContext E) (channel : Channel) (element : Element) (id : EndId) :
+    P E (State sig) (Except Lower.Issue Nat) := do
+  match Lower.prepare (← getStore) (← hostGet) [.endpoint channel element id] with
+  | .error issue => return .error issue
   | .ok next =>
     hostSet next
-    lowerAsyncValue limits (channel.endKind .read) cx id
-
-def storeEntry {E : CoreEngine} {sig : Signature} (limits : Component.Limits)
-    (cx : LiftLowerContext E) (channel : Channel) (value : Val) (ptr : Nat) : P E (State sig) Unit := do
-  let id ← match channel, value with
-    | .future, .future id | .stream, .stream id => pure id
-    | _, _ => storeMismatch
-  storeInt cx (← transfer limits cx channel id) ptr 4
+    return .ok (← lowerAsyncValue limits (channel.endKind .read) cx id)
 
 def publish {E : CoreEngine} {World : Type} (cx : LiftLowerContext E) (width : AddrType)
     (ptr count : Nat) : (output : Stored.Lower.Output) → P E World output.Result
@@ -90,7 +85,13 @@ def lower {E : CoreEngine} {sig : Signature} (limits : Component.Limits)
       match Lower.prepare (← getStore) (← hostGet) objects with
       | .error issue => return .error (.afterAllocation issue)
       | .ok _ =>
-        storeListIntoValidRangeWith layout.size (storeEntry limits cx channel) entries ptr
+        storeListIntoValidRangeWith layout.size (fun value address => do
+          let id ← match channel, value with
+            | .future, .future id | .stream, .stream id => pure id
+            | _, _ => storeMismatch
+          let .ok slot ← transfer limits cx channel element id
+            | internal "endpoint list: validated claim changed before element store"
+          storeInt cx slot address 4) entries ptr
         return .ok (← publish cx width ptr entries.length output)
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.ListLower

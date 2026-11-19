@@ -29,6 +29,8 @@ noncomputable def session (reenter memory : Bool) : P Mock.mock (State signature
   let _ ← (Async.Call.create .stream element).program limits Quirks.none
   let .ok (.tag label _ _) ← acceptNode signature limits Quirks.none cx () (.memory 0) []
     | internal "could not lift the stream list"
+  let .error (.endpoint .wrongType) ← transfer limits cx .future element ⟨0⟩
+    | internal "single endpoint transfer did not reject a wrong channel"
   let .error (.beforeAllocation .unclaimed) ← lower limits cx .stream element aliases .flat
     | internal "alias was not rejected before allocating"
   if memory then

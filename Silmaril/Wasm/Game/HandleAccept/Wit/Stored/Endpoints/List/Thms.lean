@@ -19,17 +19,18 @@ theorem allocate_rejoin {E : CoreEngine} {World : Type} (cx : LiftLowerContext E
   simp only [storeListIntoRangeWith, allocateRange, bind_assoc, pure_bind]
 
 theorem transfer_effect_order {E : CoreEngine} {sig : Signature} (limits : Component.Limits)
-    (cx : LiftLowerContext E) (channel : Channel) (id : EndId) :
-    (transfer limits cx channel id : P E (State sig) Nat) = (do
-      let state ← hostGet
-      match state.spend id with
-      | .error _ => internal "endpoint list: checked claim missing"
+    (cx : LiftLowerContext E) (channel : Channel) (element : Element) (id : EndId) :
+    (transfer limits cx channel element id : P E (State sig) _) = (do
+      match Lower.prepare (← getStore) (← hostGet) [.endpoint channel element id] with
+      | .error issue => return .error issue
       | .ok next =>
         hostSet next
         modifyStore (HandleSt.setEndOwner id cx.inst)
         let slot ← handlesAdd cx.inst (.waitable (.end_ id))
         modifyStore (HandleSt.setEndIndex id slot)
-        return slot) := rfl
+        return .ok slot) := by
+  simp only [transfer, lowerAsyncValue, bind_assoc, pure_bind]
+  rfl
 
 theorem lower_preflight_error {E : CoreEngine} {sig : Signature} (limits : Component.Limits)
     (cx : LiftLowerContext E) (channel : Channel) (element : Element)
