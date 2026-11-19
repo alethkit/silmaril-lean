@@ -38,8 +38,6 @@ example : explicitNil ≠ framedNil := by
   have impossible : false = true := congrArg isFrame eq
   cases impossible
 
-set_option pp.width 240
-
 #print axioms erased
 #print axioms rawTyped
 #print axioms Intrinsic.Function.equiv

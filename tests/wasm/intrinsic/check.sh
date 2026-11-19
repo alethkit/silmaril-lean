@@ -46,5 +46,5 @@ for form in raw intrinsic; do
 done
 
 lean "$source_dir/Regression.lean" > "$out/axioms.log" || { cat "$out/axioms.log"; exit 1; }
-test "$(grep -Ec 'depends on axioms: \[propext, Classical.choice, Quot.sound\]|does not depend on any axioms' "$out/axioms.log")" -eq 4
+test "$(tr '\n' ' ' < "$out/axioms.log" | grep -Eo 'depends on axioms: \[propext, *Classical.choice, *Quot.sound\]|does not depend on any axioms' | wc -l)" -eq 4
 cat "$out/axioms.log" "$out/timing.csv" "$out/olean-bytes.txt"
