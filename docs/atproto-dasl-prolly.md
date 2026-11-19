@@ -87,3 +87,24 @@ observations. It does not need unique names.
   longest prefix compression, exact `e` / `l` and `k` / `p` / `t` / `v` node
   shapes, and child intervals. A routed negative requires a valid interval and a
   checked terminal or absent edge; a missing child cannot certify absence.
+
+## Path-local value replacement
+
+`RootProfile.replaceValue` edits an existing key. It reads only the nodes on the
+selected route, re-encodes the leaf and its ancestors, and keeps every off-path
+name in the copied child lists. One candidate write is staged per path level;
+an unchanged byte string is idempotent at admission. Missing data, invalid wire,
+invalid node, fuel exhaustion, key absence, unavailable naming and collision are
+separate outcomes. A local absence result is sound for a binding reference that
+contains the old canonical tree and the observed bytes; a malformed or missing
+node is not evidence of absence.
+
+For the same key order, bucketer, width, codecs, renderer and abstract oracle,
+`planReplacement_rebuild` proves that a successful plan reports the previous
+value and names the same root as a full rebuild of the semantic replacement.
+Cuts remain unchanged because they use keys, not values. `replaceValue_rebuild`
+also proves readback of the entire new tree when the authoritative raw snapshot
+contains the old canonical tree. The path reader may omit every sibling. Raw
+admission adds only the planned bindings and rejects conflicting bytes even if
+they do not decode. This does not authenticate reads, provide concurrent CAS,
+or implement incremental insertion or deletion.
