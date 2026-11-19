@@ -95,8 +95,10 @@ lake env lean -DwarningAsError=true tests/formats/DaslLogic.lean
 ```
 
 The fixture supplies shallow lookups and finite expansion derivations for a PA
-theorem, a HOL typing judgment, and MLTT context length and inhabitation. It
-also checks malformed inputs, the signed boundary, and prints transitive axioms.
+theorem, a valid FOL sentence, a HOL typing judgment, and MLTT context length.
+It checks both fixed-type MLTT term-name membership and named inhabitation with
+no root for the witness. It also checks malformed inputs, the signed boundary,
+and prints transitive axioms.
 The many-sorted FOL institution needs a separate codec carrying sort and
 argument-sort labels. Prolly closed scans should be connected through
 `Lift.codedSet` and `HOL.derivesWith`/`HOL.entailsWith`, without treating an

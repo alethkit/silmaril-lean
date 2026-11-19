@@ -21,7 +21,7 @@ def paSentence : Sentence := .equal (.add .zero .zero) .zero
 
 def dependentContext : ECtx := .cons .nil "univ" .unit
 
-def getObject : Nat → Option (Shallow Nat)
+def getObject (withWitness : Bool) : Nat → Option (Shallow Nat)
   | 0 => some (Encode.list.encode [.string "=", .ref (.obj 1), .ref (.obj 2)])
   | 1 => some (Encode.list.encode [.string "+", .ref (.obj 2), .ref (.obj 2)])
   | 2 => some (.string "zero")
@@ -31,10 +31,13 @@ def getObject : Nat → Option (Shallow Nat)
   | 6 => some (Encode.list.encode [.string "ctx", .ref (.obj 7)])
   | 7 => some (Encode.list.encode [.string "univ", .ref (.obj 8)])
   | 8 => some (.string "unit")
-  | 9 => some (.string "star")
+  | 9 => if withWitness then some (.string "star") else none
+  | 10 => some (.string "true")
   | _ => none
 
-def store : Store Nat := ⟨graph getObject, graph fun _ => none⟩
+def storeFor (withWitness : Bool) : Store Nat := ⟨graph (getObject withWitness), graph fun _ => none⟩
+
+def store : Store Nat := storeFor true
 
 theorem store_binding : store.Binding := ⟨graph_binding _, graph_binding _⟩
 
@@ -79,6 +82,8 @@ theorem pa_root : (PA.formula 0).names store 0 paSentence := by
 
 theorem pa_theorem : 0 ∈ PA.theorems store :=
   Syntax.mem_namesWhere.mpr ⟨paSentence, pa_root, ⟨paZeroAddZero⟩⟩
+
+theorem pa_sentence : 0 ∈ PA.sentences store := Syntax.mem_namesWhere.mpr ⟨paSentence, pa_root, trivial⟩
 
 theorem pa_truth : 0 ∈ PA.standardTruth store := PA.theorems_subset_standardTruth store pa_theorem
 
@@ -137,7 +142,7 @@ theorem hol_typing : HOL.typing store Silmaril.Logic.HOLLight.initialSignature 3
 def mlttContext : Named Nat := Encode.list.encode [.string "ctx", Tree.obj 7
   (Encode.list.encode [.string "univ", Tree.obj 8 (.string "unit")])]
 
-theorem mltt_context_expands : FullNames store 6 mlttContext := by
+theorem mltt_context_expands {withWitness : Bool} : FullNames (storeFor withWitness) 6 mlttContext := by
   refine ⟨_, rfl, Expands.list ?_⟩
   intro index
   change Fin 2 at index
@@ -150,7 +155,7 @@ theorem mltt_context_expands : FullNames store 6 mlttContext := by
     · exact .string _
     · exact .obj rfl (.string _)
 
-theorem mltt_context_root : MLTT.ctx.names store 6 dependentContext := by
+theorem mltt_context_root {withWitness : Bool} : MLTT.ctx.names (storeFor withWitness) 6 dependentContext := by
   refine ⟨_, ⟨mlttContext, mltt_context_expands, rfl⟩, linkAll, ?_⟩
   change MLTT.ctx.write linkAll dependentContext = mlttContext.erase
   refine list_ext (size := 2) ?_
@@ -165,10 +170,27 @@ theorem mltt_context_root : MLTT.ctx.names store 6 dependentContext := by
 theorem mltt_context_ok : MLTT.wellFormed dependentContext :=
   .cons_ok .nil_ok (by simp [ECtx.dv]) (ECtx.JEq.unit (n := 0) .nil_ok)
 
-theorem mltt_inhabits : MLTT.inhabitance store 6 8 :=
-  system_iff.mpr ⟨dependentContext, .unit, mltt_context_root,
-    ⟨_, ⟨_, ⟨_, rfl, .string "unit"⟩, rfl⟩, linkAll, rfl⟩,
-    .star, mltt_context_ok, mltt_context_ok⟩
+theorem mltt_unit_root {withWitness : Bool} : MLTT.ty.names (storeFor withWitness) 8 .unit :=
+  ⟨_, ⟨_, ⟨_, rfl, .string "unit"⟩, rfl⟩, linkAll, rfl⟩
+
+theorem mltt_checks_star : MLTT.checks dependentContext .unit .star := ⟨mltt_context_ok, mltt_context_ok⟩
+
+theorem mltt_inhabits : MLTT.inhabitance (storeFor false) 6 8 :=
+  system_iff.mpr ⟨dependentContext, .unit, mltt_context_root, mltt_unit_root, .star, mltt_checks_star⟩
+
+example : ¬ ∃ shallow, (storeFor false).objects 9 shallow := by
+  rintro ⟨_, hit⟩
+  cases hit
+
+theorem mltt_star_root : (MLTT.tm 0).names store 9 .star :=
+  ⟨_, ⟨_, ⟨_, rfl, .string "star"⟩, rfl⟩, linkAll, rfl⟩
+
+theorem mltt_fixed_type : 9 ∈ MLTT.wellTyped store dependentContext .unit :=
+  Syntax.mem_namesWhere.mpr ⟨.star, mltt_star_root, mltt_checks_star⟩
+
+theorem mltt_typing : MLTT.typing store 6 9 8 :=
+  ⟨(dependentContext, .star, .unit, ()), ⟨mltt_context_root, mltt_star_root, mltt_unit_root, trivial⟩,
+    mltt_checks_star⟩
 
 theorem mltt_length_nat : MLTT.lenNat store 6 1 :=
   ⟨(dependentContext, (1 : Nat), ()), ⟨mltt_context_root, rfl, trivial⟩, rfl⟩
@@ -182,6 +204,15 @@ example : (UInt64.ofNat (2^63 - 1)).toInt64.toInt = 9223372036854775807 :=
   Lift.natI64_exact (number := 2^63 - 1) (by decide)
 
 def orderLabels := FOL.Labels.identity orderOps orderRels
+
+theorem fol_true_root : (FOL.formula orderLabels 0).names store 10 .tt :=
+  ⟨_, ⟨_, ⟨_, rfl, .string "true"⟩, rfl⟩, linkAll, rfl⟩
+
+theorem fol_sentence : 10 ∈ FOL.sentences store orderLabels :=
+  Syntax.mem_namesWhere.mpr ⟨.tt, fol_true_root, trivial⟩
+
+theorem fol_valid : 10 ∈ FOL.valid store orderLabels :=
+  Syntax.mem_namesWhere.mpr ⟨.tt, fol_true_root, fun _ => trivial⟩
 
 example : (FOL.formula orderLabels 0).recover ((FOL.formula orderLabels 0).write linkAll irrefl) = some irrefl :=
   (FOL.formula orderLabels 0).recover_write _ _
@@ -203,10 +234,14 @@ example : ((FOL.term orderLabels 0).recover (render FOL.slots linkAll (.list [.a
 #print axioms HOL.derives_le_entails
 #print axioms FOL.theorems_subset_valid
 #print axioms MLTT.inhabitance_le_semanticInhabitance
+#print axioms fol_valid
+#print axioms pa_sentence
 #print axioms pa_theorem
 #print axioms pa_truth
 #print axioms hol_typing
 #print axioms mltt_inhabits
+#print axioms mltt_fixed_type
+#print axioms mltt_typing
 #print axioms mltt_length_i64
 
 end DaslLogicTest
