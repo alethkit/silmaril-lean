@@ -57,6 +57,31 @@ theorem finish_steps (config : Config (core3 grow) (HostState sig))
         ctl := ⟨thread, .prog (.pure (.flat (completion ticket result).2)), segments⟩ :: rest } :=
   write_completion_steps config thread segments rest _ pending
 
+theorem accept_refusal_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (loadNode : Stored.OwnedMemory.Claims.Core.World grow sig →
+      CStore (core3 grow) × Except Stored.OwnedMemory.Claims.Core.Issue (Stored.OwnedMemory.Tree sig))
+    (updated : CStore (core3 grow)) (issue : Stored.OwnedMemory.Claims.Core.Issue)
+    (refused : loadNode ⟨config.store, config.host.writer⟩ = (updated, .error issue))
+    (pending : config.ctl = ⟨thread,
+      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau]
+      { config with
+        store := updated
+        host := config.host.record (.refused ticket (.accept issue))
+        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } := by
+  refine .cons (.hostGet pending) (.cons (.get rfl) ?_)
+  change Steps prof ready dispatch
+    { config with ctl := ⟨thread, .prog (.flat <$> ((do
+        let outcome := loadNode ⟨config.store, config.host.writer⟩
+        modifyStore fun _ => outcome.1
+        match outcome.2 with
+        | .error reason => pure (.error (.accept reason))
+        | .ok tree => publishRoot tree) >>= finish ticket)), segments⟩ :: rest } _ _
+  rw [refused]
+  exact .cons (.modify rfl) (.cons (.hostGet rfl) (.cons (.hostSet rfl) (.refl _)))
+
 theorem flatCompletion_type (ticket : Nat) (shape : List NumType) (result : Except Issue (List FlatValue)) :
     (flatCompletion ticket shape result).2.map Stored.flatType = .int .i32 :: shape := by
   have zeroTypes : (shape.map zeroWord).map Stored.flatType = shape := by
@@ -113,9 +138,11 @@ private theorem publish_safe (tree : Stored.OwnedMemory.Tree sig) :
   · exact .pure (some current) _
   · exact .set ⟨⟨List.prefix_rfl, le_rfl⟩, .publish _ (by assumption)⟩ (.pure none _)
 
-private theorem accept_safe (contract : Stored.Endpoints.Core.Contract sig) (memory : Option Nat)
-    (args : List FlatValue) : Safe (accept (grow := grow) contract memory args) := by
-  unfold accept
+private theorem accept_with_safe
+    (loadNode : Stored.OwnedMemory.Claims.Core.World grow sig →
+      CStore (core3 grow) × Except Stored.OwnedMemory.Claims.Core.Issue (Stored.OwnedMemory.Tree sig)) :
+    Safe (acceptWith loadNode) := by
+  unfold acceptWith
   refine HostWrite.bind (readOnly P.Inv.hostGet) fun state => ?_
   refine HostWrite.bind (readOnly P.Inv.getStore) fun reference => ?_
   refine HostWrite.bind (readOnly (P.Inv.modifyStore (fun _ _ => trivial))) fun _ => ?_
@@ -273,7 +300,11 @@ private theorem invoke_safe (binding : Binding sig) (args : List FlatValue) :
     case accept =>
       split
       · exact .pure none _
-      · exact accept_safe _ _ _
+      · exact accept_with_safe _
+    case acceptFlat =>
+      split
+      · exact .pure none _
+      · exact accept_with_safe _
     case giveOwner =>
       apply withTree_safe
       intro tree position

@@ -569,8 +569,20 @@ arbitrary-session writer conservation theorem applies. The Core replay covers a 
 schema followed by a successful compound owner/stream handoff and then a spent-claim
 refusal. This is an explicit Core import convention, not the component ABI's
 call-lowering decision about direct versus indirect results. The defensive result-shape
-check does not roll back effects of the emitter. Flat inputs and exact accepted payload
-languages across exports remain to be connected to this dispatcher.
+check does not roll back effects of the emitter.
+
+`Binding.acceptFlat` links a fixed tag and checks the full schema before accepting the
+canonical flat operand vector. The child pointer/count and any indirect string or list
+contents still refer to the linked memory; the child checks are shared with the indirect
+binding. A refused preflight leaves the component store unchanged. The machine-step
+theorem for a refused scheduled load records its typed diagnostic, returns `(1, 0)`,
+does not publish a tree, and retains the store returned by the loader, including effects
+before a later canonical load failure. The Core replay tries an incompatible memory
+width and wrong child arity, retries with the same two owners and stream, and hands them
+back as a flat result. Stored borrows and asynchronous calling conventions remain typed
+errors here; a synchronous call may still carry stream and future endpoints. The older
+`MemSound.WitAst` contract still rejects flat inputs. This checked route does not prove
+the full component calling convention or exact accepted payload languages across exports.
 
 The canonical caller-start receipt observer uses the same `canon lower` start callback
 and argument cursor as the reference, including the single-pointer spill path. Erasing

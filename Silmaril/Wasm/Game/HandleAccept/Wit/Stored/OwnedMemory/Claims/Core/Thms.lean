@@ -7,7 +7,7 @@ public section
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core
 
-open Silmaril.Wasm Silmaril.Wasm.Game Silmaril.Wasm.Component.Engine
+open Silmaril.Wasm Silmaril.Wasm.Game Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Canon
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core (Contract)
 
 variable {sig : Signature} {grow : SingleThreaded.GrowOracle} {contract : Contract sig}
@@ -16,6 +16,11 @@ variable {sig : Signature} {grow : SingleThreaded.GrowOracle} {contract : Contra
 theorem preflight_refusal {issue : Issue} (refused : preflight contract memory state call = .error issue) :
     attempt contract memory state call = (state, .error issue) := by
   simp [attempt, load, refused, Except.bind]
+
+theorem FlatSource.preflight_refusal (source : FlatSource sig) {args : List FlatValue} {issue : Issue}
+    (refused : source.preflight state args = .error issue) :
+    source.load state args = (state.reference, .error issue) := by
+  simp [FlatSource.load, refused]
 
 theorem refusal_traps {issue : Issue} {updated : World grow sig}
     (refused : attempt contract memory state call = (updated, .error issue)) :
