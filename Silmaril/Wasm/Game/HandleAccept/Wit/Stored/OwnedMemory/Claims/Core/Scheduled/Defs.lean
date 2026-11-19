@@ -62,6 +62,23 @@ def completion (ticket : Nat) : Except Issue Nat → Event × List FlatValue
 def Extends (before after : HostState sig) : Prop :=
   before.transcript <+: after.transcript ∧ before.nextTicket ≤ after.nextTicket
 
+/-- The only changes to authority are publication of a newly lifted root and spending a
+specific identity. A new successful lift may reacquire an endpoint, but a resource arena
+identity already observed in an accepted root cannot be registered again. -/
+inductive WriterStep : State sig → State sig → Prop where
+  | same (state : State sig) : WriterStep state state
+  | publish {before after : State sig} (tree : Tree sig)
+      (registered : before.register tree = .ok after) : WriterStep before after
+  | spend (state : State sig) (update : Spend) : WriterStep state (update.apply state)
+
+inductive WriterRun : State sig → State sig → Prop where
+  | refl (state : State sig) : WriterRun state state
+  | cons {before next after : State sig} (step : WriterStep before next)
+      (rest : WriterRun next after) : WriterRun before after
+
+def CheckedWrite (before after : HostState sig) : Prop :=
+  Extends before after ∧ WriterStep before.writer after.writer
+
 abbrev Session (grow : SingleThreaded.GrowOracle) (sig : Signature) (Result : Type) :=
   P (core3 grow) (HostState sig) Result
 
@@ -93,15 +110,24 @@ def finish (ticket : Nat) (result : Except Issue Nat) : Session grow sig (List F
   hostSet ((← hostGet).record event)
   return flat
 
+def publishRoot (tree : Tree sig) : Session grow sig (Except Issue Nat) := do
+  let current ← hostGet
+  match current.writer.register tree with
+  | .error issue => return .error (.accept (.claims issue))
+  | .ok writer =>
+    hostSet { current with writer }
+    return .ok ((BitVec.ofNat 32 writer.accepted.length).toNat)
+
 def accept (contract : Contract sig) (memory : Option Nat) (args : List FlatValue) :
     Session grow sig (Except Issue Nat) := do
   let state ← hostGet
   let reference ← getStore
   let call := Endpoints.Core.Scheduled.nodeCall contract reference args
-  let (updated, result) := attempt contract memory ⟨reference, state.writer⟩ call
-  modifyStore fun _ => updated.reference
-  hostSet { (← hostGet) with writer := updated.writer }
-  return result.mapError .accept |>.map BitVec.toNat
+  let (updated, result) := load contract memory ⟨reference, state.writer⟩ call
+  modifyStore fun _ => updated
+  match result with
+  | .error issue => return .error (.accept issue)
+  | .ok tree => publishRoot tree
 
 def select (handle : BitVec 32) : Session grow sig (Option (Tree sig)) := do
   return Endpoints.Core.childFromHistory (← hostGet).writer.accepted handle
@@ -110,7 +136,9 @@ def select (handle : BitVec 32) : Session grow sig (Option (Tree sig)) := do
 that spends an owner precedes a possibly reentrant canonical destructor call. -/
 def claims : Access (core3 grow) (HostState sig) sig where
   read := return (← hostGet).writer
-  write writer := do hostSet { (← hostGet) with writer }
+  spend update := do
+    let current ← hostGet
+    hostSet { current with writer := update.apply current.writer }
 
 def withTree (args : List FlatValue) (use : Tree sig → Nat → Session grow sig (Except Issue Nat)) :
     Session grow sig (Except Issue Nat) := do
