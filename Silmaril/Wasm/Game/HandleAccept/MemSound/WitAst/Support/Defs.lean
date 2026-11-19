@@ -12,6 +12,7 @@ open Silmaril.Formats Silmaril.Wasm.Component
 inductive PayloadCapability where
   | memoryOnly
   | ownFields
+  | recursiveOwn
   deriving DecidableEq, Repr
 
 /-- Why a schema is unavailable at the stored-tree boundary. -/
@@ -44,10 +45,11 @@ def checkPayload (cap : PayloadCapability) (atField : Bool) :
       checkPayloadOpt cap value
       checkPayloadOpt cap failure
   | .own resource =>
-      if !atField then .error (.nestedOwn resource)
-      else match cap with
-        | .memoryOnly => .error (.requiresResourceTable resource)
-        | .ownFields => .ok ()
+      match cap with
+      | .recursiveOwn => .ok ()
+      | .ownFields => if atField then .ok () else .error (.nestedOwn resource)
+      | .memoryOnly =>
+        if atField then .error (.requiresResourceTable resource) else .error (.nestedOwn resource)
   | .borrow resource => .error (.storedBorrow resource)
   | .future _ => .error .future
   | .stream _ => .error .stream

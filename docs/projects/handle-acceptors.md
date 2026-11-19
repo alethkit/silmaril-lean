@@ -128,6 +128,16 @@ existing decoder results without changing success or failure. The scalar `calcSi
 and compound `glyphSig` examples recover the existing signatures, so they use the
 same ASTs, Core modules and accepted languages after embedding.
 
+`WIT.Endpoints.Thms` embeds the non-async WIT fragment in the endpoint-capable
+interpretation. Extending the environment with stream and future carriers leaves
+the old value interpretation unchanged and induces an equivalence on sets of
+those values. `Wit.Async` adds typed endpoint identities and dispatches creation,
+copy, cancellation, polling and closure to the reference component built-ins.
+An old call list yields the identical effect program (`runCalls_legacy`). The
+machine examples resolve and close a future, cancel a pending stream read, and
+reject inspection of a closed slot. These are component-machine sessions, not
+yet Core acceptor tree payloads; the checked tree writer still rejects async types.
+
 | Item | Status | Where |
 | --- | --- | --- |
 | generic `branch(children)` + designated leaves `tag(args)` | done | `AstSig`, `AST S := TExpr1 (Σ t, S.Arg t)` (reuses `TExpr`), `AST.WellArity`, `Api.astW` |
@@ -267,6 +277,13 @@ same ASTs, Core modules and accepted languages after embedding.
   `error-context` (pending async semantics); `map` is not a separate payload type (WIT
   despecialises it to `list<tuple<k, v>>`). The flat (core-argument) decoder `Ast.ofVal?` still reads only `bool`,
   `s32`, `u32`, `s64`, `u64`.
+  The separate `MemSound.WitAst.Own.Nested` checked entry point resolves owned fields in
+  lists, fixed lists, records, tuples and active sum arms. It reserves distinct live slots
+  before committing their moves; an error keeps the table at the start of the import.
+  Inactive arms do not move owners, but the complete schema must admit stored values.
+  This uses the Core writer table and its representation-valued `PTy`: it does not yet
+  relate slot moves or trap effects to the reference component store or replace the legacy
+  whole-session bridge.
 * Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
   exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
   Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
