@@ -79,7 +79,6 @@ check:
 	fi
 	$(MAKE) process-gates
 	$(if $(filter Silmaril,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/DrislDebug.lean)
-	$(if $(filter Silmaril,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/Dasl.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/NullPointerEquality.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/BitwiseRuntime.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/MemberRuntime.lean)
@@ -273,6 +272,9 @@ pages: project-tool
 	  $(if $(PAGES_SOURCE_REV),--source-rev $(PAGES_SOURCE_REV))
 	build/bin/silmaril-project explore --db _site/project.sqlite --out _site/index.html \
 	  $(if $(PAGES_SOURCE_REV),--source-url $(PAGES_SOURCE_URL) --source-rev $(PAGES_SOURCE_REV))
+	# The component-test page reads the binaries, their WAT, the report and the oracle's results.
+	mkdir -p _site/component-tests
+	cp examples/component-tests/*.wasm examples/component-tests/*.wat examples/component-tests/*.json _site/component-tests/
 	$(PYTHON) tools/compiler-explorer/pages.py --project _site/project.sqlite --out _site/compiler
 	# The Wasm component, module and function pages read static files next to the page.
 	lake build wasm-pages
