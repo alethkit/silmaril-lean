@@ -232,10 +232,13 @@ private def deferredRegression (spill stale : Bool) : Bool :=
   | some start =>
     let result := runDeferred spill start
     let state := result.config.host
-    let summary := state.writer.accepted.map fun tree => (rootReceipts tree).map fun r => (receiptId r).idx
+    let summary := state.publications.map fun (_, handle) =>
+      (Endpoints.Core.childFromHistory state.writer.accepted (BitVec.ofNat 32 handle)).map fun root =>
+        (rootReceipts root).map fun receipt => ((receiptId receipt).idx, receipt.2.representation)
     result.outcome == (if stale then .trap else .resolved) &&
       state.refusals == (if stale then [.stalePendingAccept] else []) &&
-      state.publications == [(1, 1)] && state.pendingAccepts.isEmpty && summary == [[0, 1]] &&
+      state.publications == [(1, 1)] && state.writer.accepted.length == 1 &&
+      state.pendingAccepts.isEmpty && summary == [some [(0, 77), (1, 77)]] &&
       state.transcript.filter (fun event => match event with | .queued _ | .cancelled _ => true | _ => false) ==
         [.queued 0, .cancelled 0, .queued 1] &&
       (result.config.store.core.mems[0]?.map fun mem => (mem.bytes.extract 128 144).data) ==

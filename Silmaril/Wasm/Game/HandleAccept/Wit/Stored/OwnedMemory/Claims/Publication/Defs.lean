@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Defs
 
 @[expose] public section
 
@@ -18,5 +19,13 @@ def State.publishedOwners {sig : Signature} (state : State sig) : List HandleObj
 removes receipts without rewriting the nominal type, identity, or representation. -/
 def State.ClaimsBacked {sig : Signature} (state : State sig) : Prop :=
   state.held.Sublist (state.accepted.flatMap rootReceipts)
+
+/-- The journal entry at `position`, in publication order, names the accepted root
+that contains this exact receipt. Child observations do not introduce new receipts. -/
+def Core.Scheduled.HostState.RecordsOwner {sig : Signature} (state : Core.Scheduled.HostState sig)
+    (position ticket handle : Nat) (receipt : Receipt) : Prop :=
+  state.publications[position]? = some (ticket, handle) ∧ handle < 2 ^ 32 ∧
+    ∃ root, Endpoints.Core.childFromHistory state.writer.accepted (BitVec.ofNat 32 handle) = some root ∧
+      receipt ∈ rootReceipts root
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims
