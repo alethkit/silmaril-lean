@@ -198,7 +198,7 @@ async types.
 | invalid returned handle, overrun: traps | done | every parsing event is itself an export call ending with its returned handle, so a call-local trap (`callTrap`, the default) is that call relating nothing while the session continues; it coincides with `ignore` (`PStep.retBadIgnore`, `PStep.overrunIgnore`). `sessionTrap` aborts the session (`PStep.retBadSessionTrap`, `dead`; an overrun has no answer) |
 | repeated `done`, sessions, `reset` | done | `doneClears`, `PEv.reset`, `Examples.done_twice` |
 | projections, membership, monotonicity, unions, non-preservation of intersections | done | `inputLang`, `treeLang`, `inputLang_union`, `inputLang_inter_subset`, `parseRel_mono`, `parseRel_union`, `Examples.projection_inter_strict` |
-| trees resolved in consistent environments; mixed APIs with parsing; Wasm tie-ins | done (one-shot `parse` in Wasm) | `Semantics.Accept.Mixed`: `mixedRel` resolves returned handles in the **current writer store** (`run_resolve_stable`, `mixedRel_constructed`), `mixedFixedRel` over fixed environments, `mixedRel_subset_parseRel`, `mixedRel_subset_of_AG`; Wasm `HandleAccept.Mixed`: `moduleMixedRel`, `moduleMixedRel_sound_of_gameSat` (writer import answers agree with ρ, export spec constrains the returned tree); example `listParse`: `listParse_sound`/`listParse_rel` (every related pair is `([x], (x))`, `x ≠ 0`), non-vacuous `listParse_relates_7`, `listParse_rel_eq_7`. Streaming: ghost-state export specifications (`SSpec`, `SGameSat`, `strategy_sag`, `moduleMixedRel_sound_of_streamSat`, semantic `mixedRel_subset_of_streamAG`); example `stackParse` (`append(x)`/`done()`): `stackParse_sound`, `stackParse_rel` (every pair is `(vs, ofAtoms vs.reverse)`), `stackParse_relates_78`, `stackParse_rel_eq_78` (replayed session of three export calls). Requires no writer sentinel and `doneClears`. Chunk exports (`feed`/`finish -> (used, tree)`): `Mixed.Chunk`, `chunkSSpec` (ghost = chunk buffer), `moduleMixedRel_sound_of_chunkSat` (with the semantic `Semantics.Accept.Mixed.Chunk`: `chunkStep`, `chunkFold`, `pstep_buf`, `mixedRel_subset_of_chunkAG`, `mixedFixedRel_subset_of_chunkAG`, assume/guarantee along the chunk buffer), over fixed environments `moduleMixedFixedRel_sound_of_chunkSat` (every writer policy), `chunkStack_fixed_sound`; example `chunkStack` (`feed(x : i64)`, `finish(n) -> (used, tree)`, all-or-nothing consumption): `chunkStack_sat`, `chunkStack_sound`, `chunkStack_relates_78`, `chunkStack_relates_nil`, `chunkStack_rel_eq_78` (replayed `feed(7) feed(8) finish(1) finish(5)`: the values stay buffered across a `finish` that consumes none). Partial consumption: `Mixed.Chunk.Take`, `chunkTake` (two `i64` slots and a count in globals; `finish(n)` consumes exactly the oldest `n` when `0 < n ≤` count and returns their list, otherwise `(0, ())`): `chunkTake_sat`, `chunkTake_sound`, `chunkTake_fixed_sound`, `chunkTake_rel` (every pair is `(vs, ofAtoms vs)`), replayed `feed(7) feed(8) finish(1) finish(1)`: `chunkTake_relates_7` (`used = 1` of `2` buffered), `chunkTake_relates_8` (the value left buffered), `chunkTake_rel_eq_8`. Memory buffer: `Mixed.Chunk.Ring`, `chunkRingN cap` (a ring buffer of up to `cap` `i64`s in linear memory, start slot and count in globals, slots `8 * ((st + i) mod cap)`; `feed` diverges when the buffer is full; `finish(n)` builds the list of the oldest `n` values in a loop and advances the start slot, consuming exactly `n` when `0 < n ≤` count, otherwise `(0, ())`; `chunkRing = chunkRingN 8`), with **one proof generic in the capacity** for every `RingCap cap` (`0 < cap ≤ 8192`, the buffer within the one page): `chunkRingN_sat` (invariant `ringInv cap`: the memory loads at `slot cap st i` are the chunk buffer; the instance shape, code, globals and memory are kernel evaluations with `cap` free, `kernel_rfl`, `MShape.of_okNB`; slot arithmetic with `cap` symbolic, `slot_addr`, `slot_ne`), `chunkRingN_sound`, `chunkRingN_fixed_sound`, `chunkRingN_rel` (every pair is `(vs, ofAtoms vs)`), restated for eight slots as `chunkRing_sat`, `chunkRing_sound`, `chunkRing_fixed_sound`, `chunkRing_rel`; non-vacuity for every `2 ≤ cap ≤ 8192` at once: `chunkRingN_relates_7`, `chunkRingN_relates_8`, `chunkRingN_rel_eq_8` (`feed(7) feed(8) finish(1) finish(1)`: the second `finish` consumes the value left in memory), instances `chunkRing_relates_7`, `chunkRing_relates_8`, `chunkRing_rel_eq_8` (eight slots) and `chunkRing8192_relates_8`, `chunkRing8192_rel_eq_8` (the whole page); one value for every `1 ≤ cap ≤ 8192`: `chunkRingN_relates_7_one` (`feed(7) finish(1)`, `RingLive.ring_session1`), with the one-slot buffer `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`; for **every profile**, by a play built forwards (`RingLive.ring_session`): the kernel replay used for `chunkTake` does not scale to a 64 KiB page, so the runs between callouts are composed from Core `Step` rules with the store symbolic (straight-line code by `exec_sound`, memory by `load_store_same`/`load_store_disjoint`, slot addresses from `cap` by `mod_small`), and only the decoded moves are checked by kernel evaluation (`mem_moduleMixedRel_of_path`) |
+| trees resolved in consistent environments; mixed APIs with parsing; Wasm tie-ins | done (one-shot `parse` in Wasm) | `Semantics.Accept.Mixed`: `mixedRel` resolves returned handles in the **current writer store** (`run_resolve_stable`, `mixedRel_constructed`), `mixedFixedRel` over fixed environments, `mixedRel_subset_parseRel`, `mixedRel_subset_of_AG`; Wasm `HandleAccept.Mixed`: `moduleMixedRel`, `moduleMixedRel_sound_of_gameSat` (writer import answers agree with ρ, export spec constrains the returned tree); example `listParse`: `listParse_sound`/`listParse_rel` (every related pair is `([x], (x))`, `x ≠ 0`), non-vacuous `listParse_relates_7`, `listParse_rel_eq_7`. Streaming: ghost-state export specifications (`SSpec`, `SGameSat`, `strategy_sag`, `moduleMixedRel_sound_of_streamSat`, semantic `mixedRel_subset_of_streamAG`); example `stackParse` (`append(x)`/`done()`): `stackParse_sound`, `stackParse_rel` (every pair is `(vs, ofAtoms vs.reverse)`), `stackParse_relates_78`, `stackParse_rel_eq_78` (replayed session of three export calls). Requires no writer sentinel and `doneClears`. Chunk exports (`feed`/`finish -> (used, tree)`): `Mixed.Chunk`, `chunkSSpec` (ghost = chunk buffer), `moduleMixedRel_sound_of_chunkSat` (with the semantic `Semantics.Accept.Mixed.Chunk`: `chunkStep`, `chunkFold`, `pstep_buf`, `mixedRel_subset_of_chunkAG`, `mixedFixedRel_subset_of_chunkAG`, assume/guarantee along the chunk buffer), over fixed environments `moduleMixedFixedRel_sound_of_chunkSat` (every writer policy), `chunkStack_fixed_sound`; example `chunkStack` (`feed(x : i64)`, `finish(n) -> (used, tree)`, all-or-nothing consumption): `chunkStack_sat`, `chunkStack_sound`, `chunkStack_relates_78`, `chunkStack_relates_nil`, `chunkStack_rel_eq_78` (replayed `feed(7) feed(8) finish(1) finish(5)`: the values stay buffered across a `finish` that consumes none). Partial consumption: `Mixed.Chunk.Take`, `chunkTake` (two `i64` slots and a count in globals; `finish(n)` consumes exactly the oldest `n` when `0 < n ≤` count and returns their list, otherwise `(0, ())`): `chunkTake_sat`, `chunkTake_sound`, `chunkTake_fixed_sound`, `chunkTake_rel` (every pair is `(vs, ofAtoms vs)`), replayed `feed(7) feed(8) finish(1) finish(1)`: `chunkTake_relates_7` (`used = 1` of `2` buffered), `chunkTake_relates_8` (the value left buffered), `chunkTake_rel_eq_8`. Memory buffer: `Mixed.Chunk.Ring`, `chunkRingN cap` (a ring buffer of up to `cap` `i64`s in linear memory, start slot and count in globals, slots `8 * ((st + i) mod cap)`; `feed` traps without writing when the buffer is full; `finish(n)` builds the list of the oldest `n` values in a loop and advances the start slot, consuming exactly `n` when `0 < n ≤` count, otherwise `(0, ())`; `chunkRing = chunkRingN 8`), with **one proof generic in the capacity** for every `RingCap cap` (`0 < cap ≤ 8192`, the buffer within the one page): `chunkRingN_sat` (invariant `ringInv cap`: the memory loads at `slot cap st i` are the chunk buffer; the instance shape, code, globals and memory are kernel evaluations with `cap` free, `kernel_rfl`, `MShape.of_okNB`; slot arithmetic with `cap` symbolic, `slot_addr`, `slot_ne`), `chunkRingN_sound`, `chunkRingN_fixed_sound`, `chunkRingN_rel` (every pair is `(vs, ofAtoms vs)`), restated for eight slots as `chunkRing_sat`, `chunkRing_sound`, `chunkRing_fixed_sound`, `chunkRing_rel`; non-vacuity for every `2 ≤ cap ≤ 8192` at once: `chunkRingN_relates_7`, `chunkRingN_relates_8`, `chunkRingN_rel_eq_8` (`feed(7) feed(8) finish(1) finish(1)`: the second `finish` consumes the value left in memory), instances `chunkRing_relates_7`, `chunkRing_relates_8`, `chunkRing_rel_eq_8` (eight slots) and `chunkRing8192_relates_8`, `chunkRing8192_rel_eq_8` (the whole page); one value for every `1 ≤ cap ≤ 8192`: `chunkRingN_relates_7_one` (`feed(7) finish(1)`, `RingLive.ring_session1`), with the one-slot buffer `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`; for **every profile**, by a play built forwards (`RingLive.ring_session`): the kernel replay used for `chunkTake` does not scale to a 64 KiB page, so the runs between callouts are composed from Core `Step` rules with the store symbolic (straight-line code by `exec_sound`, memory by `load_store_same`/`load_store_disjoint`, slot addresses from `cap` by `mod_small`), and only the decoded moves are checked by kernel evaluation (`mem_moduleMixedRel_of_path`) |
 
 ### Cautions
 
@@ -209,6 +209,14 @@ async types.
 | well-founded fixed environments, no silent cycles | `NodeEnv`, `UnfoldN`/`Unfold`, `not_unfold_of_cycle`, `realize_realizes`, `Examples.cycle_unfolds_to_nothing` |
 | sentinel inclusion via observations/renamings, allocation failure | `writerLang_rename`, `writerLang_sentinel_swap`, `writerLang_noRet_subset`, `sentinel_twice` |
 | intersection is not preserved by projection or trace languages | `Host.lang_inter_subset`, `inputLang_inter_subset`, `Examples.inter_strict`, `projection_inter_strict` |
+
+### Hinted family writer coverage
+
+`Families.Hinted.Thms` proves that the family table and the dedicated hinted writer
+decode the same call and answer events. Its n-ary and AST writer languages for
+`hintedSepMod` are exactly the atom `[hi]ab` (respectively the corresponding typed leaf)
+for non-UB policies. This exercises the real four-operand import with disjoint hint
+and octet segments. It does not add a hinted cons-writer witness or mixed-kind writers.
 
 ### Reference resource lifecycle
 
@@ -228,6 +236,13 @@ with a waitable set, and currently detached. Duplicate Lean values do not duplic
 ownership. The reference-machine examples exercise a byte stream and a completing unit
 future, including rejected retagging and repeat lowering. Schemas containing a borrow
 are rejected before any transfer effects.
+
+`Wit.Stored.Endpoints.Future.Examples` verifies a two-instance handoff of a tree
+holding a future with a compound `{ word : u16, hint : option<bool> }` element.
+It checks single-use transfer, cancellation without a destination write, polling
+before and after completion, exact bytes in the reader memory, and removal of both
+endpoints and the waitable set. It proves the concrete reference-machine session,
+not a scheduling theorem or a Core adapter.
 
 * **Traps are call-local.** The Wasm-facing mandatory trap on an invalid `accept` is
   `OnInvalid.callTrap` (the default): as in Wasm, a trap aborts only the current export
@@ -323,10 +338,11 @@ are rejected before any transfer effects.
 * Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
   `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
   bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness
-  proof. A growth refusal traps before writes or cursor updates and keeps the buffer.
-  The executable regression retries after refusal, fills 8193 slots, and finishes a chunk.
-  This is not exact acceptance or a termination theorem; `feed` on a full buffer still
-  diverges, and progress depends on available memory and the execution profile.
+  proof. Growth refusal and a full buffer trap before writes or cursor updates and keep
+  the logical buffer. The executable regression retries after grow refusal, fills 8193
+  slots, rejects the next feed, finishes a chunk, and retries in the freed slot.
+  This is not exact acceptance or a whole-session termination theorem; progress also
+  depends on available memory, the writer responses, and the execution profile.
 
 ## Reference component payloads
 
@@ -338,14 +354,28 @@ Stored borrows and `own` types are rejected recursively before effects: the refe
 alone carries a representation, not the owning identity this tree boundary needs.
 
 `Wit.Stored.OwnedMemory` is the separate ownership-aware tree boundary. Its shared canonical
-loader records an ordered, typed receipt at each active `own` leaf, including inside lists,
-records and variants. Erasing the receipts recovers the entire canonical memory-load program,
-including access checks, handle removals and traps in their original order. The reference
-machine examples distinguish two owners with equal representations and show that a repeated
-move traps without publishing a tree or undoing the first move. Whole-schema validation still
-rejects stored borrows, even in inactive branches. Flat owned inputs are rejected explicitly;
-the receipts do not by themselves authorize a transfer back to a guest or connect the checked
-Core host to the reference resource machine.
+memory and flat loaders record an ordered, typed receipt at each active `own` leaf, including
+inside lists, records and variants. Erasing the receipts recovers the entire canonical load
+program, including the flat cursor, access checks, handle removals and traps in their original
+order. The reference machine examples distinguish two owners with equal representations and
+show that a repeated move traps without publishing a tree or undoing the first move. The flat
+examples cover a list's indirect owner and an option's direct owner in the same value; a wrong
+slot type in an inactive case is rejected before either move, and a corrected retry succeeds.
+Whole-schema validation still rejects stored borrows. The receipts do not by themselves
+authorize a transfer back to a guest or connect the checked Core host to the reference machine.
+
+`Wit.Stored.OwnedMemory.Claims` registers only the owner receipts from a freshly lifted
+root. Held claims, not the accepted observations, authorize a canonical `lower_own` or a
+destructor request. `give` commits spending after insertion succeeds; `drop` commits it
+before calling the supplied reference destructor, so a trap in that call cannot restore the claim.
+The spend theorems identify the original nominal type, handle object and representation,
+preserve other claims and accepted trees, and rule out a second use of the spent identity.
+The machine examples create two equal-representation resources, reject a wrong-type transfer,
+retry, drop the other owner and reacquire owners in reused guest slots. Reacquiring a newly
+issued handle object creates a fresh claim, not another claim on the earlier handle object.
+The whole schema rejects stored borrows and mixed endpoint/error-context payloads before
+lifting. This is a reference host session, not a checked Core import adapter, and does not
+yet lower a compound containing multiple claims in one call.
 
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,

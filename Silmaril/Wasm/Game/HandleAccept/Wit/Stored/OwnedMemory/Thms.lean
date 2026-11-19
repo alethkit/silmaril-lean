@@ -19,4 +19,13 @@ theorem project {E : CoreEngine} {World : Type} (limits : Component.Limits) (qui
       loadAt limits quirks cx width type ptr :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.project limits quirks cx width type ptr
 
+/-- Erase only owner receipts, preserving the flat cursor, canonical effects and traps,
+including those from indirect list and map elements. -/
+theorem projectFlat {E : CoreEngine} {World : Type} (limits : Component.Limits) (quirks : Quirks)
+    (cx : LiftLowerContext E) (width : AddrType) (type : TypeOf) (cursor : FlatCursor) :
+    Prod.map Observed.value id <$>
+        liftFlatAtWith limits cx width (flatCarrier (World := World) limits quirks cx width) type cursor =
+      liftFlatAt limits quirks cx width type cursor :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.projectFlat limits quirks cx width type cursor
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory
