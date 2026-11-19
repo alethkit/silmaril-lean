@@ -4,6 +4,9 @@ This layer models the signed ATProto core over [DRISL](https://dasl.ing/drisl.ht
 and [DASL CID](https://dasl.ing/cid.html). It is not a Lexicon validator, a hash
 implementation, or an implementation of the ATProto repository format.
 
+See [named DASL languages](atproto-dasl-languages.md) for relational
+presentations, expansion, recognition and fail-closed CAS queries.
+
 ## Contracts
 
 | Header | Contract |
