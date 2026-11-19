@@ -135,8 +135,11 @@ those values. `Wit.Async` adds typed endpoint identities and dispatches creation
 copy, cancellation, polling and closure to the reference component built-ins.
 An old call list yields the identical effect program (`runCalls_legacy`). The
 machine examples resolve and close a future, cancel a pending stream read, and
-reject inspection of a closed slot. These are component-machine sessions, not
-yet Core acceptor tree payloads; the checked tree writer still rejects async types.
+reject inspection of a closed slot. A `stream<u8>` session additionally checks no
+event before a matching read, the copied bytes and exact write-completion event,
+then disconnects and closes the set and both endpoints. These are component-machine
+sessions, not yet Core acceptor tree payloads; the checked tree writer still rejects
+async types.
 
 | Item | Status | Where |
 | --- | --- | --- |
