@@ -225,7 +225,15 @@ built-ins, including their destructor dispatcher. `take` uses canonical `liftOwn
 retains the consumed handle's arena identity as well as its representation. The machine
 examples check slot reuse with two different identities that share a representation,
 drop, and the observable early slot removal on a wrong-type lift that locks down the
-component. This is a reference adapter, not a simulation of the checked Core writer table.
+component.
+
+`Own.ReferenceTable` relates usable Core table lookups to the current reference arena.
+Successful `Nested.reserve` refines one canonical owner move, whose witness retains the
+arena identity; committing that slot preserves the relation at every other lookup. The
+relation does not identify equal representations or use guest slots as identity. A failed
+checked preflight does not perform the canonical removal: a wrong-type, lent or non-owning
+canonical lift removes the slot before trapping. This is one-move refinement, not a simulation
+of a whole nested decoder or a failure equivalence between the two host contracts.
 
 ## Modelling choices to review
 
@@ -391,6 +399,12 @@ borrow, accepts an owner and stream in one root, traps after moving both in a la
 accepts a fresh root in a subsequent export. The `accept-node` contract does not yet expose
 mixed handoff or scheduled lifecycle imports.
 
+The publication theorem in `Wit.Stored.OwnedMemory.Claims.Core.Trace` uses the same session
+invariant as the endpoint-only contract. Across all permitted export sequences and prefixes,
+successful replies are exactly the chronological handles of newly published roots. Rejections
+never contribute a handle, including in an invocation that traps before a later successful
+export. This identifies publication history, not a particular guest's exact payload language.
+
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
 including nested futures and streams. Already-built children are not lifted again and create no
@@ -477,17 +491,18 @@ before canonical lower updates ownership. Neither a late table trap nor an alloc
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
-`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records and options
+`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records, options,
+variants and results
 with plain data fields, readable endpoints, dynamic endpoint lists and error contexts. It checks
 the complete schema, allocation preconditions and cross-field aliases before
 any field is written. Fields follow canonical record layout and flat order. A field error identifies
 the path to the failing field; completed fields and any realloc effects remain visible. Reference-machine
 replays cover both outputs, nested padding, inactive unsupported fields, alias and missing-context
-rejection, reentrancy and allocator traps. An empty option checks its full element schema but
-does not allocate; a present option reuses canonical discriminant layout and flat slot coercion.
-An allocator trap retains the written discriminant and any allocator effects, but not an
-unperformed transfer. General variants, other effectful list elements and mixed nominal owners
-still reject.
+rejection, reentrancy and allocator traps. Every sum arm's schema is checked, including inactive
+arms. Only the selected payload allocates or transfers claims; discriminants, payload alignment
+and joined flat slots follow the canonical ABI. An allocator trap retains the written
+discriminants and any allocator effects, but not an unperformed transfer. Other effectful list
+elements and mixed nominal owners still reject.
 
 ## Checking
 

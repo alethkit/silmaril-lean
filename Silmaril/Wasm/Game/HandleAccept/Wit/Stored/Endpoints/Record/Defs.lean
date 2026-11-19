@@ -25,7 +25,7 @@ inductive Field where
       (payload : Payload (.list (ListLower.endpointType channel element)))
   | context (id : ErrCtxId)
   | record (types : List (String × TypeOf)) (fields : List Field)
-  | option (type : TypeOf) (field : Option Field)
+  | sum (type : TypeOf) (arms : List (Option TypeOf)) (tag : Nat) (field : Option Field)
 
 def Field.type : Field → TypeOf
   | .data type _ => type
@@ -33,7 +33,7 @@ def Field.type : Field → TypeOf
   | .endpoints channel element _ => .list (ListLower.endpointType channel element)
   | .context _ => .errorContext
   | .record types _ => .record types
-  | .option type _ => .option type
+  | .sum type _ _ _ => type
 
 namespace Internal
 
@@ -41,6 +41,8 @@ mutual
 def supportedField : TypeOf → Bool
   | .record fields => supportedFields fields
   | .option type => supportedField type
+  | .variant cases => supportedCases cases
+  | .result ok error => supportedCase ok && supportedCase error
   | .future _ | .stream _ | .list (.future _) | .list (.stream _) | .errorContext => true
   | type => (Stored.Lower.checkSchema type).isOk
 termination_by structural type => type
@@ -49,6 +51,16 @@ def supportedFields : List (String × TypeOf) → Bool
   | [] => true
   | (_, type) :: rest => supportedField type && supportedFields rest
 termination_by structural fields => fields
+
+def supportedCases : List (String × Option TypeOf) → Bool
+  | [] => true
+  | (_, type) :: rest => supportedCase type && supportedCases rest
+termination_by structural cases => cases
+
+def supportedCase : Option TypeOf → Bool
+  | none => true
+  | some type => supportedField type
+termination_by structural type => type
 end
 
 end Internal
@@ -61,14 +73,29 @@ def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Low
     let (fields, plan) ← (compileFields cx output 0 types values).mapError (.nested index)
     return (.record types fields, plan)
   | .option type, value => do
+    if !Internal.supportedField type then throw (.unsupportedField index)
     match value with
-    | .variant 0 none =>
-      if Internal.supportedField type then return (.option type none, [])
-      else throw (.unsupportedField index)
+    | .variant 0 none => return (.sum (.option type) [none, some type] 0 none, [])
     | .variant 1 (some value) => do
       let (field, plan) ← (compileField cx output 0 type value).mapError (.nested index)
-      return (.option type (some field), plan)
+      return (.sum (.option type) [none, some type] 1 (some field), plan)
     | _ => throw (.preflight .decodedType)
+  | .variant cases, value => do
+    if !Internal.supportedCases cases then throw (.unsupportedField index)
+    let .variant tag payload := value | throw (.preflight .decodedType)
+    let (field, plan) ← (compileCases cx output cases tag payload).mapError (.nested index)
+    return (.sum (.variant cases) (cases.map Prod.snd) tag field, plan)
+  | .result ok error, value => do
+    if !(Internal.supportedCase ok && Internal.supportedCase error) then throw (.unsupportedField index)
+    let (tag, field, plan) ← match value with
+      | .variant 0 payload => do
+        let (field, plan) ← (compileCase cx output ok payload).mapError (.nested index)
+        pure (0, field, plan)
+      | .variant 1 payload => do
+        let (field, plan) ← (compileCase cx output error payload).mapError (.nested index)
+        pure (1, field, plan)
+      | _ => throw (.preflight .decodedType)
+    return (.sum (.result ok error) [ok, error] tag field, plan)
   | type, value => do
     let payload ← (checkValue type value).mapError (.preflight ∘ .schema)
     match type, payload with
@@ -96,11 +123,25 @@ def compileFields {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lo
     let (fields, rest) ← compileFields cx output (index + 1) types values
     return (field :: fields, objects ++ rest)
   | _, _ => .error (.preflight .decodedType)
+
+def compileCases {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output) :
+    List (String × Option TypeOf) → Nat → Option Val → Except Issue (Option Field × List Lower.Object)
+  | [], _, _ => .error (.preflight .decodedType)
+  | (_, type) :: _, 0, payload => compileCase cx output type payload
+  | _ :: rest, tag + 1, payload => compileCases cx output rest tag payload
+
+def compileCase {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output) :
+    Option TypeOf → Option Val → Except Issue (Option Field × List Lower.Object)
+  | none, none => .ok (none, [])
+  | some type, some payload => do
+    let (field, plan) ← compileField cx output 0 type payload
+    return (some field, plan)
+  | _, _ => .error (.preflight .decodedType)
 end
 
 /-- Inspect every field before starting any field write or guest allocation. Plain fields
-use the canonical data path; nested records and options participate in the same whole-record
-plan. An empty option still checks that its payload schema is supported. -/
+use the canonical data path; nested records and sum types participate in the same whole-record
+plan. Every arm's schema is checked even when only one arm contributes effects. -/
 def preflight {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
     (payload : Payload type) (output : Stored.Lower.Output) :
     Except Issue (List Field × List Lower.Object) := do
@@ -141,19 +182,20 @@ def runField {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (qui
     | .memory ptr => do
       checkInBounds cx ptr (layout width (.record types)).size
       return (← runMemory limits quirks cx width fields ptr 0).mapError (.nested index)
-  | .option type field =>
+  | .sum type arms tag field =>
     match output with
     | .flat => do
-      let slots := flatten width type
+      let joined := (flatten width type).drop 1
       match field with
-      | none => return .ok (← lowerFlatVariantWith 2 slots 0 [] (pure []))
+      | none => return .ok (← lowerFlatVariantWith arms.length joined tag [] (pure []))
       | some field =>
         match ← runField limits quirks cx width field 0 .flat with
         | .error issue => return .error (.nested index issue)
-        | .ok words => return .ok (← lowerFlatVariantWith 2 slots 1 slots (pure words))
+        | .ok words =>
+          return .ok (← lowerFlatVariantWith arms.length joined tag (flatten width field.type) (pure words))
     | .memory ptr => do
-      let tag := if field.isSome then 1 else 0
-      let address ← storeVariantHead cx 2 (layout width type).alignment tag ptr
+      let alignment := maxCaseAlignment (arms.map (layoutOption width))
+      let address ← storeVariantHead cx arms.length alignment tag ptr
       match field with
       | none => return .ok ()
       | some field =>
