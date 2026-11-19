@@ -38,7 +38,7 @@ def nestedAliasPayload : Payload nestedAliasType :=
 
 def contextType : TypeOf := .record [("first", .future none), ("context", .errorContext)]
 
-def unsupportedList : TypeOf := .list (.record [("read", .future none)])
+def unsupportedList : TypeOf := .list (.map .u8 (.future none))
 
 def inactiveType : TypeOf := .record [("direct", .future none), ("maybe", .option unsupportedList)]
 
