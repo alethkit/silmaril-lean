@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Proofs.Wasm.Examples.LratAccept.Inst
+public import Silmaril.Wasm.Acceptor.Alloc.Thms
 
 @[expose] public section
 
@@ -47,14 +48,14 @@ def checkSpec (args₀ : List Val) (top : BitVec 32) (B₁ : ByteArray) (Goal : 
 
 theorem prog_f11 : prog.funcs[11]? = some ⟨⟨3⟩, checkLocals, checkStreamBody⟩ := rfl
 theorem prog_f12 : prog.funcs[12]? = some ⟨⟨3⟩, checkLocals, checkNestedBody⟩ := rfl
-theorem prog_f10 : prog.funcs[10]? = some ⟨⟨3⟩, [.i32, .i32], reallocBody⟩ := rfl
 
 set_option maxHeartbeats 1000000 in
 /-- `check-stream` meets its specification. -/
 theorem checkStream_spec {top : BitVec 32} {B₁ : ByteArray} {pp pl cp cl : BitVec 32}
     (hpp : pp.toNat + 4 * pl.toNat ≤ memBytes) (hcp : cp.toNat + 4 * cl.toNat ≤ memBytes) :
     FSpecValid P host 11 (checkSpec [Val.i32 pp, Val.i32 pl, Val.i32 cp, Val.i32 cl] top B₁
-      (wordsAt B₁ pp.toNat pl.toNat ∈ UnsatStream)) := by
+      (wordsAt B₁ pp.toNat pl.toNat ∈ UnsatStream ∧
+        (LratStream.decode (wordsAt B₁ cp.toNat cl.toNat)).isSome = true)) := by
   obtain ⟨fi, f, ty, hfi, hf, hty, hcode, hmod, hexp⟩ := acc_fn 11 (by decide)
   rw [prog_f11] at hf
   cases hf
@@ -75,7 +76,8 @@ set_option maxHeartbeats 1000000 in
 theorem checkNested_spec {top : BitVec 32} {B₁ : ByteArray} {pp pl cp cl : BitVec 32}
     (hpp : NestedIn B₁ pp.toNat pl.toNat) (hcp : cp.toNat + 4 * cl.toNat ≤ memBytes) :
     FSpecValid P host 12 (checkSpec [Val.i32 pp, Val.i32 pl, Val.i32 cp, Val.i32 cl] top B₁
-      (nestedAt B₁ pp.toNat pl.toNat ∈ UnsatNested)) := by
+      (nestedAt B₁ pp.toNat pl.toNat ∈ UnsatNested ∧
+        (LratStream.decode (wordsAt B₁ cp.toNat cl.toNat)).isSome = true)) := by
   obtain ⟨fi, f, ty, hfi, hf, hty, hcode, hmod, hexp⟩ := acc_fn 12 (by decide)
   rw [prog_f12] at hf
   cases hf
@@ -101,7 +103,8 @@ theorem checkStream_sound {s : Store Nat} {G : List (BitVec 32)} {B₀ B₁ : By
     {s' : Store Nat} {f' : Frame} {r : BitVec 32}
     (hrun : Steps P host (invoke s 11 [Val.i32 pp, Val.i32 pl, Val.i32 cp, Val.i32 cl])
       ⟨s', f', vals [Val.i32 r]⟩) (hr : r ≠ 0#32) :
-    wordsAt B₁ pp.toNat pl.toNat ∈ UnsatStream :=
+    wordsAt B₁ pp.toNat pl.toNat ∈ UnsatStream ∧
+      (LratStream.decode (wordsAt B₁ cp.toNat cl.toNat)).isSome = true :=
   checkPost_vals (s := s') ((checkStream_spec (P := P) (host := host) hpp hcp).invoke_vals
     ⟨rfl, G, B₀, hs⟩ hrun) hr
 
@@ -112,35 +115,15 @@ theorem checkNested_sound {s : Store Nat} {G : List (BitVec 32)} {B₀ B₁ : By
     {s' : Store Nat} {f' : Frame} {r : BitVec 32}
     (hrun : Steps P host (invoke s 12 [Val.i32 pp, Val.i32 pl, Val.i32 cp, Val.i32 cl])
       ⟨s', f', vals [Val.i32 r]⟩) (hr : r ≠ 0#32) :
-    nestedAt B₁ pp.toNat pl.toNat ∈ UnsatNested :=
+    nestedAt B₁ pp.toNat pl.toNat ∈ UnsatNested ∧
+      (LratStream.decode (wordsAt B₁ cp.toNat cl.toNat)).isSome = true :=
   checkPost_vals (s := s') ((checkNested_spec (P := P) (host := host) hpp hcp).invoke_vals
     ⟨rfl, G, B₀, hs⟩ hrun) hr
 
 /-! ## `cabi_realloc` -/
 
-/-- The specification of `cabi_realloc`. -/
-def reallocSpec (old osz al nsz top : BitVec 32) : FSpec Nat where
-  pre s args := args = [Val.i32 old, Val.i32 osz, Val.i32 al, Val.i32 nsz] ∧
-    s.funcs = accS.funcs ∧ s.globals[8]? = some ⟨accGt, Val.i32 top⟩
-  post s _ s' o := reallocPost s top al nsz s' o
-
-set_option maxHeartbeats 1000000 in
-theorem realloc_spec {old osz al nsz top : BitVec 32} (htop : top.toNat ≤ memBytes) :
-    FSpecValid P host 10 (reallocSpec old osz al nsz top) := by
-  obtain ⟨fi, f, ty, hfi, hf, hty, hcode, hmod, hexp⟩ := acc_fn 10 (by decide)
-  rw [prog_f10] at hf
-  cases hf
-  cases (show ty = ty4c from Option.some.inj (hty.symm.trans rfl))
-  refine FSpecValid.of_body_hwp (fun s _ hpre => ?_) hcode hexp
-    (fun _ _ hpre => by rw [hpre.1]; rfl) fun s args hpre => ?_
-  · obtain ⟨-, h, -⟩ := hpre
-    rw [h]; exact hfi
-  · obtain ⟨rfl, -, hg⟩ := hpre
-    rw [hmod, ← code_eq]
-    exact realloc_hwp (by rw [acc_mi.1]; rfl) hg htop old osz al nsz
-
-/-- **`cabi_realloc`, every returning run**: it answers one value `r` and only sets the heap
-pointer, to `t'`, as `ReallocOk` says. -/
+/-- **`cabi_realloc`, every returning run** (the acceptor kit's `realloc_sound`): it answers one
+value `r` and only sets the heap pointer, to `t'`, as `ReallocOk` says. -/
 theorem realloc_sound {s : Store Nat} (hf : s.funcs = accS.funcs) {top : BitVec 32}
     (hg : s.globals[8]? = some ⟨accGt, Val.i32 top⟩) (htop : top.toNat ≤ memBytes)
     {old osz al nsz : BitVec 32} {s' : Store Nat} {f' : Frame} {res : List Val}
@@ -148,9 +131,10 @@ theorem realloc_sound {s : Store Nat} (hf : s.funcs = accS.funcs) {top : BitVec 
       ⟨s', f', vals res⟩) :
     ∃ r t' : BitVec 32, res = [Val.i32 r] ∧ s' = s.setGlobal 8 (Val.i32 t') ∧
       ReallocOk top al nsz r t' := by
-  obtain ⟨r, t', ho, hs', hok⟩ := (realloc_spec (P := P) (host := host) (old := old) (osz := osz)
-    (al := al) (nsz := nsz) htop).invoke_vals ⟨rfl, hf, hg⟩ hrun
-  cases ho
-  exact ⟨r, t', rfl, hs', hok⟩
+  obtain ⟨fi, f, ty, hfi, hf₁₀, hty, hcode, hmod, hexp⟩ := acc_fn 10 (by decide)
+  cases (show f = reallocFunc from Option.some.inj hf₁₀.symm)
+  cases (show ty = ty4c from Option.some.inj (hty.symm.trans rfl))
+  exact Silmaril.Wasm.Acceptor.realloc_sound (by decide) (by decide) (by rw [hf]; exact hfi) hcode
+    hexp rfl rfl (by rw [hmod, acc_mi.1]; rfl) hg htop hrun
 
 end Silmaril.Proofs.Wasm.Examples.LratAccept

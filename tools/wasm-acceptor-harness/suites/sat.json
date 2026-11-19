@@ -1,11 +1,78 @@
 {
+  "$schema": "../../../docs/schemas/wasm-acceptor-suite.v1.schema.json",
   "suite": "sat-accept",
   "description": "The SAT model-witness acceptor component: check-stream(problem: list<s32>, model: list<s32>) and check-nested(problem: list<list<s32>>, model: list<s32>). Expected outcomes follow Silmaril.Logic.SAT.Carrier.satStream / satNested.",
   "artifacts": {
     "sat": {
       "path": "../../../examples/wasm-acceptors/sat_accept.wasm",
+      "claims": [
+        {
+          "kind": "component-level soundness (kernel-checked)",
+          "level": "component",
+          "registry_name": "silmaril.wasm.examples.sat_accept.component",
+          "value": "Silmaril.Wasm.Examples.SatAccept.bytes",
+          "scope": "Every reference Component Model reading of what the bytes parse to (Silmaril.Wasm.Examples.SatAccept.bytes, registered as examples/wasm-acceptors/sat_accept.wasm): an accepting call implies membership in the language. The registered, CID-pinned file is proved (kernel certificate) to be these bytes. Never accepts = no reference-machine behaviour returns true; termination (a returned false) is not proved. Rejection of well-formed inputs beyond the checker's bounds is tested only.",
+          "theorems": [
+            {
+              "decl": "Silmaril.Project.WasmComponents.SatAccept.checkStream_sound_of_bytes",
+              "module": "Silmaril.Project.WasmComponents.SatAccept.Thms",
+              "states": "check-stream returns true on xs, ms ⇒ satStream xs ms = true ∧ xs ∈ SatStream"
+            },
+            {
+              "decl": "Silmaril.Project.WasmComponents.SatAccept.checkNested_sound_of_bytes",
+              "module": "Silmaril.Project.WasmComponents.SatAccept.Thms",
+              "states": "check-nested returns true on p, ms ⇒ satNested p ms = true ∧ p ∈ SatNested"
+            },
+            {
+              "decl": "ProjectSelfTest.WasmAcceptors.sat_accept_is",
+              "module": "ProjectSelfTest.WasmAcceptors",
+              "states": "the CID-pinned file read as wasm.component.binary is the Lean component AST (kernel: encode = the included file)"
+            },
+            {
+              "decl": "ProjectSelfTest.WasmAcceptors.sat_accept_bytes",
+              "module": "ProjectSelfTest.WasmAcceptors",
+              "states": "the registered file's bytes are the Lean value {X}Accept.bytes"
+            },
+            {
+              "decl": "ProjectSelfTest.WasmAcceptors.sat_accept_toRef",
+              "module": "ProjectSelfTest.WasmAcceptors",
+              "states": "its reference reading is the verified component c.toRef"
+            },
+            {
+              "decl": "ProjectSelfTest.WasmAcceptors.sat_accept_checkStream_sound",
+              "module": "ProjectSelfTest.WasmAcceptors",
+              "states": "the registered value: check-stream true ⇒ satStream xs ms ∧ xs ∈ SatStream"
+            },
+            {
+              "decl": "ProjectSelfTest.WasmAcceptors.sat_accept_checkNested_sound",
+              "module": "ProjectSelfTest.WasmAcceptors",
+              "states": "the registered value: check-nested true ⇒ satNested p ms ∧ p ∈ SatNested"
+            },
+            {
+              "decl": "Silmaril.Wasm.Examples.SatAccept.checkStream_rejects_problem",
+              "module": "Silmaril.Wasm.Examples.SatAccept.Component.Thms",
+              "states": "never accepts a malformed stream (decodeStream = none)"
+            },
+            {
+              "decl": "Silmaril.Wasm.Examples.SatAccept.checkNested_rejects_problem",
+              "module": "Silmaril.Wasm.Examples.SatAccept.Component.Thms",
+              "states": "never accepts a malformed nested problem (decodeNested = none)"
+            },
+            {
+              "decl": "Silmaril.Wasm.Examples.SatAccept.checkStream_rejects",
+              "module": "Silmaril.Wasm.Examples.SatAccept.Component.Thms",
+              "states": "never accepts when satStream xs ms = false (invalid, inconsistent or incomplete model)"
+            },
+            {
+              "decl": "Silmaril.Wasm.Examples.SatAccept.checkNested_rejects",
+              "module": "Silmaril.Wasm.Examples.SatAccept.Component.Thms",
+              "states": "never accepts when satNested p ms = false"
+            }
+          ]
+        }
+      ],
       "source": "Silmaril.Wasm.Examples.SatAccept: prog, wrapped as a component (memory 0, realloc cabi_realloc)",
-      "sha256": "a9570103fe3a7074b0d354aebf03538e1f5b78a90fe4c4631980866dc7e2ace2"
+      "sha256": "78b2a97ed369c0117e63491b2b7bf9a2eb0d4bef5d951201852e307551eef499"
     }
   },
   "cases": [

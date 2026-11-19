@@ -7,6 +7,8 @@ import Silmaril.Proofs.Wasm.Cfg.MachineLDivF
 import Silmaril.Proofs.Wasm.Cfg.MachineLDivI
 import Silmaril.Proofs.Wasm.Cfg.MachineLLogDiv
 import Silmaril.Proofs.Wasm.Cfg.MachineLLogDivC
+import Silmaril.Proofs.Wasm.Cfg.MachineLProd
+import Silmaril.Proofs.Wasm.Cfg.MachineLProdB
 
 @[expose] public section
 
@@ -50,8 +52,23 @@ at a call whose callee diverges, `TailDivK` stops at a pending tail call whose c
   entry re-entered forever); that point diverges natively, and the logged run from the CFG entry to
   it is a `LogDivXP` prefix (arms left are native runs of the arm, `MachineLRel.arm_fwd`).
 
-Not yet here: productive streams. The closed
-answers and the diverging callees are those of the native oracle: this does not discharge H3
+* **`infL_machine`** (productive streams, native to machine): a productive run of the body in the
+  canonical semantics (`Abstract.InfLXP`: running forever within the function, its open calls the
+  stream `ω`, each with its answer) is a productive run of the machine (`ProdL`: an infinite logged
+  run whose step logs concatenate to `ω`, the calls read by `OCall.toS`). A loop iterating
+  forever is the chain of its iterations on the machine, each from the arm's entry back to it.
+
+* **`machine_infL`** (productive streams, machine to native): a productive run of the machine
+  from the CFG entry is a productive run of the body with the same stream. Proof: by well-founded
+  induction on the size of the remaining code, at the positions of the run that never leave their
+  sequence. An arm the run never leaves is a descent. An arm it leaves forward is a finished
+  instruction, its native run read by `MachineLRel.arm_fwd`. A loop whose arm is re-entered
+  finitely often ends in `loopBack` iterations; one re-entered infinitely often is `loopInf`, with
+  the iterations as its segments.
+* **`prodL_iff`**: both directions together. The machine's productive streams from the CFG entry
+  are exactly the session readings of the body's productive streams.
+
+The closed answers and the diverging callees are those of the native oracle: this does not discharge H3
 (`docs/projects/wasm-cfg.md`).
 -/
 
@@ -127,6 +144,28 @@ theorem machine_logDiv {body : Expr} {s : Store H} {f : Frame} {l : List (Abstra
       (∀ e ∈ c, CloseOk closedCallXP e) ∧ L.map Abstract.OCall.toS = l ++ c ∧
       Abstract.LogDivXP s f [] (liftInstrs body) L :=
   Proofs.MachineLLogDivC.machine_logDiv h
+
+/-- **A productive run of the body is a productive run of the machine** with the same stream. -/
+theorem infL_machine {body : Expr} {s : Store H} {f : Frame} {ω : ℕ → Abstract.OCall H}
+    (h : Abstract.InfLXP s f [] (liftInstrs body) ω) :
+    ProdL body (initial body s f) (fun n => (ω n).toS) :=
+  Proofs.MachineLProd.infL_machine h
+
+/-- **A productive run of the machine is a productive run of the body** with the same stream. -/
+theorem machine_infL {body : Expr} {s : Store H} {f : Frame} {ν : ℕ → Abstract.SCall H}
+    (h : ProdL body (initial body s f) ν) :
+    ∃ ω : ℕ → Abstract.OCall H, Abstract.InfLXP s f [] (liftInstrs body) ω ∧
+      ν = fun n => (ω n).toS :=
+  Proofs.MachineLProdB.machine_infL h
+
+/-- **Productive streams of the machine are those of the body**, both ways. -/
+theorem prodL_iff {body : Expr} {s : Store H} {f : Frame} {ν : ℕ → Abstract.SCall H} :
+    ProdL body (initial body s f) ν ↔
+      ∃ ω : ℕ → Abstract.OCall H, Abstract.InfLXP s f [] (liftInstrs body) ω ∧
+        ν = fun n => (ω n).toS := by
+  refine ⟨machine_infL, ?_⟩
+  rintro ⟨ω, h, rfl⟩
+  exact infL_machine h
 
 /-- **Native frame divergence of a call is machine frame divergence**, both ways. -/
 theorem funDiv_iff {s : Store H} {a : Nat} {args : List Val} :

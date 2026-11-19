@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Project.WasmComponents.Ref.Defs
 public import Silmaril.Wasm.Examples.SatAccept.Component.Thms
-import Silmaril.Proofs.Project.WasmComponents.SatAccept
+public import Silmaril.Project.WasmComponents.Acceptor.Thms
 
 /-!
 # The SAT acceptor component read from its bytes
@@ -11,17 +11,20 @@ import Silmaril.Proofs.Project.WasmComponents.SatAccept
 `examples/wasm-acceptors/sat_accept.wasm`, regenerated from it) parse to
 `satComp.toAst coreBytes` (`bytes_parse`), whose reading by the reference semantics
 (`Silmaril.Project.WasmComponents.Ref.toRef?`, core modules decoded by `Binary.Core.decode?`)
-is `satComp.toRef` (`toRef_toAst`, by kernel evaluation). So the soundness of accepting calls
+is `satComp.toRef` (`toRef_toAst`: the acceptor kit's generic
+`Silmaril.Project.WasmComponents.Acceptor.toRef_toAst`, for every list component, with
+`decode_coreBytes`). So the soundness of accepting calls
 (`Silmaril.Wasm.Examples.SatAccept.checkStream_sound`, `checkNested_sound`) holds for **every**
 reference component read from the bytes (`checkStream_sound_of_bytes`,
 `checkNested_sound_of_bytes`): a call of `check-stream` returning `true` on `xs` and `ms` means
 `satStream xs ms = true`, hence `xs ∈ SatStream`; a call of `check-nested` returning `true` on
 `p` and `ms` means `satNested p ms = true`, hence `p ∈ SatNested`.
 
-The file itself is tied to `bytes` by regeneration and the SHA-256 pinned in
-`tools/wasm-acceptor-harness/suites/sat.json`, not by a theorem here.
-
-Proofs in `Silmaril.Proofs.Project.WasmComponents.SatAccept`.
+The registered file `examples/wasm-acceptors/sat_accept.wasm`
+(`silmaril.wasm.examples.sat_accept.component`) is `bytes` by a kernel certificate in the
+`sil project` self-test (`ProjectSelfTest.WasmAcceptors.sat_accept_bytes`, `sat_accept_is`),
+which also restates the soundness for the registered value (`sat_accept_checkStream_sound`,
+`sat_accept_checkNested_sound`).
 -/
 
 @[expose] public section
@@ -37,13 +40,16 @@ open Silmaril.Logic.SAT.Carrier (satStream satNested SatStream SatNested)
 
 /-- **The reference reading of the emitted component is `satComp.toRef`.** -/
 theorem toRef_toAst : toRef? (satComp.toAst coreBytes) = some satComp.toRef :=
-  Silmaril.Proofs.Project.WasmComponents.SatAccept.toRef_toAst
+  Silmaril.Project.WasmComponents.Acceptor.toRef_toAst satComp
+    Silmaril.Wasm.Examples.SatAccept.decode_coreBytes
 
 /-- Every reference reading of what the bytes parse to is `satComp.toRef`. -/
 theorem toRef_of_parse {ast : Silmaril.Wasm.Component.Binary.Ast}
     (hp : Silmaril.Wasm.Component.Binary.parse bytes = .ok ast) {r : Core3Component}
     (hr : toRef? ast = some r) : r = satComp.toRef :=
-  Silmaril.Proofs.Project.WasmComponents.SatAccept.toRef_of_parse hp hr
+  Silmaril.Project.WasmComponents.Acceptor.toRef_of_parse satComp
+    Silmaril.Wasm.Examples.SatAccept.decode_coreBytes
+    Silmaril.Wasm.Examples.SatAccept.bytes_parse hp hr
 
 /-- **Accepting `check-stream` calls of the component read from the bytes are sound.** -/
 theorem checkStream_sound_of_bytes {ast : Silmaril.Wasm.Component.Binary.Ast}
