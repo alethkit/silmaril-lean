@@ -26,7 +26,8 @@ private abbrev World := State signature
 private noncomputable def context : LiftLowerContext Mock.mock :=
   { opts := { memory := some 0, realloc := some 0 }, inst := ⟨0⟩ }
 
-private noncomputable def fixed (memory : Bool) : P Mock.mock World (Ret Mock.mock) := do
+private noncomputable def fixed (memory : Bool) (missingDestination : Bool := false) :
+    P Mock.mock World (Ret Mock.mock) := do
   let limits := Component.Limits.spec
   let _ ← Builtins.resourceNew limits resource 77
   let _ ← Builtins.resourceNew limits resource 77
@@ -48,6 +49,9 @@ private noncomputable def fixed (memory : Bool) : P Mock.mock World (Ret Mock.mo
     | internal "inactive stored borrow was accepted"
   trapIf ((← loadInt context 0 4) != 0) (.internal "alias refusal wrote output")
   let tree : Tree signature := .tag label children proof
+  if missingDestination then
+    let _ ← lowerRoot Access.direct limits Quirks.none { context with inst := ⟨1⟩ } tree (.memory 0)
+    return .unit
   if memory then
     let .ok () ← lowerRoot Access.direct limits Quirks.none context tree (.memory 0)
       | internal "corrected memory lowering did not succeed"
@@ -134,6 +138,21 @@ theorem late_trap_preserves_committed_owner_and_prefix (exec : Mock.mock.Exec) :
       result.config.host.accepted.length, result.config.host.held.map receiptId,
       (result.config.store.inst? ⟨0⟩).bind (fun inst => inst.handles.get? 1), (bytes.extract 0 12).data) =
       (true, 1, [], some (.resource ⟨1⟩), #[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) := by
+  dsimp only
+  kernel_rfl
+
+theorem failed_insertion_spends_owner_in_recursive_emitter (exec : Mock.mock.Exec) :
+    let result := run exec (fixed true true)
+    let state := result.config.host
+    let store := result.config.store
+    let refused := match state.prepare resource ⟨0⟩ with | .error .unclaimed => true | _ => false
+    let bytes := (store.core.mems[0]?.map (·.bytes)).getD ByteArray.empty
+    (result.labels.any (fun label => match label with
+      | .trap (.internal "dangling arena id") => true
+      | _ => false), refused, state.accepted.length, state.held.map receiptId, state.endpoints,
+      (store.resHandle? ⟨2⟩).map (fun handle => (handle.rt, handle.rep, handle.own)),
+      (store.inst? ⟨0⟩).bind (·.handles.get? 1), (bytes.extract 0 12).data) =
+      (true, true, 1, [⟨1⟩], [⟨0⟩], some (resource, 77, true), none, Array.replicate 12 0) := by
   dsimp only
   kernel_rfl
 
