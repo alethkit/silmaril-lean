@@ -372,9 +372,20 @@ not a scheduling theorem or a Core adapter.
   takes the empty vector straight to `accept`, and reloads each repeated handle at its own
   position without retaining memory across child replies. `compact_reply_plan` constructs
   that plan with the checked `items` encoder when the header and vector fit and the child reply
-  bytes keep the same memory size. This lower bound does not establish equality with the
-  general memory32 upper bound or termination under arbitrary replies. The older `symListMod`
-  and `blobListMod` remain two-child examples.
+  bytes keep the same memory size. `checkedPageShape_all` and `checker_instance_pages`
+  prove the checked shape and actual specification instance for every memory32 initial
+  page count, including zero and the address-space maximum, without evaluating memory
+  contents. `byte_reply_accepts_pages` needs only a fitting, correctly denoting byte
+  script, not a separately supplied shape or instance proof. The two-page run writes
+  a 65,537-byte reply into its actual memory. This lower bound does not establish
+  equality with the general memory32 upper bound, guest growth, or termination under
+  arbitrary replies. The older `symListMod` and `blobListMod` remain two-child examples.
+  A separate executable growth fixture uses the same loop after a Core prologue that
+  reserves a requested minimum page count. Its validated module starts with one page,
+  traps on refused growth before an import, and retries to accept the blob using the
+  second page. It rejects a request above the memory32 limit without changing bytes
+  and can use its grown store with an oracle that refuses further growth. The fixture
+  is not an arbitrary-export soundness theorem for a growing checker.
 * Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
   `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
   bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness
@@ -633,15 +644,6 @@ The stream case observes writer closure on a subsequent read. For both channels,
 stale read after drop traps without removing the published tree. The async operations
 here are reference built-ins, not async accept calls.
 
-The canonical caller-start receipt observer uses the same `canon lower` start callback
-and argument cursor as the reference, including the single-pointer spill path. Erasing
-owner receipts yields the entire reference start program, including its effects and
-failures, rather than just equal returned values. Reference machine replays check direct
-and spilled arguments, an indirect async result, equal representations with different
-owner identities, and cancellation before and after start. The observer is not a checked
-storage boundary. The public acceptor scheduler does not yet dispatch async canonical
-accept calls; its unsupported calling conventions remain refused.
-
 The scheduled journal distinguishes publication from a Core reply. A `published`
 entry records the import ticket and handle in the same host write that adds the root
 and its claims. Across arbitrary ordinary machine prefixes, `checked_of_session`
@@ -660,6 +662,54 @@ not only its trap continuation. It records the entry and the typed missing, ambi
 or mismatched-binding diagnostic before taking the reference trap transition. No
 loader or claim transfer runs. Core replays verify that the rejected call publishes
 nothing and an owner allocated by an earlier export stays in the resource table.
+
+The canonical caller-start receipt observer uses the same `canon lower` start callback
+and argument cursor as the reference, including the single-pointer spill path. Erasing
+owner receipts yields the entire reference start program, including its effects and
+failures, rather than just equal returned values. Reference machine replays check direct
+and spilled arguments, an indirect async result, equal representations with different
+owner identities, and cancellation before and after start. The observer alone is not a
+checked storage boundary.
+
+Install `ComponentCall.hostWithComponent` to join that observer to the public scheduled
+writer through actual `canon lower` Core imports. The status-pair dispatcher `host`
+does not enable these component callees. A linked callee checks the caller's instance,
+memory width, options, signature, whole storable payload schema and child selection. It
+resolves a typed WIT `result<u32>` error before lifting owners on preflight refusal.
+`ComponentCall.refusal_frame` preserves the instance handle tables, owners, endpoints
+and error contexts, including if the error write traps. Guest result bytes and subtask
+bookkeeping may change. `ComponentCall.resolve_error_agrees` proves that, given the
+same guarded caller record, result resolution has the reference continuation, including
+its write and possible traps. It does not equate refusal without a payload lift with a
+canonical trap during a lift.
+Once lifting starts, canonical traps retain prior reference effects; e.g., a second use
+of the same slot traps after the first move. Indirect result writes must finish before
+publishing, and publication rechecks the current writer and the already returned handle.
+`ComponentCall.checked_of_session` gives publication, writer and transcript conservation
+across every ordinary machine prefix, including traps and refusals. It does not assert
+an exact language for every guest or atomic rollback of reference operations.
+
+Linked Core replays check sync and async direct and spilled calls, refusal and retry,
+inactive nested borrow rejection, bad memory width, recycled owner slots, a double-move
+trap and a result range trap. In the joined channel replay the async canonical accept
+publishes a root with owners and a readable endpoint; another linked instance receives
+it via `giveFlat` and exercises a non-unit resource-bearing stream or future, including
+read cancellation, polling, closure (stream) and stale handles.
+
+`ComponentCall.Deferred.hostWithDeferred` adds a pending mode for explicitly configured
+asynchronous callees. Queuing validates the link and the full schema without lifting
+the arguments. The reference `canon lower` installs a waitable; the linked start import
+selects its live nominal subtask in the caller's instance, checks the saved caller
+record, and invokes the same checked acceptance and publication as the eager route.
+The start import acknowledges the callback; the accepted handle or typed WIT error is
+written into the original caller's canonical result area. Starting in the wrong
+instance, behind a no-leave boundary, or from a stale slot fails with a typed diagnostic.
+Before start, `subtask.cancel` calls the checked cancellation callback and resolves via
+the reference cancellation path, without moving owners or publishing a tree. Start
+lifts and resolves in one callback; it does not expose a suspended post-lift phase.
+The deferred session theorem conserves the writer and journal on arbitrary ordinary
+prefixes. Linked direct/spilled replays check cancel, drop, slot reuse, start,
+resolution, and stale start after dropping the waitable.
 
 ## Checking
 

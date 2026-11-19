@@ -31,6 +31,7 @@ inductive Issue where
   | unlinkedImport
   | ambiguousBinding
   | badSelection
+  | stalePendingAccept
   deriving DecidableEq, Repr
 
 /-- Import tickets distinguish reentrant calls to the same binding. A canonical trap is
@@ -42,12 +43,22 @@ inductive Event where
   | returnedFlat (ticket : Nat) (values : List FlatValue)
   | refused (ticket : Nat) (issue : Issue)
   | bindingTrap (ticket : Nat) (issue : Issue)
+  | queued (ticket : Nat)
+  | cancelled (ticket : Nat)
   deriving BEq
+
+structure PendingAccept where
+  caller : CallerId
+  subtask : SubtaskId
+  callee : HostFuncId
+  inst : InstId
+  ticket : Nat
 
 structure HostState (sig : Signature) where
   writer : State sig := {}
   nextTicket : Nat := 0
   newestFirst : List Event := []
+  pendingAccepts : List PendingAccept := []
 
 variable {sig : Signature}
 
@@ -215,15 +226,20 @@ def writeCompletion (reply : Event × List FlatValue) : Session grow sig (List F
 def finish (ticket : Nat) (result : Except Issue Nat) : Session grow sig (List FlatValue) :=
   writeCompletion (completion ticket result)
 
-def publishRoot (ticket : Nat) (tree : Tree sig) : Session grow sig (Except Issue Nat) := do
+def publishRootAt (ticket : Nat) (tree : Tree sig) (expected : Option Nat) :
+    Session grow sig (Except Issue Nat) := do
   let current ← hostGet
   match current.writer.register tree with
   | .error issue => return .error (.accept (.claims issue))
   | .ok writer =>
     let handle := writer.accepted.length
+    if expected.any (· != handle) then return .error .wrongResultType
     if handle ≥ 2 ^ 32 then return .error (.accept (.boundary .exhaustedHandles))
     hostSet (({ current with writer } : HostState sig).record (.published ticket handle))
     return .ok handle
+
+def publishRoot (ticket : Nat) (tree : Tree sig) : Session grow sig (Except Issue Nat) :=
+  publishRootAt ticket tree none
 
 def acceptWith (ticket : Nat) (loadNode : World grow sig → CStore (core3 grow) × Except Core.Issue (Tree sig)) :
     Session grow sig (Except Issue Nat) := do
