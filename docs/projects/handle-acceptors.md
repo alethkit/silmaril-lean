@@ -216,7 +216,14 @@ async types.
 decode the same call and answer events. Its n-ary and AST writer languages for
 `hintedSepMod` are exactly the atom `[hi]ab` (respectively the corresponding typed leaf)
 for non-UB policies. This exercises the real four-operand import with disjoint hint
-and octet segments. It does not add a hinted cons-writer witness or mixed-kind writers.
+and octet segments.
+
+`Families.Mixed.Examples` runs additional Core exports with checked reply shapes and decodes
+their memory callouts through the family tables. The n-ary traces build a symbol/string list
+and a blob/keyword list; the AST writer accepts the typed image of the symbol/string trace.
+The cons replay calls both `hinted` and `blob` and accepts a two-cell list, retaining the
+head's hint. These are acceptance results for the decoded small-memory replay traces, not
+soundness or completeness over arbitrary Wasm sessions.
 
 ### Reference resource lifecycle
 
@@ -332,9 +339,18 @@ not a scheduling theorem or a Core adapter.
   failed decodes and is not a host. `Own.Session.Replay.accepts_then_traps` instead uses the linked
   checked host for two actual `ownMod` invocations: the first consumes the live slot and accepts
   `res(rep)`; the second diagnoses that slot as dead and traps without erasing the earlier tree
-  or reviving the slot. The proof reads only the written handle bytes, with the rest of memory
-  symbolic. This is a lower bound with a checked negative replay, not the exact checked writer
-  language across arbitrary export sequences.
+  or reviving the slot. `Own.Session.Audit` retains the typed diagnostic at the actual reply
+  in any checked Core session. `instrument` and `erase` relate the whole session in both
+  directions, including export retries; `Audit.reject_then_invoke` records the rejection
+  without changing the reached store or writer. `Replay.audited_accepts_then_traps` checks
+  the exact three answered imports in the two-export replay. That proof reads only the written
+  handle bytes, with the rest of memory symbolic. `Own.Session.Replay.Language.Thms` closes the
+  upper bound for this checked example: a Hoare contract fixes the actual node arguments and
+  handle bytes on every reached import, and the checked writer can only build then accept one
+  tree in an arbitrary export prefix. The language is exactly `{res(rep)}` if slot `1` is live
+  at type `0`, and empty if it is absent, dead or of a different type. Live slots elsewhere
+  are unrestricted. This theorem describes the move-only example, not the reference-machine
+  scheduler's accepted language.
 * Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
   exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
   Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
@@ -348,11 +364,28 @@ not a scheduling theorem or a Core adapter.
   acceptance. The checker rereads `items` after each child call. The invariant tracks the
   denoted prefix, not the memory or the numeric child handles. It traps before any word load
   that would wrap the scaled index or cross the memory32 range; `address_eq` relates the guarded
-  Wasm address to the decoder's natural address. `remaining_decreases` supplies the decreasing
-  measure on a guarded back edge. The interpreter regression checks three distinct handles and
-  overwrites the scratch vector with each child reply. The older `symListMod` and `blobListMod`
-  remain two-child examples. This is not an exact accepted-language or full session-termination
-  result for the looped checkers.
+  Wasm address to the decoder's natural address. `symbols_bounded` and `blobs_bounded` prove
+  that no accepted list exceeds `2 ^ 30` children, even with changing vector bases and without
+  using the size of any particular host memory image as a session invariant.
+  `Loop.Run.accepts_of_plan` uses `remaining_decreases` to build an actual accepting export
+  prefix of either checker for every finite vector with correctly denoting replies. The proof
+  takes the empty vector straight to `accept`, and reloads each repeated handle at its own
+  position without retaining memory across child replies. `compact_reply_plan` constructs
+  that plan with the checked `items` encoder when the header and vector fit and the child reply
+  bytes keep the same memory size. `checkedPageShape_all` and `checker_instance_pages`
+  prove the checked shape and actual specification instance for every memory32 initial
+  page count, including zero and the address-space maximum, without evaluating memory
+  contents. `byte_reply_accepts_pages` needs only a fitting, correctly denoting byte
+  script, not a separately supplied shape or instance proof. The two-page run writes
+  a 65,537-byte reply into its actual memory. This lower bound does not establish
+  equality with the general memory32 upper bound, guest growth, or termination under
+  arbitrary replies. The older `symListMod` and `blobListMod` remain two-child examples.
+  A separate executable growth fixture uses the same loop after a Core prologue that
+  reserves a requested minimum page count. Its validated module starts with one page,
+  traps on refused growth before an import, and retries to accept the blob using the
+  second page. It rejects a request above the memory32 limit without changing bytes
+  and can use its grown store with an oracle that refuses further growth. The fixture
+  is not an arbitrary-export soundness theorem for a growing checker.
 * Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
   `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
   bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness
@@ -381,6 +414,13 @@ examples cover a list's indirect owner and an option's direct owner in the same 
 slot type in an inactive case is rejected before either move, and a corrected retry succeeds.
 Whole-schema validation still rejects stored borrows. The receipts do not by themselves
 authorize a transfer back to a guest or connect the checked Core host to the reference machine.
+
+`OwnedMemory.Conservative.Thms` relates the two checked tree boundaries on primitive
+payloads, including the named `ScalarType` fragment. After receipt erasure, memory
+and flat lifting have the identical effect program, including typed input failures
+and canonical traps. Primitive node construction preserves this equality through the
+arity check and maps arbitrary existing children in order. This is not a conservative
+extension theorem for compound loaders or for an entire Core export session.
 
 `Wit.Stored.OwnedMemory.Claims` registers owner receipts and readable endpoint claims together
 from a freshly lifted root. Held claims, not the accepted observations, authorize a canonical
@@ -621,8 +661,9 @@ and spilled arguments, an indirect async result, equal representations with diff
 owner identities, and cancellation before and after start. The observer alone is not a
 checked storage boundary.
 
-`ComponentCall.hostWithComponent` joins that observer to the public scheduled writer
-through actual `canon lower` Core imports. A linked callee checks the caller's instance,
+Install `ComponentCall.hostWithComponent` to join that observer to the public scheduled
+writer through actual `canon lower` Core imports. The status-pair dispatcher `host`
+does not enable these component callees. A linked callee checks the caller's instance,
 memory width, options, signature, whole storable payload schema and child selection. It
 resolves a typed WIT `result<u32>` error before lifting owners on preflight refusal.
 `ComponentCall.refusal_frame` preserves the instance handle tables, owners, endpoints
@@ -683,7 +724,7 @@ lake build --wfail Silmaril.Semantics.Accept.Handle.Examples Silmaril.Semantics.
   Silmaril.Wasm.Game.HandleAccept.Checkers.RecFull.Thms \
   Silmaril.Wasm.Game.HandleAccept.AcceptVariants.Batch.Examples Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Probe.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.Tab.Thms \
-  Silmaril.Wasm.Game.HandleAccept.Families.Matrix
+  Silmaril.Wasm.Game.HandleAccept.Families.Matrix Silmaril.Wasm.Game.HandleAccept.Families.Mixed.Examples
 scripts/check-layout.sh
 ```
 
