@@ -9,7 +9,7 @@ public import Silmaril.Wasm.Verify.Kernel.Defs
 /-!
 # `chunkRingN cap` meets its chunk specification, for every capacity
 
-Every proof here is generic in the capacity `cap` (`RingCap cap`: `0 < cap ≤ 8192`).
+Every proof here is generic in the capacity `cap` (`RingCap cap` bounds its slots by memory32).
 
 * `ring_shape`: the instance has shape `MShape`: the shape without the body comparison
   (`ring_shapeNB`, `MShape.of_okNB`) and the instantiated code (`ring_code4`, `ring_code5`) are
@@ -77,8 +77,11 @@ theorem RI_eq : RI cap = Verify.instOf (chunkRingN cap) := by
   unfold RI; rfl
 
 /-- The exported functions. -/
-abbrev ringFns : List (List ValType × List Instr × List (Option Val)) :=
-  [([], ringFeedBody cap, []), ([.i32, .i32], ringFinBody cap, [some (.i32 0), some (.i32 0)])]
+abbrev ringFnsWith (preludeCode : List Instr) : List (List ValType × List Instr × List (Option Val)) :=
+  [([], preludeCode ++ ringFeedBody cap, []),
+    ([.i32, .i32], ringFinBody cap, [some (.i32 0), some (.i32 0)])]
+
+abbrev ringFns := ringFnsWith cap []
 
 /-- `fnOkM` without the body comparison. -/
 def fnOkMNB (np nr : Nat) (mf : List Nat) (locals : List ValType) (D : List (Option Val))
@@ -165,24 +168,31 @@ theorem ring_code5 : ((Verify.instOf (chunkRingN cap)).store.funcs[5]?).map Func
     some (.wasm ⟨⟨5⟩, [.i32, .i32], ringFinBody cap⟩) := by
   kernel_rfl
 
-theorem ring_shape : MShape (RI cap) twoFTs chunkFTs (ringFns cap) [0, 1] := by
-  rw [RI_eq]
-  refine MShape.of_okNB (ring_shapeNB cap) fun j hj => ?_
+private theorem ring_shape_of {I : ScalarInstance} {preludeCode : List Instr}
+    (shape : mshapeOkNB I twoFTs chunkFTs (ringFnsWith cap preludeCode) [0, 1] = true)
+    (feed : (I.store.funcs[4]?).map FuncInst.code =
+      some (.wasm ⟨⟨4⟩, [], preludeCode ++ ringFeedBody cap⟩))
+    (finish : (I.store.funcs[5]?).map FuncInst.code =
+      some (.wasm ⟨⟨5⟩, [.i32, .i32], ringFinBody cap⟩)) :
+    MShape I twoFTs chunkFTs (ringFnsWith cap preludeCode) [0, 1] := by
+  refine MShape.of_okNB shape fun j hj => ?_
   match j, hj with
   | 0, _ =>
-    have h := ring_code4 cap
     rw [show twoFTs.length + 0 = 4 from rfl]
-    generalize (Verify.instOf (chunkRingN cap)).store.funcs[4]? = o at h ⊢
+    generalize I.store.funcs[4]? = o at feed ⊢
     rcases o with _ | fi
-    · cases h
-    · exact ⟨fi, _, rfl, Option.some.inj h, rfl⟩
+    · cases feed
+    · exact ⟨fi, _, rfl, Option.some.inj feed, rfl⟩
   | 1, _ =>
-    have h := ring_code5 cap
     rw [show twoFTs.length + 1 = 5 from rfl]
-    generalize (Verify.instOf (chunkRingN cap)).store.funcs[5]? = o at h ⊢
+    generalize I.store.funcs[5]? = o at finish ⊢
     rcases o with _ | fi
-    · cases h
-    · exact ⟨fi, _, rfl, Option.some.inj h, rfl⟩
+    · cases finish
+    · exact ⟨fi, _, rfl, Option.some.inj finish, rfl⟩
+
+theorem ring_shape : MShape (RI cap) twoFTs chunkFTs (ringFns cap) [0, 1] := by
+  rw [RI_eq]
+  exact ring_shape_of cap (ring_shapeNB cap) (ring_code4 cap) (ring_code5 cap)
 
 theorem ring_mems4 : (((RI cap).store.funcs[4]?).map (·.module.mems)) = some [0] := by
   rw [RI_eq]
@@ -207,21 +217,49 @@ theorem ring_size : ((Verify.instOf (chunkRingN cap)).store.mems[0]?).map (·.by
 theorem chunkRingN_instance : (Verify.instance? (chunkRingN cap)).isSome = true := by
   kernel_rfl
 
+@[irreducible] def RIG : ScalarInstance := Verify.instOf (chunkRingGrowing cap)
+
+theorem RIG_eq : RIG cap = Verify.instOf (chunkRingGrowing cap) := by
+  unfold RIG; rfl
+
+theorem growing_shape : MShape (RIG cap) twoFTs chunkFTs (ringFnsWith cap (reserveBody cap)) [0, 1] := by
+  rw [RIG_eq]
+  exact ring_shape_of cap (by kernel_rfl) (by kernel_rfl) (by kernel_rfl)
+
+theorem growing_mems4 : (((RIG cap).store.funcs[4]?).map (·.module.mems)) = some [0] := by
+  rw [RIG_eq]
+  kernel_rfl
+
+theorem growing_mems5 : (((RIG cap).store.funcs[5]?).map (·.module.mems)) = some [0] := by
+  rw [RIG_eq]
+  kernel_rfl
+
+theorem chunkRingGrowing_instance : (Verify.instance? (chunkRingGrowing cap)).isSome = true := by
+  kernel_rfl
+
 end Shape
+
+private theorem ringInvFor_init {I : ScalarInstance} {cap : Nat} (hc : RingCap cap)
+    (first : gval I.store 0 = some (.i32 0)) (count : gval I.store 1 = some (.i32 0))
+    (length : I.store.mems.length = 1)
+    (width : (I.store.mems[0]?).map (·.type.address) = some .i32) : ringInvFor I cap [] I.store := by
+  refine ⟨rfl, 0, 0, first, count, hc.1, rfl, Nat.zero_le _, length, ?_, fun _ hi => absurd hi (Nat.not_lt_zero _)⟩
+  intro mi found
+  rw [found] at width
+  exact Option.some.inj width
 
 theorem ringInv_init {cap : Nat} (hc : RingCap cap) :
     ringInv cap [] (Verify.instOf (chunkRingN cap)).store := by
-  have h0 := ring_gval0 cap
-  have h1 := ring_gval1 cap
-  have hl := ring_memlen cap
-  refine ⟨rfl, 0, 0, h0, h1, ?_, ?_, Nat.zero_le _, hl, fun _ hi => absurd hi (Nat.not_lt_zero _)⟩
-  · exact hc.1
-  · rfl
+  exact ringInvFor_init hc (ring_gval0 cap) (ring_gval1 cap) (ring_memlen cap) (by kernel_rfl)
 
-theorem ringInv_uniq {cap : Nat} {g g' : List (BitVec 64)} {s : Store Nat} (h : ringInv cap g s)
-    (h' : ringInv cap g' s) : g = g' := by
-  obtain ⟨-, st, cnt, h0, h1, -, hc, -, -, hl⟩ := h
-  obtain ⟨-, st', cnt', h0', h1', -, hc', -, -, hl'⟩ := h'
+theorem growingRingInv_init {cap : Nat} (hc : RingCap cap) :
+    growingRingInv cap [] (Verify.instOf (chunkRingGrowing cap)).store := by
+  exact ringInvFor_init hc (by kernel_rfl) (by kernel_rfl) (by kernel_rfl) (by kernel_rfl)
+
+theorem ringInv_uniq {I : ScalarInstance} {cap : Nat} {g g' : List (BitVec 64)} {s : Store Nat}
+    (h : ringInvFor I cap g s) (h' : ringInvFor I cap g' s) : g = g' := by
+  obtain ⟨-, st, cnt, h0, h1, -, hc, -, -, -, hl⟩ := h
+  obtain ⟨-, st', cnt', h0', h1', -, hc', -, -, -, hl'⟩ := h'
   rw [h0] at h0'
   rw [h1] at h1'
   cases h0'
@@ -241,7 +279,7 @@ section Slots
 
 variable {cap : Nat}
 
-theorem capW_toNat (hc : cap ≤ 8192) : (capW cap).toNat = cap := by
+theorem capW_toNat (hc : cap ≤ 536870912) : (capW cap).toNat = cap := by
   simp only [capW, BitVec.toNat_ofNat]
   exact Nat.mod_eq_of_lt (by omega)
 
@@ -418,6 +456,103 @@ theorem setMem_mems {s : Store Nat} {mi : MemInst} (hl : s.mems.length = 1) :
 theorem gval_setMem {s : Store Nat} {mi : MemInst} (a : Nat) :
     gval (s.setMem 0 mi) a = gval s a := rfl
 
+private theorem load_grown {before after : MemInst} {pages addr count : Nat}
+    {value : BitVec (8 * count)} (grown : before.grow? pages = some after)
+    (loaded : Memory.load before.bytes addr count = some value) :
+    Memory.load after.bytes addr count = some value := by
+  have bound : addr + count ≤ before.bytes.size := by
+    by_contra outside
+    simp [Memory.load, Memory.readBytes, outside] at loaded
+  simp only [MemInst.grow?] at grown
+  split at grown
+  · obtain rfl := Option.some.inj grown
+    unfold Memory.load Memory.readBytes at loaded ⊢
+    rw [ite_eq_left bound] at loaded
+    let extension : ByteArray := ⟨Array.replicate (pages * Memory.pageSize) 0⟩
+    have expanded : addr + count ≤ (before.bytes ++ extension).size := by
+      simp only [ByteArray.size_append]
+      omega
+    have sameBytes : (before.bytes ++ extension).extract addr (addr + count) =
+        before.bytes.extract addr (addr + count) := by
+      apply ByteArray.ext
+      refine Array.ext_getElem? fun index => ?_
+      simp only [ByteArray.data_extract, ByteArray.data_append, Array.getElem?_extract,
+        Array.size_append, ByteArray.size_data, Nat.min_eq_left bound,
+        Nat.min_eq_left (by simpa only [ByteArray.size_append] using expanded)]
+      split
+      · rw [Array.getElem?_append_left (by simp only [ByteArray.size_data]; omega)]
+      · rfl
+    change (if addr + count ≤ (before.bytes ++ extension).size then
+      some ((before.bytes ++ extension).extract addr (addr + count)) else none).map
+        (fun bytes => BitVec.ofNat (8 * count) (Memory.decodeLE bytes)) = some value
+    rw [ite_eq_left expanded, sameBytes]
+    exact loaded
+  · cases grown
+
+theorem ringRep_grow {cap pages : Nat} {g : List (BitVec 64)} {s : Store Nat}
+    {st cnt : BitVec 32} {before after : MemInst} (rep : RingRep cap g s st cnt)
+    (mem : s.mems[0]? = some before) (grown : before.grow? pages = some after) :
+    RingRep cap g (s.setMem 0 after) st cnt := by
+  obtain ⟨first, num, start, len, capBound, memLen, width, words⟩ := rep
+  obtain ⟨nextMem, nextLen, _, _⟩ := setMem_mems (mi := after) memLen
+  refine ⟨(gval_setMem 0).trans first, (gval_setMem 1).trans num, start, len, capBound,
+    nextLen, ?_, fun index inside => ⟨after, nextMem, ?_⟩⟩
+  · intro mi found
+    rw [nextMem] at found
+    obtain rfl := Option.some.inj found
+    simp only [MemInst.grow?] at grown
+    split at grown
+    · obtain rfl := Option.some.inj grown
+      exact width before mem
+    · cases grown
+  · obtain ⟨_, lookup, read⟩ := words index inside
+    rw [mem] at lookup
+    cases lookup
+    exact load_grown grown read
+
+theorem reserve_hwp {P : Profile} {host : HostSemantics Nat} {cap : Nat}
+    {g : List (BitVec 64)} {s : Store Nat} {st cnt : BitVec 32} {f : Frame}
+    {memory : MemInst} {tail : List Instr} {Q : Post Nat}
+    (rep : RingRep cap g s st cnt) (lookup : s.mems[0]? = some memory)
+    (addr : f.module.mems = [0]) (width : memory.type.address = .i32)
+    (resume : ∀ current, current.funcs = s.funcs → RingRep cap g current st cnt →
+      HWP P host current f (vals [] ++ expression tail) Q)
+    (traps : ∀ current, current.funcs = s.funcs → RingRep cap g current st cnt → Q current f .trap) :
+    HWP P host s f (vals [] ++ expression (reserveBody cap ++ tail)) Q := by
+  have mem := mem?_of addr lookup
+  refine Wp.memorySize (m := .part) (us := []) (x := ⟨0⟩)
+    (rest := expression (.intConst .i32 (capW (reservePages cap)) ::
+      .intRelOp .i32 (.lt .unsigned) ::
+      .if_ .empty [.intConst .i32 (capW (reservePages cap - 1)), .memoryGrow ⟨0⟩,
+        .intConst .i32 (BitVec.allOnes 32), .intRelOp .i32 .eq,
+        .if_ .empty [.unreachable] []] [] :: tail)) mem ?_
+  have read : addrVal memory.type.address (BitVec.ofNat _ memory.pages) = .i32 (capW memory.pages) := by
+    obtain ⟨⟨_, _⟩, _⟩ := memory
+    cases width
+    rfl
+  rw [read]
+  refine X.i32Const (us := [] ++ [.i32 (capW memory.pages)]) ?_
+  refine X.rel32 (us := []) ?_
+  refine X.if_ (us := []) (fun _ => ?_) (fun _ => resume s rfl rep)
+  refine X.i32Const (us := []) ?_
+  refine Wp.memoryGrow (m := .part) (a := .i32) (us := []) (x := ⟨0⟩)
+    (rest := expression [.intConst .i32 (BitVec.allOnes 32), .intRelOp .i32 .eq,
+      .if_ .empty [.unreachable] []]) mem ?_ ?_
+  · intro grown grows _
+    have rep' := ringRep_grow rep lookup grows
+    have funcs := (setMem_mems (mi := grown) rep.2.2.2.2.2.1).2.2.1
+    refine X.i32Const (us := [] ++ [.i32 (capW memory.pages)]) ?_
+    refine X.rel32 (us := []) ?_
+    refine X.if_ (us := []) (fun _ => ?_) (fun _ => ?_)
+    · exact Wp.unreachable (m := .part) (traps _ funcs rep')
+    · exact X.blockEnd (us := []) (is := tail) (resume _ funcs rep')
+  · intro _
+    refine X.i32Const (us := [] ++ [.i32 (BitVec.allOnes 32)]) ?_
+    refine X.rel32 (us := []) ?_
+    refine X.if_ (us := []) (fun _ => ?_) (fun impossible => ?_)
+    · exact Wp.unreachable (m := .part) (traps s rfl rep)
+    · exact False.elim ((by decide : bool32 true ≠ 0) impossible)
+
 theorem Traps.loop {Q : Post Nat} {s : Store Nat} {Inv : Store Nat → Frame → List Val → Prop}
     (h : Traps Q s) : Traps (loopPost 0 [] Inv Q) s := fun f => ⟨(h f).1, (h f).2⟩
 
@@ -452,26 +587,30 @@ def RingLoop (ρ : Env (BitVec 32) (SExp2 (BitVec 64))) (g : List (BitVec 64)) (
   s = s₀ ∧ ∃ i acc : BitVec 32, f = ⟨[some (.i32 n), some (.i32 i), some (.i32 acc)], mi⟩ ∧
     i.toNat ≤ n.toNat ∧ ρ acc = some (SExp2.ofAtoms ((g.take n.toNat).drop i.toNat))
 
-/-- **`chunkRing` meets its chunk specification** in every environment and every profile. -/
-theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
-    (ρ : Env (BitVec 32) (SExp2 (BitVec 64))) (ppol : PPolicy (BitVec 32)) :
-    SGameSat P (RI cap) (WSpec (RI cap) ρ Set.univ)
-      (chunkSSpec ringPix ppol ρ takeR (ringInv cap)) := by
-  have hS := ring_shape cap
-  refine sgameSat_ofM hS (fun g s h => by rw [RI_eq]; exact h.1) (fun g g' s h h' => ringInv_uniq h h')
+private theorem ringSat {I : ScalarInstance} {cap : Nat} {preludeCode : List Instr}
+    (hcap : RingCap cap) (P : Profile) (ρ : Env (BitVec 32) (SExp2 (BitVec 64)))
+    (ppol : PPolicy (BitVec 32)) (hS : MShape I twoFTs chunkFTs (ringFnsWith cap preludeCode) [0, 1])
+    (mem4 : (I.store.funcs[4]?).map (·.module.mems) = some [0])
+    (mem5 : (I.store.funcs[5]?).map (·.module.mems) = some [0])
+    (prepare : ∀ {s : Store Nat} {g st cnt f Q}, RingRep cap g s st cnt → f.module.mems = [0] →
+      (∀ current, current.funcs = s.funcs → RingRep cap g current st cnt →
+        HWP P (gameHost I (WSpec I ρ Set.univ)) current f (vals [] ++ expression (ringFeedBody cap)) Q) →
+      (∀ current, current.funcs = s.funcs → RingRep cap g current st cnt → Q current f .trap) →
+      HWP P (gameHost I (WSpec I ρ Set.univ)) s f (vals [] ++ expression (preludeCode ++ ringFeedBody cap)) Q) :
+    SGameSat P I (WSpec I ρ Set.univ) (chunkSSpec ringPix ppol ρ takeR (ringInvFor I cap)) := by
+  refine sgameSat_ofM hS (fun g s h => h.1) (fun g g' s h h' => ringInv_uniq h h')
     (fun g e v hv => ⟨fun e' hd => by simp [parseDec, hv] at hd, by
       simp [chunkSSpec, chunkNext, parseDec, hv]⟩)
     fun j fi s args ht g Q hfi hm hmg hinv hT hret => ?_
   obtain ⟨hfs, st, cnt, hrep⟩ := hinv
-  have hfsR : s.funcs = (RI cap).store.funcs := by rw [RI_eq]; exact hfs
-  have hlen : (RI cap).exports.length = 2 := by rw [hS.exports]; rfl
+  have hlen : I.exports.length = 2 := by rw [hS.exports]; rfl
   have hgj := hS.get j
   obtain ⟨j, hj⟩ := j
   have hj2 : j < 2 := hlen ▸ hj
   rcases j with _ | _ | j
   · -- `feed(x)`
     have hFm : fi.module.mems = [0] := by
-      have h4 := ring_mems4 cap
+      have h4 := mem4
       rw [show (twoFTs.length + 0) = 4 from rfl] at hfi
       rw [hfi] at h4
       exact Option.some.inj h4
@@ -481,9 +620,13 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
       rcases ht' with _ | ⟨⟨x, rfl⟩, hnil⟩
       cases hnil
       exact ⟨x, rfl⟩
-    have hinv : ringInv cap g s := ⟨hfs, st, cnt, hrep⟩
-    obtain ⟨h0, h1, hst, hcg, hgc, hml, hld⟩ := hrep
-    show HWP P _ s ⟨[some (.i64 x)], fi.module⟩ (vals [] ++ expression (ringFeedBody cap)) Q
+    show HWP P _ s ⟨[some (.i64 x)], fi.module⟩ (vals [] ++ expression (preludeCode ++ ringFeedBody cap)) Q
+    refine prepare hrep hFm (fun s eqFuncs rep => ?_)
+      (fun current eqFuncs rep => (hT current ⟨eqFuncs.trans hfs, st, cnt, rep⟩ _).1)
+    have hfsCurrent := eqFuncs.trans hfs
+    clear hrep eqFuncs hfs
+    have hinv : ringInvFor I cap g s := ⟨hfsCurrent, st, cnt, rep⟩
+    obtain ⟨h0, h1, hst, hcg, hgc, hml, hwidth, hld⟩ := rep
     simp only [ringFeedBody, ringGuard, slotAddr, List.cons_append, List.nil_append]
     refine X.globalGet (us := []) (x := ⟨1⟩) (a := 1) (by rw [hmg]; rfl) h1 ?_
     refine X.i32Const (us := [] ++ [.i32 cnt]) ?_
@@ -496,12 +639,12 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
         have : cnt.toNat ≠ cap := fun h =>
           hc8 (BitVec.eq_of_toNat_eq (by rw [h, capW_toNat hcap.2]))
         omega
-      have hn : ∀ v : Answer ((RI cap).exports.get ⟨0, hj⟩), v.toResult = .values [] →
-          chunkNext (I := RI cap) ringPix g ⟨⟨0, hj⟩, ⟨[.i64 x], ht⟩⟩ v = g ++ [x] := fun v hv => by
-        simp [chunkNext, rdec_feed (ts := (RI cap).exports) (e := ⟨⟨0, hj⟩, ⟨[.i64 x], ht⟩⟩) rfl rfl
+      have hn : ∀ v : Answer (I.exports.get ⟨0, hj⟩), v.toResult = .values [] →
+          chunkNext (I := I) ringPix g ⟨⟨0, hj⟩, ⟨[.i64 x], ht⟩⟩ v = g ++ [x] := fun v hv => by
+        simp [chunkNext, rdec_feed (ts := I.exports) (e := ⟨⟨0, hj⟩, ⟨[.i64 x], ht⟩⟩) rfl rfl
           (ansVals_of hv), chunkStep]
-      have hpost : ∀ v : Answer ((RI cap).exports.get ⟨0, hj⟩), v.toResult = .values [] →
-          (chunkSSpec (I := RI cap) ringPix ppol ρ takeR (ringInv cap)).post g
+      have hpost : ∀ v : Answer (I.exports.get ⟨0, hj⟩), v.toResult = .values [] →
+          (chunkSSpec (I := I) ringPix ppol ρ takeR (ringInvFor I cap)).post g
             ⟨⟨0, hj⟩, ⟨[.i64 x], ht⟩⟩ v := fun v hv e hd => by
         rw [rdec_feed rfl rfl (ansVals_of hv)] at hd
         cases hd
@@ -526,17 +669,21 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
         (a := 1) (by rw [hmg]; rfl)
         (by rw [gval_setMem, h1]; rfl) ?_
       refine X.return_ (hret _ _ [] (by rw [hgj]; rfl) fun v hv => ⟨hpost v hv, ?_⟩)
-      show ringInv cap (chunkNext (I := RI cap) ringPix g ⟨⟨0, hj⟩, ⟨[.i64 x], ht⟩⟩ v) _
+      show ringInvFor I cap (chunkNext (I := I) ringPix g ⟨⟨0, hj⟩, ⟨[.i64 x], ht⟩⟩ v) _
       rw [hn v hv]
       have haddr := slot_addr hcap hst hlt
       rw [haddr] at hstb
-      refine ⟨by rw [setGlobal_funcs, hfs', hfs], st, cnt + 1, ?_, ?_, hst, ?_, ?_, ?_, ?_⟩
+      refine ⟨by rw [setGlobal_funcs, hfs', hfsCurrent], st, cnt + 1, ?_, ?_, hst, ?_, ?_, ?_, ?_, ?_⟩
       · rw [gval_setGlobal, gval_setMem]; simpa using h0
       · rw [gval_setGlobal, gval_setMem, h1]; rfl
       · rw [cnt_succ hcap hlt, hcg]; simp
       · simp only [List.length_append, List.length_singleton]
         omega
       · rw [setGlobal_mems]; exact hml'
+      · intro memory found
+        rw [setGlobal_mems, hmi'] at found
+        obtain rfl := Option.some.inj found
+        exact hwidth mi hmi
       · intro i hi
         refine ⟨{ mi with bytes := b }, by rw [setGlobal_mems]; exact hmi', ?_⟩
         simp only [List.length_append, List.length_singleton] at hi
@@ -555,7 +702,7 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
           exact Silmaril.Wasm.Logic.Core.load_store_same hstb
   · -- `finish(n)`
     have hFm : fi.module.mems = [0] := by
-      have h5 := ring_mems5 cap
+      have h5 := mem5
       rw [show (twoFTs.length + 1) = 5 from rfl] at hfi
       rw [hfi] at h5
       exact Option.some.inj h5
@@ -565,14 +712,14 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
       rcases ht' with _ | ⟨⟨n, rfl⟩, hnil⟩
       cases hnil
       exact ⟨n, rfl⟩
-    have hinv : ringInv cap g s := ⟨hfs, st, cnt, hrep⟩
+    have hinv : ringInvFor I cap g s := ⟨hfs, st, cnt, hrep⟩
     have hT₀ := hT s hinv
-    obtain ⟨h0, h1, hst, hcg, hgc, hml, hld⟩ := hrep
+    obtain ⟨h0, h1, hst, hcg, hgc, hml, hwidth, hld⟩ := hrep
     -- the returns of `finish(n)`, by their answer
     have hpost : ∀ (u r : BitVec 32) (y : SExp2 (BitVec 64)), ρ r = some y →
         (u.toNat ≤ g.length → y = SExp2.ofAtoms (g.take u.toNat)) →
-        ∀ v : Answer ((RI cap).exports.get ⟨1, hj⟩), v.toResult = .values [.i32 u, .i32 r] →
-        (chunkSSpec (I := RI cap) ringPix ppol ρ takeR (ringInv cap)).post g
+        ∀ v : Answer (I.exports.get ⟨1, hj⟩), v.toResult = .values [.i32 u, .i32 r] →
+        (chunkSSpec (I := I) ringPix ppol ρ takeR (ringInvFor I cap)).post g
           ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩ v := fun u r y hy hu v hv e hd => by
       rw [rdec_finish rfl (ansVals_of hv)] at hd
       cases hd
@@ -582,11 +729,11 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
       cases hy'
       rw [hps] at hl ⊢
       exact hu hl
-    have hnext : ∀ (u r : BitVec 32) (v : Answer ((RI cap).exports.get ⟨1, hj⟩)),
+    have hnext : ∀ (u r : BitVec 32) (v : Answer (I.exports.get ⟨1, hj⟩)),
         v.toResult = .values [.i32 u, .i32 r] →
-        chunkNext (I := RI cap) ringPix g ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩ v =
+        chunkNext (I := I) ringPix g ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩ v =
           chunkStep g (.finish u.toNat r) := fun u r v hv => by
-      simp [chunkNext, rdec_finish (ts := (RI cap).exports) (e := ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩) rfl
+      simp [chunkNext, rdec_finish (ts := I.exports) (e := ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩) rfl
         (ansVals_of hv)]
     show HWP P _ s ⟨[some (.i32 n), some (.i32 0), some (.i32 0)], fi.module⟩
       (vals [] ++ expression (ringFinBody cap)) Q
@@ -599,10 +746,10 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
     refine X.if_ (us := []) (fun _ => ?_) (fun hc => ?_)
     · -- `n > count`: nothing is consumed
       refine X.i32Const (us := []) ?_
-      refine X.wNilM (us := [.i32 0]) hS hfsR hm (Traps.label hT₀) fun r hr => ?_
+      refine X.wNilM (us := [.i32 0]) hS hfs hm (Traps.label hT₀) fun r hr => ?_
       refine X.return_ (hret _ _ [.i32 0, .i32 r] (by rw [hgj]; rfl) fun v hv =>
         ⟨hpost 0 r _ hr (fun _ => by simp [SExp2.ofAtoms, SExp2.ofList]) v hv, ?_⟩)
-      show ringInv cap (chunkNext (I := RI cap) ringPix g ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩ v) _
+      show ringInvFor I cap (chunkNext (I := I) ringPix g ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩ v) _
       rw [hnext 0 r v hv]
       simpa [chunkStep] using hinv
     · have hnc := rel_gtu_z hc
@@ -611,23 +758,23 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
       refine X.if_ (us := []) (fun _ => ?_) (fun hc₀ => ?_)
       · -- `n = 0`: nothing is consumed
         refine X.i32Const (us := []) ?_
-        refine X.wNilM (us := [.i32 0]) hS hfsR hm (Traps.label hT₀) fun r hr => ?_
+        refine X.wNilM (us := [.i32 0]) hS hfs hm (Traps.label hT₀) fun r hr => ?_
         refine X.return_ (hret _ _ [.i32 0, .i32 r] (by rw [hgj]; rfl) fun v hv =>
           ⟨hpost 0 r _ hr (fun _ => by simp [SExp2.ofAtoms, SExp2.ofList]) v hv, ?_⟩)
-        show ringInv cap (chunkNext (I := RI cap) ringPix g ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩ v) _
+        show ringInvFor I cap (chunkNext (I := I) ringPix g ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩ v) _
         rw [hnext 0 r v hv]
         simpa [chunkStep] using hinv
       · -- `0 < n ≤ count`: the loop
         have hn0 := eqz_z hc₀
         have hng : n.toNat ≤ g.length := hcg ▸ hnc
-        refine X.wNilM (us := []) hS hfsR hm hT₀ fun r₀ hr₀ => ?_
+        refine X.wNilM (us := []) hS hfs hm hT₀ fun r₀ hr₀ => ?_
         refine X.localSet (x := ⟨2⟩) (by exact (by decide : (2 : Nat) < 3)) ?_
         refine X.localGet (x := ⟨0⟩) (v := .i32 n) rfl ?_
         refine X.localSet (x := ⟨1⟩) (by exact (by decide : (1 : Nat) < 3)) ?_
         refine HWP.block (us := []) (vs := []) (bt := .empty) (t₁ := []) (t₂ := [])
           (rest := expression [.unreachable]) rfl rfl ?_
-        have hTL : Traps (labelPost P (gameHost (RI cap) (WSpec (RI cap) ρ Set.univ)) 0 [] []
-            (seqPost P (gameHost (RI cap) (WSpec (RI cap) ρ Set.univ)) (expression [.unreachable]) Q)) s :=
+        have hTL : Traps (labelPost P (gameHost I (WSpec I ρ Set.univ)) 0 [] []
+            (seqPost P (gameHost I (WSpec I ρ Set.univ)) (expression [.unreachable]) Q)) s :=
           Traps.label hT₀
         refine X.loop (Inv := RingLoop ρ g n s fi.module)
           (fun s' f hI => ?_) ⟨rfl, n, r₀, rfl, le_rfl, by
@@ -661,16 +808,17 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
           refine X.localGet (x := ⟨2⟩) (v := .i32 acc) rfl ?_
           refine X.return_ (hret _ _ [.i32 n, .i32 acc] (by rw [hgj]; rfl) fun v hv =>
             ⟨hpost n acc _ hacc (fun _ => by simp) v hv, ?_⟩)
-          show ringInv cap (chunkNext (I := RI cap) ringPix g ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩ v) _
+          show ringInvFor I cap (chunkNext (I := I) ringPix g ⟨⟨1, hj⟩, ⟨[.i32 n], ht⟩⟩ v) _
           rw [hnext n acc v hv]
           simp only [chunkStep, hng, ↓reduceIte]
-          refine ⟨by simp [s₁, hfs], (st + n) % capW cap, cnt - n, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+          refine ⟨by simp [s₁, hfs], (st + n) % capW cap, cnt - n, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
           · simp [s₁, gval_setGlobal, h0]
           · simp [s₁, gval_setGlobal, h1]
           · rw [hst']; exact hstl
           · rw [cnt_sub hnc, hcg]; simp
           · simp only [List.length_drop]; omega
           · simpa [s₁] using hml
+          · simpa [s₁] using hwidth
           · intro k hk
             simp only [List.length_drop] at hk
             obtain ⟨mi, hmi, hl⟩ := hld (n.toNat + k) (by omega)
@@ -703,9 +851,9 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
           simp only [i', hip] at hc
           rw [hl₀] at hc
           cases hc
-          refine X.wWordM hS hfsR hm hTo fun a ha => ?_
+          refine X.wWordM hS hfs hm hTo fun a ha => ?_
           refine X.localGet (x := ⟨2⟩) (v := .i32 acc) rfl ?_
-          refine X.wConsM hS hfsR hm ha hacc hTo fun c hc => ?_
+          refine X.wConsM hS hfs hm ha hacc hTo fun c hc => ?_
           refine X.localSet (x := ⟨2⟩) (by exact (by decide : (2 : Nat) < 3)) ?_
           refine X.br0 ⟨[], [], rfl, rfl, rfl, rfl, i', c, rfl, by simp only [i', hip]; omega, ?_⟩
           rw [hc]
@@ -713,6 +861,30 @@ theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
           have hgt : i.toNat ≤ (g.take n.toNat).length := by simp; omega
           rw [ofAtoms_drop_pred hipos hgt, List.getElem_take]
   · omega
+
+/-- The fixed-page ring meets the chunk specification. -/
+theorem chunkRingN_sat {cap : Nat} (hcap : RingCap cap) (P : Profile)
+    (ρ : Env (BitVec 32) (SExp2 (BitVec 64))) (ppol : PPolicy (BitVec 32)) :
+    SGameSat P (RI cap) (WSpec (RI cap) ρ Set.univ)
+      (chunkSSpec ringPix ppol ρ takeR (ringInv cap)) := by
+  have sat := ringSat hcap P ρ ppol (ring_shape cap) (ring_mems4 cap) (ring_mems5 cap)
+    (fun rep _ resume _ => resume _ rfl rep)
+  have same : ringInvFor (RI cap) cap = ringInv cap := by rw [RI_eq]
+  rwa [same] at sat
+
+/-- The growing ring meets the same chunk specification, including on grow refusal. -/
+theorem chunkRingGrowing_satI {cap : Nat} (hcap : RingCap cap) (P : Profile)
+    (ρ : Env (BitVec 32) (SExp2 (BitVec 64))) (ppol : PPolicy (BitVec 32)) :
+    SGameSat P (Verify.instOf (chunkRingGrowing cap))
+      (WSpec (Verify.instOf (chunkRingGrowing cap)) ρ Set.univ)
+      (chunkSSpec ringPix ppol ρ takeR (growingRingInv cap)) := by
+  have sat := ringSat hcap P ρ ppol (growing_shape cap) (growing_mems4 cap) (growing_mems5 cap)
+    (fun {s _ _ _ _ _} rep addr resume traps => by
+      have length := rep.2.2.2.2.2.1
+      obtain ⟨mi, mem⟩ : ∃ mi, s.mems[0]? = some mi :=
+        ⟨s.mems[0]'(by omega), List.getElem?_eq_getElem _⟩
+      exact reserve_hwp rep mem addr (rep.2.2.2.2.2.2.1 mi mem) resume traps)
+  rwa [RIG_eq] at sat
 
 /-- `chunkRingN_sat` at the instance itself. -/
 theorem chunkRingN_satI {cap : Nat} (hcap : RingCap cap) (P : Profile)

@@ -8,8 +8,8 @@ public import Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Take.Defs
 `Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Take.chunkTake` buffers at most two values, in two
 globals. `chunkRingN cap` buffers **up to `cap`** `i64` values in a ring buffer in linear memory
 and, like `chunkTake`, consumes **exactly what is asked for**; `chunkRing` is `chunkRingN 8`. The
-proofs hold for every capacity `RingCap cap` (`0 < cap ≤ 8192`: the `8 * cap` bytes of the buffer
-fit the one page, and no `i32` slot arithmetic overflows). Imports (by `twoIx`): `0 nil`,
+soundness proofs hold for every capacity `RingCap cap` (`0 < cap ≤ 2^29`: slot arithmetic fits
+memory32); the fixed-page module can still trap on a feed outside its one page. Imports (by `twoIx`): `0 nil`,
 `1 cons`, `2 word`, `3 accept` (unused). One memory page; two mutable `i32` globals, initially
 `0`: the start slot `st` (global `0`) and the count `cnt` (global `1`). The buffered values are,
 oldest first, the `i64`s at the byte addresses `8 * ((st + i) mod cap)` for `i < cnt`. Exports:
@@ -45,9 +45,19 @@ open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Formats
 /-- The capacity as an `i32` constant. -/
 def capW (cap : Nat) : BitVec 32 := BitVec.ofNat 32 cap
 
-/-- The capacities proved: at least one value, and the buffer (`8 * cap` bytes) within the one
-memory page. -/
-def RingCap (cap : Nat) : Prop := 0 < cap ∧ cap ≤ 8192
+/-- At least one value, with the last byte of every slot representable in memory32. -/
+def RingCap (cap : Nat) : Prop := 0 < cap ∧ cap ≤ 536870912
+
+/-- Pages needed to address every slot, without computing `8 * cap` in Wasm. -/
+def reservePages (cap : Nat) : Nat := (cap - 1) / 8192 + 1
+
+/-- Reserve the configured capacity on demand from the initial one-page memory. A grow
+failure traps before the feed writes bytes or updates either cursor. -/
+def reserveBody (cap : Nat) : List Instr :=
+  [.memorySize ⟨0⟩, .intConst .i32 (capW (reservePages cap)), .intRelOp .i32 (.lt .unsigned),
+   .if_ .empty
+     [.intConst .i32 (capW (reservePages cap - 1)), .memoryGrow ⟨0⟩,
+      .intConst .i32 (BitVec.allOnes 32), .intRelOp .i32 .eq, .if_ .empty [.unreachable] []] []]
 
 /-- `if cnt = cap then loop forever`. -/
 def ringGuard (cap : Nat) : List Instr :=
@@ -98,6 +108,12 @@ def chunkRingN (cap : Nat) : Module where
   funcs := [⟨⟨4⟩, [], ringFeedBody cap⟩, ⟨⟨5⟩, [.i32, .i32], ringFinBody cap⟩]
   exports := [⟨"feed", .func ⟨4⟩⟩, ⟨"finish", .func ⟨5⟩⟩]
 
+/-- The growing ring has the same imports and exports; only `feed` reserves memory. -/
+def chunkRingGrowing (cap : Nat) : Module :=
+  { chunkRingN cap with
+    funcs := [⟨⟨4⟩, [], reserveBody cap ++ ringFeedBody cap⟩,
+      ⟨⟨5⟩, [.i32, .i32], ringFinBody cap⟩] }
+
 /-- **The eight-value ring buffer.** -/
 abbrev chunkRing : Module := chunkRingN 8
 
@@ -112,11 +128,16 @@ def slot (cap st i : Nat) : Nat := 8 * ((st + i) % cap)
 def RingRep (cap : Nat) (g : List (BitVec 64)) (s : Store Nat) (st cnt : BitVec 32) : Prop :=
   gval s 0 = some (.i32 st) ∧ gval s 1 = some (.i32 cnt) ∧ st.toNat < cap ∧
     cnt.toNat = g.length ∧ g.length ≤ cap ∧ s.mems.length = 1 ∧
+    (∀ mi, s.mems[0]? = some mi → mi.type.address = .i32) ∧
     ∀ i (hi : i < g.length), ∃ mi, s.mems[0]? = some mi ∧
       Execution.Memory.load mi.bytes (slot cap st.toNat i) 8 = some g[i]
 
 /-- **The store invariant**: the store represents the chunk buffer `g`. -/
-def ringInv (cap : Nat) (g : List (BitVec 64)) (s : Store Nat) : Prop :=
-  s.funcs = (Verify.instOf (chunkRingN cap)).store.funcs ∧ ∃ st cnt, RingRep cap g s st cnt
+def ringInvFor (I : ScalarInstance) (cap : Nat) (g : List (BitVec 64)) (s : Store Nat) : Prop :=
+  s.funcs = I.store.funcs ∧ ∃ st cnt, RingRep cap g s st cnt
+
+abbrev ringInv (cap : Nat) := ringInvFor (Verify.instOf (chunkRingN cap)) cap
+
+abbrev growingRingInv (cap : Nat) := ringInvFor (Verify.instOf (chunkRingGrowing cap)) cap
 
 end Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring
