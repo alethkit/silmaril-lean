@@ -11,6 +11,7 @@ open Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game Silmaril.Wasm.Game.IOAccept
   Silmaril.Wasm.Game.HandleAccept.MemSound Silmaril.Formats.Api
 open Silmaril.Wasm.Game.HandleAccept.Memory (MemAtom utf8?)
 open Silmaril.Wasm.Game.HandleAccept.MemSound.Readers (symTextAns blobAns)
+open Silmaril.Formats (SymStrBytesSExp)
 
 /-- The actual executable loop checker variants. -/
 inductive Checker where
@@ -24,6 +25,10 @@ def Checker.imports : Checker → ListImports
 def Checker.decodeChild : Checker → HostReply → BitVec 32 → SxA MemAtom (BitVec 32)
   | .symbols => symTextAns
   | .blobs => blobAns
+
+def Checker.kind : Checker → Set SymStrBytesSExp
+  | .symbols => ListCheck.symbols
+  | .blobs => ListCheck.blobs
 
 /-- The semantic child denoted by the payload, before constructing a Core reply.
 Malformed UTF-8 is not a symbol; all byte sequences are valid blobs. -/

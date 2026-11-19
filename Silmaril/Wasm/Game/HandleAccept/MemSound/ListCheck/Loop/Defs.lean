@@ -33,9 +33,17 @@ def iteration : List Instr :=
 /-- The loop starts with the zero-initialized index in local 1. -/
 def body : List Instr := [.loop .empty iteration]
 
+/-- Initial page count within the memory32 limit. -/
+abbrev InitialPages := { count : Nat // count ≤ 65536 }
+
+def InitialPages.one : InitialPages := ⟨1, by decide⟩
+
+def memoryType (pages : InitialPages) : MemoryType :=
+  ⟨.i32, ⟨⟨pages.val, by have := pages.property; omega⟩, none⟩⟩
+
 /-- Variable-length memory checker with the same three imports as `listMod`. -/
-def mod (ix : ListImports) : Module :=
-  { listMod ix with funcs := [⟨⟨1⟩, [.i32, .i32, .i32], body⟩] }
+def mod (ix : ListImports) (pages : InitialPages := InitialPages.one) : Module :=
+  { listMod ix with memories := [memoryType pages], funcs := [⟨⟨1⟩, [.i32, .i32, .i32], body⟩] }
 
 def listsOf (kind : Set SymStrBytesSExp) : Set SymStrBytesSExp :=
   {tree | ∃ children : List SymStrBytesSExp, (∀ child ∈ children, child ∈ kind) ∧

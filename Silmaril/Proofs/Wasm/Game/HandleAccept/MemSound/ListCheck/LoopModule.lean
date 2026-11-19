@@ -14,10 +14,11 @@ open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game
   Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop
   Silmaril.Accept.Handle Silmaril.Formats Silmaril.Formats.Api Silmaril.Wasm.Logic.Hoare
 open Silmaril.Wasm.Game.HandleAccept.Memory (MemAtom)
+
 open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound in
-def shapeOk (ix : ListImports) : Bool :=
+def shapeOk (ix : ListImports) (pages : InitialPages := InitialPages.one) : Bool :=
   ix.child != ix.items &&
-  match prep (Loop.mod ix) with
+  match prep (Loop.mod ix pages) with
   | some (cfg, start) => start.isNone && cfg.code.isEmpty && cfg.frame.module.mems == [0] &&
       exportFuncAddrs cfg.frame.module == [3] && cfg.store.mems.length == 1 &&
       (match cfg.store.funcs with
@@ -37,12 +38,12 @@ open Silmaril.Proofs.Wasm.Game.HandleAccept.Checkers (X.loop)
 open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck
   (ChildKind listReaderLang_subset symTextAns_kind blobAns_kind)
 
-def StoreInv (ix : ListImports) (store : Store Nat) : Prop :=
-  ∃ cfg start, prep (Loop.mod ix) = some (cfg, start) ∧
+def StoreInv (ix : ListImports) (pages : InitialPages) (store : Store Nat) : Prop :=
+  ∃ cfg start, prep (Loop.mod ix pages) = some (cfg, start) ∧
     store.funcs = cfg.store.funcs ∧ store.mems.length = 1
 
-theorem shape_facts {ix : ListImports} (valid : shapeOk ix = true) {cfg : Config Nat}
-    {start : Option FuncIdx} (prepared : prep (Loop.mod ix) = some (cfg, start)) :
+theorem shape_facts {ix : ListImports} {pages : InitialPages} (valid : shapeOk ix pages = true)
+    {cfg : Config Nat} {start : Option FuncIdx} (prepared : prep (Loop.mod ix pages) = some (cfg, start)) :
     ix.child ≠ ix.items ∧ start = none ∧ cfg.code = [] ∧ cfg.frame.module.mems = [0] ∧
     exportFuncAddrs cfg.frame.module = [3] ∧ cfg.store.mems.length = 1 ∧
     ∃ items child accept check, cfg.store.funcs = [items, child, accept, check] ∧
@@ -63,10 +64,10 @@ theorem shape_facts {ix : ListImports} (valid : shapeOk ix = true) {cfg : Config
     exact ⟨items, child, accept, check, found, okItems, okChild, okAccept, type, okCheck⟩
   · cases funcs
 
-theorem sat (profile : Profile) {ix : ListImports} (valid : shapeOk ix = true)
+theorem sat (profile : Profile) {ix : ListImports} {pages : InitialPages} (valid : shapeOk ix pages = true)
     {ans : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)} {kind : Set SymStrBytesSExp}
     (childKind : ChildKind ans kind) (env : Env (BitVec 32) SymStrBytesSExp) :
-    MemSat profile (Loop.mod ix) 0 (listRoles ix ans) (Contract ix kind env) (StoreInv ix) := by
+    MemSat profile (Loop.mod ix pages) 0 (listRoles ix ans) (Contract ix kind env) (StoreInv ix pages) := by
   intro mt imports config spec
   obtain ⟨cfg, start, prepared, rfl, _, exported⟩ := prep_of_spec spec
   obtain ⟨distinct, rfl, noCode, mems, exports, hasMemory, items, child, accept, check,
@@ -81,11 +82,11 @@ theorem sat (profile : Profile) {ix : ListImports} (valid : shapeOk ix = true)
   obtain rfl : addr = 3 := by simpa using member
   obtain ⟨code, params, results, hasCode, locals, hasBody, expanded, _, noResults, funcs, memory,
     defaultLocals⟩ := fnOk_spec okCheck
-  have stable : ∀ st, StoreInv ix st → st.funcs = cfg.store.funcs := by
+  have stable : ∀ st, StoreInv ix pages st → st.funcs = cfg.store.funcs := by
     rintro st ⟨cfg', start', inst, same, _⟩
     have eqCfg := (Prod.mk.inj (Option.some.inj (inst.symm.trans prepared))).1
     exact same.trans (congrArg (fun cfg : Config Nat => cfg.store.funcs) eqCfg)
-  have atCheck : ∀ st, StoreInv ix st → st.funcs[3]? = some check := fun st inv => by
+  have atCheck : ∀ st, StoreInv ix pages st → st.funcs[3]? = some check := fun st inv => by
     rw [stable st inv, storeFuncs]; rfl
   refine export_valid atCheck hasCode expanded noResults ?_
   intro store args inv typed Q exits
