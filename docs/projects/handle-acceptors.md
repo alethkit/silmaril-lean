@@ -271,7 +271,12 @@ are rejected before any transfer effects.
   indirections and the list limit to child handles. `checked_string_reference` identifies
   UTF-8, UTF-16 and tagged Latin-1/UTF-16 text decoding with the pure canonical range
   loader, including failure. This uses bounded slices and leaves the legacy UTF-8 trace
-  decoder unchanged. Flat arguments, memory64 and asynchronous calls are still rejected.
+  decoder unchanged. The checked path also accepts memory64: `layoutFor_toWit` relates
+  the layouts at both widths, and `checked_string_reference` covers all string modes at
+  both widths. Its memory64 `node` operands use `i64` payload pointer, child pointer and
+  child count; tag, child handles and owning slot indices remain `i32`. Width mismatches,
+  high out-of-bounds pointers and overlong child vectors are rejected without narrowing.
+  Flat arguments and asynchronous calls are still rejected at this Core entry point.
   This is not a proof of interoperability with monadic component-ABI lifting.
   Floats, `char` and single scalars agree with the pure
   reference loaders (`loadVal_f32`, `loadVal_f64`, `loadVal_char`, `loadVal_scalar`); lists,
@@ -312,11 +317,12 @@ are rejected before any transfer effects.
   no sequence of exports resurrects a moved slot in this move-only host. This is a
   session safety contract, not yet a characterization of the accepted tree language,
   and the host does not implement resource allocation or drop.
-* Wasm writer variants: `batchAccept_lang` bounds `batchAccept` by its kept batch `keptL` (the
-  dropped word is never accepted, `batchAccept_drops`), but the lower bound is the run at the
-  fixed argument `3` (`batchAccept_kept`), not every `(w)`; the batch bridge assumes policies
-  without undefined behaviour. `errAccept`, `allAccept`, `readBack` are upper bounds with runs at
-  fixed arguments, not exact languages.
+* Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
+  exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
+  Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
+  witness. `batchAccept_drops` still rules out the dropped words, and the batch bridge still
+  assumes policies without undefined behaviour. `readBack` still has a fixed witness and an
+  upper bound, not an exact language.
 * Families through memory: `MemSound.ListCheck` checks lists of exactly two symbols
   (`symListMod`) or two blobs (`blobListMod`); there is no looped checker for any length (a loop
   computing `ptr + 4i` with `i32` arithmetic wraps modulo `2^32` while the decoder reads at the
@@ -326,6 +332,20 @@ are rejected before any transfer effects.
   every `1 ≤ cap ≤ 8192` (one value: `chunkRingN_relates_7_one`; the one-slot buffer:
   `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`) and for `2 ≤ cap` with two values; capacities
   beyond one page and memory growth (`memory.grow`) are not done.
+
+## Reference component payloads
+
+`Wit.Stored` builds the existing `AST` family over closed WIT types and reference `Val` values.
+Its memory and flat entry points check their ABI preconditions, then run the canonical effect
+programs rather than interpreting an endpoint as a number. A successful lift uses the reference
+arena identity while consuming the guest slot. A later reference trap retains earlier moves.
+Stored borrows and `own` types are rejected recursively before effects: the reference `Val.own`
+alone carries a representation, not the owning identity this tree boundary needs.
+
+`Wit.Stored.Examples` records an `option<future>` from memory and a flat `stream<u8>` as typed
+trees in actual reference-machine runs; a repeated slot traps with no new tree and does not
+resurrect the slot. The examples do not route Core writer imports into component sessions or
+provide a correspondence for their accepted languages.
 
 ## Checking
 
