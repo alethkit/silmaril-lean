@@ -499,9 +499,9 @@ before canonical lower updates ownership. Neither a late table trap nor an alloc
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
-`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records, options,
-variants and results
-with plain data fields, readable endpoints, dynamic endpoint lists and error contexts. It checks
+`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records, tuples,
+options, variants, results, fixed lists and dynamic lists with plain data fields, readable
+endpoints and error contexts. It checks
 the complete schema, allocation preconditions and cross-field aliases before
 any field is written. Fields follow canonical record layout and flat order. A field error identifies
 the path to the failing field; completed fields and any realloc effects remain visible. Reference-machine
@@ -509,8 +509,11 @@ replays cover both outputs, nested padding, inactive unsupported fields, alias a
 rejection, reentrancy and allocator traps. Every sum arm's schema is checked, including inactive
 arms. Only the selected payload allocates or transfers claims; discriminants, payload alignment
 and joined flat slots follow the canonical ABI. An allocator trap retains the written
-discriminants and any allocator effects, but not an unperformed transfer. Other effectful list
-elements and mixed nominal owners still reject.
+discriminants and any allocator effects, but not an unperformed transfer. List elements use
+the canonical element stride, including padding in compound elements. A dynamic list rechecks
+its claims after realloc, before writing any element; a refusal then keeps earlier fields
+and the allocator's effects. The compound-list replay covers a list of tuples containing fixed
+lists of futures. Effectful maps and mixed nominal owners still reject.
 
 ## Checking
 
