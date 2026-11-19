@@ -246,12 +246,15 @@ theorem readFields_cons_map (seg : Nat → Nat → Option (List UInt8)) (q : SPT
         (readFields seg (qs.map SPTy.pty)
           (ABI.alignTo cur (PTy.layout q.pty).alignment + PTy.width q.pty) area).map fun vs =>
             q.toScalarValue x.1 :: SPTy.toScalarValues qs vs := by
-  show Option.map _ ((readVal seg q.pty _).bind _) = _
+  let offset := ABI.alignTo cur (PTy.layout q.pty).alignment
+  change Option.map (SPTy.toScalarValues (q :: qs))
+    ((readVal seg q.pty ((area.drop offset).take (PTy.width q.pty))).bind fun (value, _) =>
+      (readFields seg (qs.map SPTy.pty) (offset + PTy.width q.pty) area).map (value, ·)) = _
   rcases readVal seg q.pty ((area.drop (ABI.alignTo cur (PTy.layout q.pty).alignment)).take
       (PTy.width q.pty)) with _ | ⟨v, r⟩
   · rfl
   · simp only [Option.bind_some]
-    simp only [readFields]
+    simp only [readFields, offset]
     cases readFieldsWith (PayloadReader.legacy seg) (qs.map SPTy.pty)
       (ABI.alignTo cur (PTy.layout q.pty).alignment + PTy.width q.pty) area <;> rfl
 
@@ -394,7 +397,7 @@ theorem readVal_string_loadStringFromRange (mem : ByteArray) {bs rest : List UIn
         (readVal (segOf mem) .string bs).map fun x => (⟨x.1, .utf8, n⟩, x.2)
       else none := by
   have hsz : mem.data.toList.length = mem.size := Array.length_toList
-  simp only [ABI.loadStringFromRange?, ABI.loadRange, readVal, readValWith, PayloadReader.legacy,
+  simp only [ABI.loadStringFromRange?, ABI.loadRange, readVal, readValWith,
     hp, Option.bind_some, hsz,
     ABI.alignTo, ABI.Alignment.bytes, Nat.add_sub_cancel, Nat.div_one, Nat.mul_one, ne_eq,
     not_true_eq_false, ↓reduceIte, gt_iff_lt]

@@ -93,7 +93,7 @@ jobs:
           - group: languages
             tests: wasm_acceptors acceptor_runs wasm_languages languages attention
           - group: corpus-compiler
-            tests: elf logic formal corpus compiler
+            tests: elf logic formal corpus compiler compiler_artifacts
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15

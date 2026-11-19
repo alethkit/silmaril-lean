@@ -7,7 +7,7 @@ CARGO ?= cargo
 PROJECT_TARGET = $(or $(CARGO_TARGET_DIR),tools/silmaril-project/target)
 WASM_TOOLS := wasm-as wasm-dis wasm-opt wasm-merge wasm-shell wasm-ctor-eval wasm-metadce
 
-.PHONY: compiler-explorer-check logic-graph-check lean-ndjson-check tools stage library cache scope check release-check process-check process-gates project-lean project-tool project-registry project-check acceptor-report pages elf-check demo demo-process demo-sha256 help
+.PHONY: compiler-explorer-check compiler-explorer-unit-check compiler-explorer-evidence-check compiler-explorer-serve logic-graph-check lean-ndjson-check tools stage library cache scope check release-check process-check process-gates project-lean project-tool project-registry project-check acceptor-report pages elf-check demo demo-process demo-sha256 help
 
 tools:
 	$(LAKE) build --wfail $(WASM_TOOLS)
@@ -70,8 +70,7 @@ check:
 	$(PYTHON) -I scripts/check-wasm-checkers.py
 	node examples/wasm-checkers/test-lrat.mjs
 	$(PYTHON) -I scripts/check-wasm-sim.py
-	$(PYTHON) -I tools/compiler-explorer/tests/test_cexplorer.py
-	node --test tools/compiler-explorer/tests/view.test.mjs
+	$(if $(filter cexplorer-export CompilesToExamples,$(CHECK_TARGETS)),,$(MAKE) compiler-explorer-unit-check)
 	@if [ -n "$(LAKE_CACHE_RECORD)" ]; then \
 		cov-lake-cache build --repository hiloopai/silmaril-lean --record "$(LAKE_CACHE_RECORD)" -- $(CHECK_TARGETS); \
 	elif [ -n "$(strip $(CHECK_TARGETS))" ]; then \
@@ -126,7 +125,20 @@ lean-ndjson-check:
 # examples/compiler-explorer/expected-status.txt, the database and view tests
 # (docs/projects/compiler-explorer.md).
 compiler-explorer-check:
+	$(MAKE) -j2 compiler-explorer-unit-check compiler-explorer-evidence-check
+
+compiler-explorer-evidence-check:
 	LAKE="$(LAKE)" PYTHON="$(PYTHON)" tools/compiler-explorer/check.sh
+
+compiler-explorer-unit-check:
+	$(PYTHON) -I tools/compiler-explorer/tests/test_cexplorer.py
+	node --test tools/compiler-explorer/tests/view.test.mjs
+
+COMPILER_EXPLORER_DB ?= .lake/compiler-explorer/explorer.sqlite
+compiler-explorer-serve:
+	@mkdir -p "$(dir $(COMPILER_EXPLORER_DB))"
+	$(PYTHON) -I tools/compiler-explorer/cexplorer.py ingest "$(COMPILER_EXPLORER_DB)" examples/compiler-explorer/manifests/*.json
+	$(PYTHON) -I tools/compiler-explorer/cexplorer.py serve "$(COMPILER_EXPLORER_DB)"
 
 # The logic graph's records files: editing a records file
 # rebuilds its loader incrementally (docs/projects/logic-graph.md).
@@ -276,7 +288,8 @@ pages: project-tool
 	# The component-test page reads the binaries, their WAT, the report and the oracle's results.
 	mkdir -p _site/component-tests
 	cp examples/component-tests/*.wasm examples/component-tests/*.wat examples/component-tests/*.json _site/component-tests/
-	$(PYTHON) tools/compiler-explorer/pages.py --project _site/project.sqlite --out _site/compiler
+	$(PYTHON) -I tools/compiler-explorer/fixtures.py viewer --out _site
+	$(PYTHON) -I tools/compiler-explorer/pages.py --project _site/project.sqlite --out _site/compiler
 	# The Wasm component, module and function pages read static files next to the page.
 	lake build wasm-pages
 	.lake/build/bin/wasm-pages silmaril/artifacts.toml _site
@@ -317,6 +330,7 @@ help:
 	@echo 'make check    Build library, tools and proof roots; run native regressions'
 	@echo 'make project-tool   Build sil project (Cargo) and stage it in build/bin'
 	@echo 'make project-registry  Run the sil project checks that need no Lean: init, lock, lint'
+	@echo 'make compiler-explorer-serve  Browse compiler fixtures locally (127.0.0.1:8765)'
 	@echo 'make project-check  Run the sil project self-test: init, lock, lint, dump, check, explore'
 	@echo 'make acceptor-report  Run the Wasm acceptor suites under Wasmtime and write tools/wasm-acceptor-harness/report.json'
 	@echo 'make pages    Write the explorer page and its database to _site (needs the project libraries built)'

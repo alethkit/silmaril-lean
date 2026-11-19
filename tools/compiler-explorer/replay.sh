@@ -8,8 +8,12 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 LAKE="${LAKE:-lake}"
 driver="tools/compiler-explorer/Replay.lean"
-export LEAN_NUM_THREADS="${LEAN_NUM_THREADS:-2}"
+export LEAN_NUM_THREADS=1
 modules=(
+  CompilesToExamples.Explorer.C2C.Runs
+  CompilesToExamples.Explorer.C2C.Elaborates
+  CompilesToExamples.Straight.Proofs.Elaborates
+  CompilesToExamples.Branch.Proofs.Elaborates
   Silmaril.Proofs.Compiler.CompilesTo.Sim.Compose
   Silmaril.Proofs.Compiler.Explorer.Basic
   Silmaril.Proofs.Compiler.Explorer.Det
@@ -19,6 +23,11 @@ modules=(
   CompilesToExamples.Explorer.Code
   CompilesToExamples.Explorer.Decompiled
   CompilesToExamples.Explorer.Rows
+  Silmaril.Proofs.Project.Shapes.CompilesTo.Translate
+  Silmaril.Project.Shapes.C.Additive.Thms
+  Silmaril.Proofs.Compiler.Explorer.Text
+  Silmaril.Compiler.Explorer.Text.Thms
+  CompilesToExamples.Explorer.TypeError
 )
 # Each replay has its own environment. Bound concurrent processes to avoid multiplying
 # Mathlib import memory by the host CPU count; keep a serial mode for small hosts.
