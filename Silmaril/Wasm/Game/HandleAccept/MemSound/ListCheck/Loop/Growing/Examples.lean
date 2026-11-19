@@ -1,6 +1,6 @@
 module
 
-import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Growing.Defs
+import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Growing.Thms
 import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Run.Defs
 import Silmaril.Wasm.SingleThreaded.Exec.Interp
 import Silmaril.Wasm.Verify.Check.Defs
@@ -72,5 +72,44 @@ private def regression : Except String Unit := do
   match regression with
   | .ok () => pure ()
   | .error issue => throw (IO.userError issue)
+
+open Silmaril.Wasm.Game.HandleAccept.MemSound Silmaril.Wasm.Game.HandleAccept.Memory
+  Silmaril.Formats Silmaril.Formats.Api Silmaril.Accept.Handle
+
+private def rawBlob (handle : BitVec 32) : List UInt8 :=
+  if handle = 42 then [0, 1, 255] else largeBytes
+
+private def blob (handle : BitVec 32) : MemAtom := ⟨.bytes, by decide, rawBlob handle⟩
+
+private def tree : SymStrBytesSExp := SExp.ofList [.atom (blob 41), .atom (blob 42), .atom (blob 41)]
+
+private def named : Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp :=
+  fun handle => if handle = 7 then some tree else some (.atom (blob handle))
+
+theorem blob_reply_requires_growth : 65536 < 8 + (rawBlob 41).length := by
+  rw [rawBlob, ite_eq_right (by decide : (41 : BitVec 32) ≠ 42), largeBytes, List.length_replicate]
+  decide
+
+theorem mixed_blobs_accept_after_growth (policy : OnInvalid) :
+    tree ∈ ListCheck.listReaderLang (.deterministic fun _ _ _ _ => false) (ReplyEnvs Growing.reply) 0
+      (Growing.mod Checker.blobs.imports InitialPages.one) Checker.blobs.imports Checker.blobs.decodeChild
+      .trap policy {named} := by
+  refine byte_reply_accepts (profile := .deterministic fun _ _ _ _ => false)
+    .blobs InitialPages.one ⟨2, by decide⟩ (fun _ => rfl) policy
+    (rho := named) (Set.mem_singleton _) (root := 7) (handles := [41, 42, 41]) (by decide) rawBlob
+    ?_ rfl (.cons rfl (.cons rfl (.cons rfl .nil))) ?_
+  · intro handle _
+    change 8 + (rawBlob handle).length ≤ 131072
+    unfold rawBlob
+    split
+    · decide
+    · rw [largeBytes, List.length_replicate]
+      decide
+  · intro handle member
+    have notRoot : handle ≠ 7 := by
+      intro equal
+      subst handle
+      exact (by decide : (7 : BitVec 32) ∉ [41, 42, 41]) member
+    exact ⟨blob handle, rfl, by simp only [named, ite_eq_right notRoot]⟩
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Growing.Examples
