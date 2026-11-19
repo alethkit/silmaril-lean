@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Publication.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Defs
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Thms
 
 public section
 
@@ -9,7 +10,7 @@ namespace Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.Publicat
 
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored
   Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims
-  Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled
+  Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled Silmaril.Wasm.Component.Runtime
 
 private theorem register_preserves {sig : Signature} {before after : State sig} {tree : OwnedMemory.Tree sig}
     (registered : before.register tree = .ok after) (unique : before.publishedOwners.Nodup) :
@@ -44,5 +45,53 @@ theorem run_preserves {sig : Signature} {before after : State sig} (run : Writer
     | same => exact unique
     | publish _ registered => exact register_preserves registered unique
     | spend update => cases update <;> exact unique
+
+theorem run_backed {sig : Signature} {before after : State sig} (run : WriterRun before after)
+    (backed : before.ClaimsBacked) : after.ClaimsBacked := by
+  induction run with
+  | refl => exact backed
+  | cons step _ ih =>
+    apply ih
+    cases step with
+    | same => exact backed
+    | publish tree registered =>
+      have claims := register_claims registered
+      unfold State.ClaimsBacked
+      rw [claims.1, claims.2.1, List.flatMap_cons]
+      exact (List.Sublist.refl (rootReceipts tree)).append backed
+    | spend update =>
+      cases update with
+      | owner => exact List.filter_sublist.trans backed
+      | endpoint => exact backed
+
+theorem prepared_from_history {sig : Signature} {state spent : State sig}
+    {resource : RtId} {id : HandleObjId} {representation : Nat}
+    (backed : state.ClaimsBacked) (success : state.prepare resource id = .ok (representation, spent)) :
+    ∃ tree ∈ state.accepted, ∃ receipt ∈ rootReceipts tree,
+      receiptId receipt = id ∧ receipt.1 = resource ∧ receipt.2.representation = representation := by
+  obtain ⟨receipt, live, origin⟩ := prepare_provenance success
+  obtain ⟨tree, accepted, captured⟩ := List.mem_flatMap.mp (backed.subset live)
+  exact ⟨tree, accepted, receipt, captured, origin⟩
+
+theorem prepared_retires {sig : Signature} {state spent : State sig}
+    {resource : RtId} {id : HandleObjId} {representation : Nat}
+    (backed : state.ClaimsBacked) (success : state.prepare resource id = .ok (representation, spent)) :
+    spent.retiredOwner id := by
+  obtain ⟨receipt, live, same, _, _⟩ := prepare_provenance success
+  obtain ⟨history, remaining⟩ := prepare_spends success
+  refine ⟨?_, ?_⟩
+  · rw [history]
+    exact List.mem_map.mpr ⟨receipt, backed.subset live, same⟩
+  · intro member
+    obtain ⟨entry, held, equal⟩ := List.mem_map.mp member
+    exact ((remaining entry).mp held).2 equal
+
+theorem retired_refuses {sig : Signature} {state : State sig} {id : HandleObjId}
+    (retired : state.retiredOwner id) (resource : RtId) :
+    state.prepare resource id = .error .unclaimed := by
+  have absent : state.held.find? (fun entry => receiptId entry == id) = none :=
+    List.find?_eq_none.mpr fun receipt member equal =>
+      retired.2 (List.mem_map.mpr ⟨receipt, member, beq_iff_eq.mp equal⟩)
+  simp [State.prepare, absent]
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.Publication
