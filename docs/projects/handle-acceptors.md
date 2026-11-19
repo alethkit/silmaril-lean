@@ -409,6 +409,13 @@ slot type in an inactive case is rejected before either move, and a corrected re
 Whole-schema validation still rejects stored borrows. The receipts do not by themselves
 authorize a transfer back to a guest or connect the checked Core host to the reference machine.
 
+`OwnedMemory.Conservative.Thms` relates the two checked tree boundaries on primitive
+payloads, including the named `ScalarType` fragment. After receipt erasure, memory
+and flat lifting have the identical effect program, including typed input failures
+and canonical traps. Primitive node construction preserves this equality through the
+arity check and maps arbitrary existing children in order. This is not a conservative
+extension theorem for compound loaders or for an entire Core export session.
+
 `Wit.Stored.OwnedMemory.Claims` registers owner receipts and readable endpoint claims together
 from a freshly lifted root. Held claims, not the accepted observations, authorize a canonical
 `lower_own`, destructor request or endpoint transfer. `give` commits spending after insertion
