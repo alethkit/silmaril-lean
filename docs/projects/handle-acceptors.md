@@ -380,12 +380,16 @@ not a scheduling theorem or a Core adapter.
   a 65,537-byte reply into its actual memory. This lower bound does not establish
   equality with the general memory32 upper bound, guest growth, or termination under
   arbitrary replies. The older `symListMod` and `blobListMod` remain two-child examples.
-  A separate executable growth fixture uses the same loop after a Core prologue that
-  reserves a requested minimum page count. Its validated module starts with one page,
-  traps on refused growth before an import, and retries to accept the blob using the
-  second page. It rejects a request above the memory32 limit without changing bytes
-  and can use its grown store with an oracle that refuses further growth. The fixture
-  is not an arbitrary-export soundness theorem for a growing checker.
+  `Loop.Growing.mod` runs the same loop after a Core prologue that reserves a requested
+  minimum page count. `Growing.validates` covers both variants at every legal initial
+  page count. `Growing.reserve_hwp` sends refusal to a trap in the unchanged store before
+  any import. Otherwise the loop runs with the requested minimum and a reset index.
+  `Growing.bounded` proves the same word-bound result over arbitrary export prefixes
+  for a host that preserves the address width and bounded page count; the checked in-place
+  byte reply host meets that contract. The executable regression retries from refused
+  growth, reads mixed-size and repeated blobs using the second page, rejects a request
+  above memory32, and reuses the grown store without requesting more growth. This upper
+  bound does not yet give an accepting-run theorem for every fitting script with growth.
 * Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
   `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
   bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness
