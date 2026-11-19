@@ -31,11 +31,28 @@ after a move even though the corresponding reference slot has been cleared. -/
 def Matches {E : CoreEngine} (table : RT) (store : CStore E) (inst : InstId) : Prop :=
   ∀ resource slot, table.lookup resource slot = (snapshot store inst).lookup resource slot
 
+/-- Every reserved slot has a live typed lookup in the pre-commit table. -/
+def LiveSlots (table : RT) (slots : List (BitVec 32)) : Prop :=
+  ∀ slot ∈ slots, ∃ resource rep, table.lookup resource slot = some rep
+
 /-- The typed witness available before a move. No table or arena effects occur here. -/
 def ownerAt {E : CoreEngine} (store : CStore E) (inst : InstId) (resource : RtId)
     (slot : BitVec 32) : Option (Resources.Owned resource) := do
   let (identity, handle) ← atSlot store inst slot
   guard (handle.rt == resource && handle.own && handle.numLends == 0)
   return ⟨identity, handle.rep⟩
+
+/-- An ordered replay of the actual canonical ownership moves for a checked commit.
+The trace retains the nominal type and arena handle object, not just the representation. -/
+inductive Commit {E : CoreEngine} (limits : Component.Limits) (cx : LiftLowerContext E) :
+    CStore E → List (BitVec 32) → List (Sigma Resources.Owned) → CStore E → Prop where
+  | nil (store : CStore E) : Commit limits cx store [] [] store
+  | cons {store updated final : CStore E} {slot : BitVec 32} {tail : List (BitVec 32)}
+      {resource : RtId} {owner : Resources.Owned resource} {owners : List (Sigma Resources.Owned)}
+      (observed : ownerAt store cx.inst resource slot = some owner)
+      (taken : Stored.Endpoints.Core.runLocal (Resources.take limits cx resource slot.toNat) store =
+        (updated, .ok owner))
+      (rest : Commit limits cx updated tail owners final) :
+      Commit limits cx store (slot :: tail) (⟨resource, owner⟩ :: owners) final
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.ReferenceTable
