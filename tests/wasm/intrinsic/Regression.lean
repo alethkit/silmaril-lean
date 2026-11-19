@@ -1,0 +1,48 @@
+module
+
+public import Example
+public import RawExample
+
+namespace WasmIntrinsicRegression
+
+open Silmaril.Wasm.Validation WasmIntrinsicExample
+open WasmRawExample (raw)
+
+wasm_prove_erasure erased : intrinsic => raw
+
+theorem rawTyped : ModuleOk raw interface := erased ▸ intrinsic.sound
+
+example : (validate? raw).isSome = true := by decide +kernel
+
+example : (Intrinsic.Module.equiv interface) ((Intrinsic.Module.equiv interface).symm ⟨raw, rawTyped⟩) =
+    ⟨raw, rawTyped⟩ := (Intrinsic.Module.equiv interface).apply_symm_apply _
+
+example : ∃ lifted : Intrinsic.Module interface, lifted.erase = raw := Intrinsic.Module.lift_erase rawTyped
+
+example : True := by
+  fail_if_success
+    let _bad : Intrinsic.Step {} (.plain [] [.i32]) := .localGet ⟨zero, rfl⟩
+  trivial
+
+private def explicitNil : Intrinsic.Body bodyCtx (.plain [] []) := .nil
+private def framedNil : Intrinsic.Body bodyCtx (.plain [] []) :=
+  .frame (stackPrefix := []) .nil (by simp [ResultOk])
+
+private def isFrame {context sig} : Intrinsic.Body context sig → Bool
+  | .frame .. => true
+  | _ => false
+
+example : explicitNil.erase = framedNil.erase := rfl
+example : explicitNil ≠ framedNil := by
+  intro eq
+  have impossible : false = true := congrArg isFrame eq
+  cases impossible
+
+set_option pp.width 240
+
+#print axioms erased
+#print axioms rawTyped
+#print axioms Intrinsic.Function.equiv
+#print axioms Intrinsic.Module.equiv
+
+end WasmIntrinsicRegression
