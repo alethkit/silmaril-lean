@@ -448,6 +448,16 @@ copy, poll, owner drop, both endpoint drops, and a stale read. The future has it
 copy ABI and completion payload, independent of the stream count. Neither replay states an
 exact accepted language for arbitrary exports or replaces the earlier trap-returning ABI.
 
+The mixed owner/endpoint dispatcher `Wit.Stored.OwnedMemory.Claims.Core.Scheduled` records
+each import's signature and arguments under a fresh ticket before dispatch. Status returns and
+typed refusals record the same ticket; an invalid binding records a diagnostic before its
+reference trap. A canonical destructor trap keeps the prior journal and does not manufacture
+a status return. `extends_of_session` proves append-only history for arbitrary ordinary
+reference-machine sessions, and `extends_of_steps` also permits host programs preserving the
+same policy. The reentrant destructor replay checks exact journal order in both successful and
+trapping runs. Journal preservation alone does not prove claim conservation or an exact
+accepted payload language across all scheduled calls.
+
 `Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
 immutable arena object exists in the current reference store. Unlike endpoint handoff, this
 does not spend a claim. A verified session lifts an `option<error-context>`, drops the original

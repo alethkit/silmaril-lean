@@ -22,9 +22,45 @@ inductive Issue where
   | badSelection
   deriving DecidableEq, Repr
 
+/-- Import tickets distinguish reentrant calls to the same binding. A canonical trap is
+observed in the machine's labels; the started call has no status return in this journal. -/
+inductive Event where
+  | entered (ticket : Nat) (name : String) (type : V1.FuncType) (args : List FlatValue)
+  | returned (ticket : Nat) (value : Nat)
+  | refused (ticket : Nat) (issue : Issue)
+  | bindingTrap (ticket : Nat) (issue : Issue)
+  deriving BEq
+
 structure HostState (sig : Signature) where
   writer : State sig := {}
-  refusals : List Issue := []
+  nextTicket : Nat := 0
+  newestFirst : List Event := []
+
+variable {sig : Signature}
+
+def HostState.transcript (state : HostState sig) : List Event := state.newestFirst.reverse
+
+def HostState.refusals (state : HostState sig) : List Issue :=
+  state.newestFirst.filterMap fun
+    | .refused _ issue | .bindingTrap _ issue => some issue
+    | _ => none
+
+def HostState.enter (state : HostState sig) (name : String) (type : V1.FuncType)
+    (args : List FlatValue) : HostState sig :=
+  { state with
+    nextTicket := state.nextTicket + 1
+    newestFirst := .entered state.nextTicket name type args :: state.newestFirst }
+
+def HostState.record (state : HostState sig) (event : Event) : HostState sig :=
+  { state with newestFirst := event :: state.newestFirst }
+
+def completion (ticket : Nat) : Except Issue Nat → Event × List FlatValue
+  | .ok value => (.returned ticket value, [i32Flat 0, i32Flat value])
+  | .error issue => (.refused ticket issue, [i32Flat 1, i32Flat 0])
+
+/-- The journal is append-only; neither a callback nor a trap can roll back its entries. -/
+def Extends (before after : HostState sig) : Prop :=
+  before.transcript <+: after.transcript ∧ before.nextTicket ≤ after.nextTicket
 
 abbrev Session (grow : SingleThreaded.GrowOracle) (sig : Signature) (Result : Type) :=
   P (core3 grow) (HostState sig) Result
@@ -42,7 +78,7 @@ structure Binding (sig : Signature) where
   inst : InstId
   action : Action sig
 
-variable {sig : Signature} {grow : SingleThreaded.GrowOracle}
+variable {grow : SingleThreaded.GrowOracle}
 
 def Binding.accept (contract : Contract sig) (linked : ModuleInst) (memoryIndex : Nat) : Binding sig :=
   ⟨contract.name.2, contract.inst, .accept contract linked.mems[memoryIndex]?⟩
@@ -52,13 +88,10 @@ def Binding.type (binding : Binding sig) : V1.FuncType :=
   | .accept contract _ => Endpoints.Core.Scheduled.acceptType contract
   | _ => Endpoints.Core.Scheduled.giveType
 
-def finish (result : Except Issue Nat) : Session grow sig (List FlatValue) := do
-  match result with
-  | .ok value => return [i32Flat 0, i32Flat value]
-  | .error issue =>
-    let state ← hostGet
-    hostSet { state with refusals := issue :: state.refusals }
-    return [i32Flat 1, i32Flat 0]
+def finish (ticket : Nat) (result : Except Issue Nat) : Session grow sig (List FlatValue) := do
+  let (event, flat) := completion ticket result
+  hostSet ((← hostGet).record event)
+  return flat
 
 def accept (contract : Contract sig) (memory : Option Nat) (args : List FlatValue) :
     Session grow sig (Except Issue Nat) := do
@@ -67,7 +100,7 @@ def accept (contract : Contract sig) (memory : Option Nat) (args : List FlatValu
   let call := Endpoints.Core.Scheduled.nodeCall contract reference args
   let (updated, result) := attempt contract memory ⟨reference, state.writer⟩ call
   modifyStore fun _ => updated.reference
-  hostSet { state with writer := updated.writer }
+  hostSet { (← hostGet) with writer := updated.writer }
   return result.mapError .accept |>.map BitVec.toNat
 
 def select (handle : BitVec 32) : Session grow sig (Option (Tree sig)) := do
@@ -108,18 +141,24 @@ def invoke (binding : Binding sig) (args : List FlatValue) : Session grow sig (E
     let some id := (rootEndpoints tree)[position]? | return .error .badSelection
     return (← claims.giveEndpoint Limits.spec cx channel element ⟨id⟩).mapError .claim
 
-def rejectBinding (issue : Issue) : Session grow sig (List FlatValue) := do
-  let _ ← finish (.error issue)
+def rejectBinding (ticket : Nat) (issue : Issue) : Session grow sig (List FlatValue) := do
+  hostSet ((← hostGet).record (.bindingTrap ticket issue))
   trap (.hostTrap "invalid mixed acceptor import binding")
+
+def route (ticket : Nat) (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
+    (args : List FlatValue) : Session grow sig (List FlatValue) := do
+  match bindings.filter (·.name == name) with
+  | [] => rejectBinding ticket .unlinkedImport
+  | [binding] =>
+    if type != binding.type then return ← rejectBinding ticket .wrongType
+    finish ticket (← invoke binding args)
+  | _ => rejectBinding ticket .ambiguousBinding
 
 def dispatchImport (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
     (args : List FlatValue) : Session grow sig (List FlatValue) := do
-  match bindings.filter (·.name == name) with
-  | [] => rejectBinding .unlinkedImport
-  | [binding] =>
-    if type != binding.type then return ← rejectBinding .wrongType
-    finish (← invoke binding args)
-  | _ => rejectBinding .ambiguousBinding
+  let state ← hostGet
+  hostSet (state.enter name type args)
+  route state.nextTicket bindings name type args
 
 def host (bindings : List (Binding sig)) : HostImpl (core3 grow) (HostState sig) :=
   { HostImpl.none with embedder := dispatchImport bindings }
