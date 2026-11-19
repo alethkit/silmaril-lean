@@ -69,12 +69,18 @@ def slotAddr (cap : Nat) : List Instr :=
   [.intBinOp .i32 .add, .intConst .i32 (capW cap), .intBinOp .i32 (.rem .unsigned),
    .intConst .i32 8, .intBinOp .i32 .mul]
 
-/-- The body of `feed(x)`. -/
-def ringFeedBody (cap : Nat) : List Instr :=
-  ringGuard cap ++
+/-- Append the value and advance the count after capacity and allocation checks. -/
+def ringWriteBody (cap : Nat) : List Instr :=
   [.globalGet ⟨0⟩, .globalGet ⟨1⟩] ++ slotAddr cap ++
   [.localGet ⟨0⟩, .intStore .i64 none ⟨0⟩ ⟨0, 0⟩,
    .globalGet ⟨1⟩, .intConst .i32 1, .intBinOp .i32 .add, .globalSet ⟨1⟩, .return_]
+
+/-- Refuse a full feed before touching even the allocation path. -/
+def ringFeedWith (cap : Nat) (reservation : List Instr) : List Instr :=
+  ringGuard cap ++ reservation ++ ringWriteBody cap
+
+/-- The fixed-page body of `feed(x)`. -/
+def ringFeedBody (cap : Nat) : List Instr := ringFeedWith cap []
 
 /-- The loop of `finish(n)`: locals `0 n`, `1 i` (values still to add), `2 acc` (the list of
 the buffered values `i … n - 1`). -/
@@ -111,7 +117,7 @@ def chunkRingN (cap : Nat) : Module where
 /-- The growing ring has the same imports and exports; only `feed` reserves memory. -/
 def chunkRingGrowing (cap : Nat) : Module :=
   { chunkRingN cap with
-    funcs := [⟨⟨4⟩, [], reserveBody cap ++ ringFeedBody cap⟩,
+    funcs := [⟨⟨4⟩, [], ringFeedWith cap (reserveBody cap)⟩,
       ⟨⟨5⟩, [.i32, .i32], ringFinBody cap⟩] }
 
 /-- **The eight-value ring buffer.** -/

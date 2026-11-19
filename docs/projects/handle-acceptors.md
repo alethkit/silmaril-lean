@@ -389,8 +389,10 @@ not a scheduling theorem or a Core adapter.
 * Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
   `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
   bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness
-  proof. Growth refusal and a full buffer trap before writes or cursor updates and keep
-  the logical buffer. The executable regression retries after grow refusal, fills 8193
+  proof. The full-buffer guard precedes reservation; `chunkRingGrowing_feed_full`
+  in `Ring.Progress.Thms` takes the actual export to a call-local trap in finitely many
+  Core steps, without allocation, host calls, or any store change. Growth refusal
+  also traps before buffer writes or cursor updates. The executable regression retries after grow refusal, fills 8193
   slots, rejects the next feed, finishes a chunk, and retries in the freed slot.
   This is not exact acceptance or a whole-session termination theorem; progress also
   depends on available memory, the writer responses, and the execution profile.
