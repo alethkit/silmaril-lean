@@ -471,17 +471,18 @@ before canonical lower updates ownership. Neither a late table trap nor an alloc
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
-`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records and options
+`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records, options,
+variants and results
 with plain data fields, readable endpoints, dynamic endpoint lists and error contexts. It checks
 the complete schema, allocation preconditions and cross-field aliases before
 any field is written. Fields follow canonical record layout and flat order. A field error identifies
 the path to the failing field; completed fields and any realloc effects remain visible. Reference-machine
 replays cover both outputs, nested padding, inactive unsupported fields, alias and missing-context
-rejection, reentrancy and allocator traps. An empty option checks its full element schema but
-does not allocate; a present option reuses canonical discriminant layout and flat slot coercion.
-An allocator trap retains the written discriminant and any allocator effects, but not an
-unperformed transfer. General variants, other effectful list elements and mixed nominal owners
-still reject.
+rejection, reentrancy and allocator traps. Every sum arm's schema is checked, including inactive
+arms. Only the selected payload allocates or transfers claims; discriminants, payload alignment
+and joined flat slots follow the canonical ABI. An allocator trap retains the written
+discriminants and any allocator effects, but not an unperformed transfer. Other effectful list
+elements and mixed nominal owners still reject.
 
 ## Checking
 
