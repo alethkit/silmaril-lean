@@ -41,6 +41,11 @@ theorem exists_full_of_accessible {root : Name} (accessible : Acc (Depends store
     ∃ target, FullNames store root target :=
   Proofs.Formats.Dasl.exists_full_of_accessible accessible present closed
 
+/-- A finite full expansion in a binding store rules out reachable object-reference cycles. -/
+theorem FullNames.accessible (bound : store.Binding) {root : Name} {target : Named Name}
+    (full : FullNames store root target) : Acc (Depends store) root :=
+  Proofs.Formats.Dasl.full_accessible bound full
+
 /-- Complete in a supplied binding extension, without dropping any old bindings. The
 extension must be justified separately by any wire validity and hash policy. -/
 theorem completion_in_extension {base : Store Name} {root : Name} (preserves : base.Subset store)
