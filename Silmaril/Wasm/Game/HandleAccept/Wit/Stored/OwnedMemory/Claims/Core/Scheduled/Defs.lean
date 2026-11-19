@@ -2,6 +2,8 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core.Scheduled.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Defs
+public import Silmaril.Wasm.Component.Reference.Validation.CanonOpts.Defs
 
 @[expose] public section
 
@@ -9,12 +11,16 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Sch
 
 open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
   Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Execution.Core
+open Silmaril.Wasm.Component.ABI (StringEncoding)
 open Silmaril.Wasm.Game.HandleAccept.Wit.Async (Channel Element Channel.endKind)
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core (Contract)
 
 inductive Issue where
   | accept (issue : Core.Issue)
   | claim (issue : Claims.Issue)
+  | lowerRecord (issue : Endpoints.RecordLower.Issue)
+  | badLoweringMemory
+  | badLoweringRealloc
   | wrongContext
   | wrongType
   | unlinkedImport
@@ -82,6 +88,22 @@ def CheckedWrite (before after : HostState sig) : Prop :=
 abbrev Session (grow : SingleThreaded.GrowOracle) (sig : Signature) (Result : Type) :=
   P (core3 grow) (HostState sig) Result
 
+structure RecordDestination where
+  memory : Nat
+  width : AddrType
+  realloc : Option Nat := none
+  encoding : StringEncoding := .utf8
+
+def RecordDestination.check {grow : SingleThreaded.GrowOracle} (destination : RecordDestination)
+    (reference : CStore (core3 grow)) :
+    Except Issue Unit := do
+  if (core3 grow).memAddrType? reference.core destination.memory != some destination.width then
+    throw .badLoweringMemory
+  if let some realloc := destination.realloc then
+    let type := ((core3 grow).funcType? reference.core realloc).bind (core3 grow).flatType?
+    if type != some (Silmaril.Wasm.Component.Validation.reallocType destination.width) then
+      throw .badLoweringRealloc
+
 /-- Import capabilities fix the destination and nominal type at link time. Core passes
 an accepted tree index and a position within that root's observations, never an arena ID. -/
 inductive Action (sig : Signature) where
@@ -89,6 +111,7 @@ inductive Action (sig : Signature) where
   | giveOwner (resource : RtId)
   | dropOwner (resource : RtId)
   | giveEndpoint (channel : Channel) (element : Element)
+  | giveRecord (destination : RecordDestination)
 
 structure Binding (sig : Signature) where
   name : String
@@ -100,9 +123,17 @@ variable {grow : SingleThreaded.GrowOracle}
 def Binding.accept (contract : Contract sig) (linked : ModuleInst) (memoryIndex : Nat) : Binding sig :=
   ⟨contract.name.2, contract.inst, .accept contract linked.mems[memoryIndex]?⟩
 
+def Binding.giveRecord (name : String) (inst : InstId) (linked : ModuleInst) (memoryIndex : Nat)
+    (width : AddrType) (encoding : StringEncoding) (reallocIndex : Option Nat := none) :
+    Except Issue (Binding sig) := do
+  let some memory := linked.mems[memoryIndex]? | throw .badLoweringMemory
+  let some realloc := reallocIndex.mapM (fun index => linked.funcs[index]?) | throw .badLoweringRealloc
+  return ⟨name, inst, .giveRecord ⟨memory, width, realloc, encoding⟩⟩
+
 def Binding.type (binding : Binding sig) : V1.FuncType :=
   match binding.action with
   | .accept contract _ => Endpoints.Core.Scheduled.acceptType contract
+  | .giveRecord destination => ⟨[.int .i32, ABI.pointerType destination.width], [.int .i32, .int .i32]⟩
   | _ => Endpoints.Core.Scheduled.giveType
 
 def finish (ticket : Nat) (result : Except Issue Nat) : Session grow sig (List FlatValue) := do
@@ -140,6 +171,23 @@ def claims : Access (core3 grow) (HostState sig) sig where
     let current ← hostGet
     hostSet { current with writer := update.apply current.writer }
 
+def recordClaims : Record.Access (core3 grow) (HostState sig) sig where
+  read := claims.read
+  spendOwner id := claims.spend (.owner id)
+  spendEndpoint id := claims.spend (.endpoint id)
+
+def giveRecord (inst : InstId) (destination : RecordDestination) (args : List FlatValue) :
+    Session grow sig (Except Issue Nat) := do
+  let [.int .i32 handle, pointer] := args | return .error .wrongType
+  if Stored.flatType pointer != ABI.pointerType destination.width then return .error .wrongType
+  if let .error issue := destination.check (← getStore) then return .error issue
+  let some tree ← select handle | return .error .badSelection
+  let cx : LiftLowerContext (core3 grow) :=
+    { inst
+      opts := { memory := some destination.memory, realloc := destination.realloc, encoding := destination.encoding } }
+  return (← Record.lowerRoot recordClaims Limits.spec Quirks.none cx tree (.memory (flatNat pointer)))
+    |>.mapError .lowerRecord |>.map (fun _ => 0)
+
 def withTree (args : List FlatValue) (use : Tree sig → Nat → Session grow sig (Except Issue Nat)) :
     Session grow sig (Except Issue Nat) := do
   match args with
@@ -168,6 +216,7 @@ def invoke (binding : Binding sig) (args : List FlatValue) : Session grow sig (E
   | .giveEndpoint channel element => withTree args fun tree position => do
     let some id := (rootEndpoints tree)[position]? | return .error .badSelection
     return (← claims.giveEndpoint Limits.spec cx channel element ⟨id⟩).mapError .claim
+  | .giveRecord destination => giveRecord binding.inst destination args
 
 def rejectBinding (ticket : Nat) (issue : Issue) : Session grow sig (List FlatValue) := do
   hostSet ((← hostGet).record (.bindingTrap ticket issue))
