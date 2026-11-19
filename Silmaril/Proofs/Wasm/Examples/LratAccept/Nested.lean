@@ -11,7 +11,7 @@ public import Silmaril.Logic.SAT.Carrier.Thms
 `nested_hwp`: from any LRAT view, with the `pl` pairs `(ptr, len)` at `pp` and their blocks
 (`NestedIn`) and the certificate `[cp, cp + 4 cl)` in the ABI memory `B₁`, every run of the
 body of `check-nested` returns one value, and a nonzero value only if the problem
-`nestedAt B₁ pp pl` is in `UnsatNested`. The reset gives `Good []`; the two feeding loops send
+`nestedAt B₁ pp pl` is in `UnsatNested` and the certificate words decode. The reset gives `Good []`; the two feeding loops send
 every word of every clause to `add_lit` and close each clause with `end_clause`, so the view
 satisfies `Good` for `flatten` of the problem, while the flag `ok` records "only literal words
 so far"; `cert_hwp` does the rest, and `decodeStream_flatten` relates the two readings.
@@ -74,10 +74,10 @@ theorem nestOk_succ {B : ByteArray} {pp i : Nat} :
 
 theorem nestedAt_succ {B : ByteArray} {pp n : Nat} :
     nestedAt B pp (n + 1) = nestedAt B pp n ++ [wordsAt B (cpOf B pp n) (lenOf B pp n)] := by
-  simp [nestedAt, cpOf, lenOf, List.range_succ]
+  simp [nestedAt, Silmaril.Wasm.Acceptor.nestedAt, cpOf, lenOf, List.range_succ]
 
 theorem nestedAt_zero {B : ByteArray} {pp : Nat} : nestedAt B pp 0 = [] := by
-  simp [nestedAt]
+  simp [nestedAt, Silmaril.Wasm.Acceptor.nestedAt]
 
 theorem flatten_append (p q : Nested) : flatten (p ++ q) = flatten p ++ flatten q := by
   simp [flatten]
@@ -89,7 +89,7 @@ theorem allLit_of_nestOk {B : ByteArray} {pp n : Nat} (h : NestOk B pp n) :
     (nestedAt B pp n).all (·.all LitWord) = true := by
   simp only [List.all_eq_true]
   intro c hc w hw
-  simp only [nestedAt, List.mem_map, List.mem_range] at hc
+  simp only [nestedAt, Silmaril.Wasm.Acceptor.nestedAt, List.mem_map, List.mem_range] at hc
   obtain ⟨i, hi, rfl⟩ := hc
   obtain ⟨m, hm, rfl⟩ := mem_wordsAt.1 hw
   have := h i hi m hm
@@ -132,7 +132,8 @@ theorem nested_hwp (hX : MiOk X) (hC : CallsOk P host X) (hA : Abi X B₁) (hS :
     (hcp : cp.toNat + 4 * cl.toNat ≤ B₁.size) :
     HWP P host s (fr X.mi [pp, pl, cp, cl, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
       (vals ([] : List Val).reverse ++ expression checkNestedBody ++ [])
-      (bodyPost 1 (checkPost (H := H) (nestedAt B₁ pp.toNat pl.toNat ∈ UnsatNested))) := by
+      (bodyPost 1 (checkPost (H := H) (nestedAt B₁ pp.toNat pl.toNat ∈ UnsatNested ∧
+        (LratStream.decode (wordsAt B₁ cp.toNat cl.toNat)).isSome = true))) := by
   have hsz := hA.size
   obtain ⟨hpp1, hpp2⟩ := hpp
   unfold checkNestedBody
@@ -158,9 +159,9 @@ theorem nested_hwp (hX : MiOk X) (hC : CallsOk P host X) (hA : Abi X B₁) (hS :
     have hie : i.toNat = pl.toNat := by have := b32_ne_zero.1 hx; omega
     refine w_br (whilePost_exit ?_)
     rw [← List.append_assoc]
-    refine cert_hwp hC hA hcp hI fun hok hu => ?_
+    refine cert_hwp hC hA hcp hI fun hok hu hd => ?_
     rw [hie] at hok hu
-    exact mem_unsatNested hok hu
+    exact ⟨mem_unsatNested hok hu, hd⟩
   · -- clause `i`
     have hlt : i.toNat < pl.toNat := by have := b32_eq_zero.1 hx; omega
     obtain ⟨G₁, B₂, hS₂, hG₂⟩ := hI
