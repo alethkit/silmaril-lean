@@ -1243,6 +1243,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "silmaril-compiler-explorer"
     STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
               "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+              "/corpus.js": ("corpus.js", "text/javascript; charset=utf-8"),
+              "/equivalence.js": ("equivalence.js", "text/javascript; charset=utf-8"),
               "/style.css": ("style.css", "text/css; charset=utf-8"),
               "/view.js": ("view.js", "text/javascript; charset=utf-8")}
 

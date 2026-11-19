@@ -60,3 +60,13 @@ details.more > summary { cursor:pointer; font-size:12px; color:var(--mute); text
 .include-files summary { cursor:pointer; overflow-wrap:anywhere; }
 .file-detail { display:block; overflow-wrap:anywhere; padding:2px 0; }
 .full-hash { display:block; width:100%; resize:vertical; font:inherit; font-family:monospace; }
+details summary { cursor:pointer; }
+#corpus-evidence { margin: 1rem; padding: 1rem; border: 1px solid #aaa; }
+#corpus-evidence pre { max-height: 32rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+#corpus-evidence details { margin-block: .8rem; }
+#corpus-source-spans { max-height: 14rem; overflow: auto; white-space: pre-wrap; }
+[hidden] { display: none !important; }
+
+body[data-corpus-declaration] #side { overflow-wrap: anywhere; }
+body[data-corpus-declaration] #selection .stmt { font-size: 12px; }
+body:is([data-corpus-declaration], [data-equivalence-declaration]) .pane-head label { display:none; }

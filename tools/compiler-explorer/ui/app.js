@@ -2,6 +2,9 @@
 // highlighting makes token spans; no string is ever parsed as HTML).
 import { lineOffsets, indexEdges, edgeObligations, badge, highlightText, langOf, includeRows, prettySexp, stageTrust } from "./view.js";
 
+import { initCorpus } from "./corpus.js";
+import { initEquivalence } from "./equivalence.js";
+
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
@@ -21,6 +24,8 @@ async function getJSON(url) {
 function groupOf(id) { return id.split("/").slice(0, 2).join("/"); }
 
 async function init() {
+  if (await initEquivalence()) return;
+  if (await initCorpus()) return;
   state.list = await getJSON("api/problems.json");
   const groups = [...new Set(state.list.map((p) => groupOf(p.id)))];
   const prog = $("program");
