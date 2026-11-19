@@ -422,6 +422,20 @@ slot type in an inactive case is rejected before either move, and a corrected re
 Whole-schema validation still rejects stored borrows. The receipts do not by themselves
 authorize a transfer back to a guest or connect the checked Core host to the reference machine.
 
+`OwnedMemory.Conservative.Thms` relates the two checked tree boundaries on primitive
+payloads, including the named `ScalarType` fragment. After receipt erasure, memory
+and flat lifting have the identical effect program, including typed input failures
+and canonical traps. Primitive node construction preserves this equality through the
+arity check and maps arbitrary existing children in order. This is not a conservative
+extension theorem for compound loaders or for an entire Core export session.
+
+`OwnedMemory.Plain.Thms` gives a typed equivalence for every payload and tree admitted
+by the older stored-value schema check. Its recursive proof rules out own receipts in
+all compound cases; the inverse preserves values, tags and children. Endpoint identities
+stay unchanged even when their element schema contains owners, because lifting an endpoint
+does not lift its elements. A borrow anywhere in the schema still rejects. This equivalence
+of typed observations does not grant authority or equate the two compound lifting programs.
+
 `Wit.Stored.OwnedMemory.Claims` registers owner receipts and readable endpoint claims together
 from a freshly lifted root. Held claims, not the accepted observations, authorize a canonical
 `lower_own`, destructor request or endpoint transfer. `give` commits spending after insertion
@@ -624,22 +638,82 @@ effects are retained. Together with `accept_refusal_steps` these cover all outco
 the dispatcher reaches the synchronous accept continuation. They are per-invocation
 reduction lemmas, not an exact guest language theorem.
 
-The scheduled flat replay also connects a writer and a reader in separate component
-instances through actual Core exports. The writer publishes a tree with two distinct
-equal-representation owners and a readable stream, and the reader receives all three
-claims via `giveFlat`. It cancels a blocked read without writing memory, retries,
-polls completion, checks the transferred record and owner, and observes closure.
-After both endpoints are dropped, a stale read traps without removing the published
-tree. The async operations here are reference built-ins, not async accept calls.
+The scheduled flat replay connects a writer and a reader in separate component
+instances through actual Core exports. It runs with either a stream or a future of a
+record containing an owner. The writer publishes a tree with two distinct
+equal-representation owners and a readable endpoint, and the reader receives all
+three claims via `giveFlat`. It cancels a blocked read without writing memory, retries,
+polls the channel's completion event, and checks the transferred record and owner.
+The stream case observes writer closure on a subsequent read. For both channels, a
+stale read after drop traps without removing the published tree. The async operations
+here are reference built-ins, not async accept calls.
+
+The scheduled journal distinguishes publication from a Core reply. A `published`
+entry records the import ticket and handle in the same host write that adds the root
+and its claims. Across arbitrary ordinary machine prefixes, `checked_of_session`
+proves that the publication journal only grows and that its growth equals the growth
+of accepted roots. Each journal entry carries the one-based position of its root,
+as a nonzero, non-wrapping Core `i32` handle. A refusal or a trap without publication
+cannot count as an acceptance, and a prefix ending between publication and the reply
+still records the root. `PublicationDelta.targets` proves that each journaled handle
+selects its root from the final writer; `WriterRun.retains_target` extends this to older
+handles without reviving spent resource or endpoint claims. Both loaders check capacity
+before lifting, and the publication continuation independently refuses to wrap.
+This conservation statement does not characterize which roots a given module can accept.
+
+`import_binding_trap_steps` covers mislinked imports from the public dispatcher,
+not only its trap continuation. It records the entry and the typed missing, ambiguous
+or mismatched-binding diagnostic before taking the reference trap transition. No
+loader or claim transfer runs. Core replays verify that the rejected call publishes
+nothing and an owner allocated by an earlier export stays in the resource table.
 
 The canonical caller-start receipt observer uses the same `canon lower` start callback
 and argument cursor as the reference, including the single-pointer spill path. Erasing
 owner receipts yields the entire reference start program, including its effects and
 failures, rather than just equal returned values. Reference machine replays check direct
 and spilled arguments, an indirect async result, equal representations with different
-owner identities, and cancellation before and after start. The observer is not a checked
-storage boundary. The public acceptor scheduler does not yet dispatch async canonical
-accept calls; its unsupported calling conventions remain refused.
+owner identities, and cancellation before and after start. The observer alone is not a
+checked storage boundary.
+
+Install `ComponentCall.hostWithComponent` to join that observer to the public scheduled
+writer through actual `canon lower` Core imports. The status-pair dispatcher `host`
+does not enable these component callees. A linked callee checks the caller's instance,
+memory width, options, signature, whole storable payload schema and child selection. It
+resolves a typed WIT `result<u32>` error before lifting owners on preflight refusal.
+`ComponentCall.refusal_frame` preserves the instance handle tables, owners, endpoints
+and error contexts, including if the error write traps. Guest result bytes and subtask
+bookkeeping may change. `ComponentCall.resolve_error_agrees` proves that, given the
+same guarded caller record, result resolution has the reference continuation, including
+its write and possible traps. It does not equate refusal without a payload lift with a
+canonical trap during a lift.
+Once lifting starts, canonical traps retain prior reference effects; e.g., a second use
+of the same slot traps after the first move. Indirect result writes must finish before
+publishing, and publication rechecks the current writer and the already returned handle.
+`ComponentCall.checked_of_session` gives publication, writer and transcript conservation
+across every ordinary machine prefix, including traps and refusals. It does not assert
+an exact language for every guest or atomic rollback of reference operations.
+
+Linked Core replays check sync and async direct and spilled calls, refusal and retry,
+inactive nested borrow rejection, bad memory width, recycled owner slots, a double-move
+trap and a result range trap. In the joined channel replay the async canonical accept
+publishes a root with owners and a readable endpoint; another linked instance receives
+it via `giveFlat` and exercises a non-unit resource-bearing stream or future, including
+read cancellation, polling, closure (stream) and stale handles.
+
+`ComponentCall.Deferred.hostWithDeferred` adds a pending mode for explicitly configured
+asynchronous callees. Queuing validates the link and the full schema without lifting
+the arguments. The reference `canon lower` installs a waitable; the linked start import
+selects its live nominal subtask in the caller's instance, checks the saved caller
+record, and invokes the same checked acceptance and publication as the eager route.
+The start import acknowledges the callback; the accepted handle or typed WIT error is
+written into the original caller's canonical result area. Starting in the wrong
+instance, behind a no-leave boundary, or from a stale slot fails with a typed diagnostic.
+Before start, `subtask.cancel` calls the checked cancellation callback and resolves via
+the reference cancellation path, without moving owners or publishing a tree. Start
+lifts and resolves in one callback; it does not expose a suspended post-lift phase.
+The deferred session theorem conserves the writer and journal on arbitrary ordinary
+prefixes. Linked direct/spilled replays check cancel, drop, slot reuse, start,
+resolution, and stale start after dropping the waitable.
 
 ## Checking
 
