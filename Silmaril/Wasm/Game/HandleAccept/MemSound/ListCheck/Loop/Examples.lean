@@ -189,13 +189,17 @@ theorem accepts_blob_using_second_page (profile : Silmaril.Wasm.Numerics.Profile
         Silmaril.Wasm.Game.HandleAccept.MemSound.Items.itemsReply)
       0 (mod Checker.blobs.imports ⟨2, by decide⟩)
       Checker.blobs.imports Checker.blobs.decodeChild .trap policy {largeBlobEnv} := by
-  obtain ⟨_, _, _, spec, ready⟩ := checker_instance_two .blobs
-  refine byte_reply_accepts_in .blobs (checkedPageShape_two .blobs) spec (by decide) ready policy
+  refine byte_reply_accepts_pages .blobs ⟨2, by decide⟩ policy
     (rho := largeBlobEnv) (Set.mem_singleton _) (root := 7) (handles := [41]) (by decide)
     (fun _ => largeBlob) (by intro _ _; rw [largeBlob, List.length_replicate]; decide) rfl (.cons rfl .nil) ?_
   intro handle member
   have same : handle = 41 := List.mem_singleton.mp member
   subst handle
   exact ⟨largeBlobAtom, rfl, rfl⟩
+
+example : checkedPageShape .symbols ⟨0, by decide⟩ = true := checkedPageShape_all .symbols ⟨0, by decide⟩
+
+example : checkedPageShape .blobs ⟨65536, by decide⟩ = true :=
+  checkedPageShape_all .blobs ⟨65536, by decide⟩
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Examples
