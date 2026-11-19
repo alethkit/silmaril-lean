@@ -167,4 +167,35 @@ theorem short_child_reply_traps_without_store_change {store : Store Nat} {memory
   apply ScriptReply.childError single (by simp)
   apply writeByteReply_rejects_short_memory <;> simp [short]
 
+private def largeBlob : List UInt8 := List.replicate 65529 173
+
+private def largeBlobAtom : MemAtom := ⟨.bytes, by decide, largeBlob⟩
+
+private def largeBlobTree : SymStrBytesSExp := SExp.ofList [.atom largeBlobAtom]
+
+private def largeBlobEnv : Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp :=
+  fun handle => if handle = 7 then some largeBlobTree else some (.atom largeBlobAtom)
+
+theorem large_blob_reply_exceeds_one_page : 65536 < 8 + largeBlob.length := by
+  rw [largeBlob, List.length_replicate]
+  decide
+
+/-- The last reply byte is in the second page of the actual instance. The proof
+uses the symbolic reply encoder rather than evaluating the pages in Lean's kernel. -/
+theorem accepts_blob_using_second_page (profile : Silmaril.Wasm.Numerics.Profile)
+    (policy : Silmaril.Accept.Handle.OnInvalid) :
+    largeBlobTree ∈ listReaderLang profile
+      (Silmaril.Wasm.Game.HandleAccept.MemSound.ReplyEnvs
+        Silmaril.Wasm.Game.HandleAccept.MemSound.Items.itemsReply)
+      0 (mod Checker.blobs.imports ⟨2, by decide⟩)
+      Checker.blobs.imports Checker.blobs.decodeChild .trap policy {largeBlobEnv} := by
+  obtain ⟨_, _, _, spec, ready⟩ := checker_instance_two .blobs
+  refine byte_reply_accepts_in .blobs (checkedPageShape_two .blobs) spec (by decide) ready policy
+    (rho := largeBlobEnv) (Set.mem_singleton _) (root := 7) (handles := [41]) (by decide)
+    (fun _ => largeBlob) (by intro _ _; rw [largeBlob, List.length_replicate]; decide) rfl (.cons rfl .nil) ?_
+  intro handle member
+  have same : handle = 41 := List.mem_singleton.mp member
+  subst handle
+  exact ⟨largeBlobAtom, rfl, rfl⟩
+
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Examples

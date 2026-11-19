@@ -21,6 +21,8 @@ open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound (stubOk stubOk_spec fnOk_sp
 open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live (decompose_fill step_call)
 open Silmaril.Wasm.Logic.Core (Step.ctx Steps.append)
 
+variable {pages : InitialPages}
+
 private def loopCtx (frame : Frame) (deep : Ctx) : Ctx :=
   .frame [] 0 frame (.label [] 0 [] (.label [] 0 body deep []) []) []
 
@@ -59,10 +61,10 @@ private theorem reply_in_loop {profile : Profile} {ix : ListImports} {L : SEnv U
     (storeFunc : store.funcs[idx.toNat]? = some func)
     (stub : stubOk idx.toNat 2 func = true) (arity : args.length = 2)
     (answer : L.Ans q ⟨idx.toNat, store, args⟩ ⟨next, .values []⟩ nextState)
-    (session : TSession profile L (Loop.mod ix) (some 0) (listRoles ix ans)
+    (session : TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans)
       initial initState exports .run false
       (running outer frame store (vals args ++ .plain (.call idx) :: tail), q) tags) :
-    TSession profile L (Loop.mod ix) (some 0) (listRoles ix ans) initial initState exports .run false
+    TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans) initial initState exports .run false
       (running outer frame next tail, nextState)
       (tags ++ (listRoles ix ans).answerTags ⟨importIx ix idx.toNat, args, memOf (some 0) store⟩
         ⟨.values [], memOf (some 0) next⟩) := by
@@ -75,7 +77,7 @@ private theorem reply_in_loop {profile : Profile} {ix : ListImports} {L : SEnv U
   obtain ⟨params, results, hostCode, expanded, count⟩ := stubOk_spec stub
   have decompose : decompose? store stopped.code = some (context, idx.toNat, idx.toNat, args) := by
     exact decompose_fill context trivial storeFunc expanded (arity.trans count.symm) hostCode
-  have callout : calloutAt? (Loop.mod ix) (some 0) stopped =
+  have callout : calloutAt? (Loop.mod ix pages) (some 0) stopped =
       some ⟨importIx ix idx.toNat, args, memOf (some 0) store⟩ := by
     unfold calloutAt?
     change (decompose? store stopped.code).bind _ = _
@@ -99,11 +101,11 @@ private theorem accept_in_loop {profile : Profile} {ix : ListImports} {L : SEnv 
     {tags : List (Tag Unit MemREv Unit Unit)} {func : FuncInst Nat}
     (localFunc : frame.module.funcs[2]? = some 2) (storeFunc : store.funcs[2]? = some func)
     (stub : stubOk 2 1 func = true)
-    (session : TSession profile L (Loop.mod ix) (some 0) (listRoles ix ans)
+    (session : TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans)
       initial initState exports .run false (running outer frame store
         (.label 0 [] (vals [.i32 root] ++ expression [.call ⟨2⟩, .return_]) ::
           expression (iteration.drop 8)), q) tags) :
-    ∃ stopped, TSession profile L (Loop.mod ix) (some 0) (listRoles ix ans) initial initState exports
+    ∃ stopped, TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans) initial initState exports
       .run true (stopped, q) (tags ++ [.inp (.accept root)]) := by
   let context := loopCtx frame (.label [] 0 [] (.top [] (expression [.return_]))
     (expression (iteration.drop 8)))
@@ -113,13 +115,13 @@ private theorem accept_in_loop {profile : Profile} {ix : ListImports} {L : SEnv 
       ⟨store, frame, vals [.i32 root] ++ expression [.call ⟨2⟩, .return_]⟩
       ⟨store, frame, (Ctx.top [] (expression [.return_])).fill code⟩ :=
     call_reduces (idx := ⟨2⟩) localFunc storeFunc
-  have reached : TSession profile L (Loop.mod ix) (some 0) (listRoles ix ans) initial initState exports
+  have reached : TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans) initial initState exports
       .run false (stopped, q) tags :=
     TSession.of_core_steps session (in_loop (Steps.append (expression (iteration.drop 8)) calls.label))
   obtain ⟨params, results, hostCode, expanded, count⟩ := stubOk_spec stub
   have decompose : decompose? store stopped.code = some (context, 2, 2, [.i32 root]) :=
     decompose_fill context trivial storeFunc expanded (by rw [count]; rfl) hostCode
-  have callout : calloutAt? (Loop.mod ix) (some 0) stopped =
+  have callout : calloutAt? (Loop.mod ix pages) (some 0) stopped =
       some ⟨ix.accept, [.i32 root], memOf (some 0) store⟩ := by
     unfold calloutAt?
     change (decompose? store stopped.code).bind _ = _
@@ -143,9 +145,9 @@ private theorem drive {profile : Profile} {ix : ListImports} {L : SEnv UImp}
     {index base offset : BitVec 32} {store : Store Nat} {q : L.S}
     {tags : List (Tag Unit MemREv Unit Unit)} (bounded : index.toNat ≤ handles.length)
     (atStore : store.funcs = [items, child, accept, check]) (good : ready store)
-    (session : TSession profile L (Loop.mod ix) (some 0) (listRoles ix ans) initial initState exports
+    (session : TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans) initial initState exports
       .run false (running outer (locals inst root index base offset) store (expression iteration), q) tags) :
-    ∃ stopped lastState, TSession profile L (Loop.mod ix) (some 0) (listRoles ix ans) initial initState exports
+    ∃ stopped lastState, TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans) initial initState exports
       .run true (stopped, lastState) (tags ++ (remainingReads root handles (handles.drop index.toNat) answerFor).map .inp) := by
   let frame := locals inst root index base offset
   have args : Steps profile NoHost ⟨store, frame, expression iteration⟩
@@ -212,16 +214,16 @@ private theorem input_map (reads : List MemREv) :
   | nil => rfl
   | cons event rest ih => simp [Silmaril.Wasm.Game.HandleAccept.Memory.inputsOf, ih]
 
-theorem trace {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeOk ix = true)
+theorem trace {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeOk ix pages = true)
     (separate : ix.accept ≠ ix.items ∧ ix.accept ≠ ix.child)
     {mt : CModuleType} {instance_ : ScalarInstance} {initial : Config Nat}
-    (spec : IsSpecInstance (Loop.mod ix) mt instance_ initial)
+    (spec : IsSpecInstance (Loop.mod ix pages) mt instance_ initial)
     {Envs : Store Nat → SEnv UImp → Prop} {L : SEnv UImp} (env : Envs instance_.store L)
     (initState : L.S) {ready : Store Nat → Prop} (good : ready initial.store)
     {ans : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)}
     {root : BitVec 32} {handles : List (BitVec 32)} {answerFor : BitVec 32 → SxA MemAtom (BitVec 32)}
     (plan : ReplyPlan L ready ans root handles answerFor) :
-    .enter :: remainingReads root handles handles answerFor ∈ listTraces profile Envs 0 (Loop.mod ix) ix ans := by
+    .enter :: remainingReads root handles handles answerFor ∈ listTraces profile Envs 0 (Loop.mod ix pages) ix ans := by
   obtain ⟨cfg, start, prepared, rfl, _, exported⟩ := prep_of_spec spec
   obtain ⟨distinct, rfl, noCode, mems, exports, _, items, child, accept, check, storeFuncs,
     itemsStub, childStub, acceptStub, declared, checkShape⟩ := LoopSound.shape_facts valid prepared
@@ -234,7 +236,7 @@ theorem trace {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeOk 
     change some (Ty.func (Ty.ofList [.i32]) .nil) = some (Ty.func params results) at signature
     obtain ⟨rfl, rfl⟩ := Ty.func.inj (Option.some.inj signature)
     exact ⟨check, _, _, atCheck, expanded, .cons (.num _) .nil⟩
-  have initialSession : TSession profile L (Loop.mod ix) (some 0) (listRoles ix ans)
+  have initialSession : TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans)
       (cfg.withStart none) initState instance_.addrs .inst false (cfg.withStart none, initState) [] := .start
   have exportedCheck : 3 ∈ instance_.addrs := by rw [← exported, exports]; simp
   have called := initialSession.invoke (by decide) ⟨[], noCode⟩ exportedCheck canInvoke
@@ -261,10 +263,10 @@ theorem trace {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeOk 
       ((remainingReads root handles handles answerFor).map .inp) = _
     rw [input_map]
 
-theorem accepts {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeOk ix = true)
+theorem accepts {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeOk ix pages = true)
     (separate : ix.accept ≠ ix.items ∧ ix.accept ≠ ix.child)
     {mt : CModuleType} {instance_ : ScalarInstance} {initial : Config Nat}
-    (spec : IsSpecInstance (Loop.mod ix) mt instance_ initial)
+    (spec : IsSpecInstance (Loop.mod ix pages) mt instance_ initial)
     {Envs : Store Nat → SEnv UImp → Prop} {L : SEnv UImp} (env : Envs instance_.store L)
     (initState : L.S) {ready : Store Nat → Prop} (good : ready initial.store)
     {ans : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)}
@@ -274,7 +276,7 @@ theorem accepts {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeO
     (allowed : rho ∈ Rhos) {children : List SymStrBytesSExp} (rootDenotes : rho root = some (SExp.ofList children))
     (denotes : List.Forall₂ (fun handle child => rho handle = some child) handles children)
     (atoms : ∀ handle ∈ handles, ∃ atom, answerFor handle = .atom atom ∧ rho handle = some (.atom atom)) :
-    SExp.ofList children ∈ listReaderLang profile Envs 0 (Loop.mod ix) ix ans .trap policy Rhos := by
+    SExp.ofList children ∈ listReaderLang profile Envs 0 (Loop.mod ix pages) ix ans .trap policy Rhos := by
   let Reader := sexpR MemAtom (BitVec 32)
   let tree := SExp.ofList children
   have atItems : RStep Reader .trap policy rho .live (.read (.items root) (.items handles)) .live ∅ := by
@@ -306,9 +308,10 @@ theorem accepts {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeO
   refine Set.mem_iUnion.2 ⟨⟨rho, allowed⟩, Set.mem_biUnion (trace valid separate spec env initState good plan) ?_⟩
   exact ⟨_, _, run, by simp [tree]⟩
 
-theorem checker_accepts {profile : Profile} (checker : Checker)
+theorem checker_accepts_pages {profile : Profile} (checker : Checker)
+    (shape : LoopSound.shapeOk checker.imports pages = true)
     {mt : CModuleType} {instance_ : ScalarInstance} {initial : Config Nat}
-    (spec : IsSpecInstance (Loop.mod checker.imports) mt instance_ initial)
+    (spec : IsSpecInstance (Loop.mod checker.imports pages) mt instance_ initial)
     {Envs : Store Nat → SEnv UImp → Prop} {L : SEnv UImp} (env : Envs instance_.store L)
     (initState : L.S) {ready : Store Nat → Prop} (good : ready initial.store)
     {root : BitVec 32} {handles : List (BitVec 32)} {answerFor : BitVec 32 → SxA MemAtom (BitVec 32)}
@@ -317,10 +320,26 @@ theorem checker_accepts {profile : Profile} (checker : Checker)
     (allowed : rho ∈ Rhos) {children : List SymStrBytesSExp} (rootDenotes : rho root = some (SExp.ofList children))
     (denotes : List.Forall₂ (fun handle child => rho handle = some child) handles children)
     (atoms : ∀ handle ∈ handles, ∃ atom, answerFor handle = .atom atom ∧ rho handle = some (.atom atom)) :
-    SExp.ofList children ∈ listReaderLang profile Envs 0 (Loop.mod checker.imports) checker.imports
+    SExp.ofList children ∈ listReaderLang profile Envs 0 (Loop.mod checker.imports pages) checker.imports
       checker.decodeChild .trap policy Rhos := by
   cases checker
-  · exact accepts LoopSound.sym_shape (by decide) spec env initState good plan policy allowed rootDenotes denotes atoms
-  · exact accepts LoopSound.blob_shape (by decide) spec env initState good plan policy allowed rootDenotes denotes atoms
+  · exact accepts shape (by decide) spec env initState good plan policy allowed rootDenotes denotes atoms
+  · exact accepts shape (by decide) spec env initState good plan policy allowed rootDenotes denotes atoms
+
+theorem checker_shape (checker : Checker) : LoopSound.shapeOk checker.imports = true := by
+  cases checker
+  · exact LoopSound.sym_shape
+  · exact LoopSound.blob_shape
+
+theorem checker_bounded_pages (profile : Profile) (checker : Checker)
+    (shape : LoopSound.shapeOk checker.imports pages = true) {policy : OnInvalid} (noUB : policy ≠ .ub)
+    (envs : Set (Env (BitVec 32) SymStrBytesSExp)) :
+    listReaderLang profile (ReplyEnvs itemsReply) 0 (Loop.mod checker.imports pages)
+      checker.imports checker.decodeChild .trap policy envs ⊆ boundedListsOf checker.kind := by
+  cases checker
+  · exact ListCheck.listReaderLang_subset (fun env => LoopSound.sat profile shape ListCheck.symTextAns_kind env)
+      (fun _ _ same => same) noUB envs
+  · exact ListCheck.listReaderLang_subset (fun env => LoopSound.sat profile shape ListCheck.blobAns_kind env)
+      (fun _ _ same => same) noUB envs
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun
