@@ -2,7 +2,8 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Growing.Defs
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Run.Defs
-import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopModule
+public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopModule
+public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Rules
 import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.Reserve
 import Silmaril.Wasm.Execution.Core.Soundness.PureRedex
 
@@ -73,13 +74,13 @@ theorem byte_reply_admitted (store : Store Nat) (handles : List (BitVec 32)) (ra
     | child slot _ encoded => exact write_preserves slot (childSize encoded)
     | itemsError | childError | accept => exact id
 
-private def validatedType : CModuleType :=
+@[expose] def validatedType : CModuleType :=
   let types := allocTypes [tyItems, Hi.tyAcc]
   let items := CExternType.func (List.get types ⟨0, by decide⟩)
   let accept := CExternType.func (List.get types ⟨1, by decide⟩)
   ⟨[items, items, accept], [items]⟩
 
-private theorem validate_shape (ix : ListImports) (pages : InitialPages) :
+theorem validate_shape (ix : ListImports) (pages : InitialPages) :
     validate? (Growing.mod ix pages) = some validatedType := by
   rw [LoopSound.checkModule_ignore_checked_memories]
   · cbv
@@ -97,20 +98,38 @@ private def StoreInv (ix : ListImports) (pages : InitialPages) (store : Store Na
   ∃ cfg start, prep (Growing.mod ix pages) = some (cfg, start) ∧
     store.funcs = cfg.store.funcs ∧ Memory32 store
 
-private theorem initialMemory {ix : ListImports} {pages : InitialPages} {cfg : Config Nat}
+@[expose] def initialMem (pages : InitialPages) : MemInst :=
+  ⟨memoryType pages, ⟨Array.replicate (pages.val * 65536) 0⟩⟩
+
+theorem initial_bytes (pages : InitialPages) : (initialMem pages).bytes.size = pages.val * 65536 :=
+  Array.size_replicate
+
+theorem initial_pages (pages : InitialPages) : (initialMem pages).pages = pages.val := by
+  rw [MemInst.pages, initial_bytes]
+  change pages.val * 65536 / 65536 = pages.val
+  omega
+
+theorem initial_alloc {ix : ListImports} {pages : InitialPages} {cfg : Config Nat}
     {start : Option FuncIdx} (prepared : prep (Growing.mod ix pages) = some (cfg, start)) :
-    Memory32 cfg.store := by
-  let mem : MemInst := ⟨memoryType pages, ⟨Array.replicate (pages.val * 65536) 0⟩⟩
-  have initial : (prep (Growing.mod ix pages)).map (·.1.store.mems) = some [mem] := by
+    cfg.store.mems = [initialMem pages] := by
+  have initial : (prep (Growing.mod ix pages)).map (·.1.store.mems) = some [initialMem pages] := by
     unfold prep
     rw [validate_shape]
     rfl
   rw [prepared] at initial
-  refine ⟨mem, Option.some.inj initial, rfl, ?_⟩
-  change (Array.replicate (pages.val * 65536) (0 : UInt8)).size / 65536 ≤ 65536
-  rw [Array.size_replicate]
-  have bound := pages.property
-  omega
+  exact Option.some.inj initial
+
+private theorem initialMemory {ix : ListImports} {pages : InitialPages} {cfg : Config Nat}
+    {start : Option FuncIdx} (prepared : prep (Growing.mod ix pages) = some (cfg, start)) :
+    Memory32 cfg.store :=
+  ⟨initialMem pages, initial_alloc prepared, rfl, (initial_pages pages).trans_le pages.property⟩
+
+theorem prepared_shape (ix : ListImports) (pages : InitialPages) :
+    LoopSound.preparedShape (prep (Growing.mod ix pages)) [.i32, .i32]
+      [.i32, .i32] (reserve ++ body) = true := by
+  unfold prep
+  rw [validate_shape]
+  rfl
 
 private theorem sat (profile : Profile) (pages : InitialPages) {ix : ListImports}
     (distinct : ix.child ≠ ix.items)
@@ -120,11 +139,7 @@ private theorem sat (profile : Profile) (pages : InitialPages) {ix : ListImports
       (readerContract ix.toRead env (boundedListsOf kind) reply) (StoreInv ix pages) := by
   intro mt instance_ config spec
   obtain ⟨cfg, start, prepared, rfl, _, exported⟩ := prep_of_spec spec
-  have preparedOK : LoopSound.preparedShape (prep (Growing.mod ix pages)) [.i32, .i32]
-      [.i32, .i32] (reserve ++ body) = true := by
-    unfold prep
-    rw [validate_shape]
-    rfl
+  have preparedOK := prepared_shape ix pages
   rw [prepared] at preparedOK
   obtain ⟨rfl, noCode, mems, exports, _, items, child, accept, check, storeFuncs, okItems,
     okChild, okAccept, declared, okCheck⟩ := LoopSound.preparedShape_facts preparedOK

@@ -388,8 +388,11 @@ not a scheduling theorem or a Core adapter.
   for a host that preserves the address width and bounded page count; the checked in-place
   byte reply host meets that contract. The executable regression retries from refused
   growth, reads mixed-size and repeated blobs using the second page, rejects a request
-  above memory32, and reuses the grown store without requesting more growth. This upper
-  bound does not yet give an accepting-run theorem for every fitting script with growth.
+  above memory32, and reuses the grown store without requesting more growth.
+  `Growing.byte_reply_accepts` constructs an accepting export prefix for every fitting,
+  correctly denoting compact script when any necessary growth may succeed. The proof
+  executes the actual Core reservation before using the shared read-loop trace; it does
+  not bound all host layouts by the compact layout or assert termination for arbitrary hosts.
 * Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
   `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
   bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness

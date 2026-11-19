@@ -6,6 +6,7 @@ public import Silmaril.Wasm.Logic.Hoare.Defs
 public import Silmaril.Wasm.Validation.Check.Validate
 import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.Reserve
 import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.GrowingModule
+import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.GrowingTrace
 
 public section
 
@@ -50,5 +51,24 @@ theorem bounded (profile : Profile) (checker : Checker) (pages : InitialPages)
     listReaderLang profile (ReplyEnvs reply) 0 (mod checker.imports pages) checker.imports
       checker.decodeChild .trap policy envs ⊆ boundedListsOf checker.kind :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.GrowingModule.bounded profile checker pages noUB envs
+
+/-- Every correctly denoting compact byte script fitting the initial or requested capacity
+has an accepting export prefix, provided a necessary growth may succeed in the profile. -/
+theorem byte_reply_accepts {profile : Profile} (checker : Checker) (pages requested : InitialPages)
+    (allows : pages.val < requested.val →
+      profile.growMaySucceed .memory 0 pages.val (requested.val - pages.val))
+    (policy : OnInvalid) {Rhos : Set (Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp)}
+    {rho : Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp} (allowed : rho ∈ Rhos) {root : BitVec 32}
+    {handles : List (BitVec 32)} (fits : 8 + 4 * handles.length ≤ max pages.val requested.val * 65536)
+    (raw : BitVec 32 → List UInt8)
+    (space : ∀ handle ∈ handles, 8 + (raw handle).length ≤ max pages.val requested.val * 65536)
+    {children : List SymStrBytesSExp} (rootDenotes : rho root = some (SExp.ofList children))
+    (denotes : List.Forall₂ (fun handle child => rho handle = some child) handles children)
+    (atoms : ∀ handle ∈ handles, ∃ atom,
+      checker.decodeBytes (raw handle) = some atom ∧ rho handle = some (.atom atom)) :
+    SExp.ofList children ∈ listReaderLang profile (ReplyEnvs reply) 0 (mod checker.imports pages)
+      checker.imports checker.decodeChild .trap policy Rhos :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.GrowingTrace.byte_reply_accepts
+    checker pages requested allows policy allowed fits raw space rootDenotes denotes atoms
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Growing
