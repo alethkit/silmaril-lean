@@ -1022,7 +1022,7 @@ theorem liftFlatValues_toClosed {max : Nat} {ts : List ValTy} {ys : List Flat}
     (hmax : (ValTy.flatList ts).length ≤ max) :
     (liftFlatValues (σ := σ) lim q cx max ⟨ys, 0⟩ (toClosedList ts)) =
       ptrType cx >>= fun p => liftFlatTypes lim q cx p (toClosedList ts) ⟨ys, 0⟩ := by
-  unfold liftFlatValues
+  unfold liftFlatValues liftFlatValuesWith
   congr 1
   funext p
   have hle : ¬ (flattenTypes p (toClosedList ts)).length > max := by

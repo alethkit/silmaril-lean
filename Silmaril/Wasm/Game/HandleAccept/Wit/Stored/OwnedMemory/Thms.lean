@@ -28,4 +28,13 @@ theorem projectFlat {E : CoreEngine} {World : Type} (limits : Component.Limits) 
       liftFlatAt limits quirks cx width type cursor :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.projectFlat limits quirks cx width type cursor
 
+/-- Erase receipts through the whole canonical caller start callback, not just a
+successful value. This preserves progress, subtask state, spill checks, trap order,
+and the shared argument cursor consumed by `lowerOnResolve`. -/
+theorem projectLowerOnStart {E : CoreEngine} {World : Type} (limits : Component.Limits)
+    (quirks : Quirks) (caller : CallerId) :
+    List.map Observed.value <$> observeLowerOnStart (E := E) (World := World) limits quirks caller =
+      lowerOnStart limits quirks caller :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.projectLowerOnStart limits quirks caller
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory

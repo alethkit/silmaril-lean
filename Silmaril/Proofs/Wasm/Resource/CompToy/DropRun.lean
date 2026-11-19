@@ -157,7 +157,7 @@ theorem runs_liftDtor {th : Option ThreadId} (cx : LiftLowerContext (E3 P))
   have e : (liftFlatValues Limits.spec Quirks.none cx ABI.maxFlatResults (.ofList [])
       (resultTypes (dtorType .i32)) : Canon.P (E3 P) Unit _) =
       ptrType cx >>= fun p => liftFlatTypes Limits.spec Quirks.none cx p [] (.ofList []) := by
-    unfold liftFlatValues
+    unfold liftFlatValues liftFlatValuesWith
     congr 1
     funext p
     cases p <;> (rw [ite_eq_right_iff.mpr (by intro h; exact absurd h (by decide +kernel))]; rfl)

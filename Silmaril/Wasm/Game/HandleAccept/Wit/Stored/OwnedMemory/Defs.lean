@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Resources.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Defs
+public import Silmaril.Wasm.Component.Reference.Canon.Lower.Defs
 
 @[expose] public section
 
@@ -31,25 +32,54 @@ def Observed.variant (index : Nat) (payload : Option Observed) : Observed :=
 def Observed.own (resource : RtId) (identity : HandleObjId) (rep : Nat) : Observed :=
   ⟨.own rep, [⟨resource, ⟨identity, rep⟩⟩]⟩
 
-mutual
-  def ownerRepresentations : Val → List Nat
-    | .record fields | .list fields => ownerRepresentationsIn fields
-    | .variant _ (some value) => ownerRepresentations value
-    | .own representation => [representation]
-    | _ => []
-  termination_by structural value => value
+def Receipt.requirement (receipt : Receipt) : RtId × Nat :=
+  (receipt.1, receipt.2.representation)
 
-  def ownerRepresentationsIn : List Val → List Nat
-    | [] => []
-    | field :: fields => ownerRepresentations field ++ ownerRepresentationsIn fields
-  termination_by structural fields => fields
+mutual
+/-- The ordered nominal types and representations at the active owner leaves of a
+typed value. This describes where receipts belong; it does not grant ownership. -/
+def ownerRequirements : TypeOf → Val → List (RtId × Nat)
+  | .own resource, .own representation => [(resource, representation)]
+  | .list type, .list values | .fixedList type _, .list values => values.flatMap (ownerRequirements type)
+  | .record types, .record values => fieldRequirements types values
+  | .tuple types, .record values => tupleRequirements types values
+  | .variant cases, .variant tag value => caseRequirements cases tag value
+  | .option type, .variant 1 (some value) => ownerRequirements type value
+  | .result success _, .variant 0 value => optionalRequirements success value
+  | .result _ failure, .variant 1 value => optionalRequirements failure value
+  | .map _ type, .list entries => entries.flatMap fun
+    | .record [_, value] => ownerRequirements type value
+    | _ => []
+  | _, _ => []
+termination_by structural type => type
+
+def fieldRequirements : List (String × TypeOf) → List Val → List (RtId × Nat)
+  | (_, type) :: types, value :: values => ownerRequirements type value ++ fieldRequirements types values
+  | _, _ => []
+termination_by structural types => types
+
+def tupleRequirements : List TypeOf → List Val → List (RtId × Nat)
+  | type :: types, value :: values => ownerRequirements type value ++ tupleRequirements types values
+  | _, _ => []
+termination_by structural types => types
+
+def caseRequirements : List (String × Option TypeOf) → Nat → Option Val → List (RtId × Nat)
+  | (_, type) :: _, 0, value => optionalRequirements type value
+  | _ :: cases, tag + 1, value => caseRequirements cases tag value
+  | [], _, _ => []
+termination_by structural cases => cases
+
+def optionalRequirements : Option TypeOf → Option Val → List (RtId × Nat)
+  | some type, some value => ownerRequirements type value
+  | _, _ => []
+termination_by structural type => type
 end
 
-def Observed.Complete (observed : Observed) : Prop :=
-  observed.owners.map (fun receipt => receipt.2.representation) = ownerRepresentations observed.value
+def Observed.Complete (observed : Observed) (type : TypeOf) : Prop :=
+  observed.owners.map Receipt.requirement = ownerRequirements type observed.value
 
 abbrev Payload (type : TypeOf) :=
-  { observed : Observed // observed.value.HasType type ∧ observed.Complete }
+  { observed : Observed // observed.value.HasType type ∧ observed.Complete type }
 
 def ast (sig : Signature) : AstSig :=
   ⟨sig.Tag, fun tag => Payload (sig.payload tag), sig.arity⟩
@@ -99,10 +129,17 @@ def flatCarrier (limits : Component.Limits) (quirks : Quirks) (cx : LiftLowerCon
     future := fun type slot => Observed.ordinary <$> ref.future type slot
     errorContext := fun slot => Observed.ordinary <$> ref.errorContext slot }
 
+/-- Observe owners during the canonical lower caller's start callback, including parameters
+spilled to memory. This is an observation of the reference callback, not a storage boundary:
+its other values, including borrows, retain their original reference scopes. -/
+def observeLowerOnStart (limits : Component.Limits) (quirks : Quirks) (caller : CallerId) :
+    P E World (List Observed) :=
+  lowerOnStartWith (fun cx => liftFlatValuesWith limits cx (flatCarrier limits quirks cx)) caller
+
 def checkValue (type : TypeOf) (value : Observed) : Except Issue (Payload type) :=
   if typed : value.value.HasType type then
-    if complete : value.owners.map (fun receipt => receipt.2.representation) =
-        ownerRepresentations value.value then .ok ⟨value, typed, complete⟩
+    if complete : value.owners.map Receipt.requirement =
+        ownerRequirements type value.value then .ok ⟨value, typed, complete⟩
     else .error .incompleteReceipts
   else .error (.schema .decodedType)
 

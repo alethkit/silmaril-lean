@@ -420,19 +420,25 @@ def liftFlat (lim : Limits) (q : Quirks) (cx : LiftLowerContext E) (vi : FlatCur
 `trap_if(ptr != align_to(ptr, alignment(tuple_type)))` (`unalignedPointer`),
 `trap_if(ptr + elem_size(tuple_type) > len(memory))` (`outOfBounds`), and the tuple's fields
 are loaded (`list(load(cx, ptr, tuple_type).values())`); otherwise each type is lifted from
-`vi` in order. Returns the values and the advanced cursor. -/
-def liftFlatValues (lim : Limits) (q : Quirks) (cx : LiftLowerContext E) (max : Nat)
-    (vi : FlatCursor) (ts : List (WIT.ClosedType RtId)) : P E σ (List Val × FlatCursor) := do
+`vi` in order. Both branches use the same leaf carrier. Returns the values and the advanced cursor. -/
+def liftFlatValuesWith {α : Type} (lim : Limits) (cx : LiftLowerContext E)
+    (carrier : AddrType → FlatLoadCarrier E σ α) (max : Nat)
+    (vi : FlatCursor) (ts : List (WIT.ClosedType RtId)) : P E σ (List α × FlatCursor) := do
   let p ← ptrType cx
   if (flattenTypes p ts).length > max then
     let (ptr, vi) ← vi.next (pointerType p)
     let l := layout p (.tuple ts : WIT.ClosedType RtId)
     trapIf (decide (flatNat ptr ≠ alignTo (flatNat ptr) l.alignment)) .unalignedPointer
     checkInBounds cx (flatNat ptr) l.size
-    let vs ← loadTypesAt lim q cx p ts (flatNat ptr)
+    let vs ← loadTypesAtWith lim cx p (carrier p).memory ts (flatNat ptr)
     return (vs, vi)
   else
-    liftFlatTypes lim q cx p ts vi
+    liftFlatTypesWith lim cx p (carrier p) ts vi
+
+/-- The reference representation-valued lift for a whole argument list. -/
+def liftFlatValues (lim : Limits) (q : Quirks) (cx : LiftLowerContext E) (max : Nat)
+    (vi : FlatCursor) (ts : List (WIT.ClosedType RtId)) : P E σ (List Val × FlatCursor) :=
+  liftFlatValuesWith lim cx (.reference lim q cx) max vi ts
 
 /-! ## Lowering: non-recursive building blocks -/
 
