@@ -328,6 +328,16 @@ arena identity while consuming the guest slot. A later reference trap retains ea
 Stored borrows and `own` types are rejected recursively before effects: the reference `Val.own`
 alone carries a representation, not the owning identity this tree boundary needs.
 
+`Wit.Stored.OwnedMemory` is the separate ownership-aware tree boundary. Its shared canonical
+loader records an ordered, typed receipt at each active `own` leaf, including inside lists,
+records and variants. Erasing the receipts recovers the entire canonical memory-load program,
+including access checks, handle removals and traps in their original order. The reference
+machine examples distinguish two owners with equal representations and show that a repeated
+move traps without publishing a tree or undoing the first move. Whole-schema validation still
+rejects stored borrows, even in inactive branches. Flat owned inputs are rejected explicitly;
+the receipts do not by themselves authorize a transfer back to a guest or connect the checked
+Core host to the reference resource machine.
+
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
 including nested futures and streams. Already-built children are not lifted again and create no
