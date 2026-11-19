@@ -61,9 +61,8 @@ full expansion; possessing only the shallow root is not enough.
   existing observations under increased fuel, and agrees with a finite expansion
   at sufficient fuel. Prove that every compatible partial observation refines
   into the full tree under binding, and characterize when a partial-only root has
-  a nontrivial observation. Prove the necessary reachable acyclicity/closure
-  conditions and extend the completion theorem to raw stores retaining malformed
-  bindings as invalid, not as fillable missing entries.
+  a nontrivial observation. The necessary and sufficient reachable closure and
+  acyclicity conditions for full expansion are covered below.
 - [ ] **Encodings and bounds:** add first-class total/partial encodings with
   recovery and bottom-up naming proofs (`UniqueNames` or fixed hash and a
   deterministic naming graph, not binding alone). Add association-pair and
@@ -89,4 +88,26 @@ lake env lean -DwarningAsError=true --run tests/formats/Dasl.lean
 lake env lean -DwarningAsError=true --run tests/formats/DrislDebug.lean
 ```
 
-`make check` runs both format regressions when it builds `Silmaril`.
+`make check` runs `DrislDebug.lean` when it builds `Silmaril`. Run `Dasl.lean` separately.
+
+## Completing a raw store
+
+`Silmaril.Formats.Dasl.RawStore.Thms` specializes a relational byte-store view to
+the existing canonical CBOR parser. Object CIDs must decode; raw CIDs are leaves
+whose bytes are not decoded. `full_exists_iff` requires a present, decoded root,
+accessibility along object dependencies, and coverage of every direct link of
+every reachable object. Under binding those conditions are also necessary. The
+condition is local to the root, not global validity of all decoded objects.
+
+`completion_iff` adds byte preservation, binding, and an explicit policy on
+**all** retained/admitted bytes (e.g. that the supplied CID hash agrees).
+`fill_completes` applies this criterion to supplied defaults, not a search for
+them: `fill` tests absence in the original byte relation. In particular, present
+malformed bytes cannot be replaced, a reachable cycle cannot have a finite
+expansion, and rejected present bytes cannot belong to a policy-respecting
+extension. Even when a name is missing, no claim is made that an allowed default
+or hash preimage exists. The Docker opt-in adapter's `fillMissing` realizes the
+same relational operation on its partial maps; `checked` and `decode` still
+filter reads and are not used as tests for absence when filling.
+
+Standalone countermodels: `lake env lean -DwarningAsError=true tests/formats/DaslRawStore.lean`.

@@ -12,4 +12,8 @@ Import this adapter explicitly to use the relational naming API. -/
 def relation {D C : Type} (store : Store D C) : Semantics.Naming.Relation D C :=
   Semantics.Naming.graph store
 
+/-- Preserve present contents without decoding or checking them before the fallback. -/
+def fillMissing {D C : Type} (base defaults : Store D C) : Store D C :=
+  fun name => (base name).orElse (fun _ => defaults name)
+
 end Silmaril.Containers.Cas.Store

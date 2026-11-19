@@ -9,6 +9,11 @@ namespace Silmaril.Semantics.Naming
 
 variable {Name Payload Wire : Type} {rel other : Relation Name Payload}
 
+theorem fillMissing_binding (base : Binding rel) (defaults : Binding other) :
+    Binding (fillMissing rel other) := Proofs.Semantics.Naming.fillMissing_binding base defaults
+
+theorem subset_fillMissing : Subset rel (fillMissing rel other) := fun _ _ hit => .inl hit
+
 theorem Binding.subset (bound : Binding rel) (incl : Subset other rel) : Binding other := by
   intro name left right first second
   exact bound (incl first) (incl second)

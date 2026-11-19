@@ -24,6 +24,10 @@ def Subset (left right : Relation Name Payload) : Prop :=
 def union (left right : Relation Name Payload) : Relation Name Payload :=
   fun name payload => left name payload ∨ right name payload
 
+/-- Preserve all existing bindings; admit defaults only at names absent from the base. -/
+def fillMissing (base defaults : Relation Name Payload) : Relation Name Payload :=
+  fun name payload => base name payload ∨ ((¬ ∃ old, base name old) ∧ defaults name payload)
+
 def inter (left right : Relation Name Payload) : Relation Name Payload :=
   fun name payload => left name payload ∧ right name payload
 

@@ -8,6 +8,15 @@ namespace Silmaril.Proofs.Semantics.Naming
 
 open Silmaril.Semantics.Naming
 
+theorem fillMissing_binding {Name Payload : Type} {base defaults : Relation Name Payload}
+    (baseBound : Binding base) (defaultsBound : Binding defaults) : Binding (fillMissing base defaults) := by
+  intro name left right first second
+  rcases first with present | ⟨absent, supplied⟩ <;> rcases second with present' | ⟨absent', supplied'⟩
+  · exact baseBound present present'
+  · exact (absent' ⟨_, present⟩).elim
+  · exact (absent ⟨_, present'⟩).elim
+  · exact defaultsBound supplied supplied'
+
 variable {Name Payload Wire : Type} {rel : Relation Name Payload}
 
 theorem binding_iff_no_collisions : Binding rel ↔ collisions rel = ∅ := by
