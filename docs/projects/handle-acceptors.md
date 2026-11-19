@@ -322,6 +322,13 @@ trees in actual reference-machine runs; a repeated slot traps with no new tree a
 resurrect the slot. The examples do not route Core writer imports into component sessions or
 provide a correspondence for their accepted languages.
 
+`Wit.Stored.Lower` sends resource-free tree payloads to memory or an exact flat vector through
+the reference canonical store/flatten programs. It checks ABI options and nested list/string
+allocation preconditions before writing; canonical traps retain their reference effects. The
+examples round-trip a nested record in memory64 and as flat operands and show that an
+out-of-bounds destination writes nothing. Lowering an endpoint or error-context observation
+requires its own checked transfer; this path rejects those schemas, including inactive cases.
+
 ## Checking
 
 ```
