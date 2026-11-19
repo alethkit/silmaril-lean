@@ -53,6 +53,14 @@ def prepare {E : CoreEngine} {sig : Signature} (store : CStore E) (state : State
   | .shared (.errorContext id) :: rest =>
     if (store.errCtx? id).isSome then prepare store state rest else .error (.preflight .missingContext)
 
+/-- The ordered exclusive claims of a mixed lowering plan. Shared error
+contexts are observations, not claims to spend. -/
+def exclusiveSpends : List Object → List Spend
+  | [] => []
+  | .owner receipt :: rest => .owner (receiptId receipt) :: exclusiveSpends rest
+  | .shared (.endpoint _ _ id) :: rest => .endpoint id :: exclusiveSpends rest
+  | .shared (.errorContext _) :: rest => exclusiveSpends rest
+
 def authority {E : CoreEngine} {World : Type} {sig : Signature} (access : Access E World sig)
     (limits : Component.Limits) (cx : LiftLowerContext E) : Authority E World where
   prepare plan := do
