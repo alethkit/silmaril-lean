@@ -209,6 +209,14 @@ yet Core acceptor tree payloads; the checked tree writer still rejects async typ
 
 ## Modelling choices to review
 
+`Wit.Async.Transfer` gives the endpoint interpretation a canonical lift/lower boundary:
+it removes the guest slot on successful lift and retains the arena object in the typed
+value. Lowering checks that this object is live, correctly typed, idle, not registered
+with a waitable set, and currently detached. Duplicate Lean values do not duplicate
+ownership. The reference-machine examples exercise a byte stream and a completing unit
+future, including rejected retagging and repeat lowering. Schemas containing a borrow
+are rejected before any transfer effects.
+
 * **Traps are call-local.** The Wasm-facing mandatory trap on an invalid `accept` is
   `OnInvalid.callTrap` (the default): as in Wasm, a trap aborts only the current export
   invocation, while the instance and its store persist (the game strategy
