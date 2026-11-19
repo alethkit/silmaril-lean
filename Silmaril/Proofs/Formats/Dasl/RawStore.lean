@@ -11,6 +11,35 @@ open Silmaril.Formats.Dasl Silmaril.Formats.Dasl.RawStore Silmaril.Semantics.Nam
 
 variable {Name : Type} {decoder : Decoder Name} {base defaults extended policy : Blocks Name}
 
+theorem readObject_found_iff {read : Wire.Cid → Option ByteArray} {name : Wire.Cid} {value : Shallow Wire.Cid} :
+    Wire.readObject read name = .found value ↔ Wire.IsObjectCid name ∧
+      ∃ bytes, graph read name bytes ∧ Wire.parse? bytes = some value := by
+  simp only [Wire.readObject, beq_iff_eq, Wire.IsObjectCid]
+  by_cases object : name.val[1]? = some 0x71
+  · cases hit : read name with
+    | none => simp [object, graph, hit]
+    | some bytes => cases parsed : Wire.parse? bytes <;> simp [object, graph, hit, parsed]
+  · simp [object]
+
+theorem readObject_missing_iff {read : Wire.Cid → Option ByteArray} {name : Wire.Cid} :
+    Wire.readObject read name = .missing ↔ Wire.IsObjectCid name ∧ read name = none := by
+  simp only [Wire.readObject, beq_iff_eq, Wire.IsObjectCid]
+  by_cases object : name.val[1]? = some 0x71
+  · cases hit : read name with
+    | none => simp [object]
+    | some bytes => cases parsed : Wire.parse? bytes <;> simp [object, parsed]
+  · simp [object]
+
+theorem readObject_invalidWire_iff {read : Wire.Cid → Option ByteArray} {name : Wire.Cid} :
+    Wire.readObject read name = .invalidWire ↔ ¬ Wire.IsObjectCid name ∨
+      ∃ bytes, read name = some bytes ∧ Wire.parse? bytes = none := by
+  simp only [Wire.readObject, beq_iff_eq, Wire.IsObjectCid]
+  by_cases object : name.val[1]? = some 0x71
+  · cases hit : read name with
+    | none => simp [object]
+    | some bytes => cases parsed : Wire.parse? bytes <;> simp [object, parsed]
+  · simp [object]
+
 theorem view_binding (bound : Binding base) : (decoder.view base).Binding := by
   constructor
   · rintro name left right ⟨_, bytes, read, parsed⟩ ⟨_, other, read', parsed'⟩
