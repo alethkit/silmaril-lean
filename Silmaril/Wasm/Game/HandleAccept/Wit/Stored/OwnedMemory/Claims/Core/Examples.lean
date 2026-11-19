@@ -14,17 +14,19 @@ public def resource : RtId := ⟨0⟩
 public def element : Option (WIT.ClosedType RtId) := some (.prim .u16)
 
 public inductive Tag where
-  | mixed | invalid | lateTrap
+  | mixed | invalid | lateTrap | text
 
 @[expose] public def sig : Signature :=
   ⟨Tag, fun
     | .mixed => .record [("owner", .own resource), ("read", .stream element)]
     | .invalid => .result (some (.own resource)) (some (.list (.option (.borrow resource))))
-    | .lateTrap => .tuple [.own resource, .stream element, .own resource], fun _ => .fixed 0⟩
+    | .lateTrap => .tuple [.own resource, .stream element, .own resource]
+    | .text => .tuple [.own resource, .option (.prim .string)], fun _ => .fixed 0⟩
 
 private def contract : Contract sig :=
   ⟨0, ("wit", "accept-node"), fun raw => match raw.toNat with
-    | 0 => some .mixed | 1 => some .invalid | 2 => some .lateTrap | _ => none, {}, ⟨0⟩⟩
+    | 0 => some .mixed | 1 => some .invalid | 2 => some .lateTrap | 3 => some .text | _ => none,
+    {}, ⟨0⟩⟩
 
 private abbrev grow := SingleThreaded.neverFail
 private abbrev engine := core3 grow
@@ -64,7 +66,8 @@ private def coreValue : FlatValue → Val
   | .int kind word => .num ⟨.int kind, word⟩
   | .float kind word => .num ⟨.float kind, word⟩
 
-private def execute (memory : Nat) : Nat → Store Nat → SingleThreaded.Thread → World grow sig →
+private def execute (binding : Contract sig) (memory : Nat) :
+    Nat → Store Nat → SingleThreaded.Thread → World grow sig →
     List Issue → Except String (Store Nat × World grow sig × CallResult × List Issue)
   | 0, _, _, _, _ => .error "Core regression ran out of steps"
   | fuel + 1, store, thread, world, issues =>
@@ -74,24 +77,32 @@ private def execute (memory : Nat) : Nat → Store Nat → SingleThreaded.Thread
     | .running =>
       match (core3Exec grow).step? (store, thread) with
       | none => .error "Core interpreter could not step"
-      | some (updated, next) => execute memory fuel updated next world issues
+      | some (updated, next) => execute binding memory fuel updated next world issues
     | .callout target args =>
-      let (updated, result) := attempt contract (some memory) world ⟨target, store, args.map coreValue⟩
+      let (updated, result) := attempt binding (some memory) world ⟨target, store, args.map coreValue⟩
       match result with
-      | .error issue => execute memory fuel store (engine.resume store thread .trap) updated (issue :: issues)
-      | .ok handle => execute memory fuel store
+      | .error issue => execute binding memory fuel store (engine.resume store thread .trap) updated (issue :: issues)
+      | .ok handle => execute binding memory fuel store
           (engine.resume store thread (.values [.int .i32 handle])) updated issues
 
-private def replay : Except String Bool := do
+private def prepare (module_ : Module) : Except String (Store Nat × ModuleInst × Nat) := do
   let (withHost, hostAddr) := SingleThreaded.allocHost ({} : Store Nat)
     ⟨List.replicate 4 (.int .i32), [.int .i32]⟩ 0
   let some (store, instanceInfo, none) := Core3.prepareE? withHost module_ [.func hostAddr]
     | throw "could not instantiate the Core acceptor"
   let some memory := instanceInfo.mems[0]? | throw "no linked memory"
-  let invoke (name : String) (current : Store Nat) (world : World grow sig) := do
-    let some (ExternAddr.func address) := ((Core3.instExports instanceInfo).find? (·.1 == name)).map (·.2)
-      | throw "no exported Core function"
-    execute memory 72 current (SingleThreaded.Thread.invokeFlat address []) world []
+  pure (store, instanceInfo, memory)
+
+private def invoke (binding : Contract sig) (instanceInfo : ModuleInst) (memory : Nat)
+    (name : String) (current : Store Nat) (world : World grow sig) := do
+  let exports : List (String × ExternAddr) := Core3.instExports instanceInfo
+  let some (_, ExternAddr.func address) := exports.find? (fun (entry : String × ExternAddr) => entry.1 == name)
+    | throw "no exported Core function"
+  execute binding memory 72 current (SingleThreaded.Thread.invokeFlat address []) world []
+
+private def replay : Except String Bool := do
+  let (store, instanceInfo, memory) ← prepare module_
+  let invoke := invoke contract instanceInfo memory
   let slot (state : World grow sig) (index : Nat) :=
     (state.reference.inst? ⟨0⟩).bind (fun inst => inst.handles.get? index)
   let (store, world, rejected, issues) ← invoke "unsupported" store initial
@@ -111,5 +122,39 @@ private def replay : Except String Bool := do
     world.writer.held.map receiptId == [⟨2⟩, ⟨0⟩] && world.writer.endpoints == [⟨4⟩, ⟨0⟩])
 
 #guard replay == .ok true
+
+private def textBody (slot tagged word : Nat) : List Instr :=
+  writeWord 16 slot ++ writeWord 20 1 ++ writeWord 24 48 ++ writeWord 28 tagged ++ writeWord 48 word ++
+    [.intConst .i32 3, .intConst .i32 16, .intConst .i32 0, .intConst .i32 0, .call ⟨0⟩]
+
+private def textReplay (encoding : ABI.StringEncoding) (malformedCount validCount : Nat) :
+    Except String Bool := do
+  let textModule := { module_ with
+    funcs := [⟨⟨1⟩, [], textBody 1 malformedCount 0xD800⟩, ⟨⟨1⟩, [], textBody 4 validCount 0xE9⟩]
+    exports := [⟨"malformed", .func ⟨1⟩⟩, ⟨"valid", .func ⟨2⟩⟩] }
+  let binding := { contract with mode := { encoding } }
+  let (store, instanceInfo, memory) ← prepare textModule
+  let (store, world, rejected, issues) ← invoke binding instanceInfo memory "malformed" store initial
+  let slot (state : World grow sig) (index : Nat) :=
+    (state.reference.inst? ⟨0⟩).bind (fun inst => inst.handles.get? index)
+  let malformed := ABI.loadRange encoding .i32 malformedCount
+  let failed := (malformed.codec.decode? [0, 0xD8]).isNone && rejected == .trap &&
+    issues == [.localEffect (.trapped .invalidUtf16)] && world.writer.accepted.isEmpty &&
+    world.writer.held.isEmpty && (slot world 1).isNone && slot world 4 == some (.resource ⟨1⟩)
+  let (_, world, accepted, issues) ← invoke binding instanceInfo memory "valid" store world
+  let range := ABI.loadRange encoding .i32 validCount
+  let expected := range.codec.decode? ([0xE9, 0].take range.byteLength)
+  let text := match world.writer.accepted with
+    | [.tag ⟨_, payload⟩ _ _] =>
+      match payload.val.value with
+      | .record [.own 77, .variant 1 (some (.string text))] => some text.v.str
+      | _ => none
+    | _ => none
+  pure (failed && accepted == .values [.int .i32 1] && issues.isEmpty && text == expected &&
+    text == some "é" && world.writer.held.map receiptId == [⟨1⟩] && (slot world 4).isNone)
+
+#guard textReplay .utf16 1 1 == .ok true
+#guard textReplay .latin1Utf16 0x80000001 0x80000001 == .ok true
+#guard textReplay .latin1Utf16 0x80000001 1 == .ok true
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Examples

@@ -111,19 +111,19 @@ theorem sat (profile : Profile) {ix : ListImports} (valid : shapeOk ix = true)
       (by rw [storeFuncs]; rfl) (by rw [storeFuncs]; rfl) (by rw [storeFuncs]; rfl)
       okItems okChild okAccept invariant (fun st same count f => (exits st
         ⟨cfg, none, prepared, same, count⟩ f).2)) ?_
-  exact ⟨stable store inv, storeMemory, 0, 0, 0, frameEq,
+  exact ⟨stable store inv, storeMemory, 0, 0, 0, frameEq, by decide,
     fun children denotes => ⟨denotes, Nat.zero_le _, fun _ _ before => by simp at before⟩⟩
 
-theorem symbols_sound (profile : Profile) {policy : OnInvalid} (noUB : policy ≠ .ub)
+theorem symbols_bounded (profile : Profile) {policy : OnInvalid} (noUB : policy ≠ .ub)
     (envs : Set (Env (BitVec 32) SymStrBytesSExp)) :
     listReaderLang profile (ReplyEnvs itemsReply) 0 (Loop.mod {}) {} symTextAns .trap policy envs ⊆
-      listsOf symbols :=
+      boundedListsOf symbols :=
   listReaderLang_subset (fun env => sat profile sym_shape symTextAns_kind env) (fun _ _ h => h) noUB envs
 
-theorem blobs_sound (profile : Profile) {policy : OnInvalid} (noUB : policy ≠ .ub)
+theorem blobs_bounded (profile : Profile) {policy : OnInvalid} (noUB : policy ≠ .ub)
     (envs : Set (Env (BitVec 32) SymStrBytesSExp)) :
     listReaderLang profile (ReplyEnvs itemsReply) 0 (Loop.mod blobImports) blobImports blobAns
-      .trap policy envs ⊆ listsOf blobs :=
+      .trap policy envs ⊆ boundedListsOf blobs :=
   listReaderLang_subset (fun env => sat profile blob_shape blobAns_kind env) (fun _ _ h => h) noUB envs
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopSound
