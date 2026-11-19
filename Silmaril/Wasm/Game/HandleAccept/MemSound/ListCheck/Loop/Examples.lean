@@ -6,6 +6,7 @@ import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Run.Thms
 import Silmaril.Wasm.Resource.Replay.Defs
 import Silmaril.Wasm.Verify.Check.Defs
 import Silmaril.Wasm.Validation.Check.Validate
+meta import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Replies.Defs
 
 namespace Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Examples
 
@@ -155,5 +156,15 @@ theorem accepts_mixed_blob_sizes (profile : Silmaril.Wasm.Numerics.Profile)
 theorem refuses_short_child_memory :
     writeByteReply ⟨Array.replicate 8 0⟩ [0] = .error .insufficientSpace := by
   apply writeByteReply_rejects_short_memory <;> decide +kernel
+
+#guard match writeByteReply ⟨#[0, 0, 0, 0, 0, 0, 0, 0, 0, 188, 17]⟩ [255] with
+  | .ok bytes => bytes.data == #[8, 0, 0, 0, 1, 0, 0, 0, 255, 188, 17]
+  | .error _ => false
+
+theorem short_child_reply_traps_without_store_change {store : Store Nat} {memory : MemInst}
+    (single : store.mems = [memory]) (short : memory.bytes.size = 8) :
+    (byteReplyHost [41] (fun _ => [0])).Ans () ⟨1, store, [.i32 41, .i32 0]⟩ ⟨store, .trap⟩ () := by
+  apply ScriptReply.childError single (by simp)
+  apply writeByteReply_rejects_short_memory <;> simp [short]
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Examples

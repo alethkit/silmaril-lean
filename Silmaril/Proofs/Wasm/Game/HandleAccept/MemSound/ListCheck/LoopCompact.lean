@@ -36,19 +36,26 @@ theorem checker_instance (checker : Checker) :
   have space := Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Live.one_page page prepared
   exact ⟨mt, instance_, cfg.withStart start, spec, by cases start <;> exact space⟩
 
-theorem compact_admitted {handles : List (BitVec 32)} {childBytes : BitVec 32 → ByteArray}
-    (store : Store Nat) : ReplyEnvs itemsReply store (compactHost handles childBytes) := by
+theorem script_admitted {handles : List (BitVec 32)}
+    {encodeChild : ByteArray → BitVec 32 → Except ReplyIssue ByteArray}
+    (store : Store Nat) : ReplyEnvs itemsReply store (scriptHost handles encodeChild) := by
   intro state call reply next answer
-  change CompactReply handles childBytes call reply at answer
+  change ScriptReply handles encodeChild call reply at answer
   cases answer <;> simp [itemsReply, ShapedReply, KeepsCode, Store.setMem]
 
-theorem compact_plan {capacity : Nat} (width : capacity ≤ 2 ^ 32)
+theorem compact_admitted {handles : List (BitVec 32)} {childBytes : BitVec 32 → ByteArray}
+    (store : Store Nat) : ReplyEnvs itemsReply store (compactHost handles childBytes) :=
+  script_admitted store
+
+private theorem script_plan {capacity : Nat} (width : capacity ≤ 2 ^ 32)
     {root : BitVec 32} {handles : List (BitVec 32)} (fits : 8 + 4 * handles.length ≤ capacity)
-    {childBytes : BitVec 32 → ByteArray}
-    (childFits : ∀ handle ∈ handles, (childBytes handle).size = capacity)
-    (decode : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)) :
-    ReplyPlan (compactHost handles childBytes) (ReplySpace capacity) decode root handles
-      (fun handle => decode ⟨.values [], some (childBytes handle)⟩ 0) := by
+    {encodeChild : ByteArray → BitVec 32 → Except ReplyIssue ByteArray}
+    {decode : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)}
+    {answerFor : BitVec 32 → SxA MemAtom (BitVec 32)}
+    (childFits : ∀ handle ∈ handles, ∀ memory : ByteArray, memory.size = capacity →
+      ∃ bytes, encodeChild memory handle = .ok bytes ∧ bytes.size = capacity ∧
+        decode ⟨.values [], some bytes⟩ 0 = answerFor handle) :
+    ReplyPlan (scriptHost handles encodeChild) (ReplySpace capacity) decode root handles answerFor := by
   constructor
   · intro store state ready
     obtain ⟨mem, atMemory, size⟩ := ready
@@ -57,36 +64,49 @@ theorem compact_plan {capacity : Nat} (width : capacity ≤ 2 ^ 32)
     let newMem : MemInst := { mem with bytes }
     have memLen : store.mems.length = 1 := by rw [atMemory]; rfl
     have facts := setMem_mems (mi := newMem) memLen
-    refine ⟨store.setMem 0 newMem, (), newMem, CompactReply.items atMemory written,
+    refine ⟨store.setMem 0 newMem, (), newMem, ScriptReply.items atMemory written,
       ⟨newMem, ?_, sameSize.trans size⟩, facts.2.2, facts.1, decoded, ?_⟩
     · simp [Store.setMem, atMemory, newMem]
     · exact (sameSize.trans size).symm ▸ width
   · intro handle member store state ready
-    obtain ⟨mem, atMemory, _⟩ := ready
-    let newMem : MemInst := { mem with bytes := childBytes handle }
+    obtain ⟨mem, atMemory, size⟩ := ready
+    obtain ⟨bytes, written, sameSize, decoded⟩ := childFits handle member mem.bytes size
+    let newMem : MemInst := { mem with bytes }
     have memLen : store.mems.length = 1 := by rw [atMemory]; rfl
     have facts := setMem_mems (mi := newMem) memLen
-    refine ⟨store.setMem 0 newMem, (), CompactReply.child atMemory member,
-      ⟨newMem, ?_, childFits handle member⟩, facts.2.2, ?_⟩
+    refine ⟨store.setMem 0 newMem, (), ScriptReply.child atMemory member written,
+      ⟨newMem, ?_, sameSize⟩, facts.2.2, ?_⟩
     · simp [Store.setMem, atMemory, newMem]
     · rw [memOf_setMem memLen]
+      exact decoded
+
+theorem compact_plan {capacity : Nat} (width : capacity ≤ 2 ^ 32)
+    {root : BitVec 32} {handles : List (BitVec 32)} (fits : 8 + 4 * handles.length ≤ capacity)
+    {childBytes : BitVec 32 → ByteArray}
+    (childFits : ∀ handle ∈ handles, (childBytes handle).size = capacity)
+    (decode : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)) :
+    ReplyPlan (compactHost handles childBytes) (ReplySpace capacity) decode root handles
+      (fun handle => decode ⟨.values [], some (childBytes handle)⟩ 0) :=
+  script_plan width fits (fun handle member _ _ => ⟨_, rfl, childFits handle member, rfl⟩)
 
 private theorem decoded_child (checker : Checker) {image : ByteArray} {bytes : List UInt8}
-    {atom : MemAtom} (payload : bytesList image 0 = some bytes)
-    (kind : checker.decodeBytes bytes = some atom) :
-    checker.decodeChild ⟨.values [], some image⟩ 0 = .atom atom := by
-  cases checker with
-  | blobs =>
-    unfold Checker.decodeBytes at kind
-    cases kind
-    simp [Checker.decodeChild, blobAns, payload]
-  | symbols =>
-    cases utf : utf8? bytes with
-    | none => simp [Checker.decodeBytes, utf] at kind
-    | some text =>
-      simp only [Checker.decodeBytes, utf, Option.map_some, Option.some.injEq] at kind
-      subst atom
-      simp [Checker.decodeChild, symTextAns, payload, utf]
+    (payload : bytesList image 0 = some bytes) :
+    checker.decodeChild ⟨.values [], some image⟩ 0 =
+      ((checker.decodeBytes bytes).map SxA.atom).getD (.handle 0) := by
+  cases checker
+  · cases utf : utf8? bytes <;> simp [Checker.decodeBytes, Checker.decodeChild, symTextAns, payload, utf]
+  · simp [Checker.decodeBytes, Checker.decodeChild, blobAns, payload]
+
+theorem bytes_plan (checker : Checker) {capacity : Nat} (width : capacity ≤ 2 ^ 32)
+    {root : BitVec 32} {handles : List (BitVec 32)} (fits : 8 + 4 * handles.length ≤ capacity)
+    (raw : BitVec 32 → List UInt8) (space : ∀ handle ∈ handles, 8 + (raw handle).length ≤ capacity) :
+    ReplyPlan (byteReplyHost handles raw) (ReplySpace capacity) checker.decodeChild root handles
+      (fun handle => ((checker.decodeBytes (raw handle)).map SxA.atom).getD (.handle 0)) := by
+  apply script_plan (encodeChild := fun memory handle => writeByteReply memory (raw handle)) width fits
+  intro handle member memory size
+  obtain ⟨bytes, written, sameSize, decoded⟩ := writeByteReply_roundtrip
+    (memory := memory) (payload := raw handle) (size.symm ▸ width) (size.symm ▸ space handle member)
+  exact ⟨bytes, written, sameSize.trans size, decoded_child checker decoded⟩
 
 theorem bytes_accepts {profile : Profile} (checker : Checker)
     (policy : OnInvalid) {Rhos : Set (Env (BitVec 32) SymStrBytesSExp)}
@@ -99,27 +119,12 @@ theorem bytes_accepts {profile : Profile} (checker : Checker)
       checker.decodeBytes (raw handle) = some atom ∧ rho handle = some (.atom atom)) :
     SExp.ofList children ∈ listReaderLang profile (ReplyEnvs itemsReply) 0 (Loop.mod checker.imports)
       checker.imports checker.decodeChild .trap policy Rhos := by
-  let page : ByteArray := ⟨Array.replicate 65536 0⟩
-  have pageSize : page.size = 65536 := by simp only [page, ByteArray.size, Array.size_replicate]
-  have width : page.size ≤ 2 ^ 32 := by rw [pageSize]; decide
-  have encoded (handle : BitVec 32) (member : handle ∈ handles) :
-      ∃ image, writeByteReply page (raw handle) = .ok image ∧ image.size = 65536 ∧
-        bytesList image 0 = some (raw handle) := by
-    obtain ⟨image, written, sameSize, read⟩ := writeByteReply_roundtrip width
-      (show 8 + (raw handle).length ≤ page.size by rw [pageSize]; exact space handle member)
-    exact ⟨image, written, sameSize.trans pageSize, read⟩
-  let images (handle : BitVec 32) : ByteArray :=
-    if member : handle ∈ handles then (encoded handle member).choose else ByteArray.empty
-  have facts (handle : BitVec 32) (member : handle ∈ handles) :
-      (images handle).size = 65536 ∧ bytesList (images handle) 0 = some (raw handle) := by
-    simpa only [images, dite_eq_left member] using (encoded handle member).choose_spec.2
-  have sizes (handle : BitVec 32) (member : handle ∈ handles) := (facts handle member).1
   obtain ⟨_, instance_, _, spec, ready⟩ := checker_instance checker
-  apply checker_accepts checker spec (compact_admitted instance_.store) () ready
-    (compact_plan (childBytes := images) (by decide) fits sizes checker.decodeChild)
+  apply checker_accepts checker spec (script_admitted instance_.store) () ready
+    (bytes_plan checker (by decide) fits raw space)
     policy allowed rootDenotes denotes
   intro handle member
   obtain ⟨atom, meaning, named⟩ := atoms handle member
-  exact ⟨atom, decoded_child checker (facts handle member).2 meaning, named⟩
+  exact ⟨atom, by simp [meaning], named⟩
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun
