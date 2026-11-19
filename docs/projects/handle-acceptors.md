@@ -450,6 +450,14 @@ successful replies are exactly the chronological handles of newly published root
 never contribute a handle, including in an invocation that traps before a later successful
 export. This identifies publication history, not a particular guest's exact payload language.
 
+`Wit.Stored.OwnedMemory.Claims.Core.Plain` proves an exact session correspondence between
+the endpoint-only and receipt-aware synchronous Core `accept-node` routes on `PlainSignature`.
+The state embedding preserves the reference arena and held endpoint claims and embeds all
+accepted trees. Actual calls agree on typed rejection and canonical effects, child lookup,
+and the published handle. Both directions preserve all export prefixes, including the same
+Core stores and tag traces after rejections and retries. This is a conservative extension
+result for this pair of dispatchers, not yet for the scheduled canonical lifecycle API.
+
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
 including nested futures and streams. Already-built children are not lifted again and create no
