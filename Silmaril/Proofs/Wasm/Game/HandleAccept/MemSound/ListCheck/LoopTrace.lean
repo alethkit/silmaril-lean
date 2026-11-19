@@ -26,7 +26,7 @@ variable {pages : InitialPages}
 private def loopCtx (frame : Frame) (deep : Ctx) : Ctx :=
   .frame [] 0 frame (.label [] 0 [] (.label [] 0 body deep []) []) []
 
-private def running (outer frame : Frame) (store : Store Nat) (code : List Admin) : Config Nat :=
+def running (outer frame : Frame) (store : Store Nat) (code : List Admin) : Config Nat :=
   ⟨store, outer, [.frame 0 frame [.label 0 [] [.label 0 body code]]]⟩
 
 private abbrev NoHost : HostSemantics Nat := fun _ _ _ _ => False
@@ -50,7 +50,8 @@ private theorem call_reduces {profile : Profile} {store : Store Nat} {frame : Fr
   simpa only [Ctx.fill, vals, List.map_nil, List.nil_append, List.append_assoc, List.singleton_append]
     using step.steps
 
-private theorem reply_in_loop {profile : Profile} {ix : ListImports} {L : SEnv UImp}
+private theorem reply_in_loop {profile : Profile} {ix : ListImports} {L : SEnv UImp} {module_ : Module}
+    (imports : module_.imports = (Loop.mod ix).imports)
     {ans : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)}
     {initial : Config Nat} {initState : L.S} {exports : List Nat}
     {store next : Store Nat} {outer frame : Frame} {q nextState : L.S}
@@ -61,10 +62,10 @@ private theorem reply_in_loop {profile : Profile} {ix : ListImports} {L : SEnv U
     (storeFunc : store.funcs[idx.toNat]? = some func)
     (stub : stubOk idx.toNat 2 func = true) (arity : args.length = 2)
     (answer : L.Ans q ⟨idx.toNat, store, args⟩ ⟨next, .values []⟩ nextState)
-    (session : TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans)
+    (session : TSession profile L module_ (some 0) (listRoles ix ans)
       initial initState exports .run false
       (running outer frame store (vals args ++ .plain (.call idx) :: tail), q) tags) :
-    TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans) initial initState exports .run false
+    TSession profile L module_ (some 0) (listRoles ix ans) initial initState exports .run false
       (running outer frame next tail, nextState)
       (tags ++ (listRoles ix ans).answerTags ⟨importIx ix idx.toNat, args, memOf (some 0) store⟩
         ⟨.values [], memOf (some 0) next⟩) := by
@@ -77,11 +78,11 @@ private theorem reply_in_loop {profile : Profile} {ix : ListImports} {L : SEnv U
   obtain ⟨params, results, hostCode, expanded, count⟩ := stubOk_spec stub
   have decompose : decompose? store stopped.code = some (context, idx.toNat, idx.toNat, args) := by
     exact decompose_fill context trivial storeFunc expanded (arity.trans count.symm) hostCode
-  have callout : calloutAt? (Loop.mod ix pages) (some 0) stopped =
+  have callout : calloutAt? module_ (some 0) stopped =
       some ⟨importIx ix idx.toNat, args, memOf (some 0) store⟩ := by
     unfold calloutAt?
     change (decompose? store stopped.code).bind _ = _
-    rw [decompose]
+    rw [decompose, imports]
     rcases which with rfl | rfl <;> rfl
   have noCallTag : (listRoles ix ans).callTags ⟨importIx ix idx.toNat, args, memOf (some 0) store⟩ = [] := by
     rcases which with rfl | rfl <;>
@@ -94,18 +95,19 @@ private theorem reply_in_loop {profile : Profile} {ix : ListImports} {L : SEnv U
   simpa [Option.elim, noCallTag, stopped, context, loopCtx, Ctx.fill, running, Result.toAdmin, vals]
     using replied
 
-private theorem accept_in_loop {profile : Profile} {ix : ListImports} {L : SEnv UImp}
+private theorem accept_in_loop {profile : Profile} {ix : ListImports} {L : SEnv UImp} {module_ : Module}
+    (imports : module_.imports = (Loop.mod ix).imports)
     {ans : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)}
     {initial : Config Nat} {initState : L.S} {exports : List Nat}
     {store : Store Nat} {outer frame : Frame} {q : L.S} {root : BitVec 32}
     {tags : List (Tag Unit MemREv Unit Unit)} {func : FuncInst Nat}
     (localFunc : frame.module.funcs[2]? = some 2) (storeFunc : store.funcs[2]? = some func)
     (stub : stubOk 2 1 func = true)
-    (session : TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans)
+    (session : TSession profile L module_ (some 0) (listRoles ix ans)
       initial initState exports .run false (running outer frame store
         (.label 0 [] (vals [.i32 root] ++ expression [.call ⟨2⟩, .return_]) ::
           expression (iteration.drop 8)), q) tags) :
-    ∃ stopped, TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans) initial initState exports
+    ∃ stopped, TSession profile L module_ (some 0) (listRoles ix ans) initial initState exports
       .run true (stopped, q) (tags ++ [.inp (.accept root)]) := by
   let context := loopCtx frame (.label [] 0 [] (.top [] (expression [.return_]))
     (expression (iteration.drop 8)))
@@ -115,17 +117,17 @@ private theorem accept_in_loop {profile : Profile} {ix : ListImports} {L : SEnv 
       ⟨store, frame, vals [.i32 root] ++ expression [.call ⟨2⟩, .return_]⟩
       ⟨store, frame, (Ctx.top [] (expression [.return_])).fill code⟩ :=
     call_reduces (idx := ⟨2⟩) localFunc storeFunc
-  have reached : TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans) initial initState exports
+  have reached : TSession profile L module_ (some 0) (listRoles ix ans) initial initState exports
       .run false (stopped, q) tags :=
     TSession.of_core_steps session (in_loop (Steps.append (expression (iteration.drop 8)) calls.label))
   obtain ⟨params, results, hostCode, expanded, count⟩ := stubOk_spec stub
   have decompose : decompose? store stopped.code = some (context, 2, 2, [.i32 root]) :=
     decompose_fill context trivial storeFunc expanded (by rw [count]; rfl) hostCode
-  have callout : calloutAt? (Loop.mod ix pages) (some 0) stopped =
+  have callout : calloutAt? module_ (some 0) stopped =
       some ⟨ix.accept, [.i32 root], memOf (some 0) store⟩ := by
     unfold calloutAt?
     change (decompose? store stopped.code).bind _ = _
-    rw [decompose]
+    rw [decompose, imports]
     rfl
   refine ⟨stopped, ?_⟩
   have called := TSession.call reached decompose
@@ -133,7 +135,8 @@ private theorem accept_in_loop {profile : Profile} {ix : ListImports} {L : SEnv 
   simpa [Roles.callTags, listRoles, readAccept, ListImports.toRead, Callout.args1, Callout.i32?, Val.i32]
     using called
 
-private theorem drive {profile : Profile} {ix : ListImports} {L : SEnv UImp}
+theorem drive {profile : Profile} {ix : ListImports} {L : SEnv UImp} {module_ : Module}
+    (imports : module_.imports = (Loop.mod ix).imports)
     {ans : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)} {ready : Store Nat → Prop}
     {root : BitVec 32} {handles : List (BitVec 32)} {answerFor : BitVec 32 → SxA MemAtom (BitVec 32)}
     (plan : ReplyPlan L ready ans root handles answerFor)
@@ -145,9 +148,9 @@ private theorem drive {profile : Profile} {ix : ListImports} {L : SEnv UImp}
     {index base offset : BitVec 32} {store : Store Nat} {q : L.S}
     {tags : List (Tag Unit MemREv Unit Unit)} (bounded : index.toNat ≤ handles.length)
     (atStore : store.funcs = [items, child, accept, check]) (good : ready store)
-    (session : TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans) initial initState exports
+    (session : TSession profile L module_ (some 0) (listRoles ix ans) initial initState exports
       .run false (running outer (locals inst root index base offset) store (expression iteration), q) tags) :
-    ∃ stopped lastState, TSession profile L (Loop.mod ix pages) (some 0) (listRoles ix ans) initial initState exports
+    ∃ stopped lastState, TSession profile L module_ (some 0) (listRoles ix ans) initial initState exports
       .run true (stopped, lastState) (tags ++ (remainingReads root handles (handles.drop index.toNat) answerFor).map .inp) := by
   let frame := locals inst root index base offset
   have args : Steps profile NoHost ⟨store, frame, expression iteration⟩
@@ -157,7 +160,7 @@ private theorem drive {profile : Profile} {ix : ListImports} {L : SEnv UImp}
   have readyToCall := TSession.of_core_steps session (in_loop args)
   obtain ⟨itemsStore, itemsState, memory, itemReply, itemsGood, itemsFuncs, memAt, decoded, width⟩ :=
     plan.items store q good
-  have itemRead := reply_in_loop (idx := ⟨0⟩) (Or.inl rfl) names.2
+  have itemRead := reply_in_loop (idx := ⟨0⟩) imports (Or.inl rfl) names.2
     (by change inst.funcs[0]? = some 0; rw [localFuncs]; rfl)
     (by change store.funcs[0]? = some items; rw [atStore]; rfl) itemsStub rfl itemReply readyToCall
   have itemsTag : (listRoles ix ans).answerTags
@@ -171,7 +174,7 @@ private theorem drive {profile : Profile} {ix : ListImports} {L : SEnv UImp}
   · have taking := to_accept (profile := profile) (host := NoHost) (base := base) (offset := offset)
       (root := root) memIdx memAt decoded done
     have branch := TSession.of_core_steps itemRead (in_loop taking)
-    obtain ⟨stopped, reached⟩ := accept_in_loop (func := accept)
+    obtain ⟨stopped, reached⟩ := accept_in_loop (func := accept) imports
       (by change inst.funcs[2]? = some 2; rw [localFuncs]; rfl)
       (by rw [itemsFuncs, atStore]; rfl) acceptStub branch
     refine ⟨stopped, itemsState, ?_⟩
@@ -183,7 +186,7 @@ private theorem drive {profile : Profile} {ix : ListImports} {L : SEnv UImp}
     let handle := handles[index.toNat]
     obtain ⟨next, nextState, childReply, nextGood, nextFuncs, answerEq⟩ :=
       plan.child handle (List.getElem_mem before) itemsStore itemsState itemsGood
-    have readChild := reply_in_loop (idx := ⟨1⟩) (Or.inr rfl) names.2
+    have readChild := reply_in_loop (idx := ⟨1⟩) imports (Or.inr rfl) names.2
       (by change inst.funcs[1]? = some 1; rw [localFuncs]; rfl)
       (by change itemsStore.funcs[1]? = some child; rw [itemsFuncs, atStore]; rfl) childStub rfl childReply atChild
     have childTag : (listRoles ix ans).answerTags
@@ -195,7 +198,7 @@ private theorem drive {profile : Profile} {ix : ListImports} {L : SEnv UImp}
     have bump := back_edge (profile := profile) (host := NoHost) (store := next) (inst := inst)
       (root := root) (index := index) (base := newBase) (offset := index * 4)
     have repeatRound := TSession.of_core_steps readChild bump.label.frame
-    obtain ⟨last, lastState, reached⟩ := drive plan names localFuncs localMems itemsStub childStub acceptStub
+    obtain ⟨last, lastState, reached⟩ := drive imports plan names localFuncs localMems itemsStub childStub acceptStub
       (index := index + 1) (by rw [next_index guard]; omega) (nextFuncs.trans (itemsFuncs.trans atStore))
       nextGood repeatRound
     refine ⟨last, lastState, ?_⟩
@@ -207,7 +210,7 @@ private theorem drive {profile : Profile} {ix : ListImports} {L : SEnv UImp}
 termination_by handles.length - index.toNat
 decreasing_by exact remaining_decreases guard before
 
-private theorem input_map (reads : List MemREv) :
+theorem input_map (reads : List MemREv) :
     Silmaril.Wasm.Game.HandleAccept.Memory.inputsOf (X := Unit) (O := Unit) (C := Unit)
       (some .enter) (reads.map .inp) = reads := by
   induction reads with
@@ -252,7 +255,7 @@ theorem trace {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeOk 
       ⟨cfg.store, locals check.module root 0 0 0, [.label 0 body (expression iteration)]⟩ :=
     Step.loop (vs := []) (t₁ := []) (t₂ := []) rfl rfl
   have loop := TSession.of_core_steps called (enterCheck.steps.trans enterLoop.steps.label.frame)
-  obtain ⟨stopped, lastState, reached⟩ := drive plan ⟨distinct, separate⟩ localFuncs localMems
+  obtain ⟨stopped, lastState, reached⟩ := drive (module_ := Loop.mod ix pages) rfl plan ⟨distinct, separate⟩ localFuncs localMems
     itemsStub childStub acceptStub (index := 0) (by simp) storeFuncs good loop
   have memoryAddr : (cfg.withStart none).frame.module.mems[0]? = some 0 := by rw [show (cfg.withStart none).frame.module.mems = cfg.frame.module.mems from rfl, mems]; rfl
   refine ⟨.enter none :: (remainingReads root handles handles answerFor).map .inp,
@@ -263,20 +266,16 @@ theorem trace {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeOk 
       ((remainingReads root handles handles answerFor).map .inp) = _
     rw [input_map]
 
-theorem accepts {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeOk ix pages = true)
-    (separate : ix.accept ≠ ix.items ∧ ix.accept ≠ ix.child)
-    {mt : CModuleType} {instance_ : ScalarInstance} {initial : Config Nat}
-    (spec : IsSpecInstance (Loop.mod ix pages) mt instance_ initial)
-    {Envs : Store Nat → SEnv UImp → Prop} {L : SEnv UImp} (env : Envs instance_.store L)
-    (initState : L.S) {ready : Store Nat → Prop} (good : ready initial.store)
+theorem accepts_trace {profile : Profile} {ix : ListImports} {module_ : Module}
+    {Envs : Store Nat → SEnv UImp → Prop}
     {ans : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)}
     {root : BitVec 32} {handles : List (BitVec 32)} {answerFor : BitVec 32 → SxA MemAtom (BitVec 32)}
-    (plan : ReplyPlan L ready ans root handles answerFor)
+    (transcript : .enter :: remainingReads root handles handles answerFor ∈ listTraces profile Envs 0 module_ ix ans)
     (policy : OnInvalid) {Rhos : Set (Env (BitVec 32) SymStrBytesSExp)} {rho : Env (BitVec 32) SymStrBytesSExp}
     (allowed : rho ∈ Rhos) {children : List SymStrBytesSExp} (rootDenotes : rho root = some (SExp.ofList children))
     (denotes : List.Forall₂ (fun handle child => rho handle = some child) handles children)
     (atoms : ∀ handle ∈ handles, ∃ atom, answerFor handle = .atom atom ∧ rho handle = some (.atom atom)) :
-    SExp.ofList children ∈ listReaderLang profile Envs 0 (Loop.mod ix pages) ix ans .trap policy Rhos := by
+    SExp.ofList children ∈ listReaderLang profile Envs 0 module_ ix ans .trap policy Rhos := by
   let Reader := sexpR MemAtom (BitVec 32)
   let tree := SExp.ofList children
   have atItems : RStep Reader .trap policy rho .live (.read (.items root) (.items handles)) .live ∅ := by
@@ -305,8 +304,24 @@ theorem accepts {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeO
   have run := Host.Run.cons (h := readerHost) (RStep.enter (R := Reader) (pol := .trap) (onAccept := policy) (ρ := rho))
     (rest handles (fun _ found => found))
   simp only [listReaderLang, readerLang, langOver, Host.lang]
-  refine Set.mem_iUnion.2 ⟨⟨rho, allowed⟩, Set.mem_biUnion (trace valid separate spec env initState good plan) ?_⟩
+  refine Set.mem_iUnion.2 ⟨⟨rho, allowed⟩, Set.mem_biUnion transcript ?_⟩
   exact ⟨_, _, run, by simp [tree]⟩
+
+theorem accepts {profile : Profile} {ix : ListImports} (valid : LoopSound.shapeOk ix pages = true)
+    (separate : ix.accept ≠ ix.items ∧ ix.accept ≠ ix.child)
+    {mt : CModuleType} {instance_ : ScalarInstance} {initial : Config Nat}
+    (spec : IsSpecInstance (Loop.mod ix pages) mt instance_ initial)
+    {Envs : Store Nat → SEnv UImp → Prop} {L : SEnv UImp} (env : Envs instance_.store L)
+    (initState : L.S) {ready : Store Nat → Prop} (good : ready initial.store)
+    {ans : HostReply → BitVec 32 → SxA MemAtom (BitVec 32)}
+    {root : BitVec 32} {handles : List (BitVec 32)} {answerFor : BitVec 32 → SxA MemAtom (BitVec 32)}
+    (plan : ReplyPlan L ready ans root handles answerFor)
+    (policy : OnInvalid) {Rhos : Set (Env (BitVec 32) SymStrBytesSExp)} {rho : Env (BitVec 32) SymStrBytesSExp}
+    (allowed : rho ∈ Rhos) {children : List SymStrBytesSExp} (rootDenotes : rho root = some (SExp.ofList children))
+    (denotes : List.Forall₂ (fun handle child => rho handle = some child) handles children)
+    (atoms : ∀ handle ∈ handles, ∃ atom, answerFor handle = .atom atom ∧ rho handle = some (.atom atom)) :
+    SExp.ofList children ∈ listReaderLang profile Envs 0 (Loop.mod ix pages) ix ans .trap policy Rhos :=
+  accepts_trace (trace valid separate spec env initState good plan) policy allowed rootDenotes denotes atoms
 
 theorem checker_accepts_pages {profile : Profile} (checker : Checker)
     (shape : LoopSound.shapeOk checker.imports pages = true)

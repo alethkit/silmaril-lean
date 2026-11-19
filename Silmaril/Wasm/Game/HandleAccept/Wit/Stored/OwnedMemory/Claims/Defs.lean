@@ -99,17 +99,24 @@ def acceptNode (sig : Signature) (limits : Component.Limits) (quirks : Quirks)
       hostSet registered
       return .ok tree
 
-/-- Use canonical `lower_own` to issue a fresh guest handle. The original claim is spent
-only after insertion succeeds. A canonical trap retains its own effects. -/
+/-- Commit an already checked owner transfer immediately before canonical `lower_own`
+allocates the new owning arena object. Insertion into the guest table can still trap;
+this does not restore the claim or roll back the allocation. No guest code runs between
+this commit and the allocation. -/
+def commitOwner {World : Type} (spend : P E World Unit)
+    (limits : Component.Limits) (cx : LiftLowerContext E) (resource : RtId)
+    (representation : Nat) : P E World Nat := do
+  spend
+  lowerOwn limits cx resource representation
+
+/-- Validate the nominal claim before committing a canonical owner transfer. -/
 def Access.give {World : Type} {sig : Signature} (access : Access E World sig)
     (limits : Component.Limits) (cx : LiftLowerContext E) (resource : RtId) (id : HandleObjId) :
     P E World (Except Issue Nat) := do
   match (← access.read).prepare resource id with
   | .error issue => return .error issue
   | .ok (representation, _) =>
-    let slot ← lowerOwn limits cx resource representation
-    access.spend (.owner id)
-    return .ok slot
+    return .ok (← commitOwner (access.spend (.owner id)) limits cx resource representation)
 
 /-- Canonical lower of an endpoint can transfer its owner before a failing table insertion.
 Commit spending before that effect, after validating the arena identity and whole element type. -/

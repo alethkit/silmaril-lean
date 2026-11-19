@@ -63,6 +63,8 @@ def ieq : Instr → Instr → Bool
   | .intConst t b, .intConst t' b' => t == t' && b.toNat == b'.toNat
   | .intRelOp t o, .intRelOp t' o' => t == t' && o == o'
   | .intBinOp t o, .intBinOp t' o' => t == t' && o == o'
+  | .memorySize x, .memorySize x' => x == x'
+  | .memoryGrow x, .memoryGrow x' => x == x'
   | .intStore t p x a, .intStore t' p' x' a' => t == t' && p == p' && x == x' && a == a'
   | .intLoad t p x a, .intLoad t' p' x' a' => t == t' && p == p' && x == x' && a == a'
   | _, _ => false
