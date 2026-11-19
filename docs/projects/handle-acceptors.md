@@ -337,6 +337,16 @@ arena identity while consuming the guest slot. A later reference trap retains ea
 Stored borrows and `own` types are rejected recursively before effects: the reference `Val.own`
 alone carries a representation, not the owning identity this tree boundary needs.
 
+`Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
+Lifting a root from memory or flat operands registers the arena identities in its active payload,
+including nested futures and streams. Already-built children are not lifted again and create no
+claims. `give` spends a claim only after canonical lowering succeeds; it checks the reference
+endpoint's kind, element type, liveness, idle state and ownership. A tree remains an observation
+after handoff, not a second right to lower it. A verified mixed session lifts a future and a byte
+stream into one tree, transfers them back, completes the future, copies two distinct stream bytes,
+and closes both channels. This gives endpoints individually; it does not lower an entire compound
+endpoint payload in one operation or connect the Core checked writer to the reference machine.
+
 `Wit.Stored.Examples` records an `option<future>` from memory and a flat `stream<u8>` as typed
 trees in actual reference-machine runs; a repeated slot traps with no new tree and does not
 resurrect the slot. The examples do not route Core writer imports into component sessions or
