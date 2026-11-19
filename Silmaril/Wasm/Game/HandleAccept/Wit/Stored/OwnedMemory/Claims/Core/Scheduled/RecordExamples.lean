@@ -396,4 +396,7 @@ private def inactiveBorrow : Signature :=
 #guard flatBindingIssue (Binding.acceptFlat (sig := signature) ("host", "bad") ⟨0⟩ {} 0 {} true) ==
   some .wrongPassingMode
 
+#guard Endpoints.Core.checkChildren signature true (2 ^ 32 - 2) 0 0 == .ok ()
+#guard Endpoints.Core.checkChildren signature true (2 ^ 32 - 1) 0 0 == .error .exhaustedHandles
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.RecordExamples

@@ -585,8 +585,12 @@ entry records the import ticket and handle in the same host write that adds the 
 and its claims. Across arbitrary ordinary machine prefixes, `checked_of_session`
 proves that the publication journal only grows and that its growth equals the growth
 of accepted roots. Each journal entry carries the one-based position of its root,
-encoded as the Core `i32` handle. A refusal and a trap without publication cannot be counted as an
-acceptance, and a prefix ending between publication and the reply still records the root.
+as a nonzero, non-wrapping Core `i32` handle. A refusal or a trap without publication
+cannot count as an acceptance, and a prefix ending between publication and the reply
+still records the root. `PublicationDelta.targets` proves that each journaled handle
+selects its root from the final writer; `WriterRun.retains_target` extends this to older
+handles without reviving spent resource or endpoint claims. Both loaders check capacity
+before lifting, and the publication continuation independently refuses to wrap.
 This conservation statement does not characterize which roots a given module can accept.
 
 ## Checking

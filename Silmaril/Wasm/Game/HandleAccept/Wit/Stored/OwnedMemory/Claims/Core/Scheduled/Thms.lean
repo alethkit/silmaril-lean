@@ -75,9 +75,10 @@ theorem accept_success_steps (config : Config (core3 grow) (HostState sig))
     (updated : CStore (core3 grow)) (tree : OwnedMemory.Tree sig) (writer : State sig)
     (loaded : loadNode ⟨config.store, config.host.writer⟩ = (updated, .ok tree))
     (registered : config.host.writer.register tree = .ok writer)
+    (fits : writer.accepted.length < 2 ^ 32)
     (pending : config.ctl = ⟨thread,
       .prog (.flat <$> (do finish ticket (← acceptWith ticket loadNode))), segments⟩ :: rest) :
-    let handle := (BitVec.ofNat 32 writer.accepted.length).toNat
+    let handle := writer.accepted.length
     Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau, .tau]
       { config with
         store := updated
@@ -85,7 +86,7 @@ theorem accept_success_steps (config : Config (core3 grow) (HostState sig))
           (.returned ticket handle)
         ctl := ⟨thread, .prog (.pure (.flat [i32Flat 0, i32Flat handle])), segments⟩ :: rest } :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.accept_success_steps
-    config thread segments rest ticket loadNode updated tree writer loaded registered pending
+    config thread segments rest ticket loadNode updated tree writer loaded registered fits pending
 
 /-- Registration can refuse after lifting. It must not publish the root, spend another
 claim, or roll back canonical effects already performed by the loader. -/
@@ -105,6 +106,22 @@ theorem accept_registration_refusal_steps (config : Config (core3 grow) (HostSta
         ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.accept_registration_refusal_steps
     config thread segments rest ticket loadNode updated tree issue loaded rejected pending
+
+/-- The commit guard also refuses exhaustion in a direct use of the continuation, leaving
+the reached store and writer unchanged. The Core loaders check capacity before lifting. -/
+theorem publish_exhausted_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (tree : OwnedMemory.Tree sig) (writer : State sig)
+    (registered : config.host.writer.register tree = .ok writer) (exhausted : 2 ^ 32 ≤ writer.accepted.length)
+    (pending : config.ctl = ⟨thread,
+      .prog (.flat <$> (do finish ticket (← publishRoot ticket tree))), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau]
+      { config with
+        host := config.host.record (.refused ticket (.accept (.boundary .exhaustedHandles)))
+        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.publish_exhausted_steps
+    config thread segments rest ticket tree writer registered exhausted pending
 
 /-- Journal a complete flat payload and its status, including shape-correct padding on refusal. -/
 theorem finish_flat_steps (config : Config (core3 grow) (HostState sig))
@@ -188,5 +205,24 @@ theorem WriterRun.endpoint_publications {before after : State sig} (run : Writer
     ∃ roots, after.accepted = roots ++ before.accepted ∧
       ∀ id ∈ after.endpoints, id ∈ before.endpoints ∨ id ∈ roots.flatMap rootEndpoints :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.endpoint_publications run
+
+/-- Each ticket's publication handle selects its root in the final writer, even when the
+session stops mid-call. The history of new roots is in reverse publication order. -/
+theorem PublicationDelta.targets {before after : HostState sig}
+    (journal : PublicationDelta before after) (run : WriterRun before.writer after.writer) :
+    ∃ entries roots, after.publications = before.publications ++ entries ∧
+      after.writer.accepted = roots ++ before.writer.accepted ∧ entries.length = roots.length ∧
+      ∀ index ticket handle, entries[index]? = some (ticket, handle) →
+        ∃ tree, roots[roots.length - (index + 1)]? = some tree ∧
+          Endpoints.Core.childFromHistory after.writer.accepted (BitVec.ofNat 32 handle) = some tree :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.publication_targets run journal
+
+/-- Later publication, spending, and refusal never change an existing tree lookup.
+Selecting a historical tree does not restore its spent authority. -/
+theorem WriterRun.retains_target {before after : State sig} (run : WriterRun before after)
+    {handle : BitVec 32} {tree : OwnedMemory.Tree sig}
+    (selected : Endpoints.Core.childFromHistory before.accepted handle = some tree) :
+    Endpoints.Core.childFromHistory after.accepted handle = some tree :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.retained_target run selected
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled

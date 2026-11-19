@@ -117,7 +117,7 @@ def PublicationDelta (before after : HostState sig) : Prop :=
   ∃ entries, after.publications = before.publications ++ entries ∧
     after.writer.accepted.length = before.writer.accepted.length + entries.length ∧
     ∀ index ticket handle, entries[index]? = some (ticket, handle) →
-      handle = (BitVec.ofNat 32 (before.writer.accepted.length + index + 1)).toNat
+      handle = before.writer.accepted.length + index + 1 ∧ handle < 2 ^ 32
 
 def CheckedWrite (before after : HostState sig) : Prop :=
   Extends before after ∧ WriterStep before.writer after.writer ∧ PublicationDelta before after
@@ -220,7 +220,8 @@ def publishRoot (ticket : Nat) (tree : Tree sig) : Session grow sig (Except Issu
   match current.writer.register tree with
   | .error issue => return .error (.accept (.claims issue))
   | .ok writer =>
-    let handle := (BitVec.ofNat 32 writer.accepted.length).toNat
+    let handle := writer.accepted.length
+    if handle ≥ 2 ^ 32 then return .error (.accept (.boundary .exhaustedHandles))
     hostSet (({ current with writer } : HostState sig).record (.published ticket handle))
     return .ok handle
 
