@@ -59,7 +59,8 @@ private def replay : Nat → Config Nat → Option (List (Nat × List Val))
 /-- Run the actual export with host replies that replace the whole vector prefix after each
 child call. `scratch = none` uses the module's initialized memory page; the small scratch
 memory is for kernel evaluation of the interpreter trace, not a specification instance. -/
-def distinctChildrenReplay (scratch : Option ByteArray := none) : Option (List (Nat × List Val)) := do
+public def distinctChildrenReplay (scratch : Option ByteArray := none) :
+    Option (List (Nat × List Val)) := do
   let (_, inst, _) ← Silmaril.Wasm.Verify.specInstance? (mod blobImports)
   let memory ← inst.store.mems[0]?
   let store := match scratch with
@@ -67,7 +68,7 @@ def distinctChildrenReplay (scratch : Option ByteArray := none) : Option (List (
     | some bytes => { inst.store with mems := [{ memory with bytes }] }
   replay 8 (invoke store 3 [.i32 7])
 
-def distinctChildrenTrace : List (Nat × List Val) :=
+public def distinctChildrenTrace : List (Nat × List Val) :=
   [(0, [.i32 7, .i32 0]), (1, [.i32 41, .i32 0]),
    (0, [.i32 7, .i32 0]), (1, [.i32 323, .i32 0]),
    (0, [.i32 7, .i32 0]), (1, [.i32 5, .i32 0]),
