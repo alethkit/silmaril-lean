@@ -216,7 +216,14 @@ async types.
 decode the same call and answer events. Its n-ary and AST writer languages for
 `hintedSepMod` are exactly the atom `[hi]ab` (respectively the corresponding typed leaf)
 for non-UB policies. This exercises the real four-operand import with disjoint hint
-and octet segments. It does not add a hinted cons-writer witness or mixed-kind writers.
+and octet segments.
+
+`Families.Mixed.Examples` runs additional Core exports with checked reply shapes and decodes
+their memory callouts through the family tables. The n-ary traces build a symbol/string list
+and a blob/keyword list; the AST writer accepts the typed image of the symbol/string trace.
+The cons replay calls both `hinted` and `blob` and accepts a two-cell list, retaining the
+head's hint. These are acceptance results for the decoded small-memory replay traces, not
+soundness or completeness over arbitrary Wasm sessions.
 
 ### Reference resource lifecycle
 
@@ -232,8 +239,14 @@ Successful `Nested.reserve` refines one canonical owner move, whose witness reta
 arena identity; committing that slot preserves the relation at every other lookup. The
 relation does not identify equal representations or use guest slots as identity. A failed
 checked preflight does not perform the canonical removal: a wrong-type, lent or non-owning
-canonical lift removes the slot before trapping. This is one-move refinement, not a simulation
-of a whole nested decoder or a failure equivalence between the two host contracts.
+canonical lift removes the slot before trapping. `resolveTypes_refines_eager` lifts the
+success refinement through the shared traversal of an entire already-decoded payload, including
+nested lists, products and sums. It preserves the typed value, live lookups and reservation
+order; the eager path records nominal receipts. An executable compact-UTF-16 record example
+compares both memory decoders with two equal-representation owners in different nested fields.
+Malformed text gives a checked refusal, but the canonical trap retains both prior removals.
+The general refinement starts after byte decoding; it is not whole-memory-decoder equivalence
+or a failure equivalence between the host contracts.
 
 ## Modelling choices to review
 
@@ -326,9 +339,18 @@ not a scheduling theorem or a Core adapter.
   failed decodes and is not a host. `Own.Session.Replay.accepts_then_traps` instead uses the linked
   checked host for two actual `ownMod` invocations: the first consumes the live slot and accepts
   `res(rep)`; the second diagnoses that slot as dead and traps without erasing the earlier tree
-  or reviving the slot. The proof reads only the written handle bytes, with the rest of memory
-  symbolic. This is a lower bound with a checked negative replay, not the exact checked writer
-  language across arbitrary export sequences.
+  or reviving the slot. `Own.Session.Audit` retains the typed diagnostic at the actual reply
+  in any checked Core session. `instrument` and `erase` relate the whole session in both
+  directions, including export retries; `Audit.reject_then_invoke` records the rejection
+  without changing the reached store or writer. `Replay.audited_accepts_then_traps` checks
+  the exact three answered imports in the two-export replay. That proof reads only the written
+  handle bytes, with the rest of memory symbolic. `Own.Session.Replay.Language.Thms` closes the
+  upper bound for this checked example: a Hoare contract fixes the actual node arguments and
+  handle bytes on every reached import, and the checked writer can only build then accept one
+  tree in an arbitrary export prefix. The language is exactly `{res(rep)}` if slot `1` is live
+  at type `0`, and empty if it is absent, dead or of a different type. Live slots elsewhere
+  are unrestricted. This theorem describes the move-only example, not the reference-machine
+  scheduler's accepted language.
 * Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
   exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
   Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
@@ -342,11 +364,17 @@ not a scheduling theorem or a Core adapter.
   acceptance. The checker rereads `items` after each child call. The invariant tracks the
   denoted prefix, not the memory or the numeric child handles. It traps before any word load
   that would wrap the scaled index or cross the memory32 range; `address_eq` relates the guarded
-  Wasm address to the decoder's natural address. `remaining_decreases` supplies the decreasing
-  measure on a guarded back edge. The interpreter regression checks three distinct handles and
-  overwrites the scratch vector with each child reply. The older `symListMod` and `blobListMod`
-  remain two-child examples. This is not an exact accepted-language or full session-termination
-  result for the looped checkers.
+  Wasm address to the decoder's natural address. `symbols_bounded` and `blobs_bounded` prove
+  that no accepted list exceeds `2 ^ 30` children, even with changing vector bases and without
+  using the size of any particular host memory image as a session invariant.
+  `Loop.Run.accepts_of_plan` uses `remaining_decreases` to build an actual accepting export
+  prefix of either checker for every finite vector with correctly denoting replies. The proof
+  takes the empty vector straight to `accept`, and reloads each repeated handle at its own
+  position without retaining memory across child replies. `compact_reply_plan` constructs
+  that plan with the checked `items` encoder when the header and vector fit and the child reply
+  bytes keep the same memory size. This lower bound does not establish equality with the
+  general memory32 upper bound or termination under arbitrary replies. The older `symListMod`
+  and `blobListMod` remain two-child examples.
 * Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
   `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
   bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness
@@ -436,6 +464,12 @@ the committed handles are exactly the consecutive handles for the newly publishe
 chronological order. The proof preserves the initial accepted trees and includes pending
 prefixes, instantiation calls, and later exports after a trap. This is a publication trace
 invariant, not a characterization of which payload trees a particular guest can produce.
+
+`Wit.Stored.OwnedMemory.Payload` checks the ordered nominal type and representation at
+every active owner leaf against its receipt, including maps and nested sum arms. Equal
+representations do not make different nominal owners interchangeable. The receipt carries
+the arena identity obtained by canonical lifting; shape validation does not by itself
+authorize another transfer.
 
 The separately linked `Wit.Stored.Endpoints.Core` contract accepts an indirect payload in a
 synchronous atomic `accept-node` import. The canonical load reads the reached Core call's
@@ -582,6 +616,15 @@ The stream case observes writer closure on a subsequent read. For both channels,
 stale read after drop traps without removing the published tree. The async operations
 here are reference built-ins, not async accept calls.
 
+The canonical caller-start receipt observer uses the same `canon lower` start callback
+and argument cursor as the reference, including the single-pointer spill path. Erasing
+owner receipts yields the entire reference start program, including its effects and
+failures, rather than just equal returned values. Reference machine replays check direct
+and spilled arguments, an indirect async result, equal representations with different
+owner identities, and cancellation before and after start. The observer is not a checked
+storage boundary. The public acceptor scheduler does not yet dispatch async canonical
+accept calls; its unsupported calling conventions remain refused.
+
 The scheduled journal distinguishes publication from a Core reply. A `published`
 entry records the import ticket and handle in the same host write that adds the root
 and its claims. Across arbitrary ordinary machine prefixes, `checked_of_session`
@@ -614,7 +657,7 @@ lake build --wfail Silmaril.Semantics.Accept.Handle.Examples Silmaril.Semantics.
   Silmaril.Wasm.Game.HandleAccept.Checkers.RecFull.Thms \
   Silmaril.Wasm.Game.HandleAccept.AcceptVariants.Batch.Examples Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Probe.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.Tab.Thms \
-  Silmaril.Wasm.Game.HandleAccept.Families.Matrix
+  Silmaril.Wasm.Game.HandleAccept.Families.Matrix Silmaril.Wasm.Game.HandleAccept.Families.Mixed.Examples
 scripts/check-layout.sh
 ```
 
