@@ -237,6 +237,13 @@ ownership. The reference-machine examples exercise a byte stream and a completin
 future, including rejected retagging and repeat lowering. Schemas containing a borrow
 are rejected before any transfer effects.
 
+`Wit.Stored.Endpoints.Future.Examples` verifies a two-instance handoff of a tree
+holding a future with a compound `{ word : u16, hint : option<bool> }` element.
+It checks single-use transfer, cancellation without a destination write, polling
+before and after completion, exact bytes in the reader memory, and removal of both
+endpoints and the waitable set. It proves the concrete reference-machine session,
+not a scheduling theorem or a Core adapter.
+
 * **Traps are call-local.** The Wasm-facing mandatory trap on an invalid `accept` is
   `OnInvalid.callTrap` (the default): as in Wasm, a trap aborts only the current export
   invocation, while the instance and its store persist (the game strategy
