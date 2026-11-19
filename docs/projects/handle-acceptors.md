@@ -232,8 +232,14 @@ Successful `Nested.reserve` refines one canonical owner move, whose witness reta
 arena identity; committing that slot preserves the relation at every other lookup. The
 relation does not identify equal representations or use guest slots as identity. A failed
 checked preflight does not perform the canonical removal: a wrong-type, lent or non-owning
-canonical lift removes the slot before trapping. This is one-move refinement, not a simulation
-of a whole nested decoder or a failure equivalence between the two host contracts.
+canonical lift removes the slot before trapping. `resolveTypes_refines_eager` lifts the
+success refinement through the shared traversal of an entire already-decoded payload, including
+nested lists, products and sums. It preserves the typed value, live lookups and reservation
+order; the eager path records nominal receipts. An executable compact-UTF-16 record example
+compares both memory decoders with two equal-representation owners in different nested fields.
+Malformed text gives a checked refusal, but the canonical trap retains both prior removals.
+The general refinement starts after byte decoding; it is not whole-memory-decoder equivalence
+or a failure equivalence between the host contracts.
 
 ## Modelling choices to review
 
@@ -326,9 +332,18 @@ not a scheduling theorem or a Core adapter.
   failed decodes and is not a host. `Own.Session.Replay.accepts_then_traps` instead uses the linked
   checked host for two actual `ownMod` invocations: the first consumes the live slot and accepts
   `res(rep)`; the second diagnoses that slot as dead and traps without erasing the earlier tree
-  or reviving the slot. The proof reads only the written handle bytes, with the rest of memory
-  symbolic. This is a lower bound with a checked negative replay, not the exact checked writer
-  language across arbitrary export sequences.
+  or reviving the slot. `Own.Session.Audit` retains the typed diagnostic at the actual reply
+  in any checked Core session. `instrument` and `erase` relate the whole session in both
+  directions, including export retries; `Audit.reject_then_invoke` records the rejection
+  without changing the reached store or writer. `Replay.audited_accepts_then_traps` checks
+  the exact three answered imports in the two-export replay. That proof reads only the written
+  handle bytes, with the rest of memory symbolic. `Own.Session.Replay.Language.Thms` closes the
+  upper bound for this checked example: a Hoare contract fixes the actual node arguments and
+  handle bytes on every reached import, and the checked writer can only build then accept one
+  tree in an arbitrary export prefix. The language is exactly `{res(rep)}` if slot `1` is live
+  at type `0`, and empty if it is absent, dead or of a different type. Live slots elsewhere
+  are unrestricted. This theorem describes the move-only example, not the reference-machine
+  scheduler's accepted language.
 * Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
   exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
   Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
@@ -436,6 +451,12 @@ the committed handles are exactly the consecutive handles for the newly publishe
 chronological order. The proof preserves the initial accepted trees and includes pending
 prefixes, instantiation calls, and later exports after a trap. This is a publication trace
 invariant, not a characterization of which payload trees a particular guest can produce.
+
+`Wit.Stored.OwnedMemory.Payload` checks the ordered nominal type and representation at
+every active owner leaf against its receipt, including maps and nested sum arms. Equal
+representations do not make different nominal owners interchangeable. The receipt carries
+the arena identity obtained by canonical lifting; shape validation does not by itself
+authorize another transfer.
 
 The separately linked `Wit.Stored.Endpoints.Core` contract accepts an indirect payload in a
 synchronous atomic `accept-node` import. The canonical load reads the reached Core call's
