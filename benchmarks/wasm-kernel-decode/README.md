@@ -1,5 +1,36 @@
 # Kernel Wasm source agreement
 
+## Full Core equation: one passive data segment
+
+`Packed.PassivePlan.Verified.sound` transfers to `Core.decode?` itself for a
+header followed by one data section with one passive segment and no other
+sections. The claimed positions are only hints: the kernel checks the Core
+header, section id and wire size, vector count, passive mode and payload length
+with the packed reader, then compares the bounded payload and checks EOF.
+This also transfers the reference reader's vector guards, section-size check
+and final module construction. It is not a general packed module decoder.
+
+```sh
+python3 benchmarks/wasm-kernel-decode/run.py /tmp/wasm-passive --mode passive \
+  --seconds 15 --memory 4096 --cases data-4k data-1024k
+lake env lean -DautoImplicit=false -E warning benchmarks/wasm-kernel-decode/PassiveRegression.lean
+```
+
+All three phases prove the identical `Core.decode? source.toByteArray = some
+expected` on the same independent, explicitly quoted `expected` and source.
+The fast phase applies `decodeF_eq`; the packed phase applies the certificate
+theorem. In a single run, including imports and with a 15 s / 4096 MiB limit:
+
+| Payload | List-slice proof | `decodeF` proof | Packed proof |
+| --- | ---: | ---: | ---: |
+| 4 KiB | 3.87 s / 2.07 GiB | 3.83 s / 2.08 GiB | 5.37 s / 1.95 GiB |
+| 1 MiB | memory limit (14.91 s) | memory limit (13.54 s) | 4.17 s / 2.03 GiB |
+
+The 1 MiB packed span check took 313 ms, but that excludes the other certificate
+fields and import. The small case does not show a wall-time improvement.
+The full-equation result does not cover arbitrary data, real code, or many-body
+modules; the comparison for those fixtures is framing only.
+
 ## Packed framing stage
 
 `Silmaril.Wasm.Binary.Packed` reads directly from a well-formed `KBytes` tree.
@@ -44,8 +75,8 @@ One run on Lean `nightly-2026-11-05` illustrates the stage boundary (wall second
 
 Packed framing peaked at 1.95 GiB and spent 7–12 ms in the timed kernel
 declaration check, with imports accounting for most wall time. This one run is
-not a throughput estimate. The benchmark does not show any speedup of full
-module decoding on the packed source.
+not a throughput estimate. These framing measurements do not establish a
+speedup of full module decoding.
 
 ## Full-decoder slice baseline
 
