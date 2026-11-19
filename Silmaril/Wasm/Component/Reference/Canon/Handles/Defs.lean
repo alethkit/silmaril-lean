@@ -141,20 +141,15 @@ def addResHandle (inst : InstId) (h : ResourceHandle) : P E σ Nat := do
 /-- REF `lift_own(cx, i, t)` (L1425-1431): `h = cx.inst.handles.remove(i)` FIRST (trap
 `unknownHandle`), then trap unless `h` is a resource handle (`wrongHandleType`), of type `rt`
 (`resourceTypeMismatch`), with `num_lends == 0` (`ownLent`), and owning (`notOwnHandle`);
-return `h.rep`. This shared implementation also gives the consumer the identity of the removed
-owner, without a separate lookup of the guest slot. A trap locks the whole store down. -/
-def liftOwnWith {α : Type} (_lim : Limits) (cx : LiftLowerContext E) (rt : RtId) (i : Nat)
-    (result : HandleObjId → Nat → α) : P E σ α := do
+return `h.rep`. The early removal is observable only through lockdown (a trap locks the whole store
+down). -/
+def liftOwn (_lim : Limits) (cx : LiftLowerContext E) (rt : RtId) (i : Nat) : P E σ Nat := do
   let hid ← expectResource (← handlesRemove cx.inst i)
   let h ← getResHandle hid
   trapIf (h.rt != rt) .resourceTypeMismatch
   trapIf (h.numLends != 0) .ownLent
   trapIf (!h.own) .notOwnHandle
-  return result hid h.rep
-
-/-- Canonical component values expose the representation, not the resource handle identity. -/
-def liftOwn (lim : Limits) (cx : LiftLowerContext E) (rt : RtId) (i : Nat) : P E σ Nat :=
-  liftOwnWith lim cx rt i fun _ rep => rep
+  return h.rep
 
 /-- REF `lift_borrow(cx, i, t)` (L1433-1439). Precondition (REF assert, D-f): the borrow scope
 is a `Subtask` (otherwise `internal`). `h = cx.inst.handles.get(i)` (trap `unknownHandle`),

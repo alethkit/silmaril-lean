@@ -26,14 +26,6 @@ open _root_.Silmaril.Wasm.Component.Engine _root_.Silmaril.Wasm.Component.Runtim
   _root_.Silmaril.Wasm.Component.Value _root_.Silmaril.Wasm.Component.AsyncRef
 variable {E : CoreEngine} {σ : Type}
 
-/-- Mapping the result of a canonical ownership lift only changes what the caller sees;
-the removal, checks and traps are the same program. -/
-theorem liftOwnWith_map {α β : Type} (lim : Limits) (cx : LiftLowerContext E) (rt : RtId)
-    (slot : Nat) (result : HandleObjId → Nat → α) (map : α → β) :
-    (liftOwnWith lim cx rt slot result : P E σ α).bind (fun value => Prog.pure (map value)) =
-      liftOwnWith lim cx rt slot (fun identity rep => map (result identity rep)) := by
-  simp only [liftOwnWith, Prog.bind_eq, Prog.bind_assoc, Prog.pure_eq, Prog.pure_bind']
-
 namespace P.Inv
 
 variable {I : CStore E → Prop} {W : σ → Prop}
@@ -52,16 +44,11 @@ theorem addResHandle (hA : AllocResHandlePres I) (hH : AddHandlePres I) (inst : 
   bind (allocObj _ _ fun s hs => hA s h hs) fun _ =>
     handlesAdd _ _ fun s hs => hH s inst ⟨_, NotSubtaskEntry.resource _⟩ hs
 
-theorem liftOwnWith {α : Type} (hR : RemoveHandlePres I) (lim : Limits) (cx : LiftLowerContext E)
-    (rt : RtId) (i : Nat) (result : HandleObjId → Nat → α) :
-    P.InvW I W (Canon.liftOwnWith lim cx rt i result : P E σ α) :=
+theorem liftOwn (hR : RemoveHandlePres I) (lim : Limits) (cx : LiftLowerContext E) (rt : RtId)
+    (i : Nat) : P.InvW I W (Canon.liftOwn lim cx rt i : P E σ Nat) :=
   bind (handlesRemove _ _ fun s hs => hR s _ _ hs) fun _ =>
     bind (expectResource _) fun _ => bind (getResHandle _) fun _ =>
       bind (trapIf _ _) fun _ => bind (trapIf _ _) fun _ => bind (trapIf _ _) fun _ => pure _
-
-theorem liftOwn (hR : RemoveHandlePres I) (lim : Limits) (cx : LiftLowerContext E) (rt : RtId)
-    (i : Nat) : P.InvW I W (Canon.liftOwn lim cx rt i : P E σ Nat) :=
-  liftOwnWith hR lim cx rt i _
 
 theorem liftBorrow (hL : ∀ s st h, I st → I (HandleSt.addLender (E := E) s h st))
     (lim : Limits) (cx : LiftLowerContext E) (rt : RtId) (i : Nat) :
