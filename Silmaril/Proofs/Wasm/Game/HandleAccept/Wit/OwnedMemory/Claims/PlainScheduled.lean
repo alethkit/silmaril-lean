@@ -490,6 +490,29 @@ theorem embedder_admitted_plain (sig : PlainSignature) {grow : SingleThreaded.Gr
   exact memory_plain sig state.nextTicket contract memory args reference oldHost
     (state.enter name type args) writer (some thread)
 
+private theorem embedder_admitted_publications {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
+    (contract : Contract sig) (memory : Option Nat) (args : List FlatValue)
+    (reference : CStore (core3 grow)) (state : HostState sig) (thread : Option ThreadId)
+    (linked : resolveBinding bindings name type = .ok ⟨contract.name.2, contract.inst, .accept contract memory⟩)
+    (caller : Plain.callerInstance reference thread = .ok (some contract.inst))
+    (mayLeave : (reference.inst? contract.inst).any (·.mayLeave) = true) :
+    let attempt := Claims.Core.attempt contract memory ⟨reference, state.writer⟩ (nodeCall contract reference args)
+    (Plain.runBody ((host (grow := grow) bindings).embedder name type args)
+      reference state (some thread)).2.1.publications = state.publications ++
+        (attempt.2.toOption.map fun handle => (state.nextTicket, handle.toNat)).toList := by
+  intro attempt
+  rw [embedder_memory bindings name type contract memory args reference state thread linked, caller]
+  simp only [mayLeave, eq_self, and_self, ite_true]
+  rw [body state.nextTicket contract memory args reference (state.enter name type args) (some thread)]
+  change (let next : HostState sig := { state.enter name type args with writer := attempt.1.writer }
+    let reply := match attempt.2 with
+      | .ok handle => (next.record (.published state.nextTicket handle.toNat), completion state.nextTicket (.ok handle.toNat))
+      | .error issue => (next, completion state.nextTicket (.error (.accept issue)))
+    (reply.1.record reply.2.1).publications) = _
+  cases attempt.2 <;> simp [completion, HostState.publications, HostState.transcript, HostState.record,
+    HostState.enter, Event.publication, List.reverse_cons, List.filterMap_append, List.append_assoc] <;> rfl
+
 theorem embedder_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig.val)) (name : String) (type : V1.FuncType)
     (contract : Contract sig.val) (memory : Option Nat) (args : List FlatValue)
@@ -517,7 +540,11 @@ theorem embedder_admitted_plain_steps (sig : PlainSignature) {grow : SingleThrea
         Stored.Endpoints.Core.World grow sig.val)).writer ∧
       old.2.1.refusals = (reached.newestFirst.head?.bind fun event => match event with
         | .refused _ issue => Plain.oldIssue issue
-        | _ => none).toList ++ oldHost.refusals := by
+        | _ => none).toList ++ oldHost.refusals ∧
+      reached.publications = start.host.publications ++
+        ((Claims.Core.attempt contract memory ⟨start.store, start.host.writer⟩
+          (nodeCall contract start.store args)).2.toOption.map
+            fun handle => (start.host.nextTicket, handle.toNat)).toList := by
   intro old
   let program := (host (grow := grow) bindings).embedder name type args
   let reached := Plain.runBody program start.store start.host (some thread)
@@ -531,7 +558,9 @@ theorem embedder_admitted_plain_steps (sig : PlainSignature) {grow : SingleThrea
     (fun words => .pure (.flat words)) thread segments rest profile ready
     (specDispatch ready (host (grow := grow) bindings))
     focused (some thread) (.inr rfl) ran
-  refine ⟨labels, reached.2.1, ?_, steps, agreed.2.1, agreed.2.2.2⟩
+  refine ⟨labels, reached.2.1, ?_, steps, agreed.2.1, agreed.2.2.2,
+    embedder_admitted_publications bindings name type contract memory args start.store start.host thread
+      linked caller mayLeave⟩
   intro label member
   have tau := List.all_eq_true.mp silent label member
   cases label <;> first | rfl | contradiction
@@ -573,7 +602,11 @@ theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreade
         Stored.Endpoints.Core.World grow sig.val)).writer ∧
       old.2.1.refusals = (reached.newestFirst.head?.bind fun event => match event with
         | .refused _ issue => Plain.oldIssue issue
-        | _ => none).toList ++ oldHost.refusals := by
+        | _ => none).toList ++ oldHost.refusals ∧
+      reached.publications = start.host.publications ++
+        ((Claims.Core.attempt contract memory ⟨start.store, start.host.writer⟩
+          (nodeCall contract start.store args)).2.toOption.map
+            fun handle => (start.host.nextTicket, handle.toNat)).toList := by
   intro old
   let body := calloutBody Limits.spec Quirks.none ready (host (grow := grow) bindings)
     start.store thread (.embedder name type) args
@@ -583,11 +616,11 @@ theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreade
       .core core continuation :: segments⟩ :: rest := by
     simp only [focused, body, calloutBody, leaves, ite_true]
     rfl
-  obtain ⟨labels, reached, silent, steps, keptWriter, refusals⟩ :=
+  obtain ⟨labels, reached, silent, steps, keptWriter, refusals, publications⟩ :=
     embedder_admitted_plain_steps sig bindings name type contract memory args focused oldHost thread
       (.core core continuation :: segments) rest profile ready entered linked caller mayLeave writer
   have full := prepend_embedder_callout (impl := host (grow := grow) bindings) parked calling steps
-  refine ⟨(.tau :: .tau :: .tau :: labels) ++ [.tau], reached, ?_, ?_, keptWriter, refusals⟩
+  refine ⟨(.tau :: .tau :: .tau :: labels) ++ [.tau], reached, ?_, ?_, keptWriter, refusals, publications⟩
   · intro label member
     simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at member
     rcases member with ((rfl | rfl | rfl | member) | rfl)
