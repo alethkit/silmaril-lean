@@ -38,7 +38,9 @@ def nestedAliasPayload : Payload nestedAliasType :=
 
 def contextType : TypeOf := .record [("first", .future none), ("context", .errorContext)]
 
-def inactiveType : TypeOf := .record [("direct", .future none), ("maybe", .option (.future none))]
+def unsupportedList : TypeOf := .list (.record [("read", .future none)])
+
+def inactiveType : TypeOf := .record [("direct", .future none), ("maybe", .option unsupportedList)]
 
 theorem inactive_field_rejected :
     preflight cx inactiveType ⟨.record [.future ⟨0⟩, .variant 0 none], by decide⟩ .flat =
@@ -49,7 +51,7 @@ theorem missing_realloc_rejected :
       .error (.preflight (.abi .reallocRequired)) := by kernel_rfl
 
 def nestedInactiveType : TypeOf :=
-  .record [("first", .future none), ("inside", .record [("maybe", .option (.future none))])]
+  .record [("first", .future none), ("inside", .record [("maybe", .option unsupportedList)])]
 
 theorem nested_inactive_field_rejected :
     preflight cx nestedInactiveType
