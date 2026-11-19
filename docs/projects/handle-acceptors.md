@@ -376,18 +376,28 @@ slot type in an inactive case is rejected before either move, and a corrected re
 Whole-schema validation still rejects stored borrows. The receipts do not by themselves
 authorize a transfer back to a guest or connect the checked Core host to the reference machine.
 
-`Wit.Stored.OwnedMemory.Claims` registers only the owner receipts from a freshly lifted
-root. Held claims, not the accepted observations, authorize a canonical `lower_own` or a
-destructor request. `give` commits spending after insertion succeeds; `drop` commits it
-before calling the supplied reference destructor, so a trap in that call cannot restore the claim.
+`Wit.Stored.OwnedMemory.Claims` registers owner receipts and readable endpoint claims together
+from a freshly lifted root. Held claims, not the accepted observations, authorize a canonical
+`lower_own`, destructor request or endpoint transfer. `give` commits spending after insertion
+succeeds; `drop` commits it before calling the supplied reference destructor. `giveEndpoint`
+spends the validated claim before canonical lower updates the endpoint's owner.
 The spend theorems identify the original nominal type, handle object and representation,
 preserve other claims and accepted trees, and rule out a second use of the spent identity.
 The machine examples create two equal-representation resources, reject a wrong-type transfer,
 retry, drop the other owner and reacquire owners in reused guest slots. Reacquiring a newly
 issued handle object creates a fresh claim, not another claim on the earlier handle object.
-The whole schema rejects stored borrows and mixed endpoint/error-context payloads before
-lifting. This is a reference host session, not a checked Core import adapter, and does not
-yet lower a compound containing multiple claims in one call.
+A mixed record replay lifts an owner and a stream from memory and gives each back once after
+wrong-type refusals. A late flat-lift trap retains both successful removals but publishes
+neither claim nor a tree. The full schema still rejects stored borrows before lifting. This is
+a reference host session and does not yet lower a compound containing multiple claims in one call.
+
+`Wit.Stored.OwnedMemory.Claims.Core` uses that same receipt-aware loader and claim state in
+the separately linked, synchronous `accept-node` Core contract. A preflight refusal preserves
+the entire call-entry state. A later canonical trap keeps prior Core writes and canonical table
+effects, but publishes no root or claim. An executable Core replay rejects an inactive nested
+borrow, accepts an owner and stream in one root, traps after moving both in a later call, and
+accepts a fresh root in a subsequent export. The `accept-node` contract does not yet expose
+mixed handoff or scheduled lifecycle imports.
 
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
@@ -440,9 +450,11 @@ the unmodified reference dispatcher. The two-instance Core regression creates a 
 owners, rejects an unused nested borrow, accepts the owning stream into a tree, hands it off once,
 cancels and retries a read, polls completion, transfers and drops both owners, observes peer
 closure, and traps on a stale canonical read without erasing the accepted tree. The bounded
-driver has a relational trace theorem. These are not an exact accepted-language theorem for
-arbitrary export sequences, a Core future lifecycle replay, or a replacement for the earlier
-trap-returning ABI.
+driver has a relational trace theorem. The same linked scheduler also runs a one-element
+`future<record{word: u16, owner: own<R>}>` through Core exports: cancellation and retry, handoff,
+copy, poll, owner drop, both endpoint drops, and a stale read. The future has its own two-operand
+copy ABI and completion payload, independent of the stream count. Neither replay states an
+exact accepted language for arbitrary exports or replaces the earlier trap-returning ABI.
 
 `Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
 immutable arena object exists in the current reference store. Unlike endpoint handoff, this
@@ -467,14 +479,17 @@ before canonical lower updates ownership. Neither a late table trap nor an alloc
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
-`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records with plain
-data fields, readable endpoints, dynamic endpoint lists and error contexts. It checks the complete
-schema, allocation preconditions and cross-field aliases (including across record depths) before
+`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records and options
+with plain data fields, readable endpoints, dynamic endpoint lists and error contexts. It checks
+the complete schema, allocation preconditions and cross-field aliases before
 any field is written. Fields follow canonical record layout and flat order. A field error identifies
 the path to the failing field; completed fields and any realloc effects remain visible. Reference-machine
 replays cover both outputs, nested padding, inactive unsupported fields, alias and missing-context
-rejection, reentrancy and allocator traps. Effectful list elements other than direct readable
-endpoints, non-record effectful wrappers and mixed nominal owners still reject.
+rejection, reentrancy and allocator traps. An empty option checks its full element schema but
+does not allocate; a present option reuses canonical discriminant layout and flat slot coercion.
+An allocator trap retains the written discriminant and any allocator effects, but not an
+unperformed transfer. General variants, other effectful list elements and mixed nominal owners
+still reject.
 
 ## Checking
 
