@@ -572,6 +572,15 @@ call-lowering decision about direct versus indirect results. The defensive resul
 check does not roll back effects of the emitter. Flat inputs and exact accepted payload
 languages across exports remain to be connected to this dispatcher.
 
+The canonical caller-start receipt observer uses the same `canon lower` start callback
+and argument cursor as the reference, including the single-pointer spill path. Erasing
+owner receipts yields the entire reference start program, including its effects and
+failures, rather than just equal returned values. Reference machine replays check direct
+and spilled arguments, an indirect async result, equal representations with different
+owner identities, and cancellation before and after start. The observer is not a checked
+storage boundary. The public acceptor scheduler does not yet dispatch async canonical
+accept calls; its unsupported calling conventions remain refused.
+
 ## Checking
 
 ```
