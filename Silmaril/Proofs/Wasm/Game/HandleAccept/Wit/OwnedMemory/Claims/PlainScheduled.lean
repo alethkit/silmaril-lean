@@ -2,7 +2,9 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
+public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Plain.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Thms
 
 @[expose] public section
 
@@ -588,8 +590,9 @@ theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreade
     (caller : Plain.callerInstance start.store thread = .ok (some contract.inst))
     (mayLeave : (start.store.inst? contract.inst).any (·.mayLeave) = true)
     (writer : start.host.writer = (Claims.Core.Plain.embedWorld sig (⟨start.store, oldHost.writer⟩ :
-      Stored.Endpoints.Core.World grow sig.val)).writer) :
+        Stored.Endpoints.Core.World grow sig.val)).writer) :
     let old := Stored.Endpoints.Core.Scheduled.acceptAttempt contract memory oldHost start.store args
+    let attempt := Claims.Core.attempt contract memory ⟨start.store, start.host.writer⟩ (nodeCall contract start.store args)
     ∃ (labels : List (Machine.Label (core3 grow) (HostState sig.val))) (reached : HostState sig.val),
       (∀ label ∈ labels, label = .tau) ∧
       Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
@@ -604,10 +607,11 @@ theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreade
         | .refused _ issue => Plain.oldIssue issue
         | _ => none).toList ++ oldHost.refusals ∧
       reached.publications = start.host.publications ++
-        ((Claims.Core.attempt contract memory ⟨start.store, start.host.writer⟩
-          (nodeCall contract start.store args)).2.toOption.map
-            fun handle => (start.host.nextTicket, handle.toNat)).toList := by
-  intro old
+        (attempt.2.toOption.map fun handle => (start.host.nextTicket, handle.toNat)).toList ∧
+      ∀ handle, attempt.2 = .ok handle → Machine.CfgSafe CheckedWrite start →
+        ∃ tree, reached.writer.accepted = tree :: start.host.writer.accepted ∧
+          Stored.Endpoints.Core.childFromHistory reached.writer.accepted handle = some tree := by
+  intro old attempt
   let body := calloutBody Limits.spec Quirks.none ready (host (grow := grow) bindings)
     start.store thread (.embedder name type) args
   let focused := { start with ctl := ⟨thread, .prog body, .core core continuation :: segments⟩ :: rest }
@@ -620,12 +624,22 @@ theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreade
     embedder_admitted_plain_steps sig bindings name type contract memory args focused oldHost thread
       (.core core continuation :: segments) rest profile ready entered linked caller mayLeave writer
   have full := prepend_embedder_callout (impl := host (grow := grow) bindings) parked calling steps
-  refine ⟨(.tau :: .tau :: .tau :: labels) ++ [.tau], reached, ?_, ?_, keptWriter, refusals, publications⟩
-  · intro label member
+  have silentFull : ∀ label ∈ (.tau :: .tau :: .tau :: labels) ++ [.tau], label = .tau := by
+    intro label member
     simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at member
     rcases member with ((rfl | rfl | rfl | member) | rfl)
     all_goals first | rfl | exact silent label member
-  · exact steps_then_step full (.popCore rfl)
+  have resumed := steps_then_step full (.popCore rfl)
+  refine ⟨_, reached, silentFull, resumed, keptWriter, refusals, publications, ?_⟩
+  intro handle accepted safe
+  have recorded : reached.publications = start.host.publications ++ [(start.host.nextTicket, handle.toNat)] := by
+    change reached.publications = start.host.publications ++
+      (attempt.2.toOption.map fun value => (start.host.nextTicket, value.toNat)).toList at publications
+    rw [accepted] at publications
+    exact publications
+  obtain ⟨tree, roots, _, lookup, _⟩ := single_publication_survives bindings resumed (.refl _) safe
+    (fun event member => by cases silentFull _ member) (fun _ member => False.elim (List.not_mem_nil member)) recorded
+  exact ⟨tree, roots, by simpa using lookup⟩
 
 theorem parked_binding_trap_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)

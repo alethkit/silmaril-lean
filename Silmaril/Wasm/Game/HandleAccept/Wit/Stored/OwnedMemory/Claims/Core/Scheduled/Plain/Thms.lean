@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
+public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled
 
 public section
@@ -271,7 +272,8 @@ theorem prepend_embedder_callout {E : CoreEngine} {Host : Type}
 /-- A parked Core call to an admitted plain memory import runs the checked
 host and resumes at the reached Core store with the endpoint-only status.
 The journal adds exactly one ticketed publication on success and none on
-refusal. This covers the callout, not the caller's remaining instructions. -/
+refusal. On a checked configuration the successful handle selects the new
+root immediately. This does not cover the caller's remaining instructions. -/
 theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig.val)) (name : String) (type : V1.FuncType)
     (contract : Contract sig.val) (memory : Option Nat) (args : List FlatValue)
@@ -287,6 +289,8 @@ theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreade
     (writer : start.host.writer = (Core.Plain.embedWorld sig (⟨start.store, oldHost.writer⟩ :
       Endpoints.Core.World grow sig.val)).writer) :
     let old := Endpoints.Core.Scheduled.acceptAttempt contract memory oldHost start.store args
+    let attempt := Claims.Core.attempt contract memory ⟨start.store, start.host.writer⟩
+      (Endpoints.Core.Scheduled.nodeCall contract start.store args)
     ∃ (labels : List (Machine.Label (core3 grow) (HostState sig.val))) (reached : HostState sig.val),
       (∀ label ∈ labels, label = .tau) ∧
       Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
@@ -301,9 +305,10 @@ theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreade
         | .refused _ issue => oldIssue issue
         | _ => none).toList ++ oldHost.refusals ∧
       reached.publications = start.host.publications ++
-        ((Claims.Core.attempt contract memory ⟨start.store, start.host.writer⟩
-          (Endpoints.Core.Scheduled.nodeCall contract start.store args)).2.toOption.map
-            fun handle => (start.host.nextTicket, handle.toNat)).toList :=
+        (attempt.2.toOption.map fun handle => (start.host.nextTicket, handle.toNat)).toList ∧
+      ∀ handle, attempt.2 = .ok handle → Machine.CfgSafe CheckedWrite start →
+        ∃ tree, reached.writer.accepted = tree :: start.host.writer.accepted ∧
+          Endpoints.Core.childFromHistory reached.writer.accepted handle = some tree :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_admitted_plain_steps
     sig bindings name type contract memory args start oldHost thread profile ready parked calling
     linked caller mayLeave writer
