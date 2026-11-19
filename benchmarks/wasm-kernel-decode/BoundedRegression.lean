@@ -24,6 +24,8 @@ kbytes_def wrongDataCount of_chunks 1 11
   [0, 97, 115, 109, 1, 0, 0, 0, 12, 1, 1]
 kbytes_def exactDataCount of_chunks 1 11
   [0, 97, 115, 109, 1, 0, 0, 0, 12, 1, 0]
+kbytes_def repeatedType of_chunks 1 14
+  [0, 97, 115, 109, 1, 0, 0, 0, 1, 1, 0, 1, 1, 0]
 kbytes_def validCustom of_chunks 1 11
   [0, 97, 115, 109, 1, 0, 0, 0, 0, 1, 0]
 
@@ -39,6 +41,7 @@ example : Bounded.decode? missingCode missingCode.wf_true = none := rfl
 example : Bounded.decode? wrongDataCount wrongDataCount.wf_true = none := rfl
 example : Bounded.decode? validCustom validCustom.wf_true = none := rfl
 example : Core.decode? validCustom.toByteArray = some {} := rfl
+example : Bounded.decode? repeatedType repeatedType.wf_true = none := rfl
 example : Core.decode? exactDataCount.toByteArray = some {} :=
   Bounded.decode_sound (wf := exactDataCount.wf_true) (show Bounded.decode? _ _ = some {} from rfl)
 example : Core.decode? headerOnly.toByteArray = some {} :=

@@ -34,3 +34,25 @@ quoted output, source bytes, and exact final proposition. The fast baseline
 includes `decodeF`'s transfer to `Core.decode?`. The bounded proof checks the
 offsets generated during preprocessing. `fixtures.json` pins every input;
 large fixtures are generated, not stored in the repository.
+
+## Recorded run
+
+November 19, 2026, x86-64 Linux, repository toolchain. One run per case;
+wall time includes imports. GNU `time` reports peak RSS; 4096 MiB is Lean's
+allocator limit, **not** an OS RSS limit.
+
+| Fixture | List slice | `decodeF` + transfer | Bounded |
+| --- | ---: | ---: | ---: |
+| `empty-check` | 4.30 s / 1.97 GiB | 3.20 s / 1.97 GiB | 3.20 s / 1.96 GiB |
+| `lrat` | memory limit | memory limit | memory limit |
+| `bodies-64` | 6.72 s / 2.91 GiB | 6.69 s / 2.91 GiB | 3.42 s / 2.06 GiB |
+| `bodies-512` | memory limit | memory limit | memory limit |
+| `data-4k` | 5.07 s / 2.08 GiB | 4.55 s / 2.08 GiB | 5.45 s / 2.08 GiB |
+| `data-1024k` | memory limit | wall timeout | memory limit |
+
+Three additional runs of `bodies-64` (`--runs 3 --cases bodies-64`) gave
+median wall times of 6.62 / 6.25 / 3.42 s and median peak RSS of 2.91 / 2.91 /
+2.06 GiB respectively. This is an end-to-end reduction on this input, not a
+general throughput or large-module speedup. On LRAT and 512 bodies, bounded
+framing alone can be checked, but bounded *full* proofs still exceed the
+limit. On 1 MiB passive data, use the separate passive-data certificate.
