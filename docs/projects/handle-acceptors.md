@@ -257,9 +257,12 @@ component. This is a reference adapter, not a simulation of the checked Core wri
   fields), and any equation with the monadic `Canon.load` programs over a component store. The
   legacy memory decoder checks bounds but not `MAX_STRING_BYTE_LENGTH`/`MAX_LIST_BYTE_LENGTH`.
   The checked host boundary (`MemSound.WitAst.Checked.Thms`) applies both limits to payload
-  indirections and the list limit to child handles. It explicitly rejects flat arguments,
-  non-UTF-8 encodings, memory64, and asynchronous calls. This is not a proof of interoperability
-  with canonical component-ABI lifting. Floats, `char` and single scalars agree with the pure
+  indirections and the list limit to child handles. `checked_string_reference` identifies
+  UTF-8, UTF-16 and tagged Latin-1/UTF-16 text decoding with the pure canonical range
+  loader, including failure. This uses bounded slices and leaves the legacy UTF-8 trace
+  decoder unchanged. Flat arguments, memory64 and asynchronous calls are still rejected.
+  This is not a proof of interoperability with monadic component-ABI lifting.
+  Floats, `char` and single scalars agree with the pure
   reference loaders (`loadVal_f32`, `loadVal_f64`, `loadVal_char`, `loadVal_scalar`); lists,
   fixed lists, records with non-scalar fields, tuples, variants, enums, options, results and
   flags follow the reference layout (`layout_toWit`) and trap conditions (discriminant range,

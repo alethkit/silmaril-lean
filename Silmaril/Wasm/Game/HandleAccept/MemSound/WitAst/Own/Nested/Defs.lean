@@ -129,7 +129,7 @@ All reservations are local to this import and committed together on a successful
 def checkedNode (mode : NodeMode) (rt : RT) (observed : Callout) :
     Except NodeIssue ((Op S × List (BitVec 32)) × RT) := do
   let args ← preflightNode S tagOf .recursiveOwn mode observed
-  let (raw, children) ← decodeNodePayload (rawSignature S) args observed
+  let (raw, children) ← decodeNodePayload (rawSignature S) mode args observed
   let (value, reserved) ← reserveOp S rt raw
   return ((value, children), rt.killAll reserved.val)
 

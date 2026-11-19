@@ -30,4 +30,17 @@ theorem boundedPayloadSegment_rejected (o : Accept.Callout) (address length : Na
     boundedPayloadSegment o address length = none := by
   simp [boundedPayloadSegment, Nat.not_le_of_lt tooLong]
 
+/-- The checked decoder returns the canonical text or the same failure in every string mode. -/
+theorem checked_string_reference (encoding : Component.ABI.StringEncoding) (o : Accept.Callout)
+    (mem : ByteArray) (memory : o.mem = some mem) {bytes rest : List UInt8} {ptr tagged : Nat}
+    (range : readPtrLen bytes = some (ptr, tagged, rest)) :
+    readValWith (checkedPayloadReader encoding o) .string bytes =
+      (Component.ABI.loadStringFromRange? encoding .i32 mem.data.toList ptr tagged).map
+        (fun value => (value.str, rest)) := by
+  simp only [readValWith, range, Option.bind_some]
+  change (checkedString encoding o ptr tagged).map _ = _
+  rw [Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitChecked.checkedString_reference
+    encoding o mem memory]
+  cases Component.ABI.loadStringFromRange? encoding .i32 mem.data.toList ptr tagged <;> rfl
+
 end Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst

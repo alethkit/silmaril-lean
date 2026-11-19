@@ -40,7 +40,6 @@ including nested string/list ranges that exceed the canonical bounds. -/
 inductive NodeIssue where
   | payload (issue : PayloadIssue)
   | addressWidth (address : AddrType)
-  | stringEncoding (encoding : ABI.StringEncoding)
   | flatPayload
   | asyncCall
   | badArguments
@@ -57,10 +56,9 @@ inductive NodeIssue where
   | resource (issue : ResourceIssue)
   deriving DecidableEq, Repr
 
-/-- The implemented profile is synchronous indirect memory32 with UTF-8 strings. -/
+/-- The implemented profile is synchronous indirect memory32. -/
 def checkNodeMode (mode : NodeMode) : Except NodeIssue Unit := do
   if mode.address ≠ .i32 then throw (.addressWidth mode.address)
-  if mode.encoding ≠ .utf8 then throw (.stringEncoding mode.encoding)
   if mode.passing = .flat then throw .flatPayload
   if mode.asynchronous then throw .asyncCall
 
@@ -90,16 +88,26 @@ def preflightNode (cap : PayloadCapability) (mode : NodeMode) (o : Callout) :
     return ⟨selected, payload.toNat, children.toNat, count.toNat⟩
   | _ => throw .badArguments
 
-/-- Only string and variable-list indirections go through this segment reader.
-The pinned specification has the same byte limit for those two ranges. -/
+/-- Variable lists use the canonical list byte limit. Strings check their own byte limit. -/
 def boundedPayloadSegment (o : Callout) (address length : Nat) : Option (List UInt8) :=
-  if length ≤ Component.Limits.spec.maxStringBytes ∧ length ≤ Component.Limits.spec.maxListBytes then
+  if length ≤ Component.Limits.spec.maxListBytes then
     o.segment address length
   else none
 
+/-- Read only the referenced byte range, after canonical range and alignment checks. -/
+def checkedString (encoding : ABI.StringEncoding) (o : Callout) (ptr tagged : Nat) : Option String :=
+  let range := ABI.loadRange encoding .i32 tagged
+  if range.byteLength > ABI.maxStringByteLength then none
+  else if ptr ≠ ABI.alignTo ptr range.alignment then none
+  else (o.segment ptr range.byteLength).bind range.codec.decode?
+
+/-- WIT observes the decoded text; encoding and code-unit hints belong to the ABI value. -/
+def checkedPayloadReader (encoding : ABI.StringEncoding) (o : Callout) : PayloadReader :=
+  ⟨boundedPayloadSegment o, checkedString encoding o⟩
+
 /-- The layout/arity portion of decoding after schema validation. In the owning path `S`
 here is the raw signature, while preflight checks the original signature. -/
-def decodeNodePayload (args : NodeArgs S.Tag) (o : Callout) :
+def decodeNodePayload (mode : NodeMode) (args : NodeArgs S.Tag) (o : Callout) :
     Except NodeIssue (Own.Op S × List (BitVec 32)) := do
   if o.mem.isNone then throw .missingMemory
   let types := S.params args.tag
@@ -107,7 +115,7 @@ def decodeNodePayload (args : NodeArgs S.Tag) (o : Callout) :
   if args.children % 4 ≠ 0 then throw .unalignedChildren
   if 4 * args.count > Component.Limits.spec.maxListBytes then throw .childrenTooLong
   let area ← requireSome .payloadOutOfBounds (o.segment args.payload (valsWidth types))
-  let contents ← requireSome .badPayload (readVals (boundedPayloadSegment o) types area)
+  let contents ← requireSome .badPayload (readFieldsWith (checkedPayloadReader mode.encoding o) types 0 area)
   let children ← requireSome .childrenOutOfBounds (o.segment args.children (4 * args.count))
   let handles ← requireSome .badChildren (le32s children)
   if (S.arity args.tag).Admits handles.length then return (⟨args.tag, contents⟩, handles)
@@ -117,7 +125,7 @@ def decodeNodePayload (args : NodeArgs S.Tag) (o : Callout) :
 def checkedNode (mode : NodeMode) (o : Callout) :
     Except NodeIssue (Own.Op S × List (BitVec 32)) := do
   let args ← preflightNode S tagOf .memoryOnly mode o
-  decodeNodePayload S args o
+  decodeNodePayload S mode args o
 
 namespace Own
 
@@ -161,7 +169,7 @@ resolves it. No table effects are committed on a preflight or decoding error. -/
 def checkedOwnNode (mode : NodeMode) (rt : RT) (o : Callout) :
     Except NodeIssue ((Op S × List (BitVec 32)) × RT) := do
   let args ← preflightNode S tagOf .ownFields mode o
-  let (raw, children) ← decodeNodePayload (rawSig S) args o
+  let (raw, children) ← decodeNodePayload (rawSig S) mode args o
   let (value, updated) ← resolveOpChecked S rt raw
   return ((value, children), updated)
 

@@ -86,14 +86,14 @@ theorem readVal_rest {seg : Nat → Nat → Option (List UInt8)} :
     ∀ {t : PTy} {bs rest : List UInt8} {v : t.Val},
       readVal seg t bs = some (v, rest) → rest = bs.drop (PTy.width t)
   | .bool, b :: bs, rest, v, h => by
-    simp only [readVal] at h
+    simp only [readVal, readValWith] at h
     exact (congrArg Prod.snd (Option.some.inj h)).symm
-  | .bool, [], _, _, h => by simp [readVal] at h
+  | .bool, [], _, _, h => by simp [readVal, readValWith] at h
   | .u8, b :: bs, rest, v, h => by
-    simp only [readVal] at h
+    simp only [readVal, readValWith] at h
     exact (congrArg Prod.snd (Option.some.inj h)).symm
-  | .u8, [], _, _, h => by simp [readVal] at h
-  | .own _, _, _, _, h | .borrow _, _, _, _, h => by simp [readVal] at h
+  | .u8, [], _, _, h => by simp [readVal, readValWith] at h
+  | .own _, _, _, _, h | .borrow _, _, _, _, h => by simp [readVal, readValWith] at h
   | .s32, _, _, _, h | .u32, _, _, _, h | .s64, _, _, _, h | .u64, _, _, _, h
   | .s8, _, _, _, h | .s16, _, _, _, h | .u16, _, _, _, h | .f32, _, _, _, h
   | .f64, _, _, _, h | .record _, _, _, _, h | .tuple _, _, _, _, h | .flags _, _, _, _, h =>
@@ -103,10 +103,11 @@ theorem readVal_rest {seg : Nat → Nat → Option (List UInt8)} :
     rest_of_bind_map h
   | .string, bs, rest, v, h => by
     rcases hp : readPtrLen bs with _ | ⟨p, n, r⟩
-    · simp [readVal, hp] at h
-    · simp only [readVal, hp, Option.bind_some] at h
+    · simp [readVal, readValWith, hp] at h
+    · simp only [readVal, readValWith, PayloadReader.legacy, hp, Option.bind_some] at h
       rcases hc : seg p n with _ | cs
-      · simp [hc] at h
+      · simp only [hc, Option.bind_none] at h
+        cases h
       · rcases hu : utf8? cs with _ | str
         · simp only [hc, hu, Option.bind_some] at h
           cases h
@@ -115,13 +116,13 @@ theorem readVal_rest {seg : Nat → Nat → Option (List UInt8)} :
           rw [← e]; exact readPtrLen_rest hp
   | .list t, bs, rest, v, h => by
     rcases hp : readPtrLen bs with _ | ⟨p, n, r⟩
-    · simp [readVal, hp] at h
-    · simp only [readVal, hp, Option.bind_some] at h
+    · simp [readVal, readValWith, hp] at h
+    · simp only [readVal, readValWith, PayloadReader.legacy_segment, hp, Option.bind_some] at h
       split at h
       · rcases hc : seg p (n * PTy.width t) with _ | es
         · simp [hc] at h
         · simp only [hc, Option.bind_some] at h
-          rcases hm : readMany (readVal seg t) n es with _ | ⟨vs, r'⟩
+          rcases hm : readMany (readValWith (PayloadReader.legacy seg) t) n es with _ | ⟨vs, r'⟩
           · simp [hm] at h
           · simp only [hm, Option.bind_some] at h
             split at h
@@ -135,7 +136,7 @@ theorem readVal_string {seg : Nat → Nat → Option (List UInt8)} {bs rest cs :
     {p n : Nat} {str : String} (hp : readPtrLen bs = some (p, n, rest))
     (hc : seg p n = some cs) (hu : utf8? cs = some str) :
     readVal seg .string bs = some (str, rest) := by
-  simp only [readVal, hp, Option.bind_some, hc, hu]
+  simp only [readVal, readValWith, PayloadReader.legacy, hp, Option.bind_some, hc, hu]
   rfl
 
 /-- `n` bytes read as `u8`s are themselves. -/
@@ -143,7 +144,7 @@ theorem readMany_u8 (seg : Nat → Nat → Option (List UInt8)) :
     ∀ cs : List UInt8, readMany (readVal seg .u8) cs.length cs = some (cs, [])
   | [] => rfl
   | c :: cs => by
-    simp only [List.length_cons, readMany, readVal, Option.bind_some, readMany_u8 seg cs]
+    simp only [List.length_cons, readMany, readVal, readValWith, Option.bind_some, readMany_u8 seg cs]
     rfl
 
 /-- **A byte-string payload** (`list<u8>`): its pair and the `len` bytes it names. -/
@@ -154,8 +155,11 @@ theorem readVal_bytes {seg : Nat → Nat → Option (List UInt8)} {bs rest cs : 
   subst hl
   have hc' : seg p (cs.length * PTy.width .u8) = some cs := by
     simpa [PTy.width, PTy.layout, ABI.Layout.size, ABI.Alignment.bytes] using hc
-  simp only [readVal, hp, Option.bind_some, show p % PTy.align .u8 = 0 from Nat.mod_one p,
-    ↓reduceIte, hc', readMany_u8]
+  have read := readMany_u8 seg cs
+  simp only [readVal] at read
+  simp only [readVal, readValWith, PayloadReader.legacy_segment, hp, Option.bind_some,
+    show p % PTy.align .u8 = 0 from Nat.mod_one p,
+    ↓reduceIte, hc', read]
   rfl
 
 /-- **A list payload**: its pair, the segment of `len` packed elements, the elements. -/
@@ -165,14 +169,16 @@ theorem readVal_list {seg : Nat → Nat → Option (List UInt8)} {t : PTy}
     (hc : seg p (n * PTy.width t) = some es)
     (hm : readMany (readVal seg t) n es = some (vs, [])) :
     readVal seg (.list t) bs = some (vs, rest) := by
-  simp only [readVal, hp, Option.bind_some, ha, ↓reduceIte, hc, hm, List.isEmpty_nil]
+  simp only [readVal] at hm
+  simp only [readVal, readValWith, PayloadReader.legacy_segment, hp, Option.bind_some, ha, ↓reduceIte,
+    hc, hm, List.isEmpty_nil]
   rfl
 
 /-- **A misaligned list is no value** (REF `trap_if(ptr != align_to(ptr, alignment))`). -/
 theorem readVal_list_misaligned {seg : Nat → Nat → Option (List UInt8)} {t : PTy}
     {bs rest : List UInt8} {p n : Nat} (hp : readPtrLen bs = some (p, n, rest))
     (ha : p % PTy.align t ≠ 0) : readVal seg (.list t) bs = none := by
-  simp [readVal, hp, ha]
+  simp [readVal, readValWith, hp, ha]
 
 /-- A field at offset `0` is not padded. -/
 theorem alignTo_zero (a : ABI.Alignment) : ABI.alignTo 0 a = 0 := by
@@ -182,8 +188,8 @@ theorem alignTo_zero (a : ABI.Alignment) : ABI.alignTo 0 a = 0 := by
 theorem readVals_single (seg : Nat → Nat → Option (List UInt8)) (t : PTy) (area : List UInt8) :
     readVals seg [t] area =
       (readVal seg t (area.take (PTy.width t))).map fun (v, _) => (v, ()) := by
-  simp only [readVals, readFields, alignTo_zero, List.drop_zero]
-  cases readVal seg t (area.take (PTy.width t)) <;> rfl
+  simp only [readVals, readFields, readFieldsWith, readVal, alignTo_zero, List.drop_zero]
+  cases readValWith (PayloadReader.legacy seg) t (area.take (PTy.width t)) <;> rfl
 
 /-! ## Agreement with the canonical ABI layout -/
 
