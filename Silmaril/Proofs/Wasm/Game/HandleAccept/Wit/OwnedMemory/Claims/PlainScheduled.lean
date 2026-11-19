@@ -19,6 +19,41 @@ open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core (Contract checkCh
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core.Scheduled (nodeCall)
 open Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst (NodeArgs)
 
+theorem prepend_embedder_callout {E : CoreEngine} {Host : Type}
+    [∀ left right, Decidable (E.ExternSub left right)]
+    {ready : HostReady Host} {impl : HostImpl E Host} {profile : ProfileKind}
+    {start final : Machine.Config E Host} {thread continuation}
+    {core : E.Thread (CanonHost E)} {segments rest name type args labels}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : E.status start.store.core core = .callout (.embedder name type) args)
+    (tail : Machine.Steps profile ready (specDispatch ready impl)
+      { start with ctl := ⟨thread, .prog (calloutBody Limits.spec Quirks.none ready impl
+          start.store thread (.embedder name type) args),
+        .core core continuation :: segments⟩ :: rest } labels final) :
+    Machine.Steps profile ready (specDispatch ready impl) start
+      (.tau :: .tau :: .tau :: labels) final := by
+  exact .cons (.coreCallout parked calling) (.cons (.currentThread rfl) (.cons (.get rfl) tail))
+
+theorem threadMayLeave_of_caller {E : CoreEngine} {store : CStore E} {thread : Option ThreadId}
+    {inst : InstId} (caller : Plain.callerInstance store thread = .ok (some inst))
+    (mayLeave : (store.inst? inst).any (·.mayLeave) = true) : threadMayLeave store thread = true := by
+  cases thread with
+  | none => cases caller
+  | some id =>
+    cases active : ArenaField.threads.get? store id with
+    | none => simp [Plain.callerInstance, active] at caller
+    | some activeThread =>
+      cases task : ArenaField.tasks.get? store activeThread.task with
+      | none => simp [Plain.callerInstance, active, task] at caller
+      | some activeTask =>
+        have computed : Plain.callerInstance store (some id) = .ok (some activeTask.inst) := by
+          simp only [Plain.callerInstance, active, task]
+          rfl
+        rw [computed] at caller
+        cases caller
+        cases found : store.inst? activeTask.inst <;>
+          simp_all [threadMayLeave, instOfThread?, instMayLeave]
+
 theorem body_steps_at {E : CoreEngine} {Host Result : Type} (body : P E Host Result)
     (start : Machine.Config E Host) (updated : CStore E) (host : Host) (result : Result)
     (finish : Result → P E Host (Ret E)) (thread : Option ThreadId)
@@ -429,6 +464,64 @@ theorem embedder_admitted_plain_steps (sig : PlainSignature) {grow : SingleThrea
   intro label member
   have tau := List.all_eq_true.mp silent label member
   cases label <;> first | rfl | contradiction
+
+private theorem steps_then_step {E : CoreEngine} {Host : Type} {profile : ProfileKind}
+    {ready : HostReady Host} {dispatch : Call E → P E Host (Ret E)}
+    {start middle final : Machine.Config E Host} {labels label}
+    (prefixSteps : Machine.Steps profile ready dispatch start labels middle)
+    (last : Machine.Step profile ready dispatch middle label final) :
+    Machine.Steps profile ready dispatch start (labels ++ [label]) final := by
+  induction prefixSteps with
+  | refl => exact .cons last (.refl _)
+  | cons step _ ih => exact .cons step (ih last)
+
+theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig.val)) (name : String) (type : V1.FuncType)
+    (contract : Contract sig.val) (memory : Option Nat) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig.val))
+    (oldHost : Stored.Endpoints.Core.Scheduled.HostState sig.val) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig.val))
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (linked : resolveBinding bindings name type = .ok ⟨contract.name.2, contract.inst, .accept contract memory⟩)
+    (caller : Plain.callerInstance start.store thread = .ok (some contract.inst))
+    (mayLeave : (start.store.inst? contract.inst).any (·.mayLeave) = true)
+    (writer : start.host.writer = (Claims.Core.Plain.embedWorld sig (⟨start.store, oldHost.writer⟩ :
+      Stored.Endpoints.Core.World grow sig.val)).writer) :
+    let old := Stored.Endpoints.Core.Scheduled.acceptAttempt contract memory oldHost start.store args
+    ∃ (labels : List (Machine.Label (core3 grow) (HostState sig.val))) (reached : HostState sig.val),
+      (∀ label ∈ labels, label = .tau) ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with
+          store := old.1
+          host := reached
+          ctl := ⟨thread, .core ((core3 grow).resume old.1.core core (.values old.2.2)) continuation,
+            segments⟩ :: rest } ∧
+      reached.writer = (Claims.Core.Plain.embedWorld sig (⟨old.1, old.2.1.writer⟩ :
+        Stored.Endpoints.Core.World grow sig.val)).writer ∧
+      old.2.1.refusals = (reached.newestFirst.head?.bind fun event => match event with
+        | .refused _ issue => Plain.oldIssue issue
+        | _ => none).toList ++ oldHost.refusals := by
+  intro old
+  let body := calloutBody Limits.spec Quirks.none ready (host (grow := grow) bindings)
+    start.store thread (.embedder name type) args
+  let focused := { start with ctl := ⟨thread, .prog body, .core core continuation :: segments⟩ :: rest }
+  have leaves := threadMayLeave_of_caller caller mayLeave
+  have entered : focused.ctl = ⟨thread, .prog (.flat <$> (host (grow := grow) bindings).embedder name type args),
+      .core core continuation :: segments⟩ :: rest := by
+    simp only [focused, body, calloutBody, leaves, ite_true]
+    rfl
+  obtain ⟨labels, reached, silent, steps, keptWriter, refusals⟩ :=
+    embedder_admitted_plain_steps sig bindings name type contract memory args focused oldHost thread
+      (.core core continuation :: segments) rest profile ready entered linked caller mayLeave writer
+  have full := prepend_embedder_callout (impl := host (grow := grow) bindings) parked calling steps
+  refine ⟨(.tau :: .tau :: .tau :: labels) ++ [.tau], reached, ?_, ?_, keptWriter, refusals⟩
+  · intro label member
+    simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at member
+    rcases member with ((rfl | rfl | rfl | member) | rfl)
+    all_goals first | rfl | exact silent label member
+  · exact steps_then_step full (.popCore rfl)
 
 theorem embedder_caller_refusal_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)

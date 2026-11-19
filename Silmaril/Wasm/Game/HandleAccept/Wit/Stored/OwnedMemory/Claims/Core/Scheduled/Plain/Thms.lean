@@ -247,4 +247,56 @@ theorem embedder_binding_trap_steps {sig : Signature} {grow : SingleThreaded.Gro
   runBody_trap_steps _ start start.store _ _ (fun words => .pure (.flat words)) thread segments rest
     profile ready _ focused (embedder_unresolved bindings name type args start.store start.host thread issue unresolved)
 
+/-- Enter the actual dispatched embedder callout from parked Core. The prefix
+reads the caller and store and leaves the confinement choice to `calloutBody`. -/
+theorem prepend_embedder_callout {E : CoreEngine} {Host : Type}
+    [∀ left right, Decidable (E.ExternSub left right)]
+    {ready : HostReady Host} {impl : HostImpl E Host} {profile : ProfileKind}
+    {start final : Machine.Config E Host} {thread continuation}
+    {core : E.Thread (CanonHost E)} {segments rest name type args labels}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : E.status start.store.core core = .callout (.embedder name type) args)
+    (tail : Machine.Steps profile ready (specDispatch ready impl)
+      { start with ctl := ⟨thread, .prog (calloutBody Limits.spec Quirks.none ready impl
+          start.store thread (.embedder name type) args),
+        .core core continuation :: segments⟩ :: rest } labels final) :
+    Machine.Steps profile ready (specDispatch ready impl) start (.tau :: .tau :: .tau :: labels) final :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.prepend_embedder_callout
+    parked calling tail
+
+/-- A parked Core call to an admitted plain memory import runs the checked
+host and resumes at the reached Core store with the endpoint-only status.
+This covers the whole callout, not its caller's remaining Core instructions. -/
+theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig.val)) (name : String) (type : V1.FuncType)
+    (contract : Contract sig.val) (memory : Option Nat) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig.val))
+    (oldHost : Endpoints.Core.Scheduled.HostState sig.val) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig.val))
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (linked : resolveBinding bindings name type = .ok ⟨contract.name.2, contract.inst, .accept contract memory⟩)
+    (caller : callerInstance start.store thread = .ok (some contract.inst))
+    (mayLeave : (start.store.inst? contract.inst).any (·.mayLeave) = true)
+    (writer : start.host.writer = (Core.Plain.embedWorld sig (⟨start.store, oldHost.writer⟩ :
+      Endpoints.Core.World grow sig.val)).writer) :
+    let old := Endpoints.Core.Scheduled.acceptAttempt contract memory oldHost start.store args
+    ∃ (labels : List (Machine.Label (core3 grow) (HostState sig.val))) (reached : HostState sig.val),
+      (∀ label ∈ labels, label = .tau) ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with
+          store := old.1
+          host := reached
+          ctl := ⟨thread, .core ((core3 grow).resume old.1.core core (.values old.2.2)) continuation,
+            segments⟩ :: rest } ∧
+      reached.writer = (Core.Plain.embedWorld sig (⟨old.1, old.2.1.writer⟩ :
+        Endpoints.Core.World grow sig.val)).writer ∧
+      old.2.1.refusals = (reached.newestFirst.head?.bind fun event => match event with
+        | .refused _ issue => oldIssue issue
+        | _ => none).toList ++ oldHost.refusals :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_admitted_plain_steps
+    sig bindings name type contract memory args start oldHost thread profile ready parked calling
+    linked caller mayLeave writer
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain
