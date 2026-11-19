@@ -397,6 +397,16 @@ trees in actual reference-machine runs; a repeated slot traps with no new tree a
 resurrect the slot. The examples do not route Core writer imports into component sessions or
 provide a correspondence for their accepted languages.
 
+The separately linked `Wit.Stored.Endpoints.Core` contract accepts an indirect payload in a
+synchronous atomic `accept-node` import. The canonical load reads the reached Core call's
+memory and resolves endpoints in a persistent reference arena. Schema or ABI rejection leaves
+both stores unchanged at call entry. Canonical load traps retain earlier arena updates, publish
+no tree, and trap only the current Core call. The proofs relate the local load's read/update
+prefix to reference machine steps (including the reference machine's own lockdown on trap).
+An executable export replay checks an inactive nested borrow refusal, a successful compound
+stream move, stale-slot rejection, and a later successful export. This contract does not yet
+run async built-ins from Core exports or cover the older split `node`/`accept` writer ABI.
+
 `Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
 immutable arena object exists in the current reference store. Unlike endpoint handoff, this
 does not spend a claim. A verified session lifts an `option<error-context>`, drops the original
