@@ -188,7 +188,7 @@ theorem spec_liftBool {th : Option ThreadId} {m : Config (E3 P) Unit}
       (.ofList [⟨.int .i32, b⟩]) rt) m
       (fun r m' => r.1 = [.bool (liftFlatBool ⟨.int .i32, b⟩)] ∧ m' = m) := by
   subst hrt
-  unfold liftFlatValues
+  unfold liftFlatValues liftFlatValuesWith
   refine Spec.bind (Spec.gets _) fun p m' ⟨hp', hm⟩ _ _ => ?_
   subst m'
   rw [hp] at hp'
@@ -196,7 +196,8 @@ theorem spec_liftBool {th : Option ThreadId} {m : Config (E3 P) Unit}
   split
   · next h => exact absurd h (by simp [ABI.flattenTypes, ABI.flatten, ABI.flattenPrimitive,
       ABI.maxFlatResults])
-  have e : liftFlatTypes (σ := Unit) Limits.spec Quirks.none cx .i32 [.prim .bool]
+  have e : liftFlatTypesWith (σ := Unit) Limits.spec cx .i32
+      (.reference Limits.spec Quirks.none cx .i32) [.prim .bool]
       (.ofList [⟨.int .i32, b⟩]) =
         Prog.pure ([.bool (liftFlatBool ⟨.int .i32, b⟩)], ⟨[⟨.int .i32, b⟩], 1⟩) :=
     rfl

@@ -115,7 +115,7 @@ theorem spec_liftU32 {th : Option ThreadId} {m : Config (E3 P) Unit}
     SpecR prof P th (liftFlatValues Limits.spec Quirks.none cx ABI.maxFlatResults
       (.ofList [⟨.int .i32, b⟩]) (resultTypes (reallocType .i32))) m
       (fun r m' => r.1 = [.int .u32 (b.toNat : Int)] ∧ m' = m) := by
-  unfold liftFlatValues
+  unfold liftFlatValues liftFlatValuesWith
   refine Spec.bind (Spec.gets _) fun p m' ⟨hp, hm⟩ _ _ => ?_
   subst m'
   have hp' : p = .i32 := by
@@ -124,7 +124,8 @@ theorem spec_liftU32 {th : Option ThreadId} {m : Config (E3 P) Unit}
   subst hp'
   split
   · next h => exact absurd h (by rw [flat_realloc_results]; decide)
-  have e : liftFlatTypes (σ := Unit) Limits.spec Quirks.none cx .i32
+  have e : liftFlatTypesWith (σ := Unit) Limits.spec cx .i32
+      (.reference Limits.spec Quirks.none cx .i32)
       (resultTypes (reallocType .i32)) (.ofList [⟨.int .i32, b⟩]) =
         Prog.pure ([.int .u32 (liftFlatInt .u32 ⟨.int .i32, b⟩)], ⟨[⟨.int .i32, b⟩], 1⟩) :=
     rfl

@@ -351,4 +351,36 @@ mutual
   termination_by structural item => item
 end
 
+theorem projectFlatValues (limits : Limits) (quirks : Quirks) (cx : LiftLowerContext E)
+    (max : Nat) (cursor : FlatCursor) (types : List (WIT.ClosedType RtId)) :
+    Prod.map (List.map Observed.value) id <$>
+        liftFlatValuesWith limits cx (flatCarrier (World := World) limits quirks cx) max cursor types =
+      liftFlatValues limits quirks cx max cursor types := by
+  unfold liftFlatValues liftFlatValuesWith
+  apply fixedBind
+  intro width
+  split
+  · exact fixedBind _ fun (ptr, _) => fixedBind _ fun _ => fixedBind _ fun _ =>
+      projectBind (List.map Observed.value) (Prod.map (List.map Observed.value) id)
+        (projectTypes limits quirks cx width types (flatNat ptr)) fun _ => rfl
+  · exact projectFlatTypes limits quirks cx width types cursor
+
+theorem projectLowerOnStart (limits : Limits) (quirks : Quirks) (caller : CallerId) :
+    List.map Observed.value <$> observeLowerOnStart (E := E) (World := World) limits quirks caller =
+      lowerOnStart limits quirks caller := by
+  unfold observeLowerOnStart lowerOnStart lowerOnStartWith
+  apply fixedBind
+  intro entry
+  cases entry with
+  | lower subtask cx args pos ft maxParams maxResults =>
+    exact fixedBind _ fun _ => fixedBind _ fun _ =>
+      projectBind (Prod.map (List.map Observed.value) id) (List.map Observed.value)
+        (projectFlatValues limits quirks cx maxParams ⟨args, pos⟩ (ft.params.map (·.2)))
+        fun (_, _) => fixedBind _ fun _ => rfl
+  | host | sub =>
+    change _ <$> (internal _ : P E World (List Observed)) = internal _
+    unfold internal trap
+    apply congrArg (Prog.op (S := Eff E World) (Op.trap _))
+    exact funext fun impossible => nomatch impossible
+
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory

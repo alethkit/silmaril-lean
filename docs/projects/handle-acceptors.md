@@ -548,6 +548,15 @@ stream with two equal-representation owners, reacquisition through reused slots,
 the old root, and successful delivery of the new root. This is not an exact payload-language
 theorem, a proof of all allocator behavior, or a Core binding for arbitrary flat return vectors.
 
+The canonical caller-start receipt observer uses the same `canon lower` start callback
+and argument cursor as the reference, including the single-pointer spill path. Erasing
+owner receipts yields the entire reference start program, including its effects and
+failures, rather than just equal returned values. Reference machine replays check direct
+and spilled arguments, an indirect async result, equal representations with different
+owner identities, and cancellation before and after start. The observer is not a checked
+storage boundary. The public acceptor scheduler does not yet dispatch async canonical
+accept calls; its unsupported calling conventions remain refused.
+
 ## Checking
 
 ```

@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Resources.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Defs
+public import Silmaril.Wasm.Component.Reference.Canon.Lower.Defs
 
 @[expose] public section
 
@@ -127,6 +128,13 @@ def flatCarrier (limits : Component.Limits) (quirks : Quirks) (cx : LiftLowerCon
     stream := fun type slot => Observed.ordinary <$> ref.stream type slot
     future := fun type slot => Observed.ordinary <$> ref.future type slot
     errorContext := fun slot => Observed.ordinary <$> ref.errorContext slot }
+
+/-- Observe owners during the canonical lower caller's start callback, including parameters
+spilled to memory. This is an observation of the reference callback, not a storage boundary:
+its other values, including borrows, retain their original reference scopes. -/
+def observeLowerOnStart (limits : Component.Limits) (quirks : Quirks) (caller : CallerId) :
+    P E World (List Observed) :=
+  lowerOnStartWith (fun cx => liftFlatValuesWith limits cx (flatCarrier limits quirks cx)) caller
 
 def checkValue (type : TypeOf) (value : Observed) : Except Issue (Payload type) :=
   if typed : value.value.HasType type then
