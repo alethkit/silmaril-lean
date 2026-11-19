@@ -2,6 +2,12 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.RingLive
+import Silmaril.Wasm.SingleThreaded.Exec.Interp
+import Silmaril.Wasm.SingleThreaded.Thread
+meta import Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.Defs
+meta import Silmaril.Wasm.SingleThreaded.Exec.Interp
+meta import Silmaril.Wasm.SingleThreaded.Thread
+meta import Silmaril.Wasm.Verify.Checker.Defs
 
 /-!
 # A ring buffer in linear memory: a play built forwards (non-vacuity)
@@ -78,7 +84,7 @@ theorem chunkRingN_rel_eq_8 {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) {P 
     {t | ([8], t) ∈ moduleMixedRel P (chunkRingN cap) twoIx ringPix pol ppol} =
       {SExp2.ofAtoms [8]} :=
   Set.eq_singleton_iff_unique_mem.2 ⟨chunkRingN_relates_8 h2 h8 (fun r h => by simp [hsen] at h) h0,
-    fun _ => chunkRingN_rel ⟨by omega, h8⟩ P hsen hw ha hb ho⟩
+    fun _ => chunkRingN_rel ⟨by omega, by omega⟩ P hsen hw ha hb ho⟩
 
 /-! ## One value, and the one-slot buffer -/
 
@@ -148,5 +154,45 @@ theorem chunkRing8192_rel_eq_8 {P : Profile} {pol : Policy (BitVec 32)}
     {t | ([8], t) ∈ moduleMixedRel P (chunkRingN 8192) twoIx ringPix pol ppol} =
       {SExp2.ofAtoms [8]} :=
   chunkRingN_rel_eq_8 (by decide) (by decide) hsen hw ha h0 hb ho
+
+open Silmaril.Wasm.Execution.Core Silmaril.Wasm.SingleThreaded in
+/-- Execute a grow refusal and retry from the returned store. Fill both pages through public
+`feed` calls, then run `finish(1)` and check the writer receives the oldest value. -/
+private def growingRingRegression : Except String Unit := do
+  let initial := (Verify.instOf (chunkRingGrowing 8193)).store
+  let initCall := invoke initial 4 [.i64 42]
+  let refuse := fun _ _ _ _ => true
+  let (failed, _) := Exec.runI refuse 128 initCall
+  match failed.code with
+  | [.trap] => pure ()
+  | _ => throw "growth refusal did not trap"
+  unless (failed.store.mems[0]?.map (·.pages)) == some 1 do
+    throw "growth refusal changed the memory size"
+  let allow := fun _ _ _ _ => false
+  let mut current := failed.store
+  for index in [:8193] do
+    let (fed, _) := Exec.runI allow 128 (invoke current 4 [.i64 (BitVec.ofNat 64 (index + 7))])
+    unless fed.code.isEmpty do throw s!"feed failed at {index}"
+    current := fed.store
+  let some memory := current.mems[0]? | throw "missing ring memory"
+  unless memory.pages == 2 && Execution.Memory.load memory.bytes 0 8 == some 7 &&
+      Execution.Memory.load memory.bytes 65536 8 == some 8199 do
+    throw "the first or second page does not contain the expected value"
+  let mut active := invoke current 5 [.i32 1]
+  for (expected, operands, reply) in [(0, [], 1), (2, [.i64 7], 2), (1, [.i32 2, .i32 1], 3)] do
+    let (paused, _) := Exec.runI allow 128 active
+    let some (context, _, hostId, args) := decompose? paused.store paused.code |
+      throw s!"finish did not call host import {expected}"
+    unless hostId == expected && args == operands do
+      throw s!"finish called the wrong import or used the wrong operands for {expected}"
+    active := ⟨paused.store, paused.frame, context.fill (vals [.i32 reply])⟩
+  let (finished, _) := Exec.runI allow 128 active
+  unless finished.code.mapM Admin.val? == some [.i32 1, .i32 3] do
+    throw "finish did not return (1, 3)"
+
+#eval show IO Unit from
+  match growingRingRegression with
+  | .ok () => pure ()
+  | .error issue => throw (IO.userError issue)
 
 end Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring
