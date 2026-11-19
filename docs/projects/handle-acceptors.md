@@ -216,7 +216,14 @@ async types.
 decode the same call and answer events. Its n-ary and AST writer languages for
 `hintedSepMod` are exactly the atom `[hi]ab` (respectively the corresponding typed leaf)
 for non-UB policies. This exercises the real four-operand import with disjoint hint
-and octet segments. It does not add a hinted cons-writer witness or mixed-kind writers.
+and octet segments.
+
+`Families.Mixed.Examples` runs additional Core exports with checked reply shapes and decodes
+their memory callouts through the family tables. The n-ary traces build a symbol/string list
+and a blob/keyword list; the AST writer accepts the typed image of the symbol/string trace.
+The cons replay calls both `hinted` and `blob` and accepts a two-cell list, retaining the
+head's hint. These are acceptance results for the decoded small-memory replay traces, not
+soundness or completeness over arbitrary Wasm sessions.
 
 ### Reference resource lifecycle
 
@@ -624,7 +631,7 @@ lake build --wfail Silmaril.Semantics.Accept.Handle.Examples Silmaril.Semantics.
   Silmaril.Wasm.Game.HandleAccept.Checkers.RecFull.Thms \
   Silmaril.Wasm.Game.HandleAccept.AcceptVariants.Batch.Examples Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Probe.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.Tab.Thms \
-  Silmaril.Wasm.Game.HandleAccept.Families.Matrix
+  Silmaril.Wasm.Game.HandleAccept.Families.Matrix Silmaril.Wasm.Game.HandleAccept.Families.Mixed.Examples
 scripts/check-layout.sh
 ```
 
