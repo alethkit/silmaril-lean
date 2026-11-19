@@ -603,6 +603,14 @@ effects are retained. Together with `accept_refusal_steps` these cover all outco
 the dispatcher reaches the synchronous accept continuation. They are per-invocation
 reduction lemmas, not an exact guest language theorem.
 
+The scheduled flat replay also connects a writer and a reader in separate component
+instances through actual Core exports. The writer publishes a tree with two distinct
+equal-representation owners and a readable stream, and the reader receives all three
+claims via `giveFlat`. It cancels a blocked read without writing memory, retries,
+polls completion, checks the transferred record and owner, and observes closure.
+After both endpoints are dropped, a stale read traps without removing the published
+tree. The async operations here are reference built-ins, not async accept calls.
+
 The canonical caller-start receipt observer uses the same `canon lower` start callback
 and argument cursor as the reference, including the single-pointer spill path. Erasing
 owner receipts yields the entire reference start program, including its effects and
