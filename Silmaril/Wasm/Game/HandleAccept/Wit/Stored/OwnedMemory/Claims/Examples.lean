@@ -33,10 +33,9 @@ private noncomputable def acquire : P Mock.mock World Unit := do
 
 private noncomputable def destructor (id : HandleObjId) (inst : InstId)
     (request : DtorRequest Mock.mock) : P Mock.mock World Unit := do
-  let state ← hostGet
-  if state.held.any (fun receipt => receiptId receipt == id) then
-    internal "destructor entered before consuming its claim"
-  else if inst != ⟨0⟩ || request.rt != resource || request.rep != 77 then
+  let .error .unclaimed ← give limits context resource id
+    | internal "reentrant transfer did not reject the spent owner"
+  if inst != ⟨0⟩ || request.rt != resource || request.rep != 77 then
     internal "incorrect destructor request"
   else pure ()
 
@@ -70,6 +69,12 @@ private noncomputable def reacquire : P Mock.mock World (Ret Mock.mock) := do
     | internal "reacquisition revived the old claim"
   let .ok () ← drop (destructor ⟨2⟩) resource ⟨2⟩
     | internal "the reacquired owner was not dropped"
+  pure .unit
+
+private noncomputable def trapDuringSecondMove : P Mock.mock World (Ret Mock.mock) := do
+  acquire
+  let _ ← Builtins.resourceNew limits resource 77
+  let _ ← acceptNode sig limits Quirks.none context false (.flat [i32Flat 2, i32Flat 2]) []
   pure .unit
 
 private noncomputable def initial (program : P Mock.mock World (Ret Mock.mock)) :
@@ -116,6 +121,16 @@ theorem trapping_destructor_keeps_other_owner_and_tree (X : Mock.mock.Exec) :
     (result.labels.any (fun label => match label with | .trap (.unknownHandle 42) => true | _ => false),
       result.config.host.accepted.length, result.config.host.held.map receiptId) =
       (true, 1, [⟨0⟩]) := by
+  dsimp only
+  kernel_rfl
+
+theorem trapping_second_move_preserves_earlier_claims_without_publishing_partial_claims
+    (X : Mock.mock.Exec) :
+    let result := run X trapDuringSecondMove
+    (result.labels.any (fun label => match label with | .trap (.unknownHandle 2) => true | _ => false),
+      result.config.host.accepted.length, result.config.host.held.map receiptId,
+      (result.config.store.insts.get? 0).bind (fun inst => inst.handles.get? 2)) =
+      (true, 1, [⟨0⟩, ⟨1⟩], none) := by
   dsimp only
   kernel_rfl
 
