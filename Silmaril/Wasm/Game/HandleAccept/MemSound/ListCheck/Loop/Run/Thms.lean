@@ -36,6 +36,11 @@ theorem accepts_of_plan {profile : Profile} (checker : Checker)
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.checker_accepts
     checker spec env initState good plan policy allowed rootDenotes denotes atoms
 
+theorem script_host_admitted {handles : List (BitVec 32)}
+    {encodeChild : ByteArray → BitVec 32 → Except ReplyIssue ByteArray}
+    (store : Store Nat) : ReplyEnvs itemsReply store (scriptHost handles encodeChild) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.script_admitted store
+
 theorem compact_host_admitted {handles : List (BitVec 32)} {childBytes : BitVec 32 → ByteArray}
     (store : Store Nat) : ReplyEnvs itemsReply store (compactHost handles childBytes) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.compact_admitted store
@@ -50,6 +55,15 @@ theorem compact_reply_plan {capacity : Nat} (width : capacity ≤ 2 ^ 32)
     ReplyPlan (compactHost handles childBytes) (ReplySpace capacity) decode root handles
       (fun handle => decode ⟨.values [], some (childBytes handle)⟩ 0) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.compact_plan width fits childFits decode
+
+/-- In-place replies preserve the capacity, regardless of the bytes left by the previous
+call. The child observation depends on the current payload, not on trailing memory. -/
+theorem byte_reply_plan (checker : Checker) {capacity : Nat} (width : capacity ≤ 2 ^ 32)
+    {root : BitVec 32} {handles : List (BitVec 32)} (fits : 8 + 4 * handles.length ≤ capacity)
+    (raw : BitVec 32 → List UInt8) (space : ∀ handle ∈ handles, 8 + (raw handle).length ≤ capacity) :
+    ReplyPlan (byteReplyHost handles raw) (ReplySpace capacity) checker.decodeChild root handles
+      (fun handle => ((checker.decodeBytes (raw handle)).map SxA.atom).getD (.handle 0)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.bytes_plan checker width fits raw space
 
 /-- Both checkers have a validated instance with one initial memory page. -/
 theorem checker_instance (checker : Checker) :
@@ -77,7 +91,7 @@ theorem compact_accepts {profile : Profile} (checker : Checker)
     (compact_reply_plan width fits childFits checker.decodeChild) policy allowed rootDenotes denotes atoms
 
 /-- The validated one-page checker accepts any correctly denoting byte script fitting the
-page. The checked encoders construct both kinds of reply; callers need not supply images. -/
+page. The checked encoders construct both kinds of reply in place. -/
 theorem byte_reply_accepts {profile : Profile} (checker : Checker)
     (policy : OnInvalid) {Rhos : Set (Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp)}
     {rho : Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp} (allowed : rho ∈ Rhos) {root : BitVec 32}

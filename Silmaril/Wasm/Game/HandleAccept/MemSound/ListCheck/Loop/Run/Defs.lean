@@ -57,24 +57,44 @@ def remainingReads (root : BitVec 32) (handles remaining : List (BitVec 32))
 def ReplySpace (capacity : Nat) (store : Store Nat) : Prop :=
   ∃ mem, store.mems = [mem] ∧ mem.bytes.size = capacity
 
-/-- Example reply semantics: use the checked encoder for `items`, and replace the bytes with
-the supplied child payload for `child`. An encoder error cannot produce a successful reply. -/
-inductive CompactReply (handles : List (BitVec 32)) (childBytes : BitVec 32 → ByteArray) :
+/-- A reply script uses the checked vector encoder and a supplied child encoder. Core sees
+an encoding error as a call-local trap with the input store intact. -/
+inductive ScriptReply (handles : List (BitVec 32))
+    (encodeChild : ByteArray → BitVec 32 → Except ReplyIssue ByteArray) :
     UCall Nat → UReply → Prop where
   | items {store : Store Nat} {mem : MemInst} {root : BitVec 32} {bytes : ByteArray} :
       store.mems = [mem] → writeItemsReply mem.bytes handles = .ok bytes →
-      CompactReply handles childBytes ⟨0, store, [.i32 root, .i32 0]⟩
+      ScriptReply handles encodeChild ⟨0, store, [.i32 root, .i32 0]⟩
         ⟨store.setMem 0 { mem with bytes }, .values []⟩
-  | child {store : Store Nat} {mem : MemInst} {handle : BitVec 32} :
+  | child {store : Store Nat} {mem : MemInst} {handle : BitVec 32} {bytes : ByteArray} :
+      store.mems = [mem] → handle ∈ handles → encodeChild mem.bytes handle = .ok bytes →
+      ScriptReply handles encodeChild ⟨1, store, [.i32 handle, .i32 0]⟩
+        ⟨store.setMem 0 { mem with bytes }, .values []⟩
+  | itemsError {store : Store Nat} {mem : MemInst} {root : BitVec 32} {issue : ReplyIssue} :
+      store.mems = [mem] → writeItemsReply mem.bytes handles = .error issue →
+      ScriptReply handles encodeChild ⟨0, store, [.i32 root, .i32 0]⟩ ⟨store, .trap⟩
+  | childError {store : Store Nat} {mem : MemInst} {handle : BitVec 32} {issue : ReplyIssue} :
       store.mems = [mem] → handle ∈ handles →
-      CompactReply handles childBytes ⟨1, store, [.i32 handle, .i32 0]⟩
-        ⟨store.setMem 0 { mem with bytes := childBytes handle }, .values []⟩
+      encodeChild mem.bytes handle = .error issue →
+      ScriptReply handles encodeChild ⟨1, store, [.i32 handle, .i32 0]⟩ ⟨store, .trap⟩
   | accept {store : Store Nat} {root : BitVec 32} :
-      CompactReply handles childBytes ⟨2, store, [.i32 root]⟩ ⟨store, .values []⟩
+      ScriptReply handles encodeChild ⟨2, store, [.i32 root]⟩ ⟨store, .values []⟩
 
-def compactHost (handles : List (BitVec 32)) (childBytes : BitVec 32 → ByteArray) : SEnv UImp where
+def scriptHost (handles : List (BitVec 32))
+    (encodeChild : ByteArray → BitVec 32 → Except ReplyIssue ByteArray) : SEnv UImp where
   S := Unit
-  Ans _ call reply _ := CompactReply handles childBytes call reply
+  Ans _ call reply _ := ScriptReply handles encodeChild call reply
   Div _ _ := False
+
+abbrev CompactReply (handles : List (BitVec 32)) (childBytes : BitVec 32 → ByteArray) :=
+  ScriptReply handles (fun _ handle => .ok (childBytes handle))
+
+def compactHost (handles : List (BitVec 32)) (childBytes : BitVec 32 → ByteArray) : SEnv UImp :=
+  scriptHost handles (fun _ handle => .ok (childBytes handle))
+
+/-- Write both replies into the current guest memory. The raw script supplies payloads,
+not padded images or a replacement memory. -/
+def byteReplyHost (handles : List (BitVec 32)) (raw : BitVec 32 → List UInt8) : SEnv UImp :=
+  scriptHost handles (fun memory handle => writeByteReply memory (raw handle))
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop
