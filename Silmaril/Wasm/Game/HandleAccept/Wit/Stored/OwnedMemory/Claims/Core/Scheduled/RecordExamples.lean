@@ -311,6 +311,34 @@ private def expect {sig : Signature} (inst : ModuleInst) (name : String) (args :
   let result ← callCore addr (args.map i32Flat)
   trapIf (result != expected) (.internal s!"unexpected result: {name} {args} got {repr result}")
 
+private def bindingTrapArgs : List Nat := [0, 0, 1, 0, 0, 0]
+
+private def bindingTrapSession (inst : ModuleInst) : Session grow signature (Ret engine) := do
+  expect inst "new-own" [77] [i32Flat 1]
+  expect inst "accept-flat" bindingTrapArgs []
+  return .unit
+
+private def bindingTrapRegression (issue : Issue) : Bool := Id.run do
+  let some (binding :: _, config) := flatInputSetup bindingTrapSession | return false
+  let bindings := match issue with
+    | .unlinkedImport => []
+    | .wrongType => [{ binding with action := .giveOwner resource }]
+    | .ambiguousBinding => [binding, binding]
+    | _ => []
+  let result := run bindings config
+  let traps := result.labels.filterMap fun | .trap reason => some reason | _ => none
+  let reached := result.config
+  return result.outcome == .trap && traps == [.hostTrap "invalid mixed acceptor import binding"] &&
+    reached.host.writer.accepted.isEmpty && reached.host.writer.held.isEmpty &&
+    reached.host.publications.isEmpty && reached.host.refusals == [issue] &&
+    reached.host.transcript == [.entered 0 "accept-flat" (wordFn 6 2) (bindingTrapArgs.map i32Flat),
+      .bindingTrap 0 issue] &&
+    (reached.store.insts[0]?.bind fun inst => inst.handles.get? 1) == some (.resource ⟨0⟩)
+
+#guard bindingTrapRegression .unlinkedImport
+#guard bindingTrapRegression .wrongType
+#guard bindingTrapRegression .ambiguousBinding
+
 private def channelArgs (channel : Channel) (slot address : Nat) : List Nat :=
   match channel with | .stream => [slot, address, 1] | .future => [slot, address]
 

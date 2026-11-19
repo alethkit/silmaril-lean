@@ -153,6 +153,20 @@ theorem binding_trap_steps (config : Config (core3 grow) (HostState sig))
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.binding_trap_steps
     config thread segments rest ticket issue pending
 
+/-- Failure to resolve the public import binding logs the typed diagnostic and takes the
+reference trap transition before any loader, writer mutation, or claim transfer. -/
+theorem import_binding_trap_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (bindings : List (Binding sig))
+    (name : String) (type : V1.FuncType) (args : List FlatValue) (issue : Issue)
+    (unresolved : resolveBinding bindings name type = .error issue)
+    (pending : config.ctl = ⟨thread, .prog (.flat <$> dispatchImport bindings name type args), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .trap (.hostTrap "invalid mixed acceptor import binding")]
+      (StepDefs.trapCfg { config with
+        host := (config.host.enter name type args).record (.bindingTrap config.host.nextTicket issue) }) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.import_binding_trap_steps
+    config thread segments rest bindings name type args issue unresolved pending
+
 /-- The diagnostic history is append-only even for host-injected programs whose writes
 need not follow the stronger writer policy. -/
 theorem extends_of_steps (bindings : List (Binding sig))

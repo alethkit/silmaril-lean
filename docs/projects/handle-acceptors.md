@@ -595,6 +595,12 @@ handles without reviving spent resource or endpoint claims. Both loaders check c
 before lifting, and the publication continuation independently refuses to wrap.
 This conservation statement does not characterize which roots a given module can accept.
 
+`import_binding_trap_steps` covers mislinked imports from the public dispatcher,
+not only its trap continuation. It records the entry and the typed missing, ambiguous
+or mismatched-binding diagnostic before taking the reference trap transition. No
+loader or claim transfer runs. Core replays verify that the rejected call publishes
+nothing and an owner allocated by an earlier export stays in the resource table.
+
 ## Checking
 
 ```
