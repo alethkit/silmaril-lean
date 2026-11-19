@@ -24,18 +24,30 @@ theorem dispatch_no_deferred (bindings : List (Binding sig)) (callees : List (Ca
 
 /-- A capacity refusal records the current ticket without queuing, lifting payloads,
 or publishing. The original continuation receives the reference cancel token. -/
-theorem table_full_steps {prof : ProfileKind} {ready : HostReady (HostState sig)}
+theorem stage_table_full_steps {prof : ProfileKind} {ready : HostReady (HostState sig)}
     {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
-    (config : Config (core3 grow) (HostState sig)) (thread : Option Runtime.ThreadId)
-    (segments : List (Seg (core3 grow) (HostState sig)))
-    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
-    (pending : config.ctl = ⟨thread, .prog (refuseTableFull ticket), segments⟩ :: rest) :
-    Steps prof ready dispatch config [.tau, .tau]
+    (config : Config (core3 grow) (HostState sig)) (thread : Runtime.ThreadId)
+    (segments : List (Seg (core3 grow) (HostState sig))) (rest : List (Activation (core3 grow) (HostState sig)))
+    (callee : Callee sig) (caller : CallerId) (ticket : Nat) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (ft : WIT.FuncType Empty RtId) (limits results : Nat)
+    (threadInfo : Runtime.Thread) (task : Task (core3 grow)) (instance_ : InstState)
+    (onThread : config.store.thread? thread = some threadInfo)
+    (onTask : config.store.task? threadInfo.task = some task) (current : task.inst = callee.inst)
+    (live : config.store.inst? callee.inst = some instance_)
+    (async : callee.async_ = true)
+    (checked : callee.check config.store subtask cx args pos ft (limits, results) = .ok ())
+    (schema : OwnedMemory.checkSchema (sig.payload callee.tag) = .ok ())
+    (full : instance_.addHandle? (.waitable (.subtask subtask)) = none)
+    (pending : config.ctl = ⟨some thread,
+      .prog (stage callee caller ticket subtask cx args pos ft limits results), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau]
       { config with
         host := config.host.record (.refused ticket .subtaskTableFull)
-        ctl := ⟨thread, .prog (.pure (.cancel .none)), segments⟩ :: rest } :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.Component.Deferred.table_full_steps
-    config thread segments rest ticket pending
+        ctl := ⟨some thread, .prog (.pure (.cancel .none)), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.Component.Deferred.stage_table_full_steps
+    config thread segments rest callee caller ticket subtask cx args pos ft limits results threadInfo task
+    instance_ onThread onTask current live async checked schema full pending
 
 /-- At the reference allocation boundary, fullness traps and locks down the reached
 store, leaving the host journal (including the recorded refusal) untouched. -/

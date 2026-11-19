@@ -855,7 +855,7 @@ private theorem take_safe (state : HostState sig) (entry : PendingAccept) :
     CheckedWrite state (ComponentCall.Deferred.HostState.take state entry) :=
   ⟨⟨List.prefix_rfl, le_rfl⟩, .same _, publication_refl _⟩
 
-theorem table_full_steps (config : Config (core3 grow) (HostState sig))
+private theorem table_full_steps (config : Config (core3 grow) (HostState sig))
     (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
     (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
     (pending : config.ctl = ⟨thread, .prog (refuseTableFull ticket), segments⟩ :: rest) :
@@ -877,6 +877,35 @@ theorem reference_table_full_steps (config : Config (core3 grow) (HostState sig)
   have liveAt : ArenaField.insts.get? config.store inst = some instance_ := live
   simp only [Prog.pure_eq, Prog.bind, liveAt, full]
   exact .cons (.trap rfl) (.refl _)
+
+theorem stage_table_full_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (callee : Callee sig)
+    (caller : CallerId) (ticket : Nat) (subtask : SubtaskId) (cx : LiftLowerContext (core3 grow))
+    (args : List FlatValue) (pos : Nat) (ft : WIT.FuncType Empty RtId) (limits results : Nat)
+    (threadInfo : Runtime.Thread) (task : Task (core3 grow)) (instance_ : InstState)
+    (onThread : config.store.thread? thread = some threadInfo)
+    (onTask : config.store.task? threadInfo.task = some task) (current : task.inst = callee.inst)
+    (live : config.store.inst? callee.inst = some instance_)
+    (async : callee.async_ = true)
+    (checked : callee.check config.store subtask cx args pos ft (limits, results) = .ok ())
+    (schema : Stored.OwnedMemory.checkSchema (sig.payload callee.tag) = .ok ())
+    (full : instance_.addHandle? (.waitable (.subtask subtask)) = none)
+    (pending : config.ctl = ⟨some thread,
+      .prog (stage callee caller ticket subtask cx args pos ft limits results), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau]
+      { config with
+        host := config.host.record (.refused ticket .subtaskTableFull)
+        ctl := ⟨some thread, .prog (.pure (.cancel .none)), segments⟩ :: rest } := by
+  simp only [stage, async, Bool.not_true, Bool.false_eq_true, ite_false] at pending
+  refine .cons (.get pending) (.cons (.currentThread rfl) (.cons (.get rfl) ?_))
+  have onThreadAt : ArenaField.threads.get? config.store thread = some threadInfo := onThread
+  simp only [Prog.pure_eq, Prog.bind, onThreadAt]
+  refine .cons (.get rfl) ?_
+  have onTaskAt : ArenaField.tasks.get? config.store threadInfo.task = some task := onTask
+  simp only [Prog.pure_eq, Prog.bind, onTaskAt, current, bne_self_eq_false, Bool.false_eq_true,
+    ite_false, checked, live, schema, full, Option.isNone_none, ite_true]
+  exact table_full_steps _ _ segments rest ticket rfl
 
 private theorem stage_safe (callee : Callee sig) (caller : CallerId) (ticket : Nat) (subtask : SubtaskId)
     (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
