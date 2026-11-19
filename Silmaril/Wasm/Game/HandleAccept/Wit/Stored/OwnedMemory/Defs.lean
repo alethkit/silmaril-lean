@@ -129,6 +129,36 @@ def flatCarrier (limits : Component.Limits) (quirks : Quirks) (cx : LiftLowerCon
     future := fun type slot => Observed.ordinary <$> ref.future type slot
     errorContext := fun slot => Observed.ordinary <$> ref.errorContext slot }
 
+/-- Component argument lifting with receipts for the one-pointer spill as well as
+the direct flat vector. `projectFlatValues` identifies the entire program after erasure. -/
+def liftFlatValuesWith {Result : Type} (limits : Component.Limits) (cx : LiftLowerContext E)
+    (leaves : Silmaril.Wasm.AddrType → FlatLoadCarrier E World Result) (max : Nat)
+    (cursor : FlatCursor) (types : List (WIT.ClosedType RtId)) :
+    P E World (List Result × FlatCursor) := do
+  let width ← ptrType cx
+  if (flattenTypes width types).length > max then
+    let (ptr, next) ← cursor.next (pointerType width)
+    let shape := layout width (.tuple types : WIT.ClosedType RtId)
+    trapIf (decide (flatNat ptr ≠ alignTo (flatNat ptr) shape.alignment)) .unalignedPointer
+    checkInBounds cx (flatNat ptr) shape.size
+    let values ← loadTypesAtWith limits cx width (leaves width).memory types (flatNat ptr)
+    return (values, next)
+  else
+    liftFlatTypesWith limits cx width (leaves width) types cursor
+
+/-- The caller's reference start protocol with an observing argument lift. -/
+def lowerOnStartWith {Result : Type}
+    (liftArgs : LiftLowerContext E → Nat → FlatCursor → List (WIT.ClosedType RtId) →
+      P E World (List Result × FlatCursor)) (caller : CallerId) : P E World (List Result) := do
+  match ← getObj ArenaField.callers caller with
+  | .lower subtask cx args pos ft maxParams _ =>
+    maybeOnProgress subtask
+    modifyStore (LowerSt.startSt subtask)
+    let (values, next) ← liftArgs cx maxParams ⟨args, pos⟩ (ft.params.map (·.2))
+    modifyStore (LowerSt.setCallerPosSt caller next.pos)
+    return values
+  | _ => internal "lowerOnStart: not a canon_lower caller record"
+
 /-- Observe owners during the canonical lower caller's start callback, including parameters
 spilled to memory. This is an observation of the reference callback, not a storage boundary:
 its other values, including borrows, retain their original reference scopes. -/

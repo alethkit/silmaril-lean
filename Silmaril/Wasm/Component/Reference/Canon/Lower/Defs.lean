@@ -177,22 +177,16 @@ def maybeOnProgress (s : SubtaskId) : P E σ Unit := do
 D-f) `subtask.state = STARTED`; `lift_flat_values(cx, max_flat_params, flat_args,
 ft.param_types())` from the shared cursor `⟨flatArgs, pos⟩` (the caller's memory and table;
 borrows add lenders to `s` through `cx`'s subtask scope), whose advanced position is written
-back into the record. The supplied lift interprets the leaves but shares these caller updates. -/
-def lowerOnStartWith {α : Type}
-    (liftArgs : LiftLowerContext E → Nat → FlatCursor → List (WIT.ClosedType RtId) →
-      P E σ (List α × FlatCursor)) (c : CallerId) : P E σ (List α) := do
+back into the record. -/
+def lowerOnStart (lim : Limits) (q : Quirks) (c : CallerId) : P E σ (List Val) := do
   match ← getObj ArenaField.callers c with
   | .lower s cx flatArgs pos ft maxParams _ =>
     maybeOnProgress s
     modifyStore (LowerSt.startSt s)
-    let (vs, vi) ← liftArgs cx maxParams ⟨flatArgs, pos⟩ (ft.params.map (·.2))
+    let (vs, vi) ← liftFlatValues lim q cx maxParams ⟨flatArgs, pos⟩ (ft.params.map (·.2))
     modifyStore (LowerSt.setCallerPosSt c vi.pos)
     return vs
   | _ => internal "lowerOnStart: not a canon_lower caller record"
-
-/-- The reference caller start callback with representation-valued arguments. -/
-def lowerOnStart (lim : Limits) (q : Quirks) (c : CallerId) : P E σ (List Val) :=
-  lowerOnStartWith (liftFlatValues lim q) c
 
 /-- REF `on_resolve(result)` of `canon_lower` (L2194-2206) for caller record `c`:
 `maybe_on_progress()`; then
