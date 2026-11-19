@@ -197,6 +197,15 @@ same ASTs, Core modules and accepted languages after embedding.
 | sentinel inclusion via observations/renamings, allocation failure | `writerLang_rename`, `writerLang_sentinel_swap`, `writerLang_noRet_subset`, `sentinel_twice` |
 | intersection is not preserved by projection or trace languages | `Host.lang_inter_subset`, `inputLang_inter_subset`, `Examples.inter_strict`, `projection_inter_strict` |
 
+### Reference resource lifecycle
+
+`Wit.Resources` runs the reference `resource.new`, `resource.rep` and `resource.drop`
+built-ins, including their destructor dispatcher. `take` uses canonical `liftOwn` and
+retains the consumed handle's arena identity as well as its representation. The machine
+examples check slot reuse with two different identities that share a representation,
+drop, and the observable early slot removal on a wrong-type lift that locks down the
+component. This is a reference adapter, not a simulation of the checked Core writer table.
+
 ## Modelling choices to review
 
 * **Traps are call-local.** The Wasm-facing mandatory trap on an invalid `accept` is
