@@ -108,4 +108,28 @@ theorem exists_full_of_accessible {root : Name} (accessible : Acc (Depends store
       (fun child linked => ih child ⟨source, hit, linked⟩ (covered.1 child linked)) covered.2
     exact ⟨target, source, hit, expanded⟩
 
+private theorem expanded_dependencies_accessible (bound : store.Binding)
+    {source : Shallow Name} {target : Named Name} (expanded : Expands store source target) :
+    ∀ name, Link.obj name ∈ source.directLinks → Acc (Depends store) name := by
+  induction expanded with
+  | @obj name source target hit _ ih =>
+    intro child linked
+    change Link.obj child = Link.obj name at linked
+    cases linked
+    refine Acc.intro _ ?_
+    rintro descendant ⟨other, stored, edge⟩
+    exact ih descendant (bound.1 stored hit ▸ edge)
+  | blob => intro name linked; cases linked
+  | dict _ ih | list _ ih =>
+    rintro name ⟨index, linked⟩
+    exact ih index name linked
+  | _ => intro name linked; exact linked.elim
+
+theorem full_accessible (bound : store.Binding) {root : Name} {target : Named Name}
+    (full : FullNames store root target) : Acc (Depends store) root := by
+  obtain ⟨source, hit, expanded⟩ := full
+  refine Acc.intro _ ?_
+  rintro name ⟨other, stored, edge⟩
+  exact expanded_dependencies_accessible bound expanded name (bound.1 stored hit ▸ edge)
+
 end Silmaril.Proofs.Formats.Dasl
