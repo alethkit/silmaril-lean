@@ -332,9 +332,13 @@ not a scheduling theorem or a Core adapter.
   failed decodes and is not a host. `Own.Session.Replay.accepts_then_traps` instead uses the linked
   checked host for two actual `ownMod` invocations: the first consumes the live slot and accepts
   `res(rep)`; the second diagnoses that slot as dead and traps without erasing the earlier tree
-  or reviving the slot. The proof reads only the written handle bytes, with the rest of memory
-  symbolic. This is a lower bound with a checked negative replay, not the exact checked writer
-  language across arbitrary export sequences.
+  or reviving the slot. `Own.Session.Audit` retains the typed diagnostic at the actual reply
+  in any checked Core session. `instrument` and `erase` relate the whole session in both
+  directions, including export retries; `Audit.reject_then_invoke` records the rejection
+  without changing the reached store or writer. `Replay.audited_accepts_then_traps` checks
+  the exact three answered imports in the two-export replay. That proof reads only the written
+  handle bytes, with the rest of memory symbolic. This is a lower bound with a checked negative
+  replay, not the exact checked writer language across arbitrary export sequences.
 * Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
   exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
   Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
