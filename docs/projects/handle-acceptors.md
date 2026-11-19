@@ -538,8 +538,15 @@ transfers after guest allocation revalidate against the reached state. Successfu
 spend only the targeted identity. The kernel-checked replays cover distinct equal-representation
 owners, duplicate-receipt rejection followed by retry, slot reuse, inactive stored-borrow
 rejection, reentrant realloc, and a late trap that preserves the earlier owner transfer and
-memory write. This entry point runs in the reference machine; the scheduled Core import
-bindings still expose individual give/drop operations, not whole-record lowering.
+memory write. `Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Binding.giveRecord` exposes
+whole-record lowering to Core as `(tree, destination) → (status, value)`. It resolves the
+linked memory and optional realloc slots and checks their live width and function type before
+using a tree's claims. Its successful effects spend the same targeted identities as individual
+give/drop bindings, so the arbitrary-session writer and transcript theorems include the new
+import. The linked Core replay covers invalid destination profiles, successful retry, a nested
+stream with two equal-representation owners, reacquisition through reused slots, rejection of
+the old root, and successful delivery of the new root. This is not an exact payload-language
+theorem, a proof of all allocator behavior, or a Core binding for arbitrary flat return vectors.
 
 ## Checking
 

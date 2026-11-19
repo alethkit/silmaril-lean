@@ -7,6 +7,7 @@ import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Thms
 import Silmaril.Wasm.Component.Reference.HostWrite.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Builtins.Resource.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Lift.Thms
+import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.RecordEffects
 
 public section
 
@@ -131,6 +132,60 @@ private theorem drop_safe (resource : RtId) (id : HandleObjId) :
         repeat' (first | (intro) | constructor)
       exact HostWrite.bind (readOnly (P.Inv.destructorCall hyps _ _ inst request)) fun _ => .pure none _
 
+private theorem record_prepare_safe (cx : LiftLowerContext (core3 grow)) (plan : List Stored.Endpoints.RecordLower.Object) :
+    Safe ((Stored.OwnedMemory.Claims.Record.authority (recordClaims (sig := sig)) Limits.spec cx).prepare plan) :=
+  HostWrite.bind (readOnly P.Inv.getStore) fun _ => HostWrite.bind read_safe fun _ => .pure none _
+
+private theorem record_transfer_safe (cx : LiftLowerContext (core3 grow)) (index : Nat)
+    (object : Stored.Endpoints.RecordLower.Object) :
+    Safe ((Stored.OwnedMemory.Claims.Record.authority (recordClaims (sig := sig)) Limits.spec cx).transfer index object) := by
+  refine HostWrite.bind read_safe fun state => ?_
+  cases object with
+  | owner receipt =>
+    dsimp only
+    split
+    · exact .pure none _
+    · refine HostWrite.bind (readOnly (P.Inv.lowerOwn (fun _ _ _ => trivial) (fun _ _ _ _ => trivial)
+        _ _ _ _)) fun _ => ?_
+      exact HostWrite.bind (spend_safe _) fun _ => .pure none _
+  | shared object =>
+    cases object with
+    | endpoint channel element id =>
+      refine HostWrite.bind (readOnly P.Inv.getStore) fun _ => ?_
+      split
+      · exact .pure none _
+      · refine HostWrite.bind (spend_safe _) fun _ => ?_
+        exact HostWrite.bind (readOnly (P.Inv.lowerAsyncValue (fun _ _ _ _ => trivial)
+          (fun _ _ _ _ => trivial) (fun _ _ _ _ => trivial) _ _ _ _)) fun _ => .pure none _
+    | errorContext id =>
+      refine HostWrite.bind (readOnly P.Inv.getStore) fun _ => ?_
+      split
+      · exact .pure none _
+      · exact HostWrite.bind (readOnly (P.Inv.lowerErrorContext (fun _ _ _ _ => trivial) _ _ _)) fun _ => .pure none _
+
+private theorem lower_root_safe (cx : LiftLowerContext (core3 grow)) (tree : Stored.OwnedMemory.Tree sig)
+    (output : Stored.Lower.Output) :
+    Safe (Stored.OwnedMemory.Claims.Record.lowerRoot recordClaims Limits.spec Quirks.none cx tree output) := by
+  cases tree with
+  | atom impossible => exact impossible.elim
+  | tag label children arity =>
+    exact RecordEffects.compiled_safe _ _ _ _ _ _ _ _ (record_prepare_safe cx) (record_transfer_safe cx)
+
+private theorem give_record_safe (inst : InstId) (destination : RecordDestination) (args : List FlatValue) :
+    Safe (giveRecord (grow := grow) (sig := sig) inst destination args) := by
+  unfold giveRecord
+  split
+  · split
+    · exact .pure none _
+    · refine HostWrite.bind (readOnly P.Inv.getStore) fun _ => ?_
+      split
+      · exact .pure none _
+      · refine HostWrite.bind (.get none fun _ => .pure _ _) fun selected => ?_
+        cases selected with
+        | none => exact .pure none _
+        | some tree => exact HostWrite.bind (lower_root_safe _ tree _) fun _ => .pure none _
+  · exact .pure none _
+
 private theorem withTree_safe (args : List FlatValue)
     (use : Stored.OwnedMemory.Tree sig → Nat → Session grow sig (Except Issue Nat))
     (safe : ∀ tree index, Safe (use tree index)) : Safe (withTree args use) := by
@@ -173,6 +228,7 @@ private theorem invoke_safe (binding : Binding sig) (args : List FlatValue) :
       split
       · exact HostWrite.bind (giveEndpoint_safe _ _ _ _) fun _ => .pure none _
       · exact .pure none _
+    case giveRecord => exact give_record_safe _ _ _
 
 private theorem finish_safe (ticket : Nat) (result : Except Issue Nat) :
     Safe (finish (grow := grow) (sig := sig) ticket result) := by
