@@ -425,9 +425,11 @@ the unmodified reference dispatcher. The two-instance Core regression creates a 
 owners, rejects an unused nested borrow, accepts the owning stream into a tree, hands it off once,
 cancels and retries a read, polls completion, transfers and drops both owners, observes peer
 closure, and traps on a stale canonical read without erasing the accepted tree. The bounded
-driver has a relational trace theorem. These are not an exact accepted-language theorem for
-arbitrary export sequences, a Core future lifecycle replay, or a replacement for the earlier
-trap-returning ABI.
+driver has a relational trace theorem. The same linked scheduler also runs a one-element
+`future<record{word: u16, owner: own<R>}>` through Core exports: cancellation and retry, handoff,
+copy, poll, owner drop, both endpoint drops, and a stale read. The future has its own two-operand
+copy ABI and completion payload, independent of the stream count. Neither replay states an
+exact accepted language for arbitrary exports or replaces the earlier trap-returning ABI.
 
 `Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
 immutable arena object exists in the current reference store. Unlike endpoint handoff, this
