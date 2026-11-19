@@ -156,8 +156,8 @@ theorem chunkRing8192_rel_eq_8 {P : Profile} {pol : Policy (BitVec 32)}
   chunkRingN_rel_eq_8 (by decide) (by decide) hsen hw ha h0 hb ho
 
 open Silmaril.Wasm.Execution.Core Silmaril.Wasm.SingleThreaded in
-/-- Execute a grow refusal and retry from the returned store. Fill both pages through public
-`feed` calls, then run `finish(1)` and check the writer receives the oldest value. -/
+/-- Retry after grow refusal, fill both pages and reject an extra `feed`. Run `finish(1)`
+from the rejected call's store, then retry the extra `feed` in the newly freed slot. -/
 private def growingRingRegression : Except String Unit := do
   let initial := (Verify.instOf (chunkRingGrowing 8193)).store
   let initCall := invoke initial 4 [.i64 42]
@@ -178,7 +178,14 @@ private def growingRingRegression : Except String Unit := do
   unless memory.pages == 2 && Execution.Memory.load memory.bytes 0 8 == some 7 &&
       Execution.Memory.load memory.bytes 65536 8 == some 8199 do
     throw "the first or second page does not contain the expected value"
-  let mut active := invoke current 5 [.i32 1]
+  let (full, _) := Exec.runI allow 128 (invoke current 4 [.i64 2])
+  match full.code with
+  | [.trap] => pure ()
+  | _ => throw "feed did not trap on a full buffer"
+  unless (full.store.mems[0]?.map (·.bytes)) == some memory.bytes &&
+      full.store.globals.map (·.value) == current.globals.map (·.value) do
+    throw "full-buffer rejection changed the bytes or cursors"
+  let mut active := invoke full.store 5 [.i32 1]
   for (expected, operands, reply) in [(0, [], 1), (2, [.i64 7], 2), (1, [.i32 2, .i32 1], 3)] do
     let (paused, _) := Exec.runI allow 128 active
     let some (context, _, hostId, args) := decompose? paused.store paused.code |
@@ -189,6 +196,12 @@ private def growingRingRegression : Except String Unit := do
   let (finished, _) := Exec.runI allow 128 active
   unless finished.code.mapM Admin.val? == some [.i32 1, .i32 3] do
     throw "finish did not return (1, 3)"
+  let (retried, _) := Exec.runI allow 128 (invoke finished.store 4 [.i64 2])
+  unless retried.code.isEmpty do throw "feed did not succeed after finish freed a slot"
+  let some retriedMemory := retried.store.mems[0]? | throw "missing memory after retry"
+  unless Execution.Memory.load retriedMemory.bytes 0 8 == some 2 &&
+      Execution.Memory.load retriedMemory.bytes 65536 8 == some 8199 do
+    throw "retry did not reuse just the freed slot"
 
 #eval show IO Unit from
   match growingRingRegression with
