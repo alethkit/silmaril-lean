@@ -176,12 +176,12 @@ private def regression (useTuple : Bool) : Bool :=
     ((writer.accepted.flatMap rootReceipts).map receiptId == [⟨2⟩, ⟨3⟩, ⟨0⟩, ⟨1⟩]) &&
     (bytes.extract 0 16).data == #[3, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] &&
     (bytes.extract 16 32).data == #[1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0] &&
-    result.config.host.transcript == [accept 0 32, .returned 0 1,
+    result.config.host.transcript == [accept 0 32, .published 0 1, .returned 0 1,
       give 1 "bad-memory" 1 0, .refused 1 .badLoweringMemory,
       give 2 "bad-realloc" 1 0, .refused 2 .badLoweringRealloc,
       give 3 name 1 0, .returned 3 0,
       give 4 name 1 0, .refused 4 spent,
-      accept 5 0, .returned 5 2,
+      accept 5 0, .published 5 2, .returned 5 2,
       give 6 name 1 0, .refused 6 spent,
       give 7 name 2 16, .returned 7 0] &&
     result.config.host.refusals == [spent, spent, .badLoweringRealloc, .badLoweringMemory]
@@ -227,7 +227,7 @@ private def flatRegression : Bool :=
     result.outcome == .resolved && writer.accepted.length == 1 &&
     writer.held.isEmpty && writer.endpoints.isEmpty &&
     result.config.host.transcript == [enter 0 "accept-node" (Endpoints.Core.Scheduled.acceptType contract) [1, 32, 0, 0],
-      .returned 0 1, enter 1 "wrong-flat-schema" flat [1], .refused 1 .wrongPayloadType,
+      .published 0 1, .returned 0 1, enter 1 "wrong-flat-schema" flat [1], .refused 1 .wrongPayloadType,
       enter 2 "give-flat" flat [1], .returnedFlat 2 ([3, 2, 1, 1].map i32Flat),
       enter 3 "give-flat" flat [1], .refused 3 spent]
 
@@ -285,7 +285,7 @@ private def flatInputRegression : Bool :=
     result.config.host.transcript == [
       .entered 0 "wide-flat" wide (.int .i64 0 :: .int .i64 0 :: args), .refused 0 width,
       .entered 1 "accept-flat" input (i32Flat 0 :: i32Flat 1 :: args), .refused 1 arity,
-      .entered 2 "accept-flat" input (i32Flat 0 :: i32Flat 0 :: args), .returned 2 1,
+      .entered 2 "accept-flat" input (i32Flat 0 :: i32Flat 0 :: args), .published 2 1, .returned 2 1,
       .entered 3 "give-flat" output [i32Flat 1], .returnedFlat 3 ([3, 2, 1, 1].map i32Flat)]
   | none => false
 
@@ -368,7 +368,7 @@ private def flatStreamRegression (stale : Bool) : Bool :=
     result.outcome == (if stale then .trap else .resolved) &&
     traps == (if stale then [.unknownHandle 3] else []) &&
     writer.accepted.length == 1 && writer.held.isEmpty && writer.endpoints.isEmpty &&
-    result.config.host.refusals.isEmpty &&
+    result.config.host.refusals.isEmpty && result.config.host.publications == [(0, 1)] &&
     (result.config.store.core.mems[1]?.map fun mem => (mem.bytes.extract 80 88).data) ==
       some #[1, 1, 0, 0, 5, 0, 0, 0] &&
     result.config.store.insts.map (fun inst => [1, 2, 3, 4, 5].map inst.handles.get?) ==
