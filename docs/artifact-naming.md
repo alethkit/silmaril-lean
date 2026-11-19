@@ -12,13 +12,15 @@ tag, path, or a claimed digest copied from a different observation model.
 
 1. **Data and index.** The manifest is ASCII TSV with the header shown in
    [`fixtures.tsv`](../tools/artifact-naming/fixtures.tsv); `-` is the empty
-   payload. Verified rows can be emitted as a fresh Lean module of byte
-   literals only. `Table` is a sparse bit trie; lookup follows at most one
+   payload. `import_lean.py` emits declared name and payload bytes as a fresh
+   Lean module of literals only. It checks the TSV syntax, not CID structure,
+   conflicts or digests, and works without the verifier or hash backends.
+   `Table` is a sparse bit trie; lookup follows at most one
    edge per bit of the caller's routing key. `set` overwrites one route; it
    checks neither integrity nor conflicts. Pre-materialize the constructors
    if construction cost matters to reduction. A route that is not injective
-   can alias names; the fixture routes the full binary CID, not a truncated
-   digest. There is no dependency on the open codec or language PRs.
+   can alias names; the fixture routes the full opaque name bytes. There is
+   no dependency on the open codec or language PRs.
 2. **Kernel facts.** `Table.lookup_iff` characterizes lookup by the structural
    entry relation, `relation_binding` proves functionality by name, and
    `overlay_iff` and `overlay_namesOf` recover union on compatible chunks.
@@ -44,19 +46,30 @@ tag, path, or a claimed digest copied from a different observation model.
 
 ## Running the slice
 
-From the repository root with the pinned Lean, Python 3 and `b3sum` on `PATH`:
+From the repository root with the pinned Lean and Python 3, check the kernel
+facts without computing any hashes:
 
 ```sh
 lake build --wfail +Silmaril.Semantics.Naming.Table.Thms +Silmaril.Formats.Dasl.Predecoded.Thms
 bash tools/artifact-naming/check.sh
-set -o pipefail
-printf 'hello\n' | python3 -I tools/artifact-naming/verify.py name dasl raw sha256 -
-LEAN_PATH=. lake env python3 -I tools/artifact-naming/bench.py
 ```
 
-The standalone check also computes a CID directly over the actual DRISL bytes
-written by Lean and compares it to the manifest. Direct naming is a runtime
-facility: the assurance TCB is the script and the exact input/output bytes,
+Independently, with `b3sum` on `PATH` for the BLAKE3 fixture, check hash
+consistency of the same declarations or compute names for exact bytes:
+
+```sh
+python3 -BEs tools/artifact-naming/test_verify.py
+python3 -BEs tools/artifact-naming/verify.py verify tools/artifact-naming/fixtures.tsv
+set -o pipefail
+printf 'hello\n' | python3 -BEs tools/artifact-naming/verify.py name dasl raw sha256 -
+bash tools/artifact-naming/check.sh tools/artifact-naming/fixtures.tsv /tmp/silmaril-title.cbor
+python3 -BEs tools/artifact-naming/verify.py name dasl drisl sha256 /tmp/silmaril-title.cbor
+```
+
+Passing an output path to `check.sh` optionally runs the Lean writer; the
+separate external `name` command can hash that output to compare to the
+manifest. Direct naming is a runtime facility: the assurance TCB is the
+script and the exact input/output bytes,
 Python and its SHA-256 implementation, `b3sum` from `PATH` for BLAKE3, and
 their runtime/OS. For bytes produced by the Lean executable, its compiled
 writer/runtime must also behave as intended; the small kernel serialization
@@ -75,7 +88,11 @@ and 16 misses; wall time includes the Lean process and imported fixture.
 timed loop checks the same queries and verifies its checksum. Construction
 and import-only time are reported separately. These are lookup experiments,
 not end-to-end measurements of CID import, hashing, or parsing. Neither this
-benchmark nor the external tool is a new mandatory CI hook.
+benchmark nor the external tool is a new mandatory CI hook. To reproduce:
+
+```sh
+LEAN_PATH=. lake env python3 -I tools/artifact-naming/bench.py
+```
 
 One local run with the pinned Lean 4.37 nightly (median of three):
 

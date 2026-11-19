@@ -7,17 +7,15 @@ import Silmaril.Semantics.Naming.Table.Thms
 meta import Silmaril.Formats.Dasl.Wire.Defs
 
 open ArtifactNamingRows
-open Silmaril.Formats.Dasl Silmaril.Formats.Cbor Silmaril.Semantics.Naming
+open Silmaril.Formats.Dasl Silmaril.Semantics.Naming
 
-private abbrev Name := Drisl.Cid .bdasl
+private abbrev Name := List UInt8
 
-private def hello : Name := ⟨name_hello, by decide +kernel⟩
-private def title : Name := ⟨name_title, by decide +kernel⟩
-private def empty : Name := ⟨name_empty, by decide +kernel⟩
+private def hello : Name := name_hello
+private def title : Name := name_title
+private def empty : Name := name_empty
 
-example : (Drisl.Cid.codec .dasl).parse? name_empty = none := by rfl
-
-private def route (name : Name) : List Bool := Table.byteRoute name.val
+private def route (name : Name) : List Bool := Table.byteRoute name
 
 private def rawChunk : Table ByteArray :=
   (Table.empty.set (route hello) bytes_hello.toByteArray).set (route empty) bytes_empty.toByteArray

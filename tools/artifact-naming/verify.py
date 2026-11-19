@@ -3,16 +3,16 @@
 
 import argparse
 import hashlib
-import re
 import subprocess
 import sys
 from pathlib import Path
+
+from manifest import read_hex, read_manifest
 
 
 PROFILES = {"dasl": {"sha256"}, "bdasl": {"sha256", "blake3"}}
 ALGORITHMS = {"sha256": 0x12, "blake3": 0x1E}
 CODECS = {"raw": 0x55, "drisl": 0x71}
-HEADER = "id\tprofile\tcodec\talgorithm\tcid_hex\tpayload_hex"
 
 
 def digest(algorithm, payload):
@@ -30,51 +30,23 @@ def prefix(profile, codec, algorithm):
     return bytes((1, CODECS[codec], ALGORITHMS[algorithm], 32))
 
 
-def read_hex(text):
-    if not re.fullmatch(r"(?:[0-9a-f]{2})*", text):
-        raise ValueError("expected complete lowercase hex bytes")
-    return bytes.fromhex(text)
-
-
 def verify_manifest(path):
-    header, *lines = path.read_text(encoding="ascii").splitlines() or [""]
-    if header != HEADER or not lines:
-        raise ValueError("expected a nonempty exact-CID manifest with the v1 TSV header")
-    rows, seen = {}, {}
-    for number, line in enumerate(lines, 2):
+    rows = read_manifest(path)
+    seen = {}
+    for identifier, row in rows.items():
         try:
-            row, profile, codec, algorithm, name_hex, payload_hex = line.split("\t")
-            if not re.fullmatch(r"[a-z][a-z0-9_]*", row) or row in rows:
-                raise ValueError("invalid or duplicate row identifier")
-            name = read_hex(name_hex)
-            if not payload_hex:
-                raise ValueError("use '-' for the empty payload")
-            payload = b"" if payload_hex == "-" else read_hex(payload_hex)
-            expected_prefix = prefix(profile, codec, algorithm)
-            if len(name) != 36 or not name.startswith(expected_prefix):
+            expected_prefix = prefix(row.profile, row.codec, row.algorithm)
+            if len(row.name) != 36 or not row.name.startswith(expected_prefix):
                 raise ValueError("CID version, codec, algorithm or digest boundary mismatch")
-            if name in seen and seen[name] != payload:
+            if row.name in seen and seen[row.name] != row.payload:
                 raise ValueError("conflicting payloads under the same binary CID")
-            seen[name] = payload
-            rows[row] = (name, payload, algorithm)
+            seen[row.name] = row.payload
         except ValueError as error:
-            raise ValueError(f"line {number}: {error}") from error
-    for row, (name, payload, algorithm) in rows.items():
-        if name[4:] != digest(algorithm, payload):
-            raise ValueError(f"{row}: digest mismatch")
-    return rows
-
-
-def lean_literal(data):
-    return "[" + ", ".join(f"0x{byte:02x}" for byte in data) + "]"
-
-
-def emit_lean(rows):
-    print("module\n\n@[expose] public section\n\nnamespace ArtifactNamingRows\n")
-    for row, (name, payload, _) in rows.items():
-        print(f"def name_{row} : List UInt8 := {lean_literal(name)}")
-        print(f"def bytes_{row} : List UInt8 := {lean_literal(payload)}\n")
-    print("end ArtifactNamingRows")
+            raise ValueError(f"{identifier}: {error}") from error
+    for identifier, row in rows.items():
+        if row.name[4:] != digest(row.algorithm, row.payload):
+            raise ValueError(f"{identifier}: digest mismatch")
+    return len(rows)
 
 
 def main():
@@ -82,7 +54,6 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     verify = commands.add_parser("verify")
     verify.add_argument("manifest", type=Path)
-    verify.add_argument("--emit-lean", action="store_true")
     name = commands.add_parser("name", help="compute an external CID over exact input bytes")
     for field, choices in (("profile", PROFILES), ("codec", CODECS), ("algorithm", ALGORITHMS)):
         name.add_argument(field, choices=choices)
@@ -90,11 +61,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == "verify":
-            rows = verify_manifest(args.manifest)
-            if args.emit_lean:
-                emit_lean(rows)
-            else:
-                print(f"externally verified {len(rows)} row(s)")
+            print(f"externally verified {verify_manifest(args.manifest)} row(s)")
         else:
             head = prefix(args.profile, args.codec, args.algorithm)
             payload = sys.stdin.buffer.read() if args.input == "-" else Path(args.input).read_bytes()
