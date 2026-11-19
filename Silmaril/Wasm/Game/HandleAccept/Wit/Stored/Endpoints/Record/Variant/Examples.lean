@@ -22,11 +22,11 @@ private noncomputable def context : LiftLowerContext Mock.mock :=
   { opts := { memory := some 0, realloc := some 0 }, inst := ⟨0⟩ }
 
 private def unsupported : TypeOf := .record [("choice", .variant
-  [("none", none), ("map", some (.map .u8 (.stream element)))])]
+  [("none", none), ("map", some (.map .u8 (.own ⟨0⟩)))])]
 
 theorem inactive_variant_checks_whole_schema :
     preflight context unsupported ⟨.record [.variant 0 none], by decide⟩ .flat =
-      .error (.unsupportedField 0) := by kernel_rfl
+      .error (.preflight (.schema .ownedResourceNeedsIdentity)) := by kernel_rfl
 
 private def wide (value : Nat) : FlatValue := .int .i64 (BitVec.ofNat 64 value)
 
