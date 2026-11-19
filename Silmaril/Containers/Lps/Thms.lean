@@ -25,10 +25,23 @@ creation), adapter paths are finite (an infinite one would be an infinite LPS ex
 configuration). Clone freedom is a separate hypothesis because `Omni.Exec` constrains traces and
 outcomes, not intermediate states, and LPS models `fork` as a successful step.
 
-**Clone freedom along a probe's execution.** `noClone_instr`, `noClone_trap`, `noClone_exit`
-mirror the probe kit's execution rules (`Probes.Probe.oexec_*`) with the same side conditions,
-so a probe's unique-successor chain proves `NoCloneFrom` with the same tactic script
-(`noclone_instr`, `noclone_trap`, `noclone_exit`).
+**Programs with bounded output.** For a snapshot that satisfies `Emits snap k w` (as `ExitOnly`,
+but the LPS events of every execution are read by the adapter as container events that form a
+prefix of `w`, and `w` has no inputs):
+
+* `runs_prefix`: every run under `seqPolicy` is `done t (exited (k mod 256))` with `t` a prefix of
+  `w`: no undefined behaviour, no blocking, no divergence, no other stop;
+* `run_of_star`: a chosen finite LPS execution of an admissible launch (for example the full
+  write of a probe, built with the kit's run rules) is a run, with its container events.
+
+`ExitOnly snap k` is `Emits snap k []` (`emits_of_exitOnly`), and `runs_eq`, `run_exists` are its
+special case. The invariant now also carries the events emitted and pending, so an adapter state
+that still has events to emit can neither stop nor wait (outputs are not inputs).
+
+**Clone freedom along a probe's execution.** `noClone_instr`, `noClone_trap`, `noClone_write`,
+`noClone_exit` mirror the probe kit's execution rules (`Probes.Probe.oexec_*`) with the same side
+conditions, so a probe's unique-successor chain proves `NoCloneFrom` with the same tactic script
+(`noclone_instr`, `noclone_trap`, `noclone_write`, `noclone_exit`).
 -/
 
 public section
@@ -44,7 +57,37 @@ theorem runs_eq {snap : X86Launch.Snapshot} {k : Word} (h : ExitOnly snap k) (b 
 
 theorem run_exists {snap : X86Launch.Snapshot} {k : Word} (h : ExitOnly snap k) :
     lps.Run seqPolicy snap (.done [] (.exited (k.toNat % 256).toUInt8)) :=
-  Silmaril.Proofs.Containers.Lps.run_exists h
+  Silmaril.Proofs.Containers.Lps.run_exists_exit h
+
+/-- **Runs of a program with bounded output**: every run under `seqPolicy` exits with status
+`k mod 256` after emitting a prefix of `w`. -/
+theorem runs_prefix {snap : X86Launch.Snapshot} {k : Word} {w : List Ev} (h : Emits snap k w)
+    (b : Beh Ev) (hb : lps.Run seqPolicy snap b) :
+    ∃ t, t <+: w ∧ b = .done t (.exited (k.toNat % 256).toUInt8) :=
+  Silmaril.Proofs.Containers.Lps.runs_prefix h b hb
+
+/-- **A chosen LPS execution is a run**: a finite execution of an admissible launch to a halted,
+unkilled configuration, whose events the adapter supports, is the run emitting their container
+events. -/
+theorem run_of_star {snap : X86Launch.Snapshot} {k : Word} {w : List Ev} (h : Emits snap k w)
+    {o : Oracle} {limit : Int} {en : ExecEntry} {inp : ProcInput}
+    (ha : Problems.CoreutilsLite.Admissible o snap en inp) {tr : List Event}
+    {c' : Silmaril.Process.LPS.Config (isaOf o)} {u : List Ev} {code : Word}
+    (hs : Star snap.image.segments Probes.spec noFilter
+      (X86Launch.init (isaOf o) snap en limit inp) tr c')
+    (hu : mapEvs tr = some u) (hh : c'.model.halted = some code) (hk : c'.model.killedBy = none) :
+    lps.Run seqPolicy snap (.done u (.exited (code.toNat % 256).toUInt8)) :=
+  Silmaril.Proofs.Containers.Lps.run_of_star h ha hs hu hh hk
+
+/-- Octets written to standard output, then an exit: one standard-output event per octet, and
+the exit is the run's stop, not an event. -/
+theorem mapEvs_stdout_exit (c : Word) (fs : Silmaril.Process.LPS.Fs.FileSystem) (ds : List Byte) :
+    mapEvs (ds.map (.writeEv 1) ++ [.exitEv c fs]) = some (ds.map fun b => .stdout [UInt8.ofBitVec b]) :=
+  Silmaril.Proofs.Containers.Lps.mapEvs_stdout_exit c fs ds
+
+theorem emits_of_exitOnly {snap : X86Launch.Snapshot} {k : Word} (h : ExitOnly snap k) :
+    Emits snap k [] :=
+  Silmaril.Proofs.Containers.Lps.emits_of_exitOnly h
 
 theorem noClone_instr (P : Probe) (oracle : Oracle) [Probe.Checked P] {off len : Nat}
     {instruction : Silmaril.X86.Ext.Instr} {core core' : Silmaril.X86.State} {counter : Nat}
@@ -75,6 +118,23 @@ theorem noClone_exit (P : Probe) (oracle : Oracle) {core : Silmaril.X86.State} {
     NoCloneFrom P.segs (P.ocfg oracle core (some n) counter model) :=
   Silmaril.Proofs.Containers.Lps.noClone_exit P oracle number running clear
 
+theorem noClone_write (P : Probe) (oracle : Oracle) [Probe.Checked P] {core : Silmaril.X86.State}
+    {n : Word} {counter : Nat} {model : Silmaril.Process.LPS.Model} {off count : Nat} {ch : Word}
+    (number : n = 1) (running : model.halted = none) (lazy : model.vmLazy = [])
+    (lookup : fdLookup model.fds (fd32 (core.read .rdi)) = some (.channel ch)) (nonzero : ch ≠ 0)
+    (buffer : core.read .rsi = BitVec.ofNat 64 (P.base + off))
+    (modeled : modeledRwRangeWith accessOkbX86 (core.read .rsi) (core.read .rdx) = true)
+    (nonzeroCount : core.read .rdx ≠ 0)
+    (clear : NativeX86.All.boundarySuspect 1 (P.sysIn core n) = false)
+    (clamp : rwCountClamp (core.read .rdx) = count)
+    (clampWord : (zw (rwCountClamp (core.read .rdx))).toNat = count)
+    (fits : off + count ≤ P.size) (nonempty : (P.bytes.drop off).take count ≠ [])
+    (rest : ∀ ds, Probe.WritePrefix ((P.bytes.drop off).take count) ds →
+      NoCloneFrom P.segs (P.ocfg oracle (Probe.resume core (lenWord ds)) none counter model)) :
+    NoCloneFrom P.segs (P.ocfg oracle core (some n) counter model) :=
+  Silmaril.Proofs.Containers.Lps.noClone_write P oracle number running lazy lookup nonzero buffer
+    modeled nonzeroCount clear clamp clampWord fits nonempty rest
+
 macro "noclone_instr " off:term:max len:term:max instr:term:max : tactic =>
   `(tactic|
     (apply Silmaril.Containers.Lps.noClone_instr _ _ (off := $off) (len := $len) (instruction := $instr)
@@ -82,6 +142,10 @@ macro "noclone_instr " off:term:max len:term:max instr:term:max : tactic =>
 
 macro "noclone_trap " off:term:max : tactic =>
   `(tactic| (apply Silmaril.Containers.Lps.noClone_trap _ _ (off := $off) <;> oprobe_sides))
+
+macro "noclone_write " off:term:max count:term:max : tactic =>
+  `(tactic| (apply Silmaril.Containers.Lps.noClone_write _ _ (off := $off) (count := $count)
+    <;> oprobe_sides))
 
 macro "noclone_exit" : tactic =>
   `(tactic| (apply Silmaril.Containers.Lps.noClone_exit <;> oprobe_sides))

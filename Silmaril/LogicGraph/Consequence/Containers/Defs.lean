@@ -4,6 +4,7 @@ public import Silmaril.Project.Shapes.Consequence.Defs
 public import Silmaril.Containers.Mini.Thms
 public import Silmaril.Containers.Check.Thms
 public import Silmaril.Containers.Noop.Thms
+public import Silmaril.Containers.HttpOnce.Thms
 
 /-!
 # The logic graph: container obligations as problem shapes and consequence systems
@@ -47,6 +48,7 @@ satisfaction, a comparison), `containers.mini.no_ub_check` (the judgements of `M
 | `containers.mini.raw_sound_vsys` | `consequence.sound_at` (`raw` for `vsys`) | CSA |
 | `containers.mini.check_sound_vsys` | `consequence.sound_at` (the checker for `vsys`) | THM |
 | `containers.noop.oci_wp` | `wp` of the OCI no-op image under `Lps.ociRuntime` | THM |
+| `containers.http_once.oci_wp` | `wp` of the OCI HTTP responder image under `Lps.ociRuntime` | THM |
 -/
 
 @[expose] public section
@@ -176,6 +178,17 @@ public theorem noop_oci_wp_answer :
     Wp Lps.ociRuntime.toRuntime Noop.exitZeroNoEvents Noop.image :=
   Noop.wp_image
 
+silmaril instance containers.http_once.oci_wp (expect := THM)
+  (title := "A static ELF writing one HTTP/1.1 200 response, in its OCI image: no undefined behaviour, exit 0, a prefix of the response on stdout (LPS, every launch and flag oracle)") :=
+  silmaril.shapes.containers.wp
+  (R := Silmaril.Containers.Mach.MachRuntime.toRuntime Silmaril.Containers.Lps.ociRuntime)
+  (post := Silmaril.Containers.HttpOnce.respondsOk) (i := Silmaril.Containers.HttpOnce.image)
+
+@[answers "containers.http_once.oci_wp" thm]
+public theorem http_once_oci_wp_answer :
+    Wp Lps.ociRuntime.toRuntime HttpOnce.respondsOk HttpOnce.image :=
+  HttpOnce.wp_image
+
 /-! ## Checkers, transformers, monitors -/
 
 silmaril instance containers.mini.no_ub_check_sound (expect := THM)
@@ -258,6 +271,7 @@ public def catalogue : List (String × ObligationKind) :=
    ("containers.mini.restrict_preserves_ub", .machine),
    ("containers.monitor_correct_stdio", .security),
    ("containers.mini.vsys_sound_raw", .behaviour), ("containers.mini.raw_sound_vsys", .behaviour),
-   ("containers.mini.check_sound_vsys", .behaviour), ("containers.noop.oci_wp", .behaviour)]
+   ("containers.mini.check_sound_vsys", .behaviour), ("containers.noop.oci_wp", .behaviour),
+   ("containers.http_once.oci_wp", .behaviour)]
 
 end Silmaril.LogicGraph.Consequence.Containers
