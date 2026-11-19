@@ -14,10 +14,13 @@ public abbrev grow := SingleThreaded.neverFail
 public abbrev engine := core3 grow
 @[expose] public def resource : RtId := ⟨0⟩
 @[expose] public def element : Option (WIT.ClosedType RtId) := some (.prim .u16)
-@[expose] public def signature : Signature := ⟨Unit, fun _ => .record [
-  ("owners", .fixedList (.own resource) 2), ("reader", .option (.stream element))], fun _ => .fixed 0⟩
+@[expose] public def signature : Signature := ⟨Bool, (fun isTuple =>
+  let owners : WIT.ClosedType RtId := .fixedList (.own resource) 2
+  let reader : WIT.ClosedType RtId := .option (.stream element)
+  if isTuple then .tuple [owners, reader] else .record [("owners", owners), ("reader", reader)]), fun _ => .fixed 0⟩
 private def contract : Endpoints.Core.Contract signature :=
-  ⟨0, ("host", "accept-node"), (fun tag => if tag == 0 then some () else none), {}, ⟨0⟩⟩
+  ⟨0, ("host", "accept-node"), (fun tag => if tag == 0 then some false else if tag == 1 then some true else none),
+    {}, ⟨0⟩⟩
 
 private def wordFn (params results : Nat) : V1.FuncType :=
   ⟨List.replicate params (.int .i32), List.replicate results (.int .i32)⟩
@@ -26,6 +29,7 @@ private def imports : List (String × V1.FuncType × CanonHost engine) :=
   let accept := Endpoints.Core.Scheduled.acceptType contract
   [("accept-node", accept, .embedder "accept-node" accept),
     ("give-record", wordFn 2 2, .embedder "give-record" (wordFn 2 2)),
+    ("give-payload", wordFn 2 2, .embedder "give-payload" (wordFn 2 2)),
     ("bad-memory", wordFn 2 2, .embedder "bad-memory" (wordFn 2 2)),
     ("bad-realloc", wordFn 2 2, .embedder "bad-realloc" (wordFn 2 2)),
     ("new-own", wordFn 1 1, .builtin (.resourceNew resource .i32) ⟨0⟩),
@@ -63,44 +67,51 @@ private def exportAddr (inst : ModuleInst) (name : String) : Option engine.FuncA
   let (_, .func address) ← (Core3.instExports inst).find? (·.1 == name) | none
   return address
 
-private def session (inst : ModuleInst) : Session grow signature (Ret engine) := do
+private def session (inst : ModuleInst) (useTuple : Bool) : Session grow signature (Ret engine) := do
   let run (name : String) (args : List Nat) (expected : List FlatValue) := do
     let some addr := exportAddr inst name | internal s!"missing Core export {name}"
     trapIf ((← callCore addr (args.map i32Flat)) != expected) (.internal s!"unexpected result: {name}")
   let refused := [i32Flat 1, i32Flat 0]
   let success (value : Nat) := [i32Flat 0, i32Flat value]
+  let tag := if useTuple then 1 else 0
+  let give := if useTuple then "give-payload" else "give-record"
   run "new-own" [77] [i32Flat 1]
   run "new-own" [77] [i32Flat 2]
   run "new-stream" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
-  run "accept-node" [0, 32, 0, 0] (success 1)
+  run "accept-node" [tag, 32, 0, 0] (success 1)
   run "bad-memory" [1, 0] refused
   run "bad-realloc" [1, 0] refused
-  run "give-record" [1, 0] (success 0)
-  run "give-record" [1, 0] refused
+  run give [1, 0] (success 0)
+  run give [1, 0] refused
   run "rep" [3] [i32Flat 77]
   run "rep" [2] [i32Flat 77]
-  run "accept-node" [0, 0, 0, 0] (success 2)
-  run "give-record" [1, 0] refused
-  run "give-record" [2, 16] (success 0)
+  run "accept-node" [tag, 0, 0, 0] (success 2)
+  run give [1, 0] refused
+  run give [2, 16] (success 0)
   run "close-reader" [3] []
   run "close-writer" [4] []
   return .unit
 
 private def ready : HostReady (HostState signature) := fun _ _ => false
 
-private def setup : Option (List (Binding signature) × Machine.Config engine (HostState signature)) := do
+private def setup (useTuple : Bool) : Option (List (Binding signature) × Machine.Config engine (HostState signature)) := do
   let (store, inst) ← instantiate
   let .ok lower := Binding.giveRecord "give-record" ⟨0⟩ inst 0 .i32 .utf8 | none
-  let .ok badRealloc := Binding.giveRecord "bad-realloc" ⟨0⟩ inst 0 .i32 .utf8 (some 0) | none
-  let bindings := [Binding.accept contract inst 0, lower, badRealloc,
-    ⟨"bad-memory", ⟨0⟩, .giveRecord ⟨99, .i32, none, .utf8⟩⟩]
+  let .ok lowerPayload := Binding.givePayload "give-payload" ⟨0⟩ inst 0 .i32 .utf8 | none
+  let badRealloc : Except Issue (Binding signature) :=
+    if useTuple then Binding.givePayload "bad-realloc" ⟨0⟩ inst 0 .i32 .utf8 (some 0)
+    else Binding.giveRecord "bad-realloc" ⟨0⟩ inst 0 .i32 .utf8 (some 0)
+  let .ok badRealloc := badRealloc | none
+  let badMemory : RecordDestination := ⟨99, .i32, none, .utf8⟩
+  let bindings := [Binding.accept contract inst 0, lower, lowerPayload, badRealloc,
+    ⟨"bad-memory", ⟨0⟩, if useTuple then .givePayload badMemory else .giveRecord badMemory⟩]
   let reference : CStore engine := { CStore.empty with
     core := store, insts := [{}], resourceTypes := [{ impl := some ⟨0⟩ }],
     tasks := [{ ft := ⟨[], none, false⟩, opts := {}, inst := ⟨0⟩, caller := ⟨0⟩ }],
     threads := [{ status := .running, task := ⟨0⟩ }] }
   return (bindings, {
     store := reference, host := {}, conts := [none]
-    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (session inst)] })
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (session inst useTuple)] })
 
 private def run (bindings : List (Binding signature)) (config : Machine.Config engine (HostState signature)) :=
   Machine.run ready (specDispatch ready (host bindings)) (core3Exec grow) Machine.Oracle.first 1500 config
@@ -110,16 +121,18 @@ private theorem run_sound (bindings : List (Binding signature)) (config : Machin
       (run bindings config).labels (run bindings config).config :=
   Machine.run_sound ready (specDispatch ready (host bindings)) (core3Exec grow) Machine.Oracle.first 1500 config
 
-private def regression : Bool :=
-  match setup with
+private def regression (useTuple : Bool) : Bool :=
+  match setup useTuple with
   | none => false
   | some (bindings, config) =>
     let result := run bindings config
     let writer := result.config.host.writer
     let bytes := (result.config.store.core.mems[0]?.map (·.bytes)).getD ByteArray.empty
-    let spent := Issue.lowerRecord (.claims .unclaimed)
+    let spent := if useTuple then Issue.lowerPayload (.claims .unclaimed) else .lowerRecord (.claims .unclaimed)
+    let tag := if useTuple then 1 else 0
+    let name := if useTuple then "give-payload" else "give-record"
     let accept := fun ticket ptr => Event.entered ticket "accept-node"
-      (Endpoints.Core.Scheduled.acceptType contract) [i32Flat 0, i32Flat ptr, i32Flat 0, i32Flat 0]
+      (Endpoints.Core.Scheduled.acceptType contract) [i32Flat tag, i32Flat ptr, i32Flat 0, i32Flat 0]
     let give := fun ticket name handle ptr => Event.entered ticket name (wordFn 2 2) [i32Flat handle, i32Flat ptr]
     result.outcome == .resolved && writer.held.isEmpty && writer.endpoints.isEmpty &&
     writer.accepted.length == 2 &&
@@ -129,13 +142,14 @@ private def regression : Bool :=
     result.config.host.transcript == [accept 0 32, .returned 0 1,
       give 1 "bad-memory" 1 0, .refused 1 .badLoweringMemory,
       give 2 "bad-realloc" 1 0, .refused 2 .badLoweringRealloc,
-      give 3 "give-record" 1 0, .returned 3 0,
-      give 4 "give-record" 1 0, .refused 4 spent,
+      give 3 name 1 0, .returned 3 0,
+      give 4 name 1 0, .refused 4 spent,
       accept 5 0, .returned 5 2,
-      give 6 "give-record" 1 0, .refused 6 spent,
-      give 7 "give-record" 2 16, .returned 7 0] &&
+      give 6 name 1 0, .refused 6 spent,
+      give 7 name 2 16, .returned 7 0] &&
     result.config.host.refusals == [spent, spent, .badLoweringRealloc, .badLoweringMemory]
 
-#guard regression
+#guard regression false
+#guard regression true
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.RecordExamples

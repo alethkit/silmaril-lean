@@ -213,6 +213,17 @@ def compileRecord {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf) (va
   if !rest.isEmpty then throw .ownerReceipt
   return compiled
 
+/-- Compile the entire payload, including non-record roots, with the same receipts and
+whole-schema checks used for nested fields. -/
+def compileValue {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf) (value : Val)
+    (receipts : List OwnedMemory.Receipt) (output : Stored.Lower.Output) :
+    Except Issue (Field × List Object) := do
+  (Stored.Lower.checkOptions cx type output).mapError (.preflight ∘ .abi)
+  if !Internal.supportedField type then throw (.unsupportedField 0)
+  let (compiled, rest) ← (compileField cx output 0 type value).run receipts
+  if !rest.isEmpty then throw .ownerReceipt
+  return compiled
+
 /-- Inspect every field before starting any field write or guest allocation. Plain fields
 use the canonical data path; nested records and sum types participate in the same whole-record
 plan. Every arm's schema is checked even when only one arm contributes effects. -/
@@ -341,6 +352,15 @@ def emitRecord {E : CoreEngine} {World : Type} (limits : Component.Limits) (quir
     checkInBounds cx ptr area.size
     runMemory limits quirks cx authority width fields ptr 0
 
+def emitValue {E : CoreEngine} {World : Type} (limits : Component.Limits) (quirks : Quirks)
+    (cx : LiftLowerContext E) (authority : Authority E World) (width : AddrType) (type : TypeOf)
+    (field : Field) (output : Stored.Lower.Output) : P E World (Except Issue output.Result) := do
+  if let .memory ptr := output then
+    let area := layout width type
+    checkAligned ptr area.alignment.bytes
+    checkInBounds cx ptr area.size
+  runField limits quirks cx authority width field 0 output
+
 def sharedPlan : List Object → Except Issue (List Lower.Object)
   | [] => .ok []
   | .shared object :: rest => (sharedPlan rest).map (object :: ·)
@@ -363,20 +383,27 @@ def endpointAuthority {E : CoreEngine} {sig : Signature} (limits : Component.Lim
       return .ok (← lowerErrorContext limits cx id)
     | .owner _ => return .error .ownerReceipt
 
-def lowerCompiled {E : CoreEngine} {World : Type} (limits : Component.Limits) (quirks : Quirks)
+def lowerWithPlan {E : CoreEngine} {World Shape Result : Type} (quirks : Quirks)
     (cx : LiftLowerContext E) (authority : Authority E World) (type : TypeOf) (value : Val)
-    (output : Stored.Lower.Output) (compiled : Except Issue (List Field × List Object)) :
-    P E World (Except Issue output.Result) :=
+    (compiled : Except Issue (Shape × List Object))
+    (emit : AddrType → Shape → P E World (Except Issue Result)) : P E World (Except Issue Result) :=
   match compiled with
   | .error issue => pure (.error issue)
-  | .ok (fields, plan) => do
+  | .ok (shape, plan) => do
     match ← authority.prepare plan with
     | .error issue => return .error issue
     | .ok () =>
       let width ← ptrType cx
       if !Stored.Lower.fits quirks cx.opts.encoding width type value then
         return .error (.preflight (.abi .allocationPrecondition))
-      emitRecord limits quirks cx authority width type fields output
+      emit width shape
+
+def lowerCompiled {E : CoreEngine} {World : Type} (limits : Component.Limits) (quirks : Quirks)
+    (cx : LiftLowerContext E) (authority : Authority E World) (type : TypeOf) (value : Val)
+    (output : Stored.Lower.Output) (compiled : Except Issue (List Field × List Object)) :
+    P E World (Except Issue output.Result) :=
+  lowerWithPlan quirks cx authority type value compiled fun width fields =>
+    emitRecord limits quirks cx authority width type fields output
 
 end Internal
 

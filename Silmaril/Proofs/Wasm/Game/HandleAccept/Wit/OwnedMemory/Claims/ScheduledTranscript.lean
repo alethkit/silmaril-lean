@@ -171,9 +171,21 @@ private theorem lower_root_safe (cx : LiftLowerContext (core3 grow)) (tree : Sto
   | tag label children arity =>
     exact RecordEffects.compiled_safe _ _ _ _ _ _ _ _ (record_prepare_safe cx) (record_transfer_safe cx)
 
-private theorem give_record_safe (inst : InstId) (destination : RecordDestination) (args : List FlatValue) :
-    Safe (giveRecord (grow := grow) (sig := sig) inst destination args) := by
-  unfold giveRecord
+private theorem lower_payload_safe (cx : LiftLowerContext (core3 grow)) (tree : Stored.OwnedMemory.Tree sig)
+    (output : Stored.Lower.Output) :
+    Safe (Stored.OwnedMemory.Claims.Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none cx tree output) := by
+  cases tree with
+  | atom impossible => exact impossible.elim
+  | tag label children arity =>
+    exact RecordEffects.compiled_value_safe _ _ _ _ _ _ _ _ (record_prepare_safe cx) (record_transfer_safe cx)
+
+private theorem give_memory_safe (inst : InstId) (destination : RecordDestination) (args : List FlatValue)
+    (lower : LiftLowerContext (core3 grow) → Stored.OwnedMemory.Tree sig → Nat →
+      Session grow sig (Except Stored.Endpoints.RecordLower.Issue Unit))
+    (diagnose : Stored.Endpoints.RecordLower.Issue → Issue)
+    (safe : ∀ cx tree ptr, Safe (lower cx tree ptr)) :
+    Safe (giveToMemory inst destination args lower diagnose) := by
+  unfold giveToMemory
   split
   · split
     · exact .pure none _
@@ -183,7 +195,7 @@ private theorem give_record_safe (inst : InstId) (destination : RecordDestinatio
       · refine HostWrite.bind (.get none fun _ => .pure _ _) fun selected => ?_
         cases selected with
         | none => exact .pure none _
-        | some tree => exact HostWrite.bind (lower_root_safe _ tree _) fun _ => .pure none _
+        | some tree => exact HostWrite.bind (safe _ tree _) fun _ => .pure none _
   · exact .pure none _
 
 private theorem withTree_safe (args : List FlatValue)
@@ -228,7 +240,8 @@ private theorem invoke_safe (binding : Binding sig) (args : List FlatValue) :
       split
       · exact HostWrite.bind (giveEndpoint_safe _ _ _ _) fun _ => .pure none _
       · exact .pure none _
-    case giveRecord => exact give_record_safe _ _ _
+    case giveRecord => exact give_memory_safe _ _ _ _ _ fun cx tree ptr => lower_root_safe cx tree (.memory ptr)
+    case givePayload => exact give_memory_safe _ _ _ _ _ fun cx tree ptr => lower_payload_safe cx tree (.memory ptr)
 
 private theorem finish_safe (ticket : Nat) (result : Except Issue Nat) :
     Safe (finish (grow := grow) (sig := sig) ticket result) := by

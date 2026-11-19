@@ -549,8 +549,14 @@ using a tree's claims. Its successful effects spend the same targeted identities
 give/drop bindings, so the arbitrary-session writer and transcript theorems include the new
 import. The linked Core replay covers invalid destination profiles, successful retry, a nested
 stream with two equal-representation owners, reacquisition through reused slots, rejection of
-the old root, and successful delivery of the new root. This is not an exact payload-language
-theorem, a proof of all allocator behavior, or a Core binding for arbitrary flat return vectors.
+the old root, and successful delivery of the new root.
+`Binding.givePayload` uses the same linked ABI and conservation theorem for other supported
+roots, rather than requiring a record at the outermost level. It checks the whole payload
+type, receipt plan and destination range before transferring the first claim, then uses the
+same effect-aware emitter as the record binding. The Core replay also exercises a tuple root
+with both owners and an optional stream, distinct typed refusal diagnostics, and exact
+destination bytes. Neither binding is an exact payload-language theorem, a proof of all
+allocator behavior, or a Core binding for arbitrary flat return vectors.
 
 ## Checking
 

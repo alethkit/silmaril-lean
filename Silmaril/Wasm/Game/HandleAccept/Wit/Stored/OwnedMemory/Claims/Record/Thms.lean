@@ -15,6 +15,13 @@ theorem lower_preflight_error {E : CoreEngine} {World : Type} {sig : Signature} 
     (payload : Payload type) (output : Stored.Lower.Output) {issue : RecordLower.Issue}
     (reject : preflight cx type payload output = .error issue) :
     lower access limits quirks cx type payload output = pure (.error issue) := by
-  simp only [lower, RecordLower.Internal.lowerCompiled, reject]
+  simp only [lower, RecordLower.Internal.lowerCompiled, RecordLower.Internal.lowerWithPlan, reject]
+
+theorem lowerValue_preflight_error {E : CoreEngine} {World : Type} {sig : Signature}
+    (access : Access E World sig) (limits : Component.Limits) (quirks : Quirks) (cx : LiftLowerContext E)
+    (type : TypeOf) (payload : Payload type) (output : Stored.Lower.Output) {issue : RecordLower.Issue}
+    (reject : preflightValue cx type payload output = .error issue) :
+    lowerValue access limits quirks cx type payload output = pure (.error issue) := by
+  simp only [lowerValue, RecordLower.Internal.lowerWithPlan, reject]
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record
