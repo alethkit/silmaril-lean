@@ -299,4 +299,47 @@ theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreade
     sig bindings name type contract memory args start oldHost thread profile ready parked calling
     linked caller mayLeave writer
 
+/-- Binding failure preserves the typed diagnostic and reaches canonical
+lockdown from parked Core, even when the embedder is confined. -/
+theorem parked_binding_trap_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) (issue : Issue)
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (unresolved : resolveBinding bindings name type = .error issue) :
+    let reached := (start.host.enter name type args).record (.bindingTrap start.host.nextTicket issue)
+    let reason := TrapReason.hostTrap "invalid mixed acceptor import binding"
+    ∃ count, Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start
+      (List.replicate count .tau ++ [.trap reason]) (Machine.StepDefs.trapCfg { start with host := reached }) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_binding_trap_steps
+    bindings name type args start thread profile ready issue parked calling unresolved
+
+/-- Refusal of a resolved memory binding is call-local in both dispatcher
+branches, including when the current instance may not leave. Core resumes
+with the error status; the store, writer and prior publications are unchanged. -/
+theorem parked_caller_refusal_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
+    (contract : Contract sig) (memory : Option Nat) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig))
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (linked : resolveBinding bindings name type = .ok ⟨contract.name.2, contract.inst, .accept contract memory⟩)
+    (caller : Option InstId) (resolved : callerInstance start.store thread = .ok caller)
+    (refused : ¬(caller = some contract.inst ∧ (start.store.inst? contract.inst).any (·.mayLeave))) :
+    let reached := (start.host.enter name type args).record (.refused start.host.nextTicket .wrongContext)
+    ∃ (labels : List (Machine.Label (core3 grow) (HostState sig))),
+      (∀ label ∈ labels, label = .tau) ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with
+          host := reached
+          ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values [i32Flat 1, i32Flat 0]))
+            continuation, segments⟩ :: rest } ∧
+      reached.writer = start.host.writer ∧ reached.publications = start.host.publications :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_caller_refusal_steps
+    bindings name type contract memory args start thread profile ready parked calling linked caller resolved refused
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain

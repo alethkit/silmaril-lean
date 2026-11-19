@@ -178,6 +178,39 @@ theorem resolve_caller {E : CoreEngine} {Host Result : Type} (rest : Option Inst
         simp only [getThread, getTask, getObj, Prog.bind_eq, Prog.bind_assoc, read_store,
           active, task, Prog.pure_eq, Prog.pure_bind', Plain.callerInstance] <;> rfl
 
+private theorem confined_read_thread {E : CoreEngine} {Host Result : Type}
+    (next : Option ThreadId → P E Host Result) (store : CStore E) (host : Host)
+    (thread : Option ThreadId) :
+    Plain.runBody (confine (currentThread.bind next)) store host (some thread) =
+      Plain.runBody (confine (next thread)) store host (some thread) := rfl
+
+private theorem confined_read_store {E : CoreEngine} {Host Result : Type}
+    (next : CStore E → P E Host Result) (store : CStore E) (host : Host)
+    (activation : Option (Option ThreadId)) :
+    Plain.runBody (confine (getStore.bind next)) store host activation =
+      Plain.runBody (confine (next store)) store host activation := rfl
+
+private theorem resolve_caller_confined {E : CoreEngine} {Host Result : Type}
+    (rest : Option InstId → P E Host Result)
+    (reference : CStore E) (host : Host) (thread : Option ThreadId) :
+    Plain.runBody (confine (currentInst?.bind rest)) reference host (some thread) =
+      match Plain.callerInstance reference thread with
+      | .ok caller => Plain.runBody (confine (rest caller)) reference host (some thread)
+      | .error issue => (reference, host, .error issue) := by
+  cases thread with
+  | none => rfl
+  | some thread =>
+    simp only [currentInst?, currentTask?, Prog.bind_eq, Prog.bind_assoc, confined_read_thread]
+    cases active : ArenaField.threads.get? reference thread with
+    | none =>
+      simp only [getThread, getObj, Prog.bind_eq, Prog.bind_assoc, confined_read_store, active,
+        Plain.callerInstance]
+      rfl
+    | some activeThread =>
+      cases task : ArenaField.tasks.get? reference activeThread.task <;>
+        simp only [getThread, getTask, getObj, Prog.bind_eq, Prog.bind_assoc, confined_read_store,
+          active, task, Prog.pure_eq, Prog.pure_bind', Plain.callerInstance] <;> rfl
+
 theorem invoke_memory {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (ticket : Nat) (contract : Contract sig) (memory : Option Nat) (args : List FlatValue)
     (reference : CStore (core3 grow)) (host : HostState sig) (thread : Option ThreadId) :
@@ -225,6 +258,30 @@ theorem embedder_memory {sig : Signature} {grow : SingleThreaded.GrowOracle}
   simp only [route, linked]
   exact invoke_memory state.nextTicket contract memory args reference (state.enter name type args) thread
 
+private theorem embedder_caller_refused_confined {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
+    (contract : Contract sig) (memory : Option Nat) (args : List FlatValue)
+    (reference : CStore (core3 grow)) (state : HostState sig) (thread : Option ThreadId)
+    (linked : resolveBinding bindings name type = .ok ⟨contract.name.2, contract.inst, .accept contract memory⟩)
+    (caller : Option InstId) (resolved : Plain.callerInstance reference thread = .ok caller)
+    (refused : ¬(caller = some contract.inst ∧ (reference.inst? contract.inst).any (·.mayLeave))) :
+    Plain.runBody (confine ((Claims.Core.Scheduled.host bindings).embedder name type args))
+        reference state (some thread) =
+      (reference, (state.enter name type args).record (.refused state.nextTicket .wrongContext),
+        .ok [i32Flat 1, i32Flat 0]) := by
+  change Plain.runBody (confine (route state.nextTicket bindings name type args)) reference
+    (state.enter name type args) (some thread) = _
+  simp only [route, linked, Claims.Core.Scheduled.invoke, Prog.bind_eq, Prog.bind_assoc]
+  rw [resolve_caller_confined, resolved]
+  by_cases same : caller = some contract.inst
+  · subst caller
+    have blocked : (reference.inst? contract.inst).any (·.mayLeave) = false := by
+      cases flag : (reference.inst? contract.inst).any (·.mayLeave) <;> simp_all
+    simp [confined_read_store, blocked]
+    rfl
+  · simp [same, bne_iff_ne, confined_read_store]
+    rfl
+
 theorem embedder_unresolved {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
     (reference : CStore (core3 grow)) (state : HostState sig) (thread : Option ThreadId)
@@ -234,6 +291,20 @@ theorem embedder_unresolved {sig : Signature} {grow : SingleThreaded.GrowOracle}
       (reference, (state.enter name type args).record (.bindingTrap state.nextTicket issue),
         .error (.trapped (.hostTrap "invalid mixed acceptor import binding"))) := by
   change Plain.runBody (route state.nextTicket bindings name type args) reference
+    (state.enter name type args) (some thread) = _
+  simp only [route, unresolved]
+  rfl
+
+theorem embedder_unresolved_confined {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (reference : CStore (core3 grow)) (state : HostState sig) (thread : Option ThreadId)
+    (issue : Claims.Core.Scheduled.Issue)
+    (unresolved : resolveBinding bindings name type = .error issue) :
+    Plain.runBody (confine ((Claims.Core.Scheduled.host bindings).embedder name type args))
+        reference state (some thread) =
+      (reference, (state.enter name type args).record (.bindingTrap state.nextTicket issue),
+        .error (.trapped (.hostTrap "invalid mixed acceptor import binding"))) := by
+  change Plain.runBody (confine (route state.nextTicket bindings name type args)) reference
     (state.enter name type args) (some thread) = _
   simp only [route, unresolved]
   rfl
@@ -522,6 +593,99 @@ theorem parked_admitted_plain_steps (sig : PlainSignature) {grow : SingleThreade
     rcases member with ((rfl | rfl | rfl | member) | rfl)
     all_goals first | rfl | exact silent label member
   · exact steps_then_step full (.popCore rfl)
+
+theorem parked_binding_trap_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) (issue : Claims.Core.Scheduled.Issue)
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (unresolved : resolveBinding bindings name type = .error issue) :
+    let reached := (start.host.enter name type args).record (.bindingTrap start.host.nextTicket issue)
+    let reason := TrapReason.hostTrap "invalid mixed acceptor import binding"
+    ∃ count, Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start
+      (List.replicate count .tau ++ [.trap reason]) (Machine.StepDefs.trapCfg { start with host := reached }) := by
+  intro reached reason
+  let impl := host (grow := grow) bindings
+  let program := if threadMayLeave start.store thread then impl.embedder name type args
+    else confine (impl.embedder name type args)
+  let focused := { start with ctl := ⟨thread, .prog (calloutBody Limits.spec Quirks.none ready impl
+    start.store thread (.embedder name type) args), .core core continuation :: segments⟩ :: rest }
+  have evaluated : Plain.runBody program start.store start.host (some thread) =
+      (start.store, reached, .error (.trapped reason)) := by
+    by_cases leaves : threadMayLeave start.store thread = true
+    · simpa only [program, ite_eq_left leaves] using
+        embedder_unresolved bindings name type args start.store start.host thread issue unresolved
+    · simpa only [program, ite_eq_right leaves] using
+        embedder_unresolved_confined bindings name type args start.store start.host thread issue unresolved
+  have entered : focused.ctl = ⟨thread, .prog (program >>= fun words => .pure (.flat words)),
+      .core core continuation :: segments⟩ :: rest := by
+    by_cases leaves : threadMayLeave start.store thread = true
+    · simp only [focused, calloutBody, program, ite_eq_left leaves]
+      rfl
+    · simp only [focused, calloutBody, program, ite_eq_right leaves]
+      rfl
+  obtain ⟨count, steps⟩ := body_trap_steps program focused start.store reached reason
+    (fun words => .pure (.flat words)) thread (.core core continuation :: segments) rest profile ready
+    (specDispatch ready impl) entered evaluated
+  exact ⟨count + 3, prepend_embedder_callout (impl := impl) parked calling steps⟩
+
+theorem parked_caller_refusal_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
+    (contract : Contract sig) (memory : Option Nat) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig))
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (linked : resolveBinding bindings name type = .ok ⟨contract.name.2, contract.inst, .accept contract memory⟩)
+    (caller : Option InstId) (resolved : Plain.callerInstance start.store thread = .ok caller)
+    (refused : ¬(caller = some contract.inst ∧ (start.store.inst? contract.inst).any (·.mayLeave))) :
+    let reached := (start.host.enter name type args).record (.refused start.host.nextTicket .wrongContext)
+    ∃ (labels : List (Machine.Label (core3 grow) (HostState sig))),
+      (∀ label ∈ labels, label = .tau) ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with
+          host := reached
+          ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values [i32Flat 1, i32Flat 0]))
+            continuation, segments⟩ :: rest } ∧
+      reached.writer = start.host.writer ∧ reached.publications = start.host.publications := by
+  intro reached
+  let impl := host (grow := grow) bindings
+  let program := if threadMayLeave start.store thread then impl.embedder name type args
+    else confine (impl.embedder name type args)
+  let focused := { start with ctl := ⟨thread, .prog (calloutBody Limits.spec Quirks.none ready impl
+    start.store thread (.embedder name type) args), .core core continuation :: segments⟩ :: rest }
+  have evaluated : Plain.runBody program start.store start.host (some thread) =
+      (start.store, reached, .ok [i32Flat 1, i32Flat 0]) := by
+    by_cases leaves : threadMayLeave start.store thread = true
+    · simp only [program, ite_eq_left leaves, impl]
+      rw [embedder_memory bindings name type contract memory args start.store start.host thread linked, resolved]
+      simp [refused, reached]
+    · simpa only [program, ite_eq_right leaves] using
+        embedder_caller_refused_confined bindings name type contract memory args start.store start.host
+          thread linked caller resolved refused
+  have entered : focused.ctl = ⟨thread, .prog (program >>= fun words => .pure (.flat words)),
+      .core core continuation :: segments⟩ :: rest := by
+    by_cases leaves : threadMayLeave start.store thread = true
+    · simp only [focused, calloutBody, program, ite_eq_left leaves]
+      rfl
+    · simp only [focused, calloutBody, program, ite_eq_right leaves]
+      rfl
+  obtain ⟨labels, silent, steps⟩ := body_steps_at program focused start.store reached [i32Flat 1, i32Flat 0]
+    (fun words => .pure (.flat words)) thread (.core core continuation :: segments) rest profile ready
+    (specDispatch ready impl) entered (some thread) (.inr rfl) evaluated
+  have full := prepend_embedder_callout (impl := impl) parked calling steps
+  refine ⟨(.tau :: .tau :: .tau :: labels) ++ [.tau], ?_, steps_then_step full (.popCore rfl), rfl, ?_⟩
+  · intro label member
+    simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at member
+    rcases member with ((rfl | rfl | rfl | member) | rfl)
+    all_goals try rfl
+    have tau := List.all_eq_true.mp silent label member
+    cases label <;> first | rfl | contradiction
+  · simp [reached, HostState.publications, HostState.transcript, HostState.record, HostState.enter,
+      Event.publication]
 
 theorem embedder_caller_refusal_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
