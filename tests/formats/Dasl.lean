@@ -3,13 +3,15 @@ module
 import Silmaril.Formats.Dasl.Thms
 import Silmaril.Formats.Dasl.Encode.Map.Thms
 import Silmaril.Formats.Dasl.Measure.Thms
+import Silmaril.Formats.Dasl.Prolly.Scan.Thms
 import Silmaril.Formats.Dasl.Resolve.Thms
 import Silmaril.Formats.Dasl.Wire.Thms
 meta import Silmaril.Formats.Dasl.Encode.Map.Thms
 meta import Silmaril.Formats.Dasl.Measure.Defs
+meta import Silmaril.Formats.Dasl.Prolly.Scan.Defs
 meta import Silmaril.Formats.Dasl.Wire.Defs
 
-open Silmaril.Formats.Dasl Silmaril.Semantics.Naming
+open Silmaril Silmaril.Formats.Dasl Silmaril.Semantics.Naming
 
 open Silmaril.Semantics (OrderedMap OrderedSet)
 
@@ -123,9 +125,43 @@ private def measureChecks : IO Unit := do
   check (maxBlockBytes? encode blocks == some 2) "largest block"
   check ((occurrenceBytes? (fun _ => none) blocks).isNone) "serializer failure is not size zero"
 
+open scoped Silmaril.Formats.Dasl.Prolly in
+private def prollyChecks : IO Unit := do
+  let policy : Semantics.Prolly.Policy Int64 := ⟨2, by decide, fun _ _ => false⟩
+  let some map := OrderedMap.ofEntries? [(-2, "left"), (-1, "middle"), (0, "right")]
+    | throw (IO.userError "expected signed key order")
+  let tree := Semantics.Prolly.build policy map
+  check (tree.level == 1 && tree.entries == map.entries) "Prolly builder recovers signed map"
+  let byteKeys : Encode.TotalCodec Prolly.ByteKey (Shallow Nat) := Prolly.byteKey
+  let some byteMap := OrderedMap.ofEntries? [([0], false), ([0, 255], true), ([255], false)]
+    | throw (IO.userError "expected bytewise prefix order")
+  let byteMapCodec := Encode.pairMap byteKeys Encode.boolean
+  check (((byteMapCodec.decode? (byteMapCodec.encode byteMap)).bind (·.lookup? [0, 255])) == some true)
+    "byte-string key roundtrip"
+  let codec : Encode.PartialCodec (Semantics.Prolly.Block Nat Int64 String) (Shallow Nat) :=
+    Prolly.blockCodec Prolly.intKey Encode.text
+  let render := fun block => match codec.encode? block with | some value => Wire.ReadResult.found value | none => .invalidWire
+  let sample : Prolly.Read Nat := fun
+    | 0 => render (.branch 1 [(-1, 1), (0, 2)])
+    | 1 => render (.leaf [(-2, "left"), (-1, "middle")])
+    | 2 => render (.leaf [(0, "right")])
+    | _ => .missing
+  match Prolly.lookup codec sample 2 2 0 (-1), Prolly.lookup codec sample 2 2 0 8 with
+  | .ok (some "middle"), .ok none => pure ()
+  | _, _ => throw (IO.userError "expected found and verified absence")
+  let replaceChild := fun (result : Wire.ReadResult (Shallow Nat)) name => if name = 2 then result else sample name
+  match Prolly.lookup codec (replaceChild .missing) 2 2 0 8,
+      Prolly.lookup codec (replaceChild .invalidWire) 2 2 0 8,
+      Prolly.lookup codec (replaceChild (.found .null)) 2 2 0 8,
+      Prolly.lookup codec (replaceChild (render (.leaf [(1, "wrong separator")]))) 2 2 0 8,
+      Prolly.lookup codec sample 2 1 0 8 with
+  | .error (.missing 2), .error (.invalidWire 2), .error (.invalidNode 2), .error (.invalidNode 0), .error (.fuel 1) => pure ()
+  | _, _, _, _, _ => throw (IO.userError "incomplete or invalid Prolly views must not answer")
+
 public def main : IO Unit := do
   encodingChecks
   measureChecks
+  prollyChecks
   roundtripI64 0xFFFFFFFFFFFFFFFF ⟨#[0x20]⟩
   roundtripI64 0x8000000000000000 ⟨#[0x3B, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]⟩
   roundtripI64 0x7FFFFFFFFFFFFFFF ⟨#[0x1B, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]⟩
