@@ -115,6 +115,24 @@ private theorem run_sound (inst : ModuleInst) (config : Machine.Config engine (H
     Machine.Steps .deterministic ready (dispatch inst) config (run inst config).labels (run inst config).config :=
   Machine.run_sound ready (dispatch inst) (core3Exec grow) Machine.Oracle.first 1500 config
 
+private def expectedTranscript (trapping : Bool) : List Event :=
+  let accept := fun ticket tag => Event.entered ticket "accept-node"
+    (Endpoints.Core.Scheduled.acceptType contract) [i32Flat tag, i32Flat 32, i32Flat 0, i32Flat 0]
+  let transfer := fun ticket name position => Event.entered ticket name
+    Endpoints.Core.Scheduled.giveType [i32Flat 1, i32Flat position]
+  [accept 0 1, .refused 0 (.accept (.boundary (.stored (.lift .storedBorrow)))),
+    accept 1 0, .returned 1 1,
+    transfer 2 "wrong-owner" 1, .refused 2 (.claim .wrongResourceType),
+    transfer 3 "give-owner" 0, .returned 3 3,
+    transfer 4 "give-owner" 0, .refused 4 (.claim .unclaimed),
+    transfer 5 "drop-owner" 1,
+    transfer 6 "drop-owner" 1, .refused 6 (.claim .unclaimed)] ++
+  if trapping then [] else
+    [.returned 5 0,
+      transfer 7 "drop-owner" 1, .refused 7 (.claim .unclaimed),
+      transfer 8 "give-reader" 0, .returned 8 2,
+      transfer 9 "give-reader" 0, .refused 9 (.claim .unclaimedEndpoint)]
+
 private def regression (trapping : Bool) : Bool :=
   match initial trapping with
   | none => false
@@ -132,6 +150,7 @@ private def regression (trapping : Bool) : Bool :=
     writer.endpoints == (if trapping then [⟨0⟩] else []) &&
     (store.insts[0]?.bind fun state => state.handles.get? 3) == some (.resource ⟨2⟩) &&
     (store.core.mems[0]?.map fun mem => (mem.bytes.extract 16 20).data) == some #[77, 0, 0, 0] &&
+    result.config.host.transcript == expectedTranscript trapping &&
     result.config.host.refusals == (if trapping then expected
       else .claim .unclaimedEndpoint :: .claim .unclaimed :: expected)
 
