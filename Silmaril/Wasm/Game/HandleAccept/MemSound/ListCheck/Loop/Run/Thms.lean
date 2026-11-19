@@ -76,4 +76,20 @@ theorem compact_accepts {profile : Profile} (checker : Checker)
   accepts_of_plan checker spec (compact_host_admitted instance_.store) () good
     (compact_reply_plan width fits childFits checker.decodeChild) policy allowed rootDenotes denotes atoms
 
+/-- The validated one-page checker accepts any correctly denoting byte script fitting the
+page. The checked encoders construct both kinds of reply; callers need not supply images. -/
+theorem byte_reply_accepts {profile : Profile} (checker : Checker)
+    (policy : OnInvalid) {Rhos : Set (Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp)}
+    {rho : Silmaril.Accept.Handle.Env (BitVec 32) SymStrBytesSExp} (allowed : rho ∈ Rhos) {root : BitVec 32}
+    {handles : List (BitVec 32)} (fits : 8 + 4 * handles.length ≤ 65536)
+    (raw : BitVec 32 → List UInt8) (space : ∀ handle ∈ handles, 8 + (raw handle).length ≤ 65536)
+    {children : List SymStrBytesSExp} (rootDenotes : rho root = some (SExp.ofList children))
+    (denotes : List.Forall₂ (fun handle child => rho handle = some child) handles children)
+    (atoms : ∀ handle ∈ handles, ∃ atom,
+      checker.decodeBytes (raw handle) = some atom ∧ rho handle = some (.atom atom)) :
+    SExp.ofList children ∈ listReaderLang profile (ReplyEnvs itemsReply) 0 (Loop.mod checker.imports)
+      checker.imports checker.decodeChild .trap policy Rhos :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck.LoopRun.bytes_accepts
+    checker policy allowed fits raw space rootDenotes denotes atoms
+
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop
