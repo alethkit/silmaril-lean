@@ -11,7 +11,7 @@ tag, path, or a claimed digest copied from a different observation model.
 ## Three distinct layers
 
 1. **Data and index.** The manifest is ASCII TSV with the header shown in
-   [`fixtures.tsv`](../tools/artifact-naming/fixtures.tsv); `-` is the empty
+   [`fixtures.tsv`](../tools/verification-projects/artifact-naming/fixtures.tsv); `-` is the empty
    payload. `import_lean.py` emits declared name and payload bytes as a fresh
    Lean module of literals only. It checks the TSV syntax, not CID structure,
    conflicts or digests, and works without the verifier or hash backends.
@@ -51,19 +51,21 @@ facts without computing any hashes:
 
 ```sh
 lake build --wfail +Silmaril.Semantics.Naming.Table.Thms +Silmaril.Formats.Dasl.Predecoded.Thms
-bash tools/artifact-naming/check.sh
+bash tools/verification-projects/artifact-naming/check.sh
 ```
 
-Independently, with `b3sum` on `PATH` for the BLAKE3 fixture, check hash
-consistency of the same declarations or compute names for exact bytes:
+Independently, with `b3sum` on `PATH` for the BLAKE3 fixture, run the
+standalone verifier tests, check hash consistency of the same declarations,
+or compute names for exact bytes. Hosted Lean CI does not run this verifier:
 
 ```sh
-python3 -BEs tools/artifact-naming/test_verify.py
-python3 -BEs tools/artifact-naming/verify.py verify tools/artifact-naming/fixtures.tsv
+tool=tools/verification-projects/artifact-naming
+python3 -BEs "$tool/test_verify.py"
+python3 -BEs "$tool/verify.py" verify "$tool/fixtures.tsv"
 set -o pipefail
-printf 'hello\n' | python3 -BEs tools/artifact-naming/verify.py name dasl raw sha256 -
-bash tools/artifact-naming/check.sh tools/artifact-naming/fixtures.tsv /tmp/silmaril-title.cbor
-python3 -BEs tools/artifact-naming/verify.py name dasl drisl sha256 /tmp/silmaril-title.cbor
+printf 'hello\n' | python3 -BEs "$tool/verify.py" name dasl raw sha256 -
+bash "$tool/check.sh" "$tool/fixtures.tsv" /tmp/silmaril-title.cbor
+python3 -BEs "$tool/verify.py" name dasl drisl sha256 /tmp/silmaril-title.cbor
 ```
 
 Passing an output path to `check.sh` optionally runs the Lean writer; the
@@ -91,7 +93,7 @@ not end-to-end measurements of CID import, hashing, or parsing. Neither this
 benchmark nor the external tool is a new mandatory CI hook. To reproduce:
 
 ```sh
-LEAN_PATH=. lake env python3 -I tools/artifact-naming/bench.py
+LEAN_PATH=. lake env python3 -I tools/verification-projects/artifact-naming/bench.py
 ```
 
 One local run with the pinned Lean 4.37 nightly (median of three):

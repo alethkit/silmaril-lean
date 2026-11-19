@@ -8,8 +8,8 @@ manifest=${1:-}
 output=${2:-}
 [[ -z "$manifest" || "$manifest" = /* ]] || manifest="$PWD/$manifest"
 [[ -z "$output" || "$output" = /* ]] || output="$PWD/$output"
-cd "$(dirname "$0")/../.."
-tool=tools/artifact-naming
+tool=$(cd "$(dirname "$0")" && pwd)
+cd "$tool/../../.."
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
