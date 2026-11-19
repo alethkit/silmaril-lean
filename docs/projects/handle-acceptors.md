@@ -530,6 +530,17 @@ allocation as lists. A string-key allocator can reenter; a later endpoint refusa
 completed key writes but does not publish the map pointer and count. Mixed nominal owners
 still reject, including in inactive map schemas.
 
+`Wit.Stored.OwnedMemory.Claims.Record.lowerRoot` uses that same emitter for reference
+records containing both nominal owners and endpoints. Active owner fields consume ordered
+receipts only after checking their nominal type and representation; live authority is
+looked up separately by arena identity. The whole plan is dry-run before writing, and
+transfers after guest allocation revalidate against the reached state. Successful transfers
+spend only the targeted identity. The kernel-checked replays cover distinct equal-representation
+owners, duplicate-receipt rejection followed by retry, slot reuse, inactive stored-borrow
+rejection, reentrant realloc, and a late trap that preserves the earlier owner transfer and
+memory write. This entry point runs in the reference machine; the scheduled Core import
+bindings still expose individual give/drop operations, not whole-record lowering.
+
 ## Checking
 
 ```
