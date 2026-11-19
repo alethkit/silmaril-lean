@@ -28,7 +28,7 @@ open Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.Ring (X.sub32)
 
 abbrev Contract (ix : ListImports) (kind : Set SymStrBytesSExp)
     (env : Env (BitVec 32) SymStrBytesSExp) :=
-  readerContract ix.toRead env (listsOf kind) itemsReply
+  readerContract ix.toRead env (boundedListsOf kind) itemsReply
 
 def Inv (kind : Set SymStrBytesSExp) (env : Env (BitVec 32) SymStrBytesSExp)
     (root : BitVec 32) (inst : ModuleInst) (funcs : List (FuncInst Nat))
@@ -36,6 +36,7 @@ def Inv (kind : Set SymStrBytesSExp) (env : Env (BitVec 32) SymStrBytesSExp)
   store.funcs = funcs ∧ store.mems.length = 1 ∧
     ∃ index base offset : BitVec 32,
       frame = ⟨[some (.i32 root), some (.i32 index), some (.i32 base), some (.i32 offset)], inst⟩ ∧
+      index.toNat ≤ 2 ^ 30 ∧
       ∀ children, env root = some (SExp.ofList children) →
         CheckedPrefix kind env root children index.toNat
 
@@ -67,7 +68,7 @@ theorem round {P : Profile} {ix : ListImports}
     HWP P (memHost (Loop.mod ix) (some 0) (listRoles ix ans) (Contract ix kind env)) store frame
       (vals [] ++ expression iteration)
       (loopPost 0 [] (fun st fr stack => stack = [] ∧ Inv kind env root inst funcs st fr) Q) := by
-  obtain ⟨entryFuncs, entryMems, index, oldBase, oldOffset, rfl, invariant⟩ := initial
+  obtain ⟨entryFuncs, entryMems, index, oldBase, oldOffset, rfl, bounded, invariant⟩ := initial
   obtain ⟨_, _, itemsCode, itemsType, itemsCount⟩ := stubOk_spec stubItems
   obtain ⟨_, _, childCode, childType, childCount⟩ := stubOk_spec stubChild
   obtain ⟨_, _, acceptCode, acceptType, acceptCount⟩ := stubOk_spec stubAccept
@@ -114,9 +115,11 @@ theorem round {P : Profile} {ix : ListImports}
     · intro handle decoded tree found
       have sameHandle : handle = root := i32_inj (readAccept_inv' rfl decoded)
       subst handle
-      obtain ⟨tree', member, denotation⟩ := finish_prefix checked complete
-      obtain rfl := Option.some.inj (found.symm.trans denotation)
-      exact member
+      refine ⟨children, complete ▸ bounded, ?_, Option.some.inj (found.symm.trans denotes)⟩
+      intro child member
+      obtain ⟨position, atPosition⟩ := List.mem_iff_getElem?.mp member
+      obtain ⟨within, rfl⟩ := List.getElem?_eq_some_iff.mp atPosition
+      exact checked.2.2 position within (complete.symm ▸ within)
     rintro final result ⟨⟨finalFuncs, finalMems⟩, finalShape⟩ -
     have finalLeaves := leave final (finalFuncs.trans readFuncs') (finalMems.trans readMems')
     refine ⟨fun vals returned => ?_, fun _ => (finalLeaves _).2.1,
@@ -203,6 +206,10 @@ theorem round {P : Profile} {ix : ListImports}
     refine X.add32 (us := []) ?_
     refine X.localSet (x := ⟨1⟩) (by change 1 < 4; decide) ?_
     refine X.br0 ⟨[], [], rfl, rfl, rfl, nextFuncs', nextMems', _, _, _, rfl, ?_⟩
+    refine ⟨?_, ?_⟩
+    · change (index + (1 : BitVec 32)).toNat ≤ 2 ^ 30
+      rw [next_index guarded]
+      omega
     intro children' same
     have sameChildren := SExp.ofList_injective (Option.some.inj (same.symm.trans denotes))
     subst children'

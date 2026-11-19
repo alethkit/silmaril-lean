@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.Soundness.Thms
 import Silmaril.Wasm.Component.Reference.Engine.Mock.Defs
+import Silmaril.Wasm.Component.Reference.Canon.Builtins.Waitable.Defs
 import Silmaril.Wasm.Verify.Kernel.Defs
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Examples
@@ -91,6 +92,26 @@ theorem inactive_borrow_rejected :
     checkSchema (.result (some (.own resource)) (some (.list (.borrow resource)))) =
       .error .storedBorrow := rfl
 
+private def otherResource : RtId := ⟨1⟩
+
+private def nominalPayloadType : TypeOf :=
+  .record [("entries", .map .u8 (.own resource)),
+    ("choice", .result (some (.own otherResource)) (some (.own resource)))]
+
+private def nominalPayload : Val :=
+  .record [.list [.record [.int .u8 3, .own 77]], .variant 0 (some (.own 77))]
+
+private def nominalReceipts : List Receipt :=
+  [⟨resource, ⟨⟨4⟩, 77⟩⟩, ⟨otherResource, ⟨⟨9⟩, 77⟩⟩]
+
+theorem equal_rep_receipts_in_nominal_order_are_admitted :
+    (checkValue nominalPayloadType ⟨nominalPayload, nominalReceipts⟩).isOk = true := by decide
+
+theorem equal_rep_receipts_in_wrong_nominal_order_are_refused :
+    (match checkValue nominalPayloadType ⟨nominalPayload, nominalReceipts.reverse⟩ with
+      | .error .incompleteReceipts => true
+      | _ => false) = true := by decide
+
 private def flatInput (lastSlot : Nat) : Input :=
   .flat ([16, 1, 1, lastSlot].map i32Flat)
 
@@ -137,5 +158,120 @@ theorem malformed_inactive_slot_rejects_before_a_move_and_can_retry (X : Mock.mo
       (.resolved, [[(⟨0⟩, 77), (⟨1⟩, 77)]]) := by
   dsimp only
   kernel_rfl
+
+/-! ## The async canonical lower's argument and result cursor -/
+
+private inductive ResolveMode where
+  | immediate | cancelBeforeStart | cancelAfterStart
+  deriving DecidableEq
+
+private structure CallerLog where
+  owners : List Receipt := []
+  lowerReply : List FlatValue := []
+  cancelReply : List FlatValue := []
+
+private def callerType (spill : Bool) : WIT.FuncType Empty RtId :=
+  ⟨[("pair", .tuple [.own resource, .own resource])] ++
+    (if spill then [("a", .prim .u32), ("b", .prim .u32), ("c", .prim .u32)] else []),
+    some (.prim .u32), true⟩
+
+private noncomputable def callerDispatch (mode : ResolveMode) : Call Mock.mock →
+    P Mock.mock CallerLog (Ret Mock.mock)
+  | .funcInst _ caller => do
+    if mode != .cancelBeforeStart then
+      let _ ← callVals (.onStart caller)
+    if mode = .immediate then
+      callUnit (.onResolve caller (some [Val.u32 42]))
+      return .cancel .none
+    return .cancel (.host caller.idx)
+  | .onStart caller => do
+    let args ← observeLowerOnStart limits Quirks.none caller
+    hostSet { (← hostGet) with owners := args.flatMap Observed.owners }
+    return .vals (args.map Observed.value)
+  | .onCancel (.host caller) => do
+    callUnit (.onResolve ⟨caller⟩ none)
+    return .unit
+  | .onResolve caller result => do
+    lowerOnResolve limits Quirks.none caller result
+    return .unit
+  | _ => internal "unexpected call during lower caller replay"
+
+private noncomputable def callerProgram (mode : ResolveMode) (spill : Bool) (slot : UInt8) :
+    P Mock.mock CallerLog (Ret Mock.mock) := do
+  let _ ← Builtins.resourceNew limits resource 77
+  let _ ← Builtins.resourceNew limits resource 77
+  let args := if spill then [i32Flat 0, i32Flat 20]
+    else [i32Flat 1, i32Flat slot.toNat, i32Flat 20]
+  let reply ← canonLower limits Quirks.none ⟨0⟩ (callerType spill)
+    { context.opts with async_ := true } ⟨0⟩ args
+  let cancelled ← if mode = .immediate then pure [] else do
+    let [packed] := reply | internal "unexpected async lower result arity"
+    let some (.pending _ handle) := AsyncRef.AsyncLowerResult.unpack? (flatNat packed)
+      | internal "expected pending async lower result"
+    Builtins.subtaskCancel limits true handle
+  hostSet { (← hostGet) with lowerReply := reply, cancelReply := cancelled }
+  return .unit
+
+private noncomputable def callerInitial (mode : ResolveMode) (spill : Bool) (slot : UInt8) :
+    Machine.Config Mock.mock CallerLog where
+  store := { (initial 0).store with
+    core := { mems := [⟨.i32, ⟨#[1, 0, 0, 0, slot, 0, 0, 0, 10, 0, 0, 0,
+      11, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0]⟩⟩] } }
+  host := {}
+  ctl := [Machine.Activation.ofProg (some ⟨0⟩) (callerProgram mode spill slot)]
+
+private def callerReady : HostReady CallerLog := fun _ _ => false
+
+private noncomputable def runCaller (X : Mock.mock.Exec) (mode : ResolveMode) (spill : Bool)
+    (slot : UInt8) :=
+  Machine.run callerReady (callerDispatch mode) X Machine.Oracle.first 320
+    (callerInitial mode spill slot)
+
+private def callerPosition (store : CStore Mock.mock) : Option Nat :=
+  match store.caller? ⟨0⟩ with
+  | some (.lower _ _ _ pos _ _ _) => some pos
+  | _ => none
+
+theorem caller_replay_sound (X : Mock.mock.Exec) (mode : ResolveMode) (spill : Bool) (slot : UInt8) :
+    Machine.Steps .deterministic callerReady (callerDispatch mode) (callerInitial mode spill slot)
+      (runCaller X mode spill slot).labels (runCaller X mode spill slot).config :=
+  Machine.run_sound callerReady (callerDispatch mode) X Machine.Oracle.first 320
+    (callerInitial mode spill slot)
+
+theorem whole_caller_lift_keeps_nominal_identity_and_resolve_uses_cursor (X : Mock.mock.Exec) :
+    ∀ spill : Bool,
+      let result := runCaller X .immediate spill 2
+      (result.outcome, result.config.host.owners.map receiptSummary,
+        result.config.host.lowerReply, callerPosition result.config.store,
+        result.config.store.core.mems[0]?.bind (·.bytes.data[20]?)) =
+      (.resolved, [(⟨0⟩, 77), (⟨1⟩, 77)], [i32Flat AsyncRef.AsyncLowerResult.returned.pack],
+        some (if spill then 1 else 2), some 42) := by
+  intro spill
+  cases spill <;> (dsimp only; kernel_rfl)
+
+theorem spilling_double_move_traps_before_cursor_commit (X : Mock.mock.Exec) :
+    let result := runCaller X .immediate true 1
+    (result.labels.any (fun label => match label with | .trap (.unknownHandle 1) => true | _ => false),
+      result.config.host.owners.isEmpty, callerPosition result.config.store,
+      (result.config.store.insts.get? 0).map (fun inst => (inst.handles.get? 1, inst.handles.get? 2))) =
+    (true, true, some 0, some (none, some (.resource ⟨1⟩))) := by
+  dsimp only
+  kernel_rfl
+
+theorem cancelling_before_or_after_start_preserves_the_reference_phase (X : Mock.mock.Exec) :
+    ∀ beforeStart : Bool,
+      let result := runCaller X (if beforeStart then .cancelBeforeStart else .cancelAfterStart)
+        true 2
+      (result.outcome, result.config.host.owners.map receiptSummary, result.config.host.lowerReply,
+        result.config.host.cancelReply, callerPosition result.config.store,
+        result.config.store.core.mems[0]?.bind (·.bytes.data[20]?)) =
+      (.resolved, if beforeStart then [] else [(⟨0⟩, 77), (⟨1⟩, 77)],
+        [i32Flat (if beforeStart then AsyncRef.AsyncLowerResult.pending .starting 3
+          else .pending .started 2).pack],
+        [i32Flat (AsyncRef.subtaskCancelResult
+          (some (if beforeStart then .cancelledBeforeStarted else .cancelledBeforeReturned)))],
+        some (if beforeStart then 0 else 1), some 0) := by
+  intro beforeStart
+  cases beforeStart <;> (dsimp only; kernel_rfl)
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Examples

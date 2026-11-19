@@ -41,6 +41,13 @@ def listsOf (kind : Set SymStrBytesSExp) : Set SymStrBytesSExp :=
   {tree | ∃ children : List SymStrBytesSExp, (∀ child ∈ children, child ∈ kind) ∧
     tree = SExp.ofList children}
 
+/-- A necessary length bound for the memory32 checker: at most `2 ^ 30` four-byte
+words fit in its address range. This does not assert that a host can represent every
+list at that limit or that its replies use any particular base address. -/
+def boundedListsOf (kind : Set SymStrBytesSExp) : Set SymStrBytesSExp :=
+  {tree | ∃ children : List SymStrBytesSExp, children.length ≤ 2 ^ 30 ∧
+    (∀ child ∈ children, child ∈ kind) ∧ tree = SExp.ofList children}
+
 /-- The loop has checked exactly the prefix before `index` of the tree held by `root`.
 It retains neither the last memory image nor the handles it contained. -/
 def CheckedPrefix (kind : Set SymStrBytesSExp)
