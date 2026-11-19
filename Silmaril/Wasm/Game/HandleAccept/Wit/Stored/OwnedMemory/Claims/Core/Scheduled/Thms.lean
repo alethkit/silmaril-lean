@@ -47,6 +47,25 @@ theorem finish_steps (config : Config (core3 grow) (HostState sig))
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.finish_steps
     config thread segments rest ticket result pending
 
+/-- A failed checked load records its diagnostic and returns the refusal status without
+publishing a tree. The loader's reached store distinguishes effect-free preflight from a
+later canonical failure after table effects. The suspended work is not discarded. -/
+theorem accept_refusal_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (loadNode : World grow sig → CStore (core3 grow) × Except Core.Issue (OwnedMemory.Tree sig))
+    (updated : CStore (core3 grow)) (issue : Core.Issue)
+    (refused : loadNode ⟨config.store, config.host.writer⟩ = (updated, .error issue))
+    (pending : config.ctl = ⟨thread,
+      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau]
+      { config with
+        store := updated
+        host := config.host.record (.refused ticket (.accept issue))
+        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.accept_refusal_steps
+    config thread segments rest ticket loadNode updated issue refused pending
+
 /-- Journal a complete flat payload and its status, including shape-correct padding on refusal. -/
 theorem finish_flat_steps (config : Config (core3 grow) (HostState sig))
     (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))

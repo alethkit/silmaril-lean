@@ -14,6 +14,7 @@ open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
 open Silmaril.Wasm.Component.ABI (StringEncoding)
 open Silmaril.Wasm.Game.HandleAccept.Wit.Async (Channel Element Channel.endKind)
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core (Contract)
+open Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst (NodeMode)
 
 inductive Issue where
   | accept (issue : Core.Issue)
@@ -24,6 +25,7 @@ inductive Issue where
   | badLoweringRealloc
   | wrongContext
   | wrongType
+  | wrongPassingMode
   | wrongPayloadType
   | wrongResultType
   | unlinkedImport
@@ -134,6 +136,7 @@ def RecordDestination.check {grow : SingleThreaded.GrowOracle} (destination : Re
 an accepted tree index and a position within that root's observations, never an arena ID. -/
 inductive Action (sig : Signature) where
   | accept (contract : Contract sig) (memory : Option Nat)
+  | acceptFlat (source : FlatSource sig)
   | giveOwner (resource : RtId)
   | dropOwner (resource : RtId)
   | giveEndpoint (channel : Channel) (element : Element)
@@ -150,6 +153,14 @@ variable {grow : SingleThreaded.GrowOracle}
 
 def Binding.accept (contract : Contract sig) (linked : ModuleInst) (memoryIndex : Nat) : Binding sig :=
   ⟨contract.name.2, contract.inst, .accept contract linked.mems[memoryIndex]?⟩
+
+def Binding.acceptFlat (name : String × String) (inst : InstId) (linked : ModuleInst) (memoryIndex : Nat)
+    (mode : NodeMode) (tag : sig.Tag) : Except Issue (Binding sig) := do
+  if mode.asynchronous then throw (.accept (.boundary (.boundary .asyncCall)))
+  if mode.passing != .flat then throw .wrongPassingMode
+  (checkFlatSchema (sig.payload tag)).mapError .accept
+  let some memory := linked.mems[memoryIndex]? | throw (.accept (.boundary (.boundary .missingMemory)))
+  return ⟨name.2, inst, .acceptFlat ⟨name, inst, memory, mode.address, mode.encoding, tag⟩⟩
 
 def Binding.giveRecord (name : String) (inst : InstId) (linked : ModuleInst) (memoryIndex : Nat)
     (width : AddrType) (encoding : StringEncoding) (reallocIndex : Option Nat := none) :
@@ -174,6 +185,9 @@ def Binding.giveFlat (name : String) (inst : InstId) (linked : ModuleInst) (memo
 def Binding.type (binding : Binding sig) : V1.FuncType :=
   match binding.action with
   | .accept contract _ => Endpoints.Core.Scheduled.acceptType contract
+  | .acceptFlat source =>
+    let word := ABI.pointerType source.width
+    ⟨word :: word :: ABI.flatten source.width (sig.payload source.tag), [.int .i32, .int .i32]⟩
   | .giveRecord destination | .givePayload destination =>
     ⟨[.int .i32, ABI.pointerType destination.width], [.int .i32, .int .i32]⟩
   | .giveFlat destination payload => ⟨[.int .i32], .int .i32 :: ABI.flatten destination.width payload⟩
@@ -194,16 +208,19 @@ def publishRoot (tree : Tree sig) : Session grow sig (Except Issue Nat) := do
     hostSet { current with writer }
     return .ok ((BitVec.ofNat 32 writer.accepted.length).toNat)
 
-def accept (contract : Contract sig) (memory : Option Nat) (args : List FlatValue) :
+def acceptWith (loadNode : World grow sig → CStore (core3 grow) × Except Core.Issue (Tree sig)) :
     Session grow sig (Except Issue Nat) := do
   let state ← hostGet
   let reference ← getStore
-  let call := Endpoints.Core.Scheduled.nodeCall contract reference args
-  let (updated, result) := load contract memory ⟨reference, state.writer⟩ call
+  let (updated, result) := loadNode ⟨reference, state.writer⟩
   modifyStore fun _ => updated
   match result with
   | .error issue => return .error (.accept issue)
   | .ok tree => publishRoot tree
+
+def accept (contract : Contract sig) (memory : Option Nat) (args : List FlatValue) :
+    Session grow sig (Except Issue Nat) :=
+  acceptWith fun state => load contract memory state (Endpoints.Core.Scheduled.nodeCall contract state.reference args)
 
 def select (handle : BitVec 32) : Session grow sig (Option (Tree sig)) := do
   return Endpoints.Core.childFromHistory (← hostGet).writer.accepted handle
@@ -283,6 +300,9 @@ def invoke (binding : Binding sig) (args : List FlatValue) : Session grow sig (E
   | .accept contract memory =>
     if contract.inst != binding.inst then return .error .wrongContext
     accept contract memory args
+  | .acceptFlat source =>
+    if source.inst != binding.inst then return .error .wrongContext
+    acceptWith fun state => source.load state args
   | .giveOwner resource => withTree args fun tree position => do
     let some receipt := (rootReceipts tree)[position]? | return .error .badSelection
     return (← claims.give Limits.spec cx resource (receiptId receipt)).mapError .claim
