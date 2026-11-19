@@ -22,7 +22,7 @@ private noncomputable def context : LiftLowerContext Mock.mock :=
   { opts := { memory := some 0, realloc := some 0 }, inst := ⟨0⟩ }
 
 private def unsupported : TypeOf := .record [("choice", .variant
-  [("none", none), ("list", some (.fixedList (.stream element) 2))])]
+  [("none", none), ("map", some (.map .u8 (.stream element)))])]
 
 theorem inactive_variant_checks_whole_schema :
     preflight context unsupported ⟨.record [.variant 0 none], by decide⟩ .flat =
