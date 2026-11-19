@@ -585,8 +585,10 @@ still reject, including in inactive map schemas.
 records containing both nominal owners and endpoints. Active owner fields consume ordered
 receipts only after checking their nominal type and representation; live authority is
 looked up separately by arena identity. The whole plan is dry-run before writing, and
-transfers after guest allocation revalidate against the reached state. Successful transfers
-spend only the targeted identity. The kernel-checked replays cover distinct equal-representation
+transfers after guest allocation revalidate against the reached state. Single give and the
+recursive emitter spend only the targeted owner identity, before canonical allocation of
+the owning arena object. A subsequent table insertion failure keeps the allocation and
+does not restore the claim. The kernel-checked replays cover distinct equal-representation
 owners, duplicate-receipt rejection followed by retry, slot reuse, inactive stored-borrow
 rejection, reentrant realloc, and a late trap that preserves the earlier owner transfer and
 memory write. `Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Binding.giveRecord` exposes

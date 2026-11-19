@@ -64,9 +64,7 @@ def authority {E : CoreEngine} {World : Type} {sig : Signature} (access : Access
       match prepareOwner state receipt with
       | .error issue => return .error (.nested index issue)
       | .ok (representation, _) =>
-        let slot ← lowerOwn limits cx receipt.1 representation
-        access.spendOwner (receiptId receipt)
-        return .ok slot
+        return .ok (← commitOwner (access.spendOwner (receiptId receipt)) limits cx receipt.1 representation)
     | .shared (.endpoint channel element id) =>
       match prepareEndpoint (← getStore) state channel element id with
       | .error issue => return .error (.nested index issue)
