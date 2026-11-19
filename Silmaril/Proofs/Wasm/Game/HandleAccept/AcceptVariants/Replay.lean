@@ -2,6 +2,8 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.AcceptVariants.Defs
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.Replay
+public import Silmaril.Wasm.Verify.Kernel.Defs
+import Silmaril.Wasm.Verify.Kernel.Thms
 
 /-!
 # Writer acceptance with accept variants from a replayed export call
@@ -28,6 +30,83 @@ open Silmaril.Games Silmaril.Wasm Silmaril.Wasm.Game Silmaril.Wasm.Verify Silmar
   Silmaril.Accept Silmaril.Accept.Handle Silmaril.Formats Silmaril.Formats.Api
   Silmaril.Proofs.Wasm.Game.HandleAccept.Replay
 open Silmaril.Wasm.Numerics (Profile)
+open Silmaril.Wasm.Verify.Kernel (splitK splitK_eq runIK runIK_eq kDepth)
+
+noncomputable def decomposeK (store : Store Nat) : Nat → List Admin →
+    Option (Ctx × Nat × Nat × List Val)
+  | 0, code => decompose? store code
+  | depth + 1, code =>
+    match _split : splitK code with
+    | (values, .label arity cont body :: rest) =>
+      (decomposeK store depth body).map fun (ctx, addr, host, args) =>
+        (.label values arity cont ctx rest, addr, host, args)
+    | (values, .handler arity catches body :: rest) =>
+      (decomposeK store depth body).map fun (ctx, addr, host, args) =>
+        (.handler values arity catches ctx rest, addr, host, args)
+    | (values, .frame arity frame body :: rest) =>
+      (decomposeK store depth body).map fun (ctx, addr, host, args) =>
+        (.frame values arity frame ctx rest, addr, host, args)
+    | (values, head :: rest) =>
+      if head.isCallRef then
+        match values.getLast? with
+        | some (.ref (.func addr)) =>
+          match hostArity? store addr with
+          | some (host, count) =>
+            let operands := values.dropLast
+            if count ≤ operands.length then
+              some (.top (operands.take (operands.length - count)) rest, addr, host,
+                operands.drop (operands.length - count))
+            else none
+          | none => none
+        | _ => none
+      else none
+    | (_, []) => none
+
+private theorem decomposeK_eq (store : Store Nat) (depth : Nat) :
+    decomposeK store depth = decompose? store := by
+  induction depth with
+  | zero => rfl
+  | succ depth ih =>
+    funext code
+    rw [decomposeK, decompose?, splitK_eq, ih]
+    rcases splitVals code with ⟨values, _ | ⟨head, rest⟩⟩
+    · rfl
+    · cases head <;> first | rfl | kernel_rfl
+
+noncomputable def runToK (fuel : Nat) (config : Config Nat) :
+    Option (Config Nat × Ctx × Nat × Nat × List Val) :=
+  let stopped := (runIK refOracle fuel config).1
+  (decomposeK stopped.store kDepth stopped.code).map fun entry => (stopped, entry)
+
+private theorem runToK_eq (fuel : Nat) (config : Config Nat) :
+    runToK fuel config = runTo? fuel config := by
+  simp only [runToK, runTo?, runIK_eq, decomposeK_eq]
+
+/-- Evaluate the same replay with a structural driver even when the Core operands are symbolic. -/
+noncomputable def replayFromK (inst : ScalarInstance) (script : Script) (fuel : Nat) :
+    Nat → Nat → Config Nat → List RMove
+  | 0, _, _ => []
+  | count + 1, index, config =>
+    match runToK fuel config with
+    | none => []
+    | some (stopped, ctx, addr, host, args) =>
+      if argsOk inst host args then
+        let reply := script index host args
+        if ansOk inst stopped.store addr host reply then
+          .ask host args :: .ans host (.returns reply) ::
+            replayFromK inst script fuel count (index + 1)
+              ⟨stopped.store, stopped.frame, ctx.fill (vals reply)⟩
+        else [.ask host args]
+      else []
+
+theorem replayFromK_eq (inst : ScalarInstance) (script : Script) (fuel : Nat) (count : Nat) :
+    replayFromK inst script fuel count = replayFrom inst script fuel count := by
+  induction count with
+  | zero => rfl
+  | succ count ih =>
+    funext index config
+    simp only [replayFromK, replayFrom, runToK_eq, ih]
+    rcases runTo? fuel config with _ | ⟨stopped, ctx, addr, host, args⟩ <;> rfl
 
 section Sim
 

@@ -18,6 +18,10 @@ def Binding (rel : Relation Name Payload) : Prop :=
 
 def UniqueNames (rel : Relation Name Payload) : Prop := Binding (fun payload name => rel name payload)
 
+/-- All known names for a payload, with no uniqueness or canonicality requirement. -/
+def names (rel : Relation Name Payload) (payload : Payload) : Set Name :=
+  { name | rel name payload }
+
 def Subset (left right : Relation Name Payload) : Prop :=
   ∀ ⦃name payload⦄, left name payload → right name payload
 
@@ -44,6 +48,16 @@ noncomputable def UniqueNames.lookup {rel : Relation Name Payload} (unique : Uni
 /-- Serialization may be partial or nondeterministic. No payload is silently substituted. -/
 def push (rel : Relation Name Payload) (serializes : Payload → Wire → Prop) : Relation Name Wire :=
   fun name wire => ∃ payload, rel name payload ∧ serializes payload wire
+
+/-- View names at a semantic type via a partial projection. Unprojectable payloads
+contribute no names; this does not remove their bindings from the source. -/
+def project (rel : Relation Name Payload) (decode : Payload → Option Wire) : Relation Name Wire :=
+  push rel (graph decode)
+
+/-- Names for equivalence classes, contributed by all named representatives. -/
+def quotient (rel : Relation Name Payload) (equiv : Setoid Payload) :
+    Relation Name (Quotient equiv) :=
+  project rel (fun payload => some (Quotient.mk equiv payload))
 
 /-- Consistency with a fixed byte hash, without any collision-freedom claim. -/
 def HashCompatible (hash : Wire → Name) (rel : Relation Name Wire) : Prop :=
