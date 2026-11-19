@@ -43,32 +43,34 @@ theorem attempt_publishes {handle : BitVec 32}
 private theorem commits_append (prior extra : List CommitTag) :
     commits (prior ++ extra) = commits prior ++ commits extra := List.filterMap_append
 
-private theorem append_quiet {first last : Endpoints.State sig} {prior extra : List CommitTag}
-    (history : History first last prior) (quiet : commits extra = []) :
-    History first last (prior ++ extra) := by
+private theorem append_quiet {Root : Type} {first last : List Root} {prior extra : List CommitTag}
+    (history : RootHistory first last prior) (quiet : commits extra = []) :
+    RootHistory first last (prior ++ extra) := by
   obtain ⟨added, accepted, committed⟩ := history
   exact ⟨added, accepted, by simpa [commits_append, quiet] using committed⟩
 
-private theorem append_root {first last next : Endpoints.State sig} {prior extra : List CommitTag}
-    {tree : Tree sig} (history : History first last prior)
-    (accepted : next.accepted = tree :: last.accepted)
-    (committed : commits extra = [BitVec.ofNat 32 (last.accepted.length + 1)]) :
-    History first next (prior ++ extra) := by
+private theorem append_root {Root : Type} {first last next : List Root} {prior extra : List CommitTag}
+    {root : Root} (history : RootHistory first last prior)
+    (accepted : next = root :: last)
+    (committed : commits extra = [BitVec.ofNat 32 (last.length + 1)]) :
+    RootHistory first next (prior ++ extra) := by
   obtain ⟨added, previous, tagged⟩ := history
-  refine ⟨added ++ [tree], by simp [accepted, previous, List.reverse_append], ?_⟩
+  refine ⟨added ++ [root], by simp [accepted, previous, List.reverse_append], ?_⟩
   rw [commits_append, tagged, committed, previous]
   simp only [handles, List.length_append, List.length_singleton, List.length_reverse,
     List.range_succ, List.map_append, List.map_singleton]
-  rw [Nat.add_comm added.length first.accepted.length]
+  rw [Nat.add_comm added.length first.length]
 
-theorem history_of_session {profile : Numerics.Profile} {module_ : Module}
+theorem rootHistory_of_session {Root : Type} {env : SEnv UImp} (roots : env.S → List Root)
+    {profile : Numerics.Profile} {module_ : Module} {memory : Option Nat} {state : env.S}
     {start : Config Nat} {addrs : List Nat} {phase : Phase} {pending : Bool}
-    {current : Config Nat × World grow sig} {tags : List CommitTag}
-    (linked : module_.imports[contract.code]?.isSome = true)
-    (session : TSession profile (contract.env grow memory) module_ memory roles start state addrs
-      phase pending current tags) : History state.writer current.2.writer tags := by
-  refine TSession.rec (motive := fun _ _ (current : Config Nat × World grow sig) tags _ =>
-    History state.writer current.2.writer tags)
+    {current : Config Nat × env.S} {tags : List CommitTag}
+    (effect : ∀ prior call reply next, env.Ans prior call reply next →
+      Publishes module_ call.target reply (roots prior) (roots next))
+    (session : TSession profile env module_ memory roles start state addrs phase pending current tags) :
+    RootHistory (roots state) (roots current.2) tags := by
+  refine TSession.rec (motive := fun _ _ (current : Config Nat × env.S) tags _ =>
+    RootHistory (roots state) (roots current.2) tags)
     ?base ?internal ?call ?answer ?invoke ?ret session
   case base => exact ⟨[], by simp, by simp [commits, handles]⟩
   case internal => intros; assumption
@@ -80,24 +82,34 @@ theorem history_of_session {profile : Numerics.Profile} {module_ : Module}
   case ret => intros; exact append_quiet (by assumption) rfl
   case answer =>
     intro phase config previous next prior ctx address target args reply priorSession redex answer ih
-    change contract.answer memory previous ⟨target, config.store, args⟩ reply next at answer
-    cases ran : contract.attempt memory previous ⟨target, config.store, args⟩ with
-    | mk updated outcome =>
-      simp only [Contract.answer, ran] at answer
-      obtain ⟨rfl, rfl⟩ := answer
-      cases outcome with
-      | error issue =>
-        have same := refusal_keeps_writer ran
-        rw [same]
-        apply append_quiet ih
-        cases calloutAt? module_ memory config <;> rfl
-      | ok handle =>
-        obtain ⟨tree, accepted, eqHandle, eqTarget⟩ := attempt_publishes ran
-        have selected : target = contract.code := eqTarget
-        apply append_root ih accepted
-        simp only [calloutAt?, redex, selected, Option.bind_some]
-        cases imp : module_.imports[contract.code]? with
-        | none => simp [imp] at linked
-        | some imported => simp [commits, Roles.answerTags, roles, eqHandle]
+    rcases effect previous ⟨target, config.store, args⟩ reply next answer with
+      ⟨unchanged, trapped⟩ | ⟨root, added, linked, returned⟩
+    · rw [unchanged]
+      apply append_quiet ih
+      cases calloutAt? module_ memory config <;> simp [commits, Roles.answerTags, roles, trapped]
+    · apply append_root ih added
+      simp only [calloutAt?, redex, Option.bind_some]
+      cases imp : module_.imports[target]? with
+      | none => simp [imp] at linked
+      | some imported => simp [commits, Roles.answerTags, roles, returned]
+
+theorem history_of_session {profile : Numerics.Profile} {module_ : Module}
+    {start : Config Nat} {addrs : List Nat} {phase : Phase} {pending : Bool}
+    {current : Config Nat × World grow sig} {tags : List CommitTag}
+    (linked : module_.imports[contract.code]?.isSome = true)
+    (session : TSession profile (contract.env grow memory) module_ memory roles start state addrs
+      phase pending current tags) : History state.writer current.2.writer tags := by
+  refine rootHistory_of_session (fun (world : World grow sig) => world.writer.accepted) ?_ session
+  intro prior call reply next answer
+  change contract.answer memory prior call reply next at answer
+  cases ran : contract.attempt memory prior call with
+  | mk updated outcome =>
+    simp only [Contract.answer, ran] at answer
+    obtain ⟨rfl, rfl⟩ := answer
+    cases outcome with
+    | error issue => exact .inl ⟨congrArg Endpoints.State.accepted (refusal_keeps_writer ran), rfl⟩
+    | ok handle =>
+      obtain ⟨root, added, eqHandle, eqTarget⟩ := attempt_publishes ran
+      exact .inr ⟨root, added, by simpa [eqTarget] using linked, by simp [eqHandle]⟩
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Core.Trace
