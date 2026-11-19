@@ -10,6 +10,26 @@ open Silmaril.Wasm.Component.Runtime
   Silmaril.Wasm.Game.HandleAccept.Wit.Stored
   Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims
 
+theorem register_claims {sig : Signature} {state registered : State sig}
+    {tree : OwnedMemory.Tree sig} (success : state.register tree = .ok registered) :
+    registered.accepted = tree :: state.accepted ∧
+      registered.held = rootReceipts tree ++ state.held ∧
+      registered.endpoints = rootEndpoints tree ++ state.endpoints := by
+  unfold State.register at success
+  dsimp only at success
+  split at success <;> cases success
+  exact ⟨rfl, rfl, rfl⟩
+
+theorem prepare_preserves_endpoints {sig : Signature} {state spent : State sig}
+    {resource : RtId} {id : HandleObjId} {representation : Nat}
+    (success : state.prepare resource id = .ok (representation, spent)) :
+    spent.endpoints = state.endpoints := by
+  unfold State.prepare at success
+  split at success
+  · contradiction
+  · split at success <;> cases success
+    rfl
+
 theorem prepare_provenance {sig : Signature} {state spent : State sig}
     {resource : RtId} {id : HandleObjId} {representation : Nat}
     (success : state.prepare resource id = .ok (representation, spent)) :

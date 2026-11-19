@@ -368,18 +368,21 @@ slot type in an inactive case is rejected before either move, and a corrected re
 Whole-schema validation still rejects stored borrows. The receipts do not by themselves
 authorize a transfer back to a guest or connect the checked Core host to the reference machine.
 
-`Wit.Stored.OwnedMemory.Claims` registers only the owner receipts from a freshly lifted
-root. Held claims, not the accepted observations, authorize a canonical `lower_own` or a
-destructor request. `give` commits spending after insertion succeeds; `drop` commits it
-before calling the supplied reference destructor, so a trap in that call cannot restore the claim.
+`Wit.Stored.OwnedMemory.Claims` registers owner receipts and readable endpoint claims together
+from a freshly lifted root. Held claims, not the accepted observations, authorize a canonical
+`lower_own`, destructor request or endpoint transfer. `give` commits spending after insertion
+succeeds; `drop` commits it before calling the supplied reference destructor. `giveEndpoint`
+spends the validated claim before canonical lower updates the endpoint's owner.
 The spend theorems identify the original nominal type, handle object and representation,
 preserve other claims and accepted trees, and rule out a second use of the spent identity.
 The machine examples create two equal-representation resources, reject a wrong-type transfer,
 retry, drop the other owner and reacquire owners in reused guest slots. Reacquiring a newly
 issued handle object creates a fresh claim, not another claim on the earlier handle object.
-The whole schema rejects stored borrows and mixed endpoint/error-context payloads before
-lifting. This is a reference host session, not a checked Core import adapter, and does not
-yet lower a compound containing multiple claims in one call.
+A mixed record replay lifts an owner and a stream from memory and gives each back once after
+wrong-type refusals. A late flat-lift trap retains both successful removals but publishes
+neither claim nor a tree. The full schema still rejects stored borrows before lifting. This is
+a reference host session, not a checked Core import adapter, and does not yet lower a compound
+containing multiple claims in one call.
 
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,

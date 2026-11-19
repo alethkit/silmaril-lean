@@ -9,6 +9,20 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims
 
 open Silmaril.Wasm.Component.Runtime
 
+/-- A successful registration publishes the tree and both claim classes together. -/
+theorem register_claims {sig : Signature} {state registered : State sig} {tree : Tree sig}
+    (success : state.register tree = .ok registered) :
+    registered.accepted = tree :: state.accepted ∧
+      registered.held = rootReceipts tree ++ state.held ∧
+      registered.endpoints = rootEndpoints tree ++ state.endpoints :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.register_claims success
+
+theorem prepare_preserves_endpoints {sig : Signature} {state spent : State sig}
+    {resource : RtId} {id : HandleObjId} {representation : Nat}
+    (success : state.prepare resource id = .ok (representation, spent)) :
+    spent.endpoints = state.endpoints :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.prepare_preserves_endpoints success
+
 /-- The nominal resource type, arena identity and representation all come from the
 same held receipt. An accepted observation alone cannot authorize either operation. -/
 theorem prepare_provenance {sig : Signature} {state spent : State sig}
@@ -34,5 +48,12 @@ theorem prepare_no_repeat {sig : Signature} {state spent : State sig}
     (success : state.prepare resource id = .ok (representation, spent)) (other : RtId) :
     spent.prepare other id = .error .unclaimed :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.prepare_no_repeat success other
+
+theorem spendEndpoint_preserves_owners {sig : Signature} {state spent : State sig} {id : EndId}
+    (success : state.spendEndpoint id = .ok spent) :
+    spent.accepted = state.accepted ∧ spent.held = state.held ∧ id ∉ spent.endpoints := by
+  unfold State.spendEndpoint at success
+  split at success <;> cases success
+  simp
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims
