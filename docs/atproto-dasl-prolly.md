@@ -25,6 +25,26 @@ same root name with the **same policy and fixed address function throughout**;
 interchanging child names or choosing a different address can break this.
 Raw-representation name uniqueness by itself is not this semantic guarantee.
 
+[Root naming](../Silmaril/Formats/Dasl/Prolly/Root/Thms.lean) fixes the key
+order, width/bucketer, recovered key and value codecs, partial renderer, and
+byte-to-name function. It views a semantic map as its lookup function. For
+any ordered representation of that map, its set of admissible root names is
+exactly `{root}` **iff** the bottom-up computation returns `some root`.
+Successful naming requires successful encoding and rendering at every
+reached block, including children; `none` does not stand for an arbitrary
+root or a default name. The checked builder supplies a bounded layout for
+this profile. Other layout rules or value equivalences would need their own
+coherence theorem; they are not implicitly identified with this profile.
+
+Passing `Wire.render?` uses the existing DASL CBOR writer; this does not
+prove a general CBOR roundtrip or renderer totality. The same canonical
+bytes can have different names under different naming profiles. Even within
+one profile, successful naming does not rule out collisions. A binding
+**shallow** store extension exists exactly when the union of the base and
+the complete shallow observations binds. This theorem does not publish to a
+raw store or guarantee that links inside user payloads are resolved. Store
+binding and membership in a naming profile are independent requirements.
+
 [The closed-scan lookup](../Silmaril/Formats/Dasl/Prolly/Scan/Thms.lean) reads
 all child occurrences with fuel. It checks declared levels, arity and width,
 child separators, and strict key order across the concatenated leaf entries.

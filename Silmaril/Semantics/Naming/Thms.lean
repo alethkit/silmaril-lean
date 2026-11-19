@@ -31,6 +31,12 @@ theorem graph_binding (read : Name → Option Payload) : Binding (graph read) :=
 @[simp] theorem mem_names {name : Name} {payload : Payload} :
     name ∈ names rel payload ↔ rel name payload := Iff.rfl
 
+theorem names_eq_singleton_iff {root : Name} {payload : Payload} :
+    names rel payload = {root} ↔ rel root payload ∧ ∀ name, rel name payload → name = root := by
+  constructor
+  · intro eq; change root ∈ names rel payload ∧ ∀ name, name ∈ names rel payload → name = root; rw [eq]; exact ⟨rfl, fun _ hit => hit⟩
+  · rintro ⟨hit, unique⟩; exact Set.ext fun _ => ⟨fun named => unique _ named, fun eq => (show _ = root from eq).symm ▸ hit⟩
+
 @[simp] theorem Binding.lookup_eq_some (bound : Binding rel) {name payload} :
     bound.lookup name = some payload ↔ rel name payload :=
   Proofs.Semantics.Naming.lookup_eq_some bound
