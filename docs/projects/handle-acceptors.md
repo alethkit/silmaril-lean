@@ -246,11 +246,11 @@ yet Core acceptor tree payloads; the checked tree writer still rejects async typ
   reference (the repository has no pure list loader; REF `load_list*` exist only as monadic
   `Canon.Load` programs), mixed vectors as one record equation (`loadRecord` has only scalar
   fields), and any equation with the monadic `Canon.load` programs over a component store. The
-  length limits `MAX_STRING_BYTE_LENGTH`/`MAX_LIST_BYTE_LENGTH` are not checked (only the memory
-  bound: above the string limit the reference traps where the decoder may succeed); payloads
-  always go through memory (no flattening into core arguments, `ABI.flatten`), strings are UTF-8
-  only, memory64 is not covered; this is therefore not a proof of interoperability with
-  canonical component-ABI lifting. Floats, `char` and single scalars agree with the pure
+  legacy memory decoder checks bounds but not `MAX_STRING_BYTE_LENGTH`/`MAX_LIST_BYTE_LENGTH`.
+  The checked host boundary (`MemSound.WitAst.Checked.Thms`) applies both limits to payload
+  indirections and the list limit to child handles. It explicitly rejects flat arguments,
+  non-UTF-8 encodings, memory64, and asynchronous calls. This is not a proof of interoperability
+  with canonical component-ABI lifting. Floats, `char` and single scalars agree with the pure
   reference loaders (`loadVal_f32`, `loadVal_f64`, `loadVal_char`, `loadVal_scalar`); lists,
   fixed lists, records with non-scalar fields, tuples, variants, enums, options, results and
   flags follow the reference layout (`layout_toWit`) and trap conditions (discriminant range,
@@ -261,8 +261,14 @@ yet Core acceptor tree payloads; the checked tree writer still rejects async typ
   **Resource handles** (`MemSound.WitAst.Own`): `own<r>` payloads follow the resource-table
   semantics (the tree holds the representation from an explicit table; the move consumes the
   handle; trace- and table-dependence proved), but only **top-level** `own` fields of a payload
-  vector are resolved (an `own` inside a list, option, record, … is no value, so its call is no
-  event); handle **creation** is not modelled (the table is the initial environment `rt₀`, e.g.
+  vector are resolved. The checked boundary rejects the entire selected schema for nested
+  `own`, stored `borrow` and unsupported WIT kinds, even in inactive cases and empty lists.
+  Its typed diagnostics also distinguish unknown, dead, wrong-type and repeated handles.
+  Rejection leaves the caller's resource table and Core store in place, including earlier
+  effects; it traps this call, not the whole session. The legacy trace projection omits failed
+  decodes, and is not itself a checked host contract. The checked boundary does not yet have
+  the legacy trace language's whole-module bridge. Handle **creation** is not modelled (the table
+  is the initial environment `rt₀`, e.g.
   handles received earlier; no `resource.new`/`new_res` import), nor `resource.drop` or `rep` of
   the module's own resources, and the stateful host is not compared with the reference machine's
   `Table` (`Silmaril.Wasm.Resource.Table`); the end-to-end examples move one handle (`ownMod`) and
