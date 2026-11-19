@@ -15,6 +15,55 @@ open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
 
 variable {sig : Signature} {grow : SingleThreaded.GrowOracle}
 
+/-- With no deferred callees, every run has the original eager dispatch, including
+imports using the proposed control name. This equality also preserves trap labels. -/
+theorem dispatch_no_deferred (bindings : List (Binding sig)) (callees : List (Callee sig))
+    (control : String) (ready : HostReady (HostState sig)) :
+    specDispatch ready (hostWithDeferred (grow := grow) bindings callees [] control) =
+      specDispatch ready (hostWithComponent (grow := grow) bindings callees) := rfl
+
+/-- A capacity refusal records the current ticket without queuing, lifting payloads,
+or publishing. The original continuation receives the reference cancel token. -/
+theorem stage_table_full_steps {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    (config : Config (core3 grow) (HostState sig)) (thread : Runtime.ThreadId)
+    (segments : List (Seg (core3 grow) (HostState sig))) (rest : List (Activation (core3 grow) (HostState sig)))
+    (callee : Callee sig) (caller : CallerId) (ticket : Nat) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (ft : WIT.FuncType Empty RtId) (limits results : Nat)
+    (threadInfo : Runtime.Thread) (task : Task (core3 grow)) (instance_ : InstState)
+    (onThread : config.store.thread? thread = some threadInfo)
+    (onTask : config.store.task? threadInfo.task = some task) (current : task.inst = callee.inst)
+    (live : config.store.inst? callee.inst = some instance_)
+    (async : callee.async_ = true)
+    (checked : callee.check config.store subtask cx args pos ft (limits, results) = .ok ())
+    (schema : OwnedMemory.checkSchema (sig.payload callee.tag) = .ok ())
+    (full : instance_.addHandle? (.waitable (.subtask subtask)) = none)
+    (pending : config.ctl = ⟨some thread,
+      .prog (stage callee caller ticket subtask cx args pos ft limits results), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau]
+      { config with
+        host := config.host.record (.refused ticket .subtaskTableFull)
+        ctl := ⟨some thread, .prog (.pure (.cancel .none)), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.Component.Deferred.stage_table_full_steps
+    config thread segments rest callee caller ticket subtask cx args pos ft limits results threadInfo task
+    instance_ onThread onTask current live async checked schema full pending
+
+/-- At the reference allocation boundary, fullness traps and locks down the reached
+store, leaving the host journal (including the recorded refusal) untouched. -/
+theorem reference_table_full_steps {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    (config : Config (core3 grow) (HostState sig)) (thread : Option Runtime.ThreadId)
+    (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (inst : InstId) (subtask : SubtaskId)
+    (instance_ : InstState) (live : config.store.inst? inst = some instance_)
+    (full : instance_.addHandle? (.waitable (.subtask subtask)) = none)
+    (next : Nat → Session grow sig (Ret (core3 grow)))
+    (pending : config.ctl = ⟨thread, .prog (handlesAddSubtask inst subtask >>= next), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .trap .tableFull] (StepDefs.trapCfg config) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.Component.Deferred.reference_table_full_steps
+    config thread segments rest inst subtask instance_ live full next pending
+
 /-- Recycling a waitable slot for another nominal subtask cannot authorize the former
 callback. The actual start import also reselects against the live table. -/
 theorem recycled_slot (entry : PendingAccept) (store : CStore (core3 grow)) (index : Nat)

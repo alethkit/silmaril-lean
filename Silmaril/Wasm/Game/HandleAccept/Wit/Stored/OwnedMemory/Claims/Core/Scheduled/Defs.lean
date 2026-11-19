@@ -32,6 +32,7 @@ inductive Issue where
   | ambiguousBinding
   | badSelection
   | stalePendingAccept
+  | subtaskTableFull
   deriving DecidableEq, Repr
 
 /-- Import tickets distinguish reentrant calls to the same binding. A canonical trap is
