@@ -320,6 +320,103 @@ CREATE TABLE logic_exclusions(
   module TEXT NOT NULL,
   origin TEXT NOT NULL
 );
+CREATE TABLE presentations(
+  name TEXT NOT NULL PRIMARY KEY,
+  decl TEXT NOT NULL,
+  abstract_type TEXT NOT NULL,
+  codec_name TEXT NOT NULL,
+  codec_version TEXT NOT NULL,
+  is_default INTEGER NOT NULL,
+  title TEXT,
+  doc TEXT,
+  module TEXT NOT NULL,
+  origin TEXT NOT NULL
+);
+CREATE TABLE logic_properties(
+  name TEXT NOT NULL PRIMARY KEY,
+  decl TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('soundness','consistency','nontriviality','satisfiability','inclusion')),
+  system TEXT,
+  target TEXT,
+  arg TEXT,
+  statement TEXT NOT NULL,
+  interpretation TEXT,
+  falsity TEXT,
+  context TEXT,
+  axioms TEXT NOT NULL,
+  title TEXT,
+  doc TEXT,
+  module TEXT NOT NULL,
+  origin TEXT NOT NULL
+);
+CREATE TABLE logic_problems(
+  name TEXT NOT NULL PRIMARY KEY,
+  decl TEXT NOT NULL,
+  presentation TEXT NOT NULL,
+  sexp TEXT NOT NULL,
+  renderings TEXT NOT NULL,
+  sentence TEXT NOT NULL,
+  system TEXT,
+  entailed_by TEXT,
+  interpretation TEXT,
+  derived TEXT NOT NULL,
+  entailed TEXT NOT NULL,
+  truth TEXT NOT NULL,
+  title TEXT,
+  doc TEXT,
+  module TEXT NOT NULL,
+  origin TEXT NOT NULL
+);
+CREATE TABLE logic_rows(
+  name TEXT NOT NULL PRIMARY KEY,
+  title TEXT NOT NULL,
+  variant TEXT,
+  institution TEXT,
+  systems TEXT NOT NULL,
+  interpretations TEXT NOT NULL,
+  presentations TEXT NOT NULL,
+  properties TEXT NOT NULL,
+  problems TEXT NOT NULL,
+  derivation_systems TEXT NOT NULL,
+  derivations TEXT NOT NULL,
+  row_order INTEGER,
+  doc TEXT,
+  module TEXT NOT NULL,
+  origin TEXT NOT NULL
+);
+CREATE TABLE derivation_systems(
+  name TEXT NOT NULL PRIMARY KEY,
+  decl TEXT NOT NULL,
+  arg TEXT,
+  judgment TEXT NOT NULL,
+  judgments TEXT,
+  formats TEXT NOT NULL,
+  system TEXT,
+  locally_sound TEXT,
+  agrees TEXT,
+  claims TEXT NOT NULL,
+  title TEXT,
+  doc TEXT,
+  module TEXT NOT NULL,
+  origin TEXT NOT NULL
+);
+CREATE TABLE derivations(
+  name TEXT NOT NULL PRIMARY KEY,
+  decl TEXT NOT NULL,
+  presentation TEXT NOT NULL,
+  system TEXT NOT NULL,
+  sexp TEXT NOT NULL,
+  renderings TEXT NOT NULL,
+  conclusion TEXT NOT NULL,
+  steps TEXT NOT NULL,
+  verdicts TEXT NOT NULL,
+  derives TEXT NOT NULL,
+  derives_system TEXT,
+  title TEXT,
+  doc TEXT,
+  module TEXT NOT NULL,
+  origin TEXT NOT NULL
+);
 CREATE TABLE machines(
   sid TEXT NOT NULL PRIMARY KEY,
   name TEXT NOT NULL,
@@ -454,6 +551,11 @@ CREATE TABLE consequence_systems(
   concl_elem TEXT,
   concl_signed INTEGER,
   raw_sequent INTEGER,
+  room TEXT,
+  room_at TEXT,
+  room_term TEXT,
+  room_lift INTEGER,
+  reading TEXT CHECK(reading IN ('derivability','semantic')),
   title TEXT,
   doc TEXT,
   source TEXT,
@@ -874,6 +976,8 @@ INSERT INTO consequence_shape_roles(shape, pos, role) VALUES('silmaril.shapes.co
 INSERT INTO consequence_shape_roles(shape, pos, role) VALUES('silmaril.shapes.consequence.supported_c', 1, 'type');
 INSERT INTO consequence_shape_roles(shape, pos, role) VALUES('silmaril.shapes.consequence.supported_c', 2, 'S');
 INSERT INTO consequence_shape_roles(shape, pos, role) VALUES('silmaril.shapes.consequence.supported_c', 3, 'ff');
+INSERT INTO consequence_shape_roles(shape, pos, role) VALUES('silmaril.shapes.consequence.tarski_closed', 0, 'type');
+INSERT INTO consequence_shape_roles(shape, pos, role) VALUES('silmaril.shapes.consequence.tarski_closed', 1, 'S');
 INSERT INTO consequence_shape_roles(shape, pos, role) VALUES('silmaril.shapes.consequence.translates_at', 0, 'type');
 INSERT INTO consequence_shape_roles(shape, pos, role) VALUES('silmaril.shapes.consequence.translates_at', 1, 'type');
 INSERT INTO consequence_shape_roles(shape, pos, role) VALUES('silmaril.shapes.consequence.translates_at', 2, 'type');
