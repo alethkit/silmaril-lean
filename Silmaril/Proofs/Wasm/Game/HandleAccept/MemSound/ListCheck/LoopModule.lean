@@ -16,9 +16,8 @@ open Silmaril.Wasm Silmaril.Wasm.Execution.Core Silmaril.Wasm.Game
 open Silmaril.Wasm.Game.HandleAccept.Memory (MemAtom)
 
 open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound in
-def shapeOk (ix : ListImports) (pages : InitialPages := InitialPages.one) : Bool :=
-  ix.child != ix.items &&
-  match prep (Loop.mod ix pages) with
+def preparedShape (prepared : Option (Config Nat × Option FuncIdx)) : Bool :=
+  match prepared with
   | some (cfg, start) => start.isNone && cfg.code.isEmpty && cfg.frame.module.mems == [0] &&
       exportFuncAddrs cfg.frame.module == [3] && cfg.store.mems.length == 1 &&
       (match cfg.store.funcs with
@@ -29,6 +28,10 @@ def shapeOk (ix : ListImports) (pages : InitialPages := InitialPages.one) : Bool
        | _ => false)
   | none => false
 
+open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound in
+def shapeOk (ix : ListImports) (pages : InitialPages := InitialPages.one) : Bool :=
+  ix.child != ix.items && preparedShape (prep (Loop.mod ix pages))
+
 theorem sym_shape : shapeOk {} = true := by decide +kernel
 
 theorem blob_shape : shapeOk blobImports = true := by decide +kernel
@@ -37,6 +40,55 @@ open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound
 open Silmaril.Proofs.Wasm.Game.HandleAccept.Checkers (X.loop)
 open Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.ListCheck
   (ChildKind listReaderLang_subset symTextAns_kind blobAns_kind)
+
+private theorem checkModule_ignore_checked_memories (module_ : Module)
+    (checked : ∀ memory ∈ module_.memories, defaultCheckers.mem memory = true) :
+    validate? module_ = checkModule? { defaultCheckers with mem := fun _ => true } module_ := by
+  have actual : module_.memories.all defaultCheckers.mem = true := List.all_eq_true.mpr checked
+  have ignored : module_.memories.all (fun _ => true) = true := List.all_eq_true.mpr (by simp)
+  simp only [validate?, checkModule?, actual, ignored, Bool.true_and]
+
+private theorem memory_checks (ix : ListImports) (pages : InitialPages) :
+    ∀ memory ∈ (Loop.mod ix pages).memories, defaultCheckers.mem memory = true := by
+  intro memory member
+  change memory ∈ [memoryType pages] at member
+  obtain rfl := List.mem_singleton.mp member
+  change decide (memoryType pages).Valid = true
+  apply decide_eq_true
+  exact ⟨pages.property, trivial⟩
+
+theorem validate_pages (ix : ListImports) (pages : InitialPages) :
+    validate? (Loop.mod ix pages) = validate? (Loop.mod ix) := by
+  rw [checkModule_ignore_checked_memories _ (memory_checks ix pages),
+    checkModule_ignore_checked_memories _ (memory_checks ix InitialPages.one)]
+  cbv
+
+def validatedType : CModuleType :=
+  let types := allocTypes [tyItems, Hi.tyAcc]
+  let items := CExternType.func (List.get types ⟨0, by decide⟩)
+  let accept := CExternType.func (List.get types ⟨1, by decide⟩)
+  ⟨[items, items, accept], [accept]⟩
+
+theorem validate_shape (ix : ListImports) (pages : InitialPages) :
+    validate? (Loop.mod ix pages) = some validatedType := by
+  rw [validate_pages]
+  cbv
+
+private theorem prepared_shape_pages (ix : ListImports) (pages other : InitialPages) :
+    preparedShape (prepare? evalConst? (importStore (CExternType.funcs validatedType.imports))
+      (Loop.mod ix pages) (importAddrs validatedType)) =
+    preparedShape (prepare? evalConst? (importStore (CExternType.funcs validatedType.imports))
+      (Loop.mod ix other) (importAddrs validatedType)) := by
+  simp only [prepare?, Loop.mod, listMod, List.length_nil, Nat.zero_le, List.not_mem_nil, IsEmpty.forall_iff,
+    imp_true_iff, and_true, ite_true, List.map_nil, evalGlobals?, evalExprs?, evalExprss?,
+    List.range_zero, expression]
+  rfl
+
+theorem shape_pages (ix : ListImports) (pages other : InitialPages) :
+    shapeOk ix pages = shapeOk ix other := by
+  unfold shapeOk prep
+  rw [validate_shape ix pages, validate_shape ix other]
+  exact congrArg (fun facts => (ix.child != ix.items) && facts) (prepared_shape_pages ix pages other)
 
 def StoreInv (ix : ListImports) (pages : InitialPages) (store : Store Nat) : Prop :=
   ∃ cfg start, prep (Loop.mod ix pages) = some (cfg, start) ∧
@@ -53,7 +105,7 @@ theorem shape_facts {ix : ListImports} {pages : InitialPages} (valid : shapeOk i
         [some (.i32 0), some (.i32 0), some (.i32 0)] check = true := by
   unfold shapeOk at valid
   rw [prepared] at valid
-  simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, beq_iff_eq, Option.isNone_iff_eq_none,
+  simp only [preparedShape, Bool.and_eq_true, bne_iff_ne, ne_eq, beq_iff_eq, Option.isNone_iff_eq_none,
     List.isEmpty_iff] at valid
   obtain ⟨distinct, ⟨⟨⟨⟨⟨noStart, noCode⟩, memory⟩, exports⟩, count⟩, funcs⟩⟩ := valid
   refine ⟨distinct, noStart, noCode, memory, exports, count, ?_⟩
