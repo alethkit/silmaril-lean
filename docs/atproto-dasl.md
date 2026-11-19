@@ -4,6 +4,9 @@ This layer models the signed ATProto core over [DRISL](https://dasl.ing/drisl.ht
 and [DASL CID](https://dasl.ing/cid.html). It is not a Lexicon validator, a hash
 implementation, or an implementation of the ATProto repository format.
 
+See [named DASL languages](atproto-dasl-languages.md) for relational
+presentations, expansion, recognition and fail-closed CAS queries.
+
 ## Contracts
 
 | Header | Contract |
@@ -14,6 +17,7 @@ implementation, or an implementation of the ATProto repository format.
 | [`Containers.Cas.Naming`](../Silmaril/Containers/Cas/Naming/Thms.lean) | An opt-in adapter views the existing Docker/OCI store as the graph of its `Option` lookup. Its graph is binding whether or not its contents are sound. `Store.Sound` is graph compatibility with the hash; it does not imply hash injectivity. |
 | [`Formats.Dasl.Wire`](../Silmaril/Formats/Dasl/Wire/Defs.lean) | `Drisl.parseCbor?` → ordered ATProto syntax → shallow tree. Rendering takes the reverse adapter and uses `Drisl.renderCbor?`, which sorts encoded keys. The parser rejects duplicate keys and noncanonical encodings before the abstraction drops order. The adapter validates the link tag against the DASL codec byte (`0x71` object, `0x55` raw). |
 | [`Formats.Dasl.Resolve`](../Silmaril/Formats/Dasl/Resolve/Thms.lean) | A root name binds a shallow object, which may have many partial observations but at most one finite full expansion under binding (also after name erasure). The logical `fullLookup` does not promise executable termination. |
+| [`Formats.Dasl.Resolve.View`](../Silmaril/Formats/Dasl/Resolve/View/Thms.lean) | A decoded, executable reader has a deterministic observation at each fuel budget. The observation satisfies `PartialNames`, is monotone in fuel, and reaches any finite expansion at sufficiently high fuel. |
 
 `Partial.links false` traverses inline dictionaries and lists and stops at object
 and blob boundaries; `true` also traverses resolved object targets. Unresolved
@@ -23,6 +27,24 @@ may appear twice, once with an unresolved blob inside and once with that blob's
 bytes present: the two occurrences agree on the object binding. The regression
 also exhibits two algorithm tags sharing one payload in a binding but
 not-`UniqueNames` relation. Neither example assumes anything about real hashes.
+
+`Naming.names` gives the set of names for a payload. `Naming.project` lifts a
+store relation through a deterministic partial decoder. The semantic name-set
+is the union of the name-sets of all representations that decode to the value.
+`Naming.quotient` and the opt-in `Formats.PER.Naming.Thms` specialize this to
+equivalence classes and supported PER classes, respectively. Class name-sets
+do not depend on the chosen representative. An unsupported representation
+contributes no semantic names, but its raw binding still exists. A miss in
+this filtered view therefore does not establish absence from the raw store.
+
+Binding alone gives an `Option` lookup on the semantic relation: look up the
+raw payload, then project it. For two root names to imply semantic disequality,
+the root relation must instead have at most one name per **semantic value**.
+Two raw representations can each have a unique name and still belong to one
+class with two names. `UniqueNames.project` gives a sufficient condition: named
+representations of the same value must coincide, in addition to raw unique
+naming. For a content-addressed tree, the representation includes child names;
+normalizing only key order or tree shape does not establish that condition.
 
 `Partial.ConsistentWith` says the union of the store and observed bindings is
 binding. It allows missing names but rejects incompatible *present* bindings.
@@ -48,7 +70,12 @@ The extension cannot simply replace an existing malformed byte binding. An
 unavailable required payload, a fixed cyclic binding, or a name for which no
 supplied value meets the hash policy can prevent completion. None is filled
 silently. `PartialOnly` requires at least one actual resolved link and no finite
-full expansion; possessing only the shallow root is not enough.
+full expansion; possessing only the shallow root is not enough. Under binding,
+`FullNames.accessible` shows that a full expansion requires acyclic reachable
+object dependencies. The regression exhibits a self-linked object with no
+finite full expansion but a nontrivial partial view. Fuel counts the number of
+CAS boundaries along each path, not inline constructors. A missing child stays
+an unresolved reference; only a missing root returns `none`.
 
 ## Remaining work
 
@@ -56,17 +83,15 @@ full expansion; possessing only the shallow root is not enough.
   between canonical CBOR and key-extensional shallow trees. Use the existing
   DRISL correspondence and prove the key-permutation and array-index lemmas
   for this adapter. Keep debug JSON out of the byte-hash serialization path.
-- [ ] **Partial resolution:** in `Resolve`, implement a fuel/policy-indexed
-  deterministic observation and prove it satisfies `PartialNames`, preserves
-  existing observations under increased fuel, and agrees with a finite expansion
-  at sufficient fuel. Prove that every compatible partial observation refines
-  into the full tree under binding, and characterize when a partial-only root has
-  a nontrivial observation. Prove the necessary reachable acyclicity/closure
-  conditions and extend the completion theorem to raw stores retaining malformed
-  bindings as invalid, not as fillable missing entries.
+- [ ] **Partial resolution:** in `Resolve`, prove that every compatible partial
+  observation refines into the full tree under binding, characterize when a
+  partial-only root has a nontrivial observation, and prove necessary closure
+  on the reachable subgraph. Extend the completion theorem and the decoded
+  `Reader` boundary to raw stores retaining malformed bindings as invalid, not
+  as fillable missing entries.
 - [ ] **Encodings and bounds:** add first-class total/partial encodings with
-  recovery and bottom-up naming proofs (`UniqueNames` or fixed hash and a
-  deterministic naming graph, not binding alone). Add association-pair and
+  recovery and prove when bottom-up naming (including child names) implies
+  unique root names on semantic values. Add association-pair and
   `{k,v}`-record map encodings, ordering/duplicate checks, and set encoding.
   Prove per-node and total bounds for inline structure, link depth and serialized
   bytes, distinguishing occurrences from distinct CAS names. Any probabilistic
@@ -84,6 +109,7 @@ full expansion; possessing only the shallow root is not enough.
 ```sh
 lake build --wfail Silmaril.Containers.Cas.Naming.Thms Silmaril.Formats.Dasl.Thms \
   Silmaril.Formats.Dasl.Resolve.Thms Silmaril.Formats.Dasl.Wire.Thms \
+  Silmaril.Formats.Dasl.Resolve.View.Thms \
   Silmaril.Formats.Cbor.Drisl.Debug.Text.Thms Silmaril.Formats.Cbor.Drisl.Model.Thms
 lake env lean -DwarningAsError=true --run tests/formats/Dasl.lean
 lake env lean -DwarningAsError=true --run tests/formats/DrislDebug.lean

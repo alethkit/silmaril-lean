@@ -52,12 +52,13 @@ theorem resolveOpChecked_toOption (S : WitSig) (rt : RT) (raw : ROp S) :
     · simp [resolveOpChecked, resolveOp, hn, hc, Except.toOption, Except.mapError, bind, Except.bind]
       rfl
 
-theorem checkedString_reference (encoding : ABI.StringEncoding) (o : Callout) (mem : ByteArray)
+theorem checkedString_reference (address : AddrType) (encoding : ABI.StringEncoding)
+    (o : Callout) (mem : ByteArray)
     (memory : o.mem = some mem) (ptr tagged : Nat) :
-    checkedString encoding o ptr tagged =
-      (ABI.loadStringFromRange? encoding .i32 mem.data.toList ptr tagged).map (·.str) := by
+    checkedString encoding o ptr tagged address =
+      (ABI.loadStringFromRange? encoding address mem.data.toList ptr tagged).map (·.str) := by
   simp only [checkedString, ABI.loadStringFromRange?, Array.length_toList]
-  generalize ABI.loadRange encoding .i32 tagged = range
+  generalize ABI.loadRange encoding address tagged = range
   split
   · rfl
   · split
@@ -73,5 +74,15 @@ theorem checkedString_reference (encoding : ABI.StringEncoding) (o : Callout) (m
         cases range.codec.decode? ((mem.data.toList.drop ptr).take range.byteLength) <;> rfl
       · simp only [Execution.Memory.readBytes, ByteArray.size, inBounds, Nat.lt_of_not_le inBounds,
           ↓reduceIte, Option.map_none, Option.bind_none]
+
+theorem checked_string_reference (address : AddrType) (encoding : ABI.StringEncoding) (o : Callout)
+    (mem : ByteArray) (memory : o.mem = some mem) {bytes rest : List UInt8} {ptr tagged : Nat}
+    (range : readPtrLenFor address bytes = some (ptr, tagged, rest)) :
+    readValWith (checkedPayloadReader encoding o address) .string bytes =
+      (ABI.loadStringFromRange? encoding address mem.data.toList ptr tagged).map
+        (fun value => (value.str, rest)) := by
+  simp only [readValWith, checkedPayloadReader, range, Option.bind_some]
+  rw [checkedString_reference address encoding o mem memory]
+  cases ABI.loadStringFromRange? encoding address mem.data.toList ptr tagged <;> rfl
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitChecked
