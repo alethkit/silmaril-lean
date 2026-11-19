@@ -101,4 +101,28 @@ def lowerRoot {E : CoreEngine} {World : Type} {sig : Signature} (access : Access
   | .atom impossible => impossible.elim
   | .tag payload _ _ => lower access limits quirks cx (sig.payload payload.1) payload.2 output
 
+def preflightValue {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
+    (payload : Payload type) (output : Stored.Lower.Output) :
+    Except RecordLower.Issue (RecordLower.Field × List Object) := do
+  (OwnedMemory.checkSchema type).mapError
+    (RecordLower.Issue.preflight ∘ Endpoints.Lower.Issue.schema)
+  RecordLower.compileValue cx type payload.val.value payload.val.owners output
+
+/-- Return a checked tree payload at any supported root type, not just a record.
+The root memory range is checked before the emitter transfers the first claim. -/
+def lowerValue {E : CoreEngine} {World : Type} {sig : Signature} (access : Access E World sig)
+    (limits : Component.Limits) (quirks : Quirks) (cx : LiftLowerContext E) (type : TypeOf)
+    (payload : Payload type) (output : Stored.Lower.Output) : P E World (Except RecordLower.Issue output.Result) :=
+  let access := authority access limits cx
+  RecordLower.Internal.lowerWithPlan quirks cx access type payload.val.value
+    (preflightValue cx type payload output) fun width field =>
+      RecordLower.Internal.emitValue limits quirks cx access width type field output
+
+def lowerPayloadRoot {E : CoreEngine} {World : Type} {sig : Signature} (access : Access E World sig)
+    (limits : Component.Limits) (quirks : Quirks) (cx : LiftLowerContext E) (tree : Tree sig)
+    (output : Stored.Lower.Output) : P E World (Except RecordLower.Issue output.Result) :=
+  match tree with
+  | .atom impossible => impossible.elim
+  | .tag payload _ _ => lowerValue access limits quirks cx (sig.payload payload.1) payload.2 output
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record

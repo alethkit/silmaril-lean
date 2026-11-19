@@ -14,6 +14,6 @@ theorem lower_preflight_error {E : CoreEngine} {sig : Signature} (limits : Compo
     (output : Stored.Lower.Output) {issue : Issue}
     (reject : preflight cx type payload output = .error issue) :
     (lower limits quirks cx type payload output : P E (State sig) _) = pure (.error issue) := by
-  simp only [lower, reject, Internal.lowerCompiled]
+  simp only [lower, reject, Internal.lowerCompiled, Internal.lowerWithPlan]
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.RecordLower

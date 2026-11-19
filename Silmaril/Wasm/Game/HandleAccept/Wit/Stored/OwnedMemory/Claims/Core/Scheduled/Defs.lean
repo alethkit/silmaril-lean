@@ -19,6 +19,7 @@ inductive Issue where
   | accept (issue : Core.Issue)
   | claim (issue : Claims.Issue)
   | lowerRecord (issue : Endpoints.RecordLower.Issue)
+  | lowerPayload (issue : Endpoints.RecordLower.Issue)
   | badLoweringMemory
   | badLoweringRealloc
   | wrongContext
@@ -94,6 +95,12 @@ structure RecordDestination where
   realloc : Option Nat := none
   encoding : StringEncoding := .utf8
 
+def RecordDestination.link (linked : ModuleInst) (memoryIndex : Nat) (width : AddrType)
+    (encoding : StringEncoding) (reallocIndex : Option Nat) : Except Issue RecordDestination := do
+  let some memory := linked.mems[memoryIndex]? | throw .badLoweringMemory
+  let some realloc := reallocIndex.mapM (fun index => linked.funcs[index]?) | throw .badLoweringRealloc
+  return ⟨memory, width, realloc, encoding⟩
+
 def RecordDestination.check {grow : SingleThreaded.GrowOracle} (destination : RecordDestination)
     (reference : CStore (core3 grow)) :
     Except Issue Unit := do
@@ -112,6 +119,7 @@ inductive Action (sig : Signature) where
   | dropOwner (resource : RtId)
   | giveEndpoint (channel : Channel) (element : Element)
   | giveRecord (destination : RecordDestination)
+  | givePayload (destination : RecordDestination)
 
 structure Binding (sig : Signature) where
   name : String
@@ -125,15 +133,22 @@ def Binding.accept (contract : Contract sig) (linked : ModuleInst) (memoryIndex 
 
 def Binding.giveRecord (name : String) (inst : InstId) (linked : ModuleInst) (memoryIndex : Nat)
     (width : AddrType) (encoding : StringEncoding) (reallocIndex : Option Nat := none) :
-    Except Issue (Binding sig) := do
-  let some memory := linked.mems[memoryIndex]? | throw .badLoweringMemory
-  let some realloc := reallocIndex.mapM (fun index => linked.funcs[index]?) | throw .badLoweringRealloc
-  return ⟨name, inst, .giveRecord ⟨memory, width, realloc, encoding⟩⟩
+    Except Issue (Binding sig) :=
+  (RecordDestination.link linked memoryIndex width encoding reallocIndex).map fun dest =>
+    ⟨name, inst, .giveRecord dest⟩
+
+/-- Use the same linked memory ABI for any supported WIT payload root. -/
+def Binding.givePayload (name : String) (inst : InstId) (linked : ModuleInst) (memoryIndex : Nat)
+    (width : AddrType) (encoding : StringEncoding) (reallocIndex : Option Nat := none) :
+    Except Issue (Binding sig) :=
+  (RecordDestination.link linked memoryIndex width encoding reallocIndex).map fun dest =>
+    ⟨name, inst, .givePayload dest⟩
 
 def Binding.type (binding : Binding sig) : V1.FuncType :=
   match binding.action with
   | .accept contract _ => Endpoints.Core.Scheduled.acceptType contract
-  | .giveRecord destination => ⟨[.int .i32, ABI.pointerType destination.width], [.int .i32, .int .i32]⟩
+  | .giveRecord destination | .givePayload destination =>
+    ⟨[.int .i32, ABI.pointerType destination.width], [.int .i32, .int .i32]⟩
   | _ => Endpoints.Core.Scheduled.giveType
 
 def finish (ticket : Nat) (result : Except Issue Nat) : Session grow sig (List FlatValue) := do
@@ -176,7 +191,10 @@ def recordClaims : Record.Access (core3 grow) (HostState sig) sig where
   spendOwner id := claims.spend (.owner id)
   spendEndpoint id := claims.spend (.endpoint id)
 
-def giveRecord (inst : InstId) (destination : RecordDestination) (args : List FlatValue) :
+def giveToMemory (inst : InstId) (destination : RecordDestination) (args : List FlatValue)
+    (lower : LiftLowerContext (core3 grow) → Tree sig → Nat →
+      Session grow sig (Except Endpoints.RecordLower.Issue Unit))
+    (diagnose : Endpoints.RecordLower.Issue → Issue) :
     Session grow sig (Except Issue Nat) := do
   let [.int .i32 handle, pointer] := args | return .error .wrongType
   if Stored.flatType pointer != ABI.pointerType destination.width then return .error .wrongType
@@ -185,8 +203,17 @@ def giveRecord (inst : InstId) (destination : RecordDestination) (args : List Fl
   let cx : LiftLowerContext (core3 grow) :=
     { inst
       opts := { memory := some destination.memory, realloc := destination.realloc, encoding := destination.encoding } }
-  return (← Record.lowerRoot recordClaims Limits.spec Quirks.none cx tree (.memory (flatNat pointer)))
-    |>.mapError .lowerRecord |>.map (fun _ => 0)
+  return (← lower cx tree (flatNat pointer)) |>.mapError diagnose |>.map (fun _ => 0)
+
+def giveRecord (inst : InstId) (destination : RecordDestination) (args : List FlatValue) :
+    Session grow sig (Except Issue Nat) :=
+  giveToMemory inst destination args (fun cx tree ptr =>
+    Record.lowerRoot recordClaims Limits.spec Quirks.none cx tree (.memory ptr)) .lowerRecord
+
+def givePayload (inst : InstId) (destination : RecordDestination) (args : List FlatValue) :
+    Session grow sig (Except Issue Nat) :=
+  giveToMemory inst destination args (fun cx tree ptr =>
+    Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none cx tree (.memory ptr)) .lowerPayload
 
 def withTree (args : List FlatValue) (use : Tree sig → Nat → Session grow sig (Except Issue Nat)) :
     Session grow sig (Except Issue Nat) := do
@@ -217,6 +244,7 @@ def invoke (binding : Binding sig) (args : List FlatValue) : Session grow sig (E
     let some id := (rootEndpoints tree)[position]? | return .error .badSelection
     return (← claims.giveEndpoint Limits.spec cx channel element ⟨id⟩).mapError .claim
   | .giveRecord destination => giveRecord binding.inst destination args
+  | .givePayload destination => givePayload binding.inst destination args
 
 def rejectBinding (ticket : Nat) (issue : Issue) : Session grow sig (List FlatValue) := do
   hostSet ((← hostGet).record (.bindingTrap ticket issue))
