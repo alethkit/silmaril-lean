@@ -57,7 +57,7 @@ theorem accept_refusal_steps (config : Config (core3 grow) (HostState sig))
     (updated : CStore (core3 grow)) (issue : Core.Issue)
     (refused : loadNode ⟨config.store, config.host.writer⟩ = (updated, .error issue))
     (pending : config.ctl = ⟨thread,
-      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+      .prog (.flat <$> (do finish ticket (← acceptWith ticket loadNode))), segments⟩ :: rest) :
     Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau]
       { config with
         store := updated
@@ -76,12 +76,13 @@ theorem accept_success_steps (config : Config (core3 grow) (HostState sig))
     (loaded : loadNode ⟨config.store, config.host.writer⟩ = (updated, .ok tree))
     (registered : config.host.writer.register tree = .ok writer)
     (pending : config.ctl = ⟨thread,
-      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+      .prog (.flat <$> (do finish ticket (← acceptWith ticket loadNode))), segments⟩ :: rest) :
     let handle := (BitVec.ofNat 32 writer.accepted.length).toNat
     Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau, .tau]
       { config with
         store := updated
-        host := ({ config.host with writer } : HostState sig).record (.returned ticket handle)
+        host := (({ config.host with writer } : HostState sig).record (.published ticket handle)).record
+          (.returned ticket handle)
         ctl := ⟨thread, .prog (.pure (.flat [i32Flat 0, i32Flat handle])), segments⟩ :: rest } :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.accept_success_steps
     config thread segments rest ticket loadNode updated tree writer loaded registered pending
@@ -96,7 +97,7 @@ theorem accept_registration_refusal_steps (config : Config (core3 grow) (HostSta
     (loaded : loadNode ⟨config.store, config.host.writer⟩ = (updated, .ok tree))
     (rejected : config.host.writer.register tree = .error issue)
     (pending : config.ctl = ⟨thread,
-      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+      .prog (.flat <$> (do finish ticket (← acceptWith ticket loadNode))), segments⟩ :: rest) :
     Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau]
       { config with
         store := updated
@@ -146,14 +147,16 @@ theorem extends_of_steps (bindings : List (Binding sig))
     bindings steps safe runSafe
 
 /-- For arbitrary machine prefixes, including trapping or suspended calls, diagnostic history
-only grows and every writer change follows the publication and spend policy. Host-supplied
-raw programs must respect the same write policy. -/
+only grows, every writer change follows the publication and spend policy, and each newly
+accepted root contributes one publication entry. Host-supplied raw programs must respect
+the same write policy. -/
 theorem checked_of_steps (bindings : List (Binding sig))
     {initial final : Config (core3 grow) (HostState sig)}
     {labels : List (Label (core3 grow) (HostState sig))}
     (steps : Steps prof ready (specDispatch ready (host bindings)) initial labels final)
     (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels) :
-    Extends initial.host final.host ∧ WriterRun initial.host.writer final.host.writer :=
+    Extends initial.host final.host ∧ WriterRun initial.host.writer final.host.writer ∧
+      PublicationDelta initial.host final.host :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.checked_of_steps
     bindings steps safe runSafe
 
@@ -163,7 +166,7 @@ theorem checked_of_session (bindings : List (Binding sig)) (store : CStore (core
     {final : Config (core3 grow) (HostState sig)} {labels : List (Label (core3 grow) (HostState sig))}
     (steps : Steps prof ready (specDispatch ready (host bindings)) (Config.init store state) labels final)
     (ordinary : ∀ program, Label.host (.run program) ∉ labels) :
-    Extends state final.host ∧ WriterRun state.writer final.host.writer :=
+    Extends state final.host ∧ WriterRun state.writer final.host.writer ∧ PublicationDelta state final.host :=
   checked_of_steps bindings steps (Component.Reference.HostWrite.cfgSafe_init _ _)
     (fun program member => (ordinary program member).elim)
 

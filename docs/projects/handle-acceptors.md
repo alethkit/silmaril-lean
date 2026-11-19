@@ -580,6 +580,15 @@ polls completion, checks the transferred record and owner, and observes closure.
 After both endpoints are dropped, a stale read traps without removing the published
 tree. The async operations here are reference built-ins, not async accept calls.
 
+The scheduled journal distinguishes publication from a Core reply. A `published`
+entry records the import ticket and handle in the same host write that adds the root
+and its claims. Across arbitrary ordinary machine prefixes, `checked_of_session`
+proves that the publication journal only grows and that its growth equals the growth
+of accepted roots. Each journal entry carries the one-based position of its root,
+encoded as the Core `i32` handle. A refusal and a trap without publication cannot be counted as an
+acceptance, and a prefix ending between publication and the reply still records the root.
+This conservation statement does not characterize which roots a given module can accept.
+
 ## Checking
 
 ```
