@@ -199,6 +199,7 @@ example : ((FOL.term orderLabels 0).recover (render FOL.slots linkAll (.list [.a
 #print axioms Lift.orderedSet_encode
 #print axioms Lift.codedSet_binding
 #print axioms HOL.derives_iff_derivesFromSet
+#print axioms HOL.entails_iff_entailsWith
 #print axioms HOL.derives_le_entails
 #print axioms FOL.theorems_subset_valid
 #print axioms MLTT.inhabitance_le_semanticInhabitance

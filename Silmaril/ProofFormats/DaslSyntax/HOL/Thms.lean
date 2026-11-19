@@ -4,6 +4,7 @@ public import Silmaril.ProofFormats.DaslSyntax.HOL.Defs
 public import Silmaril.ProofFormats.DaslSyntax.Thms
 public import Silmaril.Logic.HOLLight.Soundness.Thms
 public import Silmaril.Formats.Dasl.Lift.Set.Thms
+import Silmaril.Proofs.ProofFormats.DaslSyntax.HOL
 
 public section
 
@@ -32,14 +33,28 @@ theorem theorems_subset_validIn {model : Model.{u} sig} (satisfies : Models mode
 
 /-- Under binding, the two context roots have exactly the same kernel judgments when they
 present the same hypothesis set. No order-insensitivity is asserted for typing contexts. -/
+theorem derives_iff_derivesWith {resolved : Name → Hyps → Prop} (bound : store.Binding)
+    (functional : Binding resolved) {listRoot setRoot result : Name} {premises : List Tm} {term : Tm}
+    (listHit : assumptions.names store listRoot premises) (setHit : resolved setRoot premises.toFinset)
+    (resultHit : tm.names store result term) : derives store sig theory listRoot result ↔
+      derivesWith store resolved sig theory setRoot result :=
+  Proofs.ProofFormats.DaslSyntax.HOL.system_iff_of_set (Derives sig theory) bound functional listHit setHit resultHit
+
+theorem entails_iff_entailsWith {resolved : Name → Hyps → Prop} {model : Model.{u} sig}
+    (bound : store.Binding) (functional : Binding resolved)
+    {listRoot setRoot result : Name} {premises : List Tm} {term : Tm}
+    (listHit : assumptions.names store listRoot premises) (setHit : resolved setRoot premises.toFinset)
+    (resultHit : tm.names store result term) : entails store model listRoot result ↔
+      entailsWith store resolved model setRoot result :=
+  Proofs.ProofFormats.DaslSyntax.HOL.system_iff_of_set (semantic model) bound functional listHit setHit resultHit
+
 theorem derives_iff_derivesFromSet {layout : Value → Hyps → Prop} (bound : store.Binding)
     (functional : Binding layout) {listRoot setRoot result : Name} {premises : List Tm} {term : Tm}
     (listHit : assumptions.names store listRoot premises)
     (setHit : (Lift.name store layout).represents setRoot premises.toFinset)
     (resultHit : tm.names store result term) : derives store sig theory listRoot result ↔
       derivesFromSet store layout sig theory setRoot result :=
-  (system_of_match (assumptions.named_binding bound) (tm.named_binding bound) listHit resultHit).trans
-    (system_of_match (Lift.name_binding bound functional) (tm.named_binding bound) setHit resultHit).symm
+  derives_iff_derivesWith bound (Lift.name_binding bound functional) listHit setHit resultHit
 
 theorem entails_iff_entailsFromSet {layout : Value → Hyps → Prop} {model : Model.{u} sig}
     (bound : store.Binding) (functional : Binding layout)
@@ -48,10 +63,6 @@ theorem entails_iff_entailsFromSet {layout : Value → Hyps → Prop} {model : M
     (setHit : (Lift.name store layout).represents setRoot premises.toFinset)
     (resultHit : tm.names store result term) : entails store model listRoot result ↔
       entailsFromSet store layout model setRoot result :=
-  (system_of_match (context := assumptions.named store) (conclusion := tm.named store)
-    (source := fun (premises : List Tm) => semantic model premises.toFinset)
-    (assumptions.named_binding bound) (tm.named_binding bound) listHit resultHit).trans
-    (system_of_match (context := Lift.name store layout) (conclusion := tm.named store)
-      (source := semantic model) (Lift.name_binding bound functional) (tm.named_binding bound) setHit resultHit).symm
+  entails_iff_entailsWith bound (Lift.name_binding bound functional) listHit setHit resultHit
 
 end Silmaril.ProofFormats.DaslSyntax.HOL

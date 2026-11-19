@@ -48,14 +48,14 @@ def validIn {sig : Signature} (model : Model.{u} sig) : Set Name :=
 def derives (sig : Signature) (theory : Theory) : Consequence.System Name Name :=
   system (assumptions.named store) (tm.named store) (fun premises term => Derives sig theory premises.toFinset term)
 
-def derivesFromSet (layout : Value → Hyps → Prop) (sig : Signature) (theory : Theory) :
-    Consequence.System Name Name :=
-  system (Lift.name store layout) (tm.named store) (Derives sig theory)
-
 /-- Use an independently justified hypothesis-name resolver, e.g. an ordered set store. -/
 def derivesWith (resolved : Name → Hyps → Prop) (sig : Signature) (theory : Theory) :
     Consequence.System Name Name :=
   system (.encoded resolved) (tm.named store) (Derives sig theory)
+
+def derivesFromSet (layout : Value → Hyps → Prop) (sig : Signature) (theory : Theory) :
+    Consequence.System Name Name :=
+  derivesWith store (Lift.name store layout).represents sig theory
 
 def orderedAssumptions {Key : Type} [LinearOrder Key] (label : Encode.TotalCodec Tm Key)
     (key : Encode.TotalCodec Key Value) : Value → Hyps → Prop := Lift.codedSet (Lift.orderedSet key) label
@@ -66,12 +66,12 @@ def semantic {sig : Signature} (model : Model.{u} sig) : Consequence.System Hyps
 def entails {sig : Signature} (model : Model.{u} sig) : Consequence.System Name Name :=
   system (assumptions.named store) (tm.named store) (fun premises => semantic model premises.toFinset)
 
-def entailsFromSet (layout : Value → Hyps → Prop) {sig : Signature} (model : Model.{u} sig) :
-    Consequence.System Name Name :=
-  system (Lift.name store layout) (tm.named store) (semantic model)
-
 def entailsWith (resolved : Name → Hyps → Prop) {sig : Signature} (model : Model.{u} sig) :
     Consequence.System Name Name :=
   system (.encoded resolved) (tm.named store) (semantic model)
+
+def entailsFromSet (layout : Value → Hyps → Prop) {sig : Signature} (model : Model.{u} sig) :
+    Consequence.System Name Name :=
+  entailsWith store (Lift.name store layout).represents model
 
 end Silmaril.ProofFormats.DaslSyntax.HOL

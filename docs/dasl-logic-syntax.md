@@ -27,8 +27,9 @@ assumptions, not bound-variable types. Its entailment interpretation takes
 `toFinset`, discarding order and repetitions. The independent ordered-set
 representation uses the reusable `Encode.setOf` layout, with a caller-supplied
 recoverable term-to-key codec and key-to-DASL codec. The list/set compatibility
-theorems require the contexts to resolve to the same hypothesis set and the
-store and layout to bind. They are not equivalences for typing contexts.
+theorems apply to any binding hypothesis-name resolver, as well as the DASL
+layout. They require the contexts to resolve to the same hypothesis set and
+are not equivalences for typing contexts.
 
 In the optional policy every child slot can be separately inline or an object
 edge, selected by an index path. In `linkAll` every such slot, even a nullary
