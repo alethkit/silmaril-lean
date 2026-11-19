@@ -385,6 +385,14 @@ before canonical lower updates ownership. Neither a late table trap nor an alloc
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
+`Wit.Stored.Endpoints.RecordLower.lower` handles mixed records with plain data fields,
+readable endpoints, dynamic endpoint lists and error contexts. It checks the complete schema,
+allocation preconditions and cross-field aliases before any field is written. Fields follow
+canonical record layout and flat order. A field error identifies the failing field; completed
+fields and any realloc effects remain visible. Reference-machine replays cover both outputs,
+inactive unsupported fields, alias and missing-context rejection, reentrancy and allocator traps.
+Deeper nesting of effectful fields and mixing nominal owners into these records still reject.
+
 ## Checking
 
 ```
