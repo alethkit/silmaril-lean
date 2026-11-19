@@ -292,7 +292,12 @@ component. This is a reference adapter, not a simulation of the checked Core wri
   Inactive arms do not move owners, but the complete schema must admit stored values.
   This uses the Core writer table and its representation-valued `PTy`: it does not yet
   relate slot moves or trap effects to the reference component store or replace the legacy
-  whole-session bridge.
+  whole-session bridge. `Own.Session` supplies a checked `SEnv UImp` for nested nodes:
+  a rejection answers the actual Core redex with a call-local trap, preserving the
+  store at that call and the state from earlier imports. `session_le` proves that
+  no sequence of exports resurrects a moved slot in this move-only host. This is a
+  session safety contract, not yet a characterization of the accepted tree language,
+  and the host does not implement resource allocation or drop.
 * Wasm writer variants: `batchAccept_lang` bounds `batchAccept` by its kept batch `keptL` (the
   dropped word is never accepted, `batchAccept_drops`), but the lower bound is the run at the
   fixed argument `3` (`batchAccept_kept`), not every `(w)`; the batch bridge assumes policies
