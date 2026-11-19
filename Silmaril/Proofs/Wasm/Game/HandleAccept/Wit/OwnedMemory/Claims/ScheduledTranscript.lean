@@ -327,14 +327,21 @@ private theorem accept_with_safe (ticket : Nat)
   · exact .pure none _
   · exact publish_safe _ _
 
+private theorem commitOwner_safe (cx : LiftLowerContext (core3 grow)) (resource : RtId)
+    (id : HandleObjId) (representation : Nat) :
+    Safe (Stored.OwnedMemory.Claims.commitOwner ((claims (sig := sig)).spend (.owner id))
+      Limits.spec cx resource representation) := by
+  unfold Stored.OwnedMemory.Claims.commitOwner
+  exact HostWrite.bind (spend_safe (.owner id)) fun _ =>
+    readOnly (P.Inv.lowerOwn (fun _ _ _ => trivial) (fun _ _ _ _ => trivial) _ _ _ _)
+
 private theorem give_safe (cx : LiftLowerContext (core3 grow)) (resource : RtId) (id : HandleObjId) :
     Safe ((claims (sig := sig)).give Limits.spec cx resource id) := by
   unfold Stored.OwnedMemory.Claims.Access.give
   refine HostWrite.bind read_safe fun state => ?_
   split
   · exact .pure none _
-  · refine HostWrite.bind (readOnly (P.Inv.lowerOwn (fun _ _ _ => trivial) (fun _ _ _ _ => trivial) _ _ _ _)) fun _ => ?_
-    exact HostWrite.bind (spend_safe _) fun _ => .pure none _
+  · exact HostWrite.bind (commitOwner_safe cx resource id _) fun _ => .pure none _
 
 private theorem giveEndpoint_safe (cx : LiftLowerContext (core3 grow)) (channel : Channel) (element : Element)
     (endpoint : Endpoint (channel.endKind .read) element) :
@@ -379,9 +386,8 @@ private theorem record_transfer_safe (cx : LiftLowerContext (core3 grow)) (index
     dsimp only
     split
     · exact .pure none _
-    · refine HostWrite.bind (readOnly (P.Inv.lowerOwn (fun _ _ _ => trivial) (fun _ _ _ _ => trivial)
-        _ _ _ _)) fun _ => ?_
-      exact HostWrite.bind (spend_safe _) fun _ => .pure none _
+    · exact HostWrite.bind (commitOwner_safe cx receipt.1 (Stored.OwnedMemory.Claims.receiptId receipt) _)
+        fun _ => .pure none _
   | shared object =>
     cases object with
     | endpoint channel element id =>
