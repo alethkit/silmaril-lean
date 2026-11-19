@@ -75,13 +75,13 @@ private theorem accept_load_steps (config : Config (core3 grow) (HostState sig))
     (loaded : Except Stored.OwnedMemory.Claims.Core.Issue (Stored.OwnedMemory.Tree sig))
     (outcome : loadNode ⟨config.store, config.host.writer⟩ = (updated, loaded))
     (pending : config.ctl = ⟨thread,
-      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+      .prog (.flat <$> (do finish ticket (← acceptWith ticket loadNode))), segments⟩ :: rest) :
     Steps prof ready dispatch config [.tau, .tau, .tau]
       { config with
         store := updated
         ctl := ⟨thread, .prog (.flat <$> ((match loaded with
           | .error issue => pure (.error (.accept issue))
-          | .ok tree => publishRoot tree) >>= finish ticket)), segments⟩ :: rest } := by
+          | .ok tree => publishRoot ticket tree) >>= finish ticket)), segments⟩ :: rest } := by
   refine .cons (.hostGet pending) (.cons (.get rfl) ?_)
   change Steps prof ready dispatch
     { config with ctl := ⟨thread, .prog (.flat <$> ((do
@@ -89,7 +89,7 @@ private theorem accept_load_steps (config : Config (core3 grow) (HostState sig))
         modifyStore fun _ => outcome.1
         match outcome.2 with
         | .error reason => pure (.error (.accept reason))
-        | .ok tree => publishRoot tree) >>= finish ticket)), segments⟩ :: rest } _ _
+        | .ok tree => publishRoot ticket tree) >>= finish ticket)), segments⟩ :: rest } _ _
   rw [outcome]
   exact .cons (.modify rfl) (.refl _)
 
@@ -101,7 +101,7 @@ theorem accept_refusal_steps (config : Config (core3 grow) (HostState sig))
     (updated : CStore (core3 grow)) (issue : Stored.OwnedMemory.Claims.Core.Issue)
     (refused : loadNode ⟨config.store, config.host.writer⟩ = (updated, .error issue))
     (pending : config.ctl = ⟨thread,
-      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+      .prog (.flat <$> (do finish ticket (← acceptWith ticket loadNode))), segments⟩ :: rest) :
     Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau]
       { config with
         store := updated
@@ -118,13 +118,15 @@ theorem accept_success_steps (config : Config (core3 grow) (HostState sig))
     (updated : CStore (core3 grow)) (tree : Stored.OwnedMemory.Tree sig) (writer : State sig)
     (loaded : loadNode ⟨config.store, config.host.writer⟩ = (updated, .ok tree))
     (registered : config.host.writer.register tree = .ok writer)
+    (fits : writer.accepted.length < 2 ^ 32)
     (pending : config.ctl = ⟨thread,
-      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
-    let handle := (BitVec.ofNat 32 writer.accepted.length).toNat
+      .prog (.flat <$> (do finish ticket (← acceptWith ticket loadNode))), segments⟩ :: rest) :
+    let handle := writer.accepted.length
     Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau, .tau]
       { config with
         store := updated
-        host := ({ config.host with writer } : HostState sig).record (.returned ticket handle)
+        host := (({ config.host with writer } : HostState sig).record (.published ticket handle)).record
+          (.returned ticket handle)
         ctl := ⟨thread, .prog (.pure (.flat [i32Flat 0, i32Flat handle])), segments⟩ :: rest } := by
   dsimp only
   refine steps_append (accept_load_steps config thread segments rest ticket loadNode updated (.ok tree) loaded pending) ?_
@@ -133,9 +135,12 @@ theorem accept_success_steps (config : Config (core3 grow) (HostState sig))
     { config with store := updated, ctl := ⟨thread, .prog (.flat <$> ((match config.host.writer.register tree with
       | .error issue => pure (.error (.accept (.claims issue)))
       | .ok writer => do
-        hostSet { config.host with writer }
-        return .ok (BitVec.ofNat 32 writer.accepted.length).toNat) >>= finish ticket)), segments⟩ :: rest } _ _
+        if writer.accepted.length ≥ 2 ^ 32 then return .error (.accept (.boundary .exhaustedHandles))
+        hostSet (({ config.host with writer } : HostState sig).record
+          (.published ticket writer.accepted.length))
+        return .ok writer.accepted.length) >>= finish ticket)), segments⟩ :: rest } _ _
   rw [registered]
+  simp only [ite_eq_right (Nat.not_le.mpr fits)]
   exact .cons (.hostSet rfl) (finish_steps _ thread segments rest ticket (.ok _) rfl)
 
 theorem accept_registration_refusal_steps (config : Config (core3 grow) (HostState sig))
@@ -148,7 +153,7 @@ theorem accept_registration_refusal_steps (config : Config (core3 grow) (HostSta
     (loaded : loadNode ⟨config.store, config.host.writer⟩ = (updated, .ok tree))
     (rejected : config.host.writer.register tree = .error issue)
     (pending : config.ctl = ⟨thread,
-      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+      .prog (.flat <$> (do finish ticket (← acceptWith ticket loadNode))), segments⟩ :: rest) :
     Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau]
       { config with
         store := updated
@@ -160,10 +165,35 @@ theorem accept_registration_refusal_steps (config : Config (core3 grow) (HostSta
     { config with store := updated, ctl := ⟨thread, .prog (.flat <$> ((match config.host.writer.register tree with
       | .error issue => pure (.error (.accept (.claims issue)))
       | .ok writer => do
-        hostSet { config.host with writer }
-        return .ok (BitVec.ofNat 32 writer.accepted.length).toNat) >>= finish ticket)), segments⟩ :: rest } _ _
+        if writer.accepted.length ≥ 2 ^ 32 then return .error (.accept (.boundary .exhaustedHandles))
+        hostSet (({ config.host with writer } : HostState sig).record
+          (.published ticket writer.accepted.length))
+        return .ok writer.accepted.length) >>= finish ticket)), segments⟩ :: rest } _ _
   rw [rejected]
   exact finish_steps _ thread segments rest ticket (.error (.accept (.claims issue))) rfl
+
+theorem publish_exhausted_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (tree : Stored.OwnedMemory.Tree sig) (writer : State sig)
+    (registered : config.host.writer.register tree = .ok writer) (exhausted : 2 ^ 32 ≤ writer.accepted.length)
+    (pending : config.ctl = ⟨thread,
+      .prog (.flat <$> (do finish ticket (← publishRoot ticket tree))), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau]
+      { config with
+        host := config.host.record (.refused ticket (.accept (.boundary .exhaustedHandles)))
+        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } := by
+  refine .cons (.hostGet pending) ?_
+  change Steps prof ready dispatch
+    { config with ctl := ⟨thread, .prog (.flat <$> ((match config.host.writer.register tree with
+      | .error issue => pure (.error (.accept (.claims issue)))
+      | .ok writer => do
+        if writer.accepted.length ≥ 2 ^ 32 then return .error (.accept (.boundary .exhaustedHandles))
+        hostSet (({ config.host with writer } : HostState sig).record (.published ticket writer.accepted.length))
+        return .ok writer.accepted.length) >>= finish ticket)), segments⟩ :: rest } _ _
+  rw [registered]
+  simp only [ite_eq_left exhausted]
+  exact finish_steps _ thread segments rest ticket (.error (.accept (.boundary .exhaustedHandles))) rfl
 
 theorem flatCompletion_type (ticket : Nat) (shape : List NumType) (result : Except Issue (List FlatValue)) :
     (flatCompletion ticket shape result).2.map Stored.flatType = .int .i32 :: shape := by
@@ -193,45 +223,99 @@ theorem binding_trap_steps (config : Config (core3 grow) (HostState sig))
       (StepDefs.trapCfg { config with host := config.host.record (.bindingTrap ticket issue) }) := by
   exact .cons (.hostGet pending) (.cons (.hostSet rfl) (.cons (.trap rfl) (.refl _)))
 
+theorem import_binding_trap_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (bindings : List (Binding sig))
+    (name : String) (type : V1.FuncType) (args : List FlatValue) (issue : Issue)
+    (unresolved : resolveBinding bindings name type = .error issue)
+    (pending : config.ctl = ⟨thread, .prog (.flat <$> dispatchImport bindings name type args), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .trap (.hostTrap "invalid mixed acceptor import binding")]
+      (StepDefs.trapCfg { config with
+        host := (config.host.enter name type args).record (.bindingTrap config.host.nextTicket issue) }) := by
+  have entered := enter_steps (prof := prof) (ready := ready) (dispatch := dispatch)
+    config thread segments rest bindings name type args pending
+  simp only [route, unresolved] at entered
+  exact steps_append entered (binding_trap_steps _ thread segments rest config.host.nextTicket issue rfl)
+
 private abbrev Safe {Value : Type} (program : Session grow sig Value) := HostSafe CheckedWrite none program
 
 private theorem readOnly {Value : Type} {program : Session grow sig Value}
     (safe : P.InvW (fun _ => True) (fun _ => False) program) : Safe program :=
   HostWrite.hostSafe_of_invW safe _
 
-private theorem record_safe (state : HostState sig) (event : Event) : CheckedWrite state (state.record event) :=
-  ⟨⟨by simp [HostState.transcript, HostState.record], le_rfl⟩, .same _⟩
+private theorem publication_refl (state : HostState sig) : PublicationDelta state state :=
+  ⟨[], by simp, by simp, by simp⟩
+
+private theorem publication_trans {first middle last : HostState sig}
+    (earlier : PublicationDelta first middle) (later : PublicationDelta middle last) :
+    PublicationDelta first last := by
+  obtain ⟨earlierEntries, middleEntries, middleCount, earlierHandle⟩ := earlier
+  obtain ⟨suffix, lastEntries, lastCount, laterHandle⟩ := later
+  refine ⟨earlierEntries ++ suffix, by simp [lastEntries, middleEntries, List.append_assoc],
+    by simp [lastCount, middleCount, Nat.add_assoc], ?_⟩
+  intro index ticket handle entry
+  by_cases inEarlier : index < earlierEntries.length
+  · rw [List.getElem?_append_left inEarlier] at entry
+    exact earlierHandle index ticket handle entry
+  · rw [List.getElem?_append_right (Nat.le_of_not_gt inEarlier)] at entry
+    have position : middle.writer.accepted.length + (index - earlierEntries.length) + 1 =
+        first.writer.accepted.length + index + 1 := by omega
+    simpa only [position] using laterHandle (index - earlierEntries.length) ticket handle entry
+
+private theorem record_safe (state : HostState sig) (event : Event) (notPublication : event.publication = none) :
+    CheckedWrite state (state.record event) :=
+  ⟨⟨by simp [HostState.transcript, HostState.record], le_rfl⟩, .same _,
+    ⟨[], by simp [HostState.publications, HostState.transcript, HostState.record, notPublication],
+      by simp [HostState.record], by simp⟩⟩
 
 private theorem spend_safe (update : Stored.OwnedMemory.Claims.Spend) :
     Safe ((claims (grow := grow) (sig := sig)).spend update) :=
-  .get none fun _ => .set ⟨⟨List.prefix_rfl, le_rfl⟩, .spend _ _⟩ (.pure none ())
+  .get none fun state => .set ⟨⟨List.prefix_rfl, le_rfl⟩, .spend _ _,
+    by cases update <;> exact publication_refl state⟩ (.pure none ())
 
 private theorem read_safe : Safe ((claims (grow := grow) (sig := sig)).read) :=
   .get none fun state => .pure _ state.writer
 
-private theorem publish_safe (tree : Stored.OwnedMemory.Tree sig) :
-    Safe (publishRoot (grow := grow) tree) := by
+private theorem publish_safe (ticket : Nat) (tree : Stored.OwnedMemory.Tree sig) :
+    Safe (publishRoot (grow := grow) ticket tree) := by
   refine .get none fun current => ?_
   change HostSafe CheckedWrite (some current) ((match current.writer.register tree with
     | .error issue => pure (.error (.accept (.claims issue)))
     | .ok writer => do
-      hostSet { current with writer }
-      return .ok ((BitVec.ofNat 32 writer.accepted.length).toNat)) : Session grow sig (Except Issue Nat))
-  split
+      let handle := writer.accepted.length
+      if handle ≥ 2 ^ 32 then return .error (.accept (.boundary .exhaustedHandles))
+      hostSet (({ current with writer } : HostState sig).record (.published ticket handle))
+      return .ok handle) : Session grow sig (Except Issue Nat))
+  split <;> rename_i writer registered
   · exact .pure (some current) _
-  · exact .set ⟨⟨List.prefix_rfl, le_rfl⟩, .publish _ (by assumption)⟩ (.pure none _)
+  · dsimp only
+    split
+    · exact .pure (some current) _
+    · rename_i exhausted
+      refine .set ⟨⟨by simp [HostState.transcript, HostState.record], le_rfl⟩, .publish _ registered, ?_⟩
+        (.pure none _)
+      have accepted := (Stored.OwnedMemory.Claims.register_claims registered).1
+      refine ⟨[(ticket, writer.accepted.length)],
+        by simp [HostState.publications, HostState.transcript, HostState.record, Event.publication],
+        by simp [HostState.record, accepted], ?_⟩
+      intro index eventTicket handle entry
+      cases index with
+      | zero =>
+        have equal : handle = writer.accepted.length := congrArg Prod.snd (Option.some.inj entry).symm
+        exact ⟨by simp [equal, accepted], equal ▸ Nat.lt_of_not_ge exhausted⟩
+      | succ index => simp at entry
 
-private theorem accept_with_safe
+private theorem accept_with_safe (ticket : Nat)
     (loadNode : Stored.OwnedMemory.Claims.Core.World grow sig →
       CStore (core3 grow) × Except Stored.OwnedMemory.Claims.Core.Issue (Stored.OwnedMemory.Tree sig)) :
-    Safe (acceptWith loadNode) := by
+    Safe (acceptWith ticket loadNode) := by
   unfold acceptWith
   refine HostWrite.bind (readOnly P.Inv.hostGet) fun state => ?_
   refine HostWrite.bind (readOnly P.Inv.getStore) fun reference => ?_
   refine HostWrite.bind (readOnly (P.Inv.modifyStore (fun _ _ => trivial))) fun _ => ?_
   split
   · exact .pure none _
-  · exact publish_safe _
+  · exact publish_safe _ _
 
 private theorem give_safe (cx : LiftLowerContext (core3 grow)) (resource : RtId) (id : HandleObjId) :
     Safe ((claims (sig := sig)).give Limits.spec cx resource id) := by
@@ -371,8 +455,8 @@ private theorem give_flat_safe (inst : InstId) (destination : RecordDestination)
           · exact HostWrite.bind (lower_payload_safe _ tree .flat) fun _ => .pure none _
     · exact .pure none _
 
-private theorem invoke_safe (binding : Binding sig) (args : List FlatValue) :
-    Safe (Stored.OwnedMemory.Claims.Core.Scheduled.invoke (grow := grow) binding args) := by
+private theorem invoke_safe (ticket : Nat) (binding : Binding sig) (args : List FlatValue) :
+    Safe (Stored.OwnedMemory.Claims.Core.Scheduled.invoke (grow := grow) ticket binding args) := by
   unfold Stored.OwnedMemory.Claims.Core.Scheduled.invoke
   refine HostWrite.bind (readOnly P.Inv.currentInst?) fun current => ?_
   refine HostWrite.bind (readOnly P.Inv.getStore) fun store => ?_
@@ -383,11 +467,11 @@ private theorem invoke_safe (binding : Binding sig) (args : List FlatValue) :
     case accept =>
       split
       · exact .pure none _
-      · exact accept_with_safe _
+      · exact accept_with_safe _ _
     case acceptFlat =>
       split
       · exact .pure none _
-      · exact accept_with_safe _
+      · exact accept_with_safe _ _
     case giveOwner =>
       apply withTree_safe
       intro tree position
@@ -410,17 +494,26 @@ private theorem invoke_safe (binding : Binding sig) (args : List FlatValue) :
     case givePayload => exact give_memory_safe _ _ _ _ _ fun cx tree ptr => lower_payload_safe cx tree (.memory ptr)
     case giveFlat => exact .pure none _
 
-private theorem write_completion_safe (reply : Event × List FlatValue) :
+private theorem write_completion_safe (reply : Event × List FlatValue) (notPublication : reply.1.publication = none) :
     Safe (writeCompletion (grow := grow) (sig := sig) reply) :=
-  .get none fun state => .set (record_safe state _) (.pure none _)
+  .get none fun state => .set (record_safe state _ notPublication) (.pure none _)
 
 private theorem finish_safe (ticket : Nat) (result : Except Issue Nat) :
     Safe (finish (grow := grow) (sig := sig) ticket result) :=
-  write_completion_safe _
+  write_completion_safe _ (by cases result <;> rfl)
+
+private theorem flat_completion_safe (ticket : Nat) (shape : List NumType)
+    (result : Except Issue (List FlatValue)) : Safe (writeCompletion (grow := grow) (sig := sig)
+      (flatCompletion ticket shape result)) := by
+  apply write_completion_safe
+  unfold flatCompletion
+  split
+  · rfl
+  · split <;> rfl
 
 private theorem binding_trap_safe (ticket : Nat) (issue : Issue) :
     Safe (rejectBinding (grow := grow) (sig := sig) ticket issue) :=
-  .get none fun state => .set (record_safe state _) (readOnly (P.Inv.trap _))
+  .get none fun state => .set (record_safe state _ rfl) (readOnly (P.Inv.trap _))
 
 private theorem route_safe (ticket : Nat) (bindings : List (Binding sig)) (name : String)
     (type : V1.FuncType) (args : List FlatValue) : Safe (route (grow := grow) ticket bindings name type args) := by
@@ -428,11 +521,8 @@ private theorem route_safe (ticket : Nat) (bindings : List (Binding sig)) (name 
   split
   · exact binding_trap_safe _ _
   · split
-    · exact binding_trap_safe _ _
-    · split
-      · exact HostWrite.bind (give_flat_safe _ _ _ _) fun _ => write_completion_safe _
-      · exact HostWrite.bind (invoke_safe _ _) (finish_safe _)
-  · exact binding_trap_safe _ _
+    · exact HostWrite.bind (give_flat_safe _ _ _ _) (flat_completion_safe _ _)
+    · exact HostWrite.bind (invoke_safe _ _ _) (finish_safe _)
 
 private theorem host_safe (bindings : List (Binding sig)) :
     HostImplSafe CheckedWrite (host (grow := grow) bindings) := by
@@ -440,7 +530,9 @@ private theorem host_safe (bindings : List (Binding sig)) :
   · intro name caller; exact readOnly (P.Inv.internal _)
   · intro name type args
     refine .get none fun state => .set ?_ (route_safe _ _ _ _ _)
-    exact ⟨⟨by simp [HostState.enter, HostState.transcript], Nat.le_succ _⟩, .same _⟩
+    exact ⟨⟨by simp [HostState.enter, HostState.transcript], Nat.le_succ _⟩, .same _,
+      ⟨[], by simp [HostState.publications, HostState.enter, HostState.transcript, Event.publication],
+        by simp [HostState.enter], by simp⟩⟩
   · intro name thread; exact readOnly (P.Inv.internal _)
   · intro buffer; exact readOnly (P.Inv.internal _)
   · intro cancel; exact .pure none ()
@@ -480,16 +572,18 @@ theorem checked_of_steps (bindings : List (Binding sig))
     {labels : List (Label (core3 grow) (HostState sig))}
     (steps : Steps prof ready (specDispatch ready (host bindings)) initial labels final)
     (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels) :
-    Extends initial.host final.host ∧ WriterRun initial.host.writer final.host.writer := by
+    Extends initial.host final.host ∧ WriterRun initial.host.writer final.host.writer ∧
+      PublicationDelta initial.host final.host := by
   have checked := HostWrite.hostSafe_dispatch (host_safe (grow := grow) bindings) Limits.spec Quirks.none ready
   induction steps with
-  | refl => exact ⟨⟨List.prefix_rfl, le_rfl⟩, .refl _⟩
+  | refl => exact ⟨⟨List.prefix_rfl, le_rfl⟩, .refl _, publication_refl _⟩
   | cons first _ ih =>
     have nextSafe := HostWrite.step_cfgSafe checked first safe (fun program equal => runSafe program (by simp [equal]))
     have tail := ih nextSafe (fun program member => runSafe program (List.mem_cons_of_mem _ member))
     rcases HostWrite.step_host first safe with same | extended
     · rwa [same] at tail
-    · exact ⟨⟨extended.1.1.trans tail.1.1, le_trans extended.1.2 tail.1.2⟩, .cons extended.2 tail.2⟩
+    · exact ⟨⟨extended.1.1.trans tail.1.1, le_trans extended.1.2 tail.1.2⟩, .cons extended.2.1 tail.2.1,
+        publication_trans extended.2.2 tail.2.2⟩
 
 theorem owner_retired {before after : Stored.OwnedMemory.Claims.State sig} {id : HandleObjId}
     (run : WriterRun before after) (retired : before.retiredOwner id) : after.retiredOwner id := by
@@ -539,5 +633,55 @@ theorem endpoint_publications {before after : Stored.OwnedMemory.Claims.State si
           | owner => exact earlier
           | endpoint => exact (List.mem_filter.mp earlier).1
         · exact .inr published
+
+theorem publication_targets {before after : HostState sig}
+    (run : WriterRun before.writer after.writer) (journal : PublicationDelta before after) :
+    ∃ entries roots, after.publications = before.publications ++ entries ∧
+      after.writer.accepted = roots ++ before.writer.accepted ∧ entries.length = roots.length ∧
+      ∀ index ticket handle, entries[index]? = some (ticket, handle) →
+        ∃ tree, roots[roots.length - (index + 1)]? = some tree ∧
+          Stored.Endpoints.Core.childFromHistory after.writer.accepted (BitVec.ofNat 32 handle) = some tree := by
+  obtain ⟨entries, transcript, count, issued⟩ := journal
+  obtain ⟨roots, accepted, _⟩ := endpoint_publications run
+  have sized : entries.length = roots.length := by
+    have lengths := congrArg List.length accepted
+    simp only [List.length_append] at lengths
+    omega
+  refine ⟨entries, roots, transcript, accepted, sized, ?_⟩
+  intro index ticket handle entry
+  have indexBound : index < entries.length := by
+    by_contra! beyond
+    rw [List.getElem?_eq_none beyond] at entry
+    contradiction
+  obtain ⟨position, inWord⟩ := issued index ticket handle entry
+  have positive : 0 < handle := by omega
+  have within : handle ≤ after.writer.accepted.length := by omega
+  have offset : after.writer.accepted.length - handle = roots.length - (index + 1) := by omega
+  have inRoots : roots.length - (index + 1) < roots.length := by omega
+  refine ⟨roots[roots.length - (index + 1)], List.getElem?_eq_getElem inRoots, ?_⟩
+  have asWord : (BitVec.ofNat 32 handle).toNat = handle := Nat.mod_eq_of_lt inWord
+  simp only [Stored.Endpoints.Core.childFromHistory, asWord]
+  simp [positive, within]
+  rw [offset, accepted, List.getElem?_append_left inRoots, List.getElem?_eq_getElem inRoots]
+
+theorem retained_target {before after : State sig} (run : WriterRun before after)
+    {handle : BitVec 32} {tree : Stored.OwnedMemory.Tree sig}
+    (selected : Stored.Endpoints.Core.childFromHistory before.accepted handle = some tree) :
+    Stored.Endpoints.Core.childFromHistory after.accepted handle = some tree := by
+  obtain ⟨roots, accepted, _⟩ := endpoint_publications run
+  by_cases valid : 0 < handle.toNat ∧ handle.toNat ≤ before.accepted.length
+  · have size : after.accepted.length = roots.length + before.accepted.length := by simp [accepted]
+    have within : handle.toNat ≤ after.accepted.length := by omega
+    have oldOffset : roots.length ≤ after.accepted.length - handle.toNat := by omega
+    have offset : after.accepted.length - handle.toNat - roots.length = before.accepted.length - handle.toNat := by
+      omega
+    simp [Stored.Endpoints.Core.childFromHistory, valid.1, valid.2] at selected
+    simp [Stored.Endpoints.Core.childFromHistory, valid.1, within]
+    rw [show after.accepted[after.accepted.length - handle.toNat]? =
+      before.accepted[before.accepted.length - handle.toNat]? by
+      conv_lhs => enter [1]; rw [accepted]
+      rw [List.getElem?_append_right oldOffset, offset]]
+    exact selected
+  · simp [Stored.Endpoints.Core.childFromHistory, valid] at selected
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript

@@ -130,7 +130,7 @@ private def expectedTranscript (trapping : Bool) : List Event :=
   let transfer := fun ticket name position => Event.entered ticket name
     Endpoints.Core.Scheduled.giveType [i32Flat 1, i32Flat position]
   [accept 0 1, .refused 0 (.accept (.boundary (.stored (.lift .storedBorrow)))),
-    accept 1 0, .returned 1 1,
+    accept 1 0, .published 1 1, .returned 1 1,
     transfer 2 "wrong-owner" 1, .refused 2 (.claim .wrongResourceType),
     transfer 3 "give-owner" 0, .returned 3 3,
     transfer 4 "give-owner" 0, .refused 4 (.claim .unclaimed),
@@ -142,7 +142,7 @@ private def expectedTranscript (trapping : Bool) : List Event :=
       transfer 8 "give-reader" 0, .returned 8 2,
       transfer 9 "give-reader" 0, .refused 9 (.claim .unclaimedEndpoint),
       .entered 10 "accept-node" (Endpoints.Core.Scheduled.acceptType contract)
-        [i32Flat 2, i32Flat 48, i32Flat 0, i32Flat 0], .returned 10 2,
+        [i32Flat 2, i32Flat 48, i32Flat 0, i32Flat 0], .published 10 2, .returned 10 2,
       transfer 11 "give-owner" 0, .refused 11 (.claim .unclaimed),
       .entered 12 "give-reader" Endpoints.Core.Scheduled.giveType [i32Flat 2, i32Flat 0], .returned 12 2]
 

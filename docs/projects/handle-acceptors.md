@@ -611,13 +611,15 @@ effects are retained. Together with `accept_refusal_steps` these cover all outco
 the dispatcher reaches the synchronous accept continuation. They are per-invocation
 reduction lemmas, not an exact guest language theorem.
 
-The scheduled flat replay also connects a writer and a reader in separate component
-instances through actual Core exports. The writer publishes a tree with two distinct
-equal-representation owners and a readable stream, and the reader receives all three
-claims via `giveFlat`. It cancels a blocked read without writing memory, retries,
-polls completion, checks the transferred record and owner, and observes closure.
-After both endpoints are dropped, a stale read traps without removing the published
-tree. The async operations here are reference built-ins, not async accept calls.
+The scheduled flat replay connects a writer and a reader in separate component
+instances through actual Core exports. It runs with either a stream or a future of a
+record containing an owner. The writer publishes a tree with two distinct
+equal-representation owners and a readable endpoint, and the reader receives all
+three claims via `giveFlat`. It cancels a blocked read without writing memory, retries,
+polls the channel's completion event, and checks the transferred record and owner.
+The stream case observes writer closure on a subsequent read. For both channels, a
+stale read after drop traps without removing the published tree. The async operations
+here are reference built-ins, not async accept calls.
 
 The canonical caller-start receipt observer uses the same `canon lower` start callback
 and argument cursor as the reference, including the single-pointer spill path. Erasing
@@ -627,6 +629,25 @@ and spilled arguments, an indirect async result, equal representations with diff
 owner identities, and cancellation before and after start. The observer is not a checked
 storage boundary. The public acceptor scheduler does not yet dispatch async canonical
 accept calls; its unsupported calling conventions remain refused.
+
+The scheduled journal distinguishes publication from a Core reply. A `published`
+entry records the import ticket and handle in the same host write that adds the root
+and its claims. Across arbitrary ordinary machine prefixes, `checked_of_session`
+proves that the publication journal only grows and that its growth equals the growth
+of accepted roots. Each journal entry carries the one-based position of its root,
+as a nonzero, non-wrapping Core `i32` handle. A refusal or a trap without publication
+cannot count as an acceptance, and a prefix ending between publication and the reply
+still records the root. `PublicationDelta.targets` proves that each journaled handle
+selects its root from the final writer; `WriterRun.retains_target` extends this to older
+handles without reviving spent resource or endpoint claims. Both loaders check capacity
+before lifting, and the publication continuation independently refuses to wrap.
+This conservation statement does not characterize which roots a given module can accept.
+
+`import_binding_trap_steps` covers mislinked imports from the public dispatcher,
+not only its trap continuation. It records the entry and the typed missing, ambiguous
+or mismatched-binding diagnostic before taking the reference trap transition. No
+loader or claim transfer runs. Core replays verify that the rejected call publishes
+nothing and an owner allocated by an earlier export stays in the resource table.
 
 ## Checking
 

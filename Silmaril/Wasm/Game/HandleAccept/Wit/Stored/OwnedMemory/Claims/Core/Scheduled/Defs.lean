@@ -37,6 +37,7 @@ inductive Issue where
 observed in the machine's labels; the started call has no status return in this journal. -/
 inductive Event where
   | entered (ticket : Nat) (name : String) (type : V1.FuncType) (args : List FlatValue)
+  | published (ticket : Nat) (handle : Nat)
   | returned (ticket : Nat) (value : Nat)
   | returnedFlat (ticket : Nat) (values : List FlatValue)
   | refused (ticket : Nat) (issue : Issue)
@@ -51,6 +52,13 @@ structure HostState (sig : Signature) where
 variable {sig : Signature}
 
 def HostState.transcript (state : HostState sig) : List Event := state.newestFirst.reverse
+
+def Event.publication : Event → Option (Nat × Nat)
+  | .published ticket handle => some (ticket, handle)
+  | _ => none
+
+def HostState.publications (state : HostState sig) : List (Nat × Nat) :=
+  state.transcript.filterMap Event.publication
 
 def HostState.refusals (state : HostState sig) : List Issue :=
   state.newestFirst.filterMap fun
@@ -104,8 +112,15 @@ inductive WriterRun : State sig → State sig → Prop where
   | cons {before next after : State sig} (step : WriterStep before next)
       (rest : WriterRun next after) : WriterRun before after
 
+/-- Every publication has a journal entry, including in runs ending before the Core reply. -/
+def PublicationDelta (before after : HostState sig) : Prop :=
+  ∃ entries, after.publications = before.publications ++ entries ∧
+    after.writer.accepted.length = before.writer.accepted.length + entries.length ∧
+    ∀ index ticket handle, entries[index]? = some (ticket, handle) →
+      handle = before.writer.accepted.length + index + 1 ∧ handle < 2 ^ 32
+
 def CheckedWrite (before after : HostState sig) : Prop :=
-  Extends before after ∧ WriterStep before.writer after.writer
+  Extends before after ∧ WriterStep before.writer after.writer ∧ PublicationDelta before after
 
 abbrev Session (grow : SingleThreaded.GrowOracle) (sig : Signature) (Result : Type) :=
   P (core3 grow) (HostState sig) Result
@@ -200,15 +215,17 @@ def writeCompletion (reply : Event × List FlatValue) : Session grow sig (List F
 def finish (ticket : Nat) (result : Except Issue Nat) : Session grow sig (List FlatValue) :=
   writeCompletion (completion ticket result)
 
-def publishRoot (tree : Tree sig) : Session grow sig (Except Issue Nat) := do
+def publishRoot (ticket : Nat) (tree : Tree sig) : Session grow sig (Except Issue Nat) := do
   let current ← hostGet
   match current.writer.register tree with
   | .error issue => return .error (.accept (.claims issue))
   | .ok writer =>
-    hostSet { current with writer }
-    return .ok ((BitVec.ofNat 32 writer.accepted.length).toNat)
+    let handle := writer.accepted.length
+    if handle ≥ 2 ^ 32 then return .error (.accept (.boundary .exhaustedHandles))
+    hostSet (({ current with writer } : HostState sig).record (.published ticket handle))
+    return .ok handle
 
-def acceptWith (loadNode : World grow sig → CStore (core3 grow) × Except Core.Issue (Tree sig)) :
+def acceptWith (ticket : Nat) (loadNode : World grow sig → CStore (core3 grow) × Except Core.Issue (Tree sig)) :
     Session grow sig (Except Issue Nat) := do
   let state ← hostGet
   let reference ← getStore
@@ -216,11 +233,11 @@ def acceptWith (loadNode : World grow sig → CStore (core3 grow) × Except Core
   modifyStore fun _ => updated
   match result with
   | .error issue => return .error (.accept issue)
-  | .ok tree => publishRoot tree
+  | .ok tree => publishRoot ticket tree
 
-def accept (contract : Contract sig) (memory : Option Nat) (args : List FlatValue) :
+def accept (ticket : Nat) (contract : Contract sig) (memory : Option Nat) (args : List FlatValue) :
     Session grow sig (Except Issue Nat) :=
-  acceptWith fun state => load contract memory state (Endpoints.Core.Scheduled.nodeCall contract state.reference args)
+  acceptWith ticket fun state => load contract memory state (Endpoints.Core.Scheduled.nodeCall contract state.reference args)
 
 def select (handle : BitVec 32) : Session grow sig (Option (Tree sig)) := do
   return Endpoints.Core.childFromHistory (← hostGet).writer.accepted handle
@@ -292,17 +309,17 @@ def withTree (args : List FlatValue) (use : Tree sig → Nat → Session grow si
 
 /-- Canonical give and drop run in the live scheduler. Typed refusals are status pairs;
 an actual destructor or canonical lower trap is not converted into an ordinary refusal. -/
-def invoke (binding : Binding sig) (args : List FlatValue) : Session grow sig (Except Issue Nat) := do
+def invoke (ticket : Nat) (binding : Binding sig) (args : List FlatValue) : Session grow sig (Except Issue Nat) := do
   if (← currentInst?) != some binding.inst || !((← getStore).inst? binding.inst).any (·.mayLeave) then
     return .error .wrongContext
   let cx : LiftLowerContext (core3 grow) := { opts := {}, inst := binding.inst }
   match binding.action with
   | .accept contract memory =>
     if contract.inst != binding.inst then return .error .wrongContext
-    accept contract memory args
+    accept ticket contract memory args
   | .acceptFlat source =>
     if source.inst != binding.inst then return .error .wrongContext
-    acceptWith fun state => source.load state args
+    acceptWith ticket fun state => source.load state args
   | .giveOwner resource => withTree args fun tree position => do
     let some receipt := (rootReceipts tree)[position]? | return .error .badSelection
     return (← claims.give Limits.spec cx resource (receiptId receipt)).mapError .claim
@@ -321,18 +338,24 @@ def rejectBinding (ticket : Nat) (issue : Issue) : Session grow sig (List FlatVa
   hostSet ((← hostGet).record (.bindingTrap ticket issue))
   trap (.hostTrap "invalid mixed acceptor import binding")
 
+def resolveBinding (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) :
+    Except Issue (Binding sig) :=
+  match bindings.filter (·.name == name) with
+  | [] => .error .unlinkedImport
+  | [binding] =>
+    if type != binding.type then .error .wrongType else .ok binding
+  | _ => .error .ambiguousBinding
+
 def route (ticket : Nat) (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
     (args : List FlatValue) : Session grow sig (List FlatValue) := do
-  match bindings.filter (·.name == name) with
-  | [] => rejectBinding ticket .unlinkedImport
-  | [binding] =>
-    if type != binding.type then return ← rejectBinding ticket .wrongType
+  match resolveBinding bindings name type with
+  | .error issue => rejectBinding ticket issue
+  | .ok binding =>
     match binding.action with
     | .giveFlat destination payload =>
       let result ← giveFlat binding.inst destination payload args
       writeCompletion (flatCompletion ticket (ABI.flatten destination.width payload) result)
-    | _ => finish ticket (← invoke binding args)
-  | _ => rejectBinding ticket .ambiguousBinding
+    | _ => finish ticket (← invoke ticket binding args)
 
 def dispatchImport (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
     (args : List FlatValue) : Session grow sig (List FlatValue) := do
