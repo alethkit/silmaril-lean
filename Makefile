@@ -30,7 +30,7 @@ library:
 # The Cerberus tests and executables (docs/projects/cerberus.md).
 CERBERUS_TARGETS := CerberusTests cerb-lean ail-lean core-lean core-elab cfront \
 	ci_cerberus_genuine_oracle ci_cerberus_elaboration_oracle ci_cerberus_integer_cast \
-	ci_cerberus_parameter_call
+	ci_cerberus_parameter_call ci_cjson_array_item_context ci_cjson_array_item_machine
 # The C compiler's executables (docs/projects/ccomp.md).
 CCOMP_TARGETS := ccomp ccomp-legacy ccomp-verified csem decompile
 CHECK_TARGETS ?= Silmaril SilmarilSpecTec SilmarilSpecTecMeta SilmarilWasiWit SilmarilWasmProject SilmarilLogicGraphData ProjectSelfTest wasm-pages elf-pages wasm-region-map $(WASM_TOOLS) wasm-shell-lean $(CERBERUS_TARGETS) SysVTvExample CompilesToExamples cexplorer-export $(CCOMP_TARGETS)
@@ -97,8 +97,9 @@ check:
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/CjsonDetachContext.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/CjsonDetachMachine.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/cerberus/CjsonArrayItemObservation.lean)
-	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/CjsonArrayItemContext.lean)
-	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/CjsonArrayItemMachine.lean)
+	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) build --wfail ci_cjson_array_item_context ci_cjson_array_item_machine)
+	$(if $(filter CerberusTests,$(CHECK_TARGETS)),.lake/build/bin/ci_cjson_array_item_context)
+	$(if $(filter CerberusTests,$(CHECK_TARGETS)),.lake/build/bin/ci_cjson_array_item_machine)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(PYTHON) -I tools/corpus/check_cjson_array_item_native.py)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/cerberus/CjsonInsertObservation.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/CjsonInsertContext.lean)
