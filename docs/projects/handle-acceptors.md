@@ -437,6 +437,12 @@ chronological order. The proof preserves the initial accepted trees and includes
 prefixes, instantiation calls, and later exports after a trap. This is a publication trace
 invariant, not a characterization of which payload trees a particular guest can produce.
 
+`Wit.Stored.OwnedMemory.Payload` checks the ordered nominal type and representation at
+every active owner leaf against its receipt, including maps and nested sum arms. Equal
+representations do not make different nominal owners interchangeable. The receipt carries
+the arena identity obtained by canonical lifting; shape validation does not by itself
+authorize another transfer.
+
 The separately linked `Wit.Stored.Endpoints.Core` contract accepts an indirect payload in a
 synchronous atomic `accept-node` import. The canonical load reads the reached Core call's
 memory and resolves endpoints in a persistent reference arena. Schema or ABI rejection leaves
