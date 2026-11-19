@@ -229,7 +229,7 @@ try {
     assert.match(await page.locator('#status').innerText(),/15 binary-equivalence viewer problems · UNPROVED/);
     assert.equal(await page.locator('#binary-statement option').count(),16);
     assert.match(await page.locator('#selection').innerText(),p.pair.profile==='cjson-interior-detach-v1'?/joint entries for every declared five-object/:p.pair.profile==='cjson-finite-list-v1'?/joint entries for every declared finite-list/:p.pair.profile==='legacy-tinycc-isid-v1'?/independently admit every signed32/:/independently be enterable/);
-    for(const [i,id] of ['src','tgt'].entries()){
+    for(const [i,id] of ['source','target'].entries()){
       const a=p.artifacts[i],rendered=await page.locator('#'+id).innerText();
       for(const value of [a.path,a.sha256,a.bytes_hex,'0x'+a.address.toString(16),`${a.frame} bytes below entry RSP`])assert.ok(rendered.includes(value));
       assert.match(await page.locator('#provenance').innerText(),new RegExp(a.source.sha256));
