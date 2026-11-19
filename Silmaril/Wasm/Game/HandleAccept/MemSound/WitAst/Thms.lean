@@ -109,6 +109,13 @@ theorem layout_toWit (t : PTy) :
     ABI.layout .i32 (toWit t : WIT.ClosedType Nat) = PTy.layout t :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WitAst.layout_toWit t
 
+/-- The mode-dependent layout agrees with the canonical layout at both address widths. -/
+theorem layoutFor_toWit (address : AddrType) (type : PTy) :
+    PTy.layoutFor address type = ABI.layout address (toWit type) := by
+  cases address
+  · exact (layout_toWit type).symm
+  · rfl
+
 /-- The size of a payload value is REF `elem_size` of its WIT type. -/
 theorem width_toWit (t : PTy) :
     (ABI.layout .i32 (toWit t : WIT.ClosedType Nat)).size = PTy.width t := by

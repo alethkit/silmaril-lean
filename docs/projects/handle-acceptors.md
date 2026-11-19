@@ -271,7 +271,12 @@ are rejected before any transfer effects.
   indirections and the list limit to child handles. `checked_string_reference` identifies
   UTF-8, UTF-16 and tagged Latin-1/UTF-16 text decoding with the pure canonical range
   loader, including failure. This uses bounded slices and leaves the legacy UTF-8 trace
-  decoder unchanged. Flat arguments, memory64 and asynchronous calls are still rejected.
+  decoder unchanged. The checked path also accepts memory64: `layoutFor_toWit` relates
+  the layouts at both widths, and `checked_string_reference` covers all string modes at
+  both widths. Its memory64 `node` operands use `i64` payload pointer, child pointer and
+  child count; tag, child handles and owning slot indices remain `i32`. Width mismatches,
+  high out-of-bounds pointers and overlong child vectors are rejected without narrowing.
+  Flat arguments and asynchronous calls are still rejected at this Core entry point.
   This is not a proof of interoperability with monadic component-ABI lifting.
   Floats, `char` and single scalars agree with the pure
   reference loaders (`loadVal_f32`, `loadVal_f64`, `loadVal_char`, `loadVal_scalar`); lists,

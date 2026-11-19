@@ -284,6 +284,14 @@ def readPtrLen (bs : List UInt8) : Option (Nat × Nat × List UInt8) :=
   (le32 (bs.take 4)).bind fun p =>
     (le32 ((bs.drop 4).take 4)).map fun n => (p.toNat, n.toNat, bs.drop 8)
 
+/-- Read the pointer and length in the memory's address width, without truncation. -/
+abbrev readPtrLenFor : AddrType → List UInt8 → Option (Nat × Nat × List UInt8)
+  | .i32, bytes => readPtrLen bytes
+  | .i64, bytes => do
+    let ptr ← leN 8 bytes
+    let length ← leN 8 (bytes.drop 8)
+    return (ptr, length, bytes.drop 16)
+
 /-- `n` values read one after the other by `f`, and the rest. -/
 def readMany {α : Type} (f : List UInt8 → Option (α × List UInt8)) :
     Nat → List UInt8 → Option (List α × List UInt8)
@@ -302,13 +310,46 @@ def finOf? (n i : Nat) : Option (Fin n) := if h : i < n then some ⟨i, h⟩ els
 structure PayloadReader where
   segment : Nat → Nat → Option (List UInt8)
   string : Nat → Nat → Option String
+  address : AddrType
 
 /-- Preserve the legacy UTF-8, unbounded-range reader used by the trace model. -/
-def PayloadReader.legacy (seg : Nat → Nat → Option (List UInt8)) : PayloadReader :=
-  ⟨seg, fun ptr length => (seg ptr length).bind utf8?⟩
+abbrev PayloadReader.legacy (seg : Nat → Nat → Option (List UInt8)) : PayloadReader :=
+  ⟨seg, (fun ptr length => (seg ptr length).bind utf8?), .i32⟩
 
 theorem PayloadReader.legacy_segment (seg : Nat → Nat → Option (List UInt8)) :
     (legacy seg).segment = seg := rfl
+
+/-- Use the existing memory32 layout and the canonical reference layout for memory64. -/
+abbrev PTy.layoutFor : AddrType → PTy → ABI.Layout
+  | .i32, type => PTy.layout type
+  | .i64, type => ABI.layout .i64 (Wit.toWit type)
+
+/-- The size of a payload in the chosen memory. -/
+def PTy.widthFor : AddrType → PTy → Nat
+  | .i32, type => PTy.width type
+  | .i64, type => (PTy.layoutFor .i64 type).size
+
+/-- The alignment of a payload in the chosen memory. -/
+abbrev PTy.alignFor : AddrType → PTy → Nat
+  | .i32, type => PTy.align type
+  | .i64, type => (PTy.layoutFor .i64 type).alignment.bytes
+
+/-- Layout of a node's positional payload vector. -/
+def valsLayoutFor (address : AddrType) (types : List PTy) : ABI.Layout :=
+  ABI.recordLayout (types.map (PTy.layoutFor address))
+
+/-- The layout of a present payload at the selected width. -/
+abbrev optionalLayoutFor (address : AddrType) (type : Option PTy) : Option ABI.Layout :=
+  match address with
+  | .i32 => PTy.optLayout type
+  | .i64 => type.map (PTy.layoutFor .i64)
+
+/-- The payload layouts of variant cases at the selected width. -/
+abbrev caseLayoutsFor (address : AddrType) (cases : List (String × Option PTy)) :
+    List (Option ABI.Layout) :=
+  match address with
+  | .i32 => PTy.caseLayouts cases
+  | .i64 => cases.map fun (_, type) => optionalLayoutFor .i64 type
 
 mutual
 /-- **One payload value** at the head of `bs`, and the rest (REF `load`). The reader supplies
@@ -346,11 +387,11 @@ def readValWith (reader : PayloadReader) :
   | .u32, bs => (le32 (bs.take 4)).map fun v => (UInt32.ofBitVec v, bs.drop 4)
   | .s64, bs => (le64 (bs.take 8)).map fun v => (Int64.ofBitVec v, bs.drop 8)
   | .u64, bs => (le64 (bs.take 8)).map fun v => (UInt64.ofBitVec v, bs.drop 8)
-  | .string, bs => (readPtrLen bs).bind fun (p, n, rest) =>
+  | .string, bs => (readPtrLenFor reader.address bs).bind fun (p, n, rest) =>
       (reader.string p n).map fun str => (str, rest)
-  | .list t, bs => (readPtrLen bs).bind fun (p, n, rest) =>
-      if p % PTy.align t = 0 then
-        (reader.segment p (n * PTy.width t)).bind fun es =>
+  | .list t, bs => (readPtrLenFor reader.address bs).bind fun (p, n, rest) =>
+      if p % PTy.alignFor reader.address t = 0 then
+        (reader.segment p (n * PTy.widthFor reader.address t)).bind fun es =>
           (readMany (readValWith reader t) n es).bind fun (vs, r) =>
             if r.isEmpty then some (vs, rest) else none
       else none
@@ -364,35 +405,35 @@ def readValWith (reader : PayloadReader) :
   | .char, bs => (le32 (bs.take 4)).bind fun v =>
       (ABI.convertI32ToChar? v).map fun c => (c, bs.drop 4)
   | .fixedList t n, bs => (readMany (readValWith reader t) n bs).bind fun x =>
-      (vecOf? n x.1).map fun v => (v, bs.drop (PTy.width (.fixedList t n)))
+      (vecOf? n x.1).map fun v => (v, bs.drop (PTy.widthFor reader.address (.fixedList t n)))
   | .record fs, bs =>
-      (readFieldsAtWith reader fs 0 (bs.take (PTy.width (.record fs)))).map fun v =>
-        (v, bs.drop (PTy.width (.record fs)))
+      (readFieldsAtWith reader fs 0 (bs.take (PTy.widthFor reader.address (.record fs)))).map fun v =>
+        (v, bs.drop (PTy.widthFor reader.address (.record fs)))
   | .tuple ts, bs =>
-      (readFieldsWith reader ts 0 (bs.take (PTy.width (.tuple ts)))).map fun v =>
-        (v, bs.drop (PTy.width (.tuple ts)))
+      (readFieldsWith reader ts 0 (bs.take (PTy.widthFor reader.address (.tuple ts)))).map fun v =>
+        (v, bs.drop (PTy.widthFor reader.address (.tuple ts)))
   | .variant cs, bs => (leN (discBytes cs.length) bs).bind fun i =>
-      (readCaseWith reader cs i (((bs.take (PTy.width (.variant cs))).drop
-          (caseOffset (PTy.caseLayouts cs))))).map fun v =>
-        (v, bs.drop (PTy.width (.variant cs)))
+      (readCaseWith reader cs i (((bs.take (PTy.widthFor reader.address (.variant cs))).drop
+          (caseOffset (caseLayoutsFor reader.address cs))))).map fun v =>
+        (v, bs.drop (PTy.widthFor reader.address (.variant cs)))
   | .enum cs, bs => (leN (discBytes cs.length) bs).bind fun i =>
-      (finOf? cs.length i).map fun v => (v, bs.drop (PTy.width (.enum cs)))
+      (finOf? cs.length i).map fun v => (v, bs.drop (PTy.widthFor reader.address (.enum cs)))
   | .option t, bs => (leN 1 bs).bind fun i =>
       (match i with
         | 0 => some none
-        | 1 => (readValWith reader t ((bs.take (PTy.width (.option t))).drop
-            (caseOffset [none, some (PTy.layout t)]))).map fun x => some x.1
-        | _ => none : Option (Option t.Val)).map fun v => (v, bs.drop (PTy.width (.option t)))
+        | 1 => (readValWith reader t ((bs.take (PTy.widthFor reader.address (.option t))).drop
+            (caseOffset [none, some (PTy.layoutFor reader.address t)]))).map fun x => some x.1
+        | _ => none : Option (Option t.Val)).map fun v => (v, bs.drop (PTy.widthFor reader.address (.option t)))
   | .result ok err, bs => (leN 1 bs).bind fun i =>
       (match i with
-        | 0 => (readOptWith reader ok ((bs.take (PTy.width (.result ok err))).drop
-            (caseOffset [PTy.optLayout ok, PTy.optLayout err]))).map Sum.inl
-        | 1 => (readOptWith reader err ((bs.take (PTy.width (.result ok err))).drop
-            (caseOffset [PTy.optLayout ok, PTy.optLayout err]))).map Sum.inr
+        | 0 => (readOptWith reader ok ((bs.take (PTy.widthFor reader.address (.result ok err))).drop
+            (caseOffset [optionalLayoutFor reader.address ok, optionalLayoutFor reader.address err]))).map Sum.inl
+        | 1 => (readOptWith reader err ((bs.take (PTy.widthFor reader.address (.result ok err))).drop
+            (caseOffset [optionalLayoutFor reader.address ok, optionalLayoutFor reader.address err]))).map Sum.inr
         | _ => none : Option (PTy.OptVal ok ⊕ PTy.OptVal err)).map fun v =>
-          (v, bs.drop (PTy.width (.result ok err)))
+          (v, bs.drop (PTy.widthFor reader.address (.result ok err)))
   | .flags ls, bs => (leN (ABI.flagsAlignment ls.length).bytes bs).map fun i =>
-      (BitVec.ofNat ls.length i, bs.drop (PTy.width (.flags ls)))
+      (BitVec.ofNat ls.length i, bs.drop (PTy.widthFor reader.address (.flags ls)))
   | .own _, _ => none
   | .borrow _, _ => none
 
@@ -404,18 +445,18 @@ def readFieldsWith (reader : PayloadReader) :
     (ps : List PTy) → Nat → List UInt8 → Option (PTy.Vals ps)
   | [], _, _ => some ()
   | t :: ps, cur, area =>
-      let off := ABI.alignTo cur (PTy.layout t).alignment
-      (readValWith reader t ((area.drop off).take (PTy.width t))).bind fun (v, _) =>
-        (readFieldsWith reader ps (off + PTy.width t) area).map fun vs => (v, vs)
+      let off := ABI.alignTo cur (PTy.layoutFor reader.address t).alignment
+      (readValWith reader t ((area.drop off).take (PTy.widthFor reader.address t))).bind fun (v, _) =>
+        (readFieldsWith reader ps (off + PTy.widthFor reader.address t) area).map fun vs => (v, vs)
 
 /-- The fields of a record, as `readFieldsWith` (names are not read). -/
 def readFieldsAtWith (reader : PayloadReader) :
     (fs : List (String × PTy)) → Nat → List UInt8 → Option (PTy.FieldVals fs)
   | [], _, _ => some ()
   | (_, t) :: fs, cur, area =>
-      let off := ABI.alignTo cur (PTy.layout t).alignment
-      (readValWith reader t ((area.drop off).take (PTy.width t))).bind fun (v, _) =>
-        (readFieldsAtWith reader fs (off + PTy.width t) area).map fun vs => (v, vs)
+      let off := ABI.alignTo cur (PTy.layoutFor reader.address t).alignment
+      (readValWith reader t ((area.drop off).take (PTy.widthFor reader.address t))).bind fun (v, _) =>
+        (readFieldsAtWith reader fs (off + PTy.widthFor reader.address t) area).map fun vs => (v, vs)
 
 /-- The payload of case `i` of a variant, at the head of `bs`; none past the last case. -/
 def readCaseWith (reader : PayloadReader) :
