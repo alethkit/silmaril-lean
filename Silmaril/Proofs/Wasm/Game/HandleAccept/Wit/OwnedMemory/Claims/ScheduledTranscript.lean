@@ -18,6 +18,7 @@ open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
   Silmaril.Wasm.Component.Reference Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Execution.Core
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored (Signature)
 open Silmaril.Wasm.Game.HandleAccept.Wit
+open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims (State)
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled
 open Silmaril.Wasm.Game.HandleAccept.Wit.Async (Channel Element Channel.endKind Endpoint)
 
@@ -57,6 +58,41 @@ theorem finish_steps (config : Config (core3 grow) (HostState sig))
         ctl := ⟨thread, .prog (.pure (.flat (completion ticket result).2)), segments⟩ :: rest } :=
   write_completion_steps config thread segments rest _ pending
 
+private theorem steps_append {first middle last : Config (core3 grow) (HostState sig)}
+    {earlier later : List (Label (core3 grow) (HostState sig))}
+    (started : Steps prof ready dispatch first earlier middle) (continued : Steps prof ready dispatch middle later last) :
+    Steps prof ready dispatch first (earlier ++ later) last := by
+  induction started with
+  | refl => exact continued
+  | cons step _ ih => exact .cons step (ih continued)
+
+private theorem accept_load_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (loadNode : Stored.OwnedMemory.Claims.Core.World grow sig →
+      CStore (core3 grow) × Except Stored.OwnedMemory.Claims.Core.Issue (Stored.OwnedMemory.Tree sig))
+    (updated : CStore (core3 grow))
+    (loaded : Except Stored.OwnedMemory.Claims.Core.Issue (Stored.OwnedMemory.Tree sig))
+    (outcome : loadNode ⟨config.store, config.host.writer⟩ = (updated, loaded))
+    (pending : config.ctl = ⟨thread,
+      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau]
+      { config with
+        store := updated
+        ctl := ⟨thread, .prog (.flat <$> ((match loaded with
+          | .error issue => pure (.error (.accept issue))
+          | .ok tree => publishRoot tree) >>= finish ticket)), segments⟩ :: rest } := by
+  refine .cons (.hostGet pending) (.cons (.get rfl) ?_)
+  change Steps prof ready dispatch
+    { config with ctl := ⟨thread, .prog (.flat <$> ((do
+        let outcome := loadNode ⟨config.store, config.host.writer⟩
+        modifyStore fun _ => outcome.1
+        match outcome.2 with
+        | .error reason => pure (.error (.accept reason))
+        | .ok tree => publishRoot tree) >>= finish ticket)), segments⟩ :: rest } _ _
+  rw [outcome]
+  exact .cons (.modify rfl) (.refl _)
+
 theorem accept_refusal_steps (config : Config (core3 grow) (HostState sig))
     (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
     (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
@@ -70,17 +106,64 @@ theorem accept_refusal_steps (config : Config (core3 grow) (HostState sig))
       { config with
         store := updated
         host := config.host.record (.refused ticket (.accept issue))
-        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } := by
-  refine .cons (.hostGet pending) (.cons (.get rfl) ?_)
+        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } :=
+  steps_append (accept_load_steps config thread segments rest ticket loadNode updated (.error issue) refused pending)
+    (finish_steps _ thread segments rest ticket (.error (.accept issue)) rfl)
+
+theorem accept_success_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (loadNode : Stored.OwnedMemory.Claims.Core.World grow sig →
+      CStore (core3 grow) × Except Stored.OwnedMemory.Claims.Core.Issue (Stored.OwnedMemory.Tree sig))
+    (updated : CStore (core3 grow)) (tree : Stored.OwnedMemory.Tree sig) (writer : State sig)
+    (loaded : loadNode ⟨config.store, config.host.writer⟩ = (updated, .ok tree))
+    (registered : config.host.writer.register tree = .ok writer)
+    (pending : config.ctl = ⟨thread,
+      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+    let handle := (BitVec.ofNat 32 writer.accepted.length).toNat
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau, .tau]
+      { config with
+        store := updated
+        host := ({ config.host with writer } : HostState sig).record (.returned ticket handle)
+        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 0, i32Flat handle])), segments⟩ :: rest } := by
+  dsimp only
+  refine steps_append (accept_load_steps config thread segments rest ticket loadNode updated (.ok tree) loaded pending) ?_
+  refine .cons (.hostGet rfl) ?_
   change Steps prof ready dispatch
-    { config with ctl := ⟨thread, .prog (.flat <$> ((do
-        let outcome := loadNode ⟨config.store, config.host.writer⟩
-        modifyStore fun _ => outcome.1
-        match outcome.2 with
-        | .error reason => pure (.error (.accept reason))
-        | .ok tree => publishRoot tree) >>= finish ticket)), segments⟩ :: rest } _ _
-  rw [refused]
-  exact .cons (.modify rfl) (.cons (.hostGet rfl) (.cons (.hostSet rfl) (.refl _)))
+    { config with store := updated, ctl := ⟨thread, .prog (.flat <$> ((match config.host.writer.register tree with
+      | .error issue => pure (.error (.accept (.claims issue)))
+      | .ok writer => do
+        hostSet { config.host with writer }
+        return .ok (BitVec.ofNat 32 writer.accepted.length).toNat) >>= finish ticket)), segments⟩ :: rest } _ _
+  rw [registered]
+  exact .cons (.hostSet rfl) (finish_steps _ thread segments rest ticket (.ok _) rfl)
+
+theorem accept_registration_refusal_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (loadNode : Stored.OwnedMemory.Claims.Core.World grow sig →
+      CStore (core3 grow) × Except Stored.OwnedMemory.Claims.Core.Issue (Stored.OwnedMemory.Tree sig))
+    (updated : CStore (core3 grow)) (tree : Stored.OwnedMemory.Tree sig)
+    (issue : Stored.OwnedMemory.Claims.Issue)
+    (loaded : loadNode ⟨config.store, config.host.writer⟩ = (updated, .ok tree))
+    (rejected : config.host.writer.register tree = .error issue)
+    (pending : config.ctl = ⟨thread,
+      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau]
+      { config with
+        store := updated
+        host := config.host.record (.refused ticket (.accept (.claims issue)))
+        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } := by
+  refine steps_append (accept_load_steps config thread segments rest ticket loadNode updated (.ok tree) loaded pending) ?_
+  refine .cons (.hostGet rfl) ?_
+  change Steps prof ready dispatch
+    { config with store := updated, ctl := ⟨thread, .prog (.flat <$> ((match config.host.writer.register tree with
+      | .error issue => pure (.error (.accept (.claims issue)))
+      | .ok writer => do
+        hostSet { config.host with writer }
+        return .ok (BitVec.ofNat 32 writer.accepted.length).toNat) >>= finish ticket)), segments⟩ :: rest } _ _
+  rw [rejected]
+  exact finish_steps _ thread segments rest ticket (.error (.accept (.claims issue))) rfl
 
 theorem flatCompletion_type (ticket : Nat) (shape : List NumType) (result : Except Issue (List FlatValue)) :
     (flatCompletion ticket shape result).2.map Stored.flatType = .int .i32 :: shape := by

@@ -563,6 +563,15 @@ errors here; a synchronous call may still carry stream and future endpoints. The
 `MemSound.WitAst` contract still rejects flat inputs. This checked route does not prove
 the full component calling convention or exact accepted payload languages across exports.
 
+The scheduled `accept_success_steps` lemma connects both checked loaders' successful
+outcomes to a Core reply for the same handle and writer state. `register_claims` identifies
+the single published root and its new owner and endpoint claims. The separate
+`accept_registration_refusal_steps` lemma covers a successful lift followed by an alias
+refusal: there is no publication, the diagnostic is journaled, and prior canonical load
+effects are retained. Together with `accept_refusal_steps` these cover all outcomes once
+the dispatcher reaches the synchronous accept continuation. They are per-invocation
+reduction lemmas, not an exact guest language theorem.
+
 ## Checking
 
 ```
