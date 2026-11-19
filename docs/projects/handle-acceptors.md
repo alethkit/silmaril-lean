@@ -309,11 +309,17 @@ are rejected before any transfer effects.
   assumes policies without undefined behaviour. `Combined.Exact.Thms.readBack_exact` gives
   exactly the singleton word lists for any sentinel under the same non-UB and profile
   assumptions. Its replay picks one of two disjoint sets of fresh handles.
-* Families through memory: `MemSound.ListCheck` checks lists of exactly two symbols
-  (`symListMod`) or two blobs (`blobListMod`); there is no looped checker for any length (a loop
-  computing `ptr + 4i` with `i32` arithmetic wraps modulo `2^32` while the decoder reads at the
-  natural-number offset, so it needs an overflow guard), and the live sessions exhibit lists of
-  two copies of one symbol (blob) only.
+* Families through memory: `MemSound.ListCheck.Loop` adds variable-length Core checkers for
+  symbols and blobs. `symbols_sound` and `blobs_sound` bound the accepted language across all
+  permitted export calls under shaped replies and the trapping read policy, excluding UB
+  acceptance. The checker rereads `items` after each child call. The invariant tracks the
+  denoted prefix, not the memory or the numeric child handles. It traps before any word load
+  that would wrap the scaled index or cross the memory32 range; `address_eq` relates the guarded
+  Wasm address to the decoder's natural address. `remaining_decreases` supplies the decreasing
+  measure on a guarded back edge. The interpreter regression checks three distinct handles and
+  overwrites the scratch vector with each child reply. The older `symListMod` and `blobListMod`
+  remain two-child examples. This is not an exact accepted-language or full session-termination
+  result for the looped checkers.
 * Parsing: `chunkRingN` is proved for capacities up to 8192 (one page), with non-vacuity for
   every `1 ≤ cap ≤ 8192` (one value: `chunkRingN_relates_7_one`; the one-slot buffer:
   `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`) and for `2 ≤ cap` with two values; capacities
