@@ -55,9 +55,12 @@ def DirectCall.source (call : DirectCall caller parameters results) (frame : Loc
     (args : Values parameters) : Config H :=
   ⟨caller.store, frame.erase, vals args.erase ++ [.plain (.call call.index)]⟩
 
-def DirectCall.suspend (_call : DirectCall caller parameters results) (frame : LocalFrame caller locals)
+def DirectCall.wrap (_call : DirectCall caller parameters results) (outer : Frame)
     (configuration : Config H) : Config H :=
-  ⟨configuration.store, frame.erase,
+  ⟨configuration.store, outer,
     [.frame results.length configuration.frame [.label results.length [] configuration.code]]⟩
+
+def DirectCall.suspend (call : DirectCall caller parameters results) (frame : LocalFrame caller locals)
+    (configuration : Config H) : Config H := call.wrap frame.erase configuration
 
 end Silmaril.Wasm.Execution.Core.Intrinsic
