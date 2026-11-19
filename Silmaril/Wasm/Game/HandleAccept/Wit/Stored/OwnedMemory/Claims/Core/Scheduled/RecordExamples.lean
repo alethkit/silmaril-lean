@@ -29,6 +29,8 @@ private def imports : List (String × V1.FuncType × CanonHost engine) :=
   let accept := Endpoints.Core.Scheduled.acceptType contract
   let flat : V1.FuncType := ⟨[.int .i32], .int .i32 :: ABI.flatten .i32 (signature.payload true)⟩
   let recordFlat : V1.FuncType := ⟨[.int .i32], .int .i32 :: ABI.flatten .i32 (signature.payload false)⟩
+  let flatIn := wordFn 6 2
+  let wideIn : V1.FuncType := ⟨.int .i64 :: .int .i64 :: ABI.flatten .i64 (signature.payload true), flatIn.results⟩
   [("accept-node", accept, .embedder "accept-node" accept),
     ("give-record", wordFn 2 2, .embedder "give-record" (wordFn 2 2)),
     ("give-payload", wordFn 2 2, .embedder "give-payload" (wordFn 2 2)),
@@ -40,7 +42,9 @@ private def imports : List (String × V1.FuncType × CanonHost engine) :=
     ("close-reader", wordFn 1 0, .builtin (.streamDropReadable element) ⟨0⟩),
     ("close-writer", wordFn 1 0, .builtin (.streamDropWritable element) ⟨0⟩),
     ("give-flat", flat, .embedder "give-flat" flat),
-    ("wrong-flat-schema", recordFlat, .embedder "wrong-flat-schema" recordFlat)]
+    ("wrong-flat-schema", recordFlat, .embedder "wrong-flat-schema" recordFlat),
+    ("accept-flat", flatIn, .embedder "accept-flat" flatIn),
+    ("wide-flat", wideIn, .embedder "wide-flat" wideIn)]
 
 private def indexOf {kind : IndexKind} (index : Nat) : Idx kind := ⟨Fin.ofNat _ index⟩
 private def word (value : Nat) : Instr := .intConst .i32 (BitVec.ofNat 32 value)
@@ -205,5 +209,74 @@ private def flatRegression : Bool :=
 
 #guard (flatCompletion 0 [.int .i64, .float .f32] (.ok [i32Flat 3, .float .f32 7])).1 ==
   .refused 0 .wrongResultType
+
+private def flatInputSession (inst : ModuleInst) : Session grow signature (Ret engine) := do
+  let run (name : String) (args expected : List FlatValue) := do
+    let some addr := exportAddr inst name | internal s!"missing Core export {name}"
+    trapIf ((← callCore addr args) != expected) (.internal s!"unexpected result: {name}")
+  let refused := [i32Flat 1, i32Flat 0]
+  let inputs := [1, 2, 1, 3].map i32Flat
+  run "new-own" [i32Flat 77] [i32Flat 1]
+  run "new-own" [i32Flat 77] [i32Flat 2]
+  run "new-stream" [] [.int .i64 (BitVec.ofNat 64 (packEnds 3 4))]
+  run "wide-flat" (.int .i64 0 :: .int .i64 0 :: inputs) refused
+  run "accept-flat" (i32Flat 0 :: i32Flat 1 :: inputs) refused
+  run "accept-flat" (i32Flat 0 :: i32Flat 0 :: inputs) [i32Flat 0, i32Flat 1]
+  run "give-flat" [i32Flat 1] ([0, 3, 2, 1, 1].map i32Flat)
+  run "rep" [i32Flat 3] [i32Flat 77]
+  run "rep" [i32Flat 2] [i32Flat 77]
+  run "close-reader" [i32Flat 1] []
+  run "close-writer" [i32Flat 4] []
+  return .unit
+
+private def flatInputSetup : Option (List (Binding signature) × Machine.Config engine (HostState signature)) := do
+  let (store, inst) ← instantiate
+  let .ok input := Binding.acceptFlat ("host", "accept-flat") ⟨0⟩ inst 0 { passing := .flat } true | none
+  let .ok wide := Binding.acceptFlat ("host", "wide-flat") ⟨0⟩ inst 0 { address := .i64, passing := .flat } true | none
+  let .ok output := Binding.giveFlat "give-flat" ⟨0⟩ inst 0 .i32 .utf8 (signature.payload true) | none
+  let (_, initial) ← setup true
+  let reference := { initial.store with core := store }
+  return ([input, wide, output],
+    { initial with store := reference, ctl := [Machine.Activation.ofProg (some ⟨0⟩) (flatInputSession inst)] })
+
+private def flatInputRegression : Bool :=
+  match flatInputSetup with
+  | some (bindings, config) =>
+    let result := run bindings config
+    let writer := result.config.host.writer
+    let width := Issue.accept (.boundary (.boundary (.addressWidth .i32)))
+    let arity := Issue.accept (.boundary (.boundary .badArity))
+    let args := [1, 2, 1, 3].map i32Flat
+    let input := wordFn 6 2
+    let wide : V1.FuncType := ⟨.int .i64 :: .int .i64 :: ABI.flatten .i64 (signature.payload true), input.results⟩
+    let output : V1.FuncType := ⟨[.int .i32], .int .i32 :: ABI.flatten .i32 (signature.payload true)⟩
+    result.outcome == .resolved && writer.accepted.length == 1 && writer.held.isEmpty &&
+    writer.endpoints.isEmpty && result.config.host.refusals == [arity, width] &&
+    result.config.host.transcript == [
+      .entered 0 "wide-flat" wide (.int .i64 0 :: .int .i64 0 :: args), .refused 0 width,
+      .entered 1 "accept-flat" input (i32Flat 0 :: i32Flat 1 :: args), .refused 1 arity,
+      .entered 2 "accept-flat" input (i32Flat 0 :: i32Flat 0 :: args), .returned 2 1,
+      .entered 3 "give-flat" output [i32Flat 1], .returnedFlat 3 ([3, 2, 1, 1].map i32Flat)]
+  | none => false
+
+#guard flatInputRegression
+
+private def flatBindingIssue {sig : Signature} (result : Except Issue (Binding sig)) : Option Issue :=
+  match result with
+  | .ok _ => none
+  | .error issue => some issue
+
+private def inactiveBorrow : Signature :=
+  ⟨Unit, fun _ => .list (.option (.borrow resource)), fun _ => .fixed 0⟩
+
+#guard flatBindingIssue (Binding.acceptFlat (sig := inactiveBorrow) ("host", "bad") ⟨0⟩ {} 0
+  { passing := .flat } ()) ==
+  some (.accept (.claims (.lift (.schema .storedBorrow))))
+
+#guard flatBindingIssue (Binding.acceptFlat (sig := signature) ("host", "bad") ⟨0⟩ {} 0
+  { passing := .flat, asynchronous := true } true) == some (.accept (.boundary (.boundary .asyncCall)))
+
+#guard flatBindingIssue (Binding.acceptFlat (sig := signature) ("host", "bad") ⟨0⟩ {} 0 {} true) ==
+  some .wrongPassingMode
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.RecordExamples

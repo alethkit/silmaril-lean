@@ -47,6 +47,64 @@ theorem finish_steps (config : Config (core3 grow) (HostState sig))
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.finish_steps
     config thread segments rest ticket result pending
 
+/-- A failed checked load records its diagnostic and returns the refusal status without
+publishing a tree. The loader's reached store distinguishes effect-free preflight from a
+later canonical failure after table effects. The suspended work is not discarded. -/
+theorem accept_refusal_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (loadNode : World grow sig → CStore (core3 grow) × Except Core.Issue (OwnedMemory.Tree sig))
+    (updated : CStore (core3 grow)) (issue : Core.Issue)
+    (refused : loadNode ⟨config.store, config.host.writer⟩ = (updated, .error issue))
+    (pending : config.ctl = ⟨thread,
+      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau]
+      { config with
+        store := updated
+        host := config.host.record (.refused ticket (.accept issue))
+        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.accept_refusal_steps
+    config thread segments rest ticket loadNode updated issue refused pending
+
+/-- The loaded tree and its registered claims become visible before the successful
+Core reply. The publication and the journal use the same committed writer state. -/
+theorem accept_success_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (loadNode : World grow sig → CStore (core3 grow) × Except Core.Issue (OwnedMemory.Tree sig))
+    (updated : CStore (core3 grow)) (tree : OwnedMemory.Tree sig) (writer : State sig)
+    (loaded : loadNode ⟨config.store, config.host.writer⟩ = (updated, .ok tree))
+    (registered : config.host.writer.register tree = .ok writer)
+    (pending : config.ctl = ⟨thread,
+      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+    let handle := (BitVec.ofNat 32 writer.accepted.length).toNat
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau, .tau]
+      { config with
+        store := updated
+        host := ({ config.host with writer } : HostState sig).record (.returned ticket handle)
+        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 0, i32Flat handle])), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.accept_success_steps
+    config thread segments rest ticket loadNode updated tree writer loaded registered pending
+
+/-- Registration can refuse after lifting. It must not publish the root, spend another
+claim, or roll back canonical effects already performed by the loader. -/
+theorem accept_registration_refusal_steps (config : Config (core3 grow) (HostState sig))
+    (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
+    (rest : List (Activation (core3 grow) (HostState sig))) (ticket : Nat)
+    (loadNode : World grow sig → CStore (core3 grow) × Except Core.Issue (OwnedMemory.Tree sig))
+    (updated : CStore (core3 grow)) (tree : OwnedMemory.Tree sig) (issue : Claims.Issue)
+    (loaded : loadNode ⟨config.store, config.host.writer⟩ = (updated, .ok tree))
+    (rejected : config.host.writer.register tree = .error issue)
+    (pending : config.ctl = ⟨thread,
+      .prog (.flat <$> (do finish ticket (← acceptWith loadNode))), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau, .tau, .tau]
+      { config with
+        store := updated
+        host := config.host.record (.refused ticket (.accept (.claims issue)))
+        ctl := ⟨thread, .prog (.pure (.flat [i32Flat 1, i32Flat 0])), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.accept_registration_refusal_steps
+    config thread segments rest ticket loadNode updated tree issue loaded rejected pending
+
 /-- Journal a complete flat payload and its status, including shape-correct padding on refusal. -/
 theorem finish_flat_steps (config : Config (core3 grow) (HostState sig))
     (thread : Option Runtime.ThreadId) (segments : List (Seg (core3 grow) (HostState sig)))
