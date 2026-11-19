@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.AcceptVariants.Thms
 public import Silmaril.Wasm.Resource.Replay.Defs
 import Silmaril.Wasm.Execution.Core.SpecProfile
+import Silmaril.Wasm.Verify.Kernel.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.AcceptVariants.Replay
 
 /-!
@@ -54,7 +55,9 @@ variable {P : Profile}
   (hP : ∀ c c' : Config Nat, Step (profile refOracle) Det.noHost c c' → Step P Det.noHost c c')
 include hP
 
-open Silmaril.Proofs.Wasm.Game.HandleAccept.AcceptVariants (mem_consXLang_of_replay)
+open Silmaril.Proofs.Wasm.Game.HandleAccept.AcceptVariants
+  (consXAsk consXAns mem_consXLang_of_replay replayFromK_eq wxRunB)
+open Silmaril.Proofs.Wasm.Game.HandleAccept.Replay (rdecG)
 
 theorem errAccept_accepts_word {pol : Policy (BitVec 32)}
     (hs : pol.sentinel = some 0 ∨ pol.sentinel = none) :
@@ -80,6 +83,55 @@ theorem allAccept_accepts {pol : Policy (BitVec 32)} (hs : pol.sentinel = some 0
     mem_consXLang_of_replay allAccept_instance hP variantsIx allScript refFuel 5
       ⟨0, by decide +kernel⟩ 3 (by rw [hs]; decide +kernel)⟩
 
+theorem errAccept_accepts_input {pol : Policy (BitVec 32)} (hs : pol.sentinel = some 0)
+    (input : Nat) : SExp2.atom (BitVec.ofNat 64 input) ∈ moduleConsXLang P errAccept variantsIx pol := by
+  let exportIndex : Fin (instOf errAccept).exports.length := ⟨0, by decide +kernel⟩
+  have decoded : rdecG (some .enter) (consXAsk variantsIx) (consXAns variantsIx) []
+      (replayExport (instOf errAccept) errOkScript 32 4 exportIndex input) =
+      [.enter, .write (.atom (BitVec.ofNat 64 input)) [] 1, .acceptErr 1 true] := by
+    rw [replayExport, ← replayFromK_eq]
+    dsimp only [exportIndex]
+    kernel_rfl
+  refine mem_consXLang_of_replay errAccept_instance hP variantsIx errOkScript 32 4 exportIndex input ?_
+  rw [hs, decoded]
+  simp [wxRunB, Api.consW, Writer.built, Env.lookupAll, Env.empty, Function.update]
+
+theorem allAccept_accepts_input {pol : Policy (BitVec 32)} (hs : pol.sentinel = some 0)
+    (input : Nat) :
+    SExp2.atom (BitVec.ofNat 64 input) ∈ moduleConsXLang P allAccept variantsIx pol ∧
+      SExp2.cons (.atom (BitVec.ofNat 64 input)) .nil ∈ moduleConsXLang P allAccept variantsIx pol := by
+  let exportIndex : Fin (instOf allAccept).exports.length := ⟨0, by decide +kernel⟩
+  have decoded : rdecG (some .enter) (consXAsk variantsIx) (consXAns variantsIx) []
+      (replayExport (instOf allAccept) allScript 32 5 exportIndex input) =
+      [.enter, .write (.atom (BitVec.ofNat 64 input)) [] 1, .write .nil [] 2,
+        .write .cons [1, 2] 3, .acceptAll] := by
+    rw [replayExport, ← replayFromK_eq]
+    dsimp only [exportIndex]
+    kernel_rfl
+  constructor <;>
+    refine mem_consXLang_of_replay allAccept_instance hP variantsIx allScript 32 5 exportIndex input ?_ <;>
+    rw [hs, decoded] <;>
+    simp [wxRunB, Api.consW, Writer.built, Env.lookupAll, Env.empty, Function.update]
+
+/-- Exact error-return language for the zero-sentinel, non-UB policy. -/
+theorem errAccept_exact {pol : Policy (BitVec 32)} (hs : pol.sentinel = some 0)
+    (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
+    moduleConsXLang P errAccept variantsIx pol = errL := by
+  refine (errAccept_sound P hw ha).antisymm fun tree member => ?_
+  rcases member with ⟨word, rfl⟩ | rfl
+  · simpa using errAccept_accepts_input hP hs word.toNat
+  · exact errAccept_accepts_nil hP hs
+
+/-- Exact bulk-accept language for the zero-sentinel, non-UB policy. -/
+theorem allAccept_exact {pol : Policy (BitVec 32)} (hs : pol.sentinel = some 0)
+    (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub) :
+    moduleConsXLang P allAccept variantsIx pol = allL := by
+  refine (allAccept_sound P hw ha).antisymm fun tree member => ?_
+  rcases member with ⟨word, rfl⟩ | rfl | ⟨word, rfl⟩
+  · simpa using (allAccept_accepts_input hP hs word.toNat).1
+  · exact (allAccept_accepts hP hs).2.1
+  · simpa using (allAccept_accepts_input hP hs word.toNat).2
+
 theorem batchAccept_accepts {pol : Policy (BitVec 32)} (hs : pol.sentinel = some 0) :
     SExp2.nil ∈ moduleConsXLang P batchAccept variantsIx pol ∧
       SExp2.cons (.atom 3) .nil ∈ moduleConsXLang P batchAccept variantsIx pol :=
@@ -87,6 +139,24 @@ theorem batchAccept_accepts {pol : Policy (BitVec 32)} (hs : pol.sentinel = some
       ⟨0, by decide +kernel⟩ 3 (by rw [hs]; decide +kernel),
     mem_consXLang_of_replay batchAccept_instance hP variantsIx batchScript refFuel 6
       ⟨0, by decide +kernel⟩ 3 (by rw [hs]; decide +kernel)⟩
+
+/-- The kept singleton list has a replay for every `i64` input, not just the closed fixture. -/
+theorem batchAccept_accepts_word {pol : Policy (BitVec 32)} (hs : pol.sentinel = some 0)
+    (input : Nat) :
+    SExp2.cons (.atom (BitVec.ofNat 64 input)) .nil ∈
+      moduleConsXLang P batchAccept variantsIx pol := by
+  let exportIndex : Fin (instOf batchAccept).exports.length := ⟨0, by decide +kernel⟩
+  have decoded : rdecG (some .enter) (consXAsk variantsIx) (consXAns variantsIx) []
+      (replayExport (instOf batchAccept) batchScript 32 6 exportIndex input) =
+      [.enter, .write (.atom (BitVec.ofNat 64 input)) [] 1, .acceptBatch false,
+        .write .nil [] 2, .write .cons [1, 2] 3, .acceptBatch true] := by
+    rw [replayExport, ← replayFromK_eq]
+    dsimp only [exportIndex]
+    kernel_rfl
+  refine mem_consXLang_of_replay batchAccept_instance hP variantsIx batchScript 32 6
+    exportIndex input ?_
+  rw [hs, decoded]
+  simp [wxRunB, Api.consW, Writer.built, Env.lookupAll, Env.empty, Function.update]
 
 end Positive
 
