@@ -58,7 +58,6 @@ abbrev Tree (sig : Signature) := AST (ast sig)
 
 inductive Issue where
   | schema (issue : Stored.Issue)
-  | flatOwnerUnsupported
   | incompleteReceipts
   deriving DecidableEq, Repr
 
@@ -87,6 +86,19 @@ def carrier (limits : Component.Limits) (quirks : Quirks) (cx : LiftLowerContext
     record := Observed.aggregate Val.record
     variant := Observed.variant }
 
+/-- Use the same receipt operation for direct slots and slots in indirect memory payloads. -/
+def flatCarrier (limits : Component.Limits) (quirks : Quirks) (cx : LiftLowerContext E)
+    (width : Silmaril.Wasm.AddrType) : FlatLoadCarrier E World Observed :=
+  let ref : FlatLoadCarrier E World Val := .reference limits quirks cx width
+  { memory := carrier limits quirks cx
+    prim := fun prim cursor => Prod.map Observed.ordinary id <$> ref.prim prim cursor
+    flags := fun flags => Observed.ordinary (Val.flags flags)
+    own := fun resource slot => Resources.takeWith cx resource slot (Observed.own resource)
+    borrow := fun resource slot => Observed.ordinary <$> ref.borrow resource slot
+    stream := fun type slot => Observed.ordinary <$> ref.stream type slot
+    future := fun type slot => Observed.ordinary <$> ref.future type slot
+    errorContext := fun slot => Observed.ordinary <$> ref.errorContext slot }
+
 def checkValue (type : TypeOf) (value : Observed) : Except Issue (Payload type) :=
   if typed : value.value.HasType type then
     if complete : value.owners.map (fun receipt => receipt.2.representation) =
@@ -94,27 +106,26 @@ def checkValue (type : TypeOf) (value : Observed) : Except Issue (Payload type) 
     else .error .incompleteReceipts
   else .error (.schema .decodedType)
 
-/-- Check the whole schema before lifting a handle. Once memory lifting starts, failures
+/-- Check the whole schema before lifting a handle. Once lifting starts, failures
 have reference trap semantics, not the Core checked import's call-local rejection semantics. -/
 def lift (limits : Component.Limits) (quirks : Quirks) (cx : LiftLowerContext E)
     (type : TypeOf) (input : Input) : P E World (Except Issue (Payload type)) :=
   match checkSchema type with
   | .error issue => pure (.error (.schema issue))
-  | .ok () =>
+  | .ok () => do
+    let width ← ptrType cx
     match input with
     | .memory ptr => do
-      let width ← ptrType cx
       let layout := ABI.layout width type
       checkAligned ptr layout.alignment.bytes
       checkInBounds cx ptr layout.size
       let value ← loadAtWith limits cx width (carrier limits quirks cx) type ptr
       return checkValue type value
-    | .flat values => do
-      let plain ← Stored.lift limits quirks cx type (.flat values)
-      return match plain with
-      | .ok payload => checkValue type (Observed.ordinary payload.val)
-      | .error .ownedResourceNeedsIdentity => .error .flatOwnerUnsupported
-      | .error issue => .error (.schema issue)
+    | .flat values =>
+      if values.map flatType != ABI.flatten width type then return .error (.schema .flatTypes)
+      let (value, _) ← liftFlatAtWith limits cx width (flatCarrier limits quirks cx width) type
+        (FlatCursor.ofList values)
+      return checkValue type value
 
 def buildNode (sig : Signature) (limits : Component.Limits) (quirks : Quirks)
     (cx : LiftLowerContext E) (tag : sig.Tag) (input : Input) (children : List (Tree sig)) :
