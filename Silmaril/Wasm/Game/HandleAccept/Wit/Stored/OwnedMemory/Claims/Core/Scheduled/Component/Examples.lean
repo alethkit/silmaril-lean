@@ -1,8 +1,10 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Defs
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Deferred.Defs
 import Silmaril.Wasm.Component.Reference.Machine.Soundness.Thms
 meta import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Defs
+meta import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Deferred.Defs
 meta import Silmaril.Wasm.Component.Reference.Machine.Exec.Defs
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.ComponentCall.Examples
@@ -27,13 +29,28 @@ private def word (value : Nat) : Instr := .intConst .i32 (BitVec.ofNat 32 value)
 private def storeWord (ptr : Nat) (value : Instr) : List Instr :=
   [word ptr, value, .intStore .i32 none ⟨0⟩ ⟨0, 0⟩]
 
-private def instantiate (spill async_ storedBorrow : Bool) : Option (Store (CanonHost engine) × ModuleInst) := do
+private def instantiate (spill async_ storedBorrow : Bool) (deferred : Bool := false) :
+    Option (Store (CanonHost engine) × ModuleInst) := do
   let c := callee spill async_ storedBorrow
   let newType : V1.FuncType := ⟨[.int .i32], [.int .i32]⟩
   let wrapperType : V1.FuncType := ⟨List.replicate 4 (.int .i32), c.coreType.results⟩
   let (store, newAddr) := SingleThreaded.allocHost ({} : Store (CanonHost engine)) newType
     (.builtin (.resourceNew resource .i32) ⟨0⟩)
   let (store, acceptAddr) := SingleThreaded.allocHost store c.coreType (c.lowered ⟨0⟩)
+  let dropType : V1.FuncType := ⟨[.int .i32], []⟩
+  let controls : List (String × V1.FuncType × CanonHost engine) := if deferred then
+    [ ("start", Deferred.startType, .embedder "start" Deferred.startType)
+    , ("cancel", newType, .builtin (.subtaskCancel true) ⟨0⟩)
+    , ("drop", dropType, .builtin .subtaskDrop ⟨0⟩) ] else []
+  let (store, controlAddrs) := controls.foldl (fun (store, addrs) (_, type, host) =>
+    let (store, addr) := SingleThreaded.allocHost store type host
+    (store, addrs ++ [.func addr])) (store, [])
+  let controlTypes := controls.map fun (_, type, _) => type.toCoreRec
+  let controlImports := controls.zipIdx |>.map fun ((name, _, _), index) =>
+    (⟨"host", name, .func (indexOf (3 + index))⟩ : Import)
+  let controlExports := controls.zipIdx |>.map fun ((name, _, _), index) =>
+    (⟨name, .func (indexOf (2 + index))⟩ : Export)
+  let wrapperIndex := 2 + controls.length
   let localValue := fun index => Instr.localGet (indexOf index)
   let body := storeWord 100 (word 1) ++ (if spill then
     storeWord 16 (word 100) ++ storeWord 20 (localValue 0) ++
@@ -41,12 +58,13 @@ private def instantiate (spill async_ storedBorrow : Bool) : Option (Store (Cano
     else [word 100, localValue 0, localValue 1, localValue 2]) ++
       [localValue 3, .call (indexOf 1)]
   let module_ : Module := {
-    types := [newType.toCoreRec, c.coreType.toCoreRec, wrapperType.toCoreRec]
-    imports := [⟨"host", "new-own", .func (indexOf 0)⟩, ⟨"host", "accept", .func (indexOf 1)⟩]
+    types := [newType.toCoreRec, c.coreType.toCoreRec, wrapperType.toCoreRec] ++ controlTypes
+    imports := [⟨"host", "new-own", .func (indexOf 0)⟩, ⟨"host", "accept", .func (indexOf 1)⟩] ++ controlImports
     memories := [⟨.i32, ⟨1, none⟩⟩]
     funcs := [⟨indexOf 0, [], [localValue 0, .call (indexOf 0)]⟩, ⟨indexOf 2, [], body⟩]
-    exports := [⟨"new-own", .func (indexOf 2)⟩, ⟨"accept", .func (indexOf 3)⟩] }
-  let (store, inst, none) ← Core3.prepareE? store module_ [.func newAddr, .func acceptAddr] | none
+    exports := [⟨"new-own", .func (indexOf wrapperIndex)⟩,
+      ⟨"accept", .func (indexOf (wrapperIndex + 1))⟩] ++ controlExports }
+  let (store, inst, none) ← Core3.prepareE? store module_ ([.func newAddr, .func acceptAddr] ++ controlAddrs) | none
   return (store, inst)
 
 private def exportAddr (inst : ModuleInst) (name : String) : Option engine.FuncAddr := do
@@ -166,5 +184,76 @@ private def canonicalTrap (second out : Nat) (reason : TrapReason)
 #guard rejectedMemoryWidth
 #guard canonicalTrap 1 128 (.unknownHandle 1) (none, some (.resource ⟨1⟩))
 #guard canonicalTrap 2 65536 .outOfBounds (none, none)
+
+private def deferredProgram (spill stale : Bool) (inst : ModuleInst) :
+    Session grow (signature spill) (Ret engine) := do
+  let check := fun name args expected => do
+    let some address := exportAddr inst name | internal "missing deferred replay export"
+    let reply ← callCore address (args.map i32Flat)
+    trapIf (reply != expected.map i32Flat) (.internal s!"unexpected deferred reply: {name}")
+  let pending := AsyncRef.AsyncLowerResult.pending .starting 3 |>.pack
+  check "new-own" [77] [1]
+  check "new-own" [77] [2]
+  check "accept" [0, 1, 2, 128] [pending]
+  check "cancel" [3] [AsyncRef.subtaskCancelResult (some .cancelledBeforeStarted)]
+  check "drop" [3] []
+  check "accept" [0, 1, 2, 136] [pending]
+  check "start" [3] [0]
+  check "cancel" [3] [AsyncRef.subtaskCancelResult (some .returned)]
+  check "drop" [3] []
+  if stale then check "start" [3] [0]
+  return .unit
+
+private def deferredConfig (spill stale : Bool) : Option (Machine.Config engine (HostState (signature spill))) := do
+  let (core, inst) ← instantiate spill true false true
+  let store : CStore engine := { CStore.empty with
+    core, insts := [{}], resourceTypes := [{ impl := some ⟨0⟩ }],
+    funcs := [.host (callee spill true).funcType ⟨0⟩],
+    tasks := [{ ft := ⟨[], none, false⟩, opts := {}, inst := ⟨0⟩, caller := ⟨0⟩ }],
+    threads := [{ status := .running, task := ⟨0⟩ }] }
+  return {
+    store, host := {}, conts := [none]
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (deferredProgram spill stale inst)] }
+
+private def deferredDispatch (spill : Bool) := specDispatch ready
+  (Deferred.hostWithDeferred (grow := grow) [] [callee spill true] [⟨0⟩] "start")
+
+private def runDeferred (spill : Bool) (start : Machine.Config engine (HostState (signature spill))) :=
+  Machine.run ready (deferredDispatch spill) (core3Exec grow) Machine.Oracle.first 1800 start
+
+theorem deferred_replay_sound (spill : Bool) (start : Machine.Config engine (HostState (signature spill))) :
+    Machine.Steps .deterministic ready (deferredDispatch spill) start
+      (runDeferred spill start).labels (runDeferred spill start).config :=
+  Machine.run_sound ready (deferredDispatch spill) (core3Exec grow) Machine.Oracle.first 1800 start
+
+private def deferredRegression (spill stale : Bool) : Bool :=
+  match deferredConfig spill stale with
+  | none => false
+  | some start =>
+    let result := runDeferred spill start
+    let state := result.config.host
+    let summary := state.writer.accepted.map fun tree => (rootReceipts tree).map fun r => (receiptId r).idx
+    result.outcome == (if stale then .trap else .resolved) &&
+      state.refusals == (if stale then [.stalePendingAccept] else []) &&
+      state.publications == [(1, 1)] && state.pendingAccepts.isEmpty && summary == [[0, 1]] &&
+      state.transcript.filter (fun event => match event with | .queued _ | .cancelled _ => true | _ => false) ==
+        [.queued 0, .cancelled 0, .queued 1] &&
+      (result.config.store.core.mems[0]?.map fun mem => (mem.bytes.extract 128 144).data) ==
+        some #[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
+
+#guard deferredRegression false false
+#guard deferredRegression true true
+
+private def rejectedSyncDefer : Bool :=
+  match config false false false (.one 2 128) with
+  | none => false
+  | some start =>
+    let host := Deferred.hostWithDeferred [] [callee false false] [⟨0⟩] "start"
+    let result := Machine.run ready (specDispatch ready host) (core3Exec grow) Machine.Oracle.first 900 start
+    result.outcome == .trap && result.config.host.publications.isEmpty &&
+      result.config.host.pendingAccepts.isEmpty && result.config.host.refusals == [.wrongPassingMode] &&
+      ownerSlots result.config.store == some (some (.resource ⟨0⟩), some (.resource ⟨1⟩))
+
+#guard rejectedSyncDefer
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.ComponentCall.Examples

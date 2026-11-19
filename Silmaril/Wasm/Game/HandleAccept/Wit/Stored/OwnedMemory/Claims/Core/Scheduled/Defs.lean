@@ -31,6 +31,7 @@ inductive Issue where
   | unlinkedImport
   | ambiguousBinding
   | badSelection
+  | stalePendingAccept
   deriving DecidableEq, Repr
 
 /-- Import tickets distinguish reentrant calls to the same binding. A canonical trap is
@@ -42,12 +43,22 @@ inductive Event where
   | returnedFlat (ticket : Nat) (values : List FlatValue)
   | refused (ticket : Nat) (issue : Issue)
   | bindingTrap (ticket : Nat) (issue : Issue)
+  | queued (ticket : Nat)
+  | cancelled (ticket : Nat)
   deriving BEq
+
+structure PendingAccept where
+  caller : CallerId
+  subtask : SubtaskId
+  callee : HostFuncId
+  inst : InstId
+  ticket : Nat
 
 structure HostState (sig : Signature) where
   writer : State sig := {}
   nextTicket : Nat := 0
   newestFirst : List Event := []
+  pendingAccepts : List PendingAccept := []
 
 variable {sig : Signature}
 

@@ -52,7 +52,7 @@ def Callee.lowered (callee : Callee sig) (function : FuncId) : CanonHost (core3 
 
 def Callee.check (callee : Callee sig) (store : CStore (core3 grow)) (subtask : SubtaskId)
     (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
-    (ft : WIT.FuncType Empty RtId) (limits : Nat × Nat) : Except Issue Unit := do
+    (ft : WIT.FuncType Empty RtId) (limits : Nat × Nat) (index : Option Nat := none) : Except Issue Unit := do
   if ft != callee.funcType then throw .wrongPayloadType
   if cx.inst != callee.inst || cx.scope != .subtask subtask then throw .wrongContext
   if cx.opts != callee.options || pos != 0 || limits != lowerLimits callee.async_ then
@@ -60,7 +60,7 @@ def Callee.check (callee : Callee sig) (store : CStore (core3 grow)) (subtask : 
   if (core3 grow).memAddrType? store.core callee.memory != some callee.width then
     throw .badLoweringMemory
   if !(store.subtask? subtask).any (fun entry =>
-      entry.inst == callee.inst && entry.state == .starting && entry.index.isNone) then
+      entry.inst == callee.inst && entry.state == .starting && entry.index == index && !entry.cancellationRequested) then
     throw .wrongContext
   if args.map Stored.flatType != callee.coreType.params then throw .wrongType
 
@@ -153,19 +153,16 @@ def resolveTree (ticket : Nat) (caller : CallerId) (tree : Tree sig) :
     let _ ← writeCompletion (.returned ticket published, [])
     return .cancel .none
 
-def invokeLower (callee : Callee sig) (caller : CallerId) (state : HostState sig)
-    (subtask : SubtaskId) (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
-    (ft : WIT.FuncType Empty RtId) (limits results : Nat) : Session grow sig (Ret (core3 grow)) := do
-  let ticket := state.nextTicket
-  let store ← getStore
-  if (← currentInst?) != some callee.inst then return ← reject ticket .wrongContext
-  if let .error issue := callee.check store subtask cx args pos ft (limits, results) then
-    return ← reject ticket issue
+/-- Continuation after linking and checking the caller record. The dispatcher owns
+those checks; this continuation validates the storage schema and the selected children. -/
+def acceptCaller (callee : Callee sig) (caller : CallerId) (ticket : Nat)
+    (history : List (Tree sig)) (store : CStore (core3 grow))
+    (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) : Session grow sig (Ret (core3 grow)) := do
   if let .error issue := OwnedMemory.checkSchema (sig.payload callee.tag) then
     return ← refuseBeforeLift ticket caller (.accept (.claims (.lift (.schema issue))))
-  if state.writer.accepted.length + 1 ≥ 2 ^ 32 then
+  if history.length + 1 ≥ 2 ^ 32 then
     return ← refuseBeforeLift ticket caller (.accept (.boundary .exhaustedHandles))
-  match planChildren callee cx args store state.writer.accepted with
+  match planChildren callee cx args store history with
   | .error issue => refuseBeforeLift ticket caller issue
   | .ok planned => do
     let [_, payload] ← observeLowerOnStart Limits.spec Quirks.none caller
@@ -174,6 +171,16 @@ def invokeLower (callee : Callee sig) (caller : CallerId) (state : HostState sig
     match OwnedMemory.checkValue (sig.payload callee.tag) payload with
     | .error issue => resolveRefused ticket caller (.accept (.claims (.lift issue)))
     | .ok payload => resolveTree ticket caller (AST.node callee.tag payload children)
+
+def invokeLower (callee : Callee sig) (caller : CallerId) (state : HostState sig)
+    (subtask : SubtaskId) (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (ft : WIT.FuncType Empty RtId) (limits results : Nat) : Session grow sig (Ret (core3 grow)) := do
+  let ticket := state.nextTicket
+  let store ← getStore
+  if (← currentInst?) != some callee.inst then return ← reject ticket .wrongContext
+  if let .error issue := callee.check store subtask cx args pos ft (limits, results) then
+    return ← reject ticket issue
+  acceptCaller callee caller ticket state.writer.accepted store cx args
 
 def invoke (callee : Callee sig) (caller : CallerId) : Session grow sig (Ret (core3 grow)) := do
   let record ← getObj ArenaField.callers caller
