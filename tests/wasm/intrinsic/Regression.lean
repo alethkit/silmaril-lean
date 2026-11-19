@@ -19,6 +19,19 @@ example : (Intrinsic.Module.equiv interface) ((Intrinsic.Module.equiv interface)
 
 example : ∃ lifted : Intrinsic.Module interface, lifted.erase = raw := Intrinsic.Module.lift_erase rawTyped
 
+private def jump : Intrinsic.Step labelCtx (.plain [.i32] [.i64]) :=
+  .br (stackPrefix := []) ⟨zero, rfl⟩ (InstrTypeOk.check_sound (by decide +kernel))
+
+private def finish : Intrinsic.Step bodyCtx (.plain [.i32] [.i64]) :=
+  .return_ (stackPrefix := []) rfl (InstrTypeOk.check_sound (by decide +kernel))
+
+private def trap : Intrinsic.Step bodyCtx (.plain [.i64] [.i32]) :=
+  .unreachable (InstrTypeOk.check_sound (by decide +kernel))
+
+example : InstrOk labelCtx (.br zero) (.plain [.i32] [.i64]) := jump.sound
+example : InstrOk bodyCtx .return_ (.plain [.i32] [.i64]) := finish.sound
+example : InstrOk bodyCtx .unreachable (.plain [.i64] [.i32]) := trap.sound
+
 example : True := by
   fail_if_success
     let _bad : Intrinsic.Step {} (.plain [] [.i32]) := .localGet ⟨zero, rfl⟩
