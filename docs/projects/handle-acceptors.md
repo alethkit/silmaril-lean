@@ -499,7 +499,10 @@ discriminants and any allocator effects, but not an unperformed transfer. List e
 the canonical element stride, including padding in compound elements. A dynamic list rechecks
 its claims after realloc, before writing any element; a refusal then keeps earlier fields
 and the allocator's effects. The compound-list replay covers a list of tuples containing fixed
-lists of futures. Effectful maps and mixed nominal owners still reject.
+lists of futures. Maps use the canonical key/value entry layout and the same checked
+allocation as lists. A string-key allocator can reenter; a later endpoint refusal keeps
+completed key writes but does not publish the map pointer and count. Mixed nominal owners
+still reject, including in inactive map schemas.
 
 ## Checking
 

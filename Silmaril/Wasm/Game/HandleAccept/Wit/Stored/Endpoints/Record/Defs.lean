@@ -24,7 +24,7 @@ inductive Field where
   | context (id : ErrCtxId)
   | aggregate (type : TypeOf) (fields : List Field)
   | fixed (element : TypeOf) (length : Nat) (entries : List Field)
-  | list (element : TypeOf) (entries : List Field) (plan : List Lower.Object)
+  | dynamic (type element : TypeOf) (entries : List Field) (plan : List Lower.Object)
   | sum (type : TypeOf) (arms : List (Option TypeOf)) (tag : Nat) (field : Option Field)
 
 def Field.type : Field → TypeOf
@@ -33,7 +33,7 @@ def Field.type : Field → TypeOf
   | .context _ => .errorContext
   | .aggregate type _ => type
   | .fixed element length _ => .fixedList element length
-  | .list element _ _ => .list element
+  | .dynamic type _ _ _ => type
   | .sum type _ _ _ => type
 
 namespace Internal
@@ -44,6 +44,7 @@ def supportedField : TypeOf → Bool
   | .tuple types => supportedTypes types
   | .option type => supportedField type
   | .list type | .fixedList type _ => supportedField type
+  | .map _ type => supportedField type
   | .variant cases => supportedCases cases
   | .result ok error => supportedCase ok && supportedCase error
   | .future _ | .stream _ | .errorContext => true
@@ -99,7 +100,18 @@ def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Low
     if !Internal.supportedField type then throw (.unsupportedField index)
     let .list values := value | throw (.preflight .decodedType)
     let (entries, plan) ← (compileItems (fun pos => compileField cx output pos type) values).mapError (.nested index)
-    return (.list type entries plan, plan)
+    return (.dynamic (.list type) type entries plan, plan)
+  | .map key type, value => do
+    if !Internal.supportedField type then throw (.unsupportedField index)
+    let .list values := value | throw (.preflight .decodedType)
+    let keyType : TypeOf := .prim key.toPrimitive
+    let entryType : TypeOf := .record (mapEntryFields key type)
+    let (entries, plan) ← (compileItems (fun pos entry => do
+      let .record [keyValue, payload] := entry | throw (.nested pos (.preflight .decodedType))
+      let key ← (checkValue keyType keyValue).mapError (.nested pos ∘ .preflight ∘ .schema)
+      let (field, plan) ← (compileField cx output 1 type payload).mapError (.nested pos)
+      return (.aggregate entryType [.data keyType key, field], plan)) values).mapError (.nested index)
+    return (.dynamic (.map key type) entryType entries plan, plan)
   | .option type, value => do
     if !Internal.supportedField type then throw (.unsupportedField index)
     match value with
@@ -217,7 +229,7 @@ def runField {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (qui
     | .memory ptr => do
       return (← runElements limits quirks cx width entries (layout width element).size ptr 0).mapError
         (.nested index)
-  | .list element entries plan => do
+  | .dynamic _ element entries plan => do
     match Lower.prepare (← getStore) (← hostGet) plan with
     | .error issue => return .error (.field index (.beforeAllocation issue))
     | .ok _ =>
@@ -294,7 +306,7 @@ end Internal
 
 /-- Lower fields in canonical record order. A refusal of the whole record before the first
 field is effect-free. An allocator can reenter: each effectful field checks the live store
-again, and a list checks again after its own allocation. Field errors and traps do not
+again, and lists and maps check after allocating their entries. Field errors and traps do not
 undo the completed prefix or the effects of realloc. -/
 def lower {E : CoreEngine} {sig : Signature} (limits : Component.Limits) (quirks : Quirks)
     (cx : LiftLowerContext E) (type : TypeOf) (payload : Payload type)

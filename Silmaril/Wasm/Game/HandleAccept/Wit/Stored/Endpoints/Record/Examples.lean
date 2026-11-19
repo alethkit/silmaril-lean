@@ -38,13 +38,13 @@ def nestedAliasPayload : Payload nestedAliasType :=
 
 def contextType : TypeOf := .record [("first", .future none), ("context", .errorContext)]
 
-def unsupportedList : TypeOf := .list (.map .u8 (.future none))
+def unsupportedList : TypeOf := .list (.map .u8 (.own ⟨0⟩))
 
 def inactiveType : TypeOf := .record [("direct", .future none), ("maybe", .option unsupportedList)]
 
 theorem inactive_field_rejected :
     preflight cx inactiveType ⟨.record [.future ⟨0⟩, .variant 0 none], by decide⟩ .flat =
-      .error (.unsupportedField 1) := by kernel_rfl
+      .error (.preflight (.schema .ownedResourceNeedsIdentity)) := by kernel_rfl
 
 theorem missing_realloc_rejected :
     preflight { cx with opts := { cx.opts with realloc := none } } aliasType aliasPayload .flat =
@@ -56,7 +56,7 @@ def nestedInactiveType : TypeOf :=
 theorem nested_inactive_field_rejected :
     preflight cx nestedInactiveType
       ⟨.record [.future ⟨0⟩, .record [.variant 0 none]], by decide⟩ .flat =
-        .error (.nested 1 (.unsupportedField 0)) := by kernel_rfl
+        .error (.preflight (.schema .ownedResourceNeedsIdentity)) := by kernel_rfl
 
 noncomputable def session (reenter memory : Bool) (nested : Bool := false) :
     P Mock.mock (State (signature nested)) (Ret Mock.mock) := do
