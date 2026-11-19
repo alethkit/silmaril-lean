@@ -349,6 +349,19 @@ slot type in an inactive case is rejected before either move, and a corrected re
 Whole-schema validation still rejects stored borrows. The receipts do not by themselves
 authorize a transfer back to a guest or connect the checked Core host to the reference machine.
 
+`Wit.Stored.OwnedMemory.Claims` registers only the owner receipts from a freshly lifted
+root. Held claims, not the accepted observations, authorize a canonical `lower_own` or a
+destructor request. `give` commits spending after insertion succeeds; `drop` commits it
+before calling the supplied reference destructor, so a trap in that call cannot restore the claim.
+The spend theorems identify the original nominal type, handle object and representation,
+preserve other claims and accepted trees, and rule out a second use of the spent identity.
+The machine examples create two equal-representation resources, reject a wrong-type transfer,
+retry, drop the other owner and reacquire owners in reused guest slots. Reacquiring a newly
+issued handle object creates a fresh claim, not another claim on the earlier handle object.
+The whole schema rejects stored borrows and mixed endpoint/error-context payloads before
+lifting. This is a reference host session, not a checked Core import adapter, and does not
+yet lower a compound containing multiple claims in one call.
+
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
 including nested futures and streams. Already-built children are not lifted again and create no
