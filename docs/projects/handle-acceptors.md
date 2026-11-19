@@ -357,7 +357,10 @@ not a scheduling theorem or a Core adapter.
   acceptance. The checker rereads `items` after each child call. The invariant tracks the
   denoted prefix, not the memory or the numeric child handles. It traps before any word load
   that would wrap the scaled index or cross the memory32 range; `address_eq` relates the guarded
-  Wasm address to the decoder's natural address. `remaining_decreases` supplies the decreasing
+  Wasm address to the decoder's natural address. `symbols_bounded` and `blobs_bounded` prove
+  that no accepted list exceeds `2 ^ 30` children, even with changing vector bases and without
+  using the size of any particular host memory image as a session invariant.
+  `remaining_decreases` supplies the decreasing
   measure on a guarded back edge. The interpreter regression checks three distinct handles and
   overwrites the scratch vector with each child reply. The older `symListMod` and `blobListMod`
   remain two-child examples. This is not an exact accepted-language or full session-termination
