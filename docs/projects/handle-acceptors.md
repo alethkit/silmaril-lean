@@ -406,6 +406,13 @@ trees in actual reference-machine runs; a repeated slot traps with no new tree a
 resurrect the slot. The examples do not route Core writer imports into component sessions or
 provide a correspondence for their accepted languages.
 
+`Wit.Stored.Endpoints.Core.Trace` observes only successful host replies as commits, not
+reached import redexes or traps. For every traced session with the selected import present,
+the committed handles are exactly the consecutive handles for the newly published roots, in
+chronological order. The proof preserves the initial accepted trees and includes pending
+prefixes, instantiation calls, and later exports after a trap. This is a publication trace
+invariant, not a characterization of which payload trees a particular guest can produce.
+
 The separately linked `Wit.Stored.Endpoints.Core` contract accepts an indirect payload in a
 synchronous atomic `accept-node` import. The canonical load reads the reached Core call's
 memory and resolves endpoints in a persistent reference arena. Schema or ABI rejection leaves
