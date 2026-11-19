@@ -416,6 +416,13 @@ trees in actual reference-machine runs; a repeated slot traps with no new tree a
 resurrect the slot. The examples do not route Core writer imports into component sessions or
 provide a correspondence for their accepted languages.
 
+`Wit.Stored.Endpoints.Core.Trace` observes only successful host replies as commits, not
+reached import redexes or traps. For every traced session with the selected import present,
+the committed handles are exactly the consecutive handles for the newly published roots, in
+chronological order. The proof preserves the initial accepted trees and includes pending
+prefixes, instantiation calls, and later exports after a trap. This is a publication trace
+invariant, not a characterization of which payload trees a particular guest can produce.
+
 The separately linked `Wit.Stored.Endpoints.Core` contract accepts an indirect payload in a
 synchronous atomic `accept-node` import. The canonical load reads the reached Core call's
 memory and resolves endpoints in a persistent reference arena. Schema or ABI rejection leaves
@@ -423,8 +430,23 @@ both stores unchanged at call entry. Canonical load traps retain earlier arena u
 no tree, and trap only the current Core call. The proofs relate the local load's read/update
 prefix to reference machine steps (including the reference machine's own lockdown on trap).
 An executable export replay checks an inactive nested borrow refusal, a successful compound
-stream move, stale-slot rejection, and a later successful export. This contract does not yet
-run async built-ins from Core exports or cover the older split `node`/`accept` writer ABI.
+stream move, stale-slot rejection, and a later successful export. This trap-returning contract
+does not cover the older split `node`/`accept` writer ABI or interpret scheduling operations.
+
+`Wit.Stored.Endpoints.Core.Scheduled` puts separately linked checked accept and handoff imports
+inside the reference scheduler. These imports return `(status, value)` to Core and retain the
+typed diagnostic on refusal, so a rejected import does not force reference-machine lockdown.
+Acceptance reuses the call-local checked load; handoff checks a separate held claim, the
+destination instance, and the live arena kind and element type. Canonical built-ins still use
+the unmodified reference dispatcher. The two-instance Core regression creates a stream and two
+owners, rejects an unused nested borrow, accepts the owning stream into a tree, hands it off once,
+cancels and retries a read, polls completion, transfers and drops both owners, observes peer
+closure, and traps on a stale canonical read without erasing the accepted tree. The bounded
+driver has a relational trace theorem. The same linked scheduler also runs a one-element
+`future<record{word: u16, owner: own<R>}>` through Core exports: cancellation and retry, handoff,
+copy, poll, owner drop, both endpoint drops, and a stale read. The future has its own two-operand
+copy ABI and completion payload, independent of the stream count. Neither replay states an
+exact accepted language for arbitrary exports or replaces the earlier trap-returning ABI.
 
 `Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
 immutable arena object exists in the current reference store. Unlike endpoint handoff, this
@@ -449,14 +471,17 @@ before canonical lower updates ownership. Neither a late table trap nor an alloc
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
-`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records with plain
-data fields, readable endpoints, dynamic endpoint lists and error contexts. It checks the complete
-schema, allocation preconditions and cross-field aliases (including across record depths) before
+`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records and options
+with plain data fields, readable endpoints, dynamic endpoint lists and error contexts. It checks
+the complete schema, allocation preconditions and cross-field aliases before
 any field is written. Fields follow canonical record layout and flat order. A field error identifies
 the path to the failing field; completed fields and any realloc effects remain visible. Reference-machine
 replays cover both outputs, nested padding, inactive unsupported fields, alias and missing-context
-rejection, reentrancy and allocator traps. Effectful list elements other than direct readable
-endpoints, non-record effectful wrappers and mixed nominal owners still reject.
+rejection, reentrancy and allocator traps. An empty option checks its full element schema but
+does not allocate; a present option reuses canonical discriminant layout and flat slot coercion.
+An allocator trap retains the written discriminant and any allocator effects, but not an
+unperformed transfer. General variants, other effectful list elements and mixed nominal owners
+still reject.
 
 ## Checking
 
