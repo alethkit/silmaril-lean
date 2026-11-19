@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Defs
+public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Audit.Defs
 
 @[expose] public section
 
@@ -16,6 +16,14 @@ structure Writer where
 
 /-- The four operands of the node call in `ownMod`. -/
 def nodeArgs : List Val := [.i32 0, .i32 16, .i32 0, .i32 0]
+
+/-- The node commit followed by the separate `accept` import, newest first. -/
+def acceptedEntries : List Audit.Event :=
+  [⟨1, [.i32 9], .values [], .other⟩, ⟨0, nodeArgs, .values [.i32 9], .committed⟩]
+
+/-- The retry records its typed rejection without recording a new `accept`. -/
+def rejectedEntries : List Audit.Event :=
+  ⟨0, nodeArgs, .trap, .rejected (.resource (.dead 1))⟩ :: acceptedEntries
 
 /-- A one-slot writer for the `ownMod` replay. An accepted tree must have been built at
 `node`, then named by `accept`; merely returning a handle does not accept a tree. -/
