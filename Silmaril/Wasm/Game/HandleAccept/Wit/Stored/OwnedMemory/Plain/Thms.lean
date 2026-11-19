@@ -20,6 +20,11 @@ def Payload.equivPlain {type : Stored.TypeOf} (admitted : Stored.checkSchema typ
     Stored.Payload type ≃ Payload type :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Plain.payloadEquiv admitted
 
+theorem Payload.equivPlain_symm {type : Stored.TypeOf} (admitted : Stored.checkSchema type = .ok ()) :
+    ((Payload.equivPlain admitted).symm : Payload type → Stored.Payload type) = Payload.erase := by
+  unfold Payload.equivPlain
+  rfl
+
 /-- Embed the existing checked AST using its original tags, child order and arity.
 The equivalence is about observations and does not grant authority to move endpoints. -/
 def Tree.equivPlain (signature : PlainSignature) : Stored.Tree signature.val ≃ Tree signature.val :=

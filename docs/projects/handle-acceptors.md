@@ -408,15 +408,18 @@ authorize a transfer back to a guest or connect the checked Core host to the ref
 payloads, including the named `ScalarType` fragment. After receipt erasure, memory
 and flat lifting have the identical effect program, including typed input failures
 and canonical traps. Primitive node construction preserves this equality through the
-arity check and maps arbitrary existing children in order. This is not a conservative
-extension theorem for compound loaders or for an entire Core export session.
+arity check and maps arbitrary existing children in order.
 
 `OwnedMemory.Plain.Thms` gives a typed equivalence for every payload and tree admitted
 by the older stored-value schema check. Its recursive proof rules out own receipts in
 all compound cases; the inverse preserves values, tags and children. Endpoint identities
 stay unchanged even when their element schema contains owners, because lifting an endpoint
-does not lift its elements. A borrow anywhere in the schema still rejects. This equivalence
-of typed observations does not grant authority or equate the two compound lifting programs.
+does not lift its elements. A borrow anywhere in the schema still rejects.
+`OwnedMemory.Plain.Lift.Thms` lifts that equivalence to the entire checked memory and flat
+programs, including memory/flat guards, traversal of compound fields and choices, and
+node arity. The argument-vector theorem also covers preserved cursor position and the
+one-pointer spill. These results do not grant authority, support stored borrows, or equate
+entire Core export sessions.
 
 `Wit.Stored.OwnedMemory.Claims` registers owner receipts and readable endpoint claims together
 from a freshly lifted root. Held claims, not the accepted observations, authorize a canonical
