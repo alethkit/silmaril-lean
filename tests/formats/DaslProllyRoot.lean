@@ -13,12 +13,17 @@ private def emptyMap : OrderedMap String Unit := ⟨[], .nil⟩
 private def emptyLeafBytes : ByteArray := ⟨#[0x82, 0x64, 0x6C, 0x65, 0x61, 0x66, 0x80]⟩
 
 private def toyProfile (tag : Bool) : RootProfile Bool String Unit :=
-  ⟨layout, Encode.text, Encode.null, fun _ => some emptyLeafBytes, fun _ => tag⟩
+  RootProfile.ofTotalHash layout Encode.text Encode.null (fun _ => some emptyLeafBytes) (fun _ => tag)
 
 example : names (toyProfile false).Roots emptyMap.lookup? = {false} ∧
     names (toyProfile true).Roots emptyMap.lookup? = {true} :=
   ⟨((toyProfile false).rootNames_eq_singleton_iff emptyMap false).mpr rfl,
     ((toyProfile true).rootNames_eq_singleton_iff emptyMap true).mpr rfl⟩
+
+private def unavailable : RootProfile Bool String Unit := { toyProfile true with hash? := fun _ => none }
+
+example (name : Bool) : ¬ unavailable.Roots name emptyMap.lookup? :=
+  fun proposed => Option.some_ne_none name ((unavailable.roots_iff emptyMap name).mp proposed).symm
 
 private def branched : Prolly.Tree String Unit :=
   ⟨1, [("a", [("a", ())]), ("b", [("b", ())])]⟩
@@ -31,7 +36,7 @@ private def objectCid (fill : UInt8) : Option Wire.Cid :=
   | _ => none
 
 private def cborProfile (hash : ByteArray → Wire.Cid) : RootProfile Wire.Cid String Unit :=
-  ⟨layout, Encode.text, Encode.null, Wire.render?, hash⟩
+  RootProfile.ofTotalHash layout Encode.text Encode.null Wire.render? hash
 
 public def main : IO Unit := do
   let some left := objectCid 0 | throw (IO.userError "first object CID")
@@ -46,3 +51,6 @@ public def main : IO Unit := do
   let routed := cborProfile (fun bytes => if bytes.size < 20 then left else right)
   unless branched.rootName? routed.nameBlock? == some right do
     throw (IO.userError "expected leaf links to be rendered before naming the branch")
+  let refusesChildren := { routed with hash? := fun bytes => if bytes.size < 20 then none else some right }
+  unless (branched.rootName? refusesChildren.nameBlock?).isNone do
+    throw (IO.userError "unavailable child names must prevent naming the root")

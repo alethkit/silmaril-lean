@@ -43,16 +43,16 @@ theorem stored_extension_iff (base : Store Name) (admitted : tree.Admits profile
     refine ⟨base.union (profile.observations tree address), ⟨fun _ _ hit => .inl hit, fun _ _ hit => .inl hit⟩,
       binding, ?_⟩
     intro block occurs
-    obtain ⟨bytes, serialized, _⟩ := Option.map_eq_some_iff.mp (admitted block occurs)
+    obtain ⟨bytes, serialized, _⟩ := Option.bind_eq_some_iff.mp (admitted block occurs)
     obtain ⟨value, encoded, _⟩ := Option.bind_eq_some_iff.mp serialized
     exact ⟨value, blockCodec_encode .. ▸ encoded, .inr ⟨block, ⟨rfl, occurs⟩, encoded⟩⟩
 
 theorem admits_iff_serializes (tree : Semantics.Prolly.Tree Key Payload) (address : Block Name Key Payload → Name) :
     tree.Admits profile.nameBlock? address ↔ ∀ block ∈ blockOccurrences address tree.level tree.root,
       ∃ value bytes, (blockCodec profile.key profile.payload).encode? block = some value ∧
-        profile.render? value = some bytes ∧ profile.hash bytes = address block := by
+        profile.render? value = some bytes ∧ profile.hash? bytes = some (address block) := by
   simp only [Semantics.Prolly.Tree.Admits, RootProfile.nameBlock?, blockCodec_encode,
-    Option.bind_eq_some_iff, Option.map_eq_some_iff]
+    Option.bind_eq_some_iff]
   constructor
   · intro success block hit
     obtain ⟨bytes, ⟨value, encoded, rendered⟩, named⟩ := success block hit
@@ -60,5 +60,13 @@ theorem admits_iff_serializes (tree : Semantics.Prolly.Tree Key Payload) (addres
   · intro success block hit
     obtain ⟨value, bytes, encoded, rendered, named⟩ := success block hit
     exact ⟨bytes, ⟨value, encoded, rendered⟩, named⟩
+
+theorem byteObservations_hashCompatible (admitted : tree.Admits profile.nameBlock? address) :
+    Naming.PartialHashCompatible profile.hash? (profile.byteObservations tree address) := by
+  rintro name bytes ⟨value, ⟨block, ⟨rfl, occurs⟩, encoded⟩, rendered⟩
+  change encodeBlock profile.key profile.payload block = some value at encoded
+  change profile.render? value = some bytes at rendered
+  change profile.hash? bytes = some (address block)
+  simpa [RootProfile.nameBlock?, encoded, rendered] using admitted block occurs
 
 end Silmaril.Proofs.Formats.Dasl.ProllyRoot

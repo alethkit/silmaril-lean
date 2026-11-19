@@ -16,8 +16,13 @@ variable {Name Key Payload : Type} (profile : RootProfile Name Key Payload)
 theorem admits_iff_serializes (tree : Semantics.Prolly.Tree Key Payload) (address : Block Name Key Payload → Name) :
     tree.Admits profile.nameBlock? address ↔ ∀ block ∈ blockOccurrences address tree.level tree.root,
       ∃ value bytes, (blockCodec profile.key profile.payload).encode? block = some value ∧
-        profile.render? value = some bytes ∧ profile.hash bytes = address block :=
+        profile.render? value = some bytes ∧ profile.hash? bytes = some (address block) :=
   Proofs.Formats.Dasl.ProllyRoot.admits_iff_serializes profile tree address
+
+theorem byteObservations_hashCompatible {tree : Semantics.Prolly.Tree Key Payload}
+    {address : Block Name Key Payload → Name} (admitted : tree.Admits profile.nameBlock? address) :
+    Naming.PartialHashCompatible profile.hash? (profile.byteObservations tree address) :=
+  Proofs.Formats.Dasl.ProllyRoot.byteObservations_hashCompatible profile admitted
 
 /-- Naming is not publication. Given successful naming at every block, a binding
 shallow extension exists exactly when the union of its observations with the base binds. -/

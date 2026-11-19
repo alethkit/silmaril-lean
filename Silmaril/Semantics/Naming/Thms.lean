@@ -97,10 +97,24 @@ theorem push_parse_iff {serializes : Payload → Wire → Prop} {parse : Wire �
     push rel serializes name wire ↔ rel name payload ∧ serializes payload wire :=
   Proofs.Semantics.Naming.push_parse_iff recovers parsed
 
-theorem HashCompatible.uniqueNames {hash : Wire → Name} {bytes : Relation Name Wire}
-    (integrity : HashCompatible hash bytes) : UniqueNames bytes := by
+theorem hashCompatible_iff_partial {hash : Wire → Name} {bytes : Relation Name Wire} :
+    HashCompatible hash bytes ↔ PartialHashCompatible (some ∘ hash) bytes :=
+  ⟨fun ok _ _ hit => congrArg some (ok hit), fun ok _ _ hit => Option.some.inj (ok hit)⟩
+
+theorem PartialHashCompatible.not_named_of_none {hash? : Wire → Option Name} {bytes : Relation Name Wire}
+    (integrity : PartialHashCompatible hash? bytes) {name : Name} {wire : Wire} (unavailable : hash? wire = none) :
+    ¬ bytes name wire := fun hit => Option.some_ne_none name ((integrity hit).symm.trans unavailable)
+
+/-- A fixed deterministic algorithm gives at most one name per byte string.
+This is the converse direction to `Binding` and does not rule out collisions. -/
+theorem PartialHashCompatible.uniqueNames {hash? : Wire → Option Name} {bytes : Relation Name Wire}
+    (integrity : PartialHashCompatible hash? bytes) : UniqueNames bytes := by
   intro wire left right first second
-  exact (integrity first).symm.trans (integrity second)
+  exact Option.some.inj ((integrity first).symm.trans (integrity second))
+
+theorem HashCompatible.uniqueNames {hash : Wire → Name} {bytes : Relation Name Wire}
+    (integrity : HashCompatible hash bytes) : UniqueNames bytes :=
+  (hashCompatible_iff_partial.mp integrity).uniqueNames
 
 theorem UniqueNames.of_push {serializes : Payload → Wire → Prop}
     (unique : UniqueNames (push rel serializes)) (total : ∀ payload, ∃ wire, serializes payload wire) :

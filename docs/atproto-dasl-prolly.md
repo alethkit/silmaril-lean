@@ -27,10 +27,12 @@ Raw-representation name uniqueness by itself is not this semantic guarantee.
 
 [Root naming](../Silmaril/Formats/Dasl/Prolly/Root/Thms.lean) fixes the key
 order, width/bucketer, recovered key and value codecs, partial renderer, and
-byte-to-name function. It views a semantic map as its lookup function. For
+an abstract `ByteArray → Option Name` oracle. A total `ByteArray → Name` is
+the `some` case, available via `RootProfile.ofTotalHash`. It views a semantic
+map as its lookup function. For
 any ordered representation of that map, its set of admissible root names is
 exactly `{root}` **iff** the bottom-up computation returns `some root`.
-Successful naming requires successful encoding and rendering at every
+Successful naming requires encoding, rendering and a name at every
 reached block, including children; `none` does not stand for an arbitrary
 root or a default name. The checked builder supplies a bounded layout for
 this profile. Other layout rules or value equivalences would need their own
@@ -38,12 +40,17 @@ coherence theorem; they are not implicitly identified with this profile.
 
 Passing `Wire.render?` uses the existing DASL CBOR writer; this does not
 prove a general CBOR roundtrip or renderer totality. The same canonical
-bytes can have different names under different naming profiles. Even within
-one profile, successful naming does not rule out collisions. A binding
+bytes can have different names under different naming profiles. For a fixed
+oracle the byte observations are a subset of its successful graph, not
+necessarily the whole graph. `none` admits no pair. Determinism gives at most
+one name per byte string under that oracle, not at most one byte string per
+name. Collisions and binding remain separate. A binding
 **shallow** store extension exists exactly when the union of the base and
 the complete shallow observations binds. This theorem does not publish to a
 raw store or guarantee that links inside user payloads are resolved. Store
 binding and membership in a naming profile are independent requirements.
+Any probabilistic collision or soundness bound would require a separate
+explicit distribution on oracles or naming relations. None is used here.
 
 [The closed-scan lookup](../Silmaril/Formats/Dasl/Prolly/Scan/Thms.lean) reads
 all child occurrences with fuel. It checks declared levels, arity and width,
