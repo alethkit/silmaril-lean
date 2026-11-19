@@ -363,6 +363,11 @@ allocation preconditions before writing; canonical traps retain their reference 
 examples round-trip a nested record in memory64 and as flat operands and show that an
 out-of-bounds destination writes nothing. Lowering an endpoint or error-context observation
 requires its own checked transfer; this path rejects those schemas, including inactive cases.
+`Wit.Stored.Endpoints.Lower` checks all active endpoint claims and error-context identities
+before passing a compound payload to the same reference store/flatten programs. A typed
+rejection retains the claims for a corrected retry; a successful transfer spends each claim
+once. This entry point rejects schemas that can require guest realloc, even in an inactive
+arm, until there is a frame for transferring the claims across the guest call.
 
 ## Checking
 
