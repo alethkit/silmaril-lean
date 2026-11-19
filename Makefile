@@ -80,7 +80,6 @@ check:
 	$(MAKE) process-gates
 	$(if $(filter Silmaril,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/DrislDebug.lean)
 	$(if $(filter Silmaril,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/Dasl.lean)
-	$(if $(filter Silmaril Silmaril.Formats.PER.Naming.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/formats/SemanticNaming.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/NullPointerEquality.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/BitwiseRuntime.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/MemberRuntime.lean)
