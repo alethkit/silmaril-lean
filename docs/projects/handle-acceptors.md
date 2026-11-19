@@ -135,8 +135,11 @@ those values. `Wit.Async` adds typed endpoint identities and dispatches creation
 copy, cancellation, polling and closure to the reference component built-ins.
 An old call list yields the identical effect program (`runCalls_legacy`). The
 machine examples resolve and close a future, cancel a pending stream read, and
-reject inspection of a closed slot. These are component-machine sessions, not
-yet Core acceptor tree payloads; the checked tree writer still rejects async types.
+reject inspection of a closed slot. A `stream<u8>` session additionally checks no
+event before a matching read, the copied bytes and exact write-completion event,
+then disconnects and closes the set and both endpoints. These are component-machine
+sessions, not yet Core acceptor tree payloads; the checked tree writer still rejects
+async types.
 
 | Item | Status | Where |
 | --- | --- | --- |
@@ -217,6 +220,14 @@ drop, and the observable early slot removal on a wrong-type lift that locks down
 component. This is a reference adapter, not a simulation of the checked Core writer table.
 
 ## Modelling choices to review
+
+`Wit.Async.Transfer` gives the endpoint interpretation a canonical lift/lower boundary:
+it removes the guest slot on successful lift and retains the arena object in the typed
+value. Lowering checks that this object is live, correctly typed, idle, not registered
+with a waitable set, and currently detached. Duplicate Lean values do not duplicate
+ownership. The reference-machine examples exercise a byte stream and a completing unit
+future, including rejected retagging and repeat lowering. Schemas containing a borrow
+are rejected before any transfer effects.
 
 * **Traps are call-local.** The Wasm-facing mandatory trap on an invalid `accept` is
   `OnInvalid.callTrap` (the default): as in Wasm, a trap aborts only the current export
@@ -301,11 +312,12 @@ component. This is a reference adapter, not a simulation of the checked Core wri
   no sequence of exports resurrects a moved slot in this move-only host. This is a
   session safety contract, not yet a characterization of the accepted tree language,
   and the host does not implement resource allocation or drop.
-* Wasm writer variants: `batchAccept_lang` bounds `batchAccept` by its kept batch `keptL` (the
-  dropped word is never accepted, `batchAccept_drops`), but the lower bound is the run at the
-  fixed argument `3` (`batchAccept_kept`), not every `(w)`; the batch bridge assumes policies
-  without undefined behaviour. `errAccept`, `allAccept`, `readBack` are upper bounds with runs at
-  fixed arguments, not exact languages.
+* Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
+  exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
+  Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
+  witness. `batchAccept_drops` still rules out the dropped words, and the batch bridge still
+  assumes policies without undefined behaviour. `readBack` still has a fixed witness and an
+  upper bound, not an exact language.
 * Families through memory: `MemSound.ListCheck` checks lists of exactly two symbols
   (`symListMod`) or two blobs (`blobListMod`); there is no looped checker for any length (a loop
   computing `ptr + 4i` with `i32` arithmetic wraps modulo `2^32` while the decoder reads at the
@@ -315,6 +327,20 @@ component. This is a reference adapter, not a simulation of the checked Core wri
   every `1 ≤ cap ≤ 8192` (one value: `chunkRingN_relates_7_one`; the one-slot buffer:
   `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`) and for `2 ≤ cap` with two values; capacities
   beyond one page and memory growth (`memory.grow`) are not done.
+
+## Reference component payloads
+
+`Wit.Stored` builds the existing `AST` family over closed WIT types and reference `Val` values.
+Its memory and flat entry points check their ABI preconditions, then run the canonical effect
+programs rather than interpreting an endpoint as a number. A successful lift uses the reference
+arena identity while consuming the guest slot. A later reference trap retains earlier moves.
+Stored borrows and `own` types are rejected recursively before effects: the reference `Val.own`
+alone carries a representation, not the owning identity this tree boundary needs.
+
+`Wit.Stored.Examples` records an `option<future>` from memory and a flat `stream<u8>` as typed
+trees in actual reference-machine runs; a repeated slot traps with no new tree and does not
+resurrect the slot. The examples do not route Core writer imports into component sessions or
+provide a correspondence for their accepted languages.
 
 ## Checking
 

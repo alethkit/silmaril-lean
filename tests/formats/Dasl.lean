@@ -4,9 +4,11 @@ import Silmaril.Formats.Dasl.Thms
 import Silmaril.Formats.Dasl.Encode.Map.Thms
 import Silmaril.Formats.Dasl.Measure.Thms
 import Silmaril.Formats.Dasl.Resolve.Thms
+import Silmaril.Formats.Dasl.Resolve.View.Thms
 import Silmaril.Formats.Dasl.Wire.Thms
 meta import Silmaril.Formats.Dasl.Encode.Map.Thms
 meta import Silmaril.Formats.Dasl.Measure.Defs
+meta import Silmaril.Formats.Dasl.Resolve.View.Defs
 meta import Silmaril.Formats.Dasl.Wire.Defs
 
 open Silmaril.Formats.Dasl Silmaril.Semantics.Naming
@@ -66,6 +68,23 @@ example : Link.blob 1 ∉ Partial.links false observations := by
   cases hit
 
 example : Link.blob 1 ∈ Partial.links true observations := ⟨0, Or.inr rfl⟩
+
+private def cyclicReader : Reader Bool where
+  object? name := if name then some (.ref (.obj true)) else none
+  blob? _ := none
+
+private theorem notAccessible {rel : Bool → Bool → Prop} {name : Bool} (loop : rel name name) :
+    ¬ Acc rel name := by
+  intro accessible
+  induction accessible with
+  | intro first _ ih => exact ih first loop loop
+
+example : PartialOnly cyclicReader.store true := by
+  have observed : cyclicReader.observeRoot? 1 true = some (.obj true (.ref (.obj true))) := rfl
+  have loop : Depends cyclicReader.store true true := ⟨.ref (.obj true), rfl, rfl⟩
+  refine ⟨⟨_, cyclicReader.observeRoot_sound observed, Or.inl ⟨true, _, Or.inl ⟨rfl, rfl⟩⟩⟩, ?_⟩
+  rintro ⟨target, full⟩
+  exact notAccessible loop (full.accessible cyclicReader.binding)
 
 private def check (condition : Bool) (label : String) : IO Unit :=
   unless condition do throw (IO.userError label)
@@ -152,3 +171,6 @@ public def main : IO Unit := do
       Wire.readObject (fun _ => some canonical) obj, Wire.readObject (fun _ => none) raw with
   | .missing, .invalidWire, .found _, .invalidWire => pure ()
   | _, _, _, _ => throw (IO.userError "object read must distinguish missing and invalid")
+  match cyclicReader.observeRoot? 2 true, cyclicReader.observeRoot? 3 false with
+  | some (.obj true (.obj true (.ref (.obj true)))), none => pure ()
+  | _, _ => throw (IO.userError "bounded view must preserve missing roots and stop at fuel")
