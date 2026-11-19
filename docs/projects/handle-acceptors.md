@@ -367,11 +367,14 @@ not a scheduling theorem or a Core adapter.
   Wasm address to the decoder's natural address. `symbols_bounded` and `blobs_bounded` prove
   that no accepted list exceeds `2 ^ 30` children, even with changing vector bases and without
   using the size of any particular host memory image as a session invariant.
-  `remaining_decreases` supplies the decreasing
-  measure on a guarded back edge. The interpreter regression checks three distinct handles and
-  overwrites the scratch vector with each child reply. The older `symListMod` and `blobListMod`
-  remain two-child examples. This is not an exact accepted-language or full session-termination
-  result for the looped checkers.
+  `Loop.Run.accepts_of_plan` uses `remaining_decreases` to build an actual accepting export
+  prefix of either checker for every finite vector with correctly denoting replies. The proof
+  takes the empty vector straight to `accept`, and reloads each repeated handle at its own
+  position without retaining memory across child replies. `compact_reply_plan` constructs
+  that plan with the checked `items` encoder when the header and vector fit and the child reply
+  bytes keep the same memory size. This lower bound does not establish equality with the
+  general memory32 upper bound or termination under arbitrary replies. The older `symListMod`
+  and `blobListMod` remain two-child examples.
 * Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
   `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
   bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness

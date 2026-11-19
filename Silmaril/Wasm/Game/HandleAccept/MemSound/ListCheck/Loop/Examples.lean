@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Thms
 import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Replies.Thms
+import Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Run.Thms
 import Silmaril.Wasm.Resource.Replay.Defs
 import Silmaril.Wasm.Verify.Check.Defs
 import Silmaril.Wasm.Validation.Check.Validate
@@ -97,5 +98,20 @@ theorem visits_repeated_child_at_its_own_position :
 theorem refuses_short_reply_memory :
     writeItemsReply ⟨Array.replicate 19 0⟩ [41, 323, 5] = .error .insufficientSpace := by
   apply rejects_short_memory <;> decide +kernel
+
+/-- The validated example accepts an empty list in the actual one-page instance,
+without relying on a scratch-memory override or any child payload. -/
+theorem accepts_empty_list (profile : Silmaril.Wasm.Numerics.Profile) (checker : Checker)
+    (policy : Silmaril.Accept.Handle.OnInvalid)
+    {Rhos : Set (Silmaril.Accept.Handle.Env (BitVec 32) Silmaril.Formats.SymStrBytesSExp)}
+    {rho : Silmaril.Accept.Handle.Env (BitVec 32) Silmaril.Formats.SymStrBytesSExp}
+    (present : rho ∈ Rhos) {root : BitVec 32} (named : rho root = some (Silmaril.Formats.SExp.ofList [])) :
+    Silmaril.Formats.SExp.ofList [] ∈ listReaderLang profile
+      (Silmaril.Wasm.Game.HandleAccept.MemSound.ReplyEnvs
+        Silmaril.Wasm.Game.HandleAccept.MemSound.Items.itemsReply)
+      0 (mod checker.imports) checker.imports checker.decodeChild .trap policy Rhos := by
+  obtain ⟨_, _, _, spec, page⟩ := checker_instance checker
+  exact compact_accepts checker spec (by decide) page (handles := []) (by decide)
+    (childBytes := fun _ => ByteArray.empty) (by simp) policy present named .nil (by simp)
 
 end Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Loop.Examples
