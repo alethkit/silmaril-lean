@@ -71,6 +71,30 @@ theorem PublicationDelta.retains_owner_record {before after : HostState sig} {po
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.Publication.retained_owner_record
     journal run recorded
 
+/-- Reading the new journal entries by their Core handles recovers every new accepted
+root in order, including duplicate tree values, with no missing handle or extra root. -/
+theorem PublicationDelta.publication_roots {before after : HostState sig}
+    (journal : PublicationDelta before after) (run : WriterRun before.writer after.writer) :
+    after.publicationRootsFrom before.publications.length =
+      (after.writer.accepted.reverse.drop before.writer.accepted.length).map some :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.Publication.publication_roots journal run
+
+/-- The chronological acceptance history of every ordinary checked export prefix is
+exactly its newly journaled roots. A journal entry denotes commitment, not necessarily
+delivery of a result to the original Core caller. -/
+theorem ComponentCall.Deferred.publication_roots (bindings : List (Binding sig))
+    (callees : List (ComponentCall.Callee sig)) (deferred : List HostFuncId) (control : String)
+    {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    (store : CStore (core3 grow)) (state : HostState sig)
+    {final : Config (core3 grow) (HostState sig)} {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (ComponentCall.Deferred.hostWithDeferred bindings callees deferred control))
+      (Config.init store state) labels final)
+    (ordinary : ∀ program, Label.host (.run program) ∉ labels) :
+    final.host.publicationRootsFrom state.publications.length =
+      (final.host.writer.accepted.reverse.drop state.writer.accepted.length).map some := by
+  obtain ⟨_, run, journal⟩ := checked_of_session bindings callees deferred control store state steps ordinary
+  exact journal.publication_roots run
+
 /-- The checked component scheduler preserves root-publication uniqueness across arbitrary
 export prefixes, including rejected calls, canonical traps and deferred cancellation. -/
 theorem ComponentCall.Deferred.published_owners_unique (bindings : List (Binding sig))
