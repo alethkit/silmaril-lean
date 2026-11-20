@@ -7,8 +7,8 @@ import Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.Ring
 /-!
 # A chunked parser with a ring buffer in linear memory: soundness
 
-Every statement is proved **for every capacity** `cap` with `RingCap cap` (`0 < cap ≤ 8192`,
-the buffer within the one page) by one proof generic in `cap` (`chunkRingN_*`), and restated for
+The soundness statements hold **for every memory32 capacity** `cap` with `RingCap cap`
+by one proof generic in `cap` (`chunkRingN_*`), and are restated for
 the eight-value `chunkRing` (`chunkRing_*`, `ringCap_8`).
 
 * `chunkRingN_instance`, `ringInv_initN`: the module validates, instantiates (for every `cap`,
@@ -61,7 +61,7 @@ theorem chunkRingN_instance (cap : Nat) : (Verify.instance? (chunkRingN cap)).is
 theorem ringInv_initN (hc : RingCap cap) : ringInv cap [] (Verify.instOf (chunkRingN cap)).store :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.ringInv_init hc
 
-/-- **`chunkRingN cap` meets its chunk specification**, for every capacity `0 < cap ≤ 8192`. -/
+/-- **`chunkRingN cap` meets its chunk specification** for every memory32 capacity. -/
 theorem chunkRingN_sat (hc : RingCap cap) (P : Profile)
     (ρ : Silmaril.Accept.Handle.Env (BitVec 32) (SExp2 (BitVec 64))) (ppol : PPolicy (BitVec 32)) :
     SGameSat P (Verify.instOf (chunkRingN cap)) (mixedISpec twoIx none ρ)
@@ -94,6 +94,36 @@ theorem chunkRingN_rel (hc : RingCap cap) (P : Profile) {pol : Policy (BitVec 32
     (h : (w, t) ∈ moduleMixedRel P (chunkRingN cap) twoIx ringPix pol ppol) :
     t = SExp2.ofAtoms w :=
   chunkRingN_sound hc P hsen hw ha hb ho h
+
+theorem chunkRingGrowing_instance (cap : Nat) : (Verify.instance? (chunkRingGrowing cap)).isSome = true :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.chunkRingGrowing_instance cap
+
+theorem growingRingInv_init (hc : RingCap cap) :
+    growingRingInv cap [] (Verify.instOf (chunkRingGrowing cap)).store :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.growingRingInv_init hc
+
+/-- The reserve on `feed` preserves the buffer even on grow failure; both exports obey the
+same chunk specification as the fixed-page ring. -/
+theorem chunkRingGrowing_sat (hc : RingCap cap) (P : Profile)
+    (ρ : Silmaril.Accept.Handle.Env (BitVec 32) (SExp2 (BitVec 64))) (ppol : PPolicy (BitVec 32)) :
+    SGameSat P (Verify.instOf (chunkRingGrowing cap)) (mixedISpec twoIx none ρ)
+      (chunkSSpec ringPix ppol ρ takeR (growingRingInv cap)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.chunkRingGrowing_satI hc P ρ ppol
+
+theorem chunkRingGrowing_sound (hc : RingCap cap) (P : Profile) {pol : Policy (BitVec 32)}
+    (hsen : pol.sentinel = none) (hw : pol.onWrite ≠ .ub) (ha : pol.onAccept ≠ .ub)
+    {ppol : PPolicy (BitVec 32)} (hb : ppol.onBadHandle ≠ .ub) (ho : ppol.onOverrun ≠ .ub) :
+    moduleMixedRel P (chunkRingGrowing cap) twoIx ringPix pol ppol ⊆ takeR :=
+  moduleMixedRel_sound_of_chunkSat (Inv := fun _ => growingRingInv cap)
+    (fun ρ => hsen ▸ chunkRingGrowing_sat hc P ρ ppol) (fun _ => growingRingInv_init hc) hw ha hb ho
+
+theorem chunkRingGrowing_fixed_sound (hc : RingCap cap) (P : Profile) {pol : Policy (BitVec 32)}
+    (hsen : pol.sentinel = none) {ppol : PPolicy (BitVec 32)} (hb : ppol.onBadHandle ≠ .ub)
+    (ho : ppol.onOverrun ≠ .ub)
+    (Envs : Set (Silmaril.Accept.Handle.Env (BitVec 32) (SExp2 (BitVec 64)))) :
+    moduleMixedFixedRel P (chunkRingGrowing cap) twoIx ringPix pol ppol Envs ⊆ takeR :=
+  moduleMixedFixedRel_sound_of_chunkSat (Inv := fun _ => growingRingInv cap)
+    (fun ρ _ => hsen ▸ chunkRingGrowing_sat hc P ρ ppol) (fun _ _ => growingRingInv_init hc) hb ho
 
 end Cap
 
