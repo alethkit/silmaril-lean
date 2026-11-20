@@ -7,6 +7,7 @@ import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Schedu
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCollection.Thms
 import Silmaril.Wasm.Component.Reference.Machine.Oracle.Defs
 import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
+import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Prog.Thms
 
 public section
@@ -631,6 +632,77 @@ theorem collectionReturn (destination : RecordDestination) (inst : InstId) (entr
         paired.data.1, (silent checkSilent).trans (silent canonSilent).symm, rfl⟩
   · simp only [ite_eq_right aligned, ite_eq_right fits] at prefixed
     exact finishTrap .outOfBounds prefixed.1 prefixed.2
+
+theorem collectionCallback (destination : RecordDestination) (inst : InstId) (entries : List Field)
+    (area : Layout) (output : Lower.Output) (index : Nat)
+    {left right last : Config (core3 grow) (HostState sig)} {labels}
+    (callback : CoreGrowthSteps profile scheduledReady scheduledDispatch left labels last)
+    (destinationChecked : destination.check left.store = .ok ()) {bytes : Nat}
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {checkResume canonResume : ReturnFrame.Continuation (core3 grow) (HostState sig)}
+    (paired : HostFrame.Paired checkResume canonResume left right)
+    (checkBody : ∀ pointer, checkResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      let live ← Record.Effects.reserve recordClaims (Field.listObjects entries)
+      checkedCollectionTail destination inst entries area index output ptr live >>= checkNext))
+    (canonBody : ∀ pointer, canonResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      canonicalCollectionTail destination inst entries area output ptr >>= canonNext))
+    (compared : ∀ item ∈ entries, ∀ address pos, Compare profile scheduledReady scheduledDispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        item pos (.memory address))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
+    (∃ other, Steps profile scheduledReady scheduledDispatch right labels other ∧ HostFrame.Paired checkResume canonResume last other) ∨
+    (∃ leading label trailing atLeft atRight afterLeft afterRight,
+      labels = leading ++ label :: trailing ∧ CoreGrowthSteps profile scheduledReady scheduledDispatch left leading atLeft ∧
+      Steps profile scheduledReady scheduledDispatch right leading atRight ∧ HostFrame.Paired checkResume canonResume atLeft atRight ∧
+      Step profile scheduledReady scheduledDispatch atLeft label afterLeft ∧ Step profile scheduledReady scheduledDispatch atRight label afterRight ∧
+      CoreGrowthSteps profile scheduledReady scheduledDispatch afterLeft trailing last ∧
+      ((∃ alternate, HostFrame.ReadCut atLeft atRight.host label afterLeft alternate ∧
+          ReturnFrame.Paired checkResume canonResume alternate afterRight) ∨
+       (∃ thread value frames rest,
+          (∀ pointer, value ≠ .nat pointer) ∧
+          atLeft.ctl = ⟨thread, .prog (.pure value), .prog checkResume :: frames⟩ :: rest ∧
+          ReturnFrame.Returned checkResume canonResume (HostFrame.replace atLeft atRight.host) atRight label
+            (HostFrame.replace afterLeft atRight.host) afterRight) ∨
+       (∃ (pointer : Nat) (checkCursor canonCursor : Cursor (E := core3 grow) (HostState sig)),
+          atLeft.ctl = { checkCursor with frames := .prog checkResume :: checkCursor.frames }.control (pure (.nat pointer)) ∧
+          atRight.ctl = { canonCursor with frames := .prog canonResume :: canonCursor.frames }.control (pure (.nat pointer)) ∧
+          canonCursor.thread = checkCursor.thread ∧
+          Reaches profile scheduledReady scheduledDispatch left right checkCursor canonCursor checkNext canonNext))) := by
+  rcases HostFrame.paired_growing_steps paired callback with replayed |
+    ⟨leading, label, trailing, atLeft, atRight, afterLeft, afterRight, split, lhs, rhs, reached, cut, leftStep, rightStep, suffix⟩
+  · exact .inl replayed
+  refine .inr ⟨leading, label, trailing, atLeft, atRight, afterLeft, afterRight, split,
+    lhs, rhs, reached, leftStep, rightStep, suffix, ?_⟩
+  cases cut with
+  | read differs otherAligned => exact .inl ⟨_, differs, otherAligned⟩
+  | returned popped =>
+    obtain ⟨thread, value, leftFrames, rightFrames, leftRest, rightRest, atChecked, atCanonical⟩ := popped.inputs
+    cases value with
+    | unit | flat _ | vals _ | optVals _ | cancel _ | thread _ | invoked _ _ | items _ =>
+      exact .inr (.inl ⟨thread, _, leftFrames, leftRest, by simp, atChecked, popped⟩)
+    | nat pointer =>
+      let checkCursor : Cursor (E := core3 grow) (HostState sig) := ⟨thread, leftFrames, leftRest⟩
+      let canonCursor : Cursor (E := core3 grow) (HostState sig) := ⟨thread, rightFrames, rightRest⟩
+      have region := lhs.linked_region (destination.context inst) (start := 0) (length := 0)
+        rfl (destination.check_width left.store destinationChecked) sized (by simp)
+      obtain ⟨_, reachedSize, _, _⟩ := region.2.2
+      have continued := collectionReturn destination inst entries area output index pointer atLeft atRight
+        checkCursor canonCursor checkNext canonNext checkResume canonResume reached rfl atChecked atCanonical
+        (checkBody pointer) (canonBody pointer) reachedSize compared
+      refine .inr (.inr ⟨pointer, checkCursor, canonCursor, atChecked, atCanonical, rfl, ?_⟩)
+      obtain ⟨outcome, checkLabels, canonLabels, checkEnd, canonEnd, checkRun, canonRun, stores, seen, status⟩ := continued
+      refine ⟨outcome, leading ++ checkLabels, leading ++ canonLabels, checkEnd, canonEnd,
+        chain lhs.steps checkRun, chain rhs canonRun, stores, ?_, ?_⟩
+      · rw [visible_append, visible_append, seen]
+      · cases outcome with
+        | returned _ | refused _ => exact status
+        | trapped _ =>
+          obtain ⟨checkDone, canonDone, pre, trapLabel⟩ := status
+          exact ⟨checkDone, canonDone, visible leading ++ pre, by rw [visible_append, trapLabel, List.append_assoc]⟩
 
 theorem collectionInstall (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
     (entries : List Field) (output : Lower.Output) (index : Nat)
