@@ -1,6 +1,6 @@
 module
 
-import Silmaril.Wasm.Execution.Core.Intrinsic.Thms
+import Silmaril.Wasm.Execution.Core.Intrinsic.Normalize.Thms
 
 open Silmaril.Wasm Silmaril.Wasm.Validation Silmaril.Wasm.Numerics Silmaril.Wasm.Execution.Core
   Silmaril.Wasm.Execution.Core.Intrinsic
@@ -89,9 +89,34 @@ example : True := by
   fail_if_success have _badLocal : Slot [IntType.i64] .i32 := .here
   trivial
 
+example : ∃ fuel, ((start 84 7 .unsigned).runFor fuel).result? = some resultValues :=
+  (State.raw_result_iff (oracle := fun _ _ _ _ => false) _ _).mp
+    ⟨finish, (start 84 7 .unsigned).runFor_sound 4, rfl⟩
+
+example : ∃ target, Steps testProfile testHost (start 84 0 .unsigned).erase target ∧
+    target.code = Result.trap.toAdmin ∧ ¬ typingUB [.i64, .i32] target := by
+  obtain ⟨target, reaches, code⟩ := (State.raw_result_iff (oracle := fun _ _ _ _ => false) _ _).mpr
+    ⟨4, show ((start 84 0 .unsigned).runFor 4).result? = some .trap from rfl⟩
+  exact ⟨target, reaches, code, State.raw_not_typingUB (start 84 0 .unsigned) reaches⟩
+
+example : ((start 84 0 .unsigned).runFor 3).result? = none ∧
+    ¬ Diverges testProfile testHost (start 84 0 .unsigned).erase :=
+  ⟨rfl, (start 84 0 .unsigned).raw_not_diverges⟩
+
+example : typingUB [.i32] (⟨world.store, {}, []⟩ : Config Unit) := by
+  rintro ⟨_, ⟨storeOk, frameOk⟩, codeOk⟩
+  have typing := (AdminsOk.nil_aux codeOk rfl (FrameOk.toTypeCtx_okReg storeOk frameOk)).2.2.1
+  cases typing
+
 #print axioms State.sound
 #print axioms State.step_sound
 #print axioms State.run_reflect
 #print axioms State.step_reflect
 #print axioms State.result_sound
 #print axioms State.runFor_sound
+#print axioms State.finishes
+#print axioms State.raw_normal_iff
+#print axioms State.raw_result_iff
+#print axioms State.raw_prefix_finishes
+#print axioms State.raw_not_typingUB
+#print axioms State.raw_not_diverges

@@ -7,7 +7,7 @@ public import Silmaril.Semantics.Prolly.Routing.Defs
 
 namespace Silmaril.Formats.Dasl.Prolly
 
-open Silmaril.Semantics.Prolly (Block selectChild)
+open Silmaril.Semantics.Prolly (Block Node nodeBlock selectChild)
 
 variable {Name Key Payload : Type} [LinearOrder Key]
 
@@ -33,5 +33,15 @@ def route (read : Name → Except (Fault Name) (Block Name Key Payload)) (width 
 def routedLookup (codec : Encode.PartialCodec (Block Name Key Payload) (Shallow Name)) (read : Read Name)
     (width fuel : Nat) (root : Name) (key : Key) : Except (Fault Name) (Option Payload) :=
   route (readBlock codec read) width key fuel none root
+
+/-- Precisely the decoded reference blocks needed on the selected path. A query
+beyond the last separator needs no child, and other siblings are not required. -/
+def PathReads (read : Name → Except (Fault Name) (Block Name Key Payload))
+    (address : Block Name Key Payload → Name) (key : Key) :
+    (level : Nat) → Node Key Payload level → Prop
+  | 0, node => read (address (nodeBlock address 0 node)) = .ok (nodeBlock address 0 node)
+  | level + 1, node =>
+    read (address (nodeBlock address (level + 1) node)) = .ok (nodeBlock address (level + 1) node) ∧
+      ∀ child, selectChild key node = some child → PathReads read address key level child.2
 
 end Silmaril.Formats.Dasl.Prolly

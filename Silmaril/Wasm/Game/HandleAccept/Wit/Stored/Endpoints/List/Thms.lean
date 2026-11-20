@@ -15,8 +15,7 @@ theorem allocate_rejoin {E : CoreEngine} {World : Type} (cx : LiftLowerContext E
     storeListIntoRangeWith cx layout storeElem entries = (do
       let ptr ← allocateRange cx layout entries.length
       storeListIntoValidRangeWith layout.size storeElem entries ptr
-      return (ptr, entries.length)) := by
-  simp only [storeListIntoRangeWith, allocateRange, bind_assoc, pure_bind]
+      return (ptr, entries.length)) := rfl
 
 theorem transfer_effect_order {E : CoreEngine} {sig : Signature} (limits : Component.Limits)
     (cx : LiftLowerContext E) (channel : Channel) (element : Element) (id : EndId) :

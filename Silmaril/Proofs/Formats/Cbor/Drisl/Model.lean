@@ -12,7 +12,7 @@ namespace Silmaril.Proofs.Formats.Cbor.Drisl.Model
 
 open Silmaril.Formats Silmaril.Formats.Cbor Silmaril.Formats.Cbor.Drisl
 
-private theorem lexLt_iff (left right : List UInt8) :
+theorem lexLt_iff (left right : List UInt8) :
     lexLt left right = true ↔ List.Lex (· < ·) left right := by
   induction left generalizing right <;> cases right <;>
     simp_all [lexLt, List.cons_lex_cons_iff]
@@ -424,6 +424,19 @@ theorem atproto_render_of_parse (profile : CidProfile) {bytes : List UInt8} {tre
     (read : parseCbor? i64Cbor (Cid.codec profile) bytes = some tree) :
     renderCbor? i64Cbor (Cid.codec profile) tree = some bytes :=
   atproto_render_of_parse_with_codec _ (cid_reencode profile) read
+
+theorem atproto_model_of_parse_with_codec {Link : Type} (cid : CidCodec Link)
+    (reencodes : ∀ bytes link, cid.parse? bytes = some link → cid.bytes link = bytes)
+    {bytes : List UInt8} {tree : OrderedATProto Link}
+    (read : parseCbor? i64Cbor cid bytes = some tree) : Cbor.decode bytes = some (emitModel i64Cbor cid true tree) := by
+  unfold parseCbor? at read
+  obtain ⟨value, decoded, accepted⟩ := Option.bind_eq_some_iff.mp read
+  split at accepted
+  · rename_i canonical
+    rw [interpret_of_sorted i64Cbor cid value canonical.2] at accepted
+    rw [emit_readModel _ _ (leaf_reencode _ _ atproto_number_reencode reencodes) _ _ accepted canonical.2]
+    exact decoded
+  · contradiction
 
 private theorem read_utf8Value (name : String) :
     String.fromUTF8? name.toByteArray.data.toList.toByteArray = some name := by
