@@ -917,4 +917,206 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
   exact .cons guard (.coreCallout parked calling)
     (.cons trivial (.currentThread rfl) (.cons trivial (.get rfl) resumed))
 
+private def admitGive {E : CoreEngine} {Host Result : Type} (inst : InstId)
+    (selection : P E Host (Except Claims.Core.Scheduled.Issue Result)) :
+    P E Host (Except Claims.Core.Scheduled.Issue Result) := do
+  if (← currentInst?) != some inst || !((← getStore).inst? inst).any (·.mayLeave) then
+    return .error .wrongContext
+  selection
+
+private theorem parked_give_prefix {sig : Signature} {grow : SingleThreaded.GrowOracle} {Result : Type}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId) (inst : InstId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (selection : Session grow sig (Except Claims.Core.Scheduled.Issue Result)) (selected : Result)
+    (next : Except Claims.Core.Scheduled.Issue Result → Session grow sig (List FlatValue))
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (caller : Plain.callerInstance start.store thread = .ok (some inst))
+    (mayLeave : (start.store.inst? inst).any (·.mayLeave) = true)
+    (routed : route start.host.nextTicket bindings name type args = (admitGive inst selection >>= next))
+    (checked : let entered := start.host.enter name type args
+      Plain.runBody selection start.store entered (some thread) = (start.store, entered, .ok (.ok selected))) :
+    ∃ labels, labels.all (· matches .tau) = true ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with host := start.host.enter name type args
+                     ctl := ⟨thread, .prog (next (.ok selected) >>= fun words => pure (.flat words)),
+                       .core core continuation :: segments⟩ :: rest } := by
+  let impl := host (grow := grow) bindings
+  let entered := start.host.enter name type args
+  let saved := .core core continuation :: segments
+  let admission := admitGive inst selection
+  let finish := fun result => next result >>= fun words => pure (Ret.flat (E := core3 grow) words)
+  let active := { start with host := entered, ctl := ⟨thread, .prog (admission >>= finish), saved⟩ :: rest }
+  have evaluated : Plain.runBody admission start.store entered (some thread) =
+      (start.store, entered, .ok (.ok selected)) := by
+    dsimp only [admission, admitGive]
+    simp only [Prog.bind_eq]
+    rw [resolve_caller, caller]
+    simp only [read_store, bne_self_eq_false, mayLeave, Bool.not_true, Bool.or_false, Bool.false_eq_true, ite_false]
+    exact checked
+  obtain ⟨labels, silent, steps⟩ := body_steps_at admission active start.store entered (.ok selected) finish
+    thread saved rest profile ready (specDispatch ready impl) rfl (some thread) (.inr rfl) evaluated
+  have unpack : (route start.host.nextTicket bindings name type args >>= fun words => pure (.flat words)) =
+      (admission >>= finish) := by rw [routed]; exact Prog.bind_assoc _ _ _
+  have leaves := threadMayLeave_of_caller caller mayLeave
+  have installed : calloutBody Limits.spec Quirks.none ready impl start.store thread (.embedder name type) args =
+      .op .hostGet (fun state => .op (.hostSet (state.enter name type args)) (fun _ =>
+        route state.nextTicket bindings name type args >>= fun words => pure (.flat words))) := by
+    simp only [calloutBody, leaves, ite_true]
+    rfl
+  have entry : Machine.Steps profile ready (specDispatch ready impl)
+      { start with ctl := ⟨thread, .prog (calloutBody Limits.spec Quirks.none ready impl
+          start.store thread (.embedder name type) args), saved⟩ :: rest } (.tau :: .tau :: labels)
+      { active with ctl := ⟨thread, .prog (finish (.ok selected)), saved⟩ :: rest } := by
+    refine .cons (.hostGet (by rw [installed])) (.cons (.hostSet rfl) ?_)
+    change Machine.Steps profile ready (specDispatch ready impl)
+      { start with host := entered, ctl := ⟨thread, .prog (route start.host.nextTicket bindings name type args >>=
+        fun words => pure (.flat words)), saved⟩ :: rest } labels _
+    rw [unpack]
+    exact steps
+  refine ⟨_, ?_, prepend_embedder_callout (impl := impl) parked calling entry⟩
+  change labels.all (· matches .tau) = true
+  apply List.all_eq_true.mpr
+  intro label member
+  have tau := List.all_eq_true.mp silent label member
+  cases label <;> first | rfl | contradiction
+
+private theorem read_selection {sig : Signature} {grow : SingleThreaded.GrowOracle} {Result : Type}
+    (handle : BitVec IntType.i32.width) (next : Option (Tree sig) → Session grow sig Result)
+    (store : CStore (core3 grow)) (state : HostState sig) (thread : Option ThreadId) :
+    Plain.runBody ((select handle).bind next) store state (some thread) =
+      Plain.runBody (next (Stored.Endpoints.Core.childFromHistory state.writer.accepted handle))
+        store state (some thread) := rfl
+
+theorem parked_give_payload {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (handle : BitVec IntType.i32.width)
+    (pointer : FlatValue) (inst : InstId) (destination : RecordDestination) (tree : Tree sig)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) [.int .i32 handle, pointer])
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst, .givePayload destination⟩)
+    (caller : Plain.callerInstance start.store thread = .ok (some inst))
+    (mayLeave : (start.store.inst? inst).any (·.mayLeave) = true)
+    (word : Stored.flatType pointer = ABI.pointerType destination.width)
+    (destinationChecked : destination.check start.store = .ok ())
+    (selected : Stored.Endpoints.Core.childFromHistory start.host.writer.accepted handle = some tree) :
+    ∃ labels, labels.all (· matches .tau) = true ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with host := start.host.enter name type [.int .i32 handle, pointer]
+                     ctl := ⟨thread, .prog (do
+                       let result ← Claims.Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
+                         (destination.context inst) tree (.memory (flatNat pointer))
+                       return .flat (← finish start.host.nextTicket
+                         (result.mapError .lowerPayload |>.map (fun _ => 0)))),
+                       .core core continuation :: segments⟩ :: rest } := by
+  let selection := selectMemoryDestination (grow := grow) (sig := sig) destination [.int .i32 handle, pointer]
+  let next : Except Claims.Core.Scheduled.Issue (Tree sig × Nat) → Session grow sig (List FlatValue)
+    | .error issue => finish start.host.nextTicket (.error issue)
+    | .ok (root, address) => do
+      let lowered ← Claims.Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
+        (destination.context inst) root (.memory address)
+      finish start.host.nextTicket (lowered.mapError .lowerPayload |>.map (fun _ => 0))
+  have routed : route start.host.nextTicket bindings name type [.int .i32 handle, pointer] =
+      (admitGive inst selection >>= next) := by
+    simp only [route, linked, Claims.Core.Scheduled.invoke, givePayload, giveToMemory, admitGive, next,
+      selection, Prog.bind_eq, Prog.bind_assoc]
+    congr 1
+    funext current
+    congr 1
+    funext store
+    split
+    · rfl
+    · simp only [Prog.bind_assoc]
+      congr 1
+      funext choice
+      cases choice with
+      | error => rfl
+      | ok pair =>
+        obtain ⟨root, address⟩ := pair
+        let lower := Claims.Record.lowerPayloadRoot (E := core3 grow) recordClaims Limits.spec Quirks.none
+          (destination.context inst) root (.memory address)
+        change ((lower.bind fun result => pure (result.mapError .lowerPayload |>.map (fun _ => 0))).bind
+          (finish start.host.nextTicket)) = _
+        exact Prog.bind_assoc lower _ _
+  have checked : let entered := start.host.enter name type [.int .i32 handle, pointer]
+      Plain.runBody selection start.store entered (some thread) =
+        (start.store, entered, .ok (.ok (tree, flatNat pointer))) := by
+    let entered := start.host.enter name type [.int .i32 handle, pointer]
+    change Plain.runBody selection start.store entered (some thread) = _
+    simp only [selection, selectMemoryDestination, Execution.Runtime.Value.int, Prog.bind_eq, word,
+      bne_self_eq_false, Bool.false_eq_true, ite_false, read_store, destinationChecked, read_selection]
+    rw [show Stored.Endpoints.Core.childFromHistory entered.writer.accepted handle = some tree from selected]
+    rfl
+  have actual := parked_give_prefix bindings name type _ start thread inst profile ready selection
+    (tree, flatNat pointer) next parked calling caller mayLeave routed checked
+  simp only [next, Prog.bind_eq, Prog.bind_assoc] at actual ⊢
+  exact actual
+
+theorem parked_give_flat {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (handle : BitVec IntType.i32.width)
+    (inst : InstId) (destination : RecordDestination) (payload : Stored.TypeOf) (tree : Tree sig)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) [.int .i32 handle])
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst, .giveFlat destination payload⟩)
+    (caller : Plain.callerInstance start.store thread = .ok (some inst))
+    (mayLeave : (start.store.inst? inst).any (·.mayLeave) = true)
+    (destinationChecked : destination.check start.store = .ok ())
+    (selected : Stored.Endpoints.Core.childFromHistory start.host.writer.accepted handle = some tree)
+    (schema : rootHasSchema tree payload = true) :
+    ∃ labels, labels.all (· matches .tau) = true ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with host := start.host.enter name type [.int .i32 handle]
+                     ctl := ⟨thread, .prog (do
+                       let result ← Claims.Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
+                         (destination.context inst) tree .flat
+                       return .flat (← writeCompletion (flatCompletion start.host.nextTicket
+                         (ABI.flatten destination.width payload) (result.mapError .lowerPayload)))),
+                       .core core continuation :: segments⟩ :: rest } := by
+  let selection := selectFlatDestination (grow := grow) (sig := sig) destination payload [.int .i32 handle]
+  let reply := fun result => writeCompletion (grow := grow) (sig := sig)
+    (flatCompletion start.host.nextTicket (ABI.flatten destination.width payload) result)
+  let next : Except Claims.Core.Scheduled.Issue (Tree sig) → Session grow sig (List FlatValue)
+    | .error issue => reply (.error issue)
+    | .ok root => do
+      let lowered ← Claims.Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
+        (destination.context inst) root .flat
+      reply (lowered.mapError .lowerPayload)
+  have routed : route start.host.nextTicket bindings name type [.int .i32 handle] =
+      (admitGive inst selection >>= next) := by
+    simp only [route, linked, giveFlat, admitGive, next, selection, Prog.bind_eq, Prog.bind_assoc]
+    congr 1
+    funext current
+    congr 1
+    funext store
+    split
+    · rfl
+    · simp only [Prog.bind_assoc]
+      congr 1
+      funext choice
+      cases choice with
+      | error => rfl
+      | ok root =>
+        let lower : Session grow sig (Except Stored.Endpoints.RecordLower.Issue (List FlatValue)) :=
+          Claims.Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none (destination.context inst) root .flat
+        change ((lower.bind fun result => pure (result.mapError .lowerPayload)).bind reply) = _
+        exact Prog.bind_assoc lower _ _
+  have checked : let entered := start.host.enter name type [.int .i32 handle]
+      Plain.runBody selection start.store entered (some thread) = (start.store, entered, .ok (.ok tree)) := by
+    let entered := start.host.enter name type [.int .i32 handle]
+    change Plain.runBody selection start.store entered (some thread) = _
+    simp only [selection, selectFlatDestination, Execution.Runtime.Value.int, Prog.bind_eq,
+      read_store, destinationChecked, read_selection]
+    rw [show Stored.Endpoints.Core.childFromHistory entered.writer.accepted handle = some tree from selected]
+    simp [schema]
+    rfl
+  have actual := parked_give_prefix bindings name type _ start thread inst profile ready selection
+    tree next parked calling caller mayLeave routed checked
+  simp only [next, reply, Prog.bind_eq, Prog.bind_assoc] at actual ⊢
+  exact actual
+
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled

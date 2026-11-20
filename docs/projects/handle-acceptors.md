@@ -706,6 +706,17 @@ effects are retained. Together with `accept_refusal_steps` these cover all outco
 the dispatcher reaches the synchronous accept continuation. They are per-invocation
 reduction lemmas, not an exact guest language theorem.
 
+The parked public give rules reach the checked lowering program for the selected
+root with the original Core continuation and ticket. The compiled-start rule
+identifies its canonical value, recursive layout and ordered nominal receipts,
+then steps the initial live dry run and checked width read. A returned result
+journals and resumes Core with the reached store; a canonical trap does not
+enter this reply continuation. After a valid collection allocation return,
+`listRange_recheck` steps the actual claim read against the reached store and
+writer. It does not restore pre-allocation claims or assume allocator liveness.
+These are boundaries of the recursive execution proof, not yet a correspondence
+for the entire body or for a sequence of scheduled exports.
+
 The scheduled flat replay connects a writer and a reader in separate component
 instances through actual Core exports. It runs with either a stream or a future of a
 record containing an owner. The writer publishes a tree with two distinct

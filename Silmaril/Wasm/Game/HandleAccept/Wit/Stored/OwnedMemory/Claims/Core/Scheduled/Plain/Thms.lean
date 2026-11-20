@@ -386,4 +386,75 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_steps
     bindings name type args inst destination schema start thread profile ready parked calling linked caller live closed
 
+/-- The linked memory give reaches the selected tree's checked lowering with the
+import's real Core continuation parked. Only entry journaling has happened. A
+return from lowering reaches the original ticket's status handler; a trap does not. -/
+theorem parked_give_payload {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (handle : BitVec IntType.i32.width)
+    (pointer : FlatValue) (inst : InstId) (destination : RecordDestination) (tree : OwnedMemory.Tree sig)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) [.int .i32 handle, pointer])
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst, .givePayload destination⟩)
+    (caller : callerInstance start.store thread = .ok (some inst))
+    (mayLeave : (start.store.inst? inst).any (·.mayLeave) = true)
+    (word : Stored.flatType pointer = ABI.pointerType destination.width)
+    (destinationChecked : destination.check start.store = .ok ())
+    (selected : Stored.Endpoints.Core.childFromHistory start.host.writer.accepted handle = some tree) :
+    ∃ labels, labels.all (· matches .tau) = true ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with host := start.host.enter name type [.int .i32 handle, pointer]
+                     ctl := ⟨thread, .prog (do
+                       let result ← Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
+                         (destination.context inst) tree (.memory (flatNat pointer))
+                       return .flat (← finish start.host.nextTicket
+                         (result.mapError .lowerPayload |>.map (fun _ => 0)))),
+                       .core core continuation :: segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_give_payload
+    bindings name type handle pointer inst destination tree start thread profile ready
+    parked calling linked caller mayLeave word destinationChecked selected
+
+/-- The flat give checks the selected root schema before lowering. The linked
+flat shape and its original ticket remain in the saved reply continuation. -/
+theorem parked_give_flat {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (handle : BitVec IntType.i32.width)
+    (inst : InstId) (destination : RecordDestination) (payload : Stored.TypeOf) (tree : OwnedMemory.Tree sig)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) [.int .i32 handle])
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst, .giveFlat destination payload⟩)
+    (caller : callerInstance start.store thread = .ok (some inst))
+    (mayLeave : (start.store.inst? inst).any (·.mayLeave) = true)
+    (destinationChecked : destination.check start.store = .ok ())
+    (selected : Stored.Endpoints.Core.childFromHistory start.host.writer.accepted handle = some tree)
+    (schema : rootHasSchema tree payload = true) :
+    ∃ labels, labels.all (· matches .tau) = true ∧
+      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
+        { start with host := start.host.enter name type [.int .i32 handle]
+                     ctl := ⟨thread, .prog (do
+                       let result ← Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
+                         (destination.context inst) tree .flat
+                       return .flat (← writeCompletion (flatCompletion start.host.nextTicket
+                         (ABI.flatten destination.width payload) (result.mapError .lowerPayload)))),
+                       .core core continuation :: segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_give_flat
+    bindings name type handle inst destination payload tree start thread profile ready
+    parked calling linked caller mayLeave destinationChecked selected schema
+
+/-- Complete a returned lowering result from the reached store and journal, not
+the entry snapshots. Trap configurations never reach this continuation. -/
+theorem give_completion_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    {start : Machine.Config (core3 grow) (HostState sig)} (reply : Event × List FlatValue)
+    {profile : ProfileKind} {ready : HostReady (HostState sig)} {bindings : List (Binding sig)}
+    {thread core continuation segments rest}
+    (reached : start.ctl = ⟨thread, .prog (do return .flat (← writeCompletion reply)),
+      .core core continuation :: segments⟩ :: rest) :
+    Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start [.tau, .tau, .tau]
+      { start with host := start.host.record reply.1
+                   ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
+                     continuation, segments⟩ :: rest } :=
+  .cons (.hostGet reached) (.cons (.hostSet rfl) (.cons (.popCore rfl) (.refl _)))
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain
