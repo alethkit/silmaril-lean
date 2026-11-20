@@ -725,6 +725,15 @@ reach the same value or canonical trap and the same component store from the
 shared cursor, even with different writers and sequence continuations. A late
 trap retains canonical table and memory effects and the checked side's spend.
 
+`PayloadPrefix.flat_field` composes those steps through nested records,
+tuples and fixed lists with handle-only leaves. Only a common return advances
+the sequence; typed refusal stops at an actual reference prefix, and canonical
+failure keeps the same trap and reached component store. `parked_giveFlat`
+connects this fragment to the linked public import, starting at the parked
+Core call and ending at the original reply continuation for a returned
+verdict. It compares against `lowerFlatAt` on the selected value and schema;
+it does not cover allocating children, memory output, or export delivery.
+
 `RecordDestination.memory_cursor` uses the width established by the same destination
 check as both public give routes. On a certified prefix the canonical field cursor
 takes its actual width-read step and selects the same aligned address and increment
