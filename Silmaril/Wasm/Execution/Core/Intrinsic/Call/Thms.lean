@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Execution.Core.Intrinsic.Call.Defs
+public import Silmaril.Wasm.Execution.Core.Instantiation
 import Silmaril.Proofs.Wasm.Execution.Core.Intrinsic.Call
 
 public section
@@ -28,5 +29,13 @@ theorem DirectCall.run_sound (call : DirectCall caller parameters results) (fram
         | some values => vals values.erase.reverse
         | none => [.trap])⟩ :=
   Proofs.Wasm.Execution.Core.Intrinsic.Call.run_sound call frame args fuel returned
+
+theorem DirectCall.invoke_sound (call : DirectCall caller parameters results) (args : Values parameters)
+    (fuel : Nat) {answer : Option (Values results)} (returned : call.runFor args fuel = some answer) :
+    Steps profile host (invoke caller.store call.address args.erase)
+      ⟨caller.store, {}, (match answer with
+        | some values => vals values.erase.reverse
+        | none => [.trap])⟩ :=
+  Proofs.Wasm.Execution.Core.Intrinsic.Call.invoke_sound call args fuel returned
 
 end Silmaril.Wasm.Execution.Core.Intrinsic
