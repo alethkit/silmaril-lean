@@ -519,6 +519,23 @@ private theorem prependCanon {left entered right : Config E Host} {labels : List
     | returned _ | refused _ => exact status
     | trapped _ => simpa only [visible_append, silent allTau, List.nil_append] using status
 
+theorem prepend {left left' right right' : Config E Host} {checkLabels canonLabels : List (Label E Host)}
+    {checkCursor canonCursor : Cursor (E := E) Host}
+    {checkNext : Except RecordLower.Issue Result → P E Host (Ret E)} {canonNext : Result → P E Host (Ret E)}
+    (lhs : Steps profile ready dispatch left checkLabels left') (rhs : Steps profile ready dispatch right canonLabels right')
+    (seen : visible checkLabels = visible canonLabels)
+    (rest : Reaches profile ready dispatch left' right' checkCursor canonCursor checkNext canonNext) :
+    Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext := by
+  obtain ⟨outcome, checkTail, canonTail, checkEnd, canonEnd, checkRun, canonRun, stores, same, status⟩ := rest
+  refine ⟨outcome, checkLabels ++ checkTail, canonLabels ++ canonTail, checkEnd, canonEnd,
+    chain lhs checkRun, chain rhs canonRun, stores, ?_, ?_⟩
+  · rw [visible_append, visible_append, seen, same]
+  · cases outcome with
+    | returned _ | refused _ => exact status
+    | trapped _ =>
+      obtain ⟨checkDone, canonDone, leading, trapLabel⟩ := status
+      exact ⟨checkDone, canonDone, visible canonLabels ++ leading, by rw [visible_append, trapLabel, List.append_assoc]⟩
+
 private theorem collectionElements (destination : RecordDestination) (inst : InstId) (entries : List Field)
     (stride ptr index : Nat) (compared : ∀ item ∈ entries, ∀ address pos,
       Compare profile scheduledReady scheduledDispatch
@@ -693,16 +710,8 @@ theorem collectionCallback (destination : RecordDestination) (inst : InstId) (en
       have continued := collectionReturn destination inst entries area output index pointer atLeft atRight
         checkCursor canonCursor checkNext canonNext checkResume canonResume reached rfl atChecked atCanonical
         (checkBody pointer) (canonBody pointer) reachedSize compared
-      refine .inr (.inr ⟨pointer, checkCursor, canonCursor, atChecked, atCanonical, rfl, ?_⟩)
-      obtain ⟨outcome, checkLabels, canonLabels, checkEnd, canonEnd, checkRun, canonRun, stores, seen, status⟩ := continued
-      refine ⟨outcome, leading ++ checkLabels, leading ++ canonLabels, checkEnd, canonEnd,
-        chain lhs.steps checkRun, chain rhs.steps canonRun, stores, ?_, ?_⟩
-      · rw [visible_append, visible_append, seen]
-      · cases outcome with
-        | returned _ | refused _ => exact status
-        | trapped _ =>
-          obtain ⟨checkDone, canonDone, pre, trapLabel⟩ := status
-          exact ⟨checkDone, canonDone, visible leading ++ pre, by rw [visible_append, trapLabel, List.append_assoc]⟩
+      exact .inr (.inr ⟨pointer, checkCursor, canonCursor, atChecked, atCanonical, rfl,
+        prepend lhs.steps rhs.steps rfl continued⟩)
 
 theorem collectionInstall (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
     (entries : List Field) (output : Lower.Output) (index : Nat)
