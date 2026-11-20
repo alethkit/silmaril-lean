@@ -123,6 +123,7 @@ check-runtime:
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
 	$(if $(filter Silmaril +Silmaril.Wasm.Component.IntrinsicWiring.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-component/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Intrinsic.Normalize.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/Regression.lean)
 	$(if $(filter wasm-opt,$(CHECK_TARGETS)),$(LAKE) build --wfail $(RELEASE_BINARIES) && $(MAKE) release-check)
 	$(if $(filter elf-pages,$(CHECK_TARGETS)),$(MAKE) elf-check)
 	$(if $(filter SilmarilLogicGraphData,$(CHECK_TARGETS)),$(MAKE) logic-graph-check)
