@@ -13,6 +13,19 @@ open Silmaril.Wasm.Execution.Core
 open Stored.Endpoints
 open Stored.Endpoints.RecordLower
 
+/-- Prepend replayed segments with equal visible labels. The two segments
+may take different numbers of internal steps. -/
+theorem Reaches.prepend {E : CoreEngine} {Host Result : Type} {profile : ProfileKind}
+    {ready : HostReady Host} {dispatch : Call E → P E Host (Ret E)}
+    {left left' right right' : Config E Host} {checkLabels canonLabels : List (Label E Host)}
+    {checkCursor canonCursor : Cursor (E := E) Host}
+    {checkNext : Except RecordLower.Issue Result → P E Host (Ret E)} {canonNext : Result → P E Host (Ret E)}
+    (lhs : Steps profile ready dispatch left checkLabels left') (rhs : Steps profile ready dispatch right canonLabels right')
+    (seen : visible checkLabels = visible canonLabels)
+    (rest : Reaches profile ready dispatch left' right' checkCursor canonCursor checkNext canonNext) :
+    Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.prepend lhs rhs seen rest
+
 /-- Compose actual paired scheduler prefixes at the reached store. Only a
 successful child advances either traversal; refusal and trap retain the
 child's prefixes. -/

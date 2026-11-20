@@ -41,4 +41,10 @@ inductive Boundary (first second : ReturnFrame.Continuation E Host) :
       ReturnFrame.Returned first second (replace left right.host) right label
         (replace leftNext right.host) rightNext → Boundary first second left right label leftNext rightNext
 
+/-- An interior focus neither reads the host nor returns to the designated
+allocator continuation. It can still execute Core or suspend a thread. -/
+def Interior (resume : ReturnFrame.Continuation E Host) (cfg : Config E Host) : Prop :=
+  (∀ thread read frames rest, cfg.ctl ≠ ⟨thread, .prog (.op .hostGet read), frames⟩ :: rest) ∧
+  (∀ thread value frames rest, cfg.ctl ≠ ⟨thread, .prog (.pure value), .prog resume :: frames⟩ :: rest)
+
 end Silmaril.Wasm.Component.Machine.HostFrame

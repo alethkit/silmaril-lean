@@ -217,6 +217,27 @@ theorem paired_growing_steps {grow : SingleThreaded.GrowOracle}
           .cons growth head lhs, .cons otherGrowth replay rhs, reached, cut, leftStep, rightStep, rest⟩
     · exact .inr ⟨[], _, _, _, _, _, _, rfl, .refl _, .refl _, paired, boundary, head, replay, tail⟩
 
+theorem interior_step {grow : SingleThreaded.GrowOracle}
+    {ready : HostReady Host} {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    {first second : ReturnFrame.Continuation (core3 grow) Host}
+    {left right next : Config (core3 grow) Host} {label : Label (core3 grow) Host}
+    (paired : Paired first second left right) (interior : Interior first left)
+    (grows : CoreUpdateGrows left) (run : Step profile ready dispatch left label next) :
+    ∃ other, CoreGrowthSteps profile ready dispatch right [label] other ∧ Paired first second next other := by
+  obtain ⟨other, replay, aligned | boundary⟩ := paired_step paired run
+  · exact ⟨other, .cons (pairedUpdateGrows paired grows) replay (.refl _), aligned⟩
+  cases boundary with
+  | read cut _ =>
+    have notRead {cfg : Config (core3 grow) Host} {result alt : Config (core3 grow) Host}
+        {lbl : Label (core3 grow) Host} {host : Host} (inside : Interior first cfg)
+        (readCut : ReadCut cfg host lbl result alt) : False := by
+      cases readCut with
+      | mk focus _ => exact inside.1 _ _ _ _ focus
+    exact (notRead interior cut).elim
+  | returned popped =>
+    obtain ⟨thread, value, frames, _, rest, _, reached, _⟩ := popped.inputs
+    exact (interior.2 thread value frames rest reached).elim
+
 theorem instCandidates_eq (store : CStore E) (inst : InstId) (left right : Nat → Bool)
     (agree : ∀ entry, store.inst? inst = some entry → ∀ thread ∈ entry.threads.elements,
       ∀ suspended, store.thread? thread = some suspended → suspended.blocked = true →

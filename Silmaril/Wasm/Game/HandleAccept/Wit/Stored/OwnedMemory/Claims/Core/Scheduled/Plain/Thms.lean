@@ -413,10 +413,12 @@ theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowO
       (fun payload => flatCompletion start.host.nextTicket (ABI.flatten destination.width payload)
         (.error .wrongContext))
     let next := Machine.Focus.core ((core3 grow).resume start.store.core core (.values reply.2)) continuation
-    ∃ leftCount rightCount leftNext rightNext otherSegments otherRest,
+    let leftNext := { start with
+      host := (start.host.enter name type args).record reply.1, ctl := ⟨thread, next, segments⟩ :: rest }
+    ∃ leftCount rightCount rightNext otherSegments otherRest,
       Machine.CoreGrowthSteps profile ready dispatch start (List.replicate leftCount .tau) leftNext ∧
       Machine.CoreGrowthSteps profile ready dispatch other (List.replicate rightCount .tau) rightNext ∧
-      leftNext.ctl = ⟨thread, next, segments⟩ :: rest ∧ rightNext.ctl = ⟨thread, next, otherSegments⟩ :: otherRest ∧
+      rightNext.ctl = ⟨thread, next, otherSegments⟩ :: otherRest ∧
       Machine.HostFrame.Paired first second leftNext rightNext ∧
       leftNext.host.writer = start.host.writer ∧ rightNext.host.writer = other.host.writer :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_rejoin
