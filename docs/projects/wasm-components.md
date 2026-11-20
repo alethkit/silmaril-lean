@@ -84,16 +84,28 @@ activation; translating the store's host-code type preserves all its fields
 and rejects host functions. A Core import resolved to a Wasm function is not
 a game host move.
 
-This witnesses a successful host-free call and its Core stores, not all
-reference behaviours or the component's bookkeeping state. The next step
-is to read back arbitrary reference terminal calls on direct wires to Core
-activations under a shared-store and resolved-address invariant. Traps,
-host moves and all-prefix correspondence are not covered by the fixture.
+`DirectLift.terminalReadback` goes beyond this witness: it inverts any stock
+terminal `Calls` trace from the existing one-owner `readyCfg` frame, not just
+an interpreter trace. It needs a fresh call id, a reusable thread slot, a
+name lookup in the supplied export table and a direct lift at the scalar
+question's resolved Core address. The game instance must be well formed at
+the shared store and have no host imports. The ABI is synchronous and
+float-free, with default options, specification limits, at most 16 flat
+inputs and one flat result, and no ABI memory or resource operations. Core
+steps themselves are not required to preserve the store.
+
+Readback gives `Entry.Finishes` and a store-bearing scalar-game `Activation`.
+The final Core stores agree after renaming the host-code type. A reference trap
+can reflect a Core trap, a Core throw, or a normal Core result rejected by the
+ABI (for example, a surrogate returned as `char`). The typed Core game answer
+retains that distinction. No registration or proof that arbitrary component
+instantiation establishes `readyCfg` is inferred; nor does the result cover
+resumption after lockdown, other owners, host moves or arbitrary prefixes.
 The stock `Simple.adequacy` identifies only trap-last plays; observing the
 retained store after a trap would distinguish its existing witnesses.
 
 ```sh
-make check CHECK_TARGETS='+Silmaril.Wasm.Component.IntrinsicWiring.Lift.Observation.Thms'
+make check CHECK_TARGETS='+Silmaril.Wasm.Component.IntrinsicWiring.Lift.Observation.Thms +Silmaril.Wasm.Component.Reference.DirectLift.Thms'
 ```
 
 ## What ships
