@@ -75,6 +75,11 @@ two-sided on the checked raw image, cancels the nested subtype, and does not
 claim that the strict subtype has a new intrinsic syntax. `Strict.parts`
 retains the assembled module exactly and uses the standard `ModuleParts` API.
 
+The [native V1 scalar fragment](wasm-v1-intrinsic.md) has its own stack- and
+context-indexed instructions, bodies, functions and single-export module. It
+proves native validation and exact Core emission, but does not implement the
+arbitrary source lifting required by a full `HasIntrinsic Wasm1` instance.
+
 ## Functional and strict boundaries
 
 `FunctionalCore GCMode ExceptionMode` makes the two choices independent:
