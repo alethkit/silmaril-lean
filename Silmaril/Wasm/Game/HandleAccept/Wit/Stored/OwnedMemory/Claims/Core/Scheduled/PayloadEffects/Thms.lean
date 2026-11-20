@@ -4,6 +4,7 @@ public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.CanonicalTree.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Allocation.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.CanonicalTree.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Effects.Thms
@@ -94,5 +95,20 @@ theorem RecordDestination.compiled_payload_reference {grow : SingleThreaded.Grow
         (lowerFlatAt Limits.spec Quirks.none cx destination.width payload.val.value type) output :=
   Endpoints.RecordLower.CanonicalTree.field_reference Limits.spec Quirks.none _ destination.width field type _
     (Record.preflightValue_layout _ _ _ _ _ _ compiled) (Record.preflightValue_value _ _ _ _ _ _ compiled) output
+
+/-- After either public give takes the successful allocation guard, descent
+keeps that check's concrete encoding and linked width. This certifies the
+static value precondition only; reached range and live authority checks stay
+in the effect programs. -/
+theorem RecordDestination.compiled_payload_descendant {grow : SingleThreaded.GrowOracle}
+    (destination : RecordDestination) (inst : InstId) (type : TypeOf) (payload : OwnedMemory.Payload type)
+    (output : Lower.Output) {field child : Field} {plan : List Object}
+    (compiled : Record.preflightValue (destination.context (grow := grow) inst) type payload output = .ok (field, plan))
+    (admitted : Lower.fits Quirks.none destination.encoding destination.width type payload.val.value = true)
+    (path : field.Descendant child) :
+    child.LayoutMatches child.type ∧ Lower.fits Quirks.none destination.encoding destination.width
+      child.type child.value = true := by
+  rw [← Record.preflightValue_value _ _ _ _ _ _ compiled] at admitted
+  exact path.fits (Record.preflightValue_layout _ _ _ _ _ _ compiled) _ _ _ admitted
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled
