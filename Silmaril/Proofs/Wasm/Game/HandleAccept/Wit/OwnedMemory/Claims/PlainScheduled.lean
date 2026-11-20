@@ -5,6 +5,9 @@ public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
 public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Plain.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Thms
+public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Defs
+import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
+import Silmaril.Wasm.Component.Reference.Canon.Callout.Thms
 
 @[expose] public section
 
@@ -770,5 +773,148 @@ theorem embedder_caller_refusal_steps {sig : Signature} {grow : SingleThreaded.G
     cases label <;> first | rfl | contradiction
   · simp [reached, HostState.publications, HostState.transcript, HostState.record, HostState.enter,
       Event.publication]
+
+private theorem closed_thread {E : CoreEngine} {store : CStore E} {thread : Option ThreadId}
+    {inst : InstId} {entry : InstState}
+    (caller : Plain.callerInstance store thread = .ok (some inst))
+    (live : store.inst? inst = some entry) (closed : entry.mayLeave = false) :
+    threadMayLeave store thread = false := by
+  cases thread with
+  | none => cases caller
+  | some id =>
+    cases active : ArenaField.threads.get? store id with
+    | none => simp [Plain.callerInstance, active] at caller
+    | some activeThread =>
+      cases task : ArenaField.tasks.get? store activeThread.task with
+      | none => simp [Plain.callerInstance, active, task] at caller
+      | some activeTask =>
+        have computed : Plain.callerInstance store (some id) = .ok (some activeTask.inst) := by
+          simp only [Plain.callerInstance, active, task]
+          rfl
+        rw [computed] at caller
+        cases caller
+        simp [threadMayLeave, instOfThread?, instMayLeave, active, task, live, closed]
+
+private theorem confined_give_refusal {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (inst : InstId) (destination : RecordDestination) (schema : Option Stored.TypeOf)
+    (reference : CStore (core3 grow)) (state : HostState sig) (thread : Option ThreadId)
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst,
+      schema.elim (.givePayload destination) (.giveFlat destination)⟩)
+    (caller : Plain.callerInstance reference thread = .ok (some inst))
+    (blocked : (reference.inst? inst).any (·.mayLeave) = false) :
+    let reply := schema.elim (completion state.nextTicket (.error .wrongContext))
+      (fun payload => flatCompletion state.nextTicket (ABI.flatten destination.width payload) (.error .wrongContext))
+    Plain.runBody (confine ((host bindings).embedder name type args)) reference state (some thread) =
+      (reference, (state.enter name type args).record reply.1, .ok reply.2) := by
+  change Plain.runBody (confine (route state.nextTicket bindings name type args)) reference
+    (state.enter name type args) (some thread) = _
+  cases schema with
+  | none =>
+    simp only [route, linked, Option.elim, Claims.Core.Scheduled.invoke, Prog.bind_eq, Prog.bind_assoc]
+    rw [resolve_caller_confined, caller]
+    simp [confined_read_store, blocked]
+    rfl
+  | some payload =>
+    simp only [route, linked, Option.elim, giveFlat, Prog.bind_eq, Prog.bind_assoc]
+    rw [resolve_caller_confined, caller]
+    simp [confined_read_store, blocked]
+    rfl
+
+private theorem observing_body_growth {grow : SingleThreaded.GrowOracle} {Host Result : Type}
+    (body : P (core3 grow) Host Result)
+    (start : Machine.Config (core3 grow) Host) (updated : CStore (core3 grow))
+    (reached : Host) (result : Result) (finish : Result → P (core3 grow) Host (Ret (core3 grow)))
+    (thread : Option ThreadId) (segments : List (Machine.Seg (core3 grow) Host))
+    (rest : List (Machine.Activation (core3 grow) Host))
+    (profile : ProfileKind) (ready : HostReady Host)
+    (dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow)))
+    (focused : start.ctl = ⟨thread, .prog (body >>= finish), segments⟩ :: rest)
+    (observes : Prog.Every (S := Eff (core3 grow) Host) (fun op => op.observes = true) body)
+    (success : Plain.runBody body start.store start.host (some thread) = (updated, reached, .ok result)) :
+    ∃ count, Machine.CoreGrowthSteps profile ready dispatch start (List.replicate count .tau)
+      { start with
+        store := updated
+        host := reached
+        ctl := ⟨thread, .prog (finish result), segments⟩ :: rest } := by
+  induction observes generalizing start with
+  | pure value =>
+    simp only [Plain.runBody, Prod.mk.injEq, Except.ok.injEq] at success
+    obtain ⟨store_eq, host_eq, result_eq⟩ := success
+    subst updated reached result
+    have frame : { start with ctl := ⟨thread, .prog (finish value), segments⟩ :: rest } = start := by
+      cases start
+      congr
+      exact focused.symm
+    rw [frame]
+    exact ⟨0, .refl _⟩
+  | @op op next allowed _ ih =>
+    have guard : Machine.CoreUpdateGrows start := by
+      rw [Machine.CoreUpdateGrows, focused]
+      cases op <;> trivial
+    cases op
+    case get =>
+      obtain ⟨count, tail⟩ := ih start.store
+        { start with ctl := ⟨thread, .prog (next start.store >>= finish), segments⟩ :: rest } rfl success
+      exact ⟨count + 1, .cons guard (.get focused) tail⟩
+    case hostGet =>
+      obtain ⟨count, tail⟩ := ih start.host
+        { start with ctl := ⟨thread, .prog (next start.host >>= finish), segments⟩ :: rest } rfl success
+      exact ⟨count + 1, .cons guard (.hostGet focused) tail⟩
+    case hostSet newHost _ =>
+      obtain ⟨count, tail⟩ := ih ()
+        { start with host := newHost, ctl := ⟨thread, .prog (next () >>= finish), segments⟩ :: rest } rfl success
+      exact ⟨count + 1, .cons guard (.hostSet focused) tail⟩
+    case currentThread =>
+      obtain ⟨count, tail⟩ := ih thread
+        { start with ctl := ⟨thread, .prog (next thread >>= finish), segments⟩ :: rest } rfl success
+      exact ⟨count + 1, .cons guard (.currentThread focused) tail⟩
+    all_goals first | contradiction | cases success
+
+theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (inst : InstId) (destination : RecordDestination) (schema : Option Stored.TypeOf)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {entry : InstState}
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst,
+      schema.elim (.givePayload destination) (.giveFlat destination)⟩)
+    (caller : Plain.callerInstance start.store thread = .ok (some inst))
+    (live : start.store.inst? inst = some entry) (closed : entry.mayLeave = false) :
+    let reply := schema.elim (completion start.host.nextTicket (.error .wrongContext))
+      (fun payload => flatCompletion start.host.nextTicket (ABI.flatten destination.width payload)
+        (.error .wrongContext))
+    let reached := (start.host.enter name type args).record reply.1
+    ∃ count, Machine.CoreGrowthSteps profile ready (specDispatch ready (host (grow := grow) bindings)) start
+      (List.replicate count .tau)
+      { start with
+        host := reached
+        ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
+          continuation, segments⟩ :: rest } ∧ reached.writer = start.host.writer := by
+  intro reply reached
+  let impl := host (grow := grow) bindings
+  let program := confine (impl.embedder name type args)
+  let focused := { start with ctl := ⟨thread, .prog (calloutBody Limits.spec Quirks.none ready impl
+    start.store thread (.embedder name type) args), .core core continuation :: segments⟩ :: rest }
+  have blocked : (start.store.inst? inst).any (·.mayLeave) = false := by simp [live, closed]
+  have evaluated : Plain.runBody program start.store start.host (some thread) =
+      (start.store, reached, .ok reply.2) :=
+    confined_give_refusal bindings name type args inst destination schema start.store start.host
+      thread linked caller blocked
+  have entered : focused.ctl = ⟨thread, .prog (program >>= fun words => .pure (.flat words)),
+      .core core continuation :: segments⟩ :: rest := by
+    simp only [focused, calloutBody, closed_thread caller live closed, Bool.false_eq_true, ite_false, program]
+    rfl
+  obtain ⟨count, steps⟩ := observing_body_growth program focused start.store reached reply.2
+    (fun words => .pure (.flat words)) thread (.core core continuation :: segments) rest profile ready
+    (specDispatch ready impl) entered (confine_every (fun _ fact => fact) _) evaluated
+  have guard : Machine.CoreUpdateGrows start := by simp [Machine.CoreUpdateGrows, parked]
+  have resumed := steps.append (.cons trivial (.popCore rfl) (.refl _))
+  rw [← List.replicate_succ'] at resumed
+  refine ⟨count + 1 + 1 + 1 + 1, ?_, rfl⟩
+  exact .cons guard (.coreCallout parked calling)
+    (.cons trivial (.currentThread rfl) (.cons trivial (.get rfl) resumed))
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled

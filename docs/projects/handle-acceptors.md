@@ -663,6 +663,17 @@ refusal. This is an explicit Core import convention, not the component ABI's
 call-lowering decision about direct versus indirect results. The defensive result-shape
 check does not roll back effects of the emitter.
 
+`CoreGrowthSteps` frames the linked memory address, pointer width, and bounds of already
+valid regions across certified scheduler prefixes. It permits guest byte writes and memory
+growth. Core instructions, canonical memory writes and the realloc dispatcher's own
+updates supply growth proofs; other reached `modify` operations need their own proof.
+In a closed realloc window, a same-instance
+reentrant `givePayload` or `giveFlat` with a valid binding takes the actual typed
+`wrongContext` reply, journals the refusal, and resumes parked Core without changing the
+component store or writer. This certifies those callout segments without assuming the
+allocator's bytes are unchanged. It does not yet certify every callback trace, nor the
+range newly returned by realloc, which canonical lowering checks in the reached store.
+
 `Binding.acceptFlat` links a fixed tag and checks the full schema before accepting the
 canonical flat operand vector. The child pointer/count and any indirect string or list
 contents still refer to the linked memory; the child checks are shared with the indirect
