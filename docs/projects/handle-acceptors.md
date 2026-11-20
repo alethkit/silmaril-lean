@@ -736,9 +736,12 @@ lifts and resolves in one callback; it does not expose a suspended post-lift pha
 The deferred session theorem conserves the writer and journal on arbitrary ordinary
 prefixes. `Deferred.fresh_lookup_iff_publication` also proves the converse to publication
 lookup: a fresh handle is selectable exactly when its journal position records a
-publication for it. A pending or refused callback cannot account for a new selectable
-root without a publication. This is not a statement about delivery or live transfer
-authority. Linked direct/spilled replays check cancel, drop, slot reuse, start,
+publication for it. `Deferred.fresh_lookup_iff_cut` relates the selected tree itself to
+a single machine step registering it and appending the matching journal entry. The
+actual prefix and suffix retain intervening traps, retries and other effects. A pending
+or refused callback cannot account for a new selectable root without a publication.
+This is not a statement about delivery or live transfer authority. Linked
+direct/spilled replays check cancel, drop, slot reuse, start,
 resolution, and stale start after dropping the waitable.
 With no configured deferred callees, the complete dispatch is the eager dispatch;
 the control name is not reserved. When a live instance has no room for a waitable,
