@@ -32,4 +32,15 @@ theorem Site.parked_handles {grow : Silmaril.Wasm.SingleThreaded.GrowOracle} {si
       site.route.output 0 pointer bytes reached reference
       (fun item member address pos => PayloadPrefix.memory_handle site.destination site.inst item pos address (handles item member)))
 
+/-- Both public give routes compare an entire compiled non-string scalar
+list after a classified allocator return, with no separate child premise.
+This reaches the reply continuation, not delivery of the reply. -/
+theorem Site.parked_scalars {grow : Silmaril.Wasm.SingleThreaded.GrowOracle} {sig : Signature}
+    (site : Site grow sig) (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (next : site.ReferenceNext) (linked : site.Linked bindings)
+    (primitive : WIT.Primitive) (element : site.element = .prim primitive) (nonString : primitive ≠ .string) :
+    Outcome site profile ready bindings next (fun _ _ => True) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicCollection.parkedScalars
+    site profile ready bindings next linked primitive element nonString
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.PublicCollection

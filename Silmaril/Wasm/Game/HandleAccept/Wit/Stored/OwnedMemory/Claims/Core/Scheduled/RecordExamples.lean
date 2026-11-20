@@ -392,10 +392,10 @@ private def inlineEndpointRegression (channel : Channel) : Bool :=
 private def reallocContract : Endpoints.Core.Contract reallocSignature :=
   ⟨0, ("host", "accept-node"), fun tag => if tag == 0 then some () else none, {}, ⟨0⟩⟩
 
-private def reallocBody (invalid : Bool) : List Instr :=
+private def reallocBody (invalid : Bool) (flatResults : Nat := 4) : List Instr :=
   [word 1, .memoryGrow ⟨0⟩, .drop, word 208, .localGet ⟨2⟩, .intStore .i32 none ⟨0⟩ ⟨0, 0⟩,
     word 212, .localGet ⟨3⟩, .intStore .i32 none ⟨0⟩ ⟨0, 0⟩,
-    word 1, .call ⟨2⟩, .drop, .drop, .drop, .drop, word (if invalid then 65537 else 65536)]
+    word 1, .call ⟨2⟩] ++ List.replicate flatResults .drop ++ [word (if invalid then 65537 else 65536)]
 
 private def reallocSession (inst : ModuleInst) (flat : Bool) : Session grow reallocSignature (Ret engine) := do
   let call (name : String) (args expected : List Nat) := do
@@ -462,6 +462,68 @@ private def reallocRegression (flat invalid : Bool) : Bool :=
 #guard reallocRegression false true
 #guard reallocRegression true true
 
+@[expose] public def scalarListSignature : Signature :=
+  ⟨Unit, fun _ => .list (.prim .u32), fun _ => .fixed 0⟩
+
+private def scalarListContract : Endpoints.Core.Contract scalarListSignature :=
+  ⟨0, ("host", "accept-node"), fun tag => if tag == 0 then some () else none, {}, ⟨0⟩⟩
+
+private def scalarListSession (inst : ModuleInst) (flat : Bool) : Session grow scalarListSignature (Ret engine) := do
+  let call (name : String) (args expected : List Nat) := do
+    let some address := exportAddr inst name | internal s!"missing Core export {name}"
+    trapIf ((← callCore address (args.map i32Flat)) != expected.map i32Flat)
+      (.internal s!"unexpected result: {name}")
+  call "accept-node" [0, 32, 0, 0] [0, 1]
+  if flat then call "give-flat" [1] [0, 65536, 3]
+  else call "give-payload" [1, 0] [0, 0]
+  return .unit
+
+private def scalarListSetup (flat invalid : Bool) :
+    Option (List (Binding scalarListSignature) × Machine.Config engine (HostState scalarListSignature)) := do
+  let input := Endpoints.Core.Scheduled.acceptType scalarListContract
+  let entries := [
+    ("accept-node", input, CanonHost.embedder "accept-node" input),
+    ("give-payload", wordFn 2 2, .embedder "give-payload" (wordFn 2 2)),
+    ("give-flat", wordFn 1 3, .embedder "give-flat" (wordFn 1 3))]
+  let (store, inst) ← instantiateWith {} entries (fun name =>
+    if name == "accept-node" then storeWord 32 64 ++ storeWord 36 3 ++
+      storeWord 64 37 ++ storeWord 68 256 ++ storeWord 72 5
+    else []) [("realloc", wordFn 4 1, reallocBody invalid 3)]
+  let reallocIndex := some (entries.length * 2)
+  let .ok memory := Binding.givePayload "give-payload" ⟨0⟩ inst 0 .i32 .utf8 reallocIndex | none
+  let .ok flatBinding := Binding.giveFlat (sig := scalarListSignature) "give-flat" ⟨0⟩ inst 0 .i32 .utf8
+    (scalarListSignature.payload ()) reallocIndex | none
+  let reference : CStore engine := { CStore.empty with
+    core := store, insts := [{}], tasks := [{ ft := ⟨[], none, false⟩, opts := {}, inst := ⟨0⟩, caller := ⟨0⟩ }],
+    threads := [{ status := .running, task := ⟨0⟩ }] }
+  return ([Binding.accept scalarListContract inst 0, memory, flatBinding], {
+    store := reference, host := {}, conts := [none],
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (scalarListSession inst flat)] })
+
+private def scalarListRegression (flat invalid : Bool) : Bool :=
+  match scalarListSetup flat invalid with
+  | none => false
+  | some (bindings, config) =>
+    let result := run bindings config
+    let bytes := (result.config.store.core.mems[0]?.map (·.bytes)).getD ByteArray.empty
+    let completion := if invalid then [] else if flat then [.returnedFlat 1 ([65536, 3].map i32Flat)] else [.returned 1 0]
+    let outer := if flat then Event.entered 1 "give-flat" (wordFn 1 3) [i32Flat 1]
+      else .entered 1 "give-payload" (wordFn 2 2) ([1, 0].map i32Flat)
+    let journal := [Event.entered 0 "accept-node" (Endpoints.Core.Scheduled.acceptType scalarListContract)
+        ([0, 32, 0, 0].map i32Flat), .published 0 1, .returned 0 1, outer,
+      .entered 2 "give-flat" (wordFn 1 3) [i32Flat 1], .refused 2 .wrongContext] ++ completion
+    result.outcome == (if invalid then .trap else .resolved) &&
+    result.labels.any (· matches .trap .unalignedPointer) == invalid &&
+    result.config.host.transcript == journal &&
+    bytes.size == 131072 && (bytes.extract 208 216).data == #[4, 0, 0, 0, 12, 0, 0, 0] &&
+    (bytes.extract 0 8).data == (if flat || invalid then #[0, 0, 0, 0, 0, 0, 0, 0] else #[0, 0, 1, 0, 3, 0, 0, 0]) &&
+    (bytes.extract 65536 65548).data ==
+      (if invalid then #[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] else #[37, 0, 0, 0, 0, 1, 0, 0, 5, 0, 0, 0])
+
+#guard scalarListRegression false false
+#guard scalarListRegression true false
+#guard scalarListRegression false true
+#guard scalarListRegression true true
 private def bindingTrapArgs : List Nat := [0, 0, 1, 0, 0, 0]
 
 private def bindingTrapSession (inst : ModuleInst) : Session grow signature (Ret engine) := do
