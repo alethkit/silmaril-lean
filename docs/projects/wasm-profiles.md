@@ -66,3 +66,40 @@ The regression models the immutable pair projection `snd (a, b)` using
 to mutable still validates in Core and is accepted by `Functional`, but is
 rejected by `Strict`. This is the target shape for a typed frontend, not a new
 OCaml parser or proof of source lowering adequacy.
+
+## A checked opcode slice
+
+The `Profiles.ISA` slice covers ten immediate-free instructions: `i32`/`i64`
+addition and signed/unsigned division, `i64.extend32_s`, the two
+`i32.trunc_sat_f32` signednesses, and `ref.i31`. `Flat` is an ordinary enum;
+`RawOp` factors integer width and operator. `Flat.factoredEquiv` preserves Core
+erasure. `Op` is the factored syntax indexed by precise input and output stacks.
+`Flat.At.equiv` is a two-sided typed equivalence at fixed stack effects, while
+`Flat.equiv` and `RawOp.equiv` retain those effects in a dependent sum.
+`Op.sound` derives the actual Core `InstrOk` rule, not just a classification.
+Factoring does not introduce `i32.extend32_s` or identify the two divisions.
+
+`Admitted Wasm1` embeds into `Admitted Wasm2` and then `Admitted Wasm3` without
+changing the operation. Sign extension and saturating conversion separate the
+first two; `ref.i31` separates the next two. `Flat.toV1_core` and
+`Flat.toV2_core` check the manifest/native syntax/Core translation triangles
+on **this slice**. `Admitted Strict` is the same enum restricted by the Strict
+manifest; there are no control transfers or exception instructions in this slice.
+
+`Opcode` distinguishes primary bytes from the `0xfb` GC, `0xfc` miscellaneous,
+`0xfd` SIMD and `0xfe` atomic spaces. A prefixed index is a `u32`, serialized
+with the existing unsigned LEB encoder. The [opcode chart](https://wasm-chart.pengowray.com/)
+is a quick reference; the formal evidence is the [pinned Core 3.0 binary
+grammar](../../specs/spectec/src/specification/wasm-3.0/5.3-binary.instructions.spectec)
+and `Binary.Core`'s opcode propositions and reader. `Flat.lookup?_some` is exact
+on the ten tags, `Flat.encodes` inhabits the Core binary relation, and
+`Flat.readOne_bytes` runs the existing instruction decoder on canonical bytes
+and proves exact consumption. The regression also exercises a non-minimal
+permitted `0xfc` LEB and a truncated one.
+
+No instruction with additional immediates is represented by just its opcode.
+An uncovered opcode need not be reserved: for example `0xfc 10` is
+`memory.copy`, with further immediates. SIMD/atomic spaces have no entries in
+the slice; representing their indices does not enable them in the Core reader
+or a strict module. Factoring structured control or exception handling next
+requires the body and handler typing indices, not just more enum cases.
