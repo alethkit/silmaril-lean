@@ -674,7 +674,10 @@ In a closed realloc window, a same-instance
 reentrant `givePayload` or `giveFlat` with a valid binding takes the actual typed
 `wrongContext` reply, journals the refusal, and resumes parked Core without changing the
 component store or writer. The resumed control retains its continuation certificates,
-so the refusal segment composes with the certified prefixes before and after it. This
+so the refusal segment composes with the certified prefixes before and after it.
+`parked_closed_give_writer_frame` pairs those segments even if earlier checked spends
+made the writers different: the reply, journal update, and resumed Core control are the
+same, with each writer left in place. This
 does not assume the allocator's bytes are unchanged, certify every callback trace, or validate the
 range newly returned by realloc, which canonical lowering checks in the reached store.
 
@@ -698,6 +701,17 @@ validation. None of these rules frames guest bytes or assumes a callback returns
 The canonical record/tuple layout also bounds each aligned field placement
 inside the aggregate. With an already-valid aggregate region, the checked
 nested-field bounds read succeeds at that placement after a certified prefix.
+
+`RecordDestination.paired_dynamic_call` reaches the same linked realloc
+program on both sides, with the two actual continuation programs on the
+stack. `Machine.ReturnFrame.steps` replays the same scheduler labels through
+reentry and blocked activations up to the substituted frame's pop. Both sides
+observe the same return and reached store, writer, and host bookkeeping;
+those need not equal their values before realloc. A prefix that traps or has
+not returned does not need an allocator result. After a return the two
+continuations run their range checks, and the checked one revalidates the
+reached live plan before entering any element. This pairs allocator prefixes,
+not the subsequent recursive traversals or the complete exports.
 
 `RecordDestination.memory_cursor` uses the width established by the same destination
 check as both public give routes. On a certified prefix the canonical field cursor

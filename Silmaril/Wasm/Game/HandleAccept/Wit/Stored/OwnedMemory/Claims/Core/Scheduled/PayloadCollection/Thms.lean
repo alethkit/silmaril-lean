@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadInstall.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Collection.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection
 
 public section
@@ -71,6 +72,89 @@ theorem RecordDestination.checked_dynamic_call {sig : Stored.Signature} {ready :
         { reached with ctl := ⟨thread, .prog (dispatch request), .prog resume :: segments⟩ :: rest } :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection.checked_dynamic_call
     reached destination inst type element entries index output finish prepared focused
+
+/-- At matching reached dynamic cursors, both paths dispatch the identical
+linked realloc program. The actual callback prefix can be shared via
+`ReturnFrame.steps`, up to the common result. The saved continuations check
+the same range; the checked continuation then revalidates the live plan. -/
+theorem RecordDestination.paired_dynamic_call {sig : Stored.Signature} {ready : HostReady (HostState sig)}
+    (bindings : List (Binding sig))
+    {initial canonical checked : Machine.Config (core3 grow) (HostState sig)} {trace}
+    (canonicalRun : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) initial trace canonical)
+    (destination : RecordDestination) (inst : InstId) (checkedDestination : destination.check initial.store = .ok ())
+    (type element : Stored.TypeOf) (entries : List Field) (index : Nat) (output : Stored.Lower.Output)
+    (storeEntry : AddrType → Field → Nat → Session grow sig Unit)
+    (finishCanonical : output.Result → Session grow sig (Ret (core3 grow)))
+    (finishChecked : Except Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (prepared : Record.prepare checked.store checked.host.writer (Field.listObjects entries) = .ok ())
+    {thread segments rest}
+    (canonicalAt : canonical.ctl = ⟨thread, .prog (canonicalDynamic (destination.context inst) destination.width
+      element entries storeEntry output >>= finishCanonical), segments⟩ :: rest)
+    (checkedAt : checked.ctl = ⟨thread, .prog (Internal.runField Limits.spec Quirks.none (destination.context inst)
+      (Record.authority recordClaims Limits.spec (destination.context inst)) destination.width
+      (.dynamic type element entries) index output >>= finishChecked), segments⟩ :: rest)
+    (same : { checked with ctl := canonical.ctl } = canonical) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let cx := destination.context (grow := grow) inst
+    let area := layout destination.width element
+    let body := dispatch (.reallocate cx 0 0 area.alignment.bytes (entries.length * area.size))
+    ∃ checkedResume canonicalResume : Machine.ReturnFrame.Continuation (core3 grow) (HostState sig),
+      let checkedCall := { checked with ctl := ⟨thread, .prog body, .prog checkedResume :: segments⟩ :: rest }
+      let canonicalCall := { canonical with ctl := ⟨thread, .prog body, .prog canonicalResume :: segments⟩ :: rest }
+      (∀ pointer, checkedResume (.nat pointer) = (do
+        let ptr ← validateListRange cx area entries.length pointer
+        let authority := Record.authority recordClaims Limits.spec cx
+        let verdict ← authority.prepare (Field.listObjects entries)
+        let result ← checkedDynamicContinue Limits.spec Quirks.none cx authority destination.width
+          element entries index output ptr verdict
+        finishChecked result)) ∧
+      (∀ pointer, canonicalResume (.nat pointer) = (do
+        let ptr ← validateListRange cx area entries.length pointer
+        elementSequence (fun _ => storeEntry destination.width) entries area.size ptr 0
+        let result ← Endpoints.ListLower.publish cx destination.width ptr entries.length output
+        finishCanonical result)) ∧
+      Machine.Steps profile ready dispatch checked [.tau, .tau, .tau] checkedCall ∧
+      Machine.Steps profile ready dispatch canonical [.tau, .tau] canonicalCall ∧
+      Machine.ReturnFrame.Paired checkedResume canonicalResume checkedCall canonicalCall :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection.paired_dynamic_call
+    bindings canonicalRun destination inst checkedDestination type element entries index output storeEntry
+    finishCanonical finishChecked prepared canonicalAt checkedAt same
+
+/-- On a shared allocator return, the same invalid range traps both sides
+from the reached state. For a valid range the canonical path enters its
+suffix while the checked path obtains a fresh, possibly refusing verdict. -/
+theorem RecordDestination.paired_range_recheck {sig : Stored.Signature} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {checked canonical : Machine.Config (core3 grow) (HostState sig)}
+    {checkedResume canonicalResume : Machine.ReturnFrame.Continuation (core3 grow) (HostState sig)}
+    (paired : Machine.ReturnFrame.Paired checkedResume canonicalResume checked canonical)
+    (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
+    (checkNext : Nat → Except Endpoints.RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
+    (canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    (checkedBody : checkedResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area count pointer
+      let verdict ← (Record.authority recordClaims Limits.spec (destination.context inst)).prepare plan
+      checkNext ptr verdict))
+    (canonicalBody : canonicalResume (.nat pointer) = (validateListRange (destination.context inst) area count pointer >>= canonNext))
+    {thread checkedFrames canonicalFrames checkedRest canonicalRest}
+    (checkedAt : checked.ctl = ⟨thread, .prog (.pure (.nat pointer)), .prog checkedResume :: checkedFrames⟩ :: checkedRest)
+    (canonicalAt : canonical.ctl = ⟨thread, .prog (.pure (.nat pointer)), .prog canonicalResume :: canonicalFrames⟩ :: canonicalRest)
+    {bytes : Nat} (sized : (core3 grow).memSize? checked.store.core destination.memory = some bytes) :
+    let trapped := fun reason =>
+      (∃ steps, Machine.Steps profile ready dispatch checked (List.replicate steps .tau ++ [.trap reason])
+        (Machine.StepDefs.trapCfg checked)) ∧
+      (∃ steps, Machine.Steps profile ready dispatch canonical (List.replicate steps .tau ++ [.trap reason])
+        (Machine.StepDefs.trapCfg canonical))
+    if pointer ≠ alignTo pointer area.alignment then trapped .unalignedPointer
+    else if pointer + count * area.size ≤ bytes then
+      (∃ labels, (∀ label ∈ labels, label = .tau) ∧ Machine.Steps profile ready dispatch checked labels
+        { checked with ctl := ⟨thread, .prog (checkNext pointer (Record.prepare checked.store checked.host.writer plan)),
+          checkedFrames⟩ :: checkedRest }) ∧
+      (∃ labels, (∀ label ∈ labels, label = .tau) ∧ Machine.Steps profile ready dispatch canonical labels
+        { canonical with ctl := ⟨thread, .prog (canonNext pointer), canonicalFrames⟩ :: canonicalRest })
+    else trapped .outOfBounds :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection.paired_range_recheck
+    paired destination inst area count pointer plan checkNext canonNext checkedBody canonicalBody checkedAt canonicalAt sized
 
 /-- A checked return from realloc validates range and the live plan before
 entering element traversal. Both branches retain the reached store and
