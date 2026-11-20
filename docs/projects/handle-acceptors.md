@@ -870,6 +870,16 @@ either stops with a typed error or runs the reference leaf after just the
 required claim spend; shared contexts spend nothing. The lemma does not
 deduce that a later canonical leaf succeeds.
 
+`ChildFrameOver.string_field_replay` compares both actual string field programs
+through their allocate/resize plans and memory descriptor or flat result. It
+replays classified finite callback prefixes; a returning callback advances the
+comparison only when it pops the installed occurrence. Older paired frames stay
+paired, and induction resumes on the strictly shorter saved plan. Descriptor
+writes use the reached state and may trap after an earlier write. The string
+rule takes the reached width, placement and fit facts; it does not require
+callbacks to return, preserve guest bytes or preserve live claims. Composition
+through arbitrary allocating compounds and both public give bindings is separate.
+
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner
 and endpoint commitment operations, selected sum arm, and collection allocation,

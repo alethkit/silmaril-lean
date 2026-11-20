@@ -19,6 +19,60 @@ theorem step_edit {before after : Config E Host} {label : Label E Host}
     segmentStorage after = (transitionEdit before label).apply (segmentStorage before) :=
   Proofs.Wasm.Component.Reference.MachineReturnOccurrence.step_edit run
 
+theorem step_follow {before after : Config E Host} {label : Label E Host} {place reached : Location}
+    (run : Step profile ready dispatch before label after) (moved : (transitionEdit before label).follow place = some reached) :
+    segmentAt (segmentStorage after) reached = segmentAt (segmentStorage before) place :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.step_follow run moved
+
+theorem step_pop {before after : Config E Host} {label : Label E Host} {place : Location} {resume : Continuation E Host}
+    (run : Step profile ready dispatch before label after)
+    (occurs : segmentAt (segmentStorage before) place = some (.prog resume))
+    (pops : (transitionEdit before label).pops place) : Popped before after label place resume :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.step_pop run occurs pops
+
+/-- Both scheduler cursors use the same edit when their reached focus and
+scheduler data are paired. It does not read the substituted frames. -/
+theorem pair_edit {changes : Substitutions E Host} {left right : Config E Host}
+    (paired : Related.Paired changes left right) (label : Label E Host) :
+    transitionEdit left label = transitionEdit right label :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.pair_edit paired label
+
+theorem paired_outside {changes : Substitutions E Host} {left right : Config E Host}
+    (paired : Related.Paired changes left right) : Outside changes (segmentStorage left) (segmentStorage right) none :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.paired_outside paired
+
+theorem outside_push {older : Substitutions E Host} {left right : Stacks E Host} (first second : Seg E Host)
+    (paired : Outside older left right none) :
+    Outside older ((Edit.push first).apply left) ((Edit.push second).apply right) (some (.active 0 0)) :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.outside_push first second paired
+
+/-- Pairing by the older relation is preserved off the mark. Newly written
+or empty locations cannot inherit the selected substitution. -/
+theorem outside_edit {older : Substitutions E Host} {left right : Stacks E Host} {mark : Option Location}
+    (outside : Outside older left right mark) (edit : Edit E Host) :
+    Outside older (edit.apply left) (edit.apply right) (mark.bind edit.follow) :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.outside_edit outside edit
+
+theorem narrow {older wider : Substitutions E Host} {left right : Config E Host}
+    (paired : Related.Paired wider left right)
+    (outside : Outside older (segmentStorage left) (segmentStorage right) none) : Related.Paired older left right :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.narrow paired outside
+
+/-- After popping the selected top occurrence, all remaining frames pair by
+the older relation, including suspended activations. The common focus here
+only exposes that residual relation; it does not execute either continuation. -/
+theorem retire_top {older wider : Substitutions E Host} {left right : Config E Host}
+    {thread : Option ThreadId} {value : Ret E} {first second : Continuation E Host}
+    {leftFrames rightFrames : List (Seg E Host)} {leftRest rightRest : List (Activation E Host)}
+    (paired : Related.Paired wider left right)
+    (outside : Outside older (segmentStorage left) (segmentStorage right) (some (.active 0 0)))
+    (leftAt : left.ctl = ⟨thread, .prog (.pure value), .prog first :: leftFrames⟩ :: leftRest)
+    (rightAt : right.ctl = ⟨thread, .prog (.pure value), .prog second :: rightFrames⟩ :: rightRest)
+    (focus : Focus E Host) :
+    Related.Paired older { left with ctl := ⟨thread, focus, leftFrames⟩ :: leftRest }
+      { right with ctl := ⟨thread, focus, rightFrames⟩ :: rightRest } :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.retire_top paired outside leftAt rightAt focus
+
 /-- Following a surviving occurrence preserves the segment, not just its
 lookup key or its position in the original activation. -/
 theorem prefix_survives {before after : Config E Host} {labels : List (Label E Host)} {place reached : Location}
@@ -26,6 +80,12 @@ theorem prefix_survives {before after : Config E Host} {labels : List (Label E H
     Steps profile ready dispatch before labels after ∧
       segmentAt (segmentStorage after) reached = segmentAt (segmentStorage before) place :=
   Proofs.Wasm.Component.Reference.MachineReturnOccurrence.prefix_survives run
+
+theorem Prefix.append {before middle after : Config E Host} {leading trailing : List (Label E Host)}
+    {place reached final : Location} (left : Prefix profile ready dispatch before place leading middle reached)
+    (right : Prefix profile ready dispatch middle reached trailing after final) :
+    Prefix profile ready dispatch before place (leading ++ trailing) after final :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.prefix_append left right
 
 /-- Every finite execution either retains the selected occurrence or has a
 first removal. Only a pop of its actual top slot executes the continuation;
