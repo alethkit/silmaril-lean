@@ -13,10 +13,10 @@ public import Silmaril.Proofs.Wasm.Component.DecoderBridge.Multi.LaterCore
   run, in the shared store (`run_gap`), traps (`coreTrap`);
 * `later_fail`: the later definitions up to a failing node (quiet ready nodes before it, run by
   `laterCoreStep'` with no calls) run live to a specification trap;
-* `laterFail_ref`: a quiet failure of node `k ≥ 1` of a binary of `MultiImpFrag` makes the
-  reference machine's instantiation trap, given the first node (`FirstK'`);
+* `laterFail_ref`: a quiet failure of node `k ≥ 1` of a binary of `MultiImpFailFrag` makes the
+  reference machine's instantiation trap, given the first node;
 * `failRefWiredRest'_of_rest''_of_firstK'`: `Task.failRefWiredRest'` from
-  `Task.failRefWiredRest''` (its rest) and `FirstK'`.
+  `Task.failRefWiredRest''` (its rest) and the first-node result.
 -/
 
 @[expose] public noncomputable section
@@ -290,7 +290,7 @@ theorem laterFailStep : LaterFailStep := by
     -- the start run, to the trap
     have hcode := code_of_status_trap hst
     rw [← code_config_mapHG (g := FirstImp.gL)] at hcode
-    obtain ⟨tR', tr₃, r₃, hG', -, hsc⟩ := run_gap (prof := first.prof) (th := thc) (K := Kc₀)
+    obtain ⟨tR', tr₃, r₃, -, hG', -, hsc⟩ := run_gap (prof := first.prof) (th := thc) (K := Kc₀)
       (segs := segsc) (rest := restc) (B := M₀) hl₀ g hinj hrun hG hRT
       (fun tR' hth => by
         rw [status_trap_of_code (by rw [hth]; exact code_gap_trap g.sh hcode)]
@@ -415,25 +415,29 @@ theorem later_fail {pre : RefComponent} :
 /-! ## A later node fails -/
 
 /-- **A failure of node `k ≥ 1` of a binary of the fragment**, after quiet ready nodes, makes the
-reference machine's instantiation trap (given the first node, `FirstK'`). -/
-theorem laterFail_ref (h1 : FirstK') {b : ByteArray} {c : Comp Binary.CoreMod} {r : RefComponent}
+reference machine's instantiation trap (given the first-node result). -/
+theorem laterFail_ref (h1 : FirstKAt MultiImpFailFrag) {b : ByteArray} {c : Comp Binary.CoreMod}
+    {r : RefComponent}
     {ps : List (Binary.CoreMod × List Impl)} {k : Nat} (hk : k < ps.length) (hk0 : 0 < k)
-    (hpc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hf : MultiImpFrag r)
+    (hpc : Binary.parseComponent b = .ok c) (hr : decodeRef b = .ok r) (hf : MultiImpFailFrag r)
     (himp : c.imports = hostI) (hnodes : c.nodes = coreNodes ps)
     (hq : ∀ j (hj : j < k), NodeQuiet hostI.length .ready (ps[j]'(by omega)).1 (ps[j]'(by omega)).2)
     (hfl : NodeQuiet hostI.length (.fail ()) ps[k].1 ps[k].2) :
     InstResult.traps ∈
       instBehaviours first.prof (Host.ofEmbedder embL) hostConfigX r (importArgs hostI) := by
-  obtain ⟨-, hw, -, pre, mi, cargs, post, hs, -, hpostOk⟩ := multiImpFrag_inv hf
-  obtain ⟨p, ps', rfl⟩ := nodes_ne_nil hpc hr hf hnodes
+  obtain ⟨-, hw, ⟨reading, hread, hlow, -⟩, pre, mi, cargs, post, hs, -, hpostOk⟩ :=
+    multiImpFailFrag_inv hf
+  obtain ⟨p, ps', rfl⟩ := List.exists_cons_of_ne_nil (l := ps) (by rintro rfl; simp at hk)
   obtain ⟨k', rfl⟩ : ∃ k', k = k' + 1 := ⟨k - 1, by omega⟩
-  have hok := nodeOk_frag hpc hr hf hnodes
+  obtain ⟨R, hR, -, -, hN⟩ := relW_of_decode hpc hr (inFrag_of_hostWired hw)
+  rw [hR] at hread
+  have hlowR : lowWired R = true := by rwa [Option.some.inj hread]
+  rw [hnodes] at hN
+  have hok := nodeOk_all hN hlowR
   have h₀ : NodeCalls hostI.length .ready p.1 p.2 [] :=
     nodeQuiet_ready_calls (hok p List.mem_cons_self) (hq 0 hk0)
   obtain ⟨sc, M, ⟨⟨tr₀, hs₀, hn₀, ht₀⟩, ⟨K, -, hc⟩, -, hh⟩, hL, hFR⟩ :=
     h1 b c r p ps' [] pre mi cargs post hpc hr hf himp hnodes (fun _ h => by cases h) h₀ hs
-  obtain ⟨R, hR, -, -, hN⟩ := relW_of_decode hpc hr (inFrag_of_hostWired hw)
-  rw [hnodes] at hN
   have hrr := firstCore?_eq r hs
   unfold refRead at hR
   have hsplit : r = (pre ++ [Syntax.Definition.coreInstance (.instantiate mi cargs)]) ++ post := by
@@ -479,9 +483,10 @@ theorem laterFail_ref (h1 : FirstK') {b : ByteArray} {c : Comp Binary.CoreMod} {
         exact this)
       ⟨ps'[k']'(by simp at hk; omega), by simp, by simpa using hfl⟩
       (hFR _ (by rw [foldlM_option_append, hR₁]; simp [hci])) hL hc hh
-  have hsteps := Adequacy.steps_append (Adequacy.steps_append hs₀ d.steps) (.cons hstep (.refl _))
-  simp only [List.cons_append] at hsteps
-  refine ⟨m', tr₀ ++ tr₁ ++ [Label.trap rT], by exact hsteps, ?_, ?_, Adequacy.step_trap_lockdown hstep⟩
+  have hsteps := Adequacy.steps_append (Adequacy.steps_append hs₀.steps d.steps) (.cons hstep (.refl _))
+  have hready : HostReadyCfg hostConfigX := ⟨rfl, rfl, rfl⟩
+  refine ⟨m', tr₀ ++ tr₁ ++ [Label.trap rT], .cons (.hostRun hready) hsteps, ?_, ?_,
+    Adequacy.step_trap_lockdown hstep⟩
   · intro ev hev
     simp only [List.mem_append, List.mem_singleton] at hev
     rcases hev with (h | h) | h
@@ -497,11 +502,12 @@ theorem laterFail_ref (h1 : FirstK') {b : ByteArray} {c : Comp Binary.CoreMod} {
       exact hrT msg h.symm
 
 /-- **`Task.failRefWiredRest'` from its rest outside the fragment's later failures**, given the
-first node (`FirstK'`): the case `MultiImpFrag r ∧ 0 < k` is `laterFail_ref`. -/
-theorem failRefWiredRest'_of_rest''_of_firstK' (h1 : FirstK') (h : Task.failRefWiredRest'') :
+first node: the case `MultiImpFailFrag r ∧ 0 < k` is `laterFail_ref`. -/
+theorem failRefWiredRest'_of_rest''_of_firstK' (h1 : FirstKAt MultiImpFailFrag)
+    (h : Task.failRefWiredRest'') :
     Task.failRefWiredRest' := by
   intro b c r ps k hk hor hpc hr hv hw himp hn hq hfl
-  by_cases hm : MultiImpFrag r ∧ 0 < k
+  by_cases hm : MultiImpFailFrag r ∧ 0 < k
   · exact laterFail_ref h1 hk hm.2 hpc hr hm.1 himp hn hq hfl
   · exact h b c r ps k hk hm hor hpc hr hv hw himp hn hq hfl
 
