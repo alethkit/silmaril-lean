@@ -187,11 +187,11 @@ example : lowered? = declared.specialize? coreEncoding
 private def lowered := lowered?.get (by decide +kernel)
 
 example : lowered.defs.map Wasm.Func.type = [⟨0⟩, ⟨1⟩] := rfl
-example : lowered.metadata.types = List.replicate 2 ⟨[⟨true, [], .func ⟨[.i32], [.i32]⟩⟩]⟩ := rfl
-example : lowered.metadata.exports.map Export.name = ["inc", "div"] := rfl
-example : lowered.metadata.data.map Data.bytes = [⟨#[42]⟩] := rfl
+example : lowered.sections.types = List.replicate 2 ⟨[⟨true, [], .func ⟨[.i32], [.i32]⟩⟩]⟩ := rfl
+example : lowered.sections.exports.map Export.name = ["inc", "div"] := rfl
+example : lowered.sections.data.map Data.bytes = [⟨#[42]⟩] := rfl
 
-private def interface := (validate? lowered.toCore).get (by decide +kernel)
+private def interface := lowered.validate?.get (by decide +kernel)
 
 example : (CExternType.funcs interface.exports).map DefType.funcType? =
     [some ([.i32], [.i32]), some ([.i32], [.i32])] := rfl

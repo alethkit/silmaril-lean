@@ -7,9 +7,41 @@ not a replacement for it or for the binary decoder.
 | --- | --- | --- |
 | Context reference | `Validation.Inductive.Path.here/there` | `Bounded.equiv` preserves the selected occurrence and its u32 index, with inverses in both directions. `Path` itself does not impose a binary bound. |
 | Raw function | `Declaration.Func ValType Body` | A Core function is the `List Instr` specialization; `mapBody` keeps the type index and locals. Binaryen already uses the `List BExpr` specialization. |
-| Raw module | `Generic.RawModule F` | `coreEquiv` splits and rejoins a Core module exactly; `map`/`traverse` preserve non-function sections and slot order. |
+| Raw module | `ModuleParts F` (`Generic.RawModule F`) | `Module.splitEquiv` splits and rejoins a Core module exactly; `map`/`traverse` preserve non-function sections and slot order. |
 | Typed function | `Generic.Typed.Function B context signature` | The type reference is structural. `B` ranges over a body family indexed by the actual function-body context and stack effect. `intrinsicEquiv` is an exact iso at `Intrinsic.Body`. |
-| Typed module | `Generic.Typed.Module F interface` | A checked declaration header computes the common environment, then a dependent `Definitions` spine supplies one function per local signature. `intrinsicEquiv` recovers the current typed module exactly at the Core specialization, including metadata. |
+| Typed module | `Generic.Typed.Module F interface` | A checked declaration header computes the common environment, then a dependent `Definitions` spine supplies one function per local signature. `intrinsicEquiv` recovers the current typed module exactly at the Core specialization, including all section data. |
+
+## Sections, declarations, and bodies
+
+`Wasm.Module` and `Wasm.Func` still have their original representations.
+Import `Silmaril.Wasm.ModuleParts.Thms` for the total projections and assembly:
+
+| Core fields | Projection and role |
+| --- | --- |
+| `types`, `imports` | `Module.sections` keeps recursive groups and imported declarations in source order. Imports contribute to the combined index spaces. |
+| `tags`, `globals`, `memories`, `tables` | Section declarations, including global and table initializer expressions. |
+| `data`, `elems` | Segment bytes/expressions, exact modes and offsets; element initializers can refer to local functions. |
+| `start`, `exports` | Start and export references into the assembled module, not information about a standalone sections-only module. |
+| `funcs` | `Module.split` retains the ordered definitions. A function's `declaration` contains its type use and additional locals; its `body` is separate. `FuncDecl.withBody` reassembles it. |
+
+The earlier `metadata : Module` plus `noFunctions` reused all the Core field
+types without forgetting any fields, but looked like a module even when its
+start, exports or initializers referred to definitions stored elsewhere.
+`ModuleSections` has no function field and makes no standalone validity claim.
+Use `sections.assemble defs` or `parts.toCore` to combine the pieces;
+`Module.splitEquiv` and `Declaration.Func.splitEquiv` prove both directions.
+`ModuleParts.functionSignature?` resolves a function's type use through the
+combined imported/local index space. This query is syntactic; the closed,
+validated interface comes from `ModuleParts.validate?` on the complete parts.
+
+The intrinsic and generic headers compute the real validation contexts from
+sections, resolved imports, and the full declared signature list. Locals and
+the parameter/return types then establish the context for a particular body.
+`sectionBaseContext_sections` and `sectionContext_sections` compare with the
+existing Core checker; `intrinsicEquiv_context` preserves the resulting scope.
+`split_mapBody` and `functionDecls_mapBody` distinguish rewriting code from
+changing declarations. The Binaryen adapter preserves lowering, not the
+contents of the ignored legacy `BModule.base.funcs` field.
 
 `Path.lookup_value`, `Path.lookup_path` and `Path.rename_toNat` connect structural
 lookup and renaming to numeric lookup. Repeated equal types do not identify

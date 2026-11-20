@@ -21,13 +21,14 @@ structure Fits (length : Nat) : Prop where
 
 abbrev Payload := { bytes : ByteArray // Fits bytes.size }
 
-def raw (bytes : ByteArray) : Wasm.Module := { data := [⟨bytes, .passive⟩] }
+def sections (bytes : ByteArray) : Wasm.ModuleSections := { data := [⟨bytes, .passive⟩] }
+
+def raw (bytes : ByteArray) : Wasm.Module := (sections bytes).assemble []
 
 def iface : CModuleType := ⟨[], []⟩
 
 def typed (bytes : ByteArray) : Intrinsic.Module iface where
-  metadata := raw bytes
-  noRawFunctions := rfl
+  sections := sections bytes
   definedTypes := []
   definedTags := []
   definedGlobals := []
@@ -42,7 +43,7 @@ def typed (bytes : ByteArray) : Intrinsic.Module iface where
   contextEq := rfl
   tagsValid := .nil
   globalsValid := .nil
-  memoriesValid := by simp [raw]
+  memoriesValid := by simp [sections]
   tablesValid := .nil
   funcs := .nil
   dataValid := by
@@ -51,7 +52,7 @@ def typed (bytes : ByteArray) : Intrinsic.Module iface where
     subst data_
     exact .passive
   elemsValid := .nil
-  startValid := by simp [raw]
+  startValid := by simp [sections]
   exportsValid := .nil
   exportsDisjoint := .nil
 

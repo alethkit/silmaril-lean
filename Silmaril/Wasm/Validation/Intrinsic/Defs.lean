@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Wasm.Validation.Modules
+public import Silmaril.Wasm.Validation.ModuleParts.Defs
 
 /-! A proof-relevant Core syntax. Sequence nodes expose intermediate stack types and local
 initialization; block bodies live under extended label contexts. Atomic families without their
@@ -138,8 +138,7 @@ def Functions.erase {context types} : Functions context types → List Wasm.Func
 /-- Non-function declarations are retained verbatim. The environment links imports and typed
 definitions in Wasm index order, so function references include imported and recursive calls. -/
 structure Module (interface : CModuleType) where
-  metadata : Wasm.Module
-  noRawFunctions : metadata.funcs = []
+  sections : ModuleSections
   definedTypes : List DefType
   definedTags : List DefType
   definedGlobals : List CGlobalType
@@ -148,28 +147,23 @@ structure Module (interface : CModuleType) where
   elementTypes : List CRefType
   baseContext : Context
   context : Context
-  typesValid : TypesOk {} metadata.types definedTypes
-  importsValid : List.Forall₂ (ImportOk { types := definedTypes }) metadata.imports interface.imports
-  baseContextEq : baseContext = {
-    types := definedTypes, globals := CExternType.globals interface.imports
-    funcs := CExternType.funcs interface.imports ++ definedFuncs, refs := funcIdxNonFuncs metadata }
-  contextEq : context = { baseContext with
-    tags := CExternType.tags interface.imports ++ definedTags, globals := baseContext.globals ++ definedGlobals,
-    mems := CExternType.mems interface.imports ++ metadata.memories,
-    tables := CExternType.tables interface.imports ++ definedTables,
-    datas := metadata.data.map fun _ => (), elems := elementTypes }
-  tagsValid : List.Forall₂ (TagOk baseContext) metadata.tags definedTags
-  globalsValid : GlobalsOk baseContext metadata.globals definedGlobals
-  memoriesValid : ∀ memory ∈ metadata.memories, MemOk memory
-  tablesValid : List.Forall₂ (TableOk baseContext) metadata.tables definedTables
+  typesValid : TypesOk {} sections.types definedTypes
+  importsValid : List.Forall₂ (ImportOk { types := definedTypes }) sections.imports interface.imports
+  baseContextEq : baseContext = sectionBaseContext sections definedTypes interface.imports definedFuncs
+  contextEq : context = sectionContext sections baseContext interface.imports
+    definedTags definedGlobals definedTables elementTypes
+  tagsValid : List.Forall₂ (TagOk baseContext) sections.tags definedTags
+  globalsValid : GlobalsOk baseContext sections.globals definedGlobals
+  memoriesValid : ∀ memory ∈ sections.memories, MemOk memory
+  tablesValid : List.Forall₂ (TableOk baseContext) sections.tables definedTables
   funcs : Functions context definedFuncs
-  dataValid : ∀ data ∈ metadata.data, DataOk context data
-  elemsValid : List.Forall₂ (ElemOk context) metadata.elems elementTypes
-  startValid : ∀ index, metadata.start = some index → StartOk context index
-  exportsValid : List.Forall₂ (ExportOk context) metadata.exports interface.exports
-  exportsDisjoint : (metadata.exports.map Export.name).Nodup
+  dataValid : ∀ data ∈ sections.data, DataOk context data
+  elemsValid : List.Forall₂ (ElemOk context) sections.elems elementTypes
+  startValid : ∀ index, sections.start = some index → StartOk context index
+  exportsValid : List.Forall₂ (ExportOk context) sections.exports interface.exports
+  exportsDisjoint : (sections.exports.map Export.name).Nodup
 
 def Module.erase {interface} (module_ : Module interface) : Wasm.Module :=
-  { module_.metadata with funcs := module_.funcs.erase }
+  module_.sections.assemble module_.funcs.erase
 
 end Silmaril.Wasm.Validation.Intrinsic
