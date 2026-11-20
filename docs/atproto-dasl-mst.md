@@ -24,19 +24,50 @@ uses the repository SHA-256 and counts leading zero two-bit groups (at most
 carry local validity; missing inputs, invalid wire, and invalid nodes remain
 different outcomes.
 
+## Rooted routing
+
+[The routed model](../Silmaril/Formats/Dasl/Mst/Route/Thms.lean) divides each
+node into singleton records and exclusive child gaps. Child contexts retain
+the inherited bounds where no key cuts them, and descend one layer. Checked
+strict node order implies the slots have disjoint domains. A finite `Realizes`
+witness in the reference relation checks the contexts and bounds each subtree
+within its slot; the in-order list is the strictly ordered concatenation of the slots. Null
+slots contribute no entries. This is a rooted semantic witness, not a claim
+that validating one wire node supplies the witness.
+
+The routing checker uses only the selected path. Its found and absent answers
+agree with every binding shallow-object extension containing that rooted
+witness and the successful reads. A selected name must be decoded; missing,
+invalid wire, invalid node, and exhausted fuel are kept separate. A record hit
+returns the record name, not the contents of that object. The generic layer
+function can be instantiated with `Atproto.keyLayer`.
+
 ## Not Yet Checked
 
 - Repository path grammar and record values are not validated by the node
   format. A valid local node does not imply it has a valid global completion.
-- Define the finite tree interpretation and induced child intervals; prove
-  strict interval partitioning, one-layer descent, no empty terminal child,
-  deterministic canonical building, and map recovery.
-- Prove a routed lookup sound for every binding extension with that tree
-  interpretation. A null edge can certify absence only in a checked interval;
-  a missing/malformed edge cannot. Keep updates and collision-safe publication
-  under separate preservation theorems.
+- Prove that a canonical builder produces the finite witness (including
+  pruning and root maximality), and prove
+  sufficient-fuel completeness for a full reader. Canonical building and
+  collision-safe MST publications are separate from the routing result.
 
 ```sh
 lake build --wfail +Silmaril.Formats.Dasl.Mst.Thms +Silmaril.Formats.Dasl.Mst.Atproto.Thms
 lake env lean -DwarningAsError=true --run tests/formats/DaslMst.lean
+lake build --wfail +Silmaril.Formats.Dasl.Mst.Route.Thms
+lake env lean -DwarningAsError=true --run tests/formats/DaslMstRoute.lean
 ```
+## Sufficient fuel on the selected path
+
+`Reaches` describes requests reached after exact, valid predecessor reads for
+the query key. `PathCovers` requires exact decoding only at those requests;
+it does not require a reader to serve a sibling subtree or any record payload.
+`route_root_complete` proves resolution to the represented map's lookup result
+under binding, sound reads, and path coverage, using fuel of at least the root
+layer plus one. In a valid node a linked gap strictly decreases the layer; at
+layer zero every child link must be absent. The fixture checks path coverage
+for an inline hit even with a missing named sibling in the reference.
+
+Without coverage the prior result-soundness theorem still applies: a missing
+selected child is not a verified absence. This does not construct a canonical
+rooted tree, certify arbitrary raw roots, or implement publication or updates.

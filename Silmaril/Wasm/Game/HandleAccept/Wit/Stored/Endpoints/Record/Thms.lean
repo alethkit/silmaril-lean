@@ -59,16 +59,33 @@ theorem compileCases_type {E : CoreEngine} (cx : LiftLowerContext E) (output : S
 theorem compileValue_type {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf) (value : Val)
     (receipts : List OwnedMemory.Receipt) (output : Stored.Lower.Output) (field : Field) (objects : List Object)
     (compiled : compileValue cx type value receipts output = .ok (field, objects)) : field.type = type :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.RecordTypes.value_type
-    cx type value receipts output field objects compiled
+  (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.RecordTypes.value_spec
+    cx type value receipts output field objects compiled).1
 
 theorem compileRecord_types {E : CoreEngine} (cx : LiftLowerContext E) (types : List (String × TypeOf))
     (value : Val) (receipts : List OwnedMemory.Receipt) (output : Stored.Lower.Output)
     (fields : List Field) (objects : List Object)
     (compiled : compileRecord cx (.record types) value receipts output = .ok (fields, objects)) :
     fields.map Field.type = types.map Prod.snd :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.RecordTypes.record_types
-    cx types value receipts output fields objects compiled
+  (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.RecordTypes.record_spec
+    cx types value receipts output fields objects compiled).1
+
+/-- The preflight plan is exactly the authority traversal of the emitted field. -/
+theorem compileValue_plan {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf) (value : Val)
+    (receipts : List OwnedMemory.Receipt) (output : Lower.Output) (field : Field) (objects : List Object)
+    (compiled : compileValue cx type value receipts output = .ok (field, objects)) :
+    objects = field.objects :=
+  (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.RecordTypes.value_spec
+    cx type value receipts output field objects compiled).2
+
+/-- Whole-record preflight and dynamic subregions use the same field-order traversal. -/
+theorem compileRecord_plan {E : CoreEngine} (cx : LiftLowerContext E) (types : List (String × TypeOf))
+    (value : Val) (receipts : List OwnedMemory.Receipt) (output : Lower.Output)
+    (fields : List Field) (objects : List Object)
+    (compiled : compileRecord cx (.record types) value receipts output = .ok (fields, objects)) :
+    objects = Field.listObjects fields :=
+  (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.RecordTypes.record_spec
+    cx types value receipts output fields objects compiled).2
 
 theorem lower_preflight_error {E : CoreEngine} {sig : Signature} (limits : Component.Limits)
     (quirks : Quirks) (cx : LiftLowerContext E) (type : TypeOf) (payload : Payload type)
