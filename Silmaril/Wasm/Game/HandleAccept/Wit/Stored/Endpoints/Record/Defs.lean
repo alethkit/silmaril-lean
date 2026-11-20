@@ -75,6 +75,54 @@ termination_by structural field => field
 end
 
 mutual
+/-- The layouts used by the compiled tree agree recursively with its declared type.
+For sums, the complete arm layout and the selected payload both agree. -/
+inductive Field.LayoutMatches : Field → TypeOf → Prop where
+  | data {type : TypeOf} (payload : Payload type) : LayoutMatches (.data type payload) type
+  | endpoint {channel : Channel} {element : Element} {id : EndId} :
+      LayoutMatches (.endpoint channel element id) (ListLower.endpointType channel element)
+  | context {id : ErrCtxId} : LayoutMatches (.context id) .errorContext
+  | owner {receipt : OwnedMemory.Receipt} : LayoutMatches (.owner receipt) (.own receipt.1)
+  | record {fields : List Field} {types : List (String × TypeOf)} : FieldsMatch fields (types.map Prod.snd) →
+      LayoutMatches (.aggregate (.record types) fields) (.record types)
+  | tuple {fields : List Field} {types : List TypeOf} :
+      FieldsMatch fields types → LayoutMatches (.aggregate (.tuple types) fields) (.tuple types)
+  | fixed {entries : List Field} {element : TypeOf} {length : Nat} :
+      entries.length = length → EntriesMatch entries element →
+      LayoutMatches (.fixed element length entries) (.fixedList element length)
+  | list {entries : List Field} {element : TypeOf} :
+      EntriesMatch entries element → LayoutMatches (.dynamic (.list element) element entries) (.list element)
+  | map {entries : List Field} {key : WIT.KeyType} {element : TypeOf} :
+      EntriesMatch entries (.record (mapEntryFields key element)) →
+      LayoutMatches (.dynamic (.map key element) (.record (mapEntryFields key element)) entries) (.map key element)
+  | variant {types : List (String × Option TypeOf)} {tag : Nat} {field : Option Field} {selected : Option TypeOf} :
+      (types.map Prod.snd)[tag]? = some selected → ArmMatches field selected →
+      LayoutMatches (.sum (.variant types) (types.map Prod.snd) tag field) (.variant types)
+  | optionNone {element : TypeOf} :
+      LayoutMatches (.sum (.option element) [none, some element] 0 none) (.option element)
+  | optionSome {field : Field} {element : TypeOf} : LayoutMatches field element →
+      LayoutMatches (.sum (.option element) [none, some element] 1 (some field)) (.option element)
+  | resultOk {field : Option Field} {ok error : Option TypeOf} :
+      ArmMatches field ok → LayoutMatches (.sum (.result ok error) [ok, error] 0 field) (.result ok error)
+  | resultError {field : Option Field} {ok error : Option TypeOf} : ArmMatches field error →
+      LayoutMatches (.sum (.result ok error) [ok, error] 1 field) (.result ok error)
+
+inductive Field.FieldsMatch : List Field → List TypeOf → Prop where
+  | nil : FieldsMatch [] []
+  | cons {field : Field} {fields : List Field} {type : TypeOf} {types : List TypeOf} :
+      LayoutMatches field type → FieldsMatch fields types → FieldsMatch (field :: fields) (type :: types)
+
+inductive Field.EntriesMatch : List Field → TypeOf → Prop where
+  | nil {type : TypeOf} : EntriesMatch [] type
+  | cons {field : Field} {fields : List Field} {type : TypeOf} :
+      LayoutMatches field type → EntriesMatch fields type → EntriesMatch (field :: fields) type
+
+inductive Field.ArmMatches : Option Field → Option TypeOf → Prop where
+  | none : ArmMatches none none
+  | some {field : Field} {type : TypeOf} : LayoutMatches field type → ArmMatches (some field) (some type)
+end
+
+mutual
 /-- Authority observations in the order in which the compiled fields transfer them.
 Only the selected variant arm contributes, and shared contexts are not spent. -/
 def Field.objects : Field → List Object

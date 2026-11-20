@@ -629,7 +629,10 @@ list of nominal receipts, not just its representations. `compileValue_value` and
 `compileRecord_value` reconstruct the exact input canonical value from the same fields,
 including positional fields, ordered list and map entries, and the active sum arm.
 `preflightValue_value` gives that equality for the compiler used by `givePayload` and
-`giveFlat`. Neither observation confers live authority or equates the emitter's effects
+`giveFlat`. `preflightValue_layout` shows that the same compiled tree has the canonical
+nested layout: declared fields, fixed counts, dynamic entry types (including map keys),
+and the full layout and selected payload of every sum. The certificate does not confer
+live authority or equate the emitter's effects
 with the canonical ABI. Single give and the
 recursive emitter spend only the targeted owner identity, before canonical allocation of
 the owning arena object. A subsequent table insertion failure keeps the allocation and
