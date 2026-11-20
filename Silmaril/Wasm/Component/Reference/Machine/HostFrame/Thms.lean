@@ -92,6 +92,17 @@ theorem paired_growing_steps {grow : SingleThreaded.GrowOracle}
       CoreGrowthSteps profile ready dispatch afterLeft trailing next) :=
   Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.paired_growing_steps paired run
 
+/-- A reached interior step replays with the same label, including a Core
+step that changes bytes, without an assumption on the other host. -/
+theorem interior_step {grow : SingleThreaded.GrowOracle}
+    {ready : HostReady Host} {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    {first second : ReturnFrame.Continuation (core3 grow) Host}
+    {left right next : Config (core3 grow) Host} {label : Label (core3 grow) Host}
+    (paired : Paired first second left right) (interior : Interior first left)
+    (grows : CoreUpdateGrows left) (run : Step profile ready dispatch left label next) :
+    ∃ other, CoreGrowthSteps profile ready dispatch right [label] other ∧ Paired first second next other :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.interior_step paired interior grows run
+
 /-- Only host predicates of reached, blocked candidate threads need agree.
 Store-only predicates and threads not making a host query add no premise. -/
 theorem instCandidates_eq (store : CStore E) (inst : InstId) (left right : Nat → Bool)
