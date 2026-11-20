@@ -93,6 +93,53 @@ theorem resolve_caller (ticket handle : Nat) (caller : CallerId) (tree : Tree si
   have step := Step.get (prof := prof) (hr := ready) (dispatch := dispatch) pending
   simpa [Prog.bind, callerRecord, Quirks.none, Prog.bind_assoc] using step
 
+private theorem progress_steps (subtask : SubtaskId) (record : Subtask)
+    (live : config.store.subtask? subtask = some record) (next : Session grow sig (Ret (core3 grow)))
+    (focused : config.ctl = ⟨thread, .prog (maybeOnProgress subtask >>= fun () => next), segments⟩ :: rest) :
+    let queued := if record.index.isSome then config.store.setPendingSt (.subtask subtask) (.subtask subtask)
+      else config.store
+    Steps prof ready dispatch config (.tau :: if record.index.isSome then [.tau] else [])
+      { config with store := queued, ctl := ⟨thread, .prog next, segments⟩ :: rest } := by
+  have read := Step.get (prof := prof) (hr := ready) (dispatch := dispatch) focused
+  rw [CStore.subtask?] at live
+  cases indexed : record.index with
+  | none =>
+    simp [Prog.bind, pure, live, indexed] at read ⊢
+    exact .cons read (.refl _)
+  | some _ =>
+    simp [Prog.bind, pure, live, indexed] at read ⊢
+    exact .cons read (.cons (.modify rfl) (.refl _))
+
+theorem resolve_progress (ticket handle : Nat) (caller : CallerId) (tree : Tree sig)
+    (subtask : SubtaskId) (cx : LiftLowerContext (core3 grow)) (args : List FlatValue)
+    (pos : Nat) (ft : WIT.FuncType Empty RtId) (params results : Nat) (record : Subtask)
+    (callerRecord : ArenaField.callers.get? config.store caller = some (.lower subtask cx args pos ft params results))
+    (live : config.store.subtask? subtask = some record)
+    (focused : config.ctl = ⟨thread, .prog (do
+      lowerOnResolve Limits.spec Quirks.none caller (some [.variant 0 (some (Val.u32 handle))])
+      completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    let queued := if record.index.isSome then config.store.setPendingSt (.subtask subtask) (.subtask subtask)
+      else config.store
+    let final : Config (core3 grow) (HostState sig) := { config with store := queued, ctl :=
+      ⟨thread, .prog (do
+        let flat ← lowerFlatValues Limits.spec Quirks.none cx results [.variant 0 (some (Val.u32 handle))]
+          ft.result.toList (some ⟨args, pos⟩)
+        Subtask.resolve subtask .returned flat
+        completeResolvedTree ticket tree handle), segments⟩ :: rest }
+    Steps prof ready dispatch config (.tau :: .tau :: if record.index.isSome then [.tau] else []) final ∧
+      final.store.subtask? subtask = some { record with common := if record.index.isSome then
+        { record.common with pending := some (.subtask subtask) } else record.common } := by
+  refine ⟨.cons (resolve_caller ticket handle caller tree subtask cx args pos ft params results callerRecord focused) ?_, ?_⟩
+  · apply progress_steps subtask record
+    · exact live
+    · rfl
+  · by_cases indexed : record.index.isSome = true
+    · simp only [ite_eq_left indexed, CStore.setPendingSt, CStore.modifyWaitableCommon, CStore.subtask?, ArenaField.get?_modify_self]
+      rw [CStore.subtask?] at live
+      rw [live]
+      rfl
+    · simpa only [ite_eq_right indexed] using live
+
 theorem resolve_commit (ticket handle : Nat) (tree : Tree sig) (writer : State sig)
     (subtask : SubtaskId) (flat : List FlatValue) (record : Subtask)
     (live : config.store.subtask? subtask = some record)
