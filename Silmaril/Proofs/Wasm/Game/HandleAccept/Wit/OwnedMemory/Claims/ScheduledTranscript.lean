@@ -603,6 +603,15 @@ private theorem checked_host_of_steps {implementation : HostImpl (core3 grow) (H
     · exact ⟨⟨extended.1.1.trans tail.1.1, le_trans extended.1.2 tail.1.2⟩, .cons extended.2.1 tail.2.1,
         publication_trans extended.2.2 tail.2.2⟩
 
+theorem checked_cfgSafe_of_steps (bindings : List (Binding sig))
+    {initial final : Config (core3 grow) (HostState sig)}
+    {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (host bindings)) initial labels final)
+    (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels) :
+    CfgSafe CheckedWrite final :=
+  HostWrite.steps_cfgSafe (HostWrite.hostSafe_dispatch (host_safe bindings) Limits.spec Quirks.none ready)
+    steps safe runSafe
+
 theorem checked_of_steps (bindings : List (Binding sig))
     {initial final : Config (core3 grow) (HostState sig)}
     {labels : List (Label (core3 grow) (HostState sig))}
@@ -1165,6 +1174,43 @@ theorem retained_target {before after : State sig} (run : WriterRun before after
       rw [List.getElem?_append_right oldOffset, offset]]
     exact selected
   · simp [Stored.Endpoints.Core.childFromHistory, valid] at selected
+
+theorem single_publication_survives (bindings : List (Binding sig))
+    {before published final : Config (core3 grow) (HostState sig)}
+    {publishing suffix : List (Label (core3 grow) (HostState sig))}
+    (first : Steps prof ready (specDispatch ready (host bindings)) before publishing published)
+    (later : Steps prof ready (specDispatch ready (host bindings)) published suffix final)
+    (safe : CfgSafe CheckedWrite before)
+    (firstSafe : RunSafe CheckedWrite publishing) (laterSafe : RunSafe CheckedWrite suffix)
+    {ticket handle : Nat}
+    (recorded : published.host.publications = before.host.publications ++ [(ticket, handle)]) :
+    ∃ tree, published.host.writer.accepted = tree :: before.host.writer.accepted ∧
+      final.host.publications[before.host.publications.length]? = some (ticket, handle) ∧
+      Stored.Endpoints.Core.childFromHistory published.host.writer.accepted (BitVec.ofNat 32 handle) = some tree ∧
+      Stored.Endpoints.Core.childFromHistory final.host.writer.accepted (BitVec.ofNat 32 handle) = some tree := by
+  have checkedFirst := checked_of_steps bindings first safe firstSafe
+  have checkedLater := checked_of_steps bindings later
+    (checked_cfgSafe_of_steps bindings first safe firstSafe) laterSafe
+  obtain ⟨entries, roots, journal, accepted, sized, targets⟩ :=
+    publication_targets checkedFirst.2.1 checkedFirst.2.2
+  have singleton : entries = [(ticket, handle)] := List.append_cancel_left (journal.symm.trans recorded)
+  subst entries
+  have one : roots.length = 1 := sized.symm
+  have onlyRoot : ∃ tree, roots = [tree] := by
+    cases roots with
+    | nil => simp at one
+    | cons root tail =>
+      cases tail with
+      | nil => exact ⟨root, rfl⟩
+      | cons next remaining => simp at one
+  obtain ⟨tree, rfl⟩ := onlyRoot
+  obtain ⟨selected, same, lookup⟩ := targets 0 ticket handle rfl
+  have sameTree : selected = tree := Option.some.inj same.symm
+  subst selected
+  obtain ⟨laterEntries, laterJournal, _⟩ := checkedLater.2.2
+  refine ⟨tree, accepted, ?_, lookup, retained_target checkedLater.2.1 lookup⟩
+  rw [laterJournal, recorded, List.append_assoc, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self]
+  rfl
 
 theorem publication_lookup_iff {before after : HostState sig}
     (journal : PublicationDelta before after) {handle : BitVec 32}
