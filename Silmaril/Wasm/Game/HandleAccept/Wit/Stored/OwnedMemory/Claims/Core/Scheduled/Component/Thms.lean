@@ -4,6 +4,7 @@ public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Thms
 import Silmaril.Wasm.Component.Reference.HostWrite.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript
+import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult
 
 public section
 
@@ -13,6 +14,8 @@ open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
   Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Machine Silmaril.Wasm.Component.Runtime
   Silmaril.Wasm.Execution.Core
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored (Signature)
+open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory (Tree)
+open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims (State)
 open Silmaril.Wasm.Component.Value
 
 variable {sig : Signature} {grow : SingleThreaded.GrowOracle}
@@ -40,6 +43,53 @@ theorem resolve_error_agrees (ticket : Nat) (caller : CallerId) (snapshot : CSto
       checked snapshot = reference snapshot :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.Component.resolve_error_agrees
     ticket caller snapshot subtask cx args pos ft limits results record type mode
+
+/-- Registration before canonical result lowering is only a preview. At this step,
+the reference program receives the candidate handle, and the writer is unchanged. -/
+theorem resolve_begin {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {config : Config (core3 grow) (HostState sig)} {thread : Option ThreadId} {segments rest}
+    (ticket : Nat) (caller : CallerId) (tree : Tree sig) (writer : State sig)
+    (registered : config.host.writer.register tree = .ok writer) (room : writer.accepted.length < 2 ^ 32)
+    (pending : config.ctl = ⟨thread, .prog (resolveTree ticket caller tree), segments⟩ :: rest) :
+    Step prof ready dispatch config .tau
+      { config with ctl := ⟨thread, .prog (do
+          lowerOnResolve Limits.spec Quirks.none caller (some [.variant 0 (some (Val.u32 writer.accepted.length))])
+          completeResolvedTree ticket tree writer.accepted.length), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_begin
+    ticket caller tree writer registered room pending
+
+/-- Once the canonical result program returns, valid live registration with the checked
+handle commits the root. This branch publishes before it records
+the reply; completion does not overwrite or roll back the reached reference store. -/
+theorem complete_commit {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {config : Config (core3 grow) (HostState sig)} {thread : Option ThreadId} {segments rest}
+    (ticket handle : Nat) (tree : Tree sig) (writer : State sig)
+    (registered : config.host.writer.register tree = .ok writer)
+    (expected : handle = writer.accepted.length) (room : handle < 2 ^ 32)
+    (pending : config.ctl = ⟨thread, .prog (completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .tau]
+      { config with
+        host := (({ config.host with writer } : HostState sig).record (.published ticket handle)).record
+          (.returned ticket handle)
+        ctl := ⟨thread, .prog (.pure (.cancel .none)), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.complete_commit
+    ticket handle tree writer registered expected room pending
+
+/-- If live registration instead predicts a different handle, record a typed
+diagnostic and lock down the reached store without publishing or replying. -/
+theorem complete_stale {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {config : Config (core3 grow) (HostState sig)} {thread : Option ThreadId} {segments rest}
+    (ticket handle : Nat) (tree : Tree sig) (writer : State sig)
+    (registered : config.host.writer.register tree = .ok writer) (stale : handle ≠ writer.accepted.length)
+    (pending : config.ctl = ⟨thread, .prog (completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .tau, .trap (.hostTrap "invalid mixed acceptor import binding")]
+      (StepDefs.trapCfg
+        { config with host := config.host.record (.bindingTrap ticket .wrongResultType) }) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.complete_stale
+    ticket handle tree writer registered stale pending
 
 theorem host_checked (bindings : List (Binding sig)) (callees : List (Callee sig)) :
     HostImplSafe CheckedWrite (hostWithComponent (grow := grow) bindings callees) :=
