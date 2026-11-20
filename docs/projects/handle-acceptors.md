@@ -714,7 +714,11 @@ publishing, and publication checks the candidate handle against the live writer.
 `ComponentCall.resolve_begin` places the reference result program before the commit.
 At the commit continuation, `complete_commit` preserves the reached store and publishes
 before recording a reply. `complete_stale` instead records `.wrongResultType` and locks
-down without publishing or recording a reply. These steps do not prove subtask delivery.
+down without publishing or recording a reply. `resolve_caller` exposes the live reference
+result cursor, and `resolve_commit` connects the post-write subtask resolution to publication
+without clearing the pending event or releasing lends. `deliver_pending` takes the actual
+returned event and applies reference lend release in a later waitable step. Neither publication
+nor the presence of an event guarantees that a guest polls or that its event write succeeds.
 `ComponentCall.checked_of_session` gives publication, writer and transcript conservation
 across every ordinary machine prefix, including traps and refusals. It does not assert
 an exact language for every guest or atomic rollback of reference operations.

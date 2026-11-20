@@ -10,11 +10,13 @@ meta import Silmaril.Wasm.Component.Reference.Machine.Exec.Defs
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.ComponentCall.Examples
 
 open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
-  Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Execution.Core
+  Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.AsyncRef
+  Silmaril.Wasm.Execution.Core
 
 public abbrev grow := SingleThreaded.neverFail
 public abbrev engine := core3 grow
 private def resource : RtId := ⟨0⟩
+private def eventMemory : engine.MemAddr := (0 : Nat)
 
 private def signature (spill : Bool) (storedBorrow : Bool := false) : Signature :=
   ⟨Unit, fun _ => .tuple ([.own resource, .own resource] ++
@@ -41,7 +43,11 @@ private def instantiate (spill async_ storedBorrow : Bool) (deferred : Bool := f
   let controls : List (String × V1.FuncType × CanonHost engine) := if deferred then
     [ ("start", Deferred.startType, .embedder "start" Deferred.startType)
     , ("cancel", newType, .builtin (.subtaskCancel true) ⟨0⟩)
-    , ("drop", dropType, .builtin .subtaskDrop ⟨0⟩) ] else []
+    , ("drop", dropType, .builtin .subtaskDrop ⟨0⟩)
+    , ("new-set", ⟨[], [.int .i32]⟩, .builtin .waitableSetNew ⟨0⟩)
+    , ("join", ⟨[.int .i32, .int .i32], []⟩, .builtin .waitableJoin ⟨0⟩)
+    , ("poll", ⟨[.int .i32, .int .i32], [.int .i32]⟩, .builtin (.waitableSetPoll eventMemory) ⟨0⟩)
+    , ("drop-set", dropType, .builtin .waitableSetDrop ⟨0⟩) ] else []
   let (store, controlAddrs) := controls.foldl (fun (store, addrs) (_, type, host) =>
     let (store, addr) := SingleThreaded.allocHost store type host
     (store, addrs ++ [.func addr])) (store, [])
@@ -185,7 +191,7 @@ private def canonicalTrap (second out : Nat) (reason : TrapReason)
 #guard canonicalTrap 1 128 (.unknownHandle 1) (none, some (.resource ⟨1⟩))
 #guard canonicalTrap 2 65536 .outOfBounds (none, none)
 
-private def deferredProgram (spill stale : Bool) (inst : ModuleInst) :
+private def deferredProgram (spill stale pollDelivery : Bool) (inst : ModuleInst) :
     Session grow (signature spill) (Ret engine) := do
   let check := fun name args expected => do
     let some address := exportAddr inst name | internal "missing deferred replay export"
@@ -198,13 +204,28 @@ private def deferredProgram (spill stale : Bool) (inst : ModuleInst) :
   check "cancel" [3] [AsyncRef.subtaskCancelResult (some .cancelledBeforeStarted)]
   check "drop" [3] []
   check "accept" [0, 1, 2, 136] [pending]
+  if pollDelivery then
+    check "new-set" [] [4]
+    check "join" [3, 4] []
+    check "poll" [4, 160] [EventCode.none.toNat]
   check "start" [3] [0]
-  check "cancel" [3] [AsyncRef.subtaskCancelResult (some .returned)]
+  if pollDelivery then
+    let state ← hostGet
+    trapIf (state.publications != [(1, 1)]) (.internal "result not published before poll")
+    check "poll" [4, 160] [EventCode.subtask.toNat]
+    let cx : LiftLowerContext engine := { inst := ⟨0⟩, opts := { memory := some eventMemory } }
+    trapIf ((← readMem cx 160 8).data != #[3, 0, 0, 0, 2, 0, 0, 0])
+      (.internal "unexpected delivered subtask")
+    check "poll" [4, 168] [EventCode.none.toNat]
+    check "join" [3, 0] []
+    check "drop-set" [4] []
+  else check "cancel" [3] [AsyncRef.subtaskCancelResult (some .returned)]
   check "drop" [3] []
   if stale then check "start" [3] [0]
   return .unit
 
-private def deferredConfig (spill stale : Bool) : Option (Machine.Config engine (HostState (signature spill))) := do
+private def deferredConfig (spill stale : Bool) (pollDelivery : Bool := false) :
+    Option (Machine.Config engine (HostState (signature spill))) := do
   let (core, inst) ← instantiate spill true false true
   let store : CStore engine := { CStore.empty with
     core, insts := [{}], resourceTypes := [{ impl := some ⟨0⟩ }],
@@ -213,7 +234,7 @@ private def deferredConfig (spill stale : Bool) : Option (Machine.Config engine 
     threads := [{ status := .running, task := ⟨0⟩ }] }
   return {
     store, host := {}, conts := [none]
-    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (deferredProgram spill stale inst)] }
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (deferredProgram spill stale pollDelivery inst)] }
 
 private def deferredDispatch (spill : Bool) := specDispatch ready
   (Deferred.hostWithDeferred (grow := grow) [] [callee spill true] [⟨0⟩] "start")
@@ -226,8 +247,8 @@ theorem deferred_replay_sound (spill : Bool) (start : Machine.Config engine (Hos
       (runDeferred spill start).labels (runDeferred spill start).config :=
   Machine.run_sound ready (deferredDispatch spill) (core3Exec grow) Machine.Oracle.first 1800 start
 
-private def deferredRegression (spill stale : Bool) : Bool :=
-  match deferredConfig spill stale with
+private def deferredRegression (spill stale : Bool) (pollDelivery : Bool := false) : Bool :=
+  match deferredConfig spill stale pollDelivery with
   | none => false
   | some start =>
     let result := runDeferred spill start
@@ -243,6 +264,8 @@ private def deferredRegression (spill stale : Bool) : Bool :=
 
 #guard deferredRegression false false
 #guard deferredRegression true true
+#guard deferredRegression false false true
+#guard deferredRegression true false true
 
 private def rejectedSyncDefer : Bool :=
   match config false false false (.one 2 128) with
