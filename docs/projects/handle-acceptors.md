@@ -709,6 +709,19 @@ range without resuming the emitter, or proceeds to claim revalidation in that st
 Neither the cursor nor the allocator-return rule assumes byte preservation, an
 allocator return on every trace, or success of the subsequent transfer.
 
+`Record.Effects.emitValue_eq` gives one recursive checked effect view for both
+ABIs. It composes the live handle checks and commitment-time spends with the
+canonical leaf programs, then traverses the placed record/tuple fields, list and
+map entries, and selected sum arm in order. A dynamic collection validates the
+reached range and rechecks the live plan before traversing any entry. The
+equality is of effect programs, so it also covers a typed refusal after a
+completed prefix or a canonical trap with earlier writes and spends intact.
+`GiveEffectRoute.parked` enters that same program from either linked Core give
+binding with the original continuation and ticket. `compiled_payload_effects`
+identifies its compiled value, layout and ordered receipts after admission.
+This is a checked view, not an erasure of guards to unchecked `Canon.store`
+or `lowerFlatAt`, and does not prove whole-session event delivery.
+
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner
 and endpoint commitment operations, selected sum arm, and collection allocation,
