@@ -364,7 +364,7 @@ theorem memorySum (destination : RecordDestination) (inst : InstId) (type : Type
       (fun address => mapIssue (child active address rfl) (.nested index))
     simpa only [Lower.Output.Result, head, Prog.bind_eq, Prog.bind_assoc, Prog.pure_eq, Prog.pure_bind'] using composed
 
-private theorem memoryHandleLeaf (destination : RecordDestination) (inst : InstId) (field : Field) (index ptr : Nat)
+theorem memoryHandleLeaf (destination : RecordDestination) (inst : InstId) (field : Field) (index ptr : Nat)
     (fragment : CanonicalHandle field) :
     Compare profile scheduledReady scheduledDispatch
       (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
@@ -832,6 +832,46 @@ theorem checkPlacement {placementDispatch : Call (core3 grow) → P (core3 grow)
   · simp [checkAligned, trapIf, aligned, trap, Prog.bind_eq, Prog.bind] at focused
     simp [placement, aligned]
     exact ⟨0, .cons (.trap focused) (.refl _)⟩
+
+theorem rootPlacementSteps (destination : RecordDestination) (inst : InstId) (type : TypeOf)
+    (field : Field) (output : Lower.Output) (start : Config (core3 grow) (HostState sig))
+    (cursor : Cursor (E := core3 grow) (HostState sig))
+    (finish : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (focused : start.ctl = cursor.control (Record.Effects.root recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width type field output >>= finish)) :
+    let child := cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width field 0 output >>= finish)
+    match rootPlacement destination start.store type output with
+    | .ok () => ∃ labels, visible labels = [] ∧
+        Steps profile scheduledReady scheduledDispatch start labels { start with ctl := child }
+    | .error reason => ∃ count, Steps profile scheduledReady scheduledDispatch start
+        (List.replicate count .tau ++ [.trap reason]) (StepDefs.trapCfg start) := by
+  cases output with
+  | flat =>
+    refine ⟨[], rfl, ?_⟩
+    change start.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width field 0 .flat >>= finish) at focused
+    have entered : start = { start with ctl := cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+        (destination.context inst) destination.width field 0 .flat >>= finish) } := by
+      conv => rhs; rw [← focused]
+    exact entered ▸ .refl start
+  | memory ptr =>
+    let area := layout destination.width type
+    let body := Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width field 0 (.memory ptr) >>= finish
+    have guardAt : start.ctl = cursor.control (do
+        checkAligned ptr area.alignment.bytes
+        checkInBounds (destination.context inst) ptr area.size
+        body) := by
+      rw [focused]
+      simp only [Record.Effects.root, body, area, Prog.bind_eq, Prog.bind_assoc]
+    have run := checkPlacement (profile := profile) (ready := scheduledReady) (placementDispatch := scheduledDispatch)
+      destination inst start area ptr cursor body guardAt
+    change (match placement destination start.store area ptr with
+      | .ok () => _ | .error _ => _)
+    cases verdict : placement destination start.store area ptr with
+    | error _ => rw [verdict] at run; exact run
+    | ok result => cases result; rw [verdict] at run; exact ⟨[.tau], rfl, run⟩
 
 theorem compiledFlat (left right : Config (core3 grow) (HostState sig)) (sameStore : left.store = right.store)
     (destination : RecordDestination) (inst : InstId) (tag : sig.Tag)

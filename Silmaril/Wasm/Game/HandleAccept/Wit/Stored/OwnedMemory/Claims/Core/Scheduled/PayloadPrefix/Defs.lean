@@ -125,6 +125,11 @@ def placement {grow : SingleThreaded.GrowOracle} (destination : RecordDestinatio
     | throw (.internal "dangling memory address")
   if ptr + area.size > size then throw .outOfBounds
 
+def rootPlacement {grow : SingleThreaded.GrowOracle} (destination : RecordDestination)
+    (store : CStore (core3 grow)) (type : TypeOf) : Lower.Output → Except TrapReason Unit
+  | .flat => .ok ()
+  | .memory ptr => placement destination store (layout destination.width type) ptr
+
 def MemoryReaches {E : CoreEngine} {Host : Type} (profile : ProfileKind) (ready : HostReady Host)
     (dispatch : Call E → P E Host (Ret E)) (left right : Config E Host)
     (checkCursor canonCursor : Cursor (E := E) Host) (checkNext : Except Stored.Endpoints.RecordLower.Issue Unit → P E Host (Ret E))

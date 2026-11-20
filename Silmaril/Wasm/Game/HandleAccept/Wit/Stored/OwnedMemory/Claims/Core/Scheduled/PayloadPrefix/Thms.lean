@@ -91,6 +91,17 @@ theorem memory_sum (destination : RecordDestination) (inst : InstId) (type : Typ
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memorySum
     destination inst type arms tag index ptr selected left right width child
 
+/-- The handle leaf in a placed memory entry has no allocator or width-read
+prefix of its own. It rechecks live authority at the reached store. -/
+theorem memory_handle (destination : RecordDestination) (inst : InstId) (item : Field)
+    (index address : Nat) (handle : CanonicalHandle item) :
+    Compare profile ready dispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst)
+        destination.width item index (.memory address))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memoryHandleLeaf
+    destination inst item index address handle
+
 /-- After the initial dry run admits this collection, the actual recursive
 programs install the same allocator request; a certified scheduler prefix
 preserves the checked width. The saved checked continuation
@@ -204,6 +215,23 @@ selected sum in the handle-only fragment. -/
 theorem checked_fragment {field : Field} {type : TypeOf} (layout : Field.LayoutMatches field type)
     (shape : HandleShape field) : HandleField field :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.certifyField layout shape
+
+/-- Enter the actual compiled root body, or trap before any child runs. A
+flat output has no placement steps; a memory output uses its reached store. -/
+theorem root_placement_steps (destination : RecordDestination) (inst : InstId) (type : TypeOf)
+    (field : Field) (output : Lower.Output) (start : Config (core3 grow) (HostState sig))
+    (cursor : Cursor (E := core3 grow) (HostState sig))
+    (finish : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (focused : start.ctl = cursor.control (Record.Effects.root recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width type field output >>= finish)) :
+    let child := cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width field 0 output >>= finish)
+    match rootPlacement destination start.store type output with
+    | .ok () => ∃ labels, visible labels = [] ∧ Steps profile ready dispatch start labels { start with ctl := child }
+    | .error reason => ∃ count, Steps profile ready dispatch start
+        (List.replicate count .tau ++ [.trap reason]) (StepDefs.trapCfg start) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.rootPlacementSteps destination inst type
+    field output start cursor finish focused
 
 /-- The linked public `giveFlat` call reaches the same flat words as
 `lowerFlatAt` for compiled handle-only aggregates, fixed lists and sums, or

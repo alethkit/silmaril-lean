@@ -778,8 +778,16 @@ the child comparisons. A pop of an unchanged frame instead leaves the pair
 aligned. `Prefix.collection` derives the allocator entry and saved frames
 directly from the actual checked and canonical dynamic collection programs;
 only the checked run supplies the classified callback path. These rules do
-not compare arbitrary host reads or prove that the allocator returns. The child
-comparisons and enclosing public-give composition are separate obligations.
+not compare arbitrary host reads or prove that the allocator returns.
+
+`LinkedCallback.PublicCollection.Site.parked` connects the compiled collection
+root to both public give calls. At the parked Core activation it follows the
+actual dry run, ABI fit, and root placement. Typed refusal reaches the original
+reply program; invalid indirect placement traps before allocation. Otherwise
+both allocators are installed and a reached classified return feeds the child
+comparisons. `Site.parked_handles` supplies those rules for a dynamic list of
+handle leaves. This does not prove nested allocating children, memory-map
+placement, or delivery of the reply.
 
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
