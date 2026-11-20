@@ -89,7 +89,8 @@ private def storeWord (ptr value : Nat) : List Instr :=
 
 private def instantiateWith (initial : Store (CanonHost engine))
     (entries : List (String × V1.FuncType × CanonHost engine))
-    (setup : String → List Instr) : Option (Store (CanonHost engine) × ModuleInst) := do
+    (setup : String → List Instr) (locals : List (String × V1.FuncType × List Instr) := []) :
+    Option (Store (CanonHost engine) × ModuleInst) := do
   let (store, addrs) := entries.foldl (fun (store, addresses) (_, type, code) =>
     let (next, addr) := SingleThreaded.allocHost store type code
     (next, addresses ++ [ExternAddr.func addr])) (initial, [])
@@ -100,11 +101,13 @@ private def instantiateWith (initial : Store (CanonHost engine))
     (⟨indexOf index, [], instructions ++ (List.range params).map (fun param => .localGet (indexOf param)) ++
       [.call (indexOf index)]⟩ : Func)
   let module_ : Module := {
-    types := entries.map (·.2.1.toCoreRec)
+    types := entries.map (·.2.1.toCoreRec) ++ locals.map (·.2.1.toCoreRec)
     imports := names.zipIdx |>.map fun (name, index) => ⟨"host", name, .func (indexOf index)⟩
     memories := [⟨.i32, ⟨1, none⟩⟩]
-    funcs := (List.range names.length).map wrapper
-    exports := names.zipIdx |>.map fun (name, index) => ⟨name, .func (indexOf (index + names.length))⟩ }
+    funcs := (List.range names.length).map wrapper ++ locals.zipIdx.map (fun ((_, _, body), index) =>
+      ⟨indexOf (names.length + index), [], body⟩)
+    exports := (names ++ locals.map (·.1)).zipIdx.map fun (name, index) =>
+      ⟨name, .func (indexOf (index + names.length))⟩ }
   let (store, inst, none) ← Core3.prepareE? store module_ addrs | none
   return (store, inst)
 
@@ -382,6 +385,82 @@ private def inlineEndpointRegression (channel : Channel) : Bool :=
 
 #guard inlineEndpointRegression .future
 #guard inlineEndpointRegression .stream
+
+@[expose] public def reallocSignature : Signature :=
+  ⟨Unit, fun _ => .tuple [.own resource, .list (.record [("code", .prim .u32)])], fun _ => .fixed 0⟩
+
+private def reallocContract : Endpoints.Core.Contract reallocSignature :=
+  ⟨0, ("host", "accept-node"), fun tag => if tag == 0 then some () else none, {}, ⟨0⟩⟩
+
+private def reallocBody (invalid : Bool) : List Instr :=
+  [word 1, .memoryGrow ⟨0⟩, .drop, word 208, .localGet ⟨2⟩, .intStore .i32 none ⟨0⟩ ⟨0, 0⟩,
+    word 212, .localGet ⟨3⟩, .intStore .i32 none ⟨0⟩ ⟨0, 0⟩,
+    word 1, .call ⟨2⟩, .drop, .drop, .drop, .drop, word (if invalid then 65537 else 65536)]
+
+private def reallocSession (inst : ModuleInst) (flat : Bool) : Session grow reallocSignature (Ret engine) := do
+  let call (name : String) (args expected : List Nat) := do
+    let some address := exportAddr inst name | internal s!"missing Core export {name}"
+    trapIf ((← callCore address (args.map i32Flat)) != expected.map i32Flat)
+      (.internal s!"unexpected result: {name}")
+  call "new-own" [77] [1]
+  call "accept-node" [0, 32, 0, 0] [0, 1]
+  if flat then call "give-flat" [1] [0, 1, 65536, 1]
+  else call "give-payload" [1, 0] [0, 0]
+  call "rep" [1] [77]
+  return .unit
+
+private def reallocSetup (flat invalid : Bool) :
+    Option (List (Binding reallocSignature) × Machine.Config engine (HostState reallocSignature)) := do
+  let input := Endpoints.Core.Scheduled.acceptType reallocContract
+  let entries := [
+    ("accept-node", input, CanonHost.embedder "accept-node" input),
+    ("give-payload", wordFn 2 2, .embedder "give-payload" (wordFn 2 2)),
+    ("give-flat", wordFn 1 4, .embedder "give-flat" (wordFn 1 4)),
+    ("new-own", wordFn 1 1, .builtin (.resourceNew resource .i32) ⟨0⟩),
+    ("rep", wordFn 1 1, .builtin (.resourceRep resource .i32) ⟨0⟩)]
+  let (store, inst) ← instantiateWith {} entries (fun name =>
+    if name == "accept-node" then storeWord 32 1 ++ storeWord 36 64 ++ storeWord 40 1 ++ storeWord 64 77
+    else []) [("realloc", wordFn 4 1, reallocBody invalid)]
+  let reallocIndex := some (entries.length * 2)
+  let .ok memory := Binding.givePayload "give-payload" ⟨0⟩ inst 0 .i32 .utf8 reallocIndex | none
+  let .ok flatBinding := Binding.giveFlat (sig := reallocSignature) "give-flat" ⟨0⟩ inst 0 .i32 .utf8
+    (reallocSignature.payload ()) reallocIndex | none
+  let reference : CStore engine := { CStore.empty with
+    core := store, insts := [{}], resourceTypes := [{ impl := some ⟨0⟩ }],
+    tasks := [{ ft := ⟨[], none, false⟩, opts := {}, inst := ⟨0⟩, caller := ⟨0⟩ }],
+    threads := [{ status := .running, task := ⟨0⟩ }] }
+  return ([Binding.accept reallocContract inst 0, memory, flatBinding], {
+    store := reference, host := {}, conts := [none],
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (reallocSession inst flat)] })
+
+private def reallocRegression (flat invalid : Bool) : Bool :=
+  match reallocSetup flat invalid with
+  | none => false
+  | some (bindings, config) =>
+    let result := run bindings config
+    let state := result.config.host
+    let bytes := (result.config.store.core.mems[0]?.map (·.bytes)).getD ByteArray.empty
+    let completion := if invalid then [] else if flat then [.returnedFlat 1 ([1, 65536, 1].map i32Flat)]
+      else [.returned 1 0]
+    let outer := if flat then Event.entered 1 "give-flat" (wordFn 1 4) [i32Flat 1]
+      else .entered 1 "give-payload" (wordFn 2 2) ([1, 0].map i32Flat)
+    let journal := [Event.entered 0 "accept-node" (Endpoints.Core.Scheduled.acceptType reallocContract)
+        ([0, 32, 0, 0].map i32Flat), .published 0 1, .returned 0 1, outer,
+      .entered 2 "give-flat" (wordFn 1 4) [i32Flat 1], .refused 2 .wrongContext] ++ completion
+    let descriptor := if flat then #[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] else
+      if invalid then #[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] else #[1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0]
+    result.outcome == (if invalid then .trap else .resolved) &&
+    result.labels.any (· matches .trap .unalignedPointer) == invalid &&
+    state.transcript == journal && state.writer.held.isEmpty &&
+    ((result.config.store.inst? ⟨0⟩).bind (·.handles.get? 1)) == some (.resource ⟨1⟩) &&
+    bytes.size == 131072 && (bytes.extract 208 216).data == #[4, 0, 0, 0, 4, 0, 0, 0] &&
+    (bytes.extract 0 12).data == descriptor && (bytes.extract 65536 65540).data ==
+      (if invalid then #[0, 0, 0, 0] else #[77, 0, 0, 0])
+
+#guard reallocRegression false false
+#guard reallocRegression true false
+#guard reallocRegression false true
+#guard reallocRegression true true
 
 private def bindingTrapArgs : List Nat := [0, 0, 1, 0, 0, 0]
 
