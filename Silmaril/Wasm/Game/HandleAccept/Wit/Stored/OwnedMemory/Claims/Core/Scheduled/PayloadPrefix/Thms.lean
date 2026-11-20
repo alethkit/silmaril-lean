@@ -189,6 +189,46 @@ theorem map_entry_placement (destination : RecordDestination) (inst : InstId) (k
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.mapEntryPlacement
     destination inst key element growth width sized aligned bounds entry
 
+/-- Compare every entry in a validated indirect memory map. Both fields of
+the pair use the allocation-time width. The key's reached growth certificate
+places the value, and a refused or trapped child does not enter the suffix. -/
+theorem memory_map_elements (destination : RecordDestination) (inst : InstId) (key : WIT.KeyType) (element : TypeOf)
+    (origin : CStore (core3 grow)) (base count bytes : Nat)
+    (width : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    (aligned : base = alignTo base (layout destination.width (.record (mapEntryFields key element))).alignment)
+    (bounds : base + count * (layout destination.width (.record (mapEntryFields key element))).size ≤ bytes)
+    (entries : List Field) (index : Nat) (room : index + entries.length ≤ count)
+    (children : ∀ entry ∈ entries, MapEntryRules profile ready dispatch destination inst key element entry)
+    (left right : Config (core3 grow) (HostState sig)) (growth : Core3.Grows origin.core right.store.core) :
+    let cx := destination.context inst
+    let stride := (layout destination.width (.record (mapEntryFields key element))).size
+    CompareKeepingAt profile ready dispatch (fun store => Core3.Grows origin.core store.core) left right
+      (Record.Effects.elements recordClaims Limits.spec Quirks.none cx destination.width entries stride (base + index * stride) index)
+      (CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries (.memoryMap destination.width key element)
+        stride (base + index * stride)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memoryMapElements
+    destination inst key element origin base count bytes width sized aligned bounds entries index room children left right growth
+
+/-- After the actual range and live-plan checks admit a memory map, compare
+the whole entry traversal and descriptor writes. No descriptor is written
+after a typed child refusal or a trap in an entry. -/
+theorem memory_map_tail (destination : RecordDestination) (inst : InstId) (key : WIT.KeyType) (element : TypeOf)
+    (origin : CStore (core3 grow)) (pointer bytes index outputAddress : Nat)
+    (width : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    (entries : List Field)
+    (aligned : pointer = alignTo pointer (layout destination.width (.record (mapEntryFields key element))).alignment)
+    (bounds : pointer + entries.length * (layout destination.width (.record (mapEntryFields key element))).size ≤ bytes)
+    (children : ∀ entry ∈ entries, MapEntryRules profile ready dispatch destination inst key element entry)
+    (left right : Config (core3 grow) (HostState sig)) (growth : Core3.Grows origin.core right.store.core) :
+    let area := layout destination.width (.record (mapEntryFields key element))
+    CompareKeepingAt profile ready dispatch (fun store => Core3.Grows origin.core store.core) left right
+      (checkedCollectionTail destination inst entries area index (.memory outputAddress) pointer (.ok ()))
+      (canonicalCollectionTail destination inst entries area (.memory outputAddress) pointer (.memoryMap destination.width key element)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memoryMapTail
+    destination inst key element origin pointer bytes index outputAddress width sized entries aligned bounds children left right growth
+
 /-- A slot of a validated allocation stays aligned and in bounds across a
 growth-certified prefix. Only the reached size and width are constrained. -/
 theorem list_entry_placement {EHost : Type} {entryReady : HostReady EHost}
