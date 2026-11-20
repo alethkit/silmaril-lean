@@ -124,6 +124,39 @@ structure ChildFrame (first second : ReturnFrame.Continuation (core3 grow) (Host
   frames : List.Forall₂ (ReturnFrame.Segment first second) check.frames canon.frames
   rest : List.Forall₂ (ReturnFrame.Active first second) check.rest canon.rest
 
+/-- A classified callback has reached a pop. Only a pop of the substituted
+frame enters the two distinct continuations. No validation or tail code
+has run yet, and both continuations use their reached stores. -/
+inductive CallbackReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (left right last : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (value : Ret (core3 grow)) (seen : List (Label (core3 grow) (HostState sig))) : Prop where
+  | designated {reference : State grow sig} {canonCursor : Cursor (E := core3 grow) (HostState sig)}
+      {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))}
+      (frame : ChildFrame first second last reference cursor canonCursor)
+      (checked : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) left checkLabels
+        { last with ctl := cursor.control (first value) })
+      (canonical : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) right canonLabels
+        { reference with ctl := canonCursor.control (second value) })
+      (checkSeen : visible checkLabels = seen) (canonSeen : visible canonLabels = seen) :
+      CallbackReturn profile ready bindings first second left right last cursor value seen
+  | common {reference : State grow sig} {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))}
+      (checked : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) left checkLabels
+        { last with ctl := cursor.control (first value) })
+      (canonical : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) right canonLabels reference)
+      (paired : HostFrame.Paired first second { last with ctl := cursor.control (first value) } reference)
+      (checkSeen : visible checkLabels = seen) (canonSeen : visible canonLabels = seen) :
+      CallbackReturn profile ready bindings first second left right last cursor value seen
+
+/-- The actual activation entered by one canonical string allocation step. -/
+def stringReallocEntry (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (oldSize : Option Nat) (alignment : Alignment) (size : Nat)
+    (steps : List StoreStep) (finish : Nat → Session grow sig (Ret (core3 grow)))
+    (start : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig)) : State grow sig :=
+  let request := Call.reallocate cx (oldSize.elim 0 (fun _ => ptr)) (oldSize.getD 0) alignment.bytes size
+  let entered := { cursor with frames := .prog (stringPlanResume cx steps finish) :: cursor.frames }
+  { start with ctl := entered.control (specDispatch ready (host bindings) request) }
+
 /-- Stop at the reached range/recheck cut without executing any children.
 On a valid range the checked continuation receives the real live verdict
 (which can refuse); the canonical continuation receives only the pointer.
