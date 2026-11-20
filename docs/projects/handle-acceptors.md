@@ -674,6 +674,16 @@ component store or writer. This certifies those callout segments without assumin
 allocator's bytes are unchanged. It does not yet certify every callback trace, nor the
 range newly returned by realloc, which canonical lowering checks in the reached store.
 
+`RecordDestination.memory_cursor` uses the width established by the same destination
+check as both public give routes. On a certified prefix the canonical field cursor
+takes its actual width-read step and selects the same aligned address and increment
+as the compiled sequence. For dynamic lists and maps, `listRange_call` identifies the
+real realloc request and the saved continuation. `RecordDestination.listRange_resume`
+uses the store reached by a returning allocator: it traps on an invalid alignment or
+range without resuming the emitter, or proceeds to claim revalidation in that store.
+Neither the cursor nor the allocator-return rule assumes byte preservation, an
+allocator return on every trace, or success of the subsequent transfer.
+
 `Binding.acceptFlat` links a fixed tag and checks the full schema before accepting the
 canonical flat operand vector. The child pointer/count and any indirect string or list
 contents still refer to the linked memory; the child checks are shared with the indirect

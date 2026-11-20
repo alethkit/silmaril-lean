@@ -456,7 +456,6 @@ private theorem give_flat_safe (inst : InstId) (destination : RecordDestination)
   unfold giveFlat
   refine HostWrite.bind (readOnly P.Inv.currentInst?) fun current => ?_
   refine HostWrite.bind (readOnly P.Inv.getStore) fun store => ?_
-  dsimp only
   split
   · exact .pure none _
   · split
