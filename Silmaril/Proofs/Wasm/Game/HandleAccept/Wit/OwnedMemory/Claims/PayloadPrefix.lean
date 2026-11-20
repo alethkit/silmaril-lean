@@ -727,23 +727,14 @@ theorem collectionInstall (destination : RecordDestination) (inst : InstId) (typ
       (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
     (canonAt : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none
       (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
-    let cx := destination.context (grow := grow) inst
     let area := layout destination.width element
-    let request := Call.reallocate cx 0 0 area.alignment.bytes (entries.length * area.size)
-    ∃ checkResume canonResume : ReturnFrame.Continuation (core3 grow) (HostState sig),
-      let active := fun resume => ({ cursor with frames := .prog resume :: cursor.frames }).control (scheduledDispatch request)
-      let checkCall := { left with ctl := active checkResume }
-      let canonCall := { right with ctl := active canonResume }
-      (∀ pointer, checkResume (.nat pointer) = (do
-        let ptr ← validateListRange cx area entries.length pointer
-        let live ← Record.Effects.reserve recordClaims (Field.listObjects entries)
-        checkedCollectionTail destination inst entries area index output ptr live >>= checkNext)) ∧
-      (∀ pointer, canonResume (.nat pointer) = (do
-        let ptr ← validateListRange cx area entries.length pointer
-        canonicalCollectionTail destination inst entries area output ptr >>= canonNext)) ∧
-      Machine.Steps profile scheduledReady scheduledDispatch left [.tau, .tau, .tau] checkCall ∧
-      Machine.Steps profile scheduledReady scheduledDispatch right [.tau, .tau] canonCall ∧
-      HostFrame.Paired checkResume canonResume checkCall canonCall := by
+    let checkResume := checkedCollectionResume destination inst entries area index output checkNext
+    let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+    let checkCall := collectionEntry destination inst area entries.length scheduledDispatch left cursor checkResume
+    let canonCall := collectionEntry destination inst area entries.length scheduledDispatch right cursor canonResume
+    Machine.Steps profile scheduledReady scheduledDispatch left [.tau, .tau, .tau] checkCall ∧
+    Machine.Steps profile scheduledReady scheduledDispatch right [.tau, .tau] canonCall ∧
+    HostFrame.Paired checkResume canonResume checkCall canonCall := by
   let cx := destination.context (grow := grow) inst
   let area := layout destination.width element
   have reached : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width :=
@@ -785,13 +776,13 @@ theorem collectionInstall (destination : RecordDestination) (inst : InstId) (typ
   have canonStep : Step profile scheduledReady scheduledDispatch right .tau canonEntered := .get canonRead
   have canonAlloc : canonEntered.ctl = cursor.control (allocateListRange cx area entries.length >>= canonTail) := by
     simp only [canonEntered, cx, area, canonProgram, width, mode, canonTail, canonicalCollectionTail, Prog.bind_eq, Prog.bind_assoc]
-  obtain ⟨checkResume, checkResumeAt, checkInstall⟩ := listRange_call
+  have checkInstall := listRange_install
     (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch) cx area entries.length checkedTail checkAlloc
-  obtain ⟨canonResume, canonResumeAt, canonInstall⟩ := listRange_call
+  have canonInstall := listRange_install
     (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch) cx area entries.length canonTail canonAlloc
-  refine ⟨checkResume, canonResume, checkResumeAt, canonResumeAt, chain checkSteps (.cons checkInstall (.refl _)),
+  refine ⟨chain checkSteps (.cons checkInstall (.refl _)),
     .cons canonStep (.cons canonInstall (.refl _)), ?_⟩
-  unfold HostFrame.Paired
+  dsimp only [collectionEntry, HostFrame.Paired]
   conv => rhs; rw [← same]
   exact ReturnFrame.installed (HostFrame.replace left right.host) cursor.thread _ cursor.frames cursor.rest
 
