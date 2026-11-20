@@ -124,6 +124,8 @@ check-runtime:
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(PYTHON) -I tools/corpus/check_cjson_detach_equivalence_native.py)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(PYTHON) -I tools/corpus/check_cjson_detach_native.py)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/LoopControl.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Profiles.Injections.Thms,$(CHECK_TARGETS)),$(LAKE) build +Silmaril.Wasm.V1.Validation.Examples --wfail && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/Injections.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Sublanguages.Link.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.V1.Validation.Examples +Silmaril.Wasm.Verify.Kernel.Defs && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/Sublanguages.lean)
 
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
@@ -133,6 +135,8 @@ check-integrations:
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Policy.Thms +Silmaril.Wasm.Execution.Core.Intrinsic.OpSem.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-policy/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Determinism.Fuel.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-determinism/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Determinism.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/operational-determinism/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.GlobalProfile.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/global-profile/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.ClosedFunctional.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Det.NaN.Litmus.Thms && $(LAKE) env lean -DwarningAsError=true tests/wasm/closed-functional/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Intrinsic.OpSem.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/OpSem.lean && $(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/Call.lean)
 	$(if $(filter +Silmaril.Wasm.Execution.Core.MemoryProfile.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/wasm/memory-profile/Regression.lean)
 	$(if $(filter wasm-opt,$(CHECK_TARGETS)),$(LAKE) build --wfail $(RELEASE_BINARIES) && $(MAKE) release-check)
