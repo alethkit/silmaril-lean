@@ -58,62 +58,74 @@ def reserve (rt : RT) (resource : Nat) (index : BitVec 32) : Resolve Nat := do
   else throw .duplicate
 
 /-- Resolve a fixed list in the same order as a variable list, while retaining its length. -/
-def resolveSized {Raw Value : Type} (resolveOne : Raw → Resolve Value) :
-    (input : List Raw) → Resolve { output : List Value // output.length = input.length }
+def resolveSized {M : Type → Type} [Monad M] {Raw Value : Type} (resolveOne : Raw → M Value) :
+    (input : List Raw) → M { output : List Value // output.length = input.length }
   | [] => pure ⟨[], rfl⟩
   | head :: tail => do
     let value ← resolveOne head
     let values ← resolveSized resolveOne tail
     return ⟨value :: values.val, congrArg Nat.succ values.property⟩
 
+section
+
+variable {M : Type → Type} [Monad M] (move : Nat → BitVec 32 → M Nat)
+
 mutual
 /-- Resolve the active values in memory order. Descend through every compound constructor,
 but never move a handle from an absent field or an inactive branch. -/
-def resolve (rt : RT) : (type : PTy) → (rawType type).Val → Resolve type.Val
-  | .own resource, index => reserve rt resource index.toBitVec
-  | .list element, values => values.mapM (resolve rt element)
+def resolveWith : (type : PTy) → (rawType type).Val → M type.Val
+  | .own resource, index => move resource index.toBitVec
+  | .list element, values => values.mapM (resolveWith element)
   | .fixedList element length, values => do
-    let resolved ← resolveSized (resolve rt element) values.toList
+    let resolved ← resolveSized (resolveWith element) values.toList
     return ⟨resolved.val.toArray, by
       simpa only [List.size_toArray] using resolved.property.trans (by
         simpa only [Vector.toList, Array.length_toList] using values.2)⟩
-  | .record fields, values => resolveFields rt fields values
-  | .tuple types, values => resolveTypes rt types values
-  | .variant cases, value => resolveCases rt cases value
+  | .record fields, values => resolveFieldsWith fields values
+  | .tuple types, values => resolveTypesWith types values
+  | .variant cases, value => resolveCasesWith cases value
   | .option _, none => pure none
-  | .option element, some value => some <$> resolve rt element value
-  | .result ok _, .inl value => Sum.inl <$> resolveOpt rt ok value
-  | .result _ error, .inr value => Sum.inr <$> resolveOpt rt error value
+  | .option element, some value => some <$> resolveWith element value
+  | .result ok _, .inl value => Sum.inl <$> resolveOptWith ok value
+  | .result _ error, .inr value => Sum.inr <$> resolveOptWith error value
   | .bool, value | .s32, value | .u32, value | .s64, value | .u64, value | .string, value
   | .s8, value | .u8, value | .s16, value | .u16, value | .f32, value | .f64, value
   | .char, value | .enum _, value | .flags _, value => pure value
   | .borrow _, value => nomatch value
 
-def resolveTypes (rt : RT) : (types : List PTy) → PTy.Vals (rawTypes types) → Resolve (PTy.Vals types)
+def resolveTypesWith : (types : List PTy) → PTy.Vals (rawTypes types) → M (PTy.Vals types)
   | [], _ => pure ()
   | type :: types, (value, values) => do
-    let head ← resolve rt type value
-    let tail ← resolveTypes rt types values
+    let head ← resolveWith type value
+    let tail ← resolveTypesWith types values
     pure (head, tail)
 
-def resolveFields (rt : RT) : (fields : List (String × PTy)) →
-    PTy.FieldVals (rawFields fields) → Resolve (PTy.FieldVals fields)
+def resolveFieldsWith : (fields : List (String × PTy)) →
+    PTy.FieldVals (rawFields fields) → M (PTy.FieldVals fields)
   | [], _ => pure ()
   | (_, type) :: fields, (value, values) => do
-    let head ← resolve rt type value
-    let tail ← resolveFields rt fields values
+    let head ← resolveWith type value
+    let tail ← resolveFieldsWith fields values
     pure (head, tail)
 
-def resolveCases (rt : RT) : (cases : List (String × Option PTy)) →
-    PTy.CaseVals (rawCases cases) → Resolve (PTy.CaseVals cases)
+def resolveCasesWith : (cases : List (String × Option PTy)) →
+    PTy.CaseVals (rawCases cases) → M (PTy.CaseVals cases)
   | [], value => nomatch value
-  | (_, type) :: _, .inl value => Sum.inl <$> resolveOpt rt type value
-  | _ :: cases, .inr value => Sum.inr <$> resolveCases rt cases value
+  | (_, type) :: _, .inl value => Sum.inl <$> resolveOptWith type value
+  | _ :: cases, .inr value => Sum.inr <$> resolveCasesWith cases value
 
-def resolveOpt (rt : RT) : (type : Option PTy) → PTy.OptVal (rawOpt type) → Resolve (PTy.OptVal type)
+def resolveOptWith : (type : Option PTy) → PTy.OptVal (rawOpt type) → M (PTy.OptVal type)
   | none, _ => pure ()
-  | some type, value => resolve rt type value
+  | some type, value => resolveWith type value
 end
+
+end
+
+abbrev resolve (rt : RT) := resolveWith (reserve rt)
+abbrev resolveTypes (rt : RT) := resolveTypesWith (reserve rt)
+abbrev resolveFields (rt : RT) := resolveFieldsWith (reserve rt)
+abbrev resolveCases (rt : RT) := resolveCasesWith (reserve rt)
+abbrev resolveOpt (rt : RT) := resolveOptWith (reserve rt)
 
 variable (S : WitSig) (tagOf : BitVec 32 → Option S.Tag)
 

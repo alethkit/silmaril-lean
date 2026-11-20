@@ -4,6 +4,18 @@ import Silmaril.Formats.PER.Naming.Thms
 
 open Silmaril.Formats Silmaril.Semantics.Naming
 
+private def oracle (bytes : ByteArray) : Option Bool := if bytes.size = 0 then none else some true
+
+private theorem oracleCompatible : PartialHashCompatible oracle (nameGraph oracle) := fun _ _ hit => hit
+
+example : ¬ nameGraph oracle true ByteArray.empty := oracleCompatible.not_named_of_none rfl
+
+example : UniqueNames (nameGraph oracle) ∧ ¬ Binding (nameGraph oracle) := by
+  refine ⟨oracleCompatible.uniqueNames, fun bound => ?_⟩
+  have same := bound (show nameGraph oracle true ⟨#[0]⟩ from rfl)
+    (show nameGraph oracle true ⟨#[0, 1]⟩ from rfl)
+  exact (by decide : ¬ (1 : Nat) = 2) (congrArg ByteArray.size same)
+
 private def raw : Relation Bool Bool := graph some
 
 private theorem rawBound : Binding raw := graph_binding some
