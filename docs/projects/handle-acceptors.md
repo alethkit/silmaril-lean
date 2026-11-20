@@ -838,6 +838,15 @@ prefixes and advances the real sibling cursor only after a common return and
 live recheck. The list entries and later fields use the recursive local-memory
 fragment; arbitrary allocating descendants and reply delivery remain separate.
 
+`MemorySequence.parked_givePayload` covers arbitrary record and tuple nesting
+with interleaved allocating strings and checked handles. The actual public
+fit and placement guards supply the root certificate. Each child placement
+comes from the compiled layout, and the induction advances siblings only at
+the paired success continuation. String callbacks may mutate memory; each
+later handle guard rechecks the reached writer. The comparison retains older
+saved frames and finite classified allocator prefixes. This fragment does
+not yet cover allocating collection descendants, sums, or reply delivery.
+
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
 canonical leaf programs, then traverses the placed record/tuple fields, list and
