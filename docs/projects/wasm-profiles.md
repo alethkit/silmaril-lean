@@ -11,7 +11,7 @@ semantics layer can take the same tag and separately choose its execution model.
 | `Wasm3` | `Wasm.Module`, `Wasm.Instr` | Core `ModuleOk` and `FuncOk`; also the Core intrinsic witness families. |
 | `Lime` | `Lime1.Module`, `Lime1.Instr` | The repository's Lime1 module and function validation, not an alias for a feature-filtered Core AST. |
 | `FX` | The Core loadable module and the extended `InstrFX` code family | The current FX model loads Core modules and uses an external host-code-to-`FuncFX` table. `FX.WithBindings` keeps that table without interpreting it. No whole-FX typing or binary instance is supplied. |
-| `Functional`, `Strict` | Exact restrictions of the Core AST | `Strict` adds a restriction to the same Core module/function judgments; the guard is not itself typing. |
+| `FunctionalCore gc exceptions` | Exact restrictions of the Core AST in four modes | Each mode uses the same Core module/function judgments after erasure; the guard is not itself typing. |
 
 The 1.0, 2.0 and 3.0 references are the [pinned SpecTec snapshots](../../specs/spectec/manifest.json).
 `HasFeatures` reuses `Models.Features`' manifests. Capabilities are monotone in
@@ -20,10 +20,34 @@ are not the native V1 and V2 structures or all their valid encodings. For
 example, the checked Lime1 translation to Core differs from the raw Core
 feature guard for legacy tables and elements (`Models.Lime1Core.Thms`); the
 Lime1 binary agreement uses `toCoreBinary`, not generally `toCore`.
-Lime1 here refers to the repository's syntax, binary grammar and validation;
-the pinned 1/2/3 snapshots do not define it as a fourth standard edition.
+Lime1 here follows the [pinned Lime1 profile](https://github.com/WebAssembly/tool-conventions/blob/83e5d715d0c18aee51e2d5ae9434f22d67b6e905/Lime.md),
+not a fourth edition of the Core standard.
 For FX the existing `Models.FXVModel.fxEmb'` is the conservative Core-to-FX
-result with no FX bindings, not an erasure from arbitrary FX code to Core.
+result with identity on modules and no FX function bindings at the program point.
+The `dir = .eq` result concerns behavior under those bindings, not an erasure of
+arbitrary FX code. `InstrFX` adds continuation operations and nesting; `FuncFX`
+has a module instance, arities, locals and code and is stored in an external
+host-code table. That is the modeled interface, not a native validated FX
+module format or a complete stack-switching validation judgment.
+
+The native value and instruction bindings differ even when scalar operators
+share Lean types:
+
+| Profile | Value type and representative instruction differences |
+| --- | --- |
+| `Wasm1` | `NumType` (four scalar types). `V1.Instr` excludes sign extension and saturating truncation; block result is an optional scalar. |
+| `Wasm2` | `V2.ValType` adds `v128` and the two enumerated reference types. `V2.Instr` includes indexed block signatures, SIMD and saturating truncation, but no GC `struct.set` or typed `call_ref`. |
+| `Wasm3` | Core `ValType` has nullability and abstract or indexed heap types. Core `Instr` includes the GC, tail-call and exception families. |
+| `Lime` | Scalar `V1.ValType`, but native `Lime1.Instr` supports sign extension, saturating conversion and indexed block types; no reference or vector value types. |
+
+Only `Wasm3` has a `HasIntrinsic` instance. The V1/V2/Lime1 native judgments are
+proofs about their raw syntax, not native intrinsic body or module types in
+this API. To get a Core witness, transport validation via the existing
+`V1.Validation.ModuleValid.toCore`, `V2.Validation.ModuleValid.toCore_ok`
+(given a `toCore` image), or `Lime1.Validation.ModuleValid.toCore`, then use
+Core `Intrinsic.Module.lift_erase` at the resulting Core interface. Such a witness
+erases to the **translated Core module**. It is not a native intrinsic witness
+or a proof that typing reflects back for every Core feature-filtered module.
 
 The optional `HasEncoding` relation selects the existing binary grammars for
 V1, Lime1 and Core 3.0, not an executable encoder contract. There is no new
@@ -53,19 +77,58 @@ retains the assembled module exactly and uses the standard `ModuleParts` API.
 
 ## Functional and strict boundaries
 
-`Functional` uses `functionalMutGC`: no memory, tables or globals; GC allocation,
-reads and writes, function imports and Core exceptions remain possible if
-well-typed. `Strict` uses `functional.remove .exn` and forbids all imports. It
-does not support mutable GC fields or writes, exception tags/types/instructions,
-shared/atomic memory extensions, or legacy exceptions. Both still allow local
-variables, control, calls, GC allocation, trapping instructions, and exported
-functions. Neither name promises termination or purity of observations.
+`FunctionalCore GCMode ExceptionMode` makes the two choices independent:
 
-The regression models the immutable pair projection `snd (a, b)` using
-`struct.new` and `struct.get`, validated by the Core checker. Changing a field
-to mutable still validates in Core and is accepted by `Functional`, but is
-rejected by `Strict`. This is the target shape for a typed frontend, not a new
-OCaml parser or proof of source lowering adequacy.
+| Alias | GC fields and writes | Exception tags, types and instructions |
+| --- | --- | --- |
+| `Functional` | Mutable allowed | Internal allowed |
+| `FunctionalNoExceptions` | Mutable allowed | Disabled |
+| `StrictWithExceptions` | Immutable only | Internal allowed |
+| `Strict` | Immutable only | Disabled |
+
+`closedShape` checks that **all four** have no imports, linear memories, tables,
+globals, element segments or data segments, and only export functions. In
+particular an internal tag cannot be exported as a host entry; this does not
+promise that every throw is caught. `features`
+uses `functionalMutGC` or `functional`; disabling exceptions removes `.exn`.
+The feature check already traverses recursion groups (including fields and
+function signatures), locals, type immediates, and nested block/loop/if/try
+bodies. Typing still resolves all references and validates exports/start and
+handlers. Legacy exception opcodes and shared/atomic extensions are not enabled.
+The selected manifests are not maximal: for example they do not enable SIMD,
+saturating conversion, sign extension or bulk-memory instructions.
+
+`FunctionalCore.allowMutation` and `allowExceptions` are injections preserving
+the exact Core AST. `inclusion_square` proves they commute, `checkedToCore`
+preserves the actual Core `ModuleOk` interface, and `checkedEquiv` is two-sided
+onto the precisely guarded well-typed Core image. None claims a semantics or
+UB policy. Modules cannot call imported host functions, but they may be called
+through exports, can still use opaque external reference values, and may trap,
+allocate, or diverge. Immutable allocation is not asserted observationally pure.
+
+The [regressions](../../tests/wasm/profiles/Functional.lean) independently check
+the validator and the guards. A block allocates and actually writes a mutable
+struct via `struct.set`; it separates the two GC modes even with EH disabled.
+An immutable-mode module throws to a local `try_table` handler, separating
+the exception modes. The tests also check an immutable capture record holding
+a scalar and a typed function reference, projecting them and applying with
+`call_ref`. Function exports provide `ref.func` declaration scope. This is a
+checked closure-shaped target example, not a closure-conversion algorithm or
+execution equivalence theorem.
+
+`Profiles.Functional`'s `FunctionalISA` namespace adds raw and stack-indexed
+inductive code for numeric add/div and constants, initialized local reads,
+`ref.i31`, struct allocation/reads and mutable-only writes, and `i32` result
+blocks with in-scope `br_if 0`. `Code.toRaw` drops only typing indices and
+proofs; `.sub` has no runtime syntax. `Code.sound` derives `InstrsOk` for the
+same erased expression using the real Core frame, block, branch and GC rules.
+`Code.liftCore` gives a Core intrinsic witness with that exact erasure, not a
+canonical inverse on derivations. `Raw.features` traverses the raw tree and
+`Raw.allowWrites_erase` proves exact erasure after widening mutability. This
+instruction slice does not check the enclosing module declarations, and it
+has no calls, local writes, arrays, general branch depths, or EH syntax. To
+cover the closure fixture intrinsically here requires the `call_ref` context
+lookup/expansion and `ref.func` declaration witnesses plus local-init effects.
 
 ## A checked opcode slice
 
