@@ -843,7 +843,7 @@ theorem collectionReplay {older : ReturnFrame.Substitutions (core3 grow) (HostSt
     (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
       (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
     CollectionReplay profile ready bindings older destination inst type element entries index output left right check canon checkNext canonNext := by
-  dsimp only [CollectionReplay]
+  dsimp only [CollectionReplay, CollectionReplayFor]
   obtain ⟨checkInstall, canonInstall, paired⟩ := childCollectionInstall (profile := profile) (ready := ready) (bindings := bindings)
     destination inst type element entries output index checkNext canonNext frame (frame.store ▸ present) prepared checkAt canonAt
   refine ⟨checkInstall, canonInstall, ?_⟩
