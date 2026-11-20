@@ -789,6 +789,12 @@ comparisons. `Site.parked_handles` supplies those rules for a dynamic list of
 handle leaves. This does not prove nested allocating children, memory-map
 placement, or delivery of the reply.
 
+`PayloadPrefix.primitive_leaf` pairs non-string scalar effects after the
+checked width and placement reads. `primitive_list_entry` gets those facts
+from a validated list range and a growth-certified prefix, not from a claim
+that guest memory bytes stay unchanged. These are entry rules, not a proof
+of traversal for an arbitrary list or of allocator-backed string leaves.
+
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
 canonical leaf programs, then traverses the placed record/tuple fields, list and
