@@ -15,6 +15,8 @@ inductive Atom : GCMode → Type where
   | bin {gc : GCMode} (width : IntType) (op : ISA.Binop) : Atom gc
   | localGet {gc : GCMode} (idx : LocalIdx) : Atom gc
   | refI31 {gc : GCMode} : Atom gc
+  | refFunc {gc : GCMode} (idx : FuncIdx) : Atom gc
+  | callRef {gc : GCMode} (type : TypeIdx) : Atom gc
   | structNew {gc : GCMode} (type : TypeIdx) : Atom gc
   | structGet {gc : GCMode} (sign : Option Signedness) (type : TypeIdx) (field : FieldIdx) : Atom gc
   | structSet (type : TypeIdx) (field : FieldIdx) : Atom .mutable
@@ -25,6 +27,8 @@ def Atom.erase {gc : GCMode} : Atom gc → Instr
   | .bin width op => .intBinOp width op.toCore
   | .localGet idx => .localGet idx
   | .refI31 => .refI31
+  | .refFunc idx => .refFunc idx
+  | .callRef type => .callRef type
   | .structNew type => .structNew type
   | .structGet sign type field => .structGet sign type field
   | .structSet type field => .structSet type field
@@ -45,6 +49,8 @@ def Atom.allowWrites : Atom .immutable → Atom .mutable
   | .bin width op => .bin width op
   | .localGet idx => .localGet idx
   | .refI31 => .refI31
+  | .refFunc idx => .refFunc idx
+  | .callRef type => .callRef type
   | .structNew type => .structNew type
   | .structGet sign type field => .structGet sign type field
   | .brIf0 => .brIf0
@@ -63,6 +69,12 @@ inductive TypedAtom (ctx : Context) : GCMode → List CValType → List CValType
   | localGet {gc : GCMode} {type : CValType} (idx : LocalIdx) (lookup : ctx.locals[idx.toNat]? = some ⟨.set, type⟩) :
       TypedAtom ctx gc [] [type]
   | refI31 {gc : GCMode} : TypedAtom ctx gc [.i32] [.refT false (.abs .i31)]
+  | refFunc {gc : GCMode} {defType : DefType} (idx : FuncIdx)
+      (lookup : ctx.funcs[idx.toNat]? = some defType) (declared : idx.toNat ∈ ctx.refs) :
+      TypedAtom ctx gc [] [.refT false (.defHeap defType)]
+  | callRef {gc : GCMode} {defType : DefType} {params results : Ty (.list .val)} (type : TypeIdx)
+      (lookup : ctx.type? type = some defType) (signature : Expand defType (.func params results)) :
+      TypedAtom ctx gc (params.toList ++ [.refT true (.defHeap defType)]) results.toList
   | structNew {gc : GCMode} {defType : DefType} {fs : Ty (.list .field)}
       (type : TypeIdx) (lookup : ctx.type? type = some defType) (fields : Expand defType (.struct fs)) :
       TypedAtom ctx gc (fs.toList.map fieldUnpack) [.refT false (.defHeap defType)]
@@ -83,12 +95,14 @@ def TypedAtom.toRaw {ctx : Context} {gc : GCMode} {inputs outputs : List CValTyp
   | .bin width op => .bin width op
   | .localGet idx _ => .localGet idx
   | .refI31 => .refI31
+  | .refFunc idx .. => .refFunc idx
+  | .callRef type .. => .callRef type
   | .structNew type .. => .structNew type
   | .structGet sign type field .. => .structGet sign type field
   | .structSet type field .. => .structSet type field
   | .brIf0 _ => .brIf0
 
-/-- First-order code with exact stack boundaries. The only label introduced
+/-- Code with exact stack boundaries. The only label introduced
 here exits an `i32` result block; `brIf0` targets the innermost such label.
 `sub` is proof-only (e.g. to pass a freshly allocated ref to `struct.get`). -/
 inductive Code (gc : GCMode) : Context → List CValType → List CValType → Type where

@@ -118,17 +118,20 @@ execution equivalence theorem.
 
 `Profiles.Functional`'s `FunctionalISA` namespace adds raw and stack-indexed
 inductive code for numeric add/div and constants, initialized local reads,
-`ref.i31`, struct allocation/reads and mutable-only writes, and `i32` result
-blocks with in-scope `br_if 0`. `Code.toRaw` drops only typing indices and
-proofs; `.sub` has no runtime syntax. `Code.sound` derives `InstrsOk` for the
+`ref.i31`, `ref.func` and `call_ref`, struct allocation/reads and mutable-only
+writes, and `i32` result blocks with in-scope `br_if 0`. `Code.toRaw` drops only
+typing indices and proofs; `.sub` has no runtime syntax. `Code.sound` derives `InstrsOk` for the
 same erased expression using the real Core frame, block, branch and GC rules.
 `Code.liftCore` gives a Core intrinsic witness with that exact erasure, not a
 canonical inverse on derivations. `Raw.features` traverses the raw tree and
 `Raw.allowWrites_erase` proves exact erasure after widening mutability. This
-instruction slice does not check the enclosing module declarations, and it
-has no calls, local writes, arrays, general branch depths, or EH syntax. To
-cover the closure fixture intrinsically here requires the `call_ref` context
-lookup/expansion and `ref.func` declaration witnesses plus local-init effects.
+instruction slice does not check the enclosing module declarations. It does not
+cover local writes, arrays, general branch depths or EH syntax. The checked
+closure fixture has intrinsic terms for allocation and application: `ref.func`
+requires declaration scope, and `call_ref` requires a function signature at the
+type index. Their exact erasures bracket the fixture's `local.set`, which still
+needs a local-init effect to express the entire body in this slice. An immutable
+closure can still carry a null callee and calling it can trap.
 
 ## A checked opcode slice
 

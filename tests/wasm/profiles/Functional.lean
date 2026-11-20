@@ -66,6 +66,58 @@ private theorem i32sOk (ctx : Context) (count : Nat) : ResultOk ctx.toTypeCtx (L
   obtain rfl := (List.mem_replicate.mp mem).2
   exact .num (.int .i32)
 
+private def callParams : Ty (.list .val) := .cons .i32 (.cons .i32 .nil)
+private def callResults : Ty (.list .val) := .cons .i32 .nil
+private def callee : DefType := .defn (.group (.cons (.sub true .nil (.func callParams callResults)) .nil)) 0
+private def calleeRef : CValType := .refT true (.defHeap callee)
+private def captureFields : Ty (.list .field) :=
+  .cons (.field .const (.val .i32)) (.cons (.field .const (.val calleeRef)) .nil)
+private def closure : DefType := .defn (.group (.cons (.sub true .nil (.struct captureFields)) .nil)) 0
+private def closureCtx : Context :=
+  { types := [callee, closure], funcs := [callee, callee], refs := [0, 1]
+    locals := [⟨.set, .i32⟩, ⟨.set, .i32⟩, ⟨.set, .refT true (.defHeap closure)⟩] }
+
+private def functionPointer : TypedAtom closureCtx .immutable [] [.refT false (.defHeap callee)] :=
+  .refFunc ⟨0⟩ rfl (by simp [closureCtx, Idx.toNat])
+
+example : InstrOk closureCtx (.refFunc ⟨0⟩) (.plain [] [.refT false (.defHeap callee)]) :=
+  functionPointer.sound
+
+private def allocateClosure : Code .immutable closureCtx [.i32, calleeRef] [.refT false (.defHeap closure)] :=
+  .cons (base := []) (i32sOk _ 0) (.structNew (fs := captureFields) ⟨1⟩ rfl (.mk rfl))
+    (.done (ResultOk.check_sound (by decide +kernel)))
+
+private def captureClosure : Code .immutable closureCtx [] [.refT false (.defHeap closure)] :=
+  .cons (base := []) (i32sOk _ 0) (.localGet ⟨0⟩ rfl) <|
+  .cons (base := [.i32]) (i32sOk _ 1) functionPointer <|
+  .sub allocateClosure (InstrTypeSub.check_sound (by decide +kernel))
+    (InstrTypeOk.check_sound (by decide +kernel))
+
+private def applyClosure : Code .immutable closureCtx [] [.i32] :=
+  .cons (base := []) (i32sOk _ 0) (.localGet ⟨2⟩ rfl) <|
+  .cons (base := []) (i32sOk _ 0)
+    (.structGet (fs := captureFields) none ⟨1⟩ ⟨0⟩ rfl (.mk rfl) rfl rfl) <|
+  .cons (base := [.i32]) (i32sOk _ 1) (.localGet ⟨1⟩ rfl) <|
+  .cons (base := [.i32, .i32]) (i32sOk _ 2) (.localGet ⟨2⟩ rfl) <|
+  .cons (base := [.i32, .i32]) (i32sOk _ 2)
+    (.structGet (fs := captureFields) none ⟨1⟩ ⟨1⟩ rfl (.mk rfl) rfl rfl) <|
+  .cons (base := []) (i32sOk _ 0)
+    (.callRef (params := callParams) (results := callResults) ⟨0⟩ rfl (.mk rfl)) (.done (i32sOk _ 1))
+
+private def rawClosureBody : Expr := (capturedAdd.funcs[1]'(by decide)).body
+
+example : captureClosure.erase ++ [.localSet ⟨2⟩] ++ applyClosure.erase = rawClosureBody := rfl
+example : ExprOk closureCtx captureClosure.erase [.refT false (.defHeap closure)] := captureClosure.sound
+example : ExprOk closureCtx applyClosure.erase [.i32] := applyClosure.sound
+example : exprC closureCtx captureClosure.erase [.refT false (.defHeap closure)] = true := by decide +kernel
+example : exprC closureCtx applyClosure.erase [.i32] = true := by decide +kernel
+example : Instr.insInFeatB (FunctionalCore.features .immutable .disabled) applyClosure.erase = true :=
+  applyClosure.features .disabled
+example : exprC { closureCtx with refs := [] } [functionPointer.toRaw.erase] [.refT false (.defHeap callee)] = false :=
+  by decide +kernel
+example : exprC { closureCtx with types := [closure, closure] } applyClosure.erase [.i32] = false :=
+  by decide +kernel
+
 private def branchBody : Code .immutable {} [] [.i32] :=
   .blockI32 (base := []) (i32sOk _ 0)
     (.cons (base := []) (i32sOk _ 0) (.intConst 28)
@@ -107,6 +159,8 @@ example : Profiles.Instruction FX = Models.FX.InstrFX := rfl
 #print axioms FunctionalCore.exports_function
 #print axioms FunctionalCore.tags_empty
 #print axioms Code.sound
+#print axioms captureClosure
+#print axioms applyClosure
 #print axioms Code.liftCore
 #print axioms Raw.features
 #print axioms Raw.allowWrites_erase

@@ -16,6 +16,8 @@ theorem atom_sound {ctx gc inputs outputs} (atom : TypedAtom ctx gc inputs outpu
   | bin width op => exact .numeric (.intBinOp width op.toCore)
   | localGet idx lookup => exact .variable (.localGet lookup)
   | refI31 => exact .reference .refI31
+  | refFunc idx lookup declared => exact .reference (.refFunc lookup declared)
+  | callRef type lookup signature => exact .callRef lookup signature
   | structNew type lookup fields => exact .reference (.structNew lookup fields)
   | structGet sign type field lookup fields entry packed => exact .reference (.structGet lookup fields entry packed)
   | structSet type field lookup fields entry => exact .reference (.structSet lookup fields entry)
