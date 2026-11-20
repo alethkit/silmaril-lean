@@ -742,12 +742,23 @@ Before start, `subtask.cancel` calls the checked cancellation callback and resol
 the reference cancellation path, without moving owners or publishing a tree. Start
 lifts and resolves in one callback; it does not expose a suspended post-lift phase.
 The deferred session theorem conserves the writer and journal on arbitrary ordinary
-prefixes. Linked direct/spilled replays check cancel, drop, slot reuse, start,
+prefixes. `Deferred.fresh_lookup_iff_publication` also proves the converse to publication
+lookup: a fresh handle is selectable exactly when its journal position records a
+publication for it. A pending or refused callback cannot account for a new selectable
+root without a publication. This is not a statement about delivery or live transfer
+authority. Linked direct/spilled replays check cancel, drop, slot reuse, start,
 resolution, and stale start after dropping the waitable.
 With no configured deferred callees, the complete dispatch is the eager dispatch;
 the control name is not reserved. When a live instance has no room for a waitable,
 staging records `subtaskTableFull` under the original call ticket without lifting,
 queuing or publishing, then returns to canonical lowering for the reference `tableFull` trap.
+
+For a new owner prepared after an ordinary checked export prefix,
+`ComponentCall.Deferred.prepared_owner_publication` locates the committed ticket and
+Core handle of the root carrying the exact typed receipt. The lookup remains valid
+after spending the claim; it observes the receipt without recreating authority.
+The deferred replay checks that the successful retry publishes both distinct owners
+with the same representation, while the cancelled call has no publication.
 
 ## Checking
 
