@@ -3,7 +3,10 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadLeaf.Local.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.CanonicalTree.Defs
+public import Silmaril.Wasm.Component.Reference.Engine.Core3.Grows.Defs
 import Silmaril.Wasm.Component.Reference.Canon.Prog.Thms
+import Silmaril.Wasm.Component.Reference.Canon.Flat.Thms
+import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadLeaf.Thms
 
@@ -139,6 +142,35 @@ private theorem chain {before middle after : Config (core3 grow) (HostState sig)
   | refl => exact right
   | cons step _ ih => exact .cons step (ih right)
 
+private theorem runBody_keeps {keep : CStore E → Prop} {body : P E Host Result}
+    (invariant : P.Inv keep body) (thread : Option ThreadId) (reference : CStore E) (host : Host)
+    (valid : keep reference) : keep (Plain.runBody body reference host (some thread)).1 := by
+  induction invariant generalizing reference host with
+  | pure result => exact valid
+  | @op operation next admitted _ ih =>
+    cases operation <;> simp only [Plain.runBody]
+    all_goals first
+      | exact valid
+      | exact ih reference reference host valid
+      | exact ih () _ host (admitted reference valid)
+      | exact ih host reference host valid
+      | exact ih () reference _ valid
+      | exact ih thread reference host valid
+
+private theorem canonical_growth (base : CStore (core3 grow)) (destination : RecordDestination) (inst : InstId)
+    (item : Field) (output : Stored.Lower.Output) :
+    P.Inv (fun (store : CStore (core3 grow)) => Core3.Grows base.core store.core)
+      (CanonicalTree.leaf Component.Limits.spec Quirks.none (destination.context inst) destination.width item output :
+        Session grow sig output.Result) := by
+  let keep := fun (store : CStore (core3 grow)) => Core3.Grows base.core store.core
+  have laws : P.Inv.StorePres keep :=
+    ⟨fun mem ptr bytes store valid => valid.trans (writeMemSt_grows store mem ptr bytes),
+      fun _ _ valid => valid, fun _ _ _ valid => valid, fun _ _ valid => valid,
+      fun _ _ _ valid => valid, fun _ _ _ valid => valid⟩
+  cases output with
+  | memory ptr => exact P.Inv.store laws _ _ _ _ _ ptr
+  | flat => exact P.Inv.lowerFlatAt laws _ _ _ _ _ _
+
 theorem compare {checked canonical : Config (core3 grow) (HostState sig)}
     (sameStore : checked.store = canonical.store) (destination : RecordDestination) (inst : InstId)
     (item : Field) (handle : CanonicalHandle item) (index : Nat) (output : Stored.Lower.Output)
@@ -154,6 +186,7 @@ theorem compare {checked canonical : Config (core3 grow) (HostState sig)}
     | .ok plan =>
       let host := plan.elim checked.host (fun spend => { checked.host with writer := spend.apply checked.host.writer })
       ∃ reached outcome leading checkLabels canonLabels,
+        Core3.Grows canonical.store.core reached.core ∧
         (∀ label ∈ leading, label = .tau) ∧ LocalLeafLabels outcome checkLabels ∧ LocalLeafLabels outcome canonLabels ∧
         Steps profile ready dispatch checked (leading ++ checkLabels)
           (localLeafEnd checked host reached thread checkFrames checkRest (fun result => checkNext (.ok result)) outcome) ∧
@@ -179,12 +212,18 @@ theorem compare {checked canonical : Config (core3 grow) (HostState sig)}
         (reached, checkedNext.host, outcome.mapError .trapped) := evaluated host
     have canonEval : Plain.runBody body canonical.store canonical.host (some thread) =
         (reached, canonical.host, outcome.mapError .trapped) := sameStore ▸ evaluated canonical.host
+    have grown : Core3.Grows canonical.store.core reached.core := by
+      have kept := runBody_keeps (canonical_growth (sig := sig) canonical.store destination inst item output)
+        thread canonical.store canonical.host (Core3.Grows.refl _)
+      change Core3.Grows canonical.store.core (Plain.runBody body canonical.store canonical.host (some thread)).1.core at kept
+      rw [canonEval] at kept
+      exact kept
     obtain ⟨checkLabels, checkTrace, checkRun⟩ := execute (profile := profile) (ready := ready) (dispatch := dispatch)
       body checkedNext reached outcome (fun result => checkNext (.ok result)) (thread := thread)
       (frames := checkFrames) (rest := checkRest) rfl checkedEval
     obtain ⟨canonLabels, canonTrace, canonRun⟩ := execute (profile := profile) (ready := ready) (dispatch := dispatch)
       body canonical reached outcome canonNext canonAt canonEval
-    refine ⟨reached, outcome, guardLabels, checkLabels, canonLabels, guardSilent, checkTrace, canonTrace, ?_, canonRun⟩
+    refine ⟨reached, outcome, guardLabels, checkLabels, canonLabels, grown, guardSilent, checkTrace, canonTrace, ?_, canonRun⟩
     cases outcome <;> exact chain prefixSteps checkRun
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LocalLeaf

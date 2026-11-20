@@ -134,6 +134,14 @@ def MemoryHandleRoot : Field → Prop
   | .sum _ _ _ (some item) => CanonicalHandle item
   | item => CanonicalHandle item
 
+def ClosedMemoryLeaf (item : Field) : Prop :=
+  CanonicalHandle item ∨ ∃ primitive, primitive ≠ WIT.Primitive.string ∧
+    ∃ payload : Stored.Payload (.prim primitive), item = .data (.prim primitive) payload
+
+/-- The existing handle fragment plus records and tuples of local leaves. -/
+def ClosedMemoryRoot (item : Field) : Prop :=
+  MemoryHandleRoot item ∨ ∃ type fields, item = .aggregate type fields ∧ ∀ child ∈ fields, ClosedMemoryLeaf child
+
 def flatReply {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (schema : TypeOf) (ticket : Nat)
     (verdict : Except Stored.Endpoints.RecordLower.Issue (List FlatValue)) : Session grow sig (Ret (core3 grow)) := do

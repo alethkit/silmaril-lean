@@ -167,6 +167,44 @@ theorem CollectionTailAt.scalar_entries (destination : RecordDestination) (inst 
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.scalarCollectionTail
     destination inst primitive nonString entries layoutMatch output index pointer bytes left right width sized
 
+/-- Compare the actual memory-record/tuple cursor across a validated region
+with handle and non-string scalar fields. A successful field retains Core
+growth for the next width read and placement. Refusals and traps stop before
+the remaining fields, retaining earlier writes and committed transfers. -/
+theorem closed_memory_fields (destination : RecordDestination) (inst : InstId) (origin : CStore (core3 grow))
+    (fields : List Field) (base index bytes : Nat)
+    (memoryWidth : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    (aligned : (recordAlignment (fields.map fun item => layout destination.width item.type)).bytes ∣ base)
+    (bounds : base + (recordLayout (fields.map fun item => layout destination.width item.type)).size ≤ bytes)
+    (closed : ∀ item ∈ fields, ClosedMemoryLeaf item)
+    (left right : Config (core3 grow) (HostState sig)) (growth : Core3.Grows origin.core right.store.core) :
+    CompareKeepingAt profile ready dispatch (fun store => Core3.Grows origin.core store.core) left right
+      (Record.Effects.memory recordClaims Limits.spec Quirks.none (destination.context inst) destination.width fields base index)
+      (CanonicalTree.memory Limits.spec Quirks.none (destination.context inst) destination.width fields base) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.closedMemoryFields
+    destination inst origin fields base index bytes memoryWidth sized aligned bounds closed left right growth
+
+/-- Enter an actual checked memory aggregate through its bounds read, compare
+its canonical field sequence, and preserve its enclosing issue index on a
+typed refusal. The compiler's layout certificate identifies the field region. -/
+theorem closed_memory_aggregate (destination : RecordDestination) (inst : InstId) (origin : CStore (core3 grow))
+    (type : TypeOf) (fields : List Field) (index address bytes : Nat)
+    (matched : Field.LayoutMatches (.aggregate type fields) type)
+    (memoryWidth : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    (aligned : address % (layout destination.width type).alignment.bytes = 0)
+    (bounds : address + (layout destination.width type).size ≤ bytes)
+    (closed : ∀ item ∈ fields, ClosedMemoryLeaf item)
+    (left right : Config (core3 grow) (HostState sig)) (growth : Core3.Grows origin.core right.store.core) :
+    CompareKeepingAt profile ready dispatch (fun store => Core3.Grows origin.core store.core) left right
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.aggregate type fields) index (.memory address))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width (.aggregate type fields)
+        (.memory address)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.closedMemoryAggregate
+    destination inst origin type fields index address bytes matched memoryWidth sized aligned bounds closed left right growth
+
 /-- After the initial dry run admits this collection, the actual recursive
 programs install the same allocator request; a certified scheduler prefix
 preserves the checked width. The saved checked continuation
@@ -379,6 +417,38 @@ theorem parked_givePayload (bindings : List (Binding sig)) (name : String) (type
     (children : Fin arity → OwnedMemory.Tree sig) (field : Field) (plan : List Object)
     (compiled : Record.preflightValue (destination.context (grow := grow) inst) (sig.payload tag)
       payload (.memory (flatNat pointer)) = .ok (field, plan)) (fragment : MemoryHandleRoot field)
+    (start reference : Config (core3 grow) (HostState sig)) (sameStore : start.store = reference.store)
+    (canonCursor : Cursor (E := core3 grow) (HostState sig)) (canonNext : Unit → Session grow sig (Ret (core3 grow)))
+    {thread core continuation segments rest} (sameThread : thread = canonCursor.thread)
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) [.int .i32 handleWord, pointer])
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst, .givePayload destination⟩)
+    (caller : Plain.callerInstance start.store thread = .ok (some inst))
+    (mayLeave : (start.store.inst? inst).any (·.mayLeave) = true)
+    (destinationChecked : destination.check start.store = .ok ())
+    (selected : Endpoints.Core.childFromHistory start.host.writer.accepted handleWord =
+      some (.tag ⟨tag, payload⟩ arity children))
+    (pointerChecked : Stored.flatType pointer = pointerType destination.width)
+    (canonicalAt : reference.ctl = canonCursor.control (store Limits.spec Quirks.none (destination.context inst)
+      payload.val.value (sig.payload tag) (flatNat pointer) >>= canonNext)) :
+    MemoryReaches profile ready (specDispatch ready (host (grow := grow) bindings)) start reference
+      ⟨thread, .core core continuation :: segments, rest⟩ canonCursor
+      (memoryReply destination pointer start.host.nextTicket) canonNext
+      (placement destination start.store (layout destination.width (sig.payload tag)) (flatNat pointer)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.parkedMemory
+    bindings name type handleWord pointer destination inst tag payload children field plan compiled (.inl fragment) start reference
+    sameStore canonCursor canonNext sameThread parked calling linked caller mayLeave destinationChecked selected
+    pointerChecked canonicalAt
+
+/-- The parked public indirect route compares the handle fragment and mixed
+scalar/handle records and tuples with actual canonical storage. Its extra
+root placement failure remains separate from canonical execution traps. -/
+theorem parked_givePayload_closed (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
+    (handleWord : BitVec IntType.i32.width) (pointer : FlatValue) (destination : RecordDestination) (inst : InstId)
+    (tag : sig.Tag) (payload : OwnedMemory.Payload (sig.payload tag)) {arity : Nat}
+    (children : Fin arity → OwnedMemory.Tree sig) (field : Field) (plan : List Object)
+    (compiled : Record.preflightValue (destination.context (grow := grow) inst) (sig.payload tag)
+      payload (.memory (flatNat pointer)) = .ok (field, plan)) (fragment : ClosedMemoryRoot field)
     (start reference : Config (core3 grow) (HostState sig)) (sameStore : start.store = reference.store)
     (canonCursor : Cursor (E := core3 grow) (HostState sig)) (canonNext : Unit → Session grow sig (Ret (core3 grow)))
     {thread core continuation segments rest} (sameThread : thread = canonCursor.thread)

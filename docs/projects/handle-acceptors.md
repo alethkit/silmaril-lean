@@ -802,6 +802,14 @@ separate child comparison is needed after a classified allocator return for
 these lists. This does not cover string elements, nested allocating children,
 or unclassified open callbacks.
 
+`closed_memory_aggregate` uses the compiled record or tuple layout to compare
+the actual checked bounds read and canonical field cursor for handles and
+non-string scalar leaves. Completed transfers and scalar writes keep the linked
+memory's width and bounds for the next field; a refusal or trap does not run
+the suffix. `parked_givePayload_closed` applies this fragment to the public
+indirect binding and retains its original reply continuation. The rule does not
+yet compose nested allocating fields or claim reply delivery.
+
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
 canonical leaf programs, then traverses the placed record/tuple fields, list and
