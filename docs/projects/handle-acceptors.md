@@ -718,6 +718,13 @@ reached range, and the checked one revalidates its own reached live plan before
 entering any element. This pairs allocator prefixes, not the subsequent
 recursive traversals or the complete exports.
 
+`RecordDestination.compare_handle_leaf` pairs the actual canonical memory and
+flat programs for own, stream, future, and error-context leaves. On live-check
+refusal it stops the canonical side before the leaf. On admission both sides
+reach the same value or canonical trap and the same component store from the
+shared cursor, even with different writers and sequence continuations. A late
+trap retains canonical table and memory effects and the checked side's spend.
+
 `RecordDestination.memory_cursor` uses the width established by the same destination
 check as both public give routes. On a certified prefix the canonical field cursor
 takes its actual width-read step and selects the same aligned address and increment
