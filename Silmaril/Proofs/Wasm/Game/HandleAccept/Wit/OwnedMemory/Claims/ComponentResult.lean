@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
+import Silmaril.Wasm.Component.Reference.Engine.Core3.Store.Defs
 
 public section
 
@@ -262,5 +263,137 @@ theorem result_payload_offset (out : Nat) (aligned : out = ABI.alignTo out .four
     ABI.alignTo (ABI.alignTo out .four + 1) .four = out + 4 := by
   simp only [ABI.alignTo, ABI.Alignment.bytes] at aligned ⊢
   omega
+
+private theorem write_subtask (store : CStore (core3 grow)) (address ptr : Nat)
+    (bytes : ByteArray) (subtask : SubtaskId) :
+    (writeMemSt address ptr bytes store).subtask? subtask = store.subtask? subtask := by
+  unfold writeMemSt
+  split <;> rfl
+
+theorem resolve_indirect_write (ticket handle : Nat) (tree : Tree sig) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (cursor : FlatCursor) (maxResults : Nat)
+    (indirect : maxResults ≤ 1) (pointer : FlatValue) (address : Nat)
+    (atCursor : cursor.values[cursor.pos]? = some pointer)
+    (aligned : flatNat pointer = ABI.alignTo (flatNat pointer) .four)
+    (memory : cx.opts.memory = some address) (size : Nat)
+    (sized : (core3 grow).memSize? config.store.core address = some size)
+    (inBounds : flatNat pointer + 8 ≤ size) (record : Subtask)
+    (live : config.store.subtask? subtask = some record)
+    (focused : config.ctl = ⟨thread, .prog (do
+        let flat ← lowerFlatValues Limits.spec Quirks.none cx maxResults
+          [.variant 0 (some (Val.u32 handle))] [resultType] (some cursor)
+        Subtask.resolve subtask .returned flat
+        completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    let out := flatNat pointer
+    let tagged := writeMemSt address out (intToLE 1 0) config.store
+    let final : Config (core3 grow) (HostState sig) := { config with
+      store := writeMemSt address (out + 4) (intToLE 4 handle) tagged
+      ctl := ⟨thread, .prog (do
+        Subtask.resolve subtask .returned []
+        completeResolvedTree ticket tree handle), segments⟩ :: rest }
+    Steps prof ready dispatch config (List.replicate 8 .tau) final ∧
+      final.store.subtask? subtask = some record := by
+  let out := flatNat pointer
+  have payloadOffset : ABI.alignTo (flatNat pointer + 1) .four = flatNat pointer + 4 := by
+    simpa only [← aligned] using result_payload_offset (flatNat pointer) aligned
+  have tagWrite : ((core3 grow).memWrite? config.store.core address out (intToLE 1 0)).isSome := by
+    apply Core3.memWrite?_isSome_iff.2
+    exact ⟨size, sized, by change out + 1 ≤ size; omega⟩
+  obtain ⟨tagCore, tagged⟩ := Option.isSome_iff_exists.mp tagWrite
+  have tagSize : (core3 grow).memSize? (writeMemSt address out (intToLE 1 0) config.store).core address = some size := by
+    simp only [writeMemSt, tagged]
+    exact (Core3.memWrite?_memSize tagged address).trans sized
+  have payloadWrite : ((core3 grow).memWrite? (writeMemSt address out (intToLE 1 0) config.store).core
+      address (out + 4) (intToLE 4 handle)).isSome := by
+    apply Core3.memWrite?_isSome_iff.2
+    exact ⟨size, tagSize, by change out + 4 + 4 ≤ size; omega⟩
+  obtain ⟨payloadCore, payload⟩ := Option.isSome_iff_exists.mp payloadWrite
+  dsimp only [out] at tagged payload
+  refine ⟨?_, ?_⟩
+  · have program := lower_result_program (sig := sig) cx cursor maxResults indirect (some handle)
+    simp only [Option.elim_some] at program
+    rw [program] at focused
+    have first := Step.get (prof := prof) (hr := ready) (dispatch := dispatch) focused
+    refine .cons first ?_
+    simp [Prog.bind, FlatCursor.next, atCursor, pure, trapIf, ← aligned, checkInBounds, memLen,
+      memAddr, memory, orTrap]
+    refine .cons (.get rfl) ?_
+    simp [sized, Nat.not_lt.mpr inBounds, Prog.bind]
+    refine .cons (.get rfl) (.cons (.get rfl) ?_)
+    simp only [storeInt, writeMem, memAddr, memory, orTrap, Prog.bind, pure]
+    refine .cons (.get rfl) ?_
+    simp only [Prog.bind, tagged, payloadOffset]
+    refine .cons (.modify rfl) (.cons (.get rfl) ?_)
+    simp only [Prog.bind, payload]
+    exact .cons (.modify rfl) (.refl _)
+  · change (writeMemSt address (out + 4) (intToLE 4 handle)
+      (writeMemSt address out (intToLE 1 0) config.store)).subtask? subtask = some record
+    simpa only [write_subtask] using live
+
+theorem resolve_indirect_range_trap (ticket handle : Nat) (tree : Tree sig) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (cursor : FlatCursor) (maxResults : Nat)
+    (indirect : maxResults ≤ 1) (pointer : FlatValue) (address : Nat)
+    (atCursor : cursor.values[cursor.pos]? = some pointer)
+    (aligned : flatNat pointer = ABI.alignTo (flatNat pointer) .four)
+    (memory : cx.opts.memory = some address) (size : Nat)
+    (sized : (core3 grow).memSize? config.store.core address = some size)
+    (outside : size < flatNat pointer + 8)
+    (focused : config.ctl = ⟨thread, .prog (do
+        let flat ← lowerFlatValues Limits.spec Quirks.none cx maxResults
+          [.variant 0 (some (Val.u32 handle))] [resultType] (some cursor)
+        Subtask.resolve subtask .returned flat
+        completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .trap .outOfBounds] (StepDefs.trapCfg config) := by
+  have program := lower_result_program (sig := sig) cx cursor maxResults indirect (some handle)
+  simp only [Option.elim_some] at program
+  rw [program] at focused
+  refine .cons (.get focused) ?_
+  simp [Prog.bind, FlatCursor.next, atCursor, pure, trapIf, ← aligned, checkInBounds, memLen,
+    memAddr, memory, orTrap]
+  refine .cons (.get rfl) ?_
+  simp [sized, outside, Prog.bind]
+  exact .cons (.trap rfl) (.refl _)
+
+theorem resolve_indirect_alignment_trap (ticket handle : Nat) (tree : Tree sig) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (cursor : FlatCursor) (maxResults : Nat)
+    (indirect : maxResults ≤ 1) (pointer : FlatValue)
+    (atCursor : cursor.values[cursor.pos]? = some pointer)
+    (misaligned : flatNat pointer ≠ ABI.alignTo (flatNat pointer) .four)
+    (focused : config.ctl = ⟨thread, .prog (do
+        let flat ← lowerFlatValues Limits.spec Quirks.none cx maxResults
+          [.variant 0 (some (Val.u32 handle))] [resultType] (some cursor)
+        Subtask.resolve subtask .returned flat
+        completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .trap .unalignedPointer] (StepDefs.trapCfg config) := by
+  have program := lower_result_program (sig := sig) cx cursor maxResults indirect (some handle)
+  simp only [Option.elim_some] at program
+  rw [program] at focused
+  refine .cons (.get focused) ?_
+  simp [Prog.bind, FlatCursor.next, atCursor, pure, trapIf, misaligned]
+  exact .cons (.trap rfl) (.refl _)
+
+theorem resolve_direct_words (ticket handle : Nat) (tree : Tree sig) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (cursor : FlatCursor) (maxResults : Nat)
+    (direct : 2 ≤ maxResults)
+    (focused : config.ctl = ⟨thread, .prog (do
+        let flat ← lowerFlatValues Limits.spec Quirks.none cx maxResults
+          [.variant 0 (some (Val.u32 handle))] [resultType] (some cursor)
+        Subtask.resolve subtask .returned flat
+        completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    Step prof ready dispatch config .tau
+      { config with ctl := ⟨thread, .prog (do
+        Subtask.resolve subtask .returned [i32Flat 0, i32Flat handle]
+        completeResolvedTree ticket tree handle), segments⟩ :: rest } := by
+  have lowered (width : AddrType) :
+      (lowerFlatTypes Limits.spec Quirks.none cx width
+        [.variant 0 (some (Val.u32 handle))] [resultType] : Session grow sig (List FlatValue)) =
+        pure [i32Flat 0, i32Flat handle] := by
+    simp [lowerFlatTypes, lowerFlatAt, resultType, lowerFlatVariantWith, resultWants, ABI.flattenOption,
+      ABI.flatten, ABI.flattenPrimitive, lowerFlatOpt, lowerFlatPrim, Val.u32,
+      IntKind.ofPrimitive, coerceLowerSlots, coerceLower, Prog.bind, pure, lowerFlatInt, intKindCore,
+      i32Flat, BitVec.ofInt_natCast]
+    rfl
+  have step := Step.get (prof := prof) (hr := ready) (dispatch := dispatch) focused
+  simpa [Prog.bind, resultFlatCount, Nat.not_lt.mpr direct, lowered, pure] using step
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult
