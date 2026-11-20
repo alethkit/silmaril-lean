@@ -154,4 +154,33 @@ theorem retained_owner_record {sig : Signature} {before after : HostState sig}
   refine ⟨?_, bound, root, run.retains_target selected, captured⟩
   rwa [appended, List.getElem?_append_left (List.getElem?_eq_some_iff.mp entry).1]
 
+theorem publication_roots {sig : Signature} {before after : HostState sig}
+    (journal : PublicationDelta before after) (run : WriterRun before.writer after.writer) :
+    after.publicationRootsFrom before.publications.length =
+      (after.writer.accepted.reverse.drop before.writer.accepted.length).map some := by
+  obtain ⟨entries, roots, appended, accepted, count, targets⟩ := journal.targets run
+  obtain ⟨boundedEntries, boundedAppended, _, bounded⟩ := journal
+  have sameEntries : boundedEntries = entries := List.append_cancel_left (boundedAppended.symm.trans appended)
+  subst boundedEntries
+  unfold HostState.publicationRootsFrom
+  rw [appended, List.drop_left]
+  rw [show after.writer.accepted.reverse.drop before.writer.accepted.length = roots.reverse by
+    rw [accepted, List.reverse_append]
+    exact List.drop_left' (by simp)]
+  apply List.ext_getElem?
+  intro index
+  simp only [List.getElem?_map]
+  cases entry : entries[index]? with
+  | none =>
+    have past : entries.length ≤ index := List.getElem?_eq_none_iff.mp entry
+    rw [List.getElem?_eq_none (by simpa only [List.length_reverse, ← count] using past)]
+    rfl
+  | some pair =>
+    rcases pair with ⟨ticket, handle⟩
+    obtain ⟨tree, lookup, selected⟩ := targets index ticket handle entry
+    have inRange : index < roots.length := count ▸ (List.getElem?_eq_some_iff.mp entry).1
+    rw [List.getElem?_reverse inRange]
+    simp only [Option.map_some, Nat.sub_sub, Nat.add_comm 1, lookup,
+      ite_eq_left (bounded index ticket handle entry).2, selected]
+
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.Publication

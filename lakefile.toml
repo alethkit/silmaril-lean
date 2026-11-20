@@ -114,7 +114,7 @@ globs = [
   "Silmaril.Wasm.FX.+", "Silmaril.Wasm.FnInst.+", "Silmaril.Wasm.Game.+",
   "Silmaril.Wasm.Institution.+", "Silmaril.Wasm.Instructions", "Silmaril.Wasm.Interp.+",
   "Silmaril.Wasm.Lime1.+", "Silmaril.Wasm.Link.+", "Silmaril.Wasm.Logic.+",
-  "Silmaril.Wasm.Models.+", "Silmaril.Wasm.ModuleBuilder", "Silmaril.Wasm.Modules",
+  "Silmaril.Wasm.Models.+", "Silmaril.Wasm.ModuleBuilder", "Silmaril.Wasm.Modules", "Silmaril.Wasm.ModuleParts.+",
   "Silmaril.Wasm.Numerics.+", "Silmaril.Wasm.Ops", "Silmaril.Wasm.SSA.+",
   "Silmaril.Wasm.Scalar.+", "Silmaril.Wasm.SingleThreaded.+", "Silmaril.Wasm.Spec.+",
   "Silmaril.Wasm.Text.+", "Silmaril.Wasm.Tools.+", "Silmaril.Wasm.TypeUse", "Silmaril.Wasm.Types",

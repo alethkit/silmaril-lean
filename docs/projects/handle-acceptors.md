@@ -479,11 +479,15 @@ Core stores and tag traces after rejections and retries. This is a conservative 
 result for this pair of dispatchers, not yet for the scheduled canonical lifecycle API.
 
 `Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain` joins that correspondence to the
-scheduled memory accept body after the binding check. Its reference steps preserve the
-parked Core continuation and implement the same arena effects, embedded writer and status
-or typed refusal. The receipt-aware journal records successful publication and its return
-separately; a refusal does not publish. This comparison does not yet cover scheduling and
-canonical lifecycle calls around the body, flat bindings, or deferred reply delivery.
+actual checked Core embedder for a linked memory accept. Caller admission reads the active
+thread, its instance and the live `mayLeave` bit; a wrong caller returns a typed refusal
+without lifting or publishing. An admitted plain call agrees with the endpoint-only attempt
+on arena effects, embedded writer, status and typed refusal. Success and refusal preserve
+the parked Core continuation; a canonical trap locks down the reached store, keeps prior
+journal effects and discards the continuations. Binding-resolution traps keep their typed
+reason in the journal. Publication and reply remain distinct events. This is a single-call
+comparison, not yet a correspondence for scheduled export prefixes, flat bindings or
+deferred reply delivery.
 
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
@@ -608,7 +612,11 @@ still reject, including in inactive map schemas.
 records containing both nominal owners and endpoints. Active owner fields consume ordered
 receipts only after checking their nominal type and representation; live authority is
 looked up separately by arena identity. The whole plan is dry-run before writing, and
-transfers after guest allocation revalidate against the reached state. Single give and the
+transfers after guest allocation revalidate against the reached state. Root preflight and
+dynamic-region rechecks derive their plans from the same compiled fields the emitter
+uses, in field order and with only the selected sum arm. `compileValue_plan` and
+`compileRecord_plan` identify the diagnostic compiler output with those traversals;
+they are not equivalence theorems for the effectful canonical ABI. Single give and the
 recursive emitter spend only the targeted owner identity, before canonical allocation of
 the owning arena object. A subsequent table insertion failure keeps the allocation and
 does not restore the claim. The kernel-checked replays cover distinct equal-representation
@@ -714,7 +722,16 @@ publishing, and publication checks the candidate handle against the live writer.
 `ComponentCall.resolve_begin` places the reference result program before the commit.
 At the commit continuation, `complete_commit` preserves the reached store and publishes
 before recording a reply. `complete_stale` instead records `.wrongResultType` and locks
-down without publishing or recording a reply. These steps do not prove subtask delivery.
+down without publishing or recording a reply. `resolve_caller` exposes the live reference
+result cursor. `lower_result_program` gives the exact canonical program at this cursor in
+both memory widths: pointer type, alignment and whole-result range checks precede the writes;
+an error only writes its tag, and a successful reply also writes the little-endian handle at
+offset four. `resolve_commit` connects the post-write subtask resolution to publication
+without clearing the pending event or releasing lends. `deliver_pending` takes the actual
+returned event and applies reference lend release in a later waitable step. Neither publication
+nor the presence of an event guarantees that a guest polls or that its event write succeeds.
+The linked replays cover a misaligned result pointer, and a late out-of-bounds poll write
+that traps after consuming the event while preserving the earlier publication.
 `ComponentCall.checked_of_session` gives publication, writer and transcript conservation
 across every ordinary machine prefix, including traps and refusals. It does not assert
 an exact language for every guest or atomic rollback of reference operations.
@@ -740,9 +757,12 @@ lifts and resolves in one callback; it does not expose a suspended post-lift pha
 The deferred session theorem conserves the writer and journal on arbitrary ordinary
 prefixes. `Deferred.fresh_lookup_iff_publication` also proves the converse to publication
 lookup: a fresh handle is selectable exactly when its journal position records a
-publication for it. A pending or refused callback cannot account for a new selectable
-root without a publication. This is not a statement about delivery or live transfer
-authority. Linked direct/spilled replays check cancel, drop, slot reuse, start,
+publication for it. `Deferred.fresh_lookup_iff_cut` relates the selected tree itself to
+a single machine step registering it and appending the matching journal entry. The
+actual prefix and suffix retain intervening traps, retries and other effects. A pending
+or refused callback cannot account for a new selectable root without a publication.
+This is not a statement about delivery or live transfer authority. Linked
+direct/spilled replays check cancel, drop, slot reuse, start,
 resolution, and stale start after dropping the waitable.
 With no configured deferred callees, the complete dispatch is the eager dispatch;
 the control name is not reserved. When a live instance has no room for a waitable,
@@ -755,6 +775,13 @@ Core handle of the root carrying the exact typed receipt. The lookup remains val
 after spending the claim; it observes the receipt without recreating authority.
 The deferred replay checks that the successful retry publishes both distinct owners
 with the same representation, while the cancelled call has no publication.
+
+`ComponentCall.Deferred.publication_roots` reconstructs the exact chronological list of
+new roots from the journal suffix, even for a prefix ending mid-call. Each new entry
+selects its root, with no missing or extra occurrence. Direct and spilled Core replays
+check ordering across refusal and success, and the deferred replay checks cancellation
+and stale start. This reconstructs committed acceptance, not the set of inputs a guest
+will accept or a guarantee that an interrupted caller received its result.
 
 ## Checking
 
