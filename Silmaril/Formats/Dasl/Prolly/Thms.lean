@@ -16,6 +16,9 @@ def blockCodec (key : Encode.TotalCodec Key (Shallow Name)) (payload : Encode.To
     Encode.PartialCodec (Block Name Key Payload) (Shallow Name) :=
   ⟨encodeBlock key payload, decodeBlock key payload, fun _ _ => Proofs.Formats.Dasl.Prolly.block_roundtrip key payload⟩
 
+theorem blockCodec_encode (key : Encode.TotalCodec Key (Shallow Name)) (payload : Encode.TotalCodec Payload (Shallow Name)) :
+    (blockCodec key payload).encode? = encodeBlock key payload := by unfold blockCodec; rfl
+
 theorem Stored.mono {codec : Encode.PartialCodec (Block Name Key Payload) (Shallow Name)}
     {address : Block Name Key Payload → Name} {tree : Semantics.Prolly.Tree Key Payload} {store extension : Store Name}
     (stored : Stored codec address tree store) (incl : store.Subset extension) : Stored codec address tree extension := by

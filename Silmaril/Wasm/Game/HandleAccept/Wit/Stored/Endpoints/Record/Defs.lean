@@ -25,6 +25,10 @@ inductive Object where
   | shared (object : Lower.Object)
   | owner (receipt : OwnedMemory.Receipt)
 
+def Object.ownerReceipt : Object → Option OwnedMemory.Receipt
+  | .owner receipt => some receipt
+  | .shared _ => none
+
 inductive Field where
   | data (type : TypeOf) (payload : Payload type)
   | endpoint (channel : Channel) (element : Element) (id : EndId)
@@ -32,7 +36,7 @@ inductive Field where
   | owner (receipt : OwnedMemory.Receipt)
   | aggregate (type : TypeOf) (fields : List Field)
   | fixed (element : TypeOf) (length : Nat) (entries : List Field)
-  | dynamic (type element : TypeOf) (entries : List Field) (plan : List Object)
+  | dynamic (type element : TypeOf) (entries : List Field)
   | sum (type : TypeOf) (arms : List (Option TypeOf)) (tag : Nat) (field : Option Field)
 
 def Field.type : Field → TypeOf
@@ -42,8 +46,56 @@ def Field.type : Field → TypeOf
   | .owner receipt => .own receipt.1
   | .aggregate type _ => type
   | .fixed element length _ => .fixedList element length
-  | .dynamic type _ _ _ => type
+  | .dynamic type _ _ => type
   | .sum type _ _ _ => type
+
+mutual
+/-- The canonical value described by the active compiled fields. This erases
+nominal owner identities for comparison with the ABI; it confers no authority. -/
+def Field.value : Field → Val
+  | .data _ payload => payload.val
+  | .endpoint .stream _ id => .stream id
+  | .endpoint .future _ id => .future id
+  | .context id => .errorContext id
+  | .owner receipt => .own receipt.2.representation
+  | .aggregate _ fields => .record (Field.values fields)
+  | .fixed _ _ entries | .dynamic _ _ entries => .list (Field.values entries)
+  | .sum _ _ tag field => .variant tag (Field.armValue field)
+termination_by structural field => field
+
+def Field.values : List Field → List Val
+  | [] => []
+  | field :: rest => field.value :: Field.values rest
+termination_by structural fields => fields
+
+def Field.armValue : Option Field → Option Val
+  | none => none
+  | some field => some field.value
+termination_by structural field => field
+end
+
+mutual
+/-- Authority observations in the order in which the compiled fields transfer them.
+Only the selected variant arm contributes, and shared contexts are not spent. -/
+def Field.objects : Field → List Object
+  | .data _ _ => []
+  | .endpoint channel element id => [.shared (.endpoint channel element id)]
+  | .context id => [.shared (.errorContext id)]
+  | .owner receipt => [.owner receipt]
+  | .aggregate _ fields | .fixed _ _ fields | .dynamic _ _ fields => Field.listObjects fields
+  | .sum _ _ _ field => Field.armObjects field
+termination_by structural field => field
+
+def Field.listObjects : List Field → List Object
+  | [] => []
+  | field :: rest => field.objects ++ Field.listObjects rest
+termination_by structural fields => fields
+
+def Field.armObjects : Option Field → List Object
+  | none => []
+  | some field => field.objects
+termination_by structural field => field
+end
 
 namespace Internal
 
@@ -93,115 +145,145 @@ def compileItems (compile : Nat → Val → Compile (Field × List Object))
   let items ← values.zipIdx.mapM (fun (value, index) => compile index value)
   return (items.map Prod.fst, items.flatMap Prod.snd)
 
+namespace Internal
+
+def compileEntries (compile : Nat → Val → Compile Field) (values : List Val) : Compile (List Field) :=
+  values.zipIdx.mapM (fun (value, index) => compile index value)
+
+def compileLeaf (index : Nat) (type : TypeOf) (value : Val) : Compile Field := do
+  let payload ← liftM ((checkValue type value).mapError (Issue.preflight ∘ Lower.Issue.schema))
+  match type, payload with
+  | .future element, ⟨.future id, _⟩ => return .endpoint .future element id
+  | .stream element, ⟨.stream id, _⟩ => return .endpoint .stream element id
+  | .errorContext, ⟨.errorContext id, _⟩ => return .context id
+  | type, payload =>
+    match Stored.Lower.checkSchema type with
+    | .ok () => return .data type payload
+    | .error _ => throw (.unsupportedField index)
+
 mutual
 def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
-    (index : Nat) : (type : TypeOf) → Val → Compile (Field × List Object)
+    (index : Nat) : (type : TypeOf) → Val → Compile Field
   | .record types, value => do
     let .record values := value | throw (.preflight .decodedType)
-    let (fields, plan) ← (compileFields cx output 0 types values).mapIssue (.nested index)
-    return (.aggregate (.record types) fields, plan)
+    let fields ← (compileFields cx output 0 types values).mapIssue (.nested index)
+    return .aggregate (.record types) fields
   | .tuple types, value => do
     let .record values := value | throw (.preflight .decodedType)
-    let (fields, plan) ← (compileTypes cx output 0 types values).mapIssue (.nested index)
-    return (.aggregate (.tuple types) fields, plan)
+    let fields ← (compileTypes cx output 0 types values).mapIssue (.nested index)
+    return .aggregate (.tuple types) fields
   | .fixedList type length, value => do
     if !Internal.supportedField type then throw (.unsupportedField index)
     let .list values := value | throw (.preflight .decodedType)
     if values.length != length then throw (.preflight .decodedType)
-    let (entries, plan) ← (compileItems (fun pos => compileField cx output pos type) values).mapIssue (.nested index)
-    return (.fixed type length entries, plan)
+    let entries ← (compileEntries (fun pos => compileField cx output pos type) values).mapIssue (.nested index)
+    return .fixed type length entries
   | .list type, value => do
     if !Internal.supportedField type then throw (.unsupportedField index)
     let .list values := value | throw (.preflight .decodedType)
-    let (entries, plan) ← (compileItems (fun pos => compileField cx output pos type) values).mapIssue (.nested index)
-    return (.dynamic (.list type) type entries plan, plan)
+    let entries ← (compileEntries (fun pos => compileField cx output pos type) values).mapIssue (.nested index)
+    return .dynamic (.list type) type entries
   | .map key type, value => do
     if !Internal.supportedField type then throw (.unsupportedField index)
     let .list values := value | throw (.preflight .decodedType)
     let keyType : TypeOf := .prim key.toPrimitive
     let entryType : TypeOf := .record (mapEntryFields key type)
-    let (entries, plan) ← (compileItems (fun pos entry => do
+    let entries ← (compileEntries (fun pos entry => do
       let .record [keyValue, payload] := entry | throw (.nested pos (.preflight .decodedType))
       let key ← liftM ((checkValue keyType keyValue).mapError
         (Issue.nested pos ∘ Issue.preflight ∘ Lower.Issue.schema))
-      let (field, plan) ← (compileField cx output 1 type payload).mapIssue (.nested pos)
-      return (.aggregate entryType [.data keyType key, field], plan)) values).mapIssue (.nested index)
-    return (.dynamic (.map key type) entryType entries plan, plan)
+      let field ← (compileField cx output 1 type payload).mapIssue (.nested pos)
+      return .aggregate entryType [.data keyType key, field]) values).mapIssue (.nested index)
+    return .dynamic (.map key type) entryType entries
   | .option type, value => do
     if !Internal.supportedField type then throw (.unsupportedField index)
     match value with
-    | .variant 0 none => return (.sum (.option type) [none, some type] 0 none, [])
+    | .variant 0 none => return .sum (.option type) [none, some type] 0 none
     | .variant 1 (some value) => do
-      let (field, plan) ← (compileField cx output 0 type value).mapIssue (.nested index)
-      return (.sum (.option type) [none, some type] 1 (some field), plan)
+      let field ← (compileField cx output 0 type value).mapIssue (.nested index)
+      return .sum (.option type) [none, some type] 1 (some field)
     | _ => throw (.preflight .decodedType)
   | .variant cases, value => do
     if !Internal.supportedCases cases then throw (.unsupportedField index)
     let .variant tag payload := value | throw (.preflight .decodedType)
-    let (field, plan) ← (compileCases cx output cases tag payload).mapIssue (.nested index)
-    return (.sum (.variant cases) (cases.map Prod.snd) tag field, plan)
+    let field ← (compileCases cx output cases tag payload).mapIssue (.nested index)
+    return .sum (.variant cases) (cases.map Prod.snd) tag field
   | .result ok error, value => do
     if !(Internal.supportedCase ok && Internal.supportedCase error) then throw (.unsupportedField index)
-    let (tag, field, plan) ← match value with
-      | .variant 0 payload => do
-        let (field, plan) ← (compileCase cx output ok payload).mapIssue (.nested index)
-        pure (0, field, plan)
-      | .variant 1 payload => do
-        let (field, plan) ← (compileCase cx output error payload).mapIssue (.nested index)
-        pure (1, field, plan)
-      | _ => throw (.preflight .decodedType)
-    return (.sum (.result ok error) [ok, error] tag field, plan)
+    match value with
+    | .variant 0 payload => do
+      let field ← (compileCase cx output ok payload).mapIssue (.nested index)
+      return .sum (.result ok error) [ok, error] 0 field
+    | .variant 1 payload => do
+      let field ← (compileCase cx output error payload).mapIssue (.nested index)
+      return .sum (.result ok error) [ok, error] 1 field
+    | _ => throw (.preflight .decodedType)
   | .own resource, .own representation => do
     let receipt :: rest ← get | throw (.nested index .ownerReceipt)
     if receipt.1 != resource || receipt.2.representation != representation then
       throw (.nested index .ownerReceipt)
     set rest
-    return (.owner receipt, [.owner receipt])
-  | type, value => do
-    let payload ← liftM ((checkValue type value).mapError (Issue.preflight ∘ Lower.Issue.schema))
-    match type, payload with
-    | .future element, ⟨.future id, _⟩ =>
-      return (.endpoint .future element id, [.shared (.endpoint .future element id)])
-    | .stream element, ⟨.stream id, _⟩ =>
-      return (.endpoint .stream element id, [.shared (.endpoint .stream element id)])
-    | .errorContext, ⟨.errorContext id, _⟩ => return (.context id, [.shared (.errorContext id)])
-    | type, payload =>
-      match Stored.Lower.checkSchema type with
-      | .ok () => return (.data type payload, [])
-      | .error _ => throw (.unsupportedField index)
+    return .owner receipt
+  | type, value => compileLeaf index type value
 
 def compileFields {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
-    (index : Nat) : List (String × TypeOf) → List Val → Compile (List Field × List Object)
-  | [], [] => pure ([], [])
+    (index : Nat) : List (String × TypeOf) → List Val → Compile (List Field)
+  | [], [] => pure []
   | (_, type) :: types, value :: values => do
-    let (field, objects) ← compileField cx output index type value
-    let (fields, rest) ← compileFields cx output (index + 1) types values
-    return (field :: fields, objects ++ rest)
+    let field ← compileField cx output index type value
+    let fields ← compileFields cx output (index + 1) types values
+    return field :: fields
   | _, _ => throw (.preflight .decodedType)
 
 def compileTypes {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
-    (index : Nat) : List TypeOf → List Val → Compile (List Field × List Object)
-  | [], [] => pure ([], [])
+    (index : Nat) : List TypeOf → List Val → Compile (List Field)
+  | [], [] => pure []
   | type :: types, value :: values => do
-    let (field, objects) ← compileField cx output index type value
-    let (fields, rest) ← compileTypes cx output (index + 1) types values
-    return (field :: fields, objects ++ rest)
+    let field ← compileField cx output index type value
+    let fields ← compileTypes cx output (index + 1) types values
+    return field :: fields
   | _, _ => throw (.preflight .decodedType)
 
 def compileCases {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output) :
-    List (String × Option TypeOf) → Nat → Option Val → Compile (Option Field × List Object)
+    List (String × Option TypeOf) → Nat → Option Val → Compile (Option Field)
   | [], _, _ => throw (.preflight .decodedType)
   | (_, type) :: _, 0, payload => compileCase cx output type payload
   | _ :: rest, tag + 1, payload => compileCases cx output rest tag payload
 
 def compileCase {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output) :
-    Option TypeOf → Option Val → Compile (Option Field × List Object)
-  | none, none => pure (none, [])
+    Option TypeOf → Option Val → Compile (Option Field)
+  | none, none => pure none
   | some type, some payload => do
-    let (field, plan) ← compileField cx output 0 type payload
-    return (some field, plan)
+    let field ← compileField cx output 0 type payload
+    return some field
   | _, _ => throw (.preflight .decodedType)
 end
+
+end Internal
+
+def Compile.withPlan {Shape : Type} (compile : Compile Shape) (objects : Shape → List Object) :
+    Compile (Shape × List Object) :=
+  fun receipts => (compile.run receipts).map fun (shape, rest) => ((shape, objects shape), rest)
+
+def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
+    (index : Nat) (type : TypeOf) (value : Val) : Compile (Field × List Object) :=
+  (Internal.compileField cx output index type value).withPlan Field.objects
+
+def compileFields {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
+    (index : Nat) (types : List (String × TypeOf)) (values : List Val) : Compile (List Field × List Object) :=
+  (Internal.compileFields cx output index types values).withPlan Field.listObjects
+
+def compileTypes {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
+    (index : Nat) (types : List TypeOf) (values : List Val) : Compile (List Field × List Object) :=
+  (Internal.compileTypes cx output index types values).withPlan Field.listObjects
+
+def compileCase {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
+    (type : Option TypeOf) (value : Option Val) : Compile (Option Field × List Object) :=
+  (Internal.compileCase cx output type value).withPlan Field.armObjects
+
+def compileCases {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
+    (types : List (String × Option TypeOf)) (tag : Nat) (value : Option Val) : Compile (Option Field × List Object) :=
+  (Internal.compileCases cx output types tag value).withPlan Field.armObjects
 
 def compileRecord {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf) (value : Val)
     (receipts : List OwnedMemory.Receipt) (output : Stored.Lower.Output) :
@@ -276,7 +358,8 @@ def runField {E : CoreEngine} {World : Type} (limits : Component.Limits) (quirks
     | .memory ptr => do
       return (← runElements limits quirks cx authority width entries (layout width element).size ptr 0).mapError
         (.nested index)
-  | .dynamic _ element entries plan => do
+  | .dynamic _ element entries => do
+    let plan := Field.listObjects entries
     match ← authority.prepare plan with
     | .error (.preflight issue) => return .error (.field index (.beforeAllocation issue))
     | .error issue => return .error (.nested index issue)
@@ -385,12 +468,12 @@ def endpointAuthority {E : CoreEngine} {sig : Signature} (limits : Component.Lim
 
 def lowerWithPlan {E : CoreEngine} {World Shape Result : Type} (quirks : Quirks)
     (cx : LiftLowerContext E) (authority : Authority E World) (type : TypeOf) (value : Val)
-    (compiled : Except Issue (Shape × List Object))
+    (compiled : Except Issue (Shape × List Object)) (objects : Shape → List Object)
     (emit : AddrType → Shape → P E World (Except Issue Result)) : P E World (Except Issue Result) :=
   match compiled with
   | .error issue => pure (.error issue)
-  | .ok (shape, plan) => do
-    match ← authority.prepare plan with
+  | .ok (shape, _) => do
+    match ← authority.prepare (objects shape) with
     | .error issue => return .error issue
     | .ok () =>
       let width ← ptrType cx
@@ -402,7 +485,7 @@ def lowerCompiled {E : CoreEngine} {World : Type} (limits : Component.Limits) (q
     (cx : LiftLowerContext E) (authority : Authority E World) (type : TypeOf) (value : Val)
     (output : Stored.Lower.Output) (compiled : Except Issue (List Field × List Object)) :
     P E World (Except Issue output.Result) :=
-  lowerWithPlan quirks cx authority type value compiled fun width fields =>
+  lowerWithPlan quirks cx authority type value compiled Field.listObjects fun width fields =>
     emitRecord limits quirks cx authority width type fields output
 
 end Internal

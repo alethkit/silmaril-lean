@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Validation.Intrinsic.Defs
+import Silmaril.Wasm.ModuleParts.Thms
 
 @[expose] public section
 
@@ -183,8 +184,7 @@ theorem lift_module {raw interface} (typed : ModuleOk raw interface) :
   | mk types imports baseCtx ctx tags globals mems tables funcs data elems start exports disjoint =>
     obtain ⟨bodies, erased⟩ := lift_functions funcs
     refine ⟨{
-      metadata := { raw with funcs := [] }
-      noRawFunctions := rfl
+      sections := raw.sections
       definedTypes := _
       definedTags := _
       definedGlobals := _
@@ -209,5 +209,6 @@ theorem lift_module {raw interface} (typed : ModuleOk raw interface) :
       exportsDisjoint := disjoint }, ?_⟩
     dsimp [Validation.Intrinsic.Module.erase]
     rw [erased]
+    exact raw.assemble_sections
 
 end Silmaril.Proofs.Wasm.Validation.Intrinsic
