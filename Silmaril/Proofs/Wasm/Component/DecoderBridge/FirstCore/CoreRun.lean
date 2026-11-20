@@ -187,22 +187,24 @@ theorem lrun_runC {th : Option ThreadId}
       runC (stepI o) n s t = (s', t', st) → ∀ (M : Machine.Config (core3 o) σ),
       M.ctl = ⟨th, .core t k, segs⟩ :: rest → M.store.core = s → M.store.lockdown = false →
       ∃ tr, LRun prof hr dispatch M tr
-        { M with store := { M.store with core := s' }, ctl := ⟨th, .core t' k, segs⟩ :: rest }
+        { M with store := { M.store with core := s' }, ctl := ⟨th, .core t' k, segs⟩ :: rest } ∧
+        traceObs tr = []
   | 0, s, s', t, t', st, h, M, hc, hcore, _ => by
     simp only [runC, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl, -⟩ := h
-    refine ⟨[], ?_⟩
+    refine ⟨[], ?_, rfl⟩
     obtain ⟨S, h₀, conts, ctl, pending, results, cancels⟩ := M
     dsimp only at hc hcore ⊢
     subst hc hcore
     exact .refl _
   | n + 1, s, s', t, t', st, h, M, hc, hcore, hl => by
     have stop : (s, t) = (s', t') → ∃ tr, LRun prof hr dispatch M tr
-        { M with store := { M.store with core := s' }, ctl := ⟨th, .core t' k, segs⟩ :: rest } := by
+        { M with store := { M.store with core := s' }, ctl := ⟨th, .core t' k, segs⟩ :: rest } ∧
+        traceObs tr = [] := by
       intro e
       simp only [Prod.mk.injEq] at e
       obtain ⟨rfl, rfl⟩ := e
-      refine ⟨[], ?_⟩
+      refine ⟨[], ?_, rfl⟩
       obtain ⟨S, h₀, conts, ctl, pending, results, cancels⟩ := M
       dsimp only at hc hcore ⊢
       subst hc hcore
@@ -224,10 +226,11 @@ theorem lrun_runC {th : Option ThreadId}
           rw [hcore]; exact status_core3_running hs
         have hi' : internalC (stepI o) (M.store.core, t) = some (s₁, t₁) := by rw [hcore]; exact hin
         have u := uniqueStep_core (prof := prof) (hr := hr) (dispatch := dispatch) hc hst hi'
-        obtain ⟨tr, r⟩ := lrun_runC n h
+        obtain ⟨tr, r, hob⟩ := lrun_runC n h
           { M with store := { M.store with core := s₁ }, ctl := ⟨th, .core t₁ k, segs⟩ :: rest }
           rfl rfl hl
-        exact ⟨_, .cons ⟨by rw [hc]; exact List.cons_ne_nil _ _, hl⟩ u r⟩
+        exact ⟨_, .cons ⟨by rw [hc]; exact List.cons_ne_nil _ _, hl⟩ u r, by
+          simpa [traceObs, Label.obs?] using hob⟩
     | returned r =>
       rw [hs] at h
       simp only [Prod.mk.injEq] at h
@@ -253,7 +256,7 @@ theorem lrun_coreTrap {th : Option ThreadId}
     (hl : M.store.lockdown = false) :
     ∃ tr mT, LRun prof hr dispatch M tr mT ∧ Live mT ∧
       UniqueStep prof hr dispatch mT (.trap .coreTrap) (trapCfg mT) := by
-  obtain ⟨tr, r⟩ := lrun_runC n h M hc hcore hl
+  obtain ⟨tr, r, -⟩ := lrun_runC n h M hc hcore hl
   have hst : (core3 o).status s' t' = .returned .trap := status_core3_trap hs'
   refine ⟨tr, _, r, ⟨List.cons_ne_nil _ _, hl⟩, UniqueStep.of_core rfl ?_ (.coreTrap rfl hst)⟩
   show (core3 o).status s' t' ≠ _ ∧ (core3 o).status s' t' ≠ _

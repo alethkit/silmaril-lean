@@ -211,8 +211,8 @@ theorem root_firstK {r pre post : Core3Component} {mi : Nat} {cargs : List (Stri
           ctl := [⟨none, .prog (pure (Ret.unit : Ret (core3 neverFail))), []⟩] } .tau
         { M with store := DispatchSt.decNestingSt M.store, ctl := [] } :=
       .of_prog rfl (fun _ _ e => by cases e) (.hostDone (r := .unit) (rest := []) rfl)
-    refine ⟨_, _, (d.trans (.cons ⟨List.cons_ne_nil _ _, hl⟩ s (.refl _))).steps, ?_, rfl, hl,
-      rfl, rfl, ?_⟩
+    refine ⟨_, _, d.trans (.cons ⟨List.cons_ne_nil _ _, hl⟩ s (.refl _)), ?_, rfl, hl,
+      rfl, rfl, ?_, rfl⟩
     · intro ev hev
       simp at hev
     · simp only [traceObs, List.filterMap_append, List.filterMap_cons, Label.obs?,

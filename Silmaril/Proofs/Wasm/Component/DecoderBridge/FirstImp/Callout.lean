@@ -70,7 +70,8 @@ theorem runs_lowerOnStartX {th : Option ThreadId} {m : Machine.Config E σ} {c :
     (hmax : (ValTy.flatList p.params).length ≤ 16) (hws : liftArgs p.params ys = some ws)
     (hps : ft.params.map (·.2) = toClosedList p.params) :
     ∃ pos tr, RunsQ d th (lowerOnStart Limits.spec Quirks.none c) m tr (ws.map toRefVal)
-      { m with store := LowerSt.setCallerPosSt c pos (LowerSt.startSt S m.store) } := by
+      { m with store := LowerSt.setCallerPosSt c pos (LowerSt.startSt S m.store) } ∧
+      traceObs tr = [] := by
   have hl : ∃ cur, liftFlatTypes (σ := σ) (E := E) Limits.spec Quirks.none cx
       (ptrTypeIn (LowerSt.startSt S m.store) cx) (toClosedList p.params) ⟨ys, 0⟩ =
         pure (ws.map toRefVal, cur) := by
@@ -88,14 +89,16 @@ theorem runs_lowerOnStartX {th : Option ThreadId} {m : Machine.Config E σ} {c :
     exact RunsQ.pure _ _
   refine ⟨cur.pos, ?_⟩
   apply Exists.intro
-  apply RunsQ.getObj_bind _ _ hc
-  apply RunsQ.bind hmp
-  apply RunsQ.modify_bind _ rfl rfl
-  show RunsQ _ _ (liftFlatValues Limits.spec Quirks.none cx 16 ⟨ys, 0⟩
-    (ft.params.map (·.2)) >>= _) _ _ _ _
-  rw [liftFlatValues_witFtX hmax hps]
-  apply RunsQ.bind (RunsQ.bind (RunsQ.get (RunsQ.pure _ _)) hlf)
-  exact RunsQ.modify_bind _ rfl rfl (RunsQ.pure _ _)
+  refine ⟨?_, ?_⟩
+  · apply RunsQ.getObj_bind _ _ hc
+    apply RunsQ.bind hmp
+    apply RunsQ.modify_bind _ rfl rfl
+    show RunsQ _ _ (liftFlatValues Limits.spec Quirks.none cx 16 ⟨ys, 0⟩
+      (ft.params.map (·.2)) >>= _) _ _ _ _
+    rw [liftFlatValues_witFtX hmax hps]
+    apply RunsQ.bind (RunsQ.bind (RunsQ.get (RunsQ.pure _ _)) hlf)
+    exact RunsQ.modify_bind _ rfl rfl (RunsQ.pure _ _)
+  · simp [traceObs, Label.obs?]
 
 omit [∀ a b, Decidable (E.ExternSub a b)] in
 /-- `on_resolve` of a `canon_lower` caller record lowers the results and resolves the
@@ -109,7 +112,8 @@ theorem runs_lowerOnResolveX {th : Option ThreadId} {m : Machine.Config E σ} {c
     (hus : ValTy.checkList p.results us = true) (hmax : (ValTy.flatList p.results).length ≤ 1)
     (hrs : ft.result.toList = toClosedList p.results) :
     ∃ tr, RunsQ d th (lowerOnResolve Limits.spec Quirks.none c (some (us.map toRefVal))) m tr ()
-      { m with store := CStore.subtaskResolveSt S .returned (lowerArgs p.results us) m.store } := by
+      { m with store := CStore.subtaskResolveSt S .returned (lowerArgs p.results us) m.store } ∧
+      traceObs tr = [] := by
   have hmp : RunsQ d th (maybeOnProgress S) m [.tau] () m :=
     RunsQ.getObj_bind _ _ hS (by rw [hidx]; exact RunsQ.pure _ _)
   have e : lowerFlatValues Limits.spec Quirks.none cx 1 (us.map toRefVal) ft.result.toList
@@ -118,14 +122,16 @@ theorem runs_lowerOnResolveX {th : Option ThreadId} {m : Machine.Config E σ} {c
     rw [hrs]
     exact lowerFlatValues_toClosed Limits.spec Quirks.none cx hff hus hmax _
   apply Exists.intro
-  apply RunsQ.getObj_bind _ _ hc
-  apply RunsQ.bind hmp
-  show RunsQ _ _ (lowerFlatValues Limits.spec Quirks.none cx 1 (us.map toRefVal)
-    ft.result.toList (some ⟨ys, pos⟩) >>= _) _ _ _ _
-  rw [e]
-  apply RunsQ.bind (RunsQ.bind (RunsQ.get (RunsQ.pure _ _)) (RunsQ.pure _ _))
-  apply RunsQ.bind (RunsQ.pure _ _)
-  exact RunsQ.modify rfl (RunsQ.pure _ _)
+  refine ⟨?_, ?_⟩
+  · apply RunsQ.getObj_bind _ _ hc
+    apply RunsQ.bind hmp
+    show RunsQ _ _ (lowerFlatValues Limits.spec Quirks.none cx 1 (us.map toRefVal)
+      ft.result.toList (some ⟨ys, pos⟩) >>= _) _ _ _ _
+    rw [e]
+    apply RunsQ.bind (RunsQ.bind (RunsQ.get (RunsQ.pure _ _)) (RunsQ.pure _ _))
+    apply RunsQ.bind (RunsQ.pure _ _)
+    exact RunsQ.modify rfl (RunsQ.pure _ _)
+  · simp [traceObs, Label.obs?]
 
 
 /-- The `canon_lower` caller record of a callout with flat arguments `ys` to a function of type
@@ -198,8 +204,8 @@ theorem runs_answerX {th : Option ThreadId} {m : Machine.Config E σ} {f : FuncI
     (hps : ft.params.map (·.2) = toClosedList p.params) (hrs : ft.result.toList = toClosedList p.results) :
     ∃ pos tr, RunsQ (DG (answerImplS g)) th (DG (answerImplS g) (.funcInst f c)) m tr (.cancel .none)
       { m with host := s', store := (CStore.subtaskResolveSt S .returned (lowerArgs p.results us)
-        (LowerSt.setCallerPosSt c pos (LowerSt.startSt S m.store))) } := by
-  obtain ⟨pos, tr₁, h₁⟩ := runs_lowerOnStartX (d := DG (answerImplS g)) (th := th) hc hS hidx hpf hys hmaxp hws hps
+        (LowerSt.setCallerPosSt c pos (LowerSt.startSt S m.store))) } ∧ traceObs tr = [] := by
+  obtain ⟨pos, tr₁, h₁, hob₁⟩ := runs_lowerOnStartX (d := DG (answerImplS g)) (th := th) hc hS hidx hpf hys hmaxp hws hps
   have hc' : ArenaField.callers.get? (LowerSt.setCallerPosSt c pos (LowerSt.startSt S m.store)) c =
       some (.lower S cx ys pos ft 16 1) := by
     simp [LowerSt.setCallerPosSt, LowerSt.startSt, ArenaField.get?_modify, hc,
@@ -207,7 +213,7 @@ theorem runs_answerX {th : Option ThreadId} {m : Machine.Config E σ} {f : FuncI
   have hS' : ArenaField.subtasks.get? (LowerSt.setCallerPosSt c pos (LowerSt.startSt S m.store)) S =
       some { xS with state := .started } := by
     simp [LowerSt.setCallerPosSt, LowerSt.startSt, ArenaField.get?_modify, hS]
-  obtain ⟨tr₂, h₂⟩ := runs_lowerOnResolveX (d := DG (answerImplS g)) (th := th)
+  obtain ⟨tr₂, h₂, hob₂⟩ := runs_lowerOnResolveX (d := DG (answerImplS g)) (th := th)
     (m := { m with host := s', store := LowerSt.setCallerPosSt c pos (LowerSt.startSt S m.store) })
     hc' hS' hidx hres hrf hus hmaxr hrs
   have h₃ : RunsQ (DG (answerImplS g)) th (DG (answerImplS g) (.onResolve c (some (us.map toRefVal))))
@@ -218,15 +224,19 @@ theorem runs_answerX {th : Option ThreadId} {m : Machine.Config E σ} {f : FuncI
     RunsQ.getObj_bind _ _ hc' (RunsQ.bind h₂ (RunsQ.pure _ _))
   refine ⟨pos, ?_⟩
   apply Exists.intro
-  apply RunsQ.getObj_bind _ _ hf
-  apply RunsQ.call_bind (runs_onStartLowerX hc (fun _ _ _ _ _ _ _ _ => h₁) ⟨_, _, _, _, _, _, _, rfl⟩)
-  apply RunsQ.hostGet
-  show RunsQ _ _ (match g m.host fn (ws.map toRefVal) with
-    | some (rs, s') => _
-    | none => trap (TrapReason.hostTrap "answerImpl: no answer")) _ _ _ _
-  rw [hg]
-  exact RunsQ.hostSet (RunsQ.bind (RunsQ.pure _ _)
-    (RunsQ.bind (RunsQ.call_bind h₃ (RunsQ.pure _ _)) (RunsQ.pure _ _)))
+  refine ⟨?_, ?_⟩
+  · apply RunsQ.getObj_bind _ _ hf
+    apply RunsQ.call_bind (runs_onStartLowerX hc (fun _ _ _ _ _ _ _ _ => h₁) ⟨_, _, _, _, _, _, _, rfl⟩)
+    apply RunsQ.hostGet
+    show RunsQ _ _ (match g m.host fn (ws.map toRefVal) with
+      | some (rs, s') => _
+      | none => trap (TrapReason.hostTrap "answerImpl: no answer")) _ _ _ _
+    rw [hg]
+    exact RunsQ.hostSet (RunsQ.bind (RunsQ.pure _ _)
+      (RunsQ.bind (RunsQ.call_bind h₃ (RunsQ.pure _ _)) (RunsQ.pure _ _)))
+  · simp only [traceObs] at hob₁ hob₂ ⊢
+    simp only [List.filterMap_append, List.filterMap_cons, List.filterMap_nil, Label.obs?, hob₁,
+      hob₂, List.nil_append, List.append_nil]
 
 omit [∀ a b, Decidable (E.ExternSub a b)] in
 /-- The end of a synchronous `canonLower` whose subtask has resolved: the resolution is
@@ -287,8 +297,9 @@ theorem runs_canonLowerX {th : Option ThreadId} {m : Machine.Config E σ} {f : F
     (hps : ft.params.map (·.2) = toClosedList p.params) (hrs : ft.result.toList = toClosedList p.results) :
     ∃ pos tr, RunsQ (DG (answerImplS g)) th (canonLower Limits.spec Quirks.none f ft {} inst ys) m tr
       (lowerArgs p.results us)
-      { m with host := s', store := calloutStX m.store inst ys ft pos (lowerArgs p.results us) } := by
-  obtain ⟨pos, tr₁, h₁⟩ := runs_answerX (g := g) (th := th)
+      { m with host := s', store := calloutStX m.store inst ys ft pos (lowerArgs p.results us) } ∧
+      traceObs tr = [] := by
+  obtain ⟨pos, tr₁, h₁, hob₁⟩ := runs_answerX (g := g) (th := th)
     (m := { m with store := allocSCX m.store inst ys ft }) hf (allocSC_callersX _ _ _ _)
     (allocSC_subtasksX _ _ _ _) rfl hpf hys hmaxp hws hg hres hrf hus hmaxr hps hrs
   have ht := runs_lowerTailX (d := DG (answerImplS g)) (th := th) (m := { m with host := s', store :=
@@ -299,14 +310,18 @@ theorem runs_canonLowerX {th : Option ThreadId} {m : Machine.Config E σ} {f : F
     (subtasks_resolvedX _ _ _ _ _ _) rfl rfl
   refine ⟨pos, ?_⟩
   apply Exists.intro
-  apply RunsQ.getObj_bind _ _ hi
-  rw [hleave]
-  apply RunsQ.bind (RunsQ.pure _ _)
-  apply RunsQ.bind (runsQ_allocObjX _ _ rfl)
-  apply RunsQ.bind (runsQ_allocObjX _ _ rfl)
-  apply RunsQ.call_bind h₁
-  apply RunsQ.modify rfl
-  exact ht
+  refine ⟨?_, ?_⟩
+  · apply RunsQ.getObj_bind _ _ hi
+    rw [hleave]
+    apply RunsQ.bind (RunsQ.pure _ _)
+    apply RunsQ.bind (runsQ_allocObjX _ _ rfl)
+    apply RunsQ.bind (runsQ_allocObjX _ _ rfl)
+    apply RunsQ.call_bind h₁
+    apply RunsQ.modify rfl
+    exact ht
+  · simp only [traceObs] at hob₁ ⊢
+    simp only [List.filterMap_append, List.filterMap_cons, List.filterMap_nil, Label.obs?, hob₁,
+      List.nil_append, List.append_nil]
 
 /-- The prefix of the callout program: the entry check passes. -/
 theorem runs_hostCallout_ofX {th : Option ThreadId} {m m' : Machine.Config E σ}
@@ -338,10 +353,13 @@ theorem runs_calloutX {th : Option ThreadId} {m : Machine.Config E σ} {f : Func
     (hps : ft.params.map (·.2) = toClosedList p.params) (hrs : ft.result.toList = toClosedList p.results) :
     ∃ pos tr, RunsQ (DG (answerImplS g)) th (DG (answerImplS g) (.hostCallout (.lowered f ft {} inst) ys)) m tr
       (.flat (lowerArgs p.results us))
-      { m with host := s', store := calloutStX m.store inst ys ft pos (lowerArgs p.results us) } := by
-  obtain ⟨pos, tr, h⟩ := runs_canonLowerX (g := g) (th := th) hi hleave hf hpf hys hmaxp hws hg hres
+      { m with host := s', store := calloutStX m.store inst ys ft pos (lowerArgs p.results us) } ∧
+      traceObs tr = [] := by
+  obtain ⟨pos, tr, h, hob⟩ := runs_canonLowerX (g := g) (th := th) hi hleave hf hpf hys hmaxp hws hg hres
     hrf hus hmaxr hps hrs
-  exact ⟨pos, _, runs_hostCallout_ofX hentry h⟩
+  exact ⟨pos, _, runs_hostCallout_ofX hentry h, by
+    simp only [traceObs] at hob ⊢
+    simp only [List.filterMap_cons, Label.obs?, hob, List.append_nil]⟩
 
 omit [∀ a b, Decidable (E.ExternSub a b)] in
 /-- **The store after a callout** has one more subtask and one more caller record. -/
@@ -395,8 +413,9 @@ theorem hostCall_lrunX (hl : B.store.lockdown = false)
             subtasks := B.store.subtasks ++
               [{ resolvedSubX inst (lowerArgs p.results us) with lenders := none }]
             callers := B.store.callers ++ [lowerRecX ⟨B.store.subtasks.length⟩ inst ys ft pos] } }
-          th K segs rest (y.1, E.resume y.1 y.2 (.values (lowerArgs p.results us)))) := by
-  obtain ⟨pos, tr, h⟩ := runs_calloutX (g := g) (th := th) (m := coreCfg B th K segs rest y)
+          th K segs rest (y.1, E.resume y.1 y.2 (.values (lowerArgs p.results us)))) ∧
+        traceObs tr = [] := by
+  obtain ⟨pos, tr, h, hob⟩ := runs_calloutX (g := g) (th := th) (m := coreCfg B th K segs rest y)
     hentry hi hleave hf hpf hys hmaxp hws hg hres hrf hus hmaxr hps hrs
   have hl' : (coreCfg B th K segs rest y).store.lockdown = false := hl
   have d₁ := h.lrun (prof := prof) (hr := fun _ _ => false) hl' Prog.pure (.core y.2 K :: segs)
@@ -420,7 +439,10 @@ theorem hostCall_lrunX (hl : B.store.lockdown = false)
         rest } : Machine.Config E σ) :=
     ⟨List.cons_ne_nil _ _, hl⟩
   exact ⟨pos, _ ++ [.tau], .cons ⟨List.cons_ne_nil _ _, hl⟩ s₀ (d₁.trans (.cons hlive
-    (.of_prog rfl (fun _ _ e => by cases e) (Step.popCore rfl)) (.refl _)))⟩
+    (.of_prog rfl (fun _ _ e => by cases e) (Step.popCore rfl)) (.refl _))), by
+    simp only [traceObs] at hob ⊢
+    simp only [List.filterMap_append, List.filterMap_cons, List.filterMap_nil, Label.obs?, hob,
+      List.append_nil]⟩
 
 end Machine
 

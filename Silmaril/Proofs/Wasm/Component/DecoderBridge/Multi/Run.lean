@@ -81,7 +81,7 @@ theorem call_refX {B : Machine.Config (core3 neverFail) Σh} (hB : CallInv B th)
           (coreCfg B th K segs rest (Store.mapH gL s, tR)) tr
           (coreCfg B' th K segs rest
             (Store.mapH gL s₁, Silmaril.Wasm.SingleThreaded.resume s₁ t₁ (.values []))) ∧
-        CallInv B' th ∧ B'.host = (B.host.1, B.host.2 ++ [(⟨0⟩, [toRefVal (.u32 b)], [])]) ∧
+        traceObs tr = [] ∧ CallInv B' th ∧ B'.host = (B.host.1, B.host.2 ++ [(⟨0⟩, [toRefVal (.u32 b)], [])]) ∧
         Ext B B' ∧
         RT (Store.mapH gL s₁) (Silmaril.Wasm.SingleThreaded.resume s₁ t₁ (.values [])) := by
   obtain ⟨args', hst', hfl⟩ :=
@@ -89,7 +89,7 @@ theorem call_refX {B : Machine.Config (core3 neverFail) Σh} (hB : CallInv B th)
   have hs₁ : status neverFail s₁ t₁ = .callout h args' := (statusP_profile s₁ t₁).symm.trans hst'
   have hsm : status neverFail (Store.mapH gL s₁) t₁ = .callout lowH args' :=
     status_mapH_callout hs₁
-  obtain ⟨tR', tr₁, d₁, hth', hR', hC⟩ := run_ref (th := th) (K := K) (segs := segs)
+  obtain ⟨tR', tr₁, d₁, hob₁, hth', hR', hC⟩ := run_ref (th := th) (K := K) (segs := segs)
     (rest := rest) (prof := prof) hB.lock hrun hth hR (by rw [hsm]; nofun)
   have hsR : status neverFail (Store.mapH gL s₁) tR' = .callout lowH args' :=
     (status_congr hth').trans hsm
@@ -109,7 +109,7 @@ theorem call_refX {B : Machine.Config (core3 neverFail) Σh} (hB : CallInv B th)
       Silmaril.Wasm.SingleThreaded.resume s₁ t₁ (.values []) := by
     obtain ⟨x, hx⟩ := hdec
     rw [resume_congr hth' hx, resume_mapHG]
-  obtain ⟨pos, tr₂, d₂⟩ := hostCall_lrunX (prof := prof) (g := HLinked2.logG unitG)
+  obtain ⟨pos, tr₂, d₂, hob₂⟩ := hostCall_lrunX (prof := prof) (g := HLinked2.logG unitG)
     (B := B) (th := th) (K := K) (segs := segs) (rest := rest) (y := (Store.mapH gL s₁, tR'))
     (p := fTy) (ws := [.u32 b]) (us := []) hB.lock hE hB.entry hi hleave hB.func rfl rfl
     (by decide) rfl rfl (by decide) rfl rfl (by decide) fWit_params fWit_result
@@ -118,8 +118,10 @@ theorem call_refX {B : Machine.Config (core3 neverFail) Σh} (hB : CallInv B th)
   rw [eres'] at d₂
   have hrt := rt_resume hR' hsR
   rw [eres] at hrt
-  exact ⟨b, rfl, _, _, d₁.trans d₂, ⟨hB.lock, hB.entry, ⟨st, hi, hleave⟩, hB.func⟩, rfl,
+  refine ⟨b, rfl, _, _, d₁.trans d₂, ?_, ⟨hB.lock, hB.entry, ⟨st, hi, hleave⟩, hB.func⟩, rfl,
     ⟨_, _, _, rfl⟩, hrt⟩
+  simp only [traceObs] at hob₁ hob₂ ⊢
+  simp only [List.filterMap_append, List.filterMap_cons, Label.obs?, hob₁, hob₂, List.nil_append]
 
 /-- **`startRun_ref`, with the store it leaves and the typing of the final thread.** -/
 theorem startRun_refX {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = true) :
@@ -135,7 +137,7 @@ theorem startRun_refX {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = tru
         (tR' : STh),
         LRun prof (fun _ _ => false) (DG embL.host)
           (coreCfg B th K segs rest (Store.mapH gL c.1, tR)) tr
-          (coreCfg B' th K segs rest (Store.mapH gL c'.1, tR')) ∧
+          (coreCfg B' th K segs rest (Store.mapH gL c'.1, tR')) ∧ traceObs tr = [] ∧
         (core3 neverFail).status (Store.mapH gL c'.1) tR' = .returned r ∧ CallInv B' th ∧
         B'.host = (B.host.1, B.host.2 ++ coreLog ys) ∧ Ext B B' ∧
         RT (Store.mapH gL c'.1) tR' := by
@@ -150,7 +152,7 @@ theorem startRun_refX {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = tru
     obtain ⟨r', hr'⟩ := flatStatus_returned hend
     have hs' : status neverFail s' t' = .returned r' := (statusP_profile s' t').symm.trans hr'
     have hsm : status neverFail (Store.mapH gL s') t' = .returned r' := status_mapH_returned hs'
-    obtain ⟨tR', tr, d, hth', hR', hC⟩ := run_ref (th := th) (K := K) (segs := segs)
+    obtain ⟨tR', tr, d, hob, hth', hR', hC⟩ := run_ref (th := th) (K := K) (segs := segs)
       (rest := rest) (prof := prof) hB.lock run hth hR (by rw [hsm]; nofun)
     have e := statusE_flat neverFail (Store.mapH gL s') tR'
     rw [hC, hsm] at e
@@ -170,12 +172,12 @@ theorem startRun_refX {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = tru
       · simp only [flatStatus] at hend' ⊢
         cases hend'
         rfl
-    exact ⟨tr, B, tR', d, e.trans e3, hB, by simp [coreLog], Ext.refl B, hR'⟩
+    exact ⟨tr, B, tR', d, hob, e.trans e3, hB, by simp [coreLog], Ext.refl B, hR'⟩
   | @call s s₁ t t₁ h args c'' cs run callout hh r rest' ih =>
     intro hans r₀ hend B tR hB hth hR
     unfold Engine.CoreEngine.Steps at run
     rw [internalP_eq] at run
-    obtain ⟨b, rfl, tr₁, B₁, d₁, hB₁, hhost₁, hX₁, hR₁⟩ := call_refX (th := th) (K := K)
+    obtain ⟨b, rfl, tr₁, B₁, d₁, hob₁, hB₁, hhost₁, hX₁, hR₁⟩ := call_refX (th := th) (K := K)
       (segs := segs) (rest := rest) (prof := prof) hB run hth hR callout
     have hr : r = some (.flat []) := hans _ List.mem_cons_self
     subst hr
@@ -187,13 +189,15 @@ theorem startRun_refX {imps : CoreIface} (himps : imps.all (·.2 == fFlat) = tru
         Silmaril.Wasm.SingleThreaded.resume s₁ t₁ (.values []) := by
       rw [himp, resultOf_fFlat]
       rfl
-    obtain ⟨tr₂, B₂, tR₂, d₂, hst₂, hB₂, hhost₂, hX₂, hR₂⟩ :=
+    obtain ⟨tr₂, B₂, tR₂, d₂, hob₂, hst₂, hB₂, hhost₂, hX₂, hR₂⟩ :=
       ih (fun y hy => hans y (List.mem_cons_of_mem _ hy))
       hend (B := B₁) (tR := Silmaril.Wasm.SingleThreaded.resume s₁ t₁ (.values [])) hB₁
       (by rw [eres]) (by rw [eres]; exact hR₁)
-    refine ⟨tr₁ ++ tr₂, B₂, tR₂, d₁.trans ?_, hst₂, hB₂, ?_, hX₁.trans hX₂, hR₂⟩
+    refine ⟨tr₁ ++ tr₂, B₂, tR₂, d₁.trans ?_, ?_, hst₂, hB₂, ?_, hX₁.trans hX₂, hR₂⟩
     · rw [eres] at d₂
       exact d₂
+    · simp only [traceObs] at hob₁ hob₂ ⊢
+      simp only [List.filterMap_append, hob₁, hob₂, List.nil_append]
     · rw [hhost₂, hhost₁]
       simp [coreLog, coreEvent]
 

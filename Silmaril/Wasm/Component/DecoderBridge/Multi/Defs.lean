@@ -7,7 +7,8 @@ public import Silmaril.Wasm.Component.DecoderBridge.Sim.Defs
 /-!
 # Several core instantiations with lowered imports: the start goal, decomposed
 
-`Task.startAdequacy` (`Sem.Defs`) is open. This module states it on a decidable fragment of
+`Task.startAdequacy` (`Sem.Defs`) is false outside the root checks (`DecoderBridge.ParamName`); its
+corrected form `Task.startAdequacyChecked` is open. This module states it on a decidable fragment of
 binaries with several core instantiations (`MultiImpFrag`, which `starts.wasm` is in), and splits
 it into pieces, each a `Prop`; `Multi.Thms.startAdequacyFrag_of_nodes` derives the goal on the
 fragment from them, so the decomposition is checked.
@@ -22,6 +23,8 @@ fragment from them, so the decomposition is checked.
 * `lowWired`: **every** node the REF reading names (`refRead`) instantiates a module whose
   imports have core type `fFlat = (func (param i32))` (`irTypesOk`), each wired to the lowering
   of the component's import `0` (`lowImpl`);
+* `splitNodes`: every such node's module is in the split fragment (`splitMod`, below) and imports
+  only functions (the first node included; there is no shared memory or table);
 * `rootShape`: the definitions before the first core instantiation start with the type
   `func(x: u32)` and the import `f` of it, and import nothing else (the reference machine checks
   the root import against the host function `f: func(x: u32)` of `hostConfigX`, parameter names
@@ -34,7 +37,9 @@ fragment from them, so the decomposition is checked.
   primitive function types; aliases of core function exports (the core modules' export names
   distinct, so that an alias finds the export the IR wires); option-less `canon lift`s; and
   function exports;
-* the component's first export has type `func() -> u32` (`isGetTy`).
+* the component's first export has type `func() -> u32` (`isGetTy`), and the reading wires it as
+  the option-less `canon lift` at that type of a function of the environment, with no other adapter
+  (`liftsCall`: so not the lift of a `canon lower`ed import, nor an import re-exported).
 
 ## The reference machine at a definition
 
@@ -65,7 +70,9 @@ store is not locked down, and the host log is `L`.
   answers, through a session call that leaves the host state unchanged.
 
 The reference side of (b), (c) and (d) is stated at the first scheduling oracle (`first.prof`), as
-in `Task.startAdequacy`.
+in `Task.startAdequacy`. Every component of the fragment passes the root checks
+(`Multi.Thms.rootChecked_of_multiImpFrag`), so `Task.startAdequacyFrag` is an instance of
+`Task.startAdequacyChecked` (`Multi.Thms.startAdequacyFrag_of_checked`).
 
 **Status** (`Multi.Thms`): (a), (b) and (b)+(c) are proved (`nodeCallsIR`, `firstNodeRef`,
 `nodesRef`); (d) is open, and `startAdequacyFrag_of_d` derives `Task.startAdequacyFrag` from it.
@@ -102,9 +109,22 @@ def lowWired (R : RSt) : Bool :=
   R.nodes.all fun p =>
     irTypesOk p.1 && decide (p.1.imports.length ≤ p.2.length) && p.2.all isLowImpl
 
+/-- Every node the REF reading names instantiates a module in the split fragment (`splitMod`: no
+tags, memories, tables, data or element segments) that imports only functions. (For the nodes
+after the first, `postDefOk` checks this too; for the first node it is checked here.) -/
+def splitNodes (R : RSt) : Bool :=
+  R.nodes.all fun p =>
+    splitMod p.1 && p.1.imports.all (fun i => match i.type with | .func _ => true | _ => false)
+
 /-- The IR function type `func() -> u32`. -/
 def isGetTy : FuncTy → Bool
   | ⟨[], [.u32]⟩ => true
+  | _ => false
+
+/-- The wiring is `lift(func() -> u32)` of a call of an environment function, with no other
+adapter. -/
+def liftsCall : Impl → Bool
+  | ⟨[.lift ft], .call _⟩ => isGetTy ft
   | _ => false
 
 /-- The component function type `func(x: u32)`. -/
@@ -153,7 +173,8 @@ def postDefOk (n : Nat) (insts : List (List (String × Nat))) (mods : List Silma
 def multiImpFrag (r : RefComponent) : Bool :=
   firstImpFrag r && hostWired r &&
     (match refRead r with
-      | some R => lowWired R && (R.exports.head?.map fun e => isGetTy e.ty).getD false
+      | some R => lowWired R && (R.exports.head?.map fun e => isGetTy e.ty).getD false &&
+          splitNodes R && (R.exports.head?.map fun e => liftsCall e.impl).getD false
       | none => false) &&
     (match firstCore? r with
       | some (pre, _, _, post) =>
@@ -250,7 +271,7 @@ def Task.nodesRef : Prop :=
         (importArgs hostI) M' inst es ∧
       M'.host = ((), logOfCalls ts.flatten)
 
-/-- **`Task.startAdequacy` on the fragment `MultiImpFrag`.** -/
+/-- **`Task.startAdequacy` on the fragment `MultiImpFrag`** (where it is `Task.startAdequacyChecked`). -/
 def Task.startAdequacyFrag : Prop :=
   ∀ (b : ByteArray) (c : Comp Binary.CoreMod) (r : RefComponent)
     (t : List (Σ _ : sigU.Op, Option Payload)) (n : String) (ws : List Silmaril.Wasm.Component.Val),

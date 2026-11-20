@@ -18,6 +18,7 @@ const dir = path.join(root, "examples/component-tests");
 const CT = createRequire(import.meta.url)(path.join(here, "../../src/project/explore/views/component-tests.js"));
 const report = JSON.parse(fs.readFileSync(path.join(dir, "report.json"), "utf8"));
 const oracle = JSON.parse(fs.readFileSync(path.join(dir, "oracle.json"), "utf8"));
+const e = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const sha = (f) => createHash("sha256").update(fs.readFileSync(path.join(dir, f))).digest("hex");
 
 test("the report, the oracle and the committed binaries name the same bytes", () => {
@@ -30,9 +31,13 @@ test("the report, the oracle and the committed binaries name the same bytes", ()
   }
 });
 
-test("the decoder bridge regressions name their bytes and do not claim a disproof", () => {
+test("the decoder bridge regressions name their bytes; only a proved disproof claims one", () => {
   const regs = report.regressions || [];
-  assert.deepEqual(regs.map((g) => g.name), ["instexport"]);
+  assert.deepEqual(regs.map((g) => g.name), ["instexport", "paramname"]);
+  // instexport demonstrates a mismatch only; paramname carries the proved `not_startAdequacy`.
+  assert.equal(regs.find((g) => g.name === "instexport").disproof, undefined);
+  assert.equal(regs.find((g) => g.name === "paramname").disproof,
+    "Silmaril.Wasm.Component.DecoderBridge.not_startAdequacy");
   const h = CT.render(report, oracle, {});
   for (const g of regs) {
     assert.equal(g.sha256, sha(g.wasm), g.wasm);
@@ -41,9 +46,26 @@ test("the decoder bridge regressions name their bytes and do not claim a disproo
     assert.ok(!(g.name in oracle.binaries), g.name);
     assert.ok(h.includes(g.wasm) && h.includes(g.sha256), g.name);
     for (const f of g.facts) assert.ok(h.includes(f.theorem), f.theorem);
-    assert.ok(g.status.includes("not a disproof"), g.name);
+    if (g.disproof) {
+      // A claimed disproof names a theorem listed among the facts, shown on the page.
+      assert.ok(g.facts.some((f) => f.theorem === g.disproof), g.name);
+      assert.ok(h.includes(g.disproof), g.name);
+      assert.ok(g.status.includes("counterexample proved"), g.name);
+      // The cause is stated and shown, citing the specification and the tool evidence.
+      assert.ok(g.cause && h.includes("expected parameter named"), g.name);
+    } else {
+      assert.ok(g.status.includes("not a disproof"), g.name);
+    }
   }
   assert.ok(h.includes("Decoder bridge regressions"));
+  // Each mismatch states how it stands: parameter names are fixed on the named IR, exported
+  // instances are only restricted (the lowering still flattens them).
+  const pn = regs.find((g) => g.name === "paramname"), ie = regs.find((g) => g.name === "instexport");
+  assert.ok(pn.resolution.startsWith("fixed on the named IR"));
+  assert.ok(pn.facts.some((f) => f.theorem === "Silmaril.Wasm.Component.DecoderBridge.rootChecked_of_named"));
+  assert.ok(ie.resolution.startsWith("restricted, not fixed"));
+  assert.ok(ie.facts.some((f) => f.theorem === "Silmaril.Wasm.Component.DecoderBridge.exportNames_of_decode"));
+  for (const g of regs) assert.ok(h.includes(e(g.resolution)), g.name);
 });
 
 test("the oracle agrees with the expectations", () => {
@@ -82,7 +104,14 @@ test("the page shows binaries, imports, expectations, rows, strength, assumption
   const starts = report.binaries.find((b) => b.bridge_semantic.includes("Task.startAdequacy"));
   assert.ok(starts.bridge_semantic.includes("DecoderBridge.firstImp_ready_ref"));
   assert.ok(starts.bridge_semantic.includes("DecoderBridge.starts_firstImpFrag"));
-  assert.ok(starts.bridge_semantic.includes("DecoderBridge.starts_of_d"));
+  assert.ok(starts.bridge_semantic.includes("DecoderBridge.starts_ref_of_ir"));
+  assert.ok(starts.bridge_semantic.includes("DecoderBridge.nodesRefX"));
+  assert.ok(starts.bridge_semantic.includes("DecoderBridge.callLift"));
+  assert.ok(starts.bridge_semantic.includes("Task.callLift, which is proved"));
+  assert.ok(starts.bridge_semantic.includes("DecoderBridge.coreRunShared"));
+  assert.ok(starts.bridge_semantic.includes("Task.exportIR, which is proved"));
+  assert.ok(starts.bridge_semantic.includes("DecoderBridge.startAdequacyFrag"));
+  assert.ok(starts.bridge_semantic.includes("DecoderBridge.starts_ref_of_ir'"));
   assert.ok(starts.bridge_semantic.includes("DecoderBridge.nodesRef"));
   assert.ok(!starts.bridge_semantic.includes("Task.laterNodesRef"));
   assert.ok(!h.includes("hand transcription"));

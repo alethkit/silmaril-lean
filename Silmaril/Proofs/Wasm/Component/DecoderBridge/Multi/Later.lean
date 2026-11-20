@@ -22,7 +22,7 @@ whose statements are fixed here:
 the inline instances of `pre`; the store is not locked down, its component function `0` is the
 root import `f`, its only component instance is fresh or has had one start thread (`InstOk`),
 its core store starts with the trampolines of `pre`, is typed and its host functions have the core
-type `fFlat`.
+type `fFlat`; the nesting depth is `1` (inside the host's instantiation program).
 -/
 
 @[expose] public noncomputable section
@@ -48,25 +48,33 @@ local notation "Σh" => Unit × List HLinked2.HostEvent
 /-! ## The continuation of the definitions -/
 
 /-- **The continuation finishes the instantiation**: from a configuration running `K sc`, the
-machine runs without host events to a configuration with the host in control and the store not
-locked down, the same host state and core store, observing the instance `0` with the function
-exports of `sc`. -/
+machine runs by unique steps (`LRun`), without host events, to a configuration with the host in
+control and the store not locked down, the same host state and core store, observing the instance
+`0` with the function exports of `sc`; the final configuration is `M` with the nesting depth
+decremented. -/
 def KFin (K : Scope (core3 neverFail) → Canon.P (core3 neverFail) Σh (Ret (core3 neverFail))) :
     Prop :=
   ∀ (sc : Scope (core3 neverFail)) (M : Machine.Config (core3 neverFail) Σh),
     M.store.lockdown = false → M.ctl = [.ofProg none (K sc)] →
-    ∃ tr M', Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch M tr M' ∧
+    ∃ tr M', LRun first.prof embL.hr (DG embL.host) M tr M' ∧
       (∀ ev, Label.host ev ∉ tr) ∧ M'.ctl = [] ∧ M'.store.lockdown = false ∧
       M'.host = M.host ∧ M'.store.core = M.store.core ∧
-      (traceObs tr).findSome? decodeInstantiated? = some (⟨0⟩, funcExports sc.exports)
+      (traceObs tr).findSome? decodeInstantiated? = some (⟨0⟩, funcExports sc.exports) ∧
+      M' = { M with store := DispatchSt.decNestingSt M.store, ctl := [] }
+
+/-- The configuration after the instantiation host event: the host frame runs the instantiation
+program. -/
+abbrev instCfg (r : RefComponent) : Machine.Config (core3 neverFail) Σh :=
+  { hostConfigX with ctl := ⟨none, .prog (instantiateProg r (importArgs hostI) >>=
+      fun _ => pure .unit), []⟩ :: [] }
 
 /-- **The reference machine at the definitions `post`, with a finishing continuation**: reached
-from the instantiation host event without host events or internal faults; the continuation `K` of the definitions finishes the instantiation (`KFin`); the
-store is not locked down and the host log is `L`. -/
+from the instantiation host event by unique steps (`LRun` from `instCfg r`), without host events
+or internal faults; the continuation `K` of the definitions finishes the instantiation (`KFin`);
+the store is not locked down and the host log is `L`. -/
 def RefAtDefsK (r post : RefComponent) (sc : Scope (core3 neverFail))
     (L : List HLinked2.HostEvent) (M : Machine.Config (core3 neverFail) Σh) : Prop :=
-  (∃ tr, Steps first.prof embL.hr (Host.ofEmbedder embL).dispatch hostConfigX
-      (.host (instantiateTop r (importArgs hostI)) :: tr) M ∧
+  (∃ tr, LRun first.prof embL.hr (DG embL.host) (instCfg r) tr M ∧
     (∀ ev, Label.host ev ∉ tr) ∧ (∀ msg, Label.trap (.internal msg) ∉ tr)) ∧
   (∃ K, KFin K ∧
     M.ctl = [.ofProg none (post.foldlM (instantiateDef callRecurse ⟨0⟩ [] (importArgs hostI)) sc
@@ -94,6 +102,8 @@ structure LaterInv (pre : RefComponent) (sc : Scope (core3 neverFail))
   tramp : ∀ i, i < preLowers pre → M.store.core.funcs[i]? = some (lowFI lowH)
   ok : Silmaril.Wasm.Execution.Core.StoreOk M.store.core
   hosts : HostTy M.store.core
+  /-- Inside the host's instantiation program (`nesting_depth += 1`). -/
+  depth : M.store.nestingDepth = 1
 
 /-- **Definitions that only push frame entries and component functions keep the invariant.** -/
 theorem LaterInv.congr {pre : RefComponent} {sc sc' : Scope (core3 neverFail)}
@@ -102,9 +112,9 @@ theorem LaterInv.congr {pre : RefComponent} {sc sc' : Scope (core3 neverFail)}
     (hi : sc'.frame.coreInstances = sc.frame.coreInstances)
     {fs : List (CFuncInst (core3 neverFail))}
     (hs : M'.store = { M.store with funcs := M.store.funcs ++ fs }) : LaterInv pre sc' M' := by
-  obtain ⟨hmods, hinsts, hlock, hf0, hinst, htr, hok, hh⟩ := h
+  obtain ⟨hmods, hinsts, hlock, hf0, hinst, htr, hok, hh, hd⟩ := h
   refine ⟨hm.trans hmods, hi ▸ hinsts, by rw [hs]; exact hlock, ?_, by rw [hs]; exact hinst,
-    by rw [hs]; exact htr, by rw [hs]; exact hok, by rw [hs]; exact hh⟩
+    by rw [hs]; exact htr, by rw [hs]; exact hok, by rw [hs]; exact hh, by rw [hs]; exact hd⟩
   rw [hs]
   have h0 : M.store.funcs[0]? = some (.host fWit ⟨0⟩) := hf0
   show (M.store.funcs ++ fs)[0]? = _
