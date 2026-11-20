@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Typing.Defs
 public import Silmaril.Wasm.Validation.Generic.Defs
+public import Silmaril.Wasm.Validation.Generic.Signature.Defs
 
 @[expose] public section
 
@@ -9,6 +10,11 @@ namespace Silmaril.Wasm.Generic.SSA
 
 open Silmaril.Isotope.LambdaSSA
 open Validation
+
+/-- A declaration's types supply the real LambdaSSA value context and the
+return label; trap is a separate label, not part of the Core result type. -/
+abbrev DeclaredBody {τ : Type} (Φ : Type) [TypeFormers τ] [HasTy Φ τ] (trap : τ)
+    (sig : Signature.Func τ) := { code : Region Φ // code.HasType sig.params.reverse [sig.result, trap] }
 
 /-- Reinterpreting the type codes of one opcode set must preserve its actual
 primitive signature and the constructors used in LambdaSSA typing. -/

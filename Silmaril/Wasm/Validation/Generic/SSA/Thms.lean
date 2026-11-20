@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Validation.Generic.SSA.Defs
 public import Silmaril.Wasm.Validation.Generic.Thms
+public import Silmaril.Wasm.Validation.Generic.Signature.Thms
 import Silmaril.Proofs.Wasm.Validation.Generic.SSA
 
 @[expose] public section
@@ -16,6 +17,25 @@ variable {Φ τ σ : Type} [TypeFormers τ] [TypeFormers σ] [HasTy Φ τ] [HasT
 theorem TypeMap.region (f : TypeMap Φ τ σ) {values labels : List τ} {region : Region Φ}
     (valid : region.HasType values labels) : region.HasType (values.map f.run) (labels.map f.run) :=
   Proofs.Wasm.Validation.Generic.SSA.mapRegion f valid
+
+def TypeMap.declared (f : TypeMap Φ τ σ) {sourceTrap : τ} {targetTrap : σ}
+    (trap : f.run sourceTrap = targetTrap) {sig : Signature.Func τ}
+    (body : DeclaredBody Φ sourceTrap sig) : DeclaredBody Φ targetTrap (sig.map f.run) :=
+  ⟨body.val, by simpa only [Signature.Func.map, List.map_reverse, List.map_cons, List.map_nil, trap]
+    using f.region body.property⟩
+
+/-- Specialization can emit syntax or run a partial lowering. In either case
+the retyped declaration encodes the same signature and supplies the same code. -/
+theorem TypeMap.declared_specialize (f : TypeMap Φ τ σ) {sourceTrap : τ} {targetTrap : σ}
+    (trap : f.run sourceTrap = targetTrap) (source : Signature.Encoding τ) (target : Signature.Encoding σ)
+    (args : ∀ type, target.arg (f.run type) = source.arg type)
+    (results : ∀ type, target.result (f.run type) = source.result type) {Out : Type}
+    (emit : TypeIdx → FuncType → Region Φ → Option (List ValType × Out))
+    (mod : Signature.Module (DeclaredBody Φ sourceTrap)) :
+    (mod.map f.run (f.declared trap)).specialize? target (fun index sig body => emit index sig body.val) =
+      mod.specialize? source (fun index sig body => emit index sig body.val) :=
+  Signature.Module.specialize_map f.run (f.declared trap) source target _ _
+    (Signature.Func.encode_map f.run source target args results) (fun _ _ _ => rfl) mod
 
 theorem TypeMap.term (f : TypeMap Φ τ σ) {values : List τ} {term : Tm Φ} {type : τ}
     (valid : term.HasType values type) : term.HasType (values.map f.run) (f.run type) :=

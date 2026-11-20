@@ -100,3 +100,49 @@ lake build --wfail +Silmaril.Wasm.Validation.Generic.SSA.Thms \
   +Silmaril.Wasm.Validation.Intrinsic.ReifyThms +Silmaril.SSA.Isotope.Types.Thms
 lake env lean -DwarningAsError=true tests/wasm/inductive-generic/TypeBoundary.lean
 ```
+
+## Type-parametric declarations and checked lowering
+
+`Validation.Generic.Signature.Module` has no fixed Core header. Its declared
+parameter and result codes index the function payload. For real LambdaSSA,
+`DeclaredBody` uses those codes for the reverse parameter context and return
+label in `Region.HasType`, with a separate trap label. `Module.map_id` and
+`map_comp` make the dependent transports explicit; `signatureAt_map` shows
+that a numeric function reference still selects the same slot after retyping.
+Two equal signatures may occupy different slots.
+
+`Module.specialize?` makes a final singleton Core type group for each function
+slot and returns the fixed-Core `RawModule` above. The numeric encoding is
+partial; it does not assign an external Wasm value type to arbitrary SSA
+products or sums. Export names and indices, memories, and data survive
+specialization. This profile has no imports, start, tags, globals, tables,
+elements, GC reference types, or recursive type groups. It is not an iso to
+arbitrary modules or a new constraint on their type declarations.
+
+The commuting square is `TypeMap.declared_specialize`: with coherent signature
+encodings, first retyping (including the payload's actual typing proof) then
+specializing equals specializing directly. It holds for code erasure and
+for any partial emitter that depends only on the encoded signature, type
+index, and region syntax. This equality includes failure and does not require
+the two type carriers to be isomorphic.
+
+The regression declares the increment and division regions under `Ty IntType`
+and `FreeTy all IntType`. With the same scoped opcode projection as above,
+`lowerRegion?` uses the existing `decompileFunc`, `toBFunc?`, and Binaryen
+`lowerList` at the emitted integer signature. Both paths give the same Core
+AST, including the two distinct type slots, two function exports, and a passive
+data segment. The real Core validator accepts it. `checkedLift` proves existence
+of a fixed-Core `Typed.Module` with **exact** erasure, using validation soundness
+and the existing intrinsic lifting theorem. It does not run the intrinsic
+reifier or return a computable typed witness. The regression shows the ordinary
+reifier rejecting this lowering, which includes a `local.set`; the reifier's
+step checker does not cover that instruction, `return`, or the emitted
+`unreachable`. A constructive checker for initialized-local updates and a
+polymorphic terminal rule would enable a computable lift for these bodies.
+Lowering success alone does not establish Core typing or semantic preservation.
+
+```sh
+lake build --wfail +Silmaril.Wasm.Validation.Generic.SSA.Thms \
+  +Silmaril.Wasm.Validation.Generic.Signature.Lowering
+lake env lean -DwarningAsError=true tests/wasm/inductive-generic/TypeBoundary.lean
+```
