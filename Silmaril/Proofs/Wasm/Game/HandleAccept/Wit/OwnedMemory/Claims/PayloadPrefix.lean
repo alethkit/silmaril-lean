@@ -962,14 +962,13 @@ theorem dynamicRefusal (destination : RecordDestination) (inst : InstId) (type e
   have stop : afterRead.ctl = cursor.control (checked (.error issue)) := by simp only [afterRead, refused]
   cases issue <;> exact ⟨.refused _, _, [], _, right, run, .refl _, same, rfl, trivial, stop⟩
 
-theorem collectionInstall (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+theorem collectionInstallMode (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
     (entries : List Field) (output : Lower.Output) (index : Nat)
     (left right : Config (core3 grow) (HostState sig)) (cursor : Cursor (E := core3 grow) (HostState sig))
     (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
     (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
     (same : { left with ctl := right.ctl, host := right.host } = right)
     (reachedWidth : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
-    (mode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
     (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
     (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
       (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
@@ -978,6 +977,7 @@ theorem collectionInstall (destination : RecordDestination) (inst : InstId) (typ
     let area := layout destination.width element
     let checkResume := checkedCollectionResume destination inst entries area index output checkNext
     let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+      (CanonicalTree.EntryMode.forOutput destination.width type output)
     let checkCall := collectionEntry destination inst area entries.length scheduledDispatch left cursor checkResume
     let canonCall := collectionEntry destination inst area entries.length scheduledDispatch right cursor canonResume
     Machine.Steps profile scheduledReady scheduledDispatch left [.tau, .tau, .tau] checkCall ∧
@@ -1008,7 +1008,8 @@ theorem collectionInstall (destination : RecordDestination) (inst : InstId) (typ
     .cons (.get checkRead) (.cons (.hostGet rfl) (.refl _))
   have checkAlloc : checkEntered.ctl = cursor.control (allocateListRange cx area entries.length >>= checkedTail) := by
     simp only [checkEntered, liveObjects, preflightBranch, prepared, checkedTail, Prog.bind_eq, Prog.bind_assoc]
-  let canonTail := fun ptr => canonicalCollectionTail destination inst entries area output ptr >>= canonNext
+  let canonTail := fun ptr => canonicalCollectionTail destination inst entries area output ptr
+    (CanonicalTree.EntryMode.forOutput destination.width type output) >>= canonNext
   let canonProgram : AddrType → Session grow sig output.Result := fun reached => do
     let shape := layout reached element
     let ptr ← allocateListRange cx shape entries.length
@@ -1021,7 +1022,7 @@ theorem collectionInstall (destination : RecordDestination) (inst : InstId) (typ
   let canonEntered := { right with ctl := cursor.control (canonProgram (ptrTypeIn right.store cx) >>= canonNext) }
   have canonStep : Step profile scheduledReady scheduledDispatch right .tau canonEntered := .get canonRead
   have canonAlloc : canonEntered.ctl = cursor.control (allocateListRange cx area entries.length >>= canonTail) := by
-    simp only [canonEntered, cx, area, canonProgram, width, mode, canonTail, canonicalCollectionTail, Prog.bind_eq, Prog.bind_assoc]
+    simp only [canonEntered, cx, area, canonProgram, width, canonTail, canonicalCollectionTail, Prog.bind_eq, Prog.bind_assoc]
   have checkInstall := listRange_install
     (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch) cx area entries.length checkedTail checkAlloc
   have canonInstall := listRange_install
@@ -1031,6 +1032,30 @@ theorem collectionInstall (destination : RecordDestination) (inst : InstId) (typ
   dsimp only [collectionEntry, HostFrame.Paired]
   conv => rhs; rw [← same]
   exact ReturnFrame.installed (HostFrame.replace left right.host) cursor.thread _ cursor.frames cursor.rest
+
+theorem collectionInstall (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+    (entries : List Field) (output : Lower.Output) (index : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    (reachedWidth : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
+    (mode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let area := layout destination.width element
+    let checkResume := checkedCollectionResume destination inst entries area index output checkNext
+    let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+    let checkCall := collectionEntry destination inst area entries.length scheduledDispatch left cursor checkResume
+    let canonCall := collectionEntry destination inst area entries.length scheduledDispatch right cursor canonResume
+    Steps profile scheduledReady scheduledDispatch left [.tau, .tau, .tau] checkCall ∧
+    Steps profile scheduledReady scheduledDispatch right [.tau, .tau] canonCall ∧
+    HostFrame.Paired checkResume canonResume checkCall canonCall := by
+  simpa only [mode] using collectionInstallMode destination inst type element entries output index left right cursor
+    checkNext canonNext same reachedWidth prepared checkAt canonAt
 
 theorem checkPlacement {placementDispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
     (destination : RecordDestination) (inst : InstId)
@@ -1109,6 +1134,53 @@ private theorem listEntryPlacementOfGrowth (destination : RecordDestination) (in
   obtain ⟨modulo, within⟩ := listEntryBounds area aligned bounds entry
   simp [placement, modulo, reached, Nat.not_lt.mpr (within.trans larger)]
   rfl
+
+theorem mapEntryPlacement (destination : RecordDestination) (inst : InstId) (key : WIT.KeyType) (element : TypeOf)
+    {origin reached : CStore (core3 grow)} {base count index bytes : Nat}
+    (growth : Core3.Grows origin.core reached.core)
+    (width : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    (aligned : base = alignTo base (layout destination.width (.record (mapEntryFields key element))).alignment)
+    (bounds : base + count * (layout destination.width (.record (mapEntryFields key element))).size ≤ bytes)
+    (entry : index < count) :
+    let keyArea := layout destination.width (.prim key.toPrimitive : TypeOf)
+    let valueArea := layout destination.width element
+    let address := base + index * (layout destination.width (.record (mapEntryFields key element))).size
+    let keyPtr := alignTo address keyArea.alignment
+    let valuePtr := alignTo (keyPtr + keyArea.size) valueArea.alignment
+    ptrTypeIn reached (destination.context inst) = destination.width ∧
+      placement destination reached keyArea keyPtr = .ok () ∧
+      placement destination reached valueArea valuePtr = .ok () := by
+  let area := layout destination.width (.record (mapEntryFields key element))
+  let keyArea := layout destination.width (.prim key.toPrimitive : TypeOf)
+  let valueArea := layout destination.width element
+  let address := base + index * area.size
+  let keyPtr := alignTo address keyArea.alignment
+  let valuePtr := alignTo (keyPtr + keyArea.size) valueArea.alignment
+  have recordArea : area = recordLayout [keyArea, valueArea] := by
+    simp only [area, mapEntryFields, layout, layoutFields, keyArea, valueArea]
+  obtain ⟨slotAligned, slotFits⟩ := listEntryBounds area aligned bounds entry
+  change address % area.alignment.bytes = 0 at slotAligned
+  rw [recordArea] at slotAligned
+  have divisor : (recordAlignment [keyArea, valueArea]).bytes ∣ address := Nat.dvd_of_mod_eq_zero slotAligned
+  obtain ⟨_, keyAligned, keyFits⟩ := recordLayout_field_fits [keyArea, valueArea] address 0 keyPtr keyArea divisor rfl rfl
+  obtain ⟨_, valueAligned, valueFits⟩ := recordLayout_field_fits [keyArea, valueArea] address 1 valuePtr valueArea divisor rfl rfl
+  obtain ⟨larger, reachedSize, grows⟩ := growth.memSize sized
+  change (core3 grow).memSize? reached.core destination.memory = some larger at reachedSize
+  have reachedWidth : (core3 grow).memAddrType? reached.core destination.memory = some destination.width :=
+    growth.memAddrType width
+  have within : address + (recordLayout [keyArea, valueArea]).size ≤ bytes := by
+    simpa only [← recordArea] using slotFits
+  have keyWithin : keyPtr + keyArea.size ≤ larger := keyFits.trans (within.trans grows)
+  have valueWithin : valuePtr + valueArea.size ≤ larger := valueFits.trans (within.trans grows)
+  change ptrTypeIn reached (destination.context inst) = destination.width ∧
+    placement destination reached keyArea keyPtr = .ok () ∧ placement destination reached valueArea valuePtr = .ok ()
+  refine ⟨?_, ?_, ?_⟩
+  · simp [ptrTypeIn, CanonOpts.ptrType, RecordDestination.context, reachedWidth]
+  · simp [placement, reachedSize, keyAligned, Nat.not_lt.mpr keyWithin]
+    rfl
+  · simp [placement, reachedSize, valueAligned, Nat.not_lt.mpr valueWithin]
+    rfl
 
 theorem listEntryPlacement {entryDispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
     (destination : RecordDestination) (inst : InstId) (element : TypeOf)
