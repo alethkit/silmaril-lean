@@ -48,4 +48,16 @@ theorem parked_givePayload {pointer : FlatValue} (call : PayloadRoot.Site grow s
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.NestedRecord.parked
     call linked element entries following next field localEntries localTail
 
+/-- Compare the actual linked `giveFlat` aggregate with `lowerFlatAt`.
+The allocating field returns descriptor words only on a common return;
+the suffix then appends its words. Both allocator continuations retain
+the reached live recheck, late traps, and enclosing issue index. -/
+theorem parked_giveFlat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema))
+    (linked : call.Linked bindings) (element : TypeOf) (entries following : List Field) (next : call.ReferenceNext)
+    (field : call.field = .aggregate (sig.payload call.tag) (.dynamic (.list element) element entries :: following))
+    (localEntries : ∀ item ∈ entries, LocalMemory item) (localTail : ∀ item ∈ following, HandleShape item) :
+    PublicFlatOutcome call element entries following next profile ready bindings :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.NestedRecord.parkedFlat
+    call linked element entries following next field localEntries localTail
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.NestedRecord

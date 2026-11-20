@@ -644,6 +644,15 @@ theorem flatFields (destination : RecordDestination) (inst : InstId) (items : Li
 termination_by structural items
 end
 
+theorem flatFieldsPrepend (destination : RecordDestination) (inst : InstId) (items : List Field)
+    (fragment : HandleFieldsWhere Nat.lt items) (index : Nat) (words : List FlatValue) :
+    Compare profile scheduledReady scheduledDispatch
+      (do return (← Record.Effects.flat recordClaims Limits.spec Quirks.none (destination.context inst)
+        destination.width items index).map (words ++ ·))
+      (do return words ++ (← CanonicalTree.flat Limits.spec Quirks.none (destination.context inst)
+        destination.width items)) := by
+  simpa only [mapError_id] using mapResult (flatFields destination inst items fragment index) (words ++ ·) id
+
 theorem certifyField {field : Field} {type : TypeOf} (layout : Field.LayoutMatches field type)
     (fragment : HandleShape field) : HandleField field := by
   exact Field.LayoutMatches.rec

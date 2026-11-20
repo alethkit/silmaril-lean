@@ -108,6 +108,18 @@ theorem flat_field (destination : RecordDestination) (inst : InstId) (item : Fie
       (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item .flat) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.flatField destination inst item fragment index
 
+/-- Prepend words already returned by a preceding field to the actual flat
+sequence. Refusals and canonical traps do not return any words. -/
+theorem flat_fields_prepend (destination : RecordDestination) (inst : InstId) (items : List Field)
+    (fragment : HandleFieldsWhere Nat.lt items) (index : Nat) (words : List FlatValue) :
+    Compare profile ready dispatch
+      (do return (← Record.Effects.flat recordClaims Limits.spec Quirks.none (destination.context inst)
+        destination.width items index).map (words ++ ·))
+      (do return words ++ (← CanonicalTree.flat Limits.spec Quirks.none (destination.context inst)
+        destination.width items)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.flatFieldsPrepend
+    destination inst items fragment index words
+
 /-- Compose a selected arm comparison with the actual flat coercion and
 padding program. Coercion runs only on common success, and its canonical
 choices and traps stay visible on both sides. -/
