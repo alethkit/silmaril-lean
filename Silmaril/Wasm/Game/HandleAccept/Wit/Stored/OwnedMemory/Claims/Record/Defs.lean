@@ -121,7 +121,7 @@ def lowerValue {E : CoreEngine} {World : Type} {sig : Signature} (access : Acces
     (payload : Payload type) (output : Stored.Lower.Output) : P E World (Except RecordLower.Issue output.Result) :=
   let access := authority access limits cx
   RecordLower.Internal.lowerWithPlan quirks cx access type payload.val.value
-    (preflightValue cx type payload output) fun width field =>
+    (preflightValue cx type payload output) RecordLower.Field.objects fun width field =>
       RecordLower.Internal.emitValue limits quirks cx access width type field output
 
 def lowerPayloadRoot {E : CoreEngine} {World : Type} {sig : Signature} (access : Access E World sig)

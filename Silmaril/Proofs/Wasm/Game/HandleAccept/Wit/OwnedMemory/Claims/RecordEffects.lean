@@ -116,8 +116,9 @@ private theorem field_safe (rules : AuthoritySafe authority Write) :
   | .fixed element _ entries, _, .memory ptr => by
     rw [runField]
     exact HostWrite.bind (elements_safe rules entries (layout width element).size ptr 0) fun _ => .pure none _
-  | .dynamic _ element entries plan, _, output => by
+  | .dynamic _ element entries, _, output => by
     rw [runField]
+    let plan := Field.listObjects entries
     refine HostWrite.bind (rules.prepare plan) fun before => ?_
     split
     · exact .pure none _
@@ -197,15 +198,16 @@ private theorem emit_safe (rules : AuthoritySafe authority Write) (type : TypeOf
 
 private theorem plan_safe {Shape Result : Type} (type : TypeOf) (value : Value.Val)
     (compiled : Except RecordLower.Issue (Shape × List Object))
+    (objects : Shape → List Object)
     (emit : AddrType → Shape → P E World (Except RecordLower.Issue Result))
     (prepare : ∀ plan, HostSafe Write none (authority.prepare plan))
     (safe : ∀ width shape, HostSafe Write none (emit width shape)) :
-    HostSafe Write none (lowerWithPlan quirks cx authority type value compiled emit) := by
+    HostSafe Write none (lowerWithPlan quirks cx authority type value compiled objects emit) := by
   cases compiled with
   | error issue => exact .pure none _
   | ok compiled =>
-    obtain ⟨shape, plan⟩ := compiled
-    refine HostWrite.bind (prepare plan) fun result => ?_
+    obtain ⟨shape, _⟩ := compiled
+    refine HostWrite.bind (prepare (objects shape)) fun result => ?_
     cases result with
     | error issue => exact .pure none _
     | ok _ =>
@@ -219,16 +221,16 @@ theorem compiled_safe (type : TypeOf) (value : Value.Val) (output : Stored.Lower
     (prepare : ∀ plan, HostSafe Write none (authority.prepare plan))
     (transfer : ∀ index object, HostSafe Write none (authority.transfer index object)) :
     HostSafe Write none (lowerCompiled limits quirks cx authority type value output compiled) :=
-  plan_safe quirks cx authority type value compiled _ prepare fun width fields =>
+  plan_safe quirks cx authority type value compiled Field.listObjects _ prepare fun width fields =>
     emit_safe limits quirks cx authority width ⟨prepare, transfer⟩ type fields output
 
 theorem compiled_value_safe (type : TypeOf) (value : Value.Val) (output : Stored.Lower.Output)
     (compiled : Except RecordLower.Issue (Field × List Object))
     (prepare : ∀ plan, HostSafe Write none (authority.prepare plan))
     (transfer : ∀ index object, HostSafe Write none (authority.transfer index object)) :
-    HostSafe Write none (lowerWithPlan quirks cx authority type value compiled fun width field =>
+    HostSafe Write none (lowerWithPlan quirks cx authority type value compiled Field.objects fun width field =>
       emitValue limits quirks cx authority width type field output) := by
-  refine plan_safe quirks cx authority type value compiled _ prepare fun width field => ?_
+  refine plan_safe quirks cx authority type value compiled Field.objects _ prepare fun width field => ?_
   cases output with
   | flat => exact field_safe limits quirks cx authority width ⟨prepare, transfer⟩ field 0 .flat
   | memory ptr => exact HostWrite.bind (unchanged (P.Inv.checkAligned _ _)) fun _ =>
