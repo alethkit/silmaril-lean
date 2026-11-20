@@ -26,6 +26,9 @@ quotient by behavior, validator acceptance, or equality of metadata subsets.
 The inverse uses classical choice on the existence theorem. It is not a
 computable elaborator or a canonical choice of typing tree.
 
+The [structural-reference and generic module AST](wasm-inductive-generic.md)
+has an exact witness-preserving specialization back to this representation.
+
 ## Building and checking terms
 
 Import `Silmaril.Wasm.Validation.Intrinsic.Quote` to publish an explicit typed

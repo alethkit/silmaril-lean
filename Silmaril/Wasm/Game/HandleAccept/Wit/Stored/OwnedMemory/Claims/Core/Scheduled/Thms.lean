@@ -191,6 +191,17 @@ theorem checked_of_steps (bindings : List (Binding sig))
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.checked_of_steps
     bindings steps safe runSafe
 
+/-- The reached configuration also obeys the checked writer policy, so the
+same invariant can be used on a later suffix without reinitializing the machine. -/
+theorem checked_cfgSafe_of_steps (bindings : List (Binding sig))
+    {initial final : Config (core3 grow) (HostState sig)}
+    {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (host bindings)) initial labels final)
+    (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels) :
+    CfgSafe CheckedWrite final :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.checked_cfgSafe_of_steps
+    bindings steps safe runSafe
+
 /-- An initialized session admits arbitrary ordinary host events and internal scheduling
 without any hypothesis about the component or its export sequence. -/
 theorem checked_of_session (bindings : List (Binding sig)) (store : CStore (core3 grow)) (state : HostState sig)
@@ -238,6 +249,26 @@ theorem WriterRun.retains_target {before after : State sig} (run : WriterRun bef
     (selected : Endpoints.Core.childFromHistory before.accepted handle = some tree) :
     Endpoints.Core.childFromHistory after.accepted handle = some tree :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.retained_target run selected
+
+/-- A completed callout with a single publication delta identifies the newly
+accepted root. An arbitrary checked suffix, including refusal, suspension or
+trap, keeps the same journal index and tree lookup. Lookup does not revive a
+spent resource or endpoint claim. -/
+theorem single_publication_survives (bindings : List (Binding sig))
+    {before published final : Config (core3 grow) (HostState sig)}
+    {publishing suffix : List (Label (core3 grow) (HostState sig))}
+    (first : Steps prof ready (specDispatch ready (host bindings)) before publishing published)
+    (later : Steps prof ready (specDispatch ready (host bindings)) published suffix final)
+    (safe : CfgSafe CheckedWrite before)
+    (firstSafe : RunSafe CheckedWrite publishing) (laterSafe : RunSafe CheckedWrite suffix)
+    {ticket handle : Nat}
+    (recorded : published.host.publications = before.host.publications ++ [(ticket, handle)]) :
+    ∃ tree, published.host.writer.accepted = tree :: before.host.writer.accepted ∧
+      final.host.publications[before.host.publications.length]? = some (ticket, handle) ∧
+      Endpoints.Core.childFromHistory published.host.writer.accepted (BitVec.ofNat 32 handle) = some tree ∧
+      Endpoints.Core.childFromHistory final.host.writer.accepted (BitVec.ofNat 32 handle) = some tree :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.single_publication_survives
+    bindings first later safe firstSafe laterSafe recorded
 
 /-- A fresh Core handle resolves exactly when its journal position records a
 publication. This is a statement about tree lookup, not live transfer authority. -/

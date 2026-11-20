@@ -102,6 +102,21 @@ private theorem observe {α β : Type} {packed : Binary.Packed.Reader α} {ref :
     ref.run cursor.spec = .ok (project value, finish.spec) :=
   (agrees cursor).symm.trans (congrArg (Except.map _) ok)
 
+theorem decode_of_reads {bytes payload : ByteArray} {start afterCount afterMode payloadStart : Nat}
+    (header : readHeader.run ⟨bytes, 0⟩ = .ok ((), ⟨bytes, 8⟩))
+    (identifier : readByte.run ⟨bytes, 8⟩ = .ok (11, ⟨bytes, 9⟩))
+    (present : 8 < bytes.size)
+    (size : (readU 32).run ⟨bytes, 9⟩ = .ok (bytes.size - start, ⟨bytes, start⟩))
+    (count : (readU 32).run ⟨bytes, start⟩ = .ok (1, ⟨bytes, afterCount⟩))
+    (countFits : afterCount < bytes.size)
+    (mode : (readU 32).run ⟨bytes, afterCount⟩ = .ok (1, ⟨bytes, afterMode⟩))
+    (length : (readU 32).run ⟨bytes, afterMode⟩ = .ok (payload.size, ⟨bytes, payloadStart⟩))
+    (endsAt : payloadStart + payload.size = bytes.size)
+    (body : (readBytes payload.size).run ⟨bytes, payloadStart⟩ = .ok (payload, ⟨bytes, bytes.size⟩)) :
+    Core.decode? bytes = some { data := [⟨payload, .passive⟩] } :=
+  full header identifier present size (section_at
+    (count_at count (by omega)) mode (count_at length (by omega)) body)
+
 theorem sound {plan : PassivePlan} {source payload : KBytes} {wf : source.wf = true}
     (payloadWf : payload.wf = true) (checked : plan.Verified source wf payload) :
     Core.decode? source.toByteArray = some { data := [⟨payload.toByteArray, .passive⟩] } := by
@@ -112,12 +127,7 @@ theorem sound {plan : PassivePlan} {source payload : KBytes} {wf : source.wf = t
   have count := observe (Binary.Packed.readU_agrees 32) checked.count
   have mode := observe (Binary.Packed.readU_agrees 32) checked.mode
   have length := observe (Binary.Packed.readU_agrees 32) checked.length
-  have countFits : 1 ≤ source.toByteArray.size - plan.afterCount := by
-    rw [lengthEq]
-    exact Nat.succ_le_of_lt (Nat.sub_pos_of_lt checked.countFits)
-  have lengthFits : payload.len ≤ source.toByteArray.size - plan.payloadStart := by
-    rw [lengthEq, ← checked.consumesInput]
-    omega
+  have payloadLength : payload.toByteArray.size = payload.len := payload.length_toList payloadWf
   have fits : plan.payloadStart + payload.len ≤ source.len := checked.consumesInput.le
   have extracted := KBytes.toList_eq_of_sameBytes 4096 (source.slice plan.payloadStart payload.len) payload
     (source.wf_slice _ _ wf fits) payloadWf checked.payloadMatches
@@ -130,7 +140,8 @@ theorem sound {plan : PassivePlan} {source payload : KBytes} {wf : source.wf = t
     change _ = payload.toList
     rw [← extracted, KBytes.toList_slice _ _ _ wf fits]
     simp [KBytes.toByteArray, List.extract, ← checked.consumesInput]
-  have shape := section_at (count_at count countFits) mode (count_at length lengthFits) sliceAt
-  exact full header identifier (lengthEq ▸ checked.sectionPresent) (lengthEq ▸ size) shape
+  exact decode_of_reads header identifier (lengthEq ▸ checked.sectionPresent) (lengthEq ▸ size)
+    count (lengthEq ▸ checked.countFits) mode (payloadLength ▸ length)
+    (by rw [payloadLength, lengthEq, checked.consumesInput]) (payloadLength ▸ sliceAt)
 
 end Silmaril.Proofs.Wasm.Binary.Packed.Passive
