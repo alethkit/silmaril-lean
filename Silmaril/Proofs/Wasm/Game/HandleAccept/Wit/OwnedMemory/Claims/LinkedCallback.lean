@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Thms
 import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Thms
+import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
@@ -140,6 +141,41 @@ private theorem classifyPop {left right : State grow sig} {thread value frames r
           cases top with
           | swap => exact ⟨_, _, .inl ⟨rfl, ⟨rfl, rfl, rfl, rfl, blocked, rfl, below, tail⟩⟩⟩
           | same => exact ⟨_, _, .inr ⟨rfl, .mk (.cons (.mk below) tail) blocked⟩⟩
+
+theorem returnCut {left right last : State grow sig} {seen value}
+    (path : Prefix profile ready bindings first left seen last) (paired : HostFrame.Paired first second left right)
+    (cursor : Cursor (E := core3 grow) (HostState sig))
+    (leftAt : last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (pure value)) :
+    CallbackReturn profile ready bindings first second left right last cursor value seen := by
+  obtain ⟨leftLabels, rightLabels, other, lhs, rhs, reached, seenLeft, seenRight⟩ := replay path paired
+  have checked := lhs.append (.cons (by simp [CoreUpdateGrows, leftAt, Cursor.control]) (.popProg leftAt) (.refl _))
+  have invisible (labels : List (Label (core3 grow) (HostState sig))) : visible (labels ++ [.tau]) = visible labels := by
+    exact (List.filter_append labels [.tau]).trans (List.append_nil _)
+  obtain ⟨otherFrames, otherRest, ⟨atPop, frame⟩ | ⟨atCommon, still⟩⟩ := classifyPop other.host reached leftAt
+  · have canonical := rhs.append (.cons (by simp [CoreUpdateGrows, atPop]) (.popProg atPop) (.refl _))
+    exact .designated frame checked canonical ((invisible _).trans seenLeft) ((invisible _).trans seenRight)
+  · have canonical := rhs.append (.cons (by simp [CoreUpdateGrows, atCommon]) (.popProg atCommon) (.refl _))
+    exact .common checked canonical still ((invisible _).trans seenLeft) ((invisible _).trans seenRight)
+
+theorem stringReallocPair (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (oldSize : Option Nat)
+    (alignment : Alignment) (size : Nat) (steps : List StoreStep)
+    (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    (left right : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    (checkAt : left.ctl = cursor.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= checkNext))
+    (canonAt : right.ctl = cursor.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= canonNext)) :
+    let dispatch := specDispatch ready (host bindings)
+    let leftEntry := stringReallocEntry ready bindings cx ptr oldSize alignment size steps checkNext left cursor
+    let rightEntry := stringReallocEntry ready bindings cx ptr oldSize alignment size steps canonNext right cursor
+    Step profile ready dispatch left .tau leftEntry ∧ Step profile ready dispatch right .tau rightEntry ∧
+    HostFrame.Paired (stringPlanResume cx steps checkNext) (stringPlanResume cx steps canonNext) leftEntry rightEntry := by
+  refine ⟨string_realloc_install cx ptr oldSize alignment size steps checkNext left cursor checkAt,
+    string_realloc_install cx ptr oldSize alignment size steps canonNext right cursor canonAt, ?_⟩
+  dsimp only [stringReallocEntry, HostFrame.Paired]
+  conv => rhs; rw [← same]
+  exact ReturnFrame.installed (HostFrame.replace left right.host) cursor.thread _ cursor.frames cursor.rest
 
 theorem rangeCut (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
     {left right last : State grow sig} {seen} (path : Prefix profile ready bindings first left seen last)
