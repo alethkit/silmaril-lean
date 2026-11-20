@@ -7,7 +7,7 @@ public section
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix
 
-open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
+open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.ABI Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
   Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.Machine
 open Silmaril.Wasm.Execution.Core
 open Stored.Endpoints
@@ -59,6 +59,25 @@ theorem flat_sum (destination : RecordDestination) (inst : InstId) (type : TypeO
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.flatSum
     destination inst type arms tag index selected valid child
 
+/-- The canonical side reads width at this cursor. Both sides write the
+actual discriminant, then enter the selected child at the computed address
+only if the write returns. A later refusal does not undo the tag write. -/
+theorem memory_sum (destination : RecordDestination) (inst : InstId) (type : TypeOf)
+    (arms : List (Option TypeOf)) (tag index ptr : Nat) (selected : Option Field)
+    (left right : Config (core3 grow) (HostState sig))
+    (width : ptrTypeIn right.store (destination.context inst) = destination.width)
+    (child : ∀ item address, selected = some item → Compare profile ready dispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst)
+        destination.width item 0 (.memory address))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
+    CompareAt profile ready dispatch left right
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.sum type arms tag selected) index (.memory ptr))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.sum type arms tag selected) (.memory ptr)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memorySum
+    destination inst type arms tag index ptr selected left right width child
+
 /-- The compiler's layout certificate supplies the tag bounds at every
 selected sum in the handle-only fragment. -/
 theorem checked_fragment {field : Field} {type : TypeOf} (layout : Field.LayoutMatches field type)
@@ -97,5 +116,38 @@ theorem parked_giveFlat (bindings : List (Binding sig)) (name : String) (type : 
     bindings name type handleWord destination inst schema tag payload children field plan compiled fragment start reference
     sameStore canonCursor canonNext sameThread parked calling linked caller mayLeave destinationChecked selected
     schemaChecked canonicalAt
+
+/-- The public indirect route pairs its compiled handle leaf or selected
+handle sum with actual `Canon.store`. The linked check establishes the width;
+the checked route's extra alignment and bounds guards may trap before the
+reference starts, since raw `store` treats placement as a precondition. -/
+theorem parked_givePayload (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
+    (handleWord : BitVec IntType.i32.width) (pointer : FlatValue) (destination : RecordDestination) (inst : InstId)
+    (tag : sig.Tag) (payload : OwnedMemory.Payload (sig.payload tag)) {arity : Nat}
+    (children : Fin arity → OwnedMemory.Tree sig) (field : Field) (plan : List Object)
+    (compiled : Record.preflightValue (destination.context (grow := grow) inst) (sig.payload tag)
+      payload (.memory (flatNat pointer)) = .ok (field, plan)) (fragment : MemoryHandleRoot field)
+    (start reference : Config (core3 grow) (HostState sig)) (sameStore : start.store = reference.store)
+    (canonCursor : Cursor (E := core3 grow) (HostState sig)) (canonNext : Unit → Session grow sig (Ret (core3 grow)))
+    {thread core continuation segments rest} (sameThread : thread = canonCursor.thread)
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) [.int .i32 handleWord, pointer])
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst, .givePayload destination⟩)
+    (caller : Plain.callerInstance start.store thread = .ok (some inst))
+    (mayLeave : (start.store.inst? inst).any (·.mayLeave) = true)
+    (destinationChecked : destination.check start.store = .ok ())
+    (selected : Endpoints.Core.childFromHistory start.host.writer.accepted handleWord =
+      some (.tag ⟨tag, payload⟩ arity children))
+    (pointerChecked : Stored.flatType pointer = pointerType destination.width)
+    (canonicalAt : reference.ctl = canonCursor.control (store Limits.spec Quirks.none (destination.context inst)
+      payload.val.value (sig.payload tag) (flatNat pointer) >>= canonNext)) :
+    MemoryReaches profile ready (specDispatch ready (host (grow := grow) bindings)) start reference
+      ⟨thread, .core core continuation :: segments, rest⟩ canonCursor
+      (memoryReply destination pointer start.host.nextTicket) canonNext
+      (placement destination start.store (layout destination.width (sig.payload tag)) (flatNat pointer)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.parkedMemory
+    bindings name type handleWord pointer destination inst tag payload children field plan compiled fragment start reference
+    sameStore canonCursor canonNext sameThread parked calling linked caller mayLeave destinationChecked selected
+    pointerChecked canonicalAt
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix

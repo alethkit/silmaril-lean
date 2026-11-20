@@ -735,7 +735,17 @@ runs. `parked_giveFlat` uses the compiler's layout certificate to discharge
 selected-tag bounds throughout this fragment. It starts at the linked Core
 call and reaches the original reply continuation for a returned verdict.
 It compares against `lowerFlatAt` on the selected value and schema; it does
-not cover allocating children, memory output, or export delivery.
+not cover allocating children or export delivery.
+
+`PayloadPrefix.parked_givePayload` pairs the linked indirect route with
+`Canon.store` for handle leaves and sums with no active payload or a single
+active handle leaf. The destination check supplies the width for the actual
+canonical discriminant write and child placement. Both runs retain that write
+if the live child check refuses or if a later store traps. Typed preflight
+and live refusals remain separate from alignment and bounds traps at root
+placement: raw `store` assumes valid placement, so the checked route can trap
+before the canonical program starts. This fragment does not yet cover nested
+memory aggregates or allocator callbacks.
 
 `RecordDestination.memory_cursor` uses the width established by the same destination
 check as both public give routes. On a certified prefix the canonical field cursor

@@ -8,7 +8,7 @@ public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Canoni
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix
 
-open Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
+open Silmaril.Wasm.Component Silmaril.Wasm.Component.ABI Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
   Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.Machine Silmaril.Wasm.Component.Value
 open Stored.Endpoints.RecordLower (Field)
 
@@ -48,17 +48,23 @@ def Reaches {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready
     | .trapped reason => checkEnd.ctl = [] ∧ canonEnd.ctl = [] ∧
         ∃ leading, visible canonLabels = leading ++ [.trap reason]
 
-/-- Compare a closed segment at any common reached store. This finite rule
-does not cover callbacks that can suspend or never return. -/
-def Compare {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready : HostReady Host)
-    (dispatch : Call E → P E Host (Ret E)) (checked : P E Host (Except Stored.Endpoints.RecordLower.Issue Result))
-    (canonical : P E Host Result) : Prop :=
-  ∀ (left right : Config E Host), left.store = right.store →
+/-- Compare the programs at a given common reached store and two saved cursors. -/
+def CompareAt {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready : HostReady Host)
+    (dispatch : Call E → P E Host (Ret E)) (left right : Config E Host)
+    (checked : P E Host (Except Stored.Endpoints.RecordLower.Issue Result)) (canonical : P E Host Result) : Prop :=
+  left.store = right.store →
     ∀ (checkCursor canonCursor : Cursor (E := E) Host), checkCursor.thread = canonCursor.thread →
       ∀ (checkNext : Except Stored.Endpoints.RecordLower.Issue Result → P E Host (Ret E)) (canonNext : Result → P E Host (Ret E)),
         left.ctl = checkCursor.control (checked >>= checkNext) →
         right.ctl = canonCursor.control (canonical >>= canonNext) →
         Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext
+
+/-- Compare a closed segment at any common reached store. This finite rule
+does not cover callbacks that can suspend or never return. -/
+def Compare {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready : HostReady Host)
+    (dispatch : Call E → P E Host (Ret E)) (checked : P E Host (Except Stored.Endpoints.RecordLower.Issue Result))
+    (canonical : P E Host Result) : Prop :=
+  ∀ left right, CompareAt profile ready dispatch left right checked canonical
 
 section
 
@@ -91,9 +97,37 @@ abbrev HandleShape := HandleFieldWhere (fun _ _ => True)
 
 abbrev HandleField := HandleFieldWhere Nat.lt
 
+def MemoryHandleRoot : Field → Prop
+  | .sum _ _ _ none => True
+  | .sum _ _ _ (some item) => CanonicalHandle item
+  | item => CanonicalHandle item
+
 def flatReply {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (schema : TypeOf) (ticket : Nat)
     (verdict : Except Stored.Endpoints.RecordLower.Issue (List FlatValue)) : Session grow sig (Ret (core3 grow)) := do
   return .flat (← writeCompletion ((GiveEffectRoute.flat schema).reply destination ticket verdict))
+
+def memoryReply {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (pointer : FlatValue) (ticket : Nat)
+    (verdict : Except Stored.Endpoints.RecordLower.Issue Unit) : Session grow sig (Ret (core3 grow)) := do
+  return .flat (← writeCompletion ((GiveEffectRoute.memory pointer).reply destination ticket verdict))
+
+/-- `Canon.store` treats root placement as a precondition; the public route
+checks it explicitly. An invalid placement has no matching canonical step. -/
+def placement {grow : SingleThreaded.GrowOracle} (destination : RecordDestination) (store : CStore (core3 grow))
+    (area : Layout) (ptr : Nat) : Except TrapReason Unit := do
+  if ptr % area.alignment.bytes != 0 then throw .unalignedPointer
+  let some size := (core3 grow).memSize? store.core destination.memory
+    | throw (.internal "dangling memory address")
+  if ptr + area.size > size then throw .outOfBounds
+
+def MemoryReaches {E : CoreEngine} {Host : Type} (profile : ProfileKind) (ready : HostReady Host)
+    (dispatch : Call E → P E Host (Ret E)) (left right : Config E Host)
+    (checkCursor canonCursor : Cursor (E := E) Host) (checkNext : Except Stored.Endpoints.RecordLower.Issue Unit → P E Host (Ret E))
+    (canonNext : Unit → P E Host (Ret E)) (placementVerdict : Except TrapReason Unit) : Prop :=
+  Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext ∨
+    ∃ reason count reached, placementVerdict = .error reason ∧
+      Steps profile ready dispatch left (List.replicate count .tau ++ [.trap reason]) reached ∧
+      reached.ctl = [] ∧ reached.store = StepDefs.lockdownSt left.store
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix
