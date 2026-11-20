@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Profiles.Functional.Defs
+public import Silmaril.Wasm.Profiles.Thms
 import Silmaril.Proofs.Wasm.Profiles.FunctionalISA
 
 public section
