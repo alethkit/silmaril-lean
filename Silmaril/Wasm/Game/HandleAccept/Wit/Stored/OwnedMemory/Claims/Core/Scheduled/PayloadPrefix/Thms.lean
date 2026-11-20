@@ -102,6 +102,58 @@ theorem memory_handle (destination : RecordDestination) (inst : InstId) (item : 
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memoryHandleLeaf
     destination inst item index address handle
 
+/-- A slot of a validated allocation stays aligned and in bounds across a
+growth-certified prefix. Only the reached size and width are constrained. -/
+theorem list_entry_placement {EHost : Type} {entryReady : HostReady EHost}
+    {entryDispatch : Call (core3 grow) → P (core3 grow) EHost (Ret (core3 grow))}
+    (destination : RecordDestination) (inst : InstId) (element : TypeOf)
+    {before after : Config (core3 grow) EHost} {labels} {base count index bytes : Nat}
+    (run : CoreGrowthSteps profile entryReady entryDispatch before labels after)
+    (checked : destination.check before.store = .ok ())
+    (sized : (core3 grow).memSize? before.store.core destination.memory = some bytes)
+    (aligned : base = alignTo base (layout destination.width element).alignment)
+    (bounds : base + count * (layout destination.width element).size ≤ bytes) (entry : index < count) :
+    let area := layout destination.width element
+    ptrTypeIn after.store (destination.context inst) = destination.width ∧
+      placement destination after.store area (base + index * area.size) = .ok () :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.listEntryPlacement
+    destination inst element run checked sized aligned bounds entry
+
+/-- At a width-checked and placed cursor, a non-string primitive takes its
+actual width and bounds reads, then shares the canonical scalar program,
+including NaN choices and writes. Raw canonical store assumes placement. -/
+theorem primitive_leaf (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (payload : Stored.Payload (.prim primitive)) (nonString : primitive ≠ .string) (index : Nat) (output : Lower.Output)
+    (left right : Config (core3 grow) (HostState sig))
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (placed : rootPlacement destination left.store (.prim primitive) output = .ok ()) :
+    CompareAt profile ready dispatch left right
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) index output)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) output) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.primitiveLeaf
+    destination inst primitive payload nonString index output left right width placed
+
+/-- Use the validated collection range, rather than a fresh placement
+assumption for the scalar at its reached list index. -/
+theorem primitive_list_entry (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (payload : Stored.Payload (.prim primitive)) (nonString : primitive ≠ .string) (position : Nat)
+    {before after : Config (core3 grow) (HostState sig)} {labels} {base count index bytes : Nat}
+    (reference : Config (core3 grow) (HostState sig)) (run : CoreGrowthSteps profile ready dispatch before labels after)
+    (checked : destination.check before.store = .ok ())
+    (sized : (core3 grow).memSize? before.store.core destination.memory = some bytes)
+    (aligned : base = alignTo base (layout destination.width (.prim primitive : TypeOf)).alignment)
+    (bounds : base + count * (layout destination.width (.prim primitive : TypeOf)).size ≤ bytes) (entry : index < count) :
+    let ptr := base + index * (layout destination.width (.prim primitive : TypeOf)).size
+    CompareAt profile ready dispatch after reference
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) position (.memory ptr))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) (.memory ptr)) :=
+  let placed := list_entry_placement destination inst (.prim primitive) run checked sized aligned bounds entry
+  primitive_leaf destination inst primitive payload nonString position (.memory _) after reference placed.1 placed.2
+
 /-- After the initial dry run admits this collection, the actual recursive
 programs install the same allocator request; a certified scheduler prefix
 preserves the checked width. The saved checked continuation
