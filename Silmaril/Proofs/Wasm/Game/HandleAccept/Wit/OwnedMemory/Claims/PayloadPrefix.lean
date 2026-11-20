@@ -616,7 +616,7 @@ private theorem collectionTail (destination : RecordDestination) (inst : InstId)
   | ok value => cases value; rfl
   | error _ => rfl
 
-theorem collectionReturn (destination : RecordDestination) (inst : InstId) (entries : List Field)
+theorem collectionReturnAt (destination : RecordDestination) (inst : InstId) (entries : List Field)
     (area : Layout) (output : Lower.Output) (index pointer : Nat)
     (left right : Config (core3 grow) (HostState sig)) (checkCursor canonCursor : Cursor (E := core3 grow) (HostState sig))
     (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
@@ -633,10 +633,8 @@ theorem collectionReturn (destination : RecordDestination) (inst : InstId) (entr
       let ptr ← validateListRange (destination.context inst) area entries.length pointer
       canonicalCollectionTail destination inst entries area output ptr >>= canonNext))
     {bytes : Nat} (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
-    (compared : ∀ item ∈ entries, ∀ address pos, Compare profile scheduledReady scheduledDispatch
-      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
-        item pos (.memory address))
-      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
+    (compared : CollectionTailAt profile scheduledReady scheduledDispatch destination inst entries area output index
+      pointer bytes left right) :
     Reaches profile scheduledReady scheduledDispatch left right checkCursor canonCursor checkNext canonNext := by
   rcases checkCursor with ⟨thread, checkFrames, checkRest⟩
   rcases canonCursor with ⟨otherThread, canonFrames, canonRest⟩
@@ -673,10 +671,8 @@ theorem collectionReturn (destination : RecordDestination) (inst : InstId) (entr
       rw [verdict] at checkSteps
       let checkEntered := { left with ctl := Cursor.control ⟨thread, checkFrames, checkRest⟩ (checkSuffix pointer (.ok ())) }
       let canonEntered := { right with ctl := Cursor.control ⟨thread, canonFrames, canonRest⟩ (canonSuffix pointer) }
-      have continued := collectionTail (profile := profile) (scheduledReady := scheduledReady)
-        (scheduledDispatch := scheduledDispatch) destination inst entries area output index pointer compared
-        checkEntered canonEntered paired.data.1 ⟨thread, checkFrames, checkRest⟩ ⟨thread, canonFrames, canonRest⟩
-        rfl checkNext canonNext rfl rfl
+      have continued := compared (Classical.not_not.mp aligned) fits verdict checkEntered canonEntered rfl rfl rfl rfl
+        paired.data.1 ⟨thread, checkFrames, checkRest⟩ ⟨thread, canonFrames, canonRest⟩ rfl checkNext canonNext rfl rfl
       exact prependCheck checkSteps checkSilent (prependCanon canonSteps canonSilent continued)
     | error issue =>
       rw [verdict] at checkSteps
@@ -684,6 +680,15 @@ theorem collectionReturn (destination : RecordDestination) (inst : InstId) (entr
         paired.data.1, (silent checkSilent).trans (silent canonSilent).symm, rfl⟩
   · simp only [ite_eq_right aligned, ite_eq_right fits] at prefixed
     exact finishTrap .outOfBounds prefixed.1 prefixed.2
+
+theorem collectionTailFromChildren (destination : RecordDestination) (inst : InstId) (entries : List Field)
+    (area : Layout) (output : Lower.Output) (index pointer bytes : Nat) (left right : Config (core3 grow) (HostState sig))
+    (compared : ∀ item ∈ entries, ∀ address pos, Compare profile scheduledReady scheduledDispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        item pos (.memory address))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
+    CollectionTailAt profile scheduledReady scheduledDispatch destination inst entries area output index pointer bytes left right :=
+  fun _ _ _ checked canonical _ _ _ _ => collectionTail destination inst entries area output index pointer compared checked canonical
 
 theorem collectionCallback (destination : RecordDestination) (inst : InstId) (entries : List Field)
     (area : Layout) (output : Lower.Output) (index : Nat)
@@ -742,9 +747,10 @@ theorem collectionCallback (destination : RecordDestination) (inst : InstId) (en
       have region := lhs.linked_region (destination.context inst) (start := 0) (length := 0)
         rfl (destination.check_width left.store destinationChecked) sized (by simp)
       obtain ⟨_, reachedSize, _, _⟩ := region.2.2
-      have continued := collectionReturn destination inst entries area output index pointer atLeft atRight
+      have continued := collectionReturnAt destination inst entries area output index pointer atLeft atRight
         checkCursor canonCursor checkNext canonNext checkResume canonResume reached rfl atChecked atCanonical
-        (checkBody pointer) (canonBody pointer) reachedSize compared
+        (checkBody pointer) (canonBody pointer) reachedSize
+        (collectionTailFromChildren destination inst entries area output index pointer _ atLeft atRight compared)
       exact .inr (.inr ⟨pointer, checkCursor, canonCursor, atChecked, atCanonical, rfl,
         prepend lhs.steps rhs.steps rfl continued⟩)
 

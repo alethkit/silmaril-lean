@@ -784,8 +784,10 @@ not compare arbitrary host reads or prove that the allocator returns.
 root to both public give calls. At the parked Core activation it follows the
 actual dry run, ABI fit, and root placement. Typed refusal reaches the original
 reply program; invalid indirect placement traps before allocation. Otherwise
-both allocators are installed and a reached classified return feeds the child
-comparisons. `Site.parked_handles` supplies those rules for a dynamic list of
+both allocators are installed. `Site.TailRule` receives the actual reached
+width, size, alignment, bounds, and successful live-plan verdict; the tail
+comparison is used only after these checks pass. `Site.parked_handles` supplies
+that rule for a dynamic list of
 handle leaves. This does not prove nested allocating children, memory-map
 placement, or delivery of the reply.
 

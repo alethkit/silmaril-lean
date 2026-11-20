@@ -22,6 +22,20 @@ at any reached synchronous read. -/
 theorem ReadyAgreement.fixed (policy : Nat → Bool) (start : State grow sig) (inst : InstId) :
     ReadyAgreement (fun _ => policy) start inst := fun _ _ _ _ _ _ _ _ _ _ => rfl
 
+/-- An unaligned reached pointer never enters the traversal. -/
+theorem ReachedCollectionTail.unaligned (destination : RecordDestination) (inst : InstId) (entries : List Field)
+    (area : Layout) (output : Lower.Output) (index pointer : Nat) (reached : State grow sig)
+    (invalid : pointer ≠ alignTo pointer area.alignment) :
+    ReachedCollectionTail profile ready bindings destination inst entries area output index pointer reached :=
+  fun _ _ _ _ aligned => False.elim (invalid aligned)
+
+/-- A failed fresh dry run does not need a rule for an unvisited child. -/
+theorem ReachedCollectionTail.refused (destination : RecordDestination) (inst : InstId) (entries : List Field)
+    (area : Layout) (output : Lower.Output) (index pointer : Nat) (reached : State grow sig) {issue}
+    (refused : Record.prepare reached.store reached.host.writer (Field.listObjects entries) = .error issue) :
+    ReachedCollectionTail profile ready bindings destination inst entries area output index pointer reached :=
+  fun _ _ _ _ _ _ accepted => by rw [refused] at accepted; contradiction
+
 /-- Replay a checked prefix through reached closed give callouts and synchronous
 readiness observations. Each callout executes its own refusal and resumes its
 actual Core continuation. The paired states retain growth evidence and visible labels. -/
@@ -69,10 +83,7 @@ theorem Prefix.collection_return (destination : RecordDestination) (inst : InstI
     (canonBody : second (.nat pointer) = (do
       let ptr ← validateListRange (destination.context inst) area entries.length pointer
       canonicalCollectionTail destination inst entries area output ptr >>= canonNext))
-    (compared : ∀ item ∈ entries, ∀ address pos, Compare profile ready (specDispatch ready (host (grow := grow) bindings))
-      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
-        item pos (.memory address))
-      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
+    (compared : ReachedCollectionTail profile ready bindings destination inst entries area output index pointer last) :
     let dispatch := specDispatch ready (host (grow := grow) bindings)
     (∃ canonCursor, canonCursor.thread = checkCursor.thread ∧
       Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext) ∨
@@ -111,10 +122,7 @@ theorem Prefix.collection (destination : RecordDestination) (inst : InstId) (typ
     let call := collectionEntry destination inst area entries.length dispatch left cursor checkResume
     Prefix profile ready bindings checkResume call seen last →
     last.ctl = { reached with frames := .prog checkResume :: reached.frames }.control (pure (.nat pointer)) →
-    (∀ item ∈ entries, ∀ address pos, Compare profile ready dispatch
-      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
-        item pos (.memory address))
-      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) →
+    ReachedCollectionTail profile ready bindings destination inst entries area output index pointer last →
     CollectionCut profile ready bindings checkResume canonResume left right
       { last with ctl := reached.control (checkResume (.nat pointer)) } reached checkNext canonNext seen :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.collection destination inst type element entries
