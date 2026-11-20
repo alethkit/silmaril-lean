@@ -710,7 +710,11 @@ its write and possible traps. It does not equate refusal without a payload lift 
 canonical trap during a lift.
 Once lifting starts, canonical traps retain prior reference effects; e.g., a second use
 of the same slot traps after the first move. Indirect result writes must finish before
-publishing, and publication rechecks the current writer and the already returned handle.
+publishing, and publication checks the candidate handle against the live writer.
+`ComponentCall.resolve_begin` places the reference result program before the commit.
+At the commit continuation, `complete_commit` preserves the reached store and publishes
+before recording a reply. `complete_stale` instead records `.wrongResultType` and locks
+down without publishing or recording a reply. These steps do not prove subtask delivery.
 `ComponentCall.checked_of_session` gives publication, writer and transcript conservation
 across every ordinary machine prefix, including traps and refusals. It does not assert
 an exact language for every guest or atomic rollback of reference operations.
@@ -747,6 +751,13 @@ With no configured deferred callees, the complete dispatch is the eager dispatch
 the control name is not reserved. When a live instance has no room for a waitable,
 staging records `subtaskTableFull` under the original call ticket without lifting,
 queuing or publishing, then returns to canonical lowering for the reference `tableFull` trap.
+
+For a new owner prepared after an ordinary checked export prefix,
+`ComponentCall.Deferred.prepared_owner_publication` locates the committed ticket and
+Core handle of the root carrying the exact typed receipt. The lookup remains valid
+after spending the claim; it observes the receipt without recreating authority.
+The deferred replay checks that the successful retry publishes both distinct owners
+with the same representation, while the cancelled call has no publication.
 
 ## Checking
 

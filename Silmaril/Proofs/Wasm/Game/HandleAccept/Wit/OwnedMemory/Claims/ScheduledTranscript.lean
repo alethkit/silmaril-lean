@@ -764,7 +764,7 @@ private theorem before_lift_safe (ticket : Nat) (caller : CallerId) (issue : Iss
 
 private theorem tree_safe (ticket : Nat) (caller : CallerId) (tree : Stored.OwnedMemory.Tree sig) :
     Safe (resolveTree (grow := grow) ticket caller tree) := by
-  unfold resolveTree
+  unfold resolveTree completeResolvedTree
   apply HostWrite.bind (readOnly P.Inv.hostGet)
   intro state
   split
