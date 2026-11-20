@@ -11,7 +11,6 @@ import Silmaril.Wasm.SSA.Fragment.Thms
 
 open Silmaril Silmaril.Wasm
 open Silmaril.Wasm.Binaryen (BExpr BFunc BModule)
-open Silmaril.Wasm.Generic (RawModule)
 open Silmaril.Wasm.Validation
 open Silmaril.Wasm.Validation.Inductive (Bounded Path)
 open Silmaril.Wasm.SSA
@@ -51,7 +50,7 @@ example : (converted.defs.get (.there .here)).erase.body = [.localGet ⟨0⟩, .
 
 example (witness : Intrinsic.Reify.Reified calls) :
     (Generic.Typed.Module.intrinsicEquiv witness.typed).erase = calls := by
-  rw [← Generic.Typed.Module.forget_toCore, Generic.Typed.Module.intrinsicEquiv_erase, RawModule.coreEquiv_toCore]
+  rw [← Generic.Typed.Module.forget_toCore, Generic.Typed.Module.intrinsicEquiv_erase, Wasm.Module.toCore_split]
   exact witness.erase_eq
 
 private def richParts : ModuleParts Wasm.Func :=
@@ -85,12 +84,12 @@ example : richGeneric.erase.split = richParts := by
   change (richGeneric.forget Generic.Typed.Function.erase).toCore.split = richParts
   rw [ModuleParts.split_toCore]
   exact (Generic.Typed.Module.intrinsicEquiv_erase rich.typed).trans
-    ((RawModule.coreEquiv_apply _).trans ((congrArg Wasm.Module.split rich.erase_eq).trans richParts.split_toCore))
+    ((congrArg Wasm.Module.split rich.erase_eq).trans richParts.split_toCore)
 
-private def fragments : RawModule (Generic.Function FragFunc) :=
+private def fragments : ModuleParts (Generic.Function FragFunc) :=
   ⟨header, [⟨⟨0⟩, [], exampleInc⟩, ⟨⟨0⟩, [], exampleDiv⟩]⟩
 
-private def ssa : RawModule (Generic.Function SFunc) := fragments.map (Declaration.Func.mapBody compileFunc)
+private def ssa : ModuleParts (Generic.Function SFunc) := fragments.map (Declaration.Func.mapBody compileFunc)
 
 example : (ssa.defs[0]'(by decide)).body.Run [.i32 41] (.ret (some (.i32 42))) :=
   compileFunc_iff.mpr exampleInc_run
@@ -103,10 +102,10 @@ private def outOfSSA (fn : Generic.Function SFunc) : Option BFunc := do
 
 private def binaryen := ssa.traverse outOfSSA
 
-private def lower (mod : RawModule BFunc) : RawModule Wasm.Func :=
+private def lower (mod : ModuleParts BFunc) : ModuleParts Wasm.Func :=
   mod.map (Declaration.Func.mapBody BExpr.lowerList)
 
-example (mod : RawModule BFunc) : (lower mod).toCore = (BModule.ofParts mod).lower :=
+example (mod : ModuleParts BFunc) : (lower mod).toCore = (BModule.ofParts mod).lower :=
   (BModule.lower_ofParts mod).symm
 
 example (f : FragFunc) (run : decompileFunc (ssa.defs[0]'(by decide)).body = some f) :
@@ -130,7 +129,6 @@ example : (binaryen.map fun mod => (Intrinsic.Reify.reify? (lower mod).toCore).i
 #print axioms ModuleParts.functionSignature?_mapBody
 #print axioms ModuleParts.validate?_sound
 #print axioms sectionContext_sections
-#print axioms RawModule.coreEquiv
 #print axioms Generic.Typed.Function.intrinsicEquiv
 #print axioms Generic.Typed.Module.intrinsicEquiv
 #print axioms Generic.Typed.Module.intrinsicEquiv_erase

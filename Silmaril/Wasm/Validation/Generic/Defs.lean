@@ -14,22 +14,6 @@ namespace Silmaril.Wasm.Generic
 already also allows a different representation for local value types. -/
 abbrev Function (Body : Type) := Declaration.Func ValType Body
 
-abbrev RawModule := ModuleParts
-
-abbrev RawModule.map {F G : Type} (f : F → G) (mod : RawModule F) : RawModule G :=
-  ModuleParts.map f mod
-
-/-- A partial body translation fails for the whole module if any function fails. -/
-abbrev RawModule.traverse {M : Type → Type} [Monad M] {F G : Type}
-    (f : F → M G) (mod : RawModule F) : M (RawModule G) := ModuleParts.traverse f mod
-
-abbrev RawModule.ofCore := Wasm.Module.split
-
-abbrev RawModule.toCore (mod : RawModule Wasm.Func) : Wasm.Module := ModuleParts.toCore mod
-
-def RawModule.mapInstructions {I J : Type} (f : I → J) (mod : RawModule (Function (List I))) :
-    RawModule (Function (List J)) := mod.map (Declaration.Func.mapBody (List.map f))
-
 namespace Typed
 
 open Validation
@@ -143,7 +127,7 @@ def Module.map {F G : FunctionFamily} (f : ∀ {context type}, F context type �
   ⟨mod.header, mod.defs.map f⟩
 
 def Module.forget {F : FunctionFamily} {A : Type} (f : ∀ {context type}, F context type → A)
-    (mod : Module F interface) : RawModule A :=
+    (mod : Module F interface) : ModuleParts A :=
   ⟨mod.header.sections, mod.defs.toList f⟩
 
 def Module.erase {interface} (mod : Module (Function Intrinsic.Body) interface) : Wasm.Module :=

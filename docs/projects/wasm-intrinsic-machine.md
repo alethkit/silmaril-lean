@@ -57,8 +57,8 @@ noncomputable inverse; the runtime state simulation here is a different claim.
 ## Reproduce and compare
 
 ```sh
-lake build --wfail +Silmaril.Wasm.Execution.Core.Intrinsic.Thms
-lake env lean -j1 -M4096 -DautoImplicit=false -E warning tests/wasm/intrinsic-machine/Regression.lean
+lake build --wfail +Silmaril.Wasm.Execution.Core.Intrinsic.Normalize.Thms
+lake env lean -DwarningAsError=true tests/wasm/intrinsic-machine/Regression.lean
 ```
 
 The regression checks the exact same raw `Steps` proposition twice for a mixed
@@ -77,3 +77,29 @@ as a recursive call, insert higher-order host callbacks, or skip the existing
 `call`/`call_ref` and administrative-frame rules. A first extension should use
 closed, direct calls with initialized numeric locals and preserve the module
 address lookup and result arity before broadening to labels or mutable stores.
+
+## Finite-run readback and the typing UB policy
+
+`Intrinsic.Normalize.Thms` proves that every intrinsic state finishes for some
+fuel. Every reachable normal form of actual host-free Core in the deterministic
+profile is exactly an erased finished state (`State.raw_normal_iff`). There is
+also an iff for its result, including traps (`State.raw_result_iff`). Arbitrary
+finite raw prefixes continue to the common normal form (`State.raw_prefix_finishes`);
+this does not identify partial administrative states with typed states. The
+existing `State.step_reflect` accounts for a raw partial trap bubble by allowing
+one extra administrative step. Core reduction is not a function even under the
+deterministic profile. The proof of absence of divergence reuses the argument
+from the direct-invoke proof: a competing administrative step shrinks the code.
+Uniqueness of normal forms by itself would not suffice.
+
+Core has no explicit UB constructor or rule. This adapter uses
+`typingUB types cfg := ¬ ConfigOk cfg types`, for a fixed result interface.
+`State.raw_typed` uses the landed preservation theorem to cover **all** raw
+prefixes of an erased typed state, including partial trap bubbles. To discharge
+the totality premise of `HostOk` the proof embeds the host-free path into the
+divergence-only host, using only the preservation conclusion; the compared runs
+remain host-free. Checked divide-by-zero reaches a typed trap, not UB; too little
+fuel gives no result even when the raw execution is proved nondivergent.
+An empty result stack at a one-result interface is rejected by Core typing,
+independently of whether it has another step. This policy is not an assertion
+that other kinds of faults, inputs or host behaviour are typed or UB-free.
