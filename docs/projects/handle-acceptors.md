@@ -940,6 +940,15 @@ descendant. Pointer-free schemas need no realloc option for either comparison;
 pointer-bearing schemas still require it before execution, including inactive
 arms and empty containers. This does not establish callback readiness or return.
 
+At a successful reached reply with the original Core frame on top,
+`resume_returned_give` runs both machines' Core resume steps with the same
+ABI words and reached store. Only the checked machine records completion.
+`Site.reached_caller` identifies that frame from a finite occurrence trail,
+not from equality of continuation values. `Site.refusal_resumes` extends a
+reached preflight refusal on the checked side only. These local completion
+rules do not imply that a suspended callback returns or an async event is
+delivered.
+
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner
 and endpoint commitment operations, selected sum arm, and collection allocation,

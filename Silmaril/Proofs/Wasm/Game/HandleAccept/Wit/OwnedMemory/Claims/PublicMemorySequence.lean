@@ -10,6 +10,7 @@ import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Schedu
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadRoot.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Thms
 
 public section
@@ -497,5 +498,39 @@ theorem parkedCompiledFlat {schema : TypeOf} (call : PayloadRoot.Site grow sig (
       (ParkedFlatBody call flatDepth entryDepth next profile ready bindings) :=
   ⟨sizeOf call.field, sizeOf call.field, parkedFlat call linked _ _ next
     (compiledShapes call.field linked.emitted _ _ (Nat.le_refl _) (Nat.le_refl _)).2⟩
+
+private theorem pairedCoreHead {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route)
+    {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {checked canonical : List (Seg (core3 grow) (HostState sig))}
+    (paired : List.Forall₂ (ReturnFrame.Related.Segment older) (.core call.core call.resume :: checked) canonical) :
+    ∃ tail, canonical = .core call.core call.resume :: tail ∧ List.Forall₂ (ReturnFrame.Related.Segment older) checked tail := by
+  cases paired with
+  | cons head tails => cases head with | same => exact ⟨_, rfl, tails⟩
+
+theorem resumeReturned {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route)
+    (value : route.output.Result) {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {reached reference : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older reached reference check canon) {segments}
+    (caller : check.frames = .core call.core call.resume :: segments)
+    (checked : reached.ctl = check.control (call.reply (.ok value)))
+    (canonical : reference.ctl = canon.control (call.referenceReply value)) :
+    let reply := route.reply call.destination call.start.host.nextTicket (.ok value)
+    let dispatch := specDispatch ready (host bindings)
+    ∃ left right, Steps profile ready dispatch reached [.tau, .tau, .tau] left ∧
+      Steps profile ready dispatch reference [.tau] right ∧ left.store = right.store ∧
+      left.host = reached.host.record reply.1 ∧ right.host = reference.host ∧
+      List.Forall₂ (ReturnFrame.Related.Active older) left.ctl right.ctl := by
+  have paired := frame.frames
+  rw [caller] at paired
+  obtain ⟨referenceSegments, referenceCaller, tails⟩ := pairedCoreHead call paired
+  let reply := route.reply call.destination call.start.host.nextTicket (.ok value)
+  rw [Cursor.control, caller] at checked
+  rw [Cursor.control, referenceCaller] at canonical
+  have checkRun := Plain.give_completion_steps (profile := profile) (ready := ready) (bindings := bindings) reply checked
+  have referenceRun : Steps profile ready (specDispatch ready (host bindings)) reference [.tau]
+      { reference with ctl := ⟨canon.thread, .core ((core3 grow).resume reference.store.core call.core (.values reply.2))
+        call.resume, referenceSegments⟩ :: canon.rest } := .cons (.popCore canonical) (.refl _)
+  refine ⟨_, _, checkRun, referenceRun, frame.store, rfl, rfl, ?_⟩
+  rw [frame.store, frame.thread]
+  exact .cons (.mk tails) frame.rest
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence

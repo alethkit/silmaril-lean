@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence.Public.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadRoot.Thms
 
 public section
 
@@ -10,6 +11,7 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Sch
 open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.ABI Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
   Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.Machine
 open Stored.Endpoints.RecordLower
+open PayloadPrefix
 
 variable {grow : SingleThreaded.GrowOracle} {sig : Signature} {pointer : FlatValue}
   {profile : ProfileKind} {ready : HostReady (HostState sig)} {bindings : List (Binding sig)}
@@ -95,5 +97,27 @@ theorem parked_compiled_flat {schema : TypeOf} (call : PayloadRoot.Site grow sig
       (ParkedFlatBody call flatDepth entryDepth next profile ready bindings) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedCompiledFlat
     call linked next
+
+/-- At a reached successful reply with the original caller on top, both
+machines resume that Core thread on the reached store and the same ABI
+words. Only the checked route records the completion. The tracked prefix
+identifies the original occurrence; it does not predict allocator return. -/
+theorem resume_returned_give {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route)
+    (value : route.output.Result) {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {reached reference : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older reached reference check canon) {labels}
+    (tracked : ReturnFrame.Occurrence.Prefix profile ready (specDispatch ready (host bindings))
+      call.checked (.active 0 0) labels reached (.active 0 0))
+    (checked : reached.ctl = check.control (call.reply (.ok value)))
+    (canonical : reference.ctl = canon.control (call.referenceReply value)) :
+    let reply := route.reply call.destination call.start.host.nextTicket (.ok value)
+    let dispatch := specDispatch ready (host bindings)
+    ∃ left right, Steps profile ready dispatch reached [.tau, .tau, .tau] left ∧
+      Steps profile ready dispatch reference [.tau] right ∧ left.store = right.store ∧
+      left.host = reached.host.record reply.1 ∧ right.host = reference.host ∧
+      List.Forall₂ (ReturnFrame.Related.Active older) left.ctl right.ctl := by
+  obtain ⟨_, caller⟩ := call.reached_caller checked tracked
+  exact Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.resumeReturned
+    call value frame caller checked canonical
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
