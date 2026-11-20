@@ -155,10 +155,7 @@ theorem collectionReturn (destination : RecordDestination) (inst : InstId) (entr
     (canonBody : second (.nat pointer) = (do
       let ptr ← validateListRange (destination.context inst) area entries.length pointer
       canonicalCollectionTail destination inst entries area output ptr >>= canonNext))
-    (compared : ∀ item ∈ entries, ∀ address pos, Compare profile ready (specDispatch ready (host (grow := grow) bindings))
-      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
-        item pos (.memory address))
-      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
+    (compared : ReachedCollectionTail profile ready bindings destination inst entries area output index pointer last) :
     let dispatch := specDispatch ready (host (grow := grow) bindings)
     (∃ canonCursor, canonCursor.thread = checkCursor.thread ∧
       Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext) ∨
@@ -172,9 +169,10 @@ theorem collectionReturn (destination : RecordDestination) (inst : InstId) (entr
   · let canonCursor : Cursor (E := core3 grow) (HostState sig) := ⟨checkCursor.thread, otherFrames, otherRest⟩
     have region := lhs.linked_region (destination.context inst) (start := 0) (length := 0)
       rfl present sized (by simp)
-    obtain ⟨_, reachedSize, _, _⟩ := region.2.2
-    have continued := PayloadPrefix.collection_return destination inst entries area output index pointer last other
-      checkCursor canonCursor checkNext canonNext first second reached rfl leftAt atPop checkBody canonBody reachedSize compared
+    obtain ⟨_, reachedWidth, bytes, reachedSize, _, _⟩ := region
+    have continued := PayloadPrefix.collection_return_at destination inst entries area output index pointer last other
+      checkCursor canonCursor checkNext canonNext first second reached rfl leftAt atPop checkBody canonBody reachedSize
+      (compared other bytes reachedWidth reachedSize)
     exact .inl ⟨canonCursor, rfl, continued.prepend lhs.steps rhs.steps (seenLeft.trans seenRight.symm)⟩
   · refine .inr ⟨leftLabels ++ [.tau], rightLabels ++ [.tau], _, lhs.append (.cons ?_ (.popProg leftAt) (.refl _)),
       rhs.append (.cons ?_ (.popProg atCommon) (.refl _)), still, ?_, ?_⟩
@@ -215,10 +213,7 @@ theorem collection (destination : RecordDestination) (inst : InstId) (type eleme
     let call := collectionEntry destination inst area entries.length dispatch left cursor checkResume
     Prefix profile ready bindings checkResume call seen last →
     last.ctl = { reached with frames := .prog checkResume :: reached.frames }.control (pure (.nat pointer)) →
-    (∀ item ∈ entries, ∀ address pos, Compare profile ready dispatch
-      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
-        item pos (.memory address))
-      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) →
+    ReachedCollectionTail profile ready bindings destination inst entries area output index pointer last →
     CollectionCut profile ready bindings checkResume canonResume left right
       { last with ctl := reached.control (checkResume (.nat pointer)) } reached checkNext canonNext seen := by
   dsimp only

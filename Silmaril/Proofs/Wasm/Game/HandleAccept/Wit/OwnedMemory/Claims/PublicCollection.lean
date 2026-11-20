@@ -54,7 +54,8 @@ private theorem prependCut {Result : Type} {first second : ReturnFrame.Continuat
 
 theorem parked (site : Site grow sig) (profile : ProfileKind) (ready : HostReady (HostState sig))
     (bindings : List (Binding sig)) (next : site.ReferenceNext) (linked : site.Linked bindings)
-    {children : Prop} (compare : children → site.ChildrenCompare profile ready bindings) :
+    {children : State grow sig → Nat → Prop}
+    (compare : ∀ reached pointer, children reached pointer → site.TailRule profile ready bindings reached pointer) :
     Outcome site profile ready bindings next children := by
   let dispatch := specDispatch ready (host (grow := grow) bindings)
   obtain ⟨plan, compiled⟩ := linked.compiled
@@ -131,6 +132,6 @@ theorem parked (site : Site grow sig) (profile : ProfileKind) (ready : HostReady
         intro last seen path cursor pointer reachedReturn children
         exact prependCut reached silent (Prefix.collection site.destination site.inst site.type site.element
           site.entries site.route.output 0 pointer site.cursor cursor site.reply next rfl (.refl _) linked.destination sized
-          linked.mode prepared rfl canonAt path reachedReturn (compare children))
+          linked.mode prepared rfl canonAt path reachedReturn (compare last pointer children))
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicCollection

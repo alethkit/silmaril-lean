@@ -103,18 +103,15 @@ structure Site.Linked (site : Site grow sig) (bindings : List (Binding sig)) : P
     site.payload site.route.output = .ok (site.field, plan)
   mode : CanonicalTree.EntryMode.forOutput site.destination.width site.type site.route.output = .value
 
-def Site.ChildrenCompare (site : Site grow sig) (profile : ProfileKind) (ready : HostReady (HostState sig))
-    (bindings : List (Binding sig)) : Prop :=
-  let cx := site.destination.context (grow := grow) site.inst
-  ∀ item ∈ site.entries, ∀ address pos, Compare profile ready (specDispatch ready (host (grow := grow) bindings))
-    (Record.Effects.field recordClaims Limits.spec Quirks.none cx site.destination.width item pos (.memory address))
-    (CanonicalTree.field Limits.spec Quirks.none cx site.destination.width item (.memory address))
+def Site.TailRule (site : Site grow sig) (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (reached : State grow sig) (pointer : Nat) : Prop :=
+  ReachedCollectionTail profile ready bindings site.destination site.inst site.entries site.area site.route.output 0 pointer reached
 
 /-- A public call either stops before allocation, or actually installs both
 allocator frames. Any supplied classified finite prefix is replayed from that
 installation; if it reaches a natural return, the child rules can continue it. -/
 inductive Outcome (site : Site grow sig) (profile : ProfileKind) (ready : HostReady (HostState sig))
-    (bindings : List (Binding sig)) (next : site.ReferenceNext) (children : Prop) : Prop where
+    (bindings : List (Binding sig)) (next : site.ReferenceNext) (children : State grow sig → Nat → Prop) : Prop where
   | refused (issue : RecordLower.Issue) {labels} (silent : visible labels = []) :
       Steps profile ready (specDispatch ready (host bindings)) site.start labels (site.withBody (site.reply (.error issue))) →
       Outcome site profile ready bindings next children
@@ -131,7 +128,7 @@ inductive Outcome (site : Site grow sig) (profile : ProfileKind) (ready : HostRe
       (returns : ∀ {last seen} (_path : Prefix profile ready bindings site.checkResume (site.checkEntry ready bindings) seen last)
         (reached : Cursor (E := core3 grow) (HostState sig)) (pointer : Nat),
         last.ctl = { reached with frames := .prog site.checkResume :: reached.frames }.control (pure (.nat pointer)) →
-        children →
+        children last pointer →
         CollectionCut profile ready bindings site.checkResume (site.referenceResume next) site.start (site.reference next)
           { last with ctl := reached.control (site.checkResume (.nat pointer)) } reached site.reply next seen) :
       Outcome site profile ready bindings next children
