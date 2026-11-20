@@ -79,10 +79,13 @@ an unresolved reference; only a missing root returns `none`.
 
 ## Remaining work
 
-- [ ] **Canonical representation:** in `Wire`, prove both abstract roundtrips
-  between canonical CBOR and key-extensional shallow trees. Use the existing
-  DRISL correspondence and prove the key-permutation and array-index lemmas
-  for this adapter. Keep debug JSON out of the byte-hash serialization path.
+- [ ] **Canonical representation:** `Wire.lower_toOrdered` checks the abstract
+  projection, including bounded array indices and finite maps; `lower_map_perm`
+  checks invariance under permutations of distinct keys. `parse_eq_some_iff`
+  characterizes accepted canonical wire and its abstract value. The remaining
+  roundtrips for `Wire.render?` need the existing DRISL ordered correspondence
+  lifted to the typed CID codec and a proof that recursive canonical sorting
+  preserves the projection. Keep debug JSON out of byte-hash serialization.
 - [ ] **Partial resolution:** in `Resolve`, prove that every compatible partial
   observation refines into the full tree under binding, characterize when a
   partial-only root has a nontrivial observation, and connect the decoded
