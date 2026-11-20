@@ -2,7 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.AcceptVariants.Defs
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.Replay
-
+public import Silmaril.Wasm.Verify.Kernel.Defs
 /-!
 # Writer acceptance with accept variants from a replayed export call
 
@@ -28,7 +28,6 @@ open Silmaril.Games Silmaril.Wasm Silmaril.Wasm.Game Silmaril.Wasm.Verify Silmar
   Silmaril.Accept Silmaril.Accept.Handle Silmaril.Formats Silmaril.Formats.Api
   Silmaril.Proofs.Wasm.Game.HandleAccept.Replay
 open Silmaril.Wasm.Numerics (Profile)
-
 section Sim
 
 variable {Op H X : Type} [DecidableEq H] [DecidableEq X]
