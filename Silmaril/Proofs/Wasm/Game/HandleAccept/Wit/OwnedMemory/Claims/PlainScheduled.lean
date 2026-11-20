@@ -922,6 +922,39 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
   exact .cons guard (.coreCallout parked calling)
     (.cons trivial (.currentThread rfl) (.cons trivial (.get rfl) resumed))
 
+theorem parked_closed_give_writer_frame {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (inst : InstId) (destination : RecordDestination) (schema : Option Stored.TypeOf)
+    (start : Machine.Config (core3 grow) (HostState sig)) (otherWriter : Claims.State sig) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {entry : InstState}
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst,
+      schema.elim (.givePayload destination) (.giveFlat destination)⟩)
+    (caller : Plain.callerInstance start.store thread = .ok (some inst))
+    (live : start.store.inst? inst = some entry) (closed : entry.mayLeave = false) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let withWriter := fun cfg : Machine.Config (core3 grow) (HostState sig) =>
+      { cfg with host := { cfg.host with writer := otherWriter } }
+    let reply := schema.elim (completion start.host.nextTicket (.error .wrongContext))
+      (fun payload => flatCompletion start.host.nextTicket (ABI.flatten destination.width payload)
+        (.error .wrongContext))
+    let resumed := { start with
+      host := (start.host.enter name type args).record reply.1
+      ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2)) continuation, segments⟩ :: rest }
+    ∃ leftCount rightCount,
+      Machine.CoreGrowthSteps profile ready dispatch start (List.replicate leftCount .tau) resumed ∧
+      Machine.CoreGrowthSteps profile ready dispatch (withWriter start) (List.replicate rightCount .tau)
+        (withWriter resumed) := by
+  intro dispatch withWriter reply resumed
+  obtain ⟨leftCount, left, _, _⟩ := parked_closed_give_steps
+    bindings name type args inst destination schema start thread profile ready parked calling linked caller live closed
+  obtain ⟨rightCount, right, _, _⟩ := parked_closed_give_steps
+    bindings name type args inst destination schema (withWriter start) thread profile ready
+    parked calling linked caller live closed
+  exact ⟨leftCount, rightCount, left, right⟩
+
 private def admitGive {E : CoreEngine} {Host Result : Type} (inst : InstId)
     (selection : P E Host (Except Claims.Core.Scheduled.Issue Result)) :
     P E Host (Except Claims.Core.Scheduled.Issue Result) := do

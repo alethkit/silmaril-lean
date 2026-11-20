@@ -674,7 +674,10 @@ In a closed realloc window, a same-instance
 reentrant `givePayload` or `giveFlat` with a valid binding takes the actual typed
 `wrongContext` reply, journals the refusal, and resumes parked Core without changing the
 component store or writer. The resumed control retains its continuation certificates,
-so the refusal segment composes with the certified prefixes before and after it. This
+so the refusal segment composes with the certified prefixes before and after it.
+`parked_closed_give_writer_frame` pairs those segments even if earlier checked spends
+made the writers different: the reply, journal update, and resumed Core control are the
+same, with each writer left in place. This
 does not assume the allocator's bytes are unchanged, certify every callback trace, or validate the
 range newly returned by realloc, which canonical lowering checks in the reached store.
 
