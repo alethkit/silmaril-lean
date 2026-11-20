@@ -4,6 +4,7 @@ public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Thms
 import Silmaril.Wasm.Component.Reference.Engine.Core3.Store.Defs
 
 public section
@@ -133,5 +134,26 @@ theorem parked (site : Site grow sig) (profile : ProfileKind) (ready : HostReady
         exact prependCut reached silent (Prefix.collection site.destination site.inst site.type site.element
           site.entries site.route.output 0 pointer site.cursor cursor site.reply next rfl (.refl _) linked.destination sized
           linked.mode prepared rfl canonAt path reachedReturn (compare last pointer children))
+
+private theorem scalarEntries {type schema : TypeOf} {primitive : WIT.Primitive} {entries : List Field}
+    (layoutMatch : Field.LayoutMatches (.dynamic type (.prim primitive) entries) schema) :
+    Field.EntriesMatch entries (.prim primitive) := by
+  cases layoutMatch with
+  | list children => exact children
+
+theorem parkedScalars (site : Site grow sig) (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (next : site.ReferenceNext) (linked : site.Linked bindings)
+    (primitive : WIT.Primitive) (element : site.element = .prim primitive) (nonString : primitive ≠ .string) :
+    Outcome site profile ready bindings next (fun _ _ => True) := by
+  obtain ⟨plan, compiled⟩ := linked.compiled
+  have layoutMatch := Record.preflightValue_layout _ _ _ _ _ plan compiled
+  unfold Site.field at layoutMatch
+  rw [element] at layoutMatch
+  apply parked site profile ready bindings next linked
+  intro reached pointer _ reference bytes width sized
+  have compared := CollectionTailAt.scalar_entries (profile := profile) (ready := ready)
+    (dispatch := specDispatch ready (host (grow := grow) bindings)) site.destination site.inst primitive nonString
+    site.entries (scalarEntries layoutMatch) site.route.output 0 pointer bytes reached reference width sized
+  simpa only [Site.area, element] using compared
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicCollection

@@ -794,8 +794,13 @@ placement, or delivery of the reply.
 `PayloadPrefix.primitive_leaf` pairs non-string scalar effects after the
 checked width and placement reads. `primitive_list_entry` gets those facts
 from a validated list range and a growth-certified prefix, not from a claim
-that guest memory bytes stay unchanged. These are entry rules, not a proof
-of traversal for an arbitrary list or of allocator-backed string leaves.
+that guest memory bytes stay unchanged. `CollectionTailAt.scalar_entries`
+carries Core growth through completed scalar writes to derive placement at
+each next cursor, and compares the actual final descriptor. `Site.parked_scalars`
+derives the entry shape from compilation in both public give routes, so no
+separate child comparison is needed after a classified allocator return for
+these lists. This does not cover string elements, nested allocating children,
+or unclassified open callbacks.
 
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
