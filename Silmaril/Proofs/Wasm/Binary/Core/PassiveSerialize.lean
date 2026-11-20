@@ -19,7 +19,7 @@ private theorem bind_at {α β : Type} {reader : DecodeM α} {nextReader : α �
   rw [StateT.run_bind, ok]
   rfl
 
-private theorem byte_at {bytes : ByteArray} {pos : Nat} {byte : UInt8} {tail : List UInt8}
+theorem byte_at {bytes : ByteArray} {pos : Nat} {byte : UInt8} {tail : List UInt8}
     (rest : (Cursor.mk bytes pos).rest = byte :: tail) :
     readByte.run ⟨bytes, pos⟩ = .ok (byte, ⟨bytes, pos + 1⟩) := by
   have len := congrArg List.length rest
@@ -75,7 +75,7 @@ private theorem go_at (fuel : Nat) {bytes : ByteArray} {pos shift number : Nat} 
       rw [val, Nat.add_assoc, Nat.add_comm 1]
       rfl
 
-private theorem u32_at {bytes : ByteArray} {pos number : Nat} {tail : List UInt8}
+theorem u32_at {bytes : ByteArray} {pos number : Nat} {tail : List UInt8}
     (bound : number < 2 ^ 32) (rest : (Cursor.mk bytes pos).rest = encU32 number ++ tail) :
     (readU 32).run ⟨bytes, pos⟩ = .ok (number, ⟨bytes, pos + (encU32 number).length⟩) := by
   unfold readU
@@ -87,7 +87,7 @@ private theorem rest_at (pre tail : List UInt8) :
     (Cursor.mk (pre ++ tail).toByteArray pre.length).rest = tail := by
   simp [Cursor.rest]
 
-private theorem bytes_at {bytes : ByteArray} {pos : Nat} {part tail : List UInt8}
+theorem bytes_at {bytes : ByteArray} {pos : Nat} {part tail : List UInt8}
     (rest : (Cursor.mk bytes pos).rest = part ++ tail) (bound : pos ≤ bytes.size) :
     (readBytes part.length).run ⟨bytes, pos⟩ = .ok (part.toByteArray, ⟨bytes, pos + part.length⟩) := by
   have len := congrArg List.length rest
