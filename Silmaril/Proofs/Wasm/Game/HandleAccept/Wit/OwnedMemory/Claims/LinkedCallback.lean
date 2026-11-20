@@ -1,7 +1,6 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Defs
-public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Allocation.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Thms
 import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Thms
 import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
@@ -652,6 +651,95 @@ theorem flatAggregateThen {older : ReturnFrame.Substitutions (core3 grow) (HostS
     canonNext finish frame growth rules ends (by simpa only [flatSequenceChecked, noLeading] using checkAt)
     (by simpa [flatSequenceCanonical] using canonAt)
 
+private theorem flatSumThen {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (type : TypeOf) (arms : List (Option TypeOf))
+    (tag index : Nat) (selected : Option Field) (valid : tag < arms.length)
+    (compare : FlatFieldComparison grow sig) (checkNext : FlatSequenceCheckNext grow sig) (canonNext : FlatSequenceCanonNext grow sig)
+    (finish : FlatResultCut grow sig) {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon) (growth : Core3.Grows origin.core left.store.core)
+    (rules : ∀ item, selected = some item → FlatFieldRule compare older origin destination inst item)
+    (ends : ∀ words reached reference check canon, ChildFrameOver older reached reference check canon →
+      Core3.Grows origin.core reached.store.core → reached.ctl = check.control (checkNext (.ok words)) →
+      reference.ctl = canon.control (canonNext words) → finish words reached reference check canon)
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.sum type arms tag selected) index .flat >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.sum type arms tag selected) .flat >>= canonNext)) :
+    FlatSumThen profile ready bindings compare destination.width type arms.length tag selected index left right check canon
+      checkNext canonNext finish := by
+  have tailRule (haves : List CoreType) (words : List FlatValue) (reached reference : State grow sig)
+      (check canon : Cursor (E := core3 grow) (HostState sig)) (paired : ChildFrameOver older reached reference check canon)
+      (grown : Core3.Grows origin.core reached.store.core)
+      (checkAt : reached.ctl = check.control (flatSumTail destination.width type arms.length tag haves words >>= fun value => checkNext (.ok value)))
+      (canonAt : reference.ctl = canon.control (flatSumTail destination.width type arms.length tag haves words >>= canonNext)) :
+      LocalFieldThen profile ready bindings .flat reached reference check canon checkNext canonNext finish := by
+    have checked : reached.ctl = check.control ((do return .ok (← flatSumTail destination.width type arms.length tag haves words)) >>= checkNext) := by
+      simpa only [Prog.bind_eq, Prog.bind_assoc, Prog.pure_eq, Prog.pure_bind'] using checkAt
+    obtain ⟨store, result, chk, ref, checkRun, canonRun, labels, status⟩ :=
+      variant_tail_frame (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings))
+        arms.length ((flatten destination.width type).drop 1) tag haves words
+        (keep := fun store => Core3.Grows origin.core store.core) reached reference (paired.store ▸ grown)
+        paired.store check canon paired.thread checkNext canonNext checked canonAt
+    refine ⟨store, result, chk, ref, checkRun, canonRun, labels, ?_⟩
+    cases result with
+    | error _ => exact status
+    | ok value =>
+      exact ends value _ _ _ _ ⟨rfl, paired.pending, paired.results, paired.cancels, paired.blocked, paired.thread, paired.frames, paired.rest⟩
+        status rfl rfl
+  cases selected with
+  | none =>
+    have checked : left.ctl = check.control (flatSumTail destination.width type arms.length tag [] [] >>= fun value => checkNext (.ok value)) := by
+      let body : Session grow sig (List FlatValue) := flatSumTail destination.width type arms.length tag [] []
+      rw [checkAt]
+      change check.control ((body.bind fun value => .pure (.ok value)).bind checkNext) = _
+      rw [Prog.bind_assoc]
+      rfl
+    have canonical : right.ctl = canon.control (flatSumTail destination.width type arms.length tag [] [] >>= canonNext) := canonAt
+    exact ⟨checked, canonical, tailRule [] [] left right check canon frame growth checked canonical⟩
+  | some child =>
+    unfold FlatSumThen
+    apply rules child rfl 0 _ _ left right check canon frame growth
+    · rw [checkAt]
+      let body : Session grow sig (Except RecordLower.Issue (List FlatValue)) :=
+        Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width child 0 .flat
+      let tail : List FlatValue → Session grow sig (List FlatValue) :=
+        flatSumTail destination.width type arms.length tag (flatten destination.width child.type)
+      change check.control ((body.bind fun verdict => match verdict with
+        | .error issue => .pure (.error (.nested index issue))
+        | .ok words => (tail words).bind fun value => .pure (.ok value)).bind checkNext) =
+          check.control (body.bind (flatSumCheckNext destination.width type arms.length tag index
+            (flatten destination.width child.type) checkNext))
+      rw [Prog.bind_assoc]
+      apply congrArg (fun next => check.control (body.bind next))
+      funext verdict
+      cases verdict with
+      | error _ => rfl
+      | ok words => rw [Prog.bind_assoc]; rfl
+    · rw [canonAt]
+      congr 1
+      let body : Session grow sig (List FlatValue) := CanonicalTree.field Limits.spec Quirks.none
+        (destination.context inst) destination.width child .flat
+      let haves := flatten destination.width child.type
+      change (lowerFlatVariantWith arms.length ((flatten destination.width type).drop 1) tag haves body).bind canonNext =
+        body.bind fun words => (flatSumTail destination.width type arms.length tag haves words).bind canonNext
+      simp only [flatSumTail, lowerFlatVariantWith, valid, ↓reduceIte, Prog.bind_eq, Prog.bind_assoc, Prog.pure_eq, Prog.pure_bind']
+    · intro words reached reference check canon paired grown checkAt canonAt
+      exact ⟨checkAt, canonAt, tailRule (flatten destination.width child.type) words reached reference check canon paired grown checkAt canonAt⟩
+
+private theorem flatChildPath {field child leaf : Field} {children : List Field}
+    (atChildren : flatChildren field = some children) (member : child ∈ children)
+    (path : Field.Descendant child leaf) : Field.Descendant field leaf := by
+  cases field <;> cases atChildren
+  · exact .aggregate member path
+  · exact .fixed member path
+  · rename_i type arms tag selected
+    cases selected with
+    | none => simp at member
+    | some item =>
+      have same : child = item := by simpa using member
+      subst child
+      exact .sum path
+
 theorem flatNestedRefine {shapeAt fitsAt : Field → Prop} (depth : Nat) (field : Field)
     (shape : FlatNestedFits shapeAt depth field)
     (reached : ∀ leaf, Field.Descendant field leaf → shapeAt leaf → fitsAt leaf) : FlatNestedFits fitsAt depth field := by
@@ -668,16 +756,13 @@ theorem flatNestedRefine {shapeAt fitsAt : Field → Prop} (depth : Nat) (field 
       intro child member
       apply ih child (shape child member)
       intro leaf path leafShape
-      apply reached leaf _ leafShape
-      cases field <;> cases childrenAt
-      · exact .aggregate member path
-      · exact .fixed member path
+      exact reached leaf (flatChildPath childrenAt member path) leafShape
 
 theorem nestedFlatRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
     (destination : RecordDestination) (inst : InstId) (leaf : Field → Prop) (compare : FlatFieldComparison grow sig)
     (rules : ∀ field, leaf field → FlatFieldRule compare older origin destination inst field)
-    (depth : Nat) (field : Field) (fits : FlatNestedFits leaf depth field) :
-    FlatFieldRule (nestedFlatComparison compare older destination inst depth) older origin destination inst field := by
+    (depth : Nat) (field : Field) (fits : FlatNestedFits leaf depth field) (tags : FlatTagBounds field) :
+    FlatFieldRule (nestedFlatComparison profile ready bindings compare older destination inst depth) older origin destination inst field := by
   induction depth generalizing field with
   | zero => exact rules field fits
   | succ depth ih =>
@@ -690,22 +775,23 @@ theorem nestedFlatRule {older : ReturnFrame.Substitutions (core3 grow) (HostStat
     | some children =>
       have admissible : ∀ child ∈ children, FlatNestedFits leaf depth child := by
         simpa only [FlatNestedFits, childrenAt] using fits
+      have childRule : ∀ item ∈ children, FlatFieldRule
+          (nestedFlatComparison profile ready bindings compare older destination inst depth) older origin destination inst item :=
+        fun item member => ih item (admissible item member) (fun path => tags (flatChildPath childrenAt member path))
       simp only [nestedFlatComparison, childrenAt]
-      apply flatAggregateThen destination inst children index _ checkNext canonNext next frame growth
-        (fun child member => ih child (admissible child member)) ends
-      · cases field <;> cases childrenAt
-        all_goals
-          let childProgram : Session grow sig (Except RecordLower.Issue (List FlatValue)) :=
+      cases field <;> cases childrenAt
+      case sum.refl type arms tag selected =>
+        refine flatSumThen destination inst type arms tag index selected (tags (.self _)) _ checkNext canonNext next frame growth
+          (fun item same => childRule item (by simp [same])) ends checkAt canonAt
+      case aggregate.refl | fixed.refl =>
+        apply flatAggregateThen destination inst _ index _ checkNext canonNext next frame growth childRule ends
+        · rw [checkAt]
+          let body : Session grow sig (Except RecordLower.Issue (List FlatValue)) :=
             Record.Effects.flat recordClaims Limits.spec Quirks.none (destination.context inst) destination.width children 0
-          change left.ctl = check.control ((childProgram.bind (fun verdict => Prog.pure (verdict.mapError (.nested index)))).bind
-            checkNext) at checkAt
-          change left.ctl = check.control (childProgram.bind (fun verdict => checkNext (verdict.mapError (.nested index))))
-          simpa only [Prog.bind_assoc, Prog.pure_bind'] using checkAt
-      · cases field <;> cases childrenAt
-        all_goals
-          change right.ctl = canon.control (CanonicalTree.flat Limits.spec Quirks.none (destination.context inst)
-            destination.width children >>= canonNext) at canonAt
-          exact canonAt
+          change check.control ((body.bind fun verdict => .pure (verdict.mapError (.nested index))).bind checkNext) = _
+          rw [Prog.bind_assoc]
+          rfl
+        · exact canonAt
 
 theorem stringFlatRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
     (destination : RecordDestination) (inst : InstId) (item : StringField)

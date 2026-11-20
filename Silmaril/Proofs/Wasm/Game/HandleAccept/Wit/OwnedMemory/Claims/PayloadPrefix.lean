@@ -322,8 +322,9 @@ private theorem encodeCoercion (profile : ProfileKind) (kind : FloatType) (bits 
     Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (encodeFloat kind bits) :=
   (closedLowerFloat profile kind bits).bind (fun _ => .pure _)
 
-private theorem coerceWord (profile : ProfileKind) (haveType wantType : CoreType) (word : FlatValue) :
-    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (coerceLower haveType wantType word) := by
+private theorem coerceWord (profile : ProfileKind) (haveType wantType : CoreType) (word : FlatValue)
+    {keep : CStore E → Prop} :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (coerceLower haveType wantType word) := by
   unfold coerceLower
   split
   · exact (encodeCoercion profile .f32 _).bind (fun _ => .pure _)
@@ -332,8 +333,9 @@ private theorem coerceWord (profile : ProfileKind) (haveType wantType : CoreType
   · exact (encodeCoercion profile .f64 _).bind (fun _ => .pure _)
   · exact .pure _
 
-private theorem coerceWords (profile : ProfileKind) (haves wants : List CoreType) (words : List FlatValue) :
-    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (coerceLowerSlots haves wants words) := by
+private theorem coerceWords (profile : ProfileKind) (haves wants : List CoreType) (words : List FlatValue)
+    {keep : CStore E → Prop} :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (coerceLowerSlots haves wants words) := by
   induction haves generalizing wants words with
   | nil => exact .pure _
   | cons haveType remaining ih =>
@@ -346,16 +348,30 @@ private theorem coerceWords (profile : ProfileKind) (haves wants : List CoreType
         exact (coerceWord profile haveType wantType word).bind fun _ =>
           (ih remainingWants remainingWords).bind fun _ => .pure _
 
-private theorem variantTail (count : Nat) (wanted : List CoreType) (tag : Nat) (haves : List CoreType)
-    (words : List FlatValue) :
-    Compare profile ready dispatch
-      (do return .ok (← lowerFlatVariantWith count wanted tag haves (pure words)))
-      (lowerFlatVariantWith count wanted tag haves (pure words)) := by
-  apply compareClosed
+private theorem variantTailClosed (count : Nat) (wanted : List CoreType) (tag : Nat) (haves : List CoreType)
+    (words : List FlatValue) {keep : CStore E → Prop} :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (lowerFlatVariantWith count wanted tag haves (pure words)) := by
   unfold lowerFlatVariantWith
   split
   · exact (coerceWords profile haves wanted words).bind (fun _ => .pure _)
   · exact .op trivial (fun impossible => nomatch impossible)
+
+private theorem variantTail (count : Nat) (wanted : List CoreType) (tag : Nat) (haves : List CoreType)
+    (words : List FlatValue) :
+    Compare profile ready dispatch
+      (do return .ok (← lowerFlatVariantWith count wanted tag haves (pure words)))
+      (lowerFlatVariantWith count wanted tag haves (pure words)) :=
+  compareClosed (variantTailClosed count wanted tag haves words)
+
+theorem variantTailFrame (count : Nat) (wanted : List CoreType) (tag : Nat) (haves : List CoreType)
+    (words : List FlatValue) {keep : CStore E → Prop} (left right : Config E Host) (kept : keep right.store) :
+    CompareLocalKeepingAt profile ready dispatch keep left right
+      (do return .ok (← lowerFlatVariantWith count wanted tag haves (pure words)))
+      (lowerFlatVariantWith count wanted tag haves (pure words)) := by
+  intro same check canon thread checkNext canonNext checkAt canonAt
+  refine closedCut (variantTailClosed count wanted tag haves words) left right check canon
+    (fun value => checkNext (.ok value)) canonNext kept same thread ?_ canonAt
+  simpa only [Prog.bind_eq, Prog.bind_assoc, Prog.pure_eq, Prog.pure_bind'] using checkAt
 
 private theorem localGet {keep : CStore E → Prop} :
     Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) getStore := .op trivial (fun _ => .pure _)

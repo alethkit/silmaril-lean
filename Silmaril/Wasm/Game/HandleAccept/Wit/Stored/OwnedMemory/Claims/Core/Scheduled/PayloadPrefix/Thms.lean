@@ -121,6 +121,17 @@ theorem flat_fields_prepend (destination : RecordDestination) (inst : InstId) (i
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.flatFieldsPrepend
     destination inst items fragment index words
 
+/-- Coercion of already returned sum words is local and preserves a
+reached-store predicate on common success. Its trap or choices remain visible. -/
+theorem variant_tail_frame {E : CoreEngine} {Host : Type} {profile : ProfileKind}
+    {ready : HostReady Host} {dispatch : Call E → P E Host (Ret E)}
+    (count : Nat) (wanted : List CoreType) (tag : Nat) (haves : List CoreType)
+    (words : List FlatValue) {keep : CStore E → Prop} (left right : Config E Host) (kept : keep right.store) :
+    CompareLocalKeepingAt profile ready dispatch keep left right
+      (do return .ok (← lowerFlatVariantWith count wanted tag haves (pure words)))
+      (lowerFlatVariantWith count wanted tag haves (pure words)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.variantTailFrame count wanted tag haves words left right kept
+
 /-- Compose a selected arm comparison with the actual flat coercion and
 padding program. Coercion runs only on common success, and its canonical
 choices and traps stay visible on both sides. -/

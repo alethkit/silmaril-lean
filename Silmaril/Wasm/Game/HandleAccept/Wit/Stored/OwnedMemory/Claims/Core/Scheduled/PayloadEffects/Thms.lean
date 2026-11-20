@@ -111,4 +111,14 @@ theorem RecordDestination.compiled_payload_descendant {grow : SingleThreaded.Gro
   rw [← Record.preflightValue_value _ _ _ _ _ _ compiled] at admitted
   exact path.fits (Record.preflightValue_layout _ _ _ _ _ _ compiled) _ _ _ admitted
 
+theorem RecordDestination.compiled_payload_sum_tag {grow : SingleThreaded.GrowOracle}
+    (destination : RecordDestination) (inst : InstId) (type : TypeOf) (payload : OwnedMemory.Payload type)
+    (output : Lower.Output) {field : Field} {plan : List Object}
+    (compiled : Record.preflightValue (destination.context (grow := grow) inst) type payload output = .ok (field, plan))
+    (admitted : Lower.fits Quirks.none destination.encoding destination.width type payload.val.value = true)
+    {sumType : TypeOf} {arms : List (Option TypeOf)} {tag : Nat} {selected : Option Field}
+    (path : field.Descendant (.sum sumType arms tag selected)) : tag < arms.length := by
+  cases (destination.compiled_payload_descendant inst type payload output compiled admitted path).1 <;>
+    first | exact (List.getElem?_eq_some_iff.mp ‹_›).1 | simp
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled

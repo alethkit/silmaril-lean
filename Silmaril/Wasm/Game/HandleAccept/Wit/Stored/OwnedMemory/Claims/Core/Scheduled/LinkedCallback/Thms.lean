@@ -1,7 +1,6 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Defs
-public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Allocation.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback
 
 public section
@@ -311,16 +310,16 @@ theorem flat_nested_refine {shapeAt fitsAt : Field → Prop} (depth : Nat) (fiel
     (reached : ∀ leaf, Field.Descendant field leaf → shapeAt leaf → fitsAt leaf) : FlatNestedFits fitsAt depth field :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.flatNestedRefine depth field shape reached
 
-/-- Induct through actual record/tuple and fixed-list flat programs. The
+/-- Induct through actual record/tuple, fixed-list and selected sum programs. The
 branch returns its concatenated words to the enclosing continuation only
 after all its visited children succeed. -/
 theorem nested_flat_rule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
     (destination : RecordDestination) (inst : InstId) (leaf : Field → Prop) (compare : FlatFieldComparison grow sig)
     (rules : ∀ field, leaf field → FlatFieldRule compare older origin destination inst field)
-    (depth : Nat) (field : Field) (fits : FlatNestedFits leaf depth field) :
-    FlatFieldRule (nestedFlatComparison compare older destination inst depth) older origin destination inst field :=
+    (depth : Nat) (field : Field) (fits : FlatNestedFits leaf depth field) (tags : FlatTagBounds field) :
+    FlatFieldRule (nestedFlatComparison profile ready bindings compare older destination inst depth) older origin destination inst field :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.nestedFlatRule
-    destination inst leaf compare rules depth field fits
+    destination inst leaf compare rules depth field fits tags
 
 /-- Concrete allocating instance of the recursive flat rule. String leaves
 may each allocate or resize repeatedly; neither a return from any allocator
@@ -329,11 +328,11 @@ theorem nested_flat_strings {older : ReturnFrame.Substitutions (core3 grow) (Hos
     (destination : RecordDestination) (inst : InstId) (depth : Nat) (field : Field)
     (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
     {addr : Nat} (realloc : destination.realloc = some addr)
-    (fits : FlatNestedFits (StringField.Fits destination) depth field) :
-    FlatFieldRule (nestedFlatComparison (stringFlatComparison profile ready bindings older destination inst)
+    (fits : FlatNestedFits (StringField.Fits destination) depth field) (tags : FlatTagBounds field) :
+    FlatFieldRule (nestedFlatComparison profile ready bindings (stringFlatComparison profile ready bindings older destination inst)
       older destination inst depth) older origin destination inst field :=
   nested_flat_rule destination inst _ _ (fun _ ⟨item, equal, fit⟩ =>
-    equal ▸ item.flat_rule destination inst present realloc fit) depth field fits
+    equal ▸ item.flat_rule destination inst present realloc fit) depth field fits tags
 
 /-- A reached allocating list or map can likewise install on distinct
 residual frames, keeping the memory-map placement mode and its live recheck
