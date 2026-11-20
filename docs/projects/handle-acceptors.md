@@ -927,6 +927,15 @@ the following sibling. Canonical traps retain earlier effects. Both comparisons
 retain finite suspension and the reached callback classification and readiness
 conditions; neither asserts whole-export delivery or allocator liveness.
 
+`MemorySequence.parked_compiled_memory` and `parked_compiled_flat` obtain the
+active recursive shape from the same successful preflight used by the linked
+binding. In a map, the compiler proves that each entry contains its checked
+primitive key and recursively compiled value; this does not follow from layout
+alone. Neither public theorem takes per-child shape assumptions or a depth
+bound. Their current comparison covers primitive data (including strings) and
+checked handles. Enum and flags are compiled, but their local comparison rules
+are still needed; this proof boundary introduces no new runtime rejection.
+
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner
 and endpoint commitment operations, selected sum arm, and collection allocation,

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadRoot.Defs
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadRoot
 
 public section
@@ -14,6 +15,12 @@ open PayloadPrefix
 
 variable {grow : SingleThreaded.GrowOracle} {sig : Signature} {route : GiveEffectRoute}
   {profile : ProfileKind} {ready : HostReady (HostState sig)} {bindings : List (Binding sig)}
+
+/-- Both linked give bindings use the very field described by the compiler
+certificate. This is a static fact, not a promise about live claims. -/
+theorem Site.Linked.emitted {site : Site grow sig route} (linked : site.Linked bindings) : site.field.Emitted := by
+  obtain ⟨plan, compiled⟩ := linked.compiled
+  exact Record.preflightValue_emitted _ _ _ _ _ plan compiled
 
 /-- Either public give reaches a typed refusal, traps at the ABI placement
 guard, or enters the compiled effect body with the real reply continuation. -/
