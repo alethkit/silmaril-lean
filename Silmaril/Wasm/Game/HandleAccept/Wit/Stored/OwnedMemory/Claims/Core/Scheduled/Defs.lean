@@ -277,16 +277,23 @@ def recordClaims : Record.Access (core3 grow) (HostState sig) sig where
   spendOwner id := claims.spend (.owner id)
   spendEndpoint id := claims.spend (.endpoint id)
 
+def selectMemoryDestination (destination : RecordDestination) (args : List FlatValue) :
+    Session grow sig (Except Issue (Tree sig × Nat)) := do
+  let [.int .i32 handle, pointer] := args | return .error .wrongType
+  if Stored.flatType pointer != ABI.pointerType destination.width then return .error .wrongType
+  if let .error issue := destination.check (← getStore) then return .error issue
+  let some tree ← select handle | return .error .badSelection
+  return .ok (tree, flatNat pointer)
+
 def giveToMemory (inst : InstId) (destination : RecordDestination) (args : List FlatValue)
     (lower : LiftLowerContext (core3 grow) → Tree sig → Nat →
       Session grow sig (Except Endpoints.RecordLower.Issue Unit))
     (diagnose : Endpoints.RecordLower.Issue → Issue) :
     Session grow sig (Except Issue Nat) := do
-  let [.int .i32 handle, pointer] := args | return .error .wrongType
-  if Stored.flatType pointer != ABI.pointerType destination.width then return .error .wrongType
-  if let .error issue := destination.check (← getStore) then return .error issue
-  let some tree ← select handle | return .error .badSelection
-  return (← lower (destination.context inst) tree (flatNat pointer)) |>.mapError diagnose |>.map (fun _ => 0)
+  match ← selectMemoryDestination destination args with
+  | .error issue => return .error issue
+  | .ok (tree, ptr) =>
+    return (← lower (destination.context inst) tree ptr) |>.mapError diagnose |>.map (fun _ => 0)
 
 def giveRecord (inst : InstId) (destination : RecordDestination) (args : List FlatValue) :
     Session grow sig (Except Issue Nat) :=
@@ -303,18 +310,25 @@ def rootHasSchema (tree : Tree sig) (type : Stored.TypeOf) : Bool :=
   | .atom impossible => impossible.elim
   | .tag payload _ _ => decide (sig.payload payload.1 = type)
 
+def selectFlatDestination (destination : RecordDestination) (payload : Stored.TypeOf)
+    (args : List FlatValue) : Session grow sig (Except Issue (Tree sig)) := do
+  let [.int .i32 handle] := args | return .error .wrongType
+  if let .error issue := destination.check (← getStore) then return .error issue
+  let some tree ← select handle | return .error .badSelection
+  if !rootHasSchema tree payload then return .error .wrongPayloadType
+  return .ok tree
+
 /-- Type selection is a preflight check on the accepted tree. It cannot spend a claim
 or enter realloc; the emitter handles effects only after it succeeds. -/
 def giveFlat (inst : InstId) (destination : RecordDestination) (payload : Stored.TypeOf)
     (args : List FlatValue) : Session grow sig (Except Issue (List FlatValue)) := do
   if (← currentInst?) != some inst || !((← getStore).inst? inst).any (·.mayLeave) then
     return .error .wrongContext
-  let [.int .i32 handle] := args | return .error .wrongType
-  if let .error issue := destination.check (← getStore) then return .error issue
-  let some tree ← select handle | return .error .badSelection
-  if !rootHasSchema tree payload then return .error .wrongPayloadType
-  return (← Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
-    (destination.context inst) tree .flat).mapError .lowerPayload
+  match ← selectFlatDestination destination payload args with
+  | .error issue => return .error issue
+  | .ok tree =>
+    return (← Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
+      (destination.context inst) tree .flat).mapError .lowerPayload
 
 def withTree (args : List FlatValue) (use : Tree sig → Nat → Session grow sig (Except Issue Nat)) :
     Session grow sig (Except Issue Nat) := do

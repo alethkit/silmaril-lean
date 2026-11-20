@@ -94,4 +94,62 @@ theorem RecordDestination.listRange_resume (destination : RecordDestination) (in
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCursor.list_range_resume
     destination inst area count pointer finish resume resumes returned
 
+/-- A valid allocator return reaches the live checked collection plan. The
+check reads the allocator's reached store and writer without updating either.
+The continuation receives a fresh result even when the dry run before realloc
+succeeded. A refusal branch can therefore stop before any element or descriptor
+write without losing an earlier transfer or callback effect. -/
+theorem RecordDestination.listRange_recheck {sig : Stored.Signature} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    (reached : Machine.Config (core3 grow) (HostState sig)) (destination : RecordDestination)
+    (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
+    (finish : Nat → Except Stored.Endpoints.RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
+    (resume : Ret (core3 grow) → Session grow sig (Ret (core3 grow)))
+    (resumes : resume (.nat pointer) = (do
+      let address ← validateListRange (destination.context inst) area count pointer
+      let verdict ← (Record.authority recordClaims Limits.spec (destination.context inst)).prepare plan
+      finish address verdict))
+    {thread segments rest}
+    (returned : reached.ctl = ⟨thread, .prog (.pure (.nat pointer)), .prog resume :: segments⟩ :: rest)
+    (aligned : pointer = alignTo pointer area.alignment) {bytes : Nat}
+    (sized : (core3 grow).memSize? reached.store.core destination.memory = some bytes)
+    (bounds : pointer + count * area.size ≤ bytes) :
+    ∃ labels, (∀ label ∈ labels, label = .tau) ∧
+      Machine.Steps profile ready dispatch reached labels
+        { reached with ctl := ⟨thread, .prog (finish pointer
+          (Record.prepare reached.store reached.host.writer plan)), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCursor.list_range_recheck
+    reached destination inst area count pointer plan finish resume resumes returned aligned sized bounds
+
+/-- Start the shared memory/flat emitter from its successful compilation. The
+canonical value, recursive layout, and ordered receipts all refer to the very
+field used by the scheduled program. Dry-run rejection reaches the typed
+return without changing claims; success reads the checked width before testing
+ABI fit. Neither branch has yet canonicalized or written the root. -/
+theorem RecordDestination.compiled_payload_start {sig : Stored.Signature} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    (reached : Machine.Config (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (type : Stored.TypeOf) (payload : OwnedMemory.Payload type) (output : Stored.Lower.Output)
+    (field : Field) (plan : List Object)
+    (finish : Except Stored.Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (compiled : Record.preflightValue (destination.context (grow := grow) inst) type payload output = .ok (field, plan))
+    (destinationChecked : destination.check reached.store = .ok ()) {thread segments rest}
+    (focused : reached.ctl = ⟨thread, .prog (Record.lowerValue recordClaims Limits.spec Quirks.none
+      (destination.context inst) type payload output >>= finish), segments⟩ :: rest) :
+    let cx := destination.context (grow := grow) inst
+    let authority := Record.authority recordClaims Limits.spec cx
+    field.value = payload.val.value ∧ field.LayoutMatches type ∧
+    payload.val.owners = field.objects.filterMap Object.ownerReceipt ∧
+    match Record.prepare reached.store reached.host.writer field.objects with
+    | .error issue => Machine.Steps profile ready dispatch reached [.tau, .tau]
+        { reached with ctl := ⟨thread, .prog (finish (.error issue)), segments⟩ :: rest }
+    | .ok () => Machine.Steps profile ready dispatch reached [.tau, .tau, .tau]
+        { reached with ctl := ⟨thread, .prog (
+          if !Stored.Lower.fits Quirks.none destination.encoding destination.width type payload.val.value then
+            finish (.error (.preflight (.abi .allocationPrecondition)))
+          else Internal.emitValue Limits.spec Quirks.none cx authority destination.width type field output >>= finish),
+          segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCursor.compiled_payload_start
+    reached destination inst type payload output field plan finish compiled destinationChecked focused
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled

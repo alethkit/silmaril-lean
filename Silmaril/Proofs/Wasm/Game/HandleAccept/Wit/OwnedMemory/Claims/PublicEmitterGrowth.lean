@@ -73,17 +73,20 @@ theorem give_payload (inst : InstId) (destination : RecordDestination) (args : L
     CoreGrowing (givePayload (grow := grow) (sig := sig) inst destination args) := by
   intro base
   unfold givePayload giveToMemory
-  split
-  · split
-    · exact P.Inv.pure _
-    · refine P.Inv.bind P.Inv.getStore fun _ => ?_
-      split
+  refine P.Inv.bind ?_ (fun selected => ?_)
+  · unfold selectMemoryDestination
+    split
+    · split
       · exact P.Inv.pure _
-      · refine P.Inv.bind (P.Inv.bind P.Inv.hostGet fun _ => P.Inv.pure _) fun selected => ?_
-        cases selected with
-        | none => exact P.Inv.pure _
-        | some tree => exact P.Inv.bind (payload_inv base _ tree _) fun _ => P.Inv.pure _
-  · exact P.Inv.pure _
+      · refine P.Inv.bind P.Inv.getStore fun _ => ?_
+        split
+        · exact P.Inv.pure _
+        · refine P.Inv.bind (P.Inv.bind P.Inv.hostGet fun _ => P.Inv.pure _) fun selected => ?_
+          cases selected <;> exact P.Inv.pure _
+    · exact P.Inv.pure _
+  · cases selected with
+    | error => exact P.Inv.pure _
+    | ok treePtr => exact P.Inv.bind (payload_inv base _ treePtr.1 (.memory treePtr.2)) fun _ => P.Inv.pure _
 
 theorem give_flat (inst : InstId) (destination : RecordDestination) (payload : TypeOf) (args : List FlatValue) :
     CoreGrowing (giveFlat (grow := grow) (sig := sig) inst destination payload args) := by
@@ -92,19 +95,22 @@ theorem give_flat (inst : InstId) (destination : RecordDestination) (payload : T
   refine P.Inv.bind P.Inv.currentInst? fun current => P.Inv.bind P.Inv.getStore fun store => ?_
   split
   · exact P.Inv.pure _
-  · split
-    · refine P.Inv.bind P.Inv.getStore fun _ => ?_
+  · refine P.Inv.bind ?_ (fun selected => ?_)
+    · unfold selectFlatDestination
       split
+      · refine P.Inv.bind P.Inv.getStore fun _ => ?_
+        split
+        · exact P.Inv.pure _
+        · refine P.Inv.bind (P.Inv.bind P.Inv.hostGet fun _ => P.Inv.pure _) fun selected => ?_
+          cases selected with
+          | none => exact P.Inv.pure _
+          | some tree =>
+            change P.Inv _ (if (!rootHasSchema tree payload) = true then pure (Except.error Issue.wrongPayloadType) else _)
+            split <;> exact P.Inv.pure _
       · exact P.Inv.pure _
-      · refine P.Inv.bind (P.Inv.bind P.Inv.hostGet fun _ => P.Inv.pure _) fun selected => ?_
-        cases selected with
-        | none => exact P.Inv.pure _
-        | some tree =>
-          change P.Inv _ (if (!rootHasSchema tree payload) = true then pure (Except.error Issue.wrongPayloadType) else _)
-          split
-          · exact P.Inv.pure _
-          · exact P.Inv.bind (payload_inv base _ tree .flat) fun _ => P.Inv.pure _
-    · exact P.Inv.pure _
+    · cases selected with
+      | error => exact P.Inv.pure _
+      | ok tree => exact P.Inv.bind (payload_inv base _ tree .flat) fun _ => P.Inv.pure _
 
 private theorem completion_inv (base : (core3 grow).Store (CanonHost (core3 grow)))
     (reply : Event × List FlatValue) : P.Inv (GrowsFrom base)
