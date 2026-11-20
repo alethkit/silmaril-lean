@@ -3,6 +3,8 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadLeaf.Local.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.CanonicalTree.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Defs
 
 @[expose] public section
 
@@ -11,6 +13,7 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Sch
 open Silmaril.Wasm.Component Silmaril.Wasm.Component.ABI Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
   Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.Machine Silmaril.Wasm.Component.Value
 open Stored.Endpoints.RecordLower (Field)
+open Stored.Endpoints
 
 inductive Outcome (Result : Type) where
   | returned (value : Result)
@@ -129,5 +132,24 @@ def MemoryReaches {E : CoreEngine} {Host : Type} (profile : ProfileKind) (ready 
     ∃ reason count reached, placementVerdict = .error reason ∧
       Steps profile ready dispatch left (List.replicate count .tau ++ [.trap reason]) reached ∧
       reached.ctl = [] ∧ reached.store = StepDefs.lockdownSt left.store
+
+def checkedCollectionTail {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
+    (index : Nat) (output : Lower.Output) (ptr : Nat) :
+    Except RecordLower.Issue Unit → Session grow sig (Except RecordLower.Issue output.Result)
+  | .error (.preflight issue) => pure (.error (.field index (.afterAllocation issue)))
+  | .error issue => pure (.error (.nested index issue))
+  | .ok () => do
+    let cx := destination.context inst
+    match ← Record.Effects.elements recordClaims Limits.spec Quirks.none cx destination.width entries area.size ptr 0 with
+    | .error issue => return .error (.nested index issue)
+    | .ok () => return .ok (← ListLower.publish cx destination.width ptr entries.length output)
+
+def canonicalCollectionTail {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
+    (output : Lower.Output) (ptr : Nat) : Session grow sig output.Result := do
+  let cx := destination.context inst
+  RecordLower.CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries .value area.size ptr
+  ListLower.publish cx destination.width ptr entries.length output
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix
