@@ -51,6 +51,23 @@ theorem Reaches.remember_true {E : CoreEngine} {Host Result : Type} {profile : P
     ReachesKeeping profile ready dispatch (fun _ => True) left right checkCursor canonCursor checkNext canonNext :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.rememberTrue rest
 
+/-- Continue a child at the cursors its run actually reaches. The saved
+continuations are the real suffix programs; only a common return runs them. -/
+theorem ReachesKeeping.bind_reached {E : CoreEngine} {Host Result Next : Type} {profile : ProfileKind}
+    {ready : HostReady Host} {dispatch : Call E → P E Host (Ret E)} {keep : CStore E → Prop}
+    {left right : Config E Host} {checkCursor canonCursor : Cursor (E := E) Host}
+    (thread : checkCursor.thread = canonCursor.thread)
+    {checkNext : Except RecordLower.Issue Next → P E Host (Ret E)} {canonNext : Next → P E Host (Ret E)}
+    (mapIssue : RecordLower.Issue → RecordLower.Issue)
+    (checkTail : Result → P E Host (Except RecordLower.Issue Next)) (canonTail : Result → P E Host Next)
+    (first : ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor
+      (checkedSequenceNext mapIssue checkTail checkNext) (fun value => canonTail value >>= canonNext))
+    (rest : ∀ value entered reference, keep reference.store →
+      CompareKeepingAt profile ready dispatch keep entered reference (checkTail value) (canonTail value)) :
+    ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.continueKeeping thread mapIssue
+    checkTail canonTail first rest
+
 theorem Reaches.prepend {E : CoreEngine} {Host Result : Type} {profile : ProfileKind}
     {ready : HostReady Host} {dispatch : Call E → P E Host (Ret E)}
     {left left' right right' : Config E Host} {checkLabels canonLabels : List (Label E Host)}
@@ -229,11 +246,33 @@ theorem MemoryChildRule.aggregate (destination : RecordDestination) (inst : Inst
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.aggregateChildRule
     destination inst type fields matched child
 
+theorem compiled_aggregate_layout (width : AddrType) {type : TypeOf} {fields : List Field}
+    (matched : Field.LayoutMatches (.aggregate type fields) type) :
+    layout width type = recordLayout (fields.map fun item => layout width item.type) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.aggregateLayout width matched
+
 /-- Discharge the child rule for recursively nested local records and
 tuples from the compiler's layout certificate. -/
 theorem MemoryChildRule.local_memory (destination : RecordDestination) (inst : InstId) {item : Field} {type : TypeOf}
     (fragment : LocalMemory item) (matched : item.LayoutMatches type) : MemoryChildRule profile ready dispatch destination inst item type :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.localMemoryChild destination inst fragment matched
+
+theorem memory_fields_at (destination : RecordDestination) (inst : InstId)
+    {keep : CStore (core3 grow) → Prop} (fields : List Field) (cursor index : Nat)
+    (width : ∀ store, keep store → ptrTypeIn store (destination.context inst) = destination.width)
+    (child : ∀ slot item address, fields[slot]? = some item →
+      (fieldOffsets cursor (fields.map fun field => layout destination.width field.type))[slot]? = some address →
+      ∀ left right : Config (core3 grow) (HostState sig), keep right.store →
+        CompareKeepingAt profile ready dispatch keep left right
+          (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+            item (index + slot) (.memory address))
+          (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address)))
+    (left right : Config (core3 grow) (HostState sig)) (kept : keep right.store) :
+    CompareKeepingAt profile ready dispatch keep left right
+      (Record.Effects.memory recordClaims Limits.spec Quirks.none (destination.context inst) destination.width fields cursor index)
+      (CanonicalTree.memory Limits.spec Quirks.none (destination.context inst) destination.width fields cursor) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memoryFieldsKeeping
+    destination inst fields cursor index width child left right kept
 
 /-- Traverse a validated non-string scalar list in order, deriving placement
 at each reached cursor. Neither the scalar writes nor the final descriptor
@@ -285,6 +324,22 @@ theorem closed_memory_aggregate (destination : RecordDestination) (inst : InstId
         (.memory address)) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.closedMemoryAggregate
     destination inst origin type fields index address bytes matched memoryWidth sized aligned bounds closed left right growth
+
+/-- A failed nested initial dry run stops before installing realloc. Only the
+checked diagnostic continuation is reached; the canonical prefix is empty. -/
+theorem dynamic_refused_before_allocation (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+    (entries : List Field) (output : Lower.Output) (index : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (cursor canonCursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : left.store = right.store) (issue : RecordLower.Issue)
+    (refused : Record.prepare left.store left.host.writer (Field.listObjects entries) = .error issue)
+    (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    {keep : CStore (core3 grow) → Prop} :
+    ReachesKeeping profile ready dispatch keep left right cursor canonCursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.dynamicRefusal
+    destination inst type element entries output index left right cursor canonCursor checkNext canonNext same issue refused checkAt
 
 /-- After the initial dry run admits this collection, the actual recursive
 programs install the same allocator request at the reached memory width.

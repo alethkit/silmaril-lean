@@ -80,6 +80,14 @@ def CompareKeepingAt {E : CoreEngine} {Host Result : Type} (profile : ProfileKin
         right.ctl = canonCursor.control (canonical >>= canonNext) →
         ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext
 
+/-- Bind a checked child to its actual suffix, without executing the suffix
+on refusal. The enclosing program may add its own issue index. -/
+def checkedSequenceNext {E : CoreEngine} {Host Result Next : Type}
+    (mapIssue : RecordLower.Issue → RecordLower.Issue) (tail : Result → P E Host (Except RecordLower.Issue Next))
+    (finish : Except RecordLower.Issue Next → P E Host (Ret E)) :
+    Except RecordLower.Issue Result → P E Host (Ret E) :=
+  fun result => (match result with | .error issue => pure (.error (mapIssue issue)) | .ok value => tail value) >>= finish
+
 /-- Compare the programs at a given common reached store and two saved cursors. -/
 def CompareAt {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready : HostReady Host)
     (dispatch : Call E → P E Host (Ret E)) (left right : Config E Host)
