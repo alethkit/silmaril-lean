@@ -479,11 +479,15 @@ Core stores and tag traces after rejections and retries. This is a conservative 
 result for this pair of dispatchers, not yet for the scheduled canonical lifecycle API.
 
 `Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain` joins that correspondence to the
-scheduled memory accept body after the binding check. Its reference steps preserve the
-parked Core continuation and implement the same arena effects, embedded writer and status
-or typed refusal. The receipt-aware journal records successful publication and its return
-separately; a refusal does not publish. This comparison does not yet cover scheduling and
-canonical lifecycle calls around the body, flat bindings, or deferred reply delivery.
+actual checked Core embedder for a linked memory accept. Caller admission reads the active
+thread, its instance and the live `mayLeave` bit; a wrong caller returns a typed refusal
+without lifting or publishing. An admitted plain call agrees with the endpoint-only attempt
+on arena effects, embedded writer, status and typed refusal. Success and refusal preserve
+the parked Core continuation; a canonical trap locks down the reached store, keeps prior
+journal effects and discards the continuations. Binding-resolution traps keep their typed
+reason in the journal. Publication and reply remain distinct events. This is a single-call
+comparison, not yet a correspondence for scheduled export prefixes, flat bindings or
+deferred reply delivery.
 
 `Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
 Lifting a root from memory or flat operands registers the arena identities in its active payload,
@@ -747,12 +751,26 @@ Before start, `subtask.cancel` calls the checked cancellation callback and resol
 the reference cancellation path, without moving owners or publishing a tree. Start
 lifts and resolves in one callback; it does not expose a suspended post-lift phase.
 The deferred session theorem conserves the writer and journal on arbitrary ordinary
-prefixes. Linked direct/spilled replays check cancel, drop, slot reuse, start,
+prefixes. `Deferred.fresh_lookup_iff_publication` also proves the converse to publication
+lookup: a fresh handle is selectable exactly when its journal position records a
+publication for it. `Deferred.fresh_lookup_iff_cut` relates the selected tree itself to
+a single machine step registering it and appending the matching journal entry. The
+actual prefix and suffix retain intervening traps, retries and other effects. A pending
+or refused callback cannot account for a new selectable root without a publication.
+This is not a statement about delivery or live transfer authority. Linked
+direct/spilled replays check cancel, drop, slot reuse, start,
 resolution, and stale start after dropping the waitable.
 With no configured deferred callees, the complete dispatch is the eager dispatch;
 the control name is not reserved. When a live instance has no room for a waitable,
 staging records `subtaskTableFull` under the original call ticket without lifting,
 queuing or publishing, then returns to canonical lowering for the reference `tableFull` trap.
+
+For a new owner prepared after an ordinary checked export prefix,
+`ComponentCall.Deferred.prepared_owner_publication` locates the committed ticket and
+Core handle of the root carrying the exact typed receipt. The lookup remains valid
+after spending the claim; it observes the receipt without recreating authority.
+The deferred replay checks that the successful retry publishes both distinct owners
+with the same representation, while the cancelled call has no publication.
 
 ## Checking
 
