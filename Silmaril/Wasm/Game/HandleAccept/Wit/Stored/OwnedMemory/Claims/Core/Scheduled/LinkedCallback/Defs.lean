@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
+public import Silmaril.Wasm.Component.Reference.Canon.Lift.Defs
 
 @[expose] public section
 
@@ -51,6 +52,14 @@ def ClosedGive.resume {bindings : List (Binding sig)} {start : State grow sig}
       .core ((core3 grow).resume start.store.core callout.core (.values reply.2)) callout.next,
       callout.frames⟩ :: callout.rest }
 
+/-- Only host predicates consulted when filtering this reached instance's
+blocked threads must be independent of the writer. Host-independent readiness
+policies satisfy this without any invariant on claim, ticket, or journal data. -/
+def ReadyAgreement (ready : HostReady (HostState sig)) (start : State grow sig) (inst : InstId) : Prop :=
+  ∀ entry, start.store.inst? inst = some entry → ∀ thread ∈ entry.threads.elements,
+    ∀ suspended, start.store.thread? thread = some suspended → suspended.blocked = true →
+      ∀ query, suspended.readyCond = some (.host query) → ∀ other, ready start.host query = ready other query
+
 /-- A finite checked callback prefix described by reached scheduler steps and
 classified linked reentries. It is indexed by visible labels, not a shared
 count of internal steps. Unclassified reads are not replayed by this relation. -/
@@ -65,6 +74,14 @@ inductive Prefix (profile : ProfileKind) (ready : HostReady (HostState sig)) (bi
       Prefix profile ready bindings resume start (PayloadPrefix.visible [label] ++ labels) last
   | closedGive {start last : State grow sig} {labels} (callout : ClosedGive bindings start) :
       Prefix profile ready bindings resume callout.resume labels last →
+      Prefix profile ready bindings resume start labels last
+  | syncReady {start last : State grow sig} {labels task inst thread frames rest}
+      (focused : start.ctl = ⟨thread, .prog (.op .hostGet (fun current =>
+        syncLiftCandidates task (start.store.instCandidates (ready current) inst))), frames⟩ :: rest)
+      (agrees : ReadyAgreement ready start inst) :
+      Prefix profile ready bindings resume { start with ctl := ⟨thread,
+        .prog (syncLiftCandidates task (start.store.instCandidates (ready start.host) inst)), frames⟩ :: rest }
+        labels last →
       Prefix profile ready bindings resume start labels last
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback
