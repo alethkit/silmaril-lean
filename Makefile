@@ -131,6 +131,7 @@ check-integrations:
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Execution.Core.Exec.InstantiateIff +Silmaril.Wasm.Validation.Intrinsic.Thms && $(LAKE) env lean -DwarningAsError=true tests/wasm/module-entry/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Intrinsic.Normalize.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Policy.Thms +Silmaril.Wasm.Execution.Core.Intrinsic.OpSem.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-policy/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Program.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-program/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Determinism.Fuel.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-determinism/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Determinism.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/operational-determinism/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.GlobalProfile.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/global-profile/Regression.lean)
