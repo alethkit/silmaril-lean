@@ -892,7 +892,11 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
       { start with
         host := reached
         ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
-          continuation, segments⟩ :: rest } ∧ reached.writer = start.host.writer := by
+          continuation, segments⟩ :: rest } ∧ reached.writer = start.host.writer ∧
+      (start.CoreGrowing → Machine.Config.CoreGrowing { start with
+        host := reached
+        ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
+          continuation, segments⟩ :: rest }) := by
   intro reply reached
   let impl := host (grow := grow) bindings
   let program := confine (impl.embedder name type args)
@@ -913,7 +917,8 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
   have guard : Machine.CoreUpdateGrows start := by simp [Machine.CoreUpdateGrows, parked]
   have resumed := steps.append (.cons trivial (.popCore rfl) (.refl _))
   rw [← List.replicate_succ'] at resumed
-  refine ⟨count + 1 + 1 + 1 + 1, ?_, rfl⟩
+  refine ⟨count + 1 + 1 + 1 + 1, ?_, rfl,
+    fun growing => growing.replace_core_focus parked reached⟩
   exact .cons guard (.coreCallout parked calling)
     (.cons trivial (.currentThread rfl) (.cons trivial (.get rfl) resumed))
 
