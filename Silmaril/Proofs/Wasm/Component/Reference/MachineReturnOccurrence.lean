@@ -638,6 +638,21 @@ theorem absentTrail {before after : Config E Host} {labels : List (Label E Host)
   | refl => exact .done _ _
   | cons head _ ih => exact .step head ih
 
+theorem trail_through_return {start entered reached : Config E Host} {leading labels : List (Label E Host)}
+    {thread frames rest value} {resume : Continuation E Host} {depth : Nat}
+    (install : Prefix profile ready dispatch start (.active 0 depth) leading entered (.active 0 (depth + 1)))
+    (marked : Trail profile ready dispatch entered (some (.active 0 0)) labels reached (some (.active 0 0)))
+    (returning : reached.ctl = ⟨thread, .prog (.pure value), .prog resume :: frames⟩ :: rest) :
+    Prefix profile ready dispatch start (.active 0 depth) (leading ++ (labels ++ [.tau]))
+      { reached with ctl := ⟨thread, .prog (resume value), frames⟩ :: rest } (.active 0 depth) := by
+  obtain ⟨place, identical, run⟩ := trailSurvives marked
+  cases identical
+  have pops : (transitionEdit reached .tau).pops (.active 0 0) := by
+    rw [transitionEdit, returning]
+    trivial
+  apply prefix_append install
+  simpa only [Location.below, Nat.zero_add] using prefix_pop_above run (.popProg returning) pops depth
+
 theorem trailLoss {before after : Config E Host} {labels : List (Label E Host)}
     {mark final : Option Location} {resume : Continuation E Host}
     (run : Trail profile ready dispatch before mark labels after final) (place : Location)

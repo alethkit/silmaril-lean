@@ -598,8 +598,10 @@ def CollectionReplayFor (profile : ProfileKind) (ready : HostReady (HostState si
   let checked := collectionEntry destination inst area entries.length dispatch left check first
   let canonical := collectionEntry destination inst area entries.length dispatch right canon second
   let changes := ReturnFrame.Extend older first second
-  Steps profile ready dispatch left [.tau, .tau, .tau] checked ∧
-  Steps profile ready dispatch right [.tau, .tau] canonical ∧
+  (∀ depth, ReturnFrame.Occurrence.Prefix profile ready dispatch left (.active 0 depth)
+    [.tau, .tau, .tau] checked (.active 0 (depth + 1))) ∧
+  (∀ depth, ReturnFrame.Occurrence.Prefix profile ready dispatch right (.active 0 depth)
+    [.tau, .tau] canonical (.active 0 (depth + 1))) ∧
   ∀ {last seen protectedReturn}, PrefixFor profile ready bindings protectedReturn checked seen last →
     (∀ first second, changes first second → protectedReturn first) →
     ∃ leftLabels rightLabels other mark,

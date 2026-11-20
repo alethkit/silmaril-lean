@@ -57,6 +57,17 @@ theorem memory_cursor (run : CoreGrowthSteps profile ready dispatch before trace
   apply run.read_width (destination.context inst) rfl (check_width destination before.store checked) next
   simpa only [memorySequence, bind_assoc, next] using focused
 
+theorem list_range_focus (cx : LiftLowerContext (core3 grow)) (area : Layout) (count : Nat)
+    (finish : Nat → P (core3 grow) Host (Ret (core3 grow))) :
+    (allocateListRange cx area count >>= finish) =
+      .op (.call (.reallocate cx 0 0 area.alignment.bytes (count * area.size))) (listRangeResume cx area count finish) := by
+  unfold allocateListRange allocate reallocate callNat callRet perform Prog.lift
+  simp only [bind_assoc]
+  apply congrArg (Prog.op (S := Eff (core3 grow) Host)
+    (.call (.reallocate cx 0 0 area.alignment.bytes (count * area.size))))
+  funext result
+  cases result <;> rfl
+
 theorem list_range_install (cx : LiftLowerContext (core3 grow)) (area : Layout) (count : Nat)
     (finish : Nat → P (core3 grow) Host (Ret (core3 grow))) {thread segments rest}
     (focused : after.ctl = ⟨thread, .prog (allocateListRange cx area count >>= finish),
@@ -64,15 +75,7 @@ theorem list_range_install (cx : LiftLowerContext (core3 grow)) (area : Layout) 
     let request := Call.reallocate cx 0 0 area.alignment.bytes (count * area.size)
     Step profile ready dispatch after .tau { after with ctl :=
       ⟨thread, .prog (dispatch request), .prog (listRangeResume cx area count finish) :: segments⟩ :: rest } := by
-  have unfoldCall : (allocateListRange cx area count >>= finish) =
-      .op (.call (.reallocate cx 0 0 area.alignment.bytes (count * area.size))) (listRangeResume cx area count finish) := by
-    unfold allocateListRange allocate reallocate callNat callRet perform Prog.lift
-    simp only [bind_assoc]
-    apply congrArg (Prog.op (S := Eff (core3 grow) Host)
-      (.call (.reallocate cx 0 0 area.alignment.bytes (count * area.size))))
-    funext result
-    cases result <;> rfl
-  rw [unfoldCall] at focused
+  rw [list_range_focus] at focused
   exact Machine.Step.call focused
 
 theorem list_range_body (destination : RecordDestination) (inst : InstId) (area : Layout)
