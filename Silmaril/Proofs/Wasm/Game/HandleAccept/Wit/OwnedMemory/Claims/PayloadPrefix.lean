@@ -169,26 +169,21 @@ theorem weakenKeeping {left right : Config E Host} {keep weaker : CStore E → P
   | returned => exact weaken canonEnd.store kept
   | refused | trapped => trivial
 
-private theorem sequentialKeeping {keep : CStore E → Prop} {left right : Config E Host}
-    {checked : P E Host (Except RecordLower.Issue Result)} {canonical : P E Host Result}
-    (first : CompareKeepingAt profile ready dispatch keep left right checked canonical)
+theorem continueKeeping {keep : CStore E → Prop} {left right : Config E Host}
+    {checkCursor canonCursor : Cursor (E := E) Host} (thread : checkCursor.thread = canonCursor.thread)
+    {checkNext : Except RecordLower.Issue Next → P E Host (Ret E)} {canonNext : Next → P E Host (Ret E)}
     (mapIssue : RecordLower.Issue → RecordLower.Issue)
     (checkTail : Result → P E Host (Except RecordLower.Issue Next)) (canonTail : Result → P E Host Next)
+    (first : ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor
+      (checkedSequenceNext mapIssue checkTail checkNext) (fun value => canonTail value >>= canonNext))
     (rest : ∀ value entered reference, keep reference.store →
       CompareKeepingAt profile ready dispatch keep entered reference (checkTail value) (canonTail value)) :
-    CompareKeepingAt profile ready dispatch keep left right
-      (checked >>= fun result => match result with | .error issue => pure (.error (mapIssue issue)) | .ok value => checkTail value)
-      (canonical >>= canonTail) := by
-  intro same checkCursor canonCursor thread checkNext canonNext checkAt canonAt
-  let checkSuffix := fun (result : Except RecordLower.Issue Result) =>
-    (match result with | .error issue => pure (.error (mapIssue issue)) | .ok value => checkTail value) >>= checkNext
-  let canonSuffix := fun value => canonTail value >>= canonNext
-  obtain ⟨outcome, chk, ref, left', right', runChk, runRef, stores, labels, kept, status⟩ :=
-    first same checkCursor canonCursor thread checkSuffix canonSuffix
-      (by simpa only [checkSuffix, Prog.bind_eq, Prog.bind_assoc] using checkAt)
-      (by simpa only [canonSuffix, Prog.bind_eq, Prog.bind_assoc] using canonAt)
+    ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext := by
+  obtain ⟨outcome, chk, ref, left', right', runChk, runRef, stores, labels, kept, status⟩ := first
   cases outcome with
-  | refused issue => exact ⟨.refused (mapIssue issue), chk, ref, left', right', runChk, runRef, stores, labels, kept, status⟩
+  | refused issue =>
+    refine ⟨.refused (mapIssue issue), chk, ref, left', right', runChk, runRef, stores, labels, kept, ?_⟩
+    simpa only [checkedSequenceNext, Prog.bind_eq, Prog.pure_eq, Prog.pure_bind'] using status
   | trapped reason => exact ⟨.trapped reason, chk, ref, left', right', runChk, runRef, stores, labels, kept, status⟩
   | returned value =>
     obtain ⟨outcome, chk', ref', left'', right'', runChk', runRef', stores', labels', kept', status'⟩ :=
@@ -201,6 +196,25 @@ private theorem sequentialKeeping {keep : CStore E → Prop} {left right : Confi
       | trapped reason =>
         obtain ⟨emptyCheck, emptyCanon, leading, last⟩ := status'
         exact ⟨emptyCheck, emptyCanon, visible ref ++ leading, by rw [visible_append, last, List.append_assoc]⟩
+
+private theorem sequentialKeeping {keep : CStore E → Prop} {left right : Config E Host}
+    {checked : P E Host (Except RecordLower.Issue Result)} {canonical : P E Host Result}
+    (first : CompareKeepingAt profile ready dispatch keep left right checked canonical)
+    (mapIssue : RecordLower.Issue → RecordLower.Issue)
+    (checkTail : Result → P E Host (Except RecordLower.Issue Next)) (canonTail : Result → P E Host Next)
+    (rest : ∀ value entered reference, keep reference.store →
+      CompareKeepingAt profile ready dispatch keep entered reference (checkTail value) (canonTail value)) :
+    CompareKeepingAt profile ready dispatch keep left right
+      (checked >>= fun result => match result with | .error issue => pure (.error (mapIssue issue)) | .ok value => checkTail value)
+      (canonical >>= canonTail) := by
+  intro same checkCursor canonCursor thread checkNext canonNext checkAt canonAt
+  exact continueKeeping thread mapIssue checkTail canonTail (first same checkCursor canonCursor thread
+    (checkedSequenceNext mapIssue checkTail checkNext) (fun value => canonTail value >>= canonNext)
+    (by
+      unfold checkedSequenceNext
+      simp only [Prog.bind_eq, Prog.bind_assoc] at checkAt ⊢
+      convert checkAt using 3)
+    (by simpa only [Prog.bind_eq, Prog.bind_assoc] using canonAt)) rest
 
 private theorem pairedTau {left right left' right' : Config E Host} {keep : CStore E → Prop}
     {checkCursor canonCursor : Cursor (E := E) Host}
@@ -908,6 +922,37 @@ theorem collectionCallback (destination : RecordDestination) (inst : InstId) (en
       exact .inr (.inr ⟨pointer, checkCursor, canonCursor, atChecked, atCanonical, rfl,
         prepend lhs.steps rhs.steps rfl continued⟩)
 
+theorem dynamicRefusal (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+    (entries : List Field) (output : Lower.Output) (index : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (cursor canonCursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : left.store = right.store) (issue : RecordLower.Issue)
+    (refused : Record.prepare left.store left.host.writer (Field.listObjects entries) = .error issue)
+    (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    {keep : CStore (core3 grow) → Prop} :
+    ReachesKeeping profile scheduledReady scheduledDispatch keep left right cursor canonCursor checkNext canonNext := by
+  let cx := destination.context (grow := grow) inst
+  let checked := fun verdict : Except RecordLower.Issue Unit =>
+    (match verdict with
+     | .error (.preflight issue) => pure (.error (.field index (.beforeAllocation issue)))
+     | .error issue => pure (.error (.nested index issue))
+     | .ok () => do
+        let area := layout destination.width element
+        let ptr ← allocateListRange cx area entries.length
+        let live ← Record.Effects.reserve recordClaims (Field.listObjects entries)
+        checkedCollectionTail destination inst entries area index output ptr live) >>= checkNext
+  have getAt : left.ctl = cursor.control (.op .get fun store => .op .hostGet fun host =>
+      checked (Record.prepare store host.writer (Field.listObjects entries))) := by
+    rw [Record.Effects.field] at checkAt
+    exact checkAt
+  let afterRead := { left with ctl := cursor.control (checked (Record.prepare left.store left.host.writer (Field.listObjects entries))) }
+  have run : Steps profile scheduledReady scheduledDispatch left [.tau, .tau] afterRead :=
+    .cons (.get getAt) (.cons (.hostGet rfl) (.refl _))
+  have stop : afterRead.ctl = cursor.control (checked (.error issue)) := by simp only [afterRead, refused]
+  cases issue <;> exact ⟨.refused _, _, [], _, right, run, .refl _, same, rfl, trivial, stop⟩
+
 theorem collectionInstall (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
     (entries : List Field) (output : Lower.Output) (index : Nat)
     (left right : Config (core3 grow) (HostState sig)) (cursor : Cursor (E := core3 grow) (HostState sig))
@@ -1337,7 +1382,7 @@ theorem scalarCollectionTail (destination : RecordDestination) (inst : InstId) (
   obtain ⟨payload, rfl⟩ := scalarField (entriesMatchOfMem layoutMatch member)
   exact primitiveChildRule destination inst primitive nonString payload
 
-private theorem memoryFieldsKeeping (destination : RecordDestination) (inst : InstId)
+theorem memoryFieldsKeeping (destination : RecordDestination) (inst : InstId)
     {keep : CStore (core3 grow) → Prop} (fields : List Field) (cursor index : Nat)
     (width : ∀ store, keep store → ptrTypeIn store (destination.context inst) = destination.width)
     (child : ∀ slot item address, fields[slot]? = some item →
@@ -1438,7 +1483,7 @@ private theorem recordLayouts (width : AddrType) (schema : List (String × TypeO
   | nil => rw [List.map_nil, layoutFields, layoutTypes]
   | cons pair rest ih => cases pair; rw [List.map_cons, layoutFields, layoutTypes, ih]
 
-private theorem aggregateLayout (width : AddrType) {type : TypeOf} {fields : List Field}
+theorem aggregateLayout (width : AddrType) {type : TypeOf} {fields : List Field}
     (matched : Field.LayoutMatches (.aggregate type fields) type) :
     layout width type = recordLayout (fields.map fun item => layout width item.type) := by
   cases matched with
