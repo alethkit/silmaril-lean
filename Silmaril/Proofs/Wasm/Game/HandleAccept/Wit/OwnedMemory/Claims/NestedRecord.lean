@@ -9,6 +9,7 @@ import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Thms
 import Silmaril.Wasm.Component.Reference.ABI.Layout.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Prog.Thms
+import Silmaril.Wasm.Component.Reference.Engine.Core3.Store.Defs
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 
 public section
@@ -255,5 +256,129 @@ theorem parked {pointer : FlatValue} (call : PayloadRoot.Site grow sig (.memory 
         (localEntries item member) (entries_match_of_mem childMatch member))
       (fun item member => MemoryChildRule.local_memory site.destination site.inst (localTail item member) (tailMatch item member))
       rfl reference⟩
+
+theorem flatAtCursor (site : FlatSite) {origin : CStore (core3 grow)} {bytes : Nat}
+    (width : (core3 grow).memAddrType? origin.core site.destination.memory = some site.destination.width)
+    (sized : (core3 grow).memSize? origin.core site.destination.memory = some bytes)
+    (left right : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : FlatCheckNext grow sig) (canonNext : FlatCanonNext grow sig)
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    (growth : Core3.Grows origin.core right.store.core)
+    (children : ∀ item ∈ site.entries, MemoryChildRule profile ready (specDispatch ready (host (grow := grow) bindings))
+      site.destination site.inst item site.element)
+    (following : HandleFieldsWhere Nat.lt site.following)
+    (checkAt : left.ctl = cursor.control (site.checked >>= checkNext))
+    (canonAt : right.ctl = cursor.control (site.canonical >>= canonNext)) :
+    site.Outcome profile ready bindings origin left right cursor checkNext canonNext := by
+  let dispatch := specDispatch ready (host (grow := grow) bindings)
+  let cx := site.destination.context (grow := grow) site.inst
+  let type : TypeOf := .list site.element
+  let head : Field := .dynamic type site.element site.entries
+  let checkHeadNext := checkedSequenceNext id site.checkedTail checkNext
+  let canonHeadNext : FlatCanonNext grow sig := fun words => site.canonicalTail words >>= canonNext
+  let checkField : Session grow sig (Except RecordLower.Issue (List FlatValue)) :=
+    Record.Effects.field recordClaims Limits.spec Quirks.none cx site.destination.width head site.index .flat
+  let canonField : Session grow sig (List FlatValue) :=
+    CanonicalTree.field Limits.spec Quirks.none cx site.destination.width head .flat
+  have checkHead : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none cx
+      site.destination.width head site.index .flat >>= checkHeadNext) := by
+    rw [FlatSite.checked, FlatSite.fields, Record.Effects.flat] at checkAt
+    simp only [Lower.Output.Result] at checkAt
+    rw [checkAt]
+    change cursor.control ((checkField.bind _).bind checkNext) = cursor.control (checkField.bind checkHeadNext)
+    rw [Prog.bind_assoc]
+    apply congrArg (fun finish => cursor.control (checkField.bind finish))
+    funext verdict
+    cases verdict <;> rfl
+  have canonHead : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none cx
+      site.destination.width head .flat >>= canonHeadNext) := by
+    rw [FlatSite.canonical, FlatSite.fields, CanonicalTree.flat] at canonAt
+    rw [canonAt]
+    change cursor.control ((canonField.bind site.canonicalTail).bind canonNext) =
+      cursor.control (canonField.bind canonHeadNext)
+    rw [Prog.bind_assoc]
+    rfl
+  have later (words : List FlatValue) (entered reference : State grow sig) :
+      CompareKeepingAt profile ready dispatch (fun _ => True) entered reference
+        (site.checkedTail words) (site.canonicalTail words) := by
+    intro stores checkCursor canonCursor thread checkFinish canonFinish checked canonical
+    exact (flat_fields_prepend site.destination site.inst site.following following (site.index + 1) words
+      entered reference stores checkCursor canonCursor thread checkFinish canonFinish checked canonical).remember_true
+  have sameStore : left.store = right.store := by
+    simpa only using congrArg (fun cfg : State grow sig => cfg.store) same
+  unfold FlatSite.Outcome
+  cases prepared : Record.prepare left.store left.host.writer (Field.listObjects site.entries) with
+  | error issue =>
+    have stopped := dynamic_refused_before_allocation (profile := profile) (ready := ready) (dispatch := dispatch)
+      site.destination site.inst type site.element site.entries .flat site.index left right cursor cursor
+      checkHeadNext canonHeadNext sameStore issue prepared checkHead (keep := fun _ => True)
+    exact (stopped.bind_reached rfl id site.checkedTail site.canonicalTail (fun words entered reference _ =>
+      later words entered reference)).forget
+  | ok passed =>
+    cases passed
+    constructor
+    · intro last seen path
+      obtain ⟨checkedInstall, canonicalInstall, paired⟩ := collection_install
+        site.destination site.inst type site.element site.entries .flat site.index left right cursor checkHeadNext
+        canonHeadNext same (growth.memAddrType width) rfl prepared checkHead canonHead
+      obtain ⟨_, _, other, checkedRun, canonicalRun, related, checkedSeen, canonicalSeen⟩ := path.replay paired
+      exact ⟨_, _, other, appendSteps checkedInstall checkedRun.steps, appendSteps canonicalInstall canonicalRun.steps,
+        related, checkedSeen, canonicalSeen, (sameStore ▸ growth).trans checkedRun.grows⟩
+    intro pointer last seen reached path returned
+    have cut := Prefix.collection_memory site.destination site.inst type site.element site.entries .flat site.index
+      pointer cursor reached checkHeadNext canonHeadNext same growth width sized rfl prepared checkHead canonHead
+      path returned children
+    rcases cut with ⟨referenceCursor, thread, done⟩ | common
+    · have localDone := done.weaken (weaker := fun _ => True) (fun _ _ => trivial)
+      exact .inl ⟨referenceCursor, thread, (localDone.bind_reached thread.symm id site.checkedTail site.canonicalTail
+        (fun words entered reference _ => later words entered reference)).forget⟩
+    · exact .inr common
+
+theorem parkedFlat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
+    (element : TypeOf) (entries following : List Field) (next : call.ReferenceNext)
+    (field : call.field = .aggregate (sig.payload call.tag) (.dynamic (.list element) element entries :: following))
+    (localEntries : ∀ item ∈ entries, LocalMemory item) (localTail : ∀ item ∈ following, HandleShape item) :
+    PublicFlatOutcome call element entries following next profile ready bindings := by
+  let site := publicFlatSite call element entries following
+  rcases call.parked (profile := profile) (ready := ready) linked with
+    ⟨issue, silent, stopped⟩ | ⟨reason, count, placed, halted⟩ | ⟨silent, placed, prepared, run, _⟩
+  · exact .refused issue silent stopped
+  · exact .placementTrap reason count placed halted
+  · obtain ⟨plan, compiled⟩ := linked.compiled
+    have matched := Record.preflightValue_layout _ _ _ _ _ plan compiled
+    rw [field] at matched
+    obtain ⟨childMatch, tailMatch⟩ := listAndTail matched
+    have tail : HandleFieldsWhere Nat.lt following := by
+      suffices ∀ items : List Field, (∀ item ∈ items, HandleField item) → HandleFieldsWhere Nat.lt items from
+        this following fun item member => checked_fragment (tailMatch item member) (localTail item member)
+      intro items
+      induction items with
+      | nil => exact fun _ => trivial
+      | cons item rest ih =>
+        intro each
+        exact ⟨each item (List.mem_cons_self ..), ih fun child member => each child (List.mem_cons_of_mem _ member)⟩
+    have checked : call.checked.ctl = call.cursor.control (site.checked >>= publicFlatReply call) := by
+      change call.cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none (call.destination.context call.inst)
+        call.destination.width call.field 0 .flat >>= call.reply) = _
+      rw [field, Record.Effects.field]
+      let finish : FlatCheckNext grow sig := call.reply
+      change call.cursor.control ((site.checked.bind fun verdict => .pure (verdict.mapError (.nested 0))).bind finish) =
+        call.cursor.control (site.checked.bind (publicFlatReply call))
+      simp only [Prog.bind_assoc, Prog.pure_bind']
+      rfl
+    have reference : (call.reference next).ctl = call.cursor.control (site.canonical >>= next) := by
+      rw [call.reference_at linked next]
+      change call.cursor.control (CanonicalTree.field Limits.spec Quirks.none (call.destination.context call.inst)
+        call.destination.width call.field .flat >>= next) = _
+      rw [field, CanonicalTree.field]
+      rfl
+    have width := call.destination.check_width call.start.store linked.destination
+    have sizePresent := (Silmaril.Wasm.Component.Engine.Core3.memAddrType?_isSome_iff
+      (s := call.start.store.core) (m := call.destination.memory)).mp
+      (show ((core3 grow).memAddrType? call.start.store.core call.destination.memory).isSome by simp [width])
+    obtain ⟨bytes, sized⟩ := Option.isSome_iff_exists.mp sizePresent
+    exact .placed silent placed prepared run (flatAtCursor site width sized call.checked (call.reference next) call.cursor
+      (publicFlatReply call) next rfl (Core3.Grows.refl _) (fun item member => MemoryChildRule.local_memory
+        site.destination site.inst (localEntries item member) (entries_match_of_mem childMatch member)) tail checked reference)
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.NestedRecord
