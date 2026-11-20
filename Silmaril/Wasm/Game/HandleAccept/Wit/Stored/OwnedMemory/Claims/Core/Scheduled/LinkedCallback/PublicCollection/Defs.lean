@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Defs
-public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadRoot.Defs
 
 @[expose] public section
 
@@ -41,6 +41,10 @@ variable {grow : SingleThreaded.GrowOracle} {sig : Signature}
 def Site.tree (site : Site grow sig) : OwnedMemory.Tree sig := .tag ⟨site.tag, site.payload⟩ site.arity site.children
 
 def Site.field (site : Site grow sig) : Field := .dynamic site.type site.element site.entries
+
+def Site.toRoot (site : Site grow sig) : PayloadRoot.Site grow sig site.route :=
+  ⟨site.start, site.destination, site.inst, site.name, site.functionType, site.handle, site.tag, site.payload, site.arity,
+    site.children, site.field, site.thread, site.core, site.resume, site.frames, site.rest⟩
 
 def Site.cursor (site : Site grow sig) : Cursor (E := core3 grow) (HostState sig) :=
   ⟨site.thread, .core site.core site.resume :: site.frames, site.rest⟩

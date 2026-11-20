@@ -829,6 +829,15 @@ A common-frame pop stays paired without claiming a return; typed refusal
 and canonical trap stop the suffix. This is a rule for a classified reached
 path, not a proof that realloc returns or a classification of all nested paths.
 
+`PayloadRoot.Site.parked` shares admission, claim preparation, fit and root
+placement across both linked give bindings. `NestedRecord.parked_givePayload`
+uses that cut and the compiler's layout to enter a record or tuple whose first
+field is an allocating list. It executes the aggregate's checked bounds read
+and keeps its nested issue mapping. It compares finite classified allocator
+prefixes and advances the real sibling cursor only after a common return and
+live recheck. The list entries and later fields use the recursive local-memory
+fragment; arbitrary allocating descendants and reply delivery remain separate.
+
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
 canonical leaf programs, then traverses the placed record/tuple fields, list and

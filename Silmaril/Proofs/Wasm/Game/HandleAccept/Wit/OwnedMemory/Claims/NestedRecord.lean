@@ -3,6 +3,10 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.NestedRecord.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadRoot.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Thms
 import Silmaril.Wasm.Component.Reference.ABI.Layout.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Prog.Thms
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
@@ -156,5 +160,100 @@ theorem atCursor (site : Site) {origin : CStore (core3 grow)} {bytes : Nat} (reg
       exact .inl ⟨referenceCursor, thread, continued.prepend (.refl _) (.cons read (.refl _)) rfl⟩
     · obtain ⟨checkLabels, canonLabels, other, checks, canonical, paired, checkSeen, canonSeen⟩ := common
       exact .inr ⟨checkLabels, .tau :: canonLabels, other, checks, .cons read canonical, paired, checkSeen, canonSeen⟩
+
+private theorem tailLayout {fields : List Field} {types : List TypeOf} (matched : Field.FieldsMatch fields types)
+    {item : Field} (member : item ∈ fields) : item.LayoutMatches item.type := by
+  induction fields generalizing types with
+  | nil => simp at member
+  | cons _ _ ih =>
+    cases matched with
+    | cons head tail =>
+      rcases List.mem_cons.mp member with rfl | member
+      · rw [head.type_eq]
+        exact head
+      · exact ih tail member
+
+private theorem listAndTail {schema element : TypeOf} {entries following : List Field}
+    (matched : Field.LayoutMatches (.aggregate schema (.dynamic (.list element) element entries :: following)) schema) :
+    Field.EntriesMatch entries element ∧ ∀ item ∈ following, item.LayoutMatches item.type := by
+  have both {types : List TypeOf}
+      (fields : Field.FieldsMatch (.dynamic (.list element) element entries :: following) types) :
+      Field.EntriesMatch entries element ∧ ∀ item ∈ following, item.LayoutMatches item.type := by
+    cases fields with
+    | cons head tail =>
+      refine ⟨?_, fun _ member => tailLayout tail member⟩
+      cases head with
+      | list entries => exact entries
+  cases matched with
+  | record fields => exact both fields
+  | tuple fields => exact both fields
+
+private theorem placedRegion (site : Site) (start : CStore (core3 grow))
+    (matched : Field.LayoutMatches (.aggregate site.schema site.fields) site.schema)
+    (width : (core3 grow).memAddrType? start.core site.destination.memory = some site.destination.width)
+    (placed : placement site.destination start (layout site.destination.width site.schema) site.base = .ok ()) :
+    ∃ bytes, site.Region start bytes := by
+  by_cases aligned : site.base % (layout site.destination.width site.schema).alignment.bytes = 0
+  · cases sized : (core3 grow).memSize? start.core site.destination.memory with
+    | none => simp [placement, aligned, sized] at placed
+    | some bytes =>
+      by_cases fits : site.base + (layout site.destination.width site.schema).size ≤ bytes
+      · exact ⟨bytes, matched, width, sized, Nat.dvd_of_mod_eq_zero aligned, fits⟩
+      · simp [placement, aligned, sized, Nat.lt_of_not_ge fits] at placed
+  · simp [placement, aligned] at placed
+    cases placed
+
+theorem parked {pointer : FlatValue} (call : PayloadRoot.Site grow sig (.memory pointer)) (linked : call.Linked bindings)
+    (element : TypeOf) (entries following : List Field) (next : call.ReferenceNext)
+    (field : call.field = .aggregate (sig.payload call.tag) (.dynamic (.list element) element entries :: following))
+    (localEntries : ∀ item ∈ entries, LocalMemory item) (localTail : ∀ item ∈ following, LocalMemory item) :
+    PublicOutcome call element entries following next profile ready bindings := by
+  let site := publicSite call element entries following
+  rcases call.parked (profile := profile) (ready := ready) linked with
+    ⟨issue, silent, stopped⟩ | ⟨reason, count, placed, halted⟩ | ⟨silent, placed, prepared, run, _⟩
+  · exact .refused issue silent stopped
+  · exact .placementTrap reason count placed halted
+  · obtain ⟨plan, compiled⟩ := linked.compiled
+    have matched := Record.preflightValue_layout _ _ _ _ _ plan compiled
+    rw [field] at matched
+    have width := call.destination.check_width call.start.store linked.destination
+    obtain ⟨bytes, region⟩ := placedRegion site call.start.store matched width placed
+    obtain ⟨childMatch, tailMatch⟩ := listAndTail matched
+    let area := layout call.destination.width (sig.payload call.tag)
+    have checked : call.checked.ctl = call.cursor.control (do
+        checkAligned (flatNat pointer) area.alignment.bytes
+        checkInBounds (call.destination.context call.inst) (flatNat pointer) area.size
+        publicBody call site) := by
+      change call.cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none (call.destination.context call.inst)
+        call.destination.width call.field 0 (.memory (flatNat pointer)) >>= call.reply) = _
+      have aligned : flatNat pointer % area.alignment.bytes = 0 := Nat.mod_eq_zero_of_dvd region.aligned
+      simp [field, Record.Effects.field, site, publicSite, Site.fields, Site.head, checkAligned, trapIf, aligned, area,
+        publicBody, Prog.bind_eq, Prog.pure_bind']
+      let read : Session grow sig Unit := checkInBounds (call.destination.context call.inst) (flatNat pointer) area.size
+      let body : Session grow sig (Except RecordLower.Issue Unit) :=
+        Record.Effects.memory recordClaims Limits.spec Quirks.none (site.destination.context site.inst)
+        site.destination.width site.fields site.base site.index
+      let finish : CheckNext grow sig := call.reply
+      change call.cursor.control ((read.bind fun _ => body.bind fun verdict => .pure (verdict.mapError (.nested 0))).bind finish) =
+        call.cursor.control (read.bind fun _ => body.bind (publicReply call))
+      simp only [Prog.bind_assoc, Prog.pure_bind']
+      rfl
+    have bounds := check_placement_steps (profile := profile) (placementReady := ready)
+      (placementDispatch := specDispatch ready (host (grow := grow) bindings))
+      call.destination call.inst call.checked area (flatNat pointer) call.cursor (publicBody call site) checked
+    have placedHere : placement call.destination call.checked.store area (flatNat pointer) = .ok () := placed
+    rw [placedHere] at bounds
+    have reference : (call.reference next).ctl = call.cursor.control (CanonicalTree.memory Limits.spec Quirks.none
+        (site.destination.context site.inst) site.destination.width site.fields site.base >>= next) := by
+      rw [call.reference_at linked next]
+      change call.cursor.control (CanonicalTree.field Limits.spec Quirks.none (call.destination.context call.inst)
+        call.destination.width call.field (.memory (flatNat pointer)) >>= next) = _
+      simp only [field, CanonicalTree.field, site, publicSite, Site.fields, Site.head]
+      rfl
+    exact .placed silent placed prepared run ⟨bounds, atCursor site region (call.withBody (publicBody call site))
+      (call.reference next) call.cursor (publicReply call) next rfl (Core3.Grows.refl _) (fun item member => MemoryChildRule.local_memory site.destination site.inst
+        (localEntries item member) (entries_match_of_mem childMatch member))
+      (fun item member => MemoryChildRule.local_memory site.destination site.inst (localTail item member) (tailMatch item member))
+      rfl reference⟩
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.NestedRecord

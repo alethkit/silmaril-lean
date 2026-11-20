@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadRoot.Defs
 
 @[expose] public section
 
@@ -91,5 +92,28 @@ def Site.Outcome (site : Site) (profile : ProfileKind) (ready : HostReady (HostS
       last.ctl = { reached with frames := .prog checkResume :: reached.frames }.control (pure (.nat pointer)) →
       CollectionCutKeeping profile ready bindings keep checkResume canonResume left right
         { last with ctl := reached.control (checkResume (.nat pointer)) } reached checkNext canonNext seen)
+
+def publicSite {pointer : FlatValue} (call : PayloadRoot.Site grow sig (.memory pointer))
+    (element : TypeOf) (entries following : List Field) : Site :=
+  ⟨call.destination, call.inst, sig.payload call.tag, element, entries, following, flatNat pointer, 0⟩
+
+def publicReply {pointer : FlatValue} (call : PayloadRoot.Site grow sig (.memory pointer)) : CheckNext grow sig :=
+  fun verdict => call.reply (verdict.mapError (.nested 0))
+
+def publicBody {pointer : FlatValue} (call : PayloadRoot.Site grow sig (.memory pointer)) (site : Site) :
+    Session grow sig (Ret (core3 grow)) :=
+  Record.Effects.memory recordClaims Limits.spec Quirks.none (site.destination.context site.inst)
+    site.destination.width site.fields site.base site.index >>= publicReply call
+
+/-- A public checked-only stop at admission or placement, or a comparison at
+the compiled memory body with the original parked caller and reply ticket. -/
+def PublicOutcome {pointer : FlatValue} (call : PayloadRoot.Site grow sig (.memory pointer))
+    (element : TypeOf) (entries following : List Field) (next : call.ReferenceNext)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig)) : Prop :=
+  let site := publicSite call element entries following
+  let entered := call.withBody (publicBody call site)
+  PayloadRoot.Cut call profile ready bindings
+    (Steps profile ready (specDispatch ready (host (grow := grow) bindings)) call.checked [.tau] entered ∧
+      site.Outcome profile ready bindings call.start.store entered (call.reference next) call.cursor (publicReply call) next)
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.NestedRecord
