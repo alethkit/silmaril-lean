@@ -89,6 +89,23 @@ def blockOccurrences (address : Block Name Key Payload → Name) : (level : Nat)
 def Tree.rootName (tree : Tree Key Payload) (address : Block Name Key Payload → Name) : Name :=
   address (nodeBlock address tree.level tree.root)
 
+/-- Compute all child names before forming the parent block. Failure at any
+reachable block prevents a root name from being returned. -/
+def nameNode? (nameBlock? : Block Name Key Payload → Option Name) :
+    (level : Nat) → Node Key Payload level → Option Name
+  | 0, node => nameBlock? (.leaf node)
+  | level + 1, node => do
+    let children ← node.mapM fun child => (nameNode? nameBlock? level child.2).map (child.1, ·)
+    nameBlock? (.branch (level + 1) children)
+
+def Tree.rootName? (tree : Tree Key Payload) (nameBlock? : Block Name Key Payload → Option Name) : Option Name :=
+  nameNode? nameBlock? tree.level tree.root
+
+/-- An address assignment is tested at each block it induces, not merely at its root. -/
+def Tree.Admits (tree : Tree Key Payload) (nameBlock? : Block Name Key Payload → Option Name)
+    (address : Block Name Key Payload → Name) : Prop :=
+  ∀ block ∈ blockOccurrences address tree.level tree.root, nameBlock? block = some (address block)
+
 /-- The least relation containing the observations of the encoded tree. A supplied
 address determines the name of each block but is not presumed collision free. -/
 def Tree.observations (tree : Tree Key Payload) (address : Block Name Key Payload → Name) :

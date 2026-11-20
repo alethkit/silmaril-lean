@@ -3,6 +3,7 @@ module
 public import Silmaril.Semantics.Prolly.Defs
 public import Silmaril.Semantics.OrderedMap.Thms
 import Silmaril.Proofs.Semantics.Prolly.Builder
+import Silmaril.Proofs.Semantics.Prolly.Naming
 
 public section
 
@@ -33,6 +34,12 @@ theorem rootName_eq_of_lookup [LinearOrder Key] (policy : Policy Key) (address :
 theorem build_bounded [LinearOrder Key] (policy : Policy Key) (map : OrderedMap Key Payload) :
     (build policy map).Bounded policy.width :=
   Proofs.Semantics.Prolly.grow_bounded policy map.entries.length 0 map.entries (Nat.le_refl _) trivial
+
+theorem Tree.rootName?_eq_some_iff (tree : Tree Key Payload)
+    (nameBlock? : Block Name Key Payload → Option Name) (root : Name) :
+    tree.rootName? nameBlock? = some root ↔
+      ∃ address, tree.Admits nameBlock? address ∧ tree.rootName address = root :=
+  Proofs.Semantics.Prolly.rootName_spec tree nameBlock? root
 
 theorem Tree.observations_subset_iff (tree : Tree Key Payload) (address : Block Name Key Payload → Name)
     (reference : Naming.Relation Name (Block Name Key Payload)) :
