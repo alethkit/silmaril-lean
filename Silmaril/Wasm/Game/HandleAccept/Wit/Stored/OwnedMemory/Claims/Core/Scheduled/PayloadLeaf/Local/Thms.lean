@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadLeaf.Local.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.CanonicalTree.Defs
+public import Silmaril.Wasm.Component.Reference.Engine.Core3.Grows.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LocalLeaf
 
 public section
@@ -46,6 +47,7 @@ theorem RecordDestination.compare_handle_leaf {grow : SingleThreaded.GrowOracle}
     | .ok plan =>
       let host := plan.elim checked.host (fun spend => { checked.host with writer := spend.apply checked.host.writer })
       ∃ reached outcome leading checkLabels canonLabels,
+        Core3.Grows canonical.store.core reached.core ∧
         (∀ label ∈ leading, label = .tau) ∧ LocalLeafLabels outcome checkLabels ∧ LocalLeafLabels outcome canonLabels ∧
         Steps profile ready dispatch checked (leading ++ checkLabels)
           (localLeafEnd checked host reached thread checkFrames checkRest (fun result => checkNext (.ok result)) outcome) ∧
