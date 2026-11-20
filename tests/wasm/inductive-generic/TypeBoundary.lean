@@ -2,6 +2,7 @@ module
 
 import Silmaril.Wasm.Validation.Generic.SSA.Thms
 import Silmaril.Wasm.Validation.Intrinsic.ReifyThms
+import Silmaril.Wasm.Validation.Generic.Signature.Lowering
 import Silmaril.Wasm.SSA.Translate.Thms
 import Silmaril.Wasm.SSA.Fragment.Thms
 import Silmaril.SSA.Isotope.Types.Thms
@@ -136,7 +137,84 @@ example : (executable ((module_.map (AtCore.retype forward)).defs.get (.there .h
     [.i32 0] .trap := SSA.compileFunc_iff.mpr
       (SSA.FragFunc.eval_sound (f := SSA.exampleDiv) (fuel := 10) (by decide))
 
+private def coreEncoding : Signature.Encoding Code where
+  arg
+    | .base type => some (.int type)
+    | _ => none
+  result
+    | .base type => some [.int type]
+    | .unit => some []
+    | _ => none
+
+private def freeEncoding : Signature.Encoding FreeCode :=
+  ⟨fun type => coreEncoding.arg type.toTy, fun type => coreEncoding.result type.toTy⟩
+
+private def repeatedSig : Signature.Func Code := ⟨[i32], i32⟩
+
+private def declared : Signature.Module (DeclaredBody Op (Silmaril.Ty.unit : Code)) where
+  defs := [⟨repeatedSig, ⟨inc, inc_typed⟩⟩, ⟨repeatedSig, ⟨divide, divide_typed⟩⟩]
+  exports := [("inc", ⟨0⟩), ("div", ⟨1⟩)]
+  exportsInScope := by
+    intro entry mem
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at mem
+    rcases mem with rfl | rfl <;> decide
+  memories := []
+  data := [⟨⟨#[42]⟩, .passive⟩]
+
+private def free := declared.map encoding.run (encoding.declared forward.trap)
+
+example : free.signatureAt? ⟨1⟩ = some (repeatedSig.map encoding.run) := rfl
+example : free.signatureAt? ⟨2⟩ = none := rfl
+example : (Signature.Func.mk [.product i32 i32] i32).encode? coreEncoding = none := rfl
+
+example : free.specialize? freeEncoding (fun _ _ body => some ([], eraseRegion body.val)) =
+    declared.specialize? coreEncoding (fun _ _ body => some ([], eraseRegion body.val)) :=
+  encoding.declared_specialize forward.trap coreEncoding freeEncoding
+    (fun type => congrArg coreEncoding.arg (FreeTy.toTy_toFree type))
+    (fun type => congrArg coreEncoding.result (FreeTy.toTy_toFree type))
+    (fun _ _ code => some ([], eraseRegion code)) declared
+
+private def lowered? := free.specialize? freeEncoding
+  (fun index sig body => Signature.lowerRegion? index sig (eraseRegion body.val))
+
+example : lowered? = declared.specialize? coreEncoding
+    (fun index sig body => Signature.lowerRegion? index sig (eraseRegion body.val)) :=
+  encoding.declared_specialize forward.trap coreEncoding freeEncoding
+    (fun type => congrArg coreEncoding.arg (FreeTy.toTy_toFree type))
+    (fun type => congrArg coreEncoding.result (FreeTy.toTy_toFree type))
+    (fun index sig code => Signature.lowerRegion? index sig (eraseRegion code)) declared
+
+private def lowered := lowered?.get (by decide +kernel)
+
+example : lowered.defs.map Wasm.Func.type = [⟨0⟩, ⟨1⟩] := rfl
+example : lowered.metadata.types = List.replicate 2 ⟨[⟨true, [], .func ⟨[.i32], [.i32]⟩⟩]⟩ := rfl
+example : lowered.metadata.exports.map Export.name = ["inc", "div"] := rfl
+example : lowered.metadata.data.map Data.bytes = [⟨#[42]⟩] := rfl
+
+private def interface := (validate? lowered.toCore).get (by decide +kernel)
+
+example : (CExternType.funcs interface.exports).map DefType.funcType? =
+    [some ([.i32], [.i32]), some ([.i32], [.i32])] := rfl
+
+example : ∃ typed : Typed.Module (Typed.Function Intrinsic.Body) interface,
+    typed.forget Typed.Function.erase = lowered :=
+  Signature.checkedLift (by decide +kernel)
+
+example : (Intrinsic.Reify.reify? lowered.toCore).isSome = false := by decide +kernel
+
+example : (lowered.defs[0]'(by decide +kernel)).body.any (fun
+    | .localSet _ => true
+    | _ => false) = true := rfl
+
+example : (free.specialize? freeEncoding (fun _ _ _ => some ([], [.intConst .i64 0])) >>= fun bad =>
+    validate? bad.toCore) = none := by decide +kernel
+
 #print axioms TypeMap.region
 #print axioms AtCore.retype
 #print axioms retype_module_syntax
 #print axioms retype_module_roundtrip
+#print axioms Signature.Module.map_id
+#print axioms Signature.Module.map_comp
+#print axioms Signature.Module.signatureAt_map
+#print axioms TypeMap.declared_specialize
+#print axioms Signature.checkedLift

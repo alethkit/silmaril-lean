@@ -19,6 +19,9 @@ def coreEquiv : Wasm.Module ≃ RawModule Wasm.Func where
 @[simp] theorem coreEquiv_toCore (mod : Wasm.Module) : (coreEquiv mod).toCore = mod :=
   coreEquiv.left_inv mod
 
+theorem toCore_injective : Function.Injective (toCore : RawModule Wasm.Func → Wasm.Module) :=
+  coreEquiv.symm.injective
+
 @[simp] theorem map_id {F : Type} (mod : RawModule F) : mod.map id = mod := by
   cases mod; simp [map]
 
