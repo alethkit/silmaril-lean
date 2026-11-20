@@ -3,11 +3,12 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadInstall.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Collection.Defs
-public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadInstall.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Collection.Thms
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
+import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Thms
 import Silmaril.Wasm.Component.Reference.ABI.Layout.Thms
 
 public section
@@ -143,7 +144,7 @@ theorem paired_dynamic_call {sig : Stored.Signature} {ready : HostReady (HostSta
     (checkedAt : checked.ctl = ⟨thread, .prog (Internal.runField Limits.spec Quirks.none (destination.context inst)
       (Record.authority recordClaims Limits.spec (destination.context inst)) destination.width
       (.dynamic type element entries) index output >>= finishChecked), segments⟩ :: rest)
-    (same : { checked with ctl := canonical.ctl } = canonical) :
+    (same : { checked with ctl := canonical.ctl, host := canonical.host } = canonical) :
     let dispatch := specDispatch ready (host (grow := grow) bindings)
     let cx := destination.context (grow := grow) inst
     let area := layout destination.width element
@@ -165,21 +166,22 @@ theorem paired_dynamic_call {sig : Stored.Signature} {ready : HostReady (HostSta
         finishCanonical result)) ∧
       Machine.Steps profile ready dispatch checked [.tau, .tau, .tau] checkedCall ∧
       Machine.Steps profile ready dispatch canonical [.tau, .tau] canonicalCall ∧
-      Machine.ReturnFrame.Paired checkedResume canonicalResume checkedCall canonicalCall := by
+      Machine.HostFrame.Paired checkedResume canonicalResume checkedCall canonicalCall := by
   obtain ⟨checkedResume, checkedReturn, checkSteps⟩ := checked_dynamic_call (profile := profile)
     (ready := ready) (dispatch := specDispatch ready (host bindings)) checked destination inst type element entries
     index output finishChecked prepared checkedAt
   obtain ⟨canonicalResume, canonicalReturn, canonSteps⟩ := canonical_dynamic_call canonicalRun destination inst
     checkedDestination element entries output storeEntry finishCanonical canonicalAt
   refine ⟨checkedResume, canonicalResume, checkedReturn, canonicalReturn, checkSteps, canonSteps, ?_⟩
+  unfold Machine.HostFrame.Paired
   conv => rhs; rw [← same]
-  exact Machine.ReturnFrame.installed checked thread _ segments rest
+  exact Machine.ReturnFrame.installed (Machine.HostFrame.replace checked canonical.host) thread _ segments rest
 
 theorem paired_range_recheck {sig : Stored.Signature} {ready : HostReady (HostState sig)}
     {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
     {checked canonical : Machine.Config (core3 grow) (HostState sig)}
     {checkedResume canonicalResume : Machine.ReturnFrame.Continuation (core3 grow) (HostState sig)}
-    (paired : Machine.ReturnFrame.Paired checkedResume canonicalResume checked canonical)
+    (paired : Machine.HostFrame.Paired checkedResume canonicalResume checked canonical)
     (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
     (checkNext : Nat → Except Stored.Endpoints.RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
     (canonNext : Nat → Session grow sig (Ret (core3 grow)))

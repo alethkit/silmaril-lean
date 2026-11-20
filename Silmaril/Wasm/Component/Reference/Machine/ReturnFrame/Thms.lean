@@ -28,6 +28,24 @@ theorem Paired.data {left right : Config E Host} (paired : Paired first second l
   cases paired
   exact ⟨rfl, rfl, rfl, rfl, rfl⟩
 
+/-- Find the corresponding activation and keep its segment stack and the
+blocked frames paired under a matched focus update. -/
+theorem Paired.retarget {left right : Config E Host} (paired : Paired first second left right)
+    {thread focus frames rest} (focused : left.ctl = ⟨thread, focus, frames⟩ :: rest)
+    (next : Focus E Host) (host : Host) :
+    ∃ otherFrames otherRest, right.ctl = ⟨thread, focus, otherFrames⟩ :: otherRest ∧
+      Paired first second { left with host, ctl := ⟨thread, next, frames⟩ :: rest }
+        { right with host, ctl := ⟨thread, next, otherFrames⟩ :: otherRest } :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineReturnFrame.retarget paired focused next host
+
+/-- A single replay step either keeps the framed relation or pops the
+substituted continuation with the same result on both sides. -/
+theorem step {left right next : Config E Host} {label : Label E Host}
+    (paired : Paired first second left right) (run : Step profile ready dispatch left label next) :
+    (∃ next', Step profile ready dispatch right label next' ∧ Paired first second next next') ∨
+    (∃ next', Step profile ready dispatch right label next' ∧ Returned first second left right label next next') :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineReturnFrame.step paired run
+
 /-- Replay any finite run, with identical labels and reached data, up to and
 including the first pop of a substituted frame. That pop supplies the same
 result to each continuation. If no such frame is popped, also replay the

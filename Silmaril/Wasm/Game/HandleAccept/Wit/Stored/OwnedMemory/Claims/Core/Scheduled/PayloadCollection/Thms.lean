@@ -3,7 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadInstall.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Collection.Defs
-public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
+public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection
 
 public section
@@ -74,9 +74,9 @@ theorem RecordDestination.checked_dynamic_call {sig : Stored.Signature} {ready :
     reached destination inst type element entries index output finish prepared focused
 
 /-- At matching reached dynamic cursors, both paths dispatch the identical
-linked realloc program. The actual callback prefix can be shared via
-`ReturnFrame.steps`, up to the common result. The saved continuations check
-the same range; the checked continuation then revalidates the live plan. -/
+linked realloc program even if their writers differ after earlier spends.
+`HostFrame.paired_steps` shares its actual prefix up to a changed host read
+or the common result. The checked continuation then revalidates the live plan. -/
 theorem RecordDestination.paired_dynamic_call {sig : Stored.Signature} {ready : HostReady (HostState sig)}
     (bindings : List (Binding sig))
     {initial canonical checked : Machine.Config (core3 grow) (HostState sig)} {trace}
@@ -93,7 +93,7 @@ theorem RecordDestination.paired_dynamic_call {sig : Stored.Signature} {ready : 
     (checkedAt : checked.ctl = ⟨thread, .prog (Internal.runField Limits.spec Quirks.none (destination.context inst)
       (Record.authority recordClaims Limits.spec (destination.context inst)) destination.width
       (.dynamic type element entries) index output >>= finishChecked), segments⟩ :: rest)
-    (same : { checked with ctl := canonical.ctl } = canonical) :
+    (same : { checked with ctl := canonical.ctl, host := canonical.host } = canonical) :
     let dispatch := specDispatch ready (host (grow := grow) bindings)
     let cx := destination.context (grow := grow) inst
     let area := layout destination.width element
@@ -115,7 +115,7 @@ theorem RecordDestination.paired_dynamic_call {sig : Stored.Signature} {ready : 
         finishCanonical result)) ∧
       Machine.Steps profile ready dispatch checked [.tau, .tau, .tau] checkedCall ∧
       Machine.Steps profile ready dispatch canonical [.tau, .tau] canonicalCall ∧
-      Machine.ReturnFrame.Paired checkedResume canonicalResume checkedCall canonicalCall :=
+      Machine.HostFrame.Paired checkedResume canonicalResume checkedCall canonicalCall :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection.paired_dynamic_call
     bindings canonicalRun destination inst checkedDestination type element entries index output storeEntry
     finishCanonical finishChecked prepared canonicalAt checkedAt same
@@ -127,7 +127,7 @@ theorem RecordDestination.paired_range_recheck {sig : Stored.Signature} {ready :
     {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
     {checked canonical : Machine.Config (core3 grow) (HostState sig)}
     {checkedResume canonicalResume : Machine.ReturnFrame.Continuation (core3 grow) (HostState sig)}
-    (paired : Machine.ReturnFrame.Paired checkedResume canonicalResume checked canonical)
+    (paired : Machine.HostFrame.Paired checkedResume canonicalResume checked canonical)
     (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
     (checkNext : Nat → Except Endpoints.RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
     (canonNext : Nat → Session grow sig (Ret (core3 grow)))

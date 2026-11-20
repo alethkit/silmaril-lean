@@ -704,14 +704,19 @@ nested-field bounds read succeeds at that placement after a certified prefix.
 
 `RecordDestination.paired_dynamic_call` reaches the same linked realloc
 program on both sides, with the two actual continuation programs on the
-stack. `Machine.ReturnFrame.steps` replays the same scheduler labels through
-reentry and blocked activations up to the substituted frame's pop. Both sides
-observe the same return and reached store, writer, and host bookkeeping;
-those need not equal their values before realloc. A prefix that traps or has
-not returned does not need an allocator result. After a return the two
-continuations run their range checks, and the checked one revalidates the
-reached live plan before entering any element. This pairs allocator prefixes,
-not the subsequent recursive traversals or the complete exports.
+stack, even with different writers after earlier transfers.
+`Machine.HostFrame.paired_steps` replays the actual scheduler through blocked
+activations up to a host read that changes the continuation or the return to
+the substituted frame. The synchronous lift loop agrees on its residual
+program when its blocked threads' reached readiness queries agree, including
+constant readiness policies. A closed same-instance reentrant public give
+rejoins the paired scheduler after journaling the typed refusal on each side;
+its Core reply does not depend on either writer or ticket. Open/raw host
+reads need not agree. A prefix that traps or has not returned does not need an
+allocator result. After a common return the two continuations check the same
+reached range, and the checked one revalidates its own reached live plan before
+entering any element. This pairs allocator prefixes, not the subsequent
+recursive traversals or the complete exports.
 
 `RecordDestination.memory_cursor` uses the width established by the same destination
 check as both public give routes. On a certified prefix the canonical field cursor

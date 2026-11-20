@@ -6,7 +6,9 @@ public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Plain.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Thms
 public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
+import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Callout.Thms
 
 @[expose] public section
@@ -922,10 +924,11 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
   exact .cons guard (.coreCallout parked calling)
     (.cons trivial (.currentThread rfl) (.cons trivial (.get rfl) resumed))
 
-theorem parked_closed_give_writer_frame {sig : Signature} {grow : SingleThreaded.GrowOracle}
+theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
     (inst : InstId) (destination : RecordDestination) (schema : Option Stored.TypeOf)
-    (start : Machine.Config (core3 grow) (HostState sig)) (otherWriter : Claims.State sig) (thread : Option ThreadId)
+    {start other : Machine.Config (core3 grow) (HostState sig)} {first second}
+    (paired : Machine.HostFrame.Paired first second start other) (thread : Option ThreadId)
     (profile : ProfileKind) (ready : HostReady (HostState sig)) {entry : InstState}
     {core continuation segments rest}
     (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
@@ -935,25 +938,36 @@ theorem parked_closed_give_writer_frame {sig : Signature} {grow : SingleThreaded
     (caller : Plain.callerInstance start.store thread = .ok (some inst))
     (live : start.store.inst? inst = some entry) (closed : entry.mayLeave = false) :
     let dispatch := specDispatch ready (host (grow := grow) bindings)
-    let withWriter := fun cfg : Machine.Config (core3 grow) (HostState sig) =>
-      { cfg with host := { cfg.host with writer := otherWriter } }
     let reply := schema.elim (completion start.host.nextTicket (.error .wrongContext))
       (fun payload => flatCompletion start.host.nextTicket (ABI.flatten destination.width payload)
         (.error .wrongContext))
-    let resumed := { start with
-      host := (start.host.enter name type args).record reply.1
-      ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2)) continuation, segments⟩ :: rest }
-    ∃ leftCount rightCount,
-      Machine.CoreGrowthSteps profile ready dispatch start (List.replicate leftCount .tau) resumed ∧
-      Machine.CoreGrowthSteps profile ready dispatch (withWriter start) (List.replicate rightCount .tau)
-        (withWriter resumed) := by
-  intro dispatch withWriter reply resumed
-  obtain ⟨leftCount, left, _, _⟩ := parked_closed_give_steps
+    let next := Machine.Focus.core ((core3 grow).resume start.store.core core (.values reply.2)) continuation
+    ∃ leftCount rightCount leftNext rightNext otherSegments otherRest,
+      Machine.CoreGrowthSteps profile ready dispatch start (List.replicate leftCount .tau) leftNext ∧
+      Machine.CoreGrowthSteps profile ready dispatch other (List.replicate rightCount .tau) rightNext ∧
+      leftNext.ctl = ⟨thread, next, segments⟩ :: rest ∧ rightNext.ctl = ⟨thread, next, otherSegments⟩ :: otherRest ∧
+      Machine.HostFrame.Paired first second leftNext rightNext ∧
+      leftNext.host.writer = start.host.writer ∧ rightNext.host.writer = other.host.writer := by
+  intro dispatch reply next
+  let otherReply := schema.elim (completion other.host.nextTicket (.error .wrongContext))
+    (fun payload => flatCompletion other.host.nextTicket (ABI.flatten destination.width payload) (.error .wrongContext))
+  have sameReply : otherReply.2 = reply.2 := by cases schema <;> rfl
+  obtain ⟨otherSegments, otherRest, otherParked, rejoined⟩ := paired.retarget parked next
+    ((start.host.enter name type args).record reply.1) ((other.host.enter name type args).record otherReply.1)
+  have sameStore := paired.data.1
+  obtain ⟨leftCount, left, leftWriter, _⟩ := parked_closed_give_steps
     bindings name type args inst destination schema start thread profile ready parked calling linked caller live closed
-  obtain ⟨rightCount, right, _, _⟩ := parked_closed_give_steps
-    bindings name type args inst destination schema (withWriter start) thread profile ready
-    parked calling linked caller live closed
-  exact ⟨leftCount, rightCount, left, right⟩
+  obtain ⟨rightCount, right, rightWriter, _⟩ := parked_closed_give_steps
+    bindings name type args inst destination schema other thread profile ready otherParked
+    (sameStore ▸ calling) linked (sameStore ▸ caller) (sameStore ▸ live) closed
+  change Machine.CoreGrowthSteps profile ready dispatch other (List.replicate rightCount .tau)
+    { other with
+      host := (other.host.enter name type args).record otherReply.1
+      ctl := ⟨thread, .core ((core3 grow).resume other.store.core core (.values otherReply.2)) continuation,
+        otherSegments⟩ :: otherRest } at right
+  have sameCore := congrArg CStore.core sameStore.symm
+  rw [sameReply, sameCore] at right
+  exact ⟨leftCount, rightCount, _, _, otherSegments, otherRest, left, right, rfl, rfl, rejoined, leftWriter, rightWriter⟩
 
 private def admitGive {E : CoreEngine} {Host Result : Type} (inst : InstId)
     (selection : P E Host (Except Claims.Core.Scheduled.Issue Result)) :
