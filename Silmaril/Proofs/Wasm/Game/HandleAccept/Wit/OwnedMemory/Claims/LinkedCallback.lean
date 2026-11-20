@@ -438,16 +438,18 @@ theorem stringPlanCut {changes : ReturnFrame.Substitutions (core3 grow) (HostSta
         (by simpa only [LocalLeafLabels, List.all_append, List.all_cons, List.all_nil, Bool.and_true] using observed) paired
         (childFrameOutside middle _ _ _)
 
-theorem stringReplay {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+theorem stringReplay {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
     (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (steps : List StoreStep)
     (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow)))
     {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
     (frame : ChildFrameOver changes left right check canon)
+    (growth : Core3.Grows origin.core left.store.core)
     (checkAt : left.ctl = check.control (runStoreSteps cx ptr steps >>= checkNext))
     (canonAt : right.ctl = canon.control (runStoreSteps cx ptr steps >>= canonNext))
     {finish : State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
       Cursor (E := core3 grow) (HostState sig) → Nat → Prop}
-    (ends : ∀ left right check canon pointer, left.store = right.store →
+    (ends : ∀ left right check canon pointer, ChildFrameOver changes left right check canon →
+      Core3.Grows origin.core left.store.core →
       left.ctl = check.control (checkNext pointer) → right.ctl = canon.control (canonNext pointer) →
       finish left right check canon pointer) :
     StringReplay profile ready bindings changes cx checkNext canonNext steps.length left right check canon finish := by
@@ -460,7 +462,10 @@ theorem stringReplay {changes : ReturnFrame.Substitutions (core3 grow) (HostStat
     cases cut with
     | done localRun =>
       obtain ⟨store, result, labels, silent, checked, canonical⟩ := localRun
-      exact .done silent checked canonical (fun pointer _ => ends _ _ _ _ pointer rfl rfl rfl)
+      refine .done silent checked canonical (fun pointer done => ends _ _ _ _ pointer
+        ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩ ?_ rfl rfl)
+      subst result
+      exact growth.trans checked.grows
     | @installed pointer oldSize alignment size rest shorter store labels checked canonical silent paired outside =>
       refine .allocated pointer oldSize alignment size rest shorter checked canonical silent ?_
       intro dispatch leftEntry rightEntry first second wider last seen protectedReturn path covers
@@ -487,7 +492,7 @@ theorem stringReplay {changes : ReturnFrame.Substitutions (core3 grow) (HostStat
           { other with ctl := otherCursor.control (runStoreSteps cx value rest >>= canonNext) } cursor otherCursor from
           ⟨residual.store, residual.pending, residual.results, residual.cancels, residual.blocked, residual.thread,
             residual.frames, residual.rest⟩)
-        rfl rfl rfl
+        ((growth.trans checked.grows).trans lhs.grows) rfl rfl rfl
 
 theorem stringFieldReplay {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     (destination : RecordDestination) (inst : InstId) (str : Value.StrVal) (valid : str.Valid)
@@ -522,10 +527,172 @@ theorem stringFieldReplay {changes : ReturnFrame.Substitutions (core3 grow) (Hos
     frame.store present realloc fit placed checkAt canonAt
   have entered : ChildFrameOver changes lhs rhs check canon :=
     ⟨frame.store, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩
-  refine ⟨reads, memory, flat, stringReplay cx 0 plan.steps checked canonical entered rfl rfl ?_⟩
-  intro left right check canon pointer same checkAt canonAt
+  refine ⟨reads, memory, flat, stringReplay (origin := lhs.store) cx 0 plan.steps checked canonical entered
+    (Core3.Grows.refl _) rfl rfl ?_⟩
+  intro left right check canon pointer frame _ checkAt canonAt
   exact string_descriptor_cut cx destination.width output plan pointer left right check canon
-    (fun value => checkNext (.ok value)) canonNext same checkAt canonAt
+    (fun value => checkNext (.ok value)) canonNext frame.store checkAt canonAt
+
+theorem stringFieldThen {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (item : StringField) (output : Lower.Output) (index : Nat)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon) (growth : Core3.Grows origin.core left.store.core)
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fit : StoreStringPre Quirks.none destination.encoding destination.width item.value)
+    (placed : rootPlacement destination left.store (.prim .string) output = .ok ())
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width item.field index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width item.field output >>= canonNext))
+    {next : output.Result → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Prop}
+    (ends : ∀ words left right check canon, ChildFrameOver older left right check canon →
+      Core3.Grows origin.core left.store.core → left.ctl = check.control (checkNext (.ok words)) →
+      right.ctl = canon.control (canonNext words) → next words left right check canon) :
+    StringFieldThen profile ready bindings older destination inst item.value output left right check canon checkNext canonNext next := by
+  dsimp only [StringFieldThen]
+  let cx := destination.context (grow := grow) inst
+  let plan := storePlanFor Quirks.none destination.encoding destination.width item.value
+  let checked := fun ptr => stringPlanTail cx destination.width output plan ptr >>= fun value => checkNext (.ok value)
+  let canonical := fun ptr => stringPlanTail cx destination.width output plan ptr >>= canonNext
+  have reached := growth.memAddrType present
+  obtain ⟨reads, memory, flat⟩ := string_plan_entry (profile := profile) (ready := ready)
+    (dispatch := specDispatch ready (host bindings)) destination inst item.value item.valid index output left right check canon
+    checkNext canonNext frame.store (frame.store ▸ reached) realloc fit placed checkAt canonAt
+  let lhs := { left with ctl := check.control (runStoreSteps cx 0 plan.steps >>= checked) }
+  let rhs := { right with ctl := canon.control (runStoreSteps cx 0 plan.steps >>= canonical) }
+  have entered : ChildFrameOver older lhs rhs check canon :=
+    ⟨frame.store, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩
+  refine ⟨reads, memory, flat, stringReplay (profile := profile) (ready := ready) (bindings := bindings)
+    cx 0 plan.steps checked canonical entered growth rfl rfl ?_⟩
+  intro lhs rhs check canon pointer frame growing lhsAt rhsAt
+  obtain ⟨store, result, labels, silent, lhsRun, rhsRun⟩ := string_descriptor_cut cx destination.width output plan pointer
+    lhs rhs check canon (fun value => checkNext (.ok value)) canonNext frame.store lhsAt rhsAt
+  refine ⟨store, result, labels, silent, lhsRun, rhsRun, ?_⟩
+  intro value success
+  subst result
+  exact ends value _ _ _ _ ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩
+    (growing.trans lhsRun.grows) rfl rfl
+
+theorem flatSequenceReplay {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (items : List Field) (index : Nat) (leading : List FlatValue)
+    (compare : FlatFieldComparison grow sig) (checkNext : FlatSequenceCheckNext grow sig) (canonNext : FlatSequenceCanonNext grow sig)
+    (finish : FlatResultCut grow sig)
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon) (growth : Core3.Grows origin.core left.store.core)
+    (rules : ∀ item ∈ items, FlatFieldRule compare older origin destination inst item)
+    (ends : ∀ words reached reference check canon, ChildFrameOver older reached reference check canon →
+      Core3.Grows origin.core reached.store.core → reached.ctl = check.control (checkNext (.ok words)) →
+      reference.ctl = canon.control (canonNext words) → finish words reached reference check canon)
+    (checkAt : left.ctl = check.control (flatSequenceChecked destination inst items index leading checkNext))
+    (canonAt : right.ctl = canon.control (flatSequenceCanonical destination inst items leading canonNext)) :
+    FlatSequenceReplay compare older destination inst checkNext canonNext finish items index leading left right check canon := by
+  induction items generalizing index leading left right check canon with
+  | nil =>
+    change finish leading left right check canon
+    apply ends leading left right check canon frame growth
+    · simpa [flatSequenceChecked, Record.Effects.flat, Prog.bind_eq, Prog.pure_eq, Except.map] using checkAt
+    · simpa [flatSequenceCanonical, CanonicalTree.flat, Prog.bind_eq, Prog.pure_eq] using canonAt
+  | cons item rest ih =>
+    rw [FlatSequenceReplay]
+    apply rules item (by simp) index _ _ left right check canon frame growth
+    · rw [checkAt]
+      congr 1
+      simp only [flatSequenceChecked, Record.Effects.flat, Prog.bind_eq, Prog.bind_assoc]
+      congr 1
+      funext result
+      cases result with
+      | error _ => rfl
+      | ok words =>
+        simp only [Prog.bind_assoc]
+        congr 1
+        funext tailResult
+        cases tailResult with
+        | error _ => rfl
+        | ok later =>
+          change checkNext (.ok (leading ++ ((show List FlatValue from words) ++ later))) =
+            checkNext (.ok ((leading ++ (show List FlatValue from words)) ++ later))
+          rw [List.append_assoc]
+    · rw [canonAt]
+      congr 1
+      let head : Session grow sig (List FlatValue) := CanonicalTree.field Limits.spec Quirks.none
+        (destination.context inst) destination.width item .flat
+      let tail : Session grow sig (List FlatValue) := CanonicalTree.flat Limits.spec Quirks.none
+        (destination.context inst) destination.width rest
+      change (head.bind (fun words => tail.bind (fun later => .pure (words ++ later)))).bind
+        (fun words => canonNext (leading ++ words)) =
+        head.bind (fun words => tail.bind (fun later => canonNext ((leading ++ words) ++ later)))
+      simp only [Prog.bind_assoc, Prog.pure_bind', List.append_assoc]
+    · intro words reached reference check canon paired grown checkAt canonAt
+      exact ih (index + 1) (leading ++ words) paired grown (fun item member => rules item (List.mem_cons_of_mem _ member))
+        checkAt canonAt
+
+theorem flatAggregateThen {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (children : List Field) (index : Nat)
+    (compare : FlatFieldComparison grow sig) (checkNext : FlatSequenceCheckNext grow sig) (canonNext : FlatSequenceCanonNext grow sig)
+    (finish : FlatResultCut grow sig) {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon) (growth : Core3.Grows origin.core left.store.core)
+    (rules : ∀ item ∈ children, FlatFieldRule compare older origin destination inst item)
+    (ends : ∀ words reached reference check canon, ChildFrameOver older reached reference check canon →
+      Core3.Grows origin.core reached.store.core → reached.ctl = check.control (checkNext (.ok words)) →
+      reference.ctl = canon.control (canonNext words) → finish words reached reference check canon)
+    (checkAt : left.ctl = check.control (do
+      let verdict ← Record.Effects.flat recordClaims Limits.spec Quirks.none (destination.context inst) destination.width children 0
+      checkNext (verdict.mapError (.nested index))))
+    (canonAt : right.ctl = canon.control (CanonicalTree.flat Limits.spec Quirks.none (destination.context inst)
+      destination.width children >>= canonNext)) :
+    FlatAggregateThen compare older destination inst children index left right check canon checkNext canonNext finish := by
+  have noLeading (verdict : Except RecordLower.Issue (List FlatValue)) : verdict.map ([] ++ ·) = verdict := by cases verdict <;> rfl
+  exact flatSequenceReplay destination inst children 0 [] compare (fun verdict => checkNext (verdict.mapError (.nested index)))
+    canonNext finish frame growth rules ends (by simpa only [flatSequenceChecked, noLeading] using checkAt)
+    (by simpa [flatSequenceCanonical] using canonAt)
+
+theorem nestedFlatRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (leaf : Field → Prop) (compare : FlatFieldComparison grow sig)
+    (rules : ∀ field, leaf field → FlatFieldRule compare older origin destination inst field)
+    (depth : Nat) (field : Field) (fits : FlatNestedFits leaf depth field) :
+    FlatFieldRule (nestedFlatComparison compare older destination inst depth) older origin destination inst field := by
+  induction depth generalizing field with
+  | zero => exact rules field fits
+  | succ depth ih =>
+    intro index checkNext canonNext left right check canon frame growth checkAt canonAt next ends
+    cases childrenAt : flatChildren field with
+    | none =>
+      have admissible : leaf field := by simpa only [FlatNestedFits, childrenAt] using fits
+      simpa only [nestedFlatComparison, childrenAt] using
+        rules field admissible index checkNext canonNext left right check canon frame growth checkAt canonAt next ends
+    | some children =>
+      have admissible : ∀ child ∈ children, FlatNestedFits leaf depth child := by
+        simpa only [FlatNestedFits, childrenAt] using fits
+      simp only [nestedFlatComparison, childrenAt]
+      apply flatAggregateThen destination inst children index _ checkNext canonNext next frame growth
+        (fun child member => ih child (admissible child member)) ends
+      · cases field <;> cases childrenAt
+        all_goals
+          let childProgram : Session grow sig (Except RecordLower.Issue (List FlatValue)) :=
+            Record.Effects.flat recordClaims Limits.spec Quirks.none (destination.context inst) destination.width children 0
+          change left.ctl = check.control ((childProgram.bind (fun verdict => Prog.pure (verdict.mapError (.nested index)))).bind
+            checkNext) at checkAt
+          change left.ctl = check.control (childProgram.bind (fun verdict => checkNext (verdict.mapError (.nested index))))
+          simpa only [Prog.bind_assoc, Prog.pure_bind'] using checkAt
+      · cases field <;> cases childrenAt
+        all_goals
+          change right.ctl = canon.control (CanonicalTree.flat Limits.spec Quirks.none (destination.context inst)
+            destination.width children >>= canonNext) at canonAt
+          exact canonAt
+
+theorem stringFlatRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (item : StringField)
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fit : StoreStringPre Quirks.none destination.encoding destination.width item.value) :
+    FlatFieldRule (stringFlatComparison profile ready bindings older destination inst) older origin destination inst item.field := by
+  intro index checkNext canonNext left right check canon frame growth checkAt canonAt next ends
+  exact ⟨item, rfl, stringFieldThen destination inst item .flat index checkNext canonNext frame growth present realloc fit rfl
+    checkAt canonAt ends⟩
 
 theorem childCollectionInstall {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     (destination : RecordDestination) (inst : InstId) (type element : TypeOf)

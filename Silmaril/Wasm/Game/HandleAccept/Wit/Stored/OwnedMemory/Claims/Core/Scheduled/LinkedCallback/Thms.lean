@@ -186,7 +186,8 @@ theorem ChildFrameOver.string_replay {changes : ReturnFrame.Substitutions (core3
     (canonAt : right.ctl = canon.control (runStoreSteps cx ptr steps >>= canonNext)) :
     StringReplay profile ready bindings changes cx checkNext canonNext steps.length left right check canon :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringReplay
-    cx ptr steps checkNext canonNext frame checkAt canonAt (fun _ _ _ _ _ _ _ _ => trivial)
+    (origin := left.store) cx ptr steps checkNext canonNext frame (Core3.Grows.refl _) checkAt canonAt
+    (fun _ _ _ _ _ _ _ _ _ => trivial)
 
 /-- Compare actual checked and canonical string fields, through each reached
 allocator return and the final memory descriptor or flat result. An allocator
@@ -221,6 +222,59 @@ theorem ChildFrameOver.string_field_replay {changes : ReturnFrame.Substitutions 
           StringLocalCut profile ready dispatch left right check canon (fun value => checkNext (.ok value)) canonNext) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringFieldReplay
     destination inst str valid index output checkNext canonNext frame present realloc fit placed checkAt canonAt
+
+/-- Compose the actual flat sibling programs by their field cuts. The next
+field runs only on common success, using the reached cursor and flat words;
+each field rule retains its own refused, suspended and trapping prefixes. -/
+theorem ChildFrameOver.flat_sequence_replay {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {origin : CStore (core3 grow)} (destination : RecordDestination) (inst : InstId) (items : List Field)
+    (index : Nat) (leading : List FlatValue) (compare : FlatFieldComparison grow sig)
+    (checkNext : FlatSequenceCheckNext grow sig) (canonNext : FlatSequenceCanonNext grow sig) (finish : FlatResultCut grow sig)
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon) (growth : Core3.Grows origin.core left.store.core)
+    (rules : ∀ item ∈ items, FlatFieldRule compare older origin destination inst item)
+    (ends : ∀ words reached reference check canon, ChildFrameOver older reached reference check canon →
+      Core3.Grows origin.core reached.store.core → reached.ctl = check.control (checkNext (.ok words)) →
+      reference.ctl = canon.control (canonNext words) → finish words reached reference check canon)
+    (checkAt : left.ctl = check.control (flatSequenceChecked destination inst items index leading checkNext))
+    (canonAt : right.ctl = canon.control (flatSequenceCanonical destination inst items leading canonNext)) :
+    FlatSequenceReplay compare older destination inst checkNext canonNext finish items index leading left right check canon :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.flatSequenceReplay
+    destination inst items index leading compare checkNext canonNext finish frame growth rules ends checkAt canonAt
+
+/-- Discharge the field rule for strings using the actual repeated allocator
+plan, not an assumed equivalence of its callback or continuation. -/
+theorem StringField.flat_rule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {origin : CStore (core3 grow)} (item : StringField) (destination : RecordDestination) (inst : InstId)
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fit : StoreStringPre Quirks.none destination.encoding destination.width item.value) :
+    FlatFieldRule (stringFlatComparison profile ready bindings older destination inst) older origin destination inst item.field :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringFlatRule destination inst item present realloc fit
+
+/-- Induct through actual record/tuple and fixed-list flat programs. The
+branch returns its concatenated words to the enclosing continuation only
+after all its visited children succeed. -/
+theorem nested_flat_rule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (leaf : Field → Prop) (compare : FlatFieldComparison grow sig)
+    (rules : ∀ field, leaf field → FlatFieldRule compare older origin destination inst field)
+    (depth : Nat) (field : Field) (fits : FlatNestedFits leaf depth field) :
+    FlatFieldRule (nestedFlatComparison compare older destination inst depth) older origin destination inst field :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.nestedFlatRule
+    destination inst leaf compare rules depth field fits
+
+/-- Concrete allocating instance of the recursive flat rule. String leaves
+may each allocate or resize repeatedly; neither a return from any allocator
+nor a child equivalence hypothesis is required. -/
+theorem nested_flat_strings {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (depth : Nat) (field : Field)
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fits : FlatNestedFits (StringField.Fits destination) depth field) :
+    FlatFieldRule (nestedFlatComparison (stringFlatComparison profile ready bindings older destination inst)
+      older destination inst depth) older origin destination inst field :=
+  nested_flat_rule destination inst _ _ (fun _ ⟨item, equal, fit⟩ =>
+    equal ▸ item.flat_rule destination inst present realloc fit) depth field fits
 
 /-- A reached allocating list or map can likewise install on distinct
 residual frames, keeping the memory-map placement mode and its live recheck

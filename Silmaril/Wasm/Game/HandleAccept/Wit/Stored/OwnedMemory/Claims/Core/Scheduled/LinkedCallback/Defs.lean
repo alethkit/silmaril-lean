@@ -309,6 +309,151 @@ def StringReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bi
     left right check canon
 termination_by length
 
+/-- Compare a shared local result segment and continue only on common
+success. The terminal lock-down segment on a trap is kept as reached. -/
+def LocalThen {Result : Type} (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (left right : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext canonNext : Result → Session grow sig (Ret (core3 grow)))
+    (next : Result → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Prop) : Prop :=
+  let dispatch := specDispatch ready (host bindings)
+  ∃ (store : CStore (core3 grow)) (result : Except TrapReason Result) (labels : List (Label (core3 grow) (HostState sig))),
+    LocalLeafLabels result labels ∧
+    CoreGrowthSteps profile ready dispatch left labels
+      (localLeafEnd left left.host store check.thread check.frames check.rest checkNext result) ∧
+    CoreGrowthSteps profile ready dispatch right labels
+      (localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result) ∧
+    ∀ value, result = .ok value → next value
+      { left with store, ctl := check.control (checkNext value) }
+      { right with store, ctl := canon.control (canonNext value) } check canon
+
+/-- A string field installs the actual plan, allows suspended callback
+prefixes, and starts the next comparison only after its own result succeeds. -/
+def StringFieldThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (str : Value.StrVal) (output : Stored.Lower.Output) (left right : State grow sig)
+    (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (next : output.Result → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Prop) : Prop :=
+  let dispatch := specDispatch ready (host bindings)
+  let cx := destination.context inst
+  let plan := storePlanFor Quirks.none destination.encoding destination.width str
+  let checked := fun ptr => stringPlanTail cx destination.width output plan ptr >>= fun value => checkNext (.ok value)
+  let canonical := fun ptr => stringPlanTail cx destination.width output plan ptr >>= canonNext
+  let lhs := { left with ctl := check.control (runStoreSteps cx 0 plan.steps >>= checked) }
+  let rhs := { right with ctl := canon.control (runStoreSteps cx 0 plan.steps >>= canonical) }
+  ∃ reads, Steps profile ready dispatch left (List.replicate reads .tau) lhs ∧
+    Step profile ready dispatch right .tau rhs ∧
+    StringReplay profile ready bindings older cx checked canonical plan.steps.length lhs rhs check canon
+      (fun lhs rhs check canon _ => LocalThen profile ready bindings lhs rhs check canon
+        (fun value => checkNext (.ok value)) canonNext next)
+
+structure StringField where
+  value : Value.StrVal
+  valid : value.Valid
+
+def StringField.field (item : StringField) : Field := .data (.prim .string) ⟨.string item.value, .string item.valid⟩
+
+def flatSequenceChecked (destination : RecordDestination) (inst : InstId) (items : List Field) (index : Nat)
+    (leading : List FlatValue) (finish : Except Endpoints.RecordLower.Issue (List FlatValue) → Session grow sig (Ret (core3 grow))) :
+    Session grow sig (Ret (core3 grow)) :=
+  Record.Effects.flat recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+    items index >>= fun verdict => finish (verdict.map (leading ++ ·))
+
+def flatSequenceCanonical (destination : RecordDestination) (inst : InstId) (items : List Field)
+    (leading : List FlatValue) (finish : List FlatValue → Session grow sig (Ret (core3 grow))) : Session grow sig (Ret (core3 grow)) :=
+  Stored.Endpoints.RecordLower.CanonicalTree.flat Limits.spec Quirks.none (destination.context inst) destination.width
+    items >>= fun words => finish (leading ++ words)
+
+abbrev FlatSequenceCheckNext (grow : SingleThreaded.GrowOracle) (sig : Signature) :=
+  Except Endpoints.RecordLower.Issue (List FlatValue) → Session grow sig (Ret (core3 grow))
+
+abbrev FlatSequenceCanonNext (grow : SingleThreaded.GrowOracle) (sig : Signature) :=
+  List FlatValue → Session grow sig (Ret (core3 grow))
+
+abbrev FlatResultCut (grow : SingleThreaded.GrowOracle) (sig : Signature) :=
+  List FlatValue → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+    Cursor (E := core3 grow) (HostState sig) → Prop
+
+/-- A field comparison accepts an obligation for its common-success cut.
+Other exits, including stopped prefixes, are described by the comparison. -/
+abbrev FlatFieldComparison (grow : SingleThreaded.GrowOracle) (sig : Signature) :=
+  Field → Nat → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+    Cursor (E := core3 grow) (HostState sig) → FlatSequenceCheckNext grow sig → FlatSequenceCanonNext grow sig → FlatResultCut grow sig → Prop
+
+def FlatFieldRule (compare : FlatFieldComparison grow sig)
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (origin : CStore (core3 grow))
+    (destination : RecordDestination) (inst : InstId) (item : Field) : Prop :=
+  ∀ index (checkNext : FlatSequenceCheckNext grow sig) (canonNext : FlatSequenceCanonNext grow sig) left right check canon,
+    ChildFrameOver older left right check canon → Core3.Grows origin.core left.store.core →
+    left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width item index .flat >>= checkNext) →
+    right.ctl = canon.control (Stored.Endpoints.RecordLower.CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width item .flat >>= canonNext) →
+    ∀ next, (∀ words reached reference check canon, ChildFrameOver older reached reference check canon →
+      Core3.Grows origin.core reached.store.core → reached.ctl = check.control (checkNext (.ok words)) →
+      reference.ctl = canon.control (canonNext words) → next words reached reference check canon) →
+    compare item index left right check canon checkNext canonNext next
+
+/-- Recursive comparison of the actual flat lowering sequence. Each
+succeeding sibling starts only at its predecessor's common-success cut. -/
+def FlatSequenceReplay (compare : FlatFieldComparison grow sig)
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (checkNext : FlatSequenceCheckNext grow sig) (canonNext : FlatSequenceCanonNext grow sig) (finish : FlatResultCut grow sig)
+    (items : List Field) (index : Nat)
+    (leading : List FlatValue) (left right : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig)) : Prop :=
+  match items with
+  | [] => finish leading left right check canon
+  | item :: rest =>
+    compare item index left right check canon
+      (fun verdict => match verdict with
+        | .error issue => checkNext (.error issue)
+        | .ok words => flatSequenceChecked destination inst rest (index + 1) (leading ++ words) checkNext)
+      (fun words => flatSequenceCanonical destination inst rest (leading ++ words) canonNext)
+      (fun words reached reference check canon => FlatSequenceReplay compare older destination inst
+        checkNext canonNext finish rest (index + 1) (leading ++ words) reached reference check canon)
+termination_by structural items
+
+def FlatAggregateThen (compare : FlatFieldComparison grow sig)
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (children : List Field) (index : Nat) (left right : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : FlatSequenceCheckNext grow sig) (canonNext : FlatSequenceCanonNext grow sig) (finish : FlatResultCut grow sig) : Prop :=
+  FlatSequenceReplay compare older destination inst (fun verdict => checkNext (verdict.mapError (.nested index)))
+    canonNext finish children 0 [] left right check canon
+
+def flatChildren : Field → Option (List Field)
+  | .aggregate _ children | .fixed _ _ children => some children
+  | _ => none
+
+/-- Depth bounds only aggregate descent; the caller's leaf rule handles
+other fields, including their own independently justified return cuts. -/
+def FlatNestedFits (leaf : Field → Prop) : Nat → Field → Prop
+  | 0, field => leaf field
+  | depth + 1, field => match flatChildren field with
+    | none => leaf field
+    | some children => ∀ child ∈ children, FlatNestedFits leaf depth child
+
+def nestedFlatComparison (leaves : FlatFieldComparison grow sig)
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
+    Nat → FlatFieldComparison grow sig
+  | 0 => leaves
+  | depth + 1 => fun field index left right check canon checkNext canonNext finish => match flatChildren field with
+    | none => leaves field index left right check canon checkNext canonNext finish
+    | some children => FlatAggregateThen (nestedFlatComparison leaves older destination inst depth) older destination inst
+      children index left right check canon checkNext canonNext finish
+
+def stringFlatComparison (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
+    FlatFieldComparison grow sig :=
+  fun field _ left right check canon checkNext canonNext next =>
+    ∃ item : StringField, item.field = field ∧
+      StringFieldThen profile ready bindings older destination inst item.value .flat left right check canon checkNext canonNext next
+
+def StringField.Fits (destination : RecordDestination) (field : Field) : Prop :=
+  ∃ item : StringField, item.field = field ∧ StoreStringPre Quirks.none destination.encoding destination.width item.value
+
 /-- Stop at the reached range/recheck cut without executing any children.
 On a valid range the checked continuation receives the real live verdict
 (which can refuse); the canonical continuation receives only the pointer.
