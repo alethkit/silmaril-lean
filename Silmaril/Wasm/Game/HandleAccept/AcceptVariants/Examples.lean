@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.AcceptVariants.Thms
 public import Silmaril.Wasm.Resource.Replay.Defs
+import Silmaril.Wasm.Resource.Replay.Kernel.Thms
 import Silmaril.Wasm.Execution.Core.SpecProfile
 import Silmaril.Wasm.Verify.Kernel.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.AcceptVariants.Replay
@@ -56,8 +57,9 @@ variable {P : Profile}
 include hP
 
 open Silmaril.Proofs.Wasm.Game.HandleAccept.AcceptVariants
-  (consXAsk consXAns mem_consXLang_of_replay replayFromK_eq wxRunB)
+  (consXAsk consXAns mem_consXLang_of_replay wxRunB)
 open Silmaril.Proofs.Wasm.Game.HandleAccept.Replay (rdecG)
+open Silmaril.Wasm.Resource.Replay.Kernel (replayFromK_eq)
 
 theorem errAccept_accepts_word {pol : Policy (BitVec 32)}
     (hs : pol.sentinel = some 0 ∨ pol.sentinel = none) :

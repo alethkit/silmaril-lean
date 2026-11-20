@@ -450,8 +450,8 @@ variable (cap : Nat)
 
 /-- The guard of `feed`. -/
 abbrev fG1 : List Instr := [.globalGet ⟨1⟩, .intConst .i32 (capW cap), .intRelOp .i32 .eq]
-/-- `if cnt = cap then loop forever`. -/
-abbrev fIf : Instr := .if_ .empty [.loop .empty [.br ⟨0⟩]] []
+/-- Trap if `cnt = cap`. -/
+abbrev fIf : Instr := .if_ .empty [.unreachable] []
 /-- The store and the count update of `feed`. -/
 abbrev fG2 : List Instr :=
   [.globalGet ⟨0⟩, .globalGet ⟨1⟩, .intBinOp .i32 .add, .intConst .i32 (capW cap),
@@ -505,6 +505,56 @@ section Exports
 
 variable {cap : Nat} {P : Profile} {host : HostSemantics Nat} {s : Store Nat} {M : ModuleInst}
   {g0 g1 : GlobalInst} {st cnt : BitVec 32}
+
+/-- The full branch uses only scalar and control steps; even its arbitrary suffix
+cannot run before the trap. -/
+theorem full_guard_run {frame : Frame} (globals : frame.module.globals = [0, 1])
+    (count : s.globals[1]? = some g1) (full : g1.value = .i32 (capW cap)) (suffix : List Instr) :
+    Steps P host ⟨s, frame, expression (ringGuard cap ++ suffix)⟩ ⟨s, frame, [.trap]⟩ := by
+  obtain ⟨locals, linked⟩ := frame
+  have tested := ex_f1 (s := s) (c := capW cap) globals locals count full
+  rw [show bool32 (capW cap == capW cap) = 1 from by simp [bool32]] at tested
+  change Steps P host ⟨s, ⟨locals, linked⟩, expression (fG1 cap ++ fIf :: suffix)⟩ _
+  rw [expr_app]
+  refine (exec_sound (P := P) (host := host) (rs := []) (.plain fIf :: expression suffix) tested).trans ?_
+  refine (st_ifT (by decide : (1 : BitVec 32) ≠ 0)).trans (st_block.trans ?_)
+  have trapped : Steps P host ⟨s, ⟨locals, linked⟩, [.label 0 [] [.plain .unreachable]]⟩
+      ⟨s, ⟨locals, linked⟩, [.trap]⟩ := by
+    apply Relation.ReflTransGen.tail
+    · exact .single (.ctxtLabel (.parametric .unreachable))
+    · exact .trapLabel
+  refine (Steps.append (expression suffix) trapped).trans ?_
+  cases remaining : expression suffix with
+  | nil => exact .refl
+  | cons first rest =>
+    exact .single (Step.trapInstrs (vs := []) (rest := first :: rest) (.inr (by simp)))
+
+theorem growing_feed_full (capacity : RingCap cap) {buffer : List (BitVec 64)}
+    (invariant : growingRingInv cap buffer s) (full : buffer.length = cap) (input : BitVec 64) :
+    Steps P host (invoke s 4 [.i64 input]) ⟨s, {}, [.trap]⟩ := by
+  obtain ⟨functions, start, count, rep⟩ := invariant
+  obtain ⟨_, counted, _, size, _⟩ := rep
+  have countWord : count = capW cap :=
+    BitVec.eq_of_toNat_eq (size.trans (full.trans (capW_toNat capacity.2).symm))
+  unfold gval at counted
+  cases found : s.globals[1]? with
+  | none => simp [found] at counted
+  | some global => ?_
+  simp only [found, Option.map_some, Option.some.injEq] at counted
+  obtain ⟨feed, code, params, results, foundFeed, isCode, _, body, expands, paramsLen, resultsLen, _, globals, _⟩ :=
+    (growing_shape cap).fn 0 (by decide)
+  have currentFeed : s.funcs[4]? = some feed := by
+    rw [functions, ← RIG_eq]
+    exact foundFeed
+  have startRun := st_invoke (P := P) (host := host) (args := [.i64 input]) currentFeed expands
+    (by rw [paramsLen]; rfl) isCode
+  rw [resultsLen, body] at startRun
+  have stop := full_guard_run (P := P) (host := host) (cap := cap)
+    (frame := Frame.forCall feed.module [.i64 input] code.locals) globals found
+    (counted.trans (congrArg Val.i32 countWord)) (reserveBody cap ++ ringWriteBody cap)
+  have labelled := Steps.label 0 [] stop
+  exact startRun.trans ((Silmaril.Wasm.Logic.Core.Steps.frame (f := {}) 0
+    (labelled.tail Step.trapLabel)).tail Step.trapFrame)
 
 /-- **`feed(x)`** with fewer than eight values buffered stores `x` in the next slot. -/
 theorem feed_run (hmg : M.globals = [0, 1]) (hmm : M.mems = [0])
@@ -771,15 +821,17 @@ theorem allOnes_succ : (1 : BitVec 32) + BitVec.allOnes 32 = 0 := by decide
 
 theorem mod_small {cap : Nat} (h8 : cap ≤ 8192) {x : BitVec 32} (hx : x.toNat < cap) :
     x % capW cap = x :=
-  BitVec.eq_of_toNat_eq (by rw [BitVec.toNat_umod, capW_toNat h8]; exact Nat.mod_eq_of_lt hx)
+  BitVec.eq_of_toNat_eq (by
+    rw [BitVec.toNat_umod, capW_toNat (by omega)]
+    exact Nat.mod_eq_of_lt hx)
 
 /-- **The session is a play** of `chunkRingN cap`, for every capacity `2 ≤ cap ≤ 8192`, in
 every profile. -/
 theorem ring_session {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) (P : Profile) :
     ∃ ms q, (RI cap).Path P (.idle (RI cap).store) ms q ∧ ms.map rmv = ringR := by
-  have hcap : RingCap cap := ⟨by omega, h8⟩
+  have hcap : RingCap cap := ⟨by omega, by omega⟩
   have hc0 : capW cap ≠ 0 := capW_ne hcap
-  have hcw := capW_toNat h8
+  have hcw := capW_toNat hcap.2
   have hne : ∀ a : BitVec 32, a.toNat < 2 → a ≠ capW cap := fun a ha h => by
     rw [h, hcw] at ha; omega
   have hS := ring_shape cap
@@ -939,9 +991,9 @@ theorem ring_session {cap : Nat} (h2 : 2 ≤ cap) (h8 : cap ≤ 8192) (P : Profi
 
 theorem ring_session1 {cap : Nat} (h1 : 1 ≤ cap) (h8 : cap ≤ 8192) (P : Profile) :
     ∃ ms q, (RI cap).Path P (.idle (RI cap).store) ms q ∧ ms.map rmv = ringR1 := by
-  have hcap : RingCap cap := ⟨by omega, h8⟩
+  have hcap : RingCap cap := ⟨by omega, by omega⟩
   have hc0 : capW cap ≠ 0 := capW_ne hcap
-  have hcw := capW_toNat h8
+  have hcw := capW_toNat hcap.2
   have hne : ∀ a : BitVec 32, a.toNat < 1 → a ≠ capW cap := fun a ha h => by
     rw [h, hcw] at ha; omega
   have hS := ring_shape cap
