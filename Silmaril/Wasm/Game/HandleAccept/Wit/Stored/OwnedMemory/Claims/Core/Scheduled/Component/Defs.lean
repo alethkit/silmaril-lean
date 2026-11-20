@@ -136,6 +136,15 @@ def refuseBeforeLift (ticket : Nat) (caller : CallerId) (issue : Issue) :
   let _ ← skipArguments caller
   resolveRefused ticket caller issue
 
+/-- Publish the root for the handle already written by canonical resolution. -/
+def completeResolvedTree (ticket : Nat) (tree : Tree sig) (handle : Nat) :
+    Session grow sig (Ret (core3 grow)) := do
+  match ← publishRootAt ticket tree (some handle) with
+  | .error issue => reject ticket issue
+  | .ok published =>
+    let _ ← writeCompletion (.returned ticket published, [])
+    return .cancel .none
+
 /-- Resolve first, then publish using the current writer. The result is non-allocating;
 the commit still checks that the handle written by canonical resolution is the next
 handle, and refuses rather than restoring a stale writer. -/
@@ -147,11 +156,7 @@ def resolveTree (ticket : Nat) (caller : CallerId) (tree : Tree sig) :
   let handle := writer.accepted.length
   if handle ≥ 2 ^ 32 then return ← reject ticket (.accept (.boundary .exhaustedHandles))
   lowerOnResolve Limits.spec Quirks.none caller (some [.variant 0 (some (Val.u32 handle))])
-  match ← publishRootAt ticket tree (some handle) with
-  | .error issue => reject ticket issue
-  | .ok published =>
-    let _ ← writeCompletion (.returned ticket published, [])
-    return .cancel .none
+  completeResolvedTree ticket tree handle
 
 /-- Continuation after linking and checking the caller record. The dispatcher owns
 those checks; this continuation validates the storage schema and the selected children. -/

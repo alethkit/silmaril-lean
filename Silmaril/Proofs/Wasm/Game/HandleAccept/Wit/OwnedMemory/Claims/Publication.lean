@@ -3,12 +3,14 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Publication.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Thms
 
 public section
 
 namespace Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.Publication
 
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored
+  Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory
   Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims
   Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled Silmaril.Wasm.Component.Runtime
 
@@ -93,5 +95,63 @@ theorem retired_refuses {sig : Signature} {state : State sig} {id : HandleObjId}
     List.find?_eq_none.mpr fun receipt member equal =>
       retired.2 (List.mem_map.mpr ⟨receipt, member, beq_iff_eq.mp equal⟩)
   simp [State.prepare, absent]
+
+theorem held_publication {sig : Signature} {before after : HostState sig} {receipt : Receipt}
+    (journal : PublicationDelta before after) (run : WriterRun before.writer after.writer)
+    (backed : after.writer.ClaimsBacked) (held : receipt ∈ after.writer.held)
+    (fresh : receiptId receipt ∉ before.writer.publishedOwners) :
+    ∃ position ticket handle, before.publications.length ≤ position ∧
+      after.RecordsOwner position ticket handle receipt := by
+  obtain ⟨entries, roots, publications, history, lengths, targets⟩ := journal.targets run
+  obtain ⟨root, inHistory, introduced⟩ := List.mem_flatMap.mp (backed.subset held)
+  have newRoot : root ∈ roots := by
+    rw [history, List.mem_append] at inHistory
+    rcases inHistory with newRoot | priorRoot
+    · exact newRoot
+    · exact (fresh (List.mem_map.mpr ⟨receipt,
+        List.mem_flatMap.mpr ⟨root, priorRoot, introduced⟩, rfl⟩)).elim
+  obtain ⟨offset, lookup⟩ := List.mem_iff_getElem?.mp newRoot
+  have offsetBound := (List.getElem?_eq_some_iff.mp lookup).1
+  let index := roots.length - (offset + 1)
+  have indexBound : index < entries.length := by unfold index; omega
+  cases value : entries[index]'indexBound with
+  | mk ticket handle =>
+    have entry : entries[index]? = some (ticket, handle) := by
+      rw [List.getElem?_eq_getElem indexBound, value]
+    obtain ⟨target, rootLookup, selected⟩ := targets index ticket handle entry
+    have sameOffset : roots.length - (index + 1) = offset := by unfold index; omega
+    rw [sameOffset, lookup] at rootLookup
+    cases Option.some.inj rootLookup
+    have handleBound : handle < 2 ^ 32 := by
+      obtain ⟨entries', same, _, inRange⟩ := journal
+      have sameEntries : entries' = entries := List.append_cancel_left (same.symm.trans publications)
+      subst entries'
+      exact (inRange index ticket handle entry).2
+    refine ⟨before.publications.length + index, ticket, handle, by omega, ?_, handleBound, root, selected,
+      introduced⟩
+    rw [publications, List.getElem?_append_right (by omega)]
+    simpa using entry
+
+theorem prepared_publication {sig : Signature} {before after : HostState sig} {spent : State sig}
+    {resource : RtId} {id : HandleObjId} {representation : Nat}
+    (journal : PublicationDelta before after) (run : WriterRun before.writer after.writer)
+    (backed : before.writer.ClaimsBacked) (fresh : id ∉ before.writer.publishedOwners)
+    (success : after.writer.prepare resource id = .ok (representation, spent)) :
+    ∃ position ticket handle receipt, before.publications.length ≤ position ∧
+      after.RecordsOwner position ticket handle receipt ∧
+      receiptId receipt = id ∧ receipt.1 = resource ∧ receipt.2.representation = representation := by
+  obtain ⟨receipt, held, identity, nominal, rep⟩ := prepare_provenance success
+  obtain ⟨position, ticket, handle, suffix, recorded⟩ := held_publication journal run (run_backed run backed)
+    held (identity.symm ▸ fresh)
+  exact ⟨position, ticket, handle, receipt, suffix, recorded, identity, nominal, rep⟩
+
+theorem retained_owner_record {sig : Signature} {before after : HostState sig}
+    {position ticket handle : Nat} {receipt : Receipt} (journal : PublicationDelta before after)
+    (run : WriterRun before.writer after.writer) (recorded : before.RecordsOwner position ticket handle receipt) :
+    after.RecordsOwner position ticket handle receipt := by
+  obtain ⟨entry, bound, root, selected, captured⟩ := recorded
+  obtain ⟨_, appended, _, _⟩ := journal
+  refine ⟨?_, bound, root, run.retains_target selected, captured⟩
+  rwa [appended, List.getElem?_append_left (List.getElem?_eq_some_iff.mp entry).1]
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.Publication
