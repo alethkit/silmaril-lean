@@ -257,10 +257,10 @@ each reached leaf. The next field receives the reached, possibly spent writer. -
 theorem mixed_flat_rule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
     (destination : RecordDestination) (inst : InstId) (item : Field)
     (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
-    {addr : Nat} (realloc : destination.realloc = some addr)
+    (allocator : Validation.containsPtr item.type = true → ∃ addr, destination.realloc = some addr)
     (fit : CanonicalHandle item ∨ StringField.Fits destination item) :
     FlatFieldRule (mixedFlatComparison profile ready bindings older destination inst) older origin destination inst item :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.mixedFlatRule destination inst item present realloc fit
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.mixedFlatRule destination inst item present allocator fit
 
 theorem ChildFrameOver.handle_field_then {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     {origin : CStore (core3 grow)} (destination : RecordDestination) (inst : InstId) (item : Field) (handle : CanonicalHandle item)
