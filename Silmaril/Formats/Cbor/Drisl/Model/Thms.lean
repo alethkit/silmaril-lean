@@ -34,6 +34,13 @@ theorem atproto_render_of_parse (profile : CidProfile) {bytes : List UInt8} {tre
     renderCbor? i64Cbor (Cid.codec profile) tree = some bytes :=
   Silmaril.Proofs.Formats.Cbor.Drisl.Model.atproto_render_of_parse profile read
 
+/-- Accepted ATProto bytes reprint unchanged when the link decoder preserves the input CID bytes. -/
+theorem atproto_render_of_parse_with_codec {Link : Type} (cid : CidCodec Link)
+    (reencodes : ∀ bytes link, cid.parse? bytes = some link → cid.bytes link = bytes)
+    {bytes : List UInt8} {tree : OrderedATProto Link}
+    (read : parseCbor? i64Cbor cid bytes = some tree) : renderCbor? i64Cbor cid tree = some bytes :=
+  Silmaril.Proofs.Formats.Cbor.Drisl.Model.atproto_render_of_parse_with_codec cid reencodes read
+
 /-- On encodable, recursively key-sorted DRISL trees the writer and reader preserve the exact AST. -/
 theorem drisl_ordered_roundtrip (profile : CidProfile) (tree : Ordered (Cid profile))
     (encodable : (emitModel drislCbor (Cid.codec profile) false tree).Encodable)
@@ -51,6 +58,15 @@ theorem atproto_ordered_roundtrip (profile : CidProfile) (tree : OrderedATProto 
     renderCbor? i64Cbor (Cid.codec profile) tree = some bytes ∧
       parseCbor? i64Cbor (Cid.codec profile) bytes = some tree :=
   Silmaril.Proofs.Formats.Cbor.Drisl.Model.atproto_ordered_roundtrip profile tree encodable order
+
+/-- Ordered encoding needs the CID inverse only on links actually used by the tree. -/
+theorem atproto_ordered_roundtrip_with_codec {Link : Type} (cid : CidCodec Link) (tree : OrderedATProto Link)
+    (readCid : ∀ link ∈ links tree, cid.parse? (cid.bytes link) = some link)
+    (encodable : (emitModel i64Cbor cid false tree).Encodable)
+    (order : canonicalMaps (emitModel i64Cbor cid false tree) = true) :
+    let bytes := (emitModel i64Cbor cid false tree).encode
+    renderCbor? i64Cbor cid tree = some bytes ∧ parseCbor? i64Cbor cid bytes = some tree :=
+  Silmaril.Proofs.Formats.Cbor.Drisl.Model.atproto_ordered_roundtrip_with_codec cid tree readCid encodable order
 
 theorem parseCbor_eq_some_iff {Numeric Link : Type} (numeric : CborCodec Numeric) (cid : CidCodec Link)
     {bytes : List UInt8} {tree : RawJson (Scalar Numeric Link)} :

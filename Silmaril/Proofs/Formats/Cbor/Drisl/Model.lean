@@ -414,10 +414,16 @@ theorem drisl_render_of_parse (profile : CidProfile) {bytes : List UInt8} {tree 
     renderCbor? drislCbor (Cid.codec profile) tree = some bytes :=
   render_of_parse _ _ (leaf_reencode _ _ drisl_number_reencode (cid_reencode profile)) _ _ read
 
+theorem atproto_render_of_parse_with_codec {Link : Type} (cid : CidCodec Link)
+    (reencodes : ∀ bytes link, cid.parse? bytes = some link → cid.bytes link = bytes)
+    {bytes : List UInt8} {tree : OrderedATProto Link}
+    (read : parseCbor? i64Cbor cid bytes = some tree) : renderCbor? i64Cbor cid tree = some bytes :=
+  render_of_parse _ _ (leaf_reencode _ _ atproto_number_reencode reencodes) _ _ read
+
 theorem atproto_render_of_parse (profile : CidProfile) {bytes : List UInt8} {tree : OrderedATProto (Cid profile)}
     (read : parseCbor? i64Cbor (Cid.codec profile) bytes = some tree) :
     renderCbor? i64Cbor (Cid.codec profile) tree = some bytes :=
-  render_of_parse _ _ (leaf_reencode _ _ atproto_number_reencode (cid_reencode profile)) _ _ read
+  atproto_render_of_parse_with_codec _ (cid_reencode profile) read
 
 private theorem read_utf8Value (name : String) :
     String.fromUTF8? name.toByteArray.data.toList.toByteArray = some name := by
@@ -438,14 +444,16 @@ private def OrderedRead : {index : JsonIx} → RawSyn String (Scalar Numeric Lin
   | .arr, tree => readItems? numeric cid (emitModel numeric cid false tree) = some tree
   | .obj, tree => readEntries? numeric cid (emitModel numeric cid false tree) = some tree
 
-private theorem read_emit_ordered (readCid : ∀ link, cid.parse? (cid.bytes link) = some link)
-    (ordinaryNumber : ∀ number, isLeaf (numeric.number number) ∧
+private theorem read_emit_ordered (ordinaryNumber : ∀ number, isLeaf (numeric.number number) ∧
       readCborLeaf? numeric cid (numeric.number number) = some (.data (.number number)))
-    {index : JsonIx} (tree : RawSyn String (Scalar Numeric Link) index) : OrderedRead numeric cid tree := by
+    {index : JsonIx} (tree : RawSyn String (Scalar Numeric Link) index)
+    (readCid : ∀ link ∈ links tree, cid.parse? (cid.bytes link) = some link) : OrderedRead numeric cid tree := by
   induction tree with
   | scalar leaf =>
     cases leaf with
-    | link link => simp [OrderedRead, emitModel, emitLeaf, readModel?, readCborLeaf?, readCid]
+    | link link =>
+      have accepted := readCid link (by simp [links, RawSyn.scalars])
+      simp [OrderedRead, emitModel, emitLeaf, readModel?, readCborLeaf?, accepted]
     | data data =>
       cases data with
       | bool flag => cases flag <;> rfl
@@ -458,8 +466,17 @@ private theorem read_emit_ordered (readCid : ∀ link, cid.parse? (cid.bytes lin
         generalize numeric.number value = leafValue at nonContainer parsed ⊢
         cases leafValue <;> try exact nonContainer.elim
         all_goals simp [readModel?, parsed]
-  | list _ ih | map _ ih | cons _ _ ih tail | objCons _ _ _ ih tail =>
-    simp_all [OrderedRead, emitModel, readModel?, readItems?, readEntries?, utf8Value, read_utf8Value]
+  | list _ ih | map _ ih =>
+    have children := ih readCid
+    simp_all [OrderedRead, emitModel, readModel?]
+  | cons _ _ ih tail | objCons _ _ _ ih tail =>
+    have first := ih fun link present => readCid link (by
+      simp [links, RawSyn.scalars] at present ⊢
+      exact Or.inl present)
+    have rest := tail fun link present => readCid link (by
+      simp [links, RawSyn.scalars] at present ⊢
+      exact Or.inr present)
+    simp_all [OrderedRead, emitModel, readItems?, readEntries?, utf8Value, read_utf8Value]
   | nil | objNil => rfl
 
 private def OrderMatches : {index : JsonIx} → RawSyn String (Scalar Numeric Link) index → Prop
@@ -488,10 +505,11 @@ private theorem emit_same_of_order {index : JsonIx} (tree : RawSyn String (Scala
     simp [emitModel, ih head, tail rest]
 
 private theorem ordered_roundtrip
-    (readCid : ∀ link, cid.parse? (cid.bytes link) = some link)
     (ordinaryNumber : ∀ number, isLeaf (numeric.number number) ∧
       readCborLeaf? numeric cid (numeric.number number) = some (.data (.number number)))
-    (tree : RawJson (Scalar Numeric Link)) (encodable : (emitModel numeric cid false tree).Encodable)
+    (tree : RawJson (Scalar Numeric Link))
+    (readCid : ∀ link ∈ links tree, cid.parse? (cid.bytes link) = some link)
+    (encodable : (emitModel numeric cid false tree).Encodable)
     (order : canonicalMaps (emitModel numeric cid false tree) = true) :
     renderCbor? numeric cid tree = some (emitModel numeric cid false tree).encode ∧
       parseCbor? numeric cid (emitModel numeric cid false tree).encode = some tree := by
@@ -500,7 +518,7 @@ private theorem ordered_roundtrip
     rw [decode_encode _ encodable]
     change (if _ then interpretCbor? numeric cid _ else none) = _
     simp [order, interpret_of_sorted numeric cid _ order]
-    exact read_emit_ordered numeric cid readCid ordinaryNumber tree
+    exact read_emit_ordered numeric cid ordinaryNumber tree readCid
   exact ⟨by simp [renderCbor?, emit_same_of_order numeric cid tree order, parsed], parsed⟩
 
 end OrderedRoundtrip
@@ -527,7 +545,15 @@ theorem drisl_ordered_roundtrip (profile : CidProfile) (tree : Ordered (Cid prof
     let bytes := (emitModel drislCbor (Cid.codec profile) false tree).encode
     renderCbor? drislCbor (Cid.codec profile) tree = some bytes ∧
       parseCbor? drislCbor (Cid.codec profile) bytes = some tree :=
-  ordered_roundtrip _ _ (Cid.parse_bytes profile) (drisl_number_left _) tree encodable order
+  ordered_roundtrip _ _ (drisl_number_left _) tree (fun link _ => Cid.parse_bytes profile link) encodable order
+
+theorem atproto_ordered_roundtrip_with_codec {Link : Type} (cid : CidCodec Link) (tree : OrderedATProto Link)
+    (readCid : ∀ link ∈ links tree, cid.parse? (cid.bytes link) = some link)
+    (encodable : (emitModel i64Cbor cid false tree).Encodable)
+    (order : canonicalMaps (emitModel i64Cbor cid false tree) = true) :
+    let bytes := (emitModel i64Cbor cid false tree).encode
+    renderCbor? i64Cbor cid tree = some bytes ∧ parseCbor? i64Cbor cid bytes = some tree :=
+  ordered_roundtrip _ _ (atproto_number_left _) tree readCid encodable order
 
 theorem atproto_ordered_roundtrip (profile : CidProfile) (tree : OrderedATProto (Cid profile))
     (encodable : (emitModel i64Cbor (Cid.codec profile) false tree).Encodable)
@@ -535,7 +561,7 @@ theorem atproto_ordered_roundtrip (profile : CidProfile) (tree : OrderedATProto 
     let bytes := (emitModel i64Cbor (Cid.codec profile) false tree).encode
     renderCbor? i64Cbor (Cid.codec profile) tree = some bytes ∧
       parseCbor? i64Cbor (Cid.codec profile) bytes = some tree :=
-  ordered_roundtrip _ _ (Cid.parse_bytes profile) (atproto_number_left _) tree encodable order
+  atproto_ordered_roundtrip_with_codec _ tree (fun link _ => Cid.parse_bytes profile link) encodable order
 
 private def unsortedTree : Ordered (Cid .dasl) :=
   .map (.objCons "b" (.scalar (.data .null)) (.objCons "a" (.scalar (.data .null)) .objNil))
