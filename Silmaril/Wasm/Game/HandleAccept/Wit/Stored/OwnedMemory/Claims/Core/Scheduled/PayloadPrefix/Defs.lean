@@ -200,6 +200,20 @@ def canonicalCollectionTail {grow : SingleThreaded.GrowOracle} {sig : Signature}
   RecordLower.CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries .value area.size ptr
   ListLower.publish cx destination.width ptr entries.length output
 
+def CollectionTailUsing {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
+    (output : Lower.Output) (index ptr bytes : Nat) (left right : Config (core3 grow) (HostState sig))
+    (compare : Config (core3 grow) (HostState sig) → Config (core3 grow) (HostState sig) →
+      Session grow sig (Except RecordLower.Issue output.Result) → Session grow sig output.Result → Prop) : Prop :=
+  ptr = alignTo ptr area.alignment → ptr + entries.length * area.size ≤ bytes →
+  Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok () →
+  ∀ checked canonical : Config (core3 grow) (HostState sig),
+    checked.store = left.store → canonical.store = right.store →
+    checked.host = left.host → canonical.host = right.host →
+    compare checked canonical
+      (checkedCollectionTail destination inst entries area index output ptr (.ok ()))
+      (canonicalCollectionTail destination inst entries area output ptr)
+
 /-- The child traversal is required only at an admitted natural return.
 It receives the reached region and live verdict, and need not compare values
 at invalid addresses or predict a callback's mutations. -/
@@ -208,14 +222,16 @@ def CollectionTailAt {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow)))
     (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
     (output : Lower.Output) (index ptr bytes : Nat) (left right : Config (core3 grow) (HostState sig)) : Prop :=
-  ptr = alignTo ptr area.alignment → ptr + entries.length * area.size ≤ bytes →
-  Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok () →
-  ∀ checked canonical : Config (core3 grow) (HostState sig),
-    checked.store = left.store → canonical.store = right.store →
-    checked.host = left.host → canonical.host = right.host →
-    CompareAt profile ready dispatch checked canonical
-      (checkedCollectionTail destination inst entries area index output ptr (.ok ()))
-      (canonicalCollectionTail destination inst entries area output ptr)
+  CollectionTailUsing destination inst entries area output index ptr bytes left right (CompareAt profile ready dispatch)
+
+/-- An admitted tail that also carries an invariant into the continuation
+on a common return. A refusal or trap does not require that invariant. -/
+def CollectionTailKeepingAt {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))) (keep : CStore (core3 grow) → Prop)
+    (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
+    (output : Lower.Output) (index ptr bytes : Nat) (left right : Config (core3 grow) (HostState sig)) : Prop :=
+  CollectionTailUsing destination inst entries area output index ptr bytes left right (CompareKeepingAt profile ready dispatch keep)
 
 /-- A child comparison at a placed memory cursor. Placement uses the original
 validated region; growth carries those bounds to the reached store, without

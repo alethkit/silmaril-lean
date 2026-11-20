@@ -15,6 +15,42 @@ open Stored.Endpoints.RecordLower
 
 /-- Prepend replayed segments with equal visible labels. The two segments
 may take different numbers of internal steps. -/
+theorem ReachesKeeping.prepend {E : CoreEngine} {Host Result : Type} {profile : ProfileKind}
+    {ready : HostReady Host} {dispatch : Call E → P E Host (Ret E)} {keep : CStore E → Prop}
+    {left left' right right' : Config E Host} {checkLabels canonLabels : List (Label E Host)}
+    {checkCursor canonCursor : Cursor (E := E) Host}
+    {checkNext : Except RecordLower.Issue Result → P E Host (Ret E)} {canonNext : Result → P E Host (Ret E)}
+    (lhs : Steps profile ready dispatch left checkLabels left') (rhs : Steps profile ready dispatch right canonLabels right')
+    (seen : visible checkLabels = visible canonLabels)
+    (rest : ReachesKeeping profile ready dispatch keep left' right' checkCursor canonCursor checkNext canonNext) :
+    ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.prependKeeping lhs rhs seen rest
+
+theorem ReachesKeeping.weaken {E : CoreEngine} {Host Result : Type} {profile : ProfileKind}
+    {ready : HostReady Host} {dispatch : Call E → P E Host (Ret E)} {keep weaker : CStore E → Prop}
+    {left right : Config E Host} {checkCursor canonCursor : Cursor (E := E) Host}
+    {checkNext : Except RecordLower.Issue Result → P E Host (Ret E)} {canonNext : Result → P E Host (Ret E)}
+    (rest : ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext)
+    (weaken : ∀ store, keep store → weaker store) :
+    ReachesKeeping profile ready dispatch weaker left right checkCursor canonCursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.weakenKeeping rest weaken
+
+theorem ReachesKeeping.forget {E : CoreEngine} {Host Result : Type} {profile : ProfileKind}
+    {ready : HostReady Host} {dispatch : Call E → P E Host (Ret E)} {keep : CStore E → Prop}
+    {left right : Config E Host} {checkCursor canonCursor : Cursor (E := E) Host}
+    {checkNext : Except RecordLower.Issue Result → P E Host (Ret E)} {canonNext : Result → P E Host (Ret E)}
+    (rest : ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext) :
+    Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.forgetKeeping rest
+
+theorem Reaches.remember_true {E : CoreEngine} {Host Result : Type} {profile : ProfileKind}
+    {ready : HostReady Host} {dispatch : Call E → P E Host (Ret E)}
+    {left right : Config E Host} {checkCursor canonCursor : Cursor (E := E) Host}
+    {checkNext : Except RecordLower.Issue Result → P E Host (Ret E)} {canonNext : Result → P E Host (Ret E)}
+    (rest : Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext) :
+    ReachesKeeping profile ready dispatch (fun _ => True) left right checkCursor canonCursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.rememberTrue rest
+
 theorem Reaches.prepend {E : CoreEngine} {Host Result : Type} {profile : ProfileKind}
     {ready : HostReady Host} {dispatch : Call E → P E Host (Ret E)}
     {left left' right right' : Config E Host} {checkLabels canonLabels : List (Label E Host)}
@@ -167,6 +203,18 @@ theorem CollectionTailAt.memory_entries (destination : RecordDestination) (inst 
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memoryCollectionTail
     destination inst element entries child output index pointer bytes left right width sized
 
+/-- The same reached traversal carries its growth certificate through the
+actual descriptor program on success. -/
+theorem CollectionTailKeepingAt.memory_entries (destination : RecordDestination) (inst : InstId) (element : TypeOf)
+    (entries : List Field) (child : ∀ item ∈ entries, MemoryChildRule profile ready dispatch destination inst item element)
+    (output : Lower.Output) (index pointer bytes : Nat) (left right : Config (core3 grow) (HostState sig))
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes) :
+    CollectionTailKeepingAt profile ready dispatch (fun store => Core3.Grows left.store.core store.core)
+      destination inst entries (layout destination.width element) output index pointer bytes left right :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memoryCollectionTailKeeping
+    destination inst element entries child output index pointer bytes left right width sized
+
 theorem entries_match_of_mem {entries : List Field} {element : TypeOf} {item : Field}
     (matched : Field.EntriesMatch entries element) (member : item ∈ entries) : item.LayoutMatches element :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.entriesMatchOfMem matched member
@@ -239,8 +287,8 @@ theorem closed_memory_aggregate (destination : RecordDestination) (inst : InstId
     destination inst origin type fields index address bytes matched memoryWidth sized aligned bounds closed left right growth
 
 /-- After the initial dry run admits this collection, the actual recursive
-programs install the same allocator request; a certified scheduler prefix
-preserves the checked width. The saved checked continuation
+programs install the same allocator request at the reached memory width.
+The saved checked continuation
 validates range first and then re-reads the live plan. `mode` excludes the
 memory-map case, whose entry offsets use allocation-time placement. -/
 theorem collection_install (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
@@ -249,8 +297,7 @@ theorem collection_install (destination : RecordDestination) (inst : InstId) (ty
     (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
     (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
     (same : { left with ctl := right.ctl, host := right.host } = right)
-    {initial labels} (prefixRun : CoreGrowthSteps profile ready dispatch initial labels right)
-    (checkedDestination : destination.check initial.store = .ok ())
+    (reachedWidth : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
     (mode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
     (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
     (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
@@ -266,8 +313,8 @@ theorem collection_install (destination : RecordDestination) (inst : InstId) (ty
     Machine.Steps profile ready dispatch right [.tau, .tau] canonCall ∧
     HostFrame.Paired checkResume canonResume checkCall canonCall :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionInstall
-    destination inst type element entries output index left right cursor checkNext canonNext same prefixRun
-    checkedDestination mode prepared checkAt canonAt
+    destination inst type element entries output index left right cursor checkNext canonNext same reachedWidth
+    mode prepared checkAt canonAt
 
 /-- From an actual paired return, use the reached memory and live writer.
 Invalid ranges trap on both sides. A typed live refusal leaves the reference
@@ -336,6 +383,32 @@ theorem CollectionTailAt.of_children (destination : RecordDestination) (inst : I
     CollectionTailAt profile ready dispatch destination inst entries area output index pointer bytes left right :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionTailFromChildren
     destination inst entries area output index pointer bytes left right compared
+
+/-- Execute the actual saved return programs, carrying the tail's invariant
+only on success. A failed live recheck stops at the checked diagnostic;
+misalignment and range traps still compare the locked-down reached stores. -/
+theorem collection_return_keeping_at (destination : RecordDestination) (inst : InstId) (entries : List Field)
+    (area : Layout) (output : Lower.Output) (index pointer : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (checkCursor canonCursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (checkResume canonResume : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (paired : HostFrame.Paired checkResume canonResume left right) (sameThread : checkCursor.thread = canonCursor.thread)
+    (leftAt : left.ctl = { checkCursor with frames := .prog checkResume :: checkCursor.frames }.control (pure (.nat pointer)))
+    (rightAt : right.ctl = { canonCursor with frames := .prog canonResume :: canonCursor.frames }.control (pure (.nat pointer)))
+    (checkBody : checkResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      let live ← Record.Effects.reserve recordClaims (Field.listObjects entries)
+      checkedCollectionTail destination inst entries area index output ptr live >>= checkNext))
+    (canonBody : canonResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      canonicalCollectionTail destination inst entries area output ptr >>= canonNext))
+    {bytes : Nat} (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes) {keep}
+    (compared : CollectionTailKeepingAt profile ready dispatch keep destination inst entries area output index pointer bytes left right) :
+    ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionReturnKeepingAt
+    destination inst entries area output index pointer left right checkCursor canonCursor checkNext canonNext
+    checkResume canonResume paired sameThread leftAt rightAt checkBody canonBody sized compared
 
 /-- Replay a finite certified callback prefix, starting with the two saved
 allocator continuations. At a reached natural return, compose validation,

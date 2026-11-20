@@ -820,6 +820,15 @@ non-string scalar and handle leaves. The outer allocator path still uses the
 linked callback classification; allocators within entries and indirect map
 placement are not covered. Growth preserves the usable bounds, not the bytes.
 
+`Prefix.collection_memory` carries that growth evidence across an actual
+dynamic child's allocator install, classified callback, and saved return.
+On success its certificate covers the enclosing prefix, the callback, the
+entry writes/transfers and the descriptor at the reached store. The
+post-return range and live claim checks still run before the child rules.
+A common-frame pop stays paired without claiming a return; typed refusal
+and canonical trap stop the suffix. This is a rule for a classified reached
+path, not a proof that realloc returns or a classification of all nested paths.
+
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
 canonical leaf programs, then traverses the placed record/tuple fields, list and

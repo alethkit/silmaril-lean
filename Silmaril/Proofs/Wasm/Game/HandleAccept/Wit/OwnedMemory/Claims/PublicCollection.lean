@@ -128,7 +128,7 @@ theorem parked (site : Site grow sig) (profile : ProfileKind) (ready : HostReady
         obtain ⟨bytes, sized⟩ := Option.isSome_iff_exists.mp sizePresent
         obtain ⟨lhs, rhs, paired⟩ := collection_install (profile := profile) (ready := ready) (dispatch := dispatch)
           site.destination site.inst site.type site.element site.entries site.route.output 0 (site.withBody site.checkedBody)
-          (site.reference next) site.cursor site.reply next rfl (.refl _) linked.destination linked.mode prepared rfl canonAt
+          (site.reference next) site.cursor site.reply next rfl width linked.mode prepared rfl canonAt
         refine .installed (by rw [visibleAppend, silent]; rfl) (by rfl) (chain reached lhs) rhs paired ?_
         intro last seen path cursor pointer reachedReturn children
         exact prependCut reached silent (Prefix.collection site.destination site.inst site.type site.element
