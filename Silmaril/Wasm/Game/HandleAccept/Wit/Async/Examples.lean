@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Async.Thms
 public import Silmaril.Wasm.Component.Reference.Machine.Soundness.Thms
+import Silmaril.Wasm.Component.Reference.Engine.Mock.Defs
 import Silmaril.Wasm.Verify.Kernel.Defs
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Async.Examples
@@ -83,5 +84,51 @@ def cancellationSession : P E Unit (Ret E) := do
 
 theorem cancellation_session_resolves (X : E.Exec) :
     (run X cancellationSession).outcome = .resolved := by kernel_rfl
+
+def byteElement : Element := some (.prim .u8)
+
+/-- Transfer two distinct byte values through the real stream operations. Poll before and
+after rendezvous to distinguish a registered waiter from a ready write. -/
+noncomputable def byteStreamSession : P Mock.mock Unit (Ret Mock.mock) := do
+  let opts : CanonOpts Mock.mock := { async_ := true, memory := some 0 }
+  let _ ← invoke (.create .stream byteElement)
+  let _ ← invoke .createSet
+  let _ ← invoke (.join 2 3)
+  let writeReply ← invoke (.streamCopy .write byteElement opts 2 0 2)
+  trapIf (writeReply != [i32Flat blocked]) (.internal "byte stream writer did not block")
+  let noEvent ← invoke (.poll 0 3 4)
+  trapIf (noEvent != [i32Flat EventCode.none.toNat]) (.internal "spurious byte stream event")
+  let readReply ← invoke (.streamCopy .read byteElement opts 1 2 2)
+  trapIf (readReply != [i32Flat (packStreamCopyResult .completed 2)])
+    (.internal "byte stream reader received the wrong count")
+  let writeEvent ← invoke (.poll 0 3 4)
+  trapIf (writeEvent != [i32Flat EndKind.writableStream.eventCode.toNat])
+    (.internal "byte stream writer was not ready")
+  let _ ← invoke (.join 2 0)
+  let _ ← invoke (.closeSet 3)
+  let _ ← invoke (.close .stream .read byteElement 1)
+  let _ ← invoke (.close .stream .write byteElement 2)
+  pure .unit
+
+noncomputable def byteStreamInitial : Machine.Config Mock.mock Unit :=
+  let init := initial byteStreamSession
+  { init with store := { init.store with
+      core := { mems := [⟨.i32, ⟨#[41, 97, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]⟩⟩] } } }
+
+noncomputable def byteStreamRun (X : Mock.mock.Exec) :=
+  Machine.run noHostReady noForeignCalls X Machine.Oracle.first 256 byteStreamInitial
+
+theorem byte_stream_copies_values_and_delivers_write_event (X : Mock.mock.Exec) :
+    let result := byteStreamRun X
+    let mem := result.config.store.core.mems.head?.map (·.bytes.data)
+    (result.outcome, mem) = (.resolved, some (#[41, 97, 41, 97] ++
+      (u32Bytes 2).data ++ (u32Bytes (packStreamCopyResult .completed 2)).data)) := by
+  dsimp only
+  kernel_rfl
+
+theorem byte_stream_session_sound (X : Mock.mock.Exec) :
+    Machine.Steps .deterministic noHostReady noForeignCalls byteStreamInitial
+      (byteStreamRun X).labels (byteStreamRun X).config :=
+  Machine.run_sound noHostReady noForeignCalls X Machine.Oracle.first 256 byteStreamInitial
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Async.Examples
