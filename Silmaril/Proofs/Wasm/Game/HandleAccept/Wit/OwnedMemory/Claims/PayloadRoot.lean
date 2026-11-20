@@ -31,7 +31,9 @@ private theorem appendSteps {first middle finish : Config (core3 grow) (HostStat
 private theorem visibleAppend {E : CoreEngine} {Host : Type} (front back : List (Label E Host)) :
     visible (front ++ back) = visible front ++ visible back := List.filter_append ..
 
-theorem parked (site : Site grow sig route) (linked : site.Linked bindings) : Cut site profile ready bindings := by
+theorem parkedAfterFit (site : Site grow sig route) (linked : site.Linked bindings) (body : Prop)
+    (afterFit : Lower.fits Quirks.none site.destination.encoding site.destination.width (sig.payload site.tag)
+      site.payload.val.value = true → body) : Cut site profile ready bindings body := by
   let dispatch := specDispatch ready (host (grow := grow) bindings)
   obtain ⟨plan, compiled⟩ := linked.compiled
   obtain ⟨front, allTau, entry⟩ := route.parked bindings site.name site.functionType site.handle site.inst site.destination
@@ -87,9 +89,12 @@ theorem parked (site : Site grow sig route) (linked : site.Linked bindings) : Cu
       | ok _ =>
         rw [placed] at placement
         obtain ⟨labels, placementSilent, placedRun⟩ := placement
-        refine .placed ?_ placed prepared (appendSteps rootRun placedRun) trivial
+        refine .placed ?_ placed prepared (appendSteps rootRun placedRun) (afterFit fits)
         rw [visibleAppend, visibleAppend, silent, placementSilent]
         rfl
+
+theorem parked (site : Site grow sig route) (linked : site.Linked bindings) : Cut site profile ready bindings :=
+  parkedAfterFit site linked True (fun _ => trivial)
 
 theorem referenceAt (site : Site grow sig route) (bindings : List (Binding sig)) (linked : site.Linked bindings)
     (next : site.ReferenceNext) :
