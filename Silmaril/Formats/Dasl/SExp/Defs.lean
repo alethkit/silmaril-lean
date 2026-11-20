@@ -46,7 +46,7 @@ def dottedNonAtoms (name : Path → SExp2 Atom → Name) : Placement (SExp2 Atom
   | _, .atom _ => none
   | path, item => some (name path item)
 
-def atomKeys : Finset String := {"atom"}
+def atomKeys : Finset String := {"sexp:atom"}
 
 def atomNode (payload : Payload Atom) (atom : Atom) : Tree Ref Name :=
   .dict atomKeys (fun _ => .bytes (payload.encode atom))
@@ -57,7 +57,7 @@ def readAtom (payload : Payload Atom) : Tree Ref Name → Option Atom
 
 def readAtomFields (payload : Payload Atom) (keys : Finset String)
     (values : ↥keys → Tree Ref Name) : Option Atom :=
-  if hit : keys = atomKeys then readAtom payload (values ⟨"atom", hit.symm ▸ by simp [atomKeys]⟩)
+  if hit : keys = atomKeys then readAtom payload (values ⟨"sexp:atom", hit.symm ▸ by simp [atomKeys]⟩)
   else none
 
 def collect {len : Nat} (items : Fin len → Option Item) : Option (Fin len → Item) :=

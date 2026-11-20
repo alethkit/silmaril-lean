@@ -8,9 +8,9 @@ prefix; an atom never doubles as a link.
 
 | Profile | Atom | Empty | Nonempty |
 | --- | --- | --- | --- |
-| Proper | `{"atom": bytes}` | `[]` | array of children |
-| Dotted array | `{"atom": bytes}` | `null` | `[car, cdr]` |
-| Dotted dict | `{"atom": bytes}` | `null` | `{"car": car, "cdr": cdr}` |
+| Proper | `{"sexp:atom": bytes}` | `[]` | array of children |
+| Dotted array | `{"sexp:atom": bytes}` | `null` | `[car, cdr]` |
+| Dotted dict | `{"sexp:atom": bytes}` | `null` | `{"car": car, "cdr": cdr}` |
 
 The caller selects a profile out of band. An array of length two is not a reliable
 profile discriminator. A database or viewer should retain the profile and the atom
