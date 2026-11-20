@@ -164,7 +164,7 @@ theorem decodePayload_encode (payload : Payload) : decodePayload? (encode payloa
   have guard : payload.val.size < 2 ^ 32 ∧ sectionSize payload.val.size < 2 ^ 32 :=
     ⟨payload.property.payload, payload.property.body⟩
   have accepted : accept? (raw payload.val) = some ⟨payload, rfl⟩ := by
-    unfold raw
+    change accept? { data := [⟨payload.val, .passive⟩] } = _
     rw [accept?, dite_eq_left guard]
     exact congrArg some (Subtype.ext (Subtype.ext rfl))
   unfold decodePayload?

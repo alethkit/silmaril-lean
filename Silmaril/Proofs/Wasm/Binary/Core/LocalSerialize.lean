@@ -412,7 +412,8 @@ theorem decode_encode (shape : Shape) : Binary.Core.decode? (encode shape) = som
     unfold readModule
     rw [bind_at headerOk, bind_at getAt, bind_at go, bind_at remain]
     simp [completeSections, thirdSections, secondSections, firstSections, Binary.Core.codesDataIdxs,
-      Binary.Core.Expr.dataIdxs, Binary.Core.Instr.dataIdxs, Binary.Core.zipFuncs, raw, metadata, rawFunc]
+      Binary.Core.Expr.dataIdxs, Binary.Core.Instr.dataIdxs, Binary.Core.zipFuncs, raw, sections,
+      ModuleSections.assemble, rawFunc]
     rfl
   unfold Binary.Core.decode? decodeModule StateT.run'
   change (match Prod.fst <$> readModule.run ⟨bytes, 0⟩ with | .ok mod => some mod | .error _ => none) = _
@@ -421,12 +422,13 @@ theorem decode_encode (shape : Shape) : Binary.Core.decode? (encode shape) = som
 
 theorem raw_extract {mod : Wasm.Module} (fits : Serializable mod) : raw (extract mod fits) = mod := by
   obtain ⟨shape, rfl⟩ := fits
-  simp [extract, raw, rawFunc, Shape.localIndex, Idx.toNat]
+  simp [extract, raw, rawFunc, ModuleSections.assemble, Shape.localIndex, Idx.toNat]
 
 theorem decodeShape_encode (shape : Shape) : decodeShape? (encode shape) = some shape := by
   have accepted : accept? (raw shape) = some ⟨shape, rfl⟩ := by
     cases shape with
-    | mk locals index fits => simp [raw, rawFunc, metadata, accept?, Shape.localIndex, Idx.toNat, fits]
+    | mk locals index fits =>
+      simp [raw, rawFunc, sections, ModuleSections.assemble, accept?, Shape.localIndex, Idx.toNat, fits]
   unfold decodeShape?
   rw [decode_encode]
   change ((accept? (raw shape)).bind fun accepted => some accepted.val) = _
