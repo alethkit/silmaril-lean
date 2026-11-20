@@ -505,6 +505,105 @@ theorem prefix_append {before middle after : Config E Host} {leading trailing : 
   | done => exact right
   | step first moved _ ih => exact .step first moved (ih right)
 
+private theorem block_below (place : Location) (slot depth : Nat) :
+    (place.below depth).block slot = (place.block slot).map (·.below depth) := by
+  cases place with
+  | active activation segment => cases activation <;> rfl
+  | saved current segment => by_cases same : current = slot <;> simp [Location.below, Location.block, same]
+
+private theorem resume_below (place : Location) (slot depth : Nat) :
+    (place.below depth).resume slot = (place.resume slot).below depth := by
+  cases place with
+  | active => rfl
+  | saved current segment => by_cases same : current = slot <;> simp [Location.below, Location.resume, same]
+
+private theorem follow_below {edit : Edit E Host} {place reached : Location}
+    (moved : edit.follow place = some reached) (depth : Nat) :
+    edit.follow (place.below depth) = some (reached.below depth) := by
+  cases edit with
+  | block slot =>
+    change place.block slot = some reached at moved
+    simp only [Edit.follow, block_below, moved, Option.map_some]
+  | resume slot => cases moved; exact congrArg some (resume_below place slot depth)
+  | switch fromSlot toSlot =>
+    change (place.block fromSlot).map (Location.resume toSlot) = some reached at moved
+    change ((place.below depth).block fromSlot).map (Location.resume toSlot) = _
+    rw [block_below]
+    cases blocked : place.block fromSlot with
+    | none => simp [blocked] at moved
+    | some slot =>
+      simp only [blocked, Option.map_some, Option.some.injEq] at moved
+      subst reached
+      simpa only [Option.map_some] using congrArg some (resume_below slot toSlot depth)
+  | write slot _ =>
+    cases place with
+    | active => cases moved; rfl
+    | saved current segment =>
+      by_cases same : current = slot
+      · simp [Edit.follow, same] at moved
+      · simp [Edit.follow, same] at moved
+        subst reached
+        simp [Location.below, Edit.follow, same]
+  | pop =>
+    cases place with
+    | saved => cases moved; rfl
+    | active activation segment =>
+      cases activation with
+      | succ => cases moved; rfl
+      | zero =>
+        cases segment with
+        | zero => contradiction
+        | succ segment =>
+          change some (.active 0 segment) = some reached at moved
+          cases moved
+          change (Edit.pop (E := E) (Host := Host)).follow (.active 0 (segment.succ + depth)) = _
+          rw [Nat.succ_add]
+          rfl
+  | push frame =>
+    cases place with
+    | saved => cases moved; rfl
+    | active activation segment =>
+      cases activation with
+      | succ => cases moved; rfl
+      | zero =>
+        change some (.active 0 (segment + 1)) = some reached at moved
+        cases moved
+        change some (Location.active 0 (segment + depth + 1)) = some (Location.active 0 (segment + 1 + depth))
+        rw [Nat.add_right_comm]
+  | same | clear | enter | exit =>
+    cases place with
+    | saved => cases moved; rfl
+    | active activation segment =>
+      cases activation <;> cases moved <;> rfl
+
+theorem prefix_below {before after : Config E Host} {labels : List (Label E Host)} {place reached : Location}
+    (run : Prefix profile ready dispatch before place labels after reached) (depth : Nat) :
+    Prefix profile ready dispatch before (place.below depth) labels after (reached.below depth) := by
+  induction run with
+  | done => exact .done _ _
+  | step step moved _ ih => exact .step step (follow_below moved depth) ih
+
+theorem prefix_pop_above {before middle after : Config E Host} {labels : List (Label E Host)} {place : Location}
+    (run : Prefix profile ready dispatch before place labels middle (.active 0 0))
+    (step : Step profile ready dispatch middle .tau after) (pops : (transitionEdit middle .tau).pops (.active 0 0))
+    (depth : Nat) :
+    Prefix profile ready dispatch before (place.below (depth + 1)) (labels ++ [.tau]) after (.active 0 depth) := by
+  refine prefix_append (prefix_below run (depth + 1)) (.step step ?_ (.done _ _))
+  cases edit : transitionEdit middle .tau <;> simp [edit, Edit.pops] at pops ⊢
+  simp only [Location.below, Nat.zero_add]
+  rfl
+
+theorem prefix_under_call {before entered middle after : Config E Host} {labels : List (Label E Host)}
+    {thread frames rest call} {resume : Continuation E Host}
+    (focused : before.ctl = ⟨thread, .prog (.op (S := Eff E Host) (.call call) resume), frames⟩ :: rest)
+    (install : Step profile ready dispatch before .tau entered)
+    (run : Prefix profile ready dispatch entered (.active 0 0) labels middle (.active 0 0))
+    (step : Step profile ready dispatch middle .tau after)
+    (pops : (transitionEdit middle .tau).pops (.active 0 0)) (depth : Nat) :
+    Prefix profile ready dispatch before (.active 0 depth) (.tau :: labels ++ [.tau]) after (.active 0 depth) := by
+  refine .step install ?_ (prefix_pop_above run step pops depth)
+  simp only [transitionEdit, focused, Edit.follow, Location.below, Nat.zero_add]
+
 theorem prefixTrail {before after : Config E Host} {labels : List (Label E Host)} {place reached : Location}
     (run : Prefix profile ready dispatch before place labels after reached) :
     Trail profile ready dispatch before (some place) labels after (some reached) := by

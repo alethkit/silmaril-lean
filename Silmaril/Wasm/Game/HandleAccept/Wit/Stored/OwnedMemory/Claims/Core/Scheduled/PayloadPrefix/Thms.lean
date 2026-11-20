@@ -359,6 +359,17 @@ theorem string_plan_entry {grow : SingleThreaded.GrowOracle} {sig : Signature} {
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.stringPlanEntry
     destination inst str valid index output left right checkCursor canonCursor checkNext canonNext same present realloc fit placed checkAt canonAt
 
+/-- At a reached allocating string action, the actual call saves the remaining plan. -/
+theorem string_realloc_focus {E : CoreEngine} {Host : Type} (cx : LiftLowerContext E)
+    (ptr : Nat) (oldSize : Option Nat) (alignment : Alignment) (size : Nat) (steps : List StoreStep)
+    (finish : Nat → P E Host (Ret E)) :
+    let request := Call.reallocate cx (oldSize.elim 0 (fun _ => ptr)) (oldSize.getD 0) alignment.bytes size
+    (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= finish) =
+        .op (.call request) (stringPlanResume cx steps finish) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.stringReallocFocus
+    cx ptr oldSize alignment size steps finish
+
 /-- Take the actual scheduler call step for the next string allocation or
 resize, saving the remaining plan. This does not assert the callback returns. -/
 theorem string_realloc_install {E : CoreEngine} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}

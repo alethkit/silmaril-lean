@@ -944,7 +944,12 @@ At a successful reached reply with the original Core frame on top,
 `resume_returned_give` runs both machines' Core resume steps with the same
 ABI words and reached store. Only the checked machine records completion.
 `Site.reached_caller` identifies that frame from a finite occurrence trail,
-not from equality of continuation values. `Site.refusal_resumes` extends a
+not from equality of continuation values. `Prefix.under` follows older slots
+through the same active or suspended activation as a surviving mark.
+`string_return_tracks` constructs the older-slot prefix through an actual
+string allocation or resize, using the marked callback and its designated pop.
+It does not identify a continued occurrence after loss of the mark or thread
+this certificate through the entire recursive body. `Site.refusal_resumes` extends a
 reached preflight refusal on the checked side only. These local completion
 rules do not imply that a suspended callback returns or an async event is
 delivered.

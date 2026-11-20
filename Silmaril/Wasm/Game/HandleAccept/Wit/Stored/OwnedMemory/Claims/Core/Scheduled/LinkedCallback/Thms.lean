@@ -17,6 +17,25 @@ variable {grow : Silmaril.Wasm.SingleThreaded.GrowOracle} {sig : Signature} {pro
   {ready : HostReady (HostState sig)} {bindings : List (Binding sig)}
   {first second : ReturnFrame.Continuation (core3 grow) (HostState sig)}
 
+/-- Follow the original parked slot through an actual string allocator install,
+its marked execution, and its designated pop. Depth zero tracks the caller
+immediately beneath the allocator during that execution. -/
+theorem string_return_tracks (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (oldSize : Option Nat)
+    (alignment : Alignment) (size : Nat) (steps : List StoreStep) (finish : Nat → Session grow sig (Ret (core3 grow)))
+    (start last : State grow sig) (cursor reached : Cursor (E := core3 grow) (HostState sig)) (value : Nat)
+    (focused : start.ctl = cursor.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= finish))
+    {labels} (marked : ReturnFrame.Occurrence.Trail profile ready (specDispatch ready (host bindings))
+      (stringReallocEntry ready bindings cx ptr oldSize alignment size steps finish start cursor)
+      (some (.active 0 0)) labels last (some (.active 0 0)))
+    (returning : last.ctl = { reached with frames := .prog (stringPlanResume cx steps finish) :: reached.frames }.control
+      (.pure (.nat value))) (depth : Nat) :
+    ReturnFrame.Occurrence.Prefix profile ready (specDispatch ready (host bindings)) start (.active 0 depth)
+      (.tau :: labels ++ [.tau])
+      { last with ctl := reached.control (stringPlanResume cx steps finish (.nat value)) } (.active 0 depth) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringReturnTracks
+    cx ptr oldSize alignment size steps finish start last cursor reached value focused marked returning depth
+
 /-- A readiness policy independent of the writer needs no agreement premise
 at any reached synchronous read. -/
 theorem ReadyAgreement.fixed (policy : Nat → Bool) (start : State grow sig) (inst : InstId) :
