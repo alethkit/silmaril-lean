@@ -140,4 +140,11 @@ or hash preimage exists. The Docker opt-in adapter's `fillMissing` realizes the
 same relational operation on its partial maps; `checked` and `decode` still
 filter reads and are not used as tests for absence when filling.
 
-Standalone countermodels: `lake env lean -DwarningAsError=true tests/formats/DaslRawStore.lean`.
+`readObject_found_iff` connects the existing executable CBOR reader to the
+decoded view of the original byte map. `readObject_sound` carries successful
+reads to any extension that includes those bytes. Missing is relative to the
+reader (an absent object CID); a wrong codec or malformed present block is
+invalid. The reader does not check hashes or infer globally verified absence.
+
+Standalone countermodels and read regression:
+`lake env lean -DwarningAsError=true --run tests/formats/DaslRawStore.lean`.

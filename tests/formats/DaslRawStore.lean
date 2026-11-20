@@ -2,8 +2,11 @@ module
 
 import Silmaril.Formats.Dasl.RawStore.Thms
 import Silmaril.Containers.Cas.Naming.Thms
+meta import Silmaril.Formats.Dasl.RawStore.Thms
+meta import Silmaril.Containers.Cas.Naming.Thms
 
 open Silmaril.Formats.Dasl Silmaril.Formats.Dasl.RawStore Silmaril.Semantics.Naming
+open Silmaril.Formats.Cbor
 
 private def root := true
 private def valid : ByteArray := ⟨#[0xF6]⟩
@@ -41,3 +44,16 @@ example : Completes decoder allowAll emptyStore (fill emptyStore (single valid))
 
 example : (Silmaril.Containers.Cas.Store.fillMissing (fun _ : Bool => some invalid) (fun _ => some valid)) root =
     some invalid := rfl
+
+public def main : IO Unit := do
+  let objectBytes := [1, 0x71, 0x12, 32] ++ List.replicate 32 (0 : UInt8)
+  let rawBytes := [1, 0x55, 0x12, 32] ++ List.replicate 32 (0 : UInt8)
+  let some object := (Drisl.Cid.codec .dasl).parse? objectBytes | throw (IO.userError "object CID")
+  let some raw := (Drisl.Cid.codec .dasl).parse? rawBytes | throw (IO.userError "raw CID")
+  let withDefault base := Silmaril.Containers.Cas.Store.fillMissing base (fun _ => some valid)
+  match Wire.readObject (withDefault (fun _ => none)) object,
+      Wire.readObject (withDefault (fun _ => some invalid)) object,
+      Wire.readObject (fun _ => none) object,
+      Wire.readObject (fun _ => none) raw with
+  | .found .null, .invalidWire, .missing, .invalidWire => pure ()
+  | _, _, _, _ => throw (IO.userError "raw default must fill only an absent object block")
