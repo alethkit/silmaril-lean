@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Defs
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Ast
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WordAtom
+import Silmaril.Wasm.Verify.Kernel.Defs
 
 /-!
 # Proofs: typed payloads and fixed arities through linear memory
@@ -117,7 +118,8 @@ theorem witNode_eq {o : Callout} {tg pp cp n : BitVec 32} {t : S.Tag} {bs cs : L
     (h1 : o.segment pp.toNat (valsWidth (S.params t)) = some bs)
     (h2 : readVals o.segment (S.params t) bs = some a) (h3 : o.segment cp.toNat (4 * n.toNat) = some cs)
     (h4 : le32s cs = some hs) (h5 : (S.arity t).Admits hs.length = true)
-    (hal : pp.toNat % valsAlign (S.params t) = 0 ∧ cp.toNat % 4 = 0 := by decide) :
+    (hal : pp.toNat % valsAlign (S.params t) = 0 ∧ cp.toNat % 4 = 0 := by decide)
+    (hshape : checkPTys .memoryOnly (S.params t) = .ok () := by rfl) :
     Callout.witNode S tagOf o = some (⟨t, a⟩, hs) := by
   unfold Callout.witNode
   rw [ha]
@@ -125,7 +127,8 @@ theorem witNode_eq {o : Callout} {tg pp cp n : BitVec 32} {t : S.Tag} {bs cs : L
   refine Option.bind_eq_some_iff.2 ⟨t, ht, ?_⟩
   split
   swap
-  · exact absurd hal ‹_›
+  · rename_i rejected
+    exact (rejected ⟨hal.1, hal.2, by rw [hshape]; rfl⟩).elim
   refine Option.bind_eq_some_iff.2 ⟨bs, h1, ?_⟩
   refine Option.bind_eq_some_iff.2 ⟨a, h2, ?_⟩
   refine Option.bind_eq_some_iff.2 ⟨cs, h3, ?_⟩
@@ -146,13 +149,13 @@ theorem readVals_one (seg : Nat → Nat → Option (List UInt8)) :
     readVals seg [.s64] (Memory.encodeLE (IntType.i64.width / 8)
       (BitVec.setWidth (8 * (IntType.i64.width / 8)) (1 : BitVec 64)).toNat).data.toList =
       some ((1 : Int64), ()) := by
-  rfl
+  kernel_rfl
 
 theorem readVals_two (seg : Nat → Nat → Option (List UInt8)) :
     readVals seg [.s64] (Memory.encodeLE (IntType.i64.width / 8)
       (BitVec.setWidth (8 * (IntType.i64.width / 8)) (2 : BitVec 64)).toNat).data.toList =
       some ((2 : Int64), ()) := by
-  rfl
+  kernel_rfl
 
 /-- What `node(_, _, 0, 2)` observes when the memory holds two handles at `0` and `4`. -/
 theorem children_pair {o : Callout} {b : ByteArray} {r₁ r₂ : BitVec 32} (hmem : o.mem = some b)
