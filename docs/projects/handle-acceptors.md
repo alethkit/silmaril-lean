@@ -678,6 +678,27 @@ so the refusal segment composes with the certified prefixes before and after it.
 does not assume the allocator's bytes are unchanged, certify every callback trace, or validate the
 range newly returned by realloc, which canonical lowering checks in the reached store.
 
+The collection program laws factor both canonical outputs into ordered child
+programs. Fixed memory lists are in-place; dynamic lists and maps share the
+canonical request, reached-range validation and descriptor suffix. Flat maps
+store despecialized records; memory maps place the key and value using the
+allocation-time width, including when a string key itself calls realloc.
+At a reached collection cursor, the canonical width read and the checked dry
+run lead to the same realloc request. The saved checked continuation revalidates
+claims in the store and writer reached after the callback. A typed refusal there
+does not enter the element or descriptor programs; an invalid returned range
+traps before the live recheck. These are collection rules for the recursive
+comparison, not a correspondence for the complete public export sequence.
+The linked-prefix rule discharges the install certificates for the allocator
+protocol and callouts resolving to either public give binding, including closed
+window reentry. Only other reached installs need a separate certificate. At a
+return, the same memory address supplies the checked width and an existing
+region still fits; the returned pointer still has to pass alignment and range
+validation. None of these rules frames guest bytes or assumes a callback returns.
+The canonical record/tuple layout also bounds each aligned field placement
+inside the aggregate. With an already-valid aggregate region, the checked
+nested-field bounds read succeeds at that placement after a certified prefix.
+
 `RecordDestination.memory_cursor` uses the width established by the same destination
 check as both public give routes. On a certified prefix the canonical field cursor
 takes its actual width-read step and selects the same aligned address and increment
