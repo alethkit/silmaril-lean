@@ -110,23 +110,14 @@ theorem collection_install (destination : RecordDestination) (inst : InstId) (ty
       (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
     (canonAt : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none
       (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
-    let cx := destination.context (grow := grow) inst
     let area := layout destination.width element
-    let request := Call.reallocate cx 0 0 area.alignment.bytes (entries.length * area.size)
-    ∃ checkResume canonResume : ReturnFrame.Continuation (core3 grow) (HostState sig),
-      let active := fun resume => ({ cursor with frames := .prog resume :: cursor.frames }).control (dispatch request)
-      let checkCall := { left with ctl := active checkResume }
-      let canonCall := { right with ctl := active canonResume }
-      (∀ pointer, checkResume (.nat pointer) = (do
-        let ptr ← validateListRange cx area entries.length pointer
-        let live ← Record.Effects.reserve recordClaims (Field.listObjects entries)
-        checkedCollectionTail destination inst entries area index output ptr live >>= checkNext)) ∧
-      (∀ pointer, canonResume (.nat pointer) = (do
-        let ptr ← validateListRange cx area entries.length pointer
-        canonicalCollectionTail destination inst entries area output ptr >>= canonNext)) ∧
-      Machine.Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
-      Machine.Steps profile ready dispatch right [.tau, .tau] canonCall ∧
-      HostFrame.Paired checkResume canonResume checkCall canonCall :=
+    let checkResume := checkedCollectionResume destination inst entries area index output checkNext
+    let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+    let checkCall := collectionEntry destination inst area entries.length dispatch left cursor checkResume
+    let canonCall := collectionEntry destination inst area entries.length dispatch right cursor canonResume
+    Machine.Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
+    Machine.Steps profile ready dispatch right [.tau, .tau] canonCall ∧
+    HostFrame.Paired checkResume canonResume checkCall canonCall :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionInstall
     destination inst type element entries output index left right cursor checkNext canonNext same prefixRun
     checkedDestination mode prepared checkAt canonAt

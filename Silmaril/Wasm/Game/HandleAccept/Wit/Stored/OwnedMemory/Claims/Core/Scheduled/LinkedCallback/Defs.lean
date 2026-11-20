@@ -84,4 +84,20 @@ inductive Prefix (profile : ProfileKind) (ready : HostReady (HostState sig)) (bi
         labels last →
       Prefix profile ready bindings resume start labels last
 
+/-- Either the collection comparison has reached its continuations (or a
+refused/trapping prefix), or the observed pop was of an unchanged frame and
+the two allocator executions are still paired. -/
+def CollectionCut {Result : Type} (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (left right afterPop : State grow sig) (cursor : PayloadPrefix.Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except Endpoints.RecordLower.Issue Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : Result → Session grow sig (Ret (core3 grow))) (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
+  let dispatch := specDispatch ready (host (grow := grow) bindings)
+  (∃ canonCursor, canonCursor.thread = cursor.thread ∧
+    PayloadPrefix.Reaches profile ready dispatch left right cursor canonCursor checkNext canonNext) ∨
+  (∃ leftLabels rightLabels other,
+    Steps profile ready dispatch left leftLabels afterPop ∧ Steps profile ready dispatch right rightLabels other ∧
+    HostFrame.Paired first second afterPop other ∧
+    PayloadPrefix.visible leftLabels = seen ∧ PayloadPrefix.visible rightLabels = seen)
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback

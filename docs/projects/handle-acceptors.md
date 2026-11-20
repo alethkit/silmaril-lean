@@ -775,9 +775,11 @@ of the writer; this is automatic for a writer-independent readiness policy.
 `Prefix.collection_return` composes the replay (including closed give reentry)
 with the reached allocation range and fresh live claim verdict before running
 the child comparisons. A pop of an unchanged frame instead leaves the pair
-aligned. This does not compare arbitrary host reads or prove that the allocator
-returns, and the child comparisons and enclosing public-give composition are
-separate obligations.
+aligned. `Prefix.collection` derives the allocator entry and saved frames
+directly from the actual checked and canonical dynamic collection programs;
+only the checked run supplies the classified callback path. These rules do
+not compare arbitrary host reads or prove that the allocator returns. The child
+comparisons and enclosing public-give composition are separate obligations.
 
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the

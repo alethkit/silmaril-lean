@@ -58,7 +58,7 @@ theorem Prefix.collection_return (destination : RecordDestination) (inst : InstI
     {left right last : State grow sig} {labels} (path : Prefix profile ready bindings first left labels last)
     (paired : HostFrame.Paired first second left right) (checkCursor : Cursor (E := core3 grow) (HostState sig))
     (leftAt : last.ctl = { checkCursor with frames := .prog first :: checkCursor.frames }.control (pure (.nat pointer)))
-    (destinationChecked : destination.check left.store = .ok ()) {bytes : Nat}
+    (present : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width) {bytes : Nat}
     (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
     (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
     (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
@@ -82,7 +82,42 @@ theorem Prefix.collection_return (destination : RecordDestination) (inst : InstI
       HostFrame.Paired first second { last with ctl := checkCursor.control (first (.nat pointer)) } other ∧
       visible leftLabels = labels ∧ visible rightLabels = labels) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.collectionReturn destination inst
-    entries area output index pointer path paired checkCursor leftAt destinationChecked sized checkNext canonNext
+    entries area output index pointer path paired checkCursor leftAt present sized checkNext canonNext
     checkBody canonBody compared
+
+/-- Start at the two actual dynamic lowering programs. The allocator entry
+and both saved continuations are derived from those programs, not supplied
+as matching-callback hypotheses. The remaining path evidence classifies
+only the reached checked run. Value-mode entries share the child comparisons. -/
+theorem Prefix.collection (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
+    (output : Lower.Output) (index pointer : Nat) {initial left right last : State grow sig} {before seen}
+    (cursor reached : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    (prefixRun : CoreGrowthSteps profile ready (specDispatch ready (host (grow := grow) bindings)) initial before right)
+    (checkedDestination : destination.check initial.store = .ok ()) {bytes : Nat}
+    (sized : (core3 grow).memSize? initial.store.core destination.memory = some bytes)
+    (mode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let area := layout destination.width element
+    let checkResume := checkedCollectionResume destination inst entries area index output checkNext
+    let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+    let call := collectionEntry destination inst area entries.length dispatch left cursor checkResume
+    Prefix profile ready bindings checkResume call seen last →
+    last.ctl = { reached with frames := .prog checkResume :: reached.frames }.control (pure (.nat pointer)) →
+    (∀ item ∈ entries, ∀ address pos, Compare profile ready dispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        item pos (.memory address))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) →
+    CollectionCut profile ready bindings checkResume canonResume left right
+      { last with ctl := reached.control (checkResume (.nat pointer)) } reached checkNext canonNext seen :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.collection destination inst type element entries
+    output index pointer cursor reached checkNext canonNext same prefixRun checkedDestination sized mode prepared checkAt canonAt
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback
