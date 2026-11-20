@@ -7,6 +7,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 LAKE="${LAKE:-lake}"
+driver="tools/compiler-explorer/Replay.lean"
+export LEAN_NUM_THREADS=1
 modules=(
   CompilesToExamples.Explorer.C2C.Runs
   CompilesToExamples.Explorer.C2C.Elaborates
@@ -27,12 +29,39 @@ modules=(
   Silmaril.Compiler.Explorer.Text.Thms
   CompilesToExamples.Explorer.TypeError
 )
-jobs=$(nproc)
-if (( jobs > 6 )); then jobs=6; fi
-start=$(date +%s)
-printf '%s\n' "${modules[@]}" |
-  LEAN_NUM_THREADS=1 timeout 1200 "$LAKE" env xargs -r -n 1 -P "$jobs" bash -c '
-    printf "leanchecker: %s\n" "$1"
-    exec leanchecker "$1"
-  ' replay
-echo "leanchecker: ${#modules[@]} modules ok ($(( $(date +%s) - start )) s)"
+# Each replay has its own environment. Bound concurrent processes to avoid multiplying
+# Mathlib import memory by the host CPU count; keep a serial mode for small hosts.
+jobs="${LEAN_REPLAY_JOBS:-4}"
+if ! [[ "$jobs" =~ ^[1-9][0-9]*$ ]]; then
+  echo "LEAN_REPLAY_JOBS must be a positive integer" >&2
+  exit 1
+fi
+# Fail before launching any workers if discovery fails; never use process
+# substitution here (its exit status would be lost).
+selection=$(timeout 1200 env -u SILMARIL_REPLAY_MODULE SILMARIL_REPLAY_TARGETS="${modules[*]}" \
+  "$LAKE" env lean -DwarningAsError=true "$driver")
+if [ -z "$selection" ]; then
+  echo "kernel replay selected no modules" >&2
+  exit 1
+fi
+mapfile -t selected <<< "$selection"
+pids=()
+failed=0
+wait_batch() {
+  for pid in "${pids[@]}"; do
+    if ! wait "$pid"; then failed=1; fi
+  done
+  pids=()
+}
+for m in "${selected[@]}"; do
+  (
+    start=$(date +%s)
+    timeout 1200 env -u SILMARIL_REPLAY_TARGETS SILMARIL_REPLAY_MODULE="$m" \
+      "$LAKE" env lean -DwarningAsError=true "$driver"
+    echo "kernel replay $m: $(( $(date +%s) - start )) s"
+  ) &
+  pids+=("$!")
+  if (( ${#pids[@]} >= jobs )); then wait_batch; fi
+done
+wait_batch
+exit "$failed"
