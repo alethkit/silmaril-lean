@@ -810,6 +810,16 @@ the suffix. `parked_givePayload_closed` applies this fragment to the public
 indirect binding and retains its original reply continuation. The rule does not
 yet compose nested allocating fields or claim reply delivery.
 
+`MemoryChildRule.aggregate` composes reached memory children in a record or
+tuple using its compiled layout. `CollectionTailAt.memory_entries` uses the
+same child interface for a validated array, deriving the alignment and bounds
+of each reached entry. `Site.parked_local_entries` discharges the resulting
+tail for lists of arbitrarily nested local records and tuples, on both public
+give bindings, and for flat maps in value-entry mode. Its fragment has
+non-string scalar and handle leaves. The outer allocator path still uses the
+linked callback classification; allocators within entries and indirect map
+placement are not covered. Growth preserves the usable bounds, not the bytes.
+
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
 canonical leaf programs, then traverses the placed record/tuple fields, list and
