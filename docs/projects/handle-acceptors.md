@@ -882,7 +882,9 @@ through arbitrary allocating compounds and both public give bindings is separate
 
 `ChildFrameOver.collection_replay` applies the same occurrence tracking to
 the allocating list and map programs. A finite callback prefix can end
-without a return. At the installed return it retires just that frame and
+without a return. Both replays certify every edit of the mark, even when
+overwriting or trapping removes it. At the installed return the comparison
+retires just that frame and
 checks the pointer against the reached memory; only a valid range reads the
 live plan. An invalid range traps with the callback effects intact. A failed
 live check leaves the canonical program before traversal, while the checked

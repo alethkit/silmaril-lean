@@ -42,6 +42,15 @@ private theorem matchedEdit {left right : State grow sig}
     Occurrence.transitionEdit left label = Occurrence.transitionEdit right label :=
   Occurrence.pair_edit paired label
 
+private theorem trailUnchanged {left right : State grow sig} {labels}
+    (run : Steps profile ready (specDispatch ready (host bindings)) left labels right)
+    (tracks : ∀ place, Occurrence.Prefix profile ready (specDispatch ready (host bindings)) left place labels right place)
+    (mark : Option Occurrence.Location) : Occurrence.Trail profile ready (specDispatch ready (host bindings))
+      left mark labels right mark := by
+  cases mark with
+  | none => exact Occurrence.Trail.absent run
+  | some place => exact (tracks place).toTrail
+
 theorem replayMarked {left right last : State grow sig} {visibleLabels}
     {older changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     {protectedReturn : ReturnFrame.Continuation (core3 grow) (HostState sig) → Prop}
@@ -52,8 +61,7 @@ theorem replayMarked {left right last : State grow sig} {visibleLabels}
     MarkedReplay profile ready bindings older changes left right last mark visibleLabels := by
   induction path generalizing right mark with
   | done cfg =>
-    exact ⟨[], [], right, mark, .refl _, .refl _, paired, rfl, rfl, outside,
-      fun place found => ⟨place, found, .done _ _, .done _ _⟩⟩
+    exact ⟨[], [], right, mark, .refl _, .refl _, paired, rfl, rfl, outside, .done _ _, .done _ _⟩
   | @step start next last label labels inside growth run _ ih =>
     obtain ⟨otherStep, replay, matched⟩ := HostFrame.Related.interior_step covers paired inside growth run
     have stepRight : Machine.Step profile ready (specDispatch ready (host (grow := grow) bindings)) right label otherStep := by
@@ -64,20 +72,12 @@ theorem replayMarked {left right last : State grow sig} {visibleLabels}
         (mark.bind (Occurrence.transitionEdit start label).follow) := by
       rw [Occurrence.step_edit run, Occurrence.step_edit stepRight, ← same]
       exact Occurrence.outside_edit outside _
-    obtain ⟨leftLabels, rightLabels, other, reached, lhs, rhs, still, seenLeft, seenRight, remaining, tracks⟩ :=
+    obtain ⟨leftLabels, rightLabels, other, reached, lhs, rhs, still, seenLeft, seenRight, remaining, leftTrail, rightTrail⟩ :=
       ih matched nextOutside
     refine ⟨label :: leftLabels, label :: rightLabels, other, reached, .cons growth run lhs,
-      replay.append rhs, still, ?_, ?_, remaining, ?_⟩
+      replay.append rhs, still, ?_, ?_, remaining, .step run leftTrail, .step stepRight (by rwa [← same])⟩
     · exact (List.filter_append [_] leftLabels).trans (congrArg (PayloadPrefix.visible [_] ++ ·) seenLeft)
     · exact (List.filter_append [_] rightLabels).trans (congrArg (PayloadPrefix.visible [_] ++ ·) seenRight)
-    · intro final found
-      obtain ⟨middle, middleAt, leftTrack, rightTrack⟩ := tracks final found
-      cases firstAt : mark with
-      | none => simp [firstAt] at middleAt
-      | some original =>
-        have moved : (Occurrence.transitionEdit start label).follow original = some middle := by
-          simpa [firstAt] using middleAt
-        exact ⟨original, rfl, .step run moved leftTrack, .step stepRight (same ▸ moved) rightTrack⟩
   | closedGive callout _ ih =>
     obtain ⟨leftCount, rightCount, _, _, _, lhs, rhs, _, matched, _, _, leftTrack, rightTrack⟩ :=
       Plain.parked_closed_give_rejoin bindings callout.name callout.type callout.args callout.inst
@@ -86,16 +86,14 @@ theorem replayMarked {left right last : State grow sig} {visibleLabels}
     have nextOutside := fun place offMark first second leftAt rightAt => outside place offMark first second
       ((Occurrence.prefix_survives (leftTrack place)).2.symm.trans leftAt)
       ((Occurrence.prefix_survives (rightTrack place)).2.symm.trans rightAt)
-    obtain ⟨leftLabels, rightLabels, other, reached, leftTail, rightTail, still, seenLeft, seenRight, remaining, tracks⟩ :=
-      ih matched nextOutside
-    refine ⟨_, _, other, reached, lhs.append leftTail, rhs.append rightTail, still, ?_, ?_, remaining, ?_⟩
+    obtain ⟨leftLabels, rightLabels, other, reached, leftTail, rightTail, still, seenLeft, seenRight, remaining,
+      leftTrail, rightTrail⟩ := ih matched nextOutside
+    refine ⟨_, _, other, reached, lhs.append leftTail, rhs.append rightTail, still, ?_, ?_, remaining,
+      (trailUnchanged lhs.steps leftTrack mark).append leftTrail, (trailUnchanged rhs.steps rightTrack mark).append rightTrail⟩
     · rw [PayloadPrefix.visible, List.filter_append]
       exact (congrArg (· ++ PayloadPrefix.visible leftLabels) (silent leftCount)).trans seenLeft
     · rw [PayloadPrefix.visible, List.filter_append]
       exact (congrArg (· ++ PayloadPrefix.visible rightLabels) (silent rightCount)).trans seenRight
-    · intro final found
-      obtain ⟨original, startAt, leftTail, rightTail⟩ := tracks final found
-      exact ⟨original, startAt, (leftTrack original).append leftTail, (rightTrack original).append rightTail⟩
   | @syncReady start _ _ task inst thread frames rest focused agrees _ ih =>
     let chooseNext := syncLiftCandidates (E := core3 grow) (σ := HostState sig) task
     let residual := chooseNext (start.store.instCandidates (ready start.host) inst)
@@ -113,16 +111,17 @@ theorem replayMarked {left right last : State grow sig} {visibleLabels}
         Occurrence.segmentStorage start := by simp [Occurrence.segmentStorage, focused]
     have segmentRight : Occurrence.segmentStorage { right with ctl := ⟨thread, .prog residual, otherFrames⟩ :: otherRest } =
         Occurrence.segmentStorage right := by simp [Occurrence.segmentStorage, atOther]
-    obtain ⟨leftLabels, rightLabels, other, reached, lhs, rhs, still, seenLeft, seenRight, remaining, tracks⟩ :=
+    obtain ⟨leftLabels, rightLabels, other, reached, lhs, rhs, still, seenLeft, seenRight, remaining, leftTrail, rightTrail⟩ :=
       ih matched (by rwa [segmentLeft, segmentRight])
     refine ⟨.tau :: leftLabels, .tau :: rightLabels, other, reached,
       .cons (by simp [CoreUpdateGrows, focused]) (.hostGet focused) lhs,
-      .cons (by simp [CoreUpdateGrows, atOther]) stepRight rhs, still, seenLeft, seenRight, remaining, ?_⟩
-    intro final found
-    obtain ⟨original, startAt, leftTail, rightTail⟩ := tracks final found
-    exact ⟨original, startAt,
-      .step (.hostGet focused) (by rw [Occurrence.transitionEdit, focused]; cases original <;> rfl) leftTail,
-      .step stepRight (by rw [Occurrence.transitionEdit, atOther]; cases original <;> rfl) rightTail⟩
+      .cons (by simp [CoreUpdateGrows, atOther]) stepRight rhs, still, seenLeft, seenRight, remaining, ?_, ?_⟩
+    · exact .step (.hostGet focused) (by
+        rw [show mark.bind (Occurrence.transitionEdit start .tau).follow = mark by
+          rw [Occurrence.transitionEdit, focused]; cases mark <;> rfl]; exact leftTrail)
+    · exact .step stepRight (by
+        rw [show mark.bind (Occurrence.transitionEdit right .tau).follow = mark by
+          rw [Occurrence.transitionEdit, atOther]; cases mark <;> rfl]; exact rightTrail)
 
 theorem replayFor {left right last : State grow sig} {visibleLabels}
     {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
@@ -465,19 +464,13 @@ theorem stringReplay {changes : ReturnFrame.Substitutions (core3 grow) (HostStat
     | @installed pointer oldSize alignment size rest shorter store labels checked canonical silent paired outside =>
       refine .allocated pointer oldSize alignment size rest shorter checked canonical silent ?_
       intro dispatch leftEntry rightEntry first second wider last seen protectedReturn path covers
-      obtain ⟨leftLabels, rightLabels, other, mark, lhs, rhs, matched, leftSeen, rightSeen, remaining, tracks⟩ :=
+      obtain ⟨leftLabels, rightLabels, other, mark, lhs, rhs, matched, leftSeen, rightSeen, remaining, leftTrail, rightTrail⟩ :=
         replayMarked path covers paired outside
-      have tracked : ∀ place, mark = some place →
-          Occurrence.Prefix profile ready dispatch leftEntry (.active 0 0) leftLabels last place ∧
-          Occurrence.Prefix profile ready dispatch rightEntry (.active 0 0) rightLabels other place := by
-        intro place atMark
-        obtain ⟨original, eq, leftTrack, rightTrack⟩ := tracks place atMark
-        have same : original = .active 0 0 := (Option.some.inj eq).symm
-        subst original
-        exact ⟨leftTrack, rightTrack⟩
-      refine ⟨leftLabels, rightLabels, other, mark, lhs, rhs, leftSeen, rightSeen, matched, tracked, ?_⟩
+      refine ⟨leftLabels, rightLabels, other, mark, lhs, rhs, leftSeen, rightSeen, matched, leftTrail, rightTrail, ?_⟩
       intro value cursor atMark leftAt
-      have rightMark := (Occurrence.prefix_survives (tracked _ atMark).2).2
+      obtain ⟨original, same, track⟩ := Occurrence.Trail.survives (atMark ▸ rightTrail)
+      cases same
+      have rightMark := (Occurrence.prefix_survives track).2
       have rightInstalled : Occurrence.segmentAt (Occurrence.segmentStorage rightEntry) (.active 0 0) =
           some (.prog second) := rfl
       have old : Occurrence.Outside changes (Occurrence.segmentStorage last) (Occurrence.segmentStorage other)
@@ -697,19 +690,13 @@ theorem collectionReplay {older : ReturnFrame.Substitutions (core3 grow) (HostSt
   let canonical := collectionEntry destination inst area entries.length dispatch right canon second
   have outside := childFrameOutside frame
     (dispatch (.reallocate (destination.context inst) 0 0 area.alignment.bytes (entries.length * area.size))) first second
-  obtain ⟨leftLabels, rightLabels, other, mark, lhs, rhs, matched, leftSeen, rightSeen, remaining, tracks⟩ :=
+  obtain ⟨leftLabels, rightLabels, other, mark, lhs, rhs, matched, leftSeen, rightSeen, remaining, leftTrail, rightTrail⟩ :=
     replayMarked path covers paired outside
-  have tracked : ∀ place, mark = some place →
-      Occurrence.Prefix profile ready dispatch checked (.active 0 0) leftLabels last place ∧
-      Occurrence.Prefix profile ready dispatch canonical (.active 0 0) rightLabels other place := by
-    intro place atMark
-    obtain ⟨original, eq, leftTrack, rightTrack⟩ := tracks place atMark
-    have same : original = .active 0 0 := (Option.some.inj eq).symm
-    subst original
-    exact ⟨leftTrack, rightTrack⟩
-  refine ⟨leftLabels, rightLabels, other, mark, lhs, rhs, leftSeen, rightSeen, matched, tracked, ?_⟩
+  refine ⟨leftLabels, rightLabels, other, mark, lhs, rhs, leftSeen, rightSeen, matched, leftTrail, rightTrail, ?_⟩
   intro pointer cursor atMark leftAt
-  have rightMark := (Occurrence.prefix_survives (tracked _ atMark).2).2
+  obtain ⟨original, same, track⟩ := Occurrence.Trail.survives (atMark ▸ rightTrail)
+  cases same
+  have rightMark := (Occurrence.prefix_survives track).2
   have installed : Occurrence.segmentAt (Occurrence.segmentStorage canonical) (.active 0 0) = some (.prog second) := rfl
   obtain ⟨otherCursor, residual, rightAt, _, _⟩ := markedReturn (profile := profile) (ready := ready) (bindings := bindings)
     matched (atMark ▸ remaining) leftAt (rightMark.trans installed)

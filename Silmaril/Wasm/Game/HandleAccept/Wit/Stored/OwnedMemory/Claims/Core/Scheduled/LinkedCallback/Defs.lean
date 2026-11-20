@@ -34,9 +34,8 @@ def MarkedReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bi
     visible leftLabels = seen ∧ visible rightLabels = seen ∧
     ReturnFrame.Occurrence.Outside older (ReturnFrame.Occurrence.segmentStorage last)
       (ReturnFrame.Occurrence.segmentStorage other) reached ∧
-    ∀ place, reached = some place → ∃ original, mark = some original ∧
-      ReturnFrame.Occurrence.Prefix profile ready dispatch left original leftLabels last place ∧
-      ReturnFrame.Occurrence.Prefix profile ready dispatch right original rightLabels other place
+    ReturnFrame.Occurrence.Trail profile ready dispatch left mark leftLabels last reached ∧
+    ReturnFrame.Occurrence.Trail profile ready dispatch right mark rightLabels other reached
 
 /-- Evidence for a give import actually reached within a closed instance.
 It includes the reached caller and binding, not agreement of the two writers. -/
@@ -287,9 +286,8 @@ inductive StringReplayLayer (profile : ProfileKind) (ready : HostReady (HostStat
             CoreGrowthSteps profile ready dispatch rightEntry rightLabels other ∧
             visible leftLabels = seen ∧ visible rightLabels = seen ∧
             HostFrame.Related.Paired changes last other ∧
-            (∀ place, mark = some place →
-              ReturnFrame.Occurrence.Prefix profile ready dispatch leftEntry (.active 0 0) leftLabels last place ∧
-              ReturnFrame.Occurrence.Prefix profile ready dispatch rightEntry (.active 0 0) rightLabels other place) ∧
+            ReturnFrame.Occurrence.Trail profile ready dispatch leftEntry (some (.active 0 0)) leftLabels last mark ∧
+            ReturnFrame.Occurrence.Trail profile ready dispatch rightEntry (some (.active 0 0)) rightLabels other mark ∧
             (∀ value cursor, mark = some (ReturnFrame.Occurrence.Location.active 0 0) →
               last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (.pure (.nat value)) →
               ∃ otherCursor,
@@ -378,9 +376,8 @@ def CollectionReplay (profile : ProfileKind) (ready : HostReady (HostState sig))
       CoreGrowthSteps profile ready dispatch canonical rightLabels other ∧
       visible leftLabels = seen ∧ visible rightLabels = seen ∧
       HostFrame.Related.Paired changes last other ∧
-      (∀ place, mark = some place →
-        ReturnFrame.Occurrence.Prefix profile ready dispatch checked (.active 0 0) leftLabels last place ∧
-        ReturnFrame.Occurrence.Prefix profile ready dispatch canonical (.active 0 0) rightLabels other place) ∧
+      ReturnFrame.Occurrence.Trail profile ready dispatch checked (some (.active 0 0)) leftLabels last mark ∧
+      ReturnFrame.Occurrence.Trail profile ready dispatch canonical (some (.active 0 0)) rightLabels other mark ∧
       ∀ pointer cursor, mark = some (ReturnFrame.Occurrence.Location.active 0 0) →
         last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (.pure (.nat pointer)) →
         RangeCutOver profile ready bindings older first checked canonical last cursor destination area entries.length pointer

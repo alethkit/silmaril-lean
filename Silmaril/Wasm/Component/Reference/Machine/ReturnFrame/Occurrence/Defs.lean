@@ -179,4 +179,14 @@ inductive Prefix (profile : ProfileKind) (ready : HostReady Host) (dispatch : Ca
       Prefix profile ready dispatch next middle labels after reached →
       Prefix profile ready dispatch before place (label :: labels) after reached
 
+/-- Follow an optional marked occurrence through every actual step. Absence
+can only result from an edit removing the mark, and remains absent afterward. -/
+inductive Trail (profile : ProfileKind) (ready : HostReady Host) (dispatch : Call E → P E Host (Ret E)) :
+    Config E Host → Option Location → List (Label E Host) → Config E Host → Option Location → Prop where
+  | done (cfg : Config E Host) (mark : Option Location) : Trail profile ready dispatch cfg mark [] cfg mark
+  | step {before next after : Config E Host} {mark reached : Option Location} {label labels} :
+      Step profile ready dispatch before label next →
+      Trail profile ready dispatch next (mark.bind (transitionEdit before label).follow) labels after reached →
+      Trail profile ready dispatch before mark (label :: labels) after reached
+
 end Silmaril.Wasm.Component.Machine.ReturnFrame.Occurrence
