@@ -158,6 +158,23 @@ def canonicalCollectionTail {grow : SingleThreaded.GrowOracle} {sig : Signature}
   RecordLower.CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries .value area.size ptr
   ListLower.publish cx destination.width ptr entries.length output
 
+/-- The child traversal is required only at an admitted natural return.
+It receives the reached region and live verdict, and need not compare values
+at invalid addresses or predict a callback's mutations. -/
+def CollectionTailAt {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow)))
+    (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
+    (output : Lower.Output) (index ptr bytes : Nat) (left right : Config (core3 grow) (HostState sig)) : Prop :=
+  ptr = alignTo ptr area.alignment → ptr + entries.length * area.size ≤ bytes →
+  Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok () →
+  ∀ checked canonical : Config (core3 grow) (HostState sig),
+    checked.store = left.store → canonical.store = right.store →
+    checked.host = left.host → canonical.host = right.host →
+    CompareAt profile ready dispatch checked canonical
+      (checkedCollectionTail destination inst entries area index output ptr (.ok ()))
+      (canonicalCollectionTail destination inst entries area output ptr)
+
 def checkedCollectionResume {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
     (index : Nat) (output : Lower.Output)

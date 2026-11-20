@@ -84,6 +84,19 @@ inductive Prefix (profile : ProfileKind) (ready : HostReady (HostState sig)) (bi
         labels last →
       Prefix profile ready bindings resume start labels last
 
+/-- Continue a designated allocator return using its measured width and size.
+The tail rule receives the alignment, bounds, and live-plan facts only after
+the corresponding checks actually accept. -/
+def ReachedCollectionTail (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (destination : RecordDestination) (inst : InstId)
+    (entries : List Stored.Endpoints.RecordLower.Field) (area : Layout) (output : Stored.Lower.Output)
+    (index pointer : Nat) (checked : State grow sig) : Prop :=
+  ∀ (reference : State grow sig) (bytes : Nat),
+    ptrTypeIn checked.store (destination.context inst) = destination.width →
+    (core3 grow).memSize? checked.store.core destination.memory = some bytes →
+    PayloadPrefix.CollectionTailAt profile ready (specDispatch ready (host bindings)) destination inst entries area
+      output index pointer bytes checked reference
+
 /-- Either the collection comparison has reached its continuations (or a
 refused/trapping prefix), or the observed pop was of an unchanged frame and
 the two allocator executions are still paired. -/

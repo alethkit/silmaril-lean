@@ -211,9 +211,47 @@ theorem collection_return (destination : RecordDestination) (inst : InstId) (ent
         item pos (.memory address))
       (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
     Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionReturn
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionReturnAt
+    destination inst entries area output index pointer left right checkCursor canonCursor checkNext canonNext
+    checkResume canonResume paired sameThread leftAt rightAt checkBody canonBody sized
+    (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionTailFromChildren
+      destination inst entries area output index pointer bytes left right compared)
+
+/-- Rejoin the saved continuations with a tail rule using the actual reached
+range and successful live recheck. Neither a range trap nor a live refusal
+requires a comparison of the unvisited children. -/
+theorem collection_return_at (destination : RecordDestination) (inst : InstId) (entries : List Field)
+    (area : Layout) (output : Lower.Output) (index pointer : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (checkCursor canonCursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (checkResume canonResume : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (paired : HostFrame.Paired checkResume canonResume left right) (sameThread : checkCursor.thread = canonCursor.thread)
+    (leftAt : left.ctl = { checkCursor with frames := .prog checkResume :: checkCursor.frames }.control (pure (.nat pointer)))
+    (rightAt : right.ctl = { canonCursor with frames := .prog canonResume :: canonCursor.frames }.control (pure (.nat pointer)))
+    (checkBody : checkResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      let live ← Record.Effects.reserve recordClaims (Field.listObjects entries)
+      checkedCollectionTail destination inst entries area index output ptr live >>= checkNext))
+    (canonBody : canonResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      canonicalCollectionTail destination inst entries area output ptr >>= canonNext))
+    {bytes : Nat} (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (compared : CollectionTailAt profile ready dispatch destination inst entries area output index pointer bytes left right) :
+    Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionReturnAt
     destination inst entries area output index pointer left right checkCursor canonCursor checkNext canonNext
     checkResume canonResume paired sameThread leftAt rightAt checkBody canonBody sized compared
+
+theorem CollectionTailAt.of_children (destination : RecordDestination) (inst : InstId) (entries : List Field)
+    (area : Layout) (output : Lower.Output) (index pointer bytes : Nat) (left right : Config (core3 grow) (HostState sig))
+    (compared : ∀ item ∈ entries, ∀ address pos, Compare profile ready dispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        item pos (.memory address))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
+    CollectionTailAt profile ready dispatch destination inst entries area output index pointer bytes left right :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionTailFromChildren
+    destination inst entries area output index pointer bytes left right compared
 
 /-- Replay a finite certified callback prefix, starting with the two saved
 allocator continuations. At a reached natural return, compose validation,
