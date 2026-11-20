@@ -53,11 +53,11 @@ theorem Module.specialize_map (f : T → U) (lift : ∀ {sig}, B sig → C (sig.
 
 /-- The executable validator can certify specialized code outside the computable
 intrinsic reifier's profile. The resulting intrinsic lift is existential. -/
-theorem checkedLift {raw : RawModule Wasm.Func} {interface : CModuleType}
+theorem checkedLift {raw : ModuleParts Wasm.Func} {interface : CModuleType}
     (checked : raw.validate? = some interface) :
     ∃ typed : Typed.Module (Typed.Function Intrinsic.Body) interface,
       typed.forget Typed.Function.erase = raw := by
   obtain ⟨typed, erased⟩ := Typed.Module.lift_erase (ModuleParts.validate?_sound checked)
-  exact ⟨typed, RawModule.toCore_injective ((Typed.Module.forget_toCore typed).trans erased)⟩
+  exact ⟨typed, ModuleParts.toCore_injective ((Typed.Module.forget_toCore typed).trans erased)⟩
 
 end Silmaril.Wasm.Generic.Signature

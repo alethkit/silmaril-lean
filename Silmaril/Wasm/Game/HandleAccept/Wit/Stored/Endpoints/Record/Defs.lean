@@ -25,6 +25,10 @@ inductive Object where
   | shared (object : Lower.Object)
   | owner (receipt : OwnedMemory.Receipt)
 
+def Object.ownerReceipt : Object → Option OwnedMemory.Receipt
+  | .owner receipt => some receipt
+  | .shared _ => none
+
 inductive Field where
   | data (type : TypeOf) (payload : Payload type)
   | endpoint (channel : Channel) (element : Element) (id : EndId)
@@ -44,6 +48,31 @@ def Field.type : Field → TypeOf
   | .fixed element length _ => .fixedList element length
   | .dynamic type _ _ => type
   | .sum type _ _ _ => type
+
+mutual
+/-- The canonical value described by the active compiled fields. This erases
+nominal owner identities for comparison with the ABI; it confers no authority. -/
+def Field.value : Field → Val
+  | .data _ payload => payload.val
+  | .endpoint .stream _ id => .stream id
+  | .endpoint .future _ id => .future id
+  | .context id => .errorContext id
+  | .owner receipt => .own receipt.2.representation
+  | .aggregate _ fields => .record (Field.values fields)
+  | .fixed _ _ entries | .dynamic _ _ entries => .list (Field.values entries)
+  | .sum _ _ tag field => .variant tag (Field.armValue field)
+termination_by structural field => field
+
+def Field.values : List Field → List Val
+  | [] => []
+  | field :: rest => field.value :: Field.values rest
+termination_by structural fields => fields
+
+def Field.armValue : Option Field → Option Val
+  | none => none
+  | some field => some field.value
+termination_by structural field => field
+end
 
 mutual
 /-- Authority observations in the order in which the compiled fields transfer them.
@@ -121,6 +150,17 @@ namespace Internal
 def compileEntries (compile : Nat → Val → Compile Field) (values : List Val) : Compile (List Field) :=
   values.zipIdx.mapM (fun (value, index) => compile index value)
 
+def compileLeaf (index : Nat) (type : TypeOf) (value : Val) : Compile Field := do
+  let payload ← liftM ((checkValue type value).mapError (Issue.preflight ∘ Lower.Issue.schema))
+  match type, payload with
+  | .future element, ⟨.future id, _⟩ => return .endpoint .future element id
+  | .stream element, ⟨.stream id, _⟩ => return .endpoint .stream element id
+  | .errorContext, ⟨.errorContext id, _⟩ => return .context id
+  | type, payload =>
+    match Stored.Lower.checkSchema type with
+    | .ok () => return .data type payload
+    | .error _ => throw (.unsupportedField index)
+
 mutual
 def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
     (index : Nat) : (type : TypeOf) → Val → Compile Field
@@ -170,33 +210,21 @@ def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Low
     return .sum (.variant cases) (cases.map Prod.snd) tag field
   | .result ok error, value => do
     if !(Internal.supportedCase ok && Internal.supportedCase error) then throw (.unsupportedField index)
-    let (tag, field) ← match value with
-      | .variant 0 payload => do
-        let field ← (compileCase cx output ok payload).mapIssue (.nested index)
-        pure (0, field)
-      | .variant 1 payload => do
-        let field ← (compileCase cx output error payload).mapIssue (.nested index)
-        pure (1, field)
-      | _ => throw (.preflight .decodedType)
-    return .sum (.result ok error) [ok, error] tag field
+    match value with
+    | .variant 0 payload => do
+      let field ← (compileCase cx output ok payload).mapIssue (.nested index)
+      return .sum (.result ok error) [ok, error] 0 field
+    | .variant 1 payload => do
+      let field ← (compileCase cx output error payload).mapIssue (.nested index)
+      return .sum (.result ok error) [ok, error] 1 field
+    | _ => throw (.preflight .decodedType)
   | .own resource, .own representation => do
     let receipt :: rest ← get | throw (.nested index .ownerReceipt)
     if receipt.1 != resource || receipt.2.representation != representation then
       throw (.nested index .ownerReceipt)
     set rest
     return .owner receipt
-  | type, value => do
-    let payload ← liftM ((checkValue type value).mapError (Issue.preflight ∘ Lower.Issue.schema))
-    match type, payload with
-    | .future element, ⟨.future id, _⟩ =>
-      return .endpoint .future element id
-    | .stream element, ⟨.stream id, _⟩ =>
-      return .endpoint .stream element id
-    | .errorContext, ⟨.errorContext id, _⟩ => return .context id
-    | type, payload =>
-      match Stored.Lower.checkSchema type with
-      | .ok () => return .data type payload
-      | .error _ => throw (.unsupportedField index)
+  | type, value => compileLeaf index type value
 
 def compileFields {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
     (index : Nat) : List (String × TypeOf) → List Val → Compile (List Field)

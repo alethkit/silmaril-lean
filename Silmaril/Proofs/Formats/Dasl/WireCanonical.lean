@@ -4,6 +4,7 @@ public import Silmaril.Formats.Dasl.Wire.Canonical.Defs
 public import Silmaril.Formats.Dasl.Wire.Thms
 public import Silmaril.Formats.Cbor.Drisl.Model.Thms
 public import Silmaril.Formats.Cbor.Value.Thms
+import Silmaril.Proofs.Formats.Dasl.WireCanonicalReprint
 
 public section
 
@@ -183,5 +184,29 @@ theorem parse_render {value : Shallow Cid} {bytes : ByteArray} (encodable : (can
     simp [render_of_valid value valid, rejected] at rendered
   obtain ⟨encoded, parsed⟩ := roundtrip value valid encodable ordered
   exact (Option.some.inj (encoded.symm.trans rendered)) ▸ parsed
+
+theorem reprint {bytes : ByteArray} {value : Shallow Cid} (parsed : parse? bytes = some value) :
+    render? value = some bytes ∧ (canonicalModel value).Encodable := by
+  obtain ⟨tree, read, rfl⟩ := Option.map_eq_some_iff.mp parsed
+  obtain ⟨unique, validLinks⟩ := WireCanonicalReprint.parsed_syntax read
+  have normal := WireCanonicalReprint.normalization tree unique
+  have model : canonicalModel (lower tree) = Drisl.emitModel Drisl.i64Cbor cidCodec true tree := by
+    rw [canonicalModel, ← emit_canonical, normal, emit_canonical]
+  have valid : ∀ link ∈ Drisl.links (toOrdered (lower tree)), ValidLink link := by
+    intro link hit
+    have lifted := (links_order (toOrdered (lower tree))).mem_iff.mpr hit
+    rw [normal] at lifted
+    exact validLinks link ((links_order tree).mem_iff.mp lifted)
+  have cidBytes (input : List UInt8) (link : Link Cid) (parsed : cidCodec.parse? input = some link) :
+      cidCodec.bytes link = input := (typed_cid_parse_iff.mp parsed).1
+  have emitted := Drisl.atproto_render_of_parse_with_codec cidCodec cidBytes read
+  have exactBytes : bytes.data.toList.toByteArray = bytes := by
+    apply ByteArray.ext
+    simp only [List.data_toByteArray]
+  refine ⟨?_, ?_⟩
+  · rw [render_of_valid _ valid, model]
+    simpa only [Drisl.renderCbor?, exactBytes, Option.map_some] using congrArg (Option.map List.toByteArray) emitted
+  · rw [model]
+    exact Cbor.encodable_of_decode (Drisl.atproto_model_of_parse_with_codec cidCodec cidBytes read)
 
 end Silmaril.Proofs.Formats.Dasl.WireCanonical

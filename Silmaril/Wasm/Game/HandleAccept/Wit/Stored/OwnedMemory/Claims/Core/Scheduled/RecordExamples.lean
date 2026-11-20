@@ -321,6 +321,68 @@ private def expect {sig : Signature} (inst : ModuleInst) (name : String) (args :
   let result ← callCore addr (args.map i32Flat)
   trapIf (result != expected) (.internal s!"unexpected result: {name} {args} got {repr result}")
 
+private def inlineElement : Channel → Option Stored.TypeOf
+  | .future => some (.prim .string)
+  | .stream => some (.list (.prim .u8))
+
+private def inlineSignature (channel : Channel) : Signature :=
+  let endpoint := match channel with
+    | .future => WIT.ValType.future (inlineElement channel)
+    | .stream => WIT.ValType.stream (inlineElement channel)
+  ⟨Unit, fun _ => .tuple [.prim .u8, endpoint], fun _ => .fixed 0⟩
+
+private def inlineEndpointSession (channel : Channel) (inst : ModuleInst) :
+    Session grow (inlineSignature channel) (Ret engine) := do
+  let invoke := expect (sig := inlineSignature channel) inst
+  invoke "new-channel" [] [.int .i64 (BitVec.ofNat 64 (packEnds 1 2))]
+  invoke "accept-flat" [0, 0, 37, 1] ([0, 1].map i32Flat)
+  invoke "give-flat" [1] ([0, 37, 1].map i32Flat)
+  invoke "accept-flat" [0, 0, 37, 1] ([0, 2].map i32Flat)
+  invoke "give-payload" [2, 16] ([0, 0].map i32Flat)
+  invoke "close-reader" [1] []
+  return .unit
+
+private def inlineEndpointSetup (channel : Channel) :
+    Option (List (Binding (inlineSignature channel)) × Machine.Config engine (HostState (inlineSignature channel))) := do
+  let elem := inlineElement channel
+  let (create, closeReader) : ResolvedBuiltin engine × ResolvedBuiltin engine :=
+    match channel with
+    | .future => (.futureNew elem, .futureDropReadable elem)
+    | .stream => (.streamNew elem, .streamDropReadable elem)
+  let entries := [("new-channel", ⟨[], [.int .i64]⟩, .builtin create ⟨0⟩),
+    ("accept-flat", wordFn 4 2, .embedder "accept-flat" (wordFn 4 2)),
+    ("give-flat", wordFn 1 3, .embedder "give-flat" (wordFn 1 3)),
+    ("give-payload", wordFn 2 2, .embedder "give-payload" (wordFn 2 2)),
+    ("close-reader", wordFn 1 0, .builtin closeReader ⟨0⟩)]
+  let (store, inst) ← instantiateWith {} entries (fun _ => [])
+  let sig := inlineSignature channel
+  let .ok input := Binding.acceptFlat (sig := sig) ("host", "accept-flat") ⟨0⟩ inst 0 { passing := .flat } () | none
+  let .ok flat := Binding.giveFlat (sig := sig) "give-flat" ⟨0⟩ inst 0 .i32 .utf8 (sig.payload ()) | none
+  let .ok memory := Binding.givePayload (sig := sig) "give-payload" ⟨0⟩ inst 0 .i32 .utf8 | none
+  let reference : CStore engine := { CStore.empty with
+    core := store, insts := [{}],
+    tasks := [{ ft := ⟨[], none, false⟩, opts := {}, inst := ⟨0⟩, caller := ⟨0⟩ }],
+    threads := [{ status := .running, task := ⟨0⟩ }] }
+  return ([input, flat, memory], {
+    store := reference, host := {}, conts := [none]
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (inlineEndpointSession channel inst)] })
+
+private def inlineEndpointRegression (channel : Channel) : Bool :=
+  match inlineEndpointSetup channel with
+  | none => false
+  | some (bindings, config) =>
+    let result := run bindings config
+    let state := result.config.host
+    result.outcome == .resolved && state.refusals.isEmpty && state.publications == [(0, 1), (2, 2)] &&
+    state.writer.held.isEmpty && state.writer.endpoints.isEmpty &&
+    (result.config.store.core.mems[0]?.map fun mem => (mem.bytes.extract 16 24).data) ==
+      some #[37, 0, 0, 0, 1, 0, 0, 0] &&
+    (result.config.store.insts[0]?.map fun inst => [inst.handles.get? 1, inst.handles.get? 2]) ==
+      some [none, some (.waitable (.end_ ⟨1⟩))]
+
+#guard inlineEndpointRegression .future
+#guard inlineEndpointRegression .stream
+
 private def bindingTrapArgs : List Nat := [0, 0, 1, 0, 0, 0]
 
 private def bindingTrapSession (inst : ModuleInst) : Session grow signature (Ret engine) := do
@@ -465,6 +527,12 @@ private def inactiveBorrow : Signature :=
 #guard flatBindingIssue (Binding.acceptFlat (sig := inactiveBorrow) ("host", "bad") ⟨0⟩ {} 0
   { passing := .flat } ()) ==
   some (.accept (.claims (.lift (.schema .storedBorrow))))
+
+private def endpointBorrow : Signature :=
+  ⟨Unit, fun _ => .future (some (.list (.option (.borrow resource)))), fun _ => .fixed 0⟩
+
+#guard flatBindingIssue (Binding.giveFlat (sig := endpointBorrow) "bad" ⟨0⟩ {} 0 .i32 .utf8
+  (endpointBorrow.payload ())) == some (.lowerPayload (.preflight (.schema .storedBorrow)))
 
 #guard flatBindingIssue (Binding.acceptFlat (sig := signature) ("host", "bad") ⟨0⟩ {} 0
   { passing := .flat, asynchronous := true } true) == some (.accept (.boundary (.boundary .asyncCall)))

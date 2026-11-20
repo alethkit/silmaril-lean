@@ -53,6 +53,35 @@ example : Mst.PathCovers layerOf (readRoot .missing) [10] 0 reference := by
     exact ⟨value, by simp [readRoot, emit, rendered], Mst.node_roundtrip rendered⟩
   · contradiction
 
+private def emptyNode : Mst.Node Nat := ⟨none, []⟩
+
+private theorem emptyRoot : Mst.Realizes layerOf (fun name node => name = 0 ∧ node = emptyNode) none 0 [] := by
+  let next : Mst.Context := ⟨0, none, none, false⟩
+  let part : Mst.SlotEntries Nat := (.gap next none, [])
+  change Mst.Realizes layerOf _ none 0 ([part].flatMap Prod.snd)
+  apply Mst.Realizes.step (node := emptyNode) (groups := [part]) ⟨rfl, rfl⟩
+  · decide
+  · rfl
+  · intro group hit
+    obtain rfl := List.mem_singleton.mp hit
+    simp [part]
+  · intro group hit key record slot
+    obtain rfl := List.mem_singleton.mp hit
+    cases slot
+  · intro group hit ctx slot
+    obtain rfl := List.mem_singleton.mp hit
+    rfl
+  · intro group hit ctx child slot
+    obtain rfl := List.mem_singleton.mp hit
+    cases slot
+
+example : (emptyNode.rootContext layerOf).layer = 0 := by
+  have maximum := emptyRoot.rootLayer_spec (fun {_ _ _} left right => left.2.trans right.2.symm) ⟨rfl, rfl⟩
+  simpa using maximum.2
+
+example {ctx : Mst.Context} (notRoot : ctx.root = false)
+    (invalid : Mst.Realizes layerOf reference (some ctx) 1 []) : False := invalid.nonroot_nonempty notRoot rfl
+
 public def main : IO Unit := do
   let leaf := emit leafNode
   let lookup := fun child key fuel => Mst.route layerOf (readRoot child) key fuel none 0

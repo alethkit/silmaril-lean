@@ -3,6 +3,7 @@ module
 public import Silmaril.Formats.Dasl.Mst.Route.Defs
 import Silmaril.Proofs.Formats.Dasl.MstRoute
 import Silmaril.Proofs.Formats.Dasl.MstRouteComplete
+import Silmaril.Proofs.Formats.Dasl.MstRooted
 
 public section
 
@@ -59,5 +60,21 @@ theorem route_root_complete {layerOf : Key → Nat} {reference : Relation Name (
     route layerOf read key fuel none root = .ok (entries.lookup key) :=
   Proofs.Formats.Dasl.MstRouteComplete.route_available covers tree .start (by simp)
     (fun _ known => bound present known ▸ enough) |>.elim fun _ found => route_sound bound sound tree found ▸ found
+
+/-- Finite validated realizations cannot hide an empty subtree behind a named
+non-root child. Empty intermediate nodes must eventually reach a record. -/
+theorem Realizes.nonroot_nonempty {layerOf : Key → Nat} {reference : Relation Name (Node Name)}
+    {ctx : Context} {name : Name} {entries : List (Key × Name)}
+    (tree : Realizes layerOf reference (some ctx) name entries) (notRoot : ctx.root = false) : entries ≠ [] :=
+  Proofs.Formats.Dasl.MstRooted.nonroot_nonempty tree ⟨ctx, rfl, notRoot⟩
+
+/-- The stored root layer is the maximum record layer of the finite represented
+map, with zero as the empty-map convention. -/
+theorem Realizes.rootLayer_spec {layerOf : Key → Nat} {reference : Relation Name (Node Name)} (bound : Binding reference)
+    {name : Name} {entries : List (Key × Name)} (tree : Realizes layerOf reference none name entries)
+    {node : Node Name} (known : reference name node) :
+    (∀ pair ∈ entries, layerOf pair.1 ≤ (node.rootContext layerOf).layer) ∧
+      ((node.rootContext layerOf).layer = 0 ∨ ∃ pair ∈ entries, layerOf pair.1 = (node.rootContext layerOf).layer) :=
+  Proofs.Formats.Dasl.MstRooted.root_max bound tree known
 
 end Silmaril.Formats.Dasl.Mst

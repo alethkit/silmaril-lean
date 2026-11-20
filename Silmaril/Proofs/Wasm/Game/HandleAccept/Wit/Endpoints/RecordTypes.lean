@@ -61,7 +61,7 @@ private theorem internal_field_type {E : CoreEngine} (cx : LiftLowerContext E) (
       | contradiction
       | (have same := compiled.1; subst field; simp_all [Field.type, Endpoints.ListLower.endpointType])
       | simp (config := {failIfUnchanged := true}) only [run_bind, run_pure, run_get,
-          run_set, run_lift, Except.ok.injEq, Prod.mk.injEq] at compiled
+          run_set, run_lift, Internal.compileLeaf, Except.ok.injEq, Prod.mk.injEq] at compiled
       | split at compiled
 
 private theorem internal_fields_types {E : CoreEngine} (cx : LiftLowerContext E) (output : Lower.Output)
