@@ -39,7 +39,7 @@ theorem node_roundtrip {node : Node Name} {value : Shallow Name}
   have wire := wire_roundtrip hit
   simp [decodeNode?, wire, WireNode.expand_compress]
 
-def nodeCodec : Encode.PartialCodec (Node Name) (Shallow Name) :=
+@[expose] def nodeCodec : Encode.PartialCodec (Node Name) (Shallow Name) :=
   ⟨encodeNode?, decodeNode?, fun _ _ => node_roundtrip⟩
 
 open Silmaril.Semantics.Naming in
