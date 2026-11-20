@@ -579,13 +579,21 @@ examples round-trip a nested record in memory64 and as flat operands and show th
 out-of-bounds destination writes nothing. Lowering an endpoint or error-context observation
 requires its own checked transfer; this path rejects those schemas, including inactive cases.
 `Wit.Stored.Endpoints.Lower` checks all active endpoint claims and error-context identities
-before passing a compound payload to the same reference store/flatten programs. A typed
-rejection retains the claims for a corrected retry; a successful transfer spends each claim
-once. This entry point rejects schemas that can require guest realloc, even in an inactive
-arm. The separate `Wit.Stored.Endpoints.ListLower` path supports dynamic lists of
+before running the shared recursive emitter. A preflight refusal retains the claims for a
+corrected retry. Each claim is spent at its transfer, before the endpoint's owner changes;
+a late canonical trap preserves that commitment. This direct entry point rejects schemas
+that can require guest realloc, even in an inactive
+arm. A readable handle is inline even if its future or stream element contains a string,
+list or map. Moving the handle does not require the allocator for a later element copy;
+the read/write builtins validate their own memory and realloc options separately.
+The separate `Wit.Stored.Endpoints.ListLower` path supports dynamic lists of
 readable futures or streams. It rechecks all claims after canonical realloc, distinguishes
 refusal before allocation from refusal after the allocator's effects, and spends each claim
-before canonical lower updates ownership. Neither a late table trap nor an allocator's
+before canonical lower updates ownership. Checked endpoint lists and the recursive
+list/map emitter use the same `Canon.allocateListRange` and `Canon.storeListDescriptor`
+programs as the reference: check the returned range in the reached state, and write
+the pointer before the length. The post-realloc authority check remains separate.
+Neither a late table trap nor an allocator's
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
@@ -616,7 +624,13 @@ transfers after guest allocation revalidate against the reached state. Root pref
 dynamic-region rechecks derive their plans from the same compiled fields the emitter
 uses, in field order and with only the selected sum arm. `compileValue_plan` and
 `compileRecord_plan` identify the diagnostic compiler output with those traversals;
-they are not equivalence theorems for the effectful canonical ABI. Single give and the
+`preflightValue_receipts` identifies the active owner subsequence with the original
+list of nominal receipts, not just its representations. `compileValue_value` and
+`compileRecord_value` reconstruct the exact input canonical value from the same fields,
+including positional fields, ordered list and map entries, and the active sum arm.
+`preflightValue_value` gives that equality for the compiler used by `givePayload` and
+`giveFlat`. Neither observation confers live authority or equates the emitter's effects
+with the canonical ABI. Single give and the
 recursive emitter spend only the targeted owner identity, before canonical allocation of
 the owning arena object. A subsequent table insertion failure keeps the allocation and
 does not restore the claim. The kernel-checked replays cover distinct equal-representation

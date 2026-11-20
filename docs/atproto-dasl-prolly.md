@@ -84,10 +84,17 @@ soundness both require a rooted representation in the binding reference.
 the reference must include the stored tree and the successful reader
 observations. It does not need unique names.
 
+`routedLookup_build_complete` proves the converse success guarantee given
+`PathReads` and fuel strictly above the canonical root level. `PathReads`
+requires exact decoded blocks on the selected path, not a fully readable
+store. Going beyond the last separator needs only the current block.
+`Stored.pathReads` supplies the premise for a shallow reader returning every
+object binding of the store containing the tree.
+
 ## Follow-up
 
-- Prove a declarative canonical-cut characterization and sufficient-fuel
-  completeness for routed lookup against a fully supplied canonical store.
+- Prove a declarative canonical-cut characterization, and derive exact path
+  reads from a concrete canonical CBOR reader and stored-reference witness.
 - Add update/admission proofs: successful updates preserve all old bindings,
   reject collisions, and do not rewrite missing or invalid blocks. Connect
   address derivation to a checked serializer and fixed hash on successful blocks.

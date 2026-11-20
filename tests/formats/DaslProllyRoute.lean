@@ -18,7 +18,7 @@ private def sample : Prolly.Read Nat := fun name =>
 
 public def main : IO Unit := do
   let lookup := Prolly.routedLookup codec sample 2
-  match lookup 2 0 (-1), lookup 2 0 (-2), lookup 2 0 3, lookup 2 0 1, lookup 1 0 (-1) with
+  match lookup 2 0 (-1), lookup 2 0 (-2), lookup 1 0 3, lookup 2 0 1, lookup 1 0 (-1) with
   | .ok (some "middle"), .ok none, .ok none, .error (.missing 2), .error (.fuel 1) => pure ()
   | _, _, _, _, _ => throw (IO.userError "routed lookup must distinguish partial reads from absence")
   let replaceChild := fun (result : Wire.ReadResult (Shallow Nat)) name => if name = 2 then result else sample name
