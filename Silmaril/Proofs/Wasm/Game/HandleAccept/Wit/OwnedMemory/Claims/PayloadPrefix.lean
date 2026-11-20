@@ -654,10 +654,10 @@ theorem collectionCallback (destination : RecordDestination) (inst : InstId) (en
       (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
         item pos (.memory address))
       (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
-    (∃ other, Steps profile scheduledReady scheduledDispatch right labels other ∧ HostFrame.Paired checkResume canonResume last other) ∨
+    (∃ other, CoreGrowthSteps profile scheduledReady scheduledDispatch right labels other ∧ HostFrame.Paired checkResume canonResume last other) ∨
     (∃ leading label trailing atLeft atRight afterLeft afterRight,
       labels = leading ++ label :: trailing ∧ CoreGrowthSteps profile scheduledReady scheduledDispatch left leading atLeft ∧
-      Steps profile scheduledReady scheduledDispatch right leading atRight ∧ HostFrame.Paired checkResume canonResume atLeft atRight ∧
+      CoreGrowthSteps profile scheduledReady scheduledDispatch right leading atRight ∧ HostFrame.Paired checkResume canonResume atLeft atRight ∧
       Step profile scheduledReady scheduledDispatch atLeft label afterLeft ∧ Step profile scheduledReady scheduledDispatch atRight label afterRight ∧
       CoreGrowthSteps profile scheduledReady scheduledDispatch afterLeft trailing last ∧
       ((∃ alternate, HostFrame.ReadCut atLeft atRight.host label afterLeft alternate ∧
@@ -696,7 +696,7 @@ theorem collectionCallback (destination : RecordDestination) (inst : InstId) (en
       refine .inr (.inr ⟨pointer, checkCursor, canonCursor, atChecked, atCanonical, rfl, ?_⟩)
       obtain ⟨outcome, checkLabels, canonLabels, checkEnd, canonEnd, checkRun, canonRun, stores, seen, status⟩ := continued
       refine ⟨outcome, leading ++ checkLabels, leading ++ canonLabels, checkEnd, canonEnd,
-        chain lhs.steps checkRun, chain rhs canonRun, stores, ?_, ?_⟩
+        chain lhs.steps checkRun, chain rhs.steps canonRun, stores, ?_, ?_⟩
       · rw [visible_append, visible_append, seen]
       · cases outcome with
         | returned _ | refused _ => exact status

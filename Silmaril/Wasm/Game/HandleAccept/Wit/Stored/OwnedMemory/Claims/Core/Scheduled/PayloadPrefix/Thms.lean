@@ -173,10 +173,10 @@ theorem collection_callback (destination : RecordDestination) (inst : InstId) (e
       (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
         item pos (.memory address))
       (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
-    (∃ other, Steps profile ready dispatch right labels other ∧ HostFrame.Paired checkResume canonResume last other) ∨
+    (∃ other, CoreGrowthSteps profile ready dispatch right labels other ∧ HostFrame.Paired checkResume canonResume last other) ∨
     (∃ leading label trailing atLeft atRight afterLeft afterRight,
       labels = leading ++ label :: trailing ∧ CoreGrowthSteps profile ready dispatch left leading atLeft ∧
-      Steps profile ready dispatch right leading atRight ∧ HostFrame.Paired checkResume canonResume atLeft atRight ∧
+      CoreGrowthSteps profile ready dispatch right leading atRight ∧ HostFrame.Paired checkResume canonResume atLeft atRight ∧
       Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
       CoreGrowthSteps profile ready dispatch afterLeft trailing last ∧
       ((∃ alternate, HostFrame.ReadCut atLeft atRight.host label afterLeft alternate ∧
