@@ -62,6 +62,36 @@ theorem Prefix.syncLift {start last : State grow sig} {labels task thread frames
       labels last) : Prefix profile ready bindings first start labels last :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.syncLift focused found waiting agrees path
 
+/-- Replay a classified finite prefix through its observed pop. The designated
+case exposes both reached continuations; an equal but unrelated frame is just
+an ordinary pop. Neither branch assumes the continuation will return. -/
+theorem Prefix.return_cut {left right last : State grow sig} {seen value}
+    (path : Prefix profile ready bindings first left seen last) (paired : HostFrame.Paired first second left right)
+    (cursor : Cursor (E := core3 grow) (HostState sig))
+    (leftAt : last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (pure value)) :
+    CallbackReturn profile ready bindings first second left right last cursor value seen :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.returnCut path paired cursor leftAt
+
+/-- The next canonical string allocation installs paired saved continuations
+on a common scheduler frame. `Prefix.replay` then compares a classified
+callback, even if it has not returned. -/
+theorem string_realloc_pair (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (oldSize : Option Nat)
+    (alignment : Alignment) (size : Nat) (steps : List StoreStep)
+    (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    (left right : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    (checkAt : left.ctl = cursor.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= checkNext))
+    (canonAt : right.ctl = cursor.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= canonNext)) :
+    let dispatch := specDispatch ready (host bindings)
+    let leftEntry := stringReallocEntry ready bindings cx ptr oldSize alignment size steps checkNext left cursor
+    let rightEntry := stringReallocEntry ready bindings cx ptr oldSize alignment size steps canonNext right cursor
+    Step profile ready dispatch left .tau leftEntry ∧ Step profile ready dispatch right .tau rightEntry ∧
+    HostFrame.Paired (stringPlanResume cx steps checkNext) (stringPlanResume cx steps canonNext) leftEntry rightEntry :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringReallocPair
+    cx ptr oldSize alignment size steps checkNext canonNext left right cursor same checkAt canonAt
+
 /-- Replay to the actual child-entry cut, with the reached memory region,
 live verdict and residual scheduler frames. A range trap or common pop
 does not enter the child program. No child comparison or return guarantee
