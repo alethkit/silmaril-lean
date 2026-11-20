@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Lower.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Lower.Plan.Defs
 
 @[expose] public section
 

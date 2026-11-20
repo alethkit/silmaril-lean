@@ -579,9 +579,10 @@ examples round-trip a nested record in memory64 and as flat operands and show th
 out-of-bounds destination writes nothing. Lowering an endpoint or error-context observation
 requires its own checked transfer; this path rejects those schemas, including inactive cases.
 `Wit.Stored.Endpoints.Lower` checks all active endpoint claims and error-context identities
-before passing a compound payload to the same reference store/flatten programs. A typed
-rejection retains the claims for a corrected retry; a successful transfer spends each claim
-once. This entry point rejects schemas that can require guest realloc, even in an inactive
+before running the shared recursive emitter. A preflight refusal retains the claims for a
+corrected retry. Each claim is spent at its transfer, before the endpoint's owner changes;
+a late canonical trap preserves that commitment. This direct entry point rejects schemas
+that can require guest realloc, even in an inactive
 arm. A readable handle is inline even if its future or stream element contains a string,
 list or map. Moving the handle does not require the allocator for a later element copy;
 the read/write builtins validate their own memory and realloc options separately.
