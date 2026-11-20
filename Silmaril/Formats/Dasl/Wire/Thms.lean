@@ -8,7 +8,36 @@ public section
 
 namespace Silmaril.Formats.Dasl.Wire
 
-open Silmaril.Formats.Cbor Silmaril.Semantics.Naming
+open Silmaril.Formats Silmaril.Formats.Cbor Silmaril.Semantics.Naming
+
+/-- The ordered syntax adapter preserves indexed lists, finite maps, typed links, and scalars. -/
+theorem lower_toOrdered {Name : Type} (value : Shallow Name) : lower (toOrdered value) = value :=
+  Proofs.Formats.Dasl.Wire.lower_toOrdered value
+
+theorem typed_cid_parse_iff {bytes : List UInt8} {link : Link Cid} :
+    cidCodec.parse? bytes = some link ↔ cidCodec.bytes link = bytes ∧ ValidLink link :=
+  ⟨Proofs.Formats.Dasl.Wire.typed_cid_parse,
+   fun ⟨same, valid⟩ => same ▸ Proofs.Formats.Dasl.Wire.typed_cid_roundtrip valid⟩
+
+theorem lower_map_perm {Name : Type} {left right : List (String × Drisl.OrderedATProto (Link Name))}
+    (distinct : (left.map Prod.fst).Nodup) (order : left.Perm right) :
+    lower (.map (.ofEntries left)) = lower (.map (.ofEntries right)) :=
+  Proofs.Formats.Dasl.Wire.lower_map_perm distinct order
+
+theorem dictFields_materialize_perm {Name : Type} (fields : List (String × Shallow Name))
+    (distinct : (fields.map Prod.fst).Nodup) :
+    ((dictFields fields).1.sort.attach.map (fun key =>
+      (key.val, (dictFields fields).2 ⟨key.val, (Finset.mem_sort _).mp key.property⟩))).Perm fields :=
+  Proofs.Formats.Dasl.Wire.dictFields_materialize_perm fields distinct
+
+/-- Canonical bytes, recursive wire key order and typed interpretation are checked before
+discarding the order; this does not yet prove that the abstract serializer is an inverse. -/
+theorem parse_eq_some_iff {bytes : ByteArray} {tree : Shallow Cid} :
+    parse? bytes = some tree ↔
+      ∃ value ordered, Cbor.decode bytes.data.toList = some value ∧ value.encode = bytes.data.toList ∧
+        Drisl.canonicalMaps value = true ∧ Drisl.interpretCbor? Drisl.i64Cbor cidCodec value = some ordered ∧
+        lower ordered = tree :=
+  Proofs.Formats.Dasl.Wire.parse_eq_some_iff
 
 theorem i64_roundtrip (bits : UInt64) :
     (Drisl.i64Cbor.readNumber? (Drisl.i64Cbor.number bits.toInt64)).map Int64.toUInt64 = some bits :=
