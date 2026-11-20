@@ -9,6 +9,7 @@ import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCollection.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadLeaf.Local.Thms
 
 public section
 
@@ -693,6 +694,58 @@ theorem stringFlatRule {older : ReturnFrame.Substitutions (core3 grow) (HostStat
   intro index checkNext canonNext left right check canon frame growth checkAt canonAt next ends
   exact ⟨item, rfl, stringFieldThen destination inst item .flat index checkNext canonNext frame growth present realloc fit rfl
     checkAt canonAt ends⟩
+
+theorem handleFieldThen {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (item : Field) (handle : CanonicalHandle item)
+    (index : Nat) (output : Lower.Output)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon) (growth : Core3.Grows origin.core left.store.core)
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width item index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width item output >>= canonNext))
+    {next : output.Result → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Prop}
+    (ends : ∀ value reached reference check canon, ChildFrameOver older reached reference check canon →
+      Core3.Grows origin.core reached.store.core → reached.ctl = check.control (checkNext (.ok value)) →
+      reference.ctl = canon.control (canonNext value) → next value reached reference check canon) :
+    HandleFieldThen profile ready bindings item index output left right check canon checkNext canonNext next := by
+  have checkLeaf : left.ctl = check.control (Record.Effects.checkedLeaf recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width item index output >>= checkNext) := by
+    cases item <;> first | exact checkAt | exact False.elim handle
+  have canonLeaf : right.ctl = canon.control (CanonicalTree.leaf Limits.spec Quirks.none
+      (destination.context inst) destination.width item output >>= canonNext) := by
+    cases item <;> first | exact canonAt | exact False.elim handle
+  have run := RecordDestination.compare_handle_leaf (profile := profile) (ready := ready)
+    (dispatch := specDispatch ready (host bindings)) frame.store destination inst item handle index output checkNext canonNext
+    (thread := check.thread) (checkFrames := check.frames) (checkRest := check.rest)
+    (canonFrames := canon.frames) (canonRest := canon.rest) checkLeaf (by simpa only [Cursor.control, frame.thread] using canonLeaf)
+  unfold HandleFieldThen
+  cases planned : liveLeafPlan left.store left.host.writer index item with
+  | error issue => simpa only [planned, Cursor.control] using run
+  | ok plan =>
+    rw [planned] at run
+    obtain ⟨store, result, leading, checkLabels, canonLabels, grew, silent, checkTrace, canonTrace, checked, canonical⟩ := run
+    have canonThread := frame.thread
+    refine ⟨store, result, leading, checkLabels, canonLabels, silent, checkTrace, canonTrace, checked, ?_, ?_⟩
+    · simpa only [canonThread] using canonical
+    · intro value success
+      exact ends value _ _ _ _ ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩
+        ((frame.store ▸ growth).trans grew) rfl rfl
+
+theorem mixedFlatRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (item : Field)
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fit : CanonicalHandle item ∨ StringField.Fits destination item) :
+    FlatFieldRule (mixedFlatComparison profile ready bindings older destination inst) older origin destination inst item := by
+  intro index checkNext canonNext left right check canon frame growth checkAt canonAt next ends
+  rcases fit with handle | ⟨str, rfl, fits⟩
+  · exact .inl ⟨handle, handleFieldThen destination inst item handle index .flat checkNext canonNext frame growth checkAt canonAt ends⟩
+  · exact .inr (stringFlatRule destination inst str present realloc fits index checkNext canonNext left right check canon
+      frame growth checkAt canonAt next ends)
 
 theorem childCollectionInstall {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     (destination : RecordDestination) (inst : InstId) (type element : TypeOf)

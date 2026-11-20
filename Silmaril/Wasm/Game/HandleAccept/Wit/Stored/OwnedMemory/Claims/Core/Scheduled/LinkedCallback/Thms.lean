@@ -252,6 +252,16 @@ theorem StringField.flat_rule {older : ReturnFrame.Substitutions (core3 grow) (H
     FlatFieldRule (stringFlatComparison profile ready bindings older destination inst) older origin destination inst item.field :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringFlatRule destination inst item present realloc fit
 
+/-- Reuse the actual live transfer or the linked string-allocation replay at
+each reached leaf. The next field receives the reached, possibly spent writer. -/
+theorem mixed_flat_rule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (item : Field)
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fit : CanonicalHandle item ∨ StringField.Fits destination item) :
+    FlatFieldRule (mixedFlatComparison profile ready bindings older destination inst) older origin destination inst item :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.mixedFlatRule destination inst item present realloc fit
+
 /-- Induct through actual record/tuple and fixed-list flat programs. The
 branch returns its concatenated words to the enclosing continuation only
 after all its visited children succeed. -/

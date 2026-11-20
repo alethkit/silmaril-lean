@@ -22,4 +22,13 @@ theorem parked_giveFlat (call : PayloadRoot.Site grow sig (.flat schema)) (linke
     PayloadRoot.Cut call profile ready bindings (Body call depth next profile ready bindings) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicFlatStrings.parked call linked depth next shape realloc
 
+/-- Compare the parked flat body when allocating strings and live handles are
+interleaved at arbitrary record/tuple and fixed-list depth. Each handle guard
+reads the reached writer, not a claim preserved by the earlier allocator. -/
+theorem parked_giveFlat_mixed (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
+    (depth : Nat) (next : call.ReferenceNext) (shape : MixedShape depth call.field)
+    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    PayloadRoot.Cut call profile ready bindings (MixedBody call depth next profile ready bindings) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicFlatStrings.parkedMixed call linked depth next shape realloc
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.FlatStrings
