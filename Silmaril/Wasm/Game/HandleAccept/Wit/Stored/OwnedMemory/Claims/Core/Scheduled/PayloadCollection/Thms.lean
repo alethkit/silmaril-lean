@@ -142,4 +142,23 @@ theorem RecordDestination.linked_range_resume {sig : Stored.Signature} {ready : 
     bindings run growing installs destination inst checked start length initialBytes sized oldBounds area count pointer
     finish resume resumes returned
 
+/-- A child placed by an aligned record or tuple cursor is in bounds after a
+certified prefix. Execute the checked nested aggregate's actual bounds read
+and proceed with the same reached state; this does not validate new pointers. -/
+theorem RecordDestination.record_field_guard (run : CoreGrowthSteps profile ready dispatch before trace after)
+    (destination : RecordDestination) (inst : InstId) (checked : destination.check before.store = .ok ())
+    (fields : List Layout) (base index offset bytes : Nat) (field : Layout)
+    (aligned : (recordAlignment fields).bytes ∣ base)
+    (member : fields[index]? = some field) (placed : (fieldOffsets base fields)[index]? = some offset)
+    (sized : (core3 grow).memSize? before.store.core destination.memory = some bytes)
+    (bounds : base + (recordLayout fields).size ≤ bytes)
+    (finish : P (core3 grow) Host (Ret (core3 grow))) {thread segments rest}
+    (focused : after.ctl = ⟨thread, .prog (checkInBounds (destination.context inst) offset field.size >>= fun _ => finish),
+      segments⟩ :: rest) :
+    offset % field.alignment.bytes = 0 ∧
+    CoreGrowthSteps profile ready dispatch after [.tau]
+      { after with ctl := ⟨thread, .prog finish, segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection.record_field_guard
+    run destination inst checked fields base index offset bytes field aligned member placed sized bounds finish focused
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled

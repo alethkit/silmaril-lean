@@ -695,6 +695,9 @@ window reentry. Only other reached installs need a separate certificate. At a
 return, the same memory address supplies the checked width and an existing
 region still fits; the returned pointer still has to pass alignment and range
 validation. None of these rules frames guest bytes or assumes a callback returns.
+The canonical record/tuple layout also bounds each aligned field placement
+inside the aggregate. With an already-valid aggregate region, the checked
+nested-field bounds read succeeds at that placement after a certified prefix.
 
 `RecordDestination.memory_cursor` uses the width established by the same destination
 check as both public give routes. On a certified prefix the canonical field cursor

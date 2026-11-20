@@ -6,6 +6,7 @@ public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Collec
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadInstall.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Collection.Thms
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
+import Silmaril.Wasm.Component.Reference.ABI.Layout.Thms
 
 public section
 
@@ -163,5 +164,33 @@ theorem linked_range_resume {sig : Stored.Signature} {ready : HostReady (HostSta
   by_cases aligned : pointer ≠ alignTo pointer area.alignment
   · simpa [aligned] using next
   · by_cases fits : pointer + count * area.size ≤ bytes <;> simpa [aligned, fits] using next
+
+theorem record_field_guard (run : CoreGrowthSteps profile ready dispatch before trace after)
+    (destination : RecordDestination) (inst : InstId) (checked : destination.check before.store = .ok ())
+    (fields : List Layout) (base index offset bytes : Nat) (field : Layout)
+    (aligned : (recordAlignment fields).bytes ∣ base)
+    (member : fields[index]? = some field) (placed : (fieldOffsets base fields)[index]? = some offset)
+    (sized : (core3 grow).memSize? before.store.core destination.memory = some bytes)
+    (bounds : base + (recordLayout fields).size ≤ bytes)
+    (finish : P (core3 grow) Host (Ret (core3 grow))) {thread segments rest}
+    (focused : after.ctl = ⟨thread, .prog (checkInBounds (destination.context inst) offset field.size >>= fun _ => finish),
+      segments⟩ :: rest) :
+    offset % field.alignment.bytes = 0 ∧
+    CoreGrowthSteps profile ready dispatch after [.tau]
+      { after with ctl := ⟨thread, .prog finish, segments⟩ :: rest } := by
+  obtain ⟨_, placedAlign, placedBound⟩ := recordLayout_field_fits fields base index offset field aligned member placed
+  obtain ⟨_, _, reachedBytes, reachedSize, _, fits⟩ := run.linked_region (destination.context inst) rfl
+    (destination.check_width before.store checked) sized bounds
+  let next := fun (current : CStore (core3 grow)) =>
+    (orTrap (.internal "dangling memory address") ((core3 grow).memSize? current.core destination.memory) >>=
+      fun size => trapIf (decide (offset + field.size > size)) .outOfBounds) >>= fun _ => finish
+  have get : after.ctl = ⟨thread, .prog (.op .get next), segments⟩ :: rest := focused
+  have safe : ¬ offset + field.size > reachedBytes := Nat.not_lt.mpr (Nat.le_trans placedBound fits)
+  have completed : next after.store = finish := by
+    simp [next, reachedSize, orTrap, trapIf, safe]
+  have step := Step.get (prof := profile) (hr := ready) (dispatch := dispatch) get
+  rw [completed] at step
+  refine ⟨placedAlign, .cons ?_ step (.refl _)⟩
+  simp only [CoreUpdateGrows, get]
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection
