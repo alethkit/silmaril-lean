@@ -624,8 +624,12 @@ dynamic-region rechecks derive their plans from the same compiled fields the emi
 uses, in field order and with only the selected sum arm. `compileValue_plan` and
 `compileRecord_plan` identify the diagnostic compiler output with those traversals;
 `preflightValue_receipts` identifies the active owner subsequence with the original
-list of nominal receipts, not just its representations. These theorems do not confer
-live authority or establish equivalence of the effectful canonical ABI. Single give and the
+list of nominal receipts, not just its representations. `compileValue_value` and
+`compileRecord_value` reconstruct the exact input canonical value from the same fields,
+including positional fields, ordered list and map entries, and the active sum arm.
+`preflightValue_value` gives that equality for the compiler used by `givePayload` and
+`giveFlat`. Neither observation confers live authority or equates the emitter's effects
+with the canonical ABI. Single give and the
 recursive emitter spend only the targeted owner identity, before canonical allocation of
 the owning arena object. A subsequent table insertion failure keeps the allocation and
 does not restore the claim. The kernel-checked replays cover distinct equal-representation

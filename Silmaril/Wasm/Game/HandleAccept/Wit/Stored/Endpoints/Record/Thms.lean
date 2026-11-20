@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Defs
+import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.RecordTypes
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.ReceiptOrder
 
@@ -78,6 +79,22 @@ theorem compileValue_plan {E : CoreEngine} (cx : LiftLowerContext E) (type : Typ
     objects = field.objects :=
   (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.RecordTypes.value_spec
     cx type value receipts output field objects compiled).2
+
+/-- The field used for lowering describes the original ABI value, including
+list and map order and the active arm of a sum. -/
+theorem compileValue_value {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf) (value : Val)
+    (receipts : List OwnedMemory.Receipt) (output : Lower.Output) (field : Field) (objects : List Object)
+    (compiled : compileValue cx type value receipts output = .ok (field, objects)) : field.value = value :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.value
+    cx type value receipts output field objects compiled
+
+theorem compileRecord_value {E : CoreEngine} (cx : LiftLowerContext E) (types : List (String × TypeOf))
+    (value : Val) (receipts : List OwnedMemory.Receipt) (output : Lower.Output)
+    (fields : List Field) (objects : List Object)
+    (compiled : compileRecord cx (.record types) value receipts output = .ok (fields, objects)) :
+    .record (Field.values fields) = value :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.record
+    cx types value receipts output fields objects compiled
 
 /-- Whole-record preflight and dynamic subregions use the same field-order traversal. -/
 theorem compileRecord_plan {E : CoreEngine} (cx : LiftLowerContext E) (types : List (String × TypeOf))
