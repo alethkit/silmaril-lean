@@ -135,11 +135,11 @@ theorem parked (site : Site grow sig) (profile : ProfileKind) (ready : HostReady
           site.entries site.route.output 0 pointer site.cursor cursor site.reply next rfl (.refl _) linked.destination sized
           linked.mode prepared rfl canonAt path reachedReturn (compare last pointer children))
 
-private theorem scalarEntries {type schema : TypeOf} {primitive : WIT.Primitive} {entries : List Field}
-    (layoutMatch : Field.LayoutMatches (.dynamic type (.prim primitive) entries) schema) :
-    Field.EntriesMatch entries (.prim primitive) := by
+private theorem dynamicEntries {type schema element : TypeOf} {entries : List Field}
+    (layoutMatch : Field.LayoutMatches (.dynamic type element entries) schema) : Field.EntriesMatch entries element := by
   cases layoutMatch with
   | list children => exact children
+  | map children => exact children
 
 theorem parkedScalars (site : Site grow sig) (profile : ProfileKind) (ready : HostReady (HostState sig))
     (bindings : List (Binding sig)) (next : site.ReferenceNext) (linked : site.Linked bindings)
@@ -153,7 +153,21 @@ theorem parkedScalars (site : Site grow sig) (profile : ProfileKind) (ready : Ho
   intro reached pointer _ reference bytes width sized
   have compared := CollectionTailAt.scalar_entries (profile := profile) (ready := ready)
     (dispatch := specDispatch ready (host (grow := grow) bindings)) site.destination site.inst primitive nonString
-    site.entries (scalarEntries layoutMatch) site.route.output 0 pointer bytes reached reference width sized
+    site.entries (dynamicEntries layoutMatch) site.route.output 0 pointer bytes reached reference width sized
   simpa only [Site.area, element] using compared
+
+theorem parkedLocalEntries (site : Site grow sig) (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (next : site.ReferenceNext) (linked : site.Linked bindings)
+    (fragment : ∀ item ∈ site.entries, LocalMemory item) : Outcome site profile ready bindings next (fun _ _ => True) := by
+  obtain ⟨plan, compiled⟩ := linked.compiled
+  have matched := Record.preflightValue_layout _ _ _ _ _ plan compiled
+  unfold Site.field at matched
+  apply parked site profile ready bindings next linked
+  intro reached pointer _ reference bytes width sized
+  apply CollectionTailAt.memory_entries site.destination site.inst site.element site.entries _ site.route.output 0
+    pointer bytes reached reference width sized
+  intro item member
+  exact MemoryChildRule.local_memory site.destination site.inst (fragment item member)
+    (entries_match_of_mem (dynamicEntries matched) member)
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicCollection

@@ -154,6 +154,39 @@ theorem primitive_list_entry (destination : RecordDestination) (inst : InstId) (
   let placed := list_entry_placement destination inst (.prim primitive) run checked sized aligned bounds entry
   primitive_leaf destination inst primitive payload nonString position (.memory _) after reference placed.1 placed.2
 
+/-- Derive each entry from the validated region and pass its reached store to
+its child rule. Only successful children advance to the next entry and the
+descriptor write. The enclosing issue index is distinct from the entry index. -/
+theorem CollectionTailAt.memory_entries (destination : RecordDestination) (inst : InstId) (element : TypeOf)
+    (entries : List Field) (child : ∀ item ∈ entries, MemoryChildRule profile ready dispatch destination inst item element)
+    (output : Lower.Output) (index pointer bytes : Nat) (left right : Config (core3 grow) (HostState sig))
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes) :
+    CollectionTailAt profile ready dispatch destination inst entries (layout destination.width element)
+      output index pointer bytes left right :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memoryCollectionTail
+    destination inst element entries child output index pointer bytes left right width sized
+
+theorem entries_match_of_mem {entries : List Field} {element : TypeOf} {item : Field}
+    (matched : Field.EntriesMatch entries element) (member : item ∈ entries) : item.LayoutMatches element :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.entriesMatchOfMem matched member
+
+/-- Compose reached child comparisons inside an actual checked memory
+record or tuple, using its compiled layout certificate and validating its
+aggregate range. -/
+theorem MemoryChildRule.aggregate (destination : RecordDestination) (inst : InstId) (type : TypeOf) (fields : List Field)
+    (matched : Field.LayoutMatches (.aggregate type fields) type)
+    (child : ∀ item ∈ fields, MemoryChildRule profile ready dispatch destination inst item item.type) :
+    MemoryChildRule profile ready dispatch destination inst (.aggregate type fields) type :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.aggregateChildRule
+    destination inst type fields matched child
+
+/-- Discharge the child rule for recursively nested local records and
+tuples from the compiler's layout certificate. -/
+theorem MemoryChildRule.local_memory (destination : RecordDestination) (inst : InstId) {item : Field} {type : TypeOf}
+    (fragment : LocalMemory item) (matched : item.LayoutMatches type) : MemoryChildRule profile ready dispatch destination inst item type :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.localMemoryChild destination inst fragment matched
+
 /-- Traverse a validated non-string scalar list in order, deriving placement
 at each reached cursor. Neither the scalar writes nor the final descriptor
 write invalidate the region; a trapping prefix does not run the suffix. -/

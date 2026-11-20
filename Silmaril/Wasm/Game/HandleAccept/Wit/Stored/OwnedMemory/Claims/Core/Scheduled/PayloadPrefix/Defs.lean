@@ -138,6 +138,12 @@ def ClosedMemoryLeaf (item : Field) : Prop :=
   CanonicalHandle item ∨ ∃ primitive, primitive ≠ WIT.Primitive.string ∧
     ∃ payload : Stored.Payload (.prim primitive), item = .data (.prim primitive) payload
 
+/-- Records and tuples to arbitrary depth, with local scalar or handle leaves. -/
+inductive LocalMemory : Field → Prop where
+  | leaf {item : Field} : ClosedMemoryLeaf item → LocalMemory item
+  | aggregate {type : TypeOf} {fields : List Field} :
+      (∀ item ∈ fields, LocalMemory item) → LocalMemory (.aggregate type fields)
+
 /-- The existing handle fragment plus records and tuples of local leaves. -/
 def ClosedMemoryRoot (item : Field) : Prop :=
   MemoryHandleRoot item ∨ ∃ type fields, item = .aggregate type fields ∧ ∀ child ∈ fields, ClosedMemoryLeaf child
@@ -210,6 +216,24 @@ def CollectionTailAt {grow : SingleThreaded.GrowOracle} {sig : Signature}
     CompareAt profile ready dispatch checked canonical
       (checkedCollectionTail destination inst entries area index output ptr (.ok ()))
       (canonicalCollectionTail destination inst entries area output ptr)
+
+/-- A child comparison at a placed memory cursor. Placement uses the original
+validated region; growth carries those bounds to the reached store, without
+requiring that callbacks preserve the bytes in that region. -/
+def MemoryChildRule {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow)))
+    (destination : RecordDestination) (inst : InstId) (item : Field) (type : TypeOf) : Prop :=
+  ∀ (origin : CStore (core3 grow)) (index address bytes : Nat),
+    (core3 grow).memAddrType? origin.core destination.memory = some destination.width →
+    (core3 grow).memSize? origin.core destination.memory = some bytes →
+    address % (layout destination.width type).alignment.bytes = 0 →
+    address + (layout destination.width type).size ≤ bytes →
+    ∀ left right : Config (core3 grow) (HostState sig), Core3.Grows origin.core right.store.core →
+      CompareKeepingAt profile ready dispatch (fun store => Core3.Grows origin.core store.core) left right
+        (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+          item index (.memory address))
+        (RecordLower.CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))
 
 def checkedCollectionResume {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)

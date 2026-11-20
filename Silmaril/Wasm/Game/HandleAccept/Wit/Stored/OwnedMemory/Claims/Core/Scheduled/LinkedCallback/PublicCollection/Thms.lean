@@ -43,4 +43,16 @@ theorem Site.parked_scalars {grow : Silmaril.Wasm.SingleThreaded.GrowOracle} {si
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicCollection.parkedScalars
     site profile ready bindings next linked primitive element nonString
 
+/-- Compare both parked public gives for lists of recursively nested local
+records/tuples (or flat maps in value-entry mode). The compiled layout supplies
+each reached placement; live guards and canonical traps still stop the
+prefix with its earlier effects. The outer allocator path is classified as
+in `Outcome`; this does not cover allocators inside entries. -/
+theorem Site.parked_local_entries {grow : Silmaril.Wasm.SingleThreaded.GrowOracle} {sig : Signature}
+    (site : Site grow sig) (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (next : site.ReferenceNext) (linked : site.Linked bindings)
+    (fragment : ∀ item ∈ site.entries, PayloadPrefix.LocalMemory item) : Outcome site profile ready bindings next (fun _ _ => True) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicCollection.parkedLocalEntries
+    site profile ready bindings next linked fragment
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.PublicCollection
