@@ -1,5 +1,9 @@
 # Linked DASL object and blob sets
 
+This is the explicit content-ordered alternative to the default
+[name-ordered reference set](atproto-dasl-name-link-set.md). Its API and ordering
+rules are unchanged.
+
 The [layout](../Silmaril/Formats/Dasl/LinkedSet/Defs.lean) stores a single array
 of typed links. The ordering key is the complete canonical payload encoding,
 with a leading octet that distinguishes an object encoding from raw blob bytes.
