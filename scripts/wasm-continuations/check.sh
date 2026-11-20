@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 set -eu
-cd "$(dirname "$0")/../../.."
+cd "$(dirname "$0")/../.."
 lake=${LAKE:-lake}
-testdir=tests/wasm/binaryen-continuations
+testdir=scripts/wasm-continuations
 target=+Silmaril.Wasm.Binaryen.Continuation.Examples
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM

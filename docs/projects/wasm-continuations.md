@@ -85,7 +85,7 @@ correct in general or identify silmaril's syntax with the upstream tree.
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.Wasm.Binaryen.Continuation.Examples'
-BINARYEN_BIN=/path/to/binaryen-version_133/bin sh tests/wasm/binaryen-continuations/check.sh
+BINARYEN_BIN=/path/to/binaryen-version_133/bin sh scripts/wasm-continuations/check.sh
 ```
 
 `Examples.lean` is a regular library module, so hosted builds check the valid
