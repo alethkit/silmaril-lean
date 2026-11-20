@@ -612,7 +612,11 @@ still reject, including in inactive map schemas.
 records containing both nominal owners and endpoints. Active owner fields consume ordered
 receipts only after checking their nominal type and representation; live authority is
 looked up separately by arena identity. The whole plan is dry-run before writing, and
-transfers after guest allocation revalidate against the reached state. Single give and the
+transfers after guest allocation revalidate against the reached state. Root preflight and
+dynamic-region rechecks derive their plans from the same compiled fields the emitter
+uses, in field order and with only the selected sum arm. `compileValue_plan` and
+`compileRecord_plan` identify the diagnostic compiler output with those traversals;
+they are not equivalence theorems for the effectful canonical ABI. Single give and the
 recursive emitter spend only the targeted owner identity, before canonical allocation of
 the owning arena object. A subsequent table insertion failure keeps the allocation and
 does not restore the claim. The kernel-checked replays cover distinct equal-representation
