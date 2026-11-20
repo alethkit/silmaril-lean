@@ -5,6 +5,7 @@ public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
 public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Deferred.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Publication.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Thms
 import Silmaril.Wasm.Component.Reference.HostWrite.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Builtins.Resource.Thms
@@ -603,6 +604,15 @@ private theorem checked_host_of_steps {implementation : HostImpl (core3 grow) (H
     · exact ⟨⟨extended.1.1.trans tail.1.1, le_trans extended.1.2 tail.1.2⟩, .cons extended.2.1 tail.2.1,
         publication_trans extended.2.2 tail.2.2⟩
 
+theorem checked_cfgSafe_of_steps (bindings : List (Binding sig))
+    {initial final : Config (core3 grow) (HostState sig)}
+    {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (host bindings)) initial labels final)
+    (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels) :
+    CfgSafe CheckedWrite final :=
+  HostWrite.steps_cfgSafe (HostWrite.hostSafe_dispatch (host_safe bindings) Limits.spec Quirks.none ready)
+    steps safe runSafe
+
 theorem checked_of_steps (bindings : List (Binding sig))
     {initial final : Config (core3 grow) (HostState sig)}
     {labels : List (Label (core3 grow) (HostState sig))}
@@ -1166,6 +1176,43 @@ theorem retained_target {before after : State sig} (run : WriterRun before after
     exact selected
   · simp [Stored.Endpoints.Core.childFromHistory, valid] at selected
 
+theorem single_publication_survives (bindings : List (Binding sig))
+    {before published final : Config (core3 grow) (HostState sig)}
+    {publishing suffix : List (Label (core3 grow) (HostState sig))}
+    (first : Steps prof ready (specDispatch ready (host bindings)) before publishing published)
+    (later : Steps prof ready (specDispatch ready (host bindings)) published suffix final)
+    (safe : CfgSafe CheckedWrite before)
+    (firstSafe : RunSafe CheckedWrite publishing) (laterSafe : RunSafe CheckedWrite suffix)
+    {ticket handle : Nat}
+    (recorded : published.host.publications = before.host.publications ++ [(ticket, handle)]) :
+    ∃ tree, published.host.writer.accepted = tree :: before.host.writer.accepted ∧
+      final.host.publications[before.host.publications.length]? = some (ticket, handle) ∧
+      Stored.Endpoints.Core.childFromHistory published.host.writer.accepted (BitVec.ofNat 32 handle) = some tree ∧
+      Stored.Endpoints.Core.childFromHistory final.host.writer.accepted (BitVec.ofNat 32 handle) = some tree := by
+  have checkedFirst := checked_of_steps bindings first safe firstSafe
+  have checkedLater := checked_of_steps bindings later
+    (checked_cfgSafe_of_steps bindings first safe firstSafe) laterSafe
+  obtain ⟨entries, roots, journal, accepted, sized, targets⟩ :=
+    publication_targets checkedFirst.2.1 checkedFirst.2.2
+  have singleton : entries = [(ticket, handle)] := List.append_cancel_left (journal.symm.trans recorded)
+  subst entries
+  have one : roots.length = 1 := sized.symm
+  have onlyRoot : ∃ tree, roots = [tree] := by
+    cases roots with
+    | nil => simp at one
+    | cons root tail =>
+      cases tail with
+      | nil => exact ⟨root, rfl⟩
+      | cons next remaining => simp at one
+  obtain ⟨tree, rfl⟩ := onlyRoot
+  obtain ⟨selected, same, lookup⟩ := targets 0 ticket handle rfl
+  have sameTree : selected = tree := Option.some.inj same.symm
+  subst selected
+  obtain ⟨laterEntries, laterJournal, _⟩ := checkedLater.2.2
+  refine ⟨tree, accepted, ?_, lookup, retained_target checkedLater.2.1 lookup⟩
+  rw [laterJournal, recorded, List.append_assoc, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self]
+  rfl
+
 theorem publication_lookup_iff {before after : HostState sig}
     (journal : PublicationDelta before after) {handle : BitVec 32}
     (fresh : before.writer.accepted.length < handle.toNat) :
@@ -1197,5 +1244,94 @@ theorem publication_lookup_iff {before after : HostState sig}
     have within : handle.toNat ≤ after.writer.accepted.length := by omega
     have offset : after.writer.accepted.length - handle.toNat < after.writer.accepted.length := by omega
     simp [Stored.Endpoints.Core.childFromHistory, positive, within, List.getElem?_eq_getElem offset]
+
+private theorem writer_growth {before after : State sig} (step : WriterStep before after)
+    (grows : before.accepted.length < after.accepted.length) :
+    ∃ tree, before.register tree = .ok after ∧ after.accepted = tree :: before.accepted := by
+  cases step with
+  | same => exact (Nat.lt_irrefl _ grows).elim
+  | spend update => cases update <;> exact (Nat.lt_irrefl _ grows).elim
+  | publish tree registered => exact ⟨tree, registered, (Stored.OwnedMemory.Claims.register_claims registered).1⟩
+
+theorem publication_origin {implementation : HostImpl (core3 grow) (HostState sig)}
+    (hostSafe : HostImplSafe CheckedWrite implementation)
+    {initial final : Config (core3 grow) (HostState sig)}
+    {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready implementation) initial labels final)
+    (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels)
+    {handle : BitVec 32} {tree : Stored.OwnedMemory.Tree sig}
+    (fresh : initial.host.writer.accepted.length < handle.toNat)
+    (selected : Stored.Endpoints.Core.childFromHistory final.host.writer.accepted handle = some tree) :
+    PublicationCut (prof := prof) (ready := ready) (dispatch := specDispatch ready implementation)
+      initial labels final handle tree := by
+  have checked := HostWrite.hostSafe_dispatch hostSafe Limits.spec Quirks.none ready
+  induction steps with
+  | refl =>
+    simp [Stored.Endpoints.Core.childFromHistory, Nat.not_le.mpr fresh] at selected
+  | @cons current next final label suffix first tail ih =>
+    have nextSafe := HostWrite.step_cfgSafe checked first safe (fun program equal => runSafe program (by simp [equal]))
+    have safeTail : RunSafe CheckedWrite suffix := fun program member => runSafe program (List.mem_cons_of_mem _ member)
+    by_cases within : handle.toNat ≤ next.host.writer.accepted.length
+    · have grows : current.host.writer.accepted.length < next.host.writer.accepted.length := by omega
+      have allowed : CheckedWrite current.host next.host := by
+        rcases HostWrite.step_host first safe with same | allowed
+        · rw [same] at grows
+          exact (Nat.lt_irrefl _ grows).elim
+        · exact allowed
+      obtain ⟨root, registered, accepted⟩ := writer_growth allowed.2.1 grows
+      have count : next.host.writer.accepted.length = current.host.writer.accepted.length + 1 := by simp [accepted]
+      have handleNumber : handle.toNat = current.host.writer.accepted.length + 1 := by omega
+      have atRoot : Stored.Endpoints.Core.childFromHistory next.host.writer.accepted handle = some root := by
+        have positive : 0 < handle.toNat := by omega
+        have offset : next.host.writer.accepted.length - handle.toNat = 0 := by omega
+        simp [Stored.Endpoints.Core.childFromHistory, positive, within, offset]
+        simp [accepted]
+      have keeps := retained_target (checked_host_of_steps hostSafe tail nextSafe safeTail).2.1 atRoot
+      have sameRoot : root = tree := Option.some.inj (keeps.symm.trans selected)
+      subst root
+      obtain ⟨entries, appended, size, numbered⟩ := allowed.2.2
+      have single : entries.length = 1 := by omega
+      obtain ⟨⟨ticket, number⟩, rfl⟩ := List.length_eq_one_iff.mp single
+      have numberEq : number = handle.toNat := (numbered 0 ticket number rfl).1.trans (by simp [handleNumber])
+      exact ⟨[], label, suffix, current, next, ticket, rfl, .refl _, first, tail,
+        handleNumber, registered, by simpa only [numberEq] using appended⟩
+    · obtain ⟨earlier, event, rest, before, after, ticket, split, enters, publishes, continues, number, registered,
+        journal⟩ := ih nextSafe safeTail (Nat.lt_of_not_ge within) selected
+      exact ⟨label :: earlier, event, rest, before, after, ticket, congrArg (label :: ·) split,
+        .cons first enters, publishes, continues, number, registered, journal⟩
+
+theorem publication_cut_target {implementation : HostImpl (core3 grow) (HostState sig)}
+    (hostSafe : HostImplSafe CheckedWrite implementation)
+    {initial final : Config (core3 grow) (HostState sig)}
+    {labels : List (Label (core3 grow) (HostState sig))}
+    (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels)
+    {handle : BitVec 32} {tree : Stored.OwnedMemory.Tree sig}
+    (cut : PublicationCut (prof := prof) (ready := ready) (dispatch := specDispatch ready implementation)
+      initial labels final handle tree) :
+    Stored.Endpoints.Core.childFromHistory final.host.writer.accepted handle = some tree := by
+  obtain ⟨earlier, label, suffix, before, after, _, rfl, enters, publishes, continues, number, registered, _⟩ := cut
+  have checked := HostWrite.hostSafe_dispatch hostSafe Limits.spec Quirks.none ready
+  have beforeSafe := HostWrite.steps_cfgSafe checked enters safe
+    (fun program member => runSafe program (List.mem_append_left _ member))
+  have afterSafe := HostWrite.step_cfgSafe checked publishes beforeSafe
+    (fun program equal => runSafe program (List.mem_append_right _ (by simp [equal])))
+  have tail := checked_host_of_steps hostSafe continues afterSafe
+    (fun program member => runSafe program (List.mem_append_right _ (List.mem_cons_of_mem _ member)))
+  apply retained_target tail.2.1
+  rw [(Stored.OwnedMemory.Claims.register_claims registered).1]
+  simp [Stored.Endpoints.Core.childFromHistory, number]
+
+theorem publication_cut_iff {implementation : HostImpl (core3 grow) (HostState sig)}
+    (hostSafe : HostImplSafe CheckedWrite implementation)
+    {initial final : Config (core3 grow) (HostState sig)}
+    {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready implementation) initial labels final)
+    (safe : CfgSafe CheckedWrite initial) (runSafe : RunSafe CheckedWrite labels)
+    {handle : BitVec 32} {tree : Stored.OwnedMemory.Tree sig}
+    (fresh : initial.host.writer.accepted.length < handle.toNat) :
+    Stored.Endpoints.Core.childFromHistory final.host.writer.accepted handle = some tree ↔
+    PublicationCut (prof := prof) (ready := ready) (dispatch := specDispatch ready implementation)
+      initial labels final handle tree :=
+  ⟨publication_origin hostSafe steps safe runSafe fresh, publication_cut_target hostSafe safe runSafe⟩
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript
