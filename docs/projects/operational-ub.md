@@ -101,16 +101,48 @@ proofs or erase observer moves: finite may equality alone does not preserve
 waiting, must-behaviour, fairness, or linking. Modules and components are
 abstract clients of `HasOpSem`, not new instantiated typed machines.
 
-Next stages: extend the intrinsic slice with typed mutation and one genuine
-bounded Core memory operation; refine control/recursive continuations and host
-observations; then prove version-specific encodability/validation and an
-observer-preserving module/component linking bridge. No claim of full-Core
-intrinsic adequacy, byte-level encodability, FX comparability, or linked
-no-UB safety follows from this slice.
+### A one-memory application
+
+`Silmaril/Wasm/Execution/Core/MemoryProfile/Defs.lean` adds an independent,
+stack-height-indexed tape for `i32.const`, `i32.add`, `i32.load` and `i32.store`.
+It erases to actual Core, with a fixed frame, no locals/imports, and a single
+one-page memory32 at index/address zero. Load and store are full-width, with
+alignment exponent and offset zero. These immediates satisfy the static
+numeric bounds and the actual `MemArgOk` judgment; that is not a binary
+round-trip theorem. `ConfigOk` separately checks the typed stack, frame and
+memory instance. A dynamic access of four bytes tests the current byte
+length in natural numbers; an encodable address can still trap.
+
+`MemoryProfile/Thms.lean` characterizes each active memory `Core.Step` in
+both directions. The evaluator reuses Core's byte primitives but recurses on
+its own typed tape, not Core's reduction relation. The proof accounts for
+all alternate trap bubbling prefixes, applies Core preservation, and uses
+host-free confluence for terminal readback (including the final bytes).
+`reach_iff` compares finite guarded Core prefixes with raw Core; `may_iff`
+compares their finite return/trap observations with the evaluator. This is
+not equality of administrative traces. `not_diverges` is a separate theorem.
+
+The regression proves and runs an add/store/load round trip and both OOB
+traps, and distinguishes an actually well-typed, executable `memory.size`
+from the profile's intentional UB at that instruction. The main proof cost
+is the boundary: matching Core's head decomposition and trap contexts,
+proving typing/admission preserved, and reading back normal forms. No second
+byte model is needed.
+
+`MemoryProfile.opSem` instantiates `HasOpSem` for `MemoryProfile.Program`,
+not for arbitrary functions, modules or components. With the independent
+profile family available, a follow-up can label this checked adapter with
+`Silmaril.Wasm.Profiles.Wasm3` without claiming that it runs arbitrary
+`Profiles.Body` or `Profiles.Module` programs. Those need a translation and
+proof relating their entry states and observations. This slice imports no
+ISA-track code. Full-Core control/recursive continuations, hosts,
+version-specific binary encodability, FX comparability, and observer-preserving
+module/component linking remain outside this proof.
 
 ```sh
 lake build --wfail +Silmaril.Semantics.Operational.Policy.Thms +Silmaril.Wasm.Execution.Core.Intrinsic.OpSem.Thms
 lake env lean -DwarningAsError=true tests/semantics/operational-policy/Regression.lean
 lake env lean -DwarningAsError=true tests/wasm/intrinsic-machine/OpSem.lean
 lake env lean -DwarningAsError=true tests/wasm/intrinsic-machine/Call.lean
+make check CHECK_TARGETS=+Silmaril.Wasm.Execution.Core.MemoryProfile.Thms
 ```
