@@ -101,7 +101,8 @@ theorem interior_step {grow : SingleThreaded.GrowOracle}
     (paired : Paired first second left right) (interior : Interior first left)
     (grows : CoreUpdateGrows left) (run : Step profile ready dispatch left label next) :
     ∃ other, CoreGrowthSteps profile ready dispatch right [label] other ∧ Paired first second next other :=
-  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.interior_step paired interior grows run
+  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.interior_step
+    (fun _ _ edge => by cases edge; rfl) paired interior grows run
 
 /-- Only host predicates of reached, blocked candidate threads need agree.
 Store-only predicates and threads not making a host query add no premise. -/
@@ -124,6 +125,34 @@ theorem sync_readiness {first second : ReturnFrame.Continuation E Host} {cfg oth
   Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.sync_readiness paired task found waiting agrees focused
 
 namespace Related
+
+variable {changes : ReturnFrame.Substitutions E Host}
+
+theorem Paired.data {left right : Config E Host} (paired : Paired changes left right) :
+    left.store = right.store ∧ left.pending = right.pending ∧ left.results = right.results ∧
+      left.cancels = right.cancels :=
+  ⟨ReturnFrame.Related.Paired.data paired |>.1, ReturnFrame.Related.Paired.data paired |>.2.2⟩
+
+theorem Paired.retarget {left right : Config E Host} (paired : Paired changes left right)
+    {thread focus frames rest} (focused : left.ctl = ⟨thread, focus, frames⟩ :: rest)
+    (next : Focus E Host) (leftHost rightHost : Host) :
+    ∃ otherFrames otherRest, right.ctl = ⟨thread, focus, otherFrames⟩ :: otherRest ∧
+      Paired changes { left with host := leftHost, ctl := ⟨thread, next, frames⟩ :: rest }
+        { right with host := rightHost, ctl := ⟨thread, next, otherFrames⟩ :: otherRest } :=
+  ReturnFrame.Related.Paired.retarget paired focused next rightHost
+
+/-- A protected interior focus has neither a host read nor a substituted
+return, so the actual step replays under the same label and growth evidence. -/
+theorem interior_step {grow : SingleThreaded.GrowOracle}
+    {ready : HostReady Host} {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    {changes : ReturnFrame.Substitutions (core3 grow) Host}
+    {protectedReturn : ReturnFrame.Continuation (core3 grow) Host → Prop}
+    (covers : ∀ first second, changes first second → protectedReturn first)
+    {left right next : Config (core3 grow) Host} {label : Label (core3 grow) Host}
+    (paired : Paired changes left right) (interior : InteriorFor protectedReturn left)
+    (grows : CoreUpdateGrows left) (run : Step profile ready dispatch left label next) :
+    ∃ other, CoreGrowthSteps profile ready dispatch right [label] other ∧ Paired changes next other :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.interior_step covers paired interior grows run
 
 /-- Replay actual growth-certified callback steps when the hosts differ and
 several saved calls are already paired. A reached host-read divergence or

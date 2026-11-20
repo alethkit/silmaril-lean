@@ -127,7 +127,8 @@ theorem RecordDestination.paired_range_recheck {sig : Stored.Signature} {ready :
     {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
     {checked canonical : Machine.Config (core3 grow) (HostState sig)}
     {checkedResume canonicalResume : Machine.ReturnFrame.Continuation (core3 grow) (HostState sig)}
-    (paired : Machine.HostFrame.Paired checkedResume canonicalResume checked canonical)
+    {changes : Machine.ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (paired : Machine.HostFrame.Related.Paired changes checked canonical)
     (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
     (checkNext : Nat → Except Endpoints.RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
     (canonNext : Nat → Session grow sig (Ret (core3 grow)))

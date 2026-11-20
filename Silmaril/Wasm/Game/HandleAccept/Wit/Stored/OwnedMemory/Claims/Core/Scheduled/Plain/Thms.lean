@@ -398,8 +398,9 @@ the paired scheduler with the same resumed Core focus and untouched writers. -/
 theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
     (inst : InstId) (destination : RecordDestination) (schema : Option Stored.TypeOf)
-    {start other : Machine.Config (core3 grow) (HostState sig)} {first second}
-    (paired : Machine.HostFrame.Paired first second start other) (thread : Option ThreadId)
+    {start other : Machine.Config (core3 grow) (HostState sig)}
+    {changes : Machine.ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (paired : Machine.HostFrame.Related.Paired changes start other) (thread : Option ThreadId)
     (profile : ProfileKind) (ready : HostReady (HostState sig)) {entry : InstState}
     {core continuation segments rest}
     (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
@@ -419,7 +420,7 @@ theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowO
       Machine.CoreGrowthSteps profile ready dispatch start (List.replicate leftCount .tau) leftNext ∧
       Machine.CoreGrowthSteps profile ready dispatch other (List.replicate rightCount .tau) rightNext ∧
       rightNext.ctl = ⟨thread, next, otherSegments⟩ :: otherRest ∧
-      Machine.HostFrame.Paired first second leftNext rightNext ∧
+      Machine.HostFrame.Related.Paired changes leftNext rightNext ∧
       leftNext.host.writer = start.host.writer ∧ rightNext.host.writer = other.host.writer :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_rejoin
     bindings name type args inst destination schema paired thread profile ready parked calling linked caller live closed

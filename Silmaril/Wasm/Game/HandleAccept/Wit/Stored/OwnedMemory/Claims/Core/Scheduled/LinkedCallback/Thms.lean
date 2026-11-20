@@ -72,6 +72,51 @@ theorem Prefix.return_cut {left right last : State grow sig} {seen value}
     CallbackReturn profile ready bindings first second left right last cursor value seen :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.returnCut path paired cursor leftAt
 
+/-- Replay a classified linked prefix under any set of outstanding saved
+continuation pairs. The coverage premise protects just the left-hand
+continuations that may diverge; closed gives and readiness reads take
+their real, separately ticketed scheduler steps. -/
+theorem PrefixFor.replay {left right last : State grow sig} {visibleLabels}
+    {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {protectedReturn : ReturnFrame.Continuation (core3 grow) (HostState sig) → Prop}
+    (path : PrefixFor profile ready bindings protectedReturn left visibleLabels last)
+    (covers : ∀ first second, changes first second → protectedReturn first)
+    (paired : HostFrame.Related.Paired changes left right) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    ∃ leftLabels rightLabels other,
+      CoreGrowthSteps profile ready dispatch left leftLabels last ∧
+      CoreGrowthSteps profile ready dispatch right rightLabels other ∧
+      HostFrame.Related.Paired changes last other ∧
+      visible leftLabels = visibleLabels ∧ visible rightLabels = visibleLabels :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.replayFor path covers paired
+
+/-- Execute the observed program return on both linked schedulers. The
+cut gives the selected continuation pair and residual cursors, not an
+assumption that the most recently installed frame returns first. -/
+theorem PrefixFor.return_cut {left right last : State grow sig} {seen value}
+    {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {protectedReturn : ReturnFrame.Continuation (core3 grow) (HostState sig) → Prop}
+    {resume : ReturnFrame.Continuation (core3 grow) (HostState sig)}
+    (path : PrefixFor profile ready bindings protectedReturn left seen last)
+    (covers : ∀ first second, changes first second → protectedReturn first)
+    (paired : HostFrame.Related.Paired changes left right) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (leftAt : last.ctl = { cursor with frames := .prog resume :: cursor.frames }.control (pure value)) :
+    CallbackReturnFor profile ready bindings changes left right last cursor resume value seen :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.returnCutFor
+    path covers paired cursor leftAt
+
+/-- The reached synchronous lift readiness read is classified independently
+of how many saved frames are protected. -/
+theorem PrefixFor.syncLift {start last : State grow sig} {labels task thread frames rest} {entry : Task (core3 grow)}
+    {protectedReturn : ReturnFrame.Continuation (core3 grow) (HostState sig) → Prop}
+    (focused : start.ctl = ⟨thread, .prog (syncLiftLoopBody ready task), frames⟩ :: rest)
+    (found : ArenaField.tasks.get? start.store task = some entry) (waiting : entry.state ≠ .resolved)
+    (agrees : ReadyAgreement ready start entry.inst)
+    (path : PrefixFor profile ready bindings protectedReturn { start with ctl := ⟨thread,
+      .prog (syncLiftCandidates task (start.store.instCandidates (ready start.host) entry.inst)), frames⟩ :: rest }
+      labels last) : PrefixFor profile ready bindings protectedReturn start labels last :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.syncLift focused found waiting agrees path
+
 /-- The next canonical string allocation installs paired saved continuations
 on a common scheduler frame. `Prefix.replay` then compares a classified
 callback, even if it has not returned. -/
@@ -142,6 +187,31 @@ theorem ChildFrameOver.collection_install_pair {changes : ReturnFrame.Substituti
     HostFrame.Related.Paired (ReturnFrame.Extend changes first second) checkCall canonCall :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.childCollectionInstall
     destination inst type element entries output index checkNext canonNext frame reachedWidth prepared checkAt canonAt
+
+/-- Validate the reached allocation before re-reading live authority. Any
+substitution selected for this pop must implement the same range program
+on the observed pointer; other saved frames remain related. -/
+theorem PrefixFor.range_cut (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat)
+    (plan : List Object) {left right last : State grow sig} {seen}
+    {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {protectedReturn : ReturnFrame.Continuation (core3 grow) (HostState sig) → Prop}
+    (path : PrefixFor profile ready bindings protectedReturn left seen last)
+    (covers : ∀ first second, changes first second → protectedReturn first)
+    (paired : HostFrame.Related.Paired changes left right) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (leftAt : last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (pure (.nat pointer)))
+    (present : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width) {bytes : Nat}
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (checkNext : Nat → Except RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
+    (canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    (checkBody : first (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area count pointer
+      let live ← Record.Effects.reserve recordClaims plan
+      checkNext ptr live))
+    (canonBody : ∀ resume, changes first resume →
+      resume (.nat pointer) = (validateListRange (destination.context inst) area count pointer >>= canonNext)) :
+    RangeCutOver profile ready bindings changes first left right last cursor destination area count pointer plan checkNext canonNext seen :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.rangeCutOver
+    destination inst area count pointer plan path covers paired cursor leftAt present sized checkNext canonNext checkBody canonBody
 
 /-- Replay to the actual child-entry cut, with the reached memory region,
 live verdict and residual scheduler frames. A range trap or common pop
