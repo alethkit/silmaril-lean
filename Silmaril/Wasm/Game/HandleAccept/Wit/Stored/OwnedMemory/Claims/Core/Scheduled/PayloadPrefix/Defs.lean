@@ -175,6 +175,11 @@ def placement {grow : SingleThreaded.GrowOracle} (destination : RecordDestinatio
     | throw (.internal "dangling memory address")
   if ptr + area.size > size then throw .outOfBounds
 
+inductive LocalDataType : TypeOf → Prop where
+  | primitive {primitive : WIT.Primitive} : primitive ≠ .string → LocalDataType (.prim primitive)
+  | enum {cases : List String} : Lower.checkSchema (.enum cases) = .ok () → LocalDataType (.enum cases)
+  | flags {labels : List String} : Lower.checkSchema (.flags labels) = .ok () → LocalDataType (.flags labels)
+
 def rootPlacement {grow : SingleThreaded.GrowOracle} (destination : RecordDestination)
     (store : CStore (core3 grow)) (type : TypeOf) : Lower.Output → Except TrapReason Unit
   | .flat => .ok ()

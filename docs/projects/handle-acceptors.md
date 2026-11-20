@@ -932,9 +932,9 @@ active recursive shape from the same successful preflight used by the linked
 binding. In a map, the compiler proves that each entry contains its checked
 primitive key and recursively compiled value; this does not follow from layout
 alone. Neither public theorem takes per-child shape assumptions or a depth
-bound. Their current comparison covers primitive data (including strings) and
-checked handles. Enum and flags are compiled, but their local comparison rules
-are still needed; this proof boundary introduces no new runtime rejection.
+bound. Primitive data, enums, flags and checked handles use the reached local
+rules, while strings use their actual allocation plans. The compiler's schema
+checks provide the enum and flags evidence, not a separate leaf assumption.
 
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner

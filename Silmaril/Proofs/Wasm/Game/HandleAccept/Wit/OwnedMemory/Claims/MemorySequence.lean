@@ -591,29 +591,29 @@ private theorem mapReplay {older : ReturnFrame.Substitutions (core3 grow) (HostS
     rfl
 
 private theorem scalarRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
-    (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
-    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim primitive))
-    (nonString : primitive ≠ .string) (address : Nat)
+    (destination : RecordDestination) (inst : InstId) (type : TypeOf)
+    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload type)
+    (data : LocalDataType type) (address : Nat)
     (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
     {bytes : Nat} (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
-    (placementFits : SlotFits destination.width bytes (.data (.prim primitive) payload) address) :
-    FieldRule (memoryLeaf profile ready bindings older destination inst) older origin destination inst (.data (.prim primitive) payload) address := by
+    (placementFits : SlotFits destination.width bytes (.data type payload) address) :
+    FieldRule (memoryLeaf profile ready bindings older destination inst) older origin destination inst (.data type payload) address := by
   intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
   obtain ⟨reachedBytes, reachedSize, widened⟩ := growth.memSize sized
   change (core3 grow).memSize? left.store.core destination.memory = some reachedBytes at reachedSize
-  have aligned : address % (layout destination.width (.prim primitive : TypeOf)).alignment.bytes = 0 := placementFits.1
-  have bounds : address + (layout destination.width (.prim primitive : TypeOf)).size ≤ reachedBytes := placementFits.2.trans widened
-  have placed : rootPlacement destination left.store (.prim primitive) (.memory address) = .ok () := by
+  have aligned : address % (layout destination.width type).alignment.bytes = 0 := placementFits.1
+  have bounds : address + (layout destination.width type).size ≤ reachedBytes := placementFits.2.trans widened
+  have placed : rootPlacement destination left.store type (.memory address) = .ok () := by
     simp [rootPlacement, placement, aligned, reachedSize, Nat.not_lt.mpr bounds]
     rfl
   have reachedWidth : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width := growth.memAddrType present
   have width : ptrTypeIn left.store (destination.context inst) = destination.width := by
     simp [ptrTypeIn, CanonOpts.ptrType, RecordDestination.context, reachedWidth]
-  have cut := primitive_leaf_frame (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings))
-    destination inst primitive payload nonString index (.memory address) origin left right (frame.store ▸ growth) width placed
+  have cut := local_data_leaf_frame (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings))
+    destination inst type data payload index (.memory address) origin left right (frame.store ▸ growth) width placed
     frame.store check canon frame.thread checkNext canonNext checkAt canonAt
   obtain ⟨store, result, chk, ref, checkRun, canonRun, labels, status⟩ := cut
-  refine .inr ⟨⟨primitive, payload, rfl, nonString⟩, store, result, chk, ref, checkRun, canonRun, labels, ?_⟩
+  refine .inr ⟨⟨type, payload, rfl, data⟩, store, result, chk, ref, checkRun, canonRun, labels, ?_⟩
   cases result with
   | ok value =>
     exact ends _ _ _ _ ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩ status rfl rfl
