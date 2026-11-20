@@ -2,9 +2,11 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Deferred.Defs
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Publication.Defs
 import Silmaril.Wasm.Component.Reference.Machine.Soundness.Thms
 meta import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Defs
 meta import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Deferred.Defs
+meta import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Publication.Defs
 meta import Silmaril.Wasm.Component.Reference.Machine.Exec.Defs
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.ComponentCall.Examples
@@ -135,8 +137,11 @@ private def regression (spill async_ : Bool) : Bool :=
     let result := run spill async_ start
     let state := result.config.host
     let summaries := state.writer.accepted.map fun tree => (rootReceipts tree).map fun r => (receiptId r).idx
+    let journaled := (state.publicationRootsFrom 0).map (Option.map fun tree =>
+      (rootReceipts tree).map fun receipt => (receiptId receipt).idx)
     result.outcome == .resolved && state.publications == [(1, 1), (2, 2)] &&
     state.refusals == [.accept (.boundary (.invalidChild 1))] && summaries == [[2, 3], [0, 1]] &&
+    journaled == [some [0, 1], some [2, 3]] &&
     (result.config.store.core.mems[0]?.map fun mem => (mem.bytes.extract 128 152).data) ==
       some #[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]
 
@@ -253,9 +258,8 @@ private def deferredRegression (spill stale : Bool) (pollDelivery : Bool := fals
   | some start =>
     let result := runDeferred spill start
     let state := result.config.host
-    let summary := state.publications.map fun (_, handle) =>
-      (Endpoints.Core.childFromHistory state.writer.accepted (BitVec.ofNat 32 handle)).map fun root =>
-        (rootReceipts root).map fun receipt => ((receiptId receipt).idx, receipt.2.representation)
+    let summary := (state.publicationRootsFrom 0).map (Option.map fun root =>
+      (rootReceipts root).map fun receipt => ((receiptId receipt).idx, receipt.2.representation))
     result.outcome == (if stale then .trap else .resolved) &&
       state.refusals == (if stale then [.stalePendingAccept] else []) &&
       state.publications == [(1, 1)] && state.writer.accepted.length == 1 &&

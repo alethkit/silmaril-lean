@@ -767,6 +767,13 @@ after spending the claim; it observes the receipt without recreating authority.
 The deferred replay checks that the successful retry publishes both distinct owners
 with the same representation, while the cancelled call has no publication.
 
+`ComponentCall.Deferred.publication_roots` reconstructs the exact chronological list of
+new roots from the journal suffix, even for a prefix ending mid-call. Each new entry
+selects its root, with no missing or extra occurrence. Direct and spilled Core replays
+check ordering across refusal and success, and the deferred replay checks cancellation
+and stale start. This reconstructs committed acceptance, not the set of inputs a guest
+will accept or a guarantee that an interrupted caller received its result.
+
 ## Checking
 
 ```
