@@ -116,4 +116,22 @@ theorem nested_rule {older : ReturnFrame.Substitutions (core3 grow) (HostState s
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence.nestedRule
     destination inst depth item address present sized realloc shape matched placement
 
+/-- Replay the marked allocator's return into all value-mode entries, with
+allocating string/handle aggregates at any entry, then compare the actual
+pointer/count descriptor. A stopped or trapped prefix runs no unvisited
+entries. This applies to lists and value-mode maps, not indirect maps. -/
+theorem value_entries_replay {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
+    (depth index : Nat) (output : Lower.Output) {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
+    (valueMode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
+    (matched : Field.EntriesMatch entries element)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (shape : ∀ item ∈ entries, AggregateShape (StringField.Fits destination) depth item)
+    (replay : CollectionReplay profile ready bindings older destination inst type element entries index output left right check canon checkNext canonNext) :
+    CollectionReplayFor profile ready bindings older destination inst type element entries index output left right check canon checkNext canonNext
+      (ValueListReturn profile ready bindings older destination inst type element entries depth index output checkNext canonNext) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence.valueCollectionReplay
+    destination inst type element entries depth index output checkNext canonNext valueMode matched realloc shape replay
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.CollectionVisit.Defs
 
 @[expose] public section
 
@@ -150,5 +151,60 @@ def nested (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings
         Steps profile ready (specDispatch ready (host bindings)) left [.tau] entered ∧
           Replay profile ready bindings .fields destination inst (nested profile ready bindings older destination inst depth)
             (aggregateNext index checkNext) canonNext finish children 0 address entered right check canon
+
+abbrev ValueCheckNext (grow : SingleThreaded.GrowOracle) (sig : Signature) (output : Lower.Output) :=
+  Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow))
+
+abbrev ValueCanonNext (grow : SingleThreaded.GrowOracle) (sig : Signature) (output : Lower.Output) :=
+  output.Result → Session grow sig (Ret (core3 grow))
+
+abbrev ValueFinish (grow : SingleThreaded.GrowOracle) (sig : Signature) (output : Lower.Output) :=
+  output.Result → Finish grow sig
+
+def publishChecked (destination : RecordDestination) (inst : InstId) (pointer count index : Nat) (output : Lower.Output)
+    (next : ValueCheckNext grow sig output) : CheckNext grow sig
+  | .error issue => next (.error (.nested index issue))
+  | .ok () => ListLower.publish (destination.context inst) destination.width pointer count output >>= fun value => next (.ok value)
+
+def publishCanonical (destination : RecordDestination) (inst : InstId) (pointer count : Nat) (output : Lower.Output)
+    (next : ValueCanonNext grow sig output) : CanonNext grow sig :=
+  fun () => ListLower.publish (destination.context inst) destination.width pointer count output >>= next
+
+def DescriptorThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (output : Lower.Output) (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
+    (next : ValueFinish grow sig output) : Finish grow sig := fun left right check canon =>
+  let dispatch := specDispatch ready (host bindings)
+  let lhs := fun store => localLeafEnd left left.host store check.thread check.frames check.rest (fun value => checkNext (.ok value))
+  let rhs := fun store => localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext
+  ∃ store verdict labels, LocalLeafLabels verdict labels ∧
+    CoreGrowthSteps profile ready dispatch left labels (lhs store verdict) ∧
+    CoreGrowthSteps profile ready dispatch right labels (rhs store verdict) ∧
+    ∀ value, verdict = .ok value → next value (lhs store (.ok value)) (rhs store (.ok value)) check canon
+
+/-- The actual admitted value-mode collection tail: strided entries followed
+by the descriptor only on common success. Indirect maps do not use it. -/
+def ValueListReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (element : TypeOf) (entries : List Field) (depth index pointer : Nat) (output : Lower.Output)
+    (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
+    (next : ValueFinish grow sig output) : Finish grow sig :=
+  Replay profile ready bindings (.elements (layout destination.width element).size) destination inst
+    (nested profile ready bindings older destination inst depth)
+    (publishChecked destination inst pointer entries.length index output checkNext)
+    (publishCanonical destination inst pointer entries.length output canonNext)
+    (DescriptorThen profile ready bindings output checkNext canonNext next) entries 0 pointer
+
+def ValueListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (type element : TypeOf) (entries : List Field) (depth index : Nat) (output : Lower.Output)
+    (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
+    (initial reference last : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig)) (pointer : Nat)
+    (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
+  CollectionVisit.Outcome profile ready bindings older destination inst type (layout destination.width element) entries index pointer output
+    initial reference last cursor checkNext canonNext seen
+    (fun _ => ValueListReplay profile ready bindings older destination inst element entries depth index pointer output checkNext canonNext
+      (fun value reached canonical check canon => ChildFrameOver older reached canonical check canon ∧
+        Core3.Grows initial.store.core reached.store.core ∧ reached.ctl = check.control (checkNext (.ok value)) ∧
+        canonical.ctl = canon.control (canonNext value)))
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
