@@ -114,6 +114,36 @@ theorem resolve_caller {prof : ProfileKind} {ready : HostReady (HostState sig)}
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_caller
     ticket handle caller tree subtask cx args pos ft params results callerRecord pending
 
+/-- Exact reference program for the indirect acceptor reply, in either memory width.
+The typed cursor, alignment and full eight-byte range checks precede any write. The
+error writes only its discriminant; success also writes the handle at offset four. -/
+theorem lower_result_program (cx : LiftLowerContext (core3 grow)) (cursor : FlatCursor)
+    (maxResults : Nat) (indirect : maxResults ≤ 1) (reply : Option Nat) :
+    (lowerFlatValues Limits.spec Quirks.none cx maxResults
+      [reply.elim (.variant 1 none) (fun handle => .variant 0 (some (Val.u32 handle)))]
+      [resultType] (some cursor) : Session grow sig (List FlatValue)) =
+    (do
+      let width ← ptrType cx
+      let (pointer, _) ← cursor.next (ABI.pointerType width)
+      let out := flatNat pointer
+      trapIf (decide (out ≠ ABI.alignTo out .four)) .unalignedPointer
+      checkInBounds cx out 8
+      let _ ← ptrType cx
+      let _ ← ptrType cx
+      let field := ABI.alignTo out .four
+      let _ ← match reply with
+        | none => storeInt cx 1 field 1
+        | some handle =>
+          storeInt cx 0 field 1
+          storeInt cx handle (ABI.alignTo (field + 1) .four) 4
+      return []) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.lower_result_program
+    cx cursor maxResults indirect reply
+
+theorem result_payload_offset (out : Nat) (aligned : out = ABI.alignTo out .four) :
+    ABI.alignTo (ABI.alignTo out .four + 1) .four = out + 4 :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.result_payload_offset out aligned
+
 /-- From the canonical tail after the result write, resolution and publication retain
 the same subtask's index, lends and pending event. This does not deliver the event. -/
 theorem resolve_commit {prof : ProfileKind} {ready : HostReady (HostState sig)}

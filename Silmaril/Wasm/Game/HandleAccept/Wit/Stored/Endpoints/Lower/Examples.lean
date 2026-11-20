@@ -10,7 +10,7 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Lower.Examples
 open Silmaril.Formats Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon
   Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime
 
-def mixedType : TypeOf := .tuple [.option (.future none), .stream (some (.prim .u8))]
+def mixedType : TypeOf := .tuple [.option (.future none), .stream (some (.list (.prim .u8)))]
 
 def mixed : Signature := ⟨Unit, fun _ => mixedType, fun _ => .fixed 0⟩
 
@@ -30,7 +30,7 @@ noncomputable def session (finish : Finish) : P Mock.mock (State mixed) (Ret Moc
   let limits := Component.Limits.spec
   let cx : LiftLowerContext Mock.mock := { opts := { memory := some 0 }, inst := ⟨0⟩ }
   let _ ← (Async.Call.create .future none).program limits Quirks.none
-  let _ ← (Async.Call.create .stream (some (.prim .u8))).program limits Quirks.none
+  let _ ← (Async.Call.create .stream (some (.list (.prim .u8)))).program limits Quirks.none
   let .ok (.tag label _ _) ← acceptNode mixed limits Quirks.none cx () (.memory 0) []
     | internal "could not accept the mixed compound tree"
   let wrongType : TypeOf := .tuple [.option (.future none), .stream (some (.prim .u16))]
@@ -46,11 +46,12 @@ noncomputable def session (finish : Finish) : P Mock.mock (State mixed) (Ret Moc
     let _ ← lower limits Quirks.none { cx with inst := ⟨1⟩ } mixedType label.2 .flat
     internal "insert into a missing destination table should trap"
   | .success => pure ()
-  let .ok words ← lower limits Quirks.none cx mixedType label.2 .flat
+  let flatContext : LiftLowerContext Mock.mock := { opts := {}, inst := cx.inst }
+  let .ok words ← lower limits Quirks.none flatContext mixedType label.2 .flat
     | internal "the typed rejection lost an earlier claim"
   let reply : List FlatValue := words
   trapIf (reply != [i32Flat 1, i32Flat 3, i32Flat 1]) (.internal "wrong canonical flat reply")
-  let .error .unclaimed ← lower limits Quirks.none cx mixedType label.2 .flat
+  let .error .unclaimed ← lower limits Quirks.none flatContext mixedType label.2 .flat
     | internal "a stored observation transferred twice"
   pure .unit
 

@@ -71,6 +71,25 @@ inductive RouteError (Name : Type) where
 def ReadSound (read : Name → Wire.ReadResult (Shallow Name)) (reference : Relation Name (Node Name)) : Prop :=
   ∀ ⦃name value node⦄, read name = .found value → decodeNode? value = some node → reference name node
 
+/-- A node request lies on the selected path if all preceding requests
+returned valid nodes which routed to it. The last request need not succeed. -/
+inductive Reaches (layerOf : Key → Nat) (read : Name → Wire.ReadResult (Shallow Name)) (key : Key) (root : Name) :
+    Option Context → Name → Prop where
+  | start : Reaches layerOf read key root none root
+  | step {expected : Option Context} {name child : Name} {next : Context} {node : Node Name} {value : Shallow Name}
+      (prior : Reaches layerOf read key root expected name)
+      (found : read name = .found value) (decoded : decodeNode? value = some node)
+      (valid : (expected.getD (node.rootContext layerOf)).Valid layerOf node)
+      (selected : matchingSlot node (expected.getD (node.rootContext layerOf)) key = some (.gap next (some child))) :
+      Reaches layerOf read key root (some next) child
+
+/-- Exact decoding is available on the selected path. No sibling and no
+record payload is required. This is not needed for fail-closed soundness. -/
+def PathCovers (layerOf : Key → Nat) (read : Name → Wire.ReadResult (Shallow Name))
+    (key : Key) (root : Name) (reference : Relation Name (Node Name)) : Prop :=
+  ∀ ⦃expected name node⦄, Reaches layerOf read key root expected name → reference name node →
+    ∃ value, read name = .found value ∧ decodeNode? value = some node
+
 /-- Read only the selected branch. Record links are returned, not dereferenced. -/
 def route (layerOf : Key → Nat) (read : Name → Wire.ReadResult (Shallow Name)) (key : Key) :
     (fuel : Nat) → Option Context → Name → Except (RouteError Name) (Option Name)

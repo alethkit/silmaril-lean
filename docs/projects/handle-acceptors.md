@@ -582,10 +582,17 @@ requires its own checked transfer; this path rejects those schemas, including in
 before passing a compound payload to the same reference store/flatten programs. A typed
 rejection retains the claims for a corrected retry; a successful transfer spends each claim
 once. This entry point rejects schemas that can require guest realloc, even in an inactive
-arm. The separate `Wit.Stored.Endpoints.ListLower` path supports dynamic lists of
+arm. A readable handle is inline even if its future or stream element contains a string,
+list or map. Moving the handle does not require the allocator for a later element copy;
+the read/write builtins validate their own memory and realloc options separately.
+The separate `Wit.Stored.Endpoints.ListLower` path supports dynamic lists of
 readable futures or streams. It rechecks all claims after canonical realloc, distinguishes
 refusal before allocation from refusal after the allocator's effects, and spends each claim
-before canonical lower updates ownership. Neither a late table trap nor an allocator's
+before canonical lower updates ownership. Checked endpoint lists and the recursive
+list/map emitter use the same `Canon.allocateListRange` and `Canon.storeListDescriptor`
+programs as the reference: check the returned range in the reached state, and write
+the pointer before the length. The post-realloc authority check remains separate.
+Neither a late table trap nor an allocator's
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
@@ -732,10 +739,15 @@ publishing, and publication checks the candidate handle against the live writer.
 At the commit continuation, `complete_commit` preserves the reached store and publishes
 before recording a reply. `complete_stale` instead records `.wrongResultType` and locks
 down without publishing or recording a reply. `resolve_caller` exposes the live reference
-result cursor, and `resolve_commit` connects the post-write subtask resolution to publication
+result cursor. `lower_result_program` gives the exact canonical program at this cursor in
+both memory widths: pointer type, alignment and whole-result range checks precede the writes;
+an error only writes its tag, and a successful reply also writes the little-endian handle at
+offset four. `resolve_commit` connects the post-write subtask resolution to publication
 without clearing the pending event or releasing lends. `deliver_pending` takes the actual
 returned event and applies reference lend release in a later waitable step. Neither publication
 nor the presence of an event guarantees that a guest polls or that its event write succeeds.
+The linked replays cover a misaligned result pointer, and a late out-of-bounds poll write
+that traps after consuming the event while preserving the earlier publication.
 `ComponentCall.checked_of_session` gives publication, writer and transcript conservation
 across every ordinary machine prefix, including traps and refusals. It does not assert
 an exact language for every guest or atomic rollback of reference operations.

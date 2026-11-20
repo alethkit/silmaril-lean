@@ -46,10 +46,9 @@ function can be instantiated with `Atproto.keyLayer`.
 
 - Repository path grammar and record values are not validated by the node
   format. A valid local node does not imply it has a valid global completion.
-- Prove that a canonical builder produces the finite witness (including
-  pruning and root maximality), and prove
-  sufficient-fuel completeness for a full reader. Canonical building and
-  collision-safe MST publications are separate from the routing result.
+- Prove that a canonical builder produces the finite witness and represents
+  its input map. Canonical building and collision-safe MST publication are
+  separate from routing and its rooted invariants.
 
 ```sh
 lake build --wfail +Silmaril.Formats.Dasl.Mst.Thms +Silmaril.Formats.Dasl.Mst.Atproto.Thms
@@ -57,3 +56,26 @@ lake env lean -DwarningAsError=true --run tests/formats/DaslMst.lean
 lake build --wfail +Silmaril.Formats.Dasl.Mst.Route.Thms
 lake env lean -DwarningAsError=true --run tests/formats/DaslMstRoute.lean
 ```
+
+## Sufficient fuel on the selected path
+
+`Reaches` describes requests reached after exact, valid predecessor reads for
+the query key. `PathCovers` requires exact decoding only at those requests;
+it does not require a reader to serve a sibling subtree or any record payload.
+`route_root_complete` proves resolution to the represented map's lookup result
+under binding, sound reads, and path coverage, using fuel of at least the root
+layer plus one. In a valid node a linked gap strictly decreases the layer; at
+layer zero every child link must be absent. The fixture checks path coverage
+for an inline hit even with a missing named sibling in the reference.
+
+Without coverage the prior result-soundness theorem still applies: a missing
+selected child is not a verified absence. This does not construct a canonical
+rooted tree, certify arbitrary raw roots, or implement publication or updates.
+
+## Rooted invariants
+
+For a finite `Realizes` witness, `nonroot_nonempty` rules out empty linked
+subtrees, including chains of empty intermediate nodes. `rootLayer_spec`
+shows that all record layers are bounded by the root's layer, which is zero
+or attained by a record. These are consequences of the rooted witness, not
+of one locally valid node in isolation.
