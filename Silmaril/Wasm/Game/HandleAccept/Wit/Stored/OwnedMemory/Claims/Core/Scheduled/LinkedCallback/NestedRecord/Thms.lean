@@ -37,4 +37,15 @@ theorem Site.compare_at_cursor (site : Site) {origin : CStore (core3 grow)} {byt
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.NestedRecord.atCursor
     site region left right cursor checkNext canonNext same growth children following checkAt canonAt
 
+/-- Compose the dynamic list and following fields with an actual parked
+`givePayload` binding. The compiled layout discharges both the list entry
+and sibling comparisons for the recursively local memory fragment. -/
+theorem parked_givePayload {pointer : FlatValue} (call : PayloadRoot.Site grow sig (.memory pointer))
+    (linked : call.Linked bindings) (element : TypeOf) (entries following : List Field) (next : call.ReferenceNext)
+    (field : call.field = .aggregate (sig.payload call.tag) (.dynamic (.list element) element entries :: following))
+    (localEntries : ∀ item ∈ entries, LocalMemory item) (localTail : ∀ item ∈ following, LocalMemory item) :
+    PublicOutcome call element entries following next profile ready bindings :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.NestedRecord.parked
+    call linked element entries following next field localEntries localTail
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.NestedRecord
