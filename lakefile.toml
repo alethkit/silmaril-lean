@@ -628,6 +628,20 @@ srcDir = "tools/cli-core-trace"
 name = "CerberusTests"
 globs = ["tests.cerberus.+"]
 
+# Run the large finite CJSON observations natively. The same main functions and
+# assertions remain in CerberusTests; interpretation dominates the CI time budget.
+[[lean_exe]]
+name = "ci_cjson_array_size_context"
+root = "tests.cerberus.CjsonArraySizeContext"
+
+[[lean_exe]]
+name = "ci_cjson_array_item_context"
+root = "tests.cerberus.CjsonArrayItemContext"
+
+[[lean_exe]]
+name = "ci_cjson_array_item_machine"
+root = "tests.cerberus.CjsonArrayItemMachine"
+
 [[lean_exe]]
 name = "cerb-lean"
 root = "CerbLean"
