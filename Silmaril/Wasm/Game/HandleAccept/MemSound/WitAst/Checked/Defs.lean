@@ -56,9 +56,8 @@ inductive NodeIssue where
   | resource (issue : ResourceIssue)
   deriving DecidableEq, Repr
 
-/-- The implemented profile is synchronous indirect memory32. -/
+/-- The implemented profiles pass synchronous payloads indirectly. -/
 def checkNodeMode (mode : NodeMode) : Except NodeIssue Unit := do
-  if mode.address ≠ .i32 then throw (.addressWidth mode.address)
   if mode.passing = .flat then throw .flatPayload
   if mode.asynchronous then throw .asyncCall
 
@@ -76,17 +75,22 @@ def requireSome {Error Value : Type} (issue : Error) : Option Value → Except E
   | none => .error issue
   | some value => .ok value
 
+/-- Decode the Core operands without equating a memory32 word with a memory64 word. -/
+def nodeOperands : AddrType → List Val → Option (BitVec 32 × Nat × Nat × Nat)
+  | .i32, [.num ⟨.int .i32, tag⟩, .num ⟨.int .i32, payload⟩, .num ⟨.int .i32, children⟩,
+      .num ⟨.int .i32, count⟩] => some (tag, payload.toNat, children.toNat, count.toNat)
+  | .i64, [.num ⟨.int .i32, tag⟩, .num ⟨.int .i64, payload⟩, .num ⟨.int .i64, children⟩,
+      .num ⟨.int .i64, count⟩] => some (tag, payload.toNat, children.toNat, count.toNat)
+  | _, _ => none
+
 /-- Check the ABI and selected schema before touching the call's memory or resource table. -/
 def preflightNode (cap : PayloadCapability) (mode : NodeMode) (o : Callout) :
     Except NodeIssue (NodeArgs S.Tag) := do
   checkNodeMode mode
-  match o.args with
-  | [.num ⟨.int .i32, tag⟩, .num ⟨.int .i32, payload⟩, .num ⟨.int .i32, children⟩,
-      .num ⟨.int .i32, count⟩] =>
-    let selected ← requireSome (.unknownTag tag) (tagOf tag)
-    (checkPTys cap (S.params selected)).mapError .payload
-    return ⟨selected, payload.toNat, children.toNat, count.toNat⟩
-  | _ => throw .badArguments
+  let (tag, payload, children, count) ← requireSome .badArguments (nodeOperands mode.address o.args)
+  let selected ← requireSome (.unknownTag tag) (tagOf tag)
+  (checkPTys cap (S.params selected)).mapError .payload
+  return ⟨selected, payload, children, count⟩
 
 /-- Variable lists use the canonical list byte limit. Strings check their own byte limit. -/
 def boundedPayloadSegment (o : Callout) (address length : Nat) : Option (List UInt8) :=
@@ -95,15 +99,17 @@ def boundedPayloadSegment (o : Callout) (address length : Nat) : Option (List UI
   else none
 
 /-- Read only the referenced byte range, after canonical range and alignment checks. -/
-def checkedString (encoding : ABI.StringEncoding) (o : Callout) (ptr tagged : Nat) : Option String :=
-  let range := ABI.loadRange encoding .i32 tagged
+def checkedString (encoding : ABI.StringEncoding) (o : Callout) (ptr tagged : Nat)
+    (address : AddrType := .i32) : Option String :=
+  let range := ABI.loadRange encoding address tagged
   if range.byteLength > ABI.maxStringByteLength then none
   else if ptr ≠ ABI.alignTo ptr range.alignment then none
   else (o.segment ptr range.byteLength).bind range.codec.decode?
 
 /-- WIT observes the decoded text; encoding and code-unit hints belong to the ABI value. -/
-def checkedPayloadReader (encoding : ABI.StringEncoding) (o : Callout) : PayloadReader :=
-  ⟨boundedPayloadSegment o, checkedString encoding o⟩
+def checkedPayloadReader (encoding : ABI.StringEncoding) (o : Callout)
+    (address : AddrType := .i32) : PayloadReader :=
+  ⟨boundedPayloadSegment o, (fun ptr tagged => checkedString encoding o ptr tagged address), address⟩
 
 /-- The layout/arity portion of decoding after schema validation. In the owning path `S`
 here is the raw signature, while preflight checks the original signature. -/
@@ -111,11 +117,13 @@ def decodeNodePayload (mode : NodeMode) (args : NodeArgs S.Tag) (o : Callout) :
     Except NodeIssue (Own.Op S × List (BitVec 32)) := do
   if o.mem.isNone then throw .missingMemory
   let types := S.params args.tag
-  if args.payload % valsAlign types ≠ 0 then throw .unalignedPayload
+  let layout := valsLayoutFor mode.address types
+  if args.payload % layout.alignment.bytes ≠ 0 then throw .unalignedPayload
   if args.children % 4 ≠ 0 then throw .unalignedChildren
   if 4 * args.count > Component.Limits.spec.maxListBytes then throw .childrenTooLong
-  let area ← requireSome .payloadOutOfBounds (o.segment args.payload (valsWidth types))
-  let contents ← requireSome .badPayload (readFieldsWith (checkedPayloadReader mode.encoding o) types 0 area)
+  let area ← requireSome .payloadOutOfBounds (o.segment args.payload layout.size)
+  let reader := checkedPayloadReader mode.encoding o mode.address
+  let contents ← requireSome .badPayload (readFieldsWith reader types 0 area)
   let children ← requireSome .childrenOutOfBounds (o.segment args.children (4 * args.count))
   let handles ← requireSome .badChildren (le32s children)
   if (S.arity args.tag).Admits handles.length then return (⟨args.tag, contents⟩, handles)
@@ -185,17 +193,18 @@ end Own
 
 /-- The checked host contract for an addressed Core memory. The actual memory's address
 width is checked separately from the requested ABI mode. -/
-def checkedCallout (imp : String × String) (memory : Nat) (call : UCall Nat) :
+def checkedCallout (imp : String × String) (memory : Nat) (call : UCall Nat)
+    (expected : AddrType := .i32) :
     Except NodeIssue Callout := do
   let mem ← requireSome .missingMemory call.store.mems[memory]?
-  if mem.type.address ≠ .i32 then throw (.addressWidth mem.type.address)
+  if mem.type.address ≠ expected then throw (.addressWidth mem.type.address)
   return ⟨imp, call.args, some mem.bytes⟩
 
 /-- Inspect the diagnostic for a node import before choosing an ABI-level reply. -/
 def checkedAt {Value : Type} (mode : NodeMode) (imp : String × String) (memory : Nat)
     (call : UCall Nat) (decode : Callout → Except NodeIssue Value) : Except NodeIssue Value := do
   checkNodeMode mode
-  let observed ← checkedCallout imp memory call
+  let observed ← checkedCallout imp memory call mode.address
   decode observed
 
 /-- A rejected import traps the current Core call without replacing its store. Successful

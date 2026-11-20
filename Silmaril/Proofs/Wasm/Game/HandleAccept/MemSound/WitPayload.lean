@@ -104,7 +104,7 @@ theorem readVal_rest {seg : Nat → Nat → Option (List UInt8)} :
   | .string, bs, rest, v, h => by
     rcases hp : readPtrLen bs with _ | ⟨p, n, r⟩
     · simp [readVal, readValWith, hp] at h
-    · simp only [readVal, readValWith, PayloadReader.legacy, hp, Option.bind_some] at h
+    · simp only [readVal, readValWith, hp, Option.bind_some] at h
       rcases hc : seg p n with _ | cs
       · simp only [hc, Option.bind_none] at h
         cases h
@@ -117,7 +117,7 @@ theorem readVal_rest {seg : Nat → Nat → Option (List UInt8)} :
   | .list t, bs, rest, v, h => by
     rcases hp : readPtrLen bs with _ | ⟨p, n, r⟩
     · simp [readVal, readValWith, hp] at h
-    · simp only [readVal, readValWith, PayloadReader.legacy_segment, hp, Option.bind_some] at h
+    · simp only [readVal, readValWith, hp, Option.bind_some, PTy.widthFor] at h
       split at h
       · rcases hc : seg p (n * PTy.width t) with _ | es
         · simp [hc] at h
@@ -136,7 +136,7 @@ theorem readVal_string {seg : Nat → Nat → Option (List UInt8)} {bs rest cs :
     {p n : Nat} {str : String} (hp : readPtrLen bs = some (p, n, rest))
     (hc : seg p n = some cs) (hu : utf8? cs = some str) :
     readVal seg .string bs = some (str, rest) := by
-  simp only [readVal, readValWith, PayloadReader.legacy, hp, Option.bind_some, hc, hu]
+  simp only [readVal, readValWith, hp, Option.bind_some, hc, hu]
   rfl
 
 /-- `n` bytes read as `u8`s are themselves. -/
@@ -157,7 +157,7 @@ theorem readVal_bytes {seg : Nat → Nat → Option (List UInt8)} {bs rest cs : 
     simpa [PTy.width, PTy.layout, ABI.Layout.size, ABI.Alignment.bytes] using hc
   have read := readMany_u8 seg cs
   simp only [readVal] at read
-  simp only [readVal, readValWith, PayloadReader.legacy_segment, hp, Option.bind_some,
+  simp only [readVal, readValWith, hp, Option.bind_some, PTy.widthFor,
     show p % PTy.align .u8 = 0 from Nat.mod_one p,
     ↓reduceIte, hc', read]
   rfl
@@ -170,7 +170,7 @@ theorem readVal_list {seg : Nat → Nat → Option (List UInt8)} {t : PTy}
     (hm : readMany (readVal seg t) n es = some (vs, [])) :
     readVal seg (.list t) bs = some (vs, rest) := by
   simp only [readVal] at hm
-  simp only [readVal, readValWith, PayloadReader.legacy_segment, hp, Option.bind_some, ha, ↓reduceIte,
+  simp only [readVal, readValWith, hp, Option.bind_some, PTy.widthFor, ha, ↓reduceIte,
     hc, hm, List.isEmpty_nil]
   rfl
 
@@ -188,7 +188,8 @@ theorem alignTo_zero (a : ABI.Alignment) : ABI.alignTo 0 a = 0 := by
 theorem readVals_single (seg : Nat → Nat → Option (List UInt8)) (t : PTy) (area : List UInt8) :
     readVals seg [t] area =
       (readVal seg t (area.take (PTy.width t))).map fun (v, _) => (v, ()) := by
-  simp only [readVals, readFields, readFieldsWith, readVal, alignTo_zero, List.drop_zero]
+  simp only [readVals, readFields, readFieldsWith, readVal, alignTo_zero, List.drop_zero,
+    PTy.widthFor]
   cases readValWith (PayloadReader.legacy seg) t (area.take (PTy.width t)) <;> rfl
 
 /-! ## Agreement with the canonical ABI layout -/

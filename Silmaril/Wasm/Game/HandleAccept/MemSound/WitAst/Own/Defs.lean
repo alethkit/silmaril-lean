@@ -4,7 +4,10 @@ public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Defs
 public import Silmaril.Wasm.Resource.Handle.Defs
 
 /-!
-# Owned resource handles as typed AST payloads: definitions
+# Owned resource handles: tables and legacy trace projections
+
+The table definitions are shared with the checked Core import in `Own.Session`. The raw writer
+trace and `ownHost` below are only an analysis projection, not a Core host binding.
 
 A payload field of type `own<r>` (`PTy.own r`) carries a **resource handle** that the module
 **moves** into the tree. Its meaning in the tree is the resource's **representation** (`Nat`,
