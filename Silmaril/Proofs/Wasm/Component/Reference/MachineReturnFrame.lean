@@ -81,6 +81,17 @@ private theorem activeHead {cfg : Config E Host} {active thread focus frames res
   | cons head tail => cases head with
     | mk frame => exact ⟨_, _, rfl, frame, tail⟩
 
+theorem retarget {left right : Config E Host} (paired : Paired first second left right)
+    {thread focus frames rest} (focused : left.ctl = ⟨thread, focus, frames⟩ :: rest)
+    (next : Focus E Host) (host : Host) :
+    ∃ otherFrames otherRest, right.ctl = ⟨thread, focus, otherFrames⟩ :: otherRest ∧
+      Paired first second { left with host, ctl := ⟨thread, next, frames⟩ :: rest }
+        { right with host, ctl := ⟨thread, next, otherFrames⟩ :: otherRest } := by
+  cases paired with
+  | mk control blocked =>
+    obtain ⟨_, _, atRight, head, tail⟩ := activeHead control focused
+    exact ⟨_, _, atRight, .mk (.cons (.mk head) tail) blocked⟩
+
 private theorem finished {cfg : Config E Host} {active saved left right result}
     (blocked : List.Forall₂ (Saved first second) cfg.conts saved)
     (tail : List.Forall₂ (Active first second) left right) :

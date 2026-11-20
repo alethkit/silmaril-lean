@@ -1,0 +1,96 @@
+module
+
+public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
+public import Silmaril.Wasm.Component.Reference.Canon.Lift.Defs
+import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
+import Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame
+
+public section
+
+namespace Silmaril.Wasm.Component.Machine.HostFrame
+
+open Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime
+
+variable {E : CoreEngine} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}
+variable {dispatch : Call E → P E Host (Ret E)}
+
+/-- A different host does not change the step unless its reached read changes
+the residual program. A common host write can replace both hosts. -/
+theorem step {before after : Config E Host} {label : Label E Host} (other : Host)
+    (run : Step profile ready dispatch before label after) :
+    (∃ host, Step profile ready dispatch (replace before other) label (replace after host)) ∨
+    (∃ alternate, Step profile ready dispatch (replace before other) label alternate ∧
+      ReadCut before other label after alternate) :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.step other run
+
+/-- Replay an actual finite prefix up to the first host read whose residual
+program differs. Replaying a trap or a blocked prefix does not require a return. -/
+theorem steps {before after : Config E Host} {labels : List (Label E Host)} (other : Host)
+    (run : Steps profile ready dispatch before labels after) :
+    (∃ host, Steps profile ready dispatch (replace before other) labels (replace after host)) ∨
+    (∃ leading label trailing reached reachedHost next alternate,
+      labels = leading ++ label :: trailing ∧
+      Steps profile ready dispatch before leading reached ∧
+      Steps profile ready dispatch (replace before other) leading (replace reached reachedHost) ∧
+      ReadCut reached reachedHost label next alternate ∧
+      Step profile ready dispatch reached label next ∧
+      Step profile ready dispatch (replace reached reachedHost) label alternate ∧
+      Steps profile ready dispatch next trailing after) :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.steps other run
+
+/-- A host-and-return-frame pair shares reached store and scheduler data;
+neither configuration's host is asserted to survive a callback unchanged. -/
+theorem Paired.data {first second : ReturnFrame.Continuation E Host} {left right : Config E Host}
+    (paired : Paired first second left right) :
+    left.store = right.store ∧ left.pending = right.pending ∧ left.results = right.results ∧
+      left.cancels = right.cancels :=
+  ⟨ReturnFrame.Paired.data paired |>.1, ReturnFrame.Paired.data paired |>.2.2⟩
+
+/-- A matched segment that changes only the active focus and the respective
+hosts can rejoin without equating writers or saved continuations. -/
+theorem Paired.retarget {first second : ReturnFrame.Continuation E Host} {left right : Config E Host}
+    (paired : Paired first second left right)
+    {thread focus frames rest} (focused : left.ctl = ⟨thread, focus, frames⟩ :: rest)
+    (next : Focus E Host) (leftHost rightHost : Host) :
+    ∃ otherFrames otherRest, right.ctl = ⟨thread, focus, otherFrames⟩ :: otherRest ∧
+      Paired first second { left with host := leftHost, ctl := ⟨thread, next, frames⟩ :: rest }
+        { right with host := rightHost, ctl := ⟨thread, next, otherFrames⟩ :: otherRest } :=
+  ReturnFrame.Paired.retarget paired focused next rightHost
+
+/-- With unequal hosts and substituted return frames, replay both sides up
+to the first different reached host read or the pop of a substituted frame.
+Both boundary steps execute with the actual reached data. -/
+theorem paired_steps {first second : ReturnFrame.Continuation E Host}
+    {left right next : Config E Host} {labels : List (Label E Host)}
+    (paired : Paired first second left right) (run : Steps profile ready dispatch left labels next) :
+    (∃ next', Steps profile ready dispatch right labels next' ∧ Paired first second next next') ∨
+    (∃ leading label trailing atLeft atRight afterLeft afterRight,
+      labels = leading ++ label :: trailing ∧
+      Steps profile ready dispatch left leading atLeft ∧
+      Steps profile ready dispatch right leading atRight ∧ Paired first second atLeft atRight ∧
+      Boundary first second atLeft atRight label afterLeft afterRight ∧
+      Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
+      Steps profile ready dispatch afterLeft trailing next) :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.paired_steps paired run
+
+/-- Only host predicates of reached, blocked candidate threads need agree.
+Store-only predicates and threads not making a host query add no premise. -/
+theorem instCandidates_eq (store : CStore E) (inst : InstId) (left right : Nat → Bool)
+    (agree : ∀ entry, store.inst? inst = some entry → ∀ thread ∈ entry.threads.elements,
+      ∀ suspended, store.thread? thread = some suspended → suspended.blocked = true →
+        ∀ query, suspended.readyCond = some (.host query) → left query = right query) :
+    store.instCandidates left inst = store.instCandidates right inst :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.instCandidates_eq store inst left right agree
+
+/-- The actual synchronous lift loop reaches the same choice or trap
+program when its reached candidate lists agree. No runnable thread is assumed. -/
+theorem sync_readiness {first second : ReturnFrame.Continuation E Host} {cfg other : Config E Host}
+    (paired : Paired first second cfg other) (task : TaskId) {entry : Task E}
+    (found : ArenaField.tasks.get? cfg.store task = some entry) (waiting : entry.state ≠ .resolved)
+    (agrees : cfg.store.instCandidates (ready cfg.host) entry.inst = cfg.store.instCandidates (ready other.host) entry.inst)
+    {thread frames rest} (focused : cfg.ctl = ⟨thread, .prog (syncLiftLoopBody ready task), frames⟩ :: rest) :
+    ∃ next next', Steps profile ready dispatch cfg [.tau, .tau, .tau] next ∧
+      Steps profile ready dispatch other [.tau, .tau, .tau] next' ∧ Paired first second next next' :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.sync_readiness paired task found waiting agrees focused
+
+end Silmaril.Wasm.Component.Machine.HostFrame

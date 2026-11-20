@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
+public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
 public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled
 
@@ -392,13 +393,13 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
     bindings name type args inst destination schema start thread profile ready parked calling linked caller live closed
 
 /-- A closed, same-instance reentrant give cannot observe earlier claim
-spends. Changing just the writer leaves its typed refusal, journal entries,
-and resumed Core activation identical, and neither run changes its writer.
-This is only the confined callout segment, not a frame for open callbacks. -/
-theorem parked_closed_give_writer_frame {sig : Signature} {grow : SingleThreaded.GrowOracle}
+spends. It records each path's refusal against its own ticket and rejoins
+the paired scheduler with the same resumed Core focus and untouched writers. -/
+theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
     (inst : InstId) (destination : RecordDestination) (schema : Option Stored.TypeOf)
-    (start : Machine.Config (core3 grow) (HostState sig)) (otherWriter : State sig) (thread : Option ThreadId)
+    {start other : Machine.Config (core3 grow) (HostState sig)} {first second}
+    (paired : Machine.HostFrame.Paired first second start other) (thread : Option ThreadId)
     (profile : ProfileKind) (ready : HostReady (HostState sig)) {entry : InstState}
     {core continuation segments rest}
     (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
@@ -408,20 +409,18 @@ theorem parked_closed_give_writer_frame {sig : Signature} {grow : SingleThreaded
     (caller : callerInstance start.store thread = .ok (some inst))
     (live : start.store.inst? inst = some entry) (closed : entry.mayLeave = false) :
     let dispatch := specDispatch ready (host (grow := grow) bindings)
-    let withWriter := fun cfg : Machine.Config (core3 grow) (HostState sig) =>
-      { cfg with host := { cfg.host with writer := otherWriter } }
     let reply := schema.elim (completion start.host.nextTicket (.error .wrongContext))
       (fun payload => flatCompletion start.host.nextTicket (ABI.flatten destination.width payload)
         (.error .wrongContext))
-    let resumed := { start with
-      host := (start.host.enter name type args).record reply.1
-      ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2)) continuation, segments⟩ :: rest }
-    ∃ leftCount rightCount,
-      Machine.CoreGrowthSteps profile ready dispatch start (List.replicate leftCount .tau) resumed ∧
-      Machine.CoreGrowthSteps profile ready dispatch (withWriter start) (List.replicate rightCount .tau)
-        (withWriter resumed) :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_writer_frame
-    bindings name type args inst destination schema start otherWriter thread profile ready parked calling linked caller live closed
+    let next := Machine.Focus.core ((core3 grow).resume start.store.core core (.values reply.2)) continuation
+    ∃ leftCount rightCount leftNext rightNext otherSegments otherRest,
+      Machine.CoreGrowthSteps profile ready dispatch start (List.replicate leftCount .tau) leftNext ∧
+      Machine.CoreGrowthSteps profile ready dispatch other (List.replicate rightCount .tau) rightNext ∧
+      leftNext.ctl = ⟨thread, next, segments⟩ :: rest ∧ rightNext.ctl = ⟨thread, next, otherSegments⟩ :: otherRest ∧
+      Machine.HostFrame.Paired first second leftNext rightNext ∧
+      leftNext.host.writer = start.host.writer ∧ rightNext.host.writer = other.host.writer :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_rejoin
+    bindings name type args inst destination schema paired thread profile ready parked calling linked caller live closed
 
 /-- The linked memory give reaches the selected tree's checked lowering with the
 import's real Core continuation parked. Only entry journaling has happened. A
