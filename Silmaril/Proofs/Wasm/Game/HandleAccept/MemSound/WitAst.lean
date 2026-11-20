@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Defs
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.Ast
 public import Silmaril.Proofs.Wasm.Game.HandleAccept.MemSound.WordAtom
+import Silmaril.Wasm.Verify.Kernel.Defs
 
 /-!
 # Proofs: typed payloads and fixed arities through linear memory
@@ -148,13 +149,13 @@ theorem readVals_one (seg : Nat → Nat → Option (List UInt8)) :
     readVals seg [.s64] (Memory.encodeLE (IntType.i64.width / 8)
       (BitVec.setWidth (8 * (IntType.i64.width / 8)) (1 : BitVec 64)).toNat).data.toList =
       some ((1 : Int64), ()) := by
-  rfl
+  kernel_rfl
 
 theorem readVals_two (seg : Nat → Nat → Option (List UInt8)) :
     readVals seg [.s64] (Memory.encodeLE (IntType.i64.width / 8)
       (BitVec.setWidth (8 * (IntType.i64.width / 8)) (2 : BitVec 64)).toNat).data.toList =
       some ((2 : Int64), ()) := by
-  rfl
+  kernel_rfl
 
 /-- What `node(_, _, 0, 2)` observes when the memory holds two handles at `0` and `4`. -/
 theorem children_pair {o : Callout} {b : ByteArray} {r₁ r₂ : BitVec 32} (hmem : o.mem = some b)

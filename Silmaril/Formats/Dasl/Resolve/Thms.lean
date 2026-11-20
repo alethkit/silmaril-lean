@@ -41,6 +41,12 @@ theorem exists_full_of_accessible {root : Name} (accessible : Acc (Depends store
     ∃ target, FullNames store root target :=
   Proofs.Formats.Dasl.exists_full_of_accessible accessible present closed
 
+theorem full_exists_iff (bound : store.Binding) (root : Name) :
+    (∃ target, FullNames store root target) ↔
+      (∃ source, store.objects root source) ∧ Acc (Depends store) root ∧ ClosedBelow store root :=
+  ⟨fun ⟨_, full⟩ => Proofs.Formats.Dasl.full_requirements bound full,
+   fun ⟨present, accessible, closed⟩ => Proofs.Formats.Dasl.exists_full_below accessible present closed⟩
+
 /-- A finite full expansion in a binding store rules out reachable object-reference cycles. -/
 theorem FullNames.accessible (bound : store.Binding) {root : Name} {target : Named Name}
     (full : FullNames store root target) : Acc (Depends store) root :=

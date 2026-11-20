@@ -23,15 +23,22 @@ def treeEnv : WIT.Env Empty RtId :=
 
 variable {E : CoreEngine} {World : Type}
 
+/-- Run the ownership lift and choose how to observe the successfully moved owner. -/
+def takeWith {α : Type} (cx : LiftLowerContext E) (resource : RtId) (slot : Nat)
+    (result : HandleObjId → Nat → α) : P E World α := do
+  let identity ← expectResource (← handlesRemove cx.inst slot)
+  let handle ← getResHandle identity
+  trapIf (handle.rt != resource) .resourceTypeMismatch
+  trapIf (handle.numLends != 0) .ownLent
+  trapIf (!handle.own) .notOwnHandle
+  return result identity handle.rep
+
 /-- Retain the arena identity of the slot consumed by canonical `lift_own`. All type,
 liveness and lending checks of `lift_own` still run. Its early removal and its trapping
 effects belong to the component machine; this is not the Core checked import's preflight. -/
-def take (limits : Component.Limits) (cx : LiftLowerContext E) (resource : RtId)
-    (slot : Nat) : P E World ((WIT.ValType.own (Ref := Empty) resource).Interp treeEnv) := do
-  let entry ← handlesGet cx.inst slot
-  let representation ← liftOwn limits cx resource slot
-  let identity ← expectResource entry
-  return (⟨identity, representation⟩ : Owned resource)
+def take (_limits : Component.Limits) (cx : LiftLowerContext E) (resource : RtId)
+    (slot : Nat) : P E World ((WIT.ValType.own (Ref := Empty) resource).Interp treeEnv) :=
+  takeWith cx resource slot Owned.mk
 
 inductive Call where
   | create (resource : RtId) (representation : Nat)
