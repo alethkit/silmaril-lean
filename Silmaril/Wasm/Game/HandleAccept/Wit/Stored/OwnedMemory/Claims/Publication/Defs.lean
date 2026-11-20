@@ -20,6 +20,14 @@ removes receipts without rewriting the nominal type, identity, or representation
 def State.ClaimsBacked {sig : Signature} (state : State sig) : Prop :=
   state.held.Sublist (state.accepted.flatMap rootReceipts)
 
+/-- Resolve the journal suffix by its recorded Core handles, in publication order.
+An unchecked state can contain an entry with no corresponding root. -/
+def Core.Scheduled.HostState.publicationRootsFrom {sig : Signature}
+    (state : Core.Scheduled.HostState sig) (position : Nat) : List (Option (OwnedMemory.Tree sig)) :=
+  (state.publications.drop position).map fun (_, handle) =>
+    if handle < 2 ^ 32 then Endpoints.Core.childFromHistory state.writer.accepted (BitVec.ofNat 32 handle)
+    else none
+
 /-- The journal entry at `position`, in publication order, names the accepted root
 that contains this exact receipt. Child observations do not introduce new receipts. -/
 def Core.Scheduled.HostState.RecordsOwner {sig : Signature} (state : Core.Scheduled.HostState sig)
