@@ -50,6 +50,31 @@ def Field.type : Field → TypeOf
   | .sum type _ _ _ => type
 
 mutual
+/-- The canonical value described by the active compiled fields. This erases
+nominal owner identities for comparison with the ABI; it confers no authority. -/
+def Field.value : Field → Val
+  | .data _ payload => payload.val
+  | .endpoint .stream _ id => .stream id
+  | .endpoint .future _ id => .future id
+  | .context id => .errorContext id
+  | .owner receipt => .own receipt.2.representation
+  | .aggregate _ fields => .record (Field.values fields)
+  | .fixed _ _ entries | .dynamic _ _ entries => .list (Field.values entries)
+  | .sum _ _ tag field => .variant tag (Field.armValue field)
+termination_by structural field => field
+
+def Field.values : List Field → List Val
+  | [] => []
+  | field :: rest => field.value :: Field.values rest
+termination_by structural fields => fields
+
+def Field.armValue : Option Field → Option Val
+  | none => none
+  | some field => some field.value
+termination_by structural field => field
+end
+
+mutual
 /-- Authority observations in the order in which the compiled fields transfer them.
 Only the selected variant arm contributes, and shared contexts are not spent. -/
 def Field.objects : Field → List Object
