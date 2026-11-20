@@ -55,15 +55,48 @@ terminating-outcome equivalences do not prove whole-module semantic equivalence
 or an inverse on arbitrary SSA or Binaryen programs.
 
 This fixture exercises **raw** SSA/Binaryen payload packaging. The indexed Core
-iso does not yet provide a translation between `Intrinsic.Body` and the dialect.
-An indexed dialect adapter must connect the actual LambdaSSA value and label
-contexts (including return and trap exits) to the module's closed signature;
-arbitrary relabeling of recursive Core type groups is not such a connection.
-Component wiring and type-changing maps are separate layers.
+iso does not provide a translation between `Intrinsic.Body` and the dialect.
 
 ```sh
 lake build --wfail +Silmaril.Wasm.Validation.Generic.Thms +Silmaril.Wasm.SSA.Translate.Thms \
   +Silmaril.Wasm.SSA.OutOfSSA.Thms +Silmaril.Wasm.SSA.Bridge.Thms \
   +Silmaril.Wasm.SSA.Fragment.Thms +Silmaril.Wasm.Validation.Intrinsic.ReifyThms
 lake env lean -DwarningAsError=true tests/wasm/inductive-generic/Regression.lean
+```
+
+## Type-parametric LambdaSSA payloads
+
+`Validation.Generic.SSA.AtCore` is an independent LambdaSSA type carrier at a
+*fixed Core boundary*: it stores a real `Region.HasType` proof under the
+reverse parameter context and two exits, return and trap. A partial boundary
+encoding relates its input and return types to `DefType.funcType?`. In
+particular, arbitrary SSA tuple and sum types can occur internally without
+being silently assigned a Wasm value type at an export. SSA locals are not
+identified with Wasm locals.
+
+`TypeMap.region` preserves the actual typing judgment, including typed CFG
+block arguments, when the map preserves the type-formers and primitive
+signatures. `AtCore.retype` also checks coherence of the boundary encoding.
+`retype_module_syntax` says that type re-representation commutes with erasure
+of annotated types; `retype_module_roundtrip` proves an exact inverse when
+the type maps are inverse. These laws leave the code and actual checked Core
+declaration unchanged; they do not lower an SSA region to Core or change the
+types in arbitrary Core recursive groups.
+
+The regression represents the same two exported functions under actual
+LambdaSSA `Ty IntType` and `FreeTy all IntType`. Its scoped opcode signature
+contains integer constants and addition and a division returning a sum for
+the trap branch. The erased fixture regions are definitionally equal to the
+existing Wasm LambdaSSA compiler's output. Thus the return and trap checks
+use the actual dialect's evaluation, not an evaluation invented for the
+abstract types. The small opcode embedding is a fixture, not a verified
+translation for all opcodes. For arbitrary Wasm primitives, the next typing
+prerequisite is a faithful representation of overloaded operations such as
+`select` (one monomorphic `HasTy` signature cannot express its variants).
+
+```sh
+lake build --wfail +Silmaril.Wasm.Validation.Generic.SSA.Thms \
+  +Silmaril.Wasm.SSA.Translate.Thms +Silmaril.Wasm.SSA.Fragment.Thms \
+  +Silmaril.Wasm.Validation.Intrinsic.ReifyThms +Silmaril.SSA.Isotope.Types.Thms
+lake env lean -DwarningAsError=true tests/wasm/inductive-generic/TypeBoundary.lean
 ```
