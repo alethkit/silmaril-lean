@@ -372,6 +372,7 @@ theorem markedReturn {older changes : ReturnFrame.Substitutions (core3 grow) (Ho
     let dispatch := specDispatch ready (host (grow := grow) bindings)
     ∃ canon : Cursor (E := core3 grow) (HostState sig),
       ChildFrameOver older left right check canon ∧
+      right.ctl = { canon with frames := .prog otherResume :: canon.frames }.control (.pure value) ∧
       Step profile ready dispatch left .tau { left with ctl := check.control (resume value) } ∧
       Step profile ready dispatch right .tau { right with ctl := canon.control (otherResume value) } := by
   obtain ⟨otherFrames, otherRest, atOther, _⟩ := paired.retarget leftAt (.prog (.pure .unit)) left.host right.host
@@ -383,7 +384,7 @@ theorem markedReturn {older changes : ReturnFrame.Substitutions (core3 grow) (Ho
     let canon : Cursor (E := core3 grow) (HostState sig) := ⟨check.thread, frames, otherRest⟩
     have retired := Occurrence.retire_top (left := HostFrame.replace left right.host) paired outside leftAt atOther
       (.prog (.pure .unit))
-    exact ⟨canon, childFrameExtract retired, .popProg leftAt, .popProg atOther⟩
+    exact ⟨canon, childFrameExtract retired, atOther, .popProg leftAt, .popProg atOther⟩
 
 theorem childStringRealloc {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (oldSize : Option Nat)
@@ -481,7 +482,7 @@ theorem stringReplay {changes : ReturnFrame.Substitutions (core3 grow) (HostStat
           some (.prog second) := rfl
       have old : Occurrence.Outside changes (Occurrence.segmentStorage last) (Occurrence.segmentStorage other)
           (some (.active 0 0)) := atMark ▸ remaining
-      obtain ⟨otherCursor, residual, leftPop, rightPop⟩ := markedReturn (profile := profile) (ready := ready)
+      obtain ⟨otherCursor, residual, _, leftPop, rightPop⟩ := markedReturn (profile := profile) (ready := ready)
         (bindings := bindings) matched old leftAt (rightMark.trans rightInstalled)
       have resumedLeft : first (.nat value) = (runStoreSteps cx value rest >>= checkNext) := rfl
       have resumedRight : second (.nat value) = (runStoreSteps cx value rest >>= canonNext) := rfl
@@ -561,14 +562,17 @@ theorem childCollectionInstall {changes : ReturnFrame.Substitutions (core3 grow)
     left right check canon checkNext canonNext reachedWidth prepared checkAt canonAt
   exact ⟨checked, canonical, childFrameEnter frame _ _ _⟩
 
-theorem rangeCutOver (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
-    {left right last : State grow sig} {seen}
-    {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
-    {protectedReturn : ReturnFrame.Continuation (core3 grow) (HostState sig) → Prop}
-    (path : PrefixFor profile ready bindings protectedReturn left seen last)
-    (covers : ∀ first second, changes first second → protectedReturn first)
-    (paired : HostFrame.Related.Paired changes left right) (cursor : Cursor (E := core3 grow) (HostState sig))
+private theorem rangeAtReturn (destination : RecordDestination) (inst : InstId) (area : Layout)
+    (count pointer : Nat) (plan : List Object) {left right last other : State grow sig} {seen leftLabels rightLabels}
+    {changes older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {allowCommon : Prop}
+    {cursor canonCursor : Cursor (E := core3 grow) (HostState sig)}
+    (lhs : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) left leftLabels last)
+    (rhs : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) right rightLabels other)
+    (reached : HostFrame.Related.Paired changes last other)
+    (frame : ChildFrameOver older last other cursor canonCursor)
+    (seenLeft : visible leftLabels = seen) (seenRight : visible rightLabels = seen)
     (leftAt : last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (pure (.nat pointer)))
+    (atPop : other.ctl = ⟨cursor.thread, .prog (.pure (.nat pointer)), .prog second :: canonCursor.frames⟩ :: canonCursor.rest)
     (present : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width) {bytes : Nat}
     (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
     (checkNext : Nat → Except RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
@@ -577,17 +581,13 @@ theorem rangeCutOver (destination : RecordDestination) (inst : InstId) (area : L
       let ptr ← validateListRange (destination.context inst) area count pointer
       let live ← Record.Effects.reserve recordClaims plan
       checkNext ptr live))
-    (canonBody : ∀ resume, changes first resume →
-      resume (.nat pointer) = (validateListRange (destination.context inst) area count pointer >>= canonNext)) :
-    RangeCutOver profile ready bindings changes first left right last cursor destination area count pointer plan checkNext canonNext seen := by
-  obtain ⟨leftLabels, rightLabels, other, lhs, rhs, reached, seenLeft, seenRight⟩ := replayFor path covers paired
-  obtain ⟨otherFrames, otherRest, ⟨resume, edge, atPop, frame⟩ | ⟨atCommon, still⟩⟩ := classifyPopFor other.host reached leftAt
-  · let canonCursor : Cursor (E := core3 grow) (HostState sig) := ⟨cursor.thread, otherFrames, otherRest⟩
+    (canonBody : second (.nat pointer) = (validateListRange (destination.context inst) area count pointer >>= canonNext)) :
+    RangeCutOver profile ready bindings older first left right last cursor destination area count pointer plan checkNext canonNext seen allowCommon := by
     have width := lhs.grows.memAddrType present
     obtain ⟨reachedBytes, reachedSize, _⟩ := lhs.grows.memSize sized
     have validation := destination.paired_range_recheck (profile := profile) (ready := ready)
       (dispatch := specDispatch ready (host (grow := grow) bindings)) reached inst area count pointer plan
-      checkNext canonNext checkBody (canonBody resume edge) leftAt atPop reachedSize
+      checkNext canonNext checkBody canonBody leftAt atPop reachedSize
     let dispatch := specDispatch ready (host (grow := grow) bindings)
     have append {start middle finish : State grow sig} {leading trailing : List (Label (core3 grow) (HostState sig))}
         (run : Steps profile ready dispatch start leading middle)
@@ -601,7 +601,7 @@ theorem rangeCutOver (destination : RecordDestination) (inst : InstId) (area : L
           (StepDefs.trapCfg last))
         (canonical : ∃ steps, Steps profile ready dispatch other (List.replicate steps .tau ++ [.trap reason])
           (StepDefs.trapCfg other)) :
-        RangeCutOver profile ready bindings changes first left right last cursor destination area count pointer plan checkNext canonNext seen := by
+        RangeCutOver profile ready bindings older first left right last cursor destination area count pointer plan checkNext canonNext seen allowCommon := by
       obtain ⟨checkCount, checked⟩ := checked
       obtain ⟨canonCount, canonical⟩ := canonical
       refine .trapped (reason := reason) frame.store (append lhs.steps checked) (append rhs.steps canonical) ?_ ?_
@@ -623,23 +623,99 @@ theorem rangeCutOver (destination : RecordDestination) (inst : InstId) (area : L
         apply List.filter_eq_nil_iff.mpr
         intro label member
         simp only [allTau label member, Bool.false_eq_true, not_false_eq_true]
+      have canonThread : canonCursor.thread = cursor.thread := frame.thread.symm
+      have canonRun : Steps profile ready dispatch other canonLabels { other with ctl := canonCursor.control (canonNext pointer) } := by
+        simpa only [Cursor.control, canonThread] using canonSteps
       refine .reached (canonCursor := canonCursor) width reachedSize (Classical.not_not.mp unaligned) fits frame lhs.grows
-        (append lhs.steps checkSteps) (append rhs.steps canonSteps) ?_ ?_
+        (append lhs.steps checkSteps) (append rhs.steps canonRun) ?_ ?_
       · rw [show visible (leftLabels ++ checkLabels) = visible leftLabels ++ visible checkLabels from List.filter_append ..,
           seenLeft, hide checkSilent, List.append_nil]
       · rw [show visible (rightLabels ++ canonLabels) = visible rightLabels ++ visible canonLabels from List.filter_append ..,
           seenRight, hide canonSilent, List.append_nil]
     · rw [ite_eq_right unaligned, ite_eq_right fits] at validation
       exact trapped .outOfBounds validation.1 validation.2
+
+theorem rangeCutOver (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
+    {left right last : State grow sig} {seen}
+    {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {protectedReturn : ReturnFrame.Continuation (core3 grow) (HostState sig) → Prop}
+    (path : PrefixFor profile ready bindings protectedReturn left seen last)
+    (covers : ∀ first second, changes first second → protectedReturn first)
+    (paired : HostFrame.Related.Paired changes left right) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (leftAt : last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (pure (.nat pointer)))
+    (present : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width) {bytes : Nat}
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (checkNext : Nat → Except RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
+    (canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    (checkBody : first (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area count pointer
+      let live ← Record.Effects.reserve recordClaims plan
+      checkNext ptr live))
+    (canonBody : ∀ resume, changes first resume →
+      resume (.nat pointer) = (validateListRange (destination.context inst) area count pointer >>= canonNext)) :
+    RangeCutOver profile ready bindings changes first left right last cursor destination area count pointer plan checkNext canonNext seen := by
+  obtain ⟨leftLabels, rightLabels, other, lhs, rhs, reached, seenLeft, seenRight⟩ := replayFor path covers paired
+  obtain ⟨otherFrames, otherRest, ⟨resume, edge, atPop, frame⟩ | ⟨atCommon, still⟩⟩ := classifyPopFor other.host reached leftAt
+  · exact rangeAtReturn destination inst area count pointer plan lhs rhs reached frame seenLeft seenRight
+      leftAt atPop present sized checkNext canonNext checkBody (canonBody resume edge)
   · refine .common ⟨leftLabels ++ [.tau], rightLabels ++ [.tau], _,
       (lhs.append (.cons ?_ (.popProg leftAt) (.refl _))).steps,
-      (rhs.append (.cons ?_ (.popProg atCommon) (.refl _))).steps, still, ?_, ?_⟩
+      (rhs.append (.cons ?_ (.popProg atCommon) (.refl _))).steps, still, ?_, ?_⟩ trivial
     · simp [CoreUpdateGrows, leftAt, Cursor.control]
     · simp [CoreUpdateGrows, atCommon]
     · simpa only [visible, List.filter_append, List.filter_cons, List.filter_nil, Bool.false_eq_true,
         ↓reduceIte, List.append_nil] using seenLeft
     · simpa only [visible, List.filter_append, List.filter_cons, List.filter_nil, Bool.false_eq_true,
         ↓reduceIte, List.append_nil] using seenRight
+
+theorem collectionReplay {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
+    (index : Nat) (output : Lower.Output)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon)
+    (present : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width)
+    {bytes : Nat} (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    CollectionReplay profile ready bindings older destination inst type element entries index output left right check canon checkNext canonNext := by
+  dsimp only [CollectionReplay]
+  obtain ⟨checkInstall, canonInstall, paired⟩ := childCollectionInstall (profile := profile) (ready := ready) (bindings := bindings)
+    destination inst type element entries output index checkNext canonNext frame (frame.store ▸ present) prepared checkAt canonAt
+  refine ⟨checkInstall, canonInstall, ?_⟩
+  intro last seen protectedReturn path covers
+  let dispatch := specDispatch ready (host (grow := grow) bindings)
+  let area := layout destination.width element
+  let first := checkedCollectionResume destination inst entries area index output checkNext
+  let second := canonicalCollectionResume destination inst entries area output canonNext
+    (CanonicalTree.EntryMode.forOutput destination.width type output)
+  let checked := collectionEntry destination inst area entries.length dispatch left check first
+  let canonical := collectionEntry destination inst area entries.length dispatch right canon second
+  have outside := childFrameOutside frame
+    (dispatch (.reallocate (destination.context inst) 0 0 area.alignment.bytes (entries.length * area.size))) first second
+  obtain ⟨leftLabels, rightLabels, other, mark, lhs, rhs, matched, leftSeen, rightSeen, remaining, tracks⟩ :=
+    replayMarked path covers paired outside
+  have tracked : ∀ place, mark = some place →
+      Occurrence.Prefix profile ready dispatch checked (.active 0 0) leftLabels last place ∧
+      Occurrence.Prefix profile ready dispatch canonical (.active 0 0) rightLabels other place := by
+    intro place atMark
+    obtain ⟨original, eq, leftTrack, rightTrack⟩ := tracks place atMark
+    have same : original = .active 0 0 := (Option.some.inj eq).symm
+    subst original
+    exact ⟨leftTrack, rightTrack⟩
+  refine ⟨leftLabels, rightLabels, other, mark, lhs, rhs, leftSeen, rightSeen, matched, tracked, ?_⟩
+  intro pointer cursor atMark leftAt
+  have rightMark := (Occurrence.prefix_survives (tracked _ atMark).2).2
+  have installed : Occurrence.segmentAt (Occurrence.segmentStorage canonical) (.active 0 0) = some (.prog second) := rfl
+  obtain ⟨otherCursor, residual, rightAt, _, _⟩ := markedReturn (profile := profile) (ready := ready) (bindings := bindings)
+    matched (atMark ▸ remaining) leftAt (rightMark.trans installed)
+  have alignedThread : otherCursor.thread = cursor.thread := residual.thread.symm
+  exact rangeAtReturn destination inst _ entries.length pointer _ lhs rhs matched residual leftSeen rightSeen leftAt
+    (by simpa only [Cursor.control, alignedThread] using rightAt) present sized _ _ rfl rfl
 
 theorem rangeCut (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
     {left right last : State grow sig} {seen} (path : Prefix profile ready bindings first left seen last)

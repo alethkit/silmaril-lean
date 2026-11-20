@@ -880,6 +880,16 @@ rule takes the reached width, placement and fit facts; it does not require
 callbacks to return, preserve guest bytes or preserve live claims. Composition
 through arbitrary allocating compounds and both public give bindings is separate.
 
+`ChildFrameOver.collection_replay` applies the same occurrence tracking to
+the allocating list and map programs. A finite callback prefix can end
+without a return. At the installed return it retires just that frame and
+checks the pointer against the reached memory; only a valid range reads the
+live plan. An invalid range traps with the callback effects intact. A failed
+live check leaves the canonical program before traversal, while the checked
+continuation receives a typed refusal. The saved map mode still distinguishes
+memory placement at allocation width from reached flat-entry cursor reads.
+The cut does not assume or prove equivalence of the subsequent children.
+
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner
 and endpoint commitment operations, selected sum arm, and collection allocation,
