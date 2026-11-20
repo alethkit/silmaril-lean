@@ -108,6 +108,39 @@ theorem exists_full_of_accessible {root : Name} (accessible : Acc (Depends store
       (fun child linked => ih child ⟨source, hit, linked⟩ (covered.1 child linked)) covered.2
     exact ⟨target, source, hit, expanded⟩
 
+theorem exists_full_below {root : Name} (accessible : Acc (Depends store) root)
+    (present : ∃ source, store.objects root source) (closed : ClosedBelow store root) :
+    ∃ target, FullNames store root target := by
+  have descend {parent} (reachable : Reachable store root parent) (access : Acc (Depends store) parent)
+      (hit : ∃ source, store.objects parent source) : ∃ target, FullNames store parent target := by
+    induction access with
+    | intro parent _ ih =>
+      obtain ⟨source, read⟩ := hit
+      have covered := closed reachable read
+      obtain ⟨target, expanded⟩ := expansion_of_links (fun child linked => by
+        have edge : Depends store child parent := ⟨source, read, linked⟩
+        exact ih child edge (reachable.tail edge) (covered.1 child linked)) covered.2
+      exact ⟨target, source, read, expanded⟩
+  exact descend .refl accessible present
+
+theorem expands_covers {source : Shallow Name} {target : Named Name}
+    (expanded : Expands store source target) :
+    (∀ child, Link.obj child ∈ source.directLinks → ∃ value, FullNames store child value) ∧
+      (∀ child, Link.blob child ∈ source.directLinks → ∃ payload, store.blobs child payload) := by
+  induction expanded with
+  | obj read expanded _ =>
+    refine ⟨fun _ linked => ?_, fun _ linked => by cases linked⟩
+    cases linked
+    exact ⟨_, _, read, expanded⟩
+  | blob read =>
+    constructor
+    · intro _ linked; cases linked
+    · intro _ linked; cases linked; exact ⟨_, read⟩
+  | dict _ ih | list _ ih =>
+    exact ⟨fun child ⟨index, hit⟩ => (ih index).1 child hit,
+      fun child ⟨index, hit⟩ => (ih index).2 child hit⟩
+  | _ => constructor <;> intro _ linked <;> cases linked
+
 private theorem expanded_dependencies_accessible (bound : store.Binding)
     {source : Shallow Name} {target : Named Name} (expanded : Expands store source target) :
     ∀ name, Link.obj name ∈ source.directLinks → Acc (Depends store) name := by
@@ -131,5 +164,25 @@ theorem full_accessible (bound : store.Binding) {root : Name} {target : Named Na
   refine Acc.intro _ ?_
   rintro name ⟨other, stored, edge⟩
   exact expanded_dependencies_accessible bound expanded name (bound.1 stored hit ▸ edge)
+
+theorem full_requirements (bound : store.Binding) {root : Name} {target : Named Name}
+    (full : FullNames store root target) :
+    (∃ source, store.objects root source) ∧ Acc (Depends store) root ∧ ClosedBelow store root := by
+  have accessible := full_accessible bound full
+  obtain ⟨source, read, expanded⟩ := full
+  refine ⟨⟨source, read⟩, accessible, ?_⟩
+  have reachableFull {name} (reachable : Reachable store root name) : ∃ value, FullNames store name value := by
+    induction reachable with
+    | refl => exact ⟨target, source, read, expanded⟩
+    | tail _ edge ih =>
+      obtain ⟨_, _, hit, exp⟩ := ih
+      obtain ⟨_, found, linked⟩ := edge
+      exact (expands_covers exp).1 _ (bound.1 found hit ▸ linked)
+  intro parent candidate reachable found
+  obtain ⟨_, _, hit, exp⟩ := reachableFull reachable
+  have covered := expands_covers exp
+  cases bound.1 found hit
+  exact ⟨fun child linked => by obtain ⟨_, source, hit, _⟩ := covered.1 child linked; exact ⟨source, hit⟩,
+    covered.2⟩
 
 end Silmaril.Proofs.Formats.Dasl
