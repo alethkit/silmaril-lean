@@ -104,32 +104,45 @@ private theorem fiber_hits [Fintype Sample] [DecidableEq Key] {model : UniformBu
       exact Nat.add_le_add (pointwise _ (by simp)) (ih fun key hit => pointwise key (List.mem_cons_of_mem _ hit))
   simpa [hits, Finset.sum_const, nsmul_eq_mul, Nat.mul_assoc, Nat.mul_comm, Nat.mul_left_comm] using sumLe keys marginal
 
-theorem adaptive_chunk_bound [Fintype Sample] [DecidableEq Key] {model : UniformBuckets Sample Key}
+theorem adaptive_chunk_bound_active [Fintype Sample] [DecidableEq Key] {model : UniformBuckets Sample Key}
     {level : Nat} {select : Sample → List Key} {numerator denominator : Nat}
     (cap : model.ConditionalCap level select numerator denominator) :
     denominator * (∑ sample : Sample, model.width * model.chunks sample level (select sample)) ≤
-      denominator * (∑ sample : Sample, ((select sample).length + model.width)) +
+      denominator * (∑ sample : Sample, ((select sample).length + if (select sample).isEmpty then 0 else model.width)) +
         model.width * (numerator * ∑ sample : Sample, (select sample).length) := by
   let support := (Finset.univ : Finset Sample).image select
   have covered : ∀ sample ∈ (Finset.univ : Finset Sample), select sample ∈ support :=
     fun _ present => Finset.mem_image_of_mem select present
   let sampleHits (sample : Sample) := (select sample).countP (model.hit sample level)
   let sampleLength (sample : Sample) := (select sample).length
+  let fixedCost (sample : Sample) := if (select sample).isEmpty then 0 else model.width
   have scaledHits : denominator * (∑ sample : Sample, sampleHits sample) ≤
       numerator * ∑ sample : Sample, sampleLength sample := by
     rw [← Finset.sum_fiberwise_of_maps_to covered sampleHits, ← Finset.sum_fiberwise_of_maps_to covered sampleLength,
       Finset.mul_sum, Finset.mul_sum]
     exact Finset.sum_le_sum fun keys _ => fiber_hits cap keys
   calc
-    _ ≤ denominator * (∑ sample : Sample, (sampleLength sample + model.width + model.width * sampleHits sample)) := by
+    _ ≤ denominator * (∑ sample : Sample, (sampleLength sample + fixedCost sample + model.width * sampleHits sample)) := by
       apply Nat.mul_le_mul_left
       apply Finset.sum_le_sum
       intro sample _
-      simpa [UniformBuckets.chunks, UniformBuckets.policy, sampleHits, sampleLength, Nat.add_right_comm] using
-        chunk_count (model.policy sample) level (select sample)
-    _ = denominator * (∑ sample : Sample, (sampleLength sample + model.width)) +
+      cases chosen : select sample with
+      | nil => simp [chosen, UniformBuckets.chunks, chunk, chunkFrom, fixedCost, sampleLength, sampleHits]
+      | cons head tail =>
+        simpa [chosen, UniformBuckets.chunks, UniformBuckets.policy, fixedCost, sampleHits, sampleLength,
+          Nat.add_right_comm] using chunk_count (model.policy sample) level (select sample)
+    _ = denominator * (∑ sample : Sample, (sampleLength sample + fixedCost sample)) +
         model.width * (denominator * ∑ sample : Sample, sampleHits sample) := by
       rw [Finset.sum_add_distrib, ← Finset.mul_sum, Nat.mul_add, Nat.mul_left_comm denominator model.width]
     _ ≤ _ := Nat.add_le_add_left (Nat.mul_le_mul_left model.width scaledHits) _
+
+theorem adaptive_chunk_bound [Fintype Sample] [DecidableEq Key] {model : UniformBuckets Sample Key}
+    {level : Nat} {select : Sample → List Key} {numerator denominator : Nat}
+    (cap : model.ConditionalCap level select numerator denominator) :
+    denominator * (∑ sample : Sample, model.width * model.chunks sample level (select sample)) ≤
+      denominator * (∑ sample : Sample, ((select sample).length + model.width)) +
+        model.width * (numerator * ∑ sample : Sample, (select sample).length) := by
+  refine (adaptive_chunk_bound_active cap).trans (Nat.add_le_add_right (Nat.mul_le_mul_left _ ?_) _)
+  exact Finset.sum_le_sum fun sample _ => Nat.add_le_add_left (by split <;> simp) _
 
 end Silmaril.Proofs.Semantics.Prolly.Bounds
