@@ -77,7 +77,7 @@ chooses between competing fields. -/
 
 /-- The typed link tag must agree with the CID codec before serialization. The underlying
 writer sorts fields by the canonical encoded-key order (not `String` order). -/
-def render? (value : Shallow Cid) : Option ByteArray := do
+@[expose] def render? (value : Shallow Cid) : Option ByteArray := do
   let ordered := toOrdered value
   if (Drisl.links ordered).all (fun
       | .obj cid => cid.val[1]? == some 0x71

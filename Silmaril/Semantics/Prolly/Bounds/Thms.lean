@@ -28,4 +28,17 @@ theorem uniform_chunk_bound [Fintype Sample] (model : UniformBuckets Sample Key)
       Fintype.card Sample * (keys.length + model.width) + model.width * (keys.length * cap) :=
   Proofs.Semantics.Prolly.Bounds.uniform_chunk_bound model level keys cap marginal
 
+/-- Per-level expected chunk count for a sample-dependent input list. In a
+nonempty uniform experiment the scaled inequality reads
+`E[chunks] ≤ 1 + (1 / width + numerator / denominator) * E[input length]`.
+The hypothesis is a marginal cap within each realized list, not a fixed-key
+unconditional marginal or an assertion of independence. -/
+theorem uniform_adaptive_chunk_bound [Fintype Sample] [DecidableEq Key] {model : UniformBuckets Sample Key}
+    {level : Nat} {select : Sample → List Key} {numerator denominator : Nat}
+    (cap : model.ConditionalCap level select numerator denominator) :
+    denominator * (∑ sample : Sample, model.width * model.chunks sample level (select sample)) ≤
+      denominator * (∑ sample : Sample, ((select sample).length + model.width)) +
+        model.width * (numerator * ∑ sample : Sample, (select sample).length) :=
+  Proofs.Semantics.Prolly.Bounds.adaptive_chunk_bound cap
+
 end Silmaril.Semantics.Prolly

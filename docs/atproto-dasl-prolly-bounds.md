@@ -15,8 +15,14 @@ linearity of the finite sum suffices, even for repeated keys or globally
 correlated decisions. The fixture includes a bucket that shares one bit
 across every key.
 
-This does not yet bound the height, total number of blocks, or edit cost of
-the whole randomized tree. Later levels have sample-dependent inputs. A
-whole-tree result needs a conditional model for newly reached levels and
-separate stopping-time or summation arguments; fixed-input marginals alone
-do not justify those claims.
+`uniform_adaptive_chunk_bound` allows a sample-dependent input list at a
+fixed level. Condition on each realized list, using only the samples that
+select that list. If every key in that list has a conditional hit cap `p`,
+then `E[chunks] ≤ 1 + (1/w + p) * E[input length]`. The regression exhibits
+unconditional hit probability `1/2` for each key but probability `1` for a
+key selected using the same draw; the unconditional cap is not sufficient.
+
+Neither theorem bounds the height, total number of blocks, or edit cost of
+the whole randomized tree. A whole-tree argument must connect the conditional
+model to the actual sequence of input lists and prove a stopping or summation
+bound for the builder.

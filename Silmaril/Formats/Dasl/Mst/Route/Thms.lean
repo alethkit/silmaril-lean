@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Formats.Dasl.Mst.Route.Defs
 import Silmaril.Proofs.Formats.Dasl.MstRoute
+import Silmaril.Proofs.Formats.Dasl.MstRouteComplete
 
 public section
 
@@ -46,5 +47,17 @@ theorem route_extension_sound {layerOf : Key → Nat} {reference : Relation Name
     {fuel : Nat} {key : Key} {result : Option Name}
     (checked : route layerOf read key fuel none root = .ok result) : entries.lookup key = result :=
   route_sound (nodes_binding bound) (fun {_ _ _} found parsed => ⟨_, sound found, parsed⟩) (tree.mono includes) checked
+
+/-- One read per layer suffices if the reader can decode the selected path.
+The soundness theorem above still applies when that path is incomplete. -/
+theorem route_root_complete {layerOf : Key → Nat} {reference : Relation Name (Node Name)}
+    (bound : Binding reference) {read : Name → Wire.ReadResult (Shallow Name)}
+    (sound : ReadSound read reference) {root : Name} {entries : List (Key × Name)}
+    (tree : Realizes layerOf reference none root entries)
+    {node : Node Name} (present : reference root node) {fuel : Nat} (enough : (node.rootContext layerOf).layer < fuel)
+    {key : Key} (covers : PathCovers layerOf read key root reference) :
+    route layerOf read key fuel none root = .ok (entries.lookup key) :=
+  Proofs.Formats.Dasl.MstRouteComplete.route_available covers tree .start (by simp)
+    (fun _ known => bound present known ▸ enough) |>.elim fun _ found => route_sound bound sound tree found ▸ found
 
 end Silmaril.Formats.Dasl.Mst

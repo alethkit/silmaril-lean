@@ -729,10 +729,15 @@ publishing, and publication checks the candidate handle against the live writer.
 At the commit continuation, `complete_commit` preserves the reached store and publishes
 before recording a reply. `complete_stale` instead records `.wrongResultType` and locks
 down without publishing or recording a reply. `resolve_caller` exposes the live reference
-result cursor, and `resolve_commit` connects the post-write subtask resolution to publication
+result cursor. `lower_result_program` gives the exact canonical program at this cursor in
+both memory widths: pointer type, alignment and whole-result range checks precede the writes;
+an error only writes its tag, and a successful reply also writes the little-endian handle at
+offset four. `resolve_commit` connects the post-write subtask resolution to publication
 without clearing the pending event or releasing lends. `deliver_pending` takes the actual
 returned event and applies reference lend release in a later waitable step. Neither publication
 nor the presence of an event guarantees that a guest polls or that its event write succeeds.
+The linked replays cover a misaligned result pointer, and a late out-of-bounds poll write
+that traps after consuming the event while preserving the earlier publication.
 `ComponentCall.checked_of_session` gives publication, writer and transcript conservation
 across every ordinary machine prefix, including traps and refusals. It does not assert
 an exact language for every guest or atomic rollback of reference operations.
