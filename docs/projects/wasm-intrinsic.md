@@ -8,7 +8,10 @@ and simple branch references carry their lookup at the right type. `return`,
 `br` and `unreachable` have the same polymorphic stack effects as the existing
 typing rules. `Function` retains the source type index and local declarations.
 The module environment includes imported and defined functions in index order,
-and preserves all original non-function declarations and exports.
+and preserves all original non-function sections in `ModuleSections`. Those
+sections can contain executable initializers and references to the local
+functions; they are not validated as a standalone module. Erasure assembles
+them with the erased definitions.
 
 This is a representation of the **existing Core typing judgments**. The
 specialized constructors do not cover every atomic family: for example SIMD,
@@ -22,7 +25,7 @@ and existence of a lift erasing to each well-typed raw value. `Function.equiv`
 and `Module.equiv` use equality of raw erasures as the quotient relation. This
 forgets exactly the choices of representation that the original value cannot
 observe (e.g. wrapping an empty body in an empty stack frame); it does not
-quotient by behavior, validator acceptance, or equality of metadata subsets.
+quotient by behavior, validator acceptance, or equality of selected sections.
 The inverse uses classical choice on the existence theorem. It is not a
 computable elaborator or a canonical choice of typing tree.
 

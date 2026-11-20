@@ -2,41 +2,12 @@ module
 
 public import Silmaril.Wasm.Validation.Generic.Defs
 public import Silmaril.Wasm.Validation.Intrinsic.Thms
+public import Silmaril.Wasm.ModuleParts.Thms
 import Silmaril.Proofs.Wasm.Validation.Generic
 
 public section
 
 namespace Silmaril.Wasm.Generic
-
-namespace RawModule
-
-def coreEquiv : Wasm.Module ≃ RawModule Wasm.Func where
-  toFun := ofCore
-  invFun := toCore
-  left_inv mod := by cases mod; rfl
-  right_inv := Proofs.Wasm.Validation.Generic.raw_of_to
-
-@[simp] theorem coreEquiv_toCore (mod : Wasm.Module) : (coreEquiv mod).toCore = mod :=
-  coreEquiv.left_inv mod
-
-theorem toCore_injective : Function.Injective (toCore : RawModule Wasm.Func → Wasm.Module) :=
-  coreEquiv.symm.injective
-
-@[simp] theorem map_id {F : Type} (mod : RawModule F) : mod.map id = mod := by
-  cases mod; simp [map]
-
-theorem map_comp {F G K : Type} (f : F → G) (g : G → K) (mod : RawModule F) :
-    (mod.map f).map g = mod.map (g ∘ f) := by cases mod; simp [map, List.map_map]
-
-@[simp] theorem coreEquiv_map (f : Wasm.Func → Wasm.Func) (mod : Wasm.Module) :
-    coreEquiv { mod with funcs := mod.funcs.map f } = (coreEquiv mod).map f := by cases mod; rfl
-
-theorem mapInstructions_coreEquiv (f : Instr → Instr) (mod : Wasm.Module) :
-    (coreEquiv mod).mapInstructions f =
-      coreEquiv { mod with funcs := mod.funcs.map (Declaration.Func.mapBody (List.map f)) } :=
-  (coreEquiv_map _ _).symm
-
-end RawModule
 
 namespace Typed
 
@@ -101,12 +72,12 @@ theorem Module.map_comp (f : ∀ {context type}, F context type → G context ty
 theorem Module.forget_map (f : ∀ {context type}, F context type → G context type)
     (erase : ∀ {context type}, G context type → A) (mod : Module F interface) :
     (mod.map f).forget erase = mod.forget (fun fn => erase (f fn)) :=
-  congrArg (RawModule.mk mod.header.metadata mod.header.noFunctions)
+  congrArg (ModuleParts.mk mod.header.sections)
     (Proofs.Wasm.Validation.Generic.Typed.defs_forget_map f erase mod.defs)
 
 theorem Module.forget_natural (f : A → Z) (erase : ∀ {context type}, F context type → A)
     (mod : Module F interface) : (mod.forget erase).map f = mod.forget (fun fn => f (erase fn)) :=
-  congrArg (RawModule.mk mod.header.metadata mod.header.noFunctions)
+  congrArg (ModuleParts.mk mod.header.sections)
     (Proofs.Wasm.Validation.Generic.Typed.defs_forget_natural f erase mod.defs)
 
 /-- A commuting square for dependent function maps and raw function maps. -/
@@ -122,9 +93,12 @@ theorem Module.forget_commutes (f : ∀ {context type}, F context type → G con
 @[simp] theorem Module.forget_toCore (mod : Module (Function Intrinsic.Body) interface) :
     (mod.forget Function.erase).toCore = mod.erase := rfl
 
+@[simp] theorem Module.erase_sections (mod : Module (Function Intrinsic.Body) interface) :
+    mod.erase.sections = mod.header.sections := ModuleSections.sections_assemble _ _
+
 @[simp] theorem Module.toIntrinsic_erase (mod : Module (Function Intrinsic.Body) interface) :
     mod.toIntrinsic.erase = mod.erase :=
-  congrArg (fun defs => { mod.header.metadata with funcs := defs })
+  congrArg mod.header.sections.assemble
     (Proofs.Wasm.Validation.Generic.Typed.defs_erase mod.defs).symm
 
 theorem Module.sound (mod : Module (Function Intrinsic.Body) interface) : ModuleOk mod.erase interface := by
@@ -137,10 +111,14 @@ theorem Module.lift_erase {raw : Wasm.Module} (valid : ModuleOk raw interface) :
     ((congrArg Intrinsic.Module.erase (Module.intrinsicEquiv.left_inv mod)).trans erased)⟩
 
 theorem Module.intrinsicEquiv_erase (mod : Intrinsic.Module interface) :
-    (Module.intrinsicEquiv mod).forget Function.erase = RawModule.coreEquiv mod.erase :=
-  RawModule.coreEquiv.symm.injective <| (Module.forget_toCore _).trans
+    (Module.intrinsicEquiv mod).forget Function.erase = mod.erase.split :=
+  ModuleParts.toCore_injective <| (Module.forget_toCore _).trans
     ((Module.toIntrinsic_erase _).symm.trans
-      (congrArg Intrinsic.Module.erase (Module.intrinsicEquiv.left_inv mod)))
+      ((congrArg Intrinsic.Module.erase (Module.intrinsicEquiv.left_inv mod)).trans mod.erase.toCore_split.symm))
+
+theorem Module.intrinsicEquiv_context (mod : Intrinsic.Module interface) :
+    (Module.intrinsicEquiv mod).header.scope = mod.context :=
+  congrArg Intrinsic.Module.context (Module.intrinsicEquiv.left_inv mod)
 
 end Typed
 end Silmaril.Wasm.Generic

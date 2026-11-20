@@ -8,13 +8,6 @@ namespace Silmaril.Proofs.Wasm.Validation.Generic
 
 open Silmaril.Wasm Silmaril.Wasm.Generic Silmaril.Wasm.Validation
 
-theorem raw_of_to (mod : RawModule Wasm.Func) : RawModule.ofCore mod.toCore = mod := by
-  obtain ⟨metadata, empty, defs⟩ := mod
-  cases metadata
-  simp only at empty
-  subst empty
-  rfl
-
 namespace Typed
 
 open Silmaril.Wasm.Generic.Typed
@@ -49,16 +42,16 @@ theorem defs_to_of (defs : Intrinsic.Functions context types) :
 
 theorem module_of_to (mod : Module (Function Intrinsic.Body) interface) :
     Module.ofIntrinsic mod.toIntrinsic = mod := by
-  obtain ⟨⟨metadata, empty, types, signatures, tags, globals, tables, elems, typesValid, importsValid,
+  obtain ⟨⟨secs, types, signatures, tags, globals, tables, elems, typesValid, importsValid,
     tagsValid, globalsValid, memoriesValid, tablesValid, dataValid, elemsValid, startValid,
     exportsValid, exportsDisjoint⟩, defs⟩ := mod
   exact congrArg (Typed.Module.mk _) (defs_of_to defs)
 
 theorem module_to_of (mod : Intrinsic.Module interface) : (Module.ofIntrinsic mod).toIntrinsic = mod := by
-  obtain ⟨metadata, empty, types, tags, globals, tables, signatures, elems, _, _, typesValid,
+  obtain ⟨secs, types, tags, globals, tables, signatures, elems, _, _, typesValid,
     importsValid, rfl, rfl, tagsValid, globalsValid, memoriesValid, tablesValid, defs,
     dataValid, elemsValid, startValid, exportsValid, exportsDisjoint⟩ := mod
-  exact congrArg (fun defs => Intrinsic.Module.mk metadata empty types tags globals tables signatures elems _ _
+  exact congrArg (fun defs => Intrinsic.Module.mk secs types tags globals tables signatures elems _ _
     typesValid importsValid rfl rfl tagsValid globalsValid memoriesValid tablesValid defs dataValid elemsValid
     startValid exportsValid exportsDisjoint) (defs_to_of defs)
 

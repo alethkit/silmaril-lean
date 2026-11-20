@@ -66,10 +66,10 @@ def encodeSlots? {Ty Out : Type} {B : Func Ty → Type} (encoding : Encoding Ty)
 does not validate the translated code or other Core declarations. -/
 def Module.specialize? {Ty Out : Type} {B : Func Ty → Type} (encoding : Encoding Ty)
     (emit : ∀ {sig}, TypeIdx → FuncType → B sig → Option (List ValType × Out)) (mod : Module B) :
-    Option (RawModule (Generic.Function Out)) := do
+    Option (ModuleParts (Generic.Function Out)) := do
   let entries ← encodeSlots? encoding emit 0 mod.defs
   return ⟨{ types := entries.map Prod.fst,
             exports := mod.exports.map (fun (name, index) => ⟨name, .func index⟩),
-            memories := mod.memories, data := mod.data }, rfl, entries.map Prod.snd⟩
+            memories := mod.memories, data := mod.data }, entries.map Prod.snd⟩
 
 end Silmaril.Wasm.Generic.Signature
