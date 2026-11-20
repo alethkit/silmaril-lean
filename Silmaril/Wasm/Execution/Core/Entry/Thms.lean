@@ -19,6 +19,13 @@ theorem ordinary_may {source : Config H} {outcome : Outcome Completion} :
       observeResult result = outcome :=
   Proofs.Wasm.Execution.Core.Entry.ordinary_may
 
+/-- Raw administrative steps need not be unique, but any two finished
+executions at the deterministic profile agree on the entire final state. -/
+theorem finishes_unique {oracle : GrowOracle} {source first second : Config H} {one two : Result}
+    (left : Finishes (profile oracle) noHost source first one)
+    (right : Finishes (profile oracle) noHost source second two) : first = second ∧ one = two :=
+  Proofs.Wasm.Execution.Core.Entry.finishes_unique left right
+
 /-- A preserved typing policy adds neither UB nor losses of ordinary observations from a typed source. -/
 theorem policy_safe_and_may {source : Config H}
     (preserves : ∀ ⦃left right : Config H⦄, ConfigOk left types → Step P host left right → ConfigOk right types)
