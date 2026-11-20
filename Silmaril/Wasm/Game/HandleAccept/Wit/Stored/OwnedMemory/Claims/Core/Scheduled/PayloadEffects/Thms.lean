@@ -3,6 +3,9 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.CanonicalTree.Defs
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.CanonicalTree.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Effects.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedPayloadEffects
 
@@ -76,5 +79,20 @@ theorem RecordDestination.compiled_payload_effects {sig : Signature} {grow : Sin
     (destination.context (grow := grow) inst) destination.width (sig.payload tag) field output]
   exact destination.compiled_payload_start reached inst (sig.payload tag)
     payload output field plan finish compiled destinationChecked focused
+
+/-- The comparator for the very field admitted by the public give paths.
+It computes the untouched reference program; it has no permission to spend
+claims and does not claim the checked path can always reach its suffix. -/
+theorem RecordDestination.compiled_payload_reference {grow : SingleThreaded.GrowOracle} {World : Type}
+    (destination : RecordDestination) (inst : InstId) (type : TypeOf) (payload : OwnedMemory.Payload type)
+    (output : Lower.Output) (field : Field) (plan : List Object)
+    (compiled : Record.preflightValue (destination.context (grow := grow) inst) type payload output = .ok (field, plan)) :
+    let cx := destination.context (grow := grow) inst
+    Endpoints.RecordLower.CanonicalTree.field Limits.spec Quirks.none cx destination.width field output =
+      Lower.Output.rec (motive := fun out => P (core3 grow) World out.Result)
+        (fun ptr => store Limits.spec Quirks.none cx payload.val.value type ptr)
+        (lowerFlatAt Limits.spec Quirks.none cx destination.width payload.val.value type) output :=
+  Endpoints.RecordLower.CanonicalTree.field_reference Limits.spec Quirks.none _ destination.width field type _
+    (Record.preflightValue_layout _ _ _ _ _ _ compiled) (Record.preflightValue_value _ _ _ _ _ _ compiled) output
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled
