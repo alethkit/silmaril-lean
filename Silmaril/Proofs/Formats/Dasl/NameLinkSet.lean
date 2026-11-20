@@ -127,15 +127,13 @@ theorem lookup_none_iff (layout : Layout Key) (key : Encode.TotalCodec Key (Link
     (index layout).lookup key read query = none ↔ query ∉ names layout := by
   simp [Index.lookup, ← contains_iff layout query]
 
-theorem lookup_found (layout : Layout Key) (key : Encode.TotalCodec Key (Link Name))
-    {read : Link Name → Resolution Value} {rel : Naming.Relation (Link Name) Value}
-    (sound : Sound read rel) {query : Key} {value : Value}
-    (hit : (index layout).lookup key read query = some (.found value)) :
-    query ∈ names layout ∧ rel (key.encode query) value := by
-  unfold Index.lookup at hit
-  split at hit
-  · exact ⟨(contains_iff layout query).mp ‹_›, sound (Option.some.inj hit)⟩
-  · cases hit
+theorem lookup_eq_some_iff (layout : Layout Key) (key : Encode.TotalCodec Key (Link Name))
+    (read : Link Name → Resolution Value) (query : Key) (result : Resolution Value) :
+    (index layout).lookup key read query = some result ↔
+      query ∈ names layout ∧ read (key.encode query) = result := by
+  by_cases member : query ∈ names layout
+  · simp [lookup_of_mem layout key read member, member]
+  · simp [(lookup_none_iff layout key read query).mpr member, member]
 
 theorem contents_ofContents (key : Encode.TotalCodec Key (Link Name))
     {rel : Naming.Relation (Link Name) Value} {chooseName : Value → Key} {values : Finset Value}

@@ -1,6 +1,7 @@
 module
 
 import Silmaril.Formats.Dasl.NameLinkSet.Thms
+import Silmaril.Formats.Dasl.NameLinkSet.Resolved.Thms
 meta import Silmaril.Formats.Dasl.NameLinkSet.Thms
 
 open Silmaril.Formats.Dasl Silmaril.Formats.Dasl.NameLinkSet Silmaril.Formats.Cbor Silmaril.Semantics
@@ -12,6 +13,48 @@ private def expect {Value : Type} (option : Option Value) (label : String) : IO 
   match option with
   | some value => pure value
   | none => throw (IO.userError label)
+
+private def fixtureLayout : Layout (MixedKey Nat) :=
+  normalize [taggedKey (.blob 3), taggedKey (.obj 8)]
+
+private def fixtureBytes : ByteArray := ⟨#[255, 0]⟩
+
+private def fixtureTarget : (link : Link Nat) → Target link
+  | .obj _ => .blob 2 fixtureBytes
+  | .blob _ => fixtureBytes
+
+private def fixtureView : ResolvedView mixedKey fixtureLayout :=
+  fun member => fixtureTarget (mixedKey.encode member.val)
+
+private def fixtureObject : ↥(names fixtureLayout) :=
+  ⟨taggedKey (.obj 8), by simp [fixtureLayout, normalize_names]⟩
+
+example : fixtureView.entry fixtureObject = .obj 8 (.blob 2 fixtureBytes) := rfl
+
+example : mixedCodec.decode? fixtureView.toNamed.embed.shallow = some fixtureLayout :=
+  fixtureView.recovers
+
+private def fixtureStore : Store Nat :=
+  ⟨(fun _ source => source = .ref (.blob 2)), (fun _ bytes => bytes = fixtureBytes)⟩
+
+private theorem fixtureValid : fixtureView.ValidIn fixtureStore := by
+  intro member
+  change Expands fixtureStore (.ref (mixedKey.encode member.val))
+    (Target.named (mixedKey.encode member.val) (fixtureTarget (mixedKey.encode member.val)))
+  cases mixedKey.encode member.val with
+  | obj => exact .obj rfl (.blob rfl)
+  | blob => exact .blob rfl
+
+example : Expands fixtureStore fixtureView.toNamed.embed.shallow fixtureView.toNamed := ResolvedView.expands fixtureValid
+
+example : ¬ fixtureView.ValidIn { fixtureStore with blobs := fun _ _ => False } := by
+  intro valid
+  have expanded := valid fixtureObject
+  change Expands _ (.ref (.obj 8)) (.obj 8 (.blob 2 fixtureBytes)) at expanded
+  cases expanded with
+  | obj _ child =>
+    cases child with
+    | blob absent => exact absent
 
 private def generic : IO Unit := do
   let tagged := normalize [taggedKey (.blob 3), taggedKey (.obj 3), taggedKey (.obj 3)]

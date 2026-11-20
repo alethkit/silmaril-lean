@@ -65,12 +65,19 @@ theorem lookup_none_iff (layout : Layout Key) (key : Encode.TotalCodec Key (Link
     (index layout).lookup key read query = none ↔ query ∉ names layout :=
   Proofs.Formats.Dasl.NameLinkSet.lookup_none_iff layout key read query
 
+theorem lookup_eq_some_iff (layout : Layout Key) (key : Encode.TotalCodec Key (Link Name))
+    (read : Link Name → Resolution Value) (query : Key) (result : Resolution Value) :
+    (index layout).lookup key read query = some result ↔
+      query ∈ names layout ∧ read (key.encode query) = result :=
+  Proofs.Formats.Dasl.NameLinkSet.lookup_eq_some_iff layout key read query result
+
 theorem lookup_found (layout : Layout Key) (key : Encode.TotalCodec Key (Link Name))
     {read : Link Name → Resolution Value} {rel : Naming.Relation (Link Name) Value}
     (sound : Sound read rel) {query : Key} {value : Value}
     (hit : (index layout).lookup key read query = some (.found value)) :
-    query ∈ names layout ∧ rel (key.encode query) value :=
-  Proofs.Formats.Dasl.NameLinkSet.lookup_found layout key sound hit
+    query ∈ names layout ∧ rel (key.encode query) value := by
+  obtain ⟨member, resolution⟩ := (lookup_eq_some_iff layout key read query (.found value)).mp hit
+  exact ⟨member, sound resolution⟩
 
 theorem mem_contents_of_lookup_found (layout : Layout Key) (key : Encode.TotalCodec Key (Link Name))
     {read : Link Name → Resolution Value} {rel : Naming.Relation (Link Name) Value}
