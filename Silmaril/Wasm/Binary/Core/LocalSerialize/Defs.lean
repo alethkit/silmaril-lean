@@ -51,12 +51,12 @@ def iface : CModuleType := ⟨[], [.func closed]⟩
 
 def exportF : Wasm.Export := ⟨"f", .func ⟨0⟩⟩
 
-def metadata : Wasm.Module := { types := [signature], exports := [exportF] }
+def sections : Wasm.ModuleSections := { types := [signature], exports := [exportF] }
 
 def rawFunc (shape : Shape) : Wasm.Func :=
   ⟨⟨0⟩, List.replicate shape.locals .i32, [.localGet shape.localIndex]⟩
 
-def raw (shape : Shape) : Wasm.Module := { metadata with funcs := [rawFunc shape] }
+def raw (shape : Shape) : Wasm.Module := sections.assemble [rawFunc shape]
 
 def context : Context := { types := [closed], funcs := [closed], refs := [0] }
 
@@ -83,8 +83,7 @@ def typedFunc (shape : Shape) : Intrinsic.Function context closed where
 
 /-- Construct a checked intrinsic function and module, not a raw term with a typing proof. -/
 def typed (shape : Shape) : Intrinsic.Module iface where
-  metadata := metadata
-  noRawFunctions := rfl
+  sections := sections
   definedTypes := [closed]
   definedTags := []
   definedGlobals := []
@@ -99,14 +98,14 @@ def typed (shape : Shape) : Intrinsic.Module iface where
   contextEq := rfl
   tagsValid := .nil
   globalsValid := .nil
-  memoriesValid := by simp [metadata]
+  memoriesValid := by simp [sections]
   tablesValid := .nil
   funcs := .cons (typedFunc shape) .nil
-  dataValid := by simp [metadata]
+  dataValid := by simp [sections]
   elemsValid := .nil
-  startValid := by simp [metadata]
+  startValid := by simp [sections]
   exportsValid := .cons (.func rfl) .nil
-  exportsDisjoint := by simp [metadata]
+  exportsDisjoint := by simp [sections]
 
 def bytesBeforeCode : List UInt8 :=
   magic ++ version ++ [1, 5, 1, 0x60, 0, 1, 0x7f, 3, 2, 1, 0, 7, 5, 1, 1, 0x66, 0, 0]
@@ -127,7 +126,7 @@ def extract (mod : Wasm.Module) (fits : Serializable mod) : Shape :=
     | _ => 0
   ⟨fn.locals.length, index, by
     obtain ⟨shape, rfl⟩ := fits
-    simpa [fn, index, raw, rawFunc, Shape.localIndex, Idx.toNat] using shape.fits⟩
+    simpa [fn, index, raw, ModuleSections.assemble, rawFunc, Shape.localIndex, Idx.toNat] using shape.fits⟩
 
 def RawModule.encode (mod : RawModule) : ByteArray := LocalSerialize.encode (extract mod.val.val mod.property)
 
@@ -147,7 +146,7 @@ def accept? : (mod : Wasm.Module) → Option { shape : Shape // raw shape = mod 
           have indexMatch : (Shape.mk locals.length index.toNat fits).localIndex = index := by
             cases index
             exact congrArg Idx.mk (Fin.ext rfl)
-          simp only [raw, rawFunc, metadata, indexMatch, localsMatch]⟩
+          simp only [raw, rawFunc, sections, ModuleSections.assemble, indexMatch, localsMatch]⟩
       else none
     else none
   | _ => none

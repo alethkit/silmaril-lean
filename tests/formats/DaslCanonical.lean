@@ -26,3 +26,12 @@ public def main : IO Unit := do
       codec.encode? (.ref (.blob raw)) == some (tag 0x55) &&
       (codec.encode? (.ref (.obj raw))).isNone && (codec.encode? (.ref (.blob object))).isNone do
     throw (IO.userError "wrong typed CID tag must not serialize")
+  let independentlyEncoded := ([0x84, 0x3b, 0x7f] ++ List.replicate 7 0xff ++ encoded.data.toList ++
+    (tag 0x71).data.toList ++ (tag 0x55).data.toList).toByteArray
+  let some decoded := codec.decode? independentlyEncoded | throw (IO.userError "accepted typed canonical input")
+  unless codec.encode? decoded == some independentlyEncoded && Wire.render? decoded == some independentlyEncoded do
+    throw (IO.userError "exact reprint of independently accepted nested typed data")
+  let wrongOrder : ByteArray := ⟨#[0xa2, 0x62, 0x61, 0x61, 0xf6, 0x61, 0x62, 0xf6]⟩
+  let duplicate : ByteArray := ⟨#[0xa2, 0x61, 0x62, 0xf6, 0x61, 0x62, 0xf6]⟩
+  unless (codec.decode? wrongOrder).isNone && (codec.decode? duplicate).isNone && (codec.decode? (tag 0x70)).isNone do
+    throw (IO.userError "wrong encoded-key order, duplicate keys and unsupported link codecs must be rejected")

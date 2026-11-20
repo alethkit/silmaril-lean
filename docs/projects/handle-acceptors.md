@@ -589,7 +589,11 @@ the read/write builtins validate their own memory and realloc options separately
 The separate `Wit.Stored.Endpoints.ListLower` path supports dynamic lists of
 readable futures or streams. It rechecks all claims after canonical realloc, distinguishes
 refusal before allocation from refusal after the allocator's effects, and spends each claim
-before canonical lower updates ownership. Neither a late table trap nor an allocator's
+before canonical lower updates ownership. Checked endpoint lists and the recursive
+list/map emitter use the same `Canon.allocateListRange` and `Canon.storeListDescriptor`
+programs as the reference: check the returned range in the reached state, and write
+the pointer before the length. The post-realloc authority check remains separate.
+Neither a late table trap nor an allocator's
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
@@ -620,7 +624,9 @@ transfers after guest allocation revalidate against the reached state. Root pref
 dynamic-region rechecks derive their plans from the same compiled fields the emitter
 uses, in field order and with only the selected sum arm. `compileValue_plan` and
 `compileRecord_plan` identify the diagnostic compiler output with those traversals;
-they are not equivalence theorems for the effectful canonical ABI. Single give and the
+`preflightValue_receipts` identifies the active owner subsequence with the original
+list of nominal receipts, not just its representations. These theorems do not confer
+live authority or establish equivalence of the effectful canonical ABI. Single give and the
 recursive emitter spend only the targeted owner identity, before canonical allocation of
 the owning arena object. A subsequent table insertion failure keeps the allocation and
 does not restore the claim. The kernel-checked replays cover distinct equal-representation
