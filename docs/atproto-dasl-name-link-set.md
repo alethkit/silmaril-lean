@@ -1,7 +1,7 @@
 # Name-ordered DASL link sets
 
 Use [`NameLinkSet`](../Silmaril/Formats/Dasl/NameLinkSet/Defs.lean) as the
-default linked collection when membership is by reference. `objectKey` and
+default for **new link-indexed operations**. `objectKey` and
 `blobKey` use the caller's `LinearOrder` on names; `mixedKey` uses tagged names
 (objects first, then blobs, each in name order). The generic `codec` accepts a
 recovering key codec and checks that decoding retains the exact input links.
@@ -84,14 +84,37 @@ order. This does not prove wire-encoding existence or choose a representative
 for aliases. Two coherent selectors can produce different bytes for the same
 content, even under one binding relation.
 
-Choose the existing [content-ordered `LinkedSet`](atproto-dasl-linked-set.md)
-explicitly when membership and deduplication must be by content. It resolves
-links, checks canonical payload keys and enforces preferred links. The two
-layouts may have identical array syntax but different semantics and ordering
-rules; select the layout out of band, not by interpreting one as a fallback for
-the other. The `LinkedSet` API and wire interpretation are unchanged.
+## Choosing a collection API
+
+The [DASL and BDASL comparison fixture](../tests/formats/DaslNameLinkSet.lean)
+uses the same object value (`7`) in three ways:
+
+| Use case | API | What it retains |
+| --- | --- | --- |
+| Test whether `7` is present, with no external references. | `SparseIntSet.codec` (built with `Encode.setOf`) and `SparseIntSet.contains` | Just the inline values. No reader or naming policy. |
+| Store payloads out of line, deduplicating repeated `7` alongside a raw blob. | Existing [`LinkedSet.normalize?`](atproto-dasl-linked-set.md) | One entry per content value, using the profile's preferred links. |
+| Address two different names that both resolve to `7`. | `NameLinkSet.normalize` and `Index` | Each typed name remains independently addressable. The alternate alone round-trips in the name codec but the content codec rejects it as nonpreferred. |
+
+The optional [compatibility module](../Silmaril/Formats/Dasl/NameLinkSet/Compatibility/Thms.lean)
+provides an explicit conversion, `ofContentLayout`. It reorders the original
+typed links without resolving them or choosing new names. `reindex_contains`
+matches indexed membership against entries in the old layout with no reader
+assumptions. For a valid layout under a fixed content profile,
+`reindex_member` says membership in the reader's content image agrees exactly
+with `LinkedSet.Member`; after successful normalization it agrees with input
+membership (`reindex_normalize_member`). Equality of the reindexed layouts
+or even just their content images reflects equality of the original layouts
+under that same profile (`reindex_eq_iff`, `reindex_contents_eq_iff`). This
+does not extend to arbitrary name layouts: distinct singleton aliases can
+have the same image even under a deterministic reader. Failed reads supply no
+binding in that image, not proof of semantic absence in a more complete store.
+
+The existing content and nameless APIs and their wire interpretations are
+unchanged. The linked layouts can share array syntax but have different
+ordering and validity rules. Choose the codec explicitly; don't use one as a
+fallback parser for the other.
 
 ```sh
-lake build --wfail +Silmaril.Formats.Dasl.NameLinkSet.Thms +Silmaril.Formats.Dasl.NameLinkSet.Resolved.Thms
+lake build --wfail +Silmaril.Formats.Dasl.NameLinkSet.Compatibility.Thms +Silmaril.Formats.Dasl.NameLinkSet.Resolved.Thms
 lake env lean -DwarningAsError=true --run tests/formats/DaslNameLinkSet.lean
 ```

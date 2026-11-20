@@ -1,9 +1,11 @@
 module
 
-import Silmaril.Formats.Dasl.NameLinkSet.Thms
+import Silmaril.Formats.Dasl.NameLinkSet.Compatibility.Thms
 import Silmaril.Formats.Dasl.NameLinkSet.Resolved.Thms
-meta import Silmaril.Formats.Dasl.NameLinkSet.Thms
+import Silmaril.Formats.Dasl.SparseIntSet.Defs
+meta import Silmaril.Formats.Dasl.NameLinkSet.Compatibility.Thms
 meta import Silmaril.Formats.Dasl.NameLinkSet.Resolved.Thms
+meta import Silmaril.Formats.Dasl.SparseIntSet.Defs
 
 open Silmaril.Formats.Dasl Silmaril.Formats.Dasl.NameLinkSet Silmaril.Formats.Cbor Silmaril.Semantics
 
@@ -92,6 +94,52 @@ private def generic : IO Unit := do
     check (idx.contains query == decide (query ∈ layout.keys)) "binary search edges and gaps"
   check (!(index (normalize ([] : List Nat))).contains 0) "empty index"
 
+private def aliasReader : LinkedSet.Reader UInt64 Nat :=
+  ⟨fun _ => some 7, fun _ => none⟩
+
+example :
+    let first : Layout (MixedKey Nat) := normalize [taggedKey (.obj 1)]
+    let second : Layout (MixedKey Nat) := normalize [taggedKey (.obj 2)]
+    first ≠ second ∧ contents mixedKey (readerRelation aliasReader) first =
+      contents mixedKey (readerRelation aliasReader) second := by
+  refine ⟨?_, ?_⟩
+  · intro same
+    have namesSame := congrArg names same
+    simp [normalize_names, taggedKey] at namesSame
+  · rw [singleton_contents, singleton_contents]
+    rfl
+
+private def compareCollections {format : Drisl.CidProfile} (wire : Wire.Profile (Drisl.Cid format))
+    (primary aliasName blob : Drisl.Cid format) (raw : ByteArray)
+    (readBytes : Drisl.Cid format → Option ByteArray) : IO Unit :=
+  letI := cidOrder (format := format); do
+  let inlineCodec : Encode.TotalCodec SparseIntSet.Layout (Shallow (Drisl.Cid format)) := SparseIntSet.codec
+  let inlineSet := SparseIntSet.normalize [7, 7]
+  let inlineBytes ← expect (wire.render? (inlineCodec.encode inlineSet)) "inline values encode with no link policy"
+  let inlineRecovered ← expect ((wire.parse? inlineBytes).bind inlineCodec.decode?) "inline values recover without a reader"
+  check (SparseIntSet.contains inlineRecovered 7 && !(SparseIntSet.contains inlineRecovered 8))
+    "ordinary value membership suffices"
+
+  let reader := LinkedSet.Reader.wire wire Encode.bits (fun name => Wire.linkSupported (.blob name)) readBytes
+  let profile : LinkedSet.Profile UInt64 (Drisl.Cid format) := ⟨wire.codec Encode.bits, reader, fun
+    | [0, 7] => some (.obj primary)
+    | [1, 255, 0] => some (.blob blob)
+    | _ => none⟩
+  let contentLayout ← expect (LinkedSet.normalize? profile [.object 7, .blob raw, .object 7]) "dedup linked contents"
+  check (LinkedSet.cardinality contentLayout == 2) "content codec counts object and blob values"
+  let reindexed := index (ofContentLayout contentLayout)
+  check (reindexed.contains (taggedKey (.obj primary)) && reindexed.contains (taggedKey (.blob blob)) &&
+    !(reindexed.contains (taggedKey (.obj aliasName)))) "reindex preserves exactly the preferred links"
+
+  let preferred := normalize [taggedKey (.obj primary)]
+  let alternate := normalize [taggedKey (.obj aliasName)]
+  let refs := cidWireCodec wire mixedKey
+  let preferredBytes ← expect (refs.encode? preferred) "preferred link encodes"
+  let alternateBytes ← expect (refs.encode? alternate) "alias also encodes as a name set"
+  check (decide (preferredBytes ≠ alternateBytes)) "equal content does not reflect name layout equality"
+  check (decide (((refs.decode? alternateBytes).map OrderedMap.keys) = some alternate.keys)) "preserve alias on read"
+  check (((wire.parse? alternateBytes).bind (LinkedSet.decode? profile)).isNone) "content codec rejects nonpreferred alias"
+
 private def fixtures (format : Drisl.CidProfile) (hashCode : UInt8) (profile : Wire.Profile (Drisl.Cid format)) :
     IO Unit :=
   letI := cidOrder (format := format); do
@@ -123,9 +171,10 @@ private def fixtures (format : Drisl.CidProfile) (hashCode : UInt8) (profile : W
     let badBytes ← expect (profile.render? (linkArray.encode bad)) "malformed set fixture is legal wire"
     check (objectWire.decode? badBytes).isNone "reject reverse order and duplicate names"
   let raw : ByteArray := ⟨#[255, 0]⟩
-  let read := wireReader profile Wire.linkSupported Encode.bits (fun name =>
+  let readBytes := fun name =>
     if name = primary ∨ name = otherName then some ⟨#[7]⟩
-    else if name = blob ∨ name = invalid then some raw else none)
+    else if name = blob ∨ name = invalid then some raw else none
+  let read := wireReader profile Wire.linkSupported Encode.bits readBytes
   let idx := index objects
   check (decide (idx.lookup objectKey read primary = some (.found (.inl 7)))) "object positive"
   check (decide (idx.lookup objectKey read otherName = some (.found (.inl 7)))) "aliases are distinct members"
@@ -140,6 +189,7 @@ private def fixtures (format : Drisl.CidProfile) (hashCode : UInt8) (profile : W
   let preferred ← expect (objectWire.encode? (ofContents (fun _ => primary) semantic)) "first policy encodes"
   let alternate ← expect (objectWire.encode? (ofContents (fun _ => otherName) semantic)) "second policy encodes"
   check (decide (preferred ≠ alternate)) "same content under two coherent choices, different wire layouts"
+  compareCollections profile primary otherName blob raw readBytes
 
 public def main : IO Unit := do
   generic

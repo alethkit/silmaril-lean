@@ -1,8 +1,10 @@
 # Linked DASL object and blob sets
 
-This is the explicit content-ordered alternative to the default
-[name-ordered reference set](atproto-dasl-name-link-set.md). Its API and ordering
-rules are unchanged.
+Use this layout when a linked set deduplicates by content. The
+[name-ordered reference set](atproto-dasl-name-link-set.md) is the default for
+new link-indexed operations only. The content-ordered API and wire rules are
+unchanged; use the explicit `NameLinkSet.ofContentLayout` adapter to reindex
+existing links by name.
 
 The [layout](../Silmaril/Formats/Dasl/LinkedSet/Defs.lean) stores a single array
 of typed links. The ordering key is the complete canonical payload encoding,
