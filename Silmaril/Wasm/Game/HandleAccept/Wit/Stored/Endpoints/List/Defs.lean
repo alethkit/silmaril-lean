@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Lower.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Lower.Plan.Defs
 
 @[expose] public section
 
@@ -32,12 +32,8 @@ def preflight {E : CoreEngine} (cx : LiftLowerContext E) (channel : Channel) (el
 /-- The canonical list allocation and range checks. Run endpoint validation again
 after realloc: a guest call need not preserve the component or host store. -/
 def allocateRange {E : CoreEngine} {World : Type} (cx : LiftLowerContext E)
-    (layout : Layout) (count : Nat) : P E World Nat := do
-  let size := count * layout.size
-  let ptr ← allocate cx layout.alignment.bytes size
-  trapIf (decide (ptr ≠ alignTo ptr layout.alignment)) .unalignedPointer
-  checkInBounds cx ptr size
-  return ptr
+    (layout : Layout) (count : Nat) : P E World Nat :=
+  Canon.allocateListRange cx layout count
 
 /-- Validate the live claim even when called outside list lowering. Spend before
 canonical lower takes ownership, not after table insertion: that insertion can
@@ -54,10 +50,7 @@ def transfer {E : CoreEngine} {sig : Signature} (limits : Component.Limits)
 def publish {E : CoreEngine} {World : Type} (cx : LiftLowerContext E) (width : AddrType)
     (ptr count : Nat) : (output : Stored.Lower.Output) → P E World output.Result
   | .flat => pure [ptrFlat width ptr, ptrFlat width count]
-  | .memory dest => do
-    let size ← ptrSize cx
-    storeInt cx ptr dest size
-    storeInt cx count (dest + size) size
+  | .memory dest => Canon.storeListDescriptor cx ptr count dest
 
 /-- Lower one dynamic list of claimed endpoints. All typed refusals before realloc are
 effect-free. A post-realloc refusal preserves the allocator's effects and performs no

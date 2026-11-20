@@ -9,6 +9,9 @@ import Silmaril.Proofs.Formats.Cbor.Drisl.Model
 
 namespace Silmaril.Formats.Cbor.Drisl
 
+theorem lexLt_iff (left right : List UInt8) : lexLt left right = true ↔ List.Lex (· < ·) left right :=
+  Silmaril.Proofs.Formats.Cbor.Drisl.Model.lexLt_iff left right
+
 theorem drisl_dasl_language : drislCborLanguage .dasl = language .drislExactCid :=
   Silmaril.Proofs.Formats.Cbor.Drisl.Model.drisl_dasl_language
 
@@ -40,6 +43,12 @@ theorem atproto_render_of_parse_with_codec {Link : Type} (cid : CidCodec Link)
     {bytes : List UInt8} {tree : OrderedATProto Link}
     (read : parseCbor? i64Cbor cid bytes = some tree) : renderCbor? i64Cbor cid tree = some bytes :=
   Silmaril.Proofs.Formats.Cbor.Drisl.Model.atproto_render_of_parse_with_codec cid reencodes read
+
+theorem atproto_model_of_parse_with_codec {Link : Type} (cid : CidCodec Link)
+    (reencodes : ∀ bytes link, cid.parse? bytes = some link → cid.bytes link = bytes)
+    {bytes : List UInt8} {tree : OrderedATProto Link}
+    (read : parseCbor? i64Cbor cid bytes = some tree) : Cbor.decode bytes = some (emitModel i64Cbor cid true tree) :=
+  Silmaril.Proofs.Formats.Cbor.Drisl.Model.atproto_model_of_parse_with_codec cid reencodes read
 
 /-- On encodable, recursively key-sorted DRISL trees the writer and reader preserve the exact AST. -/
 theorem drisl_ordered_roundtrip (profile : CidProfile) (tree : Ordered (Cid profile))

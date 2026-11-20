@@ -3,7 +3,7 @@ module
 public import Silmaril.Wasm.Execution.Core.Intrinsic.Invoke.Defs
 public import Silmaril.Wasm.Execution.Core.Intrinsic.Call.Thms
 public import Silmaril.Wasm.Behaviour.Refinement.Interpreter
-import Silmaril.Wasm.SingleThreaded.Exec.StatusComplete
+import Silmaril.Wasm.Execution.Core.Intrinsic.Normalize.Thms
 
 public section
 
@@ -56,41 +56,13 @@ theorem invokeOk_iff (call : DirectCall left parameters results) (vs : List Val)
     refine ⟨call.instance_, _, _, call.resolveAddress, call.signature, ?_⟩
     simpa [Ty.toList_ofList, stackTypes] using (values_iff left.store parameters vs).mpr typed
 
-private theorem not_diverges_of_normal_form {start final : Config H}
-    (steps : Steps (profile oracle) noHost start final)
-    (normal : ∀ next, ¬ DStep oracle final next) : ¬ Diverges (profile oracle) noHost start := by
-  have bounded : ∀ count size (source : Config H), sizeOf source.code = size →
-      NSteps (DStep oracle) count source final → ¬ Diverges (profile oracle) noHost source := by
-    intro count
-    induction count using Nat.strong_induction_on with
-    | _ count fewer =>
-      intro size
-      induction size using Nat.strong_induction_on with
-      | _ size smaller =>
-        intro source sourceSize path infinite
-        obtain ⟨next, step, infiniteNext⟩ := infinite.unfold
-        cases path with
-        | refl => exact normal next step
-        | @head _ chosen _ tail chosenStep remaining =>
-          rcases source with ⟨store, frame, code⟩
-          rcases DStep.shrink size store frame code next chosen sourceSize step chosenStep with
-            equal | ⟨_, _, shrinks, _⟩
-          · exact fewer tail (by omega) _ _ rfl remaining (equal ▸ infiniteNext)
-          · obtain ⟨distance, le, path⟩ := NSteps.of_step_join
-              (fun first second => DStep.join' first second) normal (.head chosenStep remaining) step
-            rcases Nat.lt_or_eq_of_le le with shorter | same
-            · exact fewer distance shorter _ _ rfl path infiniteNext
-            · exact smaller _ (sourceSize ▸ shrinks) _ rfl (same ▸ path) infiniteNext
-  obtain ⟨count, counted⟩ := NSteps.of_rtg steps
-  exact bounded count _ start rfl counted
-
 theorem invoke_not_diverges (call : DirectCall left parameters results) (args : Values parameters)
     {fuel : Nat} {answer : Option (Values results)} (returned : call.runFor args fuel = some answer) :
     ¬ Diverges (profile oracle) noHost (invoke left.store call.address args.erase) := by
   let final : Config H := ⟨left.store, {}, (invokeResult answer).toAdmin⟩
   have steps : Steps (profile oracle) noHost (invoke left.store call.address args.erase) final := by
     cases answer <;> exact call.invoke_sound args fuel returned
-  exact not_diverges_of_normal_form steps (fun _ => not_step_of_terminal ⟨invokeResult answer, rfl⟩)
+  exact noHost_not_diverges_of_normal_form steps (fun _ => not_step_of_terminal ⟨invokeResult answer, rfl⟩)
 
 theorem invoke_behaviours (call : DirectCall left parameters results) (args : Values parameters)
     {fuel : Nat} {answer : Option (Values results)} (returned : call.runFor args fuel = some answer) :
