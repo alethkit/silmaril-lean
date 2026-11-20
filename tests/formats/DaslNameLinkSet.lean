@@ -3,6 +3,7 @@ module
 import Silmaril.Formats.Dasl.NameLinkSet.Thms
 import Silmaril.Formats.Dasl.NameLinkSet.Resolved.Thms
 meta import Silmaril.Formats.Dasl.NameLinkSet.Thms
+meta import Silmaril.Formats.Dasl.NameLinkSet.Resolved.Thms
 
 open Silmaril.Formats.Dasl Silmaril.Formats.Dasl.NameLinkSet Silmaril.Formats.Cbor Silmaril.Semantics
 
@@ -47,6 +48,17 @@ private theorem fixtureValid : fixtureView.ValidIn fixtureStore := by
 
 example : Expands fixtureStore fixtureView.toNamed.embed.shallow fixtureView.toNamed := ResolvedView.expands fixtureValid
 
+private def fixtureSorted : SortedNamed (mixedKey (Name := Nat)) := SortedNamed.ofView fixtureView
+
+private theorem fixtureBound : fixtureStore.Binding := by
+  constructor <;> intro _ _ _ leftHit rightHit <;> exact leftHit.trans rightHit.symm
+
+example :
+    let correspondence := SortedNamed.compatibleEquiv mixedKey fixtureStore fixtureBound
+    let validTree := ⟨fixtureSorted, SortedNamed.valid_ofView fixtureValid⟩
+    correspondence (correspondence.symm validTree) = validTree :=
+  (SortedNamed.compatibleEquiv mixedKey fixtureStore fixtureBound).apply_symm_apply _
+
 example : ¬ fixtureView.ValidIn { fixtureStore with blobs := fun _ _ => False } := by
   intro valid
   have expanded := valid fixtureObject
@@ -55,6 +67,18 @@ example : ¬ fixtureView.ValidIn { fixtureStore with blobs := fun _ _ => False }
   | obj _ child =>
     cases child with
     | blob absent => exact absent
+
+private def sortedNamed : IO Unit := do
+  check (decide (fixtureSorted.forget.keys = fixtureLayout.keys)) "named tree forget retains order"
+  match fixtureSorted.lookup? (taggedKey (.obj 8)) with
+  | some (.obj 8 (.blob 2 bytes)) => check (decide (bytes = fixtureBytes)) "named lookup preserves nested names"
+  | _ => throw (IO.userError "missing named object")
+  match fixtureSorted.lookup? (taggedKey (.blob 3)) with
+  | some (.blob 3 bytes) => check (decide (bytes = fixtureBytes)) "named lookup returns raw blob"
+  | _ => throw (IO.userError "missing named blob")
+  let wrongKind := taggedKey (.obj 3)
+  check (fixtureSorted.lookup? wrongKind).isNone "same bare name at the wrong tag is not indexed"
+  check (!(index fixtureSorted.forget).contains wrongKind) "direct and indexed absence agree"
 
 private def generic : IO Unit := do
   let tagged := normalize [taggedKey (.blob 3), taggedKey (.obj 3), taggedKey (.obj 3)]
@@ -119,5 +143,6 @@ private def fixtures (format : Drisl.CidProfile) (hashCode : UInt8) (profile : W
 
 public def main : IO Unit := do
   generic
+  sortedNamed
   fixtures .dasl 0x12 Wire.Profile.dasl
   fixtures .bdasl 0x1e Wire.Profile.bdasl
