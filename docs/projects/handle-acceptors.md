@@ -585,7 +585,11 @@ once. This entry point rejects schemas that can require guest realloc, even in a
 arm. The separate `Wit.Stored.Endpoints.ListLower` path supports dynamic lists of
 readable futures or streams. It rechecks all claims after canonical realloc, distinguishes
 refusal before allocation from refusal after the allocator's effects, and spends each claim
-before canonical lower updates ownership. Neither a late table trap nor an allocator's
+before canonical lower updates ownership. Checked endpoint lists and the recursive
+list/map emitter use the same `Canon.allocateListRange` and `Canon.storeListDescriptor`
+programs as the reference: check the returned range in the reached state, and write
+the pointer before the length. The post-realloc authority check remains separate.
+Neither a late table trap nor an allocator's
 reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
 rejected by the general entry point.
 
