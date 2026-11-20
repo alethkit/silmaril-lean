@@ -8,6 +8,14 @@ flattening, common depth by construction, a width bound at every node, and
 history independence for pointwise-equal finite maps. This is a worst-case
 node-width guarantee, not a probabilistic balance or edit-cost result.
 
+[`chunk_eq_iff`](../Silmaril/Semantics/Prolly/Cuts/Thms.lean) identifies
+the unique partition with no skipped eligible cut. Only the final group
+may end through input exhaustion without a cut. `CanonicalGrowth` lifts the
+rule to all levels: only an over-width level can split, and the first level
+that fits is the root. `build_canonical` and `CanonicalGrowth.unique` characterize
+the builder independently of its fuel. These are abstract tree invariants;
+local checks at a raw CAS node alone cannot validate them.
+
 [The DASL adapter](../Silmaril/Formats/Dasl/Prolly/Thms.lean) instantiates keys
 as byte strings in unsigned lexicographic order or signed 64-bit integers in
 numeric order. With explicitly selected key and payload codecs, the profile
