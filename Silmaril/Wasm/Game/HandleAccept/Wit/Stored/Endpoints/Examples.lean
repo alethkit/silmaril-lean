@@ -89,4 +89,36 @@ theorem mixed_session_sound (exec : Mock.mock.Exec) :
     Machine.Steps .deterministic noReady noCalls initial (run exec).labels (run exec).config :=
   Machine.run_sound noReady noCalls exec Machine.Oracle.first 360 initial
 
+/-- A malformed destination fixture traps at instance lookup, after the owner update.
+This exercises the same prefix as a full reference table without allocating it. -/
+noncomputable def lateTrap : P Mock.mock (State mixed) (Ret Mock.mock) := do
+  let limits := Component.Limits.spec
+  let cx : LiftLowerContext Mock.mock := { opts := { memory := some 0 }, inst := ⟨0⟩ }
+  let _ ← invoke (.create .future none)
+  let _ ← invoke (.create .stream byteElement)
+  let .ok _ ← acceptNode mixed limits Quirks.none cx () (.memory 0) []
+    | internal "could not lift the trap fixture"
+  let _ ← give limits { cx with inst := ⟨1⟩ } .future none ⟨⟨0⟩⟩
+  pure .unit
+
+noncomputable def lateInitial : Machine.Config Mock.mock (State mixed) :=
+  { initial with ctl := [Machine.Activation.ofProg (some ⟨0⟩) lateTrap] }
+
+noncomputable def runLate (exec : Mock.mock.Exec) :=
+  Machine.run noReady noCalls exec Machine.Oracle.first 160 lateInitial
+
+theorem late_trap_trace_sound (exec : Mock.mock.Exec) :
+    Machine.Steps .deterministic noReady noCalls lateInitial (runLate exec).labels (runLate exec).config :=
+  Machine.run_sound noReady noCalls exec Machine.Oracle.first 160 lateInitial
+
+theorem late_trap_spends_only_the_moved_claim (exec : Mock.mock.Exec) :
+    let result := runLate exec
+    (result.labels.any (fun label => match label with
+      | .trap (.internal "dangling arena id") => true
+      | _ => false), result.config.host.held, result.config.host.accepted.map rootIds,
+      (result.config.store.end? ⟨0⟩).map (fun endpoint => (endpoint.owner, endpoint.index))) =
+      (true, [⟨2⟩], [[⟨0⟩, ⟨2⟩]], some (some ⟨1⟩, none)) := by
+  dsimp only
+  kernel_rfl
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Examples

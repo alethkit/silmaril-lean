@@ -201,4 +201,186 @@ mutual
   termination_by structural item => item
 end
 
+local notation "flatOwner" => flatCarrier (World := World) limits quirks cx width
+local notation "flatValue" => FlatLoadCarrier.reference (σ := World) limits quirks cx width
+local notation "eraseValue" => Prod.map Observed.value (id : FlatCursor → FlatCursor)
+local notation "eraseItems" => Prod.map (List.map Observed.value) (id : FlatCursor → FlatCursor)
+local notation "eraseCase" => Prod.map (Option.map Observed.value) (id : FlatCursor → FlatCursor)
+
+private theorem projectFlatN {left : FlatCursor → P E World (Observed × FlatCursor)}
+    {right : FlatCursor → P E World (Val × FlatCursor)}
+    (agree : ∀ cursor, eraseValue <$> left cursor = right cursor) (count : Nat)
+    (cursor : FlatCursor) : eraseItems <$> liftFlatN left count cursor = liftFlatN right count cursor := by
+  induction count generalizing cursor with
+  | zero => rfl
+  | succ count ih =>
+    simp only [liftFlatN]
+    exact projectBind eraseValue eraseItems (agree cursor) fun value =>
+      projectBind eraseItems eraseItems (ih value.2) fun _ => rfl
+
+private theorem projectFlatList (layout : Layout) {left : Nat → P E World Observed}
+    {right : Nat → P E World Val} (agree : ∀ ptr, Observed.value <$> left ptr = right ptr)
+    (cursor : FlatCursor) :
+    eraseValue <$> liftFlatListUsing limits cx width layout (Observed.aggregate Val.list) left cursor =
+      liftFlatListWith limits cx width layout right cursor := by
+  unfold liftFlatListUsing liftFlatListWith
+  exact fixedBind _ fun (ptr, _) => fixedBind _ fun (count, _) =>
+    projectBind (List.map Observed.value) eraseValue
+      (projectRange limits cx layout agree (flatNat ptr) (flatNat count)) fun _ => rfl
+
+private theorem projectFlatVariant (count : Nat) (joined : List CoreType) (wants : Nat → List CoreType)
+    {left : Nat → FlatCursor → P E World (Option Observed × FlatCursor)}
+    {right : Nat → FlatCursor → P E World (Option Val × FlatCursor)}
+    (agree : ∀ index cursor, eraseCase <$> left index cursor = right index cursor)
+    (cursor : FlatCursor) :
+    eraseValue <$> liftFlatVariantUsing count joined wants Observed.variant left cursor =
+      liftFlatVariantWith count joined wants right cursor := by
+  unfold liftFlatVariantUsing liftFlatVariantWith
+  exact fixedBind _ fun (discr, _) => fixedBind _ fun _ => fixedBind _ fun _ =>
+    projectBind eraseCase eraseValue (agree (flatNat discr) _) fun _ => rfl
+
+mutual
+  theorem projectFlat : ∀ (type : WIT.ClosedType RtId) (cursor : FlatCursor),
+      eraseValue <$> liftFlatAtWith limits cx width flatOwner type cursor =
+        liftFlatAt limits quirks cx width type cursor
+    | .prim prim, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith, flatCarrier, Functor.map_map]
+      exact id_map _
+    | .ref impossible, _ => nomatch impossible
+    | .list item, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact projectFlatList limits cx width _ (project limits quirks cx width item) cursor
+    | .fixedList item count, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact projectBind eraseItems eraseValue
+        (projectFlatN (projectFlat item) count cursor) fun _ => rfl
+    | .record fields, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact projectBind eraseItems eraseValue (projectFlatFields fields cursor) fun _ => rfl
+    | .tuple items, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact projectBind eraseItems eraseValue (projectFlatTypes items cursor) fun _ => rfl
+    | .variant cases, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact projectFlatVariant _ _ _ (projectFlatCases cases) cursor
+    | .enum labels, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact projectFlatVariant _ _ _ (fun _ _ => rfl) cursor
+    | .flags labels, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact fixedBind _ fun _ => rfl
+    | .option item, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      apply projectFlatVariant
+      intro index cursor
+      rcases index with _ | _ | _
+      · rfl
+      · exact projectBind eraseValue eraseCase (projectFlat item cursor) fun _ => rfl
+      · rfl
+    | .result ok err, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      apply projectFlatVariant
+      intro index cursor
+      rcases index with _ | _ | _
+      · exact projectFlatOption ok cursor
+      · exact projectFlatOption err cursor
+      · rfl
+    | .map key item, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      refine projectFlatList limits cx width _ ?_ cursor
+      intro ptr
+      unfold loadMapEntryUsing
+      exact projectBind Observed.value Observed.value (ordinary_value _) fun _ =>
+        projectBind Observed.value Observed.value (project limits quirks cx width item _) fun _ => rfl
+    | .own resource, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact fixedBind _ fun (slot, _) =>
+        projectBind Observed.value eraseValue (own_value cx resource (flatNat slot)) fun _ => rfl
+    | .borrow resource, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact fixedBind _ fun _ => projectBind Observed.value eraseValue (ordinary_value _) fun _ => rfl
+    | .stream item, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact fixedBind _ fun _ => projectBind Observed.value eraseValue (ordinary_value _) fun _ => rfl
+    | .future item, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact fixedBind _ fun _ => projectBind Observed.value eraseValue (ordinary_value _) fun _ => rfl
+    | .errorContext, cursor => by
+      simp only [liftFlatAt, liftFlatAtWith]
+      exact fixedBind _ fun _ => projectBind Observed.value eraseValue (ordinary_value _) fun _ => rfl
+  termination_by structural type => type
+
+  theorem projectFlatFields : ∀ (fields : List (String × WIT.ClosedType RtId)) (cursor : FlatCursor),
+      eraseItems <$> liftFlatFieldsWith limits cx width flatOwner fields cursor =
+        liftFlatFields limits quirks cx width fields cursor
+    | [], _ => by simp only [liftFlatFields, liftFlatFieldsWith]; rfl
+    | (_, item) :: fields, cursor => by
+      simp only [liftFlatFields, liftFlatFieldsWith]
+      exact projectBind eraseValue eraseItems (projectFlat item cursor) fun value =>
+        projectBind eraseItems eraseItems (projectFlatFields fields value.2) fun _ => rfl
+  termination_by structural fields => fields
+
+  theorem projectFlatTypes : ∀ (items : List (WIT.ClosedType RtId)) (cursor : FlatCursor),
+      eraseItems <$> liftFlatTypesWith limits cx width flatOwner items cursor =
+        liftFlatTypes limits quirks cx width items cursor
+    | [], _ => by simp only [liftFlatTypes, liftFlatTypesWith]; rfl
+    | item :: items, cursor => by
+      simp only [liftFlatTypes, liftFlatTypesWith]
+      exact projectBind eraseValue eraseItems (projectFlat item cursor) fun value =>
+        projectBind eraseItems eraseItems (projectFlatTypes items value.2) fun _ => rfl
+  termination_by structural items => items
+
+  theorem projectFlatCases : ∀ (cases : List (String × Option (WIT.ClosedType RtId)))
+      (index : Nat) (cursor : FlatCursor),
+      eraseCase <$> liftFlatCaseAtWith limits cx width flatOwner cases index cursor =
+        liftFlatCaseAt limits quirks cx width cases index cursor
+    | [], _, _ => by simp only [liftFlatCaseAt, liftFlatCaseAtWith]; rfl
+    | (_, item) :: _, 0, cursor => by
+      simp only [liftFlatCaseAt, liftFlatCaseAtWith]; exact projectFlatOption item cursor
+    | _ :: cases, index + 1, cursor => by
+      simp only [liftFlatCaseAt, liftFlatCaseAtWith]; exact projectFlatCases cases index cursor
+  termination_by structural cases => cases
+
+  theorem projectFlatOption : ∀ (item : Option (WIT.ClosedType RtId)) (cursor : FlatCursor),
+      eraseCase <$> liftFlatOptWith limits cx width flatOwner item cursor =
+        liftFlatOpt limits quirks cx width item cursor
+    | none, _ => by simp only [liftFlatOpt, liftFlatOptWith]; rfl
+    | some item, cursor => by
+      simp only [liftFlatOpt, liftFlatOptWith]
+      exact projectBind eraseValue eraseCase (projectFlat item cursor) fun _ => rfl
+  termination_by structural item => item
+end
+
+theorem projectFlatValues (limits : Limits) (quirks : Quirks) (cx : LiftLowerContext E)
+    (max : Nat) (cursor : FlatCursor) (types : List (WIT.ClosedType RtId)) :
+    Prod.map (List.map Observed.value) id <$>
+        liftFlatValuesWith limits cx (flatCarrier (World := World) limits quirks cx) max cursor types =
+      liftFlatValues limits quirks cx max cursor types := by
+  unfold liftFlatValues liftFlatValuesWith
+  apply fixedBind
+  intro width
+  split
+  · exact fixedBind _ fun (ptr, _) => fixedBind _ fun _ => fixedBind _ fun _ =>
+      projectBind (List.map Observed.value) (Prod.map (List.map Observed.value) id)
+        (projectTypes limits quirks cx width types (flatNat ptr)) fun _ => rfl
+  · exact projectFlatTypes limits quirks cx width types cursor
+
+theorem projectLowerOnStart (limits : Limits) (quirks : Quirks) (caller : CallerId) :
+    List.map Observed.value <$> observeLowerOnStart (E := E) (World := World) limits quirks caller =
+      lowerOnStart limits quirks caller := by
+  unfold observeLowerOnStart lowerOnStart lowerOnStartWith
+  apply fixedBind
+  intro entry
+  cases entry with
+  | lower subtask cx args pos ft maxParams maxResults =>
+    exact fixedBind _ fun _ => fixedBind _ fun _ =>
+      projectBind (Prod.map (List.map Observed.value) id) (List.map Observed.value)
+        (projectFlatValues limits quirks cx maxParams ⟨args, pos⟩ (ft.params.map (·.2)))
+        fun (_, _) => fixedBind _ fun _ => rfl
+  | host | sub =>
+    change _ <$> (internal _ : P E World (List Observed)) = internal _
+    unfold internal trap
+    apply congrArg (Prog.op (S := Eff E World) (Op.trap _))
+    exact funext fun impossible => nomatch impossible
+
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory

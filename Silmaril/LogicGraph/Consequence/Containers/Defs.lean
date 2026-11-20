@@ -6,6 +6,7 @@ public import Silmaril.Containers.Check.Thms
 public import Silmaril.Containers.Noop.Thms
 public import Silmaril.Containers.HttpOnce.Thms
 public import Silmaril.Containers.HttpServe.Thms
+public import Silmaril.Containers.Fixtures.Thms
 
 /-!
 # The logic graph: container obligations as problem shapes and consequence systems
@@ -202,6 +203,48 @@ public theorem http_serve_oci_wlp_answer :
     Wlp Ports.ociRuntime HttpServe.serveSpec HttpServe.image :=
   HttpServe.servesImage
 
+/-! ## The worked examples (`docs/projects/containers-examples.md`) -/
+
+silmaril instance containers.examples.crash_wlp (expect := THM)
+  (title := "A program killed by SIGSEGV: no undefined behaviour (a crash is defined), partial correctness") :=
+  silmaril.shapes.containers.wlp
+  (R := Silmaril.Containers.Mini.machRT) (post := Silmaril.Containers.Mini.anyPost)
+  (i := Silmaril.Containers.Mini.mimage Silmaril.Containers.Mini.crashNow)
+
+@[answers "containers.examples.crash_wlp" thm]
+public theorem crash_wlp_answer : Wlp Mini.machRT Mini.anyPost (Mini.mimage Mini.crashNow) :=
+  Mini.crashNow_wlp _
+
+silmaril instance containers.examples.crash_wp (expect := UNS)
+  (title := "A program killed by SIGSEGV does not exit: total correctness fails") :=
+  silmaril.shapes.containers.wp
+  (R := Silmaril.Containers.Mini.machRT) (post := Silmaril.Containers.Mini.anyPost)
+  (i := Silmaril.Containers.Mini.mimage Silmaril.Containers.Mini.crashNow)
+
+@[answers "containers.examples.crash_wp" csa]
+public theorem crash_wp_answer : ¬ Wp Mini.machRT Mini.anyPost (Mini.mimage Mini.crashNow) :=
+  Mini.crashNow_not_wp _
+
+silmaril instance containers.examples.http (expect := THM)
+  (title := "An HTTP/1.1 server on 8080/tcp: no undefined behaviour, TCP only, only the 200 response, only declared ports") :=
+  silmaril.shapes.containers.vpre
+  (R := Silmaril.Containers.Fixtures.small) (φ := Silmaril.Containers.Fixtures.httpSpec)
+  (i := Silmaril.Containers.Fixtures.http)
+
+@[answers "containers.examples.http" thm]
+public theorem http_answer : VPre Fixtures.small Fixtures.httpSpec Fixtures.http :=
+  Fixtures.http_vpre
+
+silmaril instance containers.examples.vsock (expect := THM)
+  (title := "A vsock compute service: no undefined behaviour, vsock only, answers each request reversed and exits 0") :=
+  silmaril.shapes.containers.vpre
+  (R := Silmaril.Containers.Fixtures.small) (φ := Silmaril.Containers.Fixtures.vsockSpec)
+  (i := Silmaril.Containers.Fixtures.nitro)
+
+@[answers "containers.examples.vsock" thm]
+public theorem vsock_answer : VPre Fixtures.small Fixtures.vsockSpec Fixtures.nitro :=
+  Fixtures.nitro_vpre
+
 /-! ## Checkers, transformers, monitors -/
 
 silmaril instance containers.mini.no_ub_check_sound (expect := THM)
@@ -285,6 +328,8 @@ public def catalogue : List (String × ObligationKind) :=
    ("containers.monitor_correct_stdio", .security),
    ("containers.mini.vsys_sound_raw", .behaviour), ("containers.mini.raw_sound_vsys", .behaviour),
    ("containers.mini.check_sound_vsys", .behaviour), ("containers.noop.oci_wp", .behaviour),
-   ("containers.http_once.oci_wp", .behaviour), ("containers.http_serve.oci_wlp", .behaviour)]
+   ("containers.http_once.oci_wp", .behaviour), ("containers.http_serve.oci_wlp", .behaviour),
+   ("containers.examples.crash_wlp", .behaviour), ("containers.examples.crash_wp", .behaviour),
+   ("containers.examples.http", .security), ("containers.examples.vsock", .security)]
 
 end Silmaril.LogicGraph.Consequence.Containers

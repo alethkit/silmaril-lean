@@ -23,7 +23,22 @@ mkdir -p "$out"
   CompilesToExamples.Explorer.C2C.Elaborates \
   Silmaril.Compiler.Explorer.Text.Thms
 regen="$(mktemp -d)"
-trap 'rm -rf "$regen"' EXIT
+replay_pid=
+cleanup() {
+  local status=$?
+  # Always join the independent replay, including after a foreground failure.
+  if [ -n "$replay_pid" ]; then
+    if ! wait "$replay_pid"; then status=1; fi
+  fi
+  rm -rf "$regen"
+  trap - EXIT
+  exit "$status"
+}
+trap cleanup EXIT
+# Replay reads the completed build; manifest/exporter checks and temporary negative
+# fixtures do not modify its oleans. Keep all bounded workers and join their verdict.
+LAKE="$LAKE" tools/compiler-explorer/replay.sh &
+replay_pid=$!
 "$PYTHON" -I tools/compiler-explorer/fixtures.py manifests --out "$regen" > /dev/null
 "$PYTHON" -I tools/compiler-explorer/fixtures.py rows --check
 "$PYTHON" -I tools/compiler-explorer/fixtures.py stages --check
@@ -41,5 +56,6 @@ if ! diff -u examples/compiler-explorer/expected-status.txt "$out/status.txt"; t
   exit 1
 fi
 "$LAKE" env "$PYTHON" -I tools/compiler-explorer/tests/test_replay.py
-LAKE="$LAKE" tools/compiler-explorer/replay.sh
+wait "$replay_pid"
+replay_pid=
 echo "compiler explorer: ok ($(grep -c ' proved ' "$out/status.txt") proved obligations)"

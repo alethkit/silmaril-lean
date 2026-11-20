@@ -8,6 +8,8 @@ public import Silmaril.Containers.Oci.Defs
 /-!
 # The Linux process semantics as a container machine (restricted, sequential)
 
+**Experimental API** (`docs/projects/containers.md`): definitions and statements may change.
+
 `lps` reads the Linux process semantics of `Silmaril.Process.LPS` (LPS) for statically linked
 x86-64 programs as a machine semantics of `Silmaril.Containers.Mach`, so that a container
 runtime over it (`Mach.MachRuntime`) has explicit undefined behaviour, events and task creation.
