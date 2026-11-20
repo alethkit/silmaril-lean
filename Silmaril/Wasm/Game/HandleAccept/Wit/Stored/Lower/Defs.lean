@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Defs
+public import Silmaril.Wasm.Component.Reference.Validation.CanonOpts.Defs
 
 @[expose] public section
 
@@ -38,9 +39,11 @@ def checkSchema (type : TypeOf) : Except Issue Unit := do
   if containsAsyncValue type then throw .endpointNeedsTransfer
   if contains (fun | .errorContext => true | _ => false) type then throw .errorContextNeedsStoreCheck
 
+/-- Options cover this value's ABI representation, not later reads or writes of
+a future or stream element. Those calls use and validate their own options. -/
 def checkOptions {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
     (output : Output) : Except Issue Unit := do
-  let indirect := containsListOrString type
+  let indirect := Validation.containsPtr type
   if (output.needsMemory || indirect) && cx.opts.memory.isNone then throw .memoryRequired
   if indirect && cx.opts.realloc.isNone then throw .reallocRequired
 
