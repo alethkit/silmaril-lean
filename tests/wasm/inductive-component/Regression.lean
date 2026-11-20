@@ -2,6 +2,7 @@ module
 
 import Silmaril.Wasm.Component.IntrinsicWiring.Thms
 import Silmaril.Wasm.Validation.Intrinsic.ReifyThms
+import Silmaril.Wasm.ModuleParts.Thms
 
 open Silmaril Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Validation
 open Silmaril.Wasm.Component.IntrinsicWiring
@@ -9,12 +10,15 @@ open Silmaril.Wasm.Component.Types
 
 private def signature : Wasm.RecType := ⟨[⟨true, [], .func ⟨[], [.i32]⟩⟩]⟩
 
-private def provider : Wasm.Module :=
-  { types := [signature], funcs := [⟨⟨0⟩, [], [.intConst .i32 42]⟩], exports := [⟨"get", .func ⟨0⟩⟩] }
+private def providerParts : ModuleParts Wasm.Func :=
+  ⟨{ types := [signature], exports := [⟨"get", .func ⟨0⟩⟩] }, [⟨⟨0⟩, [], [.intConst .i32 42]⟩]⟩
 
-private def consumer : Wasm.Module :=
-  { types := [signature], imports := [⟨"env", "get", .func ⟨0⟩⟩]
-    funcs := [⟨⟨0⟩, [], [.call ⟨0⟩]⟩], exports := [⟨"run", .func ⟨1⟩⟩] }
+private def consumerParts : ModuleParts Wasm.Func :=
+  ⟨{ types := [signature], imports := [⟨"env", "get", .func ⟨0⟩⟩], exports := [⟨"run", .func ⟨1⟩⟩] },
+    [⟨⟨0⟩, [], [.call ⟨0⟩]⟩]⟩
+
+private def provider := providerParts.toCore
+private def consumer := consumerParts.toCore
 
 private abbrev Payload := Σ raw : Wasm.Module, Wasm.Validation.Intrinsic.Reify.Reified raw
 
@@ -74,6 +78,9 @@ example : erased = Syntax.Component.map bodyErase linked.2.erase :=
 
 example : bodyErase providerPayload = provider := providerPayload.2.erase_eq
 example : bodyErase consumerPayload = consumer := consumerPayload.2.erase_eq
+
+example : (bodyErase consumerPayload).split = consumerParts :=
+  (congrArg Wasm.Module.split consumerPayload.2.erase_eq).trans consumerParts.split_toCore
 
 example : erased.coreModules.map (fun mod => mod.exports.map Wasm.Export.name) = [["get"], ["run"]] :=
   by decide +kernel

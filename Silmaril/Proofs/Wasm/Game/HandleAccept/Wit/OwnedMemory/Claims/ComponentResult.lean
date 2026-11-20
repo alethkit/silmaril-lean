@@ -149,4 +149,71 @@ theorem deliver_pending (subtask : SubtaskId) (record : Subtask) (index : Nat)
   simp only [CStore.takeWaitableEventSt, take_returned subtask record index live returned indexed eventPending]
   exact .refl _
 
+private theorem resultLayout (width : AddrType) :
+    ABI.layout width resultType = ⟨.four, 2⟩ := by
+  simp only [resultType, ABI.layout, ABI.layoutOption, ABI.primitiveLayout]
+  rfl
+
+private theorem resultTupleLayout (width : AddrType) :
+    ABI.layout width (.tuple [resultType]) = ⟨.four, 2⟩ := by
+  simp only [ABI.layout, ABI.layoutTypes, resultLayout]
+  rfl
+
+private theorem resultPayloadAlignment (width : AddrType) :
+    ABI.maxCaseAlignment [ABI.layoutOption width (some (.prim .u32 : WIT.ClosedType RtId)),
+      ABI.layoutOption width (none : Option (WIT.ClosedType RtId))] = .four := by
+  simp only [ABI.layoutOption, ABI.layout, ABI.primitiveLayout]
+  rfl
+
+private theorem resultFlatCount (width : AddrType) :
+    (ABI.flattenTypes width [resultType]).length = 2 := by
+  simp [resultType, ABI.flattenTypes, ABI.flatten, ABI.flattenOption, ABI.flattenPrimitive]
+
+private theorem store_result (cx : LiftLowerContext (core3 grow)) (out : Nat) (reply : Option Nat) :
+    (store Limits.spec Quirks.none cx (.record [reply.elim (.variant 1 none)
+      (fun handle => .variant 0 (some (Val.u32 handle)))]) (.tuple [resultType]) out : Session grow sig Unit) =
+    (do
+      let _ ← ptrType cx
+      let _ ← ptrType cx
+      let field := ABI.alignTo out .four
+      let _ ← match reply with
+        | none => storeInt cx 1 field 1
+        | some handle =>
+          storeInt cx 0 field 1
+          storeInt cx handle (ABI.alignTo (field + 1) .four) 4
+      pure ()) := by
+  cases reply <;> simp only [store, storeTuple, resultLayout] <;>
+    simp [resultType, store, resultPayloadAlignment, storeVariantHead, storeOpt, storePrim, Val.u32,
+      IntKind.ofPrimitive, IntKind.width, IntKind.signed, discSize, ABI.discriminantAlignment,
+      ABI.Alignment.bytes, Prog.bind_assoc]
+
+theorem lower_result_program (cx : LiftLowerContext (core3 grow)) (cursor : FlatCursor)
+    (maxResults : Nat) (indirect : maxResults ≤ 1) (reply : Option Nat) :
+    (lowerFlatValues Limits.spec Quirks.none cx maxResults
+      [reply.elim (.variant 1 none) (fun handle => .variant 0 (some (Val.u32 handle)))]
+      [resultType] (some cursor) : Session grow sig (List FlatValue)) =
+    (do
+      let width ← ptrType cx
+      let (pointer, _) ← cursor.next (ABI.pointerType width)
+      let out := flatNat pointer
+      trapIf (decide (out ≠ ABI.alignTo out .four)) .unalignedPointer
+      checkInBounds cx out 8
+      let _ ← ptrType cx
+      let _ ← ptrType cx
+      let field := ABI.alignTo out .four
+      let _ ← match reply with
+        | none => storeInt cx 1 field 1
+        | some handle =>
+          storeInt cx 0 field 1
+          storeInt cx handle (ABI.alignTo (field + 1) .four) 4
+      return []) := by
+  simp [lowerFlatValues, resultFlatCount, resultTupleLayout, show maxResults < 2 by omega,
+    spillPointer, ABI.Layout.size, ABI.Alignment.bytes, store_result, Prog.bind_assoc]
+  cases reply <;> simp [Prog.bind_assoc]
+
+theorem result_payload_offset (out : Nat) (aligned : out = ABI.alignTo out .four) :
+    ABI.alignTo (ABI.alignTo out .four + 1) .four = out + 4 := by
+  simp only [ABI.alignTo, ABI.Alignment.bytes] at aligned ⊢
+  omega
+
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult
