@@ -757,6 +757,17 @@ range without resuming the emitter, or proceeds to claim revalidation in that st
 Neither the cursor nor the allocator-return rule assumes byte preservation, an
 allocator return on every trace, or success of the subsequent transfer.
 
+`PayloadPrefix.collection_install` applies that width certificate to the
+actual recursive collection programs. After the initial plan check succeeds,
+the two machines install the same realloc request with separately saved
+continuations. `collection_return` composes an actual paired return with
+range validation, the fresh checked plan verdict, element traversal, and the
+canonical list descriptor. A refused recheck leaves the reference before
+the elements, and a later descriptor trap retains preceding writes. The
+rules cover value-mode entries (dynamic lists and flat-map entries); the
+memory-map placement mode and the synthesis of paired reentrant runs for
+arbitrary nested public outputs remain separate obligations.
+
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
 canonical leaf programs, then traverses the placed record/tuple fields, list and

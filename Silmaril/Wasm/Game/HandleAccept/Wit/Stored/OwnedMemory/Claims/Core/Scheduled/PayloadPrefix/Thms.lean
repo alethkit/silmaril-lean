@@ -78,6 +78,76 @@ theorem memory_sum (destination : RecordDestination) (inst : InstId) (type : Typ
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memorySum
     destination inst type arms tag index ptr selected left right width child
 
+/-- After the initial dry run admits this collection, the actual recursive
+programs install the same allocator request; a certified scheduler prefix
+preserves the checked width. The saved checked continuation
+validates range first and then re-reads the live plan. `mode` excludes the
+memory-map case, whose entry offsets use allocation-time placement. -/
+theorem collection_install (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+    (entries : List Field) (output : Lower.Output) (index : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    {initial labels} (prefixRun : CoreGrowthSteps profile ready dispatch initial labels right)
+    (checkedDestination : destination.check initial.store = .ok ())
+    (mode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let cx := destination.context (grow := grow) inst
+    let area := layout destination.width element
+    let request := Call.reallocate cx 0 0 area.alignment.bytes (entries.length * area.size)
+    ∃ checkResume canonResume : ReturnFrame.Continuation (core3 grow) (HostState sig),
+      let active := fun resume => ({ cursor with frames := .prog resume :: cursor.frames }).control (dispatch request)
+      let checkCall := { left with ctl := active checkResume }
+      let canonCall := { right with ctl := active canonResume }
+      (∀ pointer, checkResume (.nat pointer) = (do
+        let ptr ← validateListRange cx area entries.length pointer
+        let live ← Record.Effects.reserve recordClaims (Field.listObjects entries)
+        checkedCollectionTail destination inst entries area index output ptr live >>= checkNext)) ∧
+      (∀ pointer, canonResume (.nat pointer) = (do
+        let ptr ← validateListRange cx area entries.length pointer
+        canonicalCollectionTail destination inst entries area output ptr >>= canonNext)) ∧
+      Machine.Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
+      Machine.Steps profile ready dispatch right [.tau, .tau] canonCall ∧
+      HostFrame.Paired checkResume canonResume checkCall canonCall :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionInstall
+    destination inst type element entries output index left right cursor checkNext canonNext same prefixRun
+    checkedDestination mode prepared checkAt canonAt
+
+/-- From an actual paired return, use the reached memory and live writer.
+Invalid ranges trap on both sides. A typed live refusal leaves the reference
+before the element traversal. Otherwise compose the reached child rules and
+the real descriptor, including a possible trap after its pointer write. -/
+theorem collection_return (destination : RecordDestination) (inst : InstId) (entries : List Field)
+    (area : Layout) (output : Lower.Output) (index pointer : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (checkCursor canonCursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (checkResume canonResume : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (paired : HostFrame.Paired checkResume canonResume left right) (sameThread : checkCursor.thread = canonCursor.thread)
+    (leftAt : left.ctl = { checkCursor with frames := .prog checkResume :: checkCursor.frames }.control (pure (.nat pointer)))
+    (rightAt : right.ctl = { canonCursor with frames := .prog canonResume :: canonCursor.frames }.control (pure (.nat pointer)))
+    (checkBody : checkResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      let live ← Record.Effects.reserve recordClaims (Field.listObjects entries)
+      checkedCollectionTail destination inst entries area index output ptr live >>= checkNext))
+    (canonBody : canonResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      canonicalCollectionTail destination inst entries area output ptr >>= canonNext))
+    {bytes : Nat} (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (compared : ∀ item ∈ entries, ∀ address pos, Compare profile ready dispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        item pos (.memory address))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
+    Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionReturn
+    destination inst entries area output index pointer left right checkCursor canonCursor checkNext canonNext
+    checkResume canonResume paired sameThread leftAt rightAt checkBody canonBody sized compared
+
 /-- The compiler's layout certificate supplies the tag bounds at every
 selected sum in the handle-only fragment. -/
 theorem checked_fragment {field : Field} {type : TypeOf} (layout : Field.LayoutMatches field type)
