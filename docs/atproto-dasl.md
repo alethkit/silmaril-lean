@@ -52,8 +52,11 @@ binding. It allows missing names but rejects incompatible *present* bindings.
 the store. `Wire.readObject` preserves missing versus invalid wire (including a
 wrong CID kind); it does not authenticate the contents by hashing. `Wire.Serializes`
 is a checked relation: rendering emits the bytes and parsing recovers the given
-abstract source. The checked relation is functional, but the foundation does
-not claim every writer output satisfies the abstract roundtrip.
+abstract source. `Wire.parse_iff_renderBounded` gives both directions for the
+typed canonical codec: accepted input reprints byte for byte, and successful
+bounded rendering recovers the source. Dictionaries are sorted by encoded CBOR
+text keys, not by Lean's `String` order. The unbounded writer is not asserted
+total, and debug JSON is not byte-hash serialization.
 
 An `i64` leaf stores `UInt64` bits. The adapter uses `UInt64.toInt64` before the
 existing signed wire encoder, which chooses CBOR unsigned or negative-integer
@@ -79,13 +82,11 @@ an unresolved reference; only a missing root returns `none`.
 
 ## Remaining work
 
-- [ ] **Canonical representation:** `Wire.lower_toOrdered` checks the abstract
-  projection, including bounded array indices and finite maps; `lower_map_perm`
-  checks invariance under permutations of distinct keys. `parse_eq_some_iff`
-  characterizes accepted canonical wire and its abstract value. The remaining
-  roundtrips for `Wire.render?` need the existing DRISL ordered correspondence
-  lifted to the typed CID codec and a proof that recursive canonical sorting
-  preserves the projection. Keep debug JSON out of byte-hash serialization.
+- [ ] **Canonical encoder domain:** `Wire.parse_eq_some_iff` characterizes
+  accepted canonical wire, and `Wire.parse_iff_renderBounded` gives the exact
+  abstract roundtrip on that domain. Establish general encoder success for
+  abstract values with valid typed links and encodable models, by proving their
+  recursively emitted maps satisfy `canonicalMaps` without a runtime check.
 - [ ] **Partial resolution:** in `Resolve`, prove that every compatible partial
   observation refines into the full tree under binding, characterize when a
   partial-only root has a nontrivial observation, and connect the decoded
@@ -140,4 +141,11 @@ or hash preimage exists. The Docker opt-in adapter's `fillMissing` realizes the
 same relational operation on its partial maps; `checked` and `decode` still
 filter reads and are not used as tests for absence when filling.
 
-Standalone countermodels: `lake env lean -DwarningAsError=true tests/formats/DaslRawStore.lean`.
+`readObject_found_iff` connects the existing executable CBOR reader to the
+decoded view of the original byte map. `readObject_sound` carries successful
+reads to any extension that includes those bytes. Missing is relative to the
+reader (an absent object CID); a wrong codec or malformed present block is
+invalid. The reader does not check hashes or infer globally verified absence.
+
+Standalone countermodels and read regression:
+`lake env lean -DwarningAsError=true --run tests/formats/DaslRawStore.lean`.
