@@ -31,8 +31,9 @@ variable {grow : SingleThreaded.GrowOracle} {sig : Signature} {profile : Profile
   {ready : HostReady (HostState sig)} {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
 
 /-- Compare the actual flat lowering programs recursively for records,
-tuples and fixed lists made from own, stream, future and error-context leaves.
-The initial hosts need not agree: each checked leaf re-reads its live writer. -/
+tuples, fixed lists and well-tagged sums made from own, stream, future and
+error-context leaves. The writers need not agree: each checked leaf re-reads
+its live writer. -/
 theorem flat_field (destination : RecordDestination) (inst : InstId) (item : Field)
     (fragment : HandleField item) (index : Nat) :
     Compare profile ready dispatch
@@ -41,16 +42,40 @@ theorem flat_field (destination : RecordDestination) (inst : InstId) (item : Fie
       (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item .flat) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.flatField destination inst item fragment index
 
+/-- Compose a selected arm comparison with the actual flat coercion and
+padding program. Coercion runs only on common success, and its canonical
+choices and traps stay visible on both sides. -/
+theorem flat_sum (destination : RecordDestination) (inst : InstId) (type : TypeOf)
+    (arms : List (Option TypeOf)) (tag index : Nat) (selected : Option Field) (valid : tag < arms.length)
+    (child : ∀ item, selected = some item → Compare profile ready dispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst)
+        destination.width item 0 .flat)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item .flat)) :
+    Compare profile ready dispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.sum type arms tag selected) index .flat)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.sum type arms tag selected) .flat) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.flatSum
+    destination inst type arms tag index selected valid child
+
+/-- The compiler's layout certificate supplies the tag bounds at every
+selected sum in the handle-only fragment. -/
+theorem checked_fragment {field : Field} {type : TypeOf} (layout : Field.LayoutMatches field type)
+    (shape : HandleShape field) : HandleField field :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.certifyField layout shape
+
 /-- The linked public `giveFlat` call reaches the same flat words as
-`lowerFlatAt` for compiled handle-only aggregates, tuples and fixed lists, or
-stops at a typed refusal or common canonical trap. Returned verdicts reach the
+`lowerFlatAt` for compiled handle-only aggregates, fixed lists and sums, or
+stops at a typed refusal or common canonical trap. The same canonical choice
+answers are recorded on both sides. Returned verdicts reach the
 original ticketed reply program, not a claim that the enclosing export returns. -/
 theorem parked_giveFlat (bindings : List (Binding sig)) (name : String) (type : V1.FuncType)
     (handleWord : BitVec IntType.i32.width) (destination : RecordDestination) (inst : InstId) (schema : TypeOf)
     (tag : sig.Tag) (payload : OwnedMemory.Payload (sig.payload tag)) {arity : Nat}
     (children : Fin arity → OwnedMemory.Tree sig) (field : Field) (plan : List Object)
     (compiled : Record.preflightValue (destination.context (grow := grow) inst) (sig.payload tag)
-      payload .flat = .ok (field, plan)) (fragment : HandleField field)
+      payload .flat = .ok (field, plan)) (fragment : HandleShape field)
     (start reference : Config (core3 grow) (HostState sig)) (sameStore : start.store = reference.store)
     (canonCursor : Cursor (E := core3 grow) (HostState sig)) (canonNext : List FlatValue → Session grow sig (Ret (core3 grow)))
     {thread core continuation segments rest} (sameThread : thread = canonCursor.thread)
