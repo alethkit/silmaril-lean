@@ -239,4 +239,15 @@ theorem WriterRun.retains_target {before after : State sig} (run : WriterRun bef
     Endpoints.Core.childFromHistory after.accepted handle = some tree :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.retained_target run selected
 
+/-- A fresh Core handle resolves exactly when its journal position records a
+publication. This is a statement about tree lookup, not live transfer authority. -/
+theorem PublicationDelta.fresh_lookup_iff {before after : HostState sig}
+    (journal : PublicationDelta before after) {handle : BitVec 32}
+    (fresh : before.writer.accepted.length < handle.toNat) :
+    (Endpoints.Core.childFromHistory after.writer.accepted handle).isSome = true ↔
+      ∃ ticket, after.publications[before.publications.length +
+        (handle.toNat - (before.writer.accepted.length + 1))]? = some (ticket, handle.toNat) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.publication_lookup_iff
+    journal fresh
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled

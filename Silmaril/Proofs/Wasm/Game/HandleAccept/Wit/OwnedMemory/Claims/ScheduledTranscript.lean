@@ -328,14 +328,21 @@ private theorem accept_with_safe (ticket : Nat)
   · exact .pure none _
   · exact publish_safe _ _
 
+private theorem commitOwner_safe (cx : LiftLowerContext (core3 grow)) (resource : RtId)
+    (id : HandleObjId) (representation : Nat) :
+    Safe (Stored.OwnedMemory.Claims.commitOwner ((claims (sig := sig)).spend (.owner id))
+      Limits.spec cx resource representation) := by
+  unfold Stored.OwnedMemory.Claims.commitOwner
+  exact HostWrite.bind (spend_safe (.owner id)) fun _ =>
+    readOnly (P.Inv.lowerOwn (fun _ _ _ => trivial) (fun _ _ _ _ => trivial) _ _ _ _)
+
 private theorem give_safe (cx : LiftLowerContext (core3 grow)) (resource : RtId) (id : HandleObjId) :
     Safe ((claims (sig := sig)).give Limits.spec cx resource id) := by
   unfold Stored.OwnedMemory.Claims.Access.give
   refine HostWrite.bind read_safe fun state => ?_
   split
   · exact .pure none _
-  · refine HostWrite.bind (readOnly (P.Inv.lowerOwn (fun _ _ _ => trivial) (fun _ _ _ _ => trivial) _ _ _ _)) fun _ => ?_
-    exact HostWrite.bind (spend_safe _) fun _ => .pure none _
+  · exact HostWrite.bind (commitOwner_safe cx resource id _) fun _ => .pure none _
 
 private theorem giveEndpoint_safe (cx : LiftLowerContext (core3 grow)) (channel : Channel) (element : Element)
     (endpoint : Endpoint (channel.endKind .read) element) :
@@ -380,9 +387,8 @@ private theorem record_transfer_safe (cx : LiftLowerContext (core3 grow)) (index
     dsimp only
     split
     · exact .pure none _
-    · refine HostWrite.bind (readOnly (P.Inv.lowerOwn (fun _ _ _ => trivial) (fun _ _ _ _ => trivial)
-        _ _ _ _)) fun _ => ?_
-      exact HostWrite.bind (spend_safe _) fun _ => .pure none _
+    · exact HostWrite.bind (commitOwner_safe cx receipt.1 (Stored.OwnedMemory.Claims.receiptId receipt) _)
+        fun _ => .pure none _
   | shared object =>
     cases object with
     | endpoint channel element id =>
@@ -757,7 +763,7 @@ private theorem before_lift_safe (ticket : Nat) (caller : CallerId) (issue : Iss
 
 private theorem tree_safe (ticket : Nat) (caller : CallerId) (tree : Stored.OwnedMemory.Tree sig) :
     Safe (resolveTree (grow := grow) ticket caller tree) := by
-  unfold resolveTree
+  unfold resolveTree completeResolvedTree
   apply HostWrite.bind (readOnly P.Inv.hostGet)
   intro state
   split
@@ -1159,5 +1165,37 @@ theorem retained_target {before after : State sig} (run : WriterRun before after
       rw [List.getElem?_append_right oldOffset, offset]]
     exact selected
   · simp [Stored.Endpoints.Core.childFromHistory, valid] at selected
+
+theorem publication_lookup_iff {before after : HostState sig}
+    (journal : PublicationDelta before after) {handle : BitVec 32}
+    (fresh : before.writer.accepted.length < handle.toNat) :
+    (Stored.Endpoints.Core.childFromHistory after.writer.accepted handle).isSome = true ↔
+      ∃ ticket, after.publications[before.publications.length +
+        (handle.toNat - (before.writer.accepted.length + 1))]? = some (ticket, handle.toNat) := by
+  obtain ⟨entries, appended, size, issued⟩ := journal
+  let index := handle.toNat - (before.writer.accepted.length + 1)
+  have position : handle.toNat = before.writer.accepted.length + index + 1 := by
+    dsimp [index]
+    omega
+  have positive : 0 < handle.toNat := by omega
+  change _ ↔ ∃ ticket, after.publications[before.publications.length + index]? = some (ticket, handle.toNat)
+  rw [appended, List.getElem?_append_right (Nat.le_add_right _ _), Nat.add_sub_cancel_left]
+  constructor
+  · intro found
+    have within : handle.toNat ≤ after.writer.accepted.length := by
+      by_contra! notWithin
+      simp [Stored.Endpoints.Core.childFromHistory, positive, Nat.not_le.mpr notWithin] at found
+    have inEntries : index < entries.length := by omega
+    let item := entries[index]
+    have entry : entries[index]? = some (item.1, item.2) := List.getElem?_eq_getElem inEntries
+    have valid := (issued index item.1 item.2 entry).1
+    exact ⟨item.1, by simpa only [show item.2 = handle.toNat by omega] using entry⟩
+  · rintro ⟨ticket, entry⟩
+    have inEntries : index < entries.length := by
+      by_contra! outOfRange
+      simp [List.getElem?_eq_none outOfRange] at entry
+    have within : handle.toNat ≤ after.writer.accepted.length := by omega
+    have offset : after.writer.accepted.length - handle.toNat < after.writer.accepted.length := by omega
+    simp [Stored.Endpoints.Core.childFromHistory, positive, within, List.getElem?_eq_getElem offset]
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript

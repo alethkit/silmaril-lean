@@ -33,13 +33,28 @@ def iteration : List Instr :=
 /-- The loop starts with the zero-initialized index in local 1. -/
 def body : List Instr := [.loop .empty iteration]
 
+/-- Initial page count within the memory32 limit. -/
+abbrev InitialPages := { count : Nat // count ≤ 65536 }
+
+def InitialPages.one : InitialPages := ⟨1, by decide⟩
+
+def memoryType (pages : InitialPages) : MemoryType :=
+  ⟨.i32, ⟨⟨pages.val, by have := pages.property; omega⟩, none⟩⟩
+
 /-- Variable-length memory checker with the same three imports as `listMod`. -/
-def mod (ix : ListImports) : Module :=
-  { listMod ix with funcs := [⟨⟨1⟩, [.i32, .i32, .i32], body⟩] }
+def mod (ix : ListImports) (pages : InitialPages := InitialPages.one) : Module :=
+  { listMod ix with memories := [memoryType pages], funcs := [⟨⟨1⟩, [.i32, .i32, .i32], body⟩] }
 
 def listsOf (kind : Set SymStrBytesSExp) : Set SymStrBytesSExp :=
   {tree | ∃ children : List SymStrBytesSExp, (∀ child ∈ children, child ∈ kind) ∧
     tree = SExp.ofList children}
+
+/-- A necessary length bound for the memory32 checker: at most `2 ^ 30` four-byte
+words fit in its address range. This does not assert that a host can represent every
+list at that limit or that its replies use any particular base address. -/
+def boundedListsOf (kind : Set SymStrBytesSExp) : Set SymStrBytesSExp :=
+  {tree | ∃ children : List SymStrBytesSExp, children.length ≤ 2 ^ 30 ∧
+    (∀ child ∈ children, child ∈ kind) ∧ tree = SExp.ofList children}
 
 /-- The loop has checked exactly the prefix before `index` of the tree held by `root`.
 It retains neither the last memory image nor the handles it contained. -/

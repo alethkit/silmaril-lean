@@ -70,6 +70,14 @@ private noncomputable def trapDuringDrop : P Mock.mock World (Ret Mock.mock) := 
     trap (.unknownHandle 42)) resource ⟨1⟩
   pure .unit
 
+private noncomputable def trapDuringGive : P Mock.mock World (Ret Mock.mock) := do
+  acquire
+  let .ok 2 ← give limits context resource ⟨0⟩
+    | internal "first owner transfer failed"
+  storeInt context 7 0 1
+  let _ ← give limits { context with inst := ⟨1⟩ } resource ⟨1⟩
+  pure .unit
+
 private noncomputable def reacquire : P Mock.mock World (Ret Mock.mock) := do
   let _ ← roundTrip
   let _ ← Builtins.resourceNew limits resource 77
@@ -168,6 +176,23 @@ theorem trapping_destructor_keeps_other_owner_and_tree (X : Mock.mock.Exec) :
     (result.labels.any (fun label => match label with | .trap (.unknownHandle 42) => true | _ => false),
       result.config.host.accepted.length, result.config.host.held.map receiptId) =
       (true, 1, [⟨0⟩]) := by
+  dsimp only
+  kernel_rfl
+
+/-- Missing destination fixture: the new owning object exists but was not inserted.
+Inspect retry admission in the reached host state, not a guest call after lockdown. -/
+theorem trapping_give_spends_claim_before_insertion (X : Mock.mock.Exec) :
+    let result := run X trapDuringGive
+    let store := result.config.store
+    let state := result.config.host
+    let refused := match state.prepare resource ⟨1⟩ with | .error .unclaimed => true | _ => false
+    (result.labels.any (fun label => match label with
+      | .trap (.internal "dangling arena id") => true
+      | _ => false), refused, state.accepted.length, state.held.map receiptId,
+      (store.inst? ⟨0⟩).bind (·.handles.get? 2),
+      (store.resHandle? ⟨3⟩).map (fun handle => (handle.rt, handle.rep, handle.own)),
+      (store.core.mems[0]?.map (·.bytes)).bind (·[0]?)) =
+      (true, true, 1, [], some (.resource ⟨2⟩), some (resource, 77, true), some 7) := by
   dsimp only
   kernel_rfl
 
