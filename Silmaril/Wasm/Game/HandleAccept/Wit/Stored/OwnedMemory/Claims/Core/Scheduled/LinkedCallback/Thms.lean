@@ -262,6 +262,49 @@ theorem mixed_flat_rule {older : ReturnFrame.Substitutions (core3 grow) (HostSta
     FlatFieldRule (mixedFlatComparison profile ready bindings older destination inst) older origin destination inst item :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.mixedFlatRule destination inst item present realloc fit
 
+theorem ChildFrameOver.handle_field_then {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {origin : CStore (core3 grow)} (destination : RecordDestination) (inst : InstId) (item : Field) (handle : CanonicalHandle item)
+    (index : Nat) (output : Stored.Lower.Output)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon) (growth : Core3.Grows origin.core left.store.core)
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width item index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width item output >>= canonNext))
+    {next : output.Result → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Prop}
+    (ends : ∀ value reached reference check canon, ChildFrameOver older reached reference check canon →
+      Core3.Grows origin.core reached.store.core → reached.ctl = check.control (checkNext (.ok value)) →
+      reference.ctl = canon.control (canonNext value) → next value reached reference check canon) :
+    HandleFieldThen profile ready bindings item index output left right check canon checkNext canonNext next :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.handleFieldThen
+    destination inst item handle index output checkNext canonNext frame growth checkAt canonAt ends
+
+theorem ChildFrameOver.string_field_then {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {origin : CStore (core3 grow)} (destination : RecordDestination) (inst : InstId) (item : StringField) (output : Stored.Lower.Output)
+    (index : Nat) (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon) (growth : Core3.Grows origin.core left.store.core)
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fit : StoreStringPre Quirks.none destination.encoding destination.width item.value)
+    (placed : rootPlacement destination left.store (.prim .string) output = .ok ())
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width item.field index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width item.field output >>= canonNext))
+    {next : output.Result → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Prop}
+    (ends : ∀ value reached reference check canon, ChildFrameOver older reached reference check canon →
+      Core3.Grows origin.core reached.store.core → reached.ctl = check.control (checkNext (.ok value)) →
+      reference.ctl = canon.control (canonNext value) → next value reached reference check canon) :
+    StringFieldThen profile ready bindings older destination inst item.value output left right check canon checkNext canonNext next :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringFieldThen
+    destination inst item output index checkNext canonNext frame growth present realloc fit placed checkAt canonAt ends
+
 /-- Induct through actual record/tuple and fixed-list flat programs. The
 branch returns its concatenated words to the enclosing continuation only
 after all its visited children succeed. -/
