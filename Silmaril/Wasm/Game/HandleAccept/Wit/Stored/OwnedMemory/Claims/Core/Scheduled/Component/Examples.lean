@@ -190,8 +190,9 @@ private def canonicalTrap (second out : Nat) (reason : TrapReason)
 #guard rejectedMemoryWidth
 #guard canonicalTrap 1 128 (.unknownHandle 1) (none, some (.resource ⟨1⟩))
 #guard canonicalTrap 2 65536 .outOfBounds (none, none)
+#guard canonicalTrap 2 129 .unalignedPointer (none, none)
 
-private def deferredProgram (spill stale pollDelivery : Bool) (inst : ModuleInst) :
+private def deferredProgram (spill stale : Bool) (pollOut : Option Nat) (inst : ModuleInst) :
     Session grow (signature spill) (Ret engine) := do
   let check := fun name args expected => do
     let some address := exportAddr inst name | internal "missing deferred replay export"
@@ -204,17 +205,17 @@ private def deferredProgram (spill stale pollDelivery : Bool) (inst : ModuleInst
   check "cancel" [3] [AsyncRef.subtaskCancelResult (some .cancelledBeforeStarted)]
   check "drop" [3] []
   check "accept" [0, 1, 2, 136] [pending]
-  if pollDelivery then
+  if pollOut.isSome then
     check "new-set" [] [4]
     check "join" [3, 4] []
     check "poll" [4, 160] [EventCode.none.toNat]
   check "start" [3] [0]
-  if pollDelivery then
+  if let some out := pollOut then
     let state ← hostGet
     trapIf (state.publications != [(1, 1)]) (.internal "result not published before poll")
-    check "poll" [4, 160] [EventCode.subtask.toNat]
+    check "poll" [4, out] [EventCode.subtask.toNat]
     let cx : LiftLowerContext engine := { inst := ⟨0⟩, opts := { memory := some eventMemory } }
-    trapIf ((← readMem cx 160 8).data != #[3, 0, 0, 0, 2, 0, 0, 0])
+    trapIf ((← readMem cx out 8).data != #[3, 0, 0, 0, 2, 0, 0, 0])
       (.internal "unexpected delivered subtask")
     check "poll" [4, 168] [EventCode.none.toNat]
     check "join" [3, 0] []
@@ -224,7 +225,7 @@ private def deferredProgram (spill stale pollDelivery : Bool) (inst : ModuleInst
   if stale then check "start" [3] [0]
   return .unit
 
-private def deferredConfig (spill stale : Bool) (pollDelivery : Bool := false) :
+private def deferredConfig (spill stale : Bool) (pollOut : Option Nat := none) :
     Option (Machine.Config engine (HostState (signature spill))) := do
   let (core, inst) ← instantiate spill true false true
   let store : CStore engine := { CStore.empty with
@@ -234,7 +235,7 @@ private def deferredConfig (spill stale : Bool) (pollDelivery : Bool := false) :
     threads := [{ status := .running, task := ⟨0⟩ }] }
   return {
     store, host := {}, conts := [none]
-    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (deferredProgram spill stale pollDelivery inst)] }
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (deferredProgram spill stale pollOut inst)] }
 
 private def deferredDispatch (spill : Bool) := specDispatch ready
   (Deferred.hostWithDeferred (grow := grow) [] [callee spill true] [⟨0⟩] "start")
@@ -247,14 +248,18 @@ theorem deferred_replay_sound (spill : Bool) (start : Machine.Config engine (Hos
       (runDeferred spill start).labels (runDeferred spill start).config :=
   Machine.run_sound ready (deferredDispatch spill) (core3Exec grow) Machine.Oracle.first 1800 start
 
-private def deferredRegression (spill stale : Bool) (pollDelivery : Bool := false) : Bool :=
-  match deferredConfig spill stale pollDelivery with
+private def deferredRegression (spill stale : Bool) (pollOut : Option Nat := none) : Bool :=
+  match deferredConfig spill stale pollOut with
   | none => false
   | some start =>
     let result := runDeferred spill start
     let state := result.config.host
     let summary := state.writer.accepted.map fun tree => (rootReceipts tree).map fun r => (receiptId r).idx
-    result.outcome == (if stale then .trap else .resolved) &&
+    let pollTraps := pollOut == some 65536
+    let store := result.config.store
+    result.outcome == (if stale || pollTraps then .trap else .resolved) &&
+      (!pollTraps || (result.labels.any (fun label => match label with | .trap .outOfBounds => true | _ => false) &&
+        store.subtaskResolveDelivered ⟨1⟩ && !store.waitableHasEvent (.subtask ⟨1⟩))) &&
       state.refusals == (if stale then [.stalePendingAccept] else []) &&
       state.publications == [(1, 1)] && state.pendingAccepts.isEmpty && summary == [[0, 1]] &&
       state.transcript.filter (fun event => match event with | .queued _ | .cancelled _ => true | _ => false) ==
@@ -264,8 +269,9 @@ private def deferredRegression (spill stale : Bool) (pollDelivery : Bool := fals
 
 #guard deferredRegression false false
 #guard deferredRegression true true
-#guard deferredRegression false false true
-#guard deferredRegression true false true
+#guard deferredRegression false false (some 160)
+#guard deferredRegression true false (some 160)
+#guard deferredRegression true false (some 65536)
 
 private def rejectedSyncDefer : Bool :=
   match config false false false (.one 2 128) with
