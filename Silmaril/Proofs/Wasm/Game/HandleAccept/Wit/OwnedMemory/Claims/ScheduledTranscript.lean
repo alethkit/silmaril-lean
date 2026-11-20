@@ -1212,4 +1212,36 @@ theorem single_publication_survives (bindings : List (Binding sig))
   rw [laterJournal, recorded, List.append_assoc, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self]
   rfl
 
+theorem publication_lookup_iff {before after : HostState sig}
+    (journal : PublicationDelta before after) {handle : BitVec 32}
+    (fresh : before.writer.accepted.length < handle.toNat) :
+    (Stored.Endpoints.Core.childFromHistory after.writer.accepted handle).isSome = true ↔
+      ∃ ticket, after.publications[before.publications.length +
+        (handle.toNat - (before.writer.accepted.length + 1))]? = some (ticket, handle.toNat) := by
+  obtain ⟨entries, appended, size, issued⟩ := journal
+  let index := handle.toNat - (before.writer.accepted.length + 1)
+  have position : handle.toNat = before.writer.accepted.length + index + 1 := by
+    dsimp [index]
+    omega
+  have positive : 0 < handle.toNat := by omega
+  change _ ↔ ∃ ticket, after.publications[before.publications.length + index]? = some (ticket, handle.toNat)
+  rw [appended, List.getElem?_append_right (Nat.le_add_right _ _), Nat.add_sub_cancel_left]
+  constructor
+  · intro found
+    have within : handle.toNat ≤ after.writer.accepted.length := by
+      by_contra! notWithin
+      simp [Stored.Endpoints.Core.childFromHistory, positive, Nat.not_le.mpr notWithin] at found
+    have inEntries : index < entries.length := by omega
+    let item := entries[index]
+    have entry : entries[index]? = some (item.1, item.2) := List.getElem?_eq_getElem inEntries
+    have valid := (issued index item.1 item.2 entry).1
+    exact ⟨item.1, by simpa only [show item.2 = handle.toNat by omega] using entry⟩
+  · rintro ⟨ticket, entry⟩
+    have inEntries : index < entries.length := by
+      by_contra! outOfRange
+      simp [List.getElem?_eq_none outOfRange] at entry
+    have within : handle.toNat ≤ after.writer.accepted.length := by omega
+    have offset : after.writer.accepted.length - handle.toNat < after.writer.accepted.length := by omega
+    simp [Stored.Endpoints.Core.childFromHistory, positive, within, List.getElem?_eq_getElem offset]
+
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript

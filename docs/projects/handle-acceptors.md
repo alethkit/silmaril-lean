@@ -738,7 +738,11 @@ Before start, `subtask.cancel` calls the checked cancellation callback and resol
 the reference cancellation path, without moving owners or publishing a tree. Start
 lifts and resolves in one callback; it does not expose a suspended post-lift phase.
 The deferred session theorem conserves the writer and journal on arbitrary ordinary
-prefixes. Linked direct/spilled replays check cancel, drop, slot reuse, start,
+prefixes. `Deferred.fresh_lookup_iff_publication` also proves the converse to publication
+lookup: a fresh handle is selectable exactly when its journal position records a
+publication for it. A pending or refused callback cannot account for a new selectable
+root without a publication. This is not a statement about delivery or live transfer
+authority. Linked direct/spilled replays check cancel, drop, slot reuse, start,
 resolution, and stale start after dropping the waitable.
 With no configured deferred callees, the complete dispatch is the eager dispatch;
 the control name is not reserved. When a live instance has no room for a waitable,

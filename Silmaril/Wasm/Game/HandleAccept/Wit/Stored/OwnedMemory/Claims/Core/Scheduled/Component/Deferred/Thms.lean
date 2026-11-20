@@ -108,4 +108,20 @@ theorem checked_of_session (bindings : List (Binding sig)) (callees : List (Call
     bindings callees deferred control steps (Reference.HostWrite.cfgSafe_init _ _) fun program member =>
       False.elim (ordinary program member)
 
+/-- Across arbitrary ordinary export prefixes of the linked Core session, a
+newly selectable root exists exactly for a publication in that handle's journal
+position. Queued, cancelled and refused calls cannot create unjournaled roots. -/
+theorem fresh_lookup_iff_publication (bindings : List (Binding sig)) (callees : List (Callee sig))
+    (deferred : List HostFuncId) (control : String) {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    (store : CStore (core3 grow)) (state : HostState sig)
+    {final : Config (core3 grow) (HostState sig)} {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (hostWithDeferred bindings callees deferred control))
+      (Config.init store state) labels final)
+    (ordinary : ∀ program, Label.host (.run program) ∉ labels)
+    {handle : BitVec 32} (fresh : state.writer.accepted.length < handle.toNat) :
+    (Endpoints.Core.childFromHistory final.host.writer.accepted handle).isSome = true ↔
+      ∃ ticket, final.host.publications[state.publications.length +
+        (handle.toNat - (state.writer.accepted.length + 1))]? = some (ticket, handle.toNat) :=
+  (checked_of_session bindings callees deferred control store state steps ordinary).2.2.fresh_lookup_iff fresh
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.ComponentCall.Deferred
