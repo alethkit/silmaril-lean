@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled
 
@@ -355,5 +356,34 @@ theorem parked_caller_refusal_steps {sig : Signature} {grow : SingleThreaded.Gro
       reached.writer = start.host.writer ∧ reached.publications = start.host.publications :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_caller_refusal_steps
     bindings name type contract memory args start thread profile ready parked calling linked caller resolved refused
+
+/-- During canonical realloc's closed window, a same-instance reentrant public
+give is refused before selection or claim use. `none` is the indirect memory ABI;
+`some schema` is the flat ABI with its typed padding. The actual parked call
+resumes with the refusal words, with unchanged component store and writer. -/
+theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (inst : InstId) (destination : RecordDestination) (schema : Option Stored.TypeOf)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {entry : InstState}
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst,
+      schema.elim (.givePayload destination) (.giveFlat destination)⟩)
+    (caller : callerInstance start.store thread = .ok (some inst))
+    (live : start.store.inst? inst = some entry) (closed : entry.mayLeave = false) :
+    let reply := schema.elim (completion start.host.nextTicket (.error .wrongContext))
+      (fun payload => flatCompletion start.host.nextTicket (ABI.flatten destination.width payload)
+        (.error .wrongContext))
+    let reached := (start.host.enter name type args).record reply.1
+    ∃ count, Machine.CoreGrowthSteps profile ready (specDispatch ready (host (grow := grow) bindings)) start
+      (List.replicate count .tau)
+      { start with
+        host := reached
+        ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
+          continuation, segments⟩ :: rest } ∧ reached.writer = start.host.writer :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_steps
+    bindings name type args inst destination schema start thread profile ready parked calling linked caller live closed
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain
