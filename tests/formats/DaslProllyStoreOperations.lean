@@ -1,6 +1,10 @@
+module
+
 import Mathlib.Data.String.Basic
 import Silmaril.Formats.Dasl.Prolly.Operations.Thms
 import Silmaril.Formats.Dasl.Wire.Canonical.Thms
+meta import Silmaril.Formats.Dasl.Prolly.Operations.Thms
+meta import Silmaril.Formats.Dasl.Wire.Canonical.Thms
 
 open Silmaril.Formats.Dasl Silmaril.Formats.Dasl.Prolly
 open Silmaril.Semantics Silmaril.Semantics.Prolly
@@ -86,4 +90,4 @@ private def shallowLinkFixture : IO Unit := do
   let .ok result := left.combine .union overlap right | throw (IO.userError "linked set difference")
   unless result.keys == [1, 3] do throw (IO.userError "object links compare by name, not target")
 
-def main : IO Unit := rawFixture *> shallowLinkFixture
+public def main : IO Unit := rawFixture *> shallowLinkFixture
