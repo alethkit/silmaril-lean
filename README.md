@@ -80,10 +80,12 @@ translations provide the common API for composing transformations across
 representations. Selected APIs separate definitions and theorem statements from
 longer proofs under `Silmaril/Proofs/`.
 
+- [Wasm catalogue](docs/projects/wasm-catalog.md): semantic models, verified checkers and binaries, emulators, tools and bridges
 - [Wasm tools and demo walkthrough](docs/projects/wasm.md)
 - [WAT quotations in Lean](docs/projects/wasm-wat.md): `wat1!`, `watLime!`, `wat3!` and expression forms
 - [Versioned Wasm execution models](docs/projects/wasm-semantics.md)
 - [Compiler and pass APIs](docs/projects/compilers.md)
+- [Open the compiler explorer locally](docs/projects/compiler-explorer.md#open-the-explorer): browse the checked fixtures, source fragments and target bytes
 - [Institutions and logics](docs/projects/logic.md): HOL, Metamath, ZF/ZFC,
   arithmetic and Hets-style development graphs
 - [Lambda cube and parametricity](docs/projects/lambda-cube.md): all eight pure type systems,
