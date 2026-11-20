@@ -1058,7 +1058,11 @@ derives their success from the full range check, and retains the queued subtask 
 Bad alignment or an insufficient range takes the actual canonical trap before either
 write. `resolve_direct_words` reaches subtask resolution with the two ABI words and no
 store update. `resolve_commit` connects the post-write subtask resolution to publication
-without clearing the pending event or releasing lends. `deliver_pending` takes the actual
+without clearing the pending event or releasing lends. `resolve_linked_commit` composes
+these steps from the linked resolve entry: both linked modes spill this result, and
+queueing preserves the memory observed at entry. An indexed subtask retains the newly
+queued event after resolution; an unindexed one keeps its original slot.
+`deliver_pending` takes the actual
 returned event and applies reference lend release in a later waitable step. Neither publication
 nor the presence of an event guarantees that a guest polls or that its event write succeeds.
 The linked replays cover a misaligned result pointer, and a late out-of-bounds poll write

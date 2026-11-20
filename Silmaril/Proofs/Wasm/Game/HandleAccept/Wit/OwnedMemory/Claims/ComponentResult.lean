@@ -396,4 +396,72 @@ theorem resolve_direct_words (ticket handle : Nat) (tree : Tree sig) (subtask : 
   have step := Step.get (prof := prof) (hr := ready) (dispatch := dispatch) focused
   simpa [Prog.bind, resultFlatCount, Nat.not_lt.mpr direct, lowered, pure] using step
 
+private theorem appendSteps {first middle last : Config (core3 grow) (HostState sig)} {leading trailing}
+    (lead : Steps prof ready dispatch first leading middle) (tail : Steps prof ready dispatch middle trailing last) :
+    Steps prof ready dispatch first (leading ++ trailing) last := by
+  induction lead with
+  | refl => exact tail
+  | cons step _ ih => exact .cons step (ih tail)
+
+theorem resolve_linked_commit (callee : Callee sig) (ticket : Nat) (caller : CallerId)
+    (tree : Tree sig) (writer : State sig) (subtask : SubtaskId) (record : Subtask)
+    (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (callerRecord : ArenaField.callers.get? config.store caller = some
+      (.lower subtask cx args pos callee.funcType (lowerLimits callee.async_).1 (lowerLimits callee.async_).2))
+    (live : config.store.subtask? subtask = some record) (context : cx.opts = callee.options)
+    (pointer : FlatValue) (atCursor : args[pos]? = some pointer)
+    (aligned : flatNat pointer = ABI.alignTo (flatNat pointer) .four)
+    (size : Nat) (sized : (core3 grow).memSize? config.store.core callee.memory = some size)
+    (inBounds : flatNat pointer + 8 ≤ size)
+    (registered : config.host.writer.register tree = .ok writer) (room : writer.accepted.length < 2 ^ 32)
+    (focused : config.ctl = ⟨thread, .prog (resolveTree ticket caller tree), segments⟩ :: rest) :
+    let handle := writer.accepted.length
+    let out := flatNat pointer
+    let queued := if record.index.isSome then config.store.setPendingSt (.subtask subtask) (.subtask subtask)
+      else config.store
+    let tagged := writeMemSt callee.memory out (intToLE 1 0) queued
+    let written := writeMemSt callee.memory (out + 4) (intToLE 4 handle) tagged
+    let final : Config (core3 grow) (HostState sig) := { config with
+      store := written.subtaskResolveSt subtask .returned []
+      host := (({ config.host with writer } : HostState sig).record (.published ticket handle)).record
+        (.returned ticket handle)
+      ctl := ⟨thread, .prog (.pure (.cancel .none)), segments⟩ :: rest }
+    Steps prof ready dispatch config (List.replicate (16 + record.index.isSome.toNat) .tau) final ∧
+      final.store.subtask? subtask = some { record with
+        state := .returned
+        flatResults := []
+        common := if record.index.isSome then { record.common with pending := some (.subtask subtask) }
+          else record.common } := by
+  let handle := writer.accepted.length
+  let queued := if record.index.isSome then config.store.setPendingSt (.subtask subtask) (.subtask subtask)
+    else config.store
+  let progressed := { record with common := if record.index.isSome then
+    { record.common with pending := some (.subtask subtask) } else record.common }
+  have memory : cx.opts.memory = some callee.memory := by rw [context]; rfl
+  have spill : (lowerLimits callee.async_).2 ≤ 1 := by cases callee.async_ <;> decide
+  have queuedSize : (core3 grow).memSize? queued.core callee.memory = some size := by
+    unfold queued
+    split <;> exact sized
+  let callReady : Config (core3 grow) (HostState sig) := { config with ctl := ⟨thread, .prog (do
+    lowerOnResolve Limits.spec Quirks.none caller (some [.variant 0 (some (Val.u32 handle))])
+    completeResolvedTree ticket tree handle), segments⟩ :: rest }
+  let resultReady : Config (core3 grow) (HostState sig) := { config with
+    store := queued
+    ctl := ⟨thread, .prog (do
+      let flat ← lowerFlatValues Limits.spec Quirks.none cx (lowerLimits callee.async_).2
+        [.variant 0 (some (Val.u32 handle))] [resultType] (some ⟨args, pos⟩)
+      Subtask.resolve subtask .returned flat
+      completeResolvedTree ticket tree handle), segments⟩ :: rest }
+  have beginRun : Step prof ready dispatch config .tau callReady := resolve_begin ticket caller tree writer registered room focused
+  have progress := resolve_progress (prof := prof) (ready := ready) (dispatch := dispatch) (config := callReady)
+    ticket handle caller tree subtask cx args pos callee.funcType _ _ record callerRecord live rfl
+  have write := resolve_indirect_write (prof := prof) (ready := ready) (dispatch := dispatch) (config := resultReady)
+    ticket handle tree subtask cx ⟨args, pos⟩ _ spill pointer callee.memory atCursor aligned memory size
+    queuedSize inBounds progressed progress.2 rfl
+  have commit := resolve_commit (prof := prof) (ready := ready) (dispatch := dispatch)
+    ticket handle tree writer subtask [] progressed write.2 registered rfl room rfl
+  refine ⟨?_, commit.2⟩
+  have run := Steps.cons beginRun (appendSteps progress.1 (appendSteps write.1 commit.1))
+  cases indexed : record.index <;> simpa [resultReady, queued, handle, indexed] using run
+
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult

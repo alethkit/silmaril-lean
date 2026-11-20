@@ -287,6 +287,45 @@ theorem resolve_commit {prof : ProfileKind} {ready : HostReady (HostState sig)}
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_commit
     ticket handle tree writer subtask flat record live registered expected room pending
 
+/-- A linked caller's actual lowering limits imply an indirect result in either mode.
+From the reached resolve entry with a valid out-pointer, queue progress as applicable,
+write the result, resolve the same subtask, and publish. Delivery is still separate. -/
+theorem resolve_linked_commit {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {config : Config (core3 grow) (HostState sig)} {thread : Option ThreadId} {segments rest}
+    (callee : Callee sig) (ticket : Nat) (caller : CallerId)
+    (tree : Tree sig) (writer : State sig) (subtask : SubtaskId) (record : Subtask)
+    (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (callerRecord : ArenaField.callers.get? config.store caller = some
+      (.lower subtask cx args pos callee.funcType (lowerLimits callee.async_).1 (lowerLimits callee.async_).2))
+    (live : config.store.subtask? subtask = some record) (context : cx.opts = callee.options)
+    (pointer : FlatValue) (atCursor : args[pos]? = some pointer)
+    (aligned : flatNat pointer = ABI.alignTo (flatNat pointer) .four)
+    (size : Nat) (sized : (core3 grow).memSize? config.store.core callee.memory = some size)
+    (inBounds : flatNat pointer + 8 ≤ size)
+    (registered : config.host.writer.register tree = .ok writer) (room : writer.accepted.length < 2 ^ 32)
+    (focused : config.ctl = ⟨thread, .prog (resolveTree ticket caller tree), segments⟩ :: rest) :
+    let handle := writer.accepted.length
+    let out := flatNat pointer
+    let queued := if record.index.isSome then config.store.setPendingSt (.subtask subtask) (.subtask subtask)
+      else config.store
+    let tagged := writeMemSt callee.memory out (intToLE 1 0) queued
+    let written := writeMemSt callee.memory (out + 4) (intToLE 4 handle) tagged
+    let final : Config (core3 grow) (HostState sig) := { config with
+      store := written.subtaskResolveSt subtask .returned []
+      host := (({ config.host with writer } : HostState sig).record (.published ticket handle)).record
+        (.returned ticket handle)
+      ctl := ⟨thread, .prog (.pure (.cancel .none)), segments⟩ :: rest }
+    Steps prof ready dispatch config (List.replicate (16 + record.index.isSome.toNat) .tau) final ∧
+      final.store.subtask? subtask = some { record with
+        state := .returned
+        flatResults := []
+        common := if record.index.isSome then { record.common with pending := some (.subtask subtask) }
+          else record.common } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_linked_commit
+    callee ticket caller tree writer subtask record cx args pos callerRecord live context pointer
+    atCursor aligned size sized inBounds registered room focused
+
 /-- Delivery requires the actual queued event and an executing waitable continuation.
 It clears the event, applies the reference lend release, and returns the recorded index. -/
 theorem deliver_pending {prof : ProfileKind} {ready : HostReady (HostState sig)}
