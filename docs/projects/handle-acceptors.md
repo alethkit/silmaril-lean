@@ -674,6 +674,18 @@ component store or writer. This certifies those callout segments without assumin
 allocator's bytes are unchanged. It does not yet certify every callback trace, nor the
 range newly returned by realloc, which canonical lowering checks in the reached store.
 
+The collection program laws factor both canonical outputs into ordered child
+programs. Fixed memory lists are in-place; dynamic lists and maps share the
+canonical request, reached-range validation and descriptor suffix. Flat maps
+store despecialized records; memory maps place the key and value using the
+allocation-time width, including when a string key itself calls realloc.
+At a reached collection cursor, the canonical width read and the checked dry
+run lead to the same realloc request. The saved checked continuation revalidates
+claims in the store and writer reached after the callback. A typed refusal there
+does not enter the element or descriptor programs; an invalid returned range
+traps before the live recheck. These are collection rules for the recursive
+comparison, not a correspondence for the complete public export sequence.
+
 `RecordDestination.memory_cursor` uses the width established by the same destination
 check as both public give routes. On a certified prefix the canonical field cursor
 takes its actual width-read step and selects the same aligned address and increment
