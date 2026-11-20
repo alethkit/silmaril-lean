@@ -180,6 +180,30 @@ def rootPlacement {grow : SingleThreaded.GrowOracle} (destination : RecordDestin
   | .flat => .ok ()
   | .memory ptr => placement destination store (layout destination.width type) ptr
 
+/-- The canonical result program after the allocating string plan. Memory
+output reads the pointer size again, before the two descriptor writes. -/
+def stringPlanTail {E : CoreEngine} {Host : Type} (cx : LiftLowerContext E) (width : AddrType)
+    (output : Lower.Output) (plan : StorePlan) (ptr : Nat) : P E Host output.Result :=
+  match output with
+  | .flat => pure [ptrFlat width ptr, ptrFlat width plan.taggedCodeUnits]
+  | .memory address => do
+    let size ← ptrSize cx
+    writeMem cx address (strWordBytes size ptr)
+    writeMem cx (address + size) (strWordBytes size plan.taggedCodeUnits)
+
+/-- Resume the actual remaining string plan at the allocator's returned pointer. -/
+def stringPlanResume {E : CoreEngine} {Host : Type} (cx : LiftLowerContext E)
+    (steps : List StoreStep) (finish : Nat → P E Host (Ret E)) : ReturnFrame.Continuation E Host := fun result => do
+  let ptr ← match result with
+    | .nat ptr => pure ptr
+    | _ => internal "late-bound call: expected Ret.nat"
+  runStoreSteps cx ptr steps >>= finish
+
+/-- Nonallocating string operations run directly against the reached store. -/
+def LocalStringStep : StoreStep → Prop
+  | .allocate .. | .reallocate .. => False
+  | _ => True
+
 def MemoryReaches {E : CoreEngine} {Host : Type} (profile : ProfileKind) (ready : HostReady Host)
     (dispatch : Call E → P E Host (Ret E)) (left right : Config E Host)
     (checkCursor canonCursor : Cursor (E := E) Host) (checkNext : Except Stored.Endpoints.RecordLower.Issue Unit → P E Host (Ret E))
