@@ -154,6 +154,19 @@ theorem primitive_list_entry (destination : RecordDestination) (inst : InstId) (
   let placed := list_entry_placement destination inst (.prim primitive) run checked sized aligned bounds entry
   primitive_leaf destination inst primitive payload nonString position (.memory _) after reference placed.1 placed.2
 
+/-- Traverse a validated non-string scalar list in order, deriving placement
+at each reached cursor. Neither the scalar writes nor the final descriptor
+write invalidate the region; a trapping prefix does not run the suffix. -/
+theorem CollectionTailAt.scalar_entries (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (nonString : primitive ≠ .string) (entries : List Field) (layoutMatch : Field.EntriesMatch entries (.prim primitive))
+    (output : Lower.Output) (index pointer bytes : Nat) (left right : Config (core3 grow) (HostState sig))
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes) :
+    CollectionTailAt profile ready dispatch destination inst entries (layout destination.width (.prim primitive : TypeOf))
+      output index pointer bytes left right :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.scalarCollectionTail
+    destination inst primitive nonString entries layoutMatch output index pointer bytes left right width sized
+
 /-- After the initial dry run admits this collection, the actual recursive
 programs install the same allocator request; a certified scheduler prefix
 preserves the checked width. The saved checked continuation

@@ -133,27 +133,73 @@ private theorem mapIssue {checked : P E Host (Except RecordLower.Issue Result)} 
   | refused issue => exact ⟨.refused (issueMap issue), chk, ref, left', right', runChk, runRef, stores, labels, status⟩
   | trapped reason => exact ⟨.trapped reason, chk, ref, left', right', runChk, runRef, stores, labels, status⟩
 
-private def ClosedOp (profile : ProfileKind) : Op E Host → Prop
+private def ClosedOp (profile : ProfileKind) (keep : CStore E → Prop := fun _ => True) : Op E Host → Prop
   | .choose choice => ∃ answer, Allowed profile choice answer
-  | .get | .modify _ | .currentThread | .trap _ => True
+  | .modify update => ∀ store, keep store → keep (update store)
+  | .get | .currentThread | .trap _ => True
   | _ => False
 
-private theorem pairedTau {left right left' right' : Config E Host}
+private theorem forgetKeeping {left right : Config E Host} {keep : CStore E → Prop}
+    {checkCursor canonCursor : Cursor (E := E) Host}
+    {checkNext : Except RecordLower.Issue Result → P E Host (Ret E)} {canonNext : Result → P E Host (Ret E)}
+    (reaches : ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext) :
+    Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext := by
+  obtain ⟨outcome, chk, ref, checkEnd, canonEnd, runChk, runRef, stores, labels, _, status⟩ := reaches
+  exact ⟨outcome, chk, ref, checkEnd, canonEnd, runChk, runRef, stores, labels, status⟩
+
+private theorem sequentialKeeping {keep : CStore E → Prop} {left right : Config E Host}
+    {checked : P E Host (Except RecordLower.Issue Result)} {canonical : P E Host Result}
+    (first : CompareKeepingAt profile ready dispatch keep left right checked canonical)
+    (mapIssue : RecordLower.Issue → RecordLower.Issue)
+    (checkTail : Result → P E Host (Except RecordLower.Issue Next)) (canonTail : Result → P E Host Next)
+    (rest : ∀ value entered reference, keep reference.store →
+      CompareKeepingAt profile ready dispatch keep entered reference (checkTail value) (canonTail value)) :
+    CompareKeepingAt profile ready dispatch keep left right
+      (checked >>= fun result => match result with | .error issue => pure (.error (mapIssue issue)) | .ok value => checkTail value)
+      (canonical >>= canonTail) := by
+  intro same checkCursor canonCursor thread checkNext canonNext checkAt canonAt
+  let checkSuffix := fun (result : Except RecordLower.Issue Result) =>
+    (match result with | .error issue => pure (.error (mapIssue issue)) | .ok value => checkTail value) >>= checkNext
+  let canonSuffix := fun value => canonTail value >>= canonNext
+  obtain ⟨outcome, chk, ref, left', right', runChk, runRef, stores, labels, kept, status⟩ :=
+    first same checkCursor canonCursor thread checkSuffix canonSuffix
+      (by simpa only [checkSuffix, Prog.bind_eq, Prog.bind_assoc] using checkAt)
+      (by simpa only [canonSuffix, Prog.bind_eq, Prog.bind_assoc] using canonAt)
+  cases outcome with
+  | refused issue => exact ⟨.refused (mapIssue issue), chk, ref, left', right', runChk, runRef, stores, labels, kept, status⟩
+  | trapped reason => exact ⟨.trapped reason, chk, ref, left', right', runChk, runRef, stores, labels, kept, status⟩
+  | returned value =>
+    obtain ⟨outcome, chk', ref', left'', right'', runChk', runRef', stores', labels', kept', status'⟩ :=
+      rest value left' right' kept stores checkCursor canonCursor thread checkNext canonNext status.1 status.2
+    refine ⟨outcome, chk ++ chk', ref ++ ref', left'', right'', chain runChk runChk', chain runRef runRef',
+      stores', ?_, kept', ?_⟩
+    · rw [visible_append, visible_append, labels, labels']
+    · cases outcome with
+      | returned _ | refused _ => exact status'
+      | trapped reason =>
+        obtain ⟨emptyCheck, emptyCanon, leading, last⟩ := status'
+        exact ⟨emptyCheck, emptyCanon, visible ref ++ leading, by rw [visible_append, last, List.append_assoc]⟩
+
+private theorem pairedTau {left right left' right' : Config E Host} {keep : CStore E → Prop}
     {checkCursor canonCursor : Cursor (E := E) Host}
     {checkNext : Except RecordLower.Issue Result → P E Host (Ret E)} {canonNext : Result → P E Host (Ret E)}
     (checkStep : Step profile ready dispatch left .tau left') (canonStep : Step profile ready dispatch right .tau right')
-    (tails : Reaches profile ready dispatch left' right' checkCursor canonCursor checkNext canonNext) :
-    Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext := by
-  obtain ⟨outcome, chk, ref, checkEnd, canonEnd, runChk, runRef, stores, labels, status⟩ := tails
+    (tails : ReachesKeeping profile ready dispatch keep left' right' checkCursor canonCursor checkNext canonNext) :
+    ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext := by
+  obtain ⟨outcome, chk, ref, checkEnd, canonEnd, runChk, runRef, stores, labels, kept, status⟩ := tails
   exact ⟨outcome, .tau :: chk, .tau :: ref, checkEnd, canonEnd, .cons checkStep runChk,
-    .cons canonStep runRef, stores, labels, status⟩
+    .cons canonStep runRef, stores, labels, kept, status⟩
 
-private theorem compareClosed {body : P E Host Result} (closed : Prog.Every (ClosedOp profile) body) :
-    Compare profile ready dispatch (do return .ok (← body)) body := by
+private theorem compareClosedKeeping {body : P E Host Result} {keep : CStore E → Prop}
+    (closed : Prog.Every (ClosedOp profile keep) body) :
+    ∀ left right : Config E Host, keep right.store →
+      CompareKeepingAt profile ready dispatch keep left right (do return .ok (← body)) body := by
   induction closed with
-  | pure value => exact returned value
+  | pure value =>
+    intro left right kept same checkCursor canonCursor _ checkNext canonNext checkAt canonAt
+    exact ⟨.returned value, [], [], left, right, .refl _, .refl _, same, rfl, kept, checkAt, canonAt⟩
   | @op operation next admitted _ inductionHypothesis =>
-    intro left right same checkCursor canonCursor sameThread checkNext canonNext checkAt canonAt
+    intro left right kept same checkCursor canonCursor sameThread checkNext canonNext checkAt canonAt
     cases operation with
     | get =>
       let left' := { left with ctl := checkCursor.control ((do return Except.ok (← next left.store)) >>= checkNext) }
@@ -161,25 +207,26 @@ private theorem compareClosed {body : P E Host Result} (closed : Prog.Every (Clo
       have checkStep : Step profile ready dispatch left .tau left' := .get checkAt
       have canonStep : Step profile ready dispatch right .tau right' := .get canonAt
       refine pairedTau checkStep canonStep ?_
-      refine inductionHypothesis right.store left' right' same checkCursor canonCursor sameThread checkNext canonNext ?_ rfl
+      refine inductionHypothesis right.store left' right' kept same checkCursor canonCursor sameThread checkNext canonNext ?_ rfl
       exact congrArg (fun value : (Eff E Host).Resp .get =>
         checkCursor.control ((do return Except.ok (← next value)) >>= checkNext)) same
     | modify update =>
       exact pairedTau (.modify checkAt) (.modify canonAt)
-        (inductionHypothesis () _ _ (congrArg update same) checkCursor canonCursor sameThread checkNext canonNext rfl rfl)
+        (inductionHypothesis () _ _ (admitted right.store kept) (congrArg update same)
+          checkCursor canonCursor sameThread checkNext canonNext rfl rfl)
     | currentThread =>
       let left' := { left with ctl := checkCursor.control ((do return Except.ok (← next checkCursor.thread)) >>= checkNext) }
       let right' := { right with ctl := canonCursor.control (next canonCursor.thread >>= canonNext) }
       have checkStep : Step profile ready dispatch left .tau left' := .currentThread checkAt
       have canonStep : Step profile ready dispatch right .tau right' := .currentThread canonAt
       refine pairedTau checkStep canonStep ?_
-      refine inductionHypothesis canonCursor.thread left' right' same checkCursor canonCursor sameThread
+      refine inductionHypothesis canonCursor.thread left' right' kept same checkCursor canonCursor sameThread
         checkNext canonNext ?_ rfl
       exact congrArg (fun value : (Eff E Host).Resp .currentThread =>
         checkCursor.control ((do return Except.ok (← next value)) >>= checkNext)) sameThread
     | trap reason =>
       refine ⟨.trapped reason, [.trap reason], [.trap reason], StepDefs.trapCfg left, StepDefs.trapCfg right,
-        .cons (.trap checkAt) (.refl _), .cons (.trap canonAt) (.refl _), ?_, rfl, rfl, rfl, [], rfl⟩
+        .cons (.trap checkAt) (.refl _), .cons (.trap canonAt) (.refl _), ?_, rfl, trivial, rfl, rfl, [], rfl⟩
       exact congrArg StepDefs.lockdownSt same
     | choose choice =>
       obtain ⟨answer, allowed⟩ := admitted
@@ -187,11 +234,11 @@ private theorem compareClosed {body : P E Host Result} (closed : Prog.Every (Clo
       let right' := { right with ctl := canonCursor.control (next answer >>= canonNext) }
       have checkStep : Step profile ready dispatch left (.choice choice answer) left' := .choose answer checkAt allowed
       have canonStep : Step profile ready dispatch right (.choice choice answer) right' := .choose answer canonAt allowed
-      obtain ⟨outcome, chk, ref, checkEnd, canonEnd, runChk, runRef, stores, labels, status⟩ :=
-        inductionHypothesis answer left' right' same checkCursor canonCursor sameThread checkNext canonNext rfl rfl
+      obtain ⟨outcome, chk, ref, checkEnd, canonEnd, runChk, runRef, stores, labels, final, status⟩ :=
+        inductionHypothesis answer left' right' kept same checkCursor canonCursor sameThread checkNext canonNext rfl rfl
       let chosen : Label E Host := .choice choice answer
       refine ⟨outcome, chosen :: chk, chosen :: ref, checkEnd, canonEnd,
-        .cons checkStep runChk, .cons canonStep runRef, stores, ?_, ?_⟩
+        .cons checkStep runChk, .cons canonStep runRef, stores, ?_, final, ?_⟩
       · exact congrArg (chosen :: ·) labels
       · cases outcome with
         | returned _ | refused _ => exact status
@@ -200,15 +247,23 @@ private theorem compareClosed {body : P E Host Result} (closed : Prog.Every (Clo
           exact ⟨checkEmpty, canonEmpty, chosen :: leading, congrArg (chosen :: ·) last⟩
     | _ => contradiction
 
-private theorem closedLowerFloat (profile : ProfileKind) (kind : FloatType) (bits : BitVec kind.width) :
-    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (lowerFloat kind bits) := by
+private theorem compareClosed {body : P E Host Result} (closed : Prog.Every (ClosedOp profile) body) :
+    Compare profile ready dispatch (do return .ok (← body)) body := by
+  intro left right same checkCursor canonCursor sameThread checkNext canonNext checkAt canonAt
+  exact forgetKeeping (compareClosedKeeping closed left right trivial same checkCursor canonCursor sameThread
+    checkNext canonNext checkAt canonAt)
+
+private theorem closedLowerFloat (profile : ProfileKind) (kind : FloatType) (bits : BitVec kind.width)
+    {keep : CStore E → Prop} :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (lowerFloat kind bits) := by
   unfold lowerFloat
   split
   · exact .op ⟨firstNan profile kind bits, firstNan_allowed profile kind bits⟩ (fun _ => .pure _)
   · exact .pure _
 
-private theorem encodeCoercion (profile : ProfileKind) (kind : FloatType) (bits : BitVec kind.width) :
-    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (encodeFloat kind bits) :=
+private theorem encodeCoercion (profile : ProfileKind) (kind : FloatType) (bits : BitVec kind.width)
+    {keep : CStore E → Prop} :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (encodeFloat kind bits) :=
   (closedLowerFloat profile kind bits).bind (fun _ => .pure _)
 
 private theorem coerceWord (profile : ProfileKind) (haveType wantType : CoreType) (word : FlatValue) :
@@ -246,38 +301,48 @@ private theorem variantTail (count : Nat) (wanted : List CoreType) (tag : Nat) (
   · exact (coerceWords profile haves wanted words).bind (fun _ => .pure _)
   · exact .op trivial (fun impossible => nomatch impossible)
 
-private theorem localGet : Prog.Every (ClosedOp (E := E) (Host := Host) profile) getStore := .op trivial (fun _ => .pure _)
+private theorem localGet {keep : CStore E → Prop} :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) getStore := .op trivial (fun _ => .pure _)
 
-private theorem closedInt (cx : LiftLowerContext E) (number : Int) (ptr bytes : Nat) (signed : Bool := false) :
-    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (storeInt cx number ptr bytes signed) := by
+private def WriteClosed (keep : CStore E → Prop) : Prop :=
+  ∀ store memory ptr bytes, keep store → keep (writeMemSt memory ptr bytes store)
+
+private theorem closedIntKeeping {keep : CStore E → Prop} (writes : WriteClosed keep)
+    (cx : LiftLowerContext E) (number : Int) (ptr bytes : Nat) (signed : Bool := false) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (storeInt cx number ptr bytes signed) := by
   unfold storeInt writeMem memAddr
-  have addressLocal : Prog.Every (ClosedOp (E := E) (Host := Host) profile) (orTrap .noMemory cx.opts.memory) := by
+  have addressLocal : Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (orTrap .noMemory cx.opts.memory) := by
     cases cx.opts.memory
     · exact .op trivial (fun impossible => nomatch impossible)
     · exact .pure _
   refine addressLocal.bind fun address => localGet.bind fun store => ?_
   split
   · exact .op trivial (fun impossible => nomatch impossible)
-  · exact .op trivial (fun _ => .pure _)
+  · exact .op (fun _ kept => writes _ _ _ _ kept) (fun _ => .pure _)
 
-private theorem closedStorePrim (cx : LiftLowerContext E) (primitive : WIT.Primitive) (value : Value.Val)
+private theorem closedInt (cx : LiftLowerContext E) (number : Int) (ptr bytes : Nat) (signed : Bool := false) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (storeInt cx number ptr bytes signed) :=
+  closedIntKeeping (fun _ _ _ _ _ => trivial) cx number ptr bytes signed
+
+private theorem closedStorePrim {keep : CStore E → Prop} (writes : WriteClosed keep)
+    (cx : LiftLowerContext E) (primitive : WIT.Primitive) (value : Value.Val)
     (nonString : primitive ≠ .string) (ptr : Nat) :
-    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (storePrim Limits.spec Quirks.none cx primitive value ptr) := by
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (storePrim Limits.spec Quirks.none cx primitive value ptr) := by
   unfold storePrim
   split
-  · exact closedInt cx _ ptr _
-  · exact (encodeCoercion profile .f32 _).bind (fun _ => closedInt cx _ ptr _)
-  · exact (encodeCoercion profile .f64 _).bind (fun _ => closedInt cx _ ptr _)
-  · exact closedInt cx _ ptr _
+  · exact closedIntKeeping writes cx _ ptr _
+  · exact (encodeCoercion profile .f32 _).bind (fun _ => closedIntKeeping writes cx _ ptr _)
+  · exact (encodeCoercion profile .f64 _).bind (fun _ => closedIntKeeping writes cx _ ptr _)
+  · exact closedIntKeeping writes cx _ ptr _
   · contradiction
   · split
-    · exact closedInt cx _ ptr _ _
+    · exact closedIntKeeping writes cx _ ptr _ _
     · exact .op trivial (fun impossible => nomatch impossible)
   · exact .op trivial (fun impossible => nomatch impossible)
 
 private theorem closedFlatPrim (cx : LiftLowerContext E) (width : AddrType) (primitive : WIT.Primitive)
-    (value : Value.Val) (nonString : primitive ≠ .string) :
-    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (lowerFlatPrim Limits.spec Quirks.none cx width primitive value) := by
+    (value : Value.Val) (nonString : primitive ≠ .string) {keep : CStore E → Prop} :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (lowerFlatPrim Limits.spec Quirks.none cx width primitive value) := by
   unfold lowerFlatPrim
   split
   · exact .pure _
@@ -296,16 +361,21 @@ private theorem variantHead (cx : LiftLowerContext E) (count : Nat) (alignment :
       (storeVariantHead cx count alignment tag ptr) :=
   compareClosed ((closedInt cx tag ptr (discSize count)).bind (fun _ => .pure _))
 
+private theorem closedDescriptor {keep : CStore E → Prop} (writes : WriteClosed keep)
+    (cx : LiftLowerContext E) (width : AddrType) (ptr count : Nat) (output : Lower.Output) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (ListLower.publish cx width ptr count output) := by
+  cases output with
+  | flat => exact .pure _
+  | memory dest =>
+    have localSize : Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (ptrSize cx) :=
+      localGet.bind (fun _ => .pure _)
+    exact localSize.bind (fun size => (closedIntKeeping writes cx ptr dest size).bind
+      (fun _ => closedIntKeeping writes cx count (dest + size) size))
+
 private theorem descriptor (cx : LiftLowerContext E) (width : AddrType) (ptr count : Nat) (output : Lower.Output) :
     Compare profile ready dispatch (do return .ok (← ListLower.publish cx width ptr count output))
-      (ListLower.publish cx width ptr count output) := by
-  cases output with
-  | flat => exact returned _
-  | memory dest =>
-    apply compareClosed
-    have localSize : Prog.Every (ClosedOp (E := E) (Host := Host) profile) (ptrSize cx) :=
-      localGet.bind (fun _ => .pure _)
-    exact localSize.bind (fun size => (closedInt cx ptr dest size).bind (fun _ => closedInt cx count (dest + size) size))
+      (ListLower.publish cx width ptr count output) :=
+  compareClosed (closedDescriptor (fun _ _ _ _ _ => trivial) cx width ptr count output)
 
 variable {grow : SingleThreaded.GrowOracle} {sig : Signature} {scheduledReady : HostReady (HostState sig)}
   {scheduledDispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
@@ -540,6 +610,16 @@ private theorem prependCheck {left entered right : Config E Host} {labels : List
   refine ⟨outcome, labels ++ chk, ref, left', right', chain entry runChk, runRef, stores, ?_, ?_⟩
   · rw [visible_append, silent allTau, List.nil_append, observations]
   · cases outcome <;> exact status
+
+private theorem prependCheckKeeping {left entered right : Config E Host} {labels : List (Label E Host)}
+    {keep : CStore E → Prop} {checkCursor canonCursor : Cursor (E := E) Host}
+    {checkNext : Except RecordLower.Issue Result → P E Host (Ret E)} {canonNext : Result → P E Host (Ret E)}
+    (entry : Steps profile ready dispatch left labels entered) (allTau : ∀ label ∈ labels, label = .tau)
+    (continued : ReachesKeeping profile ready dispatch keep entered right checkCursor canonCursor checkNext canonNext) :
+    ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext := by
+  obtain ⟨outcome, chk, ref, left', right', runChk, runRef, stores, observations, kept, status⟩ := continued
+  refine ⟨outcome, labels ++ chk, ref, left', right', chain entry runChk, runRef, stores, ?_, kept, status⟩
+  rw [visible_append, silent allTau, List.nil_append, observations]
 
 private theorem prependCanon {left entered right : Config E Host} {labels : List (Label E Host)}
     {checkCursor canonCursor : Cursor (E := E) Host}
@@ -874,6 +954,32 @@ theorem checkPlacement {placementDispatch : Call (core3 grow) → P (core3 grow)
     simp [placement, aligned]
     exact ⟨0, .cons (.trap focused) (.refl _)⟩
 
+private theorem listEntryPlacementOfGrowth (destination : RecordDestination) (inst : InstId) (element : TypeOf)
+    {before after : CStore (core3 grow)} {base count index bytes : Nat}
+    (growth : Core3.Grows before.core after.core)
+    (width : (core3 grow).memAddrType? before.core destination.memory = some destination.width)
+    (sized : (core3 grow).memSize? before.core destination.memory = some bytes)
+    (aligned : base = alignTo base (layout destination.width element).alignment)
+    (bounds : base + count * (layout destination.width element).size ≤ bytes) (entry : index < count) :
+    let area := layout destination.width element
+    ptrTypeIn after (destination.context inst) = destination.width ∧
+      placement destination after area (base + index * area.size) = .ok () := by
+  let area := layout destination.width element
+  have reachedWidth : (core3 grow).memAddrType? after.core destination.memory = some destination.width := growth.memAddrType width
+  obtain ⟨reachedSize, sized', larger⟩ := growth.memSize sized
+  have reached : (core3 grow).memSize? after.core destination.memory = some reachedSize := sized'
+  refine ⟨by simp [ptrTypeIn, CanonOpts.ptrType, RecordDestination.context, reachedWidth], ?_⟩
+  change placement destination after area (base + index * area.size) = .ok ()
+  have baseDiv : area.alignment.bytes ∣ base :=
+    ⟨(base + area.alignment.bytes - 1) / area.alignment.bytes, aligned.trans (Nat.mul_comm ..)⟩
+  have offsetDiv : area.alignment.bytes ∣ index * area.size := ⟨index * area.units, by simp [Layout.size]; ac_rfl⟩
+  have modulo := Nat.mod_eq_zero_of_dvd (Nat.dvd_add baseDiv offsetDiv)
+  have within : base + index * area.size + area.size ≤ reachedSize := by
+    rw [Nat.add_assoc, ← Nat.succ_mul]
+    exact (Nat.add_le_add_left (Nat.mul_le_mul_right area.size (Nat.succ_le_of_lt entry)) base).trans (bounds.trans larger)
+  simp [placement, modulo, reached, Nat.not_lt.mpr within]
+  rfl
+
 theorem listEntryPlacement {entryDispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
     (destination : RecordDestination) (inst : InstId) (element : TypeOf)
     {before after : Config (core3 grow) Host} {labels} {base count index bytes : Nat}
@@ -884,29 +990,17 @@ theorem listEntryPlacement {entryDispatch : Call (core3 grow) → P (core3 grow)
     (bounds : base + count * (layout destination.width element).size ≤ bytes) (entry : index < count) :
     let area := layout destination.width element
     ptrTypeIn after.store (destination.context inst) = destination.width ∧
-      placement destination after.store area (base + index * area.size) = .ok () := by
-  let area := layout destination.width element
-  obtain ⟨_, width, reachedSize, reached, _, range⟩ := run.linked_region (destination.context inst) rfl
-    (destination.check_width before.store checked) sized bounds
-  refine ⟨width, ?_⟩
-  change placement destination after.store area (base + index * area.size) = .ok ()
-  have baseDiv : area.alignment.bytes ∣ base :=
-    ⟨(base + area.alignment.bytes - 1) / area.alignment.bytes, aligned.trans (Nat.mul_comm ..)⟩
-  have offsetDiv : area.alignment.bytes ∣ index * area.size := ⟨index * area.units, by simp [Layout.size]; ac_rfl⟩
-  have modulo := Nat.mod_eq_zero_of_dvd (Nat.dvd_add baseDiv offsetDiv)
-  have within : base + index * area.size + area.size ≤ reachedSize := by
-    rw [Nat.add_assoc, ← Nat.succ_mul]
-    exact (Nat.add_le_add_left (Nat.mul_le_mul_right area.size (Nat.succ_le_of_lt entry)) base).trans range
-  simp [placement, modulo, reached, Nat.not_lt.mpr within]
-  rfl
+      placement destination after.store area (base + index * area.size) = .ok () :=
+  listEntryPlacementOfGrowth destination inst element run.grows (destination.check_width before.store checked) sized aligned bounds entry
 
-theorem primitiveLeaf (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+private theorem primitiveLeafKeeping {keep : CStore (core3 grow) → Prop} (writes : WriteClosed keep)
+    (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
     (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim primitive))
     (nonString : primitive ≠ .string) (index : Nat) (output : Lower.Output)
-    (left right : Config (core3 grow) (HostState sig))
+    (left right : Config (core3 grow) (HostState sig)) (kept : keep right.store)
     (width : ptrTypeIn left.store (destination.context inst) = destination.width)
     (placed : rootPlacement destination left.store (.prim primitive) output = .ok ()) :
-    CompareAt profile scheduledReady scheduledDispatch left right
+    CompareKeepingAt profile scheduledReady scheduledDispatch keep left right
       (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
         (.data (.prim primitive) payload) index output)
       (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
@@ -951,10 +1045,10 @@ theorem primitiveLeaf (destination : RecordDestination) (inst : InstId) (primiti
     have read : Step profile scheduledReady scheduledDispatch left .tau entered := by
       simpa only [width, entered, checkedBody, Cursor.control] using
         (Step.get (prof := profile) (hr := scheduledReady) (dispatch := scheduledDispatch) focus)
-    have compared := compareClosed (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch)
+    have compared := compareClosedKeeping (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch)
       (closedFlatPrim (Host := HostState sig) cx destination.width primitive payload.val nonString)
-      entered right same checkCursor canonCursor thread checkNext canonNext rfl canonAt
-    exact prependCheck (.cons read (.refl _)) (by simp) compared
+      entered right kept same checkCursor canonCursor thread checkNext canonNext rfl canonAt
+    exact prependCheckKeeping (.cons read (.refl _)) (by simp) compared
   | memory ptr =>
     rw [Lower.lower_memory_reference Limits.spec Quirks.none cx _ payload ptr schema options fit] at checkAt
     rw [CanonicalTree.field, CanonicalTree.leaf, Field.type, Field.value, Canon.store] at canonAt
@@ -994,14 +1088,141 @@ theorem primitiveLeaf (destination : RecordDestination) (inst : InstId) (primiti
     change placement destination entered.store area ptr = .ok () at placed
     rw [placed] at guard
     let checkedEnd := { entered with ctl := checkCursor.control (do checkNext (.ok (← body))) }
-    have compared := compareClosed (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch)
-      (closedStorePrim (Host := HostState sig) cx primitive payload.val nonString ptr)
-      checkedEnd right same checkCursor canonCursor thread checkNext canonNext (by
+    have compared := compareClosedKeeping (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch)
+      (closedStorePrim (Host := HostState sig) writes cx primitive payload.val nonString ptr)
+      checkedEnd right kept same checkCursor canonCursor thread checkNext canonNext (by
         change checkCursor.control (body.bind fun value => checkNext (.ok value)) =
           checkCursor.control ((body.bind fun value => .pure (.ok value)).bind checkNext)
         rw [Prog.bind_assoc]
         rfl) canonAt
-    exact prependCheck (.cons read guard) (by simp) compared
+    exact prependCheckKeeping (.cons read guard) (by simp) compared
+
+theorem primitiveLeaf (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim primitive))
+    (nonString : primitive ≠ .string) (index : Nat) (output : Lower.Output)
+    (left right : Config (core3 grow) (HostState sig))
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (placed : rootPlacement destination left.store (.prim primitive) output = .ok ()) :
+    CompareAt profile scheduledReady scheduledDispatch left right
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) index output)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) output) := by
+  intro same checkCursor canonCursor thread checkNext canonNext checkAt canonAt
+  exact forgetKeeping (primitiveLeafKeeping (keep := fun _ => True) (fun _ _ _ _ _ => trivial) destination inst primitive payload
+    nonString index output left right trivial width placed same checkCursor canonCursor thread checkNext canonNext checkAt canonAt)
+
+private theorem growthWrites (origin : CStore (core3 grow)) :
+    WriteClosed (fun (store : CStore (core3 grow)) => Core3.Grows origin.core store.core) :=
+  fun store memory ptr bytes growing => growing.trans (writeMemSt_grows store memory ptr bytes)
+
+private theorem scalarField {primitive : WIT.Primitive} {item : Field}
+    (layoutMatch : item.LayoutMatches (.prim primitive)) :
+    ∃ payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim primitive), item = .data (.prim primitive) payload := by
+  cases item with
+  | data _ payload => cases layoutMatch; exact ⟨payload, rfl⟩
+  | endpoint channel _ _ => cases channel <;> cases layoutMatch
+  | _ => cases layoutMatch
+
+private theorem scalarElements (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (nonString : primitive ≠ .string) (origin : CStore (core3 grow)) (base count bytes : Nat)
+    (width : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    (aligned : base = alignTo base (layout destination.width (.prim primitive : TypeOf)).alignment)
+    (bounds : base + count * (layout destination.width (.prim primitive : TypeOf)).size ≤ bytes)
+    (entries : List Field) (index : Nat) (room : index + entries.length ≤ count)
+    (layoutMatch : Field.EntriesMatch entries (.prim primitive))
+    (left right : Config (core3 grow) (HostState sig)) (growth : Core3.Grows origin.core right.store.core) :
+    let cx := destination.context inst
+    let stride := (layout destination.width (.prim primitive : TypeOf)).size
+    CompareKeepingAt profile scheduledReady scheduledDispatch (fun store => Core3.Grows origin.core store.core) left right
+      (Record.Effects.elements recordClaims Limits.spec Quirks.none cx destination.width entries stride (base + index * stride) index)
+      (CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries .value stride (base + index * stride)) := by
+  let cx := destination.context (grow := grow) inst
+  let stride := (layout destination.width (.prim primitive : TypeOf)).size
+  let keep := fun (store : CStore (core3 grow)) => Core3.Grows origin.core store.core
+  dsimp only
+  induction entries generalizing index left right with
+  | nil =>
+    rw [Record.Effects.elements, CanonicalTree.elements]
+    intro same checkCursor canonCursor _ checkNext canonNext checkAt canonAt
+    exact ⟨.returned (), [], [], left, right, .refl _, .refl _, same, rfl, growth, checkAt, canonAt⟩
+  | cons item rest ih =>
+    cases layoutMatch with
+    | cons head tail =>
+      obtain ⟨payload, rfl⟩ := scalarField head
+      ·
+        have entry : index < count := by simp only [List.length_cons] at room; omega
+        have nextRoom : index + 1 + rest.length ≤ count := by simp only [List.length_cons] at room; omega
+        have nextPtr : base + (index + 1) * stride = (base + index * stride) + stride := by
+          rw [Nat.add_mul, Nat.one_mul, Nat.add_assoc]
+        rw [Record.Effects.elements, CanonicalTree.elements]
+        let ptr := base + index * stride
+        have placement := listEntryPlacementOfGrowth destination inst (.prim primitive) growth width sized aligned bounds entry
+        have first : CompareKeepingAt profile scheduledReady scheduledDispatch keep left right
+            (Record.Effects.field recordClaims Limits.spec Quirks.none cx destination.width (.data (.prim primitive) payload)
+              index (.memory ptr))
+            (CanonicalTree.field Limits.spec Quirks.none cx destination.width (.data (.prim primitive) payload) (.memory ptr)) := by
+          intro same
+          have checkedWidth : ptrTypeIn left.store cx = destination.width := by rw [same]; exact placement.1
+          have checkedPtr : rootPlacement destination left.store (.prim primitive) (.memory ptr) = .ok () := by
+            rw [same]; exact placement.2
+          exact primitiveLeafKeeping (growthWrites origin) destination inst primitive payload nonString index (.memory ptr)
+            left right growth checkedWidth checkedPtr same
+        have later : ∀ (_ : Unit) entered reference, keep reference.store →
+            CompareKeepingAt profile scheduledReady scheduledDispatch keep entered reference
+              (Record.Effects.elements recordClaims Limits.spec Quirks.none cx destination.width rest stride (ptr + stride) (index + 1))
+              (CanonicalTree.elements Limits.spec Quirks.none cx destination.width rest .value stride (ptr + stride)) := by
+          intro _ entered reference grown
+          have continued := ih (index + 1) nextRoom tail entered reference grown
+          simpa only [nextPtr, ptr, stride, cx, keep] using continued
+        have compared := sequentialKeeping first id _ _ later
+        convert compared using 2 <;> try rfl
+        funext verdict
+        cases verdict with
+        | ok result => cases result; rfl
+        | error _ => rfl
+
+theorem scalarCollectionTail (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (nonString : primitive ≠ .string) (entries : List Field) (layoutMatch : Field.EntriesMatch entries (.prim primitive))
+    (output : Lower.Output) (index pointer bytes : Nat) (left right : Config (core3 grow) (HostState sig))
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes) :
+    CollectionTailAt profile scheduledReady scheduledDispatch destination inst entries
+      (layout destination.width (.prim primitive : TypeOf)) output index pointer bytes left right := by
+  intro aligned bounds _ checked canonical checkedStore _ _ _ same checkCursor canonCursor sameThread checkNext canonNext checkAt canonAt
+  have memWidth : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width := by
+    change (core3 grow).memSize? left.store.core destination.memory = some bytes at sized
+    change SingleThreaded.memSize? left.store.core destination.memory = some bytes at sized
+    change SingleThreaded.memAddrType? left.store.core destination.memory = some destination.width
+    unfold SingleThreaded.memSize? at sized
+    unfold ptrTypeIn CanonOpts.ptrType RecordDestination.context at width
+    change (SingleThreaded.memAddrType? left.store.core destination.memory).getD .i32 = destination.width at width
+    unfold SingleThreaded.memAddrType? at width ⊢
+    cases found : left.store.core.mems[destination.memory]? with
+    | none => simp only [found, Option.map_none, reduceCtorEq] at sized
+    | some memory =>
+      simp only [found, Option.map_some, Option.getD_some] at width ⊢
+      exact congrArg some width
+  have growth : Core3.Grows left.store.core canonical.store.core := by rw [← same, checkedStore]; exact Core3.Grows.refl _
+  let cx := destination.context (grow := grow) inst
+  let publish := (ListLower.publish cx destination.width pointer entries.length output : Session grow sig output.Result)
+  have elements := scalarElements (profile := profile) (scheduledReady := scheduledReady) (scheduledDispatch := scheduledDispatch)
+    destination inst primitive nonString left.store pointer entries.length bytes memWidth sized aligned bounds entries 0
+    (by simp) layoutMatch checked canonical growth
+  dsimp only at elements
+  simp only [Nat.zero_mul, Nat.add_zero] at elements
+  have compared := sequentialKeeping elements (.nested index) (fun _ => do return .ok (← publish)) (fun _ => publish)
+    (fun _ entered reference kept => compareClosedKeeping (closedDescriptor (growthWrites left.store) cx destination.width
+      pointer entries.length output) entered reference kept)
+  apply forgetKeeping
+  apply compared same checkCursor canonCursor sameThread checkNext canonNext _ canonAt
+  unfold checkedCollectionTail at checkAt
+  convert checkAt using 4
+  funext verdict
+  cases verdict with
+  | ok result => cases result; rfl
+  | error _ => rfl
 
 theorem rootPlacementSteps (destination : RecordDestination) (inst : InstId) (type : TypeOf)
     (field : Field) (output : Lower.Output) (start : Config (core3 grow) (HostState sig))

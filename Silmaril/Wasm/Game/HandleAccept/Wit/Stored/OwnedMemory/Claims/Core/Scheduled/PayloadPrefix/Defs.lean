@@ -52,6 +52,34 @@ def Reaches {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready
     | .trapped reason => checkEnd.ctl = [] ∧ canonEnd.ctl = [] ∧
         ∃ leading, visible canonLabels = leading ++ [.trap reason]
 
+/-- A paired segment that also supplies the reached invariant needed by a
+subsequent child. Refusals and traps do not enter that child. -/
+def ReachesKeeping {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready : HostReady Host)
+    (dispatch : Call E → P E Host (Ret E)) (keep : CStore E → Prop) (left right : Config E Host)
+    (checkCursor canonCursor : Cursor (E := E) Host)
+    (checkNext : Except RecordLower.Issue Result → P E Host (Ret E)) (canonNext : Result → P E Host (Ret E)) : Prop :=
+  ∃ outcome : Outcome Result, ∃ checkLabels canonLabels checkEnd canonEnd,
+    Steps profile ready dispatch left checkLabels checkEnd ∧
+    Steps profile ready dispatch right canonLabels canonEnd ∧
+    checkEnd.store = canonEnd.store ∧ visible checkLabels = visible canonLabels ∧
+    (match outcome with | .returned _ => keep canonEnd.store | _ => True) ∧
+    match outcome with
+    | .returned value => checkEnd.ctl = checkCursor.control (checkNext (.ok value)) ∧
+        canonEnd.ctl = canonCursor.control (canonNext value)
+    | .refused issue => checkEnd.ctl = checkCursor.control (checkNext (.error issue))
+    | .trapped reason => checkEnd.ctl = [] ∧ canonEnd.ctl = [] ∧
+        ∃ leading, visible canonLabels = leading ++ [.trap reason]
+
+def CompareKeepingAt {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready : HostReady Host)
+    (dispatch : Call E → P E Host (Ret E)) (keep : CStore E → Prop) (left right : Config E Host)
+    (checked : P E Host (Except RecordLower.Issue Result)) (canonical : P E Host Result) : Prop :=
+  left.store = right.store →
+    ∀ (checkCursor canonCursor : Cursor (E := E) Host), checkCursor.thread = canonCursor.thread →
+      ∀ (checkNext : Except RecordLower.Issue Result → P E Host (Ret E)) (canonNext : Result → P E Host (Ret E)),
+        left.ctl = checkCursor.control (checked >>= checkNext) →
+        right.ctl = canonCursor.control (canonical >>= canonNext) →
+        ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext
+
 /-- Compare the programs at a given common reached store and two saved cursors. -/
 def CompareAt {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready : HostReady Host)
     (dispatch : Call E → P E Host (Ret E)) (left right : Config E Host)
