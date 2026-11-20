@@ -61,8 +61,8 @@ Wasm examples are concrete modules.
 | 2 | readers `tag`/`symbol`/`sexp -> list<i32>`; `children`/`child`; fixed env; module-chosen handles, any export sequence | `Reader`, `readerLang`, `Env`/`Env.ofTotal` | cons checkers, n-ary `count`/`child` checkers, memory `items(h, retptr)`, `string_text`, `keyword_text` | |
 | 2 | invalid reads: arbitrary, trap, typed error, default, UB; arbitrary ≠ UB | `OnBadRead`, `error_iff_invalid`, `arbitrary_ne_ub`, `arbitrary_uncertified` | checkers use trap; typed error: `errD_disjoint`, `polLang_subset_of_AG` (every policy but UB), `carCheck_sound`; counterexample runs `carNoCheck_unsound_dflt`, `carCheck_unsound_arbitrary`; `carCheck_accepts` | |
 | 2 | atoms `blob`, `string`, `word(i64)`, keywords: writers and readers | Family atoms | writers `atomMod` (symbol/string/blob/keyword), `word_lang`; readers string, keyword, symbol (`symTextMod_lang`), blob (`blobMod_lang`: exactly the 2-byte blobs), `word` | |
-| 3 | first-class APIs for the ten families incl. Rivest canonical vs hinted | `Family`, one parameterized API per style | `Families`, `Families/Mem`: per-family table; `bpairMod`/`rivest_bpairMod`, `hinted_lang`, `hintedSep_lang` | not every family × every style has a module (table says which); memory checkers `MemSound.ListCheck` (`symListMod_sound`: lists of two symbols, `blobListMod_sound`: lists of two blobs, live sessions `symListMod_live_of`, `blobListMod_live_of`) for two elements only, no looped any-length checker |
-| 4 | generic branch + leaf tags with WIT payloads; variadic, fixed, mixed arity; SExp correspondence | `AstSig`, `WitSig`, `sexpW_hom`, `SExp.equivAST`, `leaf_children_not_wellArity` | `astMod`, `calcMod`, `appMod`, `binMod`, `addCheck`; canonical-ABI layout (`valsLayout_toWit`); decoding equal to the pure reference loaders for scalar vectors (`loadVals_loadRecord`) and UTF-8 strings below `maxStringByteLength` (`readVal_string_loadStringFromRange`) | payload domain: `bool`, `s32/u32`, `s64/u64`, `string`, `bytes`, nested `list`; not floats, char, records, variants, options, results, flags, handles; `bytes`/`list` decoding is not compared with any reference loader (none is pure); not compared with the monadic `Canon.load`; no length limits; no flattening |
+| 3 | first-class APIs for the ten families incl. Rivest canonical vs hinted | `Family`, one parameterized API per style | **every family × API pair** has a module proved sound with a positive run: `Families.Matrix` (`<family>_<api>_sound`, `<family>_<api>_live`, `api ∈ naryW, consW, naryR, consR, astW, astR`; 60 pairs of theorems for the 10 families × 5 APIs, AST split into writer and reader), instances of generic modules proved once for every atom type: writers over atom tables `MemSound.Tab` (`tab_pair_lang`: `pairAtomMod` writes exactly `(a b)`; `tab_pairAst_lang`: its `sexpSig` tree; `tab_cons_lang`: `consAtomMod` writes exactly `(a)`), readers `MemSound.Probe` (`probeMod`: `next(h, 0)`, then a memory-returning `leaf(c, retptr)`; `nary_sound` ⊆ `firstAtoms`, `cons_sound` ⊆ `carAtoms`, `ast_sound` ⊆ `firstLeaves`, runs `nary_live`, `cons_live`, `ast_live`; payloads `bytesPay` (`list<u8>`), `kindPay` (`{bytes: list<u8>, kind: u32}`), `hintPay` (`{octets: list<u8>, hint: list<u8>}`, null hint pointer = no hint), `u64Pay`); word trees: `word_lang`, `twoWords`, the `u64` probe. **Full signatures**: every table names all atom imports of its family, one decoder per name (`AtomDec.seg`/`.seg2`): symbols `symbol`; bytes, Rivest `blob`; symStr `symbol`+`string`; symBytes `symbol`+`blob`; symStrBytes `symbol`+`string`+`blob`; symStrKw `symbol`+`string`+`keyword`; symStrKwBytes all four; hinted `blob`+`hinted(hptr, hlen, ptr, len)` (`hintedTab_hinted`); readers decode every kind (`kindD`: kind code `c` ↦ `ks[c]`; hinted: `hintPay`). Earlier examples: `Families/Mem`, `bpairMod`/`rivest_bpairMod`, `hinted_lang`, `hintedSep_lang`, `MemSound.ListCheck` | examples are small fixed languages (one two-element list, one cons pair, one-child reader checks); the soundness bounds are for modules that import and call one atom import each, decoded through the full table: a mixed family's writer run uses one kind, the hinted writer runs are hint-free (`hinted` is decoded but not called; a module calling it: `MemSound.Hinted`, n-ary only); reader runs read one kind (hinted: with a hint); the word cons writer's run is at the specification profiles; no looped any-length checker |
+| 4 | generic branch + leaf tags with WIT payloads; variadic, fixed, mixed arity; SExp correspondence | `AstSig`, `WitSig`, `sexpW_hom`, `SExp.equivAST`, `leaf_children_not_wellArity`; owned handles: `Own.ownHost` (resource table in the host state, moves consume), `resolveOp_congr`, `run_congr`, `ownLang_congr` (dependence on the table only at moved handles), `no_second_move`, `unresolved_step`, `ownLang_eq_of_linear`, `linear_of_ob` (`obProto`), `borrow_rejected` | `astMod`, `calcMod`, `appMod`, `binMod`, `glyphMod`, `addCheck`; owned handles: `ownMod` (`ownMod_sound`, `ownMod_dead`, `ownMod_live`, `ownMod_lang`: exactly `{res(rep)}` for the table's live `own<0>` handle `1`), `twiceMod` (`twice_traces`, `twice_accepts`: the double move accepts nothing; `twice_via`: the stateless reading would accept); canonical-ABI layout for the whole domain (`layout_toWit`, `valsLayout_toWit`); decoding equal to the pure reference loaders for scalar vectors of all nine scalars (`loadVals_loadRecord`), single scalars, floats and chars (`loadVal_scalar`, `loadVal_f32`, `loadVal_f64`, `loadVal_char`) and UTF-8 strings below `maxStringByteLength` (`readVal_string_loadStringFromRange`) | payload domain: every WIT value type with a memory representation and no async semantics (`bool`, the eight integers, `f32`/`f64` (NaNs canonicalised), `char`, `string`, `list<t>`, `list<t, n>`, `record`, `tuple`, `variant`, `enum`, `option`, `result`, `flags`, nested) and the handles `own<r>`/`borrow<r>`: a **top-level** `own` field moves its handle into the tree under the resource-table semantics (`MemSound.WitAst.Own`: the tree holds the representation from an explicit table, consumed once; an `own` nested in a list/option/record is no value), `borrow` is rejected (no value in a stored tree, `borrow_rejected`); not `future`, `stream`, `error-context` (pending async semantics), `map` (use `list<tuple<k, v>>`); lists, fixed lists and composite types are not compared with any reference loader (none is pure); not compared with the monadic `Canon.load`; no length limits; no flattening |
 | 5 | cons API with/without nil; SExp vs SExp2; properness; roundtrips | `consW`, `pairW`, `SExp2.toSExp?`, `Pat.toSExp2_image_lang` | cons checkers, `combCheck` (Tree2), `consMod`, `consMix` | |
 | 6 | union/intersection, images/preimages, list combinators, patterns, AST→sexp encodings | `Pattern`, `tuple_inter`, `AST.encode_injective`, `enc_collides` | — | abstract by nature |
 | 7 | executable checkers: proper lists (SExp2), word lists n-ary and binary, sorted with subset | — | `properCheck` (spine), `recProperCheck`, `recFullCheck` (recursive, total), `wordsCheck`, `sortedCheck`, `wordsNCheck`, `sortedNCheck`, `combCheck`; replays | signed `i64` order; handles are opaque `i32` |
@@ -119,11 +119,33 @@ Wasm examples are concrete modules.
 
 ### 4. Generic branch/leaves and tagged ASTs
 
+`Wit.Fragments.Thms` provides named `ScalarType` and `CompoundType` families, with
+injective embeddings and partial inverses for `PTy` and WIT types. Scalars include
+`char` and floats but not `string`. Compound constructors use existing payload types
+for their members, and do not certify well-formedness or resource support.
+`MemSound.WitAst.Fragments.Thms` relates their memory32 layouts and transports
+existing decoder results without changing success or failure. The scalar `calcSig`
+and compound `glyphSig` examples recover the existing signatures, so they use the
+same ASTs, Core modules and accepted languages after embedding.
+
+`WIT.Endpoints.Thms` embeds the non-async WIT fragment in the endpoint-capable
+interpretation. Extending the environment with stream and future carriers leaves
+the old value interpretation unchanged and induces an equivalence on sets of
+those values. `Wit.Async` adds typed endpoint identities and dispatches creation,
+copy, cancellation, polling and closure to the reference component built-ins.
+An old call list yields the identical effect program (`runCalls_legacy`). The
+machine examples resolve and close a future, cancel a pending stream read, and
+reject inspection of a closed slot. A `stream<u8>` session additionally checks no
+event before a matching read, the copied bytes and exact write-completion event,
+then disconnects and closes the set and both endpoints. These are component-machine
+sessions, not yet Core acceptor tree payloads; the checked tree writer still rejects
+async types.
+
 | Item | Status | Where |
 | --- | --- | --- |
 | generic `branch(children)` + designated leaves `tag(args)` | done | `AstSig`, `AST S := TExpr1 (Σ t, S.Arg t)` (reuses `TExpr`), `AST.WellArity`, `Api.astW` |
-| typed heterogeneous WIT payloads | done | `PTy`, `PTy.Vals`, `WitSig.toAstSig`; `Wasm.Game.HandleAccept.Wit`: `toWit : PTy → WIT.ValType`, `toWit_simple`, `toWit_injective`, `valEquiv E t : PTy.Val t ≃ (toWit t).Interp E`, `valsEquiv` |
-| variadic `tag(args…, children: list<i32>)`, fixed arity `tag(args…, c₁…cₙ)`, mixed arities | done | one writer `astW`; Wasm fixed-arity decoders `Wasm.Game.HandleAccept.Ast` (`moduleAstWLang`, `moduleAstWLang_wellArity` for every module, `astWLang_sound_of_gameSat`); AST reader `moduleAstLang`, `astLang_sound_of_gameSat`; variadic imports carry a memory list (see `Memory`). **Through memory** `MemSound.Ast`: `tag(tagptr, taglen, children, n) -> i32` decodes the UTF-8 tag name at `[tagptr, tagptr + taglen)` and `n` little-endian `i32` child handles at `[children, children + 4n)` of the memory at the call (`Callout.tagNode`, `astWrite`, `astRoles`, `astWriterLang` over `astW strSig`; `strSig`: string tags, no payload, `Arity.star`); bridges `astFixedLang_subset`, `astWriterLang_subset` (instances of `rolesFixedLang_subset`/`rolesWriterLang_subset`); example `astMod` (`tag(16, 1, 0, 0)` for the leaf `a`, the returned handle stored at `[0, 4)`, then `accept(tag(16, 1, 0, 1))`): `astMod_fixed_sound`, `astMod_sound` (Hoare proof `ast_sat` in every fixed environment), `astMod_live` (traced session against the counting host), `astMod_lang` (exactly `{f(a)}`, no sentinel, no UB). **Typed payloads, fixed arities through memory** `MemSound.WitAst`, for every `S : WitSig` with tags numbered by `tagOf`: `node(tag, payload, children, n) -> i32` reads the payload vector of `S.params t` at `payload` **in the canonical ABI layout** (memory32): `PTy.layout`/`PTy.width`/`PTy.align` (`bool` 1/1, `s32`/`u32` 4/4, `s64`/`u64` 8/8, `string`/`bytes`/`list t` the `(ptr, len)` pair 8/4), the vector as the WIT tuple of its types (`valsLayout = ABI.recordLayout`, fields at aligned offsets, tail padding, padding never read; `readFields`, `readVals`), agreeing with the repository's ABI layout `ABI.layout .i32` through `Wit.toWit` (`layout_toWit`, `width_toWit`, `align_toWit`, `valsLayout_toWit`, `valsWidth_toWit`, `valsAlign_toWit`; sizes `ex_width_*`); `payload` must be aligned to `valsAlign` and `children` to four (REF `trap_if(ptr != align_to(ptr, alignment))`); `string`: UTF-8 of `[ptr, ptr + len)`, `bytes`: the octets, `list t`: `len` elements at `ptr + i * t.width` with `ptr` aligned to `t`, recursively (`list<string>`, `list<list<t>>`); payload lemmas `readPtrLen_encode`, `readVal_rest`, `readVal_string`, `readVal_bytes`, `readVal_list`, `readVal_list_misaligned`, `readVals_single`; kernel-checked examples over `exMem` (`ex_string`, `ex_string_utf8`, `ex_bytes`, `ex_bytes_not_utf8`, `ex_list_u32`, `ex_list_string`, `ex_list_list`, `ex_vals`, `ex_vals_padded`, `ex_vals_padded64`); **malformed inputs** decode to no value (`ex_bad_utf8`, `ex_out_of_bounds`, `ex_list_oob`, `ex_list_misaligned`, `ex_list_string_bad_utf8`, `ex_list_string_oob`, `ex_list_list_misaligned`, `ex_short`) and malformed calls to no event (`ex_node_misaligned_payload`, `ex_node_payload_oob`, `ex_node_one_child`, `ex_node_three_children`, `ex_node_leaf_child`, `ex_node_misaligned_children`, `ex_node_children_oob`, `ex_node_unknown_tag`, `ex_node_bad_utf8`, `ex_node_string_oob`, `ex_node_misaligned_pair`, with controls `ex_node_num`, `ex_node_add`, `ex_node_var`); `witWrite_none`: a rejected call has no write event, so under the bridges it makes no handle denote a tree. The supported domain (WitAst docstring): payloads are `bool`, `s32`, `u32`, `s64`, `u64`, `string`, `list<u8>` and `list<t>` nested to any depth; not payloads: `s8`/`u8`/`s16`/`u16` (except `u8` in `bytes`), floats, `char`, fixed-length lists, records, tuples (other than the top-level vector), variants, enums, options, results, flags, maps, resource handles, futures, streams, error contexts. Arity: `Callout.witNode`, `witWrite`, `witRoles`, `witWriterLang` over `astW S.toAstSig`; `witNode_admits`, `witWrite_admits` (every decoded write has `(S.arity t).Admits` children); bridges `witFixedLang_subset`, `witWriterLang_subset`; example `calcSig` (`num`: one `s64`, arity `fixed 0`; `add`: no payload, arity `fixed 2`) and `calcMod` (`i64.store` of `1`, then `2`, at `[16, 24)` right before each `node(0, 16, 0, 0)`, the two handles at `[0, 8)`, `accept(node(1, 0, 0, 2))`): `calcMod_fixed_sound`, `calcMod_sound` (Hoare proof `calc_sat`), `calcMod_live` (traced session against the counting host), `calcMod_lang` (exactly `{add(num 1, num 2)}`, no sentinel, no UB). **String payloads**: `appSig` (`var`: one `string`, arity `fixed 0`; `app`: no payload, arity `fixed 2`) and `appMod` (`i32.store8` of the byte of `"f"` at `24`, then the pair `(24, 1)` as one `i64.store` at `[16, 24)`, right before each `node(0, 16, 0, 0)`, the same with `"x"`, the two handles at `[0, 8)`, `accept(node(1, 0, 0, 2))`): `appMod_fixed_sound`, `appMod_sound` (Hoare proof `app_sat`, decoding `var_node`), `appMod_live` (traced session against the counting host), `appMod_lang` (exactly `{app(var "f", var "x")}`, no sentinel, no UB). **Byte-string and list payloads**: `binSig` (`blob`: one `bytes`; `seq`: one `list<u32>`; both arity `fixed 0`; `pair`: no payload, arity `fixed 2`) and `binMod` (the byte `FF` at `24` and the pair `(24, 1)` before `node(0, 16, 0, 0)`; the `u32`s `7`, `9` as one `i64.store` at `[24, 32)` and the pair `(24, 2)` before `node(1, 16, 0, 0)`; the two handles at `[0, 8)`, `accept(node(2, 0, 0, 2))`): `binMod_fixed_sound`, `binMod_sound` (Hoare proof `bin_sat`, decoding `blob_node`, `seq_node`), `binMod_live` (traced session), `binMod_lang` (exactly `{pair(blob [0xFF], seq [7, 9])}`, no sentinel, no UB). **Against the pure canonical ABI reference loaders** `MemSound.WitAst.Canon` (memory32): `loadVals mem ps ptr` is the payload step of `node` at the call's memory (`witNode_loadVals`: every decoded node's payload is `loadVals` at its payload pointer); for scalar vectors (`SPTy`: `bool`, `s32`, `u32`, `s64`, `u64`) `loadVals_loadRecord` proves `(loadVals mem ps ptr).map toScalarValues = ABI.loadRecord ts mem ptr` (`Reference/ABI/Memory`), an equation of options, so values and failures (misalignment, out of bounds) coincide, with an injective value translation (`toScalarValues_injective`); `readPtrLen_load`: a `(ptr, len)` pair is the two reference `ABI.Scalar.load .u32` loads; `readVal_string_loadStringFromRange`: given its pair, a `string` payload is `ABI.loadStringFromRange? .utf8 .i32` (`Reference/ABI/String`) for `len ≤ ABI.maxStringByteLength` (same text or same failure: bounds, invalid UTF-8), while above the limit the reference traps and the decoder does not check. There is no pure reference list loader under `Reference/ABI/` (REF `load_list*` exist only as the monadic `Canon.Load` programs), so `bytes` and `list t` decoding is not compared with a reference loader |
+| typed heterogeneous WIT payloads | done | `PTy` (`bool`, `s8`…`u64`, `f32`, `f64`, `char`, `string`, `list t` (`bytes = list u8`), `fixedList t n`, `record`, `tuple`, `variant`, `enum`, `option`, `result`, `flags`; nested inductive, `DecidableEq` via `PTy.beq_iff`), `PTy.Val` (the Lean interpretation: floats as IEEE bits, `char` as `Char`, products, sums, `Fin n`, `BitVec n`), `PTy.Vals`, `WitSig.toAstSig`; `Wasm.Game.HandleAccept.Wit`: `toWit : PTy → WIT.ValType`, its left inverse `ofWit` (`ofWit_toWit`, defined exactly off names, `map`, handles and async types), `toWit_simple`, `toWit_injective`, `valEquiv E t : PTy.Val t ≃ (toWit t).Interp E` (with `valsEquiv`, `fieldsEquiv`, `casesEquiv`, `optEquiv`) |
+| variadic `tag(args…, children: list<i32>)`, fixed arity `tag(args…, c₁…cₙ)`, mixed arities | done | one writer `astW`; Wasm fixed-arity decoders `Wasm.Game.HandleAccept.Ast` (`moduleAstWLang`, `moduleAstWLang_wellArity` for every module, `astWLang_sound_of_gameSat`); AST reader `moduleAstLang`, `astLang_sound_of_gameSat`; variadic imports carry a memory list (see `Memory`). **Through memory** `MemSound.Ast`: `tag(tagptr, taglen, children, n) -> i32` decodes the UTF-8 tag name at `[tagptr, tagptr + taglen)` and `n` little-endian `i32` child handles at `[children, children + 4n)` of the memory at the call (`Callout.tagNode`, `astWrite`, `astRoles`, `astWriterLang` over `astW strSig`; `strSig`: string tags, no payload, `Arity.star`); bridges `astFixedLang_subset`, `astWriterLang_subset` (instances of `rolesFixedLang_subset`/`rolesWriterLang_subset`); example `astMod` (`tag(16, 1, 0, 0)` for the leaf `a`, the returned handle stored at `[0, 4)`, then `accept(tag(16, 1, 0, 1))`): `astMod_fixed_sound`, `astMod_sound` (Hoare proof `ast_sat` in every fixed environment), `astMod_live` (traced session against the counting host), `astMod_lang` (exactly `{f(a)}`, no sentinel, no UB). **Typed payloads, fixed arities through memory** `MemSound.WitAst`, for every `S : WitSig` with tags numbered by `tagOf`: `node(tag, payload, children, n) -> i32` reads the payload vector of `S.params t` at `payload` **in the canonical ABI layout** (memory32): `PTy.layout`/`PTy.width`/`PTy.align` (`bool` 1/1, `s32`/`u32` 4/4, `s64`/`u64` 8/8, `string`/`bytes`/`list t` the `(ptr, len)` pair 8/4), the vector as the WIT tuple of its types (`valsLayout = ABI.recordLayout`, fields at aligned offsets, tail padding, padding never read; `readFields`, `readVals`), agreeing with the repository's ABI layout `ABI.layout .i32` through `Wit.toWit` (`layout_toWit`, `width_toWit`, `align_toWit`, `valsLayout_toWit`, `valsWidth_toWit`, `valsAlign_toWit`; sizes `ex_width_*`); `payload` must be aligned to `valsAlign` and `children` to four (REF `trap_if(ptr != align_to(ptr, alignment))`); `string`: UTF-8 of `[ptr, ptr + len)`, `bytes`: the octets, `list t`: `len` elements at `ptr + i * t.width` with `ptr` aligned to `t`, recursively (`list<string>`, `list<list<t>>`); payload lemmas `readPtrLen_encode`, `readVal_rest`, `readVal_string`, `readVal_bytes`, `readVal_list`, `readVal_list_misaligned`, `readVals_single`; kernel-checked examples over `exMem` (`ex_string`, `ex_string_utf8`, `ex_bytes`, `ex_bytes_not_utf8`, `ex_list_u32`, `ex_list_string`, `ex_list_list`, `ex_vals`, `ex_vals_padded`, `ex_vals_padded64`); **malformed inputs** decode to no value (`ex_bad_utf8`, `ex_out_of_bounds`, `ex_list_oob`, `ex_list_misaligned`, `ex_list_string_bad_utf8`, `ex_list_string_oob`, `ex_list_list_misaligned`, `ex_short`) and malformed calls to no event (`ex_node_misaligned_payload`, `ex_node_payload_oob`, `ex_node_one_child`, `ex_node_three_children`, `ex_node_leaf_child`, `ex_node_misaligned_children`, `ex_node_children_oob`, `ex_node_unknown_tag`, `ex_node_bad_utf8`, `ex_node_string_oob`, `ex_node_misaligned_pair`, with controls `ex_node_num`, `ex_node_add`, `ex_node_var`); `witWrite_none`: a rejected call has no write event, so under the bridges it makes no handle denote a tree. The supported domain (WitAst docstring): payloads are all of `PTy`, i.e. the WIT value types with a canonical-ABI memory representation and no resource or asynchronous semantics: `bool`, `s8`, `u8`, `s16`, `u16`, `s32`, `u32`, `s64`, `u64`, `f32`, `f64`, `char`, `string`, `list<t>` (`bytes = list<u8>`), `list<t, n>`, `record`, `tuple`, `variant`, `enum`, `option`, `result`, `flags`, nested to any depth; layouts `PTy.layout` (narrow integers 1/1 and 2/2, `f32`/`char` 4/4, `f64` 8/8, records/tuples `ABI.recordLayout`, variants/`option`/`result` `ABI.variantLayout` with the smallest discriminant (`discBytes`) and the payload at `caseOffset`, `enum` its discriminant, `flags` 1/2/4 bytes, `list<t, n>` in place), agreeing with `ABI.layout .i32` mutually over fields, cases and options (`layout_toWit`); decoding with the canonical trap conditions: floats with NaNs canonicalised (`ex_f32_nan`, `ex_f64_nan`), `char` only a Unicode scalar value (`ex_char_surrogate`, `ex_char_too_big`, `ex_record_bad_char`), discriminants in range (`ex_option_bad_disc`, `ex_record_bad_disc`, `ex_variant_bad_disc`, `ex_enum_bad_disc`, `ex_result_bad_disc`), `bool` any nonzero byte (`ex_bool_two`, REF `convert_int_to_bool`), flag bits above the label count ignored (`ex_flags_high`, REF `unpack_flags_from_int`); controls `ex_s8`, `ex_u16`, `ex_s16`, `ex_f32`, `ex_f64`, `ex_char`, `ex_char_astral`, `ex_fixed`, `ex_tuple`, `ex_record`, `ex_option_none`, `ex_option_string`, `ex_variant`, `ex_variant_a`, `ex_enum`, `ex_result_ok`, `ex_result_err`, `ex_flags`, `ex_list_tuple`, `ex_vals_glyph`, sizes `ex_width_glyph`, `ex_width_option_u64`, `ex_width_result`, `ex_width_variant`, `ex_width_enum257`, `ex_width_flags`, `ex_width_fixed`; `readVal_rest` (every value consumes exactly its width) for the whole domain; resource handles (`MemSound.WitAst.Own`, resource-table semantics): an `own<r>` payload field is read as its `u32` table index (`rawSig`, `ownRaw`), resolved in an **explicit resource table** `RT` (index ↦ resource type, representation, live) to the resource's representation (`resolveOp`; dead, missing or foreign-type handles and a double move inside one payload do not resolve) and **consumed**: the resource host `ownHost` keeps the table in its state, a second move of a handle is an invalid write under `onWrite` (`no_second_move`, `unresolved_step`), acceptance depends on the initial table only at the moved handles (`resolveOp_congr`, `run_congr`, `ownLang_congr`), and on traces moving no handle twice (in particular those the ownership protocol `obProto` accepts, `linear_of_ob`, `ownLang_eq_of_ob`) it is the stateless reading `viaRT` (`ownLang_eq_of_linear`); `ownMod` (the module owns handle `1` in the table; `ownMod_sound`, `ownMod_dead`, `ownMod_live`, `ownMod_lang`: exactly `{res(rep)}`) and `twiceMod` (`twice_accepts`: moving `1` twice accepts nothing; `twice_via`); only **top-level** `own` fields are resolved (nested ones are no value); `borrow<r>` is rejected in stored trees (`PTy.Val (.borrow r) = Empty`, `readVal_borrow`, `borrow_rejected`); not payloads: futures, streams, error contexts (pending async semantics) and `map` (despecialised to `list<tuple<k, v>>`). Arity: `Callout.witNode`, `witWrite`, `witRoles`, `witWriterLang` over `astW S.toAstSig`; `witNode_admits`, `witWrite_admits` (every decoded write has `(S.arity t).Admits` children); bridges `witFixedLang_subset`, `witWriterLang_subset`; example `calcSig` (`num`: one `s64`, arity `fixed 0`; `add`: no payload, arity `fixed 2`) and `calcMod` (`i64.store` of `1`, then `2`, at `[16, 24)` right before each `node(0, 16, 0, 0)`, the two handles at `[0, 8)`, `accept(node(1, 0, 0, 2))`): `calcMod_fixed_sound`, `calcMod_sound` (Hoare proof `calc_sat`), `calcMod_live` (traced session against the counting host), `calcMod_lang` (exactly `{add(num 1, num 2)}`, no sentinel, no UB). **String payloads**: `appSig` (`var`: one `string`, arity `fixed 0`; `app`: no payload, arity `fixed 2`) and `appMod` (`i32.store8` of the byte of `"f"` at `24`, then the pair `(24, 1)` as one `i64.store` at `[16, 24)`, right before each `node(0, 16, 0, 0)`, the same with `"x"`, the two handles at `[0, 8)`, `accept(node(1, 0, 0, 2))`): `appMod_fixed_sound`, `appMod_sound` (Hoare proof `app_sat`, decoding `var_node`), `appMod_live` (traced session against the counting host), `appMod_lang` (exactly `{app(var "f", var "x")}`, no sentinel, no UB). **Byte-string and list payloads**: `binSig` (`blob`: one `bytes`; `seq`: one `list<u32>`; both arity `fixed 0`; `pair`: no payload, arity `fixed 2`) and `binMod` (the byte `FF` at `24` and the pair `(24, 1)` before `node(0, 16, 0, 0)`; the `u32`s `7`, `9` as one `i64.store` at `[24, 32)` and the pair `(24, 2)` before `node(1, 16, 0, 0)`; the two handles at `[0, 8)`, `accept(node(2, 0, 0, 2))`): `binMod_fixed_sound`, `binMod_sound` (Hoare proof `bin_sat`, decoding `blob_node`, `seq_node`), `binMod_live` (traced session), `binMod_lang` (exactly `{pair(blob [0xFF], seq [7, 9])}`, no sentinel, no UB). **Against the pure canonical ABI reference loaders** `MemSound.WitAst.Canon` (memory32): `loadVals mem ps ptr` is the payload step of `node` at the call's memory (`witNode_loadVals`: every decoded node's payload is `loadVals` at its payload pointer); for scalar vectors (`SPTy`: `bool`, `s32`, `u32`, `s64`, `u64`) `loadVals_loadRecord` proves `(loadVals mem ps ptr).map toScalarValues = ABI.loadRecord ts mem ptr` (`Reference/ABI/Memory`), an equation of options, so values and failures (misalignment, out of bounds) coincide, with an injective value translation (`toScalarValues_injective`); `readPtrLen_load`: a `(ptr, len)` pair is the two reference `ABI.Scalar.load .u32` loads; `readVal_string_loadStringFromRange`: given its pair, a `string` payload is `ABI.loadStringFromRange? .utf8 .i32` (`Reference/ABI/String`) for `len ≤ ABI.maxStringByteLength` (same text or same failure: bounds, invalid UTF-8), while above the limit the reference traps and the decoder does not check. `SPTy` now covers all nine canonical scalars (`bool`, `s8`…`u64`); single values `loadVal mem t a`: `loadVal_scalar` (`ABI.Scalar.load`), `loadVal_f32`, `loadVal_f64` (`ABI.loadFloat`: NaNs canonicalised), `loadVal_char` (`ABI.loadChar`: surrogates and values `≥ 0x110000` fail in both), equations of options. There is no pure reference list, record-with-non-scalar-fields, variant or flags loader under `Reference/ABI/` (REF `load_list*`, `load_record`, `load_variant`, `load_flags` exist only as the monadic `Canon.Load` programs), so `bytes`, `list t`, fixed lists and the composite types are not compared with a reference loader. **Records, options and chars end to end**: `glyphSig` (`glyph`: one `record { ch: char, size: option<u8> }` (`glyphTy`, eight bytes), arity `fixed 0`; `pair`: no payload, arity `fixed 2`) and `glyphMod` (the record `{ 'a', some(7) }` as one `i64.store` at `[16, 24)` before `node(0, 16, 0, 0)`, the same with `{ 'λ', none }`, the two handles at `[0, 8)`, `accept(node(1, 0, 0, 2))`): `glyphMod_fixed_sound`, `glyphMod_sound` (Hoare proof `glyph_sat`, payloads `readVals_glyphA`, `readVals_glyphB`), `glyphMod_live` (traced session), `glyphMod_lang` (exactly `{pair(glyph { 'a', some(7) }, glyph { 'λ', none })}`, no sentinel, no UB) |
 | simple APIs are special cases | done | `Api.sexpW_hom` (writer homomorphism), `sexpLang_eq_astLang`, generic `writerLang_hom`/`writerLang_hom_subset` |
 | SExpr ≅ single payload-free variadic branch tag + atom leaves | done | `sexpSig`, `SExp.equivAST : SExp α ≃ {x // WellArity x}`; atoms are not unlabelled internal nodes: `leaf_children_not_wellArity` |
 
@@ -156,7 +178,7 @@ Wasm examples are concrete modules.
 | signed `i32` handles vs `i64` payloads, sorting | done (stated) | `Checkers.Defs` docstring; `sortedL` uses signed `BitVec.sle` (`i64.le_s`) |
 | other styles in Wasm (proved examples) | done | shared rules `Proofs/Wasm/Game/HandleAccept/Checkers/Generic.lean`. N-ary reader (`count`/`child`): `pairCheck_sound`, `wordsNCheck_sound` (`SExp.ofAtoms ws`), `sortedNCheck_sound`, `sortedNL_subset_wordsNL`. AST reader: `addCheck_sound` (`add(num a, num b)`). Parsing export: `nzParse_sound`/`nzParse_input` (one-shot inputs are single nonzero words; the tree is unconstrained because the export spec cannot constrain its imports). Binary trees (`Tree2`, cons without nil): writer/reader decoders, `combCheck_sound` (right combs of words). Writer: `twoWords_sound`, `twoWords_fixed_sound` (accepts only `(x x+1)`), for policies without a sentinel (the module does not test for failures). Structural bounds for every module: `moduleConsWLang_subset_atoms2`, `moduleSxWLang_subset_arities`, `moduleAstWLang_wellArity`, `moduleParseRel_input_oneShot`, `memWriterLang_subset_atoms` |
 | sentinel writers `0` and `-1` | done | `twoWordsZ`, `twoWordsM` test each write result against the sentinel: `twoWordsZ_sat`/`twoWordsM_sat`, `twoWordsZ_sound`/`twoWordsM_sound` (store semantics, `pol.sentinel = some 0` resp. `some (-1)`), fixed-environment versions, `twoWordsZ_accepts_0/_5`, `twoWordsM_accepts_0/_5` (handle `0` valid under sentinel `-1`), failure replays `twoWordsZ_fail_accepts_nothing`, `twoWordsM_fail_accepts_nothing`, `twoWordsZ_lateFail_accepts_nothing` |
-| family × API audit | partial | `HandleAccept.Families`: 10 families × 5 APIs as named instantiations with the strongest proved result per row (table in `Families/Defs.lean`). Wasm-proved examples exist for word trees; symbols+strings+bytes have a memory n-ary writer with a structural bound; the other combinations have API-level laws only (no Wasm decoder for their atom kinds; no keyword import) |
+| family × API audit | done | `HandleAccept.Families`: 10 families × 5 APIs as named instantiations (table in `Families/Defs.lean`, every row names its Wasm theorems). `Families.Matrix`: for every pair a core Wasm module over the family's own atom type with a Hoare-logic language bound (`_sound`) and a traced session accepting a tree (`_live`): n-ary writer `pairAtomMod` (exactly `(a b)`; words `wordMod`, exactly `42`), cons writer `consAtomMod` (exactly `(a)`; words `twoWords`), AST writer the n-ary module read at `sexpSig` (`tabAstWriterLang_eq`), n-ary/cons/AST readers `probeMod` (`firstAtoms`, `carAtoms`, `firstLeaves`). No pair is left without a module |
 | non-vacuity of the other styles | done | generic replay decoding `Proofs/Wasm/Game/HandleAccept/Replay.lean` (`mem_readerLang_of_replay`, `mem_writerLang_of_replay`); `pairCheck_accepts_12`, `wordsNCheck_accepts_12`, `sortedNCheck_accepts_12`, `wordsNCheck_accepts_21`, `sortedNCheck_rejects_21`; `addCheck_accepts_12`; `combCheck_accepts_123`; `twoWords_accepts_0`, `twoWords_accepts_5` (fresh-handle host); `nzParse_relates_7` (needs `replayExportR`, which also records the export's answer). All for profiles admitting the deterministic interpreter's steps (`hP`) and every specification profile (`_spec`) |
 
 ### 8. Combined writer + reader
@@ -176,7 +198,7 @@ Wasm examples are concrete modules.
 | invalid returned handle, overrun: traps | done | every parsing event is itself an export call ending with its returned handle, so a call-local trap (`callTrap`, the default) is that call relating nothing while the session continues; it coincides with `ignore` (`PStep.retBadIgnore`, `PStep.overrunIgnore`). `sessionTrap` aborts the session (`PStep.retBadSessionTrap`, `dead`; an overrun has no answer) |
 | repeated `done`, sessions, `reset` | done | `doneClears`, `PEv.reset`, `Examples.done_twice` |
 | projections, membership, monotonicity, unions, non-preservation of intersections | done | `inputLang`, `treeLang`, `inputLang_union`, `inputLang_inter_subset`, `parseRel_mono`, `parseRel_union`, `Examples.projection_inter_strict` |
-| trees resolved in consistent environments; mixed APIs with parsing; Wasm tie-ins | done (one-shot `parse` in Wasm) | `Semantics.Accept.Mixed`: `mixedRel` resolves returned handles in the **current writer store** (`run_resolve_stable`, `mixedRel_constructed`), `mixedFixedRel` over fixed environments, `mixedRel_subset_parseRel`, `mixedRel_subset_of_AG`; Wasm `HandleAccept.Mixed`: `moduleMixedRel`, `moduleMixedRel_sound_of_gameSat` (writer import answers agree with ρ, export spec constrains the returned tree); example `listParse`: `listParse_sound`/`listParse_rel` (every related pair is `([x], (x))`, `x ≠ 0`), non-vacuous `listParse_relates_7`, `listParse_rel_eq_7`. Streaming: ghost-state export specifications (`SSpec`, `SGameSat`, `strategy_sag`, `moduleMixedRel_sound_of_streamSat`, semantic `mixedRel_subset_of_streamAG`); example `stackParse` (`append(x)`/`done()`): `stackParse_sound`, `stackParse_rel` (every pair is `(vs, ofAtoms vs.reverse)`), `stackParse_relates_78`, `stackParse_rel_eq_78` (replayed session of three export calls). Requires no writer sentinel and `doneClears`. Chunk exports (`feed`/`finish -> (used, tree)`): `Mixed.Chunk`, `chunkSSpec` (ghost = chunk buffer), `moduleMixedRel_sound_of_chunkSat` (with the semantic `Semantics.Accept.Mixed.Chunk`: `chunkStep`, `chunkFold`, `pstep_buf`, `mixedRel_subset_of_chunkAG`, `mixedFixedRel_subset_of_chunkAG`, assume/guarantee along the chunk buffer), over fixed environments `moduleMixedFixedRel_sound_of_chunkSat` (every writer policy), `chunkStack_fixed_sound`; example `chunkStack` (`feed(x : i64)`, `finish(n) -> (used, tree)`, all-or-nothing consumption): `chunkStack_sat`, `chunkStack_sound`, `chunkStack_relates_78`, `chunkStack_relates_nil`, `chunkStack_rel_eq_78` (replayed `feed(7) feed(8) finish(1) finish(5)`: the values stay buffered across a `finish` that consumes none). Partial consumption: `Mixed.Chunk.Take`, `chunkTake` (two `i64` slots and a count in globals; `finish(n)` consumes exactly the oldest `n` when `0 < n ≤` count and returns their list, otherwise `(0, ())`): `chunkTake_sat`, `chunkTake_sound`, `chunkTake_fixed_sound`, `chunkTake_rel` (every pair is `(vs, ofAtoms vs)`), replayed `feed(7) feed(8) finish(1) finish(1)`: `chunkTake_relates_7` (`used = 1` of `2` buffered), `chunkTake_relates_8` (the value left buffered), `chunkTake_rel_eq_8`. Memory buffer: `Mixed.Chunk.Ring`, `chunkRingN cap` (a ring buffer of up to `cap` `i64`s in linear memory, start slot and count in globals, slots `8 * ((st + i) mod cap)`; `feed` diverges when the buffer is full; `finish(n)` builds the list of the oldest `n` values in a loop and advances the start slot, consuming exactly `n` when `0 < n ≤` count, otherwise `(0, ())`; `chunkRing = chunkRingN 8`), with **one proof generic in the capacity** for every `RingCap cap` (`0 < cap ≤ 8192`, the buffer within the one page): `chunkRingN_sat` (invariant `ringInv cap`: the memory loads at `slot cap st i` are the chunk buffer; the instance shape, code, globals and memory are kernel evaluations with `cap` free, `kernel_rfl`, `MShape.of_okNB`; slot arithmetic with `cap` symbolic, `slot_addr`, `slot_ne`), `chunkRingN_sound`, `chunkRingN_fixed_sound`, `chunkRingN_rel` (every pair is `(vs, ofAtoms vs)`), restated for eight slots as `chunkRing_sat`, `chunkRing_sound`, `chunkRing_fixed_sound`, `chunkRing_rel`; non-vacuity for every `2 ≤ cap ≤ 8192` at once: `chunkRingN_relates_7`, `chunkRingN_relates_8`, `chunkRingN_rel_eq_8` (`feed(7) feed(8) finish(1) finish(1)`: the second `finish` consumes the value left in memory), instances `chunkRing_relates_7`, `chunkRing_relates_8`, `chunkRing_rel_eq_8` (eight slots) and `chunkRing8192_relates_8`, `chunkRing8192_rel_eq_8` (the whole page); one value for every `1 ≤ cap ≤ 8192`: `chunkRingN_relates_7_one` (`feed(7) finish(1)`, `RingLive.ring_session1`), with the one-slot buffer `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`; for **every profile**, by a play built forwards (`RingLive.ring_session`): the kernel replay used for `chunkTake` does not scale to a 64 KiB page, so the runs between callouts are composed from Core `Step` rules with the store symbolic (straight-line code by `exec_sound`, memory by `load_store_same`/`load_store_disjoint`, slot addresses from `cap` by `mod_small`), and only the decoded moves are checked by kernel evaluation (`mem_moduleMixedRel_of_path`) |
+| trees resolved in consistent environments; mixed APIs with parsing; Wasm tie-ins | done (one-shot `parse` in Wasm) | `Semantics.Accept.Mixed`: `mixedRel` resolves returned handles in the **current writer store** (`run_resolve_stable`, `mixedRel_constructed`), `mixedFixedRel` over fixed environments, `mixedRel_subset_parseRel`, `mixedRel_subset_of_AG`; Wasm `HandleAccept.Mixed`: `moduleMixedRel`, `moduleMixedRel_sound_of_gameSat` (writer import answers agree with ρ, export spec constrains the returned tree); example `listParse`: `listParse_sound`/`listParse_rel` (every related pair is `([x], (x))`, `x ≠ 0`), non-vacuous `listParse_relates_7`, `listParse_rel_eq_7`. Streaming: ghost-state export specifications (`SSpec`, `SGameSat`, `strategy_sag`, `moduleMixedRel_sound_of_streamSat`, semantic `mixedRel_subset_of_streamAG`); example `stackParse` (`append(x)`/`done()`): `stackParse_sound`, `stackParse_rel` (every pair is `(vs, ofAtoms vs.reverse)`), `stackParse_relates_78`, `stackParse_rel_eq_78` (replayed session of three export calls). Requires no writer sentinel and `doneClears`. Chunk exports (`feed`/`finish -> (used, tree)`): `Mixed.Chunk`, `chunkSSpec` (ghost = chunk buffer), `moduleMixedRel_sound_of_chunkSat` (with the semantic `Semantics.Accept.Mixed.Chunk`: `chunkStep`, `chunkFold`, `pstep_buf`, `mixedRel_subset_of_chunkAG`, `mixedFixedRel_subset_of_chunkAG`, assume/guarantee along the chunk buffer), over fixed environments `moduleMixedFixedRel_sound_of_chunkSat` (every writer policy), `chunkStack_fixed_sound`; example `chunkStack` (`feed(x : i64)`, `finish(n) -> (used, tree)`, all-or-nothing consumption): `chunkStack_sat`, `chunkStack_sound`, `chunkStack_relates_78`, `chunkStack_relates_nil`, `chunkStack_rel_eq_78` (replayed `feed(7) feed(8) finish(1) finish(5)`: the values stay buffered across a `finish` that consumes none). Partial consumption: `Mixed.Chunk.Take`, `chunkTake` (two `i64` slots and a count in globals; `finish(n)` consumes exactly the oldest `n` when `0 < n ≤` count and returns their list, otherwise `(0, ())`): `chunkTake_sat`, `chunkTake_sound`, `chunkTake_fixed_sound`, `chunkTake_rel` (every pair is `(vs, ofAtoms vs)`), replayed `feed(7) feed(8) finish(1) finish(1)`: `chunkTake_relates_7` (`used = 1` of `2` buffered), `chunkTake_relates_8` (the value left buffered), `chunkTake_rel_eq_8`. Memory buffer: `Mixed.Chunk.Ring`, `chunkRingN cap` (a ring buffer of up to `cap` `i64`s in linear memory, start slot and count in globals, slots `8 * ((st + i) mod cap)`; `feed` traps without writing when the buffer is full; `finish(n)` builds the list of the oldest `n` values in a loop and advances the start slot, consuming exactly `n` when `0 < n ≤` count, otherwise `(0, ())`; `chunkRing = chunkRingN 8`), with **one proof generic in the capacity** for every `RingCap cap` (`0 < cap ≤ 8192`, the buffer within the one page): `chunkRingN_sat` (invariant `ringInv cap`: the memory loads at `slot cap st i` are the chunk buffer; the instance shape, code, globals and memory are kernel evaluations with `cap` free, `kernel_rfl`, `MShape.of_okNB`; slot arithmetic with `cap` symbolic, `slot_addr`, `slot_ne`), `chunkRingN_sound`, `chunkRingN_fixed_sound`, `chunkRingN_rel` (every pair is `(vs, ofAtoms vs)`), restated for eight slots as `chunkRing_sat`, `chunkRing_sound`, `chunkRing_fixed_sound`, `chunkRing_rel`; non-vacuity for every `2 ≤ cap ≤ 8192` at once: `chunkRingN_relates_7`, `chunkRingN_relates_8`, `chunkRingN_rel_eq_8` (`feed(7) feed(8) finish(1) finish(1)`: the second `finish` consumes the value left in memory), instances `chunkRing_relates_7`, `chunkRing_relates_8`, `chunkRing_rel_eq_8` (eight slots) and `chunkRing8192_relates_8`, `chunkRing8192_rel_eq_8` (the whole page); one value for every `1 ≤ cap ≤ 8192`: `chunkRingN_relates_7_one` (`feed(7) finish(1)`, `RingLive.ring_session1`), with the one-slot buffer `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`; for **every profile**, by a play built forwards (`RingLive.ring_session`): the kernel replay used for `chunkTake` does not scale to a 64 KiB page, so the runs between callouts are composed from Core `Step` rules with the store symbolic (straight-line code by `exec_sound`, memory by `load_store_same`/`load_store_disjoint`, slot addresses from `cap` by `mod_small`), and only the decoded moves are checked by kernel evaluation (`mem_moduleMixedRel_of_path`) |
 
 ### Cautions
 
@@ -188,7 +210,60 @@ Wasm examples are concrete modules.
 | sentinel inclusion via observations/renamings, allocation failure | `writerLang_rename`, `writerLang_sentinel_swap`, `writerLang_noRet_subset`, `sentinel_twice` |
 | intersection is not preserved by projection or trace languages | `Host.lang_inter_subset`, `inputLang_inter_subset`, `Examples.inter_strict`, `projection_inter_strict` |
 
+### Hinted family writer coverage
+
+`Families.Hinted.Thms` proves that the family table and the dedicated hinted writer
+decode the same call and answer events. Its n-ary and AST writer languages for
+`hintedSepMod` are exactly the atom `[hi]ab` (respectively the corresponding typed leaf)
+for non-UB policies. This exercises the real four-operand import with disjoint hint
+and octet segments.
+
+`Families.Mixed.Examples` runs additional Core exports with checked reply shapes and decodes
+their memory callouts through the family tables. The n-ary traces build a symbol/string list
+and a blob/keyword list; the AST writer accepts the typed image of the symbol/string trace.
+The cons replay calls both `hinted` and `blob` and accepts a two-cell list, retaining the
+head's hint. These are acceptance results for the decoded small-memory replay traces, not
+soundness or completeness over arbitrary Wasm sessions.
+
+### Reference resource lifecycle
+
+`Wit.Resources` runs the reference `resource.new`, `resource.rep` and `resource.drop`
+built-ins, including their destructor dispatcher. `take` uses canonical `liftOwn` and
+retains the consumed handle's arena identity as well as its representation. The machine
+examples check slot reuse with two different identities that share a representation,
+drop, and the observable early slot removal on a wrong-type lift that locks down the
+component.
+
+`Own.ReferenceTable` relates usable Core table lookups to the current reference arena.
+Successful `Nested.reserve` refines one canonical owner move, whose witness retains the
+arena identity; committing that slot preserves the relation at every other lookup. The
+relation does not identify equal representations or use guest slots as identity. A failed
+checked preflight does not perform the canonical removal: a wrong-type, lent or non-owning
+canonical lift removes the slot before trapping. `resolveTypes_refines_eager` lifts the
+success refinement through the shared traversal of an entire already-decoded payload, including
+nested lists, products and sums. It preserves the typed value, live lookups and reservation
+order; the eager path records nominal receipts. An executable compact-UTF-16 record example
+compares both memory decoders with two equal-representation owners in different nested fields.
+Malformed text gives a checked refusal, but the canonical trap retains both prior removals.
+The general refinement starts after byte decoding; it is not whole-memory-decoder equivalence
+or a failure equivalence between the host contracts.
+
 ## Modelling choices to review
+
+`Wit.Async.Transfer` gives the endpoint interpretation a canonical lift/lower boundary:
+it removes the guest slot on successful lift and retains the arena object in the typed
+value. Lowering checks that this object is live, correctly typed, idle, not registered
+with a waitable set, and currently detached. Duplicate Lean values do not duplicate
+ownership. The reference-machine examples exercise a byte stream and a completing unit
+future, including rejected retagging and repeat lowering. Schemas containing a borrow
+are rejected before any transfer effects.
+
+`Wit.Stored.Endpoints.Future.Examples` verifies a two-instance handoff of a tree
+holding a future with a compound `{ word : u16, hint : option<bool> }` element.
+It checks single-use transfer, cancellation without a destination write, polling
+before and after completion, exact bytes in the reader memory, and removal of both
+endpoints and the waitable set. It proves the concrete reference-machine session,
+not a scheduling theorem or a Core adapter.
 
 * **Traps are call-local.** The Wasm-facing mandatory trap on an invalid `accept` is
   `OnInvalid.callTrap` (the default): as in Wasm, a trap aborts only the current export
@@ -218,36 +293,457 @@ Wasm examples are concrete modules.
 
 ## Remaining obligations
 
-* Memory ASTs: `MemSound.WitAst` has the canonical ABI layout (`valsLayout_toWit`), and its
-  decoding is proved equal to the **pure** reference loaders only for scalar payload vectors
+* Memory ASTs: `MemSound.WitAst` has the canonical ABI layout (`layout_toWit`,
+  `valsLayout_toWit`), and its decoding is proved equal to the **pure** reference loaders only
+  for scalar payload vectors
   (`loadVals_loadRecord` against `ABI.loadRecord`) and for UTF-8 strings of at most
   `MAX_STRING_BYTE_LENGTH` bytes (`readPtrLen_load`, `readVal_string_loadStringFromRange` against
   `ABI.loadStringFromRange?`), failures included. Not proved: `bytes` and `list t` against any
   reference (the repository has no pure list loader; REF `load_list*` exist only as monadic
   `Canon.Load` programs), mixed vectors as one record equation (`loadRecord` has only scalar
   fields), and any equation with the monadic `Canon.load` programs over a component store. The
-  length limits `MAX_STRING_BYTE_LENGTH`/`MAX_LIST_BYTE_LENGTH` are not checked (only the memory
-  bound: above the string limit the reference traps where the decoder may succeed); payloads
-  always go through memory (no flattening into core arguments, `ABI.flatten`), strings are UTF-8
-  only, memory64 is not covered; this is therefore not a proof of interoperability with
-  canonical component-ABI lifting; WIT types outside `PTy` (floats,
-  `char`, small integers, records, variants, enums, options, results, flags, handles) are not
-  payloads. The end-to-end modules cover `s64`, `string`, `bytes` and `list<u32>`; nested lists
-  (`list<string>`, `list<list<u32>>`) are covered by kernel-checked decoding examples only.
-* Wasm writer variants: `batchAccept_lang` bounds `batchAccept` by its kept batch `keptL` (the
-  dropped word is never accepted, `batchAccept_drops`), but the lower bound is the run at the
-  fixed argument `3` (`batchAccept_kept`), not every `(w)`; the batch bridge assumes policies
-  without undefined behaviour. `errAccept`, `allAccept`, `readBack` are upper bounds with runs at
-  fixed arguments, not exact languages.
-* Families through memory: `MemSound.ListCheck` checks lists of exactly two symbols
-  (`symListMod`) or two blobs (`blobListMod`); there is no looped checker for any length (a loop
-  computing `ptr + 4i` with `i32` arithmetic wraps modulo `2^32` while the decoder reads at the
-  natural-number offset, so it needs an overflow guard), and the live sessions exhibit lists of
-  two copies of one symbol (blob) only.
-* Parsing: `chunkRingN` is proved for capacities up to 8192 (one page), with non-vacuity for
-  every `1 ≤ cap ≤ 8192` (one value: `chunkRingN_relates_7_one`; the one-slot buffer:
-  `chunkRing1_relates_7`, `chunkRing1_rel_eq_7`) and for `2 ≤ cap` with two values; capacities
-  beyond one page and memory growth (`memory.grow`) are not done.
+  legacy memory decoder checks bounds but not `MAX_STRING_BYTE_LENGTH`/`MAX_LIST_BYTE_LENGTH`.
+  The checked host boundary (`MemSound.WitAst.Checked.Thms`) applies both limits to payload
+  indirections and the list limit to child handles. `checked_string_reference` identifies
+  UTF-8, UTF-16 and tagged Latin-1/UTF-16 text decoding with the pure canonical range
+  loader, including failure. This uses bounded slices and leaves the legacy UTF-8 trace
+  decoder unchanged. The checked path also accepts memory64: `layoutFor_toWit` relates
+  the layouts at both widths, and `checked_string_reference` covers all string modes at
+  both widths. Its memory64 `node` operands use `i64` payload pointer, child pointer and
+  child count; tag, child handles and owning slot indices remain `i32`. Width mismatches,
+  high out-of-bounds pointers and overlong child vectors are rejected without narrowing.
+  Flat arguments and asynchronous calls are still rejected at this Core entry point.
+  This is not a proof of interoperability with monadic component-ABI lifting.
+  Floats, `char` and single scalars agree with the pure
+  reference loaders (`loadVal_f32`, `loadVal_f64`, `loadVal_char`, `loadVal_scalar`); lists,
+  fixed lists, records with non-scalar fields, tuples, variants, enums, options, results and
+  flags follow the reference layout (`layout_toWit`) and trap conditions (discriminant range,
+  Unicode scalar values, NaN canonicalisation, ignored high flag bits) but are compared with no
+  reference loader (none is pure). The end-to-end modules cover `s64`, `string`, `bytes`,
+  `list<u32>` and a `record { char, option<u8> }`; nested lists, variants, enums, results,
+  flags, fixed lists and floats are covered by kernel-checked decoding examples only.
+  **Resource handles**: the public Core host entry point is `MemSound.WitAst.Own`. Use
+  `Contract.link` to check the import's name, uniqueness and Core function type and to resolve the
+  actual instance memory for `Contract.env`. `Contract.traces` uses that checked host over all
+  permitted export sequences, not an arbitrary reply environment. There is no acceptor CLI driver.
+  The host validates the complete selected schema, including inactive cases and empty lists.
+  It resolves `own` fields recursively and reserves distinct live slots before committing their
+  moves. `Contract.attempt` retains typed diagnostics, including unknown, dead, wrong-type and
+  repeated handles. Rejection answers the Core redex with a call-local trap and leaves the store,
+  resource table and writer state at the import unchanged. `reject_then_invoke` proves a later
+  typed export can use that state; `session_le` rules out resurrecting moved slots in this host.
+  Stored `borrow` and unsupported async kinds are rejected.
+  The Core writer stores representations and has no allocation/drop imports; the separate
+  reference resource machine is not a simulation of these slot moves or call-local trap effects.
+  `Own.Projection` contains the legacy `ownMod` and `twiceMod` trace-language results. It omits
+  failed decodes and is not a host. `Own.Session.Replay.accepts_then_traps` instead uses the linked
+  checked host for two actual `ownMod` invocations: the first consumes the live slot and accepts
+  `res(rep)`; the second diagnoses that slot as dead and traps without erasing the earlier tree
+  or reviving the slot. `Own.Session.Audit` retains the typed diagnostic at the actual reply
+  in any checked Core session. `instrument` and `erase` relate the whole session in both
+  directions, including export retries; `Audit.reject_then_invoke` records the rejection
+  without changing the reached store or writer. `Replay.audited_accepts_then_traps` checks
+  the exact three answered imports in the two-export replay. That proof reads only the written
+  handle bytes, with the rest of memory symbolic. `Own.Session.Replay.Language.Thms` closes the
+  upper bound for this checked example: a Hoare contract fixes the actual node arguments and
+  handle bytes on every reached import, and the checked writer can only build then accept one
+  tree in an arbitrary export prefix. The language is exactly `{res(rep)}` if slot `1` is live
+  at type `0`, and empty if it is absent, dead or of a different type. Live slots elsewhere
+  are unrestricted. This theorem describes the move-only example, not the reference-machine
+  scheduler's accepted language.
+* Wasm writer variants: `errAccept_exact`, `allAccept_exact` and `batchAccept_exact` give their
+  exact languages for the zero-sentinel, non-UB policy and profiles admitting deterministic
+  Core execution. The lower bounds use symbolic replays for every input word, not just a fixed
+  witness. `batchAccept_drops` still rules out the dropped words, and the batch bridge still
+  assumes policies without undefined behaviour. `Combined.Exact.Thms.readBack_exact` gives
+  exactly the singleton word lists for any sentinel under the same non-UB and profile
+  assumptions. Its replay picks one of two disjoint sets of fresh handles.
+* Families through memory: `MemSound.ListCheck.Loop` adds variable-length Core checkers for
+  symbols and blobs. `symbols_sound` and `blobs_sound` bound the accepted language across all
+  permitted export calls under shaped replies and the trapping read policy, excluding UB
+  acceptance. The checker rereads `items` after each child call. The invariant tracks the
+  denoted prefix, not the memory or the numeric child handles. It traps before any word load
+  that would wrap the scaled index or cross the memory32 range; `address_eq` relates the guarded
+  Wasm address to the decoder's natural address. `symbols_bounded` and `blobs_bounded` prove
+  that no accepted list exceeds `2 ^ 30` children, even with changing vector bases and without
+  using the size of any particular host memory image as a session invariant.
+  `Loop.Run.accepts_of_plan` uses `remaining_decreases` to build an actual accepting export
+  prefix of either checker for every finite vector with correctly denoting replies. The proof
+  takes the empty vector straight to `accept`, and reloads each repeated handle at its own
+  position without retaining memory across child replies. `compact_reply_plan` constructs
+  that plan with the checked `items` encoder when the header and vector fit and the child reply
+  bytes keep the same memory size. `checkedPageShape_all` and `checker_instance_pages`
+  prove the checked shape and actual specification instance for every memory32 initial
+  page count, including zero and the address-space maximum, without evaluating memory
+  contents. `byte_reply_accepts_pages` needs only a fitting, correctly denoting byte
+  script, not a separately supplied shape or instance proof. The two-page run writes
+  a 65,537-byte reply into its actual memory. This lower bound does not establish
+  equality with the general memory32 upper bound, guest growth, or termination under
+  arbitrary replies. The older `symListMod` and `blobListMod` remain two-child examples.
+  `Loop.Growing.mod` runs the same loop after a Core prologue that reserves a requested
+  minimum page count. `Growing.validates` covers both variants at every legal initial
+  page count. `Growing.reserve_hwp` sends refusal to a trap in the unchanged store before
+  any import. Otherwise the loop runs with the requested minimum and a reset index.
+  `Growing.bounded` proves the same word-bound result over arbitrary export prefixes
+  for a host that preserves the address width and bounded page count; the checked in-place
+  byte reply host meets that contract. The executable regression retries from refused
+  growth, reads mixed-size and repeated blobs using the second page, rejects a request
+  above memory32, and reuses the grown store without requesting more growth.
+  `Growing.byte_reply_accepts` constructs an accepting export prefix for every fitting,
+  correctly denoting compact script when any necessary growth may succeed. The proof
+  executes the actual Core reservation before using the shared read-loop trace; it does
+  not bound all host layouts by the compact layout or assert termination for arbitrary hosts.
+* Parsing: the fixed-page `chunkRingN` can trap when a slot crosses the page boundary.
+  `chunkRingGrowing` reserves the configured capacity on demand, up to the memory32 address
+  bound (`0 < cap ≤ 2^29`). Its two exports share the fixed-page ring's chunk soundness
+  proof. The full-buffer guard precedes reservation; `chunkRingGrowing_feed_full`
+  in `Ring.Progress.Thms` takes the actual export to a call-local trap in finitely many
+  Core steps, without allocation, host calls, or any store change. Growth refusal
+  also traps before buffer writes or cursor updates. The executable regression retries after grow refusal, fills 8193
+  slots, rejects the next feed, finishes a chunk, and retries in the freed slot.
+  This is not exact acceptance or a whole-session termination theorem; progress also
+  depends on available memory, the writer responses, and the execution profile.
+
+## Reference component payloads
+
+`Wit.Stored` builds the existing `AST` family over closed WIT types and reference `Val` values.
+Its memory and flat entry points check their ABI preconditions, then run the canonical effect
+programs rather than interpreting an endpoint as a number. A successful lift uses the reference
+arena identity while consuming the guest slot. A later reference trap retains earlier moves.
+Stored borrows and `own` types are rejected recursively before effects: the reference `Val.own`
+alone carries a representation, not the owning identity this tree boundary needs.
+
+`Wit.Stored.OwnedMemory` is the separate ownership-aware tree boundary. Its shared canonical
+memory and flat loaders record an ordered, typed receipt at each active `own` leaf, including
+inside lists, records and variants. Erasing the receipts recovers the entire canonical load
+program, including the flat cursor, access checks, handle removals and traps in their original
+order. The reference machine examples distinguish two owners with equal representations and
+show that a repeated move traps without publishing a tree or undoing the first move. The flat
+examples cover a list's indirect owner and an option's direct owner in the same value; a wrong
+slot type in an inactive case is rejected before either move, and a corrected retry succeeds.
+Whole-schema validation still rejects stored borrows. The receipts do not by themselves
+authorize a transfer back to a guest or connect the checked Core host to the reference machine.
+
+`OwnedMemory.Conservative.Thms` relates the two checked tree boundaries on primitive
+payloads, including the named `ScalarType` fragment. After receipt erasure, memory
+and flat lifting have the identical effect program, including typed input failures
+and canonical traps. Primitive node construction preserves this equality through the
+arity check and maps arbitrary existing children in order.
+
+`OwnedMemory.Plain.Thms` gives a typed equivalence for every payload and tree admitted
+by the older stored-value schema check. Its recursive proof rules out own receipts in
+all compound cases; the inverse preserves values, tags and children. Endpoint identities
+stay unchanged even when their element schema contains owners, because lifting an endpoint
+does not lift its elements. A borrow anywhere in the schema still rejects.
+`OwnedMemory.Plain.Lift.Thms` lifts that equivalence to the entire checked memory and flat
+programs, including memory/flat guards, traversal of compound fields and choices, and
+node arity. The argument-vector theorem also covers preserved cursor position and the
+one-pointer spill. These results do not grant authority, support stored borrows, or equate
+entire Core export sessions.
+
+`Wit.Stored.OwnedMemory.Claims` registers owner receipts and readable endpoint claims together
+from a freshly lifted root. Held claims, not the accepted observations, authorize a canonical
+`lower_own`, destructor request or endpoint transfer. `give` commits spending after insertion
+succeeds; `drop` commits it before calling the supplied reference destructor. `giveEndpoint`
+spends the validated claim before canonical lower updates the endpoint's owner.
+The spend theorems identify the original nominal type, handle object and representation,
+preserve other claims and accepted trees, and rule out a second use of the spent identity.
+The machine examples create two equal-representation resources, reject a wrong-type transfer,
+retry, drop the other owner and reacquire owners in reused guest slots. Reacquiring a newly
+issued handle object creates a fresh claim, not another claim on the earlier handle object.
+A mixed record replay lifts an owner and a stream from memory and gives each back once after
+wrong-type refusals. A late flat-lift trap retains both successful removals but publishes
+neither claim nor a tree. The full schema still rejects stored borrows before lifting. This is
+a reference host session and does not yet lower a compound containing multiple claims in one call.
+
+`Wit.Stored.OwnedMemory.Claims.Core` uses that same receipt-aware loader and claim state in
+the separately linked, synchronous `accept-node` Core contract. A preflight refusal preserves
+the entire call-entry state. A later canonical trap keeps prior Core writes and canonical table
+effects, but publishes no root or claim. An executable Core replay rejects an inactive nested
+borrow, accepts an owner and stream in one root, traps after moving both in a later call, and
+accepts a fresh root in a subsequent export. The `accept-node` contract does not yet expose
+mixed handoff or scheduled lifecycle imports.
+
+The publication theorem in `Wit.Stored.OwnedMemory.Claims.Core.Trace` uses the same session
+invariant as the endpoint-only contract. Across all permitted export sequences and prefixes,
+successful replies are exactly the chronological handles of newly published roots. Rejections
+never contribute a handle, including in an invocation that traps before a later successful
+export. This identifies publication history, not a particular guest's exact payload language.
+
+`Wit.Stored.OwnedMemory.Claims.Core.Plain` proves an exact session correspondence between
+the endpoint-only and receipt-aware synchronous Core `accept-node` routes on `PlainSignature`.
+The state embedding preserves the reference arena and held endpoint claims and embeds all
+accepted trees. Actual calls agree on typed rejection and canonical effects, child lookup,
+and the published handle. Both directions preserve all export prefixes, including the same
+Core stores and tag traces after rejections and retries. This is a conservative extension
+result for this pair of dispatchers, not yet for the scheduled canonical lifecycle API.
+
+`Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain` joins that correspondence to the
+scheduled memory accept body after the binding check. Its reference steps preserve the
+parked Core continuation and implement the same arena effects, embedded writer and status
+or typed refusal. The receipt-aware journal records successful publication and its return
+separately; a refusal does not publish. This comparison does not yet cover scheduling and
+canonical lifecycle calls around the body, flat bindings, or deferred reply delivery.
+
+`Wit.Stored.Endpoints` tracks readable endpoint claims separately from accepted tree observations.
+Lifting a root from memory or flat operands registers the arena identities in its active payload,
+including nested futures and streams. Already-built children are not lifted again and create no
+claims. `give` checks the reference endpoint's kind, element type, liveness, idle state and
+ownership before spending its claim. Spending precedes the canonical owner update and table
+insertion, which can trap after the owner changes. A tree remains an observation
+after handoff, not a second right to lower it. A verified mixed session lifts a future and a byte
+stream into one tree, transfers them back, completes the future, copies two distinct stream bytes,
+and closes both channels. This gives endpoints individually; it does not lower an entire compound
+endpoint payload in one operation or connect the Core checked writer to the reference machine.
+
+`Wit.Stored.Endpoints.Stream.Examples` moves an `option<stream<record{word: u16,
+item: own<resource>}>>` into a tree and hands the readable endpoint to another instance once.
+Accepting the endpoint does not lift the later elements or turn observations into ownership.
+The reference copy moves two owners and their distinct scalar fields after a cancelled read and
+retry; the reader drops both owners, observes peer closure, and a stale read traps without
+erasing the accepted tree. Direct owned payloads still require identity receipts, even if
+inactive, and stored borrows still reject throughout the schema, including endpoint elements.
+This is a reference-machine replay, not checked Core export integration.
+
+`Wit.Stored.Examples` records an `option<future>` from memory and a flat `stream<u8>` as typed
+trees in actual reference-machine runs; a repeated slot traps with no new tree and does not
+resurrect the slot. The examples do not route Core writer imports into component sessions or
+provide a correspondence for their accepted languages.
+
+`Wit.Stored.Endpoints.Core.Trace` observes only successful host replies as commits, not
+reached import redexes or traps. For every traced session with the selected import present,
+the committed handles are exactly the consecutive handles for the newly published roots, in
+chronological order. The proof preserves the initial accepted trees and includes pending
+prefixes, instantiation calls, and later exports after a trap. This is a publication trace
+invariant, not a characterization of which payload trees a particular guest can produce.
+
+`Wit.Stored.OwnedMemory.Payload` checks the ordered nominal type and representation at
+every active owner leaf against its receipt, including maps and nested sum arms. Equal
+representations do not make different nominal owners interchangeable. The receipt carries
+the arena identity obtained by canonical lifting; shape validation does not by itself
+authorize another transfer.
+
+The separately linked `Wit.Stored.Endpoints.Core` contract accepts an indirect payload in a
+synchronous atomic `accept-node` import. The canonical load reads the reached Core call's
+memory and resolves endpoints in a persistent reference arena. Schema or ABI rejection leaves
+both stores unchanged at call entry. Canonical load traps retain earlier arena updates, publish
+no tree, and trap only the current Core call. The proofs relate the local load's read/update
+prefix to reference machine steps (including the reference machine's own lockdown on trap).
+An executable export replay checks an inactive nested borrow refusal, a successful compound
+stream move, stale-slot rejection, and a later successful export. This trap-returning contract
+does not cover the older split `node`/`accept` writer ABI or interpret scheduling operations.
+
+`Wit.Stored.Endpoints.Core.Scheduled` puts separately linked checked accept and handoff imports
+inside the reference scheduler. These imports return `(status, value)` to Core and retain the
+typed diagnostic on refusal, so a rejected import does not force reference-machine lockdown.
+Acceptance reuses the call-local checked load; handoff checks a separate held claim, the
+destination instance, and the live arena kind and element type. Canonical built-ins still use
+the unmodified reference dispatcher. The two-instance Core regression creates a stream and two
+owners, rejects an unused nested borrow, accepts the owning stream into a tree, hands it off once,
+cancels and retries a read, polls completion, transfers and drops both owners, observes peer
+closure, and traps on a stale canonical read without erasing the accepted tree. The bounded
+driver has a relational trace theorem. The same linked scheduler also runs a one-element
+`future<record{word: u16, owner: own<R>}>` through Core exports: cancellation and retry, handoff,
+copy, poll, owner drop, both endpoint drops, and a stale read. The future has its own two-operand
+copy ABI and completion payload, independent of the stream count. Neither replay states an
+exact accepted language for arbitrary exports or replaces the earlier trap-returning ABI.
+
+The mixed owner/endpoint dispatcher `Wit.Stored.OwnedMemory.Claims.Core.Scheduled` records
+each import's signature and arguments under a fresh ticket before dispatch. Status returns and
+typed refusals record the same ticket; an invalid binding records a diagnostic before its
+reference trap. A canonical destructor trap keeps the prior journal and does not manufacture
+a status return. `extends_of_session` proves append-only history for arbitrary ordinary
+reference-machine sessions. `checked_of_session` additionally restricts every writer change
+to registration of a lifted root or a targeted spend; `checked_of_steps` permits raw host
+programs only under the same write policy. An observed and spent owner identity cannot
+return, even if a Core slot or representation is reused. A newly held endpoint requires a
+new publication; unlike an owner receipt, it can be lifted again after a completed handoff.
+The reentrant destructor replay checks exact journal order in both successful and trapping
+runs, and refusal cannot republish claims. The writer theorem is not an exact accepted
+payload language or a conformance theorem for every canonical store transition.
+
+`Wit.Stored.ErrorContexts` copies an observed error context back to a guest slot only if its
+immutable arena object exists in the current reference store. Unlike endpoint handoff, this
+does not spend a claim. A verified session lifts an `option<error-context>`, drops the original
+slot, rejects a missing identity, then gives the same object twice; dropping the first copy does
+not invalidate the second. This operation does not lower arbitrary compound tree payloads.
+
+`Wit.Stored.Lower` sends resource-free tree payloads to memory or an exact flat vector through
+the reference canonical store/flatten programs. It checks ABI options and nested list/string
+allocation preconditions before writing; canonical traps retain their reference effects. The
+examples round-trip a nested record in memory64 and as flat operands and show that an
+out-of-bounds destination writes nothing. Lowering an endpoint or error-context observation
+requires its own checked transfer; this path rejects those schemas, including inactive cases.
+`Wit.Stored.Endpoints.Lower` checks all active endpoint claims and error-context identities
+before passing a compound payload to the same reference store/flatten programs. A typed
+rejection retains the claims for a corrected retry; a successful transfer spends each claim
+once. This entry point rejects schemas that can require guest realloc, even in an inactive
+arm. The separate `Wit.Stored.Endpoints.ListLower` path supports dynamic lists of
+readable futures or streams. It rechecks all claims after canonical realloc, distinguishes
+refusal before allocation from refusal after the allocator's effects, and spends each claim
+before canonical lower updates ownership. Neither a late table trap nor an allocator's
+reentrant effects roll back an earlier transfer. Arbitrary allocating compounds are still
+rejected by the general entry point.
+
+`Wit.Stored.Endpoints.RecordLower.lower` handles recursively nested mixed records, tuples,
+options, variants, results, fixed lists and dynamic lists with plain data fields, readable
+endpoints and error contexts. It checks
+the complete schema, allocation preconditions and cross-field aliases before
+any field is written. Fields follow canonical record layout and flat order. A field error identifies
+the path to the failing field; completed fields and any realloc effects remain visible. Reference-machine
+replays cover both outputs, nested padding, inactive unsupported fields, alias and missing-context
+rejection, reentrancy and allocator traps. Every sum arm's schema is checked, including inactive
+arms. Only the selected payload allocates or transfers claims; discriminants, payload alignment
+and joined flat slots follow the canonical ABI. An allocator trap retains the written
+discriminants and any allocator effects, but not an unperformed transfer. List elements use
+the canonical element stride, including padding in compound elements. A dynamic list rechecks
+its claims after realloc, before writing any element; a refusal then keeps earlier fields
+and the allocator's effects. The compound-list replay covers a list of tuples containing fixed
+lists of futures. Maps use the canonical key/value entry layout and the same checked
+allocation as lists. A string-key allocator can reenter; a later endpoint refusal keeps
+completed key writes but does not publish the map pointer and count. Mixed nominal owners
+still reject, including in inactive map schemas.
+
+`Wit.Stored.OwnedMemory.Claims.Record.lowerRoot` uses that same emitter for reference
+records containing both nominal owners and endpoints. Active owner fields consume ordered
+receipts only after checking their nominal type and representation; live authority is
+looked up separately by arena identity. The whole plan is dry-run before writing, and
+transfers after guest allocation revalidate against the reached state. Single give and the
+recursive emitter spend only the targeted owner identity, before canonical allocation of
+the owning arena object. A subsequent table insertion failure keeps the allocation and
+does not restore the claim. The kernel-checked replays cover distinct equal-representation
+owners, duplicate-receipt rejection followed by retry, slot reuse, inactive stored-borrow
+rejection, reentrant realloc, and a late trap that preserves the earlier owner transfer and
+memory write. `Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Binding.giveRecord` exposes
+whole-record lowering to Core as `(tree, destination) → (status, value)`. It resolves the
+linked memory and optional realloc slots and checks their live width and function type before
+using a tree's claims. Its successful effects spend the same targeted identities as individual
+give/drop bindings, so the arbitrary-session writer and transcript theorems include the new
+import. The linked Core replay covers invalid destination profiles, successful retry, a nested
+stream with two equal-representation owners, reacquisition through reused slots, rejection of
+the old root, and successful delivery of the new root.
+`Binding.givePayload` uses the same linked ABI and conservation theorem for other supported
+roots, rather than requiring a record at the outermost level. It checks the whole payload
+type, receipt plan and destination range before transferring the first claim, then uses the
+same effect-aware emitter as the record binding. The Core replay also exercises a tuple root
+with both owners and an optional stream, distinct typed refusal diagnostics, and exact
+destination bytes.
+`Binding.giveFlat` links a checked payload schema and returns a Core status followed by
+the canonical multivalue vector for that schema. A tree with a different schema is refused
+before lowering, even when its flat shape is identical. The transcript records successful
+vectors or typed diagnostics; refusal padding has the declared Core types. The same
+arbitrary-session writer conservation theorem applies. The Core replay covers a wrong
+schema followed by a successful compound owner/stream handoff and then a spent-claim
+refusal. This is an explicit Core import convention, not the component ABI's
+call-lowering decision about direct versus indirect results. The defensive result-shape
+check does not roll back effects of the emitter.
+
+`Binding.acceptFlat` links a fixed tag and checks the full schema before accepting the
+canonical flat operand vector. The child pointer/count and any indirect string or list
+contents still refer to the linked memory; the child checks are shared with the indirect
+binding. A refused preflight leaves the component store unchanged. The machine-step
+theorem for a refused scheduled load records its typed diagnostic, returns `(1, 0)`,
+does not publish a tree, and retains the store returned by the loader, including effects
+before a later canonical load failure. The Core replay tries an incompatible memory
+width and wrong child arity, retries with the same two owners and stream, and hands them
+back as a flat result. Stored borrows and asynchronous calling conventions remain typed
+errors here; a synchronous call may still carry stream and future endpoints. The older
+`MemSound.WitAst` contract still rejects flat inputs. This checked route does not prove
+the full component calling convention or exact accepted payload languages across exports.
+
+The scheduled `accept_success_steps` lemma connects both checked loaders' successful
+outcomes to a Core reply for the same handle and writer state. `register_claims` identifies
+the single published root and its new owner and endpoint claims. The separate
+`accept_registration_refusal_steps` lemma covers a successful lift followed by an alias
+refusal: there is no publication, the diagnostic is journaled, and prior canonical load
+effects are retained. Together with `accept_refusal_steps` these cover all outcomes once
+the dispatcher reaches the synchronous accept continuation. They are per-invocation
+reduction lemmas, not an exact guest language theorem.
+
+The scheduled flat replay connects a writer and a reader in separate component
+instances through actual Core exports. It runs with either a stream or a future of a
+record containing an owner. The writer publishes a tree with two distinct
+equal-representation owners and a readable endpoint, and the reader receives all
+three claims via `giveFlat`. It cancels a blocked read without writing memory, retries,
+polls the channel's completion event, and checks the transferred record and owner.
+The stream case observes writer closure on a subsequent read. For both channels, a
+stale read after drop traps without removing the published tree. The async operations
+here are reference built-ins, not async accept calls.
+
+The scheduled journal distinguishes publication from a Core reply. A `published`
+entry records the import ticket and handle in the same host write that adds the root
+and its claims. Across arbitrary ordinary machine prefixes, `checked_of_session`
+proves that the publication journal only grows and that its growth equals the growth
+of accepted roots. Each journal entry carries the one-based position of its root,
+as a nonzero, non-wrapping Core `i32` handle. A refusal or a trap without publication
+cannot count as an acceptance, and a prefix ending between publication and the reply
+still records the root. `PublicationDelta.targets` proves that each journaled handle
+selects its root from the final writer; `WriterRun.retains_target` extends this to older
+handles without reviving spent resource or endpoint claims. Both loaders check capacity
+before lifting, and the publication continuation independently refuses to wrap.
+This conservation statement does not characterize which roots a given module can accept.
+
+`import_binding_trap_steps` covers mislinked imports from the public dispatcher,
+not only its trap continuation. It records the entry and the typed missing, ambiguous
+or mismatched-binding diagnostic before taking the reference trap transition. No
+loader or claim transfer runs. Core replays verify that the rejected call publishes
+nothing and an owner allocated by an earlier export stays in the resource table.
+
+The canonical caller-start receipt observer uses the same `canon lower` start callback
+and argument cursor as the reference, including the single-pointer spill path. Erasing
+owner receipts yields the entire reference start program, including its effects and
+failures, rather than just equal returned values. Reference machine replays check direct
+and spilled arguments, an indirect async result, equal representations with different
+owner identities, and cancellation before and after start. The observer alone is not a
+checked storage boundary.
+
+Install `ComponentCall.hostWithComponent` to join that observer to the public scheduled
+writer through actual `canon lower` Core imports. The status-pair dispatcher `host`
+does not enable these component callees. A linked callee checks the caller's instance,
+memory width, options, signature, whole storable payload schema and child selection. It
+resolves a typed WIT `result<u32>` error before lifting owners on preflight refusal.
+`ComponentCall.refusal_frame` preserves the instance handle tables, owners, endpoints
+and error contexts, including if the error write traps. Guest result bytes and subtask
+bookkeeping may change. `ComponentCall.resolve_error_agrees` proves that, given the
+same guarded caller record, result resolution has the reference continuation, including
+its write and possible traps. It does not equate refusal without a payload lift with a
+canonical trap during a lift.
+Once lifting starts, canonical traps retain prior reference effects; e.g., a second use
+of the same slot traps after the first move. Indirect result writes must finish before
+publishing, and publication rechecks the current writer and the already returned handle.
+`ComponentCall.checked_of_session` gives publication, writer and transcript conservation
+across every ordinary machine prefix, including traps and refusals. It does not assert
+an exact language for every guest or atomic rollback of reference operations.
+
+Linked Core replays check sync and async direct and spilled calls, refusal and retry,
+inactive nested borrow rejection, bad memory width, recycled owner slots, a double-move
+trap and a result range trap. In the joined channel replay the async canonical accept
+publishes a root with owners and a readable endpoint; another linked instance receives
+it via `giveFlat` and exercises a non-unit resource-bearing stream or future, including
+read cancellation, polling, closure (stream) and stale handles.
+
+`ComponentCall.Deferred.hostWithDeferred` adds a pending mode for explicitly configured
+asynchronous callees. Queuing validates the link and the full schema without lifting
+the arguments. The reference `canon lower` installs a waitable; the linked start import
+selects its live nominal subtask in the caller's instance, checks the saved caller
+record, and invokes the same checked acceptance and publication as the eager route.
+The start import acknowledges the callback; the accepted handle or typed WIT error is
+written into the original caller's canonical result area. Starting in the wrong
+instance, behind a no-leave boundary, or from a stale slot fails with a typed diagnostic.
+Before start, `subtask.cancel` calls the checked cancellation callback and resolves via
+the reference cancellation path, without moving owners or publishing a tree. Start
+lifts and resolves in one callback; it does not expose a suspended post-lift phase.
+The deferred session theorem conserves the writer and journal on arbitrary ordinary
+prefixes. `Deferred.fresh_lookup_iff_publication` also proves the converse to publication
+lookup: a fresh handle is selectable exactly when its journal position records a
+publication for it. A pending or refused callback cannot account for a new selectable
+root without a publication. This is not a statement about delivery or live transfer
+authority. Linked direct/spilled replays check cancel, drop, slot reuse, start,
+resolution, and stale start after dropping the waitable.
+With no configured deferred callees, the complete dispatch is the eager dispatch;
+the control name is not reserved. When a live instance has no room for a waitable,
+staging records `subtaskTableFull` under the original call ticket without lifting,
+queuing or publishing, then returns to canonical lowering for the reference `tableFull` trap.
 
 ## Checking
 
@@ -259,11 +755,16 @@ lake build --wfail Silmaril.Semantics.Accept.Handle.Examples Silmaril.Semantics.
   Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Take.Examples Silmaril.Wasm.Game.HandleAccept.Mixed.Chunk.Ring.Examples \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Ast.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Canon \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Examples \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Session.Replay.Thms \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.WitAst.Own.Projection \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Exact.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.KwText.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.WordAtom.Thms \
   Silmaril.Wasm.Game.HandleAccept.MemSound.Hinted.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.Cons.Thms \
   Silmaril.Wasm.Game.HandleAccept.Checkers.RecFull.Thms \
-  Silmaril.Wasm.Game.HandleAccept.AcceptVariants.Batch.Examples Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Thms
+  Silmaril.Wasm.Game.HandleAccept.AcceptVariants.Batch.Examples Silmaril.Wasm.Game.HandleAccept.MemSound.ListCheck.Thms \
+  Silmaril.Wasm.Game.HandleAccept.MemSound.Probe.Thms Silmaril.Wasm.Game.HandleAccept.MemSound.Tab.Thms \
+  Silmaril.Wasm.Game.HandleAccept.Families.Matrix Silmaril.Wasm.Game.HandleAccept.Families.Mixed.Examples
 scripts/check-layout.sh
 ```
 
