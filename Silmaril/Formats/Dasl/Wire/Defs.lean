@@ -97,7 +97,7 @@ inductive ReadResult (Payload : Type) where
 
 /-- Read a block requested as an object. A CID of the wrong codec or present but malformed
 object bytes is invalid, not missing. Integrity checks belong to the input store. -/
-def readObject (read : Cid → Option ByteArray) (name : Cid) : ReadResult (Shallow Cid) :=
+@[expose] def readObject (read : Cid → Option ByteArray) (name : Cid) : ReadResult (Shallow Cid) :=
   if name.val[1]? == some 0x71 then
     match read name with
     | none => .missing
