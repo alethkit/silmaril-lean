@@ -73,6 +73,11 @@ def ModuleParts.toCore (parts : ModuleParts Func) : Module := parts.sections.ass
 def ModuleParts.map {F G : Type} (f : F → G) (parts : ModuleParts F) : ModuleParts G :=
   ⟨parts.sections, parts.defs.map f⟩
 
+/-- Map each function's instruction list, without visiting section expressions. -/
+def ModuleParts.mapInstructions {V I J : Type} (f : I → J) (parts : ModuleParts (Declaration.Func V (List I))) :
+    ModuleParts (Declaration.Func V (List J)) := parts.map (Declaration.Func.mapBody (List.map f))
+
+/-- A partial body translation fails for the whole module if any function fails. -/
 def ModuleParts.traverse {M : Type → Type} [Monad M] {F G : Type} (f : F → M G)
     (parts : ModuleParts F) : M (ModuleParts G) :=
   ModuleParts.mk parts.sections <$> parts.defs.mapM f
