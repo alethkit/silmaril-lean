@@ -283,6 +283,18 @@ def MemoryChildRule {grow : SingleThreaded.GrowOracle} {sig : Signature}
           item index (.memory address))
         (RecordLower.CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))
 
+/-- The compiler's two-field map entry shape and the recursive rules for its
+actual key and value programs. Either program may itself allocate. -/
+def MapEntryRules {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow)))
+    (destination : RecordDestination) (inst : InstId) (key : WIT.KeyType) (element : TypeOf) (entry : Field) : Prop :=
+  ∃ keyField valueField,
+    entry = .aggregate (.record (mapEntryFields key element)) [keyField, valueField] ∧
+    keyField.LayoutMatches (.prim key.toPrimitive) ∧ valueField.LayoutMatches element ∧
+    MemoryChildRule profile ready dispatch destination inst keyField (.prim key.toPrimitive) ∧
+    MemoryChildRule profile ready dispatch destination inst valueField element
+
 def checkedCollectionResume {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
     (index : Nat) (output : Lower.Output)
