@@ -38,8 +38,12 @@ instance : HasFeatures Wasm2 := ⟨v20⟩
 instance : HasFeatures Wasm3 := ⟨v30⟩
 instance : HasFeatures Lime := ⟨lime1⟩
 instance : HasFeatures FX := ⟨wasmFX⟩
-instance : HasFeatures Functional := ⟨functionalMutGC⟩
-instance : HasFeatures Strict := ⟨functional.remove .exn⟩
+def FunctionalCore.features (gc : GCMode) (exceptions : ExceptionMode) : FeatureSet :=
+  let base := match gc with | .mutable => functionalMutGC | .immutable => functional
+  match exceptions with | .internal => base | .disabled => base.remove .exn
+
+instance (gc : GCMode) (exceptions : ExceptionMode) : HasFeatures (FunctionalCore gc exceptions) :=
+  ⟨FunctionalCore.features gc exceptions⟩
 
 instance : HasSyntax Wasm1 := ⟨V1.ValType, V1.Instr, V1.Expr, V1.Func, V1.Module⟩
 instance : HasSyntax Wasm2 := ⟨V2.ValType, V2.Instr, V2.Expr, V2.Func, V2.Module⟩
@@ -158,33 +162,40 @@ abbrev CoreImage (S : FeatureSet) := { mod : Wasm.Module // Module.InFeat S mod 
 def CoreImage.check? (S : FeatureSet) (mod : Wasm.Module) : Option (CoreImage S) :=
   if h : Module.InFeat S mod then some ⟨mod, h⟩ else none
 
-def Strict.accepts (mod : Wasm.Module) : Prop := Module.InFeat (HasFeatures.features Strict) mod ∧ mod.imports = []
+/-- The complete module has no host imports or linear resources and exports
+only functions. Local tag declarations are governed separately by `features`.
+This checks shape, not validity of any function export or start index. -/
+def FunctionalCore.closedShape (mod : Wasm.Module) : Bool :=
+  mod.imports.isEmpty && mod.memories.isEmpty && mod.tables.isEmpty && mod.globals.isEmpty &&
+    mod.elems.isEmpty && mod.data.isEmpty && mod.exports.all fun entry =>
+      match entry.index with | .func _ => true | _ => false
 
-instance (mod : Wasm.Module) : Decidable (Strict.accepts mod) :=
-  inferInstanceAs (Decidable (_ ∧ mod.imports = []))
+def FunctionalCore.accepts (gc : GCMode) (exceptions : ExceptionMode) (mod : Wasm.Module) : Prop :=
+  Module.InFeat (features gc exceptions) mod ∧ closedShape mod = true
 
-instance : HasSyntax Functional := ⟨
-  { val : ValType // ValType.InFeat functionalMutGC val },
-  { instr : Instr // Instr.InFeat functionalMutGC instr },
-  { body : Expr // Instr.insInFeatB functionalMutGC body = true },
-  { fn : Func // Func.inFeatB functionalMutGC fn = true }, CoreImage functionalMutGC⟩
+instance (gc : GCMode) (exceptions : ExceptionMode) (mod : Wasm.Module) :
+    Decidable (FunctionalCore.accepts gc exceptions mod) := inferInstanceAs (Decidable (_ ∧ _ = true))
 
-instance : HasSyntax Strict := ⟨
-  { val : ValType // ValType.InFeat (HasFeatures.features Strict) val },
-  { instr : Instr // Instr.InFeat (HasFeatures.features Strict) instr },
-  { body : Expr // Instr.insInFeatB (HasFeatures.features Strict) body = true },
-  { fn : Func // Func.inFeatB (HasFeatures.features Strict) fn = true },
-  { mod : Wasm.Module // Strict.accepts mod }⟩
+instance (gc : GCMode) (exceptions : ExceptionMode) : HasSyntax (FunctionalCore gc exceptions) := ⟨
+  { val : ValType // ValType.InFeat (FunctionalCore.features gc exceptions) val },
+  { instr : Instr // Instr.InFeat (FunctionalCore.features gc exceptions) instr },
+  { body : Expr // Instr.insInFeatB (FunctionalCore.features gc exceptions) body = true },
+  { fn : Func // Func.inFeatB (FunctionalCore.features gc exceptions) fn = true },
+  { mod : Wasm.Module // FunctionalCore.accepts gc exceptions mod }⟩
 
-instance : HasTyping Strict where
+instance (gc : GCMode) (exceptions : ExceptionMode) : HasTyping (FunctionalCore gc exceptions) where
   Context := Validation.Context
   FuncType := Validation.DefType
   Interface := Validation.CModuleType
   funcOk ctx fn sig := Validation.FuncOk ctx fn.val sig
   moduleOk mod iface := Validation.ModuleOk mod.val iface
 
-def Strict.check? (mod : Wasm.Module) : Option (Module Strict) :=
-  if h : accepts mod then some ⟨mod, h⟩ else none
+def FunctionalCore.check? (gc : GCMode) (exceptions : ExceptionMode) (mod : Wasm.Module) :
+    Option (Module (FunctionalCore gc exceptions)) :=
+  if h : accepts gc exceptions mod then some ⟨mod, h⟩ else none
+
+abbrev Strict.accepts := FunctionalCore.accepts .immutable .disabled
+abbrev Strict.check? := FunctionalCore.check? .immutable .disabled
 
 def Strict.parts (mod : Module Strict) : ModuleParts Func := mod.val.split
 
