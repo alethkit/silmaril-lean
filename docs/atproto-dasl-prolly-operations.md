@@ -1,8 +1,8 @@
 # Shared finite Prolly operations
 
 `Silmaril.Semantics.Prolly.Operations.Thms` is the plain typed entry point. It
-uses the existing `OrderedMap`, `Tree`, and `build`; it imports neither DASL
-nor CAS naming. `TypedMap` packages strict key order, valid separators,
+uses the existing `OrderedMap`, `Tree`, and `build`, without a DASL dependency
+or a naming argument. `TypedMap` packages strict key order, valid separators,
 nonempty branches and the width bound. A valid input need not have canonical
 cuts. `TypedMap.combine` interprets both inputs and rebuilds the entire result
 under the selected policy. The view/rebuild and commuting theorems describe
