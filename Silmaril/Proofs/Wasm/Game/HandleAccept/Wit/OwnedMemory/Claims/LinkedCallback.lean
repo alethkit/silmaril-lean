@@ -139,7 +139,7 @@ private theorem classifyPop {left right : State grow sig} {thread value frames r
         cases segments with
         | cons top below =>
           cases top with
-          | swap => exact ⟨_, _, .inl ⟨rfl, ⟨rfl, rfl, rfl, rfl, blocked, rfl, below, tail⟩⟩⟩
+          | swap edge => cases edge; exact ⟨_, _, .inl ⟨rfl, ⟨rfl, rfl, rfl, rfl, blocked, rfl, below, tail⟩⟩⟩
           | same => exact ⟨_, _, .inr ⟨rfl, .mk (.cons (.mk below) tail) blocked⟩⟩
 
 theorem returnCut {left right last : State grow sig} {seen value}
@@ -176,6 +176,85 @@ theorem stringReallocPair (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (oldS
   dsimp only [stringReallocEntry, HostFrame.Paired]
   conv => rhs; rw [← same]
   exact ReturnFrame.installed (HostFrame.replace left right.host) cursor.thread _ cursor.frames cursor.rest
+
+private theorem childFrameEnter {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver changes left right check canon)
+    (body : Session grow sig (Ret (core3 grow)))
+    (first second : ReturnFrame.Continuation (core3 grow) (HostState sig)) :
+    HostFrame.Related.Paired (ReturnFrame.Extend changes first second)
+      { left with ctl := { check with frames := .prog first :: check.frames }.control body }
+      { right with ctl := { canon with frames := .prog second :: canon.frames }.control body } := by
+  have data : { HostFrame.replace left right.host with ctl := canon.control body, conts := right.conts } =
+      { right with ctl := canon.control body } := by
+    have store := frame.store
+    have pending := frame.pending
+    have results := frame.results
+    have cancels := frame.cancels
+    cases left; cases right; simp_all [HostFrame.replace]
+  have paired : ReturnFrame.Related.Paired changes
+      { HostFrame.replace left right.host with ctl := check.control body } { right with ctl := canon.control body } := by
+    rw [← data]
+    have head : ReturnFrame.Related.Active changes ⟨check.thread, .prog body, check.frames⟩
+        ⟨canon.thread, .prog body, canon.frames⟩ := by
+      rw [← frame.thread]
+      exact .mk frame.frames
+    exact .mk (.cons head frame.rest) frame.blocked
+  obtain ⟨otherFrames, otherRest, otherAt, installed⟩ := ReturnFrame.Related.Paired.push paired
+    (thread := check.thread) (focus := .prog body) (frames := check.frames) (rest := check.rest) rfl body first second
+  change canon.control body = ⟨check.thread, .prog body, otherFrames⟩ :: otherRest at otherAt
+  have tails : canon.frames = otherFrames ∧ canon.rest = otherRest := by
+    simpa [Cursor.control, frame.thread] using otherAt
+  simpa only [Cursor.control, HostFrame.Related.Paired, HostFrame.replace, ← tails.1, ← tails.2, frame.thread]
+    using installed
+
+theorem childStringRealloc {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (oldSize : Option Nat)
+    (alignment : Alignment) (size : Nat) (steps : List StoreStep)
+    (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver changes left right check canon)
+    (checkAt : left.ctl = check.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= checkNext))
+    (canonAt : right.ctl = canon.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= canonNext)) :
+    let dispatch := specDispatch ready (host bindings)
+    let leftEntry := stringReallocEntry ready bindings cx ptr oldSize alignment size steps checkNext left check
+    let rightEntry := stringReallocEntry ready bindings cx ptr oldSize alignment size steps canonNext right canon
+    Step profile ready dispatch left .tau leftEntry ∧ Step profile ready dispatch right .tau rightEntry ∧
+    HostFrame.Related.Paired (ReturnFrame.Extend changes (stringPlanResume cx steps checkNext)
+      (stringPlanResume cx steps canonNext)) leftEntry rightEntry :=
+  ⟨string_realloc_install cx ptr oldSize alignment size steps checkNext left check checkAt,
+    string_realloc_install cx ptr oldSize alignment size steps canonNext right canon canonAt,
+    childFrameEnter frame _ _ _⟩
+
+theorem childCollectionInstall {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+    (entries : List Field) (output : Lower.Output) (index : Nat)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver changes left right check canon)
+    (reachedWidth : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let dispatch := specDispatch ready (host bindings)
+    let area := layout destination.width element
+    let first := checkedCollectionResume destination inst entries area index output checkNext
+    let second := canonicalCollectionResume destination inst entries area output canonNext
+      (CanonicalTree.EntryMode.forOutput destination.width type output)
+    let checkCall := collectionEntry destination inst area entries.length dispatch left check first
+    let canonCall := collectionEntry destination inst area entries.length dispatch right canon second
+    Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
+    Steps profile ready dispatch right [.tau, .tau] canonCall ∧
+    HostFrame.Related.Paired (ReturnFrame.Extend changes first second) checkCall canonCall := by
+  obtain ⟨checked, canonical⟩ := collection_install_steps (profile := profile) (ready := ready)
+    (dispatch := specDispatch ready (host (grow := grow) bindings)) destination inst type element entries output index
+    left right check canon checkNext canonNext reachedWidth prepared checkAt canonAt
+  exact ⟨checked, canonical, childFrameEnter frame _ _ _⟩
 
 theorem rangeCut (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
     {left right last : State grow sig} {seen} (path : Prefix profile ready bindings first left seen last)
