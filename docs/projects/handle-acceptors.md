@@ -699,6 +699,17 @@ The canonical record/tuple layout also bounds each aligned field placement
 inside the aggregate. With an already-valid aggregate region, the checked
 nested-field bounds read succeeds at that placement after a certified prefix.
 
+`RecordDestination.paired_dynamic_call` reaches the same linked realloc
+program on both sides, with the two actual continuation programs on the
+stack. `Machine.ReturnFrame.steps` replays the same scheduler labels through
+reentry and blocked activations up to the substituted frame's pop. Both sides
+observe the same return and reached store, writer, and host bookkeeping;
+those need not equal their values before realloc. A prefix that traps or has
+not returned does not need an allocator result. After a return the two
+continuations run their range checks, and the checked one revalidates the
+reached live plan before entering any element. This pairs allocator prefixes,
+not the subsequent recursive traversals or the complete exports.
+
 `RecordDestination.memory_cursor` uses the width established by the same destination
 check as both public give routes. On a certified prefix the canonical field cursor
 takes its actual width-read step and selects the same aligned address and increment
