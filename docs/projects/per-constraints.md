@@ -57,3 +57,33 @@ claim of decidability for the infinitary language.
 ```sh
 make check CHECK_TARGETS='Silmaril.Calculi.PERConstraints.Syntax.Formats.Thms Silmaril.LogicGraph.Nodes.Calculi.PERConstraints.Defs'
 ```
+
+## Finite presentations and normalization
+
+`Finite.Thms` extends the interface without changing the institution or its
+models. Set and finset EQ/DISTINCT use membership; an EQ over a list or multiset
+is equivalent to EQ over its deduplicated finset. For list and multiset DISTINCT,
+this comparison additionally requires `Nodup`. The multiset is a quotient by
+list permutation, **not** by duplicate elimination, and its `map` preserves
+occurrences. Every atomic form is vacuous on empty input and checks validity on
+a singleton; a repeated occurrence is unsatisfiable for DISTINCT even if the
+repeated term itself is invalid.
+
+At Boolean AND/OR nodes, order and multiplicity never affect satisfaction.
+List and multiset evaluators agree with their deduplicated finset evaluators.
+`CNF.ofAnd` makes singleton clauses and `CNF.ofOr` makes one clause; both commute
+with syntax translation. Nested finsets, lists and multisets also embed in the
+set-based CNF and DNF semantics. The infinitary `DNF.toCNF` is the dual of
+`CNF.toDNF` and preserves satisfaction.
+
+For a finite list of rows, `choices` concretely enumerates one occurrence per
+row. Reading each result as a disjunction converts DNF to CNF; reading each as a
+conjunction converts CNF to DNF. The correctness theorem for finite DNF applies
+in the original institution, including along non-injective syntax maps. The
+number of output rows, before any deduplication, is exactly the product of input
+row lengths: `2^n` for `n` binary rows. No optimization, model evaluation or SAT
+solver is supplied; the finite algorithm transforms only the Boolean skeleton.
+
+```sh
+make check CHECK_TARGETS='Silmaril.Calculi.PERConstraints.Finite.Examples.Thms'
+```
