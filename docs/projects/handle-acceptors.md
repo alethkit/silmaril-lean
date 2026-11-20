@@ -616,7 +616,9 @@ transfers after guest allocation revalidate against the reached state. Root pref
 dynamic-region rechecks derive their plans from the same compiled fields the emitter
 uses, in field order and with only the selected sum arm. `compileValue_plan` and
 `compileRecord_plan` identify the diagnostic compiler output with those traversals;
-they are not equivalence theorems for the effectful canonical ABI. Single give and the
+`preflightValue_receipts` identifies the active owner subsequence with the original
+list of nominal receipts, not just its representations. These theorems do not confer
+live authority or establish equivalence of the effectful canonical ABI. Single give and the
 recursive emitter spend only the targeted owner identity, before canonical allocation of
 the owning arena object. A subsequent table insertion failure keeps the allocation and
 does not restore the claim. The kernel-checked replays cover distinct equal-representation

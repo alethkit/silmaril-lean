@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.RecordTypes
+import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.ReceiptOrder
 
 @[expose] public section
 
@@ -86,6 +87,23 @@ theorem compileRecord_plan {E : CoreEngine} (cx : LiftLowerContext E) (types : L
     objects = Field.listObjects fields :=
   (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.RecordTypes.record_spec
     cx types value receipts output fields objects compiled).2
+
+/-- A successful plan contains exactly the nominal receipts supplied to the
+compiler, in their original order. This does not grant or spend live authority. -/
+theorem compileValue_receipts {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf) (value : Val)
+    (receipts : List OwnedMemory.Receipt) (output : Lower.Output) (field : Field) (objects : List Object)
+    (compiled : compileValue cx type value receipts output = .ok (field, objects)) :
+    receipts = objects.filterMap Object.ownerReceipt :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.ReceiptOrder.value
+    cx type value receipts output field objects compiled
+
+theorem compileRecord_receipts {E : CoreEngine} (cx : LiftLowerContext E) (types : List (String × TypeOf))
+    (value : Val) (receipts : List OwnedMemory.Receipt) (output : Lower.Output)
+    (fields : List Field) (objects : List Object)
+    (compiled : compileRecord cx (.record types) value receipts output = .ok (fields, objects)) :
+    receipts = objects.filterMap Object.ownerReceipt :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.ReceiptOrder.record
+    cx types value receipts output fields objects compiled
 
 theorem lower_preflight_error {E : CoreEngine} {sig : Signature} (limits : Component.Limits)
     (quirks : Quirks) (cx : LiftLowerContext E) (type : TypeOf) (payload : Payload type)
