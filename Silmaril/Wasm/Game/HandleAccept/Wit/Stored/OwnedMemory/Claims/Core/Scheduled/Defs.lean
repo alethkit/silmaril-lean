@@ -159,6 +159,11 @@ def RecordDestination.check {grow : SingleThreaded.GrowOracle} (destination : Re
     if type != some (Silmaril.Wasm.Component.Validation.reallocType destination.width) then
       throw .badLoweringRealloc
 
+def RecordDestination.context {grow : SingleThreaded.GrowOracle} (destination : RecordDestination)
+    (inst : InstId) : LiftLowerContext (core3 grow) :=
+  { inst
+    opts := { memory := some destination.memory, realloc := destination.realloc, encoding := destination.encoding } }
+
 /-- Import capabilities fix the destination and nominal type at link time. Core passes
 an accepted tree index and a position within that root's observations, never an arena ID. -/
 inductive Action (sig : Signature) where
@@ -281,10 +286,7 @@ def giveToMemory (inst : InstId) (destination : RecordDestination) (args : List 
   if Stored.flatType pointer != ABI.pointerType destination.width then return .error .wrongType
   if let .error issue := destination.check (← getStore) then return .error issue
   let some tree ← select handle | return .error .badSelection
-  let cx : LiftLowerContext (core3 grow) :=
-    { inst
-      opts := { memory := some destination.memory, realloc := destination.realloc, encoding := destination.encoding } }
-  return (← lower cx tree (flatNat pointer)) |>.mapError diagnose |>.map (fun _ => 0)
+  return (← lower (destination.context inst) tree (flatNat pointer)) |>.mapError diagnose |>.map (fun _ => 0)
 
 def giveRecord (inst : InstId) (destination : RecordDestination) (args : List FlatValue) :
     Session grow sig (Except Issue Nat) :=
@@ -311,10 +313,8 @@ def giveFlat (inst : InstId) (destination : RecordDestination) (payload : Stored
   if let .error issue := destination.check (← getStore) then return .error issue
   let some tree ← select handle | return .error .badSelection
   if !rootHasSchema tree payload then return .error .wrongPayloadType
-  let cx : LiftLowerContext (core3 grow) :=
-    { inst
-      opts := { memory := some destination.memory, realloc := destination.realloc, encoding := destination.encoding } }
-  return (← Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none cx tree .flat).mapError .lowerPayload
+  return (← Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
+    (destination.context inst) tree .flat).mapError .lowerPayload
 
 def withTree (args : List FlatValue) (use : Tree sig → Nat → Session grow sig (Except Issue Nat)) :
     Session grow sig (Except Issue Nat) := do

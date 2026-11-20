@@ -90,7 +90,6 @@ theorem give_flat (inst : InstId) (destination : RecordDestination) (payload : T
   intro base
   unfold giveFlat
   refine P.Inv.bind P.Inv.currentInst? fun current => P.Inv.bind P.Inv.getStore fun store => ?_
-  dsimp only
   split
   · exact P.Inv.pure _
   · split

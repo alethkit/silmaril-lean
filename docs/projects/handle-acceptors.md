@@ -678,6 +678,16 @@ so the refusal segment composes with the certified prefixes before and after it.
 does not assume the allocator's bytes are unchanged, certify every callback trace, or validate the
 range newly returned by realloc, which canonical lowering checks in the reached store.
 
+`RecordDestination.memory_cursor` uses the width established by the same destination
+check as both public give routes. On a certified prefix the canonical field cursor
+takes its actual width-read step and selects the same aligned address and increment
+as the compiled sequence. For dynamic lists and maps, `listRange_call` identifies the
+real realloc request and the saved continuation. `RecordDestination.listRange_resume`
+uses the store reached by a returning allocator: it traps on an invalid alignment or
+range without resuming the emitter, or proceeds to claim revalidation in that store.
+Neither the cursor nor the allocator-return rule assumes byte preservation, an
+allocator return on every trace, or success of the subsequent transfer.
+
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner
 and endpoint commitment operations, selected sum arm, and collection allocation,
