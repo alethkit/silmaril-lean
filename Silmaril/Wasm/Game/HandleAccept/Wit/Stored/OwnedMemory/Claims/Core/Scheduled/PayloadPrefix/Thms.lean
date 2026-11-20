@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix
+import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.StringFront
 
 public section
 
@@ -315,6 +316,39 @@ theorem local_string_steps {E : CoreEngine} {Host : Type} {profile : ProfileKind
     (localSteps : ∀ action ∈ steps, LocalStringStep action) :
     Compare profile ready dispatch (do return .ok (← runStoreSteps cx ptr steps)) (runStoreSteps cx ptr steps) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.localStringSteps cx ptr steps localSteps
+
+/-- The front and remaining program together are exactly the canonical plan. -/
+theorem string_front_factor {E : CoreEngine} {Host : Type} (cx : LiftLowerContext E) (ptr : Nat) (steps : List StoreStep) :
+    ((stringFront cx ptr steps : P E Host (StringFront steps.length)) >>= StringFront.remaining cx) = runStoreSteps cx ptr steps :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.StringFront.factor cx ptr steps
+
+/-- Compare the local instructions of the actual plan at both reached stores,
+stopping before the next allocation/resize or after a canonical trap. -/
+theorem string_front_cut {grow : SingleThreaded.GrowOracle} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}
+    {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (steps : List StoreStep)
+    (left right : Config (core3 grow) Host) (check canon : Cursor (E := core3 grow) Host)
+    (checkNext canonNext : Nat → P (core3 grow) Host (Ret (core3 grow))) (same : left.store = right.store)
+    (checkAt : left.ctl = check.control (runStoreSteps cx ptr steps >>= checkNext))
+    (canonAt : right.ctl = canon.control (runStoreSteps cx ptr steps >>= canonNext)) :
+    StringLocalCut profile ready dispatch left right check canon
+      (fun front : StringFront steps.length => front.remaining cx >>= checkNext)
+      (fun front : StringFront steps.length => front.remaining cx >>= canonNext) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.StringFront.cut
+    cx ptr steps left right check canon checkNext canonNext same checkAt canonAt
+
+/-- Complete a string at its reached pointer. Memory output reads pointer
+size at this point and retains the first word if writing the second traps. -/
+theorem string_descriptor_cut {grow : SingleThreaded.GrowOracle} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}
+    {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    (cx : LiftLowerContext (core3 grow)) (width : AddrType) (output : Lower.Output) (plan : StorePlan) (ptr : Nat)
+    (left right : Config (core3 grow) Host) (check canon : Cursor (E := core3 grow) Host)
+    (checkNext canonNext : output.Result → P (core3 grow) Host (Ret (core3 grow))) (same : left.store = right.store)
+    (checkAt : left.ctl = check.control (stringPlanTail cx width output plan ptr >>= checkNext))
+    (canonAt : right.ctl = canon.control (stringPlanTail cx width output plan ptr >>= canonNext)) :
+    StringLocalCut profile ready dispatch left right check canon checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.StringFront.descriptor
+    cx width output plan ptr left right check canon checkNext canonNext same checkAt canonAt
 
 /-- Use the validated collection range, rather than a fresh placement
 assumption for the scalar at its reached list index. -/
