@@ -12,6 +12,10 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.RecordLower
 open Silmaril.Wasm.Component Silmaril.Wasm.Component.ABI Silmaril.Wasm.Component.Canon
   Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.Value
 
+theorem Field.LayoutMatches.type_eq {field : Field} {type : TypeOf}
+    (certificate : field.LayoutMatches type) : field.type = type := by
+  cases certificate <;> rfl
+
 /-- A successful recursive compilation keeps the declared type used for placement and
 flattening by the shared emitter, including nominal owner types. -/
 theorem compileField_type {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
@@ -85,16 +89,32 @@ list and map order and the active arm of a sum. -/
 theorem compileValue_value {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf) (value : Val)
     (receipts : List OwnedMemory.Receipt) (output : Lower.Output) (field : Field) (objects : List Object)
     (compiled : compileValue cx type value receipts output = .ok (field, objects)) : field.value = value :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.value
-    cx type value receipts output field objects compiled
+  (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.value
+    cx type value receipts output field objects compiled).1
+
+/-- Every compiled field has the recursive layout used by the canonical type,
+including dynamic element strides and the full layout of every sum. -/
+theorem compileValue_layout {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf) (value : Val)
+    (receipts : List OwnedMemory.Receipt) (output : Lower.Output) (field : Field) (objects : List Object)
+    (compiled : compileValue cx type value receipts output = .ok (field, objects)) : field.LayoutMatches type :=
+  (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.value
+    cx type value receipts output field objects compiled).2
 
 theorem compileRecord_value {E : CoreEngine} (cx : LiftLowerContext E) (types : List (String × TypeOf))
     (value : Val) (receipts : List OwnedMemory.Receipt) (output : Lower.Output)
     (fields : List Field) (objects : List Object)
     (compiled : compileRecord cx (.record types) value receipts output = .ok (fields, objects)) :
     .record (Field.values fields) = value :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.record
-    cx types value receipts output fields objects compiled
+  (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.record
+    cx types value receipts output fields objects compiled).1
+
+theorem compileRecord_layout {E : CoreEngine} (cx : LiftLowerContext E) (types : List (String × TypeOf))
+    (value : Val) (receipts : List OwnedMemory.Receipt) (output : Lower.Output)
+    (fields : List Field) (objects : List Object)
+    (compiled : compileRecord cx (.record types) value receipts output = .ok (fields, objects)) :
+    Field.FieldsMatch fields (types.map Prod.snd) :=
+  (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.record
+    cx types value receipts output fields objects compiled).2
 
 /-- Whole-record preflight and dynamic subregions use the same field-order traversal. -/
 theorem compileRecord_plan {E : CoreEngine} (cx : LiftLowerContext E) (types : List (String × TypeOf))

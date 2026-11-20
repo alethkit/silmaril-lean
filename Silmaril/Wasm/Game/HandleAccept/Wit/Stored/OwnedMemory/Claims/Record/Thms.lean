@@ -31,6 +31,14 @@ theorem preflightValue_value {E : CoreEngine} (cx : LiftLowerContext E) (type : 
   simp only [preflightValue, bind, Except.bind, Except.mapError] at compiled
   split at compiled <;> first | contradiction | exact RecordLower.compileValue_value _ _ _ _ _ _ _ compiled
 
+/-- The recursive layout certificate for either public payload output. -/
+theorem preflightValue_layout {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
+    (payload : Payload type) (output : Stored.Lower.Output) (field : RecordLower.Field)
+    (objects : List RecordLower.Object) (compiled : preflightValue cx type payload output = .ok (field, objects)) :
+    field.LayoutMatches type := by
+  simp only [preflightValue, bind, Except.bind, Except.mapError] at compiled
+  split at compiled <;> first | contradiction | exact RecordLower.compileValue_layout _ _ _ _ _ _ _ compiled
+
 /-- A successful whole-plan dry run authorizes each nominal owner or readable
 endpoint at most once. Error contexts are shared and do not enter the claim list. -/
 theorem prepare_distinct {E : CoreEngine} {sig : Signature} (store : CStore E)
