@@ -360,7 +360,8 @@ theorem parked_caller_refusal_steps {sig : Signature} {grow : SingleThreaded.Gro
 /-- During canonical realloc's closed window, a same-instance reentrant public
 give is refused before selection or claim use. `none` is the indirect memory ABI;
 `some schema` is the flat ABI with its typed padding. The actual parked call
-resumes with the refusal words, with unchanged component store and writer. -/
+resumes with the refusal words, with unchanged component store and writer, and
+preserves growth certificates for the pending and saved continuations. -/
 theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
     (inst : InstId) (destination : RecordDestination) (schema : Option Stored.TypeOf)
@@ -382,7 +383,11 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
       { start with
         host := reached
         ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
-          continuation, segments⟩ :: rest } ∧ reached.writer = start.host.writer :=
+          continuation, segments⟩ :: rest } ∧ reached.writer = start.host.writer ∧
+      (start.CoreGrowing → Machine.Config.CoreGrowing { start with
+        host := reached
+        ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
+          continuation, segments⟩ :: rest }) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_steps
     bindings name type args inst destination schema start thread profile ready parked calling linked caller live closed
 

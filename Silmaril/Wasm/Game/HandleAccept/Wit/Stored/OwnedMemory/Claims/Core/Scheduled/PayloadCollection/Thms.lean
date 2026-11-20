@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadInstall.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Collection.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection
 
@@ -104,5 +105,41 @@ theorem RecordDestination.checked_dynamic_recheck {sig : Stored.Signature} {read
     (Field.listObjects entries) (fun ptr verdict => checkedDynamicContinue Limits.spec Quirks.none
       (destination.context inst) (Record.authority recordClaims Limits.spec (destination.context inst))
       destination.width element entries index output ptr verdict >>= finish) resume resumes returned aligned sized bounds
+
+/-- After a linked allocator prefix, the same destination address still has
+the original width and its already-valid region still fits. The returned
+range is checked separately, in the reached store. Invalid returns go to the
+canonical trap configuration, not to the typed completion continuation. -/
+theorem RecordDestination.linked_range_resume {sig : Stored.Signature} {ready : HostReady (HostState sig)}
+    (bindings : List (Binding sig)) {initial reached : Machine.Config (core3 grow) (HostState sig)}
+    {trace : List (Label (core3 grow) (HostState sig))}
+    (run : Machine.Steps profile ready (specDispatch ready (host bindings)) initial trace reached)
+    (growing : initial.CoreGrowing)
+    (installs : ∀ {current next leading label},
+      Machine.Steps profile ready (specDispatch ready (host bindings)) initial leading current →
+      Step profile ready (specDispatch ready (host bindings)) current label next →
+      LinkedPayloadInstall bindings current label ∨ CoreGrowthInstall (specDispatch ready (host bindings)) current label)
+    (destination : RecordDestination) (inst : InstId) (checked : destination.check initial.store = .ok ())
+    (start length initialBytes : Nat) (sized : (core3 grow).memSize? initial.store.core destination.memory = some initialBytes)
+    (oldBounds : start + length ≤ initialBytes) (area : Layout) (count pointer : Nat)
+    (finish : Nat → Session grow sig (Ret (core3 grow))) (resume : Ret (core3 grow) → Session grow sig (Ret (core3 grow)))
+    (resumes : resume (.nat pointer) = (validateListRange (destination.context inst) area count pointer >>= finish))
+    {thread segments rest}
+    (returned : reached.ctl = ⟨thread, .prog (.pure (.nat pointer)), .prog resume :: segments⟩ :: rest) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let trapped := fun reason => ∃ steps, Machine.Steps profile ready dispatch reached
+      (List.replicate steps .tau ++ [.trap reason]) (Machine.StepDefs.trapCfg reached)
+    ptrTypeIn reached.store (destination.context inst) = destination.width ∧
+    ∃ bytes, (core3 grow).memSize? reached.store.core destination.memory = some bytes ∧
+      initialBytes ≤ bytes ∧ start + length ≤ bytes ∧
+      if pointer ≠ alignTo pointer area.alignment then trapped .unalignedPointer
+      else if pointer + count * area.size ≤ bytes then
+        ∃ labels, (∀ label ∈ labels, label = .tau) ∧
+          Machine.Steps profile ready dispatch reached labels
+            { reached with ctl := ⟨thread, .prog (finish pointer), segments⟩ :: rest }
+      else trapped .outOfBounds :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection.linked_range_resume
+    bindings run growing installs destination inst checked start length initialBytes sized oldBounds area count pointer
+    finish resume resumes returned
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled

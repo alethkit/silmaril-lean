@@ -1,7 +1,9 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadInstall.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Collection.Defs
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadInstall.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Collection.Thms
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 
@@ -121,5 +123,45 @@ theorem checked_dynamic_call {sig : Stored.Signature} {ready : HostReady (HostSt
     simp only [middle, plan, prepared, next, onRange, bind_assoc]
   obtain ⟨resume, agreement, callStep⟩ := listRange_call cx area entries.length onRange allocating
   exact ⟨resume, agreement, append_steps reads (.cons callStep (.refl _))⟩
+
+theorem linked_range_resume {sig : Stored.Signature} {ready : HostReady (HostState sig)}
+    (bindings : List (Binding sig)) {initial reached : Machine.Config (core3 grow) (HostState sig)}
+    {trace : List (Label (core3 grow) (HostState sig))}
+    (run : Machine.Steps profile ready (specDispatch ready (host bindings)) initial trace reached)
+    (growing : initial.CoreGrowing)
+    (installs : ∀ {current next leading label},
+      Machine.Steps profile ready (specDispatch ready (host bindings)) initial leading current →
+      Step profile ready (specDispatch ready (host bindings)) current label next →
+      LinkedPayloadInstall bindings current label ∨ CoreGrowthInstall (specDispatch ready (host bindings)) current label)
+    (destination : RecordDestination) (inst : InstId) (checked : destination.check initial.store = .ok ())
+    (start length initialBytes : Nat) (sized : (core3 grow).memSize? initial.store.core destination.memory = some initialBytes)
+    (oldBounds : start + length ≤ initialBytes) (area : Layout) (count pointer : Nat)
+    (finish : Nat → Session grow sig (Ret (core3 grow))) (resume : Ret (core3 grow) → Session grow sig (Ret (core3 grow)))
+    (resumes : resume (.nat pointer) = (validateListRange (destination.context inst) area count pointer >>= finish))
+    {thread segments rest}
+    (returned : reached.ctl = ⟨thread, .prog (.pure (.nat pointer)), .prog resume :: segments⟩ :: rest) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let trapped := fun reason => ∃ steps, Machine.Steps profile ready dispatch reached
+      (List.replicate steps .tau ++ [.trap reason]) (Machine.StepDefs.trapCfg reached)
+    ptrTypeIn reached.store (destination.context inst) = destination.width ∧
+    ∃ bytes, (core3 grow).memSize? reached.store.core destination.memory = some bytes ∧
+      initialBytes ≤ bytes ∧ start + length ≤ bytes ∧
+      if pointer ≠ alignTo pointer area.alignment then trapped .unalignedPointer
+      else if pointer + count * area.size ≤ bytes then
+        ∃ labels, (∀ label ∈ labels, label = .tau) ∧
+          Machine.Steps profile ready dispatch reached labels
+            { reached with ctl := ⟨thread, .prog (finish pointer), segments⟩ :: rest }
+      else trapped .outOfBounds := by
+  obtain ⟨prefixSteps, _⟩ := linked_payload_prefix_growth run growing installs
+  obtain ⟨_, width, bytes, memSize, monotone, valid⟩ := prefixSteps.linked_region
+    (destination.context inst) rfl (destination.check_width initial.store checked) sized oldBounds
+  refine ⟨width, bytes, memSize, monotone, valid, ?_⟩
+  have next := destination.listRange_resume (after := reached) (profile := profile) (ready := ready)
+    (dispatch := specDispatch ready (host bindings)) inst area count pointer finish resume resumes returned
+  dsimp only at next
+  rw [destination.listRange_body inst area count pointer reached.store reached.host thread, memSize] at next
+  by_cases aligned : pointer ≠ alignTo pointer area.alignment
+  · simpa [aligned] using next
+  · by_cases fits : pointer + count * area.size ≤ bytes <;> simpa [aligned, fits] using next
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection
