@@ -665,13 +665,17 @@ check does not roll back effects of the emitter.
 
 `CoreGrowthSteps` frames the linked memory address, pointer width, and bounds of already
 valid regions across certified scheduler prefixes. It permits guest byte writes and memory
-growth. Core instructions, canonical memory writes and the realloc dispatcher's own
-updates supply growth proofs; other reached `modify` operations need their own proof.
+growth. Core instructions and canonical memory writes supply growth proofs. The scheduler
+carries program certificates through calls, returns, blocking and resumption. The actual
+canonical allocator, implicit lift thread, synchronous lift loop, and caller start and
+resolve programs supply installation certificates; arbitrary guest callouts and injected
+host programs do not inherit one.
 In a closed realloc window, a same-instance
 reentrant `givePayload` or `giveFlat` with a valid binding takes the actual typed
 `wrongContext` reply, journals the refusal, and resumes parked Core without changing the
-component store or writer. This certifies those callout segments without assuming the
-allocator's bytes are unchanged. It does not yet certify every callback trace, nor the
+component store or writer. The resumed control retains its continuation certificates,
+so the refusal segment composes with the certified prefixes before and after it. This
+does not assume the allocator's bytes are unchanged, certify every callback trace, or validate the
 range newly returned by realloc, which canonical lowering checks in the reached store.
 
 `Binding.acceptFlat` links a fixed tag and checks the full schema before accepting the
