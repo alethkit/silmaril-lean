@@ -1,5 +1,8 @@
 # Containers: a pluggable framework for verifying container images
 
+**Experimental API.** Definitions and statements in `Silmaril/Containers/…` may change. Start with
+the [examples](containers-examples.md): runnable, and listed in the explorer's Containers tab.
+
 This page describes the `Containers` region (`Silmaril/Containers/…`, see
 [regions.toml](../../regions.toml)): what a container image is at several levels of detail, what a
 containerised process does to its environment, what a runtime adds, and which predicates on an
