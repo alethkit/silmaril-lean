@@ -965,7 +965,8 @@ theorem collectionCallback (destination : RecordDestination) (inst : InstId) (en
   cases cut with
   | read differs otherAligned => exact .inl ⟨_, differs, otherAligned⟩
   | returned popped =>
-    obtain ⟨thread, value, leftFrames, rightFrames, leftRest, rightRest, atChecked, atCanonical⟩ := popped.inputs
+    obtain ⟨thread, value, leftFrames, rightFrames, leftRest, rightRest, atChecked, atCanonical⟩ :=
+      ReturnFrame.Returned.inputs popped
     cases value with
     | unit | flat _ | vals _ | optVals _ | cancel _ | thread _ | invoked _ _ | items _ =>
       exact .inr (.inl ⟨thread, _, leftFrames, leftRest, by simp, atChecked, popped⟩)
@@ -1013,6 +1014,71 @@ theorem dynamicRefusal (destination : RecordDestination) (inst : InstId) (type e
   have stop : afterRead.ctl = cursor.control (checked (.error issue)) := by simp only [afterRead, refused]
   cases issue <;> exact ⟨.refused _, _, [], _, right, run, .refl _, same, rfl, trivial, stop⟩
 
+theorem collectionInstallSteps (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+    (entries : List Field) (output : Lower.Output) (index : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (reachedWidth : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let area := layout destination.width element
+    let checkResume := checkedCollectionResume destination inst entries area index output checkNext
+    let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+      (CanonicalTree.EntryMode.forOutput destination.width type output)
+    let checkCall := collectionEntry destination inst area entries.length scheduledDispatch left check checkResume
+    let canonCall := collectionEntry destination inst area entries.length scheduledDispatch right canon canonResume
+    Machine.Steps profile scheduledReady scheduledDispatch left [.tau, .tau, .tau] checkCall ∧
+    Machine.Steps profile scheduledReady scheduledDispatch right [.tau, .tau] canonCall := by
+  let cx := destination.context (grow := grow) inst
+  let area := layout destination.width element
+  have width : ptrTypeIn right.store (destination.context inst) = destination.width := by
+    simp [ptrTypeIn, RecordDestination.context, CanonOpts.ptrType, reachedWidth]
+  let liveObjects := Field.listObjects entries
+  let checkedTail := fun ptr => do
+    let live ← Record.Effects.reserve recordClaims liveObjects
+    checkedCollectionTail destination inst entries area index output ptr live >>= checkNext
+  let preflightBranch := fun (verdict : Except RecordLower.Issue Unit) =>
+    (match verdict with
+     | .error (.preflight issue) => pure (.error (.field index (.beforeAllocation issue)))
+     | .error issue => pure (.error (.nested index issue))
+     | .ok () => do
+        let ptr ← allocateListRange cx area entries.length
+        let live ← Record.Effects.reserve recordClaims liveObjects
+        checkedCollectionTail destination inst entries area index output ptr live) >>= checkNext
+  have checkRead : left.ctl = check.control (.op .get fun store => .op .hostGet fun host =>
+      preflightBranch (Record.prepare store host.writer liveObjects)) := by
+    rw [Record.Effects.field] at checkAt
+    exact checkAt
+  let checkEntered := { left with ctl := check.control (preflightBranch (Record.prepare left.store left.host.writer liveObjects)) }
+  have checkSteps : Machine.Steps profile scheduledReady scheduledDispatch left [.tau, .tau] checkEntered :=
+    .cons (.get checkRead) (.cons (.hostGet rfl) (.refl _))
+  have checkAlloc : checkEntered.ctl = check.control (allocateListRange cx area entries.length >>= checkedTail) := by
+    simp only [checkEntered, liveObjects, preflightBranch, prepared, checkedTail, Prog.bind_eq, Prog.bind_assoc]
+  let canonTail := fun ptr => canonicalCollectionTail destination inst entries area output ptr
+    (CanonicalTree.EntryMode.forOutput destination.width type output) >>= canonNext
+  let canonProgram : AddrType → Session grow sig output.Result := fun reached => do
+    let shape := layout reached element
+    let ptr ← allocateListRange cx shape entries.length
+    CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries
+      (CanonicalTree.EntryMode.forOutput reached type output) shape.size ptr
+    ListLower.publish cx destination.width ptr entries.length output
+  have canonRead : right.ctl = canon.control (.op .get fun store => canonProgram (ptrTypeIn store cx) >>= canonNext) := by
+    rw [CanonicalTree.field] at canonAt
+    exact canonAt
+  let canonEntered := { right with ctl := canon.control (canonProgram (ptrTypeIn right.store cx) >>= canonNext) }
+  have canonStep : Step profile scheduledReady scheduledDispatch right .tau canonEntered := .get canonRead
+  have canonAlloc : canonEntered.ctl = canon.control (allocateListRange cx area entries.length >>= canonTail) := by
+    simp only [canonEntered, cx, area, canonProgram, width, canonTail, canonicalCollectionTail, Prog.bind_eq, Prog.bind_assoc]
+  have checkInstall := listRange_install
+    (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch) cx area entries.length checkedTail checkAlloc
+  have canonInstall := listRange_install
+    (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch) cx area entries.length canonTail canonAlloc
+  exact ⟨chain checkSteps (.cons checkInstall (.refl _)), .cons canonStep (.cons canonInstall (.refl _))⟩
+
 theorem collectionInstallMode (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
     (entries : List Field) (output : Lower.Output) (index : Nat)
     (left right : Config (core3 grow) (HostState sig)) (cursor : Cursor (E := core3 grow) (HostState sig))
@@ -1034,52 +1100,9 @@ theorem collectionInstallMode (destination : RecordDestination) (inst : InstId) 
     Machine.Steps profile scheduledReady scheduledDispatch left [.tau, .tau, .tau] checkCall ∧
     Machine.Steps profile scheduledReady scheduledDispatch right [.tau, .tau] canonCall ∧
     HostFrame.Paired checkResume canonResume checkCall canonCall := by
-  let cx := destination.context (grow := grow) inst
-  let area := layout destination.width element
-  have width : ptrTypeIn right.store (destination.context inst) = destination.width := by
-    simp [ptrTypeIn, RecordDestination.context, CanonOpts.ptrType, reachedWidth]
-  let liveObjects := Field.listObjects entries
-  let checkedTail := fun ptr => do
-    let live ← Record.Effects.reserve recordClaims liveObjects
-    checkedCollectionTail destination inst entries area index output ptr live >>= checkNext
-  let preflightBranch := fun (verdict : Except RecordLower.Issue Unit) =>
-    (match verdict with
-     | .error (.preflight issue) => pure (.error (.field index (.beforeAllocation issue)))
-     | .error issue => pure (.error (.nested index issue))
-     | .ok () => do
-        let ptr ← allocateListRange cx area entries.length
-        let live ← Record.Effects.reserve recordClaims liveObjects
-        checkedCollectionTail destination inst entries area index output ptr live) >>= checkNext
-  have checkRead : left.ctl = cursor.control (.op .get fun store => .op .hostGet fun host =>
-      preflightBranch (Record.prepare store host.writer liveObjects)) := by
-    rw [Record.Effects.field] at checkAt
-    exact checkAt
-  let checkEntered := { left with ctl := cursor.control (preflightBranch (Record.prepare left.store left.host.writer liveObjects)) }
-  have checkSteps : Machine.Steps profile scheduledReady scheduledDispatch left [.tau, .tau] checkEntered :=
-    .cons (.get checkRead) (.cons (.hostGet rfl) (.refl _))
-  have checkAlloc : checkEntered.ctl = cursor.control (allocateListRange cx area entries.length >>= checkedTail) := by
-    simp only [checkEntered, liveObjects, preflightBranch, prepared, checkedTail, Prog.bind_eq, Prog.bind_assoc]
-  let canonTail := fun ptr => canonicalCollectionTail destination inst entries area output ptr
-    (CanonicalTree.EntryMode.forOutput destination.width type output) >>= canonNext
-  let canonProgram : AddrType → Session grow sig output.Result := fun reached => do
-    let shape := layout reached element
-    let ptr ← allocateListRange cx shape entries.length
-    CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries
-      (CanonicalTree.EntryMode.forOutput reached type output) shape.size ptr
-    ListLower.publish cx destination.width ptr entries.length output
-  have canonRead : right.ctl = cursor.control (.op .get fun store => canonProgram (ptrTypeIn store cx) >>= canonNext) := by
-    rw [CanonicalTree.field] at canonAt
-    exact canonAt
-  let canonEntered := { right with ctl := cursor.control (canonProgram (ptrTypeIn right.store cx) >>= canonNext) }
-  have canonStep : Step profile scheduledReady scheduledDispatch right .tau canonEntered := .get canonRead
-  have canonAlloc : canonEntered.ctl = cursor.control (allocateListRange cx area entries.length >>= canonTail) := by
-    simp only [canonEntered, cx, area, canonProgram, width, canonTail, canonicalCollectionTail, Prog.bind_eq, Prog.bind_assoc]
-  have checkInstall := listRange_install
-    (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch) cx area entries.length checkedTail checkAlloc
-  have canonInstall := listRange_install
-    (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch) cx area entries.length canonTail canonAlloc
-  refine ⟨chain checkSteps (.cons checkInstall (.refl _)),
-    .cons canonStep (.cons canonInstall (.refl _)), ?_⟩
+  obtain ⟨checked, canonical⟩ := collectionInstallSteps destination inst type element entries output index
+    left right cursor cursor checkNext canonNext reachedWidth prepared checkAt canonAt
+  refine ⟨checked, canonical, ?_⟩
   dsimp only [collectionEntry, HostFrame.Paired]
   conv => rhs; rw [← same]
   exact ReturnFrame.installed (HostFrame.replace left right.host) cursor.thread _ cursor.frames cursor.rest
