@@ -132,3 +132,27 @@ effects; stateful and store-changing host transfers require separate evidence.
 ```sh
 make check CHECK_TARGETS='+Silmaril.Wasm.Game.Intrinsic.Requests.Examples'
 ```
+
+### A guarded answered-import loop
+
+The [single-back-edge bridge](../../Silmaril/Wasm/Game/Intrinsic/Requests/Repeat/Thms.lean)
+checks a cyclic case the well-founded tree cannot express. After a typed
+successful reply, the stock host-free machine must reach *exactly* the same
+store and callout thread. `Repeat.periodic_core` exhibits one infinite Core
+trace with a positive period, with an actual store-preserving host return
+at each period boundary. It assumes the typed `Env` gives the selected
+reply and uses `hostOf`; it does not turn missing replies into successful
+steps. `Repeat.game_prefix` separately constructs every answered-prefix
+length in the open game, retaining the next pending callout.
+
+The [intrinsic loop regression](../../Silmaril/Wasm/Game/Intrinsic/Requests/Repeat/Example.lean)
+calls `env.tick(7) : i32` and uses `br_if 0` on the reply: `1` restarts the
+loop; `0` completes the export. The repeating case also observes divergence
+in the stock composed game, with initial store well-formedness and bounded
+exceptions via `Entry.adequacy`. The Wasm body uses no mutation or allocation;
+the host exchange remains visible in the open game. This is a periodic
+witness, not a general recursion denotation or a completeness result.
+
+```sh
+make check CHECK_TARGETS='+Silmaril.Wasm.Game.Intrinsic.Requests.Repeat.Example'
+```
