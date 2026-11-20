@@ -1,4 +1,8 @@
+module
+
+import Batteries.Data.Except
 import Silmaril.Semantics.Prolly.Operations.Thms
+meta import Silmaril.Semantics.Prolly.Operations.Thms
 
 open Silmaril.Semantics Silmaril.Semantics.Prolly
 open OrderedMap (Overlap)
@@ -17,7 +21,7 @@ private def setRight : OrderedSet Nat := ⟨[(3, ()), (4, ()), (8, ())], by deci
 private def inspect (result : Except Nat (OrderedMap Nat String)) : Except Nat (List (Nat × String)) :=
   result.map OrderedMap.entries
 
-def main : IO Unit := do
+public def main : IO Unit := do
   unless inspect (left.combine .union Overlap.keepLeft right) ==
     .ok [(1, "one"), (2, "two"), (3, "left three"), (5, "left five"), (8, "eight")] do
     throw (IO.userError "left-biased union")
