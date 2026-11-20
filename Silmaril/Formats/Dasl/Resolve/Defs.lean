@@ -52,6 +52,16 @@ def Shallow.directLinks (tree : Shallow Name) : Set (Link Name) := Partial.links
 def Depends (store : Store Name) (child parent : Name) : Prop :=
   ∃ source, store.objects parent source ∧ Link.obj child ∈ source.directLinks
 
+/-- Object names reachable from the root, including the root. Raw links are leaves. -/
+def Reachable (store : Store Name) (root : Name) : Name → Prop :=
+  _root_.Relation.ReflTransGen (fun parent child => Depends store child parent) root
+
+/-- Only links of reachable objects need to resolve. Unrelated blocks do not affect a root. -/
+def ClosedBelow (store : Store Name) (root : Name) : Prop :=
+  ∀ ⦃parent source⦄, Reachable store root parent → store.objects parent source →
+    (∀ child, Link.obj child ∈ source.directLinks → ∃ target, store.objects child target) ∧
+    (∀ child, Link.blob child ∈ source.directLinks → ∃ payload, store.blobs child payload)
+
 /-- A sufficient closure condition for completion. No missing payload is defaulted, and no
 wire payload appears as an object unless it has been decoded into this store. -/
 def Closed (store : Store Name) : Prop :=
