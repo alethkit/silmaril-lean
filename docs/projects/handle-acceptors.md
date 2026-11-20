@@ -722,6 +722,15 @@ identifies its compiled value, layout and ordered receipts after admission.
 This is a checked view, not an erasure of guards to unchecked `Canon.store`
 or `lowerFlatAt`, and does not prove whole-session event delivery.
 
+`CanonicalTree.field_reference` identifies the recursive reference-side
+program with `Canon.store` or `lowerFlatAt` on the certified value and type.
+It is equality of programs, including allocator calls, their continuations,
+range traps, and descriptor writes at arbitrary nesting depth. In particular,
+the flat map uses reached record cursor reads, while the memory map places
+both cells using the allocation-time width, even if its key calls realloc.
+This factors the canonical comparator; it does not discharge the checked
+emitter's live guards or equate its typed refusals with canonical traps.
+
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner
 and endpoint commitment operations, selected sum arm, and collection allocation,
