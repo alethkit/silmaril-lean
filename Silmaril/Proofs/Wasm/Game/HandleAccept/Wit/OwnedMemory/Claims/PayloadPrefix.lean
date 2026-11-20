@@ -343,18 +343,69 @@ private theorem localGet {keep : CStore E → Prop} :
 private def WriteClosed (keep : CStore E → Prop) : Prop :=
   ∀ store memory ptr bytes, keep store → keep (writeMemSt memory ptr bytes store)
 
-private theorem closedIntKeeping {keep : CStore E → Prop} (writes : WriteClosed keep)
-    (cx : LiftLowerContext E) (number : Int) (ptr bytes : Nat) (signed : Bool := false) :
-    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (storeInt cx number ptr bytes signed) := by
-  unfold storeInt writeMem memAddr
-  have addressLocal : Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (orTrap .noMemory cx.opts.memory) := by
-    cases cx.opts.memory
-    · exact .op trivial (fun impossible => nomatch impossible)
-    · exact .pure _
-  refine addressLocal.bind fun address => localGet.bind fun store => ?_
+private theorem closedOrTrap {keep : CStore E → Prop} {Result : Type} (reason : TrapReason) (value : Option Result) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (orTrap reason value) := by
+  cases value
+  · exact .op trivial (fun impossible => nomatch impossible)
+  · exact .pure _
+
+private theorem closedWriteMem {keep : CStore E → Prop} (writes : WriteClosed keep)
+    (cx : LiftLowerContext E) (ptr : Nat) (bytes : ByteArray) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (writeMem cx ptr bytes) := by
+  unfold writeMem memAddr
+  refine (closedOrTrap .noMemory cx.opts.memory).bind fun address => localGet.bind fun store => ?_
   split
   · exact .op trivial (fun impossible => nomatch impossible)
   · exact .op (fun _ kept => writes _ _ _ _ kept) (fun _ => .pure _)
+
+private theorem closedIntKeeping {keep : CStore E → Prop} (writes : WriteClosed keep)
+    (cx : LiftLowerContext E) (number : Int) (ptr bytes : Nat) (signed : Bool := false) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile keep) (storeInt cx number ptr bytes signed) :=
+  closedWriteMem writes cx ptr _
+
+private theorem closedReadMem (cx : LiftLowerContext E) (ptr size : Nat) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (readMem cx ptr size) := by
+  unfold readMem memAddr
+  exact (closedOrTrap .noMemory cx.opts.memory).bind fun addr => localGet.bind fun store =>
+    closedOrTrap .outOfBounds (E.memRead? store.core addr ptr size)
+
+private theorem closedTrapIf (condition : Bool) (reason : TrapReason) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (trapIf condition reason) := by
+  cases condition
+  · exact .pure _
+  · exact .op trivial (fun impossible => nomatch impossible)
+
+private theorem closedStringStep (cx : LiftLowerContext E) (ptr : Nat) (action : StoreStep)
+    (localStep : LocalStringStep action) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (runStoreStep cx ptr action) := by
+  have write (address : Nat) (bytes : ByteArray) :
+      Prog.Every (ClosedOp (E := E) (Host := Host) profile) (writeMem cx address bytes) :=
+    closedWriteMem (fun _ _ _ _ _ => trivial) cx address bytes
+  cases action with
+  | allocate | reallocate => cases localStep
+  | trapIfMisaligned alignment =>
+    exact (closedTrapIf (decide (ptr ≠ ABI.alignTo ptr alignment)) .unalignedPointer).bind (fun _ => .pure _)
+  | trapIfOutOfBounds size =>
+    unfold runStoreStep checkInBounds memLen memAddr
+    simp only [Prog.bind_eq, Prog.bind_assoc]
+    exact (closedOrTrap .noMemory cx.opts.memory).bind fun addr => localGet.bind fun store =>
+      (closedOrTrap (.internal "dangling memory address") (E.memSize? store.core addr)).bind fun bytes =>
+        (closedTrapIf (decide (ptr + size > bytes)) .outOfBounds).bind (fun _ => .pure _)
+  | write offset bytes => exact (write (ptr + offset) bytes.toByteArray).bind (fun _ => .pure _)
+  | inflateLatin1 size => exact (closedReadMem cx ptr (2 * size)).bind fun data =>
+      (write ptr (ABI.memInflateLatin1 data.toList 0 size).toByteArray).bind (fun _ => .pure _)
+  | deflateUtf16 size => exact (closedReadMem cx ptr (2 * size)).bind fun data =>
+      (write ptr (ABI.memDeflateUtf16 data.toList 0 size).toByteArray).bind (fun _ => .pure _)
+
+theorem localStringSteps (cx : LiftLowerContext E) (ptr : Nat) (steps : List StoreStep)
+    (localSteps : ∀ action ∈ steps, LocalStringStep action) :
+    Compare profile ready dispatch (do return .ok (← runStoreSteps cx ptr steps)) (runStoreSteps cx ptr steps) := by
+  apply compareClosed
+  induction steps generalizing ptr with
+  | nil => exact .pure _
+  | cons action rest ih =>
+    exact (closedStringStep cx ptr action (localSteps action (List.mem_cons_self ..))).bind fun next =>
+      ih next (fun child member => localSteps child (List.mem_cons_of_mem _ member))
 
 private theorem closedInt (cx : LiftLowerContext E) (number : Int) (ptr bytes : Nat) (signed : Bool := false) :
     Prog.Every (ClosedOp (E := E) (Host := Host) profile) (storeInt cx number ptr bytes signed) :=
@@ -1194,6 +1245,180 @@ theorem listEntryPlacement {entryDispatch : Call (core3 grow) → P (core3 grow)
     ptrTypeIn after.store (destination.context inst) = destination.width ∧
       placement destination after.store area (base + index * area.size) = .ok () :=
   listEntryPlacementOfGrowth destination inst element run.grows (destination.check_width before.store checked) sized aligned bounds entry
+
+private theorem primitiveEntry (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim primitive)) (index : Nat) (output : Lower.Output)
+    (start : Config (core3 grow) (HostState sig)) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (finish : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (width : ptrTypeIn start.store (destination.context inst) = destination.width)
+    (options : Lower.checkOptions (destination.context (grow := grow) inst) (.prim primitive) output = .ok ())
+    (fit : Lower.fits Quirks.none destination.encoding destination.width (.prim primitive) payload.val = true)
+    (placed : rootPlacement destination start.store (.prim primitive) output = .ok ())
+    (focused : start.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.data (.prim primitive) payload) index output >>= finish)) :
+    let program := CanonicalTree.field (World := HostState sig) Limits.spec Quirks.none
+      (destination.context inst) destination.width (.data (.prim primitive) payload) output
+    ∃ reads, Machine.Steps profile scheduledReady scheduledDispatch start (List.replicate reads .tau)
+      { start with ctl := cursor.control (program >>= fun value => finish (.ok value)) } := by
+  let cx := destination.context (grow := grow) inst
+  let type : TypeOf := .prim primitive
+  have well : ABI.ValType.WellFormedCM type := by
+    refine ⟨.prim _, rfl, rfl, rfl, ?_⟩
+    cases primitive <;> simp [type, ABI.ValType.anySub, oversizedNode, layout, primitiveLayout, pointerLayout,
+      pointerAlignment, Layout.size, Alignment.bytes]
+  have accepted : (Lower.checkSchema type >>= fun _ => Lower.checkOptions cx type output) = .ok () := by
+    have plain : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.checkSchema type = .ok () := by
+      unfold Silmaril.Wasm.Game.HandleAccept.Wit.Stored.checkSchema
+      rw [ite_eq_right (show ¬ containsBorrow type = true from Bool.not_eq_true _ |>.mpr rfl),
+        ite_eq_right (show ¬ payloadContainsOwn type = true from Bool.not_eq_true _ |>.mpr rfl), ite_eq_left well]
+    unfold Lower.checkSchema
+    rw [plain]
+    exact options
+  let checkedResult := fun verdict : Except Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Lower.Issue output.Result =>
+    finish (verdict.mapError (.field index ∘ .beforeAllocation ∘ .abi))
+  let branch := fun current =>
+    if !Lower.fits Quirks.none cx.opts.encoding current type payload.val then
+      checkedResult (.error .allocationPrecondition)
+    else (Lower.emit Limits.spec Quirks.none cx current type payload output).bind (fun value => finish (.ok value))
+  have atRead : start.ctl = cursor.control (.op .get fun store => branch (ptrTypeIn store cx)) := by
+    rw [Record.Effects.field, Lower.lower, accepted] at focused
+    refine focused.trans (congrArg cursor.control ?_)
+    change ((((ptrType cx).bind fun current => if !Lower.fits Quirks.none cx.opts.encoding current type payload.val then
+      .pure (.error .allocationPrecondition : Except Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Lower.Issue output.Result)
+      else (Lower.emit Limits.spec Quirks.none cx current type payload output).bind (fun value => .pure (.ok value))).bind
+        fun verdict => .pure (verdict.mapError (.field index ∘ .beforeAllocation ∘ .abi))).bind finish) = _
+    simp only [Prog.bind_assoc, Prog.pure_bind']
+    change (Prog.op (S := Eff (core3 grow) (HostState sig)) .get (fun store =>
+      (if !Lower.fits Quirks.none cx.opts.encoding (ptrTypeIn store cx) type payload.val then
+        .pure (.error .allocationPrecondition : Except Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Lower.Issue output.Result)
+      else (Lower.emit Limits.spec Quirks.none cx (ptrTypeIn store cx) type payload output).bind
+        (fun value => .pure (.ok value))).bind checkedResult)) = _
+    apply congrArg (Prog.op (S := Eff (core3 grow) (HostState sig)) .get)
+    funext store
+    unfold branch
+    split <;> simp only [Prog.pure_bind', Prog.bind_assoc, checkedResult, Except.mapError]
+  let emit := Lower.emit (World := HostState sig) Limits.spec Quirks.none cx destination.width type payload output
+  let entered := { start with ctl := cursor.control (emit.bind fun value => finish (.ok value)) }
+  have step : Step profile scheduledReady scheduledDispatch start .tau entered := by
+    have reachedFit : Lower.fits Quirks.none cx.opts.encoding destination.width type payload.val = true := fit
+    have read := Step.get (prof := profile) (hr := scheduledReady) (dispatch := scheduledDispatch) atRead
+    simpa only [branch, width, reachedFit, Bool.not_true, Bool.false_eq_true, ↓reduceIte, entered, emit, cx,
+      Cursor.control] using read
+  cases output with
+  | flat => exact ⟨1, .cons step (.refl _)⟩
+  | memory address =>
+    let body : Session grow sig Unit := store Limits.spec Quirks.none cx payload.val type address
+    let next := body.bind fun value => finish (.ok value)
+    let area := layout destination.width type
+    have placedHere : placement destination entered.store area address = .ok () := placed
+    have guarded : entered.ctl = cursor.control (do
+        checkAligned address area.alignment.bytes
+        checkInBounds cx address area.size
+        next) := by
+      change cursor.control ((do checkAligned address area.alignment.bytes; checkInBounds cx address area.size; body).bind
+        (fun value => finish (.ok value))) = _
+      simp only [Prog.bind_eq, Prog.bind_assoc, next]
+    have bounds := checkPlacement (profile := profile) (ready := scheduledReady) (placementDispatch := scheduledDispatch)
+      destination inst entered area address cursor next guarded
+    rw [placedHere] at bounds
+    exact ⟨2, .cons step bounds⟩
+
+theorem stringPlanEntry (destination : RecordDestination) (inst : InstId) (str : Value.StrVal) (valid : str.Valid)
+    (index : Nat) (output : Lower.Output) (left right : Config (core3 grow) (HostState sig))
+    (checkCursor canonCursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : left.store = right.store)
+    (present : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fit : StoreStringPre Quirks.none destination.encoding destination.width str)
+    (placed : rootPlacement destination left.store (.prim .string) output = .ok ())
+    (checkAt : left.ctl = checkCursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.data (.prim .string) ⟨.string str, .string valid⟩) index output >>= checkNext))
+    (canonAt : right.ctl = canonCursor.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.data (.prim .string) ⟨.string str, .string valid⟩) output >>= canonNext)) :
+    let cx := destination.context inst
+    let plan := storePlanFor Quirks.none destination.encoding destination.width str
+    let body := runStoreSteps cx 0 plan.steps
+    ∃ reads, Machine.Steps profile scheduledReady scheduledDispatch left (List.replicate reads .tau)
+      { left with ctl := checkCursor.control (body >>= fun ptr => stringPlanTail cx destination.width output plan ptr >>=
+          fun value => checkNext (.ok value)) } ∧
+      Step profile scheduledReady scheduledDispatch right .tau
+        { right with ctl := canonCursor.control (body >>= fun ptr => stringPlanTail cx destination.width output plan ptr >>= canonNext) } := by
+  let cx := destination.context (grow := grow) inst
+  let payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim .string) := ⟨.string str, .string valid⟩
+  have width : ptrTypeIn right.store cx = destination.width := by
+    simp [cx, ptrTypeIn, RecordDestination.context, CanonOpts.ptrType, present]
+  have options : Lower.checkOptions cx (.prim .string) output = .ok () := by
+    cases output <;> simp [cx, RecordDestination.context, Lower.checkOptions, Lower.Output.needsMemory,
+      Validation.containsPtr, realloc] <;> rfl
+  obtain ⟨reads, entered⟩ := primitiveEntry (profile := profile) (scheduledReady := scheduledReady)
+    (scheduledDispatch := scheduledDispatch) destination inst .string payload index output left checkCursor checkNext
+    (same ▸ width) options (by simpa [Lower.fits, payload] using fit) placed checkAt
+  let enteredBody := CanonicalTree.field (World := HostState sig) Limits.spec Quirks.none cx destination.width
+    (.data (.prim .string) payload) output
+  let rest : AddrType → Session grow sig output.Result := fun reached =>
+    let plan := storePlanFor Quirks.none destination.encoding reached str
+    runStoreSteps cx 0 plan.steps >>= stringPlanTail cx destination.width output plan
+  have program : enteredBody = .op .get fun store => rest (ptrTypeIn store cx) := by
+    cases output with
+    | flat =>
+      simp only [enteredBody, CanonicalTree.field, CanonicalTree.leaf, Field.type, Field.value,
+        payload, lowerFlatAt, lowerFlatPrim, Canon.storeStringIntoRange, rest, Prog.bind_eq, Prog.bind_assoc]
+      rfl
+    | memory address =>
+      simp only [enteredBody, CanonicalTree.field, CanonicalTree.leaf, Field.type, Field.value,
+        payload, Canon.store, storePrim, storeString, Canon.storeStringIntoRange, rest, Prog.bind_eq, Prog.bind_assoc]
+      rfl
+  change right.ctl = canonCursor.control (enteredBody >>= canonNext) at canonAt
+  rw [program] at canonAt
+  have reference : Step profile scheduledReady scheduledDispatch right .tau
+      { right with ctl := canonCursor.control (rest destination.width >>= canonNext) } := by
+    simpa only [width, Cursor.control, Prog.bind_eq] using (Step.get (prof := profile) (hr := scheduledReady)
+      (dispatch := scheduledDispatch) canonAt)
+  change Machine.Steps profile scheduledReady scheduledDispatch left (List.replicate reads .tau)
+    { left with ctl := checkCursor.control (enteredBody >>= fun value => checkNext (.ok value)) } at entered
+  rw [program] at entered
+  have checkRead : Step profile scheduledReady scheduledDispatch
+      { left with ctl := checkCursor.control ((Prog.op .get fun store => rest (ptrTypeIn store cx)) >>=
+          fun value => checkNext (.ok value)) } .tau
+      { left with ctl := checkCursor.control (rest destination.width >>= fun value => checkNext (.ok value)) } := by
+    have reachedWidth : ptrTypeIn left.store cx = destination.width := same ▸ width
+    simpa only [Cursor.control, reachedWidth, Prog.bind_eq] using
+      (Step.get (prof := profile) (hr := scheduledReady) (dispatch := scheduledDispatch)
+        (m := { left with ctl := checkCursor.control ((Prog.op .get fun store => rest (ptrTypeIn store cx)) >>=
+          fun value => checkNext (.ok value)) }) rfl)
+  refine ⟨reads + 1, ?_, ?_⟩
+  · simpa only [List.replicate_add, List.replicate_one, rest, Prog.bind_eq, Prog.bind_assoc] using
+      chain entered (.cons checkRead (.refl _))
+  · simpa only [rest, Prog.bind_eq, Prog.bind_assoc] using reference
+
+theorem stringReallocInstall (cx : LiftLowerContext E) (ptr : Nat) (oldSize : Option Nat)
+    (alignment : Alignment) (size : Nat) (steps : List StoreStep) (finish : Nat → P E Host (Ret E))
+    (start : Config E Host) (cursor : Cursor (E := E) Host)
+    (focused : start.ctl = cursor.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= finish)) :
+    let request := Call.reallocate cx (oldSize.elim 0 (fun _ => ptr)) (oldSize.getD 0) alignment.bytes size
+    let resumed := stringPlanResume cx steps finish
+    Step profile ready dispatch start .tau
+      { start with ctl := { cursor with frames := .prog resumed :: cursor.frames }.control (dispatch request) } := by
+  let request := Call.reallocate cx (oldSize.elim 0 (fun _ => ptr)) (oldSize.getD 0) alignment.bytes size
+  have body : (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= finish) =
+        .op (.call request) (stringPlanResume cx steps finish) := by
+    change ((runStoreStep cx ptr (oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) >>=
+      fun next => runStoreSteps cx next steps) >>= finish) = _
+    have alloc : (runStoreStep cx ptr (oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :
+        P E Host Nat) = callNat request := by cases oldSize <;> rfl
+    rw [alloc]
+    unfold callNat callRet perform Prog.lift
+    simp only [Prog.bind_eq, Prog.bind_assoc]
+    apply congrArg (Prog.op (S := Eff E Host) (.call request))
+    funext result
+    simp only [stringPlanResume, Prog.bind_eq]
+    cases result <;> rfl
+  rw [body] at focused
+  exact .call focused
 
 private theorem primitiveLeafKeeping {keep : CStore (core3 grow) → Prop} (writes : WriteClosed keep)
     (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)

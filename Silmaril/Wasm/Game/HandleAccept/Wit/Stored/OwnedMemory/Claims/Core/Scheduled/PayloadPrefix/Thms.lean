@@ -222,6 +222,60 @@ theorem primitive_leaf (destination : RecordDestination) (inst : InstId) (primit
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.primitiveLeaf
     destination inst primitive payload nonString index output left right width placed
 
+/-- Both actual string leaf programs reach the same canonical plan. The
+checked path first discharges schema/options, the fit test at the reached
+width, and (for memory) root placement. This cut precedes plan execution. -/
+theorem string_plan_entry {grow : SingleThreaded.GrowOracle} {sig : Signature} {profile : ProfileKind}
+    {ready : HostReady (HostState sig)} {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    (destination : RecordDestination) (inst : InstId) (str : Value.StrVal) (valid : str.Valid)
+    (index : Nat) (output : Lower.Output) (left right : Config (core3 grow) (HostState sig))
+    (checkCursor canonCursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : left.store = right.store)
+    (present : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fit : StoreStringPre Quirks.none destination.encoding destination.width str)
+    (placed : rootPlacement destination left.store (.prim .string) output = .ok ())
+    (checkAt : left.ctl = checkCursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.data (.prim .string) ⟨.string str, .string valid⟩) index output >>= checkNext))
+    (canonAt : right.ctl = canonCursor.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.data (.prim .string) ⟨.string str, .string valid⟩) output >>= canonNext)) :
+    let cx := destination.context inst
+    let plan := storePlanFor Quirks.none destination.encoding destination.width str
+    let body := runStoreSteps cx 0 plan.steps
+    ∃ reads, Machine.Steps profile ready dispatch left (List.replicate reads .tau)
+      { left with ctl := checkCursor.control (body >>= fun ptr => stringPlanTail cx destination.width output plan ptr >>=
+          fun value => checkNext (.ok value)) } ∧
+      Step profile ready dispatch right .tau
+        { right with ctl := canonCursor.control (body >>= fun ptr => stringPlanTail cx destination.width output plan ptr >>= canonNext) } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.stringPlanEntry
+    destination inst str valid index output left right checkCursor canonCursor checkNext canonNext same present realloc fit placed checkAt canonAt
+
+/-- Take the actual scheduler call step for the next string allocation or
+resize, saving the remaining plan. This does not assert the callback returns. -/
+theorem string_realloc_install {E : CoreEngine} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}
+    {dispatch : Call E → P E Host (Ret E)} (cx : LiftLowerContext E) (ptr : Nat) (oldSize : Option Nat)
+    (alignment : Alignment) (size : Nat) (steps : List StoreStep) (finish : Nat → P E Host (Ret E))
+    (start : Config E Host) (cursor : Cursor (E := E) Host)
+    (focused : start.ctl = cursor.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= finish)) :
+    let request := Call.reallocate cx (oldSize.elim 0 (fun _ => ptr)) (oldSize.getD 0) alignment.bytes size
+    let resumed := stringPlanResume cx steps finish
+    Step profile ready dispatch start .tau
+      { start with ctl := { cursor with frames := .prog resumed :: cursor.frames }.control (dispatch request) } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.stringReallocInstall
+    cx ptr oldSize alignment size steps finish start cursor focused
+
+/-- Compare any allocator-free segment of the actual string plan at its
+reached store. Reads (including transcoding reads) see the current bytes,
+and a trap preserves the earlier writes on both paths. -/
+theorem local_string_steps {E : CoreEngine} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}
+    {dispatch : Call E → P E Host (Ret E)} (cx : LiftLowerContext E) (ptr : Nat) (steps : List StoreStep)
+    (localSteps : ∀ action ∈ steps, LocalStringStep action) :
+    Compare profile ready dispatch (do return .ok (← runStoreSteps cx ptr steps)) (runStoreSteps cx ptr steps) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.localStringSteps cx ptr steps localSteps
+
 /-- Use the validated collection range, rather than a fresh placement
 assumption for the scalar at its reached list index. -/
 theorem primitive_list_entry (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
