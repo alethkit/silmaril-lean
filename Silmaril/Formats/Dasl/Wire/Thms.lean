@@ -24,6 +24,12 @@ theorem lower_map_perm {Name : Type} {left right : List (String × Drisl.Ordered
     lower (.map (.ofEntries left)) = lower (.map (.ofEntries right)) :=
   Proofs.Formats.Dasl.Wire.lower_map_perm distinct order
 
+theorem dictFields_materialize_perm {Name : Type} (fields : List (String × Shallow Name))
+    (distinct : (fields.map Prod.fst).Nodup) :
+    ((dictFields fields).1.sort.attach.map (fun key =>
+      (key.val, (dictFields fields).2 ⟨key.val, (Finset.mem_sort _).mp key.property⟩))).Perm fields :=
+  Proofs.Formats.Dasl.Wire.dictFields_materialize_perm fields distinct
+
 /-- Canonical bytes, recursive wire key order and typed interpretation are checked before
 discarding the order; this does not yet prove that the abstract serializer is an inverse. -/
 theorem parse_eq_some_iff {bytes : ByteArray} {tree : Shallow Cid} :
