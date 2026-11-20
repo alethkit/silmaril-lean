@@ -167,6 +167,28 @@ theorem memory_handle (destination : RecordDestination) (inst : InstId) (item : 
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memoryHandleLeaf
     destination inst item index address handle
 
+/-- Both allocation-time memory-map offsets fit a validated entry slot.
+The value slot remains valid after certified Core growth while storing
+the key, even when a key allocator changed bytes. -/
+theorem map_entry_placement (destination : RecordDestination) (inst : InstId) (key : WIT.KeyType) (element : TypeOf)
+    {origin reached : CStore (core3 grow)} {base count index bytes : Nat}
+    (growth : Core3.Grows origin.core reached.core)
+    (width : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    (aligned : base = alignTo base (layout destination.width (.record (mapEntryFields key element))).alignment)
+    (bounds : base + count * (layout destination.width (.record (mapEntryFields key element))).size ≤ bytes)
+    (entry : index < count) :
+    let keyArea := layout destination.width (.prim key.toPrimitive : TypeOf)
+    let valueArea := layout destination.width element
+    let address := base + index * (layout destination.width (.record (mapEntryFields key element))).size
+    let keyPtr := alignTo address keyArea.alignment
+    let valuePtr := alignTo (keyPtr + keyArea.size) valueArea.alignment
+    ptrTypeIn reached (destination.context inst) = destination.width ∧
+      placement destination reached keyArea keyPtr = .ok () ∧
+      placement destination reached valueArea valuePtr = .ok () :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.mapEntryPlacement
+    destination inst key element growth width sized aligned bounds entry
+
 /-- A slot of a validated allocation stays aligned and in bounds across a
 growth-certified prefix. Only the reached size and width are constrained. -/
 theorem list_entry_placement {EHost : Type} {entryReady : HostReady EHost}
@@ -382,6 +404,33 @@ theorem collection_install (destination : RecordDestination) (inst : InstId) (ty
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionInstall
     destination inst type element entries output index left right cursor checkNext canonNext same reachedWidth
     mode prepared checkAt canonAt
+
+/-- Install both actual allocator frames, including the allocation-time map
+entry layout for indirect output. This does not compare the entry traversals. -/
+theorem collection_install_mode (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+    (entries : List Field) (output : Lower.Output) (index : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    (reachedWidth : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let area := layout destination.width element
+    let checkResume := checkedCollectionResume destination inst entries area index output checkNext
+    let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+      (CanonicalTree.EntryMode.forOutput destination.width type output)
+    let checkCall := collectionEntry destination inst area entries.length dispatch left cursor checkResume
+    let canonCall := collectionEntry destination inst area entries.length dispatch right cursor canonResume
+    Machine.Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
+    Machine.Steps profile ready dispatch right [.tau, .tau] canonCall ∧
+    HostFrame.Paired checkResume canonResume checkCall canonCall :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionInstallMode
+    destination inst type element entries output index left right cursor checkNext canonNext same reachedWidth
+    prepared checkAt canonAt
 
 /-- From an actual paired return, use the reached memory and live writer.
 Invalid ranges trap on both sides. A typed live refusal leaves the reference

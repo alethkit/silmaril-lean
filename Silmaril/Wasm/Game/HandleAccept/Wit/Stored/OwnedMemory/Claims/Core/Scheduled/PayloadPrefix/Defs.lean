@@ -203,9 +203,9 @@ def checkedCollectionTail {grow : SingleThreaded.GrowOracle} {sig : Signature}
 
 def canonicalCollectionTail {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
-    (output : Lower.Output) (ptr : Nat) : Session grow sig output.Result := do
+    (output : Lower.Output) (ptr : Nat) (mode : RecordLower.CanonicalTree.EntryMode := .value) : Session grow sig output.Result := do
   let cx := destination.context inst
-  RecordLower.CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries .value area.size ptr
+  RecordLower.CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries mode area.size ptr
   ListLower.publish cx destination.width ptr entries.length output
 
 def CollectionTailUsing {grow : SingleThreaded.GrowOracle} {sig : Signature}
@@ -270,10 +270,11 @@ def checkedCollectionResume {grow : SingleThreaded.GrowOracle} {sig : Signature}
 
 def canonicalCollectionResume {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
-    (output : Lower.Output) (finish : output.Result → Session grow sig (Ret (core3 grow))) :
+    (output : Lower.Output) (finish : output.Result → Session grow sig (Ret (core3 grow)))
+    (mode : RecordLower.CanonicalTree.EntryMode := .value) :
     ReturnFrame.Continuation (core3 grow) (HostState sig) :=
   listRangeResume (destination.context inst) area entries.length fun ptr =>
-    canonicalCollectionTail destination inst entries area output ptr >>= finish
+    canonicalCollectionTail destination inst entries area output ptr mode >>= finish
 
 def collectionEntry {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (inst : InstId) (area : Layout) (count : Nat)

@@ -11,6 +11,8 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Sch
 open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.ABI Silmaril.Wasm.Component.Canon
   Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.Machine
 open Silmaril.Wasm.Execution.Core
+open PayloadPrefix
+open Stored.Endpoints.RecordLower (Object Field)
 
 abbrev State (grow : SingleThreaded.GrowOracle) (sig : Signature) := Config (core3 grow) (HostState sig)
 
@@ -107,6 +109,80 @@ def CollectionCommonPop (profile : ProfileKind) (ready : HostReady (HostState si
     Steps profile ready dispatch left leftLabels afterPop ∧ Steps profile ready dispatch right rightLabels other ∧
     HostFrame.Paired first second afterPop other ∧
     PayloadPrefix.visible leftLabels = seen ∧ PayloadPrefix.visible rightLabels = seen
+
+/-- The frame at a reached child entry. Blocked activations and the cursor
+tails can still contain substituted return frames; only the store and the
+pending, result, and cancellation data must be equal. -/
+structure ChildFrame (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (left right : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig)) : Prop where
+  store : left.store = right.store
+  pending : left.pending = right.pending
+  results : left.results = right.results
+  cancels : left.cancels = right.cancels
+  blocked : List.Forall₂ (ReturnFrame.Saved first second) left.conts right.conts
+  thread : check.thread = canon.thread
+  frames : List.Forall₂ (ReturnFrame.Segment first second) check.frames canon.frames
+  rest : List.Forall₂ (ReturnFrame.Active first second) check.rest canon.rest
+
+/-- Stop at the reached range/recheck cut without executing any children.
+On a valid range the checked continuation receives the real live verdict
+(which can refuse); the canonical continuation receives only the pointer.
+Neither side rewinds callback effects. -/
+inductive RangeCut (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (left right last : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (destination : RecordDestination) (area : Layout) (count pointer : Nat) (plan : List Object)
+    (checkNext : Nat → Except Endpoints.RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
+    (canonNext : Nat → Session grow sig (Ret (core3 grow))) (seen : List (Label (core3 grow) (HostState sig))) : Prop where
+  | reached {reference : State grow sig} {canonCursor : Cursor (E := core3 grow) (HostState sig)} {bytes : Nat}
+      {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))}
+      (width : (core3 grow).memAddrType? last.store.core destination.memory = some destination.width)
+      (sized : (core3 grow).memSize? last.store.core destination.memory = some bytes)
+      (aligned : pointer = alignTo pointer area.alignment) (bounds : pointer + count * area.size ≤ bytes)
+      (frame : ChildFrame first second last reference cursor canonCursor)
+      (growth : Core3.Grows left.store.core last.store.core)
+      (checked : Steps profile ready (specDispatch ready (host bindings)) left checkLabels
+        { last with ctl := cursor.control (checkNext pointer (Record.prepare last.store last.host.writer plan)) })
+      (canonical : Steps profile ready (specDispatch ready (host bindings)) right canonLabels
+        { reference with ctl := canonCursor.control (canonNext pointer) })
+      (checkSeen : visible checkLabels = seen) (canonSeen : visible canonLabels = seen) :
+      RangeCut profile ready bindings first second left right last cursor destination area count pointer plan checkNext canonNext seen
+  | trapped {reference : State grow sig} {reason : TrapReason}
+      {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))}
+      (stores : last.store = reference.store)
+      (checked : Steps profile ready (specDispatch ready (host bindings)) left checkLabels (StepDefs.trapCfg last))
+      (canonical : Steps profile ready (specDispatch ready (host bindings)) right canonLabels (StepDefs.trapCfg reference))
+      (checkSeen : visible checkLabels = seen ++ [.trap reason]) (canonSeen : visible canonLabels = seen ++ [.trap reason]) :
+      RangeCut profile ready bindings first second left right last cursor destination area count pointer plan checkNext canonNext seen
+  | common (pop : CollectionCommonPop profile ready bindings first second left right
+      { last with ctl := cursor.control (first (.nat pointer)) } seen) :
+      RangeCut profile ready bindings first second left right last cursor destination area count pointer plan checkNext canonNext seen
+
+/-- Allocator descent from the two actual dynamic-field programs. The cut
+hands the entry interpreters back to the caller rather than requiring
+that any allocating descendants return. -/
+def CollectionDescent (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (destination : RecordDestination) (inst : InstId) (type element : Stored.TypeOf) (entries : List Field)
+    (output : Stored.Lower.Output) (index : Nat) (left right : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow))) : Prop :=
+  let dispatch := specDispatch ready (host bindings)
+  let area := layout destination.width element
+  let mode := Stored.Endpoints.RecordLower.CanonicalTree.EntryMode.forOutput destination.width type output
+  let first := checkedCollectionResume destination inst entries area index output checkNext
+  let second := canonicalCollectionResume destination inst entries area output canonNext mode
+  let installed := collectionEntry destination inst area entries.length dispatch left cursor first
+  let reference := collectionEntry destination inst area entries.length dispatch right cursor second
+  Steps profile ready dispatch left [.tau, .tau, .tau] installed ∧
+  Steps profile ready dispatch right [.tau, .tau] reference ∧
+  HostFrame.Paired first second installed reference ∧
+  ∀ {last seen}, Prefix profile ready bindings first installed seen last →
+    ∀ (reached : Cursor (E := core3 grow) (HostState sig)) (pointer : Nat),
+      last.ctl = { reached with frames := .prog first :: reached.frames }.control (pure (.nat pointer)) →
+      RangeCut profile ready bindings first second installed reference last reached destination area entries.length pointer
+        (Field.listObjects entries)
+        (fun ptr live => checkedCollectionTail destination inst entries area index output ptr live >>= checkNext)
+        (fun ptr => canonicalCollectionTail destination inst entries area output ptr mode >>= canonNext) seen
 
 /-- Either the collection comparison has reached its continuations (or a
 refused/trapping prefix), or the observed pop was of an unchanged frame. -/

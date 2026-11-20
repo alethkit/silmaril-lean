@@ -62,6 +62,48 @@ theorem Prefix.syncLift {start last : State grow sig} {labels task thread frames
       labels last) : Prefix profile ready bindings first start labels last :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.syncLift focused found waiting agrees path
 
+/-- Replay to the actual child-entry cut, with the reached memory region,
+live verdict and residual scheduler frames. A range trap or common pop
+does not enter the child program. No child comparison or return guarantee
+is a premise of this cut. -/
+theorem Prefix.range_cut (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat)
+    (plan : List Object) {left right last : State grow sig} {seen}
+    (path : Prefix profile ready bindings first left seen last)
+    (paired : HostFrame.Paired first second left right) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (leftAt : last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (pure (.nat pointer)))
+    (present : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width) {bytes : Nat}
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (checkNext : Nat → Except RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
+    (canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    (checkBody : first (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area count pointer
+      let live ← Record.Effects.reserve recordClaims plan
+      checkNext ptr live))
+    (canonBody : second (.nat pointer) = (validateListRange (destination.context inst) area count pointer >>= canonNext)) :
+    RangeCut profile ready bindings first second left right last cursor destination area count pointer plan checkNext canonNext seen :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.rangeCut
+    destination inst area count pointer plan path paired cursor leftAt present sized checkNext canonNext checkBody canonBody
+
+/-- Derive entry and return cuts from the two actual dynamic-field programs.
+The canonical continuation keeps the memory-map entry mode chosen at
+allocation time; an allocating child can be visited next without supplying
+a comparison of the entire collection suffix. -/
+theorem collection_descend (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
+    (output : Lower.Output) (index : Nat) (left right : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    (present : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width) {bytes : Nat}
+    (sized : (core3 grow).memSize? right.store.core destination.memory = some bytes)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    CollectionDescent profile ready bindings destination inst type element entries output index left right cursor checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.collectionDescent
+    destination inst type element entries output index left right cursor checkNext canonNext same present sized prepared checkAt canonAt
+
 /-- Compose the classified callback from the reached allocator entry with
 the natural return at its far end. Use that reached store for range checks
 and that reached writer for live claim revalidation before the child rules.

@@ -6,6 +6,7 @@ import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Thms
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCollection.Thms
 
 public section
 
@@ -121,7 +122,8 @@ private theorem classifyPop {left right : State grow sig} {thread value frames r
     (commonHost : HostState sig) (paired : ReturnFrame.Paired first second (HostFrame.replace left commonHost) right)
     (focused : left.ctl = ⟨thread, .prog (.pure value), .prog first :: frames⟩ :: rest) :
     ∃ otherFrames otherRest,
-      right.ctl = ⟨thread, .prog (.pure value), .prog second :: otherFrames⟩ :: otherRest ∨
+      (right.ctl = ⟨thread, .prog (.pure value), .prog second :: otherFrames⟩ :: otherRest ∧
+        ChildFrame first second left right ⟨thread, frames, rest⟩ ⟨thread, otherFrames, otherRest⟩) ∨
       (right.ctl = ⟨thread, .prog (.pure value), .prog first :: otherFrames⟩ :: otherRest ∧
        HostFrame.Paired first second { left with ctl := ⟨thread, .prog (first value), frames⟩ :: rest }
          { right with ctl := ⟨thread, .prog (first value), otherFrames⟩ :: otherRest }) := by
@@ -136,8 +138,106 @@ private theorem classifyPop {left right : State grow sig} {thread value frames r
         cases segments with
         | cons top below =>
           cases top with
-          | swap => exact ⟨_, _, .inl rfl⟩
+          | swap => exact ⟨_, _, .inl ⟨rfl, ⟨rfl, rfl, rfl, rfl, blocked, rfl, below, tail⟩⟩⟩
           | same => exact ⟨_, _, .inr ⟨rfl, .mk (.cons (.mk below) tail) blocked⟩⟩
+
+theorem rangeCut (destination : RecordDestination) (inst : InstId) (area : Layout) (count pointer : Nat) (plan : List Object)
+    {left right last : State grow sig} {seen} (path : Prefix profile ready bindings first left seen last)
+    (paired : HostFrame.Paired first second left right) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (leftAt : last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (pure (.nat pointer)))
+    (present : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width) {bytes : Nat}
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (checkNext : Nat → Except RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
+    (canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    (checkBody : first (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area count pointer
+      let live ← Record.Effects.reserve recordClaims plan
+      checkNext ptr live))
+    (canonBody : second (.nat pointer) = (validateListRange (destination.context inst) area count pointer >>= canonNext)) :
+    RangeCut profile ready bindings first second left right last cursor destination area count pointer plan checkNext canonNext seen := by
+  obtain ⟨leftLabels, rightLabels, other, lhs, rhs, reached, seenLeft, seenRight⟩ := replay path paired
+  obtain ⟨otherFrames, otherRest, ⟨atPop, frame⟩ | ⟨atCommon, still⟩⟩ := classifyPop other.host reached leftAt
+  · let canonCursor : Cursor (E := core3 grow) (HostState sig) := ⟨cursor.thread, otherFrames, otherRest⟩
+    have width := lhs.grows.memAddrType present
+    obtain ⟨reachedBytes, reachedSize, _⟩ := lhs.grows.memSize sized
+    have validation := destination.paired_range_recheck (profile := profile) (ready := ready)
+      (dispatch := specDispatch ready (host (grow := grow) bindings)) reached inst area count pointer plan
+      checkNext canonNext checkBody canonBody leftAt atPop reachedSize
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    have append {start middle finish : State grow sig} {leading trailing : List (Label (core3 grow) (HostState sig))}
+        (run : Steps profile ready dispatch start leading middle)
+        (next : Steps profile ready dispatch middle trailing finish) :
+        Steps profile ready dispatch start (leading ++ trailing) finish := by
+      induction run with
+      | refl => exact next
+      | cons step _ ih => exact .cons step (ih next)
+    have trapped (reason : TrapReason)
+        (checked : ∃ steps, Steps profile ready dispatch last (List.replicate steps .tau ++ [.trap reason])
+          (StepDefs.trapCfg last))
+        (canonical : ∃ steps, Steps profile ready dispatch other (List.replicate steps .tau ++ [.trap reason])
+          (StepDefs.trapCfg other)) :
+        RangeCut profile ready bindings first second left right last cursor destination area count pointer plan checkNext canonNext seen := by
+      obtain ⟨checkCount, checked⟩ := checked
+      obtain ⟨canonCount, canonical⟩ := canonical
+      refine .trapped (reason := reason) frame.store (append lhs.steps checked) (append rhs.steps canonical) ?_ ?_
+      · rw [show visible (leftLabels ++ (List.replicate checkCount .tau ++ [.trap reason])) =
+          visible leftLabels ++ (visible (List.replicate checkCount .tau) ++ visible [.trap reason]) from by
+          simp only [visible, List.filter_append], seenLeft, silent checkCount]; rfl
+      · rw [show visible (rightLabels ++ (List.replicate canonCount .tau ++ [.trap reason])) =
+          visible rightLabels ++ (visible (List.replicate canonCount .tau) ++ visible [.trap reason]) from by
+          simp only [visible, List.filter_append], seenRight, silent canonCount]; rfl
+    dsimp only at validation
+    by_cases unaligned : pointer ≠ alignTo pointer area.alignment
+    · rw [ite_eq_left unaligned] at validation
+      exact trapped .unalignedPointer validation.1 validation.2
+    by_cases fits : pointer + count * area.size ≤ reachedBytes
+    · rw [ite_eq_right unaligned, ite_eq_left fits] at validation
+      obtain ⟨⟨checkLabels, checkSilent, checkSteps⟩, ⟨canonLabels, canonSilent, canonSteps⟩⟩ := validation
+      have hide {labels : List (Label (core3 grow) (HostState sig))}
+          (allTau : ∀ label ∈ labels, label = .tau) : visible labels = [] := by
+        apply List.filter_eq_nil_iff.mpr
+        intro label member
+        simp only [allTau label member, Bool.false_eq_true, not_false_eq_true]
+      refine .reached (canonCursor := canonCursor) width reachedSize (Classical.not_not.mp unaligned) fits frame lhs.grows
+        (append lhs.steps checkSteps) (append rhs.steps canonSteps) ?_ ?_
+      · rw [show visible (leftLabels ++ checkLabels) = visible leftLabels ++ visible checkLabels from List.filter_append ..,
+          seenLeft, hide checkSilent, List.append_nil]
+      · rw [show visible (rightLabels ++ canonLabels) = visible rightLabels ++ visible canonLabels from List.filter_append ..,
+          seenRight, hide canonSilent, List.append_nil]
+    · rw [ite_eq_right unaligned, ite_eq_right fits] at validation
+      exact trapped .outOfBounds validation.1 validation.2
+  · refine .common ⟨leftLabels ++ [.tau], rightLabels ++ [.tau], _,
+      (lhs.append (.cons ?_ (.popProg leftAt) (.refl _))).steps,
+      (rhs.append (.cons ?_ (.popProg atCommon) (.refl _))).steps, still, ?_, ?_⟩
+    · simp [CoreUpdateGrows, leftAt, Cursor.control]
+    · simp [CoreUpdateGrows, atCommon]
+    · simpa only [visible, List.filter_append, List.filter_cons, List.filter_nil, Bool.false_eq_true,
+        ↓reduceIte, List.append_nil] using seenLeft
+    · simpa only [visible, List.filter_append, List.filter_cons, List.filter_nil, Bool.false_eq_true,
+        ↓reduceIte, List.append_nil] using seenRight
+
+theorem collectionDescent (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
+    (output : Lower.Output) (index : Nat) (left right : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    (present : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width) {bytes : Nat}
+    (sized : (core3 grow).memSize? right.store.core destination.memory = some bytes)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    CollectionDescent profile ready bindings destination inst type element entries output index left right cursor checkNext canonNext := by
+  dsimp only [CollectionDescent]
+  obtain ⟨checked, canonical, paired⟩ := PayloadPrefix.collection_install_mode (profile := profile) (ready := ready)
+    (dispatch := specDispatch ready (host (grow := grow) bindings)) destination inst type element entries output index
+    left right cursor checkNext canonNext same present prepared checkAt canonAt
+  have stores : left.store = right.store := by simpa only using congrArg (fun cfg : State grow sig => cfg.store) same
+  refine ⟨checked, canonical, paired, ?_⟩
+  intro last seen path reached pointer atReturn
+  exact rangeCut destination inst (layout destination.width element) entries.length pointer (Field.listObjects entries)
+    path paired reached atReturn (stores ▸ present) (stores ▸ sized) _ _ rfl rfl
 
 private theorem collectionReturnKeeping (destination : RecordDestination) (inst : InstId) (entries : List Field)
     (area : Layout) (output : Lower.Output) (index pointer : Nat)
@@ -170,7 +270,7 @@ private theorem collectionReturnKeeping (destination : RecordDestination) (inst 
       HostFrame.Paired first second { last with ctl := checkCursor.control (first (.nat pointer)) } other ∧
       visible leftLabels = labels ∧ visible rightLabels = labels) := by
   obtain ⟨leftLabels, rightLabels, other, lhs, rhs, reached, seenLeft, seenRight⟩ := replay path paired
-  obtain ⟨otherFrames, otherRest, atPop | ⟨atCommon, still⟩⟩ := classifyPop other.host reached leftAt
+  obtain ⟨otherFrames, otherRest, ⟨atPop, _⟩ | ⟨atCommon, still⟩⟩ := classifyPop other.host reached leftAt
   · let canonCursor : Cursor (E := core3 grow) (HostState sig) := ⟨checkCursor.thread, otherFrames, otherRest⟩
     have region := lhs.linked_region (destination.context inst) (start := 0) (length := 0)
       rfl present sized (by simp)
