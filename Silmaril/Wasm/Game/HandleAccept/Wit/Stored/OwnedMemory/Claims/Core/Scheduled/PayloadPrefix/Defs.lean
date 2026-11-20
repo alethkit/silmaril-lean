@@ -5,6 +5,7 @@ public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.CanonicalTree.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Defs
 
 @[expose] public section
 
@@ -151,5 +152,29 @@ def canonicalCollectionTail {grow : SingleThreaded.GrowOracle} {sig : Signature}
   let cx := destination.context inst
   RecordLower.CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries .value area.size ptr
   ListLower.publish cx destination.width ptr entries.length output
+
+def checkedCollectionResume {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
+    (index : Nat) (output : Lower.Output)
+    (finish : Except Stored.Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow))) :
+    ReturnFrame.Continuation (core3 grow) (HostState sig) :=
+  listRangeResume (destination.context inst) area entries.length fun ptr => do
+    let live ← OwnedMemory.Claims.Record.Effects.reserve recordClaims (Field.listObjects entries)
+    checkedCollectionTail destination inst entries area index output ptr live >>= finish
+
+def canonicalCollectionResume {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
+    (output : Lower.Output) (finish : output.Result → Session grow sig (Ret (core3 grow))) :
+    ReturnFrame.Continuation (core3 grow) (HostState sig) :=
+  listRangeResume (destination.context inst) area entries.length fun ptr =>
+    canonicalCollectionTail destination inst entries area output ptr >>= finish
+
+def collectionEntry {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (inst : InstId) (area : Layout) (count : Nat)
+    (dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))) (start : Config (core3 grow) (HostState sig))
+    (cursor : Cursor (E := core3 grow) (HostState sig)) (resume : ReturnFrame.Continuation (core3 grow) (HostState sig)) :
+    Config (core3 grow) (HostState sig) :=
+  let request := Call.reallocate (destination.context inst) 0 0 area.alignment.bytes (count * area.size)
+  { start with ctl := { cursor with frames := .prog resume :: cursor.frames }.control (dispatch request) }
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix

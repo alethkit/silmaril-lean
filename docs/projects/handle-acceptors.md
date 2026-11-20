@@ -768,6 +768,19 @@ rules cover value-mode entries (dynamic lists and flat-map entries); the
 memory-map placement mode and the synthesis of paired reentrant runs for
 arbitrary nested public outputs remain separate obligations.
 
+`LinkedCallback.Prefix.syncLift` includes the reached synchronous choice
+or no-candidate trap in the classified callback replay. Only the host
+predicates queried for blocked threads in that instance need to be independent
+of the writer; this is automatic for a writer-independent readiness policy.
+`Prefix.collection_return` composes the replay (including closed give reentry)
+with the reached allocation range and fresh live claim verdict before running
+the child comparisons. A pop of an unchanged frame instead leaves the pair
+aligned. `Prefix.collection` derives the allocator entry and saved frames
+directly from the actual checked and canonical dynamic collection programs;
+only the checked run supplies the classified callback path. These rules do
+not compare arbitrary host reads or prove that the allocator returns. The child
+comparisons and enclosing public-give composition are separate obligations.
+
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
 canonical leaf programs, then traverses the placed record/tuple fields, list and

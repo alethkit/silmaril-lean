@@ -270,13 +270,7 @@ theorem sync_readiness {first second : ReturnFrame.Continuation E Host} {cfg oth
     {thread frames rest} (focused : cfg.ctl = ⟨thread, .prog (syncLiftLoopBody ready task), frames⟩ :: rest) :
     ∃ next next', Steps profile ready dispatch cfg [.tau, .tau, .tau] next ∧
       Steps profile ready dispatch other [.tau, .tau, .tau] next' ∧ Paired first second next next' := by
-  let chooseNext : List ThreadId → P E Host (Ret E) := fun candidates =>
-    match candidates with
-    | [] => trap .cannotBlockSync
-    | candidate :: more => do
-      let thread ← pickSyncLoop candidate more
-      Thread.resume thread
-      callRet (.loop (.syncLiftLoop task))
+  let chooseNext : List ThreadId → P E Host (Ret E) := syncLiftCandidates task
   let readyRead : InstId → CStore E → P E Host (Ret E) := fun inst store =>
     .op .hostGet fun host => chooseNext (store.instCandidates (ready host) inst)
   let start : CStore E → P E Host (Ret E) := fun store =>

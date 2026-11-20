@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
+public import Silmaril.Wasm.Component.Reference.Canon.Lift.Defs
 
 @[expose] public section
 
@@ -51,6 +52,14 @@ def ClosedGive.resume {bindings : List (Binding sig)} {start : State grow sig}
       .core ((core3 grow).resume start.store.core callout.core (.values reply.2)) callout.next,
       callout.frames⟩ :: callout.rest }
 
+/-- Only host predicates consulted when filtering this reached instance's
+blocked threads must be independent of the writer. Host-independent readiness
+policies satisfy this without any invariant on claim, ticket, or journal data. -/
+def ReadyAgreement (ready : HostReady (HostState sig)) (start : State grow sig) (inst : InstId) : Prop :=
+  ∀ entry, start.store.inst? inst = some entry → ∀ thread ∈ entry.threads.elements,
+    ∀ suspended, start.store.thread? thread = some suspended → suspended.blocked = true →
+      ∀ query, suspended.readyCond = some (.host query) → ∀ other, ready start.host query = ready other query
+
 /-- A finite checked callback prefix described by reached scheduler steps and
 classified linked reentries. It is indexed by visible labels, not a shared
 count of internal steps. Unclassified reads are not replayed by this relation. -/
@@ -66,5 +75,29 @@ inductive Prefix (profile : ProfileKind) (ready : HostReady (HostState sig)) (bi
   | closedGive {start last : State grow sig} {labels} (callout : ClosedGive bindings start) :
       Prefix profile ready bindings resume callout.resume labels last →
       Prefix profile ready bindings resume start labels last
+  | syncReady {start last : State grow sig} {labels task inst thread frames rest}
+      (focused : start.ctl = ⟨thread, .prog (.op .hostGet (fun current =>
+        syncLiftCandidates task (start.store.instCandidates (ready current) inst))), frames⟩ :: rest)
+      (agrees : ReadyAgreement ready start inst) :
+      Prefix profile ready bindings resume { start with ctl := ⟨thread,
+        .prog (syncLiftCandidates task (start.store.instCandidates (ready start.host) inst)), frames⟩ :: rest }
+        labels last →
+      Prefix profile ready bindings resume start labels last
+
+/-- Either the collection comparison has reached its continuations (or a
+refused/trapping prefix), or the observed pop was of an unchanged frame and
+the two allocator executions are still paired. -/
+def CollectionCut {Result : Type} (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (left right afterPop : State grow sig) (cursor : PayloadPrefix.Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except Endpoints.RecordLower.Issue Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : Result → Session grow sig (Ret (core3 grow))) (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
+  let dispatch := specDispatch ready (host (grow := grow) bindings)
+  (∃ canonCursor, canonCursor.thread = cursor.thread ∧
+    PayloadPrefix.Reaches profile ready dispatch left right cursor canonCursor checkNext canonNext) ∨
+  (∃ leftLabels rightLabels other,
+    Steps profile ready dispatch left leftLabels afterPop ∧ Steps profile ready dispatch right rightLabels other ∧
+    HostFrame.Paired first second afterPop other ∧
+    PayloadPrefix.visible leftLabels = seen ∧ PayloadPrefix.visible rightLabels = seen)
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback

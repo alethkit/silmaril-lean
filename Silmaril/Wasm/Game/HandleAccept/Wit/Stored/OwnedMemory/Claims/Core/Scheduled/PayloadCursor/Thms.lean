@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Sequence.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Width.Thms
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCursor
 
 public section
@@ -45,6 +46,16 @@ theorem RecordDestination.memory_cursor (run : CoreGrowthSteps profile ready dis
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCursor.memory_cursor
     run destination inst checked storeField field fields cursor index finish focused
 
+/-- A dynamic collection installs the real allocator and exact saved frame. -/
+theorem listRange_install (cx : LiftLowerContext (core3 grow)) (area : Layout) (count : Nat)
+    (finish : Nat → P (core3 grow) Host (Ret (core3 grow))) {thread segments rest}
+    (focused : after.ctl = ⟨thread, .prog (allocateListRange cx area count >>= finish),
+      segments⟩ :: rest) :
+    let request := Call.reallocate cx 0 0 area.alignment.bytes (count * area.size)
+    Step profile ready dispatch after .tau { after with ctl :=
+      ⟨thread, .prog (dispatch request), .prog (listRangeResume cx area count finish) :: segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCursor.list_range_install cx area count finish focused
+
 /-- A dynamic collection dispatches the real allocator before either range check.
 The saved continuation does not capture the pre-allocation store. -/
 theorem listRange_call (cx : LiftLowerContext (core3 grow)) (area : Layout) (count : Nat)
@@ -56,8 +67,7 @@ theorem listRange_call (cx : LiftLowerContext (core3 grow)) (area : Layout) (cou
       (∀ pointer, resume (.nat pointer) = (validateListRange cx area count pointer >>= finish)) ∧
       Step profile ready dispatch after .tau
         { after with ctl := ⟨thread, .prog (dispatch request), .prog resume :: segments⟩ :: rest } :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCursor.list_range_call
-    cx area count finish focused
+  ⟨listRangeResume cx area count finish, fun _ => rfl, listRange_install cx area count finish focused⟩
 
 /-- Evaluate just the resumed range check, using the reached store. Alignment
 traps before a memory read; a bounds trap retains the callback's effects. On
