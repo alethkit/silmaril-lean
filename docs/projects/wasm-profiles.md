@@ -4,6 +4,8 @@
 interfaces. Tags do not select an executor, UB policy, or host. The operational
 semantics layer can take the same tag and separately choose its execution model.
 For conversions between these native dialects, see the [version injection API](wasm-version-injections.md).
+For exact Core syntax images and a checked way to lift the Core linker, see
+[Wasm sublanguages](wasm-sublanguages.md).
 
 | Tag | `Module W` and `Instruction W` | Judgment |
 | --- | --- | --- |
