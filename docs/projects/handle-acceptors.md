@@ -745,6 +745,13 @@ the control name is not reserved. When a live instance has no room for a waitabl
 staging records `subtaskTableFull` under the original call ticket without lifting,
 queuing or publishing, then returns to canonical lowering for the reference `tableFull` trap.
 
+For a new owner prepared after an ordinary checked export prefix,
+`ComponentCall.Deferred.prepared_owner_publication` locates the committed ticket and
+Core handle of the root carrying the exact typed receipt. The lookup remains valid
+after spending the claim; it observes the receipt without recreating authority.
+The deferred replay checks that the successful retry publishes both distinct owners
+with the same representation, while the cancelled call has no publication.
+
 ## Checking
 
 ```

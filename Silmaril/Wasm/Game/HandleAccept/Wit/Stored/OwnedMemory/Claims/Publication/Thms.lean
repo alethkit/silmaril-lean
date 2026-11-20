@@ -49,6 +49,28 @@ theorem WriterRun.retired_owner_refuses {before after : State sig} {id : HandleO
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.Publication.retired_refuses
     (run.owner_retired retired) resource
 
+/-- A successful preparation of a newly introduced owner identifies the journal entry and
+the Core handle of its publishing root, even before the original import returns to Core. -/
+theorem PublicationDelta.prepared_owner {before after : HostState sig} {spent : State sig}
+    {resource : RtId} {id : HandleObjId} {representation : Nat}
+    (journal : PublicationDelta before after) (run : WriterRun before.writer after.writer)
+    (backed : before.writer.ClaimsBacked) (fresh : id ∉ before.writer.publishedOwners)
+    (success : after.writer.prepare resource id = .ok (representation, spent)) :
+    ∃ position ticket handle receipt, before.publications.length ≤ position ∧
+      after.RecordsOwner position ticket handle receipt ∧
+      receiptId receipt = id ∧ receipt.1 = resource ∧ receipt.2.representation = representation :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.Publication.prepared_publication
+    journal run backed fresh success
+
+/-- Spending authority or publishing another root leaves the original audit entry and
+its exact receipt available. Looking up the receipt does not restore the claim. -/
+theorem PublicationDelta.retains_owner_record {before after : HostState sig} {position ticket handle : Nat}
+    {receipt : OwnedMemory.Receipt} (journal : PublicationDelta before after)
+    (run : WriterRun before.writer after.writer) (recorded : before.RecordsOwner position ticket handle receipt) :
+    after.RecordsOwner position ticket handle receipt :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.Publication.retained_owner_record
+    journal run recorded
+
 /-- The checked component scheduler preserves root-publication uniqueness across arbitrary
 export prefixes, including rejected calls, canonical traps and deferred cancellation. -/
 theorem ComponentCall.Deferred.published_owners_unique (bindings : List (Binding sig))
@@ -76,5 +98,24 @@ theorem ComponentCall.Deferred.claims_backed (bindings : List (Binding sig))
     (backed : state.writer.ClaimsBacked) : final.host.writer.ClaimsBacked :=
   (ComponentCall.Deferred.checked_of_session bindings callees deferred control store state steps ordinary).2.1
     |>.claims_backed backed
+
+/-- Owner preparation after any ordinary checked export prefix traces a new owner to the
+specific committed publication, not to a reused canonical slot or equal representation. -/
+theorem ComponentCall.Deferred.prepared_owner_publication (bindings : List (Binding sig))
+    (callees : List (ComponentCall.Callee sig)) (deferred : List HostFuncId) (control : String)
+    {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    (store : CStore (core3 grow)) (state : HostState sig)
+    {final : Config (core3 grow) (HostState sig)} {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (ComponentCall.Deferred.hostWithDeferred bindings callees deferred control))
+      (Config.init store state) labels final)
+    (ordinary : ∀ program, Label.host (.run program) ∉ labels)
+    {spent : State sig} {resource : RtId} {id : HandleObjId} {representation : Nat}
+    (backed : state.writer.ClaimsBacked) (fresh : id ∉ state.writer.publishedOwners)
+    (success : final.host.writer.prepare resource id = .ok (representation, spent)) :
+    ∃ position ticket handle receipt, state.publications.length ≤ position ∧
+      final.host.RecordsOwner position ticket handle receipt ∧
+      receiptId receipt = id ∧ receipt.1 = resource ∧ receipt.2.representation = representation := by
+  obtain ⟨_, run, journal⟩ := checked_of_session bindings callees deferred control store state steps ordinary
+  exact journal.prepared_owner run backed fresh success
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled
