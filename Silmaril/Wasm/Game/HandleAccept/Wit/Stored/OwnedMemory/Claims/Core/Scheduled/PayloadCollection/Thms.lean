@@ -142,6 +142,57 @@ theorem RecordDestination.linked_range_resume {sig : Stored.Signature} {ready : 
     bindings run growing installs destination inst checked start length initialBytes sized oldBounds area count pointer
     finish resume resumes returned
 
+/-- Cut a returned collection at its live refusal. A bad returned pointer
+traps first in the real scheduler. If its range fits, the live plan read
+reaches the typed error continuation before any element or descriptor write.
+That cut keeps the entire allocator-reached state, including callback writes
+and any earlier claim spends. It is not a canonical error or a rollback. -/
+theorem RecordDestination.linked_dynamic_refusal {sig : Stored.Signature} {ready : HostReady (HostState sig)}
+    (bindings : List (Binding sig)) {initial reached : Machine.Config (core3 grow) (HostState sig)}
+    {trace : List (Label (core3 grow) (HostState sig))}
+    (run : Machine.Steps profile ready (specDispatch ready (host bindings)) initial trace reached)
+    (growing : initial.CoreGrowing)
+    (installs : ∀ {current next leading label},
+      Machine.Steps profile ready (specDispatch ready (host bindings)) initial leading current →
+      Step profile ready (specDispatch ready (host bindings)) current label next →
+      LinkedPayloadInstall bindings current label ∨ CoreGrowthInstall (specDispatch ready (host bindings)) current label)
+    (destination : RecordDestination) (inst : InstId) (checked : destination.check initial.store = .ok ())
+    (start length initialBytes : Nat) (sized : (core3 grow).memSize? initial.store.core destination.memory = some initialBytes)
+    (oldBounds : start + length ≤ initialBytes) (element : Stored.TypeOf) (entries : List Field)
+    (index pointer : Nat) (output : Stored.Lower.Output)
+    (finish : Except Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (resume : Ret (core3 grow) → Session grow sig (Ret (core3 grow)))
+    (resumes : resume (.nat pointer) = (do
+      let cx := destination.context inst
+      let authority := Record.authority recordClaims Limits.spec cx
+      let ptr ← validateListRange cx (layout destination.width element) entries.length pointer
+      let verdict ← authority.prepare (Field.listObjects entries)
+      let result ← checkedDynamicContinue Limits.spec Quirks.none cx authority destination.width
+        element entries index output ptr verdict
+      finish result)) {thread segments rest}
+    (returned : reached.ctl = ⟨thread, .prog (.pure (.nat pointer)), .prog resume :: segments⟩ :: rest)
+    (issue : Endpoints.RecordLower.Issue)
+    (refusal : Record.prepare reached.store reached.host.writer (Field.listObjects entries) = .error issue) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let trapped := fun reason => ∃ steps, Machine.Steps profile ready dispatch reached
+      (List.replicate steps .tau ++ [.trap reason]) (Machine.StepDefs.trapCfg reached)
+    let area := layout destination.width element
+    let stopped := match issue with
+      | .preflight bad => Endpoints.RecordLower.Issue.field index (.afterAllocation bad)
+      | other => Endpoints.RecordLower.Issue.nested index other
+    ptrTypeIn reached.store (destination.context inst) = destination.width ∧
+    ∃ bytes, (core3 grow).memSize? reached.store.core destination.memory = some bytes ∧
+      initialBytes ≤ bytes ∧ start + length ≤ bytes ∧
+      if pointer ≠ alignTo pointer area.alignment then trapped .unalignedPointer
+      else if pointer + entries.length * area.size ≤ bytes then
+        ∃ labels, (∀ label ∈ labels, label = .tau) ∧
+          Machine.Steps profile ready dispatch reached labels
+            { reached with ctl := ⟨thread, .prog (finish (.error stopped)), segments⟩ :: rest }
+      else trapped .outOfBounds :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCollection.linked_dynamic_refusal
+    bindings run growing installs destination inst checked start length initialBytes sized oldBounds element entries
+    index pointer output finish resume resumes returned issue refusal
+
 /-- A child placed by an aligned record or tuple cursor is in bounds after a
 certified prefix. Execute the checked nested aggregate's actual bounds read
 and proceed with the same reached state; this does not validate new pointers. -/

@@ -722,6 +722,25 @@ identifies its compiled value, layout and ordered receipts after admission.
 This is a checked view, not an erasure of guards to unchecked `Canon.store`
 or `lowerFlatAt`, and does not prove whole-session event delivery.
 
+`CanonicalTree.field_reference` identifies the recursive reference-side
+program with `Canon.store` or `lowerFlatAt` on the certified value and type.
+It is equality of programs, including allocator calls, their continuations,
+range traps, and descriptor writes at arbitrary nesting depth. In particular,
+the flat map uses reached record cursor reads, while the memory map places
+both cells using the allocation-time width, even if its key calls realloc.
+This factors the canonical comparator; it does not discharge the checked
+emitter's live guards or equate its typed refusals with canonical traps.
+The `compiled_payload_reference` lemma instantiates it on either public give's
+compiled field. At a reached collection return, `linked_dynamic_refusal`
+distinguishes the real alignment/range trap from a stopped typed prefix:
+valid range plus a failed live plan reaches the diagnostic continuation with
+the entire reached state, before any element or descriptor write.
+`checked_leaf_prefix` gives the scheduler transition from a reached owner,
+endpoint or error-context check to the reference leaf on either output. It
+either stops with a typed error or runs the reference leaf after just the
+required claim spend; shared contexts spend nothing. The lemma does not
+deduce that a later canonical leaf succeeds.
+
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner
 and endpoint commitment operations, selected sum arm, and collection allocation,

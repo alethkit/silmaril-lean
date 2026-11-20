@@ -165,6 +165,72 @@ theorem linked_range_resume {sig : Stored.Signature} {ready : HostReady (HostSta
   · simpa [aligned] using next
   · by_cases fits : pointer + count * area.size ≤ bytes <;> simpa [aligned, fits] using next
 
+theorem linked_dynamic_refusal {sig : Stored.Signature} {ready : HostReady (HostState sig)}
+    (bindings : List (Binding sig)) {initial reached : Machine.Config (core3 grow) (HostState sig)}
+    {trace : List (Label (core3 grow) (HostState sig))}
+    (run : Machine.Steps profile ready (specDispatch ready (host bindings)) initial trace reached)
+    (growing : initial.CoreGrowing)
+    (installs : ∀ {current next leading label},
+      Machine.Steps profile ready (specDispatch ready (host bindings)) initial leading current →
+      Step profile ready (specDispatch ready (host bindings)) current label next →
+      LinkedPayloadInstall bindings current label ∨ CoreGrowthInstall (specDispatch ready (host bindings)) current label)
+    (destination : RecordDestination) (inst : InstId) (checked : destination.check initial.store = .ok ())
+    (start length initialBytes : Nat) (sized : (core3 grow).memSize? initial.store.core destination.memory = some initialBytes)
+    (oldBounds : start + length ≤ initialBytes) (element : Stored.TypeOf) (entries : List Field)
+    (index pointer : Nat) (output : Stored.Lower.Output)
+    (finish : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (resume : Ret (core3 grow) → Session grow sig (Ret (core3 grow)))
+    (resumes : resume (.nat pointer) = (do
+      let cx := destination.context inst
+      let authority := Record.authority recordClaims Limits.spec cx
+      let ptr ← validateListRange cx (layout destination.width element) entries.length pointer
+      let verdict ← authority.prepare (Field.listObjects entries)
+      let result ← checkedDynamicContinue Limits.spec Quirks.none cx authority destination.width
+        element entries index output ptr verdict
+      finish result)) {thread segments rest}
+    (returned : reached.ctl = ⟨thread, .prog (.pure (.nat pointer)), .prog resume :: segments⟩ :: rest)
+    (issue : RecordLower.Issue)
+    (refusal : Record.prepare reached.store reached.host.writer (Field.listObjects entries) = .error issue) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let trapped := fun reason => ∃ steps, Machine.Steps profile ready dispatch reached
+      (List.replicate steps .tau ++ [.trap reason]) (Machine.StepDefs.trapCfg reached)
+    let area := layout destination.width element
+    let stopped := match issue with
+      | .preflight bad => RecordLower.Issue.field index (.afterAllocation bad)
+      | other => RecordLower.Issue.nested index other
+    ptrTypeIn reached.store (destination.context inst) = destination.width ∧
+    ∃ bytes, (core3 grow).memSize? reached.store.core destination.memory = some bytes ∧
+      initialBytes ≤ bytes ∧ start + length ≤ bytes ∧
+      if pointer ≠ alignTo pointer area.alignment then trapped .unalignedPointer
+      else if pointer + entries.length * area.size ≤ bytes then
+        ∃ labels, (∀ label ∈ labels, label = .tau) ∧
+          Machine.Steps profile ready dispatch reached labels
+            { reached with ctl := ⟨thread, .prog (finish (.error stopped)), segments⟩ :: rest }
+      else trapped .outOfBounds := by
+  let cx := destination.context (grow := grow) inst
+  let authority := Record.authority (recordClaims (sig := sig)) Limits.spec cx
+  let area := layout destination.width element
+  let afterCheck := fun addr verdict => checkedDynamicContinue Limits.spec Quirks.none cx authority
+    destination.width element entries index output addr verdict >>= finish
+  let afterRange := fun addr => authority.prepare (Field.listObjects entries) >>= afterCheck addr
+  have resumeRange : resume (.nat pointer) = (validateListRange cx area entries.length pointer >>= afterRange) :=
+    resumes
+  obtain ⟨width, bytes, memSize, monotone, valid, range⟩ := linked_range_resume bindings run growing installs destination inst
+    checked start length initialBytes sized oldBounds area entries.length pointer afterRange resume resumeRange returned
+  dsimp only
+  refine ⟨width, bytes, memSize, monotone, valid, ?_⟩
+  by_cases misaligned : pointer ≠ alignTo pointer (layout destination.width element).alignment
+  · simpa [area, misaligned] using range
+  · by_cases fits : pointer + entries.length * (layout destination.width element).size ≤ bytes
+    · rw [ite_eq_right misaligned, ite_eq_left fits]
+      have aligned : pointer = alignTo pointer (layout destination.width element).alignment := by omega
+      have stops := destination.listRange_recheck (profile := profile) (ready := ready)
+        (dispatch := specDispatch ready (host bindings)) reached inst area entries.length pointer
+        (Field.listObjects entries) afterCheck resume resumes returned aligned memSize fits
+      rw [refusal] at stops
+      cases issue <;> simpa only [afterCheck, checkedDynamicContinue, pure_bind] using stops
+    · simpa [area, misaligned, fits] using range
+
 theorem record_field_guard (run : CoreGrowthSteps profile ready dispatch before trace after)
     (destination : RecordDestination) (inst : InstId) (checked : destination.check before.store = .ok ())
     (fields : List Layout) (base index offset bytes : Nat) (field : Layout)
