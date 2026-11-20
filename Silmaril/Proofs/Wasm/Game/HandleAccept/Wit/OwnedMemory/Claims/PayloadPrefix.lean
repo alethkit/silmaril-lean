@@ -3,6 +3,8 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadLeaf.Local.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Thms
+import Silmaril.Wasm.Component.Reference.Machine.Oracle.Defs
+import Silmaril.Wasm.Component.Reference.Canon.Prog.Thms
 
 public section
 
@@ -114,6 +116,83 @@ private theorem map_id (result : Except RecordLower.Issue Result) : result.map i
 private theorem mapError_id (result : Except RecordLower.Issue Result) : result.mapError id = result := by
   cases result <;> rfl
 
+private def CoercionOp (profile : ProfileKind) : Op E Host → Prop
+  | .choose choice => ∃ answer, Allowed profile choice answer
+  | .trap _ => True
+  | _ => False
+
+private theorem compareCoercion {body : P E Host Result} (closed : Prog.Every (CoercionOp profile) body) :
+    Compare profile ready dispatch (do return .ok (← body)) body := by
+  induction closed with
+  | pure value => exact returned value
+  | @op operation next admitted _ inductionHypothesis =>
+    intro left right same checkCursor canonCursor sameThread checkNext canonNext checkAt canonAt
+    cases operation with
+    | trap reason =>
+      refine ⟨.trapped reason, [.trap reason], [.trap reason], StepDefs.trapCfg left, StepDefs.trapCfg right,
+        .cons (.trap checkAt) (.refl _), .cons (.trap canonAt) (.refl _), ?_, rfl, rfl, rfl, [], rfl⟩
+      exact congrArg StepDefs.lockdownSt same
+    | choose choice =>
+      obtain ⟨answer, allowed⟩ := admitted
+      let left' := { left with ctl := checkCursor.control ((do return Except.ok (← next answer)) >>= checkNext) }
+      let right' := { right with ctl := canonCursor.control (next answer >>= canonNext) }
+      have checkStep : Step profile ready dispatch left (.choice choice answer) left' := .choose answer checkAt allowed
+      have canonStep : Step profile ready dispatch right (.choice choice answer) right' := .choose answer canonAt allowed
+      obtain ⟨outcome, chk, ref, checkEnd, canonEnd, runChk, runRef, stores, labels, status⟩ :=
+        inductionHypothesis answer left' right' same checkCursor canonCursor sameThread checkNext canonNext rfl rfl
+      let chosen : Label E Host := .choice choice answer
+      refine ⟨outcome, chosen :: chk, chosen :: ref, checkEnd, canonEnd,
+        .cons checkStep runChk, .cons canonStep runRef, stores, ?_, ?_⟩
+      · exact congrArg (chosen :: ·) labels
+      · cases outcome with
+        | returned _ | refused _ => exact status
+        | trapped reason =>
+          obtain ⟨checkEmpty, canonEmpty, leading, last⟩ := status
+          exact ⟨checkEmpty, canonEmpty, chosen :: leading, congrArg (chosen :: ·) last⟩
+    | _ => contradiction
+
+private theorem encodeCoercion (profile : ProfileKind) (kind : FloatType) (bits : BitVec kind.width) :
+    Prog.Every (CoercionOp (E := E) (Host := Host) profile) (encodeFloat kind bits) := by
+  unfold encodeFloat lowerFloat
+  split
+  · exact .op ⟨firstNan profile kind bits, firstNan_allowed profile kind bits⟩ (fun _ => .pure _)
+  · exact .pure _
+
+private theorem coerceWord (profile : ProfileKind) (haveType wantType : CoreType) (word : FlatValue) :
+    Prog.Every (CoercionOp (E := E) (Host := Host) profile) (coerceLower haveType wantType word) := by
+  unfold coerceLower
+  split
+  · exact (encodeCoercion profile .f32 _).bind (fun _ => .pure _)
+  · exact .pure _
+  · exact (encodeCoercion profile .f32 _).bind (fun _ => .pure _)
+  · exact (encodeCoercion profile .f64 _).bind (fun _ => .pure _)
+  · exact .pure _
+
+private theorem coerceWords (profile : ProfileKind) (haves wants : List CoreType) (words : List FlatValue) :
+    Prog.Every (CoercionOp (E := E) (Host := Host) profile) (coerceLowerSlots haves wants words) := by
+  induction haves generalizing wants words with
+  | nil => exact .pure _
+  | cons haveType remaining ih =>
+    cases words with
+    | nil => cases wants <;> exact .pure _
+    | cons word remainingWords =>
+      cases wants with
+      | nil => exact .op trivial (fun impossible => nomatch impossible)
+      | cons wantType remainingWants =>
+        exact (coerceWord profile haveType wantType word).bind fun _ =>
+          (ih remainingWants remainingWords).bind fun _ => .pure _
+
+private theorem variantTail (count : Nat) (wanted : List CoreType) (tag : Nat) (haves : List CoreType)
+    (words : List FlatValue) :
+    Compare profile ready dispatch
+      (do return .ok (← lowerFlatVariantWith count wanted tag haves (pure words)))
+      (lowerFlatVariantWith count wanted tag haves (pure words)) := by
+  apply compareCoercion
+  unfold lowerFlatVariantWith
+  split
+  · exact (coerceWords profile haves wanted words).bind (fun _ => .pure _)
+  · exact .op trivial (fun impossible => nomatch impossible)
+
 variable {grow : SingleThreaded.GrowOracle} {sig : Signature} {scheduledReady : HostReady (HostState sig)}
   {scheduledDispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
 
@@ -145,6 +224,49 @@ theorem handle (destination : RecordDestination) (inst : InstId) (item : Field) 
     | error reason =>
       exact ⟨.trapped reason, _, _, _, _, checkRun, canonRun, rfl, labels, rfl, rfl, [], trace canonTrace⟩
 
+private theorem guardedTail {checked : P E Host (Except RecordLower.Issue Result)} {canonical : P E Host Result}
+    (first : Compare profile ready dispatch checked canonical) (mapIssue : RecordLower.Issue → RecordLower.Issue)
+    (checkTail : Result → P E Host (Except RecordLower.Issue Next)) (canonTail : Result → P E Host Next)
+    (later : ∀ value, Compare profile ready dispatch (checkTail value) (canonTail value)) :
+    Compare profile ready dispatch
+      (checked >>= fun result => match result with
+        | .error issue => pure (.error (mapIssue issue)) | .ok value => checkTail value)
+      (canonical >>= canonTail) := by
+  have compared := sequential (mapResult first id mapIssue) checkTail canonTail later
+  simp only [map_id, Prog.bind_eq, Prog.bind_assoc, Prog.pure_eq, Prog.pure_bind'] at compared ⊢
+  convert compared using 2 <;> try rfl
+  funext verdict
+  cases verdict <;> rfl
+
+theorem flatSum (destination : RecordDestination) (inst : InstId) (type : TypeOf)
+    (arms : List (Option TypeOf)) (tag index : Nat) (selected : Option Field) (valid : tag < arms.length)
+    (child : ∀ item, selected = some item → Compare profile scheduledReady scheduledDispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst)
+        destination.width item 0 .flat)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item .flat)) :
+    Compare profile scheduledReady scheduledDispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.sum type arms tag selected) index .flat)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.sum type arms tag selected) .flat) := by
+  cases selected with
+  | none =>
+    rw [Record.Effects.field, CanonicalTree.field]
+    exact variantTail arms.length ((flatten destination.width type).drop 1) tag [] []
+  | some item =>
+    rw [Record.Effects.field, CanonicalTree.field]
+    let wanted := (flatten destination.width type).drop 1
+    let haves := flatten destination.width item.type
+    have placed := guardedTail (child item rfl) (.nested index)
+      (fun words => do return .ok (← lowerFlatVariantWith arms.length wanted tag haves (pure words)))
+      (fun words => lowerFlatVariantWith arms.length wanted tag haves (pure words))
+      (variantTail arms.length wanted tag haves)
+    simp only [Lower.Output.Result, lowerFlatVariantWith, valid, ↓reduceIte, Prog.bind_eq, Prog.bind_assoc,
+      Prog.pure_eq, Prog.pure_bind'] at placed ⊢
+    convert placed using 2
+    funext verdict
+    cases verdict <;> rfl
+
 mutual
 theorem flatField (destination : RecordDestination) (inst : InstId) (item : Field)
     (fragment : HandleField item) (index : Nat) :
@@ -154,7 +276,7 @@ theorem flatField (destination : RecordDestination) (inst : InstId) (item : Fiel
       (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item .flat) := by
   cases item with
   | aggregate type children | fixed type size children =>
-    rw [HandleField] at fragment
+    simp only [HandleField, HandleFieldWhere] at fragment
     have compared := flatFields destination inst children fragment 0
     rw [Record.Effects.field, CanonicalTree.field]
     simpa only [Lower.Output.Result, map_id, id_eq, Prog.bind_eq, Prog.pure_eq, Prog.bind_pure] using
@@ -162,11 +284,20 @@ theorem flatField (destination : RecordDestination) (inst : InstId) (item : Fiel
   | owner _ | endpoint _ _ _ | context _ =>
     rw [Record.Effects.field, CanonicalTree.field]
     exact handle destination inst _ fragment index .flat
-  | data _ _ | dynamic _ _ _ | sum _ _ _ _ => exact False.elim fragment
+  | sum type arms tag selected =>
+    simp only [HandleField, HandleFieldWhere] at fragment
+    apply flatSum destination inst type arms tag index selected fragment.1
+    cases selected with
+    | none => intro item impossible; contradiction
+    | some active =>
+      intro item same
+      cases same
+      exact flatField destination inst active fragment.2 0
+  | data _ _ | dynamic _ _ _ => exact False.elim fragment
 termination_by structural item
 
 theorem flatFields (destination : RecordDestination) (inst : InstId) (items : List Field)
-    (fragment : HandleFields items) (index : Nat) :
+    (fragment : HandleFieldsWhere Nat.lt items) (index : Nat) :
     Compare profile scheduledReady scheduledDispatch
       (Record.Effects.flat recordClaims Limits.spec Quirks.none (destination.context inst)
         destination.width items index)
@@ -174,7 +305,7 @@ theorem flatFields (destination : RecordDestination) (inst : InstId) (items : Li
   cases items with
   | nil => rw [Record.Effects.flat, CanonicalTree.flat]; exact returned []
   | cons child rest =>
-    rw [HandleFields] at fragment
+    rw [HandleFieldsWhere] at fragment
     rw [Record.Effects.flat, CanonicalTree.flat]
     have first := flatField destination inst child fragment.1 index
     have later := flatFields destination inst rest fragment.2 (index + 1)
@@ -186,6 +317,26 @@ theorem flatFields (destination : RecordDestination) (inst : InstId) (items : Li
     cases verdict <;> rfl
 termination_by structural items
 end
+
+theorem certifyField {field : Field} {type : TypeOf} (layout : Field.LayoutMatches field type)
+    (fragment : HandleShape field) : HandleField field := by
+  exact Field.LayoutMatches.rec
+    (motive_1 := fun item _ _ => HandleShape item → HandleField item)
+    (motive_2 := fun fields _ _ => HandleFieldsWhere (fun _ _ => True) fields → HandleFieldsWhere Nat.lt fields)
+    (motive_3 := fun fields _ _ => HandleFieldsWhere (fun _ _ => True) fields → HandleFieldsWhere Nat.lt fields)
+    (motive_4 := fun arm _ _ => HandleArmWhere (fun _ _ => True) arm → HandleArmWhere Nat.lt arm)
+    (fun _ bad => False.elim bad)
+    (fun _ => trivial) (fun _ => trivial) (fun _ => trivial)
+    (fun _ children => children) (fun _ children => children) (fun _ _ children => children)
+    (fun _ _ bad => False.elim bad) (fun _ _ bad => False.elim bad)
+    (fun found _ active shape => ⟨(List.getElem?_eq_some_iff.mp found).1, active shape.2⟩)
+    (fun _ => ⟨show 0 < 2 by decide, trivial⟩)
+    (fun _ active shape => ⟨show 1 < 2 by decide, active shape.2⟩)
+    (fun _ active shape => ⟨show 0 < 2 by decide, active shape.2⟩)
+    (fun _ active shape => ⟨show 1 < 2 by decide, active shape.2⟩)
+    (fun _ => trivial) (fun _ _ child rest shape => ⟨child shape.1, rest shape.2⟩)
+    (fun _ => trivial) (fun _ _ child rest shape => ⟨child shape.1, rest shape.2⟩)
+    (fun _ => trivial) (fun _ child => child) layout fragment
 
 private theorem prependCheck {left entered right : Config E Host} {labels : List (Label E Host)}
     {checkCursor canonCursor : Cursor (E := E) Host}
@@ -203,7 +354,7 @@ theorem compiledFlat (left right : Config (core3 grow) (HostState sig)) (sameSto
     (payload : OwnedMemory.Payload (sig.payload tag)) {arity : Nat} (children : Fin arity → OwnedMemory.Tree sig)
     (field : Field) (plan : List Object)
     (compiled : Record.preflightValue (destination.context (grow := grow) inst) (sig.payload tag)
-      payload .flat = .ok (field, plan)) (fragment : HandleField field)
+      payload .flat = .ok (field, plan)) (fragment : HandleShape field)
     (checked : destination.check left.store = .ok ()) (checkCursor canonCursor : Cursor (E := core3 grow) (HostState sig))
     (sameThread : checkCursor.thread = canonCursor.thread)
     (checkNext : Except RecordLower.Issue (List FlatValue) → Session grow sig (Ret (core3 grow)))
@@ -215,6 +366,7 @@ theorem compiledFlat (left right : Config (core3 grow) (HostState sig)) (sameSto
     Reaches profile scheduledReady scheduledDispatch left right checkCursor canonCursor checkNext canonNext := by
   have start := destination.compiled_payload_effects (profile := profile) (ready := scheduledReady)
     (dispatch := scheduledDispatch) left inst tag payload .flat field plan checkNext compiled checked checkAt
+  have certified := certifyField start.2.1 fragment
   have reference := destination.compiled_payload_reference (grow := grow) (World := HostState sig)
     inst (sig.payload tag) payload .flat field plan compiled
   have canonField : right.ctl = canonCursor.control (CanonicalTree.field Limits.spec Quirks.none
@@ -239,7 +391,7 @@ theorem compiledFlat (left right : Config (core3 grow) (HostState sig)) (sameSto
       let entered := { left with ctl := checkCursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
         (destination.context inst) destination.width field 0 .flat >>= checkNext) }
       have continued := flatField (profile := profile) (scheduledReady := scheduledReady)
-        (scheduledDispatch := scheduledDispatch) destination inst field fragment 0 entered right sameStore
+        (scheduledDispatch := scheduledDispatch) destination inst field certified 0 entered right sameStore
         checkCursor canonCursor sameThread checkNext canonNext rfl canonField
       exact prependCheck entry (by simp) continued
 
@@ -248,7 +400,7 @@ theorem parkedFlat (bindings : List (Binding sig)) (name : String) (type : V1.Fu
     (tag : sig.Tag) (payload : OwnedMemory.Payload (sig.payload tag)) {arity : Nat}
     (children : Fin arity → OwnedMemory.Tree sig) (field : Field) (plan : List Object)
     (compiled : Record.preflightValue (destination.context (grow := grow) inst) (sig.payload tag)
-      payload .flat = .ok (field, plan)) (fragment : HandleField field)
+      payload .flat = .ok (field, plan)) (fragment : HandleShape field)
     (start reference : Config (core3 grow) (HostState sig)) (sameStore : start.store = reference.store)
     (canonCursor : Cursor (E := core3 grow) (HostState sig)) (canonNext : List FlatValue → Session grow sig (Ret (core3 grow)))
     {thread core continuation segments rest} (sameThread : thread = canonCursor.thread)

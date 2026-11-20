@@ -60,20 +60,36 @@ def Compare {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready
         right.ctl = canonCursor.control (canonical >>= canonNext) →
         Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext
 
+section
+
+variable (tagFits : Nat → Nat → Prop)
+
 mutual
 /-- The closed flat fragment whose leaves need no allocator or host query
-after the checked transfer guard. Nested records, tuples and fixed lists
-use the same flattening traversal. -/
-def HandleField : Field → Prop
-  | .aggregate _ fields | .fixed _ _ fields => HandleFields fields
+after the checked transfer guard. A sum's tag rule is independent of which
+leaves are in the fragment; coercing slots can still emit canonical choices. -/
+def HandleFieldWhere : Field → Prop
+  | .aggregate _ fields | .fixed _ _ fields => HandleFieldsWhere fields
+  | .sum _ arms tag selected => tagFits tag arms.length ∧ HandleArmWhere selected
   | field => CanonicalHandle field
 termination_by structural field => field
 
-def HandleFields : List Field → Prop
+def HandleFieldsWhere : List Field → Prop
   | [] => True
-  | field :: rest => HandleField field ∧ HandleFields rest
+  | field :: rest => HandleFieldWhere field ∧ HandleFieldsWhere rest
 termination_by structural fields => fields
+
+def HandleArmWhere : Option Field → Prop
+  | none => True
+  | some field => HandleFieldWhere field
+termination_by structural selected => selected
 end
+
+end
+
+abbrev HandleShape := HandleFieldWhere (fun _ _ => True)
+
+abbrev HandleField := HandleFieldWhere Nat.lt
 
 def flatReply {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (schema : TypeOf) (ticket : Nat)
