@@ -2,7 +2,9 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence.Public.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Allocation.Thms
 import Silmaril.Wasm.Component.Reference.Engine.Core3.Store.Defs
+import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Width.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Thms
@@ -253,5 +255,96 @@ theorem parkedRecursiveValue {route : GiveEffectRoute} (call : PayloadRoot.Site 
     exact list_tree_rule call.destination call.inst depth item address width sized realloc (fit item member)
       (layoutAt.type_eq.symm ▸ layoutAt) placement
   · exact fun _ _ _ _ _ frame _ checked canonical => ⟨frame, checked, canonical⟩
+
+private theorem flatAllocatingRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {origin : CStore (core3 grow)} (destination : RecordDestination) (inst : InstId) (depth : Nat) (item : Field)
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {bytes : Nat} (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fit : FlatAllocatingLeaf (StringField.Fits destination) depth item)
+    (matched : item.LayoutMatches item.type) :
+    FlatFieldRule (flatAllocating profile ready bindings older destination inst depth) older origin destination inst item := by
+  intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
+  rcases fit with leaf | scalar | ⟨type, element, entries, rfl, children⟩
+  · exact .inl (mixed_flat_rule destination inst item present realloc leaf
+      index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
+  · obtain ⟨primitive, payload, rfl, nonString⟩ := scalar
+    have reachedWidth : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width :=
+      growth.memAddrType present
+    have width : ptrTypeIn left.store (destination.context inst) = destination.width := by
+      simp [ptrTypeIn, CanonOpts.ptrType, RecordDestination.context, reachedWidth]
+    obtain ⟨store, result, chk, ref, checkRun, canonRun, labels, status⟩ :=
+      primitive_leaf_frame (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings))
+        destination inst primitive payload nonString index .flat origin left right (frame.store ▸ growth) width rfl
+        frame.store check canon frame.thread checkNext canonNext checkAt canonAt
+    refine .inr (.inl ⟨⟨primitive, payload, rfl, nonString⟩, store, result, chk, ref, checkRun, canonRun, labels, ?_⟩)
+    cases result with
+    | error _ => exact status
+    | ok words =>
+      exact ends words _ _ _ _ ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩
+        status rfl rfl
+  · have certs : Field.EntriesMatch entries element ∧ CanonicalTree.EntryMode.forOutput destination.width type .flat = .value := by
+      cases matched with
+      | list matching => exact ⟨matching, rfl⟩
+      | map matching => exact ⟨matching, rfl⟩
+    refine .inr (.inr ⟨type, element, entries, rfl, ?_⟩)
+    cases prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) with
+    | error issue =>
+      exact dynamic_refused_before_allocation destination inst type element entries .flat index
+        left right check canon checkNext canonNext frame.store issue prepared checkAt
+    | ok result =>
+      cases result
+      obtain ⟨reachedBytes, reachedSize, _⟩ := growth.memSize sized
+      refine recursive_value_replay destination inst type element entries index .flat _ checkNext canonNext finish certs.2 certs.1 ?_ ?_
+        (frame.collection_replay destination inst type element entries index .flat checkNext canonNext
+          (growth.memAddrType present) reachedSize prepared checkAt canonAt)
+      · intro store bytes width sized entry member address placement
+        have layoutAt := entries_match_of_mem certs.1 member
+        exact list_tree_rule destination inst depth entry address width sized realloc (children entry member)
+          (layoutAt.type_eq.symm ▸ layoutAt) placement
+      · exact fun _ _ _ _ _ frame grown checked canonical => ends _ _ _ _ _ frame (growth.trans grown) checked canonical
+
+theorem parkedFlat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
+    (flatDepth entryDepth : Nat) (next : call.ReferenceNext) (shape : ParkedFlatShape flatDepth entryDepth call.field)
+    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    PayloadRoot.Cut call profile ready bindings (ParkedFlatBody call flatDepth entryDepth next profile ready bindings) := by
+  apply call.parked_after_fit linked
+  intro admitted
+  obtain ⟨plan, compiled⟩ := linked.compiled
+  have width := call.destination.check_width call.start.store linked.destination
+  have sizeExists : ((core3 grow).memSize? call.start.store.core call.destination.memory).isSome = true := by
+    apply Core3.memAddrType?_isSome_iff.mp
+    change ((core3 grow).memAddrType? call.start.store.core call.destination.memory).isSome = true
+    rw [width]
+    rfl
+  obtain ⟨bytes, sized⟩ := Option.isSome_iff_exists.mp sizeExists
+  let leaf := fun item => FlatAllocatingLeaf (StringField.Fits call.destination) entryDepth item ∧ item.LayoutMatches item.type
+  have fits : FlatNestedFits leaf flatDepth call.field := by
+    apply flat_nested_refine flatDepth call.field shape
+    intro item path leafShape
+    have facts := call.destination.compiled_payload_descendant call.inst (sig.payload call.tag) call.payload .flat
+      (plan := plan) compiled admitted path
+    refine ⟨?_, facts.1⟩
+    rcases leafShape with (handle | ⟨string, equal⟩) | scalar | ⟨type, element, entries, equal, children⟩
+    · exact .inl (.inl handle)
+    · exact .inl (.inr ⟨string, equal, by
+        rw [← equal] at facts
+        simpa only [StringField.field, Field.type, Field.value, Lower.fits, decide_eq_true_eq] using facts.2⟩)
+    · exact .inr (.inl scalar)
+    · subst item
+      refine .inr (.inr ⟨type, element, entries, rfl, ?_⟩)
+      intro entry member
+      apply fitListTree entryDepth entry (children entry member)
+      intro descendant descent stringLeaf
+      obtain ⟨string, equal⟩ := stringLeaf
+      rw [← equal] at descent
+      have checked := (Field.Descendant.dynamic member descent).fits facts.1 Quirks.none
+        call.destination.encoding call.destination.width facts.2
+      exact ⟨string, equal, by simpa only [StringField.field, Field.type, Field.value, Lower.fits, decide_eq_true_eq] using checked.2⟩
+  unfold ParkedFlatBody
+  exact nested_flat_rule call.destination call.inst leaf _
+    (fun item fit => flatAllocatingRule call.destination call.inst entryDepth item width sized realloc fit.1 fit.2)
+    flatDepth call.field fits 0 call.reply next call.checked (call.reference next) call.cursor call.cursor (initialFrame call next _)
+    (Core3.Grows.refl _) rfl (call.reference_at linked next) _ (fun _ _ _ _ _ frame _ checked canonical => ⟨frame, checked, canonical⟩)
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence

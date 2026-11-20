@@ -67,4 +67,15 @@ theorem parked_recursive_flat_map {schema : TypeOf} (call : PayloadRoot.Site gro
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedRecursiveValue
     call linked (.map key element) (.record (mapEntryFields key element)) entries depth next compiledMap rfl shapes realloc
 
+/-- An actual parked flat aggregate or fixed array visits its scalar, string,
+handle and dynamic collection children in order. The collection descriptor
+joins the flat word sequence only after the marked return and complete
+memory traversal; a typed refusal or trap does not run the next sibling. -/
+theorem parked_recursive_flat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
+    (flatDepth entryDepth : Nat) (next : call.ReferenceNext) (shape : ParkedFlatShape flatDepth entryDepth call.field)
+    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    PayloadRoot.Cut call profile ready bindings (ParkedFlatBody call flatDepth entryDepth next profile ready bindings) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedFlat
+    call linked flatDepth entryDepth next shape realloc
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
