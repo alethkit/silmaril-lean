@@ -41,6 +41,12 @@ theorem Tree.rootName?_eq_some_iff (tree : Tree Key Payload)
       ∃ address, tree.Admits nameBlock? address ∧ tree.rootName address = root :=
   Proofs.Semantics.Prolly.rootName_spec tree nameBlock? root
 
+theorem Tree.replayAddress_spec (tree : Tree Key Payload) (nameBlock? : Block Name Key Payload → Option Name)
+    {root : Name} (offDomain : Name) (hit : tree.rootName? nameBlock? = some root) :
+    tree.Admits nameBlock? (replayAddress nameBlock? offDomain) ∧
+      tree.rootName (replayAddress nameBlock? offDomain) = root :=
+  Proofs.Semantics.Prolly.replayAddress_spec tree nameBlock? root offDomain hit
+
 theorem Tree.observations_subset_iff (tree : Tree Key Payload) (address : Block Name Key Payload → Name)
     (reference : Naming.Relation Name (Block Name Key Payload)) :
     Naming.Subset (tree.observations address) reference ↔

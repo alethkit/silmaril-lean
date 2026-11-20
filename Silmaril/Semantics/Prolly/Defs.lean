@@ -101,6 +101,11 @@ def nameNode? (nameBlock? : Block Name Key Payload → Option Name) :
 def Tree.rootName? (tree : Tree Key Payload) (nameBlock? : Block Name Key Payload → Option Name) : Option Name :=
   nameNode? nameBlock? tree.level tree.root
 
+/-- Replay through APIs that take a total address. After successful naming, no
+reached block uses the off-domain value. -/
+def replayAddress (nameBlock? : Block Name Key Payload → Option Name) (offDomain : Name) :
+    Block Name Key Payload → Name := fun block => (nameBlock? block).getD offDomain
+
 /-- An address assignment is tested at each block it induces, not merely at its root. -/
 def Tree.Admits (tree : Tree Key Payload) (nameBlock? : Block Name Key Payload → Option Name)
     (address : Block Name Key Payload → Name) : Prop :=
