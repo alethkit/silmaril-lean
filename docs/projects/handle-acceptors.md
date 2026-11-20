@@ -665,13 +665,17 @@ check does not roll back effects of the emitter.
 
 `CoreGrowthSteps` frames the linked memory address, pointer width, and bounds of already
 valid regions across certified scheduler prefixes. It permits guest byte writes and memory
-growth. Core instructions, canonical memory writes and the realloc dispatcher's own
-updates supply growth proofs; other reached `modify` operations need their own proof.
+growth. Core instructions and canonical memory writes supply growth proofs. The scheduler
+carries program certificates through calls, returns, blocking and resumption. The actual
+canonical allocator, implicit lift thread, synchronous lift loop, and caller start and
+resolve programs supply installation certificates; arbitrary guest callouts and injected
+host programs do not inherit one.
 In a closed realloc window, a same-instance
 reentrant `givePayload` or `giveFlat` with a valid binding takes the actual typed
 `wrongContext` reply, journals the refusal, and resumes parked Core without changing the
-component store or writer. This certifies those callout segments without assuming the
-allocator's bytes are unchanged. It does not yet certify every callback trace, nor the
+component store or writer. The resumed control retains its continuation certificates,
+so the refusal segment composes with the certified prefixes before and after it. This
+does not assume the allocator's bytes are unchanged, certify every callback trace, or validate the
 range newly returned by realloc, which canonical lowering checks in the reached store.
 
 `RecordDestination.memory_cursor` uses the width established by the same destination
@@ -683,6 +687,16 @@ uses the store reached by a returning allocator: it traps on an invalid alignmen
 range without resuming the emitter, or proceeds to claim revalidation in that store.
 Neither the cursor nor the allocator-return rule assumes byte preservation, an
 allocator return on every trace, or success of the subsequent transfer.
+
+The checked recursive emitter supplies the store-invariant certificate for both
+public payload bindings. Its proof follows the actual canonical data writes, owner
+and endpoint commitment operations, selected sum arm, and collection allocation,
+revalidation and descriptor writes. A reached parked `givePayload` or `giveFlat`
+callout with the matching binding therefore supplies a scheduler installation
+certificate, even when it refuses or traps. Together with the allocator dispatcher
+certificates this covers those installs, not arbitrary host code. The invariant
+frames memory width and allocated bounds; it is not an effect equivalence or a
+claim that a late refusal undoes the prefix.
 
 `Binding.acceptFlat` links a fixed tag and checks the full schema before accepting the
 canonical flat operand vector. The child pointer/count and any indirect string or list
