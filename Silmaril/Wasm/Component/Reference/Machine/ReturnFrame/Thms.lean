@@ -20,6 +20,15 @@ theorem installed (cfg : Config E Host) (thread : Option ThreadId) (body : P E H
       { cfg with ctl := ⟨thread, .prog body, .prog second :: frames⟩ :: rest } :=
   Silmaril.Proofs.Wasm.Component.Reference.MachineReturnFrame.installed cfg thread body frames rest
 
+/-- Recover both reached cursors and the common result from a witnessed pop. -/
+theorem Returned.inputs {left right leftAfter rightAfter : Config E Host} {label : Label E Host}
+    (popped : Returned first second left right label leftAfter rightAfter) :
+    ∃ thread value leftFrames rightFrames leftRest rightRest,
+      left.ctl = ⟨thread, .prog (.pure value), .prog first :: leftFrames⟩ :: leftRest ∧
+      right.ctl = ⟨thread, .prog (.pure value), .prog second :: rightFrames⟩ :: rightRest := by
+  cases popped with
+  | mk atLeft atRight => exact ⟨_, _, _, _, _, _, atLeft, atRight⟩
+
 /-- Equality is between the two machines at the reached point, not between
 the reached and original states of the callback. -/
 theorem Paired.data {left right : Config E Host} (paired : Paired first second left right) :

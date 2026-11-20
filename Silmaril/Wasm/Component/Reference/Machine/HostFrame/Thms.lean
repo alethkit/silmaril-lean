@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Defs
 public import Silmaril.Wasm.Component.Reference.Canon.Lift.Defs
 import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
 import Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame
@@ -9,7 +10,8 @@ public section
 
 namespace Silmaril.Wasm.Component.Machine.HostFrame
 
-open Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime
+open Silmaril.Wasm Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime
+open Silmaril.Wasm.Execution.Core
 
 variable {E : CoreEngine} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}
 variable {dispatch : Call E → P E Host (Ret E)}
@@ -72,6 +74,23 @@ theorem paired_steps {first second : ReturnFrame.Continuation E Host}
       Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
       Steps profile ready dispatch afterLeft trailing next) :=
   Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.paired_steps paired run
+
+/-- Preserve growth evidence on both sides when replaying
+up to a host read or saved return. This does not constrain callback writes. -/
+theorem paired_growing_steps {grow : SingleThreaded.GrowOracle}
+    {ready : HostReady Host} {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    {first second : ReturnFrame.Continuation (core3 grow) Host}
+    {left right next : Config (core3 grow) Host} {labels : List (Label (core3 grow) Host)}
+    (paired : Paired first second left right) (run : CoreGrowthSteps profile ready dispatch left labels next) :
+    (∃ next', CoreGrowthSteps profile ready dispatch right labels next' ∧ Paired first second next next') ∨
+    (∃ leading label trailing atLeft atRight afterLeft afterRight,
+      labels = leading ++ label :: trailing ∧
+      CoreGrowthSteps profile ready dispatch left leading atLeft ∧
+      CoreGrowthSteps profile ready dispatch right leading atRight ∧ Paired first second atLeft atRight ∧
+      Boundary first second atLeft atRight label afterLeft afterRight ∧
+      Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
+      CoreGrowthSteps profile ready dispatch afterLeft trailing next) :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.paired_growing_steps paired run
 
 /-- Only host predicates of reached, blocked candidate threads need agree.
 Store-only predicates and threads not making a host query add no premise. -/

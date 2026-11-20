@@ -148,6 +148,53 @@ theorem collection_return (destination : RecordDestination) (inst : InstId) (ent
     destination inst entries area output index pointer left right checkCursor canonCursor checkNext canonNext
     checkResume canonResume paired sameThread leftAt rightAt checkBody canonBody sized compared
 
+/-- Replay a finite certified callback prefix, starting with the two saved
+allocator continuations. At a reached natural return, compose validation,
+live rechecking, element lowering and descriptor publication with that
+prefix. A different host read is a cut, not a fabricated canonical error. -/
+theorem collection_callback (destination : RecordDestination) (inst : InstId) (entries : List Field)
+    (area : Layout) (output : Lower.Output) (index : Nat)
+    {left right last : Config (core3 grow) (HostState sig)} {labels}
+    (callback : CoreGrowthSteps profile ready dispatch left labels last)
+    (destinationChecked : destination.check left.store = .ok ()) {bytes : Nat}
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {checkResume canonResume : ReturnFrame.Continuation (core3 grow) (HostState sig)}
+    (paired : HostFrame.Paired checkResume canonResume left right)
+    (checkBody : ∀ pointer, checkResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      let live ← Record.Effects.reserve recordClaims (Field.listObjects entries)
+      checkedCollectionTail destination inst entries area index output ptr live >>= checkNext))
+    (canonBody : ∀ pointer, canonResume (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      canonicalCollectionTail destination inst entries area output ptr >>= canonNext))
+    (compared : ∀ item ∈ entries, ∀ address pos, Compare profile ready dispatch
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        item pos (.memory address))
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address))) :
+    (∃ other, CoreGrowthSteps profile ready dispatch right labels other ∧ HostFrame.Paired checkResume canonResume last other) ∨
+    (∃ leading label trailing atLeft atRight afterLeft afterRight,
+      labels = leading ++ label :: trailing ∧ CoreGrowthSteps profile ready dispatch left leading atLeft ∧
+      CoreGrowthSteps profile ready dispatch right leading atRight ∧ HostFrame.Paired checkResume canonResume atLeft atRight ∧
+      Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
+      CoreGrowthSteps profile ready dispatch afterLeft trailing last ∧
+      ((∃ alternate, HostFrame.ReadCut atLeft atRight.host label afterLeft alternate ∧
+          ReturnFrame.Paired checkResume canonResume alternate afterRight) ∨
+       (∃ thread value frames rest,
+          (∀ pointer, value ≠ .nat pointer) ∧
+          atLeft.ctl = ⟨thread, .prog (.pure value), .prog checkResume :: frames⟩ :: rest ∧
+          ReturnFrame.Returned checkResume canonResume (HostFrame.replace atLeft atRight.host) atRight label
+            (HostFrame.replace afterLeft atRight.host) afterRight) ∨
+       (∃ (pointer : Nat) (checkCursor canonCursor : Cursor (E := core3 grow) (HostState sig)),
+          atLeft.ctl = { checkCursor with frames := .prog checkResume :: checkCursor.frames }.control (pure (.nat pointer)) ∧
+          atRight.ctl = { canonCursor with frames := .prog canonResume :: canonCursor.frames }.control (pure (.nat pointer)) ∧
+          canonCursor.thread = checkCursor.thread ∧
+          Reaches profile ready dispatch left right checkCursor canonCursor checkNext canonNext))) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionCallback
+    destination inst entries area output index callback destinationChecked sized
+    checkNext canonNext paired checkBody canonBody compared
+
 /-- The compiler's layout certificate supplies the tag bounds at every
 selected sum in the handle-only fragment. -/
 theorem checked_fragment {field : Field} {type : TypeOf} (layout : Field.LayoutMatches field type)

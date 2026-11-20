@@ -3,14 +3,16 @@ module
 public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
 public import Silmaril.Wasm.Component.Reference.Canon.Lift.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
+public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Defs
 
 public section
 
 namespace Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame
 
-open Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime
+open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine Silmaril.Wasm.Component.Runtime
 open Silmaril.Wasm.Component.Machine Silmaril.Wasm.Component.Machine.StepDefs
 open Silmaril.Wasm.Component.Machine.HostFrame
+open Silmaril.Wasm.Execution.Core
 
 variable {E : CoreEngine} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}
 variable {dispatch : Call E → P E Host (Ret E)}
@@ -163,6 +165,56 @@ theorem paired_steps {first second : ReturnFrame.Continuation E Host}
       · exact .inl ⟨_, .cons replay replayTail, pairedTail⟩
       · exact .inr ⟨_ :: leading, _, _, _, _, _, _, congrArg (List.cons _) split,
           .cons head lhs, .cons replay rhs, reached, cut, leftStep, rightStep, rest⟩
+    · exact .inr ⟨[], _, _, _, _, _, _, rfl, .refl _, .refl _, paired, boundary, head, replay, tail⟩
+
+private theorem pairedUpdateGrows {grow : SingleThreaded.GrowOracle}
+    {first second : ReturnFrame.Continuation (core3 grow) Host}
+    {left right : Config (core3 grow) Host}
+    (paired : Paired first second left right) (growth : CoreUpdateGrows left) : CoreUpdateGrows right := by
+  have lengths {before after : Config (core3 grow) Host} (framed : ReturnFrame.Paired first second before after) :
+      before.ctl.length = after.ctl.length := by
+    cases framed with
+    | mk controls _ => exact controls.length_eq
+  rcases active : left.ctl with _ | ⟨⟨thread, focus, frames⟩, rest⟩
+  · have size := lengths (before := replace left right.host) paired
+    change left.ctl.length = right.ctl.length at size
+    have empty : right.ctl = [] := List.length_eq_zero_iff.mp (by simpa only [active, List.length_nil] using size.symm)
+    simp only [CoreUpdateGrows, empty]
+  · have atReplaced : (replace left right.host).ctl = ⟨thread, focus, frames⟩ :: rest := active
+    obtain ⟨_, _, matched, _⟩ := ReturnFrame.Paired.retarget paired atReplaced focus right.host
+    have sameStore : left.store = right.store := (ReturnFrame.Paired.data paired).1
+    rw [CoreUpdateGrows, active] at growth
+    rw [CoreUpdateGrows, matched, ← sameStore]
+    cases focus with
+    | core _ _ => trivial
+    | prog program =>
+      cases program with
+      | pure _ => trivial
+      | op operation _ => cases operation <;> exact growth
+
+theorem paired_growing_steps {grow : SingleThreaded.GrowOracle}
+    {ready : HostReady Host} {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    {first second : ReturnFrame.Continuation (core3 grow) Host}
+    {left right next : Config (core3 grow) Host} {labels : List (Label (core3 grow) Host)}
+    (paired : Paired first second left right) (run : CoreGrowthSteps profile ready dispatch left labels next) :
+    (∃ next', CoreGrowthSteps profile ready dispatch right labels next' ∧ Paired first second next next') ∨
+    (∃ leading label trailing atLeft atRight afterLeft afterRight,
+      labels = leading ++ label :: trailing ∧
+      CoreGrowthSteps profile ready dispatch left leading atLeft ∧
+      CoreGrowthSteps profile ready dispatch right leading atRight ∧ Paired first second atLeft atRight ∧
+      Boundary first second atLeft atRight label afterLeft afterRight ∧
+      Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
+      CoreGrowthSteps profile ready dispatch afterLeft trailing next) := by
+  induction run generalizing right with
+  | refl => exact .inl ⟨right, .refl _, paired⟩
+  | cons growth head tail ih =>
+    have otherGrowth := pairedUpdateGrows paired growth
+    obtain ⟨_, replay, aligned | boundary⟩ := paired_step paired head
+    · rcases ih aligned with ⟨_, replayTail, pairedTail⟩ |
+        ⟨leading, _, _, _, _, _, _, split, lhs, rhs, reached, cut, leftStep, rightStep, rest⟩
+      · exact .inl ⟨_, .cons otherGrowth replay replayTail, pairedTail⟩
+      · exact .inr ⟨_ :: leading, _, _, _, _, _, _, congrArg (List.cons _) split,
+          .cons growth head lhs, .cons otherGrowth replay rhs, reached, cut, leftStep, rightStep, rest⟩
     · exact .inr ⟨[], _, _, _, _, _, _, rfl, .refl _, .refl _, paired, boundary, head, replay, tail⟩
 
 theorem instCandidates_eq (store : CStore E) (inst : InstId) (left right : Nat → Bool)
