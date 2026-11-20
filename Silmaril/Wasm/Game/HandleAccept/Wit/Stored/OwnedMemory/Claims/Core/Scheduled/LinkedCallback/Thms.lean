@@ -128,4 +128,37 @@ theorem Prefix.collection (destination : RecordDestination) (inst : InstId) (typ
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.collection destination inst type element entries
     output index pointer cursor reached checkNext canonNext same prefixRun checkedDestination sized mode prepared checkAt canonAt
 
+/-- Compare an admitted dynamic value-mode child from its actual emitted
+programs, through a classified allocator path and the reached live recheck.
+Success carries Core growth from the enclosing prefix through the entries
+and descriptor. A common-frame pop remains a suspended comparison. -/
+theorem Prefix.collection_memory (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
+    (output : Lower.Output) (index pointer : Nat) {origin : CStore (core3 grow)} {left right last : State grow sig} {seen}
+    (cursor reached : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    (growth : Core3.Grows origin.core right.store.core)
+    (memoryWidth : (core3 grow).memAddrType? origin.core destination.memory = some destination.width) {bytes : Nat}
+    (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    (mode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let area := layout destination.width element
+    let checkResume := checkedCollectionResume destination inst entries area index output checkNext
+    let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+    let call := collectionEntry destination inst area entries.length dispatch left cursor checkResume
+    Prefix profile ready bindings checkResume call seen last →
+    last.ctl = { reached with frames := .prog checkResume :: reached.frames }.control (pure (.nat pointer)) →
+    (∀ item ∈ entries, MemoryChildRule profile ready dispatch destination inst item element) →
+    CollectionCutKeeping profile ready bindings (fun store => Core3.Grows origin.core store.core)
+      checkResume canonResume left right { last with ctl := reached.control (checkResume (.nat pointer)) }
+      reached checkNext canonNext seen :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.collectionMemory destination inst type element entries
+    output index pointer cursor reached checkNext canonNext same growth memoryWidth sized mode prepared checkAt canonAt
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback

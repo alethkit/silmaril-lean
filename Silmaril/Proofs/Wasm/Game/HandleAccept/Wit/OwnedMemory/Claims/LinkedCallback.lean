@@ -139,6 +139,55 @@ private theorem classifyPop {left right : State grow sig} {thread value frames r
           | swap => exact ⟨_, _, .inl rfl⟩
           | same => exact ⟨_, _, .inr ⟨rfl, .mk (.cons (.mk below) tail) blocked⟩⟩
 
+private theorem collectionReturnKeeping (destination : RecordDestination) (inst : InstId) (entries : List Field)
+    (area : Layout) (output : Lower.Output) (index pointer : Nat)
+    {left right last : State grow sig} {labels} (path : Prefix profile ready bindings first left labels last)
+    (paired : HostFrame.Paired first second left right) (checkCursor : Cursor (E := core3 grow) (HostState sig))
+    (leftAt : last.ctl = { checkCursor with frames := .prog first :: checkCursor.frames }.control (pure (.nat pointer)))
+    (present : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width) {bytes : Nat}
+    (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (checkBody : first (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      let live ← Record.Effects.reserve recordClaims (Field.listObjects entries)
+      checkedCollectionTail destination inst entries area index output ptr live >>= checkNext))
+    (canonBody : second (.nat pointer) = (do
+      let ptr ← validateListRange (destination.context inst) area entries.length pointer
+      canonicalCollectionTail destination inst entries area output ptr >>= canonNext))
+    {keep : CStore (core3 grow) → Prop}
+    (compared : Core3.Grows left.store.core last.store.core → ∀ reference reachedBytes,
+      ptrTypeIn last.store (destination.context inst) = destination.width →
+      (core3 grow).memSize? last.store.core destination.memory = some reachedBytes →
+      CollectionTailKeepingAt profile ready (specDispatch ready (host bindings)) keep destination inst entries area
+        output index pointer reachedBytes last reference) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    (∃ canonCursor, canonCursor.thread = checkCursor.thread ∧
+      ReachesKeeping profile ready dispatch keep left right checkCursor canonCursor checkNext canonNext) ∨
+    (∃ leftLabels rightLabels other,
+      CoreGrowthSteps profile ready dispatch left leftLabels { last with ctl := checkCursor.control (first (.nat pointer)) } ∧
+      CoreGrowthSteps profile ready dispatch right rightLabels other ∧
+      HostFrame.Paired first second { last with ctl := checkCursor.control (first (.nat pointer)) } other ∧
+      visible leftLabels = labels ∧ visible rightLabels = labels) := by
+  obtain ⟨leftLabels, rightLabels, other, lhs, rhs, reached, seenLeft, seenRight⟩ := replay path paired
+  obtain ⟨otherFrames, otherRest, atPop | ⟨atCommon, still⟩⟩ := classifyPop other.host reached leftAt
+  · let canonCursor : Cursor (E := core3 grow) (HostState sig) := ⟨checkCursor.thread, otherFrames, otherRest⟩
+    have region := lhs.linked_region (destination.context inst) (start := 0) (length := 0)
+      rfl present sized (by simp)
+    obtain ⟨_, reachedWidth, bytes, reachedSize, _, _⟩ := region
+    have continued := PayloadPrefix.collection_return_keeping_at destination inst entries area output index pointer last other
+      checkCursor canonCursor checkNext canonNext first second reached rfl leftAt atPop checkBody canonBody reachedSize
+      (compared lhs.grows other bytes reachedWidth reachedSize)
+    exact .inl ⟨canonCursor, rfl, continued.prepend lhs.steps rhs.steps (seenLeft.trans seenRight.symm)⟩
+  · refine .inr ⟨leftLabels ++ [.tau], rightLabels ++ [.tau], _, lhs.append (.cons ?_ (.popProg leftAt) (.refl _)),
+      rhs.append (.cons ?_ (.popProg atCommon) (.refl _)), still, ?_, ?_⟩
+    · simp [CoreUpdateGrows, leftAt, Cursor.control]
+    · simp [CoreUpdateGrows, atCommon]
+    · simpa only [visible, List.filter_append, List.filter_cons, List.filter_nil, Bool.false_eq_true,
+        ↓reduceIte, List.append_nil] using seenLeft
+    · simpa only [visible, List.filter_append, List.filter_cons, List.filter_nil, Bool.false_eq_true,
+        ↓reduceIte, List.append_nil] using seenRight
+
 theorem collectionReturn (destination : RecordDestination) (inst : InstId) (entries : List Field)
     (area : Layout) (output : Lower.Output) (index pointer : Nat)
     {left right last : State grow sig} {labels} (path : Prefix profile ready bindings first left labels last)
@@ -164,24 +213,15 @@ theorem collectionReturn (destination : RecordDestination) (inst : InstId) (entr
       CoreGrowthSteps profile ready dispatch right rightLabels other ∧
       HostFrame.Paired first second { last with ctl := checkCursor.control (first (.nat pointer)) } other ∧
       visible leftLabels = labels ∧ visible rightLabels = labels) := by
-  obtain ⟨leftLabels, rightLabels, other, lhs, rhs, reached, seenLeft, seenRight⟩ := replay path paired
-  obtain ⟨otherFrames, otherRest, atPop | ⟨atCommon, still⟩⟩ := classifyPop other.host reached leftAt
-  · let canonCursor : Cursor (E := core3 grow) (HostState sig) := ⟨checkCursor.thread, otherFrames, otherRest⟩
-    have region := lhs.linked_region (destination.context inst) (start := 0) (length := 0)
-      rfl present sized (by simp)
-    obtain ⟨_, reachedWidth, bytes, reachedSize, _, _⟩ := region
-    have continued := PayloadPrefix.collection_return_at destination inst entries area output index pointer last other
-      checkCursor canonCursor checkNext canonNext first second reached rfl leftAt atPop checkBody canonBody reachedSize
-      (compared other bytes reachedWidth reachedSize)
-    exact .inl ⟨canonCursor, rfl, continued.prepend lhs.steps rhs.steps (seenLeft.trans seenRight.symm)⟩
-  · refine .inr ⟨leftLabels ++ [.tau], rightLabels ++ [.tau], _, lhs.append (.cons ?_ (.popProg leftAt) (.refl _)),
-      rhs.append (.cons ?_ (.popProg atCommon) (.refl _)), still, ?_, ?_⟩
-    · simp [CoreUpdateGrows, leftAt, Cursor.control]
-    · simp [CoreUpdateGrows, atCommon]
-    · simpa only [visible, List.filter_append, List.filter_cons, List.filter_nil, Bool.false_eq_true,
-        ↓reduceIte, List.append_nil] using seenLeft
-    · simpa only [visible, List.filter_append, List.filter_cons, List.filter_nil, Bool.false_eq_true,
-        ↓reduceIte, List.append_nil] using seenRight
+  have cut := collectionReturnKeeping destination inst entries area output index pointer path paired checkCursor leftAt
+    present sized checkNext canonNext checkBody canonBody (keep := fun _ => True) (by
+      intro _ reference reachedBytes width size aligned fits live checked canonical checkStore canonStore checkHost canonHost
+        same check canon thread finish next checkAt canonAt
+      exact (compared reference reachedBytes width size aligned fits live checked canonical checkStore canonStore checkHost canonHost
+        same check canon thread finish next checkAt canonAt).remember_true)
+  rcases cut with ⟨cursor, thread, rest⟩ | common
+  · exact .inl ⟨cursor, thread, rest.forget⟩
+  · exact .inr common
 
 private theorem chain {before middle after : State grow sig} {leading trailing : List (Label (core3 grow) (HostState sig))}
     (lhs : Steps profile ready (specDispatch ready (host (grow := grow) bindings)) before leading middle)
@@ -218,10 +258,10 @@ theorem collection (destination : RecordDestination) (inst : InstId) (type eleme
       { last with ctl := reached.control (checkResume (.nat pointer)) } reached checkNext canonNext seen := by
   dsimp only
   intro path returned compared
-  obtain ⟨checkEnter, canonEnter, paired⟩ := PayloadPrefix.collection_install destination inst type element entries
-    output index left right cursor checkNext canonNext same prefixRun checkedDestination mode prepared checkAt canonAt
   have original := destination.check_width initial.store checkedDestination
   have atEntry := prefixRun.grows.memAddrType original
+  obtain ⟨checkEnter, canonEnter, paired⟩ := PayloadPrefix.collection_install destination inst type element entries
+    output index left right cursor checkNext canonNext same atEntry mode prepared checkAt canonAt
   have region := prefixRun.linked_region (destination.context inst) (start := 0) (length := 0)
     rfl original sized (by simp)
   obtain ⟨size, readySize, _, _⟩ := region.2.2
@@ -233,6 +273,58 @@ theorem collection (destination : RecordDestination) (inst : InstId) (type eleme
     reached returned seenWidth seenSize checkNext canonNext rfl rfl compared with joined | common
   · obtain ⟨other, thread, tail⟩ := joined
     exact .inl ⟨other, thread, tail.prepend checkEnter canonEnter rfl⟩
+  · obtain ⟨checkLabels, canonLabels, other, lhs, rhs, still, checkSeen, canonSeen⟩ := common
+    exact .inr ⟨_, _, other, chain checkEnter lhs.steps, chain canonEnter rhs.steps, still, checkSeen, canonSeen⟩
+
+theorem collectionMemory (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
+    (output : Lower.Output) (index pointer : Nat) {origin : CStore (core3 grow)} {left right last : State grow sig} {seen}
+    (cursor reached : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (same : { left with ctl := right.ctl, host := right.host } = right)
+    (growth : Core3.Grows origin.core right.store.core)
+    (memoryWidth : (core3 grow).memAddrType? origin.core destination.memory = some destination.width) {bytes : Nat}
+    (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    (mode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = cursor.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let area := layout destination.width element
+    let checkResume := checkedCollectionResume destination inst entries area index output checkNext
+    let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+    let call := collectionEntry destination inst area entries.length dispatch left cursor checkResume
+    Prefix profile ready bindings checkResume call seen last →
+    last.ctl = { reached with frames := .prog checkResume :: reached.frames }.control (pure (.nat pointer)) →
+    (∀ item ∈ entries, MemoryChildRule profile ready dispatch destination inst item element) →
+    CollectionCutKeeping profile ready bindings (fun store => Core3.Grows origin.core store.core)
+      checkResume canonResume left right { last with ctl := reached.control (checkResume (.nat pointer)) }
+      reached checkNext canonNext seen := by
+  dsimp only
+  intro path returned child
+  have referenceWidth := growth.memAddrType memoryWidth
+  obtain ⟨checkEnter, canonEnter, paired⟩ := PayloadPrefix.collection_install destination inst type element entries
+    output index left right cursor checkNext canonNext same referenceWidth mode prepared checkAt canonAt
+  obtain ⟨size, readySize, _⟩ := growth.memSize sized
+  have sameStore : left.store = right.store := by
+    simpa only using congrArg (fun (config : State grow sig) => config.store) same
+  have seenWidth : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width :=
+    sameStore ▸ referenceWidth
+  have seenSize : (core3 grow).memSize? left.store.core destination.memory = some size := sameStore ▸ readySize
+  have prior : Core3.Grows origin.core left.store.core := sameStore ▸ growth
+  have cut := collectionReturnKeeping destination inst entries (layout destination.width element) output index pointer
+    path paired reached returned seenWidth seenSize checkNext canonNext rfl rfl
+    (keep := fun store => Core3.Grows origin.core store.core) (by
+      intro callbackGrowth reference reachedBytes width reachedSize aligned fits live checked canonical checkStore canonStore
+        checkHost canonHost same check canon thread finish next checkAt canonAt
+      exact (CollectionTailKeepingAt.memory_entries destination inst element entries child output index pointer reachedBytes
+        last reference width reachedSize aligned fits live checked canonical checkStore canonStore checkHost canonHost
+        same check canon thread finish next checkAt canonAt).weaken (fun _ later => prior.trans (callbackGrowth.trans later)))
+  rcases cut with joined | common
+  · obtain ⟨referenceCursor, thread, tail⟩ := joined
+    exact .inl ⟨referenceCursor, thread, tail.prepend checkEnter canonEnter rfl⟩
   · obtain ⟨checkLabels, canonLabels, other, lhs, rhs, still, checkSeen, canonSeen⟩ := common
     exact .inr ⟨_, _, other, chain checkEnter lhs.steps, chain canonEnter rhs.steps, still, checkSeen, canonSeen⟩
 

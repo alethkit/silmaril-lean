@@ -97,9 +97,19 @@ def ReachedCollectionTail (profile : ProfileKind) (ready : HostReady (HostState 
     PayloadPrefix.CollectionTailAt profile ready (specDispatch ready (host bindings)) destination inst entries area
       output index pointer bytes checked reference
 
+/-- The observed pop was of an unchanged frame and the two allocator
+executions are still paired. -/
+def CollectionCommonPop (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (left right afterPop : State grow sig) (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
+  let dispatch := specDispatch ready (host (grow := grow) bindings)
+  ∃ leftLabels rightLabels other,
+    Steps profile ready dispatch left leftLabels afterPop ∧ Steps profile ready dispatch right rightLabels other ∧
+    HostFrame.Paired first second afterPop other ∧
+    PayloadPrefix.visible leftLabels = seen ∧ PayloadPrefix.visible rightLabels = seen
+
 /-- Either the collection comparison has reached its continuations (or a
-refused/trapping prefix), or the observed pop was of an unchanged frame and
-the two allocator executions are still paired. -/
+refused/trapping prefix), or the observed pop was of an unchanged frame. -/
 def CollectionCut {Result : Type} (profile : ProfileKind) (ready : HostReady (HostState sig))
     (bindings : List (Binding sig)) (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
     (left right afterPop : State grow sig) (cursor : PayloadPrefix.Cursor (E := core3 grow) (HostState sig))
@@ -108,9 +118,19 @@ def CollectionCut {Result : Type} (profile : ProfileKind) (ready : HostReady (Ho
   let dispatch := specDispatch ready (host (grow := grow) bindings)
   (∃ canonCursor, canonCursor.thread = cursor.thread ∧
     PayloadPrefix.Reaches profile ready dispatch left right cursor canonCursor checkNext canonNext) ∨
-  (∃ leftLabels rightLabels other,
-    Steps profile ready dispatch left leftLabels afterPop ∧ Steps profile ready dispatch right rightLabels other ∧
-    HostFrame.Paired first second afterPop other ∧
-    PayloadPrefix.visible leftLabels = seen ∧ PayloadPrefix.visible rightLabels = seen)
+  CollectionCommonPop profile ready bindings first second left right afterPop seen
+
+/-- A cut that supplies a reached continuation invariant on successful
+completion, without treating other cuts as completion. -/
+def CollectionCutKeeping {Result : Type} (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (keep : CStore (core3 grow) → Prop)
+    (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (left right afterPop : State grow sig) (cursor : PayloadPrefix.Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except Endpoints.RecordLower.Issue Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : Result → Session grow sig (Ret (core3 grow))) (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
+  let dispatch := specDispatch ready (host (grow := grow) bindings)
+  (∃ canonCursor, canonCursor.thread = cursor.thread ∧
+    PayloadPrefix.ReachesKeeping profile ready dispatch keep left right cursor canonCursor checkNext canonNext) ∨
+  CollectionCommonPop profile ready bindings first second left right afterPop seen
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback
