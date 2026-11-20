@@ -678,6 +678,16 @@ so the refusal segment composes with the certified prefixes before and after it.
 does not assume the allocator's bytes are unchanged, certify every callback trace, or validate the
 range newly returned by realloc, which canonical lowering checks in the reached store.
 
+The checked recursive emitter supplies the store-invariant certificate for both
+public payload bindings. Its proof follows the actual canonical data writes, owner
+and endpoint commitment operations, selected sum arm, and collection allocation,
+revalidation and descriptor writes. A reached parked `givePayload` or `giveFlat`
+callout with the matching binding therefore supplies a scheduler installation
+certificate, even when it refuses or traps. Together with the allocator dispatcher
+certificates this covers those installs, not arbitrary host code. The invariant
+frames memory width and allocated bounds; it is not an effect equivalence or a
+claim that a late refusal undoes the prefix.
+
 `Binding.acceptFlat` links a fixed tag and checks the full schema before accepting the
 canonical flat operand vector. The child pointer/count and any indirect string or list
 contents still refer to the linked memory; the child checks are shared with the indirect
