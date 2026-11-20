@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Defs
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.RecordPrepare
 
 @[expose] public section
@@ -10,6 +11,16 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record
 open Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
   Silmaril.Wasm.Component.Runtime
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints
+
+/-- The public payload preparation neither reorders nor substitutes observed
+owners, even when several of them have the same resource type and representation. -/
+theorem preflightValue_receipts {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
+    (payload : Payload type) (output : Stored.Lower.Output) (field : RecordLower.Field)
+    (objects : List RecordLower.Object) (compiled : preflightValue cx type payload output = .ok (field, objects)) :
+    payload.val.owners = objects.filterMap RecordLower.Object.ownerReceipt := by
+  simp only [preflightValue, bind, Except.bind, Except.mapError] at compiled
+  split at compiled <;> try contradiction
+  exact RecordLower.compileValue_receipts _ _ _ _ _ _ _ compiled
 
 /-- A successful whole-plan dry run authorizes each nominal owner or readable
 endpoint at most once. Error contexts are shared and do not enter the claim list. -/
