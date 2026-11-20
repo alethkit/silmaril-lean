@@ -9,6 +9,7 @@ import Silmaril.Wasm.Component.Reference.Machine.Oracle.Defs
 import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Prog.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Lower.Thms
 
 public section
 
@@ -199,12 +200,16 @@ private theorem compareClosed {body : P E Host Result} (closed : Prog.Every (Clo
           exact ⟨checkEmpty, canonEmpty, chosen :: leading, congrArg (chosen :: ·) last⟩
     | _ => contradiction
 
-private theorem encodeCoercion (profile : ProfileKind) (kind : FloatType) (bits : BitVec kind.width) :
-    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (encodeFloat kind bits) := by
-  unfold encodeFloat lowerFloat
+private theorem closedLowerFloat (profile : ProfileKind) (kind : FloatType) (bits : BitVec kind.width) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (lowerFloat kind bits) := by
+  unfold lowerFloat
   split
   · exact .op ⟨firstNan profile kind bits, firstNan_allowed profile kind bits⟩ (fun _ => .pure _)
   · exact .pure _
+
+private theorem encodeCoercion (profile : ProfileKind) (kind : FloatType) (bits : BitVec kind.width) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (encodeFloat kind bits) :=
+  (closedLowerFloat profile kind bits).bind (fun _ => .pure _)
 
 private theorem coerceWord (profile : ProfileKind) (haveType wantType : CoreType) (word : FlatValue) :
     Prog.Every (ClosedOp (E := E) (Host := Host) profile) (coerceLower haveType wantType word) := by
@@ -243,8 +248,8 @@ private theorem variantTail (count : Nat) (wanted : List CoreType) (tag : Nat) (
 
 private theorem localGet : Prog.Every (ClosedOp (E := E) (Host := Host) profile) getStore := .op trivial (fun _ => .pure _)
 
-private theorem closedInt (cx : LiftLowerContext E) (number : Int) (ptr bytes : Nat) :
-    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (storeInt cx number ptr bytes) := by
+private theorem closedInt (cx : LiftLowerContext E) (number : Int) (ptr bytes : Nat) (signed : Bool := false) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (storeInt cx number ptr bytes signed) := by
   unfold storeInt writeMem memAddr
   have addressLocal : Prog.Every (ClosedOp (E := E) (Host := Host) profile) (orTrap .noMemory cx.opts.memory) := by
     cases cx.opts.memory
@@ -254,6 +259,36 @@ private theorem closedInt (cx : LiftLowerContext E) (number : Int) (ptr bytes : 
   split
   · exact .op trivial (fun impossible => nomatch impossible)
   · exact .op trivial (fun _ => .pure _)
+
+private theorem closedStorePrim (cx : LiftLowerContext E) (primitive : WIT.Primitive) (value : Value.Val)
+    (nonString : primitive ≠ .string) (ptr : Nat) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (storePrim Limits.spec Quirks.none cx primitive value ptr) := by
+  unfold storePrim
+  split
+  · exact closedInt cx _ ptr _
+  · exact (encodeCoercion profile .f32 _).bind (fun _ => closedInt cx _ ptr _)
+  · exact (encodeCoercion profile .f64 _).bind (fun _ => closedInt cx _ ptr _)
+  · exact closedInt cx _ ptr _
+  · contradiction
+  · split
+    · exact closedInt cx _ ptr _ _
+    · exact .op trivial (fun impossible => nomatch impossible)
+  · exact .op trivial (fun impossible => nomatch impossible)
+
+private theorem closedFlatPrim (cx : LiftLowerContext E) (width : AddrType) (primitive : WIT.Primitive)
+    (value : Value.Val) (nonString : primitive ≠ .string) :
+    Prog.Every (ClosedOp (E := E) (Host := Host) profile) (lowerFlatPrim Limits.spec Quirks.none cx width primitive value) := by
+  unfold lowerFlatPrim
+  split
+  · exact .pure _
+  · exact (closedLowerFloat profile .f32 _).bind (fun _ => .pure _)
+  · exact (closedLowerFloat profile .f64 _).bind (fun _ => .pure _)
+  · exact .pure _
+  · contradiction
+  · split
+    · exact .pure _
+    · exact .op trivial (fun impossible => nomatch impossible)
+  · exact .op trivial (fun impossible => nomatch impossible)
 
 private theorem variantHead (cx : LiftLowerContext E) (count : Nat) (alignment : Alignment) (tag ptr : Nat) :
     Compare profile ready dispatch
@@ -832,6 +867,135 @@ theorem checkPlacement {placementDispatch : Call (core3 grow) → P (core3 grow)
   · simp [checkAligned, trapIf, aligned, trap, Prog.bind_eq, Prog.bind] at focused
     simp [placement, aligned]
     exact ⟨0, .cons (.trap focused) (.refl _)⟩
+
+theorem listEntryPlacement {entryDispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    (destination : RecordDestination) (inst : InstId) (element : TypeOf)
+    {before after : Config (core3 grow) Host} {labels} {base count index bytes : Nat}
+    (run : CoreGrowthSteps profile ready entryDispatch before labels after)
+    (checked : destination.check before.store = .ok ())
+    (sized : (core3 grow).memSize? before.store.core destination.memory = some bytes)
+    (aligned : base = alignTo base (layout destination.width element).alignment)
+    (bounds : base + count * (layout destination.width element).size ≤ bytes) (entry : index < count) :
+    let area := layout destination.width element
+    ptrTypeIn after.store (destination.context inst) = destination.width ∧
+      placement destination after.store area (base + index * area.size) = .ok () := by
+  let area := layout destination.width element
+  obtain ⟨_, width, reachedSize, reached, _, range⟩ := run.linked_region (destination.context inst) rfl
+    (destination.check_width before.store checked) sized bounds
+  refine ⟨width, ?_⟩
+  change placement destination after.store area (base + index * area.size) = .ok ()
+  have baseDiv : area.alignment.bytes ∣ base :=
+    ⟨(base + area.alignment.bytes - 1) / area.alignment.bytes, aligned.trans (Nat.mul_comm ..)⟩
+  have offsetDiv : area.alignment.bytes ∣ index * area.size := ⟨index * area.units, by simp [Layout.size]; ac_rfl⟩
+  have modulo := Nat.mod_eq_zero_of_dvd (Nat.dvd_add baseDiv offsetDiv)
+  have within : base + index * area.size + area.size ≤ reachedSize := by
+    rw [Nat.add_assoc, ← Nat.succ_mul]
+    exact (Nat.add_le_add_left (Nat.mul_le_mul_right area.size (Nat.succ_le_of_lt entry)) base).trans range
+  simp [placement, modulo, reached, Nat.not_lt.mpr within]
+  rfl
+
+theorem primitiveLeaf (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim primitive))
+    (nonString : primitive ≠ .string) (index : Nat) (output : Lower.Output)
+    (left right : Config (core3 grow) (HostState sig))
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (placed : rootPlacement destination left.store (.prim primitive) output = .ok ()) :
+    CompareAt profile scheduledReady scheduledDispatch left right
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) index output)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) output) := by
+  let cx := destination.context (grow := grow) inst
+  change ptrTypeIn left.store cx = destination.width at width
+  have well : ABI.ValType.WellFormedCM (.prim primitive : TypeOf) := by
+    refine ⟨.prim _, rfl, rfl, rfl, ?_⟩
+    cases primitive <;> simp [ABI.ValType.anySub, oversizedNode, layout, primitiveLayout, pointerLayout,
+      pointerAlignment, Layout.size, Alignment.bytes]
+  have plain : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.checkSchema (.prim primitive) = .ok () := by
+    unfold Silmaril.Wasm.Game.HandleAccept.Wit.Stored.checkSchema
+    rw [ite_eq_right (show ¬ containsBorrow (.prim primitive : TypeOf) = true from Bool.not_eq_true _ |>.mpr rfl),
+      ite_eq_right (show ¬ payloadContainsOwn (.prim primitive) = true from Bool.not_eq_true _ |>.mpr rfl), ite_eq_left well]
+  have schema : Lower.checkSchema (.prim primitive) = .ok () := by
+    unfold Lower.checkSchema
+    rw [plain]
+    rfl
+  have options : Lower.checkOptions cx (.prim primitive) output = .ok () := by
+    cases primitive <;> first | contradiction | cases output <;> rfl
+  have fit (width : AddrType) : Lower.fits Quirks.none cx.opts.encoding width (.prim primitive) payload.val = true := by
+    cases primitive <;> first | contradiction | cases payload.val <;> rfl
+  intro same checkCursor canonCursor thread checkNext canonNext checkAt canonAt
+  rw [Record.Effects.field] at checkAt
+  cases output with
+  | flat =>
+    rw [Lower.lower_flat_reference Limits.spec Quirks.none cx _ payload schema options fit] at checkAt
+    let body := fun w => lowerFlatPrim (σ := HostState sig) Limits.spec Quirks.none cx w primitive payload.val
+    let checkedBody : Session grow sig (Except RecordLower.Issue (List FlatValue)) := do
+      return .ok (← body destination.width)
+    have focus : left.ctl = checkCursor.control (.op .get (fun store =>
+        (do return (Except.ok (← body (ptrTypeIn store cx)) : Except RecordLower.Issue _)) >>= checkNext)) := by
+      change left.ctl = checkCursor.control
+        ((((ptrType cx).bind (fun current => (body current).bind (fun words =>
+          .pure (Except.ok words : Except Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Lower.Issue _)))).bind (fun
+          verdict => .pure (verdict.mapError (.field index ∘ .beforeAllocation ∘ .abi)))).bind checkNext) at checkAt
+      simp only [Prog.bind_assoc, Prog.pure_bind', Except.mapError] at checkAt
+      change left.ctl = checkCursor.control ((Prog.op (S := Eff (core3 grow) (HostState sig)) .get
+        (fun store => (body (ptrTypeIn store cx)).bind fun words => .pure (.ok words))).bind checkNext) at checkAt
+      exact checkAt
+    let entered := { left with ctl := checkCursor.control (checkedBody >>= checkNext) }
+    have read : Step profile scheduledReady scheduledDispatch left .tau entered := by
+      simpa only [width, entered, checkedBody, Cursor.control] using
+        (Step.get (prof := profile) (hr := scheduledReady) (dispatch := scheduledDispatch) focus)
+    have compared := compareClosed (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch)
+      (closedFlatPrim (Host := HostState sig) cx destination.width primitive payload.val nonString)
+      entered right same checkCursor canonCursor thread checkNext canonNext rfl canonAt
+    exact prependCheck (.cons read (.refl _)) (by simp) compared
+  | memory ptr =>
+    rw [Lower.lower_memory_reference Limits.spec Quirks.none cx _ payload ptr schema options fit] at checkAt
+    rw [CanonicalTree.field, CanonicalTree.leaf, Field.type, Field.value, Canon.store] at canonAt
+    let area := layout destination.width (.prim primitive : TypeOf)
+    let body := storePrim (σ := HostState sig) Limits.spec Quirks.none cx primitive payload.val ptr
+    let guarded := fun current => do
+      let area := layout current (.prim primitive : TypeOf)
+      checkAligned ptr area.alignment.bytes
+      checkInBounds cx ptr area.size
+      body
+    let entered := { left with ctl := checkCursor.control (do
+      checkAligned ptr area.alignment.bytes
+      checkInBounds cx ptr area.size
+      checkNext (.ok (← body))) }
+    have focus : left.ctl = checkCursor.control (.op .get (fun store => do
+        let area := layout (ptrTypeIn store cx) (.prim primitive : TypeOf)
+        checkAligned ptr area.alignment.bytes
+        checkInBounds cx ptr area.size
+        checkNext (.ok (← body)))) := by
+      rw [Canon.store] at checkAt
+      change left.ctl = checkCursor.control
+        ((((ptrType cx).bind (fun current => (guarded current).bind (fun value =>
+          .pure (Except.ok value : Except Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Lower.Issue _)))).bind (fun
+          verdict => .pure (verdict.mapError (.field index ∘ .beforeAllocation ∘ .abi)))).bind checkNext) at checkAt
+      simp only [Prog.bind_assoc, Prog.pure_bind', Except.mapError] at checkAt
+      change left.ctl = checkCursor.control (Prog.op (S := Eff (core3 grow) (HostState sig)) .get
+        (fun store => ((guarded (ptrTypeIn store cx)).bind fun value => .pure (.ok value)).bind checkNext)) at checkAt
+      refine checkAt.trans (congrArg checkCursor.control ?_)
+      apply congrArg (Prog.op (S := Eff (core3 grow) (HostState sig)) .get)
+      funext store
+      simp only [guarded, Prog.bind_eq, Prog.bind_assoc, Prog.pure_bind']
+    have read : Step profile scheduledReady scheduledDispatch left .tau entered := by
+      simpa only [width, entered, area, Cursor.control] using
+        (Step.get (prof := profile) (hr := scheduledReady) (dispatch := scheduledDispatch) focus)
+    have guard := checkPlacement (profile := profile) (ready := scheduledReady) (placementDispatch := scheduledDispatch)
+      destination inst entered area ptr checkCursor (do checkNext (.ok (← body))) rfl
+    change placement destination entered.store area ptr = .ok () at placed
+    rw [placed] at guard
+    let checkedEnd := { entered with ctl := checkCursor.control (do checkNext (.ok (← body))) }
+    have compared := compareClosed (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch)
+      (closedStorePrim (Host := HostState sig) cx primitive payload.val nonString ptr)
+      checkedEnd right same checkCursor canonCursor thread checkNext canonNext (by
+        change checkCursor.control (body.bind fun value => checkNext (.ok value)) =
+          checkCursor.control ((body.bind fun value => .pure (.ok value)).bind checkNext)
+        rw [Prog.bind_assoc]
+        rfl) canonAt
+    exact prependCheck (.cons read guard) (by simp) compared
 
 theorem rootPlacementSteps (destination : RecordDestination) (inst : InstId) (type : TypeOf)
     (field : Field) (output : Lower.Output) (start : Config (core3 grow) (HostState sig))
