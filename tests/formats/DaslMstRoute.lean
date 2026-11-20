@@ -10,13 +10,51 @@ private def layerOf (key : Mst.Key) : Nat := if key = [10] then 1 else 0
 private def emit (node : Mst.Node Nat) : Wire.ReadResult (Shallow Nat) :=
   match Mst.encodeNode? node with | some value => .found value | none => .invalidWire
 
+private def rootNode : Mst.Node Nat := ⟨some 1, [⟨[10], 20, none⟩]⟩
+private def leafNode : Mst.Node Nat := ⟨none, [⟨[6], 21, none⟩]⟩
+
 private def readRoot (childRead : Wire.ReadResult (Shallow Nat)) : Nat → Wire.ReadResult (Shallow Nat)
-  | 0 => emit ⟨some 1, [⟨[10], 20, none⟩]⟩
+  | 0 => emit rootNode
   | 1 => childRead
   | _ => .missing
 
+private def reference (name : Nat) (node : Mst.Node Nat) : Prop :=
+  (name = 0 ∧ node = rootNode) ∨ (name = 1 ∧ node = leafNode)
+
+private theorem onlyRoot {expected : Option Mst.Context} {name : Nat}
+    (request : Mst.Reaches layerOf (readRoot .missing) [10] 0 expected name) : expected = none ∧ name = 0 := by
+  induction request with
+  | start => exact ⟨rfl, rfl⟩
+  | @step _ _ _ _ node value _ found decoded _ selected ih =>
+    obtain ⟨rfl, rfl⟩ := ih
+    change emit rootNode = .found value at found
+    have rootDecoded : Mst.decodeNode? value = some rootNode := by
+      unfold emit at found
+      split at found
+      · rename_i encoded
+        cases found
+        exact Mst.node_roundtrip encoded
+      · contradiction
+    have same := Option.some.inj (decoded.symm.trans rootDecoded)
+    subst node
+    have inline : Mst.matchingSlot rootNode (rootNode.rootContext layerOf) [10] = some (.record [10] 20) := by
+      simp [Mst.matchingSlot, Mst.Node.slots, Mst.Node.rootContext, rootNode, Mst.slotsFrom, Mst.Slot.Covers,
+        Mst.Context.Contains, Mst.Key.before]
+    rw [show (none : Option Mst.Context).getD (rootNode.rootContext layerOf) = rootNode.rootContext layerOf from rfl,
+      inline] at selected
+    cases selected
+
+example : Mst.PathCovers layerOf (readRoot .missing) [10] 0 reference := by
+  intro _ _ node request known
+  obtain ⟨rfl, rfl⟩ := onlyRoot request
+  rcases known with ⟨_, rfl⟩ | ⟨impossible, _⟩
+  · have encoded : (Mst.encodeNode? rootNode).isSome = true := by decide
+    obtain ⟨value, rendered⟩ := Option.isSome_iff_exists.mp encoded
+    exact ⟨value, by simp [readRoot, emit, rendered], Mst.node_roundtrip rendered⟩
+  · contradiction
+
 public def main : IO Unit := do
-  let leaf := emit ⟨none, [⟨[6], 21, none⟩]⟩
+  let leaf := emit leafNode
   let lookup := fun child key fuel => Mst.route layerOf (readRoot child) key fuel none 0
   match lookup .missing [10] 1, lookup .missing [14] 1, lookup .missing [6] 2,
       lookup leaf [6] 2, lookup leaf [7] 2, lookup leaf [6] 1 with
