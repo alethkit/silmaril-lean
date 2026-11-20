@@ -93,7 +93,7 @@ The direct path does not establish a frame across guest realloc calls. -/
 def preflight {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
     (payload : Payload type) (output : Stored.Lower.Output) : Plan := do
   (Stored.checkSchema type).mapError .schema
-  if containsListOrString type then throw .indirectPayload
+  if Validation.containsPtr type then throw .indirectPayload
   (Stored.Lower.checkOptions cx type output).mapError .abi
   objects type payload.val
 
