@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Deferred.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Component.Thms
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Publication.Defs
 import Silmaril.Wasm.Component.Reference.HostWrite.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript
 
@@ -123,5 +124,24 @@ theorem fresh_lookup_iff_publication (bindings : List (Binding sig)) (callees : 
       ∃ ticket, final.host.publications[state.publications.length +
         (handle.toNat - (state.writer.accepted.length + 1))]? = some (ticket, handle.toNat) :=
   (checked_of_session bindings callees deferred control store state steps ordinary).2.2.fresh_lookup_iff fresh
+
+/-- In the linked session, fresh root selection is equivalent to a registration step
+and its matching journal append along an ordinary prefix. This applies to eager and
+deferred callees and does not assume delivery or restore spent claims. -/
+theorem fresh_lookup_iff_cut (bindings : List (Binding sig)) (callees : List (Callee sig))
+    (deferred : List HostFuncId) (control : String) {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    (store : CStore (core3 grow)) (state : HostState sig)
+    {final : Config (core3 grow) (HostState sig)} {labels : List (Label (core3 grow) (HostState sig))}
+    (steps : Steps prof ready (specDispatch ready (hostWithDeferred bindings callees deferred control))
+      (Config.init store state) labels final)
+    (ordinary : ∀ program, Label.host (.run program) ∉ labels)
+    {handle : BitVec 32} {tree : OwnedMemory.Tree sig}
+    (fresh : state.writer.accepted.length < handle.toNat) :
+    Endpoints.Core.childFromHistory final.host.writer.accepted handle = some tree ↔
+    PublicationCut (prof := prof) (ready := ready) (dispatch := specDispatch ready (hostWithDeferred bindings callees
+      deferred control)) (Config.init store state) labels final handle tree :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ScheduledTranscript.publication_cut_iff
+    (host_checked bindings callees deferred control) steps (Reference.HostWrite.cfgSafe_init _ _)
+    (fun program member => (ordinary program member).elim) fresh
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.ComponentCall.Deferred
