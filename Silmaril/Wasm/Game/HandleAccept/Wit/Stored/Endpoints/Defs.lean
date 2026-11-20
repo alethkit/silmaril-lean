@@ -79,19 +79,19 @@ def acceptNode (sig : Signature) (limits : Component.Limits) (quirks : Quirks)
       hostSet updated
       return .ok tree
 
-/-- Give one claimed readable endpoint to a guest. The dynamic reference check still
-checks kind, element type, liveness and ownership. A successful give spends the claim
-without erasing any tree observations; a typed refusal never spends it. -/
+/-- Give one claimed readable endpoint to a guest. Typed refusal does not spend the
+claim. Once validated, spend it before canonical lower changes the owner, since
+reference table insertion can trap after that change. -/
 def give {sig : Signature} (limits : Component.Limits) (cx : LiftLowerContext E) (channel : Channel)
     (element : Element) (endpoint : Endpoint (channel.endKind .read) element) :
     P E (State sig) (Except Issue Nat) := do
   match (← hostGet).spend endpoint.id with
   | .error issue => return .error issue
   | .ok updated =>
-    match ← Async.Transfer.give limits cx channel element endpoint with
+    match Async.Transfer.readyToGive (← getStore) channel element endpoint with
     | .error issue => return .error (.give issue)
-    | .ok slot =>
+    | .ok () =>
       hostSet updated
-      return .ok slot
+      return .ok (← lowerAsyncValue limits (channel.endKind .read) cx endpoint.id)
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints
