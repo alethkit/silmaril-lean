@@ -89,6 +89,7 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.Wasm.Validation.Generic.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-generic/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Validation.Generic.SSA.Thms +Silmaril.Wasm.Validation.Generic.Signature.Lowering,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-generic/TypeBoundary.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Profiles.Thms +Silmaril.Wasm.Profiles.Binary,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Profiles.ISA.Binary +Silmaril.Wasm.Profiles.ISA.Versions,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/ISA.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/NullPointerEquality.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/BitwiseRuntime.lean)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/MemberRuntime.lean)
