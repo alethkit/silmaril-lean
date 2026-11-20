@@ -277,6 +277,25 @@ def CompareLocalKeepingAt {E : CoreEngine} {Host Result : Type} (profile : Profi
         left.ctl = check.control (checked >>= checkNext) → right.ctl = canon.control (canonical >>= canonNext) →
         LocalCutKeeping profile ready dispatch keep left right check canon (fun value => checkNext (.ok value)) canonNext
 
+def sumPayloadAddress (width : AddrType) (arms : List (Option TypeOf)) (base : Nat) : Nat :=
+  alignTo (base + discSize arms.length) (maxCaseAlignment (arms.map (layoutOption width)))
+
+def sumCheckedNext {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (inst : InstId) (selected : Option Field) (index address : Nat)
+    (finish : Except RecordLower.Issue Unit → Session grow sig (Ret (core3 grow))) : Unit → Session grow sig (Ret (core3 grow)) :=
+  fun () => match selected with
+  | none => finish (.ok ())
+  | some child => Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst)
+      destination.width child 0 (.memory address) >>= fun verdict => finish (verdict.mapError (.nested index))
+
+def sumCanonicalNext {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (inst : InstId) (selected : Option Field) (address : Nat)
+    (finish : Unit → Session grow sig (Ret (core3 grow))) : Unit → Session grow sig (Ret (core3 grow)) :=
+  fun () => match selected with
+  | none => finish ()
+  | some child => RecordLower.CanonicalTree.field Limits.spec Quirks.none (destination.context inst)
+      destination.width child (.memory address) >>= finish
+
 def checkedCollectionTail {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
     (index : Nat) (output : Lower.Output) (ptr : Nat) :
