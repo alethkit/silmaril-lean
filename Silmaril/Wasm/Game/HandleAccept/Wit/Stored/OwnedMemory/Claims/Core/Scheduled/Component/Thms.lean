@@ -114,6 +114,34 @@ theorem resolve_caller {prof : ProfileKind} {ready : HostReady (HostState sig)}
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_caller
     ticket handle caller tree subtask cx args pos ft params results callerRecord pending
 
+/-- The reached caller's `maybeOnProgress` queues or replaces its subtask
+event before result lowering if it has a caller index. Unindexed calls
+leave the pending slot unchanged. Neither branch resolves or delivers. -/
+theorem resolve_progress {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {config : Config (core3 grow) (HostState sig)} {thread : Option ThreadId} {segments rest}
+    (ticket handle : Nat) (caller : CallerId) (tree : Tree sig)
+    (subtask : SubtaskId) (cx : LiftLowerContext (core3 grow)) (args : List FlatValue)
+    (pos : Nat) (ft : WIT.FuncType Empty RtId) (params results : Nat) (record : Subtask)
+    (callerRecord : ArenaField.callers.get? config.store caller = some (.lower subtask cx args pos ft params results))
+    (live : config.store.subtask? subtask = some record)
+    (focused : config.ctl = ⟨thread, .prog (do
+      lowerOnResolve Limits.spec Quirks.none caller (some [.variant 0 (some (Val.u32 handle))])
+      completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    let queued := if record.index.isSome then config.store.setPendingSt (.subtask subtask) (.subtask subtask)
+      else config.store
+    let final : Config (core3 grow) (HostState sig) := { config with store := queued, ctl :=
+      ⟨thread, .prog (do
+        let flat ← lowerFlatValues Limits.spec Quirks.none cx results [.variant 0 (some (Val.u32 handle))]
+          ft.result.toList (some ⟨args, pos⟩)
+        Subtask.resolve subtask .returned flat
+        completeResolvedTree ticket tree handle), segments⟩ :: rest }
+    Steps prof ready dispatch config (.tau :: .tau :: if record.index.isSome then [.tau] else []) final ∧
+      final.store.subtask? subtask = some { record with common := if record.index.isSome then
+        { record.common with pending := some (.subtask subtask) } else record.common } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_progress
+    ticket handle caller tree subtask cx args pos ft params results record callerRecord live focused
+
 /-- Exact reference program for the indirect acceptor reply, in either memory width.
 The typed cursor, alignment and full eight-byte range checks precede any write. The
 error writes only its discriminant; success also writes the handle at offset four. -/

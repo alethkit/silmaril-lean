@@ -1047,7 +1047,10 @@ publishing, and publication checks the candidate handle against the live writer.
 At the commit continuation, `complete_commit` preserves the reached store and publishes
 before recording a reply. `complete_stale` instead records `.wrongResultType` and locks
 down without publishing or recording a reply. `resolve_caller` exposes the live reference
-result cursor. `lower_result_program` gives the exact canonical program at this cursor in
+result cursor. `resolve_progress` executes the reached subtask's index check before canonical
+result lowering: an indexed subtask queues or replaces its pending event; an unindexed one
+leaves the slot unchanged. This neither resolves the subtask nor delivers the event.
+`lower_result_program` gives the exact canonical program at this cursor in
 both memory widths: pointer type, alignment and whole-result range checks precede the writes;
 an error only writes its tag, and a successful reply also writes the little-endian handle at
 offset four. `resolve_commit` connects the post-write subtask resolution to publication
