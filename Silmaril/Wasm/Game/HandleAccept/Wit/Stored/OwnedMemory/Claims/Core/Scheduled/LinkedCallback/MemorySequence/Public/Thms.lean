@@ -7,7 +7,7 @@ public section
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
 
-open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
+open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.ABI Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
   Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.Machine
 open Stored.Endpoints.RecordLower
 
@@ -53,7 +53,18 @@ theorem parked_recursive_list {route : GiveEffectRoute} (call : PayloadRoot.Site
     (compiledList : call.field = .dynamic (.list element) element entries)
     (shapes : ∀ item ∈ entries, ParkedListTreeShape depth item) {addr : Nat} (realloc : call.destination.realloc = some addr) :
     PayloadRoot.Cut call profile ready bindings (ParkedRecursiveListBody call element entries depth next profile ready bindings) :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedRecursiveList
-    call linked element entries depth next compiledList shapes realloc
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedRecursiveValue
+    call linked (.list element) element entries depth next compiledList (by cases route <;> rfl) shapes realloc
+
+/-- Flat maps store each compiled key/value record at the slot reached after
+the marked allocator return. Unlike indirect maps, their canonical program
+reads the width again at entry, then lowers any allocating descendants. -/
+theorem parked_recursive_flat_map {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
+    (key : WIT.KeyType) (element : TypeOf) (entries : List Field) (depth : Nat) (next : call.ReferenceNext)
+    (compiledMap : call.field = .dynamic (.map key element) (.record (mapEntryFields key element)) entries)
+    (shapes : ∀ item ∈ entries, ParkedListTreeShape depth item) {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    PayloadRoot.Cut call profile ready bindings (ParkedRecursiveFlatMapBody call key element entries depth next profile ready bindings) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedRecursiveValue
+    call linked (.map key element) (.record (mapEntryFields key element)) entries depth next compiledMap rfl shapes realloc
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
