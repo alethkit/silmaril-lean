@@ -343,6 +343,16 @@ private theorem boundary (P : Profile) :
   oneResult := by decide +kernel
   flatResults := by decide +kernel
 
+private theorem linkedForward :
+    ∃ final, Calls oracle.prof (refHost selected).hr (D selected)
+      (wire.ready (coreConsumer (ProfileHost selected)).store 1) ⟨7⟩ ⟨0⟩ [] final
+      (.resolved (some [.u32 42])) ∧
+      (coreTerminal Nat).store = Store.mapH (fun _ => 0) final.store.core := by
+  have init := relationalInstantiation selected oracle.prof
+  rw [wireErasure] at init
+  exact (wire.terminalObservationIff (preparations selected) (boundary selected) rfl init (by rfl)).2
+    ⟨coreTerminal Nat, .values [.i32 42], executeRun, ⟨[Flat.i32 42], [.u32 42], rfl, rfl, rfl⟩, rfl⟩
+
 private theorem linkedReadback {final : Component.Machine.Config (core3P selected) Unit} {out : CallOutcome}
     (ran : Calls oracle.prof (refHost selected).hr (D selected)
       (wire.ready (coreConsumer (ProfileHost selected)).store 1) ⟨0⟩ ⟨0⟩ [] final out) :
@@ -382,8 +392,12 @@ private theorem linkedReadback {final : Component.Machine.Config (core3P selecte
 #print axioms gameObservation
 #print axioms DirectWire.instantiates_iff
 #print axioms DirectWire.terminalReadbackOfInstantiation
+#print axioms Reach.of_steps
+#print axioms DirectWire.terminalForwardOfInstantiation
+#print axioms DirectWire.terminalObservationIff
 #print axioms relationalInstantiation
 #print axioms wrongWire
+#print axioms linkedForward
 #print axioms linkedReadback
 
 end Runtime
