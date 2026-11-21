@@ -1,6 +1,7 @@
 module
 
 meta import Silmaril.Formats.Bao.Defs
+meta import Silmaril.Formats.Bao.Opening.Defs
 meta import Silmaril.Formats.Iroh.Defs
 
 meta section
@@ -99,6 +100,25 @@ private def streamingPrefix : Option (List UInt8 × Bool × Bool) := do
 
 #guard streamingPrefix == some ([0], false, false)
 
+private def rootDigest : Bao.Digest := (digest? baoRoot).getD default
+
+#guard (Bao.lowerPrefix (Bao.fullPlan 2049 1) rootDigest []).isNone
+#guard (Bao.lowerPrefix (Bao.fullPlan 2049 1) rootDigest
+  [baoRootPair, baoLeftPair, zeros 1024]).map (Bao.Frontier.edgeAt 2049) == some false
+#guard (Bao.lowerPrefix (Bao.slicePlan 2049 ⟨2048, 1⟩) rootDigest
+  [baoRootPair, [0]]).map (Bao.Frontier.edgeAt 2049) == some true
+#guard (Bao.lowerPrefix (Bao.slicePlan 2049 ⟨2048, 1⟩) rootDigest
+  [baoRootPair, [0], []]).isNone
+#guard (Bao.lowerPrefix (Bao.fullPlan 0 1) rootDigest [[]]).map (Bao.Frontier.edgeAt 0) == some true
+
+private def staged : Bao.StagedRange (fun _ _ _ _ => True) rootDigest 2049 :=
+  ⟨1024, [0], trivial⟩
+
+#guard Bao.releaseRanges (Trusted := fun _ _ => True) (EOF := fun _ _ => False)
+  none [staged] == none
+#guard Bao.releaseRanges (Trusted := fun _ _ => True) (EOF := fun _ _ => False)
+  (some ⟨.trusted trivial⟩) [staged] == some [(1024, [0])]
+
 private def irohRootPair : Bytes := hex [
   "ee30137d2224ac86f79680abb2e7a033b746753664993356b8f05cbe11e99772",
   "e03d344a44e5d75dd69eed75e4284eb4ca4a7a4dcd061c4ca79850c5359e9115"]
@@ -149,6 +169,15 @@ private def irohPast : Bytes := irohHead ++ irohRootPair ++ [0]
 #guard byteRange 1023 1025 == some [0, 2]
 #guard byteRange 1024 1024 == some []
 #guard byteRange Bao.u64Limit Bao.u64Limit == none
+
+private def irohEdge (query : Boundaries) (bytes : Bytes) : Option Bool := do
+  let (claim, fields, _) ← readResponse query bytes
+  let frontier ← Bao.lowerPrefix (responsePlan claim query) irohRoot.bytes fields
+  return frontier.edgeAt claim
+
+#guard irohEdge [1, 2] irohPartial == some false
+#guard irohEdge endProbe irohPast == some true
+#guard irohEdge [0] irohFull == some true
 
 private def postcardHash : Hash := ⟨(digest? (List.replicate 32 218)).getD default⟩
 private def requestPrefix : Bytes := 0 :: List.replicate 32 218

@@ -82,9 +82,9 @@ theorem release_checked {hash : HashOps} {size : Nat} {tree : Plan} {digest : Di
     {fields : List Bytes} {events : List Event} {final : Session}
     (trace : Steps hash size (start tree digest) fields events final) :
     (∀ event ∈ events, Checked hash tree digest event) ∧
-      (authenticatedLength size final = some size ↔ ∃ event ∈ events, EdgeEvent size event) := by
+      (rightEdgeClaim size final = some size ↔ ∃ event ∈ events, EdgeEvent size event) := by
   obtain ⟨_, checked, edge⟩ := steps_checked trace (start_rooted hash tree digest)
-  exact ⟨checked, by simpa [authenticatedLength, start] using edge⟩
+  exact ⟨checked, by simpa [rightEdgeClaim, start] using edge⟩
 
 theorem runSteps_spec {hash : HashOps} {size : Nat} {state final : Session}
     {fields : List Bytes} {events : List Event} :

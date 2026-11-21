@@ -262,10 +262,11 @@ def transfers (request : Get) (children : List Hash) : List Transfer :=
 structure Received where
   transfer : Transfer
   events : List Bao.Event
-  length : Option Nat
+  edgeClaim : Option Nat
 
-/-- Verify an already delimited stream against its transfer schedule. For a live stream,
-use `beginResponse` and `Bao.readStep`; a successful prefix is not a successful Get. -/
+/-- Check an already delimited stream against its transfer schedule at the claimed extents.
+These are internal candidates, not a public release decision. For a live stream use
+`beginResponse` and `Bao.readStep`; a successful prefix is not a successful Get. -/
 def verifyTransfers (ops : Bao.HashOps) : List Transfer → Bytes → Option (List Received)
   | [], input => if input.isEmpty then some [] else none
   | transfer :: rest, input => do
@@ -273,7 +274,7 @@ def verifyTransfers (ops : Bao.HashOps) : List Transfer → Bytes → Option (Li
     let state := Bao.start (responsePlan size transfer.query) transfer.hash.bytes
     let (events, final) ← Bao.runSteps ops size state fields
     if !Bao.finished final [] true then none else
-      return ⟨transfer, events, Bao.authenticatedLength size final⟩ ::
+      return ⟨transfer, events, Bao.rightEdgeClaim size final⟩ ::
         (← verifyTransfers ops rest tail)
 
 /-- CollectionV0's first HashSeq link is the metadata blob, the rest are item blobs. -/

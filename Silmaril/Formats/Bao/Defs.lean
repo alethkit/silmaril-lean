@@ -261,8 +261,8 @@ inductive Event where
   | data (span : Span) (bytes : Bytes)
   deriving Repr
 
-/-- An expected digest is reachable from a trusted root via checked parent pairs. The
-plan here supplies coordinates; it does not assert that the header is true. -/
+/-- An expected digest is reachable from a trusted root via checked parent pairs at
+the claimed geometry. This is not a statement about a reference of unknown extent. -/
 inductive AuthPath (hash : HashOps) (tree : Plan) (digest : Digest) :
     Plan → Digest → Bool → Prop where
   | root : AuthPath hash tree digest tree digest true
@@ -314,8 +314,8 @@ def splitPair (bytes : Bytes) : Option (Digest × Digest) := do
   let right ← digest? (bytes.drop 32)
   return (left, right)
 
-/-- Consume one complete cell. Observations are emitted only after authentication.
-The claim is not part of the trusted state; right-edge evidence requires a checked leaf. -/
+/-- Consume one complete cell. The observations are internal candidates checked at the
+claimed geometry; neither a caller-visible range nor the real EOF is asserted here. -/
 def step (hash : HashOps) (size : Nat) (state : Session) (bytes : Bytes) :
     Option (Session × Event) :=
   match state.pending with
@@ -336,7 +336,9 @@ authentication. An enclosing stream must supply the correct frame boundary. -/
 def finished (state : Session) (remainder : Bytes) (endOfFrame : Bool) : Bool :=
   state.pending.isEmpty && remainder.isEmpty && endOfFrame
 
-def authenticatedLength (size : Nat) (state : Session) : Option Nat :=
+/-- An edge candidate at the claimed geometry. Converting it to trusted length needs a
+canonical kernel EOF proof tied to this digest; the flag alone is not such a proof. -/
+def rightEdgeClaim (size : Nat) (state : Session) : Option Nat :=
   if state.rightEdge then some size else none
 
 def nextSlot (state : Session) : Option Slot :=
@@ -360,12 +362,13 @@ def runSteps (hash : HashOps) (size : Nat) (state : Session) :
     let (events, final) ← runSteps hash size next fields
     return (event :: events, final)
 
-/-- Exact framing and authenticated content. Success itself makes no length claim. -/
+/-- Exact framing and callbacks checked at the claimed geometry. The optional size is
+an edge candidate, not evidence of a reference extent. -/
 def verifyFrame (hash : HashOps) (size : Nat) (tree : Plan) (root : Digest) (body : Bytes) :
     Option (List Event × Option Nat) := do
   let fields ← readFrame tree.preorder body
   let (events, state) ← runSteps hash size (start tree root) fields
-  if !finished state [] true then none else return (events, authenticatedLength size state)
+  if !finished state [] true then none else return (events, rightEdgeClaim size state)
 
 /-- The data projected by a byte request, without using its claimed total length.
 Returning an empty sublist here says nothing about authenticated EOF. -/

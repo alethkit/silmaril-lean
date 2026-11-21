@@ -1,9 +1,10 @@
 module
 
-public import Silmaril.Formats.Bao.Defs
+public import Silmaril.Formats.Bao.Opening.Defs
 import Silmaril.Proofs.Formats.Bao.Layout
 import Silmaril.Proofs.Formats.Bao.Coverage
 import Silmaril.Proofs.Formats.Bao.Release
+import Silmaril.Proofs.Formats.Bao.Opening
 
 public section
 
@@ -72,7 +73,7 @@ theorem release_checked {hash : HashOps} {size : Nat} {tree : Plan} {digest : Di
     {fields : List Bytes} {events : List Event} {final : Session}
     (trace : Steps hash size (start tree digest) fields events final) :
     (∀ event ∈ events, Checked hash tree digest event) ∧
-      (authenticatedLength size final = some size ↔ ∃ event ∈ events, EdgeEvent size event) :=
+      (rightEdgeClaim size final = some size ↔ ∃ event ∈ events, EdgeEvent size event) :=
   Proofs.Formats.Bao.release_checked trace
 
 theorem verifyFrame_sound {hash : HashOps} {size : Nat} {tree : Plan} {digest : Digest}
@@ -81,5 +82,38 @@ theorem verifyFrame_sound {hash : HashOps} {size : Nat} {tree : Plan} {digest : 
     (∀ event ∈ events, Checked hash tree digest event) ∧
       (length = some size ↔ ∃ event ∈ events, EdgeEvent size event) :=
   Proofs.Formats.Bao.verifyFrame_sound verified
+
+theorem lowerPrefix_spec {expected : Digest} {plan : Plan} {fields : List Bytes}
+    {frontier : Frontier} : lowerPrefix plan expected fields = some frontier ↔
+      Fills expected plan fields frontier [] ∧ (∀ cv, frontier ≠ .opaque cv) :=
+  Proofs.Formats.Bao.lowerPrefix_spec
+
+theorem split_matches_byte_geometry (first size : Nat) (positive : 0 < size) :
+    ((Span.mk first (chunks size)).split.2.first, (Span.mk first (chunks size)).split.1.count) =
+      (first + 2 ^ ((size - 1) / chunkBytes).log2, 2 ^ ((size - 1) / chunkBytes).log2) :=
+  Proofs.Formats.Bao.split_matches_byte_geometry first size positive
+
+theorem releaseRanges_spec {Range : Digest → Nat → Nat → Bytes → Prop}
+    {Trusted EOF : Digest → Nat → Prop} {digest : Digest} {claim : Nat}
+    {permit : Option (PLift (ExtentEvidence Trusted EOF digest claim))}
+    {pending : List (StagedRange Range digest claim)} {output : List (Nat × Bytes)} :
+    releaseRanges permit pending = some output ↔
+      permit.isSome = true ∧ output = pending.map (fun fragment => (fragment.offset, fragment.bytes)) :=
+  Proofs.Formats.Bao.releaseRanges_spec
+
+/-- No cross-extent range statement follows from a checked range alone. Supply the
+independent EOF comparison (or externally trusted length) and the same-extent theorem. -/
+theorem released_slice_or_collision {Range : Digest → Nat → Nat → Bytes → Prop}
+    {Trusted EOF : Digest → Nat → Prop} {digest : Digest} {claim referenceSize : Nat}
+    {permit : Option (PLift (ExtentEvidence Trusted EOF digest claim))}
+    {pending : List (StagedRange Range digest claim)} {output : List (Nat × Bytes)}
+    {Slice : Nat → Bytes → Prop} {Collision : Prop}
+    (trustedExtent : Trusted digest claim → claim = referenceSize)
+    (checkedExtent : EOF digest claim → claim = referenceSize ∨ Collision)
+    (sameExtent : ∀ {offset bytes}, Range digest claim offset bytes → claim = referenceSize →
+      Slice offset bytes ∨ Collision)
+    (released : releaseRanges permit pending = some output) :
+    ∀ entry ∈ output, Slice entry.1 entry.2 ∨ Collision :=
+  Proofs.Formats.Bao.released_slice_or_collision trustedExtent checkedExtent sameExtent released
 
 end Silmaril.Formats.Bao

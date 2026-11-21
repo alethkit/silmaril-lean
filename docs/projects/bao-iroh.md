@@ -77,8 +77,9 @@ QUIC request read limit, stream resets, ALPN negotiation, or provider errors.
   `detach_spec` converts the tape to a detached multiproof indexed by its
   slots, each carrying a fixed-width byte vector. It does not certify the root.
 - `release_checked` proves that after any successful prefix of steps, every
-  emitted event has a checked path from the expected root. The length is
-  witnessed exactly when a checked data event reaches the claimed right edge.
+  internal event has a checked path from the expected root **at the claimed
+  geometry**. `rightEdgeClaim` is present exactly when a checked data event
+  reaches the claimed right edge. It is not itself a kernel EOF certificate.
   `finished` is a separate predicate: all scheduled fields consumed, no
   leftover bytes, and the enclosing framer reports end. A good prefix can
   precede truncation or a bad proof. A finished interior slice can have no
@@ -97,9 +98,54 @@ likewise an untrusted claim even though the upstream FSM exposes it early.
 
 The proof checks equality and provenance under the supplied operations; it
 does **not** prove an arbitrary `HashOps` binds positions or lengths or that
-it implements BLAKE3. Concrete refinement against the separate kernel, a
-general equivalence proof with the upstream Rust iterators and parsers, and
-byte-level end-to-end provenance under a cryptographic binding assumption
+it implements BLAKE3. In particular, the reference implementation's behavior
+on the audit vectors is not a general cross-extent range theorem.
+
+## Kernel handoff and release policy
+
+The format modules do not depend on the drafts. The relevant interfaces are
+in [PR #1583 at `94f0ce9`](https://github.com/hiloopai/silmaril-lean/pull/1583)
+and its separate [EOF follow-up, PR #1586 at `ce7dcc0`](https://github.com/hiloopai/silmaril-lean/pull/1586).
+
+1. Decode the Bao or Iroh frame to fields. For a Bao outboard, first supply
+   original bytes to `fromOutboard .combined` (or `.slice`). For Iroh use the
+   `readResponse` fields and that blob's `responsePlan`. For incremental
+   checking, pass only complete fields from the prefix. `lowerPrefix` builds
+   a grouped `Frontier`; `lowerPrefix_spec` rejects an opaque root or surplus
+   fields and characterizes the result. Skipped/unread children carry the
+   expected CV from their parent. A missing zero-byte root cell is different
+   from a supplied zero-byte cell.
+2. In a downstream adapter translate `Frontier.opaque` to `Opening.opaque`
+   with `Blake3.loadWords (count := 8)` (little-endian words). Pass the root
+   digest as bytes, not as a non-root CV. Map forks in the same order; map
+   `Frontier.data span bytes` to `Blake3.disclose` of
+   `Blake3.geometry span.first bytes.length`. This expands even an Iroh
+   chunk group into kernel leaves at absolute chunk counters.
+   `split_matches_byte_geometry` checks the parent split arithmetic; a
+   general format-to-kernel refinement theorem is still separate work.
+3. Call `Blake3.verifyRange?` with a resource-appropriate extent cap, the
+   claim, and the exact absolute offset/count to stage. Only its returned
+   `Checked` fragment becomes a `StagedRange`. `verifyRange?` rejects offsets
+   outside the claim and does not accept an arbitrary `HashOps` result.
+4. `releaseRanges` needs `ExtentEvidence` for the *same digest and claim*:
+   an externally trusted extent or a `CheckedEOF` from `Blake3.verifyEOF?`.
+   That can be from a separate Bao tail slice or Iroh `endProbe`; check the
+   certificate again at the original claim, not at a different claimed
+   extent. An independently verified EOF or trusted extent may permit
+   release before wire completion, but cannot turn a truncated frame into a
+   completed response. Without either, keep interior results staged.
+5. Given an actual `Named` reference blob, instantiate `released_slice_or_collision`:
+   for trusted extent supply equality with the reference length; otherwise
+   use `CheckedEOF.extentOrCollision` from #1586, then
+   `Checked.sliceOrCollision` from #1583 at equal extent. Alternatively use
+   #1586's combined `Checked.sliceOrCollisionOfEOF`. The conclusion is a
+   reference slice **or a compression collision**, not collision resistance
+   or a guarantee that an object behind opaque CVs exists. In the CAS layer,
+   `blake3_range_with_eof` supplies the reference from a compatible store hit.
+
+No theorem here releases data for an arbitrary reference extent from a
+range opening without a matching extent proof. Concrete refinement of every
+accepted wire frame and equivalence to the upstream Rust parsers/iterators
 remain follow-up work. The Lean codec is an in-memory reference, not a
 resource-bounded network implementation. No keyed/derive-key profiles,
 database/partial-storage internals, discovery, replication, alternate RPCs,
