@@ -138,5 +138,16 @@ def append (arena : Dense limit Name Payload) (next : Slot Name Payload) : Dense
 def packed (slots : Array (Slot Name Payload)) : Dense slots.size Name Payload :=
   ⟨slots.map some, Array.size_map⟩
 
+/-- This only constrains occupancy. Both fields of an occupied slot may be empty. -/
+def NoHoles (arena : Dense limit Name Payload) : Prop :=
+  ∀ index : Fin limit, (arena.read index).isSome = true
+
+def packExact (slots : { slots : Array (Slot Name Payload) // slots.size = limit }) : Dense limit Name Payload :=
+  ⟨slots.val.map some, Array.size_map.trans slots.property⟩
+
+def unpack (arena : Dense limit Name Payload) (occupied : arena.NoHoles) :
+    { slots : Array (Slot Name Payload) // slots.size = limit } :=
+  ⟨Array.ofFn (fun index : Fin limit => (arena.read index).get (occupied index)), Array.size_ofFn⟩
+
 end Dense
 end Silmaril.Semantics.Arena

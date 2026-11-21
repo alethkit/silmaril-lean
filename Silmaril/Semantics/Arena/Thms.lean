@@ -4,6 +4,7 @@ public import Mathlib.Logic.Equiv.Defs
 public import Silmaril.Semantics.Arena.Defs
 public import Silmaril.Semantics.Naming.Thms
 import Silmaril.Proofs.Semantics.Arena.Basic
+import Silmaril.Proofs.Semantics.Arena.Packed
 
 public section
 
@@ -89,6 +90,27 @@ theorem append_commutes (arena : Dense limit Name Payload) (next : Slot Name Pay
 
 @[simp] theorem packed_read (slots : Array (Slot Name Payload)) (index : Nat) : (packed slots).read index = slots[index]? :=
   Proofs.Semantics.Arena.packed_read slots index
+
+theorem ext_read {left right : Dense limit Name Payload} (same : ∀ index, left.read index = right.read index) :
+    left = right := equivBounded.injective (Subtype.ext (funext same))
+
+@[simp] theorem read_ofFn (cells : Fin limit → Option (Slot Name Payload)) (index : Fin limit) :
+    Dense.read ⟨Array.ofFn cells, Array.size_ofFn⟩ index = cells index :=
+  Proofs.Semantics.Arena.read_ofFn cells index
+
+@[simp] theorem packExact_read (slots : { slots : Array (Slot Name Payload) // slots.size = limit }) (index : Nat) :
+    (packExact slots).read index = slots.val[index]? := Proofs.Semantics.Arena.packExact_read slots index
+
+theorem packExact_noHoles (slots : { slots : Array (Slot Name Payload) // slots.size = limit }) :
+    (packExact slots).NoHoles := Proofs.Semantics.Arena.packExact_noHoles slots
+
+/-- The plain array alternative has precisely the no-hole domain, at the same capacity. -/
+def equivPacked : { arena : Dense limit Name Payload // arena.NoHoles } ≃
+    { slots : Array (Slot Name Payload) // slots.size = limit } where
+  toFun arena := arena.val.unpack arena.property
+  invFun slots := ⟨packExact slots, packExact_noHoles slots⟩
+  left_inv arena := Subtype.ext (ext_read (Proofs.Semantics.Arena.read_packExact_unpack arena.val arena.property))
+  right_inv := Proofs.Semantics.Arena.unpack_packExact
 
 end Dense
 end Silmaril.Semantics.Arena
