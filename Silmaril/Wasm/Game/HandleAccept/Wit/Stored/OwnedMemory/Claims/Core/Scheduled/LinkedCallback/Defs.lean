@@ -65,26 +65,30 @@ def ReadyAgreement (ready : HostReady (HostState sig)) (start : State grow sig) 
 /-- A finite checked callback prefix described by reached scheduler steps and
 classified linked reentries. It is indexed by visible labels, not a shared
 count of internal steps. Unclassified reads are not replayed by this relation. -/
-inductive Prefix (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
-    (resume : ReturnFrame.Continuation (core3 grow) (HostState sig)) :
+inductive PrefixFor (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (protectedReturn : ReturnFrame.Continuation (core3 grow) (HostState sig) → Prop) :
     State grow sig → List (Label (core3 grow) (HostState sig)) → State grow sig → Prop where
-  | done (cfg : State grow sig) : Prefix profile ready bindings resume cfg [] cfg
+  | done (cfg : State grow sig) : PrefixFor profile ready bindings protectedReturn cfg [] cfg
   | step {start next last : State grow sig} {label labels} :
-      HostFrame.Interior resume start → CoreUpdateGrows start →
+      HostFrame.InteriorFor protectedReturn start → CoreUpdateGrows start →
       Step profile ready (specDispatch ready (host (grow := grow) bindings)) start label next →
-      Prefix profile ready bindings resume next labels last →
-      Prefix profile ready bindings resume start (PayloadPrefix.visible [label] ++ labels) last
+      PrefixFor profile ready bindings protectedReturn next labels last →
+      PrefixFor profile ready bindings protectedReturn start (PayloadPrefix.visible [label] ++ labels) last
   | closedGive {start last : State grow sig} {labels} (callout : ClosedGive bindings start) :
-      Prefix profile ready bindings resume callout.resume labels last →
-      Prefix profile ready bindings resume start labels last
+      PrefixFor profile ready bindings protectedReturn callout.resume labels last →
+      PrefixFor profile ready bindings protectedReturn start labels last
   | syncReady {start last : State grow sig} {labels task inst thread frames rest}
       (focused : start.ctl = ⟨thread, .prog (.op .hostGet (fun current =>
         syncLiftCandidates task (start.store.instCandidates (ready current) inst))), frames⟩ :: rest)
       (agrees : ReadyAgreement ready start inst) :
-      Prefix profile ready bindings resume { start with ctl := ⟨thread,
+      PrefixFor profile ready bindings protectedReturn { start with ctl := ⟨thread,
         .prog (syncLiftCandidates task (start.store.instCandidates (ready start.host) inst)), frames⟩ :: rest }
         labels last →
-      Prefix profile ready bindings resume start labels last
+      PrefixFor profile ready bindings protectedReturn start labels last
+
+abbrev Prefix (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (resume : ReturnFrame.Continuation (core3 grow) (HostState sig)) :=
+  PrefixFor profile ready bindings (· = resume)
 
 /-- Continue a designated allocator return using its measured width and size.
 The tail rule receives the alignment, bounds, and live-plan facts only after
@@ -101,14 +105,18 @@ def ReachedCollectionTail (profile : ProfileKind) (ready : HostReady (HostState 
 
 /-- The observed pop was of an unchanged frame and the two allocator
 executions are still paired. -/
-def CollectionCommonPop (profile : ProfileKind) (ready : HostReady (HostState sig))
-    (bindings : List (Binding sig)) (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
+def CollectionCommonPopOver (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (changes : ReturnFrame.Substitutions (core3 grow) (HostState sig))
     (left right afterPop : State grow sig) (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
   let dispatch := specDispatch ready (host (grow := grow) bindings)
   ∃ leftLabels rightLabels other,
     Steps profile ready dispatch left leftLabels afterPop ∧ Steps profile ready dispatch right rightLabels other ∧
-    HostFrame.Paired first second afterPop other ∧
+    HostFrame.Related.Paired changes afterPop other ∧
     PayloadPrefix.visible leftLabels = seen ∧ PayloadPrefix.visible rightLabels = seen
+
+abbrev CollectionCommonPop (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (first second : ReturnFrame.Continuation (core3 grow) (HostState sig)) :=
+  CollectionCommonPopOver profile ready bindings (ReturnFrame.Only first second)
 
 /-- The frame at a reached child entry. Blocked activations and the cursor
 tails can still contain substituted return frames; only the store and the
@@ -126,6 +134,33 @@ structure ChildFrameOver (changes : ReturnFrame.Substitutions (core3 grow) (Host
 
 abbrev ChildFrame (first second : ReturnFrame.Continuation (core3 grow) (HostState sig)) :=
   ChildFrameOver (ReturnFrame.Only first second)
+
+/-- A reached pop either consumes a paired substitution (not necessarily
+the newest one), or executes the unchanged continuation on both sides.
+The residual cursor and blocked frames retain the installed relation. -/
+inductive CallbackReturnFor (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (bindings : List (Binding sig)) (changes : ReturnFrame.Substitutions (core3 grow) (HostState sig))
+    (left right last : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (resume : ReturnFrame.Continuation (core3 grow) (HostState sig))
+    (value : Ret (core3 grow)) (seen : List (Label (core3 grow) (HostState sig))) : Prop where
+  | substituted {reference : State grow sig} {canonCursor : Cursor (E := core3 grow) (HostState sig)}
+      {canonResume : ReturnFrame.Continuation (core3 grow) (HostState sig)}
+      {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))}
+      (edge : changes resume canonResume)
+      (frame : ChildFrameOver changes last reference cursor canonCursor)
+      (checked : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) left checkLabels
+        { last with ctl := cursor.control (resume value) })
+      (canonical : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) right canonLabels
+        { reference with ctl := canonCursor.control (canonResume value) })
+      (checkSeen : visible checkLabels = seen) (canonSeen : visible canonLabels = seen) :
+      CallbackReturnFor profile ready bindings changes left right last cursor resume value seen
+  | common {reference : State grow sig} {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))}
+      (checked : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) left checkLabels
+        { last with ctl := cursor.control (resume value) })
+      (canonical : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) right canonLabels reference)
+      (paired : HostFrame.Related.Paired changes { last with ctl := cursor.control (resume value) } reference)
+      (checkSeen : visible checkLabels = seen) (canonSeen : visible canonLabels = seen) :
+      CallbackReturnFor profile ready bindings changes left right last cursor resume value seen
 
 /-- A classified callback has reached a pop. Only a pop of the substituted
 frame enters the two distinct continuations. No validation or tail code
@@ -164,8 +199,9 @@ def stringReallocEntry (ready : HostReady (HostState sig)) (bindings : List (Bin
 On a valid range the checked continuation receives the real live verdict
 (which can refuse); the canonical continuation receives only the pointer.
 Neither side rewinds callback effects. -/
-inductive RangeCut (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
-    (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
+inductive RangeCutOver (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (changes : ReturnFrame.Substitutions (core3 grow) (HostState sig))
+    (resume : ReturnFrame.Continuation (core3 grow) (HostState sig))
     (left right last : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
     (destination : RecordDestination) (area : Layout) (count pointer : Nat) (plan : List Object)
     (checkNext : Nat → Except Endpoints.RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
@@ -175,24 +211,28 @@ inductive RangeCut (profile : ProfileKind) (ready : HostReady (HostState sig)) (
       (width : (core3 grow).memAddrType? last.store.core destination.memory = some destination.width)
       (sized : (core3 grow).memSize? last.store.core destination.memory = some bytes)
       (aligned : pointer = alignTo pointer area.alignment) (bounds : pointer + count * area.size ≤ bytes)
-      (frame : ChildFrame first second last reference cursor canonCursor)
+      (frame : ChildFrameOver changes last reference cursor canonCursor)
       (growth : Core3.Grows left.store.core last.store.core)
       (checked : Steps profile ready (specDispatch ready (host bindings)) left checkLabels
         { last with ctl := cursor.control (checkNext pointer (Record.prepare last.store last.host.writer plan)) })
       (canonical : Steps profile ready (specDispatch ready (host bindings)) right canonLabels
         { reference with ctl := canonCursor.control (canonNext pointer) })
       (checkSeen : visible checkLabels = seen) (canonSeen : visible canonLabels = seen) :
-      RangeCut profile ready bindings first second left right last cursor destination area count pointer plan checkNext canonNext seen
+      RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen
   | trapped {reference : State grow sig} {reason : TrapReason}
       {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))}
       (stores : last.store = reference.store)
       (checked : Steps profile ready (specDispatch ready (host bindings)) left checkLabels (StepDefs.trapCfg last))
       (canonical : Steps profile ready (specDispatch ready (host bindings)) right canonLabels (StepDefs.trapCfg reference))
       (checkSeen : visible checkLabels = seen ++ [.trap reason]) (canonSeen : visible canonLabels = seen ++ [.trap reason]) :
-      RangeCut profile ready bindings first second left right last cursor destination area count pointer plan checkNext canonNext seen
-  | common (pop : CollectionCommonPop profile ready bindings first second left right
-      { last with ctl := cursor.control (first (.nat pointer)) } seen) :
-      RangeCut profile ready bindings first second left right last cursor destination area count pointer plan checkNext canonNext seen
+      RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen
+  | common (pop : CollectionCommonPopOver profile ready bindings changes left right
+      { last with ctl := cursor.control (resume (.nat pointer)) } seen) :
+      RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen
+
+abbrev RangeCut (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (first second : ReturnFrame.Continuation (core3 grow) (HostState sig)) :=
+  RangeCutOver profile ready bindings (ReturnFrame.Only first second) first
 
 /-- Allocator descent from the two actual dynamic-field programs. The cut
 hands the entry interpreters back to the caller rather than requiring
