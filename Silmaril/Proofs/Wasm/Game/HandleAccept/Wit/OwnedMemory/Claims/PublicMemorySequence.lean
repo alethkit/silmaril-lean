@@ -6,6 +6,7 @@ import Silmaril.Wasm.Component.Reference.Engine.Core3.Store.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadRoot.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Thms
 
@@ -144,5 +145,111 @@ theorem parkedList {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig r
   exact value_entries_replay call.destination call.inst (.list element) element entries depth 0 route.output call.reply next valueMode
     matchingEntries realloc fit ((initialFrame call next _).collection_replay call.destination call.inst (.list element) element entries 0
       route.output call.reply next width sized preparedEntries checkAt canonAt)
+
+private theorem fitListTree {stringLeaf fits : Field → Prop} (depth : Nat) (field : Field)
+    (shape : ListTreeShape stringLeaf depth field)
+    (reached : ∀ leaf, Field.Descendant field leaf → stringLeaf leaf → fits leaf) : ListTreeShape fits depth field := by
+  induction depth generalizing field with
+  | zero =>
+    cases shape with
+    | handle handle => exact .handle handle
+    | string leaf => exact .string (reached field (.self field) leaf)
+    | scalar payload nonString => exact .scalar payload nonString
+  | succ depth ih =>
+    cases shape with
+    | handle handle => exact .handle handle
+    | string leaf => exact .string (reached field (.self field) leaf)
+    | scalar payload nonString => exact .scalar payload nonString
+    | aggregate children =>
+      exact .aggregate fun item member => ih item (children item member) fun leaf path => reached leaf (.aggregate member path)
+    | list children =>
+      exact .list fun item member => ih item (children item member) fun leaf path => reached leaf (.dynamic member path)
+    | map pairs children =>
+      refine .map pairs ?_
+      intro entry member fields equal item inFields
+      exact ih item (children entry member fields equal item inFields) fun leaf path =>
+        reached leaf (.dynamic member (equal ▸ .aggregate inFields path))
+    | sum child =>
+      refine .sum ?_
+      intro item equal
+      subst equal
+      exact ih item (child item rfl) fun leaf path => reached leaf (.sum path)
+    | fixed children =>
+      exact .fixed fun item member => ih item (children item member) fun leaf path => reached leaf (.fixed member path)
+
+theorem parkedListTree (call : PayloadRoot.Site grow sig (.memory pointer)) (linked : call.Linked bindings)
+    (depth : Nat) (next : call.ReferenceNext) (shape : ParkedListTreeShape depth call.field)
+    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    PayloadRoot.Cut call profile ready bindings (ParkedListTreeBody call depth next profile ready bindings) := by
+  apply call.parked_after_placement linked
+  intro admitted placed
+  obtain ⟨plan, compiled⟩ := linked.compiled
+  have matched := OwnedMemory.Claims.Record.preflightValue_layout _ _ _ _ _ _ compiled
+  change placement call.destination call.start.store (layout call.destination.width (sig.payload call.tag)) (flatNat pointer) = .ok () at placed
+  rw [← matched.type_eq] at placed
+  obtain ⟨bytes, sized, slot⟩ := placementFits call.destination call.start.store call.field (flatNat pointer) placed
+  have fits : ListTreeShape (StringField.Fits call.destination) depth call.field := by
+    apply fitListTree depth call.field shape
+    intro leaf path leafShape
+    obtain ⟨item, equal⟩ := leafShape
+    rw [← equal] at path
+    have checked := (call.destination.compiled_payload_descendant call.inst (sig.payload call.tag)
+      call.payload (.memory (flatNat pointer)) (plan := plan) compiled admitted path).2
+    exact ⟨item, equal, by simpa only [StringField.field, Field.type, Field.value, Lower.fits, decide_eq_true_eq] using checked⟩
+  unfold ParkedListTreeBody
+  exact list_tree_rule call.destination call.inst depth call.field (flatNat pointer)
+    (call.destination.check_width call.start.store linked.destination) sized realloc fits (matched.type_eq.symm ▸ matched) slot
+    0 call.reply next call.checked (call.reference next) call.cursor call.cursor (initialFrame call next _)
+    (Core3.Grows.refl _) rfl (call.reference_at linked next) _ (fun _ _ _ _ frame _ checked canonical => ⟨frame, checked, canonical⟩)
+
+theorem parkedRecursiveList {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route) (linked : call.Linked bindings)
+    (element : TypeOf) (entries : List Field) (depth : Nat) (next : call.ReferenceNext)
+    (compiledList : call.field = .dynamic (.list element) element entries)
+    (shapes : ∀ item ∈ entries, ParkedListTreeShape depth item) {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    PayloadRoot.Cut call profile ready bindings (ParkedRecursiveListBody call element entries depth next profile ready bindings) := by
+  apply call.parked_after_admission linked
+  intro admitted _ prepared
+  obtain ⟨plan, compiled⟩ := linked.compiled
+  have matched := OwnedMemory.Claims.Record.preflightValue_layout _ _ _ _ _ _ compiled
+  have layoutMatch : call.field.LayoutMatches call.field.type := matched.type_eq.symm ▸ matched
+  have matchingEntries : Field.EntriesMatch entries element := by
+    rw [compiledList] at layoutMatch
+    cases layoutMatch with
+    | list children => exact children
+  have fit (item : Field) (member : item ∈ entries) : ListTreeShape (StringField.Fits call.destination) depth item := by
+    apply fitListTree depth item (shapes item member)
+    intro leaf path leafShape
+    obtain ⟨string, equal⟩ := leafShape
+    rw [← equal] at path
+    have descent : call.field.Descendant string.field := compiledList ▸ Field.Descendant.dynamic member path
+    have checked := (call.destination.compiled_payload_descendant call.inst (sig.payload call.tag)
+      call.payload route.output (plan := plan) compiled admitted descent).2
+    exact ⟨string, equal, by simpa only [StringField.field, Field.type, Field.value, Lower.fits, decide_eq_true_eq] using checked⟩
+  have width := call.destination.check_width call.start.store linked.destination
+  have sizeExists : ((core3 grow).memSize? call.start.store.core call.destination.memory).isSome = true := by
+    apply Core3.memAddrType?_isSome_iff.mp
+    change ((core3 grow).memAddrType? call.start.store.core call.destination.memory).isSome = true
+    rw [width]
+    rfl
+  obtain ⟨bytes, sized⟩ := Option.isSome_iff_exists.mp sizeExists
+  have preparedEntries : Record.prepare call.checked.store call.checked.host.writer (Field.listObjects entries) = .ok () := by
+    change Record.prepare call.start.store call.start.host.writer (Field.listObjects entries) = .ok ()
+    simpa only [compiledList, Field.objects] using prepared
+  have checkAt : call.checked.ctl = call.cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (call.destination.context call.inst) call.destination.width (.dynamic (.list element) element entries) 0 route.output >>= call.reply) := by
+    conv_lhs => unfold PayloadRoot.Site.checked
+    rw [compiledList]
+    rfl
+  have canonAt := call.reference_at linked next
+  rw [compiledList] at canonAt
+  unfold ParkedRecursiveListBody
+  refine list_replay call.destination call.inst element entries 0 route.output _ call.reply next _ matchingEntries ?_ ?_
+    ((initialFrame call next _).collection_replay call.destination call.inst (.list element) element entries 0
+      route.output call.reply next width sized preparedEntries checkAt canonAt)
+  · intro store bytes width sized item member address placement
+    have layoutAt := entries_match_of_mem matchingEntries member
+    exact list_tree_rule call.destination call.inst depth item address width sized realloc (fit item member)
+      (layoutAt.type_eq.symm ▸ layoutAt) placement
+  · exact fun _ _ _ _ _ frame _ checked canonical => ⟨frame, checked, canonical⟩
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence
