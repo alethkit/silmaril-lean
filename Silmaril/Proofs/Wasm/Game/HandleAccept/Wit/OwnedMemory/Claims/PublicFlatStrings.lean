@@ -74,7 +74,7 @@ theorem parkedMixed (call : PayloadRoot.Site grow sig (.flat schema)) (linked : 
   unfold MixedBody bodyUsing
   exact nested_flat_rule call.destination call.inst _ _
     (fun field fit => mixed_flat_rule call.destination call.inst field
-      (call.destination.check_width call.start.store linked.destination) realloc fit) depth call.field fits
+      (call.destination.check_width call.start.store linked.destination) (fun _ => ⟨_, realloc⟩) fit) depth call.field fits
     (fun path => call.destination.compiled_payload_sum_tag call.inst (sig.payload call.tag) call.payload .flat compiled admitted path)
     0 call.reply next call.checked (call.reference next) call.cursor call.cursor (initialFrame call next _)
     (Core3.Grows.refl _) rfl (call.reference_at linked next)

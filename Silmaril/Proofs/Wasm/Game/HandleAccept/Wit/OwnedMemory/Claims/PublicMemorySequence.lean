@@ -179,9 +179,24 @@ private theorem fitListTree {stringLeaf fits : Field → Prop} (depth : Nat) (fi
     | fixed children =>
       exact .fixed fun item member => ih item (children item member) fun leaf path => reached leaf (.fixed member path)
 
+private theorem linkedAllocator {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route)
+    (linked : call.Linked bindings) : Field.AllocatorFor call.destination.realloc call.field := by
+  intro child path pointer
+  obtain ⟨plan, compiled⟩ := linked.compiled
+  have certificate := Record.preflightValue_layout _ _ _ _ _ _ compiled
+  have rootPointer := path.containsPtr certificate pointer
+  cases option : call.destination.realloc with
+  | some addr => exact ⟨addr, rfl⟩
+  | none =>
+    have rejected : Lower.checkOptions (call.destination.context (grow := grow) call.inst)
+        (sig.payload call.tag) route.output = .error .reallocRequired := by
+      simp [Lower.checkOptions, RecordDestination.context, rootPointer, option, Option.isNone]
+      rfl
+    simp only [Record.preflightValue, compileValue, rejected, bind, Except.bind, Except.mapError] at compiled
+    split at compiled <;> contradiction
+
 theorem parkedListTree (call : PayloadRoot.Site grow sig (.memory pointer)) (linked : call.Linked bindings)
-    (depth : Nat) (next : call.ReferenceNext) (shape : ParkedListTreeShape depth call.field)
-    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    (depth : Nat) (next : call.ReferenceNext) (shape : ParkedListTreeShape depth call.field) :
     PayloadRoot.Cut call profile ready bindings (ParkedListTreeBody call depth next profile ready bindings) := by
   apply call.parked_after_placement linked
   intro admitted placed
@@ -200,7 +215,8 @@ theorem parkedListTree (call : PayloadRoot.Site grow sig (.memory pointer)) (lin
     exact ⟨item, equal, by simpa only [StringField.field, Field.type, Field.value, Lower.fits, decide_eq_true_eq] using checked⟩
   unfold ParkedListTreeBody
   exact list_tree_rule call.destination call.inst depth call.field (flatNat pointer)
-    (call.destination.check_width call.start.store linked.destination) sized realloc fits (matched.type_eq.symm ▸ matched) slot
+    (call.destination.check_width call.start.store linked.destination) sized (linkedAllocator call linked)
+    fits (matched.type_eq.symm ▸ matched) slot
     0 call.reply next call.checked (call.reference next) call.cursor call.cursor (initialFrame call next _)
     (Core3.Grows.refl _) rfl (call.reference_at linked next) _ (fun _ _ _ _ frame _ checked canonical => ⟨frame, checked, canonical⟩)
 
@@ -252,7 +268,7 @@ theorem parkedRecursiveValue {route : GiveEffectRoute} (call : PayloadRoot.Site 
       route.output call.reply next width sized preparedEntries checkAt canonAt)
   · intro store bytes width sized item member address placement
     have layoutAt := entries_match_of_mem matchingEntries member
-    exact list_tree_rule call.destination call.inst depth item address width sized realloc (fit item member)
+    exact list_tree_rule call.destination call.inst depth item address width sized (fun _ _ _ => ⟨_, realloc⟩) (fit item member)
       (layoutAt.type_eq.symm ▸ layoutAt) placement
   · exact fun _ _ _ _ _ frame _ checked canonical => ⟨frame, checked, canonical⟩
 
@@ -260,13 +276,13 @@ private theorem flatAllocatingRule {older : ReturnFrame.Substitutions (core3 gro
     {origin : CStore (core3 grow)} (destination : RecordDestination) (inst : InstId) (depth : Nat) (item : Field)
     (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
     {bytes : Nat} (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
-    {addr : Nat} (realloc : destination.realloc = some addr)
+    (allocator : Field.AllocatorFor destination.realloc item)
     (fit : FlatAllocatingLeaf (StringField.Fits destination) depth item)
     (matched : item.LayoutMatches item.type) :
     FlatFieldRule (flatAllocating profile ready bindings older destination inst depth) older origin destination inst item := by
   intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
   rcases fit with leaf | scalar | ⟨type, element, entries, rfl, children⟩
-  · exact .inl (mixed_flat_rule destination inst item present realloc leaf
+  · exact .inl (mixed_flat_rule destination inst item present (allocator item (.self item)) leaf
       index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
   · obtain ⟨type, payload, rfl, data⟩ := scalar
     have reachedWidth : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width :=
@@ -300,13 +316,13 @@ private theorem flatAllocatingRule {older : ReturnFrame.Substitutions (core3 gro
           (growth.memAddrType present) reachedSize prepared checkAt canonAt)
       · intro store bytes width sized entry member address placement
         have layoutAt := entries_match_of_mem certs.1 member
-        exact list_tree_rule destination inst depth entry address width sized realloc (children entry member)
+        exact list_tree_rule destination inst depth entry address width sized
+          (fun leaf path => allocator leaf (.dynamic member path)) (children entry member)
           (layoutAt.type_eq.symm ▸ layoutAt) placement
       · exact fun _ _ _ _ _ frame grown checked canonical => ends _ _ _ _ _ frame (growth.trans grown) checked canonical
 
 theorem parkedFlat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
-    (flatDepth entryDepth : Nat) (next : call.ReferenceNext) (shape : ParkedFlatShape flatDepth entryDepth call.field)
-    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    (flatDepth entryDepth : Nat) (next : call.ReferenceNext) (shape : ParkedFlatShape flatDepth entryDepth call.field) :
     PayloadRoot.Cut call profile ready bindings (ParkedFlatBody call flatDepth entryDepth next profile ready bindings) := by
   apply call.parked_after_fit linked
   intro admitted
@@ -318,13 +334,14 @@ theorem parkedFlat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat sc
     rw [width]
     rfl
   obtain ⟨bytes, sized⟩ := Option.isSome_iff_exists.mp sizeExists
-  let leaf := fun item => FlatAllocatingLeaf (StringField.Fits call.destination) entryDepth item ∧ item.LayoutMatches item.type
+  let leaf := fun item => FlatAllocatingLeaf (StringField.Fits call.destination) entryDepth item ∧
+    item.LayoutMatches item.type ∧ Field.AllocatorFor call.destination.realloc item
   have fits : FlatNestedFits leaf flatDepth call.field := by
     apply flat_nested_refine flatDepth call.field shape
     intro item path leafShape
     have facts := call.destination.compiled_payload_descendant call.inst (sig.payload call.tag) call.payload .flat
       (plan := plan) compiled admitted path
-    refine ⟨?_, facts.1⟩
+    refine ⟨?_, facts.1, fun child descent => linkedAllocator call linked child (path.trans descent)⟩
     rcases leafShape with (handle | ⟨string, equal⟩) | scalar | ⟨type, element, entries, equal, children⟩
     · exact .inl (.inl handle)
     · exact .inl (.inr ⟨string, equal, by
@@ -343,7 +360,7 @@ theorem parkedFlat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat sc
       exact ⟨string, equal, by simpa only [StringField.field, Field.type, Field.value, Lower.fits, decide_eq_true_eq] using checked.2⟩
   unfold ParkedFlatBody
   exact nested_flat_rule call.destination call.inst leaf _
-    (fun item fit => flatAllocatingRule call.destination call.inst entryDepth item width sized realloc fit.1 fit.2)
+    (fun item fit => flatAllocatingRule call.destination call.inst entryDepth item width sized fit.2.2 fit.1 fit.2.1)
     flatDepth call.field fits
     (fun path => call.destination.compiled_payload_sum_tag call.inst (sig.payload call.tag) call.payload .flat compiled admitted path)
     0 call.reply next call.checked (call.reference next) call.cursor call.cursor (initialFrame call next _)
@@ -469,18 +486,16 @@ private theorem compiledShapes (item : Field) (compiled : item.Emitted)
               (children child rfl) (memoryDepth + 1) flatDepth (by omega) (by omega)).2
 
 theorem parkedCompiledMemory (call : PayloadRoot.Site grow sig (.memory pointer)) (linked : call.Linked bindings)
-    (next : call.ReferenceNext)
-    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    (next : call.ReferenceNext) :
     ∃ depth, PayloadRoot.Cut call profile ready bindings (ParkedListTreeBody call depth next profile ready bindings) :=
   ⟨sizeOf call.field, parkedListTree call linked _ next
-    (compiledShapes call.field linked.emitted _ _ (Nat.le_refl _) (Nat.le_refl _)).1 realloc⟩
+    (compiledShapes call.field linked.emitted _ _ (Nat.le_refl _) (Nat.le_refl _)).1⟩
 
 theorem parkedCompiledFlat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
-    (next : call.ReferenceNext)
-    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    (next : call.ReferenceNext) :
     ∃ flatDepth entryDepth, PayloadRoot.Cut call profile ready bindings
       (ParkedFlatBody call flatDepth entryDepth next profile ready bindings) :=
   ⟨sizeOf call.field, sizeOf call.field, parkedFlat call linked _ _ next
-    (compiledShapes call.field linked.emitted _ _ (Nat.le_refl _) (Nat.le_refl _)).2 realloc⟩
+    (compiledShapes call.field linked.emitted _ _ (Nat.le_refl _) (Nat.le_refl _)).2⟩
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence

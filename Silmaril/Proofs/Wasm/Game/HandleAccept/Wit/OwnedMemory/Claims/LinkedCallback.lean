@@ -846,13 +846,14 @@ theorem handleFieldThen {older : ReturnFrame.Substitutions (core3 grow) (HostSta
 theorem mixedFlatRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
     (destination : RecordDestination) (inst : InstId) (item : Field)
     (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
-    {addr : Nat} (realloc : destination.realloc = some addr)
+    (allocator : Validation.containsPtr item.type = true → ∃ addr, destination.realloc = some addr)
     (fit : CanonicalHandle item ∨ StringField.Fits destination item) :
     FlatFieldRule (mixedFlatComparison profile ready bindings older destination inst) older origin destination inst item := by
   intro index checkNext canonNext left right check canon frame growth checkAt canonAt next ends
   rcases fit with handle | ⟨str, rfl, fits⟩
   · exact .inl ⟨handle, handleFieldThen destination inst item handle index .flat checkNext canonNext frame growth checkAt canonAt ends⟩
-  · exact .inr (stringFlatRule destination inst str present realloc fits index checkNext canonNext left right check canon
+  · obtain ⟨_, realloc⟩ := allocator rfl
+    exact .inr (stringFlatRule destination inst str present realloc fits index checkNext canonNext left right check canon
       frame growth checkAt canonAt next ends)
 
 theorem childCollectionInstall {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
