@@ -124,6 +124,8 @@ check-runtime:
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(PYTHON) -I tools/corpus/check_cjson_detach_equivalence_native.py)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(PYTHON) -I tools/corpus/check_cjson_detach_native.py)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/LoopControl.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Profiles.Injections.Thms,$(CHECK_TARGETS)),$(LAKE) build +Silmaril.Wasm.V1.Validation.Examples --wfail && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/Injections.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Sublanguages.Link.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.V1.Validation.Examples +Silmaril.Wasm.Verify.Kernel.Defs && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/Sublanguages.lean)
 
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
@@ -138,9 +140,11 @@ check-integrations:
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Execution.Core.Exec.InstantiateIff +Silmaril.Wasm.Validation.Intrinsic.Thms && $(LAKE) env lean -DwarningAsError=true tests/wasm/module-entry/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Intrinsic.Normalize.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Policy.Thms +Silmaril.Wasm.Execution.Core.Intrinsic.OpSem.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-policy/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Program.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-program/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Determinism.Fuel.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-determinism/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Determinism.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/operational-determinism/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.GlobalProfile.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/global-profile/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.ClosedFunctional.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Det.NaN.Litmus.Thms && $(LAKE) env lean -DwarningAsError=true tests/wasm/closed-functional/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Intrinsic.OpSem.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/OpSem.lean && $(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/Call.lean)
 	$(if $(filter +Silmaril.Wasm.Execution.Core.MemoryProfile.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/wasm/memory-profile/Regression.lean)
 	$(if $(filter wasm-opt,$(CHECK_TARGETS)),$(LAKE) build --wfail $(RELEASE_BINARIES) && $(MAKE) release-check)
@@ -179,10 +183,12 @@ logic-graph-check:
 # The ELF reader's pinned files, generated modules and explorer data (docs/projects/elf-reader.md).
 ELF_PINNED := $(foreach n,HelloGcc HelloClang Sha256sum ZlibChecksums ZlibLibz GlibcLibm GlibcLibc,\
 	Silmaril.Elf.Staged.Pinned.$(n).Thms Silmaril.Elf.Staged.Pinned.$(n).Functions)
+ELF_REGION_PROOFS := Silmaril.Elf.Staged.Pinned.HelloGcc.Regions.Examples.Thms \
+	Silmaril.Machine.Region.X86.CFG.Semantic.Thms Silmaril.Machine.Region.X86.CFG.View.Thms
 elf-check:
 	examples/elf/pin.sh --check
 	$(LAKE) build --wfail elf-staged elf-pages Silmaril.Elf.Staged.Reader.Examples \
-		$(ELF_PINNED) Silmaril.Elf.Staged.Pinned.ZlibChecksums.Contracts
+		$(ELF_PINNED) $(ELF_REGION_PROOFS) Silmaril.Elf.Staged.Pinned.ZlibChecksums.Contracts
 	scripts/elf-reader/gen.sh --check
 	scripts/elf-reader/test-pages.sh
 
@@ -330,7 +336,7 @@ pages: project-tool
 	lake build --wfail Silmaril.Containers.Noop.Thms Silmaril.Containers.Fixtures.Thms Silmaril.Containers.Mini.Thms Silmaril.Containers.Http.Thms Silmaril.Containers.HttpServe.Thms
 	lake env lean --run examples/containers/Examples.lean --json _site/containers-examples.json
 	# The ELF pages read the checked theorem modules of the pinned files (tools/elf-pages).
-	lake build --wfail elf-pages $(ELF_PINNED) Silmaril.Elf.Staged.Pinned.ZlibChecksums.Contracts
+	lake build --wfail elf-pages $(ELF_PINNED) $(ELF_REGION_PROOFS) Silmaril.Elf.Staged.Pinned.ZlibChecksums.Contracts
 	lake env .lake/build/bin/elf-pages _site
 
 # The committed runtime report of the acceptor components (tools/wasm-acceptor-harness/report.json):
