@@ -69,8 +69,26 @@ registration. For actual linked components, `Linked2.sessObs_eq` needs the
 adequate wire and the corresponding importer/exporter instances, discharged
 within `Linked2.sessAdequacy_full` for that class;
 `HLinked2.sessAdequacy_full` also requires typed host handling and retains
-the host run. The flat Core-module wiring fixture proves neither the linked
-instantiation/store correspondence nor an observation map for all prefixes.
+the host run. Those linked results do not apply to the flat Core-module
+wiring: its consumer imports a Core instance directly, not via the nested
+components and canonical trampolines of `Linked2.toRef`.
+
+The [flat wiring regression](../../tests/wasm/inductive-component/Regression.lean)
+checks one runtime witness independently of `Simple`: reference instantiation
+resolves `env.get` to the provider at Core address 0 and lifts `run` at address
+1. The entire ready Core store agrees with sequential checked Core
+instantiation from the empty store. The reference call of `run` returns
+`u32 42` with the Core store of the unique deterministic terminal Core
+configuration (`i32 42`). The same call is a complete Core scalar-game
+activation; translating the store's host-code type preserves all its fields
+and rejects host functions. A Core import resolved to a Wasm function is not
+a game host move.
+
+This witnesses a successful host-free call and its Core stores, not all
+reference behaviours or the component's bookkeeping state. The next step
+is to read back arbitrary reference terminal calls on direct wires to Core
+activations under a shared-store and resolved-address invariant. Traps,
+host moves and all-prefix correspondence are not covered by the fixture.
 The stock `Simple.adequacy` identifies only trap-last plays; observing the
 retained store after a trap would distinguish its existing witnesses.
 
