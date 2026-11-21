@@ -413,6 +413,35 @@ theorem listReplay {older : ReturnFrame.Substitutions (core3 grow) (HostState si
   exact valueTailWith destination inst element entries index pointer compare output checkNext canonNext finish region matched
     (children _ _ region.width region.sized) ends
 
+private theorem scalarRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
+    (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim primitive))
+    (nonString : primitive ≠ .string) (address : Nat)
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {bytes : Nat} (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    (placementFits : SlotFits destination.width bytes (.data (.prim primitive) payload) address) :
+    FieldRule (memoryLeaf profile ready bindings older destination inst) older origin destination inst (.data (.prim primitive) payload) address := by
+  intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
+  obtain ⟨reachedBytes, reachedSize, widened⟩ := growth.memSize sized
+  change (core3 grow).memSize? left.store.core destination.memory = some reachedBytes at reachedSize
+  have aligned : address % (layout destination.width (.prim primitive : TypeOf)).alignment.bytes = 0 := placementFits.1
+  have bounds : address + (layout destination.width (.prim primitive : TypeOf)).size ≤ reachedBytes := placementFits.2.trans widened
+  have placed : rootPlacement destination left.store (.prim primitive) (.memory address) = .ok () := by
+    simp [rootPlacement, placement, aligned, reachedSize, Nat.not_lt.mpr bounds]
+    rfl
+  have reachedWidth : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width := growth.memAddrType present
+  have width : ptrTypeIn left.store (destination.context inst) = destination.width := by
+    simp [ptrTypeIn, CanonOpts.ptrType, RecordDestination.context, reachedWidth]
+  have cut := primitive_leaf_frame (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings))
+    destination inst primitive payload nonString index (.memory address) origin left right (frame.store ▸ growth) width placed
+    frame.store check canon frame.thread checkNext canonNext checkAt canonAt
+  obtain ⟨store, result, chk, ref, checkRun, canonRun, labels, status⟩ := cut
+  refine .inr ⟨primitive, payload, rfl, nonString, store, result, chk, ref, checkRun, canonRun, labels, ?_⟩
+  cases result with
+  | ok value =>
+    exact ends _ _ _ _ ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩ status rfl rfl
+  | error _ => exact status
+
 theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     (destination : RecordDestination) (inst : InstId) (depth : Nat) (item : Field) (address : Nat)
     {origin : CStore (core3 grow)}
@@ -424,17 +453,28 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
     FieldRule (listTree profile ready bindings older destination inst depth) older origin destination inst item address := by
   induction depth generalizing item origin bytes address with
   | zero =>
-    cases shape with
-    | handle handle => exact mixedRule destination inst item address present sized realloc (.inl handle)
-    | string fit => exact mixedRule destination inst item address present sized realloc (.inr ⟨fit, placement.1, placement.2⟩)
-  | succ depth ih =>
     intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
     cases shape with
     | handle handle =>
       exact .inl (mixedRule destination inst item address present sized realloc (.inl handle)
         index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
     | string fit =>
-      exact .inl (mixedRule destination inst item address present sized realloc (.inr ⟨fit, placement.1, placement.2⟩)
+      exact .inl (mixedRule destination inst item address present sized realloc (.inr ⟨fit, placement⟩)
+        index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
+    | scalar payload nonString =>
+      exact scalarRule destination inst _ payload nonString address present sized placement
+        index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
+  | succ depth ih =>
+    intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
+    cases shape with
+    | handle handle =>
+      exact .inl (.inl (mixedRule destination inst item address present sized realloc (.inl handle)
+        index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends))
+    | string fit =>
+      exact .inl (.inl (mixedRule destination inst item address present sized realloc (.inr ⟨fit, placement⟩)
+        index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends))
+    | scalar payload nonString =>
+      exact .inl (scalarRule destination inst _ payload nonString address present sized placement
         index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
     | @aggregate _ type children child =>
       refine .inr (.inl ⟨type, children, rfl, aggregateReplay destination inst type children index address _

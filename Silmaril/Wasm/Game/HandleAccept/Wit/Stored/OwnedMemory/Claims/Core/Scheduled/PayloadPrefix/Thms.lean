@@ -263,6 +263,22 @@ theorem primitive_leaf (destination : RecordDestination) (inst : InstId) (primit
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.primitiveLeaf
     destination inst primitive payload nonString index output left right width placed
 
+/-- Keep the exact reached scheduler tails across the local primitive
+program, including the same observable scalar choices on both sides. -/
+theorem primitive_leaf_frame (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim primitive))
+    (nonString : primitive ≠ .string) (index : Nat) (output : Lower.Output) (origin : CStore (core3 grow))
+    (left right : Config (core3 grow) (HostState sig)) (growth : Core3.Grows origin.core right.store.core)
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (placed : rootPlacement destination left.store (.prim primitive) output = .ok ()) :
+    CompareLocalKeepingAt profile ready dispatch (fun store => Core3.Grows origin.core store.core) left right
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) index output)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) output) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.primitiveLeafFrame
+    destination inst primitive payload nonString index output origin left right growth width placed
+
 /-- Both actual string leaf programs reach the same canonical plan. The
 checked path first discharges schema/options, the fit test at the reached
 width, and (for memory) root placement. This cut precedes plan execution. -/

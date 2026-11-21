@@ -154,10 +154,12 @@ private theorem fitListTree {stringLeaf fits : Field → Prop} (depth : Nat) (fi
     cases shape with
     | handle handle => exact .handle handle
     | string leaf => exact .string (reached field (.self field) leaf)
+    | scalar payload nonString => exact .scalar payload nonString
   | succ depth ih =>
     cases shape with
     | handle handle => exact .handle handle
     | string leaf => exact .string (reached field (.self field) leaf)
+    | scalar payload nonString => exact .scalar payload nonString
     | aggregate children =>
       exact .aggregate fun item member => ih item (children item member) fun leaf path => reached leaf (.aggregate member path)
     | list children =>
