@@ -270,7 +270,8 @@ theorem cache_valid_observed {read : Reader Name Payload} (valid : arena.Valid p
     after.Valid profile ∧ arena.Extends after ∧ after.observed id payload := by
   obtain ⟨cell, here, claimed, resident | fetched⟩ := cache_spec cached
   · obtain ⟨present, rfl⟩ := resident
-    exact ⟨valid, fun index value hit => ⟨value, hit, fun _ h => h, fun _ h => h, fun _ h => h⟩,
+    exact ⟨valid, fun _ value hit =>
+      ⟨value, hit, fun _ member => member, fun _ member => member, fun _ member => member⟩,
       key, cell, here, claimed, present⟩
   · obtain ⟨_, _, stepped⟩ := fetched
     exact ⟨valid_step valid stepped, step_extends stepped, key, { cell with payload := some payload },
