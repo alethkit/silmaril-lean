@@ -290,6 +290,11 @@ inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop w
       (∀ entry ∈ entries, ∀ fields, entry = .aggregate (.record (mapEntryFields key element)) fields →
         ∀ field ∈ fields, ListTreeShape stringLeaf depth field) →
       ListTreeShape stringLeaf (depth + 1) (.dynamic (.map key element) (.record (mapEntryFields key element)) entries)
+  | sum {depth type arms tag selected} :
+      (∀ child, selected = some child → ListTreeShape stringLeaf depth child) →
+      ListTreeShape stringLeaf (depth + 1) (.sum type arms tag selected)
+  | fixed {depth element length entries} : (∀ item ∈ entries, ListTreeShape stringLeaf depth item) →
+      ListTreeShape stringLeaf (depth + 1) (.fixed element length entries)
 
 def memoryLeaf (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
@@ -306,6 +311,26 @@ def memoryLeaf (profile : ProfileKind) (ready : HostReady (HostState sig)) (bind
         match result with
         | .ok _ => finish lhs rhs check canon
         | .error reason => ∃ leading, visible canonLabels = leading ++ [.trap reason]
+
+def SumThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (destination : RecordDestination) (inst : InstId) (compare : FieldComparison grow sig)
+    (arms : List (Option TypeOf)) (selected : Option Field) (index base : Nat) (checkNext : CheckNext grow sig)
+    (canonNext : CanonNext grow sig) (finish : Finish grow sig) : Finish grow sig := fun left right check canon =>
+  let address := sumPayloadAddress destination.width arms base
+  ∃ (store : CStore (core3 grow)) (result : Except TrapReason Unit)
+      (checkLabels canonLabels : List (Label (core3 grow) (HostState sig))),
+    let lhs := localLeafEnd left left.host store check.thread check.frames check.rest
+      (sumCheckedNext destination inst selected index address checkNext) result
+    let rhs := localLeafEnd right right.host store canon.thread canon.frames canon.rest
+      (sumCanonicalNext destination inst selected address canonNext) result
+    Steps profile ready (specDispatch ready (host bindings)) left checkLabels lhs ∧
+    Steps profile ready (specDispatch ready (host bindings)) right canonLabels rhs ∧
+    visible checkLabels = visible canonLabels ∧
+    match result with
+    | .error reason => ∃ leading, visible canonLabels = leading ++ [.trap reason]
+    | .ok () => match selected with
+      | none => finish lhs rhs check canon
+      | some item => compare item 0 address lhs rhs check canon (aggregateNext index checkNext) canonNext finish
 
 /-- The installed allocator path can remain suspended. The child traversal
 is required only at its marked return and only after the reached live check. -/
@@ -329,12 +354,20 @@ def listTree (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindin
             index (.memory address) left right check canon checkNext canonNext
             (ListReturn profile ready bindings older destination inst child element entries index (.memory address)
               checkNext canonNext (fun () => finish)))) ∨
-      ∃ key element entries, item = .dynamic (.map key element) (.record (mapEntryFields key element)) entries ∧
+      (∃ key element entries, item = .dynamic (.map key element) (.record (mapEntryFields key element)) entries ∧
         (match Record.prepare left.store left.host.writer (Field.listObjects entries) with
         | .error _ => ReachesKeeping profile ready (specDispatch ready (host bindings)) (fun _ => True)
             left right check canon checkNext canonNext
         | .ok () => CollectionReplayFor profile ready bindings older destination inst (.map key element)
             (.record (mapEntryFields key element)) entries index (.memory address) left right check canon checkNext canonNext
-            (MapReturn profile ready bindings older destination inst child key element entries index address checkNext canonNext finish))
+            (MapReturn profile ready bindings older destination inst child key element entries index address checkNext canonNext finish))) ∨
+      (∃ type arms tag selected, item = .sum type arms tag selected ∧
+        SumThen profile ready bindings destination inst child arms selected index address checkNext canonNext finish left right check canon) ∨
+      ∃ element length entries, item = .fixed element length entries ∧
+        let mode := Track.elements (layout destination.width element).size
+        let reference := { right with ctl := canon.control (mode.canonical destination inst entries address >>= canonNext) }
+        Steps profile ready (specDispatch ready (host bindings)) right [.tau] reference ∧
+          Replay profile ready bindings mode destination inst child (aggregateNext index checkNext) canonNext finish
+            entries 0 address left reference check canon
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
