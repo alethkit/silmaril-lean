@@ -618,6 +618,39 @@ private theorem scalarRule {older : ReturnFrame.Substitutions (core3 grow) (Host
     exact ends _ _ _ _ ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩ status rfl rfl
   | error _ => exact status
 
+private theorem layoutCaseMap (width : AddrType) (cases : List (String × Option TypeOf)) :
+    layoutCases width cases = (cases.map Prod.snd).map (layoutOption width) := by
+  induction cases with
+  | nil => rw [layoutCases]; rfl
+  | cons head rest ih => cases head; rw [layoutCases, List.map_cons, List.map_cons, ih]
+
+private theorem selectedLayout (width : AddrType) {type : TypeOf} {arms : List (Option TypeOf)} {tag : Nat} {item : Field}
+    (matched : Field.LayoutMatches (.sum type arms tag (some item)) type) :
+    layout width type = variantLayout (arms.map (layoutOption width)) ∧
+      some (layout width item.type) ∈ arms.map (layoutOption width) ∧ item.LayoutMatches item.type := by
+  cases matched with
+  | variant atTag arm =>
+    cases arm with
+    | some matchArm =>
+      refine ⟨by rw [layout, layoutCaseMap], ?_, matchArm.type_eq.symm ▸ matchArm⟩
+      exact List.mem_map.mpr ⟨_, List.mem_of_getElem? atTag, by rw [matchArm.type_eq, layoutOption]⟩
+  | optionSome matchArm =>
+    refine ⟨by simp only [layout, List.map_cons, List.map_nil, layoutOption], ?_, matchArm.type_eq.symm ▸ matchArm⟩
+    rw [matchArm.type_eq]
+    simp [layoutOption]
+  | resultOk arm =>
+    cases arm with
+    | some matchArm =>
+      refine ⟨by simp only [layout, List.map_cons, List.map_nil], ?_, matchArm.type_eq.symm ▸ matchArm⟩
+      rw [matchArm.type_eq]
+      simp [layoutOption]
+  | resultError arm =>
+    cases arm with
+    | some matchArm =>
+      refine ⟨by simp only [layout, List.map_cons, List.map_nil], ?_, matchArm.type_eq.symm ▸ matchArm⟩
+      rw [matchArm.type_eq]
+      simp [layoutOption]
+
 theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     (destination : RecordDestination) (inst : InstId) (depth : Nat) (item : Field) (address : Nat)
     {origin : CStore (core3 grow)}
@@ -678,7 +711,7 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
     | @map _ key element entries pair child =>
       let type : TypeOf := .record (mapEntryFields key element)
       have matching : Field.EntriesMatch entries type := by cases matched with | map matchEntries => exact matchEntries
-      refine .inr (.inr (.inr ⟨key, element, entries, rfl, ?_⟩))
+      refine .inr (.inr (.inr (.inl ⟨key, element, entries, rfl, ?_⟩)))
       cases prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) with
       | error issue =>
         exact dynamic_refused_before_allocation destination inst (.map key element) type entries (.memory address) index
@@ -697,5 +730,86 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
           intro item inPair address fits
           exact ih item address reachedWidth reachedSize (shapeAt item inPair) (matchedAggregateChild layoutAt inPair) fits
         · exact fun _ _ _ _ paired grown atCheck atCanon => ends _ _ _ _ paired (growth.trans grown) atCheck atCanon
+    | @sum _ type arms tag selected child =>
+      refine .inr (.inr (.inr (.inr (.inl ⟨type, arms, tag, selected, rfl, ?_⟩))))
+      have reachedWidth : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width :=
+        frame.store ▸ growth.memAddrType present
+      have width : ptrTypeIn right.store (destination.context inst) = destination.width := by
+        simp [ptrTypeIn, CanonOpts.ptrType, RecordDestination.context, reachedWidth]
+      obtain ⟨store, result, chk, ref, runChk, runRef, labels, status⟩ :=
+        memory_sum_tag (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings))
+          destination inst type arms tag index address selected origin left right check canon checkNext canonNext
+          frame.store frame.thread width (frame.store ▸ growth) checkAt canonAt
+      refine ⟨store, result, chk, ref, runChk, runRef, labels, ?_⟩
+      cases result with
+      | error _ => exact status
+      | ok value =>
+        cases value
+        cases selected with
+        | none =>
+          exact ends _ _ _ _ ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩ status rfl rfl
+        | some item =>
+          let addressAt := sumPayloadAddress destination.width arms address
+          obtain ⟨area, member, matchChild⟩ := selectedLayout destination.width matched
+          have aligned : (variantLayout (arms.map (layoutOption destination.width))).alignment.bytes ∣ address := by
+            rw [← area]
+            exact Nat.dvd_of_mod_eq_zero placement.1
+          obtain ⟨alignedAt, boundsAt⟩ := variantLayout_payload_fits _ address (layout destination.width item.type) aligned member
+          have bounds : address + (variantLayout (arms.map (layoutOption destination.width))).size ≤ bytes := by
+            rw [← area]
+            exact placement.2
+          have fits : SlotFits destination.width bytes item addressAt := by
+            rw [List.length_map] at alignedAt boundsAt
+            exact ⟨alignedAt, boundsAt.trans bounds⟩
+          let entered := localLeafEnd left left.host store check.thread check.frames check.rest
+            (sumCheckedNext destination inst (some item) index addressAt checkNext) (.ok ())
+          let reference := localLeafEnd right right.host store canon.thread canon.frames canon.rest
+            (sumCanonicalNext destination inst (some item) addressAt canonNext) (.ok ())
+          exact ih item addressAt present sized (child item rfl) matchChild fits 0 (aggregateNext index checkNext) canonNext
+            entered reference check canon ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩
+            status rfl rfl finish (fun _ _ _ _ frame grew checkAt canonAt => ends _ _ _ _ frame grew checkAt canonAt)
+    | @fixed _ element length entries child =>
+      obtain ⟨count, entriesMatch⟩ : entries.length = length ∧ Field.EntriesMatch entries element := by
+        cases matched with | fixed count matchItems => exact ⟨count, matchItems⟩
+      let area := layout destination.width element
+      let mode := Track.elements area.size
+      let cx := destination.context (grow := grow) inst
+      let canonBody := fun reached => CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries .value
+        (layout reached element).size address >>= canonNext
+      have canonRead : right.ctl = canon.control (ptrType cx >>= canonBody) := by
+        rw [canonAt, CanonicalTree.field]
+        let body : AddrType → Session grow sig Unit := fun reached => CanonicalTree.elements Limits.spec Quirks.none cx destination.width entries .value
+          (layout reached element).size address
+        change canon.control (((ptrType cx).bind body).bind canonNext) = _
+        rw [Prog.bind_assoc]
+        rfl
+      have width : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width :=
+        frame.store ▸ growth.memAddrType present
+      have read := (CoreGrowthSteps.refl (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings)) right).read_width
+        cx rfl width canonBody canonRead
+      refine .inr (.inr (.inr (.inr (.inr ⟨element, length, entries, rfl, read.steps, ?_⟩))))
+      have alignMod := placement.1
+      change address % (layout destination.width (.fixedList element length)).alignment.bytes = 0 at alignMod
+      rw [layout] at alignMod
+      have aligned : address = alignTo address area.alignment := by
+        change address % area.alignment.bytes = 0 at alignMod
+        cases reached : area.alignment <;> simp only [alignTo, reached, Alignment.bytes] at alignMod ⊢ <;> omega
+      have bounds := placement.2
+      change address + (layout destination.width (.fixedList element length)).size ≤ bytes at bounds
+      rw [layout, ← count] at bounds
+      have placed : address + entries.length * area.size ≤ bytes := by
+        simpa only [area, Layout.size, Nat.mul_assoc] using bounds
+      refine replay (older := older) mode destination inst entries 0 address _ (aggregateNext index checkNext) canonNext finish
+        ⟨frame.store, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩
+        growth present (elementSlots destination.width entriesMatch aligned placed _ ?_) ends ?_ rfl
+      · intro item member slot fits
+        have layoutAt := entries_match_of_mem entriesMatch member
+        exact ih item slot present sized (child item member) (layoutAt.type_eq.symm ▸ layoutAt) fits
+      · rw [checkAt, Record.Effects.field]
+        let body : Session grow sig (Except RecordLower.Issue Unit) :=
+          mode.checked destination inst entries 0 address
+        change check.control ((body.bind fun verdict => Prog.pure (verdict.mapError (.nested index))).bind checkNext) = _
+        rw [Prog.bind_assoc]
+        rfl
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence

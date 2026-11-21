@@ -169,6 +169,13 @@ private theorem fitListTree {stringLeaf fits : Field → Prop} (depth : Nat) (fi
       intro entry member fields equal item inFields
       exact ih item (children entry member fields equal item inFields) fun leaf path =>
         reached leaf (.dynamic member (equal ▸ .aggregate inFields path))
+    | sum child =>
+      refine .sum ?_
+      intro item equal
+      subst equal
+      exact ih item (child item rfl) fun leaf path => reached leaf (.sum path)
+    | fixed children =>
+      exact .fixed fun item member => ih item (children item member) fun leaf path => reached leaf (.fixed member path)
 
 theorem parkedListTree (call : PayloadRoot.Site grow sig (.memory pointer)) (linked : call.Linked bindings)
     (depth : Nat) (next : call.ReferenceNext) (shape : ParkedListTreeShape depth call.field)
