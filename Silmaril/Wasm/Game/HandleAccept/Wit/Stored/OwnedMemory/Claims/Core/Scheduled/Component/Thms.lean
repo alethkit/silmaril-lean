@@ -172,6 +172,97 @@ theorem result_payload_offset (out : Nat) (aligned : out = ABI.alignTo out .four
     ABI.alignTo (ABI.alignTo out .four + 1) .four = out + 4 :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.result_payload_offset out aligned
 
+/-- The real indirect success path writes the tag then the handle. Its full range
+check guarantees both writes in Core 3.0; neither changes the queued subtask. -/
+theorem resolve_indirect_write {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {config : Config (core3 grow) (HostState sig)} {thread : Option ThreadId} {segments rest}
+    (ticket handle : Nat) (tree : Tree sig) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (cursor : FlatCursor) (maxResults : Nat)
+    (indirect : maxResults ≤ 1) (pointer : FlatValue) (address : Nat)
+    (atCursor : cursor.values[cursor.pos]? = some pointer)
+    (aligned : flatNat pointer = ABI.alignTo (flatNat pointer) .four)
+    (memory : cx.opts.memory = some address) (size : Nat)
+    (sized : (core3 grow).memSize? config.store.core address = some size)
+    (inBounds : flatNat pointer + 8 ≤ size) (record : Subtask)
+    (live : config.store.subtask? subtask = some record)
+    (focused : config.ctl = ⟨thread, .prog (do
+        let flat ← lowerFlatValues Limits.spec Quirks.none cx maxResults
+          [.variant 0 (some (Val.u32 handle))] [resultType] (some cursor)
+        Subtask.resolve subtask .returned flat
+        completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    let out := flatNat pointer
+    let tagged := writeMemSt address out (intToLE 1 0) config.store
+    let final : Config (core3 grow) (HostState sig) := { config with
+      store := writeMemSt address (out + 4) (intToLE 4 handle) tagged
+      ctl := ⟨thread, .prog (do
+        Subtask.resolve subtask .returned []
+        completeResolvedTree ticket tree handle), segments⟩ :: rest }
+    Steps prof ready dispatch config (List.replicate 8 .tau) final ∧
+      final.store.subtask? subtask = some record :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_indirect_write
+    ticket handle tree subtask cx cursor maxResults indirect pointer address atCursor aligned
+    memory size sized inBounds record live focused
+
+/-- With an aligned indirect result pointer but insufficient space, resolution traps
+before either result write. The trap uses the store reached after progress queueing. -/
+theorem resolve_indirect_range_trap {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {config : Config (core3 grow) (HostState sig)} {thread : Option ThreadId} {segments rest}
+    (ticket handle : Nat) (tree : Tree sig) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (cursor : FlatCursor) (maxResults : Nat)
+    (indirect : maxResults ≤ 1) (pointer : FlatValue) (address : Nat)
+    (atCursor : cursor.values[cursor.pos]? = some pointer)
+    (aligned : flatNat pointer = ABI.alignTo (flatNat pointer) .four)
+    (memory : cx.opts.memory = some address) (size : Nat)
+    (sized : (core3 grow).memSize? config.store.core address = some size)
+    (outside : size < flatNat pointer + 8)
+    (focused : config.ctl = ⟨thread, .prog (do
+        let flat ← lowerFlatValues Limits.spec Quirks.none cx maxResults
+          [.variant 0 (some (Val.u32 handle))] [resultType] (some cursor)
+        Subtask.resolve subtask .returned flat
+        completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .tau, .trap .outOfBounds] (StepDefs.trapCfg config) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_indirect_range_trap
+    ticket handle tree subtask cx cursor maxResults indirect pointer address atCursor aligned memory size sized outside focused
+
+/-- A misaligned indirect result pointer traps before examining the memory range. -/
+theorem resolve_indirect_alignment_trap {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {config : Config (core3 grow) (HostState sig)} {thread : Option ThreadId} {segments rest}
+    (ticket handle : Nat) (tree : Tree sig) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (cursor : FlatCursor) (maxResults : Nat)
+    (indirect : maxResults ≤ 1) (pointer : FlatValue)
+    (atCursor : cursor.values[cursor.pos]? = some pointer)
+    (misaligned : flatNat pointer ≠ ABI.alignTo (flatNat pointer) .four)
+    (focused : config.ctl = ⟨thread, .prog (do
+        let flat ← lowerFlatValues Limits.spec Quirks.none cx maxResults
+          [.variant 0 (some (Val.u32 handle))] [resultType] (some cursor)
+        Subtask.resolve subtask .returned flat
+        completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    Steps prof ready dispatch config [.tau, .trap .unalignedPointer] (StepDefs.trapCfg config) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_indirect_alignment_trap
+    ticket handle tree subtask cx cursor maxResults indirect pointer atCursor misaligned focused
+
+/-- Direct result lowering reaches resolution with two ABI words and no store change. -/
+theorem resolve_direct_words {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {config : Config (core3 grow) (HostState sig)} {thread : Option ThreadId} {segments rest}
+    (ticket handle : Nat) (tree : Tree sig) (subtask : SubtaskId)
+    (cx : LiftLowerContext (core3 grow)) (cursor : FlatCursor) (maxResults : Nat)
+    (direct : 2 ≤ maxResults)
+    (focused : config.ctl = ⟨thread, .prog (do
+        let flat ← lowerFlatValues Limits.spec Quirks.none cx maxResults
+          [.variant 0 (some (Val.u32 handle))] [resultType] (some cursor)
+        Subtask.resolve subtask .returned flat
+        completeResolvedTree ticket tree handle), segments⟩ :: rest) :
+    Step prof ready dispatch config .tau
+      { config with ctl := ⟨thread, .prog (do
+        Subtask.resolve subtask .returned [i32Flat 0, i32Flat handle]
+        completeResolvedTree ticket tree handle), segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_direct_words
+    ticket handle tree subtask cx cursor maxResults direct focused
+
 /-- From the canonical tail after the result write, resolution and publication retain
 the same subtask's index, lends and pending event. This does not deliver the event. -/
 theorem resolve_commit {prof : ProfileKind} {ready : HostReady (HostState sig)}
@@ -195,6 +286,45 @@ theorem resolve_commit {prof : ProfileKind} {ready : HostReady (HostState sig)}
       final.store.subtask? subtask = some { record with state := .returned, flatResults := flat } :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_commit
     ticket handle tree writer subtask flat record live registered expected room pending
+
+/-- A linked caller's actual lowering limits imply an indirect result in either mode.
+From the reached resolve entry with a valid out-pointer, queue progress as applicable,
+write the result, resolve the same subtask, and publish. Delivery is still separate. -/
+theorem resolve_linked_commit {prof : ProfileKind} {ready : HostReady (HostState sig)}
+    {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {config : Config (core3 grow) (HostState sig)} {thread : Option ThreadId} {segments rest}
+    (callee : Callee sig) (ticket : Nat) (caller : CallerId)
+    (tree : Tree sig) (writer : State sig) (subtask : SubtaskId) (record : Subtask)
+    (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) (pos : Nat)
+    (callerRecord : ArenaField.callers.get? config.store caller = some
+      (.lower subtask cx args pos callee.funcType (lowerLimits callee.async_).1 (lowerLimits callee.async_).2))
+    (live : config.store.subtask? subtask = some record) (context : cx.opts = callee.options)
+    (pointer : FlatValue) (atCursor : args[pos]? = some pointer)
+    (aligned : flatNat pointer = ABI.alignTo (flatNat pointer) .four)
+    (size : Nat) (sized : (core3 grow).memSize? config.store.core callee.memory = some size)
+    (inBounds : flatNat pointer + 8 ≤ size)
+    (registered : config.host.writer.register tree = .ok writer) (room : writer.accepted.length < 2 ^ 32)
+    (focused : config.ctl = ⟨thread, .prog (resolveTree ticket caller tree), segments⟩ :: rest) :
+    let handle := writer.accepted.length
+    let out := flatNat pointer
+    let queued := if record.index.isSome then config.store.setPendingSt (.subtask subtask) (.subtask subtask)
+      else config.store
+    let tagged := writeMemSt callee.memory out (intToLE 1 0) queued
+    let written := writeMemSt callee.memory (out + 4) (intToLE 4 handle) tagged
+    let final : Config (core3 grow) (HostState sig) := { config with
+      store := written.subtaskResolveSt subtask .returned []
+      host := (({ config.host with writer } : HostState sig).record (.published ticket handle)).record
+        (.returned ticket handle)
+      ctl := ⟨thread, .prog (.pure (.cancel .none)), segments⟩ :: rest }
+    Steps prof ready dispatch config (List.replicate (16 + record.index.isSome.toNat) .tau) final ∧
+      final.store.subtask? subtask = some { record with
+        state := .returned
+        flatResults := []
+        common := if record.index.isSome then { record.common with pending := some (.subtask subtask) }
+          else record.common } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.ComponentResult.resolve_linked_commit
+    callee ticket caller tree writer subtask record cx args pos callerRecord live context pointer
+    atCursor aligned size sized inBounds registered room focused
 
 /-- Delivery requires the actual queued event and an executing waitable continuation.
 It clears the event, applies the reference lend release, and returns the recorded index. -/
