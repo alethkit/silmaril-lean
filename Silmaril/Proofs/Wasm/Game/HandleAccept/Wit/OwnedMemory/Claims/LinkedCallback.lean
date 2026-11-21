@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Allocation.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Thms
 import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Thms
 import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
@@ -650,6 +651,27 @@ theorem flatAggregateThen {older : ReturnFrame.Substitutions (core3 grow) (HostS
   exact flatSequenceReplay destination inst children 0 [] compare (fun verdict => checkNext (verdict.mapError (.nested index)))
     canonNext finish frame growth rules ends (by simpa only [flatSequenceChecked, noLeading] using checkAt)
     (by simpa [flatSequenceCanonical] using canonAt)
+
+theorem flatNestedRefine {shapeAt fitsAt : Field → Prop} (depth : Nat) (field : Field)
+    (shape : FlatNestedFits shapeAt depth field)
+    (reached : ∀ leaf, Field.Descendant field leaf → shapeAt leaf → fitsAt leaf) : FlatNestedFits fitsAt depth field := by
+  induction depth generalizing field with
+  | zero => exact reached field (.self field) shape
+  | succ depth ih =>
+    cases childrenAt : flatChildren field with
+    | none =>
+      simp only [FlatNestedFits, childrenAt] at shape
+      simpa only [FlatNestedFits, childrenAt] using reached field (.self field) shape
+    | some children =>
+      simp only [FlatNestedFits, childrenAt] at shape
+      simp only [FlatNestedFits, childrenAt]
+      intro child member
+      apply ih child (shape child member)
+      intro leaf path leafShape
+      apply reached leaf _ leafShape
+      cases field <;> cases childrenAt
+      · exact .aggregate member path
+      · exact .fixed member path
 
 theorem nestedFlatRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
     (destination : RecordDestination) (inst : InstId) (leaf : Field → Prop) (compare : FlatFieldComparison grow sig)
