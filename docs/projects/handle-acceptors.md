@@ -935,6 +935,10 @@ alone. Neither public theorem takes per-child shape assumptions or a depth
 bound. Primitive data, enums, flags and checked handles use the reached local
 rules, while strings use their actual allocation plans. The compiler's schema
 checks provide the enum and flags evidence, not a separate leaf assumption.
+The linked preflight also supplies the allocator option at each allocating
+descendant. Pointer-free schemas need no realloc option for either comparison;
+pointer-bearing schemas still require it before execution, including inactive
+arms and empty containers. This does not establish callback readiness or return.
 
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner

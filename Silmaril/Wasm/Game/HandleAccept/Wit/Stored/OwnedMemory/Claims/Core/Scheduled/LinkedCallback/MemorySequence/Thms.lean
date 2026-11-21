@@ -72,7 +72,7 @@ theorem mixed_replay {older : ReturnFrame.Substitutions (core3 grow) (HostState 
   sequence_replay mode destination inst items index cursor _ checkNext canonNext finish frame growth present
     (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence.slotsMap mode destination.width
       (fun item address slot => Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence.mixedRule
-        destination inst item address present sized realloc slot) items cursor slots) ends checkAt canonAt
+        destination inst item address present sized (fun _ => ⟨_, realloc⟩) slot) items cursor slots) ends checkAt canonAt
 
 /-- Execute the checked aggregate guard at the reached memory size, then
 compare the actual record or tuple child programs under the same saved frames.
@@ -161,11 +161,11 @@ theorem list_tree_rule {older : ReturnFrame.Substitutions (core3 grow) (HostStat
     {origin : CStore (core3 grow)}
     (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
     {bytes : Nat} (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
-    {addr : Nat} (realloc : destination.realloc = some addr)
+    (allocator : Field.AllocatorFor destination.realloc item)
     (shape : ListTreeShape (StringField.Fits destination) depth item)
     (matched : item.LayoutMatches item.type) (placement : SlotFits destination.width bytes item address) :
     FieldRule (listTree profile ready bindings older destination inst depth) older origin destination inst item address :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence.listTreeRule
-    destination inst depth item address present sized realloc shape matched placement
+    destination inst depth item address present sized allocator shape matched placement
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
