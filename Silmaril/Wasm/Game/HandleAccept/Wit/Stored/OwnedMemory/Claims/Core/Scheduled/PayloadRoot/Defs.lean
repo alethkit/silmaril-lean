@@ -50,6 +50,11 @@ def Site.checked (site : Site grow sig route) : Config (core3 grow) (HostState s
 
 abbrev Site.ReferenceNext (_site : Site grow sig route) := route.output.Result → Session grow sig (Ret (core3 grow))
 
+/-- Successful reference lowering uses the public reply ABI but not the
+checked host's completion journal. A typed refusal has no reference reply. -/
+def Site.referenceReply (site : Site grow sig route) : site.ReferenceNext := fun value =>
+  pure (.flat (route.reply site.destination site.start.host.nextTicket (.ok value)).2)
+
 noncomputable def Site.reference (site : Site grow sig route) (next : site.ReferenceNext) : Config (core3 grow) (HostState sig) :=
   let context := site.destination.context site.inst
   let schema := sig.payload site.tag

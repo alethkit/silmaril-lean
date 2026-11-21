@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadRoot.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Thms
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadRoot
 
@@ -9,7 +10,7 @@ public section
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadRoot
 
 open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Runtime
-  Silmaril.Wasm.Component.Machine
+  Silmaril.Wasm.Component.Machine Silmaril.Wasm.Component.Engine
 open Stored.Endpoints.RecordLower
 open PayloadPrefix
 
@@ -26,6 +27,30 @@ theorem Site.Linked.emitted {site : Site grow sig route} (linked : site.Linked b
 guard, or enters the compiled effect body with the real reply continuation. -/
 theorem Site.parked (site : Site grow sig route) (linked : site.Linked bindings) : Cut site profile ready bindings :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadRoot.parked site linked
+
+/-- Extend the actual refused branch of a parked give through its checked
+completion. This records the typed error and resumes the original Core
+frame. There is no corresponding canonical return for this branch. -/
+theorem Site.refusal_resumes (site : Site grow sig route) (issue : Stored.Endpoints.RecordLower.Issue) {labels}
+    (run : Steps profile ready (specDispatch ready (host bindings)) site.start labels
+      (site.withBody (site.reply (.error issue)))) :
+    let reply := route.reply site.destination site.start.host.nextTicket (.error issue)
+    let reached := site.withBody (site.reply (.error issue))
+    Steps profile ready (specDispatch ready (host bindings)) site.start (labels ++ [.tau, .tau, .tau])
+      { reached with host := reached.host.record reply.1
+                     ctl := ⟨site.thread, .core ((core3 grow).resume reached.store.core site.core (.values reply.2))
+                       site.resume, site.frames⟩ :: site.rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadRoot.refusalResumes site issue run
+
+/-- A finite prefix that tracks the original Core occurrence back to the
+top identifies the actual caller about to receive a reply, even if other
+instances of the same frame were installed during reentry. -/
+theorem Site.reached_caller (site : Site grow sig route) {reached : Config (core3 grow) (HostState sig)}
+    {labels} {cursor : Cursor (E := core3 grow) (HostState sig)} {body} (control : reached.ctl = cursor.control body)
+    (run : ReturnFrame.Occurrence.Prefix profile ready (specDispatch ready (host bindings))
+      site.checked (.active 0 0) labels reached (.active 0 0)) :
+    ∃ segments, cursor.frames = .core site.core site.resume :: segments :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadRoot.reachedCaller site control run
 
 /-- Use the actual public allocation guard only on the placed branch.
 The refusal and placement-trap branches never require a body comparison. -/

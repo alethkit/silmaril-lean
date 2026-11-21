@@ -1,8 +1,11 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadRoot.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Thms
+import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Thms
 
 public section
 
@@ -30,6 +33,34 @@ private theorem appendSteps {first middle finish : Config (core3 grow) (HostStat
 
 private theorem visibleAppend {E : CoreEngine} {Host : Type} (front back : List (Label E Host)) :
     visible (front ++ back) = visible front ++ visible back := List.filter_append ..
+
+theorem refusalResumes (site : Site grow sig route) (issue : Endpoints.RecordLower.Issue) {labels}
+    (run : Steps profile ready (specDispatch ready (host bindings)) site.start labels
+      (site.withBody (site.reply (.error issue)))) :
+    let reply := route.reply site.destination site.start.host.nextTicket (.error issue)
+    let reached := site.withBody (site.reply (.error issue))
+    Steps profile ready (specDispatch ready (host bindings)) site.start (labels ++ [.tau, .tau, .tau])
+      { reached with host := reached.host.record reply.1
+                     ctl := ⟨site.thread, .core ((core3 grow).resume reached.store.core site.core (.values reply.2))
+                       site.resume, site.frames⟩ :: site.rest } :=
+  appendSteps run (Plain.give_completion_steps _ rfl)
+
+theorem reachedCaller (site : Site grow sig route) {reached : Config (core3 grow) (HostState sig)}
+    {labels} {cursor : Cursor (E := core3 grow) (HostState sig)} {body} (control : reached.ctl = cursor.control body)
+    (run : ReturnFrame.Occurrence.Prefix profile ready (specDispatch ready (host bindings))
+      site.checked (.active 0 0) labels reached (.active 0 0)) :
+    ∃ segments, cursor.frames = .core site.core site.resume :: segments := by
+  have preserved := (ReturnFrame.Occurrence.prefix_survives run).2
+  rw [ReturnFrame.Occurrence.segmentStorage, control] at preserved
+  cases frames : cursor.frames with
+  | nil =>
+    simp [ReturnFrame.Occurrence.segmentAt, Cursor.control, frames, Site.checked, Site.withBody, Site.cursor,
+      ReturnFrame.Occurrence.segmentStorage] at preserved
+  | cons frame tail =>
+    have equal : frame = .core site.core site.resume := by
+      simpa [ReturnFrame.Occurrence.segmentAt, Cursor.control, frames, Site.checked, Site.withBody, Site.cursor,
+        ReturnFrame.Occurrence.segmentStorage] using preserved
+    exact ⟨tail, congrArg (· :: tail) equal⟩
 
 theorem parkedAfterAdmission (site : Site grow sig route) (linked : site.Linked bindings) (body : Prop)
     (afterFit : Lower.fits Quirks.none site.destination.encoding site.destination.width (sig.payload site.tag)
