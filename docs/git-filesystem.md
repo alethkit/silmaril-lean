@@ -47,16 +47,20 @@ under the canonical `Stored`, binding and reader-inclusion hypotheses;
 hash comparison alone does not supply those hypotheses. The same `Store`
 interface accepts a published snapshot or the arena's read-by-CAS-name view.
 
-This reference read does not depend on the separate routed Prolly reader.
-It scans a directory rather than performing a production point query; fuel
-bounds Prolly block depth per component, and the finite path bounds nested
-directory descent. This slice does not prove that every successful expanded
-import supplies the general cached-reader invariants, nor implement FUSE.
+`locate` is still the closed-scan reference. `locateRouted` uses the verified
+on-demand reader; `locateResident` captures an explicit set of names and uses
+the same routing algorithm. Under the same rooted binding reference, both
+routed modes refine the directory map and agree with a successful scan. A
+routed success need not imply scan success: an unrelated unread sibling is
+required by the scan but not by the route. A missing selected block, invalid
+wire, or exhaustion stays an error. Fuel bounds Prolly block depth per
+component, and the finite path bounds directory descent. This does not
+implement FUSE or by itself certify the reference supplied by an import.
 
 ```sh
-lake build --wfail Silmaril.Formats.Git.Filesystem.Thms
+lake build --wfail Silmaril.Formats.Git.Filesystem.Routed.Thms
 lake env lean -DwarningAsError=true --run tests/formats/GitFilesystem.lean
-make check CHECK_TARGETS=+Silmaril.Formats.Git.Filesystem.Thms
+make check CHECK_TARGETS=+Silmaril.Formats.Git.Filesystem.Routed.Thms
 ```
 
 The executable fixture checks a nested executable with basename `ff` (one

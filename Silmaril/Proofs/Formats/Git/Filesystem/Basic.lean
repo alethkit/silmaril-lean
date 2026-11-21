@@ -48,20 +48,21 @@ theorem readVerified_found {store : Store} {lane : CasLane} {name : Cid} {bytes 
     · contradiction
   · simp [readVerified, laneOK] at found
 
-theorem lookupChild_scan {store : Store} {fuel : Nat} {root : Cid} {key : ByteKey} {result : Option (Entry Cid)}
-    (checked : lookupChild hash store fuel root key = .ok result) :
-    Formats.Dasl.Prolly.lookup dirCodec (dirRead hash store) policy.width fuel root key = .ok result := by
+theorem checkedChild_ok {store : Store}
+    {query : Cid → ByteKey → Except (Formats.Dasl.Prolly.Fault Cid) (Option (Entry Cid))}
+    {root : Cid} {key : ByteKey} {result : Option (Entry Cid)}
+    (checked : checkedChild store query root key = .ok result) : query root key = .ok result := by
   by_cases keyOK : Dasl.validByteComponent key = true
-  · cases looked : Formats.Dasl.Prolly.lookup dirCodec (dirRead hash store) policy.width fuel root key with
-    | error fault => simp [lookupChild, keyOK, looked, Except.mapError, Bind.bind, Except.bind] at checked
+  · cases looked : query root key with
+    | error fault => simp [checkedChild, keyOK, looked, Except.mapError, Bind.bind, Except.bind] at checked
     | ok value =>
       cases value with
-      | none => simpa [lookupChild, keyOK, looked, Except.mapError, Bind.bind, Except.bind] using checked
+      | none => simpa [checkedChild, keyOK, looked, Except.mapError, Bind.bind, Except.bind] using checked
       | some entry =>
-        simp [lookupChild, keyOK, looked, Except.mapError, Bind.bind, Except.bind] at checked
+        simp [checkedChild, keyOK, looked, Except.mapError, Bind.bind, Except.bind] at checked
         split at checked
         · contradiction
         · simp_all
-  · simp [lookupChild, keyOK, throw, throwThe, Bind.bind, Except.bind] at checked
+  · simp [checkedChild, keyOK, throw, throwThe, Bind.bind, Except.bind] at checked
 
 end Silmaril.Proofs.Formats.Git.Filesystem

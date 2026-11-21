@@ -154,29 +154,37 @@ def refineRead (store : Store) : Formats.Dasl.Prolly.Fault Cid → ReadFault
     | _ => .block fault
   | fault => .block fault
 
-/-- No Git metadata or OID is required to consult a tree CID. A bounded closed
-Prolly scan distinguishes a missing block from a legitimately absent child. -/
-def lookupChild (hash : Hash) (store : Store) (fuel : Nat) (root : Cid) (key : ByteKey) :
-    Except ReadFault (Option (Entry Cid)) := do
+abbrev ChildLookup := Cid → ByteKey → Except ReadFault (Option (Entry Cid))
+
+def checkedChild (store : Store)
+    (query : Cid → ByteKey → Except (Formats.Dasl.Prolly.Fault Cid) (Option (Entry Cid))) : ChildLookup :=
+    fun root key => do
   if !Dasl.validByteComponent key then throw (.component key)
-  let result ← (Formats.Dasl.Prolly.lookup dirCodec (dirRead hash store) policy.width fuel root key).mapError
-    (refineRead store)
+  let result ← (query root key).mapError (refineRead store)
   match result with
   | none => .ok none
   | some entry =>
     if entry.mode = .gitlink || !laneMatches (kindLane entry.mode.kind) entry.target then throw (.unsupportedEntry key)
     else .ok (some entry)
 
+/-- No Git metadata or OID is required to consult a tree CID. A bounded closed
+Prolly scan distinguishes a missing block from a legitimately absent child. -/
+def lookupChild (hash : Hash) (store : Store) (fuel : Nat) : ChildLookup :=
+  checkedChild store (Formats.Dasl.Prolly.lookup dirCodec (dirRead hash store) policy.width fuel)
+
 /-- The empty path denotes the root descriptor. This descriptor alone makes
-no availability assertion. Reading a directory scans verified blocks. -/
-def locate (hash : Hash) (store : Store) (fuel : Nat) : Cid → List ByteKey → Except ReadFault (Option (Entry Cid))
+no availability assertion. Each nonempty step uses the selected child lookup. -/
+def locateWith (child : ChildLookup) : Cid → List ByteKey → Except ReadFault (Option (Entry Cid))
   | root, [] => .ok (some ⟨.directory, root⟩)
   | root, key :: rest => do
-    let name ← lookupChild hash store fuel root key
+    let name ← child root key
     match name, rest with
     | none, _ | some _, [] => .ok name
     | some entry, _ :: _ =>
-      if entry.mode = .directory then locate hash store fuel entry.target rest else throw .notDirectory
+      if entry.mode = .directory then locateWith child entry.target rest else throw .notDirectory
+
+def locate (hash : Hash) (store : Store) (fuel : Nat) : Cid → List ByteKey → Except ReadFault (Option (Entry Cid)) :=
+  locateWith (lookupChild hash store fuel)
 
 def locateUtf8 (hash : Hash) (store : Store) (fuel : Nat) (root : Cid) (path : Path) :
     Except ReadFault (Option (Entry Cid)) := locate hash store fuel root (path.map fun name => Dasl.utf8Key name.val)
