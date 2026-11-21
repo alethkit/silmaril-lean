@@ -42,7 +42,7 @@ wall time of `lake env lean` on a one-theorem file, peak RSS of the `lean` proce
 | exported `accept(list<u8>) -> bool`, `realloc` at 1024: `true` on `"hi!"`, `false` on `"hi"` | `deep recursion detected` (28 s, 3.4 GB) | **passes** (20 s, 3.2 GB) |
 | `writeBytes` at address 65530 of 64 KiB, then `get!` | `deep recursion detected` (12 s, 2.5 GB) | **passes** (21 s, 4.5 GB) |
 
-The kernel-checked theorems are `Ref.Examples.hiRecorded_records`, `hi_mem`, `exportCall_hi`
+The kernel-checked theorems are `Ref.Examples.hiRecorded_records`, `hi_mem_direct`, `exportCall_hi`
 and `exportCall_hi2`, and in `Ref/Typed/Examples.lean` `exportCallArgs_ill`,
 `exportCallTyped_ill`, `exportCallTyped_hi`, `exportCallTyped_hi2`, `recordsTyped_hi` and
 `recordsTyped_ill`. They are part of the library build, so CI kernel-checks them.

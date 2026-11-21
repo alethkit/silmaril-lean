@@ -31,7 +31,7 @@ canonical ABI lifts the bytes `68 69 21` from linear memory.
   (`decodeBinary_acceptHi`: `list<u8>` does not lower).
 * **Kernel-checked end to end** (`decide +kernel`): instantiating it and invoking `run` on the
   Core 3.0 interpreter records `[list<u8> "hi!"]` (`hiRecorded_records`), so `"hi!"` is in
-  `refBytesSystem` (`hi_mem`). The run uses a 64 KiB linear memory with a data segment. The
+  `bytesSystemUntyped` (`hi_mem_direct`). The run uses a 64 KiB linear memory with a data segment. The
   kernel evaluates it because Core's memory writes go through `Memory.writeSlice`, which shares
   the memory after the written range (`ByteArray.copySlice` rebuilds it and exceeds the
   kernel's recursion depth). `#guard runHi` keeps a native regression check.
@@ -40,6 +40,8 @@ canonical ABI lifts the bytes `68 69 21` from linear memory.
   `true` on `"hi!"` and `false` on `"hi"` (`exportCall_hi`, `exportCall_hi2`), with the
   argument stored at address 1024 by `realloc`. `acceptedExport_of_run` turns such a run into
   `AcceptedExport`.
+* `hi_mem_of_runHi` and `hi_mem_typed_of_run` (`Typed/Examples.lean`) are the
+  untyped and typed soundness results given their respective runs.
 -/
 
 @[expose] public section
@@ -99,24 +101,24 @@ theorem hiRecorded_records :
   decide +kernel
 
 /-- **`"hi!"` is accepted by the binary** (kernel-checked end to end). -/
-theorem hi_mem : refBytesSystem first.prof acceptHiBytes hi := by
+theorem hi_mem_direct : bytesSystemUntyped first.prof acceptHiBytes hi := by
   have h := hiRecorded_records
   unfold hiRecorded at h
   obtain ⟨⟨a, st⟩, hp, hm⟩ := (Option.any_eq_true _ _).mp h
   obtain ⟨a', ha, hr⟩ := Option.bind_eq_some_iff.mp hp
   obtain ⟨st', hst, he⟩ := Option.map_eq_some_iff.mp hr
   cases he
-  exact refBytesSystem_of_run first ha hst (of_decide_eq_true hm)
+  exact bytesSystemWith_of_run EnvPolicy.untyped first ha hst (of_decide_eq_true hm)
 
-/-- Given the executable run that `#guard runHi` checks, `"hi!"` is in `refBytesSystem` (the
-statement before the kernel could evaluate the run; `hi_mem` now proves it outright). -/
+/-- Given the executable run that `#guard runHi` checks, `"hi!"` is in `bytesSystemUntyped`
+(`hi_mem_direct` now proves it outright). -/
 theorem hi_mem_of_runHi
     (h : ∃ a st, decodeValid (prof := first.prof) acceptHiBytes = some a ∧
       acceptRun (core3Exec Silmaril.Wasm.SingleThreaded.neverFail) first 4000 a.comp
         [("run", [])] = some st ∧ [bytesVal hi] ∈ st) :
-    refBytesSystem first.prof acceptHiBytes hi :=
+    bytesSystemUntyped first.prof acceptHiBytes hi :=
   let ⟨_, _, hd, hr, hw⟩ := h
-  refBytesSystem_of_run first hd hr hw
+  bytesSystemWith_of_run _ first hd hr hw
 
 /-! ## Exported `accept: func(list<u8>) -> bool`
 
