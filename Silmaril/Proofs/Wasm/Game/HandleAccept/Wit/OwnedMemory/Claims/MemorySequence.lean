@@ -200,13 +200,15 @@ theorem mixedRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig
     (destination : RecordDestination) (inst : InstId) (item : Field) (address : Nat)
     (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
     {bytes : Nat} (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
-    {addr : Nat} (realloc : destination.realloc = some addr) (slot : MixedSlot destination bytes item address) :
+    (allocator : Validation.containsPtr item.type = true → ∃ addr, destination.realloc = some addr)
+    (slot : MixedSlot destination bytes item address) :
     FieldRule (mixed profile ready bindings older destination inst) older origin destination inst item address := by
   intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
   rcases slot with handle | ⟨⟨str, rfl, fit⟩, aligned, bounds⟩
   · exact .inl ⟨handle, frame.handle_field_then destination inst item handle index (.memory address) checkNext canonNext
       growth checkAt canonAt (fun () => ends)⟩
   · obtain ⟨reachedBytes, sizeAt, widened⟩ := growth.memSize sized
+    obtain ⟨_, realloc⟩ := allocator rfl
     change (core3 grow).memSize? left.store.core destination.memory = some reachedBytes at sizeAt
     change address % (layout destination.width (.prim .string : TypeOf)).alignment.bytes = 0 at aligned
     change address + (layout destination.width (.prim .string : TypeOf)).size ≤ bytes at bounds
@@ -312,14 +314,14 @@ theorem nestedRule {older : ReturnFrame.Substitutions (core3 grow) (HostState si
   induction depth generalizing item address with
   | zero =>
     cases shape with
-    | handle handle => exact mixedRule destination inst item address present sized realloc (.inl handle)
-    | string fit => exact mixedRule destination inst item address present sized realloc (.inr ⟨fit, placement⟩)
+    | handle handle => exact mixedRule destination inst item address present sized (fun _ => ⟨_, realloc⟩) (.inl handle)
+    | string fit => exact mixedRule destination inst item address present sized (fun _ => ⟨_, realloc⟩) (.inr ⟨fit, placement⟩)
   | succ depth ih =>
     intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
     cases shape with
-    | handle handle => exact .inl (mixedRule destination inst item address present sized realloc (.inl handle)
+    | handle handle => exact .inl (mixedRule destination inst item address present sized (fun _ => ⟨_, realloc⟩) (.inl handle)
         index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
-    | string fit => exact .inl (mixedRule destination inst item address present sized realloc (.inr ⟨fit, placement⟩)
+    | string fit => exact .inl (mixedRule destination inst item address present sized (fun _ => ⟨_, realloc⟩) (.inr ⟨fit, placement⟩)
         index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
     | @aggregate _ type children child =>
       refine .inr ⟨type, children, rfl, aggregateReplay destination inst type children index address _
@@ -657,7 +659,7 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
     {origin : CStore (core3 grow)}
     (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
     {bytes : Nat} (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
-    {addr : Nat} (realloc : destination.realloc = some addr)
+    (allocator : Field.AllocatorFor destination.realloc item)
     (shape : ListTreeShape (StringField.Fits destination) depth item)
     (matched : item.LayoutMatches item.type) (placement : SlotFits destination.width bytes item address) :
     FieldRule (listTree profile ready bindings older destination inst depth) older origin destination inst item address := by
@@ -666,10 +668,10 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
     intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
     cases shape with
     | handle handle =>
-      exact .inl (mixedRule destination inst item address present sized realloc (.inl handle)
+      exact .inl (mixedRule destination inst item address present sized (allocator item (.self item)) (.inl handle)
         index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
     | string fit =>
-      exact .inl (mixedRule destination inst item address present sized realloc (.inr ⟨fit, placement⟩)
+      exact .inl (mixedRule destination inst item address present sized (allocator item (.self item)) (.inr ⟨fit, placement⟩)
         index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
     | scalar payload nonString =>
       exact scalarRule destination inst _ payload nonString address present sized placement
@@ -678,10 +680,10 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
     intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
     cases shape with
     | handle handle =>
-      exact .inl (.inl (mixedRule destination inst item address present sized realloc (.inl handle)
+      exact .inl (.inl (mixedRule destination inst item address present sized (allocator item (.self item)) (.inl handle)
         index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends))
     | string fit =>
-      exact .inl (.inl (mixedRule destination inst item address present sized realloc (.inr ⟨fit, placement⟩)
+      exact .inl (.inl (mixedRule destination inst item address present sized (allocator item (.self item)) (.inr ⟨fit, placement⟩)
         index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends))
     | scalar payload nonString =>
       exact .inl (scalarRule destination inst _ payload nonString address present sized placement
@@ -689,7 +691,8 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
     | @aggregate _ type children child =>
       refine .inr (.inl ⟨type, children, rfl, aggregateReplay destination inst type children index address _
         checkNext canonNext finish frame growth present sized matched placement.1 placement.2 ?_ ends checkAt canonAt⟩)
-      exact fun entry member slot fits => ih entry slot present sized (child entry member) (matchedAggregateChild matched member) fits
+      exact fun entry member slot fits => ih entry slot present sized
+        (fun leaf path => allocator leaf (.aggregate member path)) (child entry member) (matchedAggregateChild matched member) fits
     | @list _ element entries child =>
       have matching : Field.EntriesMatch entries element := by cases matched with | list matchEntries => exact matchEntries
       refine .inr (.inr (.inl ⟨element, entries, rfl, ?_⟩))
@@ -706,7 +709,8 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
             (growth.memAddrType present) reachedSize prepared checkAt canonAt)
         · intro reached bytes reachedWidth reachedSize entry member slot fits
           have layoutAt := entries_match_of_mem matching member
-          exact ih entry slot reachedWidth reachedSize (child entry member) (layoutAt.type_eq.symm ▸ layoutAt) fits
+          exact ih entry slot reachedWidth reachedSize (fun leaf path => allocator leaf (.dynamic member path))
+            (child entry member) (layoutAt.type_eq.symm ▸ layoutAt) fits
         · intro value reached reference check canon paired grown atCheck atCanon
           cases value
           exact ends _ _ _ _ paired (growth.trans grown) atCheck atCanon
@@ -732,7 +736,8 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
           · cases equal
             refine ⟨keyField, valueField, rfl, ?_⟩
             intro item inPair address fits
-            exact ih item address reachedWidth reachedSize (shapeAt item inPair) (matchedAggregateChild layoutAt inPair) fits
+            exact ih item address reachedWidth reachedSize (fun leaf path => allocator leaf (.dynamic member (.aggregate inPair path)))
+              (shapeAt item inPair) (matchedAggregateChild layoutAt inPair) fits
           · cases equal
         · exact fun _ _ _ _ paired grown atCheck atCanon => ends _ _ _ _ paired (growth.trans grown) atCheck atCanon
     | @sum _ type arms tag selected child =>
@@ -770,7 +775,8 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
             (sumCheckedNext destination inst (some item) index addressAt checkNext) (.ok ())
           let reference := localLeafEnd right right.host store canon.thread canon.frames canon.rest
             (sumCanonicalNext destination inst (some item) addressAt canonNext) (.ok ())
-          exact ih item addressAt present sized (child item rfl) matchChild fits 0 (aggregateNext index checkNext) canonNext
+          exact ih item addressAt present sized (fun leaf path => allocator leaf (.sum path))
+            (child item rfl) matchChild fits 0 (aggregateNext index checkNext) canonNext
             entered reference check canon ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩
             status rfl rfl finish (fun _ _ _ _ frame grew checkAt canonAt => ends _ _ _ _ frame grew checkAt canonAt)
     | @fixed _ element length entries child =>
@@ -809,7 +815,8 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
         growth present (elementSlots destination.width entriesMatch aligned placed _ ?_) ends ?_ rfl
       · intro item member slot fits
         have layoutAt := entries_match_of_mem entriesMatch member
-        exact ih item slot present sized (child item member) (layoutAt.type_eq.symm ▸ layoutAt) fits
+        exact ih item slot present sized (fun leaf path => allocator leaf (.fixed member path))
+          (child item member) (layoutAt.type_eq.symm ▸ layoutAt) fits
       · rw [checkAt, Record.Effects.field]
         let body : Session grow sig (Except RecordLower.Issue Unit) :=
           mode.checked destination inst entries 0 address
