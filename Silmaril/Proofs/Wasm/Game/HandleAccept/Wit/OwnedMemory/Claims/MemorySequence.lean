@@ -613,7 +613,7 @@ private theorem scalarRule {older : ReturnFrame.Substitutions (core3 grow) (Host
     destination inst primitive payload nonString index (.memory address) origin left right (frame.store ▸ growth) width placed
     frame.store check canon frame.thread checkNext canonNext checkAt canonAt
   obtain ⟨store, result, chk, ref, checkRun, canonRun, labels, status⟩ := cut
-  refine .inr ⟨primitive, payload, rfl, nonString, store, result, chk, ref, checkRun, canonRun, labels, ?_⟩
+  refine .inr ⟨⟨primitive, payload, rfl, nonString⟩, store, result, chk, ref, checkRun, canonRun, labels, ?_⟩
   cases result with
   | ok value =>
     exact ends _ _ _ _ ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩ status rfl rfl

@@ -301,21 +301,30 @@ inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop w
   | fixed {depth element length entries} : (∀ item ∈ entries, ListTreeShape stringLeaf depth item) →
       ListTreeShape stringLeaf (depth + 1) (.fixed element length entries)
 
+def PrimitiveThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (output : Lower.Output) (left right : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
+    (finish : ValueFinish grow sig output) : Prop :=
+  ∃ store result checkLabels canonLabels,
+    let lhs := localLeafEnd left left.host store check.thread check.frames check.rest (fun value => checkNext (.ok value)) result
+    let rhs := localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result
+    Steps profile ready (specDispatch ready (host bindings)) left checkLabels lhs ∧
+    Steps profile ready (specDispatch ready (host bindings)) right canonLabels rhs ∧
+    visible checkLabels = visible canonLabels ∧
+    match result with
+    | .ok value => finish value lhs rhs check canon
+    | .error reason => ∃ leading, visible canonLabels = leading ++ [.trap reason]
+
+def NonStringPrimitive (item : Field) : Prop :=
+  ∃ (primitive : WIT.Primitive) (payload : Stored.Payload (.prim primitive)),
+    item = .data (.prim primitive) payload ∧ primitive ≠ .string
+
 def memoryLeaf (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
     FieldComparison grow sig := fun item index address left right check canon checkNext canonNext finish =>
   mixed profile ready bindings older destination inst item index address left right check canon checkNext canonNext finish ∨
-    ∃ (primitive : WIT.Primitive) (payload : Stored.Payload (.prim primitive)),
-      item = .data (.prim primitive) payload ∧ primitive ≠ .string ∧
-      ∃ store result checkLabels canonLabels,
-        let lhs := localLeafEnd left left.host store check.thread check.frames check.rest (fun value => checkNext (.ok value)) result
-        let rhs := localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result
-        Steps profile ready (specDispatch ready (host bindings)) left checkLabels lhs ∧
-        Steps profile ready (specDispatch ready (host bindings)) right canonLabels rhs ∧
-        visible checkLabels = visible canonLabels ∧
-        match result with
-        | .ok _ => finish lhs rhs check canon
-        | .error reason => ∃ leading, visible canonLabels = leading ++ [.trap reason]
+    NonStringPrimitive item ∧
+    PrimitiveThen profile ready bindings (.memory address) left right check canon checkNext canonNext (fun () => finish)
 
 def SumThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (destination : RecordDestination) (inst : InstId) (compare : FieldComparison grow sig)
@@ -374,5 +383,28 @@ def listTree (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindin
         Steps profile ready (specDispatch ready (host bindings)) right [.tau] reference ∧
           Replay profile ready bindings mode destination inst child (aggregateNext index checkNext) canonNext finish
             entries 0 address left reference check canon
+
+def FlatAllocatingLeaf (stringLeaf : Field → Prop) (entryDepth : Nat) (item : Field) : Prop :=
+  (CanonicalHandle item ∨ stringLeaf item) ∨ NonStringPrimitive item ∨
+    ∃ type element entries, item = .dynamic type element entries ∧
+      ∀ entry ∈ entries, ListTreeShape stringLeaf entryDepth entry
+
+/-- A collection in a flat sequence enters the memory comparison at its
+actual allocator return. Typed refusal stops the checked sequence before
+its following siblings; only common success contributes descriptor words. -/
+def flatAllocating (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (entryDepth : Nat) : FlatFieldComparison grow sig := fun item index left right check canon checkNext canonNext finish =>
+  mixedFlatComparison profile ready bindings older destination inst item index left right check canon checkNext canonNext finish ∨
+    (NonStringPrimitive item ∧ PrimitiveThen profile ready bindings .flat left right check canon checkNext canonNext finish) ∨
+    ∃ type element entries, item = .dynamic type element entries ∧
+      match Record.prepare left.store left.host.writer (Field.listObjects entries) with
+      | .error _ => ReachesKeeping profile ready (specDispatch ready (host bindings)) (fun _ => True)
+          left right check canon checkNext canonNext
+      | .ok () => CollectionReplayFor profile ready bindings older destination inst type element entries index .flat
+          left right check canon checkNext canonNext
+          (RecursiveValueReturn profile ready bindings older destination inst
+            (listTree profile ready bindings older destination inst entryDepth) type element entries index .flat
+            checkNext canonNext finish)
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
