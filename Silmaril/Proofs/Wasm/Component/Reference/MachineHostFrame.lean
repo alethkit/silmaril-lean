@@ -103,17 +103,22 @@ theorem steps {before after : Config E Host} {labels : List (Label E Host)} (oth
           .cons head lhs, .cons pairedHead rhs, boundary, leftRead, rightRead, rest⟩
     · exact .inr ⟨[], _, _, _, other, _, _, rfl, .refl _, .refl _, cut, head, pairedHead, tail⟩
 
-private theorem return_focus {first second : ReturnFrame.Continuation E Host}
+variable {changes : ReturnFrame.Substitutions E Host}
+
+local notation "PairedOf" => HostFrame.Related.Paired
+local notation "BoundaryOf" => HostFrame.Related.Boundary
+
+private theorem return_focus
     {left right leftNext rightNext : Config E Host} {label : Label E Host}
-    (returned : ReturnFrame.Returned first second left right label leftNext rightNext) :
+    (returned : ReturnFrame.Related.Returned changes left right label leftNext rightNext) :
     ∃ thread value frames rest, left.ctl = ⟨thread, .prog (.pure value), frames⟩ :: rest := by
   cases returned with
-  | mk popping _ => exact ⟨_, _, _, _, popping⟩
+  | mk _ popping _ => exact ⟨_, _, _, _, popping⟩
 
-private theorem read_not_return {first second : ReturnFrame.Continuation E Host}
+private theorem read_not_return
     {left right leftNext rightNext alternate : Config E Host} {label : Label E Host}
     (cut : ReadCut left right.host label leftNext alternate)
-    (returned : ReturnFrame.Returned first second (replace left right.host) right label alternate rightNext) :
+    (returned : ReturnFrame.Related.Returned changes (replace left right.host) right label alternate rightNext) :
     False := by
   cases cut with
   | mk reading _ =>
@@ -121,39 +126,39 @@ private theorem read_not_return {first second : ReturnFrame.Continuation E Host}
     rw [show (replace left right.host).ctl = left.ctl from rfl, reading] at popping
     cases popping
 
-private theorem return_host {first second : ReturnFrame.Continuation E Host}
+private theorem return_host
     {left right leftNext rightNext : Config E Host} {label : Label E Host}
-    (returned : ReturnFrame.Returned first second left right label leftNext rightNext) :
+    (returned : ReturnFrame.Related.Returned changes left right label leftNext rightNext) :
     leftNext.host = left.host := by
   cases returned
   rfl
 
-theorem paired_step {first second : ReturnFrame.Continuation E Host}
+theorem paired_step
     {left right next : Config E Host} {label : Label E Host}
-    (paired : Paired first second left right) (run : Step profile ready dispatch left label next) :
+    (paired : PairedOf changes left right) (run : Step profile ready dispatch left label next) :
     ∃ next', Step profile ready dispatch right label next' ∧
-      (Paired first second next next' ∨ Boundary first second left right label next next') := by
+      (PairedOf changes next next' ∨ BoundaryOf changes left right label next next') := by
   rcases step right.host run with ⟨other, replay⟩ | ⟨alternate, replay, cut⟩
-  · rcases ReturnFrame.step paired replay with ⟨next', run', aligned⟩ | ⟨next', run', returned⟩
+  · rcases ReturnFrame.Related.step paired replay with ⟨next', run', aligned⟩ | ⟨next', run', returned⟩
     · have equal : other = next'.host := aligned.data.2.1
       rw [equal] at aligned
       exact ⟨next', run', .inl aligned⟩
     · have equal : other = right.host := return_host returned
       rw [equal] at returned
       exact ⟨next', run', .inr (.returned returned)⟩
-  · rcases ReturnFrame.step paired replay with ⟨next', run', aligned⟩ | ⟨_, _, returned⟩
+  · rcases ReturnFrame.Related.step paired replay with ⟨next', run', aligned⟩ | ⟨_, _, returned⟩
     · exact ⟨next', run', .inr (.read cut aligned)⟩
     · exact (read_not_return cut returned).elim
 
-theorem paired_steps {first second : ReturnFrame.Continuation E Host}
+theorem paired_steps
     {left right next : Config E Host} {labels : List (Label E Host)}
-    (paired : Paired first second left right) (run : Steps profile ready dispatch left labels next) :
-    (∃ next', Steps profile ready dispatch right labels next' ∧ Paired first second next next') ∨
+    (paired : PairedOf changes left right) (run : Steps profile ready dispatch left labels next) :
+    (∃ next', Steps profile ready dispatch right labels next' ∧ PairedOf changes next next') ∨
     (∃ leading label trailing atLeft atRight afterLeft afterRight,
       labels = leading ++ label :: trailing ∧
       Steps profile ready dispatch left leading atLeft ∧
-      Steps profile ready dispatch right leading atRight ∧ Paired first second atLeft atRight ∧
-      Boundary first second atLeft atRight label afterLeft afterRight ∧
+      Steps profile ready dispatch right leading atRight ∧ PairedOf changes atLeft atRight ∧
+      BoundaryOf changes atLeft atRight label afterLeft afterRight ∧
       Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
       Steps profile ready dispatch afterLeft trailing next) := by
   induction run generalizing right with
@@ -168,10 +173,11 @@ theorem paired_steps {first second : ReturnFrame.Continuation E Host}
     · exact .inr ⟨[], _, _, _, _, _, _, rfl, .refl _, .refl _, paired, boundary, head, replay, tail⟩
 
 private theorem pairedUpdateGrows {grow : SingleThreaded.GrowOracle}
-    {first second : ReturnFrame.Continuation (core3 grow) Host}
+    {changes : ReturnFrame.Substitutions (core3 grow) Host}
     {left right : Config (core3 grow) Host}
-    (paired : Paired first second left right) (growth : CoreUpdateGrows left) : CoreUpdateGrows right := by
-  have lengths {before after : Config (core3 grow) Host} (framed : ReturnFrame.Paired first second before after) :
+    (paired : PairedOf changes left right) (growth : CoreUpdateGrows left) : CoreUpdateGrows right := by
+  have lengths {before after : Config (core3 grow) Host}
+      (framed : ReturnFrame.Related.Paired changes before after) :
       before.ctl.length = after.ctl.length := by
     cases framed with
     | mk controls _ => exact controls.length_eq
@@ -181,8 +187,8 @@ private theorem pairedUpdateGrows {grow : SingleThreaded.GrowOracle}
     have empty : right.ctl = [] := List.length_eq_zero_iff.mp (by simpa only [active, List.length_nil] using size.symm)
     simp only [CoreUpdateGrows, empty]
   · have atReplaced : (replace left right.host).ctl = ⟨thread, focus, frames⟩ :: rest := active
-    obtain ⟨_, _, matched, _⟩ := ReturnFrame.Paired.retarget paired atReplaced focus right.host
-    have sameStore : left.store = right.store := (ReturnFrame.Paired.data paired).1
+    obtain ⟨_, _, matched, _⟩ := ReturnFrame.Related.Paired.retarget paired atReplaced focus right.host
+    have sameStore : left.store = right.store := (ReturnFrame.Related.Paired.data paired).1
     rw [CoreUpdateGrows, active] at growth
     rw [CoreUpdateGrows, matched, ← sameStore]
     cases focus with
@@ -194,15 +200,15 @@ private theorem pairedUpdateGrows {grow : SingleThreaded.GrowOracle}
 
 theorem paired_growing_steps {grow : SingleThreaded.GrowOracle}
     {ready : HostReady Host} {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
-    {first second : ReturnFrame.Continuation (core3 grow) Host}
+    {changes : ReturnFrame.Substitutions (core3 grow) Host}
     {left right next : Config (core3 grow) Host} {labels : List (Label (core3 grow) Host)}
-    (paired : Paired first second left right) (run : CoreGrowthSteps profile ready dispatch left labels next) :
-    (∃ next', CoreGrowthSteps profile ready dispatch right labels next' ∧ Paired first second next next') ∨
+    (paired : PairedOf changes left right) (run : CoreGrowthSteps profile ready dispatch left labels next) :
+    (∃ next', CoreGrowthSteps profile ready dispatch right labels next' ∧ PairedOf changes next next') ∨
     (∃ leading label trailing atLeft atRight afterLeft afterRight,
       labels = leading ++ label :: trailing ∧
       CoreGrowthSteps profile ready dispatch left leading atLeft ∧
-      CoreGrowthSteps profile ready dispatch right leading atRight ∧ Paired first second atLeft atRight ∧
-      Boundary first second atLeft atRight label afterLeft afterRight ∧
+      CoreGrowthSteps profile ready dispatch right leading atRight ∧ PairedOf changes atLeft atRight ∧
+      BoundaryOf changes atLeft atRight label afterLeft afterRight ∧
       Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
       CoreGrowthSteps profile ready dispatch afterLeft trailing next) := by
   induction run generalizing right with
@@ -235,7 +241,7 @@ theorem interior_step {grow : SingleThreaded.GrowOracle}
       | mk focus _ => exact inside.1 _ _ _ _ focus
     exact (notRead interior cut).elim
   | returned popped =>
-    obtain ⟨thread, value, frames, _, rest, _, reached, _⟩ := popped.inputs
+    obtain ⟨thread, value, frames, _, rest, _, reached, _⟩ := ReturnFrame.Returned.inputs popped
     exact (interior.2 thread value frames rest reached).elim
 
 theorem instCandidates_eq (store : CStore E) (inst : InstId) (left right : Nat → Bool)

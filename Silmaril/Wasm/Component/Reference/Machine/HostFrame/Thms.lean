@@ -123,4 +123,26 @@ theorem sync_readiness {first second : ReturnFrame.Continuation E Host} {cfg oth
       Steps profile ready dispatch other [.tau, .tau, .tau] next' ∧ Paired first second next next' :=
   Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.sync_readiness paired task found waiting agrees focused
 
+namespace Related
+
+/-- Replay actual growth-certified callback steps when the hosts differ and
+several saved calls are already paired. A reached host-read divergence or
+the pop of any substituted frame is an explicit boundary. -/
+theorem paired_growing_steps {grow : SingleThreaded.GrowOracle}
+    {ready : HostReady Host} {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    {changes : ReturnFrame.Substitutions (core3 grow) Host}
+    {left right next : Config (core3 grow) Host} {labels : List (Label (core3 grow) Host)}
+    (paired : Paired changes left right) (run : CoreGrowthSteps profile ready dispatch left labels next) :
+    (∃ next', CoreGrowthSteps profile ready dispatch right labels next' ∧ Paired changes next next') ∨
+    (∃ leading label trailing atLeft atRight afterLeft afterRight,
+      labels = leading ++ label :: trailing ∧
+      CoreGrowthSteps profile ready dispatch left leading atLeft ∧
+      CoreGrowthSteps profile ready dispatch right leading atRight ∧ Paired changes atLeft atRight ∧
+      Boundary changes atLeft atRight label afterLeft afterRight ∧
+      Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
+      CoreGrowthSteps profile ready dispatch afterLeft trailing next) :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineHostFrame.paired_growing_steps paired run
+
+end Related
+
 end Silmaril.Wasm.Component.Machine.HostFrame

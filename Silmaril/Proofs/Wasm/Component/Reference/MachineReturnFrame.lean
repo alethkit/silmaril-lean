@@ -12,6 +12,13 @@ open Silmaril.Wasm.Component.Machine.StepDefs
 
 variable {E : CoreEngine} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}
 variable {dispatch : Call E → P E Host (Ret E)} {first second : Continuation E Host}
+variable {changes : Substitutions E Host}
+
+local notation "SegmentOf" => Related.Segment
+local notation "ActiveOf" => Related.Active
+local notation "SavedOf" => Related.Saved
+local notation "PairedOf" => Related.Paired
+local notation "ReturnedOf" => Related.Returned
 
 private theorem listSame {Item : Type} {relation : Item → Item → Prop}
     (same : ∀ item, relation item item) (items : List Item) : List.Forall₂ relation items items := by
@@ -19,10 +26,10 @@ private theorem listSame {Item : Type} {relation : Item → Item → Prop}
   | nil => exact .nil
   | cons item _ tail => exact .cons (same item) tail
 
-private theorem activeSame (act : Activation E Host) : Active first second act act :=
-  .mk (listSame (Segment.same (first := first) (second := second)) act.segs)
+private theorem activeSame (act : Activation E Host) : ActiveOf changes act act :=
+  .mk (listSame Related.Segment.same act.segs)
 
-private theorem savedSame (slot : Option (Activation E Host)) : Saved first second slot slot := by
+private theorem savedSame (slot : Option (Activation E Host)) : SavedOf changes slot slot := by
   cases slot with
   | none => exact .none
   | some act => exact .some (activeSame act)
@@ -31,7 +38,7 @@ theorem installed (cfg : Config E Host) (thread : Option ThreadId) (body : P E H
     (frames : List (Seg E Host)) (rest : List (Activation E Host)) :
     Paired first second { cfg with ctl := ⟨thread, .prog body, .prog first :: frames⟩ :: rest }
       { cfg with ctl := ⟨thread, .prog body, .prog second :: frames⟩ :: rest } :=
-  .mk (.cons (.mk (.cons .swap (listSame Segment.same frames))) (listSame activeSame rest))
+  .mk (.cons (.mk (.cons (.swap .here) (listSame Related.Segment.same frames))) (listSame activeSame rest))
     (listSame savedSame cfg.conts)
 
 private theorem setSlot_pair {Item : Type} {relation : Option Item → Option Item → Prop}
@@ -48,8 +55,8 @@ private theorem setSlot_pair {Item : Type} {relation : Option Item → Option It
     | cons head tail => exact .cons head (ih tail)
 
 private theorem getSlot_pair {left right : List (Option (Activation E Host))}
-    (slots : List.Forall₂ (Saved first second) left right) (index : Nat) :
-    Saved first second (left[index]?.join) (right[index]?.join) := by
+    (slots : List.Forall₂ (SavedOf changes) left right) (index : Nat) :
+    SavedOf changes (left[index]?.join) (right[index]?.join) := by
   induction index generalizing left right with
   | zero => cases slots with
     | nil => exact .none
@@ -59,43 +66,75 @@ private theorem getSlot_pair {left right : List (Option (Activation E Host))}
     | cons _ tail => exact ih tail
 
 private theorem savedNone {right : Option (Activation E Host)}
-    (paired : Saved first second none right) : right = none := by cases paired; rfl
+    (paired : SavedOf changes none right) : right = none := by cases paired; rfl
 
 private theorem savedSome {left : Activation E Host} {right : Option (Activation E Host)}
-    (paired : Saved first second (some left) right) : ∃ act, right = some act ∧ Active first second left act := by
+    (paired : SavedOf changes (some left) right) : ∃ act, right = some act ∧ ActiveOf changes left act := by
   cases paired with
   | some act => exact ⟨_, rfl, act⟩
 
 private theorem blockedPair (thread : ThreadId) (cont : Unit → P E Host (Ret E)) {left right}
-    (frames : List.Forall₂ (Segment first second) left right) :
-    Saved first second (some (blockedAct thread cont left)) (some (blockedAct thread cont right)) :=
+    (frames : List.Forall₂ (SegmentOf changes) left right) :
+    SavedOf changes (some (blockedAct thread cont left)) (some (blockedAct thread cont right)) :=
   .some (.mk frames)
 
 private theorem activeHead {cfg : Config E Host} {active thread focus frames rest}
-    (control : List.Forall₂ (Active first second) cfg.ctl active)
+    (control : List.Forall₂ (ActiveOf changes) cfg.ctl active)
     (focused : cfg.ctl = ⟨thread, focus, frames⟩ :: rest) :
     ∃ frames' rest', active = ⟨thread, focus, frames'⟩ :: rest' ∧
-      List.Forall₂ (Segment first second) frames frames' ∧ List.Forall₂ (Active first second) rest rest' := by
+      List.Forall₂ (SegmentOf changes) frames frames' ∧ List.Forall₂ (ActiveOf changes) rest rest' := by
   rw [focused] at control
   cases control with
   | cons head tail => cases head with
     | mk frame => exact ⟨_, _, rfl, frame, tail⟩
 
-theorem retarget {left right : Config E Host} (paired : Paired first second left right)
+theorem retarget {left right : Config E Host} (paired : PairedOf changes left right)
     {thread focus frames rest} (focused : left.ctl = ⟨thread, focus, frames⟩ :: rest)
     (next : Focus E Host) (host : Host) :
     ∃ otherFrames otherRest, right.ctl = ⟨thread, focus, otherFrames⟩ :: otherRest ∧
-      Paired first second { left with host, ctl := ⟨thread, next, frames⟩ :: rest }
+      PairedOf changes { left with host, ctl := ⟨thread, next, frames⟩ :: rest }
         { right with host, ctl := ⟨thread, next, otherFrames⟩ :: otherRest } := by
   cases paired with
   | mk control blocked =>
     obtain ⟨_, _, atRight, head, tail⟩ := activeHead control focused
     exact ⟨_, _, atRight, .mk (.cons (.mk head) tail) blocked⟩
 
+theorem weaken {wider : Substitutions E Host} {left right : Config E Host}
+    (included : ∀ {first second}, changes first second → wider first second)
+    (paired : PairedOf changes left right) : PairedOf wider left right := by
+  have active {left right} (frame : ActiveOf changes left right) : ActiveOf wider left right := by
+    cases frame with
+    | mk segments =>
+      refine .mk (List.Forall₂.imp ?_ segments)
+      intro _ _ segment
+      cases segment with
+      | same _ => exact .same _
+      | swap edge => exact .swap (included edge)
+  cases paired with
+  | mk control blocked =>
+    refine .mk (List.Forall₂.imp (fun _ _ frame => active frame) control) (List.Forall₂.imp ?_ blocked)
+    intro _ _ slot
+    cases slot with
+    | none => exact .none
+    | some frame => exact .some (active frame)
+
+theorem push {left right : Config E Host} (paired : PairedOf changes left right)
+    {thread focus frames rest} (focused : left.ctl = ⟨thread, focus, frames⟩ :: rest)
+    (body : P E Host (Ret E)) (first second : Continuation E Host) :
+    ∃ otherFrames otherRest, right.ctl = ⟨thread, focus, otherFrames⟩ :: otherRest ∧
+      PairedOf (Extend changes first second)
+        { left with ctl := ⟨thread, .prog body, .prog first :: frames⟩ :: rest }
+        { right with ctl := ⟨thread, .prog body, .prog second :: otherFrames⟩ :: otherRest } := by
+  have expanded := weaken (fun edge => Extend.existing (first := first) (second := second) edge) paired
+  cases expanded with
+  | mk control blocked =>
+    obtain ⟨_, _, atRight, head, tail⟩ := activeHead control focused
+    exact ⟨_, _, atRight, .mk (.cons (.mk (.cons (.swap .current) head)) tail) blocked⟩
+
 private theorem finished {cfg : Config E Host} {active saved left right result}
-    (blocked : List.Forall₂ (Saved first second) cfg.conts saved)
-    (tail : List.Forall₂ (Active first second) left right) :
-    Paired first second (hostFinish result left cfg)
+    (blocked : List.Forall₂ (SavedOf changes) cfg.conts saved)
+    (tail : List.Forall₂ (ActiveOf changes) left right) :
+    PairedOf changes (hostFinish result left cfg)
       (hostFinish result right { cfg with ctl := active, conts := saved }) := by
   have calls : lastCall? { cfg with ctl := active, conts := saved } = lastCall? cfg := rfl
   cases tail with
@@ -107,8 +146,8 @@ private theorem finished {cfg : Config E Host} {active saved left right result}
     exact .mk (.cons head tail) blocked
 
 private theorem fault {cfg : Config E Host} {active saved reason}
-    (control : List.Forall₂ (Active first second) cfg.ctl active)
-    (blocked : List.Forall₂ (Saved first second) cfg.conts saved)
+    (control : List.Forall₂ (ActiveOf changes) cfg.ctl active)
+    (blocked : List.Forall₂ (SavedOf changes) cfg.conts saved)
     (failed : Fault cfg reason) : Fault { cfg with ctl := active, conts := saved } reason := by
   cases failed with
   | blockNoThread focused =>
@@ -132,7 +171,7 @@ private theorem fault {cfg : Config E Host} {active saved reason}
     | cons head _ => cases head; exact .calloutBadRet atRight bad
 
 private theorem hostReady {cfg : Config E Host} {active saved}
-    (control : List.Forall₂ (Active first second) cfg.ctl active) (enabled : HostReadyCfg cfg) :
+    (control : List.Forall₂ (ActiveOf changes) cfg.ctl active) (enabled : HostReadyCfg cfg) :
     HostReadyCfg { cfg with ctl := active, conts := saved } := by
   obtain ⟨empty, unlocked, nesting⟩ := enabled
   rw [empty] at control
@@ -140,9 +179,9 @@ private theorem hostReady {cfg : Config E Host} {active saved}
   exact ⟨rfl, unlocked, nesting⟩
 
 theorem step {left right next : Config E Host} {label : Label E Host}
-    (paired : Paired first second left right) (run : Step profile ready dispatch left label next) :
-    (∃ next', Step profile ready dispatch right label next' ∧ Paired first second next next') ∨
-    (∃ next', Step profile ready dispatch right label next' ∧ Returned first second left right label next next') := by
+    (paired : PairedOf changes left right) (run : Step profile ready dispatch left label next) :
+    (∃ next', Step profile ready dispatch right label next' ∧ PairedOf changes next next') ∨
+    (∃ next', Step profile ready dispatch right label next' ∧ ReturnedOf changes left right label next next') := by
   cases paired with
   | mk control blocked =>
     cases run with
@@ -151,7 +190,7 @@ theorem step {left right next : Config E Host} {label : Label E Host}
       cases frames with
       | cons head frames => cases head with
         | same => exact .inl ⟨_, .popProg atRight, .mk (.cons (.mk frames) tail) blocked⟩
-        | swap => exact .inr ⟨_, .popProg atRight, .mk focused atRight⟩
+        | swap edge => exact .inr ⟨_, .popProg atRight, .mk edge focused atRight⟩
     | popCore focused =>
       obtain ⟨_, _, atRight, frames, tail⟩ := activeHead control focused
       cases frames with
@@ -240,13 +279,13 @@ theorem step {left right next : Config E Host} {label : Label E Host}
     | hostRun enabled => exact .inl ⟨_, .hostRun (hostReady control enabled), .mk (.cons (activeSame _) .nil) blocked⟩
 
 theorem steps {left right next : Config E Host} {labels : List (Label E Host)}
-    (paired : Paired first second left right) (run : Steps profile ready dispatch left labels next) :
-    (∃ next', Steps profile ready dispatch right labels next' ∧ Paired first second next next') ∨
+    (paired : PairedOf changes left right) (run : Steps profile ready dispatch left labels next) :
+    (∃ next', Steps profile ready dispatch right labels next' ∧ PairedOf changes next next') ∨
     (∃ leading label trailing atLeft atRight afterLeft afterRight,
       labels = leading ++ label :: trailing ∧
       Steps profile ready dispatch left leading atLeft ∧
-      Steps profile ready dispatch right leading atRight ∧ Paired first second atLeft atRight ∧
-      Returned first second atLeft atRight label afterLeft afterRight ∧
+      Steps profile ready dispatch right leading atRight ∧ PairedOf changes atLeft atRight ∧
+      ReturnedOf changes atLeft atRight label afterLeft afterRight ∧
       Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
       Steps profile ready dispatch afterLeft trailing next) := by
   induction run generalizing right with

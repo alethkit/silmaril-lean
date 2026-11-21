@@ -113,16 +113,19 @@ def CollectionCommonPop (profile : ProfileKind) (ready : HostReady (HostState si
 /-- The frame at a reached child entry. Blocked activations and the cursor
 tails can still contain substituted return frames; only the store and the
 pending, result, and cancellation data must be equal. -/
-structure ChildFrame (first second : ReturnFrame.Continuation (core3 grow) (HostState sig))
+structure ChildFrameOver (changes : ReturnFrame.Substitutions (core3 grow) (HostState sig))
     (left right : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig)) : Prop where
   store : left.store = right.store
   pending : left.pending = right.pending
   results : left.results = right.results
   cancels : left.cancels = right.cancels
-  blocked : List.Forall₂ (ReturnFrame.Saved first second) left.conts right.conts
+  blocked : List.Forall₂ (ReturnFrame.Related.Saved changes) left.conts right.conts
   thread : check.thread = canon.thread
-  frames : List.Forall₂ (ReturnFrame.Segment first second) check.frames canon.frames
-  rest : List.Forall₂ (ReturnFrame.Active first second) check.rest canon.rest
+  frames : List.Forall₂ (ReturnFrame.Related.Segment changes) check.frames canon.frames
+  rest : List.Forall₂ (ReturnFrame.Related.Active changes) check.rest canon.rest
+
+abbrev ChildFrame (first second : ReturnFrame.Continuation (core3 grow) (HostState sig)) :=
+  ChildFrameOver (ReturnFrame.Only first second)
 
 /-- A classified callback has reached a pop. Only a pop of the substituted
 frame enters the two distinct continuations. No validation or tail code

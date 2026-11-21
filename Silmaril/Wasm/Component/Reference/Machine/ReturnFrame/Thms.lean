@@ -27,7 +27,7 @@ theorem Returned.inputs {left right leftAfter rightAfter : Config E Host} {label
       left.ctl = ⟨thread, .prog (.pure value), .prog first :: leftFrames⟩ :: leftRest ∧
       right.ctl = ⟨thread, .prog (.pure value), .prog second :: rightFrames⟩ :: rightRest := by
   cases popped with
-  | mk atLeft atRight => exact ⟨_, _, _, _, _, _, atLeft, atRight⟩
+  | mk edge atLeft atRight => cases edge; exact ⟨_, _, _, _, _, _, atLeft, atRight⟩
 
 /-- Equality is between the two machines at the reached point, not between
 the reached and original states of the callback. -/
@@ -70,5 +70,57 @@ theorem steps {left right next : Config E Host} {labels : List (Label E Host)}
       Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
       Steps profile ready dispatch afterLeft trailing next) :=
   Silmaril.Proofs.Wasm.Component.Reference.MachineReturnFrame.steps paired run
+
+namespace Related
+
+variable {changes : Substitutions E Host}
+
+theorem Paired.data {left right : Config E Host} (paired : Paired changes left right) :
+    left.store = right.store ∧ left.host = right.host ∧ left.pending = right.pending ∧
+      left.results = right.results ∧ left.cancels = right.cancels := by
+  cases paired
+  exact ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+theorem Paired.retarget {left right : Config E Host} (paired : Paired changes left right)
+    {thread focus frames rest} (focused : left.ctl = ⟨thread, focus, frames⟩ :: rest)
+    (next : Focus E Host) (host : Host) :
+    ∃ otherFrames otherRest, right.ctl = ⟨thread, focus, otherFrames⟩ :: otherRest ∧
+      Paired changes { left with host, ctl := ⟨thread, next, frames⟩ :: rest }
+        { right with host, ctl := ⟨thread, next, otherFrames⟩ :: otherRest } :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineReturnFrame.retarget paired focused next host
+
+/-- Push a new substituted continuation at the current focus. All already
+paired frames, including those in blocked activations, keep their relation. -/
+theorem Paired.push {left right : Config E Host} (paired : Paired changes left right)
+    {thread focus frames rest} (focused : left.ctl = ⟨thread, focus, frames⟩ :: rest)
+    (body : P E Host (Ret E)) (first second : Continuation E Host) :
+    ∃ otherFrames otherRest, right.ctl = ⟨thread, focus, otherFrames⟩ :: otherRest ∧
+      Paired (Extend changes first second)
+        { left with ctl := ⟨thread, .prog body, .prog first :: frames⟩ :: rest }
+        { right with ctl := ⟨thread, .prog body, .prog second :: otherFrames⟩ :: otherRest } :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineReturnFrame.push paired focused body first second
+
+theorem step {left right next : Config E Host} {label : Label E Host}
+    (paired : Paired changes left right) (run : Step profile ready dispatch left label next) :
+    (∃ next', Step profile ready dispatch right label next' ∧ Paired changes next next') ∨
+    (∃ next', Step profile ready dispatch right label next' ∧ Returned changes left right label next next') :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineReturnFrame.step paired run
+
+/-- Replay an actual finite scheduler run until it consumes a substitution.
+The cut carries the reached pair, which may be an older blocked frame rather
+than the most recently installed one. -/
+theorem steps {left right next : Config E Host} {labels : List (Label E Host)}
+    (paired : Paired changes left right) (run : Steps profile ready dispatch left labels next) :
+    (∃ next', Steps profile ready dispatch right labels next' ∧ Paired changes next next') ∨
+    (∃ leading label trailing atLeft atRight afterLeft afterRight,
+      labels = leading ++ label :: trailing ∧
+      Steps profile ready dispatch left leading atLeft ∧
+      Steps profile ready dispatch right leading atRight ∧ Paired changes atLeft atRight ∧
+      Returned changes atLeft atRight label afterLeft afterRight ∧
+      Step profile ready dispatch atLeft label afterLeft ∧ Step profile ready dispatch atRight label afterRight ∧
+      Steps profile ready dispatch afterLeft trailing next) :=
+  Silmaril.Proofs.Wasm.Component.Reference.MachineReturnFrame.steps paired run
+
+end Related
 
 end Silmaril.Wasm.Component.Machine.ReturnFrame

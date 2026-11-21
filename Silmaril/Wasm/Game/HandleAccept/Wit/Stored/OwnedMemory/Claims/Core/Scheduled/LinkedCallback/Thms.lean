@@ -92,6 +92,57 @@ theorem string_realloc_pair (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (ol
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringReallocPair
     cx ptr oldSize alignment size steps checkNext canonNext left right cursor same checkAt canonAt
 
+/-- The real allocate/resize steps can install another callback even while
+older active and blocked frames still differ. The resulting relation is
+replayable until an actual host-read or saved-return boundary. -/
+theorem ChildFrameOver.string_realloc_pair {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (oldSize : Option Nat)
+    (alignment : Alignment) (size : Nat) (steps : List StoreStep)
+    (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver changes left right check canon)
+    (checkAt : left.ctl = check.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= checkNext))
+    (canonAt : right.ctl = canon.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= canonNext)) :
+    let dispatch := specDispatch ready (host bindings)
+    let leftEntry := stringReallocEntry ready bindings cx ptr oldSize alignment size steps checkNext left check
+    let rightEntry := stringReallocEntry ready bindings cx ptr oldSize alignment size steps canonNext right canon
+    Step profile ready dispatch left .tau leftEntry ∧ Step profile ready dispatch right .tau rightEntry ∧
+    HostFrame.Related.Paired (ReturnFrame.Extend changes (stringPlanResume cx steps checkNext)
+      (stringPlanResume cx steps canonNext)) leftEntry rightEntry :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.childStringRealloc
+    cx ptr oldSize alignment size steps checkNext canonNext frame checkAt canonAt
+
+/-- A reached allocating list or map can likewise install on distinct
+residual frames, keeping the memory-map placement mode and its live recheck
+in the real saved continuations. -/
+theorem ChildFrameOver.collection_install_pair {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+    (entries : List Field) (output : Lower.Output) (index : Nat)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver changes left right check canon)
+    (reachedWidth : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let dispatch := specDispatch ready (host bindings)
+    let area := layout destination.width element
+    let first := checkedCollectionResume destination inst entries area index output checkNext
+    let second := canonicalCollectionResume destination inst entries area output canonNext
+      (CanonicalTree.EntryMode.forOutput destination.width type output)
+    let checkCall := collectionEntry destination inst area entries.length dispatch left check first
+    let canonCall := collectionEntry destination inst area entries.length dispatch right canon second
+    Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
+    Steps profile ready dispatch right [.tau, .tau] canonCall ∧
+    HostFrame.Related.Paired (ReturnFrame.Extend changes first second) checkCall canonCall :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.childCollectionInstall
+    destination inst type element entries output index checkNext canonNext frame reachedWidth prepared checkAt canonAt
+
 /-- Replay to the actual child-entry cut, with the reached memory region,
 live verdict and residual scheduler frames. A range trap or common pop
 does not enter the child program. No child comparison or return guarantee

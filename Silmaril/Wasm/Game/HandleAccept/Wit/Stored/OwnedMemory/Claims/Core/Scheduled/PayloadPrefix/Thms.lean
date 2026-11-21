@@ -499,6 +499,32 @@ theorem collection_install (destination : RecordDestination) (inst : InstId) (ty
     destination inst type element entries output index left right cursor checkNext canonNext same reachedWidth
     mode prepared checkAt canonAt
 
+/-- Both install prefixes stop at the actual allocator with their own
+reached cursors. A successful checked pre-read does not discharge the
+different live-plan check in the saved continuation. -/
+theorem collection_install_steps (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+    (entries : List Field) (output : Lower.Output) (index : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (reachedWidth : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let area := layout destination.width element
+    let checkResume := checkedCollectionResume destination inst entries area index output checkNext
+    let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+      (CanonicalTree.EntryMode.forOutput destination.width type output)
+    let checkCall := collectionEntry destination inst area entries.length dispatch left check checkResume
+    let canonCall := collectionEntry destination inst area entries.length dispatch right canon canonResume
+    Machine.Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
+    Machine.Steps profile ready dispatch right [.tau, .tau] canonCall :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionInstallSteps
+    destination inst type element entries output index left right check canon checkNext canonNext
+    reachedWidth prepared checkAt canonAt
+
 /-- Install both actual allocator frames, including the allocation-time map
 entry layout for indirect output. This does not compare the entry traversals. -/
 theorem collection_install_mode (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
