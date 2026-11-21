@@ -67,10 +67,11 @@ theorem parked_recursive_flat_map {schema : TypeOf} (call : PayloadRoot.Site gro
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedRecursiveValue
     call linked (.map key element) (.record (mapEntryFields key element)) entries depth next compiledMap rfl shapes realloc
 
-/-- An actual parked flat aggregate or fixed array visits its scalar, string,
-handle and dynamic collection children in order. The collection descriptor
-joins the flat word sequence only after the marked return and complete
-memory traversal; a typed refusal or trap does not run the next sibling. -/
+/-- An actual parked flat aggregate, fixed array or selected sum visits its
+scalar, string, handle and dynamic collection children in order. Sum coercion
+uses the words from the reached arm, and a collection descriptor joins the
+flat sequence only after the marked return and complete memory traversal.
+A typed refusal or trap does not run the next sibling. -/
 theorem parked_recursive_flat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
     (flatDepth entryDepth : Nat) (next : call.ReferenceNext) (shape : ParkedFlatShape flatDepth entryDepth call.field)
     {addr : Nat} (realloc : call.destination.realloc = some addr) :
