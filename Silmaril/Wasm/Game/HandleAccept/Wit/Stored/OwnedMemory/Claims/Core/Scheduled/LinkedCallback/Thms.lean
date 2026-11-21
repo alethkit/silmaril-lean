@@ -159,6 +159,20 @@ theorem ChildFrameOver.string_realloc_pair {changes : ReturnFrame.Substitutions 
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.childStringRealloc
     cx ptr oldSize alignment size steps checkNext canonNext frame checkAt canonAt
 
+/-- Take the local phase of any actual string suffix, preserving its reached
+frames and growth. If the next action allocates or resizes, both machines
+enter the actual allocator with a decreasing suffix. -/
+theorem ChildFrameOver.string_plan_cut {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (steps : List StoreStep)
+    (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver changes left right check canon)
+    (checkAt : left.ctl = check.control (runStoreSteps cx ptr steps >>= checkNext))
+    (canonAt : right.ctl = canon.control (runStoreSteps cx ptr steps >>= canonNext)) :
+    StringPlanCut profile ready bindings changes cx steps.length left right check canon checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringPlanCut
+    cx ptr steps checkNext canonNext frame checkAt canonAt
+
 /-- A reached allocating list or map can likewise install on distinct
 residual frames, keeping the memory-map placement mode and its live recheck
 in the real saved continuations. -/
