@@ -604,6 +604,76 @@ theorem memorySum (destination : RecordDestination) (inst : InstId) (type : Type
       (fun address => mapIssue (child active address rfl) (.nested index))
     simpa only [Lower.Output.Result, head, Prog.bind_eq, Prog.bind_assoc, Prog.pure_eq, Prog.pure_bind'] using composed
 
+theorem memorySumTag (destination : RecordDestination) (inst : InstId) (type : TypeOf)
+    (arms : List (Option TypeOf)) (tag index base : Nat) (selected : Option Field)
+    (origin : CStore (core3 grow)) (left right : Config (core3 grow) (HostState sig))
+    (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
+    (canonNext : Unit → Session grow sig (Ret (core3 grow)))
+    (same : left.store = right.store) (thread : check.thread = canon.thread)
+    (width : ptrTypeIn right.store (destination.context inst) = destination.width)
+    (growth : Core3.Grows origin.core right.store.core)
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.sum type arms tag selected) index (.memory base) >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.sum type arms tag selected) (.memory base) >>= canonNext)) :
+    let address := sumPayloadAddress destination.width arms base
+    LocalCutKeeping profile scheduledReady scheduledDispatch (fun store => Core3.Grows origin.core store.core) left right check canon
+      (sumCheckedNext destination inst selected index address checkNext)
+      (sumCanonicalNext destination inst selected address canonNext) := by
+  intro address
+  let cx := destination.context (grow := grow) inst
+  let body : Session grow sig Unit := storeInt cx tag base (discSize arms.length)
+  let checked := sumCheckedNext destination inst selected index address checkNext
+  let resumed := fun reached => sumCanonicalNext destination inst selected (sumPayloadAddress reached arms base) canonNext
+  let entered := { right with ctl := canon.control (body.bind (resumed destination.width)) }
+  have checkBody : left.ctl = check.control (body.bind checked) := by
+    rw [checkAt, Record.Effects.field]
+    cases selected with
+    | none =>
+      change check.control (((body.bind fun () => Prog.pure address).bind fun _ => Prog.pure (.ok ())).bind checkNext) = _
+      simp only [Prog.bind_assoc, Prog.pure_bind']
+      rfl
+    | some child =>
+      let field : Nat → Session grow sig (Except RecordLower.Issue Unit) := fun ptr =>
+        Record.Effects.field recordClaims Limits.spec Quirks.none cx destination.width child 0 (.memory ptr)
+      change check.control (((body.bind fun () => Prog.pure address).bind fun ptr =>
+        (field ptr).bind fun verdict => Prog.pure (verdict.mapError (.nested index))).bind checkNext) = _
+      simp only [Prog.bind_assoc, Prog.pure_bind']
+      rfl
+  have focus : right.ctl = canon.control (.op .get (fun store => body.bind (resumed (ptrTypeIn store cx)))) := by
+    rw [canonAt, CanonicalTree.field]
+    congr 1
+    change (Prog.op (S := Eff (core3 grow) (HostState sig)) .get _).bind canonNext = _
+    apply congrArg (Prog.op (S := Eff (core3 grow) (HostState sig)) .get)
+    funext store
+    let ptr := sumPayloadAddress (ptrTypeIn store cx) arms base
+    cases selected with
+    | none =>
+      change (((body.bind fun () => Prog.pure ptr).bind fun _ => Prog.pure ()).bind canonNext) = _
+      simp only [Prog.bind_assoc, Prog.pure_bind']
+      rfl
+    | some child =>
+      let field : Nat → Session grow sig Unit := fun ptr =>
+        CanonicalTree.field Limits.spec Quirks.none cx destination.width child (.memory ptr)
+      change (((body.bind fun () => Prog.pure ptr).bind field).bind canonNext) = _
+      simp only [Prog.bind_assoc, Prog.pure_bind']
+      rfl
+  have read : Step profile scheduledReady scheduledDispatch right .tau entered := by
+    simpa only [entered, Cursor.control, show ptrTypeIn right.store cx = destination.width from width] using
+      (Step.get (prof := profile) (hr := scheduledReady) (dispatch := scheduledDispatch) focus)
+  have localBody := closedIntKeeping (profile := profile) (Host := HostState sig)
+    (keep := fun store => Core3.Grows origin.core store.core)
+    (fun store memory ptr data growing => growing.trans (writeMemSt_grows store memory ptr data))
+    cx tag base (discSize arms.length)
+  obtain ⟨store, result, chk, ref, runChk, runRef, labels, status⟩ := closedCut (profile := profile)
+    (ready := scheduledReady) (dispatch := scheduledDispatch) localBody left entered check canon checked (resumed destination.width)
+    growth same thread checkBody rfl
+  have final : localLeafEnd entered entered.host store canon.thread canon.frames canon.rest (resumed destination.width) result =
+      localLeafEnd right right.host store canon.thread canon.frames canon.rest (resumed destination.width) result := by cases result <;> rfl
+  rw [final] at runRef
+  exact ⟨store, result, chk, .tau :: ref, runChk, .cons read runRef, labels, status⟩
+
 theorem memoryHandleLeaf (destination : RecordDestination) (inst : InstId) (field : Field) (index ptr : Nat)
     (fragment : CanonicalHandle field) :
     Compare profile scheduledReady scheduledDispatch
