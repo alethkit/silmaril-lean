@@ -7,7 +7,7 @@ public section
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
 
-open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
+open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.ABI Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
   Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.Machine
 open Stored.Endpoints.RecordLower
 
@@ -36,8 +36,10 @@ theorem parked_list {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig 
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedList
     call linked element entries depth next compiledList shapes realloc
 
-/-- Compare nested lists at any depth in an actual parked memory payload.
-Each marked return discharges the reached range and live reservation before recursion. -/
+/-- Compare recursively compiled aggregates, arrays, lists, indirect maps,
+and selected sums in an actual parked memory payload. Each marked return
+discharges the reached range and live reservation. Sum tags take effect
+before visiting the selected arm, whose slot uses the full arm layout. -/
 theorem parked_list_tree (call : PayloadRoot.Site grow sig (.memory pointer)) (linked : call.Linked bindings)
     (depth : Nat) (next : call.ReferenceNext) (shape : ParkedListTreeShape depth call.field)
     {addr : Nat} (realloc : call.destination.realloc = some addr) :
@@ -45,13 +47,24 @@ theorem parked_list_tree (call : PayloadRoot.Site grow sig (.memory pointer)) (l
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedListTree call linked depth next shape realloc
 
 /-- Both public list-root routes run the same recursive memory comparison
-for reached entries, including lists nested in records, tuples or lists. -/
+for reached entries, including nested lists and indirect maps. -/
 theorem parked_recursive_list {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route) (linked : call.Linked bindings)
     (element : TypeOf) (entries : List Field) (depth : Nat) (next : call.ReferenceNext)
     (compiledList : call.field = .dynamic (.list element) element entries)
     (shapes : ∀ item ∈ entries, ParkedListTreeShape depth item) {addr : Nat} (realloc : call.destination.realloc = some addr) :
     PayloadRoot.Cut call profile ready bindings (ParkedRecursiveListBody call element entries depth next profile ready bindings) :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedRecursiveList
-    call linked element entries depth next compiledList shapes realloc
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedRecursiveValue
+    call linked (.list element) element entries depth next compiledList (by cases route <;> rfl) shapes realloc
+
+/-- Flat maps store each compiled key/value record at the slot reached after
+the marked allocator return. Unlike indirect maps, their canonical program
+reads the width again at entry, then lowers any allocating descendants. -/
+theorem parked_recursive_flat_map {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
+    (key : WIT.KeyType) (element : TypeOf) (entries : List Field) (depth : Nat) (next : call.ReferenceNext)
+    (compiledMap : call.field = .dynamic (.map key element) (.record (mapEntryFields key element)) entries)
+    (shapes : ∀ item ∈ entries, ParkedListTreeShape depth item) {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    PayloadRoot.Cut call profile ready bindings (ParkedRecursiveFlatMapBody call key element entries depth next profile ready bindings) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedRecursiveValue
+    call linked (.map key element) (.record (mapEntryFields key element)) entries depth next compiledMap rfl shapes realloc
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence

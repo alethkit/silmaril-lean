@@ -253,6 +253,49 @@ def MemoryReaches {E : CoreEngine} {Host : Type} (profile : ProfileKind) (ready 
       Steps profile ready dispatch left (List.replicate count .tau ++ [.trap reason]) reached ∧
       reached.ctl = [] ∧ reached.store = StepDefs.lockdownSt left.store
 
+/-- A local comparison with exact reached configurations. Unlike the
+handle-only cut, it permits synchronized observations such as NaN choices. -/
+def LocalCutKeeping {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready : HostReady Host)
+    (dispatch : Call E → P E Host (Ret E)) (keep : CStore E → Prop) (left right : Config E Host)
+    (check canon : Cursor (E := E) Host) (checkNext canonNext : Result → P E Host (Ret E)) : Prop :=
+  ∃ (store : CStore E) (result : Except TrapReason Result) (checked canonical : List (Label E Host)),
+    Steps profile ready dispatch left checked
+      (localLeafEnd left left.host store check.thread check.frames check.rest checkNext result) ∧
+    Steps profile ready dispatch right canonical
+      (localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result) ∧
+    visible checked = visible canonical ∧
+    match result with
+    | .ok _ => keep store
+    | .error reason => ∃ leading, visible canonical = leading ++ [.trap reason]
+
+def CompareLocalKeepingAt {E : CoreEngine} {Host Result : Type} (profile : ProfileKind) (ready : HostReady Host)
+    (dispatch : Call E → P E Host (Ret E)) (keep : CStore E → Prop) (left right : Config E Host)
+    (checked : P E Host (Except RecordLower.Issue Result)) (canonical : P E Host Result) : Prop :=
+  left.store = right.store →
+    ∀ (check canon : Cursor (E := E) Host), check.thread = canon.thread →
+      ∀ (checkNext : Except RecordLower.Issue Result → P E Host (Ret E)) (canonNext : Result → P E Host (Ret E)),
+        left.ctl = check.control (checked >>= checkNext) → right.ctl = canon.control (canonical >>= canonNext) →
+        LocalCutKeeping profile ready dispatch keep left right check canon (fun value => checkNext (.ok value)) canonNext
+
+def sumPayloadAddress (width : AddrType) (arms : List (Option TypeOf)) (base : Nat) : Nat :=
+  alignTo (base + discSize arms.length) (maxCaseAlignment (arms.map (layoutOption width)))
+
+def sumCheckedNext {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (inst : InstId) (selected : Option Field) (index address : Nat)
+    (finish : Except RecordLower.Issue Unit → Session grow sig (Ret (core3 grow))) : Unit → Session grow sig (Ret (core3 grow)) :=
+  fun () => match selected with
+  | none => finish (.ok ())
+  | some child => Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst)
+      destination.width child 0 (.memory address) >>= fun verdict => finish (verdict.mapError (.nested index))
+
+def sumCanonicalNext {grow : SingleThreaded.GrowOracle} {sig : Signature}
+    (destination : RecordDestination) (inst : InstId) (selected : Option Field) (address : Nat)
+    (finish : Unit → Session grow sig (Ret (core3 grow))) : Unit → Session grow sig (Ret (core3 grow)) :=
+  fun () => match selected with
+  | none => finish ()
+  | some child => RecordLower.CanonicalTree.field Limits.spec Quirks.none (destination.context inst)
+      destination.width child (.memory address) >>= finish
+
 def checkedCollectionTail {grow : SingleThreaded.GrowOracle} {sig : Signature}
     (destination : RecordDestination) (inst : InstId) (entries : List Field) (area : Layout)
     (index : Nat) (output : Lower.Output) (ptr : Nat) :
