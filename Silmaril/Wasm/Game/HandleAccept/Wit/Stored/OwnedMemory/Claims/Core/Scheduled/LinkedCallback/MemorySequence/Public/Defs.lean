@@ -27,4 +27,14 @@ def ParkedBody (call : PayloadRoot.Site grow sig (.memory pointer)) (depth : Nat
       ChildFrameOver older reached reference check canon ∧
       reached.ctl = check.control (call.reply (.ok ())) ∧ reference.ctl = canon.control (next ()))
 
+/-- The actual root allocator and value-mode list tail, parameterized by
+the public output route and the original reply continuation. -/
+def ParkedListBody {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route) (element : TypeOf)
+    (entries : List Field) (depth : Nat) (next : call.ReferenceNext)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig)) : Prop :=
+  let older : ReturnFrame.Substitutions (core3 grow) (HostState sig) := fun _ _ => False
+  CollectionReplayFor profile ready bindings older call.destination call.inst (.list element) element entries 0 route.output
+    call.checked (call.reference next) call.cursor call.cursor call.reply next
+    (ValueListReturn profile ready bindings older call.destination call.inst (.list element) element entries depth 0 route.output call.reply next)
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence

@@ -31,10 +31,11 @@ private theorem appendSteps {first middle finish : Config (core3 grow) (HostStat
 private theorem visibleAppend {E : CoreEngine} {Host : Type} (front back : List (Label E Host)) :
     visible (front ++ back) = visible front ++ visible back := List.filter_append ..
 
-theorem parkedAfterPlacement (site : Site grow sig route) (linked : site.Linked bindings) (body : Prop)
+theorem parkedAfterAdmission (site : Site grow sig route) (linked : site.Linked bindings) (body : Prop)
     (afterFit : Lower.fits Quirks.none site.destination.encoding site.destination.width (sig.payload site.tag)
       site.payload.val.value = true →
-      rootPlacement site.destination site.start.store (sig.payload site.tag) route.output = .ok () → body) :
+      rootPlacement site.destination site.start.store (sig.payload site.tag) route.output = .ok () →
+      Record.prepare site.start.store site.start.host.writer site.field.objects = .ok () → body) :
     Cut site profile ready bindings body := by
   let dispatch := specDispatch ready (host (grow := grow) bindings)
   obtain ⟨plan, compiled⟩ := linked.compiled
@@ -91,9 +92,16 @@ theorem parkedAfterPlacement (site : Site grow sig route) (linked : site.Linked 
       | ok _ =>
         rw [placed] at placement
         obtain ⟨labels, placementSilent, placedRun⟩ := placement
-        refine .placed ?_ placed prepared (appendSteps rootRun placedRun) (afterFit fits placed)
+        refine .placed ?_ placed prepared (appendSteps rootRun placedRun) (afterFit fits placed prepared)
         rw [visibleAppend, visibleAppend, silent, placementSilent]
         rfl
+
+theorem parkedAfterPlacement (site : Site grow sig route) (linked : site.Linked bindings) (body : Prop)
+    (afterFit : Lower.fits Quirks.none site.destination.encoding site.destination.width (sig.payload site.tag)
+      site.payload.val.value = true →
+      rootPlacement site.destination site.start.store (sig.payload site.tag) route.output = .ok () → body) :
+    Cut site profile ready bindings body :=
+  parkedAfterAdmission site linked body (fun fits placed _ => afterFit fits placed)
 
 theorem parkedAfterFit (site : Site grow sig route) (linked : site.Linked bindings) (body : Prop)
     (afterFit : Lower.fits Quirks.none site.destination.encoding site.destination.width (sig.payload site.tag)
