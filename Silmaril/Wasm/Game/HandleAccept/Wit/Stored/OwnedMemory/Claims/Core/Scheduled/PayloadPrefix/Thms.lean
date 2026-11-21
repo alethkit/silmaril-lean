@@ -350,6 +350,19 @@ theorem string_descriptor_cut {grow : SingleThreaded.GrowOracle} {Host : Type} {
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.StringFront.descriptor
     cx width output plan ptr left right check canon checkNext canonNext same checkAt canonAt
 
+/-- Replay the actual pointer/count descriptor from the reached store. A
+late trap in memory output keeps the write to the first word, if it ran. -/
+theorem collection_descriptor_cut {grow : SingleThreaded.GrowOracle} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}
+    {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    (cx : LiftLowerContext (core3 grow)) (width : AddrType) (output : Lower.Output) (ptr count : Nat)
+    (left right : Config (core3 grow) Host) (check canon : Cursor (E := core3 grow) Host)
+    (checkNext canonNext : output.Result → P (core3 grow) Host (Ret (core3 grow))) (same : left.store = right.store)
+    (checkAt : left.ctl = check.control (ListLower.publish cx width ptr count output >>= checkNext))
+    (canonAt : right.ctl = canon.control (ListLower.publish cx width ptr count output >>= canonNext)) :
+    StringLocalCut profile ready dispatch left right check canon checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.StringFront.collectionDescriptor
+    cx width output ptr count left right check canon checkNext canonNext same checkAt canonAt
+
 /-- Use the validated collection range, rather than a fresh placement
 assumption for the scalar at its reached list index. -/
 theorem primitive_list_entry (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
