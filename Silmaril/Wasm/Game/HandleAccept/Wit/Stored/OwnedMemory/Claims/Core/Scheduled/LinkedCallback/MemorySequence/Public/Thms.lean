@@ -36,4 +36,22 @@ theorem parked_list {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig 
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedList
     call linked element entries depth next compiledList shapes realloc
 
+/-- Compare nested lists at any depth in an actual parked memory payload.
+Each marked return discharges the reached range and live reservation before recursion. -/
+theorem parked_list_tree (call : PayloadRoot.Site grow sig (.memory pointer)) (linked : call.Linked bindings)
+    (depth : Nat) (next : call.ReferenceNext) (shape : ParkedListTreeShape depth call.field)
+    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    PayloadRoot.Cut call profile ready bindings (ParkedListTreeBody call depth next profile ready bindings) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedListTree call linked depth next shape realloc
+
+/-- Both public list-root routes run the same recursive memory comparison
+for reached entries, including lists nested in records, tuples or lists. -/
+theorem parked_recursive_list {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route) (linked : call.Linked bindings)
+    (element : TypeOf) (entries : List Field) (depth : Nat) (next : call.ReferenceNext)
+    (compiledList : call.field = .dynamic (.list element) element entries)
+    (shapes : ∀ item ∈ entries, ParkedListTreeShape depth item) {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    PayloadRoot.Cut call profile ready bindings (ParkedRecursiveListBody call element entries depth next profile ready bindings) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedRecursiveList
+    call linked element entries depth next compiledList shapes realloc
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence

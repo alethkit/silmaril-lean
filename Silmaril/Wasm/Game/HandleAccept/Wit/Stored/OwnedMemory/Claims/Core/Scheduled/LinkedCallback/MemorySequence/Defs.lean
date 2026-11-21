@@ -183,16 +183,22 @@ def DescriptorThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (
 
 /-- The actual admitted value-mode collection tail: strided entries followed
 by the descriptor only on common success. Indirect maps do not use it. -/
-def ValueListReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
-    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
-    (element : TypeOf) (entries : List Field) (depth index pointer : Nat) (output : Lower.Output)
+def ValueEntriesReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (destination : RecordDestination) (inst : InstId) (compare : FieldComparison grow sig)
+    (element : TypeOf) (entries : List Field) (index pointer : Nat) (output : Lower.Output)
     (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
     (next : ValueFinish grow sig output) : Finish grow sig :=
   Replay profile ready bindings (.elements (layout destination.width element).size) destination inst
-    (nested profile ready bindings older destination inst depth)
+    compare
     (publishChecked destination inst pointer entries.length index output checkNext)
     (publishCanonical destination inst pointer entries.length output canonNext)
     (DescriptorThen profile ready bindings output checkNext canonNext next) entries 0 pointer
+
+abbrev ValueListReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (element : TypeOf) (entries : List Field) (depth index pointer : Nat) (output : Lower.Output) :=
+  ValueEntriesReplay profile ready bindings destination inst (nested profile ready bindings older destination inst depth)
+    element entries index pointer output
 
 def ValueListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
@@ -206,5 +212,49 @@ def ValueListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) 
       (fun value reached canonical check canon => ChildFrameOver older reached canonical check canon ∧
         Core3.Grows initial.store.core reached.store.core ∧ reached.ctl = check.control (checkNext (.ok value)) ∧
         canonical.ctl = canon.control (canonNext value)))
+
+def ListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (compare : FieldComparison grow sig) (element : TypeOf) (entries : List Field) (index : Nat) (output : Lower.Output)
+    (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
+    (finish : ValueFinish grow sig output)
+    (initial reference last : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig)) (pointer : Nat)
+    (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
+  CollectionVisit.Outcome profile ready bindings older destination inst (.list element) (layout destination.width element)
+    entries index pointer output initial reference last cursor checkNext canonNext seen
+    (fun _ => ValueEntriesReplay profile ready bindings destination inst compare element entries index pointer output
+      checkNext canonNext finish)
+
+/-- The fragment is structural; depth does not bound callback execution. -/
+inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop where
+  | handle {depth item} : CanonicalHandle item → ListTreeShape stringLeaf depth item
+  | string {depth item} : stringLeaf item → ListTreeShape stringLeaf depth item
+  | aggregate {depth type items} : (∀ item ∈ items, ListTreeShape stringLeaf depth item) →
+      ListTreeShape stringLeaf (depth + 1) (.aggregate type items)
+  | list {depth element entries} : (∀ item ∈ entries, ListTreeShape stringLeaf depth item) →
+      ListTreeShape stringLeaf (depth + 1) (.dynamic (.list element) element entries)
+
+/-- The installed allocator path can remain suspended. The child traversal
+is required only at its marked return and only after the reached live check. -/
+def listTree (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
+    Nat → FieldComparison grow sig
+  | 0 => mixed profile ready bindings older destination inst
+  | depth + 1 => fun item index address left right check canon checkNext canonNext finish =>
+    let child := listTree profile ready bindings older destination inst depth
+    mixed profile ready bindings older destination inst item index address left right check canon checkNext canonNext finish ∨
+      (∃ type children, item = .aggregate type children ∧
+        let entered := enterAggregate destination inst children index address left check checkNext
+        Steps profile ready (specDispatch ready (host bindings)) left [.tau] entered ∧
+          Replay profile ready bindings .fields destination inst child (aggregateNext index checkNext) canonNext finish
+            children 0 address entered right check canon) ∨
+      ∃ element entries, item = .dynamic (.list element) element entries ∧
+        (match Record.prepare left.store left.host.writer (Field.listObjects entries) with
+        | .error _ => ReachesKeeping profile ready (specDispatch ready (host bindings)) (fun _ => True)
+            left right check canon checkNext canonNext
+        | .ok () => CollectionReplayFor profile ready bindings older destination inst (.list element) element entries
+            index (.memory address) left right check canon checkNext canonNext
+            (ListReturn profile ready bindings older destination inst child element entries index (.memory address)
+              checkNext canonNext (fun () => finish)))
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence

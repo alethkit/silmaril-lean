@@ -296,21 +296,22 @@ theorem nestedRule {older : ReturnFrame.Substitutions (core3 grow) (HostState si
         checkNext canonNext finish frame growth present sized matched placement.1 placement.2 ?_ ends checkAt canonAt⟩
       exact fun entry member slot fits => ih entry slot (child entry member) (matchedAggregateChild matched member) fits
 
-theorem valueTail {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
-    (destination : RecordDestination) (inst : InstId) (element : TypeOf) (entries : List Field) (depth index pointer : Nat)
+theorem valueTailWith {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (element : TypeOf) (entries : List Field) (index pointer : Nat)
+    (compare : FieldComparison grow sig)
     (output : Lower.Output) (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
     (next : ValueFinish grow sig output) {initial checked canonical : State grow sig}
     {check canon : Cursor (E := core3 grow) (HostState sig)} {bytes : Nat}
     (region : CollectionVisit.Admitted older destination (layout destination.width element) entries pointer bytes
       initial checked canonical check canon)
     (matched : Field.EntriesMatch entries element)
-    {addr : Nat} (realloc : destination.realloc = some addr)
-    (shape : ∀ item ∈ entries, AggregateShape (StringField.Fits destination) depth item)
+    (children : ∀ item ∈ entries, ∀ address, SlotFits destination.width bytes item address →
+      FieldRule compare older checked.store destination inst item address)
     (ends : ∀ value reached reference check canon, ChildFrameOver older reached reference check canon →
       Core3.Grows initial.store.core reached.store.core → reached.ctl = check.control (checkNext (.ok value)) →
       reference.ctl = canon.control (canonNext value) → next value reached reference check canon) :
     let area := layout destination.width element
-    ValueListReplay profile ready bindings older destination inst element entries depth index pointer output checkNext canonNext next
+    ValueEntriesReplay profile ready bindings destination inst compare element entries index pointer output checkNext canonNext next
       { checked with ctl := check.control (checkedCollectionTail destination inst entries area index output pointer (.ok ()) >>= checkNext) }
       { canonical with ctl := canon.control (canonicalCollectionTail destination inst entries area output pointer .value >>= canonNext) }
       check canon := by
@@ -322,13 +323,9 @@ theorem valueTail {older : ReturnFrame.Substitutions (core3 grow) (HostState sig
   have frame : ChildFrameOver older lhs rhs check canon :=
     ⟨region.frame.store, region.frame.pending, region.frame.results, region.frame.cancels, region.frame.blocked,
       region.frame.thread, region.frame.frames, region.frame.rest⟩
-  unfold ValueListReplay
+  unfold ValueEntriesReplay
   refine replay (origin := checked.store) (.elements area.size) destination inst entries 0 pointer _ checkPublish canonPublish _
-    frame (Core3.Grows.refl _) region.width (elementSlots destination.width matched region.aligned region.bounds _ ?_) ?_ ?_ ?_
-  · intro item member address fits
-    have found := entries_match_of_mem matched member
-    exact nestedRule destination inst depth item address region.width region.sized realloc (shape item member)
-      (found.type_eq.symm ▸ found) fits
+    frame (Core3.Grows.refl _) region.width (elementSlots destination.width matched region.aligned region.bounds _ children) ?_ ?_ ?_
   · intro reached reference check canon paired grown checkAt canonAt
     obtain ⟨store, result, labels, observed, lhsRun, rhsRun⟩ :=
       collection_descriptor_cut (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings))
@@ -375,7 +372,92 @@ theorem valueCollectionReplay {older : ReturnFrame.Substitutions (core3 grow) (H
     index pointer output checkNext canonNext _ ?_
   intro bytes reference canon region
   rw [valueMode]
-  exact valueTail destination inst element entries depth index pointer output checkNext canonNext _ region matched realloc shape
+  refine valueTailWith destination inst element entries index pointer _ output checkNext canonNext _ region matched ?_
     (fun _ _ _ _ _ frame growth checked canonical => ⟨frame, growth, checked, canonical⟩)
+  intro item member address fits
+  have found := entries_match_of_mem matched member
+  exact nestedRule destination inst depth item address region.width region.sized realloc (shape item member)
+    (found.type_eq.symm ▸ found) fits
+
+theorem listReplay {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (element : TypeOf) (entries : List Field)
+    (index : Nat) (output : Lower.Output) {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (compare : FieldComparison grow sig) (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
+    (finish : ValueFinish grow sig output) (matched : Field.EntriesMatch entries element)
+    (children : ∀ (atStore : CStore (core3 grow)) bytes,
+      (core3 grow).memAddrType? atStore.core destination.memory = some destination.width →
+      (core3 grow).memSize? atStore.core destination.memory = some bytes →
+      ∀ item ∈ entries, ∀ address, SlotFits destination.width bytes item address →
+        FieldRule compare older atStore destination inst item address)
+    (ends : ∀ value reached reference check canon, ChildFrameOver older reached reference check canon →
+      Core3.Grows left.store.core reached.store.core → reached.ctl = check.control (checkNext (.ok value)) →
+      reference.ctl = canon.control (canonNext value) → finish value reached reference check canon)
+    (replay : CollectionReplay profile ready bindings older destination inst (.list element) element entries index output
+      left right check canon checkNext canonNext) :
+    CollectionReplayFor profile ready bindings older destination inst (.list element) element entries index output
+      left right check canon checkNext canonNext
+      (ListReturn profile ready bindings older destination inst compare element entries index output checkNext canonNext finish) := by
+  obtain ⟨checkInstall, canonInstall, continueRun⟩ := replay
+  refine ⟨checkInstall, canonInstall, ?_⟩
+  intro last seen protectedReturn path covers
+  obtain ⟨checkLabels, canonLabels, other, mark, checked, canonical, checkSeen, canonSeen, paired, checkTrail, canonTrail, cut⟩ :=
+    continueRun path covers
+  refine ⟨checkLabels, canonLabels, other, mark, checked, canonical, checkSeen, canonSeen, paired, checkTrail, canonTrail, ?_⟩
+  intro pointer cursor reached atReturn
+  unfold ListReturn
+  refine (cut pointer cursor reached atReturn).visit_collection destination inst (.list element) (layout destination.width element)
+    entries index pointer output checkNext canonNext _ ?_
+  intro bytes reference canon region
+  have mode : CanonicalTree.EntryMode.forOutput destination.width (.list element) output = .value := by cases output <;> rfl
+  rw [mode]
+  exact valueTailWith destination inst element entries index pointer compare output checkNext canonNext finish region matched
+    (children _ _ region.width region.sized) ends
+
+theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (depth : Nat) (item : Field) (address : Nat)
+    {origin : CStore (core3 grow)}
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {bytes : Nat} (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (shape : ListTreeShape (StringField.Fits destination) depth item)
+    (matched : item.LayoutMatches item.type) (placement : SlotFits destination.width bytes item address) :
+    FieldRule (listTree profile ready bindings older destination inst depth) older origin destination inst item address := by
+  induction depth generalizing item origin bytes address with
+  | zero =>
+    cases shape with
+    | handle handle => exact mixedRule destination inst item address present sized realloc (.inl handle)
+    | string fit => exact mixedRule destination inst item address present sized realloc (.inr ⟨fit, placement.1, placement.2⟩)
+  | succ depth ih =>
+    intro index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends
+    cases shape with
+    | handle handle =>
+      exact .inl (mixedRule destination inst item address present sized realloc (.inl handle)
+        index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
+    | string fit =>
+      exact .inl (mixedRule destination inst item address present sized realloc (.inr ⟨fit, placement.1, placement.2⟩)
+        index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
+    | @aggregate _ type children child =>
+      refine .inr (.inl ⟨type, children, rfl, aggregateReplay destination inst type children index address _
+        checkNext canonNext finish frame growth present sized matched placement.1 placement.2 ?_ ends checkAt canonAt⟩)
+      exact fun entry member slot fits => ih entry slot present sized (child entry member) (matchedAggregateChild matched member) fits
+    | @list _ element entries child =>
+      have matching : Field.EntriesMatch entries element := by cases matched with | list matchEntries => exact matchEntries
+      refine .inr (.inr ⟨element, entries, rfl, ?_⟩)
+      cases prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) with
+      | error issue =>
+        exact dynamic_refused_before_allocation destination inst (.list element) element entries (.memory address) index
+          left right check canon checkNext canonNext frame.store issue prepared checkAt
+      | ok result =>
+        cases result
+        obtain ⟨reachedBytes, reachedSize, _⟩ := growth.memSize sized
+        refine listReplay destination inst element entries index (.memory address) _ checkNext canonNext _ matching ?_ ?_
+          (frame.collection_replay destination inst (.list element) element entries index (.memory address) checkNext canonNext
+            (growth.memAddrType present) reachedSize prepared checkAt canonAt)
+        · intro reached bytes reachedWidth reachedSize entry member slot fits
+          have layoutAt := entries_match_of_mem matching member
+          exact ih entry slot reachedWidth reachedSize (child entry member) (layoutAt.type_eq.symm ▸ layoutAt) fits
+        · intro value reached reference check canon paired grown atCheck atCanon
+          cases value
+          exact ends _ _ _ _ paired (growth.trans grown) atCheck atCanon
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence
