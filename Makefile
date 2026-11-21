@@ -129,7 +129,8 @@ check-runtime:
 
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
-	$(if $(filter Silmaril +Silmaril.Wasm.Component.IntrinsicWiring.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-component/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Component.IntrinsicWiring.Thms +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Thms +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Observation.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Thms +Silmaril.Wasm.Validation.Intrinsic.ReifyThms && $(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-component/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Observation.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Component.Reference.Litmus.Thms +Silmaril.Wasm.Validation.Intrinsic.ReifyThms && $(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-component/Exposure.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Execution.Core.Exec.InstantiateIff +Silmaril.Wasm.Validation.Intrinsic.Thms && $(LAKE) env lean -DwarningAsError=true tests/wasm/module-entry/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Intrinsic.Normalize.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Policy.Thms +Silmaril.Wasm.Execution.Core.Intrinsic.OpSem.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-policy/Regression.lean)
