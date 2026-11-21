@@ -229,20 +229,38 @@ def ListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bind
 inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop where
   | handle {depth item} : CanonicalHandle item → ListTreeShape stringLeaf depth item
   | string {depth item} : stringLeaf item → ListTreeShape stringLeaf depth item
+  | scalar {depth primitive} (payload : Stored.Payload (.prim primitive)) : primitive ≠ .string →
+      ListTreeShape stringLeaf depth (.data (.prim primitive) payload)
   | aggregate {depth type items} : (∀ item ∈ items, ListTreeShape stringLeaf depth item) →
       ListTreeShape stringLeaf (depth + 1) (.aggregate type items)
   | list {depth element entries} : (∀ item ∈ entries, ListTreeShape stringLeaf depth item) →
       ListTreeShape stringLeaf (depth + 1) (.dynamic (.list element) element entries)
+
+def memoryLeaf (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
+    FieldComparison grow sig := fun item index address left right check canon checkNext canonNext finish =>
+  mixed profile ready bindings older destination inst item index address left right check canon checkNext canonNext finish ∨
+    ∃ (primitive : WIT.Primitive) (payload : Stored.Payload (.prim primitive)),
+      item = .data (.prim primitive) payload ∧ primitive ≠ .string ∧
+      ∃ store result checkLabels canonLabels,
+        let lhs := localLeafEnd left left.host store check.thread check.frames check.rest (fun value => checkNext (.ok value)) result
+        let rhs := localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result
+        Steps profile ready (specDispatch ready (host bindings)) left checkLabels lhs ∧
+        Steps profile ready (specDispatch ready (host bindings)) right canonLabels rhs ∧
+        visible checkLabels = visible canonLabels ∧
+        match result with
+        | .ok _ => finish lhs rhs check canon
+        | .error reason => ∃ leading, visible canonLabels = leading ++ [.trap reason]
 
 /-- The installed allocator path can remain suspended. The child traversal
 is required only at its marked return and only after the reached live check. -/
 def listTree (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
     Nat → FieldComparison grow sig
-  | 0 => mixed profile ready bindings older destination inst
+  | 0 => memoryLeaf profile ready bindings older destination inst
   | depth + 1 => fun item index address left right check canon checkNext canonNext finish =>
     let child := listTree profile ready bindings older destination inst depth
-    mixed profile ready bindings older destination inst item index address left right check canon checkNext canonNext finish ∨
+    memoryLeaf profile ready bindings older destination inst item index address left right check canon checkNext canonNext finish ∨
       (∃ type children, item = .aggregate type children ∧
         let entered := enterAggregate destination inst children index address left check checkNext
         Steps profile ready (specDispatch ready (host bindings)) left [.tau] entered ∧
