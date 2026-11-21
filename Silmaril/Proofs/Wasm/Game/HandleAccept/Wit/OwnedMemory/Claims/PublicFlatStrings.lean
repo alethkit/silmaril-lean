@@ -20,27 +20,6 @@ open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Schedule
 variable {grow : SingleThreaded.GrowOracle} {sig : Signature} {schema : TypeOf}
   {profile : ProfileKind} {ready : HostReady (HostState sig)} {bindings : List (Binding sig)}
 
-private theorem refineShape {shapeAt fitsAt : Field → Prop} (depth : Nat) (field : Field)
-    (shape : FlatNestedFits shapeAt depth field)
-    (reached : ∀ leaf, Field.Descendant field leaf → shapeAt leaf → fitsAt leaf) : FlatNestedFits fitsAt depth field := by
-  induction depth generalizing field with
-  | zero => exact reached field (.self field) shape
-  | succ depth ih =>
-    cases childrenAt : flatChildren field with
-    | none =>
-      simp only [FlatNestedFits, childrenAt] at shape
-      simpa only [FlatNestedFits, childrenAt] using reached field (.self field) shape
-    | some children =>
-      simp only [FlatNestedFits, childrenAt] at shape
-      simp only [FlatNestedFits, childrenAt]
-      intro child member
-      apply ih child (shape child member)
-      intro leaf path leafShape
-      apply reached leaf _ leafShape
-      cases field <;> cases childrenAt
-      · exact .aggregate member path
-      · exact .fixed member path
-
 private theorem initialFrame (call : PayloadRoot.Site grow sig (.flat schema)) (next : call.ReferenceNext)
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) :
     ChildFrameOver older call.checked (call.reference next) call.cursor call.cursor := by
@@ -61,7 +40,7 @@ theorem parked (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.
   intro admitted
   obtain ⟨plan, compiled⟩ := linked.compiled
   have fits : FlatNestedFits (StringField.Fits call.destination) depth call.field := by
-    apply refineShape depth call.field shape
+    apply flat_nested_refine depth call.field shape
     intro leaf path leafShape
     obtain ⟨item, equal⟩ := leafShape
     rw [← equal] at path
@@ -83,7 +62,7 @@ theorem parkedMixed (call : PayloadRoot.Site grow sig (.flat schema)) (linked : 
   intro admitted
   obtain ⟨plan, compiled⟩ := linked.compiled
   have fits : FlatNestedFits (fun field => CanonicalHandle field ∨ StringField.Fits call.destination field) depth call.field := by
-    apply refineShape depth call.field shape
+    apply flat_nested_refine depth call.field shape
     intro leaf path leafShape
     rcases leafShape with handle | ⟨item, equal⟩
     · exact .inl handle

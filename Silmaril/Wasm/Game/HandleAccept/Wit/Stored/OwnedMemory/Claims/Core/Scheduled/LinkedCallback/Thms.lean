@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Allocation.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback
 
 public section
@@ -304,6 +305,11 @@ theorem ChildFrameOver.string_field_then {older : ReturnFrame.Substitutions (cor
     StringFieldThen profile ready bindings older destination inst item.value output left right check canon checkNext canonNext next :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringFieldThen
     destination inst item output index checkNext canonNext frame growth present realloc fit placed checkAt canonAt ends
+
+theorem flat_nested_refine {shapeAt fitsAt : Field → Prop} (depth : Nat) (field : Field)
+    (shape : FlatNestedFits shapeAt depth field)
+    (reached : ∀ leaf, Field.Descendant field leaf → shapeAt leaf → fitsAt leaf) : FlatNestedFits fitsAt depth field :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.flatNestedRefine depth field shape reached
 
 /-- Induct through actual record/tuple and fixed-list flat programs. The
 branch returns its concatenated words to the enclosing continuation only
