@@ -14,15 +14,16 @@ open Stored.Endpoints Stored.Endpoints.RecordLower PayloadPrefix
 variable {grow : SingleThreaded.GrowOracle} {sig : Signature}
 
 /-- Records and tuples align from the current cursor. Arrays advance at the
-validated element stride; the canonical array body does not read the width
-to place the next element. Indirect maps use a separate per-entry rule. -/
+validated element stride. Indirect map pairs instead place their fields at
+the width captured by allocation, with no fresh canonical width read. -/
 inductive Track where
   | fields
+  | placedFields
   | elements (stride : Nat)
 
 def Track.slot (mode : Track) (width : AddrType) (item : Field) (cursor : Nat) : Nat × Nat :=
   match mode with
-  | .fields =>
+  | .fields | .placedFields =>
     let area := layout width item.type
     let start := alignTo cursor area.alignment
     (start, start + area.size)
@@ -31,20 +32,28 @@ def Track.slot (mode : Track) (width : AddrType) (item : Field) (cursor : Nat) :
 def Track.checked (mode : Track) (destination : RecordDestination) (inst : InstId) (items : List Field)
     (index cursor : Nat) : Session grow sig (Except RecordLower.Issue Unit) :=
   match mode with
-  | .fields => Record.Effects.memory recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+  | .fields | .placedFields => Record.Effects.memory recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
       items cursor index
   | .elements stride => Record.Effects.elements recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
       items stride cursor index
+
+def canonicalPlacedFields (destination : RecordDestination) (inst : InstId) : List Field → Nat → Session grow sig Unit
+  | [], _ => pure ()
+  | item :: rest, cursor =>
+    let (address, next) := Track.placedFields.slot destination.width item cursor
+    CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item (.memory address) >>=
+      fun () => canonicalPlacedFields destination inst rest next
 
 def Track.canonical (mode : Track) (destination : RecordDestination) (inst : InstId) (items : List Field)
     (cursor : Nat) : Session grow sig Unit :=
   match mode with
   | .fields => CanonicalTree.memory Limits.spec Quirks.none (destination.context inst) destination.width items cursor
+  | .placedFields => canonicalPlacedFields destination inst items cursor
   | .elements stride => CanonicalTree.elements Limits.spec Quirks.none (destination.context inst) destination.width items .value stride cursor
 
 def Track.readLabels : Track → List (Label (core3 grow) (HostState sig))
   | .fields => [.tau]
-  | .elements _ => []
+  | .placedFields | .elements _ => []
 
 abbrev CheckNext (grow : SingleThreaded.GrowOracle) (sig : Signature) :=
   Except RecordLower.Issue Unit → Session grow sig (Ret (core3 grow))
@@ -225,6 +234,47 @@ def ListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bind
     (fun _ => ValueEntriesReplay profile ready bindings destination inst compare element entries index pointer output
       checkNext canonNext finish)
 
+def mapTail (destination : RecordDestination) (inst : InstId) (key : WIT.KeyType) (element : TypeOf)
+    (entries : List Field) (cursor : Nat) : Session grow sig Unit :=
+  CanonicalTree.elements Limits.spec Quirks.none (destination.context inst) destination.width entries
+    (.memoryMap destination.width key element) (layout destination.width (.record (mapEntryFields key element))).size cursor
+
+/-- Checked entries validate the compiled record footprint. The canonical
+tail enters the allocation-time key/value slots directly. Its next entry
+can only be visited after both actual field continuations succeed. -/
+def MapEntriesReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (destination : RecordDestination) (inst : InstId) (compare : FieldComparison grow sig) (key : WIT.KeyType) (element : TypeOf)
+    (checkNext : CheckNext grow sig) (canonNext : CanonNext grow sig) (finish : Finish grow sig) :
+    List Field → Nat → Nat → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Prop
+  | [], _, _, left, right, check, canon => finish left right check canon
+  | entry :: rest, index, cursor, left, right, check, canon =>
+    let type : TypeOf := .record (mapEntryFields key element)
+    let stride := (layout destination.width type).size
+    let nextCheck := checkTail (.elements stride) destination inst rest (index + 1) (cursor + stride) checkNext
+    let nextCanon : CanonNext grow sig := fun () => mapTail destination inst key element rest (cursor + stride) >>= canonNext
+    ∃ keyField valueField, entry = .aggregate type [keyField, valueField] ∧
+      let entered := enterAggregate destination inst [keyField, valueField] index cursor left check nextCheck
+      Steps profile ready (specDispatch ready (host bindings)) left [.tau] entered ∧
+      Replay profile ready bindings .placedFields destination inst compare (aggregateNext index nextCheck) nextCanon
+        (MapEntriesReplay profile ready bindings destination inst compare key element checkNext canonNext finish rest (index + 1) (cursor + stride))
+        [keyField, valueField] 0 cursor entered right check canon
+
+def MapReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (compare : FieldComparison grow sig) (key : WIT.KeyType) (element : TypeOf) (entries : List Field) (index address : Nat)
+    (checkNext : CheckNext grow sig) (canonNext : CanonNext grow sig) (finish : Finish grow sig)
+    (initial reference last : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig)) (pointer : Nat)
+    (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
+  let output := Lower.Output.memory address
+  CollectionVisit.Outcome profile ready bindings older destination inst (.map key element)
+    (layout destination.width (.record (mapEntryFields key element))) entries index pointer output
+    initial reference last cursor checkNext canonNext seen
+    (fun _ => MapEntriesReplay profile ready bindings destination inst compare key element
+      (publishChecked destination inst pointer entries.length index output checkNext)
+      (publishCanonical destination inst pointer entries.length output canonNext)
+      (DescriptorThen profile ready bindings output checkNext canonNext (fun () => finish)) entries 0 pointer)
+
 /-- The fragment is structural; depth does not bound callback execution. -/
 inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop where
   | handle {depth item} : CanonicalHandle item → ListTreeShape stringLeaf depth item
@@ -235,6 +285,11 @@ inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop w
       ListTreeShape stringLeaf (depth + 1) (.aggregate type items)
   | list {depth element entries} : (∀ item ∈ entries, ListTreeShape stringLeaf depth item) →
       ListTreeShape stringLeaf (depth + 1) (.dynamic (.list element) element entries)
+  | map {depth key element entries} :
+      (∀ entry ∈ entries, ∃ keyField valueField, entry = .aggregate (.record (mapEntryFields key element)) [keyField, valueField]) →
+      (∀ entry ∈ entries, ∀ fields, entry = .aggregate (.record (mapEntryFields key element)) fields →
+        ∀ field ∈ fields, ListTreeShape stringLeaf depth field) →
+      ListTreeShape stringLeaf (depth + 1) (.dynamic (.map key element) (.record (mapEntryFields key element)) entries)
 
 def memoryLeaf (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
@@ -266,13 +321,20 @@ def listTree (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindin
         Steps profile ready (specDispatch ready (host bindings)) left [.tau] entered ∧
           Replay profile ready bindings .fields destination inst child (aggregateNext index checkNext) canonNext finish
             children 0 address entered right check canon) ∨
-      ∃ element entries, item = .dynamic (.list element) element entries ∧
+      (∃ element entries, item = .dynamic (.list element) element entries ∧
         (match Record.prepare left.store left.host.writer (Field.listObjects entries) with
         | .error _ => ReachesKeeping profile ready (specDispatch ready (host bindings)) (fun _ => True)
             left right check canon checkNext canonNext
         | .ok () => CollectionReplayFor profile ready bindings older destination inst (.list element) element entries
             index (.memory address) left right check canon checkNext canonNext
             (ListReturn profile ready bindings older destination inst child element entries index (.memory address)
-              checkNext canonNext (fun () => finish)))
+              checkNext canonNext (fun () => finish)))) ∨
+      ∃ key element entries, item = .dynamic (.map key element) (.record (mapEntryFields key element)) entries ∧
+        (match Record.prepare left.store left.host.writer (Field.listObjects entries) with
+        | .error _ => ReachesKeeping profile ready (specDispatch ready (host bindings)) (fun _ => True)
+            left right check canon checkNext canonNext
+        | .ok () => CollectionReplayFor profile ready bindings older destination inst (.map key element)
+            (.record (mapEntryFields key element)) entries index (.memory address) left right check canon checkNext canonNext
+            (MapReturn profile ready bindings older destination inst child key element entries index address checkNext canonNext finish))
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
