@@ -173,6 +173,55 @@ theorem ChildFrameOver.string_plan_cut {changes : ReturnFrame.Substitutions (cor
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringPlanCut
     cx ptr steps checkNext canonNext frame checkAt canonAt
 
+/-- Compare each successive phase of the actual canonical string plan.
+Classified callback prefixes replay even when they stop or trap. The paired
+pop of the installed occurrence resumes the strictly shorter suffix with
+the older frame relation. This is not a termination promise for realloc. -/
+theorem ChildFrameOver.string_replay {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (steps : List StoreStep)
+    (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver changes left right check canon)
+    (checkAt : left.ctl = check.control (runStoreSteps cx ptr steps >>= checkNext))
+    (canonAt : right.ctl = canon.control (runStoreSteps cx ptr steps >>= canonNext)) :
+    StringReplay profile ready bindings changes cx checkNext canonNext steps.length left right check canon :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringReplay
+    cx ptr steps checkNext canonNext frame checkAt canonAt (fun _ _ _ _ _ _ _ _ => trivial)
+
+/-- Compare actual checked and canonical string fields, through each reached
+allocator return and the final memory descriptor or flat result. An allocator
+may leave a finite callback prefix instead; a descriptor trap retains the
+writes already made in the reached store. -/
+theorem ChildFrameOver.string_field_replay {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (str : Value.StrVal) (valid : str.Valid)
+    (index : Nat) (output : Stored.Lower.Output)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver changes left right check canon)
+    (present : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (fit : StoreStringPre Quirks.none destination.encoding destination.width str)
+    (placed : rootPlacement destination left.store (.prim .string) output = .ok ())
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.data (.prim .string) ⟨.string str, .string valid⟩) index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.data (.prim .string) ⟨.string str, .string valid⟩) output >>= canonNext)) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let cx := destination.context inst
+    let plan := storePlanFor Quirks.none destination.encoding destination.width str
+    let checked := fun ptr => stringPlanTail cx destination.width output plan ptr >>= fun value => checkNext (.ok value)
+    let canonical := fun ptr => stringPlanTail cx destination.width output plan ptr >>= canonNext
+    let lhs := { left with ctl := check.control (runStoreSteps cx 0 plan.steps >>= checked) }
+    let rhs := { right with ctl := canon.control (runStoreSteps cx 0 plan.steps >>= canonical) }
+    ∃ reads, Steps profile ready dispatch left (List.replicate reads .tau) lhs ∧
+      Step profile ready dispatch right .tau rhs ∧
+      StringReplay profile ready bindings changes cx checked canonical plan.steps.length lhs rhs check canon
+        (fun left right check canon _ =>
+          StringLocalCut profile ready dispatch left right check canon (fun value => checkNext (.ok value)) canonNext) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringFieldReplay
+    destination inst str valid index output checkNext canonNext frame present realloc fit placed checkAt canonAt
+
 /-- A reached allocating list or map can likewise install on distinct
 residual frames, keeping the memory-map placement mode and its live recheck
 in the real saved continuations. -/

@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
 public import Silmaril.Wasm.Component.Reference.Canon.Lift.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 
 @[expose] public section
 
@@ -17,6 +18,25 @@ open Stored.Endpoints.RecordLower (Object Field)
 abbrev State (grow : SingleThreaded.GrowOracle) (sig : Signature) := Config (core3 grow) (HostState sig)
 
 variable {grow : SingleThreaded.GrowOracle} {sig : Signature}
+
+/-- In addition to matching visible labels, replay preserves the older
+relation off the selected occurrence. If a mark survives, both actual runs
+carry it from the same original coordinate; a dropped mark cannot reappear. -/
+def MarkedReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older changes : ReturnFrame.Substitutions (core3 grow) (HostState sig))
+    (left right last : State grow sig) (mark : Option ReturnFrame.Occurrence.Location)
+    (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
+  let dispatch := specDispatch ready (host (grow := grow) bindings)
+  ∃ leftLabels rightLabels other reached,
+    CoreGrowthSteps profile ready dispatch left leftLabels last ∧
+    CoreGrowthSteps profile ready dispatch right rightLabels other ∧
+    HostFrame.Related.Paired changes last other ∧
+    visible leftLabels = seen ∧ visible rightLabels = seen ∧
+    ReturnFrame.Occurrence.Outside older (ReturnFrame.Occurrence.segmentStorage last)
+      (ReturnFrame.Occurrence.segmentStorage other) reached ∧
+    ∀ place, reached = some place → ∃ original, mark = some original ∧
+      ReturnFrame.Occurrence.Prefix profile ready dispatch left original leftLabels last place ∧
+      ReturnFrame.Occurrence.Prefix profile ready dispatch right original rightLabels other place
 
 /-- Evidence for a give import actually reached within a closed instance.
 It includes the reached caller and binding, not agreement of the two writers. -/
@@ -214,8 +234,82 @@ inductive StringPlanCut (profile : ProfileKind) (ready : HostReady (HostState si
       (paired : HostFrame.Related.Paired (ReturnFrame.Extend changes (stringPlanResume cx rest checkNext)
           (stringPlanResume cx rest canonNext))
         (stringReallocEntry ready bindings cx ptr oldSize alignment size rest checkNext { left with store } check)
-        (stringReallocEntry ready bindings cx ptr oldSize alignment size rest canonNext { right with store } canon)) :
+        (stringReallocEntry ready bindings cx ptr oldSize alignment size rest canonNext { right with store } canon))
+      (outside : ReturnFrame.Occurrence.Outside changes
+        (ReturnFrame.Occurrence.segmentStorage
+          (stringReallocEntry ready bindings cx ptr oldSize alignment size rest checkNext { left with store } check))
+        (ReturnFrame.Occurrence.segmentStorage
+          (stringReallocEntry ready bindings cx ptr oldSize alignment size rest canonNext { right with store } canon))
+        (some (.active 0 0))) :
         StringPlanCut profile ready bindings changes cx length left right check canon checkNext canonNext
+
+/-- A string can stop during any classified finite callback prefix, including
+a prefix that never returns. A reached pop at the selected occurrence supplies
+the same pointer to both saved suffixes; continuation of the comparison uses
+the strictly shorter plan, not a fresh assumption about the child. -/
+inductive StringReplayLayer (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (cx : LiftLowerContext (core3 grow))
+    (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    (finish : State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Nat → Prop) (length : Nat)
+    (smaller : (remaining : Nat) → remaining < length → State grow sig → State grow sig →
+      Cursor (E := core3 grow) (HostState sig) → Cursor (E := core3 grow) (HostState sig) → Prop) :
+    State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Prop where
+  | done {left right check canon} {store : CStore (core3 grow)} {result : Except TrapReason Nat} {labels}
+      (silent : LocalLeafLabels result labels)
+      (checked : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) left labels
+        (localLeafEnd left left.host store check.thread check.frames check.rest checkNext result))
+      (canonical : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) right labels
+        (localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result))
+      (finished : ∀ pointer, result = .ok pointer → finish
+        { left with store, ctl := check.control (checkNext pointer) }
+        { right with store, ctl := canon.control (canonNext pointer) } check canon pointer) :
+        StringReplayLayer profile ready bindings older cx checkNext canonNext finish length smaller left right check canon
+  | allocated {left right check canon} (ptr : Nat) (oldSize : Option Nat) (alignment : Alignment) (size : Nat)
+      (rest : List StoreStep) (shorter : rest.length < length) {store : CStore (core3 grow)} {labels}
+      (checked : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) left labels
+        (stringReallocEntry ready bindings cx ptr oldSize alignment size rest checkNext { left with store } check))
+      (canonical : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) right labels
+        (stringReallocEntry ready bindings cx ptr oldSize alignment size rest canonNext { right with store } canon))
+      (silent : LocalLeafLabels (.ok ()) labels)
+      (replay :
+        let dispatch := specDispatch ready (host (grow := grow) bindings)
+        let leftEntry := stringReallocEntry ready bindings cx ptr oldSize alignment size rest checkNext { left with store } check
+        let rightEntry := stringReallocEntry ready bindings cx ptr oldSize alignment size rest canonNext { right with store } canon
+        let first := stringPlanResume cx rest checkNext
+        let second := stringPlanResume cx rest canonNext
+        let changes := ReturnFrame.Extend older first second
+        ∀ {last seen protectedReturn}, PrefixFor profile ready bindings protectedReturn leftEntry seen last →
+          (∀ left right, changes left right → protectedReturn left) →
+          ∃ leftLabels rightLabels other mark,
+            CoreGrowthSteps profile ready dispatch leftEntry leftLabels last ∧
+            CoreGrowthSteps profile ready dispatch rightEntry rightLabels other ∧
+            visible leftLabels = seen ∧ visible rightLabels = seen ∧
+            HostFrame.Related.Paired changes last other ∧
+            (∀ place, mark = some place →
+              ReturnFrame.Occurrence.Prefix profile ready dispatch leftEntry (.active 0 0) leftLabels last place ∧
+              ReturnFrame.Occurrence.Prefix profile ready dispatch rightEntry (.active 0 0) rightLabels other place) ∧
+            (∀ value cursor, mark = some (ReturnFrame.Occurrence.Location.active 0 0) →
+              last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (.pure (.nat value)) →
+              ∃ otherCursor,
+                let after := { last with ctl := cursor.control (runStoreSteps cx value rest >>= checkNext) }
+                let otherAfter := { other with ctl := otherCursor.control (runStoreSteps cx value rest >>= canonNext) }
+                Step profile ready dispatch last .tau after ∧ Step profile ready dispatch other .tau otherAfter ∧
+                smaller rest.length shorter after otherAfter cursor otherCursor)) :
+        StringReplayLayer profile ready bindings older cx checkNext canonNext finish length smaller left right check canon
+
+def StringReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (cx : LiftLowerContext (core3 grow))
+    (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow))) (length : Nat)
+    (left right : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig))
+    (finish : State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Nat → Prop := fun _ _ _ _ _ => True) : Prop :=
+  StringReplayLayer profile ready bindings older cx checkNext canonNext finish length
+    (fun remaining _ lhs rhs checked canonical =>
+      StringReplay profile ready bindings older cx checkNext canonNext remaining lhs rhs checked canonical finish)
+    left right check canon
+termination_by length
 
 /-- Stop at the reached range/recheck cut without executing any children.
 On a valid range the checked continuation receives the real live verdict

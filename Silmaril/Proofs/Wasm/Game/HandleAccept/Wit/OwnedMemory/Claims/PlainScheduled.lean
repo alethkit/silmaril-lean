@@ -7,8 +7,10 @@ import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Plain.
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Thms
 public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Thms
+import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Callout.Thms
 
 @[expose] public section
@@ -838,7 +840,9 @@ private theorem observing_body_growth {grow : SingleThreaded.GrowOracle} {Host R
       { start with
         store := updated
         host := reached
-        ctl := ⟨thread, .prog (finish result), segments⟩ :: rest } := by
+        ctl := ⟨thread, .prog (finish result), segments⟩ :: rest } ∧
+      ∀ place, Machine.ReturnFrame.Occurrence.Prefix profile ready dispatch start place (List.replicate count .tau)
+        { start with store := updated, host := reached, ctl := ⟨thread, .prog (finish result), segments⟩ :: rest } place := by
   induction observes generalizing start with
   | pure value =>
     simp only [Plain.runBody, Prod.mk.injEq, Except.ok.injEq] at success
@@ -849,28 +853,32 @@ private theorem observing_body_growth {grow : SingleThreaded.GrowOracle} {Host R
       congr
       exact focused.symm
     rw [frame]
-    exact ⟨0, .refl _⟩
+    exact ⟨0, .refl _, fun _ => .done _ _⟩
   | @op op next allowed _ ih =>
     have guard : Machine.CoreUpdateGrows start := by
       rw [Machine.CoreUpdateGrows, focused]
       cases op <;> trivial
     cases op
     case get =>
-      obtain ⟨count, tail⟩ := ih start.store
+      obtain ⟨count, tail, tracking⟩ := ih start.store
         { start with ctl := ⟨thread, .prog (next start.store >>= finish), segments⟩ :: rest } rfl success
-      exact ⟨count + 1, .cons guard (.get focused) tail⟩
+      exact ⟨count + 1, .cons guard (.get focused) tail, fun place => .step (.get focused)
+        (by rw [Machine.ReturnFrame.Occurrence.transitionEdit, focused]; cases place <;> rfl) (tracking place)⟩
     case hostGet =>
-      obtain ⟨count, tail⟩ := ih start.host
+      obtain ⟨count, tail, tracking⟩ := ih start.host
         { start with ctl := ⟨thread, .prog (next start.host >>= finish), segments⟩ :: rest } rfl success
-      exact ⟨count + 1, .cons guard (.hostGet focused) tail⟩
+      exact ⟨count + 1, .cons guard (.hostGet focused) tail, fun place => .step (.hostGet focused)
+        (by rw [Machine.ReturnFrame.Occurrence.transitionEdit, focused]; cases place <;> rfl) (tracking place)⟩
     case hostSet newHost _ =>
-      obtain ⟨count, tail⟩ := ih ()
+      obtain ⟨count, tail, tracking⟩ := ih ()
         { start with host := newHost, ctl := ⟨thread, .prog (next () >>= finish), segments⟩ :: rest } rfl success
-      exact ⟨count + 1, .cons guard (.hostSet focused) tail⟩
+      exact ⟨count + 1, .cons guard (.hostSet focused) tail, fun place => .step (.hostSet focused)
+        (by rw [Machine.ReturnFrame.Occurrence.transitionEdit, focused]; cases place <;> rfl) (tracking place)⟩
     case currentThread =>
-      obtain ⟨count, tail⟩ := ih thread
+      obtain ⟨count, tail, tracking⟩ := ih thread
         { start with ctl := ⟨thread, .prog (next thread >>= finish), segments⟩ :: rest } rfl success
-      exact ⟨count + 1, .cons guard (.currentThread focused) tail⟩
+      exact ⟨count + 1, .cons guard (.currentThread focused) tail, fun place => .step (.currentThread focused)
+        (by rw [Machine.ReturnFrame.Occurrence.transitionEdit, focused]; cases place <;> rfl) (tracking place)⟩
     all_goals first | contradiction | cases success
 
 theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
@@ -898,7 +906,11 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
       (start.CoreGrowing → Machine.Config.CoreGrowing { start with
         host := reached
         ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
-          continuation, segments⟩ :: rest }) := by
+          continuation, segments⟩ :: rest }) ∧
+      (∀ place, Machine.ReturnFrame.Occurrence.Prefix profile ready (specDispatch ready (host (grow := grow) bindings))
+        start place (List.replicate count .tau)
+        { start with host := reached, ctl := ⟨thread,
+          .core ((core3 grow).resume start.store.core core (.values reply.2)) continuation, segments⟩ :: rest } place) := by
   intro reply reached
   let impl := host (grow := grow) bindings
   let program := confine (impl.embedder name type args)
@@ -913,16 +925,33 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
       .core core continuation :: segments⟩ :: rest := by
     simp only [focused, calloutBody, closed_thread caller live closed, Bool.false_eq_true, ite_false, program]
     rfl
-  obtain ⟨count, steps⟩ := observing_body_growth program focused start.store reached reply.2
+  obtain ⟨count, steps, tracking⟩ := observing_body_growth program focused start.store reached reply.2
     (fun words => .pure (.flat words)) thread (.core core continuation :: segments) rest profile ready
     (specDispatch ready impl) entered (confine_every (fun _ fact => fact) _) evaluated
   have guard : Machine.CoreUpdateGrows start := by simp [Machine.CoreUpdateGrows, parked]
   have resumed := steps.append (.cons trivial (.popCore rfl) (.refl _))
   rw [← List.replicate_succ'] at resumed
-  refine ⟨count + 1 + 1 + 1 + 1, ?_, rfl,
-    fun growing => growing.replace_core_focus parked reached⟩
-  exact .cons guard (.coreCallout parked calling)
-    (.cons trivial (.currentThread rfl) (.cons trivial (.get rfl) resumed))
+  refine ⟨count + 1 + 1 + 1 + 1, .cons guard (.coreCallout parked calling)
+    (.cons trivial (.currentThread rfl) (.cons trivial (.get rfl) resumed)), rfl,
+    (fun growing => growing.replace_core_focus parked reached), ?_⟩
+  intro place
+  let bumped := ((Machine.ReturnFrame.Occurrence.Edit.push (.core core continuation)).follow place).getD place
+  have push : (Machine.ReturnFrame.Occurrence.transitionEdit start .tau).follow place = some bumped := by
+    simp only [Machine.ReturnFrame.Occurrence.transitionEdit, parked, calling, bumped]
+    cases place with
+    | active activation _ => cases activation <;> rfl
+    | saved _ _ => rfl
+  have pop : (Machine.ReturnFrame.Occurrence.Edit.pop (E := core3 grow) (Host := HostState sig)).follow bumped = some place := by
+    cases place with
+    | active activation _ => cases activation <;> rfl
+    | saved _ _ => rfl
+  refine .step (.coreCallout parked calling) push ?_
+  refine Machine.ReturnFrame.Occurrence.Prefix.step (middle := bumped) (.currentThread rfl) ?_ ?_
+  · cases bumped <;> rfl
+  · refine Machine.ReturnFrame.Occurrence.Prefix.step (middle := bumped) (.get rfl) ?_ ?_
+    · cases bumped <;> rfl
+    · rw [List.replicate_succ']
+      exact (tracking bumped).append (.step (.popCore rfl) pop (.done _ _))
 
 theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
@@ -950,7 +979,11 @@ theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowO
       Machine.CoreGrowthSteps profile ready dispatch other (List.replicate rightCount .tau) rightNext ∧
       rightNext.ctl = ⟨thread, next, otherSegments⟩ :: otherRest ∧
       Machine.HostFrame.Related.Paired changes leftNext rightNext ∧
-      leftNext.host.writer = start.host.writer ∧ rightNext.host.writer = other.host.writer := by
+      leftNext.host.writer = start.host.writer ∧ rightNext.host.writer = other.host.writer ∧
+      (∀ place, Machine.ReturnFrame.Occurrence.Prefix profile ready dispatch start place (List.replicate leftCount .tau)
+        leftNext place) ∧
+      (∀ place, Machine.ReturnFrame.Occurrence.Prefix profile ready dispatch other place (List.replicate rightCount .tau)
+        rightNext place) := by
   intro dispatch reply next leftNext
   let otherReply := schema.elim (completion other.host.nextTicket (.error .wrongContext))
     (fun payload => flatCompletion other.host.nextTicket (ABI.flatten destination.width payload) (.error .wrongContext))
@@ -958,9 +991,9 @@ theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowO
   obtain ⟨otherSegments, otherRest, otherParked, rejoined⟩ := paired.retarget parked next
     ((start.host.enter name type args).record reply.1) ((other.host.enter name type args).record otherReply.1)
   have sameStore := paired.data.1
-  obtain ⟨leftCount, left, leftWriter, _⟩ := parked_closed_give_steps
+  obtain ⟨leftCount, left, leftWriter, _, leftPrefix⟩ := parked_closed_give_steps
     bindings name type args inst destination schema start thread profile ready parked calling linked caller live closed
-  obtain ⟨rightCount, right, rightWriter, _⟩ := parked_closed_give_steps
+  obtain ⟨rightCount, right, rightWriter, _, rightPrefix⟩ := parked_closed_give_steps
     bindings name type args inst destination schema other thread profile ready otherParked
     (sameStore ▸ calling) linked (sameStore ▸ caller) (sameStore ▸ live) closed
   change Machine.CoreGrowthSteps profile ready dispatch other (List.replicate rightCount .tau)
@@ -969,8 +1002,13 @@ theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowO
       ctl := ⟨thread, .core ((core3 grow).resume other.store.core core (.values otherReply.2)) continuation,
         otherSegments⟩ :: otherRest } at right
   have sameCore := congrArg CStore.core sameStore.symm
-  rw [sameReply, sameCore] at right
-  exact ⟨leftCount, rightCount, _, otherSegments, otherRest, left, right, rfl, rejoined, leftWriter, rightWriter⟩
+  change ∀ place, Machine.ReturnFrame.Occurrence.Prefix profile ready dispatch other place (List.replicate rightCount .tau)
+    { other with host := (other.host.enter name type args).record otherReply.1, ctl := ⟨thread,
+      .core ((core3 grow).resume other.store.core core (.values otherReply.2)) continuation, otherSegments⟩ :: otherRest }
+    place at rightPrefix
+  rw [sameReply, sameCore] at right rightPrefix
+  exact ⟨leftCount, rightCount, _, otherSegments, otherRest, left, right, rfl, rejoined, leftWriter, rightWriter,
+    leftPrefix, rightPrefix⟩
 
 private def admitGive {E : CoreEngine} {Host Result : Type} (inst : InstId)
     (selection : P E Host (Except Claims.Core.Scheduled.Issue Result)) :
