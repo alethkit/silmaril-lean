@@ -86,6 +86,7 @@ check:
 check-runtime:
 	$(MAKE) process-gates
 	$(if $(filter Silmaril +Silmaril.Crypto.Blake3.Range.Check.Defs +Silmaril.Containers.Cas.Blake3.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Crypto.Blake3.Range.Check.Defs +Silmaril.Containers.Cas.Blake3.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/crypto/Blake3Range.lean)
+	$(if $(filter Silmaril +Silmaril.Formats.Blake3Cas.Thms +Silmaril.Containers.Cas.Blake3Wire.Thms +Silmaril.Formats.Iroh.Vectors,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Containers.Cas.Blake3Wire.Thms +Silmaril.Formats.Iroh.Vectors && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/formats/Blake3Cas.lean)
 	$(if $(filter Silmaril,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/DrislDebug.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.V1.Intrinsic.Scalar.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/V1Intrinsic.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Validation.Generic.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-generic/Regression.lean)
