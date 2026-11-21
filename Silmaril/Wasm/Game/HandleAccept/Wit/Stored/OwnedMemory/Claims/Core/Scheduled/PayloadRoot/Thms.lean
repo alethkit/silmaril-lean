@@ -35,6 +35,16 @@ theorem Site.parked_after_placement (site : Site grow sig route) (linked : site.
     Cut site profile ready bindings body :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadRoot.parkedAfterPlacement site linked body afterPlacement
 
+/-- The placed branch exposes the successful live dry run with the actual
+fit and placement checks. The fact authorizes no later transfer by itself. -/
+theorem Site.parked_after_admission (site : Site grow sig route) (linked : site.Linked bindings) (body : Prop)
+    (afterAdmission : Lower.fits Quirks.none site.destination.encoding site.destination.width (sig.payload site.tag)
+      site.payload.val.value = true →
+      rootPlacement site.destination site.start.store (sig.payload site.tag) route.output = .ok () →
+      Record.prepare site.start.store site.start.host.writer site.field.objects = .ok () → body) :
+    Cut site profile ready bindings body :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadRoot.parkedAfterAdmission site linked body afterAdmission
+
 theorem Site.reference_at (site : Site grow sig route) (linked : site.Linked bindings) (next : site.ReferenceNext) :
     (site.reference next).ctl = site.cursor.control
       (CanonicalTree.field Limits.spec Quirks.none (site.destination.context site.inst) site.destination.width
