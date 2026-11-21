@@ -50,10 +50,13 @@ abbrev Paired (first second : ReturnFrame.Continuation E Host) := Related.Paired
 
 abbrev Boundary (first second : ReturnFrame.Continuation E Host) := Related.Boundary (ReturnFrame.Only first second)
 
-/-- An interior focus neither reads the host nor returns to the designated
-allocator continuation. It can still execute Core or suspend a thread. -/
-def Interior (resume : ReturnFrame.Continuation E Host) (cfg : Config E Host) : Prop :=
+/-- An interior focus neither reads the host nor returns to a protected
+continuation. It can still execute Core or suspend a thread. -/
+def InteriorFor (protectedReturn : ReturnFrame.Continuation E Host → Prop) (cfg : Config E Host) : Prop :=
   (∀ thread read frames rest, cfg.ctl ≠ ⟨thread, .prog (.op .hostGet read), frames⟩ :: rest) ∧
-  (∀ thread value frames rest, cfg.ctl ≠ ⟨thread, .prog (.pure value), .prog resume :: frames⟩ :: rest)
+  (∀ resume, protectedReturn resume →
+    ∀ thread value frames rest, cfg.ctl ≠ ⟨thread, .prog (.pure value), .prog resume :: frames⟩ :: rest)
+
+abbrev Interior (resume : ReturnFrame.Continuation E Host) := InteriorFor (· = resume)
 
 end Silmaril.Wasm.Component.Machine.HostFrame

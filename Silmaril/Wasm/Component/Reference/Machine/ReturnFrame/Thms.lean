@@ -75,6 +75,13 @@ namespace Related
 
 variable {changes : Substitutions E Host}
 
+theorem Returned.left_input {left right leftAfter rightAfter : Config E Host} {label : Label E Host}
+    (popped : Returned changes left right label leftAfter rightAfter) :
+    ∃ resume otherResume thread value frames rest, changes resume otherResume ∧
+      left.ctl = ⟨thread, .prog (.pure value), .prog resume :: frames⟩ :: rest := by
+  cases popped with
+  | mk edge atLeft _ => exact ⟨_, _, _, _, _, _, edge, atLeft⟩
+
 theorem Paired.data {left right : Config E Host} (paired : Paired changes left right) :
     left.store = right.store ∧ left.host = right.host ∧ left.pending = right.pending ∧
       left.results = right.results ∧ left.cancels = right.cancels := by
