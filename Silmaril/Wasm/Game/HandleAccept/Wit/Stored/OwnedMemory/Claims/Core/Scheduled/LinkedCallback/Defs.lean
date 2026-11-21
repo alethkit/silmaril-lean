@@ -195,6 +195,28 @@ def stringReallocEntry (ready : HostReady (HostState sig)) (bindings : List (Bin
   let entered := { cursor with frames := .prog (stringPlanResume cx steps finish) :: cursor.frames }
   { start with ctl := entered.control (specDispatch ready (host bindings) request) }
 
+/-- Compare the next local phase of a string and either reach its descriptor
+continuation, trap, or enter the actual allocator with the strictly shorter plan saved on
+both sides. Entering the allocator does not imply a return. -/
+inductive StringPlanCut (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (cx : LiftLowerContext (core3 grow))
+    (length : Nat) (left right : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow))) : Prop where
+  | done (localRun : StringLocalCut profile ready (specDispatch ready (host bindings)) left right check canon
+      checkNext canonNext) : StringPlanCut profile ready bindings changes cx length left right check canon checkNext canonNext
+  | installed (ptr : Nat) (oldSize : Option Nat) (alignment : Alignment) (size : Nat) (rest : List StoreStep)
+      (shorter : rest.length < length) {store : CStore (core3 grow)} {labels : List (Label (core3 grow) (HostState sig))}
+      (checked : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) left labels
+        (stringReallocEntry ready bindings cx ptr oldSize alignment size rest checkNext { left with store } check))
+      (canonical : CoreGrowthSteps profile ready (specDispatch ready (host bindings)) right labels
+        (stringReallocEntry ready bindings cx ptr oldSize alignment size rest canonNext { right with store } canon))
+      (silent : LocalLeafLabels (.ok ()) labels)
+      (paired : HostFrame.Related.Paired (ReturnFrame.Extend changes (stringPlanResume cx rest checkNext)
+          (stringPlanResume cx rest canonNext))
+        (stringReallocEntry ready bindings cx ptr oldSize alignment size rest checkNext { left with store } check)
+        (stringReallocEntry ready bindings cx ptr oldSize alignment size rest canonNext { right with store } canon)) :
+        StringPlanCut profile ready bindings changes cx length left right check canon checkNext canonNext
+
 /-- Stop at the reached range/recheck cut without executing any children.
 On a valid range the checked continuation receives the real live verdict
 (which can refuse); the canonical continuation receives only the pointer.

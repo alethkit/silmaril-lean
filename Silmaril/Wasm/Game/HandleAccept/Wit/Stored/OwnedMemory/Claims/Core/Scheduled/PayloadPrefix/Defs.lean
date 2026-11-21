@@ -204,6 +204,46 @@ def LocalStringStep : StoreStep → Prop
   | .allocate .. | .reallocate .. => False
   | _ => True
 
+/-- The first allocator request after the current string cursor, or the
+completed plan pointer. The request retains the exact unexecuted plan. -/
+inductive StringFront (length : Nat) where
+  | done (ptr : Nat)
+  | call (ptr : Nat) (oldSize : Option Nat) (alignment : Alignment) (size : Nat) (rest : List StoreStep)
+      (shorter : rest.length < length)
+
+def StringFront.weaken {length : Nat} : StringFront length → StringFront (length + 1)
+  | .done ptr => .done ptr
+  | .call ptr oldSize alignment size rest shorter => .call ptr oldSize alignment size rest (Nat.lt_succ_of_lt shorter)
+
+def StringFront.remaining {E : CoreEngine} {Host : Type} {length : Nat} (cx : LiftLowerContext E) : StringFront length → P E Host Nat
+  | .done ptr => pure ptr
+  | .call ptr oldSize alignment size rest _ => runStoreSteps cx ptr
+      (oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size) :: rest)
+
+/-- Execute the canonical store steps up to, but not including, the next
+allocator call. This reads and writes the reached memory, not saved bytes. -/
+def stringFront {E : CoreEngine} {Host : Type} (cx : LiftLowerContext E) (ptr : Nat) :
+    (steps : List StoreStep) → P E Host (StringFront steps.length)
+  | [] => pure (.done ptr)
+  | .allocate alignment size :: rest => pure (.call ptr none alignment size rest (Nat.lt_succ_self _))
+  | .reallocate old alignment size :: rest => pure (.call ptr (some old) alignment size rest (Nat.lt_succ_self _))
+  | action :: rest => runStoreStep cx ptr action >>= fun next =>
+      stringFront cx next rest >>= fun front => pure front.weaken
+
+/-- Both sides execute the same local effects up to a returned cursor or
+trap. On return the original active and blocked frame tails are intact; a
+trap locks down the reached store without undoing its writes. -/
+def StringLocalCut {grow : SingleThreaded.GrowOracle} {Host Result : Type} (profile : ProfileKind)
+    (ready : HostReady Host) (dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow)))
+    (left right : Config (core3 grow) Host) (check canon : Cursor (E := core3 grow) Host)
+    (checkNext canonNext : Result → P (core3 grow) Host (Ret (core3 grow))) : Prop :=
+  ∃ (store : CStore (core3 grow)) (result : Except TrapReason Result) (labels : List (Label (core3 grow) Host)),
+    LocalLeafLabels result labels ∧
+    CoreGrowthSteps profile ready dispatch left labels
+      (localLeafEnd left left.host store check.thread check.frames check.rest checkNext result) ∧
+    CoreGrowthSteps profile ready dispatch right labels
+      (localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result)
+
 def MemoryReaches {E : CoreEngine} {Host : Type} (profile : ProfileKind) (ready : HostReady Host)
     (dispatch : Call E → P E Host (Ret E)) (left right : Config E Host)
     (checkCursor canonCursor : Cursor (E := E) Host) (checkNext : Except Stored.Endpoints.RecordLower.Issue Unit → P E Host (Ret E))

@@ -284,6 +284,38 @@ theorem childStringRealloc {changes : ReturnFrame.Substitutions (core3 grow) (Ho
     string_realloc_install cx ptr oldSize alignment size steps canonNext right canon canonAt,
     childFrameEnter frame _ _ _⟩
 
+theorem stringPlanCut {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (steps : List StoreStep)
+    (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver changes left right check canon)
+    (checkAt : left.ctl = check.control (runStoreSteps cx ptr steps >>= checkNext))
+    (canonAt : right.ctl = canon.control (runStoreSteps cx ptr steps >>= canonNext)) :
+    StringPlanCut profile ready bindings changes cx steps.length left right check canon checkNext canonNext := by
+  let dispatch := specDispatch ready (host (grow := grow) bindings)
+  obtain ⟨store, outcome, labels, observed, lhs, rhs⟩ :=
+    string_front_cut (profile := profile) (ready := ready) (dispatch := dispatch)
+      cx ptr steps left right check canon checkNext canonNext frame.store checkAt canonAt
+  cases outcome with
+  | error reason => exact .done ⟨store, .error reason, labels, observed, lhs, rhs⟩
+  | ok front =>
+    cases front with
+    | done returned => exact .done ⟨store, .ok returned, labels, observed, lhs, rhs⟩
+    | call pointer oldSize alignment size rest shorter =>
+      let action : StoreStep := oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)
+      let checkStart := { left with store, ctl := check.control (runStoreSteps cx pointer (action :: rest) >>= checkNext) }
+      let canonStart := { right with store, ctl := canon.control (runStoreSteps cx pointer (action :: rest) >>= canonNext) }
+      have middle : ChildFrameOver changes checkStart canonStart check canon :=
+        ⟨rfl, frame.pending, frame.results, frame.cancels, frame.blocked, frame.thread, frame.frames, frame.rest⟩
+      obtain ⟨leftStep, rightStep, paired⟩ := childStringRealloc (profile := profile) (ready := ready)
+        (bindings := bindings) cx pointer oldSize alignment size rest checkNext canonNext middle rfl rfl
+      have leftGrow : CoreUpdateGrows checkStart := by cases oldSize <;> trivial
+      have rightGrow : CoreUpdateGrows canonStart := by cases oldSize <;> trivial
+      unfold LocalLeafLabels at observed
+      exact .installed pointer oldSize alignment size rest shorter
+        (lhs.append (.cons leftGrow leftStep (.refl _))) (rhs.append (.cons rightGrow rightStep (.refl _)))
+        (by simpa only [LocalLeafLabels, List.all_append, List.all_cons, List.all_nil, Bool.and_true] using observed) paired
+
 theorem childCollectionInstall {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
     (entries : List Field) (output : Lower.Output) (index : Nat)
