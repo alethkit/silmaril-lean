@@ -268,16 +268,16 @@ private theorem flatAllocatingRule {older : ReturnFrame.Substitutions (core3 gro
   rcases fit with leaf | scalar | ⟨type, element, entries, rfl, children⟩
   · exact .inl (mixed_flat_rule destination inst item present realloc leaf
       index checkNext canonNext left right check canon frame growth checkAt canonAt finish ends)
-  · obtain ⟨primitive, payload, rfl, nonString⟩ := scalar
+  · obtain ⟨type, payload, rfl, data⟩ := scalar
     have reachedWidth : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width :=
       growth.memAddrType present
     have width : ptrTypeIn left.store (destination.context inst) = destination.width := by
       simp [ptrTypeIn, CanonOpts.ptrType, RecordDestination.context, reachedWidth]
     obtain ⟨store, result, chk, ref, checkRun, canonRun, labels, status⟩ :=
-      primitive_leaf_frame (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings))
-        destination inst primitive payload nonString index .flat origin left right (frame.store ▸ growth) width rfl
+      local_data_leaf_frame (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings))
+        destination inst type data payload index .flat origin left right (frame.store ▸ growth) width rfl
         frame.store check canon frame.thread checkNext canonNext checkAt canonAt
-    refine .inr (.inl ⟨⟨primitive, payload, rfl, nonString⟩, store, result, chk, ref, checkRun, canonRun, labels, ?_⟩)
+    refine .inr (.inl ⟨⟨type, payload, rfl, data⟩, store, result, chk, ref, checkRun, canonRun, labels, ?_⟩)
     cases result with
     | error _ => exact status
     | ok words =>
@@ -359,18 +359,18 @@ private theorem primitiveShapes (primitive : WIT.Primitive) (payload : Payload (
     | int kind _ => cases kind
     | string valid =>
       exact ⟨.string ⟨⟨_, valid⟩, rfl⟩, .inl (.inr ⟨⟨_, valid⟩, rfl⟩)⟩
-  · exact ⟨.scalar payload string, .inr (.inl ⟨primitive, payload, rfl, string⟩)⟩
+  · exact ⟨.scalar payload (.primitive string), .inr (.inl ⟨_, payload, rfl, .primitive string⟩)⟩
 
-private theorem compiledShapes (item : Field) (compiled : item.Emitted) (coverage : PrimitiveDataOnly item)
+private theorem compiledShapes (item : Field) (compiled : item.Emitted)
     (memoryDepth flatDepth : Nat) (memoryBound : sizeOf item ≤ memoryDepth) (flatBound : sizeOf item ≤ flatDepth) :
     ParkedListTreeShape memoryDepth item ∧ ParkedFlatShape flatDepth memoryDepth item := by
   induction measured : sizeOf item using Nat.strong_induction_on generalizing item memoryDepth flatDepth with
   | _ budget inductionHypothesis =>
   have recurse (child : Field) (smaller : sizeOf child < sizeOf item) (emitted : child.Emitted)
-      (coverage : PrimitiveDataOnly child) (memoryDepth flatDepth : Nat)
+      (memoryDepth flatDepth : Nat)
       (memoryBound : sizeOf child ≤ memoryDepth) (flatBound : sizeOf child ≤ flatDepth) :
       ParkedListTreeShape memoryDepth child ∧ ParkedFlatShape flatDepth memoryDepth child :=
-    inductionHypothesis _ (measured ▸ smaller) child emitted coverage memoryDepth flatDepth memoryBound flatBound rfl
+    inductionHypothesis _ (measured ▸ smaller) child emitted memoryDepth flatDepth memoryBound flatBound rfl
   have positive : 0 < sizeOf item := by cases item <;> simp only [Field.data.sizeOf_spec, Field.endpoint.sizeOf_spec,
     Field.context.sizeOf_spec, Field.owner.sizeOf_spec, Field.aggregate.sizeOf_spec, Field.fixed.sizeOf_spec,
     Field.dynamic.sizeOf_spec, Field.sum.sizeOf_spec] <;> omega
@@ -382,9 +382,8 @@ private theorem compiledShapes (item : Field) (compiled : item.Emitted) (coverag
     | succ flatDepth =>
       cases compiled with
       | primitive payload => exact primitiveShapes _ payload _
-      | enum payload | flags payload =>
-        obtain ⟨_, impossible⟩ := coverage payload (.self _)
-        cases impossible
+      | enum payload schema => exact ⟨.scalar payload (.enum schema), .inr (.inl ⟨_, payload, rfl, .enum schema⟩)⟩
+      | flags payload schema => exact ⟨.scalar payload (.flags schema), .inr (.inl ⟨_, payload, rfl, .flags schema⟩)⟩
       | endpoint | context | owner => exact ⟨.handle trivial, .inl (.inl trivial)⟩
       | aggregate children =>
         refine ⟨.aggregate ?_, ?_⟩
@@ -392,13 +391,13 @@ private theorem compiledShapes (item : Field) (compiled : item.Emitted) (coverag
           have smaller := List.sizeOf_lt_of_mem member
           simp only [Field.aggregate.sizeOf_spec] at memoryBound flatBound
           exact (recurse child (by simp only [Field.aggregate.sizeOf_spec]; omega)
-            (children child member) (fun payload path => coverage payload (.aggregate member path))
+            (children child member)
             memoryDepth flatDepth (by omega) (by omega)).1
         · intro child member
           have smaller := List.sizeOf_lt_of_mem member
           simp only [Field.aggregate.sizeOf_spec] at memoryBound flatBound
           exact (recurse child (by simp only [Field.aggregate.sizeOf_spec]; omega)
-            (children child member) (fun payload path => coverage payload (.aggregate member path))
+            (children child member)
             (memoryDepth + 1) flatDepth (by omega) (by omega)).2
       | fixed children =>
         refine ⟨.fixed ?_, ?_⟩
@@ -406,13 +405,13 @@ private theorem compiledShapes (item : Field) (compiled : item.Emitted) (coverag
           have smaller := List.sizeOf_lt_of_mem member
           simp only [Field.fixed.sizeOf_spec] at memoryBound flatBound
           exact (recurse child (by simp only [Field.fixed.sizeOf_spec]; omega)
-            (children child member) (fun payload path => coverage payload (.fixed member path))
+            (children child member)
             memoryDepth flatDepth (by omega) (by omega)).1
         · intro child member
           have smaller := List.sizeOf_lt_of_mem member
           simp only [Field.fixed.sizeOf_spec] at memoryBound flatBound
           exact (recurse child (by simp only [Field.fixed.sizeOf_spec]; omega)
-            (children child member) (fun payload path => coverage payload (.fixed member path))
+            (children child member)
             (memoryDepth + 1) flatDepth (by omega) (by omega)).2
       | list children =>
         refine ⟨.list ?_, .inr (.inr ⟨_, _, _, rfl, ?_⟩)⟩
@@ -420,13 +419,13 @@ private theorem compiledShapes (item : Field) (compiled : item.Emitted) (coverag
           have smaller := List.sizeOf_lt_of_mem member
           simp only [Field.dynamic.sizeOf_spec] at memoryBound flatBound
           exact (recurse child (by simp only [Field.dynamic.sizeOf_spec]; omega)
-            (children child member) (fun payload path => coverage payload (.dynamic member path))
+            (children child member)
             memoryDepth flatDepth (by omega) (by omega)).1
         · intro child member
           have smaller := List.sizeOf_lt_of_mem member
           simp only [Field.dynamic.sizeOf_spec] at memoryBound flatBound
           exact (recurse child (by simp only [Field.dynamic.sizeOf_spec]; omega)
-            (children child member) (fun payload path => coverage payload (.dynamic member path))
+            (children child member)
             (memoryDepth + 1) flatDepth (by omega) (by omega)).1
       | @map key element entries pairs values =>
         have entryShape (entry : Field) (member : entry ∈ entries) :
@@ -443,7 +442,6 @@ private theorem compiledShapes (item : Field) (compiled : item.Emitted) (coverag
             simp only [Field.aggregate.sizeOf_spec, List.cons.sizeOf_spec] at smaller
             simp only [Field.dynamic.sizeOf_spec] at memoryBound flatBound
             exact (recurse value (by simp only [Field.dynamic.sizeOf_spec]; omega) (values checked value member)
-              (fun payload path => coverage payload (.dynamic member (.aggregate (by simp) path)))
               memoryDepth flatDepth (by omega) (by omega)).1
         refine ⟨.map ?_ ?_, .inr (.inr ⟨_, _, _, rfl, ?_⟩)⟩
         · exact fun entry member => let ⟨fields, equal, _⟩ := entryShape entry member; ⟨fields, equal⟩
@@ -459,31 +457,30 @@ private theorem compiledShapes (item : Field) (compiled : item.Emitted) (coverag
         | none => exact ⟨.sum (fun _ equal => nomatch equal), fun _ member => nomatch member⟩
         | some child =>
           simp only [Field.sum.sizeOf_spec, Option.some.sizeOf_spec] at memoryBound flatBound
-          have childCoverage : PrimitiveDataOnly child := fun payload path => coverage payload (.sum path)
           refine ⟨.sum ?_, ?_⟩
           · intro selected equal
             cases equal
             exact (recurse child (by simp only [Field.sum.sizeOf_spec, Option.some.sizeOf_spec]; omega)
-              (children child rfl) childCoverage memoryDepth flatDepth (by omega) (by omega)).1
+              (children child rfl) memoryDepth flatDepth (by omega) (by omega)).1
           · intro selected member
             have equal : selected = child := List.mem_singleton.mp member
             subst selected
             exact (recurse child (by simp only [Field.sum.sizeOf_spec, Option.some.sizeOf_spec]; omega)
-              (children child rfl) childCoverage (memoryDepth + 1) flatDepth (by omega) (by omega)).2
+              (children child rfl) (memoryDepth + 1) flatDepth (by omega) (by omega)).2
 
 theorem parkedCompiledMemory (call : PayloadRoot.Site grow sig (.memory pointer)) (linked : call.Linked bindings)
-    (next : call.ReferenceNext) (coverage : PrimitiveDataOnly call.field)
+    (next : call.ReferenceNext)
     {addr : Nat} (realloc : call.destination.realloc = some addr) :
     ∃ depth, PayloadRoot.Cut call profile ready bindings (ParkedListTreeBody call depth next profile ready bindings) :=
   ⟨sizeOf call.field, parkedListTree call linked _ next
-    (compiledShapes call.field linked.emitted coverage _ _ (Nat.le_refl _) (Nat.le_refl _)).1 realloc⟩
+    (compiledShapes call.field linked.emitted _ _ (Nat.le_refl _) (Nat.le_refl _)).1 realloc⟩
 
 theorem parkedCompiledFlat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
-    (next : call.ReferenceNext) (coverage : PrimitiveDataOnly call.field)
+    (next : call.ReferenceNext)
     {addr : Nat} (realloc : call.destination.realloc = some addr) :
     ∃ flatDepth entryDepth, PayloadRoot.Cut call profile ready bindings
       (ParkedFlatBody call flatDepth entryDepth next profile ready bindings) :=
   ⟨sizeOf call.field, sizeOf call.field, parkedFlat call linked _ _ next
-    (compiledShapes call.field linked.emitted coverage _ _ (Nat.le_refl _) (Nat.le_refl _)).2 realloc⟩
+    (compiledShapes call.field linked.emitted _ _ (Nat.le_refl _) (Nat.le_refl _)).2 realloc⟩
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence

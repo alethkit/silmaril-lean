@@ -1375,33 +1375,38 @@ theorem listEntryPlacement {entryDispatch : Call (core3 grow) → P (core3 grow)
       placement destination after.store area (base + index * area.size) = .ok () :=
   listEntryPlacementOfGrowth destination inst element run.grows (destination.check_width before.store checked) sized aligned bounds entry
 
-private theorem primitiveEntry (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
-    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim primitive)) (index : Nat) (output : Lower.Output)
-    (start : Config (core3 grow) (HostState sig)) (cursor : Cursor (E := core3 grow) (HostState sig))
-    (finish : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
-    (width : ptrTypeIn start.store (destination.context inst) = destination.width)
-    (options : Lower.checkOptions (destination.context (grow := grow) inst) (.prim primitive) output = .ok ())
-    (fit : Lower.fits Quirks.none destination.encoding destination.width (.prim primitive) payload.val = true)
-    (placed : rootPlacement destination start.store (.prim primitive) output = .ok ())
-    (focused : start.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
-      (destination.context inst) destination.width (.data (.prim primitive) payload) index output >>= finish)) :
-    let program := CanonicalTree.field (World := HostState sig) Limits.spec Quirks.none
-      (destination.context inst) destination.width (.data (.prim primitive) payload) output
-    ∃ reads, Machine.Steps profile scheduledReady scheduledDispatch start (List.replicate reads .tau)
-      { start with ctl := cursor.control (program >>= fun value => finish (.ok value)) } := by
-  let cx := destination.context (grow := grow) inst
+private theorem primitiveSchema (primitive : WIT.Primitive) : Lower.checkSchema (.prim primitive) = .ok () := by
   let type : TypeOf := .prim primitive
   have well : ABI.ValType.WellFormedCM type := by
     refine ⟨.prim _, rfl, rfl, rfl, ?_⟩
     cases primitive <;> simp [type, ABI.ValType.anySub, oversizedNode, layout, primitiveLayout, pointerLayout,
       pointerAlignment, Layout.size, Alignment.bytes]
+  have plain : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.checkSchema type = .ok () := by
+    unfold Silmaril.Wasm.Game.HandleAccept.Wit.Stored.checkSchema
+    rw [ite_eq_right (show ¬ containsBorrow type = true from Bool.not_eq_true _ |>.mpr rfl),
+      ite_eq_right (show ¬ payloadContainsOwn type = true from Bool.not_eq_true _ |>.mpr rfl), ite_eq_left well]
+  unfold Lower.checkSchema
+  rw [plain]
+  rfl
+
+private theorem dataEntry (destination : RecordDestination) (inst : InstId) (type : TypeOf)
+    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload type) (index : Nat) (output : Lower.Output)
+    (start : Config (core3 grow) (HostState sig)) (cursor : Cursor (E := core3 grow) (HostState sig))
+    (finish : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (width : ptrTypeIn start.store (destination.context inst) = destination.width)
+    (schema : Lower.checkSchema type = .ok ())
+    (options : Lower.checkOptions (destination.context (grow := grow) inst) type output = .ok ())
+    (fit : Lower.fits Quirks.none destination.encoding destination.width type payload.val = true)
+    (placed : rootPlacement destination start.store type output = .ok ())
+    (focused : start.ctl = cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.data type payload) index output >>= finish)) :
+    let program := CanonicalTree.field (World := HostState sig) Limits.spec Quirks.none
+      (destination.context inst) destination.width (.data type payload) output
+    ∃ reads, Machine.Steps profile scheduledReady scheduledDispatch start (List.replicate reads .tau)
+      { start with ctl := cursor.control (program >>= fun value => finish (.ok value)) } := by
+  let cx := destination.context (grow := grow) inst
   have accepted : (Lower.checkSchema type >>= fun _ => Lower.checkOptions cx type output) = .ok () := by
-    have plain : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.checkSchema type = .ok () := by
-      unfold Silmaril.Wasm.Game.HandleAccept.Wit.Stored.checkSchema
-      rw [ite_eq_right (show ¬ containsBorrow type = true from Bool.not_eq_true _ |>.mpr rfl),
-        ite_eq_right (show ¬ payloadContainsOwn type = true from Bool.not_eq_true _ |>.mpr rfl), ite_eq_left well]
-    unfold Lower.checkSchema
-    rw [plain]
+    rw [schema]
     exact options
   let checkedResult := fun verdict : Except Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Lower.Issue output.Result =>
     finish (verdict.mapError (.field index ∘ .beforeAllocation ∘ .abi))
@@ -1481,9 +1486,9 @@ theorem stringPlanEntry (destination : RecordDestination) (inst : InstId) (str :
   have options : Lower.checkOptions cx (.prim .string) output = .ok () := by
     cases output <;> simp [cx, RecordDestination.context, Lower.checkOptions, Lower.Output.needsMemory,
       Validation.containsPtr, realloc] <;> rfl
-  obtain ⟨reads, entered⟩ := primitiveEntry (profile := profile) (scheduledReady := scheduledReady)
-    (scheduledDispatch := scheduledDispatch) destination inst .string payload index output left checkCursor checkNext
-    (same ▸ width) options (by simpa [Lower.fits, payload] using fit) placed checkAt
+  obtain ⟨reads, entered⟩ := dataEntry (profile := profile) (scheduledReady := scheduledReady)
+    (scheduledDispatch := scheduledDispatch) destination inst (.prim .string) payload index output left checkCursor checkNext
+    (same ▸ width) (primitiveSchema .string) options (by simpa [Lower.fits, payload] using fit) placed checkAt
   let enteredBody := CanonicalTree.field (World := HostState sig) Limits.spec Quirks.none cx destination.width
     (.data (.prim .string) payload) output
   let rest : AddrType → Session grow sig output.Result := fun reached =>
@@ -1712,6 +1717,79 @@ theorem primitiveLeafFrame (destination : RecordDestination) (inst : InstId) (pr
       (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
         (.data (.prim primitive) payload) output) :=
   primitiveLeafLocal (growthWrites origin) destination inst primitive payload nonString index output left right growth width placed
+
+private theorem localDataProgram {keep : CStore (core3 grow) → Prop} (writes : WriteClosed keep)
+    (destination : RecordDestination) (inst : InstId) (type : TypeOf) (data : LocalDataType type)
+    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload type) (output : Lower.Output) :
+    Prog.Every (ClosedOp (E := core3 grow) (Host := HostState sig) profile keep)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width (.data type payload) output) := by
+  let cx := destination.context (grow := grow) inst
+  cases data with
+  | primitive nonString =>
+    cases output with
+    | flat => exact closedFlatPrim cx destination.width _ payload.val nonString
+    | memory address =>
+      rw [CanonicalTree.field, CanonicalTree.leaf, Field.type, Field.value, Canon.store]
+      exact closedStorePrim writes cx _ payload.val nonString address
+  | enum schema =>
+    rename_i labels
+    cases output with
+    | flat =>
+      change Prog.Every _ (lowerFlatAt Limits.spec Quirks.none cx destination.width payload.val (.enum labels))
+      cases payload.val <;> simp only [lowerFlatAt] <;> try exact .op trivial (fun impossible => nomatch impossible)
+      unfold lowerFlatVariantWith
+      split
+      · exact .pure _
+      · exact .op trivial (fun impossible => nomatch impossible)
+    | memory address =>
+      change Prog.Every _ (Canon.store Limits.spec Quirks.none cx payload.val (.enum labels) address)
+      cases payload.val <;> simp only [Canon.store] <;> try exact .op trivial (fun impossible => nomatch impossible)
+      split
+      · unfold storeVariantHead
+        exact ((closedIntKeeping writes cx _ address (discSize labels.length)).bind
+          (fun _ => .pure _)).bind (fun _ => .pure _)
+      · exact .op trivial (fun impossible => nomatch impossible)
+  | flags schema =>
+    rename_i labels
+    cases output with
+    | flat =>
+      change Prog.Every _ (lowerFlatAt Limits.spec Quirks.none cx destination.width payload.val (.flags labels))
+      cases payload.val <;> simp only [lowerFlatAt] <;>
+        first | exact .pure _ | exact .op trivial (fun impossible => nomatch impossible)
+    | memory address =>
+      change Prog.Every _ (Canon.store Limits.spec Quirks.none cx payload.val (.flags labels) address)
+      cases payload.val <;> simp only [Canon.store] <;>
+        first | exact closedIntKeeping writes cx _ address (flagsSize labels.length) |
+          exact .op trivial (fun impossible => nomatch impossible)
+
+theorem localDataLeafFrame (destination : RecordDestination) (inst : InstId) (type : TypeOf) (data : LocalDataType type)
+    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload type) (index : Nat) (output : Lower.Output) (origin : CStore (core3 grow))
+    (left right : Config (core3 grow) (HostState sig)) (growth : Core3.Grows origin.core right.store.core)
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (placed : rootPlacement destination left.store type output = .ok ()) :
+    CompareLocalKeepingAt profile scheduledReady scheduledDispatch (fun store => Core3.Grows origin.core store.core) left right
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data type payload) index output)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data type payload) output) := by
+  have schema : Lower.checkSchema type = .ok () := by
+    cases data with
+    | primitive _ => exact primitiveSchema _
+    | enum checked | flags checked => exact checked
+  have options : Lower.checkOptions (destination.context (grow := grow) inst) type output = .ok () := by
+    cases data with
+    | @primitive primitive nonString => cases primitive <;> first | contradiction | cases output <;> rfl
+    | enum | flags => cases output <;> rfl
+  have fit : Lower.fits Quirks.none destination.encoding destination.width type payload.val = true := by
+    cases data with
+    | @primitive primitive nonString => cases primitive <;> first | contradiction | cases payload.val <;> rfl
+    | enum | flags => cases payload.val <;> rfl
+  intro same check canon thread checkedNext canonNext checkAt canonAt
+  obtain ⟨reads, entered⟩ := dataEntry destination inst type payload index output left check checkedNext
+    width schema options fit placed checkAt
+  exact prependLocalCut entered (silent (fun _ member => List.eq_of_mem_replicate member))
+    (closedCut (localDataProgram (growthWrites origin) destination inst type data payload output)
+      _ right check canon (fun value => checkedNext (.ok value)) canonNext growth same thread rfl canonAt)
 
 private theorem scalarField {primitive : WIT.Primitive} {item : Field}
     (layoutMatch : item.LayoutMatches (.prim primitive)) :
