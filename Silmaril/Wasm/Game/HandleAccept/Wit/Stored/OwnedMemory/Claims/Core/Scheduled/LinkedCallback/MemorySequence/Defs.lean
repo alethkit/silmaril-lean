@@ -284,8 +284,8 @@ def MapReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindi
 inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop where
   | handle {depth item} : CanonicalHandle item → ListTreeShape stringLeaf depth item
   | string {depth item} : stringLeaf item → ListTreeShape stringLeaf depth item
-  | scalar {depth primitive} (payload : Stored.Payload (.prim primitive)) : primitive ≠ .string →
-      ListTreeShape stringLeaf depth (.data (.prim primitive) payload)
+  | scalar {depth type} (payload : Stored.Payload type) : LocalDataType type →
+      ListTreeShape stringLeaf depth (.data type payload)
   | aggregate {depth type items} : (∀ item ∈ items, ListTreeShape stringLeaf depth item) →
       ListTreeShape stringLeaf (depth + 1) (.aggregate type items)
   | list {depth element entries} : (∀ item ∈ entries, ListTreeShape stringLeaf depth item) →
@@ -301,15 +301,14 @@ inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop w
   | fixed {depth element length entries} : (∀ item ∈ entries, ListTreeShape stringLeaf depth item) →
       ListTreeShape stringLeaf (depth + 1) (.fixed element length entries)
 
-def NonStringPrimitive (item : Field) : Prop :=
-  ∃ (primitive : WIT.Primitive) (payload : Stored.Payload (.prim primitive)),
-    item = .data (.prim primitive) payload ∧ primitive ≠ .string
+def LocalData (item : Field) : Prop :=
+  ∃ (type : TypeOf) (payload : Stored.Payload type), item = .data type payload ∧ LocalDataType type
 
 def memoryLeaf (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
     FieldComparison grow sig := fun item index address left right check canon checkNext canonNext finish =>
   mixed profile ready bindings older destination inst item index address left right check canon checkNext canonNext finish ∨
-    NonStringPrimitive item ∧
+    LocalData item ∧
     LocalFieldThen profile ready bindings (.memory address) left right check canon checkNext canonNext (fun () => finish)
 
 def SumThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
@@ -371,7 +370,7 @@ def listTree (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindin
             entries 0 address left reference check canon
 
 def FlatAllocatingLeaf (stringLeaf : Field → Prop) (entryDepth : Nat) (item : Field) : Prop :=
-  (CanonicalHandle item ∨ stringLeaf item) ∨ NonStringPrimitive item ∨
+  (CanonicalHandle item ∨ stringLeaf item) ∨ LocalData item ∨
     ∃ type element entries, item = .dynamic type element entries ∧
       ∀ entry ∈ entries, ListTreeShape stringLeaf entryDepth entry
 
@@ -382,7 +381,7 @@ def flatAllocating (profile : ProfileKind) (ready : HostReady (HostState sig)) (
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
     (entryDepth : Nat) : FlatFieldComparison grow sig := fun item index left right check canon checkNext canonNext finish =>
   mixedFlatComparison profile ready bindings older destination inst item index left right check canon checkNext canonNext finish ∨
-    (NonStringPrimitive item ∧ LocalFieldThen profile ready bindings .flat left right check canon checkNext canonNext finish) ∨
+    (LocalData item ∧ LocalFieldThen profile ready bindings .flat left right check canon checkNext canonNext finish) ∨
     ∃ type element entries, item = .dynamic type element entries ∧
       match Record.prepare left.store left.host.writer (Field.listObjects entries) with
       | .error _ => ReachesKeeping profile ready (specDispatch ready (host bindings)) (fun _ => True)

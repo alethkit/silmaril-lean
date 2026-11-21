@@ -172,8 +172,8 @@ private theorem field_spec (index : Nat) (type : TypeOf) (value : Val) :
     Produces (Internal.compileField cx output index type value) (ValueSpec type value) := by
   cases type <;> try (apply leaf_spec; intro payload checked)
   case prim => exact .primitive payload
-  case enum => exact .enum payload
-  case flags => exact .flags payload
+  case enum => exact .enum payload checked
+  case flags => exact .flags payload checked
   case ref name => exact nomatch name
   case future | stream | errorContext | borrow =>
     simp [Stored.Lower.checkSchema, Stored.checkSchema, containsBorrow, containsAsyncValue, contains,

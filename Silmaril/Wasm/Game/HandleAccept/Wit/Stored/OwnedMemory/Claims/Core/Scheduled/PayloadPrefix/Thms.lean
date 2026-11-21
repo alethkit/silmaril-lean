@@ -312,6 +312,23 @@ theorem primitive_leaf_frame (destination : RecordDestination) (inst : InstId) (
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.primitiveLeafFrame
     destination inst primitive payload nonString index output origin left right growth width placed
 
+/-- A compiled local data leaf executes its actual canonical program after
+the reached width and placement checks. Enum discriminants and packed flags
+are ordinary local effects; no callback or host mutation is required. -/
+theorem local_data_leaf_frame (destination : RecordDestination) (inst : InstId) (type : TypeOf)
+    (data : LocalDataType type) (payload : Stored.Payload type) (index : Nat) (output : Lower.Output)
+    (origin : CStore (core3 grow)) (left right : Config (core3 grow) (HostState sig))
+    (growth : Core3.Grows origin.core right.store.core)
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (placed : rootPlacement destination left.store type output = .ok ()) :
+    CompareLocalKeepingAt profile ready dispatch (fun store => Core3.Grows origin.core store.core) left right
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data type payload) index output)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data type payload) output) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.localDataLeafFrame
+    destination inst type data payload index output origin left right growth width placed
+
 /-- Both actual string leaf programs reach the same canonical plan. The
 checked path first discharges schema/options, the fit test at the reached
 width, and (for memory) root placement. This cut precedes plan execution. -/

@@ -54,8 +54,10 @@ recursive compiler. In particular a map entry has a checked primitive key
 and a recursively emitted value, not an opaque data record. -/
 inductive Field.Emitted : Field → Prop where
   | primitive {primitive : WIT.Primitive} (payload : Payload (.prim primitive)) : Emitted (.data (.prim primitive) payload)
-  | enum {cases : List String} (payload : Payload (.enum cases)) : Emitted (.data (.enum cases) payload)
-  | flags {labels : List String} (payload : Payload (.flags labels)) : Emitted (.data (.flags labels) payload)
+  | enum {cases : List String} (payload : Payload (.enum cases)) :
+      Lower.checkSchema (.enum cases) = .ok () → Emitted (.data (.enum cases) payload)
+  | flags {labels : List String} (payload : Payload (.flags labels)) :
+      Lower.checkSchema (.flags labels) = .ok () → Emitted (.data (.flags labels) payload)
   | endpoint {channel : Channel} {element : Element} {id : EndId} : Emitted (.endpoint channel element id)
   | context {id : ErrCtxId} : Emitted (.context id)
   | owner {receipt : OwnedMemory.Receipt} : Emitted (.owner receipt)
