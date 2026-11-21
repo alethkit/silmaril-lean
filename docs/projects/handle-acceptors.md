@@ -847,6 +847,19 @@ later handle guard rechecks the reached writer. The comparison retains older
 saved frames and finite classified allocator prefixes. This fragment does
 not yet cover allocating collection descendants, sums, or reply delivery.
 
+`MemorySequence.value_entries_replay` extends the marked allocator replay
+through the reached value-mode collection range, deriving the strided slots
+from the entry layouts. Each entry can contain nested records and tuples with
+allocating strings and checked handles. After a common success it runs the
+actual pointer/count descriptor; a trap on the second write keeps the first.
+Range traps and typed refusals run no entries. The rule applies to lists and
+flat maps in value-entry mode, not the allocation-time layout of indirect maps.
+`MemorySequence.parked_list` applies it to the actual list root on both
+public give bindings. The linked destination and public admission supply
+the initial memory and live plan without assuming either is unchanged at
+the later return. On common success the descriptor reaches the original
+continuation; no delivery claim follows.
+
 `Record.Effects.emitValue_eq` gives one recursive checked effect view for both
 ABIs. It composes the live handle checks and commitment-time spends with the
 canonical leaf programs, then traverses the placed record/tuple fields, list and

@@ -116,4 +116,56 @@ theorem nested_rule {older : ReturnFrame.Substitutions (core3 grow) (HostState s
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence.nestedRule
     destination inst depth item address present sized realloc shape matched placement
 
+/-- Replay the marked allocator's return into all value-mode entries, with
+allocating string/handle aggregates at any entry, then compare the actual
+pointer/count descriptor. A stopped or trapped prefix runs no unvisited
+entries. This applies to lists and value-mode maps, not indirect maps. -/
+theorem value_entries_replay {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
+    (depth index : Nat) (output : Lower.Output) {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
+    (valueMode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
+    (matched : Field.EntriesMatch entries element)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (shape : ∀ item ∈ entries, AggregateShape (StringField.Fits destination) depth item)
+    (replay : CollectionReplay profile ready bindings older destination inst type element entries index output left right check canon checkNext canonNext) :
+    CollectionReplayFor profile ready bindings older destination inst type element entries index output left right check canon checkNext canonNext
+      (ValueListReturn profile ready bindings older destination inst type element entries depth index output checkNext canonNext) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence.valueCollectionReplay
+    destination inst type element entries depth index output checkNext canonNext valueMode matched realloc shape replay
+
+theorem recursive_value_replay {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
+    (index : Nat) (output : Lower.Output) {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (compare : FieldComparison grow sig) (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
+    (finish : ValueFinish grow sig output) (mode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
+    (matched : Field.EntriesMatch entries element)
+    (children : ∀ (atStore : CStore (core3 grow)) bytes,
+      (core3 grow).memAddrType? atStore.core destination.memory = some destination.width →
+      (core3 grow).memSize? atStore.core destination.memory = some bytes →
+      ∀ item ∈ entries, ∀ address, SlotFits destination.width bytes item address →
+        FieldRule compare older atStore destination inst item address)
+    (ends : ∀ value reached reference check canon, ChildFrameOver older reached reference check canon →
+      Core3.Grows left.store.core reached.store.core → reached.ctl = check.control (checkNext (.ok value)) →
+      reference.ctl = canon.control (canonNext value) → finish value reached reference check canon)
+    (replay : CollectionReplay profile ready bindings older destination inst type element entries index output
+      left right check canon checkNext canonNext) :
+    CollectionReplayFor profile ready bindings older destination inst type element entries index output
+      left right check canon checkNext canonNext
+      (RecursiveValueReturn profile ready bindings older destination inst compare type element entries index output checkNext canonNext finish) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence.recursiveValueReplay
+    destination inst type element entries index output compare checkNext canonNext finish mode matched children ends replay
+
+theorem list_tree_rule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (depth : Nat) (item : Field) (address : Nat)
+    {origin : CStore (core3 grow)}
+    (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
+    {bytes : Nat} (sized : (core3 grow).memSize? origin.core destination.memory = some bytes)
+    {addr : Nat} (realloc : destination.realloc = some addr)
+    (shape : ListTreeShape (StringField.Fits destination) depth item)
+    (matched : item.LayoutMatches item.type) (placement : SlotFits destination.width bytes item address) :
+    FieldRule (listTree profile ready bindings older destination inst depth) older origin destination inst item address :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.MemorySequence.listTreeRule
+    destination inst depth item address present sized realloc shape matched placement
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
