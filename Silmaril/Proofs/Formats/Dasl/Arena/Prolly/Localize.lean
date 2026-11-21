@@ -17,8 +17,7 @@ variable {Name Key Payload : Type}
 variable {source : Reader Name Key Payload} {before after : Table Name Key Payload}
 
 theorem empty_valid : (Table.empty (Name := Name) (Key := Key) (Payload := Payload)).Valid source := by
-  refine ⟨by simp [Table.empty], ?_, by simp [Table.empty]⟩
-  simp [Table.empty, Indexed.empty]
+  refine ⟨by simp [Table.empty], ?_, by simp [Table.empty], ?_⟩ <;> simp [Table.empty, Indexed.empty]
 
 theorem extends_refl (table : Table Name Key Payload) : table.Extends table :=
   ⟨fun _ _ proof => proof, fun _ _ proof => proof, fun _ _ proof => proof⟩
@@ -62,7 +61,7 @@ private theorem write_spec [DecidableEq Name] {name : Name} {block : Block Name 
     · simpa [Table.write, oldName hit] using hit
     · simpa [Table.write, oldIndex ((valid.inverse _ _).mpr hit)] using hit
     · exact (unchanged _ (fresh ▸ Nat.ne_of_lt (present hit))).trans hit
-  refine ⟨⟨?_, ?_, ?_⟩, extension, by simp [Table.write]⟩
+  refine ⟨⟨?_, ?_, ?_, ?_⟩, extension, by simp [Table.write]⟩
   · intro query other
     by_cases sameName : query = name <;> by_cases sameIndex : other = index
     · simp [Table.write, sameName, sameIndex]
@@ -93,6 +92,18 @@ private theorem write_spec [DecidableEq Name] {name : Name} {block : Block Name 
       obtain ⟨oldBlock, oldRead, stored, oldCovered⟩ := valid.installed _ _ oldHit
       exact ⟨oldBlock, oldRead, (localize_frame extension oldCovered).symm ▸ extension.blocks stored,
         fun child mem => (oldCovered child mem).imp fun _ hit => extension.hits hit⟩
+  · intro other found stored
+    change arena.blocks[other]? = some found at stored
+    by_cases same : other = index
+    · subst other
+      have eq := Option.some.inj (stored.symm.trans newRead)
+      subst found
+      rw [fresh]
+      unfold Indexed.append? at appended
+      split at appended
+      · assumption
+      · contradiction
+    · exact valid.backward _ _ ((unchanged _ same).symm ▸ stored)
 
 theorem add_spec [DecidableEq Name] {name : Name} (valid : before.Valid source)
     (added : before.add source name = .ok after) :

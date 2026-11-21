@@ -10,7 +10,9 @@ not key absence. Failure exposes no staged table. A schedule may include extra
 blocks; only the selected root is certified by the closed scan.
 
 `Table.Valid` records the exact name/index inverse, occupancy coverage, successful
-source reads and closure under structural block edges. A hit keeps its index;
+source reads and closure under structural block edges. Each local edge points to
+an earlier index, the same liveness rule used by the indexed root directory.
+A hit keeps its index;
 another name for the same payload may get another slot. `Table.Extends` preserves
 all previously observed lookups in both directions and all old blocks. A `Ticket`
 is an index proof for a specific table and name, not a runtime generation ID; use

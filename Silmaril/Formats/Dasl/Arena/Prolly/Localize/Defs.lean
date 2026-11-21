@@ -58,6 +58,7 @@ structure Valid (table : Table Name Key Payload) (source : Reader Name Key Paylo
   installed : ∀ name index, table.locate name = some index →
     ∃ block, source name = .ok block ∧ table.arena.blocks[index]? = some (Indexed.localize table.locate block) ∧
       Covered table.locate block
+  backward : ∀ (index : Nat) block, table.arena.blocks[index]? = some block → Indexed.admissible index block = true
 
 /-- One append lineage: observed handles and bytes already present cannot be
 rebound. This is not a comparison of bare indices from different tables. -/
