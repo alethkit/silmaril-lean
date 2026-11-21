@@ -42,13 +42,8 @@ theorem run_effect [DecidableEq Key] [DecidableEq Name]
 theorem Effect.readback [DecidableEq Key] {profile : Cas.Profile Name Obj} {before after : Cas.State Key Name Obj}
     {key : Key} {obj : Obj} {name : Name} {bytes : ByteArray} (effect : Effect profile before after key obj name)
     (encoded : profile.encode? obj = some bytes) :
-    after.slots key = some ⟨some name, some obj⟩ ∧ after.blocks name = some bytes := by
-  obtain ⟨actual, ⟨actualBytes, _⟩, slots, graph⟩ := effect
-  obtain rfl := Option.some.inj (encoded.symm.trans actualBytes)
-  refine ⟨by simp [slots, State.replaceAt], ?_⟩
-  change Naming.graph after.blocks name bytes
-  rw [graph]
-  exact Or.inr (by simp [Naming.listed])
+    after.slots key = some ⟨some name, some obj⟩ ∧ after.blocks name = some bytes :=
+  Proofs.Semantics.Arena.Traits.Publish.effect_readback effect encoded
 
 theorem Effect.preserves [DecidableEq Key] {profile : Cas.Profile Name Obj} {before after : Cas.State Key Name Obj}
     {key : Key} {obj : Obj} {name : Name} (effect : Effect profile before after key obj name) :

@@ -86,6 +86,18 @@ theorem reference_effect {profile : Cas.Profile Name Obj} {mode : Mode} {key : K
       by_cases same : key = other <;> simp [State.replaceAt, same]
 
 omit [DecidableEq Name] in
+theorem effect_readback {profile : Cas.Profile Name Obj} {before after : Cas.State Key Name Obj}
+    {key : Key} {obj : Obj} {name : Name} {bytes : ByteArray} (effect : Effect profile before after key obj name)
+    (encoded : profile.encode? obj = some bytes) :
+    after.slots key = some ⟨some name, some obj⟩ ∧ after.blocks name = some bytes := by
+  obtain ⟨actual, ⟨actualBytes, _⟩, slots, graph⟩ := effect
+  obtain rfl := Option.some.inj (encoded.symm.trans actualBytes)
+  refine ⟨by simp [slots, State.replaceAt], ?_⟩
+  change Semantics.Naming.graph after.blocks name bytes
+  rw [graph]
+  exact Or.inr (by simp [Semantics.Naming.listed])
+
+omit [DecidableEq Name] in
 theorem reserve_effect {key : Key} {name : Name} {before after : Cas.State Key Name Obj}
     (accepted : reserveReference key name before = .ok ((), after)) :
     before.slots key = none ∧ after.slots = before.slots.replaceAt key (some ⟨some name, none⟩) ∧

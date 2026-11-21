@@ -57,6 +57,9 @@ private def gatedApi : CasArena (Cas.State Nat Nat Nat) Nat Nat Nat Unit := {api
   attach key name := Step.ofModel (profile.attach key name)}
 
 example : Parsed.CasArena.probe gatedApi reserved 7 = .unavailable () := rfl
+example : (checked gatedApi source .fulfill 0 12 7 (bytes 12) reserved).map
+    (fun (_, next) => (next.slots 0, next.blocks 7)) =
+    .ok (some ⟨some 7, some 12⟩, some (bytes 12)) := rfl
 example : Mutable.Mutation.commit (checked gatedApi source .fulfill 0 13 7 (bytes 12)) reserved =
     (.error (.inl .encodedBytesMismatch), reserved) := rfl
 example : Mutable.Mutation.commit (checked gatedApi (fun _ => .unavailable ()) .fulfill 0 12 7 (bytes 12))
