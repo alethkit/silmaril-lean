@@ -356,6 +356,33 @@ structure StringField where
 
 def StringField.field (item : StringField) : Field := .data (.prim .string) ⟨.string item.value, .string item.valid⟩
 
+/-- On refusal only the checked live guard advances. On success the next
+field sees the spent writer and the reached canonical store. On trap neither
+side enters a success continuation, and the reached effects are retained. -/
+def HandleFieldThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (item : Field) (index : Nat) (output : Stored.Lower.Output) (left right : State grow sig)
+    (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (next : output.Result → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Prop) : Prop :=
+  let dispatch := specDispatch ready (host bindings)
+  match liveLeafPlan left.store left.host.writer index item with
+  | .error issue => ∃ labels, (∀ label ∈ labels, label = .tau) ∧ Steps profile ready dispatch left labels
+      { left with ctl := check.control (checkNext (.error issue)) }
+  | .ok plan =>
+    let spent := plan.elim left.host (fun spend => { left.host with writer := spend.apply left.host.writer })
+    ∃ (store : CStore (core3 grow)) (result : Except TrapReason output.Result)
+      (leading checkLabels canonLabels : List (Label (core3 grow) (HostState sig))),
+      (∀ label ∈ leading, label = .tau) ∧ LocalLeafLabels result checkLabels ∧ LocalLeafLabels result canonLabels ∧
+      Steps profile ready dispatch left (leading ++ checkLabels)
+        (localLeafEnd left spent store check.thread check.frames check.rest (fun value => checkNext (.ok value)) result) ∧
+      Steps profile ready dispatch right canonLabels
+        (localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result) ∧
+      ∀ value, result = .ok value → next value
+        { left with store, host := spent, ctl := check.control (checkNext (.ok value)) }
+        { right with store, ctl := canon.control (canonNext value) } check canon
+
 def flatSequenceChecked (destination : RecordDestination) (inst : InstId) (items : List Field) (index : Nat)
     (leading : List FlatValue) (finish : Except Endpoints.RecordLower.Issue (List FlatValue) → Session grow sig (Ret (core3 grow))) :
     Session grow sig (Ret (core3 grow)) :=
@@ -453,6 +480,13 @@ def stringFlatComparison (profile : ProfileKind) (ready : HostReady (HostState s
 
 def StringField.Fits (destination : RecordDestination) (field : Field) : Prop :=
   ∃ item : StringField, item.field = field ∧ StoreStringPre Quirks.none destination.encoding destination.width item.value
+
+def mixedFlatComparison (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
+    FlatFieldComparison grow sig :=
+  fun field index left right check canon checkNext canonNext next =>
+    (CanonicalHandle field ∧ HandleFieldThen profile ready bindings field index .flat left right check canon checkNext canonNext next) ∨
+    stringFlatComparison profile ready bindings older destination inst field index left right check canon checkNext canonNext next
 
 /-- Stop at the reached range/recheck cut without executing any children.
 On a valid range the checked continuation receives the real live verdict
