@@ -1527,6 +1527,25 @@ theorem stringPlanEntry (destination : RecordDestination) (inst : InstId) (str :
       chain entered (.cons checkRead (.refl _))
   · simpa only [rest, Prog.bind_eq, Prog.bind_assoc] using reference
 
+theorem stringReallocFocus (cx : LiftLowerContext E) (ptr : Nat) (oldSize : Option Nat)
+    (alignment : Alignment) (size : Nat) (steps : List StoreStep) (finish : Nat → P E Host (Ret E)) :
+    let request := Call.reallocate cx (oldSize.elim 0 (fun _ => ptr)) (oldSize.getD 0) alignment.bytes size
+    (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= finish) =
+        .op (.call request) (stringPlanResume cx steps finish) := by
+  let request := Call.reallocate cx (oldSize.elim 0 (fun _ => ptr)) (oldSize.getD 0) alignment.bytes size
+  change ((runStoreStep cx ptr (oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) >>=
+    fun next => runStoreSteps cx next steps) >>= finish) = _
+  have alloc : (runStoreStep cx ptr (oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :
+      P E Host Nat) = callNat request := by cases oldSize <;> rfl
+  rw [alloc]
+  unfold callNat callRet perform Prog.lift
+  simp only [Prog.bind_eq, Prog.bind_assoc]
+  apply congrArg (Prog.op (S := Eff E Host) (.call request))
+  funext result
+  simp only [stringPlanResume, Prog.bind_eq]
+  cases result <;> rfl
+
 theorem stringReallocInstall (cx : LiftLowerContext E) (ptr : Nat) (oldSize : Option Nat)
     (alignment : Alignment) (size : Nat) (steps : List StoreStep) (finish : Nat → P E Host (Ret E))
     (start : Config E Host) (cursor : Cursor (E := E) Host)
@@ -1536,22 +1555,7 @@ theorem stringReallocInstall (cx : LiftLowerContext E) (ptr : Nat) (oldSize : Op
     let resumed := stringPlanResume cx steps finish
     Step profile ready dispatch start .tau
       { start with ctl := { cursor with frames := .prog resumed :: cursor.frames }.control (dispatch request) } := by
-  let request := Call.reallocate cx (oldSize.elim 0 (fun _ => ptr)) (oldSize.getD 0) alignment.bytes size
-  have body : (runStoreSteps cx ptr
-      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= finish) =
-        .op (.call request) (stringPlanResume cx steps finish) := by
-    change ((runStoreStep cx ptr (oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) >>=
-      fun next => runStoreSteps cx next steps) >>= finish) = _
-    have alloc : (runStoreStep cx ptr (oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :
-        P E Host Nat) = callNat request := by cases oldSize <;> rfl
-    rw [alloc]
-    unfold callNat callRet perform Prog.lift
-    simp only [Prog.bind_eq, Prog.bind_assoc]
-    apply congrArg (Prog.op (S := Eff E Host) (.call request))
-    funext result
-    simp only [stringPlanResume, Prog.bind_eq]
-    cases result <;> rfl
-  rw [body] at focused
+  rw [stringReallocFocus cx ptr oldSize alignment size steps finish] at focused
   exact .call focused
 
 private theorem prependLocalCut {left right : Config E Host} {enteredCtl : List (Activation E Host)}

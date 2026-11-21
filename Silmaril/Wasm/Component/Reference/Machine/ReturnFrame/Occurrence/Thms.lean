@@ -87,6 +87,27 @@ theorem Prefix.append {before middle after : Config E Host} {leading trailing : 
     Prefix profile ready dispatch before place (leading ++ trailing) after final :=
   Proofs.Wasm.Component.Reference.MachineReturnOccurrence.prefix_append left right
 
+/-- While the marked frame survives, older slots in its activation move with it,
+including through suspension, resume, and switches. This does not show that
+the marked callback returns. -/
+theorem Prefix.under {before after : Config E Host} {labels : List (Label E Host)} {place reached : Location}
+    (run : Prefix profile ready dispatch before place labels after reached) (depth : Nat) :
+    Prefix profile ready dispatch before (place.below depth) labels after (reached.below depth) :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.prefix_below run depth
+
+/-- Installing a call and popping its actual marked return preserves every older
+slot. At depth zero this carries the original parked Core caller across a
+returning allocator without confusing it with the allocator's own frame. -/
+theorem Prefix.under_call {before entered middle after : Config E Host} {labels : List (Label E Host)}
+    {thread frames rest call} {resume : Continuation E Host}
+    (focused : before.ctl = ⟨thread, .prog (.op (S := Eff E Host) (.call call) resume), frames⟩ :: rest)
+    (install : Step profile ready dispatch before .tau entered)
+    (run : Prefix profile ready dispatch entered (.active 0 0) labels middle (.active 0 0))
+    (step : Step profile ready dispatch middle .tau after)
+    (pops : (transitionEdit middle .tau).pops (.active 0 0)) (depth : Nat) :
+    Prefix profile ready dispatch before (.active 0 depth) (.tau :: labels ++ [.tau]) after (.active 0 depth) :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.prefix_under_call focused install run step pops depth
+
 theorem Prefix.toTrail {before after : Config E Host} {labels : List (Label E Host)} {place reached : Location}
     (run : Prefix profile ready dispatch before place labels after reached) :
     Trail profile ready dispatch before (some place) labels after (some reached) :=
