@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 import Silmaril.Wasm.Component.Reference.Machine.Config.Thms
+import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
 
 public section
 
@@ -70,6 +71,293 @@ private theorem read_resume (storage : Stacks E Host) (slot : Nat) (place : Loca
       rw [here]
       exact saved_read.symm
     · simp [Location.resume, Stacks.resume, segmentAt, same, Config.getElem?_setSlot_ne _ _ _ _ same]
+
+private theorem source_block (storage : Stacks E Host) (slot : Nat) (place : Location) :
+    segmentAt (storage.block slot) place = segmentAt storage (place.beforeBlock slot) := by
+  apply read_block (place := place.beforeBlock slot)
+  cases place with
+  | active _ _ => rfl
+  | saved current segment =>
+    by_cases same : current = slot <;> simp [Location.beforeBlock, Location.block, same]
+
+private theorem rejoin_resume (slot : Nat) (place prior : Location)
+    (source : place.beforeResume slot = some prior) : prior.resume slot = place := by
+  cases place with
+  | active activation segment =>
+    cases activation <;> simp [Location.beforeResume] at source <;> subst prior <;> simp [Location.resume]
+  | saved current segment =>
+    by_cases same : current = slot
+    · simp [Location.beforeResume, same] at source
+    · simp [Location.beforeResume, same] at source
+      subst prior
+      simp [Location.resume, same]
+
+private theorem absent_resume {storage : Stacks E Host} {slot : Nat} {place : Location}
+    (source : place.beforeResume slot = none) : segmentAt (storage.resume slot) place = none := by
+  cases place with
+  | active activation segment => cases activation <;> contradiction
+  | saved current segment =>
+    by_cases same : current = slot
+    · subst current
+      simp [segmentAt, Stacks.resume, Config.getElem?_setSlot_self]
+    · simp [Location.beforeResume, same] at source
+
+theorem read_source (storage : Stacks E Host) (edit : Edit E Host) (place : Location) :
+    segmentAt (edit.apply storage) place = Source.segment storage (edit.source place) := by
+  cases edit with
+  | block slot => exact source_block _ _ _
+  | resume slot =>
+    cases source : place.beforeResume slot with
+    | none => rw [Edit.source, source]; exact absent_resume source
+    | some prior =>
+      simpa only [Edit.source, Edit.apply, source, Option.elim, Source.segment, rejoin_resume _ _ _ source] using
+        (read_resume storage slot prior)
+  | switch fromSlot toSlot =>
+    cases source : place.beforeResume toSlot with
+    | none => rw [Edit.source, source]; exact absent_resume source
+    | some prior =>
+      simp only [Edit.source, Edit.apply, source, Option.elim, Source.segment]
+      rw [← rejoin_resume _ _ _ source, read_resume, source_block]
+  | same => cases place <;> rfl
+  | clear | enter =>
+    cases place with
+    | active activation segment => cases activation <;> simp [Edit.source, Edit.apply, Source.segment, segmentAt]
+    | saved _ _ => rfl
+  | write slot frames =>
+    cases place with
+    | active _ _ => rfl
+    | saved current segment =>
+      by_cases same : current = slot
+      · subst current
+        simp [Edit.source, Edit.apply, Source.segment, segmentAt, Config.getElem?_setSlot_self]
+      · simp [Edit.source, Edit.apply, Source.segment, segmentAt, same, Config.getElem?_setSlot_ne _ _ _ _ same]
+  | exit =>
+    cases place with
+    | active _ _ => cases found : storage.active <;> simp [Edit.source, Edit.apply, Source.segment, segmentAt, found]
+    | saved _ _ => rfl
+  | push frame =>
+    cases place with
+    | active activation segment =>
+      cases activation with
+      | zero => cases segment <;> simp [Edit.source, Edit.apply, Source.segment, segmentAt, front, head_read]
+      | succ _ => cases found : storage.active <;> simp [Edit.source, Edit.apply, Source.segment, segmentAt, found]
+    | saved _ _ => rfl
+  | pop =>
+    cases place with
+    | active activation segment =>
+      cases activation with
+      | zero =>
+        change (front storage).tail[segment]? = storage.active[0]?.bind (·[segment + 1]?)
+        rw [head_read]
+        change (front storage).tail[segment]? = (front storage)[segment + 1]?
+        cases front storage <;> simp
+      | succ _ => cases found : storage.active <;> simp [Edit.source, Edit.apply, Source.segment, segmentAt, found]
+    | saved _ _ => rfl
+
+theorem follow_source {edit : Edit E Host} {place prior : Location} (source : edit.source place = .inl prior) :
+    edit.follow prior = some place := by
+  have block_inv (slot : Nat) (place : Location) : (place.beforeBlock slot).block slot = some place := by
+    cases place with
+    | active _ _ => rfl
+    | saved current segment =>
+      by_cases same : current = slot
+      · subst current; simp [Location.beforeBlock, Location.block]
+      · simp [Location.beforeBlock, Location.block, same]
+  cases edit with
+  | block slot => exact (congrArg (Location.block slot) (Sum.inl.inj source)).symm.trans (block_inv slot place)
+  | resume slot =>
+    cases came : place.beforeResume slot with
+    | none => simp [Edit.source, came] at source
+    | some earlier =>
+      have same : earlier = prior := by simpa [Edit.source, came] using source
+      subst earlier
+      exact congrArg some (rejoin_resume _ _ _ came)
+  | switch fromSlot toSlot =>
+    cases came : place.beforeResume toSlot with
+    | none => simp [Edit.source, came] at source
+    | some earlier =>
+      have same : earlier.beforeBlock fromSlot = prior := by simpa [Edit.source, came] using source
+      subst prior
+      simp [Edit.follow, block_inv, rejoin_resume _ _ _ came]
+  | write slot frames =>
+    cases place with
+    | active _ _ => cases source; rfl
+    | saved current segment =>
+      by_cases same : current = slot
+      · simp [Edit.source, same] at source
+      · simp [Edit.source, same] at source
+        subst prior
+        simp [Edit.follow, same]
+  | same | clear | enter | exit | push _ | pop =>
+    cases place with
+    | saved _ _ => cases source; rfl
+    | active activation segment =>
+      cases activation <;> cases segment <;> simp [Edit.source] at source <;> cases source <;> rfl
+
+theorem outside_edit {older : Substitutions E Host} {left right : Stacks E Host} {mark : Option Location}
+    (outside : Outside older left right mark) (edit : Edit E Host) :
+    Outside older (edit.apply left) (edit.apply right) (mark.bind edit.follow) := by
+  intro place offMark first second leftAt rightAt
+  rw [read_source] at leftAt rightAt
+  cases source : edit.source place with
+  | inl prior =>
+    rw [source] at leftAt rightAt
+    apply outside prior _ first second leftAt rightAt
+    intro marked
+    rw [← marked, Option.bind_some, follow_source source] at offMark
+    exact offMark rfl
+  | inr fresh =>
+    rw [source] at leftAt rightAt
+    have same : first = second := Option.some.inj (leftAt.symm.trans rightAt)
+    subst second
+    exact .same first
+
+private theorem pointwise {Item : Type} {before after : Item → Item → Prop} {left right : List Item}
+    (paired : List.Forall₂ before left right) :
+    (∀ (index : Nat) first second, left[index]? = some first → right[index]? = some second → after first second) ↔
+      List.Forall₂ after left right := by
+  induction paired with
+  | nil => simp
+  | @cons lhs rhs left right edge tail ih =>
+    constructor
+    · intro all
+      exact .cons (all 0 lhs rhs rfl rfl) (ih.mp fun index first second lhs rhs => all (index + 1) first second lhs rhs)
+    · intro mapped index first second hLeft hRight
+      cases mapped with
+      | cons head rest =>
+        cases index with
+        | zero =>
+          simp at hLeft hRight
+          subst first
+          subst second
+          exact head
+        | succ index => exact ih.mpr rest index first second hLeft hRight
+
+private theorem active_narrow {older wider : Substitutions E Host} {left right : Activation E Host}
+    (paired : Related.Active wider left right)
+    (all : ∀ (index : Nat) first second, left.segs[index]? = some first → right.segs[index]? = some second →
+      Related.Segment older first second) : Related.Active older left right := by
+  cases paired with
+  | mk frames => exact .mk ((pointwise frames).mp all)
+
+private theorem active_segment {changes : Substitutions E Host} {left right : Activation E Host}
+    (paired : Related.Active changes left right) (index : Nat) {first second : Seg E Host}
+    (leftAt : left.segs[index]? = some first) (rightAt : right.segs[index]? = some second) :
+    Related.Segment changes first second := by
+  cases paired with
+  | mk frames => exact (pointwise frames).mpr frames index first second leftAt rightAt
+
+theorem paired_outside {changes : Substitutions E Host} {left right : Config E Host}
+    (paired : Related.Paired changes left right) : Outside changes (segmentStorage left) (segmentStorage right) none := by
+  cases paired with
+  | @mk active saved control blocked =>
+    intro place _ first second leftAt rightAt
+    cases place with
+    | active activation segment =>
+      cases foundLeft : left.ctl[activation]? with
+      | none => simp [segmentAt, segmentStorage, foundLeft] at leftAt
+      | some lhs =>
+        cases foundRight : active[activation]? with
+        | none => simp [segmentAt, segmentStorage, foundRight] at rightAt
+        | some rhs =>
+          exact active_segment ((pointwise control).mpr control activation lhs rhs foundLeft foundRight) segment
+            (by simpa [segmentAt, segmentStorage, *] using leftAt) (by simpa [segmentAt, segmentStorage, *] using rightAt)
+    | saved slot segment =>
+      cases foundLeft : left.conts[slot]? with
+      | none => simp [segmentAt, segmentStorage, foundLeft] at leftAt
+      | some lhs =>
+        cases foundRight : saved[slot]? with
+        | none => simp [segmentAt, segmentStorage, foundRight] at rightAt
+        | some rhs =>
+          have pair := (pointwise blocked).mpr blocked slot lhs rhs foundLeft foundRight
+          cases pair with
+          | none => simp [segmentAt, segmentStorage, ‹left.conts[slot]? = some none›] at leftAt
+          | some linked =>
+            exact active_segment linked segment
+              (by simpa [segmentAt, segmentStorage, *] using leftAt) (by simpa [segmentAt, segmentStorage, *] using rightAt)
+
+theorem outside_push {older : Substitutions E Host} {left right : Stacks E Host} (first second : Seg E Host)
+    (paired : Outside older left right none) :
+    Outside older ((Edit.push first).apply left) ((Edit.push second).apply right) (some (.active 0 0)) := by
+  intro place offMark lhs rhs leftAt rightAt
+  have unmarked := outside_edit paired (.push first)
+  apply unmarked place (by simp) lhs rhs leftAt
+  rw [read_source] at rightAt ⊢
+  cases place with
+  | active activation segment =>
+    cases activation <;> cases segment <;> first | exact rightAt | exact (offMark rfl).elim
+  | saved _ _ => exact rightAt
+
+theorem narrow {older wider : Substitutions E Host} {left right : Config E Host}
+    (paired : Related.Paired wider left right)
+    (outside : Outside older (segmentStorage left) (segmentStorage right) none) : Related.Paired older left right := by
+  cases paired with
+  | @mk active saved control blocked =>
+    refine .mk ((pointwise control).mp ?_) ((pointwise blocked).mp ?_)
+    · intro activation lhs rhs foundLeft foundRight
+      apply active_narrow ((pointwise control).mpr control activation lhs rhs foundLeft foundRight)
+      intro index first second leftAt rightAt
+      apply outside (.active activation index) (by simp) first second
+      · simp [segmentAt, segmentStorage, foundLeft, leftAt]
+      · simp [segmentAt, segmentStorage, foundRight, rightAt]
+    · intro slot lhs rhs foundLeft foundRight
+      have pair := (pointwise blocked).mpr blocked slot lhs rhs foundLeft foundRight
+      cases pair with
+      | none => exact .none
+      | some related =>
+        apply Related.Saved.some (active_narrow related ?_)
+        intro index first second leftAt rightAt
+        apply outside (.saved slot index) (by simp) first second
+        · simp [segmentAt, segmentStorage, foundLeft, leftAt]
+        · simp [segmentAt, segmentStorage, foundRight, rightAt]
+
+theorem pair_edit {changes : Substitutions E Host} {left right : Config E Host}
+    (paired : Related.Paired changes left right) (label : Label E Host) :
+    transitionEdit left label = transitionEdit right label := by
+  cases paired with
+  | mk control blocked =>
+    cases label <;> try rfl
+    unfold transitionEdit
+    simp only []
+    generalize left.ctl = acts at control ⊢
+    cases control with
+    | nil => rfl
+    | cons head tail =>
+      cases head with
+      | @mk thread focus lhs rhs frames =>
+        cases focus with
+        | core _ _ => rfl
+        | prog program =>
+          cases program with
+          | op _ _ => rfl
+          | pure _ => cases frames <;> rfl
+
+theorem retire_top {older wider : Substitutions E Host} {left right : Config E Host}
+    {thread : Option ThreadId} {value : Ret E} {first second : Continuation E Host}
+    {leftFrames rightFrames : List (Seg E Host)} {leftRest rightRest : List (Activation E Host)}
+    (paired : Related.Paired wider left right)
+    (outside : Outside older (segmentStorage left) (segmentStorage right) (some (.active 0 0)))
+    (leftAt : left.ctl = ⟨thread, .prog (.pure value), .prog first :: leftFrames⟩ :: leftRest)
+    (rightAt : right.ctl = ⟨thread, .prog (.pure value), .prog second :: rightFrames⟩ :: rightRest)
+    (focus : Focus E Host) :
+    Related.Paired older { left with ctl := ⟨thread, focus, leftFrames⟩ :: leftRest }
+      { right with ctl := ⟨thread, focus, rightFrames⟩ :: rightRest } := by
+  have old := outside_edit outside .pop
+  have leftStore : segmentStorage { left with ctl := ⟨thread, focus, leftFrames⟩ :: leftRest } =
+      (Edit.pop : Edit E Host).apply (segmentStorage left) := by simp [segmentStorage, Edit.apply, leftAt, front]
+  have rightStore : segmentStorage { right with ctl := ⟨thread, focus, rightFrames⟩ :: rightRest } =
+      (Edit.pop : Edit E Host).apply (segmentStorage right) := by simp [segmentStorage, Edit.apply, rightAt, front]
+  apply narrow (wider := wider)
+  · cases paired with
+    | @mk active saved control blocked =>
+      change active = ⟨thread, .prog (.pure value), .prog second :: rightFrames⟩ :: rightRest at rightAt
+      rw [leftAt, rightAt] at control
+      cases control with
+      | cons head tail => cases head with
+        | mk frames => cases frames with
+          | cons _ rest => exact .mk (.cons (.mk rest) tail) blocked
+  · rw [leftStore, rightStore]
+    exact old
 
 theorem read_follow {storage : Stacks E Host} {edit : Edit E Host} {place reached : Location}
     (moved : edit.follow place = some reached) : segmentAt (edit.apply storage) reached = segmentAt storage place := by
@@ -208,6 +496,14 @@ theorem prefix_survives {before after : Config E Host} {labels : List (Label E H
   induction run with
   | done => exact ⟨.refl _, rfl⟩
   | step head moved _ ih => exact ⟨.cons head ih.1, ih.2.trans (step_follow head moved)⟩
+
+theorem prefix_append {before middle after : Config E Host} {leading trailing : List (Label E Host)}
+    {place reached final : Location} (left : Prefix profile ready dispatch before place leading middle reached)
+    (right : Prefix profile ready dispatch middle reached trailing after final) :
+    Prefix profile ready dispatch before place (leading ++ trailing) after final := by
+  induction left with
+  | done => exact right
+  | step first moved _ ih => exact .step first moved (ih right)
 
 theorem first_loss {before after : Config E Host} {labels : List (Label E Host)} {place : Location}
     {resume : Continuation E Host} (occurs : segmentAt (segmentStorage before) place = some (.prog resume))

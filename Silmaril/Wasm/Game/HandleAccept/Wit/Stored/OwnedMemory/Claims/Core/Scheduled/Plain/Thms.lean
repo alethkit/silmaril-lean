@@ -4,6 +4,7 @@ public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled
 
@@ -388,9 +389,11 @@ theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOr
       (start.CoreGrowing → Machine.Config.CoreGrowing { start with
         host := reached
         ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
-          continuation, segments⟩ :: rest }) :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_steps
-    bindings name type args inst destination schema start thread profile ready parked calling linked caller live closed
+          continuation, segments⟩ :: rest }) := by
+  obtain ⟨count, run, writer, growing, _⟩ :=
+    Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_steps
+      bindings name type args inst destination schema start thread profile ready parked calling linked caller live closed
+  exact ⟨count, run, writer, growing⟩
 
 /-- A closed, same-instance reentrant give cannot observe earlier claim
 spends. It records each path's refusal against its own ticket and rejoins
@@ -421,7 +424,11 @@ theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowO
       Machine.CoreGrowthSteps profile ready dispatch other (List.replicate rightCount .tau) rightNext ∧
       rightNext.ctl = ⟨thread, next, otherSegments⟩ :: otherRest ∧
       Machine.HostFrame.Related.Paired changes leftNext rightNext ∧
-      leftNext.host.writer = start.host.writer ∧ rightNext.host.writer = other.host.writer :=
+      leftNext.host.writer = start.host.writer ∧ rightNext.host.writer = other.host.writer ∧
+      (∀ place, Machine.ReturnFrame.Occurrence.Prefix profile ready dispatch start place (List.replicate leftCount .tau)
+        leftNext place) ∧
+      (∀ place, Machine.ReturnFrame.Occurrence.Prefix profile ready dispatch other place (List.replicate rightCount .tau)
+        rightNext place) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_rejoin
     bindings name type args inst destination schema paired thread profile ready parked calling linked caller live closed
 

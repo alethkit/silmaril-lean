@@ -92,6 +92,42 @@ def Edit.follow (edit : Edit E Host) (place : Location) : Option Location :=
   | .switch fromSlot toSlot, _ => (place.block fromSlot).map (Location.resume toSlot)
   | _, _ => some place
 
+/-- The source of a reached segment coordinate. Unoccupied and newly written
+coordinates have no predecessor (and therefore cannot carry a mark). -/
+abbrev Source (E : CoreEngine) (Host : Type) := Sum Location (Option (Seg E Host))
+
+def Location.beforeBlock (slot : Nat) : Location → Location
+  | .active activation segment => .active (activation + 1) segment
+  | .saved current segment => if current = slot then .active 0 segment else .saved current segment
+
+def Location.beforeResume (slot : Nat) : Location → Option Location
+  | .active 0 segment => some (.saved slot segment)
+  | .active (activation + 1) segment => some (.active activation segment)
+  | .saved current segment => if current = slot then none else some (.saved current segment)
+
+def Edit.source (edit : Edit E Host) (place : Location) : Source E Host :=
+  match edit, place with
+  | .push frame, .active 0 0 => .inr (some frame)
+  | .push _, .active 0 (segment + 1) => .inl (.active 0 segment)
+  | .pop, .active 0 segment => .inl (.active 0 (segment + 1))
+  | .exit, .active activation segment => .inl (.active (activation + 1) segment)
+  | .clear, .active .. | .enter, .active .. => .inr none
+  | .write slot frames, .saved current segment => if current = slot then .inr frames[segment]? else .inl place
+  | .block slot, _ => .inl (place.beforeBlock slot)
+  | .resume slot, _ => (place.beforeResume slot).elim (.inr none) .inl
+  | .switch fromSlot toSlot, _ => (place.beforeResume toSlot).elim (.inr none) (fun source => .inl (source.beforeBlock fromSlot))
+  | _, _ => .inl place
+
+def Source.segment (storage : Stacks E Host) : Source E Host → Option (Seg E Host)
+  | .inl place => segmentAt storage place
+  | .inr fresh => fresh
+
+/-- Older substitutions suffice everywhere except at the single installed
+coordinate. This property is indexed by the occurrence, not its closures. -/
+def Outside (older : Substitutions E Host) (left right : Stacks E Host) (mark : Option Location) : Prop :=
+  ∀ place, some place ≠ mark → ∀ first second,
+    segmentAt left place = some first → segmentAt right place = some second → Related.Segment older first second
+
 /-- The only edit that consumes the marked top segment is the actual pop.
 Other ways of losing it (lockdown or an overwritten slot) are not returns. -/
 def Edit.pops (edit : Edit E Host) (place : Location) : Prop :=
