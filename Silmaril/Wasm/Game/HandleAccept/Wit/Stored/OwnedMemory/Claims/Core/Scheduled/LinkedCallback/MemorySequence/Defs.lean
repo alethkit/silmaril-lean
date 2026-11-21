@@ -222,17 +222,22 @@ def ValueListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) 
         Core3.Grows initial.store.core reached.store.core ∧ reached.ctl = check.control (checkNext (.ok value)) ∧
         canonical.ctl = canon.control (canonNext value)))
 
-def ListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+def RecursiveValueReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
-    (compare : FieldComparison grow sig) (element : TypeOf) (entries : List Field) (index : Nat) (output : Lower.Output)
+    (compare : FieldComparison grow sig) (type element : TypeOf) (entries : List Field) (index : Nat) (output : Lower.Output)
     (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
     (finish : ValueFinish grow sig output)
     (initial reference last : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig)) (pointer : Nat)
     (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
-  CollectionVisit.Outcome profile ready bindings older destination inst (.list element) (layout destination.width element)
+  CollectionVisit.Outcome profile ready bindings older destination inst type (layout destination.width element)
     entries index pointer output initial reference last cursor checkNext canonNext seen
     (fun _ => ValueEntriesReplay profile ready bindings destination inst compare element entries index pointer output
       checkNext canonNext finish)
+
+abbrev ListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (compare : FieldComparison grow sig) (element : TypeOf) :=
+  RecursiveValueReturn profile ready bindings older destination inst compare (.list element) element
 
 def mapTail (destination : RecordDestination) (inst : InstId) (key : WIT.KeyType) (element : TypeOf)
     (entries : List Field) (cursor : Nat) : Session grow sig Unit :=
@@ -286,7 +291,7 @@ inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop w
   | list {depth element entries} : (∀ item ∈ entries, ListTreeShape stringLeaf depth item) →
       ListTreeShape stringLeaf (depth + 1) (.dynamic (.list element) element entries)
   | map {depth key element entries} :
-      (∀ entry ∈ entries, ∃ keyField valueField, entry = .aggregate (.record (mapEntryFields key element)) [keyField, valueField]) →
+      (∀ entry ∈ entries, ∃ fields, entry = .aggregate (.record (mapEntryFields key element)) fields) →
       (∀ entry ∈ entries, ∀ fields, entry = .aggregate (.record (mapEntryFields key element)) fields →
         ∀ field ∈ fields, ListTreeShape stringLeaf depth field) →
       ListTreeShape stringLeaf (depth + 1) (.dynamic (.map key element) (.record (mapEntryFields key element)) entries)

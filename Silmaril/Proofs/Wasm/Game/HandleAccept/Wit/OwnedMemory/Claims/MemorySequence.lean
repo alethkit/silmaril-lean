@@ -5,6 +5,7 @@ import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Width.Thms
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 import Silmaril.Wasm.Component.Reference.ABI.Layout.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Thms
+import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Collection.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.CollectionVisit.Thms
@@ -408,11 +409,12 @@ theorem valueCollectionReplay {older : ReturnFrame.Substitutions (core3 grow) (H
   exact nestedRule destination inst depth item address region.width region.sized realloc (shape item member)
     (found.type_eq.symm ▸ found) fits
 
-theorem listReplay {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
-    (destination : RecordDestination) (inst : InstId) (element : TypeOf) (entries : List Field)
+theorem recursiveValueReplay {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
     (index : Nat) (output : Lower.Output) {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
     (compare : FieldComparison grow sig) (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
-    (finish : ValueFinish grow sig output) (matched : Field.EntriesMatch entries element)
+    (finish : ValueFinish grow sig output) (mode : CanonicalTree.EntryMode.forOutput destination.width type output = .value)
+    (matched : Field.EntriesMatch entries element)
     (children : ∀ (atStore : CStore (core3 grow)) bytes,
       (core3 grow).memAddrType? atStore.core destination.memory = some destination.width →
       (core3 grow).memSize? atStore.core destination.memory = some bytes →
@@ -421,11 +423,11 @@ theorem listReplay {older : ReturnFrame.Substitutions (core3 grow) (HostState si
     (ends : ∀ value reached reference check canon, ChildFrameOver older reached reference check canon →
       Core3.Grows left.store.core reached.store.core → reached.ctl = check.control (checkNext (.ok value)) →
       reference.ctl = canon.control (canonNext value) → finish value reached reference check canon)
-    (replay : CollectionReplay profile ready bindings older destination inst (.list element) element entries index output
+    (replay : CollectionReplay profile ready bindings older destination inst type element entries index output
       left right check canon checkNext canonNext) :
-    CollectionReplayFor profile ready bindings older destination inst (.list element) element entries index output
+    CollectionReplayFor profile ready bindings older destination inst type element entries index output
       left right check canon checkNext canonNext
-      (ListReturn profile ready bindings older destination inst compare element entries index output checkNext canonNext finish) := by
+      (RecursiveValueReturn profile ready bindings older destination inst compare type element entries index output checkNext canonNext finish) := by
   obtain ⟨checkInstall, canonInstall, continueRun⟩ := replay
   refine ⟨checkInstall, canonInstall, ?_⟩
   intro last seen protectedReturn path covers
@@ -433,11 +435,10 @@ theorem listReplay {older : ReturnFrame.Substitutions (core3 grow) (HostState si
     continueRun path covers
   refine ⟨checkLabels, canonLabels, other, mark, checked, canonical, checkSeen, canonSeen, paired, checkTrail, canonTrail, ?_⟩
   intro pointer cursor reached atReturn
-  unfold ListReturn
-  refine (cut pointer cursor reached atReturn).visit_collection destination inst (.list element) (layout destination.width element)
+  unfold RecursiveValueReturn
+  refine (cut pointer cursor reached atReturn).visit_collection destination inst type (layout destination.width element)
     entries index pointer output checkNext canonNext _ ?_
   intro bytes reference canon region
-  have mode : CanonicalTree.EntryMode.forOutput destination.width (.list element) output = .value := by cases output <;> rfl
   rw [mode]
   exact valueTailWith destination inst element entries index pointer compare output checkNext canonNext finish region matched
     (children _ _ region.width region.sized) ends
@@ -699,7 +700,8 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
       | ok result =>
         cases result
         obtain ⟨reachedBytes, reachedSize, _⟩ := growth.memSize sized
-        refine listReplay destination inst element entries index (.memory address) _ checkNext canonNext _ matching ?_ ?_
+        refine recursiveValueReplay destination inst (.list element) element entries index (.memory address) _
+          checkNext canonNext _ rfl matching ?_ ?_
           (frame.collection_replay destination inst (.list element) element entries index (.memory address) checkNext canonNext
             (growth.memAddrType present) reachedSize prepared checkAt canonAt)
         · intro reached bytes reachedWidth reachedSize entry member slot fits
@@ -708,7 +710,7 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
         · intro value reached reference check canon paired grown atCheck atCanon
           cases value
           exact ends _ _ _ _ paired (growth.trans grown) atCheck atCanon
-    | @map _ key element entries pair child =>
+    | @map _ key element entries records child =>
       let type : TypeOf := .record (mapEntryFields key element)
       have matching : Field.EntriesMatch entries type := by cases matched with | map matchEntries => exact matchEntries
       refine .inr (.inr (.inr (.inl ⟨key, element, entries, rfl, ?_⟩)))
@@ -723,12 +725,15 @@ theorem listTreeRule {older : ReturnFrame.Substitutions (core3 grow) (HostState 
           (frame.collection_replay destination inst (.map key element) type entries index (.memory address) checkNext canonNext
             (growth.memAddrType present) reachedSize prepared checkAt canonAt)
         · intro reached bytes reachedWidth reachedSize entry member
-          obtain ⟨keyField, valueField, rfl⟩ := pair entry member
+          obtain ⟨fields, rfl⟩ := records entry member
+          have shapeAt := child _ member fields rfl
           have layoutAt := entries_match_of_mem matching member
-          have shapeAt := child _ member _ rfl
-          refine ⟨keyField, valueField, rfl, ?_⟩
-          intro item inPair address fits
-          exact ih item address reachedWidth reachedSize (shapeAt item inPair) (matchedAggregateChild layoutAt inPair) fits
+          rcases map_entry_layout (key := key) (element := element) layoutAt with ⟨keyField, valueField, equal, _, _⟩ | ⟨_, equal⟩
+          · cases equal
+            refine ⟨keyField, valueField, rfl, ?_⟩
+            intro item inPair address fits
+            exact ih item address reachedWidth reachedSize (shapeAt item inPair) (matchedAggregateChild layoutAt inPair) fits
+          · cases equal
         · exact fun _ _ _ _ paired grown atCheck atCanon => ends _ _ _ _ paired (growth.trans grown) atCheck atCanon
     | @sum _ type arms tag selected child =>
       refine .inr (.inr (.inr (.inr (.inl ⟨type, arms, tag, selected, rfl, ?_⟩))))

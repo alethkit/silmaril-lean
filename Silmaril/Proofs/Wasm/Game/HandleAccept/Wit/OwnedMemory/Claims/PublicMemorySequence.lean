@@ -164,8 +164,8 @@ private theorem fitListTree {stringLeaf fits : Field → Prop} (depth : Nat) (fi
       exact .aggregate fun item member => ih item (children item member) fun leaf path => reached leaf (.aggregate member path)
     | list children =>
       exact .list fun item member => ih item (children item member) fun leaf path => reached leaf (.dynamic member path)
-    | map pairs children =>
-      refine .map pairs ?_
+    | map records children =>
+      refine .map records ?_
       intro entry member fields equal item inFields
       exact ih item (children entry member fields equal item inFields) fun leaf path =>
         reached leaf (.dynamic member (equal ▸ .aggregate inFields path))
@@ -202,26 +202,28 @@ theorem parkedListTree (call : PayloadRoot.Site grow sig (.memory pointer)) (lin
     0 call.reply next call.checked (call.reference next) call.cursor call.cursor (initialFrame call next _)
     (Core3.Grows.refl _) rfl (call.reference_at linked next) _ (fun _ _ _ _ frame _ checked canonical => ⟨frame, checked, canonical⟩)
 
-theorem parkedRecursiveList {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route) (linked : call.Linked bindings)
-    (element : TypeOf) (entries : List Field) (depth : Nat) (next : call.ReferenceNext)
-    (compiledList : call.field = .dynamic (.list element) element entries)
+theorem parkedRecursiveValue {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route) (linked : call.Linked bindings)
+    (type element : TypeOf) (entries : List Field) (depth : Nat) (next : call.ReferenceNext)
+    (compiledRoot : call.field = .dynamic type element entries)
+    (mode : CanonicalTree.EntryMode.forOutput call.destination.width type route.output = .value)
     (shapes : ∀ item ∈ entries, ParkedListTreeShape depth item) {addr : Nat} (realloc : call.destination.realloc = some addr) :
-    PayloadRoot.Cut call profile ready bindings (ParkedRecursiveListBody call element entries depth next profile ready bindings) := by
+    PayloadRoot.Cut call profile ready bindings (ParkedRecursiveValueBody call type element entries depth next profile ready bindings) := by
   apply call.parked_after_admission linked
   intro admitted _ prepared
   obtain ⟨plan, compiled⟩ := linked.compiled
   have matched := OwnedMemory.Claims.Record.preflightValue_layout _ _ _ _ _ _ compiled
   have layoutMatch : call.field.LayoutMatches call.field.type := matched.type_eq.symm ▸ matched
   have matchingEntries : Field.EntriesMatch entries element := by
-    rw [compiledList] at layoutMatch
+    rw [compiledRoot] at layoutMatch
     cases layoutMatch with
     | list children => exact children
+    | map children => exact children
   have fit (item : Field) (member : item ∈ entries) : ListTreeShape (StringField.Fits call.destination) depth item := by
     apply fitListTree depth item (shapes item member)
     intro leaf path leafShape
     obtain ⟨string, equal⟩ := leafShape
     rw [← equal] at path
-    have descent : call.field.Descendant string.field := compiledList ▸ Field.Descendant.dynamic member path
+    have descent : call.field.Descendant string.field := compiledRoot ▸ Field.Descendant.dynamic member path
     have checked := (call.destination.compiled_payload_descendant call.inst (sig.payload call.tag)
       call.payload route.output (plan := plan) compiled admitted descent).2
     exact ⟨string, equal, by simpa only [StringField.field, Field.type, Field.value, Lower.fits, decide_eq_true_eq] using checked⟩
@@ -234,17 +236,17 @@ theorem parkedRecursiveList {route : GiveEffectRoute} (call : PayloadRoot.Site g
   obtain ⟨bytes, sized⟩ := Option.isSome_iff_exists.mp sizeExists
   have preparedEntries : Record.prepare call.checked.store call.checked.host.writer (Field.listObjects entries) = .ok () := by
     change Record.prepare call.start.store call.start.host.writer (Field.listObjects entries) = .ok ()
-    simpa only [compiledList, Field.objects] using prepared
+    simpa only [compiledRoot, Field.objects] using prepared
   have checkAt : call.checked.ctl = call.cursor.control (Record.Effects.field recordClaims Limits.spec Quirks.none
-      (call.destination.context call.inst) call.destination.width (.dynamic (.list element) element entries) 0 route.output >>= call.reply) := by
+      (call.destination.context call.inst) call.destination.width (.dynamic type element entries) 0 route.output >>= call.reply) := by
     conv_lhs => unfold PayloadRoot.Site.checked
-    rw [compiledList]
+    rw [compiledRoot]
     rfl
   have canonAt := call.reference_at linked next
-  rw [compiledList] at canonAt
-  unfold ParkedRecursiveListBody
-  refine list_replay call.destination call.inst element entries 0 route.output _ call.reply next _ matchingEntries ?_ ?_
-    ((initialFrame call next _).collection_replay call.destination call.inst (.list element) element entries 0
+  rw [compiledRoot] at canonAt
+  unfold ParkedRecursiveValueBody
+  refine recursive_value_replay call.destination call.inst type element entries 0 route.output _ call.reply next _ mode matchingEntries ?_ ?_
+    ((initialFrame call next _).collection_replay call.destination call.inst type element entries 0
       route.output call.reply next width sized preparedEntries checkAt canonAt)
   · intro store bytes width sized item member address placement
     have layoutAt := entries_match_of_mem matchingEntries member
