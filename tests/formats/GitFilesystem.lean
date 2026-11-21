@@ -6,6 +6,7 @@ meta import Silmaril.Formats.Cbor.Drisl.Cid.Defs
 meta import Silmaril.Formats.Git.Arena.Defs
 meta import Silmaril.Formats.Git.Filesystem.Defs
 meta import Silmaril.Formats.Git.Filesystem.Routed.Defs
+meta import Silmaril.Formats.Git.Native.Defs
 meta import Silmaril.Semantics.Arena.Defs
 
 open Silmaril.Formats.Git
@@ -27,7 +28,7 @@ private def symlinkKey : ByteKey := Dasl.utf8Key "link"
 private def body : ByteArray := "echo ok\n".toByteArray
 private def symlinkBody : ByteArray := "dir/".toByteArray.push 255
 
-private def fixture : Snapshot :=
+private def fixtureFrom (body symlinkBody : ByteArray) : Snapshot :=
   let nested := toTree (emptyDir.insert nativeRaw ⟨.file .executable, .blob body⟩)
   toTree ((emptyDir.insert dirKey ⟨.directory, nested⟩).insert symlinkKey ⟨.file .symlink, .blob symlinkBody⟩)
 
@@ -69,7 +70,7 @@ private def checkMount (hash : Hash) (mount : Store) (root : Cid)
   require "no implicit symlink following" (resolve root [symlinkKey, nativeRaw] = .error .notDirectory)
   require "canonical directory absence" (resolve root [dirKey, Dasl.utf8Key "absent"] = .ok none)
 
-private def exercise (hash : Hash) : Except String Cid := do
+private def exercise (hash : Hash) (fixture : Snapshot) : Except String Cid := do
   let staged ← (stage hash fixture).mapError fun fault => reprStr fault
   let .ok published := staged.publish (fun _ => none) | .error "fixture has an address conflict"
   require "raw and object lanes use different envelopes" (address hash .raw body ≠ address hash .object body)
@@ -158,7 +159,7 @@ private def tableHash (seen : DigestTable) : Hash := fun wire =>
 
 /-- Only fixture preimages are supplied by the external hash executable. Iterate
 until every block in the final replay has a checked fixture digest. -/
-private def calculateFixture (command : String) : Nat → DigestTable → IO DigestTable
+private def calculateFixture (command : String) (fixture : Snapshot) : Nat → DigestTable → IO DigestTable
   | 0, _ => throw (IO.userError "external digest table did not stabilize")
   | fuel + 1, seen => do
     let hash := tableHash seen
@@ -167,15 +168,48 @@ private def calculateFixture (command : String) : Nat → DigestTable → IO Dig
       if seen.any (fun entry => decide (entry.1 = wire)) then none else some wire
     if missing.isEmpty then pure seen else
       let more ← missing.mapM fun wire => do pure (wire, ← externalDigest command wire)
-      calculateFixture command fuel (seen ++ more)
+      calculateFixture command fixture fuel (seen ++ more)
+
+private def oid (algorithm : Native.Algorithm) (path : System.FilePath) : IO (Native.NameBytes algorithm) := do
+  let text ← IO.FS.readFile path
+  let some bytes := parseHex text.trimAscii.toString.toList | throw (IO.userError s!"invalid Git OID: {path}")
+  let some name := Native.nameBytes? algorithm bytes.toByteArray | throw (IO.userError s!"wrong OID width: {path}")
+  pure name
+
+private def nativeFixture (algorithm : Native.Algorithm) (directory : System.FilePath) : IO Snapshot := do
+  let nested ← oid algorithm (directory / "nested.oid")
+  let binary ← oid algorithm (directory / "executable.oid")
+  let symlink ← oid algorithm (directory / "symlink.oid")
+  let empty : ShallowTree ByteKey (Native.NameBytes algorithm) := ⟨∅,
+    fun key => False.elim (Finset.notMem_empty _ key.property)⟩
+  let codec := Native.nameBytesCodec algorithm
+  let expectedNested := empty.insert nativeRaw ⟨.file .executable, binary⟩
+  let expectedRoot := (empty.insert dirKey ⟨.directory, nested⟩).insert symlinkKey ⟨.file .symlink, symlink⟩
+  let nestedBytes ← IO.FS.readBinFile (directory / "nested.tree")
+  let rootBytes ← IO.FS.readBinFile (directory / "root.tree")
+  unless Native.treePayload? codec expectedNested = some nestedBytes ∧ Native.treePayload? codec expectedRoot = some rootBytes do
+    throw (IO.userError "Git tree bytes do not exactly match the modeled names, modes and original OIDs")
+  let contents ← IO.FS.readBinFile (directory / "executable.blob")
+  let target ← IO.FS.readBinFile (directory / "symlink.blob")
+  let rootOid ← IO.FS.readFile (directory / "root.oid")
+  IO.println s!"Git native {repr algorithm} tree {rootOid.trimAscii.toString}: exact tree bytes checked"
+  pure (fixtureFrom contents target)
 
 public def main (args : List String) : IO Unit := do
   if let .error detail := checkPartial then throw (IO.userError detail)
-  let hash ← match args with
-    | [] => pure mock
-    | [command] => tableHash <$> calculateFixture command 8 []
-    | _ => throw (IO.userError "usage: GitFilesystem.lean [b3sum executable]")
-  match exercise hash with
+  let synthetic := fixtureFrom body symlinkBody
+  let (fixture, hash) ← match args with
+    | [] => pure (synthetic, mock)
+    | [command] => pure (synthetic, tableHash (← calculateFixture command synthetic 8 []))
+    | [command, algorithm, directory] =>
+      let gitFormat ← match algorithm with
+        | "sha1" => pure Native.Algorithm.sha1
+        | "sha256" => pure Native.Algorithm.sha256
+        | _ => throw (IO.userError "Git format must be sha1 or sha256")
+      let source ← nativeFixture gitFormat ⟨directory⟩
+      pure (source, tableHash (← calculateFixture command source 8 []))
+    | _ => throw (IO.userError "usage: GitFilesystem.lean [b3sum [sha1|sha256 witness-directory]]")
+  match exercise hash fixture with
   | .ok cid =>
     let text := (Silmaril.Formats.Cbor.Drisl.Cid.codec .bdasl).render cid
     IO.println s!"Git tree → BDASL → CID-only reads passed; tree CID {text}"
