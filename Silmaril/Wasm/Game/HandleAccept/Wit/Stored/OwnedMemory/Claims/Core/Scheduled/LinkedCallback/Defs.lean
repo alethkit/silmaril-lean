@@ -494,16 +494,17 @@ abbrev RangeCut (profile : ProfileKind) (ready : HostReady (HostState sig)) (bin
     (first second : ReturnFrame.Continuation (core3 grow) (HostState sig)) :=
   RangeCutOver profile ready bindings (ReturnFrame.Only first second) first
 
-/-- The linked allocation prefix need not return. If the installed occurrence
-does reach the top with a pointer, only its paired range check and live recheck
-are exposed, with the older frames restored on both sides. -/
-def CollectionReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+/-- Replay finite prefixes of a dynamic collection's actual linked allocation.
+Only a natural return to the installed occurrence requires the tail property. -/
+def CollectionReplayFor (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig))
     (destination : RecordDestination) (inst : InstId) (type element : Stored.TypeOf) (entries : List Field)
     (index : Nat) (output : Stored.Lower.Output) (left right : State grow sig)
     (check canon : Cursor (E := core3 grow) (HostState sig))
     (checkNext : Except Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
-    (canonNext : output.Result → Session grow sig (Ret (core3 grow))) : Prop :=
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (returned : State grow sig → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Nat → List (Label (core3 grow) (HostState sig)) → Prop) : Prop :=
   let dispatch := specDispatch ready (host bindings)
   let area := layout destination.width element
   let mode := Stored.Endpoints.RecordLower.CanonicalTree.EntryMode.forOutput destination.width type output
@@ -525,9 +526,25 @@ def CollectionReplay (profile : ProfileKind) (ready : HostReady (HostState sig))
       ReturnFrame.Occurrence.Trail profile ready dispatch canonical (some (.active 0 0)) rightLabels other mark ∧
       ∀ pointer cursor, mark = some (ReturnFrame.Occurrence.Location.active 0 0) →
         last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (.pure (.nat pointer)) →
-        RangeCutOver profile ready bindings older first checked canonical last cursor destination area entries.length pointer
-          (Field.listObjects entries) (fun ptr live => checkedCollectionTail destination inst entries area index output ptr live >>= checkNext)
-          (fun ptr => canonicalCollectionTail destination inst entries area output ptr mode >>= canonNext) seen False
+        returned checked canonical last cursor pointer seen
+
+/-- On an actual return to the installed occurrence, expose the paired range
+check and live recheck, with older frames restored. No return is required. -/
+def CollectionReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig))
+    (destination : RecordDestination) (inst : InstId) (type element : Stored.TypeOf) (entries : List Field)
+    (index : Nat) (output : Stored.Lower.Output) (left right : State grow sig)
+    (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow))) : Prop :=
+  let area := layout destination.width element
+  let mode := Stored.Endpoints.RecordLower.CanonicalTree.EntryMode.forOutput destination.width type output
+  let first := checkedCollectionResume destination inst entries area index output checkNext
+  CollectionReplayFor profile ready bindings older destination inst type element entries index output left right check canon checkNext canonNext
+    fun checked canonical last cursor pointer seen =>
+      RangeCutOver profile ready bindings older first checked canonical last cursor destination area entries.length pointer
+        (Field.listObjects entries) (fun ptr live => checkedCollectionTail destination inst entries area index output ptr live >>= checkNext)
+        (fun ptr => canonicalCollectionTail destination inst entries area output ptr mode >>= canonNext) seen False
 
 /-- Allocator descent from the two actual dynamic-field programs. The cut
 hands the entry interpreters back to the caller rather than requiring
