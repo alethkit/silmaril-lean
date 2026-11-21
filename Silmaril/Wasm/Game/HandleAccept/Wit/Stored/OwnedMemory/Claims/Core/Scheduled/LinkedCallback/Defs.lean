@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Defs
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Allocation.Defs
 public import Silmaril.Wasm.Component.Reference.Canon.Lift.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 
@@ -450,11 +451,53 @@ def FlatAggregateThen (compare : FlatFieldComparison grow sig)
   FlatSequenceReplay compare older destination inst (fun verdict => checkNext (verdict.mapError (.nested index)))
     canonNext finish children 0 [] left right check canon
 
+def LocalFieldThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (output : Stored.Lower.Output) (left right : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (finish : output.Result → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
+      Cursor (E := core3 grow) (HostState sig) → Prop) : Prop :=
+  ∃ store result checkLabels canonLabels,
+    let lhs := localLeafEnd left left.host store check.thread check.frames check.rest (fun value => checkNext (.ok value)) result
+    let rhs := localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result
+    Steps profile ready (specDispatch ready (host bindings)) left checkLabels lhs ∧
+    Steps profile ready (specDispatch ready (host bindings)) right canonLabels rhs ∧
+    visible checkLabels = visible canonLabels ∧
+    match result with
+    | .ok value => finish value lhs rhs check canon
+    | .error reason => ∃ leading, visible canonLabels = leading ++ [.trap reason]
+
+def flatSumTail (width : AddrType) (type : TypeOf) (count tag : Nat) (haves : List CoreType) (words : List FlatValue) :
+    Session grow sig (List FlatValue) :=
+  lowerFlatVariantWith count ((flatten width type).drop 1) tag haves (pure words)
+
+def flatSumCheckNext (width : AddrType) (type : TypeOf) (count tag index : Nat) (haves : List CoreType)
+    (next : FlatSequenceCheckNext grow sig) : FlatSequenceCheckNext grow sig
+  | .error issue => next (.error (.nested index issue))
+  | .ok words => flatSumTail width type count tag haves words >>= fun coerced => next (.ok coerced)
+
+def FlatSumThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (compare : FlatFieldComparison grow sig) (width : AddrType) (type : TypeOf) (count tag : Nat) (selected : Option Field)
+    (index : Nat) (left right : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : FlatSequenceCheckNext grow sig) (canonNext : FlatSequenceCanonNext grow sig) (finish : FlatResultCut grow sig) : Prop :=
+  let tailAt := fun haves words (reached reference : State grow sig) (check canon : Cursor (E := core3 grow) (HostState sig)) =>
+    let body := flatSumTail width type count tag haves words
+    reached.ctl = check.control (body >>= fun coerced => checkNext (.ok coerced)) ∧
+    reference.ctl = canon.control (body >>= canonNext) ∧
+    LocalFieldThen profile ready bindings .flat reached reference check canon checkNext canonNext finish
+  match selected with
+  | none => tailAt [] [] left right check canon
+  | some child =>
+    let haves := flatten width child.type
+    compare child 0 left right check canon (flatSumCheckNext width type count tag index haves checkNext)
+      (fun words => flatSumTail width type count tag haves words >>= canonNext) (tailAt haves)
+
 def flatChildren : Field → Option (List Field)
   | .aggregate _ children | .fixed _ _ children => some children
+  | .sum _ _ _ selected => some selected.toList
   | _ => none
 
-/-- Depth bounds only aggregate descent; the caller's leaf rule handles
+/-- Depth bounds only aggregate and selected-arm descent; the caller's leaf rule handles
 other fields, including their own independently justified return cuts. -/
 def FlatNestedFits (leaf : Field → Prop) : Nat → Field → Prop
   | 0, field => leaf field
@@ -462,14 +505,22 @@ def FlatNestedFits (leaf : Field → Prop) : Nat → Field → Prop
     | none => leaf field
     | some children => ∀ child ∈ children, FlatNestedFits leaf depth child
 
-def nestedFlatComparison (leaves : FlatFieldComparison grow sig)
+def FlatTagBounds (field : Field) : Prop :=
+  ∀ {type arms tag selected}, field.Descendant (.sum type arms tag selected) → tag < arms.length
+
+def nestedFlatComparison (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (leaves : FlatFieldComparison grow sig)
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
     Nat → FlatFieldComparison grow sig
   | 0 => leaves
   | depth + 1 => fun field index left right check canon checkNext canonNext finish => match flatChildren field with
     | none => leaves field index left right check canon checkNext canonNext finish
-    | some children => FlatAggregateThen (nestedFlatComparison leaves older destination inst depth) older destination inst
-      children index left right check canon checkNext canonNext finish
+    | some children =>
+      let compare := nestedFlatComparison profile ready bindings leaves older destination inst depth
+      match field with
+      | .sum type arms tag selected => FlatSumThen profile ready bindings compare destination.width type arms.length tag selected
+          index left right check canon checkNext canonNext finish
+      | _ => FlatAggregateThen compare older destination inst children index left right check canon checkNext canonNext finish
 
 def stringFlatComparison (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :

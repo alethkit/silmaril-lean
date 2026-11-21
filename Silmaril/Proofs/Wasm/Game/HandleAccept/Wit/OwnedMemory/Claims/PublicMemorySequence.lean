@@ -344,7 +344,9 @@ theorem parkedFlat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat sc
   unfold ParkedFlatBody
   exact nested_flat_rule call.destination call.inst leaf _
     (fun item fit => flatAllocatingRule call.destination call.inst entryDepth item width sized realloc fit.1 fit.2)
-    flatDepth call.field fits 0 call.reply next call.checked (call.reference next) call.cursor call.cursor (initialFrame call next _)
+    flatDepth call.field fits
+    (fun path => call.destination.compiled_payload_sum_tag call.inst (sig.payload call.tag) call.payload .flat compiled admitted path)
+    0 call.reply next call.checked (call.reference next) call.cursor call.cursor (initialFrame call next _)
     (Core3.Grows.refl _) rfl (call.reference_at linked next) _ (fun _ _ _ _ _ frame _ checked canonical => ⟨frame, checked, canonical⟩)
 
 end Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence

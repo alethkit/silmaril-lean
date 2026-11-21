@@ -73,7 +73,7 @@ def ParkedFlatShape (flatDepth entryDepth : Nat) (item : Field) : Prop :=
 def ParkedFlatBody {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (flatDepth entryDepth : Nat)
     (next : call.ReferenceNext) (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig)) : Prop :=
   let older : ReturnFrame.Substitutions (core3 grow) (HostState sig) := fun _ _ => False
-  nestedFlatComparison (flatAllocating profile ready bindings older call.destination call.inst entryDepth) older
+  nestedFlatComparison profile ready bindings (flatAllocating profile ready bindings older call.destination call.inst entryDepth) older
     call.destination call.inst flatDepth call.field 0 call.checked (call.reference next) call.cursor call.cursor call.reply next
     (fun words reached reference check canon => ChildFrameOver older reached reference check canon ∧
       reached.ctl = check.control (call.reply (.ok words)) ∧ reference.ctl = canon.control (next words))

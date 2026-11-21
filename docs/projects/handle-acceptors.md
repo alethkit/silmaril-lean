@@ -914,6 +914,19 @@ continuation receives a typed refusal. The saved map mode still distinguishes
 memory placement at allocation width from reached flat-entry cursor reads.
 The cut does not assume or prove equivalence of the subsequent children.
 
+`MemorySequence.parked_list_tree` supplies the recursive placed-child comparison
+for an indirect payload, including mixed scalar, string and handle leaves, fixed
+arrays, aggregates, active sums, lists and indirect maps. The flat counterpart,
+`MemorySequence.parked_recursive_flat`, traverses records, tuples, fixed arrays
+and sums, and enters the placed-child comparison at each reached list or map
+allocator return. The compiler and public admission supply tag bounds, entry
+layouts and string fit within the structural fragment. For a present sum arm,
+the actual coercion and padding run on the arm's words only after common success;
+an empty arm runs that tail directly. A typed refusal never runs the coercion or
+the following sibling. Canonical traps retain earlier effects. Both comparisons
+retain finite suspension and the reached callback classification and readiness
+conditions; neither asserts whole-export delivery or allocator liveness.
+
 The checked recursive emitter supplies the store-invariant certificate for both
 public payload bindings. Its proof follows the actual canonical data writes, owner
 and endpoint commitment operations, selected sum arm, and collection allocation,
