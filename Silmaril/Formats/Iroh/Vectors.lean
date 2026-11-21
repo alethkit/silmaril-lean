@@ -136,8 +136,9 @@ private def irohInnerPairs : List Bytes := [
        "580f4b19f0952c41fccedc302ae73758cfa2ab094deead97b2c25b6f6829ecd1"],
   baoLeftPair]
 
-private def irohRoot : Hash := ⟨(digest? (hex [
-  "e50c14417d5f1eb8ff357630021170d5c73e5abc353f5c66eca12ebbd1f5718a"])).getD default⟩
+private def irohRootBytes : Bytes := hex [
+  "e50c14417d5f1eb8ff357630021170d5c73e5abc353f5c66eca12ebbd1f5718a"]
+private def irohRoot : Hash := ⟨(digest? irohRootBytes).getD default⟩
 
 private def irohHead : Bytes := [1, 128, 0, 0, 0, 0, 0, 0]
 private def irohPre : Bytes := irohHead ++ irohRootPair ++ irohLeftPair
@@ -209,3 +210,15 @@ private def collectionHeader : Bytes := "CollectionV0.".toUTF8.data.toList
 end Silmaril.Formats.Iroh.Vectors
 
 end
+
+public meta section
+
+namespace Silmaril.Formats.Iroh.Vectors
+
+def baoFixtures : List UInt8 × List UInt8 × List UInt8 × List UInt8 × List UInt8 :=
+  (baoRoot, baoCombined, baoOutboard, baoInterior, baoTail)
+
+def rawGetFixtures : List UInt8 × List UInt8 × List UInt8 × List UInt8 :=
+  (irohRootBytes, irohFull, irohPartial, irohPast)
+
+end Silmaril.Formats.Iroh.Vectors
