@@ -1,10 +1,11 @@
 module
 
 import Batteries.Data.Except
-import Silmaril.Formats.Git.Filesystem.Thms
+import Silmaril.Formats.Git.Filesystem.Routed.Thms
 meta import Silmaril.Formats.Cbor.Drisl.Cid.Defs
 meta import Silmaril.Formats.Git.Arena.Defs
 meta import Silmaril.Formats.Git.Filesystem.Defs
+meta import Silmaril.Formats.Git.Filesystem.Routed.Defs
 meta import Silmaril.Semantics.Arena.Defs
 
 open Silmaril.Formats.Git
@@ -56,27 +57,36 @@ private def arenaStore (hash : Hash) (writes : Writes) : Except String Store := 
     pure named
   pure (Store.ofArena profile resident)
 
-private def checkMount (hash : Hash) (mount : Store) (root : Cid) : Except String Unit := do
-  let .ok (some binary) := locate hash mount 8 root [dirKey, nativeRaw] | .error "missing executable at raw path"
+private def checkMount (hash : Hash) (mount : Store) (root : Cid)
+    (resolve : Cid → List ByteKey → Except ReadFault (Option (Entry Cid))) : Except String Unit := do
+  let .ok (some binary) := resolve root [dirKey, nativeRaw] | .error "missing executable at raw path"
   require "raw name has no UTF-8 façade spelling" (Dasl.decodeComponent nativeRaw = none)
   require "executable and bytes roundtrip" (binary.mode = .file .executable ∧ openBlob hash mount binary = .found body)
   let .some link := Component.parse? "link" | .error "invalid fixture name"
-  let .ok (some symlink) := locateUtf8 hash mount 8 root [link] | .error "missing symlink at String path"
+  let .ok (some symlink) := resolve root [Dasl.utf8Key link.val] | .error "missing symlink at UTF-8 byte path"
   require "symlink mode and target bytes preserved" (symlink.mode = .file .symlink ∧
     openBlob hash mount symlink = .found symlinkBody)
-  require "no implicit symlink following" (locate hash mount 8 root [symlinkKey, nativeRaw] = .error .notDirectory)
-  require "closed-view absence" (locate hash mount 8 root [dirKey, Dasl.utf8Key "absent"] = .ok none)
+  require "no implicit symlink following" (resolve root [symlinkKey, nativeRaw] = .error .notDirectory)
+  require "canonical directory absence" (resolve root [dirKey, Dasl.utf8Key "absent"] = .ok none)
 
 private def exercise (hash : Hash) : Except String Cid := do
   let staged ← (stage hash fixture).mapError fun fault => reprStr fault
   let .ok published := staged.publish (fun _ => none) | .error "fixture has an address conflict"
   require "raw and object lanes use different envelopes" (address hash .raw body ≠ address hash .object body)
-  checkMount hash (Store.ofPublished published) staged.name
-  checkMount hash (← arenaStore hash staged.writes) staged.name
+  let arena ← arenaStore hash staged.writes
+  for mount in [Store.ofPublished published, arena] do
+    checkMount hash mount staged.name (locate hash mount 8)
+    checkMount hash mount staged.name (locateRouted hash mount 8)
+    checkMount hash mount staged.name (locateResident hash mount (staged.writes.map Prod.fst) 8)
+    let .some link := Component.parse? "link" | .error "invalid fixture name"
+    require "String facade is exact UTF-8"
+      (locateUtf8 hash mount 8 staged.name [link] = locateRouted hash mount 8 staged.name [symlinkKey])
   let blocked : Store := fun lane cid =>
     if cid = staged.name then .deferred else (Store.ofPublished published) lane cid
   require "deferred block is not an absent path"
     (locate hash blocked 8 staged.name [dirKey] = .error (.deferred staged.name))
+  require "routed deferred block is still a read fault"
+    (locateRouted hash blocked 8 staged.name [dirKey] = .error (.deferred staged.name))
   let gitlink := toTree (emptyDir.insert dirKey ⟨.gitlink, .ref .commit "external-commit"⟩)
   let .error (.gitlink key) := stage hash gitlink | .error "gitlink imported as a local subtree"
   require "gitlink retains its boundary key" (key = dirKey)
@@ -88,6 +98,35 @@ private def exercise (hash : Hash) : Except String Cid := do
   | .error cid =>
     require "conflicting root stays unchanged" (cid = staged.name)
     pure staged.name
+
+private def checkPartial : Except String Unit := do
+  let wide := (List.range 33).foldl (fun dir offset =>
+    dir.insert [Fin.ofNat 256 (offset + 1)] ⟨.file .regular, .blob body⟩) emptyDir
+  let image ← (stage mock (toTree wide)).mapError fun fault => reprStr fault
+  let .ok published := image.publish (fun _ => none) | .error "wide fixture has a collision"
+  let mount := Store.ofPublished published
+  let .ok (.branch 1 [(_, first), (_, last)]) := dirReader mock mount image.name |
+    .error "wide fixture did not produce exactly two leaves"
+  let partialStore : Store := fun lane cid => if cid = last then .missing else mount lane cid
+  let expected := .ok (some ⟨.file .regular, address mock .raw body⟩)
+  require "full scan and route agree" (lookupChild mock mount 2 image.name [1] = expected ∧
+    lookupChildRouted mock mount 2 image.name [1] = expected)
+  require "route does not fetch unrelated sibling" (lookupChildRouted mock partialStore 2 image.name [1] = expected)
+  require "scan still requires sibling" (lookupChild mock partialStore 2 image.name [1] = .error (.block (.missing last)))
+  require "resident needs only the selected path"
+    (lookupChildResident mock mount [image.name, first] 2 image.name [1] = expected)
+  require "unacquired selected block is not absence"
+    (lookupChildResident mock mount [image.name, first] 2 image.name [33] = .error (.block (.missing last)))
+  require "unavailable selected block is not absence"
+    (lookupChildRouted mock partialStore 2 image.name [33] = .error (.block (.missing last)))
+  require "verified separator can prove absence without a leaf"
+    (lookupChildRouted mock partialStore 2 image.name [34] = .ok none)
+  require "fuel exhaustion is not absence"
+    (lookupChildRouted mock partialStore 1 image.name [1] = .error (.block (.fuel first)))
+  let malformed := address mock .object (ByteArray.mk #[255])
+  let wrongWire : Store := fun _ _ => .found (ByteArray.mk #[255])
+  require "malformed object bytes are not absence"
+    (lookupChildRouted mock wrongWire 2 malformed [1] = .error (.block (.invalidWire malformed)))
 
 private def parseNibble (char : Char) : Option Nat :=
   if '0' ≤ char ∧ char ≤ '9' then some (char.toNat - '0'.toNat)
@@ -131,6 +170,7 @@ private def calculateFixture (command : String) : Nat → DigestTable → IO Dig
       calculateFixture command fuel (seen ++ more)
 
 public def main (args : List String) : IO Unit := do
+  if let .error detail := checkPartial then throw (IO.userError detail)
   let hash ← match args with
     | [] => pure mock
     | [command] => tableHash <$> calculateFixture command 8 []
@@ -146,3 +186,8 @@ public def main (args : List String) : IO Unit := do
 #print axioms Image.readPublished
 #print axioms readVerified_found
 #print axioms lookupChild_sound
+#print axioms checkedChild_error
+#print axioms lookupChildRouted_sound
+#print axioms lookupChildResident_sound
+#print axioms lookupChildRouted_agrees_scan
+#print axioms locateWith_agree

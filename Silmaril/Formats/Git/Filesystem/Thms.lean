@@ -44,6 +44,12 @@ theorem readVerified_found {store : Store} {lane : CasLane} {name : Cid} {bytes 
     store lane name = .found bytes ∧ address hash lane bytes = name :=
   Proofs.Formats.Git.Filesystem.readVerified_found found
 
+theorem checkedChild_ok {store : Store}
+    {query : Cid → ByteKey → Except (Formats.Dasl.Prolly.Fault Cid) (Option (Entry Cid))}
+    {root : Cid} {key : ByteKey} {result : Option (Entry Cid)}
+    (checked : checkedChild store query root key = .ok result) : query root key = .ok result :=
+  Proofs.Formats.Git.Filesystem.checkedChild_ok checked
+
 /-- Under a binding reference that actually contains this canonical directory,
 both returned entries and closed-view misses match the source byte-key map. -/
 theorem lookupChild_sound {store : Store} {reference : Formats.Dasl.Store Cid}
@@ -53,6 +59,6 @@ theorem lookupChild_sound {store : Store} {reference : Formats.Dasl.Store Cid}
     {fuel : Nat} {key : ByteKey} {result : Option (Entry Cid)}
     (checked : lookupChild hash store fuel ((Prolly.build policy directory.ordered).rootName addressBlock) key = .ok result) :
     directory.ordered.lookup? key = result :=
-  Formats.Dasl.Prolly.lookup_sound policy stored binding reader (Proofs.Formats.Git.Filesystem.lookupChild_scan checked)
+  Formats.Dasl.Prolly.lookup_sound policy stored binding reader (checkedChild_ok checked)
 
 end Silmaril.Formats.Git.Filesystem
