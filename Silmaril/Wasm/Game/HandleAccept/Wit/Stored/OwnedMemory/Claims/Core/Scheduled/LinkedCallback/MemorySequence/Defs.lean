@@ -76,6 +76,19 @@ def Track.Slots (mode : Track) (width : AddrType) (rule : Field → Nat → Prop
     let (address, next) := mode.slot width item cursor
     rule item address ∧ mode.Slots width rule rest next
 
+/-- A placed child interval, independent of the contents of guest memory. -/
+def SlotFits (width : AddrType) (bytes : Nat) (item : Field) (address : Nat) : Prop :=
+  address % (layout width item.type).alignment.bytes = 0 ∧ address + (layout width item.type).size ≤ bytes
+
+/-- The checked aggregate guard wraps a child's typed error at the
+enclosing field index, and does not turn a canonical trap into a result. -/
+def aggregateNext (index : Nat) (next : CheckNext grow sig) : CheckNext grow sig :=
+  fun result => next (result.mapError (.nested index))
+
+def enterAggregate (destination : RecordDestination) (inst : InstId) (items : List Field) (index address : Nat)
+    (left : State grow sig) (check : Cursor (E := core3 grow) (HostState sig)) (next : CheckNext grow sig) : State grow sig :=
+  { left with ctl := check.control (Track.fields.checked destination inst items 0 address >>= aggregateNext index next) }
+
 def checkTail (mode : Track) (destination : RecordDestination) (inst : InstId) (items : List Field) (index cursor : Nat)
     (finish : CheckNext grow sig) : CheckNext grow sig
   | .error issue => finish (.error issue)
@@ -117,5 +130,25 @@ def mixed (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings 
     (fun () => finish)) ∨
   (∃ value : StringField, value.field = item ∧ StringFieldThen profile ready bindings older destination inst value.value (.memory address)
     left right check canon checkNext canonNext (fun () => finish))
+
+/-- The depth bounds the certificate's structural descent, not callback
+steps or the number of children in an aggregate. -/
+inductive AggregateShape (stringLeaf : Field → Prop) : Nat → Field → Prop where
+  | handle {depth item} : CanonicalHandle item → AggregateShape stringLeaf depth item
+  | string {depth item} : stringLeaf item → AggregateShape stringLeaf depth item
+  | aggregate {depth type items} : (∀ item ∈ items, AggregateShape stringLeaf depth item) →
+      AggregateShape stringLeaf (depth + 1) (.aggregate type items)
+
+def nested (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
+    Nat → FieldComparison grow sig
+  | 0 => mixed profile ready bindings older destination inst
+  | depth + 1 => fun item index address left right check canon checkNext canonNext finish =>
+    mixed profile ready bindings older destination inst item index address left right check canon checkNext canonNext finish ∨
+      ∃ type children, item = .aggregate type children ∧
+        let entered := enterAggregate destination inst children index address left check checkNext
+        Steps profile ready (specDispatch ready (host bindings)) left [.tau] entered ∧
+          Replay profile ready bindings .fields destination inst (nested profile ready bindings older destination inst depth)
+            (aggregateNext index checkNext) canonNext finish children 0 address entered right check canon
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence

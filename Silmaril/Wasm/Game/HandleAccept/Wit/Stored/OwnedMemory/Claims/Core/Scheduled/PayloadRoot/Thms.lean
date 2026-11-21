@@ -10,6 +10,7 @@ namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Sch
 open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Runtime
   Silmaril.Wasm.Component.Machine
 open Stored.Endpoints.RecordLower
+open PayloadPrefix
 
 variable {grow : SingleThreaded.GrowOracle} {sig : Signature} {route : GiveEffectRoute}
   {profile : ProfileKind} {ready : HostReady (HostState sig)} {bindings : List (Binding sig)}
@@ -25,6 +26,14 @@ theorem Site.parked_after_fit (site : Site grow sig route) (linked : site.Linked
     (afterFit : Lower.fits Quirks.none site.destination.encoding site.destination.width (sig.payload site.tag)
       site.payload.val.value = true → body) : Cut site profile ready bindings body :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadRoot.parkedAfterFit site linked body afterFit
+
+/-- Use both public guards only on the branch that enters the actual body. -/
+theorem Site.parked_after_placement (site : Site grow sig route) (linked : site.Linked bindings) (body : Prop)
+    (afterPlacement : Lower.fits Quirks.none site.destination.encoding site.destination.width (sig.payload site.tag)
+      site.payload.val.value = true →
+      rootPlacement site.destination site.start.store (sig.payload site.tag) route.output = .ok () → body) :
+    Cut site profile ready bindings body :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadRoot.parkedAfterPlacement site linked body afterPlacement
 
 theorem Site.reference_at (site : Site grow sig route) (linked : site.Linked bindings) (next : site.ReferenceNext) :
     (site.reference next).ctl = site.cursor.control
