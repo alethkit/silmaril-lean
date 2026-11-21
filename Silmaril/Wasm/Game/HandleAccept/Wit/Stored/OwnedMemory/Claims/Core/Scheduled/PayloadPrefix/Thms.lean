@@ -1,8 +1,10 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.StringFront
+import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Thms
 
 public section
 
@@ -626,6 +628,31 @@ theorem collection_install (destination : RecordDestination) (inst : InstId) (ty
 /-- Both install prefixes stop at the actual allocator with their own
 reached cursors. A successful checked pre-read does not discharge the
 different live-plan check in the saved continuation. -/
+theorem collection_install_tracks (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+    (entries : List Field) (output : Lower.Output) (index : Nat)
+    (left right : Config (core3 grow) (HostState sig)) (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    (reachedWidth : (core3 grow).memAddrType? right.store.core destination.memory = some destination.width)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    let area := layout destination.width element
+    let checkResume := checkedCollectionResume destination inst entries area index output checkNext
+    let canonResume := canonicalCollectionResume destination inst entries area output canonNext
+      (CanonicalTree.EntryMode.forOutput destination.width type output)
+    let checkCall := collectionEntry destination inst area entries.length dispatch left check checkResume
+    let canonCall := collectionEntry destination inst area entries.length dispatch right canon canonResume
+    ∀ depth, ReturnFrame.Occurrence.Prefix profile ready dispatch left (.active 0 depth)
+      [.tau, .tau, .tau] checkCall (.active 0 (depth + 1)) ∧
+    ReturnFrame.Occurrence.Prefix profile ready dispatch right (.active 0 depth)
+      [.tau, .tau] canonCall (.active 0 (depth + 1)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionInstallTracks
+    destination inst type element entries output index left right check canon checkNext canonNext
+    reachedWidth prepared checkAt canonAt
+
 theorem collection_install_steps (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
     (entries : List Field) (output : Lower.Output) (index : Nat)
     (left right : Config (core3 grow) (HostState sig)) (check canon : Cursor (E := core3 grow) (HostState sig))
@@ -644,10 +671,11 @@ theorem collection_install_steps (destination : RecordDestination) (inst : InstI
     let checkCall := collectionEntry destination inst area entries.length dispatch left check checkResume
     let canonCall := collectionEntry destination inst area entries.length dispatch right canon canonResume
     Machine.Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
-    Machine.Steps profile ready dispatch right [.tau, .tau] canonCall :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.collectionInstallSteps
+    Machine.Steps profile ready dispatch right [.tau, .tau] canonCall := by
+  obtain ⟨checked, canonical⟩ := collection_install_tracks (profile := profile) (ready := ready) (dispatch := dispatch)
     destination inst type element entries output index left right check canon checkNext canonNext
-    reachedWidth prepared checkAt canonAt
+    reachedWidth prepared checkAt canonAt 0
+  exact ⟨(ReturnFrame.Occurrence.prefix_survives checked).1, (ReturnFrame.Occurrence.prefix_survives canonical).1⟩
 
 /-- Install both actual allocator frames, including the allocation-time map
 entry layout for indirect output. This does not compare the entry traversals. -/

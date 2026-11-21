@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadLeaf.Local.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadCursor.Thms
@@ -9,6 +10,7 @@ import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Thms
 import Silmaril.Wasm.Component.Reference.Machine.Oracle.Defs
 import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Thms
+import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Thms
 import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
 import Silmaril.Wasm.Component.Reference.Canon.Prog.Thms
 import Silmaril.Wasm.Component.Reference.ABI.Layout.Thms
@@ -1120,7 +1122,7 @@ theorem dynamicRefusal (destination : RecordDestination) (inst : InstId) (type e
   have stop : afterRead.ctl = cursor.control (checked (.error issue)) := by simp only [afterRead, refused]
   cases issue <;> exact ⟨.refused _, _, [], _, right, run, .refl _, same, rfl, trivial, stop⟩
 
-theorem collectionInstallSteps (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
+theorem collectionInstallTracks (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
     (entries : List Field) (output : Lower.Output) (index : Nat)
     (left right : Config (core3 grow) (HostState sig)) (check canon : Cursor (E := core3 grow) (HostState sig))
     (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
@@ -1137,8 +1139,10 @@ theorem collectionInstallSteps (destination : RecordDestination) (inst : InstId)
       (CanonicalTree.EntryMode.forOutput destination.width type output)
     let checkCall := collectionEntry destination inst area entries.length scheduledDispatch left check checkResume
     let canonCall := collectionEntry destination inst area entries.length scheduledDispatch right canon canonResume
-    Machine.Steps profile scheduledReady scheduledDispatch left [.tau, .tau, .tau] checkCall ∧
-    Machine.Steps profile scheduledReady scheduledDispatch right [.tau, .tau] canonCall := by
+    ∀ depth, ReturnFrame.Occurrence.Prefix profile scheduledReady scheduledDispatch left (.active 0 depth)
+      [.tau, .tau, .tau] checkCall (.active 0 (depth + 1)) ∧
+    ReturnFrame.Occurrence.Prefix profile scheduledReady scheduledDispatch right (.active 0 depth)
+      [.tau, .tau] canonCall (.active 0 (depth + 1)) := by
   let cx := destination.context (grow := grow) inst
   let area := layout destination.width element
   have width : ptrTypeIn right.store (destination.context inst) = destination.width := by
@@ -1160,8 +1164,6 @@ theorem collectionInstallSteps (destination : RecordDestination) (inst : InstId)
     rw [Record.Effects.field] at checkAt
     exact checkAt
   let checkEntered := { left with ctl := check.control (preflightBranch (Record.prepare left.store left.host.writer liveObjects)) }
-  have checkSteps : Machine.Steps profile scheduledReady scheduledDispatch left [.tau, .tau] checkEntered :=
-    .cons (.get checkRead) (.cons (.hostGet rfl) (.refl _))
   have checkAlloc : checkEntered.ctl = check.control (allocateListRange cx area entries.length >>= checkedTail) := by
     simp only [checkEntered, liveObjects, preflightBranch, prepared, checkedTail, Prog.bind_eq, Prog.bind_assoc]
   let canonTail := fun ptr => canonicalCollectionTail destination inst entries area output ptr
@@ -1183,7 +1185,20 @@ theorem collectionInstallSteps (destination : RecordDestination) (inst : InstId)
     (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch) cx area entries.length checkedTail checkAlloc
   have canonInstall := listRange_install
     (profile := profile) (ready := scheduledReady) (dispatch := scheduledDispatch) cx area entries.length canonTail canonAlloc
-  exact ⟨chain checkSteps (.cons checkInstall (.refl _)), .cons canonStep (.cons canonInstall (.refl _))⟩
+  dsimp only
+  intro depth
+  refine ⟨.step (middle := .active 0 depth) (.get checkRead) ?_
+      (.step (middle := .active 0 depth) (.hostGet rfl) rfl (.step checkInstall ?_ (.done _ _))),
+    .step (middle := .active 0 depth) canonStep ?_ (.step canonInstall ?_ (.done _ _))⟩
+  · rw [ReturnFrame.Occurrence.transitionEdit, checkRead]
+    rfl
+  · change (ReturnFrame.Occurrence.transitionEdit checkEntered .tau).follow _ = _
+    rw [ReturnFrame.Occurrence.transitionEdit, checkAlloc, listRange_focus]
+    rfl
+  · rw [ReturnFrame.Occurrence.transitionEdit, canonRead]
+    rfl
+  · rw [ReturnFrame.Occurrence.transitionEdit, canonAlloc, listRange_focus]
+    rfl
 
 theorem collectionInstallMode (destination : RecordDestination) (inst : InstId) (type element : TypeOf)
     (entries : List Field) (output : Lower.Output) (index : Nat)
@@ -1206,9 +1221,9 @@ theorem collectionInstallMode (destination : RecordDestination) (inst : InstId) 
     Machine.Steps profile scheduledReady scheduledDispatch left [.tau, .tau, .tau] checkCall ∧
     Machine.Steps profile scheduledReady scheduledDispatch right [.tau, .tau] canonCall ∧
     HostFrame.Paired checkResume canonResume checkCall canonCall := by
-  obtain ⟨checked, canonical⟩ := collectionInstallSteps destination inst type element entries output index
-    left right cursor cursor checkNext canonNext reachedWidth prepared checkAt canonAt
-  refine ⟨checked, canonical, ?_⟩
+  obtain ⟨checked, canonical⟩ := collectionInstallTracks destination inst type element entries output index
+    left right cursor cursor checkNext canonNext reachedWidth prepared checkAt canonAt 0
+  refine ⟨(ReturnFrame.Occurrence.prefix_survives checked).1, (ReturnFrame.Occurrence.prefix_survives canonical).1, ?_⟩
   dsimp only [collectionEntry, HostFrame.Paired]
   conv => rhs; rw [← same]
   exact ReturnFrame.installed (HostFrame.replace left right.host) cursor.thread _ cursor.frames cursor.rest

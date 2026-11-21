@@ -899,13 +899,15 @@ theorem childCollectionInstall {changes : ReturnFrame.Substitutions (core3 grow)
       (CanonicalTree.EntryMode.forOutput destination.width type output)
     let checkCall := collectionEntry destination inst area entries.length dispatch left check first
     let canonCall := collectionEntry destination inst area entries.length dispatch right canon second
-    Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
-    Steps profile ready dispatch right [.tau, .tau] canonCall ∧
+    (∀ depth, Occurrence.Prefix profile ready dispatch left (.active 0 depth) [.tau, .tau, .tau]
+      checkCall (.active 0 (depth + 1))) ∧
+    (∀ depth, Occurrence.Prefix profile ready dispatch right (.active 0 depth) [.tau, .tau]
+      canonCall (.active 0 (depth + 1))) ∧
     HostFrame.Related.Paired (ReturnFrame.Extend changes first second) checkCall canonCall := by
-  obtain ⟨checked, canonical⟩ := collection_install_steps (profile := profile) (ready := ready)
+  have tracks := collection_install_tracks (profile := profile) (ready := ready)
     (dispatch := specDispatch ready (host (grow := grow) bindings)) destination inst type element entries output index
     left right check canon checkNext canonNext reachedWidth prepared checkAt canonAt
-  exact ⟨checked, canonical, childFrameEnter frame _ _ _⟩
+  exact ⟨fun depth => (tracks depth).1, fun depth => (tracks depth).2, childFrameEnter frame _ _ _⟩
 
 private theorem rangeAtReturn (destination : RecordDestination) (inst : InstId) (area : Layout)
     (count pointer : Nat) (plan : List Object) {left right last other : State grow sig} {seen leftLabels rightLabels}

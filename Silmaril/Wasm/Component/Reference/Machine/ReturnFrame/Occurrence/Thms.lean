@@ -125,6 +125,17 @@ theorem Trail.survives {before after : Config E Host} {labels : List (Label E Ho
     ∃ place, mark = some place ∧ Prefix profile ready dispatch before place labels after reached :=
   Proofs.Wasm.Component.Reference.MachineReturnOccurrence.trailSurvives run
 
+/-- Join an installation prefix (which can include pre-call reads) to the
+observed return of the marked frame. The older slot regains its prior depth. -/
+theorem Trail.through_return {start entered reached : Config E Host} {leading labels : List (Label E Host)}
+    {thread frames rest value} {resume : Continuation E Host} {depth : Nat}
+    (install : Prefix profile ready dispatch start (.active 0 depth) leading entered (.active 0 (depth + 1)))
+    (marked : Trail profile ready dispatch entered (some (.active 0 0)) labels reached (some (.active 0 0)))
+    (returning : reached.ctl = ⟨thread, .prog (.pure value), .prog resume :: frames⟩ :: rest) :
+    Prefix profile ready dispatch start (.active 0 depth) (leading ++ (labels ++ [.tau]))
+      { reached with ctl := ⟨thread, .prog (resume value), frames⟩ :: rest } (.active 0 depth) :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.trail_through_return install marked returning
+
 theorem Trail.absent {before after : Config E Host} {labels : List (Label E Host)} (run : Steps profile ready dispatch before labels after) :
     Trail profile ready dispatch before none labels after none :=
   Proofs.Wasm.Component.Reference.MachineReturnOccurrence.absentTrail run
