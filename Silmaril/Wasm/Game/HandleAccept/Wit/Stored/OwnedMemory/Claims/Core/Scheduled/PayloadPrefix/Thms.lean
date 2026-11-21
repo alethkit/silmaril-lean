@@ -157,6 +157,28 @@ theorem memory_sum (destination : RecordDestination) (inst : InstId) (type : Typ
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memorySum
     destination inst type arms tag index ptr selected left right width child
 
+/-- Compare the actual memory sum tag writes before entering the selected
+child, retaining the reached store and original scheduler tails. -/
+theorem memory_sum_tag (destination : RecordDestination) (inst : InstId) (type : TypeOf)
+    (arms : List (Option TypeOf)) (tag index base : Nat) (selected : Option Field)
+    (origin : CStore (core3 grow)) (left right : Config (core3 grow) (HostState sig))
+    (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
+    (canonNext : Unit → Session grow sig (Ret (core3 grow)))
+    (same : left.store = right.store) (thread : check.thread = canon.thread)
+    (width : ptrTypeIn right.store (destination.context inst) = destination.width)
+    (growth : Core3.Grows origin.core right.store.core)
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.sum type arms tag selected) index (.memory base) >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.sum type arms tag selected) (.memory base) >>= canonNext)) :
+    let address := sumPayloadAddress destination.width arms base
+    LocalCutKeeping profile ready dispatch (fun store => Core3.Grows origin.core store.core) left right check canon
+      (sumCheckedNext destination inst selected index address checkNext)
+      (sumCanonicalNext destination inst selected address canonNext) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.memorySumTag
+    destination inst type arms tag index base selected origin left right check canon checkNext canonNext same thread width growth checkAt canonAt
+
 /-- The handle leaf in a placed memory entry has no allocator or width-read
 prefix of its own. It rechecks live authority at the reached store. -/
 theorem memory_handle (destination : RecordDestination) (inst : InstId) (item : Field)
@@ -263,6 +285,22 @@ theorem primitive_leaf (destination : RecordDestination) (inst : InstId) (primit
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.primitiveLeaf
     destination inst primitive payload nonString index output left right width placed
 
+/-- Keep the exact reached scheduler tails across the local primitive
+program, including the same observable scalar choices on both sides. -/
+theorem primitive_leaf_frame (destination : RecordDestination) (inst : InstId) (primitive : WIT.Primitive)
+    (payload : Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Payload (.prim primitive))
+    (nonString : primitive ≠ .string) (index : Nat) (output : Lower.Output) (origin : CStore (core3 grow))
+    (left right : Config (core3 grow) (HostState sig)) (growth : Core3.Grows origin.core right.store.core)
+    (width : ptrTypeIn left.store (destination.context inst) = destination.width)
+    (placed : rootPlacement destination left.store (.prim primitive) output = .ok ()) :
+    CompareLocalKeepingAt profile ready dispatch (fun store => Core3.Grows origin.core store.core) left right
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) index output)
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width
+        (.data (.prim primitive) payload) output) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadPrefix.primitiveLeafFrame
+    destination inst primitive payload nonString index output origin left right growth width placed
+
 /-- Both actual string leaf programs reach the same canonical plan. The
 checked path first discharges schema/options, the fit test at the reached
 width, and (for memory) root placement. This cut precedes plan execution. -/
@@ -349,6 +387,19 @@ theorem string_descriptor_cut {grow : SingleThreaded.GrowOracle} {Host : Type} {
     StringLocalCut profile ready dispatch left right check canon checkNext canonNext :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.StringFront.descriptor
     cx width output plan ptr left right check canon checkNext canonNext same checkAt canonAt
+
+/-- Replay the actual pointer/count descriptor from the reached store. A
+late trap in memory output keeps the write to the first word, if it ran. -/
+theorem collection_descriptor_cut {grow : SingleThreaded.GrowOracle} {Host : Type} {profile : ProfileKind} {ready : HostReady Host}
+    {dispatch : Call (core3 grow) → P (core3 grow) Host (Ret (core3 grow))}
+    (cx : LiftLowerContext (core3 grow)) (width : AddrType) (output : Lower.Output) (ptr count : Nat)
+    (left right : Config (core3 grow) Host) (check canon : Cursor (E := core3 grow) Host)
+    (checkNext canonNext : output.Result → P (core3 grow) Host (Ret (core3 grow))) (same : left.store = right.store)
+    (checkAt : left.ctl = check.control (ListLower.publish cx width ptr count output >>= checkNext))
+    (canonAt : right.ctl = canon.control (ListLower.publish cx width ptr count output >>= canonNext)) :
+    StringLocalCut profile ready dispatch left right check canon checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.StringFront.collectionDescriptor
+    cx width output ptr count left right check canon checkNext canonNext same checkAt canonAt
 
 /-- Use the validated collection range, rather than a fresh placement
 assumption for the scalar at its reached list index. -/
