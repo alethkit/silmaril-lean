@@ -154,14 +154,28 @@ private theorem fitListTree {stringLeaf fits : Field → Prop} (depth : Nat) (fi
     cases shape with
     | handle handle => exact .handle handle
     | string leaf => exact .string (reached field (.self field) leaf)
+    | scalar payload nonString => exact .scalar payload nonString
   | succ depth ih =>
     cases shape with
     | handle handle => exact .handle handle
     | string leaf => exact .string (reached field (.self field) leaf)
+    | scalar payload nonString => exact .scalar payload nonString
     | aggregate children =>
       exact .aggregate fun item member => ih item (children item member) fun leaf path => reached leaf (.aggregate member path)
     | list children =>
       exact .list fun item member => ih item (children item member) fun leaf path => reached leaf (.dynamic member path)
+    | map pairs children =>
+      refine .map pairs ?_
+      intro entry member fields equal item inFields
+      exact ih item (children entry member fields equal item inFields) fun leaf path =>
+        reached leaf (.dynamic member (equal ▸ .aggregate inFields path))
+    | sum child =>
+      refine .sum ?_
+      intro item equal
+      subst equal
+      exact ih item (child item rfl) fun leaf path => reached leaf (.sum path)
+    | fixed children =>
+      exact .fixed fun item member => ih item (children item member) fun leaf path => reached leaf (.fixed member path)
 
 theorem parkedListTree (call : PayloadRoot.Site grow sig (.memory pointer)) (linked : call.Linked bindings)
     (depth : Nat) (next : call.ReferenceNext) (shape : ParkedListTreeShape depth call.field)

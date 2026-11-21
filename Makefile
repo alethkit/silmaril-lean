@@ -85,6 +85,7 @@ check:
 .PHONY: check-runtime check-integrations
 check-runtime:
 	$(MAKE) process-gates
+	$(if $(filter Silmaril +Silmaril.Crypto.Blake3.Range.Check.Defs +Silmaril.Containers.Cas.Blake3.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Crypto.Blake3.Range.Check.Defs +Silmaril.Containers.Cas.Blake3.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/crypto/Blake3Range.lean)
 	$(if $(filter Silmaril,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/DrislDebug.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.V1.Intrinsic.Scalar.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/V1Intrinsic.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Validation.Generic.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-generic/Regression.lean)
@@ -129,11 +130,11 @@ check-runtime:
 
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
-	$(if $(filter Silmaril +Silmaril.Wasm.Component.IntrinsicWiring.Thms +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Thms +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Observation.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail \
+	$(if $(filter Silmaril +Silmaril.Wasm.Component.IntrinsicWiring.Thms +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Thms +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Observation.Thms +Silmaril.Wasm.Component.Reference.DirectLift.Init.Thms +Silmaril.Wasm.Institution.DirectLiftTerminal.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail \
 		+Silmaril.Wasm.Component.IntrinsicWiring.Lift.Thms +Silmaril.Wasm.Validation.Intrinsic.ReifyThms +Silmaril.Wasm.ModuleParts.Thms \
-		+Silmaril.Wasm.Component.Reference.Thms +Silmaril.Wasm.Component.Reference.Embedding.Thms +Silmaril.Wasm.Component.Reference.Example.Defs \
+		+Silmaril.Wasm.Component.Reference.Thms +Silmaril.Wasm.Component.Reference.Embedding.Thms +Silmaril.Wasm.Component.Reference.Example.Defs +Silmaril.Wasm.Component.Reference.DirectLift.Init.Thms \
 		+Silmaril.Wasm.Execution.Core.Entry.Thms +Silmaril.Wasm.Execution.Core.Exec.InstantiateIff +Silmaril.Wasm.Execution.Core.Exec.ValCheck \
-		+Silmaril.Wasm.Game.Machine.Thms +Silmaril.Wasm.Game.Strategy.Thms \
+		+Silmaril.Wasm.Game.Machine.Thms +Silmaril.Wasm.Game.Strategy.Thms +Silmaril.Wasm.Institution.DirectLiftTerminal.Thms \
 		+Silmaril.Wasm.SingleThreaded.Exec.CheckedRun +Silmaril.Wasm.Verify.Kernel.Thms && \
 		$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-component/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Observation.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Component.Reference.Litmus.Thms +Silmaril.Wasm.Validation.Intrinsic.ReifyThms && $(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-component/Exposure.lean)
