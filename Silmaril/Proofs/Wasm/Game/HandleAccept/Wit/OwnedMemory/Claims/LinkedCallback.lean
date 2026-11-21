@@ -406,6 +406,29 @@ theorem childStringRealloc {changes : ReturnFrame.Substitutions (core3 grow) (Ho
     string_realloc_install cx ptr oldSize alignment size steps canonNext right canon canonAt,
     childFrameEnter frame _ _ _⟩
 
+theorem stringReturnTracks (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (oldSize : Option Nat)
+    (alignment : Alignment) (size : Nat) (steps : List StoreStep) (finish : Nat → Session grow sig (Ret (core3 grow)))
+    (start last : State grow sig) (cursor reached : Cursor (E := core3 grow) (HostState sig)) (value : Nat)
+    (focused : start.ctl = cursor.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= finish))
+    {labels} (marked : Occurrence.Trail profile ready (specDispatch ready (host bindings))
+      (stringReallocEntry ready bindings cx ptr oldSize alignment size steps finish start cursor)
+      (some (.active 0 0)) labels last (some (.active 0 0)))
+    (returning : last.ctl = { reached with frames := .prog (stringPlanResume cx steps finish) :: reached.frames }.control
+      (.pure (.nat value))) (depth : Nat) :
+    Occurrence.Prefix profile ready (specDispatch ready (host bindings)) start (.active 0 depth)
+      (.tau :: labels ++ [.tau])
+      { last with ctl := reached.control (stringPlanResume cx steps finish (.nat value)) } (.active 0 depth) := by
+  obtain ⟨mark, same, run⟩ := marked.survives
+  cases same
+  have install := string_realloc_install (profile := profile) (ready := ready) (dispatch := specDispatch ready (host bindings))
+    cx ptr oldSize alignment size steps finish start cursor focused
+  have pops : (Occurrence.transitionEdit last .tau).pops (.active 0 0) := by
+    rw [Occurrence.transitionEdit, returning]
+    trivial
+  rw [string_realloc_focus cx ptr oldSize alignment size steps finish] at focused
+  exact Occurrence.Prefix.under_call focused install run (.popProg returning) pops depth
+
 theorem stringPlanCut {changes : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (steps : List StoreStep)
     (checkNext canonNext : Nat → Session grow sig (Ret (core3 grow)))

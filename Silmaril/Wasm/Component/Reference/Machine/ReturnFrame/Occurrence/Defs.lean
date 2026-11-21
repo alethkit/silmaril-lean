@@ -17,6 +17,12 @@ inductive Location where
   | saved (slot segment : Nat)
   deriving DecidableEq
 
+/-- The slot at a fixed depth below this segment in the same activation. -/
+def Location.below (place : Location) (depth : Nat) : Location :=
+  match place with
+  | .active activation segment => .active activation (segment + depth)
+  | .saved slot segment => .saved slot (segment + depth)
+
 /-- Only control storage is relevant to the lifetime of a saved frame. -/
 structure Stacks (E : CoreEngine) (Host : Type) where
   active : List (List (Seg E Host))
