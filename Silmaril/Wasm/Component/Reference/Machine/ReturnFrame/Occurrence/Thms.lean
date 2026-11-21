@@ -87,6 +87,41 @@ theorem Prefix.append {before middle after : Config E Host} {leading trailing : 
     Prefix profile ready dispatch before place (leading ++ trailing) after final :=
   Proofs.Wasm.Component.Reference.MachineReturnOccurrence.prefix_append left right
 
+theorem Prefix.toTrail {before after : Config E Host} {labels : List (Label E Host)} {place reached : Location}
+    (run : Prefix profile ready dispatch before place labels after reached) :
+    Trail profile ready dispatch before (some place) labels after (some reached) :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.prefixTrail run
+
+theorem Trail.append {before middle after : Config E Host} {leading trailing : List (Label E Host)}
+    {mark reached final : Option Location} (left : Trail profile ready dispatch before mark leading middle reached)
+    (right : Trail profile ready dispatch middle reached trailing after final) :
+    Trail profile ready dispatch before mark (leading ++ trailing) after final :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.trailAppend left right
+
+theorem Trail.survives {before after : Config E Host} {labels : List (Label E Host)}
+    {mark : Option Location} {reached : Location}
+    (run : Trail profile ready dispatch before mark labels after (some reached)) :
+    ∃ place, mark = some place ∧ Prefix profile ready dispatch before place labels after reached :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.trailSurvives run
+
+theorem Trail.absent {before after : Config E Host} {labels : List (Label E Host)} (run : Steps profile ready dispatch before labels after) :
+    Trail profile ready dispatch before none labels after none :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.absentTrail run
+
+/-- An absent final mark identifies a real first loss in the same tracked
+run. Only a loss by popping the selected slot enters its continuation. -/
+theorem Trail.first_loss {before after : Config E Host} {labels : List (Label E Host)}
+    {place : Location} {resume : Continuation E Host}
+    (run : Trail profile ready dispatch before (some place) labels after none)
+    (occurs : segmentAt (segmentStorage before) place = some (.prog resume)) :
+    ∃ leading label trailing atLoss next reached,
+      labels = leading ++ label :: trailing ∧
+      Prefix profile ready dispatch before place leading atLoss reached ∧
+      Step profile ready dispatch atLoss label next ∧ Trail profile ready dispatch next none trailing after none ∧
+      (transitionEdit atLoss label).follow reached = none ∧
+      (Popped atLoss next label reached resume ∨ ¬ (transitionEdit atLoss label).pops reached) :=
+  Proofs.Wasm.Component.Reference.MachineReturnOccurrence.trailLoss run place rfl rfl occurs
+
 /-- Every finite execution either retains the selected occurrence or has a
 first removal. Only a pop of its actual top slot executes the continuation;
 lockdown and overwrite do not turn a nonreturning prefix into a return. -/

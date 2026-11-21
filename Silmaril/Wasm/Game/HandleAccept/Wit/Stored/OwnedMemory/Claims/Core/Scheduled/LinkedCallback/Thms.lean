@@ -251,6 +251,28 @@ theorem ChildFrameOver.collection_install_pair {changes : ReturnFrame.Substituti
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.childCollectionInstall
     destination inst type element entries output index checkNext canonNext frame reachedWidth prepared checkAt canonAt
 
+/-- Replay a finite classified allocation prefix on both actual collection
+programs. Only a return from the installed occurrence can continue into the
+reached range and live authority checks. The entry mode stays attached to
+the saved continuation, including indirect memory-map placement. -/
+theorem ChildFrameOver.collection_replay {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (destination : RecordDestination) (inst : InstId) (type element : TypeOf) (entries : List Field)
+    (index : Nat) (output : Stored.Lower.Output)
+    (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon)
+    (present : (core3 grow).memAddrType? left.store.core destination.memory = some destination.width)
+    {bytes : Nat} (sized : (core3 grow).memSize? left.store.core destination.memory = some bytes)
+    (prepared : Record.prepare left.store left.host.writer (Field.listObjects entries) = .ok ())
+    (checkAt : left.ctl = check.control (Record.Effects.field recordClaims Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) index output >>= checkNext))
+    (canonAt : right.ctl = canon.control (CanonicalTree.field Limits.spec Quirks.none
+      (destination.context inst) destination.width (.dynamic type element entries) output >>= canonNext)) :
+    CollectionReplay profile ready bindings older destination inst type element entries index output left right check canon checkNext canonNext :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.collectionReplay
+    destination inst type element entries index output checkNext canonNext frame present sized prepared checkAt canonAt
+
 /-- Validate the reached allocation before re-reading live authority. Any
 substitution selected for this pop must implement the same range program
 on the observed pointer; other saved frames remain related. -/
