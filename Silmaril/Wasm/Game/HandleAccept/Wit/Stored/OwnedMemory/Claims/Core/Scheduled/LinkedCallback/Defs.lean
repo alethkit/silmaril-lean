@@ -34,9 +34,8 @@ def MarkedReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bi
     visible leftLabels = seen ∧ visible rightLabels = seen ∧
     ReturnFrame.Occurrence.Outside older (ReturnFrame.Occurrence.segmentStorage last)
       (ReturnFrame.Occurrence.segmentStorage other) reached ∧
-    ∀ place, reached = some place → ∃ original, mark = some original ∧
-      ReturnFrame.Occurrence.Prefix profile ready dispatch left original leftLabels last place ∧
-      ReturnFrame.Occurrence.Prefix profile ready dispatch right original rightLabels other place
+    ReturnFrame.Occurrence.Trail profile ready dispatch left mark leftLabels last reached ∧
+    ReturnFrame.Occurrence.Trail profile ready dispatch right mark rightLabels other reached
 
 /-- Evidence for a give import actually reached within a closed instance.
 It includes the reached caller and binding, not agreement of the two writers. -/
@@ -287,9 +286,8 @@ inductive StringReplayLayer (profile : ProfileKind) (ready : HostReady (HostStat
             CoreGrowthSteps profile ready dispatch rightEntry rightLabels other ∧
             visible leftLabels = seen ∧ visible rightLabels = seen ∧
             HostFrame.Related.Paired changes last other ∧
-            (∀ place, mark = some place →
-              ReturnFrame.Occurrence.Prefix profile ready dispatch leftEntry (.active 0 0) leftLabels last place ∧
-              ReturnFrame.Occurrence.Prefix profile ready dispatch rightEntry (.active 0 0) rightLabels other place) ∧
+            ReturnFrame.Occurrence.Trail profile ready dispatch leftEntry (some (.active 0 0)) leftLabels last mark ∧
+            ReturnFrame.Occurrence.Trail profile ready dispatch rightEntry (some (.active 0 0)) rightLabels other mark ∧
             (∀ value cursor, mark = some (ReturnFrame.Occurrence.Location.active 0 0) →
               last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (.pure (.nat value)) →
               ∃ otherCursor,
@@ -321,7 +319,8 @@ inductive RangeCutOver (profile : ProfileKind) (ready : HostReady (HostState sig
     (left right last : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig))
     (destination : RecordDestination) (area : Layout) (count pointer : Nat) (plan : List Object)
     (checkNext : Nat → Except Endpoints.RecordLower.Issue Unit → Session grow sig (Ret (core3 grow)))
-    (canonNext : Nat → Session grow sig (Ret (core3 grow))) (seen : List (Label (core3 grow) (HostState sig))) : Prop where
+    (canonNext : Nat → Session grow sig (Ret (core3 grow))) (seen : List (Label (core3 grow) (HostState sig)))
+    (allowCommon : Prop := True) : Prop where
   | reached {reference : State grow sig} {canonCursor : Cursor (E := core3 grow) (HostState sig)} {bytes : Nat}
       {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))}
       (width : (core3 grow).memAddrType? last.store.core destination.memory = some destination.width)
@@ -334,21 +333,56 @@ inductive RangeCutOver (profile : ProfileKind) (ready : HostReady (HostState sig
       (canonical : Steps profile ready (specDispatch ready (host bindings)) right canonLabels
         { reference with ctl := canonCursor.control (canonNext pointer) })
       (checkSeen : visible checkLabels = seen) (canonSeen : visible canonLabels = seen) :
-      RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen
+      RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen allowCommon
   | trapped {reference : State grow sig} {reason : TrapReason}
       {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))}
       (stores : last.store = reference.store)
       (checked : Steps profile ready (specDispatch ready (host bindings)) left checkLabels (StepDefs.trapCfg last))
       (canonical : Steps profile ready (specDispatch ready (host bindings)) right canonLabels (StepDefs.trapCfg reference))
       (checkSeen : visible checkLabels = seen ++ [.trap reason]) (canonSeen : visible canonLabels = seen ++ [.trap reason]) :
-      RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen
+      RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen allowCommon
   | common (pop : CollectionCommonPopOver profile ready bindings changes left right
-      { last with ctl := cursor.control (resume (.nat pointer)) } seen) :
-      RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen
+      { last with ctl := cursor.control (resume (.nat pointer)) } seen) (allowed : allowCommon) :
+      RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen allowCommon
 
 abbrev RangeCut (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (first second : ReturnFrame.Continuation (core3 grow) (HostState sig)) :=
   RangeCutOver profile ready bindings (ReturnFrame.Only first second) first
+
+/-- The linked allocation prefix need not return. If the installed occurrence
+does reach the top with a pointer, only its paired range check and live recheck
+are exposed, with the older frames restored on both sides. -/
+def CollectionReplay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig))
+    (destination : RecordDestination) (inst : InstId) (type element : Stored.TypeOf) (entries : List Field)
+    (index : Nat) (output : Stored.Lower.Output) (left right : State grow sig)
+    (check canon : Cursor (E := core3 grow) (HostState sig))
+    (checkNext : Except Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
+    (canonNext : output.Result → Session grow sig (Ret (core3 grow))) : Prop :=
+  let dispatch := specDispatch ready (host bindings)
+  let area := layout destination.width element
+  let mode := Stored.Endpoints.RecordLower.CanonicalTree.EntryMode.forOutput destination.width type output
+  let first := checkedCollectionResume destination inst entries area index output checkNext
+  let second := canonicalCollectionResume destination inst entries area output canonNext mode
+  let checked := collectionEntry destination inst area entries.length dispatch left check first
+  let canonical := collectionEntry destination inst area entries.length dispatch right canon second
+  let changes := ReturnFrame.Extend older first second
+  Steps profile ready dispatch left [.tau, .tau, .tau] checked ∧
+  Steps profile ready dispatch right [.tau, .tau] canonical ∧
+  ∀ {last seen protectedReturn}, PrefixFor profile ready bindings protectedReturn checked seen last →
+    (∀ first second, changes first second → protectedReturn first) →
+    ∃ leftLabels rightLabels other mark,
+      CoreGrowthSteps profile ready dispatch checked leftLabels last ∧
+      CoreGrowthSteps profile ready dispatch canonical rightLabels other ∧
+      visible leftLabels = seen ∧ visible rightLabels = seen ∧
+      HostFrame.Related.Paired changes last other ∧
+      ReturnFrame.Occurrence.Trail profile ready dispatch checked (some (.active 0 0)) leftLabels last mark ∧
+      ReturnFrame.Occurrence.Trail profile ready dispatch canonical (some (.active 0 0)) rightLabels other mark ∧
+      ∀ pointer cursor, mark = some (ReturnFrame.Occurrence.Location.active 0 0) →
+        last.ctl = { cursor with frames := .prog first :: cursor.frames }.control (.pure (.nat pointer)) →
+        RangeCutOver profile ready bindings older first checked canonical last cursor destination area entries.length pointer
+          (Field.listObjects entries) (fun ptr live => checkedCollectionTail destination inst entries area index output ptr live >>= checkNext)
+          (fun ptr => canonicalCollectionTail destination inst entries area output ptr mode >>= canonNext) seen False
 
 /-- Allocator descent from the two actual dynamic-field programs. The cut
 hands the entry interpreters back to the caller rather than requiring

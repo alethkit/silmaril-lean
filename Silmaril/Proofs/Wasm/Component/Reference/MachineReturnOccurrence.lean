@@ -505,6 +505,68 @@ theorem prefix_append {before middle after : Config E Host} {leading trailing : 
   | done => exact right
   | step first moved _ ih => exact .step first moved (ih right)
 
+theorem prefixTrail {before after : Config E Host} {labels : List (Label E Host)} {place reached : Location}
+    (run : Prefix profile ready dispatch before place labels after reached) :
+    Trail profile ready dispatch before (some place) labels after (some reached) := by
+  induction run with
+  | done => exact .done _ _
+  | step run moved _ ih => exact .step run (by simpa only [Option.bind, moved] using ih)
+
+theorem trailAppend {before middle after : Config E Host} {leading trailing : List (Label E Host)}
+    {mark reached final : Option Location} (left : Trail profile ready dispatch before mark leading middle reached)
+    (right : Trail profile ready dispatch middle reached trailing after final) :
+    Trail profile ready dispatch before mark (leading ++ trailing) after final := by
+  induction left with
+  | done => exact right
+  | step first _ ih => exact .step first (ih right)
+
+theorem trailSurvives {before after : Config E Host} {labels : List (Label E Host)}
+    {mark : Option Location} {reached : Location}
+    (run : Trail profile ready dispatch before mark labels after (some reached)) :
+    ∃ place, mark = some place ∧ Prefix profile ready dispatch before place labels after reached := by
+  generalize found : some reached = final at run
+  induction run with
+  | done => cases found; exact ⟨reached, rfl, .done _ _⟩
+  | @step before next after mark final label labels step _ ih =>
+    obtain ⟨middle, moved, tail⟩ := ih found
+    cases mark with
+    | none => contradiction
+    | some place => exact ⟨place, rfl, .step step moved tail⟩
+
+theorem absentTrail {before after : Config E Host} {labels : List (Label E Host)} (run : Steps profile ready dispatch before labels after) :
+    Trail profile ready dispatch before none labels after none := by
+  induction run with
+  | refl => exact .done _ _
+  | cons head _ ih => exact .step head ih
+
+theorem trailLoss {before after : Config E Host} {labels : List (Label E Host)}
+    {mark final : Option Location} {resume : Continuation E Host}
+    (run : Trail profile ready dispatch before mark labels after final) (place : Location)
+    (started : mark = some place) (lost : final = none)
+    (occurs : segmentAt (segmentStorage before) place = some (.prog resume)) :
+    ∃ leading label trailing atLoss next reached,
+      labels = leading ++ label :: trailing ∧
+      Prefix profile ready dispatch before place leading atLoss reached ∧
+      Step profile ready dispatch atLoss label next ∧ Trail profile ready dispatch next none trailing after none ∧
+      (transitionEdit atLoss label).follow reached = none ∧
+      (Popped atLoss next label reached resume ∨ ¬ (transitionEdit atLoss label).pops reached) := by
+  induction run generalizing place with
+  | done => rw [started] at lost; contradiction
+  | @step before next after mark final label labels step tail ih =>
+    subst mark
+    cases moved : (transitionEdit before label).follow place with
+    | none =>
+      refine ⟨[], label, labels, before, next, place, rfl, .done _ _, step, ?_, moved, ?_⟩
+      · rwa [Option.bind, moved, lost] at tail
+      by_cases popped : (transitionEdit before label).pops place
+      · exact .inl (step_pop step occurs popped)
+      · exact .inr popped
+    | some middle =>
+      obtain ⟨leading, loss, trailing, atLoss, afterLoss, reached, split, track, cut, remainder, removed, kind⟩ :=
+        ih middle moved lost ((step_follow step moved).trans occurs)
+      exact ⟨label :: leading, loss, trailing, atLoss, afterLoss, reached, congrArg (List.cons label) split,
+        .step step moved track, cut, remainder, removed, kind⟩
+
 theorem first_loss {before after : Config E Host} {labels : List (Label E Host)} {place : Location}
     {resume : Continuation E Host} (occurs : segmentAt (segmentStorage before) place = some (.prog resume))
     (run : Steps profile ready dispatch before labels after) :
