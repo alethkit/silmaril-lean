@@ -15,6 +15,13 @@ variable {grow : SingleThreaded.GrowOracle} {sig : Signature} {pointer : FlatVal
 
 abbrev ParkedShape := AggregateShape (fun field => ∃ item : StringField, item.field = field)
 
+/-- The current recursive comparison covers primitive data, including strings.
+Enum and flags are compiled successfully but still need local comparison rules.
+This is a restriction on the proof, not a new runtime admission test. -/
+def PrimitiveDataOnly (field : Field) : Prop :=
+  ∀ {type : TypeOf} (payload : Stored.Payload type), field.Descendant (.data type payload) →
+    ∃ primitive : WIT.Primitive, type = .prim primitive
+
 /-- The placed branch compares the public body up to its real reply
 continuation, not a delivered reply or event. Allocator prefixes are
 compared under the callback classification of the linked scheduler. -/

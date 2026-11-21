@@ -79,4 +79,25 @@ theorem parked_recursive_flat {schema : TypeOf} (call : PayloadRoot.Site grow si
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedFlat
     call linked flatDepth entryDepth next shape realloc
 
+/-- The actual checked preflight supplies the entire active structure and
+map pair placement for the parked memory comparison. Only local enum and
+flag leaf coverage is excluded; no per-child comparison is a premise. -/
+theorem parked_compiled_memory (call : PayloadRoot.Site grow sig (.memory pointer)) (linked : call.Linked bindings)
+    (next : call.ReferenceNext) (coverage : PrimitiveDataOnly call.field)
+    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    ∃ depth, PayloadRoot.Cut call profile ready bindings (ParkedListTreeBody call depth next profile ready bindings) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedCompiledMemory
+    call linked next coverage realloc
+
+/-- The same compiler evidence supplies flat aggregate and selected-sum
+descent and recursive memory traversal at every reached collection return.
+This compares the body through the original reply continuation, not delivery. -/
+theorem parked_compiled_flat {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (linked : call.Linked bindings)
+    (next : call.ReferenceNext) (coverage : PrimitiveDataOnly call.field)
+    {addr : Nat} (realloc : call.destination.realloc = some addr) :
+    ∃ flatDepth entryDepth, PayloadRoot.Cut call profile ready bindings
+      (ParkedFlatBody call flatDepth entryDepth next profile ready bindings) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PublicMemorySequence.parkedCompiledFlat
+    call linked next coverage realloc
+
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
