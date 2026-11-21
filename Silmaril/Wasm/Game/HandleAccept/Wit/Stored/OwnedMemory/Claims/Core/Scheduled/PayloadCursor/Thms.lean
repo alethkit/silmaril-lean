@@ -46,6 +46,13 @@ theorem RecordDestination.memory_cursor (run : CoreGrowthSteps profile ready dis
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCursor.memory_cursor
     run destination inst checked storeField field fields cursor index finish focused
 
+/-- The allocation instruction and continuation precede both range checks. -/
+theorem listRange_focus (cx : LiftLowerContext (core3 grow)) (area : Layout) (count : Nat)
+    (finish : Nat → P (core3 grow) Host (Ret (core3 grow))) :
+    (allocateListRange cx area count >>= finish) =
+      .op (.call (.reallocate cx 0 0 area.alignment.bytes (count * area.size))) (listRangeResume cx area count finish) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PayloadCursor.list_range_focus cx area count finish
+
 /-- A dynamic collection installs the real allocator and exact saved frame. -/
 theorem listRange_install (cx : LiftLowerContext (core3 grow)) (area : Layout) (count : Nat)
     (finish : Nat → P (core3 grow) Host (Ret (core3 grow))) {thread segments rest}

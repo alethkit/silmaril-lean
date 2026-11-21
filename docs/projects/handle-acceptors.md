@@ -948,8 +948,12 @@ not from equality of continuation values. `Prefix.under` follows older slots
 through the same active or suspended activation as a surviving mark.
 `string_return_tracks` constructs the older-slot prefix through an actual
 string allocation or resize, using the marked callback and its designated pop.
-It does not identify a continued occurrence after loss of the mark or thread
-this certificate through the entire recursive body. `Site.refusal_resumes` extends a
+`CollectionReplayFor` also tracks older slots through the actual checked
+preflight reads and the reference width read into each collection allocator.
+`Trail.through_return` composes such an install with the marked run and its
+actual pop; a surviving suspended mark instead carries older slots by
+`Prefix.under`. These certificates do not identify a continued occurrence after
+loss of the mark or thread it through the entire recursive body. `Site.refusal_resumes` extends a
 reached preflight refusal on the checked side only. These local completion
 rules do not imply that a suspended callback returns or an async event is
 delivered.

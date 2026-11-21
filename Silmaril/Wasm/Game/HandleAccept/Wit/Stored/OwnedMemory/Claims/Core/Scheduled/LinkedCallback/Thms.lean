@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback
+import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Thms
 
 public section
 
@@ -378,9 +379,12 @@ theorem ChildFrameOver.collection_install_pair {changes : ReturnFrame.Substituti
     let canonCall := collectionEntry destination inst area entries.length dispatch right canon second
     Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
     Steps profile ready dispatch right [.tau, .tau] canonCall ∧
-    HostFrame.Related.Paired (ReturnFrame.Extend changes first second) checkCall canonCall :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.childCollectionInstall
+    HostFrame.Related.Paired (ReturnFrame.Extend changes first second) checkCall canonCall := by
+  obtain ⟨checked, canonical, paired⟩ :=
+    Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.childCollectionInstall
+    (profile := profile) (ready := ready) (bindings := bindings)
     destination inst type element entries output index checkNext canonNext frame reachedWidth prepared checkAt canonAt
+  exact ⟨(ReturnFrame.Occurrence.prefix_survives (checked 0)).1, (ReturnFrame.Occurrence.prefix_survives (canonical 0)).1, paired⟩
 
 /-- Replay a finite classified allocation prefix on both actual collection
 programs. Only a return from the installed occurrence can continue into the
