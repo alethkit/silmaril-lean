@@ -57,6 +57,10 @@ wire, or exhaustion stays an error. Fuel bounds Prolly block depth per
 component, and the finite path bounds directory descent. This does not
 implement FUSE or by itself certify the reference supplied by an import.
 
+[Retention](projects/content-arenas.md#retention) adds a hash-only traversal with
+the same root and faults as `stage`, and publication of a kept subset. A dropped
+block reads as deferred or missing and is never an absent path.
+
 ```sh
 lake build --wfail Silmaril.Formats.Git.Filesystem.Routed.Thms
 lake env lean -DwarningAsError=true --run tests/formats/GitFilesystem.lean
