@@ -665,14 +665,317 @@ check does not roll back effects of the emitter.
 
 `CoreGrowthSteps` frames the linked memory address, pointer width, and bounds of already
 valid regions across certified scheduler prefixes. It permits guest byte writes and memory
-growth. Core instructions, canonical memory writes and the realloc dispatcher's own
-updates supply growth proofs; other reached `modify` operations need their own proof.
+growth. Core instructions and canonical memory writes supply growth proofs. The scheduler
+carries program certificates through calls, returns, blocking and resumption. The actual
+canonical allocator, implicit lift thread, synchronous lift loop, and caller start and
+resolve programs supply installation certificates; arbitrary guest callouts and injected
+host programs do not inherit one.
 In a closed realloc window, a same-instance
 reentrant `givePayload` or `giveFlat` with a valid binding takes the actual typed
 `wrongContext` reply, journals the refusal, and resumes parked Core without changing the
-component store or writer. This certifies those callout segments without assuming the
-allocator's bytes are unchanged. It does not yet certify every callback trace, nor the
+component store or writer. The resumed control retains its continuation certificates,
+so the refusal segment composes with the certified prefixes before and after it.
+`parked_closed_give_writer_frame` pairs those segments even if earlier checked spends
+made the writers different: the reply, journal update, and resumed Core control are the
+same, with each writer left in place. This
+does not assume the allocator's bytes are unchanged, certify every callback trace, or validate the
 range newly returned by realloc, which canonical lowering checks in the reached store.
+
+The collection program laws factor both canonical outputs into ordered child
+programs. Fixed memory lists are in-place; dynamic lists and maps share the
+canonical request, reached-range validation and descriptor suffix. Flat maps
+store despecialized records; memory maps place the key and value using the
+allocation-time width, including when a string key itself calls realloc.
+At a reached collection cursor, the canonical width read and the checked dry
+run lead to the same realloc request. The saved checked continuation revalidates
+claims in the store and writer reached after the callback. A typed refusal there
+does not enter the element or descriptor programs; an invalid returned range
+traps before the live recheck. These are collection rules for the recursive
+comparison, not a correspondence for the complete public export sequence.
+The linked-prefix rule discharges the install certificates for the allocator
+protocol and callouts resolving to either public give binding, including closed
+window reentry. Only other reached installs need a separate certificate. At a
+return, the same memory address supplies the checked width and an existing
+region still fits; the returned pointer still has to pass alignment and range
+validation. None of these rules frames guest bytes or assumes a callback returns.
+The canonical record/tuple layout also bounds each aligned field placement
+inside the aggregate. With an already-valid aggregate region, the checked
+nested-field bounds read succeeds at that placement after a certified prefix.
+
+`RecordDestination.paired_dynamic_call` reaches the same linked realloc
+program on both sides, with the two actual continuation programs on the
+stack, even with different writers after earlier transfers.
+`Machine.HostFrame.paired_steps` replays the actual scheduler through blocked
+activations up to a host read that changes the continuation or the return to
+the substituted frame. The synchronous lift loop agrees on its residual
+program when its blocked threads' reached readiness queries agree, including
+constant readiness policies. A closed same-instance reentrant public give
+rejoins the paired scheduler after journaling the typed refusal on each side;
+its Core reply does not depend on either writer or ticket. Open/raw host
+reads need not agree. A prefix that traps or has not returned does not need an
+allocator result. After a common return the two continuations check the same
+reached range, and the checked one revalidates its own reached live plan before
+entering any element. This pairs allocator prefixes, not the subsequent
+recursive traversals or the complete exports.
+
+`RecordDestination.compare_handle_leaf` pairs the actual canonical memory and
+flat programs for own, stream, future, and error-context leaves. On live-check
+refusal it stops the canonical side before the leaf. On admission both sides
+reach the same value or canonical trap and the same component store from the
+shared cursor, even with different writers and sequence continuations. A late
+trap retains canonical table and memory effects and the checked side's spend.
+
+`PayloadPrefix.flat_field` composes those steps through nested records,
+tuples, fixed lists and sums with handle-only leaves. Only a common return
+advances the sequence; typed refusal stops at an actual reference prefix,
+and canonical failure keeps the same trap and reached component store.
+`flat_sum` continues from the selected arm to the actual slot coercions
+and padding on both sides, matching any canonical choices made on the paired
+runs. `parked_giveFlat` uses the compiler's layout certificate to discharge
+selected-tag bounds throughout this fragment. It starts at the linked Core
+call and reaches the original reply continuation for a returned verdict.
+It compares against `lowerFlatAt` on the selected value and schema; it does
+not cover allocating children or export delivery.
+
+`PayloadPrefix.parked_givePayload` pairs the linked indirect route with
+`Canon.store` for handle leaves and sums with no active payload or a single
+active handle leaf. The destination check supplies the width for the actual
+canonical discriminant write and child placement. Both runs retain that write
+if the live child check refuses or if a later store traps. Typed preflight
+and live refusals remain separate from alignment and bounds traps at root
+placement: raw `store` assumes valid placement, so the checked route can trap
+before the canonical program starts. This fragment does not yet cover nested
+memory aggregates or allocator callbacks.
+
+`RecordDestination.memory_cursor` uses the width established by the same destination
+check as both public give routes. On a certified prefix the canonical field cursor
+takes its actual width-read step and selects the same aligned address and increment
+as the compiled sequence. For dynamic lists and maps, `listRange_call` identifies the
+real realloc request and the saved continuation. `RecordDestination.listRange_resume`
+uses the store reached by a returning allocator: it traps on an invalid alignment or
+range without resuming the emitter, or proceeds to claim revalidation in that store.
+Neither the cursor nor the allocator-return rule assumes byte preservation, an
+allocator return on every trace, or success of the subsequent transfer.
+
+`PayloadPrefix.collection_install` applies that width certificate to the
+actual recursive collection programs. After the initial plan check succeeds,
+the two machines install the same realloc request with separately saved
+continuations. `collection_return` composes an actual paired return with
+range validation, the fresh checked plan verdict, element traversal, and the
+canonical list descriptor. A refused recheck leaves the reference before
+the elements, and a later descriptor trap retains preceding writes. The
+rules cover value-mode entries (dynamic lists and flat-map entries); the
+memory-map placement mode and the synthesis of paired reentrant runs for
+arbitrary nested public outputs remain separate obligations.
+
+`LinkedCallback.Prefix.syncLift` includes the reached synchronous choice
+or no-candidate trap in the classified callback replay. Only the host
+predicates queried for blocked threads in that instance need to be independent
+of the writer; this is automatic for a writer-independent readiness policy.
+`Prefix.collection_return` composes the replay (including closed give reentry)
+with the reached allocation range and fresh live claim verdict before running
+the child comparisons. A pop of an unchanged frame instead leaves the pair
+aligned. `Prefix.collection` derives the allocator entry and saved frames
+directly from the actual checked and canonical dynamic collection programs;
+only the checked run supplies the classified callback path. These rules do
+not compare arbitrary host reads or prove that the allocator returns.
+
+`LinkedCallback.PublicCollection.Site.parked` connects the compiled collection
+root to both public give calls. At the parked Core activation it follows the
+actual dry run, ABI fit, and root placement. Typed refusal reaches the original
+reply program; invalid indirect placement traps before allocation. Otherwise
+both allocators are installed. `Site.TailRule` receives the actual reached
+width, size, alignment, bounds, and successful live-plan verdict; the tail
+comparison is used only after these checks pass. `Site.parked_handles` supplies
+that rule for a dynamic list of
+handle leaves. This does not prove nested allocating children, memory-map
+placement, or delivery of the reply.
+
+`PayloadPrefix.primitive_leaf` pairs non-string scalar effects after the
+checked width and placement reads. `primitive_list_entry` gets those facts
+from a validated list range and a growth-certified prefix, not from a claim
+that guest memory bytes stay unchanged. `CollectionTailAt.scalar_entries`
+carries Core growth through completed scalar writes to derive placement at
+each next cursor, and compares the actual final descriptor. `Site.parked_scalars`
+derives the entry shape from compilation in both public give routes, so no
+separate child comparison is needed after a classified allocator return for
+these lists. This does not cover string elements, nested allocating children,
+or unclassified open callbacks.
+
+`closed_memory_aggregate` uses the compiled record or tuple layout to compare
+the actual checked bounds read and canonical field cursor for handles and
+non-string scalar leaves. Completed transfers and scalar writes keep the linked
+memory's width and bounds for the next field; a refusal or trap does not run
+the suffix. `parked_givePayload_closed` applies this fragment to the public
+indirect binding and retains its original reply continuation. The rule does not
+yet compose nested allocating fields or claim reply delivery.
+
+`MemoryChildRule.aggregate` composes reached memory children in a record or
+tuple using its compiled layout. `CollectionTailAt.memory_entries` uses the
+same child interface for a validated array, deriving the alignment and bounds
+of each reached entry. `Site.parked_local_entries` discharges the resulting
+tail for lists of arbitrarily nested local records and tuples, on both public
+give bindings, and for flat maps in value-entry mode. Its fragment has
+non-string scalar and handle leaves. The outer allocator path still uses the
+linked callback classification; allocators within entries and indirect map
+placement are not covered. Growth preserves the usable bounds, not the bytes.
+
+`Prefix.collection_memory` carries that growth evidence across an actual
+dynamic child's allocator install, classified callback, and saved return.
+On success its certificate covers the enclosing prefix, the callback, the
+entry writes/transfers and the descriptor at the reached store. The
+post-return range and live claim checks still run before the child rules.
+A common-frame pop stays paired without claiming a return; typed refusal
+and canonical trap stop the suffix. This is a rule for a classified reached
+path, not a proof that realloc returns or a classification of all nested paths.
+
+`PayloadRoot.Site.parked` shares admission, claim preparation, fit and root
+placement across both linked give bindings. `NestedRecord.parked_givePayload`
+uses that cut and the compiler's layout to enter a record or tuple whose first
+field is an allocating list. It executes the aggregate's checked bounds read
+and keeps its nested issue mapping. It compares finite classified allocator
+prefixes and advances the real sibling cursor only after a common return and
+live recheck. The list entries and later fields use the recursive local-memory
+fragment; arbitrary allocating descendants and reply delivery remain separate.
+
+`MemorySequence.parked_givePayload` covers arbitrary record and tuple nesting
+with interleaved allocating strings and checked handles. The actual public
+fit and placement guards supply the root certificate. Each child placement
+comes from the compiled layout, and the induction advances siblings only at
+the paired success continuation. String callbacks may mutate memory; each
+later handle guard rechecks the reached writer. The comparison retains older
+saved frames and finite classified allocator prefixes. This fragment does
+not yet cover allocating collection descendants, sums, or reply delivery.
+
+`MemorySequence.value_entries_replay` extends the marked allocator replay
+through the reached value-mode collection range, deriving the strided slots
+from the entry layouts. Each entry can contain nested records and tuples with
+allocating strings and checked handles. After a common success it runs the
+actual pointer/count descriptor; a trap on the second write keeps the first.
+Range traps and typed refusals run no entries. The rule applies to lists and
+flat maps in value-entry mode, not the allocation-time layout of indirect maps.
+`MemorySequence.parked_list` applies it to the actual list root on both
+public give bindings. The linked destination and public admission supply
+the initial memory and live plan without assuming either is unchanged at
+the later return. On common success the descriptor reaches the original
+continuation; no delivery claim follows.
+
+`Record.Effects.emitValue_eq` gives one recursive checked effect view for both
+ABIs. It composes the live handle checks and commitment-time spends with the
+canonical leaf programs, then traverses the placed record/tuple fields, list and
+map entries, and selected sum arm in order. A dynamic collection validates the
+reached range and rechecks the live plan before traversing any entry. The
+equality is of effect programs, so it also covers a typed refusal after a
+completed prefix or a canonical trap with earlier writes and spends intact.
+`GiveEffectRoute.parked` enters that same program from either linked Core give
+binding with the original continuation and ticket. `compiled_payload_effects`
+identifies its compiled value, layout and ordered receipts after admission.
+This is a checked view, not an erasure of guards to unchecked `Canon.store`
+or `lowerFlatAt`, and does not prove whole-session event delivery.
+
+`CanonicalTree.field_reference` identifies the recursive reference-side
+program with `Canon.store` or `lowerFlatAt` on the certified value and type.
+It is equality of programs, including allocator calls, their continuations,
+range traps, and descriptor writes at arbitrary nesting depth. In particular,
+the flat map uses reached record cursor reads, while the memory map places
+both cells using the allocation-time width, even if its key calls realloc.
+This factors the canonical comparator; it does not discharge the checked
+emitter's live guards or equate its typed refusals with canonical traps.
+The `compiled_payload_reference` lemma instantiates it on either public give's
+compiled field. At a reached collection return, `linked_dynamic_refusal`
+distinguishes the real alignment/range trap from a stopped typed prefix:
+valid range plus a failed live plan reaches the diagnostic continuation with
+the entire reached state, before any element or descriptor write.
+`checked_leaf_prefix` gives the scheduler transition from a reached owner,
+endpoint or error-context check to the reference leaf on either output. It
+either stops with a typed error or runs the reference leaf after just the
+required claim spend; shared contexts spend nothing. The lemma does not
+deduce that a later canonical leaf succeeds.
+
+`ChildFrameOver.string_field_replay` compares both actual string field programs
+through their allocate/resize plans and memory descriptor or flat result. It
+replays classified finite callback prefixes; a returning callback advances the
+comparison only when it pops the installed occurrence. Older paired frames stay
+paired, and induction resumes on the strictly shorter saved plan. Descriptor
+writes use the reached state and may trap after an earlier write. The string
+rule takes the reached width, placement and fit facts; it does not require
+callbacks to return, preserve guest bytes or preserve live claims. Composition
+through arbitrary allocating compounds and both public give bindings is separate.
+
+`ChildFrameOver.collection_replay` applies the same occurrence tracking to
+the allocating list and map programs. A finite callback prefix can end
+without a return. Both replays certify every edit of the mark, even when
+overwriting or trapping removes it. At the installed return the comparison
+retires just that frame and
+checks the pointer against the reached memory; only a valid range reads the
+live plan. An invalid range traps with the callback effects intact. A failed
+live check leaves the canonical program before traversal, while the checked
+continuation receives a typed refusal. The saved map mode still distinguishes
+memory placement at allocation width from reached flat-entry cursor reads.
+The cut does not assume or prove equivalence of the subsequent children.
+
+`MemorySequence.parked_list_tree` supplies the recursive placed-child comparison
+for an indirect payload, including mixed scalar, string and handle leaves, fixed
+arrays, aggregates, active sums, lists and indirect maps. The flat counterpart,
+`MemorySequence.parked_recursive_flat`, traverses records, tuples, fixed arrays
+and sums, and enters the placed-child comparison at each reached list or map
+allocator return. The compiler and public admission supply tag bounds, entry
+layouts and string fit within the structural fragment. For a present sum arm,
+the actual coercion and padding run on the arm's words only after common success;
+an empty arm runs that tail directly. A typed refusal never runs the coercion or
+the following sibling. Canonical traps retain earlier effects. Both comparisons
+retain finite suspension and the reached callback classification and readiness
+conditions; neither asserts whole-export delivery or allocator liveness.
+
+`MemorySequence.parked_compiled_memory` and `parked_compiled_flat` obtain the
+active recursive shape from the same successful preflight used by the linked
+binding. In a map, the compiler proves that each entry contains its checked
+primitive key and recursively compiled value; this does not follow from layout
+alone. Neither public theorem takes per-child shape assumptions or a depth
+bound. Primitive data, enums, flags and checked handles use the reached local
+rules, while strings use their actual allocation plans. The compiler's schema
+checks provide the enum and flags evidence, not a separate leaf assumption.
+The linked preflight also supplies the allocator option at each allocating
+descendant. Pointer-free schemas need no realloc option for either comparison;
+pointer-bearing schemas still require it before execution, including inactive
+arms and empty containers. This does not establish callback readiness or return.
+
+At a successful reached reply with the original Core frame on top,
+`resume_returned_give` runs both machines' Core resume steps with the same
+ABI words and reached store. Only the checked machine records completion.
+`Site.reached_caller` identifies that frame from a finite occurrence trail,
+not from equality of continuation values. `Prefix.under` follows older slots
+through the same active or suspended activation as a surviving mark.
+`string_return_tracks` constructs the older-slot prefix through an actual
+string allocation or resize, using the marked callback and its designated pop.
+`CollectionReplayFor` also tracks older slots through the actual checked
+preflight reads and the reference width read into each collection allocator.
+`Trail.through_return` composes such an install with the marked run and its
+actual pop; a surviving suspended mark instead carries older slots by
+`Prefix.under`. Loss of the mark does not identify a surviving occurrence.
+`parked_memory_rejoined` and `parked_flat_rejoined` thread the older-slot paths
+through the entire compiler-derived body: record/tuple and array siblings,
+selected sum arms, nested list entries, and allocation-time indirect map
+placement. A successful return uses the composed path from the parked give to
+resume the original Core caller with the same ABI words and reached store.
+The traversal retains finite suspended callback paths and executes range and
+live-claim checks at the reached return. Typed stops do not run later siblings;
+canonical traps keep the reached effects. Callback classification and readiness
+still apply, and Core resumption does not prove async event delivery.
+`Site.refusal_resumes` extends a
+reached preflight refusal on the checked side only. These local completion
+rules do not imply that a suspended callback returns or an async event is
+delivered.
+
+The checked recursive emitter supplies the store-invariant certificate for both
+public payload bindings. Its proof follows the actual canonical data writes, owner
+and endpoint commitment operations, selected sum arm, and collection allocation,
+revalidation and descriptor writes. A reached parked `givePayload` or `giveFlat`
+callout with the matching binding therefore supplies a scheduler installation
+certificate, even when it refuses or traps. Together with the allocator dispatcher
+certificates this covers those installs, not arbitrary host code. The invariant
+frames memory width and allocated bounds; it is not an effect equivalence or a
+claim that a late refusal undoes the prefix.
 
 `Binding.acceptFlat` links a fixed tag and checks the full schema before accepting the
 canonical flat operand vector. The child pointer/count and any indirect string or list
@@ -695,6 +998,17 @@ refusal: there is no publication, the diagnostic is journaled, and prior canonic
 effects are retained. Together with `accept_refusal_steps` these cover all outcomes once
 the dispatcher reaches the synchronous accept continuation. They are per-invocation
 reduction lemmas, not an exact guest language theorem.
+
+The parked public give rules reach the checked lowering program for the selected
+root with the original Core continuation and ticket. The compiled-start rule
+identifies its canonical value, recursive layout and ordered nominal receipts,
+then steps the initial live dry run and checked width read. A returned result
+journals and resumes Core with the reached store; a canonical trap does not
+enter this reply continuation. After a valid collection allocation return,
+`listRange_recheck` steps the actual claim read against the reached store and
+writer. It does not restore pre-allocation claims or assume allocator liveness.
+These are boundaries of the recursive execution proof, not yet a correspondence
+for the entire body or for a sequence of scheduled exports.
 
 The scheduled flat replay connects a writer and a reader in separate component
 instances through actual Core exports. It runs with either a stream or a future of a
@@ -751,13 +1065,29 @@ publishing, and publication checks the candidate handle against the live writer.
 At the commit continuation, `complete_commit` preserves the reached store and publishes
 before recording a reply. `complete_stale` instead records `.wrongResultType` and locks
 down without publishing or recording a reply. `resolve_caller` exposes the live reference
-result cursor. `lower_result_program` gives the exact canonical program at this cursor in
+result cursor. `resolve_progress` executes the reached subtask's index check before canonical
+result lowering: an indexed subtask queues or replaces its pending event; an unindexed one
+leaves the slot unchanged. This neither resolves the subtask nor delivers the event.
+`lower_result_program` gives the exact canonical program at this cursor in
 both memory widths: pointer type, alignment and whole-result range checks precede the writes;
 an error only writes its tag, and a successful reply also writes the little-endian handle at
-offset four. `resolve_commit` connects the post-write subtask resolution to publication
-without clearing the pending event or releasing lends. `deliver_pending` takes the actual
-returned event and applies reference lend release in a later waitable step. Neither publication
-nor the presence of an event guarantees that a guest polls or that its event write succeeds.
+offset four. `resolve_indirect_write` executes both writes in the reached Core store,
+derives their success from the full range check, and retains the queued subtask record.
+Bad alignment or an insufficient range takes the actual canonical trap before either
+write. `resolve_direct_words` reaches subtask resolution with the two ABI words and no
+store update. `resolve_commit` connects the post-write subtask resolution to publication
+without clearing the pending event or releasing lends. `resolve_linked_commit` composes
+these steps from the linked resolve entry: both linked modes spill this result, and
+queueing preserves the memory observed at entry. An indexed subtask retains the newly
+queued event after resolution; an unindexed one keeps its original slot.
+`deliver_pending` takes the actual returned event and applies reference lend release in a
+later waitable step. `poll_delivers_returned` derives readiness from a reached member's
+pending slot and executes the selected shuffle before consuming that event. The partial trace
+includes the actual shuffle label and its persisted order. `unpack_event_write` executes
+both event words on a valid buffer. On a late out-of-bounds buffer, `poll_returned_bad_range`
+locks down after consumption and lend release without writing either word or changing the
+reached host. These rules start at the reached poll body; they do not prove public builtin
+admission, wait/cancel sequencing, or that publication guarantees a guest polls.
 The linked replays cover a misaligned result pointer, and a late out-of-bounds poll write
 that traps after consuming the event while preserving the earlier publication.
 `ComponentCall.checked_of_session` gives publication, writer and transcript conservation
@@ -810,6 +1140,139 @@ selects its root, with no missing or extra occurrence. Direct and spilled Core r
 check ordering across refusal and success, and the deferred replay checks cancellation
 and stale start. This reconstructs committed acceptance, not the set of inputs a guest
 will accept or a guarantee that an interrupted caller received its result.
+
+`Delivery.LinkedResolution.then_poll` composes the reached indexed result commit
+with an actual scheduled prefix and a selected parked Core poll of the same
+subtask arena object. The intervening steps must keep the returned event pending;
+a final lookup cannot substitute for that prefix. Moving the waitable between
+sets preserves the pending event. The poll clears it and releases lends even if
+the later output-buffer check traps.
+
+`Delivery.PollAdmission.retains_until_unpack` derives the intervening frame for an
+admitted Core poll with no event, or with a reached selection and successful take
+from a different subtask, stream, or future. The poll's shuffle and take preserve
+the tracked subtask's pending return and the same saved activation at each cut.
+`retains_through_reply` extends that path through the checked buffer writes and
+reply to the original Core caller or the alignment/range trap. The range check
+uses the reached store; a trap retains the other delivery. These are classified
+poll paths, not every possible scheduler step.
+
+`Delivery.ParkedWait.then_resolution` starts at an actual Core wait callout with
+no event available. It registers the waiter and saves the Core continuation;
+after the indexed commit and a retaining prefix, the selected host tick restores
+that continuation, decrements the wait count and runs the same canonical event
+selection as poll. A valid buffer returns the event code to Core. An invalid
+buffer traps after event consumption and lend release. The theorem derives the
+exact saved activation at the tick from scheduler edits along the intervening
+execution, including the actual result commit. A later equal frame does not
+substitute for the original after a resume or overwrite. Tick choice and event
+selection remain explicit; the theorem gives neither scheduler liveness nor a
+correspondence for arbitrary export sequences.
+
+When the set is already ready, `Delivery.ParkedWait.ready_choice` follows the
+profile's reached early-return choice. The non-early branch still installs the
+saved wait. `delivers_early` uses the same selection and result-buffer proof as
+the resumed wait, but requires no block or tick; a late buffer trap still follows
+event consumption and lend release.
+
+`Delivery.WaitResume` separates the reached canonical resume from the policy
+that selected it; the selected tick uses the same resume proof. The reached
+resume restores the tracked saved activation and updates the wait count without
+consulting readiness. `traps_empty` shows that a forced resume of a live set
+with no pending event still shuffles before trapping, unlike an empty poll.
+`delivers_returned` handles a selected pending return after a retaining prefix.
+These theorems do not infer that any particular call will force the resume.
+
+Before resolution, `Delivery.ParkedCancel.requests` derives the live request
+and temporary sync waiter before the actual cancellation callback starts. The
+closed asynchronous case in `StartedCancel.resumes_blocked` executes a started
+guest task's callback with a noncancellable implicit thread: it marks the task
+pending cancel, clears the temporary waiter and returns `BLOCKED` to the same
+Core caller. This path neither resolves nor delivers the subtask. It does not
+classify an initial or immediately resumed callee, a synchronous wait, or an
+open host cancellation hook.
+
+For a ready, cancellable started guest, `Delivery.CallbackWait` derives both
+saved callback-loop continuations from the canonical YIELD (K2) and WAIT (K3)
+branches. The K3 waiter count is decremented on resumption, before the reached
+pending-cancellation check. Cancellation takes priority over the selected set's
+events: these steps do not consume an event or release lends.
+`TaskCancelAdmission.started_calls_core` splices the tracked saved occurrence
+into the actual cancellation callout, retakes the callback lock and invokes the
+Core callback with `TASK_CANCELLED`, keeping the original Core caller parked.
+This prefix requires readiness in the reached post-mark store and does not
+assert that the callback returns, resolves the subtask or delivers its reply.
+
+At a reached Core outcome, `CallbackWait.core_trapped` and `core_returned`
+distinguish a Core trap, a malformed callback result and a valid next loop
+code. `core_reparks` reads the reached task and handle table and installs the
+next K2/K3 continuation on a non-early park. `exit_unresolved` traps if EXIT
+would discard the last thread of an unresolved task. `exit_resolved` follows
+the live registration and lock release, and `unwind_callback` pops the loop's
+identity continuations back to the resumer. Returning to that resumer is not
+the same as consuming the subtask event or replying to the original caller.
+
+When the callback reaches a canonical `task.cancel` import, the reached
+instance, asynchronous option and delivered cancellation are checked before
+resolution. `CallbackCancelImport.enters_resolution` separates the live-borrow
+trap from entry into `onResolve(none)`. For an indexed started subtask,
+`resolves_started` follows the actual lower caller and resumes the Core
+callback with the empty import result. The `CANCELLED_BEFORE_RETURNED` event
+is pending and its lenders are still attached, not delivered by the import.
+
+`CallbackWait.core_only_cut` derives the component frame of every finite
+host-free Core suffix from the machine steps; it leaves the reached Core store
+unconstrained. If that suffix returns EXIT, `CallbackCancelImport.delivers_started`
+uses the pre-import registration and reached return to unregister the callback,
+pop its identity frames and retain the indexed cancellation event until the
+original caller consumes it, releases the lends and gets its Core result. An
+unfinished prefix is not delivery; intervening callouts and wait iterations
+are outside this suffix theorem.
+
+For ready K2/K3, `CallbackWait.takes_early` follows the permitted early
+choice to the same suffix used by resumption, without blocking. The no-cancel
+suffixes then pass NONE at K2 or take a reached selected event at K3. K3
+decrements the waiter count before the shuffle and takes the event before
+retaking the lock and calling Core. The selected event and Core callback return
+are separate observations.
+
+`CallbackWait.early_yield_retains` and `early_wait_retains_other` compose the
+early choice with the reached Core invocation and preserve the exact tracked
+subtask record, not just its resolution code. In K3 this requires selection
+of a different arena waitable; the waiter decrement, shuffle and selected
+event take still occur. In particular a pending cancellation and its lends
+are not consumed by either path. When K3 selects the tracked resolution itself,
+`wait_takes_resolution` instead derives the event passed to Core and the cleared
+pending event and lender list from the actual take. That is not a reply to the
+outer cancellation caller.
+
+`ClosedCallbackPrefix.reaches` composes any finite chain of host-free Core
+steps, reached callback returns entering a new K2/K3 loop, and K2 NONE or
+other-waitable K3 calls. The early and parked paths share the same suffix.
+Non-early park, a reached forced resume, and an actual ready-thread tick
+can be included in the prefix; none changes the tracked record. The tick
+must select the reached thread, and `CallbackWait.resumes_on_tick` tracks
+its original saved occurrence through an intervening parked prefix. The
+finite-prefix proof does not assume preservation of Core bytes, eventual
+scheduler selection, callback return or outer delivery.
+
+On a reached EXIT, `CallbackCancelImport.delivers_after_closed_prefix`
+rechecks the live registration at that cut and unwinds the intervening loop
+frames. The exact cancelled record survives until the original Core caller's
+separate delivery steps take it, release its lends, and return its status.
+
+`CallbackResume.resumes_tracked` follows the original K2/K3 saved occurrence
+through a retaining prefix and a reached forced `Thread.resume`. It restores
+the exact suffix above the resumer without a readiness assumption. On a live
+empty K3 set with no pending cancellation, `traps_empty` retains the waiter
+decrement and shuffle but never reaches the Core callback.
+
+If the caller instead reaches `subtask.cancel` after the return, with a live,
+undelivered subtask that has not received a cancel request or joined a set,
+`Delivery.LinkedResolution.then_cancel` uses the canonical direct-delivery
+branch. It consumes the existing event, releases lends and returns the already
+resolved state, without an event buffer or cancellation callback. It does not
+cover cancellation requests that precede resolution.
 
 ## Checking
 
