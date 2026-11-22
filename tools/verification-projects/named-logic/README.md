@@ -81,3 +81,36 @@ available. Run the external verifier above for both digests and cross-profile
 correspondence against the Lean export plan. The browser reports no external
 verification result. A missing sidecar, row, name or block says only what is
 available to this view.
+
+## Browse the standard-model fixture
+
+Use the pinned Lean toolchain, Python 3.10+, `b3sum` (tested with 1.8.3),
+and Rust. Check out a public revision containing the model fixture sources.
+The revision passed to the exporter supplies the proof and model source links.
+
+```sh
+SITE=$(mktemp -d)
+bash tools/verification-projects/named-logic/check.sh "$(git rev-parse HEAD)" "$SITE" --interpretations
+make project-tool
+python3 - "$SITE/project.sqlite" <<'PY'
+import sqlite3
+import sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT)")
+    db.execute("INSERT INTO meta VALUES ('schema', 'silmaril.project-db.v0.1')")
+PY
+build/bin/silmaril-project explore --db "$SITE/project.sqlite" --out "$SITE/index.html"
+python3 -m http.server 8800 --bind 127.0.0.1 --directory "$SITE"
+```
+
+Open <http://127.0.0.1:8800/index.html?load=full#/named-logic/logic/hol> or
+navigate through **Formal → Named logic fixtures → HOL Light**. Compare
+**Closed theorems** and **Standard model validity** in each profile. This
+minimal SQLite database is for browsing the sidecar; use a generated project
+database to see the rest of the catalog. Omit `--interpretations` to generate
+v1. Run `node tools/silmaril-project/tests/explore/named_logic.mjs "$SITE"`
+against either version to exercise it in Chromium. The site and fixtures are
+local inputs.
+
+The [interpretation manifest contract](../../../docs/projects/named-logic-interpretations.md)
+describes the schema, checked theorem, and verification boundaries.

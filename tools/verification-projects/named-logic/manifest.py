@@ -12,7 +12,8 @@ import sys
 
 
 FORMAT = "silmaril.named-logic.v1"
-PLAN_FORMAT = "silmaril.named-logic.plan.v1"
+FORMATS = {"silmaril.named-logic.plan.v1": FORMAT,
+           "silmaril.named-logic.plan.v2": "silmaril.named-logic.v2"}
 PROFILE = {"layout": "silmaril.dasl-syntax.v1", "atomCodec": "bare-string",
            "placement": "inline-all", "wire": "bdasl", "codec": "drisl"}
 ALGORITHMS = {"bdasl-inline-sha256": ("sha256", 0x12), "bdasl-inline-blake3": ("blake3", 0x1e)}
@@ -93,7 +94,7 @@ def read_cid(cid, code):
 
 def plan_source(plan):
     source = plan["source"]
-    if (plan["format"] != PLAN_FORMAT or source["repo"] != "hiloopai/silmaril-lean"
+    if (plan["format"] not in FORMATS or source["repo"] != "hiloopai/silmaril-lean"
             or not re.fullmatch(r"[a-f0-9]{40}", source["revision"])):
         raise ValueError("invalid plan format or source revision")
     return source
@@ -120,6 +121,11 @@ def rows_with_refs(plan, ref):
     return rows
 
 
+def index_with_refs(plan, ref):
+    index = plan["claimIndex"]
+    return {**index, "syntax": {name: ref(block) for name, block in index["syntax"].items()}}
+
+
 def build(plan):
     plan = deepcopy(plan)
     source = plan_source(plan)
@@ -137,12 +143,18 @@ def build(plan):
             choices[profile] = cid
         primary = "bdasl-inline-sha256"
         refs[key] = {"profile": primary, "cid": choices.pop(primary), "alternates": choices}
-    return {"format": FORMAT, "source": source, "profiles": profile_table(), "blocks": blocks,
-            "rows": rows_with_refs(plan, refs.__getitem__)}
+    version = FORMATS[plan["format"]]
+    manifest = {"format": version, "source": source, "profiles": profile_table(), "blocks": blocks,
+                "rows": rows_with_refs(plan, refs.__getitem__)}
+    if version != FORMAT:
+        manifest["claimIndex"] = index_with_refs(plan, refs.__getitem__)
+    return manifest
 
 
 def verify(plan, manifest):
-    if manifest["format"] != FORMAT or manifest["source"] != plan_source(plan):
+    source = plan_source(plan)
+    version = FORMATS[plan["format"]]
+    if manifest["format"] != version or manifest["source"] != source:
         raise ValueError("manifest format/source mismatch")
     if manifest["profiles"] != profile_table() or set(manifest["blocks"]) != set(ALGORITHMS):
         raise ValueError("profile mismatch")
@@ -179,6 +191,14 @@ def verify(plan, manifest):
         if tree != alternate:
             raise ValueError("alternate profile decoded different syntax")
         return tree
+
+    if version != FORMAT:
+        actual = manifest["claimIndex"]
+        wanted = index_with_refs(plan, plan["blocks"].__getitem__)
+        if {**actual, "syntax": {key: recover_ref(ref) for key, ref in actual["syntax"].items()}} != wanted:
+            raise ValueError("claim index diverges from checked syntax, interpretation, table, or evidence")
+    elif "claimIndex" in manifest:
+        raise ValueError("v1 does not carry an interpretation index")
 
     for wanted, actual in zip(original_rows, manifest["rows"], strict=True):
         wanted_roots, actual_roots = wanted["roots"], actual["roots"]
@@ -220,7 +240,9 @@ def main():
         verify(plan, manifest)
     except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"fixture error: {error}\n")
-    print(f"Verified {len(manifest['rows'])} rows against plan and "
+    claims = len(manifest.get("claimIndex", {}).get("claims", {}))
+    claim_count = f", {claims} interpreted claims" if claims else ""
+    print(f"Verified {len(manifest['rows'])} legacy rows{claim_count} against plan and "
           f"{sum(map(len, manifest['blocks'].values()))} blocks (SHA-256 and BLAKE3). "
           "No Lean proof replay or hash assumptions.", file=sys.stderr)
 

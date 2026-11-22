@@ -99,20 +99,27 @@ const NamedLogicFixture = (() => {
       `<details><summary>Original BDASL bytes (${bytes.length})</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(block.hex)}</pre></details>`;
   }
 
+  function sourceUrl(source, path) {
+    const sourcePath = /^Silmaril\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.lean$/;
+    if (source?.repo !== "hiloopai/silmaril-lean" || !/^[a-f0-9]{40}$/.test(source?.revision) ||
+        typeof path !== "string" || !sourcePath.test(path)) return null;
+    return `https://github.com/hiloopai/silmaril-lean/blob/${source.revision}/${path}`;
+  }
+
   function evidencePane(source, row) {
     const evidence = row.evidence;
-    const sourcePath = /^Silmaril\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.lean$/;
-    if (!evidence || typeof evidence.declaration !== "string" || source?.repo !== "hiloopai/silmaril-lean" ||
-        !/^[a-f0-9]{40}$/.test(source?.revision) || !sourcePath.test(evidence.path)) {
-      return '<p class="err">No pinned Lean evidence reference.</p>';
-    }
-    const href = `https://github.com/hiloopai/silmaril-lean/blob/${source.revision}/${evidence.path}`;
-    const steps = Array.isArray(evidence.steps) ? evidence.steps : [];
+    const references = [...(row.claimEvidence || []), ...(evidence ? [{ ...evidence, source }] : [])];
+    const links = references.map((ref) => {
+      const href = sourceUrl(ref.source, ref.path);
+      return href && typeof ref.declaration === "string" ?
+        `<li><a href="${esc(href)}"><code>${esc(ref.declaration)}</code></a></li>` : "";
+    }).filter(Boolean);
+    const steps = Array.isArray(evidence?.steps) ? evidence.steps.filter(record) : [];
     return `<p>Exported Lean evidence pinned to source. Proof replay requires Lean.</p>` +
-      `<p><a href="${esc(href)}"><code>${esc(evidence.declaration)}</code></a></p>` +
+      (links.length ? `<ul>${links.join("")}</ul>` : '<p class="err">No pinned Lean evidence reference.</p>') +
       `<p class="muted">Wire parsing and digest checks cover the syntax bytes only.</p>` +
-      `<ol>${steps.map((step) => `<li><b>${esc(step.rule)}</b>: ${esc(step.judgment)} ` +
-        `<small><code>${esc(step.declaration)}</code>${Array.isArray(step.premises) && step.premises.length ? `; from ${esc(step.premises.join(", "))}` : ""}</small></li>`).join("")}</ol>`;
+      (steps.length ? `<ol>${steps.map((step) => `<li><b>${esc(step.rule)}</b>: ${esc(step.judgment)} ` +
+        `<small><code>${esc(step.declaration)}</code>${Array.isArray(step.premises) && step.premises.length ? `; from ${esc(step.premises.join(", "))}` : ""}</small></li>`).join("")}</ol>` : "");
   }
 
   // v1 has row IDs and display strings. Keep the catalog independent of display wording,
@@ -126,6 +133,7 @@ const NamedLogicFixture = (() => {
     "mltt.sigma-first": ["mltt", "computation", "judgment", "Projection computation"],
     "mltt.sigma-second": ["mltt", "computation", "judgment", "Projection computation"],
   };
+  const legacyLogic = { hol: "HOL", mltt: "MLTT" };
   const logics = { hol: "HOL Light", mltt: "Extensional MLTT" };
   const interpretations = {
     all: "All interpretations",
@@ -180,16 +188,109 @@ const NamedLogicFixture = (() => {
     }).join("")}</dl>`;
   }
 
-  function validateRows(rows) {
+  const record = (value) => value && typeof value === "object" && !Array.isArray(value);
+  const stableId = (id) => typeof id === "string" && /^[a-z][a-z0-9.-]*$/.test(id);
+  const entry = (obj, key) => Object.hasOwn(obj, key) ? obj[key] : undefined;
+
+  function legacyRows(rows) {
     if (!Array.isArray(rows) || !rows.length) throw new Error("invalid fixture rows");
     const seen = new Set();
-    for (const row of rows) {
+    return rows.map((row) => {
       if (!row || typeof row.id !== "string" || !Object.hasOwn(catalog, row.id) || seen.has(row.id) ||
-          row.logic !== { hol: "HOL", mltt: "MLTT" }[catalog[row.id][0]] ||
+          row.logic !== legacyLogic[catalog[row.id][0]] ||
           typeof row.judgment !== "string" || !row.roots || typeof row.roots !== "object" ||
           Array.isArray(row.roots) || !Array.isArray(row.assumptions)) throw new Error("invalid fixture row");
       seen.add(row.id);
+      return { ...row, browse: catalog[row.id] };
+    });
+  }
+
+  function applyClaimIndex(manifest, rows) {
+    const index = manifest.claimIndex;
+    const invalid = () => { throw new Error("invalid fixture claim index"); };
+    if (!record(index) || !["syntax", "logics", "interpretations", "claims", "tables", "evidence"]
+      .every((key) => record(index[key]))) invalid();
+
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const seen = new Set();
+    for (const [tableId, table] of Object.entries(index.tables)) {
+      if (!stableId(tableId) || !record(table) || !stableId(table.logic) ||
+          typeof table.title !== "string" || !Array.isArray(table.rows)) invalid();
+      const logic = entry(index.logics, table.logic);
+      if (!record(logic) || !Object.hasOwn(logics, logic.family) || typeof logic.signature !== "string" ||
+          logic.theory?.kind !== "explicit" || !Array.isArray(logic.theory.axioms)) invalid();
+      for (const row of table.rows) {
+        if (!record(row) || !stableId(row.id) || !stableId(row.claim) ||
+            typeof row.label !== "string" || seen.has(row.id)) invalid();
+        seen.add(row.id);
+        const claim = entry(index.claims, row.claim);
+        if (!record(claim) || claim.logic !== table.logic || !stableId(claim.interpretation) ||
+            !Array.isArray(claim.roots) || !claim.roots.length || claim.context?.kind !== "empty" ||
+            !Array.isArray(claim.assumptions) || claim.assumptions.length ||
+            claim.scope?.termVariables !== "closed") invalid();
+        const interpretation = entry(index.interpretations, claim.interpretation);
+        if (!record(interpretation) || interpretation.logic !== claim.logic ||
+            typeof interpretation.predicate !== "string") invalid();
+        let category;
+        if (interpretation.kind === "derivability" && claim.mode === "derivability" &&
+            typeof interpretation.calculus === "string" && claim.scope.valuation === "schematic-types") {
+          category = "kernel";
+        } else if (interpretation.kind === "model" && claim.mode === "validity" &&
+            typeof interpretation.construction === "string" && Number.isSafeInteger(interpretation.universe) &&
+            interpretation.universe >= 0 && sourceUrl(interpretation.source, interpretation.path) &&
+            typeof interpretation.leanVersion === "string" && Array.isArray(interpretation.imports) &&
+            interpretation.imports.every((name) => typeof name === "string") &&
+            claim.scope.valuation === "all-type-and-free-term-valuations") {
+          category = "model";
+        } else invalid();
+
+        const roles = new Set();
+        const roots = Object.fromEntries(claim.roots.map((root) => {
+          if (!record(root) || !stableId(root.role) || !stableId(root.syntax) || roles.has(root.role)) invalid();
+          const ref = entry(index.syntax, root.syntax);
+          if (!record(ref) || typeof ref.profile !== "string" || typeof ref.cid !== "string" ||
+              !record(ref.alternates)) invalid();
+          roles.add(root.role);
+          return [root.role, ref];
+        }));
+        const claimEvidence = entry(index.evidence, row.claim);
+        if (!Array.isArray(claimEvidence) || !claimEvidence.length || claimEvidence.some((ref) =>
+          !record(ref) || ref.kind !== "lean-theorem" || !sourceUrl(ref.source, ref.path) ||
+          typeof ref.declaration !== "string")) invalid();
+
+        const inherited = byId.get(row.id);
+        if (inherited && (inherited.browse[0] !== logic.family || inherited.browse[1] !== tableId ||
+            inherited.browse[2] !== category || inherited.assumptions.length ||
+            Object.keys(inherited.roots).length !== roles.size ||
+            Object.entries(roots).some(([role, ref]) => {
+              const old = inherited.roots[role];
+              return old?.profile !== ref.profile || old.cid !== ref.cid ||
+                Object.keys(ref.alternates).length !== Object.keys(old.alternates || {}).length ||
+                Object.entries(ref.alternates).some(([profile, cid]) => old.alternates?.[profile] !== cid);
+            }))) invalid();
+
+        byId.set(row.id, { ...inherited, id: row.id, judgment: row.label, roots, assumptions: [],
+          browse: [logic.family, tableId, category, table.title], claimId: row.claim,
+          claim, interpretation, signature: logic.signature, axioms: logic.theory.axioms, claimEvidence });
+      }
     }
+    return [...byId.values()];
+  }
+
+  function claimPane(row) {
+    if (!row.claim) return `<p>${esc(row.scope)}</p>`;
+    const { claim, interpretation, signature, axioms } = row;
+    const model = interpretation.kind === "model";
+    const basis = model ? `<a href="${esc(sourceUrl(interpretation.source, interpretation.path))}"><code>` +
+      `${esc(interpretation.construction)}</code></a> (universe ${interpretation.universe})` :
+      `<code>${esc(interpretation.calculus)}</code>`;
+    return `<dl><dt>${model ? "Model" : "Calculus"}</dt><dd>${basis}</dd>` +
+      `<dt>Predicate</dt><dd><code>${esc(interpretation.predicate)}</code></dd>` +
+      `<dt>Signature</dt><dd><code>${esc(signature)}</code></dd>` +
+      `<dt>Added theory axioms</dt><dd>${axioms.length ? axioms.map((axiom) => esc(axiom)).join(", ") : "Empty"}</dd>` +
+      `<dt>Scope</dt><dd>Closed proposition, empty context. ${claim.scope.valuation === "schematic-types" ?
+        "Schematic types allowed." : "All type and free-term valuations in this model."}</dd>` +
+      `<dt>Claim ID</dt><dd><code>${esc(row.claimId)}</code></dd></dl>`;
   }
 
   function select(id, label, choices, current) {
@@ -209,7 +310,7 @@ const NamedLogicFixture = (() => {
     'Row details parse wire bytes and can rehash SHA-256 locally. The external verifier checks both profiles against the Lean export plan.</p>';
 
   async function render(arg) {
-    let manifest, route;
+    let manifest, route, rows;
     const intro = '<p><a href="#/formal/">← Formal</a></p><h2>Named logic fixtures</h2>';
     try {
       route = parseRoute(arg);
@@ -221,10 +322,12 @@ const NamedLogicFixture = (() => {
       if (!response.ok) throw new Error(`fixture sidecar HTTP ${response.status}`);
       const bytes = await readCapped(response, 1024 * 1024, "named-logic.json", "fixture limit");
       manifest = JSON.parse(utf8.decode(bytes));
-      if (manifest?.format !== "silmaril.named-logic.v1" || !manifest.profiles || !manifest.blocks) {
-        throw new Error("invalid fixture sidecar");
+      if (!record(manifest?.profiles) || !record(manifest?.blocks)) throw new Error("invalid fixture sidecar");
+      rows = legacyRows(manifest.rows);
+      if (manifest.format === "silmaril.named-logic.v2") rows = applyClaimIndex(manifest, rows);
+      else if (manifest.format !== "silmaril.named-logic.v1" || Object.hasOwn(manifest, "claimIndex")) {
+        throw new Error("unsupported fixture sidecar version");
       }
-      validateRows(manifest.rows);
     } catch (error) {
       return intro + `<p class="err">${esc(error.message)}. Install the opt-in named-logic.json beside this Explorer page.</p>`;
     }
@@ -236,44 +339,44 @@ const NamedLogicFixture = (() => {
 
     const [,, requestedTable, requestedRow] = parts;
     const rowId = legacyRow ?? requestedRow;
-    const row = rowId && manifest.rows.find((entry) => entry.id === rowId);
-    const logic = parts[1] ?? (row ? catalog[row.id][0] : undefined);
-    const table = requestedTable ?? (row ? catalog[row.id][1] : undefined);
+    const row = rowId && rows.find((entry) => entry.id === rowId);
+    const logic = parts[1] ?? (row ? row.browse[0] : undefined);
+    const table = requestedTable ?? (row ? row.browse[1] : undefined);
     if (logic && !Object.hasOwn(logics, logic)) return fail(`Unknown logic ${logic}`);
-    const logicRows = manifest.rows.filter((entry) => catalog[entry.id][0] === logic);
-    const tableRows = logicRows.filter((entry) => catalog[entry.id][1] === table);
+    const logicRows = rows.filter((entry) => entry.browse[0] === logic);
+    const tableRows = logicRows.filter((entry) => entry.browse[1] === table);
     if (table && !tableRows.length) return fail(`Unknown fixture table ${table}`);
     if (rowId && (!row || !tableRows.includes(row))) return fail(`Unknown fixture row ${rowId}`);
 
-    const visible = (rows) => rows.filter((entry) => interpretation === "all" || catalog[entry.id][2] === interpretation);
+    const visible = (rows) => rows.filter((entry) => interpretation === "all" || entry.browse[2] === interpretation);
     const crumbs = `<nav aria-label="Fixture location"><a href="${href()}">All logics</a>` +
       (logic ? ` / <a href="${href("logic", logic)}">${esc(logics[logic])}</a>` : "") +
-      (table ? ` / <a href="${href("logic", logic, table)}">${esc(catalog[tableRows[0].id][3])}</a>` : "") + "</nav>";
+      (table ? ` / <a href="${href("logic", logic, table)}">${esc(tableRows[0].browse[3])}</a>` : "") + "</nav>";
     let html = intro + (logic ? crumbs : "") + controls(profile, interpretation, !row);
     if (row) {
-      const rows = legacyRow ? manifest.rows : tableRows;
+      const rowChoices = legacyRow ? rows : tableRows;
       const panes = await Promise.all(roleRefs(row).map(([role, ref]) => blockPane(manifest, profile, ref, role)));
       const profileFields = Object.entries(manifest.profiles[profile]).map(([key, value]) =>
         `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`).join("");
-      html += `<p>${select("named-logic-row", "Fixture row", Object.fromEntries(rows.map((entry) =>
+      html += `<p>${select("named-logic-row", "Fixture row", Object.fromEntries(rowChoices.map((entry) =>
         [entry.id, entry.judgment])), row.id)}</p>` +
         `<div class="named-logic-grid"><section id="named-logic-evidence"><h3>Judgment and Lean evidence</h3>` +
-        `<p><strong>${esc(row.judgment)}</strong></p><p>${esc(interpretations[catalog[row.id][2]])}</p>` +
-        `<p>${esc(row.scope)}</p><p>Row ID <code>${esc(row.id)}</code></p>${evidencePane(manifest.source, row)}</section>` +
+        `<p><strong>${esc(row.judgment)}</strong></p><p>${esc(interpretations[row.browse[2]])}</p>` +
+        `${claimPane(row)}<p>Row ID <code>${esc(row.id)}</code></p>${evidencePane(manifest.source, row)}</section>` +
         `<section id="named-logic-layout"><h3>Naming profile</h3><dl>${profileFields}</dl></section></div>` +
         `<section id="named-logic-blocks"><h3>Decoded objects and wire bytes</h3>${panes.join("")}</section>`;
     } else if (table) {
       const rows = visible(tableRows);
-      html += `<h3>${esc(catalog[tableRows[0].id][3])} · ${count(rows)}</h3>` + verification +
+      html += `<h3>${esc(tableRows[0].browse[3])} · ${count(rows)}</h3>` + verification +
         (rows.length ? `<div class="tablebox"><table class="named-table"><thead><tr><th scope="col">Judgment</th>` +
           `<th scope="col">Interpretation</th><th scope="col">Syntax CIDs</th></tr></thead><tbody>${rows.map((entry) =>
             `<tr><th scope="row"><a href="${href("logic", logic, table, entry.id)}">${esc(entry.judgment)}</a></th>` +
-            `<td>${esc(interpretations[catalog[entry.id][2]])}</td><td>${rowCids(manifest, profile, entry)}</td></tr>`)
+            `<td>${esc(interpretations[entry.browse[2]])}</td><td>${rowCids(manifest, profile, entry)}</td></tr>`)
             .join("")}</tbody></table></div>` : '<p>No fixture rows match this interpretation.</p>');
     } else if (logic) {
       const tables = new Map();
       for (const entry of visible(logicRows)) {
-        const [, id,, title] = catalog[entry.id];
+        const [, id,, title] = entry.browse;
         if (!tables.has(id)) tables.set(id, { title, rows: [] });
         tables.get(id).rows.push(entry);
       }
@@ -283,9 +386,9 @@ const NamedLogicFixture = (() => {
           '<p>No fixture rows match this interpretation.</p>');
     } else {
       html += verification + `<ul>${Object.entries(logics).map(([id, label]) => {
-        const rows = visible(manifest.rows.filter((entry) => catalog[entry.id][0] === id));
-        const tables = new Set(rows.map((entry) => catalog[entry.id][1])).size;
-        return `<li><a href="${href("logic", id)}">${esc(label)}</a> · ${tables} ${tables === 1 ? "table" : "tables"}, ${count(rows)}</li>`;
+        const matches = visible(rows.filter((entry) => entry.browse[0] === id));
+        const tables = new Set(matches.map((entry) => entry.browse[1])).size;
+        return `<li><a href="${href("logic", id)}">${esc(label)}</a> · ${tables} ${tables === 1 ? "table" : "tables"}, ${count(matches)}</li>`;
       }).join("")}</ul>`;
     }
 
@@ -296,7 +399,7 @@ const NamedLogicFixture = (() => {
         let next = parts;
         if (row) {
           const selected = $("#named-logic-row").value;
-          const [l, t] = catalog[selected];
+          const [l, t] = rows.find((entry) => entry.id === selected).browse;
           next = ["logic", l, t, selected];
         }
         location.hash = routeTo(next, nextProfile, nextInterpretation);

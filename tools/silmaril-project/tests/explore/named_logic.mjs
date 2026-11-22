@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const { chromium } = await import(process.env.PLAYWRIGHT_CORE || "/usr/local/lib/node_modules/playwright-core/index.mjs");
 const site = path.resolve(process.argv[2]), shots = process.argv[3] && path.resolve(process.argv[3]);
 const fixture = JSON.parse(fs.readFileSync(path.join(site, "named-logic.json")));
+const withInterpretations = fixture.format === "silmaril.named-logic.v2";
 const port = 8812, url = `http://127.0.0.1:${port}/index.html?load=full`;
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "named-logic-browser-"));
 const server = spawn("python3", ["-I", fileURLToPath(new URL("pages_server.py", import.meta.url)),
@@ -37,7 +38,7 @@ try {
   await page.goto(`${url}#/formal/`);
   await page.getByRole("link", { name: "Named logic fixtures" }).click();
   await page.getByRole("link", { name: "HOL Light" }).waitFor();
-  assert.match(await body(), /HOL Light · 2 tables, 2 rows/);
+  assert.match(await body(), withInterpretations ? /HOL Light · 3 tables, 3 rows/ : /HOL Light · 2 tables, 2 rows/);
   assert.match(await body(), /Extensional MLTT · 4 tables, 5 rows/);
   await page.getByRole("link", { name: "HOL Light" }).click();
   await page.getByRole("link", { name: "Derivability with hypotheses" }).click();
@@ -92,7 +93,7 @@ try {
   }
 
   await open(`hol.named-assumption/${sha}`);
-  assert.equal(await page.locator("#named-logic-row option").count(), 7);
+  assert.equal(await page.locator("#named-logic-row option").count(), withInterpretations ? 8 : 7);
   assert.match(await body(), /Browser SHA-256 matches CID digest/);
   assert.match(await body(), /weakening and implication introduction/);
   assert.match(await body(), /digest checks cover the syntax bytes only/);
@@ -109,6 +110,38 @@ try {
   assert.match(await body(), /∃ term/);
   assert.doesNotMatch(await page.locator("#named-logic-blocks").innerText(), /^term$/m);
   await screenshot("mltt-sigma-inhabited");
+
+  if (withInterpretations) {
+    const modelTable = "logic/hol/standard-model-validity";
+    const deriveTable = "logic/hol/closed-theorems";
+    for (const profile of [sha, b3]) {
+      const qs = `profile=${profile}`;
+      await open(`${deriveTable}?${qs}&interpretation=kernel`);
+      const deriveCids = await page.locator(".named-table .named-cid").allTextContents();
+      assert.equal(deriveCids.length, 1);
+      await open(`logic/hol?${qs}&interpretation=model`);
+      assert.match(await body(), /HOL Light · 1 row/);
+      assert.equal(await page.getByRole("link", { name: "Closed theorems", exact: true }).count(), 0);
+      await page.getByRole("link", { name: "Standard model validity" }).click();
+      await page.getByRole("heading", { name: "Standard model validity · 1 row" }).waitFor();
+      assert.match(page.url(), /standard-model-validity/);
+      assert.deepEqual(await page.locator(".named-table .named-cid").allTextContents(), deriveCids);
+      await page.getByRole("rowheader").getByRole("link").click();
+      await page.getByText("All type and free-term valuations in this model.", { exact: false }).waitFor();
+      assert.match(page.url(), /standard-model-validity\/hol.closed.standard\?/);
+      assert.match(await body(), /Model-relative validity \/ truth/);
+      assert.match(await body(), /HOLLight.Model.standard.*universe 0/);
+      assert.doesNotMatch(await body(), /Kernel derivability/);
+      const theorem = page.getByRole("link", { name: /Examples.HOL.standardValidity/ });
+      assert.ok((await theorem.getAttribute("href")).endsWith(
+        `/blob/${fixture.source.revision}/Silmaril/ProofFormats/DaslSyntax/Database/Examples/Model/Thms.lean`));
+      await page.reload();
+      await theorem.waitFor();
+      await screenshot(`standard-model-${profile}`);
+    }
+    await open(modelTable + "?interpretation=kernel");
+    assert.match(await body(), /No fixture rows match this interpretation/);
+  }
 
   let supplied = structuredClone(fixture);
   await page.route("**/named-logic.json", (route) => route.fulfill({ json: supplied }));
@@ -132,12 +165,22 @@ try {
   await page.waitForFunction(() => window.explore?.view === "named-logic" && !window.explore.busy);
   assert.match(await body(), /profile mismatch/);
   assert.equal(await page.locator("#named-logic-evidence").count(), 0);
+  if (withInterpretations) {
+    supplied = structuredClone(fixture);
+    supplied.claimIndex.claims["hol.closed.standard-validity.v1"].scope.valuation = "one-valuation";
+    await open("logic/hol/standard-model-validity");
+    assert.match(await body(), /invalid fixture claim index/);
+  }
+  supplied = { ...fixture, format: "silmaril.named-logic.v999" };
+  await open("logic/mltt");
+  assert.match(await body(), /unsupported fixture sidecar version/);
+
   await page.unroute("**/named-logic.json");
   await page.route("**/named-logic.json", (route) => route.fulfill({ status: 404 }));
   await open();
   assert.match(await body(), /Install the opt-in named-logic.json/);
   assert.deepEqual(errors, []);
-  console.log("Named logic Explorer: logic and table navigation, deep links, copy, interpretation, both profiles, pinned evidence, and malformed or missing data passed.");
+  console.log("Named logic Explorer: logic and table navigation, deep links, copy, interpretation, both profiles, pinned evidence, and malformed or missing data passed. Model fixture tested: " + withInterpretations + ".");
 } finally {
   if (browser) await browser.close();
   server.kill();
