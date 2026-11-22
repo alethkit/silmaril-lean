@@ -92,6 +92,7 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.ProofFormats.DaslSyntax.Database.Examples.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/formats/DaslDatabase.lean)
 	$(if $(filter Silmaril +Silmaril.Formats.Dasl.IndexSequence.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/DaslIndexSequence.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.V1.Intrinsic.Scalar.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/V1Intrinsic.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Lime1.Execution.Callout +Silmaril.Wasm.Lime1.Execution.Instantiation +Silmaril.Wasm.Lime1.ToCore,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Lime1.Execution.Callout +Silmaril.Wasm.Lime1.Execution.Instantiation +Silmaril.Wasm.Lime1.ToCore && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/LimeFloat.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Validation.Generic.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-generic/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Validation.Generic.SSA.Thms +Silmaril.Wasm.Validation.Generic.Signature.Lowering,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-generic/TypeBoundary.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Profiles.Thms +Silmaril.Wasm.Profiles.Binary,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/Regression.lean)
@@ -130,12 +131,15 @@ check-runtime:
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(PYTHON) -I tools/corpus/check_cjson_detach_native.py)
 	$(if $(filter CerberusTests,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/cerberus/LoopControl.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Profiles.Injections.Thms,$(CHECK_TARGETS)),$(LAKE) build +Silmaril.Wasm.V1.Validation.Examples --wfail && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/Injections.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Profiles.Syntax.Thms +Silmaril.Wasm.Profiles.Syntax.LimeScalar.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Profiles.Syntax.LimeScalar.Thms +Silmaril.Wasm.Validation.Intrinsic.Reify +Silmaril.Wasm.Verify.Kernel.Defs +Silmaril.Wasm.Lime1.Execution.Callout +Silmaril.Wasm.Lime1.Execution.Instantiation && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/IndexedSyntax.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Sublanguages.Link.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.V1.Validation.Examples +Silmaril.Wasm.Verify.Kernel.Defs && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/Sublanguages.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Sublanguages.Strict.Thms +Silmaril.Wasm.Sublanguages.Strict.Link.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Sublanguages.Strict.Link.Thms +Silmaril.Wasm.Verify.Kernel.Defs && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/OpenStrict.lean)
 	$(if $(filter Silmaril +Silmaril.Formats.PER.EGraph.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/GuardedEGraph.lean)
 
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
+	$(if $(filter Silmaril +Silmaril.Wasm.Component.Reference.Validation.FunctionPorts.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Component.Reference.Validation.FunctionPorts.Thms && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/LimeFunctionPorts.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Profiles.Syntax.Components.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Component.Reference.Litmus.Thms +Silmaril.Wasm.Sublanguages.Thms +Silmaril.Wasm.Validation.Check.ValidateFinal && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/ComponentSyntax.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Component.IntrinsicWiring.Thms +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Thms +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Observation.Thms +Silmaril.Wasm.Component.Reference.DirectLift.Init.Thms +Silmaril.Wasm.Institution.DirectLiftTerminal.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail \
 		+Silmaril.Wasm.Component.IntrinsicWiring.Lift.Thms +Silmaril.Wasm.Validation.Intrinsic.ReifyThms +Silmaril.Wasm.ModuleParts.Thms \
 		+Silmaril.Wasm.Component.Reference.Thms +Silmaril.Wasm.Component.Reference.Embedding.Thms +Silmaril.Wasm.Component.Reference.Example.Defs +Silmaril.Wasm.Component.Reference.DirectLift.Init.Thms \
@@ -145,7 +149,8 @@ check-integrations:
 		$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-component/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Observation.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Component.Reference.Litmus.Thms +Silmaril.Wasm.Validation.Intrinsic.ReifyThms && $(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-component/Exposure.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Component.Reference.DirectLift.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/inductive-component/DirectLift.lean)
-	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Execution.Core.Exec.InstantiateIff +Silmaril.Wasm.Validation.Intrinsic.Thms && $(LAKE) env lean -DwarningAsError=true tests/wasm/module-entry/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Thms +Silmaril.Wasm.Execution.Core.Entry.Program.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Execution.Core.Exec.InstantiateIff +Silmaril.Wasm.Validation.Intrinsic.Thms +Silmaril.Wasm.Execution.Core.Entry.Program.Thms && $(LAKE) env lean -DwarningAsError=true tests/wasm/module-entry/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Program.Versions.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Execution.Core.Exec.InstantiateIff && $(LAKE) env lean -DwarningAsError=true tests/wasm/operational-program/Version.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Intrinsic.Normalize.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Policy.Thms +Silmaril.Wasm.Execution.Core.Intrinsic.OpSem.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-policy/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Program.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-program/Regression.lean)
