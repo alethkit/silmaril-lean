@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Wasm.Game.HandleAccept.Wit.Resources.Defs
+public import Silmaril.Wasm.Game.HandleAccept.Wit.Resources.Thms
 public import Silmaril.Wasm.Component.Reference.Machine.Soundness.Thms
 import Silmaril.Wasm.Verify.Kernel.Defs
 

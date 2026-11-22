@@ -16,7 +16,7 @@ def signature : RecType := ⟨[⟨true, [], .func ⟨[.i32], [.i32]⟩⟩]⟩
 def closed : DefType := (Context.rollGroup {} signature)[0]'(by decide +kernel)
 def incoming : Wasm.Import := ⟨"host", "transform", .func zero⟩
 def signatureStack : Ty (.list .val) := .cons .i32 .nil
-def metadata : Wasm.Module := { types := [signature], imports := [incoming] }
+def sections : ModuleSections := { types := [signature], imports := [incoming] }
 def ctx : Context := { types := [closed], funcs := [closed, closed] }
 def bodyCtx : Context := ctx.funcBody [.i32] [.i32] []
 def labelCtx : Context := bodyCtx.withLabel [.i32]
@@ -35,8 +35,7 @@ def func : Intrinsic.Function ctx closed :=
 def interface : CModuleType := ⟨[.func closed], []⟩
 
 wasm_intrinsic intrinsic : interface := {
-  metadata := metadata
-  noRawFunctions := rfl
+  sections := sections
   definedTypes := [closed]
   definedTags := []
   definedGlobals := []
@@ -51,12 +50,12 @@ wasm_intrinsic intrinsic : interface := {
   contextEq := rfl
   tagsValid := .nil
   globalsValid := .nil
-  memoriesValid := by simp [metadata]
+  memoriesValid := by simp [sections]
   tablesValid := .nil
   funcs := .cons func .nil
-  dataValid := by simp [metadata]
+  dataValid := by simp [sections]
   elemsValid := .nil
-  startValid := by simp [metadata]
+  startValid := by simp [sections]
   exportsValid := .nil
   exportsDisjoint := .nil }
 

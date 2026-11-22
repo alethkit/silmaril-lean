@@ -25,10 +25,14 @@ theorem Expands.shallow_eq {source : Shallow Name} {target : Named Name}
     (expanded : Expands store source target) : target.embed.shallow = source :=
   Proofs.Formats.Dasl.expands_shallow expanded
 
+theorem Expands.bindings_subset {source : Shallow Name} {target : Named Name}
+    (expanded : Expands store source target) : target.embed.bindings.Subset store :=
+  Proofs.Formats.Dasl.expands_bindings expanded
+
 theorem FullNames.toPartial {root : Name} {target : Named Name} (present : FullNames store root target) :
     PartialNames store root target.embed := by
   obtain ⟨source, hit, expanded⟩ := present
-  exact ⟨expanded.shallow_eq.symm ▸ hit, Proofs.Formats.Dasl.expands_bindings expanded⟩
+  exact ⟨expanded.shallow_eq.symm ▸ hit, expanded.bindings_subset⟩
 
 theorem FullNames.mono {extended : Store Name} (incl : store.Subset extended)
     {root : Name} {target : Named Name} (present : FullNames store root target) :
@@ -40,6 +44,12 @@ theorem exists_full_of_accessible {root : Name} (accessible : Acc (Depends store
     (present : ∃ source, store.objects root source) (closed : Closed store) :
     ∃ target, FullNames store root target :=
   Proofs.Formats.Dasl.exists_full_of_accessible accessible present closed
+
+theorem full_exists_iff (bound : store.Binding) (root : Name) :
+    (∃ target, FullNames store root target) ↔
+      (∃ source, store.objects root source) ∧ Acc (Depends store) root ∧ ClosedBelow store root :=
+  ⟨fun ⟨_, full⟩ => Proofs.Formats.Dasl.full_requirements bound full,
+   fun ⟨present, accessible, closed⟩ => Proofs.Formats.Dasl.exists_full_below accessible present closed⟩
 
 /-- A finite full expansion in a binding store rules out reachable object-reference cycles. -/
 theorem FullNames.accessible (bound : store.Binding) {root : Name} {target : Named Name}

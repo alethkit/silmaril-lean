@@ -56,6 +56,7 @@ theorem syncLiftLoopBody (H : LiftHyps I) (hr : HostReady σ) (task : TaskId) :
   refine bind (getTask _) fun tk => ?_
   refine ite (pure _) ?_
   refine bind getStore fun s => bind hostGet fun h => ?_
+  unfold Canon.syncLiftCandidates
   split
   · exact trap _
   · exact bind (pickSyncLoop _ _) fun t =>
@@ -180,7 +181,7 @@ theorem callbackLoopBody (H : LiftHyps I) (lim : Limits) (task : TaskId) (thread
 theorem liftThreadBody (H : LiftHyps I) (lim : Limits) (q : Quirks) (task : TaskId)
     (callee : E.FuncAddr) :
     P.InvW I W (Canon.liftThreadBody lim q task callee : P E σ (Ret E)) := by
-  unfold Canon.liftThreadBody
+  unfold Canon.liftThreadBody liftArgumentsBody
   refine bind (Task.enterImplicitThread_inv q task H.task) fun b => ?_
   refine ite (pure _) ?_
   refine bind (getTask _) fun tk => ?_
