@@ -150,7 +150,7 @@ check-integrations:
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Determinism.Fuel.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-determinism/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.Determinism.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/operational-determinism/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.GlobalProfile.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/global-profile/Regression.lean)
-	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.ClosedFunctional.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Det.NaN.Litmus.Thms && $(LAKE) env lean -DwarningAsError=true tests/wasm/closed-functional/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Entry.ClosedFunctional.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Det.NaN.Litmus.Thms +Silmaril.Wasm.Execution.Core.Exec.InstantiateIff && $(LAKE) env lean -DwarningAsError=true tests/wasm/closed-functional/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Execution.Core.Intrinsic.OpSem.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/OpSem.lean && $(LAKE) env lean -DwarningAsError=true tests/wasm/intrinsic-machine/Call.lean)
 	$(if $(filter +Silmaril.Wasm.Execution.Core.MemoryProfile.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/wasm/memory-profile/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Binaryen.Intrinsic.% +Silmaril.Proofs.Wasm.Binaryen.Intrinsic.%,$(CHECK_TARGETS)),LAKE="$(LAKE)" bash tests/wasm/binaryen-intrinsic/check.sh)
