@@ -5,6 +5,8 @@ of two Rust-shaped traits, not a Rust implementation or a borrow-checker
 formalization. It adds no requirement to existing arena or Prolly APIs.
 See the [language handoff](arena-trait-language-handoff.md) for the combined
 operation/law index and Rust, Python, and JavaScript contract sketches.
+The [BlobArena design](blob-arena.md) specifies the fresh-ID blob surface and
+maps these contracts to its slot, lookup and CAS capabilities.
 
 | Rust-side operation | Lean interface | Observation |
 | --- | --- | --- |
