@@ -89,7 +89,8 @@ private def storeWord (ptr value : Nat) : List Instr :=
 
 private def instantiateWith (initial : Store (CanonHost engine))
     (entries : List (String × V1.FuncType × CanonHost engine))
-    (setup : String → List Instr) : Option (Store (CanonHost engine) × ModuleInst) := do
+    (setup : String → List Instr) (locals : List (String × V1.FuncType × List Instr) := []) :
+    Option (Store (CanonHost engine) × ModuleInst) := do
   let (store, addrs) := entries.foldl (fun (store, addresses) (_, type, code) =>
     let (next, addr) := SingleThreaded.allocHost store type code
     (next, addresses ++ [ExternAddr.func addr])) (initial, [])
@@ -100,11 +101,13 @@ private def instantiateWith (initial : Store (CanonHost engine))
     (⟨indexOf index, [], instructions ++ (List.range params).map (fun param => .localGet (indexOf param)) ++
       [.call (indexOf index)]⟩ : Func)
   let module_ : Module := {
-    types := entries.map (·.2.1.toCoreRec)
+    types := entries.map (·.2.1.toCoreRec) ++ locals.map (·.2.1.toCoreRec)
     imports := names.zipIdx |>.map fun (name, index) => ⟨"host", name, .func (indexOf index)⟩
     memories := [⟨.i32, ⟨1, none⟩⟩]
-    funcs := (List.range names.length).map wrapper
-    exports := names.zipIdx |>.map fun (name, index) => ⟨name, .func (indexOf (index + names.length))⟩ }
+    funcs := (List.range names.length).map wrapper ++ locals.zipIdx.map (fun ((_, _, body), index) =>
+      ⟨indexOf (names.length + index), [], body⟩)
+    exports := (names ++ locals.map (·.1)).zipIdx.map fun (name, index) =>
+      ⟨name, .func (indexOf (index + names.length))⟩ }
   let (store, inst, none) ← Core3.prepareE? store module_ addrs | none
   return (store, inst)
 
@@ -383,6 +386,240 @@ private def inlineEndpointRegression (channel : Channel) : Bool :=
 #guard inlineEndpointRegression .future
 #guard inlineEndpointRegression .stream
 
+@[expose] public def reallocSignature : Signature :=
+  ⟨Unit, fun _ => .tuple [.own resource, .list (.record [("code", .prim .u32)]), .prim .u32], fun _ => .fixed 0⟩
+
+private def reallocContract : Endpoints.Core.Contract reallocSignature :=
+  ⟨0, ("host", "accept-node"), fun tag => if tag == 0 then some () else none, {}, ⟨0⟩⟩
+
+private def reallocBody (invalid : Bool) (flatResults : Nat := 5) : List Instr :=
+  [word 1, .memoryGrow ⟨0⟩, .drop, word 208, .localGet ⟨2⟩, .intStore .i32 none ⟨0⟩ ⟨0, 0⟩,
+    word 212, .localGet ⟨3⟩, .intStore .i32 none ⟨0⟩ ⟨0, 0⟩,
+    word 1, .call ⟨2⟩] ++ List.replicate flatResults .drop ++ [word (if invalid then 65537 else 65536)]
+
+private def reallocSession (inst : ModuleInst) (flat : Bool) : Session grow reallocSignature (Ret engine) := do
+  let call (name : String) (args expected : List Nat) := do
+    let some address := exportAddr inst name | internal s!"missing Core export {name}"
+    trapIf ((← callCore address (args.map i32Flat)) != expected.map i32Flat)
+      (.internal s!"unexpected result: {name}")
+  call "new-own" [77] [1]
+  call "accept-node" [0, 32, 0, 0] [0, 1]
+  if flat then call "give-flat" [1] [0, 1, 65536, 1, 91]
+  else call "give-payload" [1, 0] [0, 0]
+  call "rep" [1] [77]
+  return .unit
+
+private def reallocInput : List Instr :=
+  storeWord 32 1 ++ storeWord 36 64 ++ storeWord 40 1 ++ storeWord 44 91 ++ storeWord 64 77
+
+private def reallocModule (invalid : Bool)
+    (extraImports : List (String × V1.FuncType × CanonHost engine) := [])
+    (extraLocals : List (String × V1.FuncType × List Instr) := []) :
+    Option (List (Binding reallocSignature) × Store (CanonHost engine) × ModuleInst) := do
+  let input := Endpoints.Core.Scheduled.acceptType reallocContract
+  let entries := [
+    ("accept-node", input, CanonHost.embedder "accept-node" input),
+    ("give-payload", wordFn 2 2, .embedder "give-payload" (wordFn 2 2)),
+    ("give-flat", wordFn 1 5, .embedder "give-flat" (wordFn 1 5)),
+    ("new-own", wordFn 1 1, .builtin (.resourceNew resource .i32) ⟨0⟩),
+    ("rep", wordFn 1 1, .builtin (.resourceRep resource .i32) ⟨0⟩)] ++ extraImports
+  let (store, inst) ← instantiateWith {} entries (fun name =>
+    if name == "accept-node" then reallocInput else [])
+    ([("realloc", wordFn 4 1, reallocBody invalid)] ++ extraLocals)
+  let reallocIndex := some (entries.length * 2)
+  let .ok memory := Binding.givePayload "give-payload" ⟨0⟩ inst 0 .i32 .utf8 reallocIndex | none
+  let .ok flatBinding := Binding.giveFlat (sig := reallocSignature) "give-flat" ⟨0⟩ inst 0 .i32 .utf8
+    (reallocSignature.payload ()) reallocIndex | none
+  return ([Binding.accept reallocContract inst 0, memory, flatBinding], store, inst)
+
+private def reallocSetup (flat invalid : Bool) :
+    Option (List (Binding reallocSignature) × Machine.Config engine (HostState reallocSignature)) := do
+  let (bindings, store, inst) ← reallocModule invalid
+  let reference : CStore engine := { CStore.empty with
+    core := store, insts := [{}], resourceTypes := [{ impl := some ⟨0⟩ }],
+    tasks := [{ ft := ⟨[], none, false⟩, opts := {}, inst := ⟨0⟩, caller := ⟨0⟩ }],
+    threads := [{ status := .running, task := ⟨0⟩ }] }
+  return (bindings, {
+    store := reference, host := {}, conts := [none],
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (reallocSession inst flat)] })
+
+private def expectWords (expected : List Nat) : List Instr :=
+  expected.reverse.flatMap fun value => [word value, .intRelOp .i32 .eq, .if_ .empty [] [.unreachable]]
+
+private def liftedReallocBody (flat : Bool) : List Instr :=
+  [word 77, .call ⟨3⟩] ++ expectWords [1] ++ reallocInput ++
+  [word 0, word 32, word 0, word 0, .call ⟨0⟩] ++ expectWords [0, 1] ++
+  (if flat then [word 1, .call ⟨2⟩] ++ expectWords [0, 1, 65536, 1, 91]
+    else [word 1, word 0, .call ⟨1⟩] ++ expectWords [0, 0]) ++
+  [word 1, .call ⟨4⟩] ++ expectWords [77] ++ storeWord 216 91 ++
+  [.call ⟨5⟩] ++ expectWords [0] ++ [word 91, .call ⟨6⟩]
+
+private def liftedReallocSetup (flat invalid : Bool) :
+    Option (List (Binding reallocSignature) × Machine.Config engine (HostState reallocSignature)) := do
+  let opts : CanonOpts engine := { async_ := true }
+  let result : Option (WIT.ClosedType RtId) := some (.prim .u32)
+  let (bindings, core, inst) ← reallocModule invalid
+    [("yield", wordFn 0 1, .builtin .threadYield ⟨0⟩),
+     ("task-return", wordFn 1 0, .builtin (.taskReturn result opts) ⟨0⟩)]
+    [("run", wordFn 0 0, liftedReallocBody flat)]
+  let address ← exportAddr inst "run"
+  let store : CStore engine := { CStore.empty with
+    core, insts := [{}], resourceTypes := [{ impl := some ⟨0⟩ }],
+    funcs := [.lifted address ⟨[], result, true⟩ opts ⟨0⟩] }
+  return (bindings, { store, host := {} })
+
+private def runLiftedRealloc (bindings : List (Binding reallocSignature))
+    (start : Machine.Config engine (HostState reallocSignature)) :=
+  Machine.runTopCall ready (specDispatch ready (host bindings)) (core3Exec grow)
+    Machine.Oracle.first 1500 ⟨0⟩ ⟨0⟩ [] start
+
+theorem lifted_realloc_replay_sound (bindings : List (Binding reallocSignature))
+    (start : Machine.Config engine (HostState reallocSignature)) {replay}
+    (ran : runLiftedRealloc bindings start = some replay) :
+    ∃ tail, replay.labels = .host (.invoke ⟨0⟩ ⟨0⟩ []) :: tail ∧
+      Machine.Steps .deterministic ready (specDispatch ready (host bindings)) start
+        replay.labels replay.config ∧ (⟨0⟩, ⟨0⟩, []) ∈ replay.config.pending :=
+  Machine.runTopCall_sound ready (specDispatch ready (host bindings)) (core3Exec grow) Machine.Oracle.first ran
+
+private def liftedReallocParked (flat : Bool) : Bool := Id.run do
+  let some (bindings, start) := liftedReallocSetup flat false | return false
+  let some (_, invoked) := Machine.hostStep? ready (.invoke ⟨0⟩ ⟨0⟩ []) start | return false
+  let paused := run bindings invoked
+  let state := paused.config
+  let returned := if flat then .returnedFlat 1 ([1, 65536, 1, 91].map i32Flat) else Event.returned 1 0
+  return paused.outcome == .running && state.hostReady && state.conts.any Option.isSome &&
+    (state.cancel? ⟨0⟩).isSome && (state.result? ⟨0⟩).isNone &&
+    state.host.publications == [(0, 1)] && state.host.transcript.contains returned
+
+private def liftedReallocRegression (flat invalid : Bool) : Bool := Id.run do
+  let some (bindings, start) := liftedReallocSetup flat invalid | return false
+  let some replay := runLiftedRealloc bindings start | return false
+  let final := replay.config
+  let bytes := (final.store.core.mems[0]?.map (·.bytes)).getD ByteArray.empty
+  let ticked := replay.labels.any (· matches .host .tick)
+  let returned := if flat then .returnedFlat 1 ([1, 65536, 1, 91].map i32Flat) else Event.returned 1 0
+  let returnRecorded := final.host.transcript.contains returned
+  let outcome := if invalid then
+      replay.outcome == .trap && replay.labels.any (· matches .trap .unalignedPointer) &&
+        (final.result? ⟨0⟩).isNone && !ticked && !returnRecorded
+    else replay.outcome == .resolved && final.result? ⟨0⟩ == some (some [.int .u32 91]) &&
+      ticked && returnRecorded
+  return outcome && final.host.publications == [(0, 1)] && final.host.refusals == [.wrongContext] &&
+    final.host.writer.held.isEmpty &&
+    ((final.store.inst? ⟨0⟩).bind (·.handles.get? 1)) == some (.resource ⟨1⟩) &&
+    bytes.size == 131072 && (bytes.extract 208 216).data == #[4, 0, 0, 0, 4, 0, 0, 0] &&
+    (bytes.extract 216 220).data == (if invalid then #[0, 0, 0, 0] else #[91, 0, 0, 0]) &&
+    (bytes.extract 65536 65540).data == (if invalid then #[0, 0, 0, 0] else #[77, 0, 0, 0])
+
+#guard liftedReallocParked false
+#guard liftedReallocParked true
+#guard liftedReallocRegression false false
+#guard liftedReallocRegression true false
+#guard liftedReallocRegression false true
+#guard liftedReallocRegression true true
+
+private def reallocRegression (flat invalid : Bool) : Bool :=
+  match reallocSetup flat invalid with
+  | none => false
+  | some (bindings, config) =>
+    let result := run bindings config
+    let state := result.config.host
+    let bytes := (result.config.store.core.mems[0]?.map (·.bytes)).getD ByteArray.empty
+    let completion := if invalid then [] else if flat then [.returnedFlat 1 ([1, 65536, 1, 91].map i32Flat)]
+      else [.returned 1 0]
+    let outer := if flat then Event.entered 1 "give-flat" (wordFn 1 5) [i32Flat 1]
+      else .entered 1 "give-payload" (wordFn 2 2) ([1, 0].map i32Flat)
+    let journal := [Event.entered 0 "accept-node" (Endpoints.Core.Scheduled.acceptType reallocContract)
+        ([0, 32, 0, 0].map i32Flat), .published 0 1, .returned 0 1, outer,
+      .entered 2 "give-flat" (wordFn 1 5) [i32Flat 1], .refused 2 .wrongContext] ++ completion
+    let descriptor := if flat then #[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] else
+      if invalid then #[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] else #[1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0]
+    result.outcome == (if invalid then .trap else .resolved) &&
+    result.labels.any (· matches .trap .unalignedPointer) == invalid &&
+    state.transcript == journal && state.writer.held.isEmpty &&
+    ((result.config.store.inst? ⟨0⟩).bind (·.handles.get? 1)) == some (.resource ⟨1⟩) &&
+    bytes.size == 131072 && (bytes.extract 208 216).data == #[4, 0, 0, 0, 4, 0, 0, 0] &&
+    (bytes.extract 0 12).data == descriptor && (bytes.extract 65536 65540).data ==
+      (if invalid then #[0, 0, 0, 0] else #[77, 0, 0, 0]) &&
+    (bytes.extract 12 16).data == (if flat || invalid then #[0, 0, 0, 0] else #[91, 0, 0, 0])
+
+#guard reallocRegression false false
+#guard reallocRegression true false
+#guard reallocRegression false true
+#guard reallocRegression true true
+
+@[expose] public def scalarListSignature : Signature :=
+  ⟨Unit, fun _ => .list (.prim .u32), fun _ => .fixed 0⟩
+
+private def localListSignature (nested : Bool) : Signature :=
+  ⟨Unit, fun _ => if nested then .list (.tuple [.prim .u8, .record [("code", .prim .u32)]])
+    else scalarListSignature.payload (), fun _ => .fixed 0⟩
+
+private def localListContract (nested : Bool) : Endpoints.Core.Contract (localListSignature nested) :=
+  ⟨0, ("host", "accept-node"), fun tag => if tag == 0 then some () else none, {}, ⟨0⟩⟩
+
+private def localListSession (inst : ModuleInst) (flat nested : Bool) : Session grow (localListSignature nested) (Ret engine) := do
+  let call (name : String) (args expected : List Nat) := do
+    let some address := exportAddr inst name | internal s!"missing Core export {name}"
+    trapIf ((← callCore address (args.map i32Flat)) != expected.map i32Flat)
+      (.internal s!"unexpected result: {name}")
+  call "accept-node" [0, 32, 0, 0] [0, 1]
+  if flat then call "give-flat" [1] [0, 65536, 3]
+  else call "give-payload" [1, 0] [0, 0]
+  return .unit
+
+private def localListSetup (flat invalid nested : Bool) :
+    Option (List (Binding (localListSignature nested)) × Machine.Config engine (HostState (localListSignature nested))) := do
+  let input := Endpoints.Core.Scheduled.acceptType (localListContract nested)
+  let entries := [
+    ("accept-node", input, CanonHost.embedder "accept-node" input),
+    ("give-payload", wordFn 2 2, .embedder "give-payload" (wordFn 2 2)),
+    ("give-flat", wordFn 1 3, .embedder "give-flat" (wordFn 1 3))]
+  let (store, inst) ← instantiateWith {} entries (fun name =>
+    if name != "accept-node" then [] else storeWord 32 64 ++ storeWord 36 3 ++
+      if nested then storeWord 64 65317 ++ storeWord 68 256 ++ storeWord 72 5 ++
+        storeWord 76 512 ++ storeWord 80 17 ++ storeWord 84 1024
+      else storeWord 64 37 ++ storeWord 68 256 ++ storeWord 72 5) [("realloc", wordFn 4 1, reallocBody invalid 3)]
+  let reallocIndex := some (entries.length * 2)
+  let .ok memory := Binding.givePayload "give-payload" ⟨0⟩ inst 0 .i32 .utf8 reallocIndex | none
+  let .ok flatBinding := Binding.giveFlat (sig := localListSignature nested) "give-flat" ⟨0⟩ inst 0 .i32 .utf8
+    ((localListSignature nested).payload ()) reallocIndex | none
+  let reference : CStore engine := { CStore.empty with
+    core := store, insts := [{}], tasks := [{ ft := ⟨[], none, false⟩, opts := {}, inst := ⟨0⟩, caller := ⟨0⟩ }],
+    threads := [{ status := .running, task := ⟨0⟩ }] }
+  return ([Binding.accept (localListContract nested) inst 0, memory, flatBinding], {
+    store := reference, host := {}, conts := [none],
+    ctl := [Machine.Activation.ofProg (some ⟨0⟩) (localListSession inst flat nested)] })
+
+private def localListRegression (flat invalid : Bool) (nested : Bool := false) : Bool :=
+  match localListSetup flat invalid nested with
+  | none => false
+  | some (bindings, config) =>
+    let result := run bindings config
+    let bytes := (result.config.store.core.mems[0]?.map (·.bytes)).getD ByteArray.empty
+    let completion := if invalid then [] else if flat then [.returnedFlat 1 ([65536, 3].map i32Flat)] else [.returned 1 0]
+    let outer := if flat then Event.entered 1 "give-flat" (wordFn 1 3) [i32Flat 1]
+      else .entered 1 "give-payload" (wordFn 2 2) ([1, 0].map i32Flat)
+    let journal := [Event.entered 0 "accept-node" (Endpoints.Core.Scheduled.acceptType (localListContract nested))
+        ([0, 32, 0, 0].map i32Flat), .published 0 1, .returned 0 1, outer,
+      .entered 2 "give-flat" (wordFn 1 3) [i32Flat 1], .refused 2 .wrongContext] ++ completion
+    let extent := if nested then 24 else 12
+    let cells := if invalid then Array.replicate extent 0
+      else if nested then #[37, 0, 0, 0, 0, 1, 0, 0, 5, 0, 0, 0, 0, 2, 0, 0, 17, 0, 0, 0, 0, 4, 0, 0]
+      else #[37, 0, 0, 0, 0, 1, 0, 0, 5, 0, 0, 0]
+    result.outcome == (if invalid then .trap else .resolved) &&
+    result.labels.any (· matches .trap .unalignedPointer) == invalid &&
+    result.config.host.transcript == journal &&
+    bytes.size == 131072 && (bytes.extract 208 216).data == #[4, 0, 0, 0, UInt8.ofNat extent, 0, 0, 0] &&
+    (bytes.extract 0 8).data == (if flat || invalid then #[0, 0, 0, 0, 0, 0, 0, 0] else #[0, 0, 1, 0, 3, 0, 0, 0]) &&
+    (bytes.extract 65536 (65536 + extent)).data == cells
+
+#guard localListRegression false false
+#guard localListRegression true false
+#guard localListRegression false true
+#guard localListRegression true true
+#guard localListRegression false false true
+#guard localListRegression true false true
 private def bindingTrapArgs : List Nat := [0, 0, 1, 0, 0, 0]
 
 private def bindingTrapSession (inst : ModuleInst) : Session grow signature (Ret engine) := do
