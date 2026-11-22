@@ -36,6 +36,9 @@ theorem TotalCodec.list_roundtrip (codec : TotalCodec Source Target) (items : Li
 @[expose] def TotalCodec.listCodec (codec : TotalCodec Source Target) : TotalCodec (List Source) (List Target) :=
   ⟨codec.listEncode, codec.partial.listDecode, codec.list_roundtrip⟩
 
+theorem TotalCodec.listCodec_encode (codec : TotalCodec Source Target) (items : List Source) :
+    codec.listCodec.encode items = codec.listEncode items := by rw [TotalCodec.listCodec]
+
 @[expose] def listOf (item : TotalCodec Source (Tree Ref Name)) : TotalCodec (List Source) (Tree Ref Name) :=
   item.listCodec.then list
 
