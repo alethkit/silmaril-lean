@@ -1,6 +1,7 @@
 module
 
 import Silmaril.Wasm.Execution.Core.Intrinsic.Call.Thms
+import Silmaril.Wasm.Execution.Core.Intrinsic.OpSem.Thms
 import Silmaril.Wasm.Execution.Core.Intrinsic.Thms
 import Silmaril.Wasm.Validation.Check.Validate
 
@@ -66,6 +67,13 @@ example : Steps profile host (divide.source frame (args 7)) ⟨store, frame.eras
 
 example : Steps profile host (divide.source frame (args 0)) ⟨store, frame.erase, [.trap]⟩ :=
   divide.run_sound frame (args 0) 5 (answer := none) rfl
+
+example : divide.opSem.May (args 7) (.returned (.ok [.i32 12])) :=
+  ⟨divide.start (args 7), rfl, _, ((divide.start (args 7)).typedReach_iff _).mpr ⟨5, rfl⟩,
+    .values [.i32 12], rfl, rfl⟩
+
+example : divide.opSem.May (args 0) .trap :=
+  ⟨divide.start (args 0), rfl, _, ((divide.start (args 0)).typedReach_iff _).mpr ⟨5, rfl⟩, .trap, rfl, rfl⟩
 
 #print axioms DirectCall.entry
 #print axioms DirectCall.run_sound

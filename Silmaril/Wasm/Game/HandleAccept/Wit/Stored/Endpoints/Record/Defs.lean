@@ -25,6 +25,10 @@ inductive Object where
   | shared (object : Lower.Object)
   | owner (receipt : OwnedMemory.Receipt)
 
+def Object.ownerReceipt : Object → Option OwnedMemory.Receipt
+  | .owner receipt => some receipt
+  | .shared _ => none
+
 inductive Field where
   | data (type : TypeOf) (payload : Payload type)
   | endpoint (channel : Channel) (element : Element) (id : EndId)
@@ -44,6 +48,105 @@ def Field.type : Field → TypeOf
   | .fixed element length _ => .fixedList element length
   | .dynamic type _ _ => type
   | .sum type _ _ _ => type
+
+/-- Unlike a layout certificate, this describes the nodes emitted by the
+recursive compiler. In particular a map entry has a checked primitive key
+and a recursively emitted value, not an opaque data record. -/
+inductive Field.Emitted : Field → Prop where
+  | primitive {primitive : WIT.Primitive} (payload : Payload (.prim primitive)) : Emitted (.data (.prim primitive) payload)
+  | enum {cases : List String} (payload : Payload (.enum cases)) :
+      Lower.checkSchema (.enum cases) = .ok () → Emitted (.data (.enum cases) payload)
+  | flags {labels : List String} (payload : Payload (.flags labels)) :
+      Lower.checkSchema (.flags labels) = .ok () → Emitted (.data (.flags labels) payload)
+  | endpoint {channel : Channel} {element : Element} {id : EndId} : Emitted (.endpoint channel element id)
+  | context {id : ErrCtxId} : Emitted (.context id)
+  | owner {receipt : OwnedMemory.Receipt} : Emitted (.owner receipt)
+  | aggregate {type : TypeOf} {fields : List Field} : (∀ field ∈ fields, Emitted field) → Emitted (.aggregate type fields)
+  | fixed {element : TypeOf} {length : Nat} {entries : List Field} :
+      (∀ field ∈ entries, Emitted field) → Emitted (.fixed element length entries)
+  | list {element : TypeOf} {entries : List Field} : (∀ field ∈ entries, Emitted field) → Emitted (.dynamic (.list element) element entries)
+  | map {key : WIT.KeyType} {element : TypeOf} {entries : List Field} :
+      (∀ entry ∈ entries, ∃ (checked : Payload (.prim key.toPrimitive)) (value : Field),
+      entry = .aggregate (.record (mapEntryFields key element)) [.data (.prim key.toPrimitive) checked, value]) →
+      (∀ (checked : Payload (.prim key.toPrimitive)) (value : Field),
+        .aggregate (.record (mapEntryFields key element)) [.data (.prim key.toPrimitive) checked, value] ∈ entries →
+          Emitted value) →
+      Emitted (.dynamic (.map key element) (.record (mapEntryFields key element)) entries)
+  | sum {type : TypeOf} {arms : List (Option TypeOf)} {tag : Nat} {selected : Option Field} :
+      (∀ field, selected = some field → Emitted field) → Emitted (.sum type arms tag selected)
+
+mutual
+/-- The canonical value described by the active compiled fields. This erases
+nominal owner identities for comparison with the ABI; it confers no authority. -/
+def Field.value : Field → Val
+  | .data _ payload => payload.val
+  | .endpoint .stream _ id => .stream id
+  | .endpoint .future _ id => .future id
+  | .context id => .errorContext id
+  | .owner receipt => .own receipt.2.representation
+  | .aggregate _ fields => .record (Field.values fields)
+  | .fixed _ _ entries | .dynamic _ _ entries => .list (Field.values entries)
+  | .sum _ _ tag field => .variant tag (Field.armValue field)
+termination_by structural field => field
+
+def Field.values : List Field → List Val
+  | [] => []
+  | field :: rest => field.value :: Field.values rest
+termination_by structural fields => fields
+
+def Field.armValue : Option Field → Option Val
+  | none => none
+  | some field => some field.value
+termination_by structural field => field
+end
+
+mutual
+/-- The layouts used by the compiled tree agree recursively with its declared type.
+For sums, the complete arm layout and the selected payload both agree. -/
+inductive Field.LayoutMatches : Field → TypeOf → Prop where
+  | data {type : TypeOf} (payload : Payload type) : LayoutMatches (.data type payload) type
+  | endpoint {channel : Channel} {element : Element} {id : EndId} :
+      LayoutMatches (.endpoint channel element id) (ListLower.endpointType channel element)
+  | context {id : ErrCtxId} : LayoutMatches (.context id) .errorContext
+  | owner {receipt : OwnedMemory.Receipt} : LayoutMatches (.owner receipt) (.own receipt.1)
+  | record {fields : List Field} {types : List (String × TypeOf)} : FieldsMatch fields (types.map Prod.snd) →
+      LayoutMatches (.aggregate (.record types) fields) (.record types)
+  | tuple {fields : List Field} {types : List TypeOf} :
+      FieldsMatch fields types → LayoutMatches (.aggregate (.tuple types) fields) (.tuple types)
+  | fixed {entries : List Field} {element : TypeOf} {length : Nat} :
+      entries.length = length → EntriesMatch entries element →
+      LayoutMatches (.fixed element length entries) (.fixedList element length)
+  | list {entries : List Field} {element : TypeOf} :
+      EntriesMatch entries element → LayoutMatches (.dynamic (.list element) element entries) (.list element)
+  | map {entries : List Field} {key : WIT.KeyType} {element : TypeOf} :
+      EntriesMatch entries (.record (mapEntryFields key element)) →
+      LayoutMatches (.dynamic (.map key element) (.record (mapEntryFields key element)) entries) (.map key element)
+  | variant {types : List (String × Option TypeOf)} {tag : Nat} {field : Option Field} {selected : Option TypeOf} :
+      (types.map Prod.snd)[tag]? = some selected → ArmMatches field selected →
+      LayoutMatches (.sum (.variant types) (types.map Prod.snd) tag field) (.variant types)
+  | optionNone {element : TypeOf} :
+      LayoutMatches (.sum (.option element) [none, some element] 0 none) (.option element)
+  | optionSome {field : Field} {element : TypeOf} : LayoutMatches field element →
+      LayoutMatches (.sum (.option element) [none, some element] 1 (some field)) (.option element)
+  | resultOk {field : Option Field} {ok error : Option TypeOf} :
+      ArmMatches field ok → LayoutMatches (.sum (.result ok error) [ok, error] 0 field) (.result ok error)
+  | resultError {field : Option Field} {ok error : Option TypeOf} : ArmMatches field error →
+      LayoutMatches (.sum (.result ok error) [ok, error] 1 field) (.result ok error)
+
+inductive Field.FieldsMatch : List Field → List TypeOf → Prop where
+  | nil : FieldsMatch [] []
+  | cons {field : Field} {fields : List Field} {type : TypeOf} {types : List TypeOf} :
+      LayoutMatches field type → FieldsMatch fields types → FieldsMatch (field :: fields) (type :: types)
+
+inductive Field.EntriesMatch : List Field → TypeOf → Prop where
+  | nil {type : TypeOf} : EntriesMatch [] type
+  | cons {field : Field} {fields : List Field} {type : TypeOf} :
+      LayoutMatches field type → EntriesMatch fields type → EntriesMatch (field :: fields) type
+
+inductive Field.ArmMatches : Option Field → Option TypeOf → Prop where
+  | none : ArmMatches none none
+  | some {field : Field} {type : TypeOf} : LayoutMatches field type → ArmMatches (some field) (some type)
+end
 
 mutual
 /-- Authority observations in the order in which the compiled fields transfer them.
@@ -121,6 +224,17 @@ namespace Internal
 def compileEntries (compile : Nat → Val → Compile Field) (values : List Val) : Compile (List Field) :=
   values.zipIdx.mapM (fun (value, index) => compile index value)
 
+def compileLeaf (index : Nat) (type : TypeOf) (value : Val) : Compile Field := do
+  let payload ← liftM ((checkValue type value).mapError (Issue.preflight ∘ Lower.Issue.schema))
+  match type, payload with
+  | .future element, ⟨.future id, _⟩ => return .endpoint .future element id
+  | .stream element, ⟨.stream id, _⟩ => return .endpoint .stream element id
+  | .errorContext, ⟨.errorContext id, _⟩ => return .context id
+  | type, payload =>
+    match Stored.Lower.checkSchema type with
+    | .ok () => return .data type payload
+    | .error _ => throw (.unsupportedField index)
+
 mutual
 def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
     (index : Nat) : (type : TypeOf) → Val → Compile Field
@@ -170,33 +284,21 @@ def compileField {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Low
     return .sum (.variant cases) (cases.map Prod.snd) tag field
   | .result ok error, value => do
     if !(Internal.supportedCase ok && Internal.supportedCase error) then throw (.unsupportedField index)
-    let (tag, field) ← match value with
-      | .variant 0 payload => do
-        let field ← (compileCase cx output ok payload).mapIssue (.nested index)
-        pure (0, field)
-      | .variant 1 payload => do
-        let field ← (compileCase cx output error payload).mapIssue (.nested index)
-        pure (1, field)
-      | _ => throw (.preflight .decodedType)
-    return .sum (.result ok error) [ok, error] tag field
+    match value with
+    | .variant 0 payload => do
+      let field ← (compileCase cx output ok payload).mapIssue (.nested index)
+      return .sum (.result ok error) [ok, error] 0 field
+    | .variant 1 payload => do
+      let field ← (compileCase cx output error payload).mapIssue (.nested index)
+      return .sum (.result ok error) [ok, error] 1 field
+    | _ => throw (.preflight .decodedType)
   | .own resource, .own representation => do
     let receipt :: rest ← get | throw (.nested index .ownerReceipt)
     if receipt.1 != resource || receipt.2.representation != representation then
       throw (.nested index .ownerReceipt)
     set rest
     return .owner receipt
-  | type, value => do
-    let payload ← liftM ((checkValue type value).mapError (Issue.preflight ∘ Lower.Issue.schema))
-    match type, payload with
-    | .future element, ⟨.future id, _⟩ =>
-      return .endpoint .future element id
-    | .stream element, ⟨.stream id, _⟩ =>
-      return .endpoint .stream element id
-    | .errorContext, ⟨.errorContext id, _⟩ => return .context id
-    | type, payload =>
-      match Stored.Lower.checkSchema type with
-      | .ok () => return .data type payload
-      | .error _ => throw (.unsupportedField index)
+  | type, value => compileLeaf index type value
 
 def compileFields {E : CoreEngine} (cx : LiftLowerContext E) (output : Stored.Lower.Output)
     (index : Nat) : List (String × TypeOf) → List Val → Compile (List Field)

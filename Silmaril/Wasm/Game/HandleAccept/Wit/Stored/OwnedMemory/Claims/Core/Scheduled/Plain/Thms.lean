@@ -2,6 +2,9 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.CoreGrowth.Thms
+public import Silmaril.Wasm.Component.Reference.Machine.HostFrame.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 public import Silmaril.Wasm.Component.Reference.HostWrite.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled
 
@@ -41,6 +44,21 @@ theorem runBody_thread_steps {E : CoreEngine} {Host Result : Type} (body : P E H
       Machine.Steps profile ready dispatch start labels
         { start with store := updated, host, ctl := ⟨thread, .prog (finish result), segs⟩ :: rest } :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.body_steps_at
+    body start updated host result finish thread segs rest profile ready dispatch focused (some thread) (.inr rfl) success
+
+/-- A successful body ending at its consumer preserves the active return slots
+through the actual reads and writes, rather than reconstructing them afterward. -/
+theorem runBody_thread_tracks {E : CoreEngine} {Host Result : Type} (body : P E Host Result)
+    (start : Machine.Config E Host) (updated : CStore E) (host : Host) (result : Result)
+    (finish : Result → P E Host (Ret E)) (thread : Option ThreadId)
+    (segs : List (Machine.Seg E Host)) (rest : List (Machine.Activation E Host))
+    (profile : ProfileKind) (ready : HostReady Host) (dispatch : Call E → P E Host (Ret E))
+    (focused : start.ctl = ⟨thread, .prog (body >>= finish), segs⟩ :: rest)
+    (success : runBody body start.store start.host (some thread) = (updated, host, .ok result)) :
+    ∃ labels, labels.all (· matches .tau) = true ∧
+      Machine.ReturnFrame.Occurrence.RetainsActiveSlots profile ready dispatch start labels
+        { start with store := updated, host, ctl := ⟨thread, .prog (finish result), segs⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.body_tracks_at
     body start updated host result finish thread segs rest profile ready dispatch focused (some thread) (.inr rfl) success
 
 /-- A canonical trap in a non-suspending body locks down the reached store, not
@@ -355,5 +373,153 @@ theorem parked_caller_refusal_steps {sig : Signature} {grow : SingleThreaded.Gro
       reached.writer = start.host.writer ∧ reached.publications = start.host.publications :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_caller_refusal_steps
     bindings name type contract memory args start thread profile ready parked calling linked caller resolved refused
+
+/-- During canonical realloc's closed window, a same-instance reentrant public
+give is refused before selection or claim use. `none` is the indirect memory ABI;
+`some schema` is the flat ABI with its typed padding. The actual parked call
+resumes with the refusal words, with unchanged component store and writer, and
+preserves growth certificates for the pending and saved continuations. -/
+theorem parked_closed_give_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (inst : InstId) (destination : RecordDestination) (schema : Option Stored.TypeOf)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {entry : InstState}
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst,
+      schema.elim (.givePayload destination) (.giveFlat destination)⟩)
+    (caller : callerInstance start.store thread = .ok (some inst))
+    (live : start.store.inst? inst = some entry) (closed : entry.mayLeave = false) :
+    let reply := schema.elim (completion start.host.nextTicket (.error .wrongContext))
+      (fun payload => flatCompletion start.host.nextTicket (ABI.flatten destination.width payload)
+        (.error .wrongContext))
+    let reached := (start.host.enter name type args).record reply.1
+    ∃ count, Machine.CoreGrowthSteps profile ready (specDispatch ready (host (grow := grow) bindings)) start
+      (List.replicate count .tau)
+      { start with
+        host := reached
+        ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
+          continuation, segments⟩ :: rest } ∧ reached.writer = start.host.writer ∧
+      (start.CoreGrowing → Machine.Config.CoreGrowing { start with
+        host := reached
+        ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
+          continuation, segments⟩ :: rest }) := by
+  obtain ⟨count, run, writer, growing, _⟩ :=
+    Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_steps
+      bindings name type args inst destination schema start thread profile ready parked calling linked caller live closed
+  exact ⟨count, run, writer, growing⟩
+
+/-- A closed, same-instance reentrant give cannot observe earlier claim
+spends. It records each path's refusal against its own ticket and rejoins
+the paired scheduler with the same resumed Core focus and untouched writers. -/
+theorem parked_closed_give_rejoin {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (args : List FlatValue)
+    (inst : InstId) (destination : RecordDestination) (schema : Option Stored.TypeOf)
+    {start other : Machine.Config (core3 grow) (HostState sig)}
+    {changes : Machine.ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    (paired : Machine.HostFrame.Related.Paired changes start other) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {entry : InstState}
+    {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) args)
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst,
+      schema.elim (.givePayload destination) (.giveFlat destination)⟩)
+    (caller : callerInstance start.store thread = .ok (some inst))
+    (live : start.store.inst? inst = some entry) (closed : entry.mayLeave = false) :
+    let dispatch := specDispatch ready (host (grow := grow) bindings)
+    let reply := schema.elim (completion start.host.nextTicket (.error .wrongContext))
+      (fun payload => flatCompletion start.host.nextTicket (ABI.flatten destination.width payload)
+        (.error .wrongContext))
+    let next := Machine.Focus.core ((core3 grow).resume start.store.core core (.values reply.2)) continuation
+    let leftNext := { start with
+      host := (start.host.enter name type args).record reply.1, ctl := ⟨thread, next, segments⟩ :: rest }
+    ∃ leftCount rightCount rightNext otherSegments otherRest,
+      Machine.CoreGrowthSteps profile ready dispatch start (List.replicate leftCount .tau) leftNext ∧
+      Machine.CoreGrowthSteps profile ready dispatch other (List.replicate rightCount .tau) rightNext ∧
+      rightNext.ctl = ⟨thread, next, otherSegments⟩ :: otherRest ∧
+      Machine.HostFrame.Related.Paired changes leftNext rightNext ∧
+      leftNext.host.writer = start.host.writer ∧ rightNext.host.writer = other.host.writer ∧
+      (∀ place, Machine.ReturnFrame.Occurrence.Prefix profile ready dispatch start place (List.replicate leftCount .tau)
+        leftNext place) ∧
+      (∀ place, Machine.ReturnFrame.Occurrence.Prefix profile ready dispatch other place (List.replicate rightCount .tau)
+        rightNext place) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_closed_give_rejoin
+    bindings name type args inst destination schema paired thread profile ready parked calling linked caller live closed
+
+/-- The linked memory give reaches the selected tree's checked lowering with the
+import's real Core continuation parked. Only entry journaling has happened. A
+return from lowering reaches the original ticket's status handler; a trap does not. -/
+theorem parked_give_payload {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (handle : BitVec IntType.i32.width)
+    (pointer : FlatValue) (inst : InstId) (destination : RecordDestination) (tree : OwnedMemory.Tree sig)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) [.int .i32 handle, pointer])
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst, .givePayload destination⟩)
+    (caller : callerInstance start.store thread = .ok (some inst))
+    (mayLeave : (start.store.inst? inst).any (·.mayLeave) = true)
+    (word : Stored.flatType pointer = ABI.pointerType destination.width)
+    (destinationChecked : destination.check start.store = .ok ())
+    (selected : Stored.Endpoints.Core.childFromHistory start.host.writer.accepted handle = some tree)
+    (impl : HostImpl (core3 grow) (HostState sig) := host bindings)
+    (embedder : impl.embedder = (host (grow := grow) bindings).embedder := by rfl) :
+    ∃ labels, labels.all (· matches .tau) = true ∧
+      Machine.Steps profile ready (specDispatch ready impl) start labels
+        { start with host := start.host.enter name type [.int .i32 handle, pointer]
+                     ctl := ⟨thread, .prog (do
+                       let result ← Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
+                         (destination.context inst) tree (.memory (flatNat pointer))
+                       return .flat (← finish start.host.nextTicket
+                         (result.mapError .lowerPayload |>.map (fun _ => 0)))),
+                       .core core continuation :: segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_give_payload
+    bindings name type handle pointer inst destination tree start thread profile ready
+    parked calling linked caller mayLeave word destinationChecked selected impl embedder
+
+/-- The flat give checks the selected root schema before lowering. The linked
+flat shape and its original ticket remain in the saved reply continuation. -/
+theorem parked_give_flat {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (handle : BitVec IntType.i32.width)
+    (inst : InstId) (destination : RecordDestination) (payload : Stored.TypeOf) (tree : OwnedMemory.Tree sig)
+    (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
+    (profile : ProfileKind) (ready : HostReady (HostState sig)) {core continuation segments rest}
+    (parked : start.ctl = ⟨thread, .core core continuation, segments⟩ :: rest)
+    (calling : (core3 grow).status start.store.core core = .callout (.embedder name type) [.int .i32 handle])
+    (linked : resolveBinding bindings name type = .ok ⟨name, inst, .giveFlat destination payload⟩)
+    (caller : callerInstance start.store thread = .ok (some inst))
+    (mayLeave : (start.store.inst? inst).any (·.mayLeave) = true)
+    (destinationChecked : destination.check start.store = .ok ())
+    (selected : Stored.Endpoints.Core.childFromHistory start.host.writer.accepted handle = some tree)
+    (schema : rootHasSchema tree payload = true)
+    (impl : HostImpl (core3 grow) (HostState sig) := host bindings)
+    (embedder : impl.embedder = (host (grow := grow) bindings).embedder := by rfl) :
+    ∃ labels, labels.all (· matches .tau) = true ∧
+      Machine.Steps profile ready (specDispatch ready impl) start labels
+        { start with host := start.host.enter name type [.int .i32 handle]
+                     ctl := ⟨thread, .prog (do
+                       let result ← Record.lowerPayloadRoot recordClaims Limits.spec Quirks.none
+                         (destination.context inst) tree .flat
+                       return .flat (← writeCompletion (flatCompletion start.host.nextTicket
+                         (ABI.flatten destination.width payload) (result.mapError .lowerPayload)))),
+                       .core core continuation :: segments⟩ :: rest } :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.PlainScheduled.parked_give_flat
+    bindings name type handle inst destination payload tree start thread profile ready
+    parked calling linked caller mayLeave destinationChecked selected schema impl embedder
+
+/-- Complete a returned lowering result from the reached store and journal, not
+the entry snapshots. Trap configurations never reach this continuation. -/
+theorem give_completion_steps {sig : Signature} {grow : SingleThreaded.GrowOracle}
+    {start : Machine.Config (core3 grow) (HostState sig)} (reply : Event × List FlatValue)
+    {profile : ProfileKind} {ready : HostReady (HostState sig)} {dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {thread core continuation segments rest}
+    (reached : start.ctl = ⟨thread, .prog (do return .flat (← writeCompletion reply)),
+      .core core continuation :: segments⟩ :: rest) :
+    Machine.Steps profile ready dispatch start [.tau, .tau, .tau]
+      { start with host := start.host.record reply.1
+                   ctl := ⟨thread, .core ((core3 grow).resume start.store.core core (.values reply.2))
+                     continuation, segments⟩ :: rest } :=
+  .cons (.hostGet reached) (.cons (.hostSet rfl) (.cons (.popCore rfl) (.refl _)))
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain

@@ -27,4 +27,16 @@ def UniformBuckets.hits [Fintype Sample] (model : UniformBuckets Sample Key) (le
 def UniformBuckets.chunks (model : UniformBuckets Sample Key) (sample : Sample) (level : Nat) (keys : List Key) : Nat :=
   (chunk ((model.policy sample).cut level) keys).length
 
+def selectionFiber [Fintype Sample] [DecidableEq Key] (select : Sample → List Key) (keys : List Key) : Finset Sample :=
+  Finset.univ.filter fun sample => select sample = keys
+
+/-- Condition on the entire realized input list, not just on whether an individual
+key is reached. `numerator / denominator` bounds the hit probability of each key
+within every nonempty fiber. Empty fibers satisfy the count condition vacuously. -/
+def UniformBuckets.ConditionalCap [Fintype Sample] [DecidableEq Key] (model : UniformBuckets Sample Key)
+    (level : Nat) (select : Sample → List Key) (numerator denominator : Nat) : Prop :=
+  0 < denominator ∧ ∀ keys key, key ∈ keys →
+    denominator * ((selectionFiber select keys).filter fun sample => model.hit sample level key = true).card ≤
+      numerator * (selectionFiber select keys).card
+
 end Silmaril.Semantics.Prolly

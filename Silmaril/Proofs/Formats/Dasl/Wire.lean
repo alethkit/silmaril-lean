@@ -46,6 +46,41 @@ theorem dictFields_value {fields : List (String × Shallow Name)} (distinct : (f
       simp only [dictFields, dite_eq_right different]
       exact ih separated.2 inTail
 
+theorem dictFields_materialize_perm (fields : List (String × Shallow Name)) (distinct : (fields.map Prod.fst).Nodup) :
+    ((dictFields fields).1.sort.attach.map (fun key =>
+      (key.val, (dictFields fields).2 ⟨key.val, (Finset.mem_sort _).mp key.property⟩))).Perm fields := by
+  let dict := dictFields fields
+  let materialize : {key : String // key ∈ dict.1.sort} → String × Shallow Name := fun key =>
+    (key.val, dict.2 ⟨key.val, (Finset.mem_sort _).mp key.property⟩)
+  have find (entry : String × Shallow Name) (member : entry ∈ fields) :
+      ∃ key : {key : String // key ∈ dict.1.sort}, materialize key = entry := by
+    have inKeys : entry.1 ∈ dict.1 := by
+      dsimp only [dict]
+      rw [dictFields_keys]
+      exact List.mem_toFinset.mpr (List.mem_map_of_mem member)
+    refine ⟨⟨entry.1, (Finset.mem_sort _).mpr inKeys⟩, Prod.ext rfl ?_⟩
+    exact dictFields_value distinct member
+  change (dict.1.sort.attach.map materialize).Perm fields
+  have names : (dict.1.sort.attach.map materialize).map Prod.fst = dict.1.sort := by
+    simp [List.map_map, Function.comp_def, materialize]
+  have enumDistinct : ((dict.1.sort.attach.map materialize).map Prod.fst).Nodup := by
+    rw [names]
+    exact Finset.sort_nodup _ _
+  apply (List.perm_ext_iff_of_nodup enumDistinct.of_map distinct.of_map).mpr
+  intro entry
+  constructor
+  · intro member
+    obtain ⟨key, _, rfl⟩ := List.mem_map.mp member
+    have inKeys := List.mem_toFinset.mp ((congrArg (fun keys : Finset String => key.val ∈ keys)
+      (dictFields_keys fields)).mp ((Finset.mem_sort _).mp key.property))
+    obtain ⟨source, present, equal⟩ := List.mem_map.mp inKeys
+    obtain ⟨sourceKey, correct⟩ := find source present
+    have same : sourceKey = key := Subtype.ext (congrArg Prod.fst correct |>.trans equal)
+    exact same ▸ correct.symm ▸ present
+  · intro present
+    obtain ⟨key, correct⟩ := find entry present
+    exact List.mem_map.mpr ⟨key, List.mem_attach _ _, correct⟩
+
 private theorem lower_ofList (children : List (Drisl.OrderedATProto (Link Name))) :
     lower (RawSyn.ofList children) = children.map (lower (index := .val)) := by
   induction children with
@@ -145,12 +180,12 @@ theorem typed_cid_roundtrip {link : Link Cid} (valid : ValidLink link) :
   cases link with
   | obj cid =>
     have tag : IsObjectCid cid := valid
-    simp [cidCodec, Drisl.Cid.codec, cid.property, bind, IsObjectCid] at tag ⊢
+    simp [cidCodec, cidCodecFor, Drisl.Cid.codec, cid.property, bind, IsObjectCid] at tag ⊢
     exact tag
   | blob cid =>
     have tag : IsRawCid cid := valid
     have different : (0x55 : UInt8) ≠ 0x71 := by decide
-    simp [cidCodec, Drisl.Cid.codec, cid.property, bind, IsRawCid] at tag ⊢
+    simp [cidCodec, cidCodecFor, Drisl.Cid.codec, cid.property, bind, IsRawCid] at tag ⊢
     simp [tag, different]
 
 theorem typed_cid_parse {bytes : List UInt8} {link : Link Cid} (parsed : cidCodec.parse? bytes = some link) :

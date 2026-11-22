@@ -7,7 +7,7 @@ not a replacement for it or for the binary decoder.
 | --- | --- | --- |
 | Context reference | `Validation.Inductive.Path.here/there` | `Bounded.equiv` preserves the selected occurrence and its u32 index, with inverses in both directions. `Path` itself does not impose a binary bound. |
 | Raw function | `Declaration.Func ValType Body` | A Core function is the `List Instr` specialization; `mapBody` keeps the type index and locals. Binaryen already uses the `List BExpr` specialization. |
-| Raw module | `ModuleParts F` (`Generic.RawModule F`) | `Module.splitEquiv` splits and rejoins a Core module exactly; `map`/`traverse` preserve non-function sections and slot order. |
+| Raw module | `ModuleParts F` | `Module.splitEquiv` splits and rejoins a Core module exactly; `map`/`traverse` preserve non-function sections and slot order. |
 | Typed function | `Generic.Typed.Function B context signature` | The type reference is structural. `B` ranges over a body family indexed by the actual function-body context and stack effect. `intrinsicEquiv` is an exact iso at `Intrinsic.Body`. |
 | Typed module | `Generic.Typed.Module F interface` | A checked declaration header computes the common environment, then a dependent `Definitions` spine supplies one function per local signature. `intrinsicEquiv` recovers the current typed module exactly at the Core specialization, including all section data. |
 
@@ -24,9 +24,6 @@ Import `Silmaril.Wasm.ModuleParts.Thms` for the total projections and assembly:
 | `start`, `exports` | Start and export references into the assembled module, not information about a standalone sections-only module. |
 | `funcs` | `Module.split` retains the ordered definitions. A function's `declaration` contains its type use and additional locals; its `body` is separate. `FuncDecl.withBody` reassembles it. |
 
-The earlier `metadata : Module` plus `noFunctions` reused all the Core field
-types without forgetting any fields, but looked like a module even when its
-start, exports or initializers referred to definitions stored elsewhere.
 `ModuleSections` has no function field and makes no standalone validity claim.
 Use `sections.assemble defs` or `parts.toCore` to combine the pieces;
 `Module.splitEquiv` and `Declaration.Func.splitEquiv` prove both directions.
@@ -58,7 +55,7 @@ a module with function imports.
 Intrinsic.Module interface ── intrinsicEquiv ──▶ Typed.Module (Function Intrinsic.Body) interface
               │ erase                                       │ forget Function.erase
               ▼                                             ▼
-          Core.Module ────── coreEquiv ────────▶ RawModule Core.Func
+          Core.Module ───────── split ────────▶ ModuleParts Core.Func
 ```
 
 `Module.forget_commutes` lifts a commuting payload square to this module level.
@@ -144,7 +141,7 @@ that a numeric function reference still selects the same slot after retyping.
 Two equal signatures may occupy different slots.
 
 `Module.specialize?` makes a final singleton Core type group for each function
-slot and returns the fixed-Core `RawModule` above. The numeric encoding is
+slot and returns the fixed-Core `ModuleParts` above. The numeric encoding is
 partial; it does not assign an external Wasm value type to arbitrary SSA
 products or sums. Export names and indices, memories, and data survive
 specialization. This profile has no imports, start, tags, globals, tables,
