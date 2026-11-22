@@ -7,7 +7,8 @@ target=+Silmaril.Wasm.Binaryen.Continuation.Examples
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
-"$lake" build --wfail "$target"
+"$lake" build --wfail "$target" +Silmaril.Wasm.Binary.Core.Decode \
+  +Silmaril.Wasm.Binaryen.Exe.Encode +Silmaril.Wasm.Validation.Check.Validate
 "$lake" env lean -DwarningAsError=true --run "$testdir/Interop.lean" emit "$tmp/exact.wasm"
 if [ -n "${BINARYEN_BIN:-}" ]; then
   "$BINARYEN_BIN/wasm-shell" --version | grep -F 'version 133'
