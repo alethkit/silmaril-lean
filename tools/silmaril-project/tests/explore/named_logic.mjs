@@ -29,16 +29,73 @@ try {
     fs.mkdirSync(shots, { recursive: true });
     await page.screenshot({ path: path.join(shots, `${name}.png`), fullPage: true });
   };
-  const open = async (row, profile = sha) => {
-    await page.goto(`${url}#/named-logic/${row}/${profile}`);
+  const open = async (target = "") => {
+    await page.goto(`${url}#/named-logic/${target}`);
     await page.waitForFunction(() => window.explore?.view === "named-logic" && !window.explore.busy);
   };
   const body = () => page.locator("main").innerText();
-  await open("hol.named-assumption");
+  await page.goto(`${url}#/formal/`);
+  await page.getByRole("link", { name: "Named logic fixtures" }).click();
+  await page.getByRole("link", { name: "HOL Light" }).waitFor();
+  assert.match(await body(), /HOL Light · 2 tables, 2 rows/);
+  assert.match(await body(), /Extensional MLTT · 4 tables, 5 rows/);
+  await page.getByRole("link", { name: "HOL Light" }).click();
+  await page.getByRole("link", { name: "Derivability with hypotheses" }).click();
+  const namedRow = fixture.rows.find((row) => row.id === "hol.named-assumption");
+  const conclusion = namedRow.roots.conclusion;
+  await page.getByRole("heading", { name: "Derivability with hypotheses · 1 row" }).waitFor();
+  assert.match(page.url(), /#\/named-logic\/logic\/hol\/derivability$/);
+  assert.match(await body(), /Kernel derivability/);
+  assert.match(await body(), /assumption 1/);
+  assert.ok((await page.locator(".named-cid").allTextContents()).includes(conclusion.cid));
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.locator(".named-roots").getByRole("button", { name: "Copy CID" })
+    .and(page.locator(`[data-named-copy="${conclusion.cid}"]`)).click();
+  await page.getByText("CID copied.", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), conclusion.cid);
+  await screenshot("hol-derivability");
+
+  await page.locator("#named-logic-profile").selectOption(b3);
+  await page.waitForFunction(() => location.hash.endsWith("profile=bdasl-inline-blake3") && !window.explore.busy);
+  assert.ok((await page.locator(".named-cid").allTextContents()).includes(conclusion.alternates[b3]));
+  assert.ok(!(await page.locator(".named-cid").allTextContents()).includes(conclusion.cid));
+  await page.getByRole("rowheader").getByRole("link").click();
+  await page.locator("#named-logic-evidence").waitFor();
+  assert.match(page.url(), /hol\/derivability\/hol.named-assumption\?profile=bdasl-inline-blake3$/);
+  await page.reload();
+  await page.locator("#named-logic-evidence").waitFor();
+  assert.match(await body(), /BLAKE3 requires the external verifier/);
+  await page.locator("#named-logic-profile").selectOption(sha);
+  await page.waitForFunction(() => location.hash.endsWith("hol.named-assumption") && !window.explore.busy);
+  assert.match(await body(), /Browser SHA-256 matches CID digest/);
+
+  await open("logic/hol/derivability?interpretation=model");
+  assert.match(await body(), /No fixture rows match this interpretation/);
+  await page.locator("#named-logic-interpretation").selectOption("kernel");
+  await page.getByRole("rowheader").getByRole("link").waitFor();
+  await open("logic/mltt/computation");
+  assert.match(await body(), /Projection computation · 2 rows/);
+  assert.equal(await page.locator(".named-table tbody tr").count(), 2);
+  assert.match(await page.locator(".named-table").innerText(), /Formation, typing, inhabitation or computation/);
+  assert.doesNotMatch(await page.locator(".named-table").innerText(), /Model-relative/);
+
+  for (const [target, message] of [
+    ["logic/unknown", /Unknown logic/],
+    ["logic/hol/missing", /Unknown fixture table/],
+    ["logic/hol/closed-theorems/hol.named-assumption", /Unknown fixture row/],
+    ["logic/hol/closed-theorems/hol.closed/extra", /Malformed fixture route/],
+    ["logic/hol/%ZZ", /Malformed route encoding/],
+    ["logic/hol?profile=other", /unsupported fixture profile/],
+  ]) {
+    await open(target);
+    assert.match(await body(), message);
+  }
+
+  await open(`hol.named-assumption/${sha}`);
   assert.equal(await page.locator("#named-logic-row option").count(), 7);
-  assert.match(await body(), /SHA-256 matches CID bytes/);
+  assert.match(await body(), /Browser SHA-256 matches CID digest/);
   assert.match(await body(), /weakening and implication introduction/);
-  assert.match(await body(), /does not establish this judgment/);
+  assert.match(await body(), /digest checks cover the syntax bytes only/);
   const pinned = await page.locator("#named-logic-evidence a").getAttribute("href");
   assert.ok(pinned.includes(`/blob/${fixture.source.revision}/`));
   await page.locator("#named-logic-blocks details summary").first().click();
@@ -46,10 +103,9 @@ try {
   await screenshot("hol-named-assumption");
 
   await page.locator("#named-logic-profile").selectOption(b3);
-  await page.waitForFunction(() => /bdasl-inline-blake3$/.test(location.hash) && !window.explore.busy);
-  assert.match(await body(), /BLAKE3 not computed in browser/);
-  await page.locator("#named-logic-row").selectOption("mltt.sigma-inhabited");
-  await page.waitForFunction(() => /mltt.sigma-inhabited/.test(location.hash) && !window.explore.busy);
+  await page.waitForFunction(() => location.hash.endsWith("profile=bdasl-inline-blake3") && !window.explore.busy);
+  assert.match(await body(), /BLAKE3 requires the external verifier/);
+  await open(`logic/mltt/inhabitation/mltt.sigma-inhabited?profile=${b3}`);
   assert.match(await body(), /∃ term/);
   assert.doesNotMatch(await page.locator("#named-logic-blocks").innerText(), /^term$/m);
   await screenshot("mltt-sigma-inhabited");
@@ -59,7 +115,7 @@ try {
   const first = fixture.rows[0].roots.conclusion;
   delete supplied.blocks[sha][first.cid];
   await open("hol.closed");
-  assert.match(await body(), /Missing root block. The judgment is not refuted/);
+  assert.match(await body(), /Missing root block. Judgment status is unchanged/);
   assert.match(await body(), /closedRow/);
   await screenshot("missing-root");
 
@@ -76,8 +132,12 @@ try {
   await page.waitForFunction(() => window.explore?.view === "named-logic" && !window.explore.busy);
   assert.match(await body(), /profile mismatch/);
   assert.equal(await page.locator("#named-logic-evidence").count(), 0);
+  await page.unroute("**/named-logic.json");
+  await page.route("**/named-logic.json", (route) => route.fulfill({ status: 404 }));
+  await open();
+  assert.match(await body(), /Install the opt-in named-logic.json/);
   assert.deepEqual(errors, []);
-  console.log("Named logic Explorer: both profiles, pinned evidence, bytes, missing root, invalid wire, digest and profile mismatch passed.");
+  console.log("Named logic Explorer: logic and table navigation, deep links, copy, interpretation, both profiles, pinned evidence, and malformed or missing data passed.");
 } finally {
   if (browser) await browser.close();
   server.kill();
