@@ -80,7 +80,7 @@ roots = ["Silmaril.Prelude"]
 globs = [
   "Silmaril", "Silmaril.Apps.+", "Silmaril.Automata.+", "Silmaril.Proofs.Automata.+",
   "Silmaril.Calculi.*", "Silmaril.Cli.*", "Silmaril.Compile.+",
-  "Silmaril.Containers.+", "Silmaril.Courses.+", "Silmaril.Crypto.+", "Silmaril.Data.+", "Silmaril.Elf.+", "Silmaril.Encoding.*",
+  "Silmaril.Containers.+", "Silmaril.Courses.+", "Silmaril.Crypto.+", "Silmaril.Proofs.Crypto.+", "Silmaril.Data.+", "Silmaril.Elf.+", "Silmaril.Encoding.*",
   "Silmaril.Formats.+", "Silmaril.Foundations.+", "Silmaril.Games.+", "Silmaril.Sim.+", "Silmaril.Libc.+", "Silmaril.Logic.*", "Silmaril.LogicGraph.Nodes.+", "Silmaril.LogicGraph.Edges.+", "Silmaril.LogicGraph.Audit.+", "Silmaril.LogicGraph.Consequence.+",
   "Silmaril.Machine.+", "Silmaril.Numeric.+", "Silmaril.Parse.+", "Silmaril.Prelude.+", "Silmaril.ProofFormats.*",
   "Silmaril.Raw.Libc.+",
@@ -101,7 +101,7 @@ globs = [
   "Silmaril.Proofs.Wasm.Examples.+", "Silmaril.Proofs.Wasm.Execution.+",
   "Silmaril.Proofs.Wasm.FX.+", "Silmaril.Proofs.Wasm.FnInst.+",
   "Silmaril.Proofs.Wasm.Game.+", "Silmaril.Proofs.Wasm.Interp.+", "Silmaril.Proofs.Wasm.Logic.+",
-  "Silmaril.Proofs.Wasm.SSA.+", "Silmaril.Proofs.Wasm.Spec.+", "Silmaril.Proofs.Wasm.Tools.+",
+  "Silmaril.Proofs.Wasm.Profiles.+", "Silmaril.Proofs.Wasm.Sublanguages.+", "Silmaril.Proofs.Wasm.SSA.+", "Silmaril.Proofs.Wasm.Spec.+", "Silmaril.Proofs.Wasm.Tools.+",
   "Silmaril.Proofs.Wasm.Verify.+", "Silmaril.Proofs.WasmSpec.+", "Silmaril.Proofs.X86.+",
   "Silmaril.Raw.Elf.+", "Silmaril.Raw.Formats.+", "Silmaril.Raw.Process.+", "Silmaril.Raw.Semantics.+",
   "Silmaril.Raw.Wasm.Auto.+", "Silmaril.Raw.Wasm.Auto2.+", "Silmaril.Raw.X86.+",
@@ -114,8 +114,8 @@ globs = [
   "Silmaril.Wasm.FX.+", "Silmaril.Wasm.FnInst.+", "Silmaril.Wasm.Game.+",
   "Silmaril.Wasm.Institution.+", "Silmaril.Wasm.Instructions", "Silmaril.Wasm.Interp.+",
   "Silmaril.Wasm.Lime1.+", "Silmaril.Wasm.Link.+", "Silmaril.Wasm.Logic.+",
-  "Silmaril.Wasm.Models.+", "Silmaril.Wasm.ModuleBuilder", "Silmaril.Wasm.Modules",
-  "Silmaril.Wasm.Numerics.+", "Silmaril.Wasm.Ops", "Silmaril.Wasm.SSA.+",
+  "Silmaril.Wasm.Models.+", "Silmaril.Wasm.ModuleBuilder", "Silmaril.Wasm.Modules", "Silmaril.Wasm.ModuleParts.+",
+  "Silmaril.Wasm.Numerics.+", "Silmaril.Wasm.Ops", "Silmaril.Wasm.Profiles.+", "Silmaril.Wasm.SSA.+", "Silmaril.Wasm.Sublanguages.+",
   "Silmaril.Wasm.Scalar.+", "Silmaril.Wasm.SingleThreaded.+", "Silmaril.Wasm.Spec.+",
   "Silmaril.Wasm.Text.+", "Silmaril.Wasm.Tools.+", "Silmaril.Wasm.TypeUse", "Silmaril.Wasm.Types",
   "Silmaril.Wasm.V1.+", "Silmaril.Wasm.V2.+", "Silmaril.Wasm.Validation.+",
@@ -125,7 +125,7 @@ globs = [
   "Silmaril.Proofs.Wasm.Instantiation.+", "Silmaril.Proofs.Wasm.Jco.+",
   "Silmaril.Proofs.Wasm.JcoTool.+", "Silmaril.Proofs.Wasm.LimeCompile.+",
   "Silmaril.Proofs.Wasm.Models.+", "Silmaril.Proofs.Wasm.Perf.+",
-  "Silmaril.Proofs.Wasm.Resource.+", "Silmaril.Proofs.Wasm.Validation.+", "Silmaril.Proofs.Wasm.Wac.+", "Silmaril.Proofs.Wasm.Wit.+",
+  "Silmaril.Proofs.Wasm.Resource.+", "Silmaril.Proofs.Wasm.V1.+", "Silmaril.Proofs.Wasm.Validation.+", "Silmaril.Proofs.Wasm.Wac.+", "Silmaril.Proofs.Wasm.Wit.+",
   "Silmaril.Raw.Wasm.Component.+", "Silmaril.Raw.Wasm.Tools.+", "Silmaril.Raw.Wasm.Versions.+",
   "Silmaril.Raw.Wasm.Wit.+", "Silmaril.Raw.Wasm.Logic.+", "Silmaril.Wasm.Atlas.+", "Silmaril.Wasm.Category.+",
   "Silmaril.Wasm.InstObs.+", "Silmaril.Wasm.Instantiation.+", "Silmaril.Wasm.Jco.+",
@@ -627,6 +627,20 @@ srcDir = "tools/cli-core-trace"
 [[lean_lib]]
 name = "CerberusTests"
 globs = ["tests.cerberus.+"]
+
+# Run the large finite CJSON observations natively. The same main functions and
+# assertions remain in CerberusTests; interpretation dominates the CI time budget.
+[[lean_exe]]
+name = "ci_cjson_array_size_context"
+root = "tests.cerberus.CjsonArraySizeContext"
+
+[[lean_exe]]
+name = "ci_cjson_array_item_context"
+root = "tests.cerberus.CjsonArrayItemContext"
+
+[[lean_exe]]
+name = "ci_cjson_array_item_machine"
+root = "tests.cerberus.CjsonArrayItemMachine"
 
 [[lean_exe]]
 name = "cerb-lean"

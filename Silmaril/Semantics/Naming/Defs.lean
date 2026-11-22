@@ -28,6 +28,10 @@ def Subset (left right : Relation Name Payload) : Prop :=
 def union (left right : Relation Name Payload) : Relation Name Payload :=
   fun name payload => left name payload ∨ right name payload
 
+/-- Preserve all existing bindings; admit defaults only at names absent from the base. -/
+def fillMissing (base defaults : Relation Name Payload) : Relation Name Payload :=
+  fun name payload => base name payload ∨ ((¬ ∃ old, base name old) ∧ defaults name payload)
+
 def inter (left right : Relation Name Payload) : Relation Name Payload :=
   fun name payload => left name payload ∧ right name payload
 
@@ -59,7 +63,17 @@ def quotient (rel : Relation Name Payload) (equiv : Setoid Payload) :
     Relation Name (Quotient equiv) :=
   project rel (fun payload => some (Quotient.mk equiv payload))
 
-/-- Consistency with a fixed byte hash, without any collision-freedom claim. -/
+/-- The graph of a partial naming function, in name-to-payload orientation.
+Only `some name` contributes a pair; an undefined output contributes nothing. -/
+def nameGraph (name? : Payload → Option Name) : Relation Name Payload :=
+  fun name payload => graph name? payload name
+
+/-- Compatibility is inclusion, not equality with the graph. It does not imply
+binding or require an observation of every successful output. -/
+def PartialHashCompatible (hash? : Wire → Option Name) (rel : Relation Name Wire) : Prop :=
+  Subset rel (nameGraph hash?)
+
+/-- Consistency with a fixed total byte hash, without any collision-freedom claim. -/
 def HashCompatible (hash : Wire → Name) (rel : Relation Name Wire) : Prop :=
   ∀ ⦃name wire⦄, rel name wire → hash wire = name
 

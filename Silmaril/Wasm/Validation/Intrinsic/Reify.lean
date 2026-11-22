@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Validation.Intrinsic.Defs
 public import Silmaril.Wasm.Validation.Check.Validate
+import Silmaril.Wasm.ModuleParts.Thms
 
 @[expose] public section
 
@@ -119,16 +120,17 @@ def checkEach {α : Type} (values : List α) (check : α → Bool) (Valid : α �
 def reify? (raw : Wasm.Module) : Option (Reified raw) := do
   let check := defaultCheckers
   let sound := defaultCheckers_sound
+  let sections := raw.sections
   let ⟨types, typesEq⟩ ← (check.types? {} raw.types).attach
   let importsContext : Context := { types := types }
   let ⟨imports, importsEq⟩ ← (raw.imports.mapM (check.import? importsContext)).attach
   let funcTypes ← raw.funcs.mapM (fun func => importsContext.type? func.type)
-  let base := moduleCtx' raw types imports funcTypes
+  let base := sectionBaseContext sections types imports funcTypes
   let ⟨tags, tagsEq⟩ ← (raw.tags.mapM (check.tag? base)).attach
   let ⟨globals, globalsEq⟩ ← (check.globals? base raw.globals).attach
   let ⟨tables, tablesEq⟩ ← (raw.tables.mapM (check.table? base)).attach
   let elementTypes := raw.elems.map fun elem => base.closeRef elem.type
-  let context := moduleCtx raw base imports tags globals tables elementTypes
+  let context := sectionContext sections base imports tags globals tables elementTypes
   let ⟨funcs, eraseFuncs⟩ ← functions? context funcTypes raw.funcs
   let ⟨memoriesValid⟩ ← checkEach raw.memories check.mem MemOk (fun _ => sound.mem)
   let ⟨dataValid⟩ ← checkEach raw.data (check.data context) (DataOk context) (fun _ => sound.data)
@@ -137,8 +139,7 @@ def reify? (raw : Wasm.Module) : Option (Reified raw) := do
     if startEq : raw.start.all (check.start context) = true then
       if distinct : (raw.exports.map Export.name).Nodup then
         some ⟨⟨imports, exports⟩, {
-          metadata := { raw with funcs := [] }
-          noRawFunctions := rfl
+          sections := sections
           definedTypes := types
           definedTags := tags
           definedGlobals := globals
@@ -164,8 +165,9 @@ def reify? (raw : Wasm.Module) : Option (Reified raw) := do
             exact startEq)
           exportsValid := List.mapM_some_forall₂ sound.export_ exportsEq
           exportsDisjoint := distinct }, by
-            change { raw with funcs := funcs.erase } = raw
-            rw [eraseFuncs]⟩
+            change sections.assemble funcs.erase = raw
+            rw [eraseFuncs]
+            exact raw.assemble_sections⟩
       else none
     else none
   else none

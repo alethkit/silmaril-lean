@@ -18,16 +18,24 @@ abbrev Cid := Drisl.Cid .dasl
 @[expose] def IsObjectCid (cid : Cid) : Prop := cid.val[1]? = some 0x71
 @[expose] def IsRawCid (cid : Cid) : Prop := cid.val[1]? = some 0x55
 
-def cidCodec : Drisl.CidCodec (Link Cid) where
+@[expose] def ValidLink : Link Cid → Prop
+  | .obj cid => IsObjectCid cid
+  | .blob cid => IsRawCid cid
+
+/-- Preserve the raw/object distinction after checking the selected CID profile. -/
+@[expose] def cidCodecFor (profile : Drisl.CidProfile) : Drisl.CidCodec (Link (Drisl.Cid profile)) where
   bytes
     | .obj cid | .blob cid => cid.val
   parse? bytes := do
-    let cid ← (Drisl.Cid.codec .dasl).parse? bytes
+    let cid ← (Drisl.Cid.codec profile).parse? bytes
     if cid.val[1]? = some 0x71 then some (.obj cid)
     else if cid.val[1]? = some 0x55 then some (.blob cid)
     else none
 
-private def dictFields {Name : Type} : List (String × Shallow Name) →
+@[expose] def cidCodec : Drisl.CidCodec (Link Cid) := cidCodecFor .dasl
+
+/-- Forget field order. For duplicate entries this keeps the first; the wire reader rejects duplicates. -/
+@[expose] def dictFields {Name : Type} : List (String × Shallow Name) →
     (keys : Finset String) × (↥keys → Shallow Name)
   | [] => ⟨∅, fun key => (Finset.notMem_empty _ key.property).elim⟩
   | (key, value) :: tail =>
@@ -35,7 +43,8 @@ private def dictFields {Name : Type} : List (String × Shallow Name) →
     ⟨insert key keys, fun member => if same : member.val = key then value else
       values ⟨member.val, (Finset.mem_insert.mp member.property).resolve_left same⟩⟩
 
-private def lower {Name : Type} : {index : JsonIx} →
+/-- Forget ordered map syntax while retaining typed links and signed integer bit patterns. -/
+@[expose] def lower {Name : Type} : {index : JsonIx} →
     RawSyn String (Drisl.Scalar Int64 (Link Name)) index →
     (match index with | .val => Shallow Name | .arr => List (Shallow Name)
                       | .obj => List (String × Shallow Name))
@@ -54,14 +63,14 @@ private def lower {Name : Type} : {index : JsonIx} →
 
 /-- `parseCbor?` has already rejected duplicate keys, so `lower` forgets order but never
 chooses between competing fields. -/
-def parse? (bytes : ByteArray) : Option (Shallow Cid) :=
-  (Drisl.parseCbor? Drisl.i64Cbor cidCodec bytes.toList).map lower
+@[expose] def parse? (bytes : ByteArray) : Option (Shallow Cid) :=
+  (Drisl.parseCbor? Drisl.i64Cbor cidCodec bytes.data.toList).map lower
 
-def toOrdered {Name : Type} : Shallow Name → Drisl.OrderedATProto (Link Name)
+@[expose] def toOrdered {Name : Type} : Shallow Name → Drisl.OrderedATProto (Link Name)
   | .ref link => .scalar (.link link)
   | .obj impossible _ | .blob impossible _ => impossible.elim
   | .i64 bits => .scalar (.data (.number bits.toInt64))
-  | .bytes payload => .scalar (.data (.bytes payload.toList))
+  | .bytes payload => .scalar (.data (.bytes payload.data.toList))
   | .string text => .scalar (.data (.string text))
   | .bool value => .scalar (.data (.bool value))
   | .null => .scalar (.data .null)
@@ -71,7 +80,7 @@ def toOrdered {Name : Type} : Shallow Name → Drisl.OrderedATProto (Link Name)
 
 /-- The typed link tag must agree with the CID codec before serialization. The underlying
 writer sorts fields by the canonical encoded-key order (not `String` order). -/
-def render? (value : Shallow Cid) : Option ByteArray := do
+@[expose] def render? (value : Shallow Cid) : Option ByteArray := do
   let ordered := toOrdered value
   if (Drisl.links ordered).all (fun
       | .obj cid => cid.val[1]? == some 0x71
@@ -91,7 +100,7 @@ inductive ReadResult (Payload : Type) where
 
 /-- Read a block requested as an object. A CID of the wrong codec or present but malformed
 object bytes is invalid, not missing. Integrity checks belong to the input store. -/
-def readObject (read : Cid → Option ByteArray) (name : Cid) : ReadResult (Shallow Cid) :=
+@[expose] def readObject (read : Cid → Option ByteArray) (name : Cid) : ReadResult (Shallow Cid) :=
   if name.val[1]? == some 0x71 then
     match read name with
     | none => .missing
