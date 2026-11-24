@@ -179,7 +179,9 @@ bash tools/sqlite-wasm/check-function-vectors.sh \
 ```
 
 Import `SqliteWasm.FunctionVectorCheck` from the generated Lean root. It proves
-the following statement over the pinned reactor.
+the following statement over the pinned reactor. The standalone check also
+compiles a separate module that imports and applies the exported results.
+[Downstream check](FunctionVectorImport.lean)
 
 ```lean
 theorem originalFunctionVectors :

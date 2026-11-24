@@ -133,7 +133,7 @@ sqlite_check_eq originalCodeCount :
 sqlite_check_eq quotedFunctionCount : sqlite.funcs.length = {count}
 
 sqlite_check_eq reactorFramingOnlyOrdinals :
-    reactorCodeCoverage.zipIdx.filterMap (fun (covered, i) => if covered then none else some i) =
+    reactorCodeCoverage.zipIdx.filterMap (fun entry => if entry.1 then none else some entry.2) =
       {gaps}
 
 sqlite_check_eq reactorCheckedBodyCount : (reactorCodeCoverage.filter id).length = {count - len(gaps)}

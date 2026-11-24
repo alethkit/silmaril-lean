@@ -20,7 +20,7 @@ fi
 # Reuse the reactor's digest check and original byte literal from the selected-record proof.
 bash "$tool/check-artifact.sh" "$wasm" "$src"
 lake build --wfail +Silmaril.Wasm.Component.ChunkedDecode.Thms
-cp "$tool"/{FunctionVector,FunctionPlans}.lean "$src/"
+cp "$tool"/{FunctionVector,FunctionPlans,FunctionVectorImport}.lean "$src/"
 python3 -B "$tool/generate-function-checks.py" "$src/Original.wasm" "$src" > "$src/function-check-blocks.txt"
 
 export root src LEAN_PATH="$root${LEAN_PATH:+:$LEAN_PATH}"
@@ -34,3 +34,4 @@ compile FunctionPlans
 export -f compile
 xargs -P "$jobs" -n 1 bash -euc 'compile "$1"' bash < "$src/function-check-blocks.txt"
 compile FunctionVectorCheck
+compile FunctionVectorImport
