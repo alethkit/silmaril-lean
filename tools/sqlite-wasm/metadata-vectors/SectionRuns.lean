@@ -51,7 +51,8 @@ private theorem slice_at {source : KBytes} (wf : source.wf = true) {start stop :
     exact (source.toList_slice _ _ wf bound).symm
   · rwa [length, source.length_toList wf]
 
-private theorem read_slice {α : Type} {source : KBytes} (wf : source.wf = true)
+/-- Lift a complete framed read on a bounded packed slice to its original cursor. -/
+theorem readSectionSlice {α : Type} {source : KBytes} (wf : source.wf = true)
     {start stop : Nat} (ordered : start ≤ stop) (fit : stop ≤ source.len)
     {reader : DecodeM α} (frame : Frame reader) {out : α}
     (checked : runAll reader (sectionBytes source start stop) = some out) :
@@ -59,6 +60,24 @@ private theorem read_slice {α : Type} {source : KBytes} (wf : source.wf = true)
   have atStart := slice_at wf ordered fit
   have read := run_of_runAll frame checked atStart.1
   rwa [atStart.2, show start + (stop - start) = stop by omega] at read
+
+/-- Combine a complete vector run with the checked section envelope. -/
+theorem sectionRun_of_readVec {α : Type} {source : Packed.Cursor} {id : UInt8}
+    {header start size : Nat} {reader : DecodeM α} {setField : Sections → List α → Sections}
+    {entries : List α} (update : BodyOf id.toNat reader setField)
+    (location : ((sectionSpans? source).bind fun spans => spans.lookup id.toNat) = some (start, size))
+    (ordered : header + 1 ≤ start) (bound : start + size ≤ source.source.len) (nonCustom : id.toNat ≠ 0)
+    (identifier : sectionBytes source.source header (header + 1) = [id])
+    (sizePrefix : runAll (readU 32) (sectionBytes source.source (header + 1) start) = some size)
+    (vector : readVec reader ⟨source.source.toByteArray, start⟩ =
+      .ok (entries, ⟨source.source.toByteArray, start + size⟩)) :
+    SectionRun source id header start size (fun state => setField state entries) := by
+  have atIdentifier := (slice_at source.wf (Nat.le_succ header) (by omega)).1
+  rw [identifier] at atIdentifier
+  refine ⟨location, atIdentifier.get,
+    readSectionSlice source.wf ordered (by omega) (frame_readU 32) sizePrefix, bound, nonCustom, ?_⟩
+  intro state
+  exact update state _ _ _ vector
 
 /-- Check the section id, size and vector on bounded slices of the original artifact. -/
 theorem sectionRun_of_vec {α : Type} {source : Packed.Cursor} {id : UInt8}
@@ -69,12 +88,8 @@ theorem sectionRun_of_vec {α : Type} {source : Packed.Cursor} {id : UInt8}
     (identifier : sectionBytes source.source header (header + 1) = [id])
     (sizePrefix : runAll (readU 32) (sectionBytes source.source (header + 1) start) = some size)
     (vector : runAll (readVec reader) (sectionBytes source.source start (start + size)) = some entries) :
-    SectionRun source id header start size (fun state => setField state entries) := by
-  have atIdentifier := (slice_at source.wf (Nat.le_succ header) (by omega)).1
-  rw [identifier] at atIdentifier
-  refine ⟨location, atIdentifier.get,
-    read_slice source.wf ordered (by omega) (frame_readU 32) sizePrefix, bound, nonCustom, ?_⟩
-  intro state
-  exact update state _ _ _ (read_slice source.wf (Nat.le_add_right start size) bound (frame_readVec frame) vector)
+    SectionRun source id header start size (fun state => setField state entries) :=
+  sectionRun_of_readVec update location ordered bound nonCustom identifier sizePrefix
+    (readSectionSlice source.wf (Nat.le_add_right start size) bound (frame_readVec frame) vector)
 
 end SqliteWasmArtifact
