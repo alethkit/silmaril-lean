@@ -63,7 +63,9 @@ try {
   check(props.length === 16, `second order: 16 properties (${props.length})`);
   check(props.filter((r) => r[1] === "soundness").every((r) => /SoundFor/.test(r[3])) &&
     props.filter((r) => r[1] === "consistency").every((r) => /ConsistentWrt/.test(r[3])), "each statement has its role's shape");
-  check(props.every((r) => /standard axioms only/.test(r[4])), "standard axioms only");
+  const profiles = await p.locator("#fr-properties .axiom-chip").allTextContents();
+  check(profiles.length === props.length && profiles.every((label) => ["Lean standard", "None"].includes(label)),
+    "each property has a recorded Lean standard or empty axiom profile");
   check(/full/.test(await p.textContent("main")) && /henkin/.test(await p.textContent("main")), "both interpretations, full and Henkin, are listed");
   const pbs = await rows("#fr-problems");
   check(pbs.length === 2 && pbs.some((r) => /exists-set X/.test(r[1])), `the second-order problems, with their S-expressions (${pbs.length})`);
@@ -135,8 +137,8 @@ try {
   check(dr.length === 7 && dr.filter((r) => /✗ rejected/.test(r[2])).length === 4 && dr.filter((r) => /✓ accepted/.test(r[2])).length === 4,
     `seven derivations: four accepted by some checker, four with a rejection (${dr.map((r) => r[2].slice(0, 30))})`);
   await open("/derivation-system/" + encodeURIComponent("logic.formal.pa.nd"), "#fr-dsys-claims");
-  const dc = await p.textContent("#fr-dsys-claims");
-  check(/LocallySound/.test(dc) && /treeDerives \S*Theory\.pa = \S*paDerives/.test(dc) && /standard axioms only/.test(dc), "the PA derivation system: local soundness and agreement with paDerives, as statements");
+  const dc = await p.innerText("#fr-dsys-claims");
+  check(/LocallySound/.test(dc) && /treeDerives \S*Theory\.pa = \S*paDerives/.test(dc) && /Lean standard|None/.test(dc), "the PA derivation system: local soundness and agreement with paDerives, as statements");
   await open("/derivation/" + encodeURIComponent("logic.formal.pa.proof.zero_add"), "#fr-tree");
   const vs = await p.textContent("#fr-verdicts");
   check(/accepted by checkTree Theory\.pa/.test(vs) && /rejected by checkTree Theory\.q at check/.test(vs), `∀x. 0 + x = x: PA accepts, Q rejects at the check (${vs.slice(0, 120)})`);

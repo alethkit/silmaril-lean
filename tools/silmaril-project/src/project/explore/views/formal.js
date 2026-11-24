@@ -17,12 +17,9 @@
   const code = (s) => s == null || s === "" ? "" : `<code>${ui.esc(s)}</code>`;
   const link = (route, name, text) => name == null ? "" : `<a href="#/${route}/${encodeURIComponent(name)}">${ui.esc(text == null ? name : text)}</a>`;
   const srcOf = (decl) => decl ? `<a class="fr-src" href="#/source/${encodeURIComponent(decl)}" title="the Lean source of ${ui.esc(decl)}">source</a>` : "";
-  const list = (v) => { try { const x = typeof v === "string" ? JSON.parse(v) : v; return Array.isArray(x) ? x : []; } catch (e) { return []; } };
-  const obj = (v) => { try { const x = typeof v === "string" ? JSON.parse(v) : v; return x && typeof x === "object" && !Array.isArray(x) ? x : null; } catch (e) { return null; } };
-  const STD = ["Classical.choice", "Quot.sound", "propext"];
-  const axiomsText = (ax) => { const a = list(ax); const extra = a.filter((x) => !STD.includes(x));
-    return extra.length ? `<span class="fr-warn">non-standard axioms: ${ui.esc(extra.join(", "))}</span>`
-      : `<span class="muted" title="${ui.esc(a.join(", ") || "none")}">standard axioms only</span>`; };
+  const list = (v) => ExploreSchema.array(v) ?? [];
+  const obj = ExploreSchema.object;
+  const load = loadFormalRows;
   const ROLE = { soundness: "soundness", consistency: "consistency", nontriviality: "nontriviality",
     satisfiability: "satisfiability (a model)", inclusion: "inclusion" };
   const ROLE_DOC = {
@@ -45,19 +42,6 @@
       "table.fr-steps tr.fr-hl td { background:#fff4ce; } table.fr-steps td { vertical-align:top; } " +
       "@media (max-width: 700px) { table.fr-rows th:nth-child(3), table.fr-rows td:nth-child(3) { display:none; } }";
     document.head.appendChild(s);
-  }
-
-  async function load(ctx) {
-    const [rows, props, problems, pres, dsys, ders] = await Promise.all([
-      ctx.q("SELECT * FROM logic_rows ORDER BY coalesce(row_order, 999), name LIMIT 500"),
-      ctx.q("SELECT * FROM logic_properties ORDER BY name LIMIT 2000"),
-      ctx.q("SELECT * FROM logic_problems ORDER BY name LIMIT 2000"),
-      ctx.q("SELECT * FROM presentations ORDER BY name LIMIT 2000"),
-      has("derivation_systems") ? ctx.q("SELECT * FROM derivation_systems ORDER BY name LIMIT 2000") : [],
-      has("derivations") ? ctx.q("SELECT * FROM derivations ORDER BY name LIMIT 2000") : [],
-    ]);
-    return { rows, props, problems, pres, dsys, ders, prop: new Map(props.map((p) => [p.name, p])), problem: new Map(problems.map((p) => [p.name, p])),
-      presentation: new Map(pres.map((p) => [p.name, p])), dsysMap: new Map(dsys.map((x) => [x.name, x])), der: new Map(ders.map((x) => [x.name, x])) };
   }
 
   // A small S-expression reader for Lean's printed proofs (atoms and lists; no strings).
@@ -131,7 +115,7 @@ ${named}
   function propertyRow(p) {
     return `<tr><td>${link("formal-property", p.name)}</td><td title="${ui.esc(ROLE_DOC[p.role] || "")}">${ui.esc(ROLE[p.role] || p.role)}</td>` +
       `<td>${p.system ? link("system", p.system) : ""}${p.target ? ` → ${link("system", p.target)}` : ""}</td>` +
-      `<td>${code(p.statement)}</td><td>${axiomsText(p.axioms)}</td><td>${code(p.decl)}${p.arg ? ` <span class="muted">at ${ui.esc(p.arg)}</span>` : ""}${srcOf(p.decl)}</td></tr>`;
+      `<td>${code(p.statement)}</td><td>${ui.axiomChip(p.axioms)}</td><td>${code(p.decl)}${p.arg ? ` <span class="muted">at ${ui.esc(p.arg)}</span>` : ""}${srcOf(p.decl)}</td></tr>`;
   }
 
   async function rowPage(name, ctx) {
@@ -184,7 +168,7 @@ ${named}
     h += `<h3>Claims</h3><dl class="fr-claims" id="fr-dsys-claims">`;
     for (const c of list(x.claims)) {
       h += `<dt>${ui.esc(claimRole[c.role] || c.role)}${c.role === "agrees" && x.system ? ` ${link("system", x.system)}` : ""}${c.interpretation ? ` <span class="muted">for ${ui.esc(c.interpretation)}</span>` : ""}</dt>` +
-        `<dd>${code(c.statement)}<br>by ${code(c.proof)} · ${axiomsText(c.axioms)}</dd>`;
+        `<dd>${code(c.statement)}<br>by ${code(c.proof)} · ${ui.axiomChip(c.axioms)}</dd>`;
     }
     h += `</dl>`;
     const drs = d.ders.filter((y) => y.system === name);
@@ -208,9 +192,9 @@ ${named}
     h += `<dl><dt>derivation system</dt><dd>${link("derivation-system", x.system, (d.dsysMap.get(x.system) || {}).title || x.system)}</dd>` +
       `<dt>conclusion</dt><dd>${code(x.conclusion)}</dd><dt>proof object</dt><dd>${code(x.decl)}${srcOf(x.decl)}</dd></dl>`;
     h += `<h3>Verdicts</h3><p class="muted">Each is a Lean theorem <code>check e = r</code> about an encoding of this proof, proved by the kernel.</p><ul id="fr-verdicts">` +
-      list(x.verdicts).map((v) => `<li>${verdictBadge(v)} <span class="muted">on ${ui.esc((d.presentation.get(v.format) || {}).codec_name || v.format)}</span><br>${code(v.statement)} by ${code(v.proof)}${srcOf(v.proof)} · ${axiomsText(v.axioms)}</li>`).join("") + `</ul>`;
+      list(x.verdicts).map((v) => `<li>${verdictBadge(v)} <span class="muted">on ${ui.esc((d.presentation.get(v.format) || {}).codec_name || v.format)}</span><br>${code(v.statement)} by ${code(v.proof)}${srcOf(v.proof)} · ${ui.axiomChip(v.axioms)}</li>`).join("") + `</ul>`;
     const dv = obj(x.derives);
-    if (dv) h += `<p><span class="fr-ok">✓ derives</span> ${x.derives_system ? link("system", x.derives_system) : ""}: ${code(dv.statement)} by ${code(dv.proof)}${srcOf(dv.proof)} · ${axiomsText(dv.axioms)}</p>`;
+    if (dv) h += `<p><span class="fr-ok">✓ derives</span> ${x.derives_system ? link("system", x.derives_system) : ""}: ${code(dv.statement)} by ${code(dv.proof)}${srcOf(dv.proof)} · ${ui.axiomChip(dv.axioms)}</p>`;
     h += `<h3>Proof tree</h3><ul class="fr-tree" id="fr-tree">${treeHtml(readSExp(rend[x.presentation] != null ? rend[x.presentation] : x.sexp))}</ul>`;
     const steps = list(x.steps);
     h += `<h3>Indexed steps</h3><p class="muted">The tree flattened into lines (<code>ProofTree.lines</code>); each step cites earlier lines.</p>` +
@@ -275,7 +259,7 @@ ${named}
       const c = obj(p[k]);
       if (!c) continue;
       h += `<dt>${ui.esc(title)}${by ? ` — ${k === "truth" ? code(by) : link("system", by)}` : ""}</dt><dd>${code(c.statement)}<br>` +
-        `by ${code(c.proof)}${srcOf(c.proof)}${c.context && c.context !== "[]" ? ` <span class="muted">from ${ui.esc(c.context)}</span>` : ""} · ${axiomsText(c.axioms)}</dd>`;
+        `by ${code(c.proof)}${srcOf(c.proof)}${c.context && c.context !== "[]" ? ` <span class="muted">from ${ui.esc(c.context)}</span>` : ""} · ${ui.axiomChip(c.axioms)}</dd>`;
     }
     h += `</dl>`;
     const init = () => {
@@ -304,7 +288,7 @@ ${named}
     if (p.interpretation) h += `<dt>interpretation</dt><dd>${code(p.interpretation)}</dd>`;
     if (p.falsity) h += `<dt>falsity</dt><dd>${code(p.falsity)}</dd>`;
     if (p.context) h += `<dt>context</dt><dd>${code(p.context)}</dd>`;
-    h += `<dt>axioms</dt><dd>${axiomsText(p.axioms)} ${code(list(p.axioms).join(", "))}</dd></dl>`;
+    h += `<dt>axioms</dt><dd>${ui.axiomChip(p.axioms)}</dd></dl>`;
     return h;
   }
 

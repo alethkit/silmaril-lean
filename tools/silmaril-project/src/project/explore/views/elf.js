@@ -62,16 +62,16 @@ table.elf-dis tr.hit td { background:#fff1b8; }
     document.head.appendChild(st);
   }
 
-  // A theorem: its status (from its axioms), its short name and its source line.
-  function thmCell(t) {
+  const exportChecked = (t) => t.status === "checked" && t.kernelOnly === true;
+  const theoremAxioms = (theorems) => AxiomProfiles.classify(theorems.map((t) => t.axioms));
+
+  function thmCell(t, showProfile = true) {
     if (!t) return '<span class="muted">none</span>';
-    const st = t.status === "checked" ? `<span class="prov prov-lean" title="checked by the Lean kernel (decide +kernel on kernel bytes); axioms: ${esc(t.axioms.join(", ") || "none")} (standard only, no native evaluation)">kernel ✓</span>`
-      : t.status === "sorry" ? '<span class="st st-bad" title="depends on sorryAx">sorry</span>'
-      : `<span class="st st-bad" title="axioms: ${esc(t.axioms.join(", "))}">extra axioms</span>`;
+    const st = showProfile ? axiomProfileChip(AxiomProfiles.classify([t.axioms]), exportChecked(t)) + " " : "";
     const f = typeof repoFile === "function" ? repoFile(t.file) : null;
     const src = f ? ` <a href="${esc(f.blob)}${t.line ? "#L" + t.line : ""}" target="_blank" rel="noopener noreferrer">source</a>`
       : ` <span class="muted" title="${esc(t.file)}">${esc(t.file.split("/").pop())}${t.line ? ":" + t.line : ""}</span>`;
-    return `${st} <code title="${esc(t.decl)}">${esc(t.short)}</code>${src}`;
+    return `${st}<code title="${esc(t.decl)}">${esc(t.short)}</code>${src}`;
   }
   const thmByDecl = (d) => new Map(d.theorems.map((t) => [t.decl, t]));
   function covBar(slug, size, runs) {
@@ -92,11 +92,10 @@ table.elf-dis tr.hit td { background:#fff1b8; }
       `<a href="${h}" class="${t.startsWith(on) ? "on" : ""}">${esc(t)}</a>`).join("") + "</div>";
   }
   function head(d, on) {
-    const ko = d.theorems.every((t) => t.kernelOnly);
     return `<h2><a href="#/elf">ELF</a> / ${esc(d.title)}</h2>` +
       `<p class="muted"><code>${esc(d.path)}</code> · ${d.size} B · SHA-256 <code>${esc(d.sha256)}</code> · ${esc(d.header.type)} ${esc(d.header.machine)}</p>` +
       `<p>${d.theorems.length} theorems in ${[...new Set(d.theorems.map((t) => t.module))].map((m) => `<code>${esc(m)}</code>`).join(", ")}, ` +
-      (ko ? '<span class="prov prov-lean">all kernel-only (propext, Classical.choice, Quot.sound)</span>' : '<span class="st st-bad">some use other axioms</span>') +
+      axiomProfileChip(theoremAxioms(d.theorems)) +
       ". Each part is the ELF specification's reader run on the pinned file's bytes inside the windows its theorem states.</p>" + tabs(d.slug, on);
   }
 
@@ -110,7 +109,7 @@ table.elf-dis tr.hit td { background:#fff1b8; }
     h += '<div class="tablebox"><table><thead><tr><th>file</th><th>type</th><th>size</th><th>sections</th><th>segments</th><th>functions</th><th>theorems</th><th>axioms</th><th>coverage</th><th>SHA-256</th></tr></thead><tbody>' +
       ix.files.map((f, i) => `<tr><td>${flink(f.slug, f.title)}<br><span class="muted">${esc(f.path)}</span></td><td>${esc(f.type)} ${esc(f.machine)}</td>` +
         `<td class="num">${f.size}</td><td class="num">${f.sections}</td><td class="num">${f.segments}</td><td class="num"><a href="#/elf-funcs/${enc(f.slug)}">${f.functions ?? ""}</a></td><td class="num">${f.theorems}</td>` +
-        `<td>${f.kernelOnly ? '<span class="prov prov-lean">kernel-only</span>' : '<span class="st st-bad">other</span>'}</td>` +
+        `<td>${axiomProfileChip(theoremAxioms(ds[i].theorems))}</td>` +
         `<td style="min-width:260px">${covBar(f.slug, f.size, ds[i].coverage)}${covKey(f.coverageSummary)}</td>` +
         `<td><code title="${esc(f.sha256)}">${esc(f.sha256.slice(0, 16))}…</code></td></tr>`).join("") + "</tbody></table></div>";
     return h + await compilerArtifactIndex("elf");
@@ -202,9 +201,9 @@ table.elf-dis tr.hit td { background:#fff1b8; }
     let h = `<p>Statements: <code>PartIs F ws p v</code> (the reader <code>p</code> of the ELF specification, run on the bytes of <code>F</code> inside the windows <code>ws</code> only, returns <code>v</code>), ` +
       "<code>ZerosAt F o n</code>, <code>LayoutIs F L</code> and <code>Parses F A</code> (the whole parse, assembled from the parts). Status and axioms are read by elf-pages from the built module (<code>collectAxioms</code>).</p>";
     h += '<div class="tablebox"><table><thead><tr><th>theorem</th><th>kind</th><th>about</th><th>windows (offset+length)</th><th>axioms</th></tr></thead><tbody>' +
-      d.theorems.slice().sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind)).map((t) => `<tr><td>${thmCell(t)}</td><td>${esc(t.kind)}</td><td>${esc(t.label)}</td>` +
+      d.theorems.slice().sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind)).map((t) => `<tr><td>${thmCell(t, false)}</td><td>${esc(t.kind)}</td><td>${esc(t.label)}</td>` +
         `<td>${t.windows.slice(0, 6).map(([o, n]) => blink(d.slug, o, n, `${hx(o)}+${n}`)).join(" ")}${t.windows.length > 6 ? ` <span class="muted">+${t.windows.length - 6} more</span>` : ""}</td>` +
-        `<td class="muted">${esc(t.axioms.join(", ") || "none")}</td></tr>`).join("") + "</tbody></table></div>";
+        `<td>${axiomProfileChip(AxiomProfiles.classify([t.axioms]), exportChecked(t))}</td></tr>`).join("") + "</tbody></table></div>";
     return h;
   }
 
@@ -423,7 +422,7 @@ table.elf-dis tr.hit td { background:#fff1b8; }
     const src = typeof repoFile === "function" ? repoFile(c.file) : null;
     return `<span class="prov prov-lean">byte/CFG kernel certificate</span> <code>${esc(c.decl)}</code>` +
       (src ? ` <a href="${esc(src.blob)}${c.line ? "#L" + c.line : ""}" target="_blank" rel="noopener noreferrer">source</a>` : "") +
-      `<details><summary>statement and axioms</summary><pre>${esc(c.statement)}</pre><p>${esc(c.axioms.join(", ") || "no axioms")}</p></details>`;
+      `<details><summary>statement</summary><pre class="code">${esc(c.statement)}</pre></details>${axiomChip(c.axioms)}`;
   };
   const regionSource = (r) => {
     const src = typeof repoFile === "function" ? repoFile(r.provenance.file) : null;
