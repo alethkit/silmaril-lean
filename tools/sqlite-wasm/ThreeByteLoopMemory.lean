@@ -2,6 +2,7 @@ module
 
 public import SqliteWasm.ThreeByteContract
 public import Silmaril.Wasm.Auto2.VCGen.Defs
+public import Silmaril.Wasm.Logic.Memory.Defs
 import Silmaril.Wasm.Logic.Memory.Thms
 
 @[expose] public section
@@ -45,7 +46,7 @@ private theorem spliceAdjacent {α : Type} (memory first second : List α) (star
   rw [List.take_left' writtenLength, ← List.drop_drop, List.drop_left' writtenLength]
   simp only [written, suffix, List.append_assoc, List.drop_drop, Nat.add_assoc]
 
-private theorem writeSlice_append (B left right : ByteArray) (start : Nat)
+theorem writeSlice_append (B left right : ByteArray) (start : Nat)
     (bound : start + left.size + right.size ≤ B.size) :
     Memory.writeSlice (Memory.writeSlice B start left) (start + left.size) right =
       Memory.writeSlice B start (left ++ right) := by
@@ -69,7 +70,7 @@ private theorem spliceSetHead {α : Type} (memory rest : List α) (before after 
     | cons head memory =>
       exact congrArg (List.cons head) (ih memory (by simpa using bound))
 
-private theorem writeSlice_setHead (memory : ByteArray) (rest : List UInt8) (before after : UInt8) (start : Nat)
+theorem writeSlice_setHead (memory : ByteArray) (rest : List UInt8) (before after : UInt8) (start : Nat)
     (bound : start ≤ memory.size) :
     Memory.writeSlice (Memory.writeSlice memory start ⟨⟨before :: rest⟩⟩) start ⟨#[after]⟩ =
       Memory.writeSlice memory start ⟨⟨after :: rest⟩⟩ := by
@@ -96,13 +97,13 @@ private theorem packedContinuation (x : BitVec 64) :
       _ = (x.toNat % 128 ||| 128) ||| 128 := by rw [set, bit]
       _ = _ := by rw [Nat.or_assoc, show (128 : Nat) ||| 128 = 128 from rfl, bit]
 
-private theorem emptySlice (B : ByteArray) (p : Nat) :
+theorem emptySlice (B : ByteArray) (p : Nat) :
     Memory.writeSlice B p ⟨#[]⟩ = B := by
   apply ByteArray.ext
   apply Array.toList_inj.mp
   simp [Memory.writeSlice, Memory.spliceL_eq]
 
-private theorem sliceSize (B D : ByteArray) (p : Nat) (bound : p + D.size ≤ B.size) :
+theorem sliceSize (B D : ByteArray) (p : Nat) (bound : p + D.size ≤ B.size) :
     (Memory.writeSlice B p D).size = B.size :=
   Memory.writeBytes_size B D _ p (by simp only [Memory.writeBytes, ite_eq_left bound])
 
@@ -113,13 +114,13 @@ theorem storeSize (B : ByteArray) (p : Nat) (w : BitVec 32) :
   | none => rfl
   | some bytes => exact Memory.writeBytes_size B _ _ p result
 
-private theorem storeByte (B : ByteArray) (p : Nat) (w : BitVec 32) (bound : p + 1 ≤ B.size) :
+theorem storeByte (B : ByteArray) (p : Nat) (w : BitVec 32) (bound : p + 1 ≤ B.size) :
     stW 32 1 B p w = Memory.writeSlice B p ⟨#[UInt8.ofNat (w.setWidth 8).toNat]⟩ := by
   simp only [stW, Memory.store, Memory.writeBytes, Memory.encodeLE_size, ite_eq_left bound,
     Option.getD_some]
   rfl
 
-private theorem digitsSize (x j : Nat) : (digits x j).size = j := by
+theorem digitsSize (x j : Nat) : (digits x j).size = j := by
   simp [digits, ByteArray.size]
 
 private theorem digitsSucc (x j : Nat) :
@@ -189,7 +190,7 @@ theorem countNext (idx : BitVec 32) (bound : idx.toNat < 3) :
     (idx + 1#32).toNat = idx.toNat + 1 :=
   BitVec.toNat_add_of_lt (by change idx.toNat + 1 < 2 ^ 32; omega)
 
-private theorem loadInSlice (B D : ByteArray) (p j : Nat) (byte : UInt8)
+theorem loadInSlice (B D : ByteArray) (p j : Nat) (byte : UInt8)
     (bound : p + D.size ≤ B.size) (index : j < D.size)
     (selected : D.data.toList[j]? = some byte) :
     ldW 32 1 .unsigned (Memory.writeSlice B p D) (p + j) = BitVec.ofNat 32 byte.toNat := by
@@ -216,7 +217,7 @@ theorem toNat_radixValue (x : BitVec 32) : (radixValue x).toNat = x.toNat := by
   change x.toNat < 4294967296 at bound
   rw [radixValue, UInt64.toNat_ofNat', Nat.mod_eq_of_lt (by omega)]
 
-private theorem digitFirst (x : Nat) :
+theorem digitFirst (x : Nat) :
     (BitVec.ofNat 32 (digit x 0).toNat &&& 127#32) =
       BitVec.ofNat 32 (x % 128) := by
   have h : x % 128 + 128 < 256 := by omega
@@ -310,7 +311,7 @@ theorem copyMemorySize (B : ByteArray) (ptr sp x : BitVec 32) (j : Nat)
   have := buffers.outputInBounds
   omega
 
-private theorem loadDisjointSlice (B D : ByteArray) (dst src : Nat)
+theorem loadDisjointSlice (B D : ByteArray) (dst src : Nat)
     (wrote : dst + D.size ≤ B.size) (read : src + 1 ≤ B.size)
     (disjoint : Region.Disjoint ⟨dst, D.size⟩ ⟨src, 1⟩) :
     ldW 32 1 .unsigned (Memory.writeSlice B dst D) src = ldW 32 1 .unsigned B src := by

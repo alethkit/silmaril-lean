@@ -200,6 +200,38 @@ private theorem enterCall {H : Type} {P : Profile} {host : HostSemantics H}
   exact Step.callRefFunc (c := .callRefType _) (vs := args output value)
     trivial lookup signature rfl code
 
+/-- Forward a successful single-i32 helper execution through the quoted wrapper at slot 530. -/
+theorem putVarint_forward {H : Type} {P : Profile} {host : HostSemantics H}
+    {s : Store H} {caller : Frame} {putFn helperFn : Func}
+    {putAddress helperAddress : Nat} {putInstance helperInstance : FuncInst H}
+    {output result : BitVec 32} {value : UInt64} {final : Store H}
+    (selectedPut : definedFunction? sqlite 530 = some putFn)
+    (putBinding : s.func? caller ⟨530⟩ = some (putAddress, putInstance))
+    (helperBinding : s.func? (callFrame putInstance.module putFn output value) ⟨547⟩ =
+      some (helperAddress, helperInstance))
+    (putCode : putInstance.code = .wasm putFn)
+    (helperCode : helperInstance.code = .wasm helperFn)
+    (putType : Expand putInstance.type (.func (.cons Ty.i32 (.cons Ty.i64 .nil)) (.cons Ty.i32 .nil)))
+    (helperType : Expand helperInstance.type (.func (.cons Ty.i32 (.cons Ty.i64 .nil)) (.cons Ty.i32 .nil)))
+    (lower : 16384 ≤ value.toNat)
+    (helper : Steps P host
+      ⟨s, callFrame putInstance.module putFn output value,
+        [activation helperInstance.module helperFn output value]⟩
+      ⟨final, callFrame putInstance.module putFn output value, [constI32 result]⟩) :
+    Steps P host ⟨s, caller, vals (args output value) ++ [.plain (.call ⟨530⟩)]⟩
+      ⟨final, caller, [constI32 result]⟩ := by
+  let f := callFrame putInstance.module putFn output value
+  have enterPut := enterCall (P := P) (host := host) output value putBinding putCode putType
+  have forward := forwardArguments (P := P) (host := host) s putInstance.module putFn output value
+    selectedPut lower
+  have enterHelper := enterCall (P := P) (host := host) output value helperBinding helperCode helperType
+  have returnFromHelper : Steps P host ⟨s, f, expression putFn.body⟩ ⟨final, f, [constI32 result]⟩ :=
+    forward.trans (enterHelper.trans helper)
+  have throughLabel := (returnFromHelper.label (n := 1) (cont := [])).tail (Step.labelVals (vs := [.i32 result]))
+  have leave : Step P host ⟨final, caller, [.frame 1 f [constI32 result]]⟩ ⟨final, caller, [constI32 result]⟩ :=
+    Step.frameVals (vs := [.i32 result]) rfl
+  exact enterPut.trans ((Steps.frame (f := caller) (n := 1) throughLabel).tail leave)
+
 /-- The quoted wrapper forwards the original arguments to the quoted helper at slot 547.
 Discharging the helper contract suffices for the three-byte call, including the scratch
 side effects, the returned width and restoration of the caller frame. -/
@@ -219,23 +251,14 @@ theorem putVarint_threeByte_of_helper {H : Type} {P : Profile} {host : HostSeman
     (helper : HelperRun P host s (callFrame putInstance.module putFn output value)
       helperFn helperInstance.module output stackPointer value address mem) :
     Steps P host ⟨s, caller, vals (args output value) ++ [.plain (.call ⟨530⟩)]⟩
-      ⟨postStore s address mem output stackPointer value, caller, [constI32 3]⟩ := by
-  let f := callFrame putInstance.module putFn output value
-  let final := postStore s address mem output stackPointer value
-  have enterPut := enterCall (P := P) (host := host) output value putBinding putCode putType
-  have forward := forwardArguments (P := P) (host := host) s putInstance.module putFn output value
-    selectedPut lower
-  have enterHelper := enterCall (P := P) (host := host) output value helperBinding helperCode helperType
-  have returnFromHelper : Steps P host ⟨s, f, expression putFn.body⟩ ⟨final, f, [constI32 3]⟩ :=
-    forward.trans (enterHelper.trans helper.2)
-  have throughLabel := (returnFromHelper.label (n := 1) (cont := [])).tail (Step.labelVals (vs := [.i32 3]))
-  have leave : Step P host ⟨final, caller, [.frame 1 f [constI32 3]]⟩ ⟨final, caller, [constI32 3]⟩ :=
-    Step.frameVals (vs := [.i32 3]) rfl
-  exact enterPut.trans ((Steps.frame (f := caller) (n := 1) throughLabel).tail leave)
+      ⟨postStore s address mem output stackPointer value, caller, [constI32 3]⟩ :=
+  putVarint_forward selectedPut putBinding helperBinding putCode helperCode putType helperType
+    lower helper.2
 
 #print axioms scratchAddress_eq
 #print axioms encode_three
 #print axioms scratchBytes_eq
+#print axioms putVarint_forward
 #print axioms putVarint_threeByte_of_helper
 
 end SqliteWasm.ThreeByte
