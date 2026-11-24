@@ -17,6 +17,7 @@
 use std::path::{Component, Path};
 
 const TEMPLATE: &str = include_str!("explore.html");
+const SHELL_STYLE: &str = include_str!("explore/shell.css");
 
 /// One file of the page's script, by its path in `explore/`.
 macro_rules! script {
@@ -29,6 +30,8 @@ macro_rules! script {
 pub const SCRIPTS: &[(&str, &str)] = &[
     script!("core.js"),
     script!("status.js"),
+    script!("schema.js"),
+    script!("axioms.js"),
     script!("ui.js"),
     script!("lean/tokenize.js"),
     script!("lean/locate.js"),
@@ -36,6 +39,9 @@ pub const SCRIPTS: &[(&str, &str)] = &[
     script!("provenance.js"),
     script!("table.js"),
     script!("db.js"),
+    script!("data.js"),
+    script!("view-registry.js"),
+    script!("navigation.js"),
     script!("router.js"),
     script!("graphs.js"),
     script!("views/summary.js"),
@@ -67,7 +73,10 @@ pub const SCRIPTS: &[(&str, &str)] = &[
 
 /// The bundled script: every file of [`SCRIPTS`], each after a comment naming it.
 fn script() -> String {
-    let mut out = String::new();
+    let mut out = format!(
+        "const LEAN_STANDARD_AXIOMS = {};\n",
+        script_json(&serde_json::json!(crate::project::schema::STANDARD_AXIOMS))
+    );
     for (name, text) in SCRIPTS {
         out.push_str(&format!("// ===== explore/{name} =====\n"));
         out.push_str(text);
@@ -165,6 +174,7 @@ pub fn page(
         .replace("__DB_URLS__", &script_json(&serde_json::json!(db_urls)))
         .replace("__DB_META__", &script_json(&meta))
         .replace("__SOURCE_META__", &script_json(&source))
+        .replace("__EXPLORE_SHELL_STYLE__", SHELL_STYLE)
         .replace("__EXPLORE_SCRIPT__", &script())
 }
 
@@ -237,6 +247,7 @@ mod tests {
                 "__DB_URLS__",
                 "__DB_META__",
                 "__SOURCE_META__",
+                "__EXPLORE_SHELL_STYLE__",
                 "__EXPLORE_SCRIPT__",
             ] {
                 assert!(!text.contains(p), "{name} contains {p}");

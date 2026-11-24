@@ -312,10 +312,15 @@ The template is `tools/silmaril-project/src/project/explore.html` (the shell and
 | `ui.js` | shared components: links, status badges, the dialog, the byte viewer and WAT highlighting |
 | `table.js` | tables and definition lists that link the names they show |
 | `db.js` | opening a database (lazy, whole, local file) and the source button and dialog |
-| `router.js` | the view registry, routing and the per-route context |
+| `schema.js` | decoders for stored JSON values, with missing and malformed input represented explicitly |
+| `data.js` | bounded SQLite queries and row adapters shared by answer and formal views |
+| `axioms.js` | dependency profiles, chips and accessible details |
+| `view-registry.js` | route IDs, renderers and parent tabs |
+| `navigation.js`, `shell.css` | grouped navigation, index links and shell styling |
+| `router.js` | hash routing, per-route query context and the `Explorer` API |
 | `graphs.js` | dominators and dominator trees shared by graph views |
 | `views/*.js` | the views, each registering itself |
-| `main.js` | the `Explorer` API object, and the start |
+| `main.js` | start the shell after all views register |
 
 ### Views
 
@@ -326,7 +331,7 @@ A view is a route `#/<id>/<arg>`. A file in `explore/views/` registers its views
 Explorer.registerView({
   id: "languages",          // the route: #/languages/<arg>; [a-z][a-z0-9-]*, unique
   title: "Languages",       // shown in the navigation
-  nav: 75,                  // position in the navigation; omit for detail views
+  nav: 75,                  // include in navigation; orders views under More
   tab: "languages",         // the navigation entry to highlight (default: id)
   async render(arg, ctx) {  // HTML, or { html, init, dispose }
     const rows = await ctx.q("SELECT name FROM problems ORDER BY name LIMIT 20");
@@ -334,6 +339,26 @@ Explorer.registerView({
   },
 });
 ```
+
+The navigation and index share their route groups in `navigation.js`. A registered top-level
+route outside the listed groups appears under More. A detail route highlights its `tab` and
+keeps its own hash. Narrow screens open the same navigation with the **Browse views** button.
+
+### Axiom profiles
+
+The **Lean standard** chip means the recorded dependency list is a nonempty subset of the
+project checker's standard axioms. **None** means the exporter recorded an empty dependency
+list. **Unaudited** means dependency data is missing or unreadable. **Outside profile** means
+one or more named dependencies are outside the standard set. A file with both outside
+dependencies and incomplete data shows both. The ELF **kernel ✓** chip additionally requires
+the exporter's checked status and a complete in-profile list. Focus, hover, or tap a chip to
+read the exact names and their classifications. Escape dismisses the details.
+
+The profile describes axiom dependencies. A future decision-procedure display can use a
+separate, explicit evidence field to identify the checker, its trust basis and what it checked.
+The axiom classifier continues to use the recorded names and the checker's standard list.
+
+### Route context
 
 `ctx` belongs to one rendering of one route over one database: `ctx.q`, `ctx.tq` (empty when a
 table is missing), `ctx.first` and `ctx.exec` query it, `ctx.alive()` says whether it is still
@@ -343,7 +368,7 @@ ignores it), so a slow query can never write into the current page.
 
 `Explorer.ui` holds the shared components: `esc`, `href`, `link`, `table(rows, cols, opts)`
 (opts: `hints`, `render` for computed columns, `badges`, `nowrap`, `label`, `limit`), `tableOf`,
-`dl`, `statusBadge(nameOrStatus)` and `statusInfo`, `dialog({ title, body, actions })` (a modal
+`dl`, `axiomChip(recordedDependencies)`, `statusBadge(nameOrStatus)` and `statusInfo`, `dialog({ title, body, actions })` (a modal
 `<dialog>`), `viewer(bytes, { name, total, lang, limit })` (bounded text/hex/WAT views;
 `Explorer.registerViewer` adds views), `highlightWat` and `hexDump`. Everything they show is
 escaped.
