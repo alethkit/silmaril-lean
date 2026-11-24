@@ -128,11 +128,17 @@ theorem assign_eq_split [DecidableEq α] (r : Raw α) (lo len1 : Nat) (value : �
   | cons run rest ih =>
     obtain ⟨gap, length, old⟩ := run
     by_cases after : gap + length < lo
-    · have shift : lo - (gap + length + 1) + len1 + 1 = lo + len1 + 1 - (gap + length + 1) := by omega
+    · have boundary : gap + length + 1 ≤ lo := Nat.succ_le_of_lt after
+      have shift : lo - (gap + length + 1) + len1 + 1 = lo + len1 + 1 - (gap + length + 1) := by
+        simpa only [Nat.add_assoc] using (Nat.sub_add_comm (m := len1 + 1) boundary).symm
+      have gapBefore : gap < lo := Nat.lt_of_le_of_lt (Nat.le_add_right gap length) after
+      have lo_le_limit : lo ≤ lo + len1 + 1 :=
+        Nat.le_trans (Nat.le_add_right lo len1) (Nat.le_add_right (lo + len1) 1)
+      have runBeforeLimit := Nat.lt_of_lt_of_le after lo_le_limit
+      have gapBeforeLimit := Nat.lt_of_lt_of_le gapBefore lo_le_limit
       simp only [assign, ite_eq_left after, ih, assignSplit, takeBelow, dropBelow, catMerge,
-        ite_eq_right (show ¬ lo ≤ gap by omega), ite_eq_right (show ¬ lo ≤ gap + length by omega),
-        ite_eq_right (show ¬ lo + len1 + 1 ≤ gap by omega), ite_eq_right (show ¬ lo + len1 + 1 ≤ gap + length by omega),
-        shift]
+        ite_eq_right (Nat.not_le.mpr gapBefore), ite_eq_right (Nat.not_le.mpr after),
+        ite_eq_right (Nat.not_le.mpr gapBeforeLimit), ite_eq_right (Nat.not_le.mpr runBeforeLimit), shift]
     · simp [assign, after]
 
 theorem find?_assign [DecidableEq α] (r : Raw α) (lo len1 : Nat) (v : α) (k : Nat) :
