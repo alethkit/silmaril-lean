@@ -1,6 +1,7 @@
 module
 
 import Silmaril.Formats.Sqlite.WriteProfile.Thms
+import Silmaril.Formats.Sqlite.File.WriteProfile.Checked.Defs
 
 open Silmaril.Formats.Sqlite
 open Silmaril.Formats.Sqlite.WriteProfile
@@ -64,12 +65,15 @@ private def countText (command : Command) (result : Except Error Success) : Stri
   | .edit _, _ => "0"
   | _, _ => "-"
 
+private def orderedRowsSql : String :=
+  "COALESCE((SELECT group_concat(id || ':' || amount, ',') " ++
+    "FROM (SELECT id, amount FROM sample ORDER BY id)), '')"
+
 private def observe (trial : Trial) : String :=
   let count := match trial.command with
     | .edit _ => "changes()"
     | _ => "'-'"
-  "SELECT " ++ count ++ " || '|' || COALESCE((SELECT group_concat(id || ':' || amount, ',') " ++
-    "FROM (SELECT id, amount FROM sample ORDER BY id)), '');"
+  "SELECT " ++ count ++ " || '|' || " ++ orderedRowsSql ++ ";"
 
 private def expectedNativeErrors : List String := [
   "UNIQUE constraint failed: sample.id",
@@ -77,7 +81,28 @@ private def expectedNativeErrors : List String := [
   "NOT NULL constraint failed: sample.amount"
 ]
 
-private def native (sqlite : String) (model : List String) : IO Unit := do
+private structure Observation where
+  count : String
+  rows : String
+  snapshot : Snapshot
+
+private def Observation.line (observation : Observation) : String :=
+  observation.count ++ "|" ++ observation.rows
+
+private def reopen (sqlite : String) (directory : System.FilePath) (index : Nat)
+    (observation : Observation) : IO Unit := do
+  let path := directory / s!"{index + 1}.sqlite"
+  let bytes ← IO.ofExcept ((Image.Checked.encode observation.snapshot).mapError reprStr)
+  IO.FS.withFile path .writeNew fun handle => do
+    handle.write bytes.data
+    handle.flush
+  let run ← IO.Process.output { cmd := sqlite, args := #["-init", "/dev/null", "-batch", "-bail",
+    "-list", "-noheader", "-readonly", path.toString,
+    "PRAGMA integrity_check; SELECT " ++ orderedRowsSql ++ ";"] }
+  check s!"native reopen of snapshot {index + 1}: expected {observation.rows}, got {run.stderr}{run.stdout}"
+    (run.exitCode == 0 && run.stderr.isEmpty && run.stdout == s!"ok\n{observation.rows}\n")
+
+private def native (sqlite : String) (observations : List Observation) : IO Unit := do
   let script := ".bail off\nCREATE TABLE sample(id INTEGER PRIMARY KEY, amount INTEGER NOT NULL) STRICT;\n" ++
     String.intercalate "\n" (trials.map fun trial => trial.sql ++ "\n" ++ observe trial) ++ "\n"
   let run ← IO.Process.output
@@ -85,21 +110,26 @@ private def native (sqlite : String) (model : List String) : IO Unit := do
     (some script)
   let rows := (run.stdout.splitOn "\n").filter (! ·.isEmpty)
   let errors := (run.stderr.splitOn "\n").filter (! ·.isEmpty)
+  let model := observations.map Observation.line
   check s!"native rows/counts disagree\nexpected {model}\ngot {rows}" (rows == model)
   check s!"unexpected native exit or diagnostics: {run.stderr}"
     (run.exitCode == 1 && errors.length == expectedNativeErrors.length &&
       (errors.zip expectedNativeErrors).all (fun (line, expected) => (line.splitOn expected).length == 2))
   let version ← IO.Process.run { cmd := sqlite, args := #["--version"] }
   IO.println s!"Native SQLite {version.trimAscii} agreed on {trials.length} ordered VM snapshots and change counts"
+  IO.FS.withTempDir fun directory => do
+    for (observation, index) in observations.zipIdx do
+      reopen sqlite directory index observation
+  IO.println s!"Native SQLite reopened all {observations.length} edited images with matching rows and integrity_check=ok"
 
-private def model : IO (List String) := do
+private def model : IO (List Observation) := do
   let mut state := State.empty
   let mut observations := []
   for trial in trials do
     let outcome := step state trial.command
     check s!"Lean result for {trial.sql}" (sameResult outcome.result trial.result)
     state := outcome.state
-    observations := (countText trial.command outcome.result ++ "|" ++ (← vmRows state)) :: observations
+    observations := ⟨countText trial.command outcome.result, ← vmRows state, state.visible⟩ :: observations
   check "committed rowid order and signed limits" ((← vmRows state) == "-9223372036854775808:-7,9223372036854775807:0")
   let pending := (step state .begin).state
   let rejects : List (State × Command × Error) := [
