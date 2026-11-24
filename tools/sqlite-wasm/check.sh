@@ -15,9 +15,9 @@ src="$root/SqliteWasm"
 mkdir -p "$src"
 
 bash "$tool/build.sh" "$archives" "$work/sqlite3.wasm"
-python3 "$tool/generate.py" "$work/sqlite3.wasm" "$src"
-cp "$tool"/{Quote,VersionModel,VersionCheck,Replay}.lean "$src/"
-lake build --wfail +Silmaril.Wasm.Binary.Quote.Defs +Silmaril.Wasm.Binaryen.Exe.Decode \
+bash "$tool/quote.sh" "$tool/reactor.json" "$work/sqlite3.wasm" "$src"
+cp "$tool"/{VersionModel,VersionCheck,Replay}.lean "$src/"
+lake build --wfail +Silmaril.Wasm.Binaryen.Exe.Decode \
   +Silmaril.Wasm.Binaryen.Interp +Silmaril.Wasm.ModuleParts.Defs
 
 export LEAN_PATH="$root${LEAN_PATH:+:$LEAN_PATH}"
@@ -27,11 +27,6 @@ compile() {
   lake env /usr/bin/time -f '%e s wall, %M KiB peak RSS' lean "${lean_flags[@]}" \
     -o "${file%.lean}.olean" "$file"
 }
-compile "$src/Quote.lean"
-for part in "$src/Metadata.lean" "$src/Version.lean" "$src"/Bodies[0-9]*.lean; do
-  compile "$part"
-done
-compile "$src/Object.lean"
 compile "$src/VersionModel.lean"
 compile "$src/VersionCheck.lean"
 lake env lean "${lean_flags[@]}" --run "$src/Replay.lean" \

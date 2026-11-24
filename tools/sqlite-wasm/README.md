@@ -29,9 +29,63 @@ bash tools/sqlite-wasm/check.sh "$inputs" .lake/sqlite-wasm
 
 With the Lake dependencies and the two archives available locally, the build,
 generation and replay run offline. [build.sh](build.sh) can build just the Wasm
-artifact. [generate.py](generate.py) can generate the Lean sources and quotation
-inputs from a cached artifact with the pinned digest. All generated files stay
-in the chosen work directory.
+artifact. [quote.sh](quote.sh) generates and compiles the Lean object from
+a cached artifact with the pinned digest. [generate.py](generate.py) runs
+just source generation. All generated files stay in the chosen Lean root.
+
+## Artifact interface for the reactor and command
+
+The version 1 JSON manifest has five fields. `schema_version` is the integer
+1, `sqlite_version` is the upstream release, both SHA-256 fields are lowercase
+hex, and `profile` selects the expected function export and Lean namespace.
+The generator checks the Wasm digest and export. The producing build scripts
+establish provenance by checking the source and toolchain pins.
+[Reactor manifest](reactor.json) · [Shell build and runtime tests](https://github.com/hiloopai/silmaril-lean/pull/2081)
+
+| Profile | WASI entry point | Output directory and Lean namespace |
+| --- | --- | --- |
+| `wasi-preview1-reactor` | `_initialize` | `SqliteWasm` |
+| `wasi-preview1-command` | `_start` | `SqliteShellWasi` |
+
+For a cached reactor, run the shared entry point from the repository root.
+
+```sh
+tools/sqlite-wasm/quote.sh tools/sqlite-wasm/reactor.json \
+  .lake/sqlite-wasm/sqlite3.wasm .lake/sqlite-wasm/lean/SqliteWasm
+```
+
+For the command produced by the shell task, supply its own manifest with
+`profile` set to `wasi-preview1-command`.
+
+```json
+{
+  "schema_version": 1,
+  "sqlite_version": "3.54.1",
+  "source_archive_sha256": "0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9",
+  "artifact_sha256": "b71ec78557631b7a31d27ede9336aa22af9fce926712d2416d9872f18198d2a3",
+  "profile": "wasi-preview1-command"
+}
+```
+
+```sh
+tools/sqlite-wasm/quote.sh "$work/command.json" "$work/sqlite3.wasm" \
+  "$work/lean/SqliteShellWasi"
+```
+
+Both profiles use the SQLite 3.54.1 amalgamation. The command's build uses
+WASI SDK 34.0, while the reactor uses 30.0. The command's argument, stream,
+exit status and file behavior are checked by the shell tool. The reactor's
+test invokes its exported C API. Both use the same stripped Core section IDs
+in order, `1, 2, 3, 4, 5, 6, 7, 9, 10, 11`. Version 1 expects this section
+layout. Each generated `Object` exposes `sqlite` and `entrypointIndex` under
+the profile's namespace.
+
+The shell fixture quotes 2,010 defined functions and 27 WASI imports. The
+two generated objects can be imported together. For the shell, encoding the
+assembled object and encoding a fresh decode of the original produce the
+same 1,383,762 canonical bytes. The 1,473,955-byte linker output first
+differs at byte 4,849, counting from zero. Wasmtime 50.0.0 reports SQLite
+3.54.1 and returns `42` from `SELECT 6*7;` on both shell files.
 
 ## Representation
 
