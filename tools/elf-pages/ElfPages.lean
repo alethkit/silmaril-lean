@@ -5,9 +5,21 @@ import Silmaril.Elf.Staged.Pinned.HelloClang.Defs
 import Silmaril.Elf.Staged.Pinned.Sha256sum.Defs
 import Silmaril.Elf.Staged.Pinned.ZlibChecksums.Defs
 import Silmaril.Elf.Staged.Pinned.ZlibLibz.Defs
+-- The pages load each pinned file's `Thms` and `Functions` at run time; importing them here makes
+-- `lake build elf-pages` build them, so no separate target list has to name them.
+import Silmaril.Elf.Staged.Pinned.ZlibLibz1211.Defs
+import Silmaril.Elf.Staged.Pinned.ZlibLibz1211.Thms
+import Silmaril.Elf.Staged.Pinned.ZlibLibz1211.Functions
+import Silmaril.Elf.Staged.Pinned.ZlibLibz131Gcc.Defs
+import Silmaril.Elf.Staged.Pinned.ZlibLibz131Gcc.Thms
+import Silmaril.Elf.Staged.Pinned.ZlibLibz131Gcc.Functions
+import Silmaril.Elf.Staged.Pinned.ZlibLibz131Clang.Defs
+import Silmaril.Elf.Staged.Pinned.ZlibLibz131Clang.Thms
+import Silmaril.Elf.Staged.Pinned.ZlibLibz131Clang.Functions
 import Silmaril.Elf.Staged.Pinned.GlibcLibm.Defs
 import Silmaril.Elf.Staged.Pinned.GlibcLibc.Defs
 import Silmaril.Crypto.SHA256
+import Silmaril.Elf.Staged.Pinned.HelloGcc.Regions.Defs
 
 /-!
 # `elf-pages`: the explorer's ELF tab data
@@ -100,6 +112,40 @@ def pinned : List Pinned := [
       ("symbols", "stripped: .dynsym only"),
       ("licence", "zlib licence (NOTICES/zlib)"),
       ("url:source", "https://launchpad.net/ubuntu/+source/zlib/1:1.3.dfsg-3.1ubuntu2.3")] },
+  { slug := "zlib-libz-1.2.11", ns := `Silmaril.Elf.Staged.Pinned.ZlibLibz1211
+    title := "zlib 1.2.11 libz.so.1.2.11 (Ubuntu zlib1g 1:1.2.11.dfsg-2ubuntu9.2, amd64)"
+    path := Pinned.ZlibLibz1211.path, sha256 := Pinned.ZlibLibz1211.sha256, size := Pinned.ZlibLibz1211.size
+    L := Pinned.ZlibLibz1211.L, bodies := Pinned.ZlibLibz1211.bodies, ld := Pinned.ZlibLibz1211.ld
+    provenance := [
+      ("package", "Ubuntu 22.04 zlib1g 1:1.2.11.dfsg-2ubuntu9.2 (amd64), /lib/x86_64-linux-gnu/libz.so.1.2.11, unmodified"),
+      ("url:package", "https://launchpad.net/ubuntu/+archive/primary/+files/zlib1g_1.2.11.dfsg-2ubuntu9.2_amd64.deb"),
+      ("package sha256", "9dc17e51a1be2d9ed63b7b84ef0e4e29c5abe6f1bc62cb03e7181483cce8a2f2 (as in the jammy-updates Packages index)"),
+      ("fetch", "examples/elf/pin.sh --fetch (verifies the package and file hashes)"),
+      ("symbols", "stripped: .dynsym only; crc32_z is an STT_GNU_IFUNC"),
+      ("licence", "zlib licence (NOTICES/zlib)"),
+      ("url:source", "https://launchpad.net/ubuntu/+source/zlib/1:1.2.11.dfsg-2ubuntu9.2")] },
+  { slug := "zlib-libz-1.3.1-gcc", ns := `Silmaril.Elf.Staged.Pinned.ZlibLibz131Gcc
+    title := "zlib 1.3.1 libz.so.1.3.1 (GCC 13.3 -O2, release tarball)"
+    path := Pinned.ZlibLibz131Gcc.path, sha256 := Pinned.ZlibLibz131Gcc.sha256, size := Pinned.ZlibLibz131Gcc.size
+    L := Pinned.ZlibLibz131Gcc.L, bodies := Pinned.ZlibLibz131Gcc.bodies, ld := Pinned.ZlibLibz131Gcc.ld
+    provenance := [
+      ("compiler", "GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1), GNU ld 2.42"),
+      ("build", "examples/libs/zlib/build.sh: ./configure && make libz.so.1.3.1, CFLAGS -O2, in ubuntu:24.04 pinned by digest with the toolchain from the Ubuntu snapshot archive; byte-for-byte reproducible (build.sh --check)"),
+      ("source", "zlib 1.3.1 release tarball, sha256 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"),
+      ("url:source", "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"),
+      ("symbols", ".symtab and .dynsym; crc32 and adler32 tail-call their _z functions through the PLT"),
+      ("licence", "zlib licence (NOTICES/zlib)")] },
+  { slug := "zlib-libz-1.3.1-clang", ns := `Silmaril.Elf.Staged.Pinned.ZlibLibz131Clang
+    title := "zlib 1.3.1 libz.so.1.3.1 (Clang 18.1 -O2, release tarball)"
+    path := Pinned.ZlibLibz131Clang.path, sha256 := Pinned.ZlibLibz131Clang.sha256, size := Pinned.ZlibLibz131Clang.size
+    L := Pinned.ZlibLibz131Clang.L, bodies := Pinned.ZlibLibz131Clang.bodies, ld := Pinned.ZlibLibz131Clang.ld
+    provenance := [
+      ("compiler", "Ubuntu clang 18.1.3 (1ubuntu1), GNU ld 2.42"),
+      ("build", "examples/libs/zlib/build.sh: ./configure && make libz.so.1.3.1, CFLAGS -O2, in ubuntu:24.04 pinned by digest with the toolchain from the Ubuntu snapshot archive; byte-for-byte reproducible (build.sh --check)"),
+      ("source", "zlib 1.3.1 release tarball, sha256 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"),
+      ("url:source", "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"),
+      ("symbols", ".symtab and .dynsym; crc32 and adler32 tail-call their _z functions through the PLT"),
+      ("licence", "zlib licence (NOTICES/zlib)")] },
   { slug := "glibc-libm", ns := `Silmaril.Elf.Staged.Pinned.GlibcLibm
     title := "glibc 2.39 libm.so.6 (Ubuntu libc6 2.39-0ubuntu8.9, amd64)"
     path := Pinned.GlibcLibm.path, sha256 := Pinned.GlibcLibm.sha256, size := Pinned.GlibcLibm.size
@@ -812,10 +858,90 @@ def page (P : Pinned) (thms : Array Thm) (dis : Option Json) : Json := Id.run do
 
 /-! ## Driver -/
 
+/-! ## Byte-grounded region/CFG rows, separate from ELF-part coverage -/
+
+/-- Serialized provenance is a sum: native acceptance alone cannot select
+`certifiedByteCFG`; the checked statement/evidence path must supply it. -/
+inductive RegionProvenance where
+  | stated
+  | certifiedByteCFG
+
+def RegionProvenance.tag : RegionProvenance → String
+  | .stated => "stated"
+  | .certifiedByteCFG => "certified-byte-cfg"
+
+/-- Runtime data only. Certificates are discovered from checked theorem types,
+not these names or native acceptance of the candidate. -/
+def regionRows (P : Pinned) : Array (Name × Silmaril.Machine.Region.X86.CFG.Row × String) :=
+  if P.slug != "hello-gcc" then #[] else
+    let ns := ``Silmaril.Elf.Staged.Pinned.HelloGcc.Regions.compareRow |>.getPrefix
+    let R := Silmaril.Elf.Staged.Pinned.HelloGcc.Regions.compareRow
+    #[(ns ++ `compareRow, R, "Conditional branch window"),
+      (ns ++ `tailRow, Silmaril.Elf.Staged.Pinned.HelloGcc.Regions.tailRow, "Direct tail-jump window"),
+      (ns ++ `statedCompare, Silmaril.Elf.Staged.Pinned.HelloGcc.Regions.statedCompare, "Stated matching decomposition"),
+      (ns ++ `missingFallthrough, Silmaril.Elf.Staged.Pinned.HelloGcc.Regions.missingFallthrough,
+        "Stated incomplete alternative (omits conditional fallthrough)")]
+
+def regionPage (env : Environment) (P : Pinned) : IO Json := do
+  let rows := regionRows P
+  let mut evidence : Std.HashMap Name (Array Json) := {}
+  if !rows.isEmpty then
+    let mod := P.ns ++ `Regions.Thms
+    let some idx := env.getModuleIdx? mod | throw (IO.userError s!"{mod}: certificate module not imported")
+    for (name, ci) in env.constants.toList do
+      unless env.getModuleIdxFor? name == some idx do continue
+      let .thmInfo ti := ci | continue
+      if name.isInternal then continue
+      let ty := ti.type.consumeMData
+      unless ty.isAppOfArity ``Silmaril.Elf.Region.CFG.Valid 2 do
+        throw (IO.userError s!"{name}: not an ELF byte/CFG certificate")
+      unless constName? (ty.getArg! 0) == some (P.ns ++ `F) do
+        throw (IO.userError s!"{name}: names another ELF file")
+      let some row := constName? (ty.getArg! 1) | throw (IO.userError s!"{name}: row is not a constant")
+      unless rows.any (fun (n, _, _) => n == row) do
+        throw (IO.userError s!"{name}: unregistered row {row}")
+      let axioms ← runCore env (Lean.collectAxioms name)
+      unless axioms.all (standardAxioms.contains ·) do
+        throw (IO.userError s!"{name}: certificate uses unsupported axioms {axioms}")
+      let line ← runCore env do return (← Lean.findDeclarationRanges? name).map (·.range.pos.line)
+      let statement ← runCore env do return toString (← (Lean.Meta.ppExpr ti.type).run')
+      let proof := Json.mkObj [("decl", js name.toString), ("status", js "checked"),
+        ("row", js row.toString), ("sha256", js P.sha256),
+        ("claim", js "ELF CodeAt and intrinsic direct CFG"),
+        ("file", js (mod.toString.replace "." "/" ++ ".lean")),
+        ("line", toJson line), ("statement", js statement),
+        ("axioms", toJson (axioms.map Name.toString))]
+      evidence := evidence.insert row ((evidence[row]?.getD #[]).push proof)
+  let mut out := #[]
+  for (name, row, title) in rows do
+    let proofs := evidence[name]?.getD #[]
+    let native := decide row.Valid
+    if !proofs.isEmpty && !native then throw (IO.userError s!"{name}: native consistency check disagrees with certificate")
+    let ph := P.L.phdrs.find? (codeSeg row.code.base row.code.bytes.length)
+    let offset := ph.map fun h => h.offset + (row.code.base - h.virtualAddress)
+    out := out.push <| Json.mkObj [
+      ("id", js name.toString), ("title", js title), ("entry", jn row.entry),
+      ("va", jn row.code.base), ("size", jn row.code.bytes.length), ("offset", toJson offset),
+      ("bytes", toJson (row.code.bytes.map BitVec.toNat)),
+      ("vertices", toJson (row.listing.map (·.addr))),
+      ("instructions", toJson (row.listing.map fun d => Json.mkObj [
+        ("address", jn d.addr), ("size", jn d.size), ("instruction", js (reprStr d.instr))])),
+      ("edges", toJson (row.edges.map fun (a, b) => [a, b])), ("exits", toJson row.exits),
+      ("provenance", Json.mkObj [("kind", js (if proofs.isEmpty then RegionProvenance.stated.tag else RegionProvenance.certifiedByteCFG.tag)),
+        ("file", js ((name.getPrefix.toString.replace "." "/") ++ "/Defs.lean")),
+        ("declaration", js name.toString)]),
+      ("certificates", Json.arr proofs), ("nativeIntrinsicAccepted", toJson native),
+      ("execution", js "Conditional theorem available; loading, admitted invariant and interference premises are not discharged for this file")]
+  pure <| Json.mkObj [("schema", js "silmaril.elf-regions.v1"), ("slug", js P.slug),
+    ("sha256", js P.sha256), ("rows", Json.arr out),
+    ("semantics", js "handwritten X86.Ext; normal retired edges; nonretirement is a distinguished halt"),
+    ("scope", js "Two selected windows, four instructions and 14 of 265 .text bytes in hello-gcc; other pinned files have no CFG certificates here")]
+
 def loadEnv : IO Environment := do
   Lean.initSearchPath (← Lean.findSysroot)
   importModules (pinned.toArray.flatMap fun P => #[{ module := P.ns ++ `Thms }, { module := P.ns ++ `Functions }] ++
-    (if P.slug == "zlib-checksums" then #[{ module := P.ns ++ `Contracts }] else #[])) {}
+    (if P.slug == "zlib-checksums" then #[{ module := P.ns ++ `Contracts }] else #[]) ++
+    (if P.slug == "hello-gcc" then #[{ module := P.ns ++ `Regions.Thms }] else #[])) {}
 
 def generate : IO (List (String × Json) × List (String × ByteArray)) := do
   let e0 ← IO.monoMsNow
@@ -850,9 +976,10 @@ def generate : IO (List (String × Json) × List (String × ByteArray)) := do
     let dis ← disassemble P bytes
     let t3 ← IO.monoMsNow
     let pg := page P thms (dis.map (·.1))
+    let regions ← regionPage env P
     if (← IO.getEnv "ELF_PAGES_PROFILE").isSome then
       IO.eprintln s!"{P.slug}: theorems {t1 - t0} ms, recheck {t2 - t1} ms, disassembly {t3 - t2} ms, page {(← IO.monoMsNow) - t3} ms ({pg.compress.length} B)"
-    files := files ++ [(s!"f/{P.slug}.json", pg)]
+    files := files ++ [(s!"f/{P.slug}.json", pg), (s!"regions/{P.slug}.json", regions)]
     if let some (d, cs) := dis then
       files := files ++ [(s!"dis/{P.slug}.json", d)] ++ (cs.mapIdx fun k c => (s!"dis/{P.slug}/{k}.json", c)).toList
     blobs := blobs ++ [(s!"blob/{P.slug}.bin", bytes)]
@@ -920,7 +1047,13 @@ def tampers : List (String × String × (Json → Json)) :=
       r.setObjVal! "theorem" ((a[2]?.map (·.getObjValD "theorem")).getD Json.null)) "functions"),
    ("contract linked to another function", "f/zlib-checksums.json", modArr (modFirst
       (fun r => r.getObjValD "name" == Json.str "crc32_z") fun r =>
-        r.setObjVal! "contracts" (Json.arr #[js "Silmaril.Elf.Staged.Pinned.ZlibChecksums.adler32_z_contract"])) "functions")]
+        r.setObjVal! "contracts" (Json.arr #[js "Silmaril.Elf.Staged.Pinned.ZlibChecksums.adler32_z_contract"])) "functions"),
+   ("CFG edge changed", "regions/hello-gcc.json", modArr (fun a => a.modify 0 fun r =>
+      r.setObjVal! "edges" (Json.arr #[])) "rows"),
+   ("stated row promoted without evidence", "regions/hello-gcc.json", modArr (fun a => a.modify 2 fun r =>
+      r.setObjVal! "provenance" (Json.mkObj [("kind", js "certified-byte-cfg")])) "rows"),
+   ("CFG evidence removed", "regions/hello-gcc.json", modArr (fun a => a.modify 0 fun r =>
+      r.setObjVal! "certificates" (Json.arr #[])) "rows")]
 
 def main (args : List String) : IO UInt32 := do
   match args with

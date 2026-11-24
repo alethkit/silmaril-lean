@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Logic.TypeTheory.ExtensionalMLTT.SExp.Defs
 public import Silmaril.Logic.Smt.SExpr.Writer.Thms
+public import Silmaril.Logic.Concrete.Codec.Defs
 import Silmaril.Proofs.Logic.TypeTheory.ExtensionalMLTT.SExp.Basic
 
 /-!
@@ -25,6 +26,12 @@ namespace Silmaril.Logic.TypeTheory.ExtensionalMLTT.SExp
 open Silmaril.Logic.Smt (SE)
 open Silmaril.Logic.Smt.SExpr.Writer (LegalExpr)
 
+theorem readTm?_encodeTm {depth : Nat} (term : ETm depth) : readTm? depth (encodeTm term) = some term :=
+  Proofs.Logic.TypeTheory.ExtensionalMLTT.SExp.readTm?_encodeTm term
+
+theorem readCtx?_encodeCtx (context : ECtx) : readCtx? (encodeCtx context) = some context :=
+  Proofs.Logic.TypeTheory.ExtensionalMLTT.SExp.readCtx?_encodeCtx context
+
 theorem decodeJdg_encodeJdg (J : EJdg) : decodeJdg (encodeJdg J) = some J :=
   Proofs.Logic.TypeTheory.ExtensionalMLTT.SExp.decodeJdg_encodeJdg J
 
@@ -47,5 +54,14 @@ theorem parseJdg_printJdg (J : EJdg) (h : LegalNames J) : parseJdg (printJdg J) 
 theorem legalNames_of_parseJdg {bytes : List UInt8} {J : EJdg} (h : parseJdg bytes = some J) :
     LegalNames J :=
   Proofs.Logic.TypeTheory.ExtensionalMLTT.SExp.legalNames_of_parseJdg h
+
+/-- **The default presentation of extensional MLTT judgments**, `silmaril.mltt.judgment`
+(version 1). -/
+def codec : Silmaril.Logic.Concrete.SExpCodec EJdg where
+  name := "silmaril.mltt.judgment"
+  version := "1"
+  encode := encodeJdg
+  decode := decodeJdg
+  decode_eq_some_iff _ _ := decodeJdg_eq_some_iff
 
 end Silmaril.Logic.TypeTheory.ExtensionalMLTT.SExp

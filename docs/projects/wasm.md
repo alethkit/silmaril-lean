@@ -136,6 +136,33 @@ Terms used above:
 - **Macro:** source shorthand expanded into supported Core syntax before validation.
 - **Proof root:** a Lean module selected to build a tool's correctness theorems and their dependencies.
 
+## Checked semantics and replay
+
+The execution results below have different entry conditions and observations.
+Start from the row that matches the input and the result you need to compare.
+
+| Boundary | Checked result and scope | Entry point |
+| --- | --- | --- |
+| Core module and named export | The entry semantics takes resolved import addresses and runs allocation, segments, and any start before publishing the ready store. Finite invocation records the actual final configuration. The typed integer/local result has its own registration and typing premises. | [Core entry semantics](wasm-opsem-entry.md) |
+| Intrinsic scalar Core | The checked erasure and execution bridges relate typed code to Core. Live integer instruction sequences have an exact lift on the covered slice. Behaviour-set equality for registered scalar calls uses the stated host and store premises. | [Intrinsic live lift](wasm-intrinsic-live-lift.md) · [Registered scalar denotation](wasm-intrinsic-denotation.md) |
+| Component direct wire | `ComponentModel.operationalReaches_iff` matches a fixed scalar ABI outcome and exact mapped store in both directions, for a prepared, start-free direct wire. The finite Core run uses `Det.noHost` and unit labels. | [Terminal observation theorem](../../Silmaril/Wasm/Institution/DirectLiftTerminal/Thms.lean) · [Core adapter](operational-institutions.md#checked-model-connections) |
+| Component calls with a typed host | `HLinked2.sessAccepted_iff` equates the existence of a logged acceptance for an adequate linked pair under a typed host. Other linking shapes, pending calls, and host-event traces have their own hypotheses and observation relations. | [Host session theorem](../../Silmaril/Wasi/Component/Accept/Ref/HostSession/Thms.lean) · [Component semantics](component-semantics.md#concrete-component-bridge-reference-machine-ir-and-canonical-objects) |
+| Core memory | `load_step_iff` and `store_step_iff` describe exact one-page i32 accesses on the `ByteArray` profile, including out-of-bounds traps. `Memory.writeSlice_eq` gives a kernel-friendly implementation of the existing write operation. A different memory representation needs its own execution correspondence. | [One-page memory theorems](../../Silmaril/Wasm/Execution/Core/MemoryProfile/Thms.lean) · [Kernel memory guide](wasm-kernel-memory.md) |
+| SpecTec agreement | The matrix records two-way whole-step results for stated domains of Wasm 1.0, 2.0, and 3.0. Validation, instantiation, and host coverage each have additional proof obligations. | [SpecTec bridge matrix](wasm-spec-bridge.md#bridge-matrix) |
+
+The SQLite 3.54.1 WASI fixture quotes a pinned reactor as a Lean Core module.
+For `sqlite3_libversion_number`, a kernel proof selects the actual exported
+body and checks that its fuel-interpreter run returns `3054001` with the input
+store and frame. The encoder replay checks canonical byte agreement. Separate
+Node WASI tests execute both the original and canonical files and compare the
+getter and a concrete SQL query. The kernel claim concerns the getter body.
+[SQLite WASI replay and leaf proof](../../tools/sqlite-wasm/README.md#replay-and-leaf-proof)
+
+The compiled varint helpers have a differential test for values, widths,
+written bytes and the surrounding memory in the fixture. General agreement
+requires a Core execution proof for the compiled calls under the stated memory
+premises. [SQLite varint correspondence target](../../tools/sqlite-wasm-varint/README.md#correspondence-statement)
+
 ## Library entry points
 
 [WAT quotations](wasm-wat.md) let Lean programs embed module text with `wat1!`,
