@@ -56,6 +56,16 @@ fragment. The re-encoder follows the original DataCount section policy.
 The assembled object and the fresh original decode re-encode to the
 same 879,430 bytes as the release binary in this executed check.
 
+## Kernel checks against the release bytes
+
+An ordinary `import SqliteWebWasm.ArtifactCheck` provides theorems over the
+quoted object and the original packed bytes. The checks match the
+`sqlite3_libversion_number` export at function index 483, the Start section
+at index 36 and both complete function records. The function lookup counts
+only function imports, so the memory import does not shift the index.
+These equations check the selected records against the original release.
+[Proofs](ArtifactCheck.lean) · [Byte ingestion and trust boundary](../sqlite-wasm/README.md#kernel-checks-against-the-original-bytes)
+
 ## Browser check
 
 The shipped JavaScript wrapper supplies the browser host. The smoke check

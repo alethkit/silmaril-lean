@@ -21,6 +21,7 @@ done
 root="$work/lean"
 wasm="$work/release/jswasm/sqlite3.wasm"
 bash tools/sqlite-wasm/quote.sh "$tool/release.json" "$wasm" "$root/SqliteWebWasm"
+bash tools/sqlite-wasm/check-artifact.sh "$wasm" "$root/SqliteWebWasm"
 lake build --wfail +Silmaril.Wasm.Binaryen.Exe.Decode
 cp "$tool/Replay.lean" "$root/WebReplay.lean"
 export LEAN_PATH="$root${LEAN_PATH:+:$LEAN_PATH}"

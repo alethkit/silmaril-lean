@@ -40,7 +40,7 @@ artifact. [quote.sh](quote.sh) generates and compiles the Lean object from
 a cached artifact with the pinned digest. [generate.py](generate.py) runs
 just source generation. All generated files stay in the chosen Lean root.
 
-## Artifact interface for the reactor and command
+## Artifact profiles
 
 The version 1 JSON manifest has five fields. `schema_version` is the integer
 1, `sqlite_version` is the upstream release, both SHA-256 fields are lowercase
@@ -49,10 +49,11 @@ The generator checks the Wasm digest and export. The producing build scripts
 establish provenance by checking the source and toolchain pins.
 [Reactor manifest](reactor.json) · [Shell build and runtime tests](https://github.com/hiloopai/silmaril-lean/pull/2081)
 
-| Profile | WASI entry point | Output directory and Lean namespace |
-| --- | --- | --- |
-| `wasi-preview1-reactor` | `_initialize` | `SqliteWasm` |
-| `wasi-preview1-command` | `_start` | `SqliteShellWasi` |
+| Profile | Entry point in the pinned artifact | Generated module | Defined / imported functions |
+| --- | --- | --- | --- |
+| `wasi-preview1-reactor` | `_initialize` at 25 | `SqliteWasm.Object` | 1,533 / 23 |
+| `wasi-preview1-command` | `_start` at 28 | `SqliteShellWasi.Object` | 2,010 / 27 |
+| `sqlite-web` | Start section at 36 | `SqliteWebWasm.Object` | 2,706 / 35 |
 
 For a cached reactor, run the shared entry point from the repository root.
 
@@ -84,11 +85,13 @@ WASI SDK 34.0, while the reactor uses 30.0. The command's argument, stream,
 exit status and file behavior are checked by the shell tool. The reactor's
 test invokes its exported C API. Both use the same stripped Core section IDs
 in order, `1, 2, 3, 4, 5, 6, 7, 9, 10, 11`. Version 1 expects this section
-layout. Each generated `Object` exposes `sqlite` and `entrypointIndex` under
-the profile's namespace.
+layout. Each generated `Object` exposes ordinary Lean definitions `sqlite` and
+`entrypointIndex` under the profile's namespace. The [official web profile](../sqlite-web-wasm/README.md)
+uses `SqliteWebWasm.Object` and takes its entry point from the Start section.
+An ordinary `import` makes the quoted definitions available to theorem files.
 
-The shell fixture quotes 2,010 defined functions and 27 WASI imports. The
-two generated objects can be imported together. For the shell, encoding the
+The generated objects can be imported together using one Lean search path.
+The web profile also imports `env.memory`. For the shell, encoding the
 assembled object and encoding a fresh decode of the original produce the
 same 1,383,762 canonical bytes. The 1,473,955-byte linker output first
 differs at byte 4,849, counting from zero. Wasmtime 50.0.0 reports SQLite
@@ -140,6 +143,28 @@ claims cover the selected body and its fuel-interpreter result.
 [runtime.mjs](runtime.mjs) separately executes the
 original and canonical files under Node WASI. Both return 3054001 for the
 getter, in agreement with the Lean interpreter, and 42 from a SQL query.
+
+## Kernel checks against the original bytes
+
+[ArtifactCheck.lean](ArtifactCheck.lean) checks the version export and
+matches complete defined functions at indices 289, 434 and 530 against the
+original linker output. Presence and equality give the same type index,
+locals and instruction tree on both sides.
+
+[ArtifactEntries.lean](ArtifactEntries.lean) reads the unmodified artifact
+from packed byte literals. It checks the header and section framing, decodes
+the import section to count function imports, and locates each definition
+by walking the Function and Code vectors. It uses the Core decoder to
+parse the selected code entry. Other code bodies are skipped by size.
+The stripped artifact has no symbol names for the internal helpers. The
+source-level names come from the linked-build evidence in
+[#2093](https://github.com/hiloopai/silmaril-lean/pull/2093).
+
+The SHA-256 check and file ingestion run outside the kernel. Lean checks the
+equations over the resulting byte literals and quoted AST. The theorem scope
+ends at the selected records. Complete decode and original-to-canonical replay
+remain separate executable checks.
+[Recheck a quoted artifact](check-artifact.sh)
 
 ## Quotation cost
 
