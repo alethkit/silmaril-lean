@@ -53,16 +53,19 @@ permitted transitions the sentences. [Finite machines](automata.md) ·
   the numeric profile and host relation kept as parameters. The regression
   exercises the Core `nop` rule. [Wasm adapter](../../Silmaril/Wasm/Institution/Operational/Thms.lean)
 - **RISC-V.** The public tree has the register-only basic model, the extended
-  RV64 machine and its process connection, and the LPS machine. A first adapter
-  can expose the extended machine's integer registers and backing bytes while
-  retaining its complete state. `MState.step` distinguishes retirement, stop,
-  fetch failure, undecodable instructions, misalignment and data faults, so a
-  terminal encoding needs those cases and their payloads. The LPS adapter also
-  needs distinct `fault` and `unmodeled` cases and a specified view of overlay
-  and backing memory. Cross-model transfer requires a checked relation for the
-  chosen outcomes and memory views. [Basic RV64](../../Silmaril/Machine/RiscV/Basic/Defs.lean) ·
+  RV64 machine and its process connection, and the LPS machine. The LPS
+  adapter uses `stepAccesses` for a fixed segment list, retaining the complete
+  state, integer registers, and overlay-first byte observation. Successful
+  edges carry the reported access ranges. A misaligned fetch can yield `fault`
+  and an executable image hole can yield `unmodeled`; both names are preserved
+  and reach a terminal configuration. The byte observation does not grant
+  permission to load. An extended-machine adapter would need a terminal
+  encoding for the outcomes of `MState.step`, including instruction and address
+  payloads. A process-level LPS adapter would need changing segments and
+  syscall transitions. [Basic RV64](../../Silmaril/Machine/RiscV/Basic/Defs.lean) ·
   [Extended machine](../../Silmaril/Machine/RiscV/Ext/Machine/Defs.lean) ·
-  [LPS machine](../../Silmaril/RiscV/LPS/Machine.lean)
+  [LPS machine](../../Silmaril/RiscV/LPS/Machine.lean) ·
+  [LPS adapter](../../Silmaril/RiscV/OperationalInstitution/LPS/Thms.lean)
 - **Further connections.** Component linking, kernel-evaluator bridges, other
   ISAs, and architecture-specific operational refinements can supply their own
   shape and step-preservation proofs. The repository's program-level operational
@@ -82,3 +85,17 @@ lake env lean -DwarningAsError=true tests/semantics/operational-institutions/Reg
 The regression checks the composition of simulations on finite runs, register
 and memory-map variance, satisfaction under translation, stack order, and the
 Wasm and x86 adapters.
+
+The RV64 regression runs real instruction bytes through the landed model.
+`LD` returns the overlaid value `43` and reports eight bytes at address `256`.
+`LB` and `LBU` each report one byte at that address. For input `0x80`, they
+produce respectively `0xffffffffffffff80` and `0x0000000000000080` in `a0`.
+These are concrete width cases. The shared register observation projects
+x86 RAX and RV64 a0 independently. The tagged x86/Wasm test proves that a
+finite run in the tagged aggregate keeps its initial origin in every label
+and its endpoint. The individual x86 and Wasm relations remain parameters of
+that aggregate. [RV64 and tag regression](../../tests/semantics/rv64-operational/Regression.lean)
+
+```sh
+make check CHECK_TARGETS='+Silmaril.RiscV.OperationalInstitution.LPS.Thms'
+```
