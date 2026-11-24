@@ -1,6 +1,7 @@
 module
 
 public import SqliteWasm.ThreeByteLoopMemory
+public import Silmaril.Wasm.Logic.Hoare.Defs
 import Silmaril.Wasm.Auto2.VCGen.Thms
 import Silmaril.Wasm.Verify.Kernel.Defs
 
@@ -191,7 +192,7 @@ open Silmaril.Wasm.Logic.Hoare
 open Silmaril.Wasm.Logic.Core (Post)
 open Silmaril.Wasm.Validation (CGlobalType Expand Ty)
 
-private theorem reachExit {H : Type} {P : Numerics.Profile} {host : HostSemantics H}
+theorem reachExit {H : Type} {P : Numerics.Profile} {host : HostSemantics H}
     {Q : Post H} {start : Config H} (safe : TSafe P host Q start) :
     ∃ final outcome, Steps P host start final ∧ Exits outcome final.code ∧
       Q final.store final.frame outcome := by
@@ -202,7 +203,7 @@ private theorem reachExit {H : Type} {P : Numerics.Profile} {host : HostSemantic
     obtain ⟨final, outcome, steps, exits, post⟩ := ih next step
     exact ⟨final, outcome, step.steps.trans steps, exits, post⟩
 
-private theorem singleI32 (values : List Val) (typed : values.map valTy = [some .i32]) :
+theorem singleI32 (values : List Val) (typed : values.map valTy = [some .i32]) :
     ∃ word : BitVec 32, values = [.i32 word] := by
   cases values with
   | nil => simp at typed
