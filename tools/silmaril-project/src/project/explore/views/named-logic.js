@@ -71,20 +71,20 @@ const NamedLogicFixture = (() => {
     const cid = choice?.profile === profile ? choice.cid : choice?.alternates?.[profile];
     const title = `<h4>${esc(role)}</h4>`;
     if (cid === undefined) return title + '<p class="err">No name for the selected profile.</p>';
-    const root = `<p><code style="overflow-wrap:anywhere">${esc(cid)}</code></p>`;
+    const root = `<p>${cidText(manifest, profile, cid)}</p>`;
     let expected;
     try { expected = digestFromCid(cid, getProfile(manifest, profile).code); }
     catch (error) { return title + root + `<p class="err">${esc(error.message)}</p>`; }
     const block = manifest.blocks[profile]?.[cid];
-    if (!block) return title + root + '<p class="err">Missing root block. The judgment is not refuted.</p>';
+    if (!block) return title + root + '<p class="err">Missing root block. Judgment status is unchanged.</p>';
     if (typeof block.hex !== "string" || !/^(?:[0-9a-f]{2})+$/.test(block.hex)) {
       return title + root + '<p class="err">Invalid wire: malformed payload hex.</p>';
     }
     const bytes = Uint8Array.from(block.hex.match(/../g), (digit) => parseInt(digit, 16));
-    let digestStatus = "BLAKE3 not computed in browser; use external verifier.";
+    let digestStatus = "BLAKE3 requires the external verifier. This page has no external verification result.";
     if (profiles[profile].multihash === "sha256") {
       const actual = await sha256Hex(bytes);
-      digestStatus = actual === expected ? "SHA-256 matches CID bytes" :
+      digestStatus = actual === expected ? "Browser SHA-256 matches CID digest" :
         actual ? "SHA-256 digest mismatch" : "SHA-256 unavailable in this browser context";
     }
     let content;
@@ -108,52 +108,215 @@ const NamedLogicFixture = (() => {
     }
     const href = `https://github.com/hiloopai/silmaril-lean/blob/${source.revision}/${evidence.path}`;
     const steps = Array.isArray(evidence.steps) ? evidence.steps : [];
-    return `<p>Checked fixture declaration (exported reference; not replayed in this browser):</p>` +
+    return `<p>Exported Lean evidence pinned to source. Proof replay requires Lean.</p>` +
       `<p><a href="${esc(href)}"><code>${esc(evidence.declaration)}</code></a></p>` +
-      `<p class="muted">A digest match or decoded term does not establish this judgment.</p>` +
+      `<p class="muted">Wire parsing and digest checks cover the syntax bytes only.</p>` +
       `<ol>${steps.map((step) => `<li><b>${esc(step.rule)}</b>: ${esc(step.judgment)} ` +
         `<small><code>${esc(step.declaration)}</code>${Array.isArray(step.premises) && step.premises.length ? `; from ${esc(step.premises.join(", "))}` : ""}</small></li>`).join("")}</ol>`;
   }
 
-  function routeTo(row, profile) { return `#/named-logic/${encodeURIComponent(row)}/${encodeURIComponent(profile)}`; }
+  // v1 has row IDs and display strings. Keep the catalog independent of display wording,
+  // proof declaration names, profile choice, and the sidecar's row order.
+  const catalog = {
+    "hol.closed": ["hol", "closed-theorems", "kernel", "Closed theorems"],
+    "hol.named-assumption": ["hol", "derivability", "kernel", "Derivability with hypotheses"],
+    "mltt.sigma-form": ["mltt", "formation", "judgment", "Type formation"],
+    "mltt.sigma-inhabited": ["mltt", "inhabitation", "judgment", "Inhabitation"],
+    "mltt.sigma-typing": ["mltt", "typing", "judgment", "Term typing"],
+    "mltt.sigma-first": ["mltt", "computation", "judgment", "Projection computation"],
+    "mltt.sigma-second": ["mltt", "computation", "judgment", "Projection computation"],
+  };
+  const logics = { hol: "HOL Light", mltt: "Extensional MLTT" };
+  const interpretations = {
+    all: "All interpretations",
+    kernel: "Kernel derivability",
+    model: "Model-relative validity / truth",
+    judgment: "Formation, typing, inhabitation or computation",
+  };
+  const defaultProfile = "bdasl-inline-sha256";
+  const home = "#/named-logic/";
+
+  function routeTo(parts, profile, interpretation) {
+    const params = new URLSearchParams();
+    if (profile !== defaultProfile) params.set("profile", profile);
+    if (interpretation !== "all") params.set("interpretation", interpretation);
+    return home + parts.map(encodeURIComponent).join("/") + (params.size ? `?${params}` : "");
+  }
+
+  function parseRoute(arg) {
+    const [pathname, query] = arg.split("?", 2);
+    const parts = pathname === "" ? [] : pathname.split("/");
+    // Legacy row and profile links also accepted a trailing slash.
+    if (query === undefined && parts[0] !== "logic" && parts.at(-1) === "") parts.pop();
+    const params = new URLSearchParams(query);
+    const interpretation = params.get("interpretation") ?? "all";
+    if (!Object.hasOwn(interpretations, interpretation)) throw new Error("Unknown interpretation filter");
+    const profile = params.get("profile") ?? defaultProfile;
+    if (parts.length === 0) return { parts, profile, interpretation };
+    if (parts.some((part) => !/^[a-z][a-z0-9.-]*$/.test(part))) throw new Error("Malformed fixture route");
+    if (parts[0] === "logic" && parts.length >= 2 && parts.length <= 4) {
+      return { parts, profile, interpretation };
+    }
+    if (parts[0] !== "logic" && parts.length <= 2 && query === undefined) {
+      return { parts: [], legacyRow: parts[0], profile: parts[1] ?? defaultProfile, interpretation };
+    }
+    throw new Error("Malformed fixture route");
+  }
+
+  function roleRefs(row) {
+    return [...Object.entries(row.roots), ...row.assumptions.map((ref, i) => [`assumption ${i + 1}`, ref])];
+  }
+
+  function cidText(manifest, profile, cid) {
+    const text = `<code class="named-cid">${esc(cid)}</code>`;
+    try { digestFromCid(cid, getProfile(manifest, profile).code); }
+    catch { return text; }
+    return text + ` <button type="button" data-named-copy="${esc(cid)}" aria-label="Copy CID">Copy</button>`;
+  }
+
+  function rowCids(manifest, profile, row) {
+    return `<dl class="named-roots">${roleRefs(row).map(([role, ref]) => {
+      const cid = ref?.profile === profile ? ref.cid : ref?.alternates?.[profile];
+      return `<dt>${esc(role)}</dt><dd>${cid === undefined ?
+        'No CID for this profile.' : cidText(manifest, profile, cid)}</dd>`;
+    }).join("")}</dl>`;
+  }
+
+  function validateRows(rows) {
+    if (!Array.isArray(rows) || !rows.length) throw new Error("invalid fixture rows");
+    const seen = new Set();
+    for (const row of rows) {
+      if (!row || typeof row.id !== "string" || !Object.hasOwn(catalog, row.id) || seen.has(row.id) ||
+          row.logic !== { hol: "HOL", mltt: "MLTT" }[catalog[row.id][0]] ||
+          typeof row.judgment !== "string" || !row.roots || typeof row.roots !== "object" ||
+          Array.isArray(row.roots) || !Array.isArray(row.assumptions)) throw new Error("invalid fixture row");
+      seen.add(row.id);
+    }
+  }
+
+  function select(id, label, choices, current) {
+    return `<label>${esc(label)} <select id="${id}">${Object.entries(choices).map(([key, name]) =>
+      `<option value="${esc(key)}"${key === current ? " selected" : ""}>${esc(name)}</option>`).join("")}</select></label>`;
+  }
+
+  function controls(profile, interpretation, showFilter) {
+    return `<p class="named-controls">${select("named-logic-profile", "Profile",
+      Object.fromEntries(Object.keys(profiles).map((id) => [id, id])), profile)}
+      ${showFilter ? select("named-logic-interpretation", "Interpretation", interpretations, interpretation) : ""}</p>`;
+  }
+
+  const count = (rows) => `${rows.length} ${rows.length === 1 ? "row" : "rows"}`;
+  const status = '<p id="named-logic-copy-status" class="muted" role="status"></p>';
+  const verification = '<p class="muted">Lean evidence is pinned to source. The list shows sidecar CID references. ' +
+    'Row details parse wire bytes and can rehash SHA-256 locally. The external verifier checks both profiles against the Lean export plan.</p>';
 
   async function render(arg) {
-    let manifest;
-    const intro = '<p><a href="#/formal/">← formal rows</a></p><h2>Named HOL and MLTT fixtures</h2>';
+    let manifest, route;
+    const intro = '<p><a href="#/formal/">← Formal</a></p><h2>Named logic fixtures</h2>';
+    try {
+      route = parseRoute(arg);
+    } catch (error) {
+      return intro + `<p class="err">${esc(error.message)}. <a href="${home}">Browse fixtures</a>.</p>`;
+    }
     try {
       const response = await fetch("named-logic.json", { cache: "no-store" });
       if (!response.ok) throw new Error(`fixture sidecar HTTP ${response.status}`);
       const bytes = await readCapped(response, 1024 * 1024, "named-logic.json", "fixture limit");
       manifest = JSON.parse(utf8.decode(bytes));
-      if (manifest?.format !== "silmaril.named-logic.v1" || !manifest.profiles || !manifest.blocks ||
-          !Array.isArray(manifest.rows) || !manifest.rows.length) throw new Error("invalid fixture sidecar");
+      if (manifest?.format !== "silmaril.named-logic.v1" || !manifest.profiles || !manifest.blocks) {
+        throw new Error("invalid fixture sidecar");
+      }
+      validateRows(manifest.rows);
     } catch (error) {
       return intro + `<p class="err">${esc(error.message)}. Install the opt-in named-logic.json beside this Explorer page.</p>`;
     }
-    const [requestedRow, requestedProfile] = arg.split("/");
-    const row = requestedRow ? manifest.rows.find((entry) => entry.id === requestedRow) : manifest.rows[0];
-    if (!row) return intro + `<p class="err">Unknown fixture row ${esc(requestedRow)}.</p>`;
-    const profile = requestedProfile || "bdasl-inline-sha256";
+    const { parts, legacyRow, profile, interpretation } = route;
+    const href = (...path) => esc(routeTo(path, profile, interpretation));
+    const fail = (message) => intro + `<p class="err">${esc(message)}. <a href="${home}">Browse fixtures</a>.</p>`;
     try { getProfile(manifest, profile); }
-    catch (error) { return intro + `<p class="err">${esc(error.message)}: ${esc(profile)}</p>`; }
-    const selectors = `<p><label>Example <select id="named-logic-row">${manifest.rows.map((entry) =>
-      `<option value="${esc(entry.id)}"${entry.id === row.id ? " selected" : ""}>${esc(entry.id)}</option>`).join("")}</select></label> ` +
-      `<label>Profile <select id="named-logic-profile">${Object.keys(profiles).map((id) =>
-        `<option${id === profile ? " selected" : ""}>${esc(id)}</option>`).join("")}</select></label></p>`;
-    const blocks = Object.entries(row.roots || {});
-    if (Array.isArray(row.assumptions)) row.assumptions.forEach((ref, index) => blocks.push([`assumption ${index + 1}`, ref]));
-    const panes = await Promise.all(blocks.map(([role, ref]) => blockPane(manifest, profile, ref, role)));
-    const profileFields = Object.entries(manifest.profiles[profile]).map(([key, value]) =>
-      `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`).join("");
-    return { html: intro + selectors + `<div class="named-logic-grid"><section id="named-logic-evidence"><h3>Judgment and Lean evidence</h3>` +
-      `<p><strong>${esc(row.judgment)}</strong></p><p>${esc(row.scope)}</p>${evidencePane(manifest.source, row)}</section>` +
-      `<section id="named-logic-layout"><h3>Naming profile</h3><dl>${profileFields}</dl></section></div>` +
-      `<section id="named-logic-blocks"><h3>Decoded objects and wire bytes</h3>${panes.join("")}</section>`,
-    init: () => {
-      const rows = $("#named-logic-row"), choices = $("#named-logic-profile");
-      const select = () => { location.hash = routeTo(rows.value, choices.value); };
-      rows.addEventListener("change", select);
-      choices.addEventListener("change", select);
+    catch (error) { return fail(`${error.message} (${profile})`); }
+
+    const [,, requestedTable, requestedRow] = parts;
+    const rowId = legacyRow ?? requestedRow;
+    const row = rowId && manifest.rows.find((entry) => entry.id === rowId);
+    const logic = parts[1] ?? (row ? catalog[row.id][0] : undefined);
+    const table = requestedTable ?? (row ? catalog[row.id][1] : undefined);
+    if (logic && !Object.hasOwn(logics, logic)) return fail(`Unknown logic ${logic}`);
+    const logicRows = manifest.rows.filter((entry) => catalog[entry.id][0] === logic);
+    const tableRows = logicRows.filter((entry) => catalog[entry.id][1] === table);
+    if (table && !tableRows.length) return fail(`Unknown fixture table ${table}`);
+    if (rowId && (!row || !tableRows.includes(row))) return fail(`Unknown fixture row ${rowId}`);
+
+    const visible = (rows) => rows.filter((entry) => interpretation === "all" || catalog[entry.id][2] === interpretation);
+    const crumbs = `<nav aria-label="Fixture location"><a href="${href()}">All logics</a>` +
+      (logic ? ` / <a href="${href("logic", logic)}">${esc(logics[logic])}</a>` : "") +
+      (table ? ` / <a href="${href("logic", logic, table)}">${esc(catalog[tableRows[0].id][3])}</a>` : "") + "</nav>";
+    let html = intro + (logic ? crumbs : "") + controls(profile, interpretation, !row);
+    if (row) {
+      const rows = legacyRow ? manifest.rows : tableRows;
+      const panes = await Promise.all(roleRefs(row).map(([role, ref]) => blockPane(manifest, profile, ref, role)));
+      const profileFields = Object.entries(manifest.profiles[profile]).map(([key, value]) =>
+        `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`).join("");
+      html += `<p>${select("named-logic-row", "Fixture row", Object.fromEntries(rows.map((entry) =>
+        [entry.id, entry.judgment])), row.id)}</p>` +
+        `<div class="named-logic-grid"><section id="named-logic-evidence"><h3>Judgment and Lean evidence</h3>` +
+        `<p><strong>${esc(row.judgment)}</strong></p><p>${esc(interpretations[catalog[row.id][2]])}</p>` +
+        `<p>${esc(row.scope)}</p><p>Row ID <code>${esc(row.id)}</code></p>${evidencePane(manifest.source, row)}</section>` +
+        `<section id="named-logic-layout"><h3>Naming profile</h3><dl>${profileFields}</dl></section></div>` +
+        `<section id="named-logic-blocks"><h3>Decoded objects and wire bytes</h3>${panes.join("")}</section>`;
+    } else if (table) {
+      const rows = visible(tableRows);
+      html += `<h3>${esc(catalog[tableRows[0].id][3])} · ${count(rows)}</h3>` + verification +
+        (rows.length ? `<div class="tablebox"><table class="named-table"><thead><tr><th scope="col">Judgment</th>` +
+          `<th scope="col">Interpretation</th><th scope="col">Syntax CIDs</th></tr></thead><tbody>${rows.map((entry) =>
+            `<tr><th scope="row"><a href="${href("logic", logic, table, entry.id)}">${esc(entry.judgment)}</a></th>` +
+            `<td>${esc(interpretations[catalog[entry.id][2]])}</td><td>${rowCids(manifest, profile, entry)}</td></tr>`)
+            .join("")}</tbody></table></div>` : '<p>No fixture rows match this interpretation.</p>');
+    } else if (logic) {
+      const tables = new Map();
+      for (const entry of visible(logicRows)) {
+        const [, id,, title] = catalog[entry.id];
+        if (!tables.has(id)) tables.set(id, { title, rows: [] });
+        tables.get(id).rows.push(entry);
+      }
+      html += `<h3>${esc(logics[logic])} · ${count(visible(logicRows))}</h3>` +
+        (tables.size ? `<ul>${[...tables].map(([id, { title, rows }]) =>
+          `<li><a href="${href("logic", logic, id)}">${esc(title)}</a> · ${count(rows)}</li>`).join("")}</ul>` :
+          '<p>No fixture rows match this interpretation.</p>');
+    } else {
+      html += verification + `<ul>${Object.entries(logics).map(([id, label]) => {
+        const rows = visible(manifest.rows.filter((entry) => catalog[entry.id][0] === id));
+        const tables = new Set(rows.map((entry) => catalog[entry.id][1])).size;
+        return `<li><a href="${href("logic", id)}">${esc(label)}</a> · ${tables} ${tables === 1 ? "table" : "tables"}, ${count(rows)}</li>`;
+      }).join("")}</ul>`;
+    }
+
+    return { html: html + status, init: () => {
+      const changes = () => {
+        const nextProfile = $("#named-logic-profile").value;
+        const nextInterpretation = $("#named-logic-interpretation")?.value ?? interpretation;
+        let next = parts;
+        if (row) {
+          const selected = $("#named-logic-row").value;
+          const [l, t] = catalog[selected];
+          next = ["logic", l, t, selected];
+        }
+        location.hash = routeTo(next, nextProfile, nextInterpretation);
+      };
+      for (const id of ["profile", "interpretation", "row"]) {
+        $(`#named-logic-${id}`)?.addEventListener("change", changes);
+      }
+      const feedback = $("#named-logic-copy-status");
+      for (const button of document.querySelectorAll("[data-named-copy]")) {
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(button.dataset.namedCopy);
+            feedback.textContent = "CID copied.";
+          } catch {
+            feedback.textContent = "Clipboard unavailable. Select the full CID to copy it.";
+          }
+        });
+      }
     } };
   }
 

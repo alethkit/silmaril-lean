@@ -81,7 +81,7 @@
 
   async function table(arg, ctx) {
     style();
-    const named = '<p><a href="#/named-logic/">Named HOL/MLTT BDASL fixtures</a> (opt-in sidecar).</p>';
+    const named = '<p><a href="#/named-logic/">Named logic fixtures</a> (optional sidecar).</p>';
     if (!has("logic_rows")) return missing + named;
     const d = await load(ctx);
     const body = d.rows.map((r) => {

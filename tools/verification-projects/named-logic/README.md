@@ -59,3 +59,25 @@ The Chromium test uses the generated page and real sidecar. For this test only,
 a minimal SQLite database with `meta(key,value)` containing `schema` =
 `silmaril.project-db.v0.1` suffices. A normal project database is created by
 `sil project dump`, `sil project check`, and `sil project sqlite`.
+
+## Browse by logic and table
+
+Open **Formal → Named logic fixtures**, pick a logic and then a table. Table
+links use stable slugs and show row counts. Each row lists its syntax CIDs by
+role in the selected profile. Open a row to see the pinned Lean declaration,
+declared steps, decoded syntax and original bytes.
+
+For example, open `#/named-logic/logic/hol/closed-theorems` for the table or
+`#/named-logic/logic/hol/closed-theorems/hol.closed?profile=bdasl-inline-blake3`
+for the row in the BLAKE3 profile. The route
+`#/named-logic/<row-id>/<profile>` remains a row-detail link. The landing
+route now lists logics. The interpretation filter narrows the visible rows.
+The v1 fixtures cover HOL Light kernel derivability and extensional MLTT
+judgments (formation, inhabitation, typing and computation).
+
+The list displays the supplied CID references. Row details independently
+parse the supported wire fragment and rehash SHA-256 where Web Crypto is
+available. Run the external verifier above for both digests and cross-profile
+correspondence against the Lean export plan. The browser reports no external
+verification result. A missing sidecar, row, name or block says only what is
+available to this view.

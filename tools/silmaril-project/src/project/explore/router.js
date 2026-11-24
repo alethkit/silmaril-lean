@@ -46,12 +46,14 @@ async function route() {
   const requested = VIEWS.get(parts[0]);
   const view = corpusOnly ? (requested && (requested.id.startsWith("corpus") || requested.id === "sql") ? requested : VIEWS.get("corpus"))
     : requested || VIEWS.get("summary");
-  const arg = decodeURIComponent(parts.slice(1).join("/"));
   for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", a.getAttribute("href") === "#/" + view.tab);
   window.explore.busy = true;
   window.explore.view = view.id;
   markNavigationLocation(view);
   try {
+    let arg;
+    try { arg = decodeURIComponent(parts.slice(1).join("/")); }
+    catch { throw new Error("Malformed route encoding"); }
     let r = await view.render(arg, routeCtx(tok, be, arg));
     if (tok !== routeTok) return;
     if (typeof r === "string") r = { html: r };
