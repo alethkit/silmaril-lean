@@ -161,6 +161,19 @@ silmaril comorphism logic.pl_fol := Silmaril.Logic.Institution.Examples.plToFol
 The [PER constraint institution](per-constraints.md) also registers a Boolean room
 and two answered CNF problems translated from dictionaries (SAT and UNS).
 
+## First-order arithmetic
+
+`logic.arithmetic.buchi` is binary Büchi arithmetic over the standard naturals.
+Its closed first-order sentences use equality, `0`, `1`, addition and the unary
+function `V₂`. For nonzero `n`, `V₂(n)` is the greatest power of two dividing
+`n`, so `V₂(12) = 4`. At zero, `V₂(0) = 0` (Zapryagaev, 2022, §1,
+`zapryagaev-2022-buchi-arithmetics` in [references.bib](../../references.bib)).
+
+The comorphism `logic.arithmetic.presburger_to_buchi` embeds sentences from
+`logic.arithmetic.presburger` by including the additive symbols. Its model map
+forgets `V₂` and reaches the unique standard Presburger model, so the embedding
+preserves and reflects semantic consequence on additive sentences.
+
 ## Database and explorer
 
 Tables `institutions`, `comorphisms`, `morphisms`, `rooms`, `corridors` (edge endpoints in the

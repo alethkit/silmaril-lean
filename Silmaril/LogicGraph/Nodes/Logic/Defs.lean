@@ -172,6 +172,7 @@ public import Silmaril.Logic.TypeTheory.LambdaPi.EqualityInstitution.Defs
 public import Silmaril.Logic.TypeTheory.LambdaPi.EqualityInstitution.Thms
 public import Silmaril.Logic.TypeTheory.LambdaPi.TypedEquality.Institution.Defs
 public import Silmaril.Logic.TypeTheory.LambdaPi.TypedEquality.Institution.Thms
+public import Silmaril.LogicGraph.Nodes.Logic.Arithmetic.Defs
 public import Silmaril.Project.Registry.Institution.Defs
 public import Silmaril.Wasm.InstObs.Defs
 
