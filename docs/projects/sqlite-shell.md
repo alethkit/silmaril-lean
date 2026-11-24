@@ -57,6 +57,7 @@ negative positional values. Existing `--immutable DATABASE SQL` and
 roles, including bare signed values for legacy creation. Success exits
 `0`. The front end reports usage errors on stderr with status `2`. The
 driver reports SQL, database and I/O errors on stderr with status `1`.
+Legacy requests retain the Lean runtime's request error text.
 Failed requests emit no result on stdout. Successful creation is silent.
 [CLI framework](cli.md)
 

@@ -53,12 +53,16 @@ private def run (matched : Silmaril.Cli.Matches) : IO UInt32 := do
   let some request := Request.ofMatches matched | do
     IO.eprintln "sqlite_lean: invalid command arguments"
     return 2
-  try
-    runRequest request
-    return 0
+  runRequest request
+  return 0
+
+private def runReported (matched : Silmaril.Cli.Matches) : IO UInt32 := do
+  try run matched
   catch error =>
     IO.eprintln s!"sqlite_lean: {error}"
     return 1
 
 public def main (args : List String) : IO UInt32 :=
-  command.main run (normalize args)
+  let normalized := normalize args
+  -- Legacy requests retain the Lean runtime's exception diagnostics.
+  command.main (if normalized == args then runReported else run) normalized

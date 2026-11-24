@@ -167,7 +167,12 @@ def check_frontend(native, directory, database):
     rejected(run(SHELL, "--immutable", database, stdin=sql), "Usage:", status=2)
     rejected(run(SHELL, "query", database, sql, "extra"), "Usage:", status=2)
     rejected(run(SHELL, "query", database, stdin=""), "unsupported SELECT", status=1)
-    rejected(run(SHELL, "query", database, stdin="DELETE FROM sample;"), "unsupported SELECT", status=1)
+    write = "DELETE FROM sample;"
+    canonical = run(SHELL, "query", database, stdin=write)
+    rejected(canonical, "sqlite_lean: unsupported SELECT", status=1)
+    legacy = run(SHELL, "--immutable", database, write)
+    rejected(legacy, "unsupported SELECT", status=1)
+    assert legacy.stderr == "uncaught exception: unsupported SELECT\n", legacy
     rejected(run(SHELL, "query", database, stdin=sql + "DELETE FROM sample;"),
              "unsupported SELECT", status=1)
     invalid_utf8 = subprocess.run([SHELL, "query", database], input=b"\xff",
