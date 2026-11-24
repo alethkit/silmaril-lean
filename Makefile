@@ -86,7 +86,7 @@ check:
 check-runtime:
 	$(MAKE) process-gates
 	$(if $(filter sqlite_file_format_compatibility,$(CHECK_TARGETS)),bash tests/formats/sqlite-tranche/run.sh)
-	$(if $(filter sqlite_lean,$(CHECK_TARGETS)),$(PYTHON) -I tests/formats/sqlite-shell/check.py)
+	$(if $(filter sqlite_lean,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Cli.Spec.LeanSqliteShell.Thms && $(PYTHON) -I tests/formats/sqlite-shell/check.py)
 	$(if $(filter sqlite_image_lean,$(CHECK_TARGETS)),$(LAKE) build --wfail sqlite_lean sqlite_write_profile_tests && $(PYTHON) -I tests/formats/sqlite-shell/check.py --writer)
 	$(if $(filter Silmaril +Silmaril.Formats.Sqlite.VirtualTable.% +Silmaril.Proofs.Formats.Sqlite.VirtualTable.%,$(CHECK_TARGETS)),LAKE="$(LAKE)" tests/formats/sqlite-virtual-table/run.sh)
 	$(if $(filter Silmaril +Silmaril.Crypto.Blake3.Range.Check.Defs +Silmaril.Containers.Cas.Blake3.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Crypto.Blake3.Range.Check.Defs +Silmaril.Containers.Cas.Blake3.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/crypto/Blake3Range.lean)

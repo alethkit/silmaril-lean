@@ -2,9 +2,11 @@
 
 ```sh
 lake build --wfail sqlite_lean
-.lake/build/bin/sqlite_lean --create sample.sqlite -7 100 4 -91
-.lake/build/bin/sqlite_lean --immutable sample.sqlite \
+.lake/build/bin/sqlite_lean create sample.sqlite -- -7 100 4 -91
+.lake/build/bin/sqlite_lean schema sample.sqlite
+.lake/build/bin/sqlite_lean query sample.sqlite \
   'SELECT id, amount FROM sample ORDER BY id LIMIT 3;'
+printf '%s\n' 'SELECT * FROM sample ORDER BY id;' | .lake/build/bin/sqlite_lean query sample.sqlite
 ```
 
 The immutable query mode reads a regular, fixed SQLite snapshot and writes a JSON object
@@ -18,12 +20,18 @@ CREATE TABLE sample(id INTEGER PRIMARY KEY, amount INTEGER NOT NULL) STRICT
 The file must have two 512-byte pages, UTF-8, no reserved space or freelist,
 and packed table leaves. The catalogue must contain the exact CREATE text.
 The row decoder checks the serialized NULL placeholder for the rowid alias
-and requires an INTEGER amount. The CLI requires `--immutable` and refuses
-journal, WAL and shared-memory sidecars at the supplied and canonical paths.
+and requires an INTEGER amount. Query and schema commands refuse journal,
+WAL and shared-memory sidecars at the supplied and canonical paths.
 The caller supplies a stable snapshot. There is no live snapshot acquisition,
 locking, or recovery.
 
-There is one SELECT statement. It accepts `*`, either column, or both
+`query DATABASE [SQL]` takes one SELECT. Omit the SQL argument to read one
+UTF-8 SELECT from stdin through EOF. An argv query leaves stdin unread.
+The shell runs in batch mode with one statement per process.
+`schema DATABASE` prints the validated CREATE statement followed by a
+semicolon and newline.
+
+The SELECT profile accepts `*`, either column, or both
 columns in either order, optional `WHERE id = <signed 64-bit integer>`,
 optional `ORDER BY id [ASC|DESC]`, and optional `LIMIT n [OFFSET n]` with decimal
 natural numbers. Keywords and these unquoted identifiers are case
@@ -32,7 +40,7 @@ ascending rowid. Descending order reverses the bounded scan before LIMIT
 and OFFSET. Write SQL, other unsupported SQL and malformed images produce
 a nonzero status and no JSON result.
 
-`--create OUTPUT [ROWID AMOUNT ...]` uses the same checked encoder as
+`create OUTPUT [ROWID AMOUNT ...]` uses the same checked encoder as
 `sqlite_image_lean`. It takes explicit signed 64-bit integer pairs for
 the fixed table. Zero pairs create an empty table. Invalid pairs, duplicate
 rowids and page capacity errors fail before the output is opened. On Linux,
@@ -42,6 +50,15 @@ flushes the handle, and an I/O error after creation can leave a partial
 file. The command creates a fresh image. SQL writes to existing images,
 journaling, crash recovery and durability are outside this profile.
 [Checked SQLite images](sqlite-image.md)
+
+The command grammar and help use `Silmaril.Cli.Command`. Put `--` before
+negative positional values. Existing `--immutable DATABASE SQL` and
+`--create OUTPUT [ROWID AMOUNT ...]` invocations retain their argument
+roles, including bare signed values for legacy creation. Success exits
+`0`. The front end reports usage errors on stderr with status `2`. The
+driver reports SQL, database and I/O errors on stderr with status `1`.
+Failed requests emit no result on stdout. Successful creation is silent.
+[CLI framework](cli.md)
 
 The VM executes a table scan or rowid seek. Projection and slicing are
 applied to its result. Its value and table-read interfaces depend only on
@@ -59,7 +76,8 @@ make check CHECK_TARGETS=sqlite_lean
 The regression compares native-created and Lean-created images with the
 actual Lean shell and pinned SQLite 3.54.1. It checks typed rows, page
 metadata and `integrity_check`, including an exact-fit mixed-width leaf.
-It also checks invalid inputs, existing files, symlinks and competing
+The front-end tests also cover argv and stdin queries, schema text, help,
+exact exit classes, invalid inputs, existing files, symlinks and competing
 creates at the same path.
 [SQLite source and artifact provenance](../../corpus/sqlite/package.toml)
 
