@@ -1,11 +1,18 @@
-# SQLite 3.54.1 WASI reactor in Lean
+# Custom SQLite 3.54.1 WASI library reactor in Lean
 
-This fixture builds the upstream SQLite 3.54.1 amalgamation as a stripped,
-single-threaded `wasm32-wasi` Preview 1 reactor with in-memory temporary
-storage, WAL omitted, and loadable extensions omitted. It exports a small C
-API surface for in-memory SQL plus `sqlite3_libversion_number`. The exact flags and compiler, linker,
-archive and source SHA-256 pins are in [build.sh](build.sh). The output pin is
-in [artifact.sha256](artifact.sha256). The toolchain is WASI SDK 30.0 for
+This fixture custom-configures the upstream SQLite 3.54.1 amalgamation as a
+stripped, single-threaded `wasm32-wasi` Preview 1 library reactor with
+in-memory temporary storage and SQLite's WAL and loadable extension features
+disabled. It exports `_initialize`, a small C API for in-memory SQL and
+`sqlite3_libversion_number`. SQLite publishes its official WebAssembly and
+JavaScript distribution separately. The repository's SQLite shell build
+compiles `shell.c` and exposes a WASI command at `_start`.
+[Official SQLite web distribution](https://www.sqlite.org/2026/sqlite-wasm-3540100.zip) ·
+[WASI shell build](https://github.com/hiloopai/silmaril-lean/pull/2081)
+
+The exact flags and the compiler, linker, archive and source SHA-256 pins
+are in [build.sh](build.sh). The output pin is in [artifact.sha256](artifact.sha256).
+The toolchain is WASI SDK 30.0 for
 x86-64 Linux, with Clang 21.1.4 at LLVM revision
 `222fc11f2b8f25f6a0f4976272ef1bb7bf49521d` and wasi-libc at
 `ec0effd769df5f05b647216578bcf5d3b5449725`.
@@ -64,7 +71,9 @@ canonical file. All three yield the same 693,311 bytes, pinned in
 differs from this encoding at byte 3,881, counting from zero. The code
 section payload shrinks from 679,518 to 631,112 bytes. Every other section's
 framed bytes match. The hint-guided padded encoder also yields 741,717 bytes
-and differs from the original at byte 3,949. These are executed comparisons.
+and differs from the original at byte 3,949. The canonical agreement is
+evidence from executing the decoder and encoder. The two offsets record
+where the respective byte sequences first depart from the linker output.
 
 The object has 1,533 definitions and 23 imported functions. The export
 `sqlite3_libversion_number` is function index 289, definition ordinal 266,
@@ -72,8 +81,9 @@ with signature `() → i32`. [VersionCheck.lean](VersionCheck.lean) proves by
 reduction that the body selected by this export is a single `i32.const` and
 that the Binaryen fuel interpreter returns the modeled SQLite version number
 from an empty operand stack at fuel 2 for every store and frame. The axiom
-audits report `propext`, `Classical.choice` and `Quot.sound`. The proof scope is
-the selected Wasm body. [runtime.mjs](runtime.mjs) separately executes the
+audits report `propext`, `Classical.choice` and `Quot.sound`. Kernel-checked
+claims cover the selected body and its fuel-interpreter result.
+[runtime.mjs](runtime.mjs) separately executes the
 original and canonical files under Node WASI. Both return 3054001 for the
 getter, in agreement with the Lean interpreter, and 42 from a SQL query.
 
