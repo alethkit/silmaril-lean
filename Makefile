@@ -139,6 +139,7 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.Wasm.Sublanguages.Link.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.V1.Validation.Examples +Silmaril.Wasm.Verify.Kernel.Defs && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/Sublanguages.lean)
 	$(if $(filter Silmaril +Silmaril.Wasm.Sublanguages.Strict.Thms +Silmaril.Wasm.Sublanguages.Strict.Link.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Sublanguages.Strict.Link.Thms +Silmaril.Wasm.Verify.Kernel.Defs && $(LAKE) env lean -DwarningAsError=true tests/wasm/profiles/OpenStrict.lean)
 	$(if $(filter Silmaril +Silmaril.Formats.PER.EGraph.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/GuardedEGraph.lean)
+	$(if $(filter Silmaril +Silmaril.Formats.Dasl.EGraph.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true --run tests/formats/DaslEGraphBridge.lean)
 
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
