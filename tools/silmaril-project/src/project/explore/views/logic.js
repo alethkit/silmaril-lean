@@ -177,7 +177,7 @@
     };
     return { html, init };
   }
-  const factCell = (r) => r.facts.length ? r.facts.map((f) => `<span class="pill" title="${ui.esc(f.proof)}${f.instance_at ? " — only at " + ui.esc(f.instance_at) : " — for every instance"}${f.standard_axioms ? "" : " (non-standard axioms)"}">${ui.esc(f.property)}${f.instance_at ? " (at an instance)" : ""} ✓</span>`).join(" ") : "";
+  const factCell = (r) => r.facts.length ? r.facts.map((f) => `<span class="pill" title="${ui.esc(f.proof)}${f.instance_at ? " — only at " + ui.esc(f.instance_at) : " — for every instance"}">${ui.esc(f.property)}${f.instance_at ? " (at an instance)" : ""}</span> ${ui.axiomChip(f.axioms)}`).join(" ") : "";
   const COLS = {
     institution: (d) => [
       { key: "name", label: "institution", html: (r) => rec("institution", r.name) },
@@ -244,7 +244,7 @@
         rows.push(["to", rec(nk, r.dst) + (r.to_at ? ` <span class="muted">at</span> ${code(r.to_at)}` : "")]);
         const k = d.kinds.find((x) => x.kind === kind);
         if (k) rows.push(["direction", `sentences ${ui.esc(k.sentences)}; models ${ui.esc(k.models)}`]);
-        rows.push(["facts", r.facts.length ? r.facts.map((f) => `<b>${ui.esc(f.property)}</b>${f.instance_at ? ` only at ${code(f.instance_at)}` : r.arity ? " for every instance" : ""} by ${code(f.proof)} <span class="muted">axioms: ${ui.esc(JSON.parse(f.axioms || "[]").join(", ") || "none")}${f.standard_axioms ? "" : " — non-standard"}</span>`).join("<br>")
+        rows.push(["facts", r.facts.length ? r.facts.map((f) => `<b>${ui.esc(f.property)}</b>${f.instance_at ? ` only at ${code(f.instance_at)}` : r.arity ? " for every instance" : ""} by ${code(f.proof)} ${ui.axiomChip(f.axioms)}`).join("<br>")
           : '<span class="muted">none registered: no property of this edge is claimed</span>']);
         const parallel = d[kind].filter((x) => x !== r && x.src === r.src && x.dst === r.dst);
         if (parallel.length) rows.push(["parallel edges", parallel.map((x) => rec(kind, x.name)).join(", ")]);

@@ -62,16 +62,16 @@ table.elf-dis tr.hit td { background:#fff1b8; }
     document.head.appendChild(st);
   }
 
-  // A theorem: its status (from its axioms), its short name and its source line.
-  function thmCell(t) {
+  const exportChecked = (t) => t.status === "checked" && t.kernelOnly === true;
+  const theoremAxioms = (theorems) => AxiomProfiles.classify(theorems.map((t) => t.axioms));
+
+  function thmCell(t, showProfile = true) {
     if (!t) return '<span class="muted">none</span>';
-    const st = t.status === "checked" ? `<span class="prov prov-lean" title="checked by the Lean kernel (decide +kernel on kernel bytes); axioms: ${esc(t.axioms.join(", ") || "none")} (standard only, no native evaluation)">kernel ✓</span>`
-      : t.status === "sorry" ? '<span class="st st-bad" title="depends on sorryAx">sorry</span>'
-      : `<span class="st st-bad" title="axioms: ${esc(t.axioms.join(", "))}">extra axioms</span>`;
+    const st = showProfile ? axiomProfileChip(AxiomProfiles.classify([t.axioms]), exportChecked(t)) + " " : "";
     const f = typeof repoFile === "function" ? repoFile(t.file) : null;
     const src = f ? ` <a href="${esc(f.blob)}${t.line ? "#L" + t.line : ""}" target="_blank" rel="noopener noreferrer">source</a>`
       : ` <span class="muted" title="${esc(t.file)}">${esc(t.file.split("/").pop())}${t.line ? ":" + t.line : ""}</span>`;
-    return `${st} <code title="${esc(t.decl)}">${esc(t.short)}</code>${src}`;
+    return `${st}<code title="${esc(t.decl)}">${esc(t.short)}</code>${src}`;
   }
   const thmByDecl = (d) => new Map(d.theorems.map((t) => [t.decl, t]));
   function covBar(slug, size, runs) {
@@ -87,15 +87,15 @@ table.elf-dis tr.hit td { background:#fff1b8; }
   function tabs(slug, on) {
     return '<div class="elf-tabs">' + [["overview", `#/elf-file/${enc(slug)}`], ["bytes", `#/elf-bytes/${enc(slug)}/0x0`],
       ["functions", `#/elf-funcs/${enc(slug)}`], ["disassembly (unverified)", `#/elf-disasm/${enc(slug)}`],
+      ["regions", `#/elf-regions/${enc(slug)}`], ["graph", `#/elf-graph/${enc(slug)}`],
       ["theorems", `#/elf-file/${enc(slug)}/theorems`]].map(([t, h]) =>
       `<a href="${h}" class="${t.startsWith(on) ? "on" : ""}">${esc(t)}</a>`).join("") + "</div>";
   }
   function head(d, on) {
-    const ko = d.theorems.every((t) => t.kernelOnly);
     return `<h2><a href="#/elf">ELF</a> / ${esc(d.title)}</h2>` +
       `<p class="muted"><code>${esc(d.path)}</code> · ${d.size} B · SHA-256 <code>${esc(d.sha256)}</code> · ${esc(d.header.type)} ${esc(d.header.machine)}</p>` +
       `<p>${d.theorems.length} theorems in ${[...new Set(d.theorems.map((t) => t.module))].map((m) => `<code>${esc(m)}</code>`).join(", ")}, ` +
-      (ko ? '<span class="prov prov-lean">all kernel-only (propext, Classical.choice, Quot.sound)</span>' : '<span class="st st-bad">some use other axioms</span>') +
+      axiomProfileChip(theoremAxioms(d.theorems)) +
       ". Each part is the ELF specification's reader run on the pinned file's bytes inside the windows its theorem states.</p>" + tabs(d.slug, on);
   }
 
@@ -109,7 +109,7 @@ table.elf-dis tr.hit td { background:#fff1b8; }
     h += '<div class="tablebox"><table><thead><tr><th>file</th><th>type</th><th>size</th><th>sections</th><th>segments</th><th>functions</th><th>theorems</th><th>axioms</th><th>coverage</th><th>SHA-256</th></tr></thead><tbody>' +
       ix.files.map((f, i) => `<tr><td>${flink(f.slug, f.title)}<br><span class="muted">${esc(f.path)}</span></td><td>${esc(f.type)} ${esc(f.machine)}</td>` +
         `<td class="num">${f.size}</td><td class="num">${f.sections}</td><td class="num">${f.segments}</td><td class="num"><a href="#/elf-funcs/${enc(f.slug)}">${f.functions ?? ""}</a></td><td class="num">${f.theorems}</td>` +
-        `<td>${f.kernelOnly ? '<span class="prov prov-lean">kernel-only</span>' : '<span class="st st-bad">other</span>'}</td>` +
+        `<td>${axiomProfileChip(theoremAxioms(ds[i].theorems))}</td>` +
         `<td style="min-width:260px">${covBar(f.slug, f.size, ds[i].coverage)}${covKey(f.coverageSummary)}</td>` +
         `<td><code title="${esc(f.sha256)}">${esc(f.sha256.slice(0, 16))}…</code></td></tr>`).join("") + "</tbody></table></div>";
     return h + await compilerArtifactIndex("elf");
@@ -201,9 +201,9 @@ table.elf-dis tr.hit td { background:#fff1b8; }
     let h = `<p>Statements: <code>PartIs F ws p v</code> (the reader <code>p</code> of the ELF specification, run on the bytes of <code>F</code> inside the windows <code>ws</code> only, returns <code>v</code>), ` +
       "<code>ZerosAt F o n</code>, <code>LayoutIs F L</code> and <code>Parses F A</code> (the whole parse, assembled from the parts). Status and axioms are read by elf-pages from the built module (<code>collectAxioms</code>).</p>";
     h += '<div class="tablebox"><table><thead><tr><th>theorem</th><th>kind</th><th>about</th><th>windows (offset+length)</th><th>axioms</th></tr></thead><tbody>' +
-      d.theorems.slice().sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind)).map((t) => `<tr><td>${thmCell(t)}</td><td>${esc(t.kind)}</td><td>${esc(t.label)}</td>` +
+      d.theorems.slice().sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind)).map((t) => `<tr><td>${thmCell(t, false)}</td><td>${esc(t.kind)}</td><td>${esc(t.label)}</td>` +
         `<td>${t.windows.slice(0, 6).map(([o, n]) => blink(d.slug, o, n, `${hx(o)}+${n}`)).join(" ")}${t.windows.length > 6 ? ` <span class="muted">+${t.windows.length - 6} more</span>` : ""}</td>` +
-        `<td class="muted">${esc(t.axioms.join(", ") || "none")}</td></tr>`).join("") + "</tbody></table></div>";
+        `<td>${axiomProfileChip(AxiomProfiles.classify([t.axioms]), exportChecked(t))}</td></tr>`).join("") + "</tbody></table></div>";
     return h;
   }
 
@@ -417,7 +417,94 @@ table.elf-dis tr.hit td { background:#fff1b8; }
     return { html: h, init };
   }
 
+  // ---------- region rows and their full outgoing adjacency ----------
+  const regionProof = (c) => {
+    const src = typeof repoFile === "function" ? repoFile(c.file) : null;
+    return `<span class="prov prov-lean">byte/CFG kernel certificate</span> <code>${esc(c.decl)}</code>` +
+      (src ? ` <a href="${esc(src.blob)}${c.line ? "#L" + c.line : ""}" target="_blank" rel="noopener noreferrer">source</a>` : "") +
+      `<details><summary>statement</summary><pre class="code">${esc(c.statement)}</pre></details>${axiomChip(c.axioms)}`;
+  };
+  const regionSource = (r) => {
+    const src = typeof repoFile === "function" ? repoFile(r.provenance.file) : null;
+    return `<details><summary>row provenance</summary><code>${esc(r.provenance.declaration)}</code>` +
+      (src ? ` <a href="${esc(src.blob)}" target="_blank" rel="noopener noreferrer">source</a>` : `<p>${esc(r.provenance.file)}</p>`) + '</details>';
+  };
+  const regionStatus = (r, sha) => ElfRegions.certification(r, sha).kind === "stated"
+    ? '<span class="prov prov-gen">stated · certificate unknown</span>'
+    : '<span class="prov prov-lean">certified bytes + direct CFG</span>';
+  const labels = (xs) => xs.map(hx).join(", ") || "∅";
+  const edgeLabels = (xs) => xs.map((x) => x.split(":").map((n) => hx(+n)).join(" → ")).join(", ") || "∅";
+  async function elfRegions(arg, graphTab = false) {
+    const [slug, requested] = arg.split("/");
+    let d, data;
+    try { [d, data] = await Promise.all([elfJson(`f/${enc(slug)}.json`), elfJson(`regions/${enc(slug)}.json`)]); }
+    catch (e) { return elfMissing(e); }
+    if (data.sha256 !== d.sha256 || data.schema !== "silmaril.elf-regions.v1") return '<p class="err">Region data image/schema mismatch.</p>';
+    let h = head(d, graphTab ? "graph" : "regions") + `<p class="note">${esc(data.scope)}</p>` +
+      '<p>Certificates bind ELF bytes and exact direct-transfer syntax. Execution soundness has separate loading, admitted-invariant, and interference premises. ' +
+      'Normal edges do not prove progress, termination or absence of traps/faults. Missing certificates remain unknown.</p>';
+    if (!data.rows.length) return h + '<p>No region/CFG rows are exported for this file.</p>';
+    const rows = data.rows;
+    const option = (r, selected) => `<option value="${esc(r.id)}"${r.id === selected ? " selected" : ""}>${esc(r.title)}</option>`;
+    if (graphTab) {
+      const selected = rows.find((r) => r.id === decodeURIComponent(requested || "")) || rows[0];
+      h += `<label>Graph constant <select id="elf-graph-row">${rows.map((r) => option(r, selected.id)).join("")}</select></label><div id="elf-graph"></div>`;
+      return { html: h, init: () => {
+        const show = () => {
+          const r = rows.find((r) => r.id === $("#elf-graph-row").value), g = ElfRegions.graph(r);
+          const nodes = new Map(g.nodes.map((n, i) => [n.id, { ...n,
+            x: 340 + 210 * Math.cos(i * 2 * Math.PI / g.nodes.length - Math.PI / 2),
+            y: 190 + 125 * Math.sin(i * 2 * Math.PI / g.nodes.length - Math.PI / 2) }]));
+          const paths = g.edges.map((e, i) => {
+            const a = nodes.get(e.source), b = nodes.get(e.target), dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+            const parallel = g.edges.slice(0, i).filter((x) => x.source === e.source && x.target === e.target).length;
+            const path = a.id === b.id ? `M ${a.x - 12} ${a.y - 15} C ${a.x - 65} ${a.y - 90 - parallel * 16}, ${a.x + 65} ${a.y - 90 - parallel * 16}, ${a.x + 15} ${a.y - 15}`
+              : `M ${a.x + dx * 39 / len} ${a.y + dy * 20 / len} Q ${(a.x + b.x) / 2 - dy * parallel * .12} ${(a.y + b.y) / 2 + dx * parallel * .12} ${b.x - dx * 42 / len} ${b.y - dy * 23 / len}`;
+            return `<path data-edge="${e.source}:${e.target}" d="${path}" fill="none" stroke="#526576" stroke-width="2" marker-end="url(#elf-cfg-arrow)"><title>${hx(e.source)} → ${hx(e.target)}</title></path>`;
+          }).join("");
+          const vertices = [...nodes.values()].map((n) => `<g data-node="${n.id}"><rect x="${n.x - 39}" y="${n.y - 20}" width="78" height="40" rx="${n.internal ? 18 : 2}" fill="${n.entry ? "#d5e9ff" : n.internal ? "#e3f3e6" : "#fff0ce"}" stroke="#526576"/><text x="${n.x}" y="${n.y + 4}" text-anchor="middle" font-size="13">${hx(n.id)}</text><title>${n.entry ? "entry; " : ""}${n.internal ? "internal instruction start" : "outside support"}${n.exit ? "; declared exit" : ""}</title></g>`).join("");
+          $("#elf-graph").innerHTML = `<h3>${esc(r.title)}</h3><p>${regionStatus(r, data.sha256)}</p>` +
+            `<svg role="img" aria-label="Directed instruction CFG" viewBox="0 -60 680 440" style="max-width:800px;width:100%;border:1px solid var(--line)"><defs><marker id="elf-cfg-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#526576"/></marker></defs>${paths}${vertices}</svg>` +
+            '<p class="muted">Blue: entry. Rounded green: internal instruction starts. Square amber: outside support. Outgoing arrows are successors, including loops and cross edges; no dominance arcs are inferred. Layout is browser-generated.</p>' +
+            '<h3>Relationships and properties</h3><table><thead><tr><th>view</th><th>representation / orientation</th><th>properties</th><th>status / loss</th></tr></thead><tbody>' +
+            `<tr><td>Directed multi / edge rows</td><td>source → successor, edge-row identities</td><td>${g.properties.vertices} vertices; ${g.properties.edgeRows} edges; ${g.properties.loops} loops; ${g.properties.parallelDuplicates} duplicate pairs</td><td>Displayed verbatim; row IDs are serialization positions, not machine events</td></tr>` +
+            `<tr><td>Directed relation</td><td>ordered pairs; loops allowed</td><td>${g.properties.relationalEdges} distinct pairs</td><td>Certificate checks this extensional view; parallel identities forgotten</td></tr>` +
+            `<tr><td>Undirected simple projection</td><td>symmetrized unordered pairs; no loops</td><td>${g.properties.undirectedSimpleEdges} pairs</td><td>Browser computation; loses direction, loops and multiplicity</td></tr>` +
+            '<tr><td>Dominator tree</td><td>Immediate-dominance children differ from outgoing edges</td><td>Not supplied</td><td>Requires rooted reachability and a separate dominance witness</td></tr></tbody></table>' +
+            '<h3>Complete adjacency</h3><table><thead><tr><th>source</th><th>target</th><th>boundary role</th></tr></thead><tbody>' +
+            g.edges.map((e) => `<tr><td>${hx(e.source)}</td><td>${hx(e.target)}</td><td>${r.vertices.includes(e.target) ? "internal" : "outward"}${r.exits.includes(e.target) ? "; declared exit" : ""}</td></tr>`).join("") + '</tbody></table>' +
+            `<p><a href="#/elf-regions/${enc(slug)}">Compare region rows and proof provenance</a></p>`;
+        };
+        $("#elf-graph-row").addEventListener("change", show); show();
+      }};
+    }
+    h += '<div class="tablebox"><table id="elf-regions"><thead><tr><th>row / provenance</th><th>byte extent (half-open)</th><th>boundary / support</th><th>evidence</th></tr></thead><tbody>' +
+      rows.map((r) => `<tr data-region="${esc(r.id)}"><td><b>${esc(r.title)}</b><br>${regionStatus(r, data.sha256)}${regionSource(r)}<br><a href="#/elf-graph/${enc(slug)}/${enc(r.id)}">graph</a></td>` +
+        `<td>ELF VA [${hx(r.va)}, ${hx(r.va + r.size)})<br>${r.offset == null ? "no file mapping" : blink(slug, r.offset, r.size, `file [${hx(r.offset)}, ${hx(r.offset + r.size)})`)}<br><code>${r.bytes.map((b) => b.toString(16).padStart(2, "0")).join(" ")}</code></td>` +
+        `<td>entry ${hx(r.entry)}<br>exits ${labels(r.exits)}<br>instruction starts ${labels(r.vertices)}</td><td>` +
+        ElfRegions.certification(r, data.sha256).evidence.map(regionProof).join("") +
+        `<p>Native consistency checker: ${r.nativeIntrinsicAccepted ? "accepts" : "rejects"} (not a kernel certificate)</p><details><summary>execution scope</summary>${esc(r.execution)}</details></td></tr>`).join("") + '</tbody></table></div>';
+    const defaultB = rows.find((r) => r.id.endsWith(".statedCompare")) || rows[1] || rows[0];
+    h += `<h3>Compare decompositions of this image</h3><div class="controls"><label>A <select id="elf-region-a">${rows.map((r) => option(r, rows[0].id)).join("")}</select></label>` +
+      `<label>B <select id="elf-region-b">${rows.map((r) => option(r, defaultB.id)).join("")}</select></label></div><div id="elf-region-comparison"></div>`;
+    return { html: h, init: () => {
+      const show = () => {
+        const a = rows.find((r) => r.id === $("#elf-region-a").value), b = rows.find((r) => r.id === $("#elf-region-b").value), c = ElfRegions.compare(a, b);
+        const disagreement = c.onlyA.length + c.onlyB.length;
+        $("#elf-region-comparison").innerHTML = `<p>${c.overlapBytes} overlapping bytes; ${c.sharedSources.length} shared instruction starts. ` +
+          (c.sharedSources.length ? (disagreement ? '<b>Adjacency disagrees at shared sources.</b>' : '<b>Adjacency agrees at shared sources.</b>') : 'No common source to compare.') + '</p>' +
+          `<table><tbody><tr><th>Edges only in A at shared sources</th><td>${edgeLabels(c.onlyA)}</td></tr><tr><th>Edges only in B at shared sources</th><td>${edgeLabels(c.onlyB)}</td></tr>` +
+          `<tr><th>Entry</th><td>${c.entryAgrees ? "agrees" : "differs"}</td></tr><tr><th>Declared exits</th><td>${c.sameSupport ? `only A: ${labels(c.exitsOnlyA)}; only B: ${labels(c.exitsOnlyB)}` : "Different support; exit sets describe different boundaries"}</td></tr>` +
+          `<tr><th>Sources covered only by A / B</th><td>${labels(c.uncoveredSourcesA)} / ${labels(c.uncoveredSourcesB)}</td></tr></tbody></table>` +
+          '<p class="muted">Data agreement is not certificate transport. A difference is a disagreement between statements, not proof that an unproved statement is false. Disjoint support is coverage difference. All computations here are browser observations.</p>';
+      };
+      for (const id of ["#elf-region-a", "#elf-region-b"]) $(id).addEventListener("change", show); show();
+    }};
+  }
+
   registerView({ id: "elf", title: "ELF", nav: 85, render: elfIndex });
+  registerView({ id: "elf-regions", title: "ELF regions", tab: "elf", render: (arg) => elfRegions(arg) });
+  registerView({ id: "elf-graph", title: "ELF graph", tab: "elf", render: (arg) => elfRegions(arg, true) });
   registerView({ id: "elf-funcs", title: "ELF functions", tab: "elf", render: (arg) => elfFuncs(arg) });
   registerView({ id: "elf-file", title: "ELF file", tab: "elf", render: (arg) => elfFile(arg) });
   registerView({ id: "elf-bytes", title: "ELF bytes", tab: "elf", render: (arg) => elfBytes(arg) });
