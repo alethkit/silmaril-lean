@@ -783,3 +783,8 @@ srcDir = "tools/wasm-region-map"
 name = "sqlite_file_format_compatibility"
 srcDir = "tests/formats/sqlite-tranche"
 root = "Compatibility"
+
+[[lean_exe]]
+name = "sqlite_lean"
+srcDir = "tools/sqlite-lean"
+root = "SqliteLean"
