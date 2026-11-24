@@ -788,3 +788,13 @@ root = "Compatibility"
 name = "sqlite_lean"
 srcDir = "tools/sqlite-lean"
 root = "SqliteLean"
+
+[[lean_exe]]
+name = "sqlite_image_lean"
+srcDir = "tools/sqlite-image-lean"
+root = "SqliteImageLean"
+
+[[lean_exe]]
+name = "sqlite_write_profile_tests"
+srcDir = "tests/formats/sqlite-shell"
+root = "SqliteWriteProfile"

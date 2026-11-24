@@ -1,13 +1,11 @@
 module
 
 public import Silmaril.Formats.Sqlite.Record.Defs
+public import Silmaril.Formats.Sqlite.IntTable.Defs
 public import Silmaril.Formats.Sqlite.BTree.Query.ReadModel.Defs
 
 @[expose] public section
 namespace Silmaril.Formats.Sqlite.TableLeaf
-
-def schemaSql : String :=
-  "CREATE TABLE sample(id INTEGER PRIMARY KEY, amount INTEGER NOT NULL) STRICT"
 
 structure Cell where
   key : Int64
@@ -62,7 +60,7 @@ def open? (source : Bytes) : Option (BTree.Query.ReadModel Int (List Value)) := 
   let [schema] ← read? (← image.page? 1) 100 | none
   guard (schema.key == 1)
   guard (Record.decode? .utf8 schema.payload ==
-    some #[.text "table", .text "sample", .text "sample", .integer 2, .text schemaSql])
+    some #[.text "table", .text "sample", .text "sample", .integer 2, .text IntTable.schemaSql])
   let rows ← (← read? (← image.page? 2) 0).mapM row?
   pure (BTree.Query.ReadModel.ofList rows)
 
