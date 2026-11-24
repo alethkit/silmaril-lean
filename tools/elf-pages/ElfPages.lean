@@ -284,6 +284,74 @@ def constName? (e : Expr) : Option Name :=
   | .const n _ => some n
   | _ => none
 
+/-- Contract addresses use the standard `Nat` numeral instance. -/
+private def contractNat? (e : Expr) : Option Nat := do
+  let e := e.consumeMData
+  let lit ← if e.isAppOfArity ``OfNat.ofNat 3 then do
+      guard ((e.getArg! 2).isAppOfArity ``instOfNatNat 1)
+      guard ((e.getArg! 2).getArg! 0 == e.getArg! 1)
+      pure (e.getArg! 1)
+    else pure e
+  let .lit (.natVal n) := lit | none
+  pure n
+
+private def contractCodeAt? (F : Name) (e : Expr) : Option (Nat × Name) := do
+  guard (e.isAppOfArity `Silmaril.Elf.CodeAt 3 && constName? (e.getArg! 0) == some F)
+  pure (← contractNat? (e.getArg! 1), ← constName? (e.getArg! 2))
+
+private def rightConjuncts : Expr → List Expr
+  | .mdata _ body => rightConjuncts body
+  | .app (.app (.const ``And _) left) right => left.consumeMData :: rightConjuncts right
+  | e => [e]
+
+private def subtraction? (instanceName : Name) (e : Expr) : Option (Expr × Expr) := do
+  guard (e.isAppOfArity ``HSub.hSub 6)
+  let inst := e.getArg! 3
+  guard (inst.isAppOfArity ``instHSub 2 && (inst.getArg! 1).getAppFn.isConstOf instanceName)
+  pure (e.getArg! 4, e.getArg! 5)
+
+/-- The result of applying the precondition of the same spec that appears in `Total`.
+The entry and state are the two enclosing binders in both the premise and the conclusion. -/
+private def entryConclusion? (identity total : Expr) : Option Expr := do
+  let .forallE _ entryType totalBody _ := total | none
+  guard (totalBody.isAppOfArity `Silmaril.X86.FnContract.Spec.Total 3)
+  let .app spec (.bvar 0) := totalBody.getArg! 2 | none
+  guard spec.isConst
+  let .forallE _ identityEntryType (.forallE _ stateType (.forallE _ premise body _) _) _ := identity
+    | none
+  guard (identityEntryType == entryType && stateType == totalBody.getArg! 0)
+  guard (premise.isAppOfArity `Silmaril.X86.FnContract.Spec.entry 3 &&
+    premise.getArg! 0 == stateType && premise.getArg! 1 == mkApp spec (.bvar 1) &&
+    premise.getArg! 2 == .bvar 0)
+  pure body.consumeMData
+
+private def loadedAddress? (code : Name) (e : Expr) : Option Expr := do
+  guard (e.isAppOfArity `Silmaril.X86.Ext.Loaded 3 && constName? (e.getArg! 2) == some code)
+  let memory := e.getArg! 0
+  guard (memory.isAppOfArity `Silmaril.X86.MState.memory 1 && memory.getArg! 0 == .bvar 1)
+  pure (e.getArg! 1)
+
+private def contractIdentity? (F : Name) (v : Nat) (code : Name) (tail : Expr) : Option Unit := do
+  guard (v < 2 ^ 64)
+  match rightConjuncts tail with
+  | [identity, total] =>
+    let address ← loadedAddress? code (← entryConclusion? identity total)
+    guard (address == .bvar 2)
+  | [callee, identity, placement, total] =>
+    let (calleeAddr, calleeCode) ← contractCodeAt? F callee
+    let [own, other] := rightConjuncts (← entryConclusion? identity total) | none
+    guard ((← loadedAddress? code own) == .bvar 2)
+    let (entry, offset) ← subtraction? ``BitVec.instSub (← loadedAddress? calleeCode other)
+    guard (entry == .bvar 2 && offset.isAppOfArity ``BitVec.ofNat 2)
+    guard (contractNat? (offset.getArg! 0) == some 64)
+    let distance ← contractNat? (offset.getArg! 1)
+    guard (distance ≤ v && v - distance == calleeAddr)
+    guard (placement.isAppOfArity ``Eq 3 && (placement.getArg! 0).isConstOf ``Nat)
+    let (placedAt, placedDistance) ← subtraction? ``instSubNat (placement.getArg! 1)
+    guard (contractNat? placedAt == some v && contractNat? placedDistance == some distance &&
+      contractNat? (placement.getArg! 2) == some calleeAddr)
+  | _ => none
+
 /-- What a theorem says (from its statement). -/
 inductive Claim where
   | part (ws : List Span) (reader : Expr) (value : Name)
@@ -317,9 +385,10 @@ def Claim.ofType? (F : Name) (t : Expr) : Except String Claim := do
     pure (.parses (t.getArg! 1))
   else if t.isAppOfArity ``And 2 && (t.getArg! 0).consumeMData.isAppOfArity `Silmaril.Elf.CodeAt 3 then
     let c := (t.getArg! 0).consumeMData
-    fileIs (c.getArg! 0)
-    let (some v, some code) := (natLit? (c.getArg! 1), constName? (c.getArg! 2))
-      | throw "CodeAt with a non-literal address or code"
+    let some (v, code) := contractCodeAt? F c
+      | throw "CodeAt must name this file, a literal address and a code constant"
+    unless (contractIdentity? F v code (t.getArg! 1)).isSome do
+      throw "the contract's entry precondition must load the CodeAt bytes at entry and any callee at its file displacement"
     pure (.contract v code)
   else throw s!"unrecognised statement: {t}"
 
@@ -436,6 +505,8 @@ structure Thm where
   module : Name
   /-- The statement, pretty-printed (contract theorems only). -/
   stmt : Option String := none
+  /-- The length of the code literal a contract theorem's `CodeAt` names. -/
+  codeLen : Option Nat := none
 
 def standardAxioms : List Name := [``propext, ``Classical.choice, ``Quot.sound]
 
@@ -514,7 +585,13 @@ def theorems (env : Environment) (P : Pinned) : IO (Array Thm) := do
     let stmt ← match claim with
       | .contract .. => some <$> runCore env (do return toString (← (Lean.Meta.ppExpr ti.type).run'))
       | _ => pure none
-    out := out.push { decl := n, claim, role, axioms, line, module, stmt }
+    let codeLen := match claim with
+      | .contract _ code => ((env.find? code).bind (·.value? (allowOpaque := true))).bind
+          fun v => (listLit? v).map (·.length)
+      | _ => none
+    if let .contract _ code := claim then
+      if codeLen.isNone then throw (IO.userError s!"{n}: {code} is not a literal list of bytes")
+    out := out.push { decl := n, claim, role, axioms, line, module, stmt, codeLen }
   pure (out.qsort fun a b => (a.line.getD 0) < (b.line.getD 0))
 
 /-! ## Coverage -/
@@ -748,7 +825,9 @@ def functions (P : Pinned) (thms : Array Thm) : Array Json := Id.run do
     let ver := if tab == "dynsym" then versionOf P i else none
     let thm := symThm[(k, i)]?
     let linked := if undef || n == 0 then #[] else
-      (contracts.filter fun (cv, _) => cv == v).map fun (_, t) => js t.decl.toString
+      -- the same address, and a code literal of exactly the symbol's size (code identity is
+      -- checked in `theorems`: the contract loads that literal)
+      (contracts.filter fun (cv, t) => cv == v && t.codeLen == some n).map fun (_, t) => js t.decl.toString
     out := out.push <| Json.mkObj [
       ("table", js tab), ("sec", jn k), ("idx", jn i), ("name", js (nameStr e.name)),
       ("version", match ver with | some x => js x | none => Json.null),
@@ -919,9 +998,57 @@ def loadEnv : IO Environment := do
     (if P.slug == "zlib-checksums" then #[{ module := P.ns ++ `Contracts }] else #[]) ++
     (if P.slug == "hello-gcc" then #[{ module := P.ns ++ `Regions.Thms }] else #[])) {}
 
-def generate : IO (List (String × Json) × List (String × ByteArray)) := do
+private def testContractMatcher (env : Environment) : IO Unit := do
+  let ns := `Silmaril.Elf.Staged.Pinned.ZlibChecksums
+  let F := ns ++ `F
+  let fixture (n : Name) : IO (List Expr) := do
+    let some (.thmInfo info) := env.find? (ns ++ n)
+      | throw (IO.userError s!"missing contract matcher fixture {n}")
+    pure (rightConjuncts info.type)
+  let [atEntry, identity, total] ← fixture `crc32_z_contract
+    | throw (IO.userError "unexpected crc32_z contract matcher fixture")
+  let [wrapAt, calleeAt, wrapIdentity, placement, wrapTotal] ← fixture `crc32_contract
+    | throw (IO.userError "unexpected crc32 contract matcher fixture")
+  let .forallE _ entryType (.forallE _ stateType (.forallE _ _ loaded _) _) _ := identity
+    | throw (IO.userError "unexpected contract identity fixture")
+  let conjunction := mkApp2 (mkConst ``And)
+  let statement (e : Expr) := conjunction atEntry (conjunction e total)
+  let inHypothesisOnly := mkForall `entry .default entryType <|
+    mkForall `state .default stateType <|
+    mkForall `h .default (loaded.lowerLooseBVars 1 1) (mkConst ``True)
+  let wrongSpec := identity.replace fun e =>
+    if e.isConstOf `Silmaril.X86.Ladder.ZlibChecksums.crc32zContract then
+      some (mkConst `Silmaril.X86.Ladder.ZlibChecksums.crc32Contract)
+    else none
+  let wrongBytes := identity.replace fun e =>
+    if e.isConstOf `Silmaril.X86.Ladder.ZlibChecksums.crc32zCode then
+      some (mkConst `Silmaril.X86.Ladder.ZlibChecksums.crc32WrapCode)
+    else none
+  let wrongEntry := identity.replace fun e =>
+    if e.isAppOfArity `Silmaril.X86.Ext.Loaded 3 then
+      let zeroAddress := mkApp2 (mkConst ``BitVec.ofNat) (mkNatLit 64) (mkNatLit 0)
+      some (mkApp3 e.getAppFn (e.getArg! 0) zeroAddress (e.getArg! 2))
+    else none
+  let wrongDisplacement := wrapIdentity.replace fun e =>
+    if e.isAppOfArity ``BitVec.ofNat 2 && contractNat? (e.getArg! 1) == some 0x130 then
+      some (mkApp e.appFn! (mkNatLit 0x131))
+    else none
+  let cases := [("Loaded only in a hypothesis", statement inHypothesisOnly),
+    ("precondition belongs to another spec", statement wrongSpec),
+    ("Loaded names different bytes", statement wrongBytes),
+    ("Loaded names an address other than the entry", statement wrongEntry),
+    ("callee load disagrees with its file displacement",
+      conjunction wrapAt (conjunction calleeAt (conjunction wrongDisplacement
+        (conjunction placement wrapTotal))))]
+  for (label, type) in cases do
+    if (Claim.ofType? F type).isOk then
+      throw (IO.userError s!"contract matcher accepted {label}")
+  IO.println s!"elf-pages --self-test: {cases.length} malformed contract statements rejected"
+
+def generate (testContracts := false) : IO (List (String × Json) × List (String × ByteArray)) := do
   let e0 ← IO.monoMsNow
   let env ← loadEnv
+  if testContracts then testContractMatcher env
   if (← IO.getEnv "ELF_PAGES_PROFILE").isSome then IO.eprintln s!"import: {(← IO.monoMsNow) - e0} ms"
   let mut files : List (String × Json) := []
   let mut blobs : List (String × ByteArray) := []
@@ -1045,7 +1172,7 @@ def main (args : List String) : IO UInt32 := do
     if bad.isEmpty then IO.println "elf-pages: verified"; pure 0 else pure 1
   | ["--self-test", out] =>
     -- one generation: write, verify, then each edit must be rejected
-    let (files, blobs) ← generate
+    let (files, blobs) ← generate (testContracts := true)
     write out files blobs
     unless (← differences out files blobs).isEmpty do
       IO.eprintln "elf-pages --self-test: freshly written pages differ"; return 1
