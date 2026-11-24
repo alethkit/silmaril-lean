@@ -161,10 +161,55 @@ source-level names come from the linked-build evidence in
 [#2093](https://github.com/hiloopai/silmaril-lean/pull/2093).
 
 The SHA-256 check and file ingestion run outside the kernel. Lean checks the
-equations over the resulting byte literals and quoted AST. The theorem scope
-ends at the selected records. Complete decode and original-to-canonical replay
-remain separate executable checks.
+equations over the resulting byte literals and quoted AST. Complete decode and
+original-to-canonical replay remain separate executable checks.
 [Recheck a quoted artifact](check-artifact.sh)
+
+### Staged reactor function vectors
+
+With a reactor already compiled by `quote.sh`, run the separate vector check.
+It uses one Lean process per block with a 6 GiB allocator limit, sequentially
+by default. A third argument sets the number of concurrent block checks.
+A cached run with eight workers took 224 s and peaked at 4.92 GiB RSS in a
+single Lean process, including the selected-record checks.
+
+```sh
+bash tools/sqlite-wasm/check-function-vectors.sh \
+  .lake/sqlite-wasm/sqlite3.wasm .lake/sqlite-wasm/lean/SqliteWasm
+```
+
+Import `SqliteWasm.FunctionVectorCheck` from the generated Lean root. It proves
+the following statement over the pinned reactor.
+
+```lean
+theorem originalFunctionVectors :
+    DecodesFunctionVectors original reactorCodeCoverage sqlite.funcs
+```
+
+[FunctionVector.lean](FunctionVector.lean) defines the statement in terms of
+the original header and section envelopes, the Core Function vector reader
+and a Code vector reader with an explicit coverage mask. Lean checks all
+1,533 type indices and all Code size prefixes. It compares locals and
+instruction trees at 1,529 ordinals with the corresponding quoted records.
+`reactorFramingOnlyOrdinals` identifies ordinals 99, 260, 719 and 767, where
+the code reader consumes only the size prefix and the framed range. Checking
+those bodies individually with instruction plans reached the 6 GiB limit.
+
+The generator proposes consecutive absolute cuts in the unchanged Function and
+Code sections. Each declaration block and each covered code entry is checked
+against a packed slice of the original byte literal. Longer covered bodies
+use checked instruction runs and the Core locals bound. The proof composes
+successful runs at equal byte positions, checks both original vector counts
+and finishes at the ends specified by the original section envelopes. The
+coverage mask has one slot per defined function, preserving the ordinal across
+each unchecked body. [Generator](generate-function-checks.py) ·
+[Instruction plans](FunctionPlans.lean)
+
+SHA-256, file ingestion and quotation run outside the kernel. The kernel
+checks the proposed cuts and the covered AST fields against the resulting
+literal. The theorem concerns the Function and Code vectors of the reactor.
+Data segments, the other AST fields, module validation and the web fixture
+are outside this vector check.
 
 ## One-byte varint behavior
 
