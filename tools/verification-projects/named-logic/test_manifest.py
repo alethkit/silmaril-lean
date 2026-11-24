@@ -49,6 +49,30 @@ class FixtureTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "evidence or scope"):
             fixture.verify(PLAN, self.manifest)
 
+    def test_interpretation_index(self):
+        if PLAN["format"].endswith(".v1"):
+            self.assertNotIn("claimIndex", self.manifest)
+            return
+        index = self.manifest["claimIndex"]
+        derive = "hol.closed.derivability.v1"
+        valid = "hol.closed.standard-validity.v1"
+        self.assertEqual(index["claims"][derive]["roots"], index["claims"][valid]["roots"])
+        self.assertNotEqual(index["claims"][derive]["interpretation"], index["claims"][valid]["interpretation"])
+        self.assertEqual(index["syntax"]["hol.closed"], self.manifest["rows"][0]["roots"]["conclusion"])
+        for mutate in (
+            lambda i: i["claims"][valid].update(interpretation=i["claims"][derive]["interpretation"]),
+            lambda i: i["claims"][valid]["scope"].update(valuation="some-valuation"),
+            lambda i: i["interpretations"]["hol-light.standard.u0.v1"].update(universe=1),
+            lambda i: i["claims"][valid]["roots"][0].update(role="term"),
+            lambda i: i["evidence"].update({valid: i["evidence"][derive]}),
+            lambda i: i["syntax"].update({"hol.closed": self.manifest["rows"][1]["roots"]["conclusion"]}),
+            lambda i: i["tables"]["standard-model-validity"]["rows"][0].update(claim=derive),
+        ):
+            changed = copy.deepcopy(self.manifest)
+            mutate(changed["claimIndex"])
+            with self.assertRaisesRegex(ValueError, "claim index diverges"):
+                fixture.verify(PLAN, changed)
+
     def test_never_cross_profiles(self):
         first = self.manifest["rows"][0]["roots"]["conclusion"]
         alternate = first["alternates"]["bdasl-inline-blake3"]
