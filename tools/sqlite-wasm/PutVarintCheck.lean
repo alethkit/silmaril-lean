@@ -23,7 +23,7 @@ private def fastPut : List Instr :=
     .localGet ⟨0⟩, .localGet ⟨1⟩, .intStore .i64 (some .i8) ⟨0⟩ memarg0,
     .intConst .i32 1, .return_]
 
-private theorem encode_one_byte (value : UInt64) (small : value.toNat < 128) :
+theorem encode_one_byte (value : UInt64) (small : value.toNat < 128) :
     Varint.encode value = Silmaril.Formats.Bytes.ofList [UInt8.ofNat value.toNat] := by
   have small56 : value.toNat < 2 ^ 56 := by omega
   have small256 : value.toNat < 256 := by omega

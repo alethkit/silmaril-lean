@@ -15,7 +15,7 @@ open Silmaril.Wasm Silmaril.Wasm.Execution Silmaril.Wasm.Execution.Core
 open Silmaril.Wasm.Validation (Expand Ty)
 open SqliteWasmArtifact
 
-private theorem encode_two (value : UInt64) (lower : 128 ≤ value.toNat)
+theorem encode_two (value : UInt64) (lower : 128 ≤ value.toNat)
     (upper : value.toNat < 16384) :
     Varint.encode value =
       Silmaril.Formats.Bytes.ofList [UInt8.ofNat (value.toNat / 128 + 128), UInt8.ofNat (value.toNat % 128)] := by

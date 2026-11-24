@@ -78,7 +78,7 @@ theorem writeSlice_setHead (memory : ByteArray) (rest : List UInt8) (before afte
   apply Array.toList_inj.mp
   exact spliceSetHead _ _ _ _ _ bound
 
-private theorem packedContinuation (x : BitVec 64) :
+theorem packedContinuation (x : BitVec 64) :
     ((x.setWidth 32 ||| 128#32).setWidth 8 : BitVec 8) =
       BitVec.ofNat 8 (x.toNat % 128 + 128) := by
   apply BitVec.eq_of_toNat_eq
