@@ -19,9 +19,9 @@ open ThreeByte.Symbolic (quotedHelper digitsMemory digitsMemory_zero digitsMemor
 set_option maxRecDepth 131072
 set_option maxHeartbeats 4000000
 
-private def joinHalves (lo hi : BitVec 32) : Nat := hi.toNat * 2 ^ 32 + lo.toNat
+def joinHalves (lo hi : BitVec 32) : Nat := hi.toNat * 2 ^ 32 + lo.toNat
 
-private theorem joinSplit (x : BitVec 64) :
+theorem joinSplit (x : BitVec 64) :
     joinHalves (x.setWidth 32) ((x >>> 32).setWidth 32) = x.toNat := by
   simp only [joinHalves, BitVec.toNat_setWidth, BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
   have bound := x.isLt
@@ -29,7 +29,7 @@ private theorem joinSplit (x : BitVec 64) :
   rw [Nat.mod_eq_of_lt high, Nat.mul_comm]
   exact Nat.div_add_mod _ _
 
-private theorem u64OfNat (x : BitVec 64) : (UInt64.ofNat x.toNat).toNat = x.toNat := by
+theorem u64OfNat (x : BitVec 64) : (UInt64.ofNat x.toNat).toNat = x.toNat := by
   rw [UInt64.toNat_ofNat', Nat.mod_eq_of_lt (by exact x.isLt)]
 
 private def assumptions (width _ : Nat) (original : ByteArray) : List (BitVec 32) → Prop
@@ -55,7 +55,7 @@ private def model (width : Nat) : Fns :=
 function. The same generated conditions apply to every width admitted by the precondition. -/
 private def widthTerm : Tm .i32 := .fn 0 (.lit .i32 0)
 
-private def splitWord (x : Tm .i64) : List (Tm .i32) :=
+def splitWord (x : Tm .i64) : List (Tm .i32) :=
   [.wrap x, .wrap (.bin (.shr .unsigned) x (.lit .i64 32))]
 
 private def initialValue : List (Tm .i32) := splitWord (.var .i64 1)
@@ -75,19 +75,22 @@ private def symPost : Fm :=
     (.and (.rel .eq (.loc .i32 1) (.var .i32 2))
       (.pr2 2 (.v 0) .cur ([.var .i32 0, .var .i32 2] ++ initialValue)))
 
-private def spec : FnSpec where
+/-- The signature, memory and global used by both branches of the quoted helper. -/
+def helperSpec (pre post : Fm) (invariants : List Fm) (variants : List (Tm .i32)) : FnSpec where
   params := [.i32, .i64]
   results := [.i32]
   globals := [.i32]
   mem := true
   total := true
-  pre := symPre
-  post := symPost
-  inv := [digitInvariant, copyInvariant, .not .tt]
-  var := [
-    .bin .sub widthTerm (.loc .i32 3),
-    .bin .sub widthTerm (.loc .i32 2),
-    .bin .add (.loc .i32 3) (.lit .i32 1)]
+  pre := pre
+  post := post
+  inv := invariants
+  var := variants
+
+private def spec : FnSpec :=
+  helperSpec symPre symPost [digitInvariant, copyInvariant, .not .tt]
+    [.bin .sub widthTerm (.loc .i32 3), .bin .sub widthTerm (.loc .i32 2),
+      .bin .add (.loc .i32 3) (.lit .i32 1)]
 
 private def generated : List Fm := genFunc spec quotedHelper 128
 
@@ -245,20 +248,42 @@ private theorem valid (width : Nat) : AllValid (model width) generated := by
 open Silmaril.Wasm.Logic.Hoare
 open Silmaril.Wasm.Validation (CGlobalType Expand Ty)
 
-private theorem helperRun {H : Type} {P : Numerics.Profile} {host : HostSemantics H}
-    (s : Store H) (caller : Frame) (callee : ModuleInst) (ptr sp : BitVec 32) (value : UInt64) (width : Nat)
+def helperEnv (ptr sp : BitVec 32) (value : UInt64) (bytes : ByteArray) : Env :=
+  ⟨(fun i => if i = 0 then ptr else sp), (fun _ => value.toBitVec), fun _ => bytes⟩
+
+/-- Transfer validated path conditions for the actual helper body to an exact Core exit. -/
+theorem helperSteps_of_vcs {H : Type} {P : Numerics.Profile} {host : HostSemantics H}
+    (F : Fns) (pre post : Fm) (invariants : List Fm) (variants : List (Tm .i32))
+    (wellScoped : (helperSpec pre post invariants variants).wellScoped = true)
+    (validConditions : AllValid F (genFunc (helperSpec pre post invariants variants) quotedHelper 128))
+    (s : Store H) (caller : Frame) (callee : ModuleInst) (ptr sp : BitVec 32) (value : UInt64)
     (address globalAddress : Nat) (mem : MemInst) (globalType : CGlobalType)
-    (fits : Width value.toNat width)
-    (memLink : callee.mems[0]? = some address) (memEntry : s.mems[address]? = some mem)
-    (globLink : callee.globals[0]? = some globalAddress)
-    (globEntry : s.globals[globalAddress]? = some ⟨globalType, .i32 sp⟩)
-    (buffers : Buffers mem.bytes ptr sp width) :
+    (mapped : s.mem? (callFrame callee quotedHelper ptr value) ⟨0⟩ = some (address, mem))
+    (global : s.global? (callFrame callee quotedHelper ptr value) ⟨0⟩ =
+      some (globalAddress, ⟨globalType, .i32 sp⟩))
+    (preH : let ρ := helperEnv ptr sp value mem.bytes
+      (helperSpec pre post invariants variants).preF.den F ρ ρ)
+    (result : BitVec 32) (bytes : ByteArray)
+    (postH : ∀ final word stackWord,
+      post.den F (helperEnv ptr sp value mem.bytes) (valEnv [.i32 word, .i32 stackWord] final) →
+      word = result ∧ stackWord = sp ∧ final = bytes) :
     Steps P host ⟨s, caller, [activation callee quotedHelper ptr value]⟩
-      ⟨postStore s address mem ptr sp value, caller, [constI32 (BitVec.ofNat 32 width)]⟩ := by
-  let ρ : Env := ⟨(fun i => if i = 0 then ptr else sp), (fun _ => value.toBitVec), fun _ => mem.bytes⟩
+      ⟨s.setMem address { mem with bytes := bytes }, caller, [constI32 result]⟩ := by
+  unfold Store.mem? at mapped
+  obtain ⟨a, memLink, rest⟩ := Option.bind_eq_some_iff.mp mapped
+  obtain ⟨m, memEntry, pair⟩ := Option.bind_eq_some_iff.mp rest
+  rcases Prod.mk.inj (Option.some.inj pair) with ⟨rfl, rfl⟩
+  unfold Store.global? at global
+  obtain ⟨g, globLink, rest⟩ := Option.bind_eq_some_iff.mp global
+  obtain ⟨gi, globEntry, pair⟩ := Option.bind_eq_some_iff.mp rest
+  rcases Prod.mk.inj (Option.some.inj pair) with ⟨rfl, rfl⟩
+  change callee.mems[0]? = some a at memLink
+  change callee.globals[0]? = some g at globLink
+  let S := helperSpec pre post invariants variants
+  let ρ := helperEnv ptr sp value m.bytes
   let fi : FuncInst H := ⟨default, callee, .wasm quotedHelper⟩
-  have hm : MemOk spec s callee (ρ.mem 0) := ⟨address, mem, memLink, memEntry, rfl⟩
-  have hg : GlobOk spec s callee ρ := by
+  have hm : MemOk S s callee (ρ.mem 0) := ⟨a, m, memLink, memEntry, rfl⟩
+  have hg : GlobOk S s callee ρ := by
     constructor
     · intro g g' a lt lt' _ _
       change g < 1 at lt
@@ -269,61 +294,52 @@ private theorem helperRun {H : Type} {P : Numerics.Profile} {host : HostSemantic
       cases g with
       | zero =>
         obtain rfl : IntType.i32 = t := Option.some.inj lookup
-        exact ⟨globalAddress, _, globLink, globEntry, rfl⟩
+        exact ⟨g, _, globLink, globEntry, rfl⟩
       | succ g => simp at lookup
-  have hp : spec.preF.den (model width) ρ ρ := by
-    change Width (joinHalves (value.toBitVec.setWidth 32) ((value.toBitVec >>> 32).setWidth 32))
-      width ∧ Buffers mem.bytes ptr sp width
-    rw [joinSplit, UInt64.toNat_toBitVec]
-    exact ⟨fits, buffers⟩
-  have wellScoped : spec.wellScoped = true := by kernel_rfl
   have locals : Silmaril.Wasm.Auto.VCGen.intTys? quotedHelper.locals = some [.i32, .i32, .i32] := by kernel_rfl
-  have vc : AllValid (model width)
-      (gen spec (spec.params ++ [.i32, .i32, .i32] ++ spec.globals) 128 []
-        (endVC spec (spec.params ++ [.i32, .i32, .i32] ++ spec.globals)) 0
-        quotedHelper.body (initSt spec [.i32, .i32, .i32])) := valid width
+  have vc : AllValid F
+      (gen S (S.params ++ [.i32, .i32, .i32] ++ S.globals) 128 []
+        (endVC S (S.params ++ [.i32, .i32, .i32] ++ S.globals)) 0
+        quotedHelper.body (initSt S [.i32, .i32, .i32])) := by
+    unfold genFunc at validConditions
+    rw [locals, wellScoped] at validConditions
+    exact validConditions
   have body := body_wp (c := .total) (fi := fi) (P := P) (host := host) locals wellScoped
-    (fun _ => rfl) vc (s := s) (ρ₀ := ρ) (by simp [CallsOK, spec]) hm hg hp
-  let post := callPost caller [] ((fspec (model width) spec 0 fi).post s (argsOf spec ρ))
-  have bodySafe : TSafe P host (bodyPostT P host 1 caller [] post)
+    (fun _ => rfl) vc (s := s) (ρ₀ := ρ) (by simp [CallsOK, helperSpec]) hm hg preH
+  let outcomePost := callPost caller [] ((fspec F S 0 fi).post s (argsOf S ρ))
+  have bodySafe : TSafe P host (bodyPostT P host 1 caller [] outcomePost)
       ⟨s, callFrame callee quotedHelper ptr value,
         expression quotedHelper.body⟩ := by
     refine TSafe.post_mono body ?_
     intro s' f' o ho
     exact bodyPostT_of_postOf (fi := fi) (a := 0) wellScoped rfl rfl hm hg
       (drop_lt_init [.i32, .i32, .i32]) ho
-  have packed : TSafe P host post
+  have packed : TSafe P host outcomePost
       ⟨s, caller, [activation callee quotedHelper ptr value]⟩ :=
     TSafe.frame (TSafe.label bodySafe)
-  obtain ⟨⟨s', f', code⟩, outcome, steps, exits, result⟩ := reachExit packed
-  obtain ⟨rfl, normal | trapped | thrown⟩ := result
+  obtain ⟨⟨s', f', code⟩, outcome, steps, exits, outcomePostH⟩ := reachExit packed
+  obtain ⟨rfl, normal | trapped | thrown⟩ := outcomePostH
   · obtain ⟨values, rfl, returned⟩ := normal
     obtain ⟨B, G, store, globalTypes, res, same, _, resultTypes, facts⟩ := returned
     cases same
     obtain ⟨word, rfl⟩ := singleI32 values resultTypes
     obtain ⟨sp', rfl⟩ := singleI32 G globalTypes
-    have final := facts ρ rfl hm hg
-    change word = BitVec.ofNat 32 width ∧ sp' = sp ∧
-      B = outputBytes mem.bytes ptr sp
-        (UInt64.ofNat (joinHalves (value.toBitVec.setWidth 32) ((value.toBitVec >>> 32).setWidth 32)))
-      at final
-    rw [joinSplit, UInt64.toNat_toBitVec, UInt64.ofNat_toNat] at final
-    obtain ⟨resultWord, stackWord, finalBytes⟩ := final
+    obtain ⟨resultWord, stackWord, finalBytes⟩ := postH B word sp' (facts ρ rfl hm hg)
     subst word sp' B
-    have unchanged : setGs (upd spec s callee (outputBytes mem.bytes ptr sp value)) callee
-        [.i32 sp] = upd spec s callee (outputBytes mem.bytes ptr sp value) := by
+    have unchanged : setGs (upd S s callee bytes) callee
+        [.i32 sp] = upd S s callee bytes := by
       apply setGs_self
       intro i bound
       have eq : i = 0 := by change i < 1 at bound; omega
       subst i
-      refine ⟨globalAddress, ⟨globalType, .i32 sp⟩, globLink, ?_, rfl⟩
-      change (setM s callee _).globals[globalAddress]? = _
+      refine ⟨g, ⟨globalType, .i32 sp⟩, globLink, ?_, rfl⟩
+      change (setM s callee _).globals[g]? = _
       rw [setM_some memLink memEntry]
       exact globEntry
     rw [unchanged] at store
-    change s' = setM s callee (outputBytes mem.bytes ptr sp value) at store
+    change s' = setM s callee bytes at store
     rw [setM_some memLink memEntry] at store
-    change code = [constI32 (BitVec.ofNat 32 width)] at exits
+    change code = [constI32 result] at exits
     subst s' code
     exact steps
   · obtain ⟨_, _, _, _, _, _, impossible, _⟩ := trapped
@@ -347,16 +363,20 @@ theorem helper_ordinary {H : Type} {P : Numerics.Profile} {host : HostSemantics 
     (buffers : Buffers mem.bytes ptr sp width) :
     Steps P host ⟨s, caller, [activation callee quotedHelper ptr value]⟩
       ⟨postStore s address mem ptr sp value, caller, [constI32 (BitVec.ofNat 32 width)]⟩ := by
-  unfold Store.mem? at mapped
-  obtain ⟨ma, memLink, rest⟩ := Option.bind_eq_some_iff.mp mapped
-  obtain ⟨mi, memEntry, pair⟩ := Option.bind_eq_some_iff.mp rest
-  rcases Prod.mk.inj (Option.some.inj pair) with ⟨rfl, rfl⟩
-  unfold Store.global? at global
-  obtain ⟨ga, globLink, rest⟩ := Option.bind_eq_some_iff.mp global
-  obtain ⟨gi, globEntry, pair⟩ := Option.bind_eq_some_iff.mp rest
-  rcases Prod.mk.inj (Option.some.inj pair) with ⟨rfl, rfl⟩
-  exact helperRun s caller callee ptr sp value width _ _ _ globalType fits
-    memLink memEntry globLink globEntry buffers
+  refine helperSteps_of_vcs (F := model width) symPre symPost _ _
+    (show spec.wellScoped = true by kernel_rfl) (valid width)
+    s caller callee ptr sp value address globalAddress mem globalType mapped global
+    ?_ (BitVec.ofNat 32 width) (outputBytes mem.bytes ptr sp value) ?_
+  · change Width (joinHalves (value.toBitVec.setWidth 32) ((value.toBitVec >>> 32).setWidth 32))
+      width ∧ Buffers mem.bytes ptr sp width
+    rw [joinSplit, UInt64.toNat_toBitVec]
+    exact ⟨fits, buffers⟩
+  · intro final word stackWord observed
+    change word = BitVec.ofNat 32 width ∧ stackWord = sp ∧
+      final = outputBytes mem.bytes ptr sp
+        (UInt64.ofNat (joinHalves (value.toBitVec.setWidth 32) ((value.toBitVec >>> 32).setWidth 32)))
+      at observed
+    rwa [joinSplit, UInt64.toNat_toBitVec, UInt64.ofNat_toNat] at observed
 
 /-- The quoted reactor wrapper writes the ordinary encoding for widths three through
 eight, with exact scratch and caller-frame effects. -/
@@ -386,6 +406,7 @@ theorem putVarint_ordinary {H : Type} {P : Numerics.Profile} {host : HostSemanti
     (helper_ordinary s (callFrame putInstance.module putFn ptr value) helperInstance.module ptr sp value
       width address globalAddress mem globalType fits mapped global buffers)
 
+#print axioms helperSteps_of_vcs
 #print axioms originalHelper
 #print axioms helper_ordinary
 #print axioms putVarint_ordinary
