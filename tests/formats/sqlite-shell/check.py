@@ -17,8 +17,9 @@ SCHEMA = "CREATE TABLE sample(id INTEGER PRIMARY KEY, amount INTEGER NOT NULL) S
 SELECT_ROWS = "SELECT id, amount FROM sample ORDER BY id;"
 
 
-def run(binary, *args, env=None):
-    return subprocess.run([binary, *args], env=env, text=True, capture_output=True, timeout=20)
+def run(binary, *args, env=None, stdin=None):
+    return subprocess.run([binary, *args], env=env, input=stdin, text=True,
+                          capture_output=True, timeout=20)
 
 
 def successful(result):
@@ -26,8 +27,10 @@ def successful(result):
     return result.stdout
 
 
-def rejected(result, reason):
+def rejected(result, reason, status=None):
     assert result.returncode != 0 and not result.stdout and reason in result.stderr, result
+    if status is not None:
+        assert result.returncode == status, result
 
 
 def oracle(directory):
@@ -38,7 +41,8 @@ def oracle(directory):
     env = os.environ | {"LD_LIBRARY_PATH": str(directory)}
     version = successful(run(CORPUS / "sqlite3", "--version", env=env))
     assert version.startswith("3.54.1 "), version
-    return lambda *args: run(CORPUS / "sqlite3", "-init", "/dev/null", *args, env=env)
+    return lambda *args, stdin=None: run(CORPUS / "sqlite3", "-init", "/dev/null", *args,
+                                         env=env, stdin=stdin)
 
 
 def check_select(native, path, sql, columns):
@@ -99,7 +103,7 @@ def check_create(native, directory):
         rejected(create(path, "0", "9"), "exists")
         assert path.read_bytes() == original
 
-    rejected(run(SHELL, "--create"), "usage:")
+    rejected(run(SHELL, "--create"), "Usage:", status=2)
     path = directory / "create-rejected.sqlite"
     for args, diagnostic in [
         (("1",), "ROWID AMOUNT"),
@@ -137,6 +141,56 @@ def check_create(native, directory):
     check_image(native, path, [(winners[0], 42)])
 
 
+def check_frontend(native, directory, database):
+    help_text = successful(run(SHELL, "--help"))
+    assert all(name in help_text for name in ("query", "schema", "create")), help_text
+    assert "stdin" in successful(run(SHELL, "query", "--help"))
+
+    sql = "SELECT amount, id\nFROM sample ORDER BY id DESC LIMIT 2 OFFSET 1;\n"
+    columns = ["amount", "id"]
+    native_rows = json.loads(successful(native("-batch", "-readonly", "-json", database, stdin=sql)))
+    expected = {"columns": columns, "rows": [[row[name] for name in columns] for row in native_rows]}
+    for argv, stdin in [
+        (["query", database], sql),
+        (["query", database, sql], "DELETE FROM sample;"),
+        (["--immutable", database, sql], "DELETE FROM sample;"),
+    ]:
+        result = json.loads(successful(run(SHELL, *argv, stdin=stdin)))
+        assert result == expected, (argv, result, expected)
+        assert all(type(cell) is int for row in result["rows"] for cell in row)
+
+    native_schema = successful(native("-readonly", database,
+        "SELECT sql || ';' FROM sqlite_schema WHERE name='sample';"))
+    assert successful(run(SHELL, "schema", database)) == native_schema == SCHEMA + ";\n"
+
+    rejected(run(SHELL, "query"), "Usage:", status=2)
+    rejected(run(SHELL, "--immutable", database, stdin=sql), "Usage:", status=2)
+    rejected(run(SHELL, "query", database, sql, "extra"), "Usage:", status=2)
+    rejected(run(SHELL, "query", database, stdin=""), "unsupported SELECT", status=1)
+    write = "DELETE FROM sample;"
+    canonical = run(SHELL, "query", database, stdin=write)
+    rejected(canonical, "sqlite_lean: unsupported SELECT", status=1)
+    legacy = run(SHELL, "--immutable", database, write)
+    rejected(legacy, "unsupported SELECT", status=1)
+    assert legacy.stderr == "uncaught exception: unsupported SELECT\n", legacy
+    rejected(run(SHELL, "query", database, stdin=sql + "DELETE FROM sample;"),
+             "unsupported SELECT", status=1)
+    invalid_utf8 = subprocess.run([SHELL, "query", database], input=b"\xff",
+                                  capture_output=True, timeout=20)
+    assert invalid_utf8.returncode == 1 and not invalid_utf8.stdout and b"UTF-8" in invalid_utf8.stderr
+
+    output = directory / "canonical-create.sqlite"
+    opts = ["create", output, "--", "-7", "100", "4", "-91"]
+    assert not output.exists()
+    rejected(run(SHELL, "create", output, "1"), "ROWID AMOUNT", status=1)
+    assert not output.exists()
+    assert successful(run(SHELL, *opts)) == ""
+    original = check_image(native, output, [(-7, 100), (4, -91)])
+    assert successful(run(SHELL, "schema", output)) == native_schema
+    rejected(run(SHELL, *opts), "exists", status=1)
+    assert output.read_bytes() == original
+
+
 def main():
     with tempfile.TemporaryDirectory() as temp:
         directory = Path(temp)
@@ -146,6 +200,7 @@ def main():
                           "INSERT INTO sample VALUES(5,-10),(-9223372036854775808,7),"
                           "(9223372036854775807,0),(1,9); VACUUM;"))
         before = database.read_bytes()
+        check_frontend(native, directory, database)
 
         queries = [
             ("SELECT id, amount FROM sample ORDER BY id;", ["id", "amount"]),
@@ -170,13 +225,14 @@ def main():
         ]:
             rejected(run(SHELL, "--immutable", database, sql), "unsupported SELECT")
 
-        rejected(run(SHELL, database, queries[0][0]), "usage:")
+        rejected(run(SHELL, database, queries[0][0]), "Usage:", status=2)
         truncated = directory / "truncated.sqlite"
         truncated.write_bytes(before[:-1])
         rejected(run(SHELL, "--immutable", truncated, queries[0][0]), "1024-byte")
         corrupt = directory / "corrupt.sqlite"
         corrupt.write_bytes(before[:520] + b"\x00\x00" + before[522:])
         rejected(run(SHELL, "--immutable", corrupt, queries[0][0]), "malformed")
+        rejected(run(SHELL, "schema", corrupt), "malformed", status=1)
         wrong_schema = directory / "other.sqlite"
         successful(native(wrong_schema, "PRAGMA page_size=512; CREATE TABLE other(id INTEGER);"))
         rejected(run(SHELL, "--immutable", wrong_schema, queries[0][0]), "unsupported SQLite image")
@@ -188,11 +244,13 @@ def main():
                 sidecar = Path(str(path) + suffix)
                 sidecar.touch()
                 rejected(run(SHELL, "--immutable", alias, queries[0][0]), "sidecar present")
+                rejected(run(SHELL, "schema", alias), "sidecar present", status=1)
                 sidecar.unlink()
         assert database.read_bytes() == before
         assert not any(Path(str(database) + suffix).exists() for suffix in ("-wal", "-shm", "-journal"))
         check_create(native, directory)
     print(f"SQLite 3.54.1 and the Lean executable agreed on {len(queries)} typed SELECTs.")
+    print("Framework help, argv/stdin queries, schema, exit statuses and canonical create passed.")
     print("Malformed images, unsupported SQL and sidecars were refused; the database was preserved.")
     print("sqlite_lean --create images passed integrity_check and both readers. "
           "Exact leaf capacity, invalid inputs, existing paths, symlinks and concurrent creation were checked.")
