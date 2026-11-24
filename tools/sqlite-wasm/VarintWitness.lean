@@ -127,6 +127,14 @@ theorem initialTyped : StoreOk initial where
   structsClosed := by simp [initial]
   arraysClosed := by simp [initial]
 
+/-- The first and last values of the two-byte interval both take the inline path. -/
+theorem runTwoByteEdges :
+    (runInvokeK neverFail 300 initial 0 (args 128) =
+      some (expected 128 initialBytes, true, some (.values [.i32 2]))) ∧
+    (runInvokeK neverFail 300 initial 0 (args 16383) =
+      some (expected 16383 initialBytes, true, some (.values [.i32 2]))) :=
+  ⟨by kernel_rfl, by kernel_rfl⟩
+
 theorem runThree :
     runInvokeK neverFail 300 initial 0 (args threeByteValue) =
       some (expected threeByteValue threeByteScratch, true, some (.values [.i32 3])) := by
@@ -162,6 +170,7 @@ theorem reachesNine :
 #print axioms fromOriginal
 #print axioms helperSlot
 #print axioms initialTyped
+#print axioms runTwoByteEdges
 #print axioms runThree
 #print axioms runNine
 #print axioms reachesThree

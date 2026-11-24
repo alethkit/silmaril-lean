@@ -17,7 +17,7 @@ mkdir -p "$src"
 bash "$tool/build.sh" "$archives" "$work/sqlite3.wasm"
 bash "$tool/quote.sh" "$tool/reactor.json" "$work/sqlite3.wasm" "$src"
 bash "$tool/check-artifact.sh" "$work/sqlite3.wasm" "$src"
-cp "$tool"/{VersionModel,VersionCheck,PutVarintCheck,VarintWitness,Replay}.lean "$src/"
+cp "$tool"/{VersionModel,VersionCheck,PutVarintCheck,PutVarintTwoByte,VarintWitness,Replay}.lean "$src/"
 lake build --wfail +Silmaril.Wasm.Binaryen.Exe.Decode \
   +Silmaril.Wasm.Binaryen.Interp +Silmaril.Wasm.ModuleParts.Defs \
   +Silmaril.Wasm.Execution.Core.Properties +Silmaril.Formats.Sqlite.Varint.Defs \
@@ -33,6 +33,7 @@ compile() {
 compile "$src/VersionModel.lean"
 compile "$src/VersionCheck.lean"
 compile "$src/PutVarintCheck.lean"
+compile "$src/PutVarintTwoByte.lean"
 compile "$src/VarintWitness.lean"
 lake env lean "${lean_flags[@]}" --run "$src/Replay.lean" \
   "$work/sqlite3.wasm" "$work/canonical.wasm" "$work/version.txt"
