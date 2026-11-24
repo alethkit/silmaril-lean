@@ -1,12 +1,13 @@
-# Read-only SQLite shell in Lean
+# SQLite shell in Lean
 
 ```sh
 lake build --wfail sqlite_lean
+.lake/build/bin/sqlite_lean --create sample.sqlite -7 100 4 -91
 .lake/build/bin/sqlite_lean --immutable sample.sqlite \
   'SELECT id, amount FROM sample ORDER BY id LIMIT 3;'
 ```
 
-The binary reads a regular, fixed SQLite snapshot and writes a JSON object
+The immutable query mode reads a regular, fixed SQLite snapshot and writes a JSON object
 with ordered `columns` and integer `rows`. Its table profile is exactly one
 table declared as follows.
 
@@ -26,9 +27,21 @@ There is one SELECT statement. It accepts `*`, either column, or both
 columns in either order, optional `WHERE id = <signed 64-bit integer>`,
 optional `ORDER BY id [ASC|DESC]`, and optional `LIMIT n [OFFSET n]` with decimal
 natural numbers. Keywords and these unquoted identifiers are case
-insensitive. A final semicolon is optional. The default scan order is ascending rowid. Descending order reverses
-the bounded scan before LIMIT and OFFSET. Writes, other SQL and malformed images produce a nonzero status
-and no JSON result.
+insensitive. A final semicolon is optional. The default scan order is
+ascending rowid. Descending order reverses the bounded scan before LIMIT
+and OFFSET. Write SQL, other unsupported SQL and malformed images produce
+a nonzero status and no JSON result.
+
+`--create OUTPUT [ROWID AMOUNT ...]` uses the same checked encoder as
+`sqlite_image_lean`. It takes explicit signed 64-bit integer pairs for
+the fixed table. Zero pairs create an empty table. Invalid pairs, duplicate
+rowids and page capacity errors fail before the output is opened. On Linux,
+exclusive creation refuses an existing final path, including a dangling
+symlink. The caller supplies a stable parent directory. The command
+flushes the handle, and an I/O error after creation can leave a partial
+file. The command creates a fresh image. SQL writes to existing images,
+journaling, crash recovery and durability are outside this profile.
+[Checked SQLite images](sqlite-image.md)
 
 The VM executes a table scan or rowid seek. Projection and slicing are
 applied to its result. Its value and table-read interfaces depend only on
@@ -43,9 +56,11 @@ the C VDBE, or SQLite's storage implementation.
 make check CHECK_TARGETS=sqlite_lean
 ```
 
-The regression generates a fresh database with pinned SQLite 3.54.1 and
-compares the actual Lean shell's exit status, columns and typed rows to
-native results. It also checks rejection and file preservation.
+The regression compares native-created and Lean-created images with the
+actual Lean shell and pinned SQLite 3.54.1. It checks typed rows, page
+metadata and `integrity_check`, including an exact-fit mixed-width leaf.
+It also checks invalid inputs, existing files, symlinks and competing
+creates at the same path.
 [SQLite source and artifact provenance](../../corpus/sqlite/package.toml)
 
 The opcode descriptions were cross-checked against public SQLite

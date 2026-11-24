@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 ROOT = Path(__file__).resolve().parents[3]
 CORPUS = ROOT / "corpus/elf/sqlite/x86_64"
@@ -13,6 +14,7 @@ SHELL = ROOT / ".lake/build/bin/sqlite_lean"
 WRITER = ROOT / ".lake/build/bin/sqlite_image_lean"
 LOGICAL = ROOT / ".lake/build/bin/sqlite_write_profile_tests"
 SCHEMA = "CREATE TABLE sample(id INTEGER PRIMARY KEY, amount INTEGER NOT NULL) STRICT"
+SELECT_ROWS = "SELECT id, amount FROM sample ORDER BY id;"
 
 
 def run(binary, *args, env=None):
@@ -39,6 +41,102 @@ def oracle(directory):
     return lambda *args: run(CORPUS / "sqlite3", "-init", "/dev/null", *args, env=env)
 
 
+def check_select(native, path, sql, columns):
+    raw = successful(native("-readonly", "-json", path, sql))
+    expected = [[item[name] for name in columns] for item in json.loads(raw or "[]")]
+    result = json.loads(successful(run(SHELL, "--immutable", path, sql)))
+    assert result == {"columns": columns, "rows": expected}, (sql, result, expected)
+    assert all(type(cell) is int for row in result["rows"] for cell in row)
+    return result["rows"]
+
+
+def check_image(native, path, entries):
+    original = path.read_bytes()
+    assert len(original) == 1024
+    metadata = (
+        "PRAGMA page_size; PRAGMA page_count; PRAGMA integrity_check; "
+        "SELECT strict FROM pragma_table_list WHERE schema='main' AND name='sample';"
+    )
+    assert successful(native("-readonly", path, metadata)) == "512\n2\nok\n1\n"
+    expected = [list(row) for row in sorted(entries)]
+    assert check_select(native, path, SELECT_ROWS, ["id", "amount"]) == expected
+    assert path.read_bytes() == original
+    assert not any(Path(str(path) + suffix).exists() for suffix in ("-wal", "-shm", "-journal"))
+    return original
+
+
+def create(path, *values):
+    return run(SHELL, "--create", path, *values)
+
+
+def row_arguments(entries):
+    return [str(value) for row in entries for value in row]
+
+
+def check_create(native, directory):
+    # Each row uses 15 bytes with a one-byte rowid or 16 with a two-byte rowid,
+    # including its cell pointer. Eight and 24 rows fill the 504-byte space exactly.
+    full = [(key, -key) for key in reversed([*range(8), *range(128, 152)])]
+    signed = [
+        (128, 0), (-(2**63), 2**63 - 1), (2**63 - 1, -(2**63)), (-1, -7),
+        (2**56, 6), (2**56 - 1, 5),
+    ]
+    for name, entries in [
+        ("empty", []),
+        ("signed", signed),
+        ("full", full),
+    ]:
+        path = directory / f"create-{name}.sqlite"
+        assert not path.exists()
+        assert successful(create(path, *row_arguments(entries))) == ""
+        original = check_image(native, path, entries)
+        if name == "full":
+            assert int.from_bytes(original[517:519], "big") == 8 + 2 * len(full)
+        if name == "signed":
+            assert check_select(native, path,
+                                "SELECT id, amount FROM sample ORDER BY id DESC LIMIT 2 OFFSET 1;",
+                                ["id", "amount"]) == [[2**56, 6], [2**56 - 1, 5]]
+        rejected(create(path, "0", "9"), "exists")
+        assert path.read_bytes() == original
+
+    rejected(run(SHELL, "--create"), "usage:")
+    path = directory / "create-rejected.sqlite"
+    for args, diagnostic in [
+        (("1",), "ROWID AMOUNT"),
+        (("1", "2", "1", "4"), "duplicateRowid"),
+        ((str(2**63), "1"), "rowid must"),
+        (("1", str(-(2**63) - 1)), "amount must"),
+        (("1", "NULL"), "amount must"),
+        (("1", "1.5"), "amount must"),
+        ([*row_arguments(full), "8", "1"], "pageFull"),
+    ]:
+        rejected(create(path, *args), diagnostic)
+        assert not path.exists() and not path.is_symlink()
+
+    target = directory / "create-sentinel"
+    target.write_bytes(b"existing file")
+    missing = directory / "create-missing-target"
+    for name, destination in [("existing", target), ("dangling", missing)]:
+        link = directory / f"create-link-{name}"
+        link.symlink_to(destination)
+        rejected(create(link, "1", "9"), "exists")
+        assert link.readlink() == destination
+    assert target.read_bytes() == b"existing file"
+    assert not missing.exists()
+
+    path = directory / "create-race.sqlite"
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda key: create(path, str(key), "42"), range(4)))
+    winners = [key for key, result in enumerate(results) if result.returncode == 0]
+    assert len(winners) == 1, results
+    for key, result in enumerate(results):
+        if key == winners[0]:
+            assert successful(result) == ""
+        else:
+            rejected(result, "exists")
+    check_image(native, path, [(winners[0], 42)])
+
+
 def main():
     with tempfile.TemporaryDirectory() as temp:
         directory = Path(temp)
@@ -61,11 +159,7 @@ def main():
             ("SELECT amount,id FROM sample ORDER BY id DESC LIMIT 2 OFFSET 1;", ["amount", "id"]),
         ]
         for sql, columns in queries:
-            raw = successful(native("-readonly", "-json", database, sql))
-            expected = [[item[name] for name in columns] for item in json.loads(raw or "[]")]
-            result = json.loads(successful(run(SHELL, "--immutable", database, sql)))
-            assert result == {"columns": columns, "rows": expected}, (sql, result, expected)
-            assert all(type(cell) is int for row in result["rows"] for cell in row)
+            check_select(native, database, sql, columns)
 
         for sql in [
             "DELETE FROM sample",
@@ -97,8 +191,11 @@ def main():
                 sidecar.unlink()
         assert database.read_bytes() == before
         assert not any(Path(str(database) + suffix).exists() for suffix in ("-wal", "-shm", "-journal"))
+        check_create(native, directory)
     print(f"SQLite 3.54.1 and the Lean executable agreed on {len(queries)} typed SELECTs.")
     print("Malformed images, unsupported SQL and sidecars were refused; the database was preserved.")
+    print("sqlite_lean --create images passed integrity_check and both readers. "
+          "Exact leaf capacity, invalid inputs, existing paths, symlinks and concurrent creation were checked.")
 
 
 def writer():
@@ -111,23 +208,10 @@ def writer():
             ("capacity", [(key, -key) for key in range(32, -1, -1)]),
         ]
 
-        select = "SELECT id, amount FROM sample ORDER BY id;"
         for name, entries in cases:
             path = directory / f"{name}.sqlite"
-            arguments = [str(value) for entry in entries for value in entry]
-            successful(run(WRITER, path, *arguments))
-            original = path.read_bytes()
-            assert len(original) == 1024
-            assert successful(native("-readonly", path, "PRAGMA integrity_check;")) == "ok\n"
-            assert successful(native("-readonly", path,
-                "SELECT strict FROM pragma_table_list WHERE schema='main' AND name='sample';")) == "1\n"
-            raw = successful(native("-readonly", "-json", path, select))
-            assert [[item["id"], item["amount"]] for item in json.loads(raw or "[]")] == [
-                list(row) for row in sorted(entries)
-            ]
-            assert json.loads(successful(run(SHELL, "--immutable", path, select))) == {
-                "columns": ["id", "amount"], "rows": [list(row) for row in sorted(entries)]
-            }
+            successful(run(WRITER, path, *row_arguments(entries)))
+            original = check_image(native, path, entries)
             rejected(run(WRITER, path, "1", "2"), "exists")
             assert path.read_bytes() == original
 
@@ -150,7 +234,7 @@ def writer():
         assert bytes_[start:start + 5] == bytes([11, 1, 3, 0, 6])
         bytes_[start + 3] = 8  # INTEGER constant zero in the alias slot, where NULL is required.
         path.write_bytes(bytes_)
-        rejected(run(SHELL, "--immutable", path, select), "malformed")
+        rejected(run(SHELL, "--immutable", path, SELECT_ROWS), "malformed")
 
         env = os.environ | {"LD_LIBRARY_PATH": str(directory)}
         print(successful(run(LOGICAL, "--sqlite3", CORPUS / "sqlite3", env=env)).strip())

@@ -8,6 +8,8 @@ lake build --wfail sqlite_image_lean sqlite_lean
 ```
 
 The writer accepts explicit pairs of signed 64-bit rowids and amounts.
+The same driver is available through `sqlite_lean --create OUTPUT [ROWID AMOUNT ...]`.
+See the [shell guide](sqlite-shell.md) for a create-and-query example.
 The output is a new 1024-byte SQLite file with one STRICT
 `sample(id INTEGER PRIMARY KEY, amount INTEGER NOT NULL)` table. It
 rejects duplicate rowids, malformed or out-of-range arguments and inputs

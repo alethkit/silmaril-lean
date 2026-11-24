@@ -2,6 +2,7 @@ module
 
 import Lean.Data.Json
 import Silmaril.Formats.Sqlite.Shell.Defs
+import SqliteCreate
 
 open Silmaril.Formats.Sqlite
 
@@ -23,12 +24,16 @@ private def snapshot (path : System.FilePath) : IO Silmaril.Formats.Bytes := do
   unless bytes.size == 1024 do throw (IO.userError "snapshot size changed")
   pure ⟨bytes⟩
 
-public def main (args : List String) : IO Unit := do
-  let ["--immutable", path, sql] := args
-    | throw (IO.userError "usage: sqlite_lean --immutable DATABASE SELECT")
+private def select (path : System.FilePath) (sql : String) : IO Unit := do
   let some query := Shell.parse? sql | throw (IO.userError "unsupported SELECT")
-  let bytes ← snapshot (System.FilePath.mk path)
+  let bytes ← snapshot path
   let some table := TableLeaf.open? bytes | throw (IO.userError "malformed or unsupported SQLite image")
   let result ← IO.ofExcept (Shell.execute table query)
   IO.println (Lean.Json.mkObj [
     ("columns", Lean.toJson result.columns), ("rows", Lean.toJson result.rows)]).compress
+
+public def main : List String → IO Unit
+  | ["--immutable", path, sql] => select (System.FilePath.mk path) sql
+  | "--create" :: path :: values => SqliteCli.create (System.FilePath.mk path) values
+  | _ => throw (IO.userError ("usage: sqlite_lean --immutable DATABASE SELECT\n" ++
+      "       sqlite_lean --create OUTPUT [ROWID AMOUNT ...]"))
