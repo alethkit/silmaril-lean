@@ -17,6 +17,12 @@ inductive Location where
   | saved (slot segment : Nat)
   deriving DecidableEq
 
+/-- The slot at a fixed depth below this segment in the same activation. -/
+def Location.below (place : Location) (depth : Nat) : Location :=
+  match place with
+  | .active activation segment => .active activation (segment + depth)
+  | .saved slot segment => .saved slot (segment + depth)
+
 /-- Only control storage is relevant to the lifetime of a saved frame. -/
 structure Stacks (E : CoreEngine) (Host : Type) where
   active : List (List (Seg E Host))
@@ -76,6 +82,10 @@ def Location.resume (slot : Nat) : Location → Location
   | .active activation segment => .active (activation + 1) segment
   | .saved current segment => if current = slot then .active 0 segment else .saved current segment
 
+def Location.pushed : Location → Location
+  | .active 0 segment => .active 0 (segment + 1)
+  | place => place
+
 /-- Map an existing coordinate through one scheduler edit. If an edit
 discards a frame, a later equal frame cannot revive that occurrence. -/
 def Edit.follow (edit : Edit E Host) (place : Location) : Option Location :=
@@ -128,6 +138,12 @@ def Outside (older : Substitutions E Host) (left right : Stacks E Host) (mark : 
   ∀ place, some place ≠ mark → ∀ first second,
     segmentAt left place = some first → segmentAt right place = some second → Related.Segment older first second
 
+/-- Several installed occurrences can coexist. Only their exact reached
+locations are exempt; a lost mark no longer exempts any segment. -/
+def OutsideMarks (older : Substitutions E Host) (left right : Stacks E Host) (marks : List (Option Location)) : Prop :=
+  ∀ place, some place ∉ marks → ∀ first second,
+    segmentAt left place = some first → segmentAt right place = some second → Related.Segment older first second
+
 /-- The only edit that consumes the marked top segment is the actual pop.
 Other ways of losing it (lockdown or an overwritten slot) are not returns. -/
 def Edit.pops (edit : Edit E Host) (place : Location) : Prop :=
@@ -178,6 +194,30 @@ inductive Prefix (profile : ProfileKind) (ready : HostReady Host) (dispatch : Ca
       Step profile ready dispatch before label next → (transitionEdit before label).follow place = some middle →
       Prefix profile ready dispatch next middle labels after reached →
       Prefix profile ready dispatch before place (label :: labels) after reached
+
+/-- An execution that carries every slot of the active top frame to its
+original location. Intermediate steps need not leave each slot in place. -/
+abbrev RetainsActiveSlots (profile : ProfileKind) (ready : HostReady Host) (dispatch : Call E → P E Host (Ret E))
+    (before : Config E Host) (labels : List (Label E Host)) (after : Config E Host) : Prop :=
+  ∀ depth, Prefix profile ready dispatch before (.active 0 depth) labels after (.active 0 depth)
+
+/-- The older slots survive a prefix ending one slot shallower. This is the
+coordinate change at a return, followed by any slot-preserving local work. -/
+abbrev RetainsBelowTop (profile : ProfileKind) (ready : HostReady Host) (dispatch : Call E → P E Host (Ret E))
+    (before : Config E Host) (labels : List (Label E Host)) (after : Config E Host) : Prop :=
+  ∀ depth, Prefix profile ready dispatch before (.active 0 (depth + 1)) labels after (.active 0 depth)
+
+/-- A finite prefix that leaves one blocked activation in its saved slot at
+every cut. A resume, overwrite, or switch through that slot breaks the prefix
+even if the same Core segment is eventually saved there again. -/
+inductive ParkedPrefix (profile : ProfileKind) (ready : HostReady Host) (dispatch : Call E → P E Host (Ret E))
+    (thread : ThreadId) : Config E Host → List (Label E Host) → Config E Host → Prop where
+  | done (cfg : Config E Host) : ParkedPrefix profile ready dispatch thread cfg [] cfg
+  | step {before next after : Config E Host} {label labels} :
+      Step profile ready dispatch before label next →
+      (transitionEdit before label).follow (.saved thread.idx 0) = some (.saved thread.idx 0) →
+      ParkedPrefix profile ready dispatch thread next labels after →
+      ParkedPrefix profile ready dispatch thread before (label :: labels) after
 
 /-- Follow an optional marked occurrence through every actual step. Absence
 can only result from an edit removing the mark, and remains absent afterward. -/

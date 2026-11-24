@@ -54,10 +54,15 @@ inductive Outcome (profile : ProfileKind) (ready : HostReady (HostState sig)) (b
   | admitted {reference : State grow sig} {canon : Cursor (E := core3 grow) (HostState sig)}
       {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))} {bytes : Nat}
       (region : Admitted older destination area entries pointer bytes left last reference check canon)
-      (checked : Steps profile ready (specDispatch ready (host bindings)) left checkLabels
-        { last with ctl := check.control (checkedCollectionTail destination inst entries area index output pointer (.ok ()) >>= checkNext) })
-      (canonical : Steps profile ready (specDispatch ready (host bindings)) right canonLabels
+      (checked : ReturnRangeTrace profile ready bindings left last checkLabels
+        { last with ctl := check.control (checkedCollectionTail destination inst entries area index output pointer (.ok ()) >>= checkNext) }
+        (some (.active 0 0)))
+      (canonical : ReturnRangeTrace profile ready bindings right reference canonLabels
         { reference with ctl := canon.control (canonicalCollectionTail destination inst entries area output pointer
+          (CanonicalTree.EntryMode.forOutput destination.width type output) >>= canonNext) } (some (.active 0 0)))
+      (classified : ReplayTrace profile ready bindings left checkLabels
+        { last with ctl := check.control (checkedCollectionTail destination inst entries area index output pointer (.ok ()) >>= checkNext) }
+        right canonLabels { reference with ctl := canon.control (canonicalCollectionTail destination inst entries area output pointer
           (CanonicalTree.EntryMode.forOutput destination.width type output) >>= canonNext) })
       (checkSeen : visible checkLabels = seen) (canonSeen : visible canonLabels = seen)
       (visit : next bytes
@@ -69,10 +74,14 @@ inductive Outcome (profile : ProfileKind) (ready : HostReady (HostState sig)) (b
       {checkLabels canonLabels : List (Label (core3 grow) (HostState sig))}
       (live : Record.prepare last.store last.host.writer (Field.listObjects entries) = .error issue)
       (frame : ChildFrameOver older last reference check canon)
-      (checked : Steps profile ready (specDispatch ready (host bindings)) left checkLabels
-        { last with ctl := check.control (checkNext (.error (afterAllocation index issue))) })
-      (canonical : Steps profile ready (specDispatch ready (host bindings)) right canonLabels
+      (checked : ReturnRangeTrace profile ready bindings left last checkLabels
+        { last with ctl := check.control (checkNext (.error (afterAllocation index issue))) } (some (.active 0 0)))
+      (canonical : ReturnRangeTrace profile ready bindings right reference canonLabels
         { reference with ctl := canon.control (canonicalCollectionTail destination inst entries area output pointer
+          (CanonicalTree.EntryMode.forOutput destination.width type output) >>= canonNext) } (some (.active 0 0)))
+      (classified : ReplayTrace profile ready bindings left checkLabels
+        { last with ctl := check.control (checkNext (.error (afterAllocation index issue))) }
+        right canonLabels { reference with ctl := canon.control (canonicalCollectionTail destination inst entries area output pointer
           (CanonicalTree.EntryMode.forOutput destination.width type output) >>= canonNext) })
       (checkSeen : visible checkLabels = seen) (canonSeen : visible canonLabels = seen) :
       Outcome profile ready bindings older destination inst type area entries index pointer output left right last check checkNext canonNext seen next
@@ -81,6 +90,8 @@ inductive Outcome (profile : ProfileKind) (ready : HostReady (HostState sig)) (b
       (same : last.store = reference.store)
       (checked : Steps profile ready (specDispatch ready (host bindings)) left checkLabels (StepDefs.trapCfg last))
       (canonical : Steps profile ready (specDispatch ready (host bindings)) right canonLabels (StepDefs.trapCfg reference))
+      (classified : ReplayTrace profile ready bindings left checkLabels (StepDefs.trapCfg last)
+        right canonLabels (StepDefs.trapCfg reference))
       (checkSeen : visible checkLabels = seen ++ [.trap reason]) (canonSeen : visible canonLabels = seen ++ [.trap reason]) :
       Outcome profile ready bindings older destination inst type area entries index pointer output left right last check checkNext canonNext seen next
 

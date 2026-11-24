@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.Defs
 import Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback
+import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Thms
 
 public section
 
@@ -16,6 +17,51 @@ open PayloadPrefix
 variable {grow : Silmaril.Wasm.SingleThreaded.GrowOracle} {sig : Signature} {profile : ProfileKind}
   {ready : HostReady (HostState sig)} {bindings : List (Binding sig)}
   {first second : ReturnFrame.Continuation (core3 grow) (HostState sig)}
+
+/-- Installing paired allocator continuations excludes only the newly pushed
+occurrence from the older relation. The dispatched focuses need not agree for
+this storage fact. -/
+theorem ChildFrameOver.outside_installed {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {left right : State grow sig} {check canon : Cursor (E := core3 grow) (HostState sig)}
+    (frame : ChildFrameOver older left right check canon) (checkBody canonBody : Session grow sig (Ret (core3 grow))) :
+    ReturnFrame.Occurrence.Outside older
+      (ReturnFrame.Occurrence.segmentStorage { left with ctl := { check with frames := .prog first :: check.frames }.control checkBody })
+      (ReturnFrame.Occurrence.segmentStorage { right with ctl := { canon with frames := .prog second :: canon.frames }.control canonBody })
+      (some (.active 0 0)) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.childFrameOutside frame checkBody first second
+
+/-- Expose the reached pop foci and the residual pairing before running either
+of the two continuations, independently of dispatch. -/
+theorem marked_pop_frame {older wider : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+    {left right : State grow sig} {check : Cursor (E := core3 grow) (HostState sig)} {value : Ret (core3 grow)}
+    (paired : HostFrame.Related.Paired wider left right)
+    (outside : ReturnFrame.Occurrence.Outside older (ReturnFrame.Occurrence.segmentStorage left)
+      (ReturnFrame.Occurrence.segmentStorage right) (some (.active 0 0)))
+    (leftAt : left.ctl = { check with frames := .prog first :: check.frames }.control (.pure value))
+    (rightAt : ReturnFrame.Occurrence.segmentAt (ReturnFrame.Occurrence.segmentStorage right) (.active 0 0) = some (.prog second)) :
+    ∃ canon : Cursor (E := core3 grow) (HostState sig),
+      ChildFrameOver older left right check canon ∧
+      right.ctl = { canon with frames := .prog second :: canon.frames }.control (.pure value) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.markedPopFrame paired outside leftAt rightAt
+
+/-- Follow the original parked slot through an actual string allocator install,
+its marked execution, and its designated pop. Depth zero tracks the caller
+immediately beneath the allocator during that execution. -/
+theorem string_return_tracks (cx : LiftLowerContext (core3 grow)) (ptr : Nat) (oldSize : Option Nat)
+    (alignment : Alignment) (size : Nat) (steps : List StoreStep) (finish : Nat → Session grow sig (Ret (core3 grow)))
+    (start last : State grow sig) (cursor reached : Cursor (E := core3 grow) (HostState sig)) (value : Nat)
+    (focused : start.ctl = cursor.control (runStoreSteps cx ptr
+      ((oldSize.elim (.allocate alignment size) (fun old => .reallocate old alignment size)) :: steps) >>= finish))
+    {labels} (marked : ReturnFrame.Occurrence.Trail profile ready (specDispatch ready (host bindings))
+      (stringReallocEntry ready bindings cx ptr oldSize alignment size steps finish start cursor)
+      (some (.active 0 0)) labels last (some (.active 0 0)))
+    (returning : last.ctl = { reached with frames := .prog (stringPlanResume cx steps finish) :: reached.frames }.control
+      (.pure (.nat value))) (depth : Nat) :
+    ReturnFrame.Occurrence.Prefix profile ready (specDispatch ready (host bindings)) start (.active 0 depth)
+      (.tau :: labels ++ [.tau])
+      { last with ctl := reached.control (stringPlanResume cx steps finish (.nat value)) } (.active 0 depth) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringReturnTracks
+    cx ptr oldSize alignment size steps finish start last cursor reached value focused marked returning depth
 
 /-- A readiness policy independent of the writer needs no agreement premise
 at any reached synchronous read. -/
@@ -215,13 +261,33 @@ theorem ChildFrameOver.string_field_replay {changes : ReturnFrame.Substitutions 
     let canonical := fun ptr => stringPlanTail cx destination.width output plan ptr >>= canonNext
     let lhs := { left with ctl := check.control (runStoreSteps cx 0 plan.steps >>= checked) }
     let rhs := { right with ctl := canon.control (runStoreSteps cx 0 plan.steps >>= canonical) }
-    ∃ reads, Steps profile ready dispatch left (List.replicate reads .tau) lhs ∧
-      Step profile ready dispatch right .tau rhs ∧
+    ∃ reads, ReturnFrame.Occurrence.RetainsActiveSlots profile ready dispatch left (List.replicate reads .tau) lhs ∧
+      ReturnFrame.Occurrence.RetainsActiveSlots profile ready dispatch right [.tau] rhs ∧
       StringReplay profile ready bindings changes cx checked canonical plan.steps.length lhs rhs check canon
         (fun left right check canon _ =>
           StringLocalCut profile ready dispatch left right check canon (fun value => checkNext (.ok value)) canonNext) :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringFieldReplay
     destination inst str valid index output checkNext canonNext frame present realloc fit placed checkAt canonAt
+
+/-- A typed refusal skips the remaining fields. Flat words are appended
+only after the current field returns successfully. -/
+theorem flat_sequence_checked_cons (destination : RecordDestination) (inst : InstId) (item : Field)
+    (rest : List Field) (index : Nat) (leading : List FlatValue) (next : FlatSequenceCheckNext grow sig) :
+    flatSequenceChecked destination inst (item :: rest) index leading next =
+      (Record.Effects.field recordClaims Limits.spec Quirks.none (destination.context inst) destination.width item index .flat >>=
+        fun verdict => match verdict with
+        | .error issue => next (.error issue)
+        | .ok words => flatSequenceChecked destination inst rest (index + 1) (leading ++ (show List FlatValue from words)) next) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.flatSequenceCheckedCons
+    destination inst item rest index leading next
+
+theorem flat_sequence_canonical_cons (destination : RecordDestination) (inst : InstId) (item : Field)
+    (rest : List Field) (leading : List FlatValue) (next : FlatSequenceCanonNext grow sig) :
+    flatSequenceCanonical destination inst (item :: rest) leading next =
+      (CanonicalTree.field Limits.spec Quirks.none (destination.context inst) destination.width item .flat >>=
+        fun words => flatSequenceCanonical destination inst rest (leading ++ (show List FlatValue from words)) next) :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.flatSequenceCanonicalCons
+    destination inst item rest leading next
 
 /-- Compose the actual flat sibling programs by their field cuts. The next
 field runs only on common success, using the reached cursor and flat words;
@@ -257,12 +323,13 @@ each reached leaf. The next field receives the reached, possibly spent writer. -
 theorem mixed_flat_rule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
     (destination : RecordDestination) (inst : InstId) (item : Field)
     (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
-    {addr : Nat} (realloc : destination.realloc = some addr)
+    (allocator : Validation.containsPtr item.type = true → ∃ addr, destination.realloc = some addr)
     (fit : CanonicalHandle item ∨ StringField.Fits destination item) :
     FlatFieldRule (mixedFlatComparison profile ready bindings older destination inst) older origin destination inst item :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.mixedFlatRule destination inst item present realloc fit
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.mixedFlatRule destination inst item present allocator fit
 
-theorem ChildFrameOver.handle_field_then {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
+theorem ChildFrameOver.handle_field_then_between {dispatch reference : Call (core3 grow) → Session grow sig (Ret (core3 grow))}
+    {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     {origin : CStore (core3 grow)} (destination : RecordDestination) (inst : InstId) (item : Field) (handle : CanonicalHandle item)
     (index : Nat) (output : Stored.Lower.Output)
     (checkNext : Except RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
@@ -278,9 +345,12 @@ theorem ChildFrameOver.handle_field_then {older : ReturnFrame.Substitutions (cor
     (ends : ∀ value reached reference check canon, ChildFrameOver older reached reference check canon →
       Core3.Grows origin.core reached.store.core → reached.ctl = check.control (checkNext (.ok value)) →
       reference.ctl = canon.control (canonNext value) → next value reached reference check canon) :
-    HandleFieldThen profile ready bindings item index output left right check canon checkNext canonNext next :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.handleFieldThen
+    HandleFieldThenBetween profile ready dispatch reference item index output left right check canon checkNext canonNext next :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.handleFieldThenBetween
     destination inst item handle index output checkNext canonNext frame growth checkAt canonAt ends
+
+abbrev ChildFrameOver.handle_field_then :=
+  @ChildFrameOver.handle_field_then_between grow sig profile ready (specDispatch ready (host bindings)) (specDispatch ready (host bindings))
 
 theorem ChildFrameOver.string_field_then {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     {origin : CStore (core3 grow)} (destination : RecordDestination) (inst : InstId) (item : StringField) (output : Stored.Lower.Output)
@@ -305,16 +375,21 @@ theorem ChildFrameOver.string_field_then {older : ReturnFrame.Substitutions (cor
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.stringFieldThen
     destination inst item output index checkNext canonNext frame growth present realloc fit placed checkAt canonAt ends
 
-/-- Induct through actual record/tuple and fixed-list flat programs. The
+theorem flat_nested_refine {shapeAt fitsAt : Field → Prop} (depth : Nat) (field : Field)
+    (shape : FlatNestedFits shapeAt depth field)
+    (reached : ∀ leaf, Field.Descendant field leaf → shapeAt leaf → fitsAt leaf) : FlatNestedFits fitsAt depth field :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.flatNestedRefine depth field shape reached
+
+/-- Induct through actual record/tuple, fixed-list and selected sum programs. The
 branch returns its concatenated words to the enclosing continuation only
 after all its visited children succeed. -/
 theorem nested_flat_rule {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)} {origin : CStore (core3 grow)}
     (destination : RecordDestination) (inst : InstId) (leaf : Field → Prop) (compare : FlatFieldComparison grow sig)
     (rules : ∀ field, leaf field → FlatFieldRule compare older origin destination inst field)
-    (depth : Nat) (field : Field) (fits : FlatNestedFits leaf depth field) :
-    FlatFieldRule (nestedFlatComparison compare older destination inst depth) older origin destination inst field :=
+    (depth : Nat) (field : Field) (fits : FlatNestedFits leaf depth field) (tags : FlatTagBounds field) :
+    FlatFieldRule (nestedFlatComparison profile ready bindings compare older destination inst depth) older origin destination inst field :=
   Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.nestedFlatRule
-    destination inst leaf compare rules depth field fits
+    destination inst leaf compare rules depth field fits tags
 
 /-- Concrete allocating instance of the recursive flat rule. String leaves
 may each allocate or resize repeatedly; neither a return from any allocator
@@ -323,11 +398,11 @@ theorem nested_flat_strings {older : ReturnFrame.Substitutions (core3 grow) (Hos
     (destination : RecordDestination) (inst : InstId) (depth : Nat) (field : Field)
     (present : (core3 grow).memAddrType? origin.core destination.memory = some destination.width)
     {addr : Nat} (realloc : destination.realloc = some addr)
-    (fits : FlatNestedFits (StringField.Fits destination) depth field) :
-    FlatFieldRule (nestedFlatComparison (stringFlatComparison profile ready bindings older destination inst)
+    (fits : FlatNestedFits (StringField.Fits destination) depth field) (tags : FlatTagBounds field) :
+    FlatFieldRule (nestedFlatComparison profile ready bindings (stringFlatComparison profile ready bindings older destination inst)
       older destination inst depth) older origin destination inst field :=
   nested_flat_rule destination inst _ _ (fun _ ⟨item, equal, fit⟩ =>
-    equal ▸ item.flat_rule destination inst present realloc fit) depth field fits
+    equal ▸ item.flat_rule destination inst present realloc fit) depth field fits tags
 
 /-- A reached allocating list or map can likewise install on distinct
 residual frames, keeping the memory-map placement mode and its live recheck
@@ -354,9 +429,12 @@ theorem ChildFrameOver.collection_install_pair {changes : ReturnFrame.Substituti
     let canonCall := collectionEntry destination inst area entries.length dispatch right canon second
     Steps profile ready dispatch left [.tau, .tau, .tau] checkCall ∧
     Steps profile ready dispatch right [.tau, .tau] canonCall ∧
-    HostFrame.Related.Paired (ReturnFrame.Extend changes first second) checkCall canonCall :=
-  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.childCollectionInstall
+    HostFrame.Related.Paired (ReturnFrame.Extend changes first second) checkCall canonCall := by
+  obtain ⟨checked, canonical, paired⟩ :=
+    Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.OwnedMemory.Claims.LinkedCallback.childCollectionInstall
+    (profile := profile) (ready := ready) (bindings := bindings)
     destination inst type element entries output index checkNext canonNext frame reachedWidth prepared checkAt canonAt
+  exact ⟨(ReturnFrame.Occurrence.prefix_survives (checked 0)).1, (ReturnFrame.Occurrence.prefix_survives (canonical 0)).1, paired⟩
 
 /-- Replay a finite classified allocation prefix on both actual collection
 programs. Only a return from the installed occurrence can continue into the

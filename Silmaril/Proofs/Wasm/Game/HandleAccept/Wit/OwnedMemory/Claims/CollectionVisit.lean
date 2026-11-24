@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.CollectionVisit.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadPrefix.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.Endpoints.Record.Thms
+import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Thms
 
 public section
 
@@ -22,6 +23,24 @@ open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Schedule
 variable {grow : SingleThreaded.GrowOracle} {sig : Signature} {profile : ProfileKind}
   {ready : HostReady (HostState sig)} {bindings : List (Binding sig)}
 
+private theorem returnRangeSteps {start reached after : State grow sig} {labels mark}
+    (run : ReturnRangeTrace profile ready bindings start reached labels after mark) :
+    Steps profile ready (specDispatch ready (host bindings)) start labels after := by
+  obtain ⟨leading, trailing, rfl, leadingRun, marked, suffix⟩ := run
+  have tail := (ReturnFrame.Occurrence.prefix_survives (suffix 0)).1
+  clear marked suffix
+  induction leadingRun with
+  | refl => exact tail
+  | cons step _ ih => exact .cons step (ih tail)
+
+theorem returnRangeThroughInstall {start entered reached after : State grow sig} {leading labels}
+    (install : ∀ depth, ReturnFrame.Occurrence.Prefix profile ready (specDispatch ready (host bindings))
+      start (.active 0 depth) leading entered (.active 0 (depth + 1)))
+    (run : ReturnRangeTrace profile ready bindings entered reached labels after (some (.active 0 0))) :
+    ReturnFrame.Occurrence.RetainsActiveSlots profile ready (specDispatch ready (host bindings)) start (leading ++ labels) after := by
+  obtain ⟨callbackLabels, localLabels, rfl, _, marked, tail⟩ := run
+  exact ReturnFrame.Occurrence.Trail.through_return_suffix install marked tail
+
 theorem afterRange {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     {resume : ReturnFrame.Continuation (core3 grow) (HostState sig)}
     (destination : RecordDestination) (inst : InstId) (type : TypeOf) (area : Layout) (entries : List Field)
@@ -32,7 +51,7 @@ theorem afterRange {older : ReturnFrame.Substitutions (core3 grow) (HostState si
     (cut : RangeCutOver profile ready bindings older resume left right last check destination area entries.length pointer
       (Field.listObjects entries) (fun ptr live => checkedCollectionTail destination inst entries area index output ptr live >>= checkNext)
       (fun ptr => canonicalCollectionTail destination inst entries area output ptr
-        (CanonicalTree.EntryMode.forOutput destination.width type output) >>= canonNext) seen False)
+        (CanonicalTree.EntryMode.forOutput destination.width type output) >>= canonNext) seen False (some (.active 0 0)))
     (visit : ∀ bytes reference canon, Admitted older destination area entries pointer bytes left last reference check canon →
       next bytes
         { last with ctl := check.control (checkedCollectionTail destination inst entries area index output pointer (.ok ()) >>= checkNext) }
@@ -41,20 +60,22 @@ theorem afterRange {older : ReturnFrame.Substitutions (core3 grow) (HostState si
     CollectionVisit.Outcome profile ready bindings older destination inst type area entries index pointer output
       left right last check checkNext canonNext seen next := by
   cases cut with
-  | @reached reference canon bytes checkLabels canonLabels width sized aligned bounds frame growth checked canonical checkSeen canonSeen =>
+  | @reached reference canon bytes checkLabels canonLabels width sized aligned bounds frame growth checked canonical
+      classified checkSeen canonSeen =>
     cases live : Record.prepare last.store last.host.writer (Field.listObjects entries) with
     | error issue =>
       have stopped : (checkedCollectionTail destination inst entries area index output pointer (.error issue) >>= checkNext) =
           checkNext (.error (afterAllocation index issue)) := by cases issue <;> rfl
-      rw [live, stopped] at checked
-      exact .refused live frame checked canonical checkSeen canonSeen
+      rw [live, stopped] at checked classified
+      exact .refused live frame checked canonical classified checkSeen canonSeen
     | ok result =>
       cases result
-      rw [live] at checked
+      rw [live] at checked classified
       have region : Admitted older destination area entries pointer bytes left last reference check canon :=
         ⟨width, sized, aligned, bounds, frame, growth, live⟩
-      exact .admitted region checked canonical checkSeen canonSeen (visit bytes reference canon region)
-  | trapped same checked canonical checkSeen canonSeen => exact .rangeTrap same checked canonical checkSeen canonSeen
+      exact .admitted region checked canonical classified checkSeen canonSeen (visit bytes reference canon region)
+  | trapped same checked canonical classified checkSeen canonSeen =>
+    exact .rangeTrap same checked canonical classified checkSeen canonSeen
   | common _ allowed => exact False.elim allowed
 
 theorem memoryMap {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
@@ -70,7 +91,7 @@ theorem memoryMap {older : ReturnFrame.Substitutions (core3 grow) (HostState sig
       RangeCutOver profile ready bindings older resume left right last check destination area entries.length pointer
         (Field.listObjects entries) (fun ptr live => checkedCollectionTail destination inst entries area index (.memory address) ptr live >>= checkNext)
         (fun ptr => canonicalCollectionTail destination inst entries area (.memory address) ptr
-          (.memoryMap destination.width key element) >>= canonNext) seen False) :
+          (.memoryMap destination.width key element) >>= canonNext) seen False (some (.active 0 0))) :
     let area := layout destination.width (.record (mapEntryFields key element))
     CollectionVisit.Outcome profile ready bindings older destination inst (.map key element) area entries index pointer (.memory address)
       left right last check checkNext canonNext seen (reachesNext profile ready bindings left.store checkNext canonNext) := by
@@ -98,12 +119,12 @@ theorem reaches {older : ReturnFrame.Substitutions (core3 grow) (HostState sig)}
     ∃ canon, ReachesKeeping profile ready (specDispatch ready (host bindings))
       (fun store => Core3.Grows left.store.core store.core) left right check canon checkNext canonNext := by
   cases cut with
-  | admitted _ checked canonical checkSeen canonSeen visit =>
-    exact ⟨_, ReachesKeeping.prepend checked canonical (checkSeen.trans canonSeen.symm) visit⟩
-  | @refused reference canon issue checkLabels canonLabels _ frame checked canonical checkSeen canonSeen =>
-    exact ⟨canon, .refused _, checkLabels, canonLabels, _, _, checked, canonical, frame.store,
+  | admitted _ checked canonical _ checkSeen canonSeen visit =>
+    exact ⟨_, ReachesKeeping.prepend (returnRangeSteps checked) (returnRangeSteps canonical) (checkSeen.trans canonSeen.symm) visit⟩
+  | @refused reference canon issue checkLabels canonLabels _ frame checked canonical _ checkSeen canonSeen =>
+    exact ⟨canon, .refused _, checkLabels, canonLabels, _, _, returnRangeSteps checked, returnRangeSteps canonical, frame.store,
       checkSeen.trans canonSeen.symm, trivial, rfl⟩
-  | @rangeTrap reference reason checkLabels canonLabels same checked canonical checkSeen canonSeen =>
+  | @rangeTrap reference reason checkLabels canonLabels same checked canonical _ checkSeen canonSeen =>
     exact ⟨check, .trapped reason, checkLabels, canonLabels, StepDefs.trapCfg last, StepDefs.trapCfg reference,
       checked, canonical, congrArg StepDefs.lockdownSt same, checkSeen.trans canonSeen.symm, trivial, rfl, rfl, seen, canonSeen⟩
 
@@ -159,9 +180,11 @@ theorem memoryMapReplay {older : ReturnFrame.Substitutions (core3 grow) (HostSta
   obtain ⟨checkInstall, canonInstall, continueRun⟩ := replay
   refine ⟨checkInstall, canonInstall, ?_⟩
   intro last seen protectedReturn path covers
-  obtain ⟨checkLabels, canonLabels, other, mark, checked, canonical, checkSeen, canonSeen, paired, checkTrail, canonTrail, cut⟩ :=
+  obtain ⟨checkLabels, canonLabels, other, mark, checked, canonical, checkSeen, canonSeen, paired, outside,
+    checkTrail, canonTrail, trace, cut⟩ :=
     continueRun path covers
-  refine ⟨checkLabels, canonLabels, other, mark, checked, canonical, checkSeen, canonSeen, paired, checkTrail, canonTrail, ?_⟩
+  refine ⟨checkLabels, canonLabels, other, mark, checked, canonical, checkSeen, canonSeen, paired, outside,
+    checkTrail, canonTrail, trace, ?_⟩
   intro pointer cursor reached atReturn
   exact reaches (memoryMap destination inst key element entries index pointer address checkNext canonNext
     (localMapEntries destination inst key element matched localEntries) (cut pointer cursor reached atReturn))

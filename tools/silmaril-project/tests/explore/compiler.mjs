@@ -29,14 +29,35 @@ try {
     }catch{}
     await new Promise(resolve=>setTimeout(resolve,100));
   }
-  await page.goto(base+'/index.html#/compiler');
-  const link=page.getByRole('link',{name:'Open the source ↔ target viewer',exact:true});
-  await link.waitFor({timeout:60000}); await link.click();
-  await page.waitForFunction(()=>document.querySelectorAll('#program option').length>0);
   const listing=JSON.parse(fs.readFileSync(path.join(site,'compiler/api/problems.json'),'utf8'));
   assert.ok(listing.length>0,'actual compiler fixtures exported');
+  assert.ok(!listing[0].id.startsWith('compiles-to/straight/'),'race needs two different fixtures');
+  const initialPath=listing[0].static_path;
+  const initialPattern='**/'+initialPath;
+  let holdInitial;
+  const heldInitial=new Promise(resolve=>{holdInitial=resolve;});
+  await page.route(initialPattern,route=>holdInitial(route));
+  await page.goto(base+'/index.html#/compiler');
+  const link=page.getByRole('link',{name:'Open the source ↔ target viewer',exact:true});
+  await link.waitFor({timeout:60000});
+  const initialRequested=page.waitForRequest(initialPattern);
+  await link.click();
+  await initialRequested;
+  const initialRoute=await heldInitial;
+  await page.waitForFunction(()=>document.querySelectorAll('#program option').length>0);
   await page.selectOption('#program','compiles-to/straight');
   await page.waitForFunction(()=>document.querySelector('#source-title').textContent.includes('straight'));
+  const sourceTitle=await page.locator('#source-title').innerText();
+  const targetTitle=await page.locator('#target-title').innerText();
+  // Release the older response after the newer fixture is on screen.
+  const initialResponse=page.waitForResponse(initialPattern);
+  await initialRoute.fulfill({contentType:'application/json',path:path.join(site,'compiler',initialPath)});
+  await (await initialResponse).finished();
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  assert.equal(await page.locator('#source-title').innerText(),sourceTitle,'late response replaced the selected source');
+  assert.equal(await page.locator('#target-title').innerText(),targetTitle,'late response replaced the selected target');
+  await page.unroute(initialPattern);
+  console.log('PASS out-of-order fixture responses preserve the latest selection');
   assert.ok(await page.locator('#source .line').count()>1,'actual source text');
   assert.ok(await page.locator('#target .line').count()>1,'actual target listing');
   await page.selectOption('#mode','semantic');

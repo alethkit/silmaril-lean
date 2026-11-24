@@ -7,7 +7,7 @@ public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core
 
 namespace Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
 
-open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
+open Silmaril.Wasm Silmaril.Wasm.Component Silmaril.Wasm.Component.ABI Silmaril.Wasm.Component.Canon Silmaril.Wasm.Component.Engine
   Silmaril.Wasm.Component.Runtime Silmaril.Wasm.Component.Machine
 open Stored.Endpoints.RecordLower
 
@@ -48,16 +48,34 @@ def ParkedListTreeBody (call : PayloadRoot.Site grow sig (.memory pointer)) (dep
       ChildFrameOver older reached reference check canon ∧
       reached.ctl = check.control (call.reply (.ok ())) ∧ reference.ctl = canon.control (next ()))
 
-def ParkedRecursiveListBody {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route) (element : TypeOf)
+def ParkedRecursiveValueBody {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route) (type element : TypeOf)
     (entries : List Field) (depth : Nat) (next : call.ReferenceNext)
     (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig)) : Prop :=
   let older : ReturnFrame.Substitutions (core3 grow) (HostState sig) := fun _ _ => False
   let compare := listTree profile ready bindings older call.destination call.inst depth
-  CollectionReplayFor profile ready bindings older call.destination call.inst (.list element) element entries 0 route.output
+  CollectionReplayFor profile ready bindings older call.destination call.inst type element entries 0 route.output
     call.checked (call.reference next) call.cursor call.cursor call.reply next
-    (ListReturn profile ready bindings older call.destination call.inst compare element entries 0 route.output call.reply next
+    (RecursiveValueReturn profile ready bindings older call.destination call.inst compare type element entries 0 route.output call.reply next
       (fun value reached reference check canon =>
         ChildFrameOver older reached reference check canon ∧
         reached.ctl = check.control (call.reply (.ok value)) ∧ reference.ctl = canon.control (next value)))
+
+abbrev ParkedRecursiveListBody {route : GiveEffectRoute} (call : PayloadRoot.Site grow sig route) (element : TypeOf) :=
+  ParkedRecursiveValueBody call (.list element) element
+
+abbrev ParkedRecursiveFlatMapBody {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema))
+    (key : WIT.KeyType) (element : TypeOf) :=
+  ParkedRecursiveValueBody call (.map key element) (.record (mapEntryFields key element))
+
+def ParkedFlatShape (flatDepth entryDepth : Nat) (item : Field) : Prop :=
+  FlatNestedFits (FlatAllocatingLeaf (fun field => ∃ item : StringField, item.field = field) entryDepth) flatDepth item
+
+def ParkedFlatBody {schema : TypeOf} (call : PayloadRoot.Site grow sig (.flat schema)) (flatDepth entryDepth : Nat)
+    (next : call.ReferenceNext) (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig)) : Prop :=
+  let older : ReturnFrame.Substitutions (core3 grow) (HostState sig) := fun _ _ => False
+  nestedFlatComparison profile ready bindings (flatAllocating profile ready bindings older call.destination call.inst entryDepth) older
+    call.destination call.inst flatDepth call.field 0 call.checked (call.reference next) call.cursor call.cursor call.reply next
+    (fun words reached reference check canon => ChildFrameOver older reached reference check canon ∧
+      reached.ctl = check.control (call.reply (.ok words)) ∧ reference.ctl = canon.control (next words))
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence

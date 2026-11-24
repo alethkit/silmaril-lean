@@ -778,3 +778,27 @@ srcDir = "tools/elf-pages"
 name = "wasm-region-map"
 root = "Report"
 srcDir = "tools/wasm-region-map"
+
+[[lean_exe]]
+name = "sqlite_file_format_compatibility"
+srcDir = "tests/formats/sqlite-tranche"
+root = "Compatibility"
+
+[[lean_lib]]
+name = "SqliteCreate"
+srcDir = "tools/sqlite-lean"
+
+[[lean_exe]]
+name = "sqlite_lean"
+srcDir = "tools/sqlite-lean"
+root = "SqliteLean"
+
+[[lean_exe]]
+name = "sqlite_image_lean"
+srcDir = "tools/sqlite-image-lean"
+root = "SqliteImageLean"
+
+[[lean_exe]]
+name = "sqlite_write_profile_tests"
+srcDir = "tests/formats/sqlite-shell"
+root = "SqliteWriteProfile"

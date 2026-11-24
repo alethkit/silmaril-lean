@@ -128,6 +128,29 @@ advanced position into caller record `c`. -/
 def setCallerPosSt (c : CallerId) (pos : Nat) (st : CStore E) : CStore E :=
   ArenaField.callers.modify st c fun x => Caller.withPos x pos
 
+/-- The caller record's ABI data, without the moving argument cursor. -/
+def callerShape (st : CStore E) (caller : CallerId) : Option (Caller E) :=
+  (st.caller? caller).map fun record => Caller.withPos record 0
+
+/-- Instructions issued by the canonical memory and flat value lifts. The
+instance and subtask scope come from the lifting context. These constructors
+classify the individual effects, including before a later trap. -/
+inductive ValueLiftOp (cx : LiftLowerContext E) : Op E σ → Prop where
+  | read : ValueLiftOp cx .get
+  | trap (reason : TrapReason) : ValueLiftOp cx (.trap reason)
+  | removeHandle (slot : Nat) : ValueLiftOp cx (.modify
+      (ArenaField.insts.modify · cx.inst (InstState.removeHandle slot)))
+  | lend (subtask : SubtaskId) (identity : HandleObjId) (scope : cx.scope = .subtask subtask) :
+      ValueLiftOp cx (.modify (HandleSt.addLender subtask identity))
+  | releaseEnd (identity : EndId) : ValueLiftOp cx (.modify (HandleSt.releaseEnd identity))
+
+/-- Argument lifting may update the store and advance the cursor, but does
+not alter a caller's ABI data or install/remove a caller. -/
+def argumentLiftOp : Op E σ → Prop
+  | .get | .trap _ => True
+  | .modify update => ∀ store caller, callerShape (update store) caller = callerShape store caller
+  | _ => False
+
 /-- `Quirks.lendReleaseAtReturn` only (wasmtime's `validate_scope_exit`): release every lend
 of subtask `s` at the callee's return: `num_lends -= 1` for each lender and `lenders := []`
 (the subtask stays not-yet-delivered, `lenders ≠ None`). No-op on a dangling or delivered
@@ -220,6 +243,30 @@ def lowerOnResolve (lim : Limits) (q : Quirks) (c : CallerId) (r : Option (List 
       Subtask.resolve s .returned flat
   | _ => internal "lowerOnResolve: not a canon_lower caller record"
 
+/-- Completion, waiting and handle allocation read the store after cancel installation. -/
+def lowerAfterCancel (inst : InstId) (s : SubtaskId) (async_ : Bool) :
+    P E σ (List FlatValue) := do
+  if !async_ then
+    let resolved ← gets (·.subtaskResolved s)
+    let _ ← (if !resolved then Thread.waitUntilGuest .syncLower (.subtaskResolved s)
+      else pure () : P E σ Unit)
+    Subtask.deliverResolve s
+    return (← getObj ArenaField.subtasks s).flatResults
+  else
+    if ← gets (·.subtaskResolved s) then
+      Subtask.deliverResolve s
+      return [i32Flat AsyncRef.AsyncLowerResult.returned.pack]
+    else
+      let i ← handlesAddSubtask inst s
+      let x ← getObj ArenaField.subtasks s
+      return [i32Flat (AsyncRef.AsyncLowerResult.pending x.state i).pack]
+
+/-- The continuation after the callee supplies its cancellation handle. -/
+def lowerAfterCallee (inst : InstId) (s : SubtaskId) (async_ : Bool) (oc : CancelRef) :
+    P E σ (List FlatValue) := do
+  modifyStore (LowerSt.setOnCancelSt s oc)
+  lowerAfterCancel inst s async_
+
 /-- REF `canon_lower(callee, ft, opts, flat_args)` (L2169-2233) of the `canon lower` defined in
 instance `inst`, called from a thread of `inst` (REF `current_thread().task.inst`; the
 dispatcher's entry check `Canon.calloutEntry` traps on a thread of another instance):
@@ -241,26 +288,12 @@ def canonLower (_lim : Limits) (_q : Quirks) (callee : FuncId) (ft : WIT.FuncTyp
     (opts : CanonOpts E) (inst : InstId) (flatArgs : List FlatValue) :
     P E σ (List FlatValue) := do
   trapIf (!(← getInst inst).mayLeave) .cannotLeave
-  let (maxParams, maxResults) := lowerLimits opts.async_
+  let limits := lowerLimits opts.async_
   let s ← allocObj ArenaField.subtasks ({ inst := inst } : Subtask)
   let cx : LiftLowerContext E := { opts := opts, inst := inst, scope := .subtask s }
-  let c ← allocObj ArenaField.callers (Caller.lower s cx flatArgs 0 ft maxParams maxResults)
+  let c ← allocObj ArenaField.callers (Caller.lower s cx flatArgs 0 ft limits.1 limits.2)
   let oc ← callCancel (.funcInst callee c)
-  modifyStore (LowerSt.setOnCancelSt s oc)
-  if !opts.async_ then
-    let resolved ← gets (·.subtaskResolved s)
-    let _ ← (if !resolved then Thread.waitUntilGuest .syncLower (.subtaskResolved s)
-      else pure () : P E σ Unit)
-    Subtask.deliverResolve s
-    return (← getObj ArenaField.subtasks s).flatResults
-  else
-    if ← gets (·.subtaskResolved s) then
-      Subtask.deliverResolve s
-      return [i32Flat AsyncRef.AsyncLowerResult.returned.pack]
-    else
-      let i ← handlesAddSubtask inst s
-      let x ← getObj ArenaField.subtasks s
-      return [i32Flat (AsyncRef.AsyncLowerResult.pending x.state i).pack]
+  lowerAfterCallee inst s opts.async_ oc
 
 /-! ## Program-logic lemmas -/
 

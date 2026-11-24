@@ -27,7 +27,6 @@ const PROGRESS_DIMENSIONS = Object.freeze([
   { key: "decomposition", title: "Function decomposition", text: "where the functions are: an executable section partitioned into symbol-table function extents and explicit gaps, checked on the file's bytes" },
   { key: "semantic", title: "Semantic and function correctness", text: "what the code does: contracts, specifications, effects, refinements" },
 ]);
-const PROGRESS_STANDARD_AXIOMS = new Set(["propext", "Classical.choice", "Quot.sound"]);
 
 // Every problem reachable from `start` through `kids` (a Map name -> [child]), groups excluded.
 function progressLeaves(start, kids, isGroup) {
@@ -110,7 +109,7 @@ if (typeof registerView === "function") {
     const axiomatic = new Set();
     if (has("answer_axioms") && has("answers"))
       for (const r of await ctx.q("SELECT DISTINCT a.problem, x.axiom FROM answers a JOIN answer_axioms x ON x.decl = a.decl"))
-        if (!PROGRESS_STANDARD_AXIOMS.has(r.axiom)) axiomatic.add(r.problem);
+        if (!AxiomProfiles.isStandard(r.axiom)) axiomatic.add(r.problem);
     const info = (n) => {
       const e = idx.byName && idx.byName.get(n);
       const r = e ? e.row : {};

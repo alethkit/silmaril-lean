@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.PayloadEffects.Defs
 public import Silmaril.Wasm.Component.Reference.Machine.Step.Defs
+public import Silmaril.Wasm.Component.Reference.Machine.ReturnFrame.Occurrence.Defs
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.Plain.Thms
 import Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Record.Effects.Thms
 
@@ -16,7 +17,8 @@ open Silmaril.Wasm.Execution.Core
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored
 open Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled
 
-theorem parked {sig : Signature} {grow : SingleThreaded.GrowOracle}
+open Machine.ReturnFrame.Occurrence in
+theorem parkedTracks {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (bindings : List (Binding sig)) (name : String) (type : V1.FuncType) (handle : BitVec IntType.i32.width)
     (route : GiveEffectRoute) (inst : InstId) (destination : RecordDestination) (tree : OwnedMemory.Tree sig)
     (start : Machine.Config (core3 grow) (HostState sig)) (thread : Option ThreadId)
@@ -28,23 +30,26 @@ theorem parked {sig : Signature} {grow : SingleThreaded.GrowOracle}
     (mayLeave : (start.store.inst? inst).any (·.mayLeave) = true)
     (destinationChecked : destination.check start.store = .ok ())
     (selected : Endpoints.Core.childFromHistory start.host.writer.accepted handle = some tree)
-    (admitted : route.admits destination tree) :
-    ∃ labels, labels.all (· matches .tau) = true ∧
-      Machine.Steps profile ready (specDispatch ready (host (grow := grow) bindings)) start labels
-        { start with host := start.host.enter name type (route.args handle)
-                     ctl := ⟨thread, .prog (route.run destination inst tree start.host.nextTicket),
-                       .core core continuation :: segments⟩ :: rest } := by
+    (admitted : route.admits destination tree)
+    (impl : HostImpl (core3 grow) (HostState sig)) (embedder : impl.embedder = (host (grow := grow) bindings).embedder) :
+    ∃ labels, labels.all (· matches .tau) = true ∧ labels.length = 11 ∧
+      let reached := { start with
+        host := start.host.enter name type (route.args handle)
+        ctl := ⟨thread, .prog (route.run destination inst tree start.host.nextTicket), .core core continuation :: segments⟩ :: rest }
+      (∀ place, Prefix profile ready (specDispatch ready impl) start place labels reached
+        (((Edit.push (.core core continuation)).follow place).getD place)) ∧
+      Plain.HostFramedSteps HostState.writer profile ready (specDispatch ready impl) start labels reached := by
   cases route with
   | memory pointer =>
-    obtain ⟨labels, silent, steps⟩ := Plain.parked_give_payload bindings name type handle pointer inst destination
-      tree start thread profile ready parked calling linked caller mayLeave admitted destinationChecked selected
-    refine ⟨labels, silent, ?_⟩
+    obtain ⟨labels, silent, count, steps⟩ := Plain.parked_give_payload bindings name type handle pointer inst destination
+      tree start thread profile ready parked calling linked caller mayLeave admitted destinationChecked selected impl embedder
+    refine ⟨labels, silent, count, ?_⟩
     rw [GiveEffectRoute.run, ← OwnedMemory.Claims.Record.Effects.lowerPayloadRoot_eq]
     exact steps
   | flat payload =>
-    obtain ⟨labels, silent, steps⟩ := Plain.parked_give_flat bindings name type handle inst destination payload
-      tree start thread profile ready parked calling linked caller mayLeave destinationChecked selected admitted
-    refine ⟨labels, silent, ?_⟩
+    obtain ⟨labels, silent, count, steps⟩ := Plain.parked_give_flat bindings name type handle inst destination payload
+      tree start thread profile ready parked calling linked caller mayLeave destinationChecked selected admitted impl embedder
+    refine ⟨labels, silent, count, ?_⟩
     rw [GiveEffectRoute.run, ← OwnedMemory.Claims.Record.Effects.lowerPayloadRoot_eq]
     exact steps
 

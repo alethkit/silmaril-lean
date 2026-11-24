@@ -114,7 +114,8 @@ def focus (mode : Track) (destination : RecordDestination) (inst : InstId) (item
 
 /-- Follow the actual memory programs in field order. With each sibling, the
 canonical cursor read precedes the child; only common success starts the rest. -/
-def Replay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+def ReplayBetween (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (dispatch : Call (core3 grow) → Session grow sig (Ret (core3 grow)))
     (mode : Track) (destination : RecordDestination) (inst : InstId) (compare : FieldComparison grow sig)
     (checkNext : CheckNext grow sig) (canonNext : CanonNext grow sig) (finish : Finish grow sig) :
     List Field → Nat → Nat → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
@@ -125,9 +126,12 @@ def Replay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings
     let nextCheck := checkTail mode destination inst rest (index + 1) slot.2 checkNext
     let nextCanon := canonTail mode destination inst rest slot.2 canonNext
     let reference := focus mode destination inst item cursor right canon nextCanon
-    Steps profile ready (specDispatch ready (host bindings)) right mode.readLabels reference ∧
+    (∀ place, ReturnFrame.Occurrence.Prefix profile ready dispatch right place mode.readLabels reference place) ∧
     compare item index slot.1 left reference check canon nextCheck nextCanon
-      (Replay profile ready bindings mode destination inst compare checkNext canonNext finish rest (index + 1) slot.2)
+      (ReplayBetween profile ready dispatch mode destination inst compare checkNext canonNext finish rest (index + 1) slot.2)
+
+abbrev Replay (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig)) :=
+  ReplayBetween profile ready (specDispatch ready (host (grow := grow) bindings))
 
 def MixedSlot (destination : RecordDestination) (bytes : Nat) (item : Field) (address : Nat) : Prop :=
   CanonicalHandle item ∨ StringField.Fits destination item ∧
@@ -157,7 +161,7 @@ def nested (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings
     mixed profile ready bindings older destination inst item index address left right check canon checkNext canonNext finish ∨
       ∃ type children, item = .aggregate type children ∧
         let entered := enterAggregate destination inst children index address left check checkNext
-        Steps profile ready (specDispatch ready (host bindings)) left [.tau] entered ∧
+        (∀ place, ReturnFrame.Occurrence.Prefix profile ready (specDispatch ready (host bindings)) left place [.tau] entered place) ∧
           Replay profile ready bindings .fields destination inst (nested profile ready bindings older destination inst depth)
             (aggregateNext index checkNext) canonNext finish children 0 address entered right check canon
 
@@ -182,13 +186,7 @@ def publishCanonical (destination : RecordDestination) (inst : InstId) (pointer 
 def DescriptorThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (output : Lower.Output) (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
     (next : ValueFinish grow sig output) : Finish grow sig := fun left right check canon =>
-  let dispatch := specDispatch ready (host bindings)
-  let lhs := fun store => localLeafEnd left left.host store check.thread check.frames check.rest (fun value => checkNext (.ok value))
-  let rhs := fun store => localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext
-  ∃ store verdict labels, LocalLeafLabels verdict labels ∧
-    CoreGrowthSteps profile ready dispatch left labels (lhs store verdict) ∧
-    CoreGrowthSteps profile ready dispatch right labels (rhs store verdict) ∧
-    ∀ value, verdict = .ok value → next value (lhs store (.ok value)) (rhs store (.ok value)) check canon
+  LocalThen profile ready bindings left right check canon (fun value => checkNext (.ok value)) canonNext next
 
 /-- The actual admitted value-mode collection tail: strided entries followed
 by the descriptor only on common success. Indirect maps do not use it. -/
@@ -222,17 +220,22 @@ def ValueListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) 
         Core3.Grows initial.store.core reached.store.core ∧ reached.ctl = check.control (checkNext (.ok value)) ∧
         canonical.ctl = canon.control (canonNext value)))
 
-def ListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+def RecursiveValueReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
-    (compare : FieldComparison grow sig) (element : TypeOf) (entries : List Field) (index : Nat) (output : Lower.Output)
+    (compare : FieldComparison grow sig) (type element : TypeOf) (entries : List Field) (index : Nat) (output : Lower.Output)
     (checkNext : ValueCheckNext grow sig output) (canonNext : ValueCanonNext grow sig output)
     (finish : ValueFinish grow sig output)
     (initial reference last : State grow sig) (cursor : Cursor (E := core3 grow) (HostState sig)) (pointer : Nat)
     (seen : List (Label (core3 grow) (HostState sig))) : Prop :=
-  CollectionVisit.Outcome profile ready bindings older destination inst (.list element) (layout destination.width element)
+  CollectionVisit.Outcome profile ready bindings older destination inst type (layout destination.width element)
     entries index pointer output initial reference last cursor checkNext canonNext seen
     (fun _ => ValueEntriesReplay profile ready bindings destination inst compare element entries index pointer output
       checkNext canonNext finish)
+
+abbrev ListReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (compare : FieldComparison grow sig) (element : TypeOf) :=
+  RecursiveValueReturn profile ready bindings older destination inst compare (.list element) element
 
 def mapTail (destination : RecordDestination) (inst : InstId) (key : WIT.KeyType) (element : TypeOf)
     (entries : List Field) (cursor : Nat) : Session grow sig Unit :=
@@ -255,7 +258,7 @@ def MapEntriesReplay (profile : ProfileKind) (ready : HostReady (HostState sig))
     let nextCanon : CanonNext grow sig := fun () => mapTail destination inst key element rest (cursor + stride) >>= canonNext
     ∃ keyField valueField, entry = .aggregate type [keyField, valueField] ∧
       let entered := enterAggregate destination inst [keyField, valueField] index cursor left check nextCheck
-      Steps profile ready (specDispatch ready (host bindings)) left [.tau] entered ∧
+      ReturnFrame.Occurrence.RetainsActiveSlots profile ready (specDispatch ready (host bindings)) left [.tau] entered ∧
       Replay profile ready bindings .placedFields destination inst compare (aggregateNext index nextCheck) nextCanon
         (MapEntriesReplay profile ready bindings destination inst compare key element checkNext canonNext finish rest (index + 1) (cursor + stride))
         [keyField, valueField] 0 cursor entered right check canon
@@ -279,14 +282,14 @@ def MapReturn (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindi
 inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop where
   | handle {depth item} : CanonicalHandle item → ListTreeShape stringLeaf depth item
   | string {depth item} : stringLeaf item → ListTreeShape stringLeaf depth item
-  | scalar {depth primitive} (payload : Stored.Payload (.prim primitive)) : primitive ≠ .string →
-      ListTreeShape stringLeaf depth (.data (.prim primitive) payload)
+  | scalar {depth type} (payload : Stored.Payload type) : LocalDataType type →
+      ListTreeShape stringLeaf depth (.data type payload)
   | aggregate {depth type items} : (∀ item ∈ items, ListTreeShape stringLeaf depth item) →
       ListTreeShape stringLeaf (depth + 1) (.aggregate type items)
   | list {depth element entries} : (∀ item ∈ entries, ListTreeShape stringLeaf depth item) →
       ListTreeShape stringLeaf (depth + 1) (.dynamic (.list element) element entries)
   | map {depth key element entries} :
-      (∀ entry ∈ entries, ∃ keyField valueField, entry = .aggregate (.record (mapEntryFields key element)) [keyField, valueField]) →
+      (∀ entry ∈ entries, ∃ fields, entry = .aggregate (.record (mapEntryFields key element)) fields) →
       (∀ entry ∈ entries, ∀ fields, entry = .aggregate (.record (mapEntryFields key element)) fields →
         ∀ field ∈ fields, ListTreeShape stringLeaf depth field) →
       ListTreeShape stringLeaf (depth + 1) (.dynamic (.map key element) (.record (mapEntryFields key element)) entries)
@@ -296,21 +299,15 @@ inductive ListTreeShape (stringLeaf : Field → Prop) : Nat → Field → Prop w
   | fixed {depth element length entries} : (∀ item ∈ entries, ListTreeShape stringLeaf depth item) →
       ListTreeShape stringLeaf (depth + 1) (.fixed element length entries)
 
+def LocalData (item : Field) : Prop :=
+  ∃ (type : TypeOf) (payload : Stored.Payload type), item = .data type payload ∧ LocalDataType type
+
 def memoryLeaf (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId) :
     FieldComparison grow sig := fun item index address left right check canon checkNext canonNext finish =>
   mixed profile ready bindings older destination inst item index address left right check canon checkNext canonNext finish ∨
-    ∃ (primitive : WIT.Primitive) (payload : Stored.Payload (.prim primitive)),
-      item = .data (.prim primitive) payload ∧ primitive ≠ .string ∧
-      ∃ store result checkLabels canonLabels,
-        let lhs := localLeafEnd left left.host store check.thread check.frames check.rest (fun value => checkNext (.ok value)) result
-        let rhs := localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result
-        Steps profile ready (specDispatch ready (host bindings)) left checkLabels lhs ∧
-        Steps profile ready (specDispatch ready (host bindings)) right canonLabels rhs ∧
-        visible checkLabels = visible canonLabels ∧
-        match result with
-        | .ok _ => finish lhs rhs check canon
-        | .error reason => ∃ leading, visible canonLabels = leading ++ [.trap reason]
+    LocalData item ∧
+    LocalFieldThen profile ready bindings (.memory address) left right check canon checkNext canonNext (fun () => finish)
 
 def SumThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
     (destination : RecordDestination) (inst : InstId) (compare : FieldComparison grow sig)
@@ -324,11 +321,14 @@ def SumThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (binding
     let rhs := localLeafEnd right right.host store canon.thread canon.frames canon.rest
       (sumCanonicalNext destination inst selected address canonNext) result
     Steps profile ready (specDispatch ready (host bindings)) left checkLabels lhs ∧
-    Steps profile ready (specDispatch ready (host bindings)) right canonLabels rhs ∧
+    LocalSteps profile ready (specDispatch ready (host bindings)) right canonLabels rhs ∧
     visible checkLabels = visible canonLabels ∧
     match result with
     | .error reason => ∃ leading, visible canonLabels = leading ++ [.trap reason]
-    | .ok () => match selected with
+    | .ok () =>
+      ReturnFrame.Occurrence.RetainsActiveSlots profile ready (specDispatch ready (host bindings)) left checkLabels lhs ∧
+      ReturnFrame.Occurrence.RetainsActiveSlots profile ready (specDispatch ready (host bindings)) right canonLabels rhs ∧
+      match selected with
       | none => finish lhs rhs check canon
       | some item => compare item 0 address lhs rhs check canon (aggregateNext index checkNext) canonNext finish
 
@@ -343,7 +343,7 @@ def listTree (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindin
     memoryLeaf profile ready bindings older destination inst item index address left right check canon checkNext canonNext finish ∨
       (∃ type children, item = .aggregate type children ∧
         let entered := enterAggregate destination inst children index address left check checkNext
-        Steps profile ready (specDispatch ready (host bindings)) left [.tau] entered ∧
+        (∀ place, ReturnFrame.Occurrence.Prefix profile ready (specDispatch ready (host bindings)) left place [.tau] entered place) ∧
           Replay profile ready bindings .fields destination inst child (aggregateNext index checkNext) canonNext finish
             children 0 address entered right check canon) ∨
       (∃ element entries, item = .dynamic (.list element) element entries ∧
@@ -366,8 +366,31 @@ def listTree (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindin
       ∃ element length entries, item = .fixed element length entries ∧
         let mode := Track.elements (layout destination.width element).size
         let reference := { right with ctl := canon.control (mode.canonical destination inst entries address >>= canonNext) }
-        Steps profile ready (specDispatch ready (host bindings)) right [.tau] reference ∧
+        ReturnFrame.Occurrence.RetainsActiveSlots profile ready (specDispatch ready (host bindings)) right [.tau] reference ∧
           Replay profile ready bindings mode destination inst child (aggregateNext index checkNext) canonNext finish
             entries 0 address left reference check canon
+
+def FlatAllocatingLeaf (stringLeaf : Field → Prop) (entryDepth : Nat) (item : Field) : Prop :=
+  (CanonicalHandle item ∨ stringLeaf item) ∨ LocalData item ∨
+    ∃ type element entries, item = .dynamic type element entries ∧
+      ∀ entry ∈ entries, ListTreeShape stringLeaf entryDepth entry
+
+/-- A collection in a flat sequence enters the memory comparison at its
+actual allocator return. Typed refusal stops the checked sequence before
+its following siblings; only common success contributes descriptor words. -/
+def flatAllocating (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+    (older : ReturnFrame.Substitutions (core3 grow) (HostState sig)) (destination : RecordDestination) (inst : InstId)
+    (entryDepth : Nat) : FlatFieldComparison grow sig := fun item index left right check canon checkNext canonNext finish =>
+  mixedFlatComparison profile ready bindings older destination inst item index left right check canon checkNext canonNext finish ∨
+    (LocalData item ∧ LocalFieldThen profile ready bindings .flat left right check canon checkNext canonNext finish) ∨
+    ∃ type element entries, item = .dynamic type element entries ∧
+      match Record.prepare left.store left.host.writer (Field.listObjects entries) with
+      | .error _ => ReachesKeeping profile ready (specDispatch ready (host bindings)) (fun _ => True)
+          left right check canon checkNext canonNext
+      | .ok () => CollectionReplayFor profile ready bindings older destination inst type element entries index .flat
+          left right check canon checkNext canonNext
+          (RecursiveValueReturn profile ready bindings older destination inst
+            (listTree profile ready bindings older destination inst entryDepth) type element entries index .flat
+            checkNext canonNext finish)
 
 end Silmaril.Wasm.Game.HandleAccept.Wit.Stored.OwnedMemory.Claims.Core.Scheduled.LinkedCallback.MemorySequence
