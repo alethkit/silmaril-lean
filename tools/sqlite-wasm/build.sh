@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# != 2 ]]; then
-  echo "usage: $0 ARCHIVE_DIR OUTPUT.wasm" >&2
+if [[ $# != 2 && $# != 3 ]]; then
+  echo "usage: $0 ARCHIVE_DIR OUTPUT.wasm [OUTPUT.map]" >&2
   exit 2
 fi
 archives=$(realpath "$1")
 output=$(realpath -m "$2")
+link_map=()
+if [[ $# == 3 ]]; then
+  map=$(realpath -m "$3")
+  if [[ "$map" == "$output" ]]; then
+    echo "Wasm and link map paths must differ" >&2
+    exit 2
+  fi
+  link_map=(-Wl,--Map=sqlite3.map)
+fi
 manifest=$(dirname "$(realpath "$0")")/artifact.sha256
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -30,10 +39,13 @@ HASHES
   wasi-sdk-30.0-x86_64-linux/bin/clang \
     -Os -mexec-model=reactor \
     -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_WAL -DSQLITE_TEMP_STORE=3 \
-    -Wl,--strip-all -Wl,--export=sqlite3_libversion_number \
+    -Wl,--strip-all "${link_map[@]}" -Wl,--export=sqlite3_libversion_number \
     -Wl,--export=sqlite3_open -Wl,--export=sqlite3_prepare_v2 -Wl,--export=sqlite3_step \
     -Wl,--export=sqlite3_column_int -Wl,--export=sqlite3_finalize -Wl,--export=sqlite3_close \
     -Wl,--export=malloc -Wl,--export=free sqlite-amalgamation-3540100/sqlite3.c -o sqlite3.wasm
   sha256sum --check "$manifest"
 )
 install -m 0644 "$tmp/sqlite3.wasm" "$output"
+if [[ $# == 3 ]]; then
+  install -m 0644 "$tmp/sqlite3.map" "$map"
+fi
