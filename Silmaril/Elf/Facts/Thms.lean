@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Elf.Facts.Defs
+import Silmaril.Proofs.Elf.Facts.CodeAt
 
 /-! # Facts: uniqueness, frame, compound
 
@@ -8,6 +9,7 @@ PROVED (no `sorry`, no new axiom):
 
 * `parses_unique`: a file has at most one parse;
 * `Lookup.unique`, `SymbolAt.unique`: facts are functions of the file;
+* `CodeAt.unique`: the file, address and byte count determine the code bytes;
 * `lookup_frame`, `symbolAt_frame`, `needed_frame`, `relocs_frame`: every AST-level fact holds of
   `G` as soon as `G` parses to the same AST as `F` (with `Task.parse_frame`, whatever its code
   bytes);
@@ -39,6 +41,11 @@ theorem SymbolAt.unique {F : Blob} {t : Table} {i : Nat} {s s' : Silmaril.Format
   obtain ⟨B, hB, hs'⟩ := h₂
   cases parses_unique hA hB
   exact Option.some.inj (hs.symm.trans hs')
+
+/-- The same ELF file, address and byte count determine the same code bytes. -/
+theorem CodeAt.unique {F : Blob} {v : Nat} {xs ys : List (BitVec 8)}
+    (hx : CodeAt F v xs) (hy : CodeAt F v ys) (hl : xs.length = ys.length) : xs = ys :=
+  Silmaril.Proofs.Elf.Facts.codeAt_unique hx hy hl
 
 /-- **Lookup frame**: a lookup fact depends only on the parse. -/
 theorem lookup_frame {F G : Blob} {A : File} (hF : Parses F A) (hG : Parses G A)
