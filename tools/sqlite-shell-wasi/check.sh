@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo 'usage: check.sh WORK_DIR [SQLITE_LEAN_EXE]' >&2
+if [[ $# -lt 1 || $# -gt 3 ]]; then
+  echo 'usage: check.sh WORK_DIR [SQLITE_LEAN_EXE [SQLITE_IMAGE_LEAN_EXE]]' >&2
   exit 2
 fi
 
@@ -10,8 +10,11 @@ tool=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$tool/../.." && pwd)
 source "$tool/pins.sh"
 work=$(cd "$1" && pwd)
-lean_shell=()
-if [[ $# == 2 ]]; then lean_shell=("$(realpath "$2")"); fi
+shift
+lean_bins=()
+for exe in "$@"; do
+  lean_bins+=("$(realpath "$exe")")
+done
 check_sha "$shell_sha" "$work/sqlite3.wasm"
 
 tmp=$(mktemp -d "$work/check.XXXXXX")
@@ -38,4 +41,4 @@ ln -s "$native/libsqlite3.so" "$tmp/libsqlite3.so.0"
 cd "$repo"
 lake build --wfail +Silmaril.Cli.Spec.SqliteShell.Defs +Silmaril.Cli.Io.Run.Defs
 lake env lean -DautoImplicit=false -DwarningAsError=true --run "$tool/Check.lean" \
-  "$tmp/$wasmtime/wasmtime" "$work/sqlite3.wasm" "$native/sqlite3" "$tmp" "${lean_shell[@]}"
+  "$tmp/$wasmtime/wasmtime" "$work/sqlite3.wasm" "$native/sqlite3" "$tmp" "${lean_bins[@]}"

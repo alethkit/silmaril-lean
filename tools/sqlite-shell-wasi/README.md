@@ -78,10 +78,12 @@ unknown-option diagnostic includes the respective `argv[0]`. The native
 shell returns usage diagnostics for bare `.shell` and `.load`. WASI reports
 those commands as unknown.
 
-The guest creates a clean two-page `sample.sqlite` in a preopened directory.
-The runner uses those bytes to check four SELECTs against both upstream
-shells, verifies that opening the same fixture without a preopen fails, and
-checks for new or modified regular files after the read-only cases.
+Both upstream shells run the same CREATE and INSERT script in fresh
+directories, with a preopen for WASI. The runner checks exit status, both
+streams and byte equality of the resulting two-page `sample.sqlite`. It
+uses those bytes to check four SELECTs and verifies that the same fixture
+fails to open without a preopen. Read-only cases check for new or modified
+regular files.
 
 The [Lean adapter](../../Silmaril/Cli/Spec/SqliteShell/Defs.lean) builds argv
 for either implementation and reads the CLI harness's `Snap`. Its common view
@@ -94,18 +96,24 @@ expectation. The harness observes final stdout/stderr, exit status and new
 or changed file contents. It has no read trace, deletion trace, or count of
 stdin bytes consumed.
 
-### Optional comparison with the native Lean shell
+### Optional comparisons with the native Lean tools
 
-Only the checks enabled by the second argument use the portable shell from
-PR #2077. They check four typed SELECT results and its rejection of the
-aggregate and DELETE statements. Build `sqlite_lean` at the tested revision
-with `lake build --wfail sqlite_lean` and pass its executable to the runner.
-[Tested revision](https://github.com/hiloopai/silmaril-lean/tree/2c8a4b344e8751ffe5e2320b55a0aa7d7108dd2f) ·
-[Portable-shell PR](https://github.com/hiloopai/silmaril-lean/pull/2077)
+Passing `sqlite_lean` as the second argument adds four typed SELECT checks
+and two rejection checks. That is the part that uses the portable shell
+landed in PR #2077. Passing `sqlite_image_lean` as the third argument also
+tests the image writer landed in PR #2078. Both build from main.
+[Portable-shell profile](../../docs/projects/sqlite-shell.md) ·
+[Image writer profile](../../docs/projects/sqlite-image.md)
 
 ```sh
-tools/sqlite-shell-wasi/check.sh "$work" /path/to/.lake/build/bin/sqlite_lean
+lake build --wfail sqlite_lean sqlite_image_lean
+tools/sqlite-shell-wasi/check.sh "$work" .lake/build/bin/sqlite_lean .lake/build/bin/sqlite_image_lean
 ```
+
+The Lean writer creates a fresh file from the same signed rowid and amount
+pairs supplied to the C shells. All three readers reopen the Lean-created
+file and return the expected ordered rows. This compares schema and data
+through a query. Only the two upstream C outputs are compared byte for byte.
 
 The Lean shell requires `--immutable` and a clean, stable 1024-byte snapshot
 with the supported schema. The checked overlap consists of an ordered scan,

@@ -26,8 +26,24 @@ private def output (stdout : String := "") (stderr : String := "") (exit : ExitC
     Snap :=
   { stdout := utf8 stdout, stderr := utf8 stderr, exit }
 
-private def runChecks (wasmtime wasm sqlite libDir : String) (leanShell : Option String) :
-    IO Unit := do
+private def expectDatabase (name database : String) (snap : Snap) : IO Bytes := do
+  let [(path, bytes)] := snap.files
+    | throw (IO.userError s!"FAIL: {name}: expected a single output file, got {showSnap snap}")
+  expect name
+    (snap.exit == 0 && snap.stdout.isEmpty && snap.stderr.isEmpty &&
+      path == [database] && bytes.length == 1024 && bytes.take 16 == utf8 "SQLite format 3\x00")
+    (showSnap snap)
+  return bytes
+
+private def compareUpstream (native wasi : Runner) (database : String)
+    (fixture : List (String × Bytes)) (name sql : String) (expected : Rows) : IO Unit := do
+  let c : Case := { name, args := Shell.upstream.args database sql, files := fixture }
+  let snap ← wasi c
+  expectSnap s!"WASI/native raw {name}" snap (← native c)
+  expectRows s!"WASI/native typed {name}" .upstream snap expected
+
+private def runChecks (wasmtime wasm sqlite libDir : String)
+    (leanShell leanWriter : Option String) : IO Unit := do
   let native : Runner := fun c =>
     runBinary sqlite [] { c with env := [("HOME", "."), ("LD_LIBRARY_PATH", libDir)] }
   let wasi (preopen : Bool) : Runner := fun c =>
@@ -71,30 +87,28 @@ private def runChecks (wasmtime wasm sqlite libDir : String) (leanShell : Option
       (output "" s!"Error: unknown command or invalid arguments:  \"{command}\". Enter \".help\" for help\n" 1)
 
   let database := "sample.sqlite"
+  let values : List (Int × Int) :=
+    [(5, -10), (-9223372036854775808, 7), (9223372036854775807, 0), (1, 9)]
+  let inserts := ",".intercalate (values.map fun (id, amount) => s!"({id},{amount})")
   let create : Case := { name := "create sample", args := ["-batch", database,
     "PRAGMA page_size=512; CREATE TABLE sample(id INTEGER PRIMARY KEY, amount INTEGER NOT NULL) STRICT; " ++
-    "INSERT INTO sample VALUES(5,-10),(-9223372036854775808,7),(9223372036854775807,0),(1,9);"] }
+    s!"INSERT INTO sample VALUES{inserts};"] }
   let created ← wasi true create
-  let [(path, bytes)] := created.files
-    | throw (IO.userError s!"expected one database after WASI create, got {showSnap created}")
-  expect "WASI preopen creates a 1024-byte SQLite database"
-    (created.exit == 0 && created.stdout.isEmpty && created.stderr.isEmpty &&
-      path == [database] && bytes.length == 1024 && bytes.take 16 == utf8 "SQLite format 3\x00")
-    (showSnap created)
+  let bytes ← expectDatabase "WASI preopen creates a 1024-byte SQLite database" database created
+  expectSnap "native and WASI CREATE produce identical database bytes" (← native create) created
   let fixture := [(database, bytes)]
+  let scan := "SELECT * FROM sample ORDER BY id;"
+  let ordered : Rows :=
+    ⟨["id", "amount"], [[-9223372036854775808, 7], [1, 9], [5, -10], [9223372036854775807, 0]]⟩
   let cases : List (String × String × Rows) := [
-    ("ordered scan", "SELECT * FROM sample ORDER BY id;",
-      ⟨["id", "amount"], [[-9223372036854775808, 7], [1, 9], [5, -10], [9223372036854775807, 0]]⟩),
+    ("ordered scan", scan, ordered),
     ("projection and slicing", "SELECT amount,id FROM sample ORDER BY id LIMIT 2 OFFSET 1;",
       ⟨["amount", "id"], [[9, 1], [-10, 5]]⟩),
     ("point lookup", "SELECT amount FROM sample WHERE id=-9223372036854775808;",
       ⟨["amount"], [[7]]⟩),
     ("empty point lookup", "SELECT id FROM sample WHERE id=4;", ⟨["id"], []⟩)]
   for (name, sql, expected) in cases do
-    let upstream : Case := { name, args := Shell.upstream.args database sql, files := fixture }
-    let snap ← wasi true upstream
-    expectSnap s!"WASI/native raw {name}" snap (← native upstream)
-    expectRows s!"WASI/native typed {name}" .upstream snap expected
+    compareUpstream native (wasi true) database fixture name sql expected
     if let some exe := leanShell then
       let snap ← runBinary exe [] { name, args := Shell.lean.args database sql, files := fixture }
       expectRows s!"Lean typed {name}" .lean snap expected
@@ -134,10 +148,24 @@ private def runChecks (wasmtime wasm sqlite libDir : String) (leanShell : Option
   else
     IO.println "SKIP: Lean executable comparison (pass SQLITE_LEAN_EXE to check.sh)"
 
+  if let some writer := leanWriter then
+    let args := database :: values.flatMap (fun (id, amount) => [toString id, toString amount])
+    let created ← runBinary writer [] { name := "Lean create", args }
+    let bytes ← expectDatabase "Lean writer creates a 1024-byte SQLite database" database created
+    let fixture := [(database, bytes)]
+    compareUpstream native (wasi true) database fixture "scan of Lean-created database" scan ordered
+    if let some reader := leanShell then
+      let snap ← runBinary reader [] {
+        name := "scan of Lean-created database"
+        args := Shell.lean.args database scan
+        files := fixture
+      }
+      expectRows "Lean typed scan of Lean-created database" .lean snap ordered
+
 public def main : List String → IO UInt32
   | wasmtime :: wasm :: sqlite :: libDir :: rest => do
-    runChecks wasmtime wasm sqlite libDir rest.head?
+    runChecks wasmtime wasm sqlite libDir rest[0]? rest[1]?
     return 0
   | _ => do
-    IO.eprintln "usage: Check.lean WASMTIME WASM NATIVE_SQLITE NATIVE_LIB_DIR [SQLITE_LEAN_EXE]"
+    IO.eprintln "usage: Check.lean WASMTIME WASM NATIVE_SQLITE NATIVE_LIB_DIR [SQLITE_LEAN_EXE [SQLITE_IMAGE_LEAN_EXE]]"
     return 2
