@@ -16,6 +16,7 @@ mkdir -p "$src"
 
 bash "$tool/build.sh" "$archives" "$work/sqlite3.wasm"
 bash "$tool/quote.sh" "$tool/reactor.json" "$work/sqlite3.wasm" "$src"
+bash "$tool/check-artifact.sh" "$work/sqlite3.wasm" "$src"
 cp "$tool"/{VersionModel,VersionCheck,Replay}.lean "$src/"
 lake build --wfail +Silmaril.Wasm.Binaryen.Exe.Decode \
   +Silmaril.Wasm.Binaryen.Interp +Silmaril.Wasm.ModuleParts.Defs
