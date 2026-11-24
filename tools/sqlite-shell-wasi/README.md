@@ -17,9 +17,13 @@ tools/sqlite-shell-wasi/check.sh "$work"
 ```
 
 The build writes `$work/sqlite3.wasm` and verifies its SHA-256. Downloaded
-release archives are cached in `$work/downloads`. The check validates the
-core module, compares its typed imports and exports with [the pinned inventory](interface.txt),
-then runs it under Wasmtime against the [native corpus shell and library](../../corpus/elf/sqlite/x86_64/receipt.json).
+release archives are cached in `$work/downloads`. The default check validates
+the core module and its typed imports and exports, compiles the Lean CLI
+harness, and runs Wasmtime against the pinned native C corpus shell and
+library. These commands need only the files and dependencies on this branch.
+[Typed import and export inventory](interface.txt) ·
+[Native C corpus provenance](../../corpus/elf/sqlite/x86_64/receipt.json)
+
 The guest itself needs only a WASI Preview 1 command runtime. With the pinned
 Wasmtime CLI, the two input modes can be run as follows:
 
@@ -90,9 +94,12 @@ expectation. The harness observes final stdout/stderr, exit status and new
 or changed file contents. It has no read trace, deletion trace, or count of
 stdin bytes consumed.
 
-To include the native Lean shell in the comparison, build `sqlite_lean`
-at the tested revision with `lake build --wfail sqlite_lean` and pass its
-executable to the runner.
+### Optional comparison with the native Lean shell
+
+Only the checks enabled by the second argument use the portable shell from
+PR #2077. They check four typed SELECT results and its rejection of the
+aggregate and DELETE statements. Build `sqlite_lean` at the tested revision
+with `lake build --wfail sqlite_lean` and pass its executable to the runner.
 [Tested revision](https://github.com/hiloopai/silmaril-lean/tree/2c8a4b344e8751ffe5e2320b55a0aa7d7108dd2f) ·
 [Portable-shell PR](https://github.com/hiloopai/silmaril-lean/pull/2077)
 
