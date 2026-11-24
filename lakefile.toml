@@ -784,6 +784,10 @@ name = "sqlite_file_format_compatibility"
 srcDir = "tests/formats/sqlite-tranche"
 root = "Compatibility"
 
+[[lean_lib]]
+name = "SqliteCreate"
+srcDir = "tools/sqlite-lean"
+
 [[lean_exe]]
 name = "sqlite_lean"
 srcDir = "tools/sqlite-lean"
