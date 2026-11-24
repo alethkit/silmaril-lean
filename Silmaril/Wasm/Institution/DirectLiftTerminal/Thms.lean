@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Institution.DirectLiftTerminal.Defs
+public import Silmaril.Wasm.Institution.Operational.Thms
 public import Mathlib.CategoryTheory.ComposableArrows.Basic
 import Silmaril.Proofs.Wasm.Institution.DirectLiftTerminal
 
@@ -9,9 +10,11 @@ import Silmaril.Proofs.Wasm.Institution.DirectLiftTerminal
 namespace Silmaril.Wasm.Institution.DirectLiftTerminal
 
 open CategoryTheory Silmaril.Logic.Institution
-open Silmaril.Wasm.Execution.Core
+open Silmaril.Logic.Operational (Runs)
+open Silmaril.Wasm.Execution.Core Silmaril.Wasm.SingleThreaded
 open Silmaril.Wasm.Component (CallOutcome)
 open Silmaril.Wasm.Component.Reference (SimpleExport)
+open Silmaril.Wasm.Component.Reference.DirectLift (Reports)
 open Silmaril.Wasm.Numerics (Profile)
 
 noncomputable section
@@ -21,6 +24,17 @@ theorem ComponentModel.reaches_iff {P : Profile} {x : SimpleExport} (model : Com
     (out : CallOutcome) (store : Store Nat) :
     model.reaches out store ↔ coreReaches P x model.reduct out store :=
   Proofs.Wasm.Institution.DirectLiftTerminal.reaches_iff model out store
+
+/-- A certified direct wire reports exactly the ABI outcomes and final stores of
+finite, unit-labelled Core runs from its reduct under the host-free semantics. -/
+theorem ComponentModel.operationalReaches_iff {P : Profile} {x : SimpleExport}
+    (model : ComponentModel P x) (out : CallOutcome) (store : Store Nat) :
+    model.reaches out store ↔
+      ∃ (final : Config Nat) (result : Result) (labels : List Unit),
+        Runs (Operational.system P (Det.noHost : HostSemantics Nat)).model
+          (Operational.encode model.reduct) labels (Operational.encode final) ∧
+        final.code = result.toAdmin ∧ Reports x out result ∧ store = final.store :=
+  Proofs.Wasm.Institution.DirectLiftTerminal.operationalReaches_iff model out store
 
 /-- Sentences keep the same ABI and store predicate; component models reduce
 contravariantly to Core invocations. Satisfaction uses `reaches_iff` in both directions. -/

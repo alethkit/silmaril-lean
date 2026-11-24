@@ -78,6 +78,13 @@ reachability, not traces, divergence, repeated calls, or arbitrary ABI changes.
 This is separate from the [SpecTec institution](../../Silmaril/Wasm/SpecTec/Institution/Thms.lean)
 and makes no native Lime runtime claim. No fuel is introduced.
 
+`ComponentModel.operationalReaches_iff` expresses the same terminal observation
+using the [Core operational adapter](operational-institutions.md). A certified
+direct-wire call reports an ABI outcome and store exactly when a finite
+unit-labelled run from its encoded Core reduct ends in a configuration with
+matching terminal code, ABI report and store. The Core run uses `Det.noHost`
+and the adapter encodes the complete Core configuration.
+
 ```sh
 make check CHECK_TARGETS='+Silmaril.Wasm.Profiles.Syntax.Components.Thms +Silmaril.Wasm.Profiles.Syntax.LimeScalar.Thms +Silmaril.Wasm.Execution.Core.Entry.Program.Thms +Silmaril.Wasm.Execution.Core.Entry.Program.Versions.Thms +Silmaril.Semantics.Operational.Determinism.Fuel.Thms +Silmaril.Wasm.Component.IntrinsicWiring.Lift.Observation.Thms +Silmaril.Wasm.Component.Reference.DirectLift.Thms'
 make check CHECK_TARGETS='+Silmaril.Wasm.Institution.DirectLiftTerminal.Thms +Silmaril.Wasm.Component.Reference.Validation.FunctionPorts.Thms'
