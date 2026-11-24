@@ -7,6 +7,10 @@ on:
         type: boolean
         default: false
         description: Allow a manual cache seed to finish a cold build
+    outputs:
+      full-suite:
+        description: The prove job selected the full main-push test suite
+        value: ${{ jobs.prove.outputs.full-suite }}
 
 permissions:
   contents: read
@@ -92,6 +96,8 @@ jobs:
       !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
     name: check on prove
     runs-on: ubuntu-24.04
+    outputs:
+      full-suite: ${{ steps.targets.outputs.full-suite }}
     # Main after a toolchain change, or a seed dispatch, may build cold: 90 minutes.
     timeout-minutes: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.seed)) && 90 || 30 }}
     permissions:
@@ -100,7 +106,7 @@ jobs:
       id-token: write
     env:
       AWS_REGION: us-east-1
-      CLIENT: s3://hiloop-lean-cas-607856468300-us-east-1/clients/647a11c937bf/
+      CLIENT: s3://hiloop-lean-cas-607856468300-us-east-1/clients/44c877ffdf9d/
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -111,15 +117,26 @@ jobs:
       - name: Install the shared Lake cache
         uses: ./.github/actions/lake-cache-tool
       - name: Choose the Lake targets
+        id: targets
         # A pull request checks what its diff can change (HEAD^1 is the base of the
-        # merge commit); main, a manual or a nightly check covers everything.
+        # merge commit); main, a manual or a nightly check covers everything. The prove client
+        # takes `CHECK_TARGETS=…` as one argv element of at most 4096 characters (#752): a
+        # longer narrowed list falls back to the full list, which covers it
+        # (scripts/ci-targets.py; it fails rather than drop a target).
         run: |
-          targets=$(make -s scope BASE=${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }})
+          scoped=$(make -s scope BASE=${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }})
+          full=$(make -s scope)
+          targets=$(python3 scripts/ci-targets.py --scoped "$scoped" --full "$full")
           echo "CHECK_TARGETS=$targets" >> "$GITHUB_ENV"
+          full_suite=false
+          if [ -n "$targets" ] && [ "$targets" = "$full" ]; then
+            full_suite=true
+          fi
+          echo "full-suite=$full_suite" >> "$GITHUB_OUTPUT"
           echo "Lake targets: ${targets:-none, so only the source gates run}"
       - name: Run the source gates
         if: env.CHECK_TARGETS == ''
-        run: make check
+        run: make check CHECK_TARGETS=''
       - name: Assume the Lean CAS role
         if: env.CHECK_TARGETS != ''
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
@@ -137,9 +154,9 @@ jobs:
           aws s3 cp --only-show-errors --recursive "$CLIENT" "$RUNNER_TEMP/client/"
           cd "$RUNNER_TEMP/client"
           sha256sum -c - <<'SUMS'
-          486c9ee5e69730847fd736461821b001ecd54de6a5585d00a67539273302bbeb  hiloop_prove-0.0.0-py3-none-any.whl
-          5a4c63f15e57b9f5e213f2955ebbdcbe66e0b3cac4333de60c72ce208e0d853e  hiloop_common-0.0.0-py3-none-any.whl
-          446b51555965b40af2db8a3c4285b14315da0ae9d17e96b7364053112133220d  requirements.txt
+          b2f003e8e74ead8f518479393291c7583000522a97fb6a31ed0e7f4f24c7f207  hiloop_prove-0.0.0-py3-none-any.whl
+          420259361be97bc1671dda8aa018f6639530c412f1227df3cc574e9dc07c19d2  hiloop_common-0.0.0-py3-none-any.whl
+          3ddc5058cd450658327cdb34709d65e11a07cfc3e4d1c3e1d34eafb2db830028  requirements.txt
           SUMS
           uv venv -q "$RUNNER_TEMP/prove"
           VIRTUAL_ENV="$RUNNER_TEMP/prove" uv pip install -q --require-hashes -r requirements.txt

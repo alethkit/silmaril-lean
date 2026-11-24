@@ -1224,6 +1224,7 @@ public import Silmaril.Logic.TypeTheory.LambdaPi.TypedEquality.Structural.Thms
 public import Silmaril.Logic.TypeTheory.LambdaPi.TypedEquality.Substitution.Defs
 public import Silmaril.Logic.TypeTheory.LambdaPi.TypedEquality.Substitution.Thms
 public import Silmaril.Logic.TypeTheory.LambdaPi.TypedEquality.Thms
+public import Silmaril.LogicGraph.Edges.Logic.Arithmetic.Defs
 public import Silmaril.LogicGraph.Nodes.Defs
 public import Silmaril.Wasm.InstObs.Defs
 

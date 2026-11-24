@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "sqlite_version": "3.54.1",
+  "source_archive_sha256": "0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9",
+  "artifact_sha256": "8932b867f5dbf0ad4e07f090cda52cf291829b3d51368cbd509b7c00be819c57",
+  "profile": "wasi-preview1-reactor"
+}

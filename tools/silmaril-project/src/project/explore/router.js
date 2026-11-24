@@ -15,17 +15,6 @@
 // Every query of a superseded rendering rejects with `Superseded` (ignored by the router), so a
 // slow query of an old route or an old database never writes into the current page.
 class Superseded extends Error { constructor() { super("superseded"); this.name = "Superseded"; } }
-const VIEWS = new Map();
-function registerView(v) {
-  if (!v || typeof v.id !== "string" || !/^[a-z][a-z0-9-]*$/.test(v.id)) throw new Error("registerView: id must match [a-z][a-z0-9-]*");
-  if (VIEWS.has(v.id)) throw new Error(`registerView: ${v.id} is registered twice`);
-  if (typeof v.render !== "function") throw new Error(`registerView: ${v.id} has no render`);
-  VIEWS.set(v.id, Object.freeze({ id: v.id, title: v.title || v.id, nav: v.nav, tab: v.tab || v.id, render: v.render }));
-}
-function renderNav() {
-  const nav = [...VIEWS.values()].filter((v) => typeof v.nav === "number").sort((a, b) => a.nav - b.nav);
-  $("#nav").innerHTML = nav.map((v) => `<a href="#/${esc(v.id)}">${esc(v.title)}</a>`).join("");
-}
 let routeTok = 0, disposers = [];
 // A promise that rejects with `Superseded` once the route or the database has changed.
 function guarded(tok, db, p) {
@@ -53,11 +42,15 @@ async function route() {
   disposeRoute();
   const tok = ++routeTok;
   const parts = location.hash.replace(/^#\/?/, "").split("/");
-  const view = VIEWS.get(parts[0]) || VIEWS.get("summary");
+  const corpusOnly = corpusOnlyNavigation();
+  const requested = VIEWS.get(parts[0]);
+  const view = corpusOnly ? (requested && (requested.id.startsWith("corpus") || requested.id === "sql") ? requested : VIEWS.get("corpus"))
+    : requested || VIEWS.get("summary");
   const arg = decodeURIComponent(parts.slice(1).join("/"));
   for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", a.getAttribute("href") === "#/" + view.tab);
   window.explore.busy = true;
   window.explore.view = view.id;
+  markNavigationLocation(view);
   try {
     let r = await view.render(arg, routeCtx(tok, be, arg));
     if (tok !== routeTok) return;
@@ -123,7 +116,7 @@ window.Explorer = Object.freeze({
   registerView,
   registerViewer,
   registerSection,
-  ui: Object.freeze({ esc, href, link, badge, statusBadge, statusInfo, statusCode, statusText, expectationSummary, semantics: StatusSemantics, table, tableOf, dl, dialog, viewer, highlightWat, hexDump }),
+  ui: Object.freeze({ esc, href, link, badge, statusBadge, statusInfo, statusCode, statusText, expectationSummary, semantics: StatusSemantics, axiomChip, table, tableOf, dl, dialog, viewer, highlightWat, hexDump }),
   tables: () => new Set(tables),
   schema: SCHEMA,
 });

@@ -18,6 +18,7 @@ public import Silmaril.Wasm.Component.Reference.Runtime.Task.Thms
 public import Silmaril.Wasm.Component.Reference.Runtime.Thread.Thms
 public import Silmaril.Wasm.Component.Reference.Runtime.Waitable.Thms
 public import Silmaril.Wasm.Component.Reference.Validation.Context.Thms
+import Silmaril.Proofs.Wasm.Component.Reference.Canon.Lower.StoreLift
 
 /-!
 # `Canon.Lower`: laws of the component reference
@@ -36,25 +37,59 @@ open _root_.Silmaril.Wasm.Component.Engine _root_.Silmaril.Wasm.Component.Runtim
   _root_.Silmaril.Wasm.Component.Value _root_.Silmaril.Wasm.Component.ABI
 variable {E : CoreEngine} {σ : Type}
 
+/-- Store operations of the executable memory lift for a closed WIT type. -/
+theorem loadAt_scoped (lim : Limits) (q : Quirks) (cx : LiftLowerContext E)
+    (width : AddrType) (type : WIT.ClosedType RtId) (ptr : Nat) :
+    Prog.Every (LowerSt.ValueLiftOp cx) (loadAt lim q cx width type ptr : P E σ Val) :=
+  Silmaril.Proofs.Wasm.Component.Reference.Canon.Lower.StoreLift.loadAt_scoped lim q cx width type ptr
+
+/-- Store operations of the executable flat lift for a closed WIT type. -/
+theorem liftFlatAt_scoped (lim : Limits) (q : Quirks) (cx : LiftLowerContext E)
+    (width : AddrType) (type : WIT.ClosedType RtId) (cursor : FlatCursor) :
+    Prog.Every (LowerSt.ValueLiftOp cx) (liftFlatAt lim q cx width type cursor : P E σ _) :=
+  Silmaril.Proofs.Wasm.Component.Reference.Canon.Lower.StoreLift.liftFlatAt_scoped lim q cx width type cursor
+
+/-- Classification of the executable typed value lift, in either the flat or
+spilled-memory route, at its actual instance and borrow scope. -/
+theorem liftFlatValues_scoped (lim : Limits) (q : Quirks) (cx : LiftLowerContext E)
+    (max : Nat) (vi : FlatCursor) (ts : List (WIT.ClosedType RtId)) :
+    Prog.Every (LowerSt.ValueLiftOp cx) (liftFlatValues lim q cx max vi ts : P E σ _) :=
+  Silmaril.Proofs.Wasm.Component.Reference.Canon.Lower.StoreLift.liftFlatValues_scoped lim q cx max vi ts
+
+/-- The direct and spilled argument lifts, including recursive loads and
+handle transfers, issue only store reads, store modifications and traps. -/
+theorem lowerOnStart_every (lim : Limits) (q : Quirks) (caller : CallerId)
+    {allow : Op E σ → Prop} (get : allow .get) (modify : ∀ update, allow (.modify update))
+    (fail : ∀ reason, allow (.trap reason)) :
+    Prog.Every (S := Eff E σ) allow (lowerOnStart lim q caller) :=
+  Silmaril.Proofs.Wasm.Component.Reference.Canon.Lower.StoreLift.lowerOnStart_every
+    lim q caller get modify fail
+
+/-- All recursively reached modifications in direct and spilled argument
+lifting preserve the caller shapes, while their positions and other store data may change. -/
+theorem lowerOnStart_caller_shape (lim : Limits) (q : Quirks) (caller : CallerId) :
+    Prog.Every LowerSt.argumentLiftOp (lowerOnStart lim q caller : P E σ (List Val)) :=
+  Silmaril.Proofs.Wasm.Component.Reference.Canon.Lower.StoreLift.lowerOnStart_caller_shape lim q caller
+
 namespace P.Inv
 
-variable {I : CStore E → Prop}
+variable {I : CStore E → Prop} {W : σ → Prop}
 
 theorem handlesAddSubtask {inst : InstId} {sub : SubtaskId}
     (h : ∀ i s, I s → I (LowerSt.addSubtaskSt inst sub i s)) :
-    P.Inv I (Canon.handlesAddSubtask inst sub : P E σ Nat) :=
+    P.InvW I W (Canon.handlesAddSubtask inst sub : P E σ Nat) :=
   bind (getInst inst) fun st => by
     cases st.addHandle? (.waitable (.subtask sub)) with
     | none => exact trap _
     | some r => exact bind (modifyStore (h _)) fun _ => pure _
 
 theorem maybeOnProgress (h : LowerPres I) (s : SubtaskId) :
-    P.Inv I (Canon.maybeOnProgress s : P E σ Unit) :=
+    P.InvW I W (Canon.maybeOnProgress s : P E σ Unit) :=
   bind (getObj _ _) fun _ =>
     ite (Waitable.setPendingEvent_inv (h.setPending _ _)) (pure _)
 
 theorem lowerOnStart (h : LowerPres I) (lim : Limits) (q : Quirks) (c : CallerId) :
-    P.Inv I (Canon.lowerOnStart lim q c : P E σ (List Val)) := by
+    P.InvW I W (Canon.lowerOnStart lim q c : P E σ (List Val)) := by
   unfold Canon.lowerOnStart
   refine bind (getObj _ _) fun x => ?_
   cases x with
@@ -68,8 +103,8 @@ theorem lowerOnStart (h : LowerPres I) (lim : Limits) (q : Quirks) (c : CallerId
 theorem canonLower (h : LowerPres I) (lim : Limits) (q : Quirks) (callee : FuncId)
     (ft : WIT.FuncType Empty RtId) (opts : CanonOpts E) (inst : InstId)
     (flatArgs : List FlatValue) :
-    P.Inv I (Canon.canonLower lim q callee ft opts inst flatArgs : P E σ (List FlatValue)) := by
-  unfold Canon.canonLower
+    P.InvW I W (Canon.canonLower lim q callee ft opts inst flatArgs : P E σ (List FlatValue)) := by
+  unfold Canon.canonLower Canon.lowerAfterCallee Canon.lowerAfterCancel
   refine bind (getInst _) fun _ => bind (trapIf _ _) fun _ => ?_
   refine bind (allocObj _ _ (h.allocSubtask _)) fun s => ?_
   refine bind (allocObj _ _ (h.allocCaller _)) fun c => ?_
@@ -95,11 +130,11 @@ variable {E : CoreEngine} {σ : Type}
 
 namespace P.Inv
 
-variable {I : CStore E → Prop}
+variable {I : CStore E → Prop} {W : σ → Prop}
 
 theorem lowerOnResolve (h : LowerPres I) (lim : Limits) (q : Quirks) (c : CallerId)
     (r : Option (List Val)) :
-    P.Inv I (Canon.lowerOnResolve lim q c r : P E σ Unit) := by
+    P.InvW I W (Canon.lowerOnResolve lim q c r : P E σ Unit) := by
   unfold Canon.lowerOnResolve
   refine bind (getObj _ _) fun x => ?_
   cases x with

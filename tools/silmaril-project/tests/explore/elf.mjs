@@ -1,6 +1,6 @@
 // The explorer's ELF tab (explore/views/elf.js) on the pages `elf-pages` writes (elf/…). Checks, in
 // a browser, for every pinned file (GNU sha256sum and hello):
-// * the index lists it with its theorem count and kernel-only status;
+// * the index lists it with its theorem count and axiom profile;
 // * the overview's section and segment tables have the page data's rows, each with its theorems,
 //   and `.bss` shows as memory only; the coverage key's counts are the data's and sum to the size;
 // * the browser's SHA-256 of the downloaded bytes is the pinned one;
@@ -42,8 +42,12 @@ try {
   await open("/elf");
   const navOn = await p.evaluate(() => document.querySelector("#nav a.on")?.textContent);
   check(navOn === "ELF", `the ELF tab is in the navigation and selected (${navOn})`);
-  const rows = await p.evaluate(() => [...document.querySelectorAll("main table tbody tr")].map((r) => r.textContent));
-  for (const f of ix.files) check(rows.some((r) => r.includes(f.title) && r.includes(String(f.theorems)) && r.includes("kernel-only")), `index row: ${f.slug}, ${f.theorems} theorems, kernel-only`);
+  for (const f of ix.files) {
+    const row = p.locator("main tr").filter({ has: p.getByRole("link", { name: f.title, exact: true }) });
+    const label = await row.locator(".axiom-chip").textContent();
+    check((await row.innerText()).includes(String(f.theorems)) && ["Lean standard", "None"].includes(label),
+      `index row: ${f.slug}, ${f.theorems} theorems, ${label}`);
+  }
   await shot("elf-index");
 
   for (const f of ix.files) {
@@ -59,7 +63,7 @@ try {
     await open(`/elf-file/${f.slug}`);
     const ov = await p.evaluate(() => ({
       secRows: document.querySelectorAll("tr[id^=elf-sec-]").length,
-      kernel: document.querySelectorAll("main .prov-lean").length,
+      kernel: document.querySelectorAll("main .axiom-checked").length,
       text: document.querySelector("main").textContent,
       key: Object.fromEntries([...document.querySelectorAll(".elf-key span")].slice(0, 4).map((s) => s.textContent.split(": "))) }));
     check(ov.secRows === d.sections.length, `${f.slug}: ${ov.secRows}/${d.sections.length} section rows`);
@@ -163,6 +167,37 @@ try {
     check(await p.evaluate((w) => location.hash.includes("/0x" + w.toString(16)) && document.querySelector(`span.b[data-o="${w}"]`).classList.contains("sel"), want),
       `${f.slug}: the entry row links to the byte view at file offset ${hx(want)}`);
   }
+  // Byte-grounded CFG rows have evidence distinct from the ELF part theorems.
+  const regions = json("regions/hello-gcc.json"), rr = regions.rows;
+  const corpus = fs.readFileSync(path.join(site, "elf/blob/hello-gcc.bin"));
+  check(rr.length === 4 && rr.filter((r) => r.certificates.length).length === 2,
+    "hello-gcc: two certified byte CFGs and two stated comparison rows");
+  check(rr.every((r) => Buffer.from(r.bytes).equals(corpus.subarray(r.offset, r.offset + r.size))),
+    "every region row is tied to its actual corpus byte window");
+  check(rr.slice(0, 2).every((r) => r.certificates.every((c) => c.row === r.id && c.sha256 === regions.sha256)),
+    "certificate evidence names the row and pinned image");
+  await open("/elf-regions/hello-gcc");
+  check(await p.locator("#elf-regions tbody tr").count() === 4, "region tab displays all certified and stated rows");
+  check(await p.locator("#elf-region-comparison").textContent().then((s) => s.includes("Adjacency agrees")),
+    "stated matching row agrees without inheriting certification");
+  check(await p.locator("#elf-regions").textContent().then((s) => s.includes("certificate unknown")),
+    "missing certificate is shown as unknown");
+  await p.selectOption("#elf-region-b", rr[3].id);
+  check(await p.locator("#elf-region-comparison").textContent().then((s) => s.includes("Adjacency disagrees") && s.includes("0x10c3")),
+    "omitted conditional fallthrough is identified in comparison");
+  await shot("elf-regions-comparison");
+  await open("/elf-graph/hello-gcc");
+  check(await p.locator("#elf-graph svg [data-edge]").count() === rr[0].edges.length,
+    "graph retains every outgoing edge, separate from dominance");
+  check(await p.locator("#elf-graph").textContent().then((s) => s.includes("Not supplied") && s.includes("Undirected simple")),
+    "graph relationship table states dominance status and projection loss");
+  await shot("elf-cfg-graph");
+  await p.selectOption("#elf-graph-row", rr[1].id);
+  check(await p.locator("#elf-graph svg [data-edge]").count() === rr[1].edges.length,
+    "switching graph constants preserves the tail-jump adjacency");
+  await open("/elf-regions/hello-clang");
+  check(await p.locator("main").textContent().then((s) => s.includes("No region/CFG rows")),
+    "unsupported corpus file remains without CFG evidence");
   check(errors.length === 0, `no page or console errors ${errors.join("; ")}`);
 } finally {
   await b.close(); srv.kill();
