@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.Elf.Facts.Defs
-import Silmaril.Process.CLI.Cover.Thms
+import Silmaril.X86.Link.Blob.Thms
 
 public section
 
@@ -19,6 +19,9 @@ theorem codeAt_unique {F : Blob} {v : Nat} {xs ys : List (BitVec 8)} (hx : CodeA
   rw [← hl, hf] at hf'
   cases hf'
   rw [← hl, hr] at hr'
-  exact Silmaril.Process.CLI.valueLE_inj hl (Option.some.inj hr')
+  have hvalue := Option.some.inj hr'
+  have hblob : Blob.ofBytes xs.toArray = Blob.ofBytes ys.toArray := by
+    simp [Blob.ofBytes, hvalue, hl]
+  simpa [Blob.bytes_ofBytes] using congrArg (fun blob : Blob => blob.bytes.toList) hblob
 
 end Silmaril.Proofs.Elf.Facts
