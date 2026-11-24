@@ -19,6 +19,7 @@ structure Query where
   key : Option Int64 := none
   limit : Option Nat := none
   offset : Nat := 0
+  descending : Bool := false
 
 def signed64? (text : String) : Option Int64 := do
   let value ← text.toInt?
@@ -47,19 +48,20 @@ def parse? (sql : String) : Option Query := do
       let key ← signed64? value
       pure (some key, rest)
     | _ => some (none, tail)
-  let tail := match tail with
-    | "order" :: "by" :: "id" :: "asc" :: rest => rest
-    | "order" :: "by" :: "id" :: rest => rest
-    | _ => tail
+  let (descending, tail) := match tail with
+    | "order" :: "by" :: "id" :: "desc" :: rest => (true, rest)
+    | "order" :: "by" :: "id" :: "asc" :: rest => (false, rest)
+    | "order" :: "by" :: "id" :: rest => (false, rest)
+    | _ => (false, tail)
   match tail with
-  | [] => some ⟨columns, key, none, 0⟩
+  | [] => some ⟨columns, key, none, 0, descending⟩
   | ["limit", count] => do
     let count ← count.toNat?
-    pure ⟨columns, key, some count, 0⟩
+    pure ⟨columns, key, some count, 0, descending⟩
   | ["limit", count, "offset", offset] => do
     let count ← count.toNat?
     let offset ← offset.toNat?
-    pure ⟨columns, key, some count, offset⟩
+    pure ⟨columns, key, some count, offset, descending⟩
   | _ => none
 
 def scan : Vdbe.Program :=
@@ -81,7 +83,8 @@ def execute (table : Vdbe.Table) (query : Query) : Except String Result := do
   let .halted final := Vdbe.run database program (7 + 4 * table.entries.length) .initial
     | throw "read-only VM did not halt"
   if final.halted != some 0 then throw "read-only VM returned an error"
-  let rows := (final.rows.drop query.offset).take (query.limit.getD final.rows.length)
+  let ordered := if query.descending then final.rows.reverse else final.rows
+  let rows := (ordered.drop query.offset).take (query.limit.getD ordered.length)
   let rows ← rows.mapM fun row =>
     match row with
     | [.integer id, .integer amount] =>

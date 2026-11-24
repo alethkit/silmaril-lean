@@ -24,10 +24,10 @@ locking, or recovery.
 
 There is one SELECT statement. It accepts `*`, either column, or both
 columns in either order, optional `WHERE id = <signed 64-bit integer>`,
-optional `ORDER BY id [ASC]`, and optional `LIMIT n [OFFSET n]` with decimal
+optional `ORDER BY id [ASC|DESC]`, and optional `LIMIT n [OFFSET n]` with decimal
 natural numbers. Keywords and these unquoted identifiers are case
-insensitive. A final semicolon is optional. The scan order is ascending
-rowid. Writes, other SQL and malformed images produce a nonzero status
+insensitive. A final semicolon is optional. The default scan order is ascending rowid. Descending order reverses
+the bounded scan before LIMIT and OFFSET. Writes, other SQL and malformed images produce a nonzero status
 and no JSON result.
 
 The VM executes a table scan or rowid seek. Projection and slicing are
