@@ -398,6 +398,17 @@ private noncomputable def terminalModel : ComponentModel selected wireExport whe
   signature := rfl
   named := rfl
 
+open Silmaril.Logic.Operational (Runs) in
+open Silmaril.Wasm.Institution.Operational (system encode) in
+example :
+    ∃ (final : Execution.Core.Config Nat) (result : Execution.Core.Result) (labels : List Unit),
+      Runs (system selected (Det.noHost : HostSemantics Nat)).model
+        (encode terminalModel.reduct) labels (encode final) ∧
+      final.code = result.toAdmin ∧ Reports wireExport (.resolved (some [.u32 42])) result ∧
+      (coreTerminal Nat).store = final.store :=
+  (terminalModel.operationalReaches_iff (.resolved (some [.u32 42])) (coreTerminal Nat).store).1
+    linkedForward
+
 private def returns42 : Sentence := fun out store =>
   out = .resolved (some [.u32 42]) ∧ store = (coreTerminal Nat).store
 
@@ -427,6 +438,7 @@ example : (institution selected wireExport).Sat (1 : Fin 2) ⟨terminalModel⟩ 
 #print axioms linkedForward
 #print axioms linkedReadback
 #print axioms ComponentModel.reaches_iff
+#print axioms ComponentModel.operationalReaches_iff
 #print axioms institution
 
 end Runtime
