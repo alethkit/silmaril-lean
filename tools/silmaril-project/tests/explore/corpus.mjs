@@ -36,7 +36,9 @@ try{
   await page.goto(profiledUrl+'#/corpus');
   await page.waitForFunction(()=>window.explore?.ready&&!window.explore.busy,null,{timeout:60000});
   assert.match(await page.locator('#main').innerText(),/Software under test/);
-  console.log('Corpus landing SQLite page bytes:',await checkReadBudget('Corpus landing'),'HTTP bytes:',databaseHTTPBytes());
+  const landingHTTPBytes=databaseHTTPBytes();
+  assert.ok(landingHTTPBytes<2*1024*1024,'Corpus landing fetches less than 2 MiB of SQLite over HTTP');
+  console.log('Corpus landing SQLite page bytes:',await checkReadBudget('Corpus landing'),'HTTP bytes:',landingHTTPBytes);
   assert.match(await page.locator('#main').innerText(),/32 contextual C → ELF statements/);
   assert.match(await page.locator('#main').innerText(),/15 registered function-equivalence statements · 15 connected binary viewer entries/);
   const combined=Number(execFileSync('python3',['-c',
@@ -90,8 +92,10 @@ try{
     throw error;
   }
   const timingMs=Date.now()-timingStart;
+  const timingHTTPBytes=databaseHTTPBytes()-beforeTimingBytes;
+  assert.ok(timingHTTPBytes<2*1024*1024,'Timings landing fetches less than 2 MiB of SQLite over HTTP');
   console.log('Timings navigation ms:',timingMs,'SQLite page bytes:',await checkReadBudget('Timings landing'),
-    'HTTP bytes:',databaseHTTPBytes()-beforeTimingBytes);
+    'HTTP bytes:',timingHTTPBytes);
   assert.match(await page.locator('#main').innerText(),/actual run receipts/);
   assert.ok(await page.locator('#timing-rows tr').count()<=100);
   await page.getByRole('button',{name:'Next',exact:true}).click();

@@ -15,6 +15,7 @@ const dbPath = path.join(tmp, "project.sqlite");
 const replacement = path.join(tmp, "replacement.sqlite");
 const log = path.join(tmp, "requests.jsonl");
 const chunk = 1024 * 1024;
+const chunkQuery = `&vfs-chunk=${chunk}`;
 const pageSize = 4096;
 const port = 8766 + (process.pid % 500);
 const server = `http://127.0.0.1:${port}`;
@@ -86,15 +87,30 @@ try {
 
   clear();
   const ordinary = await open();
-  assert.match(ordinary.mode, /^lazy .*1048576 B chunks/);
+  assert.match(ordinary.mode, /^lazy .*4096 B chunks/);
   assert.equal(ordinary.profiling, false);
-  assert.equal(ordinary.stats.totalFetchedBytes, chunk);
   checkRangeOnly();
-  assert.deepEqual(ranges().map(e => e.range), [`bytes=0-${chunk - 1}`]);
-  console.log("ok default is one aligned 1 MiB range and a probe, without HEAD or profiling");
+  const pageRanges = ranges();
+  assert.ok(pageRanges.length > 0);
+  for (const { range } of pageRanges) {
+    const [, first, last] = /^bytes=(\d+)-(\d+)$/.exec(range);
+    assert.equal(Number(first) % pageSize, 0);
+    assert.equal(Number(last) - Number(first) + 1, pageSize);
+  }
+  assert.ok(ordinary.stats.totalFetchedBytes < chunk);
+  console.log("ok default reads aligned SQLite pages without HEAD or profiling");
 
   clear();
-  const warm = await open("&vfs-profile=1");
+  const optedIn = await open(chunkQuery);
+  assert.match(optedIn.mode, /^lazy .*1048576 B chunks/);
+  assert.equal(optedIn.profiling, false);
+  assert.equal(optedIn.stats.totalFetchedBytes, chunk);
+  checkRangeOnly();
+  assert.deepEqual(ranges().map(e => e.range), [`bytes=0-${chunk - 1}`]);
+  console.log("ok opt-in serves one aligned 1 MiB range and a probe");
+
+  clear();
+  const warm = await open(chunkQuery + "&vfs-profile=1");
   checkRangeOnly();
   assert.equal(ranges().length, 0);
   assert.equal(entries().length, 1);
@@ -124,7 +140,7 @@ try {
   const other = await browser.newContext();
   try {
     const stalePage = await other.newPage();
-    const stale = await open("&vfs-profile=1", stalePage);
+    const stale = await open(chunkQuery + "&vfs-profile=1", stalePage);
     replace();
     const rejected = await stalePage.evaluate(async () => {
       try { await q("SELECT value FROM tail"); return null; }
@@ -134,7 +150,7 @@ try {
     assert.ok(rejected.now && rejected.was !== rejected.now);
     const failedFetch = (await stalePage.evaluate(() => window.explore.vfsProfile())).events.find(e => e.type === "fetch" && !e.accepted);
     assert.equal(failedFetch.start, tailOffset);
-    const fresh = await open("", stalePage);
+    const fresh = await open(chunkQuery, stalePage);
     assert.notEqual(fresh.mode, stale.mode);
     assert.equal(await stalePage.evaluate(async () => (await q("SELECT value FROM tail"))[0].value), "new title");
     const cachedVersions = await stalePage.evaluate(async () => {
@@ -177,7 +193,7 @@ try {
   await open("&vfs-profile=1&vfs-chunk=page");
   assert.equal((await trace()).chunkSize, pageSize);
   await open("&vfs-profile=1&vfs-chunk=12345");
-  assert.equal((await trace()).chunkSize, chunk);
+  assert.equal((await trace()).chunkSize, pageSize);
   const tiny = await open("&db=tiny.sqlite&vfs-profile=1");
   assert.equal(tiny.stats.totalFetchedBytes, pageSize);
   assert.deepEqual((await trace()).events.filter(e => e.type === "fetch").map(e => [e.start, e.end, e.status]),

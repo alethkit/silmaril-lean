@@ -108,9 +108,8 @@ The page first requests the 100-byte SQLite header with `Range: bytes=0-99` (nev
 
 - **206 Partial Content, identity bytes, `Content-Range: bytes 0-99/<length>` and a strong
   `ETag`.** SQLite runs in a worker using [sql.js-httpvfs](https://github.com/phiresky/sql.js-httpvfs).
-  Each block miss requests an aligned **1 MiB** range, shortened at EOF. Some fetched pages
-  may go unused. The loader reduces the block size for databases that would otherwise fit in
-  one block, down to a minimum of one SQLite page.
+  Each miss requests one aligned SQLite page by default. This bounds the bytes fetched for
+  sparse requests such as the corpus landing page.
 - **Other responses.** When lazy loading is unavailable, plain sql.js opens the database
   from a single full response. The fallback caps downloads at 256 MiB unless the reader
   chooses **Read it whole anyway** or uses `?load=full`. When the page was generated next to the
@@ -132,10 +131,11 @@ workers to compare without an existing controller. The VFS caches blocks in memo
 the visit. For cross-origin databases, the server must expose `Content-Range`, `ETag`, and
 `Content-Encoding` via CORS.
 
-**Experiment knobs.** Use `?vfs-chunk=page` for one physical page per demand read, or pass
-a page-aligned byte count up to 4 MiB, for example `?vfs-chunk=65536` on the Pages database.
-Invalid choices use the default. The worker caps the upstream read-ahead algorithm at one
-block and fetches only on demand. Changing this setting leaves the physical SQLite page
+**Experiment knobs.** Pass a page-aligned byte count up to 4 MiB to opt in to larger
+ranges, for example `?vfs-chunk=1048576` for 1 MiB. The loader reduces the block size for
+databases that would otherwise fit in one block, down to one SQLite page, and trims the
+last block at EOF. `?vfs-chunk=page` and invalid choices use the one-page default.
+The worker fetches only on demand. Changing this setting leaves the physical SQLite page
 size intact.
 
 To inspect reads, open with `?vfs-profile=1`, then use the browser console:

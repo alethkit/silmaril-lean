@@ -1,12 +1,11 @@
-// Demand reads use fixed, page-aligned blocks. Keep smaller databases in
-// multiple blocks when possible, so opening them need not read the whole file.
-const DEFAULT_VFS_CHUNK = 1024 * 1024;
+// Default to one SQLite page per demand read. An explicit larger block is
+// reduced for small databases so opening them need not read the whole file.
+const MAX_VFS_CHUNK = 4 * 1024 * 1024;
 function vfsChunkSize(setting, pageSize, size) {
-  if (setting === "page") return pageSize;
   const bytes = Number(setting);
-  const valid = Number.isSafeInteger(bytes) && bytes >= pageSize && bytes <= 4 * DEFAULT_VFS_CHUNK && bytes % pageSize === 0;
-  const target = valid ? bytes : DEFAULT_VFS_CHUNK;
-  return size > target ? target : Math.max(pageSize, Math.floor(size / (2 * pageSize)) * pageSize);
+  const valid = Number.isSafeInteger(bytes) && bytes >= pageSize && bytes <= MAX_VFS_CHUNK && bytes % pageSize === 0;
+  if (!valid) return pageSize;
+  return size > bytes ? bytes : Math.max(pageSize, Math.floor(size / (2 * pageSize)) * pageSize);
 }
 
 // Adapter for the SRI-checked sql.js-httpvfs 0.8.12 worker. Each patch must
