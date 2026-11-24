@@ -29,6 +29,10 @@ sqlite_check_eq originalGetVarintFunction :
 sqlite_check_eq originalPutVarintFunction :
     sourceFunction? original 530 = definedFunction? sqlite 530
 
+-- Function 530 calls this helper for values above its two inline cases.
+sqlite_check_eq originalPutVarintLongFunction :
+    sourceFunction? original 547 = definedFunction? sqlite 547
+
 theorem quotedFunctionsPresent :
     (definedFunction? sqlite 289).isSome ∧
     (definedFunction? sqlite 434).isSome ∧
@@ -41,5 +45,6 @@ theorem quotedFunctionsPresent :
 #print axioms originalVersionFunction
 #print axioms originalGetVarintFunction
 #print axioms originalPutVarintFunction
+#print axioms originalPutVarintLongFunction
 
 end SqliteWasm
