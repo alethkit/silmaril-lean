@@ -4,11 +4,14 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 CORPUS = ROOT / "corpus/elf/sqlite/x86_64"
 SHELL = ROOT / ".lake/build/bin/sqlite_lean"
+WRITER = ROOT / ".lake/build/bin/sqlite_image_lean"
+LOGICAL = ROOT / ".lake/build/bin/sqlite_write_profile_tests"
 SCHEMA = "CREATE TABLE sample(id INTEGER PRIMARY KEY, amount INTEGER NOT NULL) STRICT"
 
 
@@ -96,5 +99,67 @@ def main():
     print("Malformed images, unsupported SQL and sidecars were refused; the database was preserved.")
 
 
+def writer():
+    with tempfile.TemporaryDirectory() as temp:
+        directory = Path(temp)
+        native = oracle(directory)
+        cases = [
+            ("empty", []),
+            ("signed", [(17, -1), (-2**63, 2**63 - 1), (2**63 - 1, -2**63), (0, 0)]),
+            ("capacity", [(key, -key) for key in range(32, -1, -1)]),
+        ]
+
+        select = "SELECT id, amount FROM sample ORDER BY id;"
+        for name, entries in cases:
+            path = directory / f"{name}.sqlite"
+            arguments = [str(value) for entry in entries for value in entry]
+            successful(run(WRITER, path, *arguments))
+            original = path.read_bytes()
+            assert len(original) == 1024
+            assert successful(native("-readonly", path, "PRAGMA integrity_check;")) == "ok\n"
+            assert successful(native("-readonly", path,
+                "SELECT strict FROM pragma_table_list WHERE schema='main' AND name='sample';")) == "1\n"
+            raw = successful(native("-readonly", "-json", path, select))
+            assert [[item["id"], item["amount"]] for item in json.loads(raw or "[]")] == [
+                list(row) for row in sorted(entries)
+            ]
+            assert json.loads(successful(run(SHELL, "--immutable", path, select))) == {
+                "columns": ["id", "amount"], "rows": [list(row) for row in sorted(entries)]
+            }
+            rejected(run(WRITER, path, "1", "2"), "exists")
+            assert path.read_bytes() == original
+
+        for arguments, error in [
+            (["1", "2", "1", "3"], "duplicateRowid"),
+            (["0"], "ROWID AMOUNT"),
+            (["oops", "1"], "rowid must"),
+            ([str(2**63), "0"], "rowid must"),
+            (["1", str(-2**63 - 1)], "amount must"),
+            ([str(v) for key in range(34) for v in (key, 0)], "pageFull"),
+        ]:
+            path = directory / "rejected.sqlite"
+            rejected(run(WRITER, path, *arguments), error)
+            assert not path.exists()
+
+        path = directory / "malformed.sqlite"
+        successful(run(WRITER, path, "1", "9"))
+        bytes_ = bytearray(path.read_bytes())
+        start = int.from_bytes(bytes_[520:522], "big") + 512
+        assert bytes_[start:start + 5] == bytes([11, 1, 3, 0, 6])
+        bytes_[start + 3] = 8  # INTEGER constant zero in the alias slot, where NULL is required.
+        path.write_bytes(bytes_)
+        rejected(run(SHELL, "--immutable", path, select), "malformed")
+
+        env = os.environ | {"LD_LIBRARY_PATH": str(directory)}
+        print(successful(run(LOGICAL, "--sqlite3", CORPUS / "sqlite3", env=env)).strip())
+
+    print("Lean wrote three images. SQLite integrity_check and both readers agreed on all rows.")
+    print("Capacity, malformed alias, signed bounds, duplicates and existing paths were checked.")
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--writer"]:
+        writer()
+    else:
+        assert not sys.argv[1:]
+        main()
