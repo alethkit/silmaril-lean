@@ -8,15 +8,16 @@ import { fileURLToPath } from "node:url";
 const { chromium } = await import(process.env.PLAYWRIGHT_CORE || "/usr/local/lib/node_modules/playwright-core/index.mjs");
 const site = path.resolve(process.argv[2]), shots = process.argv[3] && path.resolve(process.argv[3]);
 const fixture = JSON.parse(fs.readFileSync(path.join(site, "named-logic.json")));
-const port = 8812, url = `http://127.0.0.1:${port}/index.html?load=full`;
+const port = 8812, url = `http://127.0.0.1:${port}/index.html`;
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "named-logic-browser-"));
 const server = spawn("python3", ["-I", fileURLToPath(new URL("pages_server.py", import.meta.url)),
   "--root", site, "--port", String(port), "--log", path.join(scratch, "requests.jsonl")], { stdio: "ignore" });
 const defaultChrome = "/opt/ms-playwright/chromium-1248/chrome-linux64/chrome";
 let browser;
 try {
-  for (let attempt = 0; attempt < 30; attempt++) {
-    if (await fetch(url).then((response) => response.ok, () => false)) break;
+  for (let attempt = 0; ; attempt++) {
+    if (await fetch(url, { method: "HEAD" }).then((response) => response.ok, () => false)) break;
+    if (attempt === 29) throw new Error("Named logic test server did not start");
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   browser = await chromium.launch({ executablePath: process.env.CHROME || (fs.existsSync(defaultChrome) ? defaultChrome : undefined) });
