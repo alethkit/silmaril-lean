@@ -14,6 +14,7 @@ const el = (tag, cls, text) => {
 };
 const COLORS = 8;
 const state = { list: [], problem: null, index: null, locked: null, mode: "navigation", show: {} };
+let loadGeneration = 0;
 
 async function getJSON(url) {
   const r = await fetch(url);
@@ -59,7 +60,10 @@ function fillBuilds(want) {
 }
 
 async function load(id, source, target) {
-  state.problem = await getJSON(state.list.find(p => p.id === id)?.static_path || ("api/problems/" + encodeURIComponent(id)));
+  const generation = ++loadGeneration;
+  const problem = await getJSON(state.list.find(p => p.id === id)?.static_path || ("api/problems/" + encodeURIComponent(id)));
+  if (generation !== loadGeneration) return;
+  state.problem = problem;
   state.locked = null;
   state.pretty = new Map();
   const mode = $("mode");

@@ -22,10 +22,10 @@ async function problemDetail(name) {
   if (ins.length) h += "<h2>Inputs</h2>" + await table(ins);
   const iargs = await tq("instance_args", "SELECT pos, term, value, cid FROM instance_args WHERE problem = ? ORDER BY pos LIMIT 100", [name]);
   if (iargs.length) h += "<h2>Instance arguments</h2>" + await table(iargs);
-  h += '<h2 id="answers">Solutions / answers</h2>' + await tableOf(await first(DETAIL, "SELECT a.decl, a.status, a.source, a.tier, a.witness, a.module, " +
-    "(SELECT group_concat(axiom, ', ') FROM answer_axioms x WHERE x.decl = a.decl) AS axioms FROM answers a WHERE a.problem = ? ORDER BY a.decl", [name]),
+  h += '<h2 id="answers">Solutions / answers</h2>' + await tableOf(await loadProblemAnswers(name, DETAIL),
     ["decl", "status", "source", "tier", "witness", "axioms", "lean"],
-    { render: { lean: (r) => sourceLink(r.module, r.decl) || '<span class="muted">—</span>' }, nowrap: ["status", "tier", "lean"] });
+    { render: { axioms: (r) => axiomChip(r.axioms), lean: (r) => sourceLink(r.module, r.decl) || '<span class="muted">—</span>' },
+      nowrap: ["status", "tier", "lean"] });
   h += "<h2>Statuses</h2>" + await tableOf(await first(DETAIL, `SELECT st.status, ${COARSE} AS verdict, st.via_kind, st.via, st.tier FROM statuses st ` +
     "LEFT JOIN szs z ON z.code = st.status LEFT JOIN problems p ON p.name = st.problem WHERE st.problem = ? ORDER BY st.status", [name]));
   h += "<h2>Children (edges out)</h2>" + await tableOf(await first(DETAIL, "SELECT e.child, e.kind, e.via, e.record_kind, e.record_name, s.summary, s.verdict " +
@@ -71,13 +71,12 @@ async function evidence(p, s) {
       ? `open: no Lean theorem answers or solves this problem (<code>@[answers "${esc(p.name)}" …]</code>, <code>@[solves …]</code>) and no instance, edge or decomposition establishes a status. The statement above is all there is; the open status is not a display error.`
       : "no recorded status has this code"}</span></p>`;
   }
-  const answers = new Map((await inChunks("SELECT decl, module, tier, (SELECT group_concat(axiom, ', ') FROM answer_axioms x WHERE x.decl = a.decl) AS axioms FROM answers a WHERE decl IN ($)",
-    st.filter((r) => r.via_kind === "answers" || r.via_kind === "solves").map((r) => r.via))).map((r) => [r.decl, r]));
+  const answers = await loadEvidenceAnswers(st);
   const VIA = { answers: "answer", solves: "solved by", refutes: "refuted by", instance: "from the instance", decomposition: "decomposed by", arity0: "from the closed problem's" };
   await resolve(st, ["via"], { via: "problem" }, false);
   const items = st.map((r) => {
     const a = answers.get(r.via);
-    const what = a ? `<code>${esc(r.via)}</code>${a.axioms ? ` <span class="muted">(axioms: ${esc(a.axioms)})</span>` : ""} ${sourceLink(a.module, a.decl)}`
+    const what = a ? `<code>${esc(r.via)}</code> ${axiomChip(a.axioms)} ${sourceLink(a.module, a.decl)}`
       : r.via_kind === "arity0" ? `${esc(r.via)} status` : cell("via", r.via, { via: "problem" });
     return `<li>${esc(VIA[r.via_kind] || r.via_kind)} ${what} <span class="muted">· ${esc(r.tier)} tier</span></li>`;
   });

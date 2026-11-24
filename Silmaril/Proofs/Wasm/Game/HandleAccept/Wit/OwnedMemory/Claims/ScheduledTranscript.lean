@@ -428,17 +428,20 @@ private theorem give_memory_safe (inst : InstId) (destination : RecordDestinatio
     (safe : ∀ cx tree ptr, Safe (lower cx tree ptr)) :
     Safe (giveToMemory inst destination args lower diagnose) := by
   unfold giveToMemory
-  split
-  · split
-    · exact .pure none _
-    · refine HostWrite.bind (readOnly P.Inv.getStore) fun _ => ?_
-      split
+  refine HostWrite.bind ?_ (fun selected => ?_)
+  · unfold selectMemoryDestination
+    split
+    · split
       · exact .pure none _
-      · refine HostWrite.bind (.get none fun _ => .pure _ _) fun selected => ?_
-        cases selected with
-        | none => exact .pure none _
-        | some tree => exact HostWrite.bind (safe _ tree _) fun _ => .pure none _
-  · exact .pure none _
+      · refine HostWrite.bind (readOnly P.Inv.getStore) fun _ => ?_
+        split
+        · exact .pure none _
+        · refine HostWrite.bind (.get none fun _ => .pure _ _) fun root => ?_
+          cases root <;> exact .pure none _
+    · exact .pure none _
+  · cases selected with
+    | error => exact .pure none _
+    | ok treePtr => exact HostWrite.bind (safe _ treePtr.1 treePtr.2) fun _ => .pure none _
 
 private theorem withTree_safe (args : List FlatValue)
     (use : Stored.OwnedMemory.Tree sig → Nat → Session grow sig (Except Issue Nat))
@@ -456,22 +459,24 @@ private theorem give_flat_safe (inst : InstId) (destination : RecordDestination)
   unfold giveFlat
   refine HostWrite.bind (readOnly P.Inv.currentInst?) fun current => ?_
   refine HostWrite.bind (readOnly P.Inv.getStore) fun store => ?_
-  dsimp only
   split
   · exact .pure none _
-  · split
-    · refine HostWrite.bind (readOnly P.Inv.getStore) fun store => ?_
+  · refine HostWrite.bind ?_ (fun selected => ?_)
+    · unfold selectFlatDestination
       split
+      · refine HostWrite.bind (readOnly P.Inv.getStore) fun store => ?_
+        split
+        · exact .pure none _
+        · refine HostWrite.bind (.get none fun _ => .pure _ _) fun selected => ?_
+          cases selected with
+          | none => exact .pure none _
+          | some tree =>
+            change Safe (if (!rootHasSchema tree payload) = true then pure (Except.error Issue.wrongPayloadType) else _)
+            split <;> exact .pure none _
       · exact .pure none _
-      · refine HostWrite.bind (.get none fun _ => .pure _ _) fun selected => ?_
-        cases selected with
-        | none => exact .pure none _
-        | some tree =>
-          change Safe (if (!rootHasSchema tree payload) = true then pure (Except.error Issue.wrongPayloadType) else _)
-          split
-          · exact .pure none _
-          · exact HostWrite.bind (lower_payload_safe _ tree .flat) fun _ => .pure none _
-    · exact .pure none _
+    · cases selected with
+      | error => exact .pure none _
+      | ok tree => exact HostWrite.bind (lower_payload_safe _ tree .flat) fun _ => .pure none _
 
 private theorem invoke_safe (ticket : Nat) (binding : Binding sig) (args : List FlatValue) :
     Safe (Stored.OwnedMemory.Claims.Core.Scheduled.invoke (grow := grow) ticket binding args) := by
@@ -790,20 +795,15 @@ private theorem accept_caller_safe (callee : Callee sig) (caller : CallerId) (ti
     (history : List (Stored.OwnedMemory.Tree sig)) (store : CStore (core3 grow))
     (cx : LiftLowerContext (core3 grow)) (args : List FlatValue) :
     Safe (acceptCaller callee caller ticket history store cx args) := by
-  unfold acceptCaller
-  split
-  · exact before_lift_safe _ _ _
-  split
-  · exact before_lift_safe _ _ _
+  unfold acceptCaller acceptPlanned
   split
   · exact before_lift_safe _ _ _
   · refine HostWrite.bind (observe_safe _) fun _ => ?_
+    unfold acceptPayload
     split
     · split
-      · split
-        · exact refused_safe _ _ _
-        · exact tree_safe _ _ _
-      · exact reject_safe _ _
+      · exact refused_safe _ _ _
+      · exact tree_safe _ _ _
     · exact reject_safe _ _
 
 private theorem invoke_lower_safe (callee : Callee sig) (caller : CallerId) (state : HostState sig)

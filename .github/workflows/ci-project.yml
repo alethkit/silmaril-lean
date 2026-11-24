@@ -79,6 +79,17 @@ jobs:
           build/bin/silmaril-project explore --db "$RUNNER_TEMP/corpus-site/project.sqlite" --out "$RUNNER_TEMP/corpus-site/index.html"
           node tools/silmaril-project/tests/explore/corpus.mjs "$RUNNER_TEMP/corpus-site"
 
+      - name: Check Explorer navigation and axiom profiles on desktop and mobile
+        env:
+          PLAYWRIGHT_CORE: ${{ runner.temp }}/pw/node_modules/playwright-core/index.mjs
+        run: node tools/silmaril-project/tests/explore/profiles.mjs build/bin/silmaril-project "$RUNNER_TEMP/explorer-profiles"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: explorer-profiles
+          path: ${{ runner.temp }}/explorer-profiles
+          if-no-files-found: ignore
+
   compiler:
     # Both required jobs retain their ten-minute limit; the reusable workflow
     # succeeds only when registry AND compiler succeed. No browser is skipped.

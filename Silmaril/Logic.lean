@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Logic.Institution
+public import Silmaril.Logic.Operational.Machines.Thms
 public import Silmaril.Logic.Hets
 public import Silmaril.Logic.Arithmetic.Thms
 public import Silmaril.Logic.SecondOrderArithmetic.Thms

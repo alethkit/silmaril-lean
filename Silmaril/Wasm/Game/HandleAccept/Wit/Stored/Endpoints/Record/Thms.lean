@@ -100,6 +100,15 @@ theorem compileValue_layout {E : CoreEngine} (cx : LiftLowerContext E) (type : T
   (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.value
     cx type value receipts output field objects compiled).2
 
+/-- The shared compiler emits genuine recursive nodes, including the checked
+primitive key and compiled value in each map pair. Layout alone does not
+exclude an opaque data node of a compound type. -/
+theorem compileValue_emitted {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf) (value : Val)
+    (receipts : List OwnedMemory.Receipt) (output : Lower.Output) (field : Field) (objects : List Object)
+    (compiled : compileValue cx type value receipts output = .ok (field, objects)) : field.Emitted :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.emitted
+    cx type value receipts output field objects compiled
+
 theorem compileRecord_value {E : CoreEngine} (cx : LiftLowerContext E) (types : List (String × TypeOf))
     (value : Val) (receipts : List OwnedMemory.Receipt) (output : Lower.Output)
     (fields : List Field) (objects : List Object)
@@ -115,6 +124,16 @@ theorem compileRecord_layout {E : CoreEngine} (cx : LiftLowerContext E) (types :
     Field.FieldsMatch fields (types.map Prod.snd) :=
   (Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.record
     cx types value receipts output fields objects compiled).2
+
+/-- Each field of a successfully compiled record has the recursive shape
+produced by the corresponding compiler branch. -/
+theorem compileRecord_emitted {E : CoreEngine} (cx : LiftLowerContext E) (type : TypeOf)
+    (value : Val) (receipts : List OwnedMemory.Receipt) (output : Lower.Output)
+    (fields : List Field) (objects : List Object)
+    (compiled : compileRecord cx type value receipts output = .ok (fields, objects)) :
+    ∀ field ∈ fields, Field.Emitted field :=
+  Silmaril.Proofs.Wasm.Game.HandleAccept.Wit.Endpoints.CompiledValue.record_emitted
+    cx type value receipts output fields objects compiled
 
 /-- Whole-record preflight and dynamic subregions use the same field-order traversal. -/
 theorem compileRecord_plan {E : CoreEngine} (cx : LiftLowerContext E) (types : List (String × TypeOf))

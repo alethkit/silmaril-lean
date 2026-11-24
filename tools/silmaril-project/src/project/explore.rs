@@ -3,7 +3,7 @@
 //! The page (`explore.html`, next to this file) holds no data: it opens a separate SQLite file
 //! in the browser, with pinned scripts from cdnjs/jsdelivr. Over http(s) it tries `?db=<url>`,
 //! then the `db_urls` written here (relative to the page). It reads the file lazily with
-//! sql.js-httpvfs (HTTP Range requests, one SQLite page at a time) when the server supports
+//! sql.js-httpvfs (HTTP Range requests for page-aligned blocks) when the server supports
 //! Range, and downloads it whole into sql.js otherwise. Over `file://`, where browsers block
 //! `fetch`, the file is chosen with a file picker or dropped onto the page.
 //!
@@ -17,6 +17,7 @@
 use std::path::{Component, Path};
 
 const TEMPLATE: &str = include_str!("explore.html");
+const SHELL_STYLE: &str = include_str!("explore/shell.css");
 
 /// One file of the page's script, by its path in `explore/`.
 macro_rules! script {
@@ -29,13 +30,20 @@ macro_rules! script {
 pub const SCRIPTS: &[(&str, &str)] = &[
     script!("core.js"),
     script!("status.js"),
+    script!("schema.js"),
+    script!("axioms.js"),
     script!("ui.js"),
     script!("lean/tokenize.js"),
     script!("lean/locate.js"),
     script!("lean/render.js"),
     script!("provenance.js"),
     script!("table.js"),
+    script!("vfs-transport.js"),
+    script!("vfs.js"),
     script!("db.js"),
+    script!("data.js"),
+    script!("view-registry.js"),
+    script!("navigation.js"),
     script!("router.js"),
     script!("graphs.js"),
     script!("views/summary.js"),
@@ -51,6 +59,7 @@ pub const SCRIPTS: &[(&str, &str)] = &[
     script!("views/wasm.js"),
     script!("views/component-tests.js"),
     script!("views/acceptors.js"),
+    script!("elf_regions.js"),
     script!("views/elf.js"),
     script!("views/compiler-artifact.js"),
     script!("views/languages.js"),
@@ -66,7 +75,10 @@ pub const SCRIPTS: &[(&str, &str)] = &[
 
 /// The bundled script: every file of [`SCRIPTS`], each after a comment naming it.
 fn script() -> String {
-    let mut out = String::new();
+    let mut out = format!(
+        "const LEAN_STANDARD_AXIOMS = {};\n",
+        script_json(&serde_json::json!(crate::project::schema::STANDARD_AXIOMS))
+    );
     for (name, text) in SCRIPTS {
         out.push_str(&format!("// ===== explore/{name} =====\n"));
         out.push_str(text);
@@ -164,6 +176,7 @@ pub fn page(
         .replace("__DB_URLS__", &script_json(&serde_json::json!(db_urls)))
         .replace("__DB_META__", &script_json(&meta))
         .replace("__SOURCE_META__", &script_json(&source))
+        .replace("__EXPLORE_SHELL_STYLE__", SHELL_STYLE)
         .replace("__EXPLORE_SCRIPT__", &script())
 }
 
@@ -236,6 +249,7 @@ mod tests {
                 "__DB_URLS__",
                 "__DB_META__",
                 "__SOURCE_META__",
+                "__EXPLORE_SHELL_STYLE__",
                 "__EXPLORE_SCRIPT__",
             ] {
                 assert!(!text.contains(p), "{name} contains {p}");
@@ -260,16 +274,17 @@ mod tests {
         assert!(!p.contains("__EXPLORE_SCRIPT__"));
     }
 
-    /// The service worker caches a page only for the version the page checks every read
-    /// against: both compute it with the same `versionOf`.
+    /// The service worker and the VFS use the same strong validator and cache tag.
     #[test]
-    fn one_version_function() {
-        let def = |text: &str| {
-            let start = text.find("function versionOf(").expect("versionOf");
+    fn one_version_contract() {
+        let def = |text: &str, name: &str| {
+            let start = text.find(&format!("function {name}(")).expect("function");
             text[start..start + text[start..].find("\n}").expect("end")].to_string()
         };
-        let db = SCRIPTS.iter().find(|s| s.0 == "db.js").expect("db.js").1;
-        assert_eq!(def(db), def(SERVICE_WORKER));
+        let transport = include_str!("explore/vfs-transport.js");
+        for name in ["strongETag", "versionOf"] {
+            assert_eq!(def(transport, name), def(SERVICE_WORKER, name));
+        }
     }
 
     #[test]

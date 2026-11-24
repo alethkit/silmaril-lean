@@ -64,7 +64,10 @@ async function problemRows(list, limit) {
 async function summary() {
   const proj = await tq("projects", "SELECT * FROM projects ORDER BY origin DESC, name LIMIT 50");
   const local = proj.find((p) => p.origin === "local");
-  let h = local ? `<h2>${esc(local.name)}</h2>${local.description ? `<p>${esc(local.description)}</p>` : ""}` : "<h2>Project</h2>";
+  if (local?.root) await resolve([local], ["root"], HINTS, false);
+  const root = local?.root ? `<p class="index-root">Project root ${link("problem", local.root)} ${verdictBadge(local.root)}</p>` : "";
+  let h = `<section class="index-intro"><h2>${esc(local?.name || "Project index")}</h2>` +
+    (local?.description ? `<p>${esc(local.description)}</p>` : "") + root + "</section>" + explorerIndex();
   const idx = tables.has("problems") ? await problemIndex() : { list: [] };
   if (idx.tooLarge) h += `<p class="muted">${idx.tooLarge} problems: too many to classify here; use the problem list and SQL.</p>`;
   const problemsOnly = idx.list.filter((e) => e.kind !== "group");
@@ -91,10 +94,6 @@ async function summary() {
     const ex = Object.entries(excluded).filter(([, l]) => l.length);
     if (ex.length) h += "<h3>Left out of the lists above</h3><ul>" + ex.map(([k, l]) =>
       `<li><a href="${browseHref("", { excluded: k })}">${l.length} ${esc(EXCLUDED[k].title.toLowerCase())}</a> <span class="muted">— ${esc(EXCLUDED[k].text)}</span></li>`).join("") + "</ul>";
-  }
-  if (local && local.root) {
-    await resolve([local], ["root"], HINTS, false);
-    h += `<h2>Root</h2><p>${link("problem", local.root)}${verdictBadge(local.root)} · <a href="${browseHref("")}">browse by namespace</a> · ${link("graph", local.root, "graph")}</p>`;
   }
   // the counts read whole tables (edges, statuses): only when asked for
   h += '<details id="sumdetails"><summary><b>Counts, verdicts, groups and metadata</b></summary><div id="sumdetailsbody"><p class="muted">reading…</p></div></details>';

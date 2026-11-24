@@ -154,6 +154,8 @@ const NamedLogicFixture = (() => {
   function parseRoute(arg) {
     const [pathname, query] = arg.split("?", 2);
     const parts = pathname === "" ? [] : pathname.split("/");
+    // Legacy row and profile links also accepted a trailing slash.
+    if (query === undefined && parts[0] !== "logic" && parts.at(-1) === "") parts.pop();
     const params = new URLSearchParams(query);
     const interpretation = params.get("interpretation") ?? "all";
     if (!Object.hasOwn(interpretations, interpretation)) throw new Error("Unknown interpretation filter");
