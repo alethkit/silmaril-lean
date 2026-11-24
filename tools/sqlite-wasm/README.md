@@ -166,6 +166,22 @@ ends at the selected records. Complete decode and original-to-canonical replay
 remain separate executable checks.
 [Recheck a quoted artifact](check-artifact.sh)
 
+## One-byte varint behavior
+
+[PutVarintCheck.lean](PutVarintCheck.lean) checks the signature and first
+block of the quoted function 530. `putVarint_oneByte` proves a Core
+small-step execution of `call 530` for every unsigned value from 0 through
+127. The premises bind the caller's function slot to the quoted code and
+its runtime signature, and map the callee's memory 0 to a memory instance
+with one writable byte at the supplied i32 address.
+
+The execution returns the length of `Silmaril.Formats.Sqlite.Varint.encode`,
+splices its single byte into that memory and restores the caller frame.
+The proof follows the first block through the packed store and early
+return. The original-artifact link is `originalPutVarintFunction` in
+[ArtifactCheck.lean](ArtifactCheck.lean). Wider values and the decoding
+helper remain covered by the separate [differential fixture](../sqlite-wasm-varint/README.md).
+
 ## Quotation cost
 
 Quoting the whole artifact into a single declaration with the pinned Lean
