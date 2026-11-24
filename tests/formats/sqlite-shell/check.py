@@ -57,6 +57,8 @@ def main():
             ("SELECT id FROM sample WHERE id=9223372036854775807;", ["id"]),
             ("SELECT id FROM sample WHERE id=4;", ["id"]),
             ("SELECT id FROM sample ORDER BY id LIMIT 0;", ["id"]),
+            ("SELECT * FROM sample ORDER BY id DESC;", ["id", "amount"]),
+            ("SELECT amount,id FROM sample ORDER BY id DESC LIMIT 2 OFFSET 1;", ["amount", "id"]),
         ]
         for sql, columns in queries:
             raw = successful(native("-readonly", "-json", database, sql))
@@ -95,7 +97,7 @@ def main():
                 sidecar.unlink()
         assert database.read_bytes() == before
         assert not any(Path(str(database) + suffix).exists() for suffix in ("-wal", "-shm", "-journal"))
-    print("SQLite 3.54.1 and the Lean executable agreed on seven typed SELECTs.")
+    print(f"SQLite 3.54.1 and the Lean executable agreed on {len(queries)} typed SELECTs.")
     print("Malformed images, unsupported SQL and sidecars were refused; the database was preserved.")
 
 
