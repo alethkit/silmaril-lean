@@ -147,8 +147,8 @@ getter, in agreement with the Lean interpreter, and 42 from a SQL query.
 ## Kernel checks against the original bytes
 
 [ArtifactCheck.lean](ArtifactCheck.lean) checks the version export and
-matches complete defined functions at indices 289, 434 and 530 against the
-original linker output. Presence and equality give the same type index,
+matches complete defined functions at indices 289, 434, 530 and 547 against
+the original linker output. Presence and equality give the same type index,
 locals and instruction tree on both sides.
 
 [ArtifactEntries.lean](ArtifactEntries.lean) reads the unmodified artifact
@@ -179,8 +179,25 @@ The execution returns the length of `Silmaril.Formats.Sqlite.Varint.encode`,
 splices its single byte into that memory and restores the caller frame.
 The proof follows the first block through the packed store and early
 return. The original-artifact link is `originalPutVarintFunction` in
-[ArtifactCheck.lean](ArtifactCheck.lean). Wider values and the decoding
-helper remain covered by the separate [differential fixture](../sqlite-wasm-varint/README.md).
+[ArtifactCheck.lean](ArtifactCheck.lean). The [differential fixture](../sqlite-wasm-varint/README.md)
+exercises encoding and decoding across widths 1 through 9.
+
+## Executions through the long varint helper
+
+[VarintWitness.lean](VarintWitness.lean) checks two concrete encodes starting
+in function 530 and calling the quoted helper at index 547. A typed Core
+fixture binds the two original function records to store addresses 0 and 1,
+maps call slot 547 to address 1, and supplies memory 0 with one page and a
+stack pointer of 128. The output address is 16. The fixture preserves the
+quoted instructions and uses its own runtime bindings.
+
+The kernel evaluates `runInvokeK` at `16384` and `0x01000000000000ad`.
+The final stores match the corresponding `Varint.encode` output splices,
+and the calls return 3 and 9, respectively. The three-byte case also writes
+`00 80 81` to scratch offsets 118 through 120. The nine-byte case preserves
+the rest of memory. `runInvokeK_eq` and `runInvoke?_steps_noHost` transfer both
+checked runs to Core small-step reachability. These witnesses cover the
+two values and the fixture's typed store.
 
 ## Quotation cost
 
