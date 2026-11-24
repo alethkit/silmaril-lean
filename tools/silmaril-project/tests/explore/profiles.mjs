@@ -57,7 +57,9 @@ with sqlite3.connect(db) as c:
     "--root", site, "--port", String(port), "--log", path.join(site, "requests.jsonl")], { stdio: "inherit" });
   const base = `http://127.0.0.1:${port}`;
   for (let attempt = 0; ; attempt++) {
-    if (await fetch(base).then((r) => r.ok, () => false)) break;
+    // The readiness check only needs headers. An unread GET body can leave
+    // Node 22's fetch parser paused when the server closes the connection.
+    if (await fetch(base, { method: "HEAD" }).then((r) => r.ok, () => false)) break;
     if (attempt === 49) throw new Error("Explorer test server did not start");
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
