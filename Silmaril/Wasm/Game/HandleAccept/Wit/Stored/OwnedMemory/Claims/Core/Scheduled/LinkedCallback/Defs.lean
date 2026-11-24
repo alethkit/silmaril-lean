@@ -103,26 +103,42 @@ inductive ReplayTrace (profile : ProfileKind) (ready : HostReady (HostState sig)
     State grow sig → List (Label (core3 grow) (HostState sig)) → State grow sig →
     State grow sig → List (Label (core3 grow) (HostState sig)) → State grow sig → Prop where
   | done (left right : State grow sig) : ReplayTrace profile ready bindings left [] left right [] right
+  | segments {left right last other leftLabels rightLabels}
+      (lhs : Steps profile ready (specDispatch ready (host bindings)) left leftLabels last)
+      (rhs : Steps profile ready (specDispatch ready (host bindings)) right rightLabels other) :
+      ReplayTrace profile ready bindings left leftLabels last right rightLabels other
+  | append {left right midLeft midRight last other leftLabels rightLabels tailLeft tailRight}
+      (head : ReplayTrace profile ready bindings left leftLabels midLeft right rightLabels midRight)
+      (tail : ReplayTrace profile ready bindings midLeft tailLeft last midRight tailRight other) :
+      ReplayTrace profile ready bindings left (leftLabels ++ tailLeft) last right (rightLabels ++ tailRight) other
   | step {left right nextLeft nextRight last other label leftLabels rightLabels}
       (lhs : Step profile ready (specDispatch ready (host bindings)) left label nextLeft)
       (rhs : Step profile ready (specDispatch ready (host bindings)) right label nextRight)
       (tail : ReplayTrace profile ready bindings nextLeft leftLabels last nextRight rightLabels other) :
       ReplayTrace profile ready bindings left (label :: leftLabels) last right (label :: rightLabels) other
-  | closedGive {left right nextRight last other leftCount rightCount leftLabels rightLabels changes}
-      (callout : ClosedGive bindings left) (paired : HostFrame.Related.Paired changes left right)
+  | closedGive {left right last other leftCount rightCount leftLabels rightLabels}
+      (callout : ClosedGive bindings left) (peer : ClosedGive bindings right)
       (lhs : Steps profile ready (specDispatch ready (host bindings)) left (List.replicate leftCount .tau) callout.resume)
-      (rhs : Steps profile ready (specDispatch ready (host bindings)) right (List.replicate rightCount .tau) nextRight)
-      (tail : ReplayTrace profile ready bindings callout.resume leftLabels last nextRight rightLabels other) :
+      (rhs : Steps profile ready (specDispatch ready (host bindings)) right (List.replicate rightCount .tau) peer.resume)
+      (leftClosed : Plain.NoDirectCalls profile ready (specDispatch ready (host bindings)) left
+        (List.replicate leftCount .tau) callout.resume)
+      (rightClosed : Plain.NoDirectCalls profile ready (specDispatch ready (host bindings)) right
+        (List.replicate rightCount .tau) peer.resume)
+      (tail : ReplayTrace profile ready bindings callout.resume leftLabels last peer.resume rightLabels other) :
       ReplayTrace profile ready bindings left (List.replicate leftCount .tau ++ leftLabels) last
         right (List.replicate rightCount .tau ++ rightLabels) other
-  | syncReady {left right nextRight last other leftLabels rightLabels task inst thread frames rest}
+  | syncReady {left right last other leftLabels rightLabels task inst thread frames rest rightFrames rightRest}
       (focused : left.ctl = ⟨thread, .prog (.op .hostGet (fun current =>
         syncLiftCandidates task (left.store.instCandidates (ready current) inst))), frames⟩ :: rest)
       (agrees : ReadyAgreement ready left inst)
-      (rhs : Step profile ready (specDispatch ready (host bindings)) right .tau nextRight)
+      (rightFocused : right.ctl = ⟨thread, .prog (.op .hostGet (fun current =>
+        syncLiftCandidates task (right.store.instCandidates (ready current) inst))), rightFrames⟩ :: rightRest)
+      (rightAgrees : ReadyAgreement ready right inst)
       (tail : ReplayTrace profile ready bindings { left with ctl := ⟨thread,
         .prog (syncLiftCandidates task (left.store.instCandidates (ready left.host) inst)), frames⟩ :: rest }
-        leftLabels last nextRight rightLabels other) :
+        leftLabels last { right with ctl := ⟨thread,
+          .prog (syncLiftCandidates task (right.store.instCandidates (ready right.host) inst)), rightFrames⟩ :: rightRest }
+        rightLabels other) :
       ReplayTrace profile ready bindings left (.tau :: leftLabels) last right (.tau :: rightLabels) other
 
 /-- The classified replay and occurrence trails refer to the very same traces.
@@ -415,21 +431,21 @@ structure StringField where
 
 def StringField.field (item : StringField) : Field := .data (.prim .string) ⟨.string item.value, .string item.valid⟩
 
-/-- On refusal only the checked live guard advances, retaining the caller
-slots. On success the same slots reach the next field along with the spent
-writer and the reached canonical store. On trap neither side enters a success
-continuation, and the reached effects are retained. -/
-def HandleFieldThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig))
+/-- On refusal only the checked live guard advances. Success retains the
+caller slots and passes the reached store and raw writers to the next field.
+The one-sided spend is recorded at the exact leaf endpoint, including on a
+trap, which enters neither success continuation. -/
+def HandleFieldThenBetween (profile : ProfileKind) (ready : HostReady (HostState sig))
+    (dispatch reference : Call (core3 grow) → Session grow sig (Ret (core3 grow)))
     (item : Field) (index : Nat) (output : Stored.Lower.Output) (left right : State grow sig)
     (check canon : Cursor (E := core3 grow) (HostState sig))
     (checkNext : Except Endpoints.RecordLower.Issue output.Result → Session grow sig (Ret (core3 grow)))
     (canonNext : output.Result → Session grow sig (Ret (core3 grow)))
     (next : output.Result → State grow sig → State grow sig → Cursor (E := core3 grow) (HostState sig) →
       Cursor (E := core3 grow) (HostState sig) → Prop) : Prop :=
-  let dispatch := specDispatch ready (host bindings)
   match liveLeafPlan left.store left.host.writer index item with
-  | .error issue => ∃ labels, (∀ label ∈ labels, label = .tau) ∧ ReturnFrame.Occurrence.RetainsActiveSlots profile ready dispatch left labels
-      { left with ctl := check.control (checkNext (.error issue)) }
+  | .error issue => ∃ labels, (∀ label ∈ labels, label = .tau) ∧
+      LeafGuardSteps profile ready dispatch left labels { left with ctl := check.control (checkNext (.error issue)) } none
   | .ok plan =>
     let spent := plan.elim left.host (fun spend => { left.host with writer := spend.apply left.host.writer })
     ∃ (store : CStore (core3 grow)) (result : Except TrapReason output.Result)
@@ -437,14 +453,29 @@ def HandleFieldThen (profile : ProfileKind) (ready : HostReady (HostState sig)) 
       (∀ label ∈ leading, label = .tau) ∧ LocalLeafLabels result checkLabels ∧ LocalLeafLabels result canonLabels ∧
       Steps profile ready dispatch left (leading ++ checkLabels)
         (localLeafEnd left spent store check.thread check.frames check.rest (fun value => checkNext (.ok value)) result) ∧
-      Steps profile ready dispatch right canonLabels
+      Steps profile ready reference right canonLabels
         (localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result) ∧
+      (∀ mark, ReturnFrame.Occurrence.Trail profile ready dispatch left mark (leading ++ checkLabels)
+        (localLeafEnd left spent store check.thread check.frames check.rest (fun value => checkNext (.ok value)) result)
+        (localOccurrenceEnd result mark) ∧
+        ReturnFrame.Occurrence.Trail profile ready reference right mark canonLabels
+          (localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result)
+          (localOccurrenceEnd result mark)) ∧
+      (GuardedLeafSteps profile ready dispatch reference left right leading checkLabels canonLabels
+        (localLeafEnd left spent store check.thread check.frames check.rest (fun value => checkNext (.ok value)) result)
+        (localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result) plan ∧
+      ∀ update, plan = some update → ExclusiveLeafWriterFlow update left.host right.host
+        (localLeafEnd left spent store check.thread check.frames check.rest (fun value => checkNext (.ok value)) result).host
+        (localLeafEnd right right.host store canon.thread canon.frames canon.rest canonNext result).host) ∧
       ∀ value, result = .ok value →
         let lhs := { left with store, host := spent, ctl := check.control (checkNext (.ok value)) }
         let rhs := { right with store, ctl := canon.control (canonNext value) }
         ReturnFrame.Occurrence.RetainsActiveSlots profile ready dispatch left (leading ++ checkLabels) lhs ∧
-        ReturnFrame.Occurrence.RetainsActiveSlots profile ready dispatch right canonLabels rhs ∧
+        ReturnFrame.Occurrence.RetainsActiveSlots profile ready reference right canonLabels rhs ∧
         next value lhs rhs check canon
+
+abbrev HandleFieldThen (profile : ProfileKind) (ready : HostReady (HostState sig)) (bindings : List (Binding sig)) :=
+  HandleFieldThenBetween profile ready (specDispatch (E := core3 grow) ready (host bindings)) (specDispatch ready (host bindings))
 
 def flatSequenceChecked (destination : RecordDestination) (inst : InstId) (items : List Field) (index : Nat)
     (leading : List FlatValue) (finish : Except Endpoints.RecordLower.Issue (List FlatValue) → Session grow sig (Ret (core3 grow))) :
@@ -637,6 +668,9 @@ inductive RangeCutOver (profile : ProfileKind) (ready : HostReady (HostState sig
         { last with ctl := cursor.control (checkNext pointer (Record.prepare last.store last.host.writer plan)) } mark)
       (canonical : ReturnRangeTrace profile ready bindings right reference canonLabels
         { reference with ctl := canonCursor.control (canonNext pointer) } mark)
+      (classified : ReplayTrace profile ready bindings left checkLabels
+        { last with ctl := cursor.control (checkNext pointer (Record.prepare last.store last.host.writer plan)) }
+        right canonLabels { reference with ctl := canonCursor.control (canonNext pointer) })
       (checkSeen : visible checkLabels = seen) (canonSeen : visible canonLabels = seen) :
       RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen allowCommon mark
   | trapped {reference : State grow sig} {reason : TrapReason}
@@ -644,6 +678,8 @@ inductive RangeCutOver (profile : ProfileKind) (ready : HostReady (HostState sig
       (stores : last.store = reference.store)
       (checked : Steps profile ready (specDispatch ready (host bindings)) left checkLabels (StepDefs.trapCfg last))
       (canonical : Steps profile ready (specDispatch ready (host bindings)) right canonLabels (StepDefs.trapCfg reference))
+      (classified : ReplayTrace profile ready bindings left checkLabels (StepDefs.trapCfg last)
+        right canonLabels (StepDefs.trapCfg reference))
       (checkSeen : visible checkLabels = seen ++ [.trap reason]) (canonSeen : visible canonLabels = seen ++ [.trap reason]) :
       RangeCutOver profile ready bindings changes resume left right last cursor destination area count pointer plan checkNext canonNext seen allowCommon mark
   | common (pop : CollectionCommonPopOver profile ready bindings changes left right
