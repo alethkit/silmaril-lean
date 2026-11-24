@@ -116,13 +116,13 @@ files are stripped).
   file offset and owning section come from the checked layout. Aliases are other function symbols
   with the same address. Overlaps are function ranges that intersect but differ.
 - **Contract.** A row shows a contract only when a theorem of `Pinned.ZlibChecksums.Contracts`
-  meets three conditions; every other row shows **no contract statement**:
+  meets three conditions. Every other row shows **no contract statement**.
   - its statement starts with `Silmaril.Elf.CodeAt F v code` at the row's address;
   - the code literal is exactly the symbol's `st_size` bytes;
-  - the statement also says that the contract's entry precondition loads that same literal
-    (`Loaded m.memory e code`), which is the **code identity** between the file's bytes and the
-    contract. For the two wrappers it also states where the callee's code sits relative to the
-    entry, matching the file. `elf-pages` stops if a contract theorem lacks the identity conjunct.
+  - the entry precondition of the same spec proved `Total` implies `Loaded m.memory e code` for
+    the state `m`, the entry `e`, and the exact code constant from `CodeAt`. For the two wrappers,
+    that precondition also loads the callee's code at the same displacement as the callee's
+    `CodeAt` address in the file. `elf-pages` stops if a theorem lacks this relationship.
 
 **What a row does not say**
 - A row is not a recovered function, and it says nothing about the System V ABI.
