@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Lean sources and quotation inputs for a pinned SQLite WASI artifact."""
+"""Generate Lean sources and quotation inputs for a pinned SQLite Wasm artifact."""
 
 import argparse
 import hashlib
@@ -13,6 +13,7 @@ GROUPS_PER_MODULE = 8
 PROFILES = {
     "wasi-preview1-reactor": ("SqliteWasm", "_initialize"),
     "wasi-preview1-command": ("SqliteShellWasi", "_start"),
+    "sqlite-web": ("SqliteWebWasm", None),
 }
 
 
@@ -21,7 +22,7 @@ def read_manifest(path):
     if not isinstance(manifest, dict) or set(manifest) != {
         "schema_version", "sqlite_version", "source_archive_sha256", "artifact_sha256", "profile"
     }:
-        raise ValueError("expected a SQLite WASI artifact manifest with the five v1 fields")
+        raise ValueError("expected a SQLite Wasm artifact manifest with the five v1 fields")
     if type(manifest["schema_version"]) is not int or manifest["schema_version"] != 1:
         raise ValueError("unsupported manifest schema version")
     for name, pattern in (
@@ -34,7 +35,7 @@ def read_manifest(path):
             raise ValueError(f"invalid manifest field {name}")
     profile = manifest["profile"]
     if not isinstance(profile, str) or profile not in PROFILES:
-        raise ValueError("unsupported SQLite WASI profile")
+        raise ValueError("unsupported SQLite Wasm profile")
     return manifest
 
 
@@ -135,11 +136,18 @@ def write_module(output, namespace, module, names):
 def generate(wasm, output, namespace, entrypoint):
     framed = list(sections(wasm))
     payloads = {kind: payload for kind, payload, _ in framed}
-    if list(payloads) != [1, 2, 3, 4, 5, 6, 7, 9, 10, 11] or len(framed) != len(payloads):
-        raise ValueError("unsupported section layout for SQLite WASI quotation")
+    web = entrypoint is None
+    layout = [1, 2, 3, 4, 6, 7, 8, 9, 12, 10, 11] if web else [1, 2, 3, 4, 5, 6, 7, 9, 10, 11]
+    if list(payloads) != layout or len(framed) != len(payloads):
+        raise ValueError("unsupported section layout for this SQLite Wasm profile")
     imports, _ = read_u32(payloads[2], 0)
-    entry = export_index(payloads[7], entrypoint)
-    # Both profiles import exclusively functions. Only the reactor isolates its getter.
+    if web:
+        entry, end = read_u32(payloads[8], 0)
+        if end != len(payloads[8]):
+            raise ValueError("unexpected start section length")
+    else:
+        entry = export_index(payloads[7], entrypoint)
+    # The reactor imports only functions and isolates its version getter.
     index = export_index(payloads[7], "sqlite3_libversion_number") if entrypoint == "_initialize" else None
     leaf = index - imports if index is not None else None
     types = vector(payloads[3], sized=False)
@@ -183,7 +191,7 @@ def generate(wasm, output, namespace, entrypoint):
         encoding="utf-8",
     )
     (output / "modules.txt").write_text("\n".join([*modules, "Object"]) + "\n", encoding="utf-8")
-    print(f"{len(bodies)} defined functions, {imports} imports, {entrypoint} at function index {entry}")
+    print(f"{len(bodies)} defined functions, {imports} imports, {entrypoint or 'start section'} at function index {entry}")
 
 
 def main():
