@@ -166,7 +166,7 @@ ends at the selected records. Complete decode and original-to-canonical replay
 remain separate executable checks.
 [Recheck a quoted artifact](check-artifact.sh)
 
-## One-byte varint behavior
+## One- and two-byte varint behavior
 
 [PutVarintCheck.lean](PutVarintCheck.lean) checks the signature and first
 block of the quoted function 530. `putVarint_oneByte` proves a Core
@@ -181,6 +181,18 @@ The proof follows the first block through the packed store and early
 return. The original-artifact link is `originalPutVarintFunction` in
 [ArtifactCheck.lean](ArtifactCheck.lean). The [differential fixture](../sqlite-wasm-varint/README.md)
 exercises encoding and decoding across widths 1 through 9.
+
+[PutVarintTwoByte.lean](PutVarintTwoByte.lean) checks the first two blocks
+and local declarations of the same quoted function. `putVarint_twoByte`
+covers each unsigned input in `[128, 16384)` under the stated call binding
+and two-byte memory bound. It follows the branch out of the first block
+and the second block's two packed stores, in their compiled order. The
+final store splices the two bytes from `Varint.encode` at the output
+address. The call restores the caller frame and returns the encoding length.
+
+The reactor check also evaluates the actual function for 128 and 16,383
+and checks both final configurations at width 2. The adjacent excluded
+value 16,384 exercises the helper and returns width 3.
 
 ## Executions through the long varint helper
 
