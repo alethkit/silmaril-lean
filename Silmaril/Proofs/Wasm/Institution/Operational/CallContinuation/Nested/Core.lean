@@ -6,6 +6,7 @@ public import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Thms
 import Silmaril.Wasm.Execution.Core.Inversion.Thms
 import Silmaril.Wasm.SingleThreaded.Determinism.Stuck
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Nested.Rules
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Core
 
 @[expose] public section
 
@@ -15,6 +16,7 @@ open Execution.Core
 open Execution.Runtime (FuncAddr Value)
 open Wasm.Numerics (Profile)
 open Wasm.SingleThreaded.Det
+open CallContinuation.Proofs (frame_label_stays)
 
 private abbrev cv (vs : List Value) := vals (vs.map Value.toCore)
 private abbrev ct (addr : FuncAddr) (fn : CallFrame.Callee) := CallContinuation.coreCode addr fn
@@ -128,21 +130,6 @@ private theorem label_pop {addr : FuncAddr} {fn : CallFrame.Callee} {arity : Nat
   | ret => exact ((allowed (.plain .return_) (by simp)).1 rfl).elim
   | @returnCall vs op rest kind => exact ((allowed op (by simp)).2.2.2 kind).elim
   | throw a => exact ((allowed (.plain .throwRef) (by simp [throwing])).2.1 rfl).elim
-
-private theorem frame_label_stays {H : Type} {s : Store H} {f : Frame} {arity : Nat}
-    {body out : List Admin} (h : FrameExit s f arity [.label arity [] body] out) : False := by
-  generalize eq : ([.label arity [] body] : List Admin) = code at h
-  cases h with
-  | returnCallNull kind | returnCallAddr kind _ _ _ =>
-    have first := congrArg (fun code => (fnv code).2) eq
-    have none := Admin.val?_of_isReturnCallRef kind
-    simp [fnv_cons_of_none none, fnv_cons_of_none (a := .label arity [] body) rfl] at first
-    rw [← first.1] at kind
-    contradiction
-  | _ =>
-    have first := congrArg (fun code => (fnv code).2) eq
-    simp [fnv_cons_of_none (a := .label arity [] body) rfl,
-      fnv_cons_of_none (a := .plain .return_) rfl, fnv_cons_of_none (a := .plain .throwRef) rfl, throwing] at first
 
 private theorem frame_pop {H : Type} {s : Store H} {f : Frame} {arity : Nat}
     {r : Result} {out : List Admin} (h : FrameExit s f arity (resultCode cv .trap r) out) :

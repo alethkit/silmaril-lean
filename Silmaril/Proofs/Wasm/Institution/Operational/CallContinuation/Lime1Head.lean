@@ -20,12 +20,12 @@ inductive Focus : Admin → Prop where
 theorem Focus.nonvalue {a : Admin} (h : Focus a) : asValue? a = none := by
   cases h <;> rfl
 
-private def first (code : List Admin) := code.find? (fun a => (asValue? a).isNone)
+def first (code : List Admin) := code.find? (fun a => (asValue? a).isNone)
 
-@[simp] private theorem first_value (v : Value) (tail : List Admin) :
+@[simp] theorem first_value (v : Value) (tail : List Admin) :
     first (value v :: tail) = first tail := by simp [first, asValue?_value]
 
-@[simp] private theorem first_prefix (vs : List Value) (tail : List Admin) :
+@[simp] theorem first_prefix (vs : List Value) (tail : List Admin) :
     first (values vs ++ tail) = first tail := by
   induction vs with
   | nil => rfl
@@ -33,10 +33,10 @@ private def first (code : List Admin) := code.find? (fun a => (asValue? a).isNon
     change first (value v :: (values vs ++ tail)) = first tail
     rw [first_value, ih]
 
-private theorem first_head {a : Admin} (tail : List Admin) (ha : asValue? a = none) :
+theorem first_head {a : Admin} (tail : List Admin) (ha : asValue? a = none) :
     first (a :: tail) = some a := by simp [first, ha]
 
-private theorem peel {saved stack : List Value} {op : Admin} {mid tail rest : List Admin}
+theorem peel {saved stack : List Value} {op : Admin} {mid tail rest : List Admin}
     (active : ∃ a ∈ mid, asValue? a = none)
     (eq : values saved ++ mid ++ tail = values stack ++ op :: rest) (ho : asValue? op = none) :
     ∃ args pre, stack = saved ++ args ∧ mid = values args ++ op :: pre ∧ rest = pre ++ tail := by
@@ -68,6 +68,72 @@ private theorem peel {saved stack : List Value} {op : Admin} {mid tail rest : Li
       subst w
       obtain ⟨args, pre, rfl, rfl, rfl⟩ := ih tailEq
       exact ⟨args, pre, rfl, rfl, rfl⟩
+
+@[simp] theorem first_values (vs : List Value) : first (values vs) = none := by
+  change first (values vs) = first []
+  rw [← first_prefix vs [], List.append_nil]
+
+def wrapper : Admin → Prop
+  | .label _ _ _ | .frame _ _ _ => True
+  | _ => False
+
+inductive WrapperStep {H : Type} (s : Store H) (f : Frame) : Admin → Config H → Prop where
+  | pure {a out} (step : PureStep f.module.types [a] out) :
+      WrapperStep s f a ⟨s, f, out⟩
+  | label {n cont body} {target : Config H} (step : Step CallFrame.limeNoHost ⟨s, f, body⟩ target) :
+      WrapperStep s f (.label n cont body) ⟨target.store, target.frame, [.label n cont target.code]⟩
+  | frame {n inner body} {target : Config H} (step : Step CallFrame.limeNoHost ⟨s, inner, body⟩ target) :
+      WrapperStep s f (.frame n inner body) ⟨target.store, f, [.frame n target.frame target.code]⟩
+
+theorem wrapper_step {H : Type} {a b : Config H}
+    (h : Step CallFrame.limeNoHost a b) {op : Admin} (shape : a.code = [op]) (hw : wrapper op) :
+    WrapperStep a.store a.frame op b := by
+  induction h with
+  | pure _ _ h => exact .pure (shape ▸ h)
+  | label h n cont _ =>
+    cases (List.cons.inj shape).1
+    exact .label h
+  | frame h n outer _ =>
+    cases (List.cons.inj shape).1
+    exact .frame h
+  | @context s s' f f' before after h saved tail ih =>
+    change values saved ++ before ++ tail = [op] at shape
+    have lengths := congrArg List.length shape
+    simp only [List.length_append, values_length, List.length_cons, List.length_nil] at lengths
+    obtain ⟨op, mem, _⟩ := h.nonvalue
+    have pos : 0 < before.length := List.length_pos_iff.mpr
+      (List.ne_nil_of_mem (show op ∈ before from mem))
+    have hs : saved = [] := List.eq_nil_of_length_eq_zero (by omega)
+    have ht : tail = [] := List.eq_nil_of_length_eq_zero (by omega)
+    subst saved tail
+    simpa [values] using ih (by simpa [values] using shape)
+  | invokeHost | invokeHostDiverges => contradiction
+  | invokeWasm =>
+    have same := congrArg List.getLast? shape
+    simp [List.getLast?_append] at same
+    subst op
+    contradiction
+  | _ =>
+    have same := congrArg List.getLast? shape
+    simp at same
+    subst op
+    contradiction
+
+theorem frame_label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {f : Frame}
+    {body out : List Admin} (h : PureStep types [.frame n f [.label n [] body]] out) : False := by
+  generalize eq : ([.frame n f [.label n [] body]] : List Admin) = before at h
+  cases h with
+  | frameDone | frameReturn | frameTrap =>
+    have code := (AdminInstr.frame.inj (List.cons.inj eq).1).2.2
+    have seen := congrArg first code
+    try simp only [List.append_assoc, List.singleton_append, first_prefix, first_values] at seen
+    simp [first, asValue?] at seen
+  | trapValues | trapTail =>
+    have len := congrArg List.length eq
+    simp [values] at len
+  | _ =>
+    have last := congrArg List.getLast? eq
+    simp [values, List.getLast?_append] at last
 
 inductive Front {H : Type} (s : Store H) (f : Frame) :
     List Value → Admin → List Admin → Config H → Prop where
