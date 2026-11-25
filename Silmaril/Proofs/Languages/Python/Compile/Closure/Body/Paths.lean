@@ -14,6 +14,7 @@ theorem ordinary {tree : Source.ScopeTree} {start : Nat} {source : List Source.S
   induction translated with
   | ret clear _ _ | fallthrough clear _ => exact clear
   | assign _ _ _ _ tail | assert _ _ tail | pass _ tail | nonlocal _ tail | global _ tail => exact tail
+  | assertBoolean _ tail => exact tail
   | closure _ _ _ _ _ _ _ _ _ _ tail => exact tail
 
 theorem ordinaryChild {tree : Source.ScopeTree} {start : Nat} {source : List Source.Stmt}
@@ -25,6 +26,7 @@ theorem ordinaryChild {tree : Source.ScopeTree} {start : Nat} {source : List Sou
   | ret | fallthrough => simp [Code.childPaths] at member
   | assign _ _ _ _ tail | assert _ _ tail | pass _ tail | nonlocal _ tail | global _ tail =>
     exact tail member
+  | assertBoolean _ tail => exact tail member
   | @closure tree start name declaration body rest slot child params code next found path _ _ _ _ _
       childTranslation _ childOrdinary nextOrdinary =>
     simp only [Code.childPaths, List.mem_cons, List.mem_append] at member
@@ -43,7 +45,7 @@ theorem childPaths {tree : Source.ScopeTree} {start : Nat} {source : List Source
       ∃ index suffix, start ≤ index ∧ path = tree.scope.context.path ++ index :: suffix := by
   induction translated with
   | ret | fallthrough => simp [Code.childPaths]
-  | assign _ _ _ _ tail | assert _ _ tail => exact tail
+  | assign _ _ _ _ tail | assert _ _ tail | assertBoolean _ tail => exact tail
   | pass _ tail | nonlocal _ tail | global _ tail => exact tail
   | @closure tree start name declaration body rest slot child params code next _ path _ _ _ _ _ _ _ inner tail =>
     let parent := tree.scope.context.path

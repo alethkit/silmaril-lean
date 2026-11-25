@@ -16,8 +16,8 @@ Message-free body assertions lower to the existing executor assertion
 when the test passes the ordinary runner operand check. They preserve
 the continuation's lexical child paths and code keys. The executor
 continues on truth and uses ordinary defined error delivery on failure.
-The assertion operand profile covers integer literals and resolved
-reads. Computed calls and arithmetic are outside it. In a module
+The assertion operand profile covers Boolean literals, integer literals, and
+resolved reads. Computed calls and arithmetic are outside it. In a module
 invocation, a failed body assertion is raised as `AssertionError`.
 
 Successful lowering retains the source translation and preserves the
