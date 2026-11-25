@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Courses.Cambridge.L2
+public import Silmaril.Courses.Cambridge.L2.Codec
 public import Silmaril.Courses.Cambridge.L2.Concrete
 public import Silmaril.Courses.Cambridge.L2.Exercises.FreeVariables
 public import Silmaril.Courses.Cambridge.L2.Exercises.Substitution
