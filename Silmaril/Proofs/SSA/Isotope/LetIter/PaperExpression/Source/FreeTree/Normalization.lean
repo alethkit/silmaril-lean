@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Normalization.Defs
+public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Normalization.Result.Thms
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit.FreeTree.Thms
 import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.Equations
 
@@ -237,6 +237,27 @@ public theorem normalizesToTree {a : Expr Φ} {C : α}
 
 variable [DecidableEq α] [EffectIteration ε]
 
+public theorem endpoint_reflection_atomic_inputs {A : Ty α} {a b : Expr Φ}
+    (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) (e : ε)
+    (ha : letI := S.endpoints; Wf Γ a A (⊥ : ε))
+    (hb : letI := S.endpoints; Wf Γ b A (⊥ : ε))
+    {t s : Tm Empty Φ Γ.length}
+    (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s) :
+    letI := S.endpoints
+    AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s A ↔ Eqv Γ A e a b := by
+  let instr := S.endpoints
+  constructor
+  · intro hn
+    obtain ⟨p, hp, hpa⟩ := normalize S ha hΓ hslots e
+    obtain ⟨q, hq, hqb⟩ := normalize S hb hΓ hslots e
+    have hnp := hpa.toLetIter ht (Value.lowers S p)
+    have hnq := hqb.toLetIter hs (Value.lowers S q)
+    have he := Value.native_eq_implies_value_eq S p q hp hq hslots (hnp.symm.trans (hn.trans hnq))
+    subst q
+    exact hpa.trans hqb.symm
+  · intro he
+    exact he.toLetIter ht hs
+
 /-- Reflection for bottom-typed expressions in a pure atomic context. -/
 public theorem endpoint_reflection_atomic {a b : Expr Φ} {C : α}
     (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) (e : ε)
@@ -246,14 +267,8 @@ public theorem endpoint_reflection_atomic {a b : Expr Φ} {C : α}
     (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s) :
     letI := S.endpoints
     AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s (.base C) ↔
-      Eqv Γ (.base C) e a b := by
-  let instr := S.endpoints
-  constructor
-  · intro hn
-    exact SumSplit.eqv_of_native_of_tree_normal_forms S hΓ hslots ht hs hn
-      (normalizesToTree S ha hΓ hslots e) (normalizesToTree S hb hΓ hslots e)
-  · intro h
-    exact h.toLetIter ht hs
+      Eqv Γ (.base C) e a b :=
+  endpoint_reflection_atomic_inputs S hΓ hslots e ha hb ht hs
 
 /-- A single open sum with atomic payloads can be at any slot. The branch
 witnesses are derived from bottom-effect source typing. -/

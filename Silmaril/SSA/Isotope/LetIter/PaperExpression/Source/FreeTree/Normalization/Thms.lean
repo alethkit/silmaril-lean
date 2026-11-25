@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Normalization.Defs
+public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Normalization.Result.Thms
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit.FreeTree.Thms
 import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Normalization
 
@@ -39,6 +39,17 @@ theorem normalizesToTree {a : Expr Φ} {C : α}
   Proofs.normalizesToTree S h hΓ hslots e
 
 variable [DecidableEq α] [EffectIteration ε]
+
+/-- In a pure atomic input context, reflect native equality at any result type. -/
+theorem endpoint_reflection_atomic_inputs {A : Ty α} {a b : Expr Φ}
+    (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) (e : ε)
+    (ha : letI := S.endpoints; Wf Γ a A (⊥ : ε))
+    (hb : letI := S.endpoints; Wf Γ b A (⊥ : ε))
+    {t s : Tm Empty Φ Γ.length}
+    (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s) :
+    letI := S.endpoints
+    AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s A ↔ Eqv Γ A e a b :=
+  Proofs.endpoint_reflection_atomic_inputs S hΓ hslots e ha hb ht hs
 
 /-- Reflection for bottom-typed expressions in a pure atomic context. -/
 theorem endpoint_reflection_atomic {a b : Expr Φ} {C : α}
