@@ -24,7 +24,7 @@ private theorem approx_mono (f : X → PMF (Y ⊕ X)) : Monotone (approx f) := b
   | zero => exact fun _ _ => zero_le
   | succ n ih => exact step_mono f ih
 
-private theorem tsum_iSup_nat {A : Type*} (g : ℕ → A → ℝ≥0∞) (hg : Monotone g) :
+theorem tsum_iSup_nat {A : Type*} (g : ℕ → A → ℝ≥0∞) (hg : Monotone g) :
     (∑' a, ⨆ n, g n a) = ⨆ n, ∑' a, g n a := by
   classical
   have sum_comm (s : Finset A) : (∑ a ∈ s, ⨆ n, g n a) = ⨆ n, ∑ a ∈ s, g n a := by
