@@ -29,6 +29,23 @@ theorem GuardedElgotMonad.IsElgot.guardedNatTrans [HasInitial C]
     S.guard.GuardedNatTrans P σ :=
   fun X => h (Y := Kleisli.mk S.monad (⊥_ C)) (Z := Kleisli.mk S.monad X) _
 
+/-- A guard-preserving monad map into a guarded iterative target preserves its
+chosen solutions. -/
+noncomputable def GuardedElgotMonadHom.ofGuardPreserving {T S : GuardedElgotMonad P}
+    (m : T.monad ⟶ S.monad) (hm : MonadGuardedness.Preserves P T.guard S.guard m)
+    (hS : S.guard.Iterative) : GuardedElgotMonadHom P T S where
+  hom := m
+  guarded := hm
+  iteration := Proofs.iterative_map_iteration m hm hS
+
+@[simp]
+theorem GuardedElgotMonadHom.ofGuardPreserving_hom {T S : GuardedElgotMonad P}
+    (m : T.monad ⟶ S.monad) (hm : MonadGuardedness.Preserves P T.guard S.guard m)
+    (hS : S.guard.Iterative) :
+    (GuardedElgotMonadHom.ofGuardPreserving m hm hS).hom = m := by
+  unfold GuardedElgotMonadHom.ofGuardPreserving
+  rfl
+
 namespace Exception
 
 variable (T : GuardedElgotMonad P) (H : C ⥤ C)
