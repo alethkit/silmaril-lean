@@ -136,29 +136,41 @@ private theorem trap_exit_guard {program : Program} {fn : Function} {fallthrough
     locals.map Value.type = fn.localTypes := by
   cases ready with | exit locals _ => exact locals
 
+private theorem split_condition {stack : List Value} {resume : List NumType → Bool}
+    (typed : checkCondition (Prefix.stackTypes stack) resume = true) :
+    ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] := by
+  cases stack using List.reverseRecOn with
+  | nil => simp [Prefix.stackTypes, checkCondition] at typed
+  | append_singleton saved v =>
+    rcases v with ⟨type, bits⟩
+    rw [stack_types_append] at typed
+    change checkCondition (type :: Prefix.stackTypes saved) resume = true at typed
+    cases type with
+    | float kind => simp [checkCondition] at typed
+    | int kind =>
+      cases kind with
+      | i32 => exact ⟨saved, bits, rfl⟩
+      | i64 => simp [checkCondition] at typed
+
 theorem split_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
     {result : Option NumType} {thenBody elseBody rest : List Op}
     (typed : fn.WellTyped stack (.if_ result thenBody elseBody :: rest) fallthrough enclosing) :
     ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] := by
-  cases stack using List.reverseRecOn with
-  | nil => simp [Function.WellTyped, checkCode, checkOp, Prefix.stackTypes] at typed
-  | append_singleton saved v =>
-    rcases v with ⟨type, bits⟩
-    unfold Function.WellTyped at typed
-    rw [stack_types_append] at typed
-    change checkCode _ _ _ _ _ (type :: Prefix.stackTypes saved) _ = true at typed
-    cases type with
-    | float kind => simp [checkCode, checkOp] at typed
-    | int kind =>
-      cases kind with
-      | i32 => exact ⟨saved, bits, rfl⟩
-      | i64 => simp [checkCode, checkOp] at typed
+  apply split_condition
+  simpa only [Function.WellTyped, checkCode, checkOp] using typed
+
+theorem split_br_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
+    {result : Option NumType} {depth : LabelIdx} {rest : List Op}
+    (typed : fn.WellTyped stack (.brIf depth result :: rest) fallthrough enclosing) :
+    ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] := by
+  apply split_condition
+  simpa only [Function.WellTyped, checkCode, checkOp] using typed
 
 theorem checked_branch {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
     {stack : List Value} {depth : LabelIdx} {result : Option NumType} {rest : List Op}
     (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing) :
     (branchTargets fallthrough enclosing)[depth.toNat]? = some result.toList ∧ SuffixTyped result.toList stack := by
-  simpa only [Function.WellTyped, checkCode, checkOp, decide_eq_true_eq, SuffixTyped] using typed
+  simpa only [Function.WellTyped, checkCode, checkOp, checkBranch, decide_eq_true_eq, SuffixTyped] using typed
 
 theorem branch_here_result {fallthrough : List NumType} {enclosing : EnclosingLabels} {result : Option NumType}
     (found : (branchTargets fallthrough enclosing)[(⟨0⟩ : LabelIdx).toNat]? = some result.toList) :
@@ -202,7 +214,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         unfold Function.WellTyped at body
         rw [stack_types_append] at body
         change checkCode _ _ _ _ _ (.int .i32 :: Prefix.stackTypes saved) _ = true at body
-        simp only [checkCode, checkOp, Bool.and_eq_true_iff] at body
+        simp only [checkCode, checkOp, checkCondition, Bool.and_eq_true_iff] at body
         apply AdmittedAt.running typed
         simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff]
         split
@@ -224,7 +236,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         | branching =>
           obtain ⟨typed, target, payload⟩ := branching_guard after
           exact .running typed (by
-            simpa only [Function.WellTyped, checkCode, checkOp, decide_eq_true_eq, SuffixTyped, Option.getD_some] using
+            simpa only [Function.WellTyped, checkCode, checkOp, checkBranch, decide_eq_true_eq, SuffixTyped, Option.getD_some] using
               And.intro target (suffix_prefix (saved := saved) payload))
         | returning =>
           obtain ⟨typed, out⟩ := returning_guard after
@@ -271,6 +283,17 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
             exact .running typed (by simpa [Function.WellTyped, Function.ResumeTyped, stack_types_append,
               Prefix.stackTypes, values] using resume)
     | discard cut => cases ready with | trapped typed => exact .trapped typed
+    | branchIf locals stack condition depth result rest =>
+      cases ready with
+      | running typed body =>
+        unfold Function.WellTyped at body
+        rw [stack_types_append] at body
+        change checkCode _ _ _ _ _ (.int .i32 :: Prefix.stackTypes stack) _ = true at body
+        simp only [checkCode, checkOp, checkCondition, Bool.and_eq_true_iff] at body
+        apply AdmittedAt.running typed
+        split
+        · exact body.2
+        · exact body.1
     | branchHere locals extra values result rest arity =>
       cases ready with
       | running typed body =>

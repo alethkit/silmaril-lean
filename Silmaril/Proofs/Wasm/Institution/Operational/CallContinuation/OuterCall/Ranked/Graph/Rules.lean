@@ -40,6 +40,7 @@ theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase �
   | dispatch locals saved operands target rest used count => exact .dispatch locals saved operands target rest used count
   | child locals saved target rest used live step => exact .child locals saved target rest used live (map target used step)
   | discard step => exact .discard step
+  | branchIf locals stack condition depth result rest => exact .branchIf locals stack condition depth result rest
   | branchHere locals extra values result rest arity => exact .branchHere locals extra values result rest arity
   | branchOuter locals stack depth result rest outer => exact .branchOuter locals stack depth result rest outer
   | returnLabel locals stack rest => exact .returnLabel locals stack rest

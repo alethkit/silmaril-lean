@@ -226,6 +226,51 @@ theorem if_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
         Sim.Step.vals_left (Sim.Step.append_right (Step.ifTrue (P := P) (host := noHost)
           (s := s) (f := f) (bt := bt) (b₁ := thenBody) (b₂ := elseBody) zero) rest) saved
 
+theorem br_if_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {saved : List Val} {condition : BitVec 32} {depth : LabelIdx}
+    {rest : List Admin} {dst : Config H} :
+    Step P noHost
+      ⟨s, f, vals (saved ++ [.num ⟨.int .i32, condition⟩]) ++ .plain (.brIf depth) :: rest⟩ dst ↔
+      dst = ⟨s, f, vals saved ++ (if condition = 0 then [] else [.plain (.br depth)]) ++ rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, args, mid, split, step, rfl⟩ := front rfl (by simp) (by simp) move
+    cases step with
+    | brIfTrue nonzero =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [ite_eq_right nonzero]
+    | brIfFalse zero =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [ite_eq_left zero]
+    | _ =>
+      first
+      | have family := (famOf_of_shape (ParametricStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (NumericStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (VectorStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (VariableStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (TableStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (MemoryStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (RefStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (AggregateStep.shape ‹_›)).2; contradiction
+      | contradiction
+  · rintro rfl
+    have branch : Step P noHost ⟨s, f, [constI32 condition, .plain (.brIf depth)]⟩
+        ⟨s, f, if condition = 0 then [] else [.plain (.br depth)]⟩ := by
+      by_cases zero : condition = 0
+      · rw [ite_eq_left zero]
+        subst condition
+        exact .brIfFalse
+      · rw [ite_eq_right zero]
+        exact .brIfTrue zero
+    have source : vals (saved ++ [(.num ⟨.int .i32, condition⟩ : Val)]) ++ .plain (.brIf depth) :: rest =
+        vals saved ++ ([constI32 condition, .plain (.brIf depth)] ++ rest) := by
+      rw [vals_append, List.append_assoc]
+      rfl
+    rw [source]
+    simpa only [List.append_assoc] using Sim.Step.vals_left (Sim.Step.append_right branch rest) saved
+
 theorem unreachable_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {stack : List Val} {rest : List Admin} {dst : Config H} :
     Step P noHost ⟨s, f, vals stack ++ .plain .unreachable :: rest⟩ dst ↔

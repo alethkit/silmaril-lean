@@ -24,6 +24,7 @@ structure CodeSyntax (A : Type) where
   block : Option NumType → List A → A
   if_ : Option NumType → List A → List A → A
   br : LabelIdx → A
+  brIf : LabelIdx → A
 
 mutual
 
@@ -36,6 +37,7 @@ def Op.emit {A : Type} (codec : CodeSyntax A) : Op → A
   | .if_ result thenBody elseBody =>
       codec.if_ result (Op.emitList codec thenBody) (Op.emitList codec elseBody)
   | .br depth _ => codec.br depth
+  | .brIf depth _ => codec.brIf depth
   | .return_ => codec.ret
   | .unreachable => codec.unreachable
 
@@ -51,14 +53,20 @@ theorem Op.emitList_selected {A : Type} (codec : CodeSyntax A) (condition : BitV
       (if condition = 0 then Op.emitList codec elseBody else Op.emitList codec thenBody) := by
   split <;> rfl
 
+theorem Op.map_br_if {A : Type} (emit : Op → A) (condition : BitVec 32)
+    (depth : LabelIdx) (result : Option NumType) (rest : List Op) :
+    (if condition = 0 then rest else .br depth result :: rest).map emit =
+      (if condition = 0 then [] else [emit (.br depth result)]) ++ rest.map emit := by
+  split <;> rfl
+
 def v1CodeSyntax : CodeSyntax Wasm.V1.Instr :=
-  ⟨v1Source, .localSet, .localTee, .return_, .unreachable, .block, .if_, .br⟩
+  ⟨v1Source, .localSet, .localTee, .return_, .unreachable, .block, .if_, .br, .brIf⟩
 
 def limeCodeSyntax : CodeSyntax Wasm.Lime1.Instr :=
-  ⟨limeSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.limeType, .if_ ∘ Blocks.limeType, .br⟩
+  ⟨limeSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.limeType, .if_ ∘ Blocks.limeType, .br, .brIf⟩
 
 def coreCodeSyntax : CodeSyntax Instr :=
-  ⟨coreSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.coreType, .if_ ∘ Blocks.coreType, .br⟩
+  ⟨coreSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.coreType, .if_ ∘ Blocks.coreType, .br, .brIf⟩
 
 def Function.instructions {A : Type} (fn : Function) (codec : CodeSyntax A) : List A :=
   fn.initial.map codec.ops.value ++ Op.emitList codec fn.code
