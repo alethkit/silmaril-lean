@@ -25,7 +25,7 @@ open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical
   (TypeModel InstructionModel extend_map extend_postmap duplicate_central_of_tensor_eqToIso
     contextualLoop_pre_map contextualLoop_uniformity_of_diagonal routeEnvironment
-    caseWithContext_project retainEnvironment_comp bind_retainEnvironment bind_pre_map)
+    caseWithContext_project retainEnvironment_comp bind_retainEnvironment bind_pre_map bind_case_capture)
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical.SingletonDispatcher
 open Silmaril.Isotope.LambdaSSA.Region.CfgEta.Uniformity
 open Region (ValueBranches)
@@ -269,6 +269,27 @@ private theorem bind_post {X Y Z T : V} (f : J.obj X ⟶ J.obj Y)
     bindArrow J f g ≫ k = bindArrow J f (g ≫ k) :=
   Category.assoc _ _ _
 
+private theorem localMap_postSplit (h : ctxObj M (A :: Γ) ⟶ M.obj D) :
+    let E := ctxObj M Γ
+    let O := labelObj M L
+    let S := labelObj M [A]
+    let T := labelObj M [D]
+    let old := cut M [A] L
+    let new := cut M [D] L
+    let u := E ◁ payload M A
+    let h' := u ≫ h ≫ inj M 0 (L := [D]) (A := D) rfl
+    let exit := labelMap M (outwardLabelRenaming [D] L)
+    let head := u ≫ h ≫ inj M 0 (L := D :: L) (A := D) rfl
+    let route := routeEnvironment J E O S
+    let k := J.map (E ◁ old) ≫ route ≫ coprod.desc (J.map (snd E O ≫ exit)) (J.map head)
+    k ≫ J.map new = J.map (E ◁ old) ≫ route ≫
+      coprod.desc (J.map (snd E O ≫ (coprod.inl : O ⟶ O ⨿ T)))
+        (J.map (h' ≫ (coprod.inr : T ⟶ O ⨿ T))) := by
+  dsimp only
+  have hout := outMap_cut M D L
+  have hin := labelAppendSplit_zero M D L
+  simp only [Category.assoc, coprod.desc_comp, ← J.map_comp, hout, hin]
+
 variable [FreydCategory.CentralUnit J]
 
 private theorem left_square_denotes
@@ -311,15 +332,7 @@ private theorem left_square_denotes
   have hκ : κ ≫ J.map new = J.map (E ◁ old) ≫ route ≫
       coprod.desc (J.map (snd E O ≫ (coprod.inl : O ⟶ O ⨿ T)))
         (J.map (h' ≫ (coprod.inr : T ⟶ O ⨿ T))) := by
-    have hout : exit ≫ new = (coprod.inl : O ⟶ O ⨿ T) := outMap_cut M D L
-    have hin : inj M 0 (L := D :: L) (A := D) rfl ≫ new =
-      inj M 0 (L := [D]) (A := D) rfl ≫ (coprod.inr : T ⟶ O ⨿ T) := labelAppendSplit_zero M D L
-    dsimp only [κ]
-    simp only [Category.assoc, coprod.desc_comp, ← J.map_comp]
-    have hr' : head ≫ new = h' ≫ (coprod.inr : T ⟶ O ⨿ T) := by
-      dsimp only [head, h']
-      simp only [Category.assoc, hin]
-    rw [hout, hr']
+    exact localMap_postSplit M J (L := L) h
   change (J.map u ≫ denoteRegion J M hl) ≫ J.map new = _
   rw [hden, bind_retained_pre, show u ≫ fst E (M.obj A) = fst E S from
     CartesianMonoidalCategory.whiskerLeft_fst E (payload M A), bind_post, Category.assoc, hκ, bind_cut]
@@ -398,5 +411,160 @@ theorem sound
   exact (left_square_denotes M J shared dt hp hl).symm.trans
     ((congrArg (fun f => (J.map (ctxObj M Γ ◁ payload M A) ≫ f) ≫ J.map (cut M [D] L)) eq).trans
       (right_square_denotes M J shared dt hq hr))
+
+omit [FreydCategory.CentralUnit J] in
+private theorem bind_route_left {E X A B Y : V} (π : X ⟶ E) (h : X ⟶ A)
+    (l : J.obj (E ⊗ A) ⟶ J.obj Y) (r : J.obj (E ⊗ B) ⟶ J.obj Y) :
+    bindArrow J (J.map (h ≫ (coprod.inl : A ⟶ A ⨿ B)))
+      (J.map (π ▷ (A ⨿ B)) ≫ routeEnvironment J E A B ≫ coprod.desc l r) =
+      J.map (lift π h) ≫ l := by
+  rw [pure_bind_change]
+  have he : lift π (h ≫ (coprod.inl : A ⟶ A ⨿ B)) =
+      lift π h ≫ (E ◁ (coprod.inl : A ⟶ A ⨿ B)) := by
+    apply CartesianMonoidalCategory.hom_ext <;> simp
+  rw [he, J.map_comp_assoc, reassoc_of% (route_inl J (E := E) (A := A) (B := B)), coprod.inl_desc]
+
+omit [FreydCategory.CentralUnit J] in
+private theorem bind_route_right {E X A B Y : V} (π : X ⟶ E) (h : X ⟶ B)
+    (l : J.obj (E ⊗ A) ⟶ J.obj Y) (r : J.obj (E ⊗ B) ⟶ J.obj Y) :
+    bindArrow J (J.map (h ≫ (coprod.inr : B ⟶ A ⨿ B)))
+      (J.map (π ▷ (A ⨿ B)) ≫ routeEnvironment J E A B ≫ coprod.desc l r) =
+      J.map (lift π h) ≫ r := by
+  rw [pure_bind_change]
+  have he : lift π (h ≫ (coprod.inr : B ⟶ A ⨿ B)) =
+      lift π h ≫ (E ◁ (coprod.inr : B ⟶ A ⨿ B)) := by
+    apply CartesianMonoidalCategory.hom_ext <;> simp
+  rw [he, J.map_comp_assoc, reassoc_of% (route_inr J (E := E) (A := A) (B := B)), coprod.inr_desc]
+
+omit [FreydCategory.CentralUnit J] in
+private theorem case_changeLocal {E O S T Y : V}
+    (central : PremonoidalCategory.IsCentral (J.map (duplicate E) ≫
+      (Functor.StrongPremonoidal.tensorIso (J := J) E E).inv))
+    (f : J.obj E ⟶ J.obj (O ⨿ S)) (h : E ⊗ S ⟶ T)
+    (out : J.obj (E ⊗ O) ⟶ J.obj Y) (loop : J.obj (E ⊗ T) ⟶ J.obj Y) :
+    caseWithContext J
+      (caseWithContext J f (J.map (snd E O ≫ (coprod.inl : O ⟶ O ⨿ T)))
+        (J.map (h ≫ (coprod.inr : T ⟶ O ⨿ T)))) out loop =
+    caseWithContext J f out (J.map (lift (fst E S) h) ≫ loop) := by
+  rw [caseWithContext, ← Category.assoc (J.map (DistributiveTensor.leftIso E O T).inv)]
+  change bindArrow J
+    (caseWithContext J f (J.map (snd E O ≫ (coprod.inl : O ⟶ O ⨿ T)))
+      (J.map (h ≫ (coprod.inr : T ⟶ O ⨿ T))))
+    (routeEnvironment J E O T ≫ coprod.desc out loop) = _
+  rw [bind_case_capture J central, bind_route_left J, bind_route_right J]
+  have hπ : lift (fst E O) (snd E O) = 𝟙 (E ⊗ O) := by
+    apply CartesianMonoidalCategory.hom_ext <;> simp
+  rw [hπ, J.map_id, Category.id_comp]
+
+theorem localMap_typed {t : Tm Φ} (ht : Tm.HasType (A :: Γ) t D) :
+    Region.LSubst.HasType Γ (A :: L) (D :: L) (localMap t) := by
+  intro i B hi
+  cases i with
+  | zero =>
+    cases Option.some.inj hi
+    exact .br (ℓ := 0) rfl ht
+  | succ i => exact .br (ℓ := i + 1) hi (.var (i := 0) rfl)
+
+theorem sound_entry_of_denotations
+    (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
+      Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
+    {β p q : Region Φ} {t : Tm Φ}
+    (hβ : ValueBranches Γ β (A :: L))
+    (hp : ValueBranches (A :: Γ) p (A :: L))
+    (hq : Region.HasType (D :: Γ) q (D :: L))
+    {ht : Tm.HasType (A :: Γ) t D} {h : ctxObj M (A :: Γ) ⟶ M.obj D}
+    (dt : Denotes J M ht (J.map h))
+    (hl : Region.HasType (A :: Γ) (p.lsubst (Region.liftLSubstVars (localMap t))) (D :: L))
+    (hr : Region.HasType (A :: Γ)
+      ((Region.br 0 t).lsubst (Region.liftLSubstVars (fun _ => q))) (D :: L))
+    (square : denoteRegion J M hl = denoteRegion J M hr) :
+    denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ.hasType (fun _ => hp.hasType)) =
+    denoteRegion J M (.cfg (fun _ : Fin 1 => D) (hβ.hasType.lsubst (localMap_typed ht))
+      (fun _ => hq)) := by
+  let E := ctxObj M Γ
+  let O := labelObj M L
+  let S := labelObj M [A]
+  let T := labelObj M [D]
+  let u := E ◁ payload M A
+  let f := denoteRegion J M hβ.hasType
+  let old := cut M [A] L
+  let new := cut M [D] L
+  let h' := u ≫ h ≫ inj M 0 (L := [D]) (A := D) rfl
+  let exit := labelMap M (outwardLabelRenaming [D] L)
+  let head := u ≫ h ≫ inj M 0 (L := D :: L) (A := D) rfl
+  let route := routeEnvironment J E O S
+  let κ := J.map (E ◁ old) ≫ route ≫ coprod.desc (J.map (snd E O ≫ exit)) (J.map head)
+  let g := denoteRegion J M (hβ.hasType.lsubst (localMap_typed ht))
+  obtain ⟨he, hs⟩ := shared E E
+  have central := duplicate_central_of_tensor_eqToIso J E he hs
+  have comm : localSimulation M J hp.hasType hq h :=
+    (left_square_denotes M J shared dt hp hl).symm.trans
+      ((congrArg (fun f => (J.map (E ◁ payload M A) ≫ f) ≫ J.map (cut M [D] L)) square).trans
+        (right_square_denotes M J shared dt hq hr))
+  have hlo := contextualLoop_uniformity_of_diagonal J central (stateStep M J hp.hasType)
+    (stateStep M J hq) h' comm
+  have hκ : κ ≫ J.map new = J.map (E ◁ old) ≫ route ≫
+      coprod.desc (J.map (snd E O ≫ (coprod.inl : O ⟶ O ⨿ T)))
+        (J.map (h' ≫ (coprod.inr : T ⟶ O ⨿ T))) := by
+    exact localMap_postSplit M J (L := L) h
+  have d : ContinuationDenotes J M (Γ := Γ) (L := A :: L) (K := D :: L) (localMap t) κ :=
+    local_family M J (L := L) dt
+  have hden : g = bindArrow J f κ :=
+    denoteRegion_lsubst_sharedTensor J M shared hβ.hasType _
+      (PureBranches.of_valueBranches J M hβ) d
+  have hcut : g ≫ J.map new =
+      caseWithContext J (f ≫ J.map old) (J.map (snd E O ≫ (coprod.inl : O ⟶ O ⨿ T)))
+        (J.map (h' ≫ (coprod.inr : T ⟶ O ⨿ T))) := by
+    rw [hden, bind_post, hκ]
+    have hc := bind_cut J (𝟙 E) f old (J.map (snd E O ≫ (coprod.inl : O ⟶ O ⨿ T)))
+      (J.map (h' ≫ (coprod.inr : T ⟶ O ⨿ T)))
+    simpa only [MonoidalCategory.id_whiskerRight, J.map_id, Category.id_comp] using hc
+  rw [denoteSingleCfg M J hβ.hasType hp.hasType,
+    denoteSingleCfg M J (hβ.hasType.lsubst (localMap_typed ht)) hq]
+  change caseWithContext J (f ≫ J.map old) (J.map (snd E O))
+    (contextualLoop J (stateStep M J hp.hasType)) =
+    caseWithContext J (g ≫ J.map new) (J.map (snd E O)) (contextualLoop J (stateStep M J hq))
+  rw [hlo, hcut, case_changeLocal J central]
+
+theorem sound_entry
+    (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
+      Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
+    {β p q : Region Φ} {t : Tm Φ}
+    (hβ : ValueBranches Γ β (A :: L))
+    (hp : ValueBranches (A :: Γ) p (A :: L))
+    (hq : Region.HasType (D :: Γ) q (D :: L))
+    {ht : Tm.HasType (A :: Γ) t D} {h : ctxObj M (A :: Γ) ⟶ M.obj D}
+    (dt : Denotes J M ht (J.map h))
+    (simulation : Region.CfgEta.Eqv (A :: Γ)
+      (p.lsubst (Region.liftLSubstVars (localMap t)))
+      ((Region.br 0 t).lsubst (Region.liftLSubstVars (fun _ => q))) (D :: L)) :
+    denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ.hasType (fun _ => hp.hasType)) =
+    denoteRegion J M (.cfg (fun _ : Fin 1 => D) (hβ.hasType.lsubst (localMap_typed ht))
+      (fun _ => hq)) := by
+  obtain ⟨hl, hr⟩ := simulation.typed
+  exact sound_entry_of_denotations M J shared hβ hp hq dt hl hr
+    (simulation.sound_sharedTensor J M (FreydCategory.CentralUnit.unit_central (J := J)) shared hl hr)
+
+theorem sound_entry_afterBinding
+    (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
+      Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
+    {β p q : Region Φ} {t : Tm Φ}
+    (hβ : Region.HasType Γ β (A :: L))
+    (hp : ValueBranches (A :: Γ) p (A :: L))
+    (hq : Region.HasType (D :: Γ) q (D :: L))
+    {ht : Tm.HasType (A :: Γ) t D} {h : ctxObj M (A :: Γ) ⟶ M.obj D}
+    (dt : Denotes J M ht (J.map h))
+    (simulation : Region.CfgEta.Eqv (A :: Γ)
+      (p.lsubst (Region.liftLSubstVars (localMap t)))
+      ((Region.br 0 t).lsubst (Region.liftLSubstVars (fun _ => q))) (D :: L)) :
+    denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ (fun _ => hp.hasType)) =
+    denoteRegion J M (.cfg (fun _ : Fin 1 => D)
+      (hβ.bindBranchArguments.hasType.lsubst (localMap_typed ht)) (fun _ => hq)) := by
+  have he : denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ (fun _ => hp.hasType)) =
+      denoteRegion J M (.cfg (fun _ : Fin 1 => A) hβ.bindBranchArguments.hasType
+        (fun _ => hp.hasType)) := by
+    rw [denoteSingleCfg M J hβ hp.hasType, denoteSingleCfg M J hβ.bindBranchArguments.hasType hp.hasType,
+      Region.denoteRegion_bindBranchArguments J M (FreydCategory.CentralUnit.unit_central (J := J)) hβ]
+  exact he.trans (sound_entry M J shared hβ.bindBranchArguments hp hq dt simulation)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Uniformity
