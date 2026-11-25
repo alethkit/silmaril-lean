@@ -72,4 +72,71 @@ theorem joined_read {args : Ports (Ty V S)} {past : List (Ports (Ty V S))} {fn :
   have read := Tail.Prefix.read_forwarding entry locals (.cons callee .nil)
   exact congrArg (fun tuple => Tuple.cons (tuple.get .head) (arguments.read entry (locals.snoc (.cons callee .nil)))) read
 
+/-- The value of a selected single wire in the current caller scope. -/
+@[expose] def wireValue {args : Ports (Ty V S)} {past : List (Ports (Ty V S))} {t : Ty V S}
+    (origin : Origin args past t) (entry : Tuple m.Val args) (locals : Locals m.Val past) : m.Val t :=
+  (Wires.read (.cons origin .nil) entry locals).get .head
+
+theorem joined_origin_read {args : Ports (Ty V S)} {past : List (Ports (Ty V S))} {fn : Function V S}
+    (entry : Tuple m.Val args) (locals : Locals m.Val past) (callee : m.Val fn.port) :
+    wireValue (joinedOrigin fn) entry (locals.snoc (.cons callee .nil)) = callee :=
+  congrArg (fun tuple => tuple.get .head) (Tail.Prefix.read_forwarding entry locals (.cons callee .nil))
+
+theorem extended_origin_read {args head : Ports (Ty V S)} {past : List (Ports (Ty V S))} {t : Ty V S}
+    (origin : Origin args past t) (entry : Tuple m.Val args) (locals : Locals m.Val past) (value : Tuple m.Val head) :
+    wireValue (extendOrigin origin head) entry (locals.snoc value) = wireValue origin entry locals := by
+  cases origin with
+  | arg port => rfl
+  | output i port =>
+    induction past with
+    | nil => exact i.elim0
+    | cons first rest ih =>
+      cases i using Fin.cases with
+      | zero => rfl
+      | succ i => exact ih locals.2 i port
+
+/-- A block in the prefix keeps the unexecuted suffix pending. Every
+successful prefix step preserves the selected values in its typed scope. -/
+theorem prefix_pair {args outs : Ports (Ty V S)} {fn : Function V S}
+    {past final steps tailL tailR : List (Ports (Ty V S))}
+    {restL : NestedTheta.Term (Instruction Op) args final tailL outs}
+    {restR : NestedTheta.Term (Instruction Op) args final tailR outs}
+    {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+    {valueL valueR : m.Val fn.port} {store : σ}
+    (respects : ActionsRespect primitives ids) (route : ChoicePrefix Op args fn past final steps)
+    (source : Origin args past fn.port)
+    (entries : TupleRelated m ids entryL entryR) (locals : AlignedLocals m ids localsL localsR)
+    (callable : ValueRelated m ids valueL valueR)
+    (liveL : wireValue source entryL localsL = valueL) (liveR : wireValue source entryR localsR = valueR)
+    (resume : ∀ {scopeL scopeR : Locals m.Val final} (middle : σ), AlignedLocals m ids scopeL scopeR →
+      wireValue (route.callable source) entryL scopeL = valueL → wireValue (route.callable source) entryR scopeR = valueR →
+      ScopedRegionPair primitives ids mapping restL restR entryL entryR scopeL scopeR middle) :
+    ScopedRegionPair primitives ids mapping (route.wrap source restL) (route.wrap source restR)
+      entryL entryR localsL localsR store := by
+  induction route generalizing store with
+  | done => exact resume store locals liveL liveR
+  | primitive opcode inputs route ih =>
+    exact primitive_pair respects opcode inputs (Local.aligned_read entries locals inputs) store
+      (fun values middle => ih (store := middle) (extendOrigin source _) (locals.snoc values)
+        ((extended_origin_read source entryL localsL _).trans liveL)
+        ((extended_origin_read source entryR localsR _).trans liveR) resume)
+  | @forward _ _ _ extra selector route ih =>
+    obtain ⟨tag, _, _, guardL, guardR, _⟩ := selected_tuple (Local.aligned_read entries locals (.cons selector .nil))
+    let wiring := Tuple.cons selector (Tuple.cons source .nil)
+    let arms := chooserArms (Op := Op) (fn := fn) (extra := extra) (context := [fn.port]) (fun _ => .head)
+    have selectedL : Wires.read wiring entryL localsL = .cons (.control tag) (.cons valueL .nil) :=
+      congrArg₂ Tuple.cons (congrArg (fun tuple => tuple.get .head) guardL)
+        (congrArg (fun value => Tuple.cons value .nil) liveL)
+    have selectedR : Wires.read wiring entryR localsR = .cons (.control tag) (.cons valueR .nil) :=
+      congrArg₂ Tuple.cons (congrArg (fun tuple => tuple.get .head) guardR)
+        (congrArg (fun value => Tuple.cons value .nil) liveR)
+    exact continue_pair (nodeL := vertex (returned := [fn.port]) wiring (fun _ => []))
+      (nodeR := vertex (returned := [fn.port]) wiring (fun _ => []))
+      (selectedL.symm ▸ Eval.gamma (children := arms)
+        (.ret (past := []) (.cons (.arg .head) .nil) (.cons valueL .nil) PUnit.unit store))
+      (selectedR.symm ▸ Eval.gamma (children := arms)
+        (.ret (past := []) (.cons (.arg .head) .nil) (.cons valueR .nil) PUnit.unit store))
+      (ih (joinedOrigin fn) (locals.snoc (.cons callable .nil))
+        (joined_origin_read entryL localsL valueL) (joined_origin_read entryR localsR valueR) resume)
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs

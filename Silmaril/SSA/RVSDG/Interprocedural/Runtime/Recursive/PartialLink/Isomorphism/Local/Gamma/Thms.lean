@@ -287,10 +287,17 @@ theorem joinedInputs_read {past : List (Ports (Ty V S))}
       .cons callee (arguments.read entry (locals.snoc (.cons callee .nil))) :=
   Proofs.joined_read arguments entry locals callee
 
+/-- Appending a binding leaves an older typed wire's value intact. -/
+theorem extendOrigin_read {head : Ports (Ty V S)} {past : List (Ports (Ty V S))} {t : Ty V S}
+    (origin : Origin args past t) (entry : Tuple m.Val args) (locals : Locals m.Val past) (value : Tuple m.Val head) :
+    (Wires.read (.cons (extendOrigin origin head) .nil) entry (locals.snoc value)).get .head =
+      (Wires.read (.cons origin .nil) entry locals).get .head :=
+  Proofs.extended_origin_read origin entry locals value
+
 /-- Pair the actual execution of ordered static calls, primitive bindings,
 selected γ arms, θ bodies with preserved capture wires, and finite
-callable choosers. Each call enters a lower-ranked body. Its suffix
-consumes one binding of the caller plan and keeps the caller's scope. -/
+callable choosers with intervening primitive or forwarding bindings.
+Each call enters a lower-ranked body and resumes in the saved caller scope. -/
 theorem ranked_regions {rank : Nat} {context : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     {capturesL capturesR : Tuple m.Val context}
     {left : NestedTheta.Term (Instruction Op) (context ++ params) past sigsL outs}

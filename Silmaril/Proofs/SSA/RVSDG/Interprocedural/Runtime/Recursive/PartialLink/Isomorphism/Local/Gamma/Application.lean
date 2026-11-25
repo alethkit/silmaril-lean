@@ -185,27 +185,50 @@ private theorem bind_pair
       exact ⟨.bind restR entryR localsR pending,
         .inside (node := applicationVertex fn inputs) (application_reaches selectR (.call (openR.symm ▸ reached)))⟩
 
-private theorem primitive_pair {past : List (Ports (Ty V S))} {ins head : Ports (Ty V S)}
-    {restL : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsL outs}
-    {restR : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsR outs}
-    {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
-    (respects : ActionsRespect primitives ids) (opcode : Op ins head) (inputs : Wires args past ins)
-    (related : TupleRelated m ids (inputs.read entryL localsL) (inputs.read entryR localsR)) (store : σ)
-    (resume : ∀ {valueL valueR : Tuple m.Val head}, TupleRelated m ids valueL valueR → ∀ middle,
-      ScopedRegionPair primitives ids mapping restL restR entryL entryR
-        (localsL.snoc valueL) (localsR.snoc valueR) middle) :
-    ScopedRegionPair primitives ids mapping (bindPrimitive opcode inputs restL) (bindPrimitive opcode inputs restR)
-      entryL entryR localsL localsR store := by
-  have agreement := respects opcode related store
-  generalize ranL : (primitives.step opcode (inputs.read entryL localsL)).run store = resultL at agreement
-  generalize ranR : (primitives.step opcode (inputs.read entryR localsR)).run store = resultR at agreement
-  cases agreement with
-  | undefined => exact .blocked (.atPrimitive opcode inputs related ranL ranR)
-  | returned values middle =>
-    exact continue_pair (nodeL := primitiveVertex opcode inputs) (nodeR := primitiveVertex opcode inputs)
-      (.primitive (primitiveSite opcode _) (ranL.symm ▸ _root_.Part.mem_some _))
-      (.primitive (primitiveSite opcode _) (ranR.symm ▸ _root_.Part.mem_some _))
-      (resume values middle)
+private theorem choose_after_pair {context params outs : Ports (Ty V S)} {fn : Function V S} {extra : Nat}
+    {past final steps tailL tailR : List (Ports (Ty V S))}
+    {restL : NestedTheta.Term (Instruction Op) (context ++ params) (final ++ [fn.results]) tailL outs}
+    {restR : NestedTheta.Term (Instruction Op) (context ++ params) (final ++ [fn.results]) tailR outs}
+    {capL capR : Tuple m.Val context} {argsL argsR : Tuple m.Val params}
+    {localsL localsR : Locals m.Val past} {store : σ}
+    (respects : ActionsRespect primitives ids) (selector : Origin (context ++ params) past (.control (extra + 2)))
+    (ports : Fin (extra + 2) → Port context fn.port)
+    (route : ChoicePrefix Op (context ++ params) fn (past ++ [[fn.port]]) final steps)
+    (wires : Wires (context ++ params) final fn.args) (family : Fin (extra + 2) → CallTarget m fn)
+    (originL : ∀ tag, capL.get (ports tag) = (family tag).valueL)
+    (originR : ∀ tag, capR.get (ports tag) = (family tag).valueR)
+    (captures : TupleRelated m ids capL capR) (arguments : TupleRelated m ids argsL argsR)
+    (locals : AlignedLocals m ids localsL localsR)
+    (observe : ∀ tag {operandsL operandsR : Tuple m.Val fn.args}, TupleRelated m ids operandsL operandsR → ∀ middle,
+      RegionPair primitives ids (mapping.child final.length tag.val) (family tag).left (family tag).right
+        (prependContext operandsL (family tag).capturesL) (prependContext operandsR (family tag).capturesR) middle)
+    (resume : ∀ {scopeL scopeR : Locals m.Val (final ++ [fn.results])}, AlignedLocals m ids scopeL scopeR → ∀ middle,
+      ScopedRegionPair primitives ids mapping restL restR (prependContext argsL capL)
+        (prependContext argsR capR) scopeL scopeR middle) :
+    ScopedRegionPair primitives ids mapping (chooseApplicationAfter fn selector ports route wires restL)
+      (chooseApplicationAfter fn selector ports route wires restR)
+      (prependContext argsL capL) (prependContext argsR capR) localsL localsR store := by
+  let source := joinedOrigin (past := past) (args := context ++ params) fn
+  let inputs := Tuple.cons (route.callable source) wires
+  refine choose_pair (restL := route.wrap source (bindApplication fn inputs restL))
+    (restR := route.wrap source (bindApplication fn inputs restR)) selector ports captures arguments locals ?_
+  intro tag
+  let entryL := prependContext argsL capL
+  let entryR := prependContext argsR capR
+  let valueL := capL.get (ports tag)
+  let valueR := capR.get (ports tag)
+  have paired := captures.get (ports tag)
+  have entries := prepend_related captures arguments
+  refine prefix_pair respects route source entries (locals.snoc (.cons paired .nil)) paired
+    (joined_origin_read entryL localsL valueL) (joined_origin_read entryR localsR valueR) ?_
+  intro scopeL scopeR middle aligned liveL liveR
+  have operands := Local.aligned_read entries aligned wires
+  have selectedL : Wires.read inputs entryL scopeL = .cons (family tag).valueL (wires.read entryL scopeL) :=
+    congrArg (fun callee => Tuple.cons callee (wires.read entryL scopeL)) (liveL.trans (originL tag))
+  have selectedR : Wires.read inputs entryR scopeR = .cons (family tag).valueR (wires.read entryR scopeR) :=
+    congrArg (fun callee => Tuple.cons callee (wires.read entryR scopeR)) (liveR.trans (originR tag))
+  exact bind_pair (some tag.val) inputs selectedL selectedR (observe tag operands middle)
+    (fun values finalStore => resume (aligned.snoc values) finalStore)
 
 theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     {capturesL capturesR : Tuple m.Val context}
@@ -269,24 +292,17 @@ theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : Li
     · intro valueL valueR values middle
       exact suffixIH captures arguments (locals.snoc values) middle
 
-  | @choose _ _ map _ _ _ fn past _ _ capL capR restL restR selector ports wires family _ originL originR captured
+  | @choose _ _ _ _ _ _ _ _ _ _ _ _ restL restR selector ports wires family _ originL originR captured
       _ _ _ calleeIH suffixIH =>
-    refine choose_pair (restL := bindApplication fn (joinedInputs fn wires) restL)
-      (restR := bindApplication fn (joinedInputs fn wires) restR) selector ports captures arguments locals ?_
-    intro tag
-    let valueL := capL.get (ports tag)
-    let valueR := capR.get (ports tag)
-    let appL := localsL.snoc (.cons valueL .nil)
-    let appR := localsR.snoc (.cons valueR .nil)
-    have related : ValueRelated m ids valueL valueR := captures.get (ports tag)
-    have joined := locals.snoc (TupleRelated.cons related .nil)
-    have operands := Local.aligned_read (prepend_related captures arguments) joined wires
-    have selectedL := (joined_read wires (prependContext argsL capL) localsL valueL).trans
-      (congrArg (fun callee => Tuple.cons callee (wires.read (prependContext argsL capL) appL)) (originL tag))
-    have selectedR := (joined_read wires (prependContext argsR capR) localsR valueR).trans
-      (congrArg (fun callee => Tuple.cons callee (wires.read (prependContext argsR capR) appR)) (originR tag))
-    exact bind_pair (mapping := map) (some tag.val) (joinedInputs fn wires) selectedL selectedR
-      (calleeIH tag (captured tag) operands .empty store)
-      (fun values middle => suffixIH captures arguments (joined.snoc values) middle)
+    exact choose_after_pair (restL := restL) (restR := restR) respects selector ports .done wires family
+      originL originR captures arguments locals
+      (fun tag {_ _} operands middle => calleeIH tag (captured tag) operands .empty middle)
+      (fun aligned middle => suffixIH captures arguments aligned middle)
+  | @chooseAfter _ _ _ _ _ _ _ _ _ _ _ _ _ _ restL restR selector ports route wires family _ originL originR
+      captured _ _ _ calleeIH suffixIH =>
+    exact choose_after_pair (restL := restL) (restR := restR) respects selector ports route wires family
+      originL originR captures arguments locals
+      (fun tag {_ _} operands middle => calleeIH tag (captured tag) operands .empty middle)
+      (fun aligned middle => suffixIH captures arguments aligned middle)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs
