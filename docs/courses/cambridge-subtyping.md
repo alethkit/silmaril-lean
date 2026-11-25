@@ -31,13 +31,20 @@ judgment (Exercise 35). `HasType.ofL3` and `StoreTyped.ofL3` embed core L3
 derivations.
 
 The checked type examples include nested width and depth, record
-permutations, arrow variance and the missing-field argument in Exercise
-32(3). The projection application from slide 206 and a widened-sum match
-have L3 traces to `3`. The reordered argument of Exercise 32(4) and a
-resettable counter used through the `Counter` interface have checked typing
-derivations. For Exercise 33, two closed programs have type `int` under the
-respective proposed rules for references, and each has a checked L3 run
-that gets stuck at a missing-field projection.
+permutations and arrow variance. The projection application from slide 206
+and a widened-sum match have L3 traces to `3`. A resettable counter used
+through the `Counter` interface has a checked typing derivation. For
+Exercise 33, two closed programs have type `int` under the respective
+proposed rules for references, and each has a checked L3 run that gets
+stuck at a missing-field projection.
+
+Exercise 32 on pp. 87–88 has all four cases checked in the extended judgment.
+The nested singleton has type `{p:{}}` by width within the outer field and
+depth at the outer record. The `x.q.p` lambda returns an integer. The
+lambda in part (3) has no type because its annotated function parameter
+requires a field `p` and subsumption cannot add it to `{q = 3}`.
+Part (4) uses permutation and width to type the argument with both fields.
+[Exact derivations](../../Silmaril/Courses/Cambridge/Subtyping/L3Examples.lean)
 
 The safety proofs use L3's value and reduction relations. With an empty
 variable environment and a well-typed store, `Subtyping.progress` gives
