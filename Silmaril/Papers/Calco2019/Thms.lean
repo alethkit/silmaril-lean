@@ -5,6 +5,7 @@ public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
 public import Silmaril.Semantics.Calco2019.InductiveResumption.Free.Thms
 public import Silmaril.Semantics.Calco2019.Maybe.Resumption.Thms
+public import Silmaril.Semantics.Calco2019.Maybe.Hyperextensive.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
 public import Silmaril.Semantics.Calco2019.VacuousThms
 public import Silmaril.Semantics.Calco2019.ExceptionResumption.Specializations
