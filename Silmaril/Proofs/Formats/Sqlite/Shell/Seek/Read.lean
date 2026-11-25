@@ -30,10 +30,9 @@ private theorem run_halted (database : Vdbe.Database) (program : Vdbe.Program)
     Vdbe.run database program fuel state = .halted state := by
   cases fuel <;> simp [Vdbe.run, halted]
 
-/-- The existing point-query program returns no rows on an absent key. -/
-theorem execute_seek_none (table : Vdbe.Table) (key : Int64)
-    (missing : table.get key.toInt = none) :
-    Shell.execute table { columns := [.id, .amount], key := some key } = .ok ⟨["id", "amount"], []⟩ := by
+theorem execute_seek_query_none (table : Vdbe.Table) (key : Int64) (query : Shell.Query)
+    (selected : query.key = some key) (missing : table.get key.toInt = none) :
+    Shell.execute table query = .ok ⟨query.columns.map Shell.Column.name, []⟩ := by
   have observations := dropped_head_model table key
   have dropped : table.entries.dropWhile (fun entry => entry.1 != key.toInt) = [] := by
     cases rest : table.entries.dropWhile (fun entry => entry.1 != key.toInt) with
@@ -41,16 +40,19 @@ theorem execute_seek_none (table : Vdbe.Table) (key : Int64)
     | cons entry tail => simp [rest, missing] at observations
   unfold Shell.execute
   rw [Nat.add_comm 7 (4 * table.entries.length)]
-  simp [Shell.seek, Vdbe.run, Vdbe.step, Vdbe.execute, Vdbe.State.initial,
+  simp [selected, Shell.seek, Vdbe.run, Vdbe.step, Vdbe.execute, Vdbe.State.initial,
     Vdbe.State.advance, Vdbe.State.write, Vdbe.State.setCursor, Vdbe.State.seekCursor,
-    Vdbe.State.jump, Shell.Column.name, dropped]
-  rfl
+    Vdbe.State.jump, dropped]
+  cases query.descending <;> rfl
 
-/-- The actual seek program returns the exact signed key and amount of the
-first selected well-typed row. -/
-theorem execute_seek_some (table : Vdbe.Table) (key amount : Int64)
+theorem execute_seek_query_some (table : Vdbe.Table) (key amount : Int64) (query : Shell.Query)
+    (selected : query.key = some key)
     (found : table.get key.toInt = some [.integer key, .integer amount]) :
-    Shell.execute table { columns := [.id, .amount], key := some key } = .ok ⟨["id", "amount"], [[key.toInt, amount.toInt]]⟩ := by
+    let projected := query.columns.map fun column => match column with
+      | .id => key.toInt
+      | .amount => amount.toInt
+    Shell.execute table query =
+      .ok ⟨query.columns.map Shell.Column.name, ([projected].drop query.offset).take (query.limit.getD 1)⟩ := by
   have observations := dropped_head_model table key
   obtain ⟨other, tail, dropped⟩ : ∃ other tail,
       table.entries.dropWhile (fun entry => entry.1 != key.toInt) =
@@ -65,10 +67,29 @@ theorem execute_seek_some (table : Vdbe.Table) (key amount : Int64)
   unfold Shell.execute
   rw [Nat.add_comm 7 (4 * table.entries.length)]
   have offsets : List.range 2 = [0, 1] := rfl
-  simp [Shell.seek, Vdbe.run, Vdbe.step, Vdbe.execute, Vdbe.State.initial,
+  simp [selected, Shell.seek, Vdbe.run, Vdbe.step, Vdbe.execute, Vdbe.State.initial,
     Vdbe.State.advance, Vdbe.State.write, Vdbe.State.setCursor, Vdbe.State.seekCursor,
-    Vdbe.State.jump, Vdbe.State.emit, Vdbe.Cursor.current?, Shell.Column.name, dropped,
-    offsets, run_halted]
-  rfl
+    Vdbe.State.jump, Vdbe.State.emit, Vdbe.Cursor.current?, dropped, offsets, run_halted]
+  cases query.offset with
+  | succ _ =>
+    simp
+    rfl
+  | zero =>
+    simp only [List.drop_zero]
+    cases query.limit with
+    | none => rfl
+    | some limit =>
+      cases limit <;> simp <;> rfl
+
+theorem execute_seek_none (table : Vdbe.Table) (key : Int64)
+    (missing : table.get key.toInt = none) :
+    Shell.execute table { columns := [.id, .amount], key := some key } = .ok ⟨["id", "amount"], []⟩ :=
+  execute_seek_query_none table key _ rfl missing
+
+theorem execute_seek_some (table : Vdbe.Table) (key amount : Int64)
+    (found : table.get key.toInt = some [.integer key, .integer amount]) :
+    Shell.execute table { columns := [.id, .amount], key := some key } =
+      .ok ⟨["id", "amount"], [[key.toInt, amount.toInt]]⟩ :=
+  execute_seek_query_some table key amount _ rfl found
 
 end Silmaril.Proofs.Formats.Sqlite.Shell.Seek
