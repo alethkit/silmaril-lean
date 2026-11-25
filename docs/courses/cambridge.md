@@ -7,7 +7,7 @@ reusable foundations sit beneath it, and other library regions do not import it.
 
 | Course | Included development | Guide |
 | --- | --- | --- |
-| Semantics of Programming Languages, Part IB | L1 imperative language, L2 functions and recursion, and L3 products, sums, records and mutable references. Includes typing, metatheory and worked derivations. | [Operational semantics](cambridge-operational.md) |
+| Semantics of Programming Languages, Part IB | L1 imperative language, L2 functions and recursion, and L3 products, sums, records and mutable references. Includes typing, metatheory and worked derivations. | [Operational semantics](cambridge-operational.md) · [Chapter and exercise checklist](cambridge-spl-coverage.md) |
 | Denotational Semantics, Part II | Domains and fixed points; IMP; PCF semantics and adequacy; failure of full abstraction for PCF and full abstraction with parallel-or | [Denotational semantics](cambridge-denotational.md) |
 | Optimising Compilers, Part II | Three-address flowgraphs; dataflow analysis and scoped optimization proofs; institution models and verified-pass adapters; exercise sheets 1–4 | [Optimising compilers](cambridge-optimising.md) |
 
