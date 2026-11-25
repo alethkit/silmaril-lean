@@ -112,6 +112,59 @@ theorem setIndex_rhs_failure (program : Program) (available : List DeclarationId
   Proofs.Languages.Starlark.Functions.Comprehensions.set_index_rhs_failure
     program available receiver subscript rhs stages state failed error ran
 
+/-- Once the target operands succeed, read the old value before the RHS.
+The remaining code uses the saved target values. A read error skips the RHS. -/
+theorem addIndex_after_target (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (stages : ExpressionStages) (state afterReceiver afterIndex : State)
+    (recv : denoteBody program available (receiver.compile stages (argumentSlot 0)) state =
+      .ok .next afterReceiver)
+    (index : denoteBody program available (subscript.compile stages (argumentSlot 1)) afterReceiver =
+      .ok .next afterIndex) :
+    denoteBody program available (addIndexCode receiver subscript rhs stages) state =
+      completeCall state none (Outcome.resume (denoteBody program available readIndexForAdd afterIndex) fun
+        | .next => denoteBody program available (.seq (rhs.compile stages (argumentSlot 3)) writeIndexSum)
+        | signal => pure signal) :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.add_index_after_target
+    program available receiver subscript rhs stages state afterReceiver afterIndex recv index
+
+/-- Scratch lowering preserves all operand, read, arithmetic and write
+outcomes of the checked integer subscript addition. -/
+theorem addIndex_preserves (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (receiverAdmitted : receiver.Admitted)
+    (subscriptAdmitted : subscript.Admitted) (rhsAdmitted : rhs.Admitted)
+    (state : State) (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    denoteBody program available (addIndexCode receiver subscript rhs (loweredStages start)) state =
+      denoteBody program available (addIndexCode receiver subscript rhs directStages) state :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.add_index_exact
+    program available receiver subscript rhs receiverAdmitted subscriptAdmitted rhsAdmitted state free start
+
+theorem exec_addIndex_iff_lowered (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (receiverAdmitted : receiver.Admitted)
+    (subscriptAdmitted : subscript.Admitted) (rhsAdmitted : rhs.Admitted)
+    (state : State) (out : Outcome Flow) (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    Exec program available state (addIndexCode receiver subscript rhs directStages) out ↔
+      denoteBody program available (addIndexCode receiver subscript rhs (loweredStages start)) state = out := by
+  rw [addIndex_preserves program available receiver subscript rhs receiverAdmitted subscriptAdmitted rhsAdmitted
+    state free start]
+  exact exec_iff_denoteBody _ _ _ _ _
+
+/-- The same preservation applies to lexical name addition. -/
+theorem addName_preserves (program : Program) (available : List DeclarationId)
+    (target : Binding) (rhs : Expression) (admitted : rhs.Admitted)
+    (state : State) (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    denoteBody program available (addNameCode target rhs (loweredStages start)) state =
+      denoteBody program available (addNameCode target rhs directStages) state :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.add_name_exact
+    program available target rhs admitted state free start
+
+theorem exec_addName_iff_lowered (program : Program) (available : List DeclarationId)
+    (target : Binding) (rhs : Expression) (admitted : rhs.Admitted)
+    (state : State) (out : Outcome Flow) (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    Exec program available state (addNameCode target rhs directStages) out ↔
+      denoteBody program available (addNameCode target rhs (loweredStages start)) state = out := by
+  rw [addName_preserves program available target rhs admitted state free start]
+  exact exec_iff_denoteBody _ _ _ _ _
+
 /-- Replacing each admitted definition-time operand by scratch-lowered code
 preserves the exact outcome and state of the complete definition. -/
 theorem definition_defaults_preserved (program : Program) (available : List DeclarationId)

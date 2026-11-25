@@ -29,6 +29,8 @@ inductive Body where
   | assignTargetScoped (target : LoopTarget) (rhs : Body)
   | setIndexExpr (receiver subscript rhs : Lowering.Expr)
   | addIndexExpr (receiver subscript rhs : Lowering.Expr)
+  /-- Add two saved values using the integer augmented-assignment profile. -/
+  | assignIntegerAdd (target left right : Binding)
   | evalExpr (value : Lowering.Expr)
   /-- Execute scoped code for effects. Discard its result and restore the
   caller's bindings and slots on either exit. -/
@@ -160,7 +162,7 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
     receiver.validateCalls
     subscript.validateCalls
     rhs.validateCalls
-  | .define .. | .insertDictEntry .. | .total _ => pure ()
+  | .define .. | .assignIntegerAdd .. | .insertDictEntry .. | .total _ => pure ()
 
 def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false
 
@@ -182,6 +184,12 @@ def applyIntegerAdd (left right : Lists.Value) : Except Error Lists.Value :=
     ((Starlark.applyBinary .add (.int lhs) (.int rhs)).map Lists.Value.scalar).mapError fun _ =>
       .integerAddType left right
   | _, _ => .error (.integerAddType left right)
+
+def assignIntegerAdd (target left right : Binding) : Meaning Flow := do
+  let left ← fun state : State => state.read (.bound left)
+  let right ← fun state : State => state.read (.bound right)
+  let sum ← fromExcept (applyIntegerAdd left right)
+  fun state => .ok .next (state.write target sum)
 
 /-- Insert a dictionary display entry after lowering has staged both operands. -/
 def insertDictEntry (receiver key value : Binding) : Meaning Flow := do

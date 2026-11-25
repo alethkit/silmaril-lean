@@ -833,24 +833,27 @@ private def sameAliasReceiver : CompExpr :=
 private def brokenStoreOperand (iterable : Functions.Lowering.Resolve.SourceExpr) : CompExpr :=
   .list ⟨starlark%[row], iterable, .forIn starlark%[x] starlark%[row] (.yield starlark%[[][0]])⟩
 
-private def checkStoreFailure (targetValue : Functions.Lowering.Resolve.SourceExpr) (receiver subscript rhs : CompExpr)
+private def checkStoreFailure (targetValue : Functions.Lowering.Resolve.SourceExpr) (store : Command)
     (expectedError : Address → Lists.Error → Bool) (trace : List Int)
     (prepare : Address → State → State := fun _ state => state) : Bool :=
   let commands := logCommands ++ [.assign "target" targetValue, .assign "alias" starlark%[target],
-    .assign "rows" starlark%[[[0]]], .setIndexCompExpr receiver subscript rhs]
+    .assign "rows" starlark%[[[0]]], store]
   match resolve commands with
   | .ok resolved =>
     match resolved.source.commands.reverse with
-    | .exec (.setIndexCompExpr recv index value) :: reversed =>
-      match runCommands resolved.program noImports reversed.reverse (enter resolved.source {}) with
-      | .ok () entered =>
+    | .exec code :: reversed =>
+      let staged := match code with
+        | .setIndexCompExpr recv index value => some (Functions.Comprehensions.setIndexCode recv index value)
+        | .addIndexCompExpr recv index value => some (Functions.Comprehensions.addIndexCode recv index value)
+        | _ => none
+      match staged, runCommands resolved.program noImports reversed.reverse (enter resolved.source {}) with
+      | some emit, .ok () entered =>
         match entered.bindingValue (globalSlot "target"), entered.bindingValue (globalSlot "rows") with
         | .ok (.list address), .ok (.list rows) | .ok (.dict address), .ok (.list rows) =>
-          let saved := List.range 3 |>.map Functions.Comprehensions.argumentSlot
+          let saved := List.range 4 |>.map Functions.Comprehensions.argumentSlot
           let before := prepare address ({ entered with iterators := [rows] })
           let before := saved.foldl (fun state slot => state.write slot (intValue 93)) before
-          let run := fun stages => Functions.run resolved.program
-            (Functions.Comprehensions.setIndexCode recv index value stages) before
+          let run := fun stages => Functions.run resolved.program (emit stages) before
           match run Functions.Comprehensions.directStages, run (Functions.Comprehensions.loweredStages 0) with
           | .error first direct, .error second lowered =>
             expectedError address first && second == first && direct.heap == lowered.heap &&
@@ -863,7 +866,7 @@ private def checkStoreFailure (targetValue : Functions.Lowering.Resolve.SourceEx
             | _ => false
           | _, _ => false
         | _, _ => false
-      | _ => false
+      | _, _ => false
     | _ => false
   | _ => false
 
@@ -873,10 +876,14 @@ private def checkStoreFailure (targetValue : Functions.Lowering.Resolve.SourceEx
   let index := fromComprehension starlark%[[mark(3, 0)]]
   let invalid := fromComprehension starlark%[[mark(2, 7)]]
   let atIndex := fun _ error => error == .indexRange 0 0
-  checkStoreFailure starlark%[[7]] recv index (brokenStoreOperand starlark%[mark(1, rows)]) atIndex [1] &&
-  checkStoreFailure starlark%[[7]] (brokenStoreOperand starlark%[mark(2, rows)]) index rhs atIndex [1, 2] &&
-  checkStoreFailure starlark%[[7]] invalid (brokenStoreOperand starlark%[mark(3, rows)]) rhs atIndex [1, 2, 3] &&
-  checkStoreFailure starlark%[[7]] invalid index rhs (fun _ error => error == .assignmentTarget) [1, 2, 3]
+  checkStoreFailure starlark%[[7]]
+    (.setIndexCompExpr recv index (brokenStoreOperand starlark%[mark(1, rows)])) atIndex [1] &&
+  checkStoreFailure starlark%[[7]]
+    (.setIndexCompExpr (brokenStoreOperand starlark%[mark(2, rows)]) index rhs) atIndex [1, 2] &&
+  checkStoreFailure starlark%[[7]]
+    (.setIndexCompExpr invalid (brokenStoreOperand starlark%[mark(3, rows)]) rhs) atIndex [1, 2, 3] &&
+  checkStoreFailure starlark%[[7]] (.setIndexCompExpr invalid index rhs)
+    (fun _ error => error == .assignmentTarget) [1, 2, 3]
 
 #guard
   let rhs := fromComprehension starlark%[[mark(1, 9)]]
@@ -884,12 +891,117 @@ private def checkStoreFailure (targetValue : Functions.Lowering.Resolve.SourceEx
   let index := fromComprehension starlark%[[mark(3, 0)]]
   let badKey := fromComprehension starlark%[[mark(3, [])]]
   let freezeList := fun address (state : State) => state.freeze [.list address]
-  checkStoreFailure starlark%[[7]] recv (fromComprehension starlark%[[mark(3, 2)]]) rhs
+  checkStoreFailure starlark%[[7]] (.setIndexCompExpr recv (fromComprehension starlark%[[mark(3, 2)]]) rhs)
     (fun _ error => error == .indexRange 2 1) [1, 2, 3] freezeList &&
-  checkStoreFailure starlark%[{"b": 7}] recv badKey rhs (fun _ => isUnhashableList) [1, 2, 3] &&
-  checkStoreFailure starlark%[{"b": 7}] recv badKey rhs (fun address error => error == .frozen address)
+  checkStoreFailure starlark%[{"b": 7}] (.setIndexCompExpr recv badKey rhs)
+    (fun _ => isUnhashableList) [1, 2, 3] &&
+  checkStoreFailure starlark%[{"b": 7}] (.setIndexCompExpr recv badKey rhs) (fun address error => error == .frozen address)
     [1, 2, 3] (fun address state => state.freeze [.dict address]) &&
-  checkStoreFailure starlark%[[7]] sameAliasReceiver index rhs (fun address error => error == .activeIteration address)
+  checkStoreFailure starlark%[[7]] (.setIndexCompExpr sameAliasReceiver index rhs)
+    (fun address error => error == .activeIteration address)
     [1, 2, 3] (fun address state => { state with iterators := address :: state.iterators })
+
+-- The RHS changes both a saved list and the receiver selection. The
+-- write still uses the old integer and the original object. The same
+-- integer addition works for a dictionary element and a lexical name.
+#guard
+  let commands := logCommands ++
+    [.assign "first" starlark%[[7]], .assign "second" starlark%[[50]],
+     .assign "alias" starlark%[first], .assign "selected" starlark%[[alias]],
+     .define "change" {} (.seq (.setIndex starlark%[selected] starlark%[0] starlark%[second])
+       (.seq (.setIndex starlark%[alias] starlark%[0] starlark%[100]) (.ret (some starlark%[mark(3, 2)])))),
+     .define "update" {} (.addIndexCompExpr (fromComprehension starlark%[[mark(1, selected[0])]])
+       (fromComprehension starlark%[[mark(2, -1)]]) (fromComprehension starlark%[[change()]])),
+     .eval starlark%[update()],
+     .assign "table" starlark%[{"b": 7, "a": 8}], .assign "twin" starlark%[table],
+     .addIndexCompExpr (fromComprehension starlark%[[mark(4, twin)]])
+       (fromComprehension starlark%[[mark(5, "b")]]) (fromComprehension starlark%[[mark(6, 9)]]),
+     .define "bump" { positional := [⟨"x", none⟩] }
+       (.seq (.addNameCompExpr "x" (fromComprehension starlark%[[mark(7, x)]])) (.ret (some starlark%[x]))),
+     .assign "keys" starlark%[list(table)],
+     .assign "ok" starlark%[{(9, 9, 50, 50, 16, "b", 6): True}[
+       (first[0], alias[0], second[0], selected[0][0], table["b"], keys[0], bump(3))]]]
+  match runModule commands noImports {} with
+  | .ok (.ok published state) =>
+    published.exports.lookup "ok" == some (.scalar (.bool true)) &&
+    published.exports.lookup "table" == published.exports.lookup "twin" &&
+    match published.exports.lookup "events" with
+    | some (.list address) => eventsMatch state address [1, 2, 3, 4, 5, 6, 7, 0]
+    | _ => false
+  | _ => false
+
+-- Plain assignment inserts the key and evaluates the RHS first.
+-- Augmented assignment needs an old value at that key before the RHS.
+#guard
+  let receiver := fromComprehension starlark%[[mark(1, alias)]]
+  let index := fromComprehension starlark%[[mark(2, "new")]]
+  let rhs := fromComprehension starlark%[[mark(3, 9)]]
+  let commands := logCommands ++ [.assign "target" starlark%[{"b": 7}], .assign "alias" starlark%[target],
+    .setIndexCompExpr receiver index rhs, .assign "out" starlark%[target["new"]]]
+  let plain := match runModule commands noImports {} with
+    | .ok (.ok published state) =>
+      published.exports.lookup "out" == some (intValue 9) &&
+      match published.exports.lookup "events" with
+      | some (.list address) => eventsMatch state address [3, 1, 2, 0, 0, 0, 0, 0]
+      | _ => false
+    | _ => false
+  plain && checkStoreFailure starlark%[{"b": 7}] (.addIndexCompExpr receiver index rhs)
+    (fun _ error => error == .missingKey (.string "new")) [1, 2]
+
+#guard
+  let receiver := fromComprehension starlark%[[mark(1, alias)]]
+  let index := fromComprehension starlark%[[mark(2, 0)]]
+  let rhs := fromComprehension starlark%[[mark(3, 9)]]
+  let brokenAt := fun _ error => error == .indexRange 0 0
+  let check := checkStoreFailure starlark%[[7]]
+  check (.addIndexCompExpr (brokenStoreOperand starlark%[mark(1, rows)]) index rhs) brokenAt [1] &&
+  check (.addIndexCompExpr receiver (brokenStoreOperand starlark%[mark(2, rows)]) rhs) brokenAt [1, 2] &&
+  check (.addIndexCompExpr receiver (fromComprehension starlark%[[mark(2, 2)]]) rhs)
+    (fun _ error => error == .indexRange 2 1) [1, 2] &&
+  check (.addIndexCompExpr receiver index (brokenStoreOperand starlark%[mark(3, rows)])) brokenAt [1, 2, 3]
+
+#guard
+  let receiver := fromComprehension starlark%[[mark(1, alias)]]
+  let index := fromComprehension starlark%[[mark(2, 0)]]
+  let rhs := fromComprehension starlark%[[mark(3, 9)]]
+  let bad := fromComprehension starlark%[[mark(3, True)]]
+  let iterateAlias := CompExpr.index
+    (.list ⟨starlark%[x], starlark%[alias], .yield starlark%[mark(1, alias)]⟩) (.plain starlark%[0])
+  let check := fun store error trace prepare =>
+    checkStoreFailure starlark%[[7]] store error trace prepare
+  check (.addIndexCompExpr receiver index bad)
+    (fun _ error => error == .integerAddType (intValue 7) (.scalar (.bool true))) [1, 2, 3]
+    (fun address state => state.freeze [.list address]) &&
+  check (.addIndexCompExpr receiver index rhs) (fun address error => error == .frozen address)
+    [1, 2, 3] (fun address state => state.freeze [.list address]) &&
+  check (.addIndexCompExpr iterateAlias index rhs) (fun address error => error == .activeIteration address)
+    [1, 2, 3] (fun address state => { state with iterators := address :: state.iterators })
+
+-- Failure inside a nested RHS comprehension keeps its own write
+-- through an alias. The augmented write-back and later code are skipped.
+#guard
+  let commands := logCommands ++
+    [.assign "target" starlark%[[7]], .assign "alias" starlark%[target], .assign "rows" starlark%[[[0]]],
+     .define "change" {} (.seq (.setIndex starlark%[alias] starlark%[0] starlark%[100])
+       (.ret (some starlark%[mark(3, rows)]))),
+     .addIndexCompExpr (fromComprehension starlark%[[mark(1, alias)]])
+       (fromComprehension starlark%[[mark(2, 0)]]) (brokenStoreOperand starlark%[change()]),
+     .eval starlark%[mark(99, 0)]]
+  match runModule commands noImports {} with
+  | .ok (.error (.runtime (.indexRange 0 0)) state) =>
+    state.heap.any (·.contents == .list [intValue 100]) &&
+    state.heap.any (·.contents == .list ([1, 2, 3, 0, 0, 0, 0, 0].map intValue))
+  | _ => false
+
+-- A name target itself establishes a local, so its old value is unbound.
+#guard
+  let commands := logCommands ++
+    [.assign "x" starlark%[7],
+     .define "f" {} (.addNameCompExpr "x" (fromComprehension starlark%[[mark(1, 9)]])),
+     .eval starlark%[f()]]
+  match runModule commands noImports {} with
+  | .ok (.error (.runtime (.uninitialized name)) state) =>
+    name == fileSlot "x" && state.heap.any (·.contents == .list (List.replicate 8 (intValue 0)))
+  | _ => false
 
 end Silmaril.Languages.Starlark.Modules.Resolve

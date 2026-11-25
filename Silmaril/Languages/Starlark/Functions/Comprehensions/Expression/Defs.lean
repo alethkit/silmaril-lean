@@ -227,6 +227,31 @@ def setIndexCode (receiver subscript rhs : Expression) (stages : ExpressionStage
       (.seq (subscript.compile stages (argumentSlot 2))
         (.setIndexExpr (saved 1) (saved 2) (saved 0)))))
 
+/-- The saved receiver and raw index determine the old-value read before the RHS. -/
+def readIndexForAdd : Body :=
+  .assignExpr (argumentSlot 2) (.atom (.index (readSaved (argumentSlot 0)) (readSaved (argumentSlot 1))))
+
+/-- Add the saved old value and RHS, then run the ordinary store on the sum. -/
+def writeIndexSum : Body :=
+  let saved := fun index => Lowering.Expr.atom (readSaved (argumentSlot index))
+  .seq (.assignIntegerAdd (argumentSlot 2) (argumentSlot 2) (argumentSlot 3))
+    (.setIndexExpr (saved 0) (saved 1) (saved 2))
+
+/-- Read the old value before starting the RHS. Write the sum through the
+same receiver identity and raw subscript in the resulting heap. -/
+def addIndexCode (receiver subscript rhs : Expression) (stages : ExpressionStages) : Body :=
+  .evalScoped (.seq (receiver.compile stages (argumentSlot 0))
+    (.seq (subscript.compile stages (argumentSlot 1))
+      (.seq readIndexForAdd
+        (.seq (rhs.compile stages (argumentSlot 3)) writeIndexSum))))
+
+/-- Use the same integer addition for a lexical name and commit only its sum. -/
+def addNameCode (target : Binding) (rhs : Expression) (stages : ExpressionStages) : Body :=
+  .assignScoped target [] (.seq (.assignExpr (argumentSlot 0) (.atom (readSaved target)))
+    (.seq (rhs.compile stages (argumentSlot 1))
+      (.seq (.assignIntegerAdd (argumentSlot 0) (argumentSlot 0) (argumentSlot 1))
+        (returnSaved (argumentSlot 0)))))
+
 /-- The declaration's optional parameter reads its staged value from this binding. -/
 def defaultSlot (parameter : Binding) : Binding :=
   ⟨.global, "$comp-default:" ++ parameter.name⟩

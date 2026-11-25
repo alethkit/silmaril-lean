@@ -49,6 +49,7 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
           Outcome.resume (evalExpr rhs next) fun value next =>
             Outcome.resume (fromExcept (applyIntegerAdd previous value) next) fun sum next =>
               Outcome.resume (writeIndex target index sum next) fun _ => pure .next
+  | .assignIntegerAdd target left right => assignIntegerAdd target left right state
   | .evalExpr value => Outcome.resume (evalExpr value state) (fun _ => pure .next)
   | .evalScoped code => completeCall state none (denoteBody program available code state)
   | .insertDictEntry receiver key value => insertDictEntry receiver key value state

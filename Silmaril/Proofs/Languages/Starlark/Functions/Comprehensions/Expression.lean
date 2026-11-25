@@ -14,7 +14,7 @@ open Silmaril.Languages.Starlark.Functions.Lowering
 open Silmaril.Languages.Starlark.Lists
 open Silmaril.Languages.Starlark.Lists.Iteration
 open Silmaril.Proofs.Languages.Starlark.Functions.Lowering
-  (atomScope write_slots KeepsScope scopeBind scopePure actionInsertDisplayEntry)
+  (atomScope write_slots KeepsScope scopeBind scopePure actionInsertDisplayEntry indexAction)
 
 private abbrev Agrees (program : Program) (available : List DeclarationId) (first second : Body) :=
   ∀ state, ScratchFree state →
@@ -298,6 +298,81 @@ theorem set_index_rhs_failure (program : Program) (available : List DeclarationI
   change completeCall state none (denoteBody program available (.seq _ _) state) = _
   rw [sequenceDenotation, ran]
   rfl
+
+private theorem assign_atom_exact {program : Program} {available : List DeclarationId}
+    (target : Binding) {code : Silmaril.Languages.Starlark.Lists.Expr}
+    (keep : KeepsScope (denote code)) :
+    Exact program available (.assignExpr target (.atom code)) (.assignExpr target (.atom code)) := by
+  intro state _
+  refine ⟨rfl, ?_⟩
+  rw [denoteBody]
+  change (finishState (Outcome.resume (denoteExpr program available (.atom code) state)
+    (fun value next => .ok Flow.next (next.write target value)))).slots = state.slots
+  unfold denoteExpr
+  rw [denoteExprWith.eq_def]
+  change (finishState (Outcome.resume (denote code state)
+    (fun value next => .ok Flow.next (next.write target value)))).slots = state.slots
+  have slots := (keep state).2
+  cases ran : denote code state with
+  | error =>
+    rw [ran] at slots
+    exact slots
+  | ok value next =>
+    rw [ran] at slots
+    exact (write_slots next target value).trans slots
+
+theorem add_index_exact (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (receiverAdmitted : receiver.Admitted)
+    (subscriptAdmitted : subscript.Admitted) (rhsAdmitted : rhs.Admitted)
+    (state : State) (free : ScratchFree state) (start : Nat) :
+    denoteBody program available (addIndexCode receiver subscript rhs (loweredStages start)) state =
+      denoteBody program available (addIndexCode receiver subscript rhs directStages) state := by
+  have old : Exact program available readIndexForAdd readIndexForAdd := by
+    apply assign_atom_exact
+    exact scopeBind (savedReadScope (argumentSlot 0)) fun receiver =>
+      scopeBind (savedReadScope (argumentSlot 1)) fun index => (indexAction receiver index).2
+  unfold addIndexCode
+  rw [denoteBody.eq_def program available (.evalScoped _),
+    denoteBody.eq_def program available (.evalScoped _)]
+  apply congrArg (completeCall state none)
+  symm
+  exact seq_agrees (expression_exact program available receiver receiverAdmitted (argumentSlot 0) start)
+    (seq_agrees (expression_exact program available subscript subscriptAdmitted (argumentSlot 1) start)
+      (seq_agrees old (seq_agrees (expression_exact program available rhs rhsAdmitted (argumentSlot 3) start)
+        (fun _ _ => rfl)))) state free
+
+theorem add_index_after_target (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (stages : ExpressionStages) (state afterReceiver afterIndex : State)
+    (recv : denoteBody program available (receiver.compile stages (argumentSlot 0)) state =
+      .ok .next afterReceiver)
+    (index : denoteBody program available (subscript.compile stages (argumentSlot 1)) afterReceiver =
+      .ok .next afterIndex) :
+    denoteBody program available (addIndexCode receiver subscript rhs stages) state =
+      completeCall state none (Outcome.resume (denoteBody program available readIndexForAdd afterIndex) fun
+        | .next => denoteBody program available (.seq (rhs.compile stages (argumentSlot 3)) writeIndexSum)
+        | signal => pure signal) := by
+  rw [addIndexCode, denoteBody]
+  change completeCall state none (denoteBody program available (.seq _ _) state) = _
+  rw [sequenceDenotation, recv]
+  change completeCall state none (denoteBody program available (.seq _ _) afterReceiver) = _
+  rw [sequenceDenotation, index]
+  change completeCall state none (denoteBody program available (.seq _ _) afterIndex) = _
+  rw [sequenceDenotation]
+  rfl
+
+theorem add_name_exact (program : Program) (available : List DeclarationId)
+    (target : Binding) (rhs : Expression) (admitted : rhs.Admitted)
+    (state : State) (free : ScratchFree state) (start : Nat) :
+    denoteBody program available (addNameCode target rhs (loweredStages start)) state =
+      denoteBody program available (addNameCode target rhs directStages) state := by
+  unfold addNameCode
+  rw [denoteBody.eq_def program available (.assignScoped _ _ _),
+    denoteBody.eq_def program available (.assignScoped _ _ _)]
+  apply congrArg (completeCall state (some target))
+  symm
+  exact seq_agrees (assign_atom_exact (argumentSlot 0) (code := readSaved target) (savedReadScope target))
+    (seq_agrees (expression_exact program available rhs admitted (argumentSlot 1) start)
+      (fun _ _ => rfl)) state free
 
 theorem definition_defaults_exact (program : Program) (available : List DeclarationId)
     (target : Binding) (id : DeclarationId) (defaults : List (Binding × Expression))

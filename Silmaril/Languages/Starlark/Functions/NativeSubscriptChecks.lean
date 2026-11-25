@@ -1,9 +1,11 @@
 module
 
 import Silmaril.Languages.Starlark.Functions.Lowering.Denotation.Thms
+import Silmaril.Languages.Starlark.Functions.Comprehensions.Expression.Defs
 import Silmaril.Languages.Starlark.Functions.Lowering.Quote.Defs
 import Silmaril.Languages.Starlark.Modules.Resolve.Thms
 meta import Silmaril.Languages.Starlark.Functions.Denotation.Defs
+meta import Silmaril.Languages.Starlark.Functions.Comprehensions.Expression.Defs
 meta import Silmaril.Languages.Starlark.Functions.Lowering.Resolve.Defs
 meta import Silmaril.Languages.Starlark.Lists.Freeze.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Defs
@@ -164,6 +166,22 @@ private def addIndex (subscript rhs : Lowering.Expr) : Body :=
   match execute originalList (addIndex (note 2 (integer (-1))) grow) with
   | .ok (.ok .next state) => observed state [1, 2, 3] && decide (cell state = listCell [7, 6])
   | _ => false
+
+-- The native and scratch-lowered comprehension paths both normalize the
+-- saved raw index again after the RHS has changed the list length.
+#guard
+  let item := localName "item"
+  let singleton : Lowering.Expr → Comprehensions.Expression := fun operand =>
+    .index (.list ⟨[item], .name item, .list [operand], .yield (.atom (read item))⟩) (.plain (integer 0))
+  let grow := Lowering.Expr.callPos (.atom (read (global "grow"))) []
+  let code := Comprehensions.addIndexCode (singleton (note 1 (.atom (read alias))))
+    (singleton (note 2 (integer (-1)))) (singleton grow)
+  match execute originalList (code Comprehensions.directStages),
+    execute originalList (code (Comprehensions.loweredStages 0)) with
+  | .ok (.ok .next direct), .ok (.ok .next lowered) =>
+    direct.heap == lowered.heap && observed direct [1, 2, 3] && observed lowered [1, 2, 3] &&
+      decide (cell direct = listCell [7, 6])
+  | _, _ => false
 
 #guard
   let code := addIndex (note 2 (string "b")) (note 3 (integer 9))

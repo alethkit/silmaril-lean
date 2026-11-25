@@ -273,8 +273,8 @@ elaborator. Successful module initialization freezes the reachable result.
 ## Comprehensions in checked expression positions
 
 The normalized `CompExpr` grammar admits list and dictionary
-comprehensions in return values, assignment RHSs for names and nested
-name patterns, simple subscript stores, and parameter defaults. Its
+comprehensions in return values, the checked assignments below, and
+parameter defaults. Its
 recursive nodes include calls, conditional tests and arms, and both
 operands of `and` and `or`. A call's callee, positional operands, named
 operands, and optional `*` and `**` operands all admit the placement
@@ -418,8 +418,8 @@ The normalized `CompExpr.listComprehension` and
 `CompExpr.dictComprehension` forms accept recursive operands in clauses
 and heads. The plain-head forms remain available. Quotation supplies
 ordinary leaves and pattern ASTs. The recursive comprehension nodes
-are constructed separately. Augmented stores, field targets, and other
-statement operands remain outside this placement boundary.
+are constructed separately. Field targets and other statement operands
+remain outside this placement boundary.
 Call shapes and spread value domains follow the
 [existing argument profile](#argument-binding).
 
@@ -783,9 +783,8 @@ from scratch-free states. Source correspondence shares normalized
 elaboration and inherits the finite declaration context. Pinned fixtures
 cover alias writes, operand and store error order, and release of nested
 guards. The existing exact-integer index and fresh comprehension-local
-profiles still apply. Comprehension operands of augmented stores,
-field and subscript leaves in patterns, and comprehension quotation
-remain separate.
+profiles still apply. Field and subscript leaves in patterns and
+comprehension quotation remain separate.
 [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
 
 ### Integer augmented subscript assignment
@@ -810,9 +809,48 @@ iterator stack under the existing finite declaration descent. Normalized
 function and module statements expose `addIndex receiver subscript rhs`
 without introducing a lexical binding. Successful writes cover existing
 list elements and dictionary entries. Operand pairs outside integer addition
-report `integerAddType` in this profile. Other augmented operators, name
-and field targets, and Go's in-place list addition remain open.
+report `integerAddType` in this profile. Other augmented operators,
+field targets, and Go's in-place list addition remain open.
 [Augmented assignments in the pinned spec][augmented] · [Go compilation][go-augmented] · [Go operator dispatch][go-inplace-add] · [Go write dispatch][go-write] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/NativeSubscriptChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
+
+#### Comprehension operands in integer augmentation
+
+`addIndexCompExpr receiver subscript rhs` admits `CompExpr` in all three
+positions in functions and modules. It saves the receiver and raw
+index, reads the old value once, then evaluates the RHS. The last two
+steps use the existing integer addition and ordinary subscript write.
+After the target operands run, the code reads only their saved values.
+A failing read skips the RHS. A failing RHS keeps its effects and skips
+the addition and write. A failed addition also takes precedence over
+the final write guard. The frame is restored on either exit, and the
+residual heap and guards survive.
+[Pinned augmented assignments][augmented] · [Go target and RHS compilation][go-augmented]
+
+The fixtures contrast a plain store that evaluates the RHS first and
+inserts a missing dictionary key with an augmented store that fails
+at the old-value read. They also check aliased updates, receiver
+selection changes, negative-index write-back after list growth, and guard
+cleanup. The existing exact-integer index profile and fresh locals on
+comprehension revisits still apply.
+[Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
+
+Function bodies also admit `addNameCompExpr name rhs` for integer
+`+=`. The name is local to the function block. Its old binding is read
+before the RHS and only a successful sum updates it. An uninitialized
+local skips the RHS even if an enclosing name has a value. Module-level
+name updates remain outside this source profile under the existing
+single-binding rule.
+[Pinned lexical binding][names] · [Go global binding][go-bind-global]
+
+`addIndex_after_target` gives the read and continuation after the two
+saved target operands. `exec_addIndex_iff_lowered` and
+`exec_addName_iff_lowered` compare independent checked-body derivations
+and native and lowered outcomes on the exact frame, heap, guards and
+error for admitted operands from scratch-free states. The source
+correspondence shares normalized elaboration and inherits finite
+declaration descent. Quotation and field or subscript leaves in patterns
+remain separate.
+[Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean)
 
 ## Nested expression lowering
 
