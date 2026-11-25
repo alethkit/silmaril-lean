@@ -138,9 +138,28 @@ first field is projected, and two distinct successors of one allocation.
 It also checks branch scope and stuck configurations with an unallocated
 dereference or an integer as the assignment target.
 
-This slice leaves the separate evaluation-context presentation and
-Theorem 26 (§5.4), executable type inference and reduction, the byte
-grammar and codecs, and institution and denotational models for later work.
+### Evaluation contexts (§5.4)
+
+`L3.EvaluationContexts` gives the one-hole context grammar, plugging,
+and the computation rules on p. 77. The single evaluation rule lifts
+a step through one frame. Repeating it handles nested contexts and
+carries the store through each frame.
+
+Section 5.4 permits any value to the left of the hole in `v := □`.
+The direct rule (assign2) in §5.5 requires a location in that position.
+The integer-left example `L3.assignment_context_counterexample` takes a
+context step on its right-hand addition and is stuck under the direct rules.
+A value of reference type is a location, so the restriction disappears for
+typed sources.
+
+| Result | Public name |
+| --- | --- |
+| Every direct step is a step of the printed context relation | `L3.Step.toContextStep` |
+| Theorem 26 for the printed contexts on typed source expressions | `L3.contextStep_iff_step_of_hasType` |
+| Theorem 26 on arbitrary configurations with the (assign2) location premise | `L3.locationContextStep_iff_step` |
+
+Executable type inference and reduction, the byte grammar and codecs, and
+institution and denotational models remain follow-up work.
 
 The [course notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf)
 are pinned as `sewell2026semantics` in [the bibliography](../../references.bib).
