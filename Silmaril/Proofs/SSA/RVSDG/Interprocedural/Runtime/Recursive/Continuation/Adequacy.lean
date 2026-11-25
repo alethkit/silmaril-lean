@@ -21,10 +21,44 @@ private def accepts : {current : Ports (Ty V S)} → Stack m current final →
   | _, .halt, value, output => value = output
   | _, .resume suffix entry locals outer, value, output =>
     ∃ next, Returns m (.region suffix entry (locals.snoc value)) next ∧ accepts outer next output
+  | _, .loop body outer, value, output =>
+    match value with
+    | .cons tag carried =>
+      if tag.selector.val == 1 then
+        ∃ next, Returns m (.iteration body carried) next ∧ accepts outer next output
+      else accepts outer carried output
 
 private def observes (output : Tuple m.Val final) : State m final → Prop
   | .eval job stack => ∃ value, Returns m job value ∧ accepts stack value output
   | .returned value stack => accepts stack value output
+
+private theorem iteration_observes
+    {carried : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+    (body : NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried))
+    (input : Tuple m.Val carried) (stack : Stack m carried final) (output : Tuple m.Val final) :
+    observes output (.eval (.iteration body input) stack) ↔
+      observes output (.eval (.region body input PUnit.unit) (.loop body stack)) := by
+  constructor
+  · rintro ⟨value, returned, rest⟩
+    cases returned with
+    | stop activation done =>
+      refine ⟨_, activation, ?_⟩
+      simpa only [accepts, done, Bool.false_eq_true, ↓reduceIte] using rest
+    | again activation continues later =>
+      refine ⟨_, activation, ?_⟩
+      simpa only [accepts, continues, ↓reduceIte] using
+        (show ∃ next, Returns m (.iteration body _) next ∧ accepts stack next output from ⟨_, later, rest⟩)
+  · rintro ⟨value, activation, rest⟩
+    cases value with
+    | cons tag carried =>
+      by_cases continues : (tag.selector.val == 1) = true
+      · rw [accepts, ite_eq_left continues] at rest
+        obtain ⟨next, later, done⟩ := rest
+        exact ⟨next, .again activation continues later, done⟩
+      · rw [accepts, ite_eq_right continues] at rest
+        have done : (tag.selector.val == 1) = false := by
+          cases eq : (tag.selector.val == 1) <;> simp_all
+        exact ⟨carried, .stop activation done, rest⟩
 
 private def instructionReturns {ins : Ports (Ty V S)} (output : Tuple m.Val outs)
     (instruction : Instruction Op ins outs) : Tuple m.Val ins → Prop :=
@@ -33,20 +67,24 @@ private def instructionReturns {ins : Ports (Ty V S)} (output : Tuple m.Val outs
   | .apply _ => fun
     | .cons callee arguments => Returns m (.call callee arguments) output
 
-private def applicationReturns (output : Tuple m.Val outs) : Job m outs → Prop
-  | .node kind _ _ input =>
-    match kind with
-    | .base shape =>
-      match shape with
-      | .simple instruction => instructionReturns output instruction input
-      | .gamma _ => True
-    | .theta _ => True
+private def nodeInvocations {ins : Ports (Ty V S)} (output : Tuple m.Val outs) :
+    (kind : NestedTheta.Kind (Instruction Op) ins outs) →
+    (cs : Fin kind.arity → List (Ports (Ty V S))) → Bodies kind cs → Tuple m.Val ins → Prop
+  | .base shape, _, _, input =>
+    match shape with
+    | .simple instruction => instructionReturns output instruction input
+    | .gamma _ => True
+  | .theta _, _, children, input => Returns m (.iteration (children (0 : Fin 1)) input) output
+
+private def invocationReturns (output : Tuple m.Val outs) : Job m outs → Prop
+  | .node kind cs children input => nodeInvocations output kind cs children input
   | _ => True
 
-private theorem application_returns {job : Job m outs} {output : Tuple m.Val outs}
-    (returned : Returns m job output) : applicationReturns output job := by
+private theorem invocation_returns {job : Job m outs} {output : Tuple m.Val outs}
+    (returned : Returns m job output) : invocationReturns output job := by
   cases returned with
   | apply invocation => exact invocation
+  | theta loop => exact loop
   | _ => exact True.intro
 
 private theorem observes_step {source target : State m final} (edge : Step source target)
@@ -61,6 +99,15 @@ private theorem observes_step {source target : State m final} (edge : Step sourc
       have same : some (.eval (.region suffix entry (locals.snoc value)) outer) = some target := edge
       cases Option.some.inj same
       rfl
+    | loop body outer =>
+      cases value with
+      | cons tag values =>
+        have same : some (State.finishLoop body tag values outer) = some target := edge
+        cases Option.some.inj same
+        change observes output (.returned (.cons tag values) (.loop body outer)) ↔
+          observes output (State.finishLoop body tag values outer)
+        unfold State.finishLoop
+        split <;> rename_i condition <;> simp only [observes, accepts, condition, Bool.false_eq_true, ↓reduceIte]
   | eval job stack =>
     cases job with
     | call callee arguments =>
@@ -94,8 +141,13 @@ private theorem observes_step {source target : State m final} (edge : Step sourc
     | node kind cs children input =>
       cases kind with
       | theta =>
-        change none = some target at edge
-        cases edge
+        have same : some (.eval (.iteration (children (0 : Fin 1)) input) stack) = some target := edge
+        cases Option.some.inj same
+        constructor
+        · rintro ⟨_, ran, rest⟩
+          exact ⟨_, invocation_returns ran, rest⟩
+        · rintro ⟨_, ran, rest⟩
+          exact ⟨_, .theta ran, rest⟩
       | base shape =>
         cases shape with
         | simple instruction =>
@@ -116,7 +168,7 @@ private theorem observes_step {source target : State m final} (edge : Step sourc
               cases Option.some.inj same
               constructor
               · rintro ⟨_, ran, rest⟩
-                exact ⟨_, application_returns ran, rest⟩
+                exact ⟨_, invocation_returns ran, rest⟩
               · rintro ⟨_, ran, rest⟩
                 exact ⟨_, .apply ran, rest⟩
         | gamma extra =>
@@ -131,9 +183,10 @@ private theorem observes_step {source target : State m final} (edge : Step sourc
                 cases ran with | gamma branch => exact ⟨_, branch, rest⟩
               · rintro ⟨_, ran, rest⟩
                 exact ⟨_, .gamma ran, rest⟩
-    | iteration =>
-      change none = some target at edge
-      cases edge
+    | iteration body input =>
+      have same : some (.eval (.region body input PUnit.unit) (.loop body stack)) = some target := edge
+      cases Option.some.inj same
+      exact iteration_observes body input stack output
 
 private theorem observes_trace {source target : State m final} (path : Path source target)
     (output : Tuple m.Val final) : observes output source ↔ observes output target := by
@@ -146,52 +199,44 @@ theorem completes_sound {job : Job m outs} {output : Tuple m.Val outs}
   obtain ⟨_, returned, rfl⟩ := (observes_trace complete output).mpr (show output = output from rfl)
   exact returned
 
-private def Progress (source target : State m final) : Prop :=
-  Path source target ∨ ∃ stuck, Path source stuck ∧ stuck.Unsupported
+private theorem enter_iteration {carried : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+    (body : NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried))
+    (input : Tuple m.Val carried) (stack : Stack m carried final) :
+    Step (.eval (.iteration body input) stack) (.eval (.region body input PUnit.unit) (.loop body stack)) := rfl
 
-private theorem Progress.prepend {source middle target : State m final}
-    (heading : Path source middle) (later : Progress middle target) : Progress source target := by
-  rcases later with done | ⟨stuck, path, stops⟩
-  · exact .inl (heading.trans done)
-  · exact .inr ⟨stuck, heading.trans path, stops⟩
-
-private theorem blocked {state target : State m final} (unsupported : state.Unsupported) :
-    Progress state target := .inr ⟨state, .refl, unsupported⟩
-
-private theorem progress {job : Job m outs} {value : Tuple m.Val outs} (derivation : Returns m job value) :
+private theorem evaluates {job : Job m outs} {value : Tuple m.Val outs} (derivation : Returns m job value) :
     ∀ {final : Ports (Ty V S)} (stack : Stack m outs final),
-      Progress (.eval job stack) (.returned value stack) := by
+      Path (.eval job stack) (.returned value stack) := by
   induction derivation with
-  | call _ ih => intro final stack; exact (ih stack).prepend (.single rfl)
-  | ret => intro final stack; exact .inl (.single rfl)
+  | call _ ih => intro final stack; exact (ih stack).head rfl
+  | ret => intro final stack; exact .single rfl
   | @bind args head outs past tail node children rest entry locals value output first more firstIH restIH =>
     intro final stack
     let resume := Stack.resume rest entry locals stack
     let nodeJob := Job.node node.kind node.childSigs children (node.inputs.read entry locals)
     have enters : Step (.eval (.region (.bind node children rest) entry locals) stack) (.eval nodeJob resume) := rfl
-    rcases firstIH resume with done | ⟨stuck, path, stops⟩
-    · have resumed : Step (.returned value resume) (.eval (.region rest entry (locals.snoc value)) stack) := rfl
-      exact (restIH stack).prepend ((done.head enters).tail resumed)
-    · exact .inr ⟨stuck, path.head enters, stops⟩
-  | primitive => intro final stack; exact .inl (.single rfl)
-  | apply _ ih => intro final stack; exact (ih stack).prepend (.single rfl)
-  | gamma _ ih => intro final stack; exact (ih stack).prepend (.single rfl)
-  | theta => intro final stack; exact blocked ⟨rfl, rfl⟩
-  | stop => intro final stack; exact blocked ⟨rfl, rfl⟩
-  | again => intro final stack; exact blocked ⟨rfl, rfl⟩
-
-theorem returns_or_unsupported {job : Job m outs} {output : Tuple m.Val outs}
-    (derivation : Returns m job output) :
-    Completes (start job) output ∨
-      ∃ state, Relation.ReflTransGen Step (start job) state ∧ state.Unsupported :=
-  progress derivation .halt
+    have resumed : Step (.returned value resume) (.eval (.region rest entry (locals.snoc value)) stack) := rfl
+    exact (((firstIH resume).head enters).tail resumed).trans (restIH stack)
+  | primitive => intro final stack; exact .single rfl
+  | apply _ ih => intro final stack; exact (ih stack).head rfl
+  | gamma _ ih => intro final stack; exact (ih stack).head rfl
+  | theta _ ih => intro final stack; exact (ih stack).head rfl
+  | @stop carried sigs body input output tag activation done ih =>
+    intro final stack
+    have exit : Step (.returned (.cons tag output) (.loop body stack)) (.returned output stack) := by
+      change some (State.finishLoop body tag output stack) = some (.returned output stack)
+      simp only [State.finishLoop, done, Bool.false_eq_true, ↓reduceIte]
+    exact ((ih (.loop body stack)).head (enter_iteration body input stack)).tail exit
+  | @again carried sigs body input next output tag activation continues later firstIH laterIH =>
+    intro final stack
+    have restart : Step (.returned (.cons tag next) (.loop body stack)) (.eval (.iteration body next) stack) := by
+      change some (State.finishLoop body tag next stack) = some (.eval (.iteration body next) stack)
+      simp only [State.finishLoop, continues, ↓reduceIte]
+    exact (((firstIH (.loop body stack)).head (enter_iteration body input stack)).tail restart).trans (laterIH stack)
 
 theorem completes_of_returns {job : Job m outs} {output : Tuple m.Val outs}
-    (admitted : Admitted (start job)) (derivation : Returns m job output) :
-    Completes (start job) output := by
-  rcases returns_or_unsupported derivation with complete | ⟨_, path, stuck⟩
-  · exact complete
-  · exact False.elim (admitted _ path stuck)
+    (derivation : Returns m job output) : Completes (start job) output :=
+  evaluates derivation .halt
 
 theorem runFor_reachable (fuel : Nat) (state : State m final) :
     Relation.ReflTransGen Step state (State.runFor fuel state) := by
@@ -216,21 +261,30 @@ theorem completes_runFor {state : State m final} {fuel : Nat} {output : Tuple m.
       have same := Option.some.inj (show some value = some output from result)
       exact same ▸ path
     | resume => cases result
+    | loop => cases result
 
-theorem admitted_of_completes {state : State m final} {output : Tuple m.Val final}
-    (complete : Completes state output) : Admitted state := by
-  intro reached path unsupported
-  have deterministic : Relator.RightUnique (Step (m := m) (outs := final)) :=
-    fun {_ _ _} e₁ e₂ => Option.some.inj (e₁.symm.trans e₂)
-  rcases Relation.ReflTransGen.total_of_right_unique deterministic path complete with toReturn | fromReturn
-  · rcases toReturn.cases_head with same | ⟨_, step, _⟩
-    · rw [same] at unsupported
-      cases unsupported.2
-    · cases unsupported.1.symm.trans step
-  · rcases fromReturn.cases_head with same | ⟨_, step, _⟩
-    · rw [← same] at unsupported
-      cases unsupported.2
-    · change none = some _ at step
-      cases step
+theorem no_unsupported (state : State m final) : ¬ state.Unsupported := by
+  rintro ⟨stops, result⟩
+  cases state with
+  | returned value stack =>
+    cases stack with
+    | halt => cases result
+    | resume => cases stops
+    | loop => cases value; cases stops
+  | eval job stack =>
+    cases job with
+    | call => cases stops
+    | region body => cases body <;> cases stops
+    | iteration => cases stops
+    | node kind _ _ input =>
+      cases kind with
+      | theta => cases stops
+      | base shape =>
+        cases shape with
+        | gamma => cases input; cases stops
+        | simple instruction =>
+          cases instruction with
+          | primitive => cases stops
+          | apply => cases input; cases stops
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Proofs

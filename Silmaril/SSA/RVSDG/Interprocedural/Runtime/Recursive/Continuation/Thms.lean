@@ -30,23 +30,35 @@ independent finite runtime judgment. -/
 theorem completes_sound (completed : Completes (start job) output) : Returns m job output :=
   Proofs.completes_sound completed
 
-/-- Every finite derivation yields a completed run or reaches unsupported
-control in finitely many machine steps. -/
+/-- Every finite derivation is realized by a completed machine trace. -/
+theorem completes_of_returns (returned : Returns m job output) : Completes (start job) output :=
+  Proofs.completes_of_returns returned
+
+theorem completes_iff_returns : Completes (start job) output ↔ Returns m job output :=
+  ⟨completes_sound, completes_of_returns⟩
+
+/-- The previous scoped completion statement as a corollary of full finite adequacy. -/
 theorem returns_or_unsupported (returned : Returns m job output) :
     Completes (start job) output ∨
       ∃ state, Relation.ReflTransGen Step (start job) state ∧ state.Unsupported :=
-  Proofs.returns_or_unsupported returned
+  .inl (completes_of_returns returned)
 
-/-- No execution from the same deterministic start can stop unsupported
-when a completed run exists. -/
-theorem admitted_of_completes {state : State m outs} (completed : Completes state output) :
+/-- A machine state can stop only at a completed return. This is a
+one-step progress statement, independent of finite termination. -/
+theorem no_unsupported (state : State m outs) : ¬ state.Unsupported :=
+  Proofs.no_unsupported state
+
+theorem admitted_all (state : State m outs) : Admitted state :=
+  fun reached _ => no_unsupported reached
+
+theorem admitted_of_completes {state : State m outs} (_completed : Completes state output) :
     Admitted state :=
-  Proofs.admitted_of_completes completed
+  admitted_all state
 
 theorem completes_iff :
     Completes (start job) output ↔ Returns m job output ∧ Admitted (start job) :=
   ⟨fun completed => ⟨completes_sound completed, admitted_of_completes completed⟩,
-    fun ⟨returned, admitted⟩ => Proofs.completes_of_returns admitted returned⟩
+    fun ⟨returned, _⟩ => completes_of_returns returned⟩
 
 /-- For a supported call, completion agrees with every finite return of the
 real interpreter, including all value and state ports. -/
