@@ -56,7 +56,7 @@ private theorem region_subst_eq {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     funext i
     exact ib i (lift_agrees h)
 
-private theorem singleton_subst {P : τ} {L : LCtx τ} {r : Region Φ} (hr : HasType [P] r L)
+theorem singleton_subst {P : τ} {L : LCtx τ} {r : Region Φ} (hr : HasType [P] r L)
     {θ υ : Nat → Tm Φ} (h : θ 0 = υ 0) : r.substVars θ = r.substVars υ := by
   apply region_subst_eq hr
   intro i A hi
