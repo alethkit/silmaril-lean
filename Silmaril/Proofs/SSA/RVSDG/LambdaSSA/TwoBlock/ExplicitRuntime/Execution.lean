@@ -22,7 +22,7 @@ section
 
 variable [InstructionModel Φ τ ε (StateT σ Part.{u})]
 
-private theorem call_run (agrees : PrimitiveAgreement (τ := τ) (ε := ε) (σ := σ) Φ)
+theorem call_run (agrees : PrimitiveAgreement (τ := τ) (ε := ε) (σ := σ) Φ)
     (op : TwoBlock.Instruction Φ A C) (a : TyDen A) (state : σ) :
     (call (ε := ε) (m := StateT σ Part.{u}) op a).run state =
       Part.some ((call (ε := ε) (m := StateM σ) op a).run state) := by

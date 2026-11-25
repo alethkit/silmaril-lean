@@ -31,6 +31,13 @@ theorem erased_iff (s : Blocks Φ A B) (a b : TyDen A) (initial final : σ) :
 
 variable [InstructionModel Φ τ ε (StateT σ Part.{u})]
 
+/-- Lifting an instruction commutes with its checked source and target casts. -/
+theorem PrimitiveAgreement.call_run (agrees : PrimitiveAgreement (τ := τ) (ε := ε) (σ := σ) Φ)
+    {X Y : τ} (op : TwoBlock.Instruction Φ X Y) (a : TyDen X) (state : σ) :
+    (call (ε := ε) (m := StateT σ Part.{u}) op a).run state =
+      Part.some ((call (ε := ε) (m := StateM σ) op a).run state) :=
+  Proofs.call_run agrees op a state
+
 /-- After removing the unit slot at the boundary, erasure recovers the
 ordered target's denotation for every admitted translation witness. -/
 theorem erased_denote (agrees : PrimitiveAgreement (τ := τ) (ε := ε) (σ := σ) Φ)

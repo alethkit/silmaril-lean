@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Thms
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.Tests
@@ -40,15 +40,24 @@ local instance : HasTy Opcode Code :=
 
 local instance : HasEff Opcode Bool := ⟨fun _ => true⟩
 
-private def instruction : (op : Opcode) → Value (instrSrc op) → StateT Nat Part (Value (instrTrg op))
+private def instructionTotal : (op : Opcode) → Value (instrSrc op) → StateM Nat (Value (instrTrg op))
   | .header, x => StateT.mk fun state =>
     let a : Nat := x
     let next := 2 * state + 1
-    Part.some (if a == 0 then .inl next else .inr (a, state + 1), next)
+    (if a == 0 then .inl next else .inr (a, state + 1), next)
   | .body, (x, y) => StateT.mk fun state =>
     let a : Nat := x
     let b : Nat := y
-    Part.some (if a == 1 then .inr (a + 1) else .inl (a + state, b), 3 * state + b)
+    (if a == 1 then .inr (a + 1) else .inl (a + state, b), 3 * state + b)
+
+private def instruction (op : Opcode) (x : Value (instrSrc op)) :
+    StateT Nat Part (Value (instrTrg op)) :=
+  StateT.mk fun state => Part.some ((instructionTotal op x).run state)
+
+local instance : InstructionModel Opcode Code Bool (StateM Nat) where
+  denote := instructionTotal
+  denotePure _ h := False.elim (by change true = false at h; cases h)
+  denote_pure _ h _ := False.elim (by change true = false at h; cases h)
 
 local instance : InstructionModel Opcode Code Bool (StateT Nat Part) where
   denote := instruction
@@ -70,7 +79,7 @@ example : RegionDenotes (m := StateT Nat Part) Bool raised.2.typing (denote (ε 
 private def rounds : Nat → StateT Nat Part ((Nat ⊕ (Nat × Nat)) ⊕ Nat) := round (ε := Bool) spec
 
 private theorem headerExit : Sum.inl (Sum.inl 5, 5) ∈ Silmaril.Elgot.StateT.body rounds (0, 2) := by
-  simp [rounds, round, callCase, TwoBlock.call, spec, InstructionModel.denote, instruction,
+  simp [rounds, round, callCase, TwoBlock.call, spec, InstructionModel.denote, instruction, instructionTotal,
     Silmaril.Elgot.StateT.body, Silmaril.Elgot.StateT.distribute, TypeModel.coprodEquiv,
     Part.bind_eq_bind, Part.bind_some]
   exact Part.mem_some_iff.mpr rfl
@@ -79,18 +88,18 @@ private def runBody (input : Nat × Nat) : StateT Nat Part ((Nat ⊕ (Nat × Nat
   instruction .body input >>= fun result => pure (Sum.map Sum.inr id result)
 
 private theorem feedback : Sum.inr (2, 4) ∈ Silmaril.Elgot.StateT.body rounds (1, 0) := by
-  simp [rounds, round, callCase, TwoBlock.call, spec, InstructionModel.denote, instruction,
+  simp [rounds, round, callCase, TwoBlock.call, spec, InstructionModel.denote, instruction, instructionTotal,
     Silmaril.Elgot.StateT.body, Silmaril.Elgot.StateT.distribute, TypeModel.coprodEquiv,
     Part.bind_eq_bind, Part.bind_some]
   change (Sum.inr 2, 4) ∈ (runBody (1, 1)).run 1
-  simp [runBody, instruction]
+  simp [runBody, instruction, instructionTotal]
 
 private theorem bodyExit : Sum.inl (Sum.inr (11, 5), 32) ∈ Silmaril.Elgot.StateT.body rounds (2, 4) := by
-  simp [rounds, round, callCase, TwoBlock.call, spec, InstructionModel.denote, instruction,
+  simp [rounds, round, callCase, TwoBlock.call, spec, InstructionModel.denote, instruction, instructionTotal,
     Silmaril.Elgot.StateT.body, Silmaril.Elgot.StateT.distribute, TypeModel.coprodEquiv,
     Part.bind_eq_bind, Part.bind_some]
   change (Sum.inl (Sum.inr (11, 5)), 32) ∈ (runBody (2, 5)).run 9
-  simp [runBody, instruction]
+  simp [runBody, instruction, instructionTotal]
 
 private theorem headerReturns : (iter rounds 0).run 2 = Part.some (Sum.inl 5, 5) := by
   rw [Silmaril.Elgot.StateT.run_iter, Part.eq_some_iff, Silmaril.Elgot.Part.mem_iter_iff]
@@ -124,5 +133,51 @@ example (coherent : Isotope.LambdaSSA.Semantics.Agreement.RegionCoherent
       Part.some (.inr (.inl ((11 : Nat), (5 : Nat))), 32) := by
   rw [lowered.2.chosenDenote_eq coherent]
   exact secondLabel
+
+private theorem agrees : TwoBlock.ExplicitRuntime.PrimitiveAgreement (τ := Code) (ε := Bool) (σ := Nat) Opcode :=
+  fun _ _ _ => rfl
+
+open OrderedTheta (point)
+
+private def headerPayload : TyDen number ⊕ TyDen pair := .inl (5 : Nat)
+private def bodyPayload : TyDen number ⊕ TyDen pair := .inr ((11 : Nat), (5 : Nat))
+
+-- Only the header changes the initial token 2. The exit arm skips the body effect.
+private theorem directWire :
+    (ExplicitRuntime.graph spec).run (ExplicitRuntime.wireModel (ε := Bool)).toRVSDG 1
+      (point (enter (C := number) (D := pair) (0 : Nat)) 2) =
+        some (point (finish (A := number) headerPayload) 5) := rfl
+
+-- The first visit requests feedback. The body exits on the second visit.
+private theorem feedbackWire :
+    (ExplicitRuntime.graph spec).run (ExplicitRuntime.wireModel (ε := Bool)).toRVSDG 1
+      (point (enter (C := number) (D := pair) (1 : Nat)) 0) = none := rfl
+
+private theorem bodyWire :
+    (ExplicitRuntime.graph spec).run (ExplicitRuntime.wireModel (ε := Bool)).toRVSDG 2
+      (point (enter (C := number) (D := pair) (1 : Nat)) 0) =
+        some (point (finish (A := number) bodyPayload) 32) := rfl
+
+example : ExplicitRuntime.erasedObservation (ε := Bool) spec (0 : Nat) 2 =
+    Part.some (exitLabel headerPayload, 5) :=
+  (ExplicitRuntime.erased_returns_iff agrees spec (0 : Nat) headerPayload 2 5).mpr ⟨1, directWire⟩
+
+example : ExplicitRuntime.erasedObservation (ε := Bool) spec (1 : Nat) 0 =
+    Part.some (exitLabel bodyPayload, 32) :=
+  (ExplicitRuntime.erased_returns_iff agrees spec (1 : Nat) bodyPayload 0 32).mpr ⟨2, bodyWire⟩
+
+example (coherent : Isotope.LambdaSSA.Semantics.Agreement.RegionCoherent
+    (τ := Code) (Φ := Opcode) (ε := Bool) (m := StateT Nat Part)) :
+    (Region.denote (ε := Bool) (m := StateT Nat Part) lowered.2.typing (PUnit.unit, (0 : Nat))).run 2 =
+      Part.some (exitLabel headerPayload, 5) :=
+  (ExplicitRuntime.region_returns_iff agrees coherent lowered.2 (PUnit.unit, (0 : Nat))
+    (exitLabel headerPayload) 2 5).mpr ⟨1, directWire⟩
+
+example (coherent : Isotope.LambdaSSA.Semantics.Agreement.RegionCoherent
+    (τ := Code) (Φ := Opcode) (ε := Bool) (m := StateT Nat Part)) :
+    (Region.denote (ε := Bool) (m := StateT Nat Part) lowered.2.typing (PUnit.unit, (1 : Nat))).run 0 =
+      Part.some (exitLabel bodyPayload, 32) :=
+  (ExplicitRuntime.region_returns_iff agrees coherent lowered.2 (PUnit.unit, (1 : Nat))
+    (exitLabel bodyPayload) 0 32).mpr ⟨2, bodyWire⟩
 
 end Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.Tests
