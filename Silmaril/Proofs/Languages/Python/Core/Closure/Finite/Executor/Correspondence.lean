@@ -13,10 +13,10 @@ namespace Silmaril.Proofs.Languages.Python.Core.Closure.Finite.Executor
 open Silmaril.Languages.Python.Core.Closure
 open Silmaril.Languages.Python.Core.Closure.Finite
 open Silmaril.Languages.Python.Core.Closure.Finite.Executor
-open Silmaril.Languages.Python.Core.Closure.Executor (Continuation Event Operand Stack evalCall)
-open Silmaril.Languages.Python.Core.Closure.Executor renaming advance → coreAdvance,
+open Silmaril.Languages.Python.Core.Closure.Executor (Continuation Event GlobalLookup Stack evalCallIn)
+open Silmaril.Languages.Python.Core.Closure.Executor renaming advanceIn → coreAdvance,
   fail → coreFail, failDispatch → coreFailDispatch, resumeStore → coreResumeStore,
-  enter → coreEnter, runPrefix → coreRunPrefix, step_iff → coreStepIff,
+  enter → coreEnter, runPrefixIn → coreRunPrefix, stepIn_iff → coreStepIff,
   State → CoreState, Body → CoreBody
 open Semantics.Operational
 
@@ -45,24 +45,24 @@ private theorem resumeStore_project {layout : Layout} (source : Snapshot layout)
 private theorem enter_project (active : Silmaril.Languages.Python.Core.Closure.Finite.Dispatch.Active CoreBody Continuation) :
     (enter active).project = coreEnter active.project := rfl
 
-theorem advance_project (rows : CodeRows) (source : State) :
-    (advance rows source).map Transition.project = coreAdvance rows.project source.project := by
+theorem advanceIn_project (rows : CodeRows) (globals : GlobalLookup) (source : State) :
+    (advanceIn rows globals source).map Transition.project = coreAdvance rows.project globals source.project := by
   cases source with
   | running environment body stack =>
     cases body with
     | ret operand =>
-      simp only [advance, coreAdvance, State.project, Option.map_some]
-      cases operand.eval environment.heap.project environment.frame with
+      simp only [advanceIn, coreAdvance, State.project, Option.map_some]
+      cases operand.evalIn globals environment.heap.project environment.frame with
       | ok value => rfl
       | error failure => exact congrArg some (fail_project environment.heap stack failure)
     | store destination operand next =>
-      simp only [advance, coreAdvance, State.project, Option.map_some]
-      cases operand.eval environment.heap.project environment.frame with
+      simp only [advanceIn, coreAdvance, State.project, Option.map_some]
+      cases operand.evalIn globals environment.heap.project environment.frame with
       | ok value => exact congrArg some (resumeStore_project environment destination value next stack)
       | error failure => exact congrArg some (fail_project environment.heap stack failure)
     | call destination callee arguments next =>
-      simp only [advance, coreAdvance, State.project, Option.map_some]
-      cases evalCall environment.heap.project environment.frame callee arguments with
+      simp only [advanceIn, coreAdvance, State.project, Option.map_some]
+      cases evalCallIn globals environment.heap.project environment.frame callee arguments with
       | error failure => exact congrArg some (fail_project environment.heap stack failure)
       | ok inputs =>
         obtain ⟨value, values⟩ := inputs
@@ -83,16 +83,17 @@ theorem advance_project (rows : CodeRows) (source : State) :
   | finished heap result => rfl
   | faulted heap stack failure => rfl
 
-theorem projection (rows : CodeRows) : Projection (presented rows) (semantic rows.project) State.project id where
+theorem projectionIn (rows : CodeRows) (globals : GlobalLookup) :
+    Projection (presentedIn rows globals) (semanticIn rows.project globals) State.project id where
   sound {source label target} step := by
-    change advance rows source = some (label, target) at step
+    change advanceIn rows globals source = some (label, target) at step
     apply coreStepIff.mpr
-    rw [← advance_project rows source, step]
+    rw [← advanceIn_project rows globals source, step]
     rfl
   readback {source label target} step := by
     have agrees := coreStepIff.mp step
-    rw [← advance_project rows source] at agrees
-    cases found : advance rows source with
+    rw [← advanceIn_project rows globals source] at agrees
+    cases found : advanceIn rows globals source with
     | none =>
       rw [found] at agrees
       cases agrees
@@ -102,42 +103,42 @@ theorem projection (rows : CodeRows) : Projection (presented rows) (semantic row
       have eq : (action, successor.project) = (label, target) := Option.some.inj agrees
       exact ⟨action, successor, found, congrArg Prod.fst eq, congrArg Prod.snd eq⟩
 
-theorem step_iff {rows : CodeRows} {source : State} {label : Option Event} {target : CoreState} :
-    (semantic rows.project).Tr source.project label target ↔
-      ∃ successor, advance rows source = some (label, successor) ∧ successor.project = target := by
-  rw [(projection rows).step_iff]
+theorem stepIn_iff {rows : CodeRows} {globals : GlobalLookup} {source : State} {label : Option Event} {target : CoreState} :
+    (semanticIn rows.project globals).Tr source.project label target ↔
+      ∃ successor, advanceIn rows globals source = some (label, successor) ∧ successor.project = target := by
+  rw [(projectionIn rows globals).step_iff]
   constructor
   · rintro ⟨action, successor, moved, rfl, projected⟩
     exact ⟨successor, moved, projected⟩
   · rintro ⟨successor, moved, projected⟩
     exact ⟨label, successor, moved, rfl, projected⟩
 
-theorem execution_readback {rows : CodeRows} {source : State} {labels : List (Option Event)}
+theorem executionIn_readback {rows : CodeRows} {globals : GlobalLookup} {source : State} {labels : List (Option Event)}
     {target : CoreState} {states : List CoreState}
-    (run : (semantic rows.project).Execution source.project labels target states) :
-    ∃ final witnesses, (presented rows).Execution source labels final witnesses ∧
+    (run : (semanticIn rows.project globals).Execution source.project labels target states) :
+    ∃ final witnesses, (presentedIn rows globals).Execution source labels final witnesses ∧
       witnesses.map State.project = states ∧ final.project = target := by
   obtain ⟨final, labels', witnesses, lifted, labelsEq, statesEq, targetEq⟩ :=
-    (projection rows).execution_readback run rfl
+    (projectionIn rows globals).execution_readback run rfl
   simp only [List.map_id] at labelsEq
   subst labels'
   exact ⟨final, witnesses, lifted, statesEq, targetEq⟩
 
-theorem runPrefix_project (rows : CodeRows) (fuel : Nat) (source : State) :
-    let next := runPrefix rows fuel source
-    (next.1, next.2.project) = coreRunPrefix rows.project fuel source.project := by
+theorem runPrefixIn_project (rows : CodeRows) (globals : GlobalLookup) (fuel : Nat) (source : State) :
+    let next := runPrefixIn rows globals fuel source
+    (next.1, next.2.project) = coreRunPrefix rows.project globals fuel source.project := by
   induction fuel generalizing source with
   | zero => rfl
   | succ fuel ih =>
-    simp only [runPrefix, coreRunPrefix]
-    rw [← advance_project rows source]
-    cases found : advance rows source with
+    simp only [runPrefixIn, coreRunPrefix]
+    rw [← advanceIn_project rows globals source]
+    cases found : advanceIn rows globals source with
     | none => rfl
     | some next =>
       obtain ⟨label, target⟩ := next
       have agrees := ih target
-      change (_, _) = (label.toList ++ (coreRunPrefix rows.project fuel target.project).1,
-        (coreRunPrefix rows.project fuel target.project).2)
+      change (_, _) = (label.toList ++ (coreRunPrefix rows.project globals fuel target.project).1,
+        (coreRunPrefix rows.project globals fuel target.project).2)
       rw [← agrees]
 
 end Silmaril.Proofs.Languages.Python.Core.Closure.Finite.Executor

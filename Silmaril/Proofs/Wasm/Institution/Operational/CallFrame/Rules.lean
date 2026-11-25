@@ -27,6 +27,15 @@ theorem invert {fn : Callee} {a b : State} (edge : Edge fn a b) : Move fn a b :=
   | reduce saved a b => exact .reduce saved (ih (.body (a, b)) (List.Mem.head _))
   | fact h => exact .fact h
 
+theorem saved_of_live {fn : Callee} {a b : State} (edge : Edge fn a b)
+    (live : ∀ xs, a ≠ .trapped xs) : b.saved = a.saved := by
+  cases invert edge with
+  | reduce => rfl
+  | fact rule =>
+    cases rule
+    case bubble saved discarded _ => exact (live (saved ++ discarded) rfl).elim
+    all_goals rfl
+
 private theorem body_derives (fn : Callee) {a b : Locals.State} (step : Locals.Edge a b) :
     (presentation fn).Derives (.body (a, b)) := by
   refine Derives.least (M := fun j => (presentation fn).Derives (.body j)) step ?_

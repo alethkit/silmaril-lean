@@ -7,9 +7,11 @@ import Silmaril.Proofs.Semantics.Calco2019.Examples.Printing
 
 public section
 
+universe u s
+
 namespace Silmaril.Calco2019.Examples.Printing
 
-variable {A : Type*}
+variable {A : Type u}
 
 theorem writerForever_guarded (a : A) : WriterGuarded (writerForever a) :=
   Proofs.writerForever_guarded a
@@ -23,24 +25,24 @@ theorem writerForever_divergence (a : A) :
     writerWithDivergenceStep (writerForever a) (fun _ => none) = fun _ => none :=
   Proofs.writerForever_divergence a
 
-theorem traceLoop_guarded (a : A) : TraceGuarded (traceLoop a) :=
+theorem traceLoop_guarded (a : A) : TraceGuarded (traceLoop.{u, s} a) :=
   Proofs.traceLoop_guarded a
 
 theorem finite_fixpoint (a : A) :
-    traceStep (traceLoop a) (finiteSolution a) = finiteSolution a :=
+    traceStep (traceLoop.{u, s} a) (finiteSolution a) = finiteSolution a :=
   Proofs.finite_fixpoint a
 
 theorem productive_fixpoint (a : A) :
-    traceStep (traceLoop a) (productiveSolution a) = productiveSolution a :=
+    traceStep (traceLoop.{u, s} a) (productiveSolution a) = productiveSolution a :=
   Proofs.productive_fixpoint a
 
-theorem solutions_distinct (a : A) : finiteSolution a ≠ productiveSolution a :=
+theorem solutions_distinct (a : A) : finiteSolution.{u, s} a ≠ productiveSolution a :=
   Proofs.solutions_distinct a
 
-theorem finite_subset_productive (a : A) (x : Unit) :
+theorem finite_subset_productive (a : A) (x : PUnit.{s + 1}) :
     finiteSolution a x ⊆ productiveSolution a x := fun _ h => Or.inr h
 
-theorem solutions_nonempty (a : A) (x : Unit) :
+theorem solutions_nonempty (a : A) (x : PUnit.{s + 1}) :
     (finiteSolution a x).Nonempty ∧ (productiveSolution a x).Nonempty :=
   ⟨⟨_, ⟨0, rfl⟩⟩, ⟨_, Or.inl rfl⟩⟩
 

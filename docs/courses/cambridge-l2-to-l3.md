@@ -1,0 +1,145 @@
+# Cambridge L2 into L3
+
+The L1/L2 operational adapters use each course's existing CBV relation and
+share the same named integer store. In L2, assignment and dereference
+still carry a location name directly. L3 instead takes a reference
+expression in these positions and stores arbitrary values. The L2→L3
+embedding sends a named cell to an explicit numeric `loc` expression and
+stores the corresponding L3 integer value.
+[L1/L2 operational adapters](../projects/operational-institutions.md#cambridge-l1-and-l2) ·
+[L2 syntax](../../Silmaril/Courses/Cambridge/L2/Syntax.lean) ·
+[L3 syntax](../../Silmaril/Courses/Cambridge/L3/Syntax.lean)
+
+## Expression, store and reduction
+
+The translation covers the complete resolved L2 CBV grammar. It preserves
+free names, de Bruijn indices, arrows, lambda, application, strict let, both
+let-rec binders, and the imperative constructs. A single injective layout
+maps cell names to natural-number addresses in expressions, store domains
+and location typing environments. `unicodeLayout` is a concrete choice
+that encodes the list of Unicode scalar values. Other injective layouts
+work in every theorem. Expression and store embeddings are injective.
+[Definitions](../../Silmaril/Courses/Cambridge/L2ToL3/Defs.lean)
+
+```mermaid
+flowchart LR
+    S["L2 configuration"] -->|One CBV step| T["L2 configuration"]
+    S -->|Embed expression and store| U["L3 image configuration"]
+    T -->|Embed expression and store| V["L3 image configuration"]
+    U -->|One direct L3 step| V
+```
+
+| Theorem | Scope |
+| --- | --- |
+| `typing` | L2 expression typing maps to L3 typing at the translated type and environments. |
+| `store_typed` | L3 store typing follows when the L2 store and location environment have identical domains. |
+| `step` and `steps` | Forward preservation on all source configurations. The one-step theorem includes beta substitution, recursive closure unfolding and writes to allocated integer cells. |
+| `reflect_step` and `reflect_steps` | With L2 expression typing, every direct L3 successor and every finite reachable configuration is the image of a corresponding L2 run. This includes stores with holes. |
+| `may_return_iff`, `stuck_iff` and `infinite_iff` | At a typed source, finite may returns with complete final stores, stuckness and infinite traces agree. |
+
+Typing matters for reflection. The checked untyped Boolean write is stuck
+in L2 and has a write step in L3. The image supplies no allocation constructs
+or fresh-name choices. The checked let-rec example passes an integer
+argument, updates the cell named `λ`, and returns the written integer with
+the whole translated store.
+[Operational theorems](../../Silmaril/Courses/Cambridge/L2ToL3/Thms.lean) ·
+[Checked examples](../../Silmaril/Courses/Cambridge/L2ToL3/Examples.lean)
+
+## Named syntax and scope resolution
+
+`named` translates every L2 named AST directly. It keeps the spelling of
+variables and binders, translates type annotations, and uses the same
+address layout as the resolved translation. `resolve_named` checks the
+square for every ambient binder list, including lists with shadowing.
+An unmatched variable keeps its free name. A cell with the same spelling
+as a variable still maps to a numeric address, regardless of scope.
+
+```mermaid
+flowchart LR
+    A["L2 named AST"] -->|named| B["L3 named AST"]
+    A -->|Resolve under bound| C["L2 resolved AST"]
+    B -->|Resolve under bound| D["L3 resolved AST"]
+    C -->|expr| D
+```
+
+The L3 canonical concrete printer applies to the subdomain where
+`L3.Concrete.NamesOk (named address term)` holds. Every variable occurrence
+and binder must have a valid L3 identifier spelling. The translated
+annotations and numeric addresses are always representable. For example,
+L2 accepts `ref` as a variable and L3 reserves it, so that named image
+falls outside the printer's domain. On the representable subdomain,
+`parseResolved_print_named` checks that printing and parsing the L3 image
+returns the embedding of the L2 term resolved at the empty ambient scope.
+This round trip is for ASTs with valid L3 spellings. Arbitrary source text
+can also carry whitespace and grouping choices that the AST discards.
+
+The checked source example parses an L2 `let rec` with a cell write and
+read, prints and reparses its named L3 image, and checks the resolved
+binders and the free argument `y`. A separate raw AST example exercises
+the same spelling in both a variable and a cell position.
+[Named embedding and theorem](../../Silmaril/Courses/Cambridge/L2ToL3/Named.lean) ·
+[Checked named examples](../../Silmaril/Courses/Cambridge/L2ToL3/NamedExamples.lean)
+
+## Typed finite-return satisfaction
+
+The return institution adapter admits the existing `may-return` and
+`may-return-to` claims when the L2 starting expression has a CBV typing
+derivation. It uses the existing conjunction fragment. The embedding maps
+the complete starting configuration and any named destination, including
+both stores. A proposed destination can be any L2 configuration.
+
+```mermaid
+flowchart LR
+    A["Conjunction over typed L2 sources"] -->|Translate claims| B["Conjunction over L3 configurations"]
+    A -->|Restricted L2 observer| T["Same satisfaction proposition"]
+    B -->|Registered L3 observer| T
+```
+
+`ReturnInstitution.reduct` identifies the pulled-back registered L3
+observer with the restricted registered L2 observer. `satisfaction`
+gives both directions for every conjunction. For a `may-return` claim,
+the L3 witness ranges over all L3 configurations; #2510's reflection
+theorem puts any witness from this source back in the image.
+`holds_iff` applies the same comparison to named catalogues. Slot numbers
+stay fixed, catalogue entries are embedded, and only the source slots
+used by the sentence need typing.
+[Adapter](../../Silmaril/Courses/Cambridge/L2ToL3/ReturnInstitution.lean) ·
+[Existing return logic](cambridge-return-specification.md)
+
+The checked conjunction asks for a return and names the let-rec example's
+exact return with its updated store. A second claim proposes the same
+integer with the wrong final store and is false in the transported observer.
+The comparison concerns the registered CBV observers from typed image
+sources. Arbitrary L3 models, untyped starts, CBN, and programs that
+allocate fresh L3 addresses are outside this comparison.
+[Sentence examples](../../Silmaril/Courses/Cambridge/L2ToL3/Examples.lean)
+
+## Canonical resolved-term bytes
+
+```mermaid
+flowchart LR
+    A["Resolved L2 AST"] -->|Embed AST| B["Resolved L3 AST"]
+    A -->|Canonical L2 encoder| C["L2 bytes"]
+    B -->|Canonical L3 encoder| D["L3 bytes"]
+    C -->|Translate bytes| D
+```
+
+The square commutes for canonical UTF-8 S-expression and JSON bytes.
+The byte translators validate input with the public L2 resolved-term
+decoders and rewrite the canonical constructor tree. The executable
+tree rewrite is proved to equal the encoding of the embedded AST. It
+changes the envelope language from `L2` to `L3` and replaces the atom
+in a location field with a `loc` node holding the decimal address.
+A free variable with the same spelling is still a string atom inside
+`fvar`. The sort remains `resolved-term`, with de Bruijn indices for
+bound occurrences. Named surface syntax has its own codec.
+
+The translators use the public byte codecs. Alternate accepted spellings
+are normalized by decoding and canonical reprinting. Injectivity is
+checked on canonical L2 encodings for each fixed layout and format.
+[Byte embedding theorems](../../Silmaril/Courses/Cambridge/L2ToL3/Bytes.lean) ·
+[Resolved AST formats](cambridge-ast-codecs.md)
+
+```sh
+lake build --wfail +Silmaril.Courses.Cambridge.L2ToL3
+```
