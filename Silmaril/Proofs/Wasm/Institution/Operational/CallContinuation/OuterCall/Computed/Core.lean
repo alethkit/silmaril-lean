@@ -178,6 +178,54 @@ private theorem front {H : Type} {P : Profile} {s : Store H} {f : Frame}
   · obtain ⟨_, _, _, _, _, ⟨eq, _, _⟩ | ⟨_, eq, _, _⟩⟩ := fnv_bubble bubble <;>
       simp [fnv_cons_of_none none, notTrap, notThrow] at eq
 
+theorem if_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {saved : List Val} {condition : BitVec 32} {bt : BlockType} {thenBody elseBody : List Instr}
+    {rest : List Admin} {dst : Config H} :
+    Step P noHost
+      ⟨s, f, vals (saved ++ [.num ⟨.int .i32, condition⟩]) ++ .plain (.if_ bt thenBody elseBody) :: rest⟩ dst ↔
+      dst = ⟨s, f, vals saved ++ .plain (.block bt (if condition = 0 then elseBody else thenBody)) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, args, mid, split, step, rfl⟩ := front rfl (by simp) (by simp) move
+    cases step with
+    | ifTrue nonzero =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [ite_eq_right nonzero]
+      simp
+    | ifFalse zero =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [ite_eq_left zero]
+      simp
+    | _ =>
+      first
+      | have family := (famOf_of_shape (ParametricStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (NumericStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (VectorStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (VariableStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (TableStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (MemoryStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (RefStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (AggregateStep.shape ‹_›)).2; contradiction
+      | contradiction
+  · rintro rfl
+    have source : vals (saved ++ [(.num ⟨.int .i32, condition⟩ : Val)]) ++ Admin.plain (.if_ bt thenBody elseBody) :: rest =
+        vals saved ++ ([constI32 condition, Admin.plain (.if_ bt thenBody elseBody)] ++ rest) := by
+      rw [vals_append, List.append_assoc]
+      rfl
+    rw [source]
+    by_cases zero : condition = 0
+    · rw [ite_eq_left zero]
+      subst condition
+      simpa only [vals, List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using
+        Sim.Step.vals_left (Sim.Step.append_right (Step.ifFalse (P := P) (host := noHost)
+          (s := s) (f := f) (bt := bt) (b₁ := thenBody) (b₂ := elseBody)) rest) saved
+    · rw [ite_eq_right zero]
+      simpa only [vals, List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using
+        Sim.Step.vals_left (Sim.Step.append_right (Step.ifTrue (P := P) (host := noHost)
+          (s := s) (f := f) (bt := bt) (b₁ := thenBody) (b₂ := elseBody) zero) rest) saved
+
 theorem unreachable_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {stack : List Val} {rest : List Admin} {dst : Config H} :
     Step P noHost ⟨s, f, vals stack ++ .plain .unreachable :: rest⟩ dst ↔
@@ -196,6 +244,57 @@ theorem unreachable_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
     | _ => simp [List.getLast?_append] at last
   · rintro rfl
     exact Sim.Step.vals_left (Sim.Step.append_right (.parametric .unreachable) rest) stack
+
+theorem set_read {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    {stack : List Value} {index : LocalIdx} {rest : List Admin} {dst : Config H}
+    (move : Step P noHost ⟨s, f.toCore, coreValues stack ++ .plain (.localSet index) :: rest⟩ dst) :
+    ∃ saved v next, stack = saved ++ [v] ∧ Locals.Edge ⟨f.locals, [.value v, .set index]⟩ ⟨next, []⟩ ∧
+      dst = ⟨s, (⟨next, f.module⟩ : Execution.Runtime.Frame).toCore, coreValues saved ++ rest⟩ := by
+  obtain ⟨saved, args, mid, split, head, rfl⟩ := front rfl (by simp) (by simp) move
+  have variableStep : VariableStep ⟨s, f.toCore, vals args ++ [.plain (.localSet index)]⟩ mid :=
+    head.fam_inv (by change Fam.variable ≠ .control; decide)
+  generalize eq : vals args ++ [Admin.plain (.localSet index)] = code at variableStep
+  have last := congrArg List.getLast? eq
+  cases variableStep with
+  | @localSet _ _ i v bound =>
+    simp [List.getLast?_append] at last
+    subst i
+    have one : args = [v] := vals_inj.mp (List.append_cancel_right eq)
+    subst args
+    obtain ⟨below, operand, rfl, rfl, values⟩ := List.map_eq_append_iff.mp split
+    obtain ⟨w, tail, rfl, rfl, empty⟩ := List.map_eq_cons_iff.mp values
+    have nil : tail = [] := List.map_eq_nil_iff.mp empty
+    subst tail
+    have fits : index.toNat < f.locals.length := by simpa [Execution.Runtime.Frame.toCore] using bound
+    refine ⟨below, w, _, rfl, Locals.fact (.set _ _ _ fits), ?_⟩
+    cases f
+    simp [Frame.setLocal, Execution.Runtime.Frame.toCore, List.map_set, coreValues]
+  | _ => simp [List.getLast?_append] at last
+
+theorem tee_read {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    {stack : List Value} {index : LocalIdx} {rest : List Admin} {dst : Config H}
+    (move : Step P noHost ⟨s, f.toCore, coreValues stack ++ .plain (.localTee index) :: rest⟩ dst) :
+    ∃ saved v, stack = saved ++ [v] ∧
+      Locals.Edge ⟨f.locals, [.value v, .tee index]⟩ ⟨f.locals, [.value v, .value v, .set index]⟩ ∧
+      dst = ⟨s, f.toCore, coreValues (saved ++ [v, v]) ++ .plain (.localSet index) :: rest⟩ := by
+  obtain ⟨saved, args, mid, split, head, rfl⟩ := front rfl (by simp) (by simp) move
+  have variableStep : VariableStep ⟨s, f.toCore, vals args ++ [.plain (.localTee index)]⟩ mid :=
+    head.fam_inv (by change Fam.variable ≠ .control; decide)
+  generalize eq : vals args ++ [Admin.plain (.localTee index)] = code at variableStep
+  have last := congrArg List.getLast? eq
+  cases variableStep with
+  | @localTee _ _ i v =>
+    simp [List.getLast?_append] at last
+    subst i
+    have one : args = [v] := vals_inj.mp (List.append_cancel_right eq)
+    subst args
+    obtain ⟨below, operand, rfl, rfl, values⟩ := List.map_eq_append_iff.mp split
+    obtain ⟨w, tail, rfl, rfl, empty⟩ := List.map_eq_cons_iff.mp values
+    have nil : tail = [] := List.map_eq_nil_iff.mp empty
+    subst tail
+    exact ⟨below, w, rfl, Locals.fact (.tee _ _ _), by
+      simp [coreValues, List.map_append, vals, List.append_assoc]⟩
+  | _ => simp [List.getLast?_append] at last
 
 private theorem get_read {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {stack : List Val} {i : LocalIdx} {rest : List Admin} {dst : Config H}

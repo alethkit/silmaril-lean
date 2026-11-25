@@ -144,6 +144,9 @@ arguments and the capture operands retain their source order. -/
 inductive Code : Core.Closure.Layout → Type where
   | ret {layout} (value : Expr layout) : Code layout
   | assert {layout} (test : Expr layout) (next : Code layout) : Code layout
+  | assertFreeVars {layout} (receiver : Expr layout) (needle : List UInt32) (expected : Bool)
+      (next : Code layout) : Code layout
+  | discardCall {layout} (callee : Expr layout) (next : Code layout) : Code layout
   | assign {layout} (destination : Slot layout) (value : Expr layout) (next : Code layout) : Code layout
   | closure {layout} (destination : Slot layout) (path : BlockPath) (childLayout : Core.Closure.Layout)
       (parameters : Parameters childLayout) (captures : Fin childLayout.captures → CaptureSlot layout)
@@ -152,7 +155,8 @@ inductive Code : Core.Closure.Layout → Type where
 /-- Child code paths in lexical preorder. -/
 def Code.childPaths {layout : Core.Closure.Layout} : Code layout → List BlockPath
   | .ret _ => []
-  | .assign _ _ next | .assert _ next => next.childPaths
+  | .assign _ _ next | .assert _ next | .assertFreeVars _ _ _ next
+  | .discardCall _ next => next.childPaths
   | .closure _ path _ _ _ child next => path :: (child.childPaths ++ next.childPaths)
 
 def fixed (parameter : Source.Parameter) : Bool :=
@@ -182,6 +186,34 @@ def assignment? : (source : Source.Stmt) →
   | .assignTargets [.name name] value => some ⟨(name, value), .singleTarget name value⟩
   | _ => none
 
+inductive ZeroArgumentNameCall : Source.Expr → Name → Prop where
+  | plain (name : Name) : ZeroArgumentNameCall (.call (.name name) []) name
+  | tagged (name : Name) : ZeroArgumentNameCall (.callWith (.name name) []) name
+
+def zeroArgumentNameCall? : (source : Source.Expr) →
+    Option {name // ZeroArgumentNameCall source name}
+  | .call (.name name) [] => some ⟨name, .plain name⟩
+  | .callWith (.name name) [] => some ⟨name, .tagged name⟩
+  | _ => none
+
+inductive FreeVarsTest : Source.Expr → Name → List UInt32 → Bool → Prop where
+  | contains (function : Name) (name : List UInt32) :
+      FreeVarsTest
+        (.comparison (.text name) [(.in_, .attribute (.attribute (.name function) "__code__") "co_freevars")])
+        function name true
+  | excludes (function : Name) (name : List UInt32) :
+      FreeVarsTest
+        (.comparison (.text name) [(.notIn, .attribute (.attribute (.name function) "__code__") "co_freevars")])
+        function name false
+
+def freeVarsTest? : (source : Source.Expr) →
+    Option {test : Name × List UInt32 × Bool // FreeVarsTest source test.1 test.2.1 test.2.2}
+  | .comparison (.text name) [(.in_, .attribute (.attribute (.name function) "__code__") "co_freevars")] =>
+    some ⟨(function, name, true), .contains function name⟩
+  | .comparison (.text name) [(.notIn, .attribute (.attribute (.name function) "__code__") "co_freevars")] =>
+    some ⟨(function, name, false), .excludes function name⟩
+  | _ => none
+
 inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
     Code (frameLayout tree.scope) → Prop where
   | ret {tree index source target} (ordinary : tree.scope.context.containsYield = false)
@@ -205,6 +237,17 @@ inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
       (tail : Translation tree index rest next) :
       Translation tree index (.assert_ (.comparison (.name name) [(.eq, .integer right)]) none :: rest)
         (.assert (.eqInt left right) next)
+  | assertFreeVars {tree index source name function member expected rest next}
+      (shape : FreeVarsTest source name member expected)
+      (read : ExprTranslation tree.scope (.name name) function)
+      (tail : Translation tree index rest next) :
+      Translation tree index (.assert_ source none :: rest)
+        (.assertFreeVars function member expected next)
+  | discardCall {tree index source name callee rest next}
+      (shape : ZeroArgumentNameCall source name)
+      (read : ExprTranslation tree.scope (.name name) callee)
+      (tail : Translation tree index rest next) :
+      Translation tree index (.expression source :: rest) (.discardCall callee next)
   | pass {tree index rest next} (tail : Translation tree index rest next) :
       Translation tree index (.pass :: rest) next
   | nonlocal {tree index names rest next} (tail : Translation tree index rest next) :
@@ -241,9 +284,20 @@ private def lowerOrdinaryBody (tree : ScopeTree) (allowGlobals : Bool)
     let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨.assert (.eqInt left.val right) tail.val, .assertEqInt left.property tail.property⟩
   | .assert_ test none :: rest => do
-    let target ← lowerExprWith tree.scope allowGlobals test
+    if let some ⟨(function, name, expected), shape⟩ := freeVarsTest? test then
+      let read ← lowerExprWith tree.scope allowGlobals (.name function)
+      let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
+      return ⟨.assertFreeVars read.val name expected tail.val,
+        .assertFreeVars shape read.property tail.property⟩
+    else
+      let target ← lowerExprWith tree.scope allowGlobals test
+      let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
+      return ⟨.assert target.val tail.val, .assert target.property tail.property⟩
+  | .expression source :: rest => do
+    let some call := zeroArgumentNameCall? source | throw .bodyShape
+    let callee ← lowerExprWith tree.scope allowGlobals (.name call.val)
     let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
-    return ⟨.assert target.val tail.val, .assert target.property tail.property⟩
+    return ⟨.discardCall callee.val tail.val, .discardCall call.property callee.property tail.property⟩
   | .pass :: rest => do
     let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨tail.val, .pass tail.property⟩

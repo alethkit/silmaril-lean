@@ -139,6 +139,99 @@ private theorem frame_cases {H : Type} {s : Store H} {f inside : Frame} {n : Nat
     subst kept
     exact .inr ⟨_, exit, rfl⟩
 
+private def firstNonvalue (code : List Admin) : Option Admin :=
+  code.find? fun i => (asValue? i).isNone
+
+@[local simp] private theorem firstNonvalue_value (v : Value) (rest : List Admin) :
+    firstNonvalue (value v :: rest) = firstNonvalue rest := by
+  simp [firstNonvalue, asValue?_value]
+
+@[local simp] private theorem firstNonvalue_values (vs : List Value) (rest : List Admin) :
+    firstNonvalue (values vs ++ rest) = firstNonvalue rest := by
+  induction vs with
+  | nil => rfl
+  | cons v vs ih =>
+    change firstNonvalue (value v :: (values vs ++ rest)) = firstNonvalue rest
+    rw [firstNonvalue_value, ih]
+
+private theorem step_first {H : Type} {s t : Config H} (step : Step limeNoHost s t) :
+    ∃ head, firstNonvalue s.code = some head ∧ head ≠ .source .return_ := by
+  induction step with
+  | pure _ _ h =>
+    cases h <;> (simp only [List.append_assoc, List.singleton_append,
+      firstNonvalue_values, firstNonvalue_value]; simp [firstNonvalue, asValue?])
+  | context _ saved tail ih =>
+    obtain ⟨head, seen, distinct⟩ := ih
+    refine ⟨head, ?_, distinct⟩
+    rw [List.append_assoc, firstNonvalue_values]
+    unfold firstNonvalue at seen ⊢
+    rw [List.find?_append, seen]
+    rfl
+  | _ =>
+    simp only [firstNonvalue_values, firstNonvalue_value]
+    simp [firstNonvalue, asValue?]
+
+theorem return_stuck {H : Type} {s : Store H} {f : Frame}
+    {stack : List Value} {tail : List Admin} {dst : Config H}
+    (step : Step limeNoHost ⟨s, f, values stack ++ .source .return_ :: tail⟩ dst) : False := by
+  obtain ⟨head, seen, distinct⟩ := step_first step
+  simp only [firstNonvalue_values] at seen
+  exact distinct (by simpa [firstNonvalue, asValue?] using seen.symm)
+
+theorem return_label_result {types : List Wasm.Lime1.FuncType} {n : Nat}
+    {stack : List Value} {tail out : List Admin}
+    (pop : PureStep types [.label n [] (values stack ++ .source .return_ :: tail)] out) :
+    out = values stack ++ [.source .return_] := by
+  have exit := pure_focus (args := []) pop (.label n [] _)
+  generalize shape : values stack ++ .source .return_ :: tail = code at exit
+  have head := congrArg firstNonvalue shape
+  cases exit with
+  | labelDone _ _ vs =>
+    have none : firstNonvalue (values vs) = none := by
+      simpa only [List.append_nil, firstNonvalue, List.find?_nil] using firstNonvalue_values vs []
+    rw [none, firstNonvalue_values] at head
+    simp [firstNonvalue, asValue?] at head
+  | labelReturn _ _ vs rest =>
+    have split (xs : List Value) (is : List Admin) :
+        splitValues (values xs ++ .source .return_ :: is) = (xs, .source .return_ :: is) := by
+      induction xs with
+      | nil => rfl
+      | cons v xs ih =>
+        change splitValues (value v :: (values xs ++ .source .return_ :: is)) = _
+        simp only [splitValues, asValue?_value, ih]
+    have same := congrArg splitValues shape
+    simp only [List.append_assoc, List.singleton_append, split, Prod.mk.injEq] at same
+    rw [same.1]
+  | labelTrap | otherLabelExit =>
+    simp only [List.append_assoc, List.singleton_append, firstNonvalue_values] at head
+    simp [firstNonvalue, asValue?] at head
+
+theorem return_frame_iff {H : Type} {s : Store H} {outer inner : Frame}
+    {n : Nat} {extra results : List Value} {dst : Config H} (arity : results.length = n) :
+    Step limeNoHost ⟨s, outer, [.frame n inner (values (extra ++ results) ++ [.source .return_])]⟩ dst ↔
+      dst = ⟨s, outer, values results⟩ := by
+  constructor
+  · intro step
+    cases singleton_step (.frame n inner _) step with
+    | frame inside => exact (return_stuck inside).elim
+    | pure pop =>
+      have exit := pure_focus pop (.frame n inner _)
+      generalize shape : values (extra ++ results) ++ [AdminInstr.source .return_] = code at exit
+      cases exit with
+      | frameDone _ _ stack _ =>
+        exact (value_nonvalue (e := .source .return_) rfl (by rw [← shape]; simp)).elim
+      | frameReturn _ _ oldExtra oldResults rest count =>
+        rw [← values_append] at shape
+        have same := (one_nonvalue (e := .source .return_) (last := .source .return_) rfl shape.symm).1
+        obtain ⟨_, rfl⟩ := returned_suffix same (arity.trans count.symm)
+        rfl
+      | frameTrap =>
+        have mem : (AdminInstr.source .return_ : Admin) ∈ [.trap] := by rw [← shape]; simp
+        simp at mem
+  · rintro rfl
+    simpa only [values_append, List.append_nil] using
+      (Step.pure (host := limeNoHost) s outer (.frameReturn n inner extra results [] arity))
+
 private theorem label_pop {fn : Callee} (saved ls : List Value) {body : Body} {out : List Admin}
     (h : PureFocus [] (.label fn.arity [] (bodyCode body)) out) :
     ∃ ready, Ground fn (.label saved ls body) (.exit saved ls ready) ∧ out = exitCode ready := by
@@ -242,9 +335,7 @@ private theorem exit_inner_stuck {H : Type} {s : Store H} {f : Frame} {ready : E
   cases ready with
   | values stack => exact no_values h
   | ret stack =>
-    obtain ⟨_, _, _, _, head, _⟩ := split h .ret (stack := stack) rfl
-    cases head with
-    | pure h => cases pure_focus h .ret
+    exact return_stuck (stack := stack) (tail := []) h
   | trap =>
     cases singleton_step .trap h with
     | pure pp => cases pure_focus pp .trap
@@ -364,6 +455,23 @@ theorem frame_prefix_inv {H : Type} {s : Store H} {f inside : Frame} {n : Nat}
     rw [List.append_nil] at stackEq
     subst kept
     exact ⟨_, .pure s f ordinary, rfl⟩
+
+theorem label_prefix_cases {H : Type} {s : Store H} {f : Frame} {n : Nat}
+    {saved : List Value} {code : List Admin} {dst : Config H}
+    (step : Step limeNoHost ⟨s, f, values saved ++ [.label n [] code]⟩ dst) :
+    (∃ mid, Step limeNoHost ⟨s, f, code⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, values saved ++ [.label n [] mid.code]⟩) ∨
+    ∃ out, PureStep f.module.types [.label n [] code] out ∧ dst = ⟨s, f, values saved ++ out⟩ := by
+  obtain ⟨kept, used, mid, stackEq, head, rfl⟩ := split step (.label n [] code) rfl
+  cases head with
+  | label inner =>
+    rw [List.append_nil] at stackEq
+    exact .inl ⟨_, inner, by rw [stackEq]⟩
+  | pure ordinary =>
+    have zero : used = [] := by cases pure_focus ordinary (.label n [] code) <;> rfl
+    subst used
+    rw [List.append_nil] at stackEq
+    exact .inr ⟨_, ordinary, by rw [stackEq]⟩
 
 theorem invoke_wasm_prefix_iff {H : Type} {s : Store H} {caller : Frame}
     {i : FuncAddr} {saved args : List Value} {ty : Wasm.Lime1.FuncType}

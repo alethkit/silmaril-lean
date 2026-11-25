@@ -387,6 +387,21 @@ private theorem simIndex {program : Program} {available : List DeclarationId}
   obtain ⟨readSubscript, _⟩ := saved_head rest free
   simp only [denote, bind, EStateM.bind, readReceiver, readSubscript]
 
+private theorem simSlice {program : Program} {available : List DeclarationId}
+    {s : State} {receiver start stop stride : SourceExpr} {out : Outcome (List Value)}
+    (ih : SimulatesMany program available s [receiver, start, stop, stride] out) :
+    Simulates program available s (.slice receiver start stop stride) (Outcome.resume out readSliceOperands) := by
+  cases out with
+  | error => exact simCollectionError ih (fun base target => ⟨_, emit_slice receiver start stop stride target base⟩)
+  | ok values state =>
+    change Simulates program available s (.slice receiver start stop stride) (readSliceOperands values state)
+    refine simCollection ih (sliceAction values) (fun _ reads => .slice (operandList reads))
+      (fun base target => emit_slice receiver start stop stride target base) ?_
+    intro base w free
+    dsimp only
+    intro saved
+    simp only [denote, bind, EStateM.bind, saved_read saved free]
+
 private def SimulatesEntries (program : Program) (available : List DeclarationId) (receiver : Value)
     (s : State) (entries : List (SourceExpr × SourceExpr)) (out : Outcome Unit) : Prop :=
   SameScope (finishState out) s ∧
@@ -751,6 +766,7 @@ private theorem simulates {program : Program} {available : List DeclarationId}
   | @indexReceiverError _ _ receiver subscript _ _ ih =>
     exact simCollectionError (simManyHeadError ih)
       (fun start target => ⟨_, emit_index receiver subscript target start⟩)
+  | slice _ ih => exact simSlice ih
   | call _ applied ih => exact simCall ih applied
   | callError _ ih => exact simCallError ih
   | branch _ checked _ test selected => exact simBranch test checked selected

@@ -25,8 +25,9 @@ private def unset : Slot calleeCode.layout := .local ⟨1, by decide⟩
 private def capture : Slot calleeCode.layout := .capture ⟨0, by decide⟩
 private def tableWith (body : Body calleeCode.layout) : CodeTable :=
   fun key => if key = calleeCode.key then
-    some ⟨calleeCode.layout, ⟨⟨[.local parameter], by decide⟩,
-      .store capture (.read (.local parameter)) body⟩⟩
+    some ⟨calleeCode.layout,
+      { parameters := ⟨[.local parameter], by decide⟩
+        body := .store capture (.read (.local parameter)) body }⟩
   else none
 
 private def table (operand : Operand calleeCode.layout) : CodeTable :=

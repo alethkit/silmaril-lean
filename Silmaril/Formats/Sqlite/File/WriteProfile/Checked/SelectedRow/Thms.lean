@@ -6,6 +6,32 @@ import Silmaril.Proofs.Formats.Sqlite.File.WriteProfile.Checked.SelectedRow.Read
 public section
 namespace Silmaril.Formats.Sqlite.WriteProfile.Image
 
+/-- In a successful checked SQLite image, page 2 contains the selected amount
+cell. Its pointer gives the original image offset, exact cell and typed row for
+any signed key and amount. -/
+theorem Checked.encode_selected_amount_physical {snapshot : Snapshot} {bytes : Bytes}
+    (slot : Nat) (key amount : Int64)
+    (accepted : Checked.encode snapshot = .ok bytes)
+    (selected : snapshot.orderedRows[slot]? = some ⟨key, amount⟩) :
+    let cells := snapshot.orderedRows.map
+      (fun row => (⟨row.id, Record.Write.amount row.amount⟩ : BTree.LeafWrite.Cell))
+    let serialized := cells.map BTree.LeafWrite.Cell.bytes
+    let view := File.View.ofBytes bytes
+    let offset := File.Write.pageSize - serialized.flatten.length + (serialized.take slot).flatten.length
+    let extent := 1 + (Varint.encode key.toUInt64).toList.length + 11
+    ∃ page, tablePage snapshot = .ok page ∧
+      ∃ image, File.parse? bytes = some image ∧
+      ∃ tableView, image.page? 2 = some tableView ∧
+        tableView.materialize = Bytes.ofList page ∧
+        tableView.be? (8 + 2 * slot) 2 = some offset ∧
+        TableLeaf.cell? view (512 + offset) =
+          some ⟨key, Bytes.ofList (Record.Write.amount amount),
+            512 + offset, 512 + offset + extent⟩ ∧
+        (TableLeaf.cell? view (512 + offset)).bind TableLeaf.row? =
+          some (key.toInt, [.integer (key), .integer amount]) :=
+  Silmaril.Proofs.Formats.Sqlite.WriteProfile.Image.checked_encode_selected_amount_physical
+    slot key amount accepted selected
+
 /-- In a successful checked image, the parsed second page preserves the table
 writer's bytes and selected pointer. Reading the original image at the resulting
 absolute offset recovers the exact one-byte rowid, amount payload and typed row. -/

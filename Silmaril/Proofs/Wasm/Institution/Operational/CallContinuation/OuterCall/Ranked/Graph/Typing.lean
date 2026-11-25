@@ -49,42 +49,116 @@ private theorem stack_types_append (below above : List Value) :
     Prefix.stackTypes (below ++ above) = Prefix.stackTypes above ++ Prefix.stackTypes below := by
   simp [Prefix.stackTypes]
 
-private theorem args_check {fn : Function} {target : CallTarget} {saved operands : List Value} {rest : List Op}
+private theorem args_check {fn : Function} {fallthrough : List NumType} {target : CallTarget} {saved operands : List Value} {rest : List Op}
     (count : operands.length = target.declaration.params.length)
-    (typed : fn.WellTyped (saved ++ operands) (.call target :: rest)) :
-    operands.map Value.type = target.declaration.params ∧ fn.ResumeTyped saved target rest := by
+    (typed : fn.WellTyped (saved ++ operands) (.call target :: rest) fallthrough) :
+    operands.map Value.type = target.declaration.params ∧ fn.ResumeTyped saved target rest fallthrough := by
   have length : operands.length = (Prefix.stackTypes operands).length := by simp [Prefix.stackTypes]
   unfold Function.WellTyped at typed
-  simp only [checkCode, Bool.and_eq_true_iff, decide_eq_true_eq, stack_types_append, ← count, length,
+  simp only [checkCode, checkOp, Bool.and_eq_true_iff, decide_eq_true_eq, stack_types_append, ← count, length,
     List.take_left, List.drop_left] at typed
   exact ⟨List.reverse_inj.mp typed.1.2, typed.2⟩
 
-private theorem local_types {fn : Function} {args : List Value} (typed : args.map Value.type = fn.declaration.params) :
+private theorem init_local_types {fn : Function} {args : List Value} (typed : args.map Value.type = fn.declaration.params) :
     (fn.declaration.frame args).locals.map Value.type = fn.localTypes := by
   simp [Declaration.frame, Function.localTypes, List.map_map, Function.comp_def, Value.zero, typed]
 
-private theorem result_of_nil {fn : Function} {stack : List Value} (typed : fn.WellTyped stack []) :
-    fn.ResultTyped (.values stack) := by
-  simpa [Function.WellTyped, Function.ResultTyped, checkCode, Prefix.stackTypes] using typed
+private theorem result_of_nil {fn : Function} {fallthrough : List NumType} {stack : List Value} (typed : fn.WellTyped stack [] fallthrough) :
+    stack.map Value.type = fallthrough := by
+  simpa [Function.WellTyped, checkCode, Prefix.stackTypes] using typed
 
-private theorem numeric_preserves {fn : Function} {args stack next : List Value} {op : Prefix.Op} {rest : List Op}
-    (typed : args.map Value.type = fn.declaration.params)
-    (step : Prefix.Reduce (fn.declaration.frame args).locals stack op (.values next))
-    (body : fn.WellTyped stack (.numeric op :: rest)) : fn.WellTyped next rest := by
+private theorem return_of_code {fn : Function} {fallthrough : List NumType} {stack : List Value} {rest : List Op}
+    (typed : fn.WellTyped stack (.return_ :: rest) fallthrough) : fn.ReturnTyped stack := by
+  simpa [Function.WellTyped, Function.ReturnTyped, checkCode, checkOp] using typed
+
+private theorem return_result {fn : Function} {extra results : List Value}
+    (typed : fn.ReturnTyped (extra ++ results)) (arity : results.length = fn.declaration.results.length) :
+    fn.ResultTyped (.values results) := by
+  have length : (Prefix.stackTypes results).length = fn.declaration.results.length := by
+    simpa [Prefix.stackTypes] using arity
+  unfold Function.ReturnTyped at typed
+  rw [stack_types_append, ← length, List.take_left] at typed
+  exact List.reverse_inj.mp typed
+
+private theorem numeric_preserves {fn : Function} {fallthrough : List NumType} {locals stack next : List Value} {op : Prefix.Op} {rest : List Op}
+    (typed : locals.map Value.type = fn.localTypes)
+    (step : Prefix.Reduce locals stack op (.values next))
+    (body : fn.WellTyped stack (.numeric op :: rest) fallthrough) : fn.WellTyped next rest fallthrough := by
   have head := Prefix.checkOp_result step
-  rw [local_types typed] at head
-  simpa [Function.WellTyped, checkCode, head] using body
+  rw [typed] at head
+  simpa [Function.WellTyped, checkCode, checkOp, head] using body
+
+private theorem set_preserves {fn : Function} {fallthrough : List NumType} {locals next saved : List Value} {i : LocalIdx} {v : Value} {rest : List Op}
+    (typed : locals.map Value.type = fn.localTypes)
+    (write : Locals.Edge ⟨locals, [.value v, .set i]⟩ ⟨next, []⟩)
+    (body : fn.WellTyped (saved ++ [v]) (.set i :: rest) fallthrough) :
+    next.map Value.type = fn.localTypes ∧ fn.WellTyped saved rest fallthrough := by
+  by_cases fits : fn.localTypes[i.toNat]? = some v.type
+  · have localGuard : Locals.Admitted fn.localTypes [] ⟨locals, [.value v, .set i]⟩ :=
+      ⟨typed, by simp [Locals.check, fits]⟩
+    exact ⟨(Locals.closed localGuard write).1,
+      by simpa [Function.WellTyped, checkCode, checkOp, Prefix.stackTypes, Locals.check, fits] using body⟩
+  · simp [Function.WellTyped, checkCode, checkOp, Prefix.stackTypes, Locals.check, fits] at body
+
+private theorem tee_preserves {fn : Function} {fallthrough : List NumType} {saved : List Value} {i : LocalIdx} {v : Value} {rest : List Op}
+    (body : fn.WellTyped (saved ++ [v]) (.tee i :: rest) fallthrough) :
+    fn.WellTyped (saved ++ [v, v]) (.set i :: rest) fallthrough := by
+  by_cases fits : fn.localTypes[i.toNat]? = some v.type <;>
+    simp_all [Function.WellTyped, checkCode, checkOp, Prefix.stackTypes, Locals.check]
+
+private theorem return_prefix {fn : Function} {stack saved : List Value}
+    (typed : fn.ReturnTyped stack) : fn.ReturnTyped (saved ++ stack) := by
+  have enough : fn.declaration.results.length ≤ (Prefix.stackTypes stack).length := by
+    have count := congrArg List.length typed
+    simp only [List.length_take, List.length_reverse] at count
+    omega
+  simpa only [Function.ReturnTyped, stack_types_append, List.take_append_of_le_length enough] using typed
+
+private theorem returning_guard {program : Program} {fn : Function} {fallthrough : List NumType}
+    {locals stack : List Value} (ready : AdmittedAt program fn fallthrough (.returning locals stack)) :
+    locals.map Value.type = fn.localTypes ∧ fn.ReturnTyped stack := by
+  cases ready with | returning locals stack => exact ⟨locals, stack⟩
+
+private theorem exit_guard {program : Program} {fn : Function} {fallthrough : List NumType}
+    {locals stack : List Value} (ready : AdmittedAt program fn fallthrough (.exit locals (.values stack))) :
+    locals.map Value.type = fn.localTypes ∧ stack.map Value.type = fallthrough := by
+  cases ready with | exit locals stack => exact ⟨locals, stack⟩
+
+private theorem trap_exit_guard {program : Program} {fn : Function} {fallthrough : List NumType}
+    {locals : List Value} (ready : AdmittedAt program fn fallthrough (.exit locals .trap)) :
+    locals.map Value.type = fn.localTypes := by
+  cases ready with | exit locals _ => exact locals
+
+theorem split_if {fn : Function} {fallthrough : List NumType} {stack : List Value}
+    {result : Option NumType} {thenBody elseBody rest : List Op}
+    (typed : fn.WellTyped stack (.if_ result thenBody elseBody :: rest) fallthrough) :
+    ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] := by
+  cases stack using List.reverseRecOn with
+  | nil => simp [Function.WellTyped, checkCode, checkOp, Prefix.stackTypes] at typed
+  | append_singleton saved v =>
+    rcases v with ⟨type, bits⟩
+    unfold Function.WellTyped at typed
+    rw [stack_types_append] at typed
+    change checkCode _ _ _ _ (type :: Prefix.stackTypes saved) _ = true at typed
+    cases type with
+    | float kind => simp [checkCode, checkOp] at typed
+    | int kind =>
+      cases kind with
+      | i32 => exact ⟨saved, bits, rfl⟩
+      | i64 => simp [checkCode, checkOp] at typed
 
 theorem admitted_step {program : Program} (checked : program.check = true) (address : FuncAddr) :
-    ∀ {fn a b}, program.lookup address = some fn → Admitted program fn a →
-      program.Edge checked address a b → Admitted program fn b := by
+    ∀ {fn a b fallthrough}, program.lookup address = some fn → AdmittedAt program fn fallthrough a →
+      program.Edge checked address a b → AdmittedAt program fn fallthrough b := by
   induction address using (program.table.wellFounded (Program.rankCheck checked)).induction with
   | h address ih =>
-    intro fn a b found ready move
+    intro fn a b fallthrough found ready move
     have step := (edge_iff checked found).mp move
-    cases step with
+    induction step generalizing fallthrough with
     | resolve args => cases ready with | call typed => exact .invoke typed
-    | enter args typed => exact .running typed (check_function checked found)
+    | enter args typed =>
+      cases ready
+      exact .running (init_local_types typed) (check_function checked found)
     | numeric step =>
       cases ready with
       | running typed body =>
@@ -92,6 +166,52 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         · exact .running typed (numeric_preserves typed (.get ‹_›) body)
         · exact .running typed (numeric_preserves typed (.bin ‹_›) body)
         · exact .trapped typed
+    | localSet write =>
+      cases ready with
+      | running typed body =>
+        obtain ⟨nextTyped, restTyped⟩ := set_preserves typed write body
+        exact .running nextTyped restTyped
+    | localTee _ =>
+      cases ready with
+      | running typed body => exact .running typed (tee_preserves body)
+    | ifSelect locals saved condition result thenBody elseBody rest =>
+      cases ready with
+      | running typed body =>
+        unfold Function.WellTyped at body
+        rw [stack_types_append] at body
+        change checkCode _ _ _ _ (.int .i32 :: Prefix.stackTypes saved) _ = true at body
+        simp only [checkCode, checkOp, Bool.and_eq_true_iff] at body
+        apply AdmittedAt.running typed
+        simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff]
+        split
+        · exact ⟨body.1.2, body.2⟩
+        · exact ⟨body.1.1, body.2⟩
+    | blockEnter locals saved result code rest =>
+      cases ready with
+      | running typed body =>
+        have both := body
+        simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff] at both
+        exact .block (.running typed both.1) both.2
+    | @blockStep locals saved result rest inner next step bodyIH =>
+      cases ready with
+      | block inside resume =>
+        have outcome := label_outcome step ⟨_, _, rfl⟩
+        have after := bodyIH inside ((edge_iff checked found).mpr step)
+        cases next with
+        | label => exact .block after resume
+        | returning =>
+          obtain ⟨typed, out⟩ := returning_guard after
+          exact .running typed (by
+            simpa only [Function.WellTyped, checkCode, checkOp, Function.ReturnTyped, decide_eq_true_eq] using
+              return_prefix (saved := saved) out)
+        | exit locals out =>
+          cases out with
+          | values stack =>
+            obtain ⟨typed, outTyped⟩ := exit_guard after
+            exact .running typed (by simpa [Function.WellTyped, stack_types_append,
+              Prefix.stackTypes, outTyped] using resume)
+          | trap => exact .trapped (trap_exit_guard after)
+        | call | invoke | done => cases outcome
     | unreachable args stack rest => cases ready with | running typed _ => exact .trapped typed
     | dispatch args saved operands target rest used count =>
       cases ready with
@@ -110,9 +230,11 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         | running newArgs body => exact .active typed used childFound declared trivial (.running newArgs body) resume
         | active newArgs edge alloc same live ready body =>
           exact .active typed used childFound declared trivial (.active newArgs edge alloc same live ready body) resume
+        | block inside body => exact .active typed used childFound declared trivial (.block inside body) resume
         | trapped newArgs => exact .active typed used childFound declared trivial (.trapped newArgs) resume
+        | returning newArgs out => exact .active typed used childFound declared trivial (.returning newArgs out) resume
         | exit newArgs out => exact .active typed used childFound declared trivial (.exit newArgs out) resume
-        | @done _ result out =>
+        | @done _ _ result out =>
           cases result with
           | trap => exact .trapped typed
           | values stack =>
@@ -121,24 +243,30 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
             exact .running typed (by simpa [Function.WellTyped, Function.ResumeTyped, stack_types_append,
               Prefix.stackTypes, values] using resume)
     | discard cut => cases ready with | trapped typed => exact .trapped typed
+    | returnLabel _ _ _ =>
+      cases ready with | running typed body => exact .returning typed (return_of_code body)
+    | returnFrame _ _ _ arity =>
+      cases ready with | returning _ out => exact .done (return_result out arity)
     | leaveValues args stack =>
       cases ready with | running typed body => exact .exit typed (result_of_nil body)
     | leaveTrap args => cases ready with | trapped typed => exact .exit typed trivial
     | leaveFrame args result typed => exact .done typed
 
 theorem nesting_of_admitted {program : Program} (checked : program.check = true)
-    {address : FuncAddr} {fn : Function} {phase : Phase} (found : program.lookup address = some fn)
-    (ready : Admitted program fn phase) : program.table.Nesting (phase.frames address) := by
+    {address : FuncAddr} {fn : Function} {phase : Phase} {fallthrough : List NumType}
+    (found : program.lookup address = some fn)
+    (ready : AdmittedAt program fn fallthrough phase) : program.table.Nesting (phase.frames address) := by
   induction ready generalizing address with
-  | @active fn args saved target q rest callee typed used calleeFound declared live ready resume ih =>
+  | @active fn _ args saved target q rest callee typed used calleeFound declared live ready resume ih =>
     have resolved := target_resolved checked found used
     have nested := ih calleeFound
     cases q with
     | call => cases live
     | invoke => simp [Phase.frames, Body.frames]
     | label => exact List.isChain_cons_cons.mpr ⟨resolved, nested⟩
-    | exit => exact List.isChain_cons_cons.mpr ⟨resolved, nested⟩
+    | returning | exit => exact List.isChain_cons_cons.mpr ⟨resolved, nested⟩
     | done => cases live
+  | block _ _ ih => exact ih found
   | _ => simp [Phase.frames, Body.frames]
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Proofs

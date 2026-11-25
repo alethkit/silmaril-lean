@@ -12,6 +12,8 @@ namespace Silmaril.Languages.Python.Core.Closure.Dispatch
 structure Definition (Body : Layout → Type) (layout : Layout) where
   parameters : Parameters layout
   body : Body layout
+  /-- Exact profiled `co_freevars` tuple for this checked definition. -/
+  freevars : Option (List String) := none
 
 structure Entry (Body : Layout → Type) where
   layout : Layout

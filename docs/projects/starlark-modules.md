@@ -123,8 +123,9 @@ the elaboration result with the resolved operational theorem. It compares
 static rejection, execution outcomes, publication and the exact residual
 state. This correspondence shares the elaborator and starts at a normalized
 AST with legal identifier spellings. An independent source binding relation
-and text parsing remain open. Compound targets, lambdas, comprehensions,
-slices and other augmented assignment forms remain outside this source fragment.
+and text parsing remain open. Compound targets, lambdas, comprehensions
+and other augmented assignment forms remain outside this source fragment.
+The pinned Starlark spec rejects slice assignment targets.
 [Theorem header](../../Silmaril/Languages/Starlark/Modules/Resolve/Thms.lean) · [Lean source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean)
 
 Pinned Starlark-Go checks cover static and dynamic name errors, captures,

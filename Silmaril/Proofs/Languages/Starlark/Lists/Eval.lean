@@ -63,6 +63,7 @@ theorem eval_denote {α : Type} (code : Code α) (state : State) :
         Eval.indexReceiverError (index := index) (h ▸ ihReceiver state)
     | ok value next =>
       simpa [denote, runBind, Outcome.resume, h] using Eval.index (h ▸ ihReceiver state) (ihIndex next)
+  | slice operands ih => simpa [denote, runBind] using Eval.slice (ih state)
   | append receiver argument ihReceiver ihArgument =>
     cases h : denote receiver state with
     | error error next =>
@@ -70,7 +71,7 @@ theorem eval_denote {α : Type} (code : Code α) (state : State) :
         Eval.appendReceiverError (argument := argument) (h ▸ ihReceiver state)
     | ok value next =>
       cases value with
-      | scalar | tuple | dict | function | builtin | string =>
+      | scalar | tuple | dict | function | builtin | string | range =>
         rw [denote, runBind, h]
         exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
       | list address =>

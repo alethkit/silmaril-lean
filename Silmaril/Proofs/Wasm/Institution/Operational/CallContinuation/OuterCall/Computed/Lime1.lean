@@ -5,6 +5,8 @@ public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Nati
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Rules
 public import Silmaril.Wasm.Lime1.Execution.Callout
+public import Silmaril.Wasm.Institution.Operational.Blocks.Native.Defs
+import Silmaril.Wasm.Institution.Operational.Blocks.Native.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Lime1Head
 import Silmaril.Wasm.Institution.Operational.CallFrame.Native.Thms
 
@@ -22,21 +24,36 @@ private inductive Focus : Wasm.Lime1.Instr → Prop where
   | bin (t : IntType) (op : IntBinOp) : Focus (.intBinOp t op)
   | call (i : FuncIdx) : Focus (.call i)
   | unreachable : Focus .unreachable
+  | block (bt : Wasm.Lime1.BlockType) (code : Wasm.Lime1.Expr) : Focus (.block bt code)
+  | if_ (bt : Wasm.Lime1.BlockType) (thenBody elseBody : Wasm.Lime1.Expr) : Focus (.if_ bt thenBody elseBody)
+  | set (i : LocalIdx) : Focus (.localSet i)
+  | tee (i : LocalIdx) : Focus (.localTee i)
 
 private theorem Focus.nonvalue {op : Wasm.Lime1.Instr} (h : Focus op) :
     asValue? (AdminInstr.source op) = none := by cases h <;> rfl
 
-private inductive Redex (f : Frame) : Wasm.Lime1.Instr → List Value → List Admin → Prop where
+private inductive Redex (f : Frame) : Wasm.Lime1.Instr → List Value → Frame → List Admin → Prop where
   | get {i : LocalIdx} {v : Value} (found : f.locals[i.toNat]? = some v) :
-      Redex f (.localGet i) [] [value v]
+      Redex f (.localGet i) [] f [value v]
   | bin {t : IntType} {op : IntBinOp} {x y z : BitVec t.width} (ok : intBinOp t op x y = .ok z) :
-      Redex f (.intBinOp t op) [.int t x, .int t y] [value (.int t z)]
+      Redex f (.intBinOp t op) [.int t x, .int t y] f [value (.int t z)]
   | trap {t : IntType} {op : IntBinOp} {x y : BitVec t.width} {e : Numerics.IntTrap}
       (err : intBinOp t op x y = .error e) :
-      Redex f (.intBinOp t op) [.int t x, .int t y] [.trap]
+      Redex f (.intBinOp t op) [.int t x, .int t y] f [.trap]
   | call {i : FuncIdx} {a : FuncAddr} (found : f.module.funcs[i.toNat]? = some a) :
-      Redex f (.call i) [] [.invoke a]
-  | unreachable : Redex f .unreachable [] [.trap]
+      Redex f (.call i) [] f [.invoke a]
+  | unreachable : Redex f .unreachable [] f [.trap]
+
+  | set {i : LocalIdx} {v old : Value} (found : f.locals[i.toNat]? = some old) :
+      Redex f (.localSet i) [v] { f with locals := f.locals.set i.toNat v } []
+  | tee {i : LocalIdx} {v : Value} :
+      Redex f (.localTee i) [v] f [value v, value v, .source (.localSet i)]
+  | block {bt : Wasm.Lime1.BlockType} {code : Wasm.Lime1.Expr} {ft : Wasm.Lime1.FuncType} {vs : List Value}
+      (resolved : blockType? f.module.types bt = some ft) (arity : vs.length = ft.params.length) :
+      Redex f (.block bt code) vs f [.label ft.results.length [] (values vs ++ expression code)]
+  | if_ {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr} {condition : BitVec 32} :
+      Redex f (.if_ bt thenBody elseBody) [Value.int .i32 condition] f
+        [.source (.block bt (if condition = 0 then elseBody else thenBody))]
 
 private theorem redex_shape {stack used : List Value} {op i : Wasm.Lime1.Instr} {rest : List Admin}
     (focus : Focus op) (source : values stack ++ .source op :: rest = values used ++ [.source i])
@@ -53,8 +70,8 @@ private theorem redex_shape {stack used : List Value} {op i : Wasm.Lime1.Instr} 
 private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFrame.limeNoHost src dst)
     {stack : List Value} {op : Wasm.Lime1.Instr} {rest : List Admin} (focus : Focus op)
     (source : src.code = values stack ++ .source op :: rest) :
-    ∃ saved used next, stack = saved ++ used ∧ Redex src.frame op used next ∧
-      dst = ⟨src.store, src.frame, values saved ++ next ++ rest⟩ := by
+    ∃ saved used frame next, stack = saved ++ used ∧ Redex src.frame op used frame next ∧
+      dst = ⟨src.store, frame, values saved ++ next ++ rest⟩ := by
   have firstEq : first src.code = some (.source op) := by
     rw [source, first_prefix, first_head _ focus.nonvalue]
   induction step generalizing stack rest with
@@ -63,29 +80,44 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
     change before = values args ++ .source op :: cut at inside
     have seen : first before = some (.source op) := by
       rw [inside, first_prefix, first_head _ focus.nonvalue]
-    obtain ⟨keep, used, next, rfl, head, eq⟩ := ih inside seen
-    refine ⟨saved ++ keep, used, next, List.append_assoc .. |>.symm, head, ?_⟩
+    obtain ⟨keep, used, frame, next, rfl, head, eq⟩ := ih inside seen
+    refine ⟨saved ++ keep, used, frame, next, List.append_assoc .. |>.symm, head, ?_⟩
     change (⟨s', f', after⟩ : Config H) = _ at eq
     change (⟨s', f', values saved ++ after ++ tail⟩ : Config H) = _
     simpa only [values_append, List.append_assoc] using congrArg (fun c : Config H =>
       (⟨c.store, c.frame, values saved ++ c.code ++ tail⟩ : Config H)) eq
   | localGet s f i v found =>
     obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := []) focus source.symm rfl
-    exact ⟨[], [], _, rfl, .get found, rfl⟩
+    exact ⟨[], [], _, _, rfl, .get found, rfl⟩
   | call s f i a found =>
     obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := []) focus source.symm rfl
-    exact ⟨[], [], _, rfl, .call found, rfl⟩
+    exact ⟨[], [], _, _, rfl, .call found, rfl⟩
+  | localSet s f i v old found =>
+    obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [v]) focus source.symm rfl
+    exact ⟨[], _, _, _, rfl, .set found, rfl⟩
   | pure s f pure =>
     cases pure with
     | intBinary t oper x y z ok =>
       obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [.int t x, .int t y]) focus source.symm rfl
-      exact ⟨[], _, _, rfl, .bin ok, rfl⟩
+      exact ⟨[], _, _, _, rfl, .bin ok, rfl⟩
     | intBinaryTrap t oper x y e err =>
       obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [.int t x, .int t y]) focus source.symm rfl
-      exact ⟨[], _, _, rfl, .trap err, rfl⟩
+      exact ⟨[], _, _, _, rfl, .trap err, rfl⟩
+    | localTee i v =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [v]) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .tee, rfl⟩
     | unreachable =>
       obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := []) focus source.symm rfl
-      exact ⟨[], [], _, rfl, .unreachable, rfl⟩
+      exact ⟨[], [], _, _, rfl, .unreachable, rfl⟩
+    | ifZero bt thenBody elseBody =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 0]) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .if_, rfl⟩
+    | ifNonzero bt thenBody elseBody condition nonzero =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 condition]) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .if_, by rw [ite_eq_right nonzero]; rfl⟩
+    | block bt code ft resolved vs arity =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := vs) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .block resolved arity, rfl⟩
     | _ =>
       simp only [List.append_assoc, List.singleton_append, first_prefix, first_value] at firstEq
       first
@@ -104,18 +136,96 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
         subst op
         cases focus
 
+theorem set_read {H : Type} {s : Store H} {f : Frame} {stack : List Value} {index : LocalIdx}
+    {rest : List Admin} {dst : Config H}
+    (move : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.localSet index) :: rest⟩ dst) :
+    ∃ saved v next, stack = saved ++ [v] ∧ Locals.Edge ⟨f.locals, [.value v, .set index]⟩ ⟨next, []⟩ ∧
+      dst = ⟨s, ⟨next, f.module⟩, values saved ++ rest⟩ := by
+  obtain ⟨saved, _, _, _, split, head, eq⟩ := read_front move (.set index) rfl
+  cases head with
+  | set found =>
+    exact ⟨saved, _, _, split, Locals.fact (.set _ _ _ (List.getElem?_eq_some_iff.mp found).1),
+      by simpa [List.append_assoc] using eq⟩
+
+theorem tee_read {H : Type} {s : Store H} {f : Frame} {stack : List Value} {index : LocalIdx}
+    {rest : List Admin} {dst : Config H}
+    (move : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.localTee index) :: rest⟩ dst) :
+    ∃ saved v, stack = saved ++ [v] ∧
+      Locals.Edge ⟨f.locals, [.value v, .tee index]⟩ ⟨f.locals, [.value v, .value v, .set index]⟩ ∧
+      dst = ⟨s, f, values (saved ++ [v, v]) ++ .source (.localSet index) :: rest⟩ := by
+  obtain ⟨saved, _, _, _, split, head, eq⟩ := read_front move (.tee index) rfl
+  cases head with
+  | tee =>
+    exact ⟨saved, _, split, Locals.fact (.tee _ _ _), by simpa [values_append, List.append_assoc, values] using eq⟩
+
 theorem unreachable_iff {H : Type} {s : Store H} {f : Frame}
     {stack : List Value} {rest : List Admin} {dst : Config H} :
     Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source .unreachable :: rest⟩ dst ↔
       dst = ⟨s, f, values stack ++ .trap :: rest⟩ := by
   constructor
   · intro move
-    obtain ⟨saved, _, _, split, head, eq⟩ := read_front move .unreachable rfl
+    obtain ⟨saved, _, _, _, split, head, eq⟩ := read_front move .unreachable rfl
     cases head with
     | unreachable => simpa [split] using eq
   · rintro rfl
     simpa only [List.append_assoc, List.singleton_append] using
       Step.context (Step.pure (host := CallFrame.limeNoHost) s f PureStep.unreachable) stack rest
+
+theorem block_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+    {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.block (Blocks.limeType result) body) :: rest⟩ dst ↔
+      dst = ⟨s, f, values stack ++ .label result.toList.length [] (expression body) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨saved, used, _, _, split, head, eq⟩ := read_front move (.block _ _) rfl
+    cases head with
+    | block resolved arity =>
+      have lookup : blockType? f.module.types (Blocks.limeType result) = some ⟨[], result.toList⟩ := by
+        cases result <;> rfl
+      rw [lookup] at resolved
+      cases resolved
+      have empty : used = [] := List.eq_nil_of_length_eq_zero arity
+      subst used
+      simpa [values, split] using eq
+  · rintro rfl
+    simpa only [List.append_assoc, List.singleton_append] using
+      Step.context ((Blocks.lime_entry_iff (host := CallFrame.limeNoHost)).mpr rfl) stack rest
+
+theorem if_iff {H : Type} {s : Store H} {f : Frame}
+    {saved : List Value} {condition : BitVec 32} {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr}
+    {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 condition]) ++ .source (.if_ bt thenBody elseBody) :: rest⟩ dst ↔
+      dst = ⟨s, f, values saved ++ .source (.block bt (if condition = 0 then elseBody else thenBody)) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, _, _, _, split, head, eq⟩ := read_front move (.if_ bt thenBody elseBody) rfl
+    cases head with
+    | if_ =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      simpa using eq
+  · rintro rfl
+    have source : values (saved ++ [Value.int .i32 condition]) ++ AdminInstr.source (.if_ bt thenBody elseBody) :: rest =
+        values saved ++ ([value (Value.int .i32 condition), AdminInstr.source (.if_ bt thenBody elseBody)] ++ rest) := by
+      rw [values_append, List.append_assoc]
+      rfl
+    rw [source]
+    have wrap {after : Wasm.Lime1.Expr} (move : PureStep f.module.types
+        [value (Value.int .i32 condition), .source (.if_ bt thenBody elseBody)]
+        [.source (.block bt after)]) :
+        Step CallFrame.limeNoHost
+          ⟨s, f, values saved ++ ([value (Value.int .i32 condition), .source (.if_ bt thenBody elseBody)] ++ rest)⟩
+          ⟨s, f, values saved ++ .source (.block bt after) :: rest⟩ := by
+      have step := Step.context (Step.pure (host := CallFrame.limeNoHost) s f move) saved rest
+      simp only [List.append_assoc, List.cons_append, List.nil_append] at step ⊢
+      exact step
+    by_cases zero : condition = 0
+    · rw [ite_eq_left zero]
+      subst condition
+      exact wrap (.ifZero bt thenBody elseBody)
+    · rw [ite_eq_right zero]
+      exact wrap (.ifNonzero bt thenBody elseBody condition zero)
 
 @[local simp] private theorem values_one (v : Value) : values [v] = [value v] := rfl
 
@@ -128,14 +238,14 @@ theorem prefix_read {H : Type} {s : Store H} {f : Frame} {stack : List Value} {o
       dst = ⟨s, f, Prefix.outcomeCode values .trap suffix ans⟩ := by
   cases op with
   | get i =>
-    obtain ⟨saved, used, next, split, head, eq⟩ := read_front h (.get i) rfl
+    obtain ⟨saved, used, next, _, split, head, eq⟩ := read_front h (.get i) rfl
     cases head with
     | get found =>
       have same : stack = saved := by simpa using split
       subst stack
       exact ⟨_, .get found, by simpa [Prefix.outcomeCode, List.append_assoc] using eq⟩
   | bin t op =>
-    obtain ⟨saved, used, next, rfl, head, eq⟩ := read_front h (.bin t op) rfl
+    obtain ⟨saved, used, next, _, rfl, head, eq⟩ := read_front h (.bin t op) rfl
     cases head with
     | bin ok =>
       exact ⟨_, .bin ok, by simpa [Prefix.outcomeCode, List.append_assoc] using eq⟩
@@ -194,7 +304,7 @@ private theorem read_get {H : Type} {s : Store H} {f : Frame} {stack : List Valu
     {v : Value} {rest : List Admin} {dst : Config H} (found : f.locals[i.toNat]? = some v)
     (h : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.localGet i) :: rest⟩ dst) :
     dst = ⟨s, f, values stack ++ value v :: rest⟩ := by
-  obtain ⟨saved, used, next, split, head, eq⟩ := read_front h (.get i) rfl
+  obtain ⟨saved, used, next, _, split, head, eq⟩ := read_front h (.get i) rfl
   cases head with
   | get lookup =>
     rw [found] at lookup
@@ -207,7 +317,7 @@ private theorem read_bin {H : Type} {s : Store H} {f : Frame} {t : IntType} {op 
       ⟨s, f, values [.int t x, .int t y] ++ .source (.intBinOp t op) :: rest⟩ dst) :
     (∃ z, intBinOp t op x y = .ok z ∧ dst = ⟨s, f, value (.int t z) :: rest⟩) ∨
     (∃ e, intBinOp t op x y = .error e ∧ dst = ⟨s, f, .trap :: rest⟩) := by
-  obtain ⟨saved, used, next, split, head, eq⟩ := read_front h (.bin t op) rfl
+  obtain ⟨saved, used, next, _, split, head, eq⟩ := read_front h (.bin t op) rfl
   cases head with
   | bin ok =>
     obtain ⟨rfl, left, right⟩ := two_values split
@@ -224,7 +334,7 @@ theorem read_call {H : Type} {s : Store H} {f : Frame} {stack : List Value} {i :
     {a : FuncAddr} {rest : List Admin} {dst : Config H} (found : f.module.funcs[i.toNat]? = some a)
     (h : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.call i) :: rest⟩ dst) :
     dst = ⟨s, f, values stack ++ .invoke a :: rest⟩ := by
-  obtain ⟨saved, used, next, split, head, eq⟩ := read_front h (.call i) rfl
+  obtain ⟨saved, used, next, _, split, head, eq⟩ := read_front h (.call i) rfl
   cases head with
   | call lookup =>
     rw [found] at lookup

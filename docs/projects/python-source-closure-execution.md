@@ -12,6 +12,13 @@ the existing executor return with a literal `None` operand. A nested
 call writes that value to its destination before resuming the caller.
 Bare `return` and explicit `None` syntax remain outside this source profile.
 
+A standalone zero-argument call to a resolved name uses the executor's
+discard destination. The caller resumes with its saved frame and the
+callee's residual heap. The call preserves the lexical child index.
+For these statements the compiler requires an empty argument list and a
+bare name callee. The module-function runner also allows resolved global
+reads, which use the current module binding at invocation.
+
 Message-free body assertions lower to the existing executor assertion
 when the test passes the ordinary runner operand check. They preserve
 the continuation's lexical child paths and code keys. The executor
@@ -25,6 +32,18 @@ integers and treats Booleans as 0 or 1. The modeled `None` and function values
 compare unequal to an integer. Calls, arithmetic, chained comparisons and
 user-defined equality are outside this profile. In a module invocation, a
 failed body assertion is raised as `AssertionError`.
+
+The ordinary body profile also accepts message-free literal-string membership
+and non-membership assertions against `name.__code__.co_freevars`. The linker
+attaches the sorted names of the checked lexical captures, including forwarded
+captures, to the layout-matched code definition. The executor compares the
+literal code points with that tuple after reading the current name. An alias
+uses the same code reference and cells. This metadata profile covers ordinary
+function paths with distinct ASCII capture identifiers and excludes class paths
+and synthetic `super` and `__class__` captures. A nonfunction receiver or
+unprofiled definition gives a distinct executor fault. The source profile
+admits this assertion form only, so other code metadata attributes remain
+compiler rejections.
 
 Successful lowering retains the source translation and preserves the
 definition, layout and parameter destinations at every emitted code key.

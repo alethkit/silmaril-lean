@@ -101,6 +101,46 @@ lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiv
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Thms'
 ```
 
+## Partial primitive actions
+
+The partial continuation machine adds a store `σ` to the existing
+typed control state. Primitive meanings are `StateT σ Part` actions on
+typed tuples. A successful action supplies the next tuple and store.
+The explicit RVSDG state ports remain part of those tuples. Structural
+steps preserve the ambient store and use the existing control, stack,
+closure resolution, γ selection and θ restart rules. Linking still
+uses the existing total linker, including its δ initializers. The
+partial actions apply during invocation.
+[Shared state model](../../Silmaril/SSA/RVSDG/NestedTheta/OrderedState/Defs.lean)
+
+A selected primitive with an undefined result has its own
+`Config.Blocked` observation. It retains the attempted primitive,
+typed input, current store and pending stack. The blocked state
+has neither a successor nor a returned result. Determinism also
+rules out an infinite control run from any configuration that
+takes a finite path to that blocked state. This is a statement
+about an observed selection on a finite path. The primitive
+action's `Part.none` by itself expresses undefinedness.
+
+The independent finite `Eval` judgment soundly replays both outcomes
+on the machine. An earlier return binds the full tuple and threads the
+store. A block in a live binding, call or θ body retains every pending
+frame. The canonical total lift recovers the original control steps
+and finite `Returns` exactly, with a constant extra store.
+[Public theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Thms.lean)
+
+The linked λ/φ fixture calls a selected γ arm from an active θ body.
+A preceding primitive updates the explicit state from `7` to `8`
+and the store from `20` to `21`. Tag `0` skips the undefined arm and
+returns the updated tuple. Tag `1` blocks at that arm's primitive
+with both updates visible and all five pending frames intact.
+[Linked fixture](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Regression
+make check CHECK_TARGETS='+Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Regression'
+```
+
 ## Productive θ feedback
 
 A feedback iteration consists of a finite `Returns` derivation for
@@ -307,9 +347,8 @@ positions.
 
 `calls_sound` runs the independent infinite-call certificate through
 the existing simulation. The finite-call branch observes the route
-from its final call to θ on the supplied trace. A converse with wholly
-independent certificates also needs a finite judgment reaching the
-selected θ restart with its exact carried tuple and saved stack.
+from its final call to θ on the supplied trace. The independent
+reaching judgment below reflects that route and replays it.
 [Root theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Descent/Completeness/Global/Thms.lean)
 
 The linked fixture starts at an exported λ that calls a φ member
@@ -322,4 +361,46 @@ or restart checkpoints.
 ```sh
 lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Global.Thms
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Global.Thms'
+```
+
+## Independent certificates for productive feedback
+
+`ThetaReach.Reaches` describes a finite route to a selected θ restart
+without a machine trace. A completed binding uses independent
+`Returns`, including when the binding evaluates an application. A
+selected γ arm receives its actual typed input. Entering a live θ body
+after finite feedback records the exact carried tuple, fresh locals
+and saved loop frame. The route can also choose a later restart of
+the same θ. The pending bindings and loop frames preserve their
+original order and port types.
+
+`reaches_of_interval` recovers the route to the exact observed restart
+and stack. It delimits the first return of every completed binding and
+θ body. In the finite branch of the rooted classifier, all intermediate
+calls return before the selected restart, because that restart's parent
+frame stays live. `feedback_of_observation` then projects a finite chain
+of the existing call prefixes followed by the independent θ route and
+productive feedback.
+
+`linked_iff` relates actual infinite continuation execution at a typed
+ω export to either of two independent certificates. One is the
+existing infinite call descent. The other uses the finite chain and
+θ route to replay up to a selected restart, then stitches the
+productive feedback steps. Completeness uses the classical rooted
+classifier. The equivalence applies to the deterministic machine
+with total single-step primitives and explicit state ports.
+[Public theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Descent/ThetaReach/Thms.lean)
+
+The linked relay fixture constructs its certificate from the syntax
+and finite return rules. The exported λ calls the φ member, which
+completes one feedback body before the selected restart. The fixture
+runs the certificate through the forward implication and uses the
+original raw relay execution to exercise the reverse implication.
+A second finite route checks a carried state of `[1, 4, 2, 5]`
+after a completed feedback iteration with a linked return.
+[Linked fixture](../../tests/ssa/RVSDGRecursiveContinuations.lean)
+
+```sh
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms'
 ```

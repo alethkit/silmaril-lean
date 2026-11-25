@@ -17,6 +17,11 @@ theorem eval_iff_denote {α : Type} (code : Code α) (state : State) (out : Outc
   ⟨Proofs.Languages.Starlark.Lists.denote_eq_of_eval,
     fun h => h ▸ Proofs.Languages.Starlark.Lists.eval_denote code state⟩
 
+/-- A slice offset maps through its offset descriptor before the original range. -/
+theorem RangeValue.slice_atOffset (span offsets : RangeValue) (index : Int) :
+    (span.slice offsets).atOffset index = span.atOffset (offsets.atOffset index) := by
+  simp only [RangeValue.atOffset, RangeValue.slice, Int.add_mul, Int.mul_assoc, Int.add_assoc]
+
 /-- Freezing is the unique pointwise update prescribed by live graph reachability. -/
 theorem freezes_iff_freeze (heap : Heap) (roots : List Address) (after : Heap) :
     Freezes heap roots after ↔ heap.freeze roots = after :=

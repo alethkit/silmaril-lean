@@ -8,7 +8,7 @@ open Silmaril.Languages.Python.Core.Module.Functions
 private def top : TopFunction := ⟨⟨1, ⟨0, 1, 0⟩⟩, rfl⟩
 
 private def definition : Dispatch.Definition Executor.Body top.ref.layout :=
-  ⟨⟨[.owned ⟨0, by decide⟩], by decide⟩, .ret (.readGlobal "x")⟩
+  { parameters := ⟨[.owned ⟨0, by decide⟩], by decide⟩, body := .ret (.readGlobal "x") }
 
 private def table : Executor.CodeTable :=
   fun key => if key = top.ref.key then some ⟨top.ref.layout, definition⟩ else none

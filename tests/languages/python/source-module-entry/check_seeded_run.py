@@ -31,7 +31,7 @@ open Core.Module.SeededCall
 
 private def initial (profile : String) : Namespace :=
   let classes : Bindings := [("AssertionError", .exceptionClass .assertionError),
-    ("TypeError", .exceptionClass .typeError)]
+    ("TypeError", .exceptionClass .typeError), ("NameError", .exceptionClass .nameError)]
   let helpers (diagnostic : AssertionArgument) : Bindings :=
     [("require_error", .helper (.assertRaises diagnostic)), ("compare_ints", .helper .assertEqual)]
   match profile with
@@ -68,6 +68,8 @@ private def inspect (source : Source.Module) (profile : String) : Option (List S
     | .error (.raised error) => raised error
     | .error .unsupported => "unsupported"
     | .error (.publicationFault _) => "publication fault"
+    | .error (.callbackFault _) => "callback fault"
+    | .error .callbackFuelExhausted => "callback fuel exhausted"
   let catches := outcome.calls.filterMap (fun call => call.observation.caught.map raised)
   return completion :: (["result", "after"].map (resultBinding ∘ lookupBinding outcome.residual.moduleGlobals)) ++ catches
 
@@ -115,7 +117,7 @@ private def singleNoneReturn (source : Source.Module) (profile : String) : Bool 
       | _ => false
     | _ => false
 
-private def publicationPhase (source : Source.Module) (profile : String) : Option String := do
+private def publicationReceipt (source : Source.Module) (profile : String) : Option String := do
   let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
   let [.publish name top, .call .discard callee operands] := compiled.instructions | none
   let space := initial profile
@@ -124,22 +126,19 @@ private def publicationPhase (source : Source.Module) (profile : String) : Optio
   if result.residual.moduleGlobals != expectedSpace.moduleGlobals || result.residual.builtins != expectedSpace.builtins
     then none else
   let [event] := result.calls | none
-  if event.callee != callee || event.observation.caught.isSome then none else
+  if event.callee != callee then none else
   let resolved := resolveCall result.residual #v[] (.global callee)
     (operands.map Compile.ModuleEntry.Functions.Run.Seeded.lowerCallOperand)
-  match resolved, event.observation.result with
-  | .error (.raised (.runtime (.nameError missing))), .error (.raised (.runtime (.nameError observed))) =>
+  match resolved, event.observation.result, event.observation.caught with
+  | .error (.raised (.runtime (.nameError missing))), .error (.raised (.runtime (.nameError observed))), none =>
     if missing == callee && observed == missing then some "callee lookup" else none
-  | .ok (function, arguments), .error .unsupported =>
+  | .ok (function, arguments), .ok .none, some (.assertionError .empty) =>
     match Request.decode function arguments with
     | .expect expectation (.function callback) [] _ =>
-      match Request.decode (.function callback) [] with
-      | .unsupported =>
-        if expectation.expected == .assertionError && callback == top.closure
-          then some "ordinary callback dispatch" else none
-      | _ => none
+      if expectation.expected == .assertionError && callback == top.closure
+        then some "caught callback assertion" else none
     | _ => none
-  | _, _ => none
+  | _, _, _ => none
 """
 
 AUDIT = """
@@ -148,6 +147,9 @@ AUDIT = """
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.assertNot_operand_failure
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.observeArguments_iff
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCall_failedArguments
+#print axioms Compile.ModuleEntry.Functions.Run.Seeded.callback_path
+#print axioms Compile.ModuleEntry.Functions.Run.Seeded.callback_delivers
+#print axioms Compile.ModuleEntry.Functions.Run.Seeded.callback_seedOnlyGlobal
 #print axioms runObserved_result
 #print axioms Expectation.caught_iff
 """
@@ -260,6 +262,56 @@ result = compare_ints
 assert result
 after = 9
 """, ["normal", "function", "int:9"]),
+    ("callback_live_binding", "builtin", """flag = 1
+def callback():
+    assert flag
+flag = 0
+result = require_error(AssertionError, callback)
+after = 9
+""", ["normal", "None", "int:9", "AssertionError:empty"]),
+    ("callback_mismatch", "builtin", """result = 5
+def callback():
+    assert 0
+result = require_error(TypeError, callback)
+after = 9
+""", ["AssertionError:empty", "int:5", "absent"]),
+    ("callback_returns_builtin", "builtin", """def callback():
+    return 42
+require_error(AssertionError, callback)
+after = 9
+""", ["AssertionError:empty", "absent", "absent"]),
+    ("callback_returns_preamble", "preamble", """def callback():
+    pass
+require_error(AssertionError, callback)
+after = 9
+""", ["AssertionError:text:did not raise exception", "absent", "absent"]),
+    ("callback_missing_name", "preamble", """def callback():
+    assert absent_name
+result = require_error(NameError, callback)
+after = 9
+""", ["normal", "None", "int:9", "NameError:absent_name"]),
+    ("callback_earlier_error", "preamble", """def callback():
+    assert 0
+    assert require_error
+result = require_error(AssertionError, callback)
+""", ["normal", "None", "absent", "AssertionError:empty"]),
+    ("callback_seed_only_read", "builtin", """def callback():
+    assert require_error
+require_error(NameError, callback)
+after = 9
+""", ["unsupported", "absent", "absent"]),
+    ("callback_positional_unsupported", "builtin", """def callback(parameter):
+    assert parameter
+require_error(AssertionError, callback, 0)
+""", ["unsupported", "absent", "absent"]),
+    ("callback_parameter_unsupported", "builtin", """def callback(parameter):
+    assert parameter
+require_error(TypeError, callback)
+""", ["unsupported", "absent", "absent"]),
+    ("callback_direct_unsupported", "builtin", """def callback():
+    assert 0
+callback()
+""", ["unsupported", "absent", "absent"]),
 )
 
 NESTED_CALL_NAMES = {
@@ -282,6 +334,14 @@ def assertion(error):
     return "AssertionError:text:" + argument
 
 
+def exception_observation(error):
+    if isinstance(error, NameError):
+        return "NameError:" + error.name
+    if isinstance(error, TypeError):
+        return "TypeError"
+    return assertion(error)
+
+
 def cpython(source, profile, *, expected_globals=None, expected_functions=()):
     legacy = profile.startswith("legacy_")
     profile = profile.removeprefix("legacy_")
@@ -295,7 +355,7 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
         try:
             callback(*arguments)
         except expected as error:
-            caught.append("TypeError" if type(error) is TypeError else assertion(error))
+            caught.append(exception_observation(error))
             return None
         if profile == "preamble":
             raise AssertionError("did not raise exception")
@@ -306,7 +366,7 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
         classes = {"AssertionError": AssertionError}
     else:
         helpers = {"require_error": require_error, "compare_ints": compare_ints}
-        classes = {"AssertionError": AssertionError, "TypeError": TypeError}
+        classes = {"AssertionError": AssertionError, "TypeError": TypeError, "NameError": NameError}
     if profile == "builtin":
         namespace = {"__builtins__": classes | helpers}
     elif profile == "preamble":
@@ -318,12 +378,8 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
     with redirect_stdout(StringIO()) as stdout, redirect_stderr(StringIO()) as stderr:
         try:
             exec(compile(source, "<seeded fixture>", "exec", optimize=0), namespace)
-        except NameError as error:
-            completion = "NameError:" + error.name
-        except TypeError:
-            completion = "TypeError"
-        except AssertionError as error:
-            completion = assertion(error)
+        except (NameError, TypeError, AssertionError) as error:
+            completion = exception_observation(error)
     assert not stdout.getvalue() and not stderr.getvalue()
     if expected_globals is not None:
         assert all(type(namespace.get(name)) is FunctionType for name in expected_functions)
@@ -420,11 +476,11 @@ def replay_upstream_publication(checkout, shared, source_path, lean_path):
         cpython_expected = (["NameError:___assertRaises", "absent", "absent"] if empty
                              else ["normal", "absent", "absent", "AssertionError:empty"])
         assert cpython(source, profile, expected_globals={}, expected_functions=("failing_function",)) == cpython_expected
-        seeded = "NameError:___assertRaises" if empty else "unsupported"
-        phase = "callee lookup" if empty else "ordinary callback dispatch"
+        seeded = "NameError:___assertRaises" if empty else "normal"
+        phase = "callee lookup" if empty else "caught callback assertion"
         guards.extend((
-            guard_observation(profile, [seeded, "absent", "absent"]),
-            f"#guard publicationPhase pythonSource {json.dumps(profile)} == some {json.dumps(phase)}",
+            guard_observation(profile, cpython_expected),
+            f"#guard publicationReceipt pythonSource {json.dumps(profile)} == some {json.dumps(phase)}",
         ))
         observations[profile] = {"cpython": cpython_expected[0], "seeded": seeded, "phase": phase,
                                  "user_bindings": {"failing_function": "function"}}

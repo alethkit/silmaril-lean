@@ -17,7 +17,17 @@ namespace Silmaril.Languages.Python.Compile.Closure.Run
 
 open Core.Closure (CodeRef Heap Layout Value)
 open Core.Closure.Dispatch (Entry)
-open Core.Closure.Executor (Operand State Event)
+open Core.Closure.Executor (Operand NameRead State Event)
+
+inductive NameReadTranslation {layout : Layout} : Body.Expr layout → NameRead layout → Prop where
+  | slot (slot : Core.Closure.Slot layout) : NameReadTranslation (.read slot) (.slot slot)
+  | global (name : Source.Name) : NameReadTranslation (.globalName name) (.global name)
+
+def nameRead? {layout : Layout} : (source : Body.Expr layout) →
+    Option {target // NameReadTranslation source target}
+  | .read slot => some ⟨.slot slot, .slot slot⟩
+  | .globalName name => some ⟨.global name, .global name⟩
+  | _ => none
 
 inductive OperandTranslation {layout : Layout} : Body.Expr layout → Operand layout → Prop where
   | none : OperandTranslation .none (.literal .none)
@@ -62,6 +72,13 @@ inductive Translation {layout : Layout} :
   | assert {source target rest next}
       (test : OperandTranslation source target) (tail : Translation rest next) :
       Translation (.assert source rest) (.assert target next)
+  | assertFreeVars {source receiver needle expected rest next}
+      (read : NameReadTranslation source receiver) (tail : Translation rest next) :
+      Translation (.assertFreeVars source needle expected rest)
+        (.assertFreevars ⟨receiver, needle, expected⟩ next)
+  | discardCall {callee function rest next}
+      (calleeTranslation : OperandTranslation callee function) (tail : Translation rest next) :
+      Translation (.discardCall callee rest) (.callTo .discard function [] next)
   | assign {slot source target rest next}
       (value : OperandTranslation source target) (tail : Translation rest next) :
       Translation (.assign slot source rest) (.store slot target next)
@@ -81,6 +98,15 @@ def lowerCode {layout : Layout} : (code : Link.Code layout) →
     let operand ← operand? test
     let tail ← lowerCode rest
     return ⟨.assert operand.val tail.val, .assert operand.property tail.property⟩
+  | .assertFreeVars source needle expected rest => do
+    let receiver ← nameRead? source
+    let tail ← lowerCode rest
+    return ⟨.assertFreevars ⟨receiver.val, needle, expected⟩ tail.val,
+      .assertFreeVars receiver.property tail.property⟩
+  | .discardCall callee rest => do
+    let function ← operand? callee
+    let tail ← lowerCode rest
+    return ⟨.callTo .discard function.val [] tail.val, .discardCall function.property tail.property⟩
   | .assign slot (.call callee arguments) rest => do
     let function ← operand? callee
     let operands ← arguments? arguments
@@ -102,20 +128,25 @@ inductive Error where
 
 abbrev ExecutorEntry := Entry Core.Closure.Executor.Body
 
+def executorEntry (block : Link.Block) (body : Core.Closure.Executor.Body block.entry.layout) : ExecutorEntry :=
+  ⟨block.entry.layout,
+    { parameters := block.entry.definition.parameters
+      body := body
+      freevars := block.entry.definition.freevars }⟩
+
 inductive TableTranslation : List Link.Block → List ExecutorEntry → Prop where
   | nil : TableTranslation [] []
   | cons {block : Link.Block} {body : Core.Closure.Executor.Body block.entry.layout}
       {blocks entries} (head : Translation block.entry.definition.body body)
       (tail : TableTranslation blocks entries) :
-      TableTranslation (block :: blocks) (⟨block.entry.layout, ⟨block.entry.definition.parameters, body⟩⟩ :: entries)
+      TableTranslation (block :: blocks) (executorEntry block body :: entries)
 
 def lowerTable : (blocks : List Link.Block) → Except Error {entries // TableTranslation blocks entries}
   | [] => .ok ⟨[], .nil⟩
   | block :: rest => do
     let some body := lowerCode block.entry.definition.body | throw (.bodyProfile block.path)
     let tail ← lowerTable rest
-    let entry : ExecutorEntry := ⟨block.entry.layout, ⟨block.entry.definition.parameters, body.val⟩⟩
-    return ⟨entry :: tail.val, .cons body.property tail.property⟩
+    return ⟨executorEntry block body.val :: tail.val, .cons body.property tail.property⟩
 
 structure Compiled (source : Source.Module) where
   sourceBody : Body.Compiled source

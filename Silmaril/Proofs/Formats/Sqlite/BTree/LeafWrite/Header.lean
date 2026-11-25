@@ -66,6 +66,45 @@ theorem layout_header_fields {leading page : List UInt8} {cells : List (List UIn
       simpa [after, content, used] using field
   next => cases accepted
 
+private theorem read_byte (before after : List UInt8) (byte : UInt8) :
+    (File.View.ofBytes (Bytes.ofList (before ++ byte :: after))).get? before.length = some byte := by
+  rw [get_ofList, List.getElem?_append_right (Nat.le_refl _)]
+  simp
+
+/-- A successful packed writer layout has the table-leaf type, zero freeblock
+and fragment fields, and a pointer array that ends at or before cell content. -/
+theorem layout_fixed_header {leading page : List UInt8} {cells : List (List UInt8)}
+    (accepted : BTree.LeafWrite.layout leading cells = .ok page) :
+    let view := File.View.ofBytes (Bytes.ofList page)
+    view.get? leading.length = some 13 ∧
+      view.be? (leading.length + 1) 2 = some 0 ∧
+      view.get? (leading.length + 7) = some 0 ∧
+      leading.length + 8 + 2 * cells.length ≤ File.Write.pageSize - cells.flatten.length := by
+  simp only [BTree.LeafWrite.layout] at accepted
+  split at accepted
+  next capacity =>
+    cases accepted
+    let content := File.Write.pageSize - cells.flatten.length
+    let used := leading.length + 8 + 2 * cells.length
+    let after := (BTree.LeafWrite.offsets content cells).flatMap (File.Write.be 2) ++
+      List.replicate (content - used) 0 ++ cells.flatten
+    let fields := File.Write.be 2 cells.length ++ File.Write.be 2 content
+    let before := leading ++ [13, 0, 0] ++ fields
+    have prefixKind := read_byte leading ([0, 0] ++ fields ++ [0] ++ after) 13
+    have priorLength : (leading ++ ([13] : List UInt8)).length = leading.length + 1 := by simp
+    have freeblocks := read_field (leading ++ [13]) (fields ++ [0] ++ after) 0 (by decide)
+    rw [priorLength] at freeblocks
+    have fragments := read_byte before after 0
+    have beforeLength : before.length = leading.length + 7 := by simp [before, fields]
+    rw [beforeLength] at fragments
+    have zeroBytes : File.Write.be 2 0 = [0, 0] := rfl
+    refine ⟨?_, ?_, ?_, by omega⟩
+    · simpa [fields, after, content, used, List.append_assoc] using prefixKind
+    · simpa [zeroBytes, fields, after, content, used, List.append_assoc] using freeblocks
+    · simpa [before, fields, after, content, used, List.append_assoc] using fragments
+  next => cases accepted
+
+
 private theorem offsets_prefix (start : Nat) (cells : List (List UInt8)) (slot : Nat)
     (within : slot < cells.length) :
     (BTree.LeafWrite.offsets start cells)[slot]? = some (start + (cells.take slot).flatten.length) := by
