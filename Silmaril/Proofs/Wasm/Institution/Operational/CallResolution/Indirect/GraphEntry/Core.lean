@@ -3,6 +3,7 @@ module
 public import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Common
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Sequence.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
+import Silmaril.Wasm.Institution.Operational.Blocks.Native.Thms
 import Mathlib.Data.List.Chain
 
 @[expose] public section
@@ -21,36 +22,76 @@ variable {H : Type} {P : Numerics.Profile} {s : Store H}
   {entry : Entry} {program : Graph.Program} {tables : Source.Tables} {outer : Runtime.Frame}
   {index : FuncIdx} {args : List Value} {active : Source.Activation}
 
-private theorem code (entry : Entry) :
-    expression entry.coreFunc.body = coreValues entry.cont.owner.initial ++
-      entry.coreSiteCode entry.before := by
-  let fn := entry.cont.owner
-  have values := Graph.core_body_expression { fn with code := [] }
-  have tail := Graph.core_body_expression { fn with initial := [], code := entry.cont.code }
-  change expression (fn.initial.map Graph.coreCodeSyntax.ops.value ++ []) = coreValues fn.initial ++ [] at values
-  change expression ([] ++ Graph.Op.emitList Graph.coreCodeSyntax entry.cont.code) = [] ++ entry.cont.code.map Graph.coreEmit at tail
-  change expression (fn.initial.map Graph.coreCodeSyntax.ops.value ++
+private theorem tail_code (fn : Graph.Function) (tail : List Graph.Op) :
+    expression (Graph.Op.emitList Graph.coreCodeSyntax tail) = tail.map Graph.coreEmit := by
+  have code := Graph.core_body_expression
+    { fn with initial := [], code := tail }
+  exact code
+
+private theorem site_code (entry : Entry) :
+    expression entry.siteBody.core = entry.coreSiteCode entry.before := by
+  change expression
     (entry.before.map (fun op => Graph.Op.emit Graph.coreCodeSyntax (.numeric op)) ++
-      entry.op.coreInstr :: Graph.Op.emitList Graph.coreCodeSyntax entry.cont.code)) = _
-  simp only [List.append_nil] at values
-  simp only [List.nil_append] at tail
-  simp only [expression, List.map_append, List.map_cons, List.map_map] at values tail ⊢
-  rw [values, tail]
-  congr 1
+      entry.op.coreInstr :: Graph.Op.emitList Graph.coreCodeSyntax entry.cont.code) = _
+  simp only [expression, List.map_append, List.map_cons, List.map_map]
+  change _ ++ .plain entry.op.coreInstr :: expression (Graph.Op.emitList Graph.coreCodeSyntax entry.cont.code) = _
+  rw [tail_code entry.cont.owner]
   unfold Entry.coreSiteCode
   congr 1
   apply List.map_congr_left
   intro op _
   cases op <;> rfl
 
+private theorem body_code (entry : Entry) :
+    expression entry.coreFunc.body = coreValues entry.cont.owner.initial ++ expression entry.body.core := by
+  have literals := Graph.core_body_expression { entry.cont.owner with code := [] }
+  change expression (entry.cont.owner.initial.map Graph.coreCodeSyntax.ops.value ++ []) =
+    coreValues entry.cont.owner.initial ++ [] at literals
+  rw [List.append_nil, List.append_nil] at literals
+  change expression (entry.cont.owner.initial.map Graph.coreCodeSyntax.ops.value ++ entry.body.core) = _
+  simp only [expression, List.map_append] at literals ⊢
+  rw [literals]
+
+private theorem function_site (scope : entry.cont.block = none) :
+    entry.coreBody s outer args = entry.coreOperands s outer args (entry.initial, entry.before) := by
+  simp [Entry.coreBody, body_code, Entry.body, scope, site_code, Entry.coreOperands, Entry.initial,
+    Context.Resume.Continuation.coreSiteWrap, Context.Resume.Continuation.scopes, Context.coreNest]
+
+private theorem block_iff {block : Context.Resume.Block}
+    (scope : entry.cont.block = some block) (dst : Config H) :
+    Step P noHost (entry.coreBody s outer args) dst ↔
+      dst = entry.coreOperands s outer args (entry.initial, entry.before) := by
+  let body := entry.siteBody.core
+  let tail := block.tail.map Graph.coreEmit
+  let blockCode := coreValues entry.cont.owner.initial ++ .plain (.block (Blocks.coreType block.result) body) :: tail
+  have rendered : expression entry.coreFunc.body = blockCode := by
+    rw [body_code, Entry.body, scope]
+    change coreValues entry.cont.owner.initial ++ .plain (.block (Blocks.coreType block.result) body) ::
+      expression (Graph.Op.emitList Graph.coreCodeSyntax block.tail) = blockCode
+    rw [tail_code entry.cont.owner]
+  have stays (out : List Admin) : ¬ LabelExit entry.cont.owner.declaration.results.length []
+      blockCode out :=
+    Computed.core_label_stays (head := .plain (.block (Blocks.coreType block.result) body))
+      rfl (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp)
+  simp only [Entry.coreBody, rendered]
+  rw [Context.Resume.core_wrap_step_iff stays]
+  have enter (mid : Config H) := Blocks.core_context_entry_iff (P := P) (s := s) (f := (entry.frame args).toCore) (dst := mid)
+    (result := block.result) (body := body) (rest := tail)
+    (saved := entry.cont.owner.initial.map Value.toCore)
+  change (∃ mid, Step P noHost ⟨s, (entry.frame args).toCore, blockCode⟩ mid ∧ _) ↔ _
+  simp only [blockCode, enter, exists_eq_left]
+  rw [show expression body = entry.coreSiteCode entry.before from site_code entry]
+  simp [Entry.coreOperands, Entry.initial, scope, tail,
+    Context.Resume.Continuation.coreSiteWrap, Context.Resume.Continuation.scopes, Context.coreNest, coreValues]
+
 private theorem entry_iff (ready : entry.Checked program tables outer index args)
     (allocated : s.funcs[entry.cont.address.value]? = some entry.coreInstance) {dst : Config H} :
-    Step P noHost (entry.coreInvoke s outer args) dst ↔ dst = entry.coreOperands s outer args (entry.cont.owner.initial, entry.before) := by
+    Step P noHost (entry.coreInvoke s outer args) dst ↔ dst = entry.coreBody s outer args := by
   have enter := Sequence.wasm_entry_iff (P := P) (caller := outer) (dst := dst) allocated ready.typed
   have frame := Sequence.core_frame_forCall entry.cont.owner.declaration.module args entry.cont.owner.declaration.locals
   change Core.Frame.forCall entry.cont.owner.declaration.module.toCore (args.map Value.toCore) entry.coreFunc.locals =
     (entry.cont.owner.declaration.frame args).toCore at frame
-  rw [frame, code] at enter
+  rw [frame] at enter
   exact enter
 
 private theorem operand_iff {stack : List Value} {op : Prefix.Op} {rest : List Prefix.Op}
@@ -61,25 +102,35 @@ private theorem operand_iff {stack : List Value} {op : Prefix.Op} {rest : List P
       | .values next => entry.coreOperands s outer args (next, rest)
       | .trap saved => entry.coreOperandResult s outer args (.trap saved rest) := by
   let tail := entry.coreSiteCode rest
-  let exactStep (target : Config H) := Prefix.core_step_iff (P := P) (s := s) (f := entry.frame args)
-    (stack := stack) (op := op) (tail := tail) (dst := target)
+  let inside : Config H := ⟨s, (entry.frame args).toCore, coreValues stack ++ Prefix.emit coreSyntax op :: tail⟩
+  have stays (n : Nat) (out : List Admin) : ¬ LabelExit n [] inside.code out :=
+    Computed.core_label_stays (by cases op <;> rfl)
+      (by cases op <;> simp [Prefix.emit, coreSyntax])
+      (by cases op <;> simp [Prefix.emit, coreSyntax])
+      (by cases op <;> simp [Prefix.emit, coreSyntax, Admin.IsReturnCallRef])
+      (by cases op <;> simp [Prefix.emit, coreSyntax]) (by cases op <;> simp [Prefix.emit, coreSyntax])
+  have wrap (result : Prefix.Outcome) :
+      entry.cont.coreSiteWrap outer ⟨s, (entry.frame args).toCore, Prefix.outcomeCode coreValues .trap tail result⟩ =
+        match result with
+        | .values next => entry.coreOperands s outer args (next, rest)
+        | .trap saved => entry.coreOperandResult s outer args (.trap saved rest) := by
+    cases result with
+    | values => rfl
+    | trap => cases scope : entry.cont.block <;>
+        simp [Entry.coreOperandResult, Entry.coreCleanup, Entry.siteTrap, Context.Resume.Continuation.coreSiteWrap,
+          Context.Resume.Continuation.scopes, Context.coreNest, Blocks.Context.Scope.plug, scope, Prefix.outcomeCode, tail]
+  change Step P noHost (entry.cont.coreSiteWrap outer inside) dst ↔ _
+  rw [Context.Resume.core_site_step_iff stays]
   constructor
-  · intro wrapped
-    rcases Computed.core_body_step_cases wrapped with ⟨mid, inside, eq⟩ | ⟨out, leave, _⟩
-    · obtain ⟨actual, reduced, midEq⟩ := (exactStep mid).mp inside
-      cases Prefix.reduce_unique reduced move
-      rw [eq, midEq]
-      cases ans <;> rfl
-    · exact False.elim (Computed.core_label_stays
-        (by cases op <;> rfl)
-        (by cases op <;> simp [Prefix.emit, coreSyntax])
-        (by cases op <;> simp [Prefix.emit, coreSyntax]) (by cases op <;> simp [Prefix.emit, coreSyntax, Core.Admin.IsReturnCallRef])
-        (by cases op <;> simp [Prefix.emit, coreSyntax])
-        (by cases op <;> simp [Prefix.emit, coreSyntax]) leave)
+  · rintro ⟨mid, step, eq⟩
+    obtain ⟨actual, reduced, rfl⟩ := (Prefix.core_step_iff (P := P) (tail := tail)).mp step
+    cases Prefix.reduce_unique reduced move
+    cases ans <;> exact eq.trans (wrap _)
   · intro eq
-    have inside := (exactStep _).mpr ⟨ans, move, rfl⟩
-    rw [eq]
-    cases ans <;> exact Step.ctxtFrame (Step.ctxtLabel inside)
+    have step := (Prefix.core_step_iff (P := P) (s := s) (f := entry.frame args) (tail := tail)).mpr ⟨ans, move, rfl⟩
+    cases ans with
+    | values next => exact ⟨_, step, eq.trans (wrap (.values next)).symm⟩
+    | trap saved => exact ⟨_, step, eq.trans (wrap (.trap saved)).symm⟩
 
 private theorem operand_chain {stack : List Value} {code : List Prefix.Op}
     {states : List OperandState} {result : OperandResult}
@@ -106,14 +157,26 @@ theorem operands_exact (ready : entry.Checked program tables outer index args)
       (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b) := by
   have head := operand_head (entry.coreOperands s outer args) (entry.coreOperandResult s outer args)
     (fun _ => rfl) trace
-  refine List.isChain_cons_cons.mpr ⟨?_, (operand_chain trace).cons ?_⟩
-  · intro dst
-    exact Computed.core_direct_call_iff (s := s) (P := P) (stack := args) (tail := [])
-      ready.resolves allocated
-  · intro b found dst
+  have call : ∀ dst, Step P noHost (coreSource s outer index args) dst ↔
+      dst = entry.coreInvoke s outer args := fun _ =>
+    Computed.core_direct_call_iff (s := s) (P := P) (stack := args) (tail := []) ready.resolves allocated
+  have after := operand_chain (s := s) (outer := outer) (P := P) trace
+  unfold Entry.coreBefore
+  cases scope : entry.cont.block with
+  | none =>
+    refine List.isChain_cons_cons.mpr ⟨call, after.cons ?_⟩
+    intro b found dst
     rw [head] at found
     obtain rfl := Option.mem_some.mp found
+    rw [← function_site scope]
     exact entry_iff ready allocated
+  | some block =>
+    refine List.isChain_cons_cons.mpr ⟨call, List.isChain_cons_cons.mpr
+      ⟨fun _ => entry_iff ready allocated, after.cons ?_⟩⟩
+    intro b found dst
+    rw [head] at found
+    obtain rfl := Option.mem_some.mp found
+    exact block_iff scope dst
 
 theorem prefix_exact {states : List OperandState} {stack : List Value}
     (ready : entry.AtSite program tables outer index args states stack active)
@@ -132,7 +195,7 @@ theorem prefix_exact {states : List OperandState} {stack : List Value}
     have selector : vals [(Value.int .i32 active.operands.selector).toCore] =
         [constI32 active.operands.selector] := rfl
     simp only [Entry.coreOperandResult, Entry.coreOperands, Entry.coreSiteCode, Entry.coreLookup,
-      Source.Activation.coreConfig, Source.coreNest, List.foldr_nil, Indirect.coreConfig, Site.coreCode,
+      Source.Activation.coreConfig, Context.Resume.Continuation.coreSiteWrap, Source.coreNest, Indirect.coreConfig, Site.coreCode,
       prepare.caller_eq, Entry.frame, prepare.stack_eq, List.map_nil, List.nil_append,
       coreValues, Source.Op.coreInstr, ← prepare.typeIndex_eq, List.map_append, List.map_singleton,
       vals_append, selector, List.append_assoc, List.cons_append]

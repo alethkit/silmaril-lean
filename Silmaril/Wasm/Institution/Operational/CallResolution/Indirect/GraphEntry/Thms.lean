@@ -88,7 +88,7 @@ theorem core_operand_trap_run_iff (ready : entry.Checked program tables outer in
     (trace : entry.OperandTrace args states (.trap saved rest)) {dst : Core.Config H} :
     Core.Steps P noHost (coreSource s outer index args) dst ↔
       dst ∈ entry.coreBefore s outer index args states ∨
-      ∃ phase, CleanupRuns (.label saved (entry.coreSiteCode rest)) phase ∧
+      ∃ phase, CleanupRuns (entry.siteTrap Graph.coreEmit saved (entry.coreSiteCode rest)) phase ∧
         dst = entry.coreCleanup s outer (entry.frame args) phase :=
   Proofs.core_operand_trap_run_iff ready allocated trace
 
@@ -141,7 +141,7 @@ theorem lime_operand_trap_run_iff (ready : entry.Checked program tables outer in
     (trace : entry.OperandTrace args states (.trap saved rest)) {dst : Config H} :
     Steps CallFrame.limeNoHost (limeSource s outer index args) dst ↔
       dst ∈ entry.limeBefore s outer index args states ∨
-      ∃ phase, CleanupRuns (.label saved (entry.limeSiteCode rest)) phase ∧
+      ∃ phase, CleanupRuns (entry.siteTrap Graph.limeEmit saved (entry.limeSiteCode rest)) phase ∧
         dst = entry.limeCleanup s outer (entry.frame args) phase :=
   Proofs.lime_operand_trap_run_iff ready allocated trace
 

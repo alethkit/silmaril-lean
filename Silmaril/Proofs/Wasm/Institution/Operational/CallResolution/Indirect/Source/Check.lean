@@ -1,5 +1,6 @@
 module
 
+public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Context.Resume.Defs
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Source.Defs
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Thms
 
@@ -176,7 +177,8 @@ theorem resume_checked {op : Op} {program : Graph.Program} {tables : Tables} {ca
     (prepared : op.Prepared program tables caller stack active) (invoked : active.invocation program = some call)
     (found : program.lookup cont.address = some cont.owner) (moduleEq : caller.module = cont.owner.declaration.module)
     (localsTyped : caller.locals.map Value.type = cont.owner.localTypes)
-    (tail : op.checkTail cont.owner cont.owner.declaration.results [] (Prefix.stackTypes stack) cont.code = true) :
+    (tail : op.checkTail cont.owner cont.fallthrough cont.enclosing (Prefix.stackTypes stack) cont.code = true)
+    (block : cont.blockCheck = true) :
     cont.Checked program call.caller call.saved call.site.signature.results := by
   obtain ⟨_, _, _, _, rfl⟩ := invocation_fields invoked
   have typeFound := of_decide_eq_true (Bool.and_eq_true_iff.mp prepared.checked.site).1
@@ -185,6 +187,6 @@ theorem resume_checked {op : Op} {program : Graph.Program} {tables : Tables} {ca
     typeFound (prepared.checked.args.trans (congrArg V1.FuncType.params prepared.signature_eq))
   rw [Op.checkTail, prepared.stack_eq, stackCheck] at tail
   exact ⟨found, (congrArg Frame.module prepared.caller_eq).trans moduleEq, by simpa only [prepared.caller_eq] using localsTyped,
-    by simpa [prepared.signature_eq] using tail⟩
+    by simpa [prepared.signature_eq] using tail, block⟩
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Source.Proofs

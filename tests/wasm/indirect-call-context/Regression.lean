@@ -211,15 +211,15 @@ example (n : Nat) : ((deep n).frames ⟨2⟩).length = n + 1 := by
     rw [ih]
 
 open Context.Resume in
-private def returnedCont : Continuation := ⟨⟨3⟩, owner, [getLocal ⟨0⟩]⟩
+private def returnedCont : Continuation := ⟨⟨3⟩, owner, [getLocal ⟨0⟩], none⟩
 
 open Context.Resume in
-private def voidCont : Continuation := ⟨⟨4⟩, ownerVoid, [getLocal ⟨0⟩]⟩
+private def voidCont : Continuation := ⟨⟨4⟩, ownerVoid, [getLocal ⟨0⟩], none⟩
 
 private theorem returnedContChecked : returnedCont.Checked program caller saved mixed.results :=
-  ⟨rfl, rfl, rfl, rfl⟩
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
 private theorem voidContChecked : voidCont.Checked program caller saved empty.results :=
-  ⟨rfl, rfl, rfl, rfl⟩
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
 
 private def outer : Frame := ⟨[i64 300], {}⟩
 private def finalResults : List Value := [i64 7, i32 5, i64 42, i32 91]
@@ -235,18 +235,18 @@ example : ¬ returnedCont.Checked program caller saved empty.results := by
 
 -- Both raw finite relations retain the native states before frame entry.
 example : Core.Steps spec noHost
-    (returnedCont.coreWrap outer
+    (returnedCont.coreSiteWrap outer
       (coreConfig coreStore caller returnCall.site 0 (saved ++ returnCall.args) (returnedCont.code.map Graph.coreEmit) .start))
-    (returnedCont.coreWrap outer
+    (returnedCont.coreSiteWrap outer
       (coreConfig coreStore caller returnCall.site 0 (saved ++ returnCall.args)
         (returnedCont.code.map Graph.coreEmit) (.cast (some ⟨0⟩)))) :=
   (Resume.core_run_iff returnChecked coreAllocated returnedContChecked (addr := 0) rfl).mpr
     (.inl (by simp [Resume.Continuation.corePrefix, Invocation.corePrefix, Outcome.coreTrace, returnCall]))
 
 example : Lime1.Execution.Steps CallFrame.limeNoHost
-    (returnedCont.limeWrap outer
+    (returnedCont.limeSiteWrap outer
       (limeSource limeStore caller returnCall.site 0 (saved ++ returnCall.args) (returnedCont.code.map Graph.limeEmit)))
-    (returnedCont.limeWrap outer
+    (returnedCont.limeSiteWrap outer
       (limeResolved limeStore caller (saved ++ returnCall.args) (returnedCont.code.map Graph.limeEmit) (.resolved ⟨0⟩))) :=
   (Resume.lime_run_iff returnChecked limeAllocated returnedContChecked rfl).mpr
     (.inl (by simp [Resume.Continuation.limePrefix, Invocation.limePrefix, returnCall]))
@@ -261,14 +261,14 @@ private theorem restoredPath : Resume.Runs program returnCall returnedCont (.cal
     (.caller (edge (.leaveFrame caller.locals (.values finalResults) rfl)))
 
 example : Core.Steps spec noHost
-    (returnedCont.coreWrap outer
+    (returnedCont.coreSiteWrap outer
       (coreConfig coreStore caller returnCall.site 0 (saved ++ returnCall.args) (returnedCont.code.map Graph.coreEmit) .start))
     ⟨coreStore, outer.toCore, coreValues finalResults⟩ :=
   (Resume.core_run_iff returnChecked coreAllocated returnedContChecked (addr := 0) rfl).mpr
     (.inr ⟨_, restoredPath, rfl⟩)
 
 example : Lime1.Execution.Steps CallFrame.limeNoHost
-    (returnedCont.limeWrap outer
+    (returnedCont.limeSiteWrap outer
       (limeSource limeStore caller returnCall.site 0 (saved ++ returnCall.args) (returnedCont.code.map Graph.limeEmit)))
     ⟨limeStore, outer, Lime1.Execution.values finalResults⟩ :=
   (Resume.lime_run_iff returnChecked limeAllocated returnedContChecked rfl).mpr (.inr ⟨_, restoredPath, rfl⟩)

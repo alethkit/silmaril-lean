@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Native.Defs
 public import Silmaril.Wasm.SingleThreaded.Determinism.Head
+public import Silmaril.Wasm.Institution.Operational.Blocks.Context.Defs
 
 @[expose] public section
 
@@ -15,6 +16,15 @@ open CallContinuation.OuterCall.Ranked.Graph (Function Program)
 open CallContinuation.OuterCall.Computed
 open Wasm.Lime1.Execution (values)
 open Wasm.SingleThreaded.Det (noHost)
+
+def coreNest {H : Type} (scopes : List (Blocks.Context.Scope Graph.Op)) (cfg : Core.Config H) : Core.Config H :=
+  scopes.foldr (fun scope inner => ⟨inner.store, inner.frame, Core.vals (scope.saved.map Value.toCore) ++
+    .label scope.arity [] inner.code :: scope.rest.map Graph.coreEmit⟩) cfg
+
+def limeNest {H : Type} (scopes : List (Blocks.Context.Scope Graph.Op)) (cfg : Wasm.Lime1.Execution.Config H) :
+    Wasm.Lime1.Execution.Config H :=
+  scopes.foldr (fun scope inner => ⟨inner.store, inner.frame, Wasm.Lime1.Execution.values scope.saved ++
+    .label scope.arity [] inner.code :: scope.rest.map Graph.limeEmit⟩) cfg
 
 /-- Data shared by the two native readings of one indirect invocation. -/
 structure Invocation where

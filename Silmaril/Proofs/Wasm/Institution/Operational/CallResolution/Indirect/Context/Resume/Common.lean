@@ -18,12 +18,24 @@ theorem resume_admitted {cont : Continuation} {program : Graph.Program} {caller 
     (checked : cont.Checked program caller saved results)
     (typed : match result with | .values xs => xs.map Value.type = results | .trap => True) :
     Graph.Admitted program cont.owner (cont.resume caller saved result) := by
-  cases result with
-  | trap => exact .trapped checked.locals_typed
-  | values xs =>
-    apply Graph.AdmittedAt.running checked.locals_typed
-    simpa only [Graph.Function.WellTyped, Prefix.stackTypes, List.map_append, List.reverse_append, typed]
-      using checked.tail_typed
+  have localBody : Graph.AdmittedAt program cont.owner cont.fallthrough cont.enclosing
+      (.label caller.locals (cont.deliver saved result)) := by
+    cases result with
+    | trap => exact .trapped checked.locals_typed
+    | values xs =>
+      apply Graph.AdmittedAt.running checked.locals_typed
+      simpa only [Graph.Function.WellTyped, Prefix.stackTypes, List.map_append, List.reverse_append, typed]
+        using checked.tail_typed
+  cases scope : cont.block with
+  | none =>
+    simpa [Continuation.resume, Continuation.plug, Continuation.fallthrough, Continuation.enclosing, scope]
+      using localBody
+  | some block =>
+    unfold Continuation.resume Continuation.plug
+    rw [scope]
+    apply Graph.AdmittedAt.block
+    · simpa [Continuation.fallthrough, Continuation.enclosing, Graph.branchTargets, Graph.LabelKind.inputs, scope] using localBody
+    · simpa [Continuation.blockCheck, scope] using checked.block_typed
 
 private def Ready (program : Graph.Program) (call : Invocation) (cont : Continuation) : Phase → Prop
   | .callee a => Graph.Admitted program call.callee a ∧ Context.Proofs.Entered a

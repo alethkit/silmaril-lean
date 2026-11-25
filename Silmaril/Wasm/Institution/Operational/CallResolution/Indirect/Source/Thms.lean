@@ -1,5 +1,6 @@
 module
 
+public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Context.Resume.Defs
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Source.Defs
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Native.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.Source.Check
@@ -85,9 +86,27 @@ theorem resume_checked {op : Op} {program : Graph.Program} {tables : Tables} {ca
     (prepared : op.Prepared program tables caller stack active) (invoked : active.invocation program = some call)
     (found : program.lookup cont.address = some cont.owner) (moduleEq : caller.module = cont.owner.declaration.module)
     (localsTyped : caller.locals.map Value.type = cont.owner.localTypes)
-    (tail : op.checkTail cont.owner cont.owner.declaration.results [] (Prefix.stackTypes stack) cont.code = true) :
+    (tail : op.checkTail cont.owner cont.fallthrough cont.enclosing (Prefix.stackTypes stack) cont.code = true)
+    (block : cont.blockCheck = true) :
     cont.Checked program call.caller call.saved call.site.signature.results :=
-  Proofs.resume_checked prepared invoked found moduleEq localsTyped tail
+  Proofs.resume_checked prepared invoked found moduleEq localsTyped tail block
+
+theorem core_nest_step {H : Type} {P : Numerics.Profile} {a : Core.Config H}
+    (stays : ∀ n out, ¬ Core.LabelExit n [] a.code out)
+    (scopes : List (Scope Graph.Op)) :
+    (∀ n out, ¬ Core.LabelExit n [] (coreNest scopes a).code out) ∧
+      (∀ dst, Core.Step P noHost (coreNest scopes a) dst ↔
+        ∃ mid, Core.Step P noHost a mid ∧ dst = coreNest scopes mid) :=
+  Proofs.core_nest_step stays scopes
+
+open Wasm.Lime1.Execution in
+theorem lime_nest_step {H : Type} {a : Config H}
+    (stays : ∀ n out, ¬ PureStep a.frame.module.types [.label n [] a.code] out)
+    (scopes : List (Scope Graph.Op)) :
+    (∀ n out, ¬ PureStep (limeNest scopes a).frame.module.types [.label n [] (limeNest scopes a).code] out) ∧
+      (∀ dst, Step CallFrame.limeNoHost (limeNest scopes a) dst ↔
+        ∃ mid, Step CallFrame.limeNoHost a mid ∧ dst = limeNest scopes mid) :=
+  Proofs.lime_nest_step stays scopes
 
 /-- Exact pending Core steps under already-entered scalar block labels.
 Lookup ends at the first native trap or the pending successful invocation. -/

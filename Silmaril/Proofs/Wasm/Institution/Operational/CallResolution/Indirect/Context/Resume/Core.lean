@@ -3,6 +3,7 @@ module
 public import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.Context.Resume.Common
 import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.Context.Core
 import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Native.Thms
+import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Source.Thms
 import Mathlib.Data.List.Chain
 
 @[expose] public section
@@ -21,7 +22,7 @@ open Wasm.SingleThreaded.Det (noHost)
 variable {H : Type} {P : Numerics.Profile} {s : Store H} {program : Graph.Program}
   {call : Invocation} {cont : Continuation} {outer : Runtime.Frame}
 
-private theorem wrap_step_iff {inner dst : Config H}
+theorem core_wrap_step_iff {inner dst : Config H}
     (stays : ∀ out, ¬ LabelExit cont.owner.declaration.results.length [] inner.code out) :
     Step P noHost (cont.coreWrap outer inner) dst ↔
       ∃ mid, Step P noHost inner mid ∧ dst = cont.coreWrap outer mid := by
@@ -34,12 +35,25 @@ private theorem wrap_step_iff {inner dst : Config H}
   · rintro ⟨⟨s', f', code'⟩, move, rfl⟩
     exact .ctxtFrame (.ctxtLabel move)
 
-private theorem wrap_exact {a b : Config H}
-    (stays : ∀ out, ¬ LabelExit cont.owner.declaration.results.length [] a.code out)
+theorem core_site_step_iff {inner dst : Config H}
+    (stays : ∀ n out, ¬ LabelExit n [] inner.code out) :
+    Step P noHost (cont.coreSiteWrap outer inner) dst ↔
+      ∃ mid, Step P noHost inner mid ∧ dst = cont.coreSiteWrap outer mid := by
+  have nest := Source.core_nest_step (P := P) stays cont.scopes
+  rw [Continuation.coreSiteWrap, core_wrap_step_iff (fun out => nest.1 _ out)]
+  constructor
+  · rintro ⟨nested, move, rfl⟩
+    obtain ⟨mid, step, rfl⟩ := (nest.2 nested).mp move
+    exact ⟨mid, step, rfl⟩
+  · rintro ⟨mid, step, rfl⟩
+    exact ⟨_, (nest.2 _).mpr ⟨mid, step, rfl⟩, rfl⟩
+
+private theorem site_exact {a b : Config H}
+    (stays : ∀ n out, ¬ LabelExit n [] a.code out)
     (step : ∀ dst, Step P noHost a dst ↔ dst = b) :
-    ∀ dst, Step P noHost (cont.coreWrap outer a) dst ↔ dst = cont.coreWrap outer b := by
+    ∀ dst, Step P noHost (cont.coreSiteWrap outer a) dst ↔ dst = cont.coreSiteWrap outer b := by
   intro dst
-  rw [wrap_step_iff stays]
+  rw [core_site_step_iff stays]
   simp only [step, exists_eq_left]
 
 theorem resolution_prefix_exact {site : Indirect.Site} {caller : Runtime.Frame} {out : Outcome}
@@ -48,8 +62,8 @@ theorem resolution_prefix_exact {site : Indirect.Site} {caller : Runtime.Frame} 
     (tableFound : s.table? caller.toCore tableIndex = some (addr, site.table.toCore))
     (resolved : site.resolve program selector = some out) :
     out.coreTrace.IsChain (fun a b => ∀ dst,
-      Step P noHost (cont.coreWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) a)) dst ↔
-        dst = cont.coreWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) b)) := by
+      Step P noHost (cont.coreSiteWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) a)) dst ↔
+        dst = cont.coreSiteWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) b)) := by
   have chain := Indirect.core_trace_allocated_exact (P := P) (stack := stack) (rest := cont.code.map Graph.coreEmit)
     checked allocated tableFound resolved
   have live (a : Indirect.Phase) (mem : a ∈ (out.coreTrace).dropLast) : a.Pending := by
@@ -57,33 +71,33 @@ theorem resolution_prefix_exact {site : Indirect.Site} {caller : Runtime.Frame} 
       simp only [Outcome.coreTrace, List.cons_append, List.nil_append, List.dropLast_cons_cons, List.dropLast_singleton,
         List.mem_cons, List.not_mem_nil, or_false] at mem <;>
       rcases mem with rfl | rfl | rfl | rfl <;> trivial
-  let render a := cont.coreWrap outer (Indirect.coreConfig s caller site selector stack
+  let render a := cont.coreSiteWrap outer (Indirect.coreConfig s caller site selector stack
     (cont.code.map Graph.coreEmit) a)
   apply (List.isChain_map (R := fun a b : Config H => ∀ dst, Step P noHost a dst ↔ dst = b) render).mp
-  exact map_chain render chain (fun a mem b exactStep => wrap_exact (cont := cont) (outer := outer)
-    (fun out => Indirect.core_lookup_stays (live a mem) _ out) exactStep)
+  exact map_chain render chain (fun a mem b exactStep => site_exact (cont := cont) (outer := outer)
+    (Indirect.core_lookup_stays (live a mem)) exactStep)
 
 theorem prefix_exact (checked : call.Checked program) (allocated : program.CoreAllocated s)
     {addr : Nat} (tableFound : s.table? call.caller.toCore tableIndex = some (addr, call.site.table.toCore)) :
     (cont.corePrefix call s outer).IsChain (fun a b => ∀ dst, Step P noHost a dst ↔ dst = b) := by
   let inner := Indirect.coreConfig s call.caller call.site call.selector (call.saved ++ call.args)
     (cont.code.map Graph.coreEmit)
-  refine map_chain (cont.coreWrap outer) (Context.core_prefix_exact (P := P) checked allocated tableFound) ?_
+  refine map_chain (cont.coreSiteWrap outer) (Context.core_prefix_exact (P := P) checked allocated tableFound) ?_
   intro a mem b exactStep
   change a ∈ [inner .start, inner .lookup, inner (.cast (some call.address)), inner (.call (some call.address))] at mem
   simp only [List.mem_cons, List.not_mem_nil, or_false] at mem
   rcases mem with rfl | rfl | rfl | rfl
-  · exact wrap_exact (fun out => Indirect.core_lookup_stays (phase := .start) trivial _ out) exactStep
-  · exact wrap_exact (fun out => Indirect.core_lookup_stays (phase := .lookup) trivial _ out) exactStep
-  · exact wrap_exact (fun out => Indirect.core_lookup_stays (phase := .cast (some call.address)) trivial _ out) exactStep
-  · exact wrap_exact (fun out => Indirect.core_lookup_stays (phase := .call (some call.address)) trivial _ out) exactStep
+  · exact site_exact (Indirect.core_lookup_stays (phase := .start) trivial) exactStep
+  · exact site_exact (Indirect.core_lookup_stays (phase := .lookup) trivial) exactStep
+  · exact site_exact (Indirect.core_lookup_stays (phase := .cast (some call.address)) trivial) exactStep
+  · exact site_exact (Indirect.core_lookup_stays (phase := .call (some call.address)) trivial) exactStep
 
 theorem entry_iff (checked : call.Checked program)
     (allocated : s.funcs[call.address.value]? = some call.callee.coreInstance) {dst : Config H} :
-    Step P noHost (cont.coreWrap outer (Indirect.coreConfig s call.caller call.site call.selector (call.saved ++ call.args)
+    Step P noHost (cont.coreSiteWrap outer (Indirect.coreConfig s call.caller call.site call.selector (call.saved ++ call.args)
         (cont.code.map Graph.coreEmit) (.call (some call.address)))) dst ↔
       dst = cont.coreConfig call s outer (.callee call.entered) := by
-  have entry := wrap_exact (cont := cont) (outer := outer) (fun out => Indirect.core_lookup_stays (phase := .call (some call.address)) trivial _ out)
+  have entry := site_exact (cont := cont) (outer := outer) (Indirect.core_lookup_stays (phase := .call (some call.address)) trivial)
     (fun _ => Indirect.core_enter_at_iff (P := P) (caller := call.caller) (saved := call.saved)
       (rest := cont.code.map Graph.coreEmit) allocated checked.found checked.resolved checked.typed) dst
   exact entry.trans (by rw [Context.Proofs.Core.entered_config]; rfl)
@@ -92,8 +106,10 @@ private theorem handoff (continuation : cont.Checked program call.caller call.sa
     (result : Nested.Result) :
     cont.coreConfig call s outer (.callee (.done result)) =
       cont.coreConfig call s outer (.caller (cont.resume call.caller call.saved result)) := by
-  cases result <;> simp only [Continuation.coreConfig, Continuation.coreWrap, Invocation.coreCallee,
-    Graph.coreConfig, Graph.Phase.render, Graph.Phase.renderAt, Graph.coreAdmin, Continuation.resume,
+  cases scope : cont.block <;> cases result <;> simp only [Continuation.coreConfig, Continuation.coreSiteWrap, Continuation.coreWrap,
+    Continuation.scopes, Continuation.plug, scope, Option.toList, List.map_cons, List.map_nil,
+    Context.coreNest, List.foldr_nil, List.foldr_cons, Invocation.coreCallee,
+    Graph.coreConfig, Graph.Phase.render, Graph.Phase.renderAt, Graph.coreAdmin, Continuation.resume, Continuation.deliver,
     Continuation.target, Graph.currentFrame, Graph.LabelKind.arity, Graph.LabelKind.cont,
     Graph.Body.render, Nested.resultCode, coreValues, vals_append, List.map_append,
     List.append_assoc, List.singleton_append]
@@ -104,14 +120,14 @@ private theorem callee_step (checked : call.Checked program) (allocated : progra
     Step P noHost (cont.coreConfig call s outer (.callee a)) dst ↔
       ∃ out, program.FrameEdge call.address a out ∧ dst = cont.coreConfig call s outer (.callee out) := by
   obtain ⟨n, f, body, render⟩ := Context.Proofs.Core.frame_shape (call := call) live
-  have stays (out : List Admin) :
-      ¬ LabelExit cont.owner.declaration.results.length []
+  have stays (nlabel : Nat) (out : List Admin) :
+      ¬ LabelExit nlabel []
         (call.coreCallee s (cont.code.map Graph.coreEmit) a).code out := by
     simp only [Invocation.coreCallee, render, List.append_assoc, List.singleton_append]
     exact Computed.core_label_stays (head := .frame n f body) rfl (by simp) (by simp)
       (by simp [Admin.IsReturnCallRef]) (by simp) (by simp)
-  change Step P noHost (cont.coreWrap outer (call.coreCallee s (cont.code.map Graph.coreEmit) a)) dst ↔ _
-  rw [wrap_step_iff stays]
+  change Step P noHost (cont.coreSiteWrap outer (call.coreCallee s (cont.code.map Graph.coreEmit) a)) dst ↔ _
+  rw [core_site_step_iff stays]
   constructor
   · rintro ⟨mid, step, rfl⟩
     obtain ⟨out, move, rfl⟩ := (Context.Proofs.Core.linked_frame_step_iff checked allocated ready live).mp step
@@ -134,7 +150,7 @@ theorem run_iff (checked : call.Checked program) (allocated : program.CoreAlloca
     {addr : Nat} (tableFound : s.table? call.caller.toCore tableIndex = some (addr, call.site.table.toCore))
     {dst : Config H} :
     Steps P noHost
-      (cont.coreWrap outer (Indirect.coreConfig s call.caller call.site call.selector (call.saved ++ call.args)
+      (cont.coreSiteWrap outer (Indirect.coreConfig s call.caller call.site call.selector (call.saved ++ call.args)
         (cont.code.map Graph.coreEmit) .start)) dst ↔
       dst ∈ (cont.corePrefix call s outer).dropLast ∨
       ∃ out, Runs program call cont (.callee call.entered) out ∧ dst = cont.coreConfig call s outer out := by

@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Source.Defs
+public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Context.Resume.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Defs
 
 @[expose] public section
@@ -14,15 +15,25 @@ open CallContinuation.OuterCall.Computed
 open CallContinuation.OuterCall.Ranked
 open Context.Resume (Continuation)
 
-/-- At this designated graph address the allocated Wasm body begins with the
-initial operands, a numeric prefix, and the indirect site. Its declaration and continuation
-targets are taken from the registered graph function. -/
+/-- The allocated function starts with initial operands and a designated site
+after a numeric prefix. The site may be in a parameterless scalar block.
+The declaration and continuation targets belong to the registered graph function. -/
 structure Entry where
   cont : Continuation
   op : Source.Op
   before : List Prefix.Op := []
 
-def Entry.body (entry : Entry) : Source.Body := .indirect entry.before entry.op entry.cont.code
+def Entry.siteBody (entry : Entry) : Source.Body := .indirect entry.before entry.op entry.cont.code
+
+def Entry.body (entry : Entry) : Source.Body :=
+  match entry.cont.block with
+  | none => entry.siteBody
+  | some block => .block block.result entry.siteBody block.tail
+
+def Entry.initial (entry : Entry) : List Value :=
+  match entry.cont.block with
+  | none => entry.cont.owner.initial
+  | some _ => []
 
 def Entry.check (entry : Entry) (program : Graph.Program) (tables : Source.Tables) : Bool :=
   let fn := entry.cont.owner
@@ -51,7 +62,7 @@ inductive OperandTrace (locals : List Value) :
       OperandTrace locals stack (op :: rest) [(stack, op :: rest)] (.trap saved rest)
 
 abbrev Entry.OperandTrace (entry : Entry) (args : List Value) :=
-  GraphEntry.OperandTrace (entry.frame args).locals entry.cont.owner.initial entry.before
+  GraphEntry.OperandTrace (entry.frame args).locals entry.initial entry.before
 
 def Entry.prepare (entry : Entry) (program : Graph.Program) (tables : Source.Tables) (args : List Value)
     (stack : List Value) : Option Source.Activation :=
@@ -114,20 +125,26 @@ def Entry.coreInvoke {H : Type} (entry : Entry) (s : Core.Store H) (outer : Fram
   ⟨s, outer.toCore, coreValues args ++
     [.ref (.func entry.cont.address.value), .callRefType entry.cont.owner.declaration.type.toDefType]⟩
 
+/-- The function label immediately after native invocation. -/
+def Entry.coreBody {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame) (args : List Value) :
+    Core.Config H :=
+  entry.cont.coreWrap outer ⟨s, (entry.frame args).toCore, Core.expression entry.coreFunc.body⟩
+
 def Entry.coreSiteCode (entry : Entry) (remaining : List Prefix.Op) : List Core.Admin :=
   remaining.map (Prefix.emit coreSyntax) ++ .plain entry.op.coreInstr :: entry.cont.code.map Graph.coreEmit
 
 def Entry.coreOperands {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame)
     (args : List Value) (state : OperandState) : Core.Config H :=
-  entry.cont.coreWrap outer ⟨s, (entry.frame args).toCore, coreValues state.1 ++ entry.coreSiteCode state.2⟩
+  entry.cont.coreSiteWrap outer ⟨s, (entry.frame args).toCore, coreValues state.1 ++ entry.coreSiteCode state.2⟩
 
 def Entry.coreBefore {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame) (index : FuncIdx)
     (args : List Value) (states : List OperandState) : List (Core.Config H) :=
-  coreSource s outer index args :: entry.coreInvoke s outer args :: states.map (entry.coreOperands s outer args)
+  coreSource s outer index args :: entry.coreInvoke s outer args ::
+    (entry.cont.block.toList.map (fun _ => entry.coreBody s outer args) ++ states.map (entry.coreOperands s outer args))
 
 def Entry.coreLookup {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame)
     (active : Source.Activation) (phase : Indirect.Phase) : Core.Config H :=
-  entry.cont.coreWrap outer (active.coreConfig s [] entry.cont.code phase)
+  entry.cont.coreWrap outer (active.coreConfig s entry.cont.scopes entry.cont.code phase)
 
 def Entry.corePrefix {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame) (index : FuncIdx)
     (args : List Value) (active : Source.Activation) (out : Outcome) (states : List OperandState) :
@@ -144,40 +161,53 @@ def Entry.limeInvoke {H : Type} (entry : Entry) (s : Store H) (outer : Frame) (a
   ⟨s, outer, values args ++ [.invoke entry.cont.address]⟩
 
 open Wasm.Lime1.Execution in
+/-- The function label immediately after native invocation. -/
+def Entry.limeBody {H : Type} (entry : Entry) (s : Store H) (outer : Frame) (args : List Value) : Config H :=
+  entry.cont.limeWrap outer ⟨s, entry.frame args, expression entry.limeFunc.body⟩
+
+open Wasm.Lime1.Execution in
 def Entry.limeSiteCode (entry : Entry) (remaining : List Prefix.Op) : List Admin :=
   remaining.map (Prefix.emit limeSyntax) ++ .source entry.op.limeInstr :: entry.cont.code.map Graph.limeEmit
 
 open Wasm.Lime1.Execution in
 def Entry.limeOperands {H : Type} (entry : Entry) (s : Store H) (outer : Frame)
     (args : List Value) (state : OperandState) : Config H :=
-  entry.cont.limeWrap outer ⟨s, entry.frame args, values state.1 ++ entry.limeSiteCode state.2⟩
+  entry.cont.limeSiteWrap outer ⟨s, entry.frame args, values state.1 ++ entry.limeSiteCode state.2⟩
 
 open Wasm.Lime1.Execution in
 def Entry.limeBefore {H : Type} (entry : Entry) (s : Store H) (outer : Frame) (index : FuncIdx)
     (args : List Value) (states : List OperandState) : List (Config H) :=
-  limeSource s outer index args :: entry.limeInvoke s outer args :: states.map (entry.limeOperands s outer args)
+  limeSource s outer index args :: entry.limeInvoke s outer args ::
+    (entry.cont.block.toList.map (fun _ => entry.limeBody s outer args) ++ states.map (entry.limeOperands s outer args))
 
 open Wasm.Lime1.Execution in
 def Entry.limePrefix {H : Type} (entry : Entry) (s : Store H) (outer : Frame) (index : FuncIdx)
     (args : List Value) (active : Source.Activation) (out : Outcome) (states : List OperandState) :
     List (Config H) :=
   entry.limeBefore s outer index args states ++
-    [entry.cont.limeWrap outer (active.limeSource s [] entry.cont.code),
-     entry.cont.limeWrap outer (active.limeResolved s [] entry.cont.code out)]
+    [entry.cont.limeWrap outer (active.limeSource s entry.cont.scopes entry.cont.code),
+     entry.cont.limeWrap outer (active.limeResolved s entry.cont.scopes entry.cont.code out)]
 
 inductive LookupTrap : Outcome → Prop
   | bounds : LookupTrap .bounds
   | null : LookupTrap .null
   | mismatch (address : Runtime.FuncAddr) : LookupTrap (.mismatch address)
 
-/-- A trap first discards portions of the label's operand and instruction
-context, then leaves the label and function frame. -/
+/-- A trap discards operands and pending instructions inside the active label.
+With a block, it exits the block before the function label can discard its
+own saved operands and tail. -/
 inductive Cleanup (A : Type) where
+  | block (scope : Blocks.Context.Scope A) (stack : List Value) (rest : List A)
   | label (stack : List Value) (rest : List A)
   | frame
   | done
 
 inductive CleanupStep {A : Type} : Cleanup A → Cleanup A → Prop where
+  | blockDiscard {scope : Blocks.Context.Scope A} {stack rest kept remaining}
+      (cut : Prefix.Discard stack rest kept remaining) :
+      CleanupStep (.block scope stack rest) (.block scope kept remaining)
+  | blockExit (scope : Blocks.Context.Scope A) :
+      CleanupStep (.block scope [] []) (.label scope.saved scope.rest)
   | discard {stack rest kept remaining} (cut : Prefix.Discard stack rest kept remaining) :
       CleanupStep (.label stack rest) (.label kept remaining)
   | label : CleanupStep (.label [] []) .frame
@@ -185,18 +215,26 @@ inductive CleanupStep {A : Type} : Cleanup A → Cleanup A → Prop where
 
 abbrev CleanupRuns {A : Type} := Relation.ReflTransGen (@CleanupStep A)
 
+def Entry.siteTrap {A : Type} (entry : Entry) (emit : Graph.Op → A)
+    (stack : List Value) (rest : List A) : Cleanup A :=
+  match entry.cont.block with
+  | none => .label stack rest
+  | some block => .block ⟨block.result.toList.length, entry.cont.owner.initial, block.tail.map emit⟩ stack rest
+
 def Entry.coreTrapStart (entry : Entry) (active : Source.Activation) (out : Outcome) : Cleanup Core.Admin :=
   let pending := match out with
     | .bounds => [active.binding.site.coreCast, active.binding.site.coreCall]
     | .mismatch _ => [active.binding.site.coreCall]
     | _ => []
-  .label (active.operands.saved ++ active.operands.args) (pending ++ entry.cont.code.map Graph.coreEmit)
+  entry.siteTrap Graph.coreEmit (active.operands.saved ++ active.operands.args) (pending ++ entry.cont.code.map Graph.coreEmit)
 
 def Entry.limeTrapStart (entry : Entry) (active : Source.Activation) : Cleanup Wasm.Lime1.Execution.Admin :=
-  .label (active.operands.saved ++ active.operands.args) (entry.cont.code.map Graph.limeEmit)
+  entry.siteTrap Graph.limeEmit (active.operands.saved ++ active.operands.args) (entry.cont.code.map Graph.limeEmit)
 
 def Entry.coreCleanup {H : Type} (entry : Entry) (s : Core.Store H) (outer inner : Frame) :
     Cleanup Core.Admin → Core.Config H
+  | .block scope stack rest => entry.cont.coreWrap outer ⟨s, inner.toCore,
+      scope.plug coreValues (fun n => .label n []) (coreValues stack ++ .trap :: rest)⟩
   | .label stack rest => entry.cont.coreWrap outer ⟨s, inner.toCore, coreValues stack ++ .trap :: rest⟩
   | .frame => ⟨s, outer.toCore, [.frame entry.cont.owner.declaration.results.length inner.toCore [.trap]]⟩
   | .done => ⟨s, outer.toCore, [.trap]⟩
@@ -204,6 +242,8 @@ def Entry.coreCleanup {H : Type} (entry : Entry) (s : Core.Store H) (outer inner
 open Wasm.Lime1.Execution in
 def Entry.limeCleanup {H : Type} (entry : Entry) (s : Store H) (outer inner : Frame) :
     Cleanup Admin → Config H
+  | .block scope stack rest => entry.cont.limeWrap outer ⟨s, inner,
+      scope.plug values (fun n => .label n []) (values stack ++ .trap :: rest)⟩
   | .label stack rest => entry.cont.limeWrap outer ⟨s, inner, values stack ++ .trap :: rest⟩
   | .frame => ⟨s, outer, [.frame entry.cont.owner.declaration.results.length inner [.trap]]⟩
   | .done => ⟨s, outer, [.trap]⟩
@@ -211,12 +251,12 @@ def Entry.limeCleanup {H : Type} (entry : Entry) (s : Store H) (outer inner : Fr
 def Entry.coreOperandResult {H : Type} (entry : Entry) (s : Core.Store H) (outer : Frame)
     (args : List Value) : OperandResult → Core.Config H
   | .values stack => entry.coreOperands s outer args (stack, [])
-  | .trap saved rest => entry.coreCleanup s outer (entry.frame args) (.label saved (entry.coreSiteCode rest))
+  | .trap saved rest => entry.coreCleanup s outer (entry.frame args) (entry.siteTrap Graph.coreEmit saved (entry.coreSiteCode rest))
 
 open Wasm.Lime1.Execution in
 def Entry.limeOperandResult {H : Type} (entry : Entry) (s : Store H) (outer : Frame)
     (args : List Value) : OperandResult → Config H
   | .values stack => entry.limeOperands s outer args (stack, [])
-  | .trap saved rest => entry.limeCleanup s outer (entry.frame args) (.label saved (entry.limeSiteCode rest))
+  | .trap saved rest => entry.limeCleanup s outer (entry.frame args) (entry.siteTrap Graph.limeEmit saved (entry.limeSiteCode rest))
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry
