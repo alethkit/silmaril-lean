@@ -6,8 +6,6 @@ import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgCase.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Soundness.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Composition.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Combinators
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Labels
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Categorical
 
 /-! # Fixpoint for linked LambdaSSA iteration -/
 
@@ -155,11 +153,14 @@ private theorem iterationDispatch_router (Γ : VCtx τ) (A B : τ) :
       ContinuationDenotes J M (Φ := Φ) (fun _ => iterationDispatch)
         (J.map (snd (ctxObj M Γ) (labelObj M [Silmaril.coprod B A]) ≫ q)) := by
   let S := Silmaril.coprod B A
-  let P : Fin 1 → τ := fun _ => S
   let l := labelInject M (L := [A, B]) 1 (A := B) rfl
   let r := labelInject M (L := [A, B]) 0 (A := A) rfl
   let route := (M.coprodIso B A).hom ≫ coprod.desc l r
-  let q := labelObjToFinite M P ≫ labelOneTo M P ≫ route
+  let fromSingleton : labelObj M [S] ⟶ M.obj S :=
+    Sigma.desc (fun i => eqToHom (congrArg M.obj (by
+      obtain rfl := Fin.eq_zero i
+      rfl)))
+  let q := fromSingleton ≫ route
   refine ⟨q, ?_⟩
   intro i T hi
   have hT : T = S := List.mem_singleton.mp (List.mem_of_getElem? hi)
@@ -167,8 +168,9 @@ private theorem iterationDispatch_router (Γ : VCtx τ) (A B : τ) :
   have h0 : i = 0 := by have := (List.getElem?_eq_some_iff.mp hi).1; simp at this; omega
   subst i
   have hiq : labelInject M 0 hi ≫ q = route := by
-    change labelInject M (0 : Fin 1) hi ≫ labelObjToFinite M P ≫ labelOneTo M P ≫ route = _
-    rw [← Category.assoc, labelObjToFinite_local M P 0 hi, labelOneTo_ι_assoc]
+    simp [q, fromSingleton, labelInject]
+    rw [Sigma.ι_comp_desc_assoc]
+    exact Category.id_comp route
   let h := (iterationDispatch_valueBranches (Φ := Φ) (Γ := Γ) A B).hasType
   have dd := RegionDenotes.case (J := J) (M := M)
     (Denotes.var (Φ := Φ) (Γ := S :: Γ) (i := 0) (A := S) rfl)
