@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.Calco2019.Trace.Thms
+public import Silmaril.Semantics.Calco2019.Trace.Uniformity.Thms
 
 /-! # CALCO 2019 Article 13, Remark 15
 

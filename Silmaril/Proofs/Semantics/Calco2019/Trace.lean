@@ -18,7 +18,7 @@ private theorem inl_map {A B U V : K} (f : A ⟶ B) (g : U ⟶ V) :
 private theorem inr_map {A B U V : K} (f : A ⟶ B) (g : U ⟶ V) :
     P.inr ≫ P.map f g = g ≫ P.inr := P.inr_desc _ _
 
-private theorem iterate_eq (F : G.Fixpoints) {U B : K} {f g : U ⟶ P.sum B U}
+theorem iterate_eq (F : G.Fixpoints) {U B : K} {f g : U ⟶ P.sum B U}
     (e : f = g) (hf : G.guarded f) (hg : G.guarded g) :
     F.iterate f hf = F.iterate g hg := by
   subst g
