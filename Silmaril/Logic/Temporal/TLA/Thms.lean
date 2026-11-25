@@ -8,7 +8,7 @@ public section
 
 namespace Silmaril.Logic.Temporal.TLA
 
-universe u v
+universe u v w
 
 variable {S V W : Type u}
 
@@ -115,11 +115,23 @@ theorem map {V : Type v} (f : S → V) {σ τ : Behavior S} (h : StutterEquiv σ
     StutterEquiv (σ.map f) (τ.map f) :=
   Proofs.Logic.Temporal.TLA.stutter_map f h
 
+theorem suffix_retime (σ : Behavior S) (r : Retiming) (i : Nat) :
+    StutterEquiv ((σ.retime r).suffix i) (σ.suffix (r.index i)) :=
+  Proofs.Logic.Temporal.TLA.stutter_suffix_retime σ r i
+
 end StutterEquiv
 
 theorem hide_stutterInvariant {V : Type v} (p : Behavior (S × V) → Prop) :
     StutterInvariant (hide p) :=
   Proofs.Logic.Temporal.TLA.hide_stutterInvariant p
+
+/-- Pulling a hiding operand back along a visible-state map commutes with hiding.
+The reverse direction uses a common expansion and repeats the witness's hidden
+values along its own clock. -/
+theorem hide_map_iff {T : Type w} {V : Type v} (f : T → S) {p : Behavior (S × V) → Prop}
+    (hp : StutterInvariant p) (σ : Behavior T) :
+    hide (fun τ => p (τ.map fun z => (f z.1, z.2))) σ ↔ hide p (σ.map f) :=
+  Proofs.Logic.Temporal.TLA.hide_map_iff f hp σ
 
 /-- For stutter-invariant operands, visible hiding agrees with the full-state
 clause in Lamport's paper (§8.2, equation 49), using product states. -/
