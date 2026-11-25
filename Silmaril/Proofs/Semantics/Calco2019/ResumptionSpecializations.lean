@@ -113,4 +113,44 @@ theorem resumption_freeObject [HasInitial C] {H : C ⥤ C}
   have e : baseEmbedding (guardedIdentity P) H R₀ = I.to _ := I.hom_ext _ _
   exact (isFreeExtension_initial_iff I (resumptionGenerator R₀)).mp (e ▸ resumption_free R₀)
 
+section IterativeMap
+
+variable {T S : GuardedElgotMonad P}
+
+theorem iterative_map_iteration (m : T.monad ⟶ S.monad)
+    (hm : MonadGuardedness.Preserves P T.guard S.guard m) (hS : S.guard.Iterative)
+    {X Y : C} (f : X ⟶ T.monad.obj (P.sum Y X))
+    (hf : T.guard.guarded (Y := Kleisli.mk T.monad Y) (Z := Kleisli.mk T.monad X)
+      (kleisliArrow f)) :
+    (T.iteration.iterate (kleisliArrow f) hf).of ≫ m.app Y =
+      (S.iteration.iterate (kleisliArrow (f ≫ m.app (P.sum Y X))) (hm f hf)).of := by
+  let a : Kleisli.mk T.monad X ⟶ Kleisli.mk T.monad (P.sum Y X) := kleisliArrow f
+  let p := T.iteration.iterate a hf
+  let b : Kleisli.mk S.monad X ⟶ Kleisli.mk S.monad (P.sum Y X) :=
+    kleisliArrow (f ≫ m.app (P.sum Y X))
+  let q : Kleisli.mk S.monad X ⟶ Kleisli.mk S.monad Y := kleisliArrow (p.of ≫ m.app Y)
+  let T' := T.monad
+  let S' := S.monad
+  let d := (P.kleisli T').desc (𝟙 (Kleisli.mk T' Y)) p
+  let e := (P.kleisli S').desc (𝟙 (Kleisli.mk S' Y)) q
+  have de : d.of ≫ m.app Y = e.of := by
+    rw [show d.of = P.desc (T'.η.app Y) p.of from kleisli_desc_of P T' _ _,
+      show e.of = P.desc (S'.η.app Y) q.of from kleisli_desc_of P S' _ _,
+      Coproducts.desc_comp, m.app_η]
+  have comp : (b ≫ e).of = (a ≫ d).of ≫ m.app Y := by
+    change (f ≫ m.app (P.sum Y X)) ≫ S'.map e.of ≫ S'.μ.app Y =
+      (f ≫ T'.map d.of ≫ T'.μ.app Y) ≫ m.app Y
+    rw [Category.assoc, ← de]
+    exact (congrArg (f ≫ ·) (map_extension m d.of).symm).trans (Category.assoc _ _ _).symm
+  have hp : a ≫ d = p := T.iteration.fixpoint a hf
+  have hq : Guardedness.IsFixpoint (P := P.kleisli S') b q := by
+    apply Kleisli.hom_ext
+    exact comp.trans (congrArg (fun z => z.of ≫ m.app Y) hp)
+  let s := S.iteration.iterate b (hm f hf)
+  obtain ⟨g, _, unique⟩ := hS (Y := Kleisli.mk S' Y) b (hm f hf)
+  have sol : q = s := (unique q hq).trans (unique s (S.iteration.fixpoint b (hm f hf))).symm
+  exact congrArg Kleisli.Hom.of sol
+
+end IterativeMap
+
 end Silmaril.Calco2019.Proofs

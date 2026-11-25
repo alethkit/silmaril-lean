@@ -25,14 +25,8 @@ noncomputable def kleisliInitial (T : CategoryTheory.Monad C) {I : C} (i : IsIni
   exact i.isInitialObj J
 
 /-- Any monad carries the vacuous guarded Elgot structure of Example 20(1). -/
-noncomputable def vacuousMonad (T : CategoryTheory.Monad C) : GuardedElgotMonad P where
-  monad := T
-  guard := Guardedness.least (P.kleisli T)
-  iteration :=
-    { toFixpoints := Guardedness.Fixpoints.ofIterative Guardedness.vacuous_iterative
-      naturalCodiagonal := Guardedness.Fixpoints.ofIterative_naturalCodiagonal Guardedness.vacuous_iterative
-      dinaturality := Guardedness.Fixpoints.ofIterative_dinaturality Guardedness.vacuous_iterative }
-  uniformity := Guardedness.Fixpoints.ofIterative_uniform Guardedness.vacuous_iterative _
+noncomputable def vacuousMonad (T : CategoryTheory.Monad C) : GuardedElgotMonad P :=
+  GuardedElgotMonad.ofIterative (Guardedness.vacuous_iterative (P := P.kleisli T))
 
 /-- The identity monad with its vacuous guard. -/
 noncomputable abbrev guardedIdentity : GuardedElgotMonad P :=
