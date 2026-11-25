@@ -80,6 +80,9 @@ theorem eval_denote {α : Type} (code : Code α) (state : State) :
       | dict address =>
         rw [denote, runBind, h]
         exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
+      | function address =>
+        rw [denote, runBind, h]
+        exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
   | pass => exact .pass
   | eval expr ih => simpa [denote, runBind] using Eval.eval (ih state)
   | assign binding rhs ih => simpa [denote, runBind] using Eval.assign (binding := binding) (ih state)
