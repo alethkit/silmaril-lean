@@ -95,6 +95,8 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {receiver subscript rhs : Lowering.Expr} {error : Error} :
       ExecExpr program available s receiver (.error error t) →
       Exec program available s (.addIndexExpr receiver subscript rhs) (.error error t)
+  | assignIntegerAdd {available : List DeclarationId} {s : State} {target left right : Binding} :
+      Exec program available s (.assignIntegerAdd target left right) (assignIntegerAdd target left right s)
   | evalExpr {available : List DeclarationId} {s : State} {value : Lowering.Expr}
       {out : Outcome Lists.Value} :
       ExecExpr program available s value out →

@@ -165,6 +165,9 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
         cases read : readIndex target index last with
         | error error stopped => exact .addIndexExprReadError (selected ▸ receiverRun) (indexed ▸ subscriptRun) read
         | ok previous ready => exact .addIndexExpr (selected ▸ receiverRun) (indexed ▸ subscriptRun) read (exprRun rhs ready)
+  | assignIntegerAdd target left right =>
+    rw [denoteBody]
+    exact .assignIntegerAdd
   | evalExpr value =>
     rw [denoteBody]
     exact .evalExpr (exprRun value state)

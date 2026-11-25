@@ -26,6 +26,7 @@ inductive TopCode where
   | setIndexExpr (receiver subscript rhs : Lowering.Expr)
   | setIndexCompExpr (receiver subscript rhs : Comprehensions.Expression)
   | addIndexExpr (receiver subscript rhs : Lowering.Expr)
+  | addIndexCompExpr (receiver subscript rhs : Comprehensions.Expression)
   | evalExpr (value : Lowering.Expr)
   | define (name : String) (id : DeclarationId)
   | defineWithDefaults (name : String) (id : DeclarationId)
@@ -44,6 +45,8 @@ def TopCode.body : TopCode → Body
   | .setIndexCompExpr receiver subscript rhs =>
     Comprehensions.setIndexCode receiver subscript rhs Comprehensions.directStages
   | .addIndexExpr receiver subscript rhs => .addIndexExpr receiver subscript rhs
+  | .addIndexCompExpr receiver subscript rhs =>
+    Comprehensions.addIndexCode receiver subscript rhs Comprehensions.directStages
   | .evalExpr value => .evalExpr value
   | .define name id => .define (globalSlot name) id
   | .defineWithDefaults name id defaults =>

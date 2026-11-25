@@ -96,7 +96,8 @@ path as function assignments, then use the ordinary publication rules.
 The normalized `CompExpr` adapter allows comprehensions in call operands,
 conditional and short-circuit operands, collection displays, and index
 and slice reads within return values, assignment RHSs for names and
-nested name patterns, operands of standalone subscript stores, and
+nested name patterns, operands of standalone simple and integer
+augmented subscript stores, function-local integer augmentation, and
 parameter defaults.
 The first and later iterables and filters and the heads of a comprehension
 use the same broader placement grammar.

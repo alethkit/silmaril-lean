@@ -111,6 +111,8 @@ inductive Statement where
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | setIndexCompExpr (receiver subscript rhs : CompExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
+  | addIndexCompExpr (receiver subscript rhs : CompExpr)
+  | addNameCompExpr (name : String) (rhs : CompExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
   | ret (value : Option Lowering.Resolve.SourceExpr)
   | retCompExpr (value : CompExpr)
@@ -133,6 +135,7 @@ inductive Command where
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | setIndexCompExpr (receiver subscript rhs : CompExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
+  | addIndexCompExpr (receiver subscript rhs : CompExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
   | define (name : String) (signature : SourceSignature) (body : Statement)
   | load (label : String) (imports : List Modules.Import)
@@ -175,18 +178,18 @@ def globalNames (commands : List Command) : List String :=
     | .assignCompExpr name _ | .define name .. => [name]
     | .assignTarget target _ | .assignTargetCompExpr target _ =>
       ((resolveTarget globalSlot .unsupportedAssignmentTarget target).toOption.map Prod.snd).getD []
-    | .setIndex .. | .setIndexCompExpr .. | .addIndex .. | .eval _ | .load .. => []
+    | .setIndex .. | .setIndexCompExpr .. | .addIndex .. | .addIndexCompExpr .. | .eval _ | .load .. => []
 
 private def Statement.localNames : Statement → Except Error (List String)
   | .assign name _ | .assignListComp name _ | .assignDictComp name _
-  | .assignCompExpr name _ | .define name .. => pure [name]
+  | .assignCompExpr name _ | .addNameCompExpr name _ | .define name .. => pure [name]
   | .assignTarget target _ | .assignTargetCompExpr target _ =>
     return (← resolveTarget fileSlot .unsupportedAssignmentTarget target).2
   | .seq first rest | .branch _ first rest => return (← first.localNames) ++ (← rest.localNames)
   | .forIn target _ body => return target :: (← body.localNames)
   | .forInTarget target _ body =>
     return (← resolveTarget fileSlot .unsupportedLoopTarget target).2 ++ (← body.localNames)
-  | .pass | .setIndex .. | .setIndexCompExpr .. | .addIndex .. | .eval _ | .ret _ | .retCompExpr _
+  | .pass | .setIndex .. | .setIndexCompExpr .. | .addIndex .. | .addIndexCompExpr .. | .eval _ | .ret _ | .retCompExpr _
     | .breakLoop | .continueLoop => pure []
 
 private abbrev Build := StateT Program (Except Error)
@@ -398,6 +401,15 @@ private def resolveAddIndex {α : Type} (context : Context)
   let (rhs, rhsReads) ← readExpr context rhs
   return (emit receiver subscript rhs, reads ++ rhsReads)
 
+private def resolveAddIndexCompExpr {α : Type} (context : Context)
+    (receiver subscript rhs : CompExpr)
+    (emit : Comprehensions.Expression → Comprehensions.Expression → Comprehensions.Expression → α) :
+    Build (α × List Binding) := do
+  let (receiver, receiverReads) ← compileCompExpr context receiver
+  let (subscript, subscriptReads) ← compileCompExpr context subscript
+  let (rhs, rhsReads) ← compileCompExpr context rhs
+  return (emit receiver subscript rhs, receiverReads ++ subscriptReads ++ rhsReads)
+
 private structure ResolvedParameter where
   slot : Binding
   value : Option Comprehensions.Expression
@@ -486,6 +498,13 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
   | .addIndex receiver subscript rhs => do
     let (code, reads) ← resolveAddIndex context receiver subscript rhs Body.addIndexExpr
     return ⟨code, reads⟩
+  | .addIndexCompExpr receiver subscript rhs => do
+    let (code, reads) ← resolveAddIndexCompExpr context receiver subscript rhs fun receiver subscript rhs =>
+      Comprehensions.addIndexCode receiver subscript rhs Comprehensions.directStages
+    return ⟨code, reads⟩
+  | .addNameCompExpr name rhs => do
+    let (rhs, reads) ← compileCompExpr context rhs
+    return ⟨Comprehensions.addNameCode (fileSlot name) rhs Comprehensions.directStages, reads⟩
   | .eval value => do
     let (value, reads) ← readExpr context value
     return ⟨.evalExpr value, reads⟩
@@ -555,6 +574,9 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     return .exec code
   | .addIndex receiver subscript rhs => do
     let (code, _) ← resolveAddIndex context receiver subscript rhs TopCode.addIndexExpr
+    return .exec code
+  | .addIndexCompExpr receiver subscript rhs => do
+    let (code, _) ← resolveAddIndexCompExpr context receiver subscript rhs TopCode.addIndexCompExpr
     return .exec code
   | .eval value => do
     let (value, _) ← readExpr context value
