@@ -414,7 +414,7 @@ public theorem eq_of_denote_eq {n : Nat} {ss : Fin n → α} {p q : Program S T 
 variable [DecidableEq α]
 
 omit [DecidableEq α] in
-private theorem instructions_pure {m : Nat} (modelSlots : Fin m → α)
+public theorem instructions_respectsPure {m : Nat} (modelSlots : Fin m → α)
     (visible : ∀ g : Ψ, ¬ IsPure (⊥ : ε) g) :
     letI := endpoints S T
     letI : HasEff (Φ ⊕ Ψ) ε := effects
@@ -442,7 +442,7 @@ public theorem native_eq_implies_eq (visible : ∀ g : Ψ, ¬ IsPure (⊥ : ε) 
   obtain ⟨dp, hdp⟩ := eval_exists S T modelSlots hslots e p hp
   obtain ⟨dq, hdq⟩ := eval_exists S T modelSlots hslots e q hq
   have he := LetIter.Semantics.Categorical.denote_eq_of_abortEquiv_nil.{u, u + 2, u, r}
-    (Atom S modelSlots) M[modelSlots] (instructions_pure S T modelSlots visible) hn dp dq
+    (Atom S modelSlots) M[modelSlots] (instructions_respectsPure S T modelSlots visible) hn dp dq
     (variableEnv S modelSlots hslots vars)
   exact (hdp vars).symm.trans (he.trans (hdq vars))
 

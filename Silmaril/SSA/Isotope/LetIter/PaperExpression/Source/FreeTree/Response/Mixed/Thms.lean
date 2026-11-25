@@ -8,7 +8,7 @@ import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Respo
 
 public section
 
-open Silmaril Silmaril.Isotope
+open Silmaril Silmaril.Isotope Silmaril.Isotope.Semantics
 open Silmaril.Isotope.LetIter.LocallyNameless (AbortEquiv Derivation)
 open Silmaril.Isotope.LetIter.PaperExpression
 open Silmaril.Isotope.LetIter.PaperExpression.Source
@@ -94,6 +94,15 @@ theorem eval_exists {m : Nat} (modelSlots : Fin m → α)
           (fun x => x.elim) (variableEnv S modelSlots hslots vars) =
             Program.denote S T modelSlots p vars :=
   Proofs.eval_exists S T modelSlots hslots e p hp
+
+/-- Visible sum instructions respect the purity premise of native soundness
+when every sum primitive is declared non-bottom. -/
+theorem instructions_respectsPure {m : Nat} (modelSlots : Fin m → α)
+    (visible : ∀ g : Ψ, ¬ IsPure (⊥ : ε) g) :
+    letI := endpoints S T
+    letI : HasEff (Φ ⊕ Ψ) ε := effects
+    InstructionModel.RespectsPure (ε := ε) (SumCall.instructions (ε := ε) S T modelSlots) :=
+  Proofs.instructions_respectsPure S T modelSlots visible
 
 variable [DecidableEq α]
 

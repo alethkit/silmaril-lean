@@ -9,6 +9,7 @@ import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mix
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Raw.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Ranked.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Ranked.Compile.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Cyclic.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -1507,3 +1508,64 @@ example : ∃ t : Tm Empty (Unit ⊕ Unit) Γ.length, explicit.source.toLetIter 
     h.mpr heq, h.mp (h.mpr heq)⟩
 
 end LetIterCompiledRankedFixture
+
+namespace LetIterCyclicFixture
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree.Response
+open LetIterRankedFixture
+
+local instance : HasEff Empty Fx := ⟨Empty.elim⟩
+local instance : HasEff Unit Fx := ⟨fun _ => strict⟩
+local instance : HasEff (Empty ⊕ Unit) Fx := SumCall.effects
+local instance : HasTy (Empty ⊕ Unit) (Ty Unit) := SumCall.endpoints sig sumSig
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+abbrev cycle : Term Γ.length := Mixed.repeatOnRight () Γ.length
+
+private theorem cycleTyped : HasTypeEffect free Γ.toBoundCtx cycle A strict :=
+  Mixed.repeatOnRight_typed sig sumSig rfl strict le_rfl rfl
+
+/-- The candidate makes the same first request and returns on either reply.
+The loop can repeat on the right at the same strict effect bound. -/
+example :
+    ∃ t : Term Γ.length, (returnEither (ss := slots)).source.toLetIter Γ.length = some t ∧
+      HasTypeEffect free Γ.toBoundCtx cycle A strict ∧ HasTypeEffect free Γ.toBoundCtx t A strict ∧
+      ¬ AbortEquiv (⊥ : Fx) free Γ.toBoundCtx cycle t A := by
+  have hΓ : Γ.Pure := fun i => i.elim0
+  have hs : ∀ i, (Γ.get i).1 = .base (slots i) := fun i => i.elim0
+  let p := returnEither (ss := slots)
+  have hp : p.WellTyped sig sumSig strict := ⟨fun i => i.elim0, le_rfl, trivial, trivial⟩
+  obtain ⟨t, ht, htyped⟩ := (Mixed.Raw.source_wf sig sumSig hΓ hs strict p hp).toLetIter
+  exact ⟨t, ht, cycleTyped, htyped, Mixed.repeatOnRight_not_raw sig sumSig rfl sumVisible hΓ hs strict p hp ht⟩
+
+example : (returnEither (ss := slots)).visibleDepth (ε := Fx) = 1 := rfl
+
+/-- A written product binder under an effectful case needs no raw mixed
+representation to use the general written-language bound. -/
+abbrev withProductBinder : Expr (Empty ⊕ Unit) :=
+  .case (.op (.inr ()) .unit) (.let₂ (.pair (.var 0) (.var 0)) (.var 0)) (.var 0)
+
+private theorem productBinderTyped : Wf Γ withProductBinder A strict :=
+  .case (A := A) (B := A) (.op (f := Sum.inr ()) le_rfl (.unit _ _))
+    (.let₂ (.pair (.var 0 bot_le) (.var 0 bot_le)) (.var 0 bot_le))
+    (.var 0 bot_le)
+
+example : ∃ t : Term Γ.length, withProductBinder.toLetIter Γ.length = some t ∧
+    ¬ AbortEquiv (⊥ : Fx) free Γ.toBoundCtx cycle t A := by
+  have hs : ∀ i, (Γ.get i).1 = .base (slots i) := fun i => i.elim0
+  obtain ⟨t, ht, _⟩ := productBinderTyped.toLetIter
+  exact ⟨t, ht, Mixed.repeatOnRight_not_written sig sumSig rfl sumVisible hs strict withProductBinder
+    productBinderTyped ht⟩
+
+abbrev modelSlots : Fin 1 → Unit := fun _ => ()
+
+/-- The reply supplied by the free-tree valuation can be reused any finite
+number of times along the right branch. -/
+example : ∃ d : Derivation (Empty ⊕ Unit) free Γ.toBoundCtx cycle A,
+    ∀ k, ITree.HasVisiblePrefix k
+      (d.denote (Ty.denote (Atom sig modelSlots)) (SumCall.instructions (ε := Fx) sig sumSig modelSlots)
+        (fun x => x.elim) (fun i => i.elim0)) :=
+  Mixed.repeatOnRight_hasVisiblePrefixes sig sumSig rfl modelSlots (fun i => i.elim0) (.var 0)
+
+end LetIterCyclicFixture
