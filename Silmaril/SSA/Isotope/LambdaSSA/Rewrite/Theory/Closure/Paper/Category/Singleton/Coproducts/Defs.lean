@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Coproducts.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Defs
 
 /-! # The sum of two types in the paper singleton category -/
 
@@ -26,5 +27,11 @@ abbrev toInterface (Φ : Type v) [HasTy Φ τ] :
     (InducedCategory.homMk (Y := ofType (Silmaril.coprod A B))
       (singletonSumCofan (Φ := Φ) (Γ := []) A B).inl)
     (InducedCategory.homMk (singletonSumCofan (Φ := Φ) (Γ := []) A B).inr)
+
+/-- The empty decoder guards its impossible input by a local self-loop. -/
+theorem emptyRegion_typed (A : τ) :
+    ValueBranches [Silmaril.empty] (unpackExits ([] : LCtx τ) : Region Φ) [A] :=
+  .cfg (fun _ : Fin 1 => Silmaril.empty) (.br (ℓ := 0) rfl (.var (i := 0) rfl))
+    (fun _ => .br (ℓ := 0) rfl (.var (i := 0) rfl))
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory

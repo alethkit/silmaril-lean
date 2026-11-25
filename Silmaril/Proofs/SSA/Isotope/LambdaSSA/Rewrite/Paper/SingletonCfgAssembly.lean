@@ -60,13 +60,6 @@ theorem canonical_reindex {U V X Y : Comp} (state : U ≅ X) (result : V ≅ Y)
   apply coprod.hom_ext <;> simp
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem empty_unique {D : τ} (f g : ofType (Φ := Φ) (Silmaril.empty : τ) ⟶ ofType D) :
-    f = g := by
-  obtain ⟨_, hf, rfl⟩ := exists_ofRegion f
-  obtain ⟨_, hg, rfl⟩ := exists_ofRegion g
-  exact (ofRegion_eq_iff _ _).2 (.cfgEta (.native (.initial (.var (i := 0) rfl) hf.hasType hg.hasType)))
-
-set_option backward.isDefEq.respectTransparency false in
 private theorem exact_inl {A B : τ} {Y : Comp} (g : ofType (Φ := Φ) A ⟶ Y)
     (h : ofType (Φ := Φ) B ⟶ Y) :
     (sumCofan A B).inl ≫ (sumIso A B).hom ≫ coprod.desc g h = g := by
@@ -435,7 +428,7 @@ theorem exitSum_compare (cmp : ModelComparisons J M objIso pe) (S D : τ) :
     · have e := congrArg (fun f => reindexHom J M objIso (J.map f)) (exitSum_inr_inl M S D)
       rw [← transport, ← transport, cmp.inl, cmp.inr, cmp.inl] at e
       exact e.trans (exact_inl h z).symm
-    · exact empty_unique _ _
+    · exact emptyHom_ext _ _
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem loop_arm_compare (cmp : ModelComparisons J M objIso pe) {X S D : τ}
