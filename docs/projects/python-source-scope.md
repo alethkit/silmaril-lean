@@ -5,8 +5,8 @@ for unresolved constructor data and
 [Source.Scope.Thms](../../Silmaril/Languages/Python/Source/Scope/Thms.lean)
 for executable analysis and its enclosing-binder law. The source fragment
 covers modules, classes, nested functions and lambdas with positional
-parameters and defaults, name assignment and deletion, declarations, and
-conditional and loop suites.
+parameters and defaults, assignment and deletion targets, declarations,
+selective imports, and conditional, loop and exception suites.
 
 `analyze` collects name occurrences and declarations before resolving each
 block. A name assigned later in a function is local throughout that block.
@@ -27,6 +27,12 @@ Lambda bodies have function scope and leave the enclosing namespace
 untouched. Defaults, decorators and class bases introduce any lambdas in
 the enclosing block. Child paths follow traversal order. Function defaults
 precede function decorators, and class decorators precede bases.
+
+Destructuring and loop targets bind their names in the current block.
+Attribute and subscript targets read their operands. Exception-handler
+targets and selective import aliases also bind in the current block.
+Star imports report an explicit diagnostic because their bindings would
+depend on a runtime module.
 
 `enclosingBinding_eq_some_iff` characterizes successful executable lookup
 with an inductive nearest-binder judgment. `enclosingBinding_stops`
