@@ -36,8 +36,28 @@ def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Modu
   | .integer value => .literal (.int value)
   | .boolean _ | .binary .. => .unsupported
 
+def scalar? : Value → Option Core.Module.Value
+  | .int value => some (.int value)
+  | .bool value => some (.bool value)
+  | .none | .exceptionClass _ | .helper _ => none
+
+/-- Boolean literals are admitted inside equality. The resulting Boolean
+can be bound as a value. Other compound operands use the existing boundary. -/
+def evaluateScalar {scope : Scope} (space : Namespace) (equalityOperand : Bool) :
+    ModuleEntry.Operand scope → Result
+  | .binary .equal left right => do
+    let first ← evaluateScalar space true left
+    let second ← evaluateScalar space true right
+    let some first := scalar? first | throw .unsupported
+    let some second := scalar? second | throw .unsupported
+    return .bool (first.equal second)
+  | .boolean value =>
+    if equalityOperand then .ok (.bool value) else .error .unsupported
+  | operand => (lowerScalarOperand operand).eval space #v[]
+
 def truth : Value → Bool
   | .int value => decide (value ≠ 0)
+  | .bool value => value
   | .none => false
   | .exceptionClass _ | .helper _ => true
 
@@ -109,12 +129,12 @@ inductive EvaluatesArguments (space : Namespace) :
 
 def assertOperand {scope : Scope} (space : Namespace) (operand : ModuleEntry.Operand scope)
     (expected : Bool) : Effect :=
-  let checked := ((lowerScalarOperand operand).eval space #v[]).bind (assertTruthAs expected)
+  let checked := (evaluateScalar space false operand).bind (assertTruthAs expected)
   ⟨checked.map fun _ => none, []⟩
 
 def effect {scope : Scope} (space : Namespace) : Instruction scope → Effect
   | .scalar (.assign name _ operand) =>
-    ⟨((lowerScalarOperand operand).eval space #v[]).map fun value => some (name, value), []⟩
+    ⟨(evaluateScalar space false operand).map fun value => some (name, value), []⟩
   | .scalar (.assertion operand) => assertOperand space operand true
   | .assertNot operand => assertOperand space operand false
   | .publish .. => ⟨.error .unsupported, []⟩

@@ -50,6 +50,7 @@ inductive Helper where
 
 inductive Value where
   | int (value : Int)
+  | bool (value : Bool)
   | none
   | exceptionClass (kind : ExceptionClass)
   | helper (callable : Helper)
@@ -129,7 +130,7 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .helper .assertEqual, [.int left, .int right] => .compare left right
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>
     .expect ⟨expected, onReturn⟩ callback arguments (by simp only [List.length_cons]; omega)
-  | .none, _ | .int _, _ => .nonCallable
+  | .none, _ | .int _, _ | .bool _, _ => .nonCallable
   | _, _ => .unsupported
 
 /-- Invoking an expectation calls the supplied closed callable using the

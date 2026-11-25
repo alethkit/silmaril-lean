@@ -23,6 +23,9 @@ def Value.asInt : Value → Int
   | .bool false => 0
   | .bool true => 1
 
+def Value.equal (left right : Value) : Bool :=
+  decide (left.asInt = right.asInt)
+
 def Value.truth : Value → Bool
   | .int value => decide (value ≠ 0)
   | .bool value => value
@@ -57,7 +60,7 @@ inductive Operator where
 def Operator.eval : Operator → Value → Value → Evaluated
   | .arithmetic op, left, right =>
     ((op.eval left.asInt right.asInt).map .int).mapError .arithmetic
-  | .equal, left, right => .ok (.bool (decide (left.asInt = right.asInt)))
+  | .equal, left, right => .ok (.bool (left.equal right))
 
 inductive Operator.Eval : Operator → Value → Value → Evaluated → Prop where
   | arithmetic {op left right result} :

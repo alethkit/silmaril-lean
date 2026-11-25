@@ -38,7 +38,7 @@ theorem failing_instruction {scope : Source.Scope} {space : Namespace} {instruct
 
 theorem assertNot_operand_failure {scope : Source.Scope} {space : Namespace}
     {operand : ModuleEntry.Operand scope} {error : Failure}
-    (failed : (lowerScalarOperand operand).eval space #v[] = .error error) :
+    (failed : evaluateScalar space false operand = .error error) :
     effect space (.assertNot operand) = ⟨.error error, []⟩ :=
   by simp [effect, assertOperand, failed, Except.bind, Except.map]
 
