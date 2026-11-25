@@ -117,8 +117,10 @@ checked by the Lean kernel over arbitrary valuations. -/
 private partial def quoteTerm (term : DataElab.Term fixtureSignature) :
     Elab.Term.TermElabM Lean.Expr := do
   let signature := mkConst ``fixtureSignature
-  let termType := mkApp (mkConst ``DataElab.Term) signature
-  let node := fun (ctor : Lean.Name) fields => mkAppN (mkApp (mkConst ctor) signature) fields
+  let applyCore := fun (ctor : Lean.Name) =>
+    mkApp2 (mkConst ctor) signature (mkConst ``DataElab.Fragment.core)
+  let termType := applyCore ``DataElab.Term
+  let node := fun (ctor : Lean.Name) fields => mkAppN (applyCore ctor) fields
   match term with
   | .flexible id => return node ``DataElab.Term.flexible #[toExpr id]
   | .numeral n => return node ``DataElab.Term.numeral #[toExpr n]
@@ -144,7 +146,7 @@ private def quoteChecked (constructor : Lean.Name) (term : DataElab.Term fixture
     Elab.Term.TermElabM Lean.Expr := do
   let quoted ← quoteTerm term
   let valid ← Meta.mkEqRefl (toExpr true)
-  return mkApp3 (mkConst constructor) (mkConst ``fixtureSignature) quoted valid
+  Meta.mkAppM constructor #[quoted, valid]
 
 private def emitSelections : Elab.Term.TermElabM Lean.Expr := do
   let registry ← loadSource
