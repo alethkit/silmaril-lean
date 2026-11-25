@@ -11,6 +11,33 @@ open Silmaril.Languages.Starlark (Binding)
 open Silmaril.Languages.Starlark.Lists
 open Silmaril.Languages.Starlark.Lists.Iteration
 
+private theorem collect_go_eq {cursor : Cursor} {values : List Value}
+    (yields : CursorCollects cursor values) (reversed : List Value) :
+    Cursor.collect.go cursor reversed = reversed.reverse ++ values := by
+  induction yields generalizing reversed with
+  | done exhausted => rw [Cursor.collect.go, exhausted, List.append_nil]
+  | next step _ ih =>
+    rw [Cursor.collect.go, step]
+    simpa [List.reverse_cons, List.append_assoc] using ih (_ :: reversed)
+
+private theorem collects (cursor : Cursor) : ∃ values, CursorCollects cursor values := by
+  cases step : cursor.advance with
+  | none => exact ⟨[], .done step⟩
+  | some item =>
+    obtain ⟨value, rest⟩ := item
+    obtain ⟨tail, yields⟩ := collects rest
+    exact ⟨value :: tail, .next step yields⟩
+termination_by cursor.remaining
+decreasing_by exact Cursor.advance_decreases step
+
+theorem cursorCollects_iff_collect (cursor : Cursor) (values : List Value) :
+    CursorCollects cursor values ↔ cursor.collect = values := by
+  have eq {items : List Value} (yields : CursorCollects cursor items) : cursor.collect = items :=
+    collect_go_eq yields []
+  refine ⟨eq, fun equal => ?_⟩
+  obtain ⟨items, yields⟩ := collects cursor
+  exact ((eq yields).symm.trans equal) ▸ yields
+
 theorem cursor_eq_of_runs {body : State → Outcome Flow → Prop} {meaning : Meaning Flow}
     {target : Binding} {cursor : Cursor} {state : State} {out : Outcome Flow}
     (bodyEq : ∀ s result, body s result → meaning s = result)

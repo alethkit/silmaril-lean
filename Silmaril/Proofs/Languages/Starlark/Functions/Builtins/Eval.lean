@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Functions.Builtins.Operational.Defs
+import Silmaril.Languages.Starlark.Lists.Iteration.Thms
 
 public section
 
@@ -9,7 +10,7 @@ namespace Silmaril.Proofs.Languages.Starlark.Functions.Builtins
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Functions.Builtins
 open Silmaril.Languages.Starlark.Lists
-open Silmaril.Languages.Starlark.Lists.Iteration (iterationSource truth)
+open Silmaril.Languages.Starlark.Lists.Iteration (cursorCollects_iff_collect iterationSource truth)
 
 private theorem runBind {α β : Type} (first : Meaning α) (next : α → Meaning β)
     (state : State) : (first >>= next) state = Outcome.resume (first state) next := by
@@ -32,6 +33,8 @@ private theorem items_eq_of_reads {id : Builtin} {state : State}
   | dict address =>
     simp only [items, iterationSource, runMap]
     cases dictEntries address state <;> rfl
+  | range yields =>
+    exact congrArg (fun values => EStateM.Result.ok values state) ((cursorCollects_iff_collect _ _).mp yields)
   | invalid h =>
     cases value <;> simp_all [IsCollection] <;> rfl
 
@@ -41,7 +44,8 @@ private theorem reads_items (id : Builtin) (state : State) (value : Value) :
   | list address => exact items_eq_of_reads (.list address) ▸ Items.list address
   | tuple address => exact items_eq_of_reads (.tuple address) ▸ Items.tuple address
   | dict address => exact items_eq_of_reads (.dict address) ▸ Items.dict address
-  | scalar | string | builtin | function | range => exact .invalid (by simp [IsCollection])
+  | range => exact .range ((cursorCollects_iff_collect _ _).mpr rfl)
+  | scalar | string | builtin | function => exact .invalid (by simp [IsCollection])
 
 theorem invoke_eq_of_invokes {state : State} {id : Builtin} {args : Actual} {out : Outcome Value}
     (h : Invokes state id args out) : invoke id args state = out := by

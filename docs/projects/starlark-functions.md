@@ -253,8 +253,9 @@ The new built-in rules and subscript primitive compose with
 `evaluates_iff_denoteExpr` and `lower_preserves` for exact outcomes and
 state after scratch projection. Normalized source and Lean quotation use
 ordinary calls and subscripts. Range truth, length and type are available.
-Range spreading, conversions to lists and tuples, comparison,
-membership and formatting remain open.
+The `list` and `tuple` built-ins materialize ranges through the same cursor
+as loops. Range spreading, comparison, membership and formatting remain open.
+[Range materialization](starlark-builtins.md#materializing-ranges)
 [Pinned range spec][range] · [Pinned subscripts][subscript] · [Go range construction and indexing][go-range] · [Go index validation][go-index] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ### List and tuple slice reads

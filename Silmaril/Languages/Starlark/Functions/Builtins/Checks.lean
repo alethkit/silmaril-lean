@@ -98,6 +98,22 @@ private def inspect (id : Builtin) (args : Arguments) : Except Error Lists.Value
      | _ => false
    | _, _ => false) = true
 
+-- Range materialization preserves existing heap cells and active guards.
+-- A tuple's internal cell carries the structural integer key.
+#guard
+  let original : State := { heap := #[⟨.list [], false⟩], iterators := [0] }
+  let span : Lists.RangeValue := ⟨10^24 + 4, 10^24, -2, by decide⟩
+  let before := original.write (slot "span") (.range span)
+  let args : Arguments := { positional := [read "span"] }
+  let values := [number (10^24 + 4), number (10^24 + 2)]
+  let key : Lists.Key := [.openTuple, .scalar (.int (10^24 + 4)), .scalar (.int (10^24 + 2)), .closeTuple]
+  let listState := finishState (apply .list args before)
+  let tupleState := finishState (apply .tuple args before)
+  listState.bindingValue (slot "out") = .ok (.list 1) ∧
+    listState.heap = before.heap.push ⟨.list values, false⟩ ∧ listState.iterators = [0] ∧
+    tupleState.bindingValue (slot "out") = .ok (.tuple 1) ∧
+    tupleState.heap = before.heap.push ⟨.tuple values (some key), false⟩ ∧ tupleState.iterators = [0]
+
 #guard
   inspect .len {} = .error (.builtinArity .len 1 1 0) ∧
   inspect .bool { positional := [int 1, int 2] } = .error (.builtinArity .bool 0 1 2) ∧

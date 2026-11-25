@@ -1,26 +1,29 @@
 module
 
 public import Silmaril.Languages.Starlark.Functions.Builtins.Defs
+public import Silmaril.Languages.Starlark.Lists.Iteration.Operational.Defs
 
 public section
 
 namespace Silmaril.Languages.Starlark.Functions.Builtins
 
 open Lists
-open Lists.Iteration (truth)
+open Lists.Iteration (Cursor CursorCollects truth)
 
 @[expose] def IsCollection : Lists.Value → Prop
-  | .list _ | .tuple _ | .dict _ => True
+  | .list _ | .tuple _ | .dict _ | .range _ => True
   | _ => False
 
-/-- Read access to the ordered items of a collection. The dictionary rule
-selects keys, and invalid addresses retain the heap errors of cell access. -/
+/-- Obtain the ordered items of a collection. Dictionaries yield keys;
+ranges derive their elements by cursor steps. -/
 inductive Items (id : Builtin) (state : State) :
     Lists.Value → Outcome (List Lists.Value) → Prop where
   | list (address : Address) : Items id state (.list address) (listElements address state)
   | tuple (address : Address) : Items id state (.tuple address) (tupleElements address state)
   | dict (address : Address) : Items id state (.dict address)
       (Outcome.resume (dictEntries address state) fun entries => pure (entries.map Entry.key))
+  | range {span : RangeValue} {values : List Lists.Value} :
+      CursorCollects (Cursor.ofRange span) values → Items id state (.range span) (.ok values state)
   | invalid {value : Lists.Value} : ¬ IsCollection value →
       Items id state value (.error (.builtinType id value) state)
 
