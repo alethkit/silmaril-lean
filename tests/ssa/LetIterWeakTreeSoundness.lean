@@ -2,6 +2,7 @@ module
 
 import Silmaril.Semantics.ITree.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Case.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.DecisionTree.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -630,5 +631,135 @@ theorem effectful_case_observes_both_tags :
       changedRight_typed (by rw [rightOrder, changedRightOrder]; intro h; cases h) harms.2
 
 end EffectfulCase
+
+section EffectfulDecisionTree
+
+open Response.DecisionTree (Shape)
+
+abbrev Γdec : EffectCtx T Fx :=
+  [(Ty.coprod inputSort outputSort, ⊥), (outputSort, ⊥), (Ty.coprod inputSort inputSort, ⊥)]
+abbrev firstSplit : Fin Γdec.length := 0
+abbrev Γfirst (x : Bool) := SumSplit.branchCtx Γdec firstSplit (.base x)
+abbrev secondSplit (x : Bool) : Fin (Γfirst x).length := ⟨2, by change 2 < 3; decide⟩
+abbrev Γleaf (x : Bool) := SumSplit.branchCtx (Γfirst x) (secondSplit x) inputSort
+
+abbrev decisionSlots (x : Bool) : Fin (Γleaf x).length → Bool :=
+  fun i => if i.val = 0 then x else if i.val = 1 then true else false
+
+private theorem leafSlots_typed (x : Bool) :
+    ∀ i : Fin (Γleaf x).length, ((Γleaf x).get i).1 = .base (decisionSlots x i) := by
+  intro i
+  refine Fin.cases rfl (fun j => ?_) i
+  refine Fin.cases rfl (fun k => ?_) j
+  rw [Fin.eq_zero k]
+  rfl
+
+abbrev finalShape (x : Bool) : Shape (Γleaf x) :=
+  .leaf (decisionSlots x) (leafSlots_typed x)
+abbrev laterShape (x : Bool) : Shape (Γfirst x) :=
+  .split (secondSplit x) (x := false) (y := false) rfl (finalShape x) (finalShape x)
+abbrev fullShape : Shape Γdec :=
+  .split firstSplit (x := false) (y := true) rfl (laterShape false) (laterShape true)
+
+abbrev probeEarlier : Response.Flatten.Program sig (decisionSlots false) true :=
+  .request Prim.read (fun _ => Tree.var (S := sig) (sorts := decisionSlots false)
+    ⟨0, by change 0 < 3; decide⟩)
+abbrev probeLater (x : Bool) : Response.Flatten.Program sig (decisionSlots x) true :=
+  .request Prim.read (fun _ => Tree.var (S := sig) (sorts := decisionSlots x)
+    ⟨2, by change 2 < 3; decide⟩)
+abbrev leftTree (p : Response.Flatten.Program sig (decisionSlots false) true) :
+    Response.DecisionTree.Program sig true (laterShape false) :=
+  .split (secondSplit false) (.leaf p) (.leaf (probeLater false))
+abbrev rightTree : Response.DecisionTree.Program sig true (laterShape true) :=
+  .split (secondSplit true) (.leaf (probeLater true)) (.leaf (probeLater true))
+abbrev decision (p : Response.Flatten.Program sig (decisionSlots false) true) :
+    Response.DecisionTree.Program sig true fullShape :=
+  .split firstSplit (leftTree p) rightTree
+
+private theorem pureDecisionCtx : Γdec.Pure := by unfold EffectCtx.Pure; decide
+private theorem earlier_typed : Response.Flatten.Program.WellTyped sig strict probeEarlier :=
+  ⟨le_rfl, fun _ => trivial⟩
+private theorem later_typed (x : Bool) : Response.Flatten.Program.WellTyped sig strict (probeLater x) :=
+  ⟨le_rfl, fun _ => trivial⟩
+private theorem leftTree_typed (p : Response.Flatten.Program sig (decisionSlots false) true)
+    (hp : Response.Flatten.Program.WellTyped sig strict p) :
+    Response.DecisionTree.Program.WellTyped sig strict (leftTree p) :=
+  ⟨hp, later_typed false⟩
+private theorem rightTree_typed : Response.DecisionTree.Program.WellTyped sig strict rightTree :=
+  ⟨later_typed true, later_typed true⟩
+private theorem decision_typed (p : Response.Flatten.Program sig (decisionSlots false) true)
+    (hp : Response.Flatten.Program.WellTyped sig strict p) :
+    Response.DecisionTree.Program.WellTyped sig strict (decision p) :=
+  ⟨leftTree_typed p hp, rightTree_typed⟩
+
+private def nestedRequestIndex : Expr Prim → Option Nat
+  | .case (.var 0) (.case (.var 3) (.op .read (.pair (.var i) .unit)) _) _ => some i
+  | _ => none
+
+-- At the second test, the first payload is the older of the two binders.
+example : nestedRequestIndex (decision probeEarlier).source = some 1 := rfl
+example : nestedRequestIndex (decision (probeLater false)).source = some 0 := rfl
+
+private theorem leafRequestsDiffer :
+    ¬ Eqv (Γleaf false) outputSort strict probeEarlier.source (probeLater false).source := by
+  intro he
+  have hpure : (Γleaf false).Pure := by unfold EffectCtx.Pure; decide
+  let p := compile (ε := Fx) sig probeEarlier
+  let q := compile (ε := Fx) sig (probeLater false)
+  have ep := compile_eqv sig hpure (leafSlots_typed false) strict probeEarlier earlier_typed
+  have eq := compile_eqv sig hpure (leafSlots_typed false) strict (probeLater false) (later_typed false)
+  have hn := (ep.symm.trans (he.trans eq)).toLetIter
+    (Response.Sequence.lowers sig p) (Response.Sequence.lowers sig q)
+  have h := Response.Sequence.native_eq_implies_eq sig (leafSlots_typed false) strict p q
+    (compile_typed sig strict probeEarlier earlier_typed)
+    (compile_typed sig strict (probeLater false) (later_typed false)) hn
+  let argumentIndex : Expr Prim → Option Nat
+    | .let₁ (.op .read (.pair (.var i) .unit)) _ => some i
+    | _ => none
+  have h0 : argumentIndex p.source = some 0 := by
+    simp only [p, compile, emit, ite_eq_right read_not_pure, Response.Sequence.source,
+      Tree.source, sourceTuple, argumentIndex]
+  have h2 : argumentIndex q.source = some 2 := by
+    simp only [q, compile, emit, ite_eq_right read_not_pure, Response.Sequence.source,
+      Tree.source, sourceTuple, argumentIndex]
+  exact (by decide : (some 0 : Option Nat) ≠ some 2)
+    (h0.symm.trans ((congrArg (fun p => argumentIndex (Response.Sequence.source sig p)) h).trans h2))
+
+private theorem decisionSourceDiffers :
+    ¬ Eqv Γdec outputSort strict (decision probeEarlier).source
+      (decision (probeLater false)).source := by
+  intro h
+  have hL : (Γfirst false).Pure := SumSplit.branchCtx_pure pureDecisionCtx firstSplit inputSort
+  have hR : (Γfirst true).Pure := SumSplit.branchCtx_pure pureDecisionCtx firstSplit outputSort
+  have hr := Response.DecisionTree.source_wf sig hR strict rightTree rightTree_typed
+  have hl := Response.DecisionTree.source_wf sig hL strict (leftTree probeEarlier)
+    (leftTree_typed probeEarlier earlier_typed)
+  have hl' := Response.DecisionTree.source_wf sig hL strict (leftTree (probeLater false))
+    (leftTree_typed (probeLater false) (later_typed false))
+  have hleft := (SumSplit.caseArms_eqv_iff firstSplit rfl rfl hl hr hl' hr).mp h
+  have hpure : (Γleaf false).Pure :=
+    SumSplit.branchCtx_pure hL (secondSplit false) inputSort
+  have he := source_wf sig hpure (leafSlots_typed false) strict probeEarlier earlier_typed
+  have ha := source_wf sig hpure (leafSlots_typed false) strict (probeLater false) (later_typed false)
+  exact leafRequestsDiffer ((SumSplit.caseArms_eqv_iff (secondSplit false) rfl rfl he ha ha ha).mp
+    hleft.1).1
+
+/-- The same nested request uses either the earlier payload or the second
+payload. A native equality cannot identify those inputs. -/
+theorem nested_case_distinguishes_payloads :
+    ∃ t s : Tm Empty Prim Γdec.length,
+      (decision probeEarlier).source.toLetIter Γdec.length = some t ∧
+      (decision (probeLater false)).source.toLetIter Γdec.length = some s ∧
+      ¬ AbortEquiv (⊥ : Fx) Γ₀ Γdec.toBoundCtx t s outputSort := by
+  let p := decision probeEarlier
+  let q := decision (probeLater false)
+  have hp := decision_typed probeEarlier earlier_typed
+  have hq := decision_typed (probeLater false) (later_typed false)
+  obtain ⟨t, ht, _⟩ := (Response.DecisionTree.source_wf sig pureDecisionCtx strict p hp).toLetIter
+  obtain ⟨s, hs, _⟩ := (Response.DecisionTree.source_wf sig pureDecisionCtx strict q hq).toLetIter
+  exact ⟨t, s, ht, hs, fun h => decisionSourceDiffers
+    ((Response.DecisionTree.endpoint_reflection sig pureDecisionCtx strict p q hp hq ht hs).mp h)⟩
+
+end EffectfulDecisionTree
 
 end LetIterResponseSingleCall
