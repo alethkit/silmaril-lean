@@ -20,6 +20,7 @@
 | Wasm extras | The SpecTec meta-theory and the SpecTec Lean 4 backend model, Iris program logics for Wasm and WasmFX, WASI theories over the x86 process models, the Wasm components registry and the WASI 0.3 Rust example components, and more Wasm tools | [Wasm extras](wasm-extras.md) |
 | Region extraction | Raw and lawful region relations, first-exit semantics and gluing, semantic queries, typed binary adapters, conservative x86/Wasm candidates and a raw-relation institution; explicit operational and coverage limits | [Region extraction](region-extraction.md) |
 | Function relations | Machine-independent decomposition, call graphs, indexed effects and room institution; certified direct ELF graph projections and a conditional x86 operational adapter | [Function relations](function-relations.md) |
+| RVSDG | Typed primitives and multi-way γ regions, numbered graph/term round trips, and agreement of their operational semantics | [RVSDG](rvsdg.md) |
 | Compiler foundations | Semantic contracts, passes, checked transformations, translations and compiler categories | [Compiler APIs](compilers.md) |
 | Logics and institutions | HOL, Metamath, ZF/ZFC, arithmetic, proof translations and Hets-style development graphs | [Logic](logic.md) |
 | Lambda calculi | Eight cube corners, STLC categorical semantics, System F/Fω parametricity and institution graphs | [Lambda cube](lambda-cube.md) |
