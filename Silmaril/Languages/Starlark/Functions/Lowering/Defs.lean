@@ -15,31 +15,31 @@ inductive Expr where
   | branch (test yes no : Expr)
   | logical (op : LogicalOp) (left right : Expr)
 
-def Expr.callPos (callee : Expr) (positional : List Expr) : Expr :=
+@[expose] def Expr.callPos (callee : Expr) (positional : List Expr) : Expr :=
   .call callee positional [] none none
 
 /-- The prefix is outside the Starlark identifier grammar. A client composing
 separately lowered expressions threads `next` through the fresh ranges. -/
-def temporary (index : Nat) : Binding := ⟨.local, "$expr" ++ toString index⟩
+@[expose] def temporary (index : Nat) : Binding := ⟨.local, "$expr" ++ toString index⟩
 
 structure Lowered where
   code : Body
   temporaries : List Binding
   next : Nat
 
-private def assign (target : Binding) (value : Lists.Expr) : Body :=
+@[expose] def assign (target : Binding) (value : Lists.Expr) : Body :=
   .total (.atomic (.assign target value))
 
-private def stage (code : Binding → StateM Nat Body) : StateM Nat (Body × Lists.Expr) := do
+@[expose] def stage (code : Binding → StateM Nat Body) : StateM Nat (Body × Lists.Expr) := do
   let slot := temporary (← get)
   modify (· + 1)
   return (← code slot, .read (.bound slot))
 
-private theorem keywordSize (keyword : String × Expr) : sizeOf keyword.2 ≤ sizeOf keyword := by
+theorem keywordSize (keyword : String × Expr) : sizeOf keyword.2 ≤ sizeOf keyword := by
   cases keyword
   simp
 
-private def emit (expression : Expr) (target : Binding) : StateM Nat Body :=
+@[expose] def emit (expression : Expr) (target : Binding) : StateM Nat Body :=
   match expression with
   | .atom value => pure (assign target value)
   | .call callee positional keywords star starStar => do
@@ -79,10 +79,10 @@ private def emit (expression : Expr) (target : Binding) : StateM Nat Body :=
 termination_by sizeOf expression
 decreasing_by all_goals (simp_wf; omega)
 
-/-- Lower into a caller-chosen destination. Install the returned temporary
-slots in the enclosing function or root frame before execution. Only the final
-value writes the destination, even when an intermediate call fails. -/
-def lower (expression : Expr) (target : Binding) (start : Nat := 0) : Lowered :=
+/-- Lower into a caller-chosen destination that is distinct from scratch names.
+The returned names can use the frame's direct bindings for exact heap
+comparison. Only a successful expression writes the destination. -/
+@[expose] def lower (expression : Expr) (target : Binding) (start : Nat := 0) : Lowered :=
   let (code, stop) := (emit expression target).run start
   ⟨code, (List.range' start (stop - start)).map temporary, stop⟩
 
