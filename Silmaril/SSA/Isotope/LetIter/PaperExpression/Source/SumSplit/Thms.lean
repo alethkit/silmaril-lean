@@ -50,6 +50,39 @@ theorem eqv_iff_specializations (i : Fin Γ.length) (ht : (Γ.get i).1 = coprod 
       Eqv (branchCtx Γ i B) C e (right i a) (right i b) :=
   Proofs.eqv_iff_specializations i ht he ha hb
 
+section CaseArms
+
+variable {l r l' r' : Expr Φ}
+
+/-- Build a typed case from programs in the two specialized contexts. -/
+theorem caseArms_wf (i : Fin Γ.length) (ht : (Γ.get i).1 = coprod A B)
+    (he : (Γ.get i).2 = ⊥) (hl : Wf (branchCtx Γ i A) l C e) (hr : Wf (branchCtx Γ i B) r C e) :
+    Wf Γ (caseArms i l r) C e :=
+  Proofs.caseArms_wf i ht he hl hr
+
+/-- The left injection of a free payload exposes the left program. -/
+theorem caseArms_left (i : Fin Γ.length) (ht : (Γ.get i).1 = coprod A B)
+    (he : (Γ.get i).2 = ⊥) (hl : Wf (branchCtx Γ i A) l C e) (hr : Wf (branchCtx Γ i B) r C e) :
+    Eqv (branchCtx Γ i A) C e (left i (caseArms i l r)) l :=
+  Proofs.caseArms_left i ht he hl hr
+
+/-- The right injection of a free payload exposes the right program. -/
+theorem caseArms_right (i : Fin Γ.length) (ht : (Γ.get i).1 = coprod A B)
+    (he : (Γ.get i).2 = ⊥) (hl : Wf (branchCtx Γ i A) l C e) (hr : Wf (branchCtx Γ i B) r C e) :
+    Eqv (branchCtx Γ i B) C e (right i (caseArms i l r)) r :=
+  Proofs.caseArms_right i ht he hl hr
+
+/-- Case equality at the selected slot is exactly equality of both arms at the supplied bound. -/
+theorem caseArms_eqv_iff (i : Fin Γ.length) (ht : (Γ.get i).1 = coprod A B)
+    (he : (Γ.get i).2 = ⊥)
+    (hl : Wf (branchCtx Γ i A) l C e) (hr : Wf (branchCtx Γ i B) r C e)
+    (hl' : Wf (branchCtx Γ i A) l' C e) (hr' : Wf (branchCtx Γ i B) r' C e) :
+    Eqv Γ C e (caseArms i l r) (caseArms i l' r') ↔
+      Eqv (branchCtx Γ i A) C e l l' ∧ Eqv (branchCtx Γ i B) C e r r' :=
+  Proofs.caseArms_eqv_iff i ht he hl hr hl' hr'
+
+end CaseArms
+
 end Source
 
 section Native

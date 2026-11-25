@@ -31,6 +31,11 @@ def right (i : Nat) (a : Expr Φ) : Expr Φ := a.subst (replaceVar i (.inr (.var
 
 def toFront (i j : Nat) : Nat := if j = i then 0 else j + 1
 
+/-- Case on slot `i` with arms written in the two contexts that replace the
+sum in place. The rendered arms use the fresh payload binder for that slot. -/
+def caseArms (i : Nat) (l r : Expr Φ) : Expr Φ :=
+  .case (.var i) (l.wk (toFront i)) (r.wk (toFront i))
+
 def rebuild (i : Nat) (a : Expr Φ) : Expr Φ :=
   .case (.var i) ((left i a).wk (toFront i)) ((right i a).wk (toFront i))
 

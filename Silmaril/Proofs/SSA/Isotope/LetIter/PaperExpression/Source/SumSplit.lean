@@ -186,6 +186,97 @@ public theorem wf_specializations (i : Fin Γ.length) (ht : (Γ.get i).1 = copro
     Wf (branchCtx Γ i A) (left i a) C e ∧ Wf (branchCtx Γ i B) (right i a) C e :=
   ⟨wf_subst ha (left_typed i ht he), wf_subst ha (right_typed i ht he)⟩
 
+section CaseArms
+
+variable {l r l' r' : Expr Φ}
+
+public theorem caseArms_wf (i : Fin Γ.length) (ht : (Γ.get i).1 = coprod A B)
+    (he : (Γ.get i).2 = ⊥) (hl : Wf (branchCtx Γ i A) l C e) (hr : Wf (branchCtx Γ i B) r C e) :
+    Wf Γ (caseArms i l r) C e := by
+  have hvar : Wf Γ (.var i.val : Expr Φ) (coprod A B) e :=
+    ht ▸ Wf.var i (he.trans_le bot_le)
+  exact .case hvar (wf_wk hl (ren_branch_toFront i A)) (wf_wk hr (ren_branch_toFront i B))
+
+private theorem arm_under_specialization (i : Nat) (p a : Expr Φ) :
+    (a.wk (toFront i)).subst (Expr.liftSubst (replaceVar i p)) = a.wk (toFront i) := by
+  have hc : Expr.liftSubst (replaceVar i p) ∘ toFront i =
+      (Expr.var : Nat → Expr Φ) ∘ toFront i := by
+    funext j
+    by_cases h : j = i
+    · simp [Function.comp_apply, toFront, h, Expr.liftSubst]
+    · simp [Function.comp_apply, toFront, h, Expr.liftSubst, replaceVar, Expr.wk0, Expr.wk]
+  rw [subst_wk, hc, ← subst_wk, subst_var]
+
+private theorem specialized_arm_wf (i : Fin Γ.length) (p : Expr Φ)
+    (hσ : TypedSubst (branchCtx Γ i X) Γ (replaceVar i p))
+    (Y : τ) {arm : Expr Φ} (ha : Wf (branchCtx Γ i Y) arm C e) :
+    Wf ((Y, ⊥) :: branchCtx Γ i X) (arm.wk (toFront i)) C e := by
+  have h := wf_subst (wf_wk ha (ren_branch_toFront i Y)) (hσ.lift (Y, ⊥))
+  rwa [arm_under_specialization i p arm] at h
+
+private theorem payload_wf (i : Fin Γ.length) (X : τ) :
+    Wf (branchCtx Γ i X) (.var i.val : Expr Φ) X (⊥ : ε) := by
+  simpa only [branchCtx_lookup_self, Fin.val_cast] using
+    (Wf.var (Φ := Φ) (Γ := branchCtx Γ i X) (i.cast List.length_set.symm) le_rfl)
+
+public theorem caseArms_left (i : Fin Γ.length) (ht : (Γ.get i).1 = coprod A B)
+    (he : (Γ.get i).2 = ⊥) (hl : Wf (branchCtx Γ i A) l C e) (hr : Wf (branchCtx Γ i B) r C e) :
+    Eqv (branchCtx Γ i A) C e (left i (caseArms i l r)) l := by
+  let p : Expr Φ := .inl (.var i.val)
+  have hσ : TypedSubst (branchCtx Γ i A) Γ (replaceVar i p) := left_typed i ht he
+  have hl' := specialized_arm_wf i p hσ A hl
+  have hr' := specialized_arm_wf i p hσ B hr
+  have hvar := payload_wf (Φ := Φ) i A
+  have hvar' := wf_wkEff hvar (show (⊥ : ε) ≤ e from bot_le)
+  have hcase : Eqv (branchCtx Γ i A) C e
+      (.case p (l.wk (toFront i)) (r.wk (toFront i))) (.let₁ (.var i.val) (l.wk (toFront i))) :=
+    .step (.reduce (.case (.inl hvar') hl' hr') (.let₁ hvar' hl') (.case_inl _ _ _))
+  have hbeta := Eqv.step (Step.let1_beta hvar hl')
+  rw [rebind_beta] at hbeta
+  have hexp : left i (caseArms i l r) = .case p (l.wk (toFront i)) (r.wk (toFront i)) := by
+    simp only [left, caseArms, Expr.subst, arm_under_specialization, replaceVar, p]
+    rfl
+  exact hexp.symm ▸ hcase.trans hbeta
+
+public theorem caseArms_right (i : Fin Γ.length) (ht : (Γ.get i).1 = coprod A B)
+    (he : (Γ.get i).2 = ⊥) (hl : Wf (branchCtx Γ i A) l C e) (hr : Wf (branchCtx Γ i B) r C e) :
+    Eqv (branchCtx Γ i B) C e (right i (caseArms i l r)) r := by
+  let p : Expr Φ := .inr (.var i.val)
+  have hσ : TypedSubst (branchCtx Γ i B) Γ (replaceVar i p) := right_typed i ht he
+  have hl' := specialized_arm_wf i p hσ A hl
+  have hr' := specialized_arm_wf i p hσ B hr
+  have hvar := payload_wf (Φ := Φ) i B
+  have hvar' := wf_wkEff hvar (show (⊥ : ε) ≤ e from bot_le)
+  have hcase : Eqv (branchCtx Γ i B) C e
+      (.case p (l.wk (toFront i)) (r.wk (toFront i))) (.let₁ (.var i.val) (r.wk (toFront i))) :=
+    .step (.reduce (.case (.inr hvar') hl' hr') (.let₁ hvar' hr') (.case_inr _ _ _))
+  have hbeta := Eqv.step (Step.let1_beta hvar hr')
+  rw [rebind_beta] at hbeta
+  have hexp : right i (caseArms i l r) = .case p (l.wk (toFront i)) (r.wk (toFront i)) := by
+    simp only [right, caseArms, Expr.subst, arm_under_specialization, replaceVar, p]
+    rfl
+  exact hexp.symm ▸ hcase.trans hbeta
+
+public theorem caseArms_eqv_iff (i : Fin Γ.length) (ht : (Γ.get i).1 = coprod A B)
+    (he : (Γ.get i).2 = ⊥)
+    (hl : Wf (branchCtx Γ i A) l C e) (hr : Wf (branchCtx Γ i B) r C e)
+    (hl' : Wf (branchCtx Γ i A) l' C e) (hr' : Wf (branchCtx Γ i B) r' C e) :
+    Eqv Γ C e (caseArms i l r) (caseArms i l' r') ↔
+      Eqv (branchCtx Γ i A) C e l l' ∧ Eqv (branchCtx Γ i B) C e r r' := by
+  constructor
+  · intro h
+    have hs := (eqv_iff_specializations i ht he
+      (caseArms_wf i ht he hl hr) (caseArms_wf i ht he hl' hr')).mp h
+    exact ⟨(caseArms_left i ht he hl hr).symm.trans (hs.1.trans (caseArms_left i ht he hl' hr')),
+      (caseArms_right i ht he hl hr).symm.trans (hs.2.trans (caseArms_right i ht he hl' hr'))⟩
+  · rintro ⟨heL, heR⟩
+    have hvar : Wf Γ (.var i.val : Expr Φ) (coprod A B) e :=
+      ht ▸ Wf.var i (he.trans_le bot_le)
+    exact .case (.refl hvar) (eqv_rename heL (ren_branch_toFront i A))
+      (eqv_rename heR (ren_branch_toFront i B))
+
+end CaseArms
+
 end Source
 
 section Native
