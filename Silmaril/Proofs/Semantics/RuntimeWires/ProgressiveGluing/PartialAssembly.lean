@@ -102,6 +102,22 @@ noncomputable def assemble : Diagram S (L + R) (wireCount lower upper) .point wh
     simp only [Equiv.symm_apply_apply] at h₂ h₃ ⊢
     exact output_order m j h h₁ h₂ h₃
 
+theorem covered_assemble_lower {w : Fin (wireCount lower upper)} {y : ℝ}
+    (hy : y ≤ 1 / 2) (cover : (assemble m).covers w y) :
+    ∃ a, (lowerId (upper := upper) a) = w ∧ lower.covers a (slabHeight 0 y) := by
+  let e := numbering lower upper
+  have h : y ∈ Set.Icc (wireLo (e.symm w)) (wireHi m (e.symm w)) := cover
+  obtain ⟨a, id⟩ := lower_present hy h.1
+  exact ⟨a, (congrArg e id).trans (e.apply_symm_apply w), (covered_lower m a hy).mp (id.symm ▸ h)⟩
+
+theorem covered_assemble_upper {w : Fin (wireCount lower upper)} {y : ℝ}
+    (hy : 1 / 2 ≤ y) (cover : (assemble m).covers w y) :
+    ∃ b, m.upperId b = w ∧ upper.covers b (slabHeight 1 y) := by
+  let e := numbering lower upper
+  have h : y ∈ Set.Icc (wireLo (e.symm w)) (wireHi m (e.symm w)) := cover
+  obtain ⟨b, id⟩ := upper_present m hy h.2
+  exact ⟨b, (congrArg e id).trans (e.apply_symm_apply w), (covered_upper m b hy).mp (id.symm ▸ h)⟩
+
 theorem finish_upper_id (w : Fin B) :
     (assemble m).finish (m.upperId w) = (upper.finish w).map (Fin.natAdd L) := by
   let e := numbering lower upper
