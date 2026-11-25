@@ -27,6 +27,11 @@ theorem FiniteCopowers.reindex_comp {R : Type} [Finite R] (f : R → S) (g : S �
     C.reindex f ≫ C.reindex g = C.reindex (g ∘ f) :=
   Proofs.IterationInterpretation.reindex_comp f g
 
+theorem Interpretation.branch_reindex (f : S → T) (e : Head σ E S) :
+    M.branch (P := P) e ≫ P.map (𝟙 Y) (C.reindex f) =
+      M.branch (P := P) (e.mapState f) :=
+  Proofs.IterationInterpretation.branch_reindex M f e
+
 theorem Interpretation.body_square {g : System σ E S} {h : System σ E T} {f : S → T}
     (respects : PreservesEquations g h f) :
     C.reindex f ≫ M.body (P := P) h =
