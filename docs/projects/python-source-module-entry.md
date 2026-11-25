@@ -36,7 +36,8 @@ The function plan keeps the source order of top-level assignments,
 definitions and calls. A definition carries its analyzed child path,
 fixed positional destinations and lowered body. Each call reads the
 function by its module name and supplies ordered positional operands. The
-result can be assigned to a name or discarded.
+result can be assigned to a name, discarded or tested by a message-free
+assertion.
 
 An implicit or declared global read in a function body retains its module
 name. This supplies lookup in the namespace at call time, including writes

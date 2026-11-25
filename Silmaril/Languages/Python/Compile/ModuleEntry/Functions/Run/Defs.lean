@@ -37,6 +37,7 @@ def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Function
 def destination {scope : Scope} : Functions.Destination scope → Core.Module.Functions.Destination
   | .discard => .discard
   | .store name _ => .bindGlobal name
+  | .assertion => .assert
 
 def lowerInstructions {scope : Scope} (next : Nat) : List (Functions.Action scope) →
     Except CompileError (List (Instruction scope) × List Compile.Closure.Link.Block)

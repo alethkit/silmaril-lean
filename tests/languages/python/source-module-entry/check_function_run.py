@@ -35,6 +35,13 @@ observed = identity()
 observed = 5
 observed = target()
 """, "TypeError", ".raised .notCallable", 5, None),
+    ("assert_call", """def identity(value):
+    return value
+assert identity(1)
+kept = 4
+assert identity(0)
+observed = 2
+""", "AssertionError", ".assertionError", None, 4),
 )
 
 LEAN = """
@@ -63,7 +70,7 @@ completion = "normal"
 try:
     with open(sys.argv[1], encoding="utf-8") as source:
         exec(compile(source.read(), sys.argv[1], "exec", optimize=0), namespace)
-except (NameError, TypeError) as error:
+except (AssertionError, NameError, TypeError) as error:
     completion = type(error).__name__
 print(json.dumps([completion, namespace.get("observed"), namespace.get("kept")]))
 """
