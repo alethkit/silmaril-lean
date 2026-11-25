@@ -159,14 +159,16 @@ typed sources.
 | Theorem 26 on arbitrary configurations with the (assign2) location premise | `L3.locationContextStep_iff_step` |
 
 Executable type inference and reduction, the byte grammar and codecs, and
-institution and denotational models remain follow-up work.
+denotational models remain follow-up work.
 
 The [course notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf)
 are pinned as `sewell2026semantics` in [the bibliography](../../references.bib).
 
 ## Operational institution
 
-`Silmaril.Courses.Cambridge.OperationalInstitution` exposes the L1 and L2
-call-by-value step models over their original configurations. The finite
-return view observes reachable values with their final stores.
-[Sentences, reducts and observation contract](../projects/operational-institutions.md#cambridge-l1-and-l2)
+`Silmaril.Courses.Cambridge.OperationalInstitution` exposes the L1 and
+call-by-value L2 step models and the direct L3 step model over their original
+configurations. Finite returns observe reachable values with their final
+stores. L3 retains each fresh location choice.
+[L1 and L2 observation contract](../projects/operational-institutions.md#cambridge-l1-and-l2) ·
+[L3 observation contract](../projects/operational-institutions.md#cambridge-l3)
