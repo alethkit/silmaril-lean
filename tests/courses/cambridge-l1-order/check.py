@@ -1,4 +1,4 @@
-"""Exercise 11. Run the pinned Cambridge interpreters and separate host probes."""
+"""Exercises 6 and 11. Run the pinned Cambridge interpreters and host probes."""
 
 import hashlib
 from pathlib import Path
@@ -49,7 +49,7 @@ def fetch_sources(directory):
         (directory / local).write_bytes(data)
 
 
-def check_output(output, *, ocaml):
+def check_order(output, *, ocaml):
     rows = {}
     for line in output.splitlines():
         if line.startswith("EX11 "):
@@ -73,6 +73,52 @@ def check_output(output, *, ocaml):
             raise SystemExit(f"Host {case}: unexpected result {(result, trace)}")
     if rows:
         raise SystemExit(f"Unexpected probe cases: {rows}")
+
+
+def check_integers(output, *, ocaml):
+    limits = None
+    results = {}
+    for line in output.splitlines():
+        if not line.startswith("EX6 "):
+            continue
+        _, layer, *fields = line.split()
+        if layer == "limits":
+            if limits is not None:
+                raise SystemExit(f"Duplicate integer limits: {line}")
+            limits = tuple(map(int, fields))
+        else:
+            case, result = fields
+            key = (layer, case)
+            if key in results:
+                raise SystemExit(f"Duplicate probe result: {line}")
+            results[key] = result
+        print(line, flush=True)
+
+    allowed_widths = {31, 63} if ocaml else {32}
+    if limits is None or len(limits) != 3 or limits[0] not in allowed_widths:
+        raise SystemExit(f"Unexpected integer limits {limits}; expected width in {allowed_widths}")
+    width, minimum, maximum = limits
+    signed_limit = 2 ** (width - 1)
+    if (minimum, maximum) != (-signed_limit, signed_limit - 1):
+        raise SystemExit(f"Unexpected signed range for width {width}: {(minimum, maximum)}")
+
+    expected = {
+        "upper-wrap": str(-signed_limit),
+        "lower-wrap": str(signed_limit - 1),
+        "wrapped-ge-zero": "false",
+        "zero-ge-wrapped": "true",
+    }
+    for layer in ("l1", "host"):
+        actual = {case: result for (source, case), result in results.items() if source == layer}
+        if actual != expected:
+            raise SystemExit(f"{layer} integer cases: got {actual}, expected {expected}")
+    if len(results) != 2 * len(expected):
+        raise SystemExit(f"Unexpected integer cases: {results}")
+
+
+def check_output(output, *, ocaml):
+    check_order(output, ocaml=ocaml)
+    check_integers(output, ocaml=ocaml)
 
 
 def main():
