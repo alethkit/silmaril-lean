@@ -16,7 +16,7 @@ open Paper.SingletonReification.SingleCfg.Model
 open Paper.SingletonReification (packedPair packedDiagonal packedWhiskerRight packedWhiskerLeft)
 open CfgEta.TypeCategory.ConstructorReification (fstMap inlMap inrMap)
 open CfgEta.TypeCategory.Retained (packedDistributor)
-open Silmaril.Isotope.LambdaSSA.Semantics.Categorical.SingletonDispatcher (route_inl route_inr)
+open Silmaril.Isotope.LambdaSSA.Semantics.Categorical.SingletonDispatcher (route_inl route_inr labelInject_payload labelAppendSplit_zero_assoc labelAppendSplit_succ_assoc)
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LetIter.Semantics.Categorical
@@ -40,6 +40,23 @@ theorem packedPair_id_right {P X : τ} (f : M.obj P ⟶ M.obj X) :
   simp only [packedPair, packedDiagonal, packedWhiskerRight, Category.assoc, Iso.inv_hom_id_assoc]
   rw [← Category.assoc (CartesianMonoidalCategory.lift _ _) (f ▷ M.obj P),
     CartesianMonoidalCategory.lift_whiskerRight, Category.id_comp]
+
+set_option backward.isDefEq.respectTransparency false in
+theorem exitSum_inl (S D : τ) :
+    inlMap M S (Silmaril.coprod D Silmaril.empty) ≫ exitSum M S D = inrMap M D S := by
+  simp only [exitSum, packedExitType, inlMap, inrMap, unpackLabel, Category.assoc,
+    Iso.inv_hom_id_assoc, coprod.inl_desc_assoc, labelAppendSplit_zero_assoc,
+    coprod.inr_map_assoc]
+  rw [reassoc_of% (labelInject_payload M S)]
+
+set_option backward.isDefEq.respectTransparency false in
+theorem exitSum_inr_inl (S D : τ) :
+    inlMap M D Silmaril.empty ≫ inrMap M S (Silmaril.coprod D Silmaril.empty) ≫ exitSum M S D =
+      inlMap M D S := by
+  simp only [exitSum, packedExitType, inlMap, inrMap, unpackLabel, Category.assoc,
+    Iso.inv_hom_id_assoc, coprod.inr_desc_assoc, coprod.inl_desc_assoc, labelInject_labelMap_assoc,
+    labelAppendSplit_succ_assoc, coprod.inl_map_assoc]
+  rw [reassoc_of% (labelInject_payload M D)]
 
 end Prefix
 
