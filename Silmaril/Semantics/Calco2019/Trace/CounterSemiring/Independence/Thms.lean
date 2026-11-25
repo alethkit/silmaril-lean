@@ -38,6 +38,13 @@ theorem iterate_apply {U B : Object.{u}} (f : U ⟶ coproducts.sum B U)
     conway.iterate f True.intro i b = networkDagger (fun x y => f x y) i b :=
   Proofs.CounterSemiringIndependence.iterate_apply f i b
 
+/-- The one-state body, expanded to an alternating pair, refutes the binary
+commutative equation in this Conway model. -/
+theorem oneBody_fails_binaryCycle :
+    conway.iterate (binaryCycleBody oneBody) True.intro ≠
+      coproducts.desc (𝟙 one) (𝟙 one) ≫ conway.iterate oneBody True.intro :=
+  Proofs.CounterSemiringIndependence.fails_oneBody_cycle
+
 /-- The full Conway equations do not entail the commutative identity of the binary cycle. -/
 theorem conway_fails_binaryCycle : ¬ conway.{0}.toFixpoints.BinaryCycleIdentity :=
   Proofs.CounterSemiringIndependence.fails_cycle
