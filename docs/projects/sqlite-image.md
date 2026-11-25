@@ -23,6 +23,12 @@ the data occupies page 2. Encoding finishes before the tool opens the
 output. It uses exclusive creation and flushes the handle. An I/O error
 after creating the file can leave a partial file.
 
+`Record.Write.decode_amount` proves that the ordinary record decoder reads
+the fixed-width amount record as the NULL alias slot and the original
+signed 64-bit INTEGER for every text encoding. The native differential
+checks both signs at SQLite's integer serial-width cutoffs and both signed
+endpoints. The fixture checks the serial types written by each executable.
+
 The Lean theorem for an accepted image proves that it is exactly two
 512-byte pages and that the file reader reconstructs the snapshot's
 ordered VM entries. The logical write profile accepts INSERT, UPDATE
@@ -37,6 +43,14 @@ with the Lean shell. They cover empty images, signed limits, the
 one-byte-rowid capacity boundary, malformed alias cells, rejection
 without opening a destination, and preservation of existing files.
 They also run the logical write differential on 17 snapshots.
+
+`TableLeaf.cell?_frame` proves that a successful cell read gives the same
+signed rowid, payload, and offsets in a second view that contains its full
+physical extent and agrees on the bytes in that interval. It applies to the
+cell reader inside the real shell. The differential also rewrites the
+unallocated gap outside the cells of native- and Lean-created leaves and
+checks that both readers preserve the ordered rows and `integrity_check`.
+The theorem assumes a successful cell read and covers that cell.
 
 This profile has one leaf per tree and constructs fresh images. Page
 splitting, changes to an existing SQLite image, journaling, recovery,

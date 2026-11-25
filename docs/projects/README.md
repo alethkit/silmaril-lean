@@ -20,6 +20,7 @@
 | Wasm extras | The SpecTec meta-theory and the SpecTec Lean 4 backend model, Iris program logics for Wasm and WasmFX, WASI theories over the x86 process models, the Wasm components registry and the WASI 0.3 Rust example components, and more Wasm tools | [Wasm extras](wasm-extras.md) |
 | Region extraction | Raw and lawful region relations, first-exit semantics and gluing, semantic queries, typed binary adapters, conservative x86/Wasm candidates and a raw-relation institution; explicit operational and coverage limits | [Region extraction](region-extraction.md) |
 | Function relations | Machine-independent decomposition, call graphs, indexed effects and room institution; certified direct ELF graph projections and a conditional x86 operational adapter | [Function relations](function-relations.md) |
+| RVSDG | Typed primitives and multi-way γ regions, numbered graph/term round trips, and agreement of their operational semantics | [RVSDG](rvsdg.md) |
 | Compiler foundations | Semantic contracts, passes, checked transformations, translations and compiler categories | [Compiler APIs](compilers.md) |
 | Logics and institutions | HOL, Metamath, ZF/ZFC, arithmetic, proof translations and Hets-style development graphs | [Logic](logic.md) |
 | Lambda calculi | Eight cube corners, STLC categorical semantics, System F/Fω parametricity and institution graphs | [Lambda cube](lambda-cube.md) |
@@ -42,10 +43,12 @@
 | SQLite VFS-file read | Typed `xRead` request and handler law; verified dispatch at one call site in the pinned x86-64 SQLite ELF | [SQLite VFS-file read](sqlite-vfs-read.md) |
 | SQLite file control | Source-derived Lean port of one locked VFS forwarding branch, with trace refinement and a pinned C probe | [SQLite file control](sqlite-control.md) |
 | Abstract SQLite VFS | Dependent read-only and bounded read-write file contracts, with concrete byte backings and container machine traces | [Abstract SQLite VFS](sqlite-vfs.md) |
+| Starlark | Exact scalar operations, mutable collections, loop cleanup, lexical and universal built-in calls, and finite-manifest module loading | [Scalar semantics](starlark.md), [Collections](starlark-lists.md), [Functions](starlark-functions.md), [Built-ins](starlark-builtins.md), [Modules](starlark-modules.md) |
 | Languages | Named languages over typed domains (bytes, Unicode, numbers, trees): Lean definitions, formats, interpreted Wasm artifacts, set operations, regular expressions over monoids, measure restrictions; the standard membership, inclusion, equality and bound problems; the explorer's Languages page | [Languages](languages.md) |
 | Modal logics | Normal modal K, the modal μ-calculus (vectorial and finite-vector fixed points, substitution), PDL, CTL, reachability logic over matching-logic fixed points, and Wasm step observations as a modal logic: institutions with the comorphisms between them | [Modal logics](logic-modal.md) |
 | First-order LFP, e-graphs and definite programs | First-order logic with least fixed points and its Boolean fragment, the egg and egglog core logics with named sources and the functional first-order graph institution, definite programs and their translation to first-order logic | [LFP and e-graphs](logic-lfp-egg.md) |
 | Temporal logics | LTL (NNF, tableau, recurrence), CTL* (finite and infinite paths, compilers into the modal μ-calculus) and Büchi automata as institutions | [Temporal logics](logic-temporal.md) |
+| Temporal Logic of Actions | Standalone Simple and General TLA semantics and named TLA+ syntax for modules, expressions and proofs | [TLA](tla.md) |
 | Common Logic and structured institutions | Common Logic (ISO/IEC 24707) core, first-order, many-sorted and finite-list readings, CLIF source presentations; first-order logic over finite lists; structured-institution constructions | [Common Logic](logic-common-logic.md) |
 | Algebraic specification and matching logic | Many-sorted, varying-sort, order-sorted and dependent-family equational logics, initial algebras and quotients, the finite-sorted compiler, equational λ-calculi, and matching logic (first-order, fixed-point, guarded, general fixed-point, sort maps) with their translations | [Algebraic and matching](logic-algebraic-matching.md) |
 | Hoare, separation and hybrid logics | First-order Hoare logic, separation logic (first-order, parameterized heaps and lists, matching-logic reading), term rewriting, hybrid and polyadic modal logic, STLC model restriction | [Hoare and separation](logic-hoare-separation.md) |
@@ -55,7 +58,7 @@
 | Type theories | Extensional and intensional MLTT (W-types, indexed and mutual inductives, set models), λΠ-modulo (LF) presentations and native encodings, and the calculus of inductive constructions, as institutions | [Type theories](logic-type-theory.md) |
 | The logic graph | Registries of institutions, comorphisms, morphisms, rooms and corridors over the library's Lean declarations (types and edge endpoints checked by Lean, facts with their axioms), an audit of what the registry omits, the pinned Hets logic graph the records relate to, and the explorer's graph, table, registry and coverage pages | [Logic graph](logic-graph.md) |
 | Consequence systems | Named consequence relations `Γ ⊢ φ` (`Ax → C → Prop`): Lean definitions, unions, intersections, differences and erasures of witness systems (types of derivations); the standard problems — member judgments, universality, context-universality and deriving a chosen `ff` (kept apart), soundness and completeness for a target, translations that preserve or reflect consequence; the explorer's Systems page | [Consequence systems](consequence-systems.md) |
-| Cambridge courses | L1/L2 semantics, domains and PCF, optimising compilers and exercises | [Courses](../courses/cambridge.md) |
+| Cambridge courses | L1–L3 semantics, domains and PCF, optimising compilers and exercises | [Courses](../courses/cambridge.md) |
 | x86-64 emulators in Wasm | x86-64 simulators written in WebAssembly (`x86-g.wat`, `x86-m.wat`, tested against the host CPU), the `Sim` region's simulations and transfer theorems, the certified G translator from an x86-64 register fragment to Wasm methods with its instantiated module, System V wrapper and dispatch loops, the first proofs about the shipped simulator code, and the `wasm-sim` harness that reduces x86 problems to Wasm problems | [Simulators in Wasm](wasm-sim.md), [ABI](wasm-sim-abi.md), [reduction](wasm-sim-reduction.md) |
 | x86-64 machines and processes | User-mode machines (`Ext` to `Str9`, `Sse9`, `Atomic9`), function contracts, segment VCs, block certificates, a separation logic, the loose specification and x86 institution, static linking, memory models, the ELF ladder proofs, and the process slice | [x86 machines](../x86.md), [x86 processes](x86.md) |
 | Command-line interfaces | Argument grammars with a derived, proved front end; behaviour specifications with refinement and composition; Lean CLI programs and a test harness; the CLI institution | [CLI](cli.md) |
@@ -85,3 +88,8 @@ source citations and assumptions.
 
 Further planned ports cover game semantics, RISC-V, C semantics
 and compilers. Each will arrive with a guide and examples as it joins the library.
+
+The [Python SOS proposal](python-sos.md) describes a first core semantics slice,
+its operational institution, and the coverage and refinement proofs for
+feature-restricted profiles. The [implementation and acceptance plan](python-sos-acceptance.md)
+tracks the remaining Python, SOS and Wasm proof boundaries.

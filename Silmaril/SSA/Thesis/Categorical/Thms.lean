@@ -21,7 +21,8 @@ Re-exports a Raw port of imbrem/thesis @ `69a8126` (CC0-1.0; `NOTICES/imbrem-the
 * Non-vacuity of `Alg S` (`Models/Examples`): `Alg.const_not_terminal`, `Alg.constHom_ne_id`,
   `Alg.powReindex_ne_id`.
 
-Boundary (as in the source): the two coherence classes are hypotheses; this port contains no
-instance of them (the thesis instantiates them at the Kleisli category of a lawful Elgot monad in
-`Semantics/Kleisli`, not ported here). λcase, λseq and λSSA have no categorical initiality here.
+The categorical theorem assumes the two model classes.
+`Silmaril.SSA.Thesis.Kleisli.Thms` discharges them for the Kleisli category of a lawful
+Elgot monad with a monadic instruction interpretation. Its initiality statement is in
+`Alg S`, the category of presentation algebras.
 -/

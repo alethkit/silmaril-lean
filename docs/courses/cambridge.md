@@ -7,13 +7,27 @@ reusable foundations sit beneath it, and other library regions do not import it.
 
 | Course | Included development | Guide |
 | --- | --- | --- |
-| Semantics of Programming Languages, Part IB | L1 imperative language; L2 functions and recursion; type inference, progress and preservation; evaluation strategies and interpreters | [Operational semantics](cambridge-operational.md) |
+| Semantics of Programming Languages, Part IB | L1 imperative language, L2 functions and recursion, and L3 products, sums, records and mutable references. Includes typing, metatheory and worked derivations. | [Operational semantics](cambridge-operational.md) · [Chapter and exercise checklist](cambridge-spl-coverage.md) |
 | Denotational Semantics, Part II | Domains and fixed points; IMP; PCF semantics and adequacy; failure of full abstraction for PCF and full abstraction with parallel-or | [Denotational semantics](cambridge-denotational.md) |
 | Optimising Compilers, Part II | Three-address flowgraphs; dataflow analysis and scoped optimization proofs; institution models and verified-pass adapters; exercise sheets 1–4 | [Optimising compilers](cambridge-optimising.md) |
+
+Chapter 7 of Semantics of Programming Languages has a separate guide for
+[shared-store concurrency](cambridge-concurrency.md).
 
 The guides distinguish proved results, executable examples, conditional
 interfaces and discussion exercises. This collection follows selected course
 materials; it does not cover the whole Cambridge curriculum.
+
+The operational semantics course also covers
+[L3 with structural subtyping](cambridge-subtyping.md) from chapter 6 and
+[typed L1 semantic equivalence](cambridge-semantic-equivalence.md) from chapter 8.
+
+The [CBV L2 denotations](cambridge-l2-denotational.md) follow the function
+and local-definition rules in chapter 4 and cover mutable integer stores
+in the effectful fragment.
+
+The [L2 into L3 embedding](cambridge-l2-to-l3.md) connects their resolved
+terms, direct reductions, store configurations, and canonical byte formats.
 
 ## Check the courses
 
@@ -30,20 +44,29 @@ For a smaller starting point:
 ```sh
 lake build Silmaril.Courses.Cambridge.L1.Course
 lake build Silmaril.Courses.Cambridge.L2.Course
+lake build Silmaril.Courses.Cambridge.L3.Course
+lake build Silmaril.Courses.Cambridge.Concurrency.Course
 lake build Silmaril.Courses.Cambridge.DenotationalSemantics
 lake build Silmaril.Courses.Cambridge.OptimisingCompilers.Course
 ```
 
-Import one of these modules in Lean to explore a course. The smaller `L1` and
-`L2` roots expose syntax, typing and execution interfaces; their `.Course`
-imports add metatheory and exercises. Every course module is also checked by
+Import one of these modules in Lean to explore a course. The smaller `L1`, `L2` and
+`L3` roots expose syntax, typing and reduction. Their `.Course` imports add
+metatheory and checked examples. Every course module is also checked by
 `make library`.
+
+The [AST codecs guide](cambridge-ast-codecs.md) documents the shared
+S-expression and JSON schema for L1, L2 and L3.
+
+The [integration and compilation guide](cambridge-integration.md) follows the
+checked L1 lowering and identifies which Wasm interfaces can support further
+Cambridge compilation proofs.
 
 ## How it fits together
 
 ```mermaid
 flowchart TD
-  O["Operational traces and environments"] --> L["L1 and L2 course"]
+  O["Operational traces and environments"] --> L["L1, L2 and L3 course"]
   D["Domains, fixed points and typed lambda terms"] --> P["IMP and PCF"]
   P --> N["Denotational Semantics course"]
   F["Dataflow fixed-point algorithms"] --> C["Optimising Compilers course"]

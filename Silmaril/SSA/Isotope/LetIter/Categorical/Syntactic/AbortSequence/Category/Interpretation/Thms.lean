@@ -1,0 +1,91 @@
+module
+
+public import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.AbortSequence.Category.Interpretation.Defs
+public import Silmaril.SSA.Isotope.LetIter.Categorical.Syntactic.AbortSequence.Category.Thms
+public import Silmaril.SSA.Isotope.LetIter.Categorical.AbortSequence.Thms
+import Silmaril.Proofs.SSA.Isotope.LetIter.Categorical.Syntactic.AbortSequence.CategoryInterpretation
+
+/-! # Interpretation of repaired computation arrows -/
+
+public section
+
+universe u u₁ u₂ v₁ v₂
+
+namespace Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic
+
+open CategoryTheory CategoryTheory.Limits
+open scoped MonoidalCategory
+open Silmaril.Isotope.LetIter.LocallyNameless (Derivation)
+open Silmaril.Thesis.LambdaIter.Syn (SynCat mk)
+
+variable {τ Φ ε : Type u} [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] (pe : ε)
+  {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C]
+  [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
+  [FreydCategory.CentralUnit J] (M : TypeModel τ V) [InstructionModel J M Φ]
+
+local notation "modelSig" => signature (τ := τ) (Φ := Φ) pe
+local notation "P" => repairedProjection (τ := τ) (Φ := Φ) pe
+local notation "Q" => RepairedSynCat (τ := τ) (Φ := Φ) pe
+local notation "Γ₀" => (Ctx.nil : Ctx Empty τ)
+
+local instance : Thesis.LambdaIter.TypeFormers τ := Bridge.thesisTypeFormers τ
+local instance : Thesis.LambdaIter.HasTy Φ τ := Bridge.thesisHasTy Φ τ
+
+variable
+  (coherent : TypingCoherent (ν := Empty) J M Φ)
+  (shared : ∀ R T : V, ∃ e : J.obj R ⊗ J.obj T = J.obj (R ⊗ T),
+    Functor.StrongPremonoidal.tensorIso (J := J) R T = eqToIso e)
+  (pureInstr : ∀ f : Φ, IsPure pe f → ∃ p : M.obj (instrSrc f) ⟶ M.obj (instrTrg f),
+    InstructionModel.denote (J := J) (M := M) f = J.map p)
+
+/-- Evaluate a repaired computation arrow in another coherent model of the signature. -/
+noncomputable def repairedArrowDenote {X Y : Q} (f : X ⟶ Y) :
+    J.obj (M.obj X.as.ty) ⟶ J.obj (M.obj Y.as.ty) :=
+  InterpretationProofs.repairedArrowDenote pe J M coherent shared pureInstr f
+
+/-- On a singleton typing representative, interpretation is native denotation with the
+two empty-context unit factors removed from its input. -/
+theorem repairedArrowDenote_mk {X Y : SynCat modelSig}
+    {t : Thesis.LambdaIter.LocallyNameless.Tm Empty Φ 1}
+    (h : Thesis.LambdaIter.LocallyNameless.HasType Φ .nil (.snoc .nil X.ty) t Y.ty)
+    (d : Derivation Φ Γ₀ (.snoc .nil X.ty) (Bridge.ofThesis t) Y.ty) :
+    repairedArrowDenote pe J M coherent shared pureInstr
+        ((P).map (mk (S := modelSig) h : X ⟶ Y)) =
+      J.map (singletonEnvIso M X.ty).inv ≫ denote J M d :=
+  InterpretationProofs.repairedArrowDenote_mk pe J M coherent shared pureInstr h d
+
+/-- Evaluate a projected representative using an explicitly identified native term. -/
+theorem repairedArrowDenote_mk_of {X Y : SynCat modelSig}
+    {t : Thesis.LambdaIter.LocallyNameless.Tm Empty Φ 1}
+    (h : Thesis.LambdaIter.LocallyNameless.HasType Φ .nil (.snoc .nil X.ty) t Y.ty)
+    {s : Silmaril.Isotope.LetIter.LocallyNameless.Tm Empty Φ 1}
+    (d : Derivation Φ Γ₀ (.snoc .nil X.ty) s Y.ty) (hs : s = Bridge.ofThesis t) :
+    repairedArrowDenote pe J M coherent shared pureInstr
+        ((P).map (mk (S := modelSig) h : X ⟶ Y)) =
+      J.map (singletonEnvIso M X.ty).inv ≫ denote J M d :=
+  InterpretationProofs.repairedArrowDenote_mk_of pe J M coherent shared pureInstr h d hs
+
+local notation "evalArrow" => repairedArrowDenote pe J M coherent shared pureInstr
+
+/-- Interpretation sends the singleton variable to the computation identity. -/
+theorem repairedArrowDenote_id (X : Q) :
+    evalArrow (𝟙 X) = 𝟙 (J.obj (M.obj X.as.ty)) :=
+  InterpretationProofs.repairedArrowDenote_id pe J M coherent shared pureInstr X
+
+/-- Interpretation turns the sequencing representative of composition into composition. -/
+theorem repairedArrowDenote_comp {X Y Z : Q} (f : X ⟶ Y) (g : Y ⟶ Z) :
+    evalArrow (f ≫ g) = evalArrow f ≫ evalArrow g :=
+  InterpretationProofs.repairedArrowDenote_comp pe J M coherent shared pureInstr f g
+
+/-- Interpret the repaired computation category in the target model's computation category. -/
+@[expose] noncomputable def repairedComputationFunctor : Q ⥤ C where
+  obj X := J.obj (M.obj X.as.ty)
+  map f := evalArrow f
+  map_id X := repairedArrowDenote_id pe J M coherent shared pureInstr X
+  map_comp f g := repairedArrowDenote_comp pe J M coherent shared pureInstr f g
+
+end Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic

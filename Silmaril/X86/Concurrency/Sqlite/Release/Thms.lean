@@ -1,0 +1,136 @@
+module
+
+public import Silmaril.X86.Concurrency.Sqlite.Release.Defs
+import Silmaril.Proofs.X86.Concurrency.Sqlite.Release
+
+@[expose] public section
+
+namespace Silmaril.X86.Concurrency.Sqlite.Release
+
+open Silmaril.Machine.SqliteControl
+open Silmaril.X86.MemoryModel.Tso hiding Execution
+open Silmaril.X86.MemoryModel
+
+/-- Every confined TSO release run projects to the abstract SQLite release. -/
+theorem confined_sound (tid lock : Nat) (busy rc : Int32) :
+    Sound .fifo id (IsRelease tid lock) (releaseProjection tid lock busy)
+      (releaseFootprint lock) (confined tid lock busy rc) :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.confined_sound tid lock busy rc
+
+/-- An SC release matches the same abstract transition through empty-buffer embedding. -/
+theorem sc_release_matches {initial last : Silmaril.X86.MemoryModel.Tso.Mem} {tid lock : Nat} {busy rc : Int32}
+    (startsLocked : initial lock = some 1)
+    (path : Tso.Execution SCStep initial [releaseEvent tid lock] last) :
+    (releaseProjection tid lock busy).observe (model := .fifo)
+      ⟨[releaseEvent tid lock], xembed last⟩ ∈
+      Layer.behaviors .control (releaseInput tid busy rc) :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.sc_release_matches startsLocked path
+
+/-- The concrete lock-byte program has an SC run and a matching abstract release. -/
+theorem sc_release_witness :
+    let initial : Tso.Mem := fun a => some (if a = 0 then 1 else 0)
+    let final := writeMem initial 0 [0]
+    MemorySemantics.sc.Executes initial ⟨[releaseEvent 0 0], final⟩ ∧
+      ([Event.released 0], (⟨none, 0⟩ : Shared)) ∈
+        Layer.behaviors .control (releaseInput 0 0 0) :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.sc_release_witness
+
+/-- The issuer’s forwarded value at a byte avoided by all pending peer
+stores changes only by its own issued events. Silent FIFO propagation can
+occur before and after every event. -/
+theorem owner_trace_view {initial final : XState Nat} {events : List (XEvent Nat)} {owner address : Nat}
+    (trace : Tso.Execution XWeakStep initial events final)
+    (actors : ∀ event ∈ events, event.thread = owner)
+    (confined : PeerBuffersAvoid initial owner address) :
+    viewMem final owner address =
+      events.foldl (fun before event => byteEffect event address before) (viewMem initial owner address) ∧
+      PeerBuffersAvoid final owner address :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.owner_trace_view trace actors confined
+
+/-- At a byte avoided by initially pending peer stores and by every issued
+peer write, the issuer's forwarded byte is the fold of its own labels.
+Both issued peer events and silent propagation preserve confinement there. -/
+theorem confined_interleaving_view {initial final : XState Nat} {events : List (XEvent Nat)}
+    {owner address : Nat}
+    (path : Tso.Execution XWeakStep initial events final)
+    (confined : PeerBuffersAvoid initial owner address)
+    (disjoint : ∀ event ∈ events, event.thread ≠ owner → byteEffect event address none = none) :
+    viewMem final owner address =
+      (events.filter (fun event => event.thread == owner)).foldl
+        (fun before event => byteEffect event address before) (viewMem initial owner address) ∧
+      PeerBuffersAvoid final owner address :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.confined_interleaving_view path confined disjoint
+
+/-- If the last issuer label is a locked RMW, its buffer remains empty
+through all trailing peer steps. At a peer-confined byte, the final backing
+value equals the initial issuer view updated by the issuer's labels. -/
+theorem interleaving_last_rmw_backing {initial final : XState Nat}
+    {events : List (XEvent Nat)} {owner address base : Nat} {old new : List Byte}
+    (path : Tso.Execution XWeakStep initial events final)
+    (confined : PeerBuffersAvoid initial owner address)
+    (disjoint : ∀ event ∈ events, event.thread ≠ owner → byteEffect event address none = none)
+    (last : (events.filter (fun event => event.thread == owner)).getLast? =
+      some (.rmw owner base old new)) :
+    final.buffer owner = [] ∧
+      final.memory address =
+        (events.filter (fun event => event.thread == owner)).foldl
+          (fun before event => byteEffect event address before) (viewMem initial owner address) :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.interleaving_last_rmw_backing path confined disjoint last
+
+/-- Release publishes the owner’s forwarded payload when peers have no pending writes to it. -/
+theorem release_publishes {s t : XState Nat} {tid lock payload : Nat}
+    (separate : payload ≠ lock) (confined : PeerBuffersAvoid s tid payload)
+    (releases : XWeakStep s (releaseEvent tid lock) t) :
+    t.memory payload = viewMem s tid payload :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.release_publishes separate confined releases
+
+/-- A confined full dword release clears the four-byte lock and publishes the
+owner's view outside it, at any byte no peer can overwrite from a buffer. -/
+theorem dword_release {s t : XState Nat} {tid lock : Nat}
+    (lockConfined : ∀ addr, lock ≤ addr → addr < lock + 4 → BuffersAvoid s addr)
+    (release : XWeakStep s (.rmw tid lock [1, 0, 0, 0] [0, 0, 0, 0]) t) :
+    (∀ addr, lock ≤ addr → addr < lock + 4 → t.memory addr = some 0) ∧
+    t.buffer tid = [] ∧
+    ∀ addr, (addr < lock ∨ lock + 4 ≤ addr) → PeerBuffersAvoid s tid addr →
+      t.memory addr = viewMem s tid addr :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.dword_release lockConfined release
+
+/-- A peer’s pending lock write can refute observation inclusion for top. -/
+theorem top_unsound (allowed : XState Nat → Config Phase → Set Nat) :
+    ¬ Sound .fifo id (IsRelease 0 0) (releaseProjection 0 0 0)
+      allowed ⊤ :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.top_unsound allowed
+
+/-- The bottom proposal is sound because it supplies no input pairs. -/
+theorem bottom_sound {I : Type} {layer : Layer} (model : MemorySemantics)
+    (initial : I → model.Initial) (admitted : I → Sqlite.Execution model → Prop)
+    (p : Projection layer model.Label model.Final) (allowed : I → layer.Input → Set Nat) :
+    Sound model initial admitted p allowed ⊥ :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.bottom_sound model initial admitted p allowed
+
+/-- An admitted run forwards 42 before release and commits it at the release boundary. -/
+theorem pending_owner_witness :
+    let initial := enqueue (xembed (Tid := Nat) fun a => some (if a = 0 then 1 else 0)) 0 1 [42]
+    (initial, releaseInput 0 0 0) ∈ confined 0 0 0 0 ∧
+      ∃ run, MemorySemantics.fifo.Executes initial run ∧ IsRelease 0 0 initial run ∧
+        initial.memory 1 = some 0 ∧ viewMem initial 0 1 = some 42 ∧
+        run.final.memory 1 = some 42 ∧ run.final.buffer 0 = [] :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.pending_owner_witness
+
+/-- Restricting a sound proposal preserves soundness. -/
+theorem sound_downward {I : Type} {layer : Layer} {model : MemorySemantics}
+    {initial : I → model.Initial} {admitted : I → Sqlite.Execution model → Prop}
+    {p : Projection layer model.Label model.Final} {allowed : I → layer.Input → Set Nat}
+    {smaller larger : Proposal I layer} (included : smaller ⊆ larger)
+    (sound : Sound model initial admitted p allowed larger) : Sound model initial admitted p allowed smaller :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.sound_downward included sound
+
+/-- Union of sound proposals is sound under the same interpretation. -/
+theorem sound_union {I : Type} {layer : Layer} {model : MemorySemantics}
+    {initial : I → model.Initial} {admitted : I → Sqlite.Execution model → Prop}
+    {p : Projection layer model.Label model.Final} {allowed : I → layer.Input → Set Nat}
+    {left right : Proposal I layer} (leftSound : Sound model initial admitted p allowed left)
+    (rightSound : Sound model initial admitted p allowed right) : Sound model initial admitted p allowed (left ∪ right) :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.sound_union leftSound rightSound
+
+end Silmaril.X86.Concurrency.Sqlite.Release

@@ -125,3 +125,35 @@ The pages must keep each graph's caveats until a theorem removes them:
 - **Call graph:** syntactic; not proved to cover the calls of a run.
 
 The semantic proofs that will remove these caveats are tracked in `docs/projects/wasm-cfg.md`.
+
+## Optional pinned reactor inventory
+
+`wasm/m/sqlite.wasi.preview1.reactor.<sha256>.json` uses the existing import-first
+`functions` array and `exports` records. Its canonical identity is
+`(summary.source.sha256, functions[i].idx)`. The title, slug, export names,
+and linker-map symbols are display metadata. `functions.json` keeps its
+existing shape and includes the reactor's defined slots. The digest in the
+slug keeps slot URLs tied to their binary. Pilot slots and evidence annotations
+apply only to the reviewed digest.
+
+- `coverage` reports `functionImports`, `defined`, `bodyDecodeFailures`,
+  `flowBuilt`, `flowUnsupported`, `detailPublished`, and `detailOmitted`.
+  On a successful module decode every definition has status `flow` set to
+  `built` or `unsupported`, and `detail` says whether it has a detail file.
+  Imports have no local body. Failure to decode the module aborts generation
+  before function counts are available.
+- `wasm/f/<slug>/<idx>.json` has the same `{idx, wat, cfg}` structure as an entry
+  of inline `bodies`. The renderer fetches it on opening an available slot.
+- Optional `cName` has `name`, `codeOffset`, and `codeBytes`. The span is an
+  absolute offset and length in the original binary, including the size LEB.
+  The name comes from the linked amalgamation object in the pinned build map.
+- Optional `leanEvidence` on a function and `decodeEvidence` on the module
+  have `revision`, `path`, and `declaration`. These are references to the
+  checked source declarations.
+- Optional `llvmReceipt` on the module has `wasmSha256`, `bitcodeSha256`,
+  and `symbols`, an object keyed by decimal Wasm slot. It projects the
+  landed build receipt for matching reactor bytes and defined slots. Every
+  selected row must match the Code frame's absolute offset and length,
+  including the size prefix, and the decoded export or linker-map alias.
+  The renderer links to the receipt at the page's source
+  revision and shows its early bitcode symbol and digest as build provenance.

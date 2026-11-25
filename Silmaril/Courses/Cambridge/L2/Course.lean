@@ -1,17 +1,23 @@
 module
 
 public import Silmaril.Courses.Cambridge.L2
+public import Silmaril.Courses.Cambridge.L2.Codec
+public import Silmaril.Courses.Cambridge.L2.Concrete
 public import Silmaril.Courses.Cambridge.L2.Exercises.FreeVariables
 public import Silmaril.Courses.Cambridge.L2.Exercises.Substitution
 public import Silmaril.Courses.Cambridge.L2.Exercises.TypingDerivations
 public import Silmaril.Courses.Cambridge.L2.Exercises.FirstOrder
 public import Silmaril.Courses.Cambridge.L2.Exercises.EvaluationStrategies
+public import Silmaril.Courses.Cambridge.L2.Exercises.StoreFreeStrategies
 public import Silmaril.Courses.Cambridge.L2.Exercises.CallByNameInterpreter
 public import Silmaril.Courses.Cambridge.L2.Exercises.Closures
 public import Silmaril.Courses.Cambridge.L2.Metatheory.Substitution
 public import Silmaril.Courses.Cambridge.L2.Metatheory.Preservation
 public import Silmaril.Courses.Cambridge.L2.Metatheory.Closedness
 public import Silmaril.Courses.Cambridge.L2.Metatheory.Progress
+public import Silmaril.Courses.Cambridge.L2.ResolvedCodec
+public import Silmaril.Courses.Cambridge.L2.Metatheory.Interpreter
+public import Silmaril.Courses.Cambridge.L2.Metatheory.NameInterpreter
 
 /-! # Cambridge Semantics chapter 4
 

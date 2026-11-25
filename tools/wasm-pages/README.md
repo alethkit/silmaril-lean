@@ -46,3 +46,61 @@ The page also reads the optional `model`, `bases`, `variants` and `default` fiel
 
 Nothing on these pages claims that an execution follows a drawn graph. Semantic properties
 (trap, divergence, determinism) are shown only as open statements.
+
+## Pinned SQLite reactor pilot
+
+The optional `--sqlite-reactor` argument accepts the stripped WASI Preview 1
+reactor produced by the checked SQLite build. The normal Pages workflow
+continues to use the two-argument invocation. The pilot reads the digest and
+version from `tools/sqlite-wasm/reactor.json`, checks the actual artifact bytes,
+and runs the ordinary Core decoder. A digest mismatch or module decode failure
+aborts the opt-in build. A module decode failure leaves per-function counts
+unavailable.
+
+```sh
+bash tools/sqlite-wasm/build.sh "$ARCHIVES" "$WORK/sqlite3.wasm" "$WORK/sqlite3.map"
+make pages
+.lake/build/bin/wasm-pages silmaril/artifacts.toml _site --sqlite-reactor "$WORK/sqlite3.wasm"
+python3 -B tools/wasm-pages/check-sqlite-reactor.py _site "$WORK/sqlite3.wasm" "$WORK/sqlite3.map"
+node tools/silmaril-project/tests/explore/sqlite_reactor.mjs _site "$WORK/shots"
+```
+
+The build keeps the full import-first function index and runs `Cfg.blockCfg`
+on every definition. It counts an explicit `Cfg.Target.invalid` as an
+unsupported target. The module shows those counts separately from the number
+of published detail files. Detail is limited to the initialization, version,
+and four varint pilot slots, with a 600-instruction limit per function. The
+page fetches those CFGs by slot. Whole-module validation, WAT and call-graph
+extraction are outside the pilot. The graphs describe syntactic relations.
+The quoted reactor's existing `SqliteWasm.originalDecode` theorem concerns
+whole-module decoding at the pinned original bytes.
+
+Internal C names are selected linker-map annotations. The verifier uses the
+same pinned build to compare all framed Code body sizes and offsets with the
+map before checking the four names. The Wasm import and export names come
+from the module decoder. Proof links identify specific existing Lean
+statements. A name match alone gives no source, IR, or semantic correspondence.
+
+The generator also reads the [LLVM build receipt](../sqlite-wasm/llvm-provenance/receipt.json)
+when the reactor is enabled. Each linked row must match the reactor digest,
+import-first slot, and original Code frame offset and length. The name must
+agree with the decoded export or the C annotation. The page's source
+metadata supplies the receipt's Git revision.
+The function page shows the early bitcode symbol and digest under
+“LLVM build provenance”. The receipt records build stages and symbol
+associations. The Lean links continue to identify their own statements.
+
+The following check generates a default site and opt-in receipt controls in
+a fresh directory. It changes the exported version getter's offset and
+length independently and together while preserving its name, digest and slot.
+
+```sh
+python3 -B tools/wasm-pages/check-sqlite-llvm-links.py \
+  .lake/build/bin/wasm-pages "$WORK/sqlite3.wasm" "$WORK/receipt-controls"
+```
+
+After adding the Explorer page and project database to a generated site, run
+`sqlite_reactor.mjs` against it. For a bad-export control, set
+`SQLITE_REACTOR_LLVM_289=absent` and `SQLITE_REACTOR_LLVM_530=present` to
+check that the version getter keeps its Lean link and lazy CFG, and that the
+writer still links to the receipt.
