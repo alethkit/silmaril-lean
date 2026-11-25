@@ -31,6 +31,12 @@ theorem advance_literalArmBoolean {scope : Source.Scope} (table : Core.Closure.E
       ([], if value then .ready session rest else .finished session .assertionError) := by
   cases value <;> rfl
 
+theorem advance_adjacentKeywordDiscard {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (name : String) (value : Int)
+    (remaining : List (Instruction scope)) :
+    advance table (.ready session (.adjacentKeywordDiscard name value :: remaining)) =
+      ([], .calling (session.prepareCall .discard (.readGlobal name) [.literal (.int value)]) remaining) := rfl
+
 theorem advance_assertVarNames {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (session : Core.Module.Functions.Session) (receiver : String) (needle : List UInt32)
     (remaining : List (Instruction scope)) :

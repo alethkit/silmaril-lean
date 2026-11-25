@@ -27,6 +27,8 @@ inductive Instruction (scope : Scope) where
   | assertVarNames (receiver : String) (needle : List UInt32)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
+  /-- The source plan places this call immediately after the matching publication. -/
+  | adjacentKeywordDiscard (name : String) (value : Int)
   | nestedCall (destination : Core.Module.Functions.Destination) (name : String) (arguments : List Argument)
 
 inductive CompileError where
@@ -67,6 +69,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
     let some arguments := operands.mapM callOperand? | throw .callOperand
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.call (destination target) name arguments :: instructions, blocks)
+  | .adjacentKeywordDiscard name _ value :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.adjacentKeywordDiscard name value :: instructions, blocks)
   | .nestedCall target name _ operands :: rest => do
     let some arguments := operands.mapM callArgument? | throw .callOperand
     let (instructions, blocks) ← lowerInstructions tree next rest
@@ -214,6 +219,8 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | .ok updated => .ready updated rest
       | .error fault => .finished session (.codeFault fault))
     | .call destination name arguments => ([], .calling (session.prepareCall destination (.readGlobal name) arguments) rest)
+    | .adjacentKeywordDiscard name value =>
+      ([], .calling (session.prepareCall .discard (.readGlobal name) [.literal (.int value)]) rest)
     | .nestedCall destination name arguments =>
       ([], .calling (prepareNestedCall session destination name arguments) rest)
   | .calling invocation rest =>

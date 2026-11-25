@@ -61,8 +61,7 @@ assertion.
 An implicit or declared global read in a function body retains its module
 name. This supplies lookup in the namespace at call time, including writes
 between a definition and call. Local references continue to use bounded
-frame slots. The regression verifies both kinds of lookup and rejects
-keyword arguments at this profile.
+frame slots. The regression verifies both kinds of lookup.
 [Function plan](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Thms.lean)
 
 ```sh
@@ -81,8 +80,19 @@ labelled invocation trace and a residual state that can be resumed with
 further fuel. Its prefix composition theorem agrees with
 a run using the combined fuel.
 
-The compiler rejects deeper argument nesting, keyword and unpacked
-arguments, and arithmetic call operands. The seeded runner supports these
+The adjacent keyword discard profile checks a bare call immediately
+after its undecorated function definition. The definition has one required
+positional-or-keyword parameter without an annotation. The call has one
+`**` mapping literal with one string key and one integer literal value.
+The key must equal the parameter's code points. The typed plan records
+the adjacent publication and the one-slot argument mapping. The runtime
+reads the live function binding and invokes it through the ordinary
+positional executor with that integer. The seeded selector requires a
+published function with one slot and records the ordinary completion
+and reached heap. The call's result is discarded.
+
+Deeper argument nesting, arithmetic call operands, and keyword or
+unpacked arguments outside the adjacent discard shape are rejected. The seeded runner supports these
 nested instructions within its [closed call profile](python-seeded-module-runner.md).
 The CPython regression checks
 result placement, lookup and argument error order, and residual bindings.

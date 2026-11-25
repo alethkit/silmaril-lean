@@ -146,4 +146,25 @@ theorem effect_assertVarNames {scope : Source.Scope} (space : Namespace) (contex
     effect space context (.assertVarNames receiver needle : Instruction scope) =
       (⟨(checkVarNames space context.table receiver needle).map fun _ => none, []⟩, context.heap) := rfl
 
+/-- The guarded call follows the ordinary executor state. A settled
+call contributes one receipt, with heap and tail behavior from that state. -/
+theorem run_adjacentKeywordDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name : String} {closure : Function} {value : Int} {rest : List (Instruction scope)}
+    (found : space.lookupGlobal name = some (.function closure))
+    (admitted : context.acceptsPublishedCall closure 1 = true) :
+    runInstructionsIn space context (.adjacentKeywordDiscard name value :: rest) =
+      let invocation := (callbackSession space context.heap).prepareCall .discard
+        (.literal (.function closure)) [.literal (.int value)]
+      match (invocation.runPrefix context.table context.fuel).2.state with
+      | .finished heap (.ok result) =>
+        let tail := runInstructionsIn space { context with heap } rest
+        { tail with calls := ⟨name, ⟨.ok (seededValue result), none⟩⟩ :: tail.calls }
+      | .finished heap (.error error) =>
+        let failure := callbackError space error
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+      | .running heap .. | .delivering heap .. | .receiving heap .. =>
+        ⟨space, .error .directCallFuelExhausted, [], heap⟩ :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_adjacentKeywordDiscard found admitted
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

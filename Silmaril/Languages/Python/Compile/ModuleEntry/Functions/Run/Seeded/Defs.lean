@@ -185,10 +185,10 @@ structure CallContext where
 
 /-- The ledger records the descriptors of functions published in this run.
 The ordinary executor reports an invalid reference if dispatch fails. -/
-def CallContext.acceptsPublishedCall (context : CallContext) (closure : Function) : Bool :=
+def CallContext.acceptsPublishedCall (context : CallContext) (closure : Function) (arity : Nat := 0) : Bool :=
   if closure ∈ context.published then
     match Core.Closure.Dispatch.resolve context.table closure.code with
-    | .ok definition => definition.parameters.slots.isEmpty
+    | .ok definition => definition.parameters.slots.length == arity
     | .error _ => true
   else false
 
@@ -227,6 +227,20 @@ def invokeFlatCall (space : Namespace) (context : CallContext)
       observeDirectCall space (invocation.runPrefix context.table context.fuel).2.state
     else (.ok ⟨.error .unsupported, none⟩, context.heap)
   | _, _, _ => invokeCall space context callee arguments
+
+/-- The adjacent source guard establishes the name-to-slot mapping. Read the
+live module-first binding once and enter only a published one-slot function. -/
+def invokeAdjacentKeywordDiscard (space : Namespace) (context : CallContext)
+    (name : String) (value : Int) : Except ModuleFailure CallObservation × Heap :=
+  match space.lookupGlobal name with
+  | none => (.ok ⟨.error (.raised (.runtime (.nameError name))), none⟩, context.heap)
+  | some (.function closure) =>
+    if context.acceptsPublishedCall closure 1 then
+      let invocation := (callbackSession space context.heap).prepareCall .discard
+        (.literal (.function closure)) [.literal (.int value)]
+      observeDirectCall space (invocation.runPrefix context.table context.fuel).2.state
+    else (.ok ⟨.error .unsupported, none⟩, context.heap)
+  | some _ => (.ok ⟨.error .unsupported, none⟩, context.heap)
 
 def acceptObservation (destination : Core.Module.Functions.Destination)
     (name : String) (observed : CallObservation) : Effect :=
@@ -316,6 +330,10 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
       match observed with
       | .ok result => (acceptObservation destination name result, heap)
       | .error error => (⟨.error error, []⟩, heap)
+  | .adjacentKeywordDiscard name value =>
+    match invokeAdjacentKeywordDiscard space context name value with
+    | (.ok observed, heap) => (acceptObservation .discard name observed, heap)
+    | (.error error, heap) => (⟨.error error, []⟩, heap)
   | .nestedCall destination name arguments => (observeNestedCall space destination name arguments, context.heap)
 
 structure Observation where

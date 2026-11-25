@@ -39,4 +39,13 @@ theorem lowerPlan_literalIf {tree : Source.ScopeTree} {index : Nat}
     Except.mapError, Except.toOption]
   rfl
 
+/-- The adjacent keyword proof supplies exactly the one slot of the checked definition. -/
+theorem AdjacentKeywordDiscard.parameterCount {tree : Source.ScopeTree} {index name declaration body child
+    parameters code statement value}
+    (shape : AdjacentKeywordDiscard name declaration statement value)
+    (definition : DefinitionTranslation tree index declaration body child parameters code) :
+    parameters.slots.length = 1 := by
+  cases shape
+  simpa using congrArg List.length definition.parameterOrder
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions

@@ -136,6 +136,44 @@ def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × 
     return ⟨argument.val :: tail.val, .cons argument.property tail.property⟩
   | _ => .error .argumentProfile
 
+/-- The call immediately after a definition supplies exactly its one required
+positional-or-keyword parameter. A text literal in a mapping keeps its code points. -/
+inductive AdjacentKeywordDiscard (name : Name) :
+    List Source.Parameter → Source.Stmt → Int → Prop where
+  | literal (parameter : Name) (value : Int) :
+      AdjacentKeywordDiscard name [⟨parameter, none, .positionalOrKeyword, none⟩]
+        (.expression (.callWith (.name name)
+          [(.unpackMapping, .dictionary [(some (.text (parameter.toList.map Char.val)), .integer value)])]))
+        value
+
+def adjacentKeywordDiscard? (name : Name) :
+    (declaration : List Source.Parameter) → (statement : Source.Stmt) →
+    Option {value : Int // AdjacentKeywordDiscard name declaration statement value}
+  | [⟨parameter, none, .positionalOrKeyword, none⟩],
+      .expression (.callWith (.name receiver)
+        [(.unpackMapping, .dictionary [(some (.text key), .integer value)])]) =>
+    if sameReceiver : receiver = name then
+      if sameKey : key = parameter.toList.map Char.val then
+        some ⟨value, by
+          subst receiver
+          subst key
+          exact .literal parameter value⟩
+      else none
+    else none
+  | _, _ => none
+
+/-- The ordinary definition checks used with or without an adjacent call. -/
+structure DefinitionTranslation (tree : ScopeTree) (index : Nat) (declaration : List Source.Parameter)
+    (body : List Source.Stmt) (child : ScopeTree) (parameters : Core.Closure.Parameters (frameLayout child.scope))
+    (code : Code (frameLayout child.scope)) : Prop where
+  located : tree.children[index]? = some child
+  path : child.scope.context.path = tree.scope.context.path ++ [index]
+  kind : child.scope.context.kind = .function
+  fixed : declaration.all Compile.Closure.Body.fixed = true
+  parameterOrder : parameters.slots.map (Compile.Closure.parameterName child.scope) =
+    declaration.map Source.Parameter.name
+  functionBody : Compile.Closure.Body.Translation child 0 body code
+
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
@@ -145,6 +183,7 @@ inductive Action (scope : Scope) where
       (parameters : Core.Closure.Parameters (frameLayout child.scope)) (code : Code (frameLayout child.scope))
   | call (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (Operand scope))
+  | adjacentKeywordDiscard (name : Name) (reference : GlobalReference scope name) (value : Int)
   | nestedCall (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (CallArgument scope))
 
@@ -172,16 +211,16 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (operandOrder : CallArguments tree.scope arguments values) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.nestedCall destination name reference values :: tail)
   | define {index name declaration body rest child reference parameters code tail}
-      (located : tree.children[index]? = some child)
-      (path : child.scope.context.path = tree.scope.context.path ++ [index])
-      (kind : child.scope.context.kind = .function)
-      (fixed : declaration.all Compile.Closure.Body.fixed = true)
-      (parameterOrder : parameters.slots.map (Compile.Closure.parameterName child.scope) =
-        declaration.map Source.Parameter.name)
-      (functionBody : Compile.Closure.Body.Translation child 0 body code)
+      (definition : DefinitionTranslation tree index declaration body child parameters code)
       (remaining : Translation tree (index + 1) rest tail) :
       Translation tree index (.functionDef name declaration body [] none :: rest)
         (.define name reference child parameters code :: tail)
+  | defineThenKeywordDiscard {index name declaration body statement rest child reference parameters code value tail}
+      (definition : DefinitionTranslation tree index declaration body child parameters code)
+      (call : AdjacentKeywordDiscard name declaration statement value)
+      (remaining : Translation tree (index + 1) rest tail) :
+      Translation tree index (.functionDef name declaration body [] none :: statement :: rest)
+        (.define name reference child parameters code :: .adjacentKeywordDiscard name reference value :: tail)
 
 def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     Except Error {actions // Translation tree index source actions}
@@ -197,10 +236,20 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
         let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
         let parameters ← (Compile.Closure.Body.checkParameters child.scope declaration).mapError .functionBody
         let code ← (Compile.Closure.Body.lowerBodyWith child true 0 body).mapError .functionBody
-        let tail ← lowerPlan tree (index + 1) rest
-        return ⟨.define name reference child parameters.val code.val :: tail.val,
-          .define located scopeMatches.1 scopeMatches.2 parameters.property.1 parameters.property.2
-            code.property tail.property⟩
+        let definition : DefinitionTranslation tree index declaration body child parameters.val code.val :=
+          ⟨located, scopeMatches.1, scopeMatches.2, parameters.property.1, parameters.property.2, code.property⟩
+        let action := Action.define name reference child parameters.val code.val
+        match adjacent : rest with
+        | statement :: remaining =>
+          if let some call := adjacentKeywordDiscard? name declaration statement then
+            let tail ← lowerPlan tree (index + 1) remaining
+            return ⟨action :: .adjacentKeywordDiscard name reference call.val :: tail.val,
+              adjacent.symm ▸ .defineThenKeywordDiscard definition call.property tail.property⟩
+          let tail ← lowerPlan tree (index + 1) (statement :: remaining)
+          return ⟨action :: tail.val, adjacent.symm ▸ .define definition tail.property⟩
+        | [] =>
+          let tail ← lowerPlan tree (index + 1) []
+          return ⟨action :: tail.val, adjacent.symm ▸ .define definition tail.property⟩
       else throw (.functionScope path)
   | .assert_ (.comparison (.text needle)
       [(.in_, .attribute (.attribute (.name receiver) "__code__") "co_varnames")]) none :: rest => do

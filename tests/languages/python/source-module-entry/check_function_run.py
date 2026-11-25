@@ -11,6 +11,20 @@ import tempfile
 
 
 FIXTURES = (
+    ("adjacent_keyword_discard", """kept = 5
+def probe(value):
+    assert False
+def probe(value):
+    assert value == 4
+probe(**{"value": 4})
+observed = 9
+""", "normal", ".normal", 9, 5),
+    ("adjacent_keyword_failure", """kept = 5
+def probe(value):
+    assert value == 4
+probe(**{"value": 3})
+observed = 9
+""", "AssertionError", ".raised .assertionError", None, 5),
     ("literal_if_selected_order", """kept = 1
 if True:
     kept = 4
@@ -322,7 +336,7 @@ completion = "normal"
 missing = None
 try:
     with open(sys.argv[1], encoding="utf-8") as source:
-        exec(compile(source.read(), sys.argv[1], "exec", optimize=0), namespace)
+        exec(compile(source.read(), sys.argv[1], "exec", dont_inherit=True, optimize=0), namespace)
 except (AssertionError, NameError, TypeError, ZeroDivisionError) as error:
     completion = type(error).__name__
     if isinstance(error, AssertionError):
@@ -372,6 +386,20 @@ if __name__ == "__main__":
         shared["emit"](source_file, lean_file, "def identity(x): return x\nidentity(1 + 2)\n")
         shared["check_lean"](lean_file, LEAN + """
 #guard (match compile pythonSource with | .error .callOperand => true | _ => false)
+""", extra_imports=imports)
+        for source in (
+            'def probe(value): pass\nprobe(**{"other": 4})',
+            'def probe(é): pass\nprobe(**{"e\u0301": 4})',
+            'def probe(value): pass\nother(**{"value": 4})',
+            'def probe(value): pass\npass\nprobe(**{"value": 4})',
+            'def probe(value): pass\nprobe(**{"value": 4, "other": 1})',
+            'def probe(value): pass\nprobe(**{"value": 2 + 2})',
+            'def probe(value): pass\nprobe(value=4)',
+            'def probe(value): pass\nresult = probe(**{"value": 4})',
+        ):
+            shared["emit"](source_file, lean_file, source + "\n")
+            shared["check_lean"](lean_file, LEAN + """
+#guard (match compile pythonSource with | .error (.source .argumentProfile) => true | _ => false)
 """, extra_imports=imports)
         for source, error in (
             ("assert not f()", ".source (.scalar .expressionProfile)"),
