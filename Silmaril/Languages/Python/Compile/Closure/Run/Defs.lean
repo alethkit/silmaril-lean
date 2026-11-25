@@ -5,7 +5,7 @@ public import Silmaril.Languages.Python.Core.Closure.Executor.Defs
 
 /-! # Compile a Python closure program to the fixed-positional executor
 
-Executor operands are integer literals and name reads. An assigned call
+Executor operands include the synthesized None result, integer literals and name reads. An assigned call
 makes its destination explicit. A nested definition stores a closure using
 its resolved code reference and ordered captures.
 -/
@@ -18,13 +18,17 @@ open Core.Closure.Dispatch (Entry)
 open Core.Closure.Executor (Operand State Event)
 
 inductive OperandTranslation {layout : Layout} : Body.Expr layout → Operand layout → Prop where
+  | none : OperandTranslation .none (.literal .none)
   | integer (value : Int) : OperandTranslation (.integer value) (.literal (.int value))
   | read (slot : Core.Closure.Slot layout) : OperandTranslation (.read slot) (.read slot)
+  | globalName (name : Source.Name) : OperandTranslation (.globalName name) (.readGlobal name)
 
 def operand? {layout : Layout} : (source : Body.Expr layout) →
     Option {target // OperandTranslation source target}
+  | .none => some ⟨.literal .none, .none⟩
   | .integer value => some ⟨.literal (.int value), .integer value⟩
   | .read slot => some ⟨.read slot, .read slot⟩
+  | .globalName name => some ⟨.readGlobal name, .globalName name⟩
   | _ => none
 
 inductive ArgumentsTranslation {layout : Layout} : List (Body.Expr layout) → List (Operand layout) → Prop where

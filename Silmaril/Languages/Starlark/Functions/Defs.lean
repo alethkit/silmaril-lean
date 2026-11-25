@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Functions.Builtins.Defs
+public import Silmaril.Languages.Starlark.Functions.Lowering.Syntax.Defs
 
 @[expose] public section
 
@@ -14,12 +15,18 @@ abbrev DeclarationId := Nat
 def withoutDeclaration (available : List DeclarationId) (id : DeclarationId) : List DeclarationId :=
   available.filter (· != id)
 
-/-- Resolved function code. Calls in expressions are lowered to calls with a
-destination slot and subsequent uses of that slot. -/
+/-- Resolved function code with direct expression operands. -/
 inductive Body where
   | total (code : Suite 0)
+  | returnExpr (value : Lowering.Expr)
+  | assignExpr (target : Binding) (value : Lowering.Expr)
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
+  | branchExpr (test : Lowering.Expr) (yes no : Body)
+  | forIn (target : Binding) (iterable : Lists.Expr) (body : Body)
+  | forInExpr (target : Binding) (iterable : Lowering.Expr) (body : Body)
+  | breakLoop
+  | continueLoop
   | define (target : Binding) (declaration : DeclarationId)
   | call (target : Option Binding) (callee : Lists.Expr) (arguments : Arguments)
 
@@ -43,9 +50,8 @@ def captureName (state : State) (name : FreeName) : Except Error Capture :=
   | some (.owned address) => .ok ⟨name.target, address, name.source.scope == .local⟩
   | some (.captured address localCell) => .ok ⟨name.target, address, localCell⟩
 
-def defaultOperands (program : Program) (id : DeclarationId) : Code (List Lists.Value) :=
-  operandList ((program[id]?.toList.flatMap fun declaration =>
-    declaration.signature.defaulted.map Prod.snd))
+def defaultOperands (program : Program) (id : DeclarationId) : List Lowering.Expr :=
+  program[id]?.toList.flatMap fun declaration => declaration.signature.defaulted.map Prod.snd
 
 def define (program : Program) (target : Binding) (id : DeclarationId)
     (defaults : List Lists.Value) : Meaning Flow :=
@@ -87,41 +93,59 @@ inductive CallPlan (available : List DeclarationId) where
   | closure (prepared : Prepared available)
   | builtin (id : Builtin) (actual : Actual)
 
+def prepareExpanded (program : Program) (available : List DeclarationId) (actual : Actual) :
+    Lists.Value → Meaning (CallPlan available)
+  | .builtin id => pure (.builtin id actual)
+  | .function address => do
+    let closure ← getClosure address
+    match program[closure.declaration]? with
+    | none => throw (.unknownDeclaration closure.declaration)
+    | some declaration =>
+      if h : closure.declaration ∈ available then do
+        let bound ← fromExcept (bindArguments declaration.signature closure.defaults actual)
+        let assigned ← packArgs declaration.signature bound
+        fun state =>
+          .ok (.closure ⟨closure.declaration, h, declaration.body⟩)
+            (activate state declaration closure.captures assigned)
+      else throw (.recursiveCall closure.declaration)
+  | _ => throw .notCallable
+
 /-- Expand evaluated operands before callability, then check re-entry before binding. -/
 def prepare (program : Program) (available : List DeclarationId) (arguments : Arguments) :
     List Lists.Value → Meaning (CallPlan available)
   | callee :: operands => do
     let actual ← arguments.expand operands
-    match callee with
-    | .builtin id => pure (.builtin id actual)
-    | .function address =>
-      let closure ← getClosure address
-      match program[closure.declaration]? with
-      | none => throw (.unknownDeclaration closure.declaration)
-      | some declaration =>
-        if h : closure.declaration ∈ available then do
-          let bound ← fromExcept (bindArguments declaration.signature closure.defaults actual)
-          let assigned ← packArgs declaration.signature bound
-          fun state =>
-            .ok (.closure ⟨closure.declaration, h, declaration.body⟩)
-              (activate state declaration closure.captures assigned)
-        else throw (.recursiveCall closure.declaration)
-    | _ => throw .notCallable
+    prepareExpanded program available actual callee
   | [] => throw .notCallable
 
-def Body.validateCalls : Body → Except CallStaticError Unit
+def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .seq first rest => do
-    first.validateCalls
-    rest.validateCalls
+    first.validateIn inLoop
+    rest.validateIn inLoop
   | .branch _ yes no => do
-    yes.validateCalls
-    no.validateCalls
+    yes.validateIn inLoop
+    no.validateIn inLoop
+  | .branchExpr test yes no => do
+    test.validateCalls
+    yes.validateIn inLoop
+    no.validateIn inLoop
+  | .forIn _ _ body => body.validateIn true
+  | .forInExpr _ iterable body => do
+    iterable.validateCalls
+    body.validateIn true
+  | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
+  | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate
+  | .returnExpr value | .assignExpr _ value => value.validateCalls
   | .define .. | .total _ => pure ()
+
+def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false
 
 def validate (program : Program) (body : Body) : Except CallStaticError Unit := do
   for declaration in program do
     declaration.signature.validate
+    for (_, value) in declaration.signature.defaulted do
+      value.validateCalls
     declaration.body.validateCalls
   body.validateCalls
 

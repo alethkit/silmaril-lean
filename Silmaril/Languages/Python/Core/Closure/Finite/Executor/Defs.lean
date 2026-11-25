@@ -9,7 +9,7 @@ public import Silmaril.Languages.Python.Core.Closure.Finite.Dispatch.Defs
 
 namespace Silmaril.Languages.Python.Core.Closure.Finite.Executor
 
-open Closure.Executor (Event Fault Stack)
+open Closure.Executor (Event Fault GlobalLookup Stack)
 
 abbrev CodeRows := Dispatch.CodeRows Closure.Executor.Body
 
@@ -61,17 +61,23 @@ def enter (active : Dispatch.Active Closure.Executor.Body Closure.Executor.Conti
 
 /-- The operand selectors run on the projected lookup. Store updates and
 call entry use the finite heap operations and code table. -/
-def advance (rows : CodeRows) : State → Option Transition
+def advanceIn (rows : CodeRows) (globals : GlobalLookup) : State → Option Transition
   | .running source (.ret operand) stack =>
-    some <| match operand.eval source.heap.project source.frame with
+    some <| match operand.evalIn globals source.heap.project source.frame with
     | .ok value => (none, .delivering source.heap stack (.ok value))
     | .error error => fail source.heap stack error
   | .running source (.store destination operand next) stack =>
-    some <| match operand.eval source.heap.project source.frame with
+    some <| match operand.evalIn globals source.heap.project source.frame with
     | .ok value => resumeStore source destination value next stack
     | .error error => fail source.heap stack error
+  | .running source (.assert test next) stack =>
+    some <| match test.evalIn globals source.heap.project source.frame with
+    | .ok value =>
+      if value.truth then (none, .running source next stack)
+      else (none, .delivering source.heap stack (.error .assertionError))
+    | .error error => fail source.heap stack error
   | .running source (.call destination callee arguments next) stack =>
-    some <| match Closure.Executor.evalCall source.heap.project source.frame callee arguments with
+    some <| match Closure.Executor.evalCallIn globals source.heap.project source.frame callee arguments with
     | .error error => fail source.heap stack error
     | .ok (value, values) =>
       match Dispatch.dispatch rows value values source.heap ⟨_, source.frame, ⟨destination, next⟩⟩ stack with
@@ -87,19 +93,25 @@ def advance (rows : CodeRows) : State → Option Transition
   | .receiving heap _ stack (.error error) => some (none, .delivering heap stack (.error error))
   | .finished .. | .faulted .. => none
 
-def runPrefix (rows : CodeRows) : Nat → State → List Event × State
+def runPrefixIn (rows : CodeRows) (globals : GlobalLookup) : Nat → State → List Event × State
   | 0, source => ([], source)
   | fuel + 1, source =>
-    match advance rows source with
+    match advanceIn rows globals source with
     | none => ([], source)
     | some (label, target) =>
-      let (log, residual) := runPrefix rows fuel target
+      let (log, residual) := runPrefixIn rows globals fuel target
       (label.toList ++ log, residual)
 
-def presented (rows : CodeRows) : Cslib.LTS State (Option Event) :=
-  ⟨fun source label target => advance rows source = some (label, target)⟩
+def presentedIn (rows : CodeRows) (globals : GlobalLookup) : Cslib.LTS State (Option Event) :=
+  ⟨fun source label target => advanceIn rows globals source = some (label, target)⟩
 
-def semantic (table : Closure.Executor.CodeTable) : Cslib.LTS Closure.Executor.State (Option Event) :=
-  ⟨Closure.Executor.Step table⟩
+def semanticIn (table : Closure.Executor.CodeTable) (globals : GlobalLookup) :
+    Cslib.LTS Closure.Executor.State (Option Event) :=
+  ⟨Closure.Executor.StepIn table globals⟩
+
+abbrev advance (rows : CodeRows) := advanceIn rows Closure.Executor.emptyGlobals
+abbrev runPrefix (rows : CodeRows) := runPrefixIn rows Closure.Executor.emptyGlobals
+abbrev presented (rows : CodeRows) := presentedIn rows Closure.Executor.emptyGlobals
+abbrev semantic (table : Closure.Executor.CodeTable) := semanticIn table Closure.Executor.emptyGlobals
 
 end Silmaril.Languages.Python.Core.Closure.Finite.Executor

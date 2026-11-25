@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Lists.Iteration.Defs
+public import Silmaril.Languages.Starlark.Functions.Expressions.Syntax.Defs
 
 @[expose] public section
 
@@ -10,7 +11,7 @@ open Lists
 
 structure Parameter where
   slot : Binding
-  defaultExpr : Option Lists.Expr := none
+  defaultExpr : Option Lowering.Expr := none
 
 /-- Parameters before the star can be filled positionally or by name. -/
 structure Signature where
@@ -22,7 +23,8 @@ structure Signature where
 def Signature.named (signature : Signature) : List Parameter :=
   signature.positional ++ signature.keywordOnly
 
-def Signature.defaulted (signature : Signature) : List (Binding × Lists.Expr) :=
+/-- Defaults in declaration order, for evaluation in the defining frame. -/
+def Signature.defaulted (signature : Signature) : List (Binding × Lowering.Expr) :=
   signature.named.filterMap fun p => p.defaultExpr.map fun expr => (p.slot, expr)
 
 def Signature.slots (signature : Signature) : List Binding :=
@@ -37,15 +39,19 @@ structure Arguments where
 def operandList (expressions : List Lists.Expr) : Code (List Lists.Value) :=
   expressions.foldr Code.cons .empty
 
+def Arguments.ordered (args : Arguments) : List Lists.Expr :=
+  args.positional ++ args.keywords.map Prod.snd ++ args.star.toList ++ args.starStar.toList
+
 def Arguments.operands (callee : Lists.Expr) (args : Arguments) : Code (List Lists.Value) :=
-  operandList (callee :: (args.positional ++ args.keywords.map Prod.snd ++
-    args.star.toList ++ args.starStar.toList))
+  operandList (callee :: args.ordered)
 
 inductive CallStaticError where
   | duplicateParameter (name : String)
   | requiredAfterDefault (name : String)
   | bareStarWithoutOptional
   | duplicateExplicitKeyword (name : String)
+  | breakOutsideLoop
+  | continueOutsideLoop
   deriving DecidableEq, Repr
 
 def firstDuplicate : List String → Option String
@@ -71,6 +77,32 @@ structure Actual where
   positional : List Lists.Value
   keywords : List (String × Lists.Value)
 
+structure ArgumentShape where
+  positional : Nat
+  keywords : List String
+  star : Bool
+  starStar : Bool
+
+def Arguments.shape (args : Arguments) : ArgumentShape :=
+  ⟨args.positional.length, args.keywords.map Prod.fst, args.star.isSome, args.starStar.isSome⟩
+
+def ArgumentShape.count (shape : ArgumentShape) : Nat :=
+  shape.positional + shape.keywords.length + shape.star.toNat + shape.starStar.toNat
+
+/-- Operand values in source order, before the collection expansions. -/
+structure EvaluatedArguments where
+  positional : List Lists.Value
+  keywords : List (String × Lists.Value)
+  star : Option Lists.Value
+  starStar : Option Lists.Value
+
+def ArgumentShape.collect (shape : ArgumentShape) (values : List Lists.Value) : EvaluatedArguments :=
+  let afterPositional := values.drop shape.positional
+  let expansions := afterPositional.drop shape.keywords.length
+  ⟨values.take shape.positional, shape.keywords.zip afterPositional,
+    if shape.star then expansions[0]? else none,
+    if shape.starStar then expansions[shape.star.toNat]? else none⟩
+
 def expandStar : Option Lists.Value → Meaning (List Lists.Value)
   | none => pure []
   | some (.list address) => listElements address
@@ -90,16 +122,13 @@ def expandStarStar : Option Lists.Value → Meaning (List (String × Lists.Value
 
 /-- All operands have already run. Validate the mapping expansion before the
 iterable expansion, following the pinned Go call instruction. -/
-def Arguments.expand (args : Arguments) (values : List Lists.Value) : Meaning Actual := do
-  let positional := values.take args.positional.length
-  let afterPositional := values.drop args.positional.length
-  let named := (args.keywords.map Prod.fst).zip afterPositional
-  let expansions := afterPositional.drop args.keywords.length
-  let star := if args.star.isSome then expansions[0]? else none
-  let starStar := if args.starStar.isSome then expansions[args.star.toList.length]? else none
-  let extraKeys ← expandStarStar starStar
-  let extraValues ← expandStar star
-  return ⟨positional ++ extraValues, named ++ extraKeys⟩
+def EvaluatedArguments.expand (args : EvaluatedArguments) : Meaning Actual := do
+  let extraKeys ← expandStarStar args.starStar
+  let extraValues ← expandStar args.star
+  return ⟨args.positional ++ extraValues, args.keywords ++ extraKeys⟩
+
+def Arguments.expand (args : Arguments) (values : List Lists.Value) : Meaning Actual :=
+  (args.shape.collect values).expand
 
 structure BoundArguments where
   named : List (Binding × Lists.Value)

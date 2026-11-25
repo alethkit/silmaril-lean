@@ -146,10 +146,45 @@ out = f(x=3)`)
 	fmt.Println("NOTE pinned Go accepts required-only bare-star signatures, unlike the pinned prose")
 }
 
+func checkNativeDefaults() {
+	const record = `events = []
+def record(marker, value):
+    events.append(marker)
+    return value
+`
+	g, err := run(record + `def factory(seed):
+    def inner(xs=record(seed, []), *, stamp=record(2, 2)):
+        xs.append(stamp)
+        return xs
+    return inner
+f = factory(1)
+a = f()
+b = f()
+`)
+	require(err == nil && g["a"] == g["b"] && g["b"].String() == "[2, 2]" && g["events"].String() == "[1, 2]",
+		"native defaults must use the defining frame, run in order once, and be reused")
+	g["f"].Freeze()
+	_, err = starlark.Call(&starlark.Thread{Name: "frozen native defaults"}, g["f"], nil, nil)
+	checkError(err, "frozen list")
+	fmt.Println("PASS native positional and keyword-only defaults run once in the defining frame and freeze with the closure")
+
+	g, err = run(record + `def factory(seed):
+    def inner(xs=record(seed, []), *, stamp=len(record(2, 9)), later=record(3, 3)):
+        pass
+    return inner
+f = factory(1)
+`)
+	checkError(err, "has no len")
+	require(g["f"] == nil && g["events"].String() == "[1, 2]",
+		"definition failure must preserve earlier effects and skip later defaults")
+	fmt.Println("PASS a failed default retains effects and stops later defaults and closure delivery")
+}
+
 func main() {
 	checkClosure()
 	checkReentry()
 	checkStoreAndFreeze()
 	checkArguments()
 	checkDefaults()
+	checkNativeDefaults()
 }

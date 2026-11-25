@@ -7,7 +7,8 @@ targets carry their name and exact access, including an explicit
 the runtime can give the defined lookup outcome.
 
 The plan contains single-name assignments and assertions in source order.
-Operands are integer literals and global reads. Bare `global` and `pass`
+Operands include signed integers, booleans, global reads, addition, floor
+division and a single equality comparison. Bare `global` and `pass`
 provide the corresponding scope and statement evidence. The plan supplies
 operations to the module runtime, which gives the initialized store and
 execution outcomes.
@@ -17,6 +18,64 @@ The regression emits Lean from Python source and verifies the global
 access witnesses, action order and the diagnostic for an assertion
 message.
 
+The source runner accepts an initial namespace and builds the Core module
+entry using the analyzed spelling of each name. Its correspondence law
+matches the exact completion, visible trace and residual namespace.
+The execution regression compares CPython and Lean on initialized reads,
+overwrites, assertion failure, an unbound read and arithmetic failure.
+[Runner contract](../../Silmaril/Languages/Python/Compile/ModuleEntry/Run/Thms.lean)
+
 ```sh
 make check CHECK_TARGETS=+Silmaril.Languages.Python.Compile.ModuleEntry.Thms
+make check CHECK_TARGETS=+Silmaril.Languages.Python.Compile.ModuleEntry.Run.Thms
+```
+
+## Function bindings and calls
+
+The function plan keeps the source order of top-level assignments,
+definitions and calls. A definition carries its analyzed child path,
+fixed positional destinations and lowered body. Each call reads the
+function by its module name and supplies ordered positional operands. The
+result can be assigned to a name, discarded or tested by a message-free
+assertion.
+
+An implicit or declared global read in a function body retains its module
+name. This supplies lookup in the namespace at call time, including writes
+between a definition and call. Local references continue to use bounded
+frame slots. The regression verifies both kinds of lookup and rejects
+keyword arguments at this profile.
+[Function plan](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Thms.lean)
+
+```sh
+make check CHECK_TARGETS=+Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Thms
+```
+
+The module function runner links the selected bodies and publishes them in
+the shared Core namespace, in source order. A positional call reads its
+callable and its literal or name arguments through that namespace.
+Positional arguments at a module call site may also be direct named calls
+with literal or name operands. The ordinary runner saves the outer
+callable in a frame local, evaluates each argument once from left to right
+into separate locals, then invokes the saved callable. The result updates
+the selected binding only on successful completion. The runner gives the
+labelled invocation trace and a residual state that can be resumed with
+further fuel. Its prefix composition theorem agrees with
+a run using the combined fuel.
+
+The compiler rejects deeper argument nesting, keyword and unpacked
+arguments, and arithmetic call operands. The seeded runner supports these
+nested instructions within its [closed call profile](python-seeded-module-runner.md).
+The CPython regression checks
+result placement, lookup and argument error order, and residual bindings.
+The Lean regression also checks the call-entry order across a live prefix.
+The ordinary module runner also accepts a message-free `assert not test`
+when `test` is an existing module operand. It evaluates the operand once,
+propagates evaluation errors, and succeeds exactly when the result is
+false by the ordinary truth rule. This includes a name bound to a
+returned `None`. The closed seeded runner reports this instruction as
+unsupported.
+[Module-call runner](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Run/Thms.lean)
+
+```sh
+make check CHECK_TARGETS=+Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Thms
 ```

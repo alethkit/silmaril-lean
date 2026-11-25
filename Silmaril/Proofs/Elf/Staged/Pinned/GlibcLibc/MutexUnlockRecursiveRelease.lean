@@ -4,6 +4,7 @@ public import Silmaril.Elf.Staged.Pinned.GlibcLibc.MutexUnlock.RecursiveRelease.
 import Silmaril.Elf.Staged.Pinned.GlibcLibc.MutexUnlock.RecursiveDepth.Thms
 import Silmaril.Elf.Staged.Pinned.GlibcLibc.MutexUnlock.Bookkeeping.Thms
 import Silmaril.Elf.Staged.Pinned.GlibcLibc.MutexUnlock.ExchangePath.Thms
+import Silmaril.Proofs.Elf.Staged.Pinned.GlibcLibc.MutexUnlock.MemoryBytes
 import Silmaril.X86.Atomic9.Converse.Thms
 import Silmaril.Elf.Staged.Pinned.GlibcLibc.MutexUnlock.Step.Thms
 
@@ -14,58 +15,10 @@ namespace Silmaril.Proofs.Elf.Staged.Pinned.GlibcLibc.MutexUnlockRecursiveReleas
 open Silmaril.Elf.Staged.Pinned.GlibcLibc.MutexUnlock
 open Silmaril.Elf.Staged.Pinned.GlibcLibc.MutexUnlock.RecursiveRelease
 open Silmaril.X86
-open Silmaril.X86.Ext (Loaded loadN storeN leBytes leValue length_leBytes leValue_leBytes)
+open Silmaril.Proofs.Elf.Staged.Pinned.GlibcLibc.MutexUnlock.MemoryBytes (bytes_of_load readBacking_eq_fifoRead)
+open Silmaril.X86.Ext (Loaded loadN storeN leBytes length_leBytes)
 open Silmaril.Machine.Execution
 open Silmaril.Process (Memory)
-
-private theorem value_lt (bytes : List Byte) :
-    leValue bytes < 256 ^ bytes.length := by
-  induction bytes with
-  | nil => decide
-  | cons byte bytes ih =>
-    change byte.toNat + 256 * leValue bytes < 256 ^ (bytes.length + 1)
-    rw [Nat.pow_succ]
-    have byte_lt : byte.toNat < 256 := byte.isLt
-    omega
-
-private theorem equal_of_value {left right : List Byte} (size : left.length = right.length)
-    (value : leValue left = leValue right) : left = right := by
-  induction left generalizing right with
-  | nil => simpa using size.symm
-  | cons head rest ih =>
-    cases right with
-    | nil => simp at size
-    | cons head' rest' =>
-      change head.toNat + 256 * leValue rest = head'.toNat + 256 * leValue rest' at value
-      have leftBound : head.toNat < 256 := head.isLt
-      have rightBound : head'.toNat < 256 := head'.isLt
-      have headEq : head = head' := BitVec.eq_of_toNat_eq (by omega)
-      have tailEq : leValue rest = leValue rest' := by omega
-      exact congrArg₂ List.cons headEq (ih (by simpa using size) tailEq)
-
-private theorem bytes_of_load {memory : Memory} {address value : Word} {length : Nat}
-    (fits : length ≤ 8) (load : loadN memory address length = some value) :
-    memory.readBytes address.toNat length = some (leBytes value length) := by
-  cases read : memory.readBytes address.toNat length with
-  | none => simp [loadN, read] at load
-  | some bytes =>
-    have len : bytes.length = length := Memory.readWith_length read
-    have encoding : BitVec.ofNat 64 (leValue bytes) = value := by
-      simpa only [loadN, read, Option.map_some, Option.some.injEq] using load
-    have bound : leValue bytes < 2 ^ (8 * length) := by
-      have small := value_lt bytes
-      rw [len] at small
-      rw [Nat.pow_mul]
-      exact small
-    have wide : leValue bytes < 2 ^ 64 :=
-      lt_of_lt_of_le bound (Nat.pow_le_pow_right (by decide) (by omega))
-    have valueNat : leValue bytes = value.toNat := by
-      have projected := congrArg BitVec.toNat encoding
-      simpa only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt wide] using projected
-    have exactBytes : bytes = leBytes value length := by
-      apply equal_of_value (by simp [len])
-      rw [leValue_leBytes, ← valueNat, Nat.mod_eq_of_lt bound]
-    exact congrArg some exactBytes
 
 private def mutexWrites (base : Word) (address : Nat) : Prop :=
   base.toNat + 4 ≤ address ∧ address < base.toNat + 16
@@ -97,6 +50,7 @@ private theorem private_to_exchange_fields {initial : MState} {kind users : BitV
     ∃ final, run Atomic9.step 10 initial = some final ∧
       final.core.rip = 0xa1ba2 ∧ final.core.read .rax = 0#64 ∧
       final.core.read .rdi = initial.core.read .rdi ∧
+      final.core.read .rbp = initial.core.read .rbp ∧
       loadN final.memory (initial.core.read .rdi + 4#64) 4 = some 0#64 ∧
       loadN final.memory (initial.core.read .rdi) 4 = loadN initial.memory (initial.core.read .rdi) 4 ∧
       MemEvent.atomic9Fetch final.memory final.core.rip.toNat = some (exchange, 2) ∧
@@ -201,10 +155,14 @@ private theorem private_to_exchange_fields {initial : MState} {kind users : BitV
     rw [load_framed total]
     · exact entry.threadRead
     · exact entry.threadApart
-  obtain ⟨final, selects, finalRip, finalRax, finalRdi, finalMemory⟩ :=
-    ExchangePath.private_threaded_exchange updatedRip selectLoaded clearLoaded
+  obtain ⟨final, selects, finalRip, finalRax, finalRdi, finalRbp, finalMemory⟩ :=
+    ExchangePath.private_threaded_exchange_with_rbp updatedRip selectLoaded clearLoaded
       kindRead entry.privateKind threadRead
-  refine ⟨final, ?_, finalRip, finalRax, finalRdi.trans updatedRdi, ?_, ?_, ?_, ?_, ?_⟩
+  have rbp : final.core.read .rbp = initial.core.read .rbp := by
+    rw [finalRbp]
+    unfold State.read
+    rw [updatedRegs, depthRegs]
+  refine ⟨final, ?_, finalRip, finalRax, finalRdi.trans updatedRdi, rbp, ?_, ?_, ?_, ?_, ?_⟩
   · change run Atomic9.step (2 + (2 + 6)) initial = some final
     rw [run_add, depthRuns]
     change run Atomic9.step (2 + 6) depth = some final
@@ -275,29 +233,21 @@ theorem private_to_exchange {initial : MState} {kind users : BitVec 32}
       loadN final.memory (initial.core.read .rdi) 4 = loadN initial.memory (initial.core.read .rdi) 4 ∧
       MemEvent.atomic9Fetch final.memory final.core.rip.toNat = some (exchange, 2) ∧
       initial.memory.WritesOnly final.memory ((initial.core.read .rdi).toNat + 4) 12 := by
-  obtain ⟨final, executed, rip, zero, rdi, depth, lock, fetch, frame, _⟩ :=
+  obtain ⟨final, executed, rip, zero, rdi, _, depth, lock, fetch, frame, _⟩ :=
     private_to_exchange_fields entry
   exact ⟨final, executed, rip, zero, rdi, depth, lock, fetch, frame⟩
 
 open Silmaril.X86.MemoryModel.Tso
 open Silmaril.X86.Concurrency.Sqlite.Release
 
-private theorem readBacking_eq_fifoRead (bytes : Silmaril.Process.ByteMemory) (start length : Nat) :
-    Memory.readBacking bytes start length = readMem (fun address => bytes.get? address) start length := by
-  induction length generalizing start with
-  | zero => rfl
-  | succ length previous =>
-    simp only [Memory.readBacking, readMem, previous]
-    cases bytes.get? start <;>
-      cases readMem (fun address => bytes.get? address) (start + 1) length <;> rfl
-
-theorem private_through_exchange_sc_fields {initial : MState} {kind users : BitVec 32}
+theorem private_through_exchange_sc_fields_with_rbp {initial : MState} {kind users : BitVec 32}
     (entry : Entry initial kind users)
     (aligned : (initial.core.read .rdi).toNat % 4 = 0)
     (lock : initial.memory.readBytes (initial.core.read .rdi).toNat 4 = some [1, 0, 0, 0])
     (writable : initial.memory.Permitted .write (initial.core.read .rdi).toNat 4) :
     ∃ final, run Atomic9.step 11 initial = some final ∧
       final.core.rip = 0xa1ba4 ∧ final.core.read .rax = 1#64 ∧
+      final.core.read .rbp = initial.core.read .rbp ∧
       initial.memory.WritesOnly final.memory (initial.core.read .rdi).toNat 16 ∧
       (∀ address, (initial.core.read .rdi).toNat ≤ address →
         address < (initial.core.read .rdi).toNat + 4 →
@@ -307,7 +257,7 @@ theorem private_through_exchange_sc_fields {initial : MState} {kind users : BitV
         final.memory.bytes.get? (base + 4 + offset) = some 0 ∧
         final.memory.bytes.get? (base + 8 + offset) = some 0 ∧
         final.memory.bytes.get? (base + 12 + offset) = (leBytes ((users - 1#32).setWidth 64) 4)[offset]? := by
-  obtain ⟨before, reached, rip, zero, rdi, _, _, fetched, prefixFrame, fields⟩ :=
+  obtain ⟨before, reached, rip, zero, rdi, rbp, _, _, fetched, prefixFrame, fields⟩ :=
     private_to_exchange_fields entry
   let base := (initial.core.read .rdi).toNat
   have readLock : before.memory.readBytes base 4 = some [1, 0, 0, 0] := by
@@ -346,7 +296,7 @@ theorem private_through_exchange_sc_fields {initial : MState} {kind users : BitV
     step_and_publication before.core before.memory view view written 0 fetched zero alignAt
       (fun _ => rfl) readAt writeAt .refl rfl old tail confined
   let final : MState := ⟨{before.core.write .rax 1 with rip := before.core.rip + 2}, after⟩
-  refine ⟨final, ?_, ?_, rfl, ?_, ?_, ?_⟩
+  refine ⟨final, ?_, ?_, rfl, rbp, ?_, ?_, ?_⟩
   · change run Atomic9.step (10 + 1) initial = some final
     rw [run_add, reached]
     change run Atomic9.step 1 before = some final
@@ -371,6 +321,26 @@ theorem private_through_exchange_sc_fields {initial : MState} {kind users : BitV
     exact ⟨(exchangeFrame.2 _ (.inr (by omega))).trans depthByte,
       (exchangeFrame.2 _ (.inr (by omega))).trans ownerByte,
       (exchangeFrame.2 _ (.inr (by omega))).trans usersByte⟩
+
+theorem private_through_exchange_sc_fields {initial : MState} {kind users : BitVec 32}
+    (entry : Entry initial kind users)
+    (aligned : (initial.core.read .rdi).toNat % 4 = 0)
+    (lock : initial.memory.readBytes (initial.core.read .rdi).toNat 4 = some [1, 0, 0, 0])
+    (writable : initial.memory.Permitted .write (initial.core.read .rdi).toNat 4) :
+    ∃ final, run Atomic9.step 11 initial = some final ∧
+      final.core.rip = 0xa1ba4 ∧ final.core.read .rax = 1#64 ∧
+      initial.memory.WritesOnly final.memory (initial.core.read .rdi).toNat 16 ∧
+      (∀ address, (initial.core.read .rdi).toNat ≤ address →
+        address < (initial.core.read .rdi).toNat + 4 →
+        final.memory.bytes.get? address = some 0) ∧
+      ∀ offset, offset < 4 →
+        let base := (initial.core.read .rdi).toNat
+        final.memory.bytes.get? (base + 4 + offset) = some 0 ∧
+        final.memory.bytes.get? (base + 8 + offset) = some 0 ∧
+        final.memory.bytes.get? (base + 12 + offset) = (leBytes ((users - 1#32).setWidth 64) 4)[offset]? := by
+  obtain ⟨final, path, rip, rax, _, frame, lockBytes, fields⟩ :=
+    private_through_exchange_sc_fields_with_rbp entry aligned lock writable
+  exact ⟨final, path, rip, rax, frame, lockBytes, fields⟩
 
 theorem private_through_exchange_sc {initial : MState} {kind users : BitVec 32}
     (entry : Entry initial kind users)

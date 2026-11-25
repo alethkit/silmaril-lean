@@ -1,0 +1,143 @@
+module
+
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
+public import Silmaril.Wasm.Lime1.Execution.Callout
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Defs
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Thms
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Thms
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Rules
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Core
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Lime1
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.V1
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Transport
+
+@[expose] public section
+
+namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed
+
+open Execution
+open Execution.Runtime (Frame FuncAddr Value)
+open Wasm.Numerics (Profile)
+open Wasm.SingleThreaded.Det (noHost)
+
+theorem core_body_step_cases {H : Type} {P : Profile} {s : Core.Store H} {caller inner : Core.Frame}
+    {n : Nat} {body : List Core.Admin} {dst : Core.Config H}
+    (h : Core.Step P noHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
+    (∃ mid : Core.Config H, Core.Step P noHost ⟨s, inner, body⟩ mid ∧
+      dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] mid.code]]⟩) ∨
+    ∃ out, Core.LabelExit n [] body out ∧ dst = ⟨s, caller, [.frame n inner out]⟩ :=
+  Proofs.Core.body_step_cases h
+
+open Wasm.Lime1.Execution in
+theorem lime_body_step_cases {H : Type} {s : Store H} {caller inner : Frame} {n : Nat}
+    {body : List Admin} {dst : Config H}
+    (h : Step CallFrame.limeNoHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
+    (∃ mid : Config H, Step CallFrame.limeNoHost ⟨s, inner, body⟩ mid ∧
+      dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] mid.code]]⟩) ∨
+    ∃ out, PureStep inner.module.types [.label n [] body] out ∧ dst = ⟨s, caller, [.frame n inner out]⟩ :=
+  Proofs.Lime1.body_step_cases h
+
+theorem core_label_stays {n : Nat} {stack : List Core.Val} {head : Core.Admin}
+    {rest out : List Core.Admin} (none : head.val? = none) (notBr : ∀ i, head ≠ .plain (.br i))
+    (notRet : head ≠ .plain .return_) (notTail : ¬ head.IsReturnCallRef)
+    (notThrow : head ≠ .plain .throwRef) (notFinalTrap : head = .trap → stack ≠ [] ∨ rest ≠ [])
+    (h : Core.LabelExit n [] (Core.vals stack ++ head :: rest) out) : False :=
+  Proofs.Core.label_stays none notBr notRet notTail notThrow notFinalTrap h
+
+open Wasm.Lime1.Execution in
+theorem lime_label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {stack : List Value}
+    {head : Admin} {rest out : List Admin} (none : asValue? head = none) (notBr : ∀ i, head ≠ .source (.br i))
+    (notRet : head ≠ .source .return_) (notFinalTrap : head = .trap → stack ≠ [] ∨ rest ≠ [])
+    (h : PureStep types [.label n [] (values stack ++ head :: rest)] out) : False :=
+  Proofs.Lime1.label_stays none notBr notRet notFinalTrap h
+
+theorem core_direct_call_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Frame}
+    {i : FuncIdx} {a : FuncAddr} {fn : Core.FuncInst H} {stack : List Value}
+    {tail : List Core.Admin} {dst : Core.Config H}
+    (lookup : f.module.funcs[i.toNat]? = some a) (alloc : s.funcs[a.value]? = some fn) :
+    Core.Step P noHost ⟨s, f.toCore, coreValues stack ++ .plain (.call i) :: tail⟩ dst ↔
+      dst = ⟨s, f.toCore, coreValues stack ++ .ref (.func a.value) :: .callRefType fn.type :: tail⟩ :=
+  Proofs.Core.call_iff lookup alloc
+
+theorem lime_direct_call_iff {H : Type} {s : Wasm.Lime1.Execution.Store H} {f : Frame}
+    {i : FuncIdx} {addr : FuncAddr} {stack : List Value} {tail : List Wasm.Lime1.Execution.Admin}
+    {dst : Wasm.Lime1.Execution.Config H} (lookup : f.module.funcs[i.toNat]? = some addr) :
+    Wasm.Lime1.Execution.Step CallFrame.limeNoHost
+      ⟨s, f, Wasm.Lime1.Execution.values stack ++ .source (.call i) :: tail⟩ dst ↔
+      dst = ⟨s, f, Wasm.Lime1.Execution.values stack ++ .invoke addr :: tail⟩ :=
+  Proofs.Lime1.call_iff lookup
+
+theorem guard_to_lime {H : Type} {s : Wasm.V1.Execution.Store H} {caller : Frame} {site : Site}
+    (g : V1Guard s caller site) : LimeGuard (s.mapCode Wasm.V1.Func.toLime) caller site :=
+  Proofs.guard_to_lime g
+
+theorem guard_to_core {H : Type} {s : Wasm.Lime1.Execution.Store H} {caller : Frame} {site : Site}
+    (g : LimeGuard s caller site) : CoreGuard s.toCore caller site :=
+  Proofs.guard_to_core g
+
+theorem v1_to_lime {H : Type} (s : Wasm.V1.Execution.Store H) (caller : Frame) (site : Site) (q : State site) :
+    (v1Config s caller site q).toLime = limeConfig (s.mapCode Wasm.V1.Func.toLime) caller site q :=
+  Proofs.v1_to_lime s caller site q
+
+theorem lime_to_core {H : Type} {s : Wasm.Lime1.Execution.Store H} {caller : Frame} {site : Site}
+    (g : LimeGuard s caller site) (q : State site) :
+    (limeConfig s caller site q).toCore = coreConfig s.toCore caller site q :=
+  Proofs.lime_to_core g q
+
+theorem core_sound {H : Type} {P : Profile} {s : Core.Store H} {caller : Runtime.Frame} {site : Site}
+    {a b : State site} (guard : CoreGuard s caller site) (edge : Edge site a b) :
+    Core.Step P noHost (coreConfig s caller site a) (coreConfig s caller site b) :=
+  Proofs.Core.sound guard edge
+
+theorem core_step_iff {H : Type} {P : Profile} {s : Core.Store H} {caller : Runtime.Frame} {site : Site}
+    {a : State site} {b : Core.Config H} (guard : CoreGuard s caller site) (ready : Admitted site a) :
+    Core.Step P noHost (coreConfig s caller site a) b ↔
+      ∃ out, Edge site a out ∧ b = coreConfig s caller site out :=
+  ⟨Proofs.Core.readback guard ready, fun ⟨_, move, eq⟩ => eq.symm ▸ core_sound guard move⟩
+
+theorem lime_sound {H : Type} {s : Wasm.Lime1.Execution.Store H} {caller : Frame} {site : Site}
+    {a b : State site} (g : LimeGuard s caller site) (edge : Edge site a b) :
+    Wasm.Lime1.Execution.Step CallFrame.limeNoHost (limeConfig s caller site a) (limeConfig s caller site b) :=
+  Proofs.Lime1.sound g edge
+
+theorem lime_step_iff {H : Type} {s : Wasm.Lime1.Execution.Store H} {caller : Frame} {site : Site}
+    {a : State site} {b : Wasm.Lime1.Execution.Config H} (g : LimeGuard s caller site) (ready : Admitted site a) :
+    Wasm.Lime1.Execution.Step CallFrame.limeNoHost (limeConfig s caller site a) b ↔
+      ∃ out, Edge site a out ∧ b = limeConfig s caller site out :=
+  ⟨Proofs.Lime1.readback g ready, fun ⟨_, move, eq⟩ => eq.symm ▸ lime_sound g move⟩
+
+theorem v1_sound {H : Type} {s : Wasm.V1.Execution.Store H} {caller : Frame} {site : Site}
+    {a b : State site} (g : V1Guard s caller site) (edge : Edge site a b) :
+    Wasm.V1.Execution.Step CallFrame.v1NoHost (v1Config s caller site a) (v1Config s caller site b) :=
+  Proofs.V1.sound g edge
+
+theorem v1_step_iff {H : Type} {s : Wasm.V1.Execution.Store H} {caller : Frame} {site : Site}
+    {a : State site} {b : Wasm.V1.Execution.Config H} (g : V1Guard s caller site) (ready : Admitted site a) :
+    Wasm.V1.Execution.Step CallFrame.v1NoHost (v1Config s caller site a) b ↔
+      ∃ out, Edge site a out ∧ b = v1Config s caller site out :=
+  ⟨Proofs.V1.readback g ready, fun ⟨_, move, eq⟩ => eq.symm ▸ v1_sound g move⟩
+
+theorem core_run_iff {H : Type} {P : Profile} {s : Core.Store H} {caller : Runtime.Frame} {site : Site}
+    {a : State site} {b : Core.Config H} (guard : CoreGuard s caller site) (ready : Admitted site a) :
+    Core.Steps P noHost (coreConfig s caller site a) b ↔
+      ∃ out, Runs site a out ∧ Admitted site out ∧ b = coreConfig s caller site out :=
+  Proofs.run_iff (coreConfig s caller site) _ guard.typed (fun e => core_sound guard e)
+    (fun h => core_step_iff guard h) ready
+
+theorem lime_run_iff {H : Type} {s : Wasm.Lime1.Execution.Store H} {caller : Frame} {site : Site}
+    {a : State site} {b : Wasm.Lime1.Execution.Config H}
+    (guard : LimeGuard s caller site) (ready : Admitted site a) :
+    Wasm.Lime1.Execution.Steps CallFrame.limeNoHost (limeConfig s caller site a) b ↔
+      ∃ out, Runs site a out ∧ Admitted site out ∧ b = limeConfig s caller site out :=
+  Proofs.run_iff (limeConfig s caller site) _ guard.typed (fun e => lime_sound guard e)
+    (fun h => lime_step_iff guard h) ready
+
+theorem v1_run_iff {H : Type} {s : Wasm.V1.Execution.Store H} {caller : Frame} {site : Site}
+    {a : State site} {b : Wasm.V1.Execution.Config H}
+    (guard : V1Guard s caller site) (ready : Admitted site a) :
+    Wasm.V1.Execution.Steps CallFrame.v1NoHost (v1Config s caller site a) b ↔
+      ∃ out, Runs site a out ∧ Admitted site out ∧ b = v1Config s caller site out :=
+  Proofs.run_iff (v1Config s caller site) _ guard.typed (fun e => v1_sound guard e)
+    (fun h => v1_step_iff guard h) ready
+
+end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed

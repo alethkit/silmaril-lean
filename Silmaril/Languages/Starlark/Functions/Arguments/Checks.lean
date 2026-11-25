@@ -25,7 +25,7 @@ private def tup (xs : List Lists.Expr) : Lists.Expr := .tuple (operandList xs)
 private def dict (xs : List (Lists.Expr × Lists.Expr)) : Lists.Expr :=
   .dict (xs.foldl (fun entries (k, v) => .entry entries k v) .noEntries)
 private def param (n : String) (defaultExpr : Option Lists.Expr := none) : Parameter :=
-  ⟨slot n, defaultExpr⟩
+  ⟨slot n, defaultExpr.map .atom⟩
 private def append (n : String) (v : Lists.Expr) : Lists.Expr := .append (name n) v
 private def set (n : String) (v : Lists.Expr) : Body := .total (.atomic (.assign (slot n) v))
 private def ret (v : Lists.Expr) : Body := .total (.ret v)

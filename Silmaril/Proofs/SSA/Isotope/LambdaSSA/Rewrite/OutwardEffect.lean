@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.LabelRenaming.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Combinators
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Labels
+import Silmaril.Semantics.Categories.Freyd.CentralUnit.Thms
 
 /-! # Outward CFGs with arbitrary typed entries -/
 
@@ -19,7 +20,7 @@ open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical
   (caseWithContext duplicate extend retainLeft contextualLoop splitMapCoprod)
-open CategoryTheory.CartesianMonoidalCategory (snd toUnit)
+open CategoryTheory.CartesianMonoidalCategory (snd)
 
 variable {V : Type u₁} {C : Type u₂}
   [Category.{v₁} V] [Category.{v₂} C]
@@ -32,29 +33,12 @@ section Freyd
 
 variable (J : V ⥤ C) [DistributiveFreydCategory J]
 
-local notation "tensorIso" => Functor.StrongPremonoidal.tensorIso (J := J)
 local notation "unitIso" => Functor.StrongPremonoidal.unitIso (J := J)
-
-private theorem map_snd {E A : V} :
-    (tensorIso E A).hom ≫ J.map (snd E A) =
-      (J.map (toUnit E) ≫ (unitIso).inv) ▷ J.obj A ≫ (λ_ (J.obj A)).hom := by
-  rw [← CartesianMonoidalCategory.whiskerRight_toUnit_comp_leftUnitor_hom, J.map_comp,
-    ← Category.assoc, ← Functor.StrongPremonoidal.tensor_naturality_left, Category.assoc,
-    PremonoidalCategory.comp_whiskerRight, Category.assoc, ← Functor.StrongPremonoidal.left_unitality]
-  have h : (unitIso).inv ▷ J.obj A ≫ (unitIso).hom ▷ J.obj A = 𝟙 _ :=
-    (whiskerRightIso unitIso (J.obj A)).inv_hom_id
-  rw [← Category.assoc ((unitIso).inv ▷ J.obj A), h, Category.id_comp]
 
 theorem retainLeft_snd (hu : IsCentral (unitIso).hom) {E A B : V} (f : J.obj A ⟶ J.obj B) :
     retainLeft J (R := E) f ≫ J.map (snd E B) = J.map (snd E A) ≫ f := by
-  apply (cancel_epi (tensorIso E A).hom).1
-  have hd := (FreydCategory.image_central J (toUnit E)).comp (IsCentral.inv unitIso hu)
-  have he := hd.1 f
-  simp only [leftTensor, rightTensor] at he
-  simp only [retainLeft, leftTensor, Category.assoc, Iso.hom_inv_id_assoc,
-    id_whiskerRight, Category.id_comp, map_snd J]
-  rw [← Category.assoc, ← he, Category.assoc, PremonoidalCategory.leftUnitor_naturality,
-    ← Category.assoc, ← map_snd J, Category.assoc]
+  simpa only [retainLeft, leftTensor, id_whiskerRight, Category.id_comp, Category.assoc] using
+    FreydCategory.whiskerLeft_snd_of_unit_central J hu E f
 
 theorem extend_snd (hu : IsCentral (unitIso).hom) {E A : V} (f : J.obj E ⟶ J.obj A) :
     extend J f ≫ J.map (snd E A) = f := by

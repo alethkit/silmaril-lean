@@ -23,7 +23,7 @@ private theorem branch_apply {depth : Nat} (flag : Bool) (yes no : Suite depth) 
 private theorem meaning_of_runs {s : State} {job : Work} {out : Outcome Flow}
     (h : Runs s job out) : meaning job s = out := by
   induction h <;> (try have evaluated := (eval_iff_denote _ _ _).mp (by assumption)) <;>
-    simp_all [meaning, denoteSuite, denoteItems, Outcome.resume, branch_apply]
+    simp_all [meaning, denoteSuite, denoteForIn, denoteItems, Outcome.resume, branch_apply]
   case seqStop signal _ _ _ =>
     cases signal <;> simp_all <;> rfl
   case itemsAdvance =>
@@ -84,7 +84,7 @@ theorem runs_denoteSuite {depth : Nat} (code : Suite depth) (state : State) :
       · exact .branch tested h (ihNo next)
       · exact .branch tested h (ihYes next)
   | forIn target iterable body ihBody =>
-    rw [denoteSuite]
+    rw [denoteSuite, denoteForIn]
     have evaluated : Eval state iterable (denote iterable state) := (eval_iff_denote _ _ _).mpr rfl
     cases h : Outcome.resume (denote iterable state) iterationSource with
     | error error next => exact .forError evaluated h

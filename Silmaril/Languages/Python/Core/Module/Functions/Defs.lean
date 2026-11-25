@@ -81,10 +81,7 @@ structure Observation where
   completion : Completion
   residual : Session
 
-def truth : Value → Bool
-  | .int value => decide (value ≠ 0)
-  | .bool value => value
-  | .function _ => true
+def truth : Value → Bool := Value.truth
 
 /-- Commit the destination only after terminal success. A raised error or
 fault retains the residual heap and leaves all module bindings untouched. -/
