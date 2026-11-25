@@ -714,6 +714,18 @@ abbrev chooseApplicationAfter {context : Ports (Ty V S)} {past final steps : Lis
   bindGamma (chooserInputs selector) (chooserArms ports)
     (route.wrap source (bindApplication fn (.cons (route.callable source) arguments) suffix))
 
+/-- Choose a captured λ once, then carry it as the first θ operand. The
+body can read that port directly on every restart. -/
+abbrev chooseTheta {context carry : Ports (Ty V S)} {past bodySigs : List (Ports (Ty V S))}
+    (fn : Function V S) (selector : Origin (context ++ params) past (.control (extra + 2)))
+    (ports : Fin (extra + 2) → Port context fn.port)
+    (initial : Wires (context ++ params) (past ++ [[fn.port]]) carry)
+    (body : LoopBody Op (fn.port :: carry) bodySigs)
+    (suffix : NestedTheta.Term (Instruction Op) (context ++ params) ((past ++ [[fn.port]]) ++ [fn.port :: carry]) sigs outs) :
+    NestedTheta.Term (Instruction Op) (context ++ params) past ([fn.port] :: (fn.port :: carry) :: sigs) outs :=
+  bindGamma (chooserInputs selector) (chooserArms ports)
+    (bindTheta (.cons (joinedOrigin fn) initial) body suffix)
+
 /-- A candidate is a pair of actual typed λ bodies with ordered captures.
 The ranked witness separately proves provenance and admissibility. -/
 structure CallTarget (m : Machine.{u, v, w} Op) (fn : Function V S) where
@@ -734,7 +746,7 @@ abbrev CallTarget.valueR {fn : Function V S} (target : CallTarget m fn) : m.Val 
 /-- An ordered region of primitive bindings, static calls, selected γ arms and θ bodies.
 Callees decrease rank. Child and suffix plans decrease structurally at the same rank.
 A θ activation routes the same static capture prefix into the next feedback activation.
-A chooser can forward one of finitely many statically admitted λs to a later application. -/
+A chooser can forward one of finitely many statically admitted λs to a later application or a θ activation. -/
 inductive RankedPlan (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
     Nat → Renaming → {context params outs : Ports (Ty V S)} →
     {past sigsL sigsR : List (Ports (Ty V S))} → Tuple m.Val context → Tuple m.Val context →
@@ -853,6 +865,27 @@ inductive RankedPlan (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
     RankedPlan m ids rank map capturesL capturesR
       (chooseApplicationAfter fn selector ports route arguments suffixL)
       (chooseApplicationAfter fn selector ports route arguments suffixR)
+
+  /-- Check the same scoped body for every admissible selected capture.
+  The existing ranked call rule checks descent at each actual application. -/
+  | chooseTheta {rank extra : Nat} {map : Renaming}
+      {context params carry outs : Ports (Ty V S)} {fn : Function V S}
+      {past sigsL sigsR tailL tailR : List (Ports (Ty V S))} {capturesL capturesR : Tuple m.Val context}
+      {bodyL : LoopBody Op (fn.port :: carry) sigsL} {bodyR : LoopBody Op (fn.port :: carry) sigsR}
+      {suffixL : NestedTheta.Term (Instruction Op) (context ++ params) ((past ++ [[fn.port]]) ++ [fn.port :: carry]) tailL outs}
+      {suffixR : NestedTheta.Term (Instruction Op) (context ++ params) ((past ++ [[fn.port]]) ++ [fn.port :: carry]) tailR outs}
+      (selector : Origin (context ++ params) past (.control (extra + 2)))
+      (ports : Fin (extra + 2) → Port context fn.port)
+      (initial : Wires (context ++ params) (past ++ [[fn.port]]) carry)
+      (bodies : ∀ i, RankedPlan m ids rank (map.child (past ++ [[fn.port]]).length 0)
+        (context := [fn.port]) (params := carry)
+        (.cons (capturesL.get (ports i)) .nil) (.cons (capturesR.get (ports i)) .nil) bodyL bodyR)
+      (fixedL : PreservesLoopCaptures Op [fn.port] carry bodyL)
+      (fixedR : PreservesLoopCaptures Op [fn.port] carry bodyR)
+      (suffix : RankedPlan m ids rank map capturesL capturesR suffixL suffixR) :
+    RankedPlan m ids rank map capturesL capturesR
+      (Gamma.chooseTheta fn selector ports initial bodyL suffixL)
+      (Gamma.chooseTheta fn selector ports initial bodyR suffixR)
 
 inductive ScheduledLambda (m : Machine.{u, v, w} Op) (ids : GlobalRel) (mapping : Renaming)
     (params outs : Ports (Ty V S)) :

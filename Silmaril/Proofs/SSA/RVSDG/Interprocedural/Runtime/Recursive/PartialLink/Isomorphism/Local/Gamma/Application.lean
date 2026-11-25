@@ -329,4 +329,30 @@ theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : Li
       (fun tag {_ _} operands middle => calleeIH tag (captured tag) operands .empty middle)
       (fun aligned middle => suffixIH captures arguments aligned middle)
 
+  | @chooseTheta _ _ _ context params _ _ fn past _ _ _ _ capL capR bodyL bodyR restL restR
+      selector ports initial _ fixedL fixedR _ bodyIH suffixIH =>
+    let source := joinedOrigin (past := past) (args := context ++ params) fn
+    let wiring := Tuple.cons source initial
+    refine choose_pair (restL := bindTheta wiring bodyL restL) (restR := bindTheta wiring bodyR restR)
+      selector ports captures arguments locals ?_
+    intro tag
+    let entryL := prependContext argsL capL
+    let entryR := prependContext argsR capR
+    let valueL := capL.get (ports tag)
+    let valueR := capR.get (ports tag)
+    let scopeL := localsL.snoc (.cons valueL .nil)
+    let scopeR := localsR.snoc (.cons valueR .nil)
+    have capture := captures.get (ports tag)
+    have joined := locals.snoc (.cons capture .nil)
+    have startL : Wires.read wiring entryL scopeL =
+        prependContext (initial.read entryL scopeL) (.cons valueL .nil) :=
+      congrArg (fun value => Tuple.cons value (initial.read entryL scopeL)) (joined_origin_read entryL localsL valueL)
+    have startR : Wires.read wiring entryR scopeR =
+        prependContext (initial.read entryR scopeR) (.cons valueR .nil) :=
+      congrArg (fun value => Tuple.cons value (initial.read entryR scopeR)) (joined_origin_read entryR localsR valueR)
+    exact loop_for_captures wiring (Local.aligned_read (prepend_related captures arguments) joined wiring)
+      ⟨_, startL⟩ ⟨_, startR⟩ fixedL fixedR
+      (fun {_ _} inputs middle => bodyIH tag (.cons capture .nil) inputs .empty middle)
+      (fun values middle => suffixIH captures arguments (joined.snoc values) middle)
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs
