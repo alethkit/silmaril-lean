@@ -144,7 +144,7 @@ open Isotope.LambdaSSA.Semantics.Categorical (ofMonadicTypeModel ofMonadicInstru
 /-- Identify the structural result with the chosen SSA denotation using
 coherence of the induced Kleisli model. -/
 theorem chosen_eq (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m))
-    {r : Region Φ} {L : List τ} {h : Region.HasType [A] r L} {f : Env [A] → m (LabelDen L)}
+    {r : Region Φ} {Γ L : List τ} {h : Region.HasType Γ r L} {f : Env Γ → m (LabelDen L)}
     (d : RegionDenotes (m := m) ε h f) : Region.denote (ε := ε) (m := m) h = f := by
   let _ := ofMonadicInstructionModel (τ := τ) (Φ := Φ) (ε := ε) (m := m)
   let J := typeJ (m := m)

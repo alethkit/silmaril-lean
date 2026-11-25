@@ -38,7 +38,7 @@ chosen denotation, for any external label context. -/
 theorem regionDenote_eq_of
     (coherent : Isotope.LambdaSSA.Semantics.Agreement.RegionCoherent
       (τ := τ) (Φ := Φ) (ε := ε) (m := m))
-    {L : List τ} {h : Region.HasType [A] r L} {f : Env [A] → m (LabelDen L)}
+    {Γ L : List τ} {h : Region.HasType Γ r L} {f : Env Γ → m (LabelDen L)}
     (denotation : RegionDenotes (m := m) ε h f) : Region.denote (ε := ε) (m := m) h = f :=
   Proofs.chosen_eq coherent denotation
 
