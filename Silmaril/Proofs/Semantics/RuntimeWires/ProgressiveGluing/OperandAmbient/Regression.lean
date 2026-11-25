@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.OperandAmbient.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.NormNum
@@ -192,14 +192,14 @@ example :
 
 private noncomputable def sharedWire := matchCaps.upperJoin.upperId 0
 
-private theorem wire_covers (y : ℝ) (hy : y ∈ Set.Icc (0 : ℝ) 1) :
-    matchCaps.glue.covers sharedWire y := by
-  have lo : matchCaps.glue.start sharedWire = none := by
-    cases h : matchCaps.glue.start sharedWire with
+private theorem wire_covers {W : ℕ} (d : ProgressiveGraph.Diagram signature 0 W .point)
+    (w : Fin W) (y : ℝ) (hy : y ∈ Set.Icc (0 : ℝ) 1) : d.covers w y := by
+  have lo : d.start w = none := by
+    cases d.start w with
     | none => rfl
     | some v => exact v.elim0
-  have hi : matchCaps.glue.finish sharedWire = none := by
-    cases h : matchCaps.glue.finish sharedWire with
+  have hi : d.finish w = none := by
+    cases d.finish w with
     | none => rfl
     | some v => exact v.elim0
   simpa only [ProgressiveGraph.Diagram.covers, ProgressiveGraph.Diagram.lower,
@@ -213,7 +213,7 @@ example :
     rw [matchCaps.glue_eq_upperJoin]
     exact (matchCaps.upperJoin.glue_x_upper 0 (by norm_num)).trans (initial_x _ _)
   have h := (full.correspondence halfway).wire sharedWire (3 / 4)
-    (wire_covers _ (by norm_num [Set.mem_Icc]))
+    (wire_covers matchCaps.glue sharedWire _ (by norm_num [Set.mem_Icc]))
   rw [source, upper_mid] at h
   exact (congrArg Prod.fst h).symm
 
@@ -222,5 +222,103 @@ example :
     full.isotopy.frame halfway '' (matchCaps.glue.wire sharedWire).trace =
       ((full.drawing halfway).wire ((full.correspondence halfway).rename sharedWire)).trace :=
   (full.correspondence halfway).trace sharedWire
+
+private noncomputable def lastTime : Time := ⟨1, zero_le_one, le_rfl⟩
+
+private theorem collar_bottom_third (w : Fin (ProgressiveGraph.Diagram.OrderedVerticalMatch.collarCount initial)) :
+    matchCaps.collarSpec.bottom w = 1 / 3 := by
+  rw [matchCaps.collarSpec_bottom, initial_x]
+
+private theorem collar_top_third (w : Fin (ProgressiveGraph.Diagram.OrderedVerticalMatch.collarCount initial)) :
+    matchCaps.collarSpec.top w = 1 / 3 := by
+  rw [matchCaps.collarSpec_top, initial_x]
+
+private noncomputable def bentCollar : PolygonalCollar matchCaps.collarSpec where
+  wire _ := bend lastTime
+  bottom w := by
+    rw [collar_bottom_third]
+    change 1 / 3 + displacement lastTime 0 = _
+    norm_num [displacement, tent]
+  top w := by
+    rw [collar_top_third]
+    change 1 / 3 + displacement lastTime 1 = _
+    norm_num [displacement, tent]
+  inside _ y hy := (drawing lastTime).wire_inside 0 y hy
+  ordered a b _ _ h := by
+    rw [collar_bottom_third a, collar_bottom_third b] at h
+    exact ((lt_irrefl _) h).elim
+
+private noncomputable def combined :=
+  matchCaps.glueWithMotions matchCaps.straightCollar bentCollar motion motion
+
+private noncomputable def middleId :=
+  ProgressiveGraph.Diagram.OrderedVerticalMatch.collarIndex initial ⟨0, rfl⟩
+
+private theorem middle_mid :
+    combined.isotopy.frame halfway (1 / 3, 3 / 8) = (5 / 12, 3 / 8) := by
+  change (matchCaps.glueWithMotions matchCaps.straightCollar bentCollar motion motion).isotopy.frame
+    halfway (1 / 3, 3 / 8) = _
+  rw [matchCaps.glueWithMotions_middle _ _ _ _ _ _ (by norm_num [Set.mem_Icc])]
+  have h := matchCaps.straightCollar.ambientIsotopy_wire bentCollar halfway middleId (y := 3 / 8)
+    (by norm_num [Set.mem_Icc])
+  rw [show 4 * (3 / 8 : ℝ) - 1 = 1 / 2 by norm_num, PolygonalCollar.blend_x,
+    matchCaps.straightCollar_x, collar_bottom_third, collar_top_third] at h
+  change matchCaps.straightCollar.ambientIsotopy bentCollar halfway
+      (interpolate (1 / 3) (1 / 3) (1 / 2), 3 / 8) =
+    (interpolate (interpolate (1 / 3) (1 / 3) (1 / 2))
+      (1 / 3 + displacement lastTime (1 / 2)) halfway.val, 3 / 8) at h
+  norm_num [interpolate, displacement, halfway, lastTime, tent] at h
+  exact h
+
+/-- At a common time all three interior points move, using their own
+placements. The inverse takes the collar midpoint back to its source. -/
+example :
+    combined.isotopy.frame halfway (1 / 3, 1 / 8) = (5 / 12, 1 / 8) ∧
+    combined.isotopy.frame halfway (1 / 3, 3 / 8) = (5 / 12, 3 / 8) ∧
+    combined.isotopy.frame halfway (1 / 3, 3 / 4) = (5 / 12, 3 / 4) ∧
+    (combined.isotopy.frame halfway).symm (5 / 12, 3 / 8) = (1 / 3, 3 / 8) := by
+  refine ⟨?_, middle_mid, ?_, ?_⟩
+  · change (matchCaps.glueWithMotions matchCaps.straightCollar bentCollar motion motion).isotopy.frame
+      halfway (1 / 3, 1 / 8) = _
+    rw [matchCaps.glueWithMotions_lower _ _ _ _ _ _ (by norm_num)]
+    change (1 / 3 + displacement halfway (slabHeight 0 (slabHeight 0 (1 / 8))),
+      halfHeight 0 (halfHeight 0 (slabHeight 0 (slabHeight 0 (1 / 8))))) = _
+    norm_num [displacement, tent, halfway, slabHeight, halfHeight]
+  · change (matchCaps.glueWithMotions matchCaps.straightCollar bentCollar motion motion).isotopy.frame
+      halfway (1 / 3, 3 / 4) = _
+    rw [matchCaps.glueWithMotions_upper _ _ _ _ _ _ (by norm_num)]
+    change (1 / 3 + displacement halfway (slabHeight 1 (3 / 4)),
+      halfHeight 1 (slabHeight 1 (3 / 4))) = _
+    norm_num [displacement, tent, halfway, slabHeight, halfHeight]
+  · rw [← middle_mid, Homeomorph.symm_apply_apply]
+
+example (t : Time) (x : ℝ) :
+    combined.isotopy.frame t (x, 1 / 4) = (x, 1 / 4) ∧
+    combined.isotopy.frame t (x, 1 / 2) = (x, 1 / 2) :=
+  ⟨matchCaps.glueWithMotions_lower_splice _ _ _ _ t x, matchCaps.glueWithMotions_upper_splice _ _ _ _ t x⟩
+
+/-- The moving collar midpoint lies on the actual renamed composite wire. -/
+example :
+    (combined.drawing halfway).x ((combined.correspondence halfway).rename
+      (matchCaps.gluedCollarId middleId)) (3 / 8) = 5 / 12 := by
+  let source := matchCaps.glueWith matchCaps.straightCollar
+  let w := matchCaps.gluedCollarId middleId
+  have x : source.x w (3 / 8) = 1 / 3 := by
+    change (matchCaps.glueWith matchCaps.straightCollar).x (matchCaps.gluedCollarId middleId) (3 / 8) = _
+    rw [matchCaps.glueWith_x_collar _ _ (by norm_num [Set.mem_Icc]), matchCaps.straightCollar_x,
+      collar_bottom_third, collar_top_third]
+    norm_num [interpolate]
+  have h := (combined.correspondence halfway).wire w (3 / 8)
+    (wire_covers source w _ (by norm_num [Set.mem_Icc]))
+  change combined.isotopy.frame halfway (source.x w (3 / 8), 3 / 8) = _ at h
+  rw [x, middle_mid] at h
+  exact (congrArg Prod.fst h).symm
+
+example :
+    combined.isotopy.frame halfway '' ((matchCaps.glueWith matchCaps.straightCollar).wire
+        (matchCaps.gluedCollarId middleId)).trace =
+      ((combined.drawing halfway).wire ((combined.correspondence halfway).rename
+        (matchCaps.gluedCollarId middleId))).trace :=
+  matchCaps.glueWithMotions_trace _ _ _ _ halfway _
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
