@@ -52,8 +52,9 @@ region, with multiway γ and recursively checked arms. The categorical
 semantics specializes the pure category to types and the computation
 category to a lawful monad's Kleisli category. The explicit-runtime
 deterministic model uses total state functions. The free premonoidal
-runtime presentation, more than one runtime, θ, general CFG conversion,
-and a sentence-level comparison require separate extensions.
+runtime presentation, more than one runtime, general CFG conversion,
+and a sentence-level comparison require separate extensions. Whole-region
+θ has its own checked iteration interface. [Ordered θ](rvsdg-structured-runtime-theta.md)
 
 ## Reproduce
 

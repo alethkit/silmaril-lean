@@ -124,6 +124,16 @@ private theorem restore_erase (data : Data outs) (rt : ρ)
   | value _ ih => cases xs with | cons x xs => exact congrArg (Tuple.cons x) (ih xs)
   | control _ ih => cases xs with | cons x xs => exact congrArg (Tuple.cons x) (ih xs)
 
+theorem encode_decode (pair : Tuple (Values value) outs × ρ) :
+    encode (decode pair) = pair := by
+  simp only [encode, decode, split_append, erase_restore]
+
+theorem decode_encode (data : Data outs) (input : Tuple (RuntimeValues value ρ) (Threaded outs)) :
+    decode (encode input) = input := by
+  change withRuntime (splitRuntime outs input).2
+    ((eraseTuple (splitRuntime outs input).1).map (restoreValue _)) = _
+  rw [restore_erase data, append_split]
+
 private theorem erase_decode (result : Tuple (Values value) outs × ρ) :
     eraseTuple (decode result) = withRuntime PUnit.unit result.1 := by
   simp only [decode, erase_append, erase_restore]
@@ -197,8 +207,7 @@ theorem denote_agrees {a : Data args} {b : Data outs}
     (g : Graph (Opcode P E) (Threaded args) [] sigs (Threaded outs))
     (checked : EntryChecked a b g.toTerm)
     (input : Tuple (RuntimeValues m.value ρ) (Threaded args)) :
-    decode ((denoteGraph m g checked (eraseTuple (splitRuntime args input).1)).run
-      (splitRuntime args input).2) = g.run m.toRVSDG input := by
+    decode ((denoteGraph m g checked (encode input).1).run (encode input).2) = g.run m.toRVSDG input := by
   rw [← Graph.run_toTerm]
   have step := eval_agrees m checked (withRuntime (splitRuntime args input).2 (splitRuntime args input).1)
     PUnit.unit
