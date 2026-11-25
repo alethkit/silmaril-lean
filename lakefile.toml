@@ -467,6 +467,11 @@ globs = ["tests.wasm.auto.+", "tests.wasm.auto2.+"]
 name = "LetIterPackingImportTests"
 globs = ["tests.ssa.LetIterPackingImports.+"]
 
+# Check native soundness and original-bound unary separation through the public headers.
+[[lean_lib]]
+name = "LetIterWeakTreeSoundnessTests"
+globs = ["tests.ssa.LetIterWeakTreeSoundness"]
+
 # The component and generator tools of the Wasm release (docs/projects/wasm-components.md).
 [[lean_exe]]
 name = "wasm-tools-gen"
