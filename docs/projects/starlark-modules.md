@@ -93,7 +93,8 @@ path as function assignments, then use the ordinary publication rules.
 
 The normalized `CompExpr` adapter allows comprehensions in call operands,
 conditional and short-circuit operands, collection displays, and index
-and slice reads within return values and single-name assignment RHSs.
+and slice reads within return values, single-name assignment RHSs, and
+parameter defaults.
 The first and later iterables and filters and the heads of a comprehension
 use the same broader placement grammar.
 Both selected and skipped AST positions are resolved before execution.
@@ -120,7 +121,9 @@ own parameters and locals, and each declaration captures the free slots its
 body or nested definitions need. A definition passes those slots through any
 intervening function. The evaluator runs defaults when it executes the
 definition command and installs the closure only after they succeed.
-[Name binding in the pinned spec][names] · [Resolver](../../Silmaril/Languages/Starlark/Modules/Resolve/Defs.lean)
+`SourceParameter.defaultExpr` accepts the normalized `CompExpr` grammar.
+An ordinary quoted `SourceExpr` coerces to a plain expression.
+[Name binding in the pinned spec][names] · [Resolver](../../Silmaril/Languages/Starlark/Modules/Resolve/Defs.lean) · [Comprehension defaults](starlark-functions.md#comprehensions-in-parameter-defaults)
 
 ```lean
 module

@@ -48,6 +48,40 @@ theorem Expression.exec_return_iff_lowered (program : Program) (available : List
   rw [Proofs.Languages.Starlark.Functions.Comprehensions.return_exact program available expr admitted state free start]
   exact exec_iff_denoteBody _ _ _ _ _
 
+/-- Replacing each admitted definition-time operand by scratch-lowered code
+preserves the exact outcome and state of the complete definition. -/
+theorem definition_defaults_preserved (program : Program) (available : List DeclarationId)
+    (target : Binding) (id : DeclarationId) (defaults : List (Binding × Expression))
+    (admitted : ∀ item ∈ defaults, item.2.Admitted) (state : State)
+    (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    denoteBody program available (definitionWithDefaults (loweredStages start) target id defaults) state =
+      denoteBody program available (definitionWithDefaults directStages target id defaults) state :=
+  ((Proofs.Languages.Starlark.Functions.Comprehensions.definition_defaults_exact
+    program available target id defaults admitted start) state free).1.symm
+
+/-- The independent checked-body rules for a staged definition characterize
+scratch-lowered execution, including errors, the heap and iterator guards. -/
+theorem definition_exec_iff_lowered (program : Program) (available : List DeclarationId)
+    (target : Binding) (id : DeclarationId) (defaults : List (Binding × Expression))
+    (admitted : ∀ item ∈ defaults, item.2.Admitted) (state : State) (out : Outcome Flow)
+    (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    Exec program available state (definitionWithDefaults directStages target id defaults) out ↔
+      denoteBody program available (definitionWithDefaults (loweredStages start) target id defaults) state = out := by
+  rw [definition_defaults_preserved program available target id defaults admitted state free start]
+  exact exec_iff_denoteBody _ _ _ _ _
+
+/-- A failed first default skips the remaining defaults and closure
+installation. Its residual heap and iterator context survive frame restoration. -/
+theorem definition_default_failure (program : Program) (available : List DeclarationId)
+    (stages : ExpressionStages) (target parameter : Binding) (id : DeclarationId) (expr : Expression)
+    (rest : List (Binding × Expression)) (state failed : State) (error : Lists.Error)
+    (ran : denoteBody program available (expr.compile stages (defaultSlot parameter)) state =
+      .error error failed) :
+    denoteBody program available (definitionWithDefaults stages target id ((parameter, expr) :: rest)) state =
+      .error error (restoreCaller state failed) :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.definition_default_failure
+    program available stages target parameter id expr rest state failed error ran
+
 /-- After the test has evaluated and been classified, only the selected
 branch contributes to the final outcome or heap. -/
 theorem conditional_selects (program : Program) (available : List DeclarationId)

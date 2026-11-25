@@ -608,4 +608,104 @@ private def isUnhashableList : Lists.Error → Bool
   | .ok (.error (.runtime (.uninitialized name)) state) => name == fileSlot "y" && state.iterators.isEmpty
   | _ => false
 
+-- All defaults see make's seed, including through the factory's capture.
+-- A supplied argument overrides its saved value. Both omitted seeds share
+-- the same list, which is frozen through the published closure's defaults.
+#guard
+  let seed := CompExpr.list ⟨starlark%[x], starlark%[seed], .yield starlark%[mark(2, x)]⟩
+  let data := CompExpr.dict ⟨starlark%[x], starlark%[seed], .yield (starlark%[x], starlark%[mark(3, 3)])⟩
+  let work := Statement.define "work"
+    { positional := [⟨"before", some starlark%[mark(1, seed[0])]⟩, ⟨"seed", some seed⟩],
+      keywordOnly := [⟨"data", some data⟩] }
+    (.seq (.addIndex starlark%[seed] starlark%[0] starlark%[data[7]])
+      (.ret (some starlark%[(before, seed, data)])))
+  let factory := Statement.define "factory" {} (.seq work (.ret (some starlark%[work])))
+  let commands := logCommands ++
+    [.define "make" { positional := [⟨"seed", none⟩] } (.seq factory (.ret (some starlark%[factory()]))),
+     .define "use" { positional := [⟨"f", none⟩] }
+       (.seq (.assign "a" starlark%[f()]) (.seq (.assign "b" starlark%[f(before=0)])
+         (.ret (some starlark%[(a[0], b[0], a[1][0], b[1][0], len(b[2]))])))),
+     .assign "f" starlark%[make([7])], .assign "out" starlark%[use(f)],
+     .assign "ok" starlark%[{(7, 0, 13, 13, 1): True}[out]]]
+  match runModule commands noImports {} with
+  | .ok (.ok published state) =>
+    published.exports.lookup "ok" == some (.scalar (.bool true)) &&
+    match published.exports.lookup "events", published.exports.lookup "f" with
+    | some (.list events), some (.function address) =>
+      eventsMatch state events [1, 2, 3, 0, 0, 0, 0, 0] &&
+      match Functions.getClosure address state with
+      | .ok ⟨_, _, [(before, v), (seed, .list xs), (data, .dict dict)]⟩ _ =>
+        before == fileSlot "before" && v == intValue 7 &&
+          seed == fileSlot "seed" && data == fileSlot "data" &&
+          state.heap[xs]?.any Cell.frozen && state.heap[dict]?.any Cell.frozen
+      | _ => false
+    | _, _ => false
+  | _ => false
+
+-- An earlier default and the successful prefix of a failing dictionary
+-- comprehension leave effects. Neither a later default nor closure
+-- installation runs. Both generated paths keep the prior closure binding.
+#guard
+  let first := CompExpr.list ⟨starlark%[x], starlark%[mark(1, [40])], .yield starlark%[mark(2, 41)]⟩
+  let signature : SourceSignature :=
+    { positional := [⟨"xs", some first⟩, ⟨"bad", some failedArgument⟩],
+      keywordOnly := [⟨"later", some starlark%[mark(6, 0)]⟩] }
+  let commands := logCommands ++
+    [.assign "rows" starlark%[[[("a", [4]), ([], [5])]]],
+     .define "out" signature .pass]
+  match resolve commands with
+  | .ok resolved =>
+    match resolved.source.commands.reverse with
+    | .exec (.defineWithDefaults name id defaults) :: reversed =>
+      match runCommands resolved.program noImports reversed.reverse (enter resolved.source {}) with
+      | .ok () entered =>
+        let target := globalSlot name
+        match entered.bindingValue (globalSlot "mark"), entered.bindingValue (globalSlot "rows") with
+        | .ok (.function old), .ok (.list outer) =>
+          let before := { entered.write target (.function old) with iterators := [outer] }
+          let run := fun stages => Functions.run resolved.program
+            (Functions.Comprehensions.definitionWithDefaults stages target id defaults) before
+          match run Functions.Comprehensions.directStages,
+            run (Functions.Comprehensions.loweredStages 0) with
+          | .error (.unhashableKey (.list bad)) direct, .error (.unhashableKey (.list bad')) lowered =>
+            bad == bad' && direct.heap == lowered.heap &&
+            direct.iterators == [outer] && lowered.iterators == [outer] &&
+            direct.slots target == before.slots target && lowered.slots target == before.slots target &&
+            (direct.bindingValue target).toOption == some (.function old) &&
+            (lowered.bindingValue target).toOption == some (.function old) &&
+            defaults.all (fun (slot, _) =>
+              let saved := Functions.Comprehensions.defaultSlot slot
+              (direct.bindings saved).isNone && (lowered.bindings saved).isNone) &&
+            direct.heap.any (fun cell => cell.contents == .list [intValue 41]) &&
+            direct.heap.all (fun cell => match cell.contents with
+              | .function closure => closure.declaration != id
+              | _ => true) &&
+            match direct.bindingValue (globalSlot "events") with
+            | .ok (.list address) => eventsMatch direct address [1, 2, 3, 4, 5, 4, 5, 0]
+            | _ => false
+          | _, _ => false
+        | _, _ => false
+      | _ => false
+    | _ => false
+  | _ => false
+
+-- Validation reaches a default's skipped code even for an uncalled function.
+#guard
+  let duplicate := CompExpr.call (.plain starlark%[len]) []
+    [("x", .plain starlark%[1]), ("x", collect starlark%[[]])] none none
+  let value := CompExpr.branch (.plain starlark%[True]) (.plain starlark%[0]) duplicate
+  match resolve [.define "unused" { positional := [⟨"value", some value⟩] } .pass] with
+  | .error (.validation (.syntax (.duplicateExplicitKeyword "x"))) => true
+  | _ => false
+
+-- The nested head's locals start uninitialized on its second visit.
+#guard
+  let inner := CompExpr.listClauses starlark%[x] (.plain starlark%[source])
+    (.filter (.plain starlark%[x or y])
+      (.forIn starlark%[y] (.plain starlark%[[2]]) (.yield starlark%[y])))
+  let value := CompExpr.listComprehension starlark%[source] (.plain starlark%[[[1], [0]]]) (.yield inner)
+  match runModule [.define "unused" { positional := [⟨"value", some value⟩] } .pass] noImports {} with
+  | .ok (.error (.runtime (.uninitialized name)) state) => name == fileSlot "y" && state.iterators.isEmpty
+  | _ => false
+
 end Silmaril.Languages.Starlark.Modules.Resolve

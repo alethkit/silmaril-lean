@@ -493,6 +493,60 @@ out = {len([x for x in rows]): touch() for row in rows}
 	fmt.Println("PROFILE DIFFERENCE Go also retains comprehension locals across revisits to nested heads")
 }
 
+func checkDefaults() {
+	const mark = `events = []
+def mark(tag, value):
+    events.append(tag)
+    return value
+`
+	globals, err := run(mark + `def make(seed):
+    def factory():
+        def work(before=mark(1, seed[0]), seed=[mark(2, x) for x in seed],
+                 *, data={x: mark(3, 3) for x in seed}):
+            seed[0] += data[7]
+            return (before, seed, data)
+        return work
+    return factory()
+def use(f):
+    a = f()
+    b = f(before=0)
+    return (a[0], b[0], a[1][0], b[1][0], len(b[2]))
+f = make([7])
+out = use(f)
+`)
+	require(err == nil && globals["out"].String() == "(7, 0, 13, 13, 1)" &&
+		globals["events"].String() == "[1, 2, 3]", fmt.Sprint(globals, err))
+	f := globals["f"].(*starlark.Function)
+	globals.Freeze()
+	require(f.ParamDefault(0).String() == "7" && f.ParamDefault(1).String() == "[13]" &&
+		f.ParamDefault(2).String() == "{7: 3}", "unexpected stored defaults")
+	checkError(f.ParamDefault(1).(*starlark.List).Append(starlark.None), "frozen list")
+	checkError(f.ParamDefault(2).(*starlark.Dict).SetKey(starlark.None, starlark.None), "frozen hash table")
+	fmt.Println("PASS enclosing captures, mixed default order, repeated omission, override, and freezing")
+
+	globals, err = run(mark + `rows = [[("a", [4]), ([], [5])]]
+def out(xs=[mark(2, 41) for x in mark(1, [40])],
+        bad={mark(4, k): mark(5, v) for row in mark(3, rows) for (k, [v]) in row},
+        *, later=mark(6, 0)):
+    pass
+`)
+	checkError(err, "unhashable type: list")
+	require(globals["out"] == nil && globals["events"].String() == "[1, 2, 3, 4, 5, 4, 5]",
+		fmt.Sprint(globals, err))
+	outer := globals["rows"].(*starlark.List)
+	inner := outer.Index(0).(*starlark.List)
+	require(outer.Append(starlark.None) == nil && inner.Append(starlark.None) == nil,
+		"failed default left a comprehension iterator active")
+	fmt.Println("PASS failing default skips later defaults and function binding, retaining effects and releasing guards")
+
+	globals, err = run(`def f(value=[[y for x in source if x or y for y in [2]] for source in [[1], [0]]]):
+    return value
+out = f()
+`)
+	require(err == nil && globals["out"].String() == "[[2], [2]]", fmt.Sprint(globals, err))
+	fmt.Println("PROFILE DIFFERENCE Go retains comprehension locals across revisits within a default")
+}
+
 func main() {
 	checkLists()
 	checkDictionaries()
@@ -502,4 +556,5 @@ func main() {
 	checkSliceOperands()
 	checkClauseOperands()
 	checkHeads()
+	checkDefaults()
 }

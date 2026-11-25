@@ -417,10 +417,48 @@ The normalized `CompExpr.listComprehension` and
 `CompExpr.dictComprehension` forms accept recursive operands in clauses
 and heads. The plain-head forms remain available. Quotation supplies
 ordinary leaves and pattern ASTs. The recursive comprehension nodes
-are constructed separately. Defaults and other statement operands
-remain outside this placement boundary, as do field and subscript
-assignment targets. Call shapes and spread value domains follow the
+are constructed separately. General statement operands and field and
+subscript assignment targets remain outside this placement boundary.
+Call shapes and spread value domains follow the
 [existing argument profile](#argument-binding).
+
+### Comprehensions in parameter defaults
+
+A positional or keyword-only default may use the same normalized
+placement grammar in a module or nested function definition. The resolver
+reads defaults in the defining scope before entering the parameter and
+body scope. Reads from further enclosing functions contribute to the
+defining closure's captures.
+[Pinned functions][functions] · [Pinned definitions][defs] · [Go default resolution][go-default-resolve]
+
+For definitions that use this grammar, the emitted body evaluates the
+optional operands once, in positional then keyword-only declaration
+order. It stages their values in private bindings. The existing
+closure installer reads the saved values after all operands succeed.
+The outer scope drops the staging bindings on either exit. The
+definition writes the function name only on success. A failing operand
+skips later defaults, keeps earlier heap effects and unwinds its
+iterator guards. Omitted arguments use the closure's saved values,
+including the original mutable objects. Module publication freezes
+the values reachable through those defaults.
+[Go evaluation order][go-default-compile] · [Go definition assignment][go-define] · [Go default reuse][go-default-bind]
+
+`definition_defaults_preserved` and `definition_exec_iff_lowered` compare
+the complete staged definition in the existing finite declaration
+context. Their hypotheses are operand admission and a scratch-free
+input. They cover the exact outcome, frame, heap and iterator stack.
+The source correspondence shares normalized elaboration. Quotation
+still supplies only ordinary operands and target patterns.
+[Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
+
+Lean continues to start each comprehension evaluation with fresh
+locals. A default of
+`[[y for x in source if x or y for y in [2]] for source in [[1], [0]]]`
+fails with uninitialized `y` in Lean and produces `[[2], [2]]` in Go.
+The Go error fixture observes reachable effects and released guards.
+The Lean fixture also compares private staging cleanup and preservation
+of a previous function binding.
+[Pinned name binding][names] · [Go comprehension compilation][go-comp-compile]
 
 ## Direct denotation of resolved expressions
 
@@ -859,7 +897,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Denotation.Checks \
   +Silmaril.Languages.Starlark.Functions.Lowering.PreservationChecks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Resolve.Checks \
-  +Silmaril.Languages.Starlark.Functions.Lowering.Quote.Checks
+  +Silmaril.Languages.Starlark.Functions.Lowering.Quote.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.CompExpressionChecks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -870,7 +909,8 @@ oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixtures/functions/check.go" && go run "$fixtures/call-loops/check.go" \
-  && go run "$fixtures/nested-expressions/check.go" && go run "$fixtures/subscript-assignment/check.go")
+  && go run "$fixtures/nested-expressions/check.go" && go run "$fixtures/subscript-assignment/check.go" \
+  && go run "$fixtures/comprehensions/check.go")
 ```
 
 Module initialization, prepublished imports and the checked universal built-ins
@@ -929,4 +969,8 @@ extend this profile. Host callable effects remain open.
 [conditional]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#conditional-expressions
 [logical-ops]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#or-and-and
 [go-parameter-binding]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1429-L1480
+[go-default-resolve]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L819-L833
+[go-default-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1808-L1850
+[go-define]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1169-L1171
+[go-default-bind]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1482-L1510
 [go-comp-display]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1310-L1314
