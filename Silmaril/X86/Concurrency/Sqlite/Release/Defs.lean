@@ -51,4 +51,10 @@ def confined (tid lock : Nat) (busy rc : Int32) : Proposal (XState Nat) .control
 /-- The issued primitive itself accesses only the lock byte. -/
 def releaseFootprint (lock : Nat) : XState Nat → Config Phase → Set Nat := fun _ _ => {lock}
 
+/-- The byte effect of one issued event on the issuer’s forwarded view. -/
+def byteEffect (event : XEvent Nat) (address : Nat) (before : Option Byte) : Option Byte :=
+  match event with
+  | .store _ base bytes | .rmw _ base _ bytes => (entryByte base bytes address).or before
+  | .load .. | .fence .. => before
+
 end Silmaril.X86.Concurrency.Sqlite.Release
