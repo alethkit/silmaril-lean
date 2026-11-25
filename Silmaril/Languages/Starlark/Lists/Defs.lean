@@ -28,6 +28,8 @@ abbrev Heap := Array Cell
 structure State where
   heap : Heap := #[]
   bindings : Binding → Option Value := fun _ => none
+  /-- One entry per active list iterator, with the innermost iterator first. -/
+  iterators : List Address := []
 
 inductive Error where
   | uninitialized (binding : Binding)
@@ -38,6 +40,8 @@ inductive Error where
   | assignmentTarget
   | appendTarget
   | frozen (address : Address)
+  | activeIteration (address : Address)
+  | notIterable
   deriving DecidableEq, Repr
 
 abbrev Outcome := EStateM.Result Error State
@@ -56,9 +60,12 @@ def State.read (state : State) : Ref → Outcome Value
     | some value => .ok value state
     | none => .error (.uninitialized binding) state
 
-def bindValue (binding : Binding) (value : Value) : Meaning Unit := fun state =>
-  .ok () { state with bindings := fun key =>
+def State.write (state : State) (binding : Binding) (value : Value) : State :=
+  { state with bindings := fun key =>
     if key = binding then some value else state.bindings key }
+
+def bindValue (binding : Binding) (value : Value) : Meaning Unit := fun state =>
+  .ok () (state.write binding value)
 
 def allocate (elements : List Value) : Meaning Value := fun state =>
   .ok (.list state.heap.size) { state with heap := state.heap.push ⟨elements, false⟩ }
@@ -95,6 +102,7 @@ def updateCell (address : Address) (edit : List Value → Except Error (List Val
   let elements ← fromExcept (edit cell.elements)
   fun state =>
     if cell.frozen then .error (.frozen address) state
+    else if state.iterators.contains address then .error (.activeIteration address) state
     else .ok () { state with heap :=
       state.heap.setIfInBounds address { cell with elements } }
 

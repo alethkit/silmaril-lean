@@ -106,9 +106,82 @@ func checkIndexErrors() {
 	fmt.Println("PASS negative bounds, Boolean index, very large index and scalar receiver errors")
 }
 
+func checkIteration() {
+	globals, err := run(`def controls(a, out):
+    for x in a:
+        if x:
+            out.append(x)
+            continue
+        break
+    a.append(7)
+    return x
+
+def exhausted(a):
+    for x in a:
+        continue
+    a.append(7)
+    return x
+
+def guarded(a, alias, out):
+    for x in a:
+        for y in alias:
+            break
+        out.append(x)
+        alias[0] = 9
+
+def nested_append(a, alias):
+    for x in a:
+        for y in alias:
+            alias.append(9)
+
+def nested_error(a, alias, out):
+    for x in a:
+        for y in alias:
+            out[0]
+
+def returned(a, b):
+    for x in a:
+        for y in b:
+            return y
+`)
+	require(err == nil, fmt.Sprint(err))
+	call := func(name string, args ...starlark.Value) (starlark.Value, error) {
+		return starlark.Call(&starlark.Thread{Name: name}, globals[name], args, nil)
+	}
+	input := func() *starlark.List {
+		return starlark.NewList([]starlark.Value{starlark.MakeInt(1), starlark.MakeInt(0), starlark.MakeInt(2)})
+	}
+	a, out := input(), starlark.NewList(nil)
+	result, err := call("controls", a, out)
+	require(err == nil && result.String() == "0" && a.String() == "[1, 0, 2, 7]" &&
+		out.String() == "[1]", "break/continue or post-break mutation")
+	a = input()
+	result, err = call("exhausted", a)
+	require(err == nil && result.String() == "2" && a.String() == "[1, 0, 2, 7]", "exhaustion cleanup")
+	a, out = input(), starlark.NewList(nil)
+	_, err = call("guarded", a, a, out)
+	requireError(err, "during iteration")
+	require(out.String() == "[1]" && a.Append(starlark.MakeInt(9)) == nil,
+		"inner break must preserve outer guard, failure must release it")
+	a = input()
+	_, err = call("nested_append", a, a)
+	requireError(err, "during iteration")
+	require(a.Append(starlark.MakeInt(9)) == nil, "same-object nested guard cleanup")
+	a = input()
+	_, err = call("nested_error", a, a, starlark.NewList(nil))
+	requireError(err, "out of range")
+	require(a.Append(starlark.MakeInt(9)) == nil, "ordinary nested error cleanup")
+	a, b := input(), starlark.NewList([]starlark.Value{starlark.MakeInt(12)})
+	result, err = call("returned", a, b)
+	require(err == nil && result.String() == "12" &&
+		a.Append(starlark.None) == nil && b.Append(starlark.None) == nil, "nested return cleanup")
+	fmt.Println("PASS break/continue, exhaustion, alias guards and iterator cleanup after errors and return")
+}
+
 func main() {
 	checkAliases()
 	checkFreeze()
 	checkEvaluationOrder()
 	checkIndexErrors()
+	checkIteration()
 }
