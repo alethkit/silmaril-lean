@@ -183,4 +183,5 @@ call-by-value L2 step models and the direct L3 step model over their original
 configurations. Finite returns observe reachable values with their final
 stores. L3 retains each fresh location choice.
 [L1 and L2 observation contract](../projects/operational-institutions.md#cambridge-l1-and-l2) ·
-[L3 observation contract](../projects/operational-institutions.md#cambridge-l3)
+[L3 observation contract](../projects/operational-institutions.md#cambridge-l3) ·
+[Step specifications](cambridge-step-specification.md)
