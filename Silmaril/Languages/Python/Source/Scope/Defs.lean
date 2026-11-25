@@ -108,6 +108,11 @@ structure Scope where
 def Scope.access (scope : Scope) (name : Name) : Option Access :=
   scope.accesses.lookup name
 
+/-- Blocks and ordered name uses collected before assigning access kinds or cell slots. -/
+inductive LexicalTree where
+  | block (context : BlockContext) (occurrences : List Occurrence) (children : List LexicalTree)
+  deriving Repr
+
 inductive ScopeTree where
   | block (scope : Scope) (children : List ScopeTree)
   deriving Repr
@@ -121,6 +126,11 @@ def ScopeTree.children : ScopeTree → List ScopeTree
 def ScopeTree.atPath (tree : ScopeTree) : BlockPath → Option Scope
   | [] => some tree.scope
   | child :: rest => (tree.children[child]?).bind (fun nested => nested.atPath rest)
+
+/-- Erase the resolution data while retaining the collected block and occurrence order. -/
+def ScopeTree.lexical : ScopeTree → LexicalTree
+  | .block scope children =>
+    .block scope.context (scope.occurrences.map (·.occurrence)) (children.map ScopeTree.lexical)
 
 inductive Directive where
   | global_
@@ -159,9 +169,6 @@ structure Diagnostic where
 
 end
 
-private inductive CollectedTree where
-  | block (context : BlockContext) (occurrences : List Occurrence) (children : List CollectedTree)
-
 private def recordName (names : List Name) (name : Name) : List Name :=
   if names.contains name then names else name :: names
 
@@ -186,7 +193,7 @@ private def collectDirective (block : BlockContext) (directive : Directive)
 private structure Collecting where
   context : BlockContext
   annotationMode : AnnotationMode
-  childrenRev : List CollectedTree := []
+  childrenRev : List LexicalTree := []
   occurrencesRev : List Occurrence := []
 
 private def Collecting.note (block : Collecting) (name : Name) (use : NameUse) : Collecting :=
@@ -212,7 +219,7 @@ private def Collecting.startChild (block : Collecting) (context : BlockContext) 
   { context, annotationMode := block.annotationMode
     occurrencesRev := context.parameters.reverse.map (fun name => ⟨name, .parameter⟩) }
 
-private def Collecting.finish (block : Collecting) : CollectedTree :=
+private def Collecting.finish (block : Collecting) : LexicalTree :=
   .block block.context block.occurrencesRev.reverse block.childrenRev.reverse
 
 private def Collecting.addChild (block child : Collecting) : Collecting :=
@@ -396,36 +403,61 @@ private def directCaptures (accesses : List (Name × Access)) : List Capture :=
     | _ => none
 
 private def resolveOccurrence (context : BlockContext) (accesses : List (Name × Access))
-    (occurrence : Occurrence) : Except Diagnostic (ResolvedOccurrence accesses) :=
+    (occurrence : Occurrence) :
+    Except Diagnostic {result : ResolvedOccurrence accesses // result.occurrence = occurrence} :=
   match lookup : accesses.lookup occurrence.name with
-  | some access => .ok ⟨occurrence, access, lookup⟩
+  | some access => .ok ⟨⟨occurrence, access, lookup⟩, rfl⟩
   | none => .error ⟨context.path, .missingOccurrenceBinding occurrence.name⟩
+
+private def resolveOccurrences (context : BlockContext) (accesses : List (Name × Access)) :
+    (input : List Occurrence) →
+    Except Diagnostic {result : List (ResolvedOccurrence accesses) // result.map (·.occurrence) = input}
+  | [] => .ok ⟨[], rfl⟩
+  | head :: tail => do
+    let first ← resolveOccurrence context accesses head
+    let rest ← resolveOccurrences context accesses tail
+    return ⟨first.val :: rest.val, by simp only [List.map_cons, first.property, rest.property]⟩
 
 mutual
   private def resolve (nonlocalPolicy : NonlocalPolicy) (outer : List BlockContext) :
-      CollectedTree → Except Diagnostic ScopeTree
+      (input : LexicalTree) → Except Diagnostic {tree : ScopeTree // tree.lexical = input}
     | .block context occurrences children => do
       let accesses ← context.mentionedNames.mapM (resolveName nonlocalPolicy context outer)
-      let occurrences ← occurrences.mapM (resolveOccurrence context accesses)
-      let children ← resolveChildren nonlocalPolicy (context :: outer) children
-      let fromChildren := children.flatMap (·.scope.captures)
+      let resolvedOccurrences ← resolveOccurrences context accesses occurrences
+      let resolvedChildren ← resolveChildren nonlocalPolicy (context :: outer) children
+      let fromChildren := resolvedChildren.val.flatMap (·.scope.captures)
       let (owned, forwarded) := fromChildren.partition (·.origin == context.path)
       let cells := (owned.map (·.name)).eraseDups
       let captures := (directCaptures accesses ++ forwarded).eraseDups
-      return .block ⟨context, accesses, cells, captures, occurrences⟩ children
+      return ⟨.block ⟨context, accesses, cells, captures, resolvedOccurrences.val⟩ resolvedChildren.val,
+        by simp only [ScopeTree.lexical, resolvedOccurrences.property, resolvedChildren.property]⟩
 
   private def resolveChildren (nonlocalPolicy : NonlocalPolicy) (outer : List BlockContext) :
-      List CollectedTree → Except Diagnostic (List ScopeTree)
-    | [] => .ok []
-    | child :: rest => do
-      return (← resolve nonlocalPolicy outer child) :: (← resolveChildren nonlocalPolicy outer rest)
+      (input : List LexicalTree) →
+      Except Diagnostic {trees : List ScopeTree // trees.map ScopeTree.lexical = input}
+    | [] => .ok ⟨[], rfl⟩
+    | child :: tail => do
+      let first ← resolve nonlocalPolicy outer child
+      let rest ← resolveChildren nonlocalPolicy outer tail
+      return ⟨first.val :: rest.val, by simp only [List.map_cons, first.property, rest.property]⟩
 end
 
-/-- Analyze lexical bindings and closure origins for a constructor-level module. -/
-public def analyze (source : Module) (annotationMode : AnnotationMode := .eager)
-    (nonlocalPolicy : NonlocalPolicy := .reject) :
-    Except Diagnostic ScopeTree := do
+/-- Collect lexical blocks and their occurrences from the source in traversal order. -/
+public def collectLexical (source : Module) (annotationMode : AnnotationMode := .eager) :
+    Except Diagnostic LexicalTree := do
   let moduleBlock ← collect { context := { path := [], kind := .module_ }, annotationMode } source.body
-  resolve nonlocalPolicy [] moduleBlock.finish
+  return moduleBlock.finish
+
+/-- Resolve the collected root while certifying its exact lexical readback. -/
+public def inferLexical (input : LexicalTree) (nonlocalPolicy : NonlocalPolicy := .reject) :
+    Except Diagnostic {tree : ScopeTree // tree.lexical = input} :=
+  resolve nonlocalPolicy [] input
+
+/-- Analyze lexical bindings and closure origins for a constructor-level module. -/
+@[expose] public def analyze (source : Module) (annotationMode : AnnotationMode := .eager)
+    (nonlocalPolicy : NonlocalPolicy := .reject) :
+    Except Diagnostic ScopeTree :=
+  (collectLexical source annotationMode).bind fun lexical =>
+    (inferLexical lexical nonlocalPolicy).map Subtype.val
 
 end Silmaril.Languages.Python.Source
