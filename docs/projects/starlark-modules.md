@@ -92,8 +92,8 @@ path as function assignments, then use the ordinary publication rules.
 [List comprehension semantics](starlark-functions.md#list-comprehension-assignment) · [Dictionary comprehension semantics](starlark-functions.md#dictionary-comprehension-assignment)
 
 The normalized `CompExpr` adapter allows comprehensions in call operands,
-conditional and short-circuit operands, collection displays and single
-subscript reads within return values and single-name assignment RHSs.
+conditional and short-circuit operands, collection displays, and index
+and slice reads within return values and single-name assignment RHSs.
 Both selected and skipped AST positions are resolved before execution.
 The emitted body evaluates only reached operands, preserves their order
 and keeps prior shared heap effects on failure.

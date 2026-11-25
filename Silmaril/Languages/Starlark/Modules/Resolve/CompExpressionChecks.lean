@@ -329,4 +329,99 @@ private def isUnhashableList : Lists.Error → Bool
   (.index (collect starlark%[mark(1, [0])]) (collect starlark%[mark(2, [])]))
   (· == .indexType) [1, 2, 0, 0, 0, 0, 0, 0]
 
+-- All four positions contain a comprehension. Present operands run once
+-- in syntax order even though stride validation happens before bound validation.
+#guard
+  let result := CompExpr.slice (collect starlark%[mark(1, [0, 1, 2, 3, 4])])
+    (some (lengthOf (collect starlark%[mark(2, [0, 0, 0, 0])])))
+    (some (lengthOf (collect starlark%[mark(3, [])])))
+    (some (.branch (collect starlark%[mark(4, [True])]) (.plain starlark%[-2]) (.plain starlark%[len(1)])))
+  let commands := logCommands ++
+    [.define "run" {} (.retCompExpr result), .assign "out" starlark%[run()],
+     .assign "ok" starlark%[{(4, 2, 2): True}[(out[0], out[1], len(out))]]]
+  match runModule commands noImports {} with
+  | .ok (.ok published state) =>
+    published.exports.lookup "ok" == some (.scalar (.bool true)) &&
+      match published.exports.lookup "events" with
+      | some (.list address) => eventsMatch state address [1, 2, 3, 4, 0, 0, 0, 0]
+      | _ => false
+  | _ => false
+
+-- Omitted and explicit None bounds use the same defaults. A written -1
+-- under a negative stride is normalized as an integer instead.
+#guard
+  let reverse := CompExpr.slice (collect starlark%[mark(1, [0, 1, 2])]) none none (some (.plain starlark%[-1]))
+  let suffix := CompExpr.slice (.plain starlark%[(3, 4, 5)])
+    (some (lengthOf (collect starlark%[mark(2, [0])]))) none none
+  let noneBound := CompExpr.branch (collect starlark%[mark(3, [True])]) (.plain starlark%[None])
+    (.plain starlark%[len(1)])
+  let range := CompExpr.slice (.plain starlark%[range(5)]) none (some noneBound) (some (.plain starlark%[-2]))
+  let empty := CompExpr.slice (collect starlark%[mark(4, [0, 1, 2])]) none
+    (some (.plain starlark%[-1])) (some (.plain starlark%[-1]))
+  let commands := logCommands ++
+    [.assignCompExpr "out" (.tupleDisplay [reverse, suffix, range, empty]),
+     .assign "ok" starlark%[{(2, 3, 4, 2, 2, 3, 0): True}[
+       (out[0][0], len(out[0]), out[1][0], len(out[1]), out[2][1], len(out[2]), len(out[3]))]]]
+  match runModule commands noImports {} with
+  | .ok (.ok published state) =>
+    published.exports.lookup "ok" == some (.scalar (.bool true)) &&
+      match published.exports.lookup "events" with
+      | some (.list address) => eventsMatch state address [1, 2, 3, 4, 0, 0, 0, 0]
+      | _ => false
+  | _ => false
+
+-- Trigger a nested comprehension failure at each position in turn.
+-- Every later expression is skipped and both active comprehension
+-- iterators unwind, leaving the caller's existing guard intact.
+#guard
+  let start : CompExpr := lengthOf (collect starlark%[mark(2, [])])
+  let stop : CompExpr := lengthOf (collect starlark%[mark(6, [])])
+  let stride : CompExpr := .plain starlark%[mark(7, 0)]
+  let receiver : CompExpr := .plain starlark%[mark(1, 0)]
+  checkPlacementFailure (.slice failedArgument (some start) (some stop) (some stride))
+      isUnhashableList [3, 4, 5, 4, 5, 0, 0, 0] &&
+    checkPlacementFailure (.slice receiver (some failedArgument) (some stop) (some stride))
+      isUnhashableList [1, 3, 4, 5, 4, 5, 0, 0] &&
+    checkPlacementFailure (.slice receiver (some start) (some failedArgument) (some stride))
+      isUnhashableList [1, 2, 3, 4, 5, 4, 5, 0] &&
+    checkPlacementFailure (.slice receiver (some start) (some stop) (some failedArgument))
+      isUnhashableList [1, 2, 6, 3, 4, 5, 4, 5]
+
+-- Validation starts after every operand succeeds, checking the receiver,
+-- stride, start and stop. A zero stride beats either invalid bound.
+#guard
+  let good := collect starlark%[mark(1, [0, 1])]
+  let bad := CompExpr.plain starlark%[mark(1, 0)]
+  let start := collect starlark%[mark(2, [])]
+  let stop := collect starlark%[mark(3, [])]
+  let zero := lengthOf (collect starlark%[mark(4, [])])
+  let malformed := collect starlark%[mark(4, [])]
+  let negative := CompExpr.plain starlark%[mark(4, -1)]
+  let events := [1, 2, 3, 4, 0, 0, 0, 0]
+  checkPlacementFailure (.slice bad (some start) (some stop) (some zero)) (· == .sliceTarget) events &&
+    checkPlacementFailure (.slice good (some start) (some stop) (some zero)) (· == .zeroSliceStride) events &&
+    checkPlacementFailure (.slice good (some start) (some stop) (some malformed))
+      (fun | .sliceStrideType (.list _) => true | _ => false) events &&
+    checkPlacementFailure (.slice good (some start) (some stop) (some negative))
+      (fun | .sliceStartType (.list _) => true | _ => false) events &&
+    checkPlacementFailure (.slice good (some (lengthOf start)) (some stop) (some negative))
+      (fun | .sliceStopType (.list _) => true | _ => false) events
+
+-- A rejected slice allocates no result or lexical scratch cells.
+#guard
+  let input := globalSlot "input"
+  let destination := globalSlot "out"
+  let before : State := { heap := #[⟨.list [intValue 8], false⟩] }
+  let before := (before.write input (.list 0)).write destination (intValue 91)
+  let omitted := Functions.Comprehensions.Expression.plain (.atom (.scalar .none))
+  let expression := Functions.Comprehensions.Expression.slice (.plain (.atom (.read (.bound input))))
+    omitted omitted (.plain (.atom (.scalar (.int 0))))
+  match Functions.run #[] (expression.body destination) before,
+      Functions.run #[] (expression.lower destination) before with
+  | .error .zeroSliceStride direct, .error .zeroSliceStride lowered =>
+    direct.heap == before.heap && lowered.heap == before.heap &&
+      (direct.bindingValue destination).toOption == some (intValue 91) &&
+      (lowered.bindingValue destination).toOption == some (intValue 91)
+  | _, _ => false
+
 end Silmaril.Languages.Starlark.Modules.Resolve
