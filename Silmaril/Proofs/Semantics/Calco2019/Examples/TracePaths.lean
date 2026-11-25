@@ -193,4 +193,43 @@ theorem greatest_iff (hf : TraceGuarded f) (x : X) (t : Trace A Y) :
     · exact finite_sound h
     · exact infinite_sound p hf
 
+private theorem letter_finite (a : A) {x : Unit} {t : Trace A Unit}
+    (h : FiniteTraceRun (traceLoop a) x t) : t ∈ finiteSolution a x := by
+  induction h with
+  | @returns x word y edge =>
+    cases y
+    have hw : word = [] := by simpa [traceLoop] using edge
+    subst word
+    exact ⟨0, rfl⟩
+  | @streams x stream edge => simp [traceLoop] at edge
+  | @next x x' word tail edge _ ih =>
+    cases x'
+    have hw : word = [a] := by simpa [traceLoop] using edge
+    subst word
+    obtain ⟨n, rfl⟩ := ih
+    exact ⟨n + 1, rfl⟩
+
+theorem greatest_letter_trace (a : A) : greatestTrace (traceLoop a) = productiveSolution a := by
+  apply le_antisymm _ (le_greatestTrace _ (productive_fixpoint a).ge)
+  intro x t ht
+  rcases (greatest_iff (traceLoop_guarded a) x t).1 ht with h | ⟨p, rfl⟩
+  · exact Or.inr (letter_finite a h)
+  · left
+    have hw (i : ℕ) : p.word i = [a] := by
+      have edge := p.edge i
+      have hu : p.state (i + 1) = () := Subsingleton.elim _ _
+      rw [hu] at edge
+      simpa [traceLoop] using edge
+    have hletter (i k : ℕ) : chunkStream p.word (p.productive (traceLoop_guarded a)) i k = a := by
+      induction k generalizing i with
+      | zero =>
+        have he := congrFun (chunk_unfold p.word (p.productive (traceLoop_guarded a)) i) 0
+        rw [hw i] at he
+        exact he
+      | succ k ih =>
+        have he := congrFun (chunk_unfold p.word (p.productive (traceLoop_guarded a)) i) (k + 1)
+        rw [hw i] at he
+        exact he.trans (ih (i + 1))
+    exact congrArg Sum.inr (funext (hletter 0))
+
 end Silmaril.Calco2019.Examples.Printing.PathProofs
