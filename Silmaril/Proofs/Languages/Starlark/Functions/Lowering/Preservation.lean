@@ -11,7 +11,7 @@ open Silmaril.Languages.Starlark (Binding LogicalOp)
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Functions.Lowering
 open Silmaril.Languages.Starlark.Lists
-open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState truth)
+open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState truth truth_finishState)
 
 private abbrev SourceExpr := Languages.Starlark.Functions.Lowering.Expr
 
@@ -63,7 +63,7 @@ private theorem keep_truth {t : State} {out : Outcome Value} {flag : Bool}
   | error => simp [Outcome.resume] at h
   | ok value state =>
     change truth value state = .ok flag t at h
-    have hs := truth_frame value state
+    have hs := truth_finishState value state
     rw [h] at hs
     change t = state at hs
     subst state
@@ -357,7 +357,7 @@ private theorem failedTest {program : Program} {available : List DeclarationId}
     rw [seq_eq, ran, Outcome.resume]
   | ok value state =>
     change truth value state = .error error u at checked
-    have eq := truth_frame value state
+    have eq := truth_finishState value state
     rw [checked] at eq
     change u = state at eq
     subst state
@@ -384,7 +384,7 @@ private theorem failedScope {s u : State} {tested : Outcome Value} {error : Erro
   | ok value state =>
     have eq := congrArg finishState checked
     change finishState (truth value state) = u at eq
-    rw [truth_frame] at eq
+    rw [truth_finishState] at eq
     exact eq ▸ scope
 
 private theorem selectAfter {program : Program} {available : List DeclarationId}

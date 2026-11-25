@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Languages.Starlark.Functions.Defs
+public import Silmaril.Languages.Starlark.Functions.Expressions.Denotation.Defs
 
 @[expose] public section
 
@@ -15,6 +15,11 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
     (state : State) : Outcome Flow :=
   match body with
   | .total suite => denoteSuite suite state
+  | .returnExpr value =>
+    let execute (plan : Prepared available) (next : State) :=
+      denoteBody program (withoutDeclaration available plan.id) plan.body next
+    Outcome.resume (Lowering.denoteExprWith program available execute value state)
+      (fun result => pure (.returned result))
   | .seq first rest =>
     Outcome.resume (denoteBody program available first state) fun
       | .next => denoteBody program available rest

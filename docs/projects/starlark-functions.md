@@ -8,11 +8,10 @@ The core dialect follows the Bazel team's specification at revision
 ## Resolved input
 
 `Silmaril.Languages.Starlark.Functions.Thms` exposes function definitions,
-calls, sequencing, conditionals, call-aware loops and the existing total
-collection suites. Calls in expression position lower to calls
-with fresh destination slots. The current collection suites can be lifted as
-single blocks, including their local loops, writes and returns. Lifting
-preserves the collection denotation exactly. This normalized input requires a
+calls, native expression returns, sequencing, conditionals, call-aware
+loops and the existing total collection suites. The current collection
+suites can be lifted as single blocks, including their local loops, writes
+and returns. Lifting preserves the collection denotation exactly. This normalized input requires a
 finite declaration table. The caller supplies statically resolved names and
 scope legality, including full lists of local slots and free names.
 [Definitions](../../Silmaril/Languages/Starlark/Functions/Defs.lean) · [Theorem header](../../Silmaril/Languages/Starlark/Functions/Thms.lean)
@@ -121,8 +120,8 @@ and operands from left to right, then expands and binds the arguments.
 Expansion and binding use the same value-level primitives as the
 operational rules.
 
-Closure application invokes the independently defined `denoteBody` under
-the reduced available-declaration set. Built-ins use their denotation.
+Closure application invokes `denoteBody` under the reduced
+available-declaration set. Built-ins use their denotation.
 Caller bindings and slots are restored after a closure returns or fails,
 and heap effects survive. This interpreter recurses on expression syntax
 and finite operand lists. The core recurses on body syntax and the
@@ -138,11 +137,36 @@ The direct interpreter has no destination or scratch-frame condition.
 The separate lowering theorem accounts for destination assignment and
 scratch projection when compiling the same expression.
 
-Embedding these trees directly in function, default and module expression
-positions remains open. Collection displays and subscripts still use
-call-free atoms. General operators, comprehensions, attributes and methods,
-the remaining built-ins, and host effects are tracked in the coverage guide.
 [Denotation](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Defs.lean) · [Adequacy](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Closure fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Checks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
+
+## Native expression returns
+
+`Body.returnExpr` evaluates a resolved expression in the current function
+frame. A successful value produces the return signal. An error propagates
+with the heap and other state left by the expression. `runChecked` validates
+explicit keyword names throughout the return operand, including skipped
+branches, before entering any declaration.
+
+Native returns and standalone expressions use the same executable
+expression evaluator. It recurses over expression syntax. When it reaches
+a closure, it calls `denoteBody` at a strictly smaller available-declaration
+set. The prepared closure supplies a membership proof for the declaration
+that is removed. All recursive body calls under the same declaration set
+descend on body syntax. An active declaration is rejected as re-entry.
+
+The operational return rule uses the expression judgment and separate
+operational derivations for invoked closure bodies. Its soundness proof
+uses exact agreement for those smaller calls. Adequacy constructs the
+expression and closure derivations under the same descent. The general
+`exec_iff_denoteBody` includes native returns, and
+`exec_returnExpr_iff_denoteExpr` states their exact result, error, and
+residual state directly. The lowering proof remains separate.
+
+Native assignment, native condition and iterable positions, and nested
+expressions in defaults and module commands remain open. Collection
+displays and subscripts still use call-free atoms. Broader language and
+host coverage is tracked in the coverage guide.
+[Body rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean) · [Native return agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/NativeReturnChecks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
 
 ## Nested expression lowering
 
@@ -251,6 +275,7 @@ to start with a resolved expression.
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.Arguments.Checks \
+  +Silmaril.Languages.Starlark.Functions.NativeReturnChecks \
   +Silmaril.Languages.Starlark.Functions.LoopChecks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Checks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Denotation.Checks \

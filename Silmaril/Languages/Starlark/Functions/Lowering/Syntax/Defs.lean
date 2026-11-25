@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Languages.Starlark.Functions.Defs
+public import Silmaril.Languages.Starlark.Functions.Arguments.Defs
 
 public section
 
@@ -50,5 +50,25 @@ theorem argumentSize (callee : Expr) (positional : List Expr) (keywords : List (
   · obtain rfl := Option.mem_toList.mp mapping
     simp
     omega
+
+/-- Check explicit keyword names at every call, including unreachable operands. -/
+@[expose] def Expr.validateCalls : Expr → Except CallStaticError Unit
+  | .atom _ => .ok ()
+  | .call callee positional keywords star starStar => do
+    if let some duplicate := firstDuplicate (keywords.map Prod.fst) then
+      throw (.duplicateExplicitKeyword duplicate)
+    callee.validateCalls
+    (argumentExprs positional keywords star starStar).attach.forM fun operand => do
+      have := argumentSize callee positional keywords star starStar operand.property
+      operand.val.validateCalls
+  | .branch test yes no => do
+    test.validateCalls
+    yes.validateCalls
+    no.validateCalls
+  | .logical _ left right => do
+    left.validateCalls
+    right.validateCalls
+termination_by expression => sizeOf expression
+decreasing_by all_goals first | assumption | (simp_wf; omega)
 
 end Silmaril.Languages.Starlark.Functions.Lowering

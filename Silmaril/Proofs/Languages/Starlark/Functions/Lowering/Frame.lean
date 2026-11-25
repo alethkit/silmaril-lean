@@ -215,24 +215,4 @@ theorem reboundMatch (start : Nat) (s : State) (bindings : Binding → Option Va
     StateMatch start (rebind s bindings) (rebind s bindings) :=
   ⟨rfl, rfl, rfl, fun _ _ => rfl⟩
 
-theorem project_state {α : Type} (address : Address) (project : Contents → Option α)
-    (s : State) : Iteration.finishState (projectCell address project s) = s := by
-  simp only [projectCell, bind, EStateM.bind, getCell]
-  cases hs : s.heap[address]? with
-  | none => rfl
-  | some cell => dsimp only; cases project cell.contents <;> rfl
-
-theorem map_state {α β : Type} (action : Meaning α) (f : α → β) (s : State) :
-    Iteration.finishState ((f <$> action) s) = Iteration.finishState (action s) := by
-  simp only [Functor.map, EStateM.map]
-  cases action s <;> rfl
-
-theorem truth_frame (value : Value) (s : State) :
-    Iteration.finishState (truth value s) = s := by
-  cases value with
-  | list | tuple | dict =>
-    rw [truth, map_state]
-    exact project_state _ _ s
-  | _ => rfl
-
 end Silmaril.Proofs.Languages.Starlark.Functions.Lowering

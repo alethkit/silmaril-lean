@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Languages.Starlark.Functions.Defs
+public import Silmaril.Languages.Starlark.Functions.Expressions.Operational.Defs
 public import Silmaril.Languages.Starlark.Functions.Builtins.Operational.Defs
 public import Silmaril.Languages.Starlark.Lists.Iteration.Operational.Defs
 
@@ -17,6 +17,13 @@ be invoked again after a call completes, but not while it is active. -/
 inductive Exec (program : Program) : List DeclarationId → State → Body → Outcome Flow → Prop where
   | total {available : List DeclarationId} {s : State} {suite : Suite 0} {out : Outcome Flow} :
       Runs s (.suite suite) out → Exec program available s (.total suite) out
+  /-- A return operand's closure premises must be body derivations under the reduced declaration set. -/
+  | returnExpr {available : List DeclarationId} {s : State} {value : Lowering.Expr}
+      {out : Outcome Lists.Value} {calls : Lowering.ClosureRuns available} :
+      (∀ plan next result, calls plan next result →
+        Exec program (withoutDeclaration available plan.id) next plan.body result) →
+      Lowering.EvaluatesWith program available calls (fun _ => True) s value out →
+      Exec program available s (.returnExpr value) (Outcome.resume out fun result => pure (.returned result))
   | seq {available : List DeclarationId} {s t : State} {first rest : Body} {out : Outcome Flow} :
       Exec program available s first (.ok .next t) → Exec program available t rest out →
       Exec program available s (.seq first rest) out

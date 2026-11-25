@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Starlark.Functions.Denotation.Defs
 public import Silmaril.Languages.Starlark.Functions.Operational.Defs
 public import Silmaril.Languages.Starlark.Functions.Builtins.Thms
+public import Silmaril.Languages.Starlark.Functions.Expressions.Thms
 public import Silmaril.Languages.Starlark.Lists.Thms
 public import Silmaril.Languages.Starlark.Lists.Iteration.Thms
 
@@ -32,6 +33,8 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
     (try have total := (runs_iff_denoteSuite _ _ _).mp (by assumption)) <;>
     (try have invoked := (Builtins.invokes_iff_invoke _ _ _ _).mp (by assumption)) <;>
     simp_all [denoteBody, denoteItems, Outcome.resume]
+  case returnExpr calls ran eq =>
+    rw [Lowering.denoteExprWith_eq_of_evaluates eq ran]
   case seqStop signal _ _ _ =>
     cases signal <;> simp_all <;> rfl
   case branch =>
@@ -63,6 +66,14 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
   | total code =>
     rw [denoteBody]
     exact .total ((runs_iff_denoteSuite _ _ _).mpr rfl)
+  | returnExpr value =>
+    rw [denoteBody]
+    let execute (plan : Prepared available) := denoteBody program (withoutDeclaration available plan.id) plan.body
+    refine .returnExpr (calls := fun plan next result => execute plan next = result) ?_ ?_
+    · intro plan next result eq
+      exact eq ▸ exec_denote program (withoutDeclaration available plan.id) plan.body next
+    · exact Lowering.evaluatesWith_denote program available _ execute (fun _ _ => rfl)
+        (Lowering.admits_all_atoms value) state
   | seq first rest =>
     rw [denoteBody]
     have firstRun := exec_denote program available first state

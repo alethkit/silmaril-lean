@@ -1,8 +1,9 @@
 module
 
 public import Silmaril.Proofs.Languages.Starlark.Functions.Lowering.Atoms
-public import Silmaril.Proofs.Languages.Starlark.Functions.Lowering.Application
+public import Silmaril.Languages.Starlark.Functions.Expressions.Thms
 public import Silmaril.Languages.Starlark.Functions.Builtins.Thms
+public import Silmaril.Languages.Starlark.Lists.Iteration.Thms
 
 public section
 
@@ -12,7 +13,7 @@ open Silmaril.Languages.Starlark (Binding)
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Functions.Lowering
 open Silmaril.Languages.Starlark.Lists
-open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState)
+open Silmaril.Languages.Starlark.Lists.Iteration (Flow finishState projectCell_finishState map_finishState)
 
 private theorem packAction (signature : Signature) (bound : BoundArguments) :
     FrameAction (packArgs signature bound) := by
@@ -97,8 +98,8 @@ private theorem star_state (star : Option Value) (s : State) :
   | none => rfl
   | some value =>
     cases value with
-    | list | tuple => rw [expandStar]; exact project_state _ _ s
-    | dict => rw [expandStar, map_state]; exact project_state _ _ s
+    | list | tuple => rw [expandStar]; exact projectCell_finishState _ _ s
+    | dict => rw [expandStar, map_finishState]; exact projectCell_finishState _ _ s
     | _ => rfl
 
 private theorem starStar_state (starStar : Option Value) (s : State) :
@@ -109,7 +110,7 @@ private theorem starStar_state (starStar : Option Value) (s : State) :
     cases value with
     | dict address =>
       simp only [expandStarStar, bind, EStateM.bind]
-      have same : finishState (dictEntries address s) = s := project_state _ _ s
+      have same : finishState (dictEntries address s) = s := projectCell_finishState _ _ s
       cases h : dictEntries address s with
       | error error next =>
         rw [h] at same

@@ -141,4 +141,25 @@ events = []
 	require(err != nil && strings.Contains(err.Error(), "has no len"), fmt.Sprint(err))
 	require(g["out"] == nil && g["events"].String() == "[1, 2, 3]", "callee effects must survive its error")
 	fmt.Println("PASS callee effects survive failure in the inner built-in")
+
+	const returnSetup = `def mark(n):
+    events.append(n)
+    return n
+def pick(a, b, c):
+    return (a, b, c)
+events = []
+`
+	g, err = initSource(returnSetup + `def driver():
+    return pick(mark(1), c=mark(2), *[events.append(3)])
+out = driver()`)
+	require(err == nil && g["out"].String() == "(1, None, 2)" && g["events"].String() == "[1, 2, 3]",
+		fmt.Sprint(err))
+	fmt.Println("PASS native return transfers the nested call value and its operand effects")
+
+	g, err = initSource(returnSetup + `def driver():
+    return pick(mark(1), c=len(mark(2)), *[events.append(3)])
+out = driver()`)
+	require(err != nil && strings.Contains(err.Error(), "has no len"), fmt.Sprint(err))
+	require(g["out"] == nil && g["events"].String() == "[1, 2]", "return error must retain only earlier effects")
+	fmt.Println("PASS native return retains prior effects and skips the spread after a nested keyword error")
 }
