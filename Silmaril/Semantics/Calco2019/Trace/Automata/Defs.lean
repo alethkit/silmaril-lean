@@ -36,4 +36,17 @@ def automatonBody {Y : K} (hc : IsColimit (imageCofan J c)) (ha : IsColimit a)
     J.obj c.pt ⟶ P.sum Y (J.obj c.pt) :=
   Cofan.IsColimit.desc hc (fun i => body ≫ P.map (𝟙 Y) (J.map (selectStates ha step i)))
 
+/-- The coproduct map induced by reindexing copies of the same object. -/
+def stateReindex (hc : IsColimit c) (p : I → L) : c.pt ⟶ a.pt :=
+  Cofan.IsColimit.desc hc (fun i => a.inj (p i))
+
+/-- The large system in the commutative identity. The equation at state
+`i` first runs the equation selected by `p i`, then reindexes its recursive
+outputs by `route i`. -/
+def commutativeBody {Y : K} (hc : IsColimit c) (hk : IsColimit (imageCofan J c))
+    (p : I → L) (route : I → I → I) (body : J.obj a.pt ⟶ P.sum Y (J.obj c.pt)) :
+    J.obj c.pt ⟶ P.sum Y (J.obj c.pt) :=
+  Cofan.IsColimit.desc hk (fun i =>
+    J.map (a.inj (p i)) ≫ body ≫ P.map (𝟙 Y) (J.map (stateReindex hc (a := c) (route i))))
+
 end Silmaril.Calco2019.Guardedness
