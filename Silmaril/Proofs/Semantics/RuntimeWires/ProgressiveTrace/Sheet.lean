@@ -14,7 +14,7 @@ variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {d : Diagram S V W}
 
 /-- The trace of a row assembly follows any invariant that supplies the
 named frontier before and after each row. -/
-private theorem trace_joinRows {n : ℕ} (word : Fin (n + 1) → List O)
+theorem trace_joinRows {n : ℕ} (word : Fin (n + 1) → List O)
     (row : ∀ i : Fin n, Row S (word i.castSucc) (word i.succ))
     (frontier : Fin (n + 1) → List (NamedWire O))
     (boxes : Fin n → List (BoxTrace S)) (offset : ℕ)

@@ -14,10 +14,6 @@ universe u v
 variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {d : Diagram S V W}
 variable (s : d.Sweep)
 
-private theorem cut_nodup {h : ℝ} {wires : List (Fin W)} (cut : d.OrderedCut h wires) :
-    wires.Nodup :=
-  cut.ordered.imp (fun hlt => ne_of_apply_ne (fun w => d.x w h) (ne_of_lt hlt))
-
 private theorem output_mem {w : Fin W} {v : Fin V} (hw : d.start w = some v) :
     w ∈ d.outputs v :=
   List.mem_ofFn.mpr ((d.output_exact v w).mp hw)
@@ -28,7 +24,7 @@ private theorem mem_output_iff (w : Fin W) (v : Fin V) :
 
 theorem boundary_names :
     namePorts .boundary ((s.wires 0).map d.label) = (s.wires 0).map s.namedWire := by
-  rw [namePorts_map _ (cut_nodup (s.ordered 0))]
+  rw [namePorts_map _ (s.ordered 0).nodup]
   apply List.map_congr_left
   intro w hw
   simp [Diagram.Sweep.namedWire, Diagram.Sweep.origin, (s.input_mem w).mp hw]
@@ -36,7 +32,7 @@ theorem boundary_names :
 theorem box_output_names (i : Fin V) :
     namePorts (.box i.val 0) (S.target (d.generator (d.vertexOrder i))) =
       (d.outputs (d.vertexOrder i)).map s.namedWire := by
-  have nd := cut_nodup (s.event i).after
+  have nd := (s.event i).after.nodup
   rw [List.append_assoc] at nd
   have ho := (List.pairwise_append.mp (List.pairwise_append.mp nd).2.1).1
   rw [← d.output_types (d.vertexOrder i)]

@@ -36,6 +36,10 @@ theorem ordered_cut_unique {h : ℝ} {a b : List (Fin W)}
     (ha : d.OrderedCut h a) (hb : d.OrderedCut h b) : a = b :=
   Proofs.ProgressiveGraph.ordered_cut_unique d ha hb
 
+theorem OrderedCut.nodup {h : ℝ} {wires : List (Fin W)} (cut : d.OrderedCut h wires) :
+    wires.Nodup :=
+  cut.ordered.imp (fun hlt => ne_of_apply_ne (fun w => d.x w h) (ne_of_lt hlt))
+
 /-- A regular cut enumerates exactly the intersections of the wire traces
 with that height. -/
 theorem regular_trace {h : ℝ} (reg : d.Regular h) {wires : List (Fin W)}
