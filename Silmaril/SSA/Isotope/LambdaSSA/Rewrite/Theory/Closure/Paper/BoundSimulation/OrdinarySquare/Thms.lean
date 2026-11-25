@@ -20,6 +20,16 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
 variable {A B D : τ} {t : Tm Φ} {p q : Region Φ}
 
+/-- A guarded singleton return changes the local state. This permits a
+state change that packages its retained input along with the new state. -/
+theorem ordinary_square_of_region_iff {r : Region Φ} (hp : ValueBranches [A] p [A, B])
+    (hq : ValueBranches [D] q [D, B]) (hr : ValueBranches [A] r [D]) :
+    stepArrow hp ≫ coprod.map (𝟙 (ofType B)) (ofRegion hr) =
+        ofRegion hr ≫ stepArrow hq ↔
+      Paper.Eqv [A] (p.lsubst (liftLSubstVars (regionLocalMap r)))
+        (r.lsubst (liftLSubstVars (fun _ => q))) [D, B] :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundOrdinarySquare.ordinary_square_of_region_iff hp hq hr
+
 /-- The ordinary coproduct square for guarded representatives is exactly the
 bound local square at labels zero (repeat) and one (outward). Purity is needed
 when applying the feedback rule, while this transport only needs exact typing. -/
@@ -29,7 +39,7 @@ theorem ordinary_square_iff (hp : ValueBranches [A] p [A, B])
         boundReturn ht ≫ stepArrow hq ↔
       Paper.Eqv [A] (p.lsubst (liftLSubstVars (boundLocalMap t)))
         ((Region.br 0 t).bindBranchArguments.lsubst (liftLSubstVars (fun _ => q))) [D, B] :=
-  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundOrdinarySquare.ordinary_square_iff hp hq ht
+  ordinary_square_of_region_iff hp hq (Paper.RetainedLet.returnOnce_typed ht)
 
 /-- A closed entry and a certified instruction-free state change turn the
 ordinary commuting square into a typed feedback step. -/
