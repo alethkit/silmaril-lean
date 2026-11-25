@@ -122,11 +122,15 @@ takes a finite path to that blocked state. This is a statement
 about an observed selection on a finite path. The primitive
 action's `Part.none` by itself expresses undefinedness.
 
-The independent finite `Eval` judgment soundly replays both outcomes
-on the machine. An earlier return binds the full tuple and threads the
-store. A block in a live binding, call or θ body retains every pending
-frame. The canonical total lift recovers the original control steps
-and finite `Returns` exactly, with a constant extra store.
+The independent finite `Eval` judgment and finite machine paths agree
+in both directions from a fresh entry, including an invocation of a
+linked export. A return has the same full typed tuple and store. A
+blocking derivation reconstructs the selected primitive, its typed
+input and store, and every live frame at the endpoint. Because there
+is no transition out of a block, a path to that endpoint cannot have
+passed an earlier block. The canonical total lift recovers the
+original control steps and finite `Returns` exactly, with a constant
+extra store.
 [Public theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Thms.lean)
 
 The linked λ/φ fixture calls a selected γ arm from an active θ body.
@@ -134,6 +138,8 @@ A preceding primitive updates the explicit state from `7` to `8`
 and the store from `20` to `21`. Tag `0` skips the undefined arm and
 returns the updated tuple. Tag `1` blocks at that arm's primitive
 with both updates visible and all five pending frames intact.
+The regression computes both finite paths directly from machine steps
+and reflects them into the independent judgment.
 [Linked fixture](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Regression.lean)
 
 ```sh
