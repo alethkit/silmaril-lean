@@ -10,10 +10,11 @@ namespace Silmaril.Languages.Starlark.Functions.Lowering
 
 open Lists (State Outcome)
 
-/-- Compile a resolved source derivation for atoms, positional calls and
-conditional or short-circuit expressions. Success commits the source value
-to the destination. Both exits preserve the source state up to direct
-scratch bindings, with the exact same heap and iterator stack. -/
+/-- Compile a resolved source derivation for atoms, calls with positional, named
+and spread operands, and conditional or short-circuit expressions. Success
+commits the source value to the destination. Both exits preserve the source
+state up to direct scratch bindings, including the exact heap, lexical slot
+map and iterator stack. -/
 theorem lower_preserves {program : Program} {available : List DeclarationId} {state : State}
     {expression : Expr} {out : Outcome Lists.Value} (ran : Evaluates program available state expression out)
     (free : ScratchFree state) (destination : Binding) (visible : ¬ Scratch 0 destination)

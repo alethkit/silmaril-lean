@@ -118,7 +118,7 @@ and a list of scratch slots. It stages the callee and every operand,
 including call-free operands, before the final call. Positional, keyword,
 `*` and `**` operands stay in source order. Expansion and argument errors
 still use the call semantics. The compiler places branch work inside the
-selected branch, and a failing right operand leaves the destination alone.
+selected branch and skips its destination write if the operand fails.
 
 Use the frame's direct bindings for scratch names when comparing exact
 heaps. In this mode, omit the compiler scratch names from the heap-backed
@@ -128,20 +128,28 @@ ranges disjoint. The emitted code can be placed inside a function loop.
 
 `lower_preserves` relates an independent source evaluation to
 `denoteBody` of the emitted code. The proved fragment includes call-free
-atoms, nested positional calls of any arity, conditionals and short-circuit
-operations. Calls may invoke built-ins or existing core closures. The
-rules evaluate the callee first and arguments left to right. Successful
-evaluation commits the result to the destination under the existing
-assignment rules. Failure preserves the previous destination and retains
-any earlier heap effects. The projection keeps the entire heap, active
-iterators, lexical slots and every visible binding, hiding direct scratch
-bindings. Source atoms cannot read those names. The host supplies a
-visible, writable destination to observe the returned value.
+atoms, nested calls with positional, keyword, `*` and `**` operands,
+conditionals and short-circuit operations. The source rules evaluate the
+callee first, then operands left to right, stopping at the first evaluation
+error. Only after all operands succeed do they expand the mapping and then
+the iterable. This validation order follows the pinned Go implementation.
+The rules share the value-level expansion and binding primitives and use
+the operational rules for built-in invocation and core closure bodies.
 
-Keyword and spread operands still execute through the existing lowerer and
-have pinned Go regression coverage. Their source-level proof remains open,
-as do parser integration, calls inside collection display and subscript
-atoms, default-expression lowering and module-level expression lowering.
+Success writes the source value to the destination. An operand, expansion,
+binding or callee error skips that write and retains the effects that
+preceded the error. The projection keeps the entire heap,
+active iterators, lexical slots and every visible binding, hiding only
+direct scratch bindings. Source atoms cannot read scratch names. The host
+supplies a visible, writable destination to observe the returned value.
+Lean and pinned Go fixtures cover a failing nested keyword operand,
+competing expansion errors and a duplicate keyword introduced by `**`.
+
+Parser integration and lexical resolution, calls inside collection display
+and subscript atoms, default-expression lowering and module-level expression
+lowering remain open. Static validation of repeated explicit keywords stays
+with `runChecked`. Supported iterable, mapping and callable values are
+those of the shared-store call profile above.
 [Preservation theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean) · [Independent source rules](../../Silmaril/Languages/Starlark/Functions/Lowering/Source/Defs.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/PreservationChecks.lean) · [Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ## Checks and extensions

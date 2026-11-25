@@ -90,26 +90,29 @@ inductive CallPlan (available : List DeclarationId) where
   | closure (prepared : Prepared available)
   | builtin (id : Builtin) (actual : Actual)
 
+def prepareExpanded (program : Program) (available : List DeclarationId) (actual : Actual) :
+    Lists.Value → Meaning (CallPlan available)
+  | .builtin id => pure (.builtin id actual)
+  | .function address => do
+    let closure ← getClosure address
+    match program[closure.declaration]? with
+    | none => throw (.unknownDeclaration closure.declaration)
+    | some declaration =>
+      if h : closure.declaration ∈ available then do
+        let bound ← fromExcept (bindArguments declaration.signature closure.defaults actual)
+        let assigned ← packArgs declaration.signature bound
+        fun state =>
+          .ok (.closure ⟨closure.declaration, h, declaration.body⟩)
+            (activate state declaration closure.captures assigned)
+      else throw (.recursiveCall closure.declaration)
+  | _ => throw .notCallable
+
 /-- Expand evaluated operands before callability, then check re-entry before binding. -/
 def prepare (program : Program) (available : List DeclarationId) (arguments : Arguments) :
     List Lists.Value → Meaning (CallPlan available)
   | callee :: operands => do
     let actual ← arguments.expand operands
-    match callee with
-    | .builtin id => pure (.builtin id actual)
-    | .function address =>
-      let closure ← getClosure address
-      match program[closure.declaration]? with
-      | none => throw (.unknownDeclaration closure.declaration)
-      | some declaration =>
-        if h : closure.declaration ∈ available then do
-          let bound ← fromExcept (bindArguments declaration.signature closure.defaults actual)
-          let assigned ← packArgs declaration.signature bound
-          fun state =>
-            .ok (.closure ⟨closure.declaration, h, declaration.body⟩)
-              (activate state declaration closure.captures assigned)
-        else throw (.recursiveCall closure.declaration)
-    | _ => throw .notCallable
+    prepareExpanded program available actual callee
   | [] => throw .notCallable
 
 def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit

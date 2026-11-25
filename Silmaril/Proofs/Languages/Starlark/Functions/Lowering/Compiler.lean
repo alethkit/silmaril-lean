@@ -20,9 +20,6 @@ private theorem advances_bind {α β : Type} {act : StateM Nat α} {next : α �
     (h : Advances act) (k : ∀ value, Advances (next value)) : Advances (act >>= next) :=
   fun start => Nat.le_trans (h start) (k (act.run start).1 (act.run start).2)
 
-private theorem advances_map {α β : Type} (f : α → β) {act : StateM Nat α} (h : Advances act) :
-    Advances (f <$> act) := h
-
 private theorem advances_many {α β : Type} (items : List α) (act : α → StateM Nat β)
     (h : ∀ item, item ∈ items → Advances (act item)) : Advances (items.mapM act) := by
   induction items with
@@ -70,27 +67,12 @@ private theorem advances_emit (expr : Expr) (target : Binding) :
     apply advances_bind
     · apply advances_many
       intro part _
-      have := List.sizeOf_lt_of_mem part.property
+      have := argumentSize callee positional keywords star starStar part.property
       exact advances_stage (advances_emit part.val)
     · intro _
-      apply advances_bind
-      · apply advances_many
-        intro part _
-        have := List.sizeOf_lt_of_mem part.property
-        have := keywordSize part.val
-        exact advances_bind (advances_stage (advances_emit part.val.2)) fun _ => advances_pure _
-      · intro _
-        cases star <;> cases starStar
-        all_goals
-          apply advances_bind
-          · first | exact advances_pure _ | exact advances_map _ (advances_stage (advances_emit _))
-          intro _
-          apply advances_bind
-          · first | exact advances_pure _ | exact advances_map _ (advances_stage (advances_emit _))
-          intro _
-          exact advances_pure _
+      exact advances_pure _
 termination_by sizeOf expr
-decreasing_by all_goals (simp_wf; omega)
+decreasing_by all_goals first | assumption | (simp_wf; omega)
 
 theorem emit_ge (expr : Expr) (target : Binding) (start : Nat) :
     start ≤ ((emit expr target).run start).2 :=
@@ -119,21 +101,81 @@ theorem stages_length (expressions : List Expr) (start : Nat) :
   | cons head tail ih =>
     simp only [stages_cons, List.length_cons, ih]
 
-theorem emit_callPos (callee : Expr) (args : List Expr) (target : Binding) (start : Nat) :
-    ((emit (.callPos callee args) target).run start).1 =
-    let parts := ((stages (callee :: args)).run start).1
-    (parts.map Prod.fst).foldr Body.seq
-      (.call (some target) (scratchRead start) { positional := parts.tail.map Prod.snd }) := by
-  rw [Expr.callPos, emit, stages_cons]
+theorem emit_call (callee : Expr) (positional : List Expr) (keywords : List (String × Expr))
+    (star starStar : Option Expr) (target : Binding) (start : Nat) :
+    ((emit (.call callee positional keywords star starStar) target).run start).1 =
+    let parts := ((stages (callee :: argumentExprs positional keywords star starStar)).run start).1
+    let args := fillArguments (argumentShape positional keywords star starStar) (parts.tail.map Prod.snd)
+    (parts.map Prod.fst).foldr Body.seq (.call (some target) (scratchRead start) args) := by
+  rw [emit, stages_cons]
+  let args := argumentExprs positional keywords star starStar
   have map : args.attach.mapM (fun part => stage (emit part.val)) =
       args.mapM (fun expr => stage (emit expr)) := by
     change args.attach.mapM ((fun expr => stage (emit expr)) ∘ Subtype.val) = _
     rw [← List.mapM_map]
     change args.attach.unattach.mapM _ = _
     rw [List.unattach_attach]
-  simp only [map, stages, List.attach_nil, List.mapM_nil, StateT.run_bind, StateT.run_pure, stage_run]
-  dsimp only [bind, pure]
-  simp
+  dsimp only [args] at map
+  simp only [map, stages, StateT.run_bind, StateT.run_pure, stage_run]
+  rfl
+
+theorem argument_count (positional : List Expr) (keywords : List (String × Expr))
+    (star starStar : Option Expr) :
+    (argumentExprs positional keywords star starStar).length =
+      (argumentShape positional keywords star starStar).count := by
+  cases star <;> cases starStar <;> simp [argumentExprs, argumentShape, ArgumentShape.count, Bool.toNat, Nat.add_assoc]
+
+private theorem fill_spreads {α : Type} (star starStar : Bool) (values : List α)
+    (length : values.length = star.toNat + starStar.toNat) :
+    let spread := if star then values[0]? else none
+    let mapping := if starStar then values[star.toNat]? else none
+    spread.isSome = star ∧ mapping.isSome = starStar ∧ spread.toList ++ mapping.toList = values := by
+  cases star <;> cases starStar <;>
+    cases values with
+    | nil => simp_all [Bool.toNat]
+    | cons first rest =>
+      cases rest with
+      | nil => simp_all [Bool.toNat]
+      | cons second rest =>
+        cases rest <;> simp_all [Bool.toNat]
+
+theorem fill_arguments (shape : ArgumentShape) (reads : List Languages.Starlark.Lists.Expr)
+    (length : reads.length = shape.count) :
+    (fillArguments shape reads).shape = shape ∧ (fillArguments shape reads).ordered = reads := by
+  let afterPos := reads.drop shape.positional
+  let trailing := afterPos.drop shape.keywords.length
+  have enoughPos : shape.positional ≤ reads.length := by
+    simp only [ArgumentShape.count] at length
+    omega
+  have enoughNames : shape.keywords.length ≤ afterPos.length := by
+    simp only [afterPos, List.length_drop, ArgumentShape.count] at length ⊢
+    omega
+  have trailingLen : trailing.length = shape.star.toNat + shape.starStar.toNat := by
+    simp only [trailing, afterPos, List.length_drop, ArgumentShape.count] at length ⊢
+    omega
+  let spread := if shape.star then trailing[0]? else none
+  let mapping := if shape.starStar then trailing[shape.star.toNat]? else none
+  obtain ⟨hs, hm, ordered⟩ := fill_spreads shape.star shape.starStar trailing trailingLen
+  have nameLen : (afterPos.take shape.keywords.length).length = shape.keywords.length := by
+    rw [List.length_take, Nat.min_eq_left enoughNames]
+  let named := shape.keywords.zip (afterPos.take shape.keywords.length)
+  have names : named.map Prod.fst = shape.keywords :=
+    List.map_fst_zip (Nat.le_of_eq nameLen.symm)
+  have nameReads : named.map Prod.snd = afterPos.take shape.keywords.length :=
+    List.map_snd_zip (Nat.le_of_eq nameLen)
+  constructor
+  · change ArgumentShape.mk (reads.take shape.positional).length (named.map Prod.fst)
+      spread.isSome mapping.isSome = shape
+    rw [List.length_take, Nat.min_eq_left enoughPos, names]
+    have hs' : spread.isSome = shape.star := hs
+    have hm' : mapping.isSome = shape.starStar := hm
+    rw [hs', hm']
+  · change reads.take shape.positional ++ named.map Prod.snd ++ spread.toList ++ mapping.toList = reads
+    have tailReads : spread.toList ++ mapping.toList = trailing := ordered
+    simp only [nameReads, List.append_assoc, tailReads]
+    change reads.take shape.positional ++
+      (afterPos.take shape.keywords.length ++ afterPos.drop shape.keywords.length) = reads
+    rw [List.take_append_drop, List.take_append_drop]
 
 theorem emit_atom (expr : Languages.Starlark.Lists.Expr) (target : Binding) (start : Nat) :
     ((emit (.atom expr) target).run start).1 = assign target expr := by
