@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Functions.Builtins.Defs
+public import Silmaril.Languages.Starlark.Functions.Lowering.Syntax.Defs
 
 @[expose] public section
 
@@ -14,10 +15,11 @@ abbrev DeclarationId := Nat
 def withoutDeclaration (available : List DeclarationId) (id : DeclarationId) : List DeclarationId :=
   available.filter (· != id)
 
-/-- Resolved function code. Calls in expressions are lowered to calls with a
-destination slot and subsequent uses of that slot. -/
+/-- Resolved function code, including direct expression returns and
+destination-based calls. -/
 inductive Body where
   | total (code : Suite 0)
+  | returnExpr (value : Lowering.Expr)
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
   | forIn (target : Binding) (iterable : Lists.Expr) (body : Body)
@@ -126,6 +128,7 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
   | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate
+  | .returnExpr value => value.validateCalls
   | .define .. | .total _ => pure ()
 
 def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false

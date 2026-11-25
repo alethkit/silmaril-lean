@@ -108,6 +108,11 @@ example :
       .error (.builtinType .len (.scalar .none)) (marked input [1, 2]) :=
   denoteExpr_eq_of_evaluates keywordFailure_runs
 
+example : Exec #[] [] input (.returnExpr keywordFailure)
+    (.error (.builtinType .len (.scalar .none)) (marked input [1, 2])) :=
+  (exec_returnExpr_iff_denoteExpr #[] [] keywordFailure input _).mpr
+    (by simp only [denoteExpr_eq_of_evaluates keywordFailure_runs, Lists.Outcome.resume])
+
 example : ∃ final,
     denoteBody #[] [] (lower keywordFailure destination).code input =
       .error (.builtinType .len (.scalar .none)) final ∧

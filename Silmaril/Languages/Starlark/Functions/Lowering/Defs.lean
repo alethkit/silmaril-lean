@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Languages.Starlark.Functions.Lowering.Syntax.Defs
+public import Silmaril.Languages.Starlark.Functions.Defs
 
 public section
 
