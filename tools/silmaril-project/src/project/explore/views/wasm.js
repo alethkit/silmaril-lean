@@ -209,6 +209,24 @@ function reactorFunctionFacts(f, source) {
   return h + reactorEvidence(f.leanEvidence);
 }
 
+function validReactorGraph(graph, blocks = graph?.blocks) {
+  const strings = (xs) => Array.isArray(xs) && xs.every((x) => typeof x === "string");
+  if (!Array.isArray(blocks) || !blocks.every((b) => b && strings(b.instrs) && strings(b.effects)) ||
+      !Array.isArray(graph?.edges)) return false;
+  const inRange = (i, size) => Number.isSafeInteger(i) && i >= 0 && i < size;
+  let size = blocks.length;
+  if (graph.granularity === "instr") {
+    if (!Array.isArray(graph.nodes) || !graph.nodes.every((n) => Array.isArray(n) &&
+        inRange(n[0], blocks.length) && inRange(n[1], blocks[n[0]].instrs.length + 1))) return false;
+    size = graph.nodes.length;
+  }
+  const target = (t) => inRange(t, size) || ["exit", "trap", "raise", "invalid"].includes(t);
+  return target(graph.entry) && graph.edges.every((e) => Array.isArray(e) &&
+    inRange(e[0], size) && target(e[1]) && typeof e[2] === "string") &&
+    (graph.bases == null || (Array.isArray(graph.bases) &&
+      graph.bases.every((b) => b && typeof b.id === "string" && strings(b.kinds))));
+}
+
 function reactorModulePage(m, h) {
   const s = m.summary, c = m.coverage;
   h += reactorEvidence(m.decodeEvidence);
@@ -320,15 +338,19 @@ async function wasmFuncPage(arg) {
   if (!f) return `<p class="err">no function ${esc(idx)} in ${esc(slug)}</p>`;
   let body = (m.bodies || []).find((b) => b.idx === idx);
   if (m.coverage) {
-    let h = `<h2>${kindTag("function")} <code>${esc(fname(f))}</code> · ${wlink("module", s.slug, s.title)}</h2>` +
-      reactorFunctionFacts(f, s.source);
-    if (!f.detail) return h + `<p>Signature <code>${esc(f.sig)}</code></p>` +
+    const h = `<h2>${kindTag("function")} <code>${esc(fname(f))}</code> · ${wlink("module", s.slug, s.title)}</h2>` +
+      reactorFunctionFacts(f, s.source) + `<p>Signature <code>${esc(f.sig)}</code></p>`;
+    if (!f.detail) return h +
       (f.imported ? "<p>Imported function. Its implementation is outside this module.</p>" :
         f.flow === "unsupported" ? "<p>The syntactic flow CFG contains an unsupported target.</p>" :
           "<p>Syntactic flow was extracted. Detailed CFG was omitted from this pilot.</p>");
-    try { body = await wasmJson(`f/${encodeURIComponent(s.slug)}/${idx}.json`); }
+    const path = `f/${encodeURIComponent(s.slug)}/${idx}.json`;
+    try { body = await wasmJson(path); }
     catch (e) { return h + wasmMissing(e); }
-    if (body.idx !== idx || !body.cfg) return h + '<p class="err">Function detail does not match this slot.</p>';
+    if (body?.idx !== idx || typeof body.wat !== "string" || !validReactorGraph(body.cfg)) {
+      wasmCache.delete(path);
+      return h + '<p class="err">The detail file did not contain a usable CFG for this slot.</p>';
+    }
   }
   if (!body) return `<p class="err">no defined function ${esc(idx)} in ${esc(slug)}</p>`;
   const top = body.cfg;
@@ -336,7 +358,8 @@ async function wasmFuncPage(arg) {
   // otherwise; `variants` are other graphs of the same body, `default` names the one shown first.
   // Nothing here derives a variant: each is drawn exactly as the page data gives it.
   const variants = Object.fromEntries(Object.entries(top.variants && typeof top.variants === "object" ? top.variants : {})
-    .filter(([k, v]) => k !== "top" && /^[A-Za-z0-9._-]+$/.test(k) && v && Array.isArray(v.edges)));
+    .filter(([k, v]) => k !== "top" && /^[A-Za-z0-9._-]+$/.test(k) && v && Array.isArray(v.edges) &&
+      (!m.coverage || validReactorGraph(v, v.blocks ?? top.blocks))));
   const has = (k) => k != null && Object.hasOwn(variants, k);
   // An unknown variant in a link falls back to the data's default, like no variant.
   const vname = askedVariant === "top" ? "top" : has(askedVariant) ? askedVariant : has(top.default) ? top.default : "top";
@@ -367,8 +390,9 @@ async function wasmFuncPage(arg) {
   let h = `<h2>${kindTag("function")} <code>${esc(fname(f))}</code> <span class="muted">(function ${idx} of ${wlink("module", s.slug, s.title)})</span></h2>`;
   h += crumbs(ix, s.source.parent);
   if (m.coverage) h += reactorFunctionFacts(f, s.source);
+  const effects = m.coverage ? [...new Set(top.blocks.flatMap((b) => b.effects))] : (f.effects || []);
   h += "<dl>" + [["symbol", f.display ? f.name + " (demangled above by wasm-tools demangle in Lean)" : null], ["signature", f.sig], ["export", f.export], ["locals", f.locals], ["instructions", f.instrs], ["basic blocks", f.blocks],
-    ["effect marks", (f.effects || []).join(", ") || "none"]].filter(([, v]) => v != null).map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join("") + "</dl>";
+    ["effect marks", effects.join(", ") || "none"]].filter(([, v]) => v != null).map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join("") + "</dl>";
   if (!m.coverage) {
     const callers = m.calls.filter((c) => c[1] === idx).map((c) => c[0]), callees = m.calls.filter((c) => c[0] === idx);
     h += `<p>calls: ${callees.length ? callees.map(([, b, kind, n]) => typeof b === "string" ? `<span class="prov prov-gen">${esc(b)}</span>` :

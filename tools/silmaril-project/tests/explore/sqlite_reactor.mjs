@@ -82,8 +82,31 @@ try {
   await openSlot("1555");
   await page.getByText(/Detailed CFG was omitted/).waitFor();
   assert.deepEqual(details, [289, 231, 434].map((slot) => `/wasm/f/${slug}/${slot}.json`));
+
+  await openModule();
+  await openSlot("530");
+  await page.locator("#wcy").waitFor();
+  const effects = await page.locator("#main dt").filter({ hasText: /^effect marks$/ })
+    .evaluate((term) => term.nextElementSibling.textContent.split(", "));
+  assert.deepEqual(new Set(effects), new Set(["may-trap", "call"]));
+  assert.equal(details.at(-1), `/wasm/f/${slug}/530.json`);
+
+  for (const payload of [null, { idx: 530, cfg: {} }, { idx: 530, wat: "(func)", cfg: {} }]) {
+    const broken = await browser.newPage();
+    broken.on("pageerror", (e) => errors.push(e.message));
+    await broken.route(`**/wasm/f/${slug}/530.json`, (route) =>
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(payload) }));
+    await broken.goto(`${base}#/wasm-func/${slug}/530`);
+    await broken.getByText("The detail file did not contain a usable CFG for this slot.").waitFor();
+    assert.match(await broken.locator("#main h2").innerText(), /sqlite3PutVarint/);
+    assert.ok((await broken.locator("#main").innerText()).includes(reactor.source.sha256));
+    const link = broken.getByRole("link", { name: "SqliteWasm.putVarint_oneByte" });
+    assert.match(await link.getAttribute("href"), /\/PutVarintCheck\.lean$/);
+    assert.equal(await broken.locator("#wcy").count(), 0);
+    await broken.close();
+  }
   assert.deepEqual(errors, []);
-  console.log("SQLite reactor search, provenance, representative CFGs, import and omitted detail passed. Only requested CFG files were fetched.");
+  console.log("SQLite reactor search, lazy CFGs, effect marks, and provenance-preserving detail errors passed.");
 } finally {
   await browser?.close();
   server.kill();
