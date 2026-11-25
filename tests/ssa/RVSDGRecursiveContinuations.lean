@@ -1,7 +1,7 @@
 module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Divergence.Thms
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Completeness.Global.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.ThetaReach.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests
@@ -442,9 +442,11 @@ private def quietBody :
 private def quietSuffix : NestedTheta.Term (Instruction Op) controlPorts [controlPorts] [] controlPorts :=
   .ret (.cons (.output (0 : Fin 1) .head) .nil)
 
+private def quietTerm : NestedTheta.Term (Instruction Op) controlPorts [] [controlPorts] controlPorts :=
+  .bind (NestedTheta.thetaVertex []) (fun _ => quietBody) quietSuffix
+
 private def quietGroup : PhiTerm Op [] [] [quietFn] :=
-  ⟨[], .nil, .cons ⟨[], .nil, [controlPorts],
-    .bind (NestedTheta.thetaVertex []) (fun _ => quietBody) quietSuffix⟩ .nil⟩
+  ⟨[], .nil, .cons ⟨[], .nil, [controlPorts], quietTerm⟩ .nil⟩
 
 private def quietModule : OmegaTerm Op [] [quietFn.port] [[quietFn.port]] :=
   ⟨.bind (.phi quietGroup) (.ret (.cons (.output (0 : Fin 1) .head) .nil))⟩
@@ -521,9 +523,11 @@ private def relayApply : NestedTheta.Node (Instruction Op) relayPorts [] control
 private def relaySuffix : NestedTheta.Term (Instruction Op) relayPorts [controlPorts] [] controlPorts :=
   .ret (.cons (.output (0 : Fin 1) .head) .nil)
 
+private def relayTerm : NestedTheta.Term (Instruction Op) relayPorts [] [controlPorts] controlPorts :=
+  .bind relayApply (fun i => i.elim0) relaySuffix
+
 private def relayLambda : LambdaTerm Op [] [[quietFn.port]] quietFn :=
-  ⟨[quietFn.port], .cons (.output (0 : Fin 1) .head) .nil,
-    [controlPorts], .bind relayApply (fun i => i.elim0) relaySuffix⟩
+  ⟨[quietFn.port], .cons (.output (0 : Fin 1) .head) .nil, [controlPorts], relayTerm⟩
 
 private def relayModule : OmegaTerm Op [] [quietFn.port] [[quietFn.port], [quietFn.port]] :=
   ⟨.bind (.phi quietGroup) (.bind (.lambda relayLambda) (.ret (.cons (.output (1 : Fin 2) .head) .nil)))⟩
@@ -594,8 +598,11 @@ private theorem relayCallIndex {point : Point machine controlPorts}
 
 -- The raw execution starts at an ω export. One independently specified
 -- call prefix leads into a φ member that runs a productive θ cycle.
-example : ∃ last, Relation.TransGen (ChildStep relayMicro) (Point.root relayEntry) last ∧
-    last.index = 3 ∧ Descent.Completeness.HasFeedback relayMicro (last.index + 1) := by
+private theorem relayObserved :
+    ∃ last, Relation.TransGen (ChildStep relayMicro) (Point.root relayEntry) last ∧
+      last.index = 3 ∧ last.Live relayMicro ∧
+      (∀ i, last.index < i → ¬ Descent.Completeness.NonreturningCallAt relayMicro i) ∧
+      Descent.Completeness.HasFeedback relayMicro (last.index + 1) := by
   have root : relayMicro 0 =
       start (.call ((Recursive.linkGraph machine 29 relayModule.toGraph .nil).get .head) keepGoing) := rfl
   have classified := classify_linked machine 29 relayModule.toGraph .nil .head keepGoing relaySteps root
@@ -612,6 +619,59 @@ example : ∃ last, Relation.TransGen (ChildStep relayMicro) (Point.root relayEn
     · subst last
       have child : relayMicro 3 = quietEntry.state relayFrame := by cbv
       exact False.elim (closed 3 (by decide) ⟨quietEntry, relayFrame, child, relayChildLive⟩)
-    · exact ⟨last, nonempty, relayCallIndex (path_grows nonempty).1 live, feedback⟩
+    · exact ⟨last, nonempty, relayCallIndex (path_grows nonempty).1 live, live, closed, feedback⟩
+
+private def relayInputs : Tuple machine.Val relayPorts :=
+  .cons quietEntry.activation.callee keepGoing
+
+private def relayPending : Descent.Pending machine controlPorts controlPorts :=
+  .bind (past := []) relaySuffix relayInputs PUnit.unit .empty
+
+private theorem relayToPhi : Descent.Prefix machine relayEntry.openBody quietEntry relayPending := by
+  have openBody : relayEntry.openBody = .region relayTerm relayInputs PUnit.unit :=
+    congrArg (fun term => Job.region (m := machine) (past := []) term relayInputs PUnit.unit)
+      (NestedTheta.Term.toTerm_toGraph relayTerm)
+  rw [openBody]
+  exact .inside (node := relayApply) (.apply (fn := quietFn) quietEntry.activation.callee keepGoing)
+
+private theorem quietFeedback : Feedback.Iteration quietBody keepGoing keepGoing :=
+  ⟨.control 1, .ret _ _ _, rfl⟩
+
+private def quietRestart : Descent.ThetaReach.Restart machine :=
+  ⟨controlPorts, [], quietBody, keepGoing⟩
+
+private def quietPending : Descent.Pending machine controlPorts controlPorts :=
+  .bind (past := []) quietSuffix keepGoing PUnit.unit .empty
+
+private theorem quietReaches : Descent.ThetaReach.Reaches machine quietEntry.openBody quietRestart quietPending := by
+  have openBody : quietEntry.openBody = .region quietTerm keepGoing PUnit.unit :=
+    congrArg (fun term => Job.region (m := machine) (past := []) term keepGoing PUnit.unit)
+      (NestedTheta.Term.toTerm_toGraph quietTerm)
+  rw [openBody]
+  exact .inside (node := NestedTheta.thetaVertex []) (.theta (.restart (.single quietFeedback)))
+
+-- A complete certificate from syntax, finite Returns, and productive
+-- feedback. The finite route chooses the second restart of the θ body.
+private theorem relayCertificate : Descent.ThetaReach.FeedbackRoute machine relayEntry .halt :=
+  .call relayToPhi (.restart quietReaches ⟨fun _ => keepGoing, rfl, fun _ => quietFeedback⟩)
+
+open Descent.ThetaReach in
+example : InfiniteTrace Step (start (.call ((Recursive.linkGraph machine 29 relayModule.toGraph .nil).get .head)
+    keepGoing)) :=
+  (linked_iff machine 29 relayModule.toGraph .nil .head keepGoing).mp (.inr relayCertificate)
+
+open Descent.ThetaReach in
+example : FeedbackRoute machine relayEntry .halt := by
+  obtain ⟨last, path, _, live, closed, feedback⟩ := relayObserved
+  exact feedback_of_observation relaySteps ⟨last, path.to_reflTransGen, live, closed, feedback⟩
+
+open Descent.ThetaReach in
+example : Reaches machine (.iteration feedbackBody (feedbackInputs 0))
+    ⟨bodyArgs, [results, results, route], feedbackBody, .cons callee (arguments 1 [1, 4, 2, 5])⟩ .empty :=
+  .restart (.single (completedIteration 0))
+
+open Descent.ThetaReach in
+example : Diverges relayEntry :=
+  (linked_iff machine 29 relayModule.toGraph .nil .head keepGoing).mpr ⟨relayMicro, rfl, relaySteps⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests
