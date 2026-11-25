@@ -111,7 +111,6 @@ private noncomputable def slide : drawing.NullarySlide 0 where
   bottom_pos := by norm_num
   ordered := by norm_num
   top_lt_one := by norm_num
-  original := by norm_num [drawing, height, Set.mem_Icc]
   no_inputs := rfl
   no_outputs := rfl
   wire_clear := by

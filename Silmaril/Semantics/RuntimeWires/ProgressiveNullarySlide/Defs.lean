@@ -32,7 +32,6 @@ structure NullarySlide (d : Diagram S V W .point) (moved : Fin V) where
   bottom_pos : 0 < bottom
   ordered : bottom < top
   top_lt_one : top < 1
-  original : d.vertexHeight moved ∈ Set.Icc bottom top
   no_inputs : S.source (d.generator moved) = []
   no_outputs : S.target (d.generator moved) = []
   wire_clear : ∀ w h, h ∈ Set.Icc bottom top → d.covers w h → d.x w h ≠ d.vertexX moved
