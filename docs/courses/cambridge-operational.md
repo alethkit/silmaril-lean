@@ -196,9 +196,11 @@ admits several. For example, allocating in the empty store may choose 0 in
 the relation, while the reducer chooses 1. The operational institution below
 continues to observe the original relation.
 
-Executable type inference and a denotation for the full language remain
-follow-up work. The data and reference fragment has checked finite may
-adequacy. Named and resolved terms and expression types have structural
+The Exercise 31 workflow connects UTF-8 source and a checked initial store
+to fuel-bounded evaluation. [L3 checked evaluation](cambridge-l3-evaluation.md)
+
+The data and reference denotation has checked finite may adequacy on its
+stated fragment. Named and resolved terms and expression types have structural
 codecs. [L3 denotation](cambridge-l3-denotation.md) ·
 [AST codec guide](cambridge-ast-codecs.md)
 
