@@ -1,0 +1,147 @@
+module
+
+public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Defs
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Regions
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Invocation.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Feedback.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.Thms
+import Silmaril.Foundations.InfiniteTrace.Deterministic
+
+public section
+
+namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs
+
+open Continuation.Partial
+open PartialLink.Invocation (start_linked start_error_iff)
+open Isomorphism.Invocation (request)
+
+universe u v w
+
+variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
+variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)} {ids : GlobalRel}
+variable {primitives : Primitives m σ} {mapping : Renaming}
+variable {args outs params results finalL finalR : Ports (Ty V S)}
+variable {sigs sigsL sigsR : List (Ports (Ty V S))}
+
+theorem productive_infinite {jobL jobR : Job m outs} {store : σ}
+    (run : ProductivePair primitives ids jobL jobR store)
+    (frameL : Continuation.Stack m outs finalL) (frameR : Continuation.Stack m outs finalR) :
+    InfiniteTrace (Step primitives) ⟨.eval jobL frameL, store⟩ ∧
+    InfiniteTrace (Step primitives) ⟨.eval jobR frameR, store⟩ := by
+  cases run with
+  | @reached carried sigsL sigsR left right input pendingL pendingR paired reachedL reachedR =>
+    have liveL : Feedback.Run primitives (embed left.toTerm) (input.left, input.store) :=
+      InfiniteTrace.map (R := SingleTheta.FeedbackPair primitives left right)
+        (S := Feedback.Iteration primitives (embed left.toTerm))
+        (fun current => (current.left, current.store)) (fun _ _ step => step.1) paired
+    have liveR : Feedback.Run primitives (embed right.toTerm) (input.right, input.store) :=
+      InfiniteTrace.map (R := SingleTheta.FeedbackPair primitives left right)
+        (S := Feedback.Iteration primitives (embed right.toTerm))
+        (fun current => (current.right, current.store)) (fun _ _ step => step.2) paired
+    exact ⟨InfiniteTrace.of_steps (reachedL.steps frameL) (liveL.infinite (pendingL.push frameL)),
+      InfiniteTrace.of_steps (reachedR.steps frameR) (liveR.infinite (pendingR.push frameR))⟩
+
+private theorem prepend_related {context : Ports (Ty V S)}
+    {capturesL capturesR : Tuple m.Val context} {argsL argsR : Tuple m.Val params}
+    (captures : TupleRelated m ids capturesL capturesR) (arguments : TupleRelated m ids argsL argsR) :
+    TupleRelated m ids (prependContext argsL capturesL) (prependContext argsR capturesR) := by
+  induction context with
+  | nil => cases captures; exact arguments
+  | cons _ _ ih => cases captures with | cons head tail => exact .cons head (ih tail)
+
+private theorem open_lambda {context : Ports (Ty V S)}
+    (code : NestedTheta.Term (Instruction Op) (context ++ params) [] sigs outs)
+    (captures : Tuple m.Val context) (arguments : Tuple m.Val params) :
+    Job.openClosure m (.closure captures code.toGraph) arguments =
+      .region code (prependContext arguments captures) PUnit.unit :=
+  congrArg (fun term => Job.region (m := m) (past := []) term (prependContext arguments captures) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph code)
+
+private theorem terminal_of_eval {job : Job m results} {store : σ}
+    {outcome : Continuation.Partial.Outcome m σ results}
+    (ran : Eval primitives job store outcome) :
+    SingleTheta.TerminalOutcome primitives ⟨Continuation.start job, store⟩ outcome := by
+  intro target
+  apply TerminalPath.target_iff
+  refine ⟨ran.steps .halt, ?_⟩
+  cases outcome with
+  | returned => exact fun _ stepped => _root_.Part.notMem_none _ stepped
+  | blocked => exact fun _ => (ran.blocks .halt).no_step
+
+theorem calls (respects : ActionsRespect primitives ids)
+    {calleeL calleeR : m.Val (.value (.function params results))}
+    (callees : ScheduledLambda m ids mapping params results calleeL calleeR)
+    {argsL argsR : Tuple m.Val params} (arguments : TupleRelated m ids argsL argsR) (store : σ) :
+    CallPair primitives ids mapping results
+      ⟨Continuation.start (.call calleeL argsL), store⟩
+      ⟨Continuation.start (.call calleeR argsR), store⟩ := by
+  cases callees with
+  | @closure context sigsL sigsR capturesL capturesR left right captures code =>
+    have actualL := open_lambda left capturesL argsL
+    have actualR := open_lambda right capturesR argsR
+    cases regions code respects (prepend_related captures arguments) store with
+    | returned values ranL ranR =>
+      exact .returned values (terminal_of_eval (.call (actualL.symm ▸ ranL)))
+        (terminal_of_eval (.call (actualR.symm ▸ ranR)))
+    | blocked stopped =>
+      obtain ⟨ranL, ranR⟩ := block_evals stopped
+      exact .blocked stopped (terminal_of_eval (.call (actualL.symm ▸ ranL)))
+        (terminal_of_eval (.call (actualR.symm ▸ ranR)))
+    | productive run =>
+      cases run with
+      | reached paired ranL ranR =>
+        exact .productive (.reached paired (.call (actualL.symm ▸ ranL)) (.call (actualR.symm ▸ ranR)))
+
+private theorem terminal_excludes_infinite {source : Config m σ outs}
+    {outcome : Continuation.Partial.Outcome m σ outs}
+    (ran : SingleTheta.TerminalOutcome primitives source outcome) : ¬ InfiniteTrace (Step primitives) source := by
+  have reached := (ran (outcome.atStack .halt)).mpr rfl
+  exact RightUnique.not_infinite_of_final (R := Step primitives)
+    (fun _ _ _ a b => _root_.Part.mem_unique a b) reached.path reached.terminal
+
+theorem infinite_iff {sourceL sourceR : Config m σ outs}
+    (paired : CallPair primitives ids mapping outs sourceL sourceR) :
+    InfiniteTrace (Step primitives) sourceL ↔ InfiniteTrace (Step primitives) sourceR := by
+  cases paired with
+  | returned _ ranL ranR =>
+    exact iff_of_false (terminal_excludes_infinite ranL) (terminal_excludes_infinite ranR)
+  | blocked _ ranL ranR =>
+    exact iff_of_false (terminal_excludes_infinite ranL) (terminal_excludes_infinite ranR)
+  | productive run =>
+    have infinite := productive_infinite run .halt .halt
+    exact ⟨fun _ => infinite.2, fun _ => infinite.1⟩
+
+theorem link_then_invoke (respects : ActionsRespect primitives ids)
+    {left : Omega Op args outs sigsL} {right : Omega Op args outs sigsR}
+    {positions : Fin sigsL.length ≃ Fin sigsR.length} (iso : left.RenumberedBy right positions)
+    (schedule : Ordered Op (renameVertex positions) args outs left.toTerm.region right.toTerm.region)
+    {unitL unitR : Nat} (identities : ∀ i, ids (unitL, i) (unitR, renameVertex positions i))
+    {inputL inputR : Tuple m.Val args} (imports : TupleRelated m ids inputL inputR)
+    (port : Port outs (.value (.function params results)))
+    {argsL argsR : Tuple m.Val params} (arguments : TupleRelated m ids argsL argsR) (store : σ)
+    (admitted : ∀ {exportsL exportsR : Tuple m.Val outs} {post : σ},
+      Links primitives unitL left inputL store (.linked exportsL post) →
+      Links primitives unitR right inputR store (.linked exportsR post) →
+      TupleRelated m ids exportsL exportsR →
+      ScheduledLambda m ids mapping params results (exportsL.get port) (exportsR.get port)) :
+    DispatchPair primitives ids (renameVertex positions) mapping results
+      ((request unitL left inputL port argsL store).start primitives)
+      ((request unitR right inputR port argsR store).start primitives) := by
+  have paired := link_related respects iso schedule identities imports store
+  have linkedL : Links primitives unitL left inputL store (link primitives unitL left inputL store) := link_spec
+  have linkedR : Links primitives unitR right inputR store (link primitives unitR right inputR store) := link_spec
+  generalize link primitives unitL left inputL store = outcomeL at paired linkedL
+  generalize link primitives unitR right inputR store = outcomeR at paired linkedR
+  cases paired with
+  | undefined address identity sites stopped =>
+    rw [(start_error_iff (request := request unitL left inputL port argsL store) (primitives := primitives)).mpr linkedL,
+      (start_error_iff (request := request unitR right inputR port argsR store) (primitives := primitives)).mpr linkedR]
+    exact .linkBlocked address identity sites stopped
+  | linked exports post =>
+    rw [start_linked (request := request unitL left inputL port argsL store) (primitives := primitives) linkedL,
+      start_linked (request := request unitR right inputR port argsR store) (primitives := primitives) linkedR]
+    exact .invoked (calls respects (admitted linkedL linkedR exports) arguments post)
+
+end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs
