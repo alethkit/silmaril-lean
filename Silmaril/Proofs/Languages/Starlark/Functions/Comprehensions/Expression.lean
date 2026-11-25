@@ -13,7 +13,8 @@ open Silmaril.Languages.Starlark.Functions.Comprehensions
 open Silmaril.Languages.Starlark.Functions.Lowering
 open Silmaril.Languages.Starlark.Lists
 open Silmaril.Languages.Starlark.Lists.Iteration
-open Silmaril.Proofs.Languages.Starlark.Functions.Lowering (atomScope write_slots)
+open Silmaril.Proofs.Languages.Starlark.Functions.Lowering
+  (atomScope write_slots KeepsScope scopeBind scopePure actionInsertDisplayEntry)
 
 private abbrev Agrees (program : Program) (available : List DeclarationId) (first second : Body) :=
   ∀ state, ScratchFree state →
@@ -106,6 +107,42 @@ private theorem argument_agrees {program : Program} {available : List Declaratio
     exact seq_agrees (related item (by simp) _)
       (ih (fun item member => related item (List.mem_cons_of_mem _ member)) _ _)
 
+private theorem savedReadScope (slot : Binding) :
+    KeepsScope (fun state : State => state.read (.bound slot)) := by
+  intro state
+  simp only [State.read]
+  cases state.bindingValue slot <;> exact ⟨rfl, rfl⟩
+
+private theorem insert_exact {program : Program} {available : List DeclarationId} :
+    Exact program available (.insertDictEntry expressionSlot (argumentSlot 0) (argumentSlot 1))
+      (.insertDictEntry expressionSlot (argumentSlot 0) (argumentSlot 1)) := by
+  intro state _
+  refine ⟨rfl, ?_⟩
+  rw [denoteBody]
+  have keep : KeepsScope (insertDictEntry expressionSlot (argumentSlot 0) (argumentSlot 1)) :=
+    scopeBind (savedReadScope expressionSlot) fun receiver =>
+      scopeBind (savedReadScope (argumentSlot 0)) fun key =>
+        scopeBind (savedReadScope (argumentSlot 1)) fun value =>
+          scopeBind (actionInsertDisplayEntry receiver key value).2 fun () => scopePure Flow.next
+  exact (keep state).2
+
+private theorem entries_agree {program : Program} {available : List DeclarationId} {α : Type}
+    (entries : List α) (source lowered : α → (Binding → Body) × (Binding → Body))
+    (keys : ∀ item ∈ entries, Exact program available
+      ((source item).1 (argumentSlot 0)) ((lowered item).1 (argumentSlot 0)))
+    (values : ∀ item ∈ entries, Exact program available
+      ((source item).2 (argumentSlot 1)) ((lowered item).2 (argumentSlot 1))) (rest : Body) :
+    Agrees program available
+      ((entries.map source).foldr (fun (key, value) tail => stageDisplayEntry key value tail) rest)
+      ((entries.map lowered).foldr (fun (key, value) tail => stageDisplayEntry key value tail) rest) := by
+  induction entries with
+  | nil => exact fun _ _ => rfl
+  | cons entry entries ih =>
+    exact seq_agrees (keys entry (by simp)) (seq_agrees (values entry (by simp))
+      (seq_agrees insert_exact (ih
+        (fun item member => keys item (List.mem_cons_of_mem _ member))
+        (fun item member => values item (List.mem_cons_of_mem _ member)))))
+
 theorem expression_exact (program : Program) (available : List DeclarationId)
     (expr : Expression) (admitted : expr.Admitted) (target : Binding) (start : Nat) :
     Exact program available (expr.body target) (expr.lower target start) := by
@@ -115,6 +152,33 @@ theorem expression_exact (program : Program) (available : List DeclarationId)
   | plain admitted => exact stage admitted target start
   | list outer inner locals => exact list_exact _ target start outer inner locals
   | dict outer inner locals => exact dict_exact _ target start outer inner locals
+  | listDisplay elements | tupleDisplay elements =>
+    unfold compileSequence
+    apply scope_exact target
+    apply argument_agrees
+    intro item _ destination
+    have := List.sizeOf_lt_of_mem item.property
+    exact expression_exact program available item.val (elements _ item.property) destination start
+  | dictDisplay keys values =>
+    unfold compileDictDisplay
+    apply scope_exact target
+    apply seq_agrees
+    · intro state free
+      exact ⟨rfl, (stage (.atom (.dict .noEntries)) expressionSlot start state free).2⟩
+    apply entries_agree
+    · intro item _
+      obtain ⟨⟨key, value⟩, member⟩ := item
+      have := (Lowering.entrySize member).1
+      exact expression_exact program available key (keys _ member) (argumentSlot 0) start
+    · intro item _
+      obtain ⟨⟨key, value⟩, member⟩ := item
+      have := (Lowering.entrySize member).2
+      exact expression_exact program available value (values _ member) (argumentSlot 1) start
+  | index receiver subscript =>
+    unfold compileIndex
+    apply scope_exact target
+    exact seq_agrees (expression_exact program available _ receiver (argumentSlot 0) start)
+      (seq_agrees (expression_exact program available _ subscript (argumentSlot 1) start) (fun _ _ => rfl))
   | callPos callee arguments =>
     unfold compileCall
     apply scope_exact target
@@ -247,5 +311,43 @@ theorem argument_order (program : Program) (available : List DeclarationId) (ind
           (stageArguments (index + 1) rest fun saved => dispatch (readSaved (argumentSlot index) :: saved))
       | signal => pure signal :=
   sequenceDenotation _ _ _ _ _
+
+private theorem sequenceMeaning (program : Program) (available : List DeclarationId)
+    (first rest : Body) :
+    denoteBody program available (.seq first rest) = fun state =>
+      Outcome.resume (denoteBody program available first state) fun
+      | .next => denoteBody program available rest
+      | signal => pure signal :=
+  funext (sequenceDenotation program available first rest)
+
+theorem display_entry_order (program : Program) (available : List DeclarationId)
+    (key value : Binding → Body) (rest : Body) (state : State) :
+    denoteBody program available (stageDisplayEntry key value rest) state =
+      Outcome.resume (denoteBody program available (key (argumentSlot 0)) state) fun
+        | .next => fun next =>
+          Outcome.resume (denoteBody program available (value (argumentSlot 1)) next) fun
+            | .next => fun next =>
+              Outcome.resume (denoteBody program available
+                (.insertDictEntry expressionSlot (argumentSlot 0) (argumentSlot 1)) next) fun
+                | .next => denoteBody program available rest
+                | signal => pure signal
+            | signal => pure signal
+        | signal => pure signal := by
+  simp only [stageDisplayEntry, sequenceMeaning] <;> rfl
+
+theorem index_order (program : Program) (available : List DeclarationId)
+    (target : Binding) (receiver subscript : Binding → Body) (state : State) :
+    denoteBody program available (compileIndex target receiver subscript) state =
+      completeCall state (some target)
+        (Outcome.resume (denoteBody program available (receiver (argumentSlot 0)) state) fun
+          | .next => fun next =>
+            Outcome.resume (denoteBody program available (subscript (argumentSlot 1)) next) fun
+              | .next => denoteBody program available (.returnExpr
+                  (.atom (.index (readSaved (argumentSlot 0)) (readSaved (argumentSlot 1)))))
+              | signal => pure signal
+          | signal => pure signal) := by
+  rw [compileIndex, denoteBody]
+  change completeCall state (some target) (denoteBody program available (.seq _ _) state) = _
+  simp only [sequenceMeaning] <;> rfl
 
 end Silmaril.Proofs.Languages.Starlark.Functions.Comprehensions

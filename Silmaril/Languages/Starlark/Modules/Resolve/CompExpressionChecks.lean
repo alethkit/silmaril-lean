@@ -90,7 +90,8 @@ private def errorCommands (callee : Functions.Lowering.Resolve.SourceExpr) : Lis
 -- A failed middle argument skips later arguments and dispatch, keeps its
 -- own effects and restores exactly the iterator stack of the caller.
 private def checkAssignmentFailure (commands : List Command)
-    (error : Lists.Error → Bool) (expected : List Int) : Bool :=
+    (error : Lists.Error → Bool) (expected : List Int)
+    (heapCheck : State → State → Bool := fun _ _ => true) : Bool :=
   match resolve commands with
   | .ok resolved =>
     match resolved.source.commands.reverse with
@@ -104,7 +105,7 @@ private def checkAssignmentFailure (commands : List Command)
         let run := Functions.denoteBody resolved.program (List.range resolved.program.size)
         match run (expr.body target) before, run (expr.lower target) before with
         | .error first direct, .error second lowered =>
-          error first && first == second && direct.heap == lowered.heap &&
+          error first && first == second && direct.heap == lowered.heap && heapCheck before direct &&
             direct.iterators == [guard] && lowered.iterators == [guard] &&
             (direct.bindingValue target).toOption == some (intValue 91) &&
             (lowered.bindingValue target).toOption == some (intValue 91) &&
@@ -182,44 +183,44 @@ private def spread : CompExpr := .list ⟨starlark%[x], starlark%[mark(4, [6])],
 private def mapping (entries : Functions.Lowering.Resolve.SourceExpr) : CompExpr :=
   .dict ⟨starlark%[(k, v)], entries, .yield (starlark%[k], starlark%[mark(6, v)])⟩
 
-private def checkCallFailure (call : CompExpr) (error : Lists.Error → Bool)
-    (expected : List Int) : Bool :=
+private def checkPlacementFailure (expression : CompExpr) (error : Lists.Error → Bool)
+    (expected : List Int) (heapCheck : State → State → Bool := fun _ _ => true) : Bool :=
   let commands := logCommands ++
     [.assign "rows" starlark%[[[("a", [4]), ([], [5])]]],
      .define "sink" { varargs := some "rest", keywordOnly := [⟨"k", some starlark%[0]⟩] }
        (.ret (some starlark%[mark(7, k)])),
-     .assignCompExpr "out" call]
-  checkAssignmentFailure commands error expected
+     .assignCompExpr "out" expression]
+  checkAssignmentFailure commands error expected heapCheck
 
 -- Both expansions succeed before the binder detects the duplicate named key.
-#guard checkCallFailure
+#guard checkPlacementFailure
   (.call markedCallee [] [("k", named)] (some spread) (some (mapping starlark%[mark(5, [("k", 8)])])))
   (· == .multipleArgumentValues "k") [1, 2, 3, 4, 5, 6, 0, 0]
 
 -- A mapping key error or mapping type error wins over an invalid star value.
-#guard checkCallFailure
+#guard checkPlacementFailure
   (.call markedCallee [] [("k", named)] (some (.plain starlark%[mark(4, 0)]))
     (some (mapping starlark%[mark(5, [(1, 8)])])))
   (· == .keywordMustBeString (intValue 1)) [1, 2, 3, 4, 5, 6, 0, 0]
 
-#guard checkCallFailure
+#guard checkPlacementFailure
   (.call markedCallee [] [("k", named)] (some (.plain starlark%[mark(4, 0)]))
     (some (.list ⟨starlark%[x], starlark%[mark(5, [])], .yield starlark%[x]⟩)))
   (· == .invalidStarStar) [1, 2, 3, 4, 5, 0, 0, 0]
 
 -- Once mapping validation passes, the star error wins over binding duplicates.
-#guard checkCallFailure
+#guard checkPlacementFailure
   (.call markedCallee [] [("k", named)] (some (.plain starlark%[mark(4, 0)]))
     (some (mapping starlark%[mark(5, [("k", 8)])])))
   (· == .invalidStar) [1, 2, 3, 4, 5, 6, 0, 0]
 
 -- A failing final operand precedes all expansion and unwinds its iterators.
-#guard checkCallFailure
+#guard checkPlacementFailure
   (.call markedCallee [] [] (some (.plain starlark%[mark(4, 0)])) (some failedArgument))
   (fun | .unhashableKey (.list _) => true | _ => false) [1, 2, 4, 3, 4, 5, 4, 5]
 
 -- A failure within the callee's comprehension skips every argument stage.
-#guard checkCallFailure
+#guard checkPlacementFailure
   (.call (.branch failedArgument (.plain starlark%[sink]) (.plain starlark%[sink]))
     [] [("k", named)] (some spread) (some (mapping starlark%[mark(5, [("k", 8)])])))
   (fun | .unhashableKey (.list _) => true | _ => false) [3, 4, 5, 4, 5, 0, 0, 0]
@@ -231,5 +232,101 @@ private def checkCallFailure (call : CompExpr) (error : Lists.Error → Bool)
     [.assignCompExpr "out" (.branch (.plain starlark%[False]) duplicate (.plain starlark%[None]))]) with
   | .error (.validation (.syntax (.duplicateExplicitKeyword "x"))) => true
   | _ => false
+
+private def collect (operand : Functions.Lowering.Resolve.SourceExpr) : CompExpr :=
+  .list ⟨starlark%[x], operand, .yield starlark%[x]⟩
+
+private def lengthOf (operand : CompExpr) : CompExpr :=
+  .callPos starlark%[len] [operand]
+
+-- Parent displays and indexing preserve the order of their nested sites.
+-- The returned value also checks that a child scope restores saved siblings.
+#guard
+  let expression := CompExpr.tupleDisplay
+    [.listDisplay [collect starlark%[mark(1, [7])], .plain starlark%[mark(2, 8)]],
+     .dictDisplay [(lengthOf (collect starlark%[mark(3, [0])]),
+       .dict ⟨starlark%[(k, v)], starlark%[mark(4, [("a", 9)])], .yield (starlark%[k], starlark%[v])⟩)],
+     .index (collect starlark%[mark(5, [10, 11])]) (lengthOf (collect starlark%[mark(6, [0])]))]
+  let commands := logCommands ++
+    [.define "run" {} (.retCompExpr expression), .assign "out" starlark%[run()],
+     .assign "ok" starlark%[{(7, 8, 9, 11): True}[(out[0][0][0], out[0][1], out[1][1]["a"], out[2])]]]
+  match runModule commands noImports {} with
+  | .ok (.ok published state) =>
+    published.exports.lookup "ok" == some (.scalar (.bool true)) &&
+      match published.exports.lookup "events" with
+      | some (.list address) => eventsMatch state address [1, 2, 3, 4, 5, 6, 0, 0]
+      | _ => false
+  | _ => false
+
+private def isUnhashableList : Lists.Error → Bool
+  | .unhashableKey (.list _) => true
+  | _ => false
+
+-- A failed middle element releases its iterators and skips later elements.
+#guard
+  let elements := [collect starlark%[mark(1, [7])], failedArgument, .plain starlark%[mark(2, 8)]]
+  let expected := [1, 3, 4, 5, 4, 5, 0, 0]
+  checkPlacementFailure (.listDisplay elements) isUnhashableList expected &&
+    checkPlacementFailure (.tupleDisplay elements) isUnhashableList expected
+
+-- List and tuple outer allocations require every element to succeed.
+-- Dictionary display allocation precedes even a failing first key.
+#guard
+  let failed := Functions.Comprehensions.Expression.plain
+    (.index (.atom (.scalar (.int 0))) (.atom (.scalar (.int 0))))
+  let destination := globalSlot "out"
+  let heapOnError := fun (expr : Functions.Comprehensions.Expression) =>
+    match Functions.run #[] (expr.body destination), Functions.run #[] (expr.lower destination) with
+    | .error .indexTarget direct, .error .indexTarget lowered =>
+      if direct.heap == lowered.heap then some direct.heap else none
+    | _, _ => none
+  heapOnError (.listDisplay [failed]) == some #[] &&
+    heapOnError (.tupleDisplay [failed]) == some #[] &&
+    heapOnError (.dictDisplay [(failed, failed)]) == some #[⟨.dict [], false⟩]
+
+-- Key failure skips its value and every later pair.
+#guard checkPlacementFailure
+  (.dictDisplay [(failedArgument, collect starlark%[mark(1, [7])]),
+    (.plain starlark%[mark(2, 0)], .plain starlark%[0])])
+  isUnhashableList [3, 4, 5, 4, 5, 0, 0, 0]
+
+-- Hashability checks follow both operands. A failure in the value wins.
+#guard checkPlacementFailure
+  (.dictDisplay [(collect starlark%[mark(1, [])], .plain starlark%[mark(2, [])[1]]),
+    (.plain starlark%[mark(3, 0)], .plain starlark%[0])])
+  (· == .indexRange 1 0) [1, 2, 0, 0, 0, 0, 0, 0]
+
+#guard checkPlacementFailure
+  (.dictDisplay [(collect starlark%[mark(1, [])], collect starlark%[mark(2, [9])]),
+    (.plain starlark%[mark(3, 0)], .plain starlark%[0])])
+  isUnhashableList [1, 2, 0, 0, 0, 0, 0, 0]
+
+-- Display duplicates preserve the accepted prefix in Lean's private
+-- accumulator and abort before the next key.
+#guard checkPlacementFailure
+  (.dictDisplay
+    [(lengthOf (collect starlark%[mark(1, [0])]), .plain starlark%[mark(2, 11)]),
+     (lengthOf (collect starlark%[mark(3, [0])]), .plain starlark%[mark(4, 22)]),
+     (.plain starlark%[mark(5, 2)], .plain starlark%[0])])
+  (· == .duplicateKey (intValue 1)) [1, 2, 3, 4, 0, 0, 0, 0]
+  (fun before final => final.heap[before.heap.size]?.map Cell.contents ==
+    some (.dict [⟨intValue 1, [.scalar (.int 1)], intValue 11⟩]))
+
+-- Indexing validates the receiver after evaluating the subscript.
+#guard checkPlacementFailure
+  (.index failedArgument (lengthOf (collect starlark%[mark(1, [0])])))
+  isUnhashableList [3, 4, 5, 4, 5, 0, 0, 0]
+
+#guard checkPlacementFailure
+  (.index (.plain starlark%[mark(1, 0)]) (.plain starlark%[mark(2, [])[1]]))
+  (· == .indexRange 1 0) [1, 2, 0, 0, 0, 0, 0, 0]
+
+#guard checkPlacementFailure
+  (.index (.plain starlark%[mark(1, 0)]) (collect starlark%[mark(2, [])]))
+  (· == .indexTarget) [1, 2, 0, 0, 0, 0, 0, 0]
+
+#guard checkPlacementFailure
+  (.index (collect starlark%[mark(1, [0])]) (collect starlark%[mark(2, [])]))
+  (· == .indexType) [1, 2, 0, 0, 0, 0, 0, 0]
 
 end Silmaril.Languages.Starlark.Modules.Resolve

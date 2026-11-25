@@ -251,9 +251,59 @@ def sink(*rest, k=0):
 	fmt.Println("PASS operand versus expansion versus binding errors, duplicate keyword checks, and iterator cleanup")
 }
 
+func checkDisplayAndIndexOperands() {
+	const mark = `events = []
+def mark(tag, value):
+    events.append(tag)
+    return value
+`
+	globals, err := run(mark + `def example():
+    return (
+        [[x for x in mark(1, [7])], mark(2, 8)],
+        {len([x for x in mark(3, [0])]): {k: v for (k, v) in mark(4, [("a", 9)])}},
+        [x for x in mark(5, [10, 11])][len([x for x in mark(6, [0])])],
+    )
+out = example()
+`)
+	require(err == nil && globals["out"].String() == `([[7], 8], {1: {"a": 9}}, 11)` &&
+		globals["events"].String() == "[1, 2, 3, 4, 5, 6]", fmt.Sprint(globals, err))
+	fmt.Println("PASS nested comprehensions in list, tuple and dict displays and subscript operands")
+
+	const rows = `rows = [[("a", [4]), ([], [5])]]
+`
+	const failed = `{mark(4, k): mark(5, v) for row in mark(3, rows) for (k, [v]) in row}`
+	for _, tc := range []struct {
+		expression string
+		errorPart  string
+		events     string
+	}{
+		{`[[x for x in mark(1, [7])], ` + failed + `, mark(2, 8)]`, "unhashable type: list", "[1, 3, 4, 5, 4, 5]"},
+		{`([x for x in mark(1, [7])], ` + failed + `, mark(2, 8))`, "unhashable type: list", "[1, 3, 4, 5, 4, 5]"},
+		{`{` + failed + `: [x for x in mark(1, [7])], mark(2, 0): 0}`, "unhashable type: list", "[3, 4, 5, 4, 5]"},
+		{`{[x for x in mark(1, [])]: mark(2, [])[1], mark(3, 0): 0}`, "out of range", "[1, 2]"},
+		{`{[x for x in mark(1, [])]: [y for y in mark(2, [9])], mark(3, 0): 0}`, "unhashable type: list", "[1, 2]"},
+		{`{len([x for x in mark(1, [0])]): mark(2, 11), len([x for x in mark(3, [0])]): mark(4, 22), mark(5, 2): 0}`,
+			"duplicate key", "[1, 2, 3, 4]"},
+		{failed + `[len([x for x in mark(1, [0])])]`, "unhashable type: list", "[3, 4, 5, 4, 5]"},
+		{`mark(1, 0)[mark(2, [])[1]]`, "out of range", "[1, 2]"},
+		{`mark(1, 0)[[x for x in mark(2, [])]]`, "unhandled index operation", "[1, 2]"},
+		{`[x for x in mark(1, [0])][[x for x in mark(2, [])]]`, "got list, want int", "[1, 2]"},
+	} {
+		globals, err = run(mark + rows + "out = " + tc.expression)
+		checkError(err, tc.errorPart)
+		require(globals["out"] == nil && globals["events"].String() == tc.events, fmt.Sprint(globals, err))
+		outer := globals["rows"].(*starlark.List)
+		inner := outer.Index(0).(*starlark.List)
+		require(outer.Append(starlark.None) == nil && inner.Append(starlark.None) == nil,
+			"failed display element or subscript operand left an iterator active")
+	}
+	fmt.Println("PASS display pair and indexing error precedence, residual effects, and iterator unwind")
+}
+
 func main() {
 	checkLists()
 	checkDictionaries()
 	checkExpressionPositions()
 	checkCallOperands()
+	checkDisplayAndIndexOperands()
 }
