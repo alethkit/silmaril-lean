@@ -16,13 +16,15 @@ open Silmaril Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.Lambd
 open Silmaril.DeBruijn (lift liftN)
 open Silmaril.Isotope.LambdaSSA.Semantics (extend extend_rename)
 open scoped Paper.BoundSimulation.Obstruction
-open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.CanonicalUnit
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer (Env EnvTy Result)
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer (extended_same)
 
 open Paper.UnaryReturn.Beta.Constructors
 open Paper.UnaryReturn.Beta.Constructors.Example (source target update constructor)
 open Paper.RetainedLet (returnOnce)
+
+section
+open scoped Observer.CanonicalUnit
 
 private def env : Env := fun _ => .inl .unit
 
@@ -57,12 +59,34 @@ theorem mixed_state_fails :
   change Result.fault = .jump 0 (.inl (.pair (.inl .unit) (.inl .unit))) at obs
   cases obs
 
+end
+
 open CfgEta.TypeCategory (returnRegion)
 
-private theorem projection_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+-- The projection laws respect both typed unit observations.
+set_option linter.concreteInstances false in
+private theorem projection_same [Observer.UnitPayloadPolicy] {Γ L : List (Ty Empty)} {r s : Region Empty}
     (h : Paper.WithProjectionReturns.Step Γ r s L) : Observer.SameWith true Γ r s := by
   cases h <;> intro env _ <;> cases hx : env 0 <;>
     simp [returnRegion, Observer.evalRegionWith, Observer.evalTermWith, hx, extend]
+
+open scoped Observer.AlternateUnit in
+theorem projection_unit_eta_fails :
+    ¬ Paper.Extension.Eqv Paper.WithProjectionReturns.Step [(Ty.unit : Ty Empty)]
+      (.br 0 (.unit : Tm Empty)) (.br 0 (.var 0)) [Ty.unit] := by
+  intro h
+  let env : Env := fun _ => .inl .unit
+  have henv : EnvTy [(Ty.unit : Ty Empty)] env := by
+    intro i A hi
+    cases i with
+    | zero => cases Option.some.inj hi; exact .alternateUnit rfl
+    | succ i => simp [At] at hi
+  have obs := Observer.extension_same (markPairLet := true) projection_same h env henv
+  change Result.jump 0 .unit = Result.jump 0 (.inl .unit) at obs
+  cases obs
+
+section
+open scoped Observer.CanonicalUnit
 
 private theorem unit_same {Γ L : List (Ty Empty)} {r s : Region Empty}
     (h : Paper.WithUnitEta.Step Γ r s L) : Observer.SameWith true Γ r s := by
@@ -86,5 +110,7 @@ theorem lowered_pure_pair_discard_fails :
   have obs := same env env_typed
   change Result.fault = .jump 0 .unit at obs
   cases obs
+
+end
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing

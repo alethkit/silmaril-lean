@@ -42,6 +42,12 @@ theorem mixed_state_fails :
     ¬ Paper.Extension.Eqv UnaryReturn.Step [source] (returnOnce update) (.br 0 constructor) [target] :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.mixed_state_fails
 
+/-- Projection-return equations preserve the observation separating literal unit from its variable. -/
+theorem projection_unit_eta_fails :
+    ¬ Paper.Extension.Eqv Paper.WithProjectionReturns.Step [(Ty.unit : Ty Empty)]
+      (.br 0 (.unit : Tm Empty)) (.br 0 (.var 0)) [Ty.unit] :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.projection_unit_eta_fails
+
 open Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory (returnRegion)
 
 /-- Discarding the result of this instruction-free pure term is inequivalent
