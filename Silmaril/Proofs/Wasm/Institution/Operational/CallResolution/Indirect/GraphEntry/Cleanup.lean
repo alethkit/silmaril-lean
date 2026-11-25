@@ -103,15 +103,16 @@ private theorem lime_cleanup_step {H : Type} {s : Store H} {entry : Entry} {oute
 theorem core_trap_run_iff {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     {entry : Entry} {program : CallContinuation.OuterCall.Ranked.Graph.Program} {tables : Source.Tables}
     {outer : Frame} {index : FuncIdx} {args : List Value} {active : Source.Activation}
-    (ready : entry.Checked program tables outer index args active)
+    {states : List OperandState} {stack : List Value}
+    (ready : entry.AtSite program tables outer index args states stack active)
     (allocated : entry.CoreAllocated program tables active s) {out : Outcome}
     (resolved : active.resolve program = some out) (trap : LookupTrap out) {dst : Core.Config H} :
     Core.Steps P noHost (coreSource s outer index args) dst ↔
-      dst ∈ (entry.corePrefix s outer index args active out).dropLast ∨
+      dst ∈ (entry.corePrefix s outer index args active out states).dropLast ∨
       ∃ phase, CleanupRuns (entry.coreTrapStart active out) phase ∧ dst = entry.coreCleanup s outer active.caller phase := by
-  let before := (entry.corePrefix s outer index args active out).dropLast
+  let before := (entry.corePrefix s outer index args active out states).dropLast
   let trapped := entry.coreCleanup s outer active.caller (entry.coreTrapStart active out)
-  have same : before ++ [trapped] = entry.corePrefix s outer index args active out := by
+  have same : before ++ [trapped] = entry.corePrefix s outer index args active out states := by
     cases trap <;>
       simp [before, trapped, Entry.corePrefix, Outcome.coreTrace, Entry.coreLookup,
         Entry.coreTrapStart, Entry.coreCleanup, Source.Activation.coreConfig, Source.coreNest,
@@ -126,18 +127,59 @@ open Wasm.Lime1.Execution in
 theorem lime_trap_run_iff {H : Type} {s : Store H}
     {entry : Entry} {program : CallContinuation.OuterCall.Ranked.Graph.Program} {tables : Source.Tables}
     {outer : Frame} {index : FuncIdx} {args : List Value} {active : Source.Activation}
-    (ready : entry.Checked program tables outer index args active)
+    {states : List OperandState} {stack : List Value}
+    (ready : entry.AtSite program tables outer index args states stack active)
     (allocated : entry.LimeAllocated program tables active s) {out : Outcome}
     (resolved : active.resolve program = some out) (trap : LookupTrap out) {dst : Config H} :
     Steps CallFrame.limeNoHost (limeSource s outer index args) dst ↔
-      dst ∈ (entry.limePrefix s outer index args active out).dropLast ∨
+      dst ∈ (entry.limePrefix s outer index args active out states).dropLast ∨
       ∃ phase, CleanupRuns (entry.limeTrapStart active) phase ∧ dst = entry.limeCleanup s outer active.caller phase := by
-  let before := (entry.limePrefix s outer index args active out).dropLast
+  let before := (entry.limePrefix s outer index args active out states).dropLast
   let trapped := entry.limeCleanup s outer active.caller (entry.limeTrapStart active)
   have chain : (before ++ [trapped]).IsChain (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) := by
-    have lookup := Lime1.prefix_exact ready allocated resolved
-    cases trap <;> exact lookup
+    have same : before ++ [trapped] = entry.limePrefix s outer index args active out states := by
+      apply List.dropLast_append_getLast?
+      cases trap <;> simp [trapped, Entry.limePrefix, Entry.limeCleanup, Entry.limeTrapStart,
+        Source.Activation.limeResolved, Source.limeNest, Indirect.limeResolved, values, List.map_append,
+        List.append_assoc]
+    rw [same]
+    exact Lime1.prefix_exact ready allocated resolved
   exact (Context.Resume.prefix_run_iff (dst := dst) before trapped chain).trans
     (or_congr Iff.rfl (Context.finite_run_iff_of_step _ lime_cleanup_step))
+
+theorem core_operand_trap_run_iff {H : Type} {P : Numerics.Profile} {s : Core.Store H}
+    {entry : Entry} {program : CallContinuation.OuterCall.Ranked.Graph.Program} {tables : Source.Tables}
+    {outer : Frame} {index : FuncIdx} {args : List Value}
+    (ready : entry.Checked program tables outer index args)
+    (allocated : s.funcs[entry.cont.address.value]? = some entry.coreInstance)
+    {states : List OperandState} {saved : List Value} {rest : List CallContinuation.OuterCall.Computed.Prefix.Op}
+    (trace : entry.OperandTrace args states (.trap saved rest)) {dst : Core.Config H} :
+    Core.Steps P noHost (coreSource s outer index args) dst ↔
+      dst ∈ entry.coreBefore s outer index args states ∨
+      ∃ phase, CleanupRuns (.label saved (entry.coreSiteCode rest)) phase ∧
+        dst = entry.coreCleanup s outer (entry.frame args) phase := by
+  have chain := Core.operands_exact (P := P) ready allocated trace
+  have read := Context.Resume.prefix_run_iff (dst := dst) _ _ chain
+  simp only [Entry.coreOperandResult] at read
+  exact read.trans (or_congr Iff.rfl (Context.finite_run_iff_of_step
+    (entry.coreCleanup s outer (entry.frame args)) core_cleanup_step))
+
+open Wasm.Lime1.Execution in
+theorem lime_operand_trap_run_iff {H : Type} {s : Store H}
+    {entry : Entry} {program : CallContinuation.OuterCall.Ranked.Graph.Program} {tables : Source.Tables}
+    {outer : Frame} {index : FuncIdx} {args : List Value}
+    (ready : entry.Checked program tables outer index args)
+    (allocated : s.funcs[entry.cont.address.value]? = some entry.limeInstance)
+    {states : List OperandState} {saved : List Value} {rest : List CallContinuation.OuterCall.Computed.Prefix.Op}
+    (trace : entry.OperandTrace args states (.trap saved rest)) {dst : Config H} :
+    Steps CallFrame.limeNoHost (limeSource s outer index args) dst ↔
+      dst ∈ entry.limeBefore s outer index args states ∨
+      ∃ phase, CleanupRuns (.label saved (entry.limeSiteCode rest)) phase ∧
+        dst = entry.limeCleanup s outer (entry.frame args) phase := by
+  have chain := Lime1.operands_exact ready allocated trace
+  have read := Context.Resume.prefix_run_iff (dst := dst) _ _ chain
+  simp only [Entry.limeOperandResult] at read
+  exact read.trans (or_congr Iff.rfl (Context.finite_run_iff_of_step
+    (entry.limeCleanup s outer (entry.frame args)) lime_cleanup_step))
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Proofs

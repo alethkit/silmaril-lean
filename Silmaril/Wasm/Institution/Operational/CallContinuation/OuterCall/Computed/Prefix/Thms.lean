@@ -32,4 +32,8 @@ theorem progress {locals stack : List Value} {op : Op} {tail : List Op} {result 
     (typed : WellTyped locals stack (op :: tail) result) : ∃ out, Reduce locals stack op out :=
   Proofs.progress typed
 
+theorem reduce_unique {locals stack : List Value} {op : Op} {a b : Outcome}
+    (left : Reduce locals stack op a) (right : Reduce locals stack op b) : a = b :=
+  Proofs.reduce_unique left right
+
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix
