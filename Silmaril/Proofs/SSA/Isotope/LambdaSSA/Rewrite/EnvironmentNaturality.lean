@@ -90,7 +90,7 @@ theorem pair_pre_map {D E A B : V} (k : D ⟶ E)
   rw [← J.map_comp_assoc, projection, J.map_comp_assoc, ← output, J.map_comp,
     bind_pre_map, bind_pre_map]
 
-private noncomputable def distributeEnv (E A B : V) :
+@[expose] noncomputable def distributeEnv (E A B : V) :
     J.obj (E ⊗ (A ⨿ B)) ⟶ J.obj (E ⊗ A) ⨿ J.obj (E ⊗ B) :=
   J.map (DistributiveTensor.leftIso E A B).inv ≫ splitMapCoprod J (E ⊗ A) (E ⊗ B)
 
@@ -133,6 +133,24 @@ theorem case_pre_map {D E A B X : V} (k : D ⟶ E)
       distributeEnv, Category.assoc]
   rw [unfoldCase, unfoldCase]
   rw [← coprod.map_desc, distributeEnv_pre_assoc, extend_pre_map_assoc]
+
+/-- Restrict a contextual case dispatcher to one of the original payloads. -/
+theorem caseWithContext_payload {E X A B Y : V} (j : X ⟶ A ⨿ B)
+    (l : J.obj (E ⊗ A) ⟶ J.obj Y) (r : J.obj (E ⊗ B) ⟶ J.obj Y) :
+    caseWithContext J (J.map (snd E X ≫ j))
+      (J.map (fst E X ▷ A) ≫ l) (J.map (fst E X ▷ B) ≫ r) =
+    J.map (E ◁ j) ≫ distributeEnv J E A B ≫ coprod.desc l r := by
+  simp only [caseWithContext, Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind,
+    extend_map]
+  change J.map _ ≫ (J.map (DistributiveTensor.leftIso (E ⊗ X) A B).inv ≫
+      splitMapCoprod J ((E ⊗ X) ⊗ A) ((E ⊗ X) ⊗ B) ≫
+      coprod.desc (J.map (fst E X ▷ A) ≫ l) (J.map (fst E X ▷ B) ≫ r)) = _
+  rw [← coprod.map_desc, ← Category.assoc (J.map (DistributiveTensor.leftIso (E ⊗ X) A B).inv)]
+  change J.map _ ≫ distributeEnv J (E ⊗ X) A B ≫
+      (coprod.map (J.map (fst E X ▷ A)) (J.map (fst E X ▷ B)) ≫ coprod.desc l r) = _
+  rw [distributeEnv_pre_assoc, ← J.map_comp_assoc]
+  congr 2
+  apply CartesianMonoidalCategory.hom_ext <;> simp
 
 end Distributive
 
