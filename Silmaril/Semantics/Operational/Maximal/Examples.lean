@@ -3,6 +3,13 @@ module
 import Silmaril.Semantics.Operational.Maximal.Thms
 import Silmaril.Semantics.Operational.Policy.Thms
 
+/-!
+# Maximal-run regression examples
+
+These fixtures exercise labelled transitions, entry coverage, completion and
+the distinction between finite may-inclusion and termination.
+-/
+
 open Silmaril.Semantics.Operational
 
 private inductive State where
@@ -167,9 +174,3 @@ example : (mayModel false).Terminates () := by
 example : ¬ (mayModel true).Terminates () :=
   fun terminates => terminates (start := .loop) (Or.inr ⟨rfl, rfl⟩)
     (((semantics false).diverges_iff .loop).mpr ⟨{[]}, silentLoop⟩)
-
-#print axioms RunSem.exists_observation
-#print axioms HasRuns.raw_nonempty_iff
-#print axioms HasRuns.terminates_iff
-#print axioms RunCoverage.completed_le
-#print axioms RunCoverage.safe_transfer
