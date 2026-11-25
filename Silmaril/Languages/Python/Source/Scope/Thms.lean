@@ -29,4 +29,11 @@ theorem Scope.occurrence_access (scope : Scope) (entry : ResolvedOccurrence scop
     scope.access entry.occurrence.name = some entry.access :=
   entry.lookup_eq
 
+/-- Successful scope resolution preserves block metadata, sibling order and all name occurrences. -/
+theorem analyze_preserves_lexical {source : Module} {annotations : AnnotationMode}
+    {nonlocals : NonlocalPolicy} {tree : ScopeTree}
+    (checked : analyze source annotations nonlocals = .ok tree) :
+    collectLexical source annotations = .ok tree.lexical :=
+  Proofs.Languages.Python.Source.Scope.analyze_preserves_lexical checked
+
 end Silmaril.Languages.Python.Source

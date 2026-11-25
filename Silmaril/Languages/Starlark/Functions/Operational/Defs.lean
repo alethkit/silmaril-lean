@@ -9,8 +9,9 @@ public section
 namespace Silmaril.Languages.Starlark.Functions
 
 open Lists
-open Lists.Iteration (Flow Suite Runs truth)
+open Lists.Iteration (Flow Suite Runs truth iterationSource restoreIterators pushIterator)
 
+mutual
 /-- Big-step rules over the available declarations. The same declaration may
 be invoked again after a call completes, but not while it is active. -/
 inductive Exec (program : Program) : List DeclarationId → State → Body → Outcome Flow → Prop where
@@ -34,6 +35,20 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {value : Outcome Lists.Value} {error : Error} :
       Eval s test value → Outcome.resume value truth = .error error t →
       Exec program available s (.branch test yes no) (.error error t)
+  | forIn {available : List DeclarationId} {s t : State} {target : Binding} {iterable : Lists.Expr}
+      {body : Body} {value : Outcome Lists.Value} {address : Address}
+      {items : List Lists.Value} {out : Outcome Flow} :
+      Eval s iterable value → Outcome.resume value iterationSource = .ok (address, items) t →
+      ExecItems program available target body items (pushIterator t address) out →
+      Exec program available s (.forIn target iterable body) (restoreIterators t.iterators out)
+  | forError {available : List DeclarationId} {s t : State} {target : Binding}
+      {iterable : Lists.Expr} {body : Body} {value : Outcome Lists.Value} {error : Error} :
+      Eval s iterable value → Outcome.resume value iterationSource = .error error t →
+      Exec program available s (.forIn target iterable body) (.error error t)
+  | breakLoop {available : List DeclarationId} {s : State} :
+      Exec program available s .breakLoop (.ok .breakLoop s)
+  | continueLoop {available : List DeclarationId} {s : State} :
+      Exec program available s .continueLoop (.ok .continueLoop s)
   | define {available : List DeclarationId} {s : State} {target : Binding} {id : DeclarationId}
       {defaults : Outcome (List Lists.Value)} :
       Eval s (defaultOperands program id) defaults →
@@ -59,5 +74,34 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       Eval s (Arguments.operands callee arguments) operands →
       Outcome.resume operands (prepare program available arguments) = .error error t →
       Exec program available s (.call target callee arguments) (.error error t)
+
+/-- Iteration keeps the caller's guard in force while an item executes its body. -/
+inductive ExecItems (program : Program) :
+    List DeclarationId → Binding → Body → List Lists.Value → State → Outcome Flow → Prop where
+  | done {available : List DeclarationId} {target : Binding} {body : Body} {s : State} :
+      ExecItems program available target body [] s (.ok .next s)
+  | next {available : List DeclarationId} {target : Binding} {body : Body} {s t : State}
+      {value : Lists.Value} {rest : List Lists.Value} {out : Outcome Flow} :
+      Exec program available (s.write target value) body (.ok .next t) →
+      ExecItems program available target body rest t out →
+      ExecItems program available target body (value :: rest) s out
+  | continueLoop {available : List DeclarationId} {target : Binding} {body : Body} {s t : State}
+      {value : Lists.Value} {rest : List Lists.Value} {out : Outcome Flow} :
+      Exec program available (s.write target value) body (.ok .continueLoop t) →
+      ExecItems program available target body rest t out →
+      ExecItems program available target body (value :: rest) s out
+  | breakLoop {available : List DeclarationId} {target : Binding} {body : Body} {s t : State}
+      {value : Lists.Value} {rest : List Lists.Value} :
+      Exec program available (s.write target value) body (.ok .breakLoop t) →
+      ExecItems program available target body (value :: rest) s (.ok .next t)
+  | returned {available : List DeclarationId} {target : Binding} {body : Body} {s t : State}
+      {value result : Lists.Value} {rest : List Lists.Value} :
+      Exec program available (s.write target value) body (.ok (.returned result) t) →
+      ExecItems program available target body (value :: rest) s (.ok (.returned result) t)
+  | failed {available : List DeclarationId} {target : Binding} {body : Body} {s t : State}
+      {value : Lists.Value} {rest : List Lists.Value} {error : Error} :
+      Exec program available (s.write target value) body (.error error t) →
+      ExecItems program available target body (value :: rest) s (.error error t)
+end
 
 end Silmaril.Languages.Starlark.Functions

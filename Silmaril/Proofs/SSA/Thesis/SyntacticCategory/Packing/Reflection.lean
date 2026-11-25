@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Thesis.SyntacticCategory.Packing.Defs
+import Silmaril.SSA.Thesis.SyntacticCategory.Tensor.Thms
 
 public section
 
@@ -157,6 +158,70 @@ private theorem instantiate_underBinder_one {t a : Tm Empty S.Instr 1} :
   rw [instantiate, underBinder, bsubst_rename]
   apply bsubst_congr
   exact Fin.cases rfl (fun i => i.elim0)
+
+/-- Applying the packed body to the retained environment and the newest
+variable computes the lifted packing substitution. -/
+private theorem packed_body_on_pair {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {b : Tm Empty S.Instr (n + 1)} (hb : HasType S.Instr Ctx.nil (.snoc β A) b B) :
+    Eqv S.pureEff Ctx.nil (.snoc (.snoc .nil (packType β)) A)
+      (bsubst (fun _ : Fin 1 => .pair (.bv 1) (.bv 0)) (packedTerm (.snoc β A) b))
+      (bsubst (upSub (project β (.bv 0))) b) B := by
+  rw [packedTerm, bsubst_comp]
+  apply subst_eqv hb
+  intro i
+  rw [project_bsubst, bsubst_bv]
+  let old := HasType.previous (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+    (β := .nil) (A := packType β) (B := A)
+  let new := HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+    (β := .snoc .nil (packType β)) (A := A)
+  refine Fin.cases (second_beta old new .bv) (fun j => ?_) i
+  change Eqv S.pureEff Ctx.nil _
+    (project β (.let₂ (.pair (.bv 1) (.bv 0)) (.bv 1)) j) (lift (project β (.bv 0) j)) _
+  rw [lift, project_rename]
+  exact project_congr β (first_beta old new .bv) j
+
+theorem packedArrow_let1_proof {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a : Tm Empty S.Instr n} {b : Tm Empty S.Instr (n + 1)}
+    (ha : HasType S.Instr Ctx.nil β a A) (hb : HasType S.Instr Ctx.nil (.snoc β A) b B) :
+    packedArrow (S := S) (.let₁ ha hb) =
+      pairArrows (𝟙 (of (packType β))) (packedArrow ha) ≫ packedArrow hb := by
+  let p := packedTyping ha
+  let q := packedTyping hb
+  let x := HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+    (β := .nil) (A := packType β)
+  let pair := HasType.pair x.lift (HasType.newest (A := A))
+  have step := Eqv.ax (pureEff := S.pureEff) (.sequencing (.bindLet _ _ _))
+    (.let₁ (.let₁ p pair) q.underBinder)
+    (.let₁ p (.let₁ pair q.underBinder.underBinder))
+  have beta := Eqv.ax (pureEff := S.pureEff) (.structural (.letBeta (.pair .bv .bv)))
+    (.let₁ pair q.underBinder.underBinder) (q.underBinder.underBinder.instantiate pair)
+  have subst_pair :
+      instantiate (underBinder (underBinder (packedTerm (.snoc β A) b))) (.pair (.bv (Fin.succ 0)) (.bv 0)) =
+        bsubst (fun _ : Fin 1 => .pair (.bv (Fin.succ 0)) (.bv 0)) (packedTerm (.snoc β A) b) := by
+    rw [instantiate, underBinder, underBinder, bsubst_rename, bsubst_rename]
+    exact bsubst_congr (Fin.cases rfl (fun i => i.elim0)) _
+  rw [subst_pair] at beta
+  apply Quotient.sound
+  exact ((Eqv.let₁ (pair_pure_left_eqv x p .bv) (.refl q.underBinder)).trans
+    (step.trans (.let₁ (.refl p) (beta.trans (packed_body_on_pair hb))))).symm
+
+theorem packedArrow_op_proof {n : Nat} {β : BoundCtx S.Ty n}
+    {a : Tm Empty S.Instr n} {f : S.Instr}
+    (h : HasType S.Instr Ctx.nil β a (instrSrc f)) :
+    packedArrow (S := S) (HasType.op (f := f) h) =
+      packedArrow h ≫ mk (S := S) (HasType.op (f := f) HasType.newest) := by
+  let p := packedTyping (S := S) h
+  let q := HasType.op (f := f) p
+  let r := HasType.op (ν := Empty) (f := f)
+    (HasType.newest (Γ := Ctx.nil) (β := .snoc .nil (packType β)))
+  apply Quotient.sound
+  change Eqv S.pureEff Ctx.nil _ (.op f (packedTerm β a))
+    (.let₁ (packedTerm β a) (.op f (.bv 0))) (instrTrg f)
+  have eta := Eqv.ax (.structural (.letEta (pureEff := S.pureEff) _)) (.let₁ q .newest) q
+  have seq := Eqv.ax (.sequencing (.bindOp (pureEff := S.pureEff) _ (.bv 0)))
+    (.let₁ q .newest) (.let₁ p (.let₁ r .newest))
+  exact eta.symm.trans (seq.trans (.let₁ (.refl p)
+    (.ax (.structural (.letEta _)) (.let₁ r .newest) r)))
 
 theorem packedSubst_comp_proof {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
     {σ : Fin n → Tm Empty S.Instr m}
