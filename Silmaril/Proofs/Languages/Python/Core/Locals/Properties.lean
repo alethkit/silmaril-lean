@@ -21,7 +21,7 @@ theorem enter_budget (store : Store slots) (code : Code slots) :
 
 private theorem rhs_answer (step : rhs.Step store next) :
     rhs.eval store = next.bind (Rhs.eval store) := by
-  cases step with
+  induction step with
   | @arithmetic expr next step =>
     have preserves := Silmaril.Languages.Python.Core.Step.result_eq
       (Silmaril.Languages.Python.Core.Step.expr step)
@@ -31,6 +31,16 @@ private theorem rhs_answer (step : rhs.Step store next) :
   | load slot value loaded =>
     simp [Rhs.eval, Rhs.load, loaded, Except.bind, Silmaril.Languages.Python.Core.Expr.eval, Except.mapError]
   | unbound slot loaded => simp [Rhs.eval, Rhs.load, loaded, Except.bind]
+  | @left op left right next step ih =>
+    cases next <;> simp [Rhs.eval, Except.map, Except.bind, ih]
+  | @right op left right next step ih =>
+    cases next <;>
+      simp [Rhs.eval, Except.map, Except.bind, ih, Silmaril.Languages.Python.Core.Expr.eval, Except.mapError]
+  | @compute op left right result step =>
+    have computed := Silmaril.Languages.Python.Core.BinOp.eval_iff.mpr step
+    cases result <;>
+      simp [Rhs.eval, Rhs.lift, Except.map, Except.bind, Except.mapError,
+        Silmaril.Languages.Python.Core.Expr.eval, computed]
 
 theorem answer_eq (step : Step source label target) : source.answer = target.answer := by
   cases step with
@@ -51,7 +61,7 @@ private theorem rhs_decreases (step : rhs.Step store next) :
     match next with
     | .ok rhs' => rhs'.work < rhs.work
     | .error _ => True := by
-  cases step with
+  induction step with
   | @arithmetic expr next step =>
     have decreases := Silmaril.Languages.Python.Core.Step.decreases
       (Silmaril.Languages.Python.Core.Step.expr step)
@@ -63,6 +73,14 @@ private theorem rhs_decreases (step : rhs.Step store next) :
       omega
   | load => simp [Rhs.work, Silmaril.Languages.Python.Core.Expr.work]
   | unbound => trivial
+  | @left op left right next step ih =>
+    cases next <;> simp [Except.map, Rhs.work] at ih ⊢
+    omega
+  | @right op left right next step ih =>
+    cases next <;> simp [Except.map, Rhs.work] at ih ⊢
+    omega
+  | @compute op left right result step =>
+    cases result <;> simp [Except.map, Rhs.lift, Rhs.work, Silmaril.Languages.Python.Core.Expr.work]
 
 private theorem code_minBudget (code : Code slots) : 2 ≤ code.budget := by
   induction code with

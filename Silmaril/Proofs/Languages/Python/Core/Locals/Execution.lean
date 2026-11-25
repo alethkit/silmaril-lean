@@ -13,30 +13,77 @@ open Silmaril.Languages.Python.Core (Expr)
 variable {slots : Nat} {store : Store slots} {rhs : Rhs slots} {cont : Continuation slots}
   {source target : State slots} {label : Option (Event slots)}
 
-theorem reduce_iff {next : Except (Error slots) (Rhs slots)} :
-    rhs.reduce store = some next ↔ rhs.Step store next := by
-  constructor
-  · intro reduced
-    cases rhs with
-    | arithmetic expr =>
-      obtain ⟨inner, calculation, rfl⟩ := Option.map_eq_some_iff.mp reduced
-      exact .arithmetic (Silmaril.Languages.Python.Core.Context.reduce_iff.mp calculation)
-    | read slot =>
-      cases loaded : store slot with
-      | none =>
-        simp [Rhs.reduce, Rhs.load, loaded, Except.map] at reduced
-        subst next
-        exact .unbound slot loaded
-      | some value =>
-        simp [Rhs.reduce, Rhs.load, loaded, Except.map] at reduced
-        subst next
-        exact .load slot value loaded
-  · intro step
+private theorem literal_iff {value : Int} :
+    rhs.literal? = some value ↔ rhs = .arithmetic (.int value) := by
+  cases rhs with
+  | arithmetic expr => cases expr <;> simp [Rhs.literal?]
+  | read | binary => simp [Rhs.literal?]
+
+private theorem step_not_literal {next : Except (Error slots) (Rhs slots)}
+    (step : rhs.Step store next) : rhs.literal? = none := by
+  cases test : rhs.literal? with
+  | none => rfl
+  | some value =>
+    obtain rfl := literal_iff.mp test
     cases step with
-    | arithmetic step =>
-      simp [Rhs.reduce, Silmaril.Languages.Python.Core.Context.reduce_iff.mpr step]
-    | load slot value loaded => simp [Rhs.reduce, Rhs.load, loaded, Except.map]
-    | unbound slot loaded => simp [Rhs.reduce, Rhs.load, loaded, Except.map]
+    | arithmetic core => cases core
+
+private theorem reduce_sound {next : Except (Error slots) (Rhs slots)}
+    (reduced : rhs.reduce store = some next) : rhs.Step store next := by
+  induction rhs generalizing next with
+  | arithmetic expr =>
+    obtain ⟨inner, calculation, rfl⟩ := Option.map_eq_some_iff.mp reduced
+    exact .arithmetic (Silmaril.Languages.Python.Core.Context.reduce_iff.mp calculation)
+  | read slot =>
+    cases loaded : store slot with
+    | none =>
+      simp [Rhs.reduce, Rhs.load, loaded, Except.map] at reduced
+      subst next
+      exact .unbound slot loaded
+    | some value =>
+      simp [Rhs.reduce, Rhs.load, loaded, Except.map] at reduced
+      subst next
+      exact .load slot value loaded
+  | binary op left right leftIH rightIH =>
+    rw [Rhs.reduce] at reduced
+    cases lhs : left.literal? with
+    | none =>
+      rw [lhs] at reduced
+      obtain ⟨inner, calculation, rfl⟩ := Option.map_eq_some_iff.mp reduced
+      exact .left (leftIH calculation)
+    | some a =>
+      cases rhs : right.literal? with
+      | none =>
+        rw [lhs, rhs] at reduced
+        obtain ⟨inner, calculation, rfl⟩ := Option.map_eq_some_iff.mp reduced
+        obtain rfl := literal_iff.mp lhs
+        exact .right (rightIH calculation)
+      | some b =>
+        rw [lhs, rhs] at reduced
+        have eq := Option.some.inj reduced
+        rw [← eq]
+        obtain rfl := literal_iff.mp lhs
+        obtain rfl := literal_iff.mp rhs
+        exact .compute (Silmaril.Languages.Python.Core.BinOp.eval_iff.mp rfl)
+
+private theorem reduce_complete {next : Except (Error slots) (Rhs slots)}
+    (step : rhs.Step store next) : rhs.reduce store = some next := by
+  induction step with
+  | arithmetic step =>
+    simp [Rhs.reduce, Silmaril.Languages.Python.Core.Context.reduce_iff.mpr step]
+  | load slot value loaded => simp [Rhs.reduce, Rhs.load, loaded, Except.map]
+  | unbound slot loaded => simp [Rhs.reduce, Rhs.load, loaded, Except.map]
+  | left step ih => rw [Rhs.reduce, step_not_literal step, ih]; rfl
+  | @right op left right next step ih =>
+    have literal : (Rhs.arithmetic (.int left) : Rhs slots).literal? = some left := rfl
+    rw [Rhs.reduce, literal, step_not_literal step, ih]
+    rfl
+  | compute step =>
+    simp [Rhs.reduce, Rhs.literal?, Silmaril.Languages.Python.Core.BinOp.eval_iff.mpr step]
+
+theorem reduce_iff {next : Except (Error slots) (Rhs slots)} :
+    rhs.reduce store = some next ↔ rhs.Step store next :=
+  ⟨reduce_sound, reduce_complete⟩
 
 private theorem advance_reduction
     (selected : (rhs.reduce store).map (fun next => (none, State.resume store cont next)) =
@@ -53,6 +100,7 @@ theorem advance_iff : source.advance = some (label, target) ↔ Step source labe
     | evaluating store rhs cont =>
       cases rhs with
       | read slot => exact advance_reduction (rhs := .read slot) selected
+      | binary op left right => exact advance_reduction (rhs := .binary op left right) selected
       | arithmetic expr =>
         cases expr with
         | binary op left right =>
@@ -73,7 +121,7 @@ theorem advance_iff : source.advance = some (label, target) ↔ Step source labe
     cases step with
     | @expression store rhs cont next reduced =>
       cases rhs with
-      | read => simp [State.advance, reduce_iff.mpr reduced]
+      | read | binary => simp [State.advance, reduce_iff.mpr reduced]
       | arithmetic expr =>
         cases expr with
         | binary => simp [State.advance, reduce_iff.mpr reduced]
@@ -105,7 +153,7 @@ theorem terminal (slots : Nat) : (ordinary slots).TerminalDiscipline := by
 
 private theorem rhs_progress (store : Store slots) (rhs : Rhs slots) :
     (∃ value, rhs = .arithmetic (.int value)) ∨ ∃ next, rhs.Step store next := by
-  cases rhs with
+  induction rhs with
   | read slot =>
     apply Or.inr
     cases loaded : store slot with
@@ -122,6 +170,13 @@ private theorem rhs_progress (store : Store slots) (rhs : Rhs slots) :
         Silmaril.Languages.Python.Core.Context.reduce_iff.mp (by
           simp [Silmaril.Languages.Python.Core.Context.reduce, selected])
       exact Or.inr ⟨_, .arithmetic step⟩
+  | binary op left right leftIH rightIH =>
+    apply Or.inr
+    rcases leftIH with ⟨a, rfl⟩ | ⟨next, step⟩
+    · rcases rightIH with ⟨b, rfl⟩ | ⟨next, step⟩
+      · exact ⟨_, .compute (Silmaril.Languages.Python.Core.BinOp.eval_iff.mp rfl)⟩
+      · exact ⟨_, .right step⟩
+    · exact ⟨_, .left step⟩
 
 theorem progress (state : State slots) :
     (∃ label target, Step state label target) ∨ ∃ result, Observes state (.returned result) := by

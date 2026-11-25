@@ -27,10 +27,11 @@ inductive Error (slots : Nat) where
 
 abbrev Result (slots : Nat) := Except (Error slots) Int
 
-/-- This slice admits a closed arithmetic expression or a direct local read. -/
+/-- An operand may be a closed arithmetic expression, a local read, or a binary expression. -/
 inductive Rhs (slots : Nat) where
   | arithmetic (expr : Expr)
   | read (slot : Fin slots)
+  | binary (op : BinOp) (left right : Rhs slots)
   deriving DecidableEq, Repr
 
 def Rhs.lift (next : Except Exception Expr) : Except (Error slots) (Rhs slots) :=
@@ -51,9 +52,30 @@ inductive Rhs.Step (store : Store slots) : Rhs slots → Except (Error slots) (R
   | unbound (slot : Fin slots) :
       store slot = none → Step store (.read slot) (.error (.unboundLocal slot))
 
+  | left {op : BinOp} {left right : Rhs slots} {next : Except (Error slots) (Rhs slots)} :
+      Step store left next → Step store (.binary op left right) (next.map fun rhs => .binary op rhs right)
+  | right {op : BinOp} {left : Int} {right : Rhs slots} {next : Except (Error slots) (Rhs slots)} :
+      Step store right next →
+        Step store (.binary op (.arithmetic (.int left)) right)
+          (next.map (Rhs.binary op (.arithmetic (.int left))))
+  | compute {op : BinOp} {left right : Int} {result : Completion} :
+      op.Eval left right result →
+        Step store (.binary op (.arithmetic (.int left)) (.arithmetic (.int right))) (lift (result.map .int))
+
+def Rhs.literal? : Rhs slots → Option Int
+  | .arithmetic (.int value) => some value
+  | _ => none
+
 def Rhs.reduce (store : Store slots) : Rhs slots → Option (Except (Error slots) (Rhs slots))
   | .arithmetic expr => (Context.reduce expr).map lift
   | .read slot => some ((load store slot).map fun value => .arithmetic (.int value))
+  | .binary op left right =>
+    match left.literal? with
+    | none => (reduce store left).map (·.map fun rhs => .binary op rhs right)
+    | some a =>
+      match right.literal? with
+      | none => (reduce store right).map (·.map (Rhs.binary op (.arithmetic (.int a))))
+      | some b => some (lift ((op.eval a b).map .int))
 
 /-- A lowered function body is a sequence of assignments followed by a return. -/
 inductive Code (slots : Nat) where
@@ -130,6 +152,7 @@ def State.pick (state : State slots) : Decision (State slots) (Result slots) :=
 def Rhs.work : Rhs slots → Nat
   | .arithmetic expr => expr.work
   | .read _ => 1
+  | .binary _ left right => left.work + right.work + 1
 
 def Code.budget : Code slots → Nat
   | .ret rhs => rhs.work + 2
@@ -152,6 +175,8 @@ structure Answer (slots : Nat) where
 def Rhs.eval (store : Store slots) : Rhs slots → Result slots
   | .arithmetic expr => expr.eval.mapError .arithmetic
   | .read slot => load store slot
+  | .binary op left right =>
+    (left.eval store).bind fun a => (right.eval store).bind fun b => (op.eval a b).mapError .arithmetic
 
 def Code.eval (store : Store slots) : Code slots → Answer slots
   | .ret rhs => ⟨store, rhs.eval store⟩

@@ -5,8 +5,9 @@ assignment and return. It advances the statement and frame boundaries in
 the [accepted P2/P3 plan](python-sos-acceptance.md). A compiler supplies a
 `Code slots` body with `Fin slots` operands. The executable entry starts
 each allocated slot unbound. The frame evaluates a closed arithmetic
-right-hand side through the existing context selector, or loads a local
-slot. A load of an unbound slot raises `UnboundLocalError`. A failed
+right-hand side through the existing context selector or loads a local
+slot. Binary right-hand sides can also combine local reads with arithmetic.
+The left operand runs first and an operand error exits the pending calculation. A load of an unbound slot raises `UnboundLocalError`. A failed
 right-hand side leaves every binding intact, including a previous value
 of the assignment target. Successful writes affect only the target slot.
 [Definitions](../../Silmaril/Languages/Python/Core/Locals/Defs.lean)
@@ -26,8 +27,8 @@ stable slot and emit `Code slots` for this straight-line frame. The closed-retur
 compatibility theorem matches the existing Core observation after tagging
 its exception. The Python/Starlark agreement remains stated for its original
 Core profile.
-Local references as operands *within* arithmetic, globals, calls, handlers,
-multiple frames and host operations require further coverage.
+Globals, calls, handlers, multiple frames and host operations require
+further coverage.
 
 The public behavior is specified by the Python 3.12.13 Language Reference,
 Execution model §4.2.2 and Simple statements §§7.2 and 7.6. The HTML SHA-256
@@ -39,8 +40,10 @@ Köhl's thesis §4.4. [Execution model](https://docs.python.org/release/3.12.13/
 · [Thesis](https://arxiv.org/pdf/2109.03139v1)
 
 The independently authored fixtures compare normal return after copying
-and rebinding a local, read before write, and failed reassignment. The
-CPython projection compares the returned integer or exception class.
+and rebinding a local, read before write, failed reassignment and nested
+arithmetic on local operands. Two opposing operand orders distinguish
+an unbound read from division by zero. The CPython projection compares
+the returned integer or exception class.
 Internal write labels and the retained store are checked in Lean.
 The tested CPython 3.12.13 distribution was the public Linux x86-64
 python-build-standalone 20260807 release, asset SHA-256

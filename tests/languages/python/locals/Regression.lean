@@ -27,6 +27,16 @@ private def failedReassignment : Code 2 :=
   .assign x (.arithmetic (.int 5))
     (.assign y (.arithmetic (.int 8)) (.assign x zero (.ret (.read y))))
 
+private def localOperands : Code 2 :=
+  .assign x (.arithmetic (.int (-3))) (.assign y (.arithmetic (.int 7))
+    (.ret (.binary .add (.binary .floorDiv (.read y) (.read x)) (.read y))))
+
+private def readBeforeDivision : Code 2 :=
+  .assign x (.binary .add (.read x) zero) (.ret (.read x))
+
+private def divisionBeforeRead : Code 2 :=
+  .assign x (.binary .add zero (.read x)) (.ret (.read x))
+
 private def simple : Code 2 := .assign x sum (.ret (.read x))
 
 example : (labelled 2).Finishes (State.enter empty simple) [.write x 7, .exit (.ok 7)]
@@ -51,6 +61,15 @@ example :
      | _ => False) :=
   ⟨rfl, rfl⟩
 
+example : State.advance (State.enter empty readBeforeDivision) =
+    some (none, .raising empty (.unboundLocal x)) := rfl
+
+example : State.advance (State.enter empty divisionBeforeRead) =
+    some (none, .raising empty (.arithmetic .zeroDivisionError)) := rfl
+
+example : (model 2).May localOperands (.returned (.ok 4)) :=
+  model_may_iff.mpr rfl
+
 example : (model 2).May copyThenOverwrite (.returned (.ok (-3))) :=
   model_may_iff.mpr rfl
 
@@ -63,7 +82,9 @@ private def outcome (code : Code 2) : IO String :=
 
 public def main : IO Unit := do
   for (name, code) in [("copy_then_overwrite", copyThenOverwrite),
-      ("self_read_before_write", selfReadBeforeWrite), ("failed_reassignment", failedReassignment)] do
+      ("self_read_before_write", selfReadBeforeWrite), ("failed_reassignment", failedReassignment),
+      ("local_operands", localOperands), ("read_before_division", readBeforeDivision),
+      ("division_before_read", divisionBeforeRead)] do
     IO.println s!"parity\t{name}\t{← outcome code}"
 
 #print axioms Rhs.reduce_iff

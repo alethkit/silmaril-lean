@@ -22,10 +22,33 @@ def failed_reassignment():
     return y
 
 
+def local_operands():
+    x = -3
+    y = 7
+    return y // x + y
+
+
+def read_before_division():
+    x = x + (1 // 0)
+    return x
+
+
+def division_before_read():
+    x = (1 // 0) + x
+    return x
+
+
 def main():
     if sys.implementation.name != "cpython" or sys.version_info[:3] != (3, 12, 13):
         raise SystemExit("Expected CPython 3.12.13")
-    for body in (copy_then_overwrite, self_read_before_write, failed_reassignment):
+    for body in (
+        copy_then_overwrite,
+        self_read_before_write,
+        failed_reassignment,
+        local_operands,
+        read_before_division,
+        division_before_read,
+    ):
         try:
             outcome = body()
         except (UnboundLocalError, ZeroDivisionError) as error:
