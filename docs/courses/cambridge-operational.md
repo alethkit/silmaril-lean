@@ -65,11 +65,18 @@ The executable interfaces have different proved contracts:
 | Interface | What it computes | Current guarantee |
 | --- | --- | --- |
 | `L1.Exercises.searchConfig` | One step with a printable derivation tree | Each returned tree proves its resulting `L1.Step` via `StepTree.toStep` |
-| `L2.runFuel` | Substitution-based CBV/CBN reduction, bounded by a number of transitions | Concrete exercise programs have proved results; no general reducer-to-`Step` correctness theorem yet |
+| `L2.runFuel` | Substitution-based CBV/CBN reduction, bounded by a number of transitions | CBV agrees with `L2.Step` on all configurations. CBN has checked exercise results |
 | `L2.evalClosureFuel` | CBV evaluation with lexical and recursive closures, bounded by evaluation depth | Proven agreement with the substitution interpreter on lexical-scope, recursion and store-effect examples; no general simulation theorem yet |
 
-`runFuel` returns `some c` when its reducer has no next step, which can mean a
-value or a stuck configuration on untyped input. `none` records insufficient
+`L2.Config.reduce_value_iff_step` identifies each successful CBV reducer call
+with a `Step`. `L2.Config.reduce_value_eq_none_iff_terminal` identifies failure
+to step with relational terminality. `L2.runFuel_value_returns_terminal`
+certifies a finite trace to any returned configuration, including a stuck
+configuration on untyped input. Under the safety assumptions above,
+`L2.runFuel_value_returns_typed_value` gives a value of the original type and
+preserves closedness and store coverage.
+
+`runFuel` returns `some c` when its reducer has no next step. `none` records insufficient
 transition fuel. A particular fuel-exhaustion equation is not an infinite-run
 proof. The closure interpreter's `none` also covers invalid operations or
 missing variables; `evalClosureGround` additionally rejects function results.
