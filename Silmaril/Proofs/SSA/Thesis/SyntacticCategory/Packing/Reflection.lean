@@ -152,4 +152,40 @@ theorem packedHomEquiv_mk_proof {n : Nat} {β : BoundCtx S.Ty n}
     {t : Tm Empty S.Instr n} {A : S.Ty} (h : HasType S.Instr Ctx.nil β t A) :
     packedHomEquiv_proof β A (mk h) = packedArrow h := by rfl
 
+private theorem instantiate_underBinder_one {t a : Tm Empty S.Instr 1} :
+    instantiate (underBinder t) a = bsubst (fun _ : Fin 1 => a) t := by
+  rw [instantiate, underBinder, bsubst_rename]
+  apply bsubst_congr
+  exact Fin.cases rfl (fun i => i.elim0)
+
+theorem packedSubst_comp_proof {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
+    {σ : Fin n → Tm Empty S.Instr m}
+    (s : PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff) β γ σ)
+    {t : Tm Empty S.Instr n} {A : S.Ty} (h : HasType S.Instr Ctx.nil β t A) :
+    packedSubst s ≫ packedArrow h = packedArrow (h.bsubst s.typed) := by
+  let p := packedTerm γ (bsubst σ (packTerm β))
+  let hp := packedTyping ((packTermTyping β).bsubst s.typed)
+  have pp : Pure S.pureEff p := ((packTermPure β).bsubst s.pure).bsubst (packingSubst γ).pure
+  have ht := (packedTyping h).underBinder (X := packType γ)
+  apply Quotient.sound
+  refine (Eqv.ax (.structural (.letBeta pp)) (.let₁ hp ht) (ht.instantiate hp)).trans ?_
+  rw [instantiate_underBinder_one]
+  change Eqv S.pureEff Ctx.nil (.snoc .nil (packType γ))
+    (bsubst (fun _ : Fin 1 => p) (bsubst (project β (.bv 0)) t))
+    (bsubst (project γ (.bv 0)) (bsubst σ t)) A
+  rw [bsubst_comp, bsubst_comp]
+  apply subst_eqv h
+  intro i
+  rw [project_bsubst, bsubst_bv]
+  have e := ((project_packTerm β i).bsubst s).bsubst (packingSubst γ)
+  rw [project_bsubst, project_bsubst, bsubst_bv] at e
+  exact e
+
+theorem packedSubst_isPureMor_proof {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
+    {σ : Fin n → Tm Empty S.Instr m}
+    (s : PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff) β γ σ) :
+    IsPureMor (packedSubst s) :=
+  ⟨_, packedTyping ((packTermTyping β).bsubst s.typed),
+    ((packTermPure β).bsubst s.pure).bsubst (packingSubst γ).pure, rfl⟩
+
 end Silmaril.Thesis.LambdaIter.Syn.SynCat

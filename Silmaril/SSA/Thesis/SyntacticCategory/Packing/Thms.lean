@@ -51,4 +51,20 @@ theorem packedArrow_eq_iff {n : Nat} {β : BoundCtx S.Ty n} {A : S.Ty}
   rw [← packedHomEquiv_mk h, ← packedHomEquiv_mk k, (packedHomEquiv β A).injective.eq_iff]
   exact ⟨Syn.eqv_of_mk_eq, Syn.mk_eq_mk h k⟩
 
+/-- Substituting pure terms in a typed term is precomposition by their
+packed context arrow. -/
+theorem packedSubst_comp {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
+    {σ : Fin n → Tm Empty S.Instr m}
+    (s : PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff) β γ σ)
+    {t : Tm Empty S.Instr n} {A : S.Ty} (h : HasType S.Instr Ctx.nil β t A) :
+    packedSubst s ≫ packedArrow h = packedArrow (h.bsubst s.typed) :=
+  packedSubst_comp_proof s h
+
+/-- The packed context arrow of a pure substitution is a syntactic value arrow. -/
+theorem packedSubst_isPureMor {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
+    {σ : Fin n → Tm Empty S.Instr m}
+    (s : PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff) β γ σ) :
+    IsPureMor (packedSubst s) :=
+  packedSubst_isPureMor_proof s
+
 end Silmaril.Thesis.LambdaIter.Syn.SynCat
