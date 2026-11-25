@@ -83,8 +83,8 @@ external Tripos revision questions remain separate.
 | Exercise | Coverage |
 | --- | --- |
 | **28** L3 preservation | **Checked.** `L3.preservation` and `preservation_steps`. [L3 metatheory][l3meta] |
-| **29** Labelled variants | **Missing design exercise.** The collected language provides binary sums and labelled records. [Notes p. 82][notes5ex] |
-| **30** ML-style exceptions | **Missing design exercise.** No module checks raise/handle typing and reduction or nested handler examples. [Notes p. 82][notes5ex] |
+| **29** Labelled variants | **Checked design.** Nonempty variants have distinct labels and an exhaustive match with a binder for each payload. Lean checks typing and evaluation of the elaboration to L3 sums and strict let. [Variant design](../../Silmaril/Courses/Cambridge/L3/Exercises/LabelledVariants.lean) |
+| **30** ML-style exceptions | **Checked design.** The exercise-local CBV language has fixed payload-free tags and embeds closed L3 computations. Lean checks handler rules and nested handlers across recursion, including a store write before a raise. [Exception design](../../Silmaril/Courses/Cambridge/L3/Exercises/Exceptions.lean) · [Checked traces](../../Silmaril/Courses/Cambridge/L3/Exercises/ExceptionExamples.lean) |
 | **31** Extend the implementation to all of L3 | **Checked Lean implementation.** `L3.infer_iff_hasType` and `checkStore_eq_true_iff` give exact expression and store checking. `L3.evaluate` connects the existing surface-byte parser and supplied store to fuel-bounded reduction, with distinct parse, store-type, expression-type and fuel outcomes. `evaluate_ne_stuck` excludes stuckness for accepted inputs. `evaluate_returned` proves fuel-bounded reachability by the selected reducer and preserves the result type and final-store typing. `evaluate_of_selectedSteps` recovers returns from selected value-ending traces within budget. Allocation follows the reducer policy and the driver makes no termination claim. [Evaluation guide][l3eval] · [Merged implementation][exercise31] |
 
 ### Subtyping and objects
