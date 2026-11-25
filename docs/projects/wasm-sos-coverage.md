@@ -72,6 +72,22 @@ every declared call target in the body. See the public reduction rules for
 [Wasm 1.0](../../specs/spectec/src/specification/wasm-1.0/8-reduction.spectec#L135)
 and [Wasm 3.0](../../specs/spectec/src/specification/wasm-3.0/4.3-execution.instructions.spectec#L230).
 
+The [structured label context](../../Silmaril/Wasm/Institution/Operational/Blocks/Context/Thms.lean)
+supplies exact contextual step inversion for a block with saved operands and
+pending instructions. An entered ranked callee can step inside the block while
+retaining that context. Normal fallthrough and an already-reduced trap leave the
+label and deliver their respective outcomes. An independent SOS crosses one
+label per explicit-return step and gives exact finite endpoint readback in Core,
+Lime1, and V1. The return guard checks the enclosing function's result types.
+Each label preserves the return operands in order and discards its remaining
+body. The existing frame exit selects the function's result suffix. Fixtures
+enter two scalar source blocks, traverse both labels, and return through the
+function frame with the ordered results.
+
+The ranked source checker still needs recursive block bodies with separate
+fallthrough and function return types. The proof will also need to close under
+resumption and partial trap discards in each entered block.
+
 The graph fragment excludes return through additional structured labels,
 recursion, indirect and host calls, unrestricted control flow, store mutation,
 and whole-module validation.
