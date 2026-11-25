@@ -5,7 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Catego
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Fixture
 
-/-! # Instruction-free uniformity fails in the default Paper presentation
+/-! # Separating equations in the default Paper presentation
 -/
 
 @[expose] public section
@@ -38,5 +38,10 @@ theorem separation :
     Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.default_uniformity_fails,
     Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.categorical_uniformity_fails,
     Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.opt_in_equality⟩
+
+/-- Guarded unit η fails in default Paper, even with no instructions. -/
+theorem unit_eta_fails :
+    ¬ Paper.Eqv [(Ty.unit : Ty Empty)] (.br 0 (.unit : Tm Empty)) (.br 0 (.var 0)) [Ty.unit] :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.unit_eta_fails
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction
