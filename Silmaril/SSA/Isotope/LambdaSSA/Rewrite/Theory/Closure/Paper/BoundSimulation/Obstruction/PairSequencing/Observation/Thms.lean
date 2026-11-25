@@ -29,4 +29,13 @@ theorem unit_branch_observations {t u : Tm Empty} {A : Ty Empty}
       t.subst (fun _ => .inl .unit) = u.subst (fun _ => .inl .unit) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer.unit_branch_observations ht hu h
 
+/-- A closed constructor input gives a tag observation at any instruction-free payload type. -/
+theorem branch_observation_of_closed_input {t u w : Tm Empty} {A P : Ty Empty}
+    (ht : Tm.BranchValue [P] t A) (hu : Tm.BranchValue [P] u A)
+    (hw : Tm.BranchValue [] w P)
+    (h : Paper.WithConstructorSequencing.Eqv [P] (.br 0 t) (.br 0 u) [A]) :
+    t.subst (fun _ => w) = u.subst (fun _ => w) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer.branch_observation_of_closed_input
+    ht hu hw h
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction.PairSequencing
