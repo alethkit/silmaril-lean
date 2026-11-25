@@ -36,6 +36,18 @@ instance premonoidal {G : EffectfulPolygraph.{u,v}} : PremonoidalCategory (Compu
 
 variable {G : EffectfulPolygraph.{u,v}}
 
+/-- The empty value word acts by the left unit law. -/
+theorem whiskerLeft_nil {A B : Computations G} (f : A ⟶ B) :
+    (whiskerLeft (Computations.mk [])).map f = f :=
+  (Proofs.RuntimeCoherence.left_unit f).eq
+
+/-- For a singleton prefix, the associator's word transports are
+definitionally identities. -/
+theorem whiskerLeft_cons (x : G.Obj) (w : List G.Obj) {A B : Computations G} (f : A ⟶ B) :
+    (whiskerLeft (Computations.mk (x :: w))).map f =
+      (whiskerLeft (Computations.mk [x])).map ((whiskerLeft (Computations.mk w)).map f) :=
+  (Proofs.RuntimeCoherence.left_left (Computations.mk [x]) (Computations.mk w) f).eq
+
 /-- Right whiskering only changes the grouping of the cap word. -/
 theorem splitRight_eqToIso (A B : Computations G)
     (h : (A.concat B).boundary = A.boundary ⊗ valueWord B.word) :

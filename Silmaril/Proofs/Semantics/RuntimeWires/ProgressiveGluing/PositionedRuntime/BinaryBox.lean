@@ -201,4 +201,15 @@ theorem box_noThrough (i : Fin (box e inTypes outTypes).wires)
   fin_cases i <;> norm_num [Diagram.crosses, Diagram.lower, Diagram.upper, gate, gateStart,
     gateFinish, endpointHeight, Set.mem_Ioo]
 
+theorem box_cells : (box e inTypes outTypes).readSheet.cells = [[.inr e]] := by
+  let p := box e inTypes outTypes
+  have h := p.readSheetAt_generator p.drawing.layerSweep e (0 : Fin 1)
+    (fun j => Subsingleton.elim (α := Fin 1) j 0) rfl (fun i => box_noThrough e inTypes outTypes i (0 : Fin 1))
+    (inTypes.trans (binaryCap_types S a b).symm) (outTypes.trans (binaryCap_types S c d).symm)
+  change (p.readSheetAt p.drawing.layerSweep).cells = _
+  rw [h]
+  simp only [Sliced.Sheet.generator, Sliced.Sheet.cells_reindex, Sliced.Sheet.cells_cons,
+    Sliced.Sheet.cells_empty, Sliced.Row.cells_box,
+    show (Sliced.Row.empty (S := S)).cells = [] from Sliced.Row.cells_straight []]
+
 end Silmaril.RuntimeWires.Proofs.PositionedRuntime.BinaryBox
