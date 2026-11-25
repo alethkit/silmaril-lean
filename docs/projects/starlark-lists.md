@@ -14,8 +14,8 @@ denotation and operational rules. Resolved expressions cover three families.
 - Scalar values `None`, Booleans and exact integers, with resolved binding reads.
 - List, tuple and dictionary displays, with arbitrary nesting. The compiler-facing
   dictionary entry spine builds from earlier entries to later entries.
-- Subscript reads from lists, tuples and dictionaries, list and tuple slice
-  reads, and the one-argument list method `append`.
+- Subscript reads from lists, tuples and dictionaries, slice reads from lists,
+  tuples and valid UTF-8 strings, and the one-argument list method `append`.
 
 The statement forms are name and subscript assignment, evaluation for effects,
 `pass`, and sequencing. `Lists.Iteration.Thms` adds function-body conditionals,
@@ -152,7 +152,7 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
   into collection expressions still open.
   [Lexical calls](starlark-functions.md) · [Functions][functions]
 - **Collection operations.** General equality and ordering, `hash`,
-  concatenation, slicing beyond lists and tuples, comprehensions, other methods, augmented forms beyond
+  concatenation, slicing of bytes and ranges, comprehensions, other methods, augmented forms beyond
   [integer subscript `+=`](starlark-functions.md#integer-augmented-subscript-assignment),
   destructuring, and other iterable types remain open. The supported
   collection truth tests apply in the resolved suite conditional.

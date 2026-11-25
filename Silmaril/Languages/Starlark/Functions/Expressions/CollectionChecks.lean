@@ -208,7 +208,7 @@ private def onlyEventsList (state : Lists.State) : Bool :=
     slice noneValue (intValue (-1)) (intValue (-1)) = some [] ∧
     slice (intValue (-100)) noneValue (intValue (-1)) = some [] ∧
     slice (intValue (-100000000000)) (intValue 100000000000) (intValue 100000000000) = some (integers [0]) ∧
-    (Lists.sliceElements [] noneValue noneValue (intValue (-1))).toOption = some [])
+    (Lists.sliceElements ([] : List Lists.Value) noneValue noneValue (intValue (-1))).toOption = some [])
 
 -- Empty slices still allocate mutable list cells, even when read from a frozen source.
 #guard
@@ -276,5 +276,63 @@ private def onlyEventsList (state : Lists.State) : Bool :=
         published.exports.lookup "tupleKey" = some (.scalar (.int 9)))
     | _, _, _ => false
   | _ => false
+
+-- Slicing selects UTF-8 bytes, then checks that the selected byte sequence is valid.
+#guard
+  let check := fun expression expected => match execute expression with
+    | .ok (.string text) _ => text == expected
+    | _ => false
+  check (.slice (string "aé🙂z") (integer 1) (integer (-1)) omitted) "é🙂" &&
+    check (.slice (string "aéz") omitted omitted (integer (-3))) "za" &&
+    check (.slice (string "banana") (integer 4) omitted (integer (-2))) "nnb" &&
+    check (.slice (string "é") (integer 1) (integer 1) omitted) ""
+
+#guard
+  let slice := Expr.slice (string "é")
+  let invalid := fun expression => match execute expression with
+    | .error .invalidSliceUTF8 _ => true
+    | _ => false
+  invalid (slice (integer 0) (integer 1) omitted) &&
+    invalid (slice omitted omitted (integer (-1)))
+
+-- All operand effects survive UTF-8 validation failure. Lowering skips the destination write.
+#guard
+  let expression := Expr.slice (note 1 (string "aé🙂z")) (note 2 (integer 1))
+    (note 3 (integer 2)) (note 4 omitted)
+  let target : Binding := ⟨.global, "out"⟩
+  match execute expression, run program (.seq setup (lower expression target 5).code) root with
+  | .error .invalidSliceUTF8 direct, .error .invalidSliceUTF8 lowered =>
+    observed direct [1, 2, 3, 4] && observed lowered [1, 2, 3, 4] &&
+      decide (lowered.heap = direct.heap) &&
+      match lowered.bindingValue target with
+      | .error (.uninitialized binding) => binding == target
+      | _ => false
+  | _, _ => false
+
+-- A later evaluation or bound validation error takes precedence over decoding.
+#guard
+  let receiver := note 1 (string "é")
+  let start := note 2 (integer 0)
+  let stop := note 3 (integer 1)
+  match execute (.slice receiver start stop (length (note 4 (integer 9)))),
+      execute (.slice receiver start stop (note 4 (integer 0))) with
+  | .error (.builtinType .len (.scalar (.int 9))) first, .error .zeroSliceStride second =>
+    observed first [1, 2, 3, 4] && observed second [1, 2, 3, 4]
+  | _, _ => false
+
+-- A string result uses no heap cell, and the existing len observes the selected byte count.
+#guard
+  let initial : Lists.State := { iterators := [0], heap := #[⟨.list [], false⟩] }
+  let commands : List Modules.Resolve.Command := [
+    .define "pick" { positional := [⟨"value", none⟩] } (.ret (some starlark%[value])),
+    .define "take" {} (.ret (some starlark%[pick("aé🙂z")[pick(1):pick(-1)]])),
+    .assign "out" starlark%[take()], .assign "size" starlark%[len(out)]]
+  match Lists.readSlice (.string "aé🙂z") (.scalar (.int 1)) (.scalar (.int (-1))) (.scalar .none) initial,
+      Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.string "é🙂") next, .ok (.ok published _) =>
+    decide (next.heap = initial.heap ∧ next.iterators = initial.iterators ∧
+      published.exports.lookup "out" = some (.string "é🙂") ∧
+      published.exports.lookup "size" = some (.scalar (.int 6)))
+  | _, _ => false
 
 end Silmaril.Languages.Starlark.Functions.Lowering
