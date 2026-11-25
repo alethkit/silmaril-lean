@@ -96,4 +96,39 @@ private def callBody (body : Statement) : List Command :=
     rejected (.forIn "x" starlark%[items()]
       (.define "nested" {} .continueLoop)) .continueOutsideLoop
 
+-- Both pattern spellings collect names in the enclosing function. A closure
+-- captures the later slot, and repeated names receive writes in source order.
+#guard
+  let body : Statement := .seq (.define "read" {} (.ret (some starlark%[y])))
+    (.seq (.forInTarget starlark%[(x, y)] starlark%[[[1, 2], (3, 4), range(5, 7)]] .continueLoop)
+      (.seq (.forInTarget starlark%[[x, x]] starlark%[[(7, 8)]] .breakLoop)
+        (.ret (some starlark%[{(8, 6): True}[(x, read())]]))))
+  match runModule (callBody body) noImports {} with
+  | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.bool true)))
+  | _ => false
+
+-- Even a later write in the flat pattern shadows the global in the operand.
+#guard
+  let body : Statement := .forInTarget starlark%[(x, y)] starlark%[y] .pass
+  match runModule (.assign "y" starlark%[[]] :: callBody body) noImports {} with
+  | .ok (.error (.runtime (.uninitialized name)) _) => name == fileSlot "y"
+  | _ => false
+
+#guard
+  let body : Statement := .seq (.forInTarget starlark%[[]] starlark%[[(), [], range(0)]] .pass)
+    (.forInTarget starlark%[[k, v]] starlark%[[{"z": 1, "a": 2}]]
+      (.ret (some starlark%[{("z", "a"): True}[(k, v)]])))
+  match runModule (callBody body) noImports {} with
+  | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.bool true)))
+  | _ => false
+
+-- Reject target forms outside the flat identifier profile statically,
+-- including when the loop is unreachable or its iterable is empty.
+#guard
+  let reject := fun target => match runModule (callBody
+    (.branch starlark%[False] (.forInTarget target starlark%[[]] .pass) .pass)) noImports {} with
+    | .error .unsupportedLoopTarget => true
+    | _ => false
+  reject starlark%[(x, [y])] && reject starlark%[[x, 1]] && reject starlark%[[x, xs[0]]]
+
 end Silmaril.Languages.Starlark.Modules.Resolve

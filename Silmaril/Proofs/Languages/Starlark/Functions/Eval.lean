@@ -15,7 +15,7 @@ open Silmaril.Languages.Starlark (Binding)
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists
 open Silmaril.Languages.Starlark.Lists.Iteration
-  (Flow Runs Cursor runs_iff_denoteSuite truth acquireIterator enterIterator denoteCursor denoteForIn
+  (Flow Runs Cursor LoopTarget runs_iff_denoteSuite truth acquireIterator enterIterator denoteCursor denoteForIn
     cursor_eq_of_runs cursor_runs_denote)
 
 private theorem branch_apply (program : Program) (available : List DeclarationId)
@@ -56,7 +56,7 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
     rw [branch_apply]
     assumption
 
-private theorem exec_cursor (program : Program) (available : List DeclarationId) (target : Binding)
+private theorem exec_cursor (program : Program) (available : List DeclarationId) (target : LoopTarget)
     (body : Body) (meaning : Meaning Flow)
     (runBody : ∀ s, Exec program available s body (meaning s)) (cursor : Cursor)
     (state : State) :

@@ -29,12 +29,13 @@ private def program : Program := #[
 private def iterable : Lowering.Expr :=
   .callPos (.atom (read "prepare")) [.atom (read "xs")]
 
-private def execute (loop : Body) :=
+private def execute (loop : Body) (owned : List String := []) :=
   let setup := [Body.define (slot "prepare") 0, Body.define (slot "prepareRange") 1,
     set "xs" (list [1, 2]), set "alias" (read "xs"),
     set "seen" (list []), set "x" (int 7)]
   let initial : Lists.State := { heap := #[⟨.list [], false⟩], iterators := [0] }
-  runChecked program (setup.foldr Body.seq loop) initial
+  runChecked program (setup.foldr Body.seq loop)
+    (owned.foldl (fun state name => state.allocateSlot (slot name)) initial)
 
 private def hasList (state : Lists.State) (name : String) (expected : List Int) : Bool :=
   match state.bindingValue (slot name) with
@@ -151,5 +152,38 @@ private def hasInt (state : Lists.State) (name : String) (expected : Int) : Bool
       | .ok _ amended => hasList amended "xs" [1, 2, 99]
       | _ => false
   | _ => false
+
+-- A mismatch preserves the earlier iteration and operand effects, and it
+-- neither overwrites the earlier binder slots nor visits later items.
+#guard
+  let flat := Lists.Iteration.LoopTarget.unpack [slot "x", slot "y"]
+  let atom := fun n => Lowering.Expr.atom (int n)
+  let rows := Lowering.Expr.list [.tuple [atom 1, atom 2], .list [atom 3], .tuple [atom 5, atom 6]]
+  let operand := Lowering.Expr.logical .and iterable rows
+  match execute (.forInExpr flat operand visit) ["x", "y"],
+      execute (Lowering.lowerForIn flat operand visit).code ["x", "y"] with
+  | .ok (.error (.unpackArity 2 1) final), .ok (.error (.unpackArity 2 1) lowered) =>
+    final.iterators == [0] && lowered.iterators == [0] &&
+      hasInt final "x" 1 && hasInt final "y" 2 && hasList final "seen" [1] &&
+      hasList final "xs" [1, 2, 3] && decide (final.heap = lowered.heap) &&
+      -- The outer iterable list is the final allocation, made after the rows.
+      match Lists.appendAt (final.heap.size - 1) (.scalar .none) final with
+      | .ok _ _ => true
+      | _ => false
+  | _, _ => false
+
+-- The exact descriptor count rejects the item before the range is collected.
+#guard
+  let check := fun item expected =>
+    match execute (.forInExpr (.unpack [slot "x", slot "y"]) (.list [item]) visit) ["x", "y"] with
+    | .ok (.error error final) =>
+      error == expected && final.iterators == [0] && hasInt final "x" 7 &&
+        hasList final "seen" [] &&
+        match final.bindingValue (slot "y") with
+        | .error (.uninitialized name) => name == slot "y"
+        | _ => false
+    | _ => false
+  check (range [10^24]) (.unpackArity 2 (10^24)) &&
+    check (.atom (int 9)) (.unpackTarget (.scalar (.int 9)))
 
 end Silmaril.Languages.Starlark.Functions

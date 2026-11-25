@@ -9,7 +9,7 @@ public section
 namespace Silmaril.Languages.Starlark.Functions
 
 open Lists
-open Lists.Iteration (Flow Suite Runs Cursor CursorRuns truth acquireIterator restoreIterators enterIterator)
+open Lists.Iteration (Flow Suite Runs Cursor CursorRuns LoopTarget truth acquireIterator restoreIterators enterIterator)
 
 mutual
 /-- Big-step rules over the available declarations. The same declaration may
@@ -101,23 +101,23 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {yes no : Body} {value : Outcome Lists.Value} {error : Error} :
       ExecExpr program available s test value → Outcome.resume value truth = .error error t →
       Exec program available s (.branchExpr test yes no) (.error error t)
-  | forIn {available : List DeclarationId} {s t : State} {target : Binding} {iterable : Lists.Expr}
+  | forIn {available : List DeclarationId} {s t : State} {target : LoopTarget} {iterable : Lists.Expr}
       {body : Body} {value : Outcome Lists.Value} {guard : Option Address}
       {cursor : Cursor} {out : Outcome Flow} :
       Eval s iterable value → Outcome.resume value acquireIterator = .ok (guard, cursor) t →
       ExecCursor program available target body cursor (enterIterator t guard) out →
       Exec program available s (.forIn target iterable body) (restoreIterators t.iterators out)
-  | forError {available : List DeclarationId} {s t : State} {target : Binding}
+  | forError {available : List DeclarationId} {s t : State} {target : LoopTarget}
       {iterable : Lists.Expr} {body : Body} {value : Outcome Lists.Value} {error : Error} :
       Eval s iterable value → Outcome.resume value acquireIterator = .error error t →
       Exec program available s (.forIn target iterable body) (.error error t)
-  | forInExpr {available : List DeclarationId} {s t : State} {target : Binding}
+  | forInExpr {available : List DeclarationId} {s t : State} {target : LoopTarget}
       {iterable : Lowering.Expr} {body : Body} {value : Outcome Lists.Value} {guard : Option Address}
       {cursor : Cursor} {out : Outcome Flow} :
       ExecExpr program available s iterable value → Outcome.resume value acquireIterator = .ok (guard, cursor) t →
       ExecCursor program available target body cursor (enterIterator t guard) out →
       Exec program available s (.forInExpr target iterable body) (restoreIterators t.iterators out)
-  | forInExprError {available : List DeclarationId} {s t : State} {target : Binding}
+  | forInExprError {available : List DeclarationId} {s t : State} {target : LoopTarget}
       {iterable : Lowering.Expr} {body : Body} {value : Outcome Lists.Value} {error : Error} :
       ExecExpr program available s iterable value → Outcome.resume value acquireIterator = .error error t →
       Exec program available s (.forInExpr target iterable body) (.error error t)
@@ -153,8 +153,8 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
 
 /-- Cursor bodies execute under the caller's available declaration set. -/
 inductive ExecCursor (program : Program) :
-    List DeclarationId → Binding → Body → Cursor → State → Outcome Flow → Prop where
-  | runs {available : List DeclarationId} {target : Binding} {body : Body} {cursor : Cursor}
+    List DeclarationId → LoopTarget → Body → Cursor → State → Outcome Flow → Prop where
+  | runs {available : List DeclarationId} {target : LoopTarget} {body : Body} {cursor : Cursor}
       {s : State} {out : Outcome Flow} {bodyRuns : State → Outcome Flow → Prop} :
       (∀ state result, bodyRuns state result → Exec program available state body result) →
       CursorRuns bodyRuns target cursor s out → ExecCursor program available target body cursor s out

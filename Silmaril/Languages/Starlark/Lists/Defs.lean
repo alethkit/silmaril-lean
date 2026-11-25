@@ -157,6 +157,8 @@ inductive Error where
   | frozen (address : Address)
   | activeIteration (address : Address)
   | notIterable
+  | unpackTarget (value : Value)
+  | unpackArity (expected supplied : Nat)
   | wrongCellKind (address : Address)
   | unhashableKey (value : Value)
   | missingKey (key : Value)

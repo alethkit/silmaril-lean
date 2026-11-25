@@ -32,6 +32,7 @@ inductive Statement where
   | seq (first rest : Statement)
   | branch (test : Lowering.Resolve.SourceExpr) (yes no : Statement)
   | forIn (target : String) (iterable : Lowering.Resolve.SourceExpr) (body : Statement)
+  | forInTarget (target iterable : Lowering.Resolve.SourceExpr) (body : Statement)
   | breakLoop
   | continueLoop
   | define (name : String) (signature : SourceSignature) (body : Statement)
@@ -49,6 +50,7 @@ inductive Error where
   | expression (error : Functions.Lowering.Resolve.Error)
   | validation (error : Modules.Error)
   | emptyLoad (label : String)
+  | unsupportedLoopTarget
   deriving DecidableEq, Repr
 
 structure ResolvedModule where
@@ -65,11 +67,20 @@ def fileNames (commands : List Command) : List String :=
     | .load _ imports => imports.map Modules.Import.localName
     | _ => []
 
-private def Statement.localNames : Statement → List String
-  | .assign name _ | .define name .. => [name]
-  | .seq first rest | .branch _ first rest => first.localNames ++ rest.localNames
-  | .forIn target _ body => target :: body.localNames
-  | .pass | .setIndex .. | .addIndex .. | .eval _ | .ret _ | .breakLoop | .continueLoop => []
+/-- The flat tuple and list spellings share the same resolved target.
+The normalized input supplies valid identifier spellings. -/
+private def patternNames : Lowering.Resolve.SourceExpr → Except Error (List String)
+  | .list elements | .tuple elements => elements.mapM fun
+    | .scalar (.read name) => pure name
+    | _ => throw .unsupportedLoopTarget
+  | _ => throw .unsupportedLoopTarget
+
+private def Statement.localNames : Statement → Except Error (List String)
+  | .assign name _ | .define name .. => pure [name]
+  | .seq first rest | .branch _ first rest => return (← first.localNames) ++ (← rest.localNames)
+  | .forIn target _ body => return target :: (← body.localNames)
+  | .forInTarget target _ body => return (← patternNames target) ++ (← body.localNames)
+  | .pass | .setIndex .. | .addIndex .. | .eval _ | .ret _ | .breakLoop | .continueLoop => pure []
 
 private abbrev Build := StateT Program (Except Error)
 
@@ -161,11 +172,17 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let (iterable, reads) ← readExpr context iterable
     let body ← compileBody context body
     return ⟨.forInExpr (fileSlot target) iterable body.code, reads ++ body.reads⟩
+  | .forInTarget target iterable body => do
+    let names ← monadLift (patternNames target)
+    let (iterable, reads) ← readExpr context iterable
+    let body ← compileBody context body
+    return ⟨.forInExpr (.unpack (names.map fileSlot)) iterable body.code, reads ++ body.reads⟩
   | .breakLoop => pure ⟨.breakLoop, []⟩
   | .continueLoop => pure ⟨.continueLoop, []⟩
   | .define name signature body => do
+    let locals ← monadLift body.localNames
     let (id, reads) ←
-      compileDefinition context signature body.localNames (fun inner => compileBody inner body)
+      compileDefinition context signature locals (fun inner => compileBody inner body)
     return ⟨.define (fileSlot name) id, reads⟩
 termination_by structural statement => statement
 
@@ -183,8 +200,9 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     let (value, _) ← readExpr context value
     return .exec (.evalExpr value)
   | .define name signature body => do
+    let locals ← monadLift body.localNames
     let (id, _) ←
-      compileDefinition context signature body.localNames (fun inner => compileBody inner body)
+      compileDefinition context signature locals (fun inner => compileBody inner body)
     return .exec (.define name id)
   | .load label imports =>
     if imports.isEmpty then throw (.emptyLoad label) else pure (.load label imports)

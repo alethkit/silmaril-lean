@@ -6,12 +6,19 @@ public import Silmaril.Languages.Starlark.Lists.Denotation.Defs
 
 namespace Silmaril.Languages.Starlark.Lists.Iteration
 
+/-- A name or a flat tuple/list pattern made up of lexical bindings. -/
+inductive LoopTarget where
+  | name (binding : Binding)
+  | unpack (bindings : List Binding)
+
+instance : Coe Binding LoopTarget := ⟨LoopTarget.name⟩
+
 /-- Resolved function suites. The index counts lexically enclosing loops. -/
 inductive Suite : Nat → Type where
   | atomic {depth : Nat} (stmt : Stmt) : Suite depth
   | seq {depth : Nat} (first rest : Suite depth) : Suite depth
   | branch {depth : Nat} (test : Expr) (yes no : Suite depth) : Suite depth
-  | forIn {depth : Nat} (target : Binding) (iterable : Expr)
+  | forIn {depth : Nat} (target : LoopTarget) (iterable : Expr)
       (body : Suite (depth + 1)) : Suite depth
   | breakLoop {depth : Nat} : Suite (depth + 1)
   | continueLoop {depth : Nat} : Suite (depth + 1)
@@ -69,11 +76,15 @@ def Cursor.advance : Cursor → Option (Value × Cursor)
   | .range current step (count + 1) =>
     some (.scalar (.int current), .range (current + step) step count)
 
-theorem Cursor.advance_decreases {cursor next : Cursor} {value : Value}
-    (step : cursor.advance = some (value, next)) : next.remaining < cursor.remaining := by
+theorem Cursor.advance_remaining {cursor next : Cursor} {value : Value}
+    (step : cursor.advance = some (value, next)) : next.remaining + 1 = cursor.remaining := by
   cases cursor with
   | items values => cases values <;> simp [Cursor.advance] at step <;> simp [← step.2, Cursor.remaining]
   | range current stride count => cases count <;> simp [Cursor.advance] at step <;> simp [← step.2, Cursor.remaining]
+
+theorem Cursor.advance_decreases {cursor next : Cursor} {value : Value}
+    (step : cursor.advance = some (value, next)) : next.remaining < cursor.remaining :=
+  Cursor.advance_remaining step ▸ Nat.lt_succ_self _
 
 /-- Collect the cursor in yield order for operations that materialize an iterable. -/
 def Cursor.collect (cursor : Cursor) : List Value := go cursor []
@@ -94,12 +105,29 @@ def enterIterator (state : State) : Option Address → State
   | none => state
   | some address => pushIterator state address
 
+/-- Pair each binding with its checked value and write from left to right. -/
+def writeBindings (state : State) (assignments : List (Binding × Value)) : State :=
+  assignments.foldl (fun next (binding, value) => next.write binding value) state
+
+/-- A flat pattern checks the full arity before its first write. Collection
+reads have no callbacks, so unpacking needs no temporary iterator guard. -/
+def bindTarget (target : LoopTarget) (value : Value) (state : State) : Outcome Unit :=
+  match target with
+  | .name binding => .ok () (state.write binding value)
+  | .unpack bindings =>
+    match acquireIterator value state with
+    | .error error next => .error (if error = .notIterable then .unpackTarget value else error) next
+    | .ok (_, cursor) next =>
+      if cursor.remaining = bindings.length then
+        .ok () (writeBindings next (bindings.zip cursor.collect))
+      else .error (.unpackArity bindings.length cursor.remaining) next
+
 /-- Consume one item, advancing only if the body permits another iteration. -/
-def denoteCursor (target : Binding) (body : Meaning Flow) (cursor : Cursor) (state : State) : Outcome Flow :=
+def denoteCursor (target : LoopTarget) (body : Meaning Flow) (cursor : Cursor) (state : State) : Outcome Flow :=
   match _step : cursor.advance with
   | none => .ok .next state
   | some (value, rest) =>
-    match body (state.write target value) with
+    match Outcome.resume (bindTarget target value state) (fun () => body) with
     | .ok .next next | .ok .continueLoop next => denoteCursor target body rest next
     | .ok .breakLoop next => .ok .next next
     | .ok (.returned result) next => .ok (.returned result) next
@@ -112,7 +140,7 @@ abbrev denoteItems (target : Binding) (body : Meaning Flow) (items : List Value)
 
 /-- Acquire an iterator from a completed operand, run its cursor,
 and restore the previous guard stack on every exit. -/
-def denoteForIn (target : Binding) (body : Meaning Flow) (operand : Outcome Value) : Outcome Flow :=
+def denoteForIn (target : LoopTarget) (body : Meaning Flow) (operand : Outcome Value) : Outcome Flow :=
   Outcome.resume (Outcome.resume operand acquireIterator) fun (guard, cursor) next =>
     restoreIterators next.iterators (denoteCursor target body cursor (enterIterator next guard))
 

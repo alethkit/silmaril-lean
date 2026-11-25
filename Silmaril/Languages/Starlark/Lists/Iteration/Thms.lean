@@ -27,9 +27,25 @@ theorem cursorCollects_iff_collect (cursor : Cursor) (values : List Value) :
     CursorCollects cursor values ↔ cursor.collect = values :=
   Proofs.Languages.Starlark.Lists.Iteration.cursorCollects_iff_collect cursor values
 
+/-- The remaining count is the number of yielded values. -/
+theorem cursorCollects_length {cursor : Cursor} {values : List Value}
+    (ran : CursorCollects cursor values) : values.length = cursor.remaining :=
+  Proofs.Languages.Starlark.Lists.Iteration.cursorCollects_length ran
+
+/-- The flat target rules determine the exact writes or error and final state. -/
+theorem bindsTarget_iff_bindTarget (state : State) (value : Value) (target : LoopTarget)
+    (out : Outcome Unit) : BindsTarget state value target out ↔ bindTarget target value state = out :=
+  ⟨Proofs.Languages.Starlark.Lists.Iteration.bindTarget_eq_of_binds,
+    fun same => same ▸ Proofs.Languages.Starlark.Lists.Iteration.bindsTarget_bindTarget state value target⟩
+
+/-- A target error preserves the complete state at entry to the binding. -/
+theorem bindsTarget_failure_state {s final : State} {value : Value} {target : LoopTarget}
+    {error : Error} (ran : BindsTarget s value target (.error error final)) : final = s :=
+  Proofs.Languages.Starlark.Lists.Iteration.bindsTarget_failure_state ran
+
 /-- Cursor stepping agrees with iteration denotation when body outcomes agree. -/
 theorem cursor_eq_of_runs {body : State → Outcome Flow → Prop} {meaning : Meaning Flow}
-    {target : Binding} {cursor : Cursor} {state : State} {out : Outcome Flow}
+    {target : LoopTarget} {cursor : Cursor} {state : State} {out : Outcome Flow}
     (bodyEq : ∀ s result, body s result → meaning s = result)
     (ran : CursorRuns body target cursor state out) :
     denoteCursor target meaning cursor state = out :=
@@ -37,7 +53,7 @@ theorem cursor_eq_of_runs {body : State → Outcome Flow → Prop} {meaning : Me
 
 /-- Cursor iteration has a derivation given a derivation for each body outcome. -/
 theorem cursor_runs_denote (body : State → Outcome Flow → Prop) (meaning : Meaning Flow)
-    (bodyRuns : ∀ s, body s (meaning s)) (target : Binding) (cursor : Cursor) (state : State) :
+    (bodyRuns : ∀ s, body s (meaning s)) (target : LoopTarget) (cursor : Cursor) (state : State) :
     CursorRuns body target cursor state (denoteCursor target meaning cursor state) :=
   Proofs.Languages.Starlark.Lists.Iteration.cursor_runs_denote body meaning bodyRuns target cursor state
 
@@ -53,7 +69,7 @@ theorem iterators_denoteSuite {depth : Nat} (code : Suite depth) (state : State)
   Proofs.Languages.Starlark.Lists.Iteration.iterators_denoteSuite code state
 
 /-- A loop keeps the iterator stack left by its operand, including on abrupt exits. -/
-theorem iterators_denoteForIn (target : Binding) (body : Meaning Flow) (operand : Outcome Value) :
+theorem iterators_denoteForIn (target : LoopTarget) (body : Meaning Flow) (operand : Outcome Value) :
     (finishState (denoteForIn target body operand)).iterators = (finishState operand).iterators :=
   Proofs.Languages.Starlark.Lists.Iteration.iterators_denoteForIn target body operand
 

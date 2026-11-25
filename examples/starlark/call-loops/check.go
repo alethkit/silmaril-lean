@@ -154,4 +154,69 @@ visit()`)
 	require(xs.String() == "[1, 2]" && g["seen"].String() == "[10]" && xs.Append(starlark.MakeInt(99)) == nil,
 		"a nested range error must retain its effects and release the enclosing list guard")
 	fmt.Println("PASS a range body failure keeps preceding effects and releases the enclosing list guard")
+
+	checkFlatTargets()
+}
+
+func checkFlatTargets() {
+	g, err := initSource(`def prepare():
+    events.append(0)
+    return [[1, 2], (3, 4), range(5, 7)]
+def run():
+    for a, b in prepare():
+        events.append((a, b))
+        continue
+    for [x, x] in [[7, 8]]:
+        break
+    for [] in [(), [], range(0)]:
+        events.append(9)
+    for (k, v) in [{"z": 1, "a": 2}]:
+        return (a, b, x, k, v)
+events = []
+out = run()`)
+	require(err == nil, fmt.Sprint(err))
+	require(g["out"].String() == `(5, 6, 8, "z", "a")` &&
+		g["events"].String() == "[0, (1, 2), (3, 4), (5, 6), 9, 9, 9]", fmt.Sprint(g))
+	fmt.Println("PASS flat tuple/list targets bind left to right, including duplicate names and iterable items")
+
+	const setup = `def run(rows):
+    a = 90
+    b = 91
+    def read():
+        return (a, b)
+    observers.append(read)
+    for a, b in rows:
+        events.append((a, b))
+events = []
+observers = []
+`
+	for _, tc := range []struct{ item, want string }{
+		{"[3]", "too few values to unpack (got 1, want 2)"},
+		{"(3, 4, 5)", "too many values to unpack (got 3, want 2)"},
+		{"9", "got int in sequence assignment"},
+	} {
+		g, err := initSource(setup + "rows = [[1, 2], " + tc.item + ", [5, 6]]\nrun(rows)")
+		require(err != nil && strings.Contains(err.Error(), tc.want), fmt.Sprint(err))
+		read := g["observers"].(*starlark.List).Index(0)
+		last, err := starlark.Call(&starlark.Thread{Name: "observe flat writes"}, read, nil, nil)
+		rows := g["rows"].(*starlark.List)
+		require(err == nil && last.String() == "(1, 2)" && g["events"].String() == "[(1, 2)]" &&
+			rows.Append(starlark.None) == nil, fmt.Sprint(last, g, err))
+	}
+	fmt.Println("PASS mismatched and non-iterable items leave all flat bindings intact and unwind the loop guard")
+
+	_, err = initSource(`def run():
+    for [x, 1] in []:
+        pass
+run()`)
+	require(err != nil && strings.Contains(err.Error(), "can't assign to literal"), fmt.Sprint(err))
+	fmt.Println("PASS invalid flat target is rejected before iteration")
+
+	_, err = initSource(`y = [[1, 2]]
+def run():
+    for x, y in y:
+        pass
+run()`)
+	require(err != nil && strings.Contains(err.Error(), "local variable y referenced before assignment"), fmt.Sprint(err))
+	fmt.Println("PASS a later name in the pattern shadows the outer name in the iterable operand")
 }

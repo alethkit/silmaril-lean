@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Starlark.Lists.Iteration.Operational.Defs
 public import Silmaril.Languages.Starlark.Lists.Thms
+import Silmaril.Proofs.Languages.Starlark.Lists.Iteration.Truth
 
 public section
 
@@ -38,23 +39,97 @@ theorem cursorCollects_iff_collect (cursor : Cursor) (values : List Value) :
   obtain ⟨items, yields⟩ := collects cursor
   exact ((eq yields).symm.trans equal) ▸ yields
 
+theorem cursorCollects_length {cursor : Cursor} {values : List Value}
+    (ran : CursorCollects cursor values) : values.length = cursor.remaining := by
+  induction ran with
+  | @done finished empty =>
+    cases finished with
+    | items values => cases values <;> simp [Cursor.advance, Cursor.remaining] at empty ⊢
+    | range current stride count => cases count <;> simp [Cursor.advance, Cursor.remaining] at empty ⊢
+  | next step _ ih => exact (congrArg (· + 1) ih).trans (Cursor.advance_remaining step)
+
+private theorem writes_eq {s final : State} {assignments : List (Binding × Value)}
+    (ran : WritesBindings s assignments final) : writeBindings s assignments = final := by
+  induction ran with
+  | done => rfl
+  | next _ ih => exact ih
+
+private theorem writes (s : State) (assignments : List (Binding × Value)) :
+    WritesBindings s assignments (writeBindings s assignments) := by
+  induction assignments generalizing s with
+  | nil => exact .done s
+  | cons assignment rest ih =>
+    obtain ⟨binding, value⟩ := assignment
+    exact .next (ih (s.write binding value))
+
+theorem bindTarget_eq_of_binds {s : State} {value : Value} {target : LoopTarget} {out : Outcome Unit}
+    (ran : BindsTarget s value target out) : bindTarget target value s = out := by
+  cases ran with
+  | name => rfl
+  | unpack read arity yields assigned =>
+    simp [bindTarget, read, arity, (cursorCollects_iff_collect _ _).mp yields, writes_eq assigned]
+  | arity read mismatch => simp [bindTarget, read, mismatch]
+  | nonIterable _ read => simp [bindTarget, read]
+  | readError _ read other => simp [bindTarget, read, other]
+
+theorem bindsTarget_bindTarget (s : State) (value : Value) (target : LoopTarget) :
+    BindsTarget s value target (bindTarget target value s) := by
+  cases target with
+  | name binding => exact .name binding
+  | unpack bindings =>
+    simp only [bindTarget]
+    cases read : acquireIterator value s with
+    | error error next =>
+      by_cases nonIterable : error = .notIterable
+      · subst error
+        exact .nonIterable bindings read
+      · simpa only [nonIterable, ite_false] using BindsTarget.readError bindings read nonIterable
+    | ok pair next =>
+      obtain ⟨guard, cursor⟩ := pair
+      by_cases arity : cursor.remaining = bindings.length
+      · simp only [arity, ite_true]
+        exact .unpack read arity ((cursorCollects_iff_collect _ _).mpr rfl) (writes next _)
+      · simp only [arity]
+        exact .arity read arity
+
+theorem bindsTarget_failure_state {s final : State} {value : Value} {target : LoopTarget}
+    {error : Error} (ran : BindsTarget s value target (.error error final)) : final = s := by
+  have kept : finishState (acquireIterator value s) = s := by
+    cases value with
+    | list | tuple | dict =>
+      simp only [acquireIterator, map_finishState, iterationSource]
+      exact projectCell_finishState _ _ s
+    | _ => rfl
+  cases ran with
+  | arity read _ | nonIterable _ read | readError _ read _ =>
+    rw [read] at kept
+    exact kept
+
 theorem cursor_eq_of_runs {body : State → Outcome Flow → Prop} {meaning : Meaning Flow}
-    {target : Binding} {cursor : Cursor} {state : State} {out : Outcome Flow}
+    {target : LoopTarget} {cursor : Cursor} {state : State} {out : Outcome Flow}
     (bodyEq : ∀ s result, body s result → meaning s = result)
     (ran : CursorRuns body target cursor state out) :
     denoteCursor target meaning cursor state = out := by
   induction ran with
   | done exhausted => rw [denoteCursor, exhausted]
-  | advance step ran next _ ih =>
+  | advance step bound ran next _ ih =>
     rw [denoteCursor, step]
     dsimp only
+    rw [bindTarget_eq_of_binds bound]
+    simp only [Outcome.resume]
     rcases next with rfl | rfl <;> rw [bodyEq _ _ ran] <;> exact ih
-  | breakLoop step ran => rw [denoteCursor, step]; dsimp only; rw [bodyEq _ _ ran]
-  | returned step ran => rw [denoteCursor, step]; dsimp only; rw [bodyEq _ _ ran]
-  | failed step ran => rw [denoteCursor, step]; dsimp only; rw [bodyEq _ _ ran]
+  | breakLoop step bound ran | returned step bound ran | failed step bound ran =>
+    rw [denoteCursor, step]
+    dsimp only
+    simp only [bindTarget_eq_of_binds bound, Outcome.resume, bodyEq _ _ ran]
+  | bindingError step bound =>
+    rw [denoteCursor, step]
+    dsimp only
+    rw [bindTarget_eq_of_binds bound]
+    rfl
 
 theorem cursor_runs_denote (body : State → Outcome Flow → Prop) (meaning : Meaning Flow)
-    (bodyRuns : ∀ s, body s (meaning s)) (target : Binding) (cursor : Cursor) (state : State) :
+    (bodyRuns : ∀ s, body s (meaning s)) (target : LoopTarget) (cursor : Cursor) (state : State) :
     CursorRuns body target cursor state (denoteCursor target meaning cursor state) := by
   rw [denoteCursor]
   cases step : cursor.advance with
@@ -62,19 +137,26 @@ theorem cursor_runs_denote (body : State → Outcome Flow → Prop) (meaning : M
   | some item =>
     obtain ⟨value, rest⟩ := item
     dsimp only
-    have ran := bodyRuns (state.write target value)
-    cases invoked : meaning (state.write target value) with
-    | error error next => exact .failed step (invoked ▸ ran)
-    | ok flow next =>
-      cases flow with
-      | breakLoop => exact .breakLoop step (invoked ▸ ran)
-      | returned result => exact .returned step (invoked ▸ ran)
-      | next =>
-        exact .advance step (invoked ▸ ran) (Or.inl rfl)
-          (cursor_runs_denote body meaning bodyRuns target rest next)
-      | continueLoop =>
-        exact .advance step (invoked ▸ ran) (Or.inr rfl)
-          (cursor_runs_denote body meaning bodyRuns target rest next)
+    have bound := bindsTarget_bindTarget state value target
+    cases binding : bindTarget target value state with
+    | error error next => exact .bindingError step (binding ▸ bound)
+    | ok boundValue next =>
+      cases boundValue
+      simp only [Outcome.resume]
+      have ran := bodyRuns next
+      have assigned := binding ▸ bound
+      cases invoked : meaning next with
+      | error error final => exact .failed step assigned (invoked ▸ ran)
+      | ok flow final =>
+        cases flow with
+        | breakLoop => exact .breakLoop step assigned (invoked ▸ ran)
+        | returned result => exact .returned step assigned (invoked ▸ ran)
+        | next =>
+          exact .advance step assigned (invoked ▸ ran) (Or.inl rfl)
+            (cursor_runs_denote body meaning bodyRuns target rest final)
+        | continueLoop =>
+          exact .advance step assigned (invoked ▸ ran) (Or.inr rfl)
+            (cursor_runs_denote body meaning bodyRuns target rest final)
 termination_by cursor.remaining
 decreasing_by all_goals exact Cursor.advance_decreases step
 

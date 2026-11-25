@@ -136,7 +136,7 @@ no loop target write or new guard.
 
 `Body.forInExpr`, the call-free `Body.forIn`, and collection suites share
 the same cursor and cleanup semantics for list, tuple, dictionary and
-range operands. Each iteration writes its target binding before running
+range operands. Each iteration assigns its target before running
 the body. A callee shares heap identities and active
 iterators with its caller, so the guard covers mutations through aliases.
 The loop restores the guard stack left by operand evaluation on every
@@ -157,6 +157,38 @@ in each declaration's own lexical loop context, including unreachable
 code. `exec_iff_denoteBody` covers the exact result or error, frame, heap
 and iterator stack. The available declaration set bounds live calls.
 [Native loop agreement and cleanup](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Native loop fixtures](../../Silmaril/Languages/Starlark/Functions/NativeLoopChecks.lean) · [Collection loops](starlark-lists.md#iteration-and-control)
+
+### Flat loop targets
+
+A resolved `LoopTarget` is a name or a flat tuple/list pattern of names.
+Existing single-name calls can pass a `Binding`. For a pattern, each yielded
+item supplies its own cursor. The binder checks the exact count before
+writing any slot, then pairs names and values and writes left to right.
+A repeated name takes its last assigned value. Empty patterns require
+empty items. An incompatible item or arity mismatch leaves the frame and
+heap at that iteration's binder entry. The loop skips its body and later
+items, preserves earlier effects and restores the operand's iterator stack.
+[Pinned assignments][assignments] · [Pinned for statements][for-stmts] · [Go loop compilation][go-for-compile] · [Go target writes][go-unpack-compile] · [Go unpack checks][go-unpack]
+
+The pinned prose describes sequence inputs, including ranges. The
+Go-compatible profile also admits dictionaries, which yield their
+insertion-ordered keys. Go calls `Iterate` through `UNPACK`, checks for an
+extra item and closes the temporary iterator before assigning names. The
+Lean binder gets the same elements from the represented cursor. It checks
+the count before collection, which makes a huge mismatched range reject
+without enumerating it. The supported item cursors have no callback or
+mutation during unpacking.
+[Go iterator cleanup][go-loop-cleanup] · [Pinned Go fixtures](../../examples/starlark/call-loops/check.go)
+
+`bindsTarget_iff_bindTarget` proves exact agreement with the independent
+unpacking and write-order rules. `bindsTarget_failure_state` proves no
+target writes on failure. These statements compose with `exec_iff_denoteBody`
+and `runs_iff_denoteSuite` for the complete loop. `lowerForIn_preserves`
+transports the binder's heap, slots and visible writes through scratch
+projection before it uses the existing body premise. Nested patterns,
+subscript and field leaves, standalone destructuring assignments and
+comprehension targets remain open.
+[Binder and cursor theorems](../../Silmaril/Languages/Starlark/Lists/Iteration/Thms.lean) · [Lowering theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean) · [Source loop validation](starlark-modules.md#resolving-module-declarations)
 
 ## Direct denotation of resolved expressions
 
@@ -604,6 +636,11 @@ extend this profile. Host callable effects remain open.
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
 [range]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#range
 [for-stmts]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#for-statements
+[assignments]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#assignments
+[go-for-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1172-L1192
+[go-unpack-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1247-L1293
+[go-unpack]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L508-L533
+[go-loop-cleanup]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L102-L113
 [go-range-iterator]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L951-L964
 [go-call-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1650-L1728
 [go-call-expand]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L298-L382
