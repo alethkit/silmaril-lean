@@ -96,7 +96,7 @@ def tupleDeriv {k : Nat} {as : Fin k → α} {xs : Fin k → Tm Empty Φ Γ.leng
   | zero => exact .unit
   | succ k ih => exact .pair (ds 0) (ih fun i => ds i.succ)
 
-noncomputable def treeDerivation {a : α} (t : Tree S sorts a)
+public noncomputable def treeDerivation {a : α} (t : Tree S sorts a)
     (hs : ∀ i, (Γ.get i).1 = .base (sorts i)) :
     @Derivation _ _ _ _ _ S.endpoints Γ₀ Γ.length β t.native (.base a) := by
   let instr := S.endpoints
@@ -115,10 +115,10 @@ public theorem instructions_pure (observe : ObserveInput (sorts := sorts) S) :
     simp [instructions, IsPure, hf]
     rfl⟩
 
-def values (hs : ∀ i, (Γ.get i).1 = .base (sorts i)) : BoundEnv D β :=
+public def values (hs : ∀ i, (Γ.get i).1 = .base (sorts i)) : BoundEnv D β :=
   fun i => ((EffectCtx.get_toBoundCtx Γ i).trans (hs i)).symm ▸ Tree.var i
 
-abbrev eliminateFree : FreeEnv D Γ₀ := fun x => x.elim
+public abbrev eliminateFree : FreeEnv D Γ₀ := fun x => x.elim
 
 theorem tupleDeriv_eval (observe : ObserveInput (sorts := sorts) S) {k : Nat} {as : Fin k → α} {xs : Fin k → Tm Empty Φ Γ.length}
     (ds : ∀ i, @Derivation _ _ _ _ _ S.endpoints Γ₀ Γ.length β (xs i) (.base (as i)))
@@ -153,7 +153,7 @@ theorem denote_bv_of_cast {i : Fin Γ.length} {A : Ty α}
   cases e
   exact congrArg ITree.ret h
 
-theorem tree_eval_returns {a : α} (t : Tree S sorts a) (observe : ObserveInput (sorts := sorts) S) (hp : DeclaredPure (ε := ε) S t)
+public theorem tree_eval_returns {a : α} (t : Tree S sorts a) (observe : ObserveInput (sorts := sorts) S) (hp : DeclaredPure (ε := ε) S t)
     (hs : ∀ i, (Γ.get i).1 = .base (sorts i)) :
     letI := S.endpoints
     (treeDerivation S t hs).denote D (instructions (ε := ε) S observe) (eliminateFree S) (values S hs) =
