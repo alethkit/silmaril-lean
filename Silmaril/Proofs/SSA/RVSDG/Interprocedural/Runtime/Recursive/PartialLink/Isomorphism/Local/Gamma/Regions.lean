@@ -293,6 +293,50 @@ private theorem initial_restart {past : List (Ports (Ty V S))} {body : LoopBody 
     (.theta (.restart (input := (initial.read input locals, store))
       (current := (initial.read input locals, store)) .refl))
 
+/-- Pass the completed feedback and the actual exiting body evaluations to
+the suffix proof, so it can retain invariants on individual carried values. -/
+theorem loop_scoped_with_exit {past : List (Ports (Ty V S))} {tailL tailR : List (Ports (Ty V S))}
+    {bodyL : LoopBody Op carried sigsL} {bodyR : LoopBody Op carried sigsR}
+    {restL : NestedTheta.Term (Instruction Op) args (past ++ [carried]) tailL outs}
+    {restR : NestedTheta.Term (Instruction Op) args (past ++ [carried]) tailR outs}
+    {localsL localsR : Locals m.Val past} (initial : Wires args past carried)
+    (related : TupleRelated m ids (initial.read inputL localsL) (initial.read inputR localsR))
+    (observe : ∀ current : Carries m ids σ carried,
+      ReflTransGen (IterationPair primitives bodyL bodyR)
+        ⟨initial.read inputL localsL, initial.read inputR localsR, related, store⟩ current →
+      RegionPair primitives ids (mapping.child past.length 0) bodyL bodyR current.left current.right current.store)
+    (resume : ∀ {current : Carries m ids σ carried} {tag : m.Val (.control 2)}
+        {valueL valueR : Tuple m.Val carried} {middle : σ},
+      ReflTransGen (IterationPair primitives bodyL bodyR)
+        ⟨initial.read inputL localsL, initial.read inputR localsR, related, store⟩ current →
+      Eval primitives (.region bodyL current.left PUnit.unit) current.store (.returned (.cons tag valueL) middle) →
+      Eval primitives (.region bodyR current.right PUnit.unit) current.store (.returned (.cons tag valueR) middle) →
+      TupleRelated m ids valueL valueR →
+      ScopedRegionPair primitives ids mapping restL restR inputL inputR (localsL.snoc valueL) (localsR.snoc valueR) middle) :
+    ScopedRegionPair primitives ids mapping (bindTheta initial bodyL restL) (bindTheta initial bodyR restR)
+      inputL inputR localsL localsR store := by
+  let first : Carries m ids σ carried := ⟨initial.read inputL localsL, initial.read inputR localsR, related, store⟩
+  cases classify_reachable first observe with
+  | outer live =>
+    exact .productive (.feedback live (initial_restart initial restL inputL localsL store)
+      (initial_restart initial restR inputR localsR store))
+  | activation completed observed =>
+    cases observed with
+    | exited exits values ranL ranR =>
+      have ran := rewind completed ⟨Eval.stop ranL exits, Eval.stop ranR exits⟩
+      exact continue_pair (nodeL := thetaVertex initial sigsL) (nodeR := thetaVertex initial sigsR)
+        (.theta ran.1) (.theta ran.2) (resume completed ranL ranR values)
+    | blocked stopped =>
+      exact .blocked (.atLoop initial rfl rfl rfl completed stopped)
+    | inner live =>
+      refine .productive (productive_map live ?_ ?_)
+      · intro target pending reached
+        exact ⟨.bind restL inputL localsL (.loop bodyL pending),
+          .inside (node := thetaVertex initial sigsL) (.theta (.iteration (left_completed completed) reached))⟩
+      · intro target pending reached
+        exact ⟨.bind restR inputR localsR (.loop bodyR pending),
+          .inside (node := thetaVertex initial sigsR) (.theta (.iteration (right_completed completed) reached))⟩
+
 /-- Observe each reachable fresh activation and keep the actual outer binding. -/
 theorem loop_scoped {past : List (Ports (Ty V S))} {tailL tailR : List (Ports (Ty V S))}
     {bodyL : LoopBody Op carried sigsL} {bodyR : LoopBody Op carried sigsR}
@@ -307,28 +351,8 @@ theorem loop_scoped {past : List (Ports (Ty V S))} {tailL tailR : List (Ports (T
     (resume : ∀ {valueL valueR : Tuple m.Val carried}, TupleRelated m ids valueL valueR → ∀ middle,
       ScopedRegionPair primitives ids mapping restL restR inputL inputR (localsL.snoc valueL) (localsR.snoc valueR) middle) :
     ScopedRegionPair primitives ids mapping (bindTheta initial bodyL restL) (bindTheta initial bodyR restR)
-      inputL inputR localsL localsR store := by
-  let first : Carries m ids σ carried := ⟨initial.read inputL localsL, initial.read inputR localsR, related, store⟩
-  cases classify_reachable first observe with
-  | outer live =>
-    exact .productive (.feedback live (initial_restart initial restL inputL localsL store)
-      (initial_restart initial restR inputR localsR store))
-  | activation completed observed =>
-    cases observed with
-    | @exited _ _ _ finalStore exits values ranL ranR =>
-      have ran := rewind completed ⟨Eval.stop ranL exits, Eval.stop ranR exits⟩
-      exact continue_pair (nodeL := thetaVertex initial sigsL) (nodeR := thetaVertex initial sigsR)
-        (.theta ran.1) (.theta ran.2) (resume values finalStore)
-    | blocked stopped =>
-      exact .blocked (.atLoop initial rfl rfl rfl completed stopped)
-    | inner live =>
-      refine .productive (productive_map live ?_ ?_)
-      · intro target pending reached
-        exact ⟨.bind restL inputL localsL (.loop bodyL pending),
-          .inside (node := thetaVertex initial sigsL) (.theta (.iteration (left_completed completed) reached))⟩
-      · intro target pending reached
-        exact ⟨.bind restR inputR localsR (.loop bodyR pending),
-          .inside (node := thetaVertex initial sigsR) (.theta (.iteration (right_completed completed) reached))⟩
+      inputL inputR localsL localsR store :=
+  loop_scoped_with_exit initial related observe (fun {_ _ _ _ middle} _ _ _ values => resume values middle)
 
 /-- Compose θ with any paired observation of its fresh body activations. -/
 theorem loop {bodyL : LoopBody Op carried sigsL} {bodyR : LoopBody Op carried sigsR}
