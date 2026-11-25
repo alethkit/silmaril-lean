@@ -90,6 +90,7 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Petri.% +Silmaril.Proofs.SSA.RVSDG.Petri.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Petri.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGPetri.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Isomorphism.% +Silmaril.Proofs.SSA.RVSDG.Isomorphism.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Isomorphism.Petri.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGIsomorphism.lean)
 	$(if $(filter sqlite_file_format_compatibility,$(CHECK_TARGETS)),bash tests/formats/sqlite-tranche/run.sh)
+	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.% +Silmaril.Proofs.SSA.RVSDG.NestedTheta.Isomorphism.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedThetaIsomorphism.lean)
 	$(if $(filter sqlite_lean,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Cli.Spec.LeanSqliteShell.Thms && $(PYTHON) -I tests/formats/sqlite-shell/check.py)
 	$(if $(filter sqlite_image_lean,$(CHECK_TARGETS)),$(LAKE) build --wfail sqlite_lean sqlite_write_profile_tests && $(PYTHON) -I tests/formats/sqlite-shell/check.py --writer)
 	$(if $(filter Silmaril +Silmaril.Formats.Sqlite.VirtualTable.% +Silmaril.Proofs.Formats.Sqlite.VirtualTable.%,$(CHECK_TARGETS)),LAKE="$(LAKE)" tests/formats/sqlite-virtual-table/run.sh)
