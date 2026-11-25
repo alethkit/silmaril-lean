@@ -115,8 +115,9 @@ deriving instance ToExpr for Surface.Quantifier
 -- the admission proof for a primitive. The parser and resolver run during elaboration.
 private meta partial def quoteTerm (term : Term fixtureSignature) : Elab.Term.TermElabM Lean.Expr := do
   let sig := mkConst ``fixtureSignature
-  let type := mkApp (mkConst ``Term) sig
-  let node := fun (ctor : Lean.Name) args => mkAppN (mkApp (mkConst ctor) sig) args
+  let init := fun (ctor : Lean.Name) => mkApp2 (mkConst ctor) sig (mkConst ``Fragment.core)
+  let type := init ``Term
+  let node := fun (ctor : Lean.Name) args => mkAppN (init ctor) args
   let list := fun args => do
     let values ← args.mapM quoteTerm
     Meta.mkListLit type values
@@ -147,6 +148,8 @@ private meta partial def quoteTerm (term : Term fixtureSignature) : Elab.Term.Te
     let expected ← Meta.mkEq (mkApp sig key) (toExpr (some arity))
     let admitted ← Elab.Term.elabTerm (← `(by simp [fixtureSignature])) (some expected)
     return node ``Term.external #[key, toExpr arity, admitted, ← list args]
+  | .function enabled .. | .functionSet enabled .. | .record enabled .. | .recordSet enabled .. =>
+    nomatch enabled
 
 private meta def emit (name : String) : Elab.Term.TermElabM Lean.Expr := do
   match fixture name with
@@ -154,7 +157,8 @@ private meta def emit (name : String) : Elab.Term.TermElabM Lean.Expr := do
   | .ok checked =>
     let term ← quoteTerm checked.term
     let valid ← Meta.mkEqRefl (toExpr true)
-    return mkApp3 (mkConst ``CheckedExpr.mk) (mkConst ``fixtureSignature) term valid
+    return mkApp4 (mkConst ``CheckedExpr.mk)
+      (mkConst ``fixtureSignature) (mkConst ``Fragment.core) term valid
 
 end
 

@@ -100,12 +100,46 @@ INSTANCE, and proof interpretation.
   that contract explicitly. The API assigns no standard-module semantics
   by name.
 
-Decimal and string literals, tuple binders, multi-binder images, CASE,
-functions, records, tuples, and other collection syntax require future
-clauses. The original entry point produces a single-state data denotation.
-Endpoint selection adds prime in the checked fragment. Level checking can
-classify a proof-free theorem statement without treating it as a selectable
-definition or proof.
+Decimal and string literals, tuple binders, multi-binder images, CASE and
+tuples remain outside the data fragment. The original entry point produces a
+single-state data denotation. Endpoint selection adds prime in the checked
+fragment. Level checking can classify a proof-free theorem statement without
+treating it as a selectable definition or proof.
+
+## State-level collection expressions
+
+Import `Silmaril.Logic.Temporal.TLA.DataElab.Collections.Tagged` and call
+`Collections.lowerState registry externalLevels signature maxDepth id`.
+Use the checked registry of the original module and select the nullary
+definition by its resolved ID. Evaluate the result with
+`checked.eval (policy.collectionOperations invalid) policy.booleans external valuation`.
+The collection fragment requires all four collection operations from its
+adapter. The pure-set, scalar and endpoint entry points use the core fragment.
+
+- `[x \in S |-> e]` forms a graph with exactly the domain `S`. The bound is
+  evaluated in the incoming scope and the body receives the graph key in a
+  fresh slot. The expanded term retains the constructor site and the resolved
+  binder ID. This clause admits one group with one plain identifier.
+- `[a |-> e, b |-> f]` forms a graph with exactly the listed string keys.
+  `[S -> T]` contains the graphs with domain `S` and all outputs in `T`.
+  `[a : S, b : T]` contains the graphs with exactly the listed keys and
+  each field value in its own bound. Field expressions use their original
+  indexed sites. A repeated label is rejected at its second occurrence.
+- The tagged adapter uses a fixed `CollectionPolicy` for an unrecognized
+  function bound, either unrecognized function-set operand, or a malformed
+  record schema. The policy receives the original operands and the record-set
+  error identifies the first non-set field in source order. No graph or set
+  is assembled from a partial schema.
+
+The pinned `ACP_SB.Init` and `TypeInv` and their four helper definitions use
+function sets, record sets, set enumeration, membership, conjunction, and
+`TRUE`, `FALSE` and `BOOLEAN`. The bounded function and record constructors
+are covered by separate source regressions. Full-module ACP_SB fixture
+integration is tracked separately. Collection lowering does not interpret
+`EXCEPT`, `@`, indexing, field selection, recursion, or operator proofs.
+[Pinned ACP_SB source](https://github.com/tlaplus/tlaplus/blob/bc1b506bdcad80bb518bf3776a9161c34ff0fc4c/tlatools/org.lamport.tlatools/test-model/examples/acp/ACP_SB.tla) ·
+[Collection entry point](../../Silmaril/Logic/Temporal/TLA/DataElab/Collections/Defs.lean) ·
+[Tagged adapter](../../Silmaril/Logic/Temporal/TLA/DataElab/Collections/Tagged.lean)
 
 ## Tagged interpretation
 
@@ -150,6 +184,7 @@ theorem statement. [Level checking](tla-expression-levels.md)
 ```sh
 lake build --wfail +Silmaril.Logic.Temporal.TLA.DataElab.Examples \
   +Silmaril.Logic.Temporal.TLA.DataElab.Tagged.Examples \
+  +Silmaril.Logic.Temporal.TLA.DataElab.Collections.Examples \
   +Silmaril.Logic.Temporal.TLA.Resolution.Examples \
   +Silmaril.Logic.Temporal.TLA.Resolution.Levels.Examples
 scripts/check-layout.sh
@@ -180,3 +215,10 @@ operator whose ID is also in the external table. Lean checks the interval and
 arithmetic equations for the corresponding terms, plus the policies on
 unrecognized set bounds and a zero modulus divisor.
 [Tagged regressions](../../Silmaril/Logic/Temporal/TLA/DataElab/Tagged/Examples.lean)
+
+The collection regressions stage the terms produced by parsing, resolution,
+level checking and lowering. The kernel checks the scopes and equations for
+the constructed graphs, exact record and function-set recognition, and the
+fixed policy on non-set operands. Guards cover duplicate labels, source
+provenance, and unsupported constructor and operand forms.
+[Collection regressions](../../Silmaril/Logic/Temporal/TLA/DataElab/Collections/Examples.lean)
