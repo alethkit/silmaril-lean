@@ -7,6 +7,7 @@ import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.R
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.NativeCommon
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Locals.Native.Thms
+import Silmaril.Wasm.Institution.Operational.CallFrame.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Thms
@@ -28,10 +29,10 @@ private abbrev native {H : Type} (P : Profile) := Step (H := H) P noHost
 
 private theorem expression_code (fn : Function) :
     expression fn.coreFunc.body = (Body.running fn.initial fn.code).render coreAdmin := by
-  change expression (fn.instructions Sequence.coreSource (Locals.coreInstr ∘ .set) (Locals.coreInstr ∘ .tee) .unreachable) = _
+  change expression (fn.instructions Sequence.coreSource (Locals.coreInstr ∘ .set) (Locals.coreInstr ∘ .tee) .return_ .unreachable) = _
   rw [Function.instructions, expression, List.map_append]
   change (fn.initial.map Sequence.coreSource.value).map Admin.plain ++
-      (fn.code.map (Op.emit Sequence.coreSource (Locals.coreInstr ∘ .set) (Locals.coreInstr ∘ .tee) .unreachable)).map Admin.plain =
+      (fn.code.map (Op.emit Sequence.coreSource (Locals.coreInstr ∘ .set) (Locals.coreInstr ∘ .tee) .return_ .unreachable)).map Admin.plain =
     coreValues fn.initial ++ fn.code.map coreAdmin.emit
   unfold coreValues vals
   simp only [List.map_map]
@@ -44,7 +45,7 @@ private theorem expression_code (fn : Function) :
     intro op _
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | unreachable => rfl
+    | set | tee | call | return_ | unreachable => rfl
 
 private theorem values_append (xs ys : List Value) :
     coreValues (xs ++ ys) = coreValues xs ++ coreValues ys := by
@@ -105,6 +106,7 @@ private theorem entry_iff {H : Type} {P : Profile} {s : Store H} {caller : Runti
   simpa only [List.append_assoc, List.singleton_append, coreAdmin, Declaration.type, currentFrame, Declaration.frame] using enter
 
 private theorem running_stays {n : Nat} {v : List Value} {op : Op} {rest : List Op} {out : List Admin}
+    (notReturn : op ≠ .return_)
     (pop : LabelExit n [] ((Body.running v (op :: rest)).render coreAdmin) out) : False := by
   change LabelExit n [] (coreValues v ++ coreAdmin.emit op :: rest.map coreAdmin.emit) out at pop
   cases op with
@@ -124,6 +126,7 @@ private theorem running_stays {n : Nat} {v : List Value} {op : Op} {rest : List 
   | call t =>
     exact Computed.core_label_stays (head := .plain (.call t.index)) rfl
       (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp) pop
+  | return_ => exact notReturn rfl
   | unreachable =>
     exact Computed.core_label_stays (head := .plain .unreachable) rfl
       (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp) pop
@@ -295,11 +298,32 @@ theorem step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (che
                 (Step.labelVals (P := P) (host := noHost) (cont := []) (n := target.declaration.results.length)
                   (vs := stack.map Value.toCore) (s := s) (f := (currentFrame target.declaration locals).toCore))
       | cons op rest =>
-        have stays {out : List Admin} := running_stays (n := target.declaration.results.length) (v := stack) (op := op) (rest := rest) (out := out)
+        by_cases isReturn : op = .return_
+        case pos =>
+          subst op
+          constructor
+          · intro move
+            rcases Computed.core_body_step_cases move with ⟨_, inside, _⟩ | ⟨_, pop, eq⟩
+            · exact (CallFrame.core_return_stuck (stack := stack.map Value.toCore)
+                (tail := rest.map coreAdmin.emit) inside).elim
+            · exact ⟨_, rule.mpr (.returnLabel locals stack rest),
+                eq.trans (by rw [CallFrame.core_return_label_result pop]; rfl)⟩
+          · rintro ⟨out, move, rfl⟩
+            cases rule.mp move with
+            | returnLabel =>
+              simpa only [coreConfig, Phase.render, Body.render, coreAdmin, List.map_cons,
+                Syntax.emit, Op.emit, List.append_assoc, List.singleton_append] using
+                Step.ctxtFrame (f := caller.toCore) (n := target.declaration.results.length)
+                  (Step.returnLabel (P := P) (host := noHost) (s := s)
+                    (f := (currentFrame target.declaration locals).toCore)
+                    (n := target.declaration.results.length) (cont := [])
+                    (vs := stack.map Value.toCore) (rest := rest.map coreAdmin.emit))
+        have stays {out : List Admin} := running_stays (n := target.declaration.results.length) (v := stack) (op := op) (rest := rest) isReturn (out := out)
         constructor
         · intro move
           obtain ⟨mid, inner, eq⟩ := (under_label_iff stays).mp move
           cases op with
+          | return_ => exact (isReturn rfl).elim
           | numeric op =>
             have reduction := (Prefix.core_step_iff (f := currentFrame target.declaration locals) (op := op) (tail := rest.map coreAdmin.emit)).mp inner
             obtain ⟨answer, reduce, rfl⟩ := reduction
@@ -329,6 +353,7 @@ theorem step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (che
             exact ⟨_, rule.mpr (.unreachable locals stack rest), eq⟩
         · rintro ⟨out, move, rfl⟩
           cases rule.mp move with
+          | returnLabel => exact (isReturn rfl).elim
           | @numeric locals stack op rest answer reduce =>
             apply lift_label
             exact (Prefix.core_step_iff (P := P) (s := s) (f := currentFrame target.declaration locals) (stack := stack)
@@ -362,7 +387,7 @@ theorem step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (che
       | invoke operands =>
         cases childReady with
         | invoke localsTyped => exact pending_child_iff checked allocated root.found used childFound declared localsTyped
-      | label | exit => exact active_entered_iff checked root.found used live rfl childStep
+      | label | returning | exit => exact active_entered_iff checked root.found used live rfl childStep
     | @trapped _ locals saved rest typed =>
       constructor
       · intro move
@@ -375,6 +400,25 @@ theorem step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (che
         cases rule.mp move with
         | discard cut => exact lift_label ((Prefix.core_discard_iff (f := currentFrame target.declaration locals) coreAdmin.emit).mpr ⟨_, _, cut, rfl⟩)
         | leaveTrap => exact .ctxtFrame .trapLabel
+    | @returning _ locals stack typed returnTyped =>
+      constructor
+      · intro move
+        obtain ⟨extra, results, rfl, arity⟩ := split_return returnTyped
+        have count := arity.trans (congrArg (fun d => d.results.length) root.declared)
+        have frame := CallFrame.core_return_frame_iff (P := P) (s := s) (outer := caller.toCore)
+          (inner := (currentFrame target.declaration locals).toCore) (dst := dst)
+          (extra := extra.map Value.toCore) (results := results.map Value.toCore) (by simpa using count)
+        exact ⟨_, rule.mpr (.returnFrame locals extra results arity),
+          frame.mp (by simpa only [coreConfig, Phase.render, coreAdmin, coreValues, List.map_append] using move)⟩
+      · rintro ⟨out, move, rfl⟩
+        cases rule.mp move with
+        | returnFrame locals dropped returned arity =>
+          have n := arity.trans (congrArg (fun d => d.results.length) root.declared)
+          simpa only [coreConfig, Phase.render, coreAdmin, coreValues, List.map_append, Nested.resultCode] using
+            (CallFrame.core_return_frame_iff (P := P) (s := s) (outer := caller.toCore)
+              (inner := (currentFrame target.declaration locals).toCore)
+              (extra := dropped.map Value.toCore) (results := returned.map Value.toCore)
+              (n := target.declaration.results.length) (by simpa using n)).mpr rfl
     | @exit _ locals result typed outTyped =>
       constructor
       · intro move

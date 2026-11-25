@@ -24,6 +24,14 @@ theorem split_call {fn : Function} {stack : List Value} {target : CallTarget} {r
   exact ⟨stack.take below, stack.drop below, (List.take_append_drop below stack).symm, used,
     by simp [below]; omega⟩
 
+theorem split_return {fn : Function} {stack : List Value} (typed : fn.ReturnTyped stack) :
+    ∃ extra results, stack = extra ++ results ∧ results.length = fn.declaration.results.length := by
+  have length := congrArg List.length typed
+  simp only [List.length_take, Prefix.stackTypes, List.length_reverse, List.length_map] at length
+  let below := stack.length - fn.declaration.results.length
+  exact ⟨stack.take below, stack.drop below, (List.take_append_drop below stack).symm,
+    by simp [below]; omega⟩
+
 theorem result_length {fn : Function} {values : List Value} (typed : fn.ResultTyped (.values values)) :
     values.length = fn.declaration.results.length :=
   (List.length_map ..).symm.trans (congrArg List.length typed)

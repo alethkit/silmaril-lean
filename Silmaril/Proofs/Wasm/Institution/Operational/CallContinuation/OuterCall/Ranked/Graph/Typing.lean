@@ -67,6 +67,19 @@ private theorem result_of_nil {fn : Function} {stack : List Value} (typed : fn.W
     fn.ResultTyped (.values stack) := by
   simpa [Function.WellTyped, Function.ResultTyped, checkCode, Prefix.stackTypes] using typed
 
+private theorem return_of_code {fn : Function} {stack : List Value} {rest : List Op}
+    (typed : fn.WellTyped stack (.return_ :: rest)) : fn.ReturnTyped stack := by
+  simpa [Function.WellTyped, Function.ReturnTyped, checkCode] using typed
+
+private theorem return_result {fn : Function} {extra results : List Value}
+    (typed : fn.ReturnTyped (extra ++ results)) (arity : results.length = fn.declaration.results.length) :
+    fn.ResultTyped (.values results) := by
+  have length : (Prefix.stackTypes results).length = fn.declaration.results.length := by
+    simpa [Prefix.stackTypes] using arity
+  unfold Function.ReturnTyped at typed
+  rw [stack_types_append, ← length, List.take_left] at typed
+  exact List.reverse_inj.mp typed
+
 private theorem numeric_preserves {fn : Function} {locals stack next : List Value} {op : Prefix.Op} {rest : List Op}
     (typed : locals.map Value.type = fn.localTypes)
     (step : Prefix.Reduce locals stack op (.values next))
@@ -137,6 +150,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         | active newArgs edge alloc same live ready body =>
           exact .active typed used childFound declared trivial (.active newArgs edge alloc same live ready body) resume
         | trapped newArgs => exact .active typed used childFound declared trivial (.trapped newArgs) resume
+        | returning newArgs out => exact .active typed used childFound declared trivial (.returning newArgs out) resume
         | exit newArgs out => exact .active typed used childFound declared trivial (.exit newArgs out) resume
         | @done _ result out =>
           cases result with
@@ -147,6 +161,10 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
             exact .running typed (by simpa [Function.WellTyped, Function.ResumeTyped, stack_types_append,
               Prefix.stackTypes, values] using resume)
     | discard cut => cases ready with | trapped typed => exact .trapped typed
+    | returnLabel _ _ _ =>
+      cases ready with | running typed body => exact .returning typed (return_of_code body)
+    | returnFrame _ _ _ arity =>
+      cases ready with | returning _ out => exact .done (return_result out arity)
     | leaveValues args stack =>
       cases ready with | running typed body => exact .exit typed (result_of_nil body)
     | leaveTrap args => cases ready with | trapped typed => exact .exit typed trivial
@@ -163,7 +181,7 @@ theorem nesting_of_admitted {program : Program} (checked : program.check = true)
     | call => cases live
     | invoke => simp [Phase.frames, Body.frames]
     | label => exact List.isChain_cons_cons.mpr ⟨resolved, nested⟩
-    | exit => exact List.isChain_cons_cons.mpr ⟨resolved, nested⟩
+    | returning | exit => exact List.isChain_cons_cons.mpr ⟨resolved, nested⟩
     | done => cases live
   | _ => simp [Phase.frames, Body.frames]
 

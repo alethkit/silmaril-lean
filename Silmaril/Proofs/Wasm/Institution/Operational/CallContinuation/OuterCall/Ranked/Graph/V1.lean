@@ -19,10 +19,10 @@ open Computed
 
 private theorem expression_code (fn : Function) :
     expression fn.v1Func.body = (Body.running fn.initial fn.code).render v1Admin := by
-  change expression (fn.instructions Sequence.v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .unreachable) = _
+  change expression (fn.instructions Sequence.v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .return_ .unreachable) = _
   rw [Function.instructions, expression_append]
   change (fn.initial.map Sequence.v1Source.value).map AdminInstr.source ++
-      (fn.code.map (Op.emit Sequence.v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .unreachable)).map AdminInstr.source =
+      (fn.code.map (Op.emit Sequence.v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .return_ .unreachable)).map AdminInstr.source =
     values fn.initial ++ fn.code.map v1Admin.emit
   rw [List.map_map, List.map_map]
   congr 1
@@ -34,7 +34,7 @@ private theorem expression_code (fn : Function) :
     intro op _
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | unreachable => rfl
+    | set | tee | call | return_ | unreachable => rfl
 
 private theorem lift_label {H : Type} {s : Store H} {caller parent parentNext : Frame} {n : Nat}
     {before after : List Admin} (move : Step CallFrame.v1NoHost ⟨s, parent, before⟩ ⟨s, parentNext, after⟩) :
@@ -125,6 +125,17 @@ theorem sound {H : Type} {s : Store H} {program : Program} (checked : program.ch
         exact Step.context inside saved (rest.map v1Admin.emit)
     | discard cut =>
       exact lift_label ((Prefix.v1_discard_iff v1Admin.emit).mpr ⟨_, _, cut, rfl⟩)
+    | returnLabel locals stack rest =>
+      simpa only [v1Config, Phase.render, Body.render, v1Admin, List.map_cons,
+        Syntax.emit, Op.emit, List.append_assoc, List.singleton_append] using
+        Step.frame (Step.pure (host := CallFrame.v1NoHost) s (currentFrame target.declaration locals)
+          (.labelReturn target.declaration.results.length [] stack (rest.map v1Admin.emit)))
+          target.declaration.results.length caller
+    | returnFrame locals extra results arity =>
+      have n := arity.trans (congrArg (fun d => d.results.length) root.declared)
+      simpa only [v1Config, Phase.render, v1Admin, values_append, List.append_nil, Nested.resultCode] using
+        Step.pure (host := CallFrame.v1NoHost) s caller
+          (.frameReturn _ (currentFrame target.declaration locals) extra results [] n)
     | leaveValues locals stack =>
       simpa only [v1Config, Phase.render, Body.render, v1Admin, List.map_nil, List.append_nil, Nested.resultCode] using
         Step.frame (Step.pure (host := CallFrame.v1NoHost) s (currentFrame target.declaration locals)
@@ -138,8 +149,8 @@ theorem sound {H : Type} {s : Store H} {program : Program} (checked : program.ch
           (congrArg (fun decl => decl.results.length) root.declared)))
 
 private theorem function_to_lime (fn : Function) : fn.v1Func.toLime = fn.limeFunc := by
-  have body : Wasm.V1.Expr.toLime (fn.instructions Sequence.v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .unreachable) =
-      fn.instructions Sequence.limeSource (Locals.limeInstr ∘ .set) (Locals.limeInstr ∘ .tee) .unreachable := by
+  have body : Wasm.V1.Expr.toLime (fn.instructions Sequence.v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .return_ .unreachable) =
+      fn.instructions Sequence.limeSource (Locals.limeInstr ∘ .set) (Locals.limeInstr ∘ .tee) .return_ .unreachable := by
     rw [Wasm.V1.Expr.toLime_eq_map, Function.instructions, Function.instructions, List.map_append,
       List.map_map, List.map_map]
     congr 1
@@ -151,7 +162,7 @@ private theorem function_to_lime (fn : Function) : fn.v1Func.toLime = fn.limeFun
       intro op _
       cases op with
       | numeric op => cases op <;> rfl
-      | set | tee | call | unreachable => rfl
+      | set | tee | call | return_ | unreachable => rfl
   exact congrArg (fun code => (⟨fn.declaration.typeIndex, fn.declaration.locals, code⟩ : Wasm.Lime1.Func)) body
 
 theorem allocations_to_lime {H : Type} {s : Store H} {program : Program} (allocated : program.V1Allocated s) :
@@ -168,7 +179,7 @@ private theorem rest_to_lime (rest : List Op) :
   intro op _
   cases op with
   | numeric op => cases op <;> rfl
-  | set | tee | call | unreachable => rfl
+  | set | tee | call | return_ | unreachable => rfl
 
 mutual
 
@@ -182,6 +193,11 @@ private theorem phase_to_lime (target : CallTarget) (q : Phase) :
     change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
       [.label target.declaration.results.length [] (codeToLime (body.render v1Admin))]] = _
     rw [body_to_lime body]
+    rfl
+  | returning locals stack =>
+    change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
+      (codeToLime (values stack ++ [.source .return_]))] = _
+    rw [codeToLime_append, map_values]
     rfl
   | exit locals result =>
     change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
