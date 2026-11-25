@@ -6,6 +6,7 @@ public import Silmaril.Courses.Cambridge.SemanticEquivalence.Laws
 public import Silmaril.Courses.Cambridge.SemanticEquivalence.Disjoint
 public import Silmaril.Courses.Cambridge.SemanticEquivalence.L3Examples
 public import Silmaril.Courses.Cambridge.SemanticEquivalence.StatefulFunctions
+public import Silmaril.Courses.Cambridge.SemanticEquivalence.PointerEquality
 
 /-! # Cambridge Semantics chapter 8
 
