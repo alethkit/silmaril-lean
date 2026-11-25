@@ -30,6 +30,7 @@ theorem lower_complete {layout : Layout} {source : Link.Code layout}
     lowerCode source = some ⟨target, translated⟩ := by
   induction translated with
   | ret value => simp [lowerCode, operand_complete value]
+  | assert test _ remaining => simp [lowerCode, operand_complete test, remaining]
   | assign value _ remaining => cases value <;> simp [lowerCode, operand?, remaining]
   | call callee arguments _ remaining =>
     simp [lowerCode, operand_complete callee, arguments_complete arguments, remaining]

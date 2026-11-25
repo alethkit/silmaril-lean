@@ -11,6 +11,21 @@ import tempfile
 
 
 FIXTURES = (
+    ("body_assert_delivery", """def guarded(value):
+    assert value
+    return value
+observed = 5
+kept = 4
+assert guarded(0)
+kept = 9
+""", "AssertionError", ".raised .assertionError", 5, 4),
+    ("body_assert_operand_error", """def guarded():
+    assert absent
+    return 0
+observed = 5
+observed = guarded()
+kept = 9
+""", "NameError", '.raised (.nameError "absent")', 5, None),
     ("rebind", """value = 1
 def read():
     return value

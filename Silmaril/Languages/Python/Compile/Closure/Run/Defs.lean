@@ -49,6 +49,9 @@ inductive Translation {layout : Layout} :
     Link.Code layout → Core.Closure.Executor.Body layout → Prop where
   | ret {source target} (value : OperandTranslation source target) :
       Translation (.ret source) (.ret target)
+  | assert {source target rest next}
+      (test : OperandTranslation source target) (tail : Translation rest next) :
+      Translation (.assert source rest) (.assert target next)
   | assign {slot source target rest next}
       (value : OperandTranslation source target) (tail : Translation rest next) :
       Translation (.assign slot source rest) (.store slot target next)
@@ -64,6 +67,10 @@ def lowerCode {layout : Layout} : (code : Link.Code layout) →
   | .ret expression => do
     let operand ← operand? expression
     return ⟨.ret operand.val, .ret operand.property⟩
+  | .assert test rest => do
+    let operand ← operand? test
+    let tail ← lowerCode rest
+    return ⟨.assert operand.val tail.val, .assert operand.property tail.property⟩
   | .assign slot (.call callee arguments) rest => do
     let function ← operand? callee
     let operands ← arguments? arguments
