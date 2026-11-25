@@ -11,13 +11,14 @@ namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomo
 open Continuation.Partial
 open Continuation.Descent (Pending)
 open Relation (ReflTransGen)
+open SingleTheta (Carries)
 
 universe u v w
 
 variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
-variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
+variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)} {ids : GlobalRel}
 variable {args outs entry returned carried params : Ports (Ty V S)} {extra : Nat}
-variable {sigsL sigsR : List (Ports (Ty V S))}
+variable {sigs sigsL sigsR : List (Ports (Ty V S))}
 
 abbrev vertex (inputs : Wires args [] (.control (extra + 2) :: entry))
     (sigs : Fin (extra + 2) → List (Ports (Ty V S))) :
@@ -32,22 +33,42 @@ abbrev code (inputs : Wires args [] (.control (extra + 2) :: entry))
     (outputs : Wires args [returned] outs) : NestedTheta.Term (Instruction Op) args [] [returned] outs :=
   .bind (vertex inputs sigs) arms (.ret outputs)
 
+abbrev LoopBody (Op : Dialect.{u, v} (ValueSort V S) S) (carried : Ports (Ty V S))
+    (sigs : List (Ports (Ty V S))) :=
+  NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried)
+
+/-- An outer θ with a wiring suffix. Its activation is scoped in fresh
+locals, and the suffix also has access to the original arguments. -/
+abbrev loopCode (initial : Wires args [] carried) (body : LoopBody Op carried sigs)
+    (outputs : Wires args [carried] outs) :
+    NestedTheta.Term (Instruction Op) args [] [carried] outs :=
+  .bind (Isomorphism.Invocation.loopVertex initial sigs) (fun _ => body) (.ret outputs)
+
+/-- A positive outer iteration requires a whole successful activation on
+each side, including any inner θ, followed by the actual feedback edge. -/
+def IterationPair (primitives : Primitives m σ) (left : LoopBody Op carried sigsL) (right : LoopBody Op carried sigsR)
+    (input next : Carries m ids σ carried) : Prop :=
+  Feedback.Iteration primitives left (input.left, input.store) (next.left, next.store) ∧
+  Feedback.Iteration primitives right (input.right, input.store) (next.right, next.store)
+
 /-- The outer γ and θ bindings are at vertex zero. The renaming's child
 maps choose the arm or loop body. Acyclic leaves use their own node maps. -/
 inductive Location where
   | acyclic (inner : Local.Location)
   | theta (inner : Local.Location)
   | gamma (arm : Nat) (inner : Location)
+  | loop (inner : Location)
   deriving DecidableEq, Repr
 
 def Location.rename (mapping : Renaming) : Location → Location
   | .acyclic inner => .acyclic (mapping.location inner)
   | .theta inner => .theta ((mapping.child 0 0).location inner)
   | .gamma arm inner => .gamma arm (inner.rename (mapping.child 0 arm))
+  | .loop inner => .loop (inner.rename (mapping.child 0 0))
 
-/-- Recursive γ trees with ordered acyclic leaves or an ordered single-θ
-leaf. Every γ and θ uses common typed input and output wiring, and only
-the selected γ arm will be entered. -/
+/-- Finite γ/θ trees over ordered acyclic graphs. Each structural binding
+uses common typed input and output wiring. Only the selected γ arm is
+entered, and θ restarts its own body with fresh locals. -/
 inductive CodePair (Op : Dialect.{u, v} (ValueSort V S) S) :
     {args outs : Ports (Ty V S)} → {sigsL sigsR : List (Ports (Ty V S))} →
     Renaming → NestedTheta.Term (Instruction Op) args [] sigsL outs →
@@ -68,6 +89,12 @@ inductive CodePair (Op : Dialect.{u, v} (ValueSort V S) S) :
       (inputs : Wires args [] (.control (extra + 2) :: entry)) (outputs : Wires args [returned] outs)
       (position : map.vertices 0 = 0) (arms : ∀ i, CodePair Op (map.child 0 i.val) (armsL i) (armsR i)) :
     CodePair Op map (code inputs armsL outputs) (code inputs armsR outputs)
+
+  | loop {args carried outs : Ports (Ty V S)} {sigsL sigsR : List (Ports (Ty V S))} {map : Renaming}
+      {left : LoopBody Op carried sigsL} {right : LoopBody Op carried sigsR}
+      (initial : Wires args [] carried) (outputs : Wires args [carried] outs)
+      (position : map.vertices 0 = 0) (body : CodePair Op (map.child 0 0) left right) :
+    CodePair Op map (loopCode initial left outputs) (loopCode initial right outputs)
 
 /-- The existing typed primitive diagnostic and exact pending continuation. -/
 structure Block (m : Machine.{u, v, w} Op) (σ : Type (max u v w)) (outs : Ports (Ty V S)) where
@@ -132,7 +159,22 @@ inductive BlockPair (primitives : Primitives m σ) (ids : GlobalRel) :
       ⟨stopL.site, .bind (past := []) (.ret outputs) entryL PUnit.unit stopL.pending, stopL.store⟩
       ⟨stopR.site, .bind (past := []) (.ret outputs) entryR PUnit.unit stopR.pending, stopR.store⟩
 
-variable {ids : GlobalRel} {primitives : Primitives m σ} {mapping : Renaming}
+  | loop {args carried outs : Ports (Ty V S)} {sigsL sigsR : List (Ports (Ty V S))} {map : Renaming}
+      {left : LoopBody Op carried sigsL} {right : LoopBody Op carried sigsR}
+      {entryL entryR : Tuple m.Val args} {store : σ} {first current : Carries m ids σ carried}
+      {locL locR : Location} {stopL stopR : Block m σ (Theta.BodyResults carried)}
+      (initial : Wires args [] carried) (outputs : Wires args [carried] outs)
+      (startsL : first.left = initial.read entryL PUnit.unit) (startsR : first.right = initial.read entryR PUnit.unit)
+      (startsStore : first.store = store)
+      (completed : ReflTransGen (IterationPair primitives left right) first current)
+      (stopped : BlockPair primitives ids (map.child 0 0) left right current.left current.right
+        current.store locL locR stopL stopR) :
+    BlockPair primitives ids map (loopCode initial left outputs) (loopCode initial right outputs)
+      entryL entryR store (.loop locL) (.loop locR)
+      ⟨stopL.site, .bind (past := []) (.ret outputs) entryL PUnit.unit (.loop left stopL.pending), stopL.store⟩
+      ⟨stopR.site, .bind (past := []) (.ret outputs) entryR PUnit.unit (.loop right stopR.pending), stopR.store⟩
+
+variable {primitives : Primitives m σ} {mapping : Renaming}
 
 /-- A common productive feedback stream and finite syntax-directed routes
 to its first checkpoints. Both routes retain all pending typed frames. -/
@@ -146,6 +188,14 @@ inductive ProductivePair (primitives : Primitives m σ) (ids : GlobalRel)
       (ranL : Feedback.Reaches primitives jobL store ⟨carried, sigsL, embed left.toTerm, (initial.left, initial.store)⟩ pendingL)
       (ranR : Feedback.Reaches primitives jobR store ⟨carried, sigsR, embed right.toTerm, (initial.right, initial.store)⟩ pendingR)
 
+  | feedback {carried : Ports (Ty V S)} {sigsL sigsR : List (Ports (Ty V S))}
+      {left : LoopBody Op carried sigsL} {right : LoopBody Op carried sigsR}
+      {initial : Carries m ids σ carried}
+      {pendingL pendingR : Pending m carried outs}
+      (paired : InfiniteTrace (IterationPair primitives left right) initial)
+      (ranL : Feedback.Reaches primitives jobL store ⟨carried, sigsL, left, (initial.left, initial.store)⟩ pendingL)
+      (ranR : Feedback.Reaches primitives jobR store ⟨carried, sigsR, right, (initial.right, initial.store)⟩ pendingR)
+
 inductive RegionPair (primitives : Primitives m σ) (ids : GlobalRel) (mapping : Renaming)
     (left : NestedTheta.Term (Instruction Op) args [] sigsL outs)
     (right : NestedTheta.Term (Instruction Op) args [] sigsR outs)
@@ -157,6 +207,32 @@ inductive RegionPair (primitives : Primitives m σ) (ids : GlobalRel) (mapping :
   | blocked {locL locR : Location} {stopL stopR : Block m σ outs}
       (stopped : BlockPair primitives ids mapping left right inputL inputR store locL locR stopL stopR)
   | productive (run : ProductivePair primitives ids (.region left inputL PUnit.unit) (.region right inputR PUnit.unit) store)
+
+/-- An activation that does not select outer feedback. An inner run is
+witnessed by the selected arm's productive feedback certificate. -/
+inductive Activation (primitives : Primitives m σ) (mapping : Renaming)
+    (left : LoopBody Op carried sigsL) (right : LoopBody Op carried sigsR)
+    (input : Carries m ids σ carried) : Prop where
+  | exited {tag : m.Val (.control 2)} {outL outR : Tuple m.Val carried} {store : σ}
+      (exits : (tag.selector.val == 1) = false)
+      (values : TupleRelated m ids outL outR)
+      (ranL : Eval primitives (.region left input.left PUnit.unit) input.store (.returned (.cons tag outL) store))
+      (ranR : Eval primitives (.region right input.right PUnit.unit) input.store (.returned (.cons tag outR) store))
+  | blocked {locL locR : Location} {stopL stopR : Block m σ (Theta.BodyResults carried)}
+      (stopped : BlockPair primitives ids mapping left right input.left input.right input.store locL locR stopL stopR)
+  | inner (live : ProductivePair primitives ids (.region left input.left PUnit.unit)
+      (.region right input.right PUnit.unit) input.store)
+
+/-- The observed loop either reaches an exit, block or productive inner
+activation after completed outer restarts, or keeps completing outer
+activations forever. The prefix and stream use the same carried relation. -/
+inductive LoopPair (primitives : Primitives m σ) (mapping : Renaming)
+    (left : LoopBody Op carried sigsL) (right : LoopBody Op carried sigsR)
+    (input : Carries m ids σ carried) : Prop where
+  | activation {current : Carries m ids σ carried}
+      (completed : ReflTransGen (IterationPair primitives left right) input current)
+      (observed : Activation primitives mapping left right current)
+  | outer (live : InfiniteTrace (IterationPair primitives left right) input)
 
 inductive ScheduledLambda (m : Machine.{u, v, w} Op) (ids : GlobalRel) (mapping : Renaming)
     (params outs : Ports (Ty V S)) :

@@ -68,7 +68,7 @@ theorem CallPair.infinite_iff {sourceL sourceR : Config m σ outs}
     InfiniteTrace (Step primitives) sourceL ↔ InfiniteTrace (Step primitives) sourceR :=
   Proofs.infinite_iff paired
 
-/-- Compose ordered partial ω linking with two-level θ body renumbering.
+/-- Compose ordered partial ω linking with the outer θ observation.
 Actual dispatch supplies the selected closures and exact post-link store. -/
 theorem link_then_invoke (respects : ActionsRespect primitives ids)
     {left : Omega Op args outs sigsL} {right : Omega Op args outs sigsR}
