@@ -18,7 +18,7 @@ open Surface
 public section
 
 inductive Unsupported where
-  | operatorParameter | operatorArgument | expression | declaration
+  | operatorParameter | operatorArgument | expression | declaration | instanceImplicitBinding
   deriving DecidableEq, Repr
 
 inductive DiagnosticKind where
@@ -30,6 +30,9 @@ inductive DiagnosticKind where
   | missingReference
   | missingBinding (id : BindingId)
   | missingSummary (id : BindingId)
+  | missingInstancePlan
+  | substitutionLevel (target : BindingId) (ceiling actual : Level)
+  | instanceReplay (home : Site) (cause : DiagnosticKind)
   | inconsistentArity (expected actual : Nat)
   | failedRequirement (requirement : Requirement)
   deriving DecidableEq, Repr
@@ -154,29 +157,37 @@ private def applyBuiltin (site : Site) (name : Name) (sourceArgs : List Expr)
 private structure Context where
   registry : CheckedRegistry
   sourceModule : CheckedModule
+  replaying : Bool
 
-private def checkApplication (visit : Site → Expr → CheckM Analysis) (context : Context)
-    (site : Site) (args : List OpArg) (child : Nat → Step) : CheckM Analysis := do
-  let some use := context.sourceModule.referenceAt site.path | failAt site .missingReference
-  let some binding := context.registry.findBinding use.target | failAt site (.missingBinding use.target)
-  for (slot, index) in binding.slots.zipIdx do
-    if let .operator _ := slot then
-      failAt (site.child (child index)) (.unsupported .operatorArgument)
-  let exprs ← args.zipIdx.mapM fun (arg, index) =>
-    match arg with
-    | .expr value => pure value
-    | _ => failAt (site.child (child index)) (.unsupported .operatorArgument)
-  let operands ← exprs.zipIdx.mapM fun (expr, index) => do
-    let argSite := site.child (child index)
-    return (argSite, ← visit argSite expr)
+private def applyBinding (context : Context) (site : Site) (binding : Binding)
+    (sourceArgs : List Expr) (operands : List (Site × Analysis)) : CheckM Analysis := do
   match binding.id, binding.kind with
-  | .builtin name, _ => applyBuiltin site name exprs operands
+  | .builtin name, _ =>
+    if context.replaying && name = .symbol .prefix "ENABLED" then
+      failAt site (.unsupported .instanceImplicitBinding)
+    applyBuiltin site name sourceArgs operands
   | _, .formal => return ⟨.parameter binding.id, []⟩
   | _, .rigid => return ⟨.fixed .constant, []⟩
   | _, _ =>
     let some summary := (← get).operators.lookup binding.id
       | failAt site (.missingSummary binding.id)
     applySummary site summary (operands.map Prod.snd)
+
+private def checkApplication (visit : Site → Expr → CheckM Analysis) (context : Context)
+    (site : Site) (args : List (Site × OpArg)) : CheckM Analysis := do
+  let some use := context.sourceModule.referenceAt site.path | failAt site .missingReference
+  let some binding := context.registry.findBinding use.target | failAt site (.missingBinding use.target)
+  unless args.length = binding.slots.length do
+    failAt site (.inconsistentArity binding.slots.length args.length)
+  let operands ← (binding.slots.zip args).mapM fun (slot, argSite, arg) => do
+    if let .operator _ := slot then failAt argSite (.unsupported .operatorArgument)
+    let .expr value := arg | failAt argSite (.unsupported .operatorArgument)
+    return (value, argSite, ← visit argSite value)
+  applyBinding context site binding (operands.map Prod.fst) (operands.map Prod.snd)
+
+private def positionalArguments (site : Site) (child : Nat → Step) (args : List OpArg) :
+    List (Site × OpArg) :=
+  args.zipIdx.map fun (arg, index) => (site.child (child index), arg)
 
 private def formalId (site : Site) (index : Nat) : BindingId :=
   .declared (site.child (.parameter index))
@@ -229,10 +240,15 @@ private partial def checkExpr (context : Context) (site : Site) (expression : Ex
   let structural (items : List Expr) (ceiling : Level) : CheckM Analysis := do
     applySignature site (propagating items.length ceiling) (← operands items)
   let apply (items : List Expr) : CheckM Analysis :=
-    checkApplication visit context site (items.map .expr) .operand
+    checkApplication visit context site (positionalArguments site .operand (items.map .expr))
   let checked ← match expression with
     | .literal _ => pure ({} : Analysis)
-    | .ref (.operator _) args [] => checkApplication visit context site args .argument
+    | .ref (.operator _) args [] =>
+      checkApplication visit context site (positionalArguments site .argument args)
+    | .ref (.operator head) args (selector :: rest) => do
+      let some (_, segments) := qualifiedCall site head args (selector :: rest)
+        | failAt site (.unsupported .expression)
+      checkApplication visit context site (qualifiedArguments segments)
     | .prefix _ arg | .postfix _ arg => apply [arg]
     | .infix _ left right => apply [left, right]
     | .cartesian items | .setEnum items | .tuple items => structural items .action
@@ -317,16 +333,72 @@ private def registerDeclaration (external : ExternalLevels) (hasSource : Bool) (
   let summary := summaryFromSignature site signature
   modify fun state => { state with operators := (binding.id, summary) :: state.operators }
 
-private def checkModule (registry : CheckedRegistry) (external : ExternalLevels) (id : ModuleId)
+private abbrev OperatorTable := List (BindingId × OperatorSummary)
+
+private def replacementLevel (context : Context) (instanceSite : Site) :
+    Replacement → CheckM (Site × Analysis)
+  | .expression site body => do return (site, ← checkExpr context site body)
+  | .binding id => do
+    let some binding := context.registry.findBinding id | failAt instanceSite (.missingBinding id)
+    return (instanceSite, ← applyBinding context instanceSite binding [] [])
+
+private def checkInstance (context : Context) (base : OperatorTable) (plan : InstancePlan)
+    (replay : ModuleId → OperatorTable → CheckM Unit) : CheckM Unit := do
+  let some target := context.registry.moduleAt plan.target | failAt plan.site .missingInstancePlan
+  let nonconstant := target.scope.any fun binding =>
+    binding.kind = .variable ||
+      (base.lookup binding.id).any fun summary => summary.result.floor ≠ .constant
+  let mut replacements : OperatorTable := []
+  let mut requirements := []
+  for (id, replacement) in plan.substitutions do
+    let some targetBinding := context.registry.findBinding id | failAt plan.site (.missingBinding id)
+    let (site, actual) ← replacementLevel context plan.site replacement
+    let ceiling := if !nonconstant then Level.temporal
+      else if targetBinding.kind = .variable then .state else .constant
+    unless actual.term.floor.atMost ceiling do
+      failAt site (.substitutionLevel id ceiling actual.term.floor)
+    let checked ← addCondition actual site (.atMost actual.term ceiling)
+    requirements := requirements ++ checked.requirements
+    replacements := (id, ⟨[], checked.term, []⟩) :: replacements
+  -- Definitions are checked again in a private copy of the operator table.
+  -- At the host only the new exports and host expression annotations survive.
+  let host ← get
+  try replay plan.target replacements
+  catch error => failAt plan.site (.instanceReplay error.site error.kind)
+  let replayed := (← get).operators
+  let members ← plan.members.mapM fun member => do
+    let some home := replayed.lookup member.home | failAt plan.site (.missingSummary member.home)
+    let summary : OperatorSummary := {
+      home with
+      parameters := plan.parameters ++ home.parameters
+      requirements := (requirements ++ home.requirements).eraseDups
+    }
+    return (member.id, summary)
+  set { host with operators := members ++ host.operators }
+
+private instance : Inhabited (CheckM Unit) := ⟨pure ()⟩
+
+-- Replay follows dependency edges of the already cycle-checked registry.
+private partial def checkModule (registry : CheckedRegistry) (external : ExternalLevels)
+    (base replacements : OperatorTable) (replaying : Bool) (id : ModuleId)
     (resolved : CheckedModule) : CheckM Unit := do
   for binding in resolved.bindings do
-    registerDeclaration external resolved.source.isSome binding
+    if let some summary := replacements.lookup binding.id then
+      modify fun state => { state with operators := (binding.id, summary) :: state.operators }
+    else
+      registerDeclaration external resolved.source.isSome binding
   let some source := resolved.source | return ()
-  let context : Context := ⟨registry, resolved⟩
+  let context : Context := ⟨registry, resolved, replaying⟩
   let moduleSite : Site := ⟨id, []⟩
+  let replay (target : ModuleId) (actual : OperatorTable) : CheckM Unit := do
+    for (dep, mod) in registry.extendedModules target do
+      checkModule registry external base actual true dep mod
   for (unit, index) in source.units.zipIdx do
     let site := moduleSite.child (.unit index)
     match unit with
+    | .definition (.namedInstance ..) | .instantiation .. =>
+      let some plan := resolved.instanceAt site.path | failAt site .missingInstancePlan
+      checkInstance context base plan replay
     | .definition definition => discard <| checkDefinition (checkExpr context) site definition
     | .variables _ | .constants _ => pure ()
     | .theoremDecl ⟨none, .expr statement, none⟩ =>
@@ -352,7 +424,7 @@ public def check (registry : CheckedRegistry) (external : ExternalLevels := []) 
   let verify : CheckM Unit := do
     validateExternal registry external
     for (id, mod) in registry.modules do
-      checkModule registry external id mod
+      checkModule registry external (← get).operators [] false id mod
   let (_, state) ← verify.run {}
   return ⟨state.expressions.reverse, state.operators.reverse⟩
 
