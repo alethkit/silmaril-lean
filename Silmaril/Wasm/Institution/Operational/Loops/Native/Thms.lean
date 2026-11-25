@@ -16,6 +16,16 @@ section Core
 open Execution.Core
 open Wasm.SingleThreaded.Det (noHost)
 
+/-- Entry installs a restart label with the resolved parameter arity. -/
+theorem core_loop_step_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Frame}
+    {bt : BlockType} {body : List Instr} {stack : List Val} {rest : List Admin} {dst : Config H} :
+    Step P noHost ⟨s, f, vals stack ++ .plain (.loop bt body) :: rest⟩ dst ↔
+      ∃ (saved args : List Val) (params results : List Wasm.Validation.CValType),
+        stack = saved ++ args ∧ f.module.blockType? bt = some (params, results) ∧
+        args.length = params.length ∧
+        dst = ⟨s, f, vals saved ++ .label params.length [.loop bt body] (vals args ++ expression body) :: rest⟩ :=
+  Proofs.core_loop_step_iff
+
 /-- Entry saves the outside operands and installs a restart continuation with arity zero. -/
 theorem core_entry_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Frame} {result : Option NumType}
     {saved : List Val} {body : List Instr} {rest : List Admin} {dst : Config H} :

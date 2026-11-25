@@ -14,7 +14,7 @@ allocation premises.
 | [Integer division](../../Silmaril/Wasm/Institution/Operational/LegacyDivision/Transport/Thms.lean) | Flat signed and unsigned division at each width, including a zero divisor and signed overflow traps. | Other flat numeric operators and division in general structured code. |
 | [Numeric locals](../../Silmaril/Wasm/Institution/Operational/Locals/Native/Thms.lean) | Typed flat `local.get`, `local.set`, and `local.tee` with exact local updates. | Uninitialized and nonnumeric Core local slots, globals, and arbitrary structured contexts. |
 | [Scalar blocks](../../Silmaril/Wasm/Institution/Operational/Blocks/Native/Thms.lean) and [nested branch exits](../../Silmaril/Wasm/Institution/Operational/BranchExit/Native/Thms.lean) | An isolated scalar block with flat locals and normal exit. A separate guard covers `br 1` followed by `br 0` under two already-entered block labels. | Nested source entry, `br_if`, `br_table`, and loop continuations. |
-| [Checked indexed blocks](../../Silmaril/Wasm/Institution/Operational/Blocks/Indexed/Native/Thms.lean) | Core and Lime1 resolve a numeric signature in the current frame module. The standalone slice covers flat local code, immediate `br 0`, and immediate function return. The ranked graph below also checks indexed blocks and both arms of indexed conditionals. | Indexed loops. V1 has only unindexed, parameterless blocks and conditionals with at most one result. |
+| [Checked indexed blocks](../../Silmaril/Wasm/Institution/Operational/Blocks/Indexed/Native/Thms.lean) | Core and Lime1 resolve a numeric signature in the current frame module. The standalone slice covers flat local code, immediate `br 0`, and immediate function return. The ranked graph below also checks indexed blocks, conditionals, and loops. | Nonnumeric signatures and whole-module validation. V1 admits only unindexed, parameterless structured labels with at most one result. |
 | [Memory32 queries](../../Silmaril/Wasm/Institution/Operational/MemoryQuery/Native/Thms.lean) and [writes](../../Silmaril/Wasm/Institution/Operational/MemoryWrite/Native/Thms.lean) | Isolated `memory.size`, full-width `i32.load`, and full-width `i32.store` at index zero and static offset zero. The bounds trap preserves the store. | Packed and floating accesses, other offsets, Lime1 bulk operations, and Core memory64 or multiple memories. |
 | [Memory32 growth](../../Silmaril/Wasm/Institution/Operational/MemoryGrow/Native/Thms.lean) | An isolated `memory.grow` at index zero. The Core spec profile agrees on aligned buffers and representable maxima. Success appends zero-filled pages and returns the old size. Failure returns all ones and preserves the store. | Oracle-controlled growth, multiple memories, and memory64. |
 | [Direct-call resolution](../../Silmaril/Wasm/Institution/Operational/CallResolution/Native/Thms.lean) and [typed callee frames](../../Silmaril/Wasm/Institution/Operational/CallFrame/Native/Thms.lean) | Individually checked resolution and resolved invocation of one allocated non-host function. Numeric locals, at most one result, explicit return, fallthrough, and trap propagation. The typed caller keeps its value prefix. | Indirect calls, host contracts and divergence, and composition with caller continuations. |
@@ -38,8 +38,8 @@ The [ranked graph judgment](../../Silmaril/Wasm/Institution/Operational/CallCont
 interprets one typed activation at a time by well-founded recursion on resolved
 targets. The graph checker derives the target table from each body and checks
 the typed operand prefix, local reads and writes, integer binary operations,
-direct calls, scalar blocks and conditionals, indexed blocks and conditionals in
-Core and Lime1, unconditional and conditional branch exits, explicit return,
+direct calls, scalar structured labels, indexed blocks, conditionals, and loops
+in Core and Lime1, unconditional and conditional branch exits, explicit return,
 and normal fallthrough. The judgment also covers unreachable and partial trap
 discards. Exact active-call inversion identifies the child's step and the
 caller's unchanged continuation. Finite runs preserve typing and the
@@ -169,13 +169,13 @@ and [Wasm 3.0 loop entry](../../specs/spectec/src/specification/wasm-3.0/4.3-exe
 [Native fixtures](../../tests/wasm/scalar-loop-native/Regression.lean)
 check that exactly two configurations are reachable by finite prefixes of a typed self-loop
 and a scalar loop that restarts once, then resumes its saved continuation.
-The ranked checker admits loops with no parameters and zero or one numeric
+For unindexed loops, the ranked checker admits no parameters and zero or one numeric
 fallthrough result. It checks the body recursively with an empty operand stack
 and an empty branch payload for the loop label. The declared fallthrough
 result and enclosing function result types are checked separately. Calls in
 a loop body still contribute to the allocated, rank-decreasing target table.
 
-A restart discards iteration operands and pending code, retains the current
+A scalar-loop restart discards iteration operands and pending code, retains the current
 locals and saved outer context, and reinstates the original loop instruction.
 The same checked entry rule then starts the next iteration. Fallthrough,
 branches crossing the loop, explicit return, and trap continue through the
@@ -210,11 +210,24 @@ with normal fallthrough and zero selection with `br 0`, both returning ordered
 mixed-width results to a suspended caller. See the [Core conditional rule](../../specs/spectec/src/specification/wasm-3.0/4.3-execution.instructions.spectec#L85)
 and the [Wasm 2.0 conditional rule](../../specs/spectec/src/specification/wasm-2.0/8-reduction.spectec#L76).
 
+Indexed loop entry uses the same exact module lookup. The body starts with the
+ordered parameter suffix. A branch to the loop label delivers that same type
+list as its restart operands, while fallthrough uses the declared loop results
+and `return` uses the enclosing function result types. The back edge discards
+pending iteration code and extra iteration operands. It places the ordered
+restart operands above the saved prefix with the indexed loop instruction
+pending. A separate entry step consumes that suffix into the next iteration,
+using the updated locals. Core and Lime1 have exact native successors and
+finite endpoint readback even when a loop can keep restarting. The ranked
+fixtures check a mixed-width restart and re-entry, fallthrough with a different
+arity and a preserved prefix, explicit return, and malformed type or operand
+guards.
+
 V1 rejects indexed syntax even after unconditional exits and in unselected
 arms. Its native readback theorems take an explicit syntax premise on the
 starting phase, which permits applying them to intermediate configurations.
-Indexed loops, recursive calls, indirect and host calls,
-store mutation, and whole-module validation remain outside the ranked graph.
+Recursive calls, indirect and host calls, store mutation, and whole-module
+validation remain outside the ranked graph.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have

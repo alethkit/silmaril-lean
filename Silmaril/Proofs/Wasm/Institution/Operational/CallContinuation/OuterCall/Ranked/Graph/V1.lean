@@ -31,7 +31,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | indexedBlock | indexedIf | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
+    | set | tee | call | block | indexedBlock | indexedIf | loop | indexedLoop | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.v1Func.body = (Body.running fn.initial fn.code).render v1Admin := by
@@ -58,6 +58,8 @@ private def regionConfig {H : Type} (s : Store H) (target : CallTarget) (n : Nat
     ⟨s, currentFrame target.declaration locals, values stack ++ [.source .return_]⟩
   | .restart locals result original, _ =>
     ⟨s, currentFrame target.declaration locals, [v1Admin.emit (.loop result original)]⟩
+  | .indexedRestart locals args index signature original, _ =>
+    ⟨s, currentFrame target.declaration locals, values args ++ [v1Admin.emit (.indexedLoop index signature original)]⟩
   | .exit locals result, _ => ⟨s, currentFrame target.declaration locals, Nested.resultCode values .trap result⟩
   | _, _ => ⟨s, currentFrame target.declaration [], []⟩
 
@@ -86,7 +88,7 @@ private theorem lift_nested {H : Type} {s : Store H} {target : CallTarget} {n : 
   | label ls body =>
     rw [Phase.afterBlock, regionConfig, render_under_label v1Admin saved result rest innerKind compatible]
     simpa only [regionConfig, v1Admin, List.append_assoc, List.singleton_append] using wrapped
-  | branching | returning | restart =>
+  | branching | returning | restart | indexedRestart =>
     simpa only [regionConfig, Phase.afterBlock, Body.render, List.map_cons, List.append_assoc,
       List.singleton_append, v1Admin, v1Emit, Op.emit, v1CodeSyntax, values_append] using wrapped
   | exit ls out =>
@@ -174,6 +176,10 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
     simp [Phase.supportsV1, Body.supportsV1, codeV1, Op.supportsV1] at supported
   case indexedBlockStep =>
     contradiction
+  case indexedLoopEnter =>
+    contradiction
+  case indexedLoopStep =>
+    contradiction
   case loopEnter locals saved result code rest =>
     apply lift_label
     exact (Loops.v1_entry_iff (result := result) (saved := saved) (body := Op.emitList v1CodeSyntax code)
@@ -251,6 +257,10 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
         simpa only [regionConfig, Body.render, v1Admin, LabelKind.branchHere, LabelKind.cont,
           v1Emit, Op.emit, v1CodeSyntax, expression, values, List.map_nil, List.nil_append,
           List.append_nil, List.map_cons, List.append_assoc, List.singleton_append, n] using move
+      | indexedLoop index signature original =>
+        simpa only [regionConfig, Body.render, v1Admin, LabelKind.branchHere, LabelKind.cont,
+          v1Emit, Op.emit, v1CodeSyntax, expression, values_append,
+          List.map_cons, List.map_nil, List.append_assoc, List.singleton_append, n] using move
   case branchOuter locals stack depth result rest outer =>
     have lowered : lowerLabel depth = lowerBranch depth := rfl
     simpa only [regionConfig, Body.render, v1Admin, v1Emit, Op.emit, v1CodeSyntax, List.map_cons,
@@ -293,7 +303,7 @@ theorem sound {H : Type} {s : Store H} {program : Program} (checked : program.ch
         have impossible := program.admitted_step check root.found ready move
         cases impossible with | branching _ found _ => simp at found
       | label | returning | exit => exact lifted
-      | restart =>
+      | restart | indexedRestart =>
         have impossible := program.admitted_step check root.found ready move
         cases impossible
       | call | invoke | done => cases outcome
@@ -329,7 +339,7 @@ private theorem emit_to_lime (op : Op) (supported : op.supportsV1 = true) :
   cases op with
   | numeric op => cases op <;> rfl
   | set | tee | call | br | brIf | brTable | return_ | unreachable => rfl
-  | indexedBlock | indexedIf => contradiction
+  | indexedBlock | indexedIf | indexedLoop => contradiction
   | block result code =>
     change Wasm.V1.Instr.toLime (.block result (Op.emitList v1CodeSyntax code)) =
       .block (Blocks.limeType result) (Op.emitList limeCodeSyntax code)
@@ -420,6 +430,7 @@ private theorem phase_to_lime (target : CallTarget) (q : Phase) (supported : q.s
     rw [show codeToLime ([v1Admin.emit (.loop result original)] : List Admin) =
       [limeAdmin.emit (.loop result original)] from mapped]
     rfl
+  | indexedRestart => contradiction
   | exit locals result =>
     change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
       (codeToLime (Nested.resultCode values .trap result))] = _
@@ -453,7 +464,7 @@ private theorem body_to_lime (q : Body) (supported : q.supportsV1 = true) :
     simp only [codeToLime_append, map_values, codeToLime_cons, AdminInstr.map, List.map_nil,
       body_to_lime body bodyOk, rest_to_lime rest restOk]
     rfl
-  | indexedBlock => contradiction
+  | indexedBlock | indexedLoop => contradiction
   | loop saved result original body rest =>
     obtain ⟨first, restOk⟩ := Bool.and_eq_true_iff.mp supported
     obtain ⟨originalOk, bodyOk⟩ := Bool.and_eq_true_iff.mp first

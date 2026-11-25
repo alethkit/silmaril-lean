@@ -22,6 +22,7 @@ inductive Op where
   | block (result : Option NumType) (code : List Op)
   | indexedBlock (index : TypeIdx) (signature : Wasm.V1.FuncType) (code : List Op)
   | loop (result : Option NumType) (code : List Op)
+  | indexedLoop (index : TypeIdx) (signature : Wasm.V1.FuncType) (code : List Op)
   | if_ (result : Option NumType) (thenBody elseBody : List Op)
   | indexedIf (index : TypeIdx) (signature : Wasm.V1.FuncType) (thenBody elseBody : List Op)
   /-- Branch annotations list the target's operand types in delivery order. -/
@@ -45,7 +46,7 @@ def codeTargets : List Op → List CallTarget
 
 def Op.targets : Op → List CallTarget
   | .call target => [target]
-  | .block _ body | .indexedBlock _ _ body | .loop _ body => codeTargets body
+  | .block _ body | .indexedBlock _ _ body | .loop _ body | .indexedLoop _ _ body => codeTargets body
   | .if_ _ thenBody elseBody | .indexedIf _ _ thenBody elseBody =>
       codeTargets thenBody ++ codeTargets elseBody
   | _ => []
@@ -60,7 +61,7 @@ def codeV1 : List Op → Bool
   | op :: rest => op.supportsV1 && codeV1 rest
 
 def Op.supportsV1 : Op → Bool
-  | .indexedBlock .. | .indexedIf .. => false
+  | .indexedBlock .. | .indexedIf .. | .indexedLoop .. => false
   | .block _ body | .loop _ body => codeV1 body
   | .if_ _ left right => codeV1 left && codeV1 right
   | _ => true
@@ -80,31 +81,34 @@ def Function.localTypes (fn : Function) : List NumType :=
 abbrev EnclosingLabels := List (List NumType)
 
 /-- A branch exits a function or block label. A loop label instead reinstates
-its original source instruction. Loop parameters are empty in this fragment. -/
+its original source instruction with its ordered parameters. -/
 inductive LabelKind where
   | exit
   | indexed (signature : Wasm.V1.FuncType)
   | loop (result : Option NumType) (original : List Op)
+  | indexedLoop (index : TypeIdx) (signature : Wasm.V1.FuncType) (original : List Op)
 
 def LabelKind.supportsV1 : LabelKind → Bool
   | .exit => true
-  | .indexed _ => false
+  | .indexed _ | .indexedLoop .. => false
   | .loop _ original => codeV1 original
 
 def LabelKind.inputs (kind : LabelKind) (fallthrough : List NumType) : List NumType :=
   match kind with
   | .exit | .indexed _ => fallthrough
   | .loop .. => []
+  | .indexedLoop _ signature _ => signature.params
 
 def LabelKind.arity (kind : LabelKind) (fallthroughArity : Nat) : Nat :=
   match kind with
   | .exit | .indexed _ => fallthroughArity
   | .loop .. => 0
+  | .indexedLoop _ signature _ => signature.params.length
 
 /-- The result stack supplied to the enclosing code after this label. -/
 def LabelKind.results (kind : LabelKind) (scalar : Option NumType) : List NumType :=
   match kind with
-  | .indexed signature => signature.results
+  | .indexed signature | .indexedLoop _ signature _ => signature.results
   | _ => scalar.toList
 
 /-- Branch depth zero uses the current label. Positive depths stay within the activation. -/
@@ -160,6 +164,10 @@ def checkOp (targets : List CallTarget) (locals returns : List NumType) (labels 
   | .loop result body =>
       checkCode targets locals returns result.toList labels [] body (.loop result body) types &&
         resume (result.toList.reverse ++ stack)
+  | .indexedLoop index signature body =>
+      decide (types[index.toNat]? = some signature ∧ stack.take signature.params.length = signature.params.reverse) &&
+        checkCode targets locals returns signature.results labels signature.params.reverse body (.indexedLoop index signature body) types &&
+        resume (signature.results.reverse ++ stack.drop signature.params.length)
   | .if_ result thenBody elseBody =>
       checkCondition stack fun saved =>
         checkCode targets locals returns result.toList labels [] thenBody .exit types &&
@@ -219,6 +227,7 @@ mutual
     | branching (locals : List Value) (stack : List Value) (depth : LabelIdx) (result : List NumType)
     | returning (locals : List Value) (stack : List Value)
     | restart (locals : List Value) (result : Option NumType) (original : List Op)
+    | indexedRestart (locals args : List Value) (index : TypeIdx) (signature : Wasm.V1.FuncType) (original : List Op)
     | exit (locals : List Value) (result : Nested.Result)
     | done (result : Nested.Result)
 
@@ -228,6 +237,8 @@ mutual
     | block (saved : List Value) (result : Option NumType) (body : Body) (rest : List Op)
     | indexedBlock (saved : List Value) (signature : Wasm.V1.FuncType) (body : Body) (rest : List Op)
     | loop (saved : List Value) (result : Option NumType) (original : List Op) (body : Body) (rest : List Op)
+    | indexedLoop (saved : List Value) (index : TypeIdx) (signature : Wasm.V1.FuncType)
+        (original : List Op) (body : Body) (rest : List Op)
     | trapped (saved : List Value) (rest : List Op)
 end
 
@@ -236,12 +247,12 @@ mutual
 /-- Entered graph frames in outermost-first order. -/
 def Phase.frames (address : FuncAddr) : Phase → List FuncAddr
   | .label _ body => address :: body.frames
-  | .branching .. | .returning .. | .restart .. | .exit .. => [address]
+  | .branching .. | .returning .. | .restart .. | .indexedRestart .. | .exit .. => [address]
   | _ => []
 
 def Body.frames : Body → List FuncAddr
   | .active _ target child _ => child.frames target.address
-  | .block _ _ body _ | .indexedBlock _ _ body _ | .loop _ _ _ body _ => body.frames
+  | .block _ _ body _ | .indexedBlock _ _ body _ | .loop _ _ _ body _ | .indexedLoop _ _ _ _ body _ => body.frames
   | _ => []
 
 end
@@ -251,20 +262,21 @@ mutual
 def Phase.supportsV1 : Phase → Bool
   | .label _ body => body.supportsV1
   | .restart _ _ original => codeV1 original
+  | .indexedRestart .. => false
   | _ => true
 
 def Body.supportsV1 : Body → Bool
   | .running _ rest | .trapped _ rest => codeV1 rest
   | .active _ _ child rest => child.supportsV1 && codeV1 rest
   | .block _ _ body rest => body.supportsV1 && codeV1 rest
-  | .indexedBlock .. => false
+  | .indexedBlock .. | .indexedLoop .. => false
   | .loop _ _ original body rest => codeV1 original && body.supportsV1 && codeV1 rest
 
 end
 
 def Phase.Active : Phase → Prop
   | .invoke _ | .label .. | .returning .. | .exit .. => True
-  | .call _ | .branching .. | .restart .. | .done _ => False
+  | .call _ | .branching .. | .restart .. | .indexedRestart .. | .done _ => False
 
 def Body.attach (saved : List Value) (target : CallTarget) (rest : List Op) : Phase → Body
   | .done (.values values) => .running (saved ++ values) rest
@@ -278,6 +290,7 @@ def Body.underLabel (saved : List Value) (result : Option NumType) (rest : List 
   | .exit => .block saved result body rest
   | .indexed signature => .indexedBlock saved signature body rest
   | .loop _ original => .loop saved result original body rest
+  | .indexedLoop index signature original => .indexedLoop saved index signature original body rest
 
 /-- A crossed label discards its own pending code. A loop restart reinstates
 the original loop before entering its body on the next step. -/
@@ -288,18 +301,21 @@ def Phase.afterBlock (saved : List Value) (result : Option NumType) (rest : List
   | .branching locals stack depth inputs => .label locals (.running (saved ++ stack) (.br depth inputs :: rest))
   | .returning locals stack => .label locals (.running (saved ++ stack) (.return_ :: rest))
   | .restart locals result original => .label locals (.running saved (.loop result original :: rest))
+  | .indexedRestart locals args index signature original =>
+      .label locals (.running (saved ++ args) (.indexedLoop index signature original :: rest))
   | .exit locals (.values stack) => .label locals (.running (saved ++ stack) rest)
   | .exit locals .trap => .label locals (.trapped saved rest)
   | other => other
 
 def Phase.LabelOutcome : Phase → Prop
-  | .label .. | .branching .. | .returning .. | .restart .. | .exit .. => True
+  | .label .. | .branching .. | .returning .. | .restart .. | .indexedRestart .. | .exit .. => True
   | _ => False
 
 def LabelKind.branchHere (kind : LabelKind) (locals values : List Value) : Phase :=
   match kind with
   | .exit | .indexed _ => .exit locals (.values values)
   | .loop result original => .restart locals result original
+  | .indexedLoop index signature original => .indexedRestart locals values index signature original
 
 def Body.afterNumeric (rest : List Op) : Prefix.Outcome → Body
   | .values stack => .running stack rest
@@ -368,6 +384,20 @@ inductive AdmittedAt (program : Program) : Function → List NumType → Enclosi
   | restart {fn fallthrough enclosing locals result original}
       (typed : locals.map Value.type = fn.localTypes) :
       AdmittedAt program fn fallthrough enclosing (.restart locals result original) (.loop result original)
+  | indexedLoop {fn fallthrough enclosing kind locals saved index signature original inner rest}
+      (inside : AdmittedAt program fn signature.results (branchTargets fallthrough enclosing kind)
+        (.label locals inner) (.indexedLoop index signature original))
+      (resolved : fn.declaration.module.types[index.toNat]? = some signature)
+      (originalTyped : checkCode fn.targets fn.localTypes fn.declaration.results signature.results
+        (branchTargets fallthrough enclosing kind) signature.params.reverse original
+        (.indexedLoop index signature original) fn.declaration.module.types = true)
+      (resume : checkCode fn.targets fn.localTypes fn.declaration.results fallthrough enclosing
+        (signature.results.reverse ++ Prefix.stackTypes saved) rest kind fn.declaration.module.types = true) :
+      AdmittedAt program fn fallthrough enclosing (.label locals (.indexedLoop saved index signature original inner rest)) kind
+  | indexedRestart {fn fallthrough enclosing locals args index signature original}
+      (typed : locals.map Value.type = fn.localTypes) (params : args.map Value.type = signature.params) :
+      AdmittedAt program fn fallthrough enclosing (.indexedRestart locals args index signature original)
+        (.indexedLoop index signature original)
   | trapped {fn fallthrough enclosing kind locals saved rest} (typed : locals.map Value.type = fn.localTypes) :
       AdmittedAt program fn fallthrough enclosing (.label locals (.trapped saved rest)) kind
   | branching {fn fallthrough enclosing kind locals stack depth result}
@@ -436,6 +466,15 @@ inductive Layer (fn : Function) (childStep : CallTarget → Phase → Phase → 
       (step : Layer fn childStep (.label locals inner) next (.loop result original)) :
       Layer fn childStep (.label locals (.loop saved result original inner rest))
         (next.afterBlock saved result rest (.loop result original)) kind
+  | indexedLoopEnter {kind} (locals saved args : List Value) (index : TypeIdx) (signature : Wasm.V1.FuncType)
+      (code rest : List Op) (resolved : fn.declaration.module.types[index.toNat]? = some signature)
+      (typed : args.map Value.type = signature.params) :
+      Layer fn childStep (.label locals (.running (saved ++ args) (.indexedLoop index signature code :: rest)))
+        (.label locals (.indexedLoop saved index signature code (.running args code) rest)) kind
+  | indexedLoopStep {kind locals inner next} (saved : List Value) (index : TypeIdx) (signature : Wasm.V1.FuncType)
+      (original rest : List Op) (step : Layer fn childStep (.label locals inner) next (.indexedLoop index signature original)) :
+      Layer fn childStep (.label locals (.indexedLoop saved index signature original inner rest))
+        (next.afterBlock saved none rest (.indexedLoop index signature original)) kind
   | unreachable {kind} (locals stack : List Value) (rest : List Op) :
       Layer fn childStep (.label locals (.running stack (.unreachable :: rest))) (.label locals (.trapped stack rest)) kind
   | dispatch {kind} (locals saved operands : List Value) (target : CallTarget) (rest : List Op)
