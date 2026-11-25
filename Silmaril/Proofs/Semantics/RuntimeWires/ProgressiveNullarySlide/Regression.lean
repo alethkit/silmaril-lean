@@ -318,7 +318,9 @@ private noncomputable def crossing : slide.Crossing 1 where
   earlyCut := 3 / 8
   lateCut := 5 / 8
   upperCut := 7 / 8
-  horizontal := by norm_num [drawing, vertexX]
+  horizontal := by
+    change vertexX 0 < vertexX 1
+    norm_num [vertexX]
   lower_inside := by norm_num
   lower_bottom := by norm_num [slide]
   bottom_early := by norm_num [slide]

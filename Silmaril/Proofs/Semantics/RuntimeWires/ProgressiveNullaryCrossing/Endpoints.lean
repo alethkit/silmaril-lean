@@ -12,17 +12,17 @@ universe u v
 
 variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ}
 variable {d : Diagram S V W .point} {moved other : Fin V} {s : d.NullarySlide moved}
-variable (c : s.Crossing other)
-variable (p : c.tied.PairSlice moved other c.lowerCut c.upperCut)
+variable {side : NullarySlide.Side} (c : s.Crossing other side)
+variable (p : c.tied.PairSlice (side.leftVertex moved other) (side.rightVertex moved other) c.lowerCut c.upperCut)
 
 def scalarEvent {h lo hi : ℝ} (valid : h ∈ Set.Icc s.bottom s.top) (ports : List (Fin W))
-    (atEvent : c.tied.OrderedCut h (p.left ++ (p.middle ++ ports ++ p.right)))
+    (atEvent : c.tied.OrderedCut h (scalarLeft c p ports ++ scalarRight c p ports))
     (attached : ∀ w ∈ ports, c.tied.x w (d.vertexHeight other) = d.vertexX other)
-    (before : c.tied.OrderedCut lo (p.left ++ (p.middle ++ ports ++ p.right)))
-    (after : c.tied.OrderedCut hi (p.left ++ (p.middle ++ ports ++ p.right))) :
+    (before : c.tied.OrderedCut lo (scalarLeft c p ports ++ scalarRight c p ports))
+    (after : c.tied.OrderedCut hi (scalarLeft c p ports ++ scalarRight c p ports)) :
     (s.atHeight h valid).EventSlice moved lo hi where
-  left := p.left
-  right := p.middle ++ ports ++ p.right
+  left := scalarLeft c p ports
+  right := scalarRight c p ports
   left_exact w := by
     rw [s.moved_height valid, active_eq c valid]
     exact (scalar_partition c p valid atEvent attached w).1
@@ -36,8 +36,8 @@ def stationaryEvent {h lo hi : ℝ} (valid : h ∈ Set.Icc s.bottom s.top)
     (before : c.tied.OrderedCut lo p.inputWires)
     (after : c.tied.OrderedCut hi p.outputWires) :
     (s.atHeight h valid).EventSlice other lo hi where
-  left := p.left ++ p.middle
-  right := p.right
+  left := stationaryLeft c p
+  right := stationaryRight c p
   left_exact w := by
     rw [height_other c valid, active_eq c valid]
     exact (stationary_partition c p w).1
@@ -45,13 +45,11 @@ def stationaryEvent {h lo hi : ℝ} (valid : h ∈ Set.Icc s.bottom s.top)
     rw [height_other c valid, active_eq c valid]
     exact (stationary_partition c p w).2
   before := (cut_transport c valid).mpr (by
-    change c.tied.OrderedCut lo ((p.left ++ p.middle) ++ c.tied.inputs other ++ p.right)
-    rw [input_form c p] at before
-    simpa only [List.append_assoc] using before)
+    change c.tied.OrderedCut lo ((stationaryLeft c p ++ c.tied.inputs other) ++ stationaryRight c p)
+    rwa [← stationary_input_form c p])
   after := (cut_transport c valid).mpr (by
-    change c.tied.OrderedCut hi ((p.left ++ p.middle) ++ c.tied.outputs other ++ p.right)
-    rw [output_form c p] at after
-    simpa only [List.append_assoc] using after)
+    change c.tied.OrderedCut hi ((stationaryLeft c p ++ c.tied.outputs other) ++ stationaryRight c p)
+    rwa [← stationary_output_form c p])
 
 theorem early_cut : c.tied.OrderedCut c.earlyCut p.inputWires :=
   cut_before c p.before (c.lower_bottom.trans c.bottom_early).le c.early_other

@@ -123,7 +123,9 @@ private noncomputable def crossing : slide.Crossing 1 where
   earlyCut := 3 / 8
   lateCut := 5 / 8
   upperCut := 7 / 8
-  horizontal := by norm_num [drawing, vertexX]
+  horizontal := by
+    change vertexX 0 < vertexX 1
+    norm_num [vertexX]
   lower_inside := by norm_num
   lower_bottom := by norm_num [slide]
   bottom_early := by norm_num [slide]
@@ -161,5 +163,165 @@ example : ∃ r : crossing.Readback,
     exact ProgressiveGraph.Diagram.ordered_cut_unique r.early.firstEvent.before firstCut
   · rw [← r.late_output]
     exact ProgressiveGraph.Diagram.ordered_cut_unique r.late.secondEvent.after lastCut
+
+private abbrev mirroredSignature : Signature (Fin 2) where
+  Edge := Fin 2
+  source e := (signature.source e).reverse
+  target e := (signature.target e).reverse
+
+private noncomputable def mirrorX (w : Fin 2) (y : ℝ) : ℝ := 1 - x w y
+
+private noncomputable def mirroredStrand (w : Fin 2) : Wire 0 (1 / 2) where
+  x := mirrorX w
+  increasing := (strand w).increasing
+  continuous := continuousOn_const.sub (strand w).continuous
+  polygonal := by
+    obtain ⟨knots, chord⟩ := (strand w).polygonal
+    refine ⟨knots, ?_⟩
+    intro a ha b hb ordered noKnot t ht
+    have interpolation := chord a ha b hb ordered noKnot t ht
+    change x w ((1 - t) * a + t * b) = (1 - t) * x w a + t * x w b at interpolation
+    unfold mirrorX
+    rw [interpolation]
+    ring
+
+private def reversedInput (j : Fin 2) (i : Fin (mirroredSignature.source j).length) : Fin 2 :=
+  (⟨i.val, i.isLt.trans_le (by fin_cases j <;> decide)⟩ : Fin 2).rev
+
+/-- Reflect the two-input drawing at the vertical midline. Keeping the
+original strand IDs makes the reversal of the port and cap order visible. -/
+private noncomputable def mirroredDrawing : ProgressiveGraph.Diagram mirroredSignature 2 2 .point where
+  vertexX := fun j => 1 - vertexX j
+  vertexHeight := height
+  vertex_inside j := by
+    have hx := (drawing.vertex_inside j).1
+    exact ⟨⟨sub_pos.mpr hx.2, sub_lt_self _ hx.1⟩, (drawing.vertex_inside j).2⟩
+  vertex_separation := by
+    intro i j eq
+    have hy := congrArg Prod.snd eq
+    apply drawing.vertex_separation
+    refine Prod.ext ?_ hy
+    have hx := congrArg Prod.fst eq
+    change 1 - vertexX i = 1 - vertexX j at hx
+    change vertexX i = vertexX j
+    linarith
+  generator := id
+  label := id
+  start := drawing.start
+  finish := drawing.finish
+  wire := mirroredStrand
+  wire_inside w y active := by
+    have hx := drawing.wire_inside w y active
+    exact ⟨sub_pos.mpr hx.2, sub_lt_self _ hx.1⟩
+  start_attached := by simp [drawing]
+  finish_attached w j eq := congrArg (fun u : ℝ => 1 - u) (drawing.finish_attached w j eq)
+  separated := by
+    intro w z different y active closed equal
+    apply drawing.separated different active closed
+    change 1 - x w y = 1 - x z y at equal
+    change x w y = x z y
+    linarith
+  avoids_vertex := by
+    intro w j active equal
+    apply drawing.avoids_vertex w j active
+    change 1 - x w (height j) = 1 - vertexX j at equal
+    change x w (height j) = vertexX j
+    linarith
+  input_boundary_separated := by
+    intro w z different ws zs equal
+    apply drawing.input_boundary_separated different ws zs
+    change 1 - x w 0 = 1 - x z 0 at equal
+    change x w 0 = x z 0
+    linarith
+  output_boundary_separated := by simp [drawing]
+  input := fun j i => reversedInput j i
+  output := fun _ i => Fin.elim0 (show Fin 0 from i)
+  input_exact := by
+    intro j w
+    fin_cases j <;> fin_cases w <;> decide
+  output_exact := by simp [drawing, mirroredSignature, signature]
+  input_types := by intro j; fin_cases j <;> decide
+  output_types := by simp [List.ofFn_zero]
+  input_order := by
+    intro j i k ordered y _ _ below
+    fin_cases j
+    · exact Fin.elim0 (show Fin 0 from i)
+    · change i.val < k.val at ordered
+      have ib : i.val < 2 := i.isLt
+      have kb : k.val < 2 := k.isLt
+      have left : reversedInput 1 i = 1 := Fin.ext (by
+        change 2 - (i.val + 1) = 1
+        omega)
+      have right : reversedInput 1 k = 0 := Fin.ext (by
+        change 2 - (k.val + 1) = 0
+        omega)
+      change mirrorX (reversedInput 1 i) y < mirrorX (reversedInput 1 k) y
+      rw [left, right]
+      norm_num [mirrorX, x]
+      linarith [show y < 1 / 2 from below]
+  output_order := fun _ {i} => Fin.elim0 (show Fin 0 from i)
+
+private noncomputable def mirroredSlide : mirroredDrawing.NullarySlide 0 where
+  bottom := 1 / 4
+  top := 3 / 4
+  bottom_pos := by norm_num
+  ordered := by norm_num
+  top_lt_one := by norm_num
+  no_inputs := rfl
+  no_outputs := rfl
+  wire_clear := by
+    intro w y hy active equal
+    apply slide.wire_clear w y hy active
+    change 1 - x w y = 1 - vertexX 0 at equal
+    change x w y = vertexX 0
+    linarith
+  vertex_clear := by
+    intro j different hy equal
+    apply slide.vertex_clear j different hy
+    change 1 - vertexX j = 1 - vertexX 0 at equal
+    change vertexX j = vertexX 0
+    linarith
+
+private noncomputable def mirroredCrossing : mirroredSlide.Crossing 1 .right where
+  lowerCut := 1 / 8
+  earlyCut := 3 / 8
+  lateCut := 5 / 8
+  upperCut := 7 / 8
+  horizontal := by norm_num [mirroredDrawing, vertexX, Diagram.NullarySlide.Side.leftVertex,
+    Diagram.NullarySlide.Side.rightVertex]
+  lower_inside := by norm_num
+  lower_bottom := by norm_num [mirroredSlide]
+  bottom_early := by norm_num [mirroredSlide]
+  early_other := by norm_num [mirroredDrawing, height]
+  other_late := by norm_num [mirroredDrawing, height]
+  late_top := by norm_num [mirroredSlide]
+  top_upper := by norm_num [mirroredSlide]
+  upper_inside := by norm_num
+  «only» := by intro v _; fin_cases v <;> simp
+
+private theorem mirroredFirstCut : mirroredSlide.initial.OrderedCut mirroredCrossing.lowerCut [1, 0] := by
+  constructor
+  · intro w
+    fin_cases w <;> norm_num [mirroredCrossing, mirroredSlide, mirroredDrawing, crossing, drawing,
+      Diagram.crosses, Diagram.lower, Diagram.upper, Diagram.NullarySlide.initial,
+      Diagram.NullarySlide.atHeight, Diagram.NullarySlide.assemble, Diagram.NullarySlide.heights,
+      height, endpointHeight, Set.mem_Ioo]
+  · change [1, 0].Pairwise (fun w z : Fin 2 => mirrorX w (1 / 8) < mirrorX z (1 / 8))
+    norm_num [mirrorX, x]
+
+/-- The mirrored comparison keeps the reflected input order and realizes
+both endpoint schedules by splitting the same tied sheet. -/
+example : ∃ r : mirroredCrossing.Readback,
+    r.tie.inputWires = [1, 0] ∧ r.tie.sourceWord = [1, 0] ∧
+    Sheet.Move mirroredSignature r.tiedSheet r.earlySheet ∧
+    Sheet.Move mirroredSignature r.tiedSheet r.lateSheet ∧
+    Sheet.SeamEquivalent r.earlySheet r.lateSheet := by
+  obtain ⟨r⟩ := mirroredCrossing.exists_readback
+  have ids : r.tie.inputWires = [1, 0] := by
+    rw [← r.early_input]
+    exact ProgressiveGraph.Diagram.ordered_cut_unique r.early.firstEvent.before mirroredFirstCut
+  refine ⟨r, ids, ?_, r.splits.1, r.splits.2, r.seam⟩
+  rw [← r.tie.input_types, ids]
+  rfl
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveNullaryCrossing.Regression

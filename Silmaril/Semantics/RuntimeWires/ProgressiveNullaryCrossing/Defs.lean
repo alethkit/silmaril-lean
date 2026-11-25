@@ -51,15 +51,33 @@ namespace NullarySlide
 
 variable {d : Diagram S V W .point} {moved : Fin V} (s : d.NullarySlide moved)
 
-/-- A left-hand nullary slide past one stationary vertex. The two interior
+/-- The horizontal side occupied by the moving scalar. -/
+inductive Side
+  | left
+  | right
+
+namespace Side
+
+/-- The vertices in the geometric left-to-right order. -/
+def leftVertex {V : ℕ} : Side → Fin V → Fin V → Fin V
+  | .left, moved, _ => moved
+  | .right, _, other => other
+
+def rightVertex {V : ℕ} : Side → Fin V → Fin V → Fin V
+  | .left, _, other => other
+  | .right, moved, _ => moved
+
+end Side
+
+/-- A nullary slide past one stationary vertex. The two interior
 cuts can be any regular heights strictly between the endpoint events.
 The clear travel segment and typed wire/port data come from the slide. -/
-structure Crossing (other : Fin V) where
+structure Crossing (other : Fin V) (side : Side := .left) where
   lowerCut : ℝ
   earlyCut : ℝ
   lateCut : ℝ
   upperCut : ℝ
-  horizontal : d.vertexX moved < d.vertexX other
+  horizontal : d.vertexX (side.leftVertex moved other) < d.vertexX (side.rightVertex moved other)
   lower_inside : 0 < lowerCut
   lower_bottom : lowerCut < s.bottom
   bottom_early : s.bottom < earlyCut
@@ -72,7 +90,7 @@ structure Crossing (other : Fin V) where
 
 namespace Crossing
 
-variable {s} {other : Fin V} (c : s.Crossing other)
+variable {s} {other : Fin V} {side : Side} (c : s.Crossing other side)
 
 def tied : Diagram S V W .point :=
   s.atHeight (d.vertexHeight other) ⟨(c.bottom_early.trans c.early_other).le,
@@ -81,7 +99,7 @@ def tied : Diagram S V W .point :=
 /-- The three geometric reads in the same slab. Ordered wire IDs, rather
 than equality of labels alone, identify their external frontiers. -/
 structure Readback where
-  tie : c.tied.PairSlice moved other c.lowerCut c.upperCut
+  tie : c.tied.PairSlice (side.leftVertex moved other) (side.rightVertex moved other) c.lowerCut c.upperCut
   early : s.initial.TwoEventSlice moved other c.lowerCut c.earlyCut c.upperCut
   late : s.terminal.TwoEventSlice other moved c.lowerCut c.lateCut c.upperCut
   early_input : early.firstEvent.beforeWires = tie.inputWires

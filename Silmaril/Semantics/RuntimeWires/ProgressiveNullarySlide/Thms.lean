@@ -83,6 +83,11 @@ theorem frame_finish : s.frame ⟨1, zero_le_one, le_rfl⟩ = s.terminal :=
 theorem height_strict : StrictMono s.heightAt :=
   Proofs.ProgressiveNullarySlide.height_strict s
 
+/-- The path reaches each height in its closed travel interval. -/
+theorem hits_height {h : ℝ} (within : h ∈ Set.Icc s.bottom s.top) :
+    ∃ t : Time, s.heightAt t = h :=
+  Proofs.ProgressiveNullarySlide.hits s within
+
 /-- A scalar on the left of an isolated stationary vertex crosses its height
 at exactly one time. The tied frame admits the existing geometric pair slice. -/
 theorem isolated_crossing {other : Fin V} {lo hi : ℝ}
