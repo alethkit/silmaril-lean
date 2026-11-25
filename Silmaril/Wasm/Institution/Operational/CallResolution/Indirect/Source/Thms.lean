@@ -91,6 +91,14 @@ theorem resume_checked {op : Op} {program : Graph.Program} {tables : Tables} {ca
     cont.Checked program call.caller call.saved call.site.signature.results :=
   Proofs.resume_checked prepared invoked found moduleEq localsTyped tail block
 
+theorem core_nest_step_with {A H : Type} {P : Numerics.Profile} {a : Core.Config H}
+    (stays : ∀ n out, ¬ Core.LabelExit n [] a.code out)
+    (emit : A → Core.Admin) (scopes : List (Scope A)) :
+    (∀ n out, ¬ Core.LabelExit n [] (Context.coreNestWith emit scopes a).code out) ∧
+      (∀ dst, Core.Step P noHost (Context.coreNestWith emit scopes a) dst ↔
+        ∃ mid, Core.Step P noHost a mid ∧ dst = Context.coreNestWith emit scopes mid) :=
+  Proofs.core_nest_step_with stays emit scopes
+
 theorem core_nest_step {H : Type} {P : Numerics.Profile} {a : Core.Config H}
     (stays : ∀ n out, ¬ Core.LabelExit n [] a.code out)
     (scopes : List (Scope Graph.Op)) :
@@ -98,6 +106,15 @@ theorem core_nest_step {H : Type} {P : Numerics.Profile} {a : Core.Config H}
       (∀ dst, Core.Step P noHost (coreNest scopes a) dst ↔
         ∃ mid, Core.Step P noHost a mid ∧ dst = coreNest scopes mid) :=
   Proofs.core_nest_step stays scopes
+
+open Wasm.Lime1.Execution in
+theorem lime_nest_step_with {A H : Type} {a : Config H}
+    (stays : ∀ n out, ¬ PureStep a.frame.module.types [.label n [] a.code] out)
+    (emit : A → Admin) (scopes : List (Scope A)) :
+    (∀ n out, ¬ PureStep (Context.limeNestWith emit scopes a).frame.module.types [.label n [] (Context.limeNestWith emit scopes a).code] out) ∧
+      (∀ dst, Step CallFrame.limeNoHost (Context.limeNestWith emit scopes a) dst ↔
+        ∃ mid, Step CallFrame.limeNoHost a mid ∧ dst = Context.limeNestWith emit scopes mid) :=
+  Proofs.lime_nest_step_with stays emit scopes
 
 open Wasm.Lime1.Execution in
 theorem lime_nest_step {H : Type} {a : Config H}

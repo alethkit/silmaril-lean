@@ -211,10 +211,10 @@ example (n : Nat) : ((deep n).frames ⟨2⟩).length = n + 1 := by
     rw [ih]
 
 open Context.Resume in
-private def returnedCont : Continuation := ⟨⟨3⟩, owner, [getLocal ⟨0⟩], none⟩
+private def returnedCont : Continuation := ⟨⟨3⟩, owner, [getLocal ⟨0⟩], []⟩
 
 open Context.Resume in
-private def voidCont : Continuation := ⟨⟨4⟩, ownerVoid, [getLocal ⟨0⟩], none⟩
+private def voidCont : Continuation := ⟨⟨4⟩, ownerVoid, [getLocal ⟨0⟩], []⟩
 
 private theorem returnedContChecked : returnedCont.Checked program caller saved mixed.results :=
   ⟨rfl, rfl, rfl, rfl, rfl⟩

@@ -13,40 +13,58 @@ open CallContinuation.OuterCall (CallTarget)
 open CallContinuation.OuterCall.Computed
 open CallContinuation.OuterCall.Ranked
 
-/-- A parameterless scalar block with a pending function-label tail. -/
+/-- A parameterless scalar block and its continuation in the enclosing label. -/
 structure Block where
   result : Option NumType
   tail : List Graph.Op
 
-/-- A designated call site in the function label or in one parameterless
-scalar block. The block saves the function's initial operand prefix. -/
+def Block.scope (block : Block) (saved : List Value) : Blocks.Context.Scope Graph.Op :=
+  ⟨block.result.toList.length, saved, block.tail⟩
+
+/-- The scopes are outermost first. Each parameterless entry starts the
+next block with an empty operand stack. -/
+def Block.scopes : List Block → List Value → List (Blocks.Context.Scope Graph.Op)
+  | [], _ => []
+  | block :: rest, saved => block.scope saved :: scopes rest []
+
+def Block.context : List Block → List NumType → Graph.EnclosingLabels → List NumType × Graph.EnclosingLabels
+  | [], fallthrough, enclosing => (fallthrough, enclosing)
+  | block :: rest, fallthrough, enclosing => context rest block.result.toList (fallthrough :: enclosing)
+
+def Block.check (fn : Graph.Function) : List Block → List Value → List NumType → Graph.EnclosingLabels → Bool
+  | [], _, _, _ => true
+  | block :: rest, saved, fallthrough, enclosing =>
+      check fn rest [] block.result.toList (fallthrough :: enclosing) &&
+      Graph.checkCode fn.targets fn.localTypes fn.declaration.results fallthrough enclosing
+        (block.result.toList.reverse ++ Prefix.stackTypes saved) block.tail .exit fn.declaration.module.types
+
+def Block.plug : List Block → List Value → Graph.Body → Graph.Body
+  | [], _, body => body
+  | block :: rest, saved, body => .block saved block.result (plug rest [] body) block.tail
+
+/-- A designated call site under a spine of immediately nested parameterless
+scalar blocks, ordered outermost first. The outermost block saves the
+function's initial operands. -/
 structure Continuation where
   address : FuncAddr
   owner : Graph.Function
   code : List Graph.Op
-  block : Option Block := none
+  blocks : List Block := []
 
 def Continuation.scopes (cont : Continuation) : List (Blocks.Context.Scope Graph.Op) :=
-  cont.block.toList.map fun block => ⟨block.result.toList.length, cont.owner.initial, block.tail⟩
+  Block.scopes cont.blocks cont.owner.initial
 
 def Continuation.fallthrough (cont : Continuation) : List NumType :=
-  match cont.block with
-  | none => cont.owner.declaration.results
-  | some block => block.result.toList
+  (Block.context cont.blocks cont.owner.declaration.results []).1
 
 def Continuation.enclosing (cont : Continuation) : Graph.EnclosingLabels :=
-  cont.block.toList.map fun _ => cont.owner.declaration.results
+  (Block.context cont.blocks cont.owner.declaration.results []).2
 
 def Continuation.blockCheck (cont : Continuation) : Bool :=
-  cont.block.all fun block =>
-    Graph.checkCode cont.owner.targets cont.owner.localTypes cont.owner.declaration.results
-      cont.owner.declaration.results [] (block.result.toList.reverse ++ Prefix.stackTypes cont.owner.initial)
-      block.tail .exit cont.owner.declaration.module.types
+  Block.check cont.owner cont.blocks cont.owner.initial cont.owner.declaration.results []
 
 def Continuation.plug (cont : Continuation) (body : Graph.Body) : Graph.Body :=
-  match cont.block with
-  | none => body
-  | some block => .block cont.owner.initial block.result body block.tail
+  Block.plug cont.blocks cont.owner.initial body
 
 structure Continuation.Checked (cont : Continuation) (program : Graph.Program)
     (caller : Frame) (saved : List Value) (results : List NumType) : Prop where

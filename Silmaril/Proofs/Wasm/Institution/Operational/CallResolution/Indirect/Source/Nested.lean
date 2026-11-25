@@ -29,25 +29,25 @@ private theorem improve_chain {A : Type} {R S : A → A → Prop} {xs : List A}
     intro a mem b step
     exact lift a (by simp [mem]) b step
 
-theorem core_nest_step {H : Type} {P : Numerics.Profile} {a : Core.Config H}
+theorem core_nest_step_with {A H : Type} {P : Numerics.Profile} {a : Core.Config H}
     (stays : ∀ n out, ¬ Core.LabelExit n [] a.code out)
-    (scopes : List (Scope Graph.Op)) :
-    (∀ n out, ¬ Core.LabelExit n [] (coreNest scopes a).code out) ∧
-      (∀ dst, Core.Step P noHost (coreNest scopes a) dst ↔
-        ∃ mid, Core.Step P noHost a mid ∧ dst = coreNest scopes mid) := by
+    (emit : A → Core.Admin) (scopes : List (Scope A)) :
+    (∀ n out, ¬ Core.LabelExit n [] (Context.coreNestWith emit scopes a).code out) ∧
+      (∀ dst, Core.Step P noHost (Context.coreNestWith emit scopes a) dst ↔
+        ∃ mid, Core.Step P noHost a mid ∧ dst = Context.coreNestWith emit scopes mid) := by
   induction scopes with
   | nil => exact ⟨stays, fun _ => ⟨fun h => ⟨_, h, rfl⟩, fun ⟨_, h, rfl⟩ => h⟩⟩
   | cons scope rest ih =>
     constructor
     · intro n out
-      simp only [coreNest, Context.coreNest, List.foldr_cons]
+      simp only [Context.coreNestWith, List.foldr_cons]
       exact core_label_stays (head := .label scope.arity [] _) rfl (by simp) (by simp)
         (by simp [Core.Admin.IsReturnCallRef]) (by simp) (by simp)
     · intro dst
-      let before := coreNest rest a
+      let before := Context.coreNestWith emit rest a
       have casesStep := Blocks.Context.core_label_iff (P := P) (s := before.store) (f := before.frame)
         (n := scope.arity) (saved := (scope.saved.map Value.toCore)) (body := before.code)
-        (rest := scope.rest.map Graph.coreEmit) (dst := dst)
+        (rest := scope.rest.map emit) (dst := dst)
       constructor
       · intro move
         rcases casesStep.mp move with ⟨mid, step, eq⟩ | ⟨out, pop, _⟩
@@ -56,6 +56,14 @@ theorem core_nest_step {H : Type} {P : Numerics.Profile} {a : Core.Config H}
         · exact (ih.1 _ out pop).elim
       · rintro ⟨mid, edge, rfl⟩
         exact casesStep.mpr (.inl ⟨_, (ih.2 _).mpr ⟨mid, edge, rfl⟩, rfl⟩)
+
+theorem core_nest_step {H : Type} {P : Numerics.Profile} {a : Core.Config H}
+    (stays : ∀ n out, ¬ Core.LabelExit n [] a.code out)
+    (scopes : List (Scope Graph.Op)) :
+    (∀ n out, ¬ Core.LabelExit n [] (coreNest scopes a).code out) ∧
+      (∀ dst, Core.Step P noHost (coreNest scopes a) dst ↔
+        ∃ mid, Core.Step P noHost a mid ∧ dst = coreNest scopes mid) :=
+  core_nest_step_with (P := P) stays Graph.coreEmit scopes
 
 private theorem core_nest {H : Type} {P : Numerics.Profile} {a b : Core.Config H}
     (stays : ∀ n out, ¬ Core.LabelExit n [] a.code out)
@@ -95,26 +103,25 @@ theorem core_entry {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     (fun _ => Indirect.core_enter_iff allocated found resolved ready.args) scopes dst
 
 open Wasm.Lime1.Execution in
-open Wasm.Lime1.Execution in
-theorem lime_nest_step {H : Type} {a : Config H}
+theorem lime_nest_step_with {A H : Type} {a : Config H}
     (stays : ∀ n out, ¬ PureStep a.frame.module.types [.label n [] a.code] out)
-    (scopes : List (Scope Graph.Op)) :
-    (∀ n out, ¬ PureStep (limeNest scopes a).frame.module.types [.label n [] (limeNest scopes a).code] out) ∧
-      (∀ dst, Step CallFrame.limeNoHost (limeNest scopes a) dst ↔
-        ∃ mid, Step CallFrame.limeNoHost a mid ∧ dst = limeNest scopes mid) := by
+    (emit : A → Admin) (scopes : List (Scope A)) :
+    (∀ n out, ¬ PureStep (Context.limeNestWith emit scopes a).frame.module.types [.label n [] (Context.limeNestWith emit scopes a).code] out) ∧
+      (∀ dst, Step CallFrame.limeNoHost (Context.limeNestWith emit scopes a) dst ↔
+        ∃ mid, Step CallFrame.limeNoHost a mid ∧ dst = Context.limeNestWith emit scopes mid) := by
   induction scopes with
   | nil => exact ⟨stays, fun _ => ⟨fun h => ⟨_, h, rfl⟩, fun ⟨_, h, rfl⟩ => h⟩⟩
   | cons scope rest ih =>
     constructor
     · intro n out
-      simp only [limeNest, Context.limeNest, List.foldr_cons]
+      simp only [Context.limeNestWith, List.foldr_cons]
       exact lime_label_stays (head := .label scope.arity [] _) rfl (by simp) (by simp)
         (by simp)
     · intro dst
-      let before := limeNest rest a
+      let before := Context.limeNestWith emit rest a
       have casesStep := Blocks.Context.lime_label_iff (s := before.store) (f := before.frame)
         (n := scope.arity) (saved := scope.saved) (body := before.code)
-        (rest := scope.rest.map Graph.limeEmit) (dst := dst)
+        (rest := scope.rest.map emit) (dst := dst)
       constructor
       · intro move
         rcases casesStep.mp move with ⟨mid, step, eq⟩ | ⟨out, pop, _⟩
@@ -123,6 +130,15 @@ theorem lime_nest_step {H : Type} {a : Config H}
         · exact (ih.1 _ out pop).elim
       · rintro ⟨mid, edge, rfl⟩
         exact casesStep.mpr (.inl ⟨_, (ih.2 _).mpr ⟨mid, edge, rfl⟩, rfl⟩)
+
+open Wasm.Lime1.Execution in
+theorem lime_nest_step {H : Type} {a : Config H}
+    (stays : ∀ n out, ¬ PureStep a.frame.module.types [.label n [] a.code] out)
+    (scopes : List (Scope Graph.Op)) :
+    (∀ n out, ¬ PureStep (limeNest scopes a).frame.module.types [.label n [] (limeNest scopes a).code] out) ∧
+      (∀ dst, Step CallFrame.limeNoHost (limeNest scopes a) dst ↔
+        ∃ mid, Step CallFrame.limeNoHost a mid ∧ dst = limeNest scopes mid) :=
+  lime_nest_step_with stays Graph.limeEmit scopes
 
 open Wasm.Lime1.Execution in
 private theorem lime_nest {H : Type} {a b : Config H}

@@ -22,72 +22,95 @@ private theorem core_cleanup_step {H : Type} {P : Numerics.Profile} {s : Core.St
     Core.Step P noHost (entry.coreCleanup s outer inner a) dst ↔
       ∃ out, CleanupStep a out ∧ dst = entry.coreCleanup s outer inner out := by
   cases a with
-  | block scope stack rest =>
-    let body : Core.Config H := ⟨s, inner.toCore, scope.plug coreValues (fun n => .label n [])
-      (coreValues stack ++ .trap :: rest)⟩
-    have stays (out : List Core.Admin) : ¬ Core.LabelExit entry.cont.owner.declaration.results.length [] body.code out :=
-      Computed.core_label_stays (head := .label scope.arity [] _) rfl (by simp) (by simp)
-        (by simp [Core.Admin.IsReturnCallRef]) (by simp) (by simp)
-    change Core.Step P noHost (entry.cont.coreWrap outer body) dst ↔ _
-    rw [Context.Resume.core_wrap_step_iff stays]
-    let invert (mid : Core.Config H) := Blocks.Context.core_label_iff (P := P) (s := s) (f := inner.toCore)
-      (n := scope.arity) (saved := scope.saved.map Value.toCore) (body := coreValues stack ++ .trap :: rest) (rest := scope.rest) (dst := mid)
-    constructor
-    · rintro ⟨mid, move, rfl⟩
-      rcases (invert mid).mp move with ⟨next, inside, eq⟩ | ⟨out, leave, eq⟩
-      · have discard := (Prefix.core_discard_iff (P := P) (s := s) (f := inner) id
-          (stack := stack) (tail := rest) (dst := next)).mp (by simpa only [List.map_id] using inside)
-        obtain ⟨kept, remaining, cut, rfl⟩ := discard
-        exact ⟨_, .blockDiscard cut, by rw [eq]; simp only [List.map_id]; rfl⟩
-      · have stopped : stack = [] ∧ rest = [] := by
-          by_contra notEmpty
-          exact Computed.core_label_stays (head := .trap) rfl (by simp) (by simp)
-            (by simp [Core.Admin.IsReturnCallRef]) (by simp) (fun _ => by
-              rcases not_and_or.mp notEmpty with stackNonempty | restNonempty
-              · exact .inl (fun nil => stackNonempty (List.map_eq_nil_iff.mp nil))
-              · exact .inr restNonempty) leave
-        obtain ⟨rfl, rfl⟩ := stopped
-        exact ⟨_, .blockExit scope, by
-          rw [eq, Nested.core_label_result (r := .trap) leave]
-          simp only [Nested.resultCode, List.append_assoc, List.singleton_append, Entry.coreCleanup]⟩
-    · rintro ⟨out, move, rfl⟩
-      cases move with
-      | @blockDiscard _ _ _ kept remaining cut =>
-        let next : Core.Config H := ⟨s, inner.toCore, coreValues kept ++ .trap :: remaining⟩
-        have inside : Core.Step P noHost ⟨s, inner.toCore, coreValues stack ++ .trap :: rest⟩ next := by
-          simpa only [List.map_id] using (Prefix.core_discard_iff (P := P) (s := s) (f := inner) id).mpr
-            ⟨_, _, cut, by simp only [next, List.map_id]⟩
-        exact ⟨_, (invert _).mpr (.inl ⟨next, inside, rfl⟩), rfl⟩
-      | blockExit =>
-        exact ⟨_, (invert _).mpr (.inr ⟨[.trap], .trap, rfl⟩), by
-          simp only [Entry.coreCleanup, List.append_assoc, List.singleton_append]⟩
-  | label stack rest =>
-    constructor
-    · intro move
-      rcases Computed.core_body_step_cases move with ⟨mid, inside, eq⟩ | ⟨out, pop, eq⟩
-      · have moved := (Prefix.core_discard_iff (P := P) (s := s) (f := inner) id (stack := stack)
-          (tail := rest) (dst := mid)).mp (by simpa only [List.map_id] using inside)
-        obtain ⟨kept, remaining, cut, midEq⟩ := moved
-        exact ⟨.label kept remaining, .discard cut, by simpa only [Entry.coreCleanup,
-          Context.Resume.Continuation.coreWrap, midEq, List.map_id] using eq⟩
-      · have stopped : stack = [] ∧ rest = [] := by
-          by_contra notEmpty
-          exact Computed.core_label_stays (head := .trap) rfl (by simp) (by simp)
-            (by simp [Core.Admin.IsReturnCallRef]) (by simp)
-            (fun _ => by
-              rcases not_and_or.mp notEmpty with stackNonempty | restNonempty
-              · exact .inl (fun nil => stackNonempty (List.map_eq_nil_iff.mp nil))
-              · exact .inr restNonempty) pop
-        obtain ⟨rfl, rfl⟩ := stopped
-        exact ⟨.frame, .label, eq.trans (by rw [Nested.core_label_result (r := .trap) pop]; rfl)⟩
-    · rintro ⟨out, step, rfl⟩
-      cases step with
-      | discard cut =>
-        apply Core.Step.ctxtFrame
-        apply Core.Step.ctxtLabel
-        simpa only [List.map_id] using (Prefix.core_discard_iff (P := P) (s := s) (f := inner) id).mpr
-          ⟨_, _, cut, by simp only [List.map_id]⟩
-      | label => exact Core.Step.ctxtFrame .trapLabel
+  | label stack rest scopes =>
+    cases scopes with
+    | nil =>
+        constructor
+        · intro move
+          rcases Computed.core_body_step_cases move with ⟨mid, inside, eq⟩ | ⟨out, pop, eq⟩
+          · have moved := (Prefix.core_discard_iff (P := P) (s := s) (f := inner) id (stack := stack)
+              (tail := rest) (dst := mid)).mp (by simpa only [List.map_id, Context.coreNestWith, List.reverse_nil, List.foldr_nil] using inside)
+            obtain ⟨kept, remaining, cut, midEq⟩ := moved
+            exact ⟨.label kept remaining, .discard cut, by simpa only [Entry.coreCleanup,
+              Context.Resume.Continuation.coreWrap, Context.coreNestWith, List.reverse_nil, List.foldr_nil, midEq, List.map_id] using eq⟩
+          · have stopped : stack = [] ∧ rest = [] := by
+              by_contra notEmpty
+              exact Computed.core_label_stays (head := .trap) rfl (by simp) (by simp)
+                (by simp [Core.Admin.IsReturnCallRef]) (by simp)
+                (fun _ => by
+                  rcases not_and_or.mp notEmpty with stackNonempty | restNonempty
+                  · exact .inl (fun nil => stackNonempty (List.map_eq_nil_iff.mp nil))
+                  · exact .inr restNonempty) pop
+            obtain ⟨rfl, rfl⟩ := stopped
+            exact ⟨.frame, .label, eq.trans (by rw [Nested.core_label_result (r := .trap) pop]; rfl)⟩
+        · rintro ⟨out, step, rfl⟩
+          cases step with
+          | discard cut =>
+            simp only [Entry.coreCleanup, Context.coreNestWith, List.reverse_nil, List.foldr_nil]
+            apply Core.Step.ctxtFrame
+            apply Core.Step.ctxtLabel
+            simpa only [List.map_id] using (Prefix.core_discard_iff (P := P) (s := s) (f := inner) id).mpr
+              ⟨_, _, cut, by simp only [List.map_id]⟩
+          | label => exact Core.Step.ctxtFrame .trapLabel
+    | cons scope scopes =>
+        let body : Core.Config H := ⟨s, inner.toCore, scope.plug coreValues (fun n => .label n [])
+          (coreValues stack ++ .trap :: rest)⟩
+        have noExit (n : Nat) (out : List Core.Admin) :
+            ¬ Core.LabelExit n [] body.code out :=
+          Computed.core_label_stays (head := .label scope.arity [] _) rfl (by simp) (by simp)
+            (by simp [Core.Admin.IsReturnCallRef]) (by simp) (by simp)
+        let wrap (cfg : Core.Config H) := entry.cont.coreWrap outer (Context.coreNestWith id scopes.reverse cfg)
+        have nest := Source.core_nest_step_with (P := P) noExit id scopes.reverse
+        have nested : entry.coreCleanup s outer inner (.label stack rest (scope :: scopes)) = wrap body := by
+          simp [Entry.coreCleanup, wrap, body, Context.coreNestWith, Blocks.Context.Scope.plug]
+        rw [nested]
+        change Core.Step P noHost (entry.cont.coreWrap outer
+          (Context.coreNestWith id scopes.reverse body)) dst ↔ _
+        rw [Context.Resume.core_wrap_step_iff (fun out => nest.1 _ out)]
+        have wrapped : (∃ mid, Core.Step P noHost
+              (Context.coreNestWith id scopes.reverse body) mid ∧ dst = entry.cont.coreWrap outer mid) ↔
+            ∃ mid, Core.Step P noHost body mid ∧ dst = wrap mid := by
+          constructor
+          · rintro ⟨mid, move, rfl⟩
+            obtain ⟨next, step, rfl⟩ := (nest.2 mid).mp move
+            exact ⟨next, step, rfl⟩
+          · rintro ⟨mid, move, rfl⟩
+            exact ⟨_, (nest.2 _).mpr ⟨mid, move, rfl⟩, rfl⟩
+        rw [wrapped]
+        let invert (mid : Core.Config H) := Blocks.Context.core_label_iff (P := P) (s := s) (f := inner.toCore)
+          (n := scope.arity) (saved := scope.saved.map Value.toCore) (body := coreValues stack ++ .trap :: rest) (rest := scope.rest) (dst := mid)
+        constructor
+        · rintro ⟨mid, move, rfl⟩
+          rcases (invert mid).mp move with ⟨next, inside, eq⟩ | ⟨out, leave, eq⟩
+          · have discard := (Prefix.core_discard_iff (P := P) (s := s) (f := inner) id
+              (stack := stack) (tail := rest) (dst := next)).mp (by simpa only [List.map_id] using inside)
+            obtain ⟨kept, remaining, cut, rfl⟩ := discard
+            exact ⟨_, .discard cut, by
+              rw [eq]
+              simp [Entry.coreCleanup, wrap, Context.coreNestWith]⟩
+          · have stopped : stack = [] ∧ rest = [] := by
+              by_contra notEmpty
+              exact Computed.core_label_stays (head := .trap) rfl (by simp) (by simp)
+                (by simp [Core.Admin.IsReturnCallRef]) (by simp) (fun _ => by
+                  rcases not_and_or.mp notEmpty with stackNonempty | restNonempty
+                  · exact .inl (fun nil => stackNonempty (List.map_eq_nil_iff.mp nil))
+                  · exact .inr restNonempty) leave
+            obtain ⟨rfl, rfl⟩ := stopped
+            exact ⟨_, .blockExit scope scopes, by
+              rw [eq, Nested.core_label_result (r := .trap) leave]
+              simp only [Nested.resultCode, List.append_assoc, List.singleton_append, Entry.coreCleanup, wrap]⟩
+        · rintro ⟨out, move, rfl⟩
+          cases move with
+          | @discard _ _ _ kept remaining cut =>
+            let next : Core.Config H := ⟨s, inner.toCore, coreValues kept ++ .trap :: remaining⟩
+            have inside : Core.Step P noHost ⟨s, inner.toCore, coreValues stack ++ .trap :: rest⟩ next := by
+              simpa only [List.map_id] using (Prefix.core_discard_iff (P := P) (s := s) (f := inner) id).mpr
+                ⟨_, _, cut, by simp only [next, List.map_id]⟩
+            exact ⟨_, (invert _).mpr (.inl ⟨next, inside, rfl⟩), by
+              simp [Entry.coreCleanup, wrap, next, Context.coreNestWith]⟩
+          | blockExit =>
+            exact ⟨_, (invert _).mpr (.inr ⟨[.trap], .trap, rfl⟩), by
+              simp only [Entry.coreCleanup, wrap, List.append_assoc, List.singleton_append]⟩
   | frame =>
     constructor
     · intro move
@@ -106,68 +129,91 @@ private theorem lime_cleanup_step {H : Type} {s : Store H} {entry : Entry} {oute
     Step CallFrame.limeNoHost (entry.limeCleanup s outer inner a) dst ↔
       ∃ out, CleanupStep a out ∧ dst = entry.limeCleanup s outer inner out := by
   cases a with
-  | block scope stack rest =>
-    let body : Config H := ⟨s, inner, scope.plug values (fun n => .label n [])
-      (values stack ++ .trap :: rest)⟩
-    have stays (out : List Admin) : ¬ PureStep inner.module.types [.label entry.cont.owner.declaration.results.length [] body.code] out :=
-      Computed.lime_label_stays (head := .label scope.arity [] _) rfl (by simp) (by simp)
-        (by simp)
-    change Step CallFrame.limeNoHost (entry.cont.limeWrap outer body) dst ↔ _
-    rw [Context.Resume.lime_wrap_step_iff stays]
-    let invert (mid : Config H) := Blocks.Context.lime_label_iff (s := s) (f := inner)
-      (n := scope.arity) (saved := scope.saved) (body := values stack ++ .trap :: rest) (rest := scope.rest) (dst := mid)
-    constructor
-    · rintro ⟨mid, move, rfl⟩
-      rcases (invert mid).mp move with ⟨next, inside, eq⟩ | ⟨out, leave, eq⟩
-      · have discard := (Prefix.lime_discard_iff (s := s) (f := inner) id
-          (stack := stack) (tail := rest) (dst := next)).mp (by simpa only [List.map_id] using inside)
-        obtain ⟨kept, remaining, cut, rfl⟩ := discard
-        exact ⟨_, .blockDiscard cut, by rw [eq]; simp only [List.map_id]; rfl⟩
-      · have stopped : stack = [] ∧ rest = [] := by
-          by_contra notEmpty
-          exact Computed.lime_label_stays (head := .trap) rfl (by simp) (by simp)
-            (fun _ => by
-              rcases not_and_or.mp notEmpty with stackNonempty | restNonempty
-              · exact .inl stackNonempty
-              · exact .inr restNonempty) leave
-        obtain ⟨rfl, rfl⟩ := stopped
-        exact ⟨_, .blockExit scope, by
-          rw [eq, Nested.lime_label_result (r := .trap) leave]
-          simp only [Nested.resultCode, List.append_assoc, List.singleton_append, Entry.limeCleanup]⟩
-    · rintro ⟨out, move, rfl⟩
-      cases move with
-      | @blockDiscard _ _ _ kept remaining cut =>
-        let next : Config H := ⟨s, inner, values kept ++ .trap :: remaining⟩
-        have inside : Step CallFrame.limeNoHost ⟨s, inner, values stack ++ .trap :: rest⟩ next := by
-          simpa only [List.map_id] using (Prefix.lime_discard_iff (s := s) (f := inner) id).mpr
-            ⟨_, _, cut, by simp only [next, List.map_id]⟩
-        exact ⟨_, (invert _).mpr (.inl ⟨next, inside, rfl⟩), rfl⟩
-      | blockExit =>
-        exact ⟨_, (invert _).mpr (.inr ⟨[.trap], (.labelTrap _ []), rfl⟩), by
-          simp only [Entry.limeCleanup, List.append_assoc, List.singleton_append]⟩
-  | label stack rest =>
-    constructor
-    · intro move
-      rcases Computed.lime_body_step_cases move with ⟨mid, inside, eq⟩ | ⟨out, pop, eq⟩
-      · have moved := (Prefix.lime_discard_iff (s := s) (f := inner) id (stack := stack)
-          (tail := rest) (dst := mid)).mp (by simpa only [List.map_id] using inside)
-        obtain ⟨kept, remaining, cut, midEq⟩ := moved
-        exact ⟨.label kept remaining, .discard cut, by simpa only [Entry.limeCleanup,
-          Context.Resume.Continuation.limeWrap, midEq, List.map_id] using eq⟩
-      · have stopped : stack = [] ∧ rest = [] := by
-          by_contra notEmpty
-          exact Computed.lime_label_stays (head := .trap) rfl (by simp) (by simp)
-            (fun _ => not_and_or.mp notEmpty) pop
-        obtain ⟨rfl, rfl⟩ := stopped
-        exact ⟨.frame, .label, eq.trans (by rw [Nested.lime_label_result (r := .trap) pop]; rfl)⟩
-    · rintro ⟨out, step, rfl⟩
-      cases step with
-      | discard cut =>
-        apply Step.frame
-        apply Step.label
-        simpa only [List.map_id] using (Prefix.lime_discard_iff (s := s) (f := inner) id).mpr
-          ⟨_, _, cut, by simp only [List.map_id]⟩
-      | label => exact .frame (.pure s inner (.labelTrap _ [])) _ outer
+  | label stack rest scopes =>
+    cases scopes with
+    | nil =>
+        constructor
+        · intro move
+          rcases Computed.lime_body_step_cases move with ⟨mid, inside, eq⟩ | ⟨out, pop, eq⟩
+          · have moved := (Prefix.lime_discard_iff (s := s) (f := inner) id (stack := stack)
+              (tail := rest) (dst := mid)).mp (by simpa only [List.map_id, Context.limeNestWith, List.reverse_nil, List.foldr_nil] using inside)
+            obtain ⟨kept, remaining, cut, midEq⟩ := moved
+            exact ⟨.label kept remaining, .discard cut, by simpa only [Entry.limeCleanup,
+              Context.Resume.Continuation.limeWrap, Context.limeNestWith, List.reverse_nil, List.foldr_nil, midEq, List.map_id] using eq⟩
+          · have stopped : stack = [] ∧ rest = [] := by
+              by_contra notEmpty
+              exact Computed.lime_label_stays (head := .trap) rfl (by simp) (by simp)
+                (fun _ => not_and_or.mp notEmpty) pop
+            obtain ⟨rfl, rfl⟩ := stopped
+            exact ⟨.frame, .label, eq.trans (by rw [Nested.lime_label_result (r := .trap) pop]; rfl)⟩
+        · rintro ⟨out, step, rfl⟩
+          cases step with
+          | discard cut =>
+            simp only [Entry.limeCleanup, Context.limeNestWith, List.reverse_nil, List.foldr_nil]
+            apply Step.frame
+            apply Step.label
+            simpa only [List.map_id] using (Prefix.lime_discard_iff (s := s) (f := inner) id).mpr
+              ⟨_, _, cut, by simp only [List.map_id]⟩
+          | label => exact .frame (.pure s inner (.labelTrap _ [])) _ outer
+    | cons scope scopes =>
+        let body : Config H := ⟨s, inner, scope.plug values (fun n => .label n [])
+          (values stack ++ .trap :: rest)⟩
+        have noExit (n : Nat) (out : List Admin) :
+            ¬ PureStep inner.module.types [.label n [] body.code] out :=
+          Computed.lime_label_stays (head := .label scope.arity [] _) rfl (by simp) (by simp)
+            (by simp)
+        let wrap (cfg : Config H) := entry.cont.limeWrap outer (Context.limeNestWith id scopes.reverse cfg)
+        have nest := Source.lime_nest_step_with (a := body) noExit id scopes.reverse
+        have nested : entry.limeCleanup s outer inner (.label stack rest (scope :: scopes)) = wrap body := by
+          simp [Entry.limeCleanup, wrap, body, Context.limeNestWith, Blocks.Context.Scope.plug]
+        rw [nested]
+        change Step CallFrame.limeNoHost (entry.cont.limeWrap outer
+          (Context.limeNestWith id scopes.reverse body)) dst ↔ _
+        rw [Context.Resume.lime_wrap_step_iff (fun out => nest.1 _ out)]
+        have wrapped : (∃ mid, Step CallFrame.limeNoHost
+              (Context.limeNestWith id scopes.reverse body) mid ∧ dst = entry.cont.limeWrap outer mid) ↔
+            ∃ mid, Step CallFrame.limeNoHost body mid ∧ dst = wrap mid := by
+          constructor
+          · rintro ⟨mid, move, rfl⟩
+            obtain ⟨next, step, rfl⟩ := (nest.2 mid).mp move
+            exact ⟨next, step, rfl⟩
+          · rintro ⟨mid, move, rfl⟩
+            exact ⟨_, (nest.2 _).mpr ⟨mid, move, rfl⟩, rfl⟩
+        rw [wrapped]
+        let invert (mid : Config H) := Blocks.Context.lime_label_iff (s := s) (f := inner)
+          (n := scope.arity) (saved := scope.saved) (body := values stack ++ .trap :: rest) (rest := scope.rest) (dst := mid)
+        constructor
+        · rintro ⟨mid, move, rfl⟩
+          rcases (invert mid).mp move with ⟨next, inside, eq⟩ | ⟨out, leave, eq⟩
+          · have discard := (Prefix.lime_discard_iff (s := s) (f := inner) id
+              (stack := stack) (tail := rest) (dst := next)).mp (by simpa only [List.map_id] using inside)
+            obtain ⟨kept, remaining, cut, rfl⟩ := discard
+            exact ⟨_, .discard cut, by
+              rw [eq]
+              simp [Entry.limeCleanup, wrap, Context.limeNestWith]⟩
+          · have stopped : stack = [] ∧ rest = [] := by
+              by_contra notEmpty
+              exact Computed.lime_label_stays (head := .trap) rfl (by simp) (by simp)
+                (fun _ => by
+                  rcases not_and_or.mp notEmpty with stackNonempty | restNonempty
+                  · exact .inl stackNonempty
+                  · exact .inr restNonempty) leave
+            obtain ⟨rfl, rfl⟩ := stopped
+            exact ⟨_, .blockExit scope scopes, by
+              rw [eq, Nested.lime_label_result (r := .trap) leave]
+              simp only [Nested.resultCode, List.append_assoc, List.singleton_append, Entry.limeCleanup, wrap]⟩
+        · rintro ⟨out, move, rfl⟩
+          cases move with
+          | @discard _ _ _ kept remaining cut =>
+            let next : Config H := ⟨s, inner, values kept ++ .trap :: remaining⟩
+            have inside : Step CallFrame.limeNoHost ⟨s, inner, values stack ++ .trap :: rest⟩ next := by
+              simpa only [List.map_id] using (Prefix.lime_discard_iff (s := s) (f := inner) id).mpr
+                ⟨_, _, cut, by simp only [next, List.map_id]⟩
+            exact ⟨_, (invert _).mpr (.inl ⟨next, inside, rfl⟩), by
+              simp [Entry.limeCleanup, wrap, next, Context.limeNestWith]⟩
+          | blockExit =>
+            exact ⟨_, (invert _).mpr (.inr ⟨[.trap], (.labelTrap _ []), rfl⟩), by
+              simp only [Entry.limeCleanup, wrap, List.append_assoc, List.singleton_append]⟩
   | frame =>
     constructor
     · intro move
@@ -193,10 +239,11 @@ theorem core_trap_run_iff {H : Type} {P : Numerics.Profile} {s : Core.Store H}
   let before := (entry.corePrefix s outer index args active out states).dropLast
   let trapped := entry.coreCleanup s outer active.caller (entry.coreTrapStart active out)
   have same : before ++ [trapped] = entry.corePrefix s outer index args active out states := by
-    cases trap <;> cases scope : entry.cont.block <;>
-      simp [before, trapped, Entry.corePrefix, Outcome.coreTrace, Entry.coreLookup,
-        Entry.coreTrapStart, Entry.siteTrap, Entry.coreCleanup, Source.Activation.coreConfig,
-        Context.Resume.Continuation.scopes, Context.coreNest, Blocks.Context.Scope.plug, scope,
+    have render := Core.core_site_trap (entry := entry) (s := s) (outer := outer)
+      active.caller (active.operands.saved ++ active.operands.args)
+    cases trap <;>
+      simp [before, trapped, Entry.corePrefix, Outcome.coreTrace, Entry.coreLookup, Entry.coreTrapStart,
+        render, Source.Activation.coreConfig, Context.Resume.Continuation.coreSiteWrap,
         Indirect.coreConfig, Site.coreCode, coreValues, List.append_assoc]
   have chain : (before ++ [trapped]).IsChain (fun a b => ∀ dst, Core.Step P noHost a dst ↔ dst = b) := by
     rw [same]
@@ -220,10 +267,12 @@ theorem lime_trap_run_iff {H : Type} {s : Store H}
   have chain : (before ++ [trapped]).IsChain (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) := by
     have same : before ++ [trapped] = entry.limePrefix s outer index args active out states := by
       apply List.dropLast_append_getLast?
-      cases trap <;> cases scope : entry.cont.block <;>
-        simp [trapped, Entry.limePrefix, Entry.limeCleanup, Entry.limeTrapStart, Entry.siteTrap,
-          Source.Activation.limeResolved, Context.Resume.Continuation.scopes, Context.limeNest,
-          Blocks.Context.Scope.plug, scope, Indirect.limeResolved, values, List.map_append, List.append_assoc]
+      have render := Lime1.lime_site_trap (entry := entry) (s := s) (outer := outer)
+        active.caller (active.operands.saved ++ active.operands.args)
+      cases trap <;>
+        simp [trapped, Entry.limePrefix, Entry.limeTrapStart, render, Source.Activation.limeResolved,
+          Context.Resume.Continuation.limeSiteWrap, Indirect.limeResolved, values,
+          List.map_append, List.append_assoc]
     rw [same]
     exact Lime1.prefix_exact ready allocated resolved
   exact (Context.Resume.prefix_run_iff (dst := dst) before trapped chain).trans

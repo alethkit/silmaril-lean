@@ -25,25 +25,26 @@ theorem prepare_spec {states : List OperandState} {stack : List Value}
     entry.op.Prepared program tables (entry.frame args) stack active :=
   Source.prepare_spec (by simpa only [Entry.prepare, ite_eq_left ready.checked.typed] using ready.prepared)
 
+private theorem checked_spine (blocks : List Context.Resume.Block) (saved : List Value)
+    (fallthrough : List NumType) (enclosing : Graph.EnclosingLabels)
+    (checked : (entry.region blocks).checkRegion program tables entry.cont.owner fallthrough enclosing
+      (Prefix.stackTypes saved) = true) :
+    let innermost := Context.Resume.Block.context blocks fallthrough enclosing
+    entry.siteBody.checkRegion program tables entry.cont.owner innermost.1 innermost.2
+      (Prefix.stackTypes (if blocks.isEmpty then saved else [])) = true ∧
+      Context.Resume.Block.check entry.cont.owner blocks saved fallthrough enclosing = true := by
+  induction blocks generalizing saved fallthrough enclosing with
+  | nil => exact ⟨checked, rfl⟩
+  | cons block rest ih =>
+    have ⟨inside, tail⟩ := Bool.and_eq_true_iff.mp checked
+    obtain ⟨site, blocks⟩ := ih [] block.result.toList (fallthrough :: enclosing) inside
+    exact ⟨by simpa [Context.Resume.Block.context] using site, Bool.and_eq_true_iff.mpr ⟨blocks, tail⟩⟩
+
 private theorem checked_region (checked : entry.check program tables = true) :
     entry.siteBody.checkRegion program tables entry.cont.owner entry.cont.fallthrough entry.cont.enclosing
-      (Prefix.stackTypes entry.initial) = true ∧ entry.cont.blockCheck = true := by
-  have region := (Bool.and_eq_true_iff.mp checked).2
-  cases scope : entry.cont.block with
-  | none =>
-    refine ⟨?_, by simp [Context.Resume.Continuation.blockCheck, scope]⟩
-    simpa [Entry.body, scope, Context.Resume.Continuation.fallthrough, Context.Resume.Continuation.enclosing,
-      Entry.initial] using region
-  | some block =>
-    have entered := Bool.and_eq_true_iff.mp (by simpa only [Entry.body, scope, Source.Body.checkRegion] using region :
-      (entry.siteBody.checkRegion program tables entry.cont.owner block.result.toList
-        [entry.cont.owner.declaration.results] [] &&
-      Graph.checkCode entry.cont.owner.targets entry.cont.owner.localTypes entry.cont.owner.declaration.results
-        entry.cont.owner.declaration.results [] (block.result.toList.reverse ++ Prefix.stackTypes entry.cont.owner.initial)
-        block.tail .exit entry.cont.owner.declaration.module.types) = true)
-    exact ⟨by simpa [Context.Resume.Continuation.fallthrough, Context.Resume.Continuation.enclosing,
-        Entry.initial, scope, Prefix.stackTypes] using entered.1,
-      by simpa [Context.Resume.Continuation.blockCheck, scope] using entered.2⟩
+      (Prefix.stackTypes entry.initial) = true ∧ entry.cont.blockCheck = true :=
+  checked_spine entry.cont.blocks entry.cont.owner.initial entry.cont.owner.declaration.results []
+    (Bool.and_eq_true_iff.mp checked).2
 
 private theorem checked_body (checked : entry.check program tables = true) :
     (entry.op.bind program tables entry.cont.owner.declaration.module).isSome = true ∧

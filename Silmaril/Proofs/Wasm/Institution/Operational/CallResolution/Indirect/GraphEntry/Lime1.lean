@@ -48,37 +48,64 @@ private theorem body_code (entry : Entry) :
   simp only [expression, List.map_append] at literals ⊢
   rw [literals]
 
-private theorem function_site (scope : entry.cont.block = none) :
-    entry.limeBody s outer args = entry.limeOperands s outer args (entry.initial, entry.before) := by
-  simp [Entry.limeBody, body_code, Entry.body, scope, site_code, Entry.limeOperands, Entry.initial,
-    Context.Resume.Continuation.limeSiteWrap, Context.Resume.Continuation.scopes, Context.limeNest]
-
-private theorem block_iff {block : Context.Resume.Block}
-    (scope : entry.cont.block = some block) (dst : Config H) :
-    Step CallFrame.limeNoHost (entry.limeBody s outer args) dst ↔
-      dst = entry.limeOperands s outer args (entry.initial, entry.before) := by
-  let body := entry.siteBody.lime
+private theorem block_iff (entered : List (Blocks.Context.Scope Graph.Op)) (saved : List Value)
+    (block : Context.Resume.Block) (rest : List Context.Resume.Block) (dst : Config H) :
+    Step CallFrame.limeNoHost (entry.limeRegion s outer args entered saved (block :: rest)) dst ↔
+      dst = entry.limeRegion s outer args (entered ++ [block.scope saved]) [] rest := by
+  let body := (entry.region rest).lime
   let tail := block.tail.map Graph.limeEmit
-  let blockCode := values entry.cont.owner.initial ++ .source (.block (Blocks.limeType block.result) body) :: tail
-  have rendered : expression entry.limeFunc.body = blockCode := by
-    rw [body_code, Entry.body, scope]
-    change values entry.cont.owner.initial ++ .source (.block (Blocks.limeType block.result) body) ::
-      expression (Graph.Op.emitList Graph.limeCodeSyntax block.tail) = blockCode
+  let code := values saved ++ .source (.block (Blocks.limeType block.result) body) :: tail
+  have rendered : values saved ++ expression (entry.region (block :: rest)).lime = code := by
+    change values saved ++ .source (.block (Blocks.limeType block.result) body) ::
+      expression (Graph.Op.emitList Graph.limeCodeSyntax block.tail) = code
     rw [tail_code entry.cont.owner]
-  have stays (out : List Admin) : ¬ PureStep (entry.frame args).module.types [.label entry.cont.owner.declaration.results.length []
-      blockCode] out :=
+  have stays (n : Nat) (out : List Admin) : ¬ PureStep (entry.frame args).module.types [.label n [] code] out :=
     Computed.lime_label_stays (head := .source (.block (Blocks.limeType block.result) body))
       rfl (by simp) (by simp) (by simp)
-  simp only [Entry.limeBody, rendered]
-  rw [Context.Resume.lime_wrap_step_iff stays]
+  have nest := Source.lime_nest_step (a := ⟨s, entry.frame args, code⟩) stays entered
+  simp only [Entry.limeRegion, rendered]
+  rw [Context.Resume.lime_wrap_step_iff (fun out => nest.1 _ out)]
   have enter (mid : Config H) := Computed.lime_block_iff (s := s) (f := entry.frame args) (dst := mid)
-    (result := block.result) (body := body) (rest := tail)
-    (stack := entry.cont.owner.initial)
-  change (∃ mid, Step CallFrame.limeNoHost ⟨s, entry.frame args, blockCode⟩ mid ∧ _) ↔ _
-  simp only [blockCode, enter, exists_eq_left]
-  rw [show expression body = entry.limeSiteCode entry.before from site_code entry]
-  simp [Entry.limeOperands, Entry.initial, scope, tail,
-    Context.Resume.Continuation.limeSiteWrap, Context.Resume.Continuation.scopes, Context.limeNest, values]
+    (result := block.result) (body := body) (rest := tail) (stack := saved)
+  let target : Config H := ⟨s, entry.frame args, values saved ++
+    .label block.result.toList.length [] (expression body) :: tail⟩
+  have same : Context.limeNest entered target =
+      Context.limeNest (entered ++ [block.scope saved]) ⟨s, entry.frame args, values [] ++ expression body⟩ := by
+    simp [Context.limeNestWith, List.foldr_append, target, Context.Resume.Block.scope, tail, values]
+  constructor
+  · rintro ⟨mid, move, rfl⟩
+    obtain ⟨next, inside, rfl⟩ := (nest.2 mid).mp move
+    have eq : next = target := enter next |>.mp inside
+    rw [eq]
+    exact congrArg (entry.cont.limeWrap outer) same
+  · rintro rfl
+    rw [← same]
+    exact ⟨_, (nest.2 _).mpr ⟨target, (enter target).mpr rfl, rfl⟩, rfl⟩
+
+private theorem block_chain (blocks : List Context.Resume.Block) (saved : List Value)
+    (entered : List (Blocks.Context.Scope Graph.Op)) (after : List (Config H))
+    (chain : after.IsChain (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b))
+    (head : after.head? = some (entry.limeRegion s outer args (entered ++ Context.Resume.Block.scopes blocks saved)
+      (if blocks.isEmpty then saved else []) [])) :
+    let before := entry.limeBlocks s outer args entered saved blocks ++ after
+    before.IsChain (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) ∧
+      before.head? = some (entry.limeRegion s outer args entered saved blocks) := by
+  induction blocks generalizing saved entered with
+  | nil => exact ⟨chain, by simpa [Context.Resume.Block.scopes, Entry.limeBlocks] using head⟩
+  | cons block rest ih =>
+    have next := ih [] (entered ++ [block.scope saved])
+      (by simpa [Context.Resume.Block.scopes, List.append_assoc] using head)
+    refine ⟨next.1.cons ?_, rfl⟩
+    intro b found dst
+    rw [next.2] at found
+    obtain rfl := Option.mem_some.mp found
+    exact block_iff entered saved block rest dst
+
+theorem lime_site_trap (inner : Execution.Runtime.Frame) (stack : List Value) (rest : List Admin) :
+    entry.limeCleanup s outer inner (entry.siteTrap Graph.limeEmit stack rest) =
+      entry.cont.limeSiteWrap outer ⟨s, inner, values stack ++ .trap :: rest⟩ := by
+  simp [Entry.limeCleanup, Entry.siteTrap, Context.Resume.Continuation.limeSiteWrap,
+    Context.limeNestWith, List.foldr_map]
 
 private theorem entry_iff (ready : entry.Checked program tables outer index args)
     (allocated : s.funcs[entry.cont.address.value]? = some entry.limeInstance) {dst : Config H} :
@@ -113,9 +140,7 @@ private theorem operand_iff {stack : List Value} {op : Prefix.Op} {rest : List P
         | .trap saved => entry.limeOperandResult s outer args (.trap saved rest) := by
     cases result with
     | values => rfl
-    | trap => cases scope : entry.cont.block <;>
-        simp [Entry.limeOperandResult, Entry.limeCleanup, Entry.siteTrap, Context.Resume.Continuation.limeSiteWrap,
-          Context.Resume.Continuation.scopes, Context.limeNest, Blocks.Context.Scope.plug, scope, Prefix.outcomeCode, tail]
+    | trap saved => exact (lime_site_trap (entry.frame args) saved tail).symm
   change Step CallFrame.limeNoHost (entry.cont.limeSiteWrap outer inside) dst ↔ _
   rw [Context.Resume.lime_site_step_iff stays]
   constructor
@@ -158,22 +183,23 @@ theorem operands_exact (ready : entry.Checked program tables outer index args)
       dst = entry.limeInvoke s outer args := fun _ =>
     Computed.lime_direct_call_iff (s := s) (stack := args) (tail := []) ready.resolves
   have after := operand_chain (s := s) (outer := outer) trace
+  have site : entry.limeRegion s outer args entry.cont.scopes entry.initial [] =
+      entry.limeOperands s outer args (entry.initial, entry.before) := by
+    simp only [Entry.limeRegion, Entry.region, site_code, Entry.limeOperands, Context.Resume.Continuation.limeSiteWrap]
+  rw [← site] at head
+  have path := block_chain (entry := entry) (s := s) (outer := outer) (args := args) entry.cont.blocks entry.cont.owner.initial []
+    _ after (by simpa only [List.nil_append, Context.Resume.Continuation.scopes, Entry.initial] using head)
   unfold Entry.limeBefore
-  cases scope : entry.cont.block with
-  | none =>
-    refine List.isChain_cons_cons.mpr ⟨call, after.cons ?_⟩
-    intro b found dst
-    rw [head] at found
-    obtain rfl := Option.mem_some.mp found
-    rw [← function_site scope]
-    exact entry_iff ready allocated
-  | some block =>
-    refine List.isChain_cons_cons.mpr ⟨call, List.isChain_cons_cons.mpr
-      ⟨fun _ => entry_iff ready allocated, after.cons ?_⟩⟩
-    intro b found dst
-    rw [head] at found
-    obtain rfl := Option.mem_some.mp found
-    exact block_iff scope dst
+  simp only [List.cons_append, List.append_assoc]
+  refine List.isChain_cons_cons.mpr ⟨call, path.1.cons ?_⟩
+  intro b found dst
+  rw [path.2] at found
+  obtain rfl := Option.mem_some.mp found
+  have same : entry.limeBody s outer args =
+      entry.limeRegion s outer args [] entry.cont.owner.initial entry.cont.blocks := by
+    simp [Entry.limeBody, body_code, Entry.body, Entry.limeRegion, Context.limeNestWith]
+  rw [← same]
+  exact entry_iff ready allocated
 
 theorem prefix_exact {states : List OperandState} {stack : List Value}
     (ready : entry.AtSite program tables outer index args states stack active)
