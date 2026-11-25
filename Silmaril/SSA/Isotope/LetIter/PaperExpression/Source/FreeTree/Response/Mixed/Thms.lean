@@ -41,6 +41,40 @@ section Typed
 variable {ε : Type r} [HasEff Φ ε] [HasEff Ψ ε] [SemilatticeSup ε] [OrderBot ε]
   {Γ : EffectCtx (Ty α) ε} {slots : Fin Γ.length → α}
 
+theorem slots_extended {a : α} (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) :
+    ∀ i : Fin (Γ.length + 1),
+      (((Ty.base a, (⊥ : ε)) :: Γ).get i).1 = .base (extendSorts a slots i) :=
+  Proofs.slots_extended hslots
+
+theorem pure_extended (hΓ : Γ.Pure) (a : α) :
+    EffectCtx.Pure ((Ty.base a, (⊥ : ε)) :: Γ) :=
+  Proofs.pure_extended hΓ a
+
+theorem tree_wf (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    {a : α} (p : Tree S slots a) (hp : DeclaredPure (ε := ε) S p) (e : ε) :
+    letI := endpoints S T
+    letI : HasEff (Φ ⊕ Ψ) ε := effects
+    Wf Γ (SumCall.treeSource (Ψ := Ψ) S p) (.base a) e :=
+  Proofs.tree_wf S T hΓ hslots p hp e
+
+theorem atom_request_wf (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    {f : Φ} (args : Args S slots f) (hargs : ∀ i, DeclaredPure (ε := ε) S (args i))
+    {e : ε} (hf : instrEff f ≤ e) :
+    letI := endpoints S T
+    letI : HasEff (Φ ⊕ Ψ) ε := effects
+    Wf Γ (.op (Sum.inl f : Φ ⊕ Ψ) (sourceTuple (S.arity f) (fun i => SumCall.treeSource S (args i))))
+      (Ty.base (S.out f)) e :=
+  Proofs.atom_request_wf S T hΓ hslots args hargs hf
+
+theorem sum_request_wf (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    {f : Ψ} (args : SumCall.SumArgs S T slots f) (hargs : ∀ i, DeclaredPure (ε := ε) S (args i))
+    {e : ε} (hf : instrEff f ≤ e) :
+    letI := endpoints S T
+    letI : HasEff (Φ ⊕ Ψ) ε := effects
+    Wf Γ (.op (Sum.inr f) (sourceTuple (T.arity f) (fun i => SumCall.treeSource S (args i))))
+      (SumCall.result T f) e :=
+  Proofs.sum_request_wf S T hΓ hslots args hargs hf
+
 theorem source_wf (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
     (e : ε) (p : Program S T c slots) (hp : Program.WellTyped S T e p) :
     letI := endpoints S T
