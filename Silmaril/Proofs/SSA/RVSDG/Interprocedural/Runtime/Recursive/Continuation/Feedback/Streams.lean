@@ -126,25 +126,34 @@ private theorem inside_path (micro : Nat → State m final)
     exact (ih fun j before => inside j (Nat.lt_trans before (Nat.lt_succ_self _))).tail
       ⟨steps _, inside count (Nat.lt_succ_self _)⟩
 
-theorem segments_of_restarts {inputs : Nat → Tuple m.Val carried} {micro : Nat → State m final}
-    {indices : Nat → Nat} (trace : RestartTrace body parent inputs micro indices) :
-    ∀ n, Segment body parent (inputs n) (inputs (n + 1)) := by
-  intro n
-  let first := indices n + 1
-  let exit := indices (n + 1) - 1
-  have enough : first ≤ exit := by have := trace.later n; dsimp [first, exit]; omega
-  have exitEdge : exit + 1 = indices (n + 1) := by have := trace.later n; dsimp [exit]; omega
-  have entry := step_deterministic (trace.steps (indices n))
-    ((trace.atRestart n).symm ▸ enter_body body parent (inputs n))
-  obtain ⟨tag, returned⟩ := trace.bodyReturn n
-  have path := inside_path micro trace.steps (.loop body parent) first (exit - first) (fun j before => by
-    apply trace.inside n (first + j)
+theorem segment_of_positions {micro : Nat → State m final} {begin finish : Nat}
+    (steps : ∀ i, Step (micro i) (micro (i + 1)))
+    (atStart : micro begin = restart body parent input)
+    (atNext : micro finish = restart body parent next)
+    (later : begin + 1 < finish)
+    (returned : ∃ tag, micro (finish - 1) = .returned (.cons tag next) (.loop body parent))
+    (inside : ∀ i, begin < i → i + 1 < finish → ¬ atReturn (.loop body parent) (micro i)) :
+    Segment body parent input next := by
+  let first := begin + 1
+  let exit := finish - 1
+  have enough : first ≤ exit := by dsimp [first, exit]; omega
+  have exitEdge : exit + 1 = finish := by dsimp [exit]; omega
+  have entry := step_deterministic (steps begin) (atStart.symm ▸ enter_body body parent input)
+  obtain ⟨tag, returned⟩ := returned
+  have path := inside_path micro steps (.loop body parent) first (exit - first) (fun j before => by
+    apply inside (first + j)
     · dsimp [first]; omega
     · omega)
   rw [Nat.add_sub_of_le enough] at path
-  have feedback := trace.steps exit
-  rw [exitEdge, trace.atRestart (n + 1)] at feedback
+  have feedback := steps exit
+  rw [exitEdge, atNext] at feedback
   exact ⟨tag, entry ▸ returned ▸ path, returned ▸ feedback⟩
+
+theorem segments_of_restarts {inputs : Nat → Tuple m.Val carried} {micro : Nat → State m final}
+    {indices : Nat → Nat} (trace : RestartTrace body parent inputs micro indices) :
+    ∀ n, Segment body parent (inputs n) (inputs (n + 1)) :=
+  fun n => segment_of_positions trace.steps (trace.atRestart n) (trace.atRestart (n + 1))
+    (trace.later n) (trace.bodyReturn n) (trace.inside n)
 
 theorem run_iff_restarts :
     Run body input ↔

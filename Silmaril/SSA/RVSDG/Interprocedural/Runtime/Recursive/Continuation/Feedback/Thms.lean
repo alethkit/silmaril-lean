@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Defs
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Thms
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Delimiter
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Streams
 
 public section
@@ -25,6 +26,13 @@ theorem returns_iff_delimited (frame : Stack m ports final) {job : Job m ports}
     Returns m job value ↔ ReflTransGen (InsideStep frame) (.eval job frame) (.returned value frame) :=
   Proofs.returns_iff_delimited frame
 
+/-- An active job without a finite return runs indefinitely under its
+enclosing frame. This uses progress of the typed continuation machine. -/
+theorem trace_without_return (frame : Stack m ports final) (job : Job m ports)
+    (noReturn : ∀ value, ¬ Returns m job value) :
+    InfiniteTrace (InsideStep frame) (.eval job frame) :=
+  Proofs.trace_without_return frame job noReturn
+
 /-- A completed feedback iteration corresponds to a delimited body
 run followed by the actual feedback edge. -/
 theorem iteration_iff_segment : Iteration body input next ↔ Segment body parent input next :=
@@ -46,6 +54,18 @@ theorem restarts_of_segments (inputs : Nat → Tuple m.Val carried)
     (segments : ∀ n, Segment body parent (inputs n) (inputs (n + 1))) :
     ∃ micro indices, RestartTrace body parent inputs micro indices :=
   Proofs.restarts_of_segments inputs segments
+
+/-- Read a feedback segment from two restart positions, the body return,
+and the guard that excludes earlier returns to the same frame. -/
+theorem segment_of_positions {micro : Nat → State m final} {begin finish : Nat}
+    (steps : ∀ i, Step (micro i) (micro (i + 1)))
+    (atStart : micro begin = restart body parent input)
+    (atNext : micro finish = restart body parent next)
+    (later : begin + 1 < finish)
+    (returned : ∃ tag, micro (finish - 1) = .returned (.cons tag next) (.loop body parent))
+    (inside : ∀ i, begin < i → i + 1 < finish → ¬ atReturn (.loop body parent) (micro i)) :
+    Segment body parent input next :=
+  Proofs.segment_of_positions steps atStart atNext later returned inside
 
 theorem segments_of_restarts {inputs : Nat → Tuple m.Val carried} {micro : Nat → State m final}
     {indices : Nat → Nat} (trace : RestartTrace body parent inputs micro indices) :
