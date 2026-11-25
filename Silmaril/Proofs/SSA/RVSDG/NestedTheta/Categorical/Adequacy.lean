@@ -87,9 +87,8 @@ theorem mem_denoteOpen (m : Model.{u, v, w} Op) (t : Term Op args past sigs outs
   induction t with
   | ret wires => exact _root_.Part.mem_some_iff.trans eq_comm
   | bind node children rest child_iff rest_iff =>
-    rw [Term.denoteOpen, Term.Exec]
-    change _ ∈ _root_.Part.bind _ _ ↔ _
-    rw [_root_.Part.mem_bind_iff]
+    rw [Term.Exec]
+    refine _root_.Part.mem_bind_iff.trans ?_
     exact exists_congr fun result =>
       (kind_mem m node.kind _ _ (fun i x y => child_iff i x PUnit.unit y) _ result).and
         (rest_iff input (locals.snoc result) output)

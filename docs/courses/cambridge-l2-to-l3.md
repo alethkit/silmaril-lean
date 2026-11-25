@@ -45,6 +45,41 @@ the whole translated store.
 [Operational theorems](../../Silmaril/Courses/Cambridge/L2ToL3/Thms.lean) ·
 [Checked examples](../../Silmaril/Courses/Cambridge/L2ToL3/Examples.lean)
 
+## Named syntax and scope resolution
+
+`named` translates every L2 named AST directly. It keeps the spelling of
+variables and binders, translates type annotations, and uses the same
+address layout as the resolved translation. `resolve_named` checks the
+square for every ambient binder list, including lists with shadowing.
+An unmatched variable keeps its free name. A cell with the same spelling
+as a variable still maps to a numeric address, regardless of scope.
+
+```mermaid
+flowchart LR
+    A["L2 named AST"] -->|named| B["L3 named AST"]
+    A -->|Resolve under bound| C["L2 resolved AST"]
+    B -->|Resolve under bound| D["L3 resolved AST"]
+    C -->|expr| D
+```
+
+The L3 canonical concrete printer applies to the subdomain where
+`L3.Concrete.NamesOk (named address term)` holds. Every variable occurrence
+and binder must have a valid L3 identifier spelling. The translated
+annotations and numeric addresses are always representable. For example,
+L2 accepts `ref` as a variable and L3 reserves it, so that named image
+falls outside the printer's domain. On the representable subdomain,
+`parseResolved_print_named` checks that printing and parsing the L3 image
+returns the embedding of the L2 term resolved at the empty ambient scope.
+This round trip is for ASTs with valid L3 spellings. Arbitrary source text
+can also carry whitespace and grouping choices that the AST discards.
+
+The checked source example parses an L2 `let rec` with a cell write and
+read, prints and reparses its named L3 image, and checks the resolved
+binders and the free argument `y`. A separate raw AST example exercises
+the same spelling in both a variable and a cell position.
+[Named embedding and theorem](../../Silmaril/Courses/Cambridge/L2ToL3/Named.lean) ·
+[Checked named examples](../../Silmaril/Courses/Cambridge/L2ToL3/NamedExamples.lean)
+
 ## Typed finite-return satisfaction
 
 The return institution adapter admits the existing `may-return` and

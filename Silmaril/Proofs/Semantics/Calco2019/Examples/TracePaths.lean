@@ -209,7 +209,7 @@ private theorem letter_finite (a : A) {x : Unit} {t : Trace A Unit}
     obtain ⟨n, rfl⟩ := ih
     exact ⟨n + 1, rfl⟩
 
-theorem greatest_letter_trace (a : A) : greatestTrace (traceLoop a) = productiveSolution a := by
+theorem greatest_letter_trace (a : A) : greatestTrace (traceLoop.{u, 0} a) = productiveSolution a := by
   apply le_antisymm _ (le_greatestTrace _ (productive_fixpoint a).ge)
   intro x t ht
   rcases (greatest_iff (traceLoop_guarded a) x t).1 ht with h | ⟨p, rfl⟩

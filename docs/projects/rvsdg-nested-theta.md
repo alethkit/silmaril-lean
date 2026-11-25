@@ -87,21 +87,51 @@ return. Selecting that arm instead yields `Part.none`.
 `Part.none` characterizes the absence of any finite return. A single fuel
 failure leaves open whether greater fuel succeeds. An infinite sequence of
 completed outer iterations also cannot account for an inner call with no
-return. A general infinite-execution characterization, the ordered runtime
-interpretation of nested regions, a general premonoidal adapter, and a
-nested-region institution remain separate from this adequacy theorem.
+return. A general infinite-execution characterization, a general
+premonoidal adapter, and a nested-region institution remain separate from
+these adequacy theorems.
 
 The [nested firing semantics](rvsdg-nested-petri.md) proves the
 finite-completion equivalence against the unbounded term relation. It
 uses explicit child activations and fresh θ re-entry, including under γ.
+
+## Ordered state
+
+The same fold accepts a computation arrow for each primitive. Its existing
+pure entry points embed the total value primitives with `pure`. The ordered
+instance uses the structured runtime's `Instruction P E` dialect and lifts
+each `StateM σ` primitive into `StateT σ Part`. The typed ports carry values,
+selectors, and unit state slots. The live state stays in the computation, so
+reading or copying an in-scope port cannot recover a previous runtime. This
+slice uses implicit state in the Kleisli category. The separate explicit
+runtime-wire admission judgment is for the whole-region development.
+[Definitions](../../Silmaril/SSA/RVSDG/NestedTheta/OrderedState/Defs.lean) · [Primitive lift](rvsdg-structured-runtime-lift.md)
+
+The independent `OrderedState.exec` relation records a finite derivation in
+dependency and binding order. Each node receives the state left by its
+predecessor. A γ passes it to the selected arm in a fresh value scope, and
+each θ restart receives the carried tuple and state returned by the completed
+body. Sequencing therefore fixes an order for the effects without a
+commutation assumption. `mem_denoteOpen` proves equivalence with membership
+in the stateful denotation at every prefix. `mem_observe` applies this to
+the typed graph decoder. Both observations identify the entire result tuple
+and final state together. [Theorems](../../Silmaril/SSA/RVSDG/NestedTheta/OrderedState/Thms.lean)
+
+The fixture has a θ inside another θ. The inner θ advances state twice per
+outer activation. The next outer node reads that state to choose whether to
+restart and to determine the returned payload. Choosing the uncharged γ arm
+returns payload 7 and state 15. Choosing the arm that adds 100 returns
+payload 102 and state 205. [Ordered fixture](../../tests/ssa/RVSDGNestedThetaOrderedState.lean)
 
 ## Reproduce
 
 ```sh
 lake build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Categorical.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedTheta.lean
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.NestedTheta.Categorical.Thms
-lake env leanchecker Silmaril.SSA.RVSDG.NestedTheta.Categorical.Thms
+lake build --wfail +Silmaril.SSA.RVSDG.NestedTheta.OrderedState.Thms
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedThetaOrderedState.lean
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.NestedTheta.OrderedState.Thms
+lake env leanchecker Silmaril.SSA.RVSDG.NestedTheta.OrderedState.Thms
 ```
 
 The [interprocedural graph interfaces](rvsdg-interprocedural.md) use these

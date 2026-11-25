@@ -41,6 +41,13 @@ theorem substitutionEquiv_typed {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
         (hr.substVars (replaceNewest_typed (.inl (.var rfl))))
         (hr.substVars (replaceNewest_typed (.inr (.var rfl)))),
         hr.substVars (Tm.Subst.HasType.single ha.hasType)⟩
+  | @caseCfg Γ e A B l L r he hl hr =>
+      let R : Fin 2 → τ := Fin.cases A (fun _ => B)
+      refine ⟨.case he hl hr, .cfg R (.case he (.br (localAt R 0 _) (.var rfl))
+        (.br (localAt R 1 _) (.var rfl))) (fun i => ?_)⟩
+      refine Fin.cases ?_ (fun j => ?_) i
+      · exact hl.renameLabels (outwardRen R _)
+      · exact hr.renameLabels (outwardRen R _)
   | initial _ hr hs => exact ⟨hr, hs⟩
   | cfgOutward R hr hb => exact ⟨.cfg R (hr.renameLabels (outwardRen R _)) hb, hr⟩
 
@@ -56,6 +63,16 @@ private theorem lsubst_outward (r : Region Φ) (σ : Nat → Region Φ) (n : Nat
   congr 1
   funext j
   exact liftAtExit σ n j
+
+private theorem lsubst_outward_liftVars (r : Region Φ) (σ : Nat → Region Φ) (n : Nat) :
+    (r.renameLabels (fun j => n + j)).lsubst (liftLSubstVars (liftLSubstN n σ)) =
+      (r.lsubst (liftLSubstVars σ)).renameLabels (fun j => n + j) := by
+  rw [lsubst_renameLabels, renameLabels_lsubst]
+  congr 1
+  funext j
+  change ((liftLSubstN n σ) (n + j)).renameVars _ = (liftLSubstVars σ j).renameLabels _
+  rw [liftAtExit, renameVars_renameLabels]
+  rfl
 
 private theorem cfgEquiv_lsubst_closed {Γ : VCtx τ} {L K : LCtx τ} {r s : Region Φ}
     (h : CfgEquiv Γ r s L) {σ : Nat → Region Φ} (hσ : LSubst.HasType Γ L K σ) :
@@ -115,6 +132,16 @@ theorem substitutionEquiv_lsubst {Γ : VCtx τ} {L K : LCtx τ} {r s : Region Φ
   | @caseValue Γ a A B r L ha hr =>
       simpa only [lsubst, lsubst_replaceNewest, lsubst_single] using
         SubstitutionEquiv.caseValue ha (hr.lsubst (hσ.liftVars (Silmaril.coprod A B)))
+  | @caseCfg Γ e A B l L r he hl hr =>
+      have e₁ : (Region.caseCfg e l r).lsubst σ =
+          Region.caseCfg e (l.lsubst (liftLSubstVars σ)) (r.lsubst (liftLSubstVars σ)) := by
+        simp only [Region.caseCfg, lsubst]
+        congr 1
+        funext i
+        refine Fin.cases ?_ (fun j => ?_) i
+        · exact lsubst_outward_liftVars l σ 2
+        · exact lsubst_outward_liftVars r σ 2
+      exact e₁.symm ▸ SubstitutionEquiv.caseCfg he (hl.lsubst (hσ.liftVars A)) (hr.lsubst (hσ.liftVars B))
   | initial ha hr hs => exact .initial ha (hr.lsubst hσ) (hs.lsubst hσ)
   | cfgOutward R hr hb =>
       have hblocks := fun i => (hb i).lsubst ((typedLiftBlocks hσ R).liftVars (R i))

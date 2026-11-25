@@ -1,0 +1,179 @@
+module
+
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGraph.Thms
+import Mathlib.Tactic.FinCases
+import Mathlib.Tactic.FunProp
+import Mathlib.Tactic.Linarith
+import Mathlib.Tactic.NormNum
+import Mathlib.Tactic.Ring
+
+public section
+
+namespace Silmaril.RuntimeWires.Proofs.ProgressiveGraph.Regression
+
+open Silmaril.RuntimeWires.ProgressiveGraph
+
+private abbrev signature : Signature Bool where
+  Edge := Fin 3
+  source v := if v = 2 then [true] else []
+  target v := if v = 0 then [true] else []
+
+private noncomputable def vertexHeight (v : Fin 3) : ℝ :=
+  if v = 0 then 1 / 4 else if v = 1 then 1 / 2 else 3 / 4
+
+private noncomputable def vertexX (v : Fin 3) : ℝ :=
+  if v = 0 then 1 / 2 else if v = 1 then 3 / 4 else 5 / 8
+
+private def start (w : Fin 2) : Option (Fin 3) := if w = 0 then none else some 0
+
+private def finish (w : Fin 2) : Option (Fin 3) := if w = 0 then none else some 2
+
+private noncomputable def horiz (w : Fin 2) (y : ℝ) : ℝ :=
+  if w = 0 then (1 + y) / 8 else (7 + 4 * y) / 16
+
+private noncomputable def exampleWire (w : Fin 2) :
+    Wire (endpointHeight vertexHeight 0 (start w)) (endpointHeight vertexHeight 1 (finish w)) where
+  x := horiz w
+  increasing := by fin_cases w <;> norm_num [start, finish, vertexHeight, endpointHeight]
+  continuous := by
+    unfold horiz
+    split <;> exact (by fun_prop : Continuous _).continuousOn
+  polygonal := by
+    refine ⟨∅, ?_⟩
+    intro a _ b _ _ _ t _
+    unfold horiz
+    split <;> ring
+
+/-- A slanted boundary-to-boundary wire passes a creation, a scalar, and
+a deletion. The other slanted wire goes directly from creation to deletion. -/
+private noncomputable def drawing : Diagram signature 3 2 where
+  vertexX := vertexX
+  vertexHeight := vertexHeight
+  vertex_inside := by
+    intro v
+    fin_cases v <;> norm_num [vertexX, vertexHeight, Set.mem_Ioo]
+  distinct_heights := by
+    intro v z hz
+    fin_cases v <;> fin_cases z <;> norm_num [vertexHeight] at *
+  generator := id
+  label := fun i => decide (i ≠ 0)
+  start := start
+  finish := finish
+  wire := exampleWire
+  wire_inside := by
+    intro w y hy
+    fin_cases w <;>
+      norm_num [exampleWire, horiz, start, finish, vertexHeight, endpointHeight,
+        Set.mem_Icc, Set.mem_Ioo] at * <;>
+      constructor <;> linarith [hy.1, hy.2]
+  start_attached := by
+    intro w v he
+    fin_cases w <;> fin_cases v <;>
+      norm_num [start, vertexHeight, vertexX, exampleWire, horiz] at *
+  finish_attached := by
+    intro w v he
+    fin_cases w <;> fin_cases v <;>
+      norm_num [finish, vertexHeight, vertexX, exampleWire, horiz] at *
+  separated := by
+    intro w z hw y ha hb
+    fin_cases w <;> fin_cases z
+    all_goals
+      norm_num [exampleWire, horiz, start, finish, vertexHeight, endpointHeight,
+        Set.mem_Icc, Set.mem_Ioo] at *
+    all_goals
+      intro he
+      linarith [ha.1, hb.1]
+  avoids_vertex := by
+    intro w v h
+    fin_cases w <;> fin_cases v <;>
+      norm_num [exampleWire, horiz, vertexX, vertexHeight, start, finish, endpointHeight,
+        Set.mem_Ioo] at *
+  input_boundary_separated := by
+    intro w z h he hf
+    fin_cases w <;> fin_cases z <;> norm_num [start] at *
+  output_boundary_separated := by
+    intro w z h he hf
+    fin_cases w <;> fin_cases z <;> norm_num [finish] at *
+  input := fun _ _ => 1
+  output := fun _ _ => 1
+  input_exact := by
+    intro v w
+    fin_cases v <;> fin_cases w <;> simp [signature, finish]
+  output_exact := by
+    intro v w
+    fin_cases v <;> fin_cases w <;> simp [signature, start]
+  input_types := by
+    intro v
+    fin_cases v <;> simp [List.ofFn_succ]
+  output_types := by
+    intro v
+    fin_cases v <;> simp [List.ofFn_succ]
+  input_order := by
+    intro v i j hij
+    have small : (signature.source (id v)).length ≤ 1 := by fin_cases v <;> decide
+    omega
+  output_order := by
+    intro v i j hij
+    have small : (signature.target (id v)).length ≤ 1 := by fin_cases v <;> decide
+    omega
+
+private theorem first : drawing.Isolates 0 (1 / 8) (3 / 8) := by
+  refine ⟨by norm_num, by norm_num [drawing, vertexHeight], by norm_num [drawing, vertexHeight],
+    by norm_num, ?_⟩
+  intro z hz
+  fin_cases z <;> norm_num [drawing, vertexHeight, Set.mem_Icc] at *
+
+private theorem middle : drawing.Isolates 1 (3 / 8) (5 / 8) := by
+  refine ⟨by norm_num, by norm_num [drawing, vertexHeight], by norm_num [drawing, vertexHeight],
+    by norm_num, ?_⟩
+  intro z hz
+  fin_cases z <;> norm_num [drawing, vertexHeight, Set.mem_Icc] at *
+
+private theorem last : drawing.Isolates 2 (5 / 8) (7 / 8) := by
+  refine ⟨by norm_num, by norm_num [drawing, vertexHeight], by norm_num [drawing, vertexHeight],
+    by norm_num, ?_⟩
+  intro z hz
+  fin_cases z <;> norm_num [drawing, vertexHeight, Set.mem_Icc] at *
+
+private noncomputable def creation := Classical.choice (Diagram.single_event first)
+
+private noncomputable def scalar := Classical.choice (Diagram.single_event middle)
+
+private noncomputable def deletion := Classical.choice (Diagram.single_event last)
+
+private theorem shared_cut : drawing.OrderedCut (3 / 8) [0, 1] := by
+  constructor
+  · intro w
+    fin_cases w <;> norm_num [drawing, Diagram.crosses, Diagram.lower, Diagram.upper, start,
+      finish, endpointHeight, vertexHeight, Set.mem_Ioo]
+  · rw [List.pairwise_pair]
+    change (1 + 3 / 8 : ℝ) / 8 < (7 + 4 * (3 / 8)) / 16
+    norm_num
+
+/-- The first shared seam has exactly the two computed intersection points. -/
+example :
+    drawing.wireTrace ∩ {p | p.2 = (3 / 8 : ℝ)} =
+      {p | p.2 = (3 / 8 : ℝ) ∧ p.1 ∈ ([11 / 64, 17 / 32] : List ℝ)} := by
+  have reg : drawing.Regular (3 / 8) := by
+    refine ⟨by norm_num [Set.mem_Ioo], ?_⟩
+    intro v
+    fin_cases v <;> norm_num [drawing, vertexHeight]
+  rw [Diagram.regular_trace reg shared_cut]
+  have positions : [0, 1].map (fun w => drawing.x w (3 / 8)) = [11 / 64, 17 / 32] := by
+    change [(1 + 3 / 8 : ℝ) / 8, (7 + 4 * (3 / 8)) / 16] = _
+    norm_num
+  rw [positions]
+
+/-- The slanted internal wire keeps its name and order through the isolated vertex. -/
+example : creation.afterWires = [0, 1] ∧ scalar.beforeWires = scalar.afterWires := by
+  refine ⟨Diagram.ordered_cut_unique creation.after shared_cut, ?_⟩
+  have hin : drawing.inputs 1 = [] := rfl
+  have hout : drawing.outputs 1 = [] := rfl
+  simp [Diagram.EventSlice.beforeWires, Diagram.EventSlice.afterWires, hin, hout]
+
+/-- Read the three geometric events as one typed sheet. -/
+noncomputable example :
+    Sliced.Sheet signature (creation.beforeWires.map drawing.label) (deletion.afterWires.map drawing.label) :=
+  creation.prependAtSeam scalar (scalar.prependAtSeam deletion (deletion.prepend (.empty _)))
+
+end Silmaril.RuntimeWires.Proofs.ProgressiveGraph.Regression

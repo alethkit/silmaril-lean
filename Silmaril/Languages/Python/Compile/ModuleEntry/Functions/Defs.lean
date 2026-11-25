@@ -98,12 +98,52 @@ def lowerArguments (scope : Scope) : (source : List (Source.ArgumentKind × Sour
     return ⟨operand.val :: tail.val, .cons operand.property tail.property⟩
   | _ => .error .argumentProfile
 
+/-- A module argument can contain one direct call with scalar arguments. -/
+inductive CallArgument (scope : Scope) where
+  | scalar (operand : Operand scope)
+  | call (name : Name) (reference : GlobalReference scope name) (arguments : List (Operand scope))
+
+inductive ArgumentTranslation (scope : Scope) : Source.Expr → CallArgument scope → Prop where
+  | scalar {source operand} (translated : OperandTranslation scope source operand) :
+      ArgumentTranslation scope source (.scalar operand)
+  | call {source name arguments reference operands}
+      (shape : CallExpression source name arguments) (translated : Positional scope arguments operands) :
+      ArgumentTranslation scope source (.call name reference operands)
+
+inductive CallArguments (scope : Scope) :
+    List (Source.ArgumentKind × Source.Expr) → List (CallArgument scope) → Prop where
+  | nil : CallArguments scope [] []
+  | cons {source argument rest targets} (first : ArgumentTranslation scope source argument)
+      (tail : CallArguments scope rest targets) :
+      CallArguments scope ((.positional, source) :: rest) (argument :: targets)
+
+def lowerCallArgument (scope : Scope) (source : Source.Expr) :
+    Except Error {argument // ArgumentTranslation scope source argument} := do
+  if let some ⟨(name, arguments), shape⟩ := callExpression? source then
+    let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
+    let operands ← lowerArguments scope arguments
+    return ⟨.call name reference operands.val, .call shape operands.property⟩
+  else
+    let operand ← (lowerOperand scope source).mapError .scalar
+    return ⟨.scalar operand.val, .scalar operand.property⟩
+
+def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × Source.Expr)) →
+    Except Error {target // CallArguments scope source target}
+  | [] => .ok ⟨[], .nil⟩
+  | (.positional, source) :: rest => do
+    let argument ← lowerCallArgument scope source
+    let tail ← lowerCallArguments scope rest
+    return ⟨argument.val :: tail.val, .cons argument.property tail.property⟩
+  | _ => .error .argumentProfile
+
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
       (parameters : Core.Closure.Parameters (frameLayout child.scope)) (code : Code (frameLayout child.scope))
   | call (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (Operand scope))
+  | nestedCall (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
+      (arguments : List (CallArgument scope))
 
 inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Action tree.scope) → Prop where
   | done {index} (covered : index = tree.children.length) : Translation tree index [] []
@@ -114,6 +154,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : Positional tree.scope arguments values) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.call destination name reference values :: tail)
+  | nestedCall {index statement rest target name arguments destination reference values tail}
+      (site : CallSite statement target name arguments) (result : destination.placement = target)
+      (operandOrder : CallArguments tree.scope arguments values) (remaining : Translation tree index rest tail) :
+      Translation tree index (statement :: rest) (.nestedCall destination name reference values :: tail)
   | define {index name declaration body rest child reference parameters code tail}
       (located : tree.children[index]? = some child)
       (path : child.scope.context.path = tree.scope.context.path ++ [index])
@@ -149,10 +193,16 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
       let destination ← lowerDestination tree.scope target
       let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
-      let operands ← lowerArguments tree.scope arguments
-      let tail ← lowerPlan tree index rest
-      return ⟨.call destination.val name reference operands.val :: tail.val,
-        .call site destination.property operands.property tail.property⟩
+      match lowerArguments tree.scope arguments with
+      | .ok operands =>
+        let tail ← lowerPlan tree index rest
+        return ⟨.call destination.val name reference operands.val :: tail.val,
+          .call site destination.property operands.property tail.property⟩
+      | .error flatError =>
+        let operands ← (lowerCallArguments tree.scope arguments).mapError fun _ => flatError
+        let tail ← lowerPlan tree index rest
+        return ⟨.nestedCall destination.val name reference operands.val :: tail.val,
+          .nestedCall site destination.property operands.property tail.property⟩
     else
       let first ← (lowerStatements tree.scope [statement]).mapError .scalar
       let tail ← lowerPlan tree index rest
