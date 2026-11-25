@@ -22,6 +22,19 @@ theorem inspect_related (respects : PrimitivesRespect m ids) (paired : Activatio
     Outcome.Related m ids (inspect m a) (inspect m b) :=
   Isomorphism.Proofs.inspect_related respects paired
 
+/-- Match a given stream at the same transition index and with related call entries. -/
+theorem stream_right (respects : PrimitivesRespect m ids) (paired : Activation.Related m ids a b)
+    (left : Nat → Activation m outs) (initial : left 0 = a) (steps : ∀ n, Step m (left n) (left (n + 1))) :
+    ∃ right : Nat → Activation m outs, right 0 = b ∧
+      (∀ n, Step m (right n) (right (n + 1))) ∧ ∀ n, Activation.Related m ids (left n) (right n) :=
+  Isomorphism.Proofs.stream_right respects paired left initial steps
+
+theorem stream_left (respects : PrimitivesRespect m ids) (paired : Activation.Related m ids a b)
+    (right : Nat → Activation m outs) (initial : right 0 = b) (steps : ∀ n, Step m (right n) (right (n + 1))) :
+    ∃ left : Nat → Activation m outs, left 0 = a ∧
+      (∀ n, Step m (left n) (left (n + 1))) ∧ ∀ n, Activation.Related m ids (left n) (right n) :=
+  Isomorphism.Proofs.stream_left respects paired right initial steps
+
 /-- Every actual call transition in either run can be matched on the other side. -/
 theorem diverges_iff (respects : PrimitivesRespect m ids) (paired : Activation.Related m ids a b) :
     Diverges m a ↔ Diverges m b :=

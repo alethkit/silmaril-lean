@@ -142,28 +142,60 @@ theorem inspect_related (respects : PrimitivesRespect m ids) {a b : Activation m
     obtain ⟨values, body⟩ := Recursive.resolve_related callee
     exact expose_related respects body _ _ (prepend_related inputs values)
 
+private theorem step_right (respects : PrimitivesRespect m ids) {a b a' : Activation m outs}
+    (paired : Activation.Related m ids a b) (edge : Step m a a') :
+    ∃ b', Step m b b' ∧ Activation.Related m ids a' b' := by
+  have matched := inspect_related respects paired
+  rw [show inspect m a = .enter a' from edge] at matched
+  generalize step : inspect m b = outcome at matched
+  cases matched with
+  | enter next => exact ⟨_, step, next⟩
+
+private theorem step_left (respects : PrimitivesRespect m ids) {a b b' : Activation m outs}
+    (paired : Activation.Related m ids a b) (edge : Step m b b') :
+    ∃ a', Step m a a' ∧ Activation.Related m ids a' b' := by
+  have matched := inspect_related respects paired
+  rw [show inspect m b = .enter b' from edge] at matched
+  generalize step : inspect m a = outcome at matched
+  cases matched with
+  | enter next => exact ⟨_, step, next⟩
+
+private theorem match_stream (P : Activation m outs → Activation m outs → Prop)
+    (matchesStep : ∀ {a b a'}, P a b → Step m a a' → ∃ b', Step m b b' ∧ P a' b')
+    (source : Nat → Activation m outs) (steps : ∀ n, Step m (source n) (source (n + 1)))
+    (target : Activation m outs) (initial : P (source 0) target) :
+    ∃ run : Nat → Activation m outs, run 0 = target ∧
+      (∀ n, Step m (run n) (run (n + 1))) ∧ ∀ n, P (source n) (run n) := by
+  classical
+  let next (n : Nat) (current : {state // P (source n) state}) :
+      {state // Step m current.val state ∧ P (source (n + 1)) state} :=
+    Classical.indefiniteDescription _ (matchesStep current.property (steps n))
+  let run : (n : Nat) → {state // P (source n) state} :=
+    Nat.rec ⟨target, initial⟩ (fun n current => ⟨(next n current).val, (next n current).property.2⟩)
+  exact ⟨fun n => (run n).val, rfl, fun n => (next n (run n)).property.1, fun n => (run n).property⟩
+
+theorem stream_right (respects : PrimitivesRespect m ids) {a b : Activation m outs}
+    (paired : Activation.Related m ids a b) (left : Nat → Activation m outs) (initial : left 0 = a)
+    (steps : ∀ n, Step m (left n) (left (n + 1))) :
+    ∃ right : Nat → Activation m outs, right 0 = b ∧
+      (∀ n, Step m (right n) (right (n + 1))) ∧ ∀ n, Activation.Related m ids (left n) (right n) :=
+  match_stream (Activation.Related m ids) (step_right respects) left steps b (initial.symm ▸ paired)
+
+theorem stream_left (respects : PrimitivesRespect m ids) {a b : Activation m outs}
+    (paired : Activation.Related m ids a b) (right : Nat → Activation m outs) (initial : right 0 = b)
+    (steps : ∀ n, Step m (right n) (right (n + 1))) :
+    ∃ left : Nat → Activation m outs, left 0 = a ∧
+      (∀ n, Step m (left n) (left (n + 1))) ∧ ∀ n, Activation.Related m ids (left n) (right n) :=
+  match_stream (fun b a => Activation.Related m ids a b) (step_left respects) right steps a (initial.symm ▸ paired)
+
 theorem diverges_iff (respects : PrimitivesRespect m ids) {a b : Activation m outs}
     (paired : Activation.Related m ids a b) : Diverges m a ↔ Diverges m b := by
   constructor
-  · intro infinite
-    apply InfiniteTrace.coinduct (fun b => ∃ a, Activation.Related m ids a b ∧ Diverges m a)
-    · rintro b ⟨a, related, infinite⟩
-      obtain ⟨a', edge, tail⟩ := InfiniteTrace.unfold infinite
-      have matched := inspect_related respects related
-      rw [show inspect m a = .enter a' from edge] at matched
-      generalize step : inspect m b = outcome at matched
-      cases matched with
-      | enter next => exact ⟨_, step, a', next, tail⟩
-    · exact ⟨a, paired, infinite⟩
-  · intro infinite
-    apply InfiniteTrace.coinduct (fun a => ∃ b, Activation.Related m ids a b ∧ Diverges m b)
-    · rintro a ⟨b, related, infinite⟩
-      obtain ⟨b', edge, tail⟩ := InfiniteTrace.unfold infinite
-      have matched := inspect_related respects related
-      rw [show inspect m b = .enter b' from edge] at matched
-      generalize step : inspect m a = outcome at matched
-      cases matched with
-      | enter next => exact ⟨_, step, b', next, tail⟩
-    · exact ⟨b, paired, infinite⟩
+  · rintro ⟨left, initial, steps⟩
+    obtain ⟨right, initial, steps, _⟩ := stream_right respects paired left initial steps
+    exact ⟨right, initial, steps⟩
+  · rintro ⟨right, initial, steps⟩
+    obtain ⟨left, initial, steps, _⟩ := stream_left respects paired right initial steps
+    exact ⟨left, initial, steps⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Proofs

@@ -155,6 +155,7 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.% +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.%,$(CHECK_TARGETS)),$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiveIsomorphism.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.Runtime.% +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Linking +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Invocation,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGModuleLinking.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Defs +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.% +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Recursive,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGPhiCalls.lean)
+	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.% +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Tail.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiveTail.lean)
 
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)

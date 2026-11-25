@@ -14,6 +14,17 @@ variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {args outs : Ports (Ty V S)}
 variable {past sigs : List (Ports (Ty V S))}
 
+theorem expose_forwarding (m : Machine.{u, v, w} Op)
+    (nodes : NestedTheta.Nodes (Instruction Op) args [] [outs])
+    (children : ∀ i, NestedTheta.Children (NestedTheta.Graph (Instruction Op)) (nodes i))
+    (input : Tuple m.Val args) :
+    expose m (.region nodes children (forwarding args outs)) input =
+      exposeKind m (nodes 0).kind (fun i x => expose m (children 0 i) x)
+        ((nodes 0).inputs.read input PUnit.unit) := by
+  erw [expose_singleton m nodes children (forwarding args outs) input, exposeSingleton,
+    dite_eq_left (show outs = outs by rfl), ite_eq_left (show forwarding args outs = forwarding args outs by rfl)]
+  rfl
+
 private def Agrees (call : Runtime.Call m) (observed : Outcome m outs) (evaluated : Option (Tuple m.Val outs)) :
     Prop :=
   match observed with
