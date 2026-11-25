@@ -61,16 +61,17 @@ private theorem findResolved {mi : ModuleInst} {name : String} {exports : List E
 private def version : Func := (definedFunction? sqlite 289).get (by kernel_rfl)
 private def versionType : DefType := ((allocTypes sqlite.types)[version.type.toNat]?).get (by kernel_rfl)
 
-/-- The pinned reactor's actual prepared version export returns the pinned release
-number with the original store. -/
-theorem reactorPreparedVersionExport (P : Profile) (host : HostSemantics Nat) :
-    ∃ runtime frame address,
+/-- The prepared export's version call depends only on retaining its allocated function entry. -/
+theorem reactorPreparedVersionExportWithEntry (P : Profile) (host : HostSemantics Nat) :
+    ∃ runtime frame address fn,
       prepareDirect? evalConst? reactorTypedImports sqlite reactorImportAddrs =
         some (runtime, frame, none) ∧
       frame.module.exports.find? (·.name == "sqlite3_libversion_number") =
         some ⟨"sqlite3_libversion_number", .func address⟩ ∧
-      InvokeOk runtime address [] ∧
-      Steps P host (invoke runtime address []) ⟨runtime, {}, [constI32 3054001]⟩ := by
+      runtime.funcs[address]? = some fn ∧
+      ∀ next : Store Nat, next.funcs[address]? = some fn →
+        InvokeOk next address [] ∧
+        Steps P host (invoke next address []) ⟨next, {}, [constI32 3054001]⟩ := by
   obtain ⟨before, allocated, runtime, frame, _, prep, alloc, sameFunctions, _, _, _, _, _, _⟩ :=
     reactorDirectPreparation
   let address := before.funcs.length + 266
@@ -80,7 +81,7 @@ theorem reactorPreparedVersionExport (P : Profile) (host : HostSemantics Nat) :
     (by kernel_rfl) (by kernel_rfl)
   have slot : frame.module.funcs[289]? = some address := by
     simpa only [List.length_range] using pair.1
-  have entry : runtime.funcs[address]? = some fn := sameFunctions.symm ▸ pair.2
+  have originalEntry : runtime.funcs[address]? = some fn := sameFunctions.symm ▸ pair.2
   have signature : Expand fn.type (.func .nil (.cons Ty.i32 .nil)) := by
     change Expand versionType (.func .nil (.cons Ty.i32 .nil))
     exact Expand.iff.mpr (by kernel_rfl)
@@ -97,9 +98,11 @@ theorem reactorPreparedVersionExport (P : Profile) (host : HostSemantics Nat) :
     have selected : versionFunction? = some version := by kernel_rfl
     rw [selected] at old
     exact Option.some.inj old
+  refine ⟨runtime, frame, address, fn, prep, exported, originalEntry, ?_⟩
+  intro next entry
   let callee := Frame.forCall frame.module [] version.locals
-  have enter : Step P host (invoke runtime address [])
-      ⟨runtime, {}, [.frame 1 callee [.label 1 [] [constI32 3054001]]]⟩ := by
+  have enter : Step P host (invoke next address [])
+      ⟨next, {}, [.frame 1 callee [.label 1 [] [constI32 3054001]]]⟩ := by
     unfold invoke
     rw [entry]
     have invokeStep := Step.callRefFunc (P := P) (host := host) (f := ({} : Frame))
@@ -107,13 +110,27 @@ theorem reactorPreparedVersionExport (P : Profile) (host : HostSemantics Nat) :
     rw [body] at invokeStep
     exact invokeStep
   have reveal : Step P host
-      ⟨runtime, callee, [.label 1 [] [constI32 3054001]]⟩
-      ⟨runtime, callee, [constI32 3054001]⟩ := Step.labelVals (vs := [.i32 3054001])
+      ⟨next, callee, [.label 1 [] [constI32 3054001]]⟩
+      ⟨next, callee, [constI32 3054001]⟩ := Step.labelVals (vs := [.i32 3054001])
   have finish := (reveal.steps.frame (f := ({} : Frame)) (n := 1)).tail
     (Step.frameVals (vs := [.i32 3054001]) rfl)
-  exact ⟨runtime, frame, address, prep, exported, ⟨fn, .nil, _, entry, signature, .nil⟩,
-    enter.steps.trans finish⟩
+  exact ⟨⟨fn, .nil, _, entry, signature, .nil⟩, enter.steps.trans finish⟩
 
+/-- The pinned reactor's actual prepared version export returns the pinned release
+number with the original store. -/
+theorem reactorPreparedVersionExport (P : Profile) (host : HostSemantics Nat) :
+    ∃ runtime frame address,
+      prepareDirect? evalConst? reactorTypedImports sqlite reactorImportAddrs =
+        some (runtime, frame, none) ∧
+      frame.module.exports.find? (·.name == "sqlite3_libversion_number") =
+        some ⟨"sqlite3_libversion_number", .func address⟩ ∧
+      InvokeOk runtime address [] ∧
+      Steps P host (invoke runtime address []) ⟨runtime, {}, [constI32 3054001]⟩ := by
+  obtain ⟨runtime, frame, address, _, prepared, exported, entry, invokeVersion⟩ :=
+    reactorPreparedVersionExportWithEntry P host
+  exact ⟨runtime, frame, address, prepared, exported, invokeVersion runtime entry⟩
+
+#print axioms reactorPreparedVersionExportWithEntry
 #print axioms reactorPreparedVersionExport
 
 end SqliteWasm
