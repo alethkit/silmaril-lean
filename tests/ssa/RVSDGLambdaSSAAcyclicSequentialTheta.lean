@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Wires.Reverse.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Categorical.Wires.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Defs
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
 
@@ -292,6 +292,18 @@ example (coherent : Coherent) :
     (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (0 : Nat))).run [] =
       Part.none :=
   (Wires.Reverse.raise_undefined_iff decomposition coherent (PUnit.unit, (0 : Nat)) []).mp graphNoHandoff
+
+example (coherent : Coherent) :
+    Part.map (ExplicitRuntime.exitTuple (A := number))
+        ((Categorical.stateDenote (ε := Bool) (σ := List Nat) decomposition.view.decode (PUnit.unit, (2 : Nat))).run []) =
+      Part.some (ExplicitRuntime.exitTuple (exit2, finalToken)) :=
+  (Categorical.raised_state_observe decomposition coherent (PUnit.unit, (2 : Nat)) []).symm.trans graphDone
+
+example (coherent : Coherent) :
+    Part.map (ExplicitRuntime.exitTuple (A := number))
+        ((Categorical.stateDenote (ε := Bool) (σ := List Nat) decomposition.view.decode (PUnit.unit, (0 : Nat))).run []) =
+      Part.none :=
+  (Categorical.raised_state_observe decomposition coherent (PUnit.unit, (0 : Nat)) []).symm.trans graphNoHandoff
 
 -- The two graphs have the same typed labels. The full wiring certificate
 -- rejects the stale token edge at the second θ.
