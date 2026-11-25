@@ -46,6 +46,12 @@ noncomputable def nonemptyIter {X Y : Type u} (f : X → NonemptyPowerset (Y ⊕
     (hf : HasDirectReturn fun x => (f x).1) (x : X) : NonemptyPowerset Y :=
   ⟨Elgot.iter (fun x => (f x).1) x, powerset_iter_nonempty _ hf x⟩
 
+@[simp] theorem nonemptyIter_val {X Y : Type u} (f : X → NonemptyPowerset (Y ⊕ X))
+    (hf : HasDirectReturn fun x => (f x).1) (x : X) :
+    (nonemptyIter f hf x).1 = Elgot.iter (fun a => (f a).1) x := by
+  unfold nonemptyIter
+  rfl
+
 theorem mem_nonemptyIter {X Y : Type u} (f : X → NonemptyPowerset (Y ⊕ X))
     (hf : HasDirectReturn fun x => (f x).1) (x : X) (y : Y) :
     y ∈ (nonemptyIter f hf x).1.run ↔ Elgot.Nondet.Runs (fun x => (f x).1) x y :=
