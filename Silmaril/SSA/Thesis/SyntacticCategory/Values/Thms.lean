@@ -105,11 +105,19 @@ theorem pair_projections_eta {n : Nat} {β : BoundCtx S.Ty n}
     Eqv S.pureEff Ctx.nil β (.pair (.let₂ p (.bv 1)) (.let₂ p (.bv 0))) p (tensor A B) :=
   pair_projections_eta_proof h hp
 
+/-- First projection has a syntactically pure representative. -/
+theorem isPureMor_first (A B : SynCat S) : IsPureMor (first A B) :=
+  isPureMor_first_proof A B
+
+/-- Second projection has a syntactically pure representative. -/
+theorem isPureMor_second (A B : SynCat S) : IsPureMor (second A B) :=
+  isPureMor_second_proof A B
+
 /-- The syntactic projections are value morphisms. -/
-def valueFan (A B : ValueCat S) : BinaryFan A B :=
+@[expose] def valueFan (A B : ValueCat S) : BinaryFan A B :=
   BinaryFan.mk (P := ⟨productObj A.obj B.obj⟩)
-    ⟨first A.obj B.obj, isPureMor_first_proof _ _⟩
-    ⟨second A.obj B.obj, isPureMor_second_proof _ _⟩
+    ⟨first A.obj B.obj, isPureMor_first _ _⟩
+    ⟨second A.obj B.obj, isPureMor_second _ _⟩
 
 /-- Pairing of pure terms gives the universal arrow into the syntactic product. -/
 def valueFanIsLimit (A B : ValueCat S) : IsLimit (valueFan A B) :=
