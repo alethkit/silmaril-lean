@@ -52,4 +52,39 @@ theorem automatonIdentity (F : G.Fixpoints) (uniform : F.Uniform J)
   · simp only [Coproducts.map, P.inr_desc, P.desc_comp]
     rw [Category.assoc, P.inr_desc, ← Category.assoc, ← J.map_comp, select_fold]
 
+theorem commutativeIdentity (F : G.Fixpoints) (uniform : F.Uniform J)
+    {Y : K} (p : I → L) (route : I → I → I) (fibers : ∀ i j, p (route i j) = p j)
+    (body : J.obj a.pt ⟶ P.sum Y (J.obj c.pt))
+    (small : G.guarded (body ≫ P.map (𝟙 Y) (J.map (stateReindex hc p))))
+    (large : G.guarded (commutativeBody J hc hk p route body)) :
+    F.iterate (commutativeBody J hc hk p route body) large =
+      J.map (stateReindex hc p) ≫ F.iterate (body ≫ P.map (𝟙 Y) (J.map (stateReindex hc p))) small := by
+  let collapse := stateReindex hc (a := a) p
+  have at_index (i : I) : c.inj i ≫ collapse = a.inj (p i) :=
+    Cofan.IsColimit.fac hc _ i
+  have preserve (i : I) : stateReindex hc (a := c) (route i) ≫ collapse = collapse := by
+    apply Cofan.IsColimit.hom_ext hc
+    intro j
+    have h : c.inj j ≫ stateReindex hc (a := c) (route i) = c.inj (route i j) :=
+      Cofan.IsColimit.fac hc _ j
+    rw [← Category.assoc, h, at_index, at_index, fibers]
+  symm
+  apply uniform
+  apply Cofan.IsColimit.hom_ext hk
+  intro i
+  have branch : J.map (c.inj i) ≫ commutativeBody J hc hk p route body =
+      J.map (a.inj (p i)) ≫ body ≫ P.map (𝟙 Y) (J.map (stateReindex hc (a := c) (route i))) :=
+    Cofan.IsColimit.fac hk _ i
+  change J.map (c.inj i) ≫ J.map collapse ≫ body ≫ P.map (𝟙 Y) (J.map collapse) =
+    J.map (c.inj i) ≫ commutativeBody J hc hk p route body ≫ P.map (𝟙 Y) (J.map collapse)
+  rw [← Category.assoc, ← J.map_comp, at_index]
+  rw [← Category.assoc (J.map (c.inj i)) (commutativeBody J hc hk p route body), branch]
+  simp only [Category.assoc]
+  apply congrArg (J.map (a.inj (p i)) ≫ ·)
+  apply congrArg (body ≫ ·)
+  apply P.hom_ext
+  · simp [Coproducts.map]
+  · simp only [Coproducts.map, P.inr_desc, P.desc_comp]
+    rw [Category.assoc, P.inr_desc, ← Category.assoc, ← J.map_comp, preserve]
+
 end Silmaril.Calco2019.Proofs.Feedback

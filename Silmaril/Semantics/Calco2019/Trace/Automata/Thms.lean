@@ -30,4 +30,17 @@ theorem automatonIdentity (F : G.Fixpoints) (uniform : F.Uniform J)
       J.map (foldStates hc) ≫ F.iterate (body ≫ P.map (𝟙 Y) (J.map (foldStates ha))) single :=
   Proofs.Feedback.automatonIdentity hc hk ha F uniform step body single multi
 
+/-- The commutative identity with a base reindexing `p` and state maps
+within its fibers. The proof needs only that each `route i` preserves the
+fibers, so it includes the traditional surjective finite reindexing. -/
+theorem commutativeIdentity (F : G.Fixpoints) (uniform : F.Uniform J)
+    (hc : IsColimit c) (hk : IsColimit (imageCofan J c))
+    {Y : K} (p : I → L) (route : I → I → I) (fibers : ∀ i j, p (route i j) = p j)
+    (body : J.obj a.pt ⟶ P.sum Y (J.obj c.pt))
+    (small : G.guarded (body ≫ P.map (𝟙 Y) (J.map (stateReindex hc p))))
+    (large : G.guarded (commutativeBody J hc hk p route body)) :
+    F.iterate (commutativeBody J hc hk p route body) large =
+      J.map (stateReindex hc p) ≫ F.iterate (body ≫ P.map (𝟙 Y) (J.map (stateReindex hc p))) small :=
+  Proofs.Feedback.commutativeIdentity hc hk F uniform p route fibers body small large
+
 end Silmaril.Calco2019.Guardedness
