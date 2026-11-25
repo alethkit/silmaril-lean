@@ -5,6 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.TheoryTyping
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Labels
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Forwarding
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CaseValue
 
 /-! # Native closure under arbitrary typed continuation substitution -/
 
@@ -35,6 +36,11 @@ theorem substitutionEquiv_typed {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
   | case ha _ _ ihl ihr => exact ⟨.case ha ihl.1 ihr.1, .case ha ihl.2 ihr.2⟩
   | cfg R _ _ ihe ihb => exact ⟨.cfg R ihe.1 (fun i => (ihb i).1), .cfg R ihe.2 (fun i => (ihb i).2)⟩
   | letValue ha hr => exact ⟨.let₁ ha.hasType hr, hr.substVars (Tm.Subst.HasType.single ha.hasType)⟩
+  | caseValue ha hr =>
+      exact ⟨.case ha.hasType
+        (hr.substVars (replaceNewest_typed (.inl (.var rfl))))
+        (hr.substVars (replaceNewest_typed (.inr (.var rfl)))),
+        hr.substVars (Tm.Subst.HasType.single ha.hasType)⟩
   | initial _ hr hs => exact ⟨hr, hs⟩
   | cfgOutward R hr hb => exact ⟨.cfg R (hr.renameLabels (outwardRen R _)) hb, hr⟩
 
@@ -106,6 +112,9 @@ theorem substitutionEquiv_lsubst {Γ : VCtx τ} {L K : LCtx τ} {r s : Region Φ
       exact .cfg R (ihe (typedLiftBlocks hσ R)) (fun i => ihb i ((typedLiftBlocks hσ R).liftVars _))
   | @letValue Γ a A r L ha hr =>
       exact (lsubst_single r a σ).symm ▸ SubstitutionEquiv.letValue ha (hr.lsubst (hσ.liftVars A))
+  | @caseValue Γ a A B r L ha hr =>
+      simpa only [lsubst, lsubst_replaceNewest, lsubst_single] using
+        SubstitutionEquiv.caseValue ha (hr.lsubst (hσ.liftVars (Silmaril.coprod A B)))
   | initial ha hr hs => exact .initial ha (hr.lsubst hσ) (hs.lsubst hσ)
   | cfgOutward R hr hb =>
       have hblocks := fun i => (hb i).lsubst ((typedLiftBlocks hσ R).liftVars (R i))

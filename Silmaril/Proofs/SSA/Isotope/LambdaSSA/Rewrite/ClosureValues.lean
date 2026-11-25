@@ -5,6 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.TheorySubstitution
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.TheoryTyping
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Closure
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CaseValue
 
 /-! # Replacing values and continuations in the enlarged typed theory -/
 
@@ -38,6 +39,15 @@ theorem substitutionEquiv_substVars {Γ Δ : VCtx τ} {L : LCtx τ} {r s : Regio
         ((r.substVars (Tm.singleSubst a)).substVars σ) L
       rw [substVars_comp r (Tm.singleSubst a), Tm.singleSubst_comp, ← substVars_comp]
       exact .letValue (branchValue_subst ha hσ) (hr.substVars (valuesTyped (liftValues hσ _)))
+  | @caseValue Γ a A B r L ha hr =>
+      change SubstitutionEquiv Δ
+        (.case (a.subst σ)
+          ((r.substVars (Tm.replaceNewest (.inl (.var 0)))).substVars (Tm.liftSubst σ))
+          ((r.substVars (Tm.replaceNewest (.inr (.var 0)))).substVars (Tm.liftSubst σ)))
+        ((r.substVars (Tm.singleSubst a)).substVars σ) L
+      rw [substVars_replaceNewest_lift r σ rfl, substVars_replaceNewest_lift r σ rfl,
+        substVars_comp r (Tm.singleSubst a), Tm.singleSubst_comp, ← substVars_comp]
+      exact .caseValue (branchValue_subst ha hσ) (hr.substVars (valuesTyped (liftValues hσ _)))
   | initial ha hr hs =>
       exact .initial (branchValue_subst ha hσ) (hr.substVars (valuesTyped hσ))
         (hs.substVars (valuesTyped hσ))

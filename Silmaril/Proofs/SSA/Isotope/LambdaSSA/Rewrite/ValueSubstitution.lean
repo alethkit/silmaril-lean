@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Typing.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.EnvironmentNaturality
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Combinators
 
@@ -244,6 +245,26 @@ private theorem regionDenotes_subst {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     rw [← case_pre_map, ← Category.assoc (J.map k) fe, proj, ← contextualLoop_pre_map, ← hbody]
     refine ⟨.cfg R he' hb', ?_⟩
     simpa only [body', split, MonoidalCategory.id_tensorHom] using RegionDenotes.cfg he' hb' de' db' dc'
+
+theorem regionDenotes_replaceNewest {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ} {a : Tm Φ}
+    {A B : τ} {hr : Region.HasType (A :: Γ) r L}
+    {f : J.obj (ctxObj M (A :: Γ)) ⟶ J.obj (labelObj M L)}
+    (d : RegionDenotes J M hr f) {p : M.obj B ⟶ M.obj A} {ha : Tm.HasType (B :: Γ) a A}
+    (da : Denotes J M ha (J.map (snd (ctxObj M Γ) (M.obj B) ≫ p))) :
+    ∃ ht : Region.HasType (B :: Γ) (r.substVars (Tm.replaceNewest a)) L,
+      RegionDenotes J M ht (J.map (ctxObj M Γ ◁ p) ≫ f) := by
+  apply regionDenotes_subst J M d
+  intro i D hi
+  cases i with
+  | zero =>
+    cases Option.some.inj hi
+    rw [lookup_zero, CartesianMonoidalCategory.whiskerLeft_snd]
+    exact ⟨ha, da⟩
+  | succ i =>
+    rw [lookup_succ, CartesianMonoidalCategory.whiskerLeft_fst_assoc]
+    refine ⟨.var (i := i + 1) hi, ?_⟩
+    simpa only [lookup_succ] using Denotes.var (J := J) (M := M) (Φ := Φ)
+      (Γ := B :: Γ) (i := i + 1) hi
 
 theorem regionDenotes_weakenCapture_proof {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     {A : τ} (B : τ) {hr : Region.HasType (A :: Γ) r L}
