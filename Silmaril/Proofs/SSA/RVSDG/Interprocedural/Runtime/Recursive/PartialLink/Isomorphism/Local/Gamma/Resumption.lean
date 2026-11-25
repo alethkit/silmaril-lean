@@ -63,6 +63,16 @@ private theorem match_return_paths {sourceL sourceR : Config m σ fn.results}
     · exact False.elim (terminal_return_excludes_run (fn := fn) observed live.1)
     · exact False.elim (terminal_return_excludes_run (fn := fn) observed live.2)
 
+theorem resume_application_then {entry : Tuple m.Val args} {inputs : Wires args [] (fn.port :: fn.args)}
+    (suffix : Term Op args [fn.results] sigsL outs) (parent : Continuation.Stack m outs finalL)
+    {callee : m.Val fn.port} {arguments : Tuple m.Val fn.args} {store returnedStore : σ} {value : Tuple m.Val fn.results}
+    (selected : inputs.read entry PUnit.unit = .cons callee arguments)
+    (ran : Eval primitives (.call callee arguments) store (.returned value returnedStore)) :
+    ReflTransGen (Step primitives) ⟨.eval (.region (applicationThen fn inputs suffix) entry PUnit.unit) parent, store⟩
+      ⟨.eval (.region (embed suffix) entry (Locals.snoc (past := []) PUnit.unit value)) parent, returnedStore⟩ :=
+  (((application_eval selected ran).steps (.resume (past := []) (embed suffix) entry PUnit.unit parent)).head
+    (.of_next_some rfl)).tail (.of_next_some rfl)
+
 theorem resume_application {entry : Tuple m.Val args} {inputs : Wires args [] (fn.port :: fn.args)}
     (outputs : Wires args [fn.results] outs) (parent : Continuation.Stack m outs finalL)
     {callee : m.Val fn.port} {arguments : Tuple m.Val fn.args} {store returnedStore : σ} {value : Tuple m.Val fn.results}
@@ -70,8 +80,7 @@ theorem resume_application {entry : Tuple m.Val args} {inputs : Wires args [] (f
     (ran : Eval primitives (.call callee arguments) store (.returned value returnedStore)) :
     ReflTransGen (Step primitives) ⟨.eval (.region (applicationCode fn inputs outputs) entry PUnit.unit) parent, store⟩
       (resumedApplication outputs entry parent value returnedStore) :=
-  (((application_eval selected ran).steps (applicationFrame outputs entry parent)).head (.of_next_some rfl)).tail
-    (.of_next_some rfl)
+  resume_application_then (.ret outputs) parent selected ran
 
 theorem application_resumption
     {left : NestedTheta.Term (Instruction Op) (captured ++ fn.args) [] sigsL fn.results}

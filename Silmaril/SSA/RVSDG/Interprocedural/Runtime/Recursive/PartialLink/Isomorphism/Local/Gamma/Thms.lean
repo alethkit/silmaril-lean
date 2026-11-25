@@ -36,7 +36,7 @@ theorem BlockPair.observations
   Proofs.block_observations stopped
 
 /-- The address certificate erases to the actual independent evaluations,
-with each enclosing γ continuation and θ frame retained. -/
+with each enclosing γ continuation, θ frame and pending call binding retained. -/
 theorem BlockPair.evals
     (stopped : BlockPair primitives ids mapping left right inputL inputR store locL locR stopL stopR) :
     Eval primitives (.region left inputL PUnit.unit) store stopL.outcome ∧
@@ -139,6 +139,17 @@ theorem application
       entryL entryR store :=
   Proofs.application code respects inputs outputs entries captures arguments selectL selectR store
 
+/-- Resumption of an effectful acyclic suffix at the exact returned
+store. The callee's output is bound at local vertex zero. -/
+theorem resume_application_then {entry : Tuple m.Val args} {inputs : Wires args [] (fn.port :: fn.args)}
+    (suffix : Term Op args [fn.results] sigsL outs) (parent : Continuation.Stack m outs finalL)
+    {callee : m.Val fn.port} {arguments : Tuple m.Val fn.args} {store returnedStore : σ} {value : Tuple m.Val fn.results}
+    (selected : inputs.read entry PUnit.unit = .cons callee arguments)
+    (ran : Eval primitives (.call callee arguments) store (.returned value returnedStore)) :
+    ReflTransGen (Step primitives) ⟨.eval (.region (applicationThen fn inputs suffix) entry PUnit.unit) parent, store⟩
+      ⟨.eval (.region (embed suffix) entry (Locals.snoc (past := []) PUnit.unit value)) parent, returnedStore⟩ :=
+  Proofs.resume_application_then suffix parent selected ran
+
 /-- Replay a successful call into the caller's actual suffix with the
 returned tuple bound once and the exact final store. -/
 theorem resume_application {entry : Tuple m.Val args} {inputs : Wires args [] (fn.port :: fn.args)}
@@ -180,6 +191,20 @@ theorem application_resumption
           (resumedApplication outputs entryL parentL valueL returnedStore)) :=
   Proofs.application_resumption code respects inputs outputs captures arguments selectL selectR parentL parentR store
 
+/-- Evaluate a ranked static call plan by induction on its witness.
+Every actual selected callee has smaller rank. Paired captures and
+observations are derived from the plan and the primitive contract. -/
+theorem call_plan_regions {rank : Nat} {context : Ports (Ty V S)}
+    {capturesL capturesR : Tuple m.Val context}
+    {left : NestedTheta.Term (Instruction Op) (context ++ params) [] sigsL outs}
+    {right : NestedTheta.Term (Instruction Op) (context ++ params) [] sigsR outs}
+    (plan : CallPlan m ids mapping rank capturesL capturesR left right)
+    (respects : ActionsRespect primitives ids) :
+    TupleRelated m ids capturesL capturesR ∧
+      ∀ {argsL argsR : Tuple m.Val params}, TupleRelated m ids argsL argsR → ∀ store,
+        RegionPair primitives ids mapping left right (prependContext argsL capturesL) (prependContext argsR capturesR) store :=
+  Proofs.call_plan_regions plan respects
+
 end Application
 
 /-- Each side replays the finite route to the common paired feedback
@@ -199,7 +224,7 @@ theorem CallPair.infinite_iff {sourceL sourceR : Config m σ outs}
   Proofs.infinite_iff paired
 
 /-- Compose ordered partial ω linking with paired code for the actual
-export, including a statically witnessed application. Terminal observations
+export, including ranked plans of statically witnessed applications. Terminal observations
 reflect back to the paired endpoints. -/
 theorem link_then_invoke (respects : ActionsRespect primitives ids)
     {left : Omega Op args outs sigsL} {right : Omega Op args outs sigsR}

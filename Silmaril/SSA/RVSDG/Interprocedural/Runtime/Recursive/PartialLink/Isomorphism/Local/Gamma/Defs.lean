@@ -45,6 +45,13 @@ abbrev applicationCode (fn : Function V S) (inputs : Wires args [] (fn.port :: f
     NestedTheta.Term (Instruction Op) args [] [fn.results] outs :=
   .bind (applicationVertex fn inputs) (fun i => i.elim0) (.ret outputs)
 
+/-- An application followed by an acyclic ordered continuation. The
+result is local binding zero when the actual machine resumes the suffix. -/
+abbrev applicationThen (fn : Function V S) (inputs : Wires args [] (fn.port :: fn.args))
+    (suffix : Term Op args [fn.results] sigsL outs) :
+    NestedTheta.Term (Instruction Op) args [] (fn.results :: sigsL) outs :=
+  .bind (applicationVertex fn inputs) (fun i => i.elim0) (embed suffix)
+
 /-- The application and its closure dispatch share this ordinary
 binding frame. The frame saves the entire caller entry. -/
 abbrev applicationFrame {head final : Ports (Ty V S)} (outputs : Wires args [head] outs)
@@ -90,6 +97,7 @@ inductive Location where
   | gamma (arm : Nat) (inner : Location)
   | loop (inner : Location)
   | application (inner : Location)
+  | suffix (inner : Local.Location)
   deriving DecidableEq, Repr
 
 def Location.rename (mapping : Renaming) : Location → Location
@@ -98,6 +106,7 @@ def Location.rename (mapping : Renaming) : Location → Location
   | .gamma arm inner => .gamma arm (inner.rename (mapping.child 0 arm))
   | .loop inner => .loop (inner.rename (mapping.child 0 0))
   | .application inner => .application (inner.rename mapping)
+  | .suffix inner => .suffix (Renaming.identity.location inner)
 
 /-- Finite γ/θ trees over ordered acyclic graphs. Each structural binding
 uses common typed input and output wiring. Only the selected γ arm is
@@ -224,6 +233,43 @@ inductive BlockPair (primitives : Primitives m σ) (ids : GlobalRel) :
       ⟨stopL.site, .bind (past := []) (.ret outputs) entryL PUnit.unit stopL.pending, stopL.store⟩
       ⟨stopR.site, .bind (past := []) (.ret outputs) entryR PUnit.unit stopR.pending, stopR.store⟩
 
+  | applicationThen {args outs captured : Ports (Ty V S)} {fn : Function V S} {map : Renaming}
+      {sigsL sigsR tailL tailR : List (Ports (Ty V S))}
+      {left : NestedTheta.Term (Instruction Op) (captured ++ fn.args) [] sigsL fn.results}
+      {right : NestedTheta.Term (Instruction Op) (captured ++ fn.args) [] sigsR fn.results}
+      {captL captR : Tuple m.Val captured} {entryL entryR : Tuple m.Val args}
+      {argsL argsR : Tuple m.Val fn.args} {store : σ}
+      {locL locR : Location} {stopL stopR : Block m σ fn.results}
+      (inputs : Wires args [] (fn.port :: fn.args))
+      (suffixL : Term Op args [fn.results] tailL outs) (suffixR : Term Op args [fn.results] tailR outs)
+      (selectL : inputs.read entryL PUnit.unit = .cons (.closure captL left.toGraph) argsL)
+      (selectR : inputs.read entryR PUnit.unit = .cons (.closure captR right.toGraph) argsR)
+      (stopped : BlockPair primitives ids map left right (prependContext argsL captL) (prependContext argsR captR)
+        store locL locR stopL stopR) :
+    BlockPair primitives ids map (applicationThen fn inputs suffixL) (applicationThen fn inputs suffixR)
+      entryL entryR store (.application locL) (.application locR)
+      ⟨stopL.site, .bind (past := []) (embed suffixL) entryL PUnit.unit stopL.pending, stopL.store⟩
+      ⟨stopR.site, .bind (past := []) (embed suffixR) entryR PUnit.unit stopR.pending, stopR.store⟩
+  | afterApplication {args outs : Ports (Ty V S)} {fn : Function V S} {map : Renaming}
+      {tailL tailR : List (Ports (Ty V S))}
+      {entryL entryR : Tuple m.Val args} {calleeL calleeR : m.Val fn.port}
+      {argsL argsR : Tuple m.Val fn.args} {valueL valueR : Tuple m.Val fn.results} {store middle stopped : σ}
+      {siteL siteR : Site m} {pendingL : Pending m siteL.outs outs} {pendingR : Pending m siteR.outs outs}
+      (inputs : Wires args [] (fn.port :: fn.args))
+      (suffixL : Term Op args [fn.results] tailL outs) (suffixR : Term Op args [fn.results] tailR outs)
+      (selectL : inputs.read entryL PUnit.unit = .cons calleeL argsL)
+      (selectR : inputs.read entryR PUnit.unit = .cons calleeR argsR)
+      (ranL : Eval primitives (.call calleeL argsL) store (.returned valueL middle))
+      (ranR : Eval primitives (.call calleeR argsR) store (.returned valueR middle))
+      (location : Local.Location) (sites : SitesRelated m ids siteL siteR)
+      (blockedL : Local.BlockAt primitives suffixL entryL (Locals.snoc (past := []) PUnit.unit valueL)
+        middle location (.blocked siteL pendingL stopped))
+      (blockedR : Local.BlockAt primitives suffixR entryR (Locals.snoc (past := []) PUnit.unit valueR)
+        middle (Renaming.identity.location location) (.blocked siteR pendingR stopped)) :
+    BlockPair primitives ids map (applicationThen fn inputs suffixL) (applicationThen fn inputs suffixR)
+      entryL entryR store (.suffix location) (.suffix (Renaming.identity.location location))
+      ⟨siteL, pendingL, stopped⟩ ⟨siteR, pendingR, stopped⟩
+
 variable {primitives : Primitives m σ} {mapping : Renaming}
 
 /-- A common productive feedback stream and finite syntax-directed routes
@@ -284,6 +330,39 @@ inductive LoopPair (primitives : Primitives m σ) (mapping : Renaming)
       (observed : Activation primitives mapping left right current)
   | outer (live : InfiniteTrace (IterationPair primitives left right) input)
 
+/-- A finite, statically matched chain of captured λs. Leaves may use
+the full call-free γ/θ witness. Each application follows the actual first
+capture with a strictly smaller rank and has an acyclic ordered suffix
+at fixed addresses. Regular arguments can supply operands, while the
+selected callable is fixed by the plan. -/
+inductive CallPlan (m : Machine.{u, v, w} Op) (ids : GlobalRel) (mapping : Renaming) :
+    Nat → {context params outs : Ports (Ty V S)} → {sigsL sigsR : List (Ports (Ty V S))} →
+    Tuple m.Val context → Tuple m.Val context →
+    NestedTheta.Term (Instruction Op) (context ++ params) [] sigsL outs →
+    NestedTheta.Term (Instruction Op) (context ++ params) [] sigsR outs → Prop where
+  | body {context params outs : Ports (Ty V S)} {sigsL sigsR : List (Ports (Ty V S))}
+      {captL captR : Tuple m.Val context}
+      {left : NestedTheta.Term (Instruction Op) (context ++ params) [] sigsL outs}
+      {right : NestedTheta.Term (Instruction Op) (context ++ params) [] sigsR outs}
+      (captures : TupleRelated m ids captL captR) (code : CodePair Op mapping left right) :
+    CallPlan m ids mapping 0 captL captR left right
+  | application {rank : Nat} {captured context params outs : Ports (Ty V S)} {fn : Function V S}
+      {sigsL sigsR tailL tailR : List (Ports (Ty V S))}
+      {left : NestedTheta.Term (Instruction Op) (captured ++ fn.args) [] sigsL fn.results}
+      {right : NestedTheta.Term (Instruction Op) (captured ++ fn.args) [] sigsR fn.results}
+      {calleeL calleeR : Tuple m.Val captured} {capturesL capturesR : Tuple m.Val context}
+      {suffixL : Term Op (fn.port :: (context ++ params)) [fn.results] tailL outs}
+      {suffixR : Term Op (fn.port :: (context ++ params)) [fn.results] tailR outs}
+      (callee : CallPlan m ids mapping rank calleeL calleeR left right)
+      (calleeIso : NestedTheta.Graph.Isomorphic (Instruction Op) left.toGraph right.toGraph)
+      (captures : TupleRelated m ids capturesL capturesR)
+      (arguments : Wires (fn.port :: (context ++ params)) [] fn.args)
+      (suffix : Local.Schedule Op .identity suffixL suffixR) :
+    CallPlan m ids mapping (rank + 1)
+      (.cons (.closure calleeL left.toGraph) capturesL) (.cons (.closure calleeR right.toGraph) capturesR)
+      (applicationThen fn (.cons (.arg .head) arguments) suffixL)
+      (applicationThen fn (.cons (.arg .head) arguments) suffixR)
+
 inductive ScheduledLambda (m : Machine.{u, v, w} Op) (ids : GlobalRel) (mapping : Renaming)
     (params outs : Ports (Ty V S)) :
     m.Val (.value (.function params outs)) → m.Val (.value (.function params outs)) → Prop where
@@ -314,6 +393,13 @@ inductive ScheduledLambda (m : Machine.{u, v, w} Op) (ids : GlobalRel) (mapping 
         (applicationCode fn (.cons (.arg .head) arguments) outputs).toGraph)
       (.closure (.cons (.closure calleeR right.toGraph) capturesR)
         (applicationCode fn (.cons (.arg .head) arguments) outputs).toGraph)
+
+  | plan {rank : Nat} {context : Ports (Ty V S)} {sigsL sigsR : List (Ports (Ty V S))}
+      {capL capR : Tuple m.Val context}
+      {left : NestedTheta.Term (Instruction Op) (context ++ params) [] sigsL outs}
+      {right : NestedTheta.Term (Instruction Op) (context ++ params) [] sigsR outs}
+      (scheduled : CallPlan m ids mapping rank capL capR left right) :
+    ScheduledLambda m ids mapping params outs (.closure capL left.toGraph) (.closure capR right.toGraph)
 
 /-- Finite observations and productive feedback at the two call entries.
 The original entries are the actual selected closures and post-link store. -/
