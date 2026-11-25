@@ -64,7 +64,7 @@ theorem retainLeft_copy {E A B : V} (f : J.obj A ⟶ J.obj B)
   rw [reassoc_of% slide]
 
 omit [SymmetricCategory V] [HasFiniteCoproducts V] [DistributiveTensor V] in
-private theorem copyValue (E A : V) :
+theorem copyValue (E A : V) :
     (duplicate E ▷ A) ≫ (α_ E E A).hom = lift (fst E A) (𝟙 (E ⊗ A)) := by
   have h : duplicate E ▷ A = lift (lift (fst E A) (fst E A)) (snd E A) := by
     apply CartesianMonoidalCategory.hom_ext <;> simp [duplicate]
