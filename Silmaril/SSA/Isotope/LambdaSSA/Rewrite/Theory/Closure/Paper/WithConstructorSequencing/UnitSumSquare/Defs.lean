@@ -131,6 +131,34 @@ def HasTargetOutputs (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [A.ty] 
     A.inj i ≫ branch ha = D.emit j p →
     ∃ o : OutputCode B D, rows j = outputWithPayload B D o
 
+/-- A row of a state map selects a target summand and a unit payload. -/
+structure StateCode (D : Shape) where
+  tag : D.Row
+  payload : Payload
+
+/-- A finite case-defined state map. Each branch emits its selected target state. -/
+noncomputable def caseMap (A D : Shape) (rows : A.Row → StateCode D) : obj A.ty ⟶ obj D.ty :=
+  A.table fun i => D.emit (rows i).tag (rows i).payload
+
+/-- Apply the state map after a step. Exits bypass the state map. -/
+def OutputCode.mapState {B A D : Shape} (rows : A.Row → StateCode D) :
+    OutputCode B A → OutputCode B D
+  | ⟨.inl j, p⟩ => ⟨.inl j, p⟩
+  | ⟨.inr i, p⟩ => ⟨.inr (rows i).tag, p.then (rows i).payload⟩
+
+/-- Supply the payload of an earlier step to this output. -/
+def OutputCode.withInput {B A : Shape} (p : Payload) (o : OutputCode B A) : OutputCode B A :=
+  ⟨o.tag, p.then o.payload⟩
+
+/-- The target step has a coded output at each row selected by the state map. -/
+def HasCaseTargetOutputs (B A D : Shape) (rows : A.Row → StateCode D)
+    (q : D.Row → (obj .unit ⟶ obj B.ty ⨿ obj D.ty)) : Prop :=
+  ∀ i, ∃ o : OutputCode B D, q (rows i).tag = outputWithPayload B D o
+
+/-- A row permutation forwards the payload at each input. -/
+def permutationRows {A D : Shape} (e : A.Row ≃ D.Row) (i : A.Row) : StateCode D :=
+  ⟨e i, .forward⟩
+
 namespace Forwarding
 
 abbrev source : Shape := .sum .unit .unit
@@ -156,6 +184,30 @@ def targetRows (exitPayload : Payload) : target.Row → OutputCode result target
   | .inr () => ⟨.inl (), .literal⟩
 
 end Forwarding
+
+namespace Swap
+
+abbrev state : Shape := .sum .unit .unit
+abbrev result : Shape := .unit
+
+def permutation : state.Row ≃ state.Row := Equiv.sumComm Unit Unit
+
+/-- Exchange the tags, with a selectable payload on the left branch. -/
+def stateRows (leftPayload : Payload) : state.Row → StateCode state
+  | .inl () => ⟨.inr (), leftPayload⟩
+  | .inr () => ⟨.inl (), .forward⟩
+
+/-- Recur from left to right, then exit with the current payload. -/
+def sourceRows (recurPayload : Payload) : state.Row → OutputCode result state
+  | .inl () => ⟨.inr (.inr ()), recurPayload⟩
+  | .inr () => ⟨.inl (), .forward⟩
+
+/-- The same behavior with the state tags exchanged. -/
+def targetRows : state.Row → OutputCode result state
+  | .inl () => ⟨.inl (), .forward⟩
+  | .inr () => ⟨.inr (.inl ()), .forward⟩
+
+end Swap
 
 namespace Collapse
 
