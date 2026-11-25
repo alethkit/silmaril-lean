@@ -220,6 +220,13 @@ private theorem fold (s : Loop Φ A B K E D) :
   rw [flat]
   exact group_feedback J (localInject M R 0) inner (activation J M s) square
 
+theorem dispatcher_at_header (s : Loop Φ A B K E D) :
+    J.map (localInject M (localTypes s) 0) ≫ iterate (cfgStepOf J M (localTypes s) [E,D]
+      (fun i => blockArrow J M (fun _ p => J.map (siteArrow M p)) (blockAt s i))) =
+      iterate (activation J M s) := by
+  simp only [raw_eq]
+  exact fold J M s
+
 variable [FreydCategory.CentralUnit J]
 
 theorem region_denotes (s : Loop Φ A B K E D) :
