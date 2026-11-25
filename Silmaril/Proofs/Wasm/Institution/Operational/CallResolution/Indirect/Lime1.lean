@@ -14,6 +14,19 @@ open Wasm.Lime1.Execution
 open Execution.Runtime (Frame Value)
 open CallContinuation.OuterCall.Ranked.Graph (Program Function)
 
+open CallContinuation.OuterCall.Computed in
+theorem lookup_stays {H : Type} {s : Store H} {site : Site} {caller : Frame} {selector : BitVec 32}
+    {stack : List Value} {rest : List Admin} (n : Nat) (out : List Admin) :
+    ¬ PureStep caller.module.types [.label n [] (limeSource s caller site selector stack rest).code] out :=
+  lime_label_stays (head := .source (.callIndirect site.typeIndex)) rfl
+    (by simp) (by simp) (by simp)
+
+open CallContinuation.OuterCall.Computed in
+theorem invoke_stays {H : Type} {s : Store H} {addr : Execution.Runtime.FuncAddr} {caller : Frame}
+    {stack : List Value} {rest : List Admin} (n : Nat) (out : List Admin) :
+    ¬ PureStep caller.module.types [.label n [] (limeResolved s caller stack rest (.resolved addr)).code] out :=
+  lime_label_stays (head := .invoke addr) rfl (by simp) (by simp) (by simp)
+
 theorem step_iff {H : Type} {s : Store H} {caller : Frame} {site : Site} {program : Program}
     {selector : BitVec 32} {stack : List Value} {rest : List Admin} {out : Outcome} {dst : Config H}
     (checked : site.check program caller = true) (allocated : program.LimeAllocated s)

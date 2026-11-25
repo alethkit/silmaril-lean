@@ -60,6 +60,12 @@ inductive Phase where
   | nullTrap
   deriving DecidableEq, Repr
 
+/-- The remaining native action is still part of lookup, cast, or invocation.
+The first trap is a separate phase. -/
+def Phase.Pending : Phase → Prop
+  | .start | .lookup | .cast _ | .call _ => True
+  | _ => False
+
 def Outcome.coreTrace (out : Outcome) : List Phase :=
   [.start, .lookup] ++ match out with
   | .bounds => [.boundsTrap]
