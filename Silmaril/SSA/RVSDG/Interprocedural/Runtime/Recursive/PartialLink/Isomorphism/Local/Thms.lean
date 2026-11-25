@@ -52,6 +52,24 @@ theorem graph_evaluate {left : Graph Op args [] sigsL outs} {right : Graph Op ar
       inputL inputR PUnit.unit PUnit.unit store outL outR :=
   Proofs.graph_evaluate code respects inputs store
 
+/-- Typed reads agree across equal caller scopes with related locals. -/
+theorem aligned_read {past : List (Ports (Ty V S))} {ports : Ports (Ty V S)}
+    {inputL inputR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+    (inputs : TupleRelated m ids inputL inputR) (locals : AlignedLocals m ids localsL localsR)
+    (wires : Wires args past ports) :
+    TupleRelated m ids (wires.read inputL localsL) (wires.read inputR localsR) :=
+  Proofs.aligned_read inputs locals wires
+
+/-- Replay an ordered suffix at the current typed caller scope and store. -/
+theorem scoped_evaluate {past : List (Ports (Ty V S))}
+    {left : Term Op args past sigsL outs} {right : Term Op args past sigsR outs}
+    (schedule : Schedule Op .identity left right) (respects : ActionsRespect primitives ids)
+    {inputL inputR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+    (inputs : TupleRelated m ids inputL inputR) (locals : AlignedLocals m ids localsL localsR) (store : σ) :
+    ∃ outL outR, EvaluationPair primitives ids .identity (left := left) (right := right)
+      inputL inputR localsL localsR store outL outR :=
+  Proofs.scoped_evaluate schedule respects inputs locals store
+
 /-- An ordered acyclic suffix starts from the actual saved caller inputs
 and the related tuple bound by the application. Its actions start at the
 post-call store and retain an addressed diagnostic if they block. -/

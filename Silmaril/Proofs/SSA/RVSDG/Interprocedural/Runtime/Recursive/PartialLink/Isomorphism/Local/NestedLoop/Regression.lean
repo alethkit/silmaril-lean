@@ -1146,4 +1146,206 @@ private theorem rankedProductiveRegression : InfiniteTrace (Step primitives) (ch
 
 end RankedCalls
 
+section SequentialCalls
+
+private abbrev firstFn : Function Unit Unit := ⟨carried, carried⟩
+private abbrev sequenceCaptures : Ports T := [firstFn.port, calleeFn.port]
+private abbrev sequenceArgs : Ports T := sequenceCaptures ++ carried
+
+private def firstOutputs : Wires carried [bodyResults] carried :=
+  .cons (.output (0 : Fin 1) (.tail .head)) (.cons (.output (0 : Fin 1) (.tail (.tail .head))) .nil)
+
+private abbrev firstCode : NestedTheta.Term (Instruction Op) carried [] [bodyResults] carried :=
+  Gamma.bindPrimitive Op.advance initial (.ret firstOutputs)
+private abbrev firstValue : machine.Val firstFn.port := .closure .nil firstCode.toGraph
+
+private def sequenceContext (body : Gamma.LoopBody Op outerCarry [carried]) : Tuple machine.Val sequenceCaptures :=
+  .cons firstValue (.cons (calleeValue body) .nil)
+
+private def firstArgs : Wires sequenceArgs [] carried :=
+  .cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil)
+
+private def secondArgs : Wires sequenceArgs [carried] carried :=
+  .cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) (.tail .head)) .nil)
+
+private abbrev firstInputs : Wires sequenceArgs [] (firstFn.port :: carried) :=
+  .cons (.arg (Gamma.capturePort (params := carried) (.head : Port sequenceCaptures firstFn.port))) firstArgs
+
+private abbrev secondInputs : Wires sequenceArgs [carried] (calleeFn.port :: carried) :=
+  .cons (.arg (Gamma.capturePort (params := carried) (.tail .head : Port sequenceCaptures calleeFn.port))) secondArgs
+
+private def sequenceOutputs : Wires sequenceArgs [carried, calleeFn.results] results :=
+  .cons (.output (1 : Fin 2) (.tail (.tail (.tail .head))))
+    (.cons (.output (0 : Fin 2) (.tail .head)) .nil)
+
+private abbrev afterFirst : NestedTheta.Term (Instruction Op) sequenceArgs [carried] [calleeFn.results] results :=
+  Gamma.bindApplication calleeFn secondInputs (.ret sequenceOutputs)
+private abbrev sequenceCode := Gamma.bindApplication firstFn firstInputs afterFirst
+
+private def sequenceMap : Renaming :=
+  .region (Equiv.refl _) (fun vertex _ => if vertex = 1 then innerMap else .identity)
+
+private def sequenceLambda (body : Gamma.LoopBody Op outerCarry [carried]) : machine.Val callerFn.port :=
+  .closure (sequenceContext body) sequenceCode.toGraph
+
+private def sequenceModule (body : Gamma.LoopBody Op outerCarry [carried]) :
+    OmegaTerm Op moduleImports [callerFn.port] [[firstFn.port], [calleeFn.port], [callerFn.port]] :=
+  ⟨.bind (.lambda ⟨[], .nil, [bodyResults], firstCode⟩) <|
+    .bind (.lambda ⟨moduleImports, .cons (.arg .head) .nil, [carried], body⟩) <|
+    .bind (.lambda ⟨sequenceCaptures, .cons (.output (0 : Fin 2) .head) (.cons (.output (1 : Fin 2) .head) .nil),
+      [carried, calleeFn.results], sequenceCode⟩) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private theorem sequenceLinks (body : Gamma.LoopBody Op outerCarry [carried]) :
+    Links primitives 17 (sequenceModule body).toGraph imported 20 (.linked (.cons (sequenceLambda body) .nil) 20) :=
+  .bind (values := .cons firstValue .nil) (middle := 20) rfl
+    (.bind (values := .cons (calleeValue body) .nil) (middle := 20) rfl
+      (.bind (values := .cons (sequenceLambda body) .nil) (middle := 20) rfl (.ret _ _ _ _)))
+
+private def sequenceSource (body : Gamma.LoopBody Op outerCarry [carried]) (n : Nat) : Config machine Nat results :=
+  ⟨Continuation.start (.call (sequenceLambda body) (carry 0 n)), 20⟩
+
+private theorem sequencePlan :
+    Gamma.RankedPlan machine Eq 1 sequenceMap (sequenceContext innerL) (sequenceContext innerR)
+      sequenceCode sequenceCode := by
+  have first : Gamma.RankedPlan machine Eq 0 (sequenceMap.child 0 0)
+      (.nil : Tuple machine.Val []) .nil firstCode firstCode :=
+    .primitive (context := []) (params := carried) (past := []) Op.advance initial
+      (.suffix (context := []) (params := carried) (past := [bodyResults])
+        (left := .ret firstOutputs) (right := .ret firstOutputs) (.ret firstOutputs firstOutputs rfl))
+  have second : Gamma.RankedPlan machine Eq 0 (sequenceMap.child 1 0) imported imported innerL innerR :=
+    .body admitted
+  exact .call (context := sequenceCaptures) (params := carried) (fn := firstFn) .head rfl rfl .nil firstArgs
+    (by decide) first
+    (.call (context := sequenceCaptures) (params := carried) (fn := calleeFn) (.tail .head) rfl rfl
+      (.cons (.control 0) .nil) secondArgs (by decide) second
+      (.suffix (context := sequenceCaptures) (params := carried) (past := [carried, calleeFn.results])
+        (left := .ret sequenceOutputs) (right := .ret sequenceOutputs) (.ret sequenceOutputs sequenceOutputs rfl)))
+
+private theorem sequenceDispatch (n : Nat) :
+    Gamma.CallPair primitives Eq sequenceMap results (sequenceSource innerL n) (sequenceSource innerR n) := by
+  have first := NestedTheta.Graph.Isomorphic.refl firstCode.toGraph
+  have caller := NestedTheta.Graph.Isomorphic.refl sequenceCode.toGraph
+  let positions : Fin 3 ≃ Fin 3 := Equiv.refl _
+  have iso : (sequenceModule innerL).toGraph.RenumberedBy (sequenceModule innerR).toGraph positions :=
+    ⟨Fin.cases (.lambda ⟨⟨rfl, rfl⟩, first⟩)
+      (two (.lambda ⟨⟨rfl, rfl⟩, innerIso⟩) (.lambda ⟨⟨rfl, rfl⟩, caller⟩)), rfl⟩
+  have schedule : Ordered Op (renameVertex positions) moduleImports [callerFn.port]
+      (sequenceModule innerL).toGraph.toTerm.region (sequenceModule innerR).toGraph.toTerm.region := by
+    rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+    exact .bind rfl (.lambda ⟨⟨rfl, rfl⟩, first⟩)
+      (.bind rfl (.lambda ⟨⟨rfl, rfl⟩, innerIso⟩) (.bind rfl (.lambda ⟨⟨rfl, rfl⟩, caller⟩) (.ret _ _)))
+  let req (body : Gamma.LoopBody Op outerCarry [carried]) :=
+    request (m := machine) 17 (sequenceModule body).toGraph imported .head (carry 0 n) 20
+  have paired : Gamma.DispatchPair primitives Eq (renameVertex positions) sequenceMap results
+      ((req innerL).start primitives) ((req innerR).start primitives) :=
+    Gamma.link_then_invoke respects iso schedule (fun i => by simp [renameVertex, positions])
+      (.cons (.control 0) .nil) .head (carry_related 0 n) 20 (by
+        intro _ _ _ linkedL linkedR _
+        cases outcome_unique linkedL (sequenceLinks innerL)
+        cases outcome_unique linkedR (sequenceLinks innerR)
+        exact .sequence
+          (.cons (.closure .nil first) (.cons (.closure (.cons (.control 0) .nil) innerIso) .nil)) sequencePlan)
+  rw [start_linked (request := req innerL) (sequenceLinks innerL),
+    start_linked (request := req innerR) (sequenceLinks innerR)] at paired
+  cases paired with
+  | invoked calls => exact calls
+
+private def sequenceEntry (body : Gamma.LoopBody Op outerCarry [carried]) (n : Nat) : Tuple machine.Val sequenceArgs :=
+  prependContext (carry 0 n) (sequenceContext body)
+
+private abbrev firstLocals (n : Nat) : Locals machine.Val [carried] :=
+  Locals.snoc (past := []) PUnit.unit (carry 0 n)
+
+private theorem openSequence (body : Gamma.LoopBody Op outerCarry [carried]) (n : Nat) :
+    Job.openClosure machine (sequenceLambda body) (carry 0 n) =
+      .region sequenceCode (sequenceEntry body n) PUnit.unit :=
+  congrArg (fun term => Job.region (m := machine) (past := []) term (sequenceEntry body n) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph sequenceCode)
+
+private theorem firstAction (body : Gamma.LoopBody Op outerCarry [carried]) (n : Nat) (tag : Fin 2)
+    (defined : (bodyOut tag 0 (n + 1), 23) ∈ action 0 n 20) :
+    Eval primitives (.node (Gamma.applicationVertex firstFn firstInputs).kind
+      (fun _ => []) (fun i => i.elim0) (firstInputs.read (sequenceEntry body n) PUnit.unit))
+      20 (.returned (carry 0 (n + 1)) 23) := by
+  have openFirst : Job.openClosure machine firstValue (carry 0 n) = .region firstCode (carry 0 n) PUnit.unit :=
+    congrArg (fun term => Job.region (m := machine) (past := []) term (carry 0 n) PUnit.unit)
+      (NestedTheta.Term.toTerm_toGraph firstCode)
+  have first : Eval primitives (.region firstCode (carry 0 n) PUnit.unit) 20 (.returned (carry 0 (n + 1)) 23) :=
+    .bind (node := Gamma.primitiveVertex Op.advance initial) (.primitive (Gamma.primitiveSite Op.advance _) defined)
+      (.ret firstOutputs _ _ _)
+  exact .apply (fn := firstFn) (.call (openFirst.symm ▸ first))
+
+/-- Real resumption after the first call binds the tuple read by the second site. -/
+private theorem reachesSecond (body : Gamma.LoopBody Op outerCarry [carried]) :
+    ReflTransGen (Step primitives) (sequenceSource body 0)
+      ⟨.eval (.region afterFirst (sequenceEntry body 0) (firstLocals 1)) .halt, 23⟩ := by
+  have entered : Step primitives (sequenceSource body 0)
+      ⟨.eval (.region sequenceCode (sequenceEntry body 0) PUnit.unit) .halt, 20⟩ := by
+    apply Step.of_next_some
+    change _root_.Part.some (Config.mk (.eval (Job.openClosure machine (sequenceLambda body) (carry 0 0)) .halt) 20) = _
+    rw [openSequence]
+  let frame := Continuation.Stack.resume (past := []) afterFirst (sequenceEntry body 0) PUnit.unit .halt
+  have ran := (firstAction body 0 1 (_root_.Part.mem_some _)).steps frame
+  exact ((ran.head (.of_next_some rfl)).head entered).tail (.of_next_some rfl)
+
+private theorem sequenceReturn (body : Gamma.LoopBody Op outerCarry [carried])
+    (ran : Eval primitives (.region body (input 0 0 3) PUnit.unit) 23
+      (.returned (.cons (.control 0) (input 0 0 4)) 26)) :
+    TerminalPath primitives (sequenceSource body 2) ⟨.returned (output 4 3) .halt, 26⟩ := by
+  have rest : Eval primitives (.region afterFirst (sequenceEntry body 2) (firstLocals 3))
+      23 (.returned (output 4 3) 26) :=
+    .bind (node := Gamma.applicationVertex calleeFn secondInputs)
+      (.apply (fn := calleeFn) (.call ((openCallee body 0 3).symm ▸ ran))) (.ret sequenceOutputs _ _ _)
+  have caller : Eval primitives (.region sequenceCode (sequenceEntry body 2) PUnit.unit)
+      20 (.returned (output 4 3) 26) :=
+    .bind (node := Gamma.applicationVertex firstFn firstInputs) (firstAction body 2 0 (_root_.Part.mem_some _)) rest
+  have invoked := Eval.call ((openSequence body 2).symm ▸ caller)
+  exact ⟨invoked.steps .halt, fun _ h => _root_.Part.notMem_none _ h⟩
+
+private def secondStop {sigs : List (Ports T)} (body : SingleTheta.Body Op carried sigs)
+    (pending : Pending machine bodyResults bodyResults) : Gamma.Block machine Nat calleeFn.results :=
+  ⟨advanceSite 0 1, .bind (past := []) (.ret innerOutputs) (input 0 0 1) PUnit.unit
+    (.loop (embed body.toTerm) pending), 23⟩
+
+private def sequenceStop (body : Gamma.LoopBody Op outerCarry [carried])
+    (stop : Gamma.Block machine Nat calleeFn.results) : Gamma.Block machine Nat results :=
+  ⟨stop.site, .bind (.ret sequenceOutputs) (sequenceEntry body 0) (firstLocals 1) stop.pending, stop.store⟩
+
+private theorem sequenceBlock :
+    Gamma.BlockPair primitives Eq sequenceMap sequenceCode sequenceCode
+      (sequenceEntry innerL 0) (sequenceEntry innerR 0) 20
+      (.callSite 1 (.theta (.here 1))) (.callSite 1 (.theta (.here 0)))
+      (sequenceStop innerL (secondStop left pendingL)) (sequenceStop innerR (secondStop right pendingR)) := by
+  have leaf : Gamma.BlockPair primitives Eq innerMap innerL innerR (input 0 0 1) (input 0 0 1) 23
+      (.theta (.here 1)) (.theta (.here 0)) (secondStop left pendingL) (secondStop right pendingR) :=
+    .theta (first := atCarry 0 1 23) (current := atCarry 0 1 23) innerInitial innerOutputs
+      rfl rfl rfl .refl (.here 1) (.same (carry_related 0 1)) blockedL blockedR
+  exact .later (nodeL := Gamma.applicationVertex firstFn firstInputs) (nodeR := Gamma.applicationVertex firstFn firstInputs)
+    (firstAction innerL 0 1 (_root_.Part.mem_some _)) (firstAction innerR 0 1 (_root_.Part.mem_some _))
+    (.atCall (map := sequenceMap) secondInputs (.ret sequenceOutputs) (.ret sequenceOutputs) rfl rfl leaf)
+
+private theorem sequenceBlockPath (body : Gamma.LoopBody Op outerCarry [carried]) {stop : Gamma.Block machine Nat results}
+    (ran : Eval primitives (.region sequenceCode (sequenceEntry body 0) PUnit.unit) 20 stop.outcome) :
+    TerminalPath primitives (sequenceSource body 0) (stop.outcome.atStack .halt) := by
+  cases stop
+  have invoked := Eval.call ((openSequence body 0).symm ▸ ran)
+  exact ⟨invoked.steps .halt, fun _ => (invoked.blocks .halt).no_step⟩
+
+/-- Both calls execute in order. The first returns at 23 and supplies the
+second's full tuple. At input zero, call site 1 blocks on operand 1 at 23.
+At input two, both return and the suffix reads both bound results. -/
+private theorem sequentialRegression :
+    Gamma.CallPair primitives Eq sequenceMap results (sequenceSource innerL 0) (sequenceSource innerR 0) ∧
+    TerminalPath primitives (sequenceSource innerL 0) ((sequenceStop innerL (secondStop left pendingL)).outcome.atStack .halt) ∧
+    TerminalPath primitives (sequenceSource innerR 0) ((sequenceStop innerR (secondStop right pendingR)).outcome.atStack .halt) ∧
+    Gamma.CallPair primitives Eq sequenceMap results (sequenceSource innerL 2) (sequenceSource innerR 2) ∧
+    TerminalPath primitives (sequenceSource innerL 2) ⟨.returned (output 4 3) .halt, 26⟩ ∧
+    TerminalPath primitives (sequenceSource innerR 2) ⟨.returned (output 4 3) .halt, 26⟩ :=
+  let ran := completedInner 0 0 3 23 (_root_.Part.mem_some _)
+  ⟨sequenceDispatch 0, sequenceBlockPath innerL sequenceBlock.evals.1, sequenceBlockPath innerR sequenceBlock.evals.2,
+    sequenceDispatch 2, sequenceReturn innerL ran.1, sequenceReturn innerR ran.2⟩
+
+end SequentialCalls
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.NestedLoop.Tests

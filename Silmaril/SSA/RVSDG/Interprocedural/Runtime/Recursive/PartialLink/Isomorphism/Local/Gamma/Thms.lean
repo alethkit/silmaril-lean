@@ -28,6 +28,28 @@ variable {right : NestedTheta.Term (Instruction Op) args [] sigsR outs}
 variable {inputL inputR : Tuple m.Val args} {store : σ}
 variable {locL locR : Location} {stopL stopR : Block m σ outs}
 
+section ScopedBlocks
+
+variable {pastL pastR : List (Ports (Ty V S))}
+variable {scopedL : NestedTheta.Term (Instruction Op) args pastL sigsL outs}
+variable {scopedR : NestedTheta.Term (Instruction Op) args pastR sigsR outs}
+variable {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR}
+
+theorem ScopedBlockPair.observations
+    (stopped : ScopedBlockPair primitives ids mapping scopedL scopedR inputL inputR localsL localsR
+      store locL locR stopL stopR) :
+    locR = locL.rename mapping ∧ SitesRelated m ids stopL.site stopR.site ∧ stopL.store = stopR.store :=
+  Proofs.block_observations stopped
+
+theorem ScopedBlockPair.evals
+    (stopped : ScopedBlockPair primitives ids mapping scopedL scopedR inputL inputR localsL localsR
+      store locL locR stopL stopR) :
+    Eval primitives (.region scopedL inputL localsL) store stopL.outcome ∧
+    Eval primitives (.region scopedR inputR localsR) store stopR.outcome :=
+  Proofs.block_evals stopped
+
+end ScopedBlocks
+
 /-- A block keeps the chosen γ arm positions, mapped local address, typed
 operands of the same primitive, and exact attempt store. -/
 theorem BlockPair.observations
@@ -204,6 +226,21 @@ theorem call_plan_regions {rank : Nat} {context : Ports (Ty V S)}
       ∀ {argsL argsR : Tuple m.Val params}, TupleRelated m ids argsL argsR → ∀ store,
         RegionPair primitives ids mapping left right (prependContext argsL capturesL) (prependContext argsR capturesR) store :=
   Proofs.call_plan_regions plan respects
+
+/-- Pair the actual execution of an ordered spine of static calls and
+primitive bindings. Each call enters a lower-ranked body. Its suffix
+consumes one binding of the caller plan and keeps the caller's scope. -/
+theorem ranked_regions {rank : Nat} {context : Ports (Ty V S)} {past : List (Ports (Ty V S))}
+    {capturesL capturesR : Tuple m.Val context}
+    {left : NestedTheta.Term (Instruction Op) (context ++ params) past sigsL outs}
+    {right : NestedTheta.Term (Instruction Op) (context ++ params) past sigsR outs}
+    (plan : RankedPlan m ids rank mapping capturesL capturesR left right) (respects : ActionsRespect primitives ids)
+    (captures : TupleRelated m ids capturesL capturesR)
+    {argsL argsR : Tuple m.Val params} (arguments : TupleRelated m ids argsL argsR)
+    {localsL localsR : Locals m.Val past} (locals : AlignedLocals m ids localsL localsR) (store : σ) :
+    ScopedRegionPair primitives ids mapping left right
+      (prependContext argsL capturesL) (prependContext argsR capturesR) localsL localsR store :=
+  Proofs.ranked_regions plan respects captures arguments locals store
 
 end Application
 

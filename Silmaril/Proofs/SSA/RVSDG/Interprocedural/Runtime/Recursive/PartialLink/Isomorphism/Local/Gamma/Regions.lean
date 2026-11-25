@@ -46,16 +46,24 @@ theorem open_lambda {context : Ports (Ty V S)}
     (NestedTheta.Term.toTerm_toGraph code)
 
 theorem application_eval {fn : Function V S} {entry : Tuple m.Val args}
-    {inputs : Wires args [] (fn.port :: fn.args)} {callee : m.Val fn.port} {arguments : Tuple m.Val fn.args}
+    {past : List (Ports (Ty V S))} {locals : Locals m.Val past}
+    {inputs : Wires args past (fn.port :: fn.args)} {callee : m.Val fn.port} {arguments : Tuple m.Val fn.args}
     {outcome : Continuation.Partial.Outcome m σ fn.results}
-    (selected : inputs.read entry PUnit.unit = .cons callee arguments)
+    (selected : inputs.read entry locals = .cons callee arguments)
     (ran : Eval primitives (.call callee arguments) store outcome) :
     Eval primitives (.node (applicationVertex fn inputs).kind (applicationVertex fn inputs).childSigs
-      (fun i => i.elim0) (inputs.read entry PUnit.unit)) store outcome :=
+      (fun i => i.elim0) (inputs.read entry locals)) store outcome :=
   selected.symm ▸ Eval.apply (fn := fn) (cs := fun _ => []) (children := fun i => i.elim0) ran
 
+section ScopedBlock
+
+variable {pastL pastR : List (Ports (Ty V S))}
+variable {scopedL : NestedTheta.Term (Instruction Op) args pastL sigsL outs}
+variable {scopedR : NestedTheta.Term (Instruction Op) args pastR sigsR outs}
+variable {localsL : Locals m.Val pastL} {localsR : Locals m.Val pastR}
+
 theorem block_observations
-    (stopped : BlockPair primitives ids mapping left right inputL inputR store locL locR stopL stopR) :
+    (stopped : ScopedBlockPair primitives ids mapping scopedL scopedR inputL inputR localsL localsR store locL locR stopL stopR) :
     locR = locL.rename mapping ∧ SitesRelated m ids stopL.site stopR.site ∧ stopL.store = stopR.store := by
   induction stopped with
   | acyclic _ sites _ _ => exact ⟨rfl, sites, rfl⟩
@@ -65,11 +73,15 @@ theorem block_observations
   | application _ _ _ _ _ ih => exact ⟨congrArg Location.application ih.1, ih.2⟩
   | applicationThen _ _ _ _ _ _ ih => exact ⟨congrArg Location.application ih.1, ih.2⟩
   | afterApplication _ _ _ _ _ _ _ _ sites _ _ => exact ⟨rfl, sites, rfl⟩
+  | suffix _ sites _ _ => exact ⟨rfl, sites, rfl⟩
+  | atCall _ _ _ _ _ _ ih => exact ⟨congrArg (Location.callSite _) ih.1, ih.2⟩
+  | atPrimitive _ _ related _ _ => exact ⟨rfl, .same related, rfl⟩
+  | later _ _ _ ih => exact ih
 
 theorem block_evals
-    (stopped : BlockPair primitives ids mapping left right inputL inputR store locL locR stopL stopR) :
-    Eval primitives (.region left inputL PUnit.unit) store stopL.outcome ∧
-    Eval primitives (.region right inputR PUnit.unit) store stopR.outcome := by
+    (stopped : ScopedBlockPair primitives ids mapping scopedL scopedR inputL inputR localsL localsR store locL locR stopL stopR) :
+    Eval primitives (.region scopedL inputL localsL) store stopL.outcome ∧
+    Eval primitives (.region scopedR inputR localsR) store stopR.outcome := by
   induction stopped with
   | acyclic _ _ ranL ranR => exact ⟨ranL.eval, ranR.eval⟩
   | @theta _ _ _ sigsL sigsR map left right _ _ _ _ first current _ _ _ _
@@ -121,6 +133,23 @@ theorem block_evals
   | afterApplication inputs _ _ selectedL selectedR ranL ranR _ _ blockedL blockedR =>
     exact ⟨.bind (node := applicationVertex _ inputs) (application_eval selectedL ranL) blockedL.eval,
       .bind (node := applicationVertex _ inputs) (application_eval selectedR ranR) blockedR.eval⟩
+  | suffix _ _ ranL ranR => exact ⟨ranL.eval, ranR.eval⟩
+  | @atCall _ _ _ fn _ _ _ _ _ _ left right captL captR _ _ _ _ argsL argsR _ _ _ stopL stopR
+      inputs _ _ selectedL selectedR _ ih =>
+    cases stopL
+    cases stopR
+    have ranL := Eval.call ((open_lambda left captL argsL).symm ▸ ih.1)
+    have ranR := Eval.call ((open_lambda right captR argsR).symm ▸ ih.2)
+    exact ⟨.bindBlocked (node := applicationVertex fn inputs) (application_eval selectedL ranL),
+      .bindBlocked (node := applicationVertex fn inputs) (application_eval selectedR ranR)⟩
+  | @atPrimitive _ _ _ _ _ _ _ _ _ _ entryL entryR localsL localsR store opcode inputs _ undefinedL undefinedR =>
+    exact ⟨.bindBlocked (node := primitiveVertex opcode inputs)
+        (.primitiveBlocked (primitiveSite opcode (inputs.read entryL localsL)) store undefinedL),
+      .bindBlocked (node := primitiveVertex opcode inputs)
+        (.primitiveBlocked (primitiveSite opcode (inputs.read entryR localsR)) store undefinedR)⟩
+  | later firstL firstR _ ih => exact ⟨.bind firstL ih.1, .bind firstR ih.2⟩
+
+end ScopedBlock
 
 private theorem selected_tuple {valuesL valuesR : Tuple m.Val (.control (extra + 2) :: entry)}
     (related : TupleRelated m ids valuesL valuesR) :
