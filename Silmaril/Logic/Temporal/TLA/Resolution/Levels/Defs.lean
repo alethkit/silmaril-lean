@@ -30,6 +30,7 @@ inductive DiagnosticKind where
   | missingReference
   | missingBinding (id : BindingId)
   | missingSummary (id : BindingId)
+  | missingOldValue (id : BindingId)
   | missingInstancePlan
   | substitutionLevel (target : BindingId) (ceiling actual : Level)
   | instanceReplay (home : Site) (cause : DiagnosticKind)
@@ -79,6 +80,7 @@ public def builtinSignature (name : Name) : Option ExternalSignature :=
   | .symbol .prefix "ENABLED" => some (weighted .state [⟨.action, false⟩])
   | .symbol .prefix "UNCHANGED" => some (weighted .action [⟨.state, false⟩])
   | .symbol .prefix "[]" | .symbol .prefix "<>" => some (weighted .temporal [⟨.temporal, false⟩])
+  | .symbol .infix "~>" => some (weighted .temporal [⟨.temporal, false⟩, ⟨.temporal, false⟩])
   | .symbol .infix spelling =>
     if spelling ∈ logicalNames then some (propagating 2 .temporal)
     else if spelling ∈ ["=", "/=", "\\subseteq", "\\in", "\\notin", "\\",
@@ -148,6 +150,9 @@ private def applyBuiltin (site : Site) (name : Name) (sourceArgs : List Expr)
     if (spelling = "[]" || spelling = "<>") && !isMatchingBracket name source then
       addCondition result argSite (.nonAction operand.term)
     else return result
+  | .symbol .infix "~>", _, _ =>
+    operands.foldlM (fun current (argSite, operand) =>
+      addCondition current argSite (.nonAction operand.term)) result
   | .symbol .infix spelling, _, _ =>
     if spelling ∈ logicalNames then
       addCondition result site (.noMixedActionTemporal (operands.map fun (_, arg) => arg.term))
@@ -158,6 +163,7 @@ private structure Context where
   registry : CheckedRegistry
   sourceModule : CheckedModule
   replaying : Bool
+  oldValues : List (BindingId × LevelTerm) := []
 
 private def applyBinding (context : Context) (site : Site) (binding : Binding)
     (sourceArgs : List Expr) (operands : List (Site × Analysis)) : CheckM Analysis := do
@@ -296,9 +302,38 @@ private partial def checkExpr (context : Context) (site : Site) (expression : Ex
       let ceiling := match expression with | .recordSet _ => Level.action | _ => .temporal
       applySignature site (propagating args.length ceiling) args
     | .field record _ => structural [record] .action
+    | .except base updates => do
+      let (baseSite, initial) ← child (.operand 0) base
+      let mut result ← addCondition initial baseSite (.atMost initial.term .action)
+      for (update, index) in updates.zipIdx do
+        let clause := site.child (.update index)
+        let indices ← update.path.zipIdx.flatMapM fun (component, part) => do
+          let .index args := component | return []
+          args.zipIdx.mapM fun (arg, argIndex) => do
+            let argSite := (clause.child (.updateComponent part)).child (.argument argIndex)
+            return (argSite, ← visit argSite arg)
+        let selector ← applySignature clause (propagating indices.length .action) indices
+        -- A clause reads the preceding updated base through its own selector.
+        let selected := result.term.join selector.term
+        let inner := { context with oldValues := (.declared clause, selected) :: context.oldValues }
+        let rhsSite := clause.child .body
+        let rhs ← checkExpr inner rhsSite update.value
+        let rhs ← addCondition rhs rhsSite (.atMost rhs.term .action)
+        result := ⟨selected.join rhs.term,
+          result.requirements ++ selector.requirements ++ rhs.requirements⟩
+      pure result
+    | .oldValue => do
+      let some reference := context.sourceModule.referenceAt site.path | failAt site .missingReference
+      let some term := context.oldValues.lookup reference.target
+        | failAt site (.missingOldValue reference.target)
+      pure ⟨term, []⟩
     | .action _ body subscript => do
       let args ← operands [body, subscript]
       applySignature site (weighted .action [⟨.action, false⟩, ⟨.state, false⟩]) args
+    | .fairness _ subscript action => do
+      if context.replaying then failAt site (.unsupported .instanceImplicitBinding)
+      let args ← operands [subscript, action]
+      applySignature site (weighted .temporal [⟨.state, false⟩, ⟨.action, false⟩]) args
     | _ => failAt site (.unsupported .expression)
   let result := { checked with requirements := checked.requirements.eraseDups }
   modify fun state => { state with expressions := (site, result.term) :: state.expressions }
@@ -395,7 +430,7 @@ private partial def checkModule (registry : CheckedRegistry) (external : Externa
     else
       registerDeclaration external resolved.source.isSome binding
   let some source := resolved.source | return []
-  let context : Context := ⟨registry, resolved, replaying⟩
+  let context : Context := { registry, sourceModule := resolved, replaying }
   let moduleSite : Site := ⟨id, []⟩
   let replay (target : ModuleId) (actual : OperatorTable) : CheckM (List Requirement) := do
     let requirements ← (registry.extendedModules target).mapM fun (dep, mod) =>
