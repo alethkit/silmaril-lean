@@ -26,6 +26,9 @@ The [CBV L2 denotations](cambridge-l2-denotational.md) follow the function
 and local-definition rules in chapter 4 and cover mutable integer stores
 in the effectful fragment.
 
+The [L2 into L3 embedding](cambridge-l2-to-l3.md) connects their resolved
+terms, direct reductions, store configurations, and canonical byte formats.
+
 ## Check the courses
 
 Use the repository's [development environment](../development.md), or install
