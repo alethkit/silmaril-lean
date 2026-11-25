@@ -16,6 +16,10 @@ variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)} {ports final : Ports (Ty V S)}
 variable {primitives : Primitives m σ} {source target : Config m σ final}
 
+theorem Step.of_next_some (picked : source.next primitives = _root_.Part.some target) :
+    Step primitives source target :=
+  Proofs.pure_step picked
+
 theorem Config.Blocked.next_none (stopped : source.Blocked primitives) :
     source.next primitives = _root_.Part.none :=
   Proofs.blocked_next stopped
