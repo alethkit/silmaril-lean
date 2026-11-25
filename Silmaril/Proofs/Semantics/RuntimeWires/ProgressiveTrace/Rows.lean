@@ -22,7 +22,7 @@ theorem namePorts_map {I : Type*} [BEq I] [LawfulBEq I] (wires : List I) (nd : w
   simp only [namePorts, List.getElem_map, List.getElem_zipIdx, Nat.zero_add]
   rw [nd.idxOf_getElem]
 
-private theorem trace_straight (word : List O) (input : List (NamedWire O))
+theorem trace_straight (word : List O) (input : List (NamedWire O))
     (hl : input.length = word.length) (row box : ℕ) :
     (Row.straight (S := S) word).traceWires row box input = ⟨input, []⟩ := by
   induction word generalizing input with

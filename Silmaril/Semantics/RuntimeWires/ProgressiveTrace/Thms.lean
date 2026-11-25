@@ -11,6 +11,11 @@ universe u v
 
 variable {O : Type u} {S : Signature.{u,v} O}
 
+theorem Row.traceWires_straight (word : List O) (input : List (NamedWire O))
+    (length : input.length = word.length) (row box : ℕ) :
+    (Row.straight (S := S) word).traceWires row box input = ⟨input, []⟩ :=
+  Proofs.ProgressiveTrace.trace_straight word input length row box
+
 theorem Row.traceWires_pass {A B : List O} (r : Row S A B) (word : List O)
     (left input : List (NamedWire O)) (length : left.length = word.length) (row box : ℕ) :
     (Row.pass word r).traceWires row box (left ++ input) =
