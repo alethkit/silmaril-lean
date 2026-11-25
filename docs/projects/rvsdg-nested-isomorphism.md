@@ -27,10 +27,8 @@ and term finite-return observations agree on the full typed tuple.
 The fixture swaps independent value and state operations at the root and
 inside a θ reached through γ. It checks bound exhaustion and a successful
 two-iteration return. The theorems compare finite-return observations.
-Transport for live Petri markings remains open. A step theorem needs to
-pair the pending, done and waiting phases at mapped vertices, recursively
-pair the selected child's live markings, and show that restart maps the
-fresh pending body along with the returned carried tuple.
+The [live marking development](rvsdg-nested-petri-isomorphism.md) uses
+the same vertex and child maps to transport individual Petri firings.
 [Fixture](../../tests/ssa/RVSDGNestedThetaIsomorphism.lean)
 
 ```sh
