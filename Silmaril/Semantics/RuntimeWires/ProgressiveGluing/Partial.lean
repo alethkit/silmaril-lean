@@ -55,6 +55,14 @@ theorem glue_label_upper (w : Fin B) : m.glue.label (m.upperId w) = upper.label 
   rw [Equiv.symm_apply_apply]
   exact label_fromUpper m w
 
+theorem glue_finish_upper (w : Fin B) :
+    m.glue.finish (m.upperId w) = (upper.finish w).map (Fin.natAdd L) :=
+  finish_upper_id m w
+
+theorem glue_output_cap_exists {z : Fin (wireCount lower upper)} (h : m.glue.finish z = none) :
+    ∃ w, upper.finish w = none ∧ m.upperId w = z :=
+  finish_cap_exists m h
+
 theorem glue_x_lower (w : Fin A) {y : ℝ} (below : y ≤ 1 / 2) :
     m.glue.x (lowerId w) y = lower.x w (slabHeight 0 y) := by
   change (jointWire m ((numbering lower upper).symm ((numbering lower upper) (fromLower w)))).x y = _

@@ -102,4 +102,23 @@ noncomputable def assemble : Diagram S (L + R) (wireCount lower upper) .point wh
     simp only [Equiv.symm_apply_apply] at h₂ h₃ ⊢
     exact output_order m j h h₁ h₂ h₃
 
+theorem finish_upper_id (w : Fin B) :
+    (assemble m).finish (m.upperId w) = (upper.finish w).map (Fin.natAdd L) := by
+  let e := numbering lower upper
+  change wireFinish m (e.symm (e (m.fromUpper w))) = _
+  rw [e.symm_apply_apply]
+  rcases hz : m.fromUpper w with z | (z | z)
+  · cases (upper_exists m).mp hz
+  · have eq : (m.contact z).val = w := Option.some.inj ((upper_exists m).mp hz)
+    exact congrArg (fun w => (upper.finish w).map (Fin.natAdd L)) eq
+  · have eq : z.val = w := Option.some.inj ((upper_exists m).mp hz)
+    exact congrArg (fun w => (upper.finish w).map (Fin.natAdd L)) eq
+
+theorem finish_cap_exists {z : Fin (wireCount lower upper)} (h : (assemble m).finish z = none) :
+    ∃ w, upper.finish w = none ∧ m.upperId w = z := by
+  let e := numbering lower upper
+  have hz : wireFinish m (e.symm z) = none := h
+  obtain ⟨w, hw, cap⟩ := finish_on_cap m hz
+  exact ⟨w, cap, (congrArg e hw).trans (e.apply_symm_apply z)⟩
+
 end Silmaril.RuntimeWires.Proofs.PartialGluing
