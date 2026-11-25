@@ -642,9 +642,15 @@ def extendOrigin {past : List (Ports (Ty V S))} {t : Ty V S}
     have same : (past ++ [head])[next] = past[vertex] := List.getElem_append_left vertex.isLt
     .output next (same.symm ▸ port)
 
+/-- Read the carried callable from the fresh θ result binding. -/
+abbrev loopOrigin {past : List (Ports (Ty V S))} (fn : Function V S) (carry : Ports (Ty V S)) :
+    Origin args (past ++ [fn.port :: carry]) fn.port :=
+  (Tail.Prefix.forwarding args past (fn.port :: carry)).get .head
+
 /-- A finite intervening prefix in the same caller. A primitive adds a
 binding while keeping the old callable origin. A forwarding γ copies
-that callable to a fresh binding through any of its arms. -/
+that callable to a fresh binding through any of its arms. A θ carries
+the callable in the first port, which the body forwards on every return. -/
 inductive ChoicePrefix (Op : Dialect.{u, v} (ValueSort V S) S) (args : Ports (Ty V S)) (fn : Function V S) :
     List (Ports (Ty V S)) → List (Ports (Ty V S)) → List (Ports (Ty V S)) → Type (max u v) where
   | done {past : List (Ports (Ty V S))} : ChoicePrefix Op args fn past past []
@@ -656,6 +662,23 @@ inductive ChoicePrefix (Op : Dialect.{u, v} (ValueSort V S) S) (args : Ports (Ty
       (rest : ChoicePrefix Op args fn (past ++ [[fn.port]]) final sigs) :
     ChoicePrefix Op args fn past final ([fn.port] :: sigs)
 
+  | theta {past final sigs bodySigs : List (Ports (Ty V S))} {carry : Ports (Ty V S)}
+      (initial : Wires args past carry) (body : LoopBody Op (fn.port :: carry) bodySigs)
+      (fixed : PreservesLoopCaptures Op [fn.port] carry body)
+      (rest : ChoicePrefix Op args fn (past ++ [fn.port :: carry]) final sigs) :
+    ChoicePrefix Op args fn past final ((fn.port :: carry) :: sigs)
+
+/-- The loop uses the ordered call-free witness at its actual child address.
+The enclosing prefix uses common binding positions and wiring. -/
+def ChoicePrefix.Ordered {fn : Function V S} {past final steps : List (Ports (Ty V S))}
+    (route : ChoicePrefix Op args fn past final steps) (map : Renaming) : Prop :=
+  match route with
+  | .done => True
+  | .primitive _ _ rest => rest.Ordered map
+  | .forward _ rest => rest.Ordered map
+  | @theta _ _ _ _ _ past _ _ _ _ _ body _ rest =>
+    map.vertices past.length = past.length ∧ CodePair Op (map.child past.length 0) body body ∧ rest.Ordered map
+
 /-- The typed origin used by the later application. -/
 def ChoicePrefix.callable {fn : Function V S} {past final steps : List (Ports (Ty V S))}
     (route : ChoicePrefix Op args fn past final steps) (source : Origin args past fn.port) :
@@ -664,8 +687,9 @@ def ChoicePrefix.callable {fn : Function V S} {past final steps : List (Ports (T
   | .done => source
   | .primitive _ _ rest => rest.callable (extendOrigin source _)
   | .forward _ rest => rest.callable (joinedOrigin fn)
+  | .theta _ _ _ rest => rest.callable (loopOrigin fn _)
 
-/-- Insert actual primitive and forwarding γ bindings before the suffix. -/
+/-- Insert the actual primitive, forwarding γ, and θ bindings before the suffix. -/
 def ChoicePrefix.wrap {fn : Function V S} {past final steps : List (Ports (Ty V S))}
     (route : ChoicePrefix Op args fn past final steps) (source : Origin args past fn.port)
     (suffix : NestedTheta.Term (Instruction Op) args final sigs outs) :
@@ -676,6 +700,8 @@ def ChoicePrefix.wrap {fn : Function V S} {past final steps : List (Ports (Ty V 
   | .forward selector rest =>
     bindGamma (.cons selector (.cons source .nil)) (chooserArms (fn := fn) (fun _ => .head))
       (rest.wrap (joinedOrigin fn) suffix)
+  | .theta initial body _ rest =>
+    bindTheta (.cons source initial) body (rest.wrap (loopOrigin fn _) suffix)
 
 abbrev chooseApplicationAfter {context : Ports (Ty V S)} {past final steps : List (Ports (Ty V S))}
     (fn : Function V S) (selector : Origin (context ++ params) past (.control (extra + 2)))
@@ -822,7 +848,8 @@ inductive RankedPlan (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
       (decreases : ∀ i, ranks i < rank)
       (callees : ∀ i, RankedPlan m ids (ranks i) (map.child final.length i.val)
         (family i).capturesL (family i).capturesR (family i).left (family i).right)
-      (suffix : RankedPlan m ids rank map capturesL capturesR suffixL suffixR) :
+      (suffix : RankedPlan m ids rank map capturesL capturesR suffixL suffixR)
+      (ordered : route.Ordered map := by exact True.intro) :
     RankedPlan m ids rank map capturesL capturesR
       (chooseApplicationAfter fn selector ports route arguments suffixL)
       (chooseApplicationAfter fn selector ports route arguments suffixR)

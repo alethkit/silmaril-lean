@@ -29,6 +29,7 @@ private abbrev fn : Function Unit Unit := ⟨outerCarry, results⟩
 
 private inductive Op : Dialect (ValueSort Unit Unit) Unit where
   | advance : Op carried bodyResults
+  | loopAdvance : Op carried bodyResults
   | finish (delta : Nat) : Op results results
 
 private def machine : Machine Op where
@@ -36,6 +37,7 @@ private def machine : Machine Op where
   State _ := Unit
   primitive
     | .advance, input => .cons (.control 0) input
+    | .loopAdvance, input => .cons (.control 0) input
     | .finish _, input => input
 
 private def carry (mode : Fin 2) (n : Nat) : Tuple machine.Val carried :=
@@ -55,14 +57,33 @@ private def action (mode : Fin 2) (n store : Nat) : _root_.Part (Tuple machine.V
   else if n = 0 then .some (bodyOut 1 mode (n + 1), store + 3)
   else .some (bodyOut 0 mode (n + 1), store + 3)
 
+-- The loop returns a new number on feedback and may block on the next
+-- activation. Input zero exits with the callee's blocking operand.
+private def loopAction (mode : Fin 2) (n store : Nat) : _root_.Part (Tuple machine.Val bodyResults × Nat) :=
+  match n with
+  | 0 => .some (bodyOut 1 mode 1, store + 2)
+  | 1 => .some (bodyOut 0 mode 1, store + 1)
+  | 2 => .some (bodyOut 1 mode 3, store + 2)
+  | 3 => .some (bodyOut 0 mode 4, store + 1)
+  | 4 => .some (bodyOut 1 mode 5, store + 2)
+  | 5 => .none
+  | n => .some (bodyOut 0 mode n, store + 1)
+
 private def primitives : Primitives machine Nat where
   step opcode input store :=
     match opcode, input with
     | .advance, .cons (.control mode) (.cons (.data n) .nil) => action mode n store
+    | .loopAdvance, .cons (.control mode) (.cons (.data n) .nil) => loopAction mode n store
     | .finish delta, input => .some (input, 2 * store + delta)
 
 private theorem carry_related (mode : Fin 2) (n : Nat) : TupleRelated machine Eq (carry mode n) (carry mode n) :=
   .cons (.control mode) (.cons (ValueRelated.data (m := machine) (t := ()) n) .nil)
+
+private theorem loop_action_related (mode : Fin 2) (n store : Nat) :
+    ActionRelated machine Eq Nat bodyResults (loopAction mode n store) (loopAction mode n store) := by
+  match n with
+  | 5 => exact .undefined
+  | 0 | 1 | 2 | 3 | 4 | n + 6 => exact .returned (.cons (.control _) (carry_related mode _)) _
 
 private theorem respects : ActionsRespect primitives Eq := by
   intro _ _ opcode _ _ related store
@@ -89,6 +110,17 @@ private theorem respects : ActionsRespect primitives Eq := by
               · split
                 · exact .returned (.cons (.control 1) (carry_related _ _)) _
                 · exact .returned (.cons (.control 0) (carry_related _ _)) _
+  | loopAdvance =>
+    cases related with
+    | cons control tail =>
+      cases control with
+      | control mode =>
+        cases tail with
+        | cons number tail =>
+          cases number with
+          | data n =>
+            cases tail
+            exact loop_action_related mode n store
 
 private def initial {past : List (Ports T)} : Wires carried past carried :=
   .cons (.arg .head) (.cons (.arg (.tail .head)) .nil)
@@ -2192,6 +2224,248 @@ private theorem delayedChoiceRegression :
     delayedReturns leafR 1 0 26 4 (invokeLeaf (bodyReturnsR 0 3 23 (_root_.Part.mem_some _))),
     delayedBlockPath leafL 1 prefixBlock.evals.1, delayedBlockPath leafR 1 prefixBlock.evals.2,
     delayedBlockPath leafL 0 delayedBlock.evals.1, delayedBlockPath leafR 0 delayedBlock.evals.2⟩
+
+private abbrev thetaCarry : Ports T := loopCalleeFn.port :: carried
+private abbrev afterTheta : List (Ports T) := [chosenPorts, thetaCarry]
+private abbrev afterThetaCall : List (Ports T) := afterTheta ++ [bodyResults]
+
+private def thetaBodyWires : Wires thetaCarry [] carried :=
+  .cons (.arg (.tail .head)) (.cons (.arg (.tail (.tail .head))) .nil)
+
+private def thetaTag : Origin thetaCarry [bodyResults] (.control 2) := .output (0 : Fin 1) .head
+
+private def thetaNext : Wires thetaCarry [bodyResults] carried :=
+  .cons (.output (0 : Fin 1) (.tail .head)) (.cons (.output (0 : Fin 1) (.tail (.tail .head))) .nil)
+
+private abbrev thetaReturnWires := Gamma.loopOutputs (context := chosenPorts) (params := carried) thetaTag thetaNext
+
+private def thetaBodyTerm : Term Op thetaCarry [] [bodyResults] (Theta.BodyResults thetaCarry) :=
+  .bind ⟨carried, .simple .loopAdvance, thetaBodyWires, fun i => i.elim0⟩
+    (fun i => i.elim0) (.ret thetaReturnWires)
+
+private abbrev thetaBodyGraph := thetaBodyTerm.toGraph
+private abbrev thetaBody := embed thetaBodyGraph.toTerm
+
+private theorem thetaBodyOrdered : OrderedGraph .identity thetaBodyGraph thetaBodyGraph := by
+  constructor
+  · refine .intro rfl rfl (Equiv.refl _) (fun _ => rfl) (fun _ => rfl) ?_ rfl ?_
+    · intro i
+      exact Fin.cases rfl (fun j => j.elim0) i
+    · intro i
+      exact Fin.cases (fun child => child.elim0) (fun j => j.elim0) i
+  · simp only [thetaBodyGraph, Term.toTerm_toGraph]
+    exact .bind (Shape.simple Op.loopAdvance) thetaBodyWires thetaBodyWires rfl rfl (fun i => i.elim0)
+      (.ret thetaReturnWires thetaReturnWires rfl)
+
+private theorem thetaFixed : Gamma.PreservesLoopCaptures Op chosenPorts carried thetaBody := by
+  simp only [thetaBody, thetaBodyGraph, Term.toTerm_toGraph]
+  simp only [thetaBodyTerm, embed]
+  apply Gamma.PreservesLoopCaptures.bind
+  exact Gamma.PreservesLoopCaptures.ret (Op := Op) (context := chosenPorts) (params := carried) thetaTag thetaNext
+
+private abbrev thetaRoute : Gamma.ChoicePrefix Op choiceEntryPorts loopCalleeFn [chosenPorts] afterTheta [thetaCarry] :=
+  .theta choiceArguments thetaBody thetaFixed .done
+
+private def thetaArguments : Wires choiceEntryPorts afterTheta carried :=
+  .cons (.output (1 : Fin 2) (.tail .head)) (.cons (.output (1 : Fin 2) (.tail (.tail .head))) .nil)
+
+private abbrev thetaInput : Wires choiceEntryPorts afterTheta (loopCalleeFn.port :: carried) :=
+  .cons (Gamma.loopOrigin (past := [chosenPorts]) loopCalleeFn carried) thetaArguments
+
+private def thetaSuffixWires : Wires choiceEntryPorts afterThetaCall results :=
+  .cons (.output (2 : Fin 3) (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil)
+
+private def thetaOutputs : Wires choiceEntryPorts (afterThetaCall ++ [results]) results :=
+  .cons (.output (3 : Fin 4) .head) (.cons (.output (3 : Fin 4) (.tail .head)) .nil)
+
+private abbrev thetaSuffix :=
+  Gamma.bindPrimitive (Op.finish 5) thetaSuffixWires (.ret thetaOutputs)
+
+private abbrev thetaAfter := Gamma.bindApplication loopCalleeFn thetaInput thetaSuffix
+
+private abbrev thetaChoiceCode :=
+  Gamma.chooseApplicationAfter (past := []) loopCalleeFn choiceSelector choicePorts thetaRoute thetaArguments thetaSuffix
+
+private def thetaChoiceMap : Renaming :=
+  .region (Equiv.refl _) (fun vertex arm => if vertex = 2 ∧ arm = 1 then numbering else .identity)
+
+private theorem thetaChoicePlan :
+    Gamma.RankedPlan machine Eq 1 thetaChoiceMap (choiceValues leafL) (choiceValues leafR) thetaChoiceCode thetaChoiceCode :=
+  .chooseAfter (context := choiceCaptures) (params := outerCarry) (past := []) (fn := loopCalleeFn) (extra := 0)
+    choiceSelector choicePorts thetaRoute thetaArguments choiceFamily (fun _ => 0) (two rfl rfl) (two rfl rfl)
+    (two .nil .nil) (fun _ => by decide) (two firstChoicePlan secondChoicePlan)
+    (.primitive (context := choiceCaptures) (params := outerCarry) (past := afterThetaCall) (Op.finish 5) thetaSuffixWires
+      (.suffix (context := choiceCaptures) (params := outerCarry) (past := afterThetaCall ++ [results])
+        (left := .ret thetaOutputs) (right := .ret thetaOutputs) (.ret thetaOutputs thetaOutputs rfl)))
+    ⟨rfl, .acyclic thetaBodyOrdered, trivial⟩
+
+private abbrev thetaChoiceSource {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (tag : Fin 2) (n : Nat) :=
+  choiceSourceFor thetaChoiceCode leaf tag n 20
+
+private theorem thetaChoiceDispatch (tag : Fin 2) (n : Nat) :
+    Gamma.CallPair primitives Eq thetaChoiceMap results (thetaChoiceSource leafL tag n) (thetaChoiceSource leafR tag n) :=
+  choiceDispatchFor thetaChoiceMap thetaChoiceCode thetaChoicePlan tag n 20
+
+private theorem openThetaChoice {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (tag : Fin 2) (n : Nat) :
+    Job.openClosure machine (choiceClosureFor thetaChoiceCode leaf) (input tag 0 n) =
+      .region thetaChoiceCode (choiceEntry leaf tag n) PUnit.unit :=
+  congrArg (fun code => Job.region (m := machine) (past := []) code (choiceEntry leaf tag n) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph thetaChoiceCode)
+
+private abbrev thetaInitial : Wires choiceEntryPorts [chosenPorts] thetaCarry :=
+  .cons (Gamma.joinedOrigin (past := []) loopCalleeFn) choiceArguments
+
+private abbrev thetaChoiceVertex := Gamma.thetaVertex (Op := Op) thetaInitial [bodyResults]
+
+private def thetaValue {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (arm : Fin 2) (n : Nat) :
+    Tuple machine.Val thetaCarry :=
+  .cons (selectedValue leaf arm) (carry 0 n)
+
+private def loopAdvanceSite (n : Nat) : Site machine :=
+  ⟨carried, bodyResults, .loopAdvance, fun i => i.elim0, fun i => embed (i.elim0), carry 0 n⟩
+
+private theorem thetaBodyReturns {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (arm tag : Fin 2) (n store next post : Nat) (defined : (bodyOut tag 0 next, post) ∈ loopAction 0 n store) :
+    Eval primitives (.region thetaBody (thetaValue leaf arm n) PUnit.unit) store
+      (.returned (.cons (.control tag) (thetaValue leaf arm next)) post) := by
+  simp only [thetaBody, thetaBodyGraph, Term.toTerm_toGraph]
+  exact .bind (value := bodyOut tag 0 next) (middle := post)
+    (.primitive (primitives := primitives) (loopAdvanceSite n) defined) (.ret thetaReturnWires (thetaValue leaf arm n) _ post)
+
+private theorem thetaFeedback {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (arm : Fin 2) (n store next post : Nat) (defined : (bodyOut 1 0 next, post) ∈ loopAction 0 n store) :
+    Feedback.Iteration primitives thetaBody (thetaValue leaf arm n, store) (thetaValue leaf arm next, post) :=
+  ⟨.control 1, thetaBodyReturns leaf arm 1 n store next post defined, rfl⟩
+
+private theorem thetaEval {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (arm : Fin 2) (n out : Nat)
+    (ran : Eval primitives (.iteration thetaBody (thetaValue leaf arm n)) 20 (.returned (thetaValue leaf arm out) 23)) :
+    Eval primitives (.node thetaChoiceVertex.kind thetaChoiceVertex.childSigs (fun _ => thetaBody)
+      (thetaInitial.read (choiceEntry leaf arm n) (selectedLocal leaf arm))) 20 (.returned (thetaValue leaf arm out) 23) :=
+  .theta ran
+
+private theorem thetaFinite {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (arm : Fin 2) :
+    Eval primitives (.iteration thetaBody (thetaValue leaf arm 2)) 20 (.returned (thetaValue leaf arm 4) 23) :=
+  .again (thetaBodyReturns leaf arm 1 2 20 3 22 (_root_.Part.mem_some _)) rfl
+    (.stop (thetaBodyReturns leaf arm 0 3 22 4 23 (_root_.Part.mem_some _)) rfl)
+
+private def thetaRestart {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (arm : Fin 2) :
+    Config machine Nat results :=
+  (Feedback.Restart.mk thetaCarry [bodyResults] thetaBody (thetaValue leaf arm 3, 22)).config
+    (.resume thetaAfter (choiceEntry leaf arm 2) (selectedLocal leaf arm) .halt)
+
+private theorem reachesThetaRestart {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (arm : Fin 2) :
+    ReflTransGen (Step primitives) (thetaChoiceSource leaf arm 2) (thetaRestart leaf arm) := by
+  let target : Feedback.Restart machine Nat := ⟨thetaCarry, [bodyResults], thetaBody, (thetaValue leaf arm 3, 22)⟩
+  let pending : Pending machine thetaCarry results := .bind thetaAfter (choiceEntry leaf arm 2) (selectedLocal leaf arm) .empty
+  have entered : Feedback.Reaches primitives (.region thetaChoiceCode (choiceEntry leaf arm 2) PUnit.unit) 20 target pending :=
+    .later (node := choiceVertex) (chooseEvalAt leaf arm 2 20)
+      (.inside (node := thetaChoiceVertex)
+        (.theta (.restart (current := target.input) (.single (thetaFeedback leaf arm 2 20 3 22 (_root_.Part.mem_some _))))))
+  have reached : Feedback.Reaches primitives (.call (choiceClosureFor thetaChoiceCode leaf) (input arm 0 2)) 20 target pending :=
+    .call ((openThetaChoice leaf arm 2).symm ▸ entered)
+  exact reached.steps .halt
+
+private theorem thetaChoiceReturns {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (arm tag : Fin 2)
+    (middle value : Nat)
+    (called : Eval primitives (.call (selectedValue leaf arm) (carry 0 4)) 23 (.returned (bodyOut tag 0 value) middle)) :
+    TerminalPath primitives (thetaChoiceSource leaf arm 2) ⟨.returned (output value 2) .halt, 2 * middle + 5⟩ := by
+  have whole : Eval primitives (.region thetaChoiceCode (choiceEntry leaf arm 2) PUnit.unit) 20
+      (.returned (output value 2) (2 * middle + 5)) :=
+    .bind (node := choiceVertex) (chooseEvalAt leaf arm 2 20)
+      (.bind (node := thetaChoiceVertex) (thetaEval leaf arm 2 4 (thetaFinite leaf arm))
+        (.bind (node := Gamma.applicationVertex loopCalleeFn thetaInput) (.apply (fn := loopCalleeFn) called)
+          (.bind (node := Gamma.primitiveVertex (Op.finish 5) thetaSuffixWires)
+            (.primitive (Gamma.primitiveSite (Op.finish 5) (output value 2)) (_root_.Part.mem_some _))
+            (.ret thetaOutputs (choiceEntry leaf arm 2) _ (2 * middle + 5)))))
+  have executed := Eval.call ((openThetaChoice leaf arm 2).symm ▸ whole)
+  exact ⟨executed.steps .halt, fun _ h => _root_.Part.notMem_none _ h⟩
+
+private def thetaAt (n store : Nat) : Carries machine Eq Nat thetaCarry :=
+  ⟨thetaValue leafL 1 n, thetaValue leafR 1 n, .cons (.closure .nil embeddedIso) (carry_related 0 n), store⟩
+
+private def thetaBodyPending {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :
+    Pending machine bodyResults (Theta.BodyResults thetaCarry) :=
+  .bind (past := []) (.ret thetaReturnWires) (thetaValue leaf 1 5) PUnit.unit .empty
+
+private theorem thetaBodyBlocks {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :
+    BlockAt primitives thetaBodyGraph.toTerm (thetaValue leaf 1 5) PUnit.unit 22 (.here 0)
+      (.blocked (loopAdvanceSite 5) (thetaBodyPending leaf) 22) := by
+  rw [Term.toTerm_toGraph]
+  exact .here (primitives := primitives) (past := []) (cs := fun i => i.elim0) (children := fun i => i.elim0)
+    (rest := .ret thetaReturnWires) Op.loopAdvance thetaBodyWires (thetaValue leaf 1 5) PUnit.unit 22 rfl
+
+private def thetaBodyStop {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :
+    Gamma.Block machine Nat results :=
+  ⟨loopAdvanceSite 5,
+    .bind thetaAfter (choiceEntry leaf 1 4) (selectedLocal leaf 1) (.loop thetaBody (thetaBodyPending leaf)), 22⟩
+
+private theorem thetaChoiceBodyBlock :
+    Gamma.BlockPair primitives Eq thetaChoiceMap thetaChoiceCode thetaChoiceCode (choiceEntry leafL 1 4)
+      (choiceEntry leafR 1 4) 20 (.atLoop 1 (.acyclic (.here 0))) (.atLoop 1 (.acyclic (.here 0)))
+      (thetaBodyStop leafL) (thetaBodyStop leafR) := by
+  have body : Gamma.BlockPair primitives Eq .identity thetaBody thetaBody (thetaValue leafL 1 5) (thetaValue leafR 1 5)
+      22 (.acyclic (.here 0)) (.acyclic (.here 0))
+      ⟨loopAdvanceSite 5, thetaBodyPending leafL, 22⟩ ⟨loopAdvanceSite 5, thetaBodyPending leafR, 22⟩ :=
+    .acyclic (.here 0) (.same (carry_related 0 5)) (thetaBodyBlocks leafL) (thetaBodyBlocks leafR)
+  have completed : Gamma.IterationPair primitives thetaBody thetaBody (thetaAt 4 20) (thetaAt 5 22) :=
+    ⟨thetaFeedback leafL 1 4 20 5 22 (_root_.Part.mem_some _), thetaFeedback leafR 1 4 20 5 22 (_root_.Part.mem_some _)⟩
+  exact .later (nodeL := choiceVertex) (nodeR := choiceVertex) (chooseEvalAt leafL 1 4 20) (chooseEvalAt leafR 1 4 20)
+    (.atLoop (map := thetaChoiceMap) thetaInitial rfl rfl rfl (.single completed) body)
+
+private def thetaCalleeStop {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (pending : Pending machine bodyResults bodyResults) : Gamma.Block machine Nat results :=
+  ⟨advanceSite 0 1, .bind thetaSuffix (choiceEntry leaf 1 0) ((selectedLocal leaf 1).snoc (thetaValue leaf 1 1)) pending, 23⟩
+
+private theorem thetaCalleeEval {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :
+    Eval primitives (.iteration thetaBody (thetaValue leaf 1 0)) 20 (.returned (thetaValue leaf 1 1) 23) :=
+  .again (thetaBodyReturns leaf 1 1 0 20 1 22 (_root_.Part.mem_some _)) rfl
+    (.stop (thetaBodyReturns leaf 1 0 1 22 1 23 (_root_.Part.mem_some _)) rfl)
+
+private theorem thetaChoiceCalleeBlock :
+    Gamma.BlockPair primitives Eq thetaChoiceMap thetaChoiceCode thetaChoiceCode (choiceEntry leafL 1 0)
+      (choiceEntry leafR 1 0) 20 (.chosenCall 2 1 (.acyclic (.here 1))) (.chosenCall 2 1 (.acyclic (.here 0)))
+      (thetaCalleeStop leafL pendingL) (thetaCalleeStop leafR pendingR) := by
+  have stopped : Gamma.BlockPair primitives Eq numbering leafL leafR (carry 0 1) (carry 0 1) 23
+      (.acyclic (.here 1)) (.acyclic (.here 0)) ⟨advanceSite 0 1, pendingL, 23⟩ ⟨advanceSite 0 1, pendingR, 23⟩ :=
+    .acyclic (.here 1) (.same (carry_related 0 1)) blockedL blockedR
+  exact .later (nodeL := choiceVertex) (nodeR := choiceVertex) (chooseEvalAt leafL 1 0 20) (chooseEvalAt leafR 1 0 20)
+    (.later (nodeL := thetaChoiceVertex) (nodeR := thetaChoiceVertex) (thetaEval leafL 1 0 1 (thetaCalleeEval leafL))
+      (thetaEval leafR 1 0 1 (thetaCalleeEval leafR))
+      (.atChosenCall (map := thetaChoiceMap) (fn := loopCalleeFn) (captured := []) (left := leafL) (right := leafR)
+        (captL := .nil) (captR := .nil) (stopL := ⟨advanceSite 0 1, pendingL, 23⟩) (stopR := ⟨advanceSite 0 1, pendingR, 23⟩)
+        1 thetaInput thetaSuffix thetaSuffix rfl rfl stopped))
+
+private theorem thetaChoiceBlockPath {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (n : Nat)
+    {stop : Gamma.Block machine Nat results}
+    (ran : Eval primitives (.region thetaChoiceCode (choiceEntry leaf 1 n) PUnit.unit) 20 stop.outcome) :
+    TerminalPath primitives (thetaChoiceSource leaf 1 n) (stop.outcome.atStack .halt) := by
+  cases stop
+  have called := Eval.call ((openThetaChoice leaf 1 n).symm ▸ ran)
+  exact ⟨called.steps .halt, fun _ => (called.blocks .halt).no_step⟩
+
+/-- Both choices cross a real restart with a fresh body scope and the
+same selected callable. The loop-body block keeps the θ frame, while
+the later callee block keeps the complete loop result and caller suffix. -/
+private theorem thetaChoiceRegression :
+    (∀ tag n, Gamma.CallPair primitives Eq thetaChoiceMap results (thetaChoiceSource leafL tag n) (thetaChoiceSource leafR tag n)) ∧
+    (∀ tag, ReflTransGen (Step primitives) (thetaChoiceSource leafL tag 2) (thetaRestart leafL tag)) ∧
+    (∀ tag, ReflTransGen (Step primitives) (thetaChoiceSource leafR tag 2) (thetaRestart leafR tag)) ∧
+    TerminalPath primitives (thetaChoiceSource leafL 0 2) ⟨.returned (output 4 2) .halt, 111⟩ ∧
+    TerminalPath primitives (thetaChoiceSource leafR 0 2) ⟨.returned (output 4 2) .halt, 111⟩ ∧
+    TerminalPath primitives (thetaChoiceSource leafL 1 2) ⟨.returned (output 5 2) .halt, 57⟩ ∧
+    TerminalPath primitives (thetaChoiceSource leafR 1 2) ⟨.returned (output 5 2) .halt, 57⟩ ∧
+    TerminalPath primitives (thetaChoiceSource leafL 1 4) ((thetaBodyStop leafL).outcome.atStack .halt) ∧
+    TerminalPath primitives (thetaChoiceSource leafR 1 4) ((thetaBodyStop leafR).outcome.atStack .halt) ∧
+    TerminalPath primitives (thetaChoiceSource leafL 1 0) ((thetaCalleeStop leafL pendingL).outcome.atStack .halt) ∧
+    TerminalPath primitives (thetaChoiceSource leafR 1 0) ((thetaCalleeStop leafR pendingR).outcome.atStack .halt) :=
+  ⟨thetaChoiceDispatch, reachesThetaRestart leafL, reachesThetaRestart leafR,
+    thetaChoiceReturns leafL 0 0 53 4 (invokeLeaf (firstChoiceReturnsAt 4 23)),
+    thetaChoiceReturns leafR 0 0 53 4 (invokeLeaf (firstChoiceReturnsAt 4 23)),
+    thetaChoiceReturns leafL 1 0 26 5 (invokeLeaf (bodyReturnsL 0 4 23 (_root_.Part.mem_some _))),
+    thetaChoiceReturns leafR 1 0 26 5 (invokeLeaf (bodyReturnsR 0 4 23 (_root_.Part.mem_some _))),
+    thetaChoiceBlockPath leafL 4 thetaChoiceBodyBlock.evals.1, thetaChoiceBlockPath leafR 4 thetaChoiceBodyBlock.evals.2,
+    thetaChoiceBlockPath leafL 0 thetaChoiceCalleeBlock.evals.1, thetaChoiceBlockPath leafR 0 thetaChoiceCalleeBlock.evals.2⟩
 
 end JoinedCallChoice
 

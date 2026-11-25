@@ -194,7 +194,7 @@ private theorem choose_after_pair {context params outs : Ports (Ty V S)} {fn : F
     (respects : ActionsRespect primitives ids) (selector : Origin (context ++ params) past (.control (extra + 2)))
     (ports : Fin (extra + 2) → Port context fn.port)
     (route : ChoicePrefix Op (context ++ params) fn (past ++ [[fn.port]]) final steps)
-    (wires : Wires (context ++ params) final fn.args) (family : Fin (extra + 2) → CallTarget m fn)
+    (ordered : route.Ordered mapping) (wires : Wires (context ++ params) final fn.args) (family : Fin (extra + 2) → CallTarget m fn)
     (originL : ∀ tag, capL.get (ports tag) = (family tag).valueL)
     (originR : ∀ tag, capR.get (ports tag) = (family tag).valueR)
     (captures : TupleRelated m ids capL capR) (arguments : TupleRelated m ids argsL argsR)
@@ -219,7 +219,7 @@ private theorem choose_after_pair {context params outs : Ports (Ty V S)} {fn : F
   let valueR := capR.get (ports tag)
   have paired := captures.get (ports tag)
   have entries := prepend_related captures arguments
-  refine prefix_pair respects route source entries (locals.snoc (.cons paired .nil)) paired
+  refine prefix_pair respects route ordered source entries (locals.snoc (.cons paired .nil)) paired
     (joined_origin_read entryL localsL valueL) (joined_origin_read entryR localsR valueR) ?_
   intro scopeL scopeR middle aligned liveL liveR
   have operands := Local.aligned_read entries aligned wires
@@ -294,13 +294,13 @@ theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : Li
 
   | @choose _ _ _ _ _ _ _ _ _ _ _ _ restL restR selector ports wires family _ originL originR captured
       _ _ _ calleeIH suffixIH =>
-    exact choose_after_pair (restL := restL) (restR := restR) respects selector ports .done wires family
+    exact choose_after_pair (restL := restL) (restR := restR) respects selector ports .done trivial wires family
       originL originR captures arguments locals
       (fun tag {_ _} operands middle => calleeIH tag (captured tag) operands .empty middle)
       (fun aligned middle => suffixIH captures arguments aligned middle)
   | @chooseAfter _ _ _ _ _ _ _ _ _ _ _ _ _ _ restL restR selector ports route wires family _ originL originR
-      captured _ _ _ calleeIH suffixIH =>
-    exact choose_after_pair (restL := restL) (restR := restR) respects selector ports route wires family
+      captured _ _ _ ordered calleeIH suffixIH =>
+    exact choose_after_pair (restL := restL) (restR := restR) respects selector ports route ordered wires family
       originL originR captures arguments locals
       (fun tag {_ _} operands middle => calleeIH tag (captured tag) operands .empty middle)
       (fun aligned middle => suffixIH captures arguments aligned middle)

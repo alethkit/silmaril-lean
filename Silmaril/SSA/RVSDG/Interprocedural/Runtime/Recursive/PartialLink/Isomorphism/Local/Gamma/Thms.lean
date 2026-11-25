@@ -296,7 +296,7 @@ theorem extendOrigin_read {head : Ports (Ty V S)} {past : List (Ports (Ty V S))}
 
 /-- Pair the actual execution of ordered static calls, primitive bindings,
 selected γ arms, θ bodies with preserved capture wires, and finite
-callable choosers with intervening primitive or forwarding bindings.
+callable choosers with intervening primitive, forwarding γ, or callable-preserving θ bindings.
 Each call enters a lower-ranked body and resumes in the saved caller scope. -/
 theorem ranked_regions {rank : Nat} {context : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     {capturesL capturesR : Tuple m.Val context}
