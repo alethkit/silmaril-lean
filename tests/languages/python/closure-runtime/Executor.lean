@@ -23,18 +23,21 @@ private def calleeCode : CodeRef := ⟨17, ⟨2, 0, 1⟩⟩
 private def parameter : Fin calleeCode.layout.locals := ⟨0, by decide⟩
 private def unset : Slot calleeCode.layout := .local ⟨1, by decide⟩
 private def capture : Slot calleeCode.layout := .capture ⟨0, by decide⟩
-private def table (operand : Operand calleeCode.layout) : CodeTable :=
+private def tableWith (body : Body calleeCode.layout) : CodeTable :=
   fun key => if key = calleeCode.key then
     some ⟨calleeCode.layout, ⟨⟨[.local parameter], by decide⟩,
-      .store capture (.read (.local parameter)) (.ret operand)⟩⟩
+      .store capture (.read (.local parameter)) body⟩⟩
   else none
+
+private def table (operand : Operand calleeCode.layout) : CodeTable :=
+  tableWith (.ret operand)
 
 private def start : State :=
   .running initial.1 caller
     (.call output (.closure calleeCode (fun _ => .owned ⟨0, by decide⟩)) [.literal (.int 7)] next) [older]
 
-private def resumed (operand : Operand calleeCode.layout) (result : Result) : Prop :=
-  let (log, state) := runPrefix (table operand) 4 start
+private def resumed (body : Body calleeCode.layout) (result : Result) : Prop :=
+  let (log, state) := runPrefix (tableWith body) 4 start
   match log, state with
   | [.enter _, .resume delivered], .receiving residual restored parents observed =>
     restored = saved ∧ parents = [older] ∧ delivered = result ∧ observed = result ∧
@@ -43,19 +46,55 @@ private def resumed (operand : Operand calleeCode.layout) (result : Result) : Pr
 
 -- Both cases read back the exact saved frame and the older stack. The callee's
 -- capture write persists even when its subsequent return operand raises.
-example : resumed (.read capture) (.ok (.int 7)) := ⟨rfl, rfl, rfl, rfl, rfl⟩
-example : resumed (.read unset) (.error (.unboundLocal 1)) := ⟨rfl, rfl, rfl, rfl, rfl⟩
+example : resumed (.ret (.read capture)) (.ok (.int 7)) := ⟨rfl, rfl, rfl, rfl, rfl⟩
+example : resumed (.ret (.read unset)) (.error (.unboundLocal 1)) := ⟨rfl, rfl, rfl, rfl, rfl⟩
 
-private def finished (operand : Operand calleeCode.layout) (result : Result) : Prop :=
-  let (log, state) := runPrefix (table operand) 12 start
+private def finished (body : Body calleeCode.layout) (result : Result) : Prop :=
+  let (log, state) := runPrefix (tableWith body) 12 start
   match log, state with
   | [.enter _, .resume first, .resume second, .complete delivered], .finished residual observed =>
     first = result ∧ second = result ∧ delivered = result ∧ observed = result ∧
       residual.lookup cell = some (some (.int 7))
   | _, _ => False
 
-example : finished (.read capture) (.ok (.int 7)) := ⟨rfl, rfl, rfl, rfl, rfl⟩
-example : finished (.read unset) (.error (.unboundLocal 1)) := ⟨rfl, rfl, rfl, rfl, rfl⟩
+example : finished (.ret (.read capture)) (.ok (.int 7)) := ⟨rfl, rfl, rfl, rfl, rfl⟩
+example : finished (.ret (.read unset)) (.error (.unboundLocal 1)) := ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+private def falseAssertion : Body calleeCode.layout :=
+  .assert (.literal (.bool false)) (.store capture (.literal (.int 99)) (.ret (.read capture)))
+
+-- The earlier shared write survives delivery to both saved callers.
+-- The write following the failed assertion is skipped.
+example : resumed falseAssertion (.error .assertionError) := ⟨rfl, rfl, rfl, rfl, rfl⟩
+example : finished falseAssertion (.error .assertionError) := ⟨rfl, rfl, rfl, rfl, rfl⟩
+example : finished (.assert (.read capture) (.ret (.read capture))) (.ok (.int 7)) :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+example : resumed (.assert (.read unset) (.ret (.read capture))) (.error (.unboundLocal 1)) :=
+  ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+private def assertionAdvance (test : Operand callerLayout) : Option Transition :=
+  advance (table (.read capture)) (.running initial.1 caller (.assert test next) [older])
+
+private def assertionContinues (test : Operand callerLayout) : Prop :=
+  assertionAdvance test = some (none, .running initial.1 caller next [older])
+
+private def assertionRaises (test : Operand callerLayout) : Prop :=
+  assertionAdvance test = some (none, .delivering initial.1 [older] (.error .assertionError))
+
+example : assertionContinues (.literal (.bool true)) := rfl
+example : assertionContinues (.literal (.int (-2))) := rfl
+example : assertionContinues (.closure calleeCode (fun _ => .owned ⟨0, by decide⟩)) := rfl
+example : assertionRaises (.literal (.int 0)) := rfl
+example : assertionRaises (.literal .none) := rfl
+
+example :
+    assertionAdvance (.readGlobal "missing") =
+      some (none, .delivering initial.1 [older] (.error (.nameError "missing"))) := rfl
+
+example :
+    advance (table (.read capture))
+      (.running Heap.empty caller (.assert (.read (.owned ⟨0, by decide⟩)) next) [older]) =
+      some (some (.fault (.danglingCell cell)), .faulted Heap.empty [older] (.danglingCell cell)) := rfl
 
 -- Python evaluates arguments before reporting that an evaluated integer is
 -- not callable. The first argument's failure also precedes the later read.

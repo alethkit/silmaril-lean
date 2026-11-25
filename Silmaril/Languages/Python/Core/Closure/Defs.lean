@@ -68,6 +68,12 @@ inductive Value where
   | function (value : Function)
   deriving Repr
 
+def Value.truth : Value → Bool
+  | .none => false
+  | .int value => decide (value ≠ 0)
+  | .bool value => value
+  | .function _ => true
+
 /-- Python-level errors carried across frames. An unbound incoming capture
 corresponds to `NameError`; an unbound local or owned cell to `UnboundLocalError`. -/
 inductive RuntimeError where
@@ -77,6 +83,7 @@ inductive RuntimeError where
   | nameError (name : String)
   | positionalArity (expected actual : Nat)
   | notCallable
+  | assertionError
   | arithmetic (error : Exception)
   deriving DecidableEq, Repr
 

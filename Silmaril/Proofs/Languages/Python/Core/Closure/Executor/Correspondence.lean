@@ -171,6 +171,9 @@ theorem advance_of_step {source target : State} {label : Option Event}
   | retError eval => simp [advanceIn, eval_eq eval]
   | store eval wrote => simp [advanceIn, eval_eq eval, store_eq wrote]
   | storeError eval => simp [advanceIn, eval_eq eval]
+  | assertTrue eval holds => simp [advanceIn, eval_eq eval, holds]
+  | assertFalse eval fails => simp [advanceIn, eval_eq eval, fails]
+  | assertError eval => simp [advanceIn, eval_eq eval]
   | call evaluated entered => simp [advanceIn, inputs_eq evaluated, Dispatch.dispatch_iff.mpr entered]
   | callError evaluated => simp [advanceIn, inputs_eq evaluated]
   | rejected evaluated reject => simp [advanceIn, inputs_eq evaluated, rejected_eq reject]
@@ -204,6 +207,22 @@ theorem step_of_advance {source : State} {transition : Transition}
         simp only [advanceIn, evaluated, Option.some.injEq] at advanced
         subst transition
         exact .storeError (evaluated ▸ eval_rule operand)
+    | assert test next =>
+      cases evaluated : test.evalIn globals heap frame with
+      | error error =>
+        simp only [advanceIn, evaluated, Option.some.injEq] at advanced
+        subst transition
+        exact .assertError (evaluated ▸ eval_rule test)
+      | ok value =>
+        cases truth : value.truth with
+        | false =>
+          simp [advanceIn, evaluated, truth] at advanced
+          subst transition
+          exact .assertFalse (evaluated ▸ eval_rule test) truth
+        | true =>
+          simp [advanceIn, evaluated, truth] at advanced
+          subst transition
+          exact .assertTrue (evaluated ▸ eval_rule test) truth
     | call destination callee arguments next =>
       cases evaluated : evalCallIn globals heap frame callee arguments with
       | error error =>
