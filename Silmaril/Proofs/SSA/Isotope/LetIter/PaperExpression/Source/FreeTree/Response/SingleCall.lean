@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Thms
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Normalization.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Packing.Defs
 
 /-! # Separation at a fresh response for a single call -/
 
@@ -45,10 +46,6 @@ private noncomputable def treeDerivation {c : α} (p : Tree S slots c)
     exact hi ▸ Derivation.bv
   | op f xs ih => exact .op (f := f) (tupleDerivation S ih)
 
-private def env (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
-    (vars : (i : Fin Γ.length) → Tree S modelSlots (slots i)) : BoundEnv D β :=
-  fun i => ((EffectCtx.get_toBoundCtx Γ i).trans (hslots i)).symm ▸ (⟨vars i⟩ : Atom S modelSlots _)
-
 private def freeEnv : FreeEnv D Γ₀ := fun x => x.elim
 
 omit [HasEff Φ ε] in
@@ -90,7 +87,7 @@ private theorem eval_tree {c : α} (p : Tree S slots c) (hp : DeclaredPure (ε :
     (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
     (vars : (i : Fin Γ.length) → Tree S modelSlots (slots i)) :
     letI := S.endpoints
-    (treeDerivation S p hslots).denote D M (freeEnv S modelSlots) (env S modelSlots hslots vars) =
+    (treeDerivation S p hslots).denote D M (freeEnv S modelSlots) (variableEnv S modelSlots hslots vars) =
       ITree.ret ⟨p.interpret S (Tree S modelSlots) Tree.op vars⟩ := by
   classical
   let instr := S.endpoints
@@ -98,16 +95,46 @@ private theorem eval_tree {c : α} (p : Tree S slots c) (hp : DeclaredPure (ε :
   | var i =>
     change (Derivation.denote D M
       (((EffectCtx.get_toBoundCtx Γ i).trans (hslots i)) ▸ Derivation.bv)
-      (freeEnv S modelSlots) (env S modelSlots hslots vars)) = _
+      (freeEnv S modelSlots) (variableEnv S modelSlots hslots vars)) = _
     exact eval_cast_bv S modelSlots (A := .base (slots i)) _ _ _ ⟨vars i⟩ rfl
   | op f xs ih =>
     let vs := fun i => (xs i).interpret S (Tree S modelSlots) Tree.op vars
     change ((tupleDerivation S (fun i => treeDerivation S (xs i) hslots)).denote D M
-      (freeEnv S modelSlots) (env S modelSlots hslots vars) >>= (M).eval f) =
+      (freeEnv S modelSlots) (variableEnv S modelSlots hslots vars) >>= (M).eval f) =
       ITree.ret ⟨.op f vs⟩
     rw [eval_tuple S modelSlots _ _ vs (fun i => ih i (hp.2 i))]
     erw [pure_bind]
     simp only [instructions, ite_eq_left hp.1, readArgs, unpackArgs_packArgs]
+
+public theorem eval_tree_exists {c : α} (p : Tree S slots c) (hp : DeclaredPure (ε := ε) S p)
+    (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) :
+    letI := S.endpoints
+    ∃ d : Derivation Φ Γ₀ β p.native (.base c),
+      ∀ vars : (i : Fin Γ.length) → Tree S modelSlots (slots i),
+        d.denote D M (fun x => x.elim) (variableEnv S modelSlots hslots vars) =
+          ITree.ret ⟨p.interpret S (Tree S modelSlots) Tree.op vars⟩ :=
+  ⟨treeDerivation S p hslots, fun vars => eval_tree S modelSlots p hp hslots vars⟩
+
+public theorem eval_request_exists {f : Φ} (args : Args S slots f)
+    (hargs : ∀ i, DeclaredPure (ε := ε) S (args i)) (hf : ¬ IsPure (⊥ : ε) f)
+    (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) :
+    letI := S.endpoints
+    ∃ d : Derivation Φ Γ₀ β (Tree.op f args).native (.base (S.out f)),
+      ∀ vars : (i : Fin Γ.length) → Tree S modelSlots (slots i),
+        d.denote D M (fun x => x.elim) (variableEnv S modelSlots hslots vars) =
+          ITree.vis (.call f (fun i => (args i).interpret S (Tree S modelSlots) Tree.op vars))
+            (fun r => ITree.ret ⟨r⟩) := by
+  let instr := S.endpoints
+  let ds := fun i => treeDerivation S (args i) hslots
+  refine ⟨.op (tupleDerivation S ds), fun vars => ?_⟩
+  let vs := fun i => (args i).interpret S (Tree S modelSlots) Tree.op vars
+  change ((tupleDerivation S ds).denote D M (freeEnv S modelSlots)
+    (variableEnv S modelSlots hslots vars) >>= (M).eval f) = _
+  rw [eval_tuple S modelSlots _ ds vs (fun i => eval_tree S modelSlots (args i) (hargs i) hslots vars)]
+  erw [pure_bind]
+  rw [eval_nonbottom S modelSlots hf]
+  simp only [readArgs, unpackArgs_packArgs, vs]
+  rfl
 
 end Evaluation
 
@@ -119,10 +146,7 @@ variable [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε] [DecidableEq α]
 
 local notation "Γ₀" => (Ctx.nil : Ctx Empty (Ty α))
 local notation "Γ⁺" => ((Ty.base (S.out f), (⊥ : ε)) :: Γ)
-private abbrev responseSlots (f : Φ) {k : Nat} (ambient : Fin k → α) : Fin (k + 1) → α :=
-  Fin.cases (S.out f) ambient
-
-local notation "slots⁺" => (responseSlots S f slots)
+local notation "slots⁺" => (extendSorts (S.out f) slots)
 local notation "β" => Γ.toBoundCtx
 
 omit [HasEff Φ ε] [EffectIteration ε] [DecidableEq α] in
@@ -140,13 +164,12 @@ private theorem extendedPure (hΓ : Γ.Pure) : EffectCtx.Pure Γ⁺ := by
 omit [HasEff Φ ε] [EffectIteration ε] [DecidableEq α] in
 private theorem env_at_fresh (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) :
     BoundEnv.snoc (D := Ty.denote (Atom S slots⁺)) (A := .base (S.out f))
-      (env S slots⁺ hslots (fun i => Tree.var i.succ)) ⟨Tree.var 0⟩ =
-      env S slots⁺ (extendedSlots S (f := f) hslots) Tree.var := by
-  funext i
-  exact Fin.cases rfl (fun _ => rfl) i
+      (variableEnv S slots⁺ hslots (fun i => Tree.var i.succ)) ⟨Tree.var 0⟩ =
+      variableEnv S slots⁺ (extendedSlots S (f := f) hslots) Tree.var :=
+  variableEnv_snoc S slots⁺ hslots (extendedSlots S (f := f) hslots) Tree.var
 
 omit [DecidableEq α] in
-private theorem interpret_vars {n : Nat} {ss : Fin n → α} {a : α} (p : Tree S ss a) :
+public theorem interpret_vars {n : Nat} {ss : Fin n → α} {a : α} (p : Tree S ss a) :
     p.interpret S (Tree S ss) Tree.op Tree.var = p := by
   induction p with
   | var i => rfl
@@ -155,7 +178,7 @@ private theorem interpret_vars {n : Nat} {ss : Fin n → α} {a : α} (p : Tree 
     exact congrArg (Tree.op f) (funext ih)
 
 omit [EffectIteration ε] [DecidableEq α] in
-private theorem request_wf (args : (i : Fin (S.arity f)) → Tree S slots (S.arg f i))
+public theorem request_wf (args : (i : Fin (S.arity f)) → Tree S slots (S.arg f i))
     (hargs : ∀ i, DeclaredPure (ε := ε) S (args i))
     (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) {e : ε}
     (he : instrEff f ≤ e) :
@@ -185,7 +208,7 @@ private theorem normalized_continuations_eq
         (.let₁ (Tree.op f args).native p.native) (.let₁ (Tree.op f args).native q.native)
         (.base c)) : p = q := by
   let instr := S.endpoints
-  let ρ := env S slots⁺ hslots (fun i => Tree.var i.succ)
+  let ρ := variableEnv S slots⁺ hslots (fun i => Tree.var i.succ)
   let M := instructions (ε := ε) S slots⁺
   let D := Ty.denote (Atom S slots⁺)
   let ds := fun i => treeDerivation S (args i) hslots
@@ -266,6 +289,142 @@ public theorem endpoint_reflection
   exact Eqv.let1 (.refl (request_wf S args hargs hΓ hslots he))
     (continuation_eqv S hΓ hslots args hargs hf e he ha hb ht hs hn)
 
+omit [HasEff Φ ε] [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε] [DecidableEq α] in
+private theorem continuation_derivation {g : Φ} {arg : Tm Empty Φ Γ.length}
+    {body : Tm Empty Φ (Γ.length + 1)} (ht : letI := S.endpoints
+      HasType Φ Γ₀ β (.let₁ (.op g arg) body) (.base c)) :
+    letI := S.endpoints
+    Nonempty (Derivation Φ Γ₀ (.snoc β (.base (S.out g))) body (.base c)) := by
+  let instr := S.endpoints
+  cases ht with
+  | let₁ hc hb =>
+    cases hc
+    exact Derivation.ofHasType hb
+
+omit [EffectIteration ε] in
+public theorem request_eq {g : Φ}
+    (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    (args : Args S slots f) (other : Args S slots g)
+    (hargs : ∀ i, DeclaredPure (ε := ε) S (args i))
+    (hother : ∀ i, DeclaredPure (ε := ε) S (other i))
+    (hf : ¬ IsPure (⊥ : ε) f) (hg : ¬ IsPure (⊥ : ε) g)
+    {t s : Tm Empty Φ (Γ.length + 1)}
+    (hn : letI := S.endpoints
+      AbortEquiv (⊥ : ε) Γ₀ β (.let₁ (Tree.op f args).native t)
+        (.let₁ (Tree.op g other).native s) (.base c)) :
+    (⟨f, args⟩ : Request S slots) = ⟨g, other⟩ := by
+  let instr := S.endpoints
+  let M := instructions (ε := ε) S slots
+  let D := Ty.denote (Atom S slots)
+  let ρ := variableEnv S slots hslots Tree.var
+  obtain ⟨df, hdf⟩ := eval_request_exists S slots args hargs hf hslots
+  obtain ⟨dg, hdg⟩ := eval_request_exists S slots other hother hg hslots
+  obtain ⟨dt⟩ := continuation_derivation S (g := f) hn.hasType.1
+  obtain ⟨ds⟩ := continuation_derivation S (g := g) hn.hasType.2
+  have he := native_sound (ε := ε) S slots (.let₁ df dt) (.let₁ dg ds) ρ hn
+  change (df.denote D M (fun x => x.elim) ρ >>= fun r =>
+      dt.denote D M (fun x => x.elim) (ρ.snoc r)) =
+    (dg.denote D M (fun x => x.elim) ρ >>= fun r =>
+      ds.denote D M (fun x => x.elim) (ρ.snoc r)) at he
+  rw [hdf Tree.var, hdg Tree.var, ITree.vis_bind, ITree.vis_bind] at he
+  simpa only [interpret_vars] using recover_request S slots he
+
+public theorem endpoint_reflection_independent_requests {g : Φ}
+    (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    (args : Args S slots f) (other : Args S slots g)
+    (hargs : ∀ i, DeclaredPure (ε := ε) S (args i))
+    (hother : ∀ i, DeclaredPure (ε := ε) S (other i))
+    (hf : ¬ IsPure (⊥ : ε) f) (hg : ¬ IsPure (⊥ : ε) g) (e : ε)
+    (he : instrEff f ≤ e) (_he' : instrEff g ≤ e)
+    {a b : Expr Φ}
+    (ha : letI := S.endpoints; Wf Γ⁺ a (.base c) (⊥ : ε))
+    (hb : letI := S.endpoints; Wf ((Ty.base (S.out g), (⊥ : ε)) :: Γ) b (.base c) (⊥ : ε))
+    {t s : Tm Empty Φ (Γ.length + 1)}
+    (ht : a.toLetIter (Γ.length + 1) = some t) (hs : b.toLetIter (Γ.length + 1) = some s) :
+    letI := S.endpoints
+    AbortEquiv (⊥ : ε) Γ₀ β (.let₁ (Tree.op f args).native t)
+        (.let₁ (Tree.op g other).native s) (.base c) ↔
+      Eqv Γ (.base c) e (.let₁ (Tree.op f args).source a) (.let₁ (Tree.op g other).source b) := by
+  let instr := S.endpoints
+  refine ⟨fun hn => ?_, fun h => h.toLetIter (lower_call S args ht) (lower_call S other hs)⟩
+  have hr := request_eq S hslots args other hargs hother hf hg hn
+  have hfg := congrArg Sigma.fst hr
+  change f = g at hfg
+  subst g
+  have hargsEq : args = other := eq_of_heq (Sigma.mk.inj hr).2
+  subst other
+  exact (endpoint_reflection S hΓ hslots args hargs hf e he ha hb ht hs).mp hn
+
+omit [EffectIteration ε] [DecidableEq α] in
+private theorem decode_normal_arguments {m : Nat} {as : Fin m → α}
+    (p : Normalization.Value S slots (input m as)) (hp : p.Pure (ε := ε) S) :
+    ∃ xs : (i : Fin m) → Tree S slots (as i),
+      (∀ i, DeclaredPure (ε := ε) S (xs i)) ∧
+        p.source S = sourceTuple m (fun i => (xs i).source) := by
+  induction m with
+  | zero =>
+    cases p
+    exact ⟨fun i => i.elim0, fun i => i.elim0, rfl⟩
+  | succ m ih =>
+    cases p with
+    | pair a b =>
+      cases a with
+      | tree t =>
+        obtain ⟨ys, hys, hs⟩ := ih b hp.2
+        let xs : (i : Fin (m + 1)) → Tree S slots (as i) :=
+          Fin.cases (motive := fun i => Tree S slots (as i)) t ys
+        refine ⟨xs, ?_, ?_⟩
+        · exact fun i => Fin.cases (motive := fun j => DeclaredPure (ε := ε) S (xs j)) hp.1 hys i
+        · change Expr.pair t.source (b.source S) =
+            Expr.pair t.source (sourceTuple m (fun i => (ys i).source))
+          exact congrArg (Expr.pair t.source) hs
+
+omit [EffectIteration ε] [DecidableEq α] in
+private theorem normalize_argument {x : Expr Φ} {m : Nat} {as : Fin m → α}
+    (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i)) (e : ε)
+    (hx : letI := S.endpoints; Wf Γ x (input m as) (⊥ : ε)) :
+    letI := S.endpoints
+    ∃ xs : (i : Fin m) → Tree S slots (as i),
+      (∀ i, DeclaredPure (ε := ε) S (xs i)) ∧
+        Eqv Γ (input m as) e x (sourceTuple m (fun i => (xs i).source)) := by
+  let instr := S.endpoints
+  obtain ⟨p, hp, he⟩ := Normalization.normalize S hx hΓ hslots e
+  obtain ⟨xs, hxs, hs⟩ := decode_normal_arguments S p hp
+  exact ⟨xs, hxs, hs ▸ he⟩
+
+public theorem endpoint_reflection_pure_arguments {g : Φ}
+    (hΓ : Γ.Pure) (hslots : ∀ i, (Γ.get i).1 = .base (slots i))
+    (hf : ¬ IsPure (⊥ : ε) f) (hg : ¬ IsPure (⊥ : ε) g) (e : ε)
+    (he : instrEff f ≤ e) (he' : instrEff g ≤ e)
+    {x y a b : Expr Φ}
+    (hx : letI := S.endpoints; Wf Γ x (input (S.arity f) (S.arg f)) (⊥ : ε))
+    (hy : letI := S.endpoints; Wf Γ y (input (S.arity g) (S.arg g)) (⊥ : ε))
+    (ha : letI := S.endpoints; Wf Γ⁺ a (.base c) (⊥ : ε))
+    (hb : letI := S.endpoints; Wf ((Ty.base (S.out g), (⊥ : ε)) :: Γ) b (.base c) (⊥ : ε))
+    {x₀ y₀ : Tm Empty Φ Γ.length} {t s : Tm Empty Φ (Γ.length + 1)}
+    (hlx : x.toLetIter Γ.length = some x₀) (hly : y.toLetIter Γ.length = some y₀)
+    (ht : a.toLetIter (Γ.length + 1) = some t) (hs : b.toLetIter (Γ.length + 1) = some s) :
+    letI := S.endpoints
+    AbortEquiv (⊥ : ε) Γ₀ β (.let₁ (.op f x₀) t) (.let₁ (.op g y₀) s) (.base c) ↔
+      Eqv Γ (.base c) e (.let₁ (.op f x) a) (.let₁ (.op g y) b) := by
+  let instr := S.endpoints
+  have hl : (Expr.let₁ (.op f x) a).toLetIter Γ.length = some (.let₁ (.op f x₀) t) := by
+    simp only [Expr.toLetIter, hlx, ht, Option.bind_some, Option.map_some]
+  have hr : (Expr.let₁ (.op g y) b).toLetIter Γ.length = some (.let₁ (.op g y₀) s) := by
+    simp only [Expr.toLetIter, hly, hs, Option.bind_some, Option.map_some]
+  refine ⟨fun hn => ?_, fun hh => hh.toLetIter hl hr⟩
+  obtain ⟨xs, hxs, ex⟩ := normalize_argument S hΓ hslots e hx
+  obtain ⟨ys, hys, ey⟩ := normalize_argument S hΓ hslots e hy
+  have el : Eqv Γ (.base c) e (.let₁ (.op f x) a) (.let₁ (Tree.op f xs).source a) :=
+    .let1 (.op he ex) (.refl (wf_weakenEffect ha bot_le))
+  have er : Eqv Γ (.base c) e (.let₁ (.op g y) b) (.let₁ (Tree.op g ys).source b) :=
+    .let1 (.op he' ey) (.refl (wf_weakenEffect hb bot_le))
+  have hln := el.toLetIter hl (lower_call S xs ht)
+  have hrn := er.toLetIter hr (lower_call S ys hs)
+  have hn' := hln.symm.trans (hn.trans hrn)
+  have ee := (endpoint_reflection_independent_requests S hΓ hslots xs ys hxs hys
+    hf hg e he he' ha hb ht hs).mp hn'
+  exact el.trans (ee.trans er.symm)
 
 end SingleCall
 
