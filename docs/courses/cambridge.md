@@ -15,8 +15,8 @@ The guides distinguish proved results, executable examples, conditional
 interfaces and discussion exercises. This collection follows selected course
 materials; it does not cover the whole Cambridge curriculum.
 
-The operational semantics course also has a standalone
-[structural subtyping](cambridge-subtyping.md) slice for chapter 6.
+The operational semantics course also covers
+[L3 with structural subtyping](cambridge-subtyping.md) from chapter 6.
 
 ## Check the courses
 
