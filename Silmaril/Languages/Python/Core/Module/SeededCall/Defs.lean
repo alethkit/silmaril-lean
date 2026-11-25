@@ -34,7 +34,7 @@ def Raised.classify : Raised → ExceptionClass
   | .assertionError _ | .runtime .assertionError => .assertionError
   | .runtime (.unboundLocal _) | .runtime (.unboundOwned _) => .unboundLocalError
   | .runtime (.unboundCapture _) | .runtime (.nameError _) => .nameError
-  | .runtime (.positionalArity ..) | .runtime .notCallable => .typeError
+  | .runtime (.positionalArity ..) | .runtime .notCallable | .runtime .additionTypeError => .typeError
   | .runtime (.arithmetic .zeroDivisionError) => .zeroDivisionError
 
 def ExceptionClass.catches (expected actual : ExceptionClass) : Prop :=

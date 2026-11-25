@@ -10,6 +10,13 @@ import tempfile
 
 
 FIXTURES = (
+    ("sum_parameter", """def outer(seed):
+    return seed + 1
+""", "return 6", ["complete"]),
+    ("assert_sum", """def outer(seed):
+    assert seed + 1
+    return seed
+""", "return 5", ["complete"]),
     ("pass", """def outer(seed):
     pass
     return seed
@@ -334,14 +341,6 @@ if __name__ == "__main__":
             )
             observations[name] = {"result": reference, "core_events": events}
 
-        shared["emit"](python_file, lean_file, "def outer(seed): return seed + 1\n")
-        shared["check_lean"](
-            lean_file,
-            LEAN + """
-#guard (match compile pythonSource with | .error (.bodyProfile [0]) => true | _ => false)
-""",
-            extra_imports=imports, capture_output=True,
-        )
         shared["emit"](python_file, lean_file, "def outer(seed): return\n")
         bare_return = subprocess.run(
             [sys.executable, "-I", "-c", CPYTHON, str(python_file)],
@@ -370,7 +369,6 @@ if __name__ == "__main__":
             ('def outer(seed): seed(**{})', ".frontend .bodyShape"),
             ("def outer(seed): seed.attribute()", ".frontend .bodyShape"),
             ("def outer(seed): seed()()", ".frontend .bodyShape"),
-            ("def outer(seed): assert seed + 1", ".bodyProfile [0]"),
             ("def outer(seed): assert seed()", ".bodyProfile [0]"),
             ("def outer(seed): assert seed == True", ".frontend .expressionShape"),
             ("def outer(seed): assert seed == 5 == seed", ".frontend .expressionShape"),

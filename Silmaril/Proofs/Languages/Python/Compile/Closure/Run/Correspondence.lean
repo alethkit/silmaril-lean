@@ -16,7 +16,9 @@ open Core.Closure.Dispatch (Definition resolve resolve_iff)
 
 private theorem operand_complete {layout : Layout} {source : Body.Expr layout} {target : Operand layout}
     (translated : OperandTranslation source target) : operand? source = some ⟨target, translated⟩ := by
-  cases translated <;> rfl
+  induction translated with
+  | addInt _ _ first second => simp [operand?, first, second]
+  | _ => rfl
 
 private theorem name_read_complete {layout : Layout} {source : Body.Expr layout} {target : NameRead layout}
     (translated : NameReadTranslation source target) : nameRead? source = some ⟨target, translated⟩ := by
@@ -33,14 +35,18 @@ theorem lower_complete {layout : Layout} {source : Link.Code layout}
     {target : Core.Closure.Executor.Body layout} (translated : Translation source target) :
     lowerCode source = some ⟨target, translated⟩ := by
   induction translated with
-  | ret value => cases value <;> rfl
+  | ret value =>
+    have complete := operand_complete value
+    cases value <;> simp [lowerCode, complete]
   | retLocalCall arguments => simp [lowerCode, arguments_complete arguments]
   | assert test _ remaining => simp [lowerCode, operand_complete test, remaining]
   | assertFreeVars read _ remaining => simp [lowerCode, name_read_complete read, remaining]
   | assertCellVars read _ remaining => simp [lowerCode, name_read_complete read, remaining]
   | assertCodeNames read _ remaining => simp [lowerCode, name_read_complete read, remaining]
   | discardCall callee _ remaining => simp [lowerCode, operand_complete callee, remaining]
-  | assign value _ remaining => cases value <;> simp [lowerCode, operand?, remaining]
+  | assign value _ remaining =>
+    have complete := operand_complete value
+    cases value <;> simp [lowerCode, complete, remaining]
   | call callee arguments _ remaining =>
     simp [lowerCode, operand_complete callee, arguments_complete arguments, remaining]
   | closure _ remaining => simp [lowerCode, remaining]

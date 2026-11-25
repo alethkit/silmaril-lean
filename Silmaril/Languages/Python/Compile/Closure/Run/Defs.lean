@@ -40,6 +40,9 @@ inductive OperandTranslation {layout : Layout} : Body.Expr layout → Operand la
   | eqIntGlobal (name : Source.Name) (right : Int) :
       OperandTranslation (.eqInt (.globalName name) right) (.eqInt (.global name) right)
 
+  | addInt {left right lhs rhs} (first : OperandTranslation left lhs) (second : OperandTranslation right rhs) :
+      OperandTranslation (.add left right) (.addInt lhs rhs)
+
 def operand? {layout : Layout} : (source : Body.Expr layout) →
     Option {target // OperandTranslation source target}
   | .none => some ⟨.literal .none, .none⟩
@@ -49,6 +52,10 @@ def operand? {layout : Layout} : (source : Body.Expr layout) →
   | .globalName name => some ⟨.readGlobal name, .globalName name⟩
   | .eqInt (.read slot) right => some ⟨.eqInt (.slot slot) right, .eqIntSlot slot right⟩
   | .eqInt (.globalName name) right => some ⟨.eqInt (.global name) right, .eqIntGlobal name right⟩
+  | .add left right => do
+    let lhs ← operand? left
+    let rhs ← operand? right
+    return ⟨.addInt lhs.val rhs.val, .addInt lhs.property rhs.property⟩
   | _ => none
 
 inductive ArgumentsTranslation {layout : Layout} : List (Body.Expr layout) → List (Operand layout) → Prop where

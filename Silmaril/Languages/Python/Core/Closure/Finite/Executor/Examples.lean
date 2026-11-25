@@ -228,6 +228,29 @@ example : ∃ next, advanceIn table globals (asserting (.eqInt (.slot (.capture 
     next.project = .delivering residual.project [assertionCaller] assertionFailure :=
   stepIn_iff.mp (Closure.Executor.stepIn_iff.mpr rfl)
 
+private def returningOperand (operand : Closure.Executor.Operand calleeLayout) : State :=
+  .running assertionEnvironment (.ret operand) [assertionCaller]
+
+example : ∃ next, advanceIn table globals
+    (returningOperand (.addInt (.read (.capture 0)) (.addInt (.literal (.bool true)) (.readGlobal "argument")))) =
+      some (none, next) ∧ next.project = .delivering residual.project [assertionCaller] (.ok (.int 19)) :=
+  stepIn_iff.mp (Closure.Executor.stepIn_iff.mpr rfl)
+
+example : ∃ next, advanceIn table globals
+    (returningOperand (.addInt (.read (.local 0)) (.readGlobal "missing"))) = some (none, next) ∧
+    next.project = .delivering residual.project [assertionCaller] (.error (.unboundLocal 0)) :=
+  stepIn_iff.mp (Closure.Executor.stepIn_iff.mpr rfl)
+
+example : ∃ next, advanceIn table globals
+    (returningOperand (.addInt (.literal .none) (.readGlobal "missing"))) = some (none, next) ∧
+    next.project = .delivering residual.project [assertionCaller] (.error (.nameError "missing")) :=
+  stepIn_iff.mp (Closure.Executor.stepIn_iff.mpr rfl)
+
+example : ∃ next, advanceIn table globals
+    (returningOperand (.addInt (.literal .none) (.readGlobal "argument"))) = some (none, next) ∧
+    next.project = .delivering residual.project [assertionCaller] (.error .additionTypeError) :=
+  stepIn_iff.mp (Closure.Executor.stepIn_iff.mpr rfl)
+
 private def missingEquality : State := asserting (.eqInt (.global "missing") 0)
 private def missingResult : Result := .error (.nameError "missing")
 

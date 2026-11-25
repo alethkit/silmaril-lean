@@ -124,6 +124,16 @@ fail ordinary arity checking. Explicit keyword arguments, dynamic
 defaults, and introspection of these defaulted definitions are outside
 this profile.
 
+Checked function bodies can add integer literals and values read from fast
+locals, owned or forwarded cells, and live module globals. Addition can
+nest. The executor reads the left operand and then the right operand
+before checking their types. Booleans contribute 0 or 1 and the result is
+an integer. A plain function or `None` operand raises `TypeError` after
+both reads succeed. This value profile covers integer arithmetic without
+custom operator methods or sequence concatenation. The ordinary and Finite
+runners share operand evaluation, and the seeded runner uses it when an
+existing selector admits the call.
+
 Deeper argument nesting, arithmetic call operands, and keyword or
 unpacked arguments outside the adjacent discard shape are rejected. The seeded runner supports these
 nested instructions within its [closed call profile](python-seeded-module-runner.md).

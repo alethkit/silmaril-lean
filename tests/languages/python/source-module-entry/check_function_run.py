@@ -200,6 +200,39 @@ observed = read()
 kept = shadow(3)
 read()
 """, "normal", ".normal", 2, 3),
+    ("addition_slots", """base = 100
+bias = 5
+def factory(base):
+    def wrapper():
+        def add(n):
+            return (base + n) + bias
+        return add
+    base = base + 1
+    return wrapper()
+saved = factory(3)
+bias = 8
+observed = saved(2)
+yes = True
+kept = saved(yes)
+""", "normal", ".normal", 14, 13),
+    ("addition_left_read_error", """def add():
+    return missing_left + missing_right
+observed = 5
+observed = add()
+kept = 9
+""", "NameError", '.raised (.nameError "missing_left")', 5, None),
+    ("addition_right_read_before_type_error", """def add():
+    return add + missing_right
+observed = 5
+observed = add()
+kept = 9
+""", "NameError", '.raised (.nameError "missing_right")', 5, None),
+    ("addition_type_error", """def add():
+    return add + 1
+observed = 5
+observed = add()
+kept = 9
+""", "TypeError", ".raised .additionTypeError", 5, None),
     ("missing", """def read():
     global absent
     return absent

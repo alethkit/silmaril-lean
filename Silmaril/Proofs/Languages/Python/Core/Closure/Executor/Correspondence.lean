@@ -54,6 +54,9 @@ private theorem eval_eq {operand : Operand layout} {result : Except Failure Valu
   | globalFound found => simp [Operand.evalIn, NameRead.evalIn, found]
   | globalMissing missing => simp [Operand.evalIn, NameRead.evalIn, missing]
   | eqInt _ ih => rw [Operand.evalIn, ← name_read_eval, ih]
+  | addLeftError _ first => simp [Operand.evalIn, first, Except.bind]
+  | addRightError _ _ first second => simp [Operand.evalIn, first, second, Except.bind]
+  | addValues _ _ first second => simp [Operand.evalIn, first, second, Except.bind]
   | _ => rfl
 
 private theorem name_rule (source : NameRead layout) :
@@ -69,9 +72,22 @@ private theorem name_rule (source : NameRead layout) :
 
 private theorem eval_rule (operand : Operand layout) :
     EvaluatesIn globals heap frame operand (operand.evalIn globals heap frame) := by
-  cases operand with
+  induction operand with
   | readGlobal name => exact name_rule (.global name)
   | eqInt source _ => exact .eqInt (name_rule source)
+  | addInt left right ihLeft ihRight =>
+    cases first : left.evalIn globals heap frame with
+    | error error =>
+      simpa [Operand.evalIn, first, Except.bind] using
+        (EvaluatesIn.addLeftError (right := right) (first ▸ ihLeft))
+    | ok lhs =>
+      cases second : right.evalIn globals heap frame with
+      | error error =>
+        simpa [Operand.evalIn, first, second, Except.bind] using
+          (EvaluatesIn.addRightError (first ▸ ihLeft) (second ▸ ihRight))
+      | ok rhs =>
+        simpa [Operand.evalIn, first, second, Except.bind] using
+          (EvaluatesIn.addValues (first ▸ ihLeft) (second ▸ ihRight))
   | _ => constructor
 
 private theorem arguments_eq {operands : List (Operand layout)} {result : Except Failure (List Value)}
