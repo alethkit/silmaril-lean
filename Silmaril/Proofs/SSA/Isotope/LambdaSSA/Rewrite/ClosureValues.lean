@@ -38,6 +38,9 @@ theorem substitutionEquiv_substVars {Γ Δ : VCtx τ} {L : LCtx τ} {r s : Regio
         ((r.substVars (Tm.singleSubst a)).substVars σ) L
       rw [substVars_comp r (Tm.singleSubst a), Tm.singleSubst_comp, ← substVars_comp]
       exact .letValue (branchValue_subst ha hσ) (hr.substVars (valuesTyped (liftValues hσ _)))
+  | initial ha hr hs =>
+      exact .initial (branchValue_subst ha hσ) (hr.substVars (valuesTyped hσ))
+        (hs.substVars (valuesTyped hσ))
   | cfgOutward R hr hb =>
       simpa only [substVars, substVars_renameLabels] using
         SubstitutionEquiv.cfgOutward R (hr.substVars (valuesTyped hσ))

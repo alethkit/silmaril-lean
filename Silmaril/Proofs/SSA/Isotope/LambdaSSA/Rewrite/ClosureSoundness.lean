@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Outward.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Initial
 
 public section
 
@@ -71,6 +72,9 @@ theorem substitutionEquiv_common
   | letValue ha hr =>
     obtain ⟨ht, f, ds, dt⟩ := letValue_common J M ha hr
     exact ⟨_, ht, f, ds, dt⟩
+  | initial ha hr hs =>
+    have equal := emptyValue_hom_ext J M ha (f := denoteRegion J M hr) (g := denoteRegion J M hs)
+    exact ⟨hr, hs, _, denoteRegion_spec J M hr, equal.symm ▸ denoteRegion_spec J M hs⟩
   | cfgOutward R hr hb =>
     have hs := (Region.SubstitutionEquiv.cfgOutward R hr hb).typed.1
     exact ⟨hs, hr, _, denoteRegion_cfgOutward J M hu R hr hb hs ▸ denoteRegion_spec J M hs,

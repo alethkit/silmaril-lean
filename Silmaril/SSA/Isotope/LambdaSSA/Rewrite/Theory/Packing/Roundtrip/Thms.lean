@@ -46,6 +46,13 @@ theorem unpackExits_valueFamily (Γ : VCtx τ) (L : LCtx τ) :
     LSubst.ValueFamily Γ [packedExitType L] L (fun _ => unpackExits L : Nat → Region Φ) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.unpackExits_valueFamily Γ L
 
+/-- Decoding and repacking an empty-typed input is the identity at its
+singleton exit interface, by native initiality. -/
+theorem unpackExits_empty_packExits (Γ : VCtx τ) :
+    SubstitutionEquiv ((Silmaril.empty : τ) :: Γ) (unpackExits ([] : LCtx τ) : Region Φ).packExits
+      (.br 0 (.var 0)) [Silmaril.empty] :=
+  .initial_var (i := 0) rfl (unpackExits_hasType Γ []).packExits (.br rfl (.var rfl))
+
 /-- The tagged exit interface admits a split inclusion in the native
 continuation category. -/
 theorem ContinuationContext.exists_packed_retraction {Γ : VCtx τ} (X : ContinuationContext Φ Γ) :

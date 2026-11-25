@@ -15,7 +15,9 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 set_option autoImplicit true in
 set_option relaxedAutoImplicit true in
 /-- Extend the native rewrite theory with pure let β for arbitrary region
-bodies and elimination of CFGs whose entry targets only outward exits. -/
+bodies, elimination of CFGs whose entry targets only outward exits, and
+initiality. An empty-typed value witnesses initiality and remains a value
+under the native constructor-value substitutions. -/
 inductive SubstitutionEquiv : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop where
   | base : RewriteEquiv Γ r s L → SubstitutionEquiv Γ r s L
   | symm : SubstitutionEquiv Γ r s L → SubstitutionEquiv Γ s r L
@@ -32,6 +34,8 @@ inductive SubstitutionEquiv : VCtx τ → Region Φ → Region Φ → LCtx τ �
       SubstitutionEquiv Γ (.cfg entry n blocks) (.cfg entry' n blocks') L
   | letValue (ha : Tm.BranchValue Γ a A) (hr : HasType (A :: Γ) r L) :
       SubstitutionEquiv Γ (.let₁ a r) (r.substVars (Tm.singleSubst a)) L
+  | initial {a : Tm Φ} (ha : Tm.BranchValue Γ a Silmaril.empty) (hr : HasType Γ r L) (hs : HasType Γ s L) :
+      SubstitutionEquiv Γ r s L
   | cfgOutward (R : Fin (n + 1) → τ) (hr : HasType Γ r L)
       (hb : ∀ i, HasType (R i :: Γ) (blocks i) (List.ofFn R ++ L)) :
       SubstitutionEquiv Γ (.cfg (r.renameLabels (fun j => n + 1 + j)) (n + 1) blocks) r L
