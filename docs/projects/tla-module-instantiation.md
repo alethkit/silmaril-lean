@@ -60,6 +60,48 @@ are usable in their host module and excluded from its exports.
 [Pinned SANY WITH checking](https://github.com/tlaplus/tlaplus/blob/bc1b506bdcad80bb518bf3776a9161c34ff0fc4c/tlatools/org.lamport.tlatools/src/tla2sany/semantic/Generator.java#L5247) ·
 [Pinned SANY level checks](https://github.com/tlaplus/tlaplus/blob/bc1b506bdcad80bb518bf3776a9161c34ff0fc4c/tlatools/org.lamport.tlatools/src/tla2sany/semantic/InstanceNode.java#L145)
 
+### Nested declaration requirements
+
+Put these modules in separate files and supply registry edges from `NamedBad`
+to `Middle` and from `Middle` to `Leaf`.
+
+```tla
+---- MODULE Leaf ----
+CONSTANT c
+VARIABLE x
+Payload == c /\ x
+====
+
+---- MODULE Middle ----
+CONSTANT d
+LOCAL INSTANCE Leaf WITH c <- d, x <- TRUE
+Out == TRUE
+====
+
+---- MODULE NamedBad ----
+VARIABLE v
+I(p) == INSTANCE Middle WITH d <- p
+Bad == I(v)!Out
+====
+```
+
+The pinned SANY frontend at `bc1b506bdcad80bb518bf3776a9161c34ff0fc4c`
+accepts the indirect `I(v)!Out` call. It rejects the direct variant, obtained
+by replacing the last two units with `I == INSTANCE Middle WITH d <- v` and
+`Bad == I!Out`. The direct variant reports a level error because `d` must
+remain constant level.
+
+This profile intentionally rejects both variants. `Leaf` declares `x`, so
+its constant `c` needs a constant-level replacement. The checker treats this
+as a requirement of the nested instance declaration, even when `Payload`
+is unused or the nested instance introduces no members. Replay carries the
+requirement on `d` out to the formal `p` and checks it at the named call.
+The requirement is independent of the selected member's result level.
+`I(TRUE)!Out` remains a valid constant-level expression, and a state-level
+actual remains admissible where the retained requirements allow it.
+
+[SANY pin used by the parser harness](../../tests/semantics/tla-parser/check.py)
+
 ## Evaluator handoff
 
 `CheckedInstances.instanceAt site` retrieves the checked plan for a source
