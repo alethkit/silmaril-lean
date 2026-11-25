@@ -4,6 +4,7 @@ public import Silmaril.Papers.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
+public import Silmaril.Semantics.Calco2019.VacuousThms
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
@@ -96,6 +97,17 @@ theorem example20_vacuous : (Guardedness.least P).Iterative :=
   Guardedness.vacuous_iterative
 
 end Guardedness
+
+section Elgot
+
+variable {C : Type u} [Category.{v} C] {P : Coproducts C}
+
+/-- The observation after Definition 19, with the initial object as the result type. -/
+theorem definition19_divergence (T : GuardedElgotMonad P) (h : T.IsElgot) [HasInitial C] (X : C) :
+    Nonempty (X ⟶ T.monad.obj (⊥_ C)) :=
+  T.divergent_at h X (⊥_ C)
+
+end Elgot
 
 section Resumptions
 

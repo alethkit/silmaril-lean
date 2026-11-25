@@ -3,6 +3,7 @@ module
 public import Silmaril.Semantics.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Parametrized
 public import Silmaril.Semantics.Calco2019.ResumptionGuard
+public import Silmaril.Semantics.Calco2019.Vacuous
 
 /-!
 # Coinductive Resumption Monads: Guarded Iterative and Guarded Elgot
