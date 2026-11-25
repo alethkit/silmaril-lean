@@ -34,9 +34,14 @@ private theorem layer_entered {program : Program} {fn : Graph.Function} {a b : G
     | apply after_block; apply_assumption; trivial
   case branchHere kind _ _ _ _ _ _ => cases kind <;> exact .inl trivial
 
+theorem frame_entered {program : Program} {address : Execution.Runtime.FuncAddr}
+    {fn : Graph.Function} (found : program.lookup address = some fn)
+    {a b : Graph.Phase} (live : a.LabelOutcome) (move : program.FrameEdge address a b) : Entered b :=
+  layer_entered ((Program.frameEdge_iff found).mp move) live
+
 theorem step_entered {call : Invocation} {program : Program} (checked : call.Checked program)
     {a b : Graph.Phase} (live : a.LabelOutcome) (move : program.FrameEdge call.address a b) : Entered b :=
-  layer_entered ((Program.frameEdge_iff checked.found).mp move) live
+  frame_entered checked.found live move
 
 theorem not_call {a : Graph.Phase} (live : a.LabelOutcome) (args) : a ≠ .call args := by
   rintro rfl
@@ -48,7 +53,7 @@ theorem entered_admitted {call : Invocation} {program : Program} (checked : call
     (.invoke (by simpa only [← resolved_signature checked.resolved checked.found, CallContinuation.OuterCall.Declaration.type] using checked.typed))
     (resolved_frame_entry checked.resolved checked.found checked.typed)
 
-private theorem lift_runs {A C : Type} {edge : A → A → Prop} {native : C → C → Prop}
+theorem lift_runs {A C : Type} {edge : A → A → Prop} {native : C → C → Prop}
     (valid : A → Prop) (render : A → C)
     (preserve : ∀ {a b}, valid a → edge a b → valid b)
     (step : ∀ {a b}, valid a → (native (render a) b ↔ ∃ out, edge a out ∧ b = render out))

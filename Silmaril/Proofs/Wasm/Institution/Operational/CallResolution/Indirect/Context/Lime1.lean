@@ -36,7 +36,7 @@ theorem prefix_exact (checked : call.Checked program) (allocated : program.LimeA
   exact (lime_enter_iff allocated checked.found checked.resolved checked.typed).trans
     (by rw [entered_config])
 
-private theorem frame_shape {phase : Graph.Phase} (live : phase.LabelOutcome) :
+theorem frame_shape {phase : Graph.Phase} (live : phase.LabelOutcome) :
     ∃ n f body, phase.render Graph.limeAdmin call.target = [AdminInstr.frame n f body] := by
   cases phase <;> first | contradiction | exact ⟨_, _, _, rfl⟩
 
