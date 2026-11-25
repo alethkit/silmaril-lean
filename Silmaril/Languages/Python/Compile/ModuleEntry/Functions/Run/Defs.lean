@@ -106,7 +106,7 @@ inductive Completion where
 def scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
-  | .function _ => none
+  | .none | .function _ => none
 
 def evaluate {scope : Scope} (session : Session) : Operand scope → Except Completion Value
   | .integer value => .ok (.int value)

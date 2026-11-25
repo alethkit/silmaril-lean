@@ -82,6 +82,7 @@ structure Observation where
   residual : Session
 
 def truth : Value → Bool
+  | .none => false
   | .int value => decide (value ≠ 0)
   | .bool value => value
   | .function _ => true
