@@ -5,6 +5,7 @@ public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
 public import Silmaril.Semantics.Calco2019.VacuousThms
+public import Silmaril.Semantics.Calco2019.ExceptionThms
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
@@ -108,6 +109,17 @@ theorem definition19_divergence (T : GuardedElgotMonad P) (h : T.IsElgot) [HasIn
   T.divergent_at h X (⊥_ C)
 
 end Elgot
+
+section Exception
+
+variable {C : Type u} [Category.{v} C] (P : Coproducts C)
+
+/-- The underlying monad-valued functor of Example 22 has the stated object action. -/
+theorem example22_carrier (T : CategoryTheory.Monad C) (H : C ⥤ C) (X W : C) :
+    ((Exception.parametrized P T H).obj W).obj X = T.obj (P.sum X (H.obj W)) :=
+  rfl
+
+end Exception
 
 section Resumptions
 
