@@ -206,6 +206,17 @@ The helper enters at step 6 and returns at step 12. At step 15 the
 recursive call is still poised to open, with state wire `8`, store
 `21`, and the caller's state-changing suffix pending.
 
+On a supplied infinite partial-machine stream, the
+[first-child theorem](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/CallDescent/Extraction/Thms.lean)
+selects the least later call whose frame stays live, when one exists
+inside a live caller. Its earlier calls have first returns to their own
+frames strictly before the selected entry. An earlier job that popped
+after that entry would have to pass the selected live stack first.
+The finite interval theorem then gives the exact independent prefix.
+The linked fixture extracts the child at step 15 from an infinite
+stream. A return to its saved frame would run the remaining suffix to
+a terminal return, which contradicts the observed infinite steps.
+
 Infinite replay starts from a supplied certificate over totally linked
 calls. Extraction from arbitrary infinite partial-machine runs and
 partial module initialization are separate milestones.

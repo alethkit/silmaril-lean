@@ -1,6 +1,8 @@
 module
 
 import Mathlib.Tactic.IntervalCases
+import Silmaril.Foundations.InfiniteTrace.Deterministic
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Extraction.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Feedback.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
@@ -489,5 +491,75 @@ example : ∃ pending, CallDescent.Prefix primitives (descentEntry 7 20).call.op
   CallDescent.entry_of_interval (fun i _ before => descentTraceSteps i before)
     (show descentTrace 0 = (descentEntry 7 20).config .halt from rfl)
     descentTraceNext (by decide) descentTraceLive descentTraceEarlier
+
+private def firstChildFrame : Stack machine answer answer := (descentPending 7).push .halt
+
+private theorem noStepAtHalt (value : Tuple machine.Val answer) (store : Nat) (next : Config machine Nat answer) :
+    ¬ Step primitives ⟨.returned value .halt, store⟩ next :=
+  _root_.Part.notMem_none next
+
+private theorem firstChildSuffix (value : Tuple machine.Val answer) (store : Nat) :
+    ReflTransGen (Step primitives) ⟨.returned value firstChildFrame, store⟩
+      ⟨.returned (machine.primitive .tick value) .halt, store + 1⟩ := by
+  cases value with
+  | cons value rest =>
+    cases rest
+    cases value with
+    | state n =>
+      let saved : Locals machine.Val [answer, answer] := (stateValue 8, (stateValue 8, PUnit.unit))
+      have suffix : Eval primitives (.region descentSuffix (descentInputs 7) (saved.snoc (stateValue n))) store
+          (.returned (stateValue (Nat.succ n)) (store + 1)) := by
+        exact Eval.bind (node := suffixTickNode) (value := stateValue (Nat.succ n)) (middle := store + 1)
+          (.primitive { tickSite with input := stateValue n } (_root_.Part.mem_some _)) (.ret _ _ _ _)
+      exact (suffix.steps .halt).head (.of_next_some rfl)
+
+private theorem liveFirstChild (micro : Nat → Config machine Nat answer)
+    (steps : ∀ i, Step primitives (micro i) (micro (i + 1))) :
+    CallDescent.Extraction.LiveFrom micro 15 firstChildFrame := by
+  rintro i _ ⟨value, popped⟩
+  have actual : micro i = ⟨.returned value firstChildFrame, (micro i).store⟩ := by
+    rw [← popped]
+  have infinite : InfiniteTrace (Step primitives) (micro i) := by
+    refine ⟨fun j => micro (i + j), by simp, fun j => ?_⟩
+    simpa only [Nat.add_assoc] using steps (i + j)
+  exact RightUnique.not_infinite_of_final (R := Step primitives) (fun _ _ _ left right => _root_.Part.mem_unique left right)
+    (firstChildSuffix value (micro i).store) (noStepAtHalt _ _) (actual ▸ infinite)
+
+-- The first nonreturning child is extracted from the actual infinite
+-- stream. Its finite prefix is calculated directly by descentTrace.
+example : ∃ (micro : Nat → Config machine Nat answer) (child : CallDescent.Entry machine Nat)
+    (pending : Descent.Pending machine child.call.results answer),
+    CallDescent.Extraction.FirstChild primitives (descentEntry 7 20) .halt micro 0 15 child pending ∧
+      micro 15 = (descentEntry 8 21).config firstChildFrame := by
+  obtain ⟨micro, atRoot, steps⟩ := descentRun.infinite descentHalt
+  have align (i : Nat) (before : i ≤ 15) : micro i = descentTrace i := by
+    induction i with
+    | zero => exact atRoot
+    | succ i ih =>
+      exact _root_.Part.mem_unique (steps i) ((ih (by omega)).symm ▸ descentTraceSteps i (by omega))
+  have atChild : micro 15 = (descentEntry 8 21).config firstChildFrame :=
+    (align 15 (by decide)).trans descentTraceNext
+  have candidate : CallDescent.Extraction.NonreturningCallAt micro 15 :=
+    ⟨_, _, atChild, liveFirstChild micro steps⟩
+  have rootLive : CallDescent.Extraction.LiveFrom micro 0 (.halt : Stack machine answer answer) := by
+    rintro i _ ⟨value, popped⟩
+    have actual : micro i = ⟨.returned value .halt, (micro i).store⟩ := by rw [← popped]
+    exact noStepAtHalt value (micro i).store _ (actual ▸ steps i)
+  obtain ⟨finish, child, pending, extracted⟩ :=
+    CallDescent.Extraction.first_child steps atRoot rootLive ⟨15, by decide, candidate⟩
+  have bound := extracted.minimal 15 (by decide) candidate
+  have later := extracted.later
+  have exactFinish : finish = 15 := by
+    by_contra wrong
+    have earlierEntry : (descentTrace finish).control = (child.config (pending.push descentHalt)).control :=
+      congrArg Config.control ((align finish bound).symm.trans extracted.atEntry)
+    rcases child with ⟨⟨results, ⟨params, callee, arguments⟩⟩, store⟩
+    obtain ⟨stop, after, before, returned⟩ := descentTraceEarlier finish (by omega) (by omega)
+      callee arguments (pending.push descentHalt) earlierEntry
+    apply extracted.live stop (Nat.le_of_lt after)
+    change Continuation.Feedback.atReturn _ (micro stop).control
+    rw [align stop (by omega)]
+    exact returned
+  exact ⟨micro, child, pending, exactFinish ▸ extracted, atChild⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Tests
