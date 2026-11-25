@@ -24,6 +24,29 @@ theorem split_call {fn : Function} {fallthrough : List NumType} {enclosing : Enc
   exact ⟨stack.take below, stack.drop below, (List.take_append_drop below stack).symm, used,
     by simp [below]; omega⟩
 
+theorem split_indexed_block {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
+    {kind : LabelKind} {stack : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType} {body rest : List Op}
+    (typed : fn.WellTyped stack (.indexedBlock index signature body :: rest) fallthrough enclosing kind) :
+    ∃ saved args, stack = saved ++ args ∧ args.map Value.type = signature.params ∧
+      fn.declaration.module.types[index.toNat]? = some signature := by
+  simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff, decide_eq_true_eq] at typed
+  obtain ⟨⟨⟨resolved, shape⟩, _⟩, _⟩ := typed
+  have length : min signature.params.length stack.length = signature.params.length := by
+    simpa [Prefix.stackTypes] using congrArg List.length shape
+  have enough : signature.params.length ≤ stack.length := by omega
+  let below := stack.length - signature.params.length
+  let saved := stack.take below
+  let args := stack.drop below
+  have stackEq : stack = saved ++ args := (List.take_append_drop below stack).symm
+  have count : (Prefix.stackTypes args).length = signature.params.length := by
+    simp [Prefix.stackTypes, args, below]
+    omega
+  have split : Prefix.stackTypes stack = Prefix.stackTypes args ++ Prefix.stackTypes saved := by
+    rw [stackEq]
+    simp [Prefix.stackTypes]
+  rw [split, ← count, List.take_left] at shape
+  exact ⟨saved, args, stackEq, List.reverse_inj.mp shape, resolved⟩
+
 theorem split_return {fn : Function} {stack : List Value} (typed : fn.ReturnTyped stack) :
     ∃ extra results, stack = extra ++ results ∧ results.length = fn.declaration.results.length := by
   have length := congrArg List.length typed
@@ -49,9 +72,9 @@ theorem render_under_label {A : Type} (ops : Syntax A)
     (saved : List Value) (result : Option NumType) (rest : List Op) (kind : LabelKind)
     (compatible : ∀ r original, kind = .loop r original → r = result) (body : Body) :
     (body.underLabel saved result rest kind).render ops =
-      ops.values saved ++ ops.label result.toList.length kind (body.render ops) :: rest.map ops.emit := by
+      ops.values saved ++ ops.label (kind.results result).length kind (body.render ops) :: rest.map ops.emit := by
   cases kind with
-  | exit => rfl
+  | exit | indexed => rfl
   | loop r original => cases compatible r original rfl; rfl
 
 theorem render_block {A : Type} (ops : Syntax A)
@@ -60,8 +83,8 @@ theorem render_block {A : Type} (ops : Syntax A)
     (saved : List Value) (result : Option NumType) (rest : List Op)
     (outerKind innerKind : LabelKind)
     (compatible : ∀ r original, innerKind = .loop r original → r = result) (next : Phase) (outcome : next.LabelOutcome) :
-    ∃ locals code, next.renderAt ops target result.toList.length innerKind =
-        [ops.frame result.toList.length (currentFrame target.declaration locals) code] ∧
+    ∃ locals code, next.renderAt ops target (innerKind.results result).length innerKind =
+        [ops.frame (innerKind.results result).length (currentFrame target.declaration locals) code] ∧
       (next.afterBlock saved result rest innerKind).renderAt ops target n outerKind =
         [ops.frame n (currentFrame target.declaration locals)
           [ops.label n outerKind (ops.values saved ++ code ++ rest.map ops.emit)]] := by
@@ -87,6 +110,41 @@ theorem render_block {A : Type} (ops : Syntax A)
     | trap => exact ⟨locals, _, rfl, by simp only [Phase.afterBlock, Phase.renderAt, Body.render,
       Nested.resultCode, List.append_assoc, List.singleton_append]⟩
 
+theorem run_iff_of_invariant {C : Type} {program : Program} {checked : program.check = true}
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
+    (render : Phase → C) (native : C → C → Prop)
+    (invariant : Phase → Prop)
+    (preserved : ∀ {a b}, program.Edge checked address a b → invariant a → invariant b)
+    (one : ∀ {a b}, Admitted program fn a → invariant a → (native (render a) b ↔
+      ∃ out, program.Edge checked address a out ∧ b = render out))
+    {a : Phase} {b : C} (ready : Admitted program fn a) (supported : invariant a) :
+    Relation.ReflTransGen native (render a) b ↔
+      ∃ out, program.Runs checked address a out ∧ Admitted program fn out ∧ b = render out := by
+  constructor
+  · intro run
+    have trace : ∃ out, program.Runs checked address a out ∧ Admitted program fn out ∧
+        invariant out ∧ b = render out := by
+      induction run with
+      | refl => exact ⟨a, .refl, ready, supported, rfl⟩
+      | tail _ step ih =>
+        obtain ⟨_, path, admitted, compatible, rfl⟩ := ih
+        obtain ⟨out, edge, rfl⟩ := (one admitted compatible).mp step
+        exact ⟨out, path.tail edge, program.admitted_step checked found admitted edge,
+          preserved edge compatible, rfl⟩
+    obtain ⟨out, path, admitted, _, rfl⟩ := trace
+    exact ⟨out, path, admitted, rfl⟩
+  · rintro ⟨out, run, readyOut, rfl⟩
+    clear readyOut
+    have trace : Relation.ReflTransGen native (render a) (render out) ∧
+        Admitted program fn out ∧ invariant out := by
+      induction run with
+      | refl => exact ⟨.refl, ready, supported⟩
+      | tail _ edge ih =>
+        obtain ⟨path, admitted, compatible⟩ := ih
+        exact ⟨path.tail ((one admitted compatible).mpr ⟨_, edge, rfl⟩),
+          program.admitted_step checked found admitted edge, preserved edge compatible⟩
+    exact trace.1
+
 theorem run_iff {C : Type} {program : Program} {checked : program.check = true}
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
     (render : Phase → C) (native : C → C → Prop)
@@ -94,20 +152,8 @@ theorem run_iff {C : Type} {program : Program} {checked : program.check = true}
       ∃ out, program.Edge checked address a out ∧ b = render out))
     {a : Phase} {b : C} (ready : Admitted program fn a) :
     Relation.ReflTransGen native (render a) b ↔
-      ∃ out, program.Runs checked address a out ∧ Admitted program fn out ∧ b = render out := by
-  constructor
-  · intro run
-    induction run with
-    | refl => exact ⟨a, .refl, ready, rfl⟩
-    | tail _ step ih =>
-      obtain ⟨_, trace, admitted, rfl⟩ := ih
-      obtain ⟨out, edge, rfl⟩ := (one admitted).mp step
-      exact ⟨out, trace.tail edge, program.admitted_step checked found admitted edge, rfl⟩
-  · rintro ⟨out, run, readyOut, rfl⟩
-    clear readyOut
-    induction run with
-    | refl => exact .refl
-    | tail trace edge ih =>
-      exact ih.tail ((one (program.admitted_run checked found ready trace)).mpr ⟨_, edge, rfl⟩)
+      ∃ out, program.Runs checked address a out ∧ Admitted program fn out ∧ b = render out :=
+  run_iff_of_invariant found render native (fun _ => True) (fun _ _ => trivial)
+    (fun admitted _ => one admitted) ready trivial
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Proofs

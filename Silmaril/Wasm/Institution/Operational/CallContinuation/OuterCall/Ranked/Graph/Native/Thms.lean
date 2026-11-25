@@ -9,6 +9,7 @@ import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.R
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Core
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Lime1
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.V1
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.V1Guard
 
 @[expose] public section
 
@@ -99,31 +100,34 @@ section V1
 variable {H : Type} {s : Wasm.V1.Execution.Store H} {program : Program}
   {caller : Frame} {target : CallTarget} {fn : Function}
 
-theorem v1_to_lime (s : Wasm.V1.Execution.Store H) (caller : Frame) (target : CallTarget) (q : Phase) :
+theorem v1_to_lime (s : Wasm.V1.Execution.Store H) (caller : Frame) (target : CallTarget) (q : Phase)
+    (supported : q.supportsV1 = true) :
     (v1Config s caller target q).toLime = limeConfig (s.mapCode Wasm.V1.Func.toLime) caller target q :=
-  Proofs.V1.config_to_lime s caller target q
+  Proofs.V1.config_to_lime s caller target q supported
 
-/-- The graph-wide arity guard supplies V1 reflection at every registered
+/-- The graph-wide source and arity guard supplies V1 reflection at every registered
 activation, including a child whose native step was read in Lime1. -/
 theorem v1_reflect_lime_step (checked : program.checkV1 = true) (allocated : program.V1Allocated s)
     (root : Root program caller target fn) {a : Phase} {dst : Wasm.Lime1.Execution.Config H}
-    (ready : Admitted program fn a)
+    (ready : Admitted program fn a) (supported : a.supportsV1 = true)
     (step : Wasm.Lime1.Execution.Step CallFrame.limeNoHost (v1Config s caller target a).toLime dst) :
     ∃ mid, Wasm.V1.Execution.Step CallFrame.v1NoHost (v1Config s caller target a) mid ∧ mid.toLime = dst :=
-  Proofs.V1.reflect_lime_step checked allocated root ready step
+  Proofs.V1.reflect_lime_step checked allocated root ready supported step
 
 theorem v1_step_iff (checked : program.checkV1 = true) (allocated : program.V1Allocated s)
-    (root : Root program caller target fn) {a : Phase} {b : Wasm.V1.Execution.Config H} (ready : Admitted program fn a) :
+    (root : Root program caller target fn) {a : Phase} {b : Wasm.V1.Execution.Config H} (ready : Admitted program fn a) (supported : a.supportsV1 = true) :
     Wasm.V1.Execution.Step CallFrame.v1NoHost (v1Config s caller target a) b ↔
       ∃ out, program.Edge (Bool.and_eq_true_iff.mp checked).1 target.address a out ∧ b = v1Config s caller target out :=
-  Proofs.V1.step_iff checked allocated root ready
+  Proofs.V1.step_iff checked allocated root ready supported
 
 theorem v1_run_iff (checked : program.checkV1 = true) (allocated : program.V1Allocated s)
-    (root : Root program caller target fn) {a : Phase} {b : Wasm.V1.Execution.Config H} (ready : Admitted program fn a) :
+    (root : Root program caller target fn) {a : Phase} {b : Wasm.V1.Execution.Config H} (ready : Admitted program fn a) (supported : a.supportsV1 = true) :
     Wasm.V1.Execution.Steps CallFrame.v1NoHost (v1Config s caller target a) b ↔
       ∃ out, program.Runs (Bool.and_eq_true_iff.mp checked).1 target.address a out ∧
         Admitted program fn out ∧ b = v1Config s caller target out :=
-  Proofs.run_iff root.found (v1Config s caller target) _ (fun h => v1_step_iff checked allocated root h) ready
+  Proofs.run_iff_of_invariant root.found (v1Config s caller target) _
+    (fun phase => phase.supportsV1 = true) (Proofs.edge_v1 checked target.address root.found)
+    (fun h compatible => v1_step_iff checked allocated root h compatible) ready supported
 
 end V1
 

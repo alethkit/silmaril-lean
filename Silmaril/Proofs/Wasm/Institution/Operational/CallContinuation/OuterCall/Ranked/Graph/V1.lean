@@ -8,6 +8,8 @@ import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Blocks.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Loops.Native.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Rules
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.V1Guard
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Typing
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Locals.Native.Thms
 import Silmaril.Wasm.Versions.Lime1.Execution.Thms
@@ -29,7 +31,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
+    | set | tee | call | block | indexedBlock | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.v1Func.body = (Body.running fn.initial fn.code).render v1Admin := by
@@ -72,8 +74,8 @@ private theorem lift_nested {H : Type} {s : Store H} {target : CallTarget} {n : 
     (compatible : ∀ r original, innerKind = .loop r original → r = result)
     (shape : next.LabelOutcome)
     (move : Step CallFrame.v1NoHost
-      (regionConfig s target result.toList.length (.label locals inner) innerKind)
-      (regionConfig s target result.toList.length next innerKind)) :
+      (regionConfig s target (innerKind.results result).length (.label locals inner) innerKind)
+      (regionConfig s target (innerKind.results result).length next innerKind)) :
     Step CallFrame.v1NoHost (regionConfig s target n (.label locals (inner.underLabel saved result rest innerKind)) kind)
       (regionConfig s target n (next.afterBlock saved result rest innerKind) kind) := by
   have wrapped := Step.label (Step.context move saved (rest.map v1Admin.emit))
@@ -119,12 +121,13 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
     {target : CallTarget} {fn : Function} (found : program.lookup target.address = some fn)
     (declared : fn.declaration = target.declaration)
     (descend : ∀ child ∈ fn.targets, ∀ {parent callee a b},
-      Root program parent child callee → Admitted program callee a → program.Edge check child.address a b →
+      Root program parent child callee → Admitted program callee a → a.supportsV1 = true → program.Edge check child.address a b →
       Step CallFrame.v1NoHost (v1Config s parent child a) (v1Config s parent child b))
     {a b : Phase} {kind : LabelKind} (edge : Layer fn (fun t => program.Edge check t.address) a b kind) :
     ∀ {fallthrough enclosing}, AdmittedAt program fn fallthrough enclosing a kind → (∃ ls body, a = .label ls body) →
+      a.supportsV1 = true →
       Step CallFrame.v1NoHost (regionConfig s target fallthrough.length a kind) (regionConfig s target fallthrough.length b kind) := by
-  induction edge <;> intro fallthrough enclosing ready isLabel
+  induction edge <;> intro fallthrough enclosing ready isLabel supported
   all_goals
     let n := fallthrough.length
   case resolve => obtain ⟨_, _, impossible⟩ := isLabel; cases impossible
@@ -164,7 +167,11 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
       Step.context move saved (rest.map v1Admin.emit)
   case blockStep locals saved result rest inner next step ih =>
     cases ready with
-    | block ready _ => exact lift_nested (by simp) (label_outcome step ⟨_, _, rfl⟩) (ih ready ⟨_, _, rfl⟩)
+    | block ready _ => exact lift_nested (by simp) (label_outcome step ⟨_, _, rfl⟩) (ih ready ⟨_, _, rfl⟩ ((Bool.and_eq_true_iff.mp supported).1))
+  case indexedBlockEnter =>
+    simp [Phase.supportsV1, Body.supportsV1, codeV1, Op.supportsV1] at supported
+  case indexedBlockStep =>
+    contradiction
   case loopEnter locals saved result code rest =>
     apply lift_label
     exact (Loops.v1_entry_iff (result := result) (saved := saved) (body := Op.emitList v1CodeSyntax code)
@@ -173,7 +180,7 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
     cases ready with
     | loop ready _ _ =>
       exact lift_nested (fun _ _ eq => (LabelKind.loop.inj eq).1.symm)
-        (label_outcome step ⟨_, _, rfl⟩) (ih ready ⟨_, _, rfl⟩)
+        (label_outcome step ⟨_, _, rfl⟩) (ih ready ⟨_, _, rfl⟩ ((Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp supported).1).2))
   case unreachable locals stack rest =>
     apply lift_label
     change Step CallFrame.v1NoHost
@@ -197,7 +204,7 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
       obtain ⟨_, _, _, resolves⟩ := program.linked_target check found used
       have childResolves : child.Resolves (currentFrame target.declaration locals) := by
         simpa only [CallTarget.Resolves, currentFrame, ← declared] using resolves
-      have inside := descend child used ⟨childFound, childDeclared, childResolves⟩ childReady step
+      have inside := descend child used ⟨childFound, childDeclared, childResolves⟩ childReady (Bool.and_eq_true_iff.mp supported).1 step
       apply lift_label
       rw [render_attach (ops := v1Admin) values_append]
       exact Step.context inside saved (rest.map v1Admin.emit)
@@ -232,7 +239,7 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
       have move := Step.pure (host := CallFrame.v1NoHost) s (currentFrame target.declaration locals)
         (PureStep.labelBranch (kind.arity n) (kind.cont v1CodeSyntax) extra payload (rest.map v1Admin.emit) count)
       cases kind with
-      | exit =>
+      | exit | indexed =>
         simpa only [regionConfig, Body.render, v1Admin, LabelKind.branchHere, LabelKind.cont,
           v1Emit, Op.emit, v1CodeSyntax, List.map_cons, values_append, List.append_assoc, List.singleton_append, Nested.resultCode,
           expression, List.map_nil, List.append_nil, n] using move
@@ -261,21 +268,21 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
 theorem sound {H : Type} {s : Store H} {program : Program} (checked : program.checkV1 = true)
     (allocated : program.V1Allocated s) (address : FuncAddr) :
     ∀ {caller target fn a b}, target.address = address →
-      Root program caller target fn → Admitted program fn a →
+      Root program caller target fn → Admitted program fn a → a.supportsV1 = true →
       program.Edge ((Bool.and_eq_true_iff.mp checked).1) address a b →
       Step CallFrame.v1NoHost (v1Config s caller target a) (v1Config s caller target b) := by
   have check : program.check = true := (Bool.and_eq_true_iff.mp checked).1
   induction address using (program.table.wellFounded (Program.rankCheck check)).induction with
   | h address ih =>
-    intro caller target fn a b addr root ready move
+    intro caller target fn a b addr root ready supported move
     subst address
     have step := (program.edge_iff check root.found).mp move
     by_cases label : ∃ ls body, a = .label ls body
     · obtain ⟨ls, body, rfl⟩ := label
       have descend child (used : child ∈ fn.targets) {parent callee a b} (childRoot : Root program parent child callee)
-          (childReady : Admitted program callee a) (step : program.Edge check child.address a b) :=
-        ih child.address (program.target_resolved check root.found used) rfl childRoot childReady step
-      have localStep := region_sound check root.found root.declared descend step ready ⟨_, _, rfl⟩
+          (childReady : Admitted program callee a) (ok : a.supportsV1 = true) (step : program.Edge check child.address a b) :=
+        ih child.address (program.target_resolved check root.found used) rfl childRoot childReady ok step
+      have localStep := region_sound check root.found root.declared descend step ready ⟨_, _, rfl⟩ supported
       rw [root.declared] at localStep
       have outcome := label_outcome step ⟨_, _, rfl⟩
       have lifted := Step.frame localStep target.declaration.results.length caller
@@ -315,39 +322,44 @@ theorem sound {H : Type} {s : Store H} {program : Program} (checked : program.ch
 
 mutual
 
-private theorem emit_to_lime (op : Op) :
+private theorem emit_to_lime (op : Op) (supported : op.supportsV1 = true) :
     (op.emit v1CodeSyntax).toLime = op.emit limeCodeSyntax := by
   cases op with
   | numeric op => cases op <;> rfl
   | set | tee | call | br | brIf | brTable | return_ | unreachable => rfl
+  | indexedBlock => contradiction
   | block result code =>
     change Wasm.V1.Instr.toLime (.block result (Op.emitList v1CodeSyntax code)) =
       .block (Blocks.limeType result) (Op.emitList limeCodeSyntax code)
-    rw [Wasm.V1.Instr.toLime, Wasm.V1.Expr.toLime_eq_map, emit_list_to_lime]
+    rw [Wasm.V1.Instr.toLime, Wasm.V1.Expr.toLime_eq_map, emit_list_to_lime code supported]
     cases result <;> rfl
   | loop result code =>
     change Wasm.V1.Instr.toLime (.loop result (Op.emitList v1CodeSyntax code)) =
       .loop (Blocks.limeType result) (Op.emitList limeCodeSyntax code)
-    rw [Wasm.V1.Instr.toLime, Wasm.V1.Expr.toLime_eq_map, emit_list_to_lime]
+    rw [Wasm.V1.Instr.toLime, Wasm.V1.Expr.toLime_eq_map, emit_list_to_lime code supported]
     cases result <;> rfl
   | if_ result thenBody elseBody =>
     change Wasm.V1.Instr.toLime (.if_ result (Op.emitList v1CodeSyntax thenBody)
         (Op.emitList v1CodeSyntax elseBody)) =
       .if_ (Blocks.limeType result) (Op.emitList limeCodeSyntax thenBody) (Op.emitList limeCodeSyntax elseBody)
-    rw [Wasm.V1.Instr.toLime, Wasm.V1.Expr.toLime_eq_map, Wasm.V1.Expr.toLime_eq_map, emit_list_to_lime, emit_list_to_lime]
+    obtain ⟨left, right⟩ := Bool.and_eq_true_iff.mp supported
+    rw [Wasm.V1.Instr.toLime, Wasm.V1.Expr.toLime_eq_map, Wasm.V1.Expr.toLime_eq_map,
+      emit_list_to_lime thenBody left, emit_list_to_lime elseBody right]
     cases result <;> rfl
 
-private theorem emit_list_to_lime (code : List Op) :
+private theorem emit_list_to_lime (code : List Op) (supported : codeV1 code = true) :
     (Op.emitList v1CodeSyntax code).map Wasm.V1.Instr.toLime = Op.emitList limeCodeSyntax code := by
   cases code with
   | nil => rfl
-  | cons op rest => simp only [Op.emitList, List.map_cons, emit_to_lime op, emit_list_to_lime rest]
+  | cons op rest =>
+    obtain ⟨head, tail⟩ := Bool.and_eq_true_iff.mp supported
+    simp only [Op.emitList, List.map_cons, emit_to_lime op head, emit_list_to_lime rest tail]
 
 end
 
-private theorem function_to_lime (fn : Function) : fn.v1Func.toLime = fn.limeFunc := by
+private theorem function_to_lime (fn : Function) (supported : codeV1 fn.code = true) : fn.v1Func.toLime = fn.limeFunc := by
   have body : Wasm.V1.Expr.toLime (fn.instructions v1CodeSyntax) = fn.instructions limeCodeSyntax := by
-    rw [Wasm.V1.Expr.toLime_eq_map, Function.instructions, Function.instructions, List.map_append, emit_list_to_lime]
+    rw [Wasm.V1.Expr.toLime_eq_map, Function.instructions, Function.instructions, List.map_append, emit_list_to_lime fn.code supported]
     congr 1
     rw [List.map_map]
     apply List.map_congr_left
@@ -356,26 +368,29 @@ private theorem function_to_lime (fn : Function) : fn.v1Func.toLime = fn.limeFun
     cases t <;> rfl
   exact congrArg (fun code => (⟨fn.declaration.typeIndex, fn.declaration.locals, code⟩ : Wasm.Lime1.Func)) body
 
-theorem allocations_to_lime {H : Type} {s : Store H} {program : Program} (allocated : program.V1Allocated s) :
+theorem allocations_to_lime {H : Type} {s : Store H} {program : Program}
+    (checked : program.checkV1 = true) (allocated : program.V1Allocated s) :
     program.LimeAllocated (s.mapCode Wasm.V1.Func.toLime) := by
   intro address fn found
   rw [Execution.Runtime.Store.mapCode_funcs_getElem?, allocated address fn found]
-  simp [Execution.Runtime.FuncInst.mapCode, function_to_lime]
+  simp [Execution.Runtime.FuncInst.mapCode, function_to_lime fn (checked_v1_function checked found).2]
 
-private theorem rest_to_lime (rest : List Op) :
+private theorem rest_to_lime (rest : List Op) (supported : codeV1 rest = true) :
     codeToLime (rest.map v1Admin.emit) = rest.map limeAdmin.emit := by
-  change AdminInstr.mapList Wasm.V1.Instr.toLime (rest.map v1Admin.emit) = _
-  rw [AdminInstr.mapList_eq_map, List.map_map]
-  apply List.map_congr_left
-  intro op _
-  cases op with
-  | numeric op => cases op <;> rfl
-  | set | tee | call | block | loop | if_ | br | brIf | brTable | return_ | unreachable =>
-    exact congrArg AdminInstr.source (emit_to_lime _)
+  induction rest with
+  | nil => rfl
+  | cons op tail ih =>
+    obtain ⟨head, suffix⟩ := Bool.and_eq_true_iff.mp supported
+    have same : AdminInstr.map Wasm.V1.Instr.toLime (v1Admin.emit op) = limeAdmin.emit op := by
+      cases op with
+      | numeric op => cases op <;> rfl
+      | _ => exact congrArg AdminInstr.source (emit_to_lime _ head)
+    simp only [List.map_cons, codeToLime_cons, same, ih suffix]
+
 
 mutual
 
-private theorem phase_to_lime (target : CallTarget) (q : Phase) :
+private theorem phase_to_lime (target : CallTarget) (q : Phase) (supported : q.supportsV1 = true) :
     codeToLime (q.render v1Admin target) = q.render limeAdmin target := by
   cases q with
   | call args | invoke args =>
@@ -384,7 +399,7 @@ private theorem phase_to_lime (target : CallTarget) (q : Phase) :
   | label locals body =>
     change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
       [.label target.declaration.results.length [] (codeToLime (body.render v1Admin))]] = _
-    rw [body_to_lime body]
+    rw [body_to_lime body supported]
     rfl
   | branching locals stack depth result =>
     change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
@@ -399,7 +414,7 @@ private theorem phase_to_lime (target : CallTarget) (q : Phase) :
   | restart locals result original =>
     change [AdminInstr.frame target.declaration.results.length (currentFrame target.declaration locals)
       (codeToLime ([v1Admin.emit (.loop result original)] : List Admin))] = _
-    have mapped := rest_to_lime [.loop result original]
+    have mapped := rest_to_lime [.loop result original] (Bool.and_eq_true_iff.mpr ⟨supported, rfl⟩)
     rw [show codeToLime ([v1Admin.emit (.loop result original)] : List Admin) =
       [limeAdmin.emit (.loop result original)] from mapped]
     rfl
@@ -418,68 +433,74 @@ private theorem phase_to_lime (target : CallTarget) (q : Phase) :
     | trap => rfl
     | values stack => exact map_values stack
 
-private theorem body_to_lime (q : Body) :
+private theorem body_to_lime (q : Body) (supported : q.supportsV1 = true) :
     codeToLime (q.render v1Admin) = q.render limeAdmin := by
   cases q with
   | running stack rest =>
     change codeToLime (values stack ++ rest.map v1Admin.emit) = _
-    rw [codeToLime_append, map_values, rest_to_lime]
+    rw [codeToLime_append, map_values, rest_to_lime rest supported]
     rfl
   | active saved target child rest =>
+    obtain ⟨childOk, restOk⟩ := Bool.and_eq_true_iff.mp supported
     change codeToLime (values saved ++ child.render v1Admin target ++ rest.map v1Admin.emit) = _
-    simp only [codeToLime_append, map_values, rest_to_lime, phase_to_lime target child]
+    simp only [codeToLime_append, map_values, rest_to_lime rest restOk, phase_to_lime target child childOk]
     rfl
   | block saved result body rest =>
+    obtain ⟨bodyOk, restOk⟩ := Bool.and_eq_true_iff.mp supported
     change codeToLime (values saved ++ .label result.toList.length [] (body.render v1Admin) :: rest.map v1Admin.emit) = _
     simp only [codeToLime_append, map_values, codeToLime_cons, AdminInstr.map, List.map_nil,
-      body_to_lime body, rest_to_lime]
+      body_to_lime body bodyOk, rest_to_lime rest restOk]
     rfl
+  | indexedBlock => contradiction
   | loop saved result original body rest =>
+    obtain ⟨first, restOk⟩ := Bool.and_eq_true_iff.mp supported
+    obtain ⟨originalOk, bodyOk⟩ := Bool.and_eq_true_iff.mp first
     change codeToLime (values saved ++ .label 0
       [(.loop result (Op.emitList v1CodeSyntax original) : Wasm.V1.Instr)] (body.render v1Admin) ::
         rest.map v1Admin.emit) = _
-    have continuation := emit_to_lime (.loop result original)
+    have continuation := emit_to_lime (.loop result original) originalOk
     simp only [codeToLime_append, map_values, codeToLime_cons, AdminInstr.map, List.map_cons, List.map_nil,
-      body_to_lime body, rest_to_lime]
+      body_to_lime body bodyOk, rest_to_lime rest restOk]
     rw [show Wasm.V1.Instr.toLime (.loop result (Op.emitList v1CodeSyntax original)) =
       .loop (Blocks.limeType result) (Op.emitList limeCodeSyntax original) from continuation]
     rfl
   | trapped saved rest =>
     change codeToLime (values saved ++ .trap :: rest.map v1Admin.emit) = _
-    rw [codeToLime_append, map_values, codeToLime_cons, rest_to_lime]
+    rw [codeToLime_append, map_values, codeToLime_cons, rest_to_lime rest supported]
     rfl
 
 end
 
-theorem config_to_lime {H : Type} (s : Store H) (caller : Frame) (target : CallTarget) (q : Phase) :
+theorem config_to_lime {H : Type} (s : Store H) (caller : Frame) (target : CallTarget) (q : Phase)
+    (supported : q.supportsV1 = true) :
     (v1Config s caller target q).toLime = limeConfig (s.mapCode Wasm.V1.Func.toLime) caller target q := by
   change (⟨_, _, codeToLime (q.render v1Admin target)⟩ : Wasm.Lime1.Execution.Config H) = _
-  rw [phase_to_lime]
+  rw [phase_to_lime target q supported]
   rfl
 
 theorem reflect_lime_step {H : Type} {s : Store H} {program : Program} (checked : program.checkV1 = true)
     (allocated : program.V1Allocated s) {caller target fn a dst}
-    (root : Root program caller target fn) (ready : Admitted program fn a)
+    (root : Root program caller target fn) (ready : Admitted program fn a) (supported : a.supportsV1 = true)
     (step : Wasm.Lime1.Execution.Step CallFrame.limeNoHost (v1Config s caller target a).toLime dst) :
     ∃ mid, Step CallFrame.v1NoHost (v1Config s caller target a) mid ∧ mid.toLime = dst := by
-  rw [config_to_lime] at step
+  rw [config_to_lime s caller target a supported] at step
   obtain ⟨out, move, rfl⟩ := (Lime1.step_iff (Bool.and_eq_true_iff.mp checked).1
-    (allocations_to_lime allocated) target.address rfl root ready).mp step
-  exact ⟨_, sound checked allocated target.address rfl root ready move, config_to_lime s caller target out⟩
+    (allocations_to_lime checked allocated) target.address rfl root ready).mp step
+  exact ⟨_, sound checked allocated target.address rfl root ready supported move, config_to_lime s caller target out (edge_v1 checked target.address root.found move supported)⟩
 
 theorem step_iff {H : Type} {s : Store H} {program : Program} (checked : program.checkV1 = true)
     (allocated : program.V1Allocated s) {caller target fn a dst}
-    (root : Root program caller target fn) (ready : Admitted program fn a) :
+    (root : Root program caller target fn) (ready : Admitted program fn a) (supported : a.supportsV1 = true) :
     Step CallFrame.v1NoHost (v1Config s caller target a) dst ↔
       ∃ out, program.Edge ((Bool.and_eq_true_iff.mp checked).1) target.address a out ∧ dst = v1Config s caller target out := by
   constructor
   · intro step
     have mapped := step.toLime (target := CallFrame.limeNoHost) (fun _ _ _ _ h => h)
-    rw [config_to_lime] at mapped
+    rw [config_to_lime s caller target a supported] at mapped
     obtain ⟨out, move, eq⟩ := (Lime1.step_iff (Bool.and_eq_true_iff.mp checked).1
-      (allocations_to_lime allocated) target.address rfl root ready).mp mapped
-    exact ⟨out, move, CallContinuation.config_toLime_injective H (eq.trans (config_to_lime s caller target out).symm)⟩
+      (allocations_to_lime checked allocated) target.address rfl root ready).mp mapped
+    exact ⟨out, move, CallContinuation.config_toLime_injective H (eq.trans (config_to_lime s caller target out (edge_v1 checked target.address root.found move supported)).symm)⟩
   · rintro ⟨out, move, rfl⟩
-    exact sound checked allocated target.address rfl root ready move
+    exact sound checked allocated target.address rfl root ready supported move
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Proofs.V1

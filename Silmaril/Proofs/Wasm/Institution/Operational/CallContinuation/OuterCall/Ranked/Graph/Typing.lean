@@ -23,11 +23,16 @@ theorem check_function {program : Program} (checked : program.check = true)
     fn.check = true :=
   List.all_eq_true.mp (Bool.and_eq_true_iff.mp checked).2 (some fn) (lookup_mem found)
 
+theorem checked_v1_function {program : Program} (checked : program.checkV1 = true)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) :
+    fn.declaration.results.length ≤ 1 ∧ codeV1 fn.code = true := by
+  have guard := List.all_eq_true.mp (Bool.and_eq_true_iff.mp checked).2 (some fn) (lookup_mem found)
+  simpa only [Option.map_some, Option.getD_some, Bool.and_eq_true_iff, decide_eq_true_eq] using guard
+
 theorem scalar_result {program : Program} (checked : program.checkV1 = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) :
-    fn.declaration.results.length ≤ 1 := by
-  have scalar := List.all_eq_true.mp (Bool.and_eq_true_iff.mp checked).2 (some fn) (lookup_mem found)
-  simpa only [Option.map_some, Option.getD_some, decide_eq_true_eq] using scalar
+    fn.declaration.results.length ≤ 1 :=
+  (checked_v1_function checked found).1
 
 theorem linked_target {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} {target : CallTarget}
@@ -234,7 +239,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
       | running typed body =>
         unfold Function.WellTyped at body
         rw [stack_types_append] at body
-        change checkCode _ _ _ _ _ (.int .i32 :: Prefix.stackTypes saved) _ _ = true at body
+        change checkCode _ _ _ _ _ (.int .i32 :: Prefix.stackTypes saved) _ _ _ = true at body
         simp only [checkCode, checkOp, checkCondition, Bool.and_eq_true_iff] at body
         apply AdmittedAt.running typed
         simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff]
@@ -254,6 +259,40 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         have after := bodyIH inside ((edge_iff checked found).mpr step)
         cases next with
         | label => exact .block after resume
+        | branching =>
+          obtain ⟨typed, target, payload⟩ := branching_guard after
+          exact .running typed (by
+            simpa only [Function.WellTyped, checkCode, checkOp, checkBranch, decide_eq_true_eq, SuffixTyped] using
+              And.intro target (suffix_prefix (saved := saved) payload))
+        | returning =>
+          obtain ⟨typed, out⟩ := returning_guard after
+          exact .running typed (by
+            simpa only [Function.WellTyped, checkCode, checkOp, Function.ReturnTyped, SuffixTyped, decide_eq_true_eq] using
+              suffix_prefix (saved := saved) out)
+        | exit locals out =>
+          cases out with
+          | values stack =>
+            obtain ⟨typed, outTyped⟩ := exit_guard after
+            exact .running typed (by simpa [Function.WellTyped, stack_types_append,
+              Prefix.stackTypes, outTyped] using resume)
+          | trap => exact .trapped (trap_exit_guard after)
+        | restart => cases (restart_guard after).1
+        | call | invoke | done => cases outcome
+    | indexedBlockEnter locals saved args index signature code rest resolved argsTyped =>
+      cases ready with
+      | running typed body =>
+        have size : signature.params.length = (Prefix.stackTypes args).length := by
+          simp [Prefix.stackTypes, argsTyped]
+        simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff,
+          stack_types_append, size, List.drop_left] at body
+        exact .indexedBlock (.running typed (by simpa [Function.WellTyped, Prefix.stackTypes, argsTyped] using body.1.2)) body.2
+    | @indexedBlockStep kind locals inner next saved signature rest step bodyIH =>
+      cases ready with
+      | indexedBlock inside resume =>
+        have outcome := label_outcome step ⟨_, _, rfl⟩
+        have after := bodyIH inside ((edge_iff checked found).mpr step)
+        cases next with
+        | label => exact .indexedBlock after resume
         | branching =>
           obtain ⟨typed, target, payload⟩ := branching_guard after
           exact .running typed (by
@@ -329,6 +368,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         | active newArgs edge alloc same live ready body =>
           exact .active typed used childFound declared trivial (.active newArgs edge alloc same live ready body) resume
         | block inside body => exact .active typed used childFound declared trivial (.block inside body) resume
+        | indexedBlock inside body => exact .active typed used childFound declared trivial (.indexedBlock inside body) resume
         | loop inside original body =>
           exact .active typed used childFound declared trivial (.loop inside original body) resume
         | trapped newArgs => exact .active typed used childFound declared trivial (.trapped newArgs) resume
@@ -349,7 +389,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
       | running typed body =>
         unfold Function.WellTyped at body
         rw [stack_types_append] at body
-        change checkCode _ _ _ _ _ (.int .i32 :: Prefix.stackTypes stack) _ _ = true at body
+        change checkCode _ _ _ _ _ (.int .i32 :: Prefix.stackTypes stack) _ _ _ = true at body
         simp only [checkCode, checkOp, checkCondition, Bool.and_eq_true_iff] at body
         apply AdmittedAt.running typed
         split
@@ -360,7 +400,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
       | running typed body =>
         unfold Function.WellTyped at body
         rw [stack_types_append] at body
-        change checkCode _ _ _ _ _ (.int .i32 :: Prefix.stackTypes stack) _ _ = true at body
+        change checkCode _ _ _ _ _ (.int .i32 :: Prefix.stackTypes stack) _ _ _ = true at body
         simp only [checkCode, checkOp, checkCondition, Bool.and_eq_true_iff] at body
         exact .running typed (check_selected_branch body.1 body.2 selector.toNat)
     | @branchHere kind locals extra values result rest arity =>
@@ -368,7 +408,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
       | running typed body =>
         obtain ⟨target, payload⟩ := checked_branch body
         cases kind with
-        | exit => exact .exit typed ((suffix_result payload arity).trans (branch_here_result target).symm)
+        | exit | indexed => exact .exit typed ((suffix_result payload arity).trans (branch_here_result target).symm)
         | loop result original => exact .restart typed
     | branchOuter locals stack depth result rest outer =>
       cases ready with
@@ -401,7 +441,7 @@ theorem nesting_of_admitted {program : Program} (checked : program.check = true)
     | label => exact List.isChain_cons_cons.mpr ⟨resolved, nested⟩
     | returning | exit => exact List.isChain_cons_cons.mpr ⟨resolved, nested⟩
     | done => cases live
-  | block _ _ ih | loop _ _ _ ih => exact ih found
+  | block _ _ ih | indexedBlock _ _ ih | loop _ _ _ ih => exact ih found
   | _ => simp [Phase.frames, Body.frames]
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Proofs

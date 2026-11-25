@@ -9,6 +9,7 @@ import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.R
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Locals.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Blocks.Native.Thms
+import Silmaril.Wasm.Institution.Operational.Blocks.Indexed.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Loops.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Blocks.Context.Thms
 import Silmaril.Wasm.Execution.Core.Sim.Context
@@ -43,7 +44,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
+    | set | tee | call | block | indexedBlock | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.coreFunc.body = (Body.running fn.initial fn.code).render coreAdmin := by
@@ -159,6 +160,13 @@ private theorem running_stays {n : Nat} {cont : List Instr} {v : List Value} {op
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax]) pop
   | loop result body =>
     exact Computed.core_label_stays (head := coreAdmin.emit (.loop result body)) rfl
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Admin.IsReturnCallRef])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax]) pop
+  | indexedBlock index signature body =>
+    exact Computed.core_label_stays (head := coreAdmin.emit (.indexedBlock index signature body)) rfl
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Admin.IsReturnCallRef])
@@ -336,7 +344,7 @@ private theorem branch_step_iff {H : Type} {P : Profile} {s : Store H} {program 
       coreAt s caller target n (kind.branchHere locals payload) kind =
         inFrame caller.toCore n ⟨s, (currentFrame target.declaration locals).toCore, vals (payload.map Value.toCore) ++ expression (kind.cont coreCodeSyntax)⟩ := by
     cases kind with
-    | exit => simp [coreAt, Phase.renderAt, LabelKind.branchHere, LabelKind.cont,
+    | exit | indexed => simp [coreAt, Phase.renderAt, LabelKind.branchHere, LabelKind.cont,
         inFrame, Nested.resultCode, coreAdmin, expression]
     | loop result original =>
       have empty : payload = [] := List.eq_nil_of_length_eq_zero size
@@ -369,14 +377,14 @@ private theorem block_step_iff {H : Type} {P : Profile} {s : Store H} {program :
     (edgeView : ∀ {out}, program.EdgeAt checked target.address kind (.label locals (inner.underLabel saved result rest innerKind)) out ↔
       ∃ next, program.EdgeAt checked target.address innerKind (.label locals inner) next ∧
         out = next.afterBlock saved result rest innerKind)
-    (inside : ∀ {dst}, native P (coreAt s caller target result.toList.length (.label locals inner) innerKind) dst ↔
+    (inside : ∀ {dst}, native P (coreAt s caller target (innerKind.results result).length (.label locals inner) innerKind) dst ↔
       ∃ next, program.EdgeAt checked target.address innerKind (.label locals inner) next ∧
-        dst = coreAt s caller target result.toList.length next innerKind)
+        dst = coreAt s caller target (innerKind.results result).length next innerKind)
     {dst : Config H} :
     native P (coreAt s caller target n (.label locals (inner.underLabel saved result rest innerKind)) kind) dst ↔
       ∃ out, program.EdgeAt checked target.address kind (.label locals (inner.underLabel saved result rest innerKind)) out ∧
         dst = coreAt s caller target n out kind := by
-  let k := result.toList.length
+  let k := (innerKind.results result).length
   let code := coreValues saved ++ (.label (innerKind.arity k) (innerKind.cont coreCodeSyntax) (inner.render coreAdmin) : Admin) :: rest.map coreAdmin.emit
   have stays {out} (pop : LabelExit (kind.arity n) (kind.cont coreCodeSyntax) code out) : False := by
     exact Computed.core_label_stays (head := .label (innerKind.arity k) (innerKind.cont coreCodeSyntax) (inner.render coreAdmin)) rfl
@@ -414,6 +422,34 @@ private theorem block_step_iff {H : Type} {P : Profile} {s : Store H} {program :
     refine ⟨_, (sequence_label_iff (saved := saved)).mpr ⟨_, step, rfl⟩, ?_⟩
     rw [coreAt, after]
     rfl
+
+private theorem indexed_entry_iff {H : Type} {P : Profile} {s : Store H} {decl : Declaration}
+    {locals saved args : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType}
+    {body : List Instr} {rest : List Admin} {dst : Config H}
+    (resolved : decl.module.types[index.toNat]? = some signature)
+    (typed : args.map Value.type = signature.params) :
+    native P ⟨s, (currentFrame decl locals).toCore, vals ((saved ++ args).map Value.toCore) ++
+      .plain (.block (.typeIdx index) body) :: rest⟩ dst ↔
+      dst = ⟨s, (currentFrame decl locals).toCore, vals (saved.map Value.toCore) ++
+        .label signature.results.length [] (vals (args.map Value.toCore) ++ expression body) :: rest⟩ := by
+  have lookup : decl.module.toCore.blockType? (.typeIdx index) =
+      some (signature.params.map Validation.Ty.num, signature.results.map Validation.Ty.num) := by
+    rw [Blocks.Indexed.core_type_idx, resolved]
+    rfl
+  have arity : args.length = signature.params.length := by simpa using congrArg List.length typed
+  rw [show native P = Step P noHost from rfl, Blocks.core_block_step_iff]
+  constructor
+  · rintro ⟨kept, used, params, results, split, found, size, rfl⟩
+    change decl.module.toCore.blockType? (.typeIdx index) = _ at found
+    rw [lookup] at found
+    cases found
+    rw [List.map_append] at split
+    have count : (args.map Value.toCore).length = used.length := by simpa [arity] using size.symm
+    obtain ⟨rfl, rfl⟩ := List.append_inj' split count
+    simp
+  · intro eq
+    exact ⟨(saved.map Value.toCore), (args.map Value.toCore), _, _, List.map_append, lookup, by simpa using arity,
+      by simpa using eq⟩
 
 private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.check = true)
     (allocated : program.CoreAllocated s) {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
@@ -554,6 +590,17 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             exact ⟨_, rule.mpr (.blockEnter locals stack result body rest), eq.trans
               (congrArg (fun x : Config H =>
                 (⟨x.store, caller.toCore, [.frame n x.frame [.label k cont x.code]]⟩ : Config H)) enter)⟩
+          | indexedBlock index signature body =>
+            obtain ⟨saved, args, rfl, typed, resolved⟩ := split_indexed_block codeTyped
+            have inModule : target.declaration.module.types[index.toNat]? = some signature := by
+              simpa only [← root.declared] using resolved
+            have enter := (indexed_entry_iff (s := s) (locals := locals) (saved := saved) (args := args)
+              (body := Op.emitList coreCodeSyntax body) (rest := rest.map coreAdmin.emit)
+              inModule typed).mp inner
+            rw [code_expression] at enter
+            exact ⟨_, rule.mpr (.indexedBlockEnter locals saved args index signature body rest resolved typed),
+              eq.trans (congrArg (fun x : Config H =>
+                (⟨x.store, caller.toCore, [.frame n x.frame [.label k cont x.code]]⟩ : Config H)) enter)⟩
           | loop result body =>
             have enter := (Loops.core_entry_iff (result := result)
               (body := Op.emitList coreCodeSyntax body) (saved := stack.map Value.toCore)
@@ -617,6 +664,12 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             apply lift_label
             exact (Blocks.core_context_entry_iff (result := result) (body := Op.emitList coreCodeSyntax body)
               (saved := stack.map Value.toCore) (rest := rest.map coreAdmin.emit)).mpr (by rw [code_expression]; rfl)
+          | indexedBlockEnter locals saved args index signature body rest resolved typed =>
+            have inModule : target.declaration.module.types[index.toNat]? = some signature := by
+              simpa only [← root.declared] using resolved
+            apply lift_label
+            exact (indexed_entry_iff (saved := saved) (body := Op.emitList coreCodeSyntax body)
+              (rest := rest.map coreAdmin.emit) inModule typed).mpr (by rw [code_expression]; rfl)
           | loopEnter =>
             rename_i result body
             apply lift_label
@@ -652,6 +705,11 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
       have smaller : sizeOf inside < size := by rw [← sizeEq]; simp [Body.block.sizeOf_spec]; omega
       exact block_step_iff checked root.found (P := P) (n := n) (innerKind := .exit)
         (by simp) (block_iff checked root.found) (fun {dst} =>
+          ih (sizeOf inside) smaller (dst := dst) rfl innerTyped)
+    | @indexedBlock _ _ _ _ locals saved signature inside rest innerTyped resume =>
+      have smaller : sizeOf inside < size := by rw [← sizeEq]; simp [Body.indexedBlock.sizeOf_spec]; omega
+      exact block_step_iff checked root.found (P := P) (n := n) (result := none) (innerKind := .indexed signature)
+        (by simp) (indexed_block_iff checked root.found) (fun {dst} =>
           ih (sizeOf inside) smaller (dst := dst) rfl innerTyped)
     | @loop _ _ _ _ locals saved result original inside rest innerTyped _ resume =>
       have smaller : sizeOf inside < size := by rw [← sizeEq]; simp [Body.loop.sizeOf_spec]; omega
@@ -713,6 +771,7 @@ theorem step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (che
     | running typed code => exact region (.running typed code)
     | active typed used found declared live ready resume => exact region (.active typed used found declared live ready resume)
     | block inside resume => exact region (.block inside resume)
+    | indexedBlock inside resume => exact region (.indexedBlock inside resume)
     | loop inside original resume => exact region (.loop inside original resume)
     | trapped typed => exact region (.trapped typed)
     | @returning _ _ _ _ locals stack typed returnTyped =>
