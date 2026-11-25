@@ -14,27 +14,28 @@ open Execution.Runtime (Frame Value)
 open Computed (ArgumentSyntax v1Syntax limeSyntax coreSyntax)
 open Computed.Sequence (v1Source limeSource coreSource)
 
-def Op.emit {A : Type} (ops : ArgumentSyntax A) (set tee : LocalIdx → A) (unreachable : A) : Op → A
+def Op.emit {A : Type} (ops : ArgumentSyntax A) (set tee : LocalIdx → A) (ret unreachable : A) : Op → A
   | .numeric op => Computed.Prefix.emit ops op
   | .set i => set i
   | .tee i => tee i
   | .call target => ops.call target.index
+  | .return_ => ret
   | .unreachable => unreachable
 
-def Function.instructions {A : Type} (fn : Function) (ops : ArgumentSyntax A) (set tee : LocalIdx → A) (unreachable : A) : List A :=
-  fn.initial.map ops.value ++ fn.code.map (Op.emit ops set tee unreachable)
+def Function.instructions {A : Type} (fn : Function) (ops : ArgumentSyntax A) (set tee : LocalIdx → A) (ret unreachable : A) : List A :=
+  fn.initial.map ops.value ++ fn.code.map (Op.emit ops set tee ret unreachable)
 
 def Function.v1Func (fn : Function) : Wasm.V1.Func :=
   ⟨fn.declaration.typeIndex, fn.declaration.locals,
-    fn.instructions v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .unreachable⟩
+    fn.instructions v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .return_ .unreachable⟩
 
 def Function.limeFunc (fn : Function) : Wasm.Lime1.Func :=
   ⟨fn.declaration.typeIndex, fn.declaration.locals,
-    fn.instructions limeSource (Locals.limeInstr ∘ .set) (Locals.limeInstr ∘ .tee) .unreachable⟩
+    fn.instructions limeSource (Locals.limeInstr ∘ .set) (Locals.limeInstr ∘ .tee) .return_ .unreachable⟩
 
 def Function.coreFunc (fn : Function) : Wasm.Func :=
   ⟨fn.declaration.typeIndex, fn.declaration.locals.map Wasm.V1.ValType.toCore,
-    fn.instructions coreSource (Locals.coreInstr ∘ .set) (Locals.coreInstr ∘ .tee) .unreachable⟩
+    fn.instructions coreSource (Locals.coreInstr ∘ .set) (Locals.coreInstr ∘ .tee) .return_ .unreachable⟩
 
 def Function.coreInstance {H : Type} (fn : Function) : Core.FuncInst H :=
   ⟨fn.declaration.type.toDefType, fn.declaration.module.toCore, .wasm fn.coreFunc⟩
@@ -61,6 +62,7 @@ structure Syntax (A : Type) where
   set : LocalIdx → A
   tee : LocalIdx → A
   values : List Value → List A
+  ret : A
   unreachable : A
   trap : A
   invoke : CallTarget → List A
@@ -68,7 +70,7 @@ structure Syntax (A : Type) where
   label : Nat → List A → A
 
 def Syntax.emit {A : Type} (ops : Syntax A) : Op → A :=
-  Op.emit ops.ops ops.set ops.tee ops.unreachable
+  Op.emit ops.ops ops.set ops.tee ops.ret ops.unreachable
 
 mutual
 
@@ -78,6 +80,9 @@ def Phase.render {A : Type} (ops : Syntax A) (target : CallTarget) : Phase → L
   | .label locals body =>
       let n := target.declaration.results.length
       [ops.frame n (currentFrame target.declaration locals) [ops.label n (body.render ops)]]
+  | .returning locals stack =>
+      [ops.frame target.declaration.results.length (currentFrame target.declaration locals)
+        (ops.values stack ++ [ops.ret])]
   | .exit locals result =>
       [ops.frame target.declaration.results.length (currentFrame target.declaration locals)
         (Nested.resultCode ops.values ops.trap result)]
@@ -93,14 +98,14 @@ end
 
 def v1Admin : Syntax Wasm.V1.Execution.Admin :=
   ⟨v1Syntax, .source ∘ .localSet, .source ∘ .localTee, Wasm.V1.Execution.values,
-    .source .unreachable, .trap, fun t => [.invoke t.address], .frame, fun n => .label n []⟩
+    .source .return_, .source .unreachable, .trap, fun t => [.invoke t.address], .frame, fun n => .label n []⟩
 
 def limeAdmin : Syntax Wasm.Lime1.Execution.Admin :=
   ⟨limeSyntax, .source ∘ .localSet, .source ∘ .localTee, Wasm.Lime1.Execution.values,
-    .source .unreachable, .trap, fun t => [.invoke t.address], .frame, fun n => .label n []⟩
+    .source .return_, .source .unreachable, .trap, fun t => [.invoke t.address], .frame, fun n => .label n []⟩
 
 def coreAdmin : Syntax Core.Admin :=
-  ⟨coreSyntax, .plain ∘ .localSet, .plain ∘ .localTee, coreValues, .plain .unreachable, .trap,
+  ⟨coreSyntax, .plain ∘ .localSet, .plain ∘ .localTee, coreValues, .plain .return_, .plain .unreachable, .trap,
     fun t => [.ref (.func t.address.value), .callRefType t.declaration.type.toDefType],
     fun n f => .frame n f.toCore, fun n => .label n []⟩
 

@@ -12,12 +12,13 @@ open Execution.Runtime (Frame FuncAddr Value)
 open Computed
 
 /-- The body starts with a literal operand prefix. The remaining instructions
-are numeric locals, integer operations, direct calls, and unreachable. -/
+are numeric locals, integer operations, direct calls, return, and unreachable. -/
 inductive Op where
   | numeric (op : Prefix.Op)
   | set (index : LocalIdx)
   | tee (index : LocalIdx)
   | call (target : CallTarget)
+  | return_
   | unreachable
 
 structure Function where
@@ -38,7 +39,8 @@ def Function.localTypes (fn : Function) : List NumType :=
   fn.declaration.params ++ fn.declaration.locals
 
 /-- Checks a straight-line residual body using top-first stack types.
-An unreachable instruction ends the live path. -/
+Return checks the declared result suffix and ends the live path. Unreachable
+also ends the live path. -/
 def checkCode (targets : List CallTarget) (locals result : List NumType) (stack : List NumType) : List Op → Bool
   | [] => decide (stack = result.reverse)
   | .numeric op :: rest =>
@@ -51,6 +53,7 @@ def checkCode (targets : List CallTarget) (locals result : List NumType) (stack 
       let decl := target.declaration
       decide (target ∈ targets ∧ stack.take decl.params.length = decl.params.reverse) &&
         checkCode targets locals result (decl.results.reverse ++ stack.drop decl.params.length) rest
+  | .return_ :: _ => decide (stack.take result.length = result.reverse)
   | .unreachable :: _ => true
 
 def Function.check (fn : Function) : Bool :=
@@ -84,6 +87,7 @@ mutual
     | call (args : List Value)
     | invoke (args : List Value)
     | label (locals : List Value) (body : Body)
+    | returning (locals : List Value) (stack : List Value)
     | exit (locals : List Value) (result : Nested.Result)
     | done (result : Nested.Result)
 
@@ -98,7 +102,7 @@ mutual
 /-- Entered graph frames in outermost-first order. -/
 def Phase.frames (address : FuncAddr) : Phase → List FuncAddr
   | .label _ body => address :: body.frames
-  | .exit .. => [address]
+  | .returning .. | .exit .. => [address]
   | _ => []
 
 def Body.frames : Body → List FuncAddr
@@ -108,7 +112,7 @@ def Body.frames : Body → List FuncAddr
 end
 
 def Phase.Active : Phase → Prop
-  | .invoke _ | .label .. | .exit .. => True
+  | .invoke _ | .label .. | .returning .. | .exit .. => True
   | .call _ | .done _ => False
 
 def Body.attach (saved : List Value) (target : CallTarget) (rest : List Op) : Phase → Body
@@ -132,6 +136,11 @@ def Function.ResultTyped (fn : Function) : Nested.Result → Prop
 def Function.WellTyped (fn : Function) (stack : List Value) (code : List Op) : Prop :=
   checkCode fn.targets fn.localTypes fn.declaration.results (Prefix.stackTypes stack) code = true
 
+/-- After crossing the function label, the pending return still needs to
+leave the frame with the declared result suffix. -/
+def Function.ReturnTyped (fn : Function) (stack : List Value) : Prop :=
+  (Prefix.stackTypes stack).take fn.declaration.results.length = fn.declaration.results.reverse
+
 def Function.ResumeTyped (fn : Function) (saved : List Value) (target : CallTarget) (rest : List Op) : Prop :=
   checkCode fn.targets fn.localTypes fn.declaration.results
     (target.declaration.results.reverse ++ Prefix.stackTypes saved) rest = true
@@ -150,6 +159,8 @@ inductive Admitted (program : Program) : Function → Phase → Prop where
       Admitted program fn (.label locals (.active saved target child rest))
   | trapped {fn locals saved rest} (typed : locals.map Value.type = fn.localTypes) :
       Admitted program fn (.label locals (.trapped saved rest))
+  | returning {fn locals stack} (typed : locals.map Value.type = fn.localTypes)
+      (out : fn.ReturnTyped stack) : Admitted program fn (.returning locals stack)
   | exit {fn locals result} (typed : locals.map Value.type = fn.localTypes) (out : fn.ResultTyped result) :
       Admitted program fn (.exit locals result)
   | done {fn result} (typed : fn.ResultTyped result) : Admitted program fn (.done result)
@@ -182,6 +193,10 @@ inductive Layer (fn : Function) (childStep : CallTarget → Phase → Phase → 
       Layer fn childStep (.label locals (.active saved target a rest)) (.label locals (Body.attach saved target rest b))
   | discard {locals stack kept : List Value} {before rest : List Op} (step : Prefix.Discard stack before kept rest) :
       Layer fn childStep (.label locals (.trapped stack before)) (.label locals (.trapped kept rest))
+  | returnLabel (locals stack : List Value) (rest : List Op) :
+      Layer fn childStep (.label locals (.running stack (.return_ :: rest))) (.returning locals stack)
+  | returnFrame (locals extra results : List Value) (arity : results.length = fn.declaration.results.length) :
+      Layer fn childStep (.returning locals (extra ++ results)) (.done (.values results))
   | leaveValues (locals stack : List Value) :
       Layer fn childStep (.label locals (.running stack [])) (.exit locals (.values stack))
   | leaveTrap (locals : List Value) :
