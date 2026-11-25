@@ -35,7 +35,7 @@ private theorem agree_lift {Γ : VCtx τ} {σ η : Nat → Tm Φ}
   | zero => rfl
   | succ i => exact congrArg (Tm.rename Nat.succ) (h i C hi)
 
-private theorem term_subst_eq {Γ : VCtx τ} (ha : Tm.HasType Γ a A)
+theorem term_subst_eq {Γ : VCtx τ} (ha : Tm.HasType Γ a A)
     {σ η : Nat → Tm Φ} (h : ∀ i C, At Γ i C → σ i = η i) :
     a.subst σ = a.subst η := by
   induction ha generalizing σ η with
