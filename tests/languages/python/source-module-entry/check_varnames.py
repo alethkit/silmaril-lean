@@ -1,0 +1,255 @@
+# SPDX-License-Identifier: MIT
+"""Check module co_varnames compilation and execution against CPython."""
+
+import json
+from pathlib import Path
+import runpy
+import subprocess
+import sys
+import tempfile
+
+
+SOURCE = """def probe():
+    first = later
+    later = 3
+    first = later
+    def nested():
+        child_local = 8
+        child_local = 9
+    later = 4
+    return first
+
+def replacement():
+    new = 3
+
+def empty():
+    pass
+
+def with_parameter(value):
+    return value
+
+def with_cell():
+    owned = 4
+    def captured():
+        return owned
+
+alias = probe
+assert "later" in alias.__code__.co_varnames
+probe = replacement
+assert "new" in probe.__code__.co_varnames
+"""
+
+CPYTHON = """
+import json
+import sys
+import types
+
+def tuples(code):
+    yield code.co_varnames
+    for child in code.co_consts:
+        if isinstance(child, types.CodeType):
+            yield from tuples(child)
+
+with open(sys.argv[1], 'rb') as source:
+    unit = compile(source.read(), sys.argv[1], 'exec', dont_inherit=True, optimize=0)
+namespace = {'__builtins__': {}}
+exec(unit, namespace)
+assert namespace['alias'] is not namespace['probe']
+assert 'first' not in namespace['probe'].__code__.co_varnames
+assert 'child_local' not in namespace['alias'].__code__.co_varnames
+children = [item for item in unit.co_consts if isinstance(item, types.CodeType)]
+print(json.dumps([sys.version.split()[0], [names for child in children for names in tuples(child)]]))
+"""
+
+EXPECTED = [["later", "first", "nested"], ["child_local"], ["new"], [], ["value"], ["captured"], []]
+EMITTED = ["later", "first", "later", "later", "first", "nested", "later", "first"]
+
+IMPORTS = ("import Batteries.Data.Except",) + tuple(
+    f"{prefix} Silmaril.Languages.Python.{module}"
+    for module in (
+        "Compile.Closure.VarNames.Defs",
+        "Compile.Closure.Link.Defs",
+        "Compile.ModuleEntry.Functions.Defs",
+        "Compile.ModuleEntry.Functions.Run.Thms",
+        "Compile.ModuleEntry.Functions.Run.Seeded.Defs",
+        "Core.Closure.Dispatch.Defs",
+        "Core.Closure.Defs",
+        "Core.Module.SeededCall.Defs",
+    )
+    for prefix in ("import", "meta import")
+)
+
+LEAN = """
+open Silmaril.Languages.Python
+open Silmaril.Languages.Python.Compile.Closure
+open Compile.ModuleEntry.Functions
+
+private def observations (source : Module) :
+    Option (List (Option (List String)) × List String × Bool) := do
+  let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
+  let blocks := compiled.linked
+  let root ← blocks[0]?
+  let evidence ← VarNames.checked? compiled.checked.tree blocks ⟨0, root.entry.layout⟩
+  let tuples := compiled.entries.map (·.definition.varnames)
+  unless tuples == blocks.map (·.entry.definition.varnames) do none
+  let wrongLayout := VarNames.checked? compiled.checked.tree blocks ⟨0, ⟨0, 0, 0⟩⟩
+  return (tuples, evidence.emittedNames, wrongLayout.isNone)
+
+private def liveReads (source : Module) : Bool :=
+  match check source with
+  | .ok checked =>
+    match checked.actions.drop 5 with
+    | [.scalar (.assign "alias" _ (.read "probe" _)),
+       .assertVarNames "alias" _ [108, 97, 116, 101, 114],
+       .scalar (.assign "probe" _ (.read "replacement" _)),
+       .assertVarNames "probe" _ [110, 101, 119]] => true
+    | _ => false
+  | .error _ => false
+
+private def ordinary (source : Module) : Bool := Id.run do
+  let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
+  let (log, .finished session .normal) :=
+    Compile.ModuleEntry.Functions.Run.runPrefix compiled.table 64 compiled.start | return false
+  let some (.function old) := session.globals "alias" | return false
+  let some (.function current) := session.globals "probe" | return false
+  let some stale := compiled.entries[1]? | return false
+  let check := Compile.ModuleEntry.Functions.Run.checkVarNames
+  return log.isEmpty && old.code.key == 0 && current.code.key == 2 &&
+    check (fun _ => none) session "alias" [108, 97, 116, 101, 114] ==
+      .error (.codeFault (.missingCode old.code.key)) &&
+    check (fun _ => some stale) session "alias" [108, 97, 116, 101, 114] ==
+      .error (.codeFault (.layoutMismatch old.code.layout stale.layout))
+
+#guard liveReads pythonSource
+#guard ordinary pythonSource
+#print axioms Compile.ModuleEntry.Functions.Run.advance_assertVarNames
+"""
+
+EXACT_NEEDLE = r'''def inspect():
+    pass
+assert "\ud800" in inspect.__code__.co_varnames
+'''
+
+NEEDLE_LEAN = """
+open Silmaril.Languages.Python.Compile.ModuleEntry.Functions
+
+#guard (match check pythonSource with
+  | .ok checked => match checked.actions with
+    | [.define "inspect" .., .assertVarNames "inspect" _ [55296]] => true
+    | _ => false
+  | .error _ => false)
+"""
+
+
+CASES = (
+    ("def target(): pass", 'assert "missing" in target.__code__.co_varnames',
+     "AssertionError", ".assertionError"),
+    ("", 'assert "x" in unbound.__code__.co_varnames',
+     "NameError", '(.raised (.nameError "unbound"))'),
+    ("target = 9", 'assert "x" in target.__code__.co_varnames',
+     "AttributeError", ".unsupportedVarNamesReceiver"),
+    ("def target(parameter): return parameter", 'assert "parameter" in target.__code__.co_varnames',
+     "normal", "(.unprofiledVarNames ⟨0, ⟨1, 0, 0⟩⟩)"),
+    ("def target():\n    \U00010400 = 1\n"
+     'assert "\\U00010400" in target.__code__.co_varnames',
+     r'assert "\ud801\udc00" in target.__code__.co_varnames',
+     "AssertionError", ".assertionError"),
+)
+
+CPYTHON_COMPLETION = """
+import json
+import sys
+
+space = {'__builtins__': {}}
+with open(sys.argv[1], 'rb') as source:
+    unit = compile(source.read(), sys.argv[1], 'exec', dont_inherit=True, optimize=0)
+try:
+    exec(unit, space)
+    completion = 'normal'
+except (AssertionError, NameError, AttributeError) as error:
+    completion = type(error).__name__
+print(json.dumps([completion, space.get('before'), space.get('tail')]))
+"""
+
+COMPLETION_LEAN = """
+open Silmaril.Languages.Python
+open Compile.ModuleEntry.Functions.Run
+
+private def completion (source : Module) : Option Completion := do
+  let compiled ← (compile source).toOption
+  let heap ← (Core.Closure.Heap.empty.reserve 1).write ⟨0⟩ (.int 9)
+  let initial := State.ready (seed .empty heap) compiled.instructions
+  let (log, .finished session result) := runPrefix compiled.table 64 initial | none
+  let some (.int 5) := session.globals "before" | none
+  let some (some (.int 9)) := session.heap.lookup ⟨0⟩ | none
+  if log.isEmpty && (session.globals "tail").isNone && session.heap.next == 1 then some result
+  else none
+"""
+
+SEEDED_LEAN = """
+open Silmaril.Languages.Python
+open Compile.ModuleEntry.Functions.Run
+
+private def seededBoundary (source : Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let some (.publish "target" published) := compiled.instructions.head? | return false
+  let some heap := (Core.Closure.Heap.empty.reserve 1).write ⟨0⟩ (.int 9) | return false
+  [Core.Module.SeededCall.Namespace.empty, Seeded.legacySeed .builtin, Seeded.legacySeed .preamble].all
+    fun space => Id.run do
+      let result := Seeded.run space compiled heap
+      let some (some (.int 9)) := result.heap.lookup ⟨0⟩ | return false
+      let expected := (space.bindGlobal "target" (.function published.closure)).bindGlobal "before" (.int 5)
+      return result.completion == .error .unsupported && result.calls.isEmpty &&
+        result.heap.next == 1 && result.residual.builtins == expected.builtins &&
+        result.residual.moduleGlobals == expected.moduleGlobals
+
+#guard seededBoundary pythonSource
+"""
+
+
+if __name__ == "__main__":
+    shared = runpy.run_path(str(Path(__file__).resolve().parent.parent / "source-scope/check_intake.py"))
+    with tempfile.TemporaryDirectory() as temporary:
+        source = Path(temporary) / "Example.py"
+        destination = Path(temporary) / "Example.lean"
+        shared["emit"](source, destination, SOURCE)
+        result = subprocess.run([sys.executable, "-I", "-c", CPYTHON, str(source)], check=True,
+                                text=True, capture_output=True, timeout=10)
+        version, tuples = json.loads(result.stdout)
+        assert result.stderr == ""
+        if version == "3.13.5":
+            assert tuples == EXPECTED, tuples
+            print(f"CPython {version} matched the fast-local and module-rebinding fixtures.")
+        expected = ", ".join(f"some {json.dumps(names)}" for names in EXPECTED[:4])
+        lean = LEAN + (
+            f"\n#guard observations pythonSource == some ([{expected}, none, none, none], "
+            f"{json.dumps(EMITTED)}, true)\n"
+        )
+        shared["check_lean"](destination, lean, extra_imports=IMPORTS)
+        shared["emit"](source, destination, EXACT_NEEDLE)
+        shared["check_lean"](destination, NEEDLE_LEAN, extra_imports=IMPORTS)
+        for setup, statement, cpython, lean_outcome in CASES:
+            fixture = f"{setup}\nbefore = 5\n{statement}\ntail = 6\n"
+            shared["emit"](source, destination, fixture)
+            result = subprocess.run([sys.executable, "-I", "-c", CPYTHON_COMPLETION, str(source)],
+                                    check=True, text=True, capture_output=True, timeout=10)
+            assert result.stderr == ""
+            if version == "3.13.5":
+                assert json.loads(result.stdout) == [cpython, 5, 6 if cpython == "normal" else None]
+            lean = COMPLETION_LEAN + f"\n#guard completion pythonSource == some {lean_outcome}\n"
+            if setup == "def target(): pass":
+                lean += SEEDED_LEAN
+            shared["check_lean"](destination, lean, extra_imports=IMPORTS)
+        for statement, diagnostic in (
+            ('assert "x" not in inspect.__code__.co_varnames', ".expressionProfile"),
+            ('assert "x" in inspect().__code__.co_varnames', ".expressionProfile"),
+            ('assert "x" in inspect.__code__.co_varnames, "message"', ".assertionMessage"),
+        ):
+            shared["emit"](source, destination, f"def inspect(): pass\n{statement}\n")
+            shared["check_lean"](destination, f"""
+open Silmaril.Languages.Python.Compile.ModuleEntry.Functions
+
+#guard (match check pythonSource with
+  | .error (.scalar {diagnostic}) => true
+  | _ => false)
+""", extra_imports=IMPORTS)

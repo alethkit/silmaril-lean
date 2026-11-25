@@ -16,6 +16,14 @@ theorem invoke_current_globals {scope : Source.Scope} (session : Core.Module.Fun
     advance table (.ready session (.call target name arguments :: remaining)) =
       ([], .calling (session.prepareCall target (.readGlobal name) arguments) remaining) := rfl
 
+theorem advance_assertVarNames {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (receiver : String) (needle : List UInt32)
+    (remaining : List (Instruction scope)) :
+    advance table (.ready session (.assertVarNames receiver needle :: remaining)) =
+      ([], match checkVarNames table session receiver needle with
+        | .ok () => .ready session remaining
+        | .error completion => .finished session completion) := rfl
+
 theorem runPrefix_append {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
     (first second : Nat) (initial : State scope) :
     let (log, paused) := runPrefix table first initial

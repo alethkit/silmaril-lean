@@ -139,6 +139,8 @@ def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × 
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
+  /-- Read the current module binding once at this assertion. -/
+  | assertVarNames (receiver : Name) (reference : GlobalReference scope receiver) (needle : List UInt32)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
       (parameters : Core.Closure.Parameters (frameLayout child.scope)) (code : Code (frameLayout child.scope))
   | call (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
@@ -155,6 +157,12 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (translated : OperandTranslation tree.scope condition operand)
       (remaining : Translation tree index rest tail) :
       Translation tree index (.assert_ (.unary .not_ condition) none :: rest) (.assertNot operand :: tail)
+  | assertVarNames {index receiver needle rest tail} (reference : GlobalReference tree.scope receiver)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index
+        (.assert_ (.comparison (.text needle)
+          [(.in_, .attribute (.attribute (.name receiver) "__code__") "co_varnames")]) none :: rest)
+        (.assertVarNames receiver reference needle :: tail)
   | call {index statement rest target name arguments destination reference values tail}
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : Positional tree.scope arguments values) (remaining : Translation tree index rest tail) :
@@ -194,6 +202,11 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
           .define located scopeMatches.1 scopeMatches.2 parameters.property.1 parameters.property.2
             code.property tail.property⟩
       else throw (.functionScope path)
+  | .assert_ (.comparison (.text needle)
+      [(.in_, .attribute (.attribute (.name receiver) "__code__") "co_varnames")]) none :: rest => do
+    let some reference := globalReference? tree.scope receiver | throw (.unresolvedGlobal receiver)
+    let tail ← lowerPlan tree index rest
+    return ⟨.assertVarNames receiver reference needle :: tail.val, .assertVarNames reference tail.property⟩
   | .assert_ (.unary .not_ condition) none :: rest => do
     let operand ← (lowerOperand tree.scope condition).mapError .scalar
     let tail ← lowerPlan tree index rest

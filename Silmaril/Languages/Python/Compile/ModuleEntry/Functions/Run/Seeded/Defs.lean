@@ -291,6 +291,7 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
       []⟩, context.heap)
   | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
   | .assertNot operand => (assertOperand space operand false, context.heap)
+  | .assertVarNames .. => (⟨.error .unsupported, []⟩, context.heap)
   | .publish name function =>
     let resolved := Core.Closure.Dispatch.resolve context.table function.ref
     (⟨(resolved.map fun _ => some (name, .function function.closure)).mapError .publicationFault, []⟩, context.heap)
