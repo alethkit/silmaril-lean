@@ -16,7 +16,8 @@ open Silmaril.Wasm Silmaril.Wasm.Execution Silmaril.Wasm.Execution.Core
 set_option maxRecDepth 65536
 set_option maxHeartbeats 600000
 
-theorem reactorAllocatedSegments {before allocated : Store Nat} {mi : ModuleInst}
+/-- Init segments preserve the globals of the allocated reactor store. -/
+theorem reactorAllocatedSegmentsWithGlobals {before allocated : Store Nat} {mi : ModuleInst}
     (alloc : allocModule? before sqlite reactorImportAddrs [.i32 126112, .i32 0]
       [.null] [reactorElementRefs] = some (allocated, mi)) :
     ∃ runtime mem, initSegments? evalConst? allocated { module := mi } sqlite =
@@ -26,7 +27,8 @@ theorem reactorAllocatedSegments {before allocated : Store Nat} {mi : ModuleInst
         some (before.globals.length + 1, ⟨⟨.const, .i32⟩, .i32 0⟩) ∧
       runtime.mem? { module := mi } ⟨0⟩ = some (before.mems.length, mem) ∧
       mem.bytes.size = 131072 ∧
-      Memory.load mem.bytes 59328 4 = some 0 ∧ Memory.load mem.bytes 59892 4 = some 0 := by
+      Memory.load mem.bytes 59328 4 = some 0 ∧ Memory.load mem.bytes 59892 4 = some 0 ∧
+      runtime.globals = allocated.globals := by
   have typed := reactorAllocatedTableElementAndGlobal alloc (by rfl) (by rfl)
   obtain ⟨⟨table, elem, tableAt, tableRefs, elemAt, elemRefs⟩, globalAt⟩ := typed
   let f : Frame := { module := mi }
@@ -58,8 +60,24 @@ theorem reactorAllocatedSegments {before allocated : Store Nat} {mi : ModuleInst
   have reads : mem.bytes.size = 131072 ∧
       Memory.load mem.bytes 59328 4 = some 0 ∧ Memory.load mem.bytes 59892 4 = some 0 :=
     reactorInitialReads
-  exact ⟨runtime, mem, segments, rfl, globalAt, memRuntime, reads.1, reads.2.1, reads.2.2⟩
+  exact ⟨runtime, mem, segments, rfl, globalAt, memRuntime, reads.1, reads.2.1, reads.2.2, rfl⟩
 
+theorem reactorAllocatedSegments {before allocated : Store Nat} {mi : ModuleInst}
+    (alloc : allocModule? before sqlite reactorImportAddrs [.i32 126112, .i32 0]
+      [.null] [reactorElementRefs] = some (allocated, mi)) :
+    ∃ runtime mem, initSegments? evalConst? allocated { module := mi } sqlite =
+        some (runtime, { module := mi }) ∧
+      runtime.funcs = allocated.funcs ∧
+      runtime.global? { module := mi } ⟨1⟩ =
+        some (before.globals.length + 1, ⟨⟨.const, .i32⟩, .i32 0⟩) ∧
+      runtime.mem? { module := mi } ⟨0⟩ = some (before.mems.length, mem) ∧
+      mem.bytes.size = 131072 ∧
+      Memory.load mem.bytes 59328 4 = some 0 ∧ Memory.load mem.bytes 59892 4 = some 0 := by
+  obtain ⟨runtime, mem, initialized, functions, global, mapped, size, flag, word, _⟩ :=
+    reactorAllocatedSegmentsWithGlobals alloc
+  exact ⟨runtime, mem, initialized, functions, global, mapped, size, flag, word⟩
+
+#print axioms reactorAllocatedSegmentsWithGlobals
 #print axioms reactorAllocatedSegments
 
 end SqliteWasm
