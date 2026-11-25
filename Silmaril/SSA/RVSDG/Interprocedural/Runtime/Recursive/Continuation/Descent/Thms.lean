@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Defs
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Thms
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Reflection
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Simulation
 
 public section
@@ -45,5 +46,18 @@ theorem Run.infinite (run : Run m) (base : Stack m (run.entry 0).results final) 
     InfiniteTrace Step ((run.entry 0).state base) := by
   obtain ⟨micro, _, trace⟩ := run.checkpoints base
   exact ⟨micro, by simpa only [trace.first, Run.stackAt] using trace.atEntry 0, trace.steps⟩
+
+/-- Recover an independent prefix between actual call entries. The caller
+has yet to return, and every call or θ activation begun after entering its
+body and before the selected call has returned to its own saved stack.
+The resulting pending frames reproduce the observed stack exactly. -/
+theorem entry_of_interval {micro : Nat → State m final} {begin finish : Nat}
+    (steps : ∀ i, Step (micro i) (micro (i + 1)))
+    {caller : Entry m} {stack : Stack m caller.results final} {nextStack : Stack m next.results final}
+    (atCaller : micro begin = caller.state stack) (atCallee : micro finish = next.state nextStack)
+    (rising : begin < finish) (live : BeforeReturn micro (begin + 1) finish stack)
+    (earlier : EarlierJobsReturn micro (begin + 1) finish) :
+    ∃ pending, Prefix m caller.openBody next pending ∧ pending.push stack = nextStack :=
+  Proofs.entry_of_interval steps atCaller atCallee rising live earlier
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent

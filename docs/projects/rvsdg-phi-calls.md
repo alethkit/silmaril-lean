@@ -176,3 +176,46 @@ with zero completed feedback iterations.
 lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Divergence.Thms
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Divergence.Thms'
 ```
+
+## Productive descent through non-tail calls
+
+`Descent.Prefix` is an independent judgment over the real opened body
+of a call. It uses finite `Returns` derivations for completed bindings,
+follows the selected γ arm, and stops at a designated application with
+its full callable and argument tuple. The saved suffixes retain their
+entry arguments and the preceding local tuples. The callee's result
+interface may differ from the caller's.
+
+`Run.checkpoints` realizes a sequence of these prefixes as successive
+entry checkpoints in one actual continuation stream. Each checkpoint
+keeps the exact stack obtained by pushing the newly pending bindings on
+the previous stack. `Run.stack_grows` proves that each opened caller
+contributes at least one saved frame. Earlier completed jobs can use
+calls and θ, while the path to the designated application goes through
+ordinary bindings and selected γ arms.
+
+`entry_of_interval` recovers a prefix and its exact saved stack from two
+entries on an actual continuation stream. The caller must remain live
+throughout the interval. Every call or θ activation begun within the
+interval must return to its own saved stack before the selected entry.
+These first-entry conditions allow earlier returning calls and exclude
+skipping a still-open intermediate activation. The proof uses each
+binding's first return and the finite delimited correspondence. The
+result concerns unbounded nesting of calls. Infinite θ feedback and
+descent along a still-open θ body use separate semantics.
+[Definitions](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Descent/Defs.lean) ·
+[Proof statements](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Descent/Thms.lean)
+
+The ω fixture links a φ group with a returning helper and two mutually
+recursive members. Each prefix calls the helper to completion, updates
+the helper's value and state, then calls the other member before running
+a nonempty suffix. At microstep 28 the active callable is the first
+member again, with data `32`, state `[1, 10, 1, 20]`, and both distinct
+suffixes pending with their own saved locals.
+[Linked fixture](../../tests/ssa/RVSDGRecursiveDescent.lean)
+
+```sh
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Thms
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiveDescent.lean
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Thms'
+```

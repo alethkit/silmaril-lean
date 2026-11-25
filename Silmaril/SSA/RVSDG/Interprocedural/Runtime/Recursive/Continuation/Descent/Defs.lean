@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Defs
+public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Defs
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Tail.Defs
 
 /-! Independently specified finite prefixes of nested calls. -/
@@ -109,5 +109,30 @@ structure Checkpoints (run : Run m) (base : Stack m (run.entry 0).results final)
   steps : ∀ i, Step (micro i) (micro (i + 1))
   rising : ∀ n, positions n < positions (n + 1)
   atEntry : ∀ n, micro (positions n) = (run.entry n).state (run.stackAt base n)
+
+/-- Read a real call entry, leaving its stack available on the original state. -/
+def Entry.ofState : State m final → Option (Entry m)
+  | .eval (.call (params := params) (results := results) callee arguments) _ =>
+    some ⟨results, ⟨params, callee, arguments⟩⟩
+  | _ => none
+
+def JobBoundary (job : Job m ports) : Prop :=
+  match job with
+  | .call .. | .iteration .. => True
+  | _ => False
+
+/-- Every call or θ start before the selected entry must return to its own
+stack first. This specifies immediate nested calls even when other calls
+occur in the prefix. It excludes a θ activation still open at the entry. -/
+def EarlierJobsReturn (micro : Nat → State m final) (begin finish : Nat) : Prop :=
+  ∀ i, begin ≤ i → i < finish →
+    ∀ {ports : Ports (Ty V S)} (job : Job m ports) (stack : Stack m ports final),
+      micro i = .eval job stack → JobBoundary job →
+      ∃ j, i < j ∧ j < finish ∧ Feedback.atReturn stack (micro j)
+
+/-- The enclosing activation has yet to return at the selected call. -/
+def BeforeReturn (micro : Nat → State m final) (begin finish : Nat)
+    (stack : Stack m ports final) : Prop :=
+  ∀ i, begin ≤ i → i < finish → ¬ Feedback.atReturn stack (micro i)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent
