@@ -127,4 +127,30 @@ theorem preservesLoop_iff_iterate_realize :
 
 end Paper
 
+section Extension
+
+variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
+  (Seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
+  {X S D : τ} {b : Region Φ} (hb : ValueBranches [product X S] b [packedExitType [S, D]])
+
+set_option hygiene false in
+local notation "Comp" => Paper.TypeCategory (τ := τ) Φ
+set_option hygiene false in
+local notation "F" => Paper.Extension.Singleton.projection Seed
+
+/-- A projected comparison of the uniterated step suffices to compare its
+canonical iteration in the same opt-in quotient. -/
+theorem canonical_iterate_realize_map {U W : Comp}
+    (state : U ≅ ofType (product X S)) (result : W ≅ ofType (product X D))
+    (step : U ⟶ W ⨿ U)
+    (represents : (F).map (reindexStep state result step) =
+      (F).map (ofRegion (τ := τ) (realizePackedStep_typed hb) ≫ (sumIso (product X D) (product X S)).hom)) :
+    (F).map (state.inv ≫ Paper.TypeCategory.iterate step ≫ result.hom) =
+      Paper.Extension.Singleton.ofRegion Seed (iterateRegion_valueBranches (realizePackedStep_typed hb)) := by
+  rw [canonical_reindex, Paper.Extension.Singleton.iterate_map_congr Seed represents]
+  change (F).map (Paper.TypeCategory.iterateSum ((_ ≫ (sumIso _ _).hom) ≫ (sumIso _ _).inv)) = _
+  rw [Category.assoc, Iso.hom_inv_id, Category.comp_id, Paper.TypeCategory.iterateSum_ofRegion]
+
+end Extension
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg

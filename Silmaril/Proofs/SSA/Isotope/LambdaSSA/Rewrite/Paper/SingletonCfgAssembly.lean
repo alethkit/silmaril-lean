@@ -218,14 +218,12 @@ private theorem capturePrefix_factor (X S : τ) :
       CartesianMonoidalCategory.lift_snd, CartesianMonoidalCategory.lift_snd]
 
 set_option backward.isDefEq.respectTransparency false in
-theorem carriedStep_factor
-    (whisker : ∀ {Y A B : τ} (f : J.obj (M.obj A) ⟶ J.obj (M.obj B)),
-      reindexHom J M objIso (J.map (M.productIso Y A).hom ≫ retainLeft J (R := M.obj Y) f ≫
-        J.map (M.productIso Y B).inv) =
-        whiskerLeft (ofType (Φ := Φ) Y) (reindexHom J M objIso f))
+theorem carriedStep_factor_retained
     (b : J.obj (M.obj (product X S)) ⟶ J.obj (M.obj (packedExitType [S, D]))) :
     carriedStep J M objIso X S D b =
-      capturePrefix J M objIso X S ≫ whiskerLeft (ofType X) (reindexHom J M objIso b) ≫
+      capturePrefix J M objIso X S ≫
+        reindexHom J M objIso (J.map (M.productIso X (product X S)).hom ≫
+          retainLeft J (R := M.obj X) b ≫ J.map (M.productIso X (packedExitType [S, D])).inv) ≫
         carriedRoute J M objIso X S D := by
   let E := ctxObj M [X]
   let P := product X S
@@ -241,16 +239,28 @@ theorem carriedStep_factor
     J.map (kIso.hom ▷ M.obj P) ≫ J.map (M.productIso X P).inv ≫
       (objIso (product X P)).hom = _ at prefixEq
   rw [contextualStep, ← Category.assoc intro b split, retainEnvironment_comp, retainEnvironment_comp,
-    ← prefixEq, ← whisker (Y := X) (A := P) (B := K) b]
-  change _ = _ ≫ _ ≫ ((objIso (product X K)).inv ≫ J.map (M.productIso X K).hom ≫
+    ← prefixEq]
+  change _ = _ ≫ ((objIso (product X P)).inv ≫ (J.map (M.productIso X P).hom ≫
+    retainLeft J (R := M.obj X) b ≫ J.map (M.productIso X K).inv) ≫ (objIso (product X K)).hom) ≫
+    ((objIso (product X K)).inv ≫ J.map (M.productIso X K).hom ≫
     J.map (kIso.inv ▷ M.obj K) ≫ retainLeft J (R := E) split ≫
     routeEnvironment J E (labelObj M [D]) (labelObj M [S]) ≫ coprod.map result.hom state.hom)
-  simp only [reindexHom, Category.assoc, Iso.hom_inv_id_assoc, ← J.map_comp_assoc,
-    Iso.inv_hom_id, Category.comp_id]
-  simp only [Iso.inv_hom_id_assoc]
-  rw [retainLeft_pre_map_assoc J kIso.hom b, ← J.map_comp_assoc,
+  simp only [Category.assoc, Iso.hom_inv_id_assoc, ← J.map_comp_assoc, Iso.inv_hom_id_assoc]
+  rw [Iso.inv_hom_id, Category.comp_id, retainLeft_pre_map_assoc J kIso.hom b, ← J.map_comp_assoc,
     ← MonoidalCategory.comp_whiskerRight, Iso.hom_inv_id, MonoidalCategory.id_whiskerRight,
     J.map_id, Category.id_comp]
+
+theorem carriedStep_factor
+    (whisker : ∀ {Y A B : τ} (f : J.obj (M.obj A) ⟶ J.obj (M.obj B)),
+      reindexHom J M objIso (J.map (M.productIso Y A).hom ≫ retainLeft J (R := M.obj Y) f ≫
+        J.map (M.productIso Y B).inv) =
+        whiskerLeft (ofType (Φ := Φ) Y) (reindexHom J M objIso f))
+    (b : J.obj (M.obj (product X S)) ⟶ J.obj (M.obj (packedExitType [S, D]))) :
+    carriedStep J M objIso X S D b =
+      capturePrefix J M objIso X S ≫ whiskerLeft (ofType X) (reindexHom J M objIso b) ≫
+        carriedRoute J M objIso X S D := by
+  rw [carriedStep_factor_retained, whisker]
+  rfl
 
 end StepFactor
 

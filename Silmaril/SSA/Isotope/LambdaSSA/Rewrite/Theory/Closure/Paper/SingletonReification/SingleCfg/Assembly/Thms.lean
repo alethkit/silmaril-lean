@@ -86,6 +86,17 @@ variable {V : Type u₁} [Category.{v₁} V] [CartesianMonoidalCategory V] [Symm
   (M : TypeModel τ V) (objIso : ∀ A : τ, J.obj (M.obj A) ≅ ofType (Φ := Φ) A)
   {X S D : τ}
 
+/-- Factor the actual carried step before comparing its retained block with syntax. -/
+theorem carriedStep_factor_retained
+    (b : J.obj (M.obj (product X S)) ⟶ J.obj (M.obj (packedExitType [S, D]))) :
+    carriedStep J M objIso X S D b =
+      capturePrefix J M objIso X S ≫
+        reindexHom J M objIso (J.map (M.productIso X (product X S)).hom ≫
+          retainLeft J (R := M.obj X) b ≫ J.map (M.productIso X (packedExitType [S, D])).inv) ≫
+        carriedRoute J M objIso X S D :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonCfgAssembly.carriedStep_factor_retained
+    J M objIso b
+
 /-- Factor the carried step around the transported left whiskering of the block. -/
 theorem carriedStep_factor
     (whisker : ∀ {Y A B : τ} (f : J.obj (M.obj A) ⟶ J.obj (M.obj B)),

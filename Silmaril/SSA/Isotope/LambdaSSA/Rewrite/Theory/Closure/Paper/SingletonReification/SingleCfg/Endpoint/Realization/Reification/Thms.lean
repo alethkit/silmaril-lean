@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Endpoint.Realization.Factor.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Product.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Tensor.Braid.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Values.Product.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingleCfgExplicitReification
 
 /-! # Reify a guarded one-block CFG with its explicit carried step -/
@@ -30,6 +31,14 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
 set_option hygiene false in
 local notation "Comp" => Paper.TypeCategory (τ := τ) Φ
+
+/-- In Paper, duplicate the pair and project the first component of its first copy. -/
+theorem duplicateCapture_arrow (X S : τ) :
+    let P := product X S
+    Paper.TypeCategory.diagonalArrow (Φ := Φ) P ≫
+      whiskerRight (ofRegion (τ := τ) (productFstBranches (Φ := Φ) X S)) (ofType P) =
+      ofRegion (τ := τ) (duplicateCapture_typed (Φ := Φ) X S) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingleCfgExplicitReification.duplicateCapture_arrow X S
 
 variable [PremonoidalCategory Comp] [SymmetricPremonoidalCategory Comp]
   [HasFiniteCoproducts V] [HasFiniteCoproducts Comp] [DistributiveTensor V]

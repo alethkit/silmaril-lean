@@ -87,6 +87,11 @@ theorem denoteSingleton_swapTerm (A B : τ) :
       J.map (packedSwap M A B) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReificationSwap.denoteSingleton_swapTerm J M A B
 
+/-- The ambient singleton denotation of the first-projection expression. -/
+theorem denoteSingleton_firstTerm (A B : τ) :
+    denoteSingletonRegion J M (returnOnce_typed (fstTerm (Φ := Φ) A B)).hasType = J.map (fstMap M A B) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReificationSwap.denoteSingleton_firstTerm J M A B
+
 end Region
 
 section Transport

@@ -9,6 +9,7 @@ import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.ProductEta.Th
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Product.Producer.Thms
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Tensor.Braid.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Values.Product.Defs
 
 /-! # Identify the explicit carried realization in the syntactic model -/
 
@@ -327,7 +328,7 @@ private theorem duplicateCapture_rightFst (X S : τ) :
 open Paper.TypeCategory (ofType ofRegion braid braidBranches)
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem duplicateCapture_arrow (X S : τ) :
+theorem duplicateCapture_arrow (X S : τ) :
     let P := product X S
     Paper.TypeCategory.diagonalArrow (Φ := Φ) P ≫
       Paper.TypeCategory.whiskerRight (ofRegion (τ := τ) (productFstBranches (Φ := Φ) X S)) (ofType P) =
