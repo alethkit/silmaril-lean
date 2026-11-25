@@ -24,6 +24,7 @@ inductive TopCode where
   | assignDictComp (name : String) (comp : Comprehensions.DictComp)
   | assignCompExpr (name : String) (expr : Comprehensions.Expression)
   | setIndexExpr (receiver subscript rhs : Lowering.Expr)
+  | setIndexCompExpr (receiver subscript rhs : Comprehensions.Expression)
   | addIndexExpr (receiver subscript rhs : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
   | define (name : String) (id : DeclarationId)
@@ -40,6 +41,8 @@ def TopCode.body : TopCode → Body
   | .assignDictComp name comp => comp.body (globalSlot name)
   | .assignCompExpr name expr => expr.body (globalSlot name)
   | .setIndexExpr receiver subscript rhs => .setIndexExpr receiver subscript rhs
+  | .setIndexCompExpr receiver subscript rhs =>
+    Comprehensions.setIndexCode receiver subscript rhs Comprehensions.directStages
   | .addIndexExpr receiver subscript rhs => .addIndexExpr receiver subscript rhs
   | .evalExpr value => .evalExpr value
   | .define name id => .define (globalSlot name) id

@@ -81,6 +81,37 @@ theorem Expression.exec_assignTarget_iff_lowered (program : Program) (available 
   rw [expr.assignTarget_preserves program available admitted target state free start]
   exact exec_iff_denoteBody _ _ _ _ _
 
+/-- Scratch lowering of each staged operand leaves the exact assignment
+outcome unchanged, including the heap, frame and iterator stack. -/
+theorem setIndex_preserves (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (receiverAdmitted : receiver.Admitted)
+    (subscriptAdmitted : subscript.Admitted) (rhsAdmitted : rhs.Admitted)
+    (state : State) (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    denoteBody program available (setIndexCode receiver subscript rhs (loweredStages start)) state =
+      denoteBody program available (setIndexCode receiver subscript rhs directStages) state :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.set_index_exact
+    program available receiver subscript rhs receiverAdmitted subscriptAdmitted rhsAdmitted state free start
+
+/-- The checked-body derivation determines the exact scratch-lowered store outcome. -/
+theorem exec_setIndex_iff_lowered (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (receiverAdmitted : receiver.Admitted)
+    (subscriptAdmitted : subscript.Admitted) (rhsAdmitted : rhs.Admitted)
+    (state : State) (out : Outcome Flow) (free : Lowering.ScratchFree state) (start : Nat := 0) :
+    Exec program available state (setIndexCode receiver subscript rhs directStages) out ↔
+      denoteBody program available (setIndexCode receiver subscript rhs (loweredStages start)) state = out := by
+  rw [setIndex_preserves program available receiver subscript rhs receiverAdmitted subscriptAdmitted rhsAdmitted
+    state free start]
+  exact exec_iff_denoteBody _ _ _ _ _
+
+/-- RHS failure skips the receiver, index and store and retains its effects. -/
+theorem setIndex_rhs_failure (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (stages : ExpressionStages) (state failed : State) (error : Lists.Error)
+    (ran : denoteBody program available (rhs.compile stages (argumentSlot 0)) state = .error error failed) :
+    denoteBody program available (setIndexCode receiver subscript rhs stages) state =
+      .error error (restoreCaller state failed) :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.set_index_rhs_failure
+    program available receiver subscript rhs stages state failed error ran
+
 /-- Replacing each admitted definition-time operand by scratch-lowered code
 preserves the exact outcome and state of the complete definition. -/
 theorem definition_defaults_preserved (program : Program) (available : List DeclarationId)

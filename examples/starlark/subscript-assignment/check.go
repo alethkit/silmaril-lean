@@ -141,4 +141,70 @@ note(1, target)[note(2, 0)] += fail_rhs()`, "has no len", "[1, 2, 3]", "[100]", 
 	require(augmentedActiveDict.SetKey(starlark.String("c"), starlark.None) == nil,
 		"failed augmented assignment should release the iterator guard")
 	fmt.Println("PASS augmented read, RHS, operator and write failure order, preserved effects, and iterator cleanup")
+	checkComprehensionStores()
+}
+
+func checkComprehensionStores() {
+	const sameAliasReceiver = "[note(2, alias) for x in alias][0]"
+	const receiver = "[x for x in [note(2, alias)]][0]"
+	const index = "[x for x in [note(3, 0)]][0]"
+	const rhs = "[x for x in [note(1, 9)]][0]"
+	g, err := run(list+`def change():
+    [note(2, alias) for x in alias][0][[x for x in [note(3, -1)]][0]] = [x for x in [note(1, 9)]][0]
+change()
+table = {"b": 7, "a": 8}
+twin = table
+def choose():
+    table["c"] = 11
+    return note(6, "b")
+[x for x in [note(5, twin)]][0][{x: choose() for x in [0]}[0]] = [x for x in [note(4, 10)]][0]
+twin[[x for x in ["d"]][0]] = 12
+`, nil)
+	require(err == nil && g["events"].String() == "[1, 2, 3, 4, 5, 6]" && g["target"].String() == "[9]" &&
+		g["target"] == g["alias"] && g["table"] == g["twin"] &&
+		g["table"].String() == `{"b": 10, "a": 8, "c": 11, "d": 12}`, fmt.Sprint(g, err))
+	fmt.Println("PASS each store operand runs once, aliased list and dictionary writes see the final heap")
+
+	breakAt := func(marker int) string {
+		return fmt.Sprintf("[[][0] for row in note(%d, rows) for x in row]", marker)
+	}
+	const invalid = "[x for x in [note(2, 7)]][0]"
+	for _, tc := range []struct {
+		receiver, index, rhs, message, trace string
+	}{
+		{receiver, index, breakAt(1), "out of range", "[1]"},
+		{breakAt(2), index, rhs, "out of range", "[1, 2]"},
+		{invalid, breakAt(3), rhs, "out of range", "[1, 2, 3]"},
+		{invalid, index, rhs, "does not support item assignment", "[1, 2, 3]"},
+	} {
+		body := fmt.Sprintf("%srows = [[0]]\n(%s)[%s] = %s\nnote(99, 0)", list, tc.receiver, tc.index, tc.rhs)
+		g, err = run(body, nil)
+		require(err != nil && strings.Contains(err.Error(), tc.message), fmt.Sprint(err))
+		require(g["events"].String() == tc.trace && g["target"].String() == "[7]" &&
+			g["target"] == g["alias"], fmt.Sprint(g, err))
+		outer := g["rows"].(*starlark.List)
+		inner := outer.Index(0).(*starlark.List)
+		require(outer.Append(starlark.None) == nil && inner.Append(starlark.None) == nil,
+			"failed operand left a comprehension guard active")
+	}
+	fmt.Println("PASS comprehension operand errors short-circuit and precede target validation")
+
+	const badKey = "[x for x in [note(3, [])]][0]"
+	const oldDict = `{"b": 7, "a": 8}`
+	failedWrite(dictionary+receiver+"["+badKey+"] = "+rhs, "unhashable type: list", "[1, 2, 3]", oldDict, nil)
+	const provided = "target = provided\nalias = target\n"
+	frozenList := starlark.NewList([]starlark.Value{starlark.MakeInt(7)})
+	frozenList.Freeze()
+	failedWrite(provided+receiver+"[[x for x in [note(3, 2)]][0]] = "+rhs, "out of range", "[1, 2, 3]", "[7]",
+		starlark.StringDict{"provided": frozenList})
+	frozenDict := starlark.NewDict(1)
+	require(frozenDict.SetKey(starlark.String("b"), starlark.MakeInt(7)) == nil, "setting fixture key")
+	frozenDict.Freeze()
+	failedWrite(provided+receiver+"["+badKey+"] = "+rhs, "frozen hash table", "[1, 2, 3]", `{"b": 7}`,
+		starlark.StringDict{"provided": frozenDict})
+
+	active := failedWrite(list+"def visit():\n    for x in target:\n        "+
+		sameAliasReceiver+"["+index+"] = "+rhs+"\nvisit()", "during iteration", "[1, 2, 3]", "[7]", nil)
+	require(active.(*starlark.List).Append(starlark.None) == nil, "failed store left its enclosing iterator active")
+	fmt.Println("PASS saved operands retain list bounds, dictionary hashing, freezing, and same-alias guard order")
 }

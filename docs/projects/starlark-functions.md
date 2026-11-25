@@ -274,8 +274,8 @@ elaborator. Successful module initialization freezes the reachable result.
 
 The normalized `CompExpr` grammar admits list and dictionary
 comprehensions in return values, assignment RHSs for names and nested
-name patterns, and parameter defaults. Its recursive nodes include calls,
-conditional tests and arms, and both
+name patterns, simple subscript stores, and parameter defaults. Its
+recursive nodes include calls, conditional tests and arms, and both
 operands of `and` and `or`. A call's callee, positional operands, named
 operands, and optional `*` and `**` operands all admit the placement
 grammar. Ordinary leaves retain the existing resolved expression grammar.
@@ -418,7 +418,7 @@ The normalized `CompExpr.listComprehension` and
 `CompExpr.dictComprehension` forms accept recursive operands in clauses
 and heads. The plain-head forms remain available. Quotation supplies
 ordinary leaves and pattern ASTs. The recursive comprehension nodes
-are constructed separately. Subscript stores, field targets, and other
+are constructed separately. Augmented stores, field targets, and other
 statement operands remain outside this placement boundary.
 Call shapes and spread value domains follow the
 [existing argument profile](#argument-binding).
@@ -737,8 +737,8 @@ normalized lexical resolution and inherits finite declaration descent.
 The Go fixtures observe target writes, effect order and guard release.
 The Lean fixtures also compare the private frame and heap. Comprehension
 revisits retain the [fresh-local profile](#comprehensions-in-parameter-defaults).
-Quotation, comprehension RHSs in subscript stores, subscript and field
-pattern leaves, and augmented pattern assignment remain separate.
+Quotation, subscript and field pattern leaves, and augmented pattern
+assignment remain separate.
 [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
 
 ### Simple subscript assignment
@@ -762,6 +762,31 @@ The three expressions can use the existing quotation. A subscript assignment
 creates no lexical binding. Slice and compound targets and user-defined item
 assignment remain open.
 [Assignments in the pinned spec][assignments] · [Go assignment compilation][go-assign] · [Go write dispatch][go-write] · [Go dictionary checks][go-dict-write] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/NativeSubscriptChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
+
+#### Comprehension operands in simple subscript stores
+
+Normalized function and module statements also accept
+`setIndexCompExpr receiver subscript rhs`. All three operands can use
+`CompExpr`. The emitted code evaluates the RHS, receiver and subscript
+once in that order and saves their values in private bindings. After
+they succeed, `Body.setIndexExpr` reads the saved values and validates
+and writes in the resulting heap. An operand failure skips subsequent
+operands and the store. The frame is restored on either exit, and the
+heap effects and residual iterator stack survive.
+[Pinned assignments][assignments] · [Go RHS order][go-assignment] · [Go store order][go-assign]
+
+`setIndex_rhs_failure` states the exact failure boundary.
+`setIndex_preserves` and `exec_setIndex_iff_lowered` compare the native
+body, the independent operational derivation and scratch-lowered code
+on the exact outcome, frame, heap, and guards for admitted operands
+from scratch-free states. Source correspondence shares normalized
+elaboration and inherits the finite declaration context. Pinned fixtures
+cover alias writes, operand and store error order, and release of nested
+guards. The existing exact-integer index and fresh comprehension-local
+profiles still apply. Comprehension operands of augmented stores,
+field and subscript leaves in patterns, and comprehension quotation
+remain separate.
+[Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
 
 ### Integer augmented subscript assignment
 

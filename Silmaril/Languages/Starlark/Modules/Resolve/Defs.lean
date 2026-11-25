@@ -109,6 +109,7 @@ inductive Statement where
   | assignDictComp (name : String) (comp : DictComp)
   | assignCompExpr (name : String) (expr : CompExpr)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
+  | setIndexCompExpr (receiver subscript rhs : CompExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
   | ret (value : Option Lowering.Resolve.SourceExpr)
@@ -130,6 +131,7 @@ inductive Command where
   | assignDictComp (name : String) (comp : DictComp)
   | assignCompExpr (name : String) (expr : CompExpr)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
+  | setIndexCompExpr (receiver subscript rhs : CompExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
   | define (name : String) (signature : SourceSignature) (body : Statement)
@@ -173,7 +175,7 @@ def globalNames (commands : List Command) : List String :=
     | .assignCompExpr name _ | .define name .. => [name]
     | .assignTarget target _ | .assignTargetCompExpr target _ =>
       ((resolveTarget globalSlot .unsupportedAssignmentTarget target).toOption.map Prod.snd).getD []
-    | .setIndex .. | .addIndex .. | .eval _ | .load .. => []
+    | .setIndex .. | .setIndexCompExpr .. | .addIndex .. | .eval _ | .load .. => []
 
 private def Statement.localNames : Statement → Except Error (List String)
   | .assign name _ | .assignListComp name _ | .assignDictComp name _
@@ -184,7 +186,8 @@ private def Statement.localNames : Statement → Except Error (List String)
   | .forIn target _ body => return target :: (← body.localNames)
   | .forInTarget target _ body =>
     return (← resolveTarget fileSlot .unsupportedLoopTarget target).2 ++ (← body.localNames)
-  | .pass | .setIndex .. | .addIndex .. | .eval _ | .ret _ | .retCompExpr _ | .breakLoop | .continueLoop => pure []
+  | .pass | .setIndex .. | .setIndexCompExpr .. | .addIndex .. | .eval _ | .ret _ | .retCompExpr _
+    | .breakLoop | .continueLoop => pure []
 
 private abbrev Build := StateT Program (Except Error)
 
@@ -379,6 +382,15 @@ private def resolveSetIndex {α : Type} (context : Context)
   let (receiver, subscript, reads) ← resolveSubscript context receiver subscript
   return (emit receiver subscript rhs, rhsReads ++ reads)
 
+private def resolveSetIndexCompExpr {α : Type} (context : Context)
+    (receiver subscript rhs : CompExpr)
+    (emit : Comprehensions.Expression → Comprehensions.Expression → Comprehensions.Expression → α) :
+    Build (α × List Binding) := do
+  let (rhs, rhsReads) ← compileCompExpr context rhs
+  let (receiver, receiverReads) ← compileCompExpr context receiver
+  let (subscript, subscriptReads) ← compileCompExpr context subscript
+  return (emit receiver subscript rhs, rhsReads ++ receiverReads ++ subscriptReads)
+
 private def resolveAddIndex {α : Type} (context : Context)
     (receiver subscript rhs : Lowering.Resolve.SourceExpr)
     (emit : Lowering.Expr → Lowering.Expr → Lowering.Expr → α) : Build (α × List Binding) := do
@@ -467,6 +479,10 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
   | .setIndex receiver subscript rhs => do
     let (code, reads) ← resolveSetIndex context receiver subscript rhs Body.setIndexExpr
     return ⟨code, reads⟩
+  | .setIndexCompExpr receiver subscript rhs => do
+    let (code, reads) ← resolveSetIndexCompExpr context receiver subscript rhs fun receiver subscript rhs =>
+      Comprehensions.setIndexCode receiver subscript rhs Comprehensions.directStages
+    return ⟨code, reads⟩
   | .addIndex receiver subscript rhs => do
     let (code, reads) ← resolveAddIndex context receiver subscript rhs Body.addIndexExpr
     return ⟨code, reads⟩
@@ -533,6 +549,9 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     return .exec (.assignCompExpr name expr)
   | .setIndex receiver subscript rhs => do
     let (code, _) ← resolveSetIndex context receiver subscript rhs TopCode.setIndexExpr
+    return .exec code
+  | .setIndexCompExpr receiver subscript rhs => do
+    let (code, _) ← resolveSetIndexCompExpr context receiver subscript rhs TopCode.setIndexCompExpr
     return .exec code
   | .addIndex receiver subscript rhs => do
     let (code, _) ← resolveAddIndex context receiver subscript rhs TopCode.addIndexExpr
