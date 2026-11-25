@@ -356,6 +356,10 @@ if __name__ == "__main__":
             extra_imports=imports, capture_output=True,
         )
         for source, diagnostic in (
+            ('def outer(seed): assert "x" in seed.__code__.co_cellvars', ".frontend .expressionShape"),
+            ('def outer(seed): assert "x" in seed.__code__.co_names', ".frontend .expressionShape"),
+            ('def outer(seed): assert "x" in seed().__code__.co_freevars', ".frontend .expressionShape"),
+            ('def outer(seed): assert "x" in seed.__code__.co_freevars, "message"', ".frontend .bodyShape"),
             ("def outer(seed): seed(5)", ".frontend .bodyShape"),
             ("def outer(seed): seed(value=5)", ".frontend .bodyShape"),
             ("def outer(seed): seed(*())", ".frontend .bodyShape"),

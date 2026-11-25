@@ -22,8 +22,11 @@ theorem lower_rejected_iff {layout : Layout} (source : Link.Code layout) :
 
 theorem Compiled.resolve_entry {source : Source.Module} (compiled : Compiled source) :
     ∃ target : Core.Closure.Executor.Body compiled.entry.layout,
-      Translation (Link.linkBody 1 compiled.sourceBody.code).code target ∧
-      resolve compiled.table compiled.entry = .ok { parameters := compiled.sourceBody.parameters, body := target } :=
+      Translation (Link.linkBody 1 compiled.sourceBody.moduleTree compiled.sourceBody.code).code target ∧
+      resolve compiled.table compiled.entry = .ok
+        { parameters := compiled.sourceBody.parameters
+          body := target
+          freevars := (Link.link compiled.sourceBody).entryFreeVars } :=
   Proofs.Languages.Python.Compile.Closure.Run.resolve_entry compiled
 
 theorem Compiled.resolve_reference {source : Source.Module} (compiled : Compiled source)

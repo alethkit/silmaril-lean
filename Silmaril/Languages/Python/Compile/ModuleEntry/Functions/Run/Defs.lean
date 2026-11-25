@@ -49,31 +49,32 @@ def destination {scope : Scope} : Functions.Destination scope → Core.Module.Fu
   | .store name _ => .bindGlobal name
   | .assertion => .assert
 
-def lowerInstructions {scope : Scope} (next : Nat) : List (Functions.Action scope) →
+def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : List (Functions.Action scope) →
     Except CompileError (List (Instruction scope) × List Compile.Closure.Link.Block)
   | [] => .ok ([], [])
   | .scalar action :: rest => do
-    let (instructions, blocks) ← lowerInstructions next rest
+    let (instructions, blocks) ← lowerInstructions tree next rest
     return (.scalar action :: instructions, blocks)
   | .assertNot condition :: rest => do
-    let (instructions, blocks) ← lowerInstructions next rest
+    let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertNot condition :: instructions, blocks)
   | .call target name _ operands :: rest => do
     let some arguments := operands.mapM callOperand? | throw .callOperand
-    let (instructions, blocks) ← lowerInstructions next rest
+    let (instructions, blocks) ← lowerInstructions tree next rest
     return (.call (destination target) name arguments :: instructions, blocks)
   | .nestedCall target name _ operands :: rest => do
     let some arguments := operands.mapM callArgument? | throw .callOperand
-    let (instructions, blocks) ← lowerInstructions next rest
+    let (instructions, blocks) ← lowerInstructions tree next rest
     return (.nestedCall (destination target) name arguments :: instructions, blocks)
   | .define name _ child parameters code :: rest => do
     let layout := frameLayout child.scope
     if captures : layout.captures = 0 then
-      let nested := Compile.Closure.Link.linkBody (next + 1) code
-      let (instructions, blocks) ← lowerInstructions (next + 1 + nested.children.length) rest
+      let nested := Compile.Closure.Link.linkBody (next + 1) tree code
+      let (instructions, blocks) ← lowerInstructions tree (next + 1 + nested.children.length) rest
       let root : Compile.Closure.Link.Block :=
         ⟨child.scope.context.path, ⟨layout, { parameters, body := nested.code }⟩⟩
-      return (.publish name ⟨⟨next, layout⟩, captures⟩ :: instructions, root :: (nested.children ++ blocks))
+      return (.publish name ⟨⟨next, layout⟩, captures⟩ :: instructions,
+        root.withFreeVars tree :: (nested.children ++ blocks))
     else throw (.incomingCaptures child.scope.context.path)
 
 structure Compiled (source : Source.Module) where
@@ -88,7 +89,7 @@ def Compiled.table {source : Source.Module} (compiled : Compiled source) : CodeT
 
 def compile (source : Source.Module) : Except CompileError (Compiled source) := do
   let checked ← (Functions.check source).mapError .source
-  let (instructions, linked) ← lowerInstructions 0 checked.actions
+  let (instructions, linked) ← lowerInstructions checked.tree 0 checked.actions
   let table ← (Compile.Closure.Run.lowerTable linked).mapError .functionBody
   return ⟨checked, instructions, linked, table.val, table.property⟩
 
