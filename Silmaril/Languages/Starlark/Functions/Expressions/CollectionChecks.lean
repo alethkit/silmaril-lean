@@ -398,4 +398,82 @@ private def onlyEventsList (state : Lists.State) : Bool :=
   | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.string "z"))
   | _ => false
 
+private def rangeExpr (args : List Expr) : Expr := .callPos (.atom (.builtin .range)) args
+
+#guard
+  let check := fun args subscript expected =>
+    match execute (.index (rangeExpr (args.map integer)) (integer subscript)) with
+    | .ok (.scalar (.int value)) _ => value == expected
+    | _ => false
+  check [5] 0 0 && check [3, 8] (-1) 7 &&
+    check [3, 10, 2] (-4) 3 && check [10, 3, -2] (-1) 4 &&
+    check [3000000000] 2147483648 2147483648 &&
+    check [9223372036854775808] (-1) 9223372036854775807 &&
+    check [-9223372036854775808, 9223372036854775807] 0 (-9223372036854775808) &&
+    check [-9223372036854775808, 9223372036854775807] (-1) 9223372036854775806
+
+-- A large exact range and its indexed result use no heap cells.
+#guard
+  let program : Program := #[]
+  let initial : Lists.State := { iterators := [0], heap := #[⟨.list [], false⟩] }
+  let expression := Expr.index (rangeExpr [integer 1000000000000000000000000]) (integer (-1))
+  match denoteExpr program [] expression initial with
+  | .ok (.scalar (.int 999999999999999999999999)) next =>
+    decide (next.heap = initial.heap ∧ next.iterators = initial.iterators)
+  | _ => false
+
+#guard
+  let target : Binding := ⟨.global, "out"⟩
+  let check := fun subscript =>
+    let receiver := note 1 (rangeExpr [integer 10, integer 3, integer (-2)])
+    let expression := Expr.index receiver (note 2 (integer subscript))
+    let initial := root.write target (.scalar (.int 99))
+    (execute expression, run program (.seq setup (lower expression target 5).code) initial)
+  match check (-1), check (-5) with
+  | (.ok (.scalar (.int 4)) success, .ok .next loweredSuccess),
+    (.error (.indexRange (-5) 4) failure, .error (.indexRange (-5) 4) loweredFailure) =>
+    observed success [1, 2] && observed failure [1, 2] &&
+      observed loweredSuccess [1, 2] && observed loweredFailure [1, 2] &&
+      decide (success.heap = loweredSuccess.heap ∧ failure.heap = loweredFailure.heap ∧
+        (loweredSuccess.bindingValue target).toOption = some (.scalar (.int 4)) ∧
+        (loweredFailure.bindingValue target).toOption = some (.scalar (.int 99)))
+  | _, _ => false
+
+-- All constructor argument effects precede validation. A failed receiver skips the subscript.
+#guard
+  let bad := Expr.atom (.scalar (.bool true))
+  let failed := fun receiver subscript expected trace =>
+    match execute (.index receiver subscript) with
+    | .error error state => error == expected && observed state trace
+    | _ => false
+  let subscript := note 4 (integer 0)
+  let base := rangeExpr [integer 4]
+  failed (rangeExpr [note 1 (integer 1), note 2 (integer 2), note 3 (integer 0)])
+    subscript .zeroRangeStep [1, 2, 3] &&
+  failed (rangeExpr [note 1 bad, note 2 (string "wrong"), note 3 (integer 0)])
+    subscript (.builtinType .range (.scalar (.bool true))) [1, 2, 3] &&
+  failed (rangeExpr [note 1 bad, note 2 (integer 2), note 3 (integer 3), note 4 (integer 4)])
+    (note 5 (integer 0)) (.builtinArity .range 1 3 4) [1, 2, 3, 4] &&
+  failed (rangeExpr []) subscript (.builtinArity .range 1 3 0) [] &&
+  failed (.call (.atom (.builtin .range)) [] [("start", note 1 (integer 0)), ("stop", note 2 (integer 3))] none none)
+    subscript (.builtinKeyword .range "start") [1, 2] &&
+  failed (note 1 base) (length (note 2 (integer 9))) (.builtinType .len (.scalar (.int 9))) [1, 2] &&
+  failed (note 1 base) (note 2 bad) .indexType [1, 2] &&
+  failed (note 1 base) (note 2 (integer 4)) (.indexRange 4 4) [1, 2] &&
+  failed (note 1 (rangeExpr [integer 2, integer 4, integer (-1)])) (note 2 (integer 0)) (.indexRange 0 0) [1, 2]
+
+#guard
+  let commands : List Modules.Resolve.Command := [
+    .define "pick" { positional := [⟨"value", none⟩] } (.ret (some starlark%[value])),
+    .define "last" {} (.ret (some starlark%[pick(range(pick(10), 3, -2))[pick(-1)]])),
+    .assign "out" starlark%[last()], .assign "size" starlark%[len(range(10, 3, -2))],
+    .assign "empty" starlark%[bool(range(1, 1))], .assign "kind" starlark%[type(range(1))]]
+  match Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.ok published _) =>
+    decide (published.exports.lookup "out" = some (.scalar (.int 4)) ∧
+      published.exports.lookup "size" = some (.scalar (.int 4)) ∧
+      published.exports.lookup "empty" = some (.scalar (.bool false)) ∧
+      published.exports.lookup "kind" = some (.string "range"))
+  | _ => false
+
 end Silmaril.Languages.Starlark.Functions.Lowering

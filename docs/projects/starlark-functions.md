@@ -187,7 +187,7 @@ shared Lean key policy and pinned Go reject list and dictionary keys even
 after freezing.
 [Dictionary expressions in the pinned spec][dict-expr] · [Hashing in the pinned spec][hashing] · [Go compiler][go-dict-compile] · [Go interpreter][go-dict-run]
 
-Subscript reads accept lists, tuples, dictionaries and strings. Sequence
+Subscript reads accept lists, tuples, dictionaries, strings and ranges. Sequence
 reads use exact integers and allow negative indices. Go supports
 additional indexable types and checks sequence indices through a signed
 32-bit conversion. Byte indexing remains open.
@@ -216,6 +216,37 @@ The existing subscript rule and direct denotation share this primitive.
 projection, including keeping the destination binding on failure. The
 normalized source and Lean quotation use the existing `receiver[index]` form.
 [Pinned strings][strings] · [Pinned subscripts][subscript] · [Go operand compilation][go-index-compile] · [Go validation][go-index] · [Go byte indexing][go-string-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
+
+### Lazy range subscript reads
+
+`range` accepts one to three positional integers and rejects a zero step.
+The result stores the start, exclusive stop and nonzero step. Its length
+comes from the distance to the stop and the step magnitude. Direction
+mismatches give an empty range. Construction and subscripting use a fixed
+number of integer operations and allocate no Starlark heap cells.
+
+The receiver and index evaluate once, from left to right. A failed range
+constructor stops evaluation before the index. Once the receiver and index
+succeed, the same sequence normalization used for lists and tuples checks
+the index type and bounds. Negative indices count from the range length.
+The selected value is `start + offset * step`. Indexing leaves all earlier
+effects intact on either outcome.
+
+Lean uses exact integers for range parameters, lengths, indices and results.
+Pinned Go converts constructor arguments to host `int`, computes the length
+in that type, and converts the index to signed 32 bits before sequence
+bounds. On amd64, the Go fixture distinguishes constructor overflow, an
+in-range index above `2^31 - 1`, and wraparound of the length calculation
+even when both endpoints fit. The Lean fixture succeeds on those exact
+integer cases.
+
+The new built-in rules and subscript primitive compose with
+`evaluates_iff_denoteExpr` and `lower_preserves` for exact outcomes and
+state after scratch projection. Normalized source and Lean quotation use
+ordinary calls and subscripts. Range truth, length and type are available.
+Range slices, iteration and spreading, conversions to lists and tuples,
+comparison, membership and formatting remain open.
+[Pinned range spec][range] · [Pinned subscripts][subscript] · [Go range construction and indexing][go-range] · [Go index validation][go-index] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ### List and tuple slice reads
 
@@ -246,7 +277,7 @@ value-level selection and allocation primitive with the denotation.
 `evaluates_iff_denoteExpr` compares the exact outcome and state.
 `lower_preserves` covers slice reads after projecting direct scratch bindings.
 The normalized resolver and Lean quotation admit `xs[a:b:s]` with optional
-bounds. Bytes and ranges remain open.
+bounds. Slice reads on bytes and ranges remain open.
 [Pinned slice spec][slice-expr] · [Go compilation][go-slice-compile] · [Go validation][go-slice-eval] · [Go list slice][go-list-slice] · [Go tuple slice][go-tuple-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ### String slice reads
@@ -486,7 +517,7 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
   && go run "$fixtures/nested-expressions/check.go" && go run "$fixtures/subscript-assignment/check.go")
 ```
 
-Module initialization, prepublished imports and five universal built-ins
+Module initialization, prepublished imports and the checked universal built-ins
 extend this profile. Host callable effects remain open.
 [Modules](starlark-modules.md) · [Built-ins](starlark-builtins.md)
 
@@ -502,6 +533,8 @@ extend this profile. Host callable effects remain open.
 [go-dict-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1371-L1380
 [go-dict-run]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L486
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
+[range]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#range
+[go-range]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L827-L879
 [go-index-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1334-L1338
 [go-index]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L681-L717
 [slice-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#slice-expressions

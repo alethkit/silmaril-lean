@@ -14,7 +14,7 @@ denotation and operational rules. Resolved expressions cover three families.
 - Scalar values `None`, Booleans and exact integers, with resolved binding reads.
 - List, tuple and dictionary displays, with arbitrary nesting. The compiler-facing
   dictionary entry spine builds from earlier entries to later entries.
-- Subscript reads from lists, tuples, dictionaries and valid UTF-8 strings,
+- Subscript reads from lists, tuples, dictionaries, ranges and valid UTF-8 strings,
   slice reads from lists, tuples and valid UTF-8 strings, and the one-argument
   list method `append`.
 
