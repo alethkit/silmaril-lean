@@ -11,6 +11,26 @@ import tempfile
 
 
 FIXTURES = (
+    ("literal_if_selected_order", """kept = 1
+if True:
+    kept = 4
+    observed = kept
+else:
+    assert missing
+if 0:
+    observed = 9
+else:
+    assert observed == 4
+""", "normal", ".normal", 4, 4),
+    ("literal_if_selected_failure", """kept = 1
+if False:
+    assert missing
+else:
+    kept = 4
+    assert False
+    kept = 9
+observed = 8
+""", "AssertionError", ".assertionError", None, 4),
     ("body_code_names_live_rebind", """global_x = 1
 def first():
     assert global_x == 1

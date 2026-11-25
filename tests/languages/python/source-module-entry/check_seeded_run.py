@@ -103,6 +103,17 @@ private def exactGlobals (source : Source.Module) (profile : String) (bindings :
     (Compile.ModuleEntry.Functions.Run.Seeded.run space compiled).residual.moduleGlobals ==
       bindings ++ space.moduleGlobals
 
+private def literalIfPrefix (source : Source.Module) (profile : String) : Bool :=
+  match Compile.ModuleEntry.Functions.Run.compile { source with body := source.body.take 2 } with
+  | .error _ => false
+  | .ok compiled =>
+    let space := initial profile
+    let result := Compile.ModuleEntry.Functions.Run.Seeded.run space compiled
+    match result.completion with
+    | .ok () => result.calls.isEmpty && result.heap.next == 0 &&
+        result.residual.moduleGlobals == space.moduleGlobals && result.residual.builtins == space.builtins
+    | .error _ => false
+
 private def ordinaryOutcome (source : Source.Module) : Option (String × Option Int) := do
   let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
   match (Compile.ModuleEntry.Functions.Run.runPrefix compiled.table 1000 compiled.start).2 with
@@ -205,6 +216,10 @@ UPSTREAM_PUBLICATION_CASE = "tests/python/programs/original/lambda-py/python-ref
 UPSTREAM_PUBLICATION_SHA256 = "c4664c5343be15e123a772fb1d7f49819b3ba9781266c6900172d653bdd26ada"
 UPSTREAM_DIRECT_DISCARD_CASE = "tests/python/programs/original/k-python/programs/testscope3.py"
 UPSTREAM_DIRECT_DISCARD_SHA256 = "8cd010d3911293c1dfe2da09adf3b40c8fcb258ecd85dd9847e65d5555866924"
+UPSTREAM_LITERAL_IF_CASE = "tests/python/programs/original/k-python/programs/testintegers5.py"
+UPSTREAM_LITERAL_IF_SHA256 = "a65342d9d5bc36848971fe5628ee00379edacee5a20cc406c790f4ef128222b8"
+UPSTREAM_CONDITIONAL_EXPR_CASE = "tests/python/programs/original/k-python/programs/testif.py"
+UPSTREAM_CONDITIONAL_EXPR_SHA256 = "3e35304b328295b30ffa6dbba0b50d7b6e1b10872e4138616a9bc3cd87d5ee4f"
 UPSTREAM_LITERAL_INDEXING = (
     ("tests/python/programs/original/k-python/programs/testlists2.py",
      "7f4fdac9762c64a4355649bab7aeba840c94512eb11831621d60660ce7aa644e"),
@@ -375,6 +390,36 @@ after = 9
      ["unsupported", "absent", "absent"]),
     ("direct_nested_unsupported", "builtin", "def f():\n    return 1\ncompare_ints(f(), 1)\nafter = 9\n",
      ["unsupported", "absent", "absent"]),
+    ("literal_if_order", "legacy_builtin", """result = 5
+if -1:
+    result = 7
+    kept = result
+    assert True
+else:
+    assert missing
+if 0:
+    assert False
+else:
+    after = kept
+""", ["normal", "int:7", "int:7"]),
+    ("literal_if_failure", "legacy_preamble", """result = 5
+if False:
+    assert missing
+else:
+    result = 7
+    assert False
+    result = 8
+after = 9
+""", ["AssertionError:empty", "int:7", "absent"]),
+    ("literal_if_missing", "empty", """result = 5
+if True:
+    result = 7
+    assert missing
+    assert False
+else:
+    result = 8
+after = 9
+""", ["NameError:missing", "int:7", "absent"]),
     ("bool_int_false", "legacy_bool_int_builtin", """result = int(False)
 ___assertEqual(result, 0)
 ___assertIsNot(result, False)
@@ -475,6 +520,9 @@ after = 9
 )
 
 NESTED_CALL_NAMES = {
+    "literal_if_order": [],
+    "literal_if_failure": [],
+    "literal_if_missing": [],
     "nested_missing_outer": [],
     "nested_returns": ["require_error", "compare_ints", "require_error"],
     "nested_first_failure": ["compare_ints"],
@@ -497,6 +545,9 @@ NESTED_CALL_NAMES = {
 }
 
 EXACT_FIXTURE_BINDINGS = {
+    "literal_if_order": '[("after", .int 7), ("kept", .int 7), ("result", .int 7)]',
+    "literal_if_failure": '[("result", .int 7)]',
+    "literal_if_missing": '[("result", .int 7)]',
     "callable_len_alias": '[("after", .int 9), ("result", .bool true), ("len", .int 7), ("saved_len", .builtin .len)]',
     "callable_shadow": '[("callable", .int 7), ("result", .int 5)]',
     "assert_is_shadow": '[("___assertIs", .int 7), ("result", .int 5)]',
@@ -519,6 +570,9 @@ EXACT_FIXTURE_BINDINGS = {
 }
 
 CPYTHON_FIXTURE_BINDINGS = {
+    "literal_if_order": {"result": 7, "kept": 7, "after": 7},
+    "literal_if_failure": {"result": 7},
+    "literal_if_missing": {"result": 7},
     "isinstance_type_aliases": {"after": 9, "result": False, "converted": 0,
                                "int": bool, "saved_int": int, "saved_bool": bool},
 }
@@ -731,6 +785,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
     cases = (
         (UPSTREAM_ASSIGN_CASE, UPSTREAM_ASSIGN_SHA256, {"x": 5}),
         (UPSTREAM_ASSERT_NOT_CASE, UPSTREAM_ASSERT_NOT_SHA256, {}),
+        (UPSTREAM_LITERAL_IF_CASE, UPSTREAM_LITERAL_IF_SHA256, {}),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_NO_OP),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_INDEXING),
     )
@@ -776,6 +831,23 @@ def replay_upstream_publication(checkout, shared, source_path, lean_path):
                                  "user_bindings": {"failing_function": "function"}}
     shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
     return {"path": UPSTREAM_PUBLICATION_CASE, "sha256": UPSTREAM_PUBLICATION_SHA256, "profiles": observations}
+
+
+def replay_upstream_conditional_expression(checkout, shared, source_path, lean_path):
+    source = pinned_source(checkout, UPSTREAM_CONDITIONAL_EXPR_CASE, UPSTREAM_CONDITIONAL_EXPR_SHA256)
+    shared["emit"](source_path, lean_path, source)
+    guards = ["""
+#guard (match Compile.ModuleEntry.Functions.Run.compile pythonSource with
+  | .error (.source (.scalar .expressionProfile)) => true
+  | _ => false)
+#guard ordinaryOutcome { pythonSource with body := pythonSource.body.take 2 } == some ("normal", none)
+"""]
+    for profile in ("empty", "legacy_builtin", "legacy_preamble"):
+        assert cpython(source, profile, expected_globals={}) == ["normal", "absent", "absent"]
+        guards.append(f"#guard literalIfPrefix pythonSource {json.dumps(profile)}")
+    shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
+    return {"path": UPSTREAM_CONDITIONAL_EXPR_CASE, "sha256": UPSTREAM_CONDITIONAL_EXPR_SHA256,
+            "cpython": "normal", "lean": "scalar expressionProfile", "lean_statement_prefix": "normal"}
 
 
 def replay_upstream_direct_discard(checkout, shared, source_path, lean_path):
@@ -829,6 +901,7 @@ def replay_upstream(checkout, shared, source_path, lean_path):
         "scalars": replay_upstream_scalars(checkout, shared, source_path, lean_path),
         "publication": replay_upstream_publication(checkout, shared, source_path, lean_path),
         "direct_discard": replay_upstream_direct_discard(checkout, shared, source_path, lean_path),
+        "conditional_expression_boundary": replay_upstream_conditional_expression(checkout, shared, source_path, lean_path),
     }
 
 

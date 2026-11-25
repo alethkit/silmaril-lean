@@ -20,6 +20,19 @@ sequence length and lowers a successful lookup to an integer operand.
 All elements must be integer literals. Out-of-bounds indices, slices,
 and dynamic receivers or indices are outside the profile.
 
+Module `if` statements admit Boolean and signed integer literal guards.
+Both arms must consist of single-name assignments, message-free assertions
+and `pass`, with every operand checked by the scalar profile. Scope analysis
+visits the entire statement before this check. Declarations, nested scopes,
+and other statement forms in either arm prevent elision.
+
+The translation certifies the decoded truth value and both arms, and emits
+the selected actions in source order before the remaining module.
+Literal Boolean assertions in an arm lower to the equivalent integer truth
+tests. Both runners use their existing transitions, preserving writes before
+a failing assertion or lookup and skipping later statements on failure.
+Conditional expressions have a separate source form.
+
 The regression emits Lean from Python source and verifies the global
 access witnesses, action order and the diagnostic for an assertion
 message.

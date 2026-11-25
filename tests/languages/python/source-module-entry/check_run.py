@@ -41,6 +41,32 @@ assert (8, -7)[0] == 8
 assert (2, 4)[-1] == 2
 after = 2
 """, {}, {"before": 1, "after": None}, "AssertionError", ".raised .assertionError", 2),
+    ("literal_if_order", """result = 1
+if -1:
+    result = 2
+    kept = result
+    pass
+else:
+    assert missing
+if False:
+    result = 8
+else:
+    result = kept
+assert result == 2
+""", {}, {"result": 2, "kept": 2}, "normal", ".normal", 5),
+    ("literal_if_failure", """result = 1
+if False:
+    assert missing
+else:
+    result = 2
+    assert False
+    result = 3
+after = 9
+""", {}, {"result": 2, "after": None}, "AssertionError", ".raised .assertionError", 3),
+    ("literal_if_no_else", """if 0:
+    bad = 1
+result = 2
+""", {}, {"result": 2, "bad": None}, "normal", ".normal", 2),
 )
 
 UNSUPPORTED_INDEXING = (
@@ -52,6 +78,20 @@ UNSUPPORTED_INDEXING = (
     "value = 7\nresult = [value][0]\n",
     "result = [7, 1 // 0][0]\n",
     "result = [7][:1]\n",
+)
+
+REJECTED_BRANCHES = (
+    ("flag = 1\nif flag: pass\n", ".statementProfile"),
+    ("if [1]: pass\n", ".statementProfile"),
+    ("if 0:\n    global hidden\n", ".statementProfile"),
+    ("if False:\n    def hidden(): pass\n", ".statementProfile"),
+    ("if False:\n    class Hidden: pass\n", ".statementProfile"),
+    ("if False:\n    hidden = lambda: 1\n", ".expressionProfile"),
+    ("if False:\n    assert True, 'message'\n", ".statementProfile"),
+    ("if False:\n    if True: pass\n", ".statementProfile"),
+    ("if False:\n    nonlocal hidden\n", '.scope ⟨[], .nonlocalInModule "hidden"⟩'),
+    ("hidden = 1\nif False:\n    global hidden\n",
+     '.scope ⟨[], .boundBeforeDirective "hidden" .global_⟩'),
 )
 
 CPYTHON = """
@@ -87,6 +127,11 @@ private def unsupportedIndex (source : Module) : Bool :=
   match Compile.ModuleEntry.check source with
   | .error .expressionProfile => true
   | _ => false
+
+private def rejection (source : Module) : Option Compile.ModuleEntry.Error :=
+  match Compile.ModuleEntry.check source with
+  | .error error => some error
+  | _ => none
 """
 
 
@@ -128,4 +173,8 @@ if __name__ == "__main__":
         for source in UNSUPPORTED_INDEXING:
             shared["emit"](python_file, lean_file, source)
             shared["check_lean"](lean_file, LEAN + "#guard unsupportedIndex pythonSource\n", extra_imports=imports)
+        for source, error in REJECTED_BRANCHES:
+            shared["emit"](python_file, lean_file, source)
+            shared["check_lean"](lean_file, LEAN + f"#guard rejection pythonSource == some ({error})\n",
+                                 extra_imports=imports)
     print(json.dumps({"cpython": sys.version.split()[0], "observations": observations}))
