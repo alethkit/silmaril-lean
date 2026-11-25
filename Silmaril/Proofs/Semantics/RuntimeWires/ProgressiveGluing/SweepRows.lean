@@ -17,16 +17,18 @@ variable {O : Type u} {S : Signature.{u,v} O} {L R W : ℕ}
 variable {lower : ProgressiveGraph.Diagram S L W .point} {upper : ProgressiveGraph.Diagram S R W .point}
 variable (m : lower.VerticalMatch upper)
 
-theorem slots_image {V U X Y : ℕ} {d : ProgressiveGraph.Diagram S V X .point}
+theorem slots_image_of_order {V U X Y : ℕ} {d : ProgressiveGraph.Diagram S V X .point}
     {g : ProgressiveGraph.Diagram S U Y .point}
     {h a b k c f : ℝ} (p : d.LayerSlice h a b) (q : g.LayerSlice k c f)
     (e : LayerSlot V X → LayerSlot U Y)
-    (coordinates : ∀ slot, g.slotX k (e slot) = d.slotX h slot)
+    (order : ∀ a b, d.atLayer h a → d.atLayer h b →
+      d.slotX h a < d.slotX h b → g.slotX k (e a) < g.slotX k (e b))
     (active : ∀ slot, g.atLayer k (e slot) ↔ d.atLayer h slot)
     (exhaustive : ∀ slot, g.atLayer k slot → ∃ x, e x = slot) :
     q.slots = p.slots.map e := by
   have ordered : (p.slots.map e).Pairwise (fun x y => g.slotX k x < g.slotX k y) :=
-    List.pairwise_map.mpr (p.ordered.imp (fun {x y} h => by rwa [coordinates, coordinates]))
+    List.pairwise_map.mpr (p.ordered.imp_of_mem fun ha hb lt =>
+      order _ _ ((p.exact_slots _).mp ha) ((p.exact_slots _).mp hb) lt)
   have nodup (xs : List (LayerSlot U Y))
       (h : xs.Pairwise (fun x y => g.slotX k x < g.slotX k y)) : xs.Nodup :=
     h.imp (fun h => ne_of_apply_ne (g.slotX k) (ne_of_lt h))
@@ -40,6 +42,17 @@ theorem slots_image {V U X Y : ℕ} {d : ProgressiveGraph.Diagram S V X .point}
       exact (active x).mpr ((p.exact_slots x).mp hx)
   have perm := (List.perm_ext_iff_of_nodup (nodup _ q.ordered) (nodup _ ordered)).mpr mem
   exact perm.eq_of_pairwise (fun _ _ _ _ h k => (lt_asymm h k).elim) q.ordered ordered
+
+theorem slots_image {V U X Y : ℕ} {d : ProgressiveGraph.Diagram S V X .point}
+    {g : ProgressiveGraph.Diagram S U Y .point}
+    {h a b k c f : ℝ} (p : d.LayerSlice h a b) (q : g.LayerSlice k c f)
+    (e : LayerSlot V X → LayerSlot U Y)
+    (coordinates : ∀ slot, g.slotX k (e slot) = d.slotX h slot)
+    (active : ∀ slot, g.atLayer k (e slot) ↔ d.atLayer h slot)
+    (exhaustive : ∀ slot, g.atLayer k slot → ∃ x, e x = slot) :
+    q.slots = p.slots.map e :=
+  slots_image_of_order p q e (fun x y _ _ lt => by rwa [coordinates, coordinates])
+    active exhaustive
 
 theorem slots_lower {h a b k c f : ℝ} (height : k = halfHeight 0 h) (below : h < 1) (p : lower.LayerSlice h a b)
     (s : m.glue.LayerSlice k c f) :
