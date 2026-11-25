@@ -13,7 +13,8 @@ isomorphism. `Matches` compares corresponding vertex phases. Pending
 places match pending places. Done places agree on their typed output
 tuples. Waiting places agree on the selected child position and saved
 input tuple, and their live child markings match recursively under that
-child's own map. Fresh initial markings satisfy this relation.
+child's own map. Fresh initial markings satisfy this relation. Every
+typed marking has a unique counterpart in either direction.
 [Definitions](../../Silmaril/SSA/RVSDG/NestedTheta/Petri/Isomorphism/Defs.lean)
 
 The proof locates each spine firing at a numbered vertex, compares its
@@ -25,7 +26,9 @@ markings carrying the same feedback tuple. A step inside a live child
 recursively matches one step inside that child.
 
 `step_forth` and `step_back` form a bisimulation for any pair of related
-markings. They require no reachability premise. `trace_forth` and
+markings. They require no reachability premise. `step_iff` gives direct
+preservation and reflection between corresponding source and target
+markings. `trace_forth` and
 `trace_back` pair finite traces one step at a time and relate every
 intermediate marking. `result_eq` equates the optional full result at
 any pair of related markings. These are statements about the existing

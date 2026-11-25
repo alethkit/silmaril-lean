@@ -11,6 +11,14 @@ universe u v
 variable {L : Type u} {R : Type v} {stepL : L → L → Prop} {stepR : R → R → Prop}
 variable {relatedMarks : L → R → Prop}
 
+theorem count_trace {a b : L} (trace : Relation.ReflTransGen stepL a b) :
+    ∃ n, Steps stepL n a b := by
+  induction trace with
+  | refl => exact ⟨0, .refl _⟩
+  | tail earlier last ih =>
+    obtain ⟨n, trace⟩ := ih
+    exact ⟨n + 1, trace.tail last⟩
+
 private theorem last_related {n : Nat} {a a' : L} {b b' : R}
     (trace : PairedSteps stepL stepR relatedMarks n a b a' b') : relatedMarks a' b' := by
   cases trace <;> assumption

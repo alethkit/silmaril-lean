@@ -142,9 +142,23 @@ private theorem schedule : Steps (Step model left input) 10 (initial model left)
     .commit rfl rfl
   exact ((((((((((Steps.refl _).tail a).tail b).tail c).tail d).tail e).tail f).tail g).tail h).tail i).tail j
 
-example : Step model right input beforeRestartR afterRestartR := .later (.advance (.restart rfl rfl rfl))
+set_option maxHeartbeats 500000 in
+private theorem beforeRestartMatches : numbering.Matches model beforeRestartL beforeRestartR := by
+  intro i
+  refine Fin.cases ?_ (Fin.cases ?_ (fun j => j.elim0)) i
+  · refine ⟨rfl, rfl, ?_⟩
+    intro j
+    refine Fin.cases ?_ (fun k => k.elim0) j
+    refine ⟨rfl, rfl, ?_⟩
+    intro k
+    refine Fin.cases ?_ (Fin.cases ?_ (fun l => l.elim0)) k
+    · change continuing = continuing
+      rfl
+    · change note = note
+      rfl
+  · rfl
 
-example : numbering.Matches model afterRestartL afterRestartR := by
+private theorem afterRestartMatches : numbering.Matches model afterRestartL afterRestartR := by
   intro i
   refine Fin.cases ?_ (Fin.cases ?_ (fun j => j.elim0)) i
   · refine ⟨rfl, rfl, ?_⟩
@@ -154,6 +168,10 @@ example : numbering.Matches model afterRestartL afterRestartR := by
     intro k
     exact Fin.cases trivial (Fin.cases trivial (fun l => l.elim0)) k
   · rfl
+
+-- The transported step has the concrete fresh right body and carries state 1.
+example : Step model right input beforeRestartR afterRestartR :=
+  (numbering.step_iff model input beforeRestartMatches afterRestartMatches).mp (.advance (.restart rfl rfl rfl))
 
 example : ∃ target, PairedSteps (Step model left input) (Step model right input) (numbering.Matches model)
     10 (initial model left) (initial model right) completeL target ∧

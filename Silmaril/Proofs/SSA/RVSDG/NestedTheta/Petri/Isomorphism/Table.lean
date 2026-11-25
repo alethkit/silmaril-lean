@@ -92,6 +92,47 @@ abbrev Table.get (m : Model.{u, v, w} Op) (table : Table Op args past sigs outs)
     (marks : Marking m table.term) (i : Fin sigs.length) : table.cell m i :=
   markingAt m past sigs table.nodes table.children table.results marks i
 
+def Table.ofCells (m : Model.{u, v, w} Op) :
+    {past sigs : List (Ports (PortType V S))} → (table : Table Op args past sigs outs) →
+    ((i : Fin sigs.length) → table.cell m i) → Marking m table.term
+  | _, [], _, _ => PUnit.unit
+  | _, _ :: _, table, cells => (cells 0, table.tail.ofCells m (fun j => cells j.succ))
+
+theorem Table.get_ofCells (m : Model.{u, v, w} Op) (table : Table Op args past sigs outs)
+    (cells : (i : Fin sigs.length) → table.cell m i) (i : Fin sigs.length) :
+    table.get m (table.ofCells m cells) i = cells i := by
+  induction sigs generalizing past with
+  | nil => exact i.elim0
+  | cons head tail ih =>
+    refine Fin.cases ?_ (fun j => ?_) i
+    · rfl
+    · exact ih table.tail (fun k => cells k.succ) j
+
+theorem Table.marking_eq (m : Model.{u, v, w} Op) (table : Table Op args past sigs outs)
+    (before after : Marking m table.term) (cells : ∀ i, table.get m before i = table.get m after i) :
+    before = after := by
+  induction sigs generalizing past with
+  | nil => cases before; cases after; rfl
+  | cons head tail ih =>
+    exact Prod.ext (cells 0) (ih table.tail before.2 after.2 (fun i => cells i.succ))
+
+theorem Table.unique_of_cells (m : Model.{u, v, w} Op) (table : Table Op args past sigs outs)
+    (property : (i : Fin sigs.length) → table.cell m i → Prop)
+    (selected : ∀ i, ∃! cell, property i cell) :
+    ∃! marking : Marking m table.term, ∀ i, property i (table.get m marking i) := by
+  classical
+  let cells (i : Fin sigs.length) := Classical.choose (selected i).exists
+  have valid (i : Fin sigs.length) : property i (cells i) := Classical.choose_spec (selected i).exists
+  refine ⟨table.ofCells m cells, ?_, ?_⟩
+  · intro i
+    rw [table.get_ofCells]
+    exact valid i
+  · intro other pointwise
+    apply table.marking_eq
+    intro i
+    rw [table.get_ofCells]
+    exact (selected i).unique (pointwise i) (valid i)
+
 def Table.set (m : Model.{u, v, w} Op) :
     {past sigs : List (Ports (PortType V S))} → (table : Table Op args past sigs outs) →
     Marking m table.term → (i : Fin sigs.length) → table.cell m i → Marking m table.term

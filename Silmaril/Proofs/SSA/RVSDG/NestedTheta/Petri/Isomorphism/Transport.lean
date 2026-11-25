@@ -92,6 +92,11 @@ theorem laws (m : Model.{u, v, w} Op) (numbering : Renumbering Op left right) :
           · rw [tableL.get_set_other m markL i j nextL same,
               tableR.get_set_other m markR (ids i) (ids j) nextR (fun eq => same (ids.injective eq))]
             exact paired j
+        have cell_markings (i : Fin sigsL.length) :=
+          local_markings m (labels i) (C := fun j => Marking m (tableL.children i j))
+            (D := fun j => Marking m (tableR.children (ids i) j))
+            (rel := fun arm => (children i arm).Matches m)
+            (fun arm => (ih i arm).unique_right) (fun arm => (ih i arm).unique_left)
         constructor
         · intro i
           change Local.Matches m (labels i) (fun arm => (children i arm).Matches m)
@@ -99,6 +104,33 @@ theorem laws (m : Model.{u, v, w} Op) (numbering : Renumbering Op left right) :
           rw [tableL.get_pending, tableR.get_pending]
           exact pending_pair m (labels i) (C := fun j => Marking m (tableL.children i j))
             (D := fun j => Marking m (tableR.children (ids i) j)) (fun arm => (children i arm).Matches m)
+        · intro markL
+          let property (j : Fin sigsR.length) (cell : tableR.cell m j) : Prop :=
+            ∀ (i : Fin sigsL.length) (atImage : ids i = j),
+              Local.Matches m (labels i) (fun arm => (children i arm).Matches m)
+                (tableL.get m markL i) (atImage.symm ▸ cell)
+          have selected (j : Fin sigsR.length) : ∃! cell, property j cell := by
+            obtain ⟨i, rfl⟩ := ids.surjective j
+            refine (existsUnique_congr (fun cell => ?_)).2 ((cell_markings i).1 (tableL.get m markL i))
+            constructor
+            · intro built
+              exact built i rfl
+            · intro related k eq
+              have same := ids.injective eq
+              subst k
+              exact related
+          apply (existsUnique_congr (fun markR => ?_)).1 (tableR.unique_of_cells m property selected)
+          constructor
+          · intro built i
+            exact built (ids i) i rfl
+          · intro paired j i eq
+            subst j
+            exact paired i
+        · intro markR
+          exact tableL.unique_of_cells m
+            (fun i cell => Local.Matches m (labels i) (fun arm => (children i arm).Matches m)
+              cell (tableR.get m markR (ids i)))
+            (fun i => (cell_markings i).2 (tableR.get m markR (ids i)))
         · intro entryL entryR sameEntry markL markR paired
           let slotsL := tableL.outputs m markL empty
           let slotsR := tableR.outputs m markR empty

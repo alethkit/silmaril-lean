@@ -27,6 +27,8 @@ structure Laws (m : Model.{u, v, w} Op)
     (left : Term Op argsL [] sigsL outsL) (right : Term Op argsR [] sigsR outsR)
     (rel : Marking m left → Marking m right → Prop) : Prop where
   pending : rel (Petri.pending m left) (Petri.pending m right)
+  unique_right (a : Marking m left) : ∃! b, rel a b
+  unique_left (b : Marking m right) : ∃! a, rel a b
   finished {inputL : Tuple m.Val argsL} {inputR : Tuple m.Val argsR}
     (inputs : colours inputL = colours inputR) {before : Marking m left} {other : Marking m right}
     (matched : rel before other) :
@@ -46,6 +48,8 @@ private theorem Laws.flip (m : Model.{u, v, w} Op)
     {rel : Marking m left → Marking m right → Prop} (law : Laws m left right rel) :
     Laws m right left (fun y x => rel x y) where
   pending := law.pending
+  unique_right := law.unique_left
+  unique_left := law.unique_right
   finished := by
     intro _ _ inputs _ _ matched
     exact (law.finished inputs.symm matched).symm
@@ -55,6 +59,21 @@ private theorem Laws.flip (m : Model.{u, v, w} Op)
   back := by
     intro _ _ inputs _ _ _ matched step
     exact law.forth inputs.symm matched step
+
+theorem Laws.step_iff (m : Model.{u, v, w} Op)
+    {left : Term Op argsL [] sigsL outsL} {right : Term Op argsR [] sigsR outsR}
+    {rel : Marking m left → Marking m right → Prop} (law : Laws m left right rel)
+    {inputL : Tuple m.Val argsL} {inputR : Tuple m.Val argsR}
+    (inputs : colours inputL = colours inputR)
+    {a a' : Marking m left} {b b' : Marking m right} (before : rel a b) (after : rel a' b') :
+    Fire m (past := []) left inputL PUnit.unit a a' ↔ Fire m (past := []) right inputR PUnit.unit b b' := by
+  constructor
+  · intro step
+    obtain ⟨target, moved, matched⟩ := law.forth inputs before step
+    exact (law.unique_right a').unique matched after ▸ moved
+  · intro step
+    obtain ⟨target, moved, matched⟩ := law.back inputs before step
+    exact (law.unique_left b').unique matched after ▸ moved
 
 variable {ins outs : Ports (PortType V S)}
 
@@ -120,6 +139,40 @@ private theorem Local_matches_flip (m : Model.{u, v, w} Op) {label : NodeLabel O
     obtain ⟨input, child⟩ := live
     obtain ⟨other, rfl, matchedChild⟩ := waiting_matched m matched
     exact ⟨rfl, rfl, matchedChild⟩
+
+private theorem local_unique_same (m : Model.{u, v, w} Op) {label : NodeLabel Op}
+    {C D : Fin label.arity → Type (max u w)} {rel : ∀ arm, C arm → D arm → Prop}
+    (unique : ∀ arm (src : C arm), ∃! dst, rel arm src dst) (src : Local m label C) :
+    ∃! dst : Local m label D, Local.Matches m rfl rel src dst := by
+  cases src with
+  | pending => exact ⟨.pending, trivial, fun _ paired => pending_matched m paired⟩
+  | done val =>
+    refine ⟨.done val, rfl, ?_⟩
+    intro dst paired
+    cases dst with
+    | pending => exact False.elim paired
+    | waiting => exact False.elim paired
+    | done other => exact congrArg RVSDG.Petri.Vertex.done (show val = other from paired).symm
+  | waiting arm live =>
+    obtain ⟨input, child⟩ := live
+    obtain ⟨other, paired, isUnique⟩ := unique arm child
+    refine ⟨.waiting arm (input, other), ⟨rfl, rfl, paired⟩, ?_⟩
+    intro dst matched
+    obtain ⟨sub, rfl, matchedChild⟩ := waiting_matched m matched
+    rw [isUnique sub matchedChild]
+
+theorem local_markings (m : Model.{u, v, w} Op) {left right : NodeLabel Op} (same : left = right)
+    {C : Fin left.arity → Type (max u w)} {D : Fin right.arity → Type (max u w)}
+    {rel : ∀ arm, C arm → D (Fin.cast (congrArg NodeLabel.arity same) arm) → Prop}
+    (uniqueR : ∀ j (src : C j), ∃! dst, rel j src dst)
+    (uniqueL : ∀ j (dst : D (Fin.cast (congrArg NodeLabel.arity same) j)), ∃! src, rel j src dst) :
+    (∀ src : Local m left C, ∃! dst : Local m right D, Local.Matches m same rel src dst) ∧
+    (∀ dst : Local m right D, ∃! src : Local m left C, Local.Matches m same rel src dst) := by
+  subst right
+  refine ⟨local_unique_same m uniqueR, ?_⟩
+  intro dst
+  obtain ⟨src, matched, unique⟩ := local_unique_same m uniqueL dst
+  exact ⟨src, Local_matches_flip m matched, fun other paired => unique other (Local_matches_flip m paired)⟩
 
 private theorem local_forth_same (m : Model.{u, v, w} Op) (kind : Kind Op ins outs)
     {cs ds : Fin kind.arity → List (Ports (PortType V S))}

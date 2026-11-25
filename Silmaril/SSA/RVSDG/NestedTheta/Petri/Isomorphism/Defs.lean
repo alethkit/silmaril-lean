@@ -1,5 +1,6 @@
 module
 
+public import Mathlib.Basic.ExistsUnique
 public import Silmaril.SSA.RVSDG.NestedTheta.Petri.Defs
 public import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Defs
 
