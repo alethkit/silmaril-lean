@@ -1,0 +1,278 @@
+module
+
+public import Silmaril.Courses.Cambridge.L3.Denotation
+
+/-! # Bounded call depth for Cambridge L3 denotations
+
+The lexical model interprets a value as a quote with its captured
+bindings. At positive depth, a layer interprets strict lets and
+applications with lexical operands. The let mode controls whether
+initializers can call. On invoking a quote, the model interprets the
+body at the previous call depth with the argument in slot zero and
+the store left by the argument calculation.
+-/
+
+@[expose] public section
+
+namespace Silmaril.Courses.Cambridge.L3.Denotation.CallDepth
+
+/-- Enter a quoted closure with its new argument. The quote already
+contains its captured lexical bindings. -/
+def applyBody (interpretBody : Environment → Expr → Computation Value)
+    (function argument : Value) : Computation Value :=
+  match function.val with
+  | .lam _ body => interpretBody (Environment.empty.extend argument) body
+  | _ => fail
+
+/-- Tail mode uses lexical let initializers. Sequenced mode interprets
+the initializer and continuation at the same call depth. -/
+inductive LetMode where
+  | tail
+  | sequenced
+
+/-- Each call evaluates its lexical operands before invoking the closure.
+Sequencing is structural on the syntax of the let. -/
+def denoteLayer (interpretBody : Environment → Expr → Computation Value)
+    (env : Environment) (e : Expr) (mode : LetMode := .tail) : Computation Value :=
+  match e with
+  | .letE _ value body =>
+      let initializer := match mode with
+        | .tail => Denotation.denoteWith env value
+        | .sequenced => denoteLayer interpretBody env value mode
+      initializer >>= fun result => denoteLayer interpretBody (env.extend result) body mode
+  | .app fn arg =>
+      Denotation.denoteWith env fn >>= fun function =>
+        Denotation.denoteWith env arg >>= applyBody interpretBody function
+  | e => Denotation.denoteWith env e
+termination_by structural e
+
+/-- The index bounds nested invocations. Each strict let uses the same index
+for both subterms. Lexical computations retain their finite-return semantics. -/
+def denoteWith (depth : Nat) (env : Environment) (e : Expr)
+    (mode : LetMode := .tail) : Computation Value :=
+  match depth with
+  | 0 => Denotation.denoteWith env e
+  | depth + 1 => denoteLayer (fun localEnv body => denoteWith depth localEnv body mode) env e mode
+
+def denote (depth : Nat) (e : Expr) (mode : LetMode := .tail) : Computation Value :=
+  denoteWith depth Environment.empty e mode
+
+/-- Check each callee in the environment and store in which it actually runs.
+A let continuation must be admitted after every possible initializer return.
+Only sequenced mode admits a let initializer outside the lexical fragment. -/
+inductive Admitted : Nat → Environment → Store → Expr → (mode : LetMode := .tail) → Prop where
+  | lexical {depth : Nat} {env : Environment} {s : Store} {e : Expr} {mode : LetMode}
+      (fragment : Fragment e) : Admitted depth env s e mode
+  | letE {depth : Nat} {env : Environment} {s : Store} {A : Ty} {value body : Expr}
+      {mode : LetMode} (bound : Fragment value)
+      (bodyAdmitted : ∀ {v t}, Returns (Denotation.denoteWith env value) s v t →
+        Admitted (depth + 1) (env.extend v) t body mode) :
+      Admitted (depth + 1) env s (.letE A value body) mode
+  | letBound {depth : Nat} {env : Environment} {s : Store} {A : Ty} {value body : Expr}
+      (bound : Admitted (depth + 1) env s value .sequenced)
+      (bodyAdmitted : ∀ {v t}, Returns (denoteWith (depth + 1) env value .sequenced) s v t →
+        Admitted (depth + 1) (env.extend v) t body .sequenced) :
+      Admitted (depth + 1) env s (.letE A value body) .sequenced
+  | app {depth : Nat} {env : Environment} {s : Store} {fn arg : Expr} {mode : LetMode}
+      (function : Fragment fn) (argument : Fragment arg)
+      (bodyAdmitted : ∀ {A body middle a afterArgument},
+        Returns (Denotation.denoteWith env fn) s ⟨.lam A body, .lam A body⟩ middle →
+        Returns (Denotation.denoteWith env arg) middle a afterArgument →
+        Admitted depth (Environment.empty.extend a) afterArgument body mode) :
+      Admitted (depth + 1) env s (.app fn arg) mode
+
+private theorem denoteLayer_of_fragment {e : Expr} (fragment : Fragment e)
+    (interpretBody : Environment → Expr → Computation Value) (env : Environment)
+    (mode : LetMode) :
+    denoteLayer interpretBody env e mode = Denotation.denoteWith env e := by
+  induction fragment generalizing env with
+  | value ready => cases ready <;> rfl
+  | letE _ _ ihValue ihBody =>
+      cases mode <;> simp only [denoteLayer, Denotation.denoteWith, ihValue, ihBody]
+  | bvar | matchSum | binary | cond | seq | loop | pair | fst | snd | inl | inr |
+    record | project | ref | deref | assign => rfl
+
+theorem denoteWith_of_fragment {e : Expr} (fragment : Fragment e)
+    (depth : Nat) (env : Environment) (mode : LetMode := .tail) :
+    denoteWith depth env e mode = Denotation.denoteWith env e := by
+  cases depth with
+  | zero => rfl
+  | succ depth => exact denoteLayer_of_fragment fragment _ env mode
+
+private theorem frame (plug : Expr → Expr)
+    (lift : ∀ {e e' : Expr} {s s' : Store}, Step ⟨e, s⟩ ⟨e', s'⟩ →
+      Step ⟨plug e, s⟩ ⟨plug e', s'⟩)
+    {e e' : Expr} {s s' : Store} (trace : Steps ⟨e, s⟩ ⟨e', s'⟩) :
+    Steps ⟨plug e, s⟩ ⟨plug e', s'⟩ :=
+  trace.lift (fun c => (⟨plug c.expr, c.store⟩ : Config)) (fun ⟨_, _⟩ ⟨_, _⟩ step => lift step)
+
+private theorem value_no_step {e : Expr} (value : IsValue e) {s : Store} {t : Config} :
+    ¬ Step ⟨e, s⟩ t := by
+  induction value generalizing s t <;> intro step <;> cases step
+  all_goals solve_by_elim
+
+private theorem value_steps {e : Expr} (value : IsValue e) {s : Store} {t : Config}
+    (trace : Steps ⟨e, s⟩ t) : (⟨e, s⟩ : Config) = t := by
+  rcases trace.cases_head with same | ⟨_, step, _⟩
+  · exact same
+  · exact (value_no_step value step).elim
+
+private theorem app_iff {fn arg : Expr} {s : Store} {target : Config} (ready : IsValue target.expr) :
+    Steps ⟨.app fn arg, s⟩ target ↔
+      ∃ (A : Ty) (body : Expr) (argument : Value) (middle afterArgument : Store),
+        Steps ⟨fn, s⟩ ⟨.lam A body, middle⟩ ∧
+        Steps ⟨arg, middle⟩ ⟨argument.val, afterArgument⟩ ∧
+        Steps ⟨body.beta argument.val, afterArgument⟩ target := by
+  constructor
+  · intro trace
+    have inv {source : Config} (trace : Steps source target) :
+        ∀ (fn arg : Expr) (s : Store), source = ⟨.app fn arg, s⟩ →
+          ∃ (A : Ty) (body : Expr) (argument : Value) (middle afterArgument : Store),
+            Steps ⟨fn, s⟩ ⟨.lam A body, middle⟩ ∧
+            Steps ⟨arg, middle⟩ ⟨argument.val, afterArgument⟩ ∧
+            Steps ⟨body.beta argument.val, afterArgument⟩ target := by
+      induction trace using Relation.ReflTransGen.head_induction_on with
+      | refl =>
+          intro fn arg store equal
+          rw [equal] at ready
+          cases ready
+      | @head source next step tail ih =>
+          intro fn arg store equal
+          subst source
+          cases step with
+          | appLeft inner =>
+              obtain ⟨A, body, argument, middle, afterArgument, f, a, b⟩ := ih _ _ _ rfl
+              exact ⟨A, body, argument, middle, afterArgument, f.head inner, a, b⟩
+          | appRight functionReady inner =>
+              obtain ⟨A, body, argument, middle, afterArgument, f, a, b⟩ := ih _ _ _ rfl
+              have equal := value_steps functionReady f
+              cases equal
+              exact ⟨A, body, argument, store, afterArgument, .refl, a.head inner, b⟩
+          | appFun argumentReady =>
+              exact ⟨_, _, ⟨_, argumentReady⟩, store, store, .refl, .refl, tail⟩
+    exact inv trace fn arg s rfl
+  · rintro ⟨A, body, argument, middle, afterArgument, evaluatedFn, evaluatedArg, called⟩
+    have f := frame (fun e => .app e arg) Step.appLeft evaluatedFn
+    have a := frame (Expr.app (.lam A body)) (Step.appRight (.lam A body)) evaluatedArg
+    exact (f.trans a).trans (called.head (.appFun argument.property))
+
+private theorem let_iff {A : Ty} {value body : Expr} {s : Store} {target : Config}
+    (ready : IsValue target.expr) :
+    Steps ⟨.letE A value body, s⟩ target ↔
+      ∃ (bound : Value) (middle : Store), Steps ⟨value, s⟩ ⟨bound.val, middle⟩ ∧
+        Steps ⟨body.beta bound.val, middle⟩ target := by
+  constructor
+  · intro trace
+    have inv {source : Config} (trace : Steps source target) :
+        ∀ (value : Expr) (s : Store), source = ⟨.letE A value body, s⟩ →
+          ∃ (bound : Value) (middle : Store), Steps ⟨value, s⟩ ⟨bound.val, middle⟩ ∧
+            Steps ⟨body.beta bound.val, middle⟩ target := by
+      induction trace using Relation.ReflTransGen.head_induction_on with
+      | refl =>
+          intro value store equal
+          rw [equal] at ready
+          cases ready
+      | @head source next step tail ih =>
+          intro value store equal
+          subst source
+          cases step with
+          | letStep inner =>
+              obtain ⟨bound, middle, v, b⟩ := ih _ _ rfl
+              exact ⟨bound, middle, v.head inner, b⟩
+          | letValue valueReady =>
+              exact ⟨⟨value, valueReady⟩, store, .refl, tail⟩
+    exact inv trace value s rfl
+  · rintro ⟨bound, _, evaluated, runBody⟩
+    exact (frame (fun e => .letE A e body) Step.letStep evaluated).trans
+      (runBody.head (.letValue bound.property))
+
+private theorem beta_after_capture (body : Expr) (value : Value) (env : Environment) :
+    (body.subst (Expr.liftSubst env.substitution)).beta value.val =
+      body.subst (env.extend value).substitution := by
+  rw [Expr.beta, Expr.subst_comp]
+  congr 1
+  funext i
+  cases i with
+  | zero => rfl
+  | succ i =>
+      rw [Expr.liftSubst, Expr.subst_rename]
+      exact Expr.subst_id _
+
+private theorem instantiate_argument (body : Expr) (argument : Value) :
+    body.subst (Environment.empty.extend argument).substitution = body.beta argument.val := by
+  unfold Expr.beta
+  congr 1
+  funext i
+  cases i <;> rfl
+
+/-- Compose two exact return correspondences at a strict let, using the
+intermediate store and the value returned by the initializer. -/
+private theorem let_returns_iff {env : Environment} {s t : Store} {result : Value}
+    {A : Ty} {value body : Expr} {m : Computation Value} {k : Value → Computation Value}
+    (init : ∀ {v middle}, Returns m s v middle ↔
+      Steps ⟨value.subst env.substitution, s⟩ ⟨v.val, middle⟩)
+    (continuation : ∀ {v middle}, Returns m s v middle →
+      (Returns (k v) middle result t ↔
+        Steps ⟨body.subst (env.extend v).substitution, middle⟩ ⟨result.val, t⟩)) :
+    Returns (m >>= k) s result t ↔
+      Steps ⟨(.letE A value body : Expr).subst env.substitution, s⟩ ⟨result.val, t⟩ := by
+  simp only [Expr.subst, returns_bind, let_iff (target := ⟨result.val, t⟩) result.property,
+    beta_after_capture]
+  constructor
+  · rintro ⟨v, middle, evaluated, continued⟩
+    exact ⟨v, middle, init.mp evaluated, (continuation evaluated).mp continued⟩
+  · rintro ⟨v, middle, evaluated, continued⟩
+    have returned := init.mpr evaluated
+    exact ⟨v, middle, returned, (continuation returned).mpr continued⟩
+
+/-- Exact finite may adequacy at an admitted call depth. The result and
+the whole final store agree with the original L3 rules. The index bounds
+callee nesting and need not bound the length of the source trace. -/
+theorem adequateWith {depth : Nat} {env : Environment} {s t : Store} {e : Expr} {result : Value}
+    {mode : LetMode} (admitted : Admitted depth env s e mode) :
+    Returns (denoteWith depth env e mode) s result t ↔
+      Steps ⟨e.subst env.substitution, s⟩ ⟨result.val, t⟩ := by
+  induction admitted generalizing t result with
+  | @lexical depth env s e mode fragment =>
+      rw [denoteWith_of_fragment fragment depth env mode]
+      exact Denotation.adequateWith _ fragment
+  | @letE depth env s A value body mode bound _ ih =>
+      cases mode <;> simp only [denoteWith, denoteLayer, denoteLayer_of_fragment bound] <;>
+        exact let_returns_iff (Denotation.adequateWith env bound) (fun returned => ih returned)
+  | @letBound depth env s A value body bound _ ihBound ihBody =>
+      simp only [denoteWith, denoteLayer]
+      exact let_returns_iff ihBound (fun returned => ihBody returned)
+  | @app depth env s fn arg mode function argument _ ih =>
+      simp only [denoteWith, denoteLayer, Expr.subst, returns_bind,
+        app_iff (target := ⟨result.val, t⟩) result.property]
+      constructor
+      · rintro ⟨f, middle, evaluatedFn, a, afterArgument, evaluatedArg, invoked⟩
+        rcases f with ⟨_, ready⟩
+        cases ready <;> try contradiction
+        case lam A body =>
+          have called := (ih evaluatedFn evaluatedArg).mp invoked
+          rw [instantiate_argument] at called
+          exact ⟨A, body, a, middle, afterArgument,
+            (Denotation.adequateWith env function).mp evaluatedFn,
+            (Denotation.adequateWith env argument).mp evaluatedArg, called⟩
+      · rintro ⟨A, body, a, middle, afterArgument, evaluatedFn, evaluatedArg, invoked⟩
+        have returnedFn := (Denotation.adequateWith env function
+          (v := ⟨.lam A body, .lam A body⟩)).mpr evaluatedFn
+        have returnedArg := (Denotation.adequateWith env argument).mpr evaluatedArg
+        rw [← instantiate_argument] at invoked
+        exact ⟨⟨.lam A body, .lam A body⟩, middle, returnedFn, a, afterArgument, returnedArg,
+          (ih returnedFn returnedArg).mpr invoked⟩
+
+theorem adequate {depth : Nat} {s t : Store} {e : Expr} {result : Value}
+    {mode : LetMode} (admitted : Admitted depth Environment.empty s e mode) :
+    Returns (denote depth e mode) s result t ↔ Steps ⟨e, s⟩ ⟨result.val, t⟩ := by
+  simpa only [denote, show Environment.empty.substitution = Expr.bvar from rfl, Expr.subst_id] using
+    (adequateWith admitted (result := result) (t := t))
+
+theorem typed_return {depth : Nat} {Θ : LocTypes} {T : Ty} {e : Expr} {s t : Store} {result : Value}
+    {mode : LetMode} (admitted : Admitted depth Environment.empty s e mode) (typed : HasType Θ .empty e T)
+    (store : StoreTyped Θ s) (returned : Returns (denote depth e mode) s result t) :
+    ∃ Θ', Θ.Extends Θ' ∧ HasType Θ' .empty result.val T ∧ StoreTyped Θ' t :=
+  preservation_steps ((adequate admitted).mp returned) typed store
+
+end Silmaril.Courses.Cambridge.L3.Denotation.CallDepth

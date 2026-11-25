@@ -30,6 +30,23 @@ theorem tensorLeft_isPureMor (R : SynCat S) {A B : SynCat S} {f : A ⟶ B}
     (hf : IsPureMor f) : IsPureMor (tensorLeft R f) :=
   tensorLeft_isPureMor_proof R hf
 
+/-- A pure first component can be paired after evaluating the second component. -/
+theorem pair_pure_left_eqv {n : Nat} {β : LocallyNameless.BoundCtx S.Ty n} {A B : S.Ty}
+    {a b : LocallyNameless.Tm Empty S.Instr n}
+    (ha : LocallyNameless.HasType S.Instr Ctx.nil β a A)
+    (hb : LocallyNameless.HasType S.Instr Ctx.nil β b B)
+    (hp : LocallyNameless.Pure S.pureEff a) :
+    LocallyNameless.Eqv S.pureEff Ctx.nil β
+      (.pair a b) (.let₁ b (.pair a.lift (.bv 0))) (tensor A B) :=
+  pair_pure_left ha hb hp
+
+/-- Sequential pairing evaluates the first computation before the second.
+The second computation reads the original input. -/
+theorem pairArrows_seq {X A B : SynCat S} (f : X ⟶ A) (g : X ⟶ B) :
+    pairArrows f g =
+      pairArrows (𝟙 X) f ≫ pairArrows (second X A) (first X A ≫ g) :=
+  pairArrows_seq_proof f g
+
 /-- On a pure pair, the computation acts on its second component. -/
 theorem tensorLeft_pair {X R A B : SynCat S} {a : X ⟶ R} {b : X ⟶ A}
     (ha : IsPureMor a) (hb : IsPureMor b) (f : A ⟶ B) :
@@ -78,7 +95,7 @@ theorem tensorRight_value {R A B : ValueCat S} (f : A ⟶ B) :
   tensorRight_value_proof f
 
 /-- The endofunctor of the syntactic computation category given by tensoring on the left. -/
-def tensorLeftFunctor (R : SynCat S) : SynCat S ⥤ SynCat S where
+@[expose] def tensorLeftFunctor (R : SynCat S) : SynCat S ⥤ SynCat S where
   obj := productObj R
   map := tensorLeft R
   map_id := tensorLeft_id R

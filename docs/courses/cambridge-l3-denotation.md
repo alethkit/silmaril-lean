@@ -85,6 +85,17 @@ with different final stores.
 [Institution adapter](../../Silmaril/Courses/Cambridge/L3/DenotationalInstitution.lean) ·
 [May-return specification](cambridge-return-specification.md)
 
+`DenotationalInstitution.CallDepth.holds_iff` uses the same registered
+observer and catalogue for the call-depth denotation. The caller supplies
+a depth and let mode and proves admission of every claim's source at
+that depth and mode with the empty lexical environment. The theorem
+preserves and reflects both claim forms, including the complete store
+for each named destination. In sequenced mode at depth one, the
+let-bound example satisfies a sentence naming two permitted allocation
+stores. A separate claim with the right integer and the cell's old
+contents is false.
+[Checked sentences](../../Silmaril/Courses/Cambridge/L3/DenotationalInstitution/CallDepthExamples.lean)
+
 ## Higher-order store and games
 
 L3 can save a function in a cell, replace it, and later call through that
@@ -92,10 +103,14 @@ cell. A compositional model for open terms must account for how a context can
 call a returned function and how aliasing and private allocations affect
 later calls. The function-cell example exercises the corresponding direct
 rules. Lexical quotation accounts for the captured values in an opaque
-stored function. The single-call extension proves adequacy for calling a
-stored closure with a lexical body. The general case of calls that re-enter
-the store through aliases or cycles remains outside the checked scope.
-[Single-call denotation](cambridge-l3-single-call.md) ·
+stored function. The call-depth extension proves exact finite-return and
+final-store adequacy for admitted nested tail applications and calls
+bound by strict lets. The checked examples invoke a captured helper
+from a stored closure and update a reference returned by a call.
+Allocation retains every fresh choice in the current store. Recursive
+declarations and unrestricted re-entry through aliases or cycles remain
+outside the checked scope.
+[Stored closure and let-bound call denotations](cambridge-l3-single-call.md) ·
 [L3 function cell](../../Silmaril/Courses/Cambridge/L3/Examples.lean)
 
 Abramsky, Honda and McCusker give a fully abstract game model of an

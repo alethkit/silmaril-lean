@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Courses.Cambridge.Subtyping.ReferenceExamples
+public import Silmaril.Courses.Cambridge.Subtyping.ObjectExamples
 
 /-! # Cambridge Semantics chapter 6
 

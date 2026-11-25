@@ -61,6 +61,12 @@ def denoteItems (target : Binding) (body : Meaning Flow) : List Value → Meanin
     | .ok (.returned result) next => .ok (.returned result) next
     | .error error next => .error error next
 
+/-- Acquire an iterator from a completed operand, run its finite snapshot,
+and restore the previous guard stack on every exit. -/
+def denoteForIn (target : Binding) (body : Meaning Flow) (operand : Outcome Value) : Outcome Flow :=
+  Outcome.resume (Outcome.resume operand iterationSource) fun (address, items) next =>
+    restoreIterators next.iterators (denoteItems target body items (pushIterator next address))
+
 def denoteSuite {depth : Nat} : Suite depth → Meaning Flow
   | .atomic stmt, state => Outcome.resume (denote stmt state) fun () => pure .next
   | .seq first rest, state =>
@@ -71,9 +77,7 @@ def denoteSuite {depth : Nat} : Suite depth → Meaning Flow
     Outcome.resume (Outcome.resume (denote test state) truth) fun test =>
       if test then denoteSuite yes else denoteSuite no
   | .forIn target iterable body, state =>
-    Outcome.resume (Outcome.resume (denote iterable state) iterationSource) fun (address, elements) next =>
-      restoreIterators next.iterators
-        (denoteItems target (denoteSuite body) elements (pushIterator next address))
+    denoteForIn target (denoteSuite body) (denote iterable state)
   | .breakLoop, state => .ok .breakLoop state
   | .continueLoop, state => .ok .continueLoop state
   | .ret value, state => Outcome.resume (denote value state) fun result => pure (.returned result)

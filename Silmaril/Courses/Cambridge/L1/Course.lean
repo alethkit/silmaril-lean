@@ -11,6 +11,7 @@ public import Silmaril.Courses.Cambridge.L1.Exercises.TypingDerivations
 public import Silmaril.Courses.Cambridge.L1.Exercises.ValueAssignmentTyping
 public import Silmaril.Courses.Cambridge.L1.Exercises.EvaluationOrder
 public import Silmaril.Courses.Cambridge.L1.Exercises.DerivationPrinter
+public import Silmaril.Courses.Cambridge.L1.Metatheory.ArithmeticSeries
 public import Silmaril.Courses.Cambridge.L1.Metatheory.Determinacy
 public import Silmaril.Courses.Cambridge.L1.Metatheory.Inversion
 public import Silmaril.Courses.Cambridge.L1.Metatheory.Progress
