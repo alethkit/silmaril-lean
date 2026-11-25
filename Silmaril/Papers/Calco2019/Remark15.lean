@@ -12,7 +12,7 @@ public import Silmaril.Semantics.Calco2019.Trace.Total.Thms
 public import Silmaril.Semantics.Calco2019.Trace.PointedCpo.Thms
 public import Silmaril.Semantics.Calco2019.Trace.CounterSemiring.Witness.Thms
 public import Silmaril.Semantics.Calco2019.Trace.CounterSemiring.Independence.Thms
-public import Silmaril.Semantics.Calco2019.Trace.IterationTheory.Observations.Thms
+public import Silmaril.Semantics.Calco2019.Trace.IterationTheory.Interpretation.Thms
 
 /-! # CALCO 2019 Article 13, Remark 15
 
