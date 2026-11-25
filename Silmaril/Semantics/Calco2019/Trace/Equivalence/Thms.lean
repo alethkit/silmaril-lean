@@ -50,4 +50,8 @@ def conwayEquiv [HasInitial K] : G.Conway ≃ {tr : G.Feedback // Lawful tr} whe
     funext A B U f hf
     exact fixpoints_feedback tr.property.toLocalLaws f hf
 
+theorem conway_of_feedback [HasInitial K] (F : G.Conway) :
+    conway (lawful_ofConway F) = F :=
+  (conwayEquiv (G := G)).left_inv F
+
 end Silmaril.Calco2019.Guardedness.Feedback

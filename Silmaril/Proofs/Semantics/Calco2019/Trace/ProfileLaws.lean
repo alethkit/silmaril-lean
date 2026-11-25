@@ -43,7 +43,7 @@ theorem reduced_superpose {A B U A' B' : K}
   apply P.hom_ext <;> simp [a, b, g', exchangeMiddle, Coproducts.map, FourInterfaceTrace.toFeedback]
 
 include laws in
-private theorem reduce_profile_eq {A B C D U V A' B' : K}
+theorem reduce_profile_eq {A B C D U V A' B' : K}
     {f : P.sum (P.sum A U) B ⟶ P.sum C (P.sum D U)}
     {g : P.sum (P.sum A V) B ⟶ P.sum C (P.sum D V)}
     (hf : G.TraceGuard f) (hg : G.TraceGuard g) (h : T.run hf = T.run hg)
