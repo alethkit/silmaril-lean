@@ -8,8 +8,8 @@ The core dialect follows the Bazel team's specification at revision
 ## Resolved input
 
 `Silmaril.Languages.Starlark.Functions.Thms` exposes function definitions,
-calls, native expression returns, sequencing, conditionals, call-aware
-loops and the existing total collection suites. The current collection
+calls, native expression returns, assignments and tests, sequencing,
+call-aware loops and the existing total collection suites. The current collection
 suites can be lifted as single blocks, including their local loops, writes
 and returns. Lifting preserves the collection denotation exactly. This normalized input requires a
 finite declaration table. The caller supplies statically resolved names and
@@ -139,34 +139,40 @@ scratch projection when compiling the same expression.
 
 [Denotation](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Defs.lean) · [Adequacy](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Closure fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Checks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
 
-## Native expression returns
+## Native expression positions
 
-`Body.returnExpr` evaluates a resolved expression in the current function
-frame. A successful value produces the return signal. An error propagates
-with the heap and other state left by the expression. `runChecked` validates
-explicit keyword names throughout the return operand, including skipped
-branches, before entering any declaration.
+`Body.returnExpr`, `Body.assignExpr` and `Body.branchExpr` evaluate a resolved
+expression in the current frame. A successful return operand produces the
+return signal. Assignment writes its destination with the existing binding
+semantics after the right-hand side succeeds. A successful test is converted
+to truth and selects one body in the resulting state. An operand or truth
+error propagates with its residual state.
 
-Native returns and standalone expressions use the same executable
+`runChecked` validates explicit keyword names throughout each expression
+and verifies loop control in both conditional bodies, including skipped
+paths, before execution. The caller supplies resolved names and the frame.
+
+Native positions and standalone expressions use the same executable
 expression evaluator. It recurses over expression syntax. When it reaches
 a closure, it calls `denoteBody` at a strictly smaller available-declaration
 set. The prepared closure supplies a membership proof for the declaration
 that is removed. All recursive body calls under the same declaration set
 descend on body syntax. An active declaration is rejected as re-entry.
 
-The operational return rule uses the expression judgment and separate
-operational derivations for invoked closure bodies. Its soundness proof
-uses exact agreement for those smaller calls. Adequacy constructs the
-expression and closure derivations under the same descent. The general
-`exec_iff_denoteBody` includes native returns, and
-`exec_returnExpr_iff_denoteExpr` states their exact result, error, and
-residual state directly. The lowering proof remains separate.
+The operational rules share the `ExecExpr` judgment, which requires
+operational derivations for invoked closure bodies. Soundness uses exact
+agreement on those smaller calls. Adequacy constructs the expression and
+closure derivations under the same descent. `exec_iff_denoteBody` compares
+the exact result or error and final frame, heap and iterator stack. The
+expression-position theorems in the denotation header expose that agreement
+without the compiler's scratch projection.
 
-Native assignment, native condition and iterable positions, and nested
-expressions in defaults and module commands remain open. Collection
-displays and subscripts still use call-free atoms. Broader language and
-host coverage is tracked in the coverage guide.
-[Body rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean) · [Native return agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/NativeReturnChecks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
+Loop iterables and parameter defaults still use call-free collection
+expressions. Module commands still use the separate call-free atomic and
+destination-based call forms. Collection displays and subscripts use
+call-free atoms as well. The coverage guide records the remaining integration
+obligations.
+[Body rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean) · [Native position agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Assignment and conditional fixtures](../../Silmaril/Languages/Starlark/Functions/NativeBodyChecks.lean) · [Return fixtures](../../Silmaril/Languages/Starlark/Functions/NativeReturnChecks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
 
 ## Nested expression lowering
 
@@ -275,6 +281,7 @@ to start with a resolved expression.
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.Arguments.Checks \
+  +Silmaril.Languages.Starlark.Functions.NativeBodyChecks \
   +Silmaril.Languages.Starlark.Functions.NativeReturnChecks \
   +Silmaril.Languages.Starlark.Functions.LoopChecks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Checks \

@@ -10,7 +10,7 @@ public section
 namespace Silmaril.Languages.Starlark.Functions.Lowering
 
 open Lists (State Outcome)
-open Lists.Iteration (Flow)
+open Lists.Iteration (Flow truth)
 
 /-- Every operational derivation agrees with direct denotation on the exact
 result or error and final state. -/
@@ -36,6 +36,22 @@ theorem exec_returnExpr_iff_denoteExpr (program : Program) (available : List Dec
     Exec program available state (.returnExpr expression) out ↔
       Outcome.resume (denoteExpr program available expression state)
         (fun value => pure (.returned value)) = out := by
+  rw [exec_iff_denoteBody, denoteBody]
+
+/-- Assignment commits the value on success and propagates the exact expression error and state. -/
+theorem exec_assignExpr_iff_denoteExpr (program : Program) (available : List DeclarationId)
+    (target : Binding) (expression : Expr) (state : State) (out : Outcome Flow) :
+    Exec program available state (.assignExpr target expression) out ↔
+      Outcome.resume (denoteExpr program available expression state)
+        (fun value next => .ok .next (next.write target value)) = out := by
+  rw [exec_iff_denoteBody, denoteBody]
+
+/-- A successful test selects one body in its resulting state. Errors propagate with their state. -/
+theorem exec_branchExpr_iff_denoteExpr (program : Program) (available : List DeclarationId)
+    (test : Expr) (yes no : Body) (state : State) (out : Outcome Flow) :
+    Exec program available state (.branchExpr test yes no) out ↔
+      (Outcome.resume (Outcome.resume (denoteExpr program available test state) truth) fun flag next =>
+        if flag then denoteBody program available yes next else denoteBody program available no next) = out := by
   rw [exec_iff_denoteBody, denoteBody]
 
 end Silmaril.Languages.Starlark.Functions.Lowering

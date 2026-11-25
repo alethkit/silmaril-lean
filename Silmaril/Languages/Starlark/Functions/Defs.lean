@@ -15,13 +15,14 @@ abbrev DeclarationId := Nat
 def withoutDeclaration (available : List DeclarationId) (id : DeclarationId) : List DeclarationId :=
   available.filter (· != id)
 
-/-- Resolved function code, including direct expression returns and
-destination-based calls. -/
+/-- Resolved function code with direct expression returns, assignments and tests. -/
 inductive Body where
   | total (code : Suite 0)
   | returnExpr (value : Lowering.Expr)
+  | assignExpr (target : Binding) (value : Lowering.Expr)
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
+  | branchExpr (test : Lowering.Expr) (yes no : Body)
   | forIn (target : Binding) (iterable : Lists.Expr) (body : Body)
   | breakLoop
   | continueLoop
@@ -124,11 +125,15 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .branch _ yes no => do
     yes.validateIn inLoop
     no.validateIn inLoop
+  | .branchExpr test yes no => do
+    test.validateCalls
+    yes.validateIn inLoop
+    no.validateIn inLoop
   | .forIn _ _ body => body.validateIn true
   | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
   | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate
-  | .returnExpr value => value.validateCalls
+  | .returnExpr value | .assignExpr _ value => value.validateCalls
   | .define .. | .total _ => pure ()
 
 def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false

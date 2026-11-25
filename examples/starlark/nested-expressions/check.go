@@ -162,4 +162,23 @@ out = driver()`)
 	require(err != nil && strings.Contains(err.Error(), "has no len"), fmt.Sprint(err))
 	require(g["out"] == nil && g["events"].String() == "[1, 2]", "return error must retain only earlier effects")
 	fmt.Println("PASS native return retains prior effects and skips the spread after a nested keyword error")
+
+	g, err = initSource(returnSetup + `def driver():
+    out = 7
+    out = len(mark(1))
+    return out
+out = driver()`)
+	require(err != nil && strings.Contains(err.Error(), "has no len"), fmt.Sprint(err))
+	require(g["out"] == nil && g["events"].String() == "[1]", "RHS failure must keep the nested call's effect")
+	fmt.Println("PASS failed assignment keeps its RHS mutation and aborts result delivery")
+
+	g, err = initSource(returnSetup + `def driver():
+    if mark(1):
+        out = mark(2)
+    else:
+        out = mark(3)
+    return out
+out = driver()`)
+	require(err == nil && g["out"].String() == "2" && g["events"].String() == "[1, 2]", fmt.Sprint(err))
+	fmt.Println("PASS an effectful condition runs once and only the chosen branch mutates")
 }
