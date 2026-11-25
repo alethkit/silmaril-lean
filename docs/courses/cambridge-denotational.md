@@ -119,14 +119,18 @@ requires L1 typing and uses this particular Kleisli model.
 To check the course, including the regressions, run
 `lake build --wfail +Silmaril.Courses.Cambridge.DenotationalSemantics`.
 
+`Compilation.compiler` packages the typed lowering in the behavioural
+compiler category. Its graph relates source programs to actual closed
+LetIter terms. The compiler transports specifications through the result-type
+map, and `behaviours_eq` identifies the complete observation sets.
+[Compiler adapter](../../Silmaril/Courses/Cambridge/L1/LetIter/Compilation.lean)
+
 ### Next slices
 
-L2 shares L1's store. Extend the deterministic state model with lexical
-closures and a call-by-value application interpretation. `L2.RuntimeValue`
-and `RuntimeEnv` give existing closure representations. Reification or a
-simulation must relate closure application and recursive calls to L2's
-substitution rules. The fuel bound of `evalClosureFuel` is a separate concern.
-[L2 closure interpreter](../../Silmaril/Courses/Cambridge/L2/ClosureInterpreter.lean)
+L2 shares L1's integer store. Its relational CBV model uses lexical
+closures and proves finite adequacy for recursive calls and while loops
+against the substitution semantics. The L2 observations record the returned
+value and final store. [L2 denotations and coverage](cambridge-l2-denotational.md)
 
 The L3 data and reference fragment has a compositional `StateT L3.Store SetM`
 denotation. The checked may-adequacy theorem retains each fresh allocation

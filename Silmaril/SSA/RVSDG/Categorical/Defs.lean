@@ -67,10 +67,13 @@ variable (m : Model Op D)
 abbrev Model.port (t : PortType V S) : D := portObj m.selectors m.value m.snapshot t
 abbrev Model.ports (ts : Ports (PortType V S)) : D := portsObj m.port ts
 
-/-- Local tuples are grouped by producer, in ascending vertex-number order. -/
-def Model.locals : List (Ports (PortType V S)) → D
+/-- Local tuples are grouped by producer, in ascending vertex-number order.
+Only the interpretation of port objects determines the local scope. -/
+@[simp] def localsObj (F : PortType V S → D) : List (Ports (PortType V S)) → D
   | [] => 𝟙_ D
-  | ts :: past => m.ports ts ⊗ locals past
+  | ts :: past => portsObj F ts ⊗ localsObj F past
+
+abbrev Model.locals (past : List (Ports (PortType V S))) : D := localsObj m.port past
 
 abbrev Model.scope (args : Ports (PortType V S)) (past : List (Ports (PortType V S))) : D :=
   m.ports args ⊗ m.locals past

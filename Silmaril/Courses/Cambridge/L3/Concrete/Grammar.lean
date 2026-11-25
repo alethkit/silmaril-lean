@@ -251,31 +251,41 @@ def termTokens : RawExpr → List Token
   | .project value label =>
       [.punct .openP] ++ termTokens value ++ [.punct .dot, .variable label, .punct .closeP]
 
-/-- The source domain restricts names without changing the course ASTs.
-Record ordering and uniqueness already reside in `RecordLabels`. -/
-def TypeNamesOk : Ty → Prop
+/-- Check label positions in a type. Record order and uniqueness already
+reside in `RecordLabels`. -/
+def TypeNames (labelOk : Label → Prop) : Ty → Prop
   | .int | .bool | .unit => True
-  | .arr left right | .prod left right | .sum left right => TypeNamesOk left ∧ TypeNamesOk right
-  | .ref value => TypeNamesOk value
-  | .record labels fields => ∀ i, IsName (labels.label i) ∧ TypeNamesOk (fields i)
+  | .arr left right | .prod left right | .sum left right =>
+      TypeNames labelOk left ∧ TypeNames labelOk right
+  | .ref value => TypeNames labelOk value
+  | .record labels fields => ∀ i, labelOk (labels.label i) ∧ TypeNames labelOk (fields i)
 
-def NamesOk : RawExpr → Prop
+/-- Check the spelling at each variable or label position, including annotations. -/
+def ExprNames (varOk : Var → Prop) (labelOk : Label → Prop) : RawExpr → Prop
   | .int _ | .bool _ | .skip | .loc _ => True
-  | .var name => IsName name
+  | .var name => varOk name
   | .assign left right | .binary left _ right | .seq left right | .loop left right
-  | .app left right | .pair left right => NamesOk left ∧ NamesOk right
-  | .deref value | .ref value | .fst value | .snd value => NamesOk value
-  | .cond test yes no => NamesOk test ∧ NamesOk yes ∧ NamesOk no
-  | .lam name type body => IsName name ∧ TypeNamesOk type ∧ NamesOk body
-  | .letE name type value body => IsName name ∧ TypeNamesOk type ∧ NamesOk value ∧ NamesOk body
+  | .app left right | .pair left right => ExprNames varOk labelOk left ∧ ExprNames varOk labelOk right
+  | .deref value | .ref value | .fst value | .snd value => ExprNames varOk labelOk value
+  | .cond test yes no =>
+      ExprNames varOk labelOk test ∧ ExprNames varOk labelOk yes ∧ ExprNames varOk labelOk no
+  | .lam name type body => varOk name ∧ TypeNames labelOk type ∧ ExprNames varOk labelOk body
+  | .letE name type value body =>
+      varOk name ∧ TypeNames labelOk type ∧ ExprNames varOk labelOk value ∧ ExprNames varOk labelOk body
   | .letRecFun fn param domain codomain value body =>
-      IsName fn ∧ IsName param ∧ TypeNamesOk domain ∧ TypeNamesOk codomain ∧ NamesOk value ∧ NamesOk body
-  | .inl value type | .inr value type => NamesOk value ∧ TypeNamesOk type
+      varOk fn ∧ varOk param ∧ TypeNames labelOk domain ∧ TypeNames labelOk codomain ∧
+        ExprNames varOk labelOk value ∧ ExprNames varOk labelOk body
+  | .inl value type | .inr value type => ExprNames varOk labelOk value ∧ TypeNames labelOk type
   | .matchSum value x typeX left y typeY right =>
-      NamesOk value ∧ IsName x ∧ TypeNamesOk typeX ∧ NamesOk left ∧
-        IsName y ∧ TypeNamesOk typeY ∧ NamesOk right
-  | .record labels fields => ∀ i, IsName (labels.label i) ∧ NamesOk (fields i)
-  | .project value label => NamesOk value ∧ IsName label
+      ExprNames varOk labelOk value ∧ varOk x ∧ TypeNames labelOk typeX ∧ ExprNames varOk labelOk left ∧
+        varOk y ∧ TypeNames labelOk typeY ∧ ExprNames varOk labelOk right
+  | .record labels fields => ∀ i, labelOk (labels.label i) ∧ ExprNames varOk labelOk (fields i)
+  | .project value label => ExprNames varOk labelOk value ∧ labelOk label
+
+/-- The original byte profile uses the shared spelling rule in both positions. -/
+abbrev TypeNamesOk := TypeNames IsName
+
+abbrev NamesOk := ExprNames IsName IsName
 
 abbrev SourceExpr := {term : RawExpr // NamesOk term}
 abbrev SourceType := {type : Ty // TypeNamesOk type}
