@@ -256,4 +256,69 @@ private def levelError (root lib : String) (position : Site) (cause : Levels.Dia
   (site "root" [.unit 1])
   (.instanceReplay (site "library" [.unit 1, .body]) (.unsupported .instanceImplicitBinding))
 
+private def localReplay (root inner : String) (leafBody : String := "Unused == C /\\ x") :
+    Option (Except Diagnostic CheckedInstances) := do
+  let leaf ← parsed "leaf" "Leaf" s!"CONSTANT C\nVARIABLE x\n{leafBody}"
+  let middle ← parsed "middle" "Middle" s!"CONSTANT d, e\n{inner}\nOut == e"
+    [("Leaf", "leaf")]
+  let host ← parsed "root" "Root" root [("Middle", "middle")]
+  return check [host, middle, leaf] "root"
+
+private def localConstant : String := "LOCAL INSTANCE Leaf WITH C <- d, x <- TRUE"
+
+private def rejectsUnrelatedExport (leafBody : String) : Bool :=
+  match localReplay "VARIABLE v\nI(t) == INSTANCE Middle WITH d <- t, e <- TRUE\nBad == I(v)!Out"
+      localConstant leafBody with
+  | some (.error (.levels error)) => error =
+      ⟨site "root" [.unit 2, .body], .failedRequirement
+        ⟨site "middle" [.unit 1, .substitution 0], .atMost (.fixed .state) .constant⟩⟩
+  | _ => false
+
+#guard rejectsUnrelatedExport "Unused == C /\\ x"
+#guard rejectsUnrelatedExport "LOCAL Private == x"
+#guard rejectsUnrelatedExport ""
+
+#guard match localReplay
+    "VARIABLE v\nI(t) == INSTANCE Middle WITH d <- t, e <- TRUE\n\
+     J(t) == INSTANCE Middle WITH d <- TRUE, e <- t\nA == I(TRUE)!Out\nB == J(v)!Out"
+    localConstant with
+  | some (.ok answer) =>
+    let i := answer.levels.operatorAt (declared "root" [.unit 1, .instanceMember 0])
+    let j := answer.levels.operatorAt (declared "root" [.unit 2, .instanceMember 0])
+    decide (i.map Levels.OperatorSummary.maxArgumentLevels = some [.constant]) &&
+    decide (j.map Levels.OperatorSummary.maxArgumentLevels = some [.temporal]) &&
+    bodyLevel answer "root" 3 .constant && bodyLevel answer "root" 4 .state
+  | _ => false
+
+#guard match localReplay
+    "VARIABLE v\nI(t) == INSTANCE Middle WITH d <- t, e <- TRUE\n\
+     J(t) == INSTANCE Middle WITH d <- TRUE, e <- t\nGood == J(v)!Out\nBad == I(v)!Out"
+    localConstant with
+  | some (.error (.levels error)) => error =
+      ⟨site "root" [.unit 4, .body], .failedRequirement
+        ⟨site "middle" [.unit 1, .substitution 0], .atMost (.fixed .state) .constant⟩⟩
+  | _ => false
+
+private def localNamed : String := "LOCAL J(q) == INSTANCE Leaf WITH C <- q, x <- d"
+
+#guard match localReplay
+    "VARIABLE v\nI(t) == INSTANCE Middle WITH d <- t, e <- TRUE\nGood == I(v)!Out"
+    localNamed "" with
+  | some (.ok answer) =>
+    let i := answer.levels.operatorAt (declared "root" [.unit 1, .instanceMember 0])
+    decide (i.map Levels.OperatorSummary.maxArgumentLevels = some [.state]) &&
+    decide (i.map Levels.OperatorSummary.requirements = some [
+      ⟨site "middle" [.unit 1, .substitution 1],
+        .atMost (.parameter (declared "root" [.unit 1, .parameter 0])) .state⟩]) &&
+    bodyLevel answer "root" 2 .constant
+  | _ => false
+
+#guard match localReplay
+    "VARIABLE v\nI(t) == INSTANCE Middle WITH d <- t, e <- TRUE\nBad == I(v')!Out"
+    localNamed "" with
+  | some (.error (.levels error)) => error =
+      ⟨site "root" [.unit 2, .body], .failedRequirement
+        ⟨site "middle" [.unit 1, .substitution 1], .atMost (.fixed .action) .state⟩⟩
+  | _ => false
+
 end Silmaril.Logic.Temporal.TLA.Resolution.Instances.Examples

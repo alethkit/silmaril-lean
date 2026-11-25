@@ -343,13 +343,14 @@ private def replacementLevel (context : Context) (instanceSite : Site) :
     return (instanceSite, ← applyBinding context instanceSite binding [] [])
 
 private def checkInstance (context : Context) (base : OperatorTable) (plan : InstancePlan)
-    (replay : ModuleId → OperatorTable → CheckM Unit) : CheckM Unit := do
+    (replay : ModuleId → OperatorTable → CheckM (List Requirement)) :
+    CheckM (List Requirement) := do
   let some target := context.registry.moduleAt plan.target | failAt plan.site .missingInstancePlan
   let nonconstant := target.scope.any fun binding =>
     binding.kind = .variable ||
       (base.lookup binding.id).any fun summary => summary.result.floor ≠ .constant
   let mut replacements : OperatorTable := []
-  let mut requirements := []
+  let mut replacementRequirements := []
   for (id, replacement) in plan.substitutions do
     let some targetBinding := context.registry.findBinding id | failAt plan.site (.missingBinding id)
     let (site, actual) ← replacementLevel context plan.site replacement
@@ -358,52 +359,61 @@ private def checkInstance (context : Context) (base : OperatorTable) (plan : Ins
     unless actual.term.floor.atMost ceiling do
       failAt site (.substitutionLevel id ceiling actual.term.floor)
     let checked ← addCondition actual site (.atMost actual.term ceiling)
-    requirements := requirements ++ checked.requirements
+    replacementRequirements := replacementRequirements ++ checked.requirements
     replacements := (id, ⟨[], checked.term, []⟩) :: replacements
-  -- Definitions are checked again in a private copy of the operator table.
-  -- At the host only the new exports and host expression annotations survive.
+  -- The replay returns declarations' requirements independently of its summaries.
+  -- Restore the host table and annotations after extracting the new members.
   let host ← get
-  try replay plan.target replacements
-  catch error => failAt plan.site (.instanceReplay error.site error.kind)
+  let nested ←
+    try replay plan.target replacements
+    catch error => failAt plan.site (.instanceReplay error.site error.kind)
+  let declarationRequirements := (replacementRequirements ++ nested).eraseDups
   let replayed := (← get).operators
   let members ← plan.members.mapM fun member => do
     let some home := replayed.lookup member.home | failAt plan.site (.missingSummary member.home)
     let summary : OperatorSummary := {
       home with
       parameters := plan.parameters ++ home.parameters
-      requirements := (requirements ++ home.requirements).eraseDups
+      requirements := (declarationRequirements ++ home.requirements).eraseDups
     }
     return (member.id, summary)
   set { host with operators := members ++ host.operators }
+  -- The declaration itself uses its own formals at their constant baseline.
+  -- Carry requirements on enclosing formals back even if no member is used.
+  let defaults := plan.parameters.map fun id => (id, LevelTerm.fixed .constant)
+  retain plan.site (declarationRequirements.map (·.substitute defaults))
 
-private instance : Inhabited (CheckM Unit) := ⟨pure ()⟩
+private instance : Inhabited (CheckM (List Requirement)) := ⟨pure []⟩
 
 -- Replay follows dependency edges of the already cycle-checked registry.
 private partial def checkModule (registry : CheckedRegistry) (external : ExternalLevels)
     (base replacements : OperatorTable) (replaying : Bool) (id : ModuleId)
-    (resolved : CheckedModule) : CheckM Unit := do
+    (resolved : CheckedModule) : CheckM (List Requirement) := do
   for binding in resolved.bindings do
     if let some summary := replacements.lookup binding.id then
       modify fun state => { state with operators := (binding.id, summary) :: state.operators }
     else
       registerDeclaration external resolved.source.isSome binding
-  let some source := resolved.source | return ()
+  let some source := resolved.source | return []
   let context : Context := ⟨registry, resolved, replaying⟩
   let moduleSite : Site := ⟨id, []⟩
-  let replay (target : ModuleId) (actual : OperatorTable) : CheckM Unit := do
-    for (dep, mod) in registry.extendedModules target do
+  let replay (target : ModuleId) (actual : OperatorTable) : CheckM (List Requirement) := do
+    let requirements ← (registry.extendedModules target).mapM fun (dep, mod) =>
       checkModule registry external base actual true dep mod
+    return requirements.flatten
+  let mut requirements := []
   for (unit, index) in source.units.zipIdx do
     let site := moduleSite.child (.unit index)
     match unit with
     | .definition (.namedInstance ..) | .instantiation .. =>
       let some plan := resolved.instanceAt site.path | failAt site .missingInstancePlan
-      checkInstance context base plan replay
+      requirements := requirements ++ (← checkInstance context base plan replay)
     | .definition definition => discard <| checkDefinition (checkExpr context) site definition
     | .variables _ | .constants _ => pure ()
     | .theoremDecl ⟨none, .expr statement, none⟩ =>
       discard <| checkExpr context (site.child .body) statement
     | _ => failAt site (.unsupported .declaration)
+  return requirements
 
 private def validateExternal (registry : CheckedRegistry) (external : ExternalLevels) : CheckM Unit := do
   let mut seen : List BindingId := []
@@ -424,7 +434,7 @@ public def check (registry : CheckedRegistry) (external : ExternalLevels := []) 
   let verify : CheckM Unit := do
     validateExternal registry external
     for (id, mod) in registry.modules do
-      checkModule registry external (← get).operators [] false id mod
+      discard <| checkModule registry external (← get).operators [] false id mod
   let (_, state) ← verify.run {}
   return ⟨state.expressions.reverse, state.operators.reverse⟩
 

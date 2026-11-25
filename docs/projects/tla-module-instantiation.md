@@ -42,8 +42,12 @@ are usable in their host module and excluded from its exports.
   the original table. A nested instance checks its RHSs in the current replay,
   then checks its own target with a fresh substitution environment. Ceilings
   on named instance formals become call requirements, even when the selected
-  member ignores that replacement. Replay failures report the host instance
-  site and the underlying home-site diagnostic.
+  member ignores that replacement. Enclosing instances also retain declaration
+  requirements from nested LOCAL instances, including instances with no members.
+  The nested namespace's own formals are at their constant baseline for this
+  declaration check. These requirements constrain calls without contributing
+  to the result level. Replay failures report the host instance site and the
+  underlying home-site diagnostic.
 - Repeated named instances have distinct IDs. An anonymous instance with
   no substitutions can reuse the original exported identity, including
   after an identical EXTENDS path. Other unqualified collisions are errors.
