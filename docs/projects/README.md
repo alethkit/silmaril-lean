@@ -85,3 +85,7 @@ source citations and assumptions.
 
 Further planned ports cover game semantics, RISC-V, C semantics
 and compilers. Each will arrive with a guide and examples as it joins the library.
+
+The [Python SOS proposal](python-sos.md) describes a first core semantics slice,
+its operational institution, and the coverage and refinement proofs for
+feature-restricted profiles.
