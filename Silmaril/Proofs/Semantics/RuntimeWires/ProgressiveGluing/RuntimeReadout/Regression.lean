@@ -1,6 +1,8 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.RuntimeReadout.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.PositionedRuntime.Thms
+import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Coherence.Defs
+import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Silmaril.Semantics.RuntimeWires.Presentation.Thms
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.NormNum
@@ -11,10 +13,11 @@ public noncomputable section
 namespace Silmaril.RuntimeWires.Proofs.RuntimeReadout.Regression
 
 open CategoryTheory Presentation ProgressiveGraph
+open scoped MonoidalCategory
 
 private abbrev effects : EffectfulPolygraph where
-  Obj := PEmpty
-  pure := Signature.empty PEmpty
+  Obj := Unit
+  pure := Signature.empty Unit
   effect :=
     { Edge := Bool
       source _ := []
@@ -127,12 +130,13 @@ private def geometricEffect (e : Bool) : runtimeCap ⟶ runtimeCap :=
 
 private def readout := FixedRuntimeCap.toComputations effects
 
+private theorem effect_noThrough (e : Bool) (w : Fin 2) : ¬ (effectDiagram e).crosses w (1 / 2) := by
+  fin_cases w <;> norm_num [ProgressiveGraph.Diagram.crosses, ProgressiveGraph.Diagram.lower,
+    ProgressiveGraph.Diagram.upper, effectDiagram, start, finish, endpointHeight, Set.mem_Ioo]
+
 private theorem read_effect (e : Bool) : readout.map (geometricEffect e) = Computations.effect e := by
-  have noThrough (w : Fin 2) : ¬ (effectDiagram e).crosses w (1 / 2) := by
-    fin_cases w <;> norm_num [ProgressiveGraph.Diagram.crosses, ProgressiveGraph.Diagram.lower,
-      ProgressiveGraph.Diagram.upper, effectDiagram, start, finish, endpointHeight, Set.mem_Ioo]
   have h := FixedRuntimeCap.map_effect (X := runtimeCap) (Y := runtimeCap) e
-    (generatorDrawing e) (0 : Fin 1) (fun _ => Subsingleton.elim (α := Fin 1) _ _) rfl noThrough rfl rfl
+    (generatorDrawing e) (0 : Fin 1) (fun _ => Subsingleton.elim (α := Fin 1) _ _) rfl (effect_noThrough e) rfl rfl
   refine h.trans ?_
   change 𝟙 runtimeCap.computation ≫ Computations.effect e ≫ 𝟙 runtimeCap.computation = _
   erw [Category.id_comp, Category.comp_id]
@@ -165,8 +169,8 @@ private def events : {A B : List (Presentation.Wire effects.Obj)} →
   | _, _, .id _ => []
   | _, _, .gen (Edge.effect e) => [e]
   | _, _, .gen (Edge.pure e) => e.elim
-  | _, _, .gen (Edge.moveLeft x) => x.elim
-  | _, _, .gen (Edge.moveRight x) => x.elim
+  | _, _, .gen (Edge.moveLeft _) => []
+  | _, _, .gen (Edge.moveRight _) => []
   | _, _, .comp f g => events f ++ events g
   | _, _, .tensor f g => events f ++ events g
 
@@ -190,8 +194,8 @@ private theorem events_zero {A B : List (Presentation.Wire effects.Obj)}
     cases e with
     | effect => simp [runtimeCount] at empty
     | pure e => exact e.elim
-    | moveLeft x => exact x.elim
-    | moveRight x => exact x.elim
+    | moveLeft _ => rfl
+    | moveRight _ => rfl
   | comp f g ih ig =>
     intro empty
     simp only [events, ih empty, ig ((preservesRuntime f).symm.trans empty), List.append_nil]
@@ -209,8 +213,8 @@ private theorem events_congr {A B : List (Presentation.Wire effects.Obj)}
   | equation h =>
     intro _
     cases h with
-    | cancelRight x => exact x.elim
-    | cancelLeft x => exact x.elim
+    | cancelRight _ => rfl
+    | cancelLeft _ => rfl
     | pureRight e => exact e.elim
     | pureLeft e => exact e.elim
   | refl => intro _; rfl
@@ -255,5 +259,301 @@ example :
   have labels := events_congr relation (by decide)
   change [false, true] = [true, false] at labels
   contradiction
+
+private def idleCap : FixedCap (signature effects) where
+  profile :=
+    { size := 1
+      label _ := some ()
+      x _ := 1 / 3
+      ordered := fun {i j} lt => (lt.ne (Subsingleton.elim i j)).elim }
+  inside _ := by norm_num [Set.mem_Ioo]
+
+private theorem idle_types : idleCap.types = values [()] := rfl
+
+example (e : Bool) :
+    readout.map (X := runtimeCap.padRight idleCap idle_types) (Y := runtimeCap.padRight idleCap idle_types)
+      (show runtimeCap.padRight idleCap idle_types ⟶ runtimeCap.padRight idleCap idle_types from
+        (show runtimeCap.cap ⟶ runtimeCap.cap from geometricEffect e) ▷ idleCap) =
+    (Computations.whiskerRight (Computations.mk (G := effects) [()])).map (Computations.effect (G := effects) e) :=
+  (FixedRuntimeCap.toComputations_padRight idleCap idle_types (geometricEffect e)).trans
+    (congrArg (Computations.whiskerRight (Computations.mk (G := effects) [()])).map (read_effect e))
+
+private def effectOnRight : PositionedRuntimeCap effects where
+  cap := idleCap.beside runtimeCap.cap
+  word := [()]
+  position := 1
+  types := FixedCap.beside_labels idleCap runtimeCap.cap
+
+private def placedEffect (e : Bool) : effectOnRight.cap ⟶ effectOnRight.cap :=
+  idleCap ◁ (show runtimeCap.cap ⟶ runtimeCap.cap from geometricEffect e)
+
+private abbrev placedDrawing (e : Bool) :=
+  ActiveStrip.right.placeDrawing (a := runtimeCap.cap) (b := runtimeCap.cap)
+    (generatorDrawing e) idleCap
+
+private theorem placedEffect_drawing (e : Bool) :
+    placedEffect e = FixedCap.ofDrawing (a := effectOnRight.cap) (b := effectOnRight.cap)
+      (placedDrawing e) := by
+  change (ActiveStrip.right.whisker idleCap).map (FixedCap.ofDrawing (generatorDrawing e)) = _
+  exact ActiveStrip.right.whisker_drawings (a := runtimeCap.cap) (b := runtimeCap.cap) idleCap
+    (generatorDrawing e)
+
+example (e : Bool) : (placedDrawing e).drawing.vertexX (0 : Fin 1) = 2 / 3 := by
+  change ActiveStrip.right.place (1 / 3 : ℝ) = _
+  norm_num [ActiveStrip.place]
+
+private theorem placed_component (e : Bool) :
+    PositionedRuntimeCap.component (X := effectOnRight) (Y := effectOnRight) (placedEffect e) =
+      valueWord (G := effects) [()] ◁ (Computations.inRuntime effects).map (Computations.effect (G := effects) e) := by
+  have read := FixedCap.runtimeSweep_generator (A := runtimeCap.cap) (B := runtimeCap.cap) (Edge.effect e)
+    (generatorDrawing e) (0 : Fin 1) (fun _ => Subsingleton.elim (α := Fin 1) _ _) rfl
+    (effect_noThrough e) rfl rfl
+  change effectOnRight.boundaryIso.inv ≫
+    (FixedCap.runtimeSweep effects).map (idleCap ◁ FixedCap.ofDrawing (generatorDrawing e)) ≫
+      effectOnRight.boundaryIso.hom = _
+  erw [FixedCap.runtimeSweep_padLeft, read]
+  change (𝟙 (placed (G := effects) [()] 1)) ≫
+    ((𝟙 (placed (G := effects) [()] 1)) ≫ valueWord (G := effects) [()] ◁
+      ((𝟙 (runtime effects)) ≫ (Computations.inRuntime effects).map (Computations.effect (G := effects) e) ≫
+        𝟙 (runtime effects)) ≫ 𝟙 (placed (G := effects) [()] 1)) ≫
+      𝟙 (placed (G := effects) [()] 1) = _
+  repeat first | erw [Category.id_comp] | erw [Category.comp_id]
+  rfl
+
+/-- The effect is drawn to the right of the value strand. The leftmost
+component transports its independently read component using the two braidings. -/
+example (e : Bool) :
+    (PositionedRuntimeCap.readClique (X := effectOnRight) (Y := effectOnRight) (placedEffect e)).app 0 0 =
+      ((braidClique (G := effects) [()]).braid 0 1).hom ≫
+        (valueWord [()] ◁ (Computations.inRuntime effects).map (Computations.effect (G := effects) e)) ≫
+        ((braidClique (G := effects) [()]).braid 0 1).inv := by
+  erw [PositionedRuntimeCap.readClique_leftmost, placed_component]
+  rfl
+
+private abbrev innerCap := idleCap.beside runtimeCap.cap
+
+private def outsideCap : FixedCap (signature effects) where
+  profile :=
+    { size := 2
+      label i := if i.val = 0 then none else some ()
+      x i := if i.val = 0 then 1 / 6 else 2 / 3
+      ordered := by
+        intro i j lt
+        fin_cases i <;> fin_cases j <;> norm_num at * }
+  inside i := by fin_cases i <;> norm_num [Set.mem_Ioo]
+
+private def crossCap (runtimeOnRight : Bool) : FixedCap (signature effects) :=
+  if runtimeOnRight then innerCap else outsideCap
+
+private theorem crossSize (r : Bool) : (crossCap r).profile.size = 2 := by
+  cases r <;> rfl
+
+private def gateEdge (r : Bool) : Edge effects :=
+  if r then .moveRight () else .moveLeft ()
+
+private def gateStart (i : Fin 4) : Option (Fin 1) :=
+  if i.val < 2 then none else some 0
+
+private def gateFinish (i : Fin 4) : Option (Fin 1) :=
+  if i.val < 2 then some 0 else none
+
+private def gateX (i : Fin 4) (y : ℝ) : ℝ :=
+  if i.val = 0 ∨ i.val = 3 then 1 / 6 + y / 2 else 2 / 3 - y / 2
+
+private def gateLabel (r : Bool) (i : Fin 4) : Presentation.Wire effects.Obj :=
+  if (i.val = 0 ∨ i.val = 3) ↔ r = true then none else some ()
+
+private def gateWire (i : Fin 4) : ProgressiveGraph.Wire
+    (endpointHeight (fun _ => 1 / 2) 0 (gateStart i))
+    (endpointHeight (fun _ => 1 / 2) 1 (gateFinish i)) where
+  x := gateX i
+  increasing := by fin_cases i <;> norm_num [gateStart, gateFinish, endpointHeight]
+  continuous := by
+    unfold gateX
+    split
+    · exact (continuous_const.add (continuous_id.div_const _)).continuousOn
+    · exact (continuous_const.sub (continuous_id.div_const _)).continuousOn
+  polygonal := by
+    refine ⟨∅, ?_⟩
+    intro a _ b _ _ _ t _
+    unfold gateX
+    split <;> ring
+
+private def gateIn (r : Bool) (i : Fin ((signature effects).source (gateEdge r)).length) : Fin 4 :=
+  ⟨i.val, by
+    have bound := i.isLt
+    cases r <;> change i.val < 2 at bound <;> omega⟩
+
+private def gateOut (r : Bool) (i : Fin ((signature effects).target (gateEdge r)).length) : Fin 4 :=
+  ⟨i.val + 2, by
+    have bound := i.isLt
+    cases r <;> change i.val < 2 at bound <;> omega⟩
+
+/-- The two incoming and two outgoing polygonal segments meet only at the
+crossing generator, with the runtime label exchanged between the two slots. -/
+private def gate (r : Bool) : ProgressiveGraph.Diagram (signature effects) 1 4 .point where
+  vertexX _ := 5 / 12
+  vertexHeight _ := 1 / 2
+  vertex_inside _ := by norm_num [Set.mem_Ioo]
+  vertex_separation := fun {_ _} _ => Subsingleton.elim _ _
+  generator _ := gateEdge r
+  label := gateLabel r
+  start := gateStart
+  finish := gateFinish
+  wire := gateWire
+  wire_inside := by
+    intro i y h
+    fin_cases i <;> norm_num [gateWire, gateX, gateStart, gateFinish, endpointHeight, Set.mem_Ioo] at *
+    all_goals constructor <;> linarith [h.1, h.2]
+  start_attached i _ _ := by fin_cases i <;> norm_num [gateWire, gateX]
+  finish_attached i _ _ := by fin_cases i <;> norm_num [gateWire, gateX]
+  separated := by
+    intro i j ne y hi hj
+    fin_cases i <;> fin_cases j <;>
+      norm_num [gateWire, gateX, gateStart, gateFinish, endpointHeight, Set.mem_Ioo, Set.mem_Icc] at *
+    all_goals linarith [hi.1, hi.2, hj.1, hj.2]
+  avoids_vertex i _ h := by
+    fin_cases i <;> norm_num [gateStart, gateFinish, endpointHeight, Set.mem_Ioo] at h
+  input_boundary_separated := by
+    intro i j ne hi hj
+    fin_cases i <;> fin_cases j <;> norm_num [gateStart, gateWire, gateX] at *
+  output_boundary_separated := by
+    intro i j ne hi hj
+    fin_cases i <;> fin_cases j <;> norm_num [gateFinish, gateWire, gateX] at *
+  input _ := gateIn r
+  output _ := gateOut r
+  input_exact := by
+    intro v i
+    obtain rfl : v = 0 := Subsingleton.elim _ _
+    change gateFinish i = some 0 ↔ ∃ j, gateIn r j = i
+    have size : ((signature effects).source (gateEdge r)).length = 2 := by cases r <;> rfl
+    constructor
+    · intro h
+      have inside : i.val < 2 := by
+        unfold gateFinish at h
+        split at h
+        · assumption
+        · cases h
+      exact ⟨⟨i.val, size.symm ▸ inside⟩, Fin.ext rfl⟩
+    · rintro ⟨j, rfl⟩
+      have inside : j.val < 2 := size ▸ j.isLt
+      simp [gateFinish, gateIn, inside]
+  output_exact := by
+    intro v i
+    obtain rfl : v = 0 := Subsingleton.elim _ _
+    change gateStart i = some 0 ↔ ∃ j, gateOut r j = i
+    have size : ((signature effects).target (gateEdge r)).length = 2 := by cases r <;> rfl
+    constructor
+    · intro h
+      have lower : 2 ≤ i.val := by
+        unfold gateStart at h
+        split at h
+        · cases h
+        · omega
+      have upper := i.isLt
+      refine ⟨⟨i.val - 2, by rw [size]; omega⟩, Fin.ext ?_⟩
+      change i.val - 2 + 2 = i.val
+      omega
+    · rintro ⟨j, rfl⟩
+      simp [gateStart, gateOut]
+  input_types _ := by cases r <;> rfl
+  output_types _ := by cases r <;> rfl
+  input_order := by
+    intro v i j less y hi hj hy
+    cases r <;> change Fin 2 at i j <;> fin_cases i <;> fin_cases j <;>
+      norm_num [gateIn, gateWire, gateX] at *
+    all_goals linarith
+  output_order := by
+    intro v i j less y hy hi hj
+    cases r <;> change Fin 2 at i j <;> fin_cases i <;> fin_cases j <;>
+      norm_num [gateOut, gateWire, gateX] at *
+    all_goals linarith
+
+private def lowerSlots (r : Bool) : Fin 2 ≃ {w : Fin 4 // (gate r).start w = none} where
+  toFun i := ⟨i.castAdd 2, by
+    change gateStart (i.castAdd 2) = none
+    simp [gateStart, i.isLt]⟩
+  invFun w := ⟨w.val.val, by
+    have hw := w.property
+    change gateStart w.val = none at hw
+    simpa [gateStart] using hw⟩
+  left_inv _ := Fin.ext rfl
+  right_inv _ := Subtype.ext (Fin.ext rfl)
+
+private def upperSlots (r : Bool) : Fin 2 ≃ {w : Fin 4 // (gate r).finish w = none} where
+  toFun i := ⟨i.natAdd 2, by
+    change gateFinish (i.natAdd 2) = none
+    simp [gateFinish]⟩
+  invFun w := ⟨w.val.val - 2, by have hw := w.val.isLt; omega⟩
+  left_inv i := by apply Fin.ext; change 2 + i.val - 2 = i.val; omega
+  right_inv w := by
+    apply Subtype.ext
+    apply Fin.ext
+    have hw := w.property
+    change gateFinish w.val = none at hw
+    have bound : 2 ≤ w.val.val := by
+      unfold gateFinish at hw
+      split at hw
+      · cases hw
+      · omega
+    change 2 + (w.val.val - 2) = w.val.val
+    omega
+
+private def drawnCrossing (r : Bool) :
+    IsolatedRuntimeGenerator (gateEdge r) (crossCap (!r)) (crossCap r) where
+  drawing :=
+    { vertices := 1
+      wires := 4
+      drawing := gate r
+      input := (finCongr (crossSize (!r))).trans (lowerSlots r)
+      output := (finCongr (crossSize r)).trans (upperSlots r)
+      input_label i := by cases r <;> change Fin 2 at i <;> fin_cases i <;> rfl
+      output_label i := by cases r <;> change Fin 2 at i <;> fin_cases i <;> rfl
+      input_x i := by
+        cases r <;> change Fin 2 at i <;> fin_cases i
+        · change (1 / 6 : ℝ) + 0 / 2 = ActiveStrip.left.place (1 / 3)
+          norm_num [ActiveStrip.place]
+        · change (2 / 3 : ℝ) - 0 / 2 = ActiveStrip.right.place (1 / 3)
+          norm_num [ActiveStrip.place]
+        · change (1 / 6 : ℝ) + 0 / 2 = 1 / 6
+          norm_num
+        · change (2 / 3 : ℝ) - 0 / 2 = 2 / 3
+          norm_num
+      output_x i := by
+        cases r <;> change Fin 2 at i <;> fin_cases i
+        · change (2 / 3 : ℝ) - 1 / 2 = 1 / 6
+          norm_num
+        · change (1 / 6 : ℝ) + 1 / 2 = 2 / 3
+          norm_num
+        · change (2 / 3 : ℝ) - 1 / 2 = ActiveStrip.left.place (1 / 3)
+          norm_num [ActiveStrip.place]
+        · change (1 / 6 : ℝ) + 1 / 2 = ActiveStrip.right.place (1 / 3)
+          norm_num [ActiveStrip.place] }
+  vertex := (0 : Fin 1)
+  only _ := Subsingleton.elim (α := Fin 1) _ _
+  label := rfl
+  noThrough i := by
+    change ¬ (gate r).crosses i (1 / 2)
+    fin_cases i <;> norm_num [ProgressiveGraph.Diagram.crosses, ProgressiveGraph.Diagram.lower,
+      ProgressiveGraph.Diagram.upper, gate, gateStart, gateFinish, endpointHeight, Set.mem_Ioo]
+
+example (e : Bool) :
+    let outer : FixedRuntimeCap effects := ⟨outsideCap, [()], rfl⟩
+    readout.map (X := outer) (Y := outer) (FixedRuntimeCap.ofDrawing
+      ((drawnCrossing true).drawing.thenDo ((placedDrawing e).thenDo (drawnCrossing false).drawing))) =
+    (Computations.whiskerLeft (Computations.mk (G := effects) [()])).map (Computations.effect (G := effects) e) := by
+  have compared := FixedRuntimeCap.toComputations_leftScalar (G := effects)
+    (A := runtimeCap.cap) (B := runtimeCap.cap) (E := outsideCap) (H := outsideCap)
+    () idleCap rfl rfl rfl rfl rfl
+    (show runtimeCap.cap ⟶ runtimeCap.cap from geometricEffect e)
+    (drawnCrossing true) (drawnCrossing false)
+  change readout.map (X := ⟨outsideCap, [()], rfl⟩) (Y := ⟨outsideCap, [()], rfl⟩)
+    (FixedCap.ofDrawing (a := outsideCap) (b := outsideCap)
+      ((drawnCrossing true).drawing.thenDo ((placedDrawing e).thenDo (drawnCrossing false).drawing))) = _
+  erw [← FixedCap.comp_drawings (a := outsideCap) (b := innerCap) (c := outsideCap),
+    ← FixedCap.comp_drawings (a := innerCap) (b := innerCap) (c := outsideCap),
+    ← placedEffect_drawing e]
+  exact compared.trans
+    (congrArg (Computations.whiskerLeft (Computations.mk (G := effects) [()])).map (read_effect e))
 
 end Silmaril.RuntimeWires.Proofs.RuntimeReadout.Regression

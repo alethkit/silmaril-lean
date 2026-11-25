@@ -41,20 +41,20 @@ private theorem map_transported_generator (e : Edge G) {A B : List (Presentation
   cases output
   exact (map_generator e).trans (by simp only [eqToHom_refl, Category.id_comp, Category.comp_id]; rfl)
 
-private theorem read_effect (e : G.effect.Edge)
-    (p : FixedDrawing (signature G) X.cap.profile Y.cap.profile) (vertex : Fin p.vertices)
-    (only : ∀ j, j = vertex) (label : p.drawing.generator vertex = .effect e)
+theorem read_edge {A B : FixedCap (signature G)} (e : Edge G)
+    (p : FixedDrawing (signature G) A.profile B.profile) (vertex : Fin p.vertices)
+    (only : ∀ j, j = vertex) (label : p.drawing.generator vertex = e)
     (noThrough : ∀ w, ¬ p.drawing.crosses w (p.drawing.vertexHeight vertex))
-    (input : X.cap.types = (signature G).source (.effect e))
-    (output : (signature G).target (.effect e) = Y.cap.types) :
-    (toRuntime G).map (ofDrawing p) =
+    (input : A.types = (signature G).source e)
+    (output : (signature G).target e = B.types) :
+    (FixedCap.runtimeSweep G).map (FixedCap.ofDrawing p) =
       eqToHom (congrArg (Diagram.Presented.mk (S := signature G) (E := Relations G)) input) ≫
-        Diagram.Presented.ofTerm (Diagram.gen (S := signature G) (.effect e)) ≫
+        Diagram.Presented.ofTerm (Diagram.gen (S := signature G) e) ≫
         eqToHom (congrArg (Diagram.Presented.mk (S := signature G) (E := Relations G)) output) := by
-  have cells := read_generator p vertex only p.drawing.layerSweep (.effect e) label noThrough input.symm output
-  have sheet := (FixedCap.toSliced_drawings (a := X.cap) (b := Y.cap) p).trans
+  have cells := read_generator p vertex only p.drawing.layerSweep e label noThrough input.symm output
+  have sheet := (FixedCap.toSliced_drawings (a := A) (b := B) p).trans
     (congrArg SeamHom.ofSheet cells)
-  exact (congrArg (sliceRuntime G).map sheet).trans (map_transported_generator (.effect e) input output)
+  exact (congrArg (sliceRuntime G).map sheet).trans (map_transported_generator e input output)
 
 theorem map_effect (e : G.effect.Edge)
     (p : FixedDrawing (signature G) X.cap.profile Y.cap.profile) (vertex : Fin p.vertices)
@@ -68,8 +68,9 @@ theorem map_effect (e : G.effect.Edge)
     X.types.trans (congrArg (fun A => none :: values A) input)
   let outWord : (signature G).target (.effect e) = Y.cap.types :=
     (congrArg (fun A => none :: values A) output).trans Y.types.symm
-  change X.boundaryIso.inv ≫ (toRuntime G).map (ofDrawing p) ≫ Y.boundaryIso.hom = _
-  rw [read_effect e p vertex only label noThrough inWord outWord]
+  change X.boundaryIso.inv ≫ (FixedCap.runtimeSweep G).map (FixedCap.ofDrawing (a := X.cap) (b := Y.cap) p) ≫
+    Y.boundaryIso.hom = _
+  erw [read_edge (.effect e) p vertex only label noThrough inWord outWord]
   change eqToHom (congrArg (Diagram.Presented.mk (S := signature G) (E := Relations G)) X.types.symm) ≫
     _ ≫ eqToHom (congrArg (Diagram.Presented.mk (S := signature G) (E := Relations G)) Y.types) = _
   have hi := eqToHom_map (Computations.inRuntime G) (congrArg (Computations.mk (G := G)) input)

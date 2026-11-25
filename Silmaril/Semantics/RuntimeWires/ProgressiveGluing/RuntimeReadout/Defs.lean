@@ -44,9 +44,19 @@ def termToRuntime (G : EffectfulPolygraph.{u,v}) :
     Diagram.Presented (signature G) (Sliced.noEquations (signature G)) ⥤ Runtime G :=
   Diagram.Presented.imposeEquations (fun h => h.elim)
 
+end FixedRuntimeCap
+
+/-- Read a drawing over the runtime signature and impose the crossing equations. -/
+def FixedCap.runtimeSweep (G : EffectfulPolygraph.{u,v}) : FixedCap (signature G) ⥤ Runtime G :=
+  FixedCap.toSliced (signature G) ⋙
+    Sliced.Presented.toTerms (signature G) ⋙ FixedRuntimeCap.termToRuntime G
+
+namespace FixedRuntimeCap
+
+variable {G : EffectfulPolygraph.{u,v}}
+
 def toRuntime (G : EffectfulPolygraph.{u,v}) : FixedRuntimeCap G ⥤ Runtime G :=
-  toFixedCap G ⋙ FixedCap.toSliced (signature G) ⋙
-    Sliced.Presented.toTerms (signature G) ⋙ termToRuntime G
+  toFixedCap G ⋙ FixedCap.runtimeSweep G
 
 def computation (X : FixedRuntimeCap G) : Computations G := ⟨X.word⟩
 

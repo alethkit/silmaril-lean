@@ -57,3 +57,24 @@ theorem map_effect (e : G.effect.Edge)
   exact Proofs.RuntimeReadout.map_effect e p vertex only label noThrough input output
 
 end Silmaril.RuntimeWires.ProgressiveGraph.FixedRuntimeCap
+
+namespace Silmaril.RuntimeWires.ProgressiveGraph.FixedCap
+
+open CategoryTheory Presentation
+
+universe u v
+variable {G : EffectfulPolygraph.{u,v}} {A B : FixedCap (signature G)}
+
+/-- Read a single isolated generator, including either runtime crossing. -/
+theorem runtimeSweep_generator (e : Edge G)
+    (p : FixedDrawing (signature G) A.profile B.profile) (vertex : Fin p.vertices)
+    (only : ∀ j, j = vertex) (label : p.drawing.generator vertex = e)
+    (noThrough : ∀ w, ¬ p.drawing.crosses w (p.drawing.vertexHeight vertex))
+    (input : A.types = (signature G).source e) (output : (signature G).target e = B.types) :
+    (runtimeSweep G).map (ofDrawing p) =
+      eqToHom (congrArg (Diagram.Presented.mk (S := signature G) (E := Relations G)) input) ≫
+        Diagram.Presented.ofTerm (Diagram.gen (S := signature G) e) ≫
+        eqToHom (congrArg (Diagram.Presented.mk (S := signature G) (E := Relations G)) output) := by
+  exact Proofs.RuntimeReadout.read_edge e p vertex only label noThrough input output
+
+end Silmaril.RuntimeWires.ProgressiveGraph.FixedCap
