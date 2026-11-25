@@ -138,3 +138,41 @@ for every iteration and exercises both directions of the stream proof.
 lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Thms
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Thms'
 ```
+
+## Infinite execution within a θ activation
+
+`stays_iff_decomposes` takes an actual infinite continuation trace
+starting at a θ restart. `body_decomposes` also accepts a stream
+already at the freshly entered body. It prepends the actual entry
+microstep so both statements use the same checkpoint convention.
+The scope guard requires selector `1` at every return to the specific
+saved loop frame. A finite exit followed by infinite parent execution
+fails this guard. Nested frames still take their ordinary steps.
+
+The extraction searches for the first return after each restart.
+Determinism fixes the following restart and its entire carried
+tuple. The result gives either unbounded first-return checkpoints
+on the supplied trace or a finite sequence of such intervals ending
+in a delimited infinite body suffix. The alternatives are disjoint.
+Each completed interval recovers the independent finite body
+derivation via `Interval.iteration`. Conversely, either decomposition
+ensures that every return to the saved frame takes feedback.
+`trace_of_iterations_then_body` also builds a scoped machine stream
+from any finite sequence of feedback derivations and an infinite
+delimited body stream. Both branches require a genuine microstep
+at every index.
+[Theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Feedback/Divergence/Thms.lean)
+
+The regression keeps the linked productive feedback example and
+extracts its checkpoints from the microsteps. A second linked driver
+enters a body whose φ member calls itself with a pending non-tail
+suffix. At step 24 the machine has two such suffixes waiting and
+the argument state is `[1, 4, 1, 1]`. The proof uses typed machine
+progress and finite adequacy to construct an infinite body stream
+with zero completed feedback iterations.
+[Linked fixtures](../../tests/ssa/RVSDGRecursiveContinuations.lean)
+
+```sh
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Divergence.Thms
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Divergence.Thms'
+```

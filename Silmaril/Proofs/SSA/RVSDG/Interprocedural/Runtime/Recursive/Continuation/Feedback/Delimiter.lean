@@ -129,4 +129,35 @@ theorem returns_iff_delimited (frame : Stack m current final) {job : Job m curre
     rw [return_under finished] at localPath
     exact completes_sound localPath
 
+private theorem state_step (state : State m current)
+    (notDone : ∀ value : Tuple m.Val current, state ≠ .returned value .halt) :
+    ∃ next, Step state next := by
+  cases picked : state.next with
+  | some next => exact ⟨next, picked⟩
+  | none =>
+    cases result : state.result with
+    | none => exact False.elim (no_unsupported state ⟨picked, result⟩)
+    | some value =>
+      cases state with
+      | eval => cases result
+      | returned actual stack =>
+        cases stack with
+        | halt => exact False.elim (notDone actual rfl)
+        | resume => cases result
+        | loop => cases result
+
+theorem trace_without_return (frame : Stack m current final) (job : Job m current)
+    (noReturn : ∀ value, ¬ Returns m job value) :
+    InfiniteTrace (InsideStep frame) (.eval job frame) := by
+  apply InfiniteTrace.coinduct
+    (fun state => ∃ localState, ReflTransGen Step (start job) localState ∧ under frame localState = state)
+    ?_ ⟨start job, .refl, rfl⟩
+  rintro state ⟨localState, ran, rfl⟩
+  have notDone (value : Tuple m.Val current) (finished : localState = .returned value .halt) : False :=
+    by
+      rw [finished] at ran
+      exact noReturn value (completes_sound ran)
+  obtain ⟨next, edge⟩ := state_step localState notDone
+  exact ⟨under frame next, step_under frame edge, next, ran.tail edge, rfl⟩
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Proofs

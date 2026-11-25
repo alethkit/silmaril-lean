@@ -1,6 +1,6 @@
 module
 
-import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Divergence.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests
@@ -154,13 +154,17 @@ private def loopRouteNode (opcode : Op [word, state] route) :
   ⟨[word, state], .base (.simple (.primitive opcode)),
     .cons (.arg (.tail .head)) (.cons (.output (1 : Fin 2) (.tail .head)) .nil), fun i => i.elim0⟩
 
+private def loopFinish (opcode : Op [word, state] route) :
+    NestedTheta.Term (Instruction Op) bodyArgs [results, results] [route] (Theta.BodyResults bodyArgs) :=
+  .bind (loopRouteNode opcode) (fun i => i.elim0) <|
+    .ret (.cons (.output (2 : Fin 3) .head) (.cons (.arg .head)
+      (.cons (.output (2 : Fin 3) (.tail .head)) (.cons (.output (2 : Fin 3) (.tail (.tail .head))) .nil))))
+
 private def loopBody (opcode : Op [word, state] route) :
     NestedTheta.Term (Instruction Op) bodyArgs [] [results, results, route]
     (Theta.BodyResults bodyArgs) :=
-  .bind loopPrepareNode (fun i => i.elim0) <| .bind loopApplyNode (fun i => i.elim0) <|
-    .bind (loopRouteNode opcode) (fun i => i.elim0) <|
-      .ret (.cons (.output (2 : Fin 3) .head) (.cons (.arg .head)
-        (.cons (.output (2 : Fin 3) (.tail .head)) (.cons (.output (2 : Fin 3) (.tail (.tail .head))) .nil))))
+  .bind loopPrepareNode (fun i => i.elim0) <|
+    .bind loopApplyNode (fun i => i.elim0) (loopFinish opcode)
 
 private def loopNode : NestedTheta.Node (Instruction Op) bodyArgs [[state]] bodyArgs :=
   ⟨bodyArgs, .theta bodyArgs,
@@ -276,5 +280,114 @@ example : InfiniteTrace Step (start feedbackJob) := by
   rw [trace.first] at initial
   exact InfiniteTrace.of_steps (reachedInitial ▸ runFor_reachable 6 (start feedbackJob))
     ⟨micro, initial, trace.steps⟩
+
+open Feedback.Divergence in
+example : ∃ micro extracted indices,
+    extracted 0 = feedbackInputs 0 ∧ Feedback.RestartTrace feedbackBody (waitingParent 0) extracted micro indices := by
+  obtain ⟨micro, indices, trace⟩ := linkedRestarts
+  have initial := trace.atRestart 0
+  rw [trace.first] at initial
+  have stays := (stays_iff_decomposes trace.steps initial).mpr (.inl ⟨_, _, rfl, trace⟩)
+  exact ⟨micro, ((stays_iff_decomposes trace.steps initial).mp stays).resolve_right
+    (fun ⟨last, _, forever⟩ => no_bodyForever_of_restarts trace last forever)⟩
+
+private def endlessMember : LambdaTerm Op [callable] [] fn :=
+  ⟨[callable], .cons (.arg .head) .nil, [[state], results, results], recurse⟩
+
+private def endlessGroup : PhiTerm Op [] [] [fn] :=
+  ⟨[], .nil, .cons endlessMember .nil⟩
+
+private def endlessModule : OmegaTerm Op [] [callable, callable] [[callable], [callable]] :=
+  ⟨.bind (.phi endlessGroup) <| .bind (.lambda (driver .loopAgain)) <|
+    .ret (.cons (.output (0 : Fin 2) .head) (.cons (.output (1 : Fin 2) .head) .nil))⟩
+
+private def endlessExports : Tuple machine.Val [callable, callable] :=
+  Recursive.linkGraph machine 23 endlessModule.toGraph .nil
+
+private def endlessCallee : machine.Val callable := endlessExports.get .head
+
+private def endlessJob : Job machine results := .call (endlessExports.get (.tail .head)) (arguments 0 [])
+
+private def endlessParent : Stack machine bodyArgs results :=
+  .resume (past := [[state]]) driverSuffix.toGraph.toTerm (.cons endlessCallee (arguments 0 []))
+    (.cons (.state ([1] : List Nat)) .nil, PUnit.unit) .halt
+
+private def endlessInput : Tuple machine.Val bodyArgs := .cons endlessCallee (arguments 0 [1])
+
+private theorem endlessBodyReached : State.runFor 7 (start endlessJob) =
+    .eval (.region feedbackBody endlessInput PUnit.unit) (.loop feedbackBody endlessParent) := by cbv
+
+private def endlessWaiting (log : List Nat) (outer : Stack machine results results) :
+    Stack machine results results :=
+  .resume (past := [[state]]) suffix.toGraph.toTerm (.cons endlessCallee (arguments 0 log))
+    (.cons (.state (log ++ [1])) .nil, PUnit.unit) outer
+
+-- The second recursive activation still has two pending non-tail suffixes.
+-- Its state includes the driver's prefix, the θ body's prepare, and both call prefixes.
+example : State.runFor 24 (start endlessJob) =
+    .eval (.call endlessCallee (arguments 0 [1, 4, 1, 1]))
+      (endlessWaiting [1, 4, 1] (endlessWaiting [1, 4]
+        (.resume (past := [results]) (loopFinish .loopAgain).toGraph.toTerm
+          endlessInput (arguments 0 [1, 4], PUnit.unit) (.loop feedbackBody endlessParent)))) := by cbv
+
+private theorem endlessInvoke (loops depth n : Nat) (log : List Nat) :
+    invoke machine loops depth endlessCallee (arguments n log) = none := by
+  induction depth generalizing log with
+  | zero => rfl
+  | succ depth ih =>
+    let entry := Tuple.cons endlessCallee (arguments n log)
+    let saved : Locals machine.Val [[state]] := (.cons (.state (log ++ [1])) .nil, PUnit.unit)
+    change (invoke machine loops depth endlessCallee (arguments n (log ++ [1])) >>= fun output =>
+      evalBody machine (dispatch machine (invoke machine loops depth)) loops
+        suffix.toGraph.toTerm entry (saved.snoc output)) = none
+    rw [ih]
+    rfl
+
+private theorem endlessNoReturn (values : Tuple machine.Val (Theta.BodyResults bodyArgs)) :
+    ¬ Returns machine (.region feedbackBody endlessInput (PUnit.unit : Locals machine.Val [])) values := by
+  intro returned
+  obtain ⟨depth, loops, eventually⟩ := Recursive.returns_eventually machine returned
+  have ran := eventually loops depth (Nat.le_refl _) (Nat.le_refl _)
+  let locals : Locals machine.Val [results] := (arguments 0 [1, 4], PUnit.unit)
+  change (invoke machine loops depth endlessCallee (arguments 0 [1, 4]) >>= fun output =>
+    evalBody machine (dispatch machine (invoke machine loops depth)) loops
+      (loopFinish .loopAgain).toGraph.toTerm endlessInput
+      (locals.snoc output)) = some values at ran
+  rw [endlessInvoke] at ran
+  cases ran
+
+private theorem endlessBodyInfinite :
+    InfiniteTrace (Feedback.InsideStep (.loop feedbackBody endlessParent))
+      (.eval (.region feedbackBody endlessInput PUnit.unit) (.loop feedbackBody endlessParent)) :=
+  Feedback.trace_without_return (.loop feedbackBody endlessParent) _ endlessNoReturn
+
+open Feedback.Divergence in
+example : ∃ micro : Nat → State machine results,
+    micro 0 = State.runFor 7 (start endlessJob) ∧
+    (∀ i, Feedback.InsideStep (.loop feedbackBody endlessParent) (micro i) (micro (i + 1))) ∧
+    (∃ last, Relation.ReflTransGen
+      (Interval feedbackBody endlessParent (withEntry feedbackBody endlessParent endlessInput micro))
+      (0, endlessInput) last ∧
+      BodyForever feedbackBody endlessParent (withEntry feedbackBody endlessParent endlessInput micro) last) := by
+  obtain ⟨micro, initial, inside⟩ := endlessBodyInfinite
+  have stays : StaysInLoop feedbackBody endlessParent micro := fun i _ _ returned =>
+    False.elim ((inside i).2 ⟨_, returned⟩)
+  have zeroIterations : BodyForever feedbackBody endlessParent
+      (withEntry feedbackBody endlessParent endlessInput micro) (0, endlessInput) := by
+    refine ⟨rfl, ?_⟩
+    intro i later
+    cases i with
+    | zero => cases later
+    | succ i => exact (inside i).2
+  exact ⟨micro, initial.trans endlessBodyReached.symm, inside,
+    (body_decomposes (fun i => (inside i).1) initial stays).resolve_left
+      (fun ⟨_, _, _, trace⟩ => no_bodyForever_of_restarts trace (0, endlessInput) zeroIterations)⟩
+
+example : InfiniteTrace Step (start endlessJob) := by
+  obtain ⟨micro, initial, steps, _⟩ :=
+    Feedback.Divergence.trace_of_iterations_then_body .refl endlessBodyInfinite
+  have reached : State.runFor 6 (start endlessJob) =
+      Feedback.restart feedbackBody endlessParent endlessInput := by cbv
+  exact InfiniteTrace.of_steps (reached ▸ runFor_reachable 6 (start endlessJob)) ⟨micro, initial, steps⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Tests
