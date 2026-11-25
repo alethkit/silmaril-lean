@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.RuntimeReadout.Defs
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.RuntimeReadout.Maps
+import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.RuntimeReadout.Generator
 
 public noncomputable section
 
@@ -57,6 +58,23 @@ theorem map_effect (e : G.effect.Edge)
   exact Proofs.RuntimeReadout.map_effect e p vertex only label noThrough input output
 
 end Silmaril.RuntimeWires.ProgressiveGraph.FixedRuntimeCap
+
+namespace Silmaril.RuntimeWires.ProgressiveGraph.FixedDrawing
+
+universe u v
+variable {O : Type u} {S : Signature.{u,v} O} {A B : CapProfile O}
+
+/-- Independent valid cuts around one vertex with no through strands read
+the generating box at the two prescribed cap words. -/
+theorem readSheetAt_generator (p : FixedDrawing S A B) (s : p.drawing.LayerSweep)
+    (e : S.Edge) (vertex : Fin p.vertices) (only : ∀ j, j = vertex)
+    (label : p.drawing.generator vertex = e)
+    (noThrough : ∀ w, ¬ p.drawing.crosses w (p.drawing.vertexHeight vertex))
+    (input : S.source e = List.ofFn A.label) (output : S.target e = List.ofFn B.label) :
+    p.readSheetAt s = (Sliced.Sheet.generator e).reindex input output :=
+  Proofs.RuntimeReadout.read_generator p vertex only s e label noThrough input output
+
+end Silmaril.RuntimeWires.ProgressiveGraph.FixedDrawing
 
 namespace Silmaril.RuntimeWires.ProgressiveGraph.FixedCap
 

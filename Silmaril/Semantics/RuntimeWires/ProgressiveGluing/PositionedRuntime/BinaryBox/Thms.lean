@@ -25,4 +25,7 @@ theorem binaryBox_noThrough (i : Fin (binaryBox e input output).wires)
     ¬ (binaryBox e input output).drawing.crosses i ((binaryBox e input output).drawing.vertexHeight j) :=
   Proofs.PositionedRuntime.BinaryBox.box_noThrough e input output i j
 
+theorem binaryBox_cells : (binaryBox e input output).readSheet.cells = [[.inr e]] :=
+  Proofs.PositionedRuntime.BinaryBox.box_cells e input output
+
 end Silmaril.RuntimeWires.ProgressiveGraph

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.PositionedRuntime.LeftPorts.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.PositionedRuntime.LeftWord.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.PositionedRuntime.LeftPorts.Defs
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Mathlib.Tactic.FinCases
@@ -13,8 +13,8 @@ namespace Silmaril.RuntimeWires.Proofs.PositionedRuntime.LeftPortsRegression
 open CategoryTheory Presentation ProgressiveGraph
 
 private abbrev system : EffectfulPolygraph where
-  Obj := Fin 3
-  pure := Signature.empty (Fin 3)
+  Obj := Fin 4
+  pure := Signature.empty (Fin 4)
   effect := { Edge := Unit, source := fun _ => [1], target := fun _ => [2] }
 
 private abbrev S := signature system
@@ -25,7 +25,7 @@ private def target : FixedRuntimeCap system := ⟨binaryCap S none (some 2), [2]
 private def effectDrawing : FixedDrawing S source.cap.profile target.cap.profile :=
   binaryBox (S := S) (Edge.effect (G := system) ()) rfl rfl
 
-private def singleContact (label : Fin 3) (x : ℝ) (inside : x ∈ Set.Ioo 0 1) : FixedCap S where
+private def singleContact (label : Fin 4) (x : ℝ) (inside : x ∈ Set.Ioo 0 1) : FixedCap S where
   profile :=
     { size := 1
       label _ := some label
@@ -125,5 +125,118 @@ example :
     0 idle lowerThrough upperThrough rfl rfl rfl
     (A := outerCap false) (B := outerCap true) rfl rfl effectDrawing
   exact h.trans (congrArg (Computations.whiskerLeft (Computations.mk (G := system) [0])).map read_effect)
+
+private def nextIdle := singleContact 3 (1 / 4) (by norm_num [Set.mem_Ioo])
+
+private def nextThrough (upper : Bool) : FixedCap S where
+  profile :=
+    { size := 2
+      label i := if i.val = 0 then some 0 else some (if upper then 2 else 1)
+      x i := if i.val = 0 then (if upper then 3 / 5 else 2 / 5) else 5 / 6
+      ordered := by
+        intro i j lt
+        cases upper <;> fin_cases i <;> fin_cases j <;> norm_num at * }
+  inside i := by cases upper <;> fin_cases i <;> norm_num [Set.mem_Ioo]
+
+private def twoIdleCap (upper : Bool) : FixedCap S where
+  profile :=
+    { size := 4
+      label i := if i.val = 0 then none else if i.val = 1 then some 3
+        else if i.val = 2 then some 0 else some (if upper then 2 else 1)
+      x i := if i.val = 0 then (if upper then 1 / 7 else 1 / 8)
+        else if i.val = 1 then (if upper then 1 / 2 else 1 / 3)
+        else if i.val = 2 then (if upper then 4 / 5 else 7 / 10) else 11 / 12
+      ordered := by
+        intro i j lt
+        cases upper <;> fin_cases i <;> fin_cases j <;> norm_num at * }
+  inside i := by cases upper <;> fin_cases i <;> norm_num [Set.mem_Ioo]
+
+private theorem next_outer_coordinate (upper : Bool) (j : Fin 2) :
+    (twoIdleCap upper).profile.x (j.natAdd 2) = ActiveStrip.right.place ((nextThrough upper).profile.x j) := by
+  cases upper <;> fin_cases j
+  · change (7 / 10 : ℝ) = (1 + 2 / 5) / 2
+    norm_num
+  · change (11 / 12 : ℝ) = (1 + 5 / 6) / 2
+    norm_num
+  · change (4 / 5 : ℝ) = (1 + 3 / 5) / 2
+    norm_num
+  · change (11 / 12 : ℝ) = (1 + 5 / 6) / 2
+    norm_num
+
+/-- The first idle value and the active input keep their wire IDs and full
+straight tracks through the additional lower crossing. -/
+example (j : Fin 2) :
+    let p := bottomCap.enterLeft 3 nextIdle (nextThrough false) rfl rfl (A := twoIdleCap false) rfl
+    (p.input (j.natAdd 2)).val = (p.output (j.natAdd 2)).val ∧
+      ∀ y, p.drawing.x (p.input (j.natAdd 2)).val y = ActiveStrip.right.place ((nextThrough false).profile.x j) := by
+  let Q := nextThrough false
+  let A := twoIdleCap false
+  let B := nextIdle.beside bottomCap.cap
+  have input : A.types = [none, some 3] ++ Q.types := rfl
+  have output : [some 3, none] ++ Q.types = B.types := rfl
+  have lo : FixedCap.binaryThroughSlot none (some 3) Q input j = j.natAdd 2 :=
+    Fin.ext (FixedCap.binaryThroughSlot_val ..)
+  have hi : FixedCap.binaryThroughSlot (some 3) none Q output.symm j = j.natAdd 2 :=
+    Fin.ext (FixedCap.binaryThroughSlot_val ..)
+  have h := FixedCap.binaryLayer_straight_through (S := S) (Edge.moveRight (G := system) 3) rfl rfl Q
+    input output j (by rw [lo]; exact next_outer_coordinate false j) (by rw [hi]; fin_cases j <;> rfl)
+  dsimp only at h
+  rw [lo, hi] at h
+  exact h
+
+/-- The earlier idle value and the active output likewise survive the
+additional reverse crossing. -/
+example (j : Fin 2) :
+    let p := topCap.leaveLeft 3 nextIdle (nextThrough true) rfl rfl (B := twoIdleCap true) rfl
+    (p.input (j.natAdd 2)).val = (p.output (j.natAdd 2)).val ∧
+      ∀ y, p.drawing.x (p.input (j.natAdd 2)).val y = ActiveStrip.right.place ((nextThrough true).profile.x j) := by
+  let Q := nextThrough true
+  let A := nextIdle.beside topCap.cap
+  let B := twoIdleCap true
+  have input : A.types = [some 3, none] ++ Q.types := rfl
+  have output : [none, some 3] ++ Q.types = B.types := rfl
+  have lo : FixedCap.binaryThroughSlot (some 3) none Q input j = j.natAdd 2 :=
+    Fin.ext (FixedCap.binaryThroughSlot_val ..)
+  have hi : FixedCap.binaryThroughSlot none (some 3) Q output.symm j = j.natAdd 2 :=
+    Fin.ext (FixedCap.binaryThroughSlot_val ..)
+  have h := FixedCap.binaryLayer_straight_through (S := S) (Edge.moveLeft (G := system) 3) rfl rfl Q
+    input output j (by rw [lo]; fin_cases j <;> rfl) (by rw [hi]; exact next_outer_coordinate true j)
+  dsimp only at h
+  rw [lo, hi] at h
+  exact h
+
+private def firstPlacement : FixedRuntimeCap.LeftPlacement source target [0] (outerCap false) (outerCap true) :=
+  .cons (.nil (X := source) (Y := target)) 0 idle lowerThrough upperThrough rfl rfl rfl rfl rfl
+
+private def secondPlacement : FixedRuntimeCap.LeftPlacement source target [3, 0] (twoIdleCap false) (twoIdleCap true) :=
+  .cons firstPlacement 3 nextIdle (nextThrough false) (nextThrough true) rfl rfl rfl rfl rfl
+
+private def twiceDecorated := secondPlacement.drawing effectDrawing
+
+example :
+    (FixedRuntimeCap.toComputations system).map (X := secondPlacement.source) (Y := secondPlacement.target)
+      (FixedRuntimeCap.ofDrawing twiceDecorated) =
+    (Computations.whiskerLeft (Computations.mk (G := system) [3, 0])).map (Computations.effect (G := system) ()) :=
+  (secondPlacement.toComputations_drawing effectDrawing).trans
+    (congrArg (Computations.whiskerLeft (Computations.mk (G := system) [3, 0])).map read_effect)
+
+/-- Independently read rows show the runtime crossing `3`, then `0`,
+performing the effect, and returning through `0`, then `3`. The active
+value is present as a through cell on the right of both crossing pairs. -/
+example : twiceDecorated.readSheet.cells =
+    [[.inr (.moveRight 3), .inl (some 0), .inl (some 1)],
+     [.inl (some 3), .inr (.moveRight 0), .inl (some 1)],
+     [.inl (some 3), .inl (some 0), .inr (.effect ())],
+     [.inl (some 3), .inr (.moveLeft 0), .inl (some 2)],
+     [.inr (.moveLeft 3), .inl (some 0), .inl (some 2)]] := by
+  change (FixedRuntimeCap.placeLeftDrawing (X := bottomCap) (Y := topCap)
+    3 nextIdle (nextThrough false) (nextThrough true) rfl rfl rfl
+    (A := twoIdleCap false) (B := twoIdleCap true) rfl rfl decorated).readSheet.cells = _
+  erw [FixedRuntimeCap.placeLeftDrawing_cells]
+  unfold decorated
+  erw [FixedRuntimeCap.placeLeftDrawing_cells]
+  unfold effectDrawing
+  erw [binaryBox_cells]
+  rfl
 
 end Silmaril.RuntimeWires.Proofs.PositionedRuntime.LeftPortsRegression

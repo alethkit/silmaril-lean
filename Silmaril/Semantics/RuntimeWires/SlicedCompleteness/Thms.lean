@@ -143,6 +143,18 @@ theorem Sheet.cells_injective : Function.Injective (Sheet.cells (S := S) (A := A
     (q.reindex a b).cells = q.cells :=
   Proofs.SlicedCompleteness.sheet_reindex_cells a b q
 
+theorem Sheet.cells_thenDo (p : Sheet S A B) (q : Sheet S B Y) :
+    (p.thenDo q).cells = p.cells ++ q.cells :=
+  Proofs.SlicedCompleteness.seq_cells p q
+
+theorem Sheet.cells_padLeft (W : List O) (p : Sheet S A B) :
+    (p.padLeft W).cells = p.cells.map (W.map Sum.inl ++ ·) :=
+  Proofs.SlicedCompleteness.pad_left_cells W p
+
+theorem Sheet.cells_padRight (p : Sheet S A B) (W : List O) :
+    (p.padRight W).cells = p.cells.map (· ++ W.map Sum.inl) :=
+  Proofs.SlicedCompleteness.pad_right_cells W p
+
 /-- The left part is executed above the new seam and the right part below. -/
 theorem Row.Split.left_first (r : Row S A B) (q : Row S X Y) :
     Row.Split S (r.beside q) (r.beside (Row.straight X)) (Row.pass B q) := by
