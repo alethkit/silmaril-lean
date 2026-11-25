@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveSimultaneous.Defs
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveSimultaneous.Slicing
+import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveSimultaneous.Layer
 import Silmaril.Semantics.RuntimeWires.SlicedCompleteness.Thms
 
 public section
@@ -49,4 +50,43 @@ theorem serialization_eq : Sheet.SeamEquivalent s.leftFirst s.rightFirst :=
   Sheet.swap_rows s.leftRow s.rightRow (.empty _)
 
 end PairSlice
+
+/-- Sort the passing wires and all vertices at the isolated level by their
+horizontal coordinates. The input and output decompositions follow this same
+slot list, with empty blocks at zero-port vertices. -/
+theorem layer_slice {d : Diagram S V W .point} {height lo hi : ℝ}
+    (iso : d.IsolatesLayer height lo hi) : Nonempty (d.LayerSlice height lo hi) :=
+  Proofs.ProgressiveSimultaneous.layer_slice iso
+
+namespace LayerSlice
+
+variable {d : Diagram S V W .point} {height lo hi : ℝ} (s : d.LayerSlice height lo hi)
+
+theorem vertices_exact (j : Fin V) : j ∈ s.vertices ↔ d.vertexHeight j = height :=
+  Proofs.ProgressiveSimultaneous.vertices_exact s j
+
+theorem vertices_order : s.vertices.Pairwise (fun i j => d.vertexX i < d.vertexX j) :=
+  Proofs.ProgressiveSimultaneous.vertices_order s
+
+/-- Any two different vertex slots have disjoint incident wire IDs. -/
+theorem incident_disjoint {i j : Fin V} (hi : i ∈ s.vertices) (hj : j ∈ s.vertices) (h : i ≠ j) :
+    List.Disjoint (d.inputs i ++ d.outputs i) (d.inputs j ++ d.outputs j) :=
+  Proofs.ProgressiveSimultaneous.same_level_incident_disjoint h
+    (((s.vertices_exact j).mp hj).trans ((s.vertices_exact i).mp hi).symm)
+
+theorem input_types :
+    (s.slots.flatMap d.slotInputs).map d.label = s.slots.flatMap d.slotSource :=
+  Proofs.ProgressiveSimultaneous.layer_input_types s
+
+theorem output_types :
+    (s.slots.flatMap d.slotOutputs).map d.label = s.slots.flatMap d.slotTarget :=
+  Proofs.ProgressiveSimultaneous.layer_output_types s
+
+/-- The single layer row typed at the ordered wire labels of the actual cuts. -/
+def cutRow :
+    Row S ((s.slots.flatMap d.slotInputs).map d.label) ((s.slots.flatMap d.slotOutputs).map d.label) :=
+  (congrArg₂ (Row S) s.input_types s.output_types).symm.mp s.row
+
+end LayerSlice
+
 end Silmaril.RuntimeWires.ProgressiveGraph.Diagram

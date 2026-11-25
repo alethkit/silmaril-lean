@@ -5,6 +5,17 @@ import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGraph.Readback
 
 public section
 
+namespace Silmaril.RuntimeWires.ProgressiveGraph
+
+/-- Sort a finite selection with distinct horizontal coordinates. -/
+theorem sorted_coordinates {I : Type*} [Fintype I] [DecidableEq I]
+    (position : I → ℝ) (P : I → Prop)
+    (apart : ∀ {a b}, P a → P b → a ≠ b → position a ≠ position b) :
+    ∃ l : List I, (∀ x, x ∈ l ↔ P x) ∧ l.Pairwise (fun a b => position a < position b) :=
+  Proofs.ProgressiveGraph.sorted_coordinates position P apart
+
+end Silmaril.RuntimeWires.ProgressiveGraph
+
 namespace Silmaril.RuntimeWires.ProgressiveGraph.Diagram
 
 universe u v

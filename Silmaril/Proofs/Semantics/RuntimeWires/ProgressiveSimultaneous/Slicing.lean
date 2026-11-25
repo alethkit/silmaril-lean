@@ -14,21 +14,6 @@ universe u v
 variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {kind : VertexSeparation}
 variable {d : Diagram S V W kind} {v z : Fin V} {lo hi : ℝ}
 
-/-- A list with points at the central height and with a strict order at the cut. -/
-private structure Block (d : Diagram S V W kind) (event cut : ℝ) (ids : List (Fin W)) : Prop where
-  covers : ∀ w ∈ ids, d.covers w event
-  crosses : ∀ w ∈ ids, d.crosses w cut
-  ordered : ids.Pairwise (fun a b => d.x a cut < d.x b cut)
-
-private theorem Block.append {event cut : ℝ} {l r : List (Fin W)}
-    (a : Block d event cut l) (b : Block d event cut r)
-    (h : ∀ w ∈ l, ∀ z ∈ r, d.x w event < d.x z event) :
-    Block d event cut (l ++ r) := by
-  exact ⟨fun w hw => (List.mem_append.mp hw).elim (a.covers w) (b.covers w),
-    fun w hw => (List.mem_append.mp hw).elim (a.crosses w) (b.crosses w),
-    List.pairwise_append.mpr ⟨a.ordered, b.ordered, fun w hw z hz =>
-      order_to_cut (a.covers w hw) (b.covers z hz) (a.crosses w hw) (b.crosses z hz) (h w hw z hz)⟩⟩
-
 private theorem passing_block {cut : ℝ} {ids : List (Fin W)}
     (central : ∀ w ∈ ids, d.crosses w (d.vertexHeight v))
     (at_cut : ∀ w ∈ ids, d.crosses w cut)
@@ -109,58 +94,18 @@ private theorem assemble_cut (pair : d.IsolatesPair v z lo hi)
   simp only [List.mem_append]
   tauto
 
-private theorem incoming (pair : d.IsolatesPair v z lo hi) {j : Fin V}
-    (hj : j = v ∨ j = z) :
-    Block d (d.vertexHeight v) lo (d.inputs j) := by
-  have height : d.vertexHeight j = d.vertexHeight v := by
-    rcases hj with rfl | rfl
-    · rfl
-    · exact pair.same_height
-  have crosses (w : Fin W) (hw : w ∈ d.inputs j) : d.crosses w lo := by
-    apply (before_classify pair w).mpr
-    rcases hj with rfl | rfl
-    · exact Or.inr (Or.inl hw)
-    · exact Or.inr (Or.inr hw)
-  refine ⟨fun w hw => ?_, crosses, List.pairwise_ofFn.mpr ?_⟩
-  · have upper := (finish_height ((input_mem j w).mp hw)).trans height
-    exact ⟨(crosses w hw).1.le.trans pair.below.le, upper.ge⟩
-  · intro a b hab
-    have ha := crosses _ (List.mem_ofFn.mpr ⟨a, rfl⟩)
-    have hb := crosses _ (List.mem_ofFn.mpr ⟨b, rfl⟩)
-    exact d.input_order j hab ha.1 hb.1 (pair.below.trans_eq height.symm)
-
-private theorem outgoing (pair : d.IsolatesPair v z lo hi) {j : Fin V}
-    (hj : j = v ∨ j = z) :
-    Block d (d.vertexHeight v) hi (d.outputs j) := by
-  have height : d.vertexHeight j = d.vertexHeight v := by
-    rcases hj with rfl | rfl
-    · rfl
-    · exact pair.same_height
-  have crosses (w : Fin W) (hw : w ∈ d.outputs j) : d.crosses w hi := by
-    apply (after_classify pair w).mpr
-    rcases hj with rfl | rfl
-    · exact Or.inr (Or.inl hw)
-    · exact Or.inr (Or.inr hw)
-  refine ⟨fun w hw => ?_, crosses, List.pairwise_ofFn.mpr ?_⟩
-  · have lower := (start_height ((output_mem j w).mp hw)).trans height
-    exact ⟨lower.le, pair.above.le.trans (crosses w hw).2.le⟩
-  · intro a b hab
-    have ha := crosses _ (List.mem_ofFn.mpr ⟨a, rfl⟩)
-    have hb := crosses _ (List.mem_ofFn.mpr ⟨b, rfl⟩)
-    exact d.output_order j hab (height.trans_lt pair.above) ha.2 hb.2
-
 theorem simultaneous_event (pair : d.IsolatesPair v z lo hi) : Nonempty (d.PairSlice v z lo hi) := by
   obtain ⟨p⟩ := select_passing (d := d) (v := v) (z := z)
   refine ⟨⟨p, pair, ?_, ?_⟩⟩
   · refine assemble_cut pair p (before_classify pair)
-      (incoming pair (Or.inl rfl)) (incoming pair (Or.inr rfl)) ?_ ?_
+      (layer_incoming pair.toLayer rfl) (layer_incoming pair.toLayer pair.same_height) ?_ ?_
     · intro w hw
       exact d.finish_attached w v ((input_mem v w).mp hw)
     · intro w hw
       rw [← pair.same_height]
       exact d.finish_attached w z ((input_mem z w).mp hw)
   · refine assemble_cut pair p (after_classify pair)
-      (outgoing pair (Or.inl rfl)) (outgoing pair (Or.inr rfl)) ?_ ?_
+      (layer_outgoing pair.toLayer rfl) (layer_outgoing pair.toLayer pair.same_height) ?_ ?_
     · intro w hw
       exact d.start_attached w v ((output_mem v w).mp hw)
     · intro w hw
