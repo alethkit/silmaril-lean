@@ -35,6 +35,10 @@ theorem typed {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ} (h : Eqv Γ r s L) 
     exact ⟨hp.hasType.lsubst (fun _ _ hi => (ih hi).1),
       hp.hasType.lsubst (fun _ _ hi => (ih hi).2)⟩
   | lsubstPost _ hr hs hσ _ => exact ⟨hr.hasType.lsubst hσ, hs.hasType.lsubst hσ⟩
+  | substVars _ hθ ih =>
+    have ht : Tm.Subst.HasType _ _ _ := fun _ _ hi => (hθ hi).hasType
+    exact ⟨ih.1.substVars ht, ih.2.substVars ht⟩
+  | renameLabels _ hρ ih => exact ⟨ih.1.renameLabels hρ, ih.2.renameLabels hρ⟩
   | collapsePost he hp hσ =>
     exact ⟨(CfgEta.Codiagonal.nested_typed he.hasType hp.hasType).lsubst hσ,
       (CfgEta.Codiagonal.flattened_typed he.hasType hp.hasType).lsubst hσ⟩

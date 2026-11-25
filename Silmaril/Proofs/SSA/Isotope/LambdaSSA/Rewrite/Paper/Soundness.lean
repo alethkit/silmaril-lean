@@ -10,6 +10,8 @@ import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.ProductEta.Step.Soundness.T
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Assembly.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Direct.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.LabelRenaming.Thms
 
 /-! # Denotational soundness of the opt-in λSSA closure -/
 
@@ -125,6 +127,15 @@ theorem sound
       rw [denoteRegion_lsubst_sharedTensor J M shared hr.hasType _ (PureBranches.of_valueBranches J M hr) dk,
         denoteRegion_lsubst_sharedTensor J M shared hs.hasType _ (PureBranches.of_valueBranches J M hs) dk,
         common_eq J M dr ds]
+    | substVars _ hθ ih =>
+      obtain ⟨_, _, f, dr, ds⟩ := ih
+      obtain ⟨k, transport⟩ := RegionDenotes.substBranchValues J M hθ
+      obtain ⟨hr, dr'⟩ := transport dr
+      obtain ⟨hs, ds'⟩ := transport ds
+      exact ⟨hr, hs, J.map k ≫ f, dr', ds'⟩
+    | renameLabels _ hρ ih =>
+      obtain ⟨_, _, _, dr, ds⟩ := ih
+      exact ⟨_, _, _, dr.renameLabels J M hρ, ds.renameLabels J M hρ⟩
     | collapsePost he hp hσ =>
       exact common_of_eq J M (CfgEta.Codiagonal.collapsePost M J shared he hp hσ)
     | uniform he hp hq ha _ ih =>
