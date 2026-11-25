@@ -128,14 +128,11 @@ simulation must relate closure application and recursive calls to L2's
 substitution rules. The fuel bound of `evalClosureFuel` is a separate concern.
 [L2 closure interpreter](../../Silmaril/Courses/Cambridge/L2/ClosureInterpreter.lean)
 
-L3 uses a store of values and allocation branches over every fresh location.
-`ExceptT Unit (StateT L3.Store SetM)` can retain all finite return and stuck
-alternatives with their final stores. `Silmaril.Elgot.Nondet.mem_iter_iff`
-reads the finite iterations existentially. This gives a path to may adequacy
-with concrete allocated names. A state can have a returning branch and also
-an infinite or stuck branch. Must termination, infinite behaviour, and any
-quotient by location renaming need separate proofs. [Nondeterministic iteration](../../Silmaril/Semantics/ElgotMonads/Thms.lean) ·
-[L3 operational observation contract](../projects/operational-institutions.md#cambridge-l3)
+The L3 data and reference fragment has a compositional `StateT L3.Store SetM`
+denotation. The checked may-adequacy theorem retains each fresh allocation
+choice and final store. The guide states the admitted syntax, typed ground
+observations, and the requirements for an extension to higher-order store.
+[L3 data and reference denotation](cambridge-l3-denotation.md)
 
 Specification-format institutions need a representation of configurations and
 sentences and a proof that interpretation preserves satisfaction.
