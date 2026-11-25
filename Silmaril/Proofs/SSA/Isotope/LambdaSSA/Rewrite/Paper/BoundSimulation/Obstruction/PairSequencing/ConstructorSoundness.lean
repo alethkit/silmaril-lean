@@ -94,12 +94,12 @@ private theorem closed_subst {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty
   | inl _ ih => simp only [Tm.subst, ih]
   | inr _ ih => simp only [Tm.subst, ih]
 
-private theorem unit_branch_observation {Γ Δ : VCtx (Ty Empty)} {t u : Tm Empty} {A : Ty Empty}
+private theorem singleton_branch_observation {P : Ty Empty} {Γ Δ : VCtx (Ty Empty)} {t u : Tm Empty} {A : Ty Empty}
     (ht : Tm.BranchValue Γ t A) (hu : Tm.BranchValue Δ u A)
-    (h : Paper.WithConstructorSequencing.Eqv [.unit] (.br 0 t) (.br 0 u) [A])
-    (v : Val) (hv : ValTy v .unit) :
+    (h : Paper.WithConstructorSequencing.Eqv [P] (.br 0 t) (.br 0 u) [A])
+    (v : Val) (hv : ValTy v P) :
     t.subst (fun _ => quote v) = u.subst (fun _ => quote v) := by
-  have env : EnvTy [.unit] (fun _ => v) := by
+  have env : EnvTy [P] (fun _ => v) := by
     intro i A hi
     cases i with
     | zero => cases Option.some.inj hi; exact hv
@@ -110,18 +110,28 @@ private theorem unit_branch_observation {Γ Δ : VCtx (Ty Empty)} {t u : Tm Empt
   simp only [evalRegionWith, ex, ey, Result.jump.injEq, true_and] at observed
   exact hx.symm.trans (observed ▸ hy)
 
+theorem branch_observation_of_closed_input {t u w : Tm Empty} {A P : Ty Empty}
+    (ht : Tm.BranchValue [P] t A) (hu : Tm.BranchValue [P] u A)
+    (hw : Tm.BranchValue [] w P)
+    (h : Paper.WithConstructorSequencing.Eqv [P] (.br 0 t) (.br 0 u) [A]) :
+    t.subst (fun _ => w) = u.subst (fun _ => w) := by
+  obtain ⟨v, he, hv⟩ := Option.map_eq_some_iff.mp (eval_quote hw (fun _ => .unit))
+  have typed : ValTy v P := evalTerm_typed hw.hasType (fun _ _ hi => by cases hi) he
+  rw [closed_subst hw rfl] at hv
+  simpa only [hv] using singleton_branch_observation ht hu h v typed
+
 theorem closed_branch_injective {t u : Tm Empty} {A : Ty Empty}
     (ht : Tm.BranchValue [] t A) (hu : Tm.BranchValue [] u A)
     (h : Paper.WithConstructorSequencing.Eqv [.unit] (.br 0 t) (.br 0 u) [A]) : t = u := by
   simpa only [closed_subst ht rfl, closed_subst hu rfl] using
-    unit_branch_observation ht hu h .unit .unit
+    singleton_branch_observation ht hu h .unit .unit
 
 theorem unit_branch_observations {t u : Tm Empty} {A : Ty Empty}
     (ht : Tm.BranchValue [.unit] t A) (hu : Tm.BranchValue [.unit] u A)
     (h : Paper.WithConstructorSequencing.Eqv [.unit] (.br 0 t) (.br 0 u) [A]) :
     t.subst (fun _ => .unit) = u.subst (fun _ => .unit) ∧
       t.subst (fun _ => .inl .unit) = u.subst (fun _ => .inl .unit) :=
-  ⟨unit_branch_observation ht hu h .unit .unit,
-    unit_branch_observation ht hu h (.inl .unit) (.alternateUnit rfl)⟩
+  ⟨singleton_branch_observation ht hu h .unit .unit,
+    singleton_branch_observation ht hu h (.inl .unit) (.alternateUnit rfl)⟩
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer
