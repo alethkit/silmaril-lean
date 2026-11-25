@@ -13,8 +13,9 @@ open ProgressiveGraph ProgressiveGraph.Diagram
 universe u v
 
 variable {O : Type u} {S : Signature.{u,v} O} {L R W : ℕ}
-variable {lower : Diagram S L W .point} {upper : Diagram S R W .point}
-variable (m : lower.VerticalMatch upper)
+section Vertices
+
+variable {U : ℕ} {lower : Diagram S L W .point} {upper : Diagram S R U .point}
 
 theorem x_left (v : Fin L) : gluedVertexX lower upper (Fin.castAdd R v) = lower.vertexX v := by
   simp [gluedVertexX]
@@ -29,6 +30,11 @@ theorem height_left (v : Fin L) :
 theorem height_right (v : Fin R) :
     gluedHeight lower upper (Fin.natAdd L v) = halfHeight 1 (upper.vertexHeight v) := by
   simp [gluedHeight]
+
+end Vertices
+
+variable {lower : Diagram S L W .point} {upper : Diagram S R W .point}
+variable (m : lower.VerticalMatch upper)
 
 theorem low_bound (w : Fin W) :
     endpointHeight (gluedHeight lower upper) 0 (gluedStart lower (R := R) w) =
