@@ -36,9 +36,10 @@ The [ranked graph judgment](../../Silmaril/Wasm/Institution/Operational/CallCont
 interprets one typed activation at a time by well-founded recursion on resolved
 targets. The graph checker derives the target table from each body and checks
 the typed operand prefix, local reads and writes, integer binary operations,
-direct calls, function-body return, and normal fallthrough. The judgment also
-covers unreachable and partial trap discards. Exact active-call inversion identifies the child's step
-and the caller's unchanged continuation. Finite runs preserve typing and the
+direct calls, unindexed scalar blocks and conditionals, unconditional and
+conditional branch exits, explicit return, and normal fallthrough. The judgment also covers unreachable and partial trap
+discards. Exact active-call inversion identifies the child's step and the
+caller's unchanged continuation. Finite runs preserve typing and the
 descending chain of entered frames. The four-frame fixtures cover return and
 propagated trap. A separate arity check enforces V1's zero-or-one-result rule.
 
@@ -72,9 +73,66 @@ every declared call target in the body. See the public reduction rules for
 [Wasm 1.0](../../specs/spectec/src/specification/wasm-1.0/8-reduction.spectec#L135)
 and [Wasm 3.0](../../specs/spectec/src/specification/wasm-3.0/4.3-execution.instructions.spectec#L230).
 
-The graph fragment excludes return through additional structured labels,
-recursion, indirect and host calls, unrestricted control flow, store mutation,
-and whole-module validation.
+The [structured label context](../../Silmaril/Wasm/Institution/Operational/Blocks/Context/Thms.lean)
+supplies exact contextual step inversion for a block with saved operands and
+pending instructions. An entered ranked callee can step inside the block while
+retaining that context. Normal fallthrough and an already-reduced trap leave the
+label and deliver their respective outcomes. An independent SOS crosses one
+label per explicit-return step and gives exact finite endpoint readback in Core,
+Lime1, and V1. The return guard checks the enclosing function's result types.
+Each label preserves the return operands in order and discards its remaining
+body. The existing frame exit selects the function's result suffix. Fixtures
+enter two scalar source blocks, traverse both labels, and return through the
+function frame with the ordered results.
+
+The ranked source checker now checks blocks recursively from an empty operand
+stack and includes their direct calls in the rank table. Each block declares
+zero or one numeric fallthrough result. The enclosing function's return types
+remain in scope beneath every block. A suspended block retains its caller's
+operand prefix and pending code. A nested callee can return to the block,
+which continues with the same locals and the callee's result. Block fallthrough
+appends the block's result to the saved operands. Explicit return crosses each
+label, dropping its pending code, before the function frame selects the result
+suffix. Traps can discard pending code and operands in stages before leaving
+each label. The graph's exact native successor and finite endpoint theorems cover
+all these stages in Core, Lime1, and V1 under the existing allocation, rank,
+and dialect guards.
+
+The ranked checker also admits scalar `if`/`else` with an `i32` condition.
+It checks both arms against the same optional fallthrough type, carries the
+enclosing function's return types into each, and includes direct calls from
+both arms in the rank table. The selection step consumes the condition and
+leaves a source block for the chosen arm with the saved operands and pending
+code intact. The block rules then handle entry, calls, fallthrough, return, and
+trap propagation. Exact native successor and finite endpoint readback cover
+selection and all subsequent steps in Core, Lime1, and V1. Fixtures exercise
+both arms, a ranked child call, explicit return through nested labels, and a
+child trap that bypasses the saved continuation.
+
+The ranked checker also checks unconditional `br` to its block and conditional
+labels. It resolves the depth through the label stack and checks the result
+annotation and operand suffix against that target. The target's types are
+independent of the current label's fallthrough and the function's return
+types. Each positive-depth step drops the crossed label's pending instructions
+and lowers the index. The target exit keeps exactly the ordered result suffix
+and resumes the target's saved operands and code. Core, Lime1, and V1 have exact
+successor and finite endpoint readback at each stage. Fixtures cover depth zero
+and a branch from an inner block to the surrounding conditional, with an
+observable noncommutative continuation. They reject missing or mistyped
+operands, an incorrect target annotation, and an out-of-range depth.
+
+The same label guard checks `br_if`. It verifies the target and its operand
+suffix after an `i32` condition is popped and checks fallthrough with those
+operands still on the stack. For a nonzero condition, the first SOS step
+leaves an ordinary branch for the existing label propagation rules. A zero
+condition advances directly to the pending instructions. Exact native
+successor and finite endpoint readback cover both paths in Core, Lime1, and
+V1. The nested fixtures distinguish results and continuations on both paths
+and reject bad types and targets even with a default-zero condition.
+
+The graph fragment excludes block parameters and multiple block results,
+branches to a function label, loops and loop back-edges, `br_table`, recursion, indirect and host calls, store mutation, and
+whole-module validation.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have

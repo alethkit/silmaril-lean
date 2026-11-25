@@ -95,4 +95,63 @@ visit()`)
 	require(xs.String() == "[1, 2, 3]" && xs.Append(starlark.MakeInt(4)) == nil,
 		"the loop's guard must reject the alias write and then be released on failure")
 	fmt.Println("PASS alias mutation is guarded after acquisition and the guard is released on error")
+
+	g, err = initSource(`def prepare():
+    calls.append(1)
+    return range(10, 3, -2)
+def visit():
+    x = 7
+    for x in range(0):
+        seen.append(99)
+    empty = x
+    for x in prepare()[::-2]:
+        seen.append(x)
+        continue
+        seen.append(99)
+    return (empty, x)
+def early_break():
+    for x in range(11, 1000000011):
+        break
+    return x
+def early_return():
+    for x in range(11, 1000000011):
+        return x
+calls = []
+seen = []
+out = visit()
+early = (early_break(), early_return())`)
+	require(err == nil, fmt.Sprint(err))
+	require(g["calls"].String() == "[1]" && g["seen"].String() == "[4, 8]" &&
+		g["out"].String() == "(7, 8)" && g["early"].String() == "(11, 11)",
+		"range order, operand effects, binder updates, or early exit differed")
+	fmt.Println("PASS empty and sliced descending ranges, single operand evaluation, continue and huge early exits")
+
+	g, err = initSource(`def prepare():
+    calls.append(1)
+    return range(10, 3, -2)
+def visit():
+    for x in prepare()[::0]:
+        seen.append(x)
+calls = []
+seen = []
+visit()`)
+	require(err != nil && strings.Contains(err.Error(), "zero is not a valid slice step"), fmt.Sprint(err))
+	require(g["calls"].String() == "[1]" && g["seen"].String() == "[]",
+		"a failing range slice must retain its operand effect and skip the body")
+	fmt.Println("PASS a failing range operand keeps its effects before acquisition")
+
+	g, err = initSource(`def visit():
+    alias = xs
+    for y in xs:
+        for x in range(10, 3, -2):
+            seen.append(x)
+            alias.append(y)
+xs = [1, 2]
+seen = []
+visit()`)
+	require(err != nil && strings.Contains(err.Error(), "during iteration"), fmt.Sprint(err))
+	xs = g["xs"].(*starlark.List)
+	require(xs.String() == "[1, 2]" && g["seen"].String() == "[10]" && xs.Append(starlark.MakeInt(99)) == nil,
+		"a nested range error must retain its effects and release the enclosing list guard")
+	fmt.Println("PASS a range body failure keeps preceding effects and releases the enclosing list guard")
 }

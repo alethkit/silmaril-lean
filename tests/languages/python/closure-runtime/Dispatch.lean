@@ -11,7 +11,7 @@ private def index : Fin calleeRef.layout.locals := ⟨0, by decide⟩
 
 -- This fixture uses a body that returns the value read from a single slot.
 private def definition : Definition Slot calleeRef.layout :=
-  ⟨⟨[.local index], by decide⟩, .local index⟩
+  { parameters := ⟨[.local index], by decide⟩, body := .local index }
 
 private def table : CodeTable Slot :=
   fun key => if key = calleeRef.key then some ⟨calleeRef.layout, definition⟩ else none

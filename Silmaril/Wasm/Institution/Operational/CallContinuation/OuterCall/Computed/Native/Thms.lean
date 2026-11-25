@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Execution.Core.Inversion.Defs
+public import Silmaril.Wasm.Institution.Operational.Blocks.Native.Defs
 public import Silmaril.Wasm.Lime1.Execution.Callout
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Thms
@@ -66,6 +67,50 @@ theorem lime_direct_call_iff {H : Type} {s : Wasm.Lime1.Execution.Store H} {f : 
       ⟨s, f, Wasm.Lime1.Execution.values stack ++ .source (.call i) :: tail⟩ dst ↔
       dst = ⟨s, f, Wasm.Lime1.Execution.values stack ++ .invoke addr :: tail⟩ :=
   Proofs.Lime1.call_iff lookup
+
+open Wasm.Lime1.Execution in
+theorem lime_block_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+    {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.block (Blocks.limeType result) body) :: rest⟩ dst ↔
+      dst = ⟨s, f, values stack ++ .label result.toList.length [] (expression body) :: rest⟩ :=
+  Proofs.Lime1.block_iff
+
+/-- Conditional selection consumes the last i32 operand and preserves the
+surrounding code. Entering the selected block is a separate native step. -/
+theorem core_if_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Core.Frame}
+    {saved : List Core.Val} {condition : BitVec 32} {bt : BlockType} {thenBody elseBody : List Instr}
+    {rest : List Core.Admin} {dst : Core.Config H} :
+    Core.Step P noHost
+      ⟨s, f, Core.vals (saved ++ [.num ⟨.int .i32, condition⟩]) ++ .plain (.if_ bt thenBody elseBody) :: rest⟩ dst ↔
+      dst = ⟨s, f, Core.vals saved ++ .plain (.block bt (if condition = 0 then elseBody else thenBody)) :: rest⟩ :=
+  Proofs.Core.if_iff
+
+open Wasm.Lime1.Execution in
+theorem lime_if_iff {H : Type} {s : Store H} {f : Frame}
+    {saved : List Value} {condition : BitVec 32} {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr}
+    {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 condition]) ++ .source (.if_ bt thenBody elseBody) :: rest⟩ dst ↔
+      dst = ⟨s, f, values saved ++ .source (.block bt (if condition = 0 then elseBody else thenBody)) :: rest⟩ :=
+  Proofs.Lime1.if_iff
+
+/-- A conditional branch consumes its i32 and leaves the surrounding
+operands and suffix in place. A nonzero operand leaves a pending branch. -/
+theorem core_br_if_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Core.Frame}
+    {saved : List Core.Val} {condition : BitVec 32} {depth : LabelIdx}
+    {rest : List Core.Admin} {dst : Core.Config H} :
+    Core.Step P noHost
+      ⟨s, f, Core.vals (saved ++ [.num ⟨.int .i32, condition⟩]) ++ .plain (.brIf depth) :: rest⟩ dst ↔
+      dst = ⟨s, f, Core.vals saved ++ (if condition = 0 then [] else [.plain (.br depth)]) ++ rest⟩ :=
+  Proofs.Core.br_if_iff
+
+open Wasm.Lime1.Execution in
+theorem lime_br_if_iff {H : Type} {s : Store H} {f : Frame}
+    {saved : List Value} {condition : BitVec 32} {depth : LabelIdx} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 condition]) ++ .source (.brIf depth) :: rest⟩ dst ↔
+      dst = ⟨s, f, values saved ++ (if condition = 0 then [] else [.source (.br depth)]) ++ rest⟩ :=
+  Proofs.Lime1.br_if_iff
 
 theorem core_unreachable_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Core.Frame}
     {stack : List Core.Val} {rest : List Core.Admin} {dst : Core.Config H} :

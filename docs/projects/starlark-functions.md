@@ -110,23 +110,32 @@ to ordered calls and temporary slots.
 
 `Body.forInExpr` evaluates a resolved iterable expression once in the
 current frame. The operand may invoke a closure and mutate the collection
-it returns. A successful operand supplies the value for the snapshot and
-guard acquisition. An operand failure propagates its effects with
+it returns. A successful operand supplies the value for iterator acquisition.
+An operand failure propagates its effects with
 no loop target write or new guard.
 
 `Body.forInExpr`, the call-free `Body.forIn`, and collection suites share
-the same acquisition, finite snapshot and cleanup denotation for list,
-tuple and dictionary operands. Each iteration writes its target binding
-before running the body. A callee shares heap identities and active
+the same cursor and cleanup semantics for list, tuple, dictionary and
+range operands. Each iteration writes its target binding before running
+the body. A callee shares heap identities and active
 iterators with its caller, so the guard covers mutations through aliases.
 The loop restores the guard stack left by operand evaluation on every
 exit, including return and error.
 
+`range` yields its current exact integer and advances by the descriptor's
+stride. The remaining count bounds the cursor recursion. This works for
+descending and sliced ranges and needs no enumerated sequence, heap guard
+or execution fuel. The Lean fixtures break and return after the first
+element of a range of length `10^24`. The pinned Go cursor advances an
+offset and uses host `int` arithmetic. The common-profile fixtures exit
+early from a billion-element range and check empty and sliced ranges,
+operand effects, and cleanup after a nested failure.
+[Pinned for statements][for-stmts] · [Pinned range spec][range] · [Go range iterator][go-range-iterator] · [Pinned Go fixtures](../../examples/starlark/call-loops/check.go)
+
 `runChecked` validates calls in the operand and checks break and continue
 in each declaration's own lexical loop context, including unreachable
 code. `exec_iff_denoteBody` covers the exact result or error, frame, heap
-and iterator stack. The finite item list bounds iteration and the
-available declaration set bounds live calls.
+and iterator stack. The available declaration set bounds live calls.
 [Native loop agreement and cleanup](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Native loop fixtures](../../Silmaril/Languages/Starlark/Functions/NativeLoopChecks.lean) · [Collection loops](starlark-lists.md#iteration-and-control)
 
 ## Direct denotation of resolved expressions
@@ -187,12 +196,66 @@ shared Lean key policy and pinned Go reject list and dictionary keys even
 after freezing.
 [Dictionary expressions in the pinned spec][dict-expr] · [Hashing in the pinned spec][hashing] · [Go compiler][go-dict-compile] · [Go interpreter][go-dict-run]
 
-Subscript reads accept lists, tuples and dictionaries already supported by
-the shared store. Sequence reads use exact integers and allow negative
-indices. String and byte indexing remain open. Go also supports
-additional indexable types and checks
-sequence indices through a signed 32-bit conversion.
+Subscript reads accept lists, tuples, dictionaries, strings and ranges. Sequence
+reads use exact integers and allow negative indices. Go supports
+additional indexable types and checks sequence indices through a signed
+32-bit conversion. Byte indexing remains open.
 [List expressions in the pinned spec][list-expr] · [Tuples in the pinned spec][tuple-expr] · [Subscripts in the pinned spec][subscript] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
+
+### String subscript reads
+
+The receiver and index evaluate once in that order. A receiver evaluation
+error skips the index, and an index evaluation error takes precedence over
+receiver and index validation. Both operand effects survive a validation
+error. The receiver kind determines whether to apply integer indexing.
+For strings, the evaluator checks the index type and bounds against the UTF-8
+byte length before selecting the byte. Negative indices offset from that
+byte length. A successful read returns a one-byte string, with no heap
+allocation.
+
+The pinned spec allows an implementation to disallow operations that
+produce invalid Unicode. In this valid UTF-8 profile, selecting an isolated
+lead or continuation byte raises `invalidIndexUTF8`. Pinned Go preserves
+that byte in a string. For example, `"éz"[0]` produces raw byte `c3` in Go
+and errors in Lean, while `"éz"[-1]` yields `"z"` in both.
+
+The existing subscript rule and direct denotation share this primitive.
+`evaluates_iff_denoteExpr` covers exact outcomes and residual state.
+`lower_preserves` covers the emitted index expression after scratch
+projection, including keeping the destination binding on failure. The
+normalized source and Lean quotation use the existing `receiver[index]` form.
+[Pinned strings][strings] · [Pinned subscripts][subscript] · [Go operand compilation][go-index-compile] · [Go validation][go-index] · [Go byte indexing][go-string-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
+
+### Lazy range subscript reads
+
+`range` accepts one to three positional integers and rejects a zero step.
+The result stores the start, exclusive stop and nonzero step. Its length
+comes from the distance to the stop and the step magnitude. Direction
+mismatches give an empty range. Construction and subscripting use a fixed
+number of integer operations and allocate no Starlark heap cells.
+
+The receiver and index evaluate once, from left to right. A failed range
+constructor stops evaluation before the index. Once the receiver and index
+succeed, the same sequence normalization used for lists and tuples checks
+the index type and bounds. Negative indices count from the range length.
+The selected value is `start + offset * step`. Indexing leaves all earlier
+effects intact on either outcome.
+
+Lean uses exact integers for range parameters, lengths, indices and results.
+Pinned Go converts constructor arguments to host `int`, computes the length
+in that type, and converts the index to signed 32 bits before sequence
+bounds. On amd64, the Go fixture distinguishes constructor overflow, an
+in-range index above `2^31 - 1`, and wraparound of the length calculation
+even when both endpoints fit. The Lean fixture succeeds on those exact
+integer cases.
+
+The new built-in rules and subscript primitive compose with
+`evaluates_iff_denoteExpr` and `lower_preserves` for exact outcomes and
+state after scratch projection. Normalized source and Lean quotation use
+ordinary calls and subscripts. Range truth, length and type are available.
+Range spreading, conversions to lists and tuples, comparison,
+membership and formatting remain open.
+[Pinned range spec][range] · [Pinned subscripts][subscript] · [Go range construction and indexing][go-range] · [Go index validation][go-index] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ### List and tuple slice reads
 
@@ -223,7 +286,7 @@ value-level selection and allocation primitive with the denotation.
 `evaluates_iff_denoteExpr` compares the exact outcome and state.
 `lower_preserves` covers slice reads after projecting direct scratch bindings.
 The normalized resolver and Lean quotation admit `xs[a:b:s]` with optional
-bounds. Bytes and ranges remain open.
+bounds. Slice reads on bytes remain open.
 [Pinned slice spec][slice-expr] · [Go compilation][go-slice-compile] · [Go validation][go-slice-eval] · [Go list slice][go-list-slice] · [Go tuple slice][go-tuple-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ### String slice reads
@@ -242,9 +305,37 @@ This is the pinned spec's 8-bit profile that disallows invalid Unicode
 encodings. Pinned Go accepts the malformed bytes from a split sequence or
 byte reversal as a string. For example, `"é"[:1]` yields the byte `c3` in
 Go and raises `invalidSliceUTF8` in Lean. `"aé🙂z"[1:-1]` yields
-`"é🙂"` in both. String subscript reads and the distinct `bytes` value
-type remain open.
+`"é🙂"` in both. The distinct `bytes` value type remains open.
 [Pinned strings][strings] · [Pinned slice spec][slice-expr] · [Go string indexing and slicing][go-string-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
+
+### Lazy range slice reads
+
+Range slices use the same operand order and checked offset normalization
+as list, tuple and string slices. The normalized offsets form a range in
+index space. The result maps the normalized start and exclusive stop
+through the receiver's affine map and multiplies the two strides. Its
+stride stays nonzero. `RangeValue.slice_atOffset` proves that the resulting
+map applies the normalized offset map before the receiver's map. Nested
+slices repeat the same composition. Range slicing calculates a new
+descriptor without enumerating elements or allocating a Starlark heap cell.
+
+An empty result stays empty under further slicing. Lean retains independently
+clamped bounds for a slice with crossed endpoints. Go collapses crossed
+bounds to equal endpoints, which gives the same empty length and index
+errors. Descriptor formatting remains outside this profile.
+
+Pinned Go converts explicit start, stop and stride operands to signed
+32 bits and composes ranges with host `int` arithmetic. On amd64 the
+fixtures show two nonempty slices becoming empty in Go after wraparound,
+one in the composed stride and one in the mapped stop. Lean computes all
+these values exactly.
+
+The existing independent slice rule and direct evaluator share the
+value-level primitive. `evaluates_iff_denoteExpr` and `lower_preserves`
+cover exact outcomes and residual states, including earlier effects
+and an unchanged destination on failure. The normalized resolver and
+Lean quotation use ordinary slice syntax, including nested slices.
+[Pinned range spec][range] · [Pinned slice spec][slice-expr] · [Go validation][go-slice-eval] · [Go range composition][go-range-slice] · [Point correspondence](../../Silmaril/Languages/Starlark/Lists/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ## Native expression positions
 
@@ -364,6 +455,15 @@ supplies a visible, writable destination to observe the returned value.
 Lean and pinned Go fixtures cover a failing nested keyword operand,
 competing expansion errors and a duplicate keyword introduced by `**`.
 
+`lowerForIn` stages the iterable in a scratch binding before the shared
+loop reads it. `lowerForIn_preserves` relates native and staged loops on
+every outcome after projecting scratch bindings. Given an independent
+operand evaluation and a scratch-free entry state, the theorem requires
+that the pair of supplied bodies preserve the same projection at each
+related body entry. The cursor transports that premise through binder
+writes, continuation and cleanup.
+[Loop lowering theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean)
+
 Native module assignments and expression statements use the direct denotation.
 Static validation of repeated explicit keywords stays with the checked entry points.
 Supported iterable, mapping and callable values are those of the
@@ -464,7 +564,7 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
   && go run "$fixtures/nested-expressions/check.go" && go run "$fixtures/subscript-assignment/check.go")
 ```
 
-Module initialization, prepublished imports and five universal built-ins
+Module initialization, prepublished imports and the checked universal built-ins
 extend this profile. Host callable effects remain open.
 [Modules](starlark-modules.md) · [Built-ins](starlark-builtins.md)
 
@@ -480,6 +580,13 @@ extend this profile. Host callable effects remain open.
 [go-dict-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1371-L1380
 [go-dict-run]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L486
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
+[range]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#range
+[for-stmts]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#for-statements
+[go-range-iterator]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L951-L964
+[go-range]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L827-L879
+[go-range-slice]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L881-L891
+[go-index-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1334-L1338
+[go-index]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L681-L717
 [slice-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#slice-expressions
 [strings]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#strings
 [go-slice-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1340-L1358

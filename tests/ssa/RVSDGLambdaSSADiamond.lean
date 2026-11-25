@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.Diamond.Categorical.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Diamond.ExplicitRuntime.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Kleisli.Thms
 import Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.Model.Defs
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
@@ -69,7 +70,10 @@ private def instruction : (op : Op) → Value (instrSrc op) → Runtime (Value (
     let n : Nat := b
     Part.some (if n == 3 then .inr (n, state.length) else .inl n, state ++ [2])
   | .left, x => StateT.mk fun state => Part.some ((x, state.length), state ++ [3])
-  | .right, _ => StateT.mk fun _ => Part.none
+  | .right, (x, captured) => StateT.mk fun state =>
+    let n : Nat := x
+    let seen : Nat := captured
+    if state.head? == some 9 then Part.some ((n + seen, state.length), state ++ [5]) else Part.none
   | .join, (x, captured) => StateT.mk fun state =>
     let n : Nat := x
     Part.some (if n == 1 then .inr (0 : Nat) else .inl (captured, state.length), state ++ [4])
@@ -325,5 +329,130 @@ example (coherent : Agreement.RegionCoherent (τ := Code) (Φ := Op) (ε := Bool
   change (observe 2).run [] = _
   rw [observe_iter, Silmaril.Elgot.StateT.run_iter, Part.eq_some_iff, Silmaril.Elgot.Part.mem_iter_iff]
   exact .done (by rw [bodyExitStep]; exact Part.mem_some_iff.mpr rfl)
+
+private def lowered := ExplicitRuntime.lower (ExplicitRuntime.SSAForm.loop spec)
+private def raised := ExplicitRuntime.raise (ExplicitRuntime.RVForm.loop spec)
+
+example : lowered.1 = ExplicitRuntime.graph spec := rfl
+example : raised.1 = region spec := rfl
+
+private def stateRound : Nat → Runtime (LabelDen [number,pair] ⊕ Nat) :=
+  ExplicitRuntime.round (ε := Bool) spec
+
+private theorem sharedBody (b : Nat) : ExplicitRuntime.bodyAction (ε := Bool) spec b = diamondThenJoin b :=
+  (diamondThenJoin_apply b).symm
+
+private def leftExit : LabelDen [number,pair] := .inr (.inl ((2 : Nat), (3 : Nat)))
+private def rightExit : LabelDen [number,pair] := .inr (.inl ((3 : Nat), (4 : Nat)))
+private def headerExit : LabelDen [number,pair] := .inl (4 : Nat)
+
+private theorem leftStep :
+    Silmaril.Elgot.StateT.body stateRound (2, []) = Part.some (.inl (leftExit, [1, 2, 3, 4])) := by
+  have hd := headerStep 2 (by decide)
+  simp only [Silmaril.Elgot.StateT.body, stateRound, ExplicitRuntime.round, StateT.run_bind, Part.bind_eq_bind,
+    hd, Part.bind_some, sharedBody]
+  rw [leftRun, Part.bind_some]
+  simp only [StateT.run_pure, Part.pure_eq_some, Part.bind_some]
+  rfl
+
+-- The pair-typed right arm is defined with the leading marker 9. It sees
+-- the classifier's token, appends 5, and delivers a pair to the same join.
+private theorem rightSuccess : (diamondThenJoin 3).run [9, 1] =
+    Part.some (.inl (3, 4), [9, 1, 2, 5, 4]) := by
+  rw [diamondThenJoin_apply]
+  simp [callCase, TwoBlock.call, spec, InstructionModel.denote, instruction,
+    TypeModel.coprodEquiv, StateT.run_bind, Part.bind_eq_bind, Part.bind_some]
+  change ((TwoBlock.call (ε := Bool) (m := Runtime) spec.diamond.right ((3 : Nat), (2 : Nat))).run
+      [9, 1, 2]).bind _ = _
+  have arm : (TwoBlock.call (ε := Bool) (m := Runtime) spec.diamond.right ((3 : Nat), (2 : Nat))).run
+      [9, 1, 2] = Part.some (((5 : Nat), (3 : Nat)), [9, 1, 2, 5]) := by
+    simp [TwoBlock.call, spec, InstructionModel.denote, instruction]
+  rw [arm, Part.bind_some]
+  rfl
+
+private theorem rightStep :
+    Silmaril.Elgot.StateT.body stateRound (3, [9]) = Part.some (.inl (rightExit, [9, 1, 2, 5, 4])) := by
+  have hd : (callCase (ε := Bool) (m := Runtime) spec.header (3 : Nat)).run [9] =
+      Part.some (.inr (3 : Nat), [9, 1]) := by
+    simp [callCase, TwoBlock.call, spec, InstructionModel.denote, instruction, TypeModel.coprodEquiv]
+    rfl
+  simp only [Silmaril.Elgot.StateT.body, stateRound, ExplicitRuntime.round, StateT.run_bind, Part.bind_eq_bind,
+    hd, Part.bind_some, sharedBody]
+  rw [rightSuccess, Part.bind_some]
+  simp only [StateT.run_pure, Part.pure_eq_some, Part.bind_some]
+  rfl
+
+private theorem feedbackStep :
+    Silmaril.Elgot.StateT.body stateRound (1, []) = Part.some (.inr (0, [1, 2, 3, 4])) := by
+  have hd := headerStep 1 (by decide)
+  simp only [Silmaril.Elgot.StateT.body, stateRound, ExplicitRuntime.round, StateT.run_bind, Part.bind_eq_bind,
+    hd, Part.bind_some, sharedBody]
+  rw [feedbackRun, Part.bind_some]
+  simp only [StateT.run_pure, Part.pure_eq_some, Part.bind_some]
+  rfl
+
+private theorem doneStep :
+    Silmaril.Elgot.StateT.body stateRound (0, [1, 2, 3, 4]) =
+      Part.some (.inl (headerExit, [1, 2, 3, 4, 1])) := by
+  have hd : (callCase (ε := Bool) (m := Runtime) spec.header (0 : Nat)).run [1, 2, 3, 4] =
+      Part.some (.inl (4 : Nat), [1, 2, 3, 4, 1]) := by
+    simp [callCase, TwoBlock.call, spec, InstructionModel.denote, instruction, TypeModel.coprodEquiv]
+    rfl
+  simp only [Silmaril.Elgot.StateT.body, stateRound, ExplicitRuntime.round, StateT.run_bind, Part.bind_eq_bind,
+    hd, Part.bind_some, StateT.run_pure, Part.pure_eq_some]
+  rfl
+
+private theorem leftWire : ExplicitRuntime.returns (ε := Bool) lowered.1 (2 : Nat) [] leftExit [1, 2, 3, 4] := by
+  apply (lowered.2.returns_iff (ε := Bool) (2 : Nat) leftExit [] [1, 2, 3, 4]).mp
+  change (iter stateRound 2).run [] = _
+  rw [Silmaril.Elgot.StateT.run_iter, Part.eq_some_iff, Silmaril.Elgot.Part.mem_iter_iff]
+  exact .done (by rw [leftStep]; exact Part.mem_some_iff.mpr rfl)
+
+private theorem rightWire :
+    ExplicitRuntime.returns (ε := Bool) lowered.1 (3 : Nat) [9] rightExit [9, 1, 2, 5, 4] := by
+  apply (lowered.2.returns_iff (ε := Bool) (3 : Nat) rightExit [9] [9, 1, 2, 5, 4]).mp
+  change (iter stateRound 3).run [9] = _
+  rw [Silmaril.Elgot.StateT.run_iter, Part.eq_some_iff, Silmaril.Elgot.Part.mem_iter_iff]
+  exact .done (by rw [rightStep]; exact Part.mem_some_iff.mpr rfl)
+
+example : ExplicitRuntime.returns (ε := Bool) lowered.1 (1 : Nat) [] headerExit [1, 2, 3, 4, 1] := by
+  apply (lowered.2.returns_iff (ε := Bool) (1 : Nat) headerExit [] [1, 2, 3, 4, 1]).mp
+  change (iter stateRound 1).run [] = _
+  rw [Silmaril.Elgot.StateT.run_iter, Part.eq_some_iff, Silmaril.Elgot.Part.mem_iter_iff]
+  exact .more (by rw [feedbackStep]; exact Part.mem_some_iff.mpr rfl)
+    (.done (by rw [doneStep]; exact Part.mem_some_iff.mpr rfl))
+
+private theorem undefinedWire (label : LabelDen [number,pair]) (token : List Nat) :
+    ¬ ExplicitRuntime.returns (ε := Bool) lowered.1 (3 : Nat) [] label token := by
+  intro h
+  have step : Silmaril.Elgot.StateT.body stateRound (3, []) = Part.none := by
+    have hd := headerStep 3 (by decide)
+    simp only [Silmaril.Elgot.StateT.body, stateRound, ExplicitRuntime.round, StateT.run_bind, Part.bind_eq_bind,
+      hd, Part.bind_some, sharedBody]
+    rw [rightRun, Part.bind_none, Part.bind_none]
+  have observed := (lowered.2.returns_iff (ε := Bool) (3 : Nat) label [] token).mpr h
+  change (iter stateRound 3).run [] = _ at observed
+  rw [Silmaril.Elgot.StateT.run_iter, Part.eq_some_iff, Silmaril.Elgot.Part.mem_iter_iff] at observed
+  cases observed with
+  | done first => simp [step] at first
+  | more first _ => simp [step] at first
+
+private abbrev Coherent := Agreement.RegionCoherent (τ := Code) (Φ := Op) (ε := Bool) (m := Runtime)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) lowered.2.typing (PUnit.unit, (2 : Nat))).run [] =
+      Part.some (leftExit, [1, 2, 3, 4]) :=
+  (lowered.2.region_returns_iff coherent (PUnit.unit, (2 : Nat)) leftExit [] [1, 2, 3, 4]).mpr leftWire
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) raised.2.typing (PUnit.unit, (3 : Nat))).run [9] =
+      Part.some (rightExit, [9, 1, 2, 5, 4]) :=
+  (raised.2.region_returns_iff coherent (PUnit.unit, (3 : Nat)) rightExit [9] [9, 1, 2, 5, 4]).mpr rightWire
+
+example (coherent : Coherent) (label : LabelDen [number,pair]) (token : List Nat) :
+    (Region.denote (ε := Bool) (m := Runtime) lowered.2.typing (PUnit.unit, (3 : Nat))).run [] ≠
+      Part.some (label, token) := fun returned =>
+  undefinedWire label token
+    ((lowered.2.region_returns_iff coherent (PUnit.unit, (3 : Nat)) label [] token).mp returned)
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Diamond.Tests

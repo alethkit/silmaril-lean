@@ -17,7 +17,7 @@ and the existing resolved collection constructors retain their entry points.
 [Shared value and syntax definitions](../../Silmaril/Languages/Starlark/Lists/Defs.lean)
 
 The existing call evaluates the callee and operands left to right, expands
-`*` and `**`, and dispatches on the resulting callable value. For these five
+`*` and `**`, and dispatches on the resulting callable value. For these
 built-ins, a nonempty expanded keyword list fails before arity or operand
 type checks. For example, an empty `**{}` expands to no keywords. Errors
 carry the built-in ID and the offending keyword, arity bounds or value.
@@ -29,17 +29,18 @@ declaration-stack entry.
 | Built-in | Positional arguments | Values and store |
 | --- | --- | --- |
 | `bool` | Zero or one | Existing truth rules for all supported values. The zero-argument result is `False`. |
-| `len` | Exactly one | List or tuple length, dictionary entry count, or string byte length. Other represented types give a type error. |
+| `len` | Exactly one | List, tuple or range length, dictionary entry count, or string byte length. Other represented types give a type error. |
 | `type` | Exactly one | A string naming the existing value tag, including `NoneType`, `function` and `builtin_function_or_method`. |
 | `list` | Zero or one | Allocates a fresh mutable list. The optional iterable is a list, tuple or dictionary. |
 | `tuple` | Zero or one | Allocates an immutable tuple using existing key rules and the same iterable domain. Tuple addresses are internal. |
+| `range` | One to three | Checks integer parameters in order, rejects a zero step, and returns an immutable range without allocating a heap cell. |
 
 Dictionary iteration yields keys in insertion order. Both constructors make
 shallow snapshots, retaining the identities of referenced elements.
 Copying a frozen list can produce a mutable outer list with frozen elements
 still shared. The built-ins only read input cells. They run no Starlark code
 while copying, and leave the active-iterator stack alone. The three
-inspection built-ins leave the heap alone after operand evaluation.
+inspection built-ins and `range` leave the heap alone after operand evaluation.
 [Built-in definitions](../../Silmaril/Languages/Starlark/Functions/Builtins/Defs.lean)
 
 `Builtins.invoke` is total over expanded arguments and the current state.
@@ -60,16 +61,18 @@ argument-signature and module-failure differences remain recorded in their
 guides.
 [Strings][strings] · [Pinned Go built-ins][go-library] · [Arguments](starlark-functions.md#argument-binding) · [Modules](starlark-modules.md)
 
-The five implemented functions cover the represented values. Additional
-collection or iterable types such as bytes, sets, ranges and iterable
-views are open, as are floats and host values. The other pinned universal
+The range constructor supports exact integers and function-body loops
+consume range elements lazily. Range conversion to lists and tuples
+remains open, along with additional
+collection or iterable types such as bytes, sets and iterable views,
+floats and host values. The other pinned universal
 functions are `abs`, `any`, `all`, `bytes`, `dict`, `dir`,
 `enumerate`, `fail`, `float`, `getattr`, `hasattr`, `hash`, `int`,
-`max`, `min`, `print`, `range`, `repr`, `reversed`, `set`,
+`max`, `min`, `print`, `repr`, `reversed`, `set`,
 `sorted`, `str` and `zip`. General bound-method dispatch is open. The
 existing collection `append` primitive remains available through its
 resolved collection syntax. The coverage guide lists the remaining methods.
-[Coverage obligations](starlark.md#coverage-obligations)
+[Lazy range subscript reads](starlark-functions.md#lazy-range-subscript-reads) · [Coverage obligations](starlark.md#coverage-obligations)
 
 ## Checks
 

@@ -16,6 +16,17 @@ theorem layout_header_fields {leading page : List UInt8} {cells : List (List UIn
         some (File.Write.pageSize - cells.flatten.length) :=
   Silmaril.Proofs.Formats.Sqlite.BTree.LeafWrite.layout_header_fields accepted
 
+/-- A successful packed writer layout has the table-leaf type, zero freeblock
+and fragment fields, and a pointer array that ends at or before cell content. -/
+theorem layout_fixed_header {leading page : List UInt8} {cells : List (List UInt8)}
+    (accepted : layout leading cells = .ok page) :
+    let view := File.View.ofBytes (Bytes.ofList page)
+    view.get? leading.length = some 13 ∧
+      view.be? (leading.length + 1) 2 = some 0 ∧
+      view.get? (leading.length + 7) = some 0 ∧
+      leading.length + 8 + 2 * cells.length ≤ File.Write.pageSize - cells.flatten.length :=
+  Silmaril.Proofs.Formats.Sqlite.BTree.LeafWrite.layout_fixed_header accepted
+
 /-- An in-range pointer slot of a successful layout stores the content start
 plus the byte lengths of the preceding serialized cells. The field starts at
 the shown offset relative to the serialized page, including its leading bytes. -/

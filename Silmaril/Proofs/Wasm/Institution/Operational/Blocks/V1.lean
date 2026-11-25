@@ -86,15 +86,26 @@ private theorem split_wrapper {H : Type} {host : HostSemantics H} {a b : Config 
   | _ => simp at eq
 
 private theorem pure_block_readback {result : Option NumType}
-    {ops : List Locals.Op} {out : List Admin}
-    (step : PureStep [.source (.block result (ops.map Locals.v1Instr))] out) :
-    out = [.label result.toList.length [] (Locals.v1Codec.encode ops)] := by
-  generalize eq : ([.source (.block result (ops.map Locals.v1Instr))] :
+    {body : Wasm.V1.Expr} {out : List Admin}
+    (step : PureStep [.source (.block result body)] out) :
+    out = [.label result.toList.length [] (expression body)] := by
+  generalize eq : ([.source (.block result body)] :
     List Admin) = before at step
   cases step <;> simp [values] at eq
-  case block bt body =>
+  case block bt nativeBody =>
     obtain ⟨rfl, rfl⟩ := eq
-    rw [encode_body]
+    rfl
+
+theorem entry_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {result : Option NumType} {body : Wasm.V1.Expr} {dst : Config H} :
+    Step host ⟨s, f, [.source (.block result body)]⟩ dst ↔
+      dst = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ := by
+  constructor
+  · intro step
+    cases split_wrapper step rfl (by trivial) with
+    | pure h => rw [pure_block_readback h]
+  · rintro rfl
+    exact Step.pure (host := host) s f (.block result body)
 
 private theorem pure_label_readback {result : Option NumType}
     {ops : List Locals.Op} {out : List Admin}
@@ -130,9 +141,8 @@ theorem readback {H : Type} {host : HostSemantics H} {s : Store H} {m : ModuleIn
     ∃ b, Edge a b ∧ target = v1Config s m b := by
   cases a with
   | block result a =>
-    have shape := split_wrapper step rfl (by trivial)
-    cases shape with
-    | pure h => exact ⟨.label result a, enter result a, by rw [pure_block_readback h]; rfl⟩
+    refine ⟨.label result a, enter result a, ?_⟩
+    simpa only [v1Config, encode_body] using entry_iff.mp step
   | label result a =>
     have shape := split_wrapper step rfl (by trivial)
     cases shape with
