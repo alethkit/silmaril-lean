@@ -963,4 +963,138 @@ example := ifNative ifElseRun
 example := ifNative ifReturnRun
 example := ifNative ifTrapRun
 
+
+private def branchArgs : List Value := [i32 7, i32 99]
+private def branchSaved : List Value := [i32 12]
+private def branchSub : Op := .numeric (.bin .i32 .sub)
+private def branchBody (depth : LabelIdx) : List Op :=
+  [readSecond, readArg, .br depth scalarBlock, .unreachable]
+private def branchArm : List Op :=
+  [readSecond, .block wideBlock (branchBody ⟨1⟩), .unreachable]
+
+private def branchFn (nested : Bool) : Function :=
+  ⟨{ declaration [] with params := [int32, int32] }, 0,
+    if nested then branchSaved ++ [i32 1] else branchSaved,
+    if nested then [.if_ scalarBlock branchArm [readArg], branchSub]
+    else [.block scalarBlock (branchBody ⟨0⟩), branchSub]⟩
+
+private def branchGraph (nested : Bool) : Program := ⟨[some (branchFn nested)]⟩
+
+private theorem branchChecked (nested : Bool) : (branchGraph nested).check = true := by
+  cases nested <;> rfl
+
+private theorem branchV1Checked (nested : Bool) : (branchGraph nested).checkV1 = true := by
+  cases nested <;> rfl
+
+-- The target still takes an i32 when the crossed block requires i64 and the function returns nothing.
+example : ({ branchFn true with
+    declaration := { (branchFn true).declaration with results := [] }
+    code := [.if_ scalarBlock branchArm [readArg], branchSub, .set ⟨1⟩] }).check = true := rfl
+
+-- The payload cannot come from the saved prefix.
+example : ({ branchFn false with code := [.block scalarBlock [.br ⟨0⟩ scalarBlock], branchSub] }).check =
+    false := rfl
+
+-- A target of the right arity still needs a payload of the declared type.
+example : ({ branchFn false with
+    code := [.block wideBlock [readArg, .br ⟨0⟩ wideBlock], .unreachable] }).check = false := rfl
+
+-- The branch annotation must agree with the label's result.
+example : ({ branchFn false with
+    code := [.block scalarBlock [readArg, .br ⟨0⟩ none], branchSub] }).check = false := rfl
+
+-- The function label is outside the branchable block/if stack.
+example : ({ branchFn false with code := [.block scalarBlock (branchBody ⟨1⟩), branchSub] }).check =
+    false := rfl
+example : ({ branchFn false with code := [.br ⟨0⟩ scalarBlock] }).check = false := rfl
+
+private theorem branchEdge (nested : Bool) {a b : Phase}
+    (step : Layer (branchFn nested) (fun t => (branchGraph nested).Edge (branchChecked nested) t.address) a b) :
+    (branchGraph nested).Edge (branchChecked nested) ⟨0⟩ a b :=
+  ((branchGraph nested).edge_iff (branchChecked nested) (fn := branchFn nested) rfl).mpr step
+
+private abbrev BranchRun (nested : Bool) :=
+  (branchGraph nested).Runs (branchChecked nested) ⟨0⟩ (.call branchArgs)
+
+private theorem branchStart (nested : Bool) :
+    BranchRun nested (.label branchArgs (.running (branchFn nested).initial (branchFn nested).code)) :=
+  (Relation.ReflTransGen.single (branchEdge nested (.resolve branchArgs))).tail
+    (branchEdge nested (.enter branchArgs rfl))
+
+private def branchResumed : Phase :=
+  .label branchArgs (.running (branchSaved ++ [i32 7]) [branchSub])
+
+private theorem branchZeroResume : BranchRun false branchResumed := by
+  have opened := (branchStart false).tail (branchEdge false
+    (.blockEnter branchArgs branchSaved scalarBlock (branchBody ⟨0⟩) [branchSub]))
+  have scratch := opened.tail (branchEdge false (.blockStep branchSaved scalarBlock [branchSub]
+    (.numeric (.get (i := ⟨1⟩) (stack := []) (v := i32 99) rfl))))
+  have payload := scratch.tail (branchEdge false (.blockStep branchSaved scalarBlock [branchSub]
+    (.numeric (.get (i := ⟨0⟩) (stack := [i32 99]) (v := i32 7) rfl))))
+  exact payload.tail (branchEdge false (.blockStep branchSaved scalarBlock [branchSub]
+    (.branchHere branchArgs [i32 99] [i32 7] scalarBlock skipped rfl)))
+
+private theorem branchCrossInner :
+    BranchRun true (.label branchArgs (.block branchSaved scalarBlock
+      (.running [i32 99, i32 99, i32 7] [.br ⟨0⟩ scalarBlock, .unreachable]) [branchSub])) := by
+  have selected := (branchStart true).tail (branchEdge true
+    (.ifSelect branchArgs branchSaved 1 scalarBlock branchArm [readArg] [branchSub]))
+  have opened := selected.tail (branchEdge true
+    (.blockEnter branchArgs branchSaved scalarBlock branchArm [branchSub]))
+  have outerScratch := opened.tail (branchEdge true (.blockStep branchSaved scalarBlock [branchSub]
+    (.numeric (.get (i := ⟨1⟩) (stack := []) (v := i32 99) rfl))))
+  have inner := outerScratch.tail (branchEdge true (.blockStep branchSaved scalarBlock [branchSub]
+    (.blockEnter branchArgs [i32 99] wideBlock (branchBody ⟨1⟩) skipped)))
+  have innerScratch := inner.tail (branchEdge true (.blockStep branchSaved scalarBlock [branchSub]
+    (.blockStep [i32 99] wideBlock skipped (.numeric (.get (i := ⟨1⟩) (stack := []) (v := i32 99) rfl)))))
+  have payload := innerScratch.tail (branchEdge true (.blockStep branchSaved scalarBlock [branchSub]
+    (.blockStep [i32 99] wideBlock skipped (.numeric (.get (i := ⟨0⟩) (stack := [i32 99]) (v := i32 7) rfl)))))
+  exact payload.tail (branchEdge true (.blockStep branchSaved scalarBlock [branchSub]
+    (.blockStep [i32 99] wideBlock skipped
+      (.branchOuter branchArgs [i32 99, i32 7] ⟨1⟩ scalarBlock skipped (by decide)))))
+
+private theorem branchNestedResume : BranchRun true branchResumed :=
+  branchCrossInner.tail (branchEdge true (.blockStep branchSaved scalarBlock [branchSub]
+    (.branchHere branchArgs [i32 99, i32 99] [i32 7] scalarBlock skipped rfl)))
+
+private theorem branchResume (nested : Bool) : BranchRun nested branchResumed := by
+  cases nested
+  · exact branchZeroResume
+  · exact branchNestedResume
+
+private theorem branchRun (nested : Bool) : BranchRun nested (.done (.values [i32 5])) := by
+  have sub : Numerics.intBinOp .i32 .sub 12 7 = .ok 5 := rfl
+  have evaluated := (branchResume nested).tail (branchEdge nested (.numeric (.bin (stack := []) sub)))
+  exact (evaluated.tail (branchEdge nested (.leaveValues branchArgs [i32 5]))).tail
+    (branchEdge nested (.leaveFrame branchArgs (.values [i32 5]) rfl))
+
+private def branchRootTarget (nested : Bool) : CallTarget := ⟨⟨0⟩, ⟨0⟩, (branchFn nested).declaration⟩
+
+private theorem branchRoot (nested : Bool) :
+    Root (branchGraph nested) (callerFrame ⟨0⟩) (branchRootTarget nested) (branchFn nested) :=
+  ⟨rfl, rfl, rfl⟩
+
+private theorem branchNative (nested : Bool) {out : Phase} (run : BranchRun nested out) :
+    let p := branchGraph nested
+    let caller := callerFrame ⟨0⟩
+    let target := branchRootTarget nested
+    Execution.Core.Steps Numerics.Profile.spec SingleThreaded.Det.noHost
+      (coreConfig (coreStore p) caller target (.call branchArgs)) (coreConfig (coreStore p) caller target out) ∧
+    Lime1.Execution.Steps CallFrame.limeNoHost
+      (limeConfig (limeStore p) caller target (.call branchArgs)) (limeConfig (limeStore p) caller target out) ∧
+    V1.Execution.Steps CallFrame.v1NoHost
+      (v1Config (v1Store p) caller target (.call branchArgs)) (v1Config (v1Store p) caller target out) := by
+  have checked := branchChecked nested
+  have root := branchRoot nested
+  have ready : Admitted (branchGraph nested) (branchFn nested) (.call branchArgs) := .call rfl
+  have endpoint := Program.admitted_run checked root.found ready run
+  exact ⟨(core_run_iff checked (coreAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
+    (lime_run_iff checked (limeAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
+    (v1_run_iff (branchV1Checked nested) (v1Allocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩⟩
+
+-- Check both the resumed operand order and the noncommutative continuation result.
+example (nested : Bool) := branchNative nested (branchResume nested)
+example (nested : Bool) := branchNative nested (branchRun nested)
+example := branchNative true branchCrossInner
+
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph

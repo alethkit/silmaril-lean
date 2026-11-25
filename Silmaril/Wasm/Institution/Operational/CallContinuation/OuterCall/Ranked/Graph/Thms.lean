@@ -74,11 +74,22 @@ theorem Program.linked_target {program : Program} (checked : program.check = tru
       fn.declaration.module.funcs[target.index.toNat]? = some target.address :=
   Proofs.linked_target checked found used
 
-theorem Function.split_if {fn : Function} {fallthrough : List NumType} {stack : List Value}
+theorem Function.split_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
     {result : Option NumType} {thenBody elseBody rest : List Op}
-    (typed : fn.WellTyped stack (.if_ result thenBody elseBody :: rest) fallthrough) :
+    (typed : fn.WellTyped stack (.if_ result thenBody elseBody :: rest) fallthrough enclosing) :
     ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] :=
   Proofs.split_if typed
+
+theorem checked_branch {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
+    {stack : List Value} {depth : LabelIdx} {result : Option NumType} {rest : List Op}
+    (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing) :
+    (branchTargets fallthrough enclosing)[depth.toNat]? = some result.toList ∧ SuffixTyped result.toList stack :=
+  Proofs.checked_branch typed
+
+theorem branch_here_result {fallthrough : List NumType} {enclosing : EnclosingLabels} {result : Option NumType}
+    (found : (branchTargets fallthrough enclosing)[(⟨0⟩ : LabelIdx).toNat]? = some result.toList) :
+    fallthrough = result.toList :=
+  Proofs.branch_here_result found
 
 theorem Program.admitted_step {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} {a b : Phase} (found : program.lookup address = some fn)

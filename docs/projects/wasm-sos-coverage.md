@@ -36,8 +36,8 @@ The [ranked graph judgment](../../Silmaril/Wasm/Institution/Operational/CallCont
 interprets one typed activation at a time by well-founded recursion on resolved
 targets. The graph checker derives the target table from each body and checks
 the typed operand prefix, local reads and writes, integer binary operations,
-direct calls, unindexed scalar blocks and conditionals, explicit return, and
-normal fallthrough. The judgment also covers unreachable and partial trap
+direct calls, unindexed scalar blocks and conditionals, unconditional branch
+exits, explicit return, and normal fallthrough. The judgment also covers unreachable and partial trap
 discards. Exact active-call inversion identifies the child's step and the
 caller's unchanged continuation. Finite runs preserve typing and the
 descending chain of entered frames. The four-frame fixtures cover return and
@@ -109,8 +109,20 @@ selection and all subsequent steps in Core, Lime1, and V1. Fixtures exercise
 both arms, a ranked child call, explicit return through nested labels, and a
 child trap that bypasses the saved continuation.
 
+The ranked checker also checks unconditional `br` to its block and conditional
+labels. It resolves the depth through the label stack and checks the result
+annotation and operand suffix against that target. The target's types are
+independent of the current label's fallthrough and the function's return
+types. Each positive-depth step drops the crossed label's pending instructions
+and lowers the index. The target exit keeps exactly the ordered result suffix
+and resumes the target's saved operands and code. Core, Lime1, and V1 have exact
+successor and finite endpoint readback at each stage. Fixtures cover depth zero
+and a branch from an inner block to the surrounding conditional, with an
+observable noncommutative continuation. They reject missing or mistyped
+operands, an incorrect target annotation, and an out-of-range depth.
+
 The graph fragment excludes block parameters and multiple block results,
-loops, branches, recursion, indirect and host calls, store mutation, and
+branches to a function label, loops and loop back-edges, `br_if`, `br_table`, recursion, indirect and host calls, store mutation, and
 whole-module validation.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.

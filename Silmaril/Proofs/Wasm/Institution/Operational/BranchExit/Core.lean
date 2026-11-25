@@ -3,6 +3,8 @@ module
 public import Silmaril.Wasm.Institution.Operational.BranchExit.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.BranchExit.Thms
 public import Silmaril.Wasm.Execution.Core.Inversion.Thms
+import Silmaril.Wasm.SingleThreaded.Determinism.Stuck
+public import Silmaril.Wasm.SingleThreaded.Determinism.Head
 
 @[expose] public section
 
@@ -10,6 +12,8 @@ namespace Silmaril.Wasm.Institution.Operational.BranchExit.Proofs
 
 open Execution.Core
 open Execution.Core.Sim (vals_append_cons_inj)
+
+open SingleThreaded.Det (fnv fnv_cons_of_none)
 
 private abbrev stack (vs : List Execution.Runtime.Value) := vs.map LegacyDivision.liftValue
 
@@ -74,11 +78,11 @@ private theorem nested_cannot_exit {outer inner : Nat} {body out : List Admin}
     try simp only [List.append_assoc, List.singleton_append, first_prefix, first_values, first_throwing] at head
     simp [first, Admin.val?] at head
 
-private theorem label_br_readback {n : Nat} {l : LabelIdx} {vs : List Val} {out : List Admin}
-    (h : LabelExit n [] (vals vs ++ [.plain (.br l)]) out) :
+private theorem label_br_readback {n : Nat} {l : LabelIdx} {vs : List Val} {rest out : List Admin}
+    (h : LabelExit n [] (vals vs ++ .plain (.br l) :: rest) out) :
     (∃ below payload, vs = below ++ payload ∧ payload.length = n ∧ l.toNat = 0 ∧ out = vals payload) ∨
       (0 < l.toNat ∧ out = vals vs ++ [.plain (.br (labelPred l))]) := by
-  generalize eq : vals vs ++ [.plain (.br l)] = before at h
+  generalize eq : vals vs ++ .plain (.br l) :: rest = before at h
   have head := congrArg first eq
   cases h with
   | brZero hz hn =>
@@ -100,6 +104,30 @@ private theorem label_br_readback {n : Nat} {l : LabelIdx} {vs : List Val} {out 
   | _ =>
     simp only [List.append_assoc, List.singleton_append, first_prefix, first_values, first_throwing] at head
     simp [first, Admin.val?] at head
+
+theorem core_label_br_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Frame}
+    {n : Nat} {depth : LabelIdx} {stack : List Val} {rest : List Admin} {dst : Config H} :
+    Step P SingleThreaded.Det.noHost ⟨s, f, [.label n [] (vals stack ++ .plain (.br depth) :: rest)]⟩ dst ↔
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
+        dst = ⟨s, f, vals payload⟩) ∨
+      (0 < depth.toNat ∧ dst = ⟨s, f, vals stack ++ [.plain (.br (labelPred depth))]⟩) := by
+  constructor
+  · intro step
+    rcases Step.label_inv step with ⟨_, _, _, move, _⟩ | ⟨_, pop, rfl⟩
+    · have first : fnv (vals stack ++ .plain (.br depth) :: rest) =
+          (stack, .plain (.br depth) :: rest) := by
+        simp [fnv_cons_of_none (a := .plain (.br depth)) rfl]
+      exact ((SingleThreaded.Det.not_step_blocked move first) (.inl ⟨_, rfl⟩)).elim
+    rcases label_br_readback pop with ⟨extra, payload, split, size, here, rfl⟩ | ⟨outer, rfl⟩
+    · exact .inl ⟨extra, payload, split, size, here, rfl⟩
+    · exact .inr ⟨outer, rfl⟩
+  · rintro (⟨extra, payload, rfl, size, here, rfl⟩ | ⟨outer, rfl⟩)
+    · simpa only [vals_append, List.append_assoc, List.singleton_append, expression, List.map_nil, List.append_nil] using
+        (Step.brLabelZero (P := P) (host := SingleThreaded.Det.noHost) (s := s) (f := f) (cont := [])
+          (l := depth) (vs' := extra) (vs := payload) (rest := rest) here size)
+    · simpa only [List.append_assoc, List.singleton_append] using
+        (Step.brLabelSucc (P := P) (host := SingleThreaded.Det.noHost) (s := s) (f := f) (n := n)
+          (cont := []) (vs := stack) (l := depth) (rest := rest) outer)
 
 theorem core_readback {H : Type} {P : Numerics.Profile} {host : HostSemantics H}
     {s : Store H} {f : Frame} {ty : Option NumType} {a : State} {b : Config H}

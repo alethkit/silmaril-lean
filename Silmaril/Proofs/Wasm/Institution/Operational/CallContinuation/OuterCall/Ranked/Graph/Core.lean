@@ -18,6 +18,8 @@ import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Sequence.Native.Thms
 import Silmaril.Wasm.Execution.Core.Inversion.Thms
 
+import Silmaril.Wasm.Institution.Operational.BranchExit.Native.Thms
+
 @[expose] public section
 
 namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Proofs.Core
@@ -40,7 +42,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | if_ | return_ | unreachable => rfl
+    | set | tee | call | block | if_ | br | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.coreFunc.body = (Body.running fn.initial fn.code).render coreAdmin := by
@@ -119,6 +121,7 @@ private theorem entry_iff {H : Type} {P : Profile} {s : Store H} {caller : Runti
   simpa only [List.append_assoc, List.singleton_append, coreAdmin, Declaration.type, currentFrame, Declaration.frame] using enter
 
 private theorem running_stays {n : Nat} {v : List Value} {op : Op} {rest : List Op} {out : List Admin}
+    (notBranch : ∀ depth result, op ≠ .br depth result)
     (notReturn : op ≠ .return_)
     (pop : LabelExit n [] ((Body.running v (op :: rest)).render coreAdmin) out) : False := by
   change LabelExit n [] (coreValues v ++ coreAdmin.emit op :: rest.map coreAdmin.emit) out at pop
@@ -153,6 +156,7 @@ private theorem running_stays {n : Nat} {v : List Value} {op : Op} {rest : List 
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Admin.IsReturnCallRef])
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax]) pop
+  | br depth result => exact notBranch depth result rfl
   | return_ => exact notReturn rfl
   | unreachable =>
     exact Computed.core_label_stays (head := .plain .unreachable) rfl
@@ -298,6 +302,39 @@ private theorem label_frame_iff {H : Type} {P : Profile} {s : Store H} {outer in
   · rintro ⟨⟨_, _, _⟩, move, rfl⟩
     exact .ctxtFrame move
 
+private theorem branch_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program}
+    (checked : program.check = true) {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
+    (found : program.lookup target.address = some fn) {fallthrough : List NumType} {enclosing : EnclosingLabels}
+    {locals stack : List Value} {depth : LabelIdx} {result : Option NumType} {rest : List Op}
+    (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing) {dst : Config H} :
+    native P (coreAt s caller target fallthrough.length (.label locals (.running stack (.br depth result :: rest)))) dst ↔
+      ∃ out, program.Edge checked target.address (.label locals (.running stack (.br depth result :: rest))) out ∧
+        dst = coreAt s caller target fallthrough.length out := by
+  let n := fallthrough.length
+  change native P (inFrame caller.toCore n
+    ⟨s, (currentFrame target.declaration locals).toCore, [.label n [] (coreValues stack ++ .plain (.br depth) :: rest.map coreAdmin.emit)]⟩) dst ↔ _
+  rw [label_frame_iff]
+  have rule {a b : Phase} := program.edge_iff checked (a := a) (b := b) found
+  have invert {mid : Config H} := BranchExit.core_label_br_iff (P := P) (s := s)
+    (f := (currentFrame target.declaration locals).toCore) (stack := stack.map Value.toCore)
+    (n := fallthrough.length) (depth := depth) (rest := rest.map coreAdmin.emit) (dst := mid)
+  constructor
+  · rintro ⟨mid, move, rfl⟩
+    rcases invert.mp move with ⟨extra, payload, split, size, here, rfl⟩ | ⟨outer, rfl⟩
+    · obtain ⟨extraValues, payloadValues, rfl, rfl, rfl⟩ := List.map_eq_append_iff.mp split
+      obtain rfl : depth = ⟨0⟩ := Idx.toNat_injective here
+      have arity : payloadValues.length = result.toList.length := by
+        simpa only [List.length_map, branch_here_result (checked_branch typed).1] using size
+      exact ⟨_, rule.mpr (.branchHere locals extraValues payloadValues result rest arity), rfl⟩
+    · exact ⟨_, rule.mpr (.branchOuter locals stack depth result rest outer), rfl⟩
+  · rintro ⟨out, edge, rfl⟩
+    cases rule.mp edge with
+    | branchHere _ extra payload _ _ arity =>
+      have size : (payload.map Value.toCore).length = fallthrough.length := by simpa only [List.length_map, branch_here_result (checked_branch typed).1] using arity
+      exact ⟨_, invert.mpr (.inl ⟨extra.map Value.toCore, payload.map Value.toCore, List.map_append, size, rfl, rfl⟩), rfl⟩
+    | branchOuter _ _ _ _ _ outer =>
+      exact ⟨_, invert.mpr (.inr ⟨outer, rfl⟩), rfl⟩
+
 private theorem block_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program}
     (checked : program.check = true) {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
     (found : program.lookup target.address = some fn) {n : Nat} {locals saved : List Value} {result : Option NumType}
@@ -351,18 +388,18 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
       Root program parent child callee → Admitted program callee q →
       (native P (coreConfig s parent child q) dst ↔
         ∃ out, program.Edge checked child.address q out ∧ dst = coreConfig s parent child out))
-    (size : Nat) : ∀ {body locals fallthrough dst}, sizeOf body = size →
-      AdmittedAt program fn fallthrough (.label locals body) →
+    (size : Nat) : ∀ {body locals fallthrough enclosing dst}, sizeOf body = size →
+      AdmittedAt program fn fallthrough enclosing (.label locals body) →
       (native P (coreAt s caller target fallthrough.length (.label locals body)) dst ↔
         ∃ out, program.Edge checked target.address (.label locals body) out ∧
           dst = coreAt s caller target fallthrough.length out) := by
   induction size using Nat.strong_induction_on with
   | ind size ih =>
-    intro body locals fallthrough dst sizeEq ready
+    intro body locals fallthrough enclosing dst sizeEq ready
     let n := fallthrough.length
     have rule {a b : Phase} := program.edge_iff checked (a := a) (b := b) root.found
     cases ready with
-    | @running _ _ locals stack rest typed codeTyped =>
+    | @running _ _ _ locals stack rest typed codeTyped =>
       cases rest with
       | nil =>
         constructor
@@ -383,6 +420,10 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
                 (Step.labelVals (P := P) (host := noHost) (cont := []) (n := n)
                   (vs := stack.map Value.toCore) (s := s) (f := (currentFrame target.declaration locals).toCore))
       | cons op rest =>
+        by_cases isBranch : ∃ depth result, op = .br depth result
+        · obtain ⟨depth, result, rfl⟩ := isBranch
+          exact branch_step_iff (P := P) checked root.found codeTyped
+        have notBranch depth result (eq : op = .br depth result) : False := isBranch ⟨_, _, eq⟩
         by_cases isReturn : op = .return_
         case pos =>
           subst op
@@ -403,11 +444,12 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
                     (f := (currentFrame target.declaration locals).toCore)
                     (n := n) (cont := [])
                     (vs := stack.map Value.toCore) (rest := rest.map coreAdmin.emit))
-        have stays {out : List Admin} := running_stays (n := n) (v := stack) (op := op) (rest := rest) isReturn (out := out)
+        have stays {out : List Admin} := running_stays (n := n) (v := stack) (op := op) (rest := rest) notBranch isReturn (out := out)
         constructor
         · intro move
           obtain ⟨mid, inner, eq⟩ := (under_label_iff stays).mp move
           cases op with
+          | br depth result => exact (notBranch depth result rfl).elim
           | return_ => exact (isReturn rfl).elim
           | numeric op =>
             have reduction := (Prefix.core_step_iff (f := currentFrame target.declaration locals) (op := op) (tail := rest.map coreAdmin.emit)).mp inner
@@ -459,6 +501,7 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             exact ⟨_, rule.mpr (.unreachable locals stack rest), eq⟩
         · rintro ⟨out, move, rfl⟩
           cases rule.mp move with
+          | branchHere | branchOuter => exact (isBranch ⟨_, _, rfl⟩).elim
           | returnLabel => exact (isReturn rfl).elim
           | @numeric locals stack op rest answer reduce =>
             apply lift_label
@@ -497,19 +540,19 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
               (saved := stack.map Value.toCore) (rest := rest.map coreAdmin.emit)).mpr (by rw [code_expression]; rfl)
           | unreachable =>
             exact lift_label (Computed.core_unreachable_iff.mpr rfl)
-    | @active _ _ locals saved child q rest callee typed used childFound declared live childReady resume =>
+    | @active _ _ _ locals saved child q rest callee typed used childFound declared live childReady resume =>
       obtain ⟨_, _, _, resolves⟩ := program.linked_target checked root.found used
       have childResolves : child.Resolves (currentFrame target.declaration locals) := by
         simpa only [CallTarget.Resolves, currentFrame, ← root.declared] using resolves
       have childStep {next : Config H} := descend child used
         (dst := next) ⟨childFound, declared, childResolves⟩ childReady
       cases q with
-      | call | done => cases live
+      | call | branching | done => cases live
       | invoke operands =>
         cases childReady with
         | invoke localsTyped => exact pending_child_iff checked n allocated root.found used childFound declared localsTyped
       | label | returning | exit => exact active_entered_iff checked n root.found used live rfl childStep
-    | @trapped _ _ locals saved rest typed =>
+    | @trapped _ _ _ locals saved rest typed =>
       constructor
       · intro move
         rcases Computed.core_body_step_cases move with ⟨mid, inside, eq⟩ | ⟨_, pop, eq⟩
@@ -521,7 +564,7 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
         cases rule.mp move with
         | discard cut => exact lift_label ((Prefix.core_discard_iff (f := currentFrame target.declaration locals) coreAdmin.emit).mpr ⟨_, _, cut, rfl⟩)
         | leaveTrap => exact .ctxtFrame .trapLabel
-    | @block _ _ locals saved result inside rest innerTyped resume =>
+    | @block _ _ _ locals saved result inside rest innerTyped resume =>
       have smaller : sizeOf inside < size := by rw [← sizeEq]; simp [Body.block.sizeOf_spec]; omega
       exact block_step_iff checked root.found (P := P) (n := n) (fun {dst} =>
         ih (sizeOf inside) smaller (dst := dst) rfl innerTyped)
@@ -581,7 +624,7 @@ theorem step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (che
     | active typed used found declared live ready resume => exact region (.active typed used found declared live ready resume)
     | block inside resume => exact region (.block inside resume)
     | trapped typed => exact region (.trapped typed)
-    | @returning _ _ locals stack typed returnTyped =>
+    | @returning _ _ _ locals stack typed returnTyped =>
       constructor
       · intro move
         obtain ⟨extra, results, rfl, arity⟩ := split_return returnTyped
@@ -600,7 +643,7 @@ theorem step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (che
               (inner := (currentFrame target.declaration locals).toCore)
               (extra := dropped.map Value.toCore) (results := returned.map Value.toCore)
               (n := target.declaration.results.length) (by simpa using n)).mpr rfl
-    | @exit _ _ locals result typed outTyped =>
+    | @exit _ _ _ locals result typed outTyped =>
       constructor
       · intro move
         exact ⟨_, rule.mpr (.leaveFrame locals result outTyped), Nested.core_frame_result (caller := caller) (r := result) move⟩
@@ -612,7 +655,8 @@ theorem step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (che
           | values xs =>
             exact .frameVals (vs := xs.map Value.toCore) (by
               simpa using (result_length outTyped).trans (congrArg (fun d => d.results.length) root.declared))
-    | @done _ _ result typed =>
+    | branching _ target _ => simp at target
+    | @done _ _ _ result typed =>
       constructor
       · intro step
         exact (Nested.core_result_stuck (r := result) step).elim
