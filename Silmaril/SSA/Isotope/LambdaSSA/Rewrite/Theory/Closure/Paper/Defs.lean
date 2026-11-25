@@ -48,6 +48,11 @@ inductive Eqv : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop where
   | lsubstPost (h : Eqv Γ r s L) (hr : ValueBranches Γ r L) (hs : ValueBranches Γ s L)
       (hσ : LSubst.HasType Γ L K σ) :
       Eqv Γ (r.lsubst σ) (s.lsubst σ) K
+  | substVars (h : Eqv Γ r s L)
+      (hθ : ∀ ⦃i A⦄, At Γ i A → Tm.BranchValue Δ (θ i) A) :
+      Eqv Δ (r.substVars θ) (s.substVars θ) L
+  | renameLabels (h : Eqv Γ r s L) (hρ : Ren L K ρ) :
+      Eqv Γ (r.renameLabels ρ) (s.renameLabels ρ) K
   | collapsePost (he : ValueBranches Γ e (A :: L))
       (hp : ValueBranches (A :: Γ) p (A :: A :: L)) (hσ : LSubst.HasType Γ L K σ) :
       Eqv Γ ((CfgEta.Codiagonal.nested e p).lsubst σ)
@@ -62,7 +67,7 @@ inductive Eqv : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop where
         (singleCfg (entry.lsubst (CfgEta.Uniformity.localMap a)) q) L
 
 /-- Pointwise equivalence of typed continuations at the same interface. -/
-def Equivalent (Γ : VCtx τ) (L K : LCtx τ) (σ υ : Nat → Region Φ) : Prop :=
+@[expose] def Equivalent (Γ : VCtx τ) (L K : LCtx τ) (σ υ : Nat → Region Φ) : Prop :=
   ∀ ⦃i A⦄, At L i A → Eqv (A :: Γ) (σ i) (υ i) K
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper
