@@ -25,6 +25,7 @@ private inductive Focus : Wasm.Lime1.Instr → Prop where
   | call (i : FuncIdx) : Focus (.call i)
   | unreachable : Focus .unreachable
   | block (bt : Wasm.Lime1.BlockType) (code : Wasm.Lime1.Expr) : Focus (.block bt code)
+  | loop (bt : Wasm.Lime1.BlockType) (code : Wasm.Lime1.Expr) : Focus (.loop bt code)
   | if_ (bt : Wasm.Lime1.BlockType) (thenBody elseBody : Wasm.Lime1.Expr) : Focus (.if_ bt thenBody elseBody)
   | brIf (depth : LabelIdx) : Focus (.brIf depth)
   | brTable (depths : List LabelIdx) (fallback : LabelIdx) : Focus (.brTable depths fallback)
@@ -53,6 +54,9 @@ private inductive Redex (f : Frame) : Wasm.Lime1.Instr → List Value → Frame 
   | block {bt : Wasm.Lime1.BlockType} {code : Wasm.Lime1.Expr} {ft : Wasm.Lime1.FuncType} {vs : List Value}
       (resolved : blockType? f.module.types bt = some ft) (arity : vs.length = ft.params.length) :
       Redex f (.block bt code) vs f [.label ft.results.length [] (values vs ++ expression code)]
+  | loop {bt : Wasm.Lime1.BlockType} {code : Wasm.Lime1.Expr} {ft : Wasm.Lime1.FuncType} {vs : List Value}
+      (resolved : blockType? f.module.types bt = some ft) (arity : vs.length = ft.params.length) :
+      Redex f (.loop bt code) vs f [.label ft.params.length [.loop bt code] (values vs ++ expression code)]
   | if_ {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr} {condition : BitVec 32} :
       Redex f (.if_ bt thenBody elseBody) [Value.int .i32 condition] f
         [.source (.block bt (if condition = 0 then elseBody else thenBody))]
@@ -135,6 +139,9 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
     | block bt code ft resolved vs arity =>
       obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := vs) focus source.symm rfl
       exact ⟨[], _, _, _, rfl, .block resolved arity, rfl⟩
+    | loop bt code ft resolved vs arity =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := vs) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .loop resolved arity, rfl⟩
     | _ =>
       simp only [List.append_assoc, List.singleton_append, first_prefix, first_value] at firstEq
       first
@@ -207,6 +214,29 @@ theorem block_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
   · rintro rfl
     simpa only [List.append_assoc, List.singleton_append] using
       Step.context ((Blocks.lime_entry_iff (host := CallFrame.limeNoHost)).mpr rfl) stack rest
+
+theorem loop_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+    {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.loop (Blocks.limeType result) body) :: rest⟩ dst ↔
+      dst = ⟨s, f, values stack ++ .label 0 [.loop (Blocks.limeType result) body] (expression body) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨saved, used, _, _, split, head, eq⟩ := read_front move (.loop _ _) rfl
+    cases head with
+    | loop resolved arity =>
+      have lookup : blockType? f.module.types (Blocks.limeType result) = some ⟨[], result.toList⟩ := by
+        cases result <;> rfl
+      rw [lookup] at resolved
+      cases resolved
+      have empty : used = [] := List.eq_nil_of_length_eq_zero arity
+      subst used
+      simpa [values, split] using eq
+  · rintro rfl
+    have lookup : blockType? f.module.types (Blocks.limeType result) = some ⟨[], result.toList⟩ := by
+      cases result <;> rfl
+    have enter := Step.pure (host := CallFrame.limeNoHost) s f (PureStep.loop _ body _ lookup [] rfl)
+    simpa only [values, List.map_nil, List.length_nil, List.nil_append, List.append_assoc, List.singleton_append] using
+      Step.context enter stack rest
 
 theorem if_iff {H : Type} {s : Store H} {f : Frame}
     {saved : List Value} {condition : BitVec 32} {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr}

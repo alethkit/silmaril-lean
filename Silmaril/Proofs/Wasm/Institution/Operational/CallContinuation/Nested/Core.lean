@@ -168,13 +168,13 @@ theorem no_result_step {H : Type} {P : Profile} {s : Store H} {f : Frame}
   | values stack => exact Step.not_vals h
   | trap => exact Step.trap_stuck h
 
-theorem core_label_result {arity : Nat} {r : Result} {out : List Admin}
-    (pop : LabelExit arity [] (resultCode (fun vs => vals (vs.map Value.toCore)) .trap r) out) : out = resultCode (fun vs => vals (vs.map Value.toCore)) .trap r := by
+theorem core_label_result {arity : Nat} {cont : List Instr} {r : Result} {out : List Admin}
+    (pop : LabelExit arity cont (resultCode (fun vs => vals (vs.map Value.toCore)) .trap r) out) : out = resultCode (fun vs => vals (vs.map Value.toCore)) .trap r := by
   cases r with
   | values stack => exact labelExit_of_vals pop
   | trap =>
     have allowed : ∀ a ∈ ([.trap] : List Admin), safe a := by simp [safe, Admin.IsReturnCallRef]
-    change LabelExit arity [] [.trap] out at pop
+    change LabelExit arity cont [.trap] out at pop
     generalize eq : ([.trap] : List Admin) = code at pop
     rw [eq] at allowed
     cases pop with

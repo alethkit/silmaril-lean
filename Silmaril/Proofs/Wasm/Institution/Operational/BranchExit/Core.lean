@@ -78,9 +78,9 @@ private theorem nested_cannot_exit {outer inner : Nat} {body out : List Admin}
     try simp only [List.append_assoc, List.singleton_append, first_prefix, first_values, first_throwing] at head
     simp [first, Admin.val?] at head
 
-private theorem label_br_readback {n : Nat} {l : LabelIdx} {vs : List Val} {rest out : List Admin}
-    (h : LabelExit n [] (vals vs ++ .plain (.br l) :: rest) out) :
-    (∃ below payload, vs = below ++ payload ∧ payload.length = n ∧ l.toNat = 0 ∧ out = vals payload) ∨
+private theorem label_br_readback {n : Nat} {cont : List Instr} {l : LabelIdx} {vs : List Val} {rest out : List Admin}
+    (h : LabelExit n cont (vals vs ++ .plain (.br l) :: rest) out) :
+    (∃ below payload, vs = below ++ payload ∧ payload.length = n ∧ l.toNat = 0 ∧ out = vals payload ++ expression cont) ∨
       (0 < l.toNat ∧ out = vals vs ++ [.plain (.br (labelPred l))]) := by
   generalize eq : vals vs ++ .plain (.br l) :: rest = before at h
   have head := congrArg first eq
@@ -89,7 +89,7 @@ private theorem label_br_readback {n : Nat} {l : LabelIdx} {vs : List Val} {rest
     rw [List.append_assoc, List.singleton_append, ← vals_append] at eq
     obtain ⟨eqStack, same, _⟩ := vals_append_cons_inj rfl rfl eq
     cases same
-    exact .inl ⟨_, _, eqStack, hn, hz, by simp [expression]⟩
+    exact .inl ⟨_, _, eqStack, hn, hz, rfl⟩
   | brSucc hp =>
     rw [List.append_assoc, List.singleton_append] at eq
     obtain ⟨rfl, same, _⟩ := vals_append_cons_inj rfl rfl eq
@@ -105,11 +105,11 @@ private theorem label_br_readback {n : Nat} {l : LabelIdx} {vs : List Val} {rest
     simp only [List.append_assoc, List.singleton_append, first_prefix, first_values, first_throwing] at head
     simp [first, Admin.val?] at head
 
-theorem core_label_br_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Frame}
-    {n : Nat} {depth : LabelIdx} {stack : List Val} {rest : List Admin} {dst : Config H} :
-    Step P SingleThreaded.Det.noHost ⟨s, f, [.label n [] (vals stack ++ .plain (.br depth) :: rest)]⟩ dst ↔
+theorem core_label_br_cont_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Frame}
+    {n : Nat} {cont : List Instr} {depth : LabelIdx} {stack : List Val} {rest : List Admin} {dst : Config H} :
+    Step P SingleThreaded.Det.noHost ⟨s, f, [.label n cont (vals stack ++ .plain (.br depth) :: rest)]⟩ dst ↔
       (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
-        dst = ⟨s, f, vals payload⟩) ∨
+        dst = ⟨s, f, vals payload ++ expression cont⟩) ∨
       (0 < depth.toNat ∧ dst = ⟨s, f, vals stack ++ [.plain (.br (labelPred depth))]⟩) := by
   constructor
   · intro step
@@ -122,12 +122,21 @@ theorem core_label_br_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : F
     · exact .inl ⟨extra, payload, split, size, here, rfl⟩
     · exact .inr ⟨outer, rfl⟩
   · rintro (⟨extra, payload, rfl, size, here, rfl⟩ | ⟨outer, rfl⟩)
-    · simpa only [vals_append, List.append_assoc, List.singleton_append, expression, List.map_nil, List.append_nil] using
-        (Step.brLabelZero (P := P) (host := SingleThreaded.Det.noHost) (s := s) (f := f) (cont := [])
+    · simpa only [vals_append, List.append_assoc, List.singleton_append] using
+        (Step.brLabelZero (P := P) (host := SingleThreaded.Det.noHost) (s := s) (f := f) (cont := cont)
           (l := depth) (vs' := extra) (vs := payload) (rest := rest) here size)
     · simpa only [List.append_assoc, List.singleton_append] using
         (Step.brLabelSucc (P := P) (host := SingleThreaded.Det.noHost) (s := s) (f := f) (n := n)
-          (cont := []) (vs := stack) (l := depth) (rest := rest) outer)
+          (cont := cont) (vs := stack) (l := depth) (rest := rest) outer)
+
+theorem core_label_br_iff {H : Type} {P : Numerics.Profile} {s : Store H} {f : Frame}
+    {n : Nat} {depth : LabelIdx} {stack : List Val} {rest : List Admin} {dst : Config H} :
+    Step P SingleThreaded.Det.noHost ⟨s, f, [.label n [] (vals stack ++ .plain (.br depth) :: rest)]⟩ dst ↔
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
+        dst = ⟨s, f, vals payload⟩) ∨
+      (0 < depth.toNat ∧ dst = ⟨s, f, vals stack ++ [.plain (.br (labelPred depth))]⟩) := by
+  simpa only [expression, List.map_nil, List.append_nil] using
+    (core_label_br_cont_iff (cont := []) (s := s) (f := f) (dst := dst))
 
 theorem core_readback {H : Type} {P : Numerics.Profile} {host : HostSemantics H}
     {s : Store H} {f : Frame} {ty : Option NumType} {a : State} {b : Config H}
@@ -138,20 +147,20 @@ theorem core_readback {H : Type} {P : Numerics.Profile} {host : HostSemantics H}
   | outer below payload =>
     rcases Step.label_inv step with ⟨_, _, _, step, _⟩ | ⟨_, exit, rfl⟩
     · exact (Step.br_vals_stuck step).elim
-    rcases label_br_readback exit with ⟨extra, keep, items, len, _, rfl⟩ | ⟨pos, _⟩
+    rcases label_br_readback (cont := []) exit with ⟨extra, keep, items, len, _, rfl⟩ | ⟨pos, _⟩
     · have typed : payload.map Execution.Runtime.Value.type = ty.toList := guard
       have split : stack below ++ stack payload = extra ++ keep := by
         simpa only [List.map_append] using items
       have sizes := congrArg List.length split
       simp only [List.length_append, len, arity typed] at sizes
       have eq := List.append_inj_right split (Nat.add_right_cancel sizes)
-      exact ⟨.done payload, fact (.finish below payload typed), by rw [← eq]; rfl⟩
+      exact ⟨.done payload, fact (.finish below payload typed), by rw [← eq]; simp [coreConfig, coreCode, expression]⟩
     · exact (Nat.lt_irrefl 0 pos).elim
   | nested n below payload =>
     rcases Step.label_inv step with ⟨_, _, _, inner, rfl⟩ | ⟨_, exit, _⟩
     · rcases Step.label_inv inner with ⟨_, _, _, branch, _⟩ | ⟨_, exit, eq⟩
       · exact (Step.br_vals_stuck branch).elim
-      rcases label_br_readback exit with ⟨_, _, _, _, bad, _⟩ | ⟨_, rfl⟩
+      rcases label_br_readback (cont := []) exit with ⟨_, _, _, _, bad, _⟩ | ⟨_, rfl⟩
       · contradiction
       · cases eq
         exact ⟨.outer below payload, fact (.cross n below payload), rfl⟩

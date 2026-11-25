@@ -106,12 +106,12 @@ theorem lime_frame_context_inv {H : Type} {s : Store H} {f inside : Frame} {n : 
   Proofs.Lime1.frame_context_inv step
 
 open Wasm.Lime1.Execution in
-theorem lime_label_context_cases {H : Type} {s : Store H} {f : Frame} {n : Nat}
+theorem lime_label_context_cases {H : Type} {s : Store H} {f : Frame} {n : Nat} {cont : Wasm.Lime1.Expr}
     {saved : List Value} {code rest : List Admin} {dst : Config H}
-    (step : Step CallFrame.limeNoHost ⟨s, f, values saved ++ .label n [] code :: rest⟩ dst) :
+    (step : Step CallFrame.limeNoHost ⟨s, f, values saved ++ .label n cont code :: rest⟩ dst) :
     (∃ mid, Step CallFrame.limeNoHost ⟨s, f, code⟩ mid ∧
-      dst = ⟨mid.store, mid.frame, values saved ++ .label n [] mid.code :: rest⟩) ∨
-    ∃ out, PureStep f.module.types [.label n [] code] out ∧ dst = ⟨s, f, values saved ++ out ++ rest⟩ :=
+      dst = ⟨mid.store, mid.frame, values saved ++ .label n cont mid.code :: rest⟩) ∨
+    ∃ out, PureStep f.module.types [.label n cont code] out ∧ dst = ⟨s, f, values saved ++ out ++ rest⟩ :=
   Proofs.Lime1.label_context_cases step
 
 /-- A live Lime1 callee step leaves the caller's pending instructions unchanged. -/

@@ -18,8 +18,8 @@ open Execution
 open Execution.Runtime (Frame FuncAddr Value)
 open Wasm.SingleThreaded.Det (noHost)
 
-theorem core_label_result {arity : Nat} {r : Result} {out : List Core.Admin}
-    (pop : Core.LabelExit arity [] (resultCode (fun vs => Core.vals (vs.map Value.toCore)) .trap r) out) :
+theorem core_label_result {arity : Nat} {cont : List Instr} {r : Result} {out : List Core.Admin}
+    (pop : Core.LabelExit arity cont (resultCode (fun vs => Core.vals (vs.map Value.toCore)) .trap r) out) :
     out = resultCode (fun vs => Core.vals (vs.map Value.toCore)) .trap r :=
   Proofs.core_label_result pop
 
@@ -36,8 +36,8 @@ theorem core_result_stuck {H : Type} {P : Numerics.Profile} {s : Core.Store H} {
   Proofs.no_result_step step
 
 open Wasm.Lime1.Execution in
-theorem lime_label_result {types : List Wasm.Lime1.FuncType} {arity : Nat} {r : Result} {out : List Admin}
-    (pop : PureStep types [.label arity [] (resultCode values .trap r)] out) :
+theorem lime_label_result {types : List Wasm.Lime1.FuncType} {arity : Nat} {cont : Wasm.Lime1.Expr} {r : Result} {out : List Admin}
+    (pop : PureStep types [.label arity cont (resultCode values .trap r)] out) :
     out = resultCode values .trap r :=
   Proofs.Lime1.label_result pop
 

@@ -35,11 +35,11 @@ variable {H : Type} {P : Profile} {s : Store H} {f : Frame} {dst : Config H}
 
 /-- A step at the label preserves its surrounding operands and pending
 instructions. A step inside it may update the current frame and store. -/
-theorem core_label_iff {n : Nat} {saved : List Val} {body rest : List Admin} :
-    Step P noHost ⟨s, f, vals saved ++ .label n [] body :: rest⟩ dst ↔
+theorem core_label_iff {n : Nat} {cont : List Instr} {saved : List Val} {body rest : List Admin} :
+    Step P noHost ⟨s, f, vals saved ++ .label n cont body :: rest⟩ dst ↔
       (∃ mid, Step P noHost ⟨s, f, body⟩ mid ∧
-        dst = ⟨mid.store, mid.frame, vals saved ++ .label n [] mid.code :: rest⟩) ∨
-      ∃ out, LabelExit n [] body out ∧ dst = ⟨s, f, vals saved ++ out ++ rest⟩ :=
+        dst = ⟨mid.store, mid.frame, vals saved ++ .label n cont mid.code :: rest⟩) ∨
+      ∃ out, LabelExit n cont body out ∧ dst = ⟨s, f, vals saved ++ out ++ rest⟩ :=
   Proofs.Core.label_iff
 
 /-- A live entered function frame takes its step inside the block. The block
@@ -78,11 +78,11 @@ variable {H : Type} {s : Store H} {f : Frame} {dst : Config H}
 
 /-- A step at the label preserves its surrounding operands and pending
 instructions. A step inside it may update the current frame and store. -/
-theorem lime_label_iff {n : Nat} {saved : List Value} {body rest : List Admin} :
-    Step CallFrame.limeNoHost ⟨s, f, values saved ++ .label n [] body :: rest⟩ dst ↔
+theorem lime_label_iff {n : Nat} {cont : Wasm.Lime1.Expr} {saved : List Value} {body rest : List Admin} :
+    Step CallFrame.limeNoHost ⟨s, f, values saved ++ .label n cont body :: rest⟩ dst ↔
       (∃ mid, Step CallFrame.limeNoHost ⟨s, f, body⟩ mid ∧
-        dst = ⟨mid.store, mid.frame, values saved ++ .label n [] mid.code :: rest⟩) ∨
-      ∃ out, PureStep f.module.types [.label n [] body] out ∧ dst = ⟨s, f, values saved ++ out ++ rest⟩ :=
+        dst = ⟨mid.store, mid.frame, values saved ++ .label n cont mid.code :: rest⟩) ∨
+      ∃ out, PureStep f.module.types [.label n cont body] out ∧ dst = ⟨s, f, values saved ++ out ++ rest⟩ :=
   Proofs.Lime1.label_iff
 
 /-- A live entered function frame takes its step inside the block. The block
@@ -121,11 +121,11 @@ variable {H : Type} {s : Store H} {f : Frame} {dst : Config H}
 
 /-- A step at the label preserves its surrounding operands and pending
 instructions. A step inside it may update the current frame and store. -/
-theorem v1_label_iff {n : Nat} {saved : List Value} {body rest : List Admin} :
-    Step CallFrame.v1NoHost ⟨s, f, values saved ++ .label n [] body :: rest⟩ dst ↔
+theorem v1_label_iff {n : Nat} {cont : Wasm.V1.Expr} {saved : List Value} {body rest : List Admin} :
+    Step CallFrame.v1NoHost ⟨s, f, values saved ++ .label n cont body :: rest⟩ dst ↔
       (∃ mid, Step CallFrame.v1NoHost ⟨s, f, body⟩ mid ∧
-        dst = ⟨mid.store, mid.frame, values saved ++ .label n [] mid.code :: rest⟩) ∨
-      ∃ out, PureStep [.label n [] body] out ∧ dst = ⟨s, f, values saved ++ out ++ rest⟩ :=
+        dst = ⟨mid.store, mid.frame, values saved ++ .label n cont mid.code :: rest⟩) ∨
+      ∃ out, PureStep [.label n cont body] out ∧ dst = ⟨s, f, values saved ++ out ++ rest⟩ :=
   Proofs.V1.label_iff
 
 /-- A live entered function frame takes its step inside the block. The block
