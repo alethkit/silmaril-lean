@@ -23,13 +23,14 @@ variable {args outs captured : Ports (Ty V S)}
 variable {sigsL sigsR : List (Ports (Ty V S))}
 variable {fn : Function V S}
 
-private theorem application_reaches {entry : Tuple m.Val args} {inputs : Wires args [] (fn.port :: fn.args)}
+private theorem application_reaches {entry : Tuple m.Val args} {past : List (Ports (Ty V S))} {locals : Locals m.Val past}
+    {inputs : Wires args past (fn.port :: fn.args)}
     {callee : m.Val fn.port} {arguments : Tuple m.Val fn.args} {store : σ}
     {target : Feedback.Restart m σ} {pending : Pending m target.carried fn.results}
-    (selected : inputs.read entry PUnit.unit = .cons callee arguments)
+    (selected : inputs.read entry locals = .cons callee arguments)
     (ran : Feedback.Reaches primitives (.call callee arguments) store target pending) :
     Feedback.Reaches primitives (.node (applicationVertex fn inputs).kind (applicationVertex fn inputs).childSigs
-      (fun i => i.elim0) (inputs.read entry PUnit.unit)) store target pending :=
+      (fun i => i.elim0) (inputs.read entry locals)) store target pending :=
   selected.symm ▸ Feedback.Reaches.apply (fn := fn) (cs := fun _ => []) (children := fun i => i.elim0) ran
 
 private theorem application_then
@@ -131,5 +132,125 @@ theorem call_plan_regions {rank : Nat} {context params : Ports (Ty V S)}
     have entries := prepend_related paired supplied
     have operands := read_same entries LocalsRelated.empty arguments
     exact application_then respects (.cons (.arg .head) arguments) suffix entries rfl rfl (ih.2 operands store)
+
+private theorem get_capture {t : Ty V S} {context params : Ports (Ty V S)}
+    (port : Port context t) (captures : Tuple m.Val context) (arguments : Tuple m.Val params) :
+    (prependContext arguments captures).get (capturePort port) = captures.get port := by
+  induction port with
+  | head => cases captures; rfl
+  | tail port ih => cases captures with | cons _ rest => exact ih rest
+
+private theorem continue_pair
+    {past : List (Ports (Ty V S))} {head : Ports (Ty V S)}
+    {nodeL nodeR : NestedTheta.Node (Instruction Op) args past head}
+    {childrenL : Bodies nodeL.kind nodeL.childSigs} {childrenR : Bodies nodeR.kind nodeR.childSigs}
+    {restL : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsL outs}
+    {restR : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsR outs}
+    {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+    {valueL valueR : Tuple m.Val head} {store middle : σ}
+    (firstL : Eval primitives (.node nodeL.kind nodeL.childSigs childrenL (nodeL.inputs.read entryL localsL))
+      store (.returned valueL middle))
+    (firstR : Eval primitives (.node nodeR.kind nodeR.childSigs childrenR (nodeR.inputs.read entryR localsR))
+      store (.returned valueR middle))
+    (tail : ScopedRegionPair primitives ids mapping restL restR entryL entryR
+      (localsL.snoc valueL) (localsR.snoc valueR) middle) :
+    ScopedRegionPair primitives ids mapping (.bind nodeL childrenL restL) (.bind nodeR childrenR restR)
+      entryL entryR localsL localsR store := by
+  cases tail with
+  | returned values restL restR => exact .returned values (.bind firstL restL) (.bind firstR restR)
+  | blocked stopped => exact .blocked (.later firstL firstR stopped)
+  | productive run =>
+    exact .productive (productive_map run (fun ran => ⟨_, .later firstL ran⟩) (fun ran => ⟨_, .later firstR ran⟩))
+
+private theorem bind_pair
+    {past : List (Ports (Ty V S))} {tailL tailR : List (Ports (Ty V S))}
+    {left : NestedTheta.Term (Instruction Op) (captured ++ fn.args) [] sigsL fn.results}
+    {right : NestedTheta.Term (Instruction Op) (captured ++ fn.args) [] sigsR fn.results}
+    {restL : NestedTheta.Term (Instruction Op) args (past ++ [fn.results]) tailL outs}
+    {restR : NestedTheta.Term (Instruction Op) args (past ++ [fn.results]) tailR outs}
+    {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+    {capL capR : Tuple m.Val captured} {argsL argsR : Tuple m.Val fn.args} {store : σ}
+    (inputs : Wires args past (fn.port :: fn.args))
+    (selectL : inputs.read entryL localsL = .cons (.closure capL left.toGraph) argsL)
+    (selectR : inputs.read entryR localsR = .cons (.closure capR right.toGraph) argsR)
+    (callee : RegionPair primitives ids (mapping.child past.length 0) left right
+      (prependContext argsL capL) (prependContext argsR capR) store)
+    (resume : ∀ {valueL valueR : Tuple m.Val fn.results}, TupleRelated m ids valueL valueR → ∀ middle,
+      ScopedRegionPair primitives ids mapping restL restR entryL entryR
+        (localsL.snoc valueL) (localsR.snoc valueR) middle) :
+    ScopedRegionPair primitives ids mapping (bindApplication fn inputs restL) (bindApplication fn inputs restR)
+      entryL entryR localsL localsR store := by
+  have openL := open_lambda left capL argsL
+  have openR := open_lambda right capR argsR
+  cases callee with
+  | returned values ranL ranR =>
+    exact continue_pair (nodeL := applicationVertex fn inputs) (nodeR := applicationVertex fn inputs)
+      (application_eval selectL (.call (openL.symm ▸ ranL))) (application_eval selectR (.call (openR.symm ▸ ranR)))
+      (resume values _)
+  | blocked stopped => exact .blocked (.atCall inputs restL restR selectL selectR stopped)
+  | productive run =>
+    refine .productive (productive_map run ?_ ?_)
+    · intro target pending reached
+      exact ⟨.bind restL entryL localsL pending,
+        .inside (node := applicationVertex fn inputs) (application_reaches selectL (.call (openL.symm ▸ reached)))⟩
+    · intro target pending reached
+      exact ⟨.bind restR entryR localsR pending,
+        .inside (node := applicationVertex fn inputs) (application_reaches selectR (.call (openR.symm ▸ reached)))⟩
+
+private theorem primitive_pair {past : List (Ports (Ty V S))} {ins head : Ports (Ty V S)}
+    {restL : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsL outs}
+    {restR : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsR outs}
+    {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+    (respects : ActionsRespect primitives ids) (opcode : Op ins head) (inputs : Wires args past ins)
+    (related : TupleRelated m ids (inputs.read entryL localsL) (inputs.read entryR localsR)) (store : σ)
+    (resume : ∀ {valueL valueR : Tuple m.Val head}, TupleRelated m ids valueL valueR → ∀ middle,
+      ScopedRegionPair primitives ids mapping restL restR entryL entryR
+        (localsL.snoc valueL) (localsR.snoc valueR) middle) :
+    ScopedRegionPair primitives ids mapping (bindPrimitive opcode inputs restL) (bindPrimitive opcode inputs restR)
+      entryL entryR localsL localsR store := by
+  have agreement := respects opcode related store
+  generalize ranL : (primitives.step opcode (inputs.read entryL localsL)).run store = resultL at agreement
+  generalize ranR : (primitives.step opcode (inputs.read entryR localsR)).run store = resultR at agreement
+  cases agreement with
+  | undefined => exact .blocked (.atPrimitive opcode inputs related ranL ranR)
+  | returned values middle =>
+    exact continue_pair (nodeL := primitiveVertex opcode inputs) (nodeR := primitiveVertex opcode inputs)
+      (.primitive (primitiveSite opcode _) (ranL.symm ▸ _root_.Part.mem_some _))
+      (.primitive (primitiveSite opcode _) (ranR.symm ▸ _root_.Part.mem_some _))
+      (resume values middle)
+
+theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : List (Ports (Ty V S))}
+    {capturesL capturesR : Tuple m.Val context}
+    {left : NestedTheta.Term (Instruction Op) (context ++ params) past sigsL outs}
+    {right : NestedTheta.Term (Instruction Op) (context ++ params) past sigsR outs}
+    (plan : RankedPlan m ids rank mapping capturesL capturesR left right) (respects : ActionsRespect primitives ids)
+    (captures : TupleRelated m ids capturesL capturesR)
+    {argsL argsR : Tuple m.Val params} (arguments : TupleRelated m ids argsL argsR)
+    {localsL localsR : Locals m.Val past} (locals : AlignedLocals m ids localsL localsR) (store : σ) :
+    ScopedRegionPair primitives ids mapping left right
+      (prependContext argsL capturesL) (prependContext argsR capturesR) localsL localsR store := by
+  induction plan generalizing store with
+  | body code =>
+    cases localsL
+    cases localsR
+    exact regions code respects (prepend_related captures arguments) store
+  | suffix schedule =>
+    obtain ⟨_, _, paired⟩ := Local.scoped_evaluate schedule respects (prepend_related captures arguments) locals store
+    cases paired with
+    | returned values ranL ranR => exact .returned values ranL ranR
+    | blocked address sites ranL ranR => exact .blocked (.suffix address sites ranL ranR)
+  | @call _ _ _ _ _ _ _ _ _ _ _ _ _ capL capR _ _ _ _ _ _
+      port selectedL selectedR captured wires _ _ _ calleeIH suffixIH =>
+    have operands := Local.aligned_read (prepend_related captures arguments) locals wires
+    have readL := (get_capture port capL argsL).trans selectedL
+    have readR := (get_capture port capR argsR).trans selectedR
+    exact bind_pair (.cons (.arg (capturePort port)) wires)
+      (congrArg (fun callee => Tuple.cons callee (wires.read (prependContext argsL capL) localsL)) readL)
+      (congrArg (fun callee => Tuple.cons callee (wires.read (prependContext argsR capR) localsR)) readR)
+      (calleeIH captured operands .empty store)
+      (fun values middle => suffixIH captures arguments (locals.snoc values) middle)
+  | primitive opcode wires _ suffixIH =>
+    exact primitive_pair respects opcode wires (Local.aligned_read (prepend_related captures arguments) locals wires)
+      store (fun values middle => suffixIH captures arguments (locals.snoc values) middle)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs

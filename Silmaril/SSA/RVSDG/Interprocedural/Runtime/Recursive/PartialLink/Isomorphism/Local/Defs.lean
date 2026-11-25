@@ -130,6 +130,15 @@ def nodeJob {m : Machine.{u, v, w} Op} {past : List (Ports (Ty V S))} {head : Po
 variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)}
 variable {ids : GlobalRel} {primitives : Primitives m σ}
 
+/-- Related values at each binding of one shared typed scope. -/
+inductive AlignedLocals (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
+    {past : List (Ports (Ty V S))} → Locals m.Val past → Locals m.Val past → Prop where
+  | empty : AlignedLocals m ids (past := []) PUnit.unit PUnit.unit
+  | snoc {past : List (Ports (Ty V S))} {head : Ports (Ty V S)}
+      {left right : Locals m.Val past} {valueL valueR : Tuple m.Val head}
+      (locals : AlignedLocals m ids left right) (values : TupleRelated m ids valueL valueR) :
+    AlignedLocals m ids (left.snoc valueL) (right.snoc valueR)
+
 /-- An address annotation on an actual blocking derivation. Earlier bindings
 use successful `Eval` derivations. Entry into a child records the actual
 selector and uses fresh locals. The diagnostic and pending frames are

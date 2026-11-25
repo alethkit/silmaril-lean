@@ -10,7 +10,7 @@ public section
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Proofs
 
 open Continuation.Partial (Primitives Eval Site)
-open Isomorphism.Proofs (LocalsRelated read_related)
+open Isomorphism.Proofs (LocalsRelated read_related read_same)
 
 universe u v w
 
@@ -197,6 +197,29 @@ theorem graph_evaluate {left : Graph Op args [] sigsL outs} {right : Graph Op ar
     ∃ outL outR, EvaluationPair primitives ids rename (left := left.toTerm) (right := right.toTerm)
       inputL inputR PUnit.unit PUnit.unit store outL outR :=
   evaluate code.schedule respects inputs LocalsRelated.empty store
+
+private theorem aligned_by_address {past : List (Ports (Ty V S))}
+    {localsL localsR : Locals m.Val past} (locals : AlignedLocals m ids localsL localsR) :
+    LocalsRelated m ids id localsL localsR := by
+  induction locals with
+  | empty => exact LocalsRelated.empty
+  | snoc _ values ih => exact ih.snoc (fun _ _ h => h) rfl values
+
+theorem aligned_read {past : List (Ports (Ty V S))} {ports : Ports (Ty V S)}
+    {inputL inputR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+    (inputs : TupleRelated m ids inputL inputR) (locals : AlignedLocals m ids localsL localsR)
+    (wires : Wires args past ports) :
+    TupleRelated m ids (wires.read inputL localsL) (wires.read inputR localsR) :=
+  read_same inputs (aligned_by_address locals) wires
+
+theorem scoped_evaluate {past : List (Ports (Ty V S))}
+    {left : Term Op args past sigsL outs} {right : Term Op args past sigsR outs}
+    (schedule : Schedule Op .identity left right) (respects : ActionsRespect primitives ids)
+    {inputL inputR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+    (inputs : TupleRelated m ids inputL inputR) (locals : AlignedLocals m ids localsL localsR) (store : σ) :
+    ∃ outL outR, EvaluationPair primitives ids .identity (left := left) (right := right)
+      inputL inputR localsL localsR store outL outR :=
+  evaluate schedule respects inputs (aligned_by_address locals) store
 
 theorem suffix_evaluate {left : Term Op args [head] sigsL outs} {right : Term Op args [head] sigsR outs}
     (schedule : Schedule Op .identity left right) (respects : ActionsRespect primitives ids)
