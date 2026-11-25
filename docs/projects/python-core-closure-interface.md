@@ -58,10 +58,24 @@ defined outcomes in `Result`.
 [Call theorems](../../Silmaril/Languages/Python/Core/Closure/Call/Thms.lean)
 · [Binding and delivery regression](../../tests/languages/python/closure-runtime/Call.lean)
 
-Call entry takes a resolved function and its parameter layout. The surrounding
-machine supplies code-table lookup and validation, callee body execution and
-the resumed continuation. Keyword arguments, defaults, variadic binding and
-exception-handler execution require additional profiles.
+## Checked code-table dispatch
+
+`Core.Closure.Dispatch.CodeTable` indexes entries by the numeric code key.
+Each entry associates a frame layout with the body and positional parameters
+for that layout. `Dispatch.resolve` checks the closure's expected layout and
+`Dispatch.dispatch` binds already-evaluated positional values. The result
+contains the exact typed body and the entered frame and stack required to
+start executing it. `Dispatch.dispatch_iff` characterizes successful
+dispatch through table membership, capture liveness and the ordered
+`Call.Writes` relation.
+
+Missing code, mismatched layouts and dangling cells indicate invalid runtime
+references. An integer callee and a positional arity mismatch produce defined
+Python errors. The enclosing machine supplies operand evaluation, body
+stepping and continuation execution. Keyword arguments, defaults, variadic
+binding and exception-handler execution require additional profiles.
+[Dispatch definitions](../../Silmaril/Languages/Python/Core/Closure/Dispatch/Defs.lean)
+· [Dispatch regression](../../tests/languages/python/closure-runtime/Dispatch.lean)
 
 The public baseline is the Python 3.12.13 language reference. The Data model
 HTML has SHA-256 `c300d0904a1a03abd7752308eacffbdf7364d95d45f8e52d60076f38a21f763e`.
@@ -78,4 +92,6 @@ lake build --wfail +Silmaril.Languages.Python.Core.Closure.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Regression.lean
 lake build --wfail +Silmaril.Languages.Python.Core.Closure.Call.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Call.lean
+lake build --wfail +Silmaril.Languages.Python.Core.Closure.Dispatch.Thms
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Dispatch.lean
 ```
