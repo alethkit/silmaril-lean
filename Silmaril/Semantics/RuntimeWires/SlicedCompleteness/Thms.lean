@@ -97,3 +97,64 @@ theorem SeamHom.toTermHom_tensor (f : SeamHom S A B) (g : SeamHom S X Y) :
   Proofs.SlicedCompleteness.toTerm_tensor f g
 
 end Silmaril.RuntimeWires.Sliced
+
+end
+
+public section
+
+namespace Silmaril.RuntimeWires.Sliced
+
+universe u v
+
+variable {O : Type u} {S : Signature.{u,v} O} {A B X Y : List O}
+
+/-- The ordered wire and generator labels of a row, independent of index transports. -/
+def Row.cells (r : Row S A B) : List (O ⊕ S.Edge) :=
+  Proofs.SlicedCompleteness.rowCells r
+
+@[simp] theorem Row.cells_box (e : S.Edge) (r : Row S A B) :
+    (Row.box e r).cells = Sum.inr e :: r.cells := by rfl
+
+@[simp] theorem Row.cells_pass (W : List O) (r : Row S A B) :
+    (Row.pass W r).cells = W.map Sum.inl ++ r.cells :=
+  Proofs.SlicedCompleteness.pass_cells W r
+
+@[simp] theorem Row.cells_straight (W : List O) :
+    (Row.straight (S := S) W).cells = W.map Sum.inl :=
+  Proofs.SlicedCompleteness.straight_cells W
+
+@[simp] theorem Row.cells_beside (r : Row S A B) (q : Row S X Y) :
+    (r.beside q).cells = r.cells ++ q.cells :=
+  Proofs.SlicedCompleteness.beside_cells r q
+
+/-- The ordered cells in each row determine a typed sheet. -/
+def Sheet.cells (p : Sheet S A B) : List (List (O ⊕ S.Edge)) :=
+  Proofs.SlicedCompleteness.sheetCells p
+
+theorem Sheet.cells_injective : Function.Injective (Sheet.cells (S := S) (A := A) (B := B)) :=
+  fun _ _ h => Proofs.SlicedCompleteness.sheet_ext h
+
+@[simp] theorem Sheet.cells_empty : (Sheet.empty (S := S) A).cells = [] := by rfl
+
+@[simp] theorem Sheet.cells_cons (r : Row S A B) (q : Sheet S B Y) :
+    (Sheet.cons r q).cells = r.cells :: q.cells := by rfl
+
+@[simp] theorem Sheet.cells_reindex (a : A = X) (b : B = Y) (q : Sheet S A B) :
+    (q.reindex a b).cells = q.cells :=
+  Proofs.SlicedCompleteness.sheet_reindex_cells a b q
+
+/-- The left part is executed above the new seam and the right part below. -/
+theorem Row.Split.left_first (r : Row S A B) (q : Row S X Y) :
+    Row.Split S (r.beside q) (r.beside (Row.straight X)) (Row.pass B q) := by
+  have h := Proofs.SlicedCompleteness.split_beside
+    (Proofs.SlicedCompleteness.split_all_upper r) (Proofs.SlicedCompleteness.split_all_lower q)
+  rwa [Proofs.SlicedCompleteness.straight_beside] at h
+
+/-- The right part is executed above the new seam and the left part below. -/
+theorem Row.Split.right_first (r : Row S A B) (q : Row S X Y) :
+    Row.Split S (r.beside q) (Row.pass A q) (r.beside (Row.straight Y)) := by
+  have h := Proofs.SlicedCompleteness.split_beside
+    (Proofs.SlicedCompleteness.split_all_lower r) (Proofs.SlicedCompleteness.split_all_upper q)
+  rwa [Proofs.SlicedCompleteness.straight_beside] at h
+
+end Silmaril.RuntimeWires.Sliced
