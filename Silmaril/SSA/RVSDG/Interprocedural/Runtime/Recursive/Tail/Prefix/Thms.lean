@@ -15,6 +15,12 @@ variable {m : Machine.{u, v, w} Op}
 variable {args outs : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
 variable {a b c : Activation m outs}
 
+/-- Reading the forwarding boundary after binding the result gives the full tuple. -/
+theorem read_forwarding (entry : Tuple m.Val args) (locals : Locals m.Val past)
+    (value : Tuple m.Val outs) :
+    (forwarding args past outs).read entry (locals.snoc value) = value :=
+  Proofs.read_forwarding entry locals value
+
 /-- The inspector implements the declarative rules for all supported outcomes. -/
 theorem exposes_iff (term : NestedTheta.Term (Instruction Op) args past sigs outs)
     (entry : Tuple m.Val args) (locals : Locals m.Val past) {outcome : Outcome m outs}
