@@ -13,7 +13,7 @@ theorem ordinary {tree : Source.ScopeTree} {start : Nat} {source : List Source.S
     tree.scope.context.containsYield = false := by
   induction translated with
   | ret clear _ _ => exact clear
-  | assign _ _ _ _ tail | nonlocal _ tail | global _ tail => exact tail
+  | assign _ _ _ _ tail | pass _ tail | nonlocal _ tail | global _ tail => exact tail
   | closure _ _ _ _ _ _ _ _ _ _ tail => exact tail
 
 theorem ordinaryChild {tree : Source.ScopeTree} {start : Nat} {source : List Source.Stmt}
@@ -23,7 +23,7 @@ theorem ordinaryChild {tree : Source.ScopeTree} {start : Nat} {source : List Sou
       emittedPath = tree.scope.context.path ++ relative ∧ block.context.containsYield = false := by
   induction translated with
   | ret => simp [Code.childPaths] at member
-  | assign _ _ _ _ tail | nonlocal _ tail | global _ tail =>
+  | assign _ _ _ _ tail | pass _ tail | nonlocal _ tail | global _ tail =>
     exact tail member
   | @closure tree start name declaration body rest slot child params code next found path _ _ _ _ _
       childTranslation _ childOrdinary nextOrdinary =>
@@ -44,8 +44,7 @@ theorem childPaths {tree : Source.ScopeTree} {start : Nat} {source : List Source
   induction translated with
   | ret => simp [Code.childPaths]
   | assign _ _ _ _ tail => exact tail
-  | nonlocal _ tail => exact tail
-  | global _ tail => exact tail
+  | pass _ tail | nonlocal _ tail | global _ tail => exact tail
   | @closure tree start name declaration body rest slot child params code next _ path _ _ _ _ _ _ _ inner tail =>
     let parent := tree.scope.context.path
     have nestedPath {nested : Source.BlockPath} (member : nested ∈ code.childPaths) :

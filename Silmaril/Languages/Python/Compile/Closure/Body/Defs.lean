@@ -185,6 +185,8 @@ inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
       (assignment : Assignment statement name source) (destination : SlotTranslation tree.scope name slot)
       (value : ExprTranslation tree.scope source target) (tail : Translation tree index rest next) :
       Translation tree index (statement :: rest) (.assign slot target next)
+  | pass {tree index rest next} (tail : Translation tree index rest next) :
+      Translation tree index (.pass :: rest) next
   | nonlocal {tree index names rest next} (tail : Translation tree index rest next) :
       Translation tree index (.nonlocalDecl names :: rest) next
   | global {tree index names rest next} (tail : Translation tree index rest next) :
@@ -211,6 +213,9 @@ private def lowerOrdinaryBody (tree : ScopeTree) (allowGlobals : Bool)
       let target ← lowerExprWith tree.scope allowGlobals value
       return ⟨.ret target.val, .ret ordinary complete target.property⟩
     else throw (.scopeTree tree.scope.context.path)
+  | .pass :: rest => do
+    let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
+    return ⟨tail.val, .pass tail.property⟩
   | .nonlocalDecl _ :: rest => do
     let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨tail.val, .nonlocal tail.property⟩
