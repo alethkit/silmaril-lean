@@ -37,6 +37,59 @@ func staticError(source, want string) {
 	require(err != nil && strings.Contains(err.Error(), want), fmt.Sprint(err))
 }
 
+func loopScopes() {
+	const items = `def items(*values):
+    return list(values)
+`
+	const shadow = items + "x = list()\ndef run():\n"
+	const call = "out = run()\n"
+	const unbound = "local variable x referenced before assignment"
+	runtimeError(shadow+"    x\n    for x in items(7): pass\n"+call, unbound)
+	runtimeError(shadow+"    for x in x: pass\n"+call, unbound)
+	runtimeError(shadow+"    for x in items(): pass\n    return x\n"+call, unbound)
+	fmt.Println("PASS a loop target shadows the outer name before, within and after an empty loop")
+
+	values, err := execute(items + `def last(x, *values):
+    for x in values: pass
+    return x
+def capture():
+    def read(): return x
+    for x in items(3, 4): pass
+    return read()
+nonempty = last(99, 1, 2)
+empty = last(99)
+captured = capture()
+`)
+	require(err == nil, fmt.Sprint(err))
+	require(values["nonempty"].String() == "2" && values["empty"].String() == "99" &&
+		values["captured"].String() == "4", fmt.Sprint(values))
+	fmt.Println("PASS loop target visibility and a closure's capture of the target")
+
+	values, err = execute(items + `def nested():
+    for x in items(10, 20):
+        for y in items(False, True):
+            if y: break
+            else: continue
+            len(9)
+    return x if y else len(9)
+def early():
+    for x in items(7, 8):
+        return x
+    len(9)
+last = nested()
+first = early()
+`)
+	require(err == nil, fmt.Sprint(err))
+	require(values["last"].String() == "20" && values["first"].String() == "7", fmt.Sprint(values))
+	runtimeError(items+"def run():\n    for x in items(7): len(x)\n"+call, "has no len")
+	fmt.Println("PASS nested break and continue, early return, and loop body error")
+
+	staticError("for x in list(): pass\n", "for loop not within a function")
+	staticError("def run():\n    if False: break\n", "break not in a loop")
+	staticError("def run():\n    for x in list():\n        def nested(): continue\n", "continue not in a loop")
+	fmt.Println("PASS loop-control scope and top-level loop rejection")
+}
+
 func main() {
 	values, err := execute(`value = "global"
 def outer(value):
@@ -83,4 +136,6 @@ out = f()
 	values, err = execute("imported = 1\nload(\"dep\", imported=\"provided\")\n")
 	require(err == nil && values["imported"].String() == "1", fmt.Sprint(values, err))
 	fmt.Println("DIALECT pinned Go accepts a load alias after an already-bound global of the same name")
+
+	loopScopes()
 }

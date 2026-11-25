@@ -29,6 +29,9 @@ inductive Statement where
   | ret (value : Option Lowering.Resolve.SourceExpr)
   | seq (first rest : Statement)
   | branch (test : Lowering.Resolve.SourceExpr) (yes no : Statement)
+  | forIn (target : String) (iterable : Lowering.Resolve.SourceExpr) (body : Statement)
+  | breakLoop
+  | continueLoop
   | define (name : String) (signature : SourceSignature) (body : Statement)
 
 /-- Admitted module commands, in execution order. -/
@@ -61,7 +64,8 @@ def fileNames (commands : List Command) : List String :=
 private def Statement.localNames : Statement → List String
   | .assign name _ | .define name .. => [name]
   | .seq first rest | .branch _ first rest => first.localNames ++ rest.localNames
-  | .pass | .eval _ | .ret _ => []
+  | .forIn target _ body => target :: body.localNames
+  | .pass | .eval _ | .ret _ | .breakLoop | .continueLoop => []
 
 private abbrev Build := StateT Program (Except Error)
 
@@ -123,6 +127,12 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let yes ← compileBody context yes
     let no ← compileBody context no
     return ⟨.branchExpr test yes.code no.code, reads ++ yes.reads ++ no.reads⟩
+  | .forIn target iterable body => do
+    let (iterable, reads) ← readExpr context iterable
+    let body ← compileBody context body
+    return ⟨.forInExpr (fileSlot target) iterable body.code, reads ++ body.reads⟩
+  | .breakLoop => pure ⟨.breakLoop, []⟩
+  | .continueLoop => pure ⟨.continueLoop, []⟩
   | .define name signature body => do
     let (id, reads) ←
       compileDefinition context signature body.localNames (fun inner => compileBody inner body)
