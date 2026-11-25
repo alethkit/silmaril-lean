@@ -3,6 +3,7 @@ module
 import Silmaril.SSA.RVSDG.Institution.Thms
 
 namespace Silmaril.SSA.RVSDG.Institution.Tests
+set_option backward.isDefEq.respectTransparency false
 
 open CategoryTheory Silmaril.Logic.Institution
 
@@ -18,8 +19,8 @@ private inductive SourceOp : Dialect Unit Unit where
 private inductive TargetOp : Dialect Unit Unit where
   | increment : TargetOp payload payload
 
-private def source : Signature Unit Unit := ⟨SourceOp⟩
-private def target : Signature Unit Unit := ⟨TargetOp⟩
+private abbrev source : Signature Unit Unit := ⟨SourceOp⟩
+private abbrev target : Signature Unit Unit := ⟨TargetOp⟩
 
 -- A dialect migration that identifies two previously distinct instructions.
 private def migrate : source ⟶ target :=
@@ -78,7 +79,14 @@ private theorem translatedHolds : (equation.map (Signature.opcodeMap migrate)).H
   change (mapGraph (Signature.opcodeMap migrate) (switch SourceOp.advance SourceOp.advance).toGraph).run targetModel input =
     (mapGraph (Signature.opcodeMap migrate) (switch SourceOp.legacyAdvance SourceOp.advance).toGraph).run targetModel input
   simp only [mapGraph_toGraph]
-  rfl
+  cases input with
+  | cons selector tail =>
+    rcases selector with ⟨i⟩
+    refine Fin.cases ?_ (fun j => ?_) i
+    · rfl
+    · refine Fin.cases ?_ (fun k => ?_) j
+      · rfl
+      · exact Fin.cases rfl (fun z => z.elim0) k
 
 example : equation.Holds (reduct (Signature.opcodeMap migrate) targetModel) :=
   (Equation.satisfaction (Signature.opcodeMap migrate) equation targetModel).mp translatedHolds
