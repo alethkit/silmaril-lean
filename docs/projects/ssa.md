@@ -200,8 +200,11 @@ Thesis syntactic category (`Silmaril.SSA.Thesis.SyntacticCategory.Thms`).
 terms modulo `Eqv` as arrows. The empty type is initial and, with binary
 coproducts, gives finite coproducts. `elgotCategory` packages fixpoint,
 naturality and codiagonal for the syntactic iteration. `iterate_uniformity`
-holds along arrows with a syntactically pure representative. The Cartesian
-structure of the value category and iteration strength remain open.
+holds along arrows with a syntactically pure representative.
+`Silmaril.SSA.Thesis.SyntacticCategory.Values.Thms` constructs the Cartesian
+value category on those arrows and proves that its inclusion into the
+computation category preserves finite coproducts. Premonoidal computation
+structure, Freyd strength, and categorical model initiality remain open.
 
 Quantitative refinement (`Silmaril.SSA.Isotope.Refinement.Thms`, namespace
 `Silmaril.Isotope.Refinement`): `Models.syntaxIsInitial`, `Models.fold_unique`,
