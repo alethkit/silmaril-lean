@@ -25,8 +25,7 @@ completed summand. The boundary decoder recovers the selected
 LambdaSSA label and payload there. `Related.chosenDenote_eq` proves
 equality with the actual `Region.denote` in every coherent shared
 Kleisli Elgot model, including its effects. This proof covers the
-stated two-block forms. General CFG translation and explicit wires for
-this shape are separate extensions. [Theorems](../../Silmaril/SSA/RVSDG/LambdaSSA/TwoBlock/TwoExit/Thms.lean)
+stated two-block forms. [Theorems](../../Silmaril/SSA/RVSDG/LambdaSSA/TwoBlock/TwoExit/Thms.lean)
 
 The ordered `StateT Nat Part` fixture observes a scalar at the first
 exit. A second input goes through one feedback edge before observing a
@@ -36,12 +35,31 @@ fixture checks the final state at each label. The
 pinned sources for the same γ, θ and LambdaSSA CFG constructions.
 [Fixture](../../tests/ssa/RVSDGLambdaSSATwoExit.lean)
 
+## Explicit runtime wires
+
+The explicit graph uses the same checked wiring as the single-exit loop.
+The header produces the token passed to the selected γ arm. The pure
+header-exit arm forwards that token, and the body arm returns its updated
+token. θ delivers the selected arm's token on either feedback or return.
+The admitted syntax has no other live token source.
+[Elaboration](../../Silmaril/SSA/RVSDG/LambdaSSA/TwoBlock/TwoExit/ExplicitRuntime/Defs.lean)
+
+`PrimitiveAgreement` requires the partial model to lift total
+`StateM` instructions with their final state intact. Before decoding,
+removing the padded unit slot from erasure yields the ordered carrier
+and final state. After decoding, finite returns agree with the
+coherent LambdaSSA `Region.denote` at either label, pairing its own
+payload type with the final token. The fixture checks a direct header
+exit with token 5 and a body exit after feedback with token 32.
+[Theorems](../../Silmaril/SSA/RVSDG/LambdaSSA/TwoBlock/TwoExit/ExplicitRuntime/Thms.lean)
+[Fixture](../../tests/ssa/RVSDGLambdaSSATwoExit.lean)
+
 ## Reproduce
 
 ```sh
-lake build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.Thms
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.Thms
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.Thms
+lake build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Thms
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Thms
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.TwoExit.ExplicitRuntime.Thms
 ```
 
 ## Sources
