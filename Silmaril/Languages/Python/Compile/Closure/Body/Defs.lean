@@ -29,6 +29,8 @@ inductive Expr (layout : Core.Closure.Layout) where
   | boolean (value : Bool)
   | read (slot : Slot layout)
   | globalName (name : Name)
+  /-- Equality against an integer literal in a message-free assertion. -/
+  | eqInt (left : Expr layout) (right : Int)
   | add (left right : Expr layout)
   | call (callee : Expr layout) (arguments : List (Expr layout))
   deriving Repr
@@ -198,6 +200,11 @@ inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
       Translation tree index (.assert_ source none :: rest) (.assert target next)
   | assertBoolean {tree index value rest next} (tail : Translation tree index rest next) :
       Translation tree index (.assert_ (.boolean value) none :: rest) (.assert (.boolean value) next)
+  | assertEqInt {tree index name left right rest next}
+      (read : ExprTranslation tree.scope (.name name) left)
+      (tail : Translation tree index rest next) :
+      Translation tree index (.assert_ (.comparison (.name name) [(.eq, .integer right)]) none :: rest)
+        (.assert (.eqInt left right) next)
   | pass {tree index rest next} (tail : Translation tree index rest next) :
       Translation tree index (.pass :: rest) next
   | nonlocal {tree index names rest next} (tail : Translation tree index rest next) :
@@ -229,6 +236,10 @@ private def lowerOrdinaryBody (tree : ScopeTree) (allowGlobals : Bool)
   | .assert_ (.boolean value) none :: rest => do
     let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨.assert (.boolean value) tail.val, .assertBoolean tail.property⟩
+  | .assert_ (.comparison (.name name) [(.eq, .integer right)]) none :: rest => do
+    let left ← lowerExprWith tree.scope allowGlobals (.name name)
+    let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
+    return ⟨.assert (.eqInt left.val right) tail.val, .assertEqInt left.property tail.property⟩
   | .assert_ test none :: rest => do
     let target ← lowerExprWith tree.scope allowGlobals test
     let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest

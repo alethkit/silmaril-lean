@@ -77,6 +77,42 @@ FIXTURES = (
     result = child()
     return result
 """, "AssertionError", ["enter", "resume AssertionError", "complete AssertionError"]),
+    ("body_assert_eq_int_paths", """def outer(seed):
+    assert seed == 5
+    def first():
+        assert seed == 5
+        return seed
+    assert seed == 5
+    def second(value):
+        assert value == 5
+        return value
+    middle = first()
+    result = second(middle)
+    return result
+""", "return 5", ["enter", "resume", "enter", "resume", "complete"]),
+    ("body_assert_eq_int_saved_caller", """def outer(seed):
+    def child():
+        nonlocal seed
+        seed = 41
+        assert seed == 5
+        seed = 99
+        return seed
+    result = child()
+    return result
+""", "AssertionError", ["enter", "resume AssertionError", "complete AssertionError"]),
+    ("body_assert_eq_int_unbound_local", """def outer(seed):
+    assert hidden == 5
+    hidden = seed
+    return hidden
+""", "UnboundLocalError", ["complete"]),
+    ("body_assert_eq_int_unbound_capture", """def outer(seed):
+    def child():
+        assert hidden == 5
+        return seed
+    result = child()
+    hidden = seed
+    return result
+""", "NameError", ["enter", "resume", "complete"]),
     ("forwarded_write", """def outer(seed):
     def middle(x):
         def inner(y):
@@ -120,6 +156,8 @@ except TypeError as error:
         print("TypeError noncallable")
     else:
         raise
+except UnboundLocalError:
+    print("UnboundLocalError")
 except NameError:
     print("NameError")
 except AssertionError as error:
@@ -136,6 +174,7 @@ private def resultName : Core.Closure.Result → String
   | .ok (.int value) => s!"return {value}"
   | .error (.positionalArity 1 0) => "TypeError arity"
   | .error .notCallable => "TypeError noncallable"
+  | .error (.unboundLocal _) => "UnboundLocalError"
   | .error (.unboundCapture _) => "NameError"
   | .error .assertionError => "AssertionError"
   | _ => "unexpected result"
@@ -231,6 +270,20 @@ if __name__ == "__main__":
 """
             elif name == "body_assert_saved_caller":
                 extra = "#guard retainedAssertionWrite pythonSource\n"
+            elif name == "body_assert_eq_int_paths":
+                extra = """
+#guard (match compile pythonSource with
+  | .ok compiled =>
+    compiled.sourceBody.paths == [[0], [0, 0], [0, 1]] &&
+      match compiled.table compiled.entry.key, compiled.table 1 with
+      | some outer, some inner => match outer.definition.body, inner.definition.body with
+        | .assert (.eqInt (.slot (.owned _)) 5) _, .assert (.eqInt (.slot (.capture _)) 5) _ => true
+        | _, _ => false
+      | _, _ => false
+  | .error _ => false)
+"""
+            elif name == "body_assert_eq_int_saved_caller":
+                extra = "#guard retainedAssertionWrite pythonSource\n"
             elif name == "forwarded_write":
                 extra = '#guard observation pythonSource 1 == ("live residual", [])\n'
             shared["check_lean"](
@@ -264,10 +317,16 @@ if __name__ == "__main__":
         for source, diagnostic in (
             ("def outer(seed): assert seed + 1", ".bodyProfile [0]"),
             ("def outer(seed): assert seed()", ".bodyProfile [0]"),
-            ("def outer(seed): assert seed == 5", ".frontend .expressionShape"),
+            ("def outer(seed): assert seed == True", ".frontend .expressionShape"),
+            ("def outer(seed): assert seed == 5 == seed", ".frontend .expressionShape"),
+            ("def outer(seed): assert seed() == 5", ".frontend .expressionShape"),
+            ("def outer(seed): assert seed != 5", ".frontend .expressionShape"),
+            ("def outer(seed): return seed == 5", ".frontend .expressionShape"),
             ("def outer(seed): assert True and False", ".frontend .expressionShape"),
+            ("def outer(seed): assert seed == 5 and seed", ".frontend .expressionShape"),
             ("def outer(seed): return True", ".frontend .expressionShape"),
             ('def outer(seed): assert False, "message"', ".frontend .bodyShape"),
+            ('def outer(seed): assert seed == 5, "message"', ".frontend .bodyShape"),
         ):
             shared["emit"](python_file, lean_file, source + "\n")
             shared["check_lean"](
