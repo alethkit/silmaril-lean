@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Soundness
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithConstructorSequencing.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Initial.Defs
 
 /-! # Evaluation of constructor-sequenced returns -/
 
@@ -17,7 +18,11 @@ open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruc
   (UnitPayloadPolicy Env EnvTy Val ValTy Result)
 open scoped Paper.BoundSimulation.Obstruction
 
-private theorem sequence_pair (a b : Tm Empty) (env : Env) :
+universe u v
+
+variable {α : Type u} {Φ : Type v} [HasTy Φ (Ty α)]
+
+private theorem sequence_pair (a b : Tm Φ) (env : Env) :
     evalRegionWith {} (returnOnce (.pair a b)) env =
       evalRegionWith {} (pairSequence a b) env := by
   simp only [returnOnce, pairSequence, evalRegionWith, evalTermWith,
@@ -29,13 +34,13 @@ private theorem sequence_pair (a b : Tm Empty) (env : Env) :
       (env' := extend env v) (ρ := Nat.succ) (fun _ => rfl)]
     cases evalTermWith {} b env <;> rfl
 
-private theorem sequence_inl (a : Tm Empty) (env : Env) :
+private theorem sequence_inl (a : Tm Φ) (env : Env) :
     evalRegionWith {} (returnOnce (.inl a)) env =
       evalRegionWith {} (inlSequence a) env := by
   simp only [returnOnce, inlSequence, evalRegionWith, evalTermWith]
   cases evalTermWith {} a env <;> rfl
 
-private theorem sequence_inr (a : Tm Empty) (env : Env) :
+private theorem sequence_inr (a : Tm Φ) (env : Env) :
     evalRegionWith {} (returnOnce (.inr a)) env =
       evalRegionWith {} (inrSequence a) env := by
   simp only [returnOnce, inrSequence, evalRegionWith, evalTermWith]
@@ -48,7 +53,7 @@ set_option linter.concreteInstances false
 variable [UnitPayloadPolicy]
 
 /-- Opt-in constructor sequencing preserves the unmarked observation. -/
-private theorem sequencing_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+theorem sequencing_same {Γ L : List (Ty α)} {r s : Region Φ}
     (h : Paper.WithConstructorSequencing.Eqv Γ r s L) : SameWith {} Γ r s :=
   extension_same (observation := {}) (fun e =>
     Or.elim e unary_fusion_same (fun h => by
@@ -60,6 +65,38 @@ private theorem sequencing_same {Γ L : List (Ty Empty)} {r s : Region Empty}
 end
 
 open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.AlternateUnit
+
+private theorem value_or_empty (P : Ty α) : (∃ v, ValTy v P) ∨ Paper.StructurallyEmpty P := by
+  induction P with
+  | base a => exact .inl ⟨.unit, .base⟩
+  | unit => exact .inl ⟨.unit, .unit⟩
+  | empty => exact .inr .empty
+  | product A B ihA ihB =>
+    rcases ihA with ⟨a, ha⟩ | hA
+    · rcases ihB with ⟨b, hb⟩ | hB
+      · exact .inl ⟨.pair a b, .pair ha hb⟩
+      · exact .inr (.right hB)
+    · exact .inr (.left hA)
+  | coprod A B ihA ihB =>
+    rcases ihA with ⟨a, ha⟩ | hA
+    · exact .inl ⟨.inl a, .inl ha⟩
+    · rcases ihB with ⟨b, hb⟩ | hB
+      · exact .inl ⟨.inr b, .inr hb⟩
+      · exact .inr (.sum hA hB)
+
+theorem structurallyEmpty_of_tagged_branches_eq (P : Ty α)
+    (h : Paper.WithConstructorSequencing.Eqv [P] (.br 0 (.inl (.var 0)) : Region Φ)
+      (.br 0 (.inr (.var 0))) [.coprod P P]) : Paper.StructurallyEmpty P := by
+  rcases value_or_empty P with ⟨v, hv⟩ | hEmpty
+  · have env : EnvTy [P] (fun _ => v) := by
+      intro i A hi
+      cases i with
+      | zero => cases Option.some.inj hi; exact hv
+      | succ i => cases i <;> contradiction
+    have observed := sequencing_same h (fun _ => v) env
+    change Result.jump 0 (.inl v) = Result.jump 0 (.inr v) at observed
+    cases observed
+  · exact hEmpty
 
 private def quote : Val → Tm Empty
   | .atom a => a.elim

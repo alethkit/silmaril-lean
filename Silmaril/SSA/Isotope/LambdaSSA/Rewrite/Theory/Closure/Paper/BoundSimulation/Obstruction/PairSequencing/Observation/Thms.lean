@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithConstructorSequencing.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.BoundSimulation.Obstruction.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Initial.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.ConstructorSoundness
 
 /-! # Constructor-sequencing observations at singleton unit -/
@@ -37,5 +38,12 @@ theorem branch_observation_of_closed_input {t u w : Tm Empty} {A P : Ty Empty}
     t.subst (fun _ => w) = u.subst (fun _ => w) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer.branch_observation_of_closed_input
     ht hu hw h
+
+/-- Equal constructor tags imply structural emptiness. The observer gives every
+atomic sort a value and interprets every instruction as failing to return. -/
+theorem structurallyEmpty_of_tagged_branches_eq {α : Type*} {Φ : Type*} [HasTy Φ (Ty α)] (P : Ty α)
+    (h : Paper.WithConstructorSequencing.Eqv [P] (.br 0 (.inl (.var 0)) : Region Φ)
+      (.br 0 (.inr (.var 0))) [.coprod P P]) : Paper.StructurallyEmpty P :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer.structurallyEmpty_of_tagged_branches_eq P h
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction.PairSequencing
