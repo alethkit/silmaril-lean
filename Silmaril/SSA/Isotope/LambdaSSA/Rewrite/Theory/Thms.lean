@@ -78,3 +78,24 @@ theorem RewriteEquiv.sound [RegionTypingCoherent (Φ := Φ) J M]
     (RegionDenotes.eq_denote (h := hs) J M ds)
 
 end Silmaril.Isotope.LambdaSSA.Region
+
+namespace Silmaril.Isotope.LambdaSSA.Tm.BranchValue
+
+universe u v
+
+variable {τ : Type u} [TypeFormers τ] {Φ : Type v}
+
+/-- Substitution by typed constructor values preserves constructor-value typing. -/
+theorem subst {Γ Δ : VCtx τ} {b : Tm Φ} {B : τ} (h : Tm.BranchValue Δ b B)
+    {σ : Nat → Tm Φ}
+    (hσ : ∀ ⦃i A⦄, At Δ i A → Tm.BranchValue Γ (σ i) A) :
+    Tm.BranchValue Γ (b.subst σ) B :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.branchValue_subst h hσ
+
+/-- Substituting one typed constructor value for the newest slot preserves constructor typing. -/
+theorem singleSubst {Γ : VCtx τ} {a b : Tm Φ} {A B : τ}
+    (ha : Tm.BranchValue Γ a A) (hb : Tm.BranchValue (A :: Γ) b B) :
+    Tm.BranchValue Γ (b.subst (Tm.singleSubst a)) B :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.branchValue_singleSubst ha hb
+
+end Silmaril.Isotope.LambdaSSA.Tm.BranchValue
