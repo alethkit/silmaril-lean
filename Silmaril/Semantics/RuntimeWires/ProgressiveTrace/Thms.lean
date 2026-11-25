@@ -11,6 +11,12 @@ universe u v
 
 variable {O : Type u} {S : Signature.{u,v} O}
 
+theorem Row.traceWires_pass {A B : List O} (r : Row S A B) (word : List O)
+    (left input : List (NamedWire O)) (length : left.length = word.length) (row box : ℕ) :
+    (Row.pass word r).traceWires row box (left ++ input) =
+      ⟨left ++ (r.traceWires row box input).frontier, (r.traceWires row box input).boxes⟩ :=
+  Proofs.ProgressiveTrace.trace_pass r word left input length row box
+
 /-- On a list of distinct wire IDs, the decoder's port numbers coincide
 with the positions of those IDs in the list. -/
 theorem namePorts_map {I : Type*} [BEq I] [LawfulBEq I] (wires : List I) (nd : wires.Nodup)

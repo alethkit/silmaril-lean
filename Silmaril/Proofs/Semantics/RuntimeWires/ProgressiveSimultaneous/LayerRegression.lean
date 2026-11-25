@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.TiedHeightTrace.Thms
+public import Silmaril.Semantics.RuntimeWires.SerialTrace.Thms
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
@@ -340,26 +340,68 @@ private theorem second_trace :
   change ([⟨3, [sweep.namedWire 1], []⟩] : List (BoxTrace signature)) = _
   rw [source_name]
 
+private theorem two_levels {α : Type} (read : Fin drawing.levelCount → α) {first last : α}
+    (low : read (drawing.levelIndex 2) = first) (high : read (drawing.levelIndex 3) = last) :
+    List.ofFn read = [first, last] := by
+  apply List.ext_getElem (by simp [levelCount])
+  intro i hi hj
+  have bound : i < 2 := by simpa using hj
+  have cases_i : i = 0 ∨ i = 1 := by omega
+  rcases cases_i with rfl | rfl
+  · have eq : (⟨0, by simpa using hi⟩ : Fin drawing.levelCount) = drawing.levelIndex 2 :=
+      Fin.ext source_level.symm
+    rw [List.getElem_ofFn, eq, low]
+    rfl
+  · have eq : (⟨1, by simpa using hi⟩ : Fin drawing.levelCount) = drawing.levelIndex 3 :=
+      Fin.ext sink_level.symm
+    rw [List.getElem_ofFn, eq, high]
+    rfl
+
 /-- Both zero-port boxes advance the ordinal before the source. The sink
 receives its exact name, and the cap-to-cap wire retains its boundary name. -/
 example : sweep.sheet.traceWires =
     ⟨[expectedFirst, expectedSecond], [(false, .boundary 0)]⟩ := by
   rw [sweep.trace_sheet, Diagram.LayerSweep.expectedTrace, (caps sweep).2]
-  have rows : List.ofFn (fun i => (sweep.layer i).vertices.map sweep.expectedBox) =
-      [expectedFirst, expectedSecond] := by
-    apply List.ext_getElem (by simp [levelCount])
-    intro i hi hj
-    have bound : i < 2 := by simpa using hj
-    have cases_i : i = 0 ∨ i = 1 := by omega
-    rcases cases_i with rfl | rfl
-    · have eq : (⟨0, by simpa using hi⟩ : Fin drawing.levelCount) = drawing.levelIndex 2 :=
-        Fin.ext source_level.symm
-      rw [List.getElem_ofFn, eq, first_trace]
-      rfl
-    · have eq : (⟨1, by simpa using hi⟩ : Fin drawing.levelCount) = drawing.levelIndex 3 :=
-        Fin.ext sink_level.symm
-      rw [List.getElem_ofFn, eq, second_trace]
-      rfl
+  have rows := two_levels (fun i => (sweep.layer i).vertices.map sweep.expectedBox)
+    first_trace second_trace
   rw [rows, List.map_singleton, cap_name]
+
+private theorem reversed_vertices : (reversed sweep).vertices = [2, 0, 1, 3] := by
+  have low : (reversed sweep).order (drawing.levelIndex 2) = [2, 0, 1] :=
+    congrArg List.reverse (tied_vertices sweep)
+  have high : (reversed sweep).order (drawing.levelIndex 3) = [3] :=
+    congrArg List.reverse (sink_vertices sweep)
+  rw [Diagram.LayerSweep.Schedule.vertices, two_levels _ low high]
+  rfl
+
+private theorem serial_source_name : (reversed sweep).namedWire 1 = (true, .box 0 0 0) := by
+  have hs : drawing.start 1 = some 2 := rfl
+  rw [Diagram.LayerSweep.Schedule.namedWire, Diagram.LayerSweep.Schedule.origin, hs]
+  change (drawing.label 1, WireOrigin.box ((reversed sweep).serialRow 2) 0
+    ((drawing.outputs 2).idxOf 1)) = _
+  rw [Diagram.LayerSweep.Schedule.serialRow, reversed_vertices]
+  rfl
+
+private theorem serial_cap_name : (reversed sweep).namedWire 0 = (false, .boundary 0) := by
+  have hs : drawing.start 0 = none := rfl
+  rw [Diagram.LayerSweep.Schedule.namedWire, Diagram.LayerSweep.Schedule.origin, hs, (caps sweep).1]
+  rfl
+
+/-- The source runs before the two scalars and the sink still receives its
+wire at the next level. The boundary-to-boundary wire keeps its name. -/
+example : (sweep.serialSheet (reversed sweep)).traceWires =
+    ⟨[[⟨2, [], [(true, .box 0 0 0)]⟩], [⟨0, [], []⟩], [⟨1, [], []⟩],
+      [⟨3, [(true, .box 0 0 0)], []⟩]], [(false, .boundary 0)]⟩ := by
+  rw [(reversed sweep).trace_sheet, Diagram.LayerSweep.Schedule.expectedTrace,
+    reversed_vertices, (caps sweep).2]
+  change (⟨[[⟨2, [], [(reversed sweep).namedWire 1]⟩], [⟨0, [], []⟩], [⟨1, [], []⟩],
+    [⟨3, [(reversed sweep).namedWire 1], []⟩]], [(reversed sweep).namedWire 0]⟩ :
+    SheetTrace signature) = _
+  rw [serial_source_name, serial_cap_name]
+
+example : (reversed sweep).renameOrigin (.box 0 2 0) = some (.box 0 0 0) := by
+  have old : sweep.origin 1 = .box 0 2 0 := congrArg Prod.snd source_name
+  have new : (reversed sweep).origin 1 = .box 0 0 0 := congrArg Prod.snd serial_source_name
+  rw [← old, (reversed sweep).rename_origin, new]
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveSimultaneous.LayerRegression
