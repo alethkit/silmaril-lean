@@ -51,4 +51,13 @@ theorem iterateResumption_fixpoint {X Y : C} (f : X ⟶ R.obj (P.sum Y X))
       M.iterateResumption R f hf :=
   Proofs.iterateResumption_fixpoint M R f hf
 
+/-- A pure change of state commuting with guarded bodies also commutes with their solutions. -/
+theorem iterateResumption_uniform {X Y Z : C}
+    (f : X ⟶ R.obj (P.sum Y X)) (g : Z ⟶ R.obj (P.sum Y Z)) (h : Z ⟶ X)
+    (hf : M.ResumptionGuard R (Y := Y) (Z := X) f)
+    (hg : M.ResumptionGuard R (Y := Y) (Z := Z) g)
+    (comm : h ≫ f = g ≫ (R.monad P).map (P.map (𝟙 Y) h)) :
+    h ≫ M.iterateResumption R f hf = M.iterateResumption R g hg :=
+  Proofs.iterateResumption_uniform M R f g h hf hg comm
+
 end Silmaril.Calco2019.ParametrizedGuardedElgotMonad

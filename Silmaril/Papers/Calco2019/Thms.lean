@@ -133,5 +133,14 @@ theorem theorem25_fixpoint (f : X ⟶ R.obj (P.sum Y X))
       M.iterateResumption R f hf :=
   M.iterateResumption_fixpoint R f hf
 
+/-- Pure uniformity for the iteration in Theorem 25. -/
+theorem theorem25_uniformity {Z : C}
+    (f : X ⟶ R.obj (P.sum Y X)) (g : Z ⟶ R.obj (P.sum Y Z)) (h : Z ⟶ X)
+    (hf : M.ResumptionGuard R (Y := Y) (Z := X) f)
+    (hg : M.ResumptionGuard R (Y := Y) (Z := Z) g)
+    (comm : h ≫ f = g ≫ (R.monad P).map (P.map (𝟙 Y) h)) :
+    h ≫ M.iterateResumption R f hf = M.iterateResumption R g hg :=
+  M.iterateResumption_uniform R f g h hf hg comm
+
 end GuardedResumptions
 end Silmaril.Papers.Calco2019
