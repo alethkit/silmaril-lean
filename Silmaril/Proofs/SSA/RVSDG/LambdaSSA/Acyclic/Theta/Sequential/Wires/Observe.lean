@@ -42,12 +42,12 @@ private theorem primitive_lift {ins outs : Ports (OrderedRuntime.Structured.Ty �
       (ExplicitRuntime.wireModel (ε := ε)).primitive (.ordered i o op) input := by
   cases op <;> rfl
 
-private theorem lifted {args outs : Ports (OrderedRuntime.Structured.Ty τ)}
+theorem lifted {args outs : Ports (OrderedRuntime.Structured.Ty τ)}
     {past sigs : List (Ports (OrderedRuntime.Structured.Ty τ))}
     {a : Data args} {b : Data outs} {live : Origin (Threaded args) past runtime}
     {t : NestedTheta.Term (ExplicitRuntime.Op Φ) (Threaded args) past sigs (Threaded outs)}
     (check : Checked (Pure τ) (ExplicitRuntime.Effect Φ) a b live t)
-    (input : Tuple (Values (σ := σ)) (Threaded args)) (locals : Locals (Values (σ := σ)) past) :
+    (input : Tuple (RuntimeValues (TyDen (τ := τ)) σ) (Threaded args)) (locals : Locals (RuntimeValues (TyDen (τ := τ)) σ) past) :
     (liftChecked check).1.denoteOpenWith (wireModel (ε := ε)) input locals =
       t.denoteOpenWith (ExplicitRuntime.wireModel (ε := ε)) input locals := by
   induction check with
@@ -108,6 +108,12 @@ private theorem link_output (label : LabelDen [M,M]) (token : σ) :
   · rfl
   · rfl
   · exact nomatch impossible
+
+theorem link_boundary (label : LabelDen [M,M]) (token : σ) :
+    (wireModel (Φ := Φ) (ε := ε)).primitive
+      (.ordered (carriedData (First A M)) (carriedData (Second M E D)) (.effect .link))
+      (ExplicitRuntime.exitTuple (A := A) (label, token)) = Part.some (point (enter (merge label)) token) :=
+  link_output label token
 
 private theorem observe_sequence (s : Loops Φ A B K M C J E D) (x : TyDen A) (token : σ) :
     observe (ε := ε) (graph s) x token =
