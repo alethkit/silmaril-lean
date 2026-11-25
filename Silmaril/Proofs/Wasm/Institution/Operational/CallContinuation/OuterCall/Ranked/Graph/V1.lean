@@ -28,7 +28,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | if_ | br | brIf | return_ | unreachable => rfl
+    | set | tee | call | block | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.v1Func.body = (Body.running fn.initial fn.code).render v1Admin := by
@@ -191,6 +191,12 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
       (currentFrame target.declaration locals) branch) stack (rest.map v1Admin.emit)
     simpa only [Body.render, Op.map_br_if, v1Admin, v1Emit, Op.emit, v1CodeSyntax, values,
       List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using move
+  case branchTable locals stack selector depths fallback result rest =>
+    apply lift_label
+    have move := Step.context (Step.pure (host := CallFrame.v1NoHost) s
+      (currentFrame target.declaration locals) (.brTable depths fallback selector)) stack (rest.map v1Admin.emit)
+    simpa only [Body.render, v1Admin, v1Emit, Op.emit, v1CodeSyntax, values,
+      List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using move
   case branchHere locals extra payload result rest arity =>
     cases ready with
     | running _ typed =>
@@ -274,7 +280,7 @@ private theorem emit_to_lime (op : Op) :
     (op.emit v1CodeSyntax).toLime = op.emit limeCodeSyntax := by
   cases op with
   | numeric op => cases op <;> rfl
-  | set | tee | call | br | brIf | return_ | unreachable => rfl
+  | set | tee | call | br | brIf | brTable | return_ | unreachable => rfl
   | block result code =>
     change Wasm.V1.Instr.toLime (.block result (Op.emitList v1CodeSyntax code)) =
       .block (Blocks.limeType result) (Op.emitList limeCodeSyntax code)
@@ -320,7 +326,7 @@ private theorem rest_to_lime (rest : List Op) :
   intro op _
   cases op with
   | numeric op => cases op <;> rfl
-  | set | tee | call | block | if_ | br | brIf | return_ | unreachable =>
+  | set | tee | call | block | if_ | br | brIf | brTable | return_ | unreachable =>
     exact congrArg AdminInstr.source (emit_to_lime _)
 
 mutual

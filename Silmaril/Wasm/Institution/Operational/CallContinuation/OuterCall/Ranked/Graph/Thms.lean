@@ -86,6 +86,12 @@ theorem Function.split_br_if {fn : Function} {fallthrough : List NumType} {enclo
     ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] :=
   Proofs.split_br_if typed
 
+theorem Function.split_br_table {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
+    {result : Option NumType} {depths : List LabelIdx} {fallback : LabelIdx} {rest : List Op}
+    (typed : fn.WellTyped stack (.brTable depths fallback result :: rest) fallthrough enclosing) :
+    ∃ (saved : List Value) (selector : BitVec 32), stack = saved ++ [Value.int .i32 selector] :=
+  Proofs.split_br_table typed
+
 theorem checked_branch {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
     {stack : List Value} {depth : LabelIdx} {result : Option NumType} {rest : List Op}
     (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing) :

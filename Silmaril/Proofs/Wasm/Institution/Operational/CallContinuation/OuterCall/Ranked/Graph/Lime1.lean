@@ -36,7 +36,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | if_ | br | brIf | return_ | unreachable => rfl
+    | set | tee | call | block | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.limeFunc.body = (Body.running fn.initial fn.code).render limeAdmin := by
@@ -145,6 +145,9 @@ private theorem running_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {v : 
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax]) pop
+  | brTable depths fallback _ =>
+    exact Computed.lime_label_stays (head := .source (.brTable depths fallback)) rfl
+      (by simp) (by simp) (by simp) pop
   | brIf depth _ =>
     exact Computed.lime_label_stays (head := .source (.brIf depth)) rfl
       (by simp) (by simp) (by simp) pop
@@ -446,6 +449,13 @@ private theorem region_step_iff {H : Type} {s : Store H} {program : Program} (ch
             exact ⟨_, rule.mpr (.dispatch locals saved operands child rest used count), eq.trans (by
               simp only [limeAt, Phase.renderAt, Body.render, limeAdmin, values_append, n,
                 List.append_assoc, List.singleton_append])⟩
+          | brTable depths fallback result =>
+            obtain ⟨saved, selector, rfl⟩ := Function.split_br_table codeTyped
+            have select := (Computed.lime_br_table_iff (s := s) (f := currentFrame target.declaration locals)
+              (saved := saved) (selector := selector) (depths := depths) (fallback := fallback)
+              (rest := rest.map limeAdmin.emit)).mp inner
+            subst mid
+            exact ⟨_, rule.mpr (.branchTable locals saved selector depths fallback result rest), eq⟩
           | brIf depth result =>
             obtain ⟨saved, condition, rfl⟩ := Function.split_br_if codeTyped
             have select := (Computed.lime_br_if_iff (s := s) (f := currentFrame target.declaration locals)
@@ -494,6 +504,13 @@ private theorem region_step_iff {H : Type} {s : Store H} {program : Program} (ch
             apply lift_label
             simpa only [Body.render, Phase.render, Phase.renderAt, limeAdmin, limeEmit, Op.emit, limeCodeSyntax, Sequence.limeSource, Function.comp_def, values_append, List.map_cons, List.append_assoc, List.singleton_append] using
               (Computed.lime_direct_call_iff (stack := saved ++ operands) (tail := rest.map limeAdmin.emit) h).mpr rfl
+          | branchTable _ saved selector depths fallback result rest =>
+            apply lift_label
+            have select := (Computed.lime_br_table_iff (s := s) (f := currentFrame target.declaration locals)
+              (saved := saved) (selector := selector) (depths := depths) (fallback := fallback)
+              (rest := rest.map limeAdmin.emit)).mpr rfl
+            simpa only [native, Body.render, limeAdmin, limeEmit, Op.emit, limeCodeSyntax,
+              List.map_append, List.map_cons, List.map_nil] using select
           | branchIf _ saved condition depth result rest =>
             apply lift_label
             have select := (Computed.lime_br_if_iff (s := s) (f := currentFrame target.declaration locals)

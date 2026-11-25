@@ -166,6 +166,23 @@ theorem split_br_if {fn : Function} {fallthrough : List NumType} {enclosing : En
   apply split_condition
   simpa only [Function.WellTyped, checkCode, checkOp] using typed
 
+theorem split_br_table {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
+    {result : Option NumType} {depths : List LabelIdx} {fallback : LabelIdx} {rest : List Op}
+    (typed : fn.WellTyped stack (.brTable depths fallback result :: rest) fallthrough enclosing) :
+    ∃ (saved : List Value) (selector : BitVec 32), stack = saved ++ [Value.int .i32 selector] := by
+  apply split_condition
+  simpa only [Function.WellTyped, checkCode, checkOp] using typed
+
+private theorem check_selected_branch {labels : List (List NumType)} {stack : List NumType}
+    {depths : List LabelIdx} {fallback : LabelIdx} {result : Option NumType}
+    (fallbackOK : checkBranch labels stack fallback result = true)
+    (entriesOK : (depths.all fun depth => checkBranch labels stack depth result) = true)
+    (index : Nat) :
+    checkBranch labels stack (depths[index]?.getD fallback) result = true := by
+  cases found : depths[index]? with
+  | none => exact fallbackOK
+  | some depth => exact List.all_eq_true.mp entriesOK depth (List.mem_of_getElem? found)
+
 theorem checked_branch {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
     {stack : List Value} {depth : LabelIdx} {result : Option NumType} {rest : List Op}
     (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing) :
@@ -294,6 +311,14 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         split
         · exact body.2
         · exact body.1
+    | branchTable locals stack selector depths fallback result rest =>
+      cases ready with
+      | running typed body =>
+        unfold Function.WellTyped at body
+        rw [stack_types_append] at body
+        change checkCode _ _ _ _ _ (.int .i32 :: Prefix.stackTypes stack) _ = true at body
+        simp only [checkCode, checkOp, checkCondition, Bool.and_eq_true_iff] at body
+        exact .running typed (check_selected_branch body.1 body.2 selector.toNat)
     | branchHere locals extra values result rest arity =>
       cases ready with
       | running typed body =>

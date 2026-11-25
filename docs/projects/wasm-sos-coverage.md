@@ -130,8 +130,18 @@ successor and finite endpoint readback cover both paths in Core, Lime1, and
 V1. The nested fixtures distinguish results and continuations on both paths
 and reject bad types and targets even with a default-zero condition.
 
+Ranked `br_table` checks every listed depth and the default against the same
+optional numeric result and the operand suffix under an `i32` selector. The
+selector is interpreted as unsigned. A zero-based in-range slot supplies its
+depth, and any index at or beyond the length uses the default. An empty table
+always uses the default. The selection step keeps the operands and pending
+code and leaves an ordinary `br` for the checked label rules. Core, Lime1, and
+V1 have exact native successor and finite endpoint readback. Fixtures cover
+indexed and default targets, the all-ones selector, empty tables, and invalid
+unselected targets.
+
 The graph fragment excludes block parameters and multiple block results,
-branches to a function label, loops and loop back-edges, `br_table`, recursion, indirect and host calls, store mutation, and
+branches to a function label, loops and loop back-edges, recursion, indirect and host calls, store mutation, and
 whole-module validation.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.

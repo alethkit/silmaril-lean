@@ -112,6 +112,26 @@ theorem lime_br_if_iff {H : Type} {s : Store H} {f : Frame}
       dst = ⟨s, f, values saved ++ (if condition = 0 then [] else [.source (.br depth)]) ++ rest⟩ :=
   Proofs.Lime1.br_if_iff
 
+/-- The unsigned i32 selects a zero-based table slot, or the default depth
+when no slot exists. Selection preserves the operands below the index and
+the instruction suffix. -/
+theorem core_br_table_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Core.Frame}
+    {saved : List Core.Val} {selector : BitVec 32} {depths : List LabelIdx} {fallback : LabelIdx}
+    {rest : List Core.Admin} {dst : Core.Config H} :
+    Core.Step P noHost
+      ⟨s, f, Core.vals (saved ++ [.i32 selector]) ++ .plain (.brTable depths fallback) :: rest⟩ dst ↔
+      dst = ⟨s, f, Core.vals saved ++ .plain (.br (depths[selector.toNat]?.getD fallback)) :: rest⟩ :=
+  Proofs.Core.br_table_iff
+
+open Wasm.Lime1.Execution in
+theorem lime_br_table_iff {H : Type} {s : Store H} {f : Frame}
+    {saved : List Value} {selector : BitVec 32} {depths : List LabelIdx} {fallback : LabelIdx}
+    {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 selector]) ++ .source (.brTable depths fallback) :: rest⟩ dst ↔
+      dst = ⟨s, f, values saved ++ .source (.br (depths[selector.toNat]?.getD fallback)) :: rest⟩ :=
+  Proofs.Lime1.br_table_iff
+
 theorem core_unreachable_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Core.Frame}
     {stack : List Core.Val} {rest : List Core.Admin} {dst : Core.Config H} :
     Core.Step P noHost ⟨s, f, Core.vals stack ++ .plain .unreachable :: rest⟩ dst ↔
