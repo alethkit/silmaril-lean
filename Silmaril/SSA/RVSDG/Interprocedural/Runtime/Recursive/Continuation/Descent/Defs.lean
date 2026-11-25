@@ -24,29 +24,34 @@ structure Entry (m : Machine.{u, v, w} Op) where
 def Entry.openBody (entry : Entry m) : Job m entry.results :=
   Job.openClosure m entry.activation.callee entry.activation.arguments
 
-/-- The suffixes left pending by the prefix, ordered from the outermost
-binding toward the selected application. Each suffix is paired with its
-original entry tuple and the locals preceding that binding. -/
+/-- The bindings and loops left pending by the prefix, ordered from the
+outermost frame toward the selected application. Each binding saves
+its suffix, original entry tuple, and preceding locals. -/
 inductive Pending (m : Machine.{u, v, w} Op) : Ports (Ty V S) → Ports (Ty V S) → Type (max u v w) where
   | empty {ports : Ports (Ty V S)} : Pending m ports ports
   | bind {args head results calleeResults : Ports (Ty V S)} {past sigs : List (Ports (Ty V S))}
       (suffix : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigs results)
       (entry : Tuple m.Val args) (locals : Locals m.Val past)
       (inside : Pending m calleeResults head) : Pending m calleeResults results
+  | loop {carried calleeResults : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+      (body : NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried))
+      (inside : Pending m calleeResults (Theta.BodyResults carried)) : Pending m calleeResults carried
 
 def Pending.push {ports calleeResults : Ports (Ty V S)} : Pending m calleeResults ports → Stack m ports final → Stack m calleeResults final
   | .empty, stack => stack
   | .bind suffix entry locals inside, stack => inside.push (.resume suffix entry locals stack)
+  | .loop body inside, stack => inside.push (.loop body stack)
 
 def Pending.depth {ports calleeResults : Ports (Ty V S)} : Pending m calleeResults ports → Nat
   | .empty => 0
   | .bind _ _ _ inside => inside.depth + 1
+  | .loop _ inside => inside.depth + 1
 
 /-- Evaluate the completed bindings on the selected route with the
 independent finite `Returns` judgment. At the selected application, read
 the full callable and argument tuple, leaving its return binding pending.
-The spine may pass through selected γ children. Earlier completed jobs
-may use calls or θ. -/
+The spine may pass through selected γ children and an active θ body
+after finitely many completed feedback iterations. -/
 inductive Prefix (m : Machine.{u, v, w} Op) :
     {ports : Ports (Ty V S)} → Job m ports → (next : Entry m) → Pending m next.results ports → Prop where
   | apply {fn : Function V S} {cs : Fin 0 → List (Ports (Ty V S))}
@@ -79,6 +84,20 @@ inductive Prefix (m : Machine.{u, v, w} Op) :
       (selected : Prefix m (.region (children tag) input (PUnit.unit : Locals m.Val [])) next pending) :
       Prefix m (.node (.base (.gamma (entry := entry) (exit := exit) extra))
         cs children (.cons (.control tag) input)) next pending
+  | theta {carried : Ports (Ty V S)}
+      {cs : Fin 1 → List (Ports (Ty V S))}
+      {children : (i : Fin 1) → NestedTheta.Term (Instruction Op) carried [] (cs i)
+        (Theta.BodyResults carried)}
+      {input : Tuple m.Val carried} {next : Entry m} {pending : Pending m next.results carried}
+      (loop : Prefix m (.iteration (children 0) input) next pending) :
+      Prefix m (.node (.theta carried) cs children input) next pending
+  | iteration {carried : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+      {body : NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried)}
+      {input current : Tuple m.Val carried} {next : Entry m}
+      {pending : Pending m next.results (Theta.BodyResults carried)}
+      (completed : Relation.ReflTransGen (Feedback.Iteration body) input current)
+      (active : Prefix m (.region body current (PUnit.unit : Locals m.Val [])) next pending) :
+      Prefix m (.iteration body input) next (.loop body pending)
 
 /-- Each activation reaches the selected application in its own opened
 body, with all earlier calls on its prefix having returned. -/
