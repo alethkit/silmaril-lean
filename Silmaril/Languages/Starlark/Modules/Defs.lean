@@ -17,6 +17,7 @@ def fileSlot (name : String) : Binding := ⟨.local, name⟩
 inductive TopCode where
   | atomic (code : Lists.Stmt)
   | assignExpr (name : String) (value : Lowering.Expr)
+  | setIndexExpr (receiver subscript rhs : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
   | define (name : String) (id : DeclarationId)
   | call (target : Option Binding) (callee : Lists.Expr) (arguments : Arguments)
@@ -24,6 +25,7 @@ inductive TopCode where
 def TopCode.body : TopCode → Body
   | .atomic code => .total (.atomic code)
   | .assignExpr name value => .assignExpr (globalSlot name) value
+  | .setIndexExpr receiver subscript rhs => .setIndexExpr receiver subscript rhs
   | .evalExpr value => .evalExpr value
   | .define name id => .define (globalSlot name) id
   | .call target callee arguments => .call target callee arguments

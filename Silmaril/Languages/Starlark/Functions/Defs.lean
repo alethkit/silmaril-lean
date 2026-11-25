@@ -20,6 +20,7 @@ inductive Body where
   | total (code : Suite 0)
   | returnExpr (value : Lowering.Expr)
   | assignExpr (target : Binding) (value : Lowering.Expr)
+  | setIndexExpr (receiver subscript rhs : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
   | insertDictEntry (receiver key value : Binding)
   | seq (first rest : Body)
@@ -139,6 +140,10 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate
   | .returnExpr value | .assignExpr _ value | .evalExpr value => value.validateCalls
+  | .setIndexExpr receiver subscript rhs => do
+    rhs.validateCalls
+    receiver.validateCalls
+    subscript.validateCalls
   | .define .. | .insertDictEntry .. | .total _ => pure ()
 
 def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false
