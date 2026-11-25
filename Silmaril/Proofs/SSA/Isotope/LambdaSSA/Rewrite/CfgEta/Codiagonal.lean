@@ -5,6 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Direct
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Categorical.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Dispatcher.Singleton.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.LabelRenaming.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Assembly.Thms
 public import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Iteration.Thms
 
 open Silmaril Silmaril.Isotope.LambdaSSA
@@ -181,58 +182,6 @@ private theorem flattened_values {Γ : VCtx τ} {L : LCtx τ} {A : τ} {e p : Re
     exact hp.lsubst (fun i _ hi => .br (ℓ := i.pred) (mergeLabels A L hi) (.var rfl))
   exact .cfg (fun _ : Fin 1 => A) he (fun _ => h)
 
-omit [RegionTypingCoherent (Φ := Φ) J M] [FreydCategory.CentralUnit J] in
-private theorem continuation_exists {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → Region Φ}
-    (hσ : Region.LSubst.HasType Γ L K σ) :
-    ∃ k, ContinuationDenotes J M (Γ := Γ) (L := L) (K := K) σ k := by
-  let E := ctxObj M Γ
-  induction L generalizing σ with
-  | nil =>
-    refine ⟨J.map (snd E (labelObj M []) ≫
-      Sigma.desc (fun i : Fin (([] : List τ).length) => i.elim0)), ?_⟩
-    intro i A hi
-    simp [At] at hi
-  | cons A L ih =>
-    let head := hσ (show At (A :: L) 0 A from rfl)
-    obtain ⟨tail, dtail⟩ := ih (σ := fun i => σ (i + 1)) (fun _ _ hi => hσ hi)
-    let route := Isotope.LetIter.Semantics.Categorical.routeEnvironment J E (labelObj M L) (labelObj M [A])
-    let branch := J.map (E ◁ payload M A) ≫ denoteRegion J M head
-    refine ⟨J.map (E ◁ cut M [A] L) ≫ route ≫ coprod.desc tail branch, ?_⟩
-    intro i B hi
-    cases i with
-    | zero =>
-      cases Option.some.inj hi
-      refine ⟨head, ?_⟩
-      have hleg : J.map (E ◁ inj M 0 (L := A :: L) hi) ≫ J.map (E ◁ cut M [A] L) ≫
-          route ≫ coprod.desc tail branch = denoteRegion J M head := by
-        rw [← J.map_comp_assoc, ← MonoidalCategory.whiskerLeft_comp, labelAppendSplit_zero,
-          MonoidalCategory.whiskerLeft_comp, J.map_comp_assoc]
-        rw [← Category.assoc (J.map (E ◁ (coprod.inr : labelObj M [A] ⟶ labelObj M L ⨿ labelObj M [A]))),
-          show J.map (E ◁ (coprod.inr : labelObj M [A] ⟶ labelObj M L ⨿ labelObj M [A])) ≫ route = _ from route_inr J,
-          coprod.inr_desc]
-        dsimp only [branch]
-        rw [← J.map_comp_assoc, ← MonoidalCategory.whiskerLeft_comp, labelInject_payload,
-          MonoidalCategory.whiskerLeft_id, J.map_id, Category.id_comp]
-      simp only [MonoidalCategory.id_tensorHom]
-      change RegionDenotes J M head (J.map (E ◁ inj M 0 (L := A :: L) hi) ≫
-        J.map (E ◁ cut M [A] L) ≫ route ≫ coprod.desc tail branch)
-      exact hleg.symm ▸ denoteRegion_spec J M head
-    | succ i =>
-      let ht : At L i B := hi
-      obtain ⟨h, d⟩ := dtail ht
-      refine ⟨h, ?_⟩
-      have hleg : J.map (E ◁ inj M (i + 1) (L := A :: L) hi) ≫ J.map (E ◁ cut M [A] L) ≫
-          route ≫ coprod.desc tail branch = J.map (E ◁ inj M i ht) ≫ tail := by
-        rw [← J.map_comp_assoc, ← MonoidalCategory.whiskerLeft_comp, labelAppendSplit_succ M A ht,
-          MonoidalCategory.whiskerLeft_comp, J.map_comp_assoc]
-        rw [← Category.assoc (J.map (E ◁ (coprod.inl : labelObj M L ⟶ labelObj M L ⨿ labelObj M [A]))),
-          show J.map (E ◁ (coprod.inl : labelObj M L ⟶ labelObj M L ⨿ labelObj M [A])) ≫ route = _ from route_inl J,
-          coprod.inl_desc]
-      simp only [MonoidalCategory.id_tensorHom] at d ⊢
-      change RegionDenotes J M h (J.map (E ◁ inj M (i + 1) (L := A :: L) hi) ≫
-        J.map (E ◁ cut M [A] L) ≫ route ≫ coprod.desc tail branch)
-      exact hleg.symm ▸ d
-
 theorem collapsePost
     (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
       Functor.StrongPremonoidal.tensorIso (J := J) E S = eqToIso h)
@@ -241,7 +190,7 @@ theorem collapsePost
     (hσ : Region.LSubst.HasType Γ L K σ) :
     denoteRegion J M ((nested_typed he.hasType hp.hasType).lsubst hσ) =
       denoteRegion J M ((flattened_typed he.hasType hp.hasType).lsubst hσ) := by
-  obtain ⟨_, dk⟩ := continuation_exists M J hσ
+  obtain ⟨_, dk⟩ := ContinuationDenotes.exists_of_typed M J hσ
   rw [denoteRegion_lsubst_sharedTensor J M shared (nested_typed he.hasType hp.hasType) _
       (PureBranches.of_valueBranches J M (nested_values he hp)) dk,
     denoteRegion_lsubst_sharedTensor J M shared (flattened_typed he.hasType hp.hasType) _
