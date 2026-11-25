@@ -80,3 +80,11 @@ same pinned build to compare all framed Code body sizes and offsets with the
 map before checking the four names. The Wasm import and export names come
 from the module decoder. Proof links identify specific existing Lean
 statements. A name match alone gives no source, IR, or semantic correspondence.
+
+The generator also reads the [LLVM build receipt](../sqlite-wasm/llvm-provenance/receipt.json)
+when the reactor is enabled. The digest must match the reactor and each
+linked row must match its import-first slot's export or annotated C name
+and span. The page's source metadata supplies the receipt's Git revision.
+The function page shows the early bitcode symbol and digest under
+“LLVM build provenance”. The receipt records build stages and symbol
+associations. The Lean links continue to identify their own statements.
