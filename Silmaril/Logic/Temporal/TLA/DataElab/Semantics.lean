@@ -28,14 +28,17 @@ abbrev ExternalInterpretation (V : Type u) (signature : ExternalSignature) :=
 /-- Operations required by data evaluation. Adapters own the laws for these
 operations, including the results on values outside their set representation. -/
 structure DataOperations (V : Type u) where
+  numeral : Nat → V
   mem : V → V → Prop
   enum : List V → V
   sep : V → (V → Prop) → V
   image : V → (V → V) → V
   choice : Data.ChoicePolicy V
 
-/-- Use the pure-set interpretation and its fixed choice policy. -/
-def DataOperations.ofModel {V : Type u} (model : Data.Model V) : DataOperations V where
+/-- Use the pure-set interpretation, its choice policy and a caller-supplied numeral encoding. -/
+def DataOperations.ofModel {V : Type u} (model : Data.Model V) (numeral : Nat → V) :
+    DataOperations V where
+  numeral := numeral
   mem := model.mem
   enum := model.enum
   sep := model.sep
@@ -97,6 +100,7 @@ inductive Term (signature : ExternalSignature) where
   | rigid (id : BindingId)
   | flexible (id : BindingId)
   | witness (slot : Nat)
+  | numeral (value : Nat)
   | boolean (value : Bool)
   | booleanSet
   | eq (negated : Bool) (left right : Term signature)
@@ -122,7 +126,7 @@ mutual
 /-- Check the expanded witness scopes and external argument counts. -/
 def Term.isWellFormed (term : Term signature) (scope : List Nat) : Bool :=
   match term with
-  | .rigid _ | .flexible _ | .boolean _ | .booleanSet => true
+  | .rigid _ | .flexible _ | .numeral _ | .boolean _ | .booleanSet => true
   | .witness slot => scope.contains slot
   | .eq _ l r | .mem _ l r | .logic _ l r => l.isWellFormed scope && r.isWellFormed scope
   | .not arg => arg.isWellFormed scope
@@ -182,6 +186,7 @@ noncomputable def Term.eval (ops : DataOperations V) (B : Booleans V)
   | .rigid id => valuation.rigid id
   | .flexible id => valuation.flexible id
   | .witness slot => witnesses slot
+  | .numeral value => ops.numeral value
   | .boolean value => if value then B.trueValue else B.falseValue
   | .booleanSet => ops.enum [B.trueValue, B.falseValue]
   | .eq negated left right =>

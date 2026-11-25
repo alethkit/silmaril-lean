@@ -148,7 +148,9 @@ private def applyGlobal (registry : CheckedRegistry) (visit : Visit signature)
   | .declared home =>
     match binding.kind with
     | .constant =>
-      if args.isEmpty then pure (.rigid binding.id) else lowerPrimitive site binding args
+      if args.isEmpty && (signature binding.id).isNone then
+        pure (.rigid binding.id)
+      else lowerPrimitive site binding args
     | .variable =>
       if args.isEmpty then pure (.flexible binding.id) else fail site (.invalidApplication binding.id)
     | .operator =>
@@ -266,6 +268,7 @@ private def lower (registry : CheckedRegistry) (fuel : Nat) (locals : Context si
     | .setMap _ [⟨.tuple _, _⟩] => unsupported .tupleBinder
     | .setMap .. => unsupported .setMapBounds
     | .setEnum items => return .enum (← operands items)
+    | .literal (.natural value) => pure (.numeral value)
     | .literal _ => unsupported .literal
     | .cartesian _ => unsupported .cartesian
     | .cases .. => unsupported .caseExpression
