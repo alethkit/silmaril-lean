@@ -5,7 +5,7 @@ public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
 public import Silmaril.Semantics.Calco2019.VacuousThms
-public import Silmaril.Semantics.Calco2019.ExceptionElgot
+public import Silmaril.Semantics.Calco2019.ExceptionResumption.Thms
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
@@ -145,6 +145,21 @@ noncomputable def corollary26 (T : GuardedElgotMonad P) (H : C ⥤ C)
     (R : FinalResumptions (Exception.parametrizedElgot T H).toParametrizedMonad) :
     { S : GuardedElgotMonad P // S.monad = R.monad P } :=
   ⟨(Exception.parametrizedElgot T H).resumptionElgotMonad R, rfl⟩
+
+/-- Lemma 27(1). The suspension generator is guarded. -/
+theorem lemma27_suspension [HasInitial C] (T : GuardedElgotMonad P) (H : C ⥤ C)
+    (R : FinalResumptions (Exception.parametrizedElgot T H).toParametrizedMonad) :
+    MonadGuardedness.GuardedNatTrans P ((Exception.parametrizedElgot T H).resumptionElgotMonad R).guard
+      (Exception.suspension T H R) :=
+  Exception.suspension_guarded T H R
+
+/-- Lemma 27(2). The base embedding is a guarded Elgot monad morphism with the
+stated components. -/
+theorem lemma27_base (T : GuardedElgotMonad P) (H : C ⥤ C)
+    (R : FinalResumptions (Exception.parametrizedElgot T H).toParametrizedMonad) :
+    ∃ e : GuardedElgotMonadHom P T ((Exception.parametrizedElgot T H).resumptionElgotMonad R),
+      ∀ X, e.hom.app X = T.monad.map (P.inl (Y := H.obj (R.obj X))) ≫ R.roll X :=
+  ⟨Exception.baseEmbedding T H R, Exception.baseEmbedding_app T H R⟩
 
 end Exception
 
