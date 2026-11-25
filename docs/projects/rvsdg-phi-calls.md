@@ -173,6 +173,31 @@ live. Finite reflection recovers the exact blocked observation, and
 determinism excludes an infinite trace from that blocked run's entry.
 [Replay theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Feedback/Thms.lean)
 
+### Nested call descent with partial actions
+
+A [partial call prefix](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/CallDescent/Defs.lean)
+starts in an opened caller and stops at its selected application.
+Earlier bindings, including returning calls, use successful
+`Partial.Eval` derivations and thread the ambient store. A prefix may
+follow a selected γ arm or enter a live θ body after finitely many
+successful feedback iterations. The selected call receives the full
+typed argument tuple and current store. Its caller's saved suffix,
+entry tuple, and local tuples stay in the ordered pending stack.
+
+An independent infinite descent specifies these prefixes at successive
+call entries. Replay produces one actual microstep stream with strictly
+increasing positions for the entries and strictly growing live stacks.
+Each position matches the exact callable, arguments, store, and stack
+from the certificate. The linked regression completes a helper call in
+each activation before making a non-tail recursive call. Its second
+recursive checkpoint has state wire `9`, store `22`, and two distinct
+pending state-changing suffix frames.
+[Replay theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/CallDescent/Thms.lean)
+
+The theorem starts from a supplied descent certificate over totally
+linked calls. Extraction from arbitrary infinite partial-machine runs
+and partial module initialization are separate milestones.
+
 ## Productive θ feedback
 
 A feedback iteration consists of a finite `Returns` derivation for
