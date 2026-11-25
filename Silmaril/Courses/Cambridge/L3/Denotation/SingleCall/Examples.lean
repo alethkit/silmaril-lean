@@ -69,7 +69,7 @@ private theorem body_returns {s t : Store} {v : Value} (updated : s.lookup 0 = s
   have computed :
       applyClosure closure (integer 1) =
         read (address 0) >>= fun r => binary .add (integer 1) r >>= binary .add (integer 7) := by
-    simp only [applyClosure, closure, capturedBody, Denotation.denoteWith,
+    simp only [applyClosure, CallDepth.applyBody, closure, capturedBody, Denotation.denoteWith,
       Environment.extend, Binding.denote, pure_bind, bind_assoc]
   rw [computed, returns_bind]
   constructor
@@ -92,7 +92,7 @@ private theorem body_returns {s t : Store} {v : Value} (updated : s.lookup 0 = s
 private theorem invoke_returns {s t : Store} {v : Value} (a : Loc) (present : 0 ∈ s) :
     Returns (denoteWith (lexical.extend (address a)) invoke) (afterAllocation s a) v t ↔
       v = integer 17 ∧ t = finalStore s a := by
-  simp only [invoke, denoteWith, returns_bind]
+  simp only [invoke, denoteWith, CallDepth.denoteWith, CallDepth.denoteLayer, returns_bind]
   have retained : 0 ∈ afterAllocation s a := Finmap.mem_insert.mpr (.inr present)
   have updated : (finalStore s a).lookup 0 = some (integer 9) := by simp [finalStore]
   constructor
