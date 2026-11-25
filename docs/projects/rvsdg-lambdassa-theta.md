@@ -24,15 +24,14 @@ shared typed instruction. `lower` and `raise` construct the dependent
 fibres of `Related` over the admitted forms. The graph fragment uses a
 fixed numbering and the SSA fragment uses fixed de Bruijn indices.
 Admission requires the stated syntax, including the exact branch targets
-and wire origins. It does not rely on semantic equivalence.
+and wire origins.
 
 ## Categorical preservation
 
 The LambdaSSA side uses its existing `RegionDenotes` CFG rule. The RVSDG side
 uses `Theta.Graph.denote`. The common setting is a distributive Cartesian
 value category and a strong Elgot Freyd functor into a distributive symmetric
-premonoidal computation category. The compared instructions have coherent
-pure interpretations under that functor. The proof uses Elgot naturality
+premonoidal computation category. The SSA instruction model agrees with the pure primitive map under that functor. The proof uses Elgot naturality
 and pure uniformity to remove the unused SSA entry context and to compare
 the two feedback spaces. The entry adapter moves the singleton's padding
 unit and the exit adapter injects the result into the external label

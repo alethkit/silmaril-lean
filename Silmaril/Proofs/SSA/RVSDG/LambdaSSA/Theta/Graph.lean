@@ -23,43 +23,49 @@ set_option backward.isDefEq.respectTransparency false
 omit [HasFiniteCoproducts D] in
 private theorem body_denote {A : τ} (m : Categorical.Model (Opcode Φ) D) (s : Step Φ A) :
     (body s).denote m = m.primitive (.step s) := by
-  simp [body, Term.denote, Term.denoteOpen, Categorical.denoteShape, Categorical.extendScope,
-    Categorical.readWires, Categorical.readOrigin, Categorical.project, Categorical.projectLocal,
-    Categorical.appendScope, Categorical.appendLocal, Categorical.Model.locals,
-    Categorical.portsObj, CartesianMonoidalCategory.leftUnitor_hom, Category.assoc]
   let X := m.value A
   let K := m.selectors.obj 2
-  let R := X ⊗ 𝟙_ D
+  let U := 𝟙_ D
+  let R := X ⊗ U
   let S := K ⊗ R
-  let E := R ⊗ 𝟙_ D
+  let E := R ⊗ U
   let f : R ⟶ S := m.primitive (.step s)
-  let route : E ⟶ R := lift (fst R (𝟙_ D) ≫ fst X (𝟙_ D)) (toUnit E)
-  let before : R ⟶ E := (ρ_ R).inv
-  let value : R ⟶ S := before ≫ lift (𝟙 E) (route ≫ f) ≫ snd E S
-  change lift (before ≫ lift (𝟙 E) (route ≫ f) ≫ snd E S ≫ fst K R)
-    (lift (before ≫ lift (𝟙 E) (route ≫ f) ≫ snd E S ≫ snd K R ≫ fst X (𝟙_ D))
-      (before ≫ toUnit E)) = f
-  have hroute : route = fst R (𝟙_ D) := by
+  let route : E ⟶ R := lift (fst R U ≫ fst X U) (toUnit E)
+  let append : E ⊗ S ⟶ R ⊗ (S ⊗ U) :=
+    (α_ R U S).hom ≫ (R ◁ ((λ_ S).hom ≫ (ρ_ S).inv))
+  let read : R ⊗ (S ⊗ U) ⟶ S := snd R (S ⊗ U) ≫ fst S U
+  let extend : R ⟶ R ⊗ (S ⊗ U) := (ρ_ R).inv ≫ lift (𝟙 E) (route ≫ f) ≫ append
+  have append_read : append ≫ read = snd E S := by
+    dsimp only [append, read, E, U]
+    simp [Category.assoc, CartesianMonoidalCategory.leftUnitor_hom]
+  have input : route = fst R U := by
     apply CartesianMonoidalCategory.hom_ext
     · simp [route]
-    · apply CategoryTheory.Limits.IsTerminal.hom_ext CartesianMonoidalCategory.isTerminalTensorUnit
-  have hvalue : value = f := by
-    simp [value, before, hroute]
-  have hfst : before ≫ lift (𝟙 E) (route ≫ f) ≫ snd E S ≫ fst K R =
-      value ≫ fst K R := by simp only [value, Category.assoc]
-  have hsnd : before ≫ lift (𝟙 E) (route ≫ f) ≫ snd E S ≫ snd K R ≫ fst X (𝟙_ D) =
-      value ≫ snd K R ≫ fst X (𝟙_ D) := by simp only [value, Category.assoc]
-  rw [hfst, hsnd]
-  rw [hvalue]
-  apply CartesianMonoidalCategory.hom_ext
-  · simp only [CartesianMonoidalCategory.lift_fst]
-    rfl
-  · change lift (f ≫ fst K R)
-      (lift (f ≫ snd K R ≫ fst X (𝟙_ D)) (before ≫ toUnit E)) ≫ snd K R = f ≫ snd K R
-    rw [CartesianMonoidalCategory.lift_snd]
-    apply CartesianMonoidalCategory.hom_ext
-    · simp
     · apply IsTerminal.hom_ext CartesianMonoidalCategory.isTerminalTensorUnit
+  have output : extend ≫ read = f := by
+    simp only [extend, Category.assoc, append_read, input]
+    rw [CartesianMonoidalCategory.lift_snd]
+    change (ρ_ R).inv ≫ fst R (𝟙_ D) ≫ f = f
+    simp
+  simp only [body, Term.denote, Term.denoteOpen, Categorical.denoteShape, Categorical.extendScope,
+    Categorical.readWires, Categorical.readOrigin, Categorical.project, List.nil_append,
+    Categorical.projectLocal, Fin.cases_zero, Category.assoc]
+  change (ρ_ R).inv ≫ lift (𝟙 E) (route ≫ f) ≫ append ≫ lift (snd R (S ⊗ U) ≫ fst S U ≫ fst K R)
+    (lift (snd R (S ⊗ U) ≫ fst S U ≫ snd K R ≫ fst X U) (toUnit (R ⊗ (S ⊗ U)))) = f
+  have recover : lift (snd R (S ⊗ U) ≫ fst S U ≫ fst K R)
+      (lift (snd R (S ⊗ U) ≫ fst S U ≫ snd K R ≫ fst X U)
+        (toUnit (R ⊗ (S ⊗ U)))) = read := by
+    apply CartesianMonoidalCategory.hom_ext
+    · simp [read, Category.assoc]
+      rfl
+    · change _ ≫ snd K R = read ≫ snd K R
+      rw [CartesianMonoidalCategory.lift_snd]
+      apply CartesianMonoidalCategory.hom_ext
+      · simp [read, Category.assoc]
+        rfl
+      · apply IsTerminal.hom_ext CartesianMonoidalCategory.isTerminalTensorUnit
+  rw [recover]
+  simpa only [extend, Category.assoc] using output
 
 variable {C : Type c} [Category.{k} C] [HasFiniteCoproducts C]
 variable [SymmetricCategory D] [DistributiveTensor D] [PremonoidalCategory C]
