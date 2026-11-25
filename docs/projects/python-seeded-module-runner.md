@@ -10,28 +10,34 @@ throughout execution. The ordinary module runner has its own entry point.
 
 The seeded profile admits integer literals, global reads, single-name
 assignments, truth assertions, and fixed-positional calls to the closed
-descriptors. A call can discard its result or bind it after success.
-Return and exception handling use the closed call evaluator. The runner
-stores a call receipt containing the result and any assertion caught by
-its outer expectation helper. A caught assertion retains its typed
-integer-pair payload even when that call returns `None`. The completion
-distinguishes a raised Python exception from an unsupported operation.
-An instruction failure keeps its incoming module bindings and skips the
-remaining instructions.
+descriptors. A call can discard its result, bind it after success, or use
+it as a direct assertion condition. An argument may itself be a named
+call with literal or name operands. The runner saves the outer callee
+first, evaluates arguments from left to right, and invokes the saved
+value only after every argument returns. An instruction failure keeps
+its incoming module bindings and skips the remaining instructions.
+[Python evaluation order](https://docs.python.org/release/3.12.13/reference/expressions.html#evaluation-order)
 
 The runner handles the checked stream at module instruction granularity.
 User function publication, ordinary closure callbacks, arithmetic
 operands, boolean literals, and constructing exception instances lie
 outside the seeded profile. There is no host callable or reflection
-interface. Nested closed calls are evaluated by the existing closed
-dispatcher. Only the outer expectation's catch is included in each
-top-level call receipt.
+interface. The closed dispatcher handles both inner and outer calls.
+`Observation.calls` records evaluated argument calls in order, then the
+outer receipt if all inputs resolved. A missing outer name emits no
+nested-call receipts. Each receipt carries the result and the error
+caught by that call's expectation helper, including a typed integer-pair
+payload on a caught assertion. Raised Python errors and unsupported
+operations are distinct outcomes.
 
 `run_preserves_builtins` proves that execution preserves the supplied
 builtin table. `failing_instruction` gives the exact residual and trace
-on failure. `SeededCall.runObserved_result` connects the call receipt's
-result to the checked closed evaluator, and `Expectation.caught_iff`
-states when a typed error appears in the catch field.
+on failure. `observeArguments_iff` relates the runner to ordered argument
+evaluation rules with a first-failure rule. `observeNestedCall_missing`
+and `observeNestedCall_failedArguments` give the exact failure outcomes
+before outer dispatch. `SeededCall.runObserved_result` connects the
+call receipt's result to the checked closed evaluator, and
+`Expectation.caught_iff` states when a typed error appears in the catch field.
 [Runner theorems](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Run/Seeded/Thms.lean)
 
 ## Corpus replay handoff
@@ -67,6 +73,23 @@ seeded Lean runner's typed call receipts represent module call outcomes.
 · [Archived SOS result](https://github.com/koehlma/rigorous/blob/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/reports/sospython.json#L3931)
 · [Legacy CPython invocation](https://github.com/koehlma/rigorous/blob/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/evaluation/run_cpython.py#L50)
 
+The three nested-call cases from the same audit set match CPython under
+each equivalent restricted namespace. All raise `NameError` with no
+changes to user bindings.
+
+| Pinned case | First missing name in empty namespace | First missing name in either supplied seed |
+| --- | --- | --- |
+| `bool-callable.py` | `___assertIs` | `___assertIs` |
+| `bool-int.py` | `___assertEqual` | `int` |
+| `bool-isinstance.py` | `___assertIs` | `___assertIs` |
+
+The full preamble also supplies `___assertIs` and `___assertIsNot` and
+runs with stock builtins. The restricted seed has neither helper, and
+does not model the `int`, `callable`, or `isinstance` calls or the Boolean
+and type operands used by these rows. The restricted-namespace errors
+are separate from normal completion under the full preamble.
+[Pinned Boolean cases](https://github.com/koehlma/rigorous/tree/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/lambda-py/python-reference/bool)
+
 ```sh
 make check CHECK_TARGETS='+Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms +Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms'
 python3 -I tests/languages/python/source-module-entry/check_seeded_run.py
@@ -75,8 +98,9 @@ python3 -I tests/languages/python/source-module-entry/check_seeded_run.py --upst
 
 The independently authored fixtures exercise the empty control, both
 seed placements, shadowing, caught and unmatched assertions, and
-the two missing-exception diagnostics. The unsupported fixture runs
-only in Lean and is excluded from the CPython comparison. The optional
-upstream check validates the revision and raw-file hash before emitting
-the same input under the three namespace configurations.
+the two missing-exception diagnostics. Nested-call fixtures check
+callee and argument error precedence, receipt order, assertion delivery,
+and residual bindings. Unsupported fixtures run only in Lean. The
+optional upstream check validates the revision and raw-file hashes
+before emitting the same inputs under the three namespace configurations.
 [Fixtures](../../tests/languages/python/source-module-entry/check_seeded_run.py)

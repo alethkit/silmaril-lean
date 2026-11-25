@@ -63,8 +63,9 @@ further fuel. Its prefix composition theorem agrees with
 a run using the combined fuel.
 
 The compiler rejects deeper argument nesting, keyword and unpacked
-arguments, and arithmetic call operands. The closed seeded runner reports
-nested-call instructions as unsupported. The CPython regression checks
+arguments, and arithmetic call operands. The seeded runner supports these
+nested instructions within its [closed call profile](python-seeded-module-runner.md).
+The CPython regression checks
 result placement, lookup and argument error order, and residual bindings.
 The Lean regression also checks the call-entry order across a live prefix.
 [Module-call runner](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Run/Thms.lean)
