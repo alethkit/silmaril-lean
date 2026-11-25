@@ -11,7 +11,7 @@ universe u
 
 namespace Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic.PackingProofs
 
-open CategoryTheory CategoryTheory.PremonoidalCategory
+open CategoryTheory CategoryTheory.Limits CategoryTheory.PremonoidalCategory
 open Silmaril.Thesis.LambdaIter (Sig)
 open Silmaril.Thesis.LambdaIter.Syn (mk)
 open scoped MonoidalCategory
@@ -182,5 +182,57 @@ theorem packedNative_let1_eq_packedArrow (pe : ε)
   let Y := valueObj (τ := τ) (Φ := Φ) pe A
   let Z := valueObj (τ := τ) (Φ := Φ) pe B
   exact @bind_values S X Y Z (packedArrow ha) (packedArrow hb)
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+theorem packedNative_inl_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {A B : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t A)
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) A)
+    (ih : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h) :
+    packedNative pe (Derivation.inl (B := B) d) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (HasType.inl (B := B) h) := by
+  let S := signature (τ := τ) (Φ := Φ) pe
+  let J := values S
+  let M := typeModel (τ := τ) (Φ := Φ) pe
+  let comparison := M.coprodIso A B
+  have injection : coprod.inl ≫ comparison.inv =
+      (valueCofan (valueObj (Φ := Φ) pe A) (valueObj pe B)).inl := by
+    rw [← valueInl_coprodIso pe A B, Category.assoc, Iso.hom_inv_id, Category.comp_id]
+  calc
+    _ = packedNative pe d ≫ J.map (coprod.inl ≫ comparison.inv) :=
+      (Category.assoc _ _ _).symm
+    _ = packedNative pe d ≫ injl (of (S := S) A) (of B) :=
+      congrArg (fun f => packedNative pe d ≫ J.map f) injection
+    _ = packedArrow (S := S) h ≫ injl (of (S := S) A) (of B) :=
+      congrArg (fun f => f ≫ injl (of (S := S) A) (of B)) ih
+    _ = _ := (packedArrow_inl (S := S) h).symm
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+theorem packedNative_inr_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {A B : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t B)
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) B)
+    (ih : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h) :
+    packedNative pe (Derivation.inr (A := A) d) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (HasType.inr (A := A) h) := by
+  let S := signature (τ := τ) (Φ := Φ) pe
+  let J := values S
+  let M := typeModel (τ := τ) (Φ := Φ) pe
+  let comparison := M.coprodIso A B
+  have injection : coprod.inr ≫ comparison.inv =
+      (valueCofan (valueObj (Φ := Φ) pe A) (valueObj pe B)).inr := by
+    rw [← valueInr_coprodIso pe A B, Category.assoc, Iso.hom_inv_id, Category.comp_id]
+  calc
+    _ = packedNative pe d ≫ J.map (coprod.inr ≫ comparison.inv) :=
+      (Category.assoc _ _ _).symm
+    _ = packedNative pe d ≫ injr (of (S := S) A) (of B) :=
+      congrArg (fun f => packedNative pe d ≫ J.map f) injection
+    _ = packedArrow (S := S) h ≫ injr (of (S := S) A) (of B) :=
+      congrArg (fun f => f ≫ injr (of (S := S) A) (of B)) ih
+    _ = _ := (packedArrow_inr (S := S) h).symm
 
 end Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic.PackingProofs

@@ -87,4 +87,26 @@ theorem packedNative_let1_eq_packedArrow (pe : ε)
       packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (.let₁ ha hb) :=
   PackingProofs.packedNative_let1_eq_packedArrow pe d e ha hb ih₁ ih₂
 
+/-- Reification of an argument implies reification of its left injection. -/
+theorem packedNative_inl_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {A B : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t A)
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) A)
+    (ih : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h) :
+    packedNative pe (Derivation.inl (B := B) d) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (HasType.inl (B := B) h) :=
+  PackingProofs.packedNative_inl_eq_packedArrow pe d h ih
+
+/-- Reification of an argument implies reification of its right injection. -/
+theorem packedNative_inr_eq_packedArrow (pe : ε)
+    {n : Nat} {β : BoundCtx τ n} {t : Tm Empty Φ n} {A B : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t B)
+    (h : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) B)
+    (ih : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) h) :
+    packedNative pe (Derivation.inr (A := A) d) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (HasType.inr (A := A) h) :=
+  PackingProofs.packedNative_inr_eq_packedArrow pe d h ih
+
 end Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic
