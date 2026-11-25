@@ -5,7 +5,7 @@ public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
 public import Silmaril.Semantics.Calco2019.VacuousThms
-public import Silmaril.Semantics.Calco2019.ExceptionThms
+public import Silmaril.Semantics.Calco2019.ExceptionGuardThms
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
@@ -118,6 +118,16 @@ variable {C : Type u} [Category.{v} C] (P : Coproducts C)
 theorem example22_carrier (T : CategoryTheory.Monad C) (H : C ⥤ C) (X W : C) :
     ((Exception.parametrized P T H).obj W).obj X = T.obj (P.sum X (H.obj W)) :=
   rfl
+
+/-- The guard in Example 22 agrees with guardedness after moving the parameter
+into the return summand in the base monad. -/
+theorem example22_guard {T : GuardedElgotMonad P} {E X Y Z : C}
+    (f : X ⟶ T.monad.obj (P.sum (P.sum Y Z) E)) :
+    (Exception.guardedness T E).guarded
+      (Y := Kleisli.mk ((Exception.family P T.monad).obj E) Y)
+      (Z := Kleisli.mk ((Exception.family P T.monad).obj E) Z) (kleisliArrow f) ↔
+    Exception.Guard P T E (Y := Y) (Z := Z) f :=
+  Iff.rfl
 
 end Exception
 
