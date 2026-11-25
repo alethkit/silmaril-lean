@@ -34,6 +34,7 @@ def shadow(value):
 value = 2
 observed = read(9)
 shadow(3)
+assert shadow(1)
 """)
         shared["check_lean"](generated, LEAN + """
 private def hasExpectedActions : Bool :=
@@ -46,7 +47,8 @@ private def hasExpectedActions : Bool :=
        .define "shadow" _ second secondParameters (.ret (.read (.local slot))),
        .scalar (.assign "value" _ (.integer 2)),
        .call (.store "observed" _) "read" _ [.integer 9],
-       .call .discard "shadow" _ [.integer 3]] =>
+       .call .discard "shadow" _ [.integer 3],
+       .call .assertion "shadow" _ [.integer 1]] =>
       first.scope.context.path == [0] && second.scope.context.path == [1] &&
       first.scope.access "value" == some .implicitGlobal &&
       second.scope.access "value" == some .local &&

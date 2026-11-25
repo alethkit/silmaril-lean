@@ -29,29 +29,40 @@ def callExpression? : (source : Source.Expr) →
   | .callWith (.name name) arguments => some ⟨(name, arguments), .tagged name arguments⟩
   | _ => none
 
-inductive CallSite : Source.Stmt → Option Name → Name → List (Source.ArgumentKind × Source.Expr) → Prop where
+inductive Placement where
+  | discard
+  | store (name : Name)
+  | assertion
+
+inductive CallSite : Source.Stmt → Placement → Name → List (Source.ArgumentKind × Source.Expr) → Prop where
   | discard {value callee arguments} (call : CallExpression value callee arguments) :
-      CallSite (.expression value) none callee arguments
+      CallSite (.expression value) .discard callee arguments
   | assign {source name value callee arguments} (binding : Binding source name value)
-      (call : CallExpression value callee arguments) : CallSite source (some name) callee arguments
+      (call : CallExpression value callee arguments) : CallSite source (.store name) callee arguments
+  | assertion {condition callee arguments} (call : CallExpression condition callee arguments) :
+      CallSite (.assert_ condition none) .assertion callee arguments
 
 def callSite? : (source : Source.Stmt) →
-    Option {result : Option Name × Name × List (Source.ArgumentKind × Source.Expr) //
+    Option {result : Placement × Name × List (Source.ArgumentKind × Source.Expr) //
       CallSite source result.1 result.2.1 result.2.2}
   | .expression value =>
-    (callExpression? value).map fun ⟨(name, arguments), call⟩ => ⟨(none, name, arguments), .discard call⟩
+    (callExpression? value).map fun ⟨(name, arguments), call⟩ => ⟨(.discard, name, arguments), .discard call⟩
+  | .assert_ condition none =>
+    (callExpression? condition).map fun ⟨(name, arguments), call⟩ => ⟨(.assertion, name, arguments), .assertion call⟩
   | source => do
     let ⟨(target, value), binding⟩ ← binding? source
     let ⟨(name, arguments), call⟩ ← callExpression? value
-    return ⟨(some target, name, arguments), .assign binding call⟩
+    return ⟨(.store target, name, arguments), .assign binding call⟩
 
 inductive Destination (scope : Scope) where
   | discard
   | store (name : Name) (reference : GlobalReference scope name)
+  | assertion
 
-def Destination.name? {scope : Scope} : Destination scope → Option Name
-  | .discard => none
-  | .store name _ => some name
+def Destination.placement {scope : Scope} : Destination scope → Placement
+  | .discard => .discard
+  | .store name _ => .store name
+  | .assertion => .assertion
 
 inductive Error where
   | scope (diagnostic : Source.Diagnostic)
@@ -63,10 +74,11 @@ inductive Error where
   | unresolvedGlobal (name : Name)
   deriving Repr
 
-def lowerDestination (scope : Scope) : (name : Option Name) →
-    Except Error {target : Destination scope // target.name? = name}
-  | none => .ok ⟨.discard, rfl⟩
-  | some name => do
+def lowerDestination (scope : Scope) : (source : Placement) →
+    Except Error {target : Destination scope // target.placement = source}
+  | .discard => .ok ⟨.discard, rfl⟩
+  | .assertion => .ok ⟨.assertion, rfl⟩
+  | .store name => do
     let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
     return ⟨.store name reference, rfl⟩
 
@@ -99,7 +111,7 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
   | call {index statement rest target name arguments destination reference values tail}
-      (site : CallSite statement target name arguments) (result : destination.name? = target)
+      (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : Positional tree.scope arguments values) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (.call destination name reference values :: tail)
   | define {index name declaration body rest child reference parameters code tail}
