@@ -1,7 +1,7 @@
 module
 
 import Silmaril.Semantics.ITree.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Sequence.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Flatten.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -218,6 +218,8 @@ inductive Prim where
   | next
   | read
   | readOther
+  | readAlt
+  | join
 
 abbrev Fx := Bool × Bool
 abbrev strict : Fx := (true, false)
@@ -225,13 +227,15 @@ abbrev T := Ty Bool
 abbrev inputSort : T := .base false
 abbrev outputSort : T := .base true
 
-/-- The two reads have different argument and response sorts. -/
+/-- The reads include two operations at the same type and one at the opposite
+type. The pure join takes two ordered arguments. -/
 abbrev sig : Signature Bool Prim :=
-  ⟨fun _ => 1, fun f _ => match f with | .readOther => true | _ => false,
-    fun | .read => true | _ => false⟩
+  ⟨fun | .join => 2 | _ => 1,
+    fun f _ => match f with | .readOther | .join => true | _ => false,
+    fun | .read | .readAlt | .join => true | _ => false⟩
 
 local instance : HasTy Prim T := sig.endpoints
-local instance : HasEff Prim Fx := ⟨fun | .next => ⊥ | _ => strict⟩
+local instance : HasEff Prim Fx := ⟨fun | .next | .join => ⊥ | _ => strict⟩
 local instance : EffectIteration Fx := EffectIteration.complete Fx
 
 abbrev Γ : EffectCtx T Fx := [(outputSort, ⊥), (inputSort, ⊥)]
@@ -418,5 +422,100 @@ example : ¬ AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx
     | _ => false
   have h := congrArg (fun p => continuationCalls (Response.Sequence.source sig p)) he
   exact (by decide : false ≠ true) h
+
+open Response.Flatten
+
+abbrev pureOperand : Tree sig sorts false := .op Prim.next (fun _ => .var 1)
+abbrev rawLeft : Program sig sorts true :=
+  .let1 (.tree pureOperand) (.unary Prim.read rfl (.tree (.var 0)))
+abbrev rawRight : Program sig sorts true :=
+  .unary Prim.readAlt rfl (.tree (.var 1))
+
+abbrev leftFirst : Program sig sorts true :=
+  .binary Prim.join rfl rawLeft rawRight
+abbrev rightFirst : Program sig sorts true :=
+  .binary Prim.join rfl rawRight rawLeft
+
+theorem typedLeft : Program.WellTyped sig strict rawLeft :=
+  ⟨⟨rfl, fun _ => trivial⟩, le_rfl, trivial⟩
+
+theorem typedRight : Program.WellTyped sig strict rawRight := ⟨le_rfl, trivial⟩
+
+theorem typedLeftFirst : Program.WellTyped sig strict leftFirst :=
+  ⟨bot_le, typedLeft, typedRight⟩
+theorem typedRightFirst : Program.WellTyped sig strict rightFirst :=
+  ⟨bot_le, typedRight, typedLeft⟩
+
+noncomputable abbrev leftCode := compile (ε := Fx) sig leftFirst
+noncomputable abbrev rightCode := compile (ε := Fx) sig rightFirst
+
+def firstInstruction (p : Response.Sequence sig true sorts) : Option Prim :=
+  match p with
+  | .ret _ => none
+  | .call f _ _ => some f
+
+theorem read_alt_not_pure : ¬ IsPure (⊥ : Fx) Prim.readAlt := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+theorem leftHead : firstInstruction leftCode = some Prim.read := by
+  simp only [leftCode, compile, unaryTail, emit,
+    ite_eq_right read_not_pure, Response.Sequence.bind, Response.Sequence.subst, firstInstruction]
+
+theorem rightHead : firstInstruction rightCode = some Prim.readAlt := by
+  simp only [rightCode, compile, unaryTail, emit,
+    ite_eq_right read_alt_not_pure, Response.Sequence.bind, Response.Sequence.subst, firstInstruction]
+
+def visibleOrder : {n : Nat} → {ts : Fin n → Bool} → {c : Bool} →
+    Response.Sequence sig c ts → List Prim
+  | _, _, _, .ret _ => []
+  | _, _, _, .call f _ rest => f :: visibleOrder rest
+
+theorem join_pure : IsPure (⊥ : Fx) Prim.join := rfl
+
+example : visibleOrder leftCode = [Prim.read, Prim.readAlt] := by
+  simp only [leftCode, compile, unaryTail, binaryTail, emit,
+    ite_eq_right read_not_pure, ite_eq_right read_alt_not_pure, ite_eq_left join_pure,
+    Response.Sequence.bind, Response.Sequence.weaken, Response.Sequence.subst, visibleOrder]
+
+/-- An effectful unary argument finishes its own call before the outer call. -/
+example : visibleOrder (compile (ε := Fx) sig (.unary Prim.readOther rfl rawLeft)) =
+    [Prim.read, Prim.readOther] := by
+  simp only [compile, unaryTail, emit, ite_eq_right read_not_pure,
+    ite_eq_right read_other_not_pure, Response.Sequence.bind, Response.Sequence.subst, visibleOrder]
+
+/-- Swapping the effectful operands changes the head even though the final
+binary primitive is pure. The left operand starts with a pure let. -/
+theorem swapped_arguments_source_ne :
+    ¬ Eqv Γ outputSort strict leftFirst.source rightFirst.source := by
+  intro h
+  have hl := compile_eqv sig ctx_pure slots_typed strict leftFirst typedLeftFirst
+  have hr := compile_eqv sig ctx_pure slots_typed strict rightFirst typedRightFirst
+  have hseq := hl.symm.trans (h.trans hr)
+  have hn := hseq.toLetIter (Response.Sequence.lowers sig leftCode) (Response.Sequence.lowers sig rightCode)
+  have he := Response.Sequence.native_eq_implies_eq sig slots_typed strict leftCode rightCode
+    (compile_typed sig strict leftFirst typedLeftFirst)
+    (compile_typed sig strict rightFirst typedRightFirst) hn
+  have hhead := leftHead.symm.trans ((congrArg firstInstruction he).trans rightHead)
+  cases hhead
+
+/-- The lowered raw programs are separated even when the native proof can use
+all well-typed intermediate terms. -/
+theorem swapped_arguments_native_ne {t s : Tm Empty Prim Γ.length}
+    (ht : leftFirst.source.toLetIter Γ.length = some t)
+    (hs : rightFirst.source.toLetIter Γ.length = some s) :
+    ¬ AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx t s outputSort := by
+  intro hn
+  exact swapped_arguments_source_ne
+    ((endpoint_reflection sig ctx_pure slots_typed strict leftFirst rightFirst
+      typedLeftFirst typedRightFirst ht hs).mp hn)
+
+example : ∃ t s : Tm Empty Prim Γ.length,
+    leftFirst.source.toLetIter Γ.length = some t ∧
+    rightFirst.source.toLetIter Γ.length = some s ∧
+    ¬ AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx t s outputSort := by
+  obtain ⟨t, ht, _⟩ := (source_wf sig ctx_pure slots_typed strict leftFirst typedLeftFirst).toLetIter
+  obtain ⟨s, hs, _⟩ := (source_wf sig ctx_pure slots_typed strict rightFirst typedRightFirst).toLetIter
+  exact ⟨t, s, ht, hs, swapped_arguments_native_ne ht hs⟩
 
 end LetIterResponseSingleCall
