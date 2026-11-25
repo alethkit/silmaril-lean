@@ -3,7 +3,7 @@ module
 import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms
 
 open Silmaril.Languages.Python
-open Core.Closure (CodeRef Heap)
+open Core.Closure (CodeRef Heap Parameters)
 open Core.Closure.Executor (Body CodeTable)
 open Core.Module.Functions (TopFunction)
 open Core.Module.SeededCall (Namespace)
@@ -12,10 +12,11 @@ open Compile.ModuleEntry.Functions.Run.Seeded
 
 private abbrev top : TopFunction := ⟨⟨11, ⟨1, 1, 0⟩⟩, rfl⟩
 
-private def table (tail : Body top.ref.layout) : CodeTable :=
+private def table (tail : Body top.ref.layout) (parameters : Parameters top.ref.layout := ⟨[], by decide⟩) :
+    CodeTable :=
   fun key => if key = 11 then
     some ⟨top.ref.layout,
-      { parameters := ⟨[], by decide⟩
+      { parameters := parameters
         body := .store (.owned 0) (.literal (.int 7)) tail }⟩
   else none
 
@@ -87,7 +88,71 @@ private def twice (scope : Source.Scope) : Observation :=
 example (scope : Source.Scope) :
     (twice scope).heap = writeFresh residualHeap := rfl
 
+private def directSeed : Namespace :=
+  ⟨[("kept", .int 5)], [("f", .helper .assertEqual), ("kept", .int 8), ("masked", .int 1)]⟩
+
+private def discardCall {scope : Source.Scope} : Instruction scope := .call .discard "f" []
+
+private def runDirect (scope : Source.Scope) (body : Body top.ref.layout)
+    (rest : List (Instruction scope) := []) (fuel : Nat := 1000) : Observation :=
+  runInstructions directSeed (.publish "f" top :: discardCall :: rest) (table body) inputHeap fuel
+
+private def returnsNone : Body top.ref.layout := .ret (.literal .none)
+
+-- Module bindings shadow the builtin callee and the builtin value read by its body.
+example (scope : Source.Scope) :
+    runDirect scope (.ret (.readGlobal "kept")) =
+      ⟨published directSeed, .ok (), [⟨"f", ⟨.ok (.int 5), none⟩⟩], residualHeap⟩ := rfl
+
+example (scope : Source.Scope) :
+    runDirect scope returnsNone [discardCall] =
+      ⟨published directSeed, .ok (),
+        [⟨"f", ⟨.ok .none, none⟩⟩, ⟨"f", ⟨.ok .none, none⟩⟩], writeFresh residualHeap⟩ := rfl
+
+example (scope : Source.Scope) :
+    runDirect scope (.assert (.literal (.bool false)) returnsNone) [.publish "after" top] =
+      ⟨published directSeed, .error (.raised (.assertionError .empty)),
+        [⟨"f", ⟨.error (.raised (.assertionError .empty)), none⟩⟩], residualHeap⟩ := rfl
+
+example (scope : Source.Scope) :
+    runDirect scope (.ret (.readGlobal "absent")) [.publish "after" top] =
+      ⟨published directSeed, .error (.raised (.runtime (.nameError "absent"))),
+        [⟨"f", ⟨.error (.raised (.runtime (.nameError "absent"))), none⟩⟩], residualHeap⟩ := rfl
+
+private def maskedSeed : Namespace := directSeed.bindGlobal "masked" (.helper .assertEqual)
+
+example (scope : Source.Scope) :
+    runInstructions maskedSeed ([.publish "f" top, discardCall, .publish "after" top] : List (Instruction scope))
+        (table (.ret (.readGlobal "masked"))) inputHeap =
+      ⟨published maskedSeed, .error .unsupported, [⟨"f", ⟨.error .unsupported, none⟩⟩], residualHeap⟩ := rfl
+
+example (scope : Source.Scope) :
+    runDirect scope faulting [.publish "after" top] =
+      ⟨published directSeed, .error (.directCallFault (.missingCode 99)), [], residualHeap⟩ := rfl
+
+private def staleCode : CodeRef := ⟨top.ref.key, ⟨0, 0, 0⟩⟩
+
+example (scope : Source.Scope) :
+    runDirect scope (.callTo .discard (.closure staleCode Fin.elim0) [] returnsNone) [.publish "after" top] =
+      ⟨published directSeed, .error (.directCallFault (.layoutMismatch staleCode.layout top.ref.layout)), [],
+        residualHeap⟩ := rfl
+
+example (scope : Source.Scope) :
+    runDirect scope returnsNone [.publish "after" top] 2 =
+      ⟨published directSeed, .error .directCallFuelExhausted, [], residualHeap⟩ := rfl
+
+example (scope : Source.Scope) :
+    runInstructions (published directSeed) ([discardCall] : List (Instruction scope)) (table returnsNone) inputHeap =
+      ⟨published directSeed, .error .unsupported, [⟨"f", ⟨.error .unsupported, none⟩⟩], inputHeap⟩ := rfl
+
+example (scope : Source.Scope) :
+    runInstructions directSeed ([.publish "f" top, discardCall] : List (Instruction scope))
+        (table returnsNone ⟨[.local 0], by decide⟩) inputHeap =
+      ⟨published directSeed, .error .unsupported, [⟨"f", ⟨.error .unsupported, none⟩⟩], inputHeap⟩ := rfl
+
 #print axioms callback_path
 #print axioms callback_delivers
 #print axioms invokeCall_published
 #print axioms callback_fault
+#print axioms run_directDiscard
+#print axioms run_directDiscard_unsupported

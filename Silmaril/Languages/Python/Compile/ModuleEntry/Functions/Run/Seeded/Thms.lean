@@ -64,7 +64,8 @@ theorem invokeCall_published {space : Namespace} {context : CallContext} {closur
         [.exceptionClass expectation.expected, .function closure] =
       invokeCallback space context expectation closure := by
   cases expectation
-  simp [invokeCall, Core.Module.SeededCall.Request.decode, published, resolved, noParameters]
+  simp [invokeCall, CallContext.acceptsPublishedCall, Core.Module.SeededCall.Request.decode, published, resolved,
+    noParameters]
 
 theorem callback_fault (space : Namespace) (expectation : Expectation) (heap : Heap)
     (stack : Core.Closure.Executor.Stack) (fault : Fault) :
@@ -82,6 +83,34 @@ theorem failing_instruction {scope : Source.Scope} {space : Namespace} {instruct
     runInstructionsIn space context (instruction :: rest) =
       ⟨space, .error error, (effect space context instruction).1.calls, (effect space context instruction).2⟩ :=
   by simp [runInstructionsIn, failed]
+
+/-- Settle one direct discard call from the actual executor state. A
+finished call emits one receipt before its tail, and a failed call skips the tail. -/
+theorem run_directDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name : String} {closure : Function} {rest : List (Instruction scope)}
+    (found : space.lookupGlobal name = some (.function closure))
+    (admitted : context.acceptsPublishedCall closure = true) :
+    runInstructionsIn space context (.call .discard name [] :: rest) =
+      let invocation := callbackInvocation space context.heap closure
+      match (invocation.runPrefix context.table context.fuel).2.state with
+      | .finished heap (.ok value) =>
+        let tail := runInstructionsIn space { context with heap } rest
+        { tail with calls := ⟨name, ⟨.ok (seededValue value), none⟩⟩ :: tail.calls }
+      | .finished heap (.error error) =>
+        let failure := callbackError space error
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+      | .running heap .. | .delivering heap .. | .receiving heap .. =>
+        ⟨space, .error .directCallFuelExhausted, [], heap⟩ :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_directDiscard found admitted
+
+theorem run_directDiscard_unsupported {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name : String} {closure : Function} {rest : List (Instruction scope)}
+    (found : space.lookupGlobal name = some (.function closure))
+    (rejected : context.acceptsPublishedCall closure = false) :
+    runInstructionsIn space context (.call .discard name [] :: rest) =
+      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap⟩ :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_directDiscard_unsupported found rejected
 
 theorem run_publication {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {function : TopFunction} {rest : List (Instruction scope)}

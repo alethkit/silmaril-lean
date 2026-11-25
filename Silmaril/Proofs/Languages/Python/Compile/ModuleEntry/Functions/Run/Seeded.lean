@@ -10,6 +10,8 @@ namespace Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.See
 open Silmaril.Languages.Python.Core.Module.SeededCall (Failure Namespace Value)
 open Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run (Argument Instruction)
 open Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
+open Silmaril.Languages.Python
+open Silmaril.Languages.Python.Core.Closure (Function)
 
 theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     {values : Except Failure (List Value)} {calls : List CallEvent} :
@@ -55,5 +57,41 @@ theorem preserves_builtins {scope : Languages.Python.Source.Scope} (space : Name
       | some assignment =>
         obtain ⟨name, value⟩ := assignment
         simp [runInstructionsIn, selected, ih, Namespace.bind_preserves_builtins]
+
+
+theorem run_directDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name : String} {closure : Function} {rest : List (Instruction scope)}
+    (found : space.lookupGlobal name = some (.function closure))
+    (admitted : context.acceptsPublishedCall closure = true) :
+    runInstructionsIn space context (.call .discard name [] :: rest) =
+      let invocation := callbackInvocation space context.heap closure
+      match (invocation.runPrefix context.table context.fuel).2.state with
+      | .finished heap (.ok value) =>
+        let tail := runInstructionsIn space { context with heap } rest
+        { tail with calls := ⟨name, ⟨.ok (seededValue value), none⟩⟩ :: tail.calls }
+      | .finished heap (.error error) =>
+        let failure := callbackError space error
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+      | .running heap .. | .delivering heap .. | .receiving heap .. =>
+        ⟨space, .error .directCallFuelExhausted, [], heap⟩ := by
+  simp [runInstructionsIn, effect, Core.Module.SeededCall.resolveCall,
+    Core.Module.SeededCall.Operand.eval, found, Core.Module.SeededCall.Operand.evalList,
+    Except.bind, Except.map, invokeFlatCall, admitted]
+  generalize (callbackInvocation space context.heap closure |>.runPrefix context.table context.fuel).2.state =
+    state
+  cases state with
+  | finished heap result => cases result <;> rfl
+  | _ => rfl
+
+theorem run_directDiscard_unsupported {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name : String} {closure : Function} {rest : List (Instruction scope)}
+    (found : space.lookupGlobal name = some (.function closure))
+    (rejected : context.acceptsPublishedCall closure = false) :
+    runInstructionsIn space context (.call .discard name [] :: rest) =
+      ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], context.heap⟩ := by
+  simp [runInstructionsIn, effect, Core.Module.SeededCall.resolveCall,
+    Core.Module.SeededCall.Operand.eval, found, Core.Module.SeededCall.Operand.evalList,
+    Except.bind, Except.map, Except.mapError, invokeFlatCall, rejected, acceptObservation, ModuleFailure.ofCall]
 
 end Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

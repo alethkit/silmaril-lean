@@ -54,19 +54,33 @@ have caught a genuinely missing name.
 After a matching defined exception, the helper returns `None` and records
 the caught error. An unmatched exception propagates. A normal callback
 return raises the helper's configured missing-exception diagnostic.
-An executor fault or a live prefix at the explicit callback fuel limit
+An executor fault or a live prefix at the explicit fuel limit
 stops module execution with its own outcome and retains the current heap.
-The default limit is 1000 ordinary transitions per callback. Direct
-ordinary module calls through the seeded runner, ordinary callbacks in
-nested helper calls, and constructing exception instances remain outside
-the seeded profile. The closed dispatcher still handles closed callbacks.
+The closed dispatcher still handles closed callbacks. Ordinary callbacks
+in nested helper calls and constructing exception instances remain unsupported.
+
+A flat zero-argument call used as a statement can invoke a checked
+zero-parameter ordinary function. The resolved descriptor must occur in
+the same run's successful-publication ledger. The callee comes from the
+current module-first lookup, so rebinding and aliasing follow that lookup.
+The call uses the same ordinary preparation, namespace projection and
+heap as the callback path. Direct calls with positional arguments,
+result bindings, assertion destinations or nested module-call operands
+stay in the closed dispatcher.
+
+A direct call discards a successful result and records it in one receipt
+with an empty caught field. Defined errors and seed-only operand lookups
+retain the current bindings and skip the tail. The latter yield unsupported.
+A faulted or live executor state preserves the exact residual heap and
+yields `directCallFault` or `directCallFuelExhausted` with no settled
+receipt. The default limit is 1000 ordinary transitions per invocation.
 
 `Observation.calls` records evaluated argument calls in order, then the
 settled outer receipt. A missing outer name emits no nested-call receipts.
 Each receipt carries the result and any caught error, including typed
 integer-pair and Boolean-pair payloads on closed assertions and the empty payload on an
 ordinary assertion. Executor faults and exhausted prefixes emit no
-settled helper receipt.
+settled call receipt.
 
 `run_preserves_builtins` proves that execution preserves the supplied
 builtin table. `failing_instruction` gives the exact residual and trace
@@ -76,6 +90,9 @@ and `observeNestedCall_failedArguments` give the exact failure outcomes
 before outer dispatch. `invokeCall_published`, `callback_path`, and
 `callback_delivers` connect callback admission, the ordinary labelled path,
 and the existing expectation delivery rules with the precise residual heap.
+`run_directDiscard` gives the exact receipt, continuation and residual
+state for a direct call. `run_directDiscard_unsupported` gives the
+unadmitted descriptor or parameter boundary.
 `SeededCall.runObserved_result` and `Expectation.caught_iff` characterize
 closed execution and the catch payload.
 [Runner theorems](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Run/Seeded/Thms.lean)
@@ -171,6 +188,13 @@ profiles, the runner and CPython execute the callback and catch its
 empty assertion error. The helper returns `None`, and the function
 binding survives in every profile.
 [Pinned publication row](https://github.com/koehlma/rigorous/blob/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/lambda-py/python-reference/exceptions/assert-silent.py)
+
+The pinned `testscope3.py` row completes in the empty, builtin and
+preamble-global profiles, in agreement with CPython 3.13.5. The same
+published function remains bound. Lean retains cell 0 with integer value
+5 and emits one direct-call receipt with result `None` and an empty
+caught field. The internal ordinary calls use the shared executor.
+[Pinned direct discard row](https://github.com/koehlma/rigorous/blob/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/k-python/programs/testscope3.py)
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms +Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms'
