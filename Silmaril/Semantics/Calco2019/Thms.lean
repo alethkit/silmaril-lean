@@ -4,6 +4,7 @@ public import Silmaril.Semantics.Calco2019.Defs
 import Silmaril.Proofs.Semantics.Calco2019.FreeExtensions
 import Silmaril.Proofs.Semantics.Calco2019.Guardedness
 import Silmaril.Proofs.Semantics.Calco2019.Iteration
+import Silmaril.Proofs.Semantics.Calco2019.Dinaturality
 
 /-! # Free extensions and guarded iteration -/
 
@@ -84,6 +85,25 @@ theorem vacuous_iterative : (least P).Iterative :=
   Proofs.vacuous_iterative
 
 namespace Fixpoints
+
+/-- The selected coproduct injections, swap and fold are permitted uniformity maps. -/
+theorem coproductUniformity_of_uniform (F : G.Fixpoints)
+    {C : Type u'} [Category.{v'} C] {Q : Coproducts C} {J : C ⥤ K}
+    (S : PreservesSelectedCoproducts Q P J) (surj : Function.Surjective J.obj)
+    (U : F.Uniform J) : F.CoproductUniformity :=
+  Proofs.coproductUniformity_of_uniform F S surj U
+
+/-- Derive guarded dinaturality from the other Conway laws and structural uniformity. -/
+theorem dinaturality_of_coproductUniformity (F : G.Fixpoints)
+    (N : F.NaturalCodiagonal) (U : F.CoproductUniformity) : F.Dinaturality :=
+  Proofs.derive_dinaturality F N U
+
+/-- Proposition 17. Objectwise surjectivity suffices for the changes of state used in the proof. -/
+theorem dinaturality_of_uniform (F : G.Fixpoints)
+    {C : Type u'} [Category.{v'} C] {Q : Coproducts C} {J : C ⥤ K}
+    (S : PreservesSelectedCoproducts Q P J) (surj : Function.Surjective J.obj)
+    (N : F.NaturalCodiagonal) (U : F.Uniform J) : F.Dinaturality :=
+  F.dinaturality_of_coproductUniformity N (F.coproductUniformity_of_uniform S surj U)
 
 theorem ofIterative_naturalCodiagonal (h : G.Iterative) :
     (ofIterative h).NaturalCodiagonal :=

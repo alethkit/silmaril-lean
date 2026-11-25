@@ -73,6 +73,15 @@ theorem lemma13 {f : X ⟶ P.sum (P.sum Y Z) X} (hf : G.nested f)
     {g : X ⟶ P.sum Y Z} (hg : Guardedness.IsFixpoint f g) : G.guarded g :=
   G.guarded_fixpoint hf hg
 
+/-- Proposition 17. Dinaturality follows from naturality, codiagonal and uniformity
+along a functor preserving the selected coproducts and covering every object. -/
+theorem proposition17 (F : G.Fixpoints)
+    {C : Type u'} [Category.{v'} C] {Q : Coproducts C} {J : C ⥤ K}
+    (S : PreservesSelectedCoproducts Q P J) (surj : Function.Surjective J.obj) :
+    (F.NaturalCodiagonal ∧ F.Uniform J) ↔
+      (F.NaturalCodiagonal ∧ F.Dinaturality ∧ F.Uniform J) :=
+  ⟨fun ⟨n, u⟩ => ⟨n, F.dinaturality_of_uniform S surj n u, u⟩, fun ⟨n, _, u⟩ => ⟨n, u⟩⟩
+
 /-- Proposition 18. Unique fixpoints satisfy the Conway laws and uniformity for every map. -/
 theorem proposition18 (h : G.Iterative) :
     (Guardedness.Fixpoints.ofIterative h).NaturalCodiagonal ∧
