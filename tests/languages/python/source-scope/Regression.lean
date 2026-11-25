@@ -119,6 +119,32 @@ private def classNonlocal : List Stmt :=
 #guard diagnose [.classDef "C" [] [.nonlocalDecl ["missing"]]] ==
   some ⟨[0], .unboundNonlocal "missing"⟩
 
+private def lambdaScopes : List Stmt :=
+  [.functionDef "outer" [⟨"x", none⟩, ⟨"y", none⟩] [
+    .functionDef "f" [⟨"p", some (.lambda [] (.name "x"))⟩] [
+      .return_ (some
+        (.lambda [⟨"q", some (.name "p")⟩] (.binary .add (.name "q") (.name "p"))))]
+      [.lambda [] (.name "y")]]]
+
+#guard inspect lambdaScopes [0, 0] "x" == some (.free [0])
+#guard inspect lambdaScopes [0, 1] "y" == some (.free [0])
+#guard inspect lambdaScopes [0, 2] "p" == some .local
+#guard inspect lambdaScopes [0, 2, 0] "p" == some (.free [0, 2])
+#guard inspect lambdaScopes [0, 2, 0] "q" == some .local
+#guard inspect lambdaScopes [0] "<lambda>" == none
+#guard ((analyze ⟨lambdaScopes⟩).toOption.bind (·.atPath [0, 2])).map (·.cells) ==
+  some ["p"]
+#guard diagnose [.expression (.lambda [⟨"x", none⟩, ⟨"x", none⟩] (.name "x"))] ==
+  some ⟨[0], .duplicateParameter "x"⟩
+
+private def classHeaderScopes : List Stmt :=
+  [.classDef "C" [.lambda [] (.name "baseName")] [.pass] [.lambda [] (.name "decoratorName")]]
+
+#guard inspect classHeaderScopes [0] "decoratorName" == some .implicitGlobal
+#guard inspect classHeaderScopes [1] "baseName" == some .implicitGlobal
+#guard ((analyze ⟨classHeaderScopes⟩).toOption.bind (·.atPath [2])).map (·.context.kind) ==
+  some .class_
+
 #print axioms enclosingBinding_eq_some_iff
 #print axioms enclosingBinding_stops
 #print axioms enclosingBinding_skips_class

@@ -18,19 +18,22 @@ inductive BinaryOperator where
   | add | sub | mul
   deriving Repr
 
-inductive Expr where
-  | name (identifier : Name)
-  | integer (value : Int)
-  | boolean (value : Bool)
-  | none_
-  | binary (operator : BinaryOperator) (left right : Expr)
-  | call (callee : Expr) (arguments : List Expr)
-  deriving Repr
+mutual
+  inductive Expr where
+    | name (identifier : Name)
+    | integer (value : Int)
+    | boolean (value : Bool)
+    | none_
+    | binary (operator : BinaryOperator) (left right : Expr)
+    | call (callee : Expr) (arguments : List Expr)
+    | lambda (parameters : List Parameter) (body : Expr)
+    deriving Repr
 
-structure Parameter where
-  name : Name
-  defaultValue : Option Expr := none
-  deriving Repr
+  structure Parameter where
+    name : Name
+    defaultValue : Option Expr := none
+    deriving Repr
+end
 
 inductive Stmt where
   | assign (target : Name) (value : Expr)
@@ -43,7 +46,9 @@ inductive Stmt where
   | if_ (condition : Expr) (body otherwise : List Stmt)
   | while_ (condition : Expr) (body otherwise : List Stmt)
   | functionDef (name : Name) (parameters : List Parameter) (body : List Stmt)
+      (decorators : List Expr := [])
   | classDef (name : Name) (bases : List Expr) (body : List Stmt)
+      (decorators : List Expr := [])
   deriving Repr
 
 structure Module where
