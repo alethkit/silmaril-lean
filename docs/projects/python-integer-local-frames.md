@@ -13,6 +13,8 @@ of the assignment target. Successful writes affect only the target slot.
 A conditional evaluates its test to an integer and enters the false branch
 on zero and the true branch on a nonzero value. A failing test enters the
 exception state before either branch. Branch choice leaves the store intact.
+For integer `and` and `or`, the left operand determines whether the right
+operand runs. The result is the selected integer operand.
 [Definitions](../../Silmaril/Languages/Python/Core/Locals/Defs.lean)
 
 The labelled steps expose writes for frame instrumentation and carry a
@@ -50,6 +52,7 @@ and `dd18748757c1fb19ab03068a9adfd8df2c66c2a1b6fb89d168723cede69ab242`
 respectively.
 [The if statement](https://docs.python.org/release/3.12.13/reference/compound_stmts.html#the-if-statement)
 · [Truth value testing](https://docs.python.org/release/3.12.13/library/stdtypes.html#truth)
+· [Boolean operations](https://docs.python.org/release/3.12.13/reference/expressions.html#boolean-operations)
 
 The independently authored fixtures compare normal return after copying
 and rebinding a local, read before write, failed reassignment and nested
@@ -57,7 +60,8 @@ arithmetic on local operands. Two opposing operand orders distinguish
 an unbound read from division by zero. The CPython projection compares
 the returned integer or exception class. The conditional cases cover
 negative and zero conditions with a failing unused branch, and a failure
-during the test.
+during the test. The Boolean-operation cases check when a right-hand
+division runs and when the result preserves the left integer.
 Internal write labels and the retained store are checked in Lean.
 The tested CPython 3.12.13 distribution was the public Linux x86-64
 python-build-standalone 20260807 release, asset SHA-256

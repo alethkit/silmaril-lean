@@ -41,6 +41,12 @@ private theorem rhs_answer (step : rhs.Step store next) :
     cases result <;>
       simp [Rhs.eval, Rhs.lift, Except.map, Except.bind, Except.mapError,
         Silmaril.Languages.Python.Core.Expr.eval, computed]
+  | @logicalTest op left right next step ih =>
+    cases next <;> simp [Rhs.eval, Except.map, Except.bind, ih]
+  | logicalShort chosen =>
+    simp [Rhs.eval, Except.bind, Except.mapError, Silmaril.Languages.Python.Core.Expr.eval, chosen]
+  | logicalRight chosen =>
+    simp [Rhs.eval, Except.bind, Except.mapError, Silmaril.Languages.Python.Core.Expr.eval, chosen]
 
 theorem answer_eq (step : Step source label target) : source.answer = target.answer := by
   cases step with
@@ -85,6 +91,11 @@ private theorem rhs_decreases (step : rhs.Step store next) :
     omega
   | @compute op left right result step =>
     cases result <;> simp [Except.map, Rhs.lift, Rhs.work, Silmaril.Languages.Python.Core.Expr.work]
+  | @logicalTest op left right next step ih =>
+    cases next <;> simp [Except.map, Rhs.work] at ih ⊢
+    omega
+  | logicalShort => simp [Rhs.work, Silmaril.Languages.Python.Core.Expr.work]
+  | logicalRight => simp [Rhs.work, Silmaril.Languages.Python.Core.Expr.work]
 
 private theorem code_minBudget (code : Code slots) : 2 ≤ code.budget := by
   induction code with

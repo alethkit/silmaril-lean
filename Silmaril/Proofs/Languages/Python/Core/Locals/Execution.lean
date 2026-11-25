@@ -17,7 +17,7 @@ private theorem literal_iff {value : Int} :
     rhs.literal? = some value ↔ rhs = .arithmetic (.int value) := by
   cases rhs with
   | arithmetic expr => cases expr <;> simp [Rhs.literal?]
-  | read | binary => simp [Rhs.literal?]
+  | read | binary | logical => simp [Rhs.literal?]
 
 private theorem step_not_literal {next : Except (Error slots) (Rhs slots)}
     (step : rhs.Step store next) : rhs.literal? = none := by
@@ -65,6 +65,25 @@ private theorem reduce_sound {next : Except (Error slots) (Rhs slots)}
         obtain rfl := literal_iff.mp lhs
         obtain rfl := literal_iff.mp rhs
         exact .compute (Silmaril.Languages.Python.Core.BinOp.eval_iff.mp rfl)
+  | logical op left right leftIH rightIH =>
+    rw [Rhs.reduce] at reduced
+    cases lhs : left.literal? with
+    | none =>
+      rw [lhs] at reduced
+      obtain ⟨inner, calculation, rfl⟩ := Option.map_eq_some_iff.mp reduced
+      exact .logicalTest (leftIH calculation)
+    | some value =>
+      rw [lhs] at reduced
+      obtain rfl := literal_iff.mp lhs
+      cases chosen : op.runsRight value with
+      | false =>
+        simp [chosen] at reduced
+        subst next
+        exact .logicalShort chosen
+      | true =>
+        simp [chosen] at reduced
+        subst next
+        exact .logicalRight chosen
 
 private theorem reduce_complete {next : Except (Error slots) (Rhs slots)}
     (step : rhs.Step store next) : rhs.reduce store = some next := by
@@ -80,6 +99,9 @@ private theorem reduce_complete {next : Except (Error slots) (Rhs slots)}
     rfl
   | compute step =>
     simp [Rhs.reduce, Rhs.literal?, Silmaril.Languages.Python.Core.BinOp.eval_iff.mpr step]
+  | logicalTest step ih => rw [Rhs.reduce, step_not_literal step, ih]; rfl
+  | logicalShort chosen => simp [Rhs.reduce, Rhs.literal?, chosen]
+  | logicalRight chosen => simp [Rhs.reduce, Rhs.literal?, chosen]
 
 theorem reduce_iff {next : Except (Error slots) (Rhs slots)} :
     rhs.reduce store = some next ↔ rhs.Step store next :=
@@ -101,6 +123,7 @@ theorem advance_iff : source.advance = some (label, target) ↔ Step source labe
       cases rhs with
       | read slot => exact advance_reduction (rhs := .read slot) selected
       | binary op left right => exact advance_reduction (rhs := .binary op left right) selected
+      | logical op left right => exact advance_reduction (rhs := .logical op left right) selected
       | arithmetic expr =>
         cases expr with
         | binary op left right =>
@@ -131,7 +154,7 @@ theorem advance_iff : source.advance = some (label, target) ↔ Step source labe
     cases step with
     | @expression store rhs cont next reduced =>
       cases rhs with
-      | read | binary => simp [State.advance, reduce_iff.mpr reduced]
+      | read | binary | logical => simp [State.advance, reduce_iff.mpr reduced]
       | arithmetic expr =>
         cases expr with
         | binary => simp [State.advance, reduce_iff.mpr reduced]
@@ -188,6 +211,13 @@ private theorem rhs_progress (store : Store slots) (rhs : Rhs slots) :
       · exact ⟨_, .compute (Silmaril.Languages.Python.Core.BinOp.eval_iff.mp rfl)⟩
       · exact ⟨_, .right step⟩
     · exact ⟨_, .left step⟩
+  | logical op left right leftIH _ =>
+    apply Or.inr
+    rcases leftIH with ⟨value, rfl⟩ | ⟨next, step⟩
+    · cases chosen : op.runsRight value with
+      | false => exact ⟨_, .logicalShort chosen⟩
+      | true => exact ⟨_, .logicalRight chosen⟩
+    · exact ⟨_, .logicalTest step⟩
 
 theorem progress (state : State slots) :
     (∃ label target, Step state label target) ∨ ∃ result, Observes state (.returned result) := by

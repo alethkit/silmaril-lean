@@ -27,11 +27,21 @@ inductive Error (slots : Nat) where
 
 abbrev Result (slots : Nat) := Except (Error slots) Int
 
-/-- An operand may be a closed arithmetic expression, a local read, or a binary expression. -/
+inductive LogicalOp where
+  | and
+  | or
+  deriving DecidableEq, Repr
+
+def LogicalOp.runsRight : LogicalOp → Int → Bool
+  | .and, value => value != 0
+  | .or, value => value == 0
+
+/-- An operand may be a closed arithmetic expression, a local read, or a compound expression. -/
 inductive Rhs (slots : Nat) where
   | arithmetic (expr : Expr)
   | read (slot : Fin slots)
   | binary (op : BinOp) (left right : Rhs slots)
+  | logical (op : LogicalOp) (left right : Rhs slots)
   deriving DecidableEq, Repr
 
 def Rhs.lift (next : Except Exception Expr) : Except (Error slots) (Rhs slots) :=
@@ -61,6 +71,13 @@ inductive Rhs.Step (store : Store slots) : Rhs slots → Except (Error slots) (R
   | compute {op : BinOp} {left right : Int} {result : Completion} :
       op.Eval left right result →
         Step store (.binary op (.arithmetic (.int left)) (.arithmetic (.int right))) (lift (result.map .int))
+  | logicalTest {op : LogicalOp} {left right : Rhs slots} {next : Except (Error slots) (Rhs slots)} :
+      Step store left next → Step store (.logical op left right) (next.map fun rhs => .logical op rhs right)
+  | logicalShort {op : LogicalOp} {left : Int} {right : Rhs slots} :
+      op.runsRight left = false →
+        Step store (.logical op (.arithmetic (.int left)) right) (.ok (.arithmetic (.int left)))
+  | logicalRight {op : LogicalOp} {left : Int} {right : Rhs slots} :
+      op.runsRight left = true → Step store (.logical op (.arithmetic (.int left)) right) (.ok right)
 
 def Rhs.literal? : Rhs slots → Option Int
   | .arithmetic (.int value) => some value
@@ -76,6 +93,11 @@ def Rhs.reduce (store : Store slots) : Rhs slots → Option (Except (Error slots
       match right.literal? with
       | none => (reduce store right).map (·.map (Rhs.binary op (.arithmetic (.int a))))
       | some b => some (lift ((op.eval a b).map .int))
+  | .logical op left right =>
+    match left.literal? with
+    | none => (reduce store left).map (·.map fun rhs => .logical op rhs right)
+    | some value =>
+      some (.ok (if op.runsRight value then right else .arithmetic (.int value)))
 
 /-- A lowered function body ends in a return on each control-flow branch. -/
 inductive Code (slots : Nat) where
@@ -162,7 +184,7 @@ def State.pick (state : State slots) : Decision (State slots) (Result slots) :=
 def Rhs.work : Rhs slots → Nat
   | .arithmetic expr => expr.work
   | .read _ => 1
-  | .binary _ left right => left.work + right.work + 1
+  | .binary _ left right | .logical _ left right => left.work + right.work + 1
 
 def Code.budget : Code slots → Nat
   | .ret rhs => rhs.work + 2
@@ -189,6 +211,8 @@ def Rhs.eval (store : Store slots) : Rhs slots → Result slots
   | .read slot => load store slot
   | .binary op left right =>
     (left.eval store).bind fun a => (right.eval store).bind fun b => (op.eval a b).mapError .arithmetic
+  | .logical op left right =>
+    (left.eval store).bind fun value => if op.runsRight value then right.eval store else .ok value
 
 def Code.eval (store : Store slots) : Code slots → Answer slots
   | .ret rhs => ⟨store, rhs.eval store⟩
