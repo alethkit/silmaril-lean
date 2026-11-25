@@ -17,7 +17,7 @@ private abbrev i64 := Value.int .i64
 private abbrev spec := Numerics.Profile.spec
 
 private def signature : V1.FuncType := ⟨[.int .i64, .int .i32], [.int .i32, .int .i64]⟩
-private def callerType : V1.FuncType := ⟨[.int .i32], [.int .i64, .int .i32, .int .i64, .int .i32]⟩
+private def callerType : V1.FuncType := ⟨[.int .i32, .int .i32], [.int .i64, .int .i32, .int .i64, .int .i32]⟩
 private def mismatchType : V1.FuncType := ⟨[], []⟩
 private def readLocal (i : LocalIdx) : Graph.Op := .numeric (.get i)
 private def returning : Graph.Function :=
@@ -28,45 +28,72 @@ private def self : CallTarget := ⟨⟨0⟩, ⟨1⟩, selfDecl⟩
 private def recursive : Graph.Function := ⟨selfDecl, 0, [i64 42, i32 5], [.call self]⟩
 private def owner : Graph.Function :=
   ⟨⟨{ types := [callerType, signature], tables := [⟨1⟩] }, ⟨0⟩, callerType.params, [.int .i64], callerType.results⟩,
-    0, [i64 7, i64 42, i32 5, i32 0], [.unreachable]⟩
+    0, [i64 7, i64 42, i32 455], [.unreachable]⟩
 private def mismatch : Graph.Function :=
   ⟨⟨{ types := [mismatchType] }, ⟨0⟩, mismatchType.params, [], mismatchType.results⟩, 0, [], []⟩
 
 private def functions : List Graph.Function := [returning, recursive, owner, mismatch]
 private def program : Graph.Program := ⟨functions.map some⟩
-private def entry : GraphEntry.Entry := ⟨⟨⟨2⟩, owner, [readLocal ⟨0⟩]⟩, ⟨⟨1⟩, signature⟩⟩
+private def divide : Prefix.Op := .bin .i32 (.div .unsigned)
+private def selector : Prefix.Op := .get ⟨1⟩
+private def entry : GraphEntry.Entry :=
+  ⟨⟨⟨2⟩, owner, [readLocal ⟨0⟩]⟩, ⟨⟨1⟩, signature⟩, [.get ⟨0⟩, divide, selector]⟩
 private def outer : Frame := ⟨[i32 77], { funcs := [⟨0⟩, ⟨2⟩] }⟩
-private def args : List Value := [i32 91]
+private def args : List Value := [i32 91, i32 0]
+private def nullArgs : List Value := [i32 91, i32 1]
+private def zeroArgs : List Value := [i32 0, i32 0]
 private def inner : Frame := owner.declaration.frame args
 private def tables (refs : List (Option FuncAddr)) : Source.Tables := [⟨[], none⟩, ⟨refs, some 1⟩]
-private def active (refs : List (Option FuncAddr)) : Source.Activation :=
-  ⟨inner, ⟨⟨1⟩, ⟨⟨refs, some 1⟩, ⟨1⟩, signature⟩⟩, ⟨[i64 7], [i64 42, i32 5], 0⟩⟩
+private def active (refs : List (Option FuncAddr)) (selected : BitVec 32 := 0) : Source.Activation :=
+  ⟨owner.declaration.frame [i32 91, i32 selected], ⟨⟨1⟩, ⟨⟨refs, some 1⟩, ⟨1⟩, signature⟩⟩,
+    ⟨[i64 7], [i64 42, i32 5], selected⟩⟩
 
-private def returnRefs : List (Option FuncAddr) := [some ⟨0⟩]
+private def returnRefs : List (Option FuncAddr) := [some ⟨0⟩, none]
 private def recurseRefs : List (Option FuncAddr) := [some ⟨1⟩]
-private def nullRefs : List (Option FuncAddr) := [none]
 private def mismatchRefs : List (Option FuncAddr) := [some ⟨3⟩]
 
-private theorem returnReady : entry.Checked program (tables returnRefs) outer ⟨1⟩ args (active returnRefs) :=
-  ⟨rfl, rfl, rfl, rfl, rfl⟩
-private theorem recurseReady : entry.Checked program (tables recurseRefs) outer ⟨1⟩ args (active recurseRefs) :=
-  ⟨rfl, rfl, rfl, rfl, rfl⟩
-private theorem boundsReady : entry.Checked program (tables []) outer ⟨1⟩ args (active []) :=
-  ⟨rfl, rfl, rfl, rfl, rfl⟩
-private theorem nullReady : entry.Checked program (tables nullRefs) outer ⟨1⟩ args (active nullRefs) :=
-  ⟨rfl, rfl, rfl, rfl, rfl⟩
-private theorem mismatchReady : entry.Checked program (tables mismatchRefs) outer ⟨1⟩ args (active mismatchRefs) :=
-  ⟨rfl, rfl, rfl, rfl, rfl⟩
+private def states (divisor : BitVec 32) : List OperandState :=
+  [(owner.initial, entry.before), (owner.initial ++ [i32 divisor], [divide, selector])]
+
+private def normalStates : List OperandState := states 91 ++ [([i64 7, i64 42, i32 5], [selector])]
+private def lookupStack (selected : BitVec 32) : List Value := [i64 7, i64 42, i32 5, i32 selected]
+
+private theorem normalTrace (selected : BitVec 32) :
+    entry.OperandTrace [i32 91, i32 selected] normalStates (.values (lookupStack selected)) :=
+  .value (.get rfl) (.value (.bin (stack := [i64 7, i64 42]) (x := 455) (y := 91) rfl)
+    (.value (.get rfl) (.done _)))
+
+private theorem zeroTrace : entry.OperandTrace zeroArgs (states 0) (.trap [i64 7, i64 42] [selector]) :=
+  .value (.get rfl) (.trap (.trap (stack := [i64 7, i64 42]) (x := 455) (y := 0)
+    (cause := .divideByZero) rfl))
+
+private theorem returnReady : entry.AtSite program (tables returnRefs) outer ⟨1⟩ args
+    normalStates (lookupStack 0) (active returnRefs) :=
+  ⟨⟨rfl, rfl, rfl, rfl⟩, normalTrace 0, rfl⟩
+private theorem recurseReady : entry.AtSite program (tables recurseRefs) outer ⟨1⟩ args
+    normalStates (lookupStack 0) (active recurseRefs) :=
+  ⟨⟨rfl, rfl, rfl, rfl⟩, normalTrace 0, rfl⟩
+private theorem boundsReady : entry.AtSite program (tables []) outer ⟨1⟩ args
+    normalStates (lookupStack 0) (active []) :=
+  ⟨⟨rfl, rfl, rfl, rfl⟩, normalTrace 0, rfl⟩
+private theorem nullReady : entry.AtSite program (tables returnRefs) outer ⟨1⟩ nullArgs
+    normalStates (lookupStack 1) (active returnRefs 1) :=
+  ⟨⟨rfl, rfl, rfl, rfl⟩, normalTrace 1, rfl⟩
+private theorem mismatchReady : entry.AtSite program (tables mismatchRefs) outer ⟨1⟩ args
+    normalStates (lookupStack 0) (active mismatchRefs) :=
+  ⟨⟨rfl, rfl, rfl, rfl⟩, normalTrace 0, rfl⟩
 
 example : entry.check program (tables [some ⟨99⟩]) = false := rfl
-example : entry.prepare program [⟨returnRefs, none⟩] args = none := rfl
-example : entry.prepare program (tables returnRefs) [i64 91] = none := rfl
+example : { entry with before := [.get ⟨9⟩] }.check program (tables returnRefs) = false := rfl
+example : entry.prepare program [⟨returnRefs, none⟩] args (lookupStack 0) = none := rfl
+example : entry.prepare program (tables returnRefs) [i64 91] (lookupStack 0) = none := rfl
 example : (active []).resolve program = some .bounds := rfl
-example : (active nullRefs).resolve program = some .null := rfl
+example : (active returnRefs).resolve program = some (.resolved ⟨0⟩) := rfl
+example : (active returnRefs 1).resolve program = some .null := rfl
 example : (active mismatchRefs).resolve program = some (.mismatch ⟨3⟩) := rfl
-example : ∃ prepared, entry.prepare program (tables returnRefs) args = some prepared :=
-  prepare_exists (entry := entry) rfl args rfl
-example : inner.locals = [i32 91, i64 0] := rfl
+example : ∃ prepared, entry.prepare program (tables returnRefs) args (lookupStack 0) = some prepared :=
+  prepare_exists returnReady.checked returnReady.trace
+example : inner.locals = [i32 91, i32 0, i64 0] := rfl
 
 private def coreStore (refs : List (Option FuncAddr)) : Core.Store Unit :=
   { funcs := [returning.coreInstance, recursive.coreInstance, entry.coreInstance, mismatch.coreInstance]
@@ -122,14 +149,14 @@ private theorem targetAddress {addr : FuncAddr} {fn : Graph.Function} {target : 
   · simp [Graph.Function.targets, owner, Graph.codeTargets, Graph.Op.targets] at used
   · simp [Graph.Function.targets, mismatch, Graph.codeTargets] at used
 
-private theorem coreAllocated {refs : List (Option FuncAddr)} (avoids : some ⟨2⟩ ∉ refs) :
-    entry.CoreAllocated program (tables refs) (active refs) (coreStore refs) :=
+private theorem coreAllocated {refs : List (Option FuncAddr)} {selected : BitVec 32} (avoids : some ⟨2⟩ ∉ refs) :
+    entry.CoreAllocated program (tables refs) (active refs selected) (coreStore refs) :=
   ⟨rfl, fun _ _ found _ used _ child => coreDirect child (targetAddress found used),
     fun _ _ found => by simp [coreStore, List.getElem?_map, found],
     fun _ _ member found => coreDirect found (by rintro rfl; exact avoids member)⟩
 
-private theorem limeAllocated {refs : List (Option FuncAddr)} (avoids : some ⟨2⟩ ∉ refs) :
-    entry.LimeAllocated program (tables refs) (active refs) (limeStore refs) :=
+private theorem limeAllocated {refs : List (Option FuncAddr)} {selected : BitVec 32} (avoids : some ⟨2⟩ ∉ refs) :
+    entry.LimeAllocated program (tables refs) (active refs selected) (limeStore refs) :=
   ⟨rfl, fun _ _ found _ used _ child => limeDirect child (targetAddress found used),
     fun _ _ found => found,
     fun _ _ member found => limeDirect found (by rintro rfl; exact avoids member)⟩
@@ -138,8 +165,8 @@ private theorem limeAllocated {refs : List (Option FuncAddr)} (avoids : some ⟨
 example : (coreStore returnRefs).funcs[2]? = some entry.coreInstance := rfl
 example : (limeStore returnRefs).funcs[2]? = some entry.limeInstance := rfl
 example : entry.coreFunc.body =
-    [Instr.intConst .i64 7, Instr.intConst .i64 42, Instr.intConst .i32 5,
-      Instr.intConst .i32 0, .callIndirect tableIndex ⟨1⟩, .localGet ⟨0⟩] := rfl
+    [Instr.intConst .i64 7, Instr.intConst .i64 42, Instr.intConst .i32 455,
+      .localGet ⟨0⟩, .intBinOp .i32 (.div .unsigned), .localGet ⟨1⟩, .callIndirect tableIndex ⟨1⟩, .localGet ⟨0⟩] := rfl
 
 private def returnedCall : Context.Invocation :=
   ⟨(active returnRefs).binding.site, inner, 0, [i64 7], [i64 42, i32 5], ⟨0⟩, returning⟩
@@ -148,8 +175,8 @@ private def recursiveCall : Context.Invocation :=
 private theorem returnedInvoked : (active returnRefs).invocation program = some returnedCall := rfl
 private theorem recursiveInvoked : (active recurseRefs).invocation program = some recursiveCall := rfl
 
-example : (entry.corePrefix (coreStore returnRefs) outer ⟨1⟩ args (active returnRefs) (.resolved ⟨0⟩)).length = 6 := rfl
-example : (entry.limePrefix (limeStore returnRefs) outer ⟨1⟩ args (active returnRefs) (.resolved ⟨0⟩)).length = 4 := rfl
+example : (entry.corePrefix (coreStore returnRefs) outer ⟨1⟩ args (active returnRefs) (.resolved ⟨0⟩) normalStates).length = 9 := rfl
+example : (entry.limePrefix (limeStore returnRefs) outer ⟨1⟩ args (active returnRefs) (.resolved ⟨0⟩) normalStates).length = 7 := rfl
 example := GraphEntry.core_prefix_exact (P := spec) returnReady (coreAllocated (by decide))
   (out := .resolved ⟨0⟩) rfl
 example := GraphEntry.lime_prefix_exact returnReady (limeAllocated (by decide))
@@ -168,7 +195,7 @@ private def results : List Value := [i64 7, i32 5, i64 42, i32 91]
 
 private theorem finished : Context.Resume.Runs program returnedCall entry.cont (.callee returnedCall.entered)
     (.caller (.done (.values results))) := by
-  have edge {a b : Graph.Phase} := (program.frameEdge_iff (a := a) (b := b) returnReady.found).mpr
+  have edge {a b : Graph.Phase} := (program.frameEdge_iff (a := a) (b := b) returnReady.checked.found).mpr
   have before := Context.Resume.of_callee_run (cont := entry.cont) (resume_guard returnReady returnedInvoked).1 returnedPath
   have resumed := before.tail (.resume (edge (.numeric (locals := inner.locals) (rest := [])
     (.get (stack := [i64 7, i32 5, i64 42]) (i := ⟨0⟩) (v := i32 91) rfl))))
@@ -215,10 +242,66 @@ example : Core.Steps spec noHost (GraphEntry.coreSource (coreStore mismatchRefs)
   (GraphEntry.core_trap_run_iff mismatchReady (coreAllocated (by decide)) rfl (.mismatch ⟨3⟩)).mpr
     (.inr ⟨.done, cleanup _, rfl⟩)
 
-example : Lime1.Execution.Steps CallFrame.limeNoHost (GraphEntry.limeSource (limeStore nullRefs) outer ⟨1⟩ args)
-    ⟨limeStore nullRefs, outer, [.trap]⟩ :=
+example : Lime1.Execution.Steps CallFrame.limeNoHost (GraphEntry.limeSource (limeStore returnRefs) outer ⟨1⟩ nullArgs)
+    ⟨limeStore returnRefs, outer, [.trap]⟩ :=
   (GraphEntry.lime_trap_run_iff nullReady (limeAllocated (by decide)) rfl .null).mpr
     (.inr ⟨.done, cleanup _, rfl⟩)
+
+example : Core.Steps spec noHost (GraphEntry.coreSource (coreStore returnRefs) outer ⟨1⟩ nullArgs)
+    ⟨coreStore returnRefs, outer.toCore, [.trap]⟩ :=
+  (GraphEntry.core_trap_run_iff nullReady (coreAllocated (by decide)) rfl .null).mpr
+    (.inr ⟨.done, cleanup _, rfl⟩)
+
+-- The dividend and divisor are on the stack, with the indirect instruction still pending.
+example : Core.Steps spec noHost (GraphEntry.coreSource (coreStore returnRefs) outer ⟨1⟩ args)
+    (entry.coreOperands (coreStore returnRefs) outer args
+      ([i64 7, i64 42, i32 455, i32 91], [divide, selector])) :=
+  (GraphEntry.core_run_iff returnReady (coreAllocated (by decide)) returnedInvoked).mpr
+    (.inl (.tail _ (.tail _ (.tail _ (.head _)))))
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (GraphEntry.limeSource (limeStore returnRefs) outer ⟨1⟩ args)
+    (entry.limeOperands (limeStore returnRefs) outer args
+      ([i64 7, i64 42, i32 455, i32 91], [divide, selector])) :=
+  (GraphEntry.lime_run_iff returnReady (limeAllocated (by decide)) returnedInvoked).mpr
+    (.inl (.tail _ (.tail _ (.tail _ (.head _)))))
+
+private theorem zeroReady : entry.Checked program (tables returnRefs) outer ⟨1⟩ zeroArgs :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+private theorem cleanupBeforeLookup {A : Type} (rest : List A) :
+    CleanupRuns (.label [i64 7, i64 42] rest) .done := by
+  have discard : Prefix.Discard [i64 7, i64 42] rest [] [] := by
+    simpa only [List.nil_append, List.append_nil] using
+      (Prefix.Discard.cut [] [i64 7, i64 42] rest [] (.inl (by simp)))
+  exact ((Relation.ReflTransGen.single (.discard discard)).tail .label).tail .frame
+
+-- The prefix failure requires only the entry's function allocation. The store has no table.
+private def coreNoTable := { coreStore returnRefs with tables := [] }
+private def limeNoTable := { limeStore returnRefs with tables := [] }
+
+example : Core.Steps spec noHost (GraphEntry.coreSource coreNoTable outer ⟨1⟩ zeroArgs)
+    (entry.coreCleanup coreNoTable outer (entry.frame zeroArgs) (.label [i64 7, i64 42]
+      [.plain (.localGet ⟨1⟩), .plain (.callIndirect tableIndex ⟨1⟩), .plain (.localGet ⟨0⟩)])) :=
+  (GraphEntry.core_operand_trap_run_iff zeroReady rfl zeroTrace).mpr
+    (.inr ⟨_, .refl, rfl⟩)
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (GraphEntry.limeSource limeNoTable outer ⟨1⟩ zeroArgs)
+    (entry.limeCleanup limeNoTable outer (entry.frame zeroArgs) (.label [i64 7, i64 42]
+      [.source (.localGet ⟨1⟩), .source (.callIndirect ⟨1⟩), .source (.localGet ⟨0⟩)])) :=
+  (GraphEntry.lime_operand_trap_run_iff zeroReady rfl zeroTrace).mpr
+    (.inr ⟨_, .refl, rfl⟩)
+
+example : Core.Steps spec noHost (GraphEntry.coreSource coreNoTable outer ⟨1⟩ zeroArgs)
+    ⟨coreNoTable, outer.toCore, [.trap]⟩ :=
+  (GraphEntry.core_operand_trap_run_iff zeroReady rfl zeroTrace).mpr
+    (.inr ⟨.done, cleanupBeforeLookup _, rfl⟩)
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (GraphEntry.limeSource limeNoTable outer ⟨1⟩ zeroArgs) ⟨limeNoTable, outer, [.trap]⟩ :=
+  (GraphEntry.lime_operand_trap_run_iff zeroReady rfl zeroTrace).mpr
+    (.inr ⟨.done, cleanupBeforeLookup _, rfl⟩)
 
 private def deep : Nat → Graph.Phase
   | 0 => recursiveCall.entered

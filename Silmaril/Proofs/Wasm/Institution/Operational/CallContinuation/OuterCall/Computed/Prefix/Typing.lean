@@ -64,4 +64,35 @@ theorem progress {locals stack : List Value} {op : Op} {tail : List Op} {result 
         | ok z => exact ⟨_, .bin ans⟩
         | error cause => exact ⟨_, .trap ans⟩
 
+private theorem binary_reduction {locals stack : List Value} {kind : IntType} {op : IntBinOp} {out : Outcome}
+    (move : Reduce locals stack (.bin kind op) out) :
+    ∃ saved x y, stack = saved ++ [Value.int kind x, Value.int kind y] ∧
+      out = match Numerics.intBinOp kind op x y with
+        | .ok result => .values (saved ++ [Value.int kind result])
+        | .error _ => .trap saved := by
+  cases move with
+  | bin ok => exact ⟨_, _, _, rfl, by rw [ok]⟩
+  | trap err => exact ⟨_, _, _, rfl, by rw [err]⟩
+
+theorem reduce_unique {locals stack : List Value} {op : Op} {a b : Outcome}
+    (left : Reduce locals stack op a) (right : Reduce locals stack op b) : a = b := by
+  cases op with
+  | get i =>
+    cases left with
+    | get found =>
+      cases right with
+      | get alsoFound =>
+        cases Option.some.inj (found.symm.trans alsoFound)
+        rfl
+  | bin kind op =>
+    obtain ⟨first, x, y, stackEq, rfl⟩ := binary_reduction left
+    obtain ⟨second, x', y', stackEq', rfl⟩ := binary_reduction right
+    have eq := congrArg List.reverse (stackEq.symm.trans stackEq')
+    simp only [List.reverse_append, List.reverse_cons, List.reverse_nil, List.nil_append,
+      List.cons_append, List.cons.injEq] at eq
+    obtain ⟨rightEq, leftEq, prefixEq⟩ := eq
+    have sameRight : y = y' := eq_of_heq (Value.mk.inj rightEq).2
+    have sameLeft : x = x' := eq_of_heq (Value.mk.inj leftEq).2
+    rw [sameLeft, sameRight, List.reverse_inj.mp prefixEq]
+
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Proofs
