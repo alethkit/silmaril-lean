@@ -424,4 +424,83 @@ private def isUnhashableList : Lists.Error → Bool
       (lowered.bindingValue destination).toOption == some (intValue 91)
   | _, _ => false
 
+-- Each inner first iterable sees its enclosing x. The outer first
+-- iterable captures the function's x, and the later clauses read the
+-- comprehension's x. The false first item short-circuits the filter.
+#guard
+  let first := CompExpr.list ⟨starlark%[x], starlark%[x], .yield starlark%[mark(1, x)]⟩
+  let filter := CompExpr.logical .and (.plain starlark%[x])
+    (.list ⟨starlark%[x], starlark%[[mark(2, x)]], .yield starlark%[x]⟩)
+  let later := CompExpr.list ⟨starlark%[x], starlark%[[mark(3, x)]], .yield starlark%[x]⟩
+  let expression := CompExpr.listClauses starlark%[x] first
+    (.filter filter (.forIn starlark%[y] later (.yield starlark%[(x, y)])))
+  let worker := Statement.define "worker" {}
+    (.seq (.assignCompExpr "result" expression) (.ret (some starlark%[(len(x), result)])))
+  let commands := logCommands ++
+    [.define "run" { positional := [⟨"x", none⟩] } (.seq worker (.ret (some starlark%[worker()]))),
+     .assign "out" starlark%[run([0, 4])],
+     .assign "ok" starlark%[{(2, 1, 4, 4): True}[(out[0], len(out[1]), out[1][0][0], out[1][0][1])]]]
+  match runModule commands noImports {} with
+  | .ok (.ok published state) =>
+    published.exports.lookup "ok" == some (.scalar (.bool true)) &&
+      match published.exports.lookup "events" with
+      | some (.list address) => eventsMatch state address [1, 1, 2, 3, 0, 0, 0, 0]
+      | _ => false
+  | _ => false
+
+-- The dictionary accumulator still overwrites repeated keys in order.
+-- A later iterable can itself be a dictionary comprehension.
+#guard
+  let rows := collect starlark%[[("a", 0), ("a", 1), ("a", 2)]]
+  let test := CompExpr.logical .and (.plain starlark%[v]) (collect starlark%[[v]])
+  let keys := CompExpr.dict ⟨starlark%[w], starlark%[[v]], .yield (starlark%[w], starlark%[None])⟩
+  let expression := CompExpr.dictClauses starlark%[(k, v)] rows
+    (.filter test (.forIn starlark%[y] keys (.yield (starlark%[k], starlark%[y]))))
+  match runModule [.assignCompExpr "out" expression, .assign "ok" starlark%[{2: True}[out["a"]]]] noImports {} with
+  | .ok (.ok published _) => published.exports.lookup "ok" == some (.scalar (.bool true))
+  | _ => false
+
+-- Even a later target shadows an enclosing name throughout the block.
+-- The nested iterable that looks up z fails only if its filter is reached.
+#guard
+  let plan := fun input =>
+    CompExpr.listClauses starlark%[x] (.plain input)
+      (.filter (collect starlark%[z]) (.forIn starlark%[z] (.plain starlark%[[]]) (.yield starlark%[x])))
+  let run := fun input => runModule [.assign "z" starlark%[[8]], .assignCompExpr "out" (plan input)] noImports {}
+  let unbound := match run starlark%[[1]] with
+    | .ok (.error (.runtime (.uninitialized name)) state) => name == fileSlot "z" && state.iterators.isEmpty
+    | _ => false
+  let skipped := match run starlark%[[]] with
+    | .ok (.ok _ state) => state.iterators.isEmpty
+    | _ => false
+  unbound && skipped
+
+-- Fail before the first cursor, in a filter, or before a later cursor
+-- acquisition. The failed inner dictionary retains its operand effects.
+#guard
+  let expected := [3, 4, 5, 4, 5, 0, 0, 0]
+  let rows := CompExpr.plain starlark%[rows]
+  checkPlacementFailure (.listClauses starlark%[row] failedArgument (.yield starlark%[row]))
+      isUnhashableList expected &&
+    checkPlacementFailure (.listClauses starlark%[row] rows
+      (.forIn starlark%[item] failedArgument (.yield starlark%[item]))) isUnhashableList expected &&
+    checkPlacementFailure (.dictClauses starlark%[row] rows
+      (.filter failedArgument (.yield (starlark%[0], starlark%[row])))) isUnhashableList expected
+
+-- Iterating the same list in a nested filter must leave the outer guard
+-- active. The next filter fails on mutation and unwinds the outer guard.
+#guard
+  let expression := CompExpr.listClauses starlark%[row] (.plain starlark%[rows])
+    (.filter (collect starlark%[rows]) (.filter (.plain starlark%[touch()]) (.yield starlark%[row])))
+  let commands := logCommands ++
+    [.assign "rows" starlark%[[[1]]],
+     .define "touch" {} (.seq (.eval starlark%[mark(6, 0)])
+       (.seq (.setIndex starlark%[rows] starlark%[0] starlark%[[]]) (.ret (some starlark%[True])))),
+     .assignCompExpr "out" expression]
+  checkAssignmentFailure commands (fun | .activeIteration _ => true | _ => false) [6, 0, 0, 0, 0, 0, 0, 0]
+    (fun before final =>
+      match before.bindingValue (globalSlot "rows") with
+      | .ok (.list address) => before.heap[address]? == final.heap[address]?
+      | _ => false)
+
 end Silmaril.Languages.Starlark.Modules.Resolve

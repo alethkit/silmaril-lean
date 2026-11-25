@@ -367,6 +367,67 @@ out = (items[0], items[1], list(items[2]), items[3])
 	fmt.Println("PASS slice operand failures, guard cleanup, and receiver/step/start/stop precedence")
 }
 
+func checkClauseOperands() {
+	const mark = `events = []
+def mark(tag, value):
+    events.append(tag)
+    return value
+`
+	globals, err := run(mark + `def run(x):
+    def worker():
+        result = [(x, y) for x in [mark(1, x) for x in x]
+                  if x and [x for x in [mark(2, x)]]
+                  for y in [x for x in [mark(3, x)]]]
+        return (len(x), result)
+    return worker()
+out = run([0, 4])
+`)
+	require(err == nil && globals["out"].String() == "(2, [(4, 4)])" &&
+		globals["events"].String() == "[1, 1, 2, 3]", fmt.Sprint(globals, err))
+	globals, err = run(`out = {k: y for (k, v) in [x for x in [("a", 0), ("a", 1), ("a", 2)]]
+       if v and [x for x in [v]]
+       for y in {w: None for w in [v]}}`)
+	require(err == nil && globals["out"].String() == `{"a": 2}`, fmt.Sprint(globals, err))
+	_, err = run(`z = [8]
+out = [x for x in [1] if [y for y in z] for z in []]`)
+	checkError(err, "referenced before assignment")
+	globals, err = run(`z = [8]
+out = [x for x in [] if [y for y in z] for z in []]`)
+	require(err == nil && globals["out"].String() == "[]", fmt.Sprint(globals, err))
+	fmt.Println("PASS nested clause scope, forward shadowing, false filter skips, and dict iteration")
+
+	const rows = `rows = [[("a", [4]), ([], [5])]]
+`
+	const failed = `{mark(4, k): mark(5, v) for row in mark(3, rows) for (k, [v]) in row}`
+	for _, expr := range []string{
+		"[row for row in " + failed + "]",
+		"[item for row in rows for item in " + failed + "]",
+		"{0: row for row in rows if " + failed + "}",
+	} {
+		globals, err = run(mark + rows + "out = " + expr)
+		checkError(err, "unhashable type: list")
+		require(globals["out"] == nil && globals["events"].String() == "[3, 4, 5, 4, 5]", fmt.Sprint(globals, err))
+		outer := globals["rows"].(*starlark.List)
+		inner := outer.Index(0).(*starlark.List)
+		require(outer.Append(starlark.None) == nil && inner.Append(starlark.None) == nil,
+			"failed comprehension clause left an iterator active")
+	}
+
+	globals, err = run(mark + `rows = [[1]]
+def touch():
+    mark(6, 0)
+    rows[0] = []
+    return True
+out = [row for row in rows if [x for x in rows] if touch()]
+`)
+	checkError(err, "during iteration")
+	require(globals["out"] == nil && globals["events"].String() == "[6]" &&
+		globals["rows"].String() == "[[1]]", fmt.Sprint(globals, err))
+	require(globals["rows"].(*starlark.List).Append(starlark.None) == nil,
+		"failed outer filter left the prior iterator active")
+	fmt.Println("PASS nested guard lifetime on a shared alias, retained effects, and failure unwind")
+}
+
 func main() {
 	checkLists()
 	checkDictionaries()
@@ -374,4 +435,5 @@ func main() {
 	checkCallOperands()
 	checkDisplayAndIndexOperands()
 	checkSliceOperands()
+	checkClauseOperands()
 }
