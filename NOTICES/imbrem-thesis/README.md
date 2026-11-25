@@ -87,3 +87,10 @@ were repaired where the newer Mathlib required it. Each file reproduces the sour
 | `Isotope/LambdaIter/Ty.lean` | `Silmaril.Raw.SSA.Thesis.LambdaIter.Ty` |
 | `Isotope/LambdaIter/Typing.lean` | `Silmaril.Raw.SSA.Thesis.LambdaIter.Typing` |
 | `Isotope/LambdaIter/Weakening.lean` | `Silmaril.Raw.SSA.Thesis.LambdaIter.Weakening` |
+
+The exact λSSA categorical semantics in
+`Silmaril/SSA/Isotope/LambdaSSA/Categorical/` and
+`Silmaril/Proofs/SSA/Isotope/LambdaSSA/Categorical.lean` also adapts work from
+the same public-domain commit. It uses Silmaril's existing exact SSA typing
+judgments and LetIter type and instruction models. Its source modules are
+`Isotope/LambdaSSA/Semantics/{Model,Term,Label,Collective,Region,Inversion}.lean`.
