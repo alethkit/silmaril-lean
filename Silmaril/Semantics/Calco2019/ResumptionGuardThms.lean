@@ -60,4 +60,17 @@ theorem iterateResumption_uniform {X Y Z : C}
     h ≫ M.iterateResumption R f hf = M.iterateResumption R g hg :=
   Proofs.iterateResumption_uniform M R f g h hf hg comm
 
+/-- Postprocessing returns preserves guardedness of the loop body. -/
+theorem naturalityBody_guarded {X Y Z : C} (f : X ⟶ R.obj (P.sum Y X)) (g : Y ⟶ R.obj Z)
+    (hf : M.ResumptionGuard R (Y := Y) (Z := X) f) :
+    M.ResumptionGuard R (Y := Z) (Z := X) (M.naturalityBody R f g) :=
+  Proofs.naturalityBody_guarded M R f g hf
+
+/-- Postprocessing the body's return commutes with solving the guarded resumption loop. -/
+theorem iterateResumption_naturality {X Y Z : C} (f : X ⟶ R.obj (P.sum Y X)) (g : Y ⟶ R.obj Z)
+    (hf : M.ResumptionGuard R (Y := Y) (Z := X) f) :
+    M.iterateResumption R (M.naturalityBody R f g) (M.naturalityBody_guarded R f g hf) =
+      M.iterateResumption R f hf ≫ R.extend P g :=
+  Proofs.iterateResumption_naturality M R f g hf (M.naturalityBody_guarded R f g hf)
+
 end Silmaril.Calco2019.ParametrizedGuardedElgotMonad

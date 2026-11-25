@@ -282,4 +282,138 @@ theorem iterateResumption_uniform {X Y Z : C}
         (((M.toParametrizedMonad.parameter Y).map_comp j k).symm.trans
           (congrArg (M.toParametrizedMonad.parameter Y).map jkl))
 
+private theorem iterate_congr {K : Type u} [Category.{v} K] {P' : Coproducts K}
+    {G : Guardedness P'} (F : G.Fixpoints) {X Y : K}
+    {f g : X ⟶ P'.sum Y X} (e : f = g) (hf : G.guarded f) (hg : G.guarded g) :
+    F.iterate f hf = F.iterate g hg := by
+  subst g
+  rfl
+
+private theorem guardAt_naturality (W : C) {X Y Z : C}
+    (f : X ⟶ (M.obj W).monad.obj (P.sum Y X)) (g : Y ⟶ (M.obj W).monad.obj Z)
+    (hf : M.guardedAt W (Y := Y) (Z := X) f)
+    (hg : M.guardedAt W (Y := Z) (Z := X)
+      (f ≫ M.toParametrizedMonad.extend (W := W)
+        (P.desc (g ≫ (M.obj W).monad.map P.inl)
+          (P.inr ≫ (M.obj W).monad.η.app (P.sum Z X))))) :
+    ((M.obj W).iteration.iterate (kleisliArrow (f ≫ M.toParametrizedMonad.extend (W := W)
+        (P.desc (g ≫ (M.obj W).monad.map P.inl)
+          (P.inr ≫ (M.obj W).monad.η.app (P.sum Z X))))) hg).of =
+      ((M.obj W).iteration.iterate (kleisliArrow f) hf).of ≫ M.toParametrizedMonad.extend (W := W) g := by
+  let T := (M.obj W).monad
+  let K := P.kleisli T
+  let f' : Kleisli.mk T X ⟶ Kleisli.mk T (P.sum Y X) := kleisliArrow f
+  let g' : Kleisli.mk T Y ⟶ Kleisli.mk T Z := kleisliArrow g
+  let k := K.map g' (𝟙 (Kleisli.mk T X))
+  let c := P.desc (g ≫ T.map (P.inl (Y := X))) (P.inr ≫ T.η.app (P.sum Z X))
+  have ek : k.of = c := by
+    change (K.desc (g' ≫ K.inl) (𝟙 (Kleisli.mk T X) ≫ K.inr)).of = c
+    exact (kleisli_desc_of P T _ _).trans
+      (congrArg₂ P.desc (comp_pure_of T g' P.inl)
+        (congrArg Kleisli.Hom.of (Category.id_comp (K.inr (X := Kleisli.mk T Z)))))
+  have ef : f' ≫ k = kleisliArrow (f ≫ M.toParametrizedMonad.extend (W := W) c) :=
+    Kleisli.hom_ext (congrArg (fun j => f ≫ M.toParametrizedMonad.extend (W := W) j) ek)
+  have hg' : (M.obj W).guard.guarded (Y := Kleisli.mk T Z) (Z := Kleisli.mk T X) (f' ≫ k) :=
+    Eq.mpr (congrArg ((M.obj W).guard.guarded (Y := Kleisli.mk T Z) (Z := Kleisli.mk T X)) ef) hg
+  exact congrArg Kleisli.Hom.of
+    ((iterate_congr (M.obj W).iteration.toFixpoints ef.symm hg hg').trans
+      ((M.obj W).iteration.naturalCodiagonal.naturality f' g' hf hg'))
+
+theorem naturalityBody_guarded {X Y Z : C} (f : X ⟶ R.obj (P.sum Y X)) (g : Y ⟶ R.obj Z)
+    (hf : M.ResumptionGuard R (Y := Y) (Z := X) f) :
+    M.ResumptionGuard R (Y := Z) (Z := X) (M.naturalityBody R f g) :=
+  resumptionGuard_compose M R _ hf (resumptionGuard_trivial M R g)
+
+theorem iterateResumption_naturality {X Y Z : C} (f : X ⟶ R.obj (P.sum Y X)) (g : Y ⟶ R.obj Z)
+    (hf : M.ResumptionGuard R (Y := Y) (Z := X) f)
+    (hg : M.ResumptionGuard R (Y := Z) (Z := X) (M.naturalityBody R f g)) :
+    M.iterateResumption R (M.naturalityBody R f g) hg =
+      M.iterateResumption R f hf ≫ R.extend P g := by
+  let A := P.sum Y X
+  let B := P.sum Z X
+  let V := R.obj B
+  let T := (M.obj V).monad
+  let i : Z ⟶ B := P.inl
+  let j : X ⟶ B := P.inr
+  let m : R.obj Z ⟶ V := (R.monad P).map i
+  let h := P.desc (g ≫ m) (j ≫ R.unit B)
+  let p := R.extend P h
+  let q := R.extend P g
+  let F := M.naturalityBody R f g
+  let u := M.iterateResumption R f hf
+  let d := M.diamond R f hf
+  let e := M.diamond R F hg
+  let a := (f ≫ R.out A) ≫ (M.toParametrizedMonad.parameter A).map p
+  let b := (g ≫ R.out Z) ≫ (M.toParametrizedMonad.parameter Z).map m
+  let c := P.desc (b ≫ T.map i) (j ≫ T.η.app B)
+  let k := R.extend P (P.desc (R.unit Y) u)
+  let l := R.extend P (P.desc (R.unit Z) (u ≫ q))
+  let Q := M.toParametrizedMonad
+
+  have ha : M.guardedAt V (Y := Y) (Z := X) a := guardAt_parameter M p hf
+  have hc : h ≫ R.out B = c := by
+    have first : (g ≫ m) ≫ R.out B = b ≫ T.map i := by
+      calc
+        _ = g ≫ (m ≫ R.out B) := Category.assoc _ _ _
+        _ = _ := (congrArg (fun j => g ≫ j) (map_out M R i)).trans (by simp only [b, T, V, B, m, Category.assoc]; rfl)
+    have second : (j ≫ R.unit B) ≫ R.out B = j ≫ T.η.app B :=
+      (Category.assoc _ _ _).trans (congrArg (fun z => j ≫ z) (R.unit_out B))
+    exact (P.desc_comp _ _ _).trans (congrArg₂ P.desc first second)
+  have af : F ≫ R.out B = a ≫ Q.extend (W := V) c := by
+    change (f ≫ p) ≫ R.out B = _
+    have e' : p ≫ R.out B = R.out A ≫ (Q.parameter A).map p ≫ Q.extend (W := V) (h ≫ R.out B) :=
+      R.extend_spec P h
+    simp only [a, Category.assoc, e', hc]
+    rfl
+  have eSpec : e = (d ≫ (Q.parameter Y).map p) ≫ Q.extend (W := V) b := by
+    have hb : M.guardedAt V (Y := Z) (Z := X) (a ≫ Q.extend (W := V) c) :=
+      Eq.mp (congrArg (M.guardedAt V (Y := Z) (Z := X)) af) hg
+    have e' : e =
+        ((M.obj V).iteration.iterate (kleisliArrow (a ≫ Q.extend (W := V) c)) hb).of :=
+      congrArg Kleisli.Hom.of
+        (iterate_congr (M.obj V).iteration.toFixpoints (congrArg (fun z => kleisliArrow z) af) hg hb)
+    have d' : d ≫ (Q.parameter Y).map p =
+        ((M.obj V).iteration.iterate (kleisliArrow a) ha).of :=
+      (M.map p).iteration (f ≫ R.out A) hf
+    exact e'.trans ((guardAt_naturality M V a b ha hb).trans (congrArg (fun z => z ≫ Q.extend (W := V) b) d'.symm))
+
+  have ml : m ≫ l = 𝟙 (R.obj Z) := by
+    change R.extend P (i ≫ R.unit B) ≫ R.extend P (P.desc (R.unit Z) (u ≫ q)) = _
+    have e' : R.unit B ≫ R.extend P (P.desc (R.unit Z) (u ≫ q)) = P.desc (R.unit Z) (u ≫ q) :=
+      R.unit_extend P _
+    rw [R.extend_comp, Category.assoc, e', P.inl_desc, R.extend_unit]
+  have kl : k ≫ q = p ≫ l := by
+    change R.extend P (P.desc (R.unit Y) u) ≫ q = R.extend P h ≫ l
+    have ju : (j ≫ R.unit B) ≫ l = u ≫ q := by
+      calc
+        _ = j ≫ P.desc (R.unit Z) (u ≫ q) :=
+          (Category.assoc _ _ _).trans (congrArg (fun z => j ≫ z) (R.unit_extend P _))
+        _ = _ := P.inr_desc _ _
+    have gml : (g ≫ m) ≫ l = g :=
+      (Category.assoc _ _ _).trans ((congrArg (fun z => g ≫ z) ml).trans (Category.comp_id _))
+    rw [R.extend_comp, R.extend_comp, P.desc_comp, P.desc_comp]
+    exact congrArg (R.extend P)
+      (congrArg₂ P.desc ((R.unit_extend P g).trans gml.symm) ju.symm)
+
+  symm
+  apply R.solve_unique P e
+  change (u ≫ q) ≫ R.out Z = e ≫ (Q.parameter Z).map l
+  have eu : u ≫ R.out Y = d ≫ (Q.parameter Y).map k := R.solve_spec P d
+  have eq : q ≫ R.out Z = R.out Y ≫ (Q.parameter Y).map q ≫
+      Q.extend (W := R.obj Z) (g ≫ R.out Z) := R.extend_spec P g
+  have bl : b ≫ (Q.parameter Z).map l = g ≫ R.out Z := by
+    calc
+      _ = (g ≫ R.out Z) ≫ (Q.parameter Z).map (m ≫ l) := by rw [Functor.map_comp, Category.assoc]
+      _ = _ := by rw [ml, Functor.map_id, Category.comp_id]
+  calc
+    (u ≫ q) ≫ R.out Z = d ≫ (Q.parameter Y).map (k ≫ q) ≫
+        Q.extend (W := R.obj Z) (g ≫ R.out Z) := by
+      rw [Category.assoc, eq, ← Category.assoc, eu, Functor.map_comp]
+      simp only [Category.assoc]
+    _ = ((d ≫ (Q.parameter Y).map p) ≫ Q.extend (W := V) b) ≫ (Q.parameter Z).map l := by
+      have pe := Q.parameter_extend (X := Y) (Y := Z) l b
+      rw [kl, Functor.map_comp, ← bl]
+      simp only [Category.assoc, pe]
+    _ = _ := by rw [eSpec]
+
 end Silmaril.Calco2019.Proofs
