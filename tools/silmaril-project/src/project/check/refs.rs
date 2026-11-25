@@ -181,6 +181,16 @@ pub(super) fn follow<'a>(
                 language_refs(cx, l, &at, &mut refs, o);
             }
             Record::ConsequenceSystem(c) => consequence_refs(c, &at, &mut refs, o),
+            Record::IrSubset(s) => {
+                refs.push(("family", "ir_family", s.family.clone()));
+                refs.push(("syntax_kind", "ir_syntax_kind", s.syntax_kind.clone()));
+            }
+            Record::IrModel(m) => {
+                refs.push(("subset", "ir_subset", m.subset.clone()));
+                if let Some(i) = &m.institution {
+                    refs.push(("institution", "institution", i.clone()));
+                }
+            }
             Record::Room(x) => {
                 refs.extend(
                     x.institution

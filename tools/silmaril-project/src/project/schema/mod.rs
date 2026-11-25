@@ -2,7 +2,8 @@
 //! [`dag`] (layer 0: manifest, dump, DAG records, core tables), [`relational`] (predicates,
 //! answers, instances), [`artifacts`] (the registry and blobs), [`values`] (formats and
 //! values), [`rooms`] and [`logic`] (the logic graph: institutions, comorphisms, morphisms, rooms
-//! and corridors), [`models`] (models and specs), [`languages`] (language domains,
+//! and corridors), [`models`] (models and specs), [`ir`] (IR subsets and their semantics),
+//! [`languages`] (language domains,
 //! measures, interpretations and languages), [`consequence`] (consequence systems), [`markings`] (deprecations, findings and expected-open problems). This module holds what the layers
 //! share: the schema strings, the closed [`Record`] enum (one line per kind, so an unknown kind
 //! is rejected), the [`table!`] macro and the DDL order ([`tables`]).
@@ -92,6 +93,10 @@ pub enum Record {
     Comorphism(Comorphism),
     Morphism(Morphism),
     Corridor(Corridor),
+    IrFamily(IrFamily),
+    IrSyntaxKind(IrSyntaxKind),
+    IrSubset(IrSubset),
+    IrModel(IrModel),
     LogicAudit(LogicAudit),
     HetsLogic(HetsLogic),
     HetsComorphism(HetsComorphism),
@@ -157,6 +162,10 @@ record_kinds! {
     Comorphism = "comorphism", key name, object Some("comorphism");
     Morphism = "morphism", key name, object Some("morphism");
     Corridor = "corridor", key name, object Some("corridor");
+    IrFamily = "ir_family", key name, object Some("ir_family");
+    IrSyntaxKind = "ir_syntax_kind", key name, object Some("ir_syntax_kind");
+    IrSubset = "ir_subset", key name, object Some("ir_subset");
+    IrModel = "ir_model", key name, object Some("ir_model");
     LogicAudit = "logic_audit", key name, object None;
     HetsLogic = "hets_logic", key name, object None;
     HetsComorphism = "hets_comorphism", key name, object None;
@@ -292,6 +301,7 @@ pub mod artifacts;
 pub mod consequence;
 pub mod dag;
 pub mod formal;
+pub mod ir;
 pub mod languages;
 pub mod logic;
 pub mod machines;
@@ -306,6 +316,7 @@ pub use artifacts::*;
 pub use consequence::*;
 pub use dag::*;
 pub use formal::*;
+pub use ir::*;
 pub use languages::*;
 pub use logic::*;
 pub use machines::*;
@@ -468,6 +479,10 @@ pub fn tables() -> Vec<TableInfo> {
         info::<Comorphism>(),
         info::<Morphism>(),
         info::<Corridor>(),
+        info::<IrFamily>(),
+        info::<IrSyntaxKind>(),
+        info::<IrSubset>(),
+        info::<IrModel>(),
         info::<LogicEdgeKind>(),
         info::<LogicFact>(),
         info::<LogicAudit>(),
