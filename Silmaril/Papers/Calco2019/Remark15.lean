@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Semantics.Calco2019.Trace.Vanishing.Thms
+public import Silmaril.Semantics.Calco2019.Trace.Guarded.Thms
 
 /-! # CALCO 2019 Article 13, Remark 15
 
