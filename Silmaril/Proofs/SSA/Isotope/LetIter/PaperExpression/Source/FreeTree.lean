@@ -51,7 +51,7 @@ theorem tuple_lowers {k : Nat} {xs : Fin k → Expr Φ} {ys : Fin k → Tm Empty
   | succ k ih =>
     simp [sourceTuple, nativeTuple, Expr.toLetIter, h 0, ih (fun i => h i.succ)]
 
-theorem tree_lowers {a : α} (t : Tree S sorts a) :
+public theorem tree_lowers {a : α} (t : Tree S sorts a) :
     t.source.toLetIter n = some t.native := by
   induction t with
   | var i => simp [Tree.source, Tree.native, Expr.toLetIter, i.isLt]

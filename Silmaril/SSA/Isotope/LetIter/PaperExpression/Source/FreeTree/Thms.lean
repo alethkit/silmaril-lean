@@ -30,6 +30,11 @@ theorem tree_free (F : α → Type (u + 1))
         g (S.out f) (.op f xs) = ops f (fun i => g (S.arg f i) (xs i)) :=
   Proofs.tree_free S F ops vars
 
+/-- Lowering the source representation of a free tree gives its native term. -/
+theorem tree_lowers {a : α} (t : Tree S sorts a) :
+    t.source.toLetIter n = some t.native :=
+  Proofs.tree_lowers S t
+
 section Typed
 
 variable {ε : Type r} [HasEff Φ ε] [SemilatticeSup ε] [OrderBot ε]
