@@ -26,6 +26,14 @@ and observes `3` through the Core runner. The constructor-level tests also
 distinguish scope rejection, a dynamic call, an unsupported operator and the
 empty module.
 
+The [executable conformance harness](../../tests/languages/python/source-scope/check_intake.py)
+uses ten original MIT-licensed fixtures. It compares six actual integer
+returns with CPython, including nested addition and values above 64 bits.
+Four other fixtures check Lean's scope, module-shape or expression-shape
+diagnostics. The JSON summary lists the execution and rejection counts
+and each observation. The harness runs only the six fixed return fixtures
+in CPython.
+
 ```sh
 make check CHECK_TARGETS=+Silmaril.Languages.Python.Compile.Closed.Thms
 ```
