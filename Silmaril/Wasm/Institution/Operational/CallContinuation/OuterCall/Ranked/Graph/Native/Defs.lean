@@ -4,6 +4,7 @@ public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.R
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Sequence.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.Locals.Native.Defs
+public import Silmaril.Wasm.Institution.Operational.Blocks.Native.Defs
 
 @[expose] public section
 
@@ -14,28 +15,51 @@ open Execution.Runtime (Frame Value)
 open Computed (ArgumentSyntax v1Syntax limeSyntax coreSyntax)
 open Computed.Sequence (v1Source limeSource coreSource)
 
-def Op.emit {A : Type} (ops : ArgumentSyntax A) (set tee : LocalIdx → A) (ret unreachable : A) : Op → A
-  | .numeric op => Computed.Prefix.emit ops op
-  | .set i => set i
-  | .tee i => tee i
-  | .call target => ops.call target.index
-  | .return_ => ret
-  | .unreachable => unreachable
+structure CodeSyntax (A : Type) where
+  ops : ArgumentSyntax A
+  set : LocalIdx → A
+  tee : LocalIdx → A
+  ret : A
+  unreachable : A
+  block : Option NumType → List A → A
 
-def Function.instructions {A : Type} (fn : Function) (ops : ArgumentSyntax A) (set tee : LocalIdx → A) (ret unreachable : A) : List A :=
-  fn.initial.map ops.value ++ fn.code.map (Op.emit ops set tee ret unreachable)
+mutual
+
+def Op.emit {A : Type} (codec : CodeSyntax A) : Op → A
+  | .numeric op => Computed.Prefix.emit codec.ops op
+  | .set i => codec.set i
+  | .tee i => codec.tee i
+  | .call target => codec.ops.call target.index
+  | .block result code => codec.block result (Op.emitList codec code)
+  | .return_ => codec.ret
+  | .unreachable => codec.unreachable
+
+def Op.emitList {A : Type} (codec : CodeSyntax A) : List Op → List A
+  | [] => []
+  | op :: rest => op.emit codec :: Op.emitList codec rest
+
+end
+
+def v1CodeSyntax : CodeSyntax Wasm.V1.Instr :=
+  ⟨v1Source, .localSet, .localTee, .return_, .unreachable, .block⟩
+
+def limeCodeSyntax : CodeSyntax Wasm.Lime1.Instr :=
+  ⟨limeSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.limeType⟩
+
+def coreCodeSyntax : CodeSyntax Instr :=
+  ⟨coreSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.coreType⟩
+
+def Function.instructions {A : Type} (fn : Function) (codec : CodeSyntax A) : List A :=
+  fn.initial.map codec.ops.value ++ Op.emitList codec fn.code
 
 def Function.v1Func (fn : Function) : Wasm.V1.Func :=
-  ⟨fn.declaration.typeIndex, fn.declaration.locals,
-    fn.instructions v1Source (Locals.v1Instr ∘ .set) (Locals.v1Instr ∘ .tee) .return_ .unreachable⟩
+  ⟨fn.declaration.typeIndex, fn.declaration.locals, fn.instructions v1CodeSyntax⟩
 
 def Function.limeFunc (fn : Function) : Wasm.Lime1.Func :=
-  ⟨fn.declaration.typeIndex, fn.declaration.locals,
-    fn.instructions limeSource (Locals.limeInstr ∘ .set) (Locals.limeInstr ∘ .tee) .return_ .unreachable⟩
+  ⟨fn.declaration.typeIndex, fn.declaration.locals, fn.instructions limeCodeSyntax⟩
 
 def Function.coreFunc (fn : Function) : Wasm.Func :=
-  ⟨fn.declaration.typeIndex, fn.declaration.locals.map Wasm.V1.ValType.toCore,
-    fn.instructions coreSource (Locals.coreInstr ∘ .set) (Locals.coreInstr ∘ .tee) .return_ .unreachable⟩
+  ⟨fn.declaration.typeIndex, fn.declaration.locals.map Wasm.V1.ValType.toCore, fn.instructions coreCodeSyntax⟩
 
 def Function.coreInstance {H : Type} (fn : Function) : Core.FuncInst H :=
   ⟨fn.declaration.type.toDefType, fn.declaration.module.toCore, .wasm fn.coreFunc⟩
@@ -59,53 +83,64 @@ structure Root (program : Program) (caller : Frame) (target : CallTarget) (fn : 
 
 structure Syntax (A : Type) where
   ops : ArgumentSyntax A
-  set : LocalIdx → A
-  tee : LocalIdx → A
+  emit : Op → A
   values : List Value → List A
   ret : A
-  unreachable : A
   trap : A
   invoke : CallTarget → List A
   frame : Nat → Frame → List A → A
   label : Nat → List A → A
 
-def Syntax.emit {A : Type} (ops : Syntax A) : Op → A :=
-  Op.emit ops.ops ops.set ops.tee ops.ret ops.unreachable
-
 mutual
 
-def Phase.render {A : Type} (ops : Syntax A) (target : CallTarget) : Phase → List A
+def Phase.renderAt {A : Type} (ops : Syntax A) (target : CallTarget) (n : Nat) : Phase → List A
   | .call args => ops.values args ++ [ops.ops.call target.index]
   | .invoke args => ops.values args ++ ops.invoke target
   | .label locals body =>
-      let n := target.declaration.results.length
       [ops.frame n (currentFrame target.declaration locals) [ops.label n (body.render ops)]]
   | .returning locals stack =>
-      [ops.frame target.declaration.results.length (currentFrame target.declaration locals)
+      [ops.frame n (currentFrame target.declaration locals)
         (ops.values stack ++ [ops.ret])]
   | .exit locals result =>
-      [ops.frame target.declaration.results.length (currentFrame target.declaration locals)
+      [ops.frame n (currentFrame target.declaration locals)
         (Nested.resultCode ops.values ops.trap result)]
   | .done result => Nested.resultCode ops.values ops.trap result
 
 def Body.render {A : Type} (ops : Syntax A) : Body → List A
   | .running stack rest => ops.values stack ++ rest.map ops.emit
   | .active saved target child rest =>
-      ops.values saved ++ child.render ops target ++ rest.map ops.emit
+      ops.values saved ++ child.renderAt ops target target.declaration.results.length ++ rest.map ops.emit
+  | .block saved result body rest =>
+      ops.values saved ++ ops.label result.toList.length (body.render ops) :: rest.map ops.emit
   | .trapped saved rest => ops.values saved ++ ops.trap :: rest.map ops.emit
 
 end
 
+def Phase.render {A : Type} (ops : Syntax A) (target : CallTarget) : Phase → List A :=
+  Phase.renderAt ops target target.declaration.results.length
+
+def v1Emit : Op → Wasm.V1.Execution.Admin
+  | .numeric op => Computed.Prefix.emit v1Syntax op
+  | op => .source (op.emit v1CodeSyntax)
+
 def v1Admin : Syntax Wasm.V1.Execution.Admin :=
-  ⟨v1Syntax, .source ∘ .localSet, .source ∘ .localTee, Wasm.V1.Execution.values,
-    .source .return_, .source .unreachable, .trap, fun t => [.invoke t.address], .frame, fun n => .label n []⟩
+  ⟨v1Syntax, v1Emit, Wasm.V1.Execution.values,
+    .source .return_, .trap, fun t => [.invoke t.address], .frame, fun n => .label n []⟩
+
+def limeEmit : Op → Wasm.Lime1.Execution.Admin
+  | .numeric op => Computed.Prefix.emit limeSyntax op
+  | op => .source (op.emit limeCodeSyntax)
 
 def limeAdmin : Syntax Wasm.Lime1.Execution.Admin :=
-  ⟨limeSyntax, .source ∘ .localSet, .source ∘ .localTee, Wasm.Lime1.Execution.values,
-    .source .return_, .source .unreachable, .trap, fun t => [.invoke t.address], .frame, fun n => .label n []⟩
+  ⟨limeSyntax, limeEmit, Wasm.Lime1.Execution.values,
+    .source .return_, .trap, fun t => [.invoke t.address], .frame, fun n => .label n []⟩
+
+def coreEmit : Op → Core.Admin
+  | .numeric op => Computed.Prefix.emit coreSyntax op
+  | op => .plain (op.emit coreCodeSyntax)
 
 def coreAdmin : Syntax Core.Admin :=
-  ⟨coreSyntax, .plain ∘ .localSet, .plain ∘ .localTee, coreValues, .plain .return_, .plain .unreachable, .trap,
+  ⟨coreSyntax, coreEmit, coreValues, .plain .return_, .trap,
     fun t => [.ref (.func t.address.value), .callRefType t.declaration.type.toDefType],
     fun n f => .frame n f.toCore, fun n => .label n []⟩
 

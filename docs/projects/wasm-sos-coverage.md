@@ -36,7 +36,7 @@ The [ranked graph judgment](../../Silmaril/Wasm/Institution/Operational/CallCont
 interprets one typed activation at a time by well-founded recursion on resolved
 targets. The graph checker derives the target table from each body and checks
 the typed operand prefix, local reads and writes, integer binary operations,
-direct calls, function-body return, and normal fallthrough. The judgment also
+direct calls, unindexed scalar blocks, explicit return, and normal fallthrough. The judgment also
 covers unreachable and partial trap discards. Exact active-call inversion identifies the child's step
 and the caller's unchanged continuation. Finite runs preserve typing and the
 descending chain of entered frames. The four-frame fixtures cover return and
@@ -84,13 +84,22 @@ body. The existing frame exit selects the function's result suffix. Fixtures
 enter two scalar source blocks, traverse both labels, and return through the
 function frame with the ordered results.
 
-The ranked source checker still needs recursive block bodies with separate
-fallthrough and function return types. The proof will also need to close under
-resumption and partial trap discards in each entered block.
+The ranked source checker now checks blocks recursively from an empty operand
+stack and includes their direct calls in the rank table. Each block declares
+zero or one numeric fallthrough result. The enclosing function's return types
+remain in scope beneath every block. A suspended block retains its caller's
+operand prefix and pending code. A nested callee can return to the block,
+which continues with the same locals and the callee's result. Block fallthrough
+appends the block's result to the saved operands. Explicit return crosses each
+label, dropping its pending code, before the function frame selects the result
+suffix. Traps can discard pending code and operands in stages before leaving
+each label. The graph's exact native successor and finite endpoint theorems cover
+all these stages in Core, Lime1, and V1 under the existing allocation, rank,
+and dialect guards.
 
-The graph fragment excludes return through additional structured labels,
-recursion, indirect and host calls, unrestricted control flow, store mutation,
-and whole-module validation.
+The graph fragment excludes block parameters and multiple block results,
+loops, branches, recursion, indirect and host calls, store mutation, and
+whole-module validation.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have

@@ -98,6 +98,13 @@ theorem core_entry_iff {f : Core.Frame}
       dst = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ :=
   Proofs.core_entry_iff
 
+open Core in
+theorem core_context_entry_iff {f : Core.Frame} {result : Option NumType} {body : List Instr}
+    {saved : List Val} {rest : List Admin} {dst : Config H} :
+    Step P noHost ⟨s, f, vals saved ++ .plain (.block (coreType result) body) :: rest⟩ dst ↔
+      dst = ⟨s, f, vals saved ++ .label result.toList.length [] (expression body) :: rest⟩ :=
+  Proofs.core_context_entry_iff
+
 theorem core_sound {a b : State} (edge : Edge a b) :
     Core.Step P noHost (coreConfig s m a) (coreConfig s m b) :=
   Proofs.core_sound s m edge
