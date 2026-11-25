@@ -13,19 +13,19 @@ open CategoryTheory
 variable {C : Type u} [Category.{v} C] {P : Coproducts C}
 
 @[reassoc]
-private theorem pure_comp_of (T : CategoryTheory.Monad C) {X Y Z : C} (f : X ⟶ Y)
+theorem pure_comp_of (T : CategoryTheory.Monad C) {X Y Z : C} (f : X ⟶ Y)
     (g : Kleisli.mk T Y ⟶ Kleisli.mk T Z) :
     (((Kleisli.Adjunction.toKleisli T).map f) ≫ g).of = f ≫ g.of := by
   change (f ≫ T.η.app Y) ≫ T.map g.of ≫ T.μ.app Z = f ≫ g.of
   simp [Category.assoc, ← T.η.naturality_assoc g.of]
 
-private theorem comp_pure_of (T : CategoryTheory.Monad C) {X Y Z : C}
+theorem comp_pure_of (T : CategoryTheory.Monad C) {X Y Z : C}
     (f : Kleisli.mk T X ⟶ Kleisli.mk T Y) (g : Y ⟶ Z) :
     (f ≫ ((Kleisli.Adjunction.toKleisli T).map g)).of = f.of ≫ T.map g := by
   change f.of ≫ T.map (g ≫ T.η.app Z) ≫ T.μ.app Z = f.of ≫ T.map g
   simp
 
-private theorem kleisli_desc_of (P : Coproducts C) (T : CategoryTheory.Monad C)
+theorem kleisli_desc_of (P : Coproducts C) (T : CategoryTheory.Monad C)
     {X Y Z : Kleisli T} (f : X ⟶ Z) (g : Y ⟶ Z) :
     ((P.kleisli T).desc f g).of = P.desc f.of g.of := by
   apply P.hom_ext
@@ -34,7 +34,7 @@ private theorem kleisli_desc_of (P : Coproducts C) (T : CategoryTheory.Monad C)
   · exact (pure_comp_of T P.inr ((P.kleisli T).desc f g)).symm.trans
       ((congrArg Kleisli.Hom.of ((P.kleisli T).inr_desc f g)).trans (P.inr_desc f.of g.of).symm)
 
-private theorem kleisli_map_pure (T : CategoryTheory.Monad C) {X Y V W : C}
+theorem kleisli_map_pure (T : CategoryTheory.Monad C) {X Y V W : C}
     (f : X ⟶ V) (g : Y ⟶ W) :
     (P.kleisli T).map ((Kleisli.Adjunction.toKleisli T).map f)
         ((Kleisli.Adjunction.toKleisli T).map g) =
@@ -87,7 +87,7 @@ private theorem guardAt_compose (W : C) {X Y Z A B : C}
   exact Eq.mp (congrArg ((M.obj W).guard.guarded
     (Y := Kleisli.mk (M.obj W).monad A) (Z := Kleisli.mk (M.obj W).monad B)) e) h'
 
-private theorem guardAt_parameter {W V X Y Z : C} (k : W ⟶ V)
+theorem guardAt_parameter {W V X Y Z : C} (k : W ⟶ V)
     {f : X ⟶ (M.obj W).monad.obj (P.sum Y Z)} (hf : M.guardedAt W (Y := Y) (Z := Z) f) :
     M.guardedAt V (Y := Y) (Z := Z) (f ≫ (M.toParametrizedMonad.parameter (P.sum Y Z)).map k) :=
   (M.map k).guarded f hf
@@ -114,7 +114,7 @@ private theorem guardAt_uniform (W : C) {X Y Z : C}
 variable (R : FinalResumptions M.toParametrizedMonad)
 
 @[reassoc]
-private theorem map_out {X Y : C} (g : X ⟶ Y) :
+theorem map_out {X Y : C} (g : X ⟶ Y) :
     (R.monad P).map g ≫ R.out Y =
       R.out X ≫ (M.toParametrizedMonad.parameter X).map ((R.monad P).map g) ≫ (M.obj (R.obj Y)).monad.map g := by
   change R.extend P (g ≫ R.unit Y) ≫ R.out Y = _
@@ -282,7 +282,7 @@ theorem iterateResumption_uniform {X Y Z : C}
         (((M.toParametrizedMonad.parameter Y).map_comp j k).symm.trans
           (congrArg (M.toParametrizedMonad.parameter Y).map jkl))
 
-private theorem iterate_congr {K : Type u} [Category.{v} K] {P' : Coproducts K}
+theorem iterate_congr {K : Type u} [Category.{v} K] {P' : Coproducts K}
     {G : Guardedness P'} (F : G.Fixpoints) {X Y : K}
     {f g : X ⟶ P'.sum Y X} (e : f = g) (hf : G.guarded f) (hg : G.guarded g) :
     F.iterate f hf = F.iterate g hg := by
@@ -415,5 +415,21 @@ theorem iterateResumption_naturality {X Y Z : C} (f : X ⟶ R.obj (P.sum Y X)) (
       rw [kl, Functor.map_comp, ← bl]
       simp only [Category.assoc, pe]
     _ = _ := by rw [eSpec]
+
+theorem resumption_comp_of {X Y Z : Kleisli (R.monad P)} (f : X ⟶ Y) (g : Y ⟶ Z) :
+    (f ≫ g).of = f.of ≫ R.extend P g.of :=
+  congrArg (fun z => f.of ≫ z) (R.monad_extend P g.of)
+
+theorem observedFixpoint {X Y : Kleisli (R.monad P)}
+    (f : X ⟶ (P.kleisli (R.monad P)).sum Y X)
+    (hf : M.observedGuard R (Y := Y) (Z := X) f) :
+    Guardedness.IsFixpoint f
+      (kleisliArrow (M.iterateResumption R f.of hf)) := by
+  let q : X ⟶ Y := kleisliArrow (M.iterateResumption R f.of hf)
+  change f ≫ (P.kleisli (R.monad P)).desc (𝟙 Y) q = q
+  apply Kleisli.hom_ext
+  exact (resumption_comp_of M R f _).trans
+    ((congrArg (fun z => f.of ≫ R.extend P z) (kleisli_desc_of P (R.monad P) (𝟙 Y) q)).trans
+      (iterateResumption_fixpoint M R f.of hf))
 
 end Silmaril.Calco2019.Proofs
