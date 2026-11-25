@@ -48,8 +48,8 @@ structure CheckedAction (signature : ExternalSignature) where
 end
 
 private def select (selection : Selection) (registry : CheckedRegistry)
-    (externalLevels : Levels.ExternalLevels) (signature : ExternalSignature)
-    (maxDepth : Nat) (id : BindingId) : Except Diagnostic (CheckedExpr signature) := do
+    (externalLevels : Levels.ExternalLevels) (signature : ExternalSignature) (fragment : Fragment)
+    (maxDepth : Nat) (id : BindingId) : Except Diagnostic (CheckedExpr signature fragment) := do
   let (home, body) ← (definitionBody registry id).mapError .lowering
   let checked ← (Levels.check registry externalLevels).mapError .levels
   let site := home.child .body
@@ -62,23 +62,28 @@ private def select (selection : Selection) (registry : CheckedRegistry)
     | .state => level.atMost .state
     | .action => level = .action
   unless accepted do throw (.wrongLevel site selection level)
-  (lowerBody registry signature true maxDepth home body).mapError .lowering
+  (lowerBody registry signature fragment true maxDepth home body).mapError .lowering
+
+private def lowerStateIn (registry : CheckedRegistry) (externalLevels : Levels.ExternalLevels)
+    (signature : ExternalSignature) (fragment : Fragment)
+    (maxDepth : Nat) (id : BindingId) : Except Diagnostic (CheckedExpr signature fragment) := do
+  let expression ← select .state registry externalLevels signature fragment maxDepth id
+  if let some site := expression.term.firstPrime then throw (.primeInState site)
+  return expression
 
 /-- Check the exact registry and select a closed constant- or state-level
 definition. Its expanded value must be independent of a target endpoint. -/
 public def lowerState (registry : CheckedRegistry) (externalLevels : Levels.ExternalLevels)
     (signature : ExternalSignature) (maxDepth : Nat) (id : BindingId) :
-    Except Diagnostic (CheckedExpr signature) := do
-  let expression ← select .state registry externalLevels signature maxDepth id
-  if let some site := expression.term.firstPrime then throw (.primeInState site)
-  return expression
+    Except Diagnostic (CheckedExpr signature) :=
+  lowerStateIn registry externalLevels signature .core maxDepth id
 
 /-- Check the exact registry and select a closed action-level definition in
 the supported data fragment. -/
 public def lowerAction (registry : CheckedRegistry) (externalLevels : Levels.ExternalLevels)
     (signature : ExternalSignature) (maxDepth : Nat) (id : BindingId) :
     Except Diagnostic (CheckedAction signature) := do
-  let expression ← select .action registry externalLevels signature maxDepth id
+  let expression ← select .action registry externalLevels signature .core maxDepth id
   return ⟨expression.term, expression.wellFormed⟩
 
 end Silmaril.Logic.Temporal.TLA.DataElab.Endpoints
