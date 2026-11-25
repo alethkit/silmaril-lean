@@ -104,7 +104,7 @@ theorem sliceAction (operands : List Value) : FrameAction (readSliceOperands ope
       exact actionBind (actionList address) fun _ => actionBind (actionExcept _) actionAllocate
     | tuple address =>
       exact actionBind (actionTuple address) fun _ => actionBind (actionExcept _) actionAllocateTuple
-    | string => exact actionExcept _
+    | string | range => exact actionExcept _
     | _ => exact actionThrow _
   next => exact actionThrow _
 

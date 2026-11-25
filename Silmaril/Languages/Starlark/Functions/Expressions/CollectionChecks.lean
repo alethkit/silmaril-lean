@@ -476,4 +476,97 @@ private def rangeExpr (args : List Expr) : Expr := .callPos (.atom (.builtin .ra
       published.exports.lookup "kind" = some (.string "range"))
   | _ => false
 
+-- Slices of descending ranges and nested slices are still ranges.
+#guard
+  let check := fun expression count first last =>
+    match execute expression with
+    | .ok value@(.range span) state =>
+      match Lists.readIndex value (.scalar (.int 0)) state, Lists.readIndex value (.scalar (.int (-1))) state with
+      | .ok (.scalar (.int a)) _, .ok (.scalar (.int b)) _ => span.length == count && a == first && b == last
+      | _, _ => false
+    | _ => false
+  let descending := Expr.slice (rangeExpr [integer 10, integer 1, integer (-2)]) omitted omitted (integer (-2))
+  let inner := Expr.slice (rangeExpr [integer 2, integer 30, integer 3]) (integer 1) (integer 10) (integer 3)
+  check descending 3 2 10 && check (.slice inner omitted omitted (integer (-2))) 2 23 5
+
+-- An explicit reverse stop of -1 differs from omission. Empty slices stay empty.
+#guard
+  let source := rangeExpr [integer 6]
+  let check := fun expression =>
+    match execute (.index expression (integer 0)) with
+    | .error (.indexRange 0 0) _ => true
+    | _ => false
+  let crossed := Expr.slice source (integer 4) (integer 1) omitted
+  check (.slice source omitted (integer (-1)) (integer (-1))) &&
+    check (.slice crossed omitted omitted (integer (-1))) &&
+    check (.slice (rangeExpr [integer 0]) omitted omitted (integer (-1)))
+
+-- Point reads and length remain exact even when offsets or composed endpoints exceed Go's width.
+#guard
+  let initial : Lists.State := { iterators := [0], heap := #[⟨.list [], false⟩] }
+  let check := fun expression count last =>
+    match denoteExpr #[] [] expression initial with
+    | .ok value@(.range span) next =>
+      match Lists.readIndex value (.scalar (.int (-1))) next with
+      | .ok (.scalar (.int result)) final =>
+        span.length == count && result == last &&
+          decide (next.heap = initial.heap ∧ final.heap = initial.heap ∧ final.iterators = initial.iterators)
+      | _ => false
+    | _ => false
+  check (.slice (rangeExpr [integer 1000000000000000000000000]) omitted omitted (integer (-2)))
+    500000000000000000000000 1 &&
+  check (.slice (rangeExpr [integer 10]) (integer (-100000000000)) (integer 100000000000) (integer 100000000000))
+    1 0 &&
+  check (.slice (rangeExpr [integer 0, integer 9223372036854775807, integer 4611686018427387904])
+    omitted (integer 1) (integer 2)) 1 0 &&
+  check (.slice (rangeExpr [integer 9223372036854775806, integer 9223372036854775807, integer 2])
+    omitted omitted omitted) 1 9223372036854775806
+
+-- Scratch lowering preserves the slice value and effects, and the old destination after failure.
+#guard
+  let target : Binding := ⟨.global, "out"⟩
+  let initial := root.write target (.scalar (.int 99))
+  let receiver := note 1 (rangeExpr [integer 10])
+  let check := fun start stop stride =>
+    let expression := Expr.slice receiver (note 2 start) (note 3 stop) (note 4 stride)
+    (execute expression, run program (.seq setup (lower expression target 5).code) initial)
+  let bad := Expr.atom (.scalar (.bool true))
+  match check (integer 1) (integer 8) (integer 3), check bad bad (integer 0) with
+  | (.ok value@(.range span) success, .ok .next loweredSuccess),
+    (.error .zeroSliceStride failure, .error .zeroSliceStride loweredFailure) =>
+    decide (span.start = 1 ∧ span.stop = 8 ∧ span.step = 3 ∧ span.length = 3) &&
+      observed success [1, 2, 3, 4] && observed failure [1, 2, 3, 4] &&
+      observed loweredSuccess [1, 2, 3, 4] && observed loweredFailure [1, 2, 3, 4] &&
+      decide (success.heap = loweredSuccess.heap ∧ failure.heap = loweredFailure.heap ∧
+        (loweredSuccess.bindingValue target).toOption = some value ∧
+        (loweredFailure.bindingValue target).toOption = some (.scalar (.int 99)))
+  | _, _ => false
+
+#guard
+  let receiver := note 1 (rangeExpr [integer 10])
+  let badValue := Lists.Value.scalar (.bool true)
+  let bad := Expr.atom (.scalar (.bool true))
+  let failed := fun expression expected trace =>
+    match execute expression with
+    | .error error state => error == expected && observed state trace
+    | _ => false
+  failed (.slice receiver (note 2 bad) (length (note 3 (integer 9))) (note 4 (integer 0)))
+    (.builtinType .len (.scalar (.int 9))) [1, 2, 3] &&
+  failed (.slice receiver (note 2 bad) (note 3 bad) (note 4 bad)) (.sliceStrideType badValue) [1, 2, 3, 4] &&
+  failed (.slice receiver (note 2 bad) (note 3 bad) (note 4 omitted)) (.sliceStartType badValue) [1, 2, 3, 4] &&
+  failed (.slice receiver (note 2 omitted) (note 3 bad) (note 4 (integer (-1)))) (.sliceStopType badValue) [1, 2, 3, 4]
+
+#guard
+  let commands : List Modules.Resolve.Command := [
+    .define "pick" { positional := [⟨"value", none⟩] } (.ret (some starlark%[value])),
+    .define "nested" {} (.ret (some starlark%[pick(range(2, 30, 3))[pick(1):pick(10):pick(3)][pick(None)::pick(-2)]])),
+    .assign "items" starlark%[nested()], .assign "first" starlark%[items[0]],
+    .assign "last" starlark%[items[-1]], .assign "size" starlark%[len(items)]]
+  match Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.ok published _) =>
+    decide (published.exports.lookup "first" = some (.scalar (.int 23)) ∧
+      published.exports.lookup "last" = some (.scalar (.int 5)) ∧
+      published.exports.lookup "size" = some (.scalar (.int 2)))
+  | _ => false
+
 end Silmaril.Languages.Starlark.Functions.Lowering

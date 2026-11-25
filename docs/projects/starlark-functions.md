@@ -244,8 +244,8 @@ The new built-in rules and subscript primitive compose with
 `evaluates_iff_denoteExpr` and `lower_preserves` for exact outcomes and
 state after scratch projection. Normalized source and Lean quotation use
 ordinary calls and subscripts. Range truth, length and type are available.
-Range slices, iteration and spreading, conversions to lists and tuples,
-comparison, membership and formatting remain open.
+Range iteration and spreading, conversions to lists and tuples, comparison,
+membership and formatting remain open.
 [Pinned range spec][range] · [Pinned subscripts][subscript] · [Go range construction and indexing][go-range] · [Go index validation][go-index] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ### List and tuple slice reads
@@ -277,7 +277,7 @@ value-level selection and allocation primitive with the denotation.
 `evaluates_iff_denoteExpr` compares the exact outcome and state.
 `lower_preserves` covers slice reads after projecting direct scratch bindings.
 The normalized resolver and Lean quotation admit `xs[a:b:s]` with optional
-bounds. Slice reads on bytes and ranges remain open.
+bounds. Slice reads on bytes remain open.
 [Pinned slice spec][slice-expr] · [Go compilation][go-slice-compile] · [Go validation][go-slice-eval] · [Go list slice][go-list-slice] · [Go tuple slice][go-tuple-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ### String slice reads
@@ -298,6 +298,35 @@ byte reversal as a string. For example, `"é"[:1]` yields the byte `c3` in
 Go and raises `invalidSliceUTF8` in Lean. `"aé🙂z"[1:-1]` yields
 `"é🙂"` in both. The distinct `bytes` value type remains open.
 [Pinned strings][strings] · [Pinned slice spec][slice-expr] · [Go string indexing and slicing][go-string-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
+
+### Lazy range slice reads
+
+Range slices use the same operand order and checked offset normalization
+as list, tuple and string slices. The normalized offsets form a range in
+index space. The result maps the normalized start and exclusive stop
+through the receiver's affine map and multiplies the two strides. Its
+stride stays nonzero. `RangeValue.slice_atOffset` proves that the resulting
+map applies the normalized offset map before the receiver's map. Nested
+slices repeat the same composition. Range slicing calculates a new
+descriptor without enumerating elements or allocating a Starlark heap cell.
+
+An empty result stays empty under further slicing. Lean retains independently
+clamped bounds for a slice with crossed endpoints. Go collapses crossed
+bounds to equal endpoints, which gives the same empty length and index
+errors. Descriptor formatting remains outside this profile.
+
+Pinned Go converts explicit start, stop and stride operands to signed
+32 bits and composes ranges with host `int` arithmetic. On amd64 the
+fixtures show two nonempty slices becoming empty in Go after wraparound,
+one in the composed stride and one in the mapped stop. Lean computes all
+these values exactly.
+
+The existing independent slice rule and direct evaluator share the
+value-level primitive. `evaluates_iff_denoteExpr` and `lower_preserves`
+cover exact outcomes and residual states, including earlier effects
+and an unchanged destination on failure. The normalized resolver and
+Lean quotation use ordinary slice syntax, including nested slices.
+[Pinned range spec][range] · [Pinned slice spec][slice-expr] · [Go validation][go-slice-eval] · [Go range composition][go-range-slice] · [Point correspondence](../../Silmaril/Languages/Starlark/Lists/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ## Native expression positions
 
@@ -535,6 +564,7 @@ extend this profile. Host callable effects remain open.
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
 [range]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#range
 [go-range]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L827-L879
+[go-range-slice]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L881-L891
 [go-index-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1334-L1338
 [go-index]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L681-L717
 [slice-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#slice-expressions
