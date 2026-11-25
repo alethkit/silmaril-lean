@@ -11,30 +11,36 @@ open Silmaril.RuntimeWires.ProgressiveGraph
 
 universe u v
 
-variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} (d : Diagram S V W)
+variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {kind : VertexSeparation} (d : Diagram S V W kind)
 variable {v : Fin V} {lo hi : ℝ}
 
-/-- Sort a finite selection at a height at which every selected edge is active. -/
-private theorem sorted_selection (h : ℝ) (P : Fin W → Prop)
-    (hP : ∀ w, P w → d.crosses w h) :
-    ∃ l : List (Fin W), (∀ w, w ∈ l ↔ P w) ∧ l.Pairwise (fun a b => d.x a h < d.x b h) := by
+/-- Sort a finite selection with distinct horizontal coordinates. -/
+theorem sorted_coordinates {I : Type*} [Fintype I] [DecidableEq I]
+    (position : I → ℝ) (P : I → Prop)
+    (apart : ∀ {a b}, P a → P b → a ≠ b → position a ≠ position b) :
+    ∃ l : List I, (∀ x, x ∈ l ↔ P x) ∧ l.Pairwise (fun a b => position a < position b) := by
   classical
   let chosen := Finset.univ.filter P
-  let leWire := fun a b => decide (d.x a h ≤ d.x b h)
-  let l := chosen.toList.mergeSort leWire
-  have mem (w : Fin W) : w ∈ l ↔ P w := by simp [l, chosen]
+  let leSlot := fun a b => decide (position a ≤ position b)
+  let l := chosen.toList.mergeSort leSlot
+  have mem (w : I) : w ∈ l ↔ P w := by simp [l, chosen]
   have hn : l.Nodup := (List.mergeSort_perm _ _).symm.nodup chosen.nodup_toList
-  have weak : l.Pairwise (fun a b => d.x a h ≤ d.x b h) := by
-    simpa [l, leWire] using List.pairwise_mergeSort (le := leWire)
+  have weak : l.Pairwise (fun a b => position a ≤ position b) := by
+    simpa [l, leSlot] using List.pairwise_mergeSort (le := leSlot)
       (fun a b c ha hb => decide_eq_true (le_trans (of_decide_eq_true ha) (of_decide_eq_true hb)))
-      (fun a b => by simp [leWire, le_total]) chosen.toList
-  have distinct : l.Pairwise (fun a b => d.x a h ≤ d.x b h ∧ a ≠ b) :=
+      (fun a b => by simp [leSlot, le_total]) chosen.toList
+  have distinct : l.Pairwise (fun a b => position a ≤ position b ∧ a ≠ b) :=
     hn.imp₂ (fun _ _ hne hle => ⟨hle, hne⟩) weak
-  refine ⟨l, mem, distinct.imp_of_mem ?_⟩
-  intro a b ha hb hp
-  have ca := hP a ((mem a).mp ha)
-  have cb := hP b ((mem b).mp hb)
-  exact lt_of_le_of_ne hp.1 (d.separated hp.2 ca ⟨cb.1.le, cb.2.le⟩)
+  exact ⟨l, mem, distinct.imp_of_mem (fun {a b} ha hb hp =>
+    lt_of_le_of_ne hp.1 (apart ((mem a).mp ha) ((mem b).mp hb) hp.2))⟩
+
+/-- Sort a finite selection at a height at which every selected edge is active. -/
+theorem sorted_selection (h : ℝ) (P : Fin W → Prop)
+    (hP : ∀ w, P w → d.crosses w h) :
+    ∃ l : List (Fin W), (∀ w, w ∈ l ↔ P w) ∧ l.Pairwise (fun a b => d.x a h < d.x b h) := by
+  refine sorted_coordinates (fun w => d.x w h) P (fun {a b} ha hb hne => ?_)
+  have ends := hP b hb
+  exact d.separated hne (hP a ha) ⟨ends.1.le, ends.2.le⟩
 
 theorem ordered_cut_exists (h : ℝ) : ∃ wires, d.OrderedCut h wires := by
   obtain ⟨wires, exact_wires, ordered⟩ := sorted_selection d h (fun w => d.crosses w h) (fun _ h => h)

@@ -131,6 +131,19 @@ private theorem case_eq_distribute {E A B X : V} (f : J.obj E ⟶ J.obj (A ⨿ B
   simp only [caseWithContext, Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind,
     routeEnvironment, Category.assoc]
 
+theorem caseWithContext_project_proof {E R A B X : V} (p : E ⟶ R)
+    (f : J.obj E ⟶ J.obj (A ⨿ B))
+    (l : J.obj (R ⊗ A) ⟶ J.obj X) (r : J.obj (R ⊗ B) ⟶ J.obj X) :
+    caseWithContext J f (J.map (p ▷ A) ≫ l) (J.map (p ▷ B) ≫ r) =
+      retainEnvironment J p f ≫ routeEnvironment J R A B ≫ coprod.desc l r := by
+  rw [case_eq_distribute, ← coprod.map_desc, distributeEnv_pre_assoc, ← Category.assoc (extend J f)]
+  have duplicateProject : duplicate E ≫ (p ▷ E) = lift p (𝟙 E) := by
+    apply CartesianMonoidalCategory.hom_ext <;> simp [duplicate]
+  have keep : extend J f ≫ J.map (p ▷ (A ⨿ B)) = retainEnvironment J p f := by
+    rw [extend_eq_retainLeft, Category.assoc, ← retainLeft_pre_map, ← J.map_comp_assoc, duplicateProject]
+    rfl
+  rw [keep]
+
 theorem case_pre_map_proof {D E A B X : V} (k : D ⟶ E)
     (f : J.obj E ⟶ J.obj (A ⨿ B))
     (left : J.obj (E ⊗ A) ⟶ J.obj X) (right : J.obj (E ⊗ B) ⟶ J.obj X) :
@@ -360,7 +373,7 @@ private theorem capture_liftExit {E A B D : V}
     rw [reassoc_of% hr, coprod.inr_map, Category.id_comp]
     exact distributeMap_inr J E D B
 
-private theorem route_tensor_comparison (E A B : V) :
+theorem route_tensor_comparison_proof (E A B : V) :
     routeEnvironment J E A B =
       (Functor.StrongPremonoidal.tensorIso (J := J) E (A ⨿ B)).inv ≫
         (J.obj E ◁ splitMapCoprod J A B) ≫
@@ -663,7 +676,7 @@ theorem retainLeft_iterate_shared {E X Y : V}
   let g := (J.obj E ◁ f) ≫ δ
   have step : retainLeft J (R := E) body ≫ routeEnvironment J E Y X =
       (t E X).inv ≫ g ≫ Limits.coprod.map (t E Y).hom (t E X).hom := by
-    rw [route_tensor_comparison]
+    rw [route_tensor_comparison_proof]
     simp only [retainLeft, leftTensor, id_whiskerRight, Category.id_comp, Category.assoc,
       Iso.hom_inv_id_assoc, g, f, t, δ, whiskerLeft_comp]
   have reindex :

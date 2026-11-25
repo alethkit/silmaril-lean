@@ -326,6 +326,76 @@ private theorem copair_injr {R A B D : SynCat S} {l r : Tm Empty S.Instr 1}
     (copairTyping hl hr)).trans ((reduce_copair_right hl hr x y .bv .bv).trans
       (packedArrow_apply (A := productObj R B) (B := D) (.pair x y) (.pair .bv .bv) hr).symm)
 
+private theorem open_packed_branch {n : Nat} {β : BoundCtx S.Ty n} {X A D : S.Ty}
+    {l : Tm Empty S.Instr (n + 1)} (hl : HasType S.Instr Ctx.nil (β.snoc A) l D) :
+    Eqv S.pureEff Ctx.nil ((β.snoc X).snoc A)
+      (bsubst (fun _ : Fin 1 => .pair (lift (lift (packTerm β))) (.bv 0))
+        (packedTerm (β.snoc A) l)) (underBinder l) D := by
+  have e := (unpacked_packed hl).rename (TypedRenaming.underBinder β X A)
+  change Eqv S.pureEff Ctx.nil _ (underBinder (unpackedTerm (β.snoc A) (packedTerm (β.snoc A) l))) _ _ at e
+  have opening :
+      underBinder (unpackedTerm (β.snoc A) (packedTerm (β.snoc A) l)) =
+        bsubst (fun _ : Fin 1 => .pair (lift (lift (packTerm β))) (.bv 0))
+          (packedTerm (β.snoc A) l) := by
+    rw [underBinder, unpackedTerm, rename_bsubst]
+    apply bsubst_congr
+    intro _
+    simp only [packTerm, rename_pair, rename_bv, lift, rename_comp]
+    rfl
+  rwa [opening] at e
+
+private theorem packed_case_newest {n : Nat} {β : BoundCtx S.Ty n} {A B D : S.Ty}
+    {l r : Tm Empty S.Instr (n + 1)}
+    (hl : HasType S.Instr Ctx.nil (β.snoc A) l D)
+    (hr : HasType S.Instr Ctx.nil (β.snoc B) r D) :
+    packedArrow (S := S) (.case HasType.newest hl.underBinder hr.underBinder) =
+      mk (copairTyping (R := of (packType β)) (A := of A) (B := of B) (D := of D)
+        (packedTyping hl) (packedTyping hr)) := by
+  let γ := β.snoc (coprod A B)
+  let saved := (packTermTyping (S := S) β).lift (B := coprod A B)
+  let scrutinee := HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+    (β := β) (A := coprod A B)
+  let branches := copairTyping (R := of (packType β)) (A := of A) (B := of B) (D := of D)
+    (packedTyping (S := S) hl) (packedTyping (S := S) hr)
+  have opened := (open_copair_body (packedTyping hl) (packedTyping hr)
+      saved scrutinee ((packTerm_pure (S := S) β).rename Fin.succ) .bv).trans
+    (.case (.refl scrutinee) (open_packed_branch (X := coprod A B) hl)
+      (open_packed_branch (X := coprod A B) hr))
+  have pack := (packedArrow_eq_iff (S := S) (applyTyping (.pair saved scrutinee) branches)
+    (.case scrutinee hl.underBinder hr.underBinder)).mpr opened
+  have inverse : packedArrow (S := S) (applyTyping (.pair saved scrutinee) branches) = mk branches := by
+    apply Quotient.sound
+    exact packed_unpacked γ branches
+  exact pack.symm.trans inverse
+
+theorem packedArrow_case_of_split_proof {n : Nat} {β : BoundCtx S.Ty n} {A B D : S.Ty}
+    {e : Tm Empty S.Instr n} {l r : Tm Empty S.Instr (n + 1)}
+    (he : HasType S.Instr Ctx.nil β e (coprod A B))
+    (hl : HasType S.Instr Ctx.nil (β.snoc A) l D) (hr : HasType S.Instr Ctx.nil (β.snoc B) r D)
+    {split : productObj (of (packType β)) (cop (of A) (of B)) ⟶
+      productObj (of (packType β)) (of A) ⨿ productObj (of (packType β)) (of B)}
+    (splitL : tensorLeft (of (packType β)) (injl (of A) (of B)) ≫ split = coprod.inl)
+    (splitR : tensorLeft (of (packType β)) (injr (of A) (of B)) ≫ split = coprod.inr) :
+    packedArrow (S := S) (.case he hl hr) =
+      pairArrows (𝟙 (of (packType β))) (packedArrow he) ≫
+        split ≫ coprod.desc (packedArrow hl) (packedArrow hr) := by
+  let X := of (S := S) (packType β)
+  let branches := copairTyping (R := X) (A := of A) (B := of B) (D := of D)
+    (packedTyping (S := S) hl) (packedTyping (S := S) hr)
+  have branchEq : (mk branches : productObj X (cop (of A) (of B)) ⟶ of D) =
+      split ≫ coprod.desc (packedArrow hl) (packedArrow hr) := by
+    apply tensorLeft_coprod_hom_ext_proof X (of A) (of B)
+    · rw [← Category.assoc, splitL]
+      exact (copair_injl (packedTyping hl) (packedTyping hr)).trans
+        (coprod.inl_desc (packedArrow hl) (packedArrow hr)).symm
+    · rw [← Category.assoc, splitR]
+      exact (copair_injr (packedTyping hl) (packedTyping hr)).trans
+        (coprod.inr_desc (packedArrow hl) (packedArrow hr)).symm
+  let body := HasType.case HasType.newest hl.underBinder hr.underBinder
+  have bindCase := Eqv.ax (pureEff := S.pureEff) (.sequencing (.bindCase e l r))
+    (.case he hl hr) (.let₁ he body)
+  rw [(packedArrow_eq_iff _ _).mpr bindCase, packedArrow_let1, packed_case_newest hl hr, branchEq]
+
 theorem tensorLeft_coprod_exists (R A B : SynCat S) {D : SynCat S}
     (f : productObj R A ⟶ D) (g : productObj R B ⟶ D) :
     ∃ h : productObj R (cop A B) ⟶ D,

@@ -81,9 +81,10 @@ private theorem binary_body_apply (x : Unit ⊕ Unit) (y : Unit ⊕ (Unit ⊕ Un
   · rw [binaryCycleBody, desc_inr_apply, right, matrices]
     rcases y with ⟨⟩ | (⟨⟩ | ⟨⟩) <;> decide +revert
 
-theorem fails_cycle : ¬ conway.{0}.toFixpoints.BinaryCycleIdentity := by
-  intro h
-  have e := h (X := one) (Y := one) oneBody True.intro True.intro
+theorem fails_oneBody_cycle :
+    conway.iterate (binaryCycleBody oneBody) True.intro ≠
+      coproducts.desc (𝟙 one) (𝟙 one) ≫ conway.iterate oneBody True.intro := by
+  intro e
   have value := congrArg (fun f : sum one one ⟶ one => f (.inl ()) ()) e
   change conway.iterate (binaryCycleBody oneBody) True.intro (.inl ()) () =
     (coproducts.desc (𝟙 one) (𝟙 one) ≫ conway.iterate oneBody True.intro) (.inl ()) () at value
@@ -104,6 +105,9 @@ theorem fails_cycle : ¬ conway.{0}.toFixpoints.BinaryCycleIdentity := by
     rw [fold, relabel_comp]
     exact (iterate_apply oneBody () ()).trans singleLoop_solution
   exact (by decide : Scalar.both ≠ Scalar.overflow) (lhs.symm.trans (value.trans rhs))
+
+theorem fails_cycle : ¬ conway.{0}.toFixpoints.BinaryCycleIdentity :=
+  fun h => fails_oneBody_cycle (h oneBody True.intro True.intro)
 
 end Silmaril.Calco2019.Proofs.CounterSemiringIndependence
 

@@ -51,4 +51,12 @@ theorem toFeedback_tighten (T : G.FourInterfaceTrace) (laws : T.Tightening)
       a ≫ T.toFeedback i f hf ≫ b :=
   Proofs.Feedback.reduced_tighten i T laws f a b hf
 
+/-- Restricting a four-interface trace needs only tightening to be independent
+of the choice of initial object used to pad the marked ports. -/
+theorem toFeedback_eq_of_initial {J : K} (j : IsInitial J)
+    (T : G.FourInterfaceTrace) (laws : T.Tightening) :
+    @Eq G.Feedback (T.toFeedback i) (T.toFeedback j) := by
+  funext A B U f hf
+  exact Proofs.Feedback.reduced_initial_independent i j T laws f hf
+
 end Silmaril.Calco2019.Guardedness.FourInterfaceTrace

@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Thms
+public import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Iteration.Defs
 import Silmaril.Proofs.SSA.Isotope.LetIter.Categorical.Context.Naturality
 
 /-! # Change of the pure environment in categorical LetIter combinators -/
@@ -14,7 +14,7 @@ namespace Silmaril.Isotope.LetIter.Semantics.Categorical
 open CategoryTheory CategoryTheory.Limits CategoryTheory.PremonoidalCategory
 open scoped MonoidalCategory
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical
-  (caseWithContext contextualLoop duplicate extend retainLeft)
+  (caseWithContext contextualLoop duplicate extend retainLeft splitMapCoprod)
 
 local notation "bindArrow" => Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind
 
@@ -115,6 +115,24 @@ theorem bind_case_capture {E A B X Y : V}
         (bindArrow J left (J.map (fst E A ▷ X) ≫ k))
         (bindArrow J right (J.map (fst E B ▷ X) ≫ k)) :=
   bind_case_capture_proof J central scrutinee left right k
+
+/-- Run both contextual branches against a fixed pure projection of the original input. -/
+theorem caseWithContext_project {E R A B X : V} (p : E ⟶ R)
+    (f : J.obj E ⟶ J.obj (A ⨿ B))
+    (l : J.obj (R ⊗ A) ⟶ J.obj X) (r : J.obj (R ⊗ B) ⟶ J.obj X) :
+    caseWithContext J f (J.map (p ▷ A) ≫ l) (J.map (p ▷ B) ≫ r) =
+      retainEnvironment J p f ≫ routeEnvironment J R A B ≫ coprod.desc l r :=
+  caseWithContext_project_proof J p f l r
+
+/-- Compare value-context routing with the computation distributor and the coproduct comparison. -/
+theorem routeEnvironment_tensor_comparison (E A B : V) :
+    routeEnvironment J E A B =
+      (Functor.StrongPremonoidal.tensorIso (J := J) E (A ⨿ B)).inv ≫
+        (J.obj E ◁ splitMapCoprod J A B) ≫
+        DistributivePremonoidalCategory.leftInv (J.obj E) (J.obj A) (J.obj B) ≫
+        coprod.map (Functor.StrongPremonoidal.tensorIso (J := J) E A).hom
+          (Functor.StrongPremonoidal.tensorIso (J := J) E B).hom :=
+  route_tensor_comparison_proof J E A B
 
 end Distributive
 

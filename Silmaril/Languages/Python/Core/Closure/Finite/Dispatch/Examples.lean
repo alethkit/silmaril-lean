@@ -30,6 +30,14 @@ example : dispatch rows (.function fn) [] heap caller [] =
 example (value : Bool) : dispatch rows (.bool value) [] heap caller [] =
     .error (.call (.defined .notCallable)) := rfl
 
+example : dispatch rows Value.none [] heap caller [] =
+    .error (.call (.defined .notCallable)) := rfl
+
+example : Silmaril.Languages.Python.Core.Closure.Dispatch.dispatch rows.project Value.none []
+    heap.project caller [] = .error (.call (.defined .notCallable)) := by
+  rw [← dispatch_project rows Value.none [] heap caller []]
+  rfl
+
 example : dispatch rows (.function (Function.ofCaptureList ⟨2, calleeLayout⟩ [⟨0⟩] rfl)) [] heap caller [] =
     .error (.missingCode 2) := rfl
 

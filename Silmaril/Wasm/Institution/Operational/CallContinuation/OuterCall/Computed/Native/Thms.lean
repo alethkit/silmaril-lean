@@ -14,9 +14,25 @@ import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.C
 namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed
 
 open Execution
-open Execution.Runtime (Frame)
+open Execution.Runtime (Frame FuncAddr Value)
 open Wasm.Numerics (Profile)
 open Wasm.SingleThreaded.Det (noHost)
+
+theorem core_direct_call_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Frame}
+    {i : FuncIdx} {a : FuncAddr} {fn : Core.FuncInst H} {stack : List Value}
+    {tail : List Core.Admin} {dst : Core.Config H}
+    (lookup : f.module.funcs[i.toNat]? = some a) (alloc : s.funcs[a.value]? = some fn) :
+    Core.Step P noHost ⟨s, f.toCore, coreValues stack ++ .plain (.call i) :: tail⟩ dst ↔
+      dst = ⟨s, f.toCore, coreValues stack ++ .ref (.func a.value) :: .callRefType fn.type :: tail⟩ :=
+  Proofs.Core.call_iff lookup alloc
+
+theorem lime_direct_call_iff {H : Type} {s : Wasm.Lime1.Execution.Store H} {f : Frame}
+    {i : FuncIdx} {addr : FuncAddr} {stack : List Value} {tail : List Wasm.Lime1.Execution.Admin}
+    {dst : Wasm.Lime1.Execution.Config H} (lookup : f.module.funcs[i.toNat]? = some addr) :
+    Wasm.Lime1.Execution.Step CallFrame.limeNoHost
+      ⟨s, f, Wasm.Lime1.Execution.values stack ++ .source (.call i) :: tail⟩ dst ↔
+      dst = ⟨s, f, Wasm.Lime1.Execution.values stack ++ .invoke addr :: tail⟩ :=
+  Proofs.Lime1.call_iff lookup
 
 theorem guard_to_lime {H : Type} {s : Wasm.V1.Execution.Store H} {caller : Frame} {site : Site}
     (g : V1Guard s caller site) : LimeGuard (s.mapCode Wasm.V1.Func.toLime) caller site :=

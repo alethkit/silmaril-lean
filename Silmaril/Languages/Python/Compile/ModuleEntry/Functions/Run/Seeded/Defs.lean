@@ -10,7 +10,7 @@ public import Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Defs
 namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 
 open Source (Scope)
-open Core.Module.SeededCall (AssertionArgument Bindings CallObservation Failure Namespace Value)
+open Core.Module.SeededCall (AssertionArgument Bindings CallObservation Failure Namespace Result Value)
 
 inductive SeedPlacement where
   | builtin
@@ -53,17 +53,64 @@ structure CallEvent where
 
 structure Effect where
   binding : Except Failure (Option (String × Value))
-  call : Option CallEvent := none
+  calls : List CallEvent
+
+def observeNamedCall (space : Namespace) (name : String)
+    (arguments : List Core.Module.Functions.Operand) : CallEvent :=
+  ⟨name, Core.Module.SeededCall.runObserved space #v[] (.global name) (arguments.map lowerCallOperand)⟩
+
+def observeArgument (space : Namespace) : Argument → Result × List CallEvent
+  | .scalar operand => ((lowerCallOperand operand).eval space #v[], [])
+  | .call name arguments =>
+    let event := observeNamedCall space name arguments
+    (event.observation.result, [event])
+
+def observeArguments (space : Namespace) :
+    List Argument → Except Failure (List Value) × List CallEvent
+  | [] => (.ok [], [])
+  | argument :: rest =>
+    let (result, calls) := observeArgument space argument
+    match result with
+    | .error error => (.error error, calls)
+    | .ok value =>
+      let (values, later) := observeArguments space rest
+      (values.map (value :: ·), calls ++ later)
+
+/-- A nested call resolves the outer name before visiting its arguments.
+Only after those arguments return does it invoke the saved value. -/
+def observeNestedCall (space : Namespace) (destination : Core.Module.Functions.Destination)
+    (name : String) (arguments : List Argument) : Effect :=
+  match space.lookupGlobal name with
+  | none => ⟨.error (.raised (.runtime (.nameError name))), []⟩
+  | some callee =>
+    let (values, calls) := observeArguments space arguments
+    match values with
+    | .error error => ⟨.error error, calls⟩
+    | .ok values =>
+      let observed := Core.Module.SeededCall.invokeObserved callee values
+      ⟨observed.result.bind (acceptCall destination), calls ++ [⟨name, observed⟩]⟩
+
+inductive EvaluatesArguments (space : Namespace) :
+    List Argument → Except Failure (List Value) → List CallEvent → Prop where
+  | nil : EvaluatesArguments space [] (.ok []) []
+  | stop {argument rest error calls}
+      (failed : observeArgument space argument = (.error error, calls)) :
+      EvaluatesArguments space (argument :: rest) (.error error) calls
+  | next {argument rest value calls values later}
+      (evaluated : observeArgument space argument = (.ok value, calls))
+      (tail : EvaluatesArguments space rest values later) :
+      EvaluatesArguments space (argument :: rest) (values.map (value :: ·)) (calls ++ later)
 
 def effect {scope : Scope} (space : Namespace) : Instruction scope → Effect
   | .scalar (.assign name _ operand) =>
-    ⟨((lowerScalarOperand operand).eval space #v[]).map fun value => some (name, value), none⟩
+    ⟨((lowerScalarOperand operand).eval space #v[]).map fun value => some (name, value), []⟩
   | .scalar (.assertion operand) =>
-    ⟨(((lowerScalarOperand operand).eval space #v[]).bind assertTruth).map fun _ => none, none⟩
-  | .publish .. | .nestedCall .. => ⟨.error .unsupported, none⟩
+    ⟨(((lowerScalarOperand operand).eval space #v[]).bind assertTruth).map fun _ => none, []⟩
+  | .publish .. => ⟨.error .unsupported, []⟩
   | .call destination name arguments =>
-    let observed := Core.Module.SeededCall.runObserved space #v[] (.global name) (arguments.map lowerCallOperand)
-    ⟨observed.result.bind (acceptCall destination), some ⟨name, observed⟩⟩
+    let event := observeNamedCall space name arguments
+    ⟨event.observation.result.bind (acceptCall destination), [event]⟩
+  | .nestedCall destination name arguments => observeNestedCall space destination name arguments
 
 structure Observation where
   residual : Namespace
@@ -77,11 +124,11 @@ def runInstructions {scope : Scope} (space : Namespace) : List (Instruction scop
   | instruction :: rest =>
     let item := effect space instruction
     match item.binding with
-    | .error error => ⟨space, .error error, item.call.toList⟩
+    | .error error => ⟨space, .error error, item.calls⟩
     | .ok binding =>
       let updated := binding.elim space fun (name, value) => space.bindGlobal name value
       let tail := runInstructions updated rest
-      { tail with calls := item.call.toList ++ tail.calls }
+      { tail with calls := item.calls ++ tail.calls }
 
 /-- Seeded execution starts from the same compiled instruction stream as
 ordinary module execution. The caller supplies the namespace explicitly. -/

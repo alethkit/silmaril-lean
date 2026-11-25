@@ -64,6 +64,13 @@ theorem packedArrow_bv_succ {n : Nat} (β : BoundCtx S.Ty n) (A : S.Ty) (i : Fin
       first (of (packType β)) (of A) ≫ packedArrow (HasType.bv (β := β) (ι := i)) :=
   packedArrow_bv_succ_proof β A i
 
+/-- Weakening by one bound slot precomposes the packed arrow with the first projection. -/
+theorem packedArrow_lift {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {t : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β t B) :
+    packedArrow (S := S) (h.lift (B := A)) =
+      first (of (packType β)) (of A) ≫ packedArrow h :=
+  packedArrow_lift_proof h
+
 /-- A packed instruction is composition with the instruction on its input variable. -/
 theorem packedArrow_op {n : Nat} {β : BoundCtx S.Ty n} {a : Tm Empty S.Instr n}
     {f : S.Instr} (ha : HasType S.Instr Ctx.nil β a (instrSrc f)) :
@@ -126,6 +133,10 @@ theorem packedSubst_isPureMor {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx 
     (s : PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff) β γ σ) :
     IsPureMor (packedSubst s) :=
   packedSubst_isPureMor_proof s
+
+/-- The tuple of all bound variables is syntactically pure. -/
+theorem packTerm_pure {n : Nat} (β : BoundCtx S.Ty n) : Pure S.pureEff (packTerm β) :=
+  packTerm_pure_proof β
 
 /-- The pure substitution used by packing preserves syntactic purity. -/
 theorem packedTerm_pure {n : Nat} (β : BoundCtx S.Ty n) {t : Tm Empty S.Instr n}

@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.LambdaSSA.OrderedTheta.Model.Defs
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.OrderedTheta.Soundness
+import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.OrderedTheta.Iteration
 
 /-! # Preservation of ordered tail-controlled loops -/
 
@@ -24,6 +25,14 @@ section Monad
 
 variable {m : Type u → Type u} [Monad m] [LawfulMonad m] [Iterate m] [LawfulElgotMonad m]
   [InstructionModel Φ τ ε m]
+
+omit [InstructionModel Φ τ ε m] in
+/-- Transport Elgot iteration along pure input and output boundary maps. -/
+theorem iter_boundary {I O X Y : Type u} (f : I → m (O ⊕ I)) (g : X → m (Y ⊕ X))
+    (input : I → X) (output : O → Y)
+    (comm : ∀ x, g (input x) = f x >>= fun result => pure (Sum.map output input result))
+    (x : I) : iter g (input x) = iter f x >>= fun b => pure (output b) :=
+  Proofs.iter_boundary f g input output comm x
 
 /-- Every translation witness gives the structural region denotation in the common Kleisli Elgot model. -/
 theorem Related.preserves (rel : Related A r g) :

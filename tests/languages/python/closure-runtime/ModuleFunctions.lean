@@ -65,6 +65,21 @@ example : (match invoke (sessionAfterPublish.bindGlobal "x" (.bool false)) .asse
       residual.globals "x" = some (.bool false) ∧ residual.heap.lookup ⟨0⟩ = some (some (.int 0))
     | _ => False) := ⟨rfl, rfl⟩
 
+example : (match invoke (sessionAfterPublish.bindGlobal "x" .none)
+      (.bindGlobal "result") [.literal (.int 0)] with
+    | some ⟨.returned .none, residual⟩ =>
+      residual.globals "result" = some .none ∧ residual.heap.lookup ⟨0⟩ = some (some (.int 0))
+    | _ => False) := ⟨rfl, rfl⟩
+
+example : (match invoke (sessionAfterPublish.bindGlobal "x" .none) .assert [.literal (.int 0)] with
+    | some ⟨.assertionError, residual⟩ =>
+      residual.globals "x" = some .none ∧ residual.globals "result" = some (.int 99)
+    | _ => False) := ⟨rfl, rfl⟩
+
+example : (match invoke (sessionAfterPublish.bindGlobal "f" .none) .discard [] with
+    | some ⟨.raised .notCallable, _⟩ => true
+    | _ => false) = true := rfl
+
 example :
     ((sessionAfterPublish.prepareCall .discard (.readGlobal "f") [.literal (.int 0)]).runPrefix table 1).2.finish? =
       none := rfl

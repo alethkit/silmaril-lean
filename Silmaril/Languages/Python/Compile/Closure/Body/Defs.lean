@@ -22,6 +22,8 @@ inductive GlobalRead (scope : Scope) (name : Name) : Prop where
   | declared (access : scope.access name = some .declaredGlobal)
 
 inductive Expr (layout : Core.Closure.Layout) where
+  /-- Synthesized at the end of an ordinary function body. -/
+  | none
   | integer (value : Int)
   | read (slot : Slot layout)
   | globalName (name : Name)
@@ -181,6 +183,9 @@ inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
       (complete : index = tree.children.length)
       (value : ExprTranslation tree.scope source target) :
       Translation tree index [.return_ (some source)] (.ret target)
+  | fallthrough {tree index} (ordinary : tree.scope.context.containsYield = false)
+      (complete : index = tree.children.length) :
+      Translation tree index [] (.ret .none)
   | assign {tree index statement name source rest slot target next}
       (assignment : Assignment statement name source) (destination : SlotTranslation tree.scope name slot)
       (value : ExprTranslation tree.scope source target) (tail : Translation tree index rest next) :
@@ -249,7 +254,10 @@ private def lowerOrdinaryBody (tree : ScopeTree) (allowGlobals : Bool)
     let next ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨.assign destination.val target.val next.val,
       .assign assignment destination.property target.property next.property⟩
-  | [] => .error .bodyShape
+  | [] =>
+    if complete : childIndex = tree.children.length then
+      .ok ⟨.ret .none, .fallthrough ordinary complete⟩
+    else .error (.scopeTree tree.scope.context.path)
 termination_by body => sizeOf body
 
 end

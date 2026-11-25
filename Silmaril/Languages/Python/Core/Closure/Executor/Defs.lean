@@ -170,6 +170,7 @@ inductive InputsIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
 /-- Failure premises inspect the code table, captures and arity. -/
 inductive Rejects (table : CodeTable) (arguments : List Value) (heap : Heap) :
     Value → Dispatch.Failure → Prop where
+  | nonCallableNone : Rejects table arguments heap .none (.call (.defined .notCallable))
   | nonCallable (value : Int) : Rejects table arguments heap (.int value) (.call (.defined .notCallable))
   | nonCallableBool (value : Bool) : Rejects table arguments heap (.bool value) (.call (.defined .notCallable))
   | missing (fn : Function) (absent : table fn.code.key = none) :

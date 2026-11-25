@@ -14,7 +14,7 @@ import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Transport
 namespace Silmaril.Wasm.Institution.Operational.CallContinuation
 
 open Execution
-open Execution.Runtime (Frame FuncAddr)
+open Execution.Runtime (Frame FuncAddr Value)
 open Wasm.SingleThreaded.Det (noHost)
 
 section v1
@@ -88,6 +88,39 @@ theorem core_run_iff (allocated : s.funcs[addr.value]? = some fn.coreInstance)
     (fun h step => (core_step_iff allocated h).mp step) guard
 
 end core
+
+/-- A live Lime1 callee step leaves the caller's pending instructions unchanged. -/
+theorem lime_active_strip {H : Type} {s : Wasm.Lime1.Execution.Store H} {caller : Frame}
+    {addr : FuncAddr} {fn : CallFrame.Callee} {a : CallFrame.State} {dst : Wasm.Lime1.Execution.Config H}
+    {suffix : List Wasm.Lime1.Execution.Admin} (live : Active a)
+    (step : Wasm.Lime1.Execution.Step CallFrame.limeNoHost ⟨s, caller, CallFrame.limeCode addr fn a ++ suffix⟩ dst) :
+    ∃ mid, Wasm.Lime1.Execution.Step CallFrame.limeNoHost (CallFrame.limeConfig s caller addr fn a) mid ∧
+      dst = ⟨mid.store, mid.frame, mid.code ++ suffix⟩ :=
+  Proofs.Lime1.active_strip live step
+
+/-- A live Core callee step leaves the caller's pending instructions unchanged. -/
+theorem core_active_strip {H : Type} {P : Numerics.Profile} {s : Core.Store H} {caller : Frame}
+    {addr : FuncAddr} {fn : CallFrame.Callee} (allocated : s.funcs[addr.value]? = some fn.coreInstance)
+    {a : CallFrame.State} {dst : Core.Config H} {suffix : List Core.Admin} (live : Active a)
+    (step : Core.Step P noHost ⟨s, caller.toCore, CallFrame.coreCode addr fn a ++ suffix⟩ dst) :
+    ∃ mid, Core.Step P noHost (CallFrame.coreConfig s caller addr fn a) mid ∧
+      dst = ⟨mid.store, mid.frame, mid.code ++ suffix⟩ :=
+  Proofs.active_strip allocated live step
+
+theorem config_toLime_injective (H : Type) :
+    Function.Injective (Wasm.V1.Execution.Config.toLime (H := H)) :=
+  Proofs.config_toLime_injective H
+
+theorem listToCore_append {H : Type} (s : Wasm.Lime1.Execution.Store H)
+    (a b : List Wasm.Lime1.Execution.Admin) :
+    Wasm.Lime1.Execution.Admin.listToCore s (a ++ b) =
+      Wasm.Lime1.Execution.Admin.listToCore s a ++ Wasm.Lime1.Execution.Admin.listToCore s b :=
+  Proofs.core_append s a b
+
+theorem values_toCore {H : Type} (s : Wasm.Lime1.Execution.Store H) (vs : List Value) :
+    Wasm.Lime1.Execution.Admin.listToCore s (Wasm.Lime1.Execution.values vs) =
+      Core.vals (vs.map Value.toCore) :=
+  Proofs.core_values s vs
 
 theorem v1_to_lime {H : Type} (s : Wasm.V1.Execution.Store H) (caller : Frame)
     (addr : FuncAddr) (fn : CallFrame.Callee) (q : State) :

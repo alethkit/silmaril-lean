@@ -16,10 +16,10 @@ open LocallyNameless LocallyNameless.Tm LocallyNameless.Syntax
 
 variable {S : Sig.{u}}
 
-private theorem packTermPure : {n : Nat} → (β : BoundCtx S.Ty n) →
+theorem packTerm_pure_proof : {n : Nat} → (β : BoundCtx S.Ty n) →
     Pure S.pureEff (packTerm β)
   | _, .nil => .unit
-  | _, .snoc β _ => .pair ((packTermPure β).rename Fin.succ) .bv
+  | _, .snoc β _ => .pair ((packTerm_pure_proof β).rename Fin.succ) .bv
 
 private theorem projectPure {m : Nat} {p : Tm Empty S.Instr m} (hp : Pure S.pureEff p) :
     {n : Nat} → (β : BoundCtx S.Ty n) → (i : Fin n) → Pure S.pureEff (project β p i)
@@ -34,7 +34,7 @@ private def packingSubst {n : Nat} (β : BoundCtx S.Ty n) :
 private def unpackingSubst {n : Nat} (β : BoundCtx S.Ty n) :
     PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff)
       (.snoc .nil (packType β)) β (fun _ => packTerm β) :=
-  ⟨fun i => Fin.cases (packTermTyping β) (fun j => j.elim0) i, fun _ => packTermPure β⟩
+  ⟨fun i => Fin.cases (packTermTyping β) (fun j => j.elim0) i, fun _ => packTerm_pure_proof β⟩
 
 private theorem upSub_eqv {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
     {σ θ : Fin n → Tm Empty S.Instr m}
@@ -93,7 +93,7 @@ private theorem project_packTerm {n : Nat} (β : BoundCtx S.Ty n) (i : Fin n) :
   | nil => exact Fin.elim0 i
   | snoc β B ih =>
       refine Fin.cases (second_beta (packTermTyping β).lift HasType.newest
-        ((packTermPure β).rename Fin.succ)) (fun j => ?_) i
+        ((packTerm_pure_proof β).rename Fin.succ)) (fun j => ?_) i
       have head := first_beta (S := S) (packTermTyping β).lift
         (HasType.newest (A := B)) .bv
       refine (project_congr β head j).trans ?_
@@ -174,6 +174,27 @@ theorem packedArrow_bv_succ_proof {n : Nat} (β : BoundCtx S.Ty n) (A : S.Ty) (i
     (.let₂ (.bv 0) (.bv 1))) _ at beta
   rw [instantiate_underBinder_one, project_bsubst, bsubst_bv] at beta
   exact Quotient.sound beta.symm
+
+theorem packedArrow_lift_proof {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {t : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β t B) :
+    packedArrow (S := S) (h.lift (B := A)) =
+      first (of (packType β)) (of A) ≫ packedArrow h := by
+  let p := HasType.let₂ (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+    (β := .nil) (A := tensor (packType β) A)) (.bv (ι := 1))
+  let k := packedTyping (S := S) h
+  have eq := Eqv.ax (pureEff := S.pureEff) (.structural (.letBeta (.let₂ .bv .bv)))
+    (.let₁ p k.underBinder) (k.underBinder.instantiate p)
+  change Eqv S.pureEff Ctx.nil _ _ (instantiate (underBinder (packedTerm β t))
+    (.let₂ (.bv 0) (.bv 1))) _ at eq
+  have terms : instantiate (underBinder (packedTerm β t)) (.let₂ (.bv 0) (.bv 1)) =
+      packedTerm (β.snoc A) (lift t) := by
+    rw [instantiate_underBinder_one, packedTerm, bsubst_comp, packedTerm, lift, bsubst_rename]
+    apply bsubst_congr
+    intro i
+    rw [project_bsubst, bsubst_bv]
+    rfl
+  rw [terms] at eq
+  exact Quotient.sound eq.symm
 
 /-- Applying the packed body to the retained environment and the newest
 variable computes the lifted packing substitution. -/
@@ -280,7 +301,7 @@ theorem packedSubst_comp_proof {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx
     packedSubst s ≫ packedArrow h = packedArrow (h.bsubst s.typed) := by
   let p := packedTerm γ (bsubst σ (packTerm β))
   let hp := packedTyping ((packTermTyping β).bsubst s.typed)
-  have pp : Pure S.pureEff p := ((packTermPure β).bsubst s.pure).bsubst (packingSubst γ).pure
+  have pp : Pure S.pureEff p := ((packTerm_pure_proof β).bsubst s.pure).bsubst (packingSubst γ).pure
   have ht := (packedTyping h).underBinder (X := packType γ)
   apply Quotient.sound
   refine (Eqv.ax (.structural (.letBeta pp)) (.let₁ hp ht) (ht.instantiate hp)).trans ?_
@@ -421,7 +442,7 @@ theorem packedSubst_isPureMor_proof {n m : Nat} {β : BoundCtx S.Ty n} {γ : Bou
     (s : PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff) β γ σ) :
     IsPureMor (packedSubst s) :=
   ⟨_, packedTyping ((packTermTyping β).bsubst s.typed),
-    ((packTermPure β).bsubst s.pure).bsubst (packingSubst γ).pure, rfl⟩
+    ((packTerm_pure_proof β).bsubst s.pure).bsubst (packingSubst γ).pure, rfl⟩
 
 theorem packedTerm_pure_proof {n : Nat} (β : BoundCtx S.Ty n) {t : Tm Empty S.Instr n}
     (hp : Pure S.pureEff t) : Pure S.pureEff (packedTerm β t) :=

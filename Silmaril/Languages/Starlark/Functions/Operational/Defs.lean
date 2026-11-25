@@ -17,13 +17,15 @@ be invoked again after a call completes, but not while it is active. -/
 inductive Exec (program : Program) : List DeclarationId → State → Body → Outcome Flow → Prop where
   | total {available : List DeclarationId} {s : State} {suite : Suite 0} {out : Outcome Flow} :
       Runs s (.suite suite) out → Exec program available s (.total suite) out
-  /-- A return operand's closure premises must be body derivations under the reduced declaration set. -/
   | returnExpr {available : List DeclarationId} {s : State} {value : Lowering.Expr}
-      {out : Outcome Lists.Value} {calls : Lowering.ClosureRuns available} :
-      (∀ plan next result, calls plan next result →
-        Exec program (withoutDeclaration available plan.id) next plan.body result) →
-      Lowering.EvaluatesWith program available calls (fun _ => True) s value out →
+      {out : Outcome Lists.Value} :
+      ExecExpr program available s value out →
       Exec program available s (.returnExpr value) (Outcome.resume out fun result => pure (.returned result))
+  | assignExpr {available : List DeclarationId} {s : State} {target : Binding}
+      {value : Lowering.Expr} {out : Outcome Lists.Value} :
+      ExecExpr program available s value out →
+      Exec program available s (.assignExpr target value)
+        (Outcome.resume out fun result next => .ok .next (next.write target result))
   | seq {available : List DeclarationId} {s t : State} {first rest : Body} {out : Outcome Flow} :
       Exec program available s first (.ok .next t) → Exec program available t rest out →
       Exec program available s (.seq first rest) out
@@ -42,6 +44,15 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {value : Outcome Lists.Value} {error : Error} :
       Eval s test value → Outcome.resume value truth = .error error t →
       Exec program available s (.branch test yes no) (.error error t)
+  | branchExpr {available : List DeclarationId} {s t : State} {test : Lowering.Expr} {yes no : Body}
+      {value : Outcome Lists.Value} {flag : Bool} {out : Outcome Flow} :
+      ExecExpr program available s test value → Outcome.resume value truth = .ok flag t →
+      Exec program available t (if flag then yes else no) out →
+      Exec program available s (.branchExpr test yes no) out
+  | branchExprError {available : List DeclarationId} {s t : State} {test : Lowering.Expr}
+      {yes no : Body} {value : Outcome Lists.Value} {error : Error} :
+      ExecExpr program available s test value → Outcome.resume value truth = .error error t →
+      Exec program available s (.branchExpr test yes no) (.error error t)
   | forIn {available : List DeclarationId} {s t : State} {target : Binding} {iterable : Lists.Expr}
       {body : Body} {value : Outcome Lists.Value} {address : Address}
       {items : List Lists.Value} {out : Outcome Flow} :
@@ -109,6 +120,17 @@ inductive ExecItems (program : Program) :
       {value : Lists.Value} {rest : List Lists.Value} {error : Error} :
       Exec program available (s.write target value) body (.error error t) →
       ExecItems program available target body (value :: rest) s (.error error t)
+
+/-- Expression operands in a body use the expression rules with closure
+executions discharged under their reduced declaration sets. -/
+inductive ExecExpr (program : Program) :
+    List DeclarationId → State → Lowering.Expr → Outcome Lists.Value → Prop where
+  | evaluates {available : List DeclarationId} {s : State} {expression : Lowering.Expr}
+      {out : Outcome Lists.Value} {calls : Lowering.ClosureRuns available} :
+      (∀ plan next result, calls plan next result →
+        Exec program (withoutDeclaration available plan.id) next plan.body result) →
+      Lowering.EvaluatesWith program available calls (fun _ => True) s expression out →
+      ExecExpr program available s expression out
 end
 
 end Silmaril.Languages.Starlark.Functions

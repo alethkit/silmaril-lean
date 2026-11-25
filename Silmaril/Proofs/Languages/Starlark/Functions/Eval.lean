@@ -28,16 +28,23 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
     denoteBody program available body state = out := by
   induction h using Exec.rec
     (motive_2 := fun available target body items state out _ =>
-      denoteItems target (denoteBody program available body) items state = out) <;>
+      denoteItems target (denoteBody program available body) items state = out)
+    (motive_3 := fun available state expression out _ =>
+      Lowering.denoteExprWith program available (fun plan =>
+        denoteBody program (withoutDeclaration available plan.id) plan.body) expression state = out)
+  case evaluates calls ran eq =>
+    exact Lowering.denoteExprWith_eq_of_evaluates eq ran
+  all_goals
     (try have evaluated := (eval_iff_denote _ _ _).mp (by assumption)) <;>
     (try have total := (runs_iff_denoteSuite _ _ _).mp (by assumption)) <;>
     (try have invoked := (Builtins.invokes_iff_invoke _ _ _ _).mp (by assumption)) <;>
     simp_all [denoteBody, denoteItems, Outcome.resume]
-  case returnExpr calls ran eq =>
-    rw [Lowering.denoteExprWith_eq_of_evaluates eq ran]
   case seqStop signal _ _ _ =>
     cases signal <;> simp_all <;> rfl
   case branch =>
+    rw [branch_apply]
+    assumption
+  case branchExpr =>
     rw [branch_apply]
     assumption
 
@@ -62,18 +69,26 @@ private theorem exec_items (program : Program) (available : List DeclarationId) 
 
 theorem exec_denote (program : Program) (available : List DeclarationId) (body : Body)
     (state : State) : Exec program available state body (denoteBody program available body state) := by
+  let execute (plan : Prepared available) :=
+    denoteBody program (withoutDeclaration available plan.id) plan.body
+  have exprRun (expression : Lowering.Expr) :
+      ExecExpr program available state expression
+        (Lowering.denoteExprWith program available execute expression state) := by
+    refine .evaluates (calls := fun plan next result => execute plan next = result) ?_ ?_
+    · intro plan next result eq
+      exact eq ▸ exec_denote program (withoutDeclaration available plan.id) plan.body next
+    · exact Lowering.evaluatesWith_denote program available _ execute (fun _ _ => rfl)
+        (Lowering.admits_all_atoms expression) state
   cases body with
   | total code =>
     rw [denoteBody]
     exact .total ((runs_iff_denoteSuite _ _ _).mpr rfl)
   | returnExpr value =>
     rw [denoteBody]
-    let execute (plan : Prepared available) := denoteBody program (withoutDeclaration available plan.id) plan.body
-    refine .returnExpr (calls := fun plan next result => execute plan next = result) ?_ ?_
-    · intro plan next result eq
-      exact eq ▸ exec_denote program (withoutDeclaration available plan.id) plan.body next
-    · exact Lowering.evaluatesWith_denote program available _ execute (fun _ _ => rfl)
-        (Lowering.admits_all_atoms value) state
+    exact .returnExpr (exprRun value)
+  | assignExpr target value =>
+    rw [denoteBody]
+    exact .assignExpr (exprRun value)
   | seq first rest =>
     rw [denoteBody]
     have firstRun := exec_denote program available first state
@@ -94,6 +109,18 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
       cases flag
       · exact .branch evaluated h (exec_denote program available no next)
       · exact .branch evaluated h (exec_denote program available yes next)
+  | branchExpr test yes no =>
+    rw [denoteBody]
+    change Exec program available state (.branchExpr test yes no)
+      (Outcome.resume (Outcome.resume (Lowering.denoteExprWith program available execute test state) truth)
+        (fun flag next => if flag then denoteBody program available yes next
+          else denoteBody program available no next))
+    cases h : Outcome.resume (Lowering.denoteExprWith program available execute test state) truth with
+    | error error next => exact .branchExprError (exprRun test) h
+    | ok flag next =>
+      cases flag
+      · exact .branchExpr (exprRun test) h (exec_denote program available no next)
+      · exact .branchExpr (exprRun test) h (exec_denote program available yes next)
   | forIn target iterable body =>
     rw [denoteBody]
     have evaluated := (eval_iff_denote iterable state _).mpr rfl
