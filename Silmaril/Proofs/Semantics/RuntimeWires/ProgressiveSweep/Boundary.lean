@@ -39,8 +39,8 @@ theorem output_mem (s : d.Sweep) (w : Fin W) :
 
 theorem input_order (s : d.Sweep) :
     (s.wires 0).Pairwise (fun a b => d.x a 0 < d.x b 0) := by
-  let h := d.cutHeight 0
-  have hh : 0 < h := (cut_inside d 0).1
+  let h := s.cuts.height 0
+  have hh : 0 < h := (gap_inside d (s.cuts.in_gap 0)).1
   refine (s.ordered 0).ordered.imp_of_mem ?_
   intro a b ha hb hab
   have sta := (input_mem s a).mp ha
@@ -66,8 +66,8 @@ theorem input_order (s : d.Sweep) :
 theorem output_order (s : d.Sweep) :
     (s.wires (Fin.last V)).Pairwise (fun a b => d.x a 1 < d.x b 1) := by
   let i := Fin.last V
-  let h := d.cutHeight i
-  have hh : h < 1 := (cut_inside d i).2
+  let h := s.cuts.height i
+  have hh : h < 1 := (gap_inside d (s.cuts.in_gap i)).2
   refine (s.ordered i).ordered.imp_of_mem ?_
   intro a b ha hb hab
   have fna := (output_mem s a).mp ha

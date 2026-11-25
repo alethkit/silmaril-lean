@@ -13,22 +13,27 @@ universe u v
 
 variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} (d : Diagram S V W)
 
-noncomputable def sweep : d.Sweep where
-  wires i := Classical.choose (d.ordered_cut_exists (d.cutHeight i))
-  ordered i := Classical.choose_spec (d.ordered_cut_exists (d.cutHeight i))
-  event i := Classical.choice (Diagram.single_event (cut_isolates d i))
+noncomputable def sweepAt (cuts : d.Cuts) : d.Sweep where
+  cuts := cuts
+  wires i := Classical.choose (d.ordered_cut_exists (cuts.height i))
+  ordered i := Classical.choose_spec (d.ordered_cut_exists (cuts.height i))
+  event i := Classical.choice (Diagram.single_event (gap_isolates d i (cuts.in_gap _) (cuts.in_gap _)))
   before i := Diagram.ordered_cut_unique
-    (Classical.choice (Diagram.single_event (cut_isolates d i))).before
-    (Classical.choose_spec (d.ordered_cut_exists (d.cutHeight i.castSucc)))
+    (Classical.choice (Diagram.single_event (gap_isolates d i (cuts.in_gap _) (cuts.in_gap _)))).before
+    (Classical.choose_spec (d.ordered_cut_exists (cuts.height i.castSucc)))
   after i := Diagram.ordered_cut_unique
-    (Classical.choice (Diagram.single_event (cut_isolates d i))).after
-    (Classical.choose_spec (d.ordered_cut_exists (d.cutHeight i.succ)))
+    (Classical.choice (Diagram.single_event (gap_isolates d i (cuts.in_gap _) (cuts.in_gap _)))).after
+    (Classical.choose_spec (d.ordered_cut_exists (cuts.height i.succ)))
+
+theorem sweepAt_cuts (cuts : d.Cuts) : (sweepAt d cuts).cuts = cuts := by
+  unfold sweepAt
+  rfl
 
 variable {d}
 
 theorem wire_span (s : d.Sweep) (i : Fin (V + 1)) (w : Fin W) :
     w ∈ s.wires i ↔ (d.startIndex w).val ≤ i.val ∧ i.val < (d.finishIndex w).val :=
-  ((s.ordered i).exact_wires w).trans (crosses_iff_indices d i w)
+  ((s.ordered i).exact_wires w).trans (gap_crosses_iff_indices d (s.cuts.in_gap i) w)
 
 theorem some_cut (s : d.Sweep) (w : Fin W) : ∃ i, w ∈ s.wires i := by
   have he := endpoint_indices d w
