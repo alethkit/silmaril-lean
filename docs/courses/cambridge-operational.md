@@ -141,3 +141,10 @@ grammar and codecs, and institution and denotational models for later work.
 
 The [course notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf)
 are pinned as `sewell2026semantics` in [the bibliography](../../references.bib).
+
+## Operational institution
+
+`Silmaril.Courses.Cambridge.OperationalInstitution` exposes the L1 and L2
+call-by-value step models over their original configurations. The finite
+return view observes reachable values with their final stores.
+[Sentences, reducts and observation contract](../projects/operational-institutions.md#cambridge-l1-and-l2)
