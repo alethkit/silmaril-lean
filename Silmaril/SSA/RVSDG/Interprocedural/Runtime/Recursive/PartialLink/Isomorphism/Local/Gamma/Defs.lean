@@ -612,12 +612,16 @@ def chooserInputs {context : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     Wires (context ++ params) past (.control (extra + 2) :: context) :=
   .cons selector ((NestedTheta.identityPorts context).map (fun _ port => .arg (capturePort port)))
 
+abbrev joinedOrigin {past : List (Ports (Ty V S))} (fn : Function V S) :
+    Origin args (past ++ [[fn.port]]) fn.port :=
+  (Tail.Prefix.forwarding args past [fn.port]).get .head
+
 /-- The next application reads its callable from the just-bound γ
 output. Its ordinary arguments may read the full caller scope. -/
 abbrev joinedInputs {past : List (Ports (Ty V S))} (fn : Function V S)
     (arguments : Wires args (past ++ [[fn.port]]) fn.args) :
     Wires args (past ++ [[fn.port]]) (fn.port :: fn.args) :=
-  .cons ((Tail.Prefix.forwarding args past [fn.port]).get .head) arguments
+  .cons (joinedOrigin fn) arguments
 
 abbrev chooseApplication {context : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     (fn : Function V S) (selector : Origin (context ++ params) past (.control (extra + 2)))
@@ -627,6 +631,62 @@ abbrev chooseApplication {context : Ports (Ty V S)} {past : List (Ports (Ty V S)
     NestedTheta.Term (Instruction Op) (context ++ params) past ([fn.port] :: fn.results :: sigs) outs :=
   bindGamma (chooserInputs selector) (chooserArms ports)
     (bindApplication fn (joinedInputs (past := past) fn arguments) suffix)
+
+/-- Extend a wire's scope by one new binding, retaining its producer and port. -/
+def extendOrigin {past : List (Ports (Ty V S))} {t : Ty V S}
+    (wire : Origin args past t) (head : Ports (Ty V S)) : Origin args (past ++ [head]) t :=
+  match wire with
+  | .arg port => .arg port
+  | .output vertex port =>
+    let next : Fin (past ++ [head]).length := ⟨vertex.val, by simp; omega⟩
+    have same : (past ++ [head])[next] = past[vertex] := List.getElem_append_left vertex.isLt
+    .output next (same.symm ▸ port)
+
+/-- A finite intervening prefix in the same caller. A primitive adds a
+binding while keeping the old callable origin. A forwarding γ copies
+that callable to a fresh binding through any of its arms. -/
+inductive ChoicePrefix (Op : Dialect.{u, v} (ValueSort V S) S) (args : Ports (Ty V S)) (fn : Function V S) :
+    List (Ports (Ty V S)) → List (Ports (Ty V S)) → List (Ports (Ty V S)) → Type (max u v) where
+  | done {past : List (Ports (Ty V S))} : ChoicePrefix Op args fn past past []
+  | primitive {past final sigs : List (Ports (Ty V S))} {ins head : Ports (Ty V S)}
+      (opcode : Op ins head) (inputs : Wires args past ins)
+      (rest : ChoicePrefix Op args fn (past ++ [head]) final sigs) : ChoicePrefix Op args fn past final (head :: sigs)
+  | forward {past final sigs : List (Ports (Ty V S))} {extra : Nat}
+      (selector : Origin args past (.control (extra + 2)))
+      (rest : ChoicePrefix Op args fn (past ++ [[fn.port]]) final sigs) :
+    ChoicePrefix Op args fn past final ([fn.port] :: sigs)
+
+/-- The typed origin used by the later application. -/
+def ChoicePrefix.callable {fn : Function V S} {past final steps : List (Ports (Ty V S))}
+    (route : ChoicePrefix Op args fn past final steps) (source : Origin args past fn.port) :
+    Origin args final fn.port :=
+  match route with
+  | .done => source
+  | .primitive _ _ rest => rest.callable (extendOrigin source _)
+  | .forward _ rest => rest.callable (joinedOrigin fn)
+
+/-- Insert actual primitive and forwarding γ bindings before the suffix. -/
+def ChoicePrefix.wrap {fn : Function V S} {past final steps : List (Ports (Ty V S))}
+    (route : ChoicePrefix Op args fn past final steps) (source : Origin args past fn.port)
+    (suffix : NestedTheta.Term (Instruction Op) args final sigs outs) :
+    NestedTheta.Term (Instruction Op) args past (steps ++ sigs) outs :=
+  match route with
+  | .done => suffix
+  | .primitive opcode inputs rest => bindPrimitive opcode inputs (rest.wrap (extendOrigin source _) suffix)
+  | .forward selector rest =>
+    bindGamma (.cons selector (.cons source .nil)) (chooserArms (fn := fn) (fun _ => .head))
+      (rest.wrap (joinedOrigin fn) suffix)
+
+abbrev chooseApplicationAfter {context : Ports (Ty V S)} {past final steps : List (Ports (Ty V S))}
+    (fn : Function V S) (selector : Origin (context ++ params) past (.control (extra + 2)))
+    (ports : Fin (extra + 2) → Port context fn.port)
+    (route : ChoicePrefix Op (context ++ params) fn (past ++ [[fn.port]]) final steps)
+    (arguments : Wires (context ++ params) final fn.args)
+    (suffix : NestedTheta.Term (Instruction Op) (context ++ params) (final ++ [fn.results]) sigs outs) :
+    NestedTheta.Term (Instruction Op) (context ++ params) past ([fn.port] :: (steps ++ (fn.results :: sigs))) outs :=
+  let source := joinedOrigin (past := past) fn
+  bindGamma (chooserInputs selector) (chooserArms ports)
+    (route.wrap source (bindApplication fn (.cons (route.callable source) arguments) suffix))
 
 /-- A candidate is a pair of actual typed λ bodies with ordered captures.
 The ranked witness separately proves provenance and admissibility. -/
@@ -648,7 +708,7 @@ abbrev CallTarget.valueR {fn : Function V S} (target : CallTarget m fn) : m.Val 
 /-- An ordered region of primitive bindings, static calls, selected γ arms and θ bodies.
 Callees decrease rank. Child and suffix plans decrease structurally at the same rank.
 A θ activation routes the same static capture prefix into the next feedback activation.
-A chooser may also forward one of finitely many statically admitted λs to the next application. -/
+A chooser can forward one of finitely many statically admitted λs to a later application. -/
 inductive RankedPlan (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
     Nat → Renaming → {context params outs : Ports (Ty V S)} →
     {past sigsL sigsR : List (Ports (Ty V S))} → Tuple m.Val context → Tuple m.Val context →
@@ -746,6 +806,26 @@ inductive RankedPlan (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
     RankedPlan m ids rank map capturesL capturesR
       (chooseApplication fn selector ports arguments suffixL)
       (chooseApplication fn selector ports arguments suffixR)
+
+  | chooseAfter {rank extra : Nat} {map : Renaming} {context params outs : Ports (Ty V S)} {fn : Function V S}
+      {past final steps tailL tailR : List (Ports (Ty V S))} {capturesL capturesR : Tuple m.Val context}
+      {suffixL : NestedTheta.Term (Instruction Op) (context ++ params) (final ++ [fn.results]) tailL outs}
+      {suffixR : NestedTheta.Term (Instruction Op) (context ++ params) (final ++ [fn.results]) tailR outs}
+      (selector : Origin (context ++ params) past (.control (extra + 2)))
+      (ports : Fin (extra + 2) → Port context fn.port)
+      (route : ChoicePrefix Op (context ++ params) fn (past ++ [[fn.port]]) final steps)
+      (arguments : Wires (context ++ params) final fn.args)
+      (family : Fin (extra + 2) → CallTarget m fn) (ranks : Fin (extra + 2) → Nat)
+      (originL : ∀ i, capturesL.get (ports i) = (family i).valueL)
+      (originR : ∀ i, capturesR.get (ports i) = (family i).valueR)
+      (captured : ∀ i, TupleRelated m ids (family i).capturesL (family i).capturesR)
+      (decreases : ∀ i, ranks i < rank)
+      (callees : ∀ i, RankedPlan m ids (ranks i) (map.child final.length i.val)
+        (family i).capturesL (family i).capturesR (family i).left (family i).right)
+      (suffix : RankedPlan m ids rank map capturesL capturesR suffixL suffixR) :
+    RankedPlan m ids rank map capturesL capturesR
+      (chooseApplicationAfter fn selector ports route arguments suffixL)
+      (chooseApplicationAfter fn selector ports route arguments suffixR)
 
 inductive ScheduledLambda (m : Machine.{u, v, w} Op) (ids : GlobalRel) (mapping : Renaming)
     (params outs : Ports (Ty V S)) :

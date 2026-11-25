@@ -200,6 +200,28 @@ theorem continue_pair
   | productive run =>
     exact .productive (productive_map run (fun ran => ⟨_, .later firstL ran⟩) (fun ran => ⟨_, .later firstR ran⟩))
 
+theorem primitive_pair {past : List (Ports (Ty V S))} {ins head : Ports (Ty V S)}
+    {restL : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsL outs}
+    {restR : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsR outs}
+    {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+    (respects : ActionsRespect primitives ids) (opcode : Op ins head) (inputs : Wires args past ins)
+    (related : TupleRelated m ids (inputs.read entryL localsL) (inputs.read entryR localsR)) (store : σ)
+    (resume : ∀ {valueL valueR : Tuple m.Val head}, TupleRelated m ids valueL valueR → ∀ middle,
+      ScopedRegionPair primitives ids mapping restL restR entryL entryR
+        (localsL.snoc valueL) (localsR.snoc valueR) middle) :
+    ScopedRegionPair primitives ids mapping (bindPrimitive opcode inputs restL) (bindPrimitive opcode inputs restR)
+      entryL entryR localsL localsR store := by
+  have agreement := respects opcode related store
+  generalize ranL : (primitives.step opcode (inputs.read entryL localsL)).run store = resultL at agreement
+  generalize ranR : (primitives.step opcode (inputs.read entryR localsR)).run store = resultR at agreement
+  cases agreement with
+  | undefined => exact .blocked (.atPrimitive opcode inputs related ranL ranR)
+  | returned values middle =>
+    exact continue_pair (nodeL := primitiveVertex opcode inputs) (nodeR := primitiveVertex opcode inputs)
+      (.primitive (primitiveSite opcode _) (ranL.symm ▸ _root_.Part.mem_some _))
+      (.primitive (primitiveSite opcode _) (ranR.symm ▸ _root_.Part.mem_some _))
+      (resume values middle)
+
 theorem selected_tuple {valuesL valuesR : Tuple m.Val (.control (extra + 2) :: entry)}
     (related : TupleRelated m ids valuesL valuesR) :
     ∃ tag nextL nextR, valuesL = .cons (.control tag) nextL ∧ valuesR = .cons (.control tag) nextR ∧
