@@ -1,6 +1,8 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Collar
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarMotion
+import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.CollarGeometry
+import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.NormNum
 
@@ -129,5 +131,132 @@ example :
     fullRead.sheet.reindex (matched.sweep_first_word lowerRead fullRead) (matched.sweep_last_word upperRead fullRead) =
       lowerRead.sheet.thenDo (upperRead.sheet.reindex (matched.sweep_join_word lowerRead upperRead) rfl) :=
   matched.sweep_concat lowerRead upperRead fullRead
+
+private abbrev CapId := Fin (Diagram.OrderedVerticalMatch.collarCount lower)
+
+private noncomputable def knot (i : CapId) : ℝ :=
+  interpolate (matched.collarSpec.bottom i) (matched.collarSpec.top i) (3 / 4)
+
+private theorem knot_inside (i : CapId) : knot i ∈ Set.Ioo 0 1 :=
+  interpolate_inside (matched.collarSpec.bottom_inside i) (matched.collarSpec.top_inside i) (by
+    norm_num [Set.mem_Icc])
+
+private theorem knot_order {i j : CapId} (h : matched.collarSpec.bottom i < matched.collarSpec.bottom j) :
+    knot i < knot j :=
+  interpolate_lt h ((matched.collarSpec.order i j).mp h) (by norm_num [Set.mem_Icc])
+
+private noncomputable def bendHalf (top : Bool) : CollarSpec Bool (Diagram.OrderedVerticalMatch.collarCount lower) where
+  label := matched.collarSpec.label
+  bottom := if top then knot else matched.collarSpec.bottom
+  top := if top then matched.collarSpec.top else knot
+  bottom_inside := by cases top; exacts [matched.collarSpec.bottom_inside, knot_inside]
+  top_inside := by cases top; exacts [knot_inside, matched.collarSpec.top_inside]
+  bottom_injective := by
+    cases top
+    · exact matched.collarSpec.bottom_injective
+    · intro i j eq
+      by_contra ne
+      rcases lt_or_gt_of_ne (fun h => ne (matched.collarSpec.bottom_injective h)) with h | h
+      · exact (knot_order h).ne eq
+      · exact (knot_order h).ne' eq
+  order i j := by
+    have h : knot i < knot j ↔ matched.collarSpec.bottom i < matched.collarSpec.bottom j := by
+      simpa only [knot] using collar_order matched.collarSpec (a := i) (b := j)
+        (hy := (by norm_num [Set.mem_Icc] : (3 / 4 : ℝ) ∈ Set.Icc 0 1))
+    cases top
+    · exact h.symm
+    · exact h.trans (matched.collarSpec.order i j)
+
+private noncomputable def bentLeft (w : CapId) : Wire 0 (1 / 2) :=
+  ((collarWire (bendHalf false) w).halve 0).atBounds
+    (by norm_num [halfHeight]) (by norm_num [halfHeight])
+
+private noncomputable def bentRight (w : CapId) : Wire (1 / 2) 1 :=
+  ((collarWire (bendHalf true) w).halve 1).atBounds
+    (by norm_num [halfHeight]) (by norm_num [halfHeight])
+
+private theorem bent_contact (w : CapId) : (bentLeft w).x (1 / 2) = (bentRight w).x (1 / 2) := by
+  change interpolate (matched.collarSpec.bottom w) (knot w) (slabHeight 0 (1 / 2)) =
+    interpolate (knot w) (matched.collarSpec.top w) (slabHeight 1 (1 / 2))
+  norm_num [slabHeight, interpolate]
+
+private noncomputable def bentWire (w : CapId) : Wire 0 1 :=
+  (bentLeft w).splice (bentRight w) (bent_contact w)
+
+private theorem bent_low (w : CapId) {y : ℝ} (h : y ≤ 1 / 2) :
+    (bentWire w).x y = interpolate (matched.collarSpec.bottom w) (knot w) (slabHeight 0 y) :=
+  (bentLeft w).splice_x_lower (bentRight w) (bent_contact w) h
+
+private theorem bent_high (w : CapId) {y : ℝ} (h : 1 / 2 ≤ y) :
+    (bentWire w).x y = interpolate (knot w) (matched.collarSpec.top w) (slabHeight 1 y) :=
+  (bentLeft w).splice_x_upper (bentRight w) (bent_contact w) h
+
+private noncomputable def bent : PolygonalCollar matched.collarSpec where
+  wire := bentWire
+  bottom w := by rw [bent_low w (by norm_num)]; norm_num [interpolate, slabHeight]
+  top w := by rw [bent_high w (by norm_num)]; norm_num [interpolate, slabHeight]
+  inside w y hy := by
+    rcases le_total y (1 / 2) with low | high
+    · rw [bent_low w low]
+      exact interpolate_inside (matched.collarSpec.bottom_inside w) (knot_inside w)
+        ⟨by unfold slabHeight; linarith [hy.1], by unfold slabHeight; linarith⟩
+    · rw [bent_high w high]
+      exact interpolate_inside (knot_inside w) (matched.collarSpec.top_inside w)
+        ⟨by unfold slabHeight; linarith, by unfold slabHeight; linarith [hy.2]⟩
+  ordered i j y hy h := by
+    rcases le_total y (1 / 2) with low | high
+    · rw [bent_low i low, bent_low j low]
+      exact interpolate_lt h (knot_order h)
+        ⟨by unfold slabHeight; linarith [hy.1], by unfold slabHeight; linarith⟩
+    · rw [bent_high i high, bent_high j high]
+      exact interpolate_lt (knot_order h) ((matched.collarSpec.order i j).mp h)
+        ⟨by unfold slabHeight; linarith, by unfold slabHeight; linarith [hy.2]⟩
+
+private noncomputable def halfTime : PolygonalCollar.Time := ⟨1 / 2, by norm_num, by norm_num⟩
+
+private theorem straight_first (t : ℝ) :
+    (matched.straightCollar.wire first).x t = interpolate (1 / 6) (1 / 3) t := by
+  rw [matched.straightCollar_x, first, matched.collarSpec_bottom, matched.collarSpec_top,
+    Equiv.symm_apply_apply]
+  exact (matched.collar_x (leftCap 0) t).symm.trans (first_x t)
+
+private theorem straight_second (t : ℝ) :
+    (matched.straightCollar.wire second).x t = interpolate (1 / 2) (5 / 6) t := by
+  rw [matched.straightCollar_x, second, matched.collarSpec_bottom, matched.collarSpec_top,
+    Equiv.symm_apply_apply]
+  exact (matched.collar_x (leftCap 1) t).symm.trans (second_x t)
+
+private theorem moving_mid (w : CapId) :
+    (((matched.straightCollar.blend bent halfTime).wire w).x (1 / 2)) =
+      interpolate ((matched.straightCollar.wire w).x (1 / 2))
+        ((matched.straightCollar.wire w).x (3 / 4)) (1 / 2) := by
+  rw [PolygonalCollar.blend_x]
+  change interpolate ((matched.straightCollar.wire w).x (1 / 2)) (bentWire w |>.x (1 / 2)) _ = _
+  rw [bent_low w (by norm_num)]
+  simp only [matched.straightCollar_x]
+  norm_num [knot, slabHeight, interpolate, halfTime]
+
+/-- Both strands move. Read the two exact coordinates at the midpoint of
+the collar slab and at the midpoint of time. -/
+example :
+    ((matched.glueWith (matched.straightCollar.blend bent halfTime)).x (matched.gluedCollarId first) (3 / 8),
+      (matched.glueWith (matched.straightCollar.blend bent halfTime)).x (matched.gluedCollarId second) (3 / 8)) =
+    (13 / 48, 17 / 24) := by
+  rw [matched.glueWith_x_collar _ first (by norm_num [Set.mem_Icc]),
+    matched.glueWith_x_collar _ second (by norm_num [Set.mem_Icc]),
+    show 4 * (3 / 8 : ℝ) - 1 = 1 / 2 by norm_num, moving_mid, moving_mid,
+    straight_first, straight_first, straight_second, straight_second]
+  norm_num [interpolate]
+
+/-- At both composite splice heights, the actual contacts are fixed at
+every time, including times 0 and 1. -/
+example (t : PolygonalCollar.Time) (w : CapId) :
+    ((matched.glueWith (matched.straightCollar.blend bent t)).x (matched.gluedCollarId w) (1 / 4),
+      (matched.glueWith (matched.straightCollar.blend bent t)).x (matched.gluedCollarId w) (1 / 2)) =
+    (matched.collarSpec.bottom w, matched.collarSpec.top w) := by
+  rw [matched.glueWith_x_collar _ w (by norm_num [Set.mem_Icc]),
+    matched.glueWith_x_collar _ w (by norm_num [Set.mem_Icc]),
+    show 4 * (1 / 4 : ℝ) - 1 = 0 by norm_num, show 4 * (1 / 2 : ℝ) - 1 = 1 by norm_num,
+    PolygonalCollar.bottom, PolygonalCollar.top]
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveGluing.CollarRegression

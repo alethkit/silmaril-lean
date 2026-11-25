@@ -40,7 +40,7 @@ noncomputable def wireHi (z : WireId lower upper) : ℝ :=
 theorem lo_left (w : LowerOnly lower) :
     wireLo (.inl w : WireId lower upper) = halfHeight 0 (lower.lower w.val) := by
   have eq : halfHeight 0 0 = 0 := by norm_num [halfHeight]
-  simpa only [eq, wireLo, wireStart, Diagram.lower] using scale_left (upper := upper) (lower.start w.val) 0
+  simpa only [eq, wireLo, wireStart, Sum.elim_inl, Sum.elim_inr, Diagram.lower] using scale_left (upper := upper) (lower.start w.val) 0
 
 theorem hi_left (w : LowerOnly lower) :
     wireHi m (.inl w) = halfHeight 0 (lower.upper w.val) := by
@@ -54,12 +54,12 @@ theorem hi_left (w : LowerOnly lower) :
 theorem lo_shared (w : Contact lower) :
     wireLo (.inr (.inl w) : WireId lower upper) = halfHeight 0 (lower.lower w.val) := by
   have eq : halfHeight 0 0 = 0 := by norm_num [halfHeight]
-  simpa only [eq, wireLo, wireStart, Diagram.lower] using scale_left (upper := upper) (lower.start w.val) 0
+  simpa only [eq, wireLo, wireStart, Sum.elim_inl, Sum.elim_inr, Diagram.lower] using scale_left (upper := upper) (lower.start w.val) 0
 
 theorem hi_shared (w : Contact lower) :
     wireHi m (.inr (.inl w)) = halfHeight 1 (upper.upper (m.contact w).val) := by
   have eq : halfHeight 1 1 = 1 := by norm_num [halfHeight]
-  simpa only [eq, wireHi, wireFinish, Diagram.upper] using scale_right (lower := lower) (upper.finish (m.contact w).val) 1
+  simpa only [eq, wireHi, wireFinish, Sum.elim_inl, Sum.elim_inr, Diagram.upper] using scale_right (lower := lower) (upper.finish (m.contact w).val) 1
 
 theorem lo_right (w : UpperOnly upper) :
     wireLo (.inr (.inr w) : WireId lower upper) = halfHeight 1 (upper.lower w.val) := by
@@ -73,7 +73,7 @@ theorem lo_right (w : UpperOnly upper) :
 theorem hi_right (w : UpperOnly upper) :
     wireHi m (.inr (.inr w)) = halfHeight 1 (upper.upper w.val) := by
   have eq : halfHeight 1 1 = 1 := by norm_num [halfHeight]
-  simpa only [eq, wireHi, wireFinish, Diagram.upper] using scale_right (lower := lower) (upper.finish w.val) 1
+  simpa only [eq, wireHi, wireFinish, Sum.elim_inl, Sum.elim_inr, Diagram.upper] using scale_right (lower := lower) (upper.finish w.val) 1
 
 private theorem cap_left (w : Contact lower) : lower.upper w.val = 1 := by
   simp [Diagram.upper, endpointHeight, w.property]
