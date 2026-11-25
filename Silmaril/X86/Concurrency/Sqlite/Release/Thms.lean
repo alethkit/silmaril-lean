@@ -35,6 +35,18 @@ theorem sc_release_witness :
         Layer.behaviors .control (releaseInput 0 0 0) :=
   Silmaril.Proofs.X86.Concurrency.Sqlite.Release.sc_release_witness
 
+/-- The issuer’s forwarded value at a byte avoided by all pending peer
+stores changes only by its own issued events. Silent FIFO propagation can
+occur before and after every event. -/
+theorem owner_trace_view {initial final : XState Nat} {events : List (XEvent Nat)} {owner address : Nat}
+    (trace : Tso.Execution XWeakStep initial events final)
+    (actors : ∀ event ∈ events, event.thread = owner)
+    (confined : PeerBuffersAvoid initial owner address) :
+    viewMem final owner address =
+      events.foldl (fun before event => byteEffect event address before) (viewMem initial owner address) ∧
+      PeerBuffersAvoid final owner address :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.owner_trace_view trace actors confined
+
 /-- Release publishes the owner’s forwarded payload when peers have no pending writes to it. -/
 theorem release_publishes {s t : XState Nat} {tid lock payload : Nat}
     (separate : payload ≠ lock) (confined : PeerBuffersAvoid s tid payload)

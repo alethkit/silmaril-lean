@@ -159,6 +159,64 @@ private theorem flushes_preserve_view {s t : XState Nat} {owner addr : Nat} (ste
           exact List.mem_cons_of_mem _ (by simpa using member)
         · exact safe peer notOwner entry (by simpa [Function.update_of_ne same] using member)
 
+private theorem readBufByte_append (address : Nat) (front rest : List (Nat × List Byte)) :
+    readBufByte address (front ++ rest) =
+      (readBufByte address rest).or (readBufByte address front) := by
+  induction front with
+  | nil => simp [readBufByte]
+  | cons head front ih =>
+    obtain ⟨base, bytes⟩ := head
+    simp [readBufByte, ih, Option.or_assoc]
+
+private theorem view_enqueue_owner (state : XState Nat) (owner base address : Nat) (bytes : List Byte) :
+    viewMem (enqueue state owner base bytes) owner address =
+      (entryByte base bytes address).or (viewMem state owner address) := by
+  simp [viewMem, enqueue, readBufByte_append, readBufByte, Option.or_assoc]
+
+private theorem owner_step_view {initial final : XState Nat} {event : XEvent Nat} {owner address : Nat}
+    (step : XWeakStep initial event final) (actor : event.thread = owner)
+    (confined : PeerBuffersAvoid initial owner address) :
+    viewMem final owner address = byteEffect event address (viewMem initial owner address) ∧
+      PeerBuffersAvoid final owner address := by
+  obtain ⟨_, _, before, issued, after⟩ := step
+  obtain ⟨prior, safe⟩ := flushes_preserve_view before confined
+  have afterIssue : ∀ {s t : XState Nat} {event : XEvent Nat}, XStep s event t →
+      event.thread = owner → PeerBuffersAvoid s owner address →
+      viewMem t owner address = byteEffect event address (viewMem s owner address) ∧
+        PeerBuffersAvoid t owner address := by
+    intro s t event edge h safe
+    cases edge with
+    | load => exact ⟨rfl, safe⟩
+    | fence => exact ⟨rfl, safe⟩
+    | store tid base bytes =>
+      have same : tid = owner := h
+      subst tid
+      refine ⟨view_enqueue_owner s owner base address bytes, ?_⟩
+      intro peer notOwner entry membership
+      exact safe peer notOwner entry (by simpa [enqueue, Function.update_of_ne notOwner] using membership)
+    | rmw tid base old bytes empty _ _ =>
+      have same : tid = owner := h
+      subst tid
+      exact ⟨by simp [byteEffect, viewMem, writeMem, empty, readBufByte], safe⟩
+  obtain ⟨updated, safeIssue⟩ := afterIssue issued actor safe
+  obtain ⟨view, safeFinal⟩ := flushes_preserve_view after safeIssue
+  exact ⟨view.trans (updated.trans (congrArg (byteEffect event address) prior)), safeFinal⟩
+
+theorem owner_trace_view {initial final : XState Nat} {events : List (XEvent Nat)} {owner address : Nat}
+    (trace : Tso.Execution XWeakStep initial events final)
+    (actors : ∀ event ∈ events, event.thread = owner)
+    (confined : PeerBuffersAvoid initial owner address) :
+    viewMem final owner address =
+      events.foldl (fun before event => byteEffect event address before) (viewMem initial owner address) ∧
+      PeerBuffersAvoid final owner address := by
+  induction trace with
+  | nil _ => exact ⟨rfl, confined⟩
+  | cons step tail ih =>
+    obtain ⟨affected, safe⟩ := owner_step_view step (actors _ List.mem_cons_self) confined
+    obtain ⟨last, lastSafe⟩ :=
+      ih (fun event member => actors event (List.mem_cons_of_mem _ member)) safe
+    exact ⟨by rw [last, List.foldl_cons, affected], lastSafe⟩
+
 theorem release_publishes {s t : XState Nat} {tid lock payload : Nat}
     (separate : payload ≠ lock) (confined : PeerBuffersAvoid s tid payload)
     (releases : XWeakStep s (releaseEvent tid lock) t) :
