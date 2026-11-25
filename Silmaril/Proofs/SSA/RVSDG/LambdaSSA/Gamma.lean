@@ -168,11 +168,16 @@ private theorem gamma_graph_value {Γ : List τ} {A : τ} (extra : Nat)
       pass := by
     unfold Categorical.extendScope
     apply CartesianMonoidalCategory.hom_ext
-    · simp [Categorical.readWires, Categorical.readOrigin, Categorical.projectLocal,
-        Categorical.appendScope, Categorical.appendLocal, Categorical.project,
-        Categorical.Model.locals, Categorical.portsObj, CartesianMonoidalCategory.leftUnitor_hom,
-        Category.assoc]
-      exact CartesianMonoidalCategory.lift_snd_assoc _ _ _
+    · simp only [Categorical.readWires, Categorical.readOrigin, Categorical.appendScope,
+        Categorical.appendLocal, Categorical.project, Category.assoc, CartesianMonoidalCategory.lift_fst]
+      let X := m.ports args
+      let Y := m.ports [.value A]
+      change lift (𝟙 (X ⊗ 𝟙_ D)) pass ≫ (α_ X (𝟙_ D) Y).hom ≫
+        (X ◁ ((λ_ Y).hom ≫ (ρ_ Y).inv)) ≫
+        snd X (Y ⊗ 𝟙_ D) ≫ fst Y (𝟙_ D) ≫ fst (m.value A) (𝟙_ D) = _
+      simp [Category.assoc, CartesianMonoidalCategory.leftUnitor_hom]
+      exact CartesianMonoidalCategory.lift_snd_assoc
+        (𝟙 (X ⊗ 𝟙_ D)) pass (fst (m.value A) (𝟙_ D))
     · exact CartesianMonoidalCategory.toUnit_unique _ _
   change Categorical.selectorLeg (m.selectors.tag i) ≫
       ((ρ_ (m.ports args)).inv ≫
