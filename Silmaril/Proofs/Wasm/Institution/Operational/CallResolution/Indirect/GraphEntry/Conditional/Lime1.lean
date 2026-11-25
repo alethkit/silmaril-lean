@@ -167,7 +167,7 @@ theorem site_run (ready : entry.Checked program tables outer index args)
       dst ∈ (limeSource s outer index args :: entry.limeFront s outer args value) ++ entry.site.limeSitePath s outer args active (.resolved call.address) states ∨
       ∃ phase, Context.Resume.Runs program call entry.site.cont (.callee call.entered) phase ∧
         dst = entry.site.cont.limeConfig call s outer phase :=
-  GraphEntry.lime_run_via atSite (limeSource s outer index args) (entry.limeFront s outer args value)
+  GraphEntry.lime_run_via atSite .body (limeSource s outer index args) (entry.limeFront s outer args value)
     (enters_site ready allocated read select) tableAllocated targets links invoked
 
 theorem lookup_trap (ready : entry.Checked program tables outer index args)
@@ -183,7 +183,7 @@ theorem lookup_trap (ready : entry.Checked program tables outer index args)
       dst ∈ ((limeSource s outer index args :: entry.limeFront s outer args value) ++ entry.site.limeSitePath s outer args active out states).dropLast ∨
       ∃ phase, CleanupRuns (entry.site.limeTrapStart active) phase ∧
         dst = entry.site.limeCleanup s outer active.caller phase :=
-  GraphEntry.lime_trap_run_via atSite (limeSource s outer index args) (entry.limeFront s outer args value)
+  GraphEntry.lime_trap_run_via atSite .body (limeSource s outer index args) (entry.limeFront s outer args value)
     (enters_site ready allocated read select) tableAllocated targets resolved trap
 
 theorem operand_trap (ready : entry.Checked program tables outer index args)
@@ -196,7 +196,7 @@ theorem operand_trap (ready : entry.Checked program tables outer index args)
       dst ∈ (limeSource s outer index args :: entry.limeFront s outer args value) ++ entry.site.limeInside s outer args states ∨
       ∃ phase, CleanupRuns (entry.site.siteTrap Graph.limeEmit saved (entry.site.limeSiteCode rest)) phase ∧
         dst = entry.site.limeCleanup s outer (entry.site.frame args) phase :=
-  GraphEntry.lime_operand_trap_run_via (limeSource s outer index args) (entry.limeFront s outer args value)
+  GraphEntry.lime_operand_trap_run_via .body (limeSource s outer index args) (entry.limeFront s outer args value)
     (enters_site ready allocated read select) trace
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Conditional.Proofs.Lime1

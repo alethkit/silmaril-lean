@@ -13,7 +13,7 @@ open CallContinuation.OuterCall.Ranked
 open CallContinuation.OuterCall.Computed
 open Execution.Runtime (Frame Value)
 
-private theorem plug_admitted {program : Graph.Program} {fn : Graph.Function}
+theorem plug_admitted {program : Graph.Program} {fn : Graph.Function}
     {locals : List Value} {body : Graph.Body} (blocks : List Block) (saved : List Value)
     (fallthrough : List NumType) (enclosing : Graph.EnclosingLabels)
     (checked : Block.check fn blocks saved fallthrough enclosing = true)
