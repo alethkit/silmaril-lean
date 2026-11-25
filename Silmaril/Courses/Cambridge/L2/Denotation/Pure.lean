@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Courses.Cambridge.L2.Typing
+public import Silmaril.Courses.Cambridge.L2.Denotation.Environment
 
 /-! # A compositional denotation for pure CBV L2
 
@@ -79,23 +80,16 @@ abbrev Value : Ty → Type
   | .unit => Unit
   | .arr A B => Value A → Value B
 
-/-- A typed lexical environment, with the most recent binder first. -/
-def Env : List Ty → Type
-  | [] => Unit
-  | A :: Γ => Value A × Env Γ
+abbrev Env := Denotation.LexicalEnv Value
 
-def Env.empty : Env [] := ()
+abbrev Env.empty : Env [] := Denotation.LexicalEnv.empty
 
-def Env.push {Γ : List Ty} {A : Ty} (environment : Env Γ) (value : Value A) : Env (A :: Γ) :=
-  (value, environment)
+abbrev Env.push {Γ : List Ty} {A : Ty} (environment : Env Γ) (value : Value A) : Env (A :: Γ) :=
+  Denotation.LexicalEnv.push environment value
 
-def Env.lookup : {Γ : List Ty} → Env Γ → {i : Nat} → {T : Ty} →
-    Γ[i]? = some T → Value T
-  | [], _, _, _, lookup => by simp at lookup
-  | _ :: _, environment, 0, _, lookup => by
-    cases Option.some.inj lookup
-    exact environment.1
-  | _ :: _, environment, _ + 1, _, lookup => Env.lookup environment.2 lookup
+abbrev Env.lookup {Γ : List Ty} (environment : Env Γ) {i : Nat} {T : Ty}
+    (lookup : Γ[i]? = some T) : Value T :=
+  Denotation.LexicalEnv.lookup environment lookup
 
 /-- Interpret terms compositionally. Application uses the meaning of the
 argument, and the function body uses the environment saved at the lambda. -/

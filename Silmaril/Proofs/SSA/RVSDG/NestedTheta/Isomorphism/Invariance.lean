@@ -43,31 +43,6 @@ private theorem compare_label (m : Model.{u, v, w} Op) (fuel : Nat) {left right 
     exact option_colours_injective (children arm entry entry rfl)
   rw [runners]
 
-private theorem compare_completed {n k : Nat} (ids : Fin n ≃ Fin k) (left right : Erased F)
-    (lenL : left.length = n) (lenR : right.length = k)
-    (vertices : ∀ i, i < n → left[i]? = right[renameVertex ids i]?) :
-    completed left = completed right := by
-  apply propext
-  simp only [completed, List.all_eq_true]
-  constructor
-  · intro done item mem
-    obtain ⟨j, hj, atJ⟩ := List.mem_iff_getElem.mp mem
-    let target : Fin k := ⟨j, lenR ▸ hj⟩
-    let source := ids.symm target
-    have same := vertices source.val source.isLt
-    have atR : right[renameVertex ids source.val]? = some item := by
-      have address : renameVertex ids source.val = j := by
-        change renameVertex ids source.val = target.val
-        simp only [renameVertex, dite_eq_left source.isLt]
-        exact congrArg Fin.val (ids.apply_symm_apply target)
-      rw [address, List.getElem?_eq_getElem hj, atJ]
-    exact done item (List.mem_of_getElem? (same.trans atR))
-  · intro done item mem
-    obtain ⟨i, hi, atI⟩ := List.mem_iff_getElem.mp mem
-    have same := vertices i (lenL ▸ hi)
-    rw [List.getElem?_eq_getElem hi, atI] at same
-    exact done item (List.mem_of_getElem? same.symm)
-
 private theorem run_colours {argsL argsR outsL outsR : Ports (PortType V S)}
     {sigsL sigsR : List (Ports (PortType V S))}
     {left : Graph Op argsL [] sigsL outsL} {right : Graph Op argsR [] sigsR outsR}

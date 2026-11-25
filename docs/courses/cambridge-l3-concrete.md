@@ -46,11 +46,9 @@ the course AST’s `RecordLabels` witness. In `let rec`, the two parameter
 type annotations must agree as parsed types, including the order of any
 record fields. `*` is an ASCII alias for `∗`.
 
-Variables and labels use the existing ASCII identifier spelling and
-are distinguished by grammatical position. The notes distinguish their
-sets and use distinct label metavariables. The parser does not partition
-identifier spellings into two lexicons, so `x` can spell a label in a field
-position and a variable in a term position. L3 additionally reserves
+The original parser uses the same ASCII spelling rule for variables and
+labels, with grammatical position selecting the role. Use `Exact.parse`
+for the notes' separate spelling classes. L3 reserves
 `fst`, `snd`, `ref`, `inl`, `inr`, `match` and `with`. Earlier languages
 still allow these names.
 The AST numbers the notes’ locations in the order `l`, `l0`, `l1`, and so on.
@@ -75,6 +73,52 @@ binder names. `parse_print` and `parseType_printType` recover the original
 ASTs. `print_injective` and `printType_injective` follow from those
 round-trips. `parseResolved_print` gives the corresponding resolved
 expression.
+
+## Separate variable and label classes
+
+Section 5.2 (pp. 72–73) introduces the label class and explicitly
+excludes `fun x:T → {x = 3}`. Section 5.5 (p. 78) gives separate sets
+for variables and labels, illustrated by `x, y, z` and `p, q`.
+It uses the label class for fields of record types, fields of record terms,
+and projections. The variable class includes uses and all binders.
+Membership is independent of scope. A label can appear in different
+records, and the distinct-label rule still applies within each record.
+[§5.2](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=72) ·
+[§5.5](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=78)
+
+The notes leave the full spelling sets open. Supply a fixed
+`Exact.Classifier` for the vocabulary you want to read. It assigns
+each identifier to exactly one class. The same choice applies to
+standalone types, terms and every annotation, including those on
+injections, match branches and recursive definitions. For example:
+
+```lean
+import Silmaril.Courses.Cambridge.L3.Concrete
+
+open Silmaril.Courses.Cambridge.L3.Concrete
+
+def exampleClasses : Exact.Classifier
+  | "p" | "q" => .label
+  | _ => .variable
+
+#guard (Exact.parse exampleClasses "fun x:{p:int} → x.p".toUTF8).isSome
+#guard (Exact.parse exampleClasses "(fun x:int → {x = 3})".toUTF8).isNone
+#guard (Exact.parseType exampleClasses "{x:int}".toUTF8).isNone
+```
+
+`Exact.parse` and `Exact.parseType` apply the class check to the AST
+returned by the existing full-input reader. `Exact.parseResolved`
+then resolves the names. `Exact.parse_eq_some_iff` and
+`Exact.parseType_eq_some_iff` state exactly how decoding depends on
+the existing byte profile and the class check.
+
+`Exact.SourceExpr` and `Exact.SourceType` are the canonical AST domains.
+They require both the existing spelling rules and the chosen class at
+each position. The printers emit the same grouped UTF-8 encoding.
+`Exact.parse_print` and `Exact.parseType_printType` recover these
+ASTs. `Exact.print_injective` and `Exact.printType_injective` prove
+injectivity on the respective domains. The original `parse`, `parseType`
+and their unconditional canonical theorems remain available.
 
 ```sh
 lake build --wfail +Silmaril.Courses.Cambridge.L3.Concrete \

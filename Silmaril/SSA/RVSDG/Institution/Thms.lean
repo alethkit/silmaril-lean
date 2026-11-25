@@ -46,6 +46,13 @@ theorem Equation.holds_iff_denote (e : Equation P) (m : Model.{u, v, w} P) :
       e.rhs.denote (Categorical.Model.ofRuntime m) :=
   Proofs.holds_iff_denote e m
 
+@[simp] theorem Equation.map_id (e : Equation P) : e.map (fun f => f) = e :=
+  Proofs.equation_map_id e
+
+theorem Equation.map_comp {R : Dialect.{u, v} V S} (f : OpcodeMap P Q) (g : OpcodeMap Q R)
+    (e : Equation P) : e.map (fun op => g (f op)) = (e.map f).map g :=
+  Proofs.equation_map_comp f g e
+
 /-- Translate equations forward and reduce models along the same signature map. -/
 @[expose] def corridor {P Q : Signature.{u, v} V S} (h : P ⟶ Q) :
     room.{u, v, w} P ⟶ room.{u, v, w} Q :=
@@ -56,13 +63,13 @@ theorem Equation.holds_iff_denote (e : Equation P) (m : Model.{u, v, w} P) :
 theorem corridor_id (P : Signature.{u, v} V S) :
     corridor.{u, v, w} (𝟙 P) = 𝟙 (room.{u, v, w} P) := by
   apply Room.hom_ext
-  · exact funext Proofs.equation_map_id
+  · exact funext Equation.map_id
   · exact Proofs.reductFunctor_id P.op
 
 theorem corridor_comp {P Q R : Signature.{u, v} V S} (h : P ⟶ Q) (k : Q ⟶ R) :
     corridor.{u, v, w} (h ≫ k) = corridor h ≫ corridor k := by
   apply Room.hom_ext
-  · exact funext (Proofs.equation_map_comp (Signature.opcodeMap h) (Signature.opcodeMap k))
+  · exact funext (Equation.map_comp (Signature.opcodeMap h) (Signature.opcodeMap k))
   · exact Proofs.reductFunctor_comp (Signature.opcodeMap h) (Signature.opcodeMap k)
 
 /-- The equation institution on the fixed value and state sort alphabets. -/

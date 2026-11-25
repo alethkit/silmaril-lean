@@ -34,13 +34,22 @@ unbound, while reading or writing a dangling capture gives the
 existing invalid-reference failure.
 [Run fixtures](../../Silmaril/Languages/Python/Core/Closure/Finite/Examples.lean)
 
-For callers using the full Python machine, the corresponding step
-lemma must cover the stack and code table and preserve the residual
-heap on return. A serialized symbolic state additionally needs a codec
-that preserves exact identities and response payloads. The generic
-finite execution theorem applies once that boundary has fixed-source
-step readback.
+Checked dispatch also admits finite code rows keyed by the original
+code keys. Their projections are exactly the runtime tables with
+finite support. Dispatch uses the runtime resolver and preserves exact
+lookup failures, parameter arity, capture validation and the saved
+caller stack. The positional writes thread the finite heap in order.
+Return and defined-error delivery retain the residual heap and recover
+the exact saved caller, continuation and older stack.
+[Dispatch theorems](../../Silmaril/Languages/Python/Core/Closure/Finite/Dispatch/Thms.lean)
+· [Dispatch fixtures](../../Silmaril/Languages/Python/Core/Closure/Finite/Dispatch/Examples.lean)
+
+These call-entry and delivery equations supply premises for whole
+executor step correspondence. That theorem also has to cover operand
+evaluation, body steps, receiving a result and storing it in the caller.
+A serialized symbolic state additionally needs a codec that preserves
+exact identities and response payloads.
 
 ```sh
-make check CHECK_TARGETS=+Silmaril.Languages.Python.Core.Closure.Finite.Examples
+make check CHECK_TARGETS='+Silmaril.Languages.Python.Core.Closure.Finite.Examples +Silmaril.Languages.Python.Core.Closure.Finite.Dispatch.Examples'
 ```

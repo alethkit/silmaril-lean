@@ -10,7 +10,7 @@ public section
 namespace Silmaril.Elf.Staged.Pinned.GlibcLibc.MutexUnlock.RecursiveRelease
 
 open Silmaril.X86
-open Silmaril.X86.Ext (loadN)
+open Silmaril.X86.Ext (loadN leBytes)
 open Silmaril.Machine.Execution
 
 /-- Ten SC steps reach the exchange with zero depth, full RAX zero,
@@ -44,6 +44,50 @@ theorem private_through_exchange_sc {initial : MState} {kind users : BitVec 32}
         address < (initial.core.read .rdi).toNat + 4 →
         final.memory.bytes.get? address = some 0 :=
   Proofs.Elf.Staged.Pinned.GlibcLibc.MutexUnlockRecursiveRelease.private_through_exchange_sc
+    entry aligned lock writable
+
+/-- The same eleven-step SC run, with exact bytes for each updated dword.
+The lock, depth and owner dwords contain zero, and the users dword contains
+the little-endian encoding of the decremented 32-bit count. -/
+theorem private_through_exchange_sc_fields {initial : MState} {kind users : BitVec 32}
+    (entry : Entry initial kind users)
+    (aligned : (initial.core.read .rdi).toNat % 4 = 0)
+    (lock : initial.memory.readBytes (initial.core.read .rdi).toNat 4 = some [1, 0, 0, 0])
+    (writable : initial.memory.Permitted .write (initial.core.read .rdi).toNat 4) :
+    ∃ final, run Atomic9.step 11 initial = some final ∧
+      final.core.rip = 0xa1ba4 ∧ final.core.read .rax = 1#64 ∧
+      initial.memory.WritesOnly final.memory (initial.core.read .rdi).toNat 16 ∧
+      (∀ address, (initial.core.read .rdi).toNat ≤ address →
+        address < (initial.core.read .rdi).toNat + 4 →
+        final.memory.bytes.get? address = some 0) ∧
+      ∀ offset, offset < 4 →
+        let base := (initial.core.read .rdi).toNat
+        final.memory.bytes.get? (base + 4 + offset) = some 0 ∧
+        final.memory.bytes.get? (base + 8 + offset) = some 0 ∧
+        final.memory.bytes.get? (base + 12 + offset) = (leBytes ((users - 1#32).setWidth 64) 4)[offset]? :=
+  Proofs.Elf.Staged.Pinned.GlibcLibc.MutexUnlockRecursiveRelease.private_through_exchange_sc_fields
+    entry aligned lock writable
+
+
+/-- The SC endpoint also retains the incoming frame pointer. -/
+theorem private_through_exchange_sc_fields_with_rbp {initial : MState} {kind users : BitVec 32}
+    (entry : Entry initial kind users)
+    (aligned : (initial.core.read .rdi).toNat % 4 = 0)
+    (lock : initial.memory.readBytes (initial.core.read .rdi).toNat 4 = some [1, 0, 0, 0])
+    (writable : initial.memory.Permitted .write (initial.core.read .rdi).toNat 4) :
+    ∃ final, run Atomic9.step 11 initial = some final ∧
+      final.core.rip = 0xa1ba4 ∧ final.core.read .rax = 1#64 ∧
+      final.core.read .rbp = initial.core.read .rbp ∧
+      initial.memory.WritesOnly final.memory (initial.core.read .rdi).toNat 16 ∧
+      (∀ address, (initial.core.read .rdi).toNat ≤ address →
+        address < (initial.core.read .rdi).toNat + 4 →
+        final.memory.bytes.get? address = some 0) ∧
+      ∀ offset, offset < 4 →
+        let base := (initial.core.read .rdi).toNat
+        final.memory.bytes.get? (base + 4 + offset) = some 0 ∧
+        final.memory.bytes.get? (base + 8 + offset) = some 0 ∧
+        final.memory.bytes.get? (base + 12 + offset) = (leBytes ((users - 1#32).setWidth 64) 4)[offset]? :=
+  Proofs.Elf.Staged.Pinned.GlibcLibc.MutexUnlockRecursiveRelease.private_through_exchange_sc_fields_with_rbp
     entry aligned lock writable
 
 end Silmaril.Elf.Staged.Pinned.GlibcLibc.MutexUnlock.RecursiveRelease

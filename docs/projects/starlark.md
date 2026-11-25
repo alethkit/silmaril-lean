@@ -2,7 +2,7 @@
 
 The collections API adds a shared heap for lists, tuples and dictionaries,
 with reachable freezing and function-body iteration.
-[Starlark collection store](starlark-lists.md) · [Lexical calls](starlark-functions.md) · [Modules](starlark-modules.md)
+[Starlark collection store](starlark-lists.md) · [Lexical calls](starlark-functions.md) · [Built-ins](starlark-builtins.md) · [Modules](starlark-modules.md)
 
 The dialect is the **Starlark core language** specified by the Bazel team in the
 [Starlark Language Specification][spec] at commit
@@ -70,15 +70,17 @@ reassignment, reads before assignment, and precedence of errors.
 
 ## Coverage obligations
 
+C3 remains open while these pinned-spec obligations remain.
+
 | Area | Remaining work under the pinned spec |
 | --- | --- |
 | Source and validation | UTF-8 lexer, indentation, literal spelling and escapes, grammar and precedence, source locations and diagnostics. A future shared syntax may admit a larger Python surface, with language-specific validation and name resolution. |
-| Values and expressions | Floats and mixed numeric coercion/comparisons, strings, bytes, sets, ranges, functions and general method calls. Add `/`, bitwise operators and shift errors, sequence concatenation and repetition, string interpolation, membership, other displays and subscripts, comprehensions, attribute access, slicing, calls and lambdas. |
-| Statements and names | Nested and destructuring targets, field updates, augmented assignment, lambdas and direct source lowering for call expressions, calls within collection loop bodies, comprehension scopes, other loop targets and iterables, and full source-level lexical resolution. Preserve static errors for illegal control, duplicate globals and load/global conflicts. |
-| Built-in functions | `abs`, `any`, `all`, `bool`, `bytes`, `dict`, `dir`, `enumerate`, `fail`, `float`, `getattr`, `hasattr`, `hash`, `int`, `len`, `list`, `max`, `min`, `print`, `range`, `repr`, `reversed`, `set`, `sorted`, `str`, `tuple`, `type`, `zip`. Add their value, arity, ordering, error and host-observation rules. |
+| Values and expressions | Floats and mixed numeric coercion/comparisons, further string operations, bytes, sets, ranges and general method calls. Add `/`, bitwise operators and shift errors, sequence concatenation and repetition, string interpolation, membership, other displays and subscripts, comprehensions, attribute access, slicing and lambdas. |
+| Statements and names | Nested and destructuring targets, field updates, augmented assignment, lambdas, scope collection and text parsing for call-aware blocks, calls in collection and module expression positions, comprehension scopes, and other loop targets and iterables. The [expression resolver](starlark-functions.md#resolving-a-normalized-expression) handles nested calls with a supplied lexical context. Preserve static errors for illegal control, duplicate globals and load/global conflicts. |
+| Built-in functions | `abs`, `any`, `all`, `bytes`, `dict`, `dir`, `enumerate`, `fail`, `float`, `getattr`, `hasattr`, `hash`, `int`, `max`, `min`, `print`, `range`, `repr`, `reversed`, `set`, `sorted`, `str`, `zip`. Extend `bool`, `len`, `list`, `tuple` and `type` as new value types enter the domain. |
 | Collection methods | Bytes `elems`. Dict `clear`, `get`, `items`, `keys`, `pop`, `popitem`, `setdefault`, `update`, `values`. List `clear`, `extend`, `index`, `insert`, `pop`, `remove`. Set `add`, `clear`, `difference`, `difference_update`, `discard`, `intersection`, `intersection_update`, `isdisjoint`, `issubset`, `issuperset`, `pop`, `remove`, `symmetric_difference`, `symmetric_difference_update`, `union`, `update`. |
 | String methods | `capitalize`, `count`, `elems`, `endswith`, `find`, `format`, `index`, `isalnum`, `isalpha`, `isdigit`, `islower`, `isspace`, `istitle`, `isupper`, `join`, `lower`, `lstrip`, `partition`, `removeprefix`, `removesuffix`, `replace`, `rfind`, `rindex`, `rpartition`, `rsplit`, `rstrip`, `split`, `splitlines`, `startswith`, `strip`, `title`, `upper`. |
-| Host and modules | Effectful module resolution and caching, recursive dependency initialization and cycle failures, host thread state, host predeclared and pre-bound values, custom types and callable methods, `print` output and failure backtraces. Resource limits, cancellation and enabled extensions belong to explicit profiles. |
+| Host and modules | Effectful and concurrent loading beyond the finite manifest, host thread state, host predeclared and pre-bound values, custom types and callable methods, `print` output and failure backtraces. Resource limits, cancellation and enabled extensions belong to explicit profiles. |
 
 See the pinned sections on [value concepts][values], [loading][loading],
 [built-in functions][builtins] and [built-in methods][methods].

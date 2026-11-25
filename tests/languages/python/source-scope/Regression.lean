@@ -258,3 +258,4 @@ private def occurrenceFixture : List Stmt :=
 #print axioms enclosingBinding_skips_class
 #print axioms enclosingBinding_classCell
 #print axioms Scope.occurrence_access
+#print axioms analyze_preserves_lexical
