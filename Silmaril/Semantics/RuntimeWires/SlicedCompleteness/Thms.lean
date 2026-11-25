@@ -48,6 +48,13 @@ theorem Row.Split.pass (W : List O) {r : Row S A C} {p : Row S A B} {q : Row S B
     (h : Row.Split S r p q) : Row.Split S (Row.pass W r) (Row.pass W p) (Row.pass W q) :=
   Proofs.SlicedCompleteness.split_pass W h
 
+theorem Row.Split.all_lower (r : Row S A B) : Row.Split S r (Row.straight A) r :=
+  Proofs.SlicedCompleteness.split_all_lower r
+
+theorem Sheet.SeamEquivalent.padLeft (W : List O) {p q : Sheet S A B}
+    (h : Sheet.SeamEquivalent p q) : Sheet.SeamEquivalent (p.padLeft W) (q.padLeft W) :=
+  Proofs.SlicedCompleteness.seam_padLeft W h
+
 theorem Sheet.SeamEquivalent.cons (r : Row S A B) {p q : Sheet S B C}
     (h : Sheet.SeamEquivalent p q) : Sheet.SeamEquivalent (.cons r p) (.cons r q) :=
   Proofs.SlicedCompleteness.seam_cons r h
