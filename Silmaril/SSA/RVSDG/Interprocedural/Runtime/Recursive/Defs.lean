@@ -64,14 +64,17 @@ inductive Job (m : Machine.{u, v, w} Op) : Ports (Ty V S) → Type (max u v w) w
   | node {ins outs : Ports (Ty V S)} (kind : NestedTheta.Kind (Instruction Op) ins outs)
       (cs : Fin kind.arity → List (Ports (Ty V S))) (children : Bodies kind cs)
       (input : Tuple m.Val ins) : Job m outs
+  | iteration {carried : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+      (body : NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried))
+      (input : Tuple m.Val carried) : Job m carried
 
 def Job.openClosure (m : Machine.{u, v, w} Op)
     (callee : m.Val (.value (.function args outs))) (arguments : Tuple m.Val args) : Job m outs :=
   let closure := resolve m callee
   .region closure.body.toTerm (Closure.enter Op closure arguments) (PUnit.unit : Locals m.Val [])
 
-/-- Unbounded finite execution with explicit call premises. This slice can
-visit primitives, calls and selected γ arms. A reached θ has no rule. -/
+/-- Unbounded finite execution. Calls and completed θ iterations are premises
+of the same relation. Each body activation starts with an empty local prefix. -/
 inductive Returns (m : Machine.{u, v, w} Op) :
     {outs : Ports (Ty V S)} → Job m outs → Tuple m.Val outs → Prop where
   | call {args outs : Ports (Ty V S)} {callee : m.Val (.value (.function args outs))}
@@ -110,14 +113,45 @@ inductive Returns (m : Machine.{u, v, w} Op) :
       Returns m (.node (.base (.gamma (entry := entry) (exit := exit) extra))
         cs children (.cons (.control tag) input)) output
 
-/-- The bounded algorithms for the three judgments, with θ budget zero. -/
-def Job.run (m : Machine.{u, v, w} Op) (depth : Nat) :
+  | theta {carried : Ports (Ty V S)}
+      {cs : Fin 1 → List (Ports (Ty V S))}
+      {children : (i : Fin 1) → NestedTheta.Term (Instruction Op) carried [] (cs i)
+        (Theta.BodyResults carried)}
+      {input output : Tuple m.Val carried}
+      (loop : Returns m (.iteration (children 0) input) output) :
+      Returns m (.node (.theta carried) cs children input) output
+  | stop {carried : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+      {body : NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried)}
+      {input output : Tuple m.Val carried} {tag : m.Val (.control 2)}
+      (activation : Returns m (.region body input (PUnit.unit : Locals m.Val [])) (.cons tag output))
+      (done : (tag.selector.val == 1) = false) :
+      Returns m (.iteration body input) output
+  | again {carried : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+      {body : NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried)}
+      {input next output : Tuple m.Val carried} {tag : m.Val (.control 2)}
+      (activation : Returns m (.region body input (PUnit.unit : Locals m.Val [])) (.cons tag next))
+      (continueLoop : (tag.selector.val == 1) = true)
+      (later : Returns m (.iteration body next) output) :
+      Returns m (.iteration body input) output
+
+/-- Within an already-started θ, the remaining iterations decrease without
+changing the budgets used by nested calls and θ nodes in the body. -/
+def Job.runWithin (m : Machine.{u, v, w} Op) (loops depth remaining : Nat) :
     {outs : Ports (Ty V S)} → Job m outs → Option (Tuple m.Val outs)
-  | _, .call callee arguments => invoke m 0 depth callee arguments
-  | _, .region body entry locals => evalBody m (dispatch m (invoke m 0 depth)) 0 body entry locals
+  | _, .call callee arguments => invoke m loops depth callee arguments
+  | _, .region body entry locals => evalBody m (dispatch m (invoke m loops depth)) loops body entry locals
   | _, .node kind _cs children input =>
-    evalKind m (dispatch m (invoke m 0 depth)) 0 kind
-      (fun i x => evalBody m (dispatch m (invoke m 0 depth)) 0 (past := []) (children i) x PUnit.unit)
+    evalKind m (dispatch m (invoke m loops depth)) loops kind
+      (fun i x => evalBody m (dispatch m (invoke m loops depth)) loops (past := []) (children i) x PUnit.unit)
       input
+  | _, .iteration body input =>
+    NestedTheta.iterate
+      (fun x => evalBody m (dispatch m (invoke m loops depth)) loops (past := []) body x PUnit.unit)
+      (fun tag => tag.selector.val == 1) remaining input
+
+/-- Start a job with the full per-θ iteration bound. -/
+def Job.run (m : Machine.{u, v, w} Op) (loops depth : Nat) {outs : Ports (Ty V S)} (job : Job m outs) :
+    Option (Tuple m.Val outs) :=
+  job.runWithin m loops depth loops
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive

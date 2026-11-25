@@ -2,7 +2,7 @@
 
 The φ implementation follows Reissmann, Meyer, Bahmann and Själander,
 *RVSDG: An Intermediate Representation for Optimizing Compilers*,
-arXiv:1912.05036v2, §4.2.3 and Definitions 7–8. The versioned PDF has
+arXiv:1912.05036v2, §4.2.3 and Definitions 7–8 for φ, and §4.3 for θ. The versioned PDF has
 SHA-256 `861fb183f8b642327f3231a823bc0d2df7ebff17b39cd10ab7a2cc3a2be4f6a3`.
 [Paper](https://arxiv.org/abs/1912.05036v2) · [PDF](https://arxiv.org/pdf/1912.05036v2)
 
@@ -22,27 +22,30 @@ identities.
 [Recursive linker](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Defs.lean)
 
 The inductive `Returns` judgment has explicit premises for entering a
-callable, running its body, applying a callable and entering the chosen
-γ arm. It never invokes the bounded evaluator. `call_iff` proves that a
-call returns an exact typed tuple of values and states iff there is a
-call-depth bound at which the evaluator returns that tuple.
-`returns_eventually` provides a sufficient depth for all larger bounds.
-The adequacy result uses θ budget zero. Selected paths may execute
-primitives, calls and γ arms. An executed θ is outside this relation,
-while θ code in an unselected arm is allowed. Bound exhaustion by itself
-does not decide divergence. The linker takes an already supplied import
-tuple. Cycles across external modules and linking by symbol name are
-outside this slice.
+callable, running its body, applying a callable, entering the chosen γ
+arm, and completing θ iterations. A stopping body publishes the carried
+tuple. A continuing body feeds that tuple to a fresh activation with
+an empty local prefix. Both body execution and recursive calls use the
+same judgment. Its rules are independent of the bounded evaluator.
+`call_iff` proves that a call returns an exact typed value/state tuple
+iff some pair of call-depth and per-θ bounds returns it.
+`returns_eventually` supplies sufficient bounds valid at every larger
+pair. During a single θ invocation the remaining iteration count
+decreases, while its body and callees still receive the full per-θ
+budget. Exhaustion at a particular bound leaves divergence undecided.
+The linker takes a supplied import tuple. External import cycles and
+linking by symbol name are outside this slice.
 [Public theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Thms.lean)
 
-The fixture links two mutually recursive members. The first captures
-the second through a recursion argument, and the second captures the
-first through its earlier physical λ output. Both capture an imported
-value, pass a decreasing state through alternating calls, and return
-the captured value and final state at zero. It checks the exact exports
-of both linkers, bounded failure, successful results from both members
-and the corresponding independent finite derivation.
-[Fixture](../../tests/ssa/RVSDGPhiCalls.lean)
+The first fixture links two mutually recursive members. The first
+captures the second through a recursion argument, and the second
+captures the first through its earlier physical λ output. Both capture
+an imported value, pass a decreasing state through alternating calls,
+and return the captured value and final state at zero. A second linked
+φ member enters θ and calls itself inside the selected γ arm of the
+body. The fixture checks exhaustion independently at each bound and
+the exact returned tuple when both bounds suffice.
+[Fixtures](../../tests/ssa/RVSDGPhiCalls.lean)
 
 ```sh
 lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Thms
