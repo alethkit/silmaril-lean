@@ -12,10 +12,7 @@ open Sliced (Row Sheet)
 
 universe u v
 
-variable {O : Type u} {S : Signature.{u,v} O} {L R W : ℕ}
-variable {lower : ProgressiveGraph.Diagram S L W .point} {upper : ProgressiveGraph.Diagram S R W .point}
-variable (m : lower.VerticalMatch upper)
-variable (p : lower.LayerSweep) (q : upper.LayerSweep) (s : m.glue.LayerSweep)
+variable {O : Type u} {S : Signature.{u,v} O} {L R A B C : ℕ}
 
 private theorem cells_joinRows {n : ℕ} (word : Fin (n + 1) → List O)
     (row : ∀ i : Fin n, Row S (word i.castSucc) (word i.succ)) :
@@ -44,27 +41,49 @@ private theorem ofFn_cast {α : Type*} {n k : ℕ} (eq : n = k) (f : Fin n → �
   subst k
   rfl
 
-private theorem cells_glue :
+section
+
+variable {lower : ProgressiveGraph.Diagram S L A .point} {upper : ProgressiveGraph.Diagram S R B .point}
+variable {g : ProgressiveGraph.Diagram S (L + R) C .point}
+variable (p : lower.LayerSweep) (q : upper.LayerSweep) (s : g.LayerSweep)
+
+theorem sweep_cells (stack : LevelStack lower upper g)
+    (lower_rows : ∀ i, (s.row (stack.lowerLevel i)).cells = (p.row i).cells)
+    (upper_rows : ∀ i, (s.row (stack.upperLevel i)).cells = (q.row i).cells) :
     s.sheet.cells = p.sheet.cells ++ q.sheet.cells := by
   simp only [LayerSweep.sheet, cells_joinRows]
-  rw [ofFn_cast (count_glue m), List.ofFn_add]
+  rw [ofFn_cast (stack.count_glue), List.ofFn_add]
   have left : (List.ofFn fun i : Fin lower.levelCount =>
-      (s.row ((i.castLE (Nat.le_add_right _ upper.levelCount)).cast (count_glue m).symm)).cells) =
+      (s.row ((i.castLE (Nat.le_add_right _ upper.levelCount)).cast (stack.count_glue).symm)).cells) =
       List.ofFn (fun i => (p.row i).cells) := by
     apply congrArg List.ofFn
     funext i
-    have eq : (i.castLE (Nat.le_add_right _ upper.levelCount)).cast (count_glue m).symm =
-        lowerLevel m i := Fin.ext rfl
-    rw [eq, row_cells_lower]
+    have eq : (i.castLE (Nat.le_add_right _ upper.levelCount)).cast (stack.count_glue).symm =
+        stack.lowerLevel i := Fin.ext rfl
+    rw [eq, lower_rows]
   have right : (List.ofFn fun i : Fin upper.levelCount =>
-      (s.row ((i.natAdd lower.levelCount).cast (count_glue m).symm)).cells) =
+      (s.row ((i.natAdd lower.levelCount).cast (stack.count_glue).symm)).cells) =
       List.ofFn (fun i => (q.row i).cells) := by
     apply congrArg List.ofFn
     funext i
-    have eq : (i.natAdd lower.levelCount).cast (count_glue m).symm =
-        upperLevel m i := Fin.ext rfl
-    rw [eq, row_cells_upper]
+    have eq : (i.natAdd lower.levelCount).cast (stack.count_glue).symm =
+        stack.upperLevel i := Fin.ext rfl
+    rw [eq, upper_rows]
   rw [left, right]
+
+theorem concat_of_cells
+    (first : s.word 0 = p.word 0) (last : s.word (Fin.last g.levelCount) = q.word (Fin.last upper.levelCount))
+    (join : q.word 0 = p.word (Fin.last lower.levelCount))
+    (cells : s.sheet.cells = p.sheet.cells ++ q.sheet.cells) :
+    s.sheet.reindex first last = p.sheet.thenDo (q.sheet.reindex join rfl) := by
+  apply Sheet.cells_injective
+  simpa only [Sheet.cells_reindex, cells_thenDo] using cells
+
+end
+
+variable {lower : ProgressiveGraph.Diagram S L A .point} {upper : ProgressiveGraph.Diagram S R A .point}
+variable (m : lower.VerticalMatch upper)
+variable (p : lower.LayerSweep) (q : upper.LayerSweep) (s : m.glue.LayerSweep)
 
 theorem first_word : s.word 0 = p.word 0 := by
   simp only [LayerSweep.word, wires_first m p s, m.glue_label_lower]
@@ -79,8 +98,8 @@ theorem join_word : q.word 0 = p.word (Fin.last lower.levelCount) := by
 
 theorem sweep_concat :
     (s.sheet.reindex (first_word m p s) (last_word m q s)) =
-      p.sheet.thenDo (q.sheet.reindex (join_word m p q) rfl) := by
-  apply Sheet.cells_injective
-  simpa only [Sheet.cells_reindex, cells_thenDo] using cells_glue m p q s
+      p.sheet.thenDo (q.sheet.reindex (join_word m p q) rfl) :=
+  concat_of_cells p q s _ _ _
+    (sweep_cells p q s (matchedStack m) (row_cells_lower m p s) (row_cells_upper m q s))
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveGluing

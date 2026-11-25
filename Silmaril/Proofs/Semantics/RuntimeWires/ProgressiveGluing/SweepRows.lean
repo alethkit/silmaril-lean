@@ -17,19 +17,20 @@ variable {O : Type u} {S : Signature.{u,v} O} {L R W : ℕ}
 variable {lower : ProgressiveGraph.Diagram S L W .point} {upper : ProgressiveGraph.Diagram S R W .point}
 variable (m : lower.VerticalMatch upper)
 
-private theorem slots_image {V U : ℕ} {d : ProgressiveGraph.Diagram S V W .point} {g : ProgressiveGraph.Diagram S U W .point}
+theorem slots_image {V U X Y : ℕ} {d : ProgressiveGraph.Diagram S V X .point}
+    {g : ProgressiveGraph.Diagram S U Y .point}
     {h a b k c f : ℝ} (p : d.LayerSlice h a b) (q : g.LayerSlice k c f)
-    (e : LayerSlot V W → LayerSlot U W)
+    (e : LayerSlot V X → LayerSlot U Y)
     (coordinates : ∀ slot, g.slotX k (e slot) = d.slotX h slot)
     (active : ∀ slot, g.atLayer k (e slot) ↔ d.atLayer h slot)
     (exhaustive : ∀ slot, g.atLayer k slot → ∃ x, e x = slot) :
     q.slots = p.slots.map e := by
   have ordered : (p.slots.map e).Pairwise (fun x y => g.slotX k x < g.slotX k y) :=
     List.pairwise_map.mpr (p.ordered.imp (fun {x y} h => by rwa [coordinates, coordinates]))
-  have nodup (xs : List (LayerSlot U W))
+  have nodup (xs : List (LayerSlot U Y))
       (h : xs.Pairwise (fun x y => g.slotX k x < g.slotX k y)) : xs.Nodup :=
     h.imp (fun h => ne_of_apply_ne (g.slotX k) (ne_of_lt h))
-  have mem (slot : LayerSlot U W) : slot ∈ q.slots ↔ slot ∈ p.slots.map e := by
+  have mem (slot : LayerSlot U Y) : slot ∈ q.slots ↔ slot ∈ p.slots.map e := by
     rw [q.exact_slots, List.mem_map]
     constructor
     · intro hs
@@ -98,24 +99,25 @@ private theorem cells_wire {A B : List O} (o : O) (r : Row S A B) :
     (Row.wire o r).cells = Sum.inl o :: r.cells :=
   Row.cells_pass [o] r
 
-private theorem layerRow_cells_image {V U : ℕ} {d : ProgressiveGraph.Diagram S V W .point} {g : ProgressiveGraph.Diagram S U W .point}
-    (e : Fin V → Fin U) (labels : g.label = d.label)
-    (generators : ∀ v, g.generator (e v) = d.generator v) (slots : List (LayerSlot V W)) :
-    (g.layerRow (slots.map (Sum.map id e))).cells = (d.layerRow slots).cells := by
+theorem layerRow_cells_image {V U X Y : ℕ} {d : ProgressiveGraph.Diagram S V X .point}
+    {g : ProgressiveGraph.Diagram S U Y .point} (wires : Fin X → Fin Y) (e : Fin V → Fin U)
+    (labels : ∀ w, g.label (wires w) = d.label w)
+    (generators : ∀ v, g.generator (e v) = d.generator v) (slots : List (LayerSlot V X)) :
+    (g.layerRow (slots.map (Sum.map wires e))).cells = (d.layerRow slots).cells := by
   induction slots with
   | nil => rfl
   | cons slot slots ih =>
     cases slot with
     | inl w =>
       calc
-        _ = Sum.inl (g.label w) :: (g.layerRow (slots.map (Sum.map id e))).cells :=
+        _ = Sum.inl (g.label (wires w)) :: (g.layerRow (slots.map (Sum.map wires e))).cells :=
           cells_wire _ _
         _ = Sum.inl (d.label w) :: (d.layerRow slots).cells :=
-          congrArg₂ List.cons (congrArg Sum.inl (congrFun labels w)) ih
+          congrArg₂ List.cons (congrArg Sum.inl (labels w)) ih
         _ = _ := (cells_wire _ _).symm
     | inr v =>
       calc
-        _ = Sum.inr (g.generator (e v)) :: (g.layerRow (slots.map (Sum.map id e))).cells :=
+        _ = Sum.inr (g.generator (e v)) :: (g.layerRow (slots.map (Sum.map wires e))).cells :=
           Row.cells_box _ _
         _ = Sum.inr (d.generator v) :: (d.layerRow slots).cells :=
           congrArg₂ List.cons (congrArg Sum.inr (generators v)) ih
@@ -126,7 +128,7 @@ private theorem cells_reindex {A B C D : List O} (r : Row S A B) (a : A = C) (b 
   subst C D
   rfl
 
-private theorem sweep_row_cells {V : ℕ} {d : ProgressiveGraph.Diagram S V W .point}
+theorem sweep_row_cells {V : ℕ} {d : ProgressiveGraph.Diagram S V W .point}
     (p : d.LayerSweep) (i : Fin d.levelCount) :
     (p.row i).cells = (d.layerRow (p.layer i).slots).cells := by
   calc
@@ -137,19 +139,19 @@ private theorem sweep_row_cells {V : ℕ} {d : ProgressiveGraph.Diagram S V W .p
       cells_reindex _ (p.layer i).input_types.symm (p.layer i).output_types.symm
 
 theorem row_cells_lower (p : lower.LayerSweep) (s : m.glue.LayerSweep) (i : Fin lower.levelCount) :
-    (s.row (lowerLevel m i)).cells = (p.row i).cells := by
+    (s.row ((matchedStack m).lowerLevel i)).cells = (p.row i).cells := by
   rw [sweep_row_cells, sweep_row_cells]
   have below : lower.levelHeight i < 1 := (p.layer i).isolation.above.trans (p.layer i).isolation.hi_inside
-  have slots := slots_lower m (height_lower m i) below (p.layer i) (s.layer (lowerLevel m i))
+  have slots := slots_lower m ((matchedStack m).height_lower i) below (p.layer i) (s.layer ((matchedStack m).lowerLevel i))
   rw [slots]
-  exact layerRow_cells_image (Fin.castAdd R) m.glue_label_lower m.glue_generator_left _
+  exact layerRow_cells_image id (Fin.castAdd R) (congrFun m.glue_label_lower) m.glue_generator_left _
 
 theorem row_cells_upper (q : upper.LayerSweep) (s : m.glue.LayerSweep) (i : Fin upper.levelCount) :
-    (s.row (upperLevel m i)).cells = (q.row i).cells := by
+    (s.row ((matchedStack m).upperLevel i)).cells = (q.row i).cells := by
   rw [sweep_row_cells, sweep_row_cells]
   have above : 0 < upper.levelHeight i := (q.layer i).isolation.lo_inside.trans (q.layer i).isolation.below
-  have slots := slots_upper m (height_upper m i) above (q.layer i) (s.layer (upperLevel m i))
+  have slots := slots_upper m ((matchedStack m).height_upper i) above (q.layer i) (s.layer ((matchedStack m).upperLevel i))
   rw [slots]
-  exact layerRow_cells_image (Fin.natAdd L) m.glue_label_upper m.glue_generator_right _
+  exact layerRow_cells_image id (Fin.natAdd L) (congrFun m.glue_label_upper) m.glue_generator_right _
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveGluing
