@@ -83,5 +83,43 @@ private def diagnose (body : List Stmt) : Option Diagnostic :=
     .globalDecl ["x"], .functionDef "inner" [] [.nonlocalDecl ["x"]]]]] ==
   some ⟨[0, 0, 0], .unboundNonlocal "x"⟩
 
+private def classScopes : List Stmt :=
+  [.functionDef "outer" [⟨"x", none⟩, ⟨"y", none⟩, ⟨"z", none⟩] [
+    .classDef "C" [.name "base"] [
+      .globalDecl ["y"],
+      .assign "x" (.integer 0),
+      .expression (.name "z"),
+      .expression (.name "unbound"),
+      .functionDef "method" [⟨"self", none⟩] [
+        .expression (.name "x"), .expression (.name "y"),
+        .return_ (some (.call (.name "super") []))],
+      .classDef "Nested" [] [
+        .expression (.name "__class__"),
+        .functionDef "owner" [⟨"self", none⟩] [.return_ (some (.name "__class__"))]]]]]
+
+#guard inspect classScopes [0] "base" == some .implicitGlobal
+#guard inspect classScopes [0, 0] "base" == none
+#guard inspect classScopes [0, 0] "x" == some .className
+#guard inspect classScopes [0, 0] "y" == some .declaredGlobal
+#guard inspect classScopes [0, 0] "z" == some (.classFree [0])
+#guard inspect classScopes [0, 0] "unbound" == some .className
+#guard inspect classScopes [0, 0, 0] "x" == some (.free [0])
+#guard inspect classScopes [0, 0, 0] "y" == some (.free [0])
+#guard inspect classScopes [0, 0, 0] "__class__" == some (.free [0, 0])
+#guard inspect classScopes [0, 0, 1] "__class__" == some (.classFree [0, 0])
+#guard inspect classScopes [0, 0, 1, 0] "__class__" == some (.free [0, 0, 1])
+#guard ((analyze ⟨classScopes⟩).toOption.bind (·.atPath [0, 0])).map (·.cells) ==
+  some ["__class__"]
+
+private def classNonlocal : List Stmt :=
+  [.functionDef "outer" [⟨"x", none⟩] [
+    .classDef "C" [] [.nonlocalDecl ["x"], .assign "x" (.integer 2)]]]
+
+#guard inspect classNonlocal [0, 0] "x" == some (.classFree [0])
+#guard diagnose [.classDef "C" [] [.nonlocalDecl ["missing"]]] ==
+  some ⟨[0], .unboundNonlocal "missing"⟩
+
 #print axioms enclosingBinding_eq_some_iff
 #print axioms enclosingBinding_stops
+#print axioms enclosingBinding_skips_class
+#print axioms enclosingBinding_classCell

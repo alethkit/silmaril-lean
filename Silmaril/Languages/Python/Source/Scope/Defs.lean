@@ -2,12 +2,12 @@ module
 
 public import Silmaril.Languages.Python.Source.Syntax.Defs
 
-/-! # Lexical scope of the Python module/function fragment
+/-! # Lexical scope of the Python module, function and class fragment
 
 Collect declarations and binding occurrences in source order. Resolve names
 using whole-block information, including assignments later in the block.
-Child functions retain both their directly used free names and any captures
-they forward for descendants. Paths index nested functions in source order.
+Child blocks retain both their directly used free names and any captures
+they forward for descendants. Paths index child blocks in source order.
 -/
 
 namespace Silmaril.Languages.Python.Source
@@ -19,6 +19,7 @@ abbrev BlockPath := List Nat
 inductive BlockKind where
   | module_
   | function
+  | class_
   deriving BEq, DecidableEq, Repr
 
 structure BlockContext where
@@ -33,12 +34,19 @@ structure BlockContext where
 
 /-- A module, or an explicit global declaration in a function, ends the search. -/
 def BlockContext.lookupBarrier (block : BlockContext) (name : Name) : Bool :=
-  block.kind == .module_ || block.globals.contains name
+  match block.kind with
+  | .module_ => true
+  | .function => block.globals.contains name
+  | .class_ => false
 
-/-- The syntactic binders of a function after its declarations are applied. -/
+/-- Closure binders of an enclosing block, including the synthetic class cell. -/
 def BlockContext.binds (block : BlockContext) (name : Name) : Bool :=
-  !block.lookupBarrier name && !block.nonlocals.contains name &&
-    (block.parameters.contains name || block.assigned.contains name)
+  match block.kind with
+  | .module_ => false
+  | .function =>
+    !block.globals.contains name && !block.nonlocals.contains name &&
+      (block.parameters.contains name || block.assigned.contains name)
+  | .class_ => name == "__class__"
 
 /-- Search ancestors in order from the immediately enclosing block. -/
 def enclosingBinding (name : Name) : List BlockContext → Option BlockPath
@@ -60,9 +68,11 @@ inductive EnclosingBinding (name : Name) : List BlockContext → BlockPath → P
 inductive Access where
   | moduleName
   | local
+  | className
   | declaredGlobal
   | implicitGlobal
   | free (origin : BlockPath)
+  | classFree (origin : BlockPath)
   deriving BEq, DecidableEq, Repr
 
 structure Capture where
@@ -157,10 +167,21 @@ private structure Collecting where
   childrenRev : List CollectedTree := []
 
 private def Collecting.use (block : Collecting) (expr : Expr) : Collecting :=
-  { block with context := { block.context with read := readExpr block.context.read expr } }
+  let read := readExpr block.context.read expr
+  let read := if block.context.kind == .function && read.contains "super" then
+    recordName read "__class__"
+  else read
+  { block with context := { block.context with read } }
 
 private def Collecting.bindName (block : Collecting) (name : Name) : Collecting :=
   { block with context := { block.context with assigned := recordName block.context.assigned name } }
+
+private def Collecting.childPath (block : Collecting) : BlockPath :=
+  block.context.path ++ [block.childrenRev.length]
+
+private def Collecting.addChild (block child : Collecting) : Collecting :=
+  let collected := CollectedTree.block child.context child.childrenRev.reverse
+  { block with childrenRev := collected :: block.childrenRev }
 
 mutual
   private def collect (block : Collecting) : List Stmt → Except Diagnostic Collecting
@@ -181,7 +202,7 @@ mutual
     | .if_ condition body otherwise | .while_ condition body otherwise => do
       collect (← collect (block.use condition) body) otherwise
     | .functionDef name parameters body => do
-      let childPath := block.context.path ++ [block.childrenRev.length]
+      let childPath := block.childPath
       let parameterNames ← parameters.foldlM (init := []) fun names parameter => do
         if names.contains parameter.name then
           throw ⟨childPath, .duplicateParameter parameter.name⟩
@@ -190,8 +211,11 @@ mutual
         parameter.defaultValue.elim acc acc.use
       let context := { path := childPath, kind := .function, parameters := parameterNames.reverse }
       let nested ← collect { context } body
-      let child := CollectedTree.block nested.context nested.childrenRev.reverse
-      return { outer.bindName name with childrenRev := child :: outer.childrenRev }
+      return (outer.bindName name).addChild nested
+    | .classDef name bases body => do
+      let outer := bases.foldl Collecting.use block
+      let nested ← collect { context := { path := block.childPath, kind := .class_ } } body
+      return (outer.bindName name).addChild nested
 end
 
 private def BlockContext.mentionedNames (block : BlockContext) : List Name :=
@@ -202,16 +226,20 @@ private def resolveName (block : BlockContext) (outer : List BlockContext)
     (name : Name) : Except Diagnostic (Name × Access) :=
   if block.globals.contains name then .ok (name, .declaredGlobal)
   else if block.kind == .module_ then .ok (name, .moduleName)
-  else if block.binds name then .ok (name, .local)
+  else if block.kind == .function && block.binds name then .ok (name, .local)
+  else if block.kind == .class_ && block.assigned.contains name && !block.nonlocals.contains name
+    then .ok (name, .className)
   else match enclosingBinding name outer with
-    | some path => .ok (name, .free path)
+    | some path =>
+      .ok (name, if block.kind == .class_ then .classFree path else .free path)
     | none =>
       if block.nonlocals.contains name then .error ⟨block.path, .unboundNonlocal name⟩
+      else if block.kind == .class_ then .ok (name, .className)
       else .ok (name, .implicitGlobal)
 
 private def directCaptures (accesses : List (Name × Access)) : List Capture :=
   accesses.filterMap fun (name, access) => match access with
-    | .free origin => some ⟨name, origin⟩
+    | .free origin | .classFree origin => some ⟨name, origin⟩
     | _ => none
 
 mutual

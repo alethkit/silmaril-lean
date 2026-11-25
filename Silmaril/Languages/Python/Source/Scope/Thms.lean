@@ -15,4 +15,14 @@ theorem enclosingBinding_stops (name : Name) (parent : BlockContext) (outer : Li
     enclosingBinding name (parent :: outer) = none := by
   simp [enclosingBinding, barrier]
 
+theorem enclosingBinding_skips_class (name : Name) (parent : BlockContext)
+    (outer : List BlockContext) (kind : parent.kind = .class_) (ordinary : name ≠ "__class__") :
+    enclosingBinding name (parent :: outer) = enclosingBinding name outer := by
+  simp [enclosingBinding, BlockContext.lookupBarrier, BlockContext.binds, kind, ordinary]
+
+theorem enclosingBinding_classCell (parent : BlockContext) (outer : List BlockContext)
+    (kind : parent.kind = .class_) :
+    enclosingBinding "__class__" (parent :: outer) = some parent.path := by
+  simp [enclosingBinding, BlockContext.lookupBarrier, BlockContext.binds, kind]
+
 end Silmaril.Languages.Python.Source
