@@ -3,7 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Tensor.Associator.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.GuardedAssociator
 
-/-! # The guarded associator and its left- and middle-factor comparisons -/
+/-! # The guarded associator and its three factor comparisons -/
 
 public section
 
@@ -45,5 +45,11 @@ theorem associate_whiskerLeft_right {A B : τ} (X Y : τ) (f : Obj A ⟶ Obj B) 
     whiskerRight (whiskerLeft (Obj X) f) (Obj Y) ≫ associate X B Y =
       associate X A Y ≫ whiskerLeft (Obj X) (whiskerRight f (Obj Y)) :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.GuardedAssociator.associate_whiskerLeft_right X Y f
+
+/-- The rightmost computation can run before or after guarded reassociation. -/
+theorem associate_whiskerLeft_left {A B : τ} (X Y : τ) (f : Obj A ⟶ Obj B) :
+    whiskerLeft (Obj (X ×ₜ Y)) f ≫ associate X Y B =
+      associate X Y A ≫ whiskerLeft (Obj X) (whiskerLeft (Obj Y) f) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.GuardedAssociator.associate_whiskerLeft_left X Y f
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory

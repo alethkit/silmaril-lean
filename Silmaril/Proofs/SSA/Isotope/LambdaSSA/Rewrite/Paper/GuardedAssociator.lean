@@ -4,7 +4,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Catego
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.ProductEta.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Iteration.Defs
 
-/-! # Inverses and two whiskering comparisons for guarded reassociation -/
+/-! # Inverses and whiskering comparisons for guarded reassociation -/
 
 public section
 
@@ -13,8 +13,9 @@ namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.GuardedAssociator
 open Silmaril Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region CategoryTheory
 open Paper (Eqv)
 open Paper.TypeCategory
-open CfgEta.TypeCategory (seqValueBranches whiskerLeftRegion whiskerLeftBody whiskerLeftBody_typed whiskerLeftRegion_typed whiskerRightRegion whiskerRightBody
-  whiskerRightRegion_typed whiskerRightBody_typed)
+open CfgEta.TypeCategory
+  (seqValueBranches whiskerLeftRegion whiskerLeftBody whiskerLeftBody_typed whiskerLeftRegion_typed
+    whiskerRightRegion whiskerRightBody whiskerRightRegion_typed whiskerRightBody_typed)
 open Silmaril.DeBruijn (lift)
 
 universe u v
@@ -308,5 +309,128 @@ theorem associate_whiskerLeft_right {A B : τ} (X Y : τ) (f : Obj A ⟶ Obj B) 
     ofRegion_comp _ _ (seqValueBranches (associate_typed X A Y)
       (whiskerLeftRegion_typed X (whiskerRightRegion_typed Y hr)))]
   exact (ofRegion_eq_iff _ _).2 (associate_left_right_region hr)
+
+private theorem associate_left_left_region {A B X Y : τ} {r : Region Φ}
+    (hr : ValueBranches [A] r [B]) :
+    Eqv [(X ×ₜ Y) ×ₜ A]
+      (seq (whiskerLeftRegion r) associateRegion)
+      (seq associateRegion (whiskerLeftRegion (whiskerLeftRegion r))) [X ×ₜ Y ×ₜ B] := by
+  simp only [seq, compLSubst, whiskerLeftRegion, whiskerLeftBody, associateRegion,
+    renameVars, lsubst, lsubst_comp, renameVars_lsubst, renameVars_comp,
+    liftLSubstVars, substVars, Tm.rename, Tm.subst]
+  apply Eqv.let₂ (A := X ×ₜ Y) (B := A) (.var (i := 0) rfl)
+  let Γ : VCtx τ := [A, X ×ₜ Y, (X ×ₜ Y) ×ₜ A]
+  let tail : Region Φ := .let₂ (.pair (.var 2) (.var 0))
+    (.let₂ (.var 1) (.br 0 (.pair (.var 1) (.pair (.var 0) (.var 2)))))
+  let left := (r.renameVars leftRen).lsubst (fun _ => tail)
+  change Eqv Γ left _ [X ×ₜ Y ×ₜ B]
+  have ren : Ren [A] Γ leftRen := by
+    intro i T hi
+    cases i with
+    | zero =>
+      cases Option.some.inj hi
+      rfl
+    | succ i => simp [At] at hi
+  have out : LSubst.ValueFamily Γ [B] [X ×ₜ Y ×ₜ B] (fun _ => tail) := by
+    intro i T hi
+    have e := List.mem_singleton.mp (List.mem_of_getElem? hi)
+    subst T
+    exact .let₂ (.pair (.var (i := 2) rfl) (.var (i := 0) rfl))
+      (.let₂ (.var (i := 1) rfl)
+        (.br rfl (.pair (.var (i := 1) rfl) (.pair (.var (i := 0) rfl) (.var (i := 2) rfl)))))
+  refine Eqv.trans (Paper.product_variable_eta_context (rfl : At Γ 1 (X ×ₜ Y))
+    ((hr.renameVars ren).lsubst out).hasType).symm ?_
+  apply Eqv.let₂ (A := X) (B := Y) (.var (i := 1) rfl)
+  let Δ : VCtx τ := Y :: X :: Γ
+  let packed : Tm Φ := .pair (.var 1) (.pair (.var 0) (.var 2))
+  let rightRen : Nat → Nat := lift (· + 8)
+  let tailR : Region Φ := .br 0 (.pair (.var 4) (.pair (.var 2) (.var 0)))
+  let right := (r.renameVars rightRen).lsubst (fun _ => tailR)
+  let commonRen : Nat → Nat := fun i => match i with
+    | 0 => 2
+    | n + 1 => n + 5
+  let tailC : Region Φ := .br 0 (.pair (.var 2) (.pair (.var 1) (.var 0)))
+  let common := (r.renameVars commonRen).lsubst (fun _ => tailC)
+  suffices normalized : Eqv Δ (left.substVars (Paper.splitProduct 1))
+    (.let₂ packed (.let₂ (.var 0) right)) [X ×ₜ Y ×ₜ B] by
+    convert normalized using 1
+    simp only [packed, right, tailR, rightRen, substVars_lsubst, substVars_comp, renameVars_eq_substVars]
+    congr 4
+    funext n
+    cases n <;> rfl
+  apply Eqv.trans (s := common)
+  · let tailL : Region Φ := .let₂ (.pair (.pair (.var 2) (.var 1)) (.var 0))
+      (.let₂ (.var 1) (.br 0 (.pair (.var 1) (.pair (.var 0) (.var 2)))))
+    have normalizedLeft : left.substVars (Paper.splitProduct 1) =
+        (r.renameVars commonRen).lsubst (fun _ => tailL) := by
+      simp only [left, substVars_lsubst, substVars_comp, renameVars_eq_substVars]
+      congr 2
+      funext n
+      cases n <;> rfl
+    rw [normalizedLeft]
+    have ren' : Ren [A] Δ commonRen := by
+      intro i T hi
+      cases i with
+      | zero =>
+        cases Option.some.inj hi
+        rfl
+      | succ i => simp [At] at hi
+    apply Paper.lsubst_singleton_congr (hr.renameVars ren')
+    let x : Tm.BranchValue (B :: Δ) (.var 2 : Tm Φ) X := .var rfl
+    let y : Tm.BranchValue (B :: Δ) (.var 1 : Tm Φ) Y := .var rfl
+    let b : Tm.BranchValue (B :: Δ) (.var 0 : Tm Φ) B := .var rfl
+    refine Eqv.trans (.productBeta (.let₂Beta (.pair x y) b ?_)) ?_
+    · exact .let₂ (.var (i := 1) rfl)
+        (.br rfl (.pair (.var (i := 1) rfl) (.pair (.var (i := 0) rfl) (.var (i := 2) rfl))))
+    exact .productBeta (.let₂Beta x y
+      (.br rfl (.pair (.var (i := 1) rfl) (.pair (.var (i := 0) rfl) (.var (i := 2) rfl)))))
+  · apply Eqv.symm
+    let Δr : VCtx τ := [A, Y, Y ×ₜ A, X] ++ Δ
+    have ren' : Ren [A] Δr rightRen := by
+      intro i T hi
+      cases i with
+      | zero =>
+        cases Option.some.inj hi
+        rfl
+      | succ i => simp [At] at hi
+    have out' : LSubst.ValueFamily Δr [B] [X ×ₜ Y ×ₜ B] (fun _ => tailR) := by
+      intro i T hi
+      have e := List.mem_singleton.mp (List.mem_of_getElem? hi)
+      subst T
+      exact .br rfl (.pair (.var (i := 4) rfl) (.pair (.var (i := 2) rfl) (.var (i := 0) rfl)))
+    have hr' := ((hr.renameVars ren').lsubst out').hasType
+    let x : Tm.BranchValue Δ (.var 1 : Tm Φ) X := .var rfl
+    let y : Tm.BranchValue Δ (.var 0 : Tm Φ) Y := .var rfl
+    let a : Tm.BranchValue Δ (.var 2 : Tm Φ) A := .var rfl
+    let σ := Tm.consSubst (.pair (.var 0) (.var 2)) (Tm.singleSubst (.var 1 : Tm Φ))
+    have s : Tm.Subst.HasType (Y ×ₜ A :: X :: Δ) Δ σ :=
+      Tm.Subst.HasType.cons (Tm.Subst.HasType.single x.hasType) (.pair y.hasType a.hasType)
+    have ht : HasType (Y ×ₜ A :: X :: Δ) (.let₂ (.var 0) right) [X ×ₜ Y ×ₜ B] :=
+      .let₂ (.var (i := 0) rfl) hr'
+    have firstStep : Eqv Δ (.let₂ packed (.let₂ (.var 0) right))
+        (.let₂ (.pair (.var 0) (.var 2)) (right.substVars (Tm.liftSubstN 2 σ))) [X ×ₜ Y ×ₜ B] :=
+      .productBeta (.let₂Beta x (.pair y a) ht)
+    have steps := firstStep.trans (.productBeta (.let₂Beta y a (hr'.substVars ((s.lift Y).lift A))))
+    have normalization :
+        (right.substVars (Tm.liftSubstN 2 σ)).substVars (Tm.consSubst (.var 2) (Tm.singleSubst (.var 0))) =
+        common := by
+      simp only [right, common, substVars_comp, substVars_lsubst, renameVars_eq_substVars]
+      congr 2
+      funext n
+      cases n <;> rfl
+    rw [← normalization]
+    exact steps
+
+set_option backward.isDefEq.respectTransparency false in
+theorem associate_whiskerLeft_left {A B : τ} (X Y : τ) (f : Obj A ⟶ Obj B) :
+    whiskerLeft (Obj (X ×ₜ Y)) f ≫ associate X Y B =
+      associate X Y A ≫ whiskerLeft (Obj X) (whiskerLeft (Obj Y) f) := by
+  obtain ⟨r, hr, rfl⟩ := exists_ofRegion (A := A) (B := B) f
+  rw [whiskerLeft_ofRegion, whiskerLeft_ofRegion, whiskerLeft_ofRegion]
+  unfold tensorObj
+  rw [ofRegion_comp _ _ (seqValueBranches (whiskerLeftRegion_typed (X ×ₜ Y) hr) (associate_typed X Y B)),
+    ofRegion_comp _ _ (seqValueBranches (associate_typed X Y A)
+      (whiskerLeftRegion_typed X (whiskerLeftRegion_typed Y hr)))]
+  exact (ofRegion_eq_iff _ _).2 (associate_left_left_region hr)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.GuardedAssociator

@@ -36,10 +36,4 @@ abbrev associate (A B C : τ) : Obj ((A ×ₜ B) ×ₜ C) ⟶ Obj (A ×ₜ B ×�
 abbrev unassociate (A B C : τ) : Obj (A ×ₜ B ×ₜ C) ⟶ Obj ((A ×ₜ B) ×ₜ C) :=
   ofRegion (unassociate_typed A B C)
 
-/-- The right-factor associator square at these two fixed retained types. -/
-def RightAssociatorComparison (P Q : τ) : Prop :=
-  ∀ {Y Z : τ} (k : Obj Y ⟶ Obj Z),
-    whiskerLeft (Obj (P ×ₜ Q)) k ≫ associate P Q Z =
-      associate P Q Y ≫ whiskerLeft (Obj P) (whiskerLeft (Obj Q) k)
-
 end Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory
