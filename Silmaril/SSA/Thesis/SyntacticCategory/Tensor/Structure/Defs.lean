@@ -36,4 +36,9 @@ def valuesUnitIso (S : Sig.{u}) :
     tensorUnit S ≅ (values S).obj (𝟙_ (ValueCat S)) :=
   Iso.refl _
 
+/-- The value and computation tensors choose identical product objects. -/
+def valuesTensorIso (A B : ValueCat S) :
+    productObj A.obj B.obj ≅ (values S).obj (A ⊗ B) :=
+  Iso.refl _
+
 end Silmaril.Thesis.LambdaIter.Syn.SynCat

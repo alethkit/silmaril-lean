@@ -58,18 +58,18 @@ private theorem pair_let_right {n : Nat} {β : BoundCtx S.Ty n} {F A B : S.Ty}
   rw [instantiate_underBinder, bsubst_pair, bsubst_bv, Fin.cases_zero, keep_lift] at beta
   exact (pair_pure_left ha g hpa).trans (seq.trans (.let₁ (.refl hf) beta))
 
-private theorem subst_onNewest {n : Nat} (p : Tm Empty S.Instr n) (k : Tm Empty S.Instr 1) :
+theorem subst_onNewest {n : Nat} (p : Tm Empty S.Instr n) (k : Tm Empty S.Instr 1) :
     instantiate (onNewest k) p = bsubst (fun _ => p) k := by
   rw [instantiate, onNewest, bsubst_rename]
   rfl
 
-private def applyTyping {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+def applyTyping {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
     {p : Tm Empty S.Instr n} {k : Tm Empty S.Instr 1}
     (hp : HasType S.Instr Ctx.nil β p A) (hk : HasType S.Instr Ctx.nil (.snoc .nil A) k B) :
     HasType S.Instr Ctx.nil β (bsubst (fun _ => p) k) B :=
   hk.bsubst (fun i => Fin.cases hp (fun j => j.elim0) i)
 
-private theorem packedArrow_apply {n : Nat} {β : BoundCtx S.Ty n} {A B : SynCat S}
+theorem packedArrow_apply {n : Nat} {β : BoundCtx S.Ty n} {A B : SynCat S}
     {p : Tm Empty S.Instr n} {k : Tm Empty S.Instr 1}
     (hp : HasType S.Instr Ctx.nil β p A.ty) (pure : Pure S.pureEff p)
     (hk : HasType S.Instr Ctx.nil (.snoc .nil A.ty) k B.ty) :
@@ -90,7 +90,7 @@ private theorem packedArrow_apply {n : Nat} {β : BoundCtx S.Ty n} {A B : SynCat
   rw [shift, packed_apply]
   exact e
 
-private theorem after_let_from_packed {X F A B : SynCat S} {f : Tm Empty S.Instr 1}
+theorem after_let_from_packed {X F A B : SynCat S} {f : Tm Empty S.Instr 1}
     {p q : Tm Empty S.Instr 2} (hf : HasType S.Instr Ctx.nil (.snoc .nil X.ty) f F.ty)
     (hp : HasType S.Instr Ctx.nil (.snoc (.snoc .nil X.ty) F.ty) p A.ty)
     (pure : Pure S.pureEff p)
@@ -223,7 +223,7 @@ private theorem swap_pair {X A B : SynCat S} {a : X ⟶ A} (ha : IsPureMor a) (b
     exact after_let_from_packed hb (.pair ha.lift x) (.pair (pa.rename _) .bv) (.pair x ha.lift) _
       (swap_pair_pure (packedArrow_isPureMor ha.lift (pa.rename _)) (packedArrow_isPureMor x .bv))
 
-private theorem tensorRight_pair {X R A B : SynCat S} {a : X ⟶ A} {b : X ⟶ R}
+theorem tensorRight_pair {X R A B : SynCat S} {a : X ⟶ A} {b : X ⟶ R}
     (ha : IsPureMor a) (hb : IsPureMor b) (f : A ⟶ B) :
     pairArrows a b ≫ tensorRight R f = pairArrows (a ≫ f) b := by
   rw [tensorRight, ← Category.assoc, ← Category.assoc, swap_pair ha b,
