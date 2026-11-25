@@ -9,6 +9,7 @@ public import Silmaril.Courses.Cambridge.L3.Denotation.SingleCall
 import Silmaril.Courses.Cambridge.L3.Denotation.Examples
 import Silmaril.Courses.Cambridge.L3.Denotation.SingleCall.Examples
 import Silmaril.Courses.Cambridge.L3.Denotation.CallDepth.Examples
+import Silmaril.Courses.Cambridge.L3.Denotation.CallDepth.LetBoundExample
 public import Silmaril.Courses.Cambridge.L3.Metatheory.Preservation
 public import Silmaril.Courses.Cambridge.L3.Metatheory.ContextEquivalence
 public import Silmaril.Courses.Cambridge.L3.Examples
