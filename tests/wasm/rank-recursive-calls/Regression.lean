@@ -131,8 +131,9 @@ private theorem unwinds {program : Program} (valid : program.check = true)
     program.Runs valid addr (suspended child fn q) (.done .trap) := by
   have rule {a b : Phase} := (Program.edge_iff valid (a := a) (b := b) found).mpr
   have trapped := lift valid found live run
-  exact ((trapped.tail (rule (.discard (.cut [] saved [add] [] (.inr (by simp)))))).tail
-    (rule (.leaveTrap input))).tail (rule (.leaveFrame input .trap trivial))
+  have cutCode := trapped.tail (rule (.discard (.cut saved [] [add] [] (.inr (by simp)))))
+  have cutStack := cutCode.tail (rule (.discard (.cut [] saved [] [] (.inl (by simp [saved])))))
+  exact (cutStack.tail (rule (.leaveTrap input))).tail (rule (.leaveFrame input .trap trivial))
 
 private theorem finishTrap : (graph true).Runs (checked true) ⟨3⟩ (deepest true) (.done .trap) :=
   unwinds (checked true) (fn := enclosing true) rfl (by trivial)
@@ -152,7 +153,7 @@ private def multiGraph : Program := ⟨[some multiResult]⟩
 private theorem multiChecked : multiGraph.check = true := rfl
 example : multiGraph.checkV1 = false := rfl
 
-example : multiGraph.Runs multiChecked ⟨0⟩ (.invoke input) (.done (.values [Value.int .i64 11, i32 7])) := by
+private theorem multiRun : multiGraph.Runs multiChecked ⟨0⟩ (.invoke input) (.done (.values [Value.int .i64 11, i32 7])) := by
   have rule {a b : Phase} := (Program.edge_iff multiChecked (address := ⟨0⟩) (fn := multiResult)
     (a := a) (b := b) rfl).mpr
   have enter := rule (.enter input rfl)
@@ -180,5 +181,150 @@ example (s : Store Unit) (caller parent child : Execution.Runtime.Frame) :
         .trap, .source (.intBinOp .i32 .add)]]]⟩ :=
   (lime_entered_child_iff (saved := saved)).mpr
     ⟨⟨s, parent, [.trap]⟩, .pure s parent (.frameTrap 1 child), rfl⟩
+
+private def callerFrame (address : FuncAddr) : Execution.Runtime.Frame :=
+  ⟨[i32 41], { funcs := [address] }⟩
+
+private def rootTarget (traps : Bool) : CallTarget := ⟨⟨0⟩, ⟨3⟩, (outer traps).declaration⟩
+
+private theorem root (traps : Bool) :
+    Root (graph traps) (callerFrame ⟨3⟩) (rootTarget traps) (outer traps) :=
+  ⟨rfl, rfl, rfl⟩
+
+private def allocate {A : Type} (program : Program) (instantiate : Function → A) : List A :=
+  program.functions.map fun slot => instantiate (slot.getD (leaf false))
+
+private theorem allocated_at {A : Type} (program : Program) (instantiate : Function → A)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) :
+    (allocate program instantiate)[address.value]? = some (instantiate fn) := by
+  unfold allocate
+  rw [List.getElem?_map]
+  unfold Program.lookup at found
+  cases h : program.functions[address.value]? with
+  | none => simp [h] at found
+  | some slot =>
+    cases slot with
+    | none => simp [h] at found
+    | some stored => simpa [h] using congrArg (Option.map instantiate) found
+
+private def coreStore (program : Program) : Execution.Core.Store Unit :=
+  { funcs := allocate program Function.coreInstance }
+
+private def limeStore (program : Program) : Lime1.Execution.Store Unit :=
+  { funcs := allocate program fun fn => .wasm fn.declaration.type fn.declaration.module fn.limeFunc }
+
+private def v1Store (program : Program) : V1.Execution.Store Unit :=
+  { funcs := allocate program fun fn => .wasm fn.declaration.type fn.declaration.module fn.v1Func }
+
+private theorem coreAllocated (program : Program) : program.CoreAllocated (coreStore program) :=
+  fun _ _ found => allocated_at program Function.coreInstance found
+
+private theorem limeAllocated (program : Program) : program.LimeAllocated (limeStore program) :=
+  fun _ _ found => allocated_at program
+    (fun fn => (Execution.Runtime.FuncInst.wasm fn.declaration.type fn.declaration.module fn.limeFunc :
+      Execution.Runtime.FuncInst Lime1.Func Unit)) found
+
+private theorem v1Allocated (program : Program) : program.V1Allocated (v1Store program) :=
+  fun _ _ found => allocated_at program
+    (fun fn => (Execution.Runtime.FuncInst.wasm fn.declaration.type fn.declaration.module fn.v1Func :
+      Execution.Runtime.FuncInst V1.Func Unit)) found
+
+private theorem v1Checked (traps : Bool) : (graph traps).checkV1 = true := by cases traps <;> rfl
+
+private theorem deepestReady (traps : Bool) : Admitted (graph traps) (outer traps) (deepest traps) :=
+  (graph traps).admitted_run (checked traps) rfl (.call rfl) (reaches traps)
+
+private def outcome (traps : Bool) : Nested.Result := if traps then .trap else .values [i32 10]
+
+private theorem finishes (traps : Bool) :
+    (graph traps).Runs (checked traps) ⟨3⟩ (deepest traps) (.done (outcome traps)) := by
+  cases traps
+  · exact finishSuccess
+  · exact finishTrap
+
+private theorem outcomeReady (traps : Bool) : Admitted (graph traps) (outer traps) (.done (outcome traps)) :=
+  (graph traps).admitted_run (checked traps) rfl (deepestReady traps) (finishes traps)
+
+private theorem coreTrace (traps : Bool) :
+    Execution.Core.Steps Numerics.Profile.spec SingleThreaded.Det.noHost
+      (coreConfig (coreStore (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (.call input))
+      (coreConfig (coreStore (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (.done (outcome traps))) := by
+  have nested := (core_run_iff (P := Numerics.Profile.spec) (checked traps) (coreAllocated _) (root traps)
+    (.call rfl)).mpr ⟨_, reaches traps, deepestReady traps, rfl⟩
+  have exit := (core_run_iff (P := Numerics.Profile.spec) (checked traps) (coreAllocated _) (root traps)
+    (deepestReady traps)).mpr ⟨_, finishes traps, outcomeReady traps, rfl⟩
+  exact nested.trans exit
+
+private theorem limeTrace (traps : Bool) :
+    Lime1.Execution.Steps CallFrame.limeNoHost
+      (limeConfig (limeStore (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (.call input))
+      (limeConfig (limeStore (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (.done (outcome traps))) := by
+  have nested := (lime_run_iff (checked traps) (limeAllocated _) (root traps) (.call rfl)).mpr
+    ⟨_, reaches traps, deepestReady traps, rfl⟩
+  have exit := (lime_run_iff (checked traps) (limeAllocated _) (root traps) (deepestReady traps)).mpr
+    ⟨_, finishes traps, outcomeReady traps, rfl⟩
+  exact nested.trans exit
+
+private theorem v1Trace (traps : Bool) :
+    V1.Execution.Steps CallFrame.v1NoHost
+      (v1Config (v1Store (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (.call input))
+      (v1Config (v1Store (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (.done (outcome traps))) := by
+  have nested := (v1_run_iff (v1Checked traps) (v1Allocated _) (root traps) (.call rfl)).mpr
+    ⟨_, reaches traps, deepestReady traps, rfl⟩
+  have exit := (v1_run_iff (v1Checked traps) (v1Allocated _) (root traps) (deepestReady traps)).mpr
+    ⟨_, finishes traps, outcomeReady traps, rfl⟩
+  exact nested.trans exit
+
+example : Execution.Core.Steps Numerics.Profile.spec SingleThreaded.Det.noHost
+    ⟨coreStore (graph false), (callerFrame ⟨3⟩).toCore, [.plain (.intConst .i32 7), .plain (.call ⟨0⟩)]⟩
+    ⟨coreStore (graph false), (callerFrame ⟨3⟩).toCore, [.plain (.intConst .i32 10)]⟩ :=
+  coreTrace false
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    ⟨limeStore (graph true), callerFrame ⟨3⟩, [.source (.intConst .i32 7), .source (.call ⟨0⟩)]⟩
+    ⟨limeStore (graph true), callerFrame ⟨3⟩, [.trap]⟩ :=
+  limeTrace true
+
+example : V1.Execution.Steps CallFrame.v1NoHost
+    ⟨v1Store (graph true), callerFrame ⟨3⟩, [.source (.intConst .i32 7), .source (.call ⟨0⟩)]⟩
+    ⟨v1Store (graph true), callerFrame ⟨3⟩, [.trap]⟩ :=
+  v1Trace true
+
+example (traps : Bool) {dst : Execution.Core.Config Unit}
+    (step : Execution.Core.Step Numerics.Profile.spec SingleThreaded.Det.noHost
+      (coreConfig (coreStore (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (deepest traps)) dst) :
+    ∃ out, (graph traps).Edge (checked traps) ⟨3⟩ (deepest traps) out ∧
+      dst = coreConfig (coreStore (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) out :=
+  (core_step_iff (checked traps) (coreAllocated _) (root traps) (deepestReady traps)).mp step
+
+example (traps : Bool) {dst : Lime1.Execution.Config Unit}
+    (trace : Lime1.Execution.Steps CallFrame.limeNoHost
+      (limeConfig (limeStore (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (deepest traps)) dst) :
+    ∃ out, (graph traps).Runs (checked traps) ⟨3⟩ (deepest traps) out ∧ Admitted (graph traps) (outer traps) out ∧
+      dst = limeConfig (limeStore (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) out :=
+  (lime_run_iff (checked traps) (limeAllocated _) (root traps) (deepestReady traps)).mp trace
+
+example (traps : Bool) {dst : Lime1.Execution.Config Unit}
+    (step : Lime1.Execution.Step CallFrame.limeNoHost
+      (v1Config (v1Store (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (deepest traps)).toLime dst) :
+    ∃ mid, V1.Execution.Step CallFrame.v1NoHost
+      (v1Config (v1Store (graph traps)) (callerFrame ⟨3⟩) (rootTarget traps) (deepest traps)) mid ∧ mid.toLime = dst :=
+  v1_reflect_lime_step (v1Checked traps) (v1Allocated _) (root traps) (deepestReady traps) step
+
+private def multiTarget : CallTarget := ⟨⟨0⟩, ⟨0⟩, multiResult.declaration⟩
+
+private theorem multiRoot : Root multiGraph (callerFrame ⟨0⟩) multiTarget multiResult :=
+  ⟨rfl, rfl, rfl⟩
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (limeConfig (limeStore multiGraph) (callerFrame ⟨0⟩) multiTarget (.invoke input))
+    ⟨limeStore multiGraph, callerFrame ⟨0⟩, [.source (.intConst .i64 11), .source (.intConst .i32 7)]⟩ :=
+  (lime_run_iff multiChecked (limeAllocated _) multiRoot (.invoke rfl)).mpr ⟨_, multiRun, .done rfl, rfl⟩
+
+example : Execution.Core.Steps Numerics.Profile.spec SingleThreaded.Det.noHost
+    (coreConfig (coreStore multiGraph) (callerFrame ⟨0⟩) multiTarget (.invoke input))
+    ⟨coreStore multiGraph, (callerFrame ⟨0⟩).toCore, [.plain (.intConst .i64 11), .plain (.intConst .i32 7)]⟩ :=
+  (core_run_iff (P := Numerics.Profile.spec) multiChecked (coreAllocated _) multiRoot (.invoke rfl)).mpr
+    ⟨_, multiRun, .done rfl, rfl⟩
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph

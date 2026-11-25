@@ -178,6 +178,25 @@ private theorem front {H : Type} {P : Profile} {s : Store H} {f : Frame}
   · obtain ⟨_, _, _, _, _, ⟨eq, _, _⟩ | ⟨_, eq, _, _⟩⟩ := fnv_bubble bubble <;>
       simp [fnv_cons_of_none none, notTrap, notThrow] at eq
 
+theorem unreachable_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {stack : List Val} {rest : List Admin} {dst : Config H} :
+    Step P noHost ⟨s, f, vals stack ++ .plain .unreachable :: rest⟩ dst ↔
+      dst = ⟨s, f, vals stack ++ .trap :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨saved, args, mid, rfl, step, rfl⟩ := front rfl (by simp) (by simp) move
+    obtain ⟨out, pure, rfl⟩ := step.fam_inv (by change Fam.parametric ≠ .control; decide)
+    generalize eq : vals args ++ [Admin.plain .unreachable] = code at pure
+    have last := congrArg List.getLast? eq
+    cases pure with
+    | unreachable =>
+      have nil : args = [] := by simpa [vals] using congrArg List.length eq
+      subst args
+      simp [List.append_assoc]
+    | _ => simp [List.getLast?_append] at last
+  · rintro rfl
+    exact Sim.Step.vals_left (Sim.Step.append_right (.parametric .unreachable) rest) stack
+
 private theorem get_read {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {stack : List Val} {i : LocalIdx} {rest : List Admin} {dst : Config H}
     (h : Step P noHost ⟨s, f, vals stack ++ get i :: rest⟩ dst) :
