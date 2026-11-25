@@ -52,7 +52,6 @@ def dispatch (rows : CodeRows Body) (callee : Value) (arguments : List Value)
     (heap : HeapTable) (caller : Call.Saved Continuation) (stack : List (Call.Saved Continuation)) :
     Except Closure.Dispatch.Failure (Active Body Continuation) :=
   match callee with
-  | .int _ => .error (.call (.defined .notCallable))
   | .function fn =>
     match Closure.Dispatch.resolve rows.project fn.code with
     | .error error => .error error
@@ -60,6 +59,7 @@ def dispatch (rows : CodeRows Body) (callee : Value) (arguments : List Value)
       match enter fn definition.parameters arguments heap with
       | .error error => .error (.call error)
       | .ok environment => .ok ⟨fn.code.layout, definition, environment, caller :: stack⟩
+  | _ => .error (.call (.defined .notCallable))
 
 structure Exit (Continuation : Layout → Type) where
   heap : HeapTable

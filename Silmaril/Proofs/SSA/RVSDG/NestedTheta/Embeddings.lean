@@ -82,6 +82,13 @@ private theorem identity_get {Ty : Type u} {F : Ty → Type w} {ts : Ports Ty} (
     simp only [identityPorts, Tuple.map, Tuple.get, map_map]
     exact congrArg (Tuple.cons x) ih
 
+theorem single_vertex_results {Ty : Type u} {F : Ty → Type w} {entry exit : Ports Ty}
+    (input : Tuple F entry) (output : Tuple F exit) :
+    Wires.read ((identityPorts exit).map (fun _ p => Origin.output (past := [exit]) (0 : Fin 1) p))
+      input ((output, PUnit.unit) : Locals F [exit]) = output := by
+  simp only [Wires.read, map_map]
+  exact identity_get output
+
 private theorem theta_input (m : Model.{u, v, w} Op) (input : Tuple m.Val carried) :
     ((thetaVertex (Op := Op) (carried := carried) sigs).inputs.read input
       (PUnit.unit : Locals m.Val [])) = input := by
@@ -89,9 +96,8 @@ private theorem theta_input (m : Model.{u, v, w} Op) (input : Tuple m.Val carrie
   exact identity_get input
 
 private theorem theta_output (m : Model.{u, v, w} Op) (input output : Tuple m.Val carried) :
-    (thetaResults carried).read input ((output, PUnit.unit) : Locals m.Val [carried]) = output := by
-  simp only [thetaResults, Wires.read, map_map]
-  exact identity_get output
+    (thetaResults carried).read input ((output, PUnit.unit) : Locals m.Val [carried]) = output :=
+  single_vertex_results input output
 
 private theorem term_theta_eval (m : Model.{u, v, w} Op) (fuel : Nat) (t : Theta.Term Op args sigs)
     (input : Tuple m.Val args) :
