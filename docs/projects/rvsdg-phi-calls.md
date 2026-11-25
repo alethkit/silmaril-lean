@@ -226,9 +226,25 @@ reflection. The linked regression gives an actual six-step cycle
 per iteration, with one increment of the state wire and store on
 each cycle.
 
-These local theorems apply to totally linked calls. A root-level
-projection and classification of infinite runs remain separate,
-as does partial module initialization.
+### Divergence from a linked export
+
+[The root equivalence](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Divergence/Thms.lean)
+starts at an actual selected export with an empty stack and a specified
+ambient store. An infinite machine stream keeps that initial call live
+because a return to the empty stack cannot take another step. Iterated
+first-child extraction either gives infinitely many independent call
+prefixes or reaches a live caller whose later calls return. In the
+second case the θ extraction also supplies an independent finite
+route to the observed loop, retaining the same pending frames.
+
+The resulting certificate uses typed call prefixes, successful partial
+evaluations, and θ iterations. Its definition contains no machine
+stream. Replay gives an infinite run of actual partial steps. A finite
+path to a selected undefined primitive excludes such a certificate
+from the same export entry. The linked fixtures check infinite φ
+descent, a nested λ call whose θ feeds back indefinitely, and the
+selected undefined arm. These results use the existing total linker
+and δ initialization, with partial actions during invocation.
 
 ## Productive θ feedback
 

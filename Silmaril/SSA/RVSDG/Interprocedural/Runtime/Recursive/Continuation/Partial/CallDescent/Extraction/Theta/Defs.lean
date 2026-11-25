@@ -30,4 +30,13 @@ def HasFeedback (primitives : Primitives m σ) (micro : Nat → Config m σ fina
     (inputs : Nat → Tuple m.Val target.carried × σ),
     begin ≤ positions 0 ∧ FeedbackOnStream primitives micro target parent positions inputs
 
+/-- The independent finite route reaches the observed θ under exactly
+the frames left pending on the given stream. -/
+def ReachesFeedback (primitives : Primitives m σ) (micro : Nat → Config m σ final) (begin : Nat)
+    {ports : Ports (Ty V S)} (job : Job m ports) (store : σ) (stack : Stack m ports final) : Prop :=
+  ∃ (target : Feedback.Restart m σ) (pending : Descent.Pending m target.carried ports) (positions : Nat → Nat)
+    (inputs : Nat → Tuple m.Val target.carried × σ),
+    begin ≤ positions 0 ∧ Feedback.Reaches primitives job store target pending ∧
+      FeedbackOnStream primitives micro target (pending.push stack) positions inputs
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Extraction
