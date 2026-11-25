@@ -66,6 +66,17 @@ reads the current function and its code key once, preserves the exact
 literal code points, and uses the existing assertion failure path. The
 3.7.3 tuple remains available as source evidence.
 
+The function-aware module plan recognizes a separate message-free
+`assert "<literal>" in name.__code__.co_varnames` form. It retains one
+resolved module-name read at that point in the plan and preserves the
+literal's code points. Fast-local tuple evidence follows checked local
+loads and stores in emission order, including the store of a nested
+definition into its parent. Each nested body has a separate tuple.
+This evidence covers CPython 3.13.5 in `exec` mode at optimization level
+zero for the checked straight-line profile with no parameters, owned
+cells, or incoming captures. The module assertion has a dedicated
+compiler diagnostic until executor integration is available.
+
 Successful lowering retains the source translation and preserves the
 definition, layout and parameter destinations at every emitted code key.
 Body lowering succeeds exactly when the independent translation judgment

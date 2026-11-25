@@ -32,6 +32,7 @@ inductive CompileError where
   | incomingCaptures (path : Source.BlockPath)
   | functionBody (error : Compile.Closure.Run.Error)
   | callOperand
+  | varNamesRuntimePending
   deriving Repr
 
 def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Functions.Operand
@@ -58,6 +59,7 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .assertNot condition :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertNot condition :: instructions, blocks)
+  | .assertVarNames _ _ _ :: _ => .error .varNamesRuntimePending
   | .call target name _ operands :: rest => do
     let some arguments := operands.mapM callOperand? | throw .callOperand
     let (instructions, blocks) ← lowerInstructions tree next rest
