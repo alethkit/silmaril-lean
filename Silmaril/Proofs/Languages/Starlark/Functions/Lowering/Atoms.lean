@@ -94,6 +94,18 @@ theorem indexAction (receiver index : Value) : FrameAction (readIndex receiver i
       | error => exact ⟨rfl, rfl⟩
       | ok code => dsimp only; cases findEntry code entries <;> exact ⟨rfl, rfl⟩
 
+theorem sliceAction (operands : List Value) : FrameAction (readSliceOperands operands) := by
+  unfold readSliceOperands
+  split
+  next receiver start stop stride =>
+    cases receiver with
+    | list address =>
+      exact actionBind (actionList address) fun _ => actionBind (actionExcept _) actionAllocate
+    | tuple address =>
+      exact actionBind (actionTuple address) fun _ => actionBind (actionExcept _) actionAllocateTuple
+    | _ => exact actionThrow _
+  next => exact actionThrow _
+
 private theorem editAction (address : Address) (edit : Contents → Except Error Contents) :
     FrameAction (editCell address edit) := by
   unfold editCell
@@ -163,6 +175,7 @@ theorem atomScope {α : Type} {code : Code α} (safe : AtomSafe code) :
   | index _ _ a b =>
     exact scopeBind a fun receiver =>
       scopeBind b fun index => (indexAction receiver index).2
+  | slice _ ih => exact scopeBind ih fun operands => (sliceAction operands).2
   | append h₁ h₂ a b =>
     apply scopeBind a
     intro receiver
@@ -223,6 +236,10 @@ theorem atomTransport {α : Type} {code : Code α} (safe : AtomSafe code)
     apply transportBind (b (scopeTransport same kept))
     intro index w _
     exact (indexAction receiver index).1 w t.bindings
+  | slice _ ih =>
+    apply transportBind (ih same)
+    intro operands u _
+    exact (sliceAction operands).1 u t.bindings
   | append h₁ h₂ a b =>
     apply transportBind (a same)
     intro receiver u he
