@@ -8,6 +8,8 @@ import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Iteration.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.ProductEta.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Product.Producer.Thms
 
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Tensor.Braid.Thms
+
 /-! # Identify the explicit carried realization in the syntactic model -/
 
 public section
@@ -321,6 +323,38 @@ private theorem duplicateCapture_rightFst (X S : τ) :
     (.var (i := 1) (rfl : At [S, X, P] 1 X)) (.var (i := 0) (rfl : At [S, X, P] 0 S)) hbody)
   exact hβ.trans (hη.symm.trans (.let₂ hv.hasType inner))
 
+
+open Paper.TypeCategory (ofType ofRegion braid braidBranches)
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem duplicateCapture_arrow (X S : τ) :
+    let P := product X S
+    Paper.TypeCategory.diagonalArrow (Φ := Φ) P ≫
+      Paper.TypeCategory.whiskerRight (ofRegion (τ := τ) (productFstBranches (Φ := Φ) X S)) (ofType P) =
+      ofRegion (τ := τ) (duplicateCapture_typed (Φ := Φ) X S) := by
+  let P := product X S
+  let h := CfgEta.TypeCategory.seqValueBranches (diagonal_typed (Φ := Φ) P)
+    (CfgEta.TypeCategory.whiskerRightRegion_typed P (productFstBranches X S))
+  dsimp only
+  rw [Paper.TypeCategory.whiskerRight_ofRegion]
+  change ofRegion (τ := τ) h = _
+  exact (Paper.TypeCategory.ofRegion_eq_iff _ _).2 (duplicateCapture_rightFst (Φ := Φ) X S)
+
+
+set_option backward.isDefEq.respectTransparency false in
+private theorem diagonal_braid (P : τ) :
+    ofRegion (τ := τ) (diagonal_typed (Φ := Φ) P) ≫ braid (Φ := Φ) P P =
+      ofRegion (τ := τ) (diagonal_typed (Φ := Φ) P) := by
+  let ht := diagonal_typed (Φ := Φ) P
+  let hb := braidBranches (Φ := Φ) P P
+  rw [show braid (Φ := Φ) P P = ofRegion (τ := τ) hb from rfl,
+    Paper.TypeCategory.ofRegion_comp ht hb (CfgEta.TypeCategory.seqValueBranches ht hb)]
+  apply (Paper.TypeCategory.ofRegion_eq_iff _ _).2
+  exact .productBeta (.let₂Beta (.var (i := 0) (rfl : At [P] 0 P))
+    (.var (i := 0) (rfl : At [P] 0 P))
+    (.br rfl (.pair (.var (i := 0) rfl) (.var (i := 1) rfl)) :
+      HasType [P, P, P] (.br 0 (.pair (.var 0) (.var 1)) : Region Φ) [product P P]))
+
 end PrefixSyntax
 
 section PrefixComparison
@@ -329,9 +363,10 @@ open CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open Paper.TypeCategory (ofType ofRegion pairArrows diagonalArrow whiskerLeft_id whiskerRight
-  whiskerRight_ofRegion ofRegion_eq_iff)
-open Paper.SingletonReification (ModelComparisons packedWhiskerRight packedPair reindexValueHom
-  reindexValueHom_pair_of_producer)
+  braid whiskerLeft whiskerLeft_braid)
+open Paper.SingletonReification (ModelComparisons packedWhiskerRight packedWhiskerLeft
+  packedPair packedDiagonal reindexValueHom reindexValueHom_comp
+  reindexValueHom_pair_of_producer compare_duplicate_of_producer)
 open Paper.RetainedCase (reindexHom)
 open CfgEta.TypeCategory (seqValueBranches whiskerRightRegion_typed)
 open CfgEta.TypeCategory.ConstructorReification (fstMap)
@@ -366,10 +401,40 @@ theorem capturePrefix_of_rightFst (cmp : ModelComparisons J M objIso pe) (X S : 
   change reindexValueHom J M objIso P (product X P) (packedPair M P X P (fstMap M X S) (𝟙 (M.obj P))) = _
   have right := localRight.trans (congrArg (fun f => whiskerRight f (ofType P)) hf).symm
   rw [reindexValueHom_pair_of_producer J M objIso cmp _ _ right,
-    hf, hi, pairArrows, whiskerLeft_id, Category.comp_id, diagonalArrow, whiskerRight_ofRegion]
-  let h := seqValueBranches (diagonal_typed (Φ := Φ) P) (whiskerRightRegion_typed P (productFstBranches X S))
-  change ofRegion (τ := τ) h = _
-  exact (ofRegion_eq_iff _ _).2 (duplicateCapture_rightFst (Φ := Φ) X S)
+    hf, hi, pairArrows, whiskerLeft_id, Category.comp_id]
+  exact duplicateCapture_arrow X S
+
+set_option backward.isDefEq.respectTransparency false in
+theorem capturePrefix_of_braid (cmp : ModelComparisons J M objIso pe) (X S : τ)
+    (outputBraid : let P := product X S
+      reindexValueHom J M objIso (product P X) (product X P)
+        ((M.productIso P X).hom ≫ (BraidedCategory.braiding (M.obj P) (M.obj X)).hom ≫
+          (M.productIso X P).inv) = braid P X) :
+    capturePrefix J M objIso X S = ofRegion (τ := τ) (duplicateCapture_typed (Φ := Φ) X S) := by
+  let P := product X S
+  let f := fstMap M X S
+  let swap := (M.productIso P X).hom ≫ (BraidedCategory.braiding (M.obj P) (M.obj X)).hom ≫
+    (M.productIso X P).inv
+  have split : packedDiagonal M P ≫ packedWhiskerLeft M P P X f ≫ swap =
+      packedPair M P X P f (𝟙 (M.obj P)) := by
+    simp only [packedDiagonal, packedPair, packedWhiskerLeft, swap, Category.assoc, Iso.inv_hom_id_assoc]
+    rw [← Category.assoc (CartesianMonoidalCategory.lift _ _) (M.obj P ◁ f),
+      CartesianMonoidalCategory.lift_whiskerLeft, Category.id_comp,
+      ← Category.assoc (CartesianMonoidalCategory.lift _ _), CartesianMonoidalCategory.lift_braiding_hom]
+  have left : reindexValueHom J M objIso (product P P) (product P X) (packedWhiskerLeft M P P X f) =
+      whiskerLeft (ofType P) (ofRegion (τ := τ) (productFstBranches (Φ := Φ) X S)) := by
+    have h := cmp.whisker (Y := P) (J.map f)
+    rw [retain_map] at h
+    simpa only [packedWhiskerLeft, reindexValueHom, J.map_comp, show
+      reindexHom J M objIso (J.map f) = ofRegion (τ := τ) (productFstBranches (Φ := Φ) X S) from cmp.fst X S] using h
+  have hDup : Tm.HasType [P] (.pair (.var 0) (.var 0) : Tm Φ) (product P P) :=
+    .pair (.var (i := 0) rfl) (.var (i := 0) rfl)
+  change reindexValueHom J M objIso P (product X P) (packedPair M P X P f (𝟙 (M.obj P))) = _
+  rw [← split, reindexValueHom_comp, reindexValueHom_comp, outputBraid, left,
+    compare_duplicate_of_producer J M objIso P (cmp.producer hDup),
+    whiskerLeft_braid, ← Category.assoc, diagonalArrow, diagonal_braid]
+  exact duplicateCapture_arrow X S
+
 
 end PrefixComparison
 
@@ -378,7 +443,7 @@ section ExplicitWitness
 
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel contextualStep)
-open Paper.TypeCategory (ofType ofRegion sumIso whiskerRight)
+open Paper.TypeCategory (ofType ofRegion sumIso whiskerRight braid)
 open Paper.Extension.Singleton (projection)
 open Paper.SingletonReification (ModelComparisons packedWhiskerRight reindexValueHom)
 open Paper.RetainedCase (reindexHom)
@@ -418,6 +483,39 @@ theorem carriedStep_reconstructed_realize {X S D : τ} {b : Region Φ}
     (carriedRoute_compare J M objIso cmp X S D)
 
 set_option backward.isDefEq.respectTransparency false in
+private theorem reify_guardedCfg_realize_of_prefix {X S D : τ} {e b : Region Φ}
+    (cmp : ModelComparisons J M objIso pe)
+    (Seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
+    (he : ValueBranches [X] e [packedExitType [S, D]])
+    (hb : ValueBranches [product X S] b [packedExitType [S, D]])
+    (prefixEq : capturePrefix J M objIso X S = ofRegion (τ := τ) (duplicateCapture_typed (Φ := Φ) X S))
+    (choice : PreservesLoop (contextualStep J (blockComputation M J X S D
+      (denoteSingletonRegion J M hb.hasType))))
+    (entryIH : (projection Seed).map (reindexHom J M objIso (denoteSingletonRegion J M he.hasType)) =
+      Paper.Extension.Singleton.ofRegion Seed he)
+    (blockIH : (projection Seed).map (reindexHom J M objIso (denoteSingletonRegion J M hb.hasType)) =
+      Paper.Extension.Singleton.ofRegion Seed hb) :
+    let hs := realizePackedStep_typed hb
+    (projection Seed).map (carriedStep J M objIso X S D (denoteSingletonRegion J M hb.hasType)) =
+      (projection Seed).map (ofRegion (τ := τ) hs ≫ (sumIso (product X D) (product X S)).hom) ∧
+    (projection Seed).map (reindexHom J M objIso
+      (denoteSingletonRegion J M (guardedCfg_typed he hb).hasType)) =
+      Paper.Extension.Singleton.ofRegion Seed (canonicalRegion_typed he hs) ∧
+    Paper.Eqv [X] (canonicalRegion X S e (realizePackedStep S D b)) (guardedCfg S D e b) [D] := by
+  let F := projection Seed
+  let b' := (objIso (product X S)).hom ≫ ofRegion (τ := τ) hb ≫ (objIso (packedExitType [S, D])).inv
+  have blockEq : reindexHom J M objIso b' = ofRegion (τ := τ) hb := by
+    simp [b', reindexHom]
+  have projectedStep := carriedStep_map_congr J M objIso pe cmp Seed
+    (blockIH.trans (congrArg F.map blockEq).symm)
+  have exactStep := carriedStep_eq_realizePackedStep J M objIso cmp hb prefixEq
+    (carriedRoute_compare J M objIso cmp X S D)
+  have stepEq := projectedStep.trans (congrArg F.map exactStep)
+  refine ⟨stepEq, ?_, canonicalRegion_eq_guardedCfg_realize he hb⟩
+  rw [compare_guardedCfg J M objIso pe cmp he hb choice]
+  exact (canonicalAssembly_map_congr Seed entryIH stepEq).trans
+    (congrArg F.map (canonicalAssembly_ofRegion he (realizePackedStep_typed hb)))
+
 theorem reify_guardedCfg_realize {X S D : τ} {e b : Region Φ}
     (cmp : ModelComparisons J M objIso pe)
     (Seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
@@ -439,19 +537,34 @@ theorem reify_guardedCfg_realize {X S D : τ} {e b : Region Φ}
     (projection Seed).map (reindexHom J M objIso
       (denoteSingletonRegion J M (guardedCfg_typed he hb).hasType)) =
       Paper.Extension.Singleton.ofRegion Seed (canonicalRegion_typed he hs) ∧
-    Paper.Eqv [X] (canonicalRegion X S e (realizePackedStep S D b)) (guardedCfg S D e b) [D] := by
-  let F := projection Seed
-  let b' := (objIso (product X S)).hom ≫ ofRegion (τ := τ) hb ≫ (objIso (packedExitType [S, D])).inv
-  have blockEq : reindexHom J M objIso b' = ofRegion (τ := τ) hb := by
-    simp [b', reindexHom]
-  have projectedStep := carriedStep_map_congr J M objIso pe cmp Seed
-    (blockIH.trans (congrArg F.map blockEq).symm)
-  have exactStep := carriedStep_reconstructed_realize J M objIso cmp hb rightFst
-  have stepEq := projectedStep.trans (congrArg F.map exactStep)
-  refine ⟨stepEq, ?_, canonicalRegion_eq_guardedCfg_realize he hb⟩
-  rw [compare_guardedCfg J M objIso pe cmp he hb choice]
-  exact (canonicalAssembly_map_congr Seed entryIH stepEq).trans
-    (congrArg F.map (canonicalAssembly_ofRegion he (realizePackedStep_typed hb)))
+    Paper.Eqv [X] (canonicalRegion X S e (realizePackedStep S D b)) (guardedCfg S D e b) [D] :=
+  reify_guardedCfg_realize_of_prefix J M objIso cmp Seed he hb
+    (capturePrefix_of_rightFst J M objIso cmp X S rightFst) choice entryIH blockIH
+
+theorem reify_guardedCfg_realize_of_braid {X S D : τ} {e b : Region Φ}
+    (cmp : ModelComparisons J M objIso pe)
+    (Seed : VCtx τ → Region Φ → Region Φ → LCtx τ → Prop)
+    (he : ValueBranches [X] e [packedExitType [S, D]])
+    (hb : ValueBranches [product X S] b [packedExitType [S, D]])
+    (outputBraid : let P := product X S
+      reindexValueHom J M objIso (product P X) (product X P)
+        ((M.productIso P X).hom ≫ (BraidedCategory.braiding (M.obj P) (M.obj X)).hom ≫
+          (M.productIso X P).inv) = braid P X)
+    (choice : PreservesLoop (contextualStep J (blockComputation M J X S D
+      (denoteSingletonRegion J M hb.hasType))))
+    (entryIH : (projection Seed).map (reindexHom J M objIso (denoteSingletonRegion J M he.hasType)) =
+      Paper.Extension.Singleton.ofRegion Seed he)
+    (blockIH : (projection Seed).map (reindexHom J M objIso (denoteSingletonRegion J M hb.hasType)) =
+      Paper.Extension.Singleton.ofRegion Seed hb) :
+    let hs := realizePackedStep_typed hb
+    (projection Seed).map (carriedStep J M objIso X S D (denoteSingletonRegion J M hb.hasType)) =
+      (projection Seed).map (ofRegion (τ := τ) hs ≫ (sumIso (product X D) (product X S)).hom) ∧
+    (projection Seed).map (reindexHom J M objIso
+      (denoteSingletonRegion J M (guardedCfg_typed he hb).hasType)) =
+      Paper.Extension.Singleton.ofRegion Seed (canonicalRegion_typed he hs) ∧
+    Paper.Eqv [X] (canonicalRegion X S e (realizePackedStep S D b)) (guardedCfg S D e b) [D] :=
+  reify_guardedCfg_realize_of_prefix J M objIso cmp Seed he hb
+    (capturePrefix_of_braid J M objIso cmp X S outputBraid) choice entryIH blockIH
 
 end ExplicitWitness
 
