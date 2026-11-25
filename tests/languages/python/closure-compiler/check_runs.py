@@ -34,6 +34,27 @@ FIXTURES = (
     result = inner(seed)
     return result
 """, "return None", ["enter", "resume None", "complete None"]),
+    ("body_assert_child_path", """def outer(seed):
+    assert seed
+    def child(value):
+        assert value
+        return value
+    result = child(seed)
+    return result
+""", "return 5", ["enter", "resume", "complete"]),
+    ("body_assert_saved_caller", """def outer(seed):
+    def quiet():
+        pass
+    def child(value):
+        nonlocal seed
+        seed = 41
+        assert value
+        seed = 99
+        return seed
+    value = quiet()
+    result = child(value)
+    return result
+""", "AssertionError", ["enter", "resume None", "enter", "resume AssertionError", "complete AssertionError"]),
     ("forwarded_write", """def outer(seed):
     def middle(x):
         def inner(y):
@@ -79,6 +100,9 @@ except TypeError as error:
         raise
 except NameError:
     print("NameError")
+except AssertionError as error:
+    assert not error.args
+    print("AssertionError")
 """
 
 LEAN = """
@@ -91,13 +115,16 @@ private def resultName : Core.Closure.Result → String
   | .error (.positionalArity 1 0) => "TypeError arity"
   | .error .notCallable => "TypeError noncallable"
   | .error (.unboundCapture _) => "NameError"
+  | .error .assertionError => "AssertionError"
   | _ => "unexpected result"
 
 private def eventName : Core.Closure.Executor.Event → String
   | .enter _ => "enter"
   | .resume (.ok .none) => "resume None"
+  | .resume (.error .assertionError) => "resume AssertionError"
   | .resume _ => "resume"
   | .complete (.ok .none) => "complete None"
+  | .complete (.error .assertionError) => "complete AssertionError"
   | .complete _ => "complete"
   | .fault _ => "fault"
 
@@ -113,6 +140,17 @@ private def observation (source : Module) (fuel : Nat) : String × List String :
         | .faulted .. => "invalid runtime reference"
         | _ => "live residual"
       (status, events.map eventName)
+
+private def retainedAssertionWrite (source : Module) : Bool :=
+  match compile source with
+  | .ok compiled => match run compiled [.int 5] 64 with
+    | .ok (_, .finished heap (.error .assertionError)) =>
+      match heap.lookup ⟨0⟩ with
+      | some (some (.int 41)) => true
+      | _ => false
+    | _ => false
+  | .error _ => false
+
 """
 
 
@@ -140,6 +178,14 @@ if __name__ == "__main__":
                 extra = '#guard observation pythonSource 2 == ("return 5", ["complete"])\n'
             elif name == "implicit_none":
                 extra = '#guard observation pythonSource 2 == ("return None", ["complete None"])\n'
+            elif name == "body_assert_child_path":
+                extra = """
+#guard (match compile pythonSource with
+  | .ok compiled => compiled.sourceBody.paths == [[0], [0, 0]]
+  | .error _ => false)
+"""
+            elif name == "body_assert_saved_caller":
+                extra = "#guard retainedAssertionWrite pythonSource\n"
             elif name == "forwarded_write":
                 extra = '#guard observation pythonSource 1 == ("live residual", [])\n'
             shared["check_lean"](
@@ -170,4 +216,18 @@ if __name__ == "__main__":
 """,
             extra_imports=imports, capture_output=True,
         )
+        for source, diagnostic in (
+            ("def outer(seed): assert seed + 1", ".bodyProfile [0]"),
+            ("def outer(seed): assert seed()", ".bodyProfile [0]"),
+            ("def outer(seed): assert True", ".frontend .expressionShape"),
+            ('def outer(seed): assert seed, "message"', ".frontend .bodyShape"),
+        ):
+            shared["emit"](python_file, lean_file, source + "\n")
+            shared["check_lean"](
+                lean_file,
+                LEAN + f"""
+#guard (match compile pythonSource with | .error ({diagnostic}) => true | _ => false)
+""",
+                extra_imports=imports, capture_output=True,
+            )
     print(json.dumps({"cpython": sys.version.split()[0], "observations": observations, "fuel_budget": 64}))

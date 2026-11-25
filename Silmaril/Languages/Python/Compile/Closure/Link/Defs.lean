@@ -19,13 +19,14 @@ open Core.Closure.Dispatch (CodeTable Entry)
 
 inductive Code (layout : Layout) where
   | ret (value : Body.Expr layout)
+  | assert (test : Body.Expr layout) (next : Code layout)
   | assign (destination : Slot layout) (value : Body.Expr layout) (next : Code layout)
   | closure (destination : Slot layout) (path : BlockPath) (ref : CodeRef)
       (captures : Fin ref.layout.captures → CaptureSlot layout) (next : Code layout)
 
 def Code.references {layout : Layout} : Code layout → List (BlockPath × CodeRef)
   | .ret _ => []
-  | .assign _ _ next => next.references
+  | .assign _ _ next | .assert _ next => next.references
   | .closure _ path ref _ next => (path, ref) :: next.references
 
 structure Block where
@@ -39,6 +40,9 @@ structure LinkedBody (layout : Layout) where
 /-- `first` is the key available for the next nested declaration. -/
 def linkBody {layout : Layout} (first : Nat) : Body.Code layout → LinkedBody layout
   | .ret value => ⟨.ret value, []⟩
+  | .assert test rest =>
+    let tail := linkBody first rest
+    ⟨.assert test tail.code, tail.children⟩
   | .assign slot value rest =>
     let tail := linkBody first rest
     ⟨.assign slot value tail.code, tail.children⟩

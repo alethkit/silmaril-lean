@@ -139,6 +139,7 @@ def lowerTaggedArguments (scope : Scope) := lowerTaggedArgumentsWith scope false
 arguments and the capture operands retain their source order. -/
 inductive Code : Core.Closure.Layout → Type where
   | ret {layout} (value : Expr layout) : Code layout
+  | assert {layout} (test : Expr layout) (next : Code layout) : Code layout
   | assign {layout} (destination : Slot layout) (value : Expr layout) (next : Code layout) : Code layout
   | closure {layout} (destination : Slot layout) (path : BlockPath) (childLayout : Core.Closure.Layout)
       (parameters : Parameters childLayout) (captures : Fin childLayout.captures → CaptureSlot layout)
@@ -147,7 +148,7 @@ inductive Code : Core.Closure.Layout → Type where
 /-- Child code paths in lexical preorder. -/
 def Code.childPaths {layout : Core.Closure.Layout} : Code layout → List BlockPath
   | .ret _ => []
-  | .assign _ _ next => next.childPaths
+  | .assign _ _ next | .assert _ next => next.childPaths
   | .closure _ path _ _ _ child next => path :: (child.childPaths ++ next.childPaths)
 
 def fixed (parameter : Source.Parameter) : Bool :=
@@ -190,6 +191,9 @@ inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
       (assignment : Assignment statement name source) (destination : SlotTranslation tree.scope name slot)
       (value : ExprTranslation tree.scope source target) (tail : Translation tree index rest next) :
       Translation tree index (statement :: rest) (.assign slot target next)
+  | assert {tree index source target rest next}
+      (test : ExprTranslation tree.scope source target) (tail : Translation tree index rest next) :
+      Translation tree index (.assert_ source none :: rest) (.assert target next)
   | pass {tree index rest next} (tail : Translation tree index rest next) :
       Translation tree index (.pass :: rest) next
   | nonlocal {tree index names rest next} (tail : Translation tree index rest next) :
@@ -218,6 +222,10 @@ private def lowerOrdinaryBody (tree : ScopeTree) (allowGlobals : Bool)
       let target ← lowerExprWith tree.scope allowGlobals value
       return ⟨.ret target.val, .ret ordinary complete target.property⟩
     else throw (.scopeTree tree.scope.context.path)
+  | .assert_ test none :: rest => do
+    let target ← lowerExprWith tree.scope allowGlobals test
+    let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
+    return ⟨.assert target.val tail.val, .assert target.property tail.property⟩
   | .pass :: rest => do
     let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨tail.val, .pass tail.property⟩

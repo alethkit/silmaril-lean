@@ -47,7 +47,7 @@ private theorem link_targets {layout : Layout} (first : Nat) (code : Body.Code l
       (∀ ref ∈ blockReferences lowered.children, HasTarget first lowered.children ref) := by
   induction code generalizing first with
   | ret => simp [linkBody, Code.references, blockReferences]
-  | assign _ _ rest tail =>
+  | assign _ _ _ tail | assert _ _ tail =>
     simpa [linkBody, Code.references] using tail first
   | closure slot path childLayout parameters captures child rest inner tail =>
     let nested := linkBody (first + 1) child
@@ -80,7 +80,7 @@ private theorem link_paths {layout : Layout} (first : Nat) (code : Body.Code lay
     (linkBody first code).children.map Block.path = code.childPaths := by
   induction code generalizing first with
   | ret => rfl
-  | assign _ _ _ tail =>
+  | assign _ _ _ tail | assert _ _ tail =>
     simpa [linkBody, Body.Code.childPaths] using tail first
   | closure _ _ _ _ _ _ _ inner tail =>
     simp [linkBody, Body.Code.childPaths, inner, tail]

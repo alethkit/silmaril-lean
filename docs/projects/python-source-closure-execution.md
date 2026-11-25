@@ -12,6 +12,14 @@ the existing executor return with a literal `None` operand. A nested
 call writes that value to its destination before resuming the caller.
 Bare `return` and explicit `None` syntax remain outside this source profile.
 
+Message-free body assertions lower to the existing executor assertion
+when the test passes the ordinary runner operand check. They preserve
+the continuation's lexical child paths and code keys. The executor
+continues on truth and uses ordinary defined error delivery on failure.
+The assertion operand profile covers integer literals and resolved
+reads. Computed calls and arithmetic are outside it. In a module
+invocation, a failed body assertion is raised as `AssertionError`.
+
 Successful lowering retains the source translation and preserves the
 definition, layout and parameter destinations at every emitted code key.
 Body lowering succeeds exactly when the independent translation judgment
