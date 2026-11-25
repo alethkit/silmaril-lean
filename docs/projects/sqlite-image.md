@@ -38,6 +38,14 @@ one-byte-rowid capacity boundary, malformed alias cells, rejection
 without opening a destination, and preservation of existing files.
 They also run the logical write differential on 17 snapshots.
 
+`TableLeaf.cell?_frame` proves that a successful cell read gives the same
+signed rowid, payload, and offsets in a second view that contains its full
+physical extent and agrees on the bytes in that interval. It applies to the
+cell reader inside the real shell. The differential also rewrites the
+unallocated gap outside the cells of native- and Lean-created leaves and
+checks that both readers preserve the ordered rows and `integrity_check`.
+The theorem assumes a successful cell read and covers that cell.
+
 This profile has one leaf per tree and constructs fresh images. Page
 splitting, changes to an existing SQLite image, journaling, recovery,
 durability and concurrent access require separate models. The logical
