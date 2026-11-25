@@ -27,23 +27,28 @@ private theorem landmark_event (i : Fin V) :
     d.landmark i.castSucc.succ = d.vertexHeight (d.vertexOrder i) := by
   simp [Diagram.landmark]
 
-theorem landmark_strict : StrictMono d.landmark := by
+theorem cap_landmarks_strict {n : ℕ} {height : Fin n → ℝ}
+    (inside : ∀ i, height i ∈ Set.Ioo 0 1) (ordered : StrictMono height) :
+    StrictMono (Fin.cons 0 (Fin.snoc height 1)) := by
   apply Fin.strictMono_cons.mpr
   constructor
   · intro i
     refine Fin.lastCases ?_ (fun j => ?_) i
     · simp
-    · simpa using (d.vertex_inside (d.vertexOrder j)).2.1
+    · simpa using (inside j).1
   · intro i j hij
     revert i
     refine Fin.lastCases ?_ (fun t i hij => ?_) j
     · intro i hij
       refine Fin.lastCases (fun hf => ?_) (fun u _ => ?_) i hij
       · exact (lt_irrefl _ hf).elim
-      · simpa using (d.vertex_inside (d.vertexOrder u)).2.2
+      · simpa using (inside u).2
     · refine Fin.lastCases (fun hf => ?_) (fun u hu => ?_) i hij
       · exact (not_lt_of_ge (Fin.le_last _) hf).elim
-      · simpa using (sorted_heights d) ((Fin.castSucc_lt_castSucc_iff).mp hu)
+      · simpa using ordered ((Fin.castSucc_lt_castSucc_iff).mp hu)
+
+theorem landmark_strict : StrictMono d.landmark :=
+  cap_landmarks_strict (fun i => (d.vertex_inside (d.vertexOrder i)).2) (sorted_heights d)
 
 theorem midpoint_in_gap (i : Fin (V + 1)) : d.cutHeight i ∈ d.gap i := by
   have ordered := landmark_strict d (Fin.castSucc_lt_succ (i := i))

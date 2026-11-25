@@ -25,6 +25,13 @@ universe u v
 
 variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {d : Diagram S V W}
 
+/-- Transport an ordered cut across an interval with the same active wires. -/
+theorem OrderedCut.relocate_active {kind : VertexSeparation} {d : Diagram S V W kind}
+    {h k : ℝ} {wires : List (Fin W)} (cut : d.OrderedCut h wires)
+    (same : ∀ w y, y ∈ Set.uIcc h k → (d.crosses w h ↔ d.crosses w y)) :
+    d.OrderedCut k wires :=
+  Proofs.ProgressiveCutChoice.relocate_active cut same
+
 /-- Moving a cut within a vertex-free gap preserves the exact ordered wire list. -/
 theorem OrderedCut.relocate {i : Fin (V + 1)} {h k : ℝ} {wires : List (Fin W)}
     (cut : d.OrderedCut h wires) (hh : h ∈ d.gap i) (hk : k ∈ d.gap i) :
@@ -32,6 +39,14 @@ theorem OrderedCut.relocate {i : Fin (V + 1)} {h k : ℝ} {wires : List (Fin W)}
   Proofs.ProgressiveCutChoice.relocate hh hk cut
 
 namespace Sweep
+
+theorem joinRows_eq {n : ℕ} {a b : Fin (n + 1) → List O} (words : a = b)
+    (r : ∀ i : Fin n, Sliced.Row S (a i.castSucc) (a i.succ))
+    (q : ∀ i : Fin n, Sliced.Row S (b i.castSucc) (b i.succ))
+    (rows : ∀ i, HEq (r i) (q i)) :
+    (congrArg₂ (Sliced.Sheet S) (congrFun words 0) (congrFun words (Fin.last n))).mp
+      (joinRows a r) = joinRows b q :=
+  Proofs.ProgressiveCutChoice.joinRows_eq words r q rows
 
 /-- Two choices of cuts read the same wire IDs in the same order at each gap. -/
 theorem wires_eq (s t : d.Sweep) (i : Fin (V + 1)) : s.wires i = t.wires i :=

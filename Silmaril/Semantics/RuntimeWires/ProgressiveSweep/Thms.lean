@@ -14,6 +14,23 @@ universe u v
 
 variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ} {d : Diagram S V W}
 
+theorem cap_landmarks_strict {n : ℕ} {height : Fin n → ℝ}
+    (inside : ∀ i, height i ∈ Set.Ioo 0 1) (ordered : StrictMono height) :
+    StrictMono (Fin.cons 0 (Fin.snoc height 1)) :=
+  Proofs.ProgressiveSweep.cap_landmarks_strict inside ordered
+
+theorem OrderedCut.input_boundary_order {kind : VertexSeparation} {d : Diagram S V W kind}
+    {h : ℝ} {wires : List (Fin W)} (cut : d.OrderedCut h wires)
+    (hh : 0 < h) (incident : ∀ w ∈ wires, d.start w = none) :
+    wires.Pairwise (fun a b => d.x a 0 < d.x b 0) :=
+  Proofs.ProgressiveSweep.input_boundary_order cut hh incident
+
+theorem OrderedCut.output_boundary_order {kind : VertexSeparation} {d : Diagram S V W kind}
+    {h : ℝ} {wires : List (Fin W)} (cut : d.OrderedCut h wires)
+    (hh : h < 1) (incident : ∀ w ∈ wires, d.finish w = none) :
+    wires.Pairwise (fun a b => d.x a 1 < d.x b 1) :=
+  Proofs.ProgressiveSweep.output_boundary_order cut hh incident
+
 theorem landmark_strict : StrictMono d.landmark :=
   Proofs.ProgressiveSweep.landmark_strict d
 
