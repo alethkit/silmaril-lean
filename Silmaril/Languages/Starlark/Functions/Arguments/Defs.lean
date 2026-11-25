@@ -46,6 +46,8 @@ inductive CallStaticError where
   | requiredAfterDefault (name : String)
   | bareStarWithoutOptional
   | duplicateExplicitKeyword (name : String)
+  | breakOutsideLoop
+  | continueOutsideLoop
   deriving DecidableEq, Repr
 
 def firstDuplicate : List String → Option String
