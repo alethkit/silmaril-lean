@@ -52,9 +52,11 @@ private theorem builtinAction (id : Builtin) (actual : Actual) :
       · exact actionThrow _
       · exact actionAllocate _
       · exact actionAllocateTuple _
+      · exact actionThrow _
     | cons value rest =>
       cases rest with
-      | cons => exact actionThrow _
+      | cons =>
+        cases id <;> first | exact actionThrow _ | exact actionExcept _
       | nil =>
         cases id with
         | bool => exact actionMap _ (truthAction value)
@@ -63,6 +65,7 @@ private theorem builtinAction (id : Builtin) (actual : Actual) :
         | type => exact actionPure _
         | list => exact actionBind (itemsAction _ _) actionAllocate
         | tuple => exact actionBind (itemsAction _ _) actionAllocateTuple
+        | range => exact actionExcept _
 
 private def transportPlan (bindings : Binding → Option Value) {available : List DeclarationId} :
     Outcome (CallPlan available) → Outcome (CallPlan available)

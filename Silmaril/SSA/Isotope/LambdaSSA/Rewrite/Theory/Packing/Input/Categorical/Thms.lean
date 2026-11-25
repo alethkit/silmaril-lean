@@ -45,6 +45,15 @@ theorem packedInputProjection_denotes {Γ Δ : VCtx τ} {i : Nat} {A : τ} {a : 
       (J.map (p ≫ (inputRecordIso M Γ).inv ≫ lookup M i hi)) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.packedInputProjection_denotes J M hi da
 
+/-- Reading a field of the constructed input record has the same
+denotation as the original variable. -/
+theorem packedInputProjection_constructor_denotes {Γ : VCtx τ} {i : Nat} {A : τ}
+    (hi : At Γ i A) :
+    Denotes J M (packedInputProjection_hasType hi (packedInputValue_branchValue (Φ := Φ) Γ).hasType)
+      (J.map (lookup M i hi)) := by
+  simpa only [Iso.hom_inv_id_assoc] using
+    packedInputProjection_denotes J M hi (packedInputValue_denotes (Φ := Φ) J M Γ)
+
 end Terms
 
 section Regions

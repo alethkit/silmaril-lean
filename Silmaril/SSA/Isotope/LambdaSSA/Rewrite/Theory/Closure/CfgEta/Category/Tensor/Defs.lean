@@ -23,16 +23,22 @@ def tensorObj {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
     (X Y : TypeCategory Φ ([] : VCtx τ)) : TypeCategory Φ ([] : VCtx τ) :=
   ofType (Silmaril.product (show τ from X) (show τ from Y))
 
-/-- For `X ⊗ f`, the right component is the computation input. The
-return continuation uses index two for the retained left component. -/
-def whiskerLeftRegion {Φ : Type v} (r : Region Φ) : Region Φ :=
-  .let₂ (.var 0) ((r.renameVars (lift (Nat.succ ∘ Nat.succ))).lsubst
-    (fun _ => .br 0 (.pair (.var 2) (.var 0))))
+/-- The left-whiskering body receives the right component at index zero
+and returns the left component (index two in the continuation) with the result. -/
+def whiskerLeftBody {Φ : Type v} (r : Region Φ) : Region Φ :=
+  (r.renameVars (lift (Nat.succ ∘ Nat.succ))).lsubst (fun _ => .br 0 (.pair (.var 2) (.var 0)))
 
-/-- For `f ⊗ X`, the left component is the computation input. The
-return continuation uses index one for the retained right component. -/
+/-- The right-whiskering body receives the left component at index one
+and returns the result with the right component (index one in the continuation). -/
+def whiskerRightBody {Φ : Type v} (r : Region Φ) : Region Φ :=
+  (r.renameVars (Nat.succ ∘ lift Nat.succ)).lsubst (fun _ => .br 0 (.pair (.var 0) (.var 1)))
+
+/-- Unpack the input pair and run the computation on its right component. -/
+def whiskerLeftRegion {Φ : Type v} (r : Region Φ) : Region Φ :=
+  .let₂ (.var 0) (whiskerLeftBody r)
+
+/-- Unpack the input pair and run the computation on its left component. -/
 def whiskerRightRegion {Φ : Type v} (r : Region Φ) : Region Φ :=
-  .let₂ (.var 0) ((r.renameVars (Nat.succ ∘ lift Nat.succ)).lsubst
-    (fun _ => .br 0 (.pair (.var 0) (.var 1))))
+  .let₂ (.var 0) (whiskerRightBody r)
 
 end Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory

@@ -41,14 +41,15 @@ private theorem reads_items (id : Builtin) (state : State) (value : Value) :
   | list address => exact items_eq_of_reads (.list address) ▸ Items.list address
   | tuple address => exact items_eq_of_reads (.tuple address) ▸ Items.tuple address
   | dict address => exact items_eq_of_reads (.dict address) ▸ Items.dict address
-  | scalar | string | builtin | function => exact .invalid (by simp [IsCollection])
+  | scalar | string | builtin | function | range => exact .invalid (by simp [IsCollection])
 
 theorem invoke_eq_of_invokes {state : State} {id : Builtin} {args : Actual} {out : Outcome Value}
     (h : Invokes state id args out) : invoke id args state = out := by
   cases h with
   | missing h => cases id <;> simp_all [minArity] <;> rfl
+  | extra excluded => cases id <;> simp_all [invoke] <;> rfl
   | bool => exact runMap _ _ _
-  | @lenCollection value out noString reads =>
+  | @lenCollection value out noString noRange reads =>
     have read := items_eq_of_reads reads
     cases value <;> simp_all [invoke, unary, runMap]
   | list reads => simp only [invoke, unary, runBind, items_eq_of_reads reads]
@@ -69,20 +70,31 @@ theorem invokes_invoke (state : State) (id : Builtin) (args : Actual) :
       · exact .missing rfl
       · exact .emptyList
       · exact .emptyTuple
+      · exact .missing rfl
     | cons value tail =>
       cases tail with
-      | cons => exact .extra
+      | cons second rest =>
+        cases id with
+        | range =>
+          rcases rest with _ | ⟨_, _ | ⟨_, _⟩⟩
+          · exact .rangeTwo
+          · exact .rangeThree
+          · exact .rangeExtra
+        | _ => exact .extra (by decide)
       | nil =>
         cases id with
         | bool => simpa only [invoke, unary, runMap] using Invokes.bool (state := state) (value := value)
         | type => exact .type
         | list => simpa only [invoke, unary, runBind] using Invokes.list (reads_items .list state value)
         | tuple => simpa only [invoke, unary, runBind] using Invokes.tuple (reads_items .tuple state value)
+        | range => exact .rangeOne
         | len =>
           cases value with
           | string => exact .lenString
+          | range => exact .lenRange
           | scalar | list | tuple | dict | function | builtin =>
             simp only [invoke, unary, runMap]
-            exact .lenCollection (by intro _ equality; cases equality) (reads_items .len state _)
+            exact .lenCollection (by intro _ equality; cases equality)
+              (by intro _ equality; cases equality) (reads_items .len state _)
 
 end Silmaril.Proofs.Languages.Starlark.Functions.Builtins

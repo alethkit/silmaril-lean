@@ -48,7 +48,8 @@ private theorem lenMark_fails {s t : State} {n : Int}
     (t := t) (values := [.builtin .len, .scalar .none]) ?_ ?_
   · exact .cons (.atom (.builtin _) .builtin) (.cons runs .empty)
   · exact .expanded (.success rfl rfl)
-      (.builtin rfl (.lenCollection (by intro text equal; cases equal) (.invalid (by intro h; cases h))))
+      (.builtin rfl (.lenCollection (by intro _ equal; cases equal) (by intro _ equal; cases equal)
+        (.invalid (by intro h; cases h))))
 
 private theorem nested_fails :
     Evaluates #[] [] input nestedFailure (.error (.builtinType .len (.scalar .none)) afterAppend) :=
