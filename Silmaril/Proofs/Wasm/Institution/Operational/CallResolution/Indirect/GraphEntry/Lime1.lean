@@ -171,17 +171,22 @@ private theorem operand_chain {stack : List Value} {code : List Prefix.Op}
     exact operand_iff step dst
   | trap step => exact List.isChain_pair.mpr (operand_iff step)
 
-theorem operands_exact (ready : entry.Checked program tables outer index args)
-    (allocated : s.funcs[entry.cont.address.value]? = some entry.limeInstance)
+theorem ordinary_path (ready : entry.Checked program tables outer index args)
+    (allocated : s.funcs[entry.cont.address.value]? = some entry.limeInstance) :
+    [limeSource s outer index args, entry.limeInvoke s outer args, entry.limeBody s outer args].IsChain
+      (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) := by
+  refine List.isChain_cons_cons.mpr ⟨?_, List.isChain_pair.mpr (fun _ => entry_iff ready allocated)⟩
+  intro dst
+  exact Computed.lime_direct_call_iff (s := s) (stack := args) (tail := []) ready.resolves
+
+theorem operands_via (front : List (Config H))
+    (enters : (front ++ [entry.limeBody s outer args]).IsChain (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b))
     {states : List OperandState} {result : OperandResult}
     (trace : entry.OperandTrace args states result) :
-    (entry.limeBefore s outer index args states ++ [entry.limeOperandResult s outer args result]).IsChain
+    ((front ++ entry.limeInside s outer args states) ++ [entry.limeOperandResult s outer args result]).IsChain
       (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) := by
   have head := operand_head (entry.limeOperands s outer args) (entry.limeOperandResult s outer args)
     (fun _ => rfl) trace
-  have call : ∀ dst, Step CallFrame.limeNoHost (limeSource s outer index args) dst ↔
-      dst = entry.limeInvoke s outer args := fun _ =>
-    Computed.lime_direct_call_iff (s := s) (stack := args) (tail := []) ready.resolves
   have after := operand_chain (s := s) (outer := outer) trace
   have site : entry.limeRegion s outer args entry.cont.scopes entry.initial [] =
       entry.limeOperands s outer args (entry.initial, entry.before) := by
@@ -189,32 +194,44 @@ theorem operands_exact (ready : entry.Checked program tables outer index args)
   rw [← site] at head
   have path := block_chain (entry := entry) (s := s) (outer := outer) (args := args) entry.cont.blocks entry.cont.owner.initial []
     _ after (by simpa only [List.nil_append, Context.Resume.Continuation.scopes, Entry.initial] using head)
-  unfold Entry.limeBefore
-  simp only [List.cons_append, List.append_assoc]
-  refine List.isChain_cons_cons.mpr ⟨call, path.1.cons ?_⟩
-  intro b found dst
-  rw [path.2] at found
-  obtain rfl := Option.mem_some.mp found
   have same : entry.limeBody s outer args =
       entry.limeRegion s outer args [] entry.cont.owner.initial entry.cont.blocks := by
     simp [Entry.limeBody, body_code, Entry.body, Entry.limeRegion, Context.limeNestWith]
-  rw [← same]
-  exact entry_iff ready allocated
+  generalize restEq : entry.limeBlocks s outer args [] entry.cont.owner.initial entry.cont.blocks ++
+    (states.map (entry.limeOperands s outer args) ++ [entry.limeOperandResult s outer args result]) = suffix at path
+  cases suffix with
+  | nil => simp at path
+  | cons first rest =>
+    have eq : first = entry.limeBody s outer args := (Option.some.inj path.2).trans same.symm
+    subst first
+    have merged := List.IsChain.append_overlap enters (l₃ := rest) path.1 (by simp)
+    simpa only [Entry.limeInside, List.append_assoc, ← restEq, List.singleton_append] using merged
 
-theorem prefix_exact {states : List OperandState} {stack : List Value}
+theorem operands_exact (ready : entry.Checked program tables outer index args)
+    (allocated : s.funcs[entry.cont.address.value]? = some entry.limeInstance)
+    {states : List OperandState} {result : OperandResult}
+    (trace : entry.OperandTrace args states result) :
+    (entry.limeBefore s outer index args states ++ [entry.limeOperandResult s outer args result]).IsChain
+      (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) :=
+  operands_via [limeSource s outer index args, entry.limeInvoke s outer args] (ordinary_path ready allocated) trace
+
+theorem prefix_via {states : List OperandState} {stack : List Value}
     (ready : entry.AtSite program tables outer index args states stack active)
-    (allocated : entry.LimeAllocated program tables active s) {out : Outcome}
+    (front : List (Config H))
+    (enters : (front ++ [entry.limeBody s outer args]).IsChain (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b))
+    (tablesFound : Source.Tables.LimeAllocated tables s)
+    (targets : active.binding.site.LimeAllocated program s) {out : Outcome}
     (resolved : active.resolve program = some out) :
-    (entry.limePrefix s outer index args active out states).IsChain
+    (front ++ entry.limeSitePath s outer args active out states).IsChain
       (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) := by
   have prepare := prepare_spec ready
   have data := prepare.checked
-  have before := operands_exact ready.checked allocated.entry ready.trace
+  have before := operands_via front enters ready.trace
   let site := entry.cont.limeWrap outer (active.limeSource s entry.cont.scopes entry.cont.code)
   have lookup : [site, entry.cont.limeWrap outer (active.limeResolved s entry.cont.scopes entry.cont.code out)].IsChain
       (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) :=
-    List.isChain_pair.mpr (fun _ => Context.Resume.lime_resolution_allocated_iff data.site allocated.targets
-      (Source.lime_table data allocated.tables) resolved)
+    List.isChain_pair.mpr (fun _ => Context.Resume.lime_resolution_allocated_iff data.site targets
+      (Source.lime_table data tablesFound) resolved)
   have same : entry.limeOperandResult s outer args (.values stack) = site := by
     simp only [Entry.limeOperandResult, Entry.limeOperands, Entry.limeSiteCode, site,
       Source.Activation.limeSource, Context.Resume.Continuation.limeSiteWrap, Source.limeNest, Indirect.limeSource,
@@ -222,8 +239,51 @@ theorem prefix_exact {states : List OperandState} {stack : List Value}
       Source.Op.limeInstr, ← prepare.typeIndex_eq, values,
       List.append_assoc, Value.int]
   rw [same] at before
-  simpa only [Entry.limePrefix, site, List.append_assoc, List.singleton_append] using
+  simpa only [Entry.limeSitePath, site, List.append_assoc, List.singleton_append] using
     List.IsChain.append_overlap before lookup (by simp)
+
+theorem prefix_exact {states : List OperandState} {stack : List Value}
+    (ready : entry.AtSite program tables outer index args states stack active)
+    (allocated : entry.LimeAllocated program tables active s) {out : Outcome}
+    (resolved : active.resolve program = some out) :
+    (entry.limePrefix s outer index args active out states).IsChain
+      (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) :=
+  prefix_via ready [limeSource s outer index args, entry.limeInvoke s outer args]
+    (ordinary_path ready.checked allocated.entry) allocated.tables allocated.targets resolved
+
+theorem run_via {states : List OperandState} {stack : List Value}
+    (ready : entry.AtSite program tables outer index args states stack active)
+    (start : Config H) (front : List (Config H))
+    (enters : (start :: front ++ [entry.limeBody s outer args]).IsChain
+      (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b))
+    (tablesFound : Source.Tables.LimeAllocated tables s)
+    (targets : active.binding.site.LimeAllocated program s)
+    (links : program.LimeLinksAllocated s)
+    {call : Context.Invocation} (invoked : active.invocation program = some call) {dst : Config H} :
+    Steps CallFrame.limeNoHost start dst ↔
+      dst ∈ (start :: front) ++ entry.limeSitePath s outer args active (.resolved call.address) states ∨
+      ∃ phase, Context.Resume.Runs program call entry.cont (.callee call.entered) phase ∧
+        dst = entry.cont.limeConfig call s outer phase := by
+  obtain ⟨callChecked, continuation⟩ := resume_guard ready invoked
+  obtain ⟨member, found, resolved⟩ := resolved_entry_ref invoked
+  let before := (start :: front) ++ entry.limeSitePath s outer args active (.resolved call.address) states
+  let entered := entry.cont.limeConfig call s outer (.callee call.entered)
+  have steps := prefix_via ready (start :: front) enters tablesFound targets resolved
+  have enter : ∀ dst, Step CallFrame.limeNoHost
+      (entry.cont.limeWrap outer (active.limeResolved s entry.cont.scopes entry.cont.code (.resolved call.address))) dst ↔
+      dst = entered := by
+    obtain ⟨address, callee, _, _, rfl⟩ := Source.invocation_fields invoked
+    exact fun _ => Context.Resume.lime_entry_iff callChecked (targets address callee member found)
+  have chain : (before ++ [entered]).IsChain (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) :=
+    steps.append (.singleton entered) (by
+      intro a aLast b bFirst
+      simp [List.getLast?_cons, Entry.limeSitePath] at aLast
+      change b ∈ some entered at bFirst
+      subst a
+      obtain rfl := Option.mem_some.mp bFirst
+      exact enter)
+  exact (Context.Resume.prefix_run_iff (dst := dst) before entered chain).trans
+    (or_congr Iff.rfl (Context.Resume.lime_entered_run_iff callChecked links continuation))
 
 theorem run_iff {states : List OperandState} {stack : List Value}
     (ready : entry.AtSite program tables outer index args states stack active)
@@ -232,26 +292,8 @@ theorem run_iff {states : List OperandState} {stack : List Value}
     Steps CallFrame.limeNoHost (GraphEntry.limeSource s outer index args) dst ↔
       dst ∈ entry.limePrefix s outer index args active (.resolved call.address) states ∨
       ∃ phase, Context.Resume.Runs program call entry.cont (.callee call.entered) phase ∧
-        dst = entry.cont.limeConfig call s outer phase := by
-  obtain ⟨callChecked, continuation⟩ := resume_guard ready invoked
-  obtain ⟨member, found, resolved⟩ := resolved_entry_ref invoked
-  let before := entry.limePrefix s outer index args active (.resolved call.address) states
-  let entered := entry.cont.limeConfig call s outer (.callee call.entered)
-  have steps := prefix_exact ready allocated resolved
-  have enter : ∀ dst, Step CallFrame.limeNoHost
-      (entry.cont.limeWrap outer (active.limeResolved s entry.cont.scopes entry.cont.code (.resolved call.address))) dst ↔
-      dst = entered := by
-    obtain ⟨address, callee, _, _, rfl⟩ := Source.invocation_fields invoked
-    exact fun _ => Context.Resume.lime_entry_iff callChecked (allocated.targets address callee member found)
-  have chain : (before ++ [entered]).IsChain (fun a b => ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b) :=
-    steps.append (.singleton entered) (by
-      intro a aLast b bFirst
-      simp [Entry.limePrefix] at aLast
-      change b ∈ some entered at bFirst
-      subst a
-      obtain rfl := Option.mem_some.mp bFirst
-      exact enter)
-  exact (Context.Resume.prefix_run_iff (dst := dst) before entered chain).trans
-    (or_congr Iff.rfl (Context.Resume.lime_entered_run_iff callChecked allocated.links continuation))
+        dst = entry.cont.limeConfig call s outer phase :=
+  run_via ready (limeSource s outer index args) [entry.limeInvoke s outer args]
+    (ordinary_path ready.checked allocated.entry) allocated.tables allocated.targets allocated.links invoked
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.GraphEntry.Proofs.Lime1
