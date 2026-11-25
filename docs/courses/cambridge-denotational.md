@@ -14,6 +14,72 @@ The course index is a leaf over reusable libraries. Its imports are restricted
 to the developments used by the wrappers; the course does not pull in separate
 game-semantics or categorical-model developments through broad umbrellas.
 
+## Read-only L1
+
+The Cambridge L1 adapter interprets integer and Boolean literals, `skip`,
+dereferences, addition, comparison, and conditionals. `ReadOnly` requires both
+branches of a conditional to belong to the fragment. It admits untyped terms
+and arbitrary finite partial stores. Assignment, sequencing, and loops are
+outside this grammar. [Fragment and adequacy](../../Silmaril/Courses/Cambridge/L1/Denotational.lean)
+
+`denote` is a structural function `Expr → Store → Option Expr`. A read uses
+`Store.lookup`, each operator acts on the results of its operands, and a
+conditional interprets only the branch selected by its Boolean guard. The
+same store is passed to each subexpression. The result of a successful
+evaluation is one of L1's existing value expressions.
+
+An `atomicInstitution` sentence pairs a `ReadOnly` source configuration with
+a proposed full target configuration. The model checks the denoted value and
+requires the target store to equal the original store. `sat_iff` identifies
+that truth with the existing L1 `OpSem.May` return. `stronglyNormal` rules out
+infinite reductions in this fragment, and `denote_eq_none_iff` shows that
+`none` means a stuck term is finitely reachable. The option carries no error
+payload. A missing location in an unselected branch is harmless. The checked
+examples change the input store, reject a changed return store, and reach
+stuck after selecting a missing read. [Institution](../../Silmaril/Courses/Cambridge/L1/DenotationalInstitution.lean) ·
+[Examples](../../Silmaril/Courses/Cambridge/DenotationalSemantics/L1Examples.lean)
+
+### Effects and iteration
+
+For L1 commands, `ExceptT Unit (StateT L1.Store Part)` has the existing lawful
+Elgot instances and exposes a finite stuck tag alongside the final store.
+Use `Store.update` for an assignment to an allocated location and monadic
+bind for sequencing. In `Silmaril.Elgot.iter`, a while body evaluates the
+guard, returns `Sum.inl ()` on false, or executes the command body and
+returns `Sum.inr ()` on true. `Silmaril.Elgot.StateT.run_iter` threads the
+store through this body, and `Silmaril.Elgot.Part.mem_iter_iff` gives the
+finite-iteration proof principle. The extension needs operational
+correspondences for both success and explicit stuck outcomes. Infinite
+reduction requires its own argument, for example via `InfiniteTrace`, before
+interpreting undefined `Part` computations as divergence. [Iteration laws](../../Silmaril/Semantics/ElgotMonads/Thms.lean) ·
+[Infinite traces](../../Silmaril/Foundations/InfiniteTrace.lean)
+
+LetIter can serve as a typed target for this command fragment once a lowering
+is proved. Its proof-relevant `denoteClosed` takes a typed derivation and an
+`InstructionModel`. Encode reads and writes as typed effectful instructions,
+then use the `.iter` typing rule for the loop. `categorical_denote_eq` connects
+its direct monadic denotation to the associated Kleisli denotation. A separate
+proof must relate those instructions and the lowering to `L1.Step`.
+[LetIter soundness API](../../Silmaril/SSA/Isotope/LetIter/Thms.lean)
+
+L2 shares L1's store. Extend the deterministic state model with lexical
+closures and a call-by-value application interpretation. `L2.RuntimeValue`
+and `RuntimeEnv` give existing closure representations. Reification or a
+simulation must relate closure application and recursive calls to L2's
+substitution rules. The fuel bound of `evalClosureFuel` is a separate concern.
+[L2 closure interpreter](../../Silmaril/Courses/Cambridge/L2/ClosureInterpreter.lean)
+
+L3 uses a store of values and allocation branches over every fresh location.
+`ExceptT Unit (StateT L3.Store SetM)` can retain all finite return and stuck
+alternatives with their final stores. `Silmaril.Elgot.Nondet.mem_iter_iff`
+reads the finite iterations existentially. This gives a path to may adequacy
+with concrete allocated names. A state can have a returning branch and also
+an infinite or stuck branch. Must termination, infinite behaviour, and any
+quotient by location renaming need separate proofs. [Nondeterministic iteration](../../Silmaril/Semantics/ElgotMonads/Thms.lean) ·
+[L3 operational observation contract](../projects/operational-institutions.md#cambridge-l3)
+
+## Part II course index
+
 ```mermaid
 flowchart LR
   D["ω-cpos and continuous maps"] --> L["Typed λ-calculus domain model"]

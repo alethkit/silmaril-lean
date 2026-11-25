@@ -32,6 +32,10 @@ abbrev observedGuard {X Y Z : Kleisli (R.monad P)}
     (f : X ⟶ (P.kleisli (R.monad P)).sum Y Z) : Prop :=
   M.ResumptionGuard R (X := X.of) (Y := Y.of) (Z := Z.of) f.of
 
+/-- Both nested recursive summands are guarded after pure reassociation. -/
+def ResumptionNested {S X Y Z : C} (f : S ⟶ R.obj (P.sum (P.sum X Y) Z)) : Prop :=
+  M.ResumptionGuard R (Y := X) (Z := P.sum Y Z) (f ≫ (R.monad P).map P.assoc)
+
 /-- The inner iteration `♦ f` of Theorem 25, in the monad at the fixed resumption parameter. -/
 def diamond {X Y : C} (f : X ⟶ R.obj (P.sum Y X)) (hf : M.ResumptionGuard R (Y := Y) (Z := X) f) :
     X ⟶ (M.obj (R.obj (P.sum Y X))).monad.obj Y :=

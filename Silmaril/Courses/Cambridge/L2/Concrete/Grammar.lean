@@ -17,9 +17,7 @@ namespace Silmaril.Courses.Cambridge.L2.Concrete
 
 open Silmaril.Courses.Cambridge.Concrete
 
-def expect (token : Token) : List Token → Option (List Token)
-  | head :: tail => if head = token then some tail else none
-  | [] => none
+abbrev expect := Silmaril.Courses.Cambridge.Concrete.expect
 
 def readType : Nat → List Token → Option (Ty × List Token)
   | _ + 1, .keyword .int :: rest => some (.int, rest)
@@ -123,13 +121,7 @@ def readExpr : Nat → List Token → Option (RawExpr × List Token)
       finishGroup (readExpr fuel) left tail
   | _, _ => none
 
-/-- The virtual outer group lets the top-level expression omit parentheses.
-The token count plus the virtual delimiters bounds the production depth. -/
-def readWhole {α : Type} (reader : Nat → List Token → Option (α × List Token))
-    (tokens : List Token) : Option α := do
-  let (value, []) ← reader (tokens.length + 2)
-    (.punct .openP :: (tokens ++ [.punct .closeP])) | none
-  return value
+abbrev readWhole {α : Type} := @Silmaril.Courses.Cambridge.Concrete.readWhole α
 
 def parse (bytes : ByteArray) : Option RawExpr := tokenize bytes >>= readWhole readExpr
 def parseType (bytes : ByteArray) : Option Ty := tokenize bytes >>= readWhole readType

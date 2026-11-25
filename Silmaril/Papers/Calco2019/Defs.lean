@@ -3,6 +3,7 @@ module
 public import Silmaril.Semantics.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Parametrized
 public import Silmaril.Semantics.Calco2019.ResumptionGuard
+public import Silmaril.Semantics.Calco2019.GuardedTransformations
 
 /-!
 # Coinductive Resumption Monads: Guarded Iterative and Guarded Elgot
@@ -22,5 +23,6 @@ Numbered definitions in `Silmaril.Calco2019`:
 * Definition 16: `Guardedness.Fixpoints.Uniform`.
 * Definition 19: `IsGuardedIterative`, `GuardedElgotMonad`, `GuardedElgotMonad.IsElgot`.
 * Definition 21: `ParametrizedGuardedElgotMonad`.
+* Guarded natural transformations in Theorem 28: `GuardedTransformation`, `guardedBimodule`.
 * Definition 24: `ParametrizedGuardedElgotMonad.ResumptionGuard`.
 -/
