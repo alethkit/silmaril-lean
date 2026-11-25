@@ -7,6 +7,13 @@ public section
 
 namespace Silmaril.Languages.Starlark.Lists.Iteration
 
+/-- Materialization follows the order in which the cursor yields elements. -/
+inductive CursorCollects : Cursor → List Value → Prop where
+  | done {cursor : Cursor} : cursor.advance = none → CursorCollects cursor []
+  | next {cursor rest : Cursor} {value : Value} {tail : List Value} :
+      cursor.advance = some (value, rest) → CursorCollects rest tail →
+      CursorCollects cursor (value :: tail)
+
 /-- Step rules shared by the suite and checked-body loop judgments. -/
 inductive CursorRuns (body : State → Outcome Flow → Prop) (target : Binding) :
     Cursor → State → Outcome Flow → Prop where

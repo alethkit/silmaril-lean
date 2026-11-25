@@ -56,6 +56,9 @@ inductive Cursor where
   | items (remaining : List Value)
   | range (current step : Int) (remaining : Nat)
 
+def Cursor.ofRange (span : RangeValue) : Cursor :=
+  .range span.start span.step span.length
+
 def Cursor.remaining : Cursor → Nat
   | .items values => values.length
   | .range _ _ count => count
@@ -72,9 +75,19 @@ theorem Cursor.advance_decreases {cursor next : Cursor} {value : Value}
   | items values => cases values <;> simp [Cursor.advance] at step <;> simp [← step.2, Cursor.remaining]
   | range current stride count => cases count <;> simp [Cursor.advance] at step <;> simp [← step.2, Cursor.remaining]
 
+/-- Collect the cursor in yield order for operations that materialize an iterable. -/
+def Cursor.collect (cursor : Cursor) : List Value := go cursor []
+where
+  go (cursor : Cursor) (reversed : List Value) : List Value :=
+    match _step : cursor.advance with
+    | none => reversed.reverse
+    | some (value, rest) => go rest (value :: reversed)
+  termination_by cursor.remaining
+  decreasing_by exact Cursor.advance_decreases _step
+
 /-- Ranges need no heap guard. Other iterables keep the existing snapshot and guard. -/
 def acquireIterator : Value → Meaning (Option Address × Cursor)
-  | .range span => pure (none, .range span.start span.step span.length)
+  | .range span => pure (none, .ofRange span)
   | value => (fun (address, items) => (some address, .items items)) <$> iterationSource value
 
 def enterIterator (state : State) : Option Address → State

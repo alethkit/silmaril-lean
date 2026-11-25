@@ -22,6 +22,11 @@ theorem truth_finishState (value : Value) (state : State) :
     finishState (truth value state) = state :=
   Proofs.Languages.Starlark.Lists.Iteration.truth_finishState value state
 
+/-- Exact agreement between cursor yield rules and materialization. -/
+theorem cursorCollects_iff_collect (cursor : Cursor) (values : List Value) :
+    CursorCollects cursor values ↔ cursor.collect = values :=
+  Proofs.Languages.Starlark.Lists.Iteration.cursorCollects_iff_collect cursor values
+
 /-- Cursor stepping agrees with iteration denotation when body outcomes agree. -/
 theorem cursor_eq_of_runs {body : State → Outcome Flow → Prop} {meaning : Meaning Flow}
     {target : Binding} {cursor : Cursor} {state : State} {out : Outcome Flow}

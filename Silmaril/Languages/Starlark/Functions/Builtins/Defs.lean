@@ -7,7 +7,7 @@ public import Silmaril.Languages.Starlark.Functions.Arguments.Defs
 namespace Silmaril.Languages.Starlark.Functions.Builtins
 
 open Lists
-open Lists.Iteration (iterationSource truth)
+open Lists.Iteration (Cursor iterationSource truth)
 
 def typeName : Lists.Value → String
   | .scalar .none => "NoneType"
@@ -46,11 +46,12 @@ def rangeArgs : List Lists.Value → Except Error Lists.Value
   | [start, stop, step] => checkedRange start stop step
   | args => .error (arityError .range args.length)
 
-/-- Read the same finite snapshot as a collection loop. This operation has
-no user code or callbacks, so iterator acquisition and release are unobservable. -/
+/-- Read a collection snapshot or collect a range cursor in order. This
+operation runs no Starlark code and leaves iterator guards alone. -/
 def items (id : Builtin) : Lists.Value → Meaning (List Lists.Value)
   | value@(.list _) | value@(.tuple _) | value@(.dict _) =>
     Prod.snd <$> iterationSource value
+  | .range span => pure (Cursor.ofRange span).collect
   | value => throw (.builtinType id value)
 
 def countValue (count : Nat) : Lists.Value := .scalar (.int (Int.ofNat count))
