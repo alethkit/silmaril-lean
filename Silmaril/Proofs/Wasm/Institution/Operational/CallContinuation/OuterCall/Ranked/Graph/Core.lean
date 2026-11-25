@@ -40,7 +40,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | return_ | unreachable => rfl
+    | set | tee | call | block | if_ | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.coreFunc.body = (Body.running fn.initial fn.code).render coreAdmin := by
@@ -139,6 +139,13 @@ private theorem running_stays {n : Nat} {v : List Value} {op : Op} {rest : List 
   | call t =>
     exact Computed.core_label_stays (head := .plain (.call t.index)) rfl
       (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp) pop
+  | if_ result thenBody elseBody =>
+    exact Computed.core_label_stays (head := coreAdmin.emit (.if_ result thenBody elseBody)) rfl
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Admin.IsReturnCallRef])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
+      (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax]) pop
   | block result body =>
     exact Computed.core_label_stays (head := coreAdmin.emit (.block result body)) rfl
       (by simp [coreAdmin, coreEmit, Op.emit, coreCodeSyntax])
@@ -426,6 +433,19 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             exact ⟨_, rule.mpr (.dispatch locals saved operands child rest used count), eq.trans (by
               simp only [coreAt, Phase.renderAt, Body.render, coreAdmin, values_append, n,
                 List.append_assoc, List.cons_append, List.nil_append])⟩
+          | if_ result thenBody elseBody =>
+            obtain ⟨saved, condition, rfl⟩ := Function.split_if codeTyped
+            have select := (Computed.core_if_iff (P := P) (s := s) (f := (currentFrame target.declaration locals).toCore)
+              (bt := Blocks.coreType result) (saved := saved.map Value.toCore) (condition := condition)
+              (thenBody := Op.emitList coreCodeSyntax thenBody)
+              (elseBody := Op.emitList coreCodeSyntax elseBody) (rest := rest.map coreAdmin.emit)).mp (by
+              simpa only [native, Body.render, coreAdmin, coreEmit, Op.emit, coreCodeSyntax,
+                Function.comp_def, coreValues, List.map_append, List.map_cons, List.map_nil, Value.toCore, Value.int] using inner)
+            subst mid
+            refine ⟨_, rule.mpr (.ifSelect locals saved condition result thenBody elseBody rest), ?_⟩
+            exact eq.trans (by
+              simp only [coreAt, Phase.renderAt, Body.render, coreAdmin, coreEmit, Op.emit,
+                coreCodeSyntax, Function.comp_def, Op.emitList_selected, List.map_cons, n])
           | block result body =>
             have enter := (Blocks.core_context_entry_iff (result := result)
               (body := Op.emitList coreCodeSyntax body) (saved := stack.map Value.toCore)
@@ -460,6 +480,16 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             apply lift_label
             simpa only [Body.render, Phase.render, Phase.renderAt, coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Sequence.coreSource, Function.comp_def,
               values_append, List.map_cons, List.append_assoc, List.cons_append, List.nil_append] using step.mpr rfl
+          | @ifSelect locals saved condition result thenBody elseBody rest =>
+            apply lift_label
+            have select := (Computed.core_if_iff (P := P) (s := s) (f := (currentFrame target.declaration locals).toCore)
+              (bt := Blocks.coreType result) (saved := saved.map Value.toCore)
+              (condition := condition)
+              (thenBody := Op.emitList coreCodeSyntax thenBody)
+              (elseBody := Op.emitList coreCodeSyntax elseBody) (rest := rest.map coreAdmin.emit)).mpr rfl
+            simpa only [native, Body.render, coreAdmin, coreEmit, Op.emit, coreCodeSyntax, Function.comp_def,
+              Op.emitList_selected, coreValues, List.map_cons, List.map_append, List.map_nil,
+              Value.toCore, Value.int] using select
           | blockEnter =>
             rename_i result body
             apply lift_label

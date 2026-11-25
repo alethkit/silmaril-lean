@@ -12,13 +12,14 @@ open Execution.Runtime (Frame FuncAddr Value)
 open Computed
 
 /-- The body starts with a literal operand prefix. The remaining instructions
-are numeric locals, integer operations, direct calls, blocks, return, and unreachable. -/
+are numeric locals, integer operations, direct calls, blocks, conditionals, return, and unreachable. -/
 inductive Op where
   | numeric (op : Prefix.Op)
   | set (index : LocalIdx)
   | tee (index : LocalIdx)
   | call (target : CallTarget)
   | block (result : Option NumType) (code : List Op)
+  | if_ (result : Option NumType) (thenBody elseBody : List Op)
   | return_
   | unreachable
 
@@ -37,6 +38,7 @@ def codeTargets : List Op → List CallTarget
 def Op.targets : Op → List CallTarget
   | .call target => [target]
   | .block _ body => codeTargets body
+  | .if_ _ thenBody elseBody => codeTargets thenBody ++ codeTargets elseBody
   | _ => []
 
 end
@@ -52,9 +54,9 @@ def Function.localTypes (fn : Function) : List NumType :=
 
 mutual
 
-/-- The checker carries top-first stack types. Each unindexed block has no
-parameters and at most one fallthrough result. Explicit return checks the
-enclosing function's result types. -/
+/-- The checker carries top-first stack types. Blocks and both arms of a
+conditional start with no parameters and check against their declared optional
+fallthrough result. Explicit return checks the enclosing function's result types. -/
 def checkCode (targets : List CallTarget) (locals returns fallthrough : List NumType)
     (stack : List NumType) : List Op → Bool
   | [] => decide (stack = fallthrough.reverse)
@@ -73,6 +75,13 @@ def checkOp (targets : List CallTarget) (locals returns stack : List NumType)
   | .block result body =>
       checkCode targets locals returns result.toList [] body &&
         resume (result.toList.reverse ++ stack)
+  | .if_ result thenBody elseBody =>
+      match stack with
+      | .int .i32 :: saved =>
+          checkCode targets locals returns result.toList [] thenBody &&
+            checkCode targets locals returns result.toList [] elseBody &&
+            resume (result.toList.reverse ++ saved)
+      | _ => false
   | .return_ => decide (stack.take returns.length = returns.reverse)
   | .unreachable => true
 
@@ -233,6 +242,11 @@ inductive Layer (fn : Function) (childStep : CallTarget → Phase → Phase → 
       (write : Locals.Edge ⟨locals, [.value v, .tee i]⟩ ⟨locals, [.value v, .value v, .set i]⟩) :
       Layer fn childStep (.label locals (.running (saved ++ [v]) (.tee i :: rest)))
         (.label locals (.running (saved ++ [v, v]) (.set i :: rest)))
+  | ifSelect (locals saved : List Value) (condition : BitVec 32) (result : Option NumType)
+      (thenBody elseBody rest : List Op) :
+      Layer fn childStep (.label locals (.running (saved ++ [Value.int .i32 condition])
+        (.if_ result thenBody elseBody :: rest)))
+        (.label locals (.running saved (.block result (if condition = 0 then elseBody else thenBody) :: rest)))
   | blockEnter (locals saved : List Value) (result : Option NumType) (code rest : List Op) :
       Layer fn childStep (.label locals (.running saved (.block result code :: rest)))
         (.label locals (.block saved result (.running [] code) rest))

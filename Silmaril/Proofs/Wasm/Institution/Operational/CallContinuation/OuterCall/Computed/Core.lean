@@ -178,6 +178,54 @@ private theorem front {H : Type} {P : Profile} {s : Store H} {f : Frame}
   · obtain ⟨_, _, _, _, _, ⟨eq, _, _⟩ | ⟨_, eq, _, _⟩⟩ := fnv_bubble bubble <;>
       simp [fnv_cons_of_none none, notTrap, notThrow] at eq
 
+theorem if_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {saved : List Val} {condition : BitVec 32} {bt : BlockType} {thenBody elseBody : List Instr}
+    {rest : List Admin} {dst : Config H} :
+    Step P noHost
+      ⟨s, f, vals (saved ++ [.num ⟨.int .i32, condition⟩]) ++ .plain (.if_ bt thenBody elseBody) :: rest⟩ dst ↔
+      dst = ⟨s, f, vals saved ++ .plain (.block bt (if condition = 0 then elseBody else thenBody)) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, args, mid, split, step, rfl⟩ := front rfl (by simp) (by simp) move
+    cases step with
+    | ifTrue nonzero =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [ite_eq_right nonzero]
+      simp
+    | ifFalse zero =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      rw [ite_eq_left zero]
+      simp
+    | _ =>
+      first
+      | have family := (famOf_of_shape (ParametricStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (NumericStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (VectorStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (VariableStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (TableStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (MemoryStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (RefStep.shape ‹_›)).2; contradiction
+      | have family := (famOf_of_shape (AggregateStep.shape ‹_›)).2; contradiction
+      | contradiction
+  · rintro rfl
+    have source : vals (saved ++ [(.num ⟨.int .i32, condition⟩ : Val)]) ++ Admin.plain (.if_ bt thenBody elseBody) :: rest =
+        vals saved ++ ([constI32 condition, Admin.plain (.if_ bt thenBody elseBody)] ++ rest) := by
+      rw [vals_append, List.append_assoc]
+      rfl
+    rw [source]
+    by_cases zero : condition = 0
+    · rw [ite_eq_left zero]
+      subst condition
+      simpa only [vals, List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using
+        Sim.Step.vals_left (Sim.Step.append_right (Step.ifFalse (P := P) (host := noHost)
+          (s := s) (f := f) (bt := bt) (b₁ := thenBody) (b₂ := elseBody)) rest) saved
+    · rw [ite_eq_right zero]
+      simpa only [vals, List.map_append, List.map_cons, List.map_nil, List.append_assoc, List.cons_append, List.nil_append] using
+        Sim.Step.vals_left (Sim.Step.append_right (Step.ifTrue (P := P) (host := noHost)
+          (s := s) (f := f) (bt := bt) (b₁ := thenBody) (b₂ := elseBody) zero) rest) saved
+
 theorem unreachable_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {stack : List Val} {rest : List Admin} {dst : Config H} :
     Step P noHost ⟨s, f, vals stack ++ .plain .unreachable :: rest⟩ dst ↔

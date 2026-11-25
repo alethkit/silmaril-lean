@@ -22,6 +22,7 @@ structure CodeSyntax (A : Type) where
   ret : A
   unreachable : A
   block : Option NumType → List A → A
+  if_ : Option NumType → List A → List A → A
 
 mutual
 
@@ -31,6 +32,8 @@ def Op.emit {A : Type} (codec : CodeSyntax A) : Op → A
   | .tee i => codec.tee i
   | .call target => codec.ops.call target.index
   | .block result code => codec.block result (Op.emitList codec code)
+  | .if_ result thenBody elseBody =>
+      codec.if_ result (Op.emitList codec thenBody) (Op.emitList codec elseBody)
   | .return_ => codec.ret
   | .unreachable => codec.unreachable
 
@@ -40,14 +43,20 @@ def Op.emitList {A : Type} (codec : CodeSyntax A) : List Op → List A
 
 end
 
+theorem Op.emitList_selected {A : Type} (codec : CodeSyntax A) (condition : BitVec 32)
+    (thenBody elseBody : List Op) :
+    Op.emitList codec (if condition = 0 then elseBody else thenBody) =
+      (if condition = 0 then Op.emitList codec elseBody else Op.emitList codec thenBody) := by
+  split <;> rfl
+
 def v1CodeSyntax : CodeSyntax Wasm.V1.Instr :=
-  ⟨v1Source, .localSet, .localTee, .return_, .unreachable, .block⟩
+  ⟨v1Source, .localSet, .localTee, .return_, .unreachable, .block, .if_⟩
 
 def limeCodeSyntax : CodeSyntax Wasm.Lime1.Instr :=
-  ⟨limeSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.limeType⟩
+  ⟨limeSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.limeType, .if_ ∘ Blocks.limeType⟩
 
 def coreCodeSyntax : CodeSyntax Instr :=
-  ⟨coreSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.coreType⟩
+  ⟨coreSource, .localSet, .localTee, .return_, .unreachable, .block ∘ Blocks.coreType, .if_ ∘ Blocks.coreType⟩
 
 def Function.instructions {A : Type} (fn : Function) (codec : CodeSyntax A) : List A :=
   fn.initial.map codec.ops.value ++ Op.emitList codec fn.code

@@ -75,6 +75,25 @@ theorem lime_block_iff {H : Type} {s : Store H} {f : Frame} {result : Option Num
       dst = ⟨s, f, values stack ++ .label result.toList.length [] (expression body) :: rest⟩ :=
   Proofs.Lime1.block_iff
 
+/-- Conditional selection consumes the last i32 operand and preserves the
+surrounding code. Entering the selected block is a separate native step. -/
+theorem core_if_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Core.Frame}
+    {saved : List Core.Val} {condition : BitVec 32} {bt : BlockType} {thenBody elseBody : List Instr}
+    {rest : List Core.Admin} {dst : Core.Config H} :
+    Core.Step P noHost
+      ⟨s, f, Core.vals (saved ++ [.num ⟨.int .i32, condition⟩]) ++ .plain (.if_ bt thenBody elseBody) :: rest⟩ dst ↔
+      dst = ⟨s, f, Core.vals saved ++ .plain (.block bt (if condition = 0 then elseBody else thenBody)) :: rest⟩ :=
+  Proofs.Core.if_iff
+
+open Wasm.Lime1.Execution in
+theorem lime_if_iff {H : Type} {s : Store H} {f : Frame}
+    {saved : List Value} {condition : BitVec 32} {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr}
+    {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 condition]) ++ .source (.if_ bt thenBody elseBody) :: rest⟩ dst ↔
+      dst = ⟨s, f, values saved ++ .source (.block bt (if condition = 0 then elseBody else thenBody)) :: rest⟩ :=
+  Proofs.Lime1.if_iff
+
 theorem core_unreachable_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Core.Frame}
     {stack : List Core.Val} {rest : List Core.Admin} {dst : Core.Config H} :
     Core.Step P noHost ⟨s, f, Core.vals stack ++ .plain .unreachable :: rest⟩ dst ↔
