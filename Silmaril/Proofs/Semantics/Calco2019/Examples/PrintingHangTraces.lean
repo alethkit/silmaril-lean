@@ -207,6 +207,10 @@ theorem chunk_head (w : ℕ → List A) :
 noncomputable def chunks (w : ℕ → List A) : Stream'.Seq A :=
   ⟨chunkAt w, chunkAt_isSeq w⟩
 
+theorem chunks_step (w : ℕ → List A) :
+    chunks w = (Stream'.Seq.ofList (w 0)).append (chunks fun i => w (i + 1)) :=
+  chunk_head w
+
 theorem realizes_eq {f : X → Traces A (Y ⊕ X)} {x : X} (p : InfiniteRun f x) (t : Model A Y) :
     p.realizes t ↔ t = .inr (chunks p.word) := by
   constructor

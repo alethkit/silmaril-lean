@@ -16,7 +16,11 @@ finite prefix, as checked by `chunkAt_some`. Empty step words are allowed.
 `runs_nonempty` and `iterate_fixpoint` give a total operator on nonempty
 trace sets and its unfolding equation. `iterate_naturality` and
 `iterate_uniformity` check preservation of result continuations and pure
-state comparisons. Codiagonal remains open.
+state comparisons. `iterate_codiagonal` regroups the recursive transitions
+without changing the emitted letters, using finite blocks between outer
+calls. For an infinite execution with finitely many outer calls, the
+remaining infinite suffix stays in the inner iteration. The full CALCO
+bundle, including dinaturality, is [`elgot` with totality `isElgot`][laws].
 
 ```sh
 lake build --wfail +Silmaril.Papers.Calco2019.Examples.PrintingHangTraces
@@ -24,3 +28,4 @@ lake build --wfail +Silmaril.Papers.Calco2019.Examples.PrintingHangTraces
 
 [paper]: https://doi.org/10.4230/LIPIcs.CALCO.2019.13
 [traces]: ../../Silmaril/Semantics/Calco2019/Examples/Printing/HangTraces/Thms.lean
+[laws]: ../../Silmaril/Semantics/Calco2019/Examples/Printing/HangTraces/Laws/Thms.lean
