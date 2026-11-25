@@ -60,7 +60,7 @@ def effect {scope : Scope} (space : Namespace) : Instruction scope → Effect
     ⟨((lowerScalarOperand operand).eval space #v[]).map fun value => some (name, value), none⟩
   | .scalar (.assertion operand) =>
     ⟨(((lowerScalarOperand operand).eval space #v[]).bind assertTruth).map fun _ => none, none⟩
-  | .publish .. => ⟨.error .unsupported, none⟩
+  | .publish .. | .nestedCall .. => ⟨.error .unsupported, none⟩
   | .call destination name arguments =>
     let observed := Core.Module.SeededCall.runObserved space #v[] (.global name) (arguments.map lowerCallOperand)
     ⟨observed.result.bind (acceptCall destination), some ⟨name, observed⟩⟩

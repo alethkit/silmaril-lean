@@ -12,14 +12,19 @@ namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run
 
 open Source (Scope)
 open Compile.Closure (frameLayout)
-open Core.Closure (Value RuntimeError Heap)
-open Core.Closure.Executor (CodeTable Event)
+open Core.Closure (Frame Heap Layout RuntimeError Slot Value)
+open Core.Closure.Executor (Body CodeTable Event)
 open Core.Module.Functions (Invocation Session TopFunction)
+
+inductive Argument where
+  | scalar (operand : Core.Module.Functions.Operand)
+  | call (name : String) (arguments : List Core.Module.Functions.Operand)
 
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
+  | nestedCall (destination : Core.Module.Functions.Destination) (name : String) (arguments : List Argument)
 
 inductive CompileError where
   | source (error : Functions.Error)
@@ -33,6 +38,10 @@ def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Function
   | .boolean value => some (.literal (.bool value))
   | .read name _ => some (.readGlobal name)
   | .binary .. => none
+
+def callArgument? {scope : Scope} : CallArgument scope → Option Argument
+  | .scalar operand => (callOperand? operand).map .scalar
+  | .call name _ operands => (operands.mapM callOperand?).map (.call name)
 
 def destination {scope : Scope} : Functions.Destination scope → Core.Module.Functions.Destination
   | .discard => .discard
@@ -49,6 +58,10 @@ def lowerInstructions {scope : Scope} (next : Nat) : List (Functions.Action scop
     let some arguments := operands.mapM callOperand? | throw .callOperand
     let (instructions, blocks) ← lowerInstructions next rest
     return (.call (destination target) name arguments :: instructions, blocks)
+  | .nestedCall target name _ operands :: rest => do
+    let some arguments := operands.mapM callArgument? | throw .callOperand
+    let (instructions, blocks) ← lowerInstructions next rest
+    return (.nestedCall (destination target) name arguments :: instructions, blocks)
   | .define name _ child parameters code :: rest => do
     let layout := frameLayout child.scope
     if captures : layout.captures = 0 then
@@ -113,6 +126,25 @@ def evaluate {scope : Scope} (session : Session) : Operand scope → Except Comp
     | .error (.nameError name) => .error (.raised (.nameError name))
     | .error .assertionError => .error .assertionError
 
+def Argument.emit {layout : Layout} (destination : Slot layout) (next : Body layout) :
+    Argument → Body layout
+  | .scalar operand => .store destination operand.lower next
+  | .call name arguments => .call destination (.readGlobal name) (arguments.map Core.Module.Functions.Operand.lower) next
+
+/-- Save the outer callable first and evaluate each argument once in source
+order. The scratch slots are private to this frame and use no shared cells. -/
+def prepareNestedCall (session : Session) (destination : Core.Module.Functions.Destination)
+    (name : String) (arguments : List Argument) : Invocation :=
+  let layout : Layout := ⟨arguments.length + 2, 0, 0⟩
+  let callee : Slot layout := .local ⟨0, by change 0 < arguments.length + 2; omega⟩
+  let result : Slot layout := .local ⟨1, by change 1 < arguments.length + 2; omega⟩
+  let slots : List (Slot layout) := (List.finRange arguments.length).map fun i =>
+    .local ⟨i.val + 2, Nat.add_lt_add_right i.isLt 2⟩
+  let invoke := Body.call result (.read callee) (slots.map .read) (.ret (.read result))
+  let body := (slots.zip arguments).foldr (fun (slot, argument) next => argument.emit slot next) invoke
+  let frame : Frame layout := ⟨fun _ => none, Fin.elim0, Fin.elim0⟩
+  ⟨session.globals, destination, .running session.heap frame (.store callee (.readGlobal name) body) []⟩
+
 inductive State (scope : Scope) where
   | ready (session : Session) (instructions : List (Instruction scope))
   | calling (invocation : Invocation) (remaining : List (Instruction scope))
@@ -134,6 +166,8 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | .ok updated => .ready updated rest
       | .error fault => .finished session (.codeFault fault))
     | .call destination name arguments => ([], .calling (session.prepareCall destination (.readGlobal name) arguments) rest)
+    | .nestedCall destination name arguments =>
+      ([], .calling (prepareNestedCall session destination name arguments) rest)
   | .calling invocation rest =>
     let (log, residual) := invocation.runPrefix table 1
     (log, match residual.finish? with

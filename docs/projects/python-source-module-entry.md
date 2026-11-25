@@ -52,11 +52,21 @@ make check CHECK_TARGETS=+Silmaril.Languages.Python.Compile.ModuleEntry.Function
 
 The module function runner links the selected bodies and publishes them in
 the shared Core namespace, in source order. A positional call reads its
-callable and its literal or name arguments through that namespace. Its
-result updates the selected binding only on successful completion. The
-runner gives the labelled invocation trace and a residual state that can
-be resumed with further fuel. Its prefix composition theorem agrees with
+callable and its literal or name arguments through that namespace.
+Positional arguments at a module call site may also be direct named calls
+with literal or name operands. The ordinary runner saves the outer
+callable in a frame local, evaluates each argument once from left to right
+into separate locals, then invokes the saved callable. The result updates
+the selected binding only on successful completion. The runner gives the
+labelled invocation trace and a residual state that can be resumed with
+further fuel. Its prefix composition theorem agrees with
 a run using the combined fuel.
+
+The compiler rejects deeper argument nesting, keyword and unpacked
+arguments, and arithmetic call operands. The closed seeded runner reports
+nested-call instructions as unsupported. The CPython regression checks
+result placement, lookup and argument error order, and residual bindings.
+The Lean regression also checks the call-entry order across a live prefix.
 [Module-call runner](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Run/Thms.lean)
 
 ```sh
