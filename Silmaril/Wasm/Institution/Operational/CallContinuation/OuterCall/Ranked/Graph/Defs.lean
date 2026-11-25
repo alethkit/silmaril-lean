@@ -23,6 +23,7 @@ inductive Op where
   | if_ (result : Option NumType) (thenBody elseBody : List Op)
   /-- The checker verifies this result annotation against the resolved label. -/
   | br (depth : LabelIdx) (result : Option NumType)
+  | brIf (depth : LabelIdx) (result : Option NumType)
   | return_
   | unreachable
 
@@ -70,6 +71,16 @@ def lowerBranch (depth : LabelIdx) : LabelIdx :=
 def SuffixTyped (types : List NumType) (stack : List Value) : Prop :=
   (Prefix.stackTypes stack).take types.length = types.reverse
 
+def checkBranch (labels : List (List NumType)) (stack : List NumType)
+    (depth : LabelIdx) (result : Option NumType) : Bool :=
+  decide (labels[depth.toNat]? = some result.toList ∧
+    stack.take result.toList.length = result.toList.reverse)
+
+def checkCondition (stack : List NumType) (resume : List NumType → Bool) : Bool :=
+  match stack with
+  | .int .i32 :: saved => resume saved
+  | _ => false
+
 mutual
 
 /-- The checker carries top-first stack types. Blocks and both arms of a
@@ -96,15 +107,13 @@ def checkOp (targets : List CallTarget) (locals returns : List NumType) (labels 
       checkCode targets locals returns result.toList (some labels) [] body &&
         resume (result.toList.reverse ++ stack)
   | .if_ result thenBody elseBody =>
-      match stack with
-      | .int .i32 :: saved =>
-          checkCode targets locals returns result.toList (some labels) [] thenBody &&
-            checkCode targets locals returns result.toList (some labels) [] elseBody &&
-            resume (result.toList.reverse ++ saved)
-      | _ => false
-  | .br depth result =>
-      decide (labels[depth.toNat]? = some result.toList ∧
-        stack.take result.toList.length = result.toList.reverse)
+      checkCondition stack fun saved =>
+        checkCode targets locals returns result.toList (some labels) [] thenBody &&
+          checkCode targets locals returns result.toList (some labels) [] elseBody &&
+          resume (result.toList.reverse ++ saved)
+  | .br depth result => checkBranch labels stack depth result
+  | .brIf depth result =>
+      checkCondition stack fun saved => checkBranch labels saved depth result && resume saved
   | .return_ => decide (stack.take returns.length = returns.reverse)
   | .unreachable => true
 
@@ -297,6 +306,11 @@ inductive Layer (fn : Function) (childStep : CallTarget → Phase → Phase → 
       Layer fn childStep (.label locals (.active saved target a rest)) (.label locals (Body.attach saved target rest b))
   | discard {locals stack kept : List Value} {before rest : List Op} (step : Prefix.Discard stack before kept rest) :
       Layer fn childStep (.label locals (.trapped stack before)) (.label locals (.trapped kept rest))
+  /-- Pop the condition and leave a pending ordinary branch for a nonzero condition. -/
+  | branchIf (locals stack : List Value) (condition : BitVec 32) (depth : LabelIdx)
+      (result : Option NumType) (rest : List Op) :
+      Layer fn childStep (.label locals (.running (stack ++ [Value.int .i32 condition]) (.brIf depth result :: rest)))
+        (.label locals (.running stack (if condition = 0 then rest else .br depth result :: rest)))
   /-- Consume the target label, keeping just its declared result suffix. -/
   | branchHere (locals extra values : List Value) (result : Option NumType) (rest : List Op)
       (arity : values.length = result.toList.length) :
