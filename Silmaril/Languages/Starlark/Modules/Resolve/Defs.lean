@@ -170,7 +170,7 @@ private def resolveTarget (slot : String → Binding) (unsupported : Error) :
     return (.sequence (children.map Prod.fst), children.flatMap Prod.snd)
   | _ => throw unsupported
 
-private def parseAssignmentPattern (slot : String → Binding) :
+@[expose] def parseAssignmentPattern (slot : String → Binding) :
     Lowering.Resolve.SourceExpr →
       Except Error (Comprehensions.AssignmentPattern Lowering.Resolve.SourceExpr × List String)
   | .scalar (.read name) => pure (.name (slot name), [name])
@@ -393,33 +393,78 @@ private def resolveSubscript (context : Context) (receiver subscript : Lowering.
   let (subscript, subscriptReads) ← readExpr context subscript
   return (receiver, subscript, receiverReads ++ subscriptReads)
 
-private def resolveAssignmentOperands (context : Context) :
+@[expose] def resolveAssignmentOperands (context : Context) :
     Comprehensions.AssignmentPattern Lowering.Resolve.SourceExpr →
-      Build (Comprehensions.AssignmentPattern × List Binding)
+      Except Error (Comprehensions.AssignmentPattern × List Binding)
   | .name binding => pure (.name binding, [])
   | .subscript receiver index => do
-    let (receiver, index, reads) ← resolveSubscript context receiver index
-    return (.subscript receiver index, reads)
+    let (receiver, receiverReads) ← (resolveTracked context receiver).mapError Error.expression
+    let (index, indexReads) ← (resolveTracked context index).mapError Error.expression
+    return (.subscript receiver index, receiverReads ++ indexReads)
   | .sequence children => do
     let children ← children.attach.mapM fun ⟨child, member⟩ => do
       have := List.sizeOf_lt_of_mem member
       resolveAssignmentOperands context child
     return (.sequence (children.map Prod.fst), children.flatMap Prod.snd)
 
-private def compileCompAssignment {α : Type} (context : Context) (slot : String → Binding)
+structure ResolvedPatternAssignment where
+  pattern : Comprehensions.AssignmentPattern
+  rhs : Comprehensions.Expression
+  names : List String
+  rhsReads : List Binding
+  targetReads : List Binding
+
+/-- The RHS phase used by the mixed assignment branch. -/
+def elaborateAssignmentRhs (context : Context) (rhs : CompExpr) :
+    StateT Program (Except Error) (Comprehensions.Expression × List Binding) :=
+  compileCompExpr context rhs
+
+theorem elaborateAssignmentRhs_plain (context : Context) (operand : Lowering.Resolve.SourceExpr)
+    (program : Program) :
+    elaborateAssignmentRhs context (.plain operand) program =
+      ((resolveTracked context operand).mapError Error.expression).map
+        (fun (value, reads) => ((.plain value, reads), program)) := by
+  unfold elaborateAssignmentRhs
+  simp only [compileCompExpr.eq_def, readExpr]
+  cases resolveTracked context operand <;> rfl
+
+theorem elaborateAssignmentRhs_list (context : Context) (name : String)
+    (iterable element : Lowering.Resolve.SourceExpr) (program : Program) :
+    elaborateAssignmentRhs context (.list ⟨.scalar (.read name), iterable, .yield element⟩) program =
+      (do
+        let (iterated, outer) ← (resolveTracked context iterable).mapError Error.expression
+        let inner := { context with locals := name :: context.locals }
+        let (emitted, reads) ← (resolveTracked inner element).mapError Error.expression
+        return ((.list ⟨[fileSlot name], .name (fileSlot name), iterated, .yield emitted⟩,
+          outer ++ reads.filter (fun read => !(fileSlot name == read))), program)) := by
+  simp [elaborateAssignmentRhs, compileCompExpr.eq_def, compileComp, compileCompWith, compTarget,
+    resolveTarget, CompTail.names, compileCompTail, CompTail.headValue, readExpr,
+    show [name].eraseDups = [name] from rfl]
+  cases resolveTracked context iterable <;>
+    cases resolveTracked { context with locals := name :: context.locals } element <;> rfl
+
+/-- Elaborate a pattern assignment in a supplied lexical block. Module and
+function validation remain with the enclosing normalized resolver. -/
+@[expose] def elaboratePatternAssignment (context : Context) (scope : Scope)
+    (target : Lowering.Resolve.SourceExpr) (rhs : CompExpr) :
+    StateT Program (Except Error) ResolvedPatternAssignment := fun program => do
+  let (shape, names) ← parseAssignmentPattern (fun name => ⟨scope, name⟩) target
+  let ((rhs, rhsReads), next) ← elaborateAssignmentRhs context rhs program
+  let (pattern, targetReads) ← resolveAssignmentOperands context shape
+  return (⟨pattern, rhs, names, rhsReads, targetReads⟩, next)
+
+private def compileCompAssignment {α : Type} (context : Context) (scope : Scope)
     (target : Lowering.Resolve.SourceExpr) (rhs : CompExpr)
     (names : LoopTarget → Comprehensions.Expression → α)
     (stores : Comprehensions.AssignmentPattern → Comprehensions.Expression → α) :
     Build (α × List Binding) := do
-  match resolveTarget slot .unsupportedAssignmentTarget target with
+  match resolveTarget (fun name => ⟨scope, name⟩) .unsupportedAssignmentTarget target with
   | .ok (target, _) =>
     let (rhs, reads) ← compileCompExpr context rhs
     return (names target rhs, reads)
   | .error _ =>
-    let (pattern, _) ← monadLift (parseAssignmentPattern slot target)
-    let (rhs, rhsReads) ← compileCompExpr context rhs
-    let (pattern, targetReads) ← resolveAssignmentOperands context pattern
-    return (stores pattern rhs, rhsReads ++ targetReads)
+    let result ← elaboratePatternAssignment context scope target rhs
+    return (stores result.pattern result.rhs, result.rhsReads ++ result.targetReads)
 
 private def resolveSetIndex {α : Type} (context : Context)
     (receiver subscript rhs : Lowering.Resolve.SourceExpr)
@@ -519,7 +564,7 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let (rhs, reads) ← readExpr context rhs
     return ⟨.assignTargetExpr target rhs, reads⟩
   | .assignTargetCompExpr target rhs => do
-    let (code, reads) ← compileCompAssignment context fileSlot target rhs
+    let (code, reads) ← compileCompAssignment context .local target rhs
       (fun target rhs => rhs.assignTargetCode target Comprehensions.directStages)
       (fun target rhs => Comprehensions.assignPatternCode target rhs Comprehensions.directStages)
     return ⟨code, reads⟩
@@ -598,7 +643,7 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     let (rhs, _) ← readExpr context rhs
     return .exec (.assignTargetExpr target rhs)
   | .assignTargetCompExpr target rhs => do
-    let (code, _) ← compileCompAssignment context globalSlot target rhs
+    let (code, _) ← compileCompAssignment context .global target rhs
       TopCode.assignTargetCompExpr TopCode.assignPatternCompExpr
     return .exec code
   | .assignListComp name comp => do
