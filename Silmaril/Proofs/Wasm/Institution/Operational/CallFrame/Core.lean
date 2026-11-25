@@ -166,8 +166,8 @@ theorem return_stuck {H : Type} {P : Profile} {s : Store H} {f : Frame}
   (not_step_blocked step (W := vs) (e := .plain .return_) (rest := tail)
     (by simp [fnv_cons_of_none (a := .plain .return_) rfl])) (.inr (.inl rfl))
 
-theorem return_label_result {n : Nat} {stack : List Val} {tail out : List Admin}
-    (pop : LabelExit n [] (vals stack ++ .plain .return_ :: tail) out) :
+theorem return_label_result {n : Nat} {cont : List Instr} {stack : List Val} {tail out : List Admin}
+    (pop : LabelExit n cont (vals stack ++ .plain .return_ :: tail) out) :
     out = vals stack ++ [.plain .return_] := by
   generalize shape : vals stack ++ .plain .return_ :: tail = code at pop
   have head := congrArg fnv shape

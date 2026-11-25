@@ -164,15 +164,27 @@ and [Wasm 3.0 loop entry](../../specs/spectec/src/specification/wasm-3.0/4.3-exe
 [Native fixtures](../../tests/wasm/scalar-loop-native/Regression.lean)
 check that exactly two configurations are reachable by finite prefixes of a typed self-loop
 and a scalar loop that restarts once, then resumes its saved continuation.
-The ranked SOS still needs a label invariant with separate branch input,
-fallthrough result, and function return types. A restart must restore the
-original body with the current activation's locals and have its own step
-before re-entry. Call rank can continue to bound call nesting, while
-finite trace induction handles loop iterations.
+The ranked checker admits loops with no parameters and zero or one numeric
+fallthrough result. It checks the body recursively with an empty operand stack
+and an empty branch payload for the loop label. The declared fallthrough
+result and enclosing function result types are checked separately. Calls in
+a loop body still contribute to the allocated, rank-decreasing target table.
 
-The graph fragment excludes block parameters and multiple block results,
-loops and loop back-edges, recursion, indirect and host calls, store mutation,
-and whole-module validation.
+A restart discards iteration operands and pending code, retains the current
+locals and saved outer context, and reinstates the original loop instruction.
+The same checked entry rule then starts the next iteration. Fallthrough,
+branches crossing the loop, explicit return, and trap continue through the
+existing label and frame rules. Core, Lime1, and V1 have exact successor and
+finite endpoint readback under the existing allocation and arity guards.
+Finite trace induction covers repeated back-edges, with call rank used for
+descent into callees. Ranked regressions cover a local update surviving
+restart, a caller consuming the returned scalar with a saved operand, exact
+finite prefixes of a scalar-result self-loop, and malformed branch and
+fallthrough checks.
+
+The graph fragment excludes indexed block types, block parameters, multiple
+block results, recursive calls, indirect and host calls, store mutation, and
+whole-module validation.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have

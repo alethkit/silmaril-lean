@@ -22,21 +22,35 @@ theorem Program.target_resolved {program : Program} (checked : program.check = t
 
 /-- Unfold exactly one activation. Recursive premises refer to the same
 judgment at the target address, where rank descent is already justified. -/
+theorem Program.edgeAt_iff {program : Program} (checked : program.check = true)
+    {address : FuncAddr} {fn : Function} {a b : Phase} {kind : LabelKind} (found : program.lookup address = some fn) :
+    program.EdgeAt checked address kind a b ↔
+      Layer fn (fun target => program.Edge checked target.address) a b kind :=
+  Proofs.edge_iff checked found
+
 theorem Program.edge_iff {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} {a b : Phase} (found : program.lookup address = some fn) :
     program.Edge checked address a b ↔
       Layer fn (fun target => program.Edge checked target.address) a b :=
-  Proofs.edge_iff checked found
+  program.edgeAt_iff checked found
 
 /-- Every successor while a call is active comes from exactly one step of its
 child. The parent's saved operands and continuation are carried by `attach`. -/
+theorem Program.activeAt_iff {program : Program} (checked : program.check = true)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
+    {target : CallTarget} (used : target ∈ fn.targets) {a : Phase} (live : a.Active)
+    {locals saved : List Value} {rest : List Op} {b : Phase} {kind : LabelKind} :
+    program.EdgeAt checked address kind (.label locals (.active saved target a rest)) b ↔
+      ∃ out, program.Edge checked target.address a out ∧ b = .label locals (Body.attach saved target rest out) :=
+  Proofs.active_iff checked found used live
+
 theorem Program.active_iff {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
     {target : CallTarget} (used : target ∈ fn.targets) {a : Phase} (live : a.Active)
     {locals saved : List Value} {rest : List Op} {b : Phase} :
     program.Edge checked address (.label locals (.active saved target a rest)) b ↔
       ∃ out, program.Edge checked target.address a out ∧ b = .label locals (Body.attach saved target rest out) :=
-  Proofs.active_iff checked found used live
+  program.activeAt_iff checked found used live
 
 theorem Program.lift_child {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
@@ -74,33 +88,33 @@ theorem Program.linked_target {program : Program} (checked : program.check = tru
       fn.declaration.module.funcs[target.index.toNat]? = some target.address :=
   Proofs.linked_target checked found used
 
-theorem Function.split_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
+theorem Function.split_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {kind : LabelKind} {stack : List Value}
     {result : Option NumType} {thenBody elseBody rest : List Op}
-    (typed : fn.WellTyped stack (.if_ result thenBody elseBody :: rest) fallthrough enclosing) :
+    (typed : fn.WellTyped stack (.if_ result thenBody elseBody :: rest) fallthrough enclosing kind) :
     ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] :=
   Proofs.split_if typed
 
-theorem Function.split_br_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
+theorem Function.split_br_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {kind : LabelKind} {stack : List Value}
     {result : List NumType} {depth : LabelIdx} {rest : List Op}
-    (typed : fn.WellTyped stack (.brIf depth result :: rest) fallthrough enclosing) :
+    (typed : fn.WellTyped stack (.brIf depth result :: rest) fallthrough enclosing kind) :
     ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] :=
   Proofs.split_br_if typed
 
-theorem Function.split_br_table {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
+theorem Function.split_br_table {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {kind : LabelKind} {stack : List Value}
     {result : List NumType} {depths : List LabelIdx} {fallback : LabelIdx} {rest : List Op}
-    (typed : fn.WellTyped stack (.brTable depths fallback result :: rest) fallthrough enclosing) :
+    (typed : fn.WellTyped stack (.brTable depths fallback result :: rest) fallthrough enclosing kind) :
     ∃ (saved : List Value) (selector : BitVec 32), stack = saved ++ [Value.int .i32 selector] :=
   Proofs.split_br_table typed
 
-theorem checked_branch {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
+theorem checked_branch {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {kind : LabelKind}
     {stack : List Value} {depth : LabelIdx} {result : List NumType} {rest : List Op}
-    (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing) :
-    (branchTargets fallthrough enclosing)[depth.toNat]? = some result ∧ SuffixTyped result stack :=
+    (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing kind) :
+    (branchTargets fallthrough enclosing kind)[depth.toNat]? = some result ∧ SuffixTyped result stack :=
   Proofs.checked_branch typed
 
-theorem branch_here_result {fallthrough : List NumType} {enclosing : EnclosingLabels} {result : List NumType}
-    (found : (branchTargets fallthrough enclosing)[(⟨0⟩ : LabelIdx).toNat]? = some result) :
-    fallthrough = result :=
+theorem branch_here_result {fallthrough : List NumType} {enclosing : EnclosingLabels} {kind : LabelKind} {result : List NumType}
+    (found : (branchTargets fallthrough enclosing kind)[(⟨0⟩ : LabelIdx).toNat]? = some result) :
+    kind.inputs fallthrough = result :=
   Proofs.branch_here_result found
 
 theorem Program.admitted_step {program : Program} (checked : program.check = true)

@@ -120,8 +120,8 @@ theorem wrapper_step {H : Type} {a b : Config H}
     contradiction
 
 theorem frame_label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {f : Frame}
-    {body out : List Admin} (h : PureStep types [.frame n f [.label n [] body]] out) : False := by
-  generalize eq : ([.frame n f [.label n [] body]] : List Admin) = before at h
+    {k : Nat} {cont : Wasm.Lime1.Expr} {body out : List Admin} (h : PureStep types [.frame n f [.label k cont body]] out) : False := by
+  generalize eq : ([.frame n f [.label k cont body]] : List Admin) = before at h
   cases h with
   | frameDone | frameReturn | frameTrap =>
     have code := (AdminInstr.frame.inj (List.cons.inj eq).1).2.2

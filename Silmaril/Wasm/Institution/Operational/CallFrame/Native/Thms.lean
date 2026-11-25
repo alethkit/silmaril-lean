@@ -109,9 +109,9 @@ theorem lime_return_stuck {f : Frame} {stack : List Execution.Runtime.Value}
   Proofs.Lime1.return_stuck step
 
 open Wasm.Lime1.Execution in
-theorem lime_return_label_result {types : List Wasm.Lime1.FuncType} {n : Nat}
+theorem lime_return_label_result {types : List Wasm.Lime1.FuncType} {n : Nat} {cont : Wasm.Lime1.Expr}
     {stack : List Execution.Runtime.Value} {tail out : List Admin}
-    (pop : PureStep types [.label n [] (values stack ++ .source .return_ :: tail)] out) :
+    (pop : PureStep types [.label n cont (values stack ++ .source .return_ :: tail)] out) :
     out = values stack ++ [.source .return_] :=
   Proofs.Lime1.return_label_result pop
 
@@ -151,8 +151,8 @@ theorem core_return_stuck {f : Core.Frame} {stack : List Core.Val}
     (step : Core.Step P noHost ⟨s, f, Core.vals stack ++ .plain .return_ :: tail⟩ dst) : False :=
   Proofs.return_stuck step
 
-theorem core_return_label_result {n : Nat} {stack : List Core.Val} {tail out : List Core.Admin}
-    (pop : Core.LabelExit n [] (Core.vals stack ++ .plain .return_ :: tail) out) :
+theorem core_return_label_result {n : Nat} {cont : List Instr} {stack : List Core.Val} {tail out : List Core.Admin}
+    (pop : Core.LabelExit n cont (Core.vals stack ++ .plain .return_ :: tail) out) :
     out = Core.vals stack ++ [.plain .return_] :=
   Proofs.return_label_result pop
 
