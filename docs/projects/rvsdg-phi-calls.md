@@ -140,12 +140,11 @@ returns the updated tuple. Tag `1` blocks at that arm's primitive
 with both updates visible and all five pending frames intact.
 The regression computes both finite paths directly from machine steps
 and reflects them into the independent judgment.
-[Linked fixture](../../tests/ssa/RVSDGPartialPrimitives.lean)
+[Linked fixture](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Regression.lean)
 
 ```sh
-lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms
-lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGPartialPrimitives.lean
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Thms'
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Regression
+make check CHECK_TARGETS='+Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Regression'
 ```
 
 ## Productive θ feedback
