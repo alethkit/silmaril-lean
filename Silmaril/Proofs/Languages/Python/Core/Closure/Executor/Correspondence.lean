@@ -192,7 +192,8 @@ theorem advance_of_step {source target : State} {label : Option Event}
   | rejected evaluated reject => simp [advanceIn, inputs_eq evaluated, rejected_eq reject]
   | complete heap result => rfl
   | resume heap caller stack result => rfl
-  | receive wrote => simp [advanceIn, store_eq wrote]
+  | receive destination wrote => simp [advanceIn, destination, store_eq wrote]
+  | receiveDiscard destination => simp [advanceIn, destination]
   | receiveError heap caller stack error => rfl
 
 theorem step_of_advance {source : State} {transition : Transition}
@@ -236,7 +237,7 @@ theorem step_of_advance {source : State} {transition : Transition}
           simp [advanceIn, evaluated, truth] at advanced
           subst transition
           exact .assertTrue (evaluated ▸ eval_rule test) truth
-    | call destination callee arguments next =>
+    | callTo destination callee arguments next =>
       cases evaluated : evalCallIn globals heap frame callee arguments with
       | error error =>
         simp only [advanceIn, evaluated, Option.some.injEq] at advanced
@@ -266,9 +267,15 @@ theorem step_of_advance {source : State} {transition : Transition}
   | receiving heap caller stack result =>
     cases result with
     | ok value =>
-      simp only [advanceIn, Option.some.injEq] at advanced
-      subst transition
-      exact .receive (store_rule caller.continuation.destination value caller.continuation.body stack)
+      cases destination : caller.continuation.destination with
+      | store slot =>
+        simp only [advanceIn, destination, Option.some.injEq] at advanced
+        subst transition
+        exact .receive destination (store_rule slot value caller.continuation.body stack)
+      | discard =>
+        simp only [advanceIn, destination, Option.some.injEq] at advanced
+        subst transition
+        exact .receiveDiscard destination
     | error error =>
       simp only [advanceIn, Option.some.injEq] at advanced
       subst transition
