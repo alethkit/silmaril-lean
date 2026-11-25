@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.ProgressiveSimultaneous.Thms
+public import Silmaril.Semantics.RuntimeWires.LayerSerialization.Thms
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
@@ -133,7 +133,7 @@ private theorem slots : slice.slots = expected := by
   exact perm.eq_of_pairwise (fun _ _ _ _ h₁ h₂ => (lt_asymm h₁ h₂).elim)
     slice.ordered expected_order
 
-example : slice.vertices = [1, 0, 2] := by
+private theorem vertices : slice.vertices = [1, 0, 2] := by
   rw [Diagram.LayerSlice.vertices, slots]
   rfl
 
@@ -153,5 +153,44 @@ noncomputable example : Silmaril.RuntimeWires.Sliced.Row signature [false] [fals
   have h := slice.cutRow
   rw [slots] at h
   exact h
+
+open Silmaril.RuntimeWires.Sliced
+
+private abbrev order : List (Fin 3) := [2, 0, 1]
+
+private theorem order_perm : order.Perm slice.vertices := by
+  rw [vertices]
+  exact (List.Perm.swap 0 2 [1]).trans
+    ((List.Perm.cons 0 (List.Perm.swap 1 2 [])).trans (List.Perm.swap 1 0 [2]))
+
+private noncomputable def rowGenerators : {A B : List Bool} → Row signature A B → List (Fin 3)
+  | _, _, .empty => []
+  | _, _, .wire _ tail => rowGenerators tail
+  | _, _, .box j tail => j :: rowGenerators tail
+
+private noncomputable def sheetGenerators : {A B : List Bool} → Sheet signature A B → List (List (Fin 3))
+  | _, _, .empty _ => []
+  | _, _, .cons r tail => rowGenerators r :: sheetGenerators tail
+
+private theorem generators_reindex {A B X Y : List Bool} (a : A = X) (b : B = Y)
+    (p : Sheet signature A B) : sheetGenerators (p.reindex a b) = sheetGenerators p := by
+  subst a
+  subst b
+  rfl
+
+/-- The source executes first. The two consecutive scalars execute in
+reverse horizontal order, each in its own one-generator row. -/
+example : sheetGenerators (slice.serializeCuts order order_perm) = [[2], [0], [1]] := by
+  unfold Diagram.LayerSlice.serializeCuts Diagram.LayerSlice.serialize
+  rw [generators_reindex, generators_reindex, slots]
+  rfl
+
+noncomputable example : Sheet signature [false] [false, true] := by
+  have p := slice.serializeCuts order order_perm
+  rw [slots] at p
+  exact p
+
+example : Sheet.SeamEquivalent (slice.serializeCuts order order_perm) (.cons slice.cutRow (.empty _)) :=
+  slice.serializeCuts_seam order order_perm
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveSimultaneous.LayerRegression

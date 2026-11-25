@@ -83,9 +83,9 @@ theorem output_types :
   Proofs.ProgressiveSimultaneous.layer_output_types s
 
 /-- The single layer row typed at the ordered wire labels of the actual cuts. -/
-def cutRow :
+@[expose] def cutRow :
     Row S ((s.slots.flatMap d.slotInputs).map d.label) ((s.slots.flatMap d.slotOutputs).map d.label) :=
-  (congrArg₂ (Row S) s.input_types s.output_types).symm.mp s.row
+  s.row.reindex s.input_types.symm s.output_types.symm
 
 end LayerSlice
 
