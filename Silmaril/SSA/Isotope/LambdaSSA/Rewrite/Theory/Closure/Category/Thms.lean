@@ -68,4 +68,13 @@ theorem ContinuationFamily.toHom_eq_iff {X Y : ContinuationContext Φ Γ}
       σ.toHom (X := X) (Y := Y) ≫ υ.toHom (X := Y) (Y := Z) :=
   rfl
 
+/-- Normalizing a family that already has value branches gives the same arrow. -/
+theorem ContinuationFamily.ofTyped_toHom {X Y : ContinuationContext Φ Γ}
+    (σ : ContinuationFamily (Φ := Φ) Γ X.labels Y.labels) :
+    (ContinuationFamily.ofTyped (σ := σ.val) (fun _ _ hi => (σ.property hi).hasType)).toHom
+      (X := X) (Y := Y) = σ.toHom (X := X) (Y := Y) := by
+  apply ContinuationFamily.toHom_eq_iff.mpr
+  intro ℓ A hi
+  exact (Proofs.SSA.Isotope.LambdaSSA.Rewrite.bindBranchArguments_equiv (σ.property hi)).symm
+
 end Silmaril.Isotope.LambdaSSA.Region

@@ -39,4 +39,13 @@ theorem continuationCompose_assoc (f : ContinuationHom (Φ := Φ) Γ L K)
         Quotient.mk _ (ContinuationFamily.compose σ (ContinuationFamily.compose υ ω))
       exact congrArg (Quotient.mk _) (Subtype.ext (compLSubst_assoc σ.val υ.val ω.val))
 
+theorem bindBranchArguments_equiv {r : Region Φ} (hr : ValueBranches Γ r L) :
+    SubstitutionEquiv Γ r r.bindBranchArguments L := by
+  induction hr with
+  | br hℓ ha => exact .symm (.letValue ha (.br hℓ (.var rfl)))
+  | let₁ ha _ ih => exact .let₁ ha ih
+  | let₂ ha _ ih => exact .let₂ ha ih
+  | case ha _ _ ihl ihr => exact .case ha ihl ihr
+  | cfg R _ _ ihe ihb => exact .cfg R ihe ihb
+
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite
