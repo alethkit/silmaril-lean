@@ -68,6 +68,7 @@ def outer(seed):
         assert ".floatBits 4607182418800017408" in generated, generated
         assert '.name "λ"' in generated, generated
         check_lean(destination, """
+#guard ((analyze pythonSource).toOption.map (·.scope.access "alias")) == some (some .moduleName)
 #guard ((analyze pythonSource).toOption.bind (·.atPath [0])).bind (·.access "Meta") ==
   some .implicitGlobal
 #guard ((analyze pythonSource).toOption.bind (·.atPath [0])).bind (·.access "bases") ==
@@ -76,7 +77,7 @@ def outer(seed):
   some .local
 #guard ((analyze pythonSource).toOption.bind (·.atPath [0, 0, 0, 0])).bind (·.access "key") ==
   some (.free [0, 0, 0])
-""")
+""", extra_imports=("import Batteries.Tactic.Alias",))
         emit(source, destination, "[item for item in entries]\n")
         check_lean(destination, """
 #guard (match analyze pythonSource with

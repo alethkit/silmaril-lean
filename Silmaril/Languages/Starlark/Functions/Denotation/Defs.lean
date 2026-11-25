@@ -7,7 +7,7 @@ public import Silmaril.Languages.Starlark.Functions.Defs
 namespace Silmaril.Languages.Starlark.Functions
 
 open Lists
-open Lists.Iteration (Flow denoteSuite truth)
+open Lists.Iteration (Flow denoteSuite truth iterationSource restoreIterators pushIterator denoteItems)
 
 /-- Structural evaluation within a frame and strict descent through the
 finite set of declarations not on the call stack on invocation. -/
@@ -22,13 +22,21 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
   | .branch test yes no =>
     Outcome.resume (Outcome.resume (denote test state) truth) fun flag next =>
       if flag then denoteBody program available yes next else denoteBody program available no next
+  | .forIn target iterable body =>
+    Outcome.resume (Outcome.resume (denote iterable state) iterationSource) fun (address, items) next =>
+      restoreIterators next.iterators (denoteItems target (denoteBody program available body)
+        items (pushIterator next address))
+  | .breakLoop => .ok .breakLoop state
+  | .continueLoop => .ok .continueLoop state
   | .define target id =>
     Outcome.resume (denote (defaultOperands program id) state) (define program target id)
   | .call target callee arguments =>
     match Outcome.resume (denote (Arguments.operands callee arguments) state) (prepare program available arguments) with
     | .error error next => .error error next
-    | .ok plan next =>
+    | .ok (.closure plan) next =>
       completeCall state target (denoteBody program (withoutDeclaration available plan.id) plan.body next)
+    | .ok (.builtin id actual) next =>
+      Outcome.resume (Builtins.invoke id actual next) (writeCallResult target)
 termination_by (available.length, sizeOf body)
 decreasing_by
   all_goals first
@@ -36,12 +44,13 @@ decreasing_by
     | apply Prod.Lex.left
       exact List.length_filter_lt_length_iff_exists.mpr ⟨plan.id, plan.permitted, by simp⟩
 
-/-- Run closed core code with every declaration initially available.
-Install the root block's slots before entry when they can be captured. -/
+/-- Run resolved code with every declaration initially available. Use
+`runChecked` to check call syntax and loop control. Install the root block's
+slots before entry when they can be captured. -/
 def run (program : Program) (body : Body) (state : State := {}) : Outcome Flow :=
   denoteBody program (List.range program.size) body state
 
-/-- Reject malformed resolved signatures and explicit duplicate keywords before running. -/
+/-- Check resolved signatures, explicit keywords and loop-control scope before running. -/
 def runChecked (program : Program) (body : Body) (state : State := {}) :
     Except CallStaticError (Outcome Flow) := do
   validate program body
