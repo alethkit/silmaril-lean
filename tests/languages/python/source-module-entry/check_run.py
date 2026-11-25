@@ -97,6 +97,22 @@ assert -2 < 0 <= 1 != 2
 result = (0 < 2 > 1) == (missing + (1 // 0))
 after = 9
 """, {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
+    ("literal_truth_types", """a = 0 or True
+b = False and 7
+c = True and -2 and 9
+d = 0 or False or -1
+e = not ()
+assert [False]
+assert not None
+""", {}, {"a": True, "b": False, "c": 9, "d": -1, "e": True}, "normal", ".normal", 6),
+    ("literal_truth_failure", """result = 7
+assert []
+after = 9
+""", {}, {"result": 7, "after": None}, "AssertionError", ".raised .assertionError", 2),
+    ("literal_truth_enclosing_failure", """result = 7
+result = (0 or -2) == (missing + (1 // 0))
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
 )
 
 UNSUPPORTED_INDEXING = (
@@ -138,6 +154,13 @@ REJECTED_BRANCHES = (
     ("result = 0 > 1 < 2.0\n", ".expressionProfile"),
     ("result = 0 < probe() < 2\n", ".expressionProfile"),
     ("result = 0 < 1\n", ".expressionProfile"),
+    ("result = False and missing\n", ".expressionProfile"),
+    ("result = True or (5 / 0)\n", ".expressionProfile"),
+    ("assert (missing,)\n", ".expressionProfile"),
+    ("assert [probe()]\n", ".expressionProfile"),
+    ("result = None\n", ".expressionProfile"),
+    ("result = (1,)\n", ".expressionProfile"),
+    ("assert [()]\n", ".expressionProfile"),
 )
 
 CPYTHON = """

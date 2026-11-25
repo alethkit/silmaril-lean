@@ -52,6 +52,41 @@ theorem literalComparisonChain_iff (left : Source.Expr) (first second : Source.C
     cases links : (first :: second :: rest).mapM literalComparisonLink? <;>
     simp [literalComparisonChain?, initial, links, chain_iff]
 
+theorem selectScalar_iff (operator : Source.BooleanOperator) (value : Core.Module.Value)
+    (rest : List Core.Module.Value) (result : Core.Module.Value) :
+    selectScalar operator value rest = result ↔ SelectsScalar operator value rest result := by
+  induction rest generalizing value result with
+  | nil =>
+    constructor
+    · intro same
+      cases same
+      exact .last value
+    · intro selected
+      cases selected
+      rfl
+  | cons next rest ih =>
+    constructor
+    · intro selected
+      cases h : continuesSelection operator value with
+      | false =>
+        simp [selectScalar, h] at selected
+        exact selected ▸ .stop h
+      | true => exact .next h ((ih next result).mp (by simpa [selectScalar, h] using selected))
+    · intro selected
+      cases selected with
+      | stop stopped => simp [selectScalar, stopped]
+      | next continued tail => simpa [selectScalar, continued] using (ih next result).mpr tail
+
+theorem literalBooleanOp_iff (operator : Source.BooleanOperator) (first second : Source.Expr)
+    (rest : List Source.Expr) (result : Core.Module.Value) :
+    literalBooleanOp? operator (first :: second :: rest) = some result ↔
+      ∃ initial remaining, scalarLiteral? first = some initial ∧
+        (second :: rest).mapM scalarLiteral? = some remaining ∧
+        SelectsScalar operator initial remaining result := by
+  cases initial : scalarLiteral? first <;>
+    cases remaining : (second :: rest).mapM scalarLiteral? <;>
+    simp [literalBooleanOp?, initial, remaining, selectScalar_iff]
+
 private theorem scalarTuple_none {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
     (translated : OperandTranslation scope source operand) : scalarTuple? source = none := by
   cases translated <;> rfl
@@ -100,6 +135,22 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
       rfl
     · rename_i absent
       cases checked.symm.trans absent
+  | literalNegation checked =>
+    rw [lowerOperand]
+    split
+    · rename_i value computed
+      cases computed.symm.trans checked
+      rfl
+    · rename_i absent
+      cases checked.symm.trans absent
+  | literalBooleanOp checked =>
+    rw [lowerOperand]
+    split
+    · rename_i value computed
+      cases computed.symm.trans checked
+      rfl
+    · rename_i absent
+      cases checked.symm.trans absent
   | literalConditional guard _ _ yes no =>
     rw [lowerOperand]
     split
@@ -110,13 +161,33 @@ theorem operand_complete {scope : Source.Scope} {source : Source.Expr} {operand 
       rw [yes, no]
       rfl
 
+theorem test_complete {scope : Source.Scope} {source : Source.Expr} {operand : Operand scope}
+    (translated : TestTranslation scope source operand) : lowerTest scope source = .ok ⟨operand, translated⟩ := by
+  cases translated with
+  | operand translated =>
+    have absent : nonScalarLiteralTruth? source = none := by cases translated <;> rfl
+    unfold lowerTest
+    split
+    · rename_i value checked
+      cases checked.symm.trans absent
+    · rw [operand_complete translated]
+      rfl
+  | literalTruth checked =>
+    unfold lowerTest
+    split
+    · rename_i value computed
+      cases computed.symm.trans checked
+      rfl
+    · rename_i absent
+      cases checked.symm.trans absent
+
 theorem statements_complete {scope : Source.Scope} {source : List Source.Stmt} {actions : List (Action scope)}
     (translated : Translation scope source actions) : lowerStatements scope source = .ok ⟨actions, translated⟩ := by
   induction translated with
   | done => simp [lowerStatements]
   | @assign statement name expression reference value rest next binding operand _ tail =>
     cases binding <;> (simp [lowerStatements, binding?, global_reference reference, operand_complete operand, tail]; rfl)
-  | assertion operand _ tail => simp [lowerStatements, operand_complete operand, tail]; rfl
+  | assertion operand _ tail => simp [lowerStatements, test_complete operand, tail]; rfl
   | globals _ tail => simp [lowerStatements, tail]
   | pass _ tail => simp [lowerStatements, tail]
   | literalIf arms guard _ _ _ yes no tail =>
