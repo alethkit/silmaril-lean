@@ -15,12 +15,12 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
     (state : State) : Outcome Flow :=
   let execute (plan : Prepared available) (next : State) :=
     denoteBody program (withoutDeclaration available plan.id) plan.body next
-  let evalExpr (value : Lowering.Expr) := Lowering.denoteExprWith program available execute value state
+  let evalExpr := Lowering.denoteExprWith program available execute
   match body with
   | .total suite => denoteSuite suite state
-  | .returnExpr value => Outcome.resume (evalExpr value) (fun result => pure (.returned result))
+  | .returnExpr value => Outcome.resume (evalExpr value state) (fun result => pure (.returned result))
   | .assignExpr target value =>
-    Outcome.resume (evalExpr value) (fun result next => .ok .next (next.write target result))
+    Outcome.resume (evalExpr value state) (fun result next => .ok .next (next.write target result))
   | .seq first rest =>
     Outcome.resume (denoteBody program available first state) fun
       | .next => denoteBody program available rest
@@ -29,16 +29,16 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
     Outcome.resume (Outcome.resume (denote test state) truth) fun flag next =>
       if flag then denoteBody program available yes next else denoteBody program available no next
   | .branchExpr test yes no =>
-    Outcome.resume (Outcome.resume (evalExpr test) truth) fun flag next =>
+    Outcome.resume (Outcome.resume (evalExpr test state) truth) fun flag next =>
       if flag then denoteBody program available yes next else denoteBody program available no next
   | .forIn target iterable body =>
     denoteForIn target (denoteBody program available body) (denote iterable state)
   | .forInExpr target iterable body =>
-    denoteForIn target (denoteBody program available body) (evalExpr iterable)
+    denoteForIn target (denoteBody program available body) (evalExpr iterable state)
   | .breakLoop => .ok .breakLoop state
   | .continueLoop => .ok .continueLoop state
   | .define target id =>
-    Outcome.resume (denote (defaultOperands program id) state) (define program target id)
+    Outcome.resume ((defaultOperands program id).mapM evalExpr state) (define program target id)
   | .call target callee arguments =>
     match Outcome.resume (denote (Arguments.operands callee arguments) state) (prepare program available arguments) with
     | .error error next => .error error next

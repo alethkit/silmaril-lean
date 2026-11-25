@@ -79,7 +79,7 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       Exec program available s .continueLoop (.ok .continueLoop s)
   | define {available : List DeclarationId} {s : State} {target : Binding} {id : DeclarationId}
       {defaults : Outcome (List Lists.Value)} :
-      Eval s (defaultOperands program id) defaults →
+      ExecExprs program available s (defaultOperands program id) defaults →
       Exec program available s (.define target id) (Outcome.resume defaults (define program target id))
   | call {available : List DeclarationId} {s t : State} {target : Option Binding}
       {callee : Lists.Expr} {arguments : Arguments} {operands : Outcome (List Lists.Value)}
@@ -141,6 +141,17 @@ inductive ExecExpr (program : Program) :
         Exec program (withoutDeclaration available plan.id) next plan.body result) →
       Lowering.EvaluatesWith program available calls (fun _ => True) s expression out →
       ExecExpr program available s expression out
+
+/-- A sequence of operands in one frame, with closure premises discharged
+under their reduced declaration sets. -/
+inductive ExecExprs (program : Program) :
+    List DeclarationId → State → List Lowering.Expr → Outcome (List Lists.Value) → Prop where
+  | evaluatesMany {available : List DeclarationId} {s : State} {expressions : List Lowering.Expr}
+      {out : Outcome (List Lists.Value)} {calls : Lowering.ClosureRuns available} :
+      (∀ plan next result, calls plan next result →
+        Exec program (withoutDeclaration available plan.id) next plan.body result) →
+      Lowering.EvaluatesManyWith program available calls (fun _ => True) s expressions out →
+      ExecExprs program available s expressions out
 end
 
 end Silmaril.Languages.Starlark.Functions

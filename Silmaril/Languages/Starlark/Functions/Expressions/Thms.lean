@@ -35,6 +35,34 @@ theorem evaluatesWith_denote (program : Program) (available : List DeclarationId
   Proofs.Languages.Starlark.Functions.Expressions.evaluates_denote
     program available calls bodyMeaning closureComplete admitted state
 
+/-- Ordered expression evaluation agrees on values or the first error and its state. -/
+theorem denoteExprsWith_eq_of_evaluatesMany {program : Program} {available : List DeclarationId}
+    {calls : ClosureRuns available} {bodyMeaning : ClosureMeaning available}
+    {atomAllowed : Lists.Expr → Prop} {state : State} {expressions : List Expr}
+    {out : Outcome (List Lists.Value)}
+    (closureEq : ∀ plan next result, calls plan next result → bodyMeaning plan next = result)
+    (ran : EvaluatesManyWith program available calls atomAllowed state expressions out) :
+    expressions.mapM (denoteExprWith program available bodyMeaning) state = out :=
+  Proofs.Languages.Starlark.Functions.Expressions.denote_eq_of_evaluatesMany closureEq ran
+
+/-- Ordered expression evaluation has a derivation when its atoms and closure calls do. -/
+theorem evaluatesManyWith_denote (program : Program) (available : List DeclarationId)
+    (calls : ClosureRuns available) (bodyMeaning : ClosureMeaning available)
+    (closureComplete : ∀ plan state, calls plan state (bodyMeaning plan state))
+    {atomAllowed : Lists.Expr → Prop} (expressions : List Expr)
+    (admitted : ∀ expression ∈ expressions, AdmittedWith atomAllowed expression) (state : State) :
+    EvaluatesManyWith program available calls atomAllowed state expressions
+      (expressions.mapM (denoteExprWith program available bodyMeaning) state) :=
+  Proofs.Languages.Starlark.Functions.Expressions.evaluatesMany_denote
+    program available calls bodyMeaning closureComplete expressions admitted state
+
+/-- Embedding call-free operands as atoms preserves their old denotation. -/
+theorem denote_atom_operands (program : Program) (available : List DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (operands : List Lists.Expr) (state : State) :
+    (operands.map Expr.atom).mapM (denoteExprWith program available bodyMeaning) state =
+      Lists.denote (operandList operands) state :=
+  Proofs.Languages.Starlark.Functions.Expressions.denote_atom_operands program available bodyMeaning operands state
+
 /-- Native body returns admit every call-free collection atom. -/
 theorem admits_all_atoms (expression : Expr) : AdmittedWith (fun _ => True) expression :=
   Proofs.Languages.Starlark.Functions.Expressions.admits_all_atoms expression

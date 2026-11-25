@@ -32,8 +32,13 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
     (motive_3 := fun available state expression out _ =>
       Lowering.denoteExprWith program available (fun plan =>
         denoteBody program (withoutDeclaration available plan.id) plan.body) expression state = out)
+    (motive_4 := fun available state expressions out _ =>
+      expressions.mapM (Lowering.denoteExprWith program available (fun plan =>
+        denoteBody program (withoutDeclaration available plan.id) plan.body)) state = out)
   case evaluates calls ran eq =>
     exact Lowering.denoteExprWith_eq_of_evaluates eq ran
+  case evaluatesMany calls ran eq =>
+    exact Lowering.denoteExprsWith_eq_of_evaluatesMany eq ran
   all_goals
     (try have evaluated := (eval_iff_denote _ _ _).mp (by assumption)) <;>
     (try have total := (runs_iff_denoteSuite _ _ _).mp (by assumption)) <;>
@@ -71,14 +76,16 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
     (state : State) : Exec program available state body (denoteBody program available body state) := by
   let execute (plan : Prepared available) :=
     denoteBody program (withoutDeclaration available plan.id) plan.body
+  let calls : Lowering.ClosureRuns available := fun plan next result => execute plan next = result
+  have callRun (plan : Prepared available) (next : State) (result : Outcome Flow)
+      (eq : calls plan next result) :
+      Exec program (withoutDeclaration available plan.id) next plan.body result :=
+    eq ▸ exec_denote program (withoutDeclaration available plan.id) plan.body next
   have exprRun (expression : Lowering.Expr) :
       ExecExpr program available state expression
         (Lowering.denoteExprWith program available execute expression state) := by
-    refine .evaluates (calls := fun plan next result => execute plan next = result) ?_ ?_
-    · intro plan next result eq
-      exact eq ▸ exec_denote program (withoutDeclaration available plan.id) plan.body next
-    · exact Lowering.evaluatesWith_denote program available _ execute (fun _ _ => rfl)
-        (Lowering.admits_all_atoms expression) state
+    exact .evaluates callRun (Lowering.evaluatesWith_denote program available calls execute
+      (fun _ _ => rfl) (Lowering.admits_all_atoms expression) state)
   cases body with
   | total code =>
     rw [denoteBody]
@@ -151,7 +158,9 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
     exact .continueLoop
   | define target id =>
     rw [denoteBody]
-    exact .define ((eval_iff_denote _ _ _).mpr rfl)
+    exact .define (.evaluatesMany callRun (Lowering.evaluatesManyWith_denote program available calls
+      execute (fun _ _ => rfl) (defaultOperands program id)
+      (fun expression _ => Lowering.admits_all_atoms expression) state))
   | call target callee arguments =>
     rw [denoteBody]
     have evaluated := (eval_iff_denote (Arguments.operands callee arguments) state _).mpr rfl

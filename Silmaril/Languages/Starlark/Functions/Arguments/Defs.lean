@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Lists.Iteration.Defs
+public import Silmaril.Languages.Starlark.Functions.Expressions.Syntax.Defs
 
 @[expose] public section
 
@@ -10,7 +11,7 @@ open Lists
 
 structure Parameter where
   slot : Binding
-  defaultExpr : Option Lists.Expr := none
+  defaultExpr : Option Lowering.Expr := none
 
 /-- Parameters before the star can be filled positionally or by name. -/
 structure Signature where
@@ -22,7 +23,8 @@ structure Signature where
 def Signature.named (signature : Signature) : List Parameter :=
   signature.positional ++ signature.keywordOnly
 
-def Signature.defaulted (signature : Signature) : List (Binding × Lists.Expr) :=
+/-- Defaults in declaration order, for evaluation in the defining frame. -/
+def Signature.defaulted (signature : Signature) : List (Binding × Lowering.Expr) :=
   signature.named.filterMap fun p => p.defaultExpr.map fun expr => (p.slot, expr)
 
 def Signature.slots (signature : Signature) : List Binding :=

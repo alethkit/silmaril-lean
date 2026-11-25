@@ -71,4 +71,13 @@ theorem iterators_forInExpr (program : Program) (available : List DeclarationId)
   rw [denoteBody]
   exact iterators_denoteForIn target (denoteBody program available body) (denoteExpr program available iterable state)
 
+/-- The definition evaluates defaults once in order before installing the closure.
+A failed operand propagates its exact state through `Outcome.resume`. -/
+theorem exec_define_iff_denoteDefaults (program : Program) (available : List DeclarationId)
+    (target : Binding) (id : DeclarationId) (state : State) (out : Outcome Flow) :
+    Exec program available state (.define target id) out ↔
+      Outcome.resume ((defaultOperands program id).mapM (denoteExpr program available) state)
+        (define program target id) = out := by
+  rw [exec_iff_denoteBody, denoteBody]
+
 end Silmaril.Languages.Starlark.Functions.Lowering

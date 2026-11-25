@@ -95,6 +95,25 @@ theorem denote_eq_of_evaluates {program : Program} {available : List Declaration
   | tailError first rest firstIH restIH =>
     simp only [List.mapM_cons, bind, EStateM.bind, firstIH, restIH]
 
+theorem denote_eq_of_evaluatesMany {program : Program} {available : List DeclarationId}
+    {calls : ClosureRuns available} {bodyMeaning : ClosureMeaning available}
+    {atomAllowed : Silmaril.Languages.Starlark.Lists.Expr → Prop}
+    (closureEq : ∀ plan state out, calls plan state out → bodyMeaning plan state = out)
+    {state : State} {expressions : List Lowering.Expr} {out : Outcome (List Value)}
+    (ran : EvaluatesManyWith program available calls atomAllowed state expressions out) :
+    expressions.mapM (denoteExprWith program available bodyMeaning) state = out := by
+  induction expressions generalizing state out with
+  | nil => cases ran; rfl
+  | cons expression rest ih =>
+    cases ran with
+    | cons first tail =>
+      simp only [List.mapM_cons, bind, EStateM.bind, pure, EStateM.pure,
+        denote_eq_of_evaluates closureEq first, ih tail]
+    | headError first =>
+      simp only [List.mapM_cons, bind, EStateM.bind, denote_eq_of_evaluates closureEq first]
+    | tailError first tail =>
+      simp only [List.mapM_cons, bind, EStateM.bind, denote_eq_of_evaluates closureEq first, ih tail]
+
 private theorem operands_denote (program : Program) (available : List DeclarationId)
     (calls : ClosureRuns available) (bodyMeaning : ClosureMeaning available)
     {atomAllowed : Silmaril.Languages.Starlark.Lists.Expr → Prop} (expressions : List Lowering.Expr)
@@ -179,6 +198,35 @@ theorem evaluates_denote (program : Program) (available : List DeclarationId)
         · have skipped := Bool.eq_false_iff.mpr selected
           simpa [skipped, EStateM.pure] using
             EvaluatesWith.shortCircuit (right := right) (tested ▸ ran) checked skipped
+
+theorem evaluatesMany_denote (program : Program) (available : List DeclarationId)
+    (calls : ClosureRuns available) (bodyMeaning : ClosureMeaning available)
+    (closureComplete : ∀ plan state, calls plan state (bodyMeaning plan state))
+    {atomAllowed : Silmaril.Languages.Starlark.Lists.Expr → Prop}
+    (expressions : List Lowering.Expr)
+    (admitted : ∀ expression ∈ expressions, AdmittedWith atomAllowed expression) (state : State) :
+    EvaluatesManyWith program available calls atomAllowed state expressions
+      (expressions.mapM (denoteExprWith program available bodyMeaning) state) :=
+  operands_denote program available calls bodyMeaning expressions
+    (fun expression member => evaluates_denote program available calls bodyMeaning closureComplete
+      (admitted expression member)) state
+
+theorem denote_atom_operands (program : Program) (available : List DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (operands : List Silmaril.Languages.Starlark.Lists.Expr)
+    (state : State) :
+    (operands.map Lowering.Expr.atom).mapM (denoteExprWith program available bodyMeaning) state =
+      denote (operandList operands) state := by
+  induction operands generalizing state with
+  | nil => rfl
+  | cons expression rest ih =>
+    simp only [List.map_cons, List.mapM_cons, denoteExprWith, operandList, List.foldr_cons,
+      denote, bind, EStateM.bind, pure, EStateM.pure]
+    cases denote expression state with
+    | error => rfl
+    | ok value next =>
+      dsimp only
+      rw [ih next]
+      rfl
 
 theorem admits_all_atoms (expression : Lowering.Expr) : AdmittedWith (fun _ => True) expression := by
   cases expression with

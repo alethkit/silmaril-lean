@@ -57,11 +57,26 @@ aliasing, recursion rejection and heap effects through the host API.
 ## Argument binding
 
 A resolved signature has positional-or-named parameters, keyword-only
-parameters, and optional `*args` and `**kwargs` slots. Default expressions
-evaluate left to right in the defining activation. Each new closure stores
-their values once, and publication freezes them through the same heap
-reachability rules as captured cells. Filling an omitted argument uses the
-stored value, so mutable defaults share identity across calls.
+parameters, and optional `*args` and `**kwargs` slots. `Parameter.defaultExpr`
+holds an optional resolved expression. Existing call-free defaults embed
+with `Lowering.Expr.atom`, which preserves their exact denotation.
+
+Each `define` evaluates its defaults once in declaration order, with
+positional defaults followed by keyword-only defaults. It uses the defining
+frame and its current available-declaration set. Calls in defaults remove
+their prepared declaration from that set on entry. A default error keeps
+the state at failure, skips later defaults, and leaves the definition
+target intact. When all defaults succeed, the closure installer stores the
+values under their parameter slots. Invocation uses those saved values for
+omitted arguments, so mutable defaults share identity across calls.
+Publication follows the same reachability rules for stored defaults and
+captured cells.
+
+`exec_define_iff_denoteDefaults` compares the ordered direct denotation
+with independent expression and closure-body derivations on the exact
+result, frame and heap. The rules share closure installation and argument
+binding with the executable core.
+[Definition agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Default fixtures](../../Silmaril/Languages/Starlark/Functions/NativeDefaultsChecks.lean)
 
 The resolved call form represents positions, named operands, at most one
 `*`, and at most one final `**`. All operand expressions evaluate left to right
@@ -80,8 +95,8 @@ values support literal content, truth and key comparison in this profile.
 Other string operations and additional star iterables remain open.
 
 `runChecked` validates all normalized parameter lists and call sites before
-executing, including unreachable call sites. It rejects duplicate parameter
-names and repeated explicit keywords. The ordering of positional parameters
+executing, including calls in defaults and unreachable operands. It rejects
+duplicate parameter names and repeated explicit keywords. The ordering of positional parameters
 and expansion sites is enforced by their representation. A required
 positional parameter cannot follow one with a default. The pinned prose
 requires an optional keyword-only parameter after a bare `*`. The pinned
@@ -172,8 +187,7 @@ the exact result or error and final frame, heap and iterator stack. The
 expression-position theorems in the denotation header expose that agreement
 without the compiler's scratch projection.
 
-Parameter defaults still use call-free collection expressions. Module
-commands still use the separate call-free atomic and
+Module commands still use the separate call-free atomic and
 destination-based call forms. Collection displays and subscripts use
 call-free atoms as well. The coverage guide records the remaining integration
 obligations.
@@ -214,8 +228,8 @@ supplies a visible, writable destination to observe the returned value.
 Lean and pinned Go fixtures cover a failing nested keyword operand,
 competing expansion errors and a duplicate keyword introduced by `**`.
 
-Calls inside collection display and subscript atoms, default-expression
-lowering and module-level expression lowering remain open. Static
+Calls inside collection display and subscript atoms and native
+module-level expression statements and assignment operands remain open. Static
 validation of repeated explicit keywords stays with `runChecked`.
 Supported iterable, mapping and callable values are those of the
 shared-store call profile above.
@@ -287,6 +301,7 @@ to start with a resolved expression.
 lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.Arguments.Checks \
   +Silmaril.Languages.Starlark.Functions.NativeBodyChecks \
+  +Silmaril.Languages.Starlark.Functions.NativeDefaultsChecks \
   +Silmaril.Languages.Starlark.Functions.NativeReturnChecks \
   +Silmaril.Languages.Starlark.Functions.NativeLoopChecks \
   +Silmaril.Languages.Starlark.Functions.LoopChecks \
