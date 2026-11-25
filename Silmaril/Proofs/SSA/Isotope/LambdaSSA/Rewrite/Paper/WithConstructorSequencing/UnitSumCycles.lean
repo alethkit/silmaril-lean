@@ -22,36 +22,45 @@ private theorem fold_row (A : Shape) (i : A.Row) : A.inj i ≫ fold A = 𝟙 (ob
   rw [fold, inj_caseMap]
   exact ofRegion_id (Φ := Empty) (.unit : Ty Empty)
 
+private theorem collapse_cut_rows (B A : Shape) (cut : A.Row → OutputCode (.sum B A) A) :
+    cutStepOfRows B A cut ≫ coprod.desc (𝟙 (obj B.ty ⨿ obj A.ty)) coprod.inr =
+      stepWithPayload B A (flattenCut ∘ cut) := by
+  apply table_hom_ext A
+  intro i
+  rw [cutStepOfRows, ← Category.assoc, ← Category.assoc, stepWithPayload, inj_table]
+  have right : A.inj i ≫ stepWithPayload B A (flattenCut ∘ cut) =
+      outputWithPayload B A (flattenCut (cut i)) := inj_table A _ i
+  rw [right]
+  change (outputWithPayload (.sum B A) A (cut i) ≫ _) ≫ _ = _
+  rcases cut i with ⟨j | j, p⟩
+  · simp only [outputWithPayload_inl, Category.assoc, coprod.inl_map, coprod.inl_desc, Category.comp_id]
+    rfl
+  · simp only [flattenCut, outputWithPayload_inr, Category.assoc, coprod.inr_map, Category.id_comp,
+      coprod.inr_desc]
+
+private theorem flatten_recurrence_cut (B A : Shape) (next : A.Row → A.Row) (mark : A.Row → Bool) :
+    flattenCut ∘ cutRows B next mark = recurrenceRows B next := by
+  funext i
+  cases marked : mark i <;> simp [Function.comp_apply, cutRows, marked, flattenCut, recurrenceRows]
+
 theorem collapse_cut (B A : Shape) (next : A.Row → A.Row) (mark : A.Row → Bool) :
     cutStep B A next mark ≫ coprod.desc (𝟙 (obj B.ty ⨿ obj A.ty)) coprod.inr =
       stepWithPayload B A (recurrenceRows B next) := by
-  apply table_hom_ext A
-  intro i
-  rw [cutStep, ← Category.assoc, ← Category.assoc, stepWithPayload, inj_table]
-  have right : A.inj i ≫ stepWithPayload B A (recurrenceRows B next) =
-      outputWithPayload B A ⟨.inr (next i), .forward⟩ := inj_table A _ i
-  rw [right]
-  cases stopped : mark i with
-  | false =>
-    simp only [Function.comp_apply, cutRows, stopped, Bool.false_eq_true, ↓reduceIte,
-      outputWithPayload_inr, Category.assoc, coprod.inr_map,
-      Category.id_comp, coprod.inr_desc]
-  | true =>
-    simp only [Function.comp_apply, cutRows, stopped, ↓reduceIte,
-      outputWithPayload_inl, Category.assoc, coprod.inl_map, coprod.inl_desc, Category.comp_id]
-    rfl
+  rw [cutStep, collapse_cut_rows, flatten_recurrence_cut]
 
-private theorem iterate_cut_as_step (B A : Shape) (next : A.Row → A.Row) (mark : A.Row → Bool)
-    (anchor : A.Row → A.Row)
-    (bounded : ∀ i, ∃ n, run (cutRows B next mark) n i = some ⟨.inr (anchor i), .forward⟩) :
-    iterate (cutStep B A next mark) = stepWithPayload B A (recurrenceRows B anchor) := by
-  rw [cutStep, ← iterate_naturality]
-  apply table_hom_ext A
-  intro i
-  obtain ⟨n, h⟩ := bounded i
-  rw [← Category.assoc, Termination.iterate_run (.sum B A) A (cutRows B next mark) n i h,
-    stepWithPayload, inj_table]
-  rfl
+theorem iterate_of_bounded_cut (B A : Shape) (cut : A.Row → OutputCode (.sum B A) A)
+    (out : A.Row → OutputCode B A)
+    (bounded : ∀ i, ∃ n, run cut n i = some ⟨(out i).tag, (out i).payload⟩) :
+    iterate (stepWithPayload B A (flattenCut ∘ cut)) = iterate (stepWithPayload B A out) := by
+  have inner : iterate (cutStepOfRows B A cut) = stepWithPayload B A out := by
+    rw [cutStepOfRows, ← iterate_naturality]
+    apply table_hom_ext A
+    intro i
+    obtain ⟨n, h⟩ := bounded i
+    rw [← Category.assoc, Termination.iterate_run (.sum B A) A cut n i h,
+      stepWithPayload, inj_table]
+    rfl
+  rw [← collapse_cut_rows B A cut, ← iterate_codiagonal, inner]
 
 private theorem iterate_row_forward (B A : Shape) (p : A.Row → OutputCode B A) {i j : A.Row}
     (h : p i = ⟨.inr j, .forward⟩) :
@@ -74,34 +83,39 @@ theorem iterate_row_along (B A : Shape) (p : A.Row → OutputCode B A) {i j : A.
   | refl => rfl
   | tail _ h ih => exact ih.trans (iterate_row_forward B A p h)
 
+theorem iterate_self_row (B A : Shape) (p : A.Row → OutputCode B A) (i : A.Row)
+    (self : p i = ⟨.inr i, .forward⟩) :
+    A.inj i ≫ iterate (stepWithPayload B A p) =
+      iterate (coprod.inr : obj .unit ⟶ obj B.ty ⨿ obj .unit) := by
+  let g := stepWithPayload B A p
+  let f : obj .unit ⟶ obj B.ty ⨿ obj .unit := coprod.inr
+  have square : f ≫ coprod.map (𝟙 (obj B.ty)) (A.inj i) = A.inj i ≫ g := by
+    have row : A.inj i ≫ g = outputWithPayload B A (p i) := inj_table A _ i
+    rw [row, self, outputWithPayload_inr]
+    change (coprod.inr : obj .unit ⟶ obj B.ty ⨿ obj .unit) ≫
+        coprod.map (𝟙 (obj B.ty)) (A.inj i) =
+      A.inj i ≫ (coprod.inr : obj A.ty ⟶ obj B.ty ⨿ obj A.ty)
+    simp only [coprod.inr_map]
+  exact (iterate_uniformity_ofBranchValue (A.tagValue i (.var (i := 0) rfl)) f g square).symm
+
 private theorem iterate_idempotent (B A : Shape) (anchor : A.Row → A.Row)
     (stable : ∀ i, anchor (anchor i) = anchor i) :
     iterate (stepWithPayload B A (recurrenceRows B anchor)) =
       fold A ≫ iterate (coprod.inr : obj .unit ⟶ obj B.ty ⨿ obj .unit) := by
   apply table_hom_ext A
   intro i
-  let g := stepWithPayload B A (recurrenceRows B anchor)
-  let f : obj .unit ⟶ obj B.ty ⨿ obj .unit := coprod.inr
-  have square : f ≫ coprod.map (𝟙 (obj B.ty)) (A.inj (anchor i)) = A.inj (anchor i) ≫ g := by
-    have row : A.inj (anchor i) ≫ g = outputWithPayload B A ⟨.inr (anchor (anchor i)), .forward⟩ :=
-      inj_table A _ (anchor i)
-    rw [row, stable i, outputWithPayload_inr]
-    change (coprod.inr : obj .unit ⟶ obj B.ty ⨿ obj .unit) ≫
-        coprod.map (𝟙 (obj B.ty)) (A.inj (anchor i)) =
-      A.inj (anchor i) ≫ (coprod.inr : obj A.ty ⟶ obj B.ty ⨿ obj A.ty)
-    simp only [coprod.inr_map]
-  have one : iterate f = A.inj (anchor i) ≫ iterate g :=
-    iterate_uniformity_ofBranchValue (A.tagValue (anchor i) (.var (i := 0) rfl)) f g square
   rw [iterate_row_forward B A (recurrenceRows B anchor) (i := i) (j := anchor i) rfl,
     ← Category.assoc, fold_row, Category.id_comp]
-  exact one.symm
+  apply iterate_self_row
+  simp only [recurrenceRows, stable]
 
 theorem iterate_fold_ofCut (B A : Shape) (next : A.Row → A.Row) (mark : A.Row → Bool)
     (anchor : A.Row → A.Row) (stable : ∀ i, anchor (anchor i) = anchor i)
     (bounded : ∀ i, ∃ n, run (cutRows B next mark) n i = some ⟨.inr (anchor i), .forward⟩) :
     iterate (stepWithPayload B A (recurrenceRows B next)) =
       fold A ≫ iterate (coprod.inr : obj .unit ⟶ obj B.ty ⨿ obj .unit) := by
-  rw [← collapse_cut B A next mark, ← iterate_codiagonal, iterate_cut_as_step B A next mark anchor bounded]
+  rw [← flatten_recurrence_cut B A next mark,
+    iterate_of_bounded_cut B A (cutRows B next mark) (recurrenceRows B anchor) bounded]
   exact iterate_idempotent B A anchor stable
 
 private theorem fold_after_map (A D : Shape) (tags : A.Row → D.Row) :

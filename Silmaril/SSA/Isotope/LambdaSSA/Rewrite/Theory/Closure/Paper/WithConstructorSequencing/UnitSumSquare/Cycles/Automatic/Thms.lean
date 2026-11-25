@@ -25,6 +25,10 @@ theorem exists_orbit_cut {X : Type*} [Finite X] (next : X → X) :
       (∀ i, ∃ k < bound, mark (next^[k] i) = true) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumAutomaticCuts.exists_orbit_cut next
 
+/-- The unit rows of every finite sum shape form a finite type. -/
+theorem rows_finite (A : Shape) : Finite A.Row :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumAutomaticCuts.rows_finite A
+
 /-- Every finite successor table has a cut to idempotent anchors with one
 fuel bound valid for all input rows. -/
 theorem exists_bounded_cut (B A : Shape) (next : A.Row → A.Row) :

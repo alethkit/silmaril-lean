@@ -26,11 +26,19 @@ def cutRows (B : Shape) {A : Shape} (next : A.Row → A.Row) (mark : A.Row → B
 noncomputable def fold (A : Shape) : obj A.ty ⟶ obj .unit :=
   caseMap A .unit (Termination.forwardingRows (fun _ => ()))
 
-/-- The exact result interface of a cut table is converted to the chosen outer coproduct. -/
+/-- Identify the inner and outer feedback tags of a cut row. -/
+def flattenCut {B A : Shape} : OutputCode (.sum B A) A → OutputCode B A
+  | ⟨.inl o, p⟩ => ⟨o, p⟩
+  | ⟨.inr j, p⟩ => ⟨.inr j, p⟩
+
+/-- Convert the exact result interface of a cut table to the chosen outer coproduct. -/
+noncomputable def cutStepOfRows (B A : Shape) (rows : A.Row → OutputCode (.sum B A) A) :
+    obj A.ty ⟶ (obj B.ty ⨿ obj A.ty) ⨿ obj A.ty :=
+  stepWithPayload (.sum B A) A rows ≫ coprod.map (Paper.TypeCategory.sumIso B.ty A.ty).hom (𝟙 (obj A.ty))
+
 noncomputable def cutStep (B A : Shape) (next : A.Row → A.Row) (mark : A.Row → Bool) :
     obj A.ty ⟶ (obj B.ty ⨿ obj A.ty) ⨿ obj A.ty :=
-  stepWithPayload (.sum B A) A (cutRows B next mark) ≫
-    coprod.map (Paper.TypeCategory.sumIso B.ty A.ty).hom (𝟙 (obj A.ty))
+  cutStepOfRows B A (cutRows B next mark)
 
 namespace Alternate
 
