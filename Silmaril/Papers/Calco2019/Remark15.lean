@@ -2,11 +2,11 @@ module
 
 public import Silmaril.Semantics.Calco2019.Trace.Vanishing.Thms
 public import Silmaril.Semantics.Calco2019.Trace.Guarded.Thms
-public import Silmaril.Semantics.Calco2019.Trace.Converse.Thms
+public import Silmaril.Semantics.Calco2019.Trace.Equivalence.Thms
 
 /-! # CALCO 2019 Article 13, Remark 15
 
-Co-Cartesian guarded feedback obtained from a Conway operator. This view
-includes tightening, sliding, superposing, yanking, initial-object vanishing,
-vanishing of a jointly guarded pair, and recovery of the original iteration.
+Guarded Conway operators correspond to coproduct feedback with tightening,
+superposition, shared-result sliding and two-state vanishing. The view also
+exports the four-interface construction and preservation of its output guard.
 -/
