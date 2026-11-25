@@ -30,6 +30,16 @@ theorem lower_preserves {program : Program} {available : List DeclarationId} {st
         StateMatch 0 s targetState :=
   Proofs.Languages.Starlark.Functions.Lowering.preserves ran free destination visible start
 
+/-- Staging the RHS preserves the exact assignment outcome and state after
+scratch projection, including any writes before a failed child check. -/
+theorem lowerAssignTarget_preserves {program : Program} {available : List DeclarationId} {state : State}
+    {rhs : Expr} {out : Outcome Lists.Value}
+    (ran : Evaluates program available state rhs out) (free : ScratchFree state)
+    (target : Lists.Iteration.LoopTarget) (start : Nat := 0) :
+    OutcomeMatch 0 (denoteBody program available (.assignTargetExpr target rhs) state)
+      (denoteBody program available (lowerAssignTarget target rhs start).code state) :=
+  Proofs.Languages.Starlark.Functions.Lowering.preservesAssignTarget ran free target start
+
 /-- Stage the iterable once, then use the shared cursor. A body that preserves
 the scratch projection on every entry gives a loop that preserves it on every exit. -/
 theorem lowerForIn_preserves {program : Program} {available : List DeclarationId} {state : State}

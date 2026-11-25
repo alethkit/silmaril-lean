@@ -158,6 +158,69 @@ mixed = note(0, pack)(note(1, 9), tag=note(2, "mixed"), *note(3, range(10, 3, -2
 	fmt.Println("PASS operand failure skips later operands and mapping validation precedes binding")
 }
 
+func checkDestructuring() {
+	g, err := run(`def f(x):
+    def rhs():
+        events.append(x)
+        return (8, [9, x])
+    (x, [x, y]) = rhs()
+    return (x, y)
+def init():
+    events.append(1)
+    return ([7], (2, 3))
+events = []
+out = f(4)
+payload, [count, _private] = init()`)
+	require(err == nil && g["out"].String() == "(9, 4)" && g["events"].String() == "[4, 1]" &&
+		g["payload"].String() == "[7]" && g["count"].String() == "2", fmt.Sprint(g, err))
+	fmt.Println("PASS standalone nested targets evaluate RHS once and bind locals and globals in order")
+
+	const setup = `def note(value):
+    events.append(1)
+    return value
+events = []
+`
+	g, err = run(setup + `(a, [b, c], d) = note((5, [6], 7))
+events.append(99)`)
+	checkError(err, "too few values to unpack")
+	require(g["events"].String() == "[1]" && g["a"].String() == "5" && g["b"] == nil &&
+		g["c"] == nil && g["d"] == nil, fmt.Sprint(g))
+
+	const driver = `saved = []
+def f():
+    a = 90
+    b = 91
+    c = 92
+    d = 93
+    def read():
+        return (a, b, c, d)
+    saved.append(read)
+`
+	for _, tc := range []struct{ rhs, want, bindings string }{
+		{"note((5, [6], 7))", "too few values to unpack", "(5, 91, 92, 93)"},
+		{"len(note(9))", "has no len", "(90, 91, 92, 93)"},
+	} {
+		g, err := run(setup + driver + "    (a, [b, c], d) = " + tc.rhs + "\nf()")
+		checkError(err, tc.want)
+		read := g["saved"].(*starlark.List).Index(0)
+		value, err := starlark.Call(&starlark.Thread{Name: "observe assignment"}, read, nil, nil)
+		require(err == nil && value.String() == tc.bindings && g["events"].String() == "[1]", fmt.Sprint(g, value, err))
+	}
+	fmt.Println("PASS a later mismatch preserves prior sibling writes and a failed RHS writes no target")
+
+	_, err = run("out = b\na, [b, c] = (1, [2, 3])")
+	checkError(err, "global variable b referenced before assignment")
+	_, err = run("x = 4\ndef f():\n    a, [x] = (1, [x])\nf()")
+	checkError(err, "local variable x referenced before assignment")
+	_, err = run("(x, [x]) = (1, [2])")
+	checkError(err, "cannot reassign global x")
+	_, err = run("x = 1\n(y, [x]) = (1, [2])")
+	checkError(err, "cannot reassign global x")
+	_, err = run("load(\"dep\", x=\"provided\")\n(y, [x]) = (1, [2])")
+	checkError(err, "cannot reassign local x")
+	fmt.Println("PASS full-block name resolution and static single-assignment checks for module patterns")
+}
+
 func checkDefaults() {
 	g, err := run(`counter = []
 def f(xs=[], stamp=counter.append(4)):
@@ -218,6 +281,7 @@ func main() {
 	checkStoreAndFreeze()
 	checkArguments()
 	checkRangeSpread()
+	checkDestructuring()
 	checkDefaults()
 	checkNativeDefaults()
 }

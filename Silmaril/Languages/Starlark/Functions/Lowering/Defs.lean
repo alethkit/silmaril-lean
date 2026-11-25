@@ -103,6 +103,13 @@ comparison. Only a successful expression writes the destination. -/
   let (code, stop) := (emit expression target).run start
   ⟨code, (List.range' start (stop - start)).map temporary, stop⟩
 
+/-- Stage the RHS once, then bind the saved value through the shared pattern binder. -/
+@[expose] def lowerAssignTarget (target : Lists.Iteration.LoopTarget) (rhs : Expr) (start : Nat := 0) : Lowered :=
+  let operand := temporary start
+  let staged := lower rhs operand (start + 1)
+  ⟨.seq staged.code (.assignTargetExpr target (.atom (.read (.bound operand)))),
+    operand :: staged.temporaries, staged.next⟩
+
 /-- Stage a loop operand once before entering the existing checked body. -/
 @[expose] def lowerForIn (target : Lists.Iteration.LoopTarget) (iterable : Expr) (body : Body) (start : Nat := 0) : Lowered :=
   let operand := temporary start

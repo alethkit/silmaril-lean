@@ -11,7 +11,7 @@ public section
 namespace Silmaril.Languages.Starlark.Functions.Lowering
 
 open Lists (State Outcome)
-open Lists.Iteration (Flow LoopTarget truth denoteForIn finishState iterators_denoteForIn)
+open Lists.Iteration (Flow LoopTarget truth denoteForIn finishState iterators_denoteForIn bindTarget)
 
 /-- Every operational derivation agrees with direct denotation on the exact
 result or error and final state. -/
@@ -45,6 +45,14 @@ theorem exec_assignExpr_iff_denoteExpr (program : Program) (available : List Dec
     Exec program available state (.assignExpr target expression) out ↔
       Outcome.resume (denoteExpr program available expression state)
         (fun value next => .ok .next (next.write target value)) = out := by
+  rw [exec_iff_denoteBody, denoteBody]
+
+/-- Pattern assignment evaluates its RHS once before entering the shared binder. -/
+theorem exec_assignTargetExpr_iff_denoteExpr (program : Program) (available : List DeclarationId)
+    (target : LoopTarget) (rhs : Expr) (state : State) (out : Outcome Flow) :
+    Exec program available state (.assignTargetExpr target rhs) out ↔
+      (Outcome.resume (denoteExpr program available rhs state) fun value next =>
+        Outcome.resume (bindTarget target value next) fun () => pure .next) = out := by
   rw [exec_iff_denoteBody, denoteBody]
 
 /-- A subscript write evaluates RHS, receiver and subscript in order, then

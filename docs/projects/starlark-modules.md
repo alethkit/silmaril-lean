@@ -57,7 +57,7 @@ declaration table and remove the active declaration on descent.
 
 `Modules.Resolve.resolve` takes normalized source commands and returns a
 checked `Modules.Source` and linked declaration table. Module commands cover
-single-name assignment, [simple subscript assignment][subscript-assignment],
+single-name and [nested name-pattern assignment][pattern-assignment], [simple subscript assignment][subscript-assignment],
 [integer subscript `+=`][augmented-subscript], expression statements, `def` and
 named `load` imports. Function bodies add nested `def`, sequencing, `if`, `pass` and
 `return`, as well as `for` loops with `break` and `continue`.
@@ -72,6 +72,14 @@ shadows outer names throughout its block. Undefined names fail statically
 even in skipped code. A forward reference resolves to the slot but fails
 dynamically if read before its assignment or load. Duplicate module bindings
 and load/global collisions are rejected before execution.
+
+For standalone destructuring, `Statement.assignTarget` resolves each name
+leaf to a function slot and `Command.assignTarget` resolves each leaf to a
+module global. The resolver collects those names before analyzing any RHS.
+The module command uses the shared direct binder in source order. A failed
+initialization retains earlier heap effects, including partial writes into
+its slots, and follows the existing failure path without publication.
+[Pattern semantics][pattern-assignment] · [Source assignment fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean)
 
 A loop target belongs to the whole function block. The resolver collects
 all target names before resolving the iterable and body in that block. Thus
@@ -215,6 +223,7 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [expressions]: starlark-functions.md#direct-denotation-of-resolved-expressions
 [source-expressions]: starlark-functions.md#resolving-a-normalized-expression
 [subscript-assignment]: starlark-functions.md#simple-subscript-assignment
+[pattern-assignment]: starlark-functions.md#standalone-pattern-assignment
 [augmented-subscript]: starlark-functions.md#integer-augmented-subscript-assignment
 [names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-binding-and-variables
 [loops]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#for-statements
