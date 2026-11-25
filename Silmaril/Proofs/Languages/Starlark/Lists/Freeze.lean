@@ -110,7 +110,7 @@ theorem eq_freeze_of_freezes {heap after : Heap} {roots : List Address}
 theorem keyOf_freeze (state : State) (roots : List Value) (value : Value) :
     (state.freeze roots).keyOf value = state.keyOf value := by
   cases value with
-  | scalar | list | dict => rfl
+  | scalar | list | dict | function => rfl
   | tuple address =>
     let rootAddresses := roots.filterMap Value.address?
     have h := freezes_freeze state.heap rootAddresses
@@ -129,6 +129,7 @@ theorem keyOf_freeze (state : State) (roots : List Value) (value : Value) :
         | list elements => simp [State.keyOf, found, stillPresent]
         | tuple elements code => cases code <;> simp [State.keyOf, found, stillPresent]
         | dict entries => simp [State.keyOf, found, stillPresent]
+        | binding | function => simp [State.keyOf, found, stillPresent]
 
 theorem editCell_frozen (state : State) (address : Address)
     (edit : Contents → Except Error Contents) {cell : Cell}

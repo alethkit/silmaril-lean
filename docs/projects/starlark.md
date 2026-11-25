@@ -2,7 +2,7 @@
 
 The collections API adds a shared heap for lists, tuples and dictionaries,
 with reachable freezing and function-body iteration.
-[Starlark collection store](starlark-lists.md)
+[Starlark collection store](starlark-lists.md) · [Lexical calls](starlark-functions.md)
 
 The dialect is the **Starlark core language** specified by the Bazel team in the
 [Starlark Language Specification][spec] at commit

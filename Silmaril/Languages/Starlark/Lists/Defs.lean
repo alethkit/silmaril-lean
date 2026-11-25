@@ -14,10 +14,11 @@ inductive Value where
   | list (address : Address)
   | tuple (address : Address)
   | dict (address : Address)
+  | function (address : Address)
   deriving DecidableEq, Repr
 
 def Value.address? : Value → Option Address
-  | .list address | .tuple address | .dict address => some address
+  | .list address | .tuple address | .dict address | .function address => some address
   | .scalar _ => none
 
 /-- Canonical key encoding for tagged scalars and well-bracketed tuples. -/
@@ -25,6 +26,7 @@ inductive KeyPart where
   | scalar (value : Starlark.Value)
   | openTuple
   | closeTuple
+  | function (address : Address)
   deriving DecidableEq, BEq, Repr
 
 abbrev Key := List KeyPart
@@ -35,15 +37,32 @@ structure Entry where
   value : Value
   deriving DecidableEq, Repr
 
+/-- One free name in the callee, with the address of its defining slot. -/
+structure Capture where
+  binding : Binding
+  address : Address
+  localCell : Bool
+  deriving DecidableEq, Repr
+
+structure Closure where
+  declaration : Nat
+  captures : List Capture
+  deriving DecidableEq, Repr
+
 inductive Contents where
   | list (elements : List Value)
   | tuple (elements : List Value) (keyCode : Option Key)
   | dict (entries : List Entry)
+  | binding (value : Option Value)
+  | function (closure : Closure)
   deriving DecidableEq, Repr
 
-def Contents.references : Contents → List Value
-  | .list elements | .tuple elements _ => elements
-  | .dict entries => entries.flatMap fun entry => [entry.key, entry.value]
+def Contents.children : Contents → List Address
+  | .list elements | .tuple elements _ => elements.filterMap Value.address?
+  | .dict entries => (entries.flatMap fun entry => [entry.key, entry.value]).filterMap Value.address?
+  | .binding value => value.toList.filterMap Value.address?
+  | .function closure => closure.captures.filterMap fun capture =>
+      if capture.localCell then some capture.address else none
 
 def Contents.sameMutableKind : Contents → Contents → Bool
   | .list _, .list _ | .dict _, .dict _ => true
@@ -56,9 +75,18 @@ structure Cell where
 
 abbrev Heap := Array Cell
 
+inductive Slot where
+  | owned (address : Address)
+  | captured (address : Address) (localCell : Bool)
+  deriving DecidableEq, Repr
+
+def Slot.address : Slot → Address
+  | .owned address | .captured address _ => address
+
 structure State where
   heap : Heap := #[]
   bindings : Binding → Option Value := fun _ => none
+  slots : Binding → Option Slot := fun _ => none
   /-- One entry per active list iterator, with the innermost iterator first. -/
   iterators : List Address := []
 
@@ -77,6 +105,11 @@ inductive Error where
   | unhashableKey (value : Value)
   | missingKey (key : Value)
   | duplicateKey (key : Value)
+  | unknownDeclaration (declaration : Nat)
+  | missingCapture (binding : Binding)
+  | notCallable
+  | arity (expected supplied : Nat)
+  | recursiveCall (declaration : Nat)
   deriving DecidableEq, Repr
 
 abbrev Outcome := EStateM.Result Error State
@@ -88,16 +121,42 @@ def Outcome.resume {α β : Type} (out : Outcome α) (primitive : α → Meaning
   | .ok value state => primitive value state
   | .error error state => .error error state
 
+def State.bindingValue (state : State) (binding : Binding) : Except Error Value :=
+  let value : Except Error (Option Value) := match state.slots binding with
+    | none => .ok (state.bindings binding)
+    | some slot =>
+      match state.heap[slot.address]? with
+      | none => .error (.danglingAddress slot.address)
+      | some ⟨.binding v, _⟩ => .ok v
+      | some _ => .error (.wrongCellKind slot.address)
+  match value with
+  | .ok (some v) => .ok v
+  | .ok none => .error (.uninitialized binding)
+  | .error error => .error error
+
 def State.read (state : State) : Ref → Outcome Value
   | .predeclared value => .ok (.scalar value) state
   | .bound binding =>
-    match state.bindings binding with
-    | some value => .ok value state
-    | none => .error (.uninitialized binding) state
+    match state.bindingValue binding with
+    | .ok value => .ok value state
+    | .error error => .error error state
 
 def State.write (state : State) (binding : Binding) (value : Value) : State :=
-  { state with bindings := fun key =>
-    if key = binding then some value else state.bindings key }
+  match state.slots binding with
+  | none => { state with bindings := fun key => if key = binding then some value else state.bindings key }
+  | some (.captured _ _) => state
+  | some (.owned address) =>
+    match state.heap[address]? with
+    | some ⟨.binding _, frozen⟩ =>
+      { state with heap := state.heap.setIfInBounds address ⟨.binding (some value), frozen⟩ }
+    | _ => state
+
+/-- Install an initially unbound lexical slot in the current activation. -/
+def State.allocateSlot (state : State) (binding : Binding) : State :=
+  let address := state.heap.size
+  { state with
+    heap := state.heap.push ⟨.binding none, false⟩
+    slots := fun key => if key = binding then some (.owned address) else state.slots key }
 
 def bindValue (binding : Binding) (value : Value) : Meaning Unit := fun state =>
   .ok () (state.write binding value)
@@ -143,6 +202,7 @@ def State.keyOf (state : State) (value : Value) : Except Error Key :=
     | some ⟨.tuple _ none, _⟩ => .error (.unhashableKey value)
     | some _ => .error (.wrongCellKind address)
   | .list _ | .dict _ => .error (.unhashableKey value)
+  | .function address => .ok [.function address]
 
 def allocateTuple (elements : List Value) : Meaning Value := fun state =>
   let key := (elements.mapM fun value => (state.keyOf value).toOption).map
@@ -199,7 +259,7 @@ def readDict (address : Address) (key : Value) : Meaning Value := do
 
 def readIndex (receiver index : Value) : Meaning Value :=
   match receiver with
-  | .scalar _ => throw .indexTarget
+  | .scalar _ | .function _ => throw .indexTarget
   | .list address => listElements address >>= fun elements => readSequence elements index
   | .tuple address => tupleElements address >>= fun elements => readSequence elements index
   | .dict address => readDict address index
@@ -234,7 +294,7 @@ def writeDict (address : Address) (key value : Value) : Meaning Unit :=
 
 def writeIndex (receiver index value : Value) : Meaning Unit :=
   match receiver with
-  | .scalar _ | .tuple _ => throw .assignmentTarget
+  | .scalar _ | .tuple _ | .function _ => throw .assignmentTarget
   | .list address =>
     updateCell address fun elements => do
       let i ← normalizeIndex elements.length index
