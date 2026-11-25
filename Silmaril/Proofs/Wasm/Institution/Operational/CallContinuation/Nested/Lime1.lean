@@ -12,6 +12,7 @@ import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Lime1Head
 namespace Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Proofs.Lime1
 
 open Wasm.Lime1.Execution
+open CallContinuation.Proofs.Lime1 (first first_prefix first_values wrapper_step frame_label_stays)
 open Execution.Runtime (Frame FuncAddr Value AdminInstr)
 
 private abbrev ct (addr : FuncAddr) (fn : CallFrame.Callee) := CallContinuation.limeCode addr fn
@@ -30,66 +31,6 @@ theorem sound {H : Type} {s : Store H} {caller outer : Frame}
     | labelTrap => exact .frame (.pure s outer (.labelTrap arity [])) arity caller
     | frameValues stack h => exact .pure s caller (.frameDone arity outer stack h)
     | frameTrap => exact .pure s caller (.frameTrap arity outer)
-
-private def wrapper : Admin → Prop
-  | .label _ _ _ | .frame _ _ _ => True
-  | _ => False
-
-private inductive WrapperStep {H : Type} (s : Store H) (f : Frame) : Admin → Config H → Prop where
-  | pure {a out} (step : PureStep f.module.types [a] out) :
-      WrapperStep s f a ⟨s, f, out⟩
-  | label {n cont body} {target : Config H} (step : Step CallFrame.limeNoHost ⟨s, f, body⟩ target) :
-      WrapperStep s f (.label n cont body) ⟨target.store, target.frame, [.label n cont target.code]⟩
-  | frame {n inner body} {target : Config H} (step : Step CallFrame.limeNoHost ⟨s, inner, body⟩ target) :
-      WrapperStep s f (.frame n inner body) ⟨target.store, f, [.frame n target.frame target.code]⟩
-
-private theorem wrapper_step {H : Type} {a b : Config H}
-    (h : Step CallFrame.limeNoHost a b) {op : Admin} (shape : a.code = [op]) (hw : wrapper op) :
-    WrapperStep a.store a.frame op b := by
-  induction h with
-  | pure _ _ h => exact .pure (shape ▸ h)
-  | label h n cont _ =>
-    cases (List.cons.inj shape).1
-    exact .label h
-  | frame h n outer _ =>
-    cases (List.cons.inj shape).1
-    exact .frame h
-  | @context s s' f f' before after h saved tail ih =>
-    change values saved ++ before ++ tail = [op] at shape
-    have lengths := congrArg List.length shape
-    simp only [List.length_append, values_length, List.length_cons, List.length_nil] at lengths
-    obtain ⟨op, mem, _⟩ := h.nonvalue
-    have pos : 0 < before.length := List.length_pos_iff.mpr
-      (List.ne_nil_of_mem (show op ∈ before from mem))
-    have hs : saved = [] := List.eq_nil_of_length_eq_zero (by omega)
-    have ht : tail = [] := List.eq_nil_of_length_eq_zero (by omega)
-    subst saved tail
-    simpa [values] using ih (by simpa [values] using shape)
-  | invokeHost | invokeHostDiverges => contradiction
-  | invokeWasm =>
-    have same := congrArg List.getLast? shape
-    simp [List.getLast?_append] at same
-    subst op
-    contradiction
-  | _ =>
-    have same := congrArg List.getLast? shape
-    simp at same
-    subst op
-    contradiction
-
-private def first (code : List Admin) := code.find? (fun a => (asValue? a).isNone)
-
-@[simp] private theorem first_prefix (vs : List Value) (tail : List Admin) :
-    first (values vs ++ tail) = first tail := by
-  induction vs with
-  | nil => rfl
-  | cons v vs ih =>
-    change first (value v :: (values vs ++ tail)) = first tail
-    simpa only [first, List.find?_cons, asValue?_value, Option.isNone_some] using ih
-
-@[simp] private theorem first_values (vs : List Value) : first (values vs) = none := by
-  change first (values vs) = first []
-  rw [← first_prefix vs [], List.append_nil]
 
 private theorem mapped_values (xs : List Value) : xs.map value = values xs := rfl
 
@@ -187,22 +128,6 @@ private theorem label_pop {types : List Wasm.Lime1.FuncType} {arity : Nat}
   | labelReturn n cont stack tail =>
     have body := (AdminInstr.label.inj (List.cons.inj eq).1).2.2
     exact ((allowed (q := q) (addr := addr) (fn := fn) (op := .source .return_) (by rw [body]; simp)).1 rfl).elim
-  | trapValues | trapTail =>
-    have len := congrArg List.length eq
-    simp [values] at len
-  | _ =>
-    have last := congrArg List.getLast? eq
-    simp [values, List.getLast?_append] at last
-
-private theorem frame_label_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {f : Frame}
-    {body out : List Admin} (h : PureStep types [.frame n f [.label n [] body]] out) : False := by
-  generalize eq : ([.frame n f [.label n [] body]] : List Admin) = before at h
-  cases h with
-  | frameDone | frameReturn | frameTrap =>
-    have code := (AdminInstr.frame.inj (List.cons.inj eq).1).2.2
-    have seen := congrArg first code
-    try simp only [List.append_assoc, List.singleton_append, first_prefix, first_values] at seen
-    simp [first, asValue?] at seen
   | trapValues | trapTail =>
     have len := congrArg List.length eq
     simp [values] at len

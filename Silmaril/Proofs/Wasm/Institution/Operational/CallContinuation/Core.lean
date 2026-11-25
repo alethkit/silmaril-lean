@@ -3,7 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Thms
 public import Silmaril.Wasm.Institution.Operational.CallFrame.Native.Thms
-import Silmaril.Wasm.Execution.Core.Inversion.Thms
+public import Silmaril.Wasm.Execution.Core.Inversion.Thms
 import Silmaril.Wasm.Execution.Core.Sim.Context
 import Silmaril.Wasm.SingleThreaded.Determinism.HeadDet
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Rules
@@ -159,5 +159,20 @@ theorem core_readback {H : Type} {P : Profile} {s : Store H} {caller : Execution
     · obtain ⟨_, _, _, _, _, ⟨head, _, _⟩ | ⟨_, head, _, _⟩⟩ := fnv_bubble bubble <;>
         simp [fnv_cons_of_none (a := nop) rfl] at head
   | trapped stack hasTail => exact trap_read step
+
+theorem frame_label_stays {H : Type} {s : Store H} {f : Frame} {arity : Nat}
+    {body out : List Admin} (h : FrameExit s f arity [.label arity [] body] out) : False := by
+  generalize eq : ([.label arity [] body] : List Admin) = code at h
+  cases h with
+  | returnCallNull kind | returnCallAddr kind _ _ _ =>
+    have first := congrArg (fun code => (fnv code).2) eq
+    have none := Admin.val?_of_isReturnCallRef kind
+    simp [fnv_cons_of_none none, fnv_cons_of_none (a := .label arity [] body) rfl] at first
+    rw [← first.1] at kind
+    contradiction
+  | _ =>
+    have first := congrArg (fun code => (fnv code).2) eq
+    simp [fnv_cons_of_none (a := .label arity [] body) rfl,
+      fnv_cons_of_none (a := .plain .return_) rfl, fnv_cons_of_none (a := .plain .throwRef) rfl, throwing] at first
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.Proofs
