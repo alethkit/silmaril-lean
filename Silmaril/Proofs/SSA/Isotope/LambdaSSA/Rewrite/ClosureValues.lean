@@ -5,6 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.TheorySubstitution
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.TheoryTyping
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Closure
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.CaseValue
 
 /-! # Replacing values and continuations in the enlarged typed theory -/
 
@@ -38,12 +39,35 @@ theorem substitutionEquiv_substVars {Γ Δ : VCtx τ} {L : LCtx τ} {r s : Regio
         ((r.substVars (Tm.singleSubst a)).substVars σ) L
       rw [substVars_comp r (Tm.singleSubst a), Tm.singleSubst_comp, ← substVars_comp]
       exact .letValue (branchValue_subst ha hσ) (hr.substVars (valuesTyped (liftValues hσ _)))
+  | @caseValue Γ a A B r L ha hr =>
+      change SubstitutionEquiv Δ
+        (.case (a.subst σ)
+          ((r.substVars (Tm.replaceNewest (.inl (.var 0)))).substVars (Tm.liftSubst σ))
+          ((r.substVars (Tm.replaceNewest (.inr (.var 0)))).substVars (Tm.liftSubst σ)))
+        ((r.substVars (Tm.singleSubst a)).substVars σ) L
+      rw [substVars_replaceNewest_lift r σ rfl, substVars_replaceNewest_lift r σ rfl,
+        substVars_comp r (Tm.singleSubst a), Tm.singleSubst_comp, ← substVars_comp]
+      exact .caseValue (branchValue_subst ha hσ) (hr.substVars (valuesTyped (liftValues hσ _)))
+  | @caseCfg Γ e A B l L r he hl hr =>
+      have eq : (Region.caseCfg e l r).substVars σ =
+          Region.caseCfg (e.subst σ) (l.substVars (Tm.liftSubst σ)) (r.substVars (Tm.liftSubst σ)) := by
+        simp only [Region.caseCfg, substVars]
+        congr 1
+        funext i
+        refine Fin.cases ?_ (fun j => ?_) i
+        · exact substVars_renameLabels l _ _
+        · exact substVars_renameLabels r _ _
+      exact eq.symm ▸ SubstitutionEquiv.caseCfg (he.subst (valuesTyped hσ))
+        (hl.substVars (valuesTyped (liftValues hσ A))) (hr.substVars (valuesTyped (liftValues hσ B)))
+  | initial ha hr hs =>
+      exact .initial (branchValue_subst ha hσ) (hr.substVars (valuesTyped hσ))
+        (hs.substVars (valuesTyped hσ))
   | cfgOutward R hr hb =>
       simpa only [substVars, substVars_renameLabels] using
         SubstitutionEquiv.cfgOutward R (hr.substVars (valuesTyped hσ))
           (fun i => (hb i).substVars (valuesTyped (liftValues hσ _)))
 
-private theorem equivalentLiftVars {Γ : VCtx τ} {L K : LCtx τ} {σ υ : Nat → Region Φ}
+theorem substitutionEquiv_liftLSubstVars {Γ : VCtx τ} {L K : LCtx τ} {σ υ : Nat → Region Φ}
     (h : ∀ ⦃ℓ A⦄, At L ℓ A → SubstitutionEquiv (A :: Γ) (σ ℓ) (υ ℓ) K) (B : τ) :
     ∀ ⦃ℓ A⦄, At L ℓ A →
       SubstitutionEquiv (A :: B :: Γ) (liftLSubstVars σ ℓ) (liftLSubstVars υ ℓ) K := by
@@ -87,13 +111,13 @@ theorem lsubst_substitutionEquiv {Γ : VCtx τ} {L K : LCtx τ} {r : Region Φ}
           cases Option.some.inj hi
           exact ha
       | succ i => exact .var hi
-  | let₁ ha _ ih => exact .let₁ ha (ih (equivalentLiftVars h _))
-  | let₂ ha _ ih => exact .let₂ ha (ih (equivalentLiftVars (equivalentLiftVars h _) _))
-  | case ha _ _ ihl ihr => exact .case ha (ihl (equivalentLiftVars h _)) (ihr (equivalentLiftVars h _))
+  | let₁ ha _ ih => exact .let₁ ha (ih (substitutionEquiv_liftLSubstVars h _))
+  | let₂ ha _ ih => exact .let₂ ha (ih (substitutionEquiv_liftLSubstVars (substitutionEquiv_liftLSubstVars h _) _))
+  | case ha _ _ ihl ihr => exact .case ha (ihl (substitutionEquiv_liftLSubstVars h _)) (ihr (substitutionEquiv_liftLSubstVars h _))
   | cfg R _ _ ihe ihb =>
       have hlabels := equivalentAppend h (List.ofFn R)
       simp only [List.length_ofFn] at hlabels
-      exact .cfg R (ihe hlabels) (fun i => ihb i (equivalentLiftVars hlabels _))
+      exact .cfg R (ihe hlabels) (fun i => ihb i (substitutionEquiv_liftLSubstVars hlabels _))
 
 theorem compLSubst_substitutionEquiv {Γ : VCtx τ} {L K P : LCtx τ}
     {σ σ' υ υ' : Nat → Region Φ}
@@ -102,7 +126,7 @@ theorem compLSubst_substitutionEquiv {Γ : VCtx τ} {L K P : LCtx τ}
     (hvalues : ∀ ⦃ℓ A⦄, At L ℓ A → ValueBranches (A :: Γ) (σ ℓ) K) :
     ∀ ⦃ℓ A⦄, At L ℓ A → SubstitutionEquiv (A :: Γ) (compLSubst σ υ ℓ) (compLSubst σ' υ' ℓ) P := by
   intro ℓ A hℓ
-  have hlift := equivalentLiftVars hυ A
+  have hlift := substitutionEquiv_liftLSubstVars hυ A
   exact .trans (lsubst_substitutionEquiv (hvalues hℓ) hlift)
     (substitutionEquiv_lsubst (hσ hℓ) (fun _ _ hi => (substitutionEquiv_typed (hlift hi)).2))
 

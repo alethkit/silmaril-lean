@@ -62,6 +62,7 @@ def Function.ofCaptureList (code : CodeRef) (captures : List CellId)
   ⟨code, ⟨captures.toArray, by simpa using size⟩⟩
 
 inductive Value where
+  | none
   | int (value : Int)
   | bool (value : Bool)
   | function (value : Function)

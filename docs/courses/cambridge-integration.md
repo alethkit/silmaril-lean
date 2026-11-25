@@ -131,6 +131,54 @@ observations keep that address and the full final store. A deterministic
 allocator could support a refinement proof by choosing an allowed fresh
 address. Equality of all concrete may observations would require representing
 all choices. A quotient by renaming would require a proof that observations
-respect that quotient. Effectful L2 and L3 denotations and specification-format
-institutions have separate proof obligations.
-[Cambridge operational institution coverage](../projects/operational-institutions.md#cambridge-l1-and-l2)
+respect that quotient. [Cambridge operational institution coverage](../projects/operational-institutions.md#cambridge-l1-and-l2)
+
+The closed mutable-store L2 fragment has ground adequacy on stores covering
+its declared locations. The L3 data/reference fragment has finite may
+adequacy with concrete fresh names and opaque function values. These
+results supply source-side observations for a future compilation proof.
+The specification-format institutions already read step and finite
+may-return claims over catalogues of course configurations.
+[L2 mutable-store denotation](cambridge-l2-denotational.md#mutable-store-fragment) ·
+[L3 data and references](cambridge-l3-denotation.md) ·
+[Step specifications](cambridge-step-specification.md) ·
+[Return specifications](cambridge-return-specification.md)
+
+## Checked L2 callback pilot
+
+The typed L2 expression `(λf : unit → int. f skip) (λu : unit. !reply)`
+takes two CBV beta steps to the callback's read. When the designated cell
+contains the signed interpretation of a Wasm `i32` word, L2 returns that
+integer with its original store. The Wasm 3 fixture uses `ref.func cb`
+to pass a callback to `apply`, then `call_ref` enters `cb`, which asks
+host import `0`. The witness supplies the chosen word at the fixture's
+unchanged Wasm store. [L2 typing and boundary theorem](../../Silmaril/Courses/Cambridge/L2/WasmCallback.lean) ·
+[Wasm callback fixture](../../Silmaril/Wasm/Game/ULink/Thms.lean)
+
+```mermaid
+flowchart LR
+    L["Typed L2 application"] -->|Two CBV beta steps| C["Read inside callback"]
+    C -->|Designated reply cell| R["Signed integer return"]
+    W["Wasm run entry"] -->|ref.func and call_ref| H["Host request 0 and reply"]
+    H -->|Resume callback and return| T["Signed integer return"]
+    R ---|WasmCallback.agrees| T
+```
+
+`request_agrees` pairs the exact two-step L2 prefix with the entry and pending
+request in both Wasm strategies. It holds for every L2 store before any reply
+premise is needed. `agrees` gives a finite may witness for each supplied word
+and Wasm numerics profile. The linked-game play projects to entry, request, reply, and
+return in that order. The provider/consumer composite admits the same
+projected play after stubbing. This projection keeps the import index,
+call arguments, and signed answer payloads. It forgets Wasm stores. The
+original L2 steps have unit labels, with the read serving as the selected
+checkpoint for the supplied reply. The all-ones Wasm word is checked as
+`-1`. Checking the module needs
+`lake build --wfail +Silmaril.Courses.Cambridge.L2.WasmCallback`.
+
+A general open callback theorem would need to relate L2 closures and
+environments to target code and frames, and relate request, suspension,
+and resumption to source evaluation. L3 adds a heap invariant that preserves
+aliases and extends along allocation, plus a choice of refinement or
+equality for observable fresh names. Trap, stuckness, divergence, and
+multiple interactions need their own observation correspondences.
