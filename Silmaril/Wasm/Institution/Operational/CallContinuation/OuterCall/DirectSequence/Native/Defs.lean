@@ -15,7 +15,7 @@ open StraightLine
 open Computed (ArgumentSyntax v1Syntax limeSyntax coreSyntax)
 open Computed.Sequence (v1Source limeSource coreSource)
 
-def Site.type (site : Site) : Wasm.V1.FuncType := ⟨site.params, site.result.toList⟩
+def Site.type (site : Site) : Wasm.V1.FuncType := site.callTarget.declaration.type
 
 def Program.body {A : Type} (p : Program) (ops : ArgumentSyntax A) : List A :=
   p.code.map (Sequence.emit ops)
@@ -32,7 +32,7 @@ def Program.coreInstance {H : Type} (p : Program) : Core.FuncInst H :=
 
 structure Lookups (caller : Frame) (p : Program) : Prop where
   typed : Typed p
-  resolves : caller.module.funcs[p.site.index.toNat]? = some p.site.address
+  resolves : p.site.callTarget.Resolves caller
 
 structure V1Guard {H : Type} (s : Wasm.V1.Execution.Store H) (caller : Frame) (p : Program) : Prop
     extends Lookups caller p where

@@ -34,7 +34,7 @@ private theorem enter_iff {H : Type} {s : Store H} {caller : Frame}
     Step CallFrame.limeNoHost (limeConfig s caller p.site .invoke) dst ↔
       dst = limeConfig s caller p.site (.label (.running [] p.code)) := by
   have count : p.site.args.length = p.site.type.params.length := by
-    simpa [Site.type] using congrArg List.length g.typed.args
+    simpa [Site.type, Site.callTarget, Declaration.type] using congrArg List.length g.typed.args
   have enter := CallFrame.lime_invoke_wasm_exact (caller := caller) (dst := dst) g.allocated count
   rw [body_expression] at enter
   exact enter

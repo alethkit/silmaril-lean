@@ -76,7 +76,7 @@ private theorem active_strip {H : Type} {P : Profile} {s : Store H} {ctx : Conte
         coreValues, List.map_append, vals_append, List.append_assoc, List.singleton_append] using step
     have eq := (Computed.core_direct_call_iff g.resolves g.allocated).mp focused
     refine ⟨_, DirectSequence.core_sound (P := P) g (DirectSequence.fact .resolve), ?_⟩
-    simpa only [DirectSequence.coreConfig, DirectSequence.coreCode, DirectSequence.render,
+    simpa only [DirectSequence.coreConfig, DirectSequence.coreCode, DirectSequence.render, Site.callTarget,
       Program.coreInstance, coreValues, List.map_append, vals_append, List.append_assoc, List.cons_append,
       List.nil_append] using eq
   | invoke =>
@@ -91,8 +91,8 @@ private theorem active_strip {H : Type} {P : Profile} {s : Store H} {ctx : Conte
     change Frame.forCall p.site.module.toCore (p.site.args.map Value.toCore) p.coreFunc.locals = p.site.frame.toCore at init
     rw [init, DirectSequence.core_body_expression] at enter
     refine ⟨_, DirectSequence.core_sound g (DirectSequence.fact .enter), ?_⟩
-    simpa only [DirectSequence.coreConfig, DirectSequence.coreCode, DirectSequence.render,
-      Site.type, Site.arity, List.append_assoc, List.singleton_append] using enter
+    simpa only [DirectSequence.coreConfig, DirectSequence.coreCode, DirectSequence.render, Site.callTarget,
+      Site.type, Site.callTarget, Declaration.type, Site.arity, List.append_assoc, List.singleton_append] using enter
   | label _ | exit _ => exact stripFrame rfl
   | done _ => exact live.elim
 
