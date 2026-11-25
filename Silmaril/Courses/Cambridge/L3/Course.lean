@@ -11,6 +11,8 @@ import Silmaril.Courses.Cambridge.L3.Denotation.SingleCall.Examples
 public import Silmaril.Courses.Cambridge.L3.Metatheory.Preservation
 public import Silmaril.Courses.Cambridge.L3.Metatheory.ContextEquivalence
 public import Silmaril.Courses.Cambridge.L3.Examples
+public import Silmaril.Courses.Cambridge.L3.Exercises.LabelledVariants
+public import Silmaril.Courses.Cambridge.L3.Exercises.ExceptionExamples
 public import Silmaril.Courses.Cambridge.L3.ResolvedCodec
 public import Silmaril.Courses.Cambridge.L3.Interpreter
 
