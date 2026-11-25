@@ -42,6 +42,14 @@ UPSTREAM = {
         "eba821065dd54df302a617489cda8319e1a031fa0093cd7c4c0da0bc13fb0624",
     "test/tla2sany/semantic/corpus/StepExpressionsTest.tla":
         "7e97a5070aa3822b05c8acbc2a940bd499d60972b4ce5770e75514e2da2cedd3",
+    "test/tla2sany/semantic/corpus/FairnessTest.tla":
+        "68458b73cd72cbac3013d3aafe24f6c7851ec9b550ab4b085fbde07cefc26ddf",
+    "test/tla2sany/semantic/corpus/InnerModuleTest.tla":
+        "8e31f40dbf5323e42c00d08ab35f4ff04666f7a7ff51ebc56c3c222e9c40a023",
+    "test-model/examples/acp/ACP_SB.tla":
+        "a62fedef4725c150efd03f5a864bb607f2f3960686b518792144e1d781c6de89",
+    "test-model/examples/ewd840/EWD840.tla":
+        "76f546c6e19d6b6a4f2b5c1553934849c4e49a4124db6e74e921aeff2fb38bd7",
 }
 IN_PLACE = {
     "BoundedCounter.tla": "24d769ab5e0785ff4a89c93712f38786d681bd761b93cd89d8adf2cc896b8c5b",
@@ -92,9 +100,12 @@ def main():
         work = Path(temporary)
         native = []
         sany = []
-        for name in ("BoundedQueue.tla", "ProofSteps.tla", "Compatibility.tla"):
+        for name in ("BoundedQueue.tla", "ProofSteps.tla", "Compatibility.tla", "ReferenceForms.tla"):
             native.extend([str(HERE / name), "accept"])
             sany.extend([str(HERE / name), "accept"])
+        membership = str(HERE / "MembershipForms.tla")
+        native.extend([membership, "accept"])
+        sany.extend([membership, "reject"])
         for case in json.loads((HERE / "cases.json").read_text(encoding="utf-8")):
             path = work / (case["name"] + ".tla")
             source = case.get("source")

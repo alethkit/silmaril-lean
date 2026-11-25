@@ -42,11 +42,24 @@ Postfix operators, indexes and field selections extend an operand in source
 order. An index can follow a prime (`f'[i]`) or precede it (`f[i]'`).
 A pending operator still participates in the precedence check, so `[]x'`
 requires parentheses. `f[i,j]`, `f[<<i,j>>]` and `F(i,j)` produce different
-trees. For a label under a pending operator, the precedence check treats
-`L:: (b + c)` as a grouped body and `L:: (b) + c` as a body rooted at `+`.
+trees. A label covers its whole body and must preserve the surrounding
+expression's grouping. The parser checks the body in the enclosing precedence
+context, so `a * L:: (b + c)` groups successfully while `a * L:: (b) + c`
+requires parentheses around the whole labeled body.
 Action and fairness subscripts use the `ReducedExpression` grammar.
 For example, `[A]_f[i]` indexes the action expression. `[A]_(f[i])` places the
-index inside the subscript.
+index inside the subscript. In `WF_M(i)!F(j)(A)`, the two argument lists on
+the reference belong to the subscript and the final `(A)` supplies the action.
+`WF_M(i)!F(A)` uses `(A)` for the action. A subscript containing an inner
+action, such as `WF_([P]_(F(i)))(A)`, has its own explicit action argument.
+
+The body of `[A]_v` and a function index are ordinary expressions. An initial
+membership test, as in `[x \in S]_v` or `f[x \in S]`, can appear without
+parentheses. For a standalone bracket expression starting with possible
+binders, a mapping arrow at the current bracket depth selects the bounded
+function alternative. A mapping arrow inside a nested bracket belongs to
+that nested construct. Pinned SANY commits to the bounded function too early
+in these membership forms. [Specifying Systems §15.1](https://lamport.azurewebsites.net/tla/book-21-07-04.pdf) · [SANY #737](https://github.com/tlaplus/tlaplus/issues/737)
 
 `/\` and `\/` and their Unicode spellings start a junction list when an
 operand is expected. A marker of the same kind in the same column starts a
@@ -127,19 +140,24 @@ forms outside the Surface representation or the complete-input contract.
 | Unsupported | permissive `Number` alternative | A decimal with a base-prefixed whole or fractional token. The Surface decimal stores an exact base-ten fraction. |
 | Unsupported | outside the TLA+ module grammar | TLC configuration and PlusCal translation. A PlusCal algorithm inside a TLA+ block comment is consumed as comment text. |
 
-### Remaining observed grammar differences
+### Reference differences and scope
 
-| Pinned SANY behavior | Native behavior |
+| Classification | Evidence and native behavior |
 | --- | --- |
-| `a * L:: b + c ^ d` passes the label check because SANY uses the last parsed operator `^`. | The check uses the root operator `+` and rejects the ungrouped body. |
-| `WF_[A]_f(B)` borrows `(B)` from the nested reduced subscript and uses `B` as the fairness action. | The parser consumes `f(B)` as a subscript reference and requires an explicit fairness action. |
-| In `INSTANCE M WITH F <- A!~` followed by `x == TRUE`, SANY inserts a definition boundary before `~` and rejects the selector. | The parser accepts the qualified prefix selector and the following definition. |
-| A numeric header level of `2147483648` overflows SANY's signed integer conversion. | Header levels use arbitrary-precision naturals. |
+| Meaningful bracket expressions | SANY's `SBracketCases` commits on `Identifier` followed by membership, then expects a mapping arrow. Native parsing accepts membership in square action bodies, indexes and function-set domains. SANY accepts the parenthesized controls for actions and indexes. |
+| Label precedence | `labelDoesNotChangeParse` consults the last parsed operator when the body is infix or postfix. SANY accepts `a * L:: b + c ^ d` and rejects `1 + L:: 2 * (IF 1 = 1 THEN 3 ELSE 4)`. Native parsing checks the enclosing operator against the body as it parses, including Cartesian products, nested labels and postfix operators followed by field selection. |
+| Prefix minus | In operand position `-` is unary, including after an infix operator. The normal prefix precedence gives `2 * -3^2` the tree `2 * (-(3^2))`. SANY's mixfix special case requires `2 * (-3^2)`. [SANY #893](https://github.com/tlaplus/tlaplus/issues/893) |
+| Reduced-subscript permissiveness | SANY's `NoOpExtension` puts the final call arguments in a shared `FairnessHook`. In `WF_[A]_f(B)` it can take `(B)` from the inner subscript and use it as the outer fairness action. It can also omit the inner call arguments when the outer action is explicit. Native parsing keeps those arguments on `f` and requires the outer action separately. `WF_([A]_(f(i)))(B)` spells out both boundaries for either parser. |
+| Permissive label heads and parameters | JavaCC can accept symbolic or step-reference labels, step-reference parameters and qualified labels with parameters. The documented identifier-label syntax fits Surface v1. Qualified label applications are an upstream lookahead bug. [SANY #885](https://github.com/tlaplus/tlaplus/issues/885) |
+| Syntax accepted before semantic processing | Empty or multi-body angle actions and bare index payloads lack the operands required by their expression forms. A bare operator lambda in the fairness action position reaches the expression-only semantic path. Base-prefixed decimal pieces reach a base-ten decimal conversion. These receive `unsupported` diagnostics. |
+| Definition boundary heuristic | `BangExt` permits prefix selectors. In `INSTANCE M WITH F <- A!~` followed by `x == TRUE`, SANY inserts a synthetic `DEFBREAK` before `~`. Native parsing accepts the selector and subsequent definition. |
+| File and tool conventions | SANY's default lexer mode skips prelude text and recognizes the `--->` pragma. Its entry point may leave trailing text or another compilation unit unread. Native parsing checks the whole input. Numeric proof levels use arbitrary-precision naturals, so a level such as `2147483648` fits the native tree and overflows SANY's Java conversion. |
 
-The complete-input contract rejects arbitrary text before or after the
-compilation unit and rejects a second top-level module. The verdict fixtures
-exercise these cases, the pragma, and the first three grammar differences
-in the table.
+Other reference-grammar gaps remain in the set rules.
+`{<<1, 2>> \in S}` commits to a tuple binder in both parsers, and the first
+element of `{x \in S /\ p}` is built as `x \in (S /\ p)` by both parsers.
+SANY and the native parser also reject the unparenthesized set-map result in
+`{1 \in S : x \in T}`. [SANY #1021](https://github.com/tlaplus/tlaplus/issues/1021)
 
 ## Validation and provenance
 
@@ -160,15 +178,17 @@ make check CHECK_TARGETS='+Silmaril.Logic.Temporal.TLA.Surface.Parser.Grammar +S
 
 The fixture check verifies downloaded bytes by SHA-256. It uses intact
 HourClock, LiveHourClock, DieHard, TLC, WriteThroughCache, ABCorrectness,
-the TLAPS `VoteProof` specimen, and SANY's `AssumeProveTest`,
-`ImplicitProofsTest`, `ProofsTest` and `StepExpressionsTest` from the
-pinned TLA+ tree. It reads
+the TLAPS `VoteProof` specimen, `ACP_SB`, `EWD840` and SANY's `AssumeProveTest`,
+`ImplicitProofsTest`, `ProofsTest`, `StepExpressionsTest`, `FairnessTest`
+and `InnerModuleTest` from the pinned TLA+ tree. It reads
 BoundedCounter and BitPair in place and checks their hashes against the
 original export tree at `6606bd00bde1c71430aa254ce78a716dd6d59267`. Native
-tests compare the full encoded trees of `BoundedQueue`, `ProofSteps` and
-`Compatibility` against handwritten Surface trees, and check diagnostic positions and
-whole-source verdicts. `make check` runs the native regression whenever a
-scoped target is in the parser namespace.
+tests compare the full encoded module trees of `BoundedQueue`, `ProofSteps`,
+`Compatibility`, `MembershipForms`, `ReferenceForms`, `FairnessTest` and
+`InnerModuleTest` against handwritten Surface trees. They also compare the
+full expressions for `ACP_SB!fairness` and `EWD840!Inv` and check diagnostic
+positions and whole-source verdicts. `make check` runs the native regression
+whenever a scoped target is in the parser namespace.
 [Fixture driver and hashes](../../tests/semantics/tla-parser/check.py) ·
 [Verdict cases](../../tests/semantics/tla-parser/cases.json) ·
 [Pinned VoteProof](https://github.com/tlaplus/tlaplus/blob/bc1b506bdcad80bb518bf3776a9161c34ff0fc4c/tlatools/org.lamport.tlatools/test-model/VoteProof/VoteProof.tla) ·

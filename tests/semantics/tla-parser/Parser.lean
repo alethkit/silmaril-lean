@@ -10,7 +10,7 @@ meta import Silmaril.ProofFormats.TLA.SurfaceSExp.Defs
 open Silmaril.Logic.Temporal.TLA.Surface
 open Silmaril.Logic.Temporal.TLA.Surface.Parser
 open Silmaril.Logic.Temporal.TLA.Surface.Examples (boundedQueue)
-open Silmaril.ProofFormats.TLA.SurfaceSExp (encodeModule)
+open Silmaril.ProofFormats.TLA.SurfaceSExp (encodeExpr encodeModule)
 
 private def check (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw (IO.userError message)
@@ -133,6 +133,12 @@ private def checkAssignments (boundedPath bitPath : System.FilePath) : IO Unit :
 private def name (id : Ident) (args : List Expr := []) : Expr :=
   .ref (.operator (.ident id)) (args.map .expr) []
 
+private def infixOp (op : String) (left right : Expr) : Expr :=
+  .infix (.symbol op) left right
+
+private def checkExpr (label : String) (actual expected : Expr) : IO Unit :=
+  check (decide (encodeExpr actual = encodeExpr expected)) s!"{label}: wrong tree\n{reprStr actual}"
+
 private def stepRef (level : StepRefLevel) (id : Ident) : Expr :=
   .ref (.step ⟨level, id⟩) [] []
 
@@ -177,7 +183,6 @@ private def proofStepsModule : Module :=
 
 private def compatibilityModule : Module :=
   let definition := fun head body => ModuleUnit.definition (.operator .ordinary (.ident head []) body)
-  let infixOp := fun op left right => Expr.infix (.symbol op) left right
   let overlay := infixOp "="
     (.except (name "r") [⟨[.field "v"], infixOp "@@" .oldValue (name "patch")⟩])
     (name "expected")
@@ -202,6 +207,85 @@ private def compatibilityModule : Module :=
       .theoremDecl ⟨none, .expr (name "TRUE"), some (.steps [] ⟨.explicit 1, none⟩
         (some (.byFacts false ⟨[], []⟩)))⟩,
       .submodule ⟨"Sibling", [], []⟩ ]⟩
+
+private def membershipFormsModule : Module :=
+  let definition := fun head body => ModuleUnit.definition (.operator .ordinary (.ident head []) body)
+  let nat := fun n => Expr.literal (.natural n)
+  let x := name "x"
+  let tag := name "tag"
+  let tagFunction := fun body => Expr.function [⟨.names ["tag"], name "BOOLEAN"⟩] body
+  let member := infixOp "\\in" x (.setEnum [nat 0, nat 1])
+  let nestedSet := Expr.setEnum [.index (tagFunction tag) [name "TRUE"]]
+  ⟨"MembershipForms", ["Naturals"],
+    [ .variables ["x"],
+      definition "Property" (.prefix .always (.action .square member x)),
+      definition "Flag" (tagFunction (.ifThenElse tag (nat 1) (nat 0))),
+      definition "Applied" (.index (name "Flag") [member]),
+      definition "Nested" (.action .square (infixOp "\\in" x nestedSet) x) ]⟩
+
+private def referenceFormsModule : Module :=
+  let definition := fun head body => ModuleUnit.definition (.operator .ordinary (.ident head []) body)
+  let nat := fun n => Expr.literal (.natural n)
+  let x := name "x"
+  let truth := Statement.expr (name "TRUE")
+  let cite := fun level id => some (Proof.byFacts false ⟨[.expr (stepRef (.explicit level) id)], []⟩)
+  let inner := Proof.steps [⟨⟨.explicit 3, some "inner"⟩, .assert truth (some .obvious)⟩]
+    ⟨.explicit 3, none⟩ (cite 3 "inner")
+  let outer := Proof.steps [⟨⟨.explicit 1, some "outer"⟩, .assert truth (some inner)⟩]
+    ⟨.explicit 1, none⟩ (cite 1 "outer")
+  ⟨"ReferenceForms", ["Naturals"],
+    [ .variables ["x"],
+      .submodule ⟨"Child", [], [.theoremDecl ⟨some "Claim", truth, some outer⟩]⟩,
+      .definition (.namedInstance .ordinary "ChildInstance" [] ⟨"Child", []⟩),
+      definition "Step" (infixOp "=" (.postfix .prime x) (infixOp "+" x (nat 1))),
+      definition "Spec" (.junction .conjunction
+        [.prefix .always (.action .square (name "Step") x),
+         .junction .disjunction [.fairness .weak x (name "Step"),
+           .fairness .strong (.tuple [x, x]) (name "Step")]]),
+      definition "Arithmetic" (infixOp "+" (nat 1) (.labeled ⟨"Term", []⟩
+        (infixOp "*" (nat 2) (nat 3)))) ]⟩
+
+private def innerModuleTest : Module :=
+  let innerOp := Expr.ref (.operator (.ident "inner")) [] [.named (.ident "op") []]
+  ⟨"InnerModuleTest", ["Semantics"],
+    [ .submodule ⟨"Inner", [], [.definition (.operator .ordinary (.ident "op" []) (name "TRUE"))]⟩,
+      .definition (.namedInstance .ordinary "inner" [] ⟨"Inner", []⟩),
+      .theoremDecl ⟨none, .expr (name "RefersTo" [innerOp, .literal (.string "1")]), none⟩,
+      .theoremDecl ⟨none, .expr (name "IsLevel" [innerOp, name "ConstantLevel"]), none⟩ ]⟩
+
+private def fairnessTest : Module :=
+  let vars := ["x", "y", "z"]
+  let refersTo := fun id => name "RefersTo" [name id, .literal (.string id)]
+  let theoremOf := fun kind subscript action => ModuleUnit.theoremDecl
+    ⟨none, .expr (name "IsLevel" [.fairness kind subscript action, name "TemporalLevel"]), none⟩
+  let observation := refersTo "vars"
+  let tuple := Expr.tuple (vars.map refersTo)
+  let one := Expr.literal (.natural 1)
+  ⟨"FairnessTest", ["Semantics"],
+    [ .variables vars,
+      .definition (.operator .ordinary (.ident "vars" []) (.tuple (vars.map fun id => name id))),
+      theoremOf .weak observation one, theoremOf .weak tuple one,
+      theoremOf .strong observation one, theoremOf .strong tuple one,
+      theoremOf .weak observation (refersTo "x"), theoremOf .strong observation (refersTo "y"),
+      theoremOf .weak observation (.postfix .prime (refersTo "z")),
+      theoremOf .strong observation (.postfix .prime (refersTo "x")) ]⟩
+
+private def checkReferenceExpressions : IO Unit := do
+  let nat := fun n => Expr.literal (.natural n)
+  let condition := infixOp "=" (nat 1) (nat 1)
+  checkExpr "prefix minus on a multiplication operand" (← expr "2 * -3^2")
+    (infixOp "*" (nat 2) (.prefix .minus (infixOp "^" (nat 3) (nat 2))))
+  checkExpr "label precedence ignores operators inside delimited subexpressions"
+    (← expr "1 + Term:: 2 * (IF 1 = 1 THEN 3 ELSE 4)")
+    (infixOp "+" (nat 1) (.labeled ⟨"Term", []⟩
+      (infixOp "*" (nat 2) (.ifThenElse condition (nat 3) (nat 4)))))
+  let action := Expr.action .square (name "A") (name "f")
+  checkExpr "index outside reduced action subscript" (← expr "[A]_f[i]")
+    (.index action [name "i"])
+  checkExpr "index inside grouped action subscript" (← expr "[A]_(f[i])")
+    (.action .square (name "A") (.index (name "f") [name "i"]))
+  checkExpr "explicit action in fairness with a nested reduced subscript" (← expr "WF_[A]_f(i)(B)")
+    (.fairness .weak (.action .square (name "A") (name "f" [name "i"])) (name "B"))
 
 private def checkUpstreamShape (parsed : Module) : IO Unit := do
   if parsed.name == "HourClock" then
@@ -229,6 +313,24 @@ private def checkUpstreamShape (parsed : Module) : IO Unit := do
         | .junction .conjunction [_, _, _] | .junction .conjunction [_, _, _, _] => true
         | _ => false)) "DieHard nested junction lists"
     | _, _ => throw (IO.userError "DieHard expression shapes")
+  else if parsed.name == "ACP_SB" then
+    let vars := Expr.tuple [name "coordinator", name "participant"]
+    checkExpr "ACP_SB fairness" (← definitionBody parsed "fairness")
+      (.junction .conjunction [
+        .rigidQuant .forall (.bounded [⟨.names ["i"], name "participants"⟩])
+          (.fairness .weak vars (name "parProg" [name "i"])),
+        .fairness .weak vars (name "coordProgB")])
+  else if parsed.name == "EWD840" then
+    let str := fun s => Expr.literal (.string s)
+    checkExpr "EWD840 Inv" (← definitionBody parsed "Inv")
+      (.junction .disjunction [
+        .labeled ⟨"P0", []⟩ (.rigidQuant .forall (.bounded [⟨.names ["i"], name "Node"⟩])
+          (infixOp "=>" (infixOp "<" (name "tpos") (name "i"))
+            (.prefix .negation (.index (name "active") [name "i"])))),
+        .labeled ⟨"P1", []⟩ (.rigidQuant .exists
+          (.bounded [⟨.names ["j"], infixOp ".." (.literal (.natural 0)) (name "tpos")⟩])
+          (infixOp "=" (.index (name "color") [name "j"]) (str "black"))),
+        .labeled ⟨"P2", []⟩ (infixOp "=" (name "tcolor") (str "black"))])
 
 private def checkCorpus : List String → IO Unit
   | [] => pure ()
@@ -241,6 +343,10 @@ private def checkCorpus : List String → IO Unit
         | some "BoundedQueue.tla" => some boundedQueue
         | some "ProofSteps.tla" => some proofStepsModule
         | some "Compatibility.tla" => some compatibilityModule
+        | some "MembershipForms.tla" => some membershipFormsModule
+        | some "ReferenceForms.tla" => some referenceFormsModule
+        | some "InnerModuleTest.tla" => some innerModuleTest
+        | some "FairnessTest.tla" => some fairnessTest
         | _ => none
       match expectedTree with
       | some tree =>
@@ -271,6 +377,7 @@ public def main (args : List String) : IO Unit := do
   checkOperators
   checkJunctions
   checkConstructs
+  checkReferenceExpressions
   checkDiagnostics
   checkModuleShape
   let fixtures := System.FilePath.mk "tests/semantics/tla-quint"
