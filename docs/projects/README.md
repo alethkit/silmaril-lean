@@ -89,4 +89,5 @@ and compilers. Each will arrive with a guide and examples as it joins the librar
 
 The [Python SOS proposal](python-sos.md) describes a first core semantics slice,
 its operational institution, and the coverage and refinement proofs for
-feature-restricted profiles.
+feature-restricted profiles. The [implementation and acceptance plan](python-sos-acceptance.md)
+tracks the remaining Python, SOS and Wasm proof boundaries.
