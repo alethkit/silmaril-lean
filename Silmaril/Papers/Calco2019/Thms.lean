@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Papers.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Thms
+public import Silmaril.Semantics.Calco2019.ResumptionThms
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
@@ -85,4 +86,29 @@ theorem example20_vacuous : (Guardedness.least P).Iterative :=
   Guardedness.vacuous_iterative
 
 end Guardedness
+
+section Resumptions
+
+variable {C : Type u} [Category.{v} C] {M : ParametrizedMonad C}
+  (R : FinalResumptions M) (P : Coproducts C) {X Y : C}
+
+include P in
+/-- Proposition 23(1). The extension is the unique solution of the observation diagram. -/
+theorem proposition23_extension (f : X ⟶ R.obj Y) : ∃! k, R.IsExtension f k :=
+  ⟨R.extend P f, R.extend_spec P f, fun k hk => R.extend_unique P f k hk⟩
+
+/-- Proposition 23(2). The recursive diagram has a unique solution.
+The input uses the sum order in the paper's diagram. -/
+theorem proposition23_solution (f : X ⟶ (M.obj (R.obj (P.sum Y X))).obj Y) :
+    ∃! g, R.IsSolution P f g :=
+  ⟨R.solve P f, R.solve_spec P f, fun g hg => R.solve_unique P f g hg⟩
+
+/-- Proposition 23(3). The monad built from the observation map has the specified unit
+and Kleisli extension. Its carrier at `X` is `R.obj X` by construction. -/
+theorem proposition23_monad (f : X ⟶ R.obj Y) :
+    (R.monad P).η.app X = (M.obj (R.obj X)).η.app X ≫ R.roll X ∧
+      (R.monad P).map f ≫ (R.monad P).μ.app Y = R.extend P f :=
+  ⟨rfl, R.monad_extend P f⟩
+
+end Resumptions
 end Silmaril.Papers.Calco2019
