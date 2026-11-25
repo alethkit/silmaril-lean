@@ -54,7 +54,7 @@ structure CodeRef where
 structure Function where
   code : CodeRef
   captures : Vector CellId code.layout.captures
-  deriving Repr
+  deriving DecidableEq, Repr
 
 /-- Import a compiler-produced capture list in its existing order. -/
 def Function.ofCaptureList (code : CodeRef) (captures : List CellId)

@@ -54,6 +54,7 @@ inductive Value where
   | none
   | exceptionClass (kind : ExceptionClass)
   | helper (callable : Helper)
+  | function (closure : Core.Closure.Function)
   deriving DecidableEq, Repr
 
 inductive Failure where

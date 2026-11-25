@@ -28,8 +28,11 @@ structure TopFunction where
   ref : CodeRef
   noCaptures : ref.layout.captures = 0
 
+def TopFunction.closure (function : TopFunction) : Function :=
+  Function.ofCaptureList function.ref [] function.noCaptures.symm
+
 def TopFunction.value (function : TopFunction) : Value :=
-  .function (Function.ofCaptureList function.ref [] function.noCaptures.symm)
+  .function function.closure
 
 /-- Resolve the layout before publishing the binding. Body execution starts
 only with an invocation. Publication preserves the heap. -/

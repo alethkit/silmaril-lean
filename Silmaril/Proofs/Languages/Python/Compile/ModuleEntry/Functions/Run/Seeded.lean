@@ -8,6 +8,8 @@ public section
 namespace Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 
 open Silmaril.Languages.Python.Core.Module.SeededCall (Failure Namespace Value)
+open Silmaril.Languages.Python.Core.Closure (Heap)
+open Silmaril.Languages.Python.Core.Closure.Executor (CodeTable)
 open Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run (Argument Instruction)
 open Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded
 
@@ -41,13 +43,14 @@ theorem observeArguments_iff {space : Namespace} {arguments : List Argument}
     | stop failed => simp [observeArguments, failed]
     | next first _ ih => simp [observeArguments, first, ih]
 
-theorem preserves_builtins {scope : Languages.Python.Source.Scope} (space : Namespace)
-    (instructions : List (Instruction scope)) :
-    (runInstructions space instructions).residual.builtins = space.builtins := by
+theorem preserves_storage {scope : Languages.Python.Source.Scope} (space : Namespace)
+    (instructions : List (Instruction scope)) (table : CodeTable) (heap : Heap) :
+    (runInstructions space instructions table heap).residual.builtins = space.builtins ∧
+      (runInstructions space instructions table heap).heap = heap := by
   induction instructions generalizing space with
-  | nil => rfl
+  | nil => exact ⟨rfl, rfl⟩
   | cons instruction rest ih =>
-    cases selected : (effect space instruction).binding with
+    cases selected : (effect space instruction table).binding with
     | error error => simp [runInstructions, selected]
     | ok binding =>
       cases binding with
