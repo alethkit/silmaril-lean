@@ -30,4 +30,13 @@ theorem feedback_of_live (steps : ∀ i, Step primitives (micro i) (micro (i + 1
     HasFeedback primitives micro (begin + 1) :=
   Theta.Proofs.feedback_of_live steps entered live returns
 
+/-- Recover the independent finite route to the observed productive
+θ, including the exact stack at its first observed restart. -/
+theorem reaches_feedback_of_live (steps : ∀ i, Step primitives (micro i) (micro (i + 1)))
+    {caller : Entry m σ} {base : Stack m caller.call.results final}
+    (entered : micro begin = caller.config base) (live : LiveFrom micro begin base)
+    (returns : ∀ i, begin < i → ¬ NonreturningCallAt micro i) :
+    ReachesFeedback primitives micro (begin + 1) caller.call.openBody caller.store base :=
+  Theta.Proofs.reaches_feedback_of_live steps entered live returns
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Extraction

@@ -1,6 +1,7 @@
 module
 
 import Mathlib.Tactic.IntervalCases
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Divergence.Thms
 import Silmaril.Foundations.InfiniteTrace.Deterministic
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Extraction.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Extraction.Theta.Thms
@@ -675,5 +676,98 @@ example : CallDescent.Extraction.HasFeedback primitives feedbackOnlyStream 1 := 
     rw [atCall] at notCall
     rcases entry with ⟨⟨_, ⟨_, _, _⟩⟩, _⟩
     cases notCall
+
+private def descentRoot : CallDescent.Entry machine Nat :=
+  Divergence.linkedEntry machine 51 descentModule.toGraph .nil (.tail .head) (args 0 7) 20
+
+-- Build the descent certificate independently and exercise replay.
+example : Divergence.Diverges primitives descentRoot := .inl ⟨descentRun, rfl⟩
+
+example : InfiniteTrace (Step primitives) ⟨start (.call descentCallee (args 0 7)), 20⟩ :=
+  (Divergence.linked_diverges_iff (primitives := primitives) 51 descentModule.toGraph .nil
+    (.tail .head) (args 0 7) 20).mp (.inl ⟨descentRun, rfl⟩)
+
+example : Divergence.Diverges primitives descentRoot :=
+  Divergence.diverges_iff_infinite.mpr (descentRun.infinite descentHalt)
+
+private def feedbackAt (callee : machine.Val callable) : CallDescent.Entry machine Nat :=
+  ⟨⟨answer, ⟨fn.args, callee, args 1 7⟩⟩, 20⟩
+
+private theorem feedbackOnlyRuns :
+    Feedback.Run primitives feedbackOnlyBody (args 1 7, 20) := by
+  refine ⟨fun n => (args 1 (7 + n), 20 + n), rfl, fun n => ?_⟩
+  refine ⟨.control 1, ?_, rfl⟩
+  exact Eval.bind (node := feedbackOnlyTick) (value := stateValue (7 + n + 1)) (middle := 20 + n + 1)
+    (.primitive { tickSite with input := stateValue (7 + n) } (_root_.Part.mem_some _)) (.ret _ _ _ _)
+
+private theorem feedbackRouteAt (callee : machine.Val callable)
+    (opened : Job.openClosure machine callee (args 1 7) = .region feedbackOnlyTerm (args 1 7) PUnit.unit)
+    (stack : Stack machine answer answer) : Divergence.FeedbackRoute primitives (feedbackAt callee) stack := by
+  let target : Feedback.Restart machine Nat := ⟨fn.args, [answer], feedbackOnlyBody, args 1 7, 20⟩
+  let pending : Descent.Pending machine fn.args answer :=
+    .bind (past := []) feedbackOnlySuffix (args 1 7) PUnit.unit .empty
+  refine .restart (target := target) (pending := pending) ?_ feedbackOnlyRuns
+  change Feedback.Reaches primitives (Job.openClosure machine callee (args 1 7)) 20 target _
+  rw [opened]
+  exact .inside (node := feedbackOnlyNode) (.theta (.restart (input := (args 1 7, 20)) (current := (args 1 7, 20)) .refl))
+
+private def feedbackCallNode : NestedTheta.Node (Instruction Op) carried [] answer :=
+  ⟨carried, .base (.simple (.apply fn)), .cons (.arg .head) (.cons (.arg (.tail .head))
+    (.cons (.arg (.tail (.tail .head))) .nil)), fun i => i.elim0⟩
+
+private def feedbackCallSuffix : NestedTheta.Term (Instruction Op) carried [answer] [] answer :=
+  .ret (.cons (.output (0 : Fin 1) .head) .nil)
+
+private def feedbackCallTerm : NestedTheta.Term (Instruction Op) carried [] [answer] answer :=
+  .bind feedbackCallNode (fun i => i.elim0) feedbackCallSuffix
+
+private def feedbackRootModule : OmegaTerm Op [] [callable, callable] [[callable], [callable]] :=
+  ⟨.bind (.lambda ⟨[], .nil, [fn.args], feedbackOnlyTerm⟩) <|
+    .bind (.lambda ⟨[callable], .cons (.output (0 : Fin 1) .head) .nil, [answer], feedbackCallTerm⟩) <|
+      .ret (.cons (.output (0 : Fin 2) .head) (.cons (.output (1 : Fin 2) .head) .nil))⟩
+
+private def feedbackRootExports : Tuple machine.Val [callable, callable] :=
+  Recursive.linkGraph machine 62 feedbackRootModule.toGraph .nil
+
+private def feedbackRootHelper : machine.Val callable := feedbackRootExports.get .head
+private def feedbackRootCallee : machine.Val callable := feedbackRootExports.get (.tail .head)
+private def feedbackRoot : CallDescent.Entry machine Nat :=
+  Divergence.linkedEntry machine 62 feedbackRootModule.toGraph .nil (.tail .head) (args 1 7) 20
+
+private theorem feedbackRootOpened :
+    Job.openClosure machine feedbackRootCallee (args 1 7) =
+      .region feedbackCallTerm (.cons feedbackRootHelper (args 1 7)) PUnit.unit :=
+  congrArg (fun term => Job.region (m := machine) (past := []) term (.cons feedbackRootHelper (args 1 7)) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph feedbackCallTerm)
+
+private theorem feedbackRootHelperOpened :
+    Job.openClosure machine feedbackRootHelper (args 1 7) = .region feedbackOnlyTerm (args 1 7) PUnit.unit :=
+  congrArg (fun term => Job.region (m := machine) (past := []) term (args 1 7) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph feedbackOnlyTerm)
+
+-- Independently specify one nested call with a saved suffix before θ.
+private theorem feedbackRootDiverges : Divergence.Diverges primitives feedbackRoot := by
+  apply Or.inr
+  let pending : Descent.Pending machine answer answer :=
+    .bind (past := []) feedbackCallSuffix (.cons feedbackRootHelper (args 1 7)) PUnit.unit .empty
+  refine .call (child := feedbackAt feedbackRootHelper) (pending := pending) ?_
+    (feedbackRouteAt feedbackRootHelper feedbackRootHelperOpened (pending.push .halt))
+  change CallDescent.Prefix primitives (Job.openClosure machine feedbackRootCallee (args 1 7)) 20 _ _
+  rw [feedbackRootOpened]
+  exact .inside (node := feedbackCallNode) (.apply (fn := fn) feedbackRootHelper (args 1 7) 20)
+
+example : InfiniteTrace (Step primitives) ⟨start (.call feedbackRootCallee (args 1 7)), 20⟩ :=
+  (Divergence.linked_diverges_iff (primitives := primitives) 62 feedbackRootModule.toGraph .nil
+    (.tail .head) (args 1 7) 20).mp feedbackRootDiverges
+
+-- Exercise θ projection from the separately checked actual machine stream.
+example : Divergence.Diverges primitives
+    (Divergence.linkedEntry machine 61 feedbackOnlyModule.toGraph .nil .head (args 1 7) 20) :=
+  (Divergence.linked_diverges_iff (primitives := primitives) 61 feedbackOnlyModule.toGraph .nil
+    .head (args 1 7) 20).mpr ⟨feedbackOnlyStream, rfl, feedbackOnlySteps⟩
+
+example : ¬ Divergence.Diverges primitives
+    (Divergence.linkedEntry machine 47 linked.toGraph .nil (.tail .head) (args 1 7) 20) :=
+  Divergence.not_diverges_of_blocked (blockRoot.steps .halt) (blockRoot.blocks .halt)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Tests

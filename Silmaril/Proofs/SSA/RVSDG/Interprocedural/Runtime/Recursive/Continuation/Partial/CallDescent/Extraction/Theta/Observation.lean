@@ -90,31 +90,33 @@ private theorem feedback_or_live (steps : ∀ i, Step primitives (micro i) (micr
   · exact .inr stillLive
 
 theorem loop_or_live_body (steps : ∀ i, Step primitives (micro i) (micro (i + 1)))
-    (entered : micro begin = (Feedback.Restart.mk carried sigs body input).config parent) (live : LiveFrom micro begin parent) :
-    HasFeedback primitives micro begin ∨
+    (entered : micro begin = (Feedback.Restart.mk carried sigs body input).config parent)
+    (live : LiveFrom micro begin parent) :
+    (∃ positions inputs, positions 0 = begin ∧
+      FeedbackOnStream primitives micro ⟨carried, sigs, body, input⟩ parent positions inputs) ∨
       ∃ (i : Nat) (current : Tuple m.Val carried × σ), begin < i ∧
+        ReflTransGen (Feedback.Iteration primitives body) input current ∧
         micro i = ⟨.eval (.region body current.1 PUnit.unit) (.loop body parent), current.2⟩ ∧
         LiveFrom micro i (.loop body parent) := by
   classical
-  let Seen (p : Nat × (Tuple m.Val carried × σ)) : Prop :=
-    begin ≤ p.1 ∧ micro p.1 = restart body parent p.2
-  by_cases bodyLive : ∃ p, Seen p ∧ LiveFrom micro (p.1 + 1) (.loop body parent)
-  · obtain ⟨⟨i, current⟩, ⟨lower, observed⟩, stillLive⟩ := bodyLive
-    exact .inr ⟨i + 1, current, by omega, enter_body steps observed, stillLive⟩
-  · let Advances (p q : Nat × (Tuple m.Val carried × σ)) : Prop :=
-      p.1 < q.1 ∧ Feedback.Iteration primitives body p.2 q.2 ∧ Seen p
-    have infinite : InfiniteTrace Advances (begin, input) := by
-      apply InfiniteTrace.coinduct Seen ?_ ⟨Nat.le_refl _, entered⟩
-      rintro ⟨i, current⟩ ⟨lower, observed⟩
+  let seen (p : Nat × (Tuple m.Val carried × σ)) : Prop :=
+    begin ≤ p.1 ∧ micro p.1 = restart body parent p.2 ∧ ReflTransGen (Feedback.Iteration primitives body) input p.2
+  by_cases bodyLive : ∃ p, seen p ∧ LiveFrom micro (p.1 + 1) (.loop body parent)
+  · obtain ⟨⟨i, current⟩, ⟨lower, observed, completed⟩, stillLive⟩ := bodyLive
+    exact .inr ⟨i + 1, current, by omega, completed, enter_body steps observed, stillLive⟩
+  · let advances (p q : Nat × (Tuple m.Val carried × σ)) : Prop :=
+      p.1 < q.1 ∧ Feedback.Iteration primitives body p.2 q.2 ∧ seen p
+    have infinite : InfiniteTrace advances (begin, input) := by
+      apply InfiniteTrace.coinduct seen ?_ ⟨Nat.le_refl _, entered, .refl⟩
+      rintro ⟨i, current⟩ ⟨lower, observed, completed⟩
       rcases feedback_or_live steps observed (fun j after => live j (lower.trans after)) with
         ⟨stop, next, later, atNext, iteration⟩ | stillLive
-      · exact ⟨(stop, next), ⟨later, iteration, lower, observed⟩, by omega, atNext⟩
-      · exact False.elim (bodyLive ⟨(i, current), ⟨lower, observed⟩, stillLive⟩)
+      · exact ⟨(stop, next), ⟨later, iteration, lower, observed, completed⟩,
+          by omega, atNext, completed.tail iteration⟩
+      · exact False.elim (bodyLive ⟨(i, current), ⟨lower, observed, completed⟩, stillLive⟩)
     obtain ⟨visits, first, edges⟩ := infinite
-    refine .inl ⟨⟨carried, sigs, body, input⟩, parent, fun n => (visits n).1, fun n => (visits n).2, ?_, ?_⟩
-    · change begin ≤ (visits 0).1
-      rw [first]
-    · refine ⟨congrArg Prod.snd first, ?_, fun n => (edges n).1, fun n => (edges n).2.2.2, fun n => (edges n).2.1⟩
-      simpa only [first] using live
+    refine .inl ⟨fun n => (visits n).1, fun n => (visits n).2, congrArg Prod.fst first, ?_⟩
+    refine ⟨congrArg Prod.snd first, ?_, fun n => (edges n).1, fun n => (edges n).2.2.2.1, fun n => (edges n).2.1⟩
+    simpa only [first] using live
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Extraction.Theta.Proofs
