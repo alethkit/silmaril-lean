@@ -245,6 +245,26 @@ private theorem regionDenotes_subst {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     refine ⟨.cfg R he' hb', ?_⟩
     simpa only [body', split, MonoidalCategory.id_tensorHom] using RegionDenotes.cfg he' hb' de' db' dc'
 
+theorem regionDenotes_weakenCapture_proof {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    {A : τ} (B : τ) {hr : Region.HasType (A :: Γ) r L}
+    {f : J.obj (ctxObj M (A :: Γ)) ⟶ J.obj (labelObj M L)}
+    (d : RegionDenotes J M hr f) :
+    RegionDenotes J M (hr.renameVars ((Ren.wk Γ B).lift A))
+      (J.map (fst (ctxObj M Γ) (M.obj B) ▷ M.obj A) ≫ f) := by
+  let ρ := (Ren.wk Γ B).lift A
+  let k := fst (ctxObj M Γ) (M.obj B)
+  have hk : ∀ ⦃i T⦄ (h : At Γ i T),
+      k ≫ lookup M i h = lookup M (i + 1) ((Ren.wk Γ B) h) :=
+    fun _ _ h => (lookup_succ M (B := B) h).symm
+  have hσ : SubstDenotes J M (Φ := Φ) (Γ := A :: Γ) (Δ := A :: B :: Γ)
+      (Tm.var ∘ lift Nat.succ) (k ▷ M.obj A) := by
+    intro i T h
+    refine ⟨.var (ρ h), ?_⟩
+    rw [renameLookup_lift M (Ren.wk Γ B) hk A h]
+    exact .var (ρ h)
+  obtain ⟨ht, dt⟩ := regionDenotes_subst J M d hσ
+  simpa only [← Region.renameVars_eq_substVars] using dt
+
 theorem regionDenotes_substValue_proof {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     {a : Tm Φ} {A : τ} {hr : Region.HasType (A :: Γ) r L}
     {f : J.obj (ctxObj M (A :: Γ)) ⟶ J.obj (labelObj M L)}
