@@ -231,6 +231,12 @@ UPSTREAM_LITERAL_TUPLE_COMPARISONS = (
     ("tests/python/programs/original/k-python/programs/testtuples1.py",
      "e6835512c2b669200b60a1e0fece8985616c744d80ce044c21bdd7678befc89a"),
 )
+UPSTREAM_LITERAL_COMPARISON_CHAINS = (
+    ("tests/python/programs/original/k-python/programs/testbools9.py",
+     "6394764cbf11f20dba5c6d67620aeb99c35f7fec12c174c4ec4be8f53d7719cf"),
+    ("tests/python/programs/original/k-python/programs/testintegers4.py",
+     "afb92835ef43e62344db39336dce513243bb89d31021c839cfd4519772b1ddb2"),
+)
 UPSTREAM_LITERAL_INDEXING = (
     ("tests/python/programs/original/k-python/programs/testlists2.py",
      "7f4fdac9762c64a4355649bab7aeba840c94512eb11831621d60660ce7aa644e"),
@@ -474,6 +480,20 @@ after = 9
 result = (1 in (True,)) == (missing == later)
 after = 9
 """, ["NameError:missing", "int:7", "absent"]),
+    ("literal_chain_typed_bindings", "legacy_bool_callable_builtin", """result = -1 < False <= True == 1
+after = 0 < 2 > 3
+assert 0 < 2 > 1
+___assertIs(result, True)
+___assertIs(after, False)
+""", ["normal", "bool:True", "bool:False"]),
+    ("literal_chain_failed_assertion", "empty", """result = 7
+assert 1 < 0 < -1
+after = 9
+""", ["AssertionError:empty", "int:7", "absent"]),
+    ("literal_chain_failure_order", "legacy_preamble", """result = 7
+result = (0 < 2 > 1) == (missing == later)
+after = 9
+""", ["NameError:missing", "int:7", "absent"]),
     ("bool_int_false", "legacy_bool_int_builtin", """result = int(False)
 ___assertEqual(result, 0)
 ___assertIsNot(result, False)
@@ -574,6 +594,9 @@ after = 9
 )
 
 NESTED_CALL_NAMES = {
+    "literal_chain_typed_bindings": ["___assertIs", "___assertIs"],
+    "literal_chain_failed_assertion": [],
+    "literal_chain_failure_order": [],
     "literal_tuple_typed_bindings": ["___assertIs", "___assertIs"],
     "literal_tuple_failed_assertion": [],
     "literal_tuple_operand_failure_order": [],
@@ -607,6 +630,9 @@ NESTED_CALL_NAMES = {
 }
 
 EXACT_FIXTURE_BINDINGS = {
+    "literal_chain_typed_bindings": '[("after", .bool false), ("result", .bool true)]',
+    "literal_chain_failed_assertion": '[("result", .int 7)]',
+    "literal_chain_failure_order": '[("result", .int 7)]',
     "literal_tuple_typed_bindings": '[("after", .bool false), ("result", .bool true)]',
     "literal_tuple_failed_assertion": '[("result", .int 7)]',
     "literal_tuple_operand_failure_order": '[("result", .int 7)]',
@@ -860,6 +886,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         *((path, sha256, {}) for path, sha256 in UPSTREAM_NO_OP),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_INDEXING),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_TUPLE_COMPARISONS),
+        *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_COMPARISON_CHAINS),
     )
     for path, sha256, bindings in cases:
         source = pinned_source(checkout, path, sha256)

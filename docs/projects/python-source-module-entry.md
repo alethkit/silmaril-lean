@@ -46,6 +46,14 @@ elements in order using the same scalar equality, including Boolean and
 integer equality at zero and one. The checked operand emits a Boolean
 through scalar equality and performs no runtime lookup or allocation.
 
+A scalar comparison chain has at least two links. Every link uses one of
+`==`, `!=`, `<`, `<=`, `>` or `>=` and every operand is an exact
+Boolean or integer literal, including unary minus on an integer literal.
+The checker validates the whole chain before folding. Each reached right
+value becomes the next comparison's left value. The first false comparison
+ends the scan. The result uses the same Boolean operand as a folded tuple
+comparison, with no runtime lookup, call, or allocation.
+
 The regression emits Lean from Python source and verifies the global
 access witnesses, action order and the diagnostic for an assertion
 message.

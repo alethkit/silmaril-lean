@@ -87,6 +87,16 @@ assert 1 not in (False,)
 result = (1 in (True,)) == (missing + (1 // 0))
 after = 9
 """, {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
+    ("literal_chain_boolean_results", """mixed = -1 < False <= True == 1
+middle = 0 < 2 > 1
+stopped = 1 < 0 < -1
+reached = 0 < 1 > 2
+assert -2 < 0 <= 1 != 2
+""", {}, {"mixed": True, "middle": True, "stopped": False, "reached": False}, "normal", ".normal", 5),
+    ("literal_chain_enclosing_failure_order", """result = 7
+result = (0 < 2 > 1) == (missing + (1 // 0))
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
 )
 
 UNSUPPORTED_INDEXING = (
@@ -122,6 +132,12 @@ REJECTED_BRANCHES = (
     ("result = 1 in (*other,)\n", ".expressionProfile"),
     ("result = 1 in (f(),)\n", ".expressionProfile"),
     ("result = 1 in (1,) == (1,)\n", ".expressionProfile"),
+    ("result = 0 > 1 < missing\n", ".expressionProfile"),
+    ("result = 0 > 1 < (1 // 0)\n", ".expressionProfile"),
+    ("result = 0 > 1 is 2\n", ".expressionProfile"),
+    ("result = 0 > 1 < 2.0\n", ".expressionProfile"),
+    ("result = 0 < probe() < 2\n", ".expressionProfile"),
+    ("result = 0 < 1\n", ".expressionProfile"),
 )
 
 CPYTHON = """
@@ -172,7 +188,29 @@ def lean_value(value):
     return f".int ({value})"
 
 
+def check_chain_order():
+    visits = []
+
+    def probe(value):
+        visits.append(value)
+        return value
+
+    namespace = {"__builtins__": {}, "probe": probe}
+    cases = (
+        ("probe(0) < probe(2) > probe(1)", True, [0, 2, 1]),
+        ("probe(1) < probe(0) < probe(-1)", False, [1, 0]),
+        ("0 > 1 < missing", False, []),
+        ("0 > 1 < (1 // 0)", False, []),
+    )
+    for source, result, expected_visits in cases:
+        visits.clear()
+        expression = compile(source, "<comparison chain>", "eval", dont_inherit=True, optimize=0)
+        assert eval(expression, namespace) is result, source
+        assert visits == expected_visits, source
+
+
 if __name__ == "__main__":
+    check_chain_order()
     shared = runpy.run_path(str(Path(__file__).resolve().parent.parent / "source-scope/check_intake.py"))
     imports = (
         "import Silmaril.Languages.Python.Compile.ModuleEntry.Run.Thms",
