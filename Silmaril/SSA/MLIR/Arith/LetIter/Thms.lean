@@ -25,6 +25,6 @@ theorem Block.toLetIter_eval_iff (block : Block Γ w) (env : Env Γ) (out : Valu
     LetIter.Semantics.Eval instr Empty.elim env.toLetIter
       block.toLetIter () out () ↔ out = word (block.denote env) := by
   refine (SSAIter.encodeSingle_eval_iff _ (env := env.toLambdaSSA) (fun _ => rfl)).trans ?_
-  simpa using block.toLambdaSSA_eval_iff env 0 out
+  simpa [Block.toScopedLambdaSSA] using block.toLambdaSSA_eval_iff env 0 out
 
 end Silmaril.MLIR.Arith

@@ -12,12 +12,16 @@ namespace Silmaril.MLIR.Arith
 open Silmaril.Isotope
 open Silmaril.Isotope.Morphism
 
-/-- The LambdaSSA typing derivation supplies the scope required by the
-single-exit LetIter encoding. -/
+/-- The lowered LambdaSSA region, with its single exit and input scope witnessed
+by the typing derivation. -/
+def Block.toScopedLambdaSSA {Γ : List Width} {w : Width} (block : Block Γ w) :
+    SSAIter.ScopedRegion Prim 1 Γ.length :=
+  ⟨block.toLambdaSSA, by simpa using block.toLambdaSSA_hasType.scoped⟩
+
+/-- Encode the same scoped LambdaSSA region as a positional LetIter term. -/
 def Block.toLetIter {Γ : List Width} {w : Width} (block : Block Γ w) :
     LetIter.LocallyNameless.Tm Empty Prim Γ.length :=
-  SSAIter.encodeSingle block.toLambdaSSA
-    (by simpa using block.toLambdaSSA_hasType.scoped)
+  SSAIter.encodeSingle block.toScopedLambdaSSA.val block.toScopedLambdaSSA.property
 
 /-- Read the LambdaSSA environment at LetIter's in-scope indices. -/
 def Env.toLetIter {Γ : List Width} (env : Env Γ) : LetIter.Semantics.BoundEnv Atom Γ.length :=
