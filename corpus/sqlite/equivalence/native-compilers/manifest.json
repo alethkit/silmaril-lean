@@ -11,13 +11,28 @@
         "length": 79,
         "sha256": "7cc67a0904f3480b405d774ce92af482c7c4f5e8ff92f49e399190d1eb087181",
         "text": "SQLITE_API int sqlite3_libversion_number(void){ return SQLITE_VERSION_NUMBER; }"
+      },
+      "sqlite3_str_length": {
+        "offset": 1425709,
+        "length": 79,
+        "sha256": "bb4eadc91c6677e4804aeb89883cf6a8d5c3871057f7ac5d3e52ae70f47cb0bd",
+        "text": "SQLITE_API int sqlite3_str_length(sqlite3_str *p){\n  return p ? p->nChar : 0;\n}"
       }
     },
     "archive": {
       "url": "https://sqlite.org/2026/sqlite-amalgamation-3540100.zip",
       "sha256": "0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9"
     },
-    "header_sha256": "d6c84557261893439b341d2e6c35187ae3ea24fbfd843ad94616f72d89242b8c"
+    "header_sha256": "d6c84557261893439b341d2e6c35187ae3ea24fbfd843ad94616f72d89242b8c",
+    "layouts": {
+      "sqlite3_str": {
+        "offset": 999371,
+        "length": 470,
+        "sha256": "9c762ecbc1d1c2a00c5119535b8c62ad55059fb9d9e853e1bf42cd89e04624c5",
+        "nChar_offset": 24,
+        "nChar_width": 4
+      }
+    }
   },
   "build": {
     "version": "3.54.1",
@@ -75,7 +90,19 @@
           "symbol_index": 311,
           "symbol_type": "STT_FUNC",
           "bytes_hex": "b8 b1 99 2e 00 c3",
-          "code_sha256": "3d779d39cb681720172513443573eca693b320fcee070ae5d10eb11f65a8d078"
+          "code_sha256": "3d779d39cb681720172513443573eca693b320fcee070ae5d10eb11f65a8d078",
+          "lean_code": "libversionNumberCode"
+        },
+        "sqlite3_str_length": {
+          "address": 65632,
+          "file_offset": 65632,
+          "size": 11,
+          "symbol_section": 3,
+          "symbol_index": 288,
+          "symbol_type": "STT_FUNC",
+          "bytes_hex": "31 c0 48 85 ff 74 03 8b 47 18 c3",
+          "code_sha256": "3392a6c81eff1ae7d03a1102523ace843c98e13fb11c67de762f87c84681bf61",
+          "lean_code": "gccCode"
         }
       },
       "path": "corpus/variants/sqlite/3.54.1/default/x86_64/O2/unstripped/libsqlite3.so",
@@ -103,7 +130,19 @@
           "symbol_index": 312,
           "symbol_type": "STT_FUNC",
           "bytes_hex": "b8 b1 99 2e 00 c3",
-          "code_sha256": "3d779d39cb681720172513443573eca693b320fcee070ae5d10eb11f65a8d078"
+          "code_sha256": "3d779d39cb681720172513443573eca693b320fcee070ae5d10eb11f65a8d078",
+          "lean_code": "libversionNumberCode"
+        },
+        "sqlite3_str_length": {
+          "address": 77424,
+          "file_offset": 77424,
+          "size": 12,
+          "symbol_section": 3,
+          "symbol_index": 289,
+          "symbol_type": "STT_FUNC",
+          "bytes_hex": "48 85 ff 74 04 8b 47 18 c3 31 c0 c3",
+          "code_sha256": "7252ff254d29908c103a0654d31e9e8377a6fc9f669a0ee1686019926f94f505",
+          "lean_code": "clangCode"
         }
       },
       "rebuild_output": "libsqlite3-clang-19.so"
@@ -119,7 +158,30 @@
       "status": "proved-loaded-slices",
       "value": 3054001,
       "left_frame": 0,
-      "right_frame": 0
+      "right_frame": 0,
+      "same_code": true,
+      "audit_declarations": [
+        "libversionNumberCode",
+        "libversionNumber_firstReturn"
+      ]
+    },
+    {
+      "id": "silmaril.corpus.sqlite.native_compilers.str_length",
+      "left": "sqlite-3.54.1-default-x86_64-O2-gcc14",
+      "right": "sqlite-3.54.1-default-x86_64-O2-clang19",
+      "function_symbol": "sqlite3_str_length",
+      "root": "Silmaril.Elf.Corpus.SqliteNativeCompilers.StrLength.Thms",
+      "declaration": "Silmaril.Elf.Corpus.SqliteNativeCompilers.StrLength.strLength_pair",
+      "status": "proved-loaded-slices",
+      "same_code": false,
+      "source_layout": "sqlite3_str",
+      "left_frame": 0,
+      "right_frame": 0,
+      "audit_declarations": [
+        "gccCode",
+        "clangCode",
+        "FieldReadable"
+      ]
     }
   ]
 }

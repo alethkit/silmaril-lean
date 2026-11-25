@@ -86,3 +86,8 @@ Pass a different host CA bundle path to BuildKit if required. Debian's
 signed snapshot authenticates the package index regardless of the path
 used to bootstrap TLS. The last command also prints the transitive axiom
 footprints of the exported byte list and both theorems.
+
+## Distinct instruction sequences
+
+The same artifacts also supply the two `sqlite3_str_length` bodies and their
+separate loaded-slice theorem. [Source, branch edges, and replay](str-length.md).
