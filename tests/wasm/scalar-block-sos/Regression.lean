@@ -4,7 +4,7 @@ import Silmaril.Wasm.Institution.Operational.Blocks.Native.Thms
 
 open Silmaril.Wasm
 open Silmaril.Wasm.Institution.Operational.Blocks
-open Silmaril.Wasm.Institution.Operational (Locals)
+open Silmaril.Wasm.Institution.Operational
 open Silmaril.Wasm.SingleThreaded.Det (noHost)
 
 private abbrev old : Execution.Runtime.Value := .int .i32 2
