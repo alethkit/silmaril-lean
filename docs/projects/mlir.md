@@ -70,9 +70,9 @@ lake build --wfail Silmaril.SSA.MLIR.Arith.Examples.Thms
    institution laws for dialect signatures are planned. Use the repository's
    [institution interface](../../Silmaril/Logic/Institution/Basic.lean).
 3. **Categorical semantics.** Use contexts as objects and tuples of block
-   results as arrows modulo a typed equational theory, with identity given
-   by projections and composition by capture-avoiding substitution or
-   sequencing. Prove the category and finite-product laws and interpret it
+   results as arrows modulo a typed congruence closed under substitution
+   and region contexts. Use projections for identity and capture-avoiding
+   substitution or sequencing for composition. Prove the category and finite-product laws and interpret it
    in a category of total functions, with products for contexts. For
    region-bearing models, require an interpretation of the binders, for
    example using exponentials in a cartesian closed target for the pure
@@ -101,7 +101,7 @@ lake build --wfail Silmaril.SSA.MLIR.Arith.Examples.Thms
 | Tiny scalar dialects | Add a few flag-free bit operations and comparisons, then tuples and explicit block arguments as needed. Build the signature-change and scoped-substitution laws over these examples. |
 | Static tensor | A tensor of shape `[d₀, …, dₖ₋₁]` is a total function from `Fin d₀ × … × Fin dₖ₋₁` to its element carrier, with a singleton index domain for rank zero. Start with constants, elementwise maps and shape-checked indexing. Use extensional equality. |
 | Scoped affine | Integer affine maps and bounded single-block loops with typed loop-carried parameters and yields. Begin without mutable memory and relate admitted loops to finite folds. |
-| Minimal LLVM and future x86 validation | Start with pure single-block scalar integers, concrete defined inputs, constants, unflagged modular add/subtract/multiply and a return. Reject every instruction outside the profile. Initially exclude flags, shifts/division, `freeze`, `undef`, poison-producing profiles, pointers, memory, calls and control flow. Keep unsupported syntax an admission error, immediate UB a separate execution outcome or semantic condition, poison a deferred value state and `undef` a use-dependent choice in extensions. Add one feature at a time and prove semantic refinement on the admitted defined inputs against a specified x86 observation and ABI. |
+| Minimal LLVM and future x86 validation | Start with pure single-block scalar integers, concrete defined inputs, constants, unflagged modular add/subtract/multiply and a return. Reject every instruction outside the profile. Initially exclude flags, shifts/division, `freeze`, `undef`, poison inputs and instructions that can produce poison, pointers, memory, calls and control flow. Keep unsupported syntax an admission error, immediate UB a separate execution outcome or semantic condition, poison a deferred value state and `undef` a use-dependent choice in extensions. Add one feature at a time and prove semantic refinement on the admitted defined inputs against a specified x86 observation and ABI. |
 | Larger dialects | Add small pure static-shape **StableHLO** operators first. For **Triton/Gluon**, start with layout-indexed pure tensor operations, then specify memory and parallel execution explicitly. For a **C dialect**, start with pure scalar expressions whose C types and definedness preconditions are explicit and relate those to the C semantics. |
 
 ## Sources
