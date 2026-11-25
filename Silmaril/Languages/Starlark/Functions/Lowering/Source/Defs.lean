@@ -24,6 +24,12 @@ structure StateMatch (start : Nat) (source target : State) : Prop where
   slots : source.slots = target.slots
   bindings : ∀ name, ¬ Scratch start name → source.bindings name = target.bindings name
 
+/-- The same successful value or error, with the exact state after scratch projection. -/
+inductive OutcomeMatch (start : Nat) {α : Type} : Outcome α → Outcome α → Prop where
+  | ok {value : α} {s t : State} : StateMatch start s t → OutcomeMatch start (.ok value s) (.ok value t)
+  | error {error : Lists.Error} {s t : State} :
+      StateMatch start s t → OutcomeMatch start (.error error s) (.error error t)
+
 /-- The call-free atoms may refer to any non-scratch binding. -/
 inductive AtomSafe : {α : Type} → Lists.Code α → Prop where
   | scalar (value : Starlark.Value) : AtomSafe (.scalar value)

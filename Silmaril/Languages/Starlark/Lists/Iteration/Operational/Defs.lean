@@ -7,14 +7,35 @@ public section
 
 namespace Silmaril.Languages.Starlark.Lists.Iteration
 
-/-- The two mutually recursive big-step judgments have a common index so they
-can be used with one induction principle. -/
+/-- Step rules shared by the suite and checked-body loop judgments. -/
+inductive CursorRuns (body : State → Outcome Flow → Prop) (target : Binding) :
+    Cursor → State → Outcome Flow → Prop where
+  | done {cursor : Cursor} {s : State} :
+      cursor.advance = none → CursorRuns body target cursor s (.ok .next s)
+  | advance {cursor rest : Cursor} {s t : State} {value : Value} {signal : Flow} {out : Outcome Flow} :
+      cursor.advance = some (value, rest) → body (s.write target value) (.ok signal t) →
+      (signal = .next ∨ signal = .continueLoop) → CursorRuns body target rest t out →
+      CursorRuns body target cursor s out
+  | breakLoop {cursor rest : Cursor} {s t : State} {value : Value} :
+      cursor.advance = some (value, rest) → body (s.write target value) (.ok .breakLoop t) →
+      CursorRuns body target cursor s (.ok .next t)
+  | returned {cursor rest : Cursor} {s t : State} {value result : Value} :
+      cursor.advance = some (value, rest) → body (s.write target value) (.ok (.returned result) t) →
+      CursorRuns body target cursor s (.ok (.returned result) t)
+  | failed {cursor rest : Cursor} {s t : State} {value : Value} {error : Error} :
+      cursor.advance = some (value, rest) → body (s.write target value) (.error error t) →
+      CursorRuns body target cursor s (.error error t)
+
+/-- Suite and cursor judgments share one induction principle. -/
 inductive Work where
   | suite {depth : Nat} (code : Suite depth)
-  | items {depth : Nat} (target : Binding) (body : Suite depth) (remaining : List Value)
+  | cursor {depth : Nat} (target : Binding) (body : Suite depth) (remaining : Cursor)
 
-/-- A loop owns one iterator entry from acquisition through every body exit.
-The enclosing loop, if any, receives the same iterator stack it had before. -/
+abbrev Work.items {depth : Nat} (target : Binding) (body : Suite depth) (remaining : List Value) : Work :=
+  .cursor target body (.items remaining)
+
+/-- Collection loops own a guard while the body runs. On exit, every loop
+restores the iterator stack from before it entered. -/
 inductive Runs : State → Work → Outcome Flow → Prop where
   | atomic {depth : Nat} {s : State} {stmt : Stmt} {out : Outcome Unit} :
       Eval s stmt out → Runs s (.suite (.atomic (depth := depth) stmt))
@@ -38,14 +59,14 @@ inductive Runs : State → Work → Outcome Flow → Prop where
       Eval s test value → Outcome.resume value truth = .error error t →
       Runs s (.suite (.branch test yes no)) (.error error t)
   | forIn {depth : Nat} {s t : State} {target : Binding} {iterable : Expr}
-      {body : Suite (depth + 1)} {value : Outcome Value} {address : Address}
-      {elements : List Value} {out : Outcome Flow} :
-      Eval s iterable value → Outcome.resume value iterationSource = .ok (address, elements) t →
-      Runs (pushIterator t address) (.items target body elements) out →
+      {body : Suite (depth + 1)} {value : Outcome Value} {guard : Option Address}
+      {cursor : Cursor} {out : Outcome Flow} :
+      Eval s iterable value → Outcome.resume value acquireIterator = .ok (guard, cursor) t →
+      Runs (enterIterator t guard) (.cursor target body cursor) out →
       Runs s (.suite (.forIn target iterable body)) (restoreIterators t.iterators out)
   | forError {depth : Nat} {s t : State} {target : Binding} {iterable : Expr}
       {body : Suite (depth + 1)} {value : Outcome Value} {error : Error} :
-      Eval s iterable value → Outcome.resume value iterationSource = .error error t →
+      Eval s iterable value → Outcome.resume value acquireIterator = .error error t →
       Runs s (.suite (.forIn target iterable body)) (.error error t)
   | breakLoop {depth : Nat} {s : State} :
       Runs s (.suite (.breakLoop (depth := depth))) (.ok .breakLoop s)
@@ -54,24 +75,9 @@ inductive Runs : State → Work → Outcome Flow → Prop where
   | ret {depth : Nat} {s : State} {value : Expr} {out : Outcome Value} :
       Eval s value out → Runs s (.suite (.ret (depth := depth) value))
         (Outcome.resume out fun result => pure (.returned result))
-  | itemsDone {depth : Nat} {s : State} {target : Binding} {body : Suite depth} :
-      Runs s (.items target body []) (.ok .next s)
-  | itemsAdvance {depth : Nat} {s t : State} {target : Binding} {body : Suite depth}
-      {value : Value} {rest : List Value} {signal : Flow} {out : Outcome Flow} :
-      Runs (s.write target value) (.suite body) (.ok signal t) →
-      (signal = .next ∨ signal = .continueLoop) → Runs t (.items target body rest) out →
-      Runs s (.items target body (value :: rest)) out
-  | itemsBreak {depth : Nat} {s t : State} {target : Binding} {body : Suite depth}
-      {value : Value} {rest : List Value} :
-      Runs (s.write target value) (.suite body) (.ok .breakLoop t) →
-      Runs s (.items target body (value :: rest)) (.ok .next t)
-  | itemsReturn {depth : Nat} {s t : State} {target : Binding} {body : Suite depth}
-      {value result : Value} {rest : List Value} :
-      Runs (s.write target value) (.suite body) (.ok (.returned result) t) →
-      Runs s (.items target body (value :: rest)) (.ok (.returned result) t)
-  | itemsError {depth : Nat} {s t : State} {target : Binding} {body : Suite depth}
-      {value : Value} {rest : List Value} {error : Error} :
-      Runs (s.write target value) (.suite body) (.error error t) →
-      Runs s (.items target body (value :: rest)) (.error error t)
+  | cursor {depth : Nat} {s : State} {target : Binding} {body : Suite depth}
+      {remaining : Cursor} {out : Outcome Flow} {bodyRuns : State → Outcome Flow → Prop} :
+      (∀ state result, bodyRuns state result → Runs state (.suite body) result) →
+      CursorRuns bodyRuns target remaining s out → Runs s (.cursor target body remaining) out
 
 end Silmaril.Languages.Starlark.Lists.Iteration
