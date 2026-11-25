@@ -45,7 +45,7 @@ structure VerticalMatch (lower : Diagram S L W .point) (upper : Diagram S R W .p
   label : ∀ w, lower.label w = upper.label w
   coordinate : ∀ w, lower.x w 1 = upper.x w 0
 
-variable (lower : Diagram S L W .point) (upper : Diagram S R W .point)
+variable {U : ℕ} (lower : Diagram S L W .point) (upper : Diagram S R U .point)
 
 def gluedVertexX : Fin (L + R) → ℝ := Fin.addCases lower.vertexX upper.vertexX
 
@@ -56,7 +56,7 @@ def gluedGenerator : Fin (L + R) → S.Edge := Fin.addCases lower.generator uppe
 
 def gluedStart (w : Fin W) : Option (Fin (L + R)) := (lower.start w).map (Fin.castAdd R)
 
-def gluedFinish (w : Fin W) : Option (Fin (L + R)) := (upper.finish w).map (Fin.natAdd L)
+def gluedFinish (w : Fin U) : Option (Fin (L + R)) := (upper.finish w).map (Fin.natAdd L)
 
 end Diagram
 end Silmaril.RuntimeWires.ProgressiveGraph

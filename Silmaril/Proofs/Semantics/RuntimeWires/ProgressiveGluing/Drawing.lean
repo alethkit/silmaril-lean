@@ -96,6 +96,10 @@ theorem wire_inside (w : Fin W) (y : ℝ)
   · rw [wire_right m w hi]
     exact upper.wire_inside w _ (right_covered m hi h.2)
 
+section Vertices
+
+variable {U : ℕ} {upper : Diagram S R U .point}
+
 theorem vertex_inside (j : Fin (L + R)) :
     gluedVertexX lower upper j ∈ Set.Ioo 0 1 ∧ gluedHeight lower upper j ∈ Set.Ioo 0 1 := by
   induction j using Fin.addCases with
@@ -130,6 +134,8 @@ theorem vertex_separation :
     rw [x_right, x_right] at x
     rw [height_right, height_right] at y
     exact congrArg (Fin.natAdd L) (upper.vertex_separation (Prod.ext x ((halfHeight_strictMono 1).injective y)))
+
+end Vertices
 
 theorem start_attached (w : Fin W) (j : Fin (L + R)) (start : gluedStart lower w = some j) :
     (gluedWire m w).x (gluedHeight lower upper j) = gluedVertexX lower upper j := by
@@ -166,6 +172,31 @@ theorem avoids_vertex (w : Fin W) (j : Fin (L + R))
     rw [height_right, x_right, wire_right m w inside.1.le, unscale]
     exact upper.avoids_vertex w v hit
 
+/-- Separation and continuity preserve the horizontal order between two
+heights in the common interior of two polygonal strands. -/
+theorem transport_wire_order {I : Type*} {low high : I → ℝ}
+    (wire : ∀ w, Wire (low w) (high w))
+    (noIntersection : ∀ {w z}, w ≠ z → ∀ {y},
+      y ∈ Set.Ioo (low w) (high w) → y ∈ Set.Icc (low z) (high z) → (wire w).x y ≠ (wire z).x y)
+    {w z : I} {a b : ℝ}
+    (wa : a ∈ Set.Ioo (low w) (high w)) (za : a ∈ Set.Ioo (low z) (high z))
+    (wb : b ∈ Set.Ioo (low w) (high w)) (zb : b ∈ Set.Ioo (low z) (high z))
+    (ordered : (wire w).x a < (wire z).x a) : (wire w).x b < (wire z).x b := by
+  let f := fun y => (wire w).x y - (wire z).x y
+  have active {p q : ℝ} (ha : a ∈ Set.Ioo p q) (hb : b ∈ Set.Ioo p q)
+      {y : ℝ} (hy : y ∈ Set.uIcc a b) : y ∈ Set.Ioo p q :=
+    ⟨(lt_min ha.1 hb.1).trans_le hy.1, hy.2.trans_lt (max_lt ha.2 hb.2)⟩
+  have continuous : ContinuousOn f (Set.uIcc a b) :=
+    ((wire w).continuous.mono fun _ hy => Set.Ioo_subset_Icc_self (active wa wb hy)).sub
+      ((wire z).continuous.mono fun _ hy => Set.Ioo_subset_Icc_self (active za zb hy))
+  by_contra! reversed
+  have zero : 0 ∈ Set.uIcc (f a) (f b) :=
+    ⟨(min_le_left ..).trans (sub_nonpos.mpr ordered.le),
+      (sub_nonneg.mpr reversed).trans (le_max_right ..)⟩
+  obtain ⟨y, hy, collide⟩ := intermediate_value_uIcc continuous zero
+  exact noIntersection (ne_of_apply_ne (fun j => (wire j).x a) ordered.ne)
+    (active wa wb hy) (Set.Ioo_subset_Icc_self (active za zb hy)) (sub_eq_zero.mp collide)
+
 /-- Distinct glued wires retain their horizontal order on their common
 open height interval. This also covers comparisons across the splice. -/
 theorem transport_order {w z : Fin W} {a b : ℝ}
@@ -174,20 +205,7 @@ theorem transport_order {w z : Fin W} {a b : ℝ}
     (wb : b ∈ Set.Ioo (jointLower lower upper w) (jointUpper lower upper w))
     (zb : b ∈ Set.Ioo (jointLower lower upper z) (jointUpper lower upper z))
     (ordered : (gluedWire m w).x a < (gluedWire m z).x a) :
-    (gluedWire m w).x b < (gluedWire m z).x b := by
-  let f := fun y => (gluedWire m w).x y - (gluedWire m z).x y
-  have active {p q : ℝ} (ha : a ∈ Set.Ioo p q) (hb : b ∈ Set.Ioo p q)
-      {y : ℝ} (hy : y ∈ Set.uIcc a b) : y ∈ Set.Ioo p q :=
-    ⟨(lt_min ha.1 hb.1).trans_le hy.1, hy.2.trans_lt (max_lt ha.2 hb.2)⟩
-  have continuous : ContinuousOn f (Set.uIcc a b) :=
-    ((gluedWire m w).continuous.mono fun _ hy => Set.Ioo_subset_Icc_self (active wa wb hy)).sub
-      ((gluedWire m z).continuous.mono fun _ hy => Set.Ioo_subset_Icc_self (active za zb hy))
-  by_contra! reversed
-  have zero : 0 ∈ Set.uIcc (f a) (f b) :=
-    ⟨(min_le_left ..).trans (sub_nonpos.mpr ordered.le),
-      (sub_nonneg.mpr reversed).trans (le_max_right ..)⟩
-  obtain ⟨y, hy, collide⟩ := intermediate_value_uIcc continuous zero
-  exact separated_wires m (ne_of_apply_ne (fun j => (gluedWire m j).x a) ordered.ne)
-    (active wa wb hy) (Set.Ioo_subset_Icc_self (active za zb hy)) (sub_eq_zero.mp collide)
+    (gluedWire m w).x b < (gluedWire m z).x b :=
+  transport_wire_order (gluedWire m) (separated_wires m) wa za wb zb ordered
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveGluing
