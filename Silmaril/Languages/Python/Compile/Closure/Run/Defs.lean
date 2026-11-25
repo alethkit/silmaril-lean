@@ -6,7 +6,8 @@ public import Silmaril.Languages.Python.Core.Closure.Executor.Defs
 /-! # Compile a Python closure program to the fixed-positional executor
 
 Executor operands include the synthesized None result, integer literals,
-Boolean assertion operands, and name reads. An assigned call makes its
+Boolean assertion literals, name reads, and assertion tests comparing a name
+to an integer literal. An assigned call makes its
 destination explicit. A nested definition stores a closure using
 its resolved code reference and ordered captures.
 -/
@@ -24,6 +25,10 @@ inductive OperandTranslation {layout : Layout} : Body.Expr layout → Operand la
   | boolean (value : Bool) : OperandTranslation (.boolean value) (.literal (.bool value))
   | read (slot : Core.Closure.Slot layout) : OperandTranslation (.read slot) (.read slot)
   | globalName (name : Source.Name) : OperandTranslation (.globalName name) (.readGlobal name)
+  | eqIntSlot (slot : Core.Closure.Slot layout) (right : Int) :
+      OperandTranslation (.eqInt (.read slot) right) (.eqInt (.slot slot) right)
+  | eqIntGlobal (name : Source.Name) (right : Int) :
+      OperandTranslation (.eqInt (.globalName name) right) (.eqInt (.global name) right)
 
 def operand? {layout : Layout} : (source : Body.Expr layout) →
     Option {target // OperandTranslation source target}
@@ -32,6 +37,8 @@ def operand? {layout : Layout} : (source : Body.Expr layout) →
   | .boolean value => some ⟨.literal (.bool value), .boolean value⟩
   | .read slot => some ⟨.read slot, .read slot⟩
   | .globalName name => some ⟨.readGlobal name, .globalName name⟩
+  | .eqInt (.read slot) right => some ⟨.eqInt (.slot slot) right, .eqIntSlot slot right⟩
+  | .eqInt (.globalName name) right => some ⟨.eqInt (.global name) right, .eqIntGlobal name right⟩
   | _ => none
 
 inductive ArgumentsTranslation {layout : Layout} : List (Body.Expr layout) → List (Operand layout) → Prop where

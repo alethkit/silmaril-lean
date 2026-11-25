@@ -33,6 +33,51 @@ observed = 5
 observed = guarded()
 kept = 9
 """, "NameError", '.raised (.nameError "absent")', 5, None),
+    ("body_assert_eq_int_globals", """value = 1
+def guarded():
+    global value
+    assert value == 2
+    return value
+value = 2
+observed = guarded()
+""", "normal", ".normal", 2, None),
+    ("body_assert_eq_int_missing_global", """def guarded():
+    assert absent == 0
+    return 9
+observed = 5
+observed = guarded()
+kept = 9
+""", "NameError", '.raised (.nameError "absent")', 5, None),
+    ("body_assert_eq_int_bool", """def guarded(value):
+    assert value == 1
+    return 9
+def check_zero(value):
+    assert value == 0
+    return 4
+yes = True
+no = False
+observed = guarded(yes)
+kept = check_zero(no)
+observed = guarded(no)
+kept = 9
+""", "AssertionError", ".raised .assertionError", 9, 4),
+    ("body_assert_eq_int_none", """def quiet():
+    pass
+def guarded(value):
+    assert value == 0
+    return 9
+value = quiet()
+observed = 5
+observed = guarded(value)
+kept = 9
+""", "AssertionError", ".raised .assertionError", 5, None),
+    ("body_assert_eq_int_function", """def guarded(value):
+    assert value == 0
+    return 9
+observed = 5
+observed = guarded(guarded)
+kept = 9
+""", "AssertionError", ".raised .assertionError", 5, None),
     ("rebind", """value = 1
 def read():
     return value
@@ -191,6 +236,8 @@ try:
         exec(compile(source.read(), sys.argv[1], "exec", optimize=0), namespace)
 except (AssertionError, NameError, TypeError, ZeroDivisionError) as error:
     completion = type(error).__name__
+    if isinstance(error, AssertionError):
+        assert not error.args
     if isinstance(error, NameError):
         missing = error.name
 bound_none = "observed" in namespace and namespace["observed"] is None
