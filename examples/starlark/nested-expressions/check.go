@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"go.starlark.net/starlark"
@@ -215,6 +216,59 @@ events = []
 	fmt.Println("PASS string index operand, receiver, index type and bounds errors in evaluation order")
 }
 
+func rangeIndexOperands() {
+	for _, test := range []struct{ expr, want string }{
+		{`range(5)[0]`, "0"},
+		{`range(3, 8)[-1]`, "7"},
+		{`range(3, 10, 2)[-4]`, "3"},
+		{`range(10, 3, -2)[-1]`, "4"},
+		{`range(1000000000)[-1]`, "999999999"},
+		{`(len(range(10, 3, -2)), bool(range(1, 1)), type(range(1)))`, `(4, False, "range")`},
+	} {
+		g, err := initSource("out = " + test.expr)
+		require(err == nil && g["out"].String() == test.want, test.expr+": "+fmt.Sprint(err))
+	}
+	fmt.Println("PASS lazy range subscript, negative offsets, descending strides, and shape observations")
+
+	const setup = `def note(marker, value):
+    events.append(marker)
+    return value
+events = []
+`
+	g, err := initSource(setup + `out = note(1, range(10, 3, -2))[note(2, -1)]`)
+	require(err == nil && g["out"].String() == "4" && g["events"].String() == "[1, 2]", fmt.Sprint(err))
+	for _, test := range []struct{ expr, trace, message string }{
+		{`range(note(1, 1), note(2, 2), note(3, 0))[note(4, 0)]`, "[1, 2, 3]", "step argument must not be zero"},
+		{`range(note(1, True), note(2, "wrong"), note(3, 0))[note(4, 0)]`, "[1, 2, 3]", "for parameter 1: got bool, want int"},
+		{`note(1, range(4))[len(note(2, 9))]`, "[1, 2]", "has no len"},
+		{`note(1, range(4))[note(2, False)]`, "[1, 2]", "range index: got bool, want int"},
+		{`note(1, range(3, 10, 2))[note(2, 4)]`, "[1, 2]", "range index 4 out of range [-4:3]"},
+		{`note(1, range(3, 10, 2))[note(2, -5)]`, "[1, 2]", "range index -5 out of range [-4:3]"},
+		{`note(1, range(2, 4, -1))[note(2, 0)]`, "[1, 2]", "out of range: empty range"},
+		{`range(start=note(1, 0), stop=note(2, 3))[note(3, 0)]`, "[1, 2]", "unexpected keyword arguments"},
+		{`range(note(1, "bad"), note(2, 2), note(3, 3), note(4, 4))[note(5, 0)]`, "[1, 2, 3, 4]", "want at most 3"},
+		{`range()[note(1, 0)]`, "[]", "want at least 1"},
+	} {
+		g, err := initSource(setup + "out = " + test.expr + "\nnote(99, None)")
+		require(err != nil && strings.Contains(err.Error(), test.message), test.expr+": "+fmt.Sprint(err))
+		require(g["out"] == nil && g["events"].String() == test.trace, test.expr)
+	}
+	fmt.Println("PASS range constructor and index errors preserve earlier effects and skip later work")
+
+	if strconv.IntSize != 64 {
+		return
+	}
+	for _, test := range []struct{ expr, message string }{
+		{`range(3000000000)[2147483648]`, "range index: 2147483648 out of range"},
+		{`range(9223372036854775808)[0]`, "for parameter 1:"},
+		{`range(-9223372036854775808, 9223372036854775807)[0]`, "range index 0 out of range"},
+	} {
+		_, err := initSource("out = " + test.expr)
+		require(err != nil && strings.Contains(err.Error(), test.message), test.expr+": "+fmt.Sprint(err))
+	}
+	fmt.Println("DIALECT pinned 64-bit Go bounds constructor and index operands and can overflow range length")
+}
+
 func main() {
 	g, err := initSource(`def mark(events, value):
     events.append(value)
@@ -376,4 +430,5 @@ out = driver()`)
 	collectionOperands()
 	sliceOperands()
 	stringIndexOperands()
+	rangeIndexOperands()
 }

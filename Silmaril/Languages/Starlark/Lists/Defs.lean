@@ -11,7 +11,7 @@ abbrev Address := Nat
 
 /-- Universal callables supported by the resolved shared-store profile. -/
 inductive Builtin where
-  | bool | len | type | list | tuple
+  | bool | len | type | list | tuple | range
   deriving DecidableEq, BEq, Repr
 
 def Builtin.name : Builtin → String
@@ -20,10 +20,24 @@ def Builtin.name : Builtin → String
   | .type => "type"
   | .list => "list"
   | .tuple => "tuple"
+  | .range => "range"
 
 /-- Resolve a name after lexical lookup has ruled out a shadowing binding. -/
 def Builtin.resolve (name : String) : Option Builtin :=
-  ([.bool, .len, .type, .list, .tuple] : List Builtin).find? (fun id => id.name == name)
+  ([.bool, .len, .type, .list, .tuple, .range] : List Builtin).find? (fun id => id.name == name)
+
+/-- A checked immutable range, represented without an element list or heap cell. -/
+structure RangeValue where
+  start : Int
+  stop : Int
+  step : Int
+  nonzero : step ≠ 0
+  deriving DecidableEq, Repr
+
+/-- Number of stride steps before the exclusive stop, using exact integers. -/
+def RangeValue.length (span : RangeValue) : Nat :=
+  let distance := if span.step > 0 then span.stop - span.start else span.start - span.stop
+  if distance ≤ 0 then 0 else (distance.toNat - 1) / span.step.natAbs + 1
 
 inductive Value where
   | scalar (value : Starlark.Value)
@@ -33,11 +47,12 @@ inductive Value where
   | function (address : Address)
   | builtin (id : Builtin)
   | string (text : String)
+  | range (span : RangeValue)
   deriving DecidableEq, Repr
 
 def Value.address? : Value → Option Address
   | .list address | .tuple address | .dict address | .function address => some address
-  | .scalar _ | .builtin _ | .string _ => none
+  | .scalar _ | .builtin _ | .string _ | .range _ => none
 
 /-- Canonical key encoding for tagged scalars and well-bracketed tuples. -/
 inductive KeyPart where
@@ -125,6 +140,7 @@ inductive Error where
   | sliceStopType (value : Value)
   | sliceStrideType (value : Value)
   | zeroSliceStride
+  | zeroRangeStep
   | invalidSliceUTF8
   | assignmentTarget
   | integerAddType (left right : Value)
@@ -241,7 +257,7 @@ def State.keyOf (state : State) (value : Value) : Except Error Key :=
     | some ⟨.tuple _ (some key), _⟩ => .ok key
     | some ⟨.tuple _ none, _⟩ => .error (.unhashableKey value)
     | some _ => .error (.wrongCellKind address)
-  | .list _ | .dict _ => .error (.unhashableKey value)
+  | .list _ | .dict _ | .range _ => .error (.unhashableKey value)
   | .function address => .ok [.function address]
   | .builtin id => .ok [.builtin id]
   | .string text => .ok [.string text]
@@ -315,6 +331,9 @@ def readIndex (receiver index : Value) : Meaning Value :=
     let bytes := text.toUTF8
     let offset ← normalizeIndex bytes.size index
     decodeString ⟨#[bytes[offset.val]'(offset.isLt)]⟩ .invalidIndexUTF8
+  | .range span => fromExcept do
+    let offset ← normalizeIndex span.length index
+    pure (.scalar (.int (span.start + (offset.val : Int) * span.step)))
   | .list address => listElements address >>= fun elements => readSequence elements index
   | .tuple address => tupleElements address >>= fun elements => readSequence elements index
   | .dict address => readDict address index
@@ -411,7 +430,7 @@ def insertDisplayEntry (receiver key value : Value) : Meaning Unit :=
 
 def writeIndex (receiver index value : Value) : Meaning Unit :=
   match receiver with
-  | .scalar _ | .tuple _ | .function _ | .builtin _ | .string _ => throw .assignmentTarget
+  | .scalar _ | .tuple _ | .function _ | .builtin _ | .string _ | .range _ => throw .assignmentTarget
   | .list address =>
     updateCell address fun elements => do
       let i ← normalizeIndex elements.length index

@@ -40,12 +40,13 @@ def truth : Value → Meaning Bool
   | .scalar value => pure value.truth
   | .function _ | .builtin _ => pure true
   | .string text => pure (!text.isEmpty)
+  | .range span => pure (span.length != 0)
   | .list address => (fun elements => !elements.isEmpty) <$> listElements address
   | .tuple address => (fun elements => !elements.isEmpty) <$> tupleElements address
   | .dict address => (fun entries => !entries.isEmpty) <$> dictEntries address
 
 def iterationSource : Value → Meaning (Address × List Value)
-  | .scalar _ | .function _ | .builtin _ | .string _ => throw .notIterable
+  | .scalar _ | .function _ | .builtin _ | .string _ | .range _ => throw .notIterable
   | .list address => (fun elements => (address, elements)) <$> listElements address
   | .tuple address => (fun elements => (address, elements)) <$> tupleElements address
   | .dict address => (fun entries => (address, entries.map Entry.key)) <$> dictEntries address

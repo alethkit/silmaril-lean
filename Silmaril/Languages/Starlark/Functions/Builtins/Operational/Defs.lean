@@ -33,8 +33,20 @@ inductive Invokes (state : State) : Builtin → Actual → Outcome Lists.Value �
   | missing {id : Builtin} : minArity id = 1 →
       Invokes state id ⟨[], []⟩ (.error (arityError id 0) state)
   | extra {id : Builtin} {first second : Lists.Value} {rest : List Lists.Value} :
+      id ≠ .range →
       Invokes state id ⟨first :: second :: rest, []⟩
         (.error (arityError id (first :: second :: rest).length) state)
+  | rangeExtra {a b c d : Lists.Value} {rest : List Lists.Value} :
+      Invokes state .range ⟨a :: b :: c :: d :: rest, []⟩
+        (.error (arityError .range (a :: b :: c :: d :: rest).length) state)
+  | rangeOne {stop : Lists.Value} :
+      Invokes state .range ⟨[stop], []⟩
+        (fromExcept (checkedRange (.scalar (.int 0)) stop (.scalar (.int 1))) state)
+  | rangeTwo {start stop : Lists.Value} :
+      Invokes state .range ⟨[start, stop], []⟩
+        (fromExcept (checkedRange start stop (.scalar (.int 1))) state)
+  | rangeThree {start stop step : Lists.Value} :
+      Invokes state .range ⟨[start, stop, step], []⟩ (fromExcept (checkedRange start stop step) state)
   | emptyBool : Invokes state .bool ⟨[], []⟩ (.ok (boolValue false) state)
   | emptyList : Invokes state .list ⟨[], []⟩ (allocate [] state)
   | emptyTuple : Invokes state .tuple ⟨[], []⟩ (allocateTuple [] state)
@@ -44,8 +56,10 @@ inductive Invokes (state : State) : Builtin → Actual → Outcome Lists.Value �
   | type {value : Lists.Value} : Invokes state .type ⟨[value], []⟩ (.ok (.string (typeName value)) state)
   | lenString {text : String} :
       Invokes state .len ⟨[.string text], []⟩ (.ok (countValue text.utf8ByteSize) state)
+  | lenRange {span : RangeValue} :
+      Invokes state .len ⟨[.range span], []⟩ (.ok (countValue span.length) state)
   | lenCollection {value : Lists.Value} {out : Outcome (List Lists.Value)} :
-      (∀ text, value ≠ .string text) → Items .len state value out →
+      (∀ text, value ≠ .string text) → (∀ span, value ≠ .range span) → Items .len state value out →
       Invokes state .len ⟨[value], []⟩ (Outcome.resume out fun elements =>
         pure (countValue elements.length))
   | list {value : Lists.Value} {out : Outcome (List Lists.Value)} :
