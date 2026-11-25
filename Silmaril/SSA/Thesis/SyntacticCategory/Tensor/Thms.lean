@@ -85,4 +85,34 @@ def tensorRightFunctor (R : SynCat S) : SynCat S ⥤ SynCat S where
   map_id := tensorRight_id R
   map_comp := tensorRight_comp R
 
+/-- Dropping the retained first slot commutes with any computation on the second. -/
+theorem tensorLeft_second (R : SynCat S) {A B : SynCat S} (f : A ⟶ B) :
+    tensorLeft R f ≫ second R B = second R A ≫ f :=
+  tensorLeft_second_proof R f
+
+/-- Dropping the retained second slot commutes with any computation on the first. -/
+theorem tensorRight_first (R : SynCat S) {A B : SynCat S} (f : A ⟶ B) :
+    tensorRight R f ≫ first B R = first A R ≫ f :=
+  tensorRight_first_proof R f
+
+/-- The left unitor is the projection to the non-unit component. -/
+theorem tensorLeftUnitor_hom (A : SynCat S) :
+    (tensorLeftUnitor A).hom = second (tensorUnit S) A :=
+  congrArg (fun g => g.hom) (CartesianMonoidalCategory.leftUnitor_hom (⟨A⟩ : ValueCat S))
+
+/-- The right unitor is the projection to the non-unit component. -/
+theorem tensorRightUnitor_hom (A : SynCat S) :
+    (tensorRightUnitor A).hom = first A (tensorUnit S) :=
+  congrArg (fun g => g.hom) (CartesianMonoidalCategory.rightUnitor_hom (⟨A⟩ : ValueCat S))
+
+/-- The left unitor is natural for every computation arrow. -/
+theorem tensorLeftUnitor_naturality {A B : SynCat S} (f : A ⟶ B) :
+    tensorLeft (tensorUnit S) f ≫ (tensorLeftUnitor B).hom = (tensorLeftUnitor A).hom ≫ f := by
+  rw [tensorLeftUnitor_hom, tensorLeftUnitor_hom, tensorLeft_second]
+
+/-- The right unitor is natural for every computation arrow. -/
+theorem tensorRightUnitor_naturality {A B : SynCat S} (f : A ⟶ B) :
+    tensorRight (tensorUnit S) f ≫ (tensorRightUnitor B).hom = (tensorRightUnitor A).hom ≫ f := by
+  rw [tensorRightUnitor_hom, tensorRightUnitor_hom, tensorRight_first]
+
 end Silmaril.Thesis.LambdaIter.Syn.SynCat
