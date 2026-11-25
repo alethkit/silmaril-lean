@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.LabelRenaming.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Typing
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Soundness

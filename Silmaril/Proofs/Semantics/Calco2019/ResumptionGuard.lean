@@ -54,6 +54,18 @@ theorem kleisli_map_pure (T : CategoryTheory.Monad C) {X Y V W : C}
       _ = J.map (P.inr ≫ P.map f g) := congrArg J.map (P.inr_desc _ _).symm
       _ = _ := J.map_comp _ _
 
+theorem map_extension {Q S : CategoryTheory.Monad C} (m : Q ⟶ S)
+    {X Y : C} (g : X ⟶ Q.obj Y) :
+    (Q.map g ≫ Q.μ.app Y) ≫ m.app Y =
+      m.app X ≫ S.map (g ≫ m.app Y) ≫ S.μ.app Y := by
+  rw [Category.assoc, m.app_μ]
+  calc
+    Q.map g ≫ (Q.map (m.app Y) ≫ m.app (S.obj Y)) ≫ S.μ.app Y =
+        Q.map (g ≫ m.app Y) ≫ m.app (S.obj Y) ≫ S.μ.app Y := by
+      simp only [Functor.map_comp, Category.assoc]
+    _ = _ := by
+      rw [m.toNatTrans.naturality_assoc]
+
 variable (M : ParametrizedGuardedElgotMonad P)
 
 private theorem guardAt_trivial (W : C) {X Y Z : C} (f : X ⟶ (M.obj W).monad.obj Y) :

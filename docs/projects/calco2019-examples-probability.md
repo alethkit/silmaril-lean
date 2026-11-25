@@ -37,12 +37,15 @@ The unnormalized probability of `false` from zero is `1/3` and the total
 return probability is `2/3`. Normalization assigns `false` probability
 `1/2`, but a single unfolding with the same continuation assigns `1/3`.
 `normalized_not_fixpoint` proves the inequality for this guarded PMF loop.
+The paper-facing `example20_3_counterexample` checks the guard and states the
+failure directly in the categorical Kleisli fixpoint equation.
 
 A probability-valued fixpoint can be produced by supplying an explicit fallback
 distribution. `completion` assigns the missing mass to the fallback and
 proves both unit mass and the original fixpoint equation. When termination has
 probability one at each state, the underlying least solution already has unit
-mass.
+mass. Under that hypothesis `normalized_pmf_fixpoint_of_mass_one` proves the
+categorical fixpoint equation for the normalized PMF.
 
 There is also an obstruction to replacing normalization with a different
 operator on the same guard. `no_nat_iteration` proves that even state and
@@ -58,9 +61,20 @@ The [Kleisli theorems][kleisli] verify `pmfGuard` against the three axioms of
 Definition 6. `no_conway_uniform` applies the pure-map obstruction to the
 CALCO interface in Definition 19(2), using the inherited coproducts on types.
 
-The unnormalized least solution takes PMF bodies. The complete Elgot laws of the
-subdistribution monad for arbitrary subdistribution inputs are outside this
-slice.
+## The complete Elgot subdistribution monad
+
+[Subdistribution][subdist] uses the paper's weight functions of mass at most
+one. `Subdist.countable_support` derives the countable-support property.
+`Subdist.solve` takes the pointwise supremum of the finite unfoldings on any
+subdistribution body. `solve_weight`, `fix`, and `least_solution` identify
+the operator and its least-fixpoint property. Its `Elgot.LawfulElgotMonad`
+instance proves fixpoint, naturality, codiagonal, and pure uniformity.
+`Subdist.elgot` and `Subdist.isElgot` provide the full CALCO bundle,
+including dinaturality. `Subdist.pmf_agreement` checks that the total operator
+on embedded PMF bodies agrees with the unnormalized weights above.
+
+For full distributions, `no_total_fixpoints` also checks the paper's
+empty-result-type argument independently of the positive direct-return guard.
 
 ## Checking
 
@@ -72,3 +86,4 @@ lake build --wfail +Silmaril.Papers.Calco2019.Examples.Probability
 [prob-defs]: ../../Silmaril/Semantics/Calco2019/Examples/Probability/Defs.lean
 [kleisli]: ../../Silmaril/Semantics/Calco2019/Examples/Probability/Kleisli/Thms.lean
 [prob-thms]: ../../Silmaril/Semantics/Calco2019/Examples/Probability/Thms.lean
+[subdist]: ../../Silmaril/Semantics/Calco2019/Examples/Probability/Subdistribution/Thms.lean

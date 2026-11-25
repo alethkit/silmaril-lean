@@ -46,6 +46,12 @@ inductive Datum (Ty Term : Type) where
   | typeField (name : String) (value : Ty)
   | termField (name : String) (value : Term)
 
+def taggedReader {Ty Term : Type}
+    (readFields : String → List (Datum Ty Term) → Option (Datum Ty Term)) :
+    List (Datum Ty Term) → Option (Datum Ty Term)
+  | .atom tag :: fields => readFields tag fields
+  | _ => none
+
 def readTree {Ty Term : Type} (readNode : List (Datum Ty Term) → Option (Datum Ty Term)) :
     Tree → Option (Datum Ty Term) :=
   fold (fun value => some (.atom value))
