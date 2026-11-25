@@ -1,5 +1,6 @@
 module
 
+public import Silmaril.Courses.Cambridge.L3.Concrete.Precedence
 public import Silmaril.Courses.Cambridge.L3.NamedSyntax
 public import Silmaril.Courses.Cambridge.L3.Concrete.Fields
 
@@ -181,8 +182,11 @@ def readExpr : Nat → List Token → Option (RawExpr × List Token)
       finishExpr (readExpr fuel) left tail
   | _, _ => none
 
-def parse (bytes : ByteArray) : Option RawExpr := lex bytes >>= readWhole readExpr
-def parseType (bytes : ByteArray) : Option Ty := lex bytes >>= readWhole readType
+def parse (bytes : ByteArray) : Option RawExpr :=
+  lex bytes >>= readWithPrecedence readExpr (Precedence.readExpr fun a b => typeTokens a == typeTokens b)
+
+def parseType (bytes : ByteArray) : Option Ty :=
+  lex bytes >>= readWithPrecedence readType Precedence.readType
 def parseResolved (bytes : ByteArray) : Option Expr := (parse bytes).map (RawExpr.resolve [])
 
 def Parses (bytes : ByteArray) (term : RawExpr) : Prop := parse bytes = some term
