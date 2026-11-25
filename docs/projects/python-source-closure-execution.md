@@ -19,6 +19,15 @@ For these statements the compiler requires an empty argument list and a
 bare name callee. The module-function runner also allows resolved global
 reads, which use the current module binding at invocation.
 
+A final `return local(...)` uses the checked ordinary local callee and
+the existing positional operand checker. The executor reads the callee
+and operands before invocation. Successful normal call delivery writes
+the result to that same private local and returns it. The local is
+outside the shared cell heap, so the reuse preserves owned and captured
+cells and does not allocate a frame slot. Defined errors and faults use
+the existing saved-caller delivery path. Final calls through a global
+or a shared cell remain outside this profile.
+
 Message-free body assertions lower to the existing executor assertion
 when the test passes the ordinary runner operand check. They preserve
 the continuation's lexical child paths and code keys. The executor

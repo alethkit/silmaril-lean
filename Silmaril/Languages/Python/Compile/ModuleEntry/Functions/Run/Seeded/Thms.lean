@@ -202,4 +202,46 @@ theorem run_adjacentKeywordDiscard {scope : Source.Scope} {space : Namespace} {c
         ⟨space, .error .directCallFuelExhausted, [], heap⟩ :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_adjacentKeywordDiscard found admitted
 
+theorem observeArgumentIn_published {space : Namespace} {context : CallContext}
+    {name : String} {closure : Function}
+    (found : space.lookupGlobal name = some (.function closure))
+    (admitted : context.acceptsPublishedCall closure = true) :
+    observeArgumentIn space context (.call name []) =
+      let invocation := callbackInvocation space context.heap closure
+      match observeDirectCall space (invocation.runPrefix context.table context.fuel).2.state with
+      | (.ok observed, heap) => (observed.result.mapError .ofCall, [⟨name, observed⟩], heap)
+      | (.error error, heap) => (.error error, [], heap) := by
+  simp [observeArgumentIn, Core.Module.SeededCall.resolveCall, Core.Module.SeededCall.Operand.eval,
+    Core.Module.SeededCall.Operand.evalList, Except.bind, Except.map, found, invokeFlatCall, admitted]
+  rfl
+
+theorem observeArgumentsIn_stop {space : Namespace} {context : CallContext}
+    {argument : Argument} {rest : List Argument} {error : ModuleFailure} {calls : List CallEvent} {heap : Heap}
+    (failed : observeArgumentIn space context argument = (.error error, calls, heap)) :
+    observeArgumentsIn space context (argument :: rest) = (.error error, calls, heap) := by
+  simp [observeArgumentsIn, failed]
+
+theorem observeArgumentsIn_next {space : Namespace} {context : CallContext}
+    {argument : Argument} {rest : List Argument} {value : Value} {calls : List CallEvent} {heap : Heap}
+    (first : observeArgumentIn space context argument = (.ok value, calls, heap)) :
+    observeArgumentsIn space context (argument :: rest) =
+      let (values, later, residual) := observeArgumentsIn space { context with heap } rest
+      (values.map (value :: ·), calls ++ later, residual) := by
+  simp [observeArgumentsIn, first]
+
+theorem observeNestedCallIn_missing {space : Namespace} {context : CallContext}
+    {destination : Core.Module.Functions.Destination} {name : String} {arguments : List Argument}
+    (missing : space.lookupGlobal name = none) :
+    observeNestedCallIn space context destination name arguments =
+      (⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap) := by
+  simp [observeNestedCallIn, missing]
+
+theorem observeNestedCallIn_failedArguments {space : Namespace} {context : CallContext}
+    {destination : Core.Module.Functions.Destination} {name : String} {callee : Value}
+    {arguments : List Argument} {error : ModuleFailure} {calls : List CallEvent} {heap : Heap}
+    (found : space.lookupGlobal name = some callee)
+    (failed : observeArgumentsIn space context arguments = (.error error, calls, heap)) :
+    observeNestedCallIn space context destination name arguments = (⟨.error error, calls⟩, heap) := by
+  simp [observeNestedCallIn, found, failed]
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

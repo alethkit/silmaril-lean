@@ -409,7 +409,10 @@ after = 9
      ["unsupported", "absent", "absent"]),
     ("direct_positional_unsupported", "empty", "def f(value):\n    assert value\nf(1)\nafter = 9\n",
      ["unsupported", "absent", "absent"]),
-    ("direct_nested_unsupported", "builtin", "def f():\n    return 1\ncompare_ints(f(), 1)\nafter = 9\n",
+    ("direct_nested_published", "builtin", "def f():\n    return 1\ncompare_ints(f(), 1)\nafter = 9\n",
+     ["normal", "absent", "int:9"]),
+    ("direct_nested_positional_unsupported", "builtin",
+     "def f(value):\n    return value\ncompare_ints(f(1), 1)\nafter = 9\n",
      ["unsupported", "absent", "absent"]),
     ("literal_if_order", "legacy_builtin", """result = 5
 if -1:
@@ -593,7 +596,8 @@ NESTED_CALL_NAMES = {
     "nested_unsupported": ["AssertionError"],
     "direct_defined_assertion": ["callback"],
     "direct_live_shadow": ["f"],
-    "direct_nested_unsupported": ["f"],
+    "direct_nested_published": ["f", "compare_ints"],
+    "direct_nested_positional_unsupported": ["f"],
     "bool_int_argument_order": ["int"],
     "bool_int_defined_assertion": ["int", "___assertEqual"],
     "callable_len_alias": ["callable", "___assertIs", "callable", "___assertIs"],

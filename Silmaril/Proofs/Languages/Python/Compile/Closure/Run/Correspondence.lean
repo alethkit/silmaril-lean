@@ -33,7 +33,8 @@ theorem lower_complete {layout : Layout} {source : Link.Code layout}
     {target : Core.Closure.Executor.Body layout} (translated : Translation source target) :
     lowerCode source = some ⟨target, translated⟩ := by
   induction translated with
-  | ret value => simp [lowerCode, operand_complete value]
+  | ret value => cases value <;> rfl
+  | retLocalCall arguments => simp [lowerCode, arguments_complete arguments]
   | assert test _ remaining => simp [lowerCode, operand_complete test, remaining]
   | assertFreeVars read _ remaining => simp [lowerCode, name_read_complete read, remaining]
   | assertCellVars read _ remaining => simp [lowerCode, name_read_complete read, remaining]
