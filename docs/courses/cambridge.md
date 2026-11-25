@@ -22,6 +22,10 @@ The operational semantics course also covers
 [L3 with structural subtyping](cambridge-subtyping.md) from chapter 6 and
 [typed L1 semantic equivalence](cambridge-semantic-equivalence.md) from chapter 8.
 
+The [CBV L2 denotations](cambridge-l2-denotational.md) follow the function
+and local-definition rules in chapter 4 and cover mutable integer stores
+in the effectful fragment.
+
 ## Check the courses
 
 Use the repository's [development environment](../development.md), or install
@@ -50,6 +54,10 @@ metatheory and checked examples. Every course module is also checked by
 
 The [AST codecs guide](cambridge-ast-codecs.md) documents the shared
 S-expression and JSON schema for L1, L2 and L3.
+
+The [integration and compilation guide](cambridge-integration.md) follows the
+checked L1 lowering and identifies which Wasm interfaces can support further
+Cambridge compilation proofs.
 
 ## How it fits together
 

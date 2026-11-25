@@ -207,4 +207,11 @@ theorem no_conway_uniform (I : pmfGuard.{0}.Conway)
   }
   exact no_nat_iteration.false N
 
+theorem no_total_fixpoints (F : (Guardedness.greatest (typeCoproducts.kleisli
+    (ofTypeMonad PMF.{0}))).Fixpoints) : False := by
+  let loop : Unit → PMF (Empty ⊕ Unit) := fun x => PMF.pure (.inr x)
+  let p : PMF Empty := (F.iterate (computation PMF loop) True.intro).of ()
+  have h := p.tsum_coe
+  simp at h
+
 end Silmaril.Calco2019.Examples.Probability.KleisliProofs

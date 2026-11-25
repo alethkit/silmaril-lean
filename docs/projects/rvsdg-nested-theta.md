@@ -69,3 +69,6 @@ lake build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedTheta.lean
 make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.NestedTheta.Thms
 ```
+
+The [interprocedural graph interfaces](rvsdg-interprocedural.md) use these
+regions for function bodies.

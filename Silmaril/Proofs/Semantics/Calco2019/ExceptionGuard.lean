@@ -13,66 +13,70 @@ namespace Silmaril.Calco2019.Proofs
 open CategoryTheory Exception
 
 variable {C : Type u} [Category.{v} C] {P : Coproducts C}
-  (T : GuardedElgotMonad P) (E : C)
 
-private theorem exception_comp_of {X Y Z : Kleisli ((family P T.monad).obj E)}
+section Guard
+
+variable (T : CategoryTheory.Monad C) (E : C)
+
+private theorem exception_comp_of {X Y Z : Kleisli ((family P T).obj E)}
     (f : X ⟶ Y) (g : Y ⟶ Z) :
-    (f ≫ g).of = f.of ≫ extend P T.monad (E := E) g.of :=
-  congrArg (fun z => f.of ≫ z) (family_extend P T.monad E g.of)
+    (f ≫ g).of = f.of ≫ extend P T (E := E) g.of :=
+  congrArg (fun z => f.of ≫ z) (family_extend P T E g.of)
 
-theorem exception_guard_trivial {X Y Z : Kleisli ((family P T.monad).obj E)}
-    (f : X ⟶ Y) : kleisliGuard P T E (f ≫ (P.kleisli ((family P T.monad).obj E)).inl (Y := Z)) := by
-  let L := (family P T.monad).obj E
+variable (G : MonadGuardedness P T)
+
+theorem exception_guard_trivial {X Y Z : Kleisli ((family P T).obj E)}
+    (f : X ⟶ Y) : kleisliGuardOf P G E (f ≫ (P.kleisli ((family P T).obj E)).inl (Y := Z)) := by
+  let L := (family P T).obj E
   let j : Y.of ⟶ P.sum Y.of Z.of := P.inl
   let s := rearrange P E (Y := Y.of) (Z := Z.of)
   have rearr : P.map j (𝟙 E) ≫ s = P.inl := by
     apply P.hom_ext <;> simp [j, s, rearrange, Coproducts.map]
-  have e : (f ≫ (P.kleisli L).inl (Y := Z)).of ≫ T.monad.map s =
-      f.of ≫ T.monad.map (P.inl (X := P.sum Y.of E) (Y := Z.of)) :=
-    (congrArg (· ≫ T.monad.map s) (comp_pure_of L f j)).trans
+  have e : (f ≫ (P.kleisli L).inl (Y := Z)).of ≫ T.map s =
+      f.of ≫ T.map (P.inl (X := P.sum Y.of E) (Y := Z.of)) :=
+    (congrArg (· ≫ T.map s) (comp_pure_of L f j)).trans
       ((Category.assoc _ _ _).trans (congrArg (fun w => f.of ≫ w)
-        ((congrArg (· ≫ T.monad.map s) (family_map P T.monad E j)).trans
-          (((T.monad.toFunctor).map_comp (P.map j (𝟙 E)) s).symm.trans
-            (congrArg T.monad.map rearr)))))
-  let G := T.guard
-  have guarded := G.trivial (Z := Kleisli.mk T.monad Z.of) (kleisliArrow f.of)
-  have bodyEq : (((kleisliArrow f.of : Kleisli.mk T.monad X.of ⟶ Kleisli.mk T.monad (P.sum Y.of E)) ≫
-      (P.kleisli T.monad).inl (Y := Kleisli.mk T.monad Z.of))).of =
-      (f ≫ (P.kleisli L).inl (Y := Z)).of ≫ T.monad.map s :=
-    (comp_pure_of T.monad _ P.inl).trans e.symm
-  exact Eq.mp (congrArg (G.guarded (Y := Kleisli.mk T.monad (P.sum Y.of E)) (Z := Kleisli.mk T.monad Z.of))
+        ((congrArg (· ≫ T.map s) (family_map P T E j)).trans
+          (((T.toFunctor).map_comp (P.map j (𝟙 E)) s).symm.trans
+            (congrArg T.map rearr)))))
+  have guarded := G.trivial (Z := Kleisli.mk T Z.of) (kleisliArrow f.of)
+  have bodyEq : (((kleisliArrow f.of : Kleisli.mk T X.of ⟶ Kleisli.mk T (P.sum Y.of E)) ≫
+      (P.kleisli T).inl (Y := Kleisli.mk T Z.of))).of =
+      (f ≫ (P.kleisli L).inl (Y := Z)).of ≫ T.map s :=
+    (comp_pure_of T _ P.inl).trans e.symm
+  exact Eq.mp (congrArg (G.guarded (Y := Kleisli.mk T (P.sum Y.of E)) (Z := Kleisli.mk T Z.of))
     (Kleisli.hom_ext bodyEq)) guarded
 
-theorem exception_guard_parallel {X X' Y Z : Kleisli ((family P T.monad).obj E)}
-    {f : X ⟶ (P.kleisli ((family P T.monad).obj E)).sum Y Z}
-    {g : X' ⟶ (P.kleisli ((family P T.monad).obj E)).sum Y Z}
-    (hf : kleisliGuard P T E (Y := Y) (Z := Z) f) (hg : kleisliGuard P T E (Y := Y) (Z := Z) g) :
-    kleisliGuard P T E (Y := Y) (Z := Z) ((P.kleisli ((family P T.monad).obj E)).desc f g) := by
-  let s := T.monad.map (rearrange P E (Y := Y.of) (Z := Z.of))
-  let K := P.kleisli T.monad
-  let f' : Kleisli.mk T.monad X.of ⟶ Kleisli.mk T.monad (P.sum (P.sum Y.of E) Z.of) :=
+theorem exception_guard_parallel {X X' Y Z : Kleisli ((family P T).obj E)}
+    {f : X ⟶ (P.kleisli ((family P T).obj E)).sum Y Z}
+    {g : X' ⟶ (P.kleisli ((family P T).obj E)).sum Y Z}
+    (hf : kleisliGuardOf P G E (Y := Y) (Z := Z) f) (hg : kleisliGuardOf P G E (Y := Y) (Z := Z) g) :
+    kleisliGuardOf P G E (Y := Y) (Z := Z) ((P.kleisli ((family P T).obj E)).desc f g) := by
+  let s := T.map (rearrange P E (Y := Y.of) (Z := Z.of))
+  let K := P.kleisli T
+  let f' : Kleisli.mk T X.of ⟶ Kleisli.mk T (P.sum (P.sum Y.of E) Z.of) :=
     kleisliArrow (f.of ≫ s)
-  let g' : Kleisli.mk T.monad X'.of ⟶ Kleisli.mk T.monad (P.sum (P.sum Y.of E) Z.of) :=
+  let g' : Kleisli.mk T X'.of ⟶ Kleisli.mk T (P.sum (P.sum Y.of E) Z.of) :=
     kleisliArrow (g.of ≫ s)
-  have e : ((P.kleisli ((family P T.monad).obj E)).desc f g).of ≫ s = (K.desc f' g').of :=
+  have e : ((P.kleisli ((family P T).obj E)).desc f g).of ≫ s = (K.desc f' g').of :=
     (congrArg (· ≫ s) (kleisli_desc_of P _ f g)).trans
-      ((P.desc_comp f.of g.of s).trans (kleisli_desc_of P T.monad f' g').symm)
-  exact Eq.mpr (congrArg (T.guard.guarded (Y := Kleisli.mk T.monad (P.sum Y.of E))
-    (Z := Kleisli.mk T.monad Z.of)) (Kleisli.hom_ext e)) (T.guard.parallel hf hg)
+      ((P.desc_comp f.of g.of s).trans (kleisli_desc_of P T f' g').symm)
+  exact Eq.mpr (congrArg (G.guarded (Y := Kleisli.mk T (P.sum Y.of E))
+    (Z := Kleisli.mk T Z.of)) (Kleisli.hom_ext e)) (G.parallel hf hg)
 
-theorem exception_guard_compose {X Y Z V W : Kleisli ((family P T.monad).obj E)}
-    {f : X ⟶ (P.kleisli ((family P T.monad).obj E)).sum Y Z}
-    {g : Y ⟶ (P.kleisli ((family P T.monad).obj E)).sum V W}
-    (h : Z ⟶ (P.kleisli ((family P T.monad).obj E)).sum V W)
-    (hf : kleisliGuard P T E (Y := Y) (Z := Z) f) (hg : kleisliGuard P T E (Y := V) (Z := W) g) :
-    kleisliGuard P T E (Y := V) (Z := W) (f ≫ (P.kleisli ((family P T.monad).obj E)).desc g h) := by
-  let L := (family P T.monad).obj E
+theorem exception_guard_compose {X Y Z V W : Kleisli ((family P T).obj E)}
+    {f : X ⟶ (P.kleisli ((family P T).obj E)).sum Y Z}
+    {g : Y ⟶ (P.kleisli ((family P T).obj E)).sum V W}
+    (h : Z ⟶ (P.kleisli ((family P T).obj E)).sum V W)
+    (hf : kleisliGuardOf P G E (Y := Y) (Z := Z) f) (hg : kleisliGuardOf P G E (Y := V) (Z := W) g) :
+    kleisliGuardOf P G E (Y := V) (Z := W) (f ≫ (P.kleisli ((family P T).obj E)).desc g h) := by
+  let L := (family P T).obj E
   let A := P.sum V.of W.of
   let B := P.sum (P.sum V.of E) W.of
   let s : P.sum (P.sum Y.of Z.of) E ⟶ P.sum (P.sum Y.of E) Z.of := rearrange P E
   let t : P.sum A E ⟶ B := rearrange P E
   let k := (P.kleisli L).desc g h
-  let T' := T.monad
+  let T' := T
   let K := P.kleisli T'
   let a : Kleisli.mk T' X.of ⟶ Kleisli.mk T' (P.sum (P.sum Y.of E) Z.of) :=
     kleisliArrow (f.of ≫ T'.map s)
@@ -80,12 +84,12 @@ theorem exception_guard_compose {X Y Z V W : Kleisli ((family P T.monad).obj E)}
   let right : Kleisli.mk T' Z.of ⟶ Kleisli.mk T' B := kleisliArrow (h.of ≫ T'.map t)
   let err : Kleisli.mk T' E ⟶ Kleisli.mk T' B := kleisliArrow (raise P T' E A ≫ T'.map t)
   have errEq : err.of = raise P T' E V.of ≫ T'.map (P.inl (X := P.sum V.of E) (Y := W.of)) := by
-    simp [err, t, A, B, T', raise, rearrange, Category.assoc, ← T.monad.η.naturality]
-  have herr : T.guard.guarded (Y := Kleisli.mk T' (P.sum V.of E)) (Z := Kleisli.mk T' W.of) err :=
-    Eq.mpr (congrArg (T.guard.guarded (Y := Kleisli.mk T' (P.sum V.of E)) (Z := Kleisli.mk T' W.of))
+    simp [err, t, A, B, T', raise, rearrange, Category.assoc, ← T.η.naturality]
+  have herr : G.guarded (Y := Kleisli.mk T' (P.sum V.of E)) (Z := Kleisli.mk T' W.of) err :=
+    Eq.mpr (congrArg (G.guarded (Y := Kleisli.mk T' (P.sum V.of E)) (Z := Kleisli.mk T' W.of))
       (Kleisli.hom_ext (errEq.trans (comp_pure_of T' (kleisliArrow (raise P T' E V.of)) P.inl).symm)))
-      (T.guard.trivial (kleisliArrow (raise P T' E V.of)))
-  have guarded := T.guard.compose right hf (T.guard.parallel hg herr)
+      (G.trivial (kleisliArrow (raise P T' E V.of)))
+  have guarded := G.compose right hf (G.parallel hg herr)
   let F := P.sum (P.sum Y.of Z.of) E
   let f' : X.of ⟶ T'.obj F := f.of
   let g' : Y.of ⟶ T'.obj (P.sum A E) := g.of
@@ -114,8 +118,44 @@ theorem exception_guard_compose {X Y Z V W : Kleisli ((family P T.monad).obj E)}
         change f' ≫ T'.map (s ≫ d) ≫ T'.μ.app B =
           (f' ≫ T'.map s) ≫ T'.map (K.desc (K.desc left err) right).of ≫ T'.μ.app B
         simp only [kd, Functor.map_comp, Category.assoc]
-  exact Eq.mpr (congrArg (T.guard.guarded (Y := Kleisli.mk T' (P.sum V.of E)) (Z := Kleisli.mk T' W.of))
+  exact Eq.mpr (congrArg (G.guarded (Y := Kleisli.mk T' (P.sum V.of E)) (Z := Kleisli.mk T' W.of))
     (Kleisli.hom_ext e)) guarded
+
+private theorem change_normalized_arrow {E' X Y Z : C} (h : E ⟶ E')
+    (f : X ⟶ T.obj (P.sum (P.sum Y Z) E)) :
+    (f ≫ changeException P T h (P.sum Y Z)) ≫ T.map (rearrange P E' (Y := Y) (Z := Z)) =
+      (f ≫ T.map (rearrange P E (Y := Y) (Z := Z))) ≫
+        T.map (P.map (P.map (𝟙 Y) h) (𝟙 Z)) := by
+  have e : P.map (𝟙 (P.sum Y Z)) h ≫ rearrange P E' =
+      rearrange P E ≫ P.map (P.map (𝟙 Y) h) (𝟙 Z) := by
+    simp [rearrange, Coproducts.map, Category.assoc]
+  simp only [changeException, Category.assoc, ← Functor.map_comp]
+  exact congrArg (fun j => f ≫ T.map j) e
+
+private theorem normalized_pure_map {E' X Y Z : C} (h : E ⟶ E')
+    (f : X ⟶ T.obj (P.sum (P.sum Y Z) E)) :
+    kleisliArrow (f ≫ T.map (rearrange P E (Y := Y) (Z := Z))) ≫
+      (P.kleisli T).map ((Kleisli.Adjunction.toKleisli T).map (P.map (𝟙 Y) h))
+        (𝟙 (Kleisli.mk T Z)) =
+      kleisliArrow ((f ≫ changeException P T h (P.sum Y Z)) ≫
+        T.map (rearrange P E' (Y := Y) (Z := Z))) := by
+  let J := Kleisli.Adjunction.toKleisli T
+  have e : 𝟙 (Kleisli.mk T Z) = J.map (𝟙 Z) := (J.map_id Z).symm
+  rw [e, kleisli_map_pure]
+  exact Kleisli.hom_ext ((comp_pure_of T _ _).trans (change_normalized_arrow T E h f).symm)
+
+theorem change_guard {E' X Y Z : C} (h : E ⟶ E')
+    {f : X ⟶ T.obj (P.sum (P.sum Y Z) E)} (hf : guardOf P G E (Y := Y) (Z := Z) f) :
+    guardOf P G E' (Y := Y) (Z := Z) (f ≫ changeException P T h (P.sum Y Z)) := by
+  have hg := Guardedness.map hf ((Kleisli.Adjunction.toKleisli T).map (P.map (𝟙 Y) h))
+    (𝟙 (Kleisli.mk T Z))
+  exact Eq.mp (congrArg (G.guarded (Y := Kleisli.mk T (P.sum Y E'))
+    (Z := Kleisli.mk T Z)) (normalized_pure_map T E h f)) hg
+
+end Guard
+
+section Iteration
+variable (T : GuardedElgotMonad P) (E : C)
 
 theorem exception_iteration_fixpoint {X Y : C} (f : X ⟶ T.monad.obj (P.sum (P.sum Y X) E))
     (hf : Guard P T E (Y := Y) (Z := X) f) :
@@ -150,45 +190,14 @@ theorem exception_fixpoint {X Y : Kleisli ((family P T.monad).obj E)}
   let q : X ⟶ Y := kleisliArrow (iterate P T E f.of hf)
   change f ≫ (P.kleisli L).desc (𝟙 Y) q = q
   apply Kleisli.hom_ext
-  exact (exception_comp_of T E f _).trans
+  exact (exception_comp_of T.monad E f _).trans
     ((congrArg (fun a => f.of ≫ extend P T.monad a) (kleisli_desc_of P L (𝟙 Y) q)).trans
       (exception_iteration_fixpoint T E f.of hf))
-
-private theorem change_normalized_arrow {E' X Y Z : C} (h : E ⟶ E')
-    (f : X ⟶ T.monad.obj (P.sum (P.sum Y Z) E)) :
-    (f ≫ changeException P T.monad h (P.sum Y Z)) ≫ T.monad.map (rearrange P E' (Y := Y) (Z := Z)) =
-      (f ≫ T.monad.map (rearrange P E (Y := Y) (Z := Z))) ≫
-        T.monad.map (P.map (P.map (𝟙 Y) h) (𝟙 Z)) := by
-  have e : P.map (𝟙 (P.sum Y Z)) h ≫ rearrange P E' =
-      rearrange P E ≫ P.map (P.map (𝟙 Y) h) (𝟙 Z) := by
-    simp [rearrange, Coproducts.map, Category.assoc]
-  simp only [changeException, Category.assoc, ← Functor.map_comp]
-  exact congrArg (fun j => f ≫ T.monad.map j) e
-
-private theorem normalized_pure_map {E' X Y Z : C} (h : E ⟶ E')
-    (f : X ⟶ T.monad.obj (P.sum (P.sum Y Z) E)) :
-    kleisliArrow (f ≫ T.monad.map (rearrange P E (Y := Y) (Z := Z))) ≫
-      (P.kleisli T.monad).map ((Kleisli.Adjunction.toKleisli T.monad).map (P.map (𝟙 Y) h))
-        (𝟙 (Kleisli.mk T.monad Z)) =
-      kleisliArrow ((f ≫ changeException P T.monad h (P.sum Y Z)) ≫
-        T.monad.map (rearrange P E' (Y := Y) (Z := Z))) := by
-  let J := Kleisli.Adjunction.toKleisli T.monad
-  have e : 𝟙 (Kleisli.mk T.monad Z) = J.map (𝟙 Z) := (J.map_id Z).symm
-  rw [e, kleisli_map_pure]
-  exact Kleisli.hom_ext ((comp_pure_of T.monad _ _).trans (change_normalized_arrow T E h f).symm)
-
-theorem change_guard {E' X Y Z : C} (h : E ⟶ E')
-    {f : X ⟶ T.monad.obj (P.sum (P.sum Y Z) E)} (hf : Guard P T E (Y := Y) (Z := Z) f) :
-    Guard P T E' (Y := Y) (Z := Z) (f ≫ changeException P T.monad h (P.sum Y Z)) := by
-  have hg := Guardedness.map hf ((Kleisli.Adjunction.toKleisli T.monad).map (P.map (𝟙 Y) h))
-    (𝟙 (Kleisli.mk T.monad Z))
-  exact Eq.mp (congrArg (T.guard.guarded (Y := Kleisli.mk T.monad (P.sum Y E'))
-    (Z := Kleisli.mk T.monad Z)) (normalized_pure_map T E h f)) hg
 
 theorem change_iterate {E' X Y : C} (h : E ⟶ E')
     {f : X ⟶ T.monad.obj (P.sum (P.sum Y X) E)} (hf : Guard P T E (Y := Y) (Z := X) f) :
     iterate P T E f hf ≫ changeException P T.monad h Y =
-      iterate P T E' (f ≫ changeException P T.monad h (P.sum Y X)) (change_guard T E h hf) := by
+      iterate P T E' (f ≫ changeException P T.monad h (P.sum Y X)) (change_guard T.monad E T.guard h hf) := by
   let Z := P.sum Y E
   let a : Kleisli.mk T.monad X ⟶ Kleisli.mk T.monad (P.sum Z X) :=
     kleisliArrow (f ≫ T.monad.map (rearrange P E))
@@ -197,9 +206,11 @@ theorem change_iterate {E' X Y : C} (h : E ⟶ E')
   have hb : T.guard.guarded (Y := Kleisli.mk T.monad (P.sum Y E'))
       (Z := Kleisli.mk T.monad X) b := Guardedness.map hf j (𝟙 _)
   have natural := T.iteration.naturalCodiagonal.naturality a j hf hb
-  have e := iterate_congr T.iteration.toFixpoints (normalized_pure_map T E h f) hb
-    (change_guard T E h hf)
+  have e := iterate_congr T.iteration.toFixpoints (normalized_pure_map T.monad E h f) hb
+    (change_guard T.monad E T.guard h hf)
   exact (comp_pure_of T.monad (T.iteration.iterate a hf) (P.map (𝟙 Y) h)).symm.trans
     (congrArg Kleisli.Hom.of (natural.symm.trans e))
+
+end Iteration
 
 end Silmaril.Calco2019.Proofs

@@ -82,11 +82,42 @@ instance valuesPreservesFiniteCoproducts (S : Sig.{u}) : PreservesFiniteCoproduc
     let := preservesColimitsOfShape_pempty_of_preservesInitial (values S)
     PreservesFiniteCoproducts.of_preserves_binary_and_initial (values S) (Fin n)
 
+/-- The first projection of a pair reduces when the discarded second term is pure. -/
+theorem first_beta {n : Nat} {β : BoundCtx S.Ty n}
+    {a b : Tm Empty S.Instr n} {A B : S.Ty}
+    (ha : HasType S.Instr Ctx.nil β a A) (hb : HasType S.Instr Ctx.nil β b B)
+    (hp : Pure S.pureEff b) :
+    Eqv S.pureEff Ctx.nil β (.let₂ (.pair a b) (.bv 1)) a A :=
+  first_beta_proof ha hb hp
+
+/-- The second projection of a pair reduces when the discarded first term is pure. -/
+theorem second_beta {n : Nat} {β : BoundCtx S.Ty n}
+    {a b : Tm Empty S.Instr n} {A B : S.Ty}
+    (ha : HasType S.Instr Ctx.nil β a A) (hb : HasType S.Instr Ctx.nil β b B)
+    (hp : Pure S.pureEff a) :
+    Eqv S.pureEff Ctx.nil β (.let₂ (.pair a b) (.bv 0)) b B :=
+  second_beta_proof ha hb hp
+
+/-- Pairing the projections of a pure term recovers that term. -/
+theorem pair_projections_eta {n : Nat} {β : BoundCtx S.Ty n}
+    {p : Tm Empty S.Instr n} {A B : S.Ty}
+    (h : HasType S.Instr Ctx.nil β p (tensor A B)) (hp : Pure S.pureEff p) :
+    Eqv S.pureEff Ctx.nil β (.pair (.let₂ p (.bv 1)) (.let₂ p (.bv 0))) p (tensor A B) :=
+  pair_projections_eta_proof h hp
+
+/-- First projection has a syntactically pure representative. -/
+theorem isPureMor_first (A B : SynCat S) : IsPureMor (first A B) :=
+  isPureMor_first_proof A B
+
+/-- Second projection has a syntactically pure representative. -/
+theorem isPureMor_second (A B : SynCat S) : IsPureMor (second A B) :=
+  isPureMor_second_proof A B
+
 /-- The syntactic projections are value morphisms. -/
-def valueFan (A B : ValueCat S) : BinaryFan A B :=
+@[expose] def valueFan (A B : ValueCat S) : BinaryFan A B :=
   BinaryFan.mk (P := ⟨productObj A.obj B.obj⟩)
-    ⟨first A.obj B.obj, isPureMor_first_proof _ _⟩
-    ⟨second A.obj B.obj, isPureMor_second_proof _ _⟩
+    ⟨first A.obj B.obj, isPureMor_first _ _⟩
+    ⟨second A.obj B.obj, isPureMor_second _ _⟩
 
 /-- Pairing of pure terms gives the universal arrow into the syntactic product. -/
 def valueFanIsLimit (A B : ValueCat S) : IsLimit (valueFan A B) :=
@@ -105,5 +136,14 @@ def valueFanIsLimit (A B : ValueCat S) : IsLimit (valueFan A B) :=
 instance valuesCartesianMonoidal (S : Sig.{u}) : CartesianMonoidalCategory (ValueCat S) :=
   CartesianMonoidalCategory.ofChosenFiniteProducts ⟨_, valueUnitIsTerminal S⟩ fun A B =>
     ⟨_, valueFanIsLimit A B⟩
+
+/-- Cartesian pairing in the value category has the indicated syntax representative. -/
+theorem valueLift_hom {X A B : ValueCat S} (f : X ⟶ A) (g : X ⟶ B) :
+    (CartesianMonoidalCategory.lift f g).hom = pairArrows f.hom g.hom := by rfl
+
+/-- Pairing two pure representatives preserves purity. -/
+theorem isPureMor_pairArrows {X A B : SynCat S} {f : X ⟶ A} {g : X ⟶ B}
+    (hf : IsPureMor f) (hg : IsPureMor g) : IsPureMor (pairArrows f g) :=
+  isPureMor_pairArrows_proof hf hg
 
 end Silmaril.Thesis.LambdaIter.Syn.SynCat

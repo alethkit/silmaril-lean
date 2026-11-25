@@ -8,14 +8,13 @@ The core dialect follows the Bazel team's specification at revision
 ## Resolved input
 
 `Silmaril.Languages.Starlark.Functions.Thms` exposes function definitions,
-calls, sequencing, conditionals and the
-existing total collection suites. Calls in expression position lower to calls
+calls, sequencing, conditionals, call-aware loops and the existing total
+collection suites. Calls in expression position lower to calls
 with fresh destination slots. The current collection suites can be lifted as
 single blocks, including their local loops, writes and returns. Lifting
 preserves the collection denotation exactly. This normalized input requires a
 finite declaration table. The caller supplies statically resolved names and
-scope legality, including full lists of local slots and free names. Calls
-inside collection loop bodies require further lowering support.
+scope legality, including full lists of local slots and free names.
 [Definitions](../../Silmaril/Languages/Starlark/Functions/Defs.lean) · [Theorem header](../../Silmaril/Languages/Starlark/Functions/Thms.lean)
 
 Each invocation allocates its own lexical slots. A closure keeps the
@@ -93,26 +92,49 @@ and valid identifier spellings, and lowers call expressions within operands
 to ordered calls and temporary slots.
 [Argument binding](../../Silmaril/Languages/Starlark/Functions/Arguments/Defs.lean) · [Functions][functions] · [Definitions][defs]
 
-## Checks and next increment
+## Calls inside loops
+
+`Body.forIn` accepts a resolved list, tuple or dictionary operand and a
+call-aware body. It uses the finite snapshot, guards and outcome handling
+of the collection suite. Each iteration writes its target binding before
+running that body. A callee shares heap identities and active iterators
+with its caller, so it cannot mutate a list or dictionary being traversed,
+even through a separate alias. An inner loop releases its own guard.
+The enclosing guard survives until its loop exits, including on an early
+return or error.
+
+`runChecked` checks break and continue in each declaration's own lexical
+loop context, including unreachable code. The rules for loop entry and
+iteration are part of `exec_iff_denoteBody`, which still accounts for
+the exact outcome and store. The finite list of items bounds iteration
+and the available declaration set bounds live calls.
+[Collection loops](starlark-lists.md#iteration-and-control) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/LoopChecks.lean)
+
+## Checks and extensions
 
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
-  +Silmaril.Languages.Starlark.Functions.Arguments.Checks
+  +Silmaril.Languages.Starlark.Functions.Arguments.Checks \
+  +Silmaril.Languages.Starlark.Functions.LoopChecks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
 
 ```sh
-fixture="$(pwd)/examples/starlark/functions/check.go"
+fixtures="$(pwd)/examples/starlark"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
-(cd "$oracle" && go run "$fixture")
+(cd "$oracle" && go run "$fixtures/functions/check.go" && go run "$fixtures/call-loops/check.go")
 ```
 
-Module initialization and loading, built-ins, and host callable effects
-remain open. Calls in collection loop bodies and direct source lowering
-remain outside the current normalized input.
+Module initialization, prepublished imports and five universal built-ins
+extend this profile. Host callable effects remain open.
+[Modules](starlark-modules.md) · [Built-ins](starlark-builtins.md)
+
+Call-aware loops provide a target for lowering nested call expressions,
+including ordered operands and branch-dependent evaluation. Source parsing
+and expression lowering remain open.
 
 [functions]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions
 [names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-binding-and-variables
