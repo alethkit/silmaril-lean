@@ -43,6 +43,16 @@ theorem splitRight_eqToIso (A B : Computations G)
   apply Iso.ext
   exact splitRight_hom A B
 
+/-- The incoming crossing acts as the identity on the trailing value word. -/
+theorem splitLeft_singleton_hom (x : G.Obj) (B : Computations G) :
+    ((Computations.mk [x]).splitLeft B).hom = (crossing x).hom ▷ valueWord B.word :=
+  Proofs.RuntimeCoherence.splitLeft_singleton_hom x B
+
+/-- The outgoing crossing acts as the identity on the trailing value word. -/
+theorem splitLeft_singleton_inv (x : G.Obj) (B : Computations G) :
+    ((Computations.mk [x]).splitLeft B).inv = (crossing x).inv ▷ valueWord B.word :=
+  Proofs.RuntimeCoherence.splitLeft_singleton_inv x B
+
 /-- The left split for an effect with no value ports and a single idle
 value is exactly the elementary crossing of the runtime. -/
 theorem splitLeft_singleton_empty (x : G.Obj) :

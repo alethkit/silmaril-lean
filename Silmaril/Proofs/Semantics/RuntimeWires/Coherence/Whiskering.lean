@@ -65,6 +65,18 @@ theorem crossingWord_singleton (x : G.Obj) : σ [x] = crossing x := by
       (crossing_cons x []).eq.trans (SameArrow.join_eq rfl)
     _ = _ := by erw [hr, hn, whiskerLeft_id, Category.comp_id]
 
+theorem splitLeft_singleton_hom (x : G.Obj) (B : Computations G) :
+    ((Computations.mk [x]).splitLeft B).hom = (crossing x).hom ▷ V B.word := by
+  have h := (splitLeft_hom (Computations.mk [x]) B).eq
+  change _ = (σ [x]).hom ▷ V B.word at h
+  rwa [crossingWord_singleton] at h
+
+theorem splitLeft_singleton_inv (x : G.Obj) (B : Computations G) :
+    ((Computations.mk [x]).splitLeft B).inv = (crossing x).inv ▷ V B.word := by
+  have h := (splitLeft_inv (Computations.mk [x]) B).eq
+  change _ = (σ [x]).inv ▷ V B.word at h
+  rwa [crossingWord_singleton] at h
+
 theorem splitLeft_singleton_empty (x : G.Obj) :
     ((Computations.mk [x]).splitLeft (Computations.mk [])).hom = (crossing x).hom := by
   have h := (splitLeft_hom (Computations.mk [x]) (Computations.mk [])).eq

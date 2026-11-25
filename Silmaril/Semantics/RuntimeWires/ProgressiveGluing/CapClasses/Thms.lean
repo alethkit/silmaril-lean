@@ -114,6 +114,17 @@ noncomputable def thenDo (p : FixedDrawing S a b) (q : FixedDrawing S b c) :
 theorem thenDo_drawing (p : FixedDrawing S a b) (q : FixedDrawing S b c) :
     HEq (p.thenDo q).drawing (p.matching q).glue := by rfl
 
+/-- Matching two straight through-wires yields one straight through-wire
+at the same coordinate across the operands and the splice collar. -/
+theorem thenDo_straight_through (p : FixedDrawing S a b) (q : FixedDrawing S b c)
+    (i : Fin a.size) (j : Fin b.size) (k : Fin c.size) (x : ℝ)
+    (hp : (p.input i).val = (p.output j).val) (hq : (q.input j).val = (q.output k).val)
+    (px : ∀ y, p.drawing.x (p.input i).val y = x)
+    (qx : ∀ y, q.drawing.x (q.input j).val y = x) :
+    ((p.thenDo q).input i).val = ((p.thenDo q).output k).val ∧
+      ∀ y, (p.thenDo q).drawing.x ((p.thenDo q).input i).val y = x :=
+  Proofs.CapClasses.glue_straight_through p q i j k x hp hq px qx
+
 /-- The placed operand comparisons preserve the full glued traces and
 ordered incidence. The map is the identity on the common collar slab. -/
 noncomputable def thenDo_comparison {p p' : FixedDrawing S a b} {q q' : FixedDrawing S b c}
