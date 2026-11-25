@@ -77,6 +77,31 @@ def row_arguments(entries):
     return [str(value) for row in entries for value in row]
 
 
+def check_cell_frame(native, directory):
+    keys = [-(2**63), -1, 0, 127, 128, 16383, 16384, 2**56 - 1, 2**56, 2**63 - 1]
+    entries = [(key, key) for key in keys]
+    native_path = directory / "cell-native.sqlite"
+    lean_path = directory / "cell-lean.sqlite"
+    values = ",".join(f"({key},{amount})" for key, amount in entries)
+    successful(native(native_path, f"PRAGMA page_size=512; {SCHEMA}; "
+                      f"INSERT INTO sample VALUES {values}; VACUUM;"))
+    successful(create(lean_path, *row_arguments(entries)))
+
+    for path in (native_path, lean_path):
+        original = check_image(native, path, entries)
+        base = 512  # Page 2 is the root of sample.
+        count = int.from_bytes(original[base + 3:base + 5], "big")
+        pointers_end = base + 8 + 2 * count
+        content = base + int.from_bytes(original[base + 5:base + 7], "big")
+        assert original[base] == 13 and count == len(entries) and pointers_end < content
+        # Rewrite only the unallocated gap, leaving every cell and its pointer intact.
+        changed = bytearray(original)
+        changed[pointers_end:content] = bytes(byte ^ 0xA5 for byte in original[pointers_end:content])
+        framed = path.with_name(f"{path.stem}-framed.sqlite")
+        framed.write_bytes(changed)
+        check_image(native, framed, entries)
+
+
 def check_create(native, directory):
     # Each row uses 15 bytes with a one-byte rowid or 16 with a two-byte rowid,
     # including its cell pointer. Eight and 24 rows fill the 504-byte space exactly.
@@ -249,11 +274,13 @@ def main():
         assert database.read_bytes() == before
         assert not any(Path(str(database) + suffix).exists() for suffix in ("-wal", "-shm", "-journal"))
         check_create(native, directory)
+        check_cell_frame(native, directory)
     print(f"SQLite 3.54.1 and the Lean executable agreed on {len(queries)} typed SELECTs.")
     print("Framework help, argv/stdin queries, schema, exit statuses and canonical create passed.")
     print("Malformed images, unsupported SQL and sidecars were refused; the database was preserved.")
     print("sqlite_lean --create images passed integrity_check and both readers. "
           "Exact leaf capacity, invalid inputs, existing paths, symlinks and concurrent creation were checked.")
+    print("Both readers preserved rows across leaf-gap changes in native- and Lean-created images.")
 
 
 def writer():
