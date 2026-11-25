@@ -1,8 +1,9 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Thms
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Category.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Packing
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ValueFamilies
 
 /-! # Syntactic roundtrip for a packed exit interface -/
 
@@ -12,6 +13,7 @@ universe u v
 
 namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite
 
+open CategoryTheory
 open Silmaril.Isotope.LambdaSSA
 open Silmaril.Isotope.LambdaSSA.Region
 
@@ -61,24 +63,76 @@ theorem unpackExits_packedArg {Γ : VCtx τ} {L : LCtx τ} {ℓ : Nat} {A : τ} 
           rw [substVars_renameLabels]
           exact equiv_renameLabels (ih hℓ ha) hw
 
-theorem unpack_packExits {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
-    (hr : ValueBranches Γ r L) :
-    SubstitutionEquiv Γ (r.packExits.lsubst (fun _ => unpackExits L)) r L := by
-  let inject : Nat → Region Φ := fun i => .br 0 (packedExitArg i (.var 0))
+theorem packExits_valueFamily (Γ : VCtx τ) (L : LCtx τ) :
+    LSubst.ValueFamily Γ L [packedExitType L] (fun ℓ => .br 0 (packedExitArg ℓ (.var 0 : Tm Φ))) := by
+  intro ℓ A hℓ
+  exact .br rfl (packedExitArg_value hℓ (.var rfl))
+
+private theorem unpackExits_valueBranches (Γ : VCtx τ) (L : LCtx τ) :
+    ValueBranches (packedExitType L :: Γ) (unpackExits L : Region Φ) L := by
+  induction L generalizing Γ with
+  | nil =>
+      exact .cfg (fun _ => Silmaril.empty) (.br rfl (.var rfl)) (fun _ => .br rfl (.var rfl))
+  | cons A L ih =>
+      exact .case (.var rfl) (.br rfl (.var rfl))
+        (valueBranches_renameLabels (ih (packedExitType (A :: L) :: Γ)) (Silmaril.Isotope.SSA.Ren.wk L A))
+
+theorem unpackExits_valueFamily (Γ : VCtx τ) (L : LCtx τ) :
+    LSubst.ValueFamily Γ [packedExitType L] L (fun _ => unpackExits L : Nat → Region Φ) := by
+  intro ℓ A hℓ
+  cases ℓ with
+  | zero =>
+      cases Option.some.inj hℓ
+      exact unpackExits_valueBranches Γ L
+  | succ ℓ => simp [At] at hℓ
+
+theorem unpack_packExits_pointwise (Γ : VCtx τ) (L : LCtx τ) :
+    ∀ ⦃ℓ A⦄, At L ℓ A → SubstitutionEquiv (A :: Γ)
+      (compLSubst (fun i => .br 0 (packedExitArg i (.var 0))) (fun _ => unpackExits L) ℓ)
+      (labelId ℓ : Region Φ) L := by
+  intro ℓ A hℓ
   let decode : Nat → Region Φ := fun _ => unpackExits L
   have hdecode : liftLSubstVars decode 0 = (unpackExits L : Region Φ) := by
     change (unpackExits L : Region Φ).renameVars (Silmaril.DeBruijn.lift Nat.succ) = unpackExits L
     rw [renameVars_eq_substVars]
     exact unpackExits_substVars L _ rfl
-  have hpoint : ∀ ⦃ℓ A⦄, At L ℓ A →
-      SubstitutionEquiv (A :: Γ) (compLSubst inject decode ℓ) (labelId ℓ) L := by
-    intro ℓ A hℓ
-    change SubstitutionEquiv (A :: Γ)
-      ((liftLSubstVars decode 0).substVars (Tm.singleSubst (packedExitArg ℓ (.var 0)))) (.br ℓ (.var 0)) L
-    rw [hdecode]
-    exact unpackExits_packedArg hℓ (.var rfl)
-  change SubstitutionEquiv Γ ((r.lsubst inject).lsubst decode) r L
+  change SubstitutionEquiv (A :: Γ)
+    ((liftLSubstVars decode 0).substVars (Tm.singleSubst (packedExitArg ℓ (.var 0)))) (.br ℓ (.var 0)) L
+  rw [hdecode]
+  exact unpackExits_packedArg hℓ (.var rfl)
+
+theorem unpack_packExits {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    (hr : ValueBranches Γ r L) :
+    SubstitutionEquiv Γ (r.packExits.lsubst (fun _ => unpackExits L)) r L := by
+  change SubstitutionEquiv Γ
+    ((r.lsubst (fun i => .br 0 (packedExitArg i (.var 0)))).lsubst (fun _ => unpackExits L)) r L
   rw [lsubst_comp]
-  simpa only [lsubst_labelId] using hr.lsubst_substitutionEquiv hpoint
+  simpa only [lsubst_labelId] using hr.lsubst_substitutionEquiv (unpack_packExits_pointwise Γ L)
+
+theorem exists_packed_retraction {Γ : VCtx τ} (X : ContinuationContext Φ Γ) :
+    ∃ (pack : X ⟶ (⟨[packedExitType X.labels]⟩ : ContinuationContext Φ Γ))
+      (unpack : (⟨[packedExitType X.labels]⟩ : ContinuationContext Φ Γ) ⟶ X),
+      pack ≫ unpack = 𝟙 X := by
+  let Y : ContinuationContext Φ Γ := ⟨[packedExitType X.labels]⟩
+  let pack : ContinuationFamily (Φ := Φ) Γ X.labels Y.labels :=
+    ⟨_, packExits_valueFamily Γ X.labels⟩
+  let unpack : ContinuationFamily (Φ := Φ) Γ Y.labels X.labels :=
+    ⟨_, unpackExits_valueFamily Γ X.labels⟩
+  refine ⟨pack.toHom, unpack.toHom, ?_⟩
+  rw [← ContinuationFamily.compose_toHom, ← ContinuationFamily.identity_toHom]
+  exact ContinuationFamily.toHom_eq_iff.mpr
+    (unpack_packExits_pointwise Γ X.labels)
+
+
+theorem packExits_equiv_iff {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
+    (hr : ValueBranches Γ r L) (hs : ValueBranches Γ s L) :
+    SubstitutionEquiv Γ r.packExits s.packExits [packedExitType L] ↔ SubstitutionEquiv Γ r s L := by
+  constructor
+  · intro h
+    have hdecode : LSubst.HasType Γ [packedExitType L] L (fun _ => unpackExits L : Nat → Region Φ) :=
+      fun _ _ hi => ((unpackExits_valueFamily Γ L) hi).hasType
+    exact (unpack_packExits hr).symm.trans ((h.lsubst hdecode).trans (unpack_packExits hs))
+  · intro h
+    exact h.lsubst (fun _ _ hi => ((packExits_valueFamily (Φ := Φ) Γ L) hi).hasType)
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite

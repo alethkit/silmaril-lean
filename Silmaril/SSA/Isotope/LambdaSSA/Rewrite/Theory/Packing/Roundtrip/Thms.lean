@@ -1,7 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Thms
-public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Category.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.PackingRoundtrip
 
 /-! # Syntactic retraction of the packed exit interface -/
@@ -11,6 +11,8 @@ public section
 universe u v
 
 namespace Silmaril.Isotope.LambdaSSA.Region
+
+open CategoryTheory
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
@@ -35,5 +37,27 @@ theorem HasType.unpack_packExits_afterBinding {Γ : VCtx τ} {L : LCtx τ} {r : 
     SubstitutionEquiv Γ (r.bindBranchArguments.packExits.lsubst (fun _ => unpackExits L))
       r.bindBranchArguments L :=
   hr.bindBranchArguments.unpack_packExits
+
+theorem packExits_valueFamily (Γ : VCtx τ) (L : LCtx τ) :
+    LSubst.ValueFamily Γ L [packedExitType L] (fun ℓ => .br 0 (packedExitArg ℓ (.var 0 : Tm Φ))) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.packExits_valueFamily Γ L
+
+theorem unpackExits_valueFamily (Γ : VCtx τ) (L : LCtx τ) :
+    LSubst.ValueFamily Γ [packedExitType L] L (fun _ => unpackExits L : Nat → Region Φ) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.unpackExits_valueFamily Γ L
+
+/-- The tagged exit interface admits a split inclusion in the native
+continuation category. -/
+theorem ContinuationContext.exists_packed_retraction {Γ : VCtx τ} (X : ContinuationContext Φ Γ) :
+    ∃ (pack : X ⟶ (⟨[packedExitType X.labels]⟩ : ContinuationContext Φ Γ))
+      (unpack : (⟨[packedExitType X.labels]⟩ : ContinuationContext Φ Γ) ⟶ X),
+      pack ≫ unpack = 𝟙 X :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.exists_packed_retraction X
+
+/-- Packing reflects native rewrite equivalence on regions with value branches. -/
+theorem ValueBranches.packExits_equiv_iff {Γ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
+    (hr : ValueBranches Γ r L) (hs : ValueBranches Γ s L) :
+    SubstitutionEquiv Γ r.packExits s.packExits [packedExitType L] ↔ SubstitutionEquiv Γ r s L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.packExits_equiv_iff hr hs
 
 end Silmaril.Isotope.LambdaSSA.Region
