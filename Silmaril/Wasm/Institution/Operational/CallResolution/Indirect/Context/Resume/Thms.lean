@@ -42,8 +42,22 @@ section Core
 variable {H : Type} {P : Numerics.Profile} {s : Core.Store H} {program : Graph.Program}
   {call : Invocation} {cont : Continuation} {outer : Frame}
 
-/-- Lift the exact lookup trace to the entered caller. On failure the last
-configuration is the first native trap, with any pending lowering retained. -/
+/-- Invert a native step under the function label when the current code
+cannot exit that label. -/
+theorem core_wrap_step_iff {inner dst : Core.Config H}
+    (stays : ∀ out, ¬ Core.LabelExit cont.owner.declaration.results.length [] inner.code out) :
+    Core.Step P noHost (cont.coreWrap outer inner) dst ↔
+      ∃ mid, Core.Step P noHost inner mid ∧ dst = cont.coreWrap outer mid :=
+  Proofs.Core.core_wrap_step_iff stays
+
+theorem core_site_step_iff {inner dst : Core.Config H}
+    (stays : ∀ n out, ¬ Core.LabelExit n [] inner.code out) :
+    Core.Step P noHost (cont.coreSiteWrap outer inner) dst ↔
+      ∃ mid, Core.Step P noHost inner mid ∧ dst = cont.coreSiteWrap outer mid :=
+  Proofs.Core.core_site_step_iff stays
+
+/-- Lift the exact lookup trace through the entered block and function context.
+On failure the last configuration is the first native trap. -/
 theorem core_resolution_allocated_exact {site : Indirect.Site} {caller : Frame} {out : Outcome}
     {selector : BitVec 32} {stack : List Value} {addr : Nat}
     (checked : site.check program caller = true) (allocated : site.CoreAllocated program s)
@@ -51,8 +65,8 @@ theorem core_resolution_allocated_exact {site : Indirect.Site} {caller : Frame} 
     (resolved : site.resolve program selector = some out) :
     out.coreTrace.IsChain (fun a b => ∀ dst,
       Core.Step P noHost
-        (cont.coreWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) a)) dst ↔
-        dst = cont.coreWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) b)) :=
+        (cont.coreSiteWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) a)) dst ↔
+        dst = cont.coreSiteWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) b)) :=
   Proofs.Core.resolution_prefix_exact checked allocated tableFound resolved
 
 theorem core_resolution_prefix_exact {site : Indirect.Site} {caller : Frame} {out : Outcome}
@@ -62,13 +76,13 @@ theorem core_resolution_prefix_exact {site : Indirect.Site} {caller : Frame} {ou
     (resolved : site.resolve program selector = some out) :
     out.coreTrace.IsChain (fun a b => ∀ dst,
       Core.Step P noHost
-        (cont.coreWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) a)) dst ↔
-        dst = cont.coreWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) b)) :=
+        (cont.coreSiteWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) a)) dst ↔
+        dst = cont.coreSiteWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) b)) :=
   Proofs.Core.resolution_prefix_exact checked (fun a fn _ found => allocated a fn found) tableFound resolved
 
 theorem core_entry_iff (checked : call.Checked program)
     (allocated : s.funcs[call.address.value]? = some call.callee.coreInstance) {dst : Core.Config H} :
-    Core.Step P noHost (cont.coreWrap outer (Indirect.coreConfig s call.caller call.site call.selector (call.saved ++ call.args)
+    Core.Step P noHost (cont.coreSiteWrap outer (Indirect.coreConfig s call.caller call.site call.selector (call.saved ++ call.args)
         (cont.code.map Graph.coreEmit) (.call (some call.address)))) dst ↔
       dst = cont.coreConfig call s outer (.callee call.entered) :=
   Proofs.Core.entry_iff checked allocated
@@ -93,7 +107,7 @@ theorem core_run_iff (checked : call.Checked program) (allocated : program.CoreA
     {addr : Nat} (tableFound : s.table? call.caller.toCore tableIndex = some (addr, call.site.table.toCore))
     {dst : Core.Config H} :
     Core.Steps P noHost
-      (cont.coreWrap outer (Indirect.coreConfig s call.caller call.site call.selector (call.saved ++ call.args)
+      (cont.coreSiteWrap outer (Indirect.coreConfig s call.caller call.site call.selector (call.saved ++ call.args)
         (cont.code.map Graph.coreEmit) .start)) dst ↔
       dst ∈ (cont.corePrefix call s outer).dropLast ∨
       ∃ out, Runs program call cont (.callee call.entered) out ∧ dst = cont.coreConfig call s outer out :=
@@ -108,13 +122,26 @@ open Wasm.Lime1.Execution
 variable {H : Type} {s : Store H} {program : Graph.Program}
   {call : Invocation} {cont : Continuation} {outer : Frame}
 
+theorem lime_wrap_step_iff {inner dst : Config H}
+    (stays : ∀ out, ¬ PureStep inner.frame.module.types
+      [.label cont.owner.declaration.results.length [] inner.code] out) :
+    Step CallFrame.limeNoHost (cont.limeWrap outer inner) dst ↔
+      ∃ mid, Step CallFrame.limeNoHost inner mid ∧ dst = cont.limeWrap outer mid :=
+  Proofs.Lime1.lime_wrap_step_iff stays
+
+theorem lime_site_step_iff {inner dst : Config H}
+    (stays : ∀ n out, ¬ PureStep inner.frame.module.types [.label n [] inner.code] out) :
+    Step CallFrame.limeNoHost (cont.limeSiteWrap outer inner) dst ↔
+      ∃ mid, Step CallFrame.limeNoHost inner mid ∧ dst = cont.limeSiteWrap outer mid :=
+  Proofs.Lime1.lime_site_step_iff stays
+
 theorem lime_resolution_allocated_iff {site : Indirect.Site} {caller : Frame} {selector : BitVec 32}
     {stack : List Value} {out : Outcome} {dst : Config H}
     (checked : site.check program caller = true) (allocated : site.LimeAllocated program s)
     (tableFound : frameTable s caller = some site.table) (resolved : site.resolve program selector = some out) :
     Step CallFrame.limeNoHost
-      (cont.limeWrap outer (limeSource s caller site selector stack (cont.code.map Graph.limeEmit))) dst ↔
-      dst = cont.limeWrap outer (limeResolved s caller stack (cont.code.map Graph.limeEmit) out) :=
+      (cont.limeSiteWrap outer (limeSource s caller site selector stack (cont.code.map Graph.limeEmit))) dst ↔
+      dst = cont.limeSiteWrap outer (limeResolved s caller stack (cont.code.map Graph.limeEmit) out) :=
   Proofs.Lime1.resolution_step_iff checked allocated tableFound resolved
 
 theorem lime_resolution_step_iff {site : Indirect.Site} {caller : Frame} {selector : BitVec 32}
@@ -122,13 +149,13 @@ theorem lime_resolution_step_iff {site : Indirect.Site} {caller : Frame} {select
     (checked : site.check program caller = true) (allocated : program.LimeAllocated s)
     (tableFound : frameTable s caller = some site.table) (resolved : site.resolve program selector = some out) :
     Step CallFrame.limeNoHost
-      (cont.limeWrap outer (limeSource s caller site selector stack (cont.code.map Graph.limeEmit))) dst ↔
-      dst = cont.limeWrap outer (limeResolved s caller stack (cont.code.map Graph.limeEmit) out) :=
+      (cont.limeSiteWrap outer (limeSource s caller site selector stack (cont.code.map Graph.limeEmit))) dst ↔
+      dst = cont.limeSiteWrap outer (limeResolved s caller stack (cont.code.map Graph.limeEmit) out) :=
   Proofs.Lime1.resolution_step_iff checked (fun a fn _ found => allocated a fn found) tableFound resolved
 
 theorem lime_entry_iff (checked : call.Checked program)
     (allocated : s.funcs[call.address.value]? = some (.wasm call.callee.declaration.type call.callee.declaration.module call.callee.limeFunc)) {dst : Config H} :
-    Step CallFrame.limeNoHost (cont.limeWrap outer (Indirect.limeResolved s call.caller (call.saved ++ call.args) (cont.code.map Graph.limeEmit) (.resolved call.address))) dst ↔
+    Step CallFrame.limeNoHost (cont.limeSiteWrap outer (Indirect.limeResolved s call.caller (call.saved ++ call.args) (cont.code.map Graph.limeEmit) (.resolved call.address))) dst ↔
       dst = cont.limeConfig call s outer (.callee call.entered) :=
   Proofs.Lime1.entry_iff checked allocated
 
@@ -148,7 +175,7 @@ theorem lime_run_iff (checked : call.Checked program) (allocated : program.LimeA
     (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
     (tableFound : frameTable s call.caller = some call.site.table) {dst : Config H} :
     Steps CallFrame.limeNoHost
-      (cont.limeWrap outer (limeSource s call.caller call.site call.selector (call.saved ++ call.args)
+      (cont.limeSiteWrap outer (limeSource s call.caller call.site call.selector (call.saved ++ call.args)
         (cont.code.map Graph.limeEmit))) dst ↔
       dst ∈ (cont.limePrefix call s outer).dropLast ∨
       ∃ out, Runs program call cont (.callee call.entered) out ∧ dst = cont.limeConfig call s outer out :=

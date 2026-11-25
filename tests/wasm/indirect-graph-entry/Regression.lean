@@ -37,7 +37,7 @@ private def program : Graph.Program := ⟨functions.map some⟩
 private def divide : Prefix.Op := .bin .i32 (.div .unsigned)
 private def selector : Prefix.Op := .get ⟨1⟩
 private def entry : GraphEntry.Entry :=
-  ⟨⟨⟨2⟩, owner, [readLocal ⟨0⟩]⟩, ⟨⟨1⟩, signature⟩, [.get ⟨0⟩, divide, selector]⟩
+  ⟨⟨⟨2⟩, owner, [readLocal ⟨0⟩], none⟩, ⟨⟨1⟩, signature⟩, [.get ⟨0⟩, divide, selector]⟩
 private def outer : Frame := ⟨[i32 77], { funcs := [⟨0⟩, ⟨2⟩] }⟩
 private def args : List Value := [i32 91, i32 0]
 private def nullArgs : List Value := [i32 91, i32 1]

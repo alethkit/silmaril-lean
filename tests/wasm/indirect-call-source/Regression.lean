@@ -148,10 +148,10 @@ example (dst : Core.Config Unit) :
 example (dst : Lime1.Execution.Config Unit) :=
   Source.lime_entry (s := limeStore) (preparedB 0).checked limeAllocated invokedB scopes bodyB.siteTail dst
 
-private def continuation : Context.Resume.Continuation := ⟨⟨2⟩, ownerA, bodyA.siteTail⟩
+private def continuation : Context.Resume.Continuation := ⟨⟨2⟩, ownerA, bodyA.siteTail, none⟩
 private theorem callChecked : callA.Checked program := invocation_checked preparedA.checked rfl invokedA
 private theorem continuationChecked : continuation.Checked program callerA [i32 7] sigA.results :=
-  resume_checked preparedA invokedA rfl rfl rfl rfl
+  resume_checked preparedA invokedA rfl rfl rfl rfl rfl
 private def outer : Frame := ⟨[i32 19], {}⟩
 
 -- The same preparation discharges all site-side premises of #3060.

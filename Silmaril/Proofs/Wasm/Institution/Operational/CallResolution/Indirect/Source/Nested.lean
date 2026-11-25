@@ -29,33 +29,41 @@ private theorem improve_chain {A : Type} {R S : A → A → Prop} {xs : List A}
     intro a mem b step
     exact lift a (by simp [mem]) b step
 
-private theorem core_nest {H : Type} {P : Numerics.Profile} {a b : Core.Config H}
+theorem core_nest_step {H : Type} {P : Numerics.Profile} {a : Core.Config H}
     (stays : ∀ n out, ¬ Core.LabelExit n [] a.code out)
-    (exactStep : ∀ dst, Core.Step P noHost a dst ↔ dst = b)
     (scopes : List (Scope Graph.Op)) :
     (∀ n out, ¬ Core.LabelExit n [] (coreNest scopes a).code out) ∧
-      (∀ dst, Core.Step P noHost (coreNest scopes a) dst ↔ dst = coreNest scopes b) := by
+      (∀ dst, Core.Step P noHost (coreNest scopes a) dst ↔
+        ∃ mid, Core.Step P noHost a mid ∧ dst = coreNest scopes mid) := by
   induction scopes with
-  | nil => exact ⟨stays, exactStep⟩
+  | nil => exact ⟨stays, fun _ => ⟨fun h => ⟨_, h, rfl⟩, fun ⟨_, h, rfl⟩ => h⟩⟩
   | cons scope rest ih =>
     constructor
     · intro n out
-      simp only [coreNest, List.foldr_cons]
+      simp only [coreNest, Context.coreNest, List.foldr_cons]
       exact core_label_stays (head := .label scope.arity [] _) rfl (by simp) (by simp)
         (by simp [Core.Admin.IsReturnCallRef]) (by simp) (by simp)
     · intro dst
       let before := coreNest rest a
       have casesStep := Blocks.Context.core_label_iff (P := P) (s := before.store) (f := before.frame)
-        (n := scope.arity) (saved := scope.saved.map Value.toCore) (body := before.code)
+        (n := scope.arity) (saved := (scope.saved.map Value.toCore)) (body := before.code)
         (rest := scope.rest.map Graph.coreEmit) (dst := dst)
       constructor
       · intro move
         rcases casesStep.mp move with ⟨mid, step, eq⟩ | ⟨out, pop, _⟩
-        · obtain rfl := (ih.2 mid).mp step
-          exact eq
+        · obtain ⟨next, edge, rfl⟩ := (ih.2 mid).mp step
+          exact ⟨next, edge, eq⟩
         · exact (ih.1 _ out pop).elim
-      · rintro rfl
-        exact casesStep.mpr (.inl ⟨_, (ih.2 _).mpr rfl, rfl⟩)
+      · rintro ⟨mid, edge, rfl⟩
+        exact casesStep.mpr (.inl ⟨_, (ih.2 _).mpr ⟨mid, edge, rfl⟩, rfl⟩)
+
+private theorem core_nest {H : Type} {P : Numerics.Profile} {a b : Core.Config H}
+    (stays : ∀ n out, ¬ Core.LabelExit n [] a.code out)
+    (exactStep : ∀ dst, Core.Step P noHost a dst ↔ dst = b)
+    (scopes : List (Scope Graph.Op)) (dst : Core.Config H) :
+    Core.Step P noHost (coreNest scopes a) dst ↔ dst = coreNest scopes b := by
+  rw [(core_nest_step (P := P) stays scopes).2]
+  simp only [exactStep, exists_eq_left]
 
 theorem core_resolution {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     {active : Activation} {program : Graph.Program} {tables : Tables} {out : Outcome}
@@ -72,7 +80,7 @@ theorem core_resolution {H : Type} {P : Numerics.Profile} {s : Core.Store H}
         List.dropLast_singleton, List.mem_cons, List.not_mem_nil, or_false] at mem <;>
       rcases mem with rfl | rfl | rfl | rfl <;> trivial
   exact improve_chain chain fun a mem _ step =>
-    (core_nest (Indirect.core_lookup_stays (pending a mem)) step scopes).2
+    core_nest (Indirect.core_lookup_stays (pending a mem)) step scopes
 
 theorem core_entry {H : Type} {P : Numerics.Profile} {s : Core.Store H}
     {active : Activation} {program : Graph.Program} {tables : Tables} {call : Context.Invocation}
@@ -83,23 +91,25 @@ theorem core_entry {H : Type} {P : Numerics.Profile} {s : Core.Store H}
       dst = coreNest scopes (Indirect.coreEntered s call.caller call.callee call.saved call.args
         (tail.map Graph.coreEmit)) := by
   obtain ⟨address, _, resolved, found, rfl⟩ := invocation_fields invoked
-  exact (core_nest (Indirect.core_lookup_stays (phase := .call (some address)) trivial)
-    (fun _ => Indirect.core_enter_iff allocated found resolved ready.args) scopes).2 dst
+  exact core_nest (Indirect.core_lookup_stays (phase := .call (some address)) trivial)
+    (fun _ => Indirect.core_enter_iff allocated found resolved ready.args) scopes dst
 
 open Wasm.Lime1.Execution in
-private theorem lime_nest {H : Type} {a b : Config H}
+open Wasm.Lime1.Execution in
+theorem lime_nest_step {H : Type} {a : Config H}
     (stays : ∀ n out, ¬ PureStep a.frame.module.types [.label n [] a.code] out)
-    (exactStep : ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b)
     (scopes : List (Scope Graph.Op)) :
     (∀ n out, ¬ PureStep (limeNest scopes a).frame.module.types [.label n [] (limeNest scopes a).code] out) ∧
-      (∀ dst, Step CallFrame.limeNoHost (limeNest scopes a) dst ↔ dst = limeNest scopes b) := by
+      (∀ dst, Step CallFrame.limeNoHost (limeNest scopes a) dst ↔
+        ∃ mid, Step CallFrame.limeNoHost a mid ∧ dst = limeNest scopes mid) := by
   induction scopes with
-  | nil => exact ⟨stays, exactStep⟩
+  | nil => exact ⟨stays, fun _ => ⟨fun h => ⟨_, h, rfl⟩, fun ⟨_, h, rfl⟩ => h⟩⟩
   | cons scope rest ih =>
     constructor
     · intro n out
-      simp only [limeNest, List.foldr_cons]
-      exact lime_label_stays (head := .label scope.arity [] _) rfl (by simp) (by simp) (by simp)
+      simp only [limeNest, Context.limeNest, List.foldr_cons]
+      exact lime_label_stays (head := .label scope.arity [] _) rfl (by simp) (by simp)
+        (by simp)
     · intro dst
       let before := limeNest rest a
       have casesStep := Blocks.Context.lime_label_iff (s := before.store) (f := before.frame)
@@ -108,11 +118,20 @@ private theorem lime_nest {H : Type} {a b : Config H}
       constructor
       · intro move
         rcases casesStep.mp move with ⟨mid, step, eq⟩ | ⟨out, pop, _⟩
-        · obtain rfl := (ih.2 mid).mp step
-          exact eq
+        · obtain ⟨next, edge, rfl⟩ := (ih.2 mid).mp step
+          exact ⟨next, edge, eq⟩
         · exact (ih.1 _ out pop).elim
-      · rintro rfl
-        exact casesStep.mpr (.inl ⟨_, (ih.2 _).mpr rfl, rfl⟩)
+      · rintro ⟨mid, edge, rfl⟩
+        exact casesStep.mpr (.inl ⟨_, (ih.2 _).mpr ⟨mid, edge, rfl⟩, rfl⟩)
+
+open Wasm.Lime1.Execution in
+private theorem lime_nest {H : Type} {a b : Config H}
+    (stays : ∀ n out, ¬ PureStep a.frame.module.types [.label n [] a.code] out)
+    (exactStep : ∀ dst, Step CallFrame.limeNoHost a dst ↔ dst = b)
+    (scopes : List (Scope Graph.Op)) (dst : Config H) :
+    Step CallFrame.limeNoHost (limeNest scopes a) dst ↔ dst = limeNest scopes b := by
+  rw [(lime_nest_step stays scopes).2]
+  simp only [exactStep, exists_eq_left]
 
 open Wasm.Lime1.Execution in
 theorem lime_resolution {H : Type} {s : Store H} {active : Activation} {program : Graph.Program}
@@ -121,11 +140,11 @@ theorem lime_resolution {H : Type} {s : Store H} {active : Activation} {program 
     (tableAllocated : Tables.LimeAllocated tables s) (resolved : active.resolve program = some out)
     (scopes : List (Scope Graph.Op)) (tail : List Graph.Op) (dst : Config H) :
     Step CallFrame.limeNoHost (active.limeSource s scopes tail) dst ↔ dst = active.limeResolved s scopes tail out :=
-  (lime_nest (a := Indirect.limeSource s active.caller active.binding.site active.operands.selector
+  lime_nest (a := Indirect.limeSource s active.caller active.binding.site active.operands.selector
       (active.operands.saved ++ active.operands.args) (tail.map Graph.limeEmit))
     Indirect.lime_lookup_stays
     (fun _ => Indirect.lime_step_iff ready.site allocated (lime_table ready tableAllocated) resolved)
-    scopes).2 dst
+    scopes dst
 
 open Wasm.Lime1.Execution in
 theorem lime_entry {H : Type} {s : Store H} {active : Activation} {program : Graph.Program}
@@ -137,7 +156,7 @@ theorem lime_entry {H : Type} {s : Store H} {active : Activation} {program : Gra
       dst = limeNest scopes (Indirect.limeEntered s call.caller call.callee call.saved call.args
         (tail.map Graph.limeEmit)) := by
   obtain ⟨_, _, resolved, found, rfl⟩ := invocation_fields invoked
-  exact (lime_nest Indirect.lime_invoke_stays
-    (fun _ => Indirect.lime_enter_iff allocated found resolved ready.args) scopes).2 dst
+  exact lime_nest Indirect.lime_invoke_stays
+    (fun _ => Indirect.lime_enter_iff allocated found resolved ready.args) scopes dst
 
 end Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Source.Proofs

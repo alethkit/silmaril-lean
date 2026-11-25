@@ -25,16 +25,36 @@ theorem prepare_spec {states : List OperandState} {stack : List Value}
     entry.op.Prepared program tables (entry.frame args) stack active :=
   Source.prepare_spec (by simpa only [Entry.prepare, ite_eq_left ready.checked.typed] using ready.prepared)
 
+private theorem checked_region (checked : entry.check program tables = true) :
+    entry.siteBody.checkRegion program tables entry.cont.owner entry.cont.fallthrough entry.cont.enclosing
+      (Prefix.stackTypes entry.initial) = true ∧ entry.cont.blockCheck = true := by
+  have region := (Bool.and_eq_true_iff.mp checked).2
+  cases scope : entry.cont.block with
+  | none =>
+    refine ⟨?_, by simp [Context.Resume.Continuation.blockCheck, scope]⟩
+    simpa [Entry.body, scope, Context.Resume.Continuation.fallthrough, Context.Resume.Continuation.enclosing,
+      Entry.initial] using region
+  | some block =>
+    have entered := Bool.and_eq_true_iff.mp (by simpa only [Entry.body, scope, Source.Body.checkRegion] using region :
+      (entry.siteBody.checkRegion program tables entry.cont.owner block.result.toList
+        [entry.cont.owner.declaration.results] [] &&
+      Graph.checkCode entry.cont.owner.targets entry.cont.owner.localTypes entry.cont.owner.declaration.results
+        entry.cont.owner.declaration.results [] (block.result.toList.reverse ++ Prefix.stackTypes entry.cont.owner.initial)
+        block.tail .exit entry.cont.owner.declaration.module.types) = true)
+    exact ⟨by simpa [Context.Resume.Continuation.fallthrough, Context.Resume.Continuation.enclosing,
+        Entry.initial, scope, Prefix.stackTypes] using entered.1,
+      by simpa [Context.Resume.Continuation.blockCheck, scope] using entered.2⟩
+
 private theorem checked_body (checked : entry.check program tables = true) :
     (entry.op.bind program tables entry.cont.owner.declaration.module).isSome = true ∧
-      ∃ types, Prefix.check entry.cont.owner.localTypes (Prefix.stackTypes entry.cont.owner.initial)
+      ∃ types, Prefix.check entry.cont.owner.localTypes (Prefix.stackTypes entry.initial)
         entry.before = some types ∧
-        entry.op.checkTail entry.cont.owner entry.cont.owner.declaration.results [] types entry.cont.code = true := by
-  have body := (Bool.and_eq_true_iff.mp checked).2
+        entry.op.checkTail entry.cont.owner entry.cont.fallthrough entry.cont.enclosing types entry.cont.code = true := by
+  have body := (checked_region checked).1
   have head := (Bool.and_eq_true_iff.mp body).1
   have tail := (Bool.and_eq_true_iff.mp body).2
   refine ⟨head, ?_⟩
-  cases checkedPrefix : Prefix.check entry.cont.owner.localTypes (Prefix.stackTypes entry.cont.owner.initial) entry.before with
+  cases checkedPrefix : Prefix.check entry.cont.owner.localTypes (Prefix.stackTypes entry.initial) entry.before with
   | none => simp [checkedPrefix] at tail
   | some types => exact ⟨types, rfl, by simpa [checkedPrefix] using tail⟩
 
@@ -54,7 +74,7 @@ private theorem trace_exists {locals stack : List Value} {code : List Prefix.Op}
 theorem operand_trace_exists (ready : entry.Checked program tables outer index args) :
     ∃ states result, entry.OperandTrace args states result := by
   obtain ⟨_, types, checkedPrefix, _⟩ := checked_body ready.source
-  have typed : Prefix.WellTyped (entry.frame args).locals entry.cont.owner.initial entry.before types.reverse := by
+  have typed : Prefix.WellTyped (entry.frame args).locals entry.initial entry.before types.reverse := by
     simpa only [Prefix.WellTyped, locals_typed ready, List.reverse_reverse] using checkedPrefix
   exact trace_exists typed
 
@@ -74,10 +94,10 @@ private theorem trace_finish {locals stack : List Value} {code : List Prefix.Op}
 private theorem lookup_tail (ready : entry.Checked program tables outer index args)
     {states : List OperandState} {stack : List Value}
     (trace : entry.OperandTrace args states (.values stack)) :
-    entry.op.checkTail entry.cont.owner entry.cont.owner.declaration.results []
+    entry.op.checkTail entry.cont.owner entry.cont.fallthrough entry.cont.enclosing
       (Prefix.stackTypes stack) entry.cont.code = true := by
   obtain ⟨_, types, checkedPrefix, tail⟩ := checked_body ready.source
-  have typed : Prefix.WellTyped (entry.frame args).locals entry.cont.owner.initial entry.before types.reverse := by
+  have typed : Prefix.WellTyped (entry.frame args).locals entry.initial entry.before types.reverse := by
     simpa only [Prefix.WellTyped, locals_typed ready, List.reverse_reverse] using checkedPrefix
   have endTyped := trace_finish trace typed
   have stackEq : Prefix.stackTypes stack = types := by
@@ -103,7 +123,7 @@ theorem resume_guard {states : List OperandState} {stack : List Value}
   have prepared := prepare_spec ready
   exact ⟨Source.invocation_checked prepared.checked (Bool.and_eq_true_iff.mp ready.checked.source).1 invoked,
     Source.resume_checked prepared invoked ready.checked.found rfl
-      (locals_typed ready.checked) (lookup_tail ready.checked ready.trace)⟩
+      (locals_typed ready.checked) (lookup_tail ready.checked ready.trace) (checked_region ready.checked.source).2⟩
 
 /-- A nonempty trace starts at the supplied prefix head. An empty trace
 already supplies the lookup stack. -/

@@ -1,7 +1,6 @@
 module
 
-public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Context.Resume.Defs
-public import Silmaril.Wasm.Institution.Operational.Blocks.Context.Defs
+public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Context.Defs
 
 @[expose] public section
 
@@ -157,14 +156,9 @@ def Body.scopes (saved : List Value) : Body → List (Blocks.Context.Scope Graph
   | .indirect .. => []
   | .block result inside tail => ⟨result.toList.length, saved, tail⟩ :: inside.scopes []
 
-def coreNest {H : Type} (scopes : List (Blocks.Context.Scope Graph.Op)) (cfg : Core.Config H) : Core.Config H :=
-  scopes.foldr (fun scope inner => ⟨inner.store, inner.frame, Core.vals (scope.saved.map Value.toCore) ++
-    .label scope.arity [] inner.code :: scope.rest.map Graph.coreEmit⟩) cfg
+abbrev coreNest := @Context.coreNest
 
-def limeNest {H : Type} (scopes : List (Blocks.Context.Scope Graph.Op)) (cfg : Wasm.Lime1.Execution.Config H) :
-    Wasm.Lime1.Execution.Config H :=
-  scopes.foldr (fun scope inner => ⟨inner.store, inner.frame, Wasm.Lime1.Execution.values scope.saved ++
-    .label scope.arity [] inner.code :: scope.rest.map Graph.limeEmit⟩) cfg
+abbrev limeNest := @Context.limeNest
 
 def Activation.coreConfig {H : Type} (active : Activation) (s : Core.Store H)
     (scopes : List (Blocks.Context.Scope Graph.Op)) (tail : List Graph.Op) (phase : Indirect.Phase) : Core.Config H :=
