@@ -147,14 +147,37 @@ theorem Realizes.single {env : Env} {t : Tm Empty} {v : Val} (h : evalTerm t env
   | zero => exact h
   | succ i => rfl
 
+/-- Select whether typed observations distinguish two possible unit payloads. -/
+class UnitPayloadPolicy where
+  allowAlternate : Bool
+
+namespace AlternateUnit
+scoped instance : UnitPayloadPolicy := ⟨true⟩
+end AlternateUnit
+
+namespace CanonicalUnit
+scoped instance : UnitPayloadPolicy := ⟨false⟩
+end CanonicalUnit
+
+-- Each separating observer chooses its own scoped unit interpretation.
+set_option linter.concreteInstances false
+
+variable [policy : UnitPayloadPolicy]
+
 inductive ValTy : Val → Ty Empty → Prop where
   | unit : ValTy .unit .unit
   /-- An additional unit payload for tests of equations that would require unit canonicity. -/
-  | alternateUnit : ValTy (.inl .unit) .unit
+  | alternateUnit (allowed : policy.allowAlternate = true) : ValTy (.inl .unit) .unit
   | pair {a b : Val} {A B : Ty Empty} :
       ValTy a A → ValTy b B → ValTy (.pair a b) (.product A B)
   | inl {a : Val} {A B : Ty Empty} : ValTy a A → ValTy (.inl a) (.coprod A B)
   | inr {b : Val} {A B : Ty Empty} : ValTy b B → ValTy (.inr b) (.coprod A B)
+
+theorem ValTy.eq_unit {v : Val} (h : ValTy v .unit) (canonical : policy.allowAlternate = false) :
+    v = .unit := by
+  cases h with
+  | unit => rfl
+  | alternateUnit allowed => rw [canonical] at allowed; cases allowed
 
 def EnvTy (Γ : VCtx (Ty Empty)) (env : Env) : Prop :=
   ∀ ⦃i A⦄, At Γ i A → ValTy (env i) A
@@ -319,6 +342,7 @@ theorem evalRegion_typed {Γ : VCtx (Ty Empty)} {r : Region Empty} {L : LCtx (Ty
     rw [evalRegion]
     exact cfgRun_typed R _ (ie h) (fun i _ hv => ib i (h.extend hv))
 
+omit [UnitPayloadPolicy] in
 theorem mapTerminal_id {n : Nat} (s : Frame n) : mapTerminal id s = s := by cases s <;> rfl
 
 theorem cfgRun_congr {n : Nat} (R : Fin n → Ty Empty) (L : LCtx (Ty Empty))
@@ -342,6 +366,7 @@ theorem cfgRun_congr {n : Nat} (R : Fin n → Ty Empty) (L : LCtx (Ty Empty))
 def RealizesOn (Γ : VCtx (Ty Empty)) (env env' : Env) (θ : Nat → Tm Empty) : Prop :=
   ∀ i A, At Γ i A → evalTerm (θ i) env = some (env' i)
 
+omit [UnitPayloadPolicy] in
 theorem RealizesOn.lift {Γ : VCtx (Ty Empty)} {env env' : Env} {θ : Nat → Tm Empty}
     (h : RealizesOn Γ env env' θ) (A : Ty Empty) (v : Val) :
     RealizesOn (A :: Γ) (extend env v) (extend env' v) (Tm.liftSubst θ) := by
@@ -353,6 +378,7 @@ theorem RealizesOn.lift {Γ : VCtx (Ty Empty)} {env env' : Env} {θ : Nat → Tm
     rw [evalTerm_rename _ (env := env) (ρ := Nat.succ) (fun _ => rfl)]
     exact h i B hi
 
+omit [UnitPayloadPolicy] in
 theorem evalTerm_substOn {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
     (ht : Tm.HasType Γ t A) {env env' : Env} {θ : Nat → Tm Empty}
     (h : RealizesOn Γ env env' θ) : evalTerm (t.subst θ) env = evalTerm t env' := by
@@ -372,6 +398,7 @@ theorem evalTerm_substOn {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
     | some v => cases v <;> first | rfl | exact il (h.lift A _) | exact ir (h.lift B _)
   | abort => rfl
 
+omit [UnitPayloadPolicy] in
 theorem evalRegion_substOn {Γ : VCtx (Ty Empty)} {r : Region Empty} {L : LCtx (Ty Empty)}
     (hr : HasType Γ r L) {env env' : Env} {θ : Nat → Tm Empty}
     (h : RealizesOn Γ env env' θ) : evalRegion (r.substVars θ) env = evalRegion r env' := by

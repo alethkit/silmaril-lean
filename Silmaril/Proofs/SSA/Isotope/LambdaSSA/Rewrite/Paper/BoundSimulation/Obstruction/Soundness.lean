@@ -20,6 +20,7 @@ open Silmaril.Isotope.LambdaSSA.Region
 open Silmaril.DeBruijn (lift liftN)
 open Silmaril.Isotope.LambdaSSA.Semantics (extend extend_rename)
 open scoped Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction
+open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.AlternateUnit
 
 theorem observes_collapse {e p : Region Empty} (env : Env) :
     evalRegion (CfgEta.Codiagonal.nested e p) env =

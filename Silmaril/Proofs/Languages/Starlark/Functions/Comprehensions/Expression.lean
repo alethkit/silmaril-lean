@@ -168,6 +168,27 @@ theorem expression_exact (program : Program) (available : List DeclarationId)
     · intro operand member
       have := rest.clauseOperandSize member
       exact expression_exact program available operand (clauses operand member) operandSlot start
+  | @listComprehension locals first iterable rest outer clauses head safe =>
+    apply scopedBodies_exact target [] locals first (stage (.atom (.list .empty)) resultSlot start)
+      (expression_exact program available iterable outer operandSlot start) (by simp) safe
+    apply clauses_exact
+    · have := rest.headValueSize
+      exact appendYield_exact (expression_exact program available rest.headValue head operandSlot start)
+    · intro operand member
+      have := rest.clauseOperandSize member
+      exact expression_exact program available operand (clauses operand member) operandSlot start
+  | @dictComprehension locals first iterable rest outer clauses key value safe =>
+    apply scopedBodies_exact target [keySlot] locals first (stage (.atom (.dict .noEntries)) resultSlot start)
+      (expression_exact program available iterable outer operandSlot start) (by simpa using keyVisible) safe
+    apply clauses_exact
+    · have headSize := rest.headValueSize
+      have pairSize : sizeOf rest.headValue = 1 + sizeOf rest.headValue.1 + sizeOf rest.headValue.2 := by
+        cases rest.headValue <;> rfl
+      exact putYield_exact (expression_exact program available rest.headValue.1 key keySlot start)
+        (expression_exact program available rest.headValue.2 value operandSlot start)
+    · intro operand member
+      have := rest.clauseOperandSize member
+      exact expression_exact program available operand (clauses operand member) operandSlot start
   | listDisplay elements | tupleDisplay elements =>
     unfold compileSequence
     apply scope_exact target
@@ -404,5 +425,16 @@ theorem first_iterable_failure (program : Program) (available : List Declaration
   change completeCall state (some target) (denoteBody program available (.seq _ _) ready) = _
   rw [sequenceDenotation, failed]
   rfl
+
+theorem dict_yield_order (program : Program) (available : List DeclarationId)
+    (key value : Body) (state : State) :
+    denoteBody program available (putYield key value) state =
+      Outcome.resume (denoteBody program available key state) fun
+        | .next => fun next =>
+          Outcome.resume (denoteBody program available value next) fun
+            | .next => denoteBody program available putResult
+            | signal => pure signal
+        | signal => pure signal := by
+  simp only [putYield, sequenceMeaning] <;> rfl
 
 end Silmaril.Proofs.Languages.Starlark.Functions.Comprehensions

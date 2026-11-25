@@ -183,4 +183,17 @@ theorem first_iterable_failure (program : Program) (available : List Declaration
   Proofs.Languages.Starlark.Functions.Comprehensions.first_iterable_failure
     program available target privateSlots locals first initial iterable rest state ready stopped error allocated failed
 
+/-- At a reached dictionary head, the key and value run before the shared
+dictionary update. A failed key skips the value and either failure skips the update. -/
+theorem dict_yield_order (program : Program) (available : List DeclarationId)
+    (key value : Body) (state : State) :
+    denoteBody program available (putYield key value) state =
+      Outcome.resume (denoteBody program available key state) fun
+        | .next => fun next =>
+          Outcome.resume (denoteBody program available value next) fun
+            | .next => denoteBody program available putResult
+            | signal => pure signal
+        | signal => pure signal :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.dict_yield_order program available key value state
+
 end Silmaril.Languages.Starlark.Functions.Comprehensions

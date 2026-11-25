@@ -428,6 +428,71 @@ out = [row for row in rows if [x for x in rows] if touch()]
 	fmt.Println("PASS nested guard lifetime on a shared alias, retained effects, and failure unwind")
 }
 
+func checkHeads() {
+	const mark = `events = []
+def mark(tag, value):
+    events.append(tag)
+    return value
+`
+	globals, err := run(mark + `def run(x):
+    result = [[mark(2, x) for x in mark(1, [x])] for x in x if x]
+    return (len(x), result)
+out = run([0, 4, 5])
+`)
+	require(err == nil && globals["out"].String() == "(3, [[4], [5]])" &&
+		globals["events"].String() == "[1, 2, 1, 2]", fmt.Sprint(globals, err))
+	globals, err = run(mark + `out = {len([x for x in mark(1, width)]): {"n": x for x in mark(2, [n])}
+       for (width, n) in [([0], 40), ([0, 0], 50), ([0], 60), ([], 0)] if n}`)
+	require(err == nil && globals["out"].String() == `{1: {"n": 60}, 2: {"n": 50}}` &&
+		globals["events"].String() == "[1, 2, 1, 2, 1, 2]", fmt.Sprint(globals, err))
+	fmt.Println("PASS nested head scope, skipped heads, key/value order, and overwrite in insertion order")
+
+	const rows = `rows = [[("a", [4]), ([], [5])]]
+`
+	const failed = `{mark(4, k): mark(5, v) for row in mark(3, rows) for (k, [v]) in row}`
+	for _, tc := range []struct {
+		expression string
+		errorPart  string
+		events     string
+	}{
+		{"[" + failed + " for row in rows]", "unhashable type: list", "[3, 4, 5, 4, 5]"},
+		{"{" + failed + `: [x for x in mark(1, [7])] for row in rows}`, "unhashable type: list", "[3, 4, 5, 4, 5]"},
+		{`{[x for x in mark(1, [])]: [v for v in mark(2, [])][1] for row in rows}`, "out of range", "[1, 2]"},
+		{`{[x for x in mark(1, [])]: [v for v in mark(2, [9])] for row in rows}`, "unhashable type: list", "[1, 2]"},
+	} {
+		globals, err = run(mark + rows + "out = " + tc.expression)
+		checkError(err, tc.errorPart)
+		require(globals["out"] == nil && globals["events"].String() == tc.events, fmt.Sprint(globals, err))
+		outer := globals["rows"].(*starlark.List)
+		inner := outer.Index(0).(*starlark.List)
+		require(outer.Append(starlark.None) == nil && inner.Append(starlark.None) == nil,
+			"failed head left a comprehension iterator active")
+	}
+	globals, err = run(mark + `out = {len([x for x in mark(1, [row])]):
+       ([x for x in mark(2, [row])] if row else [x for x in mark(3, [])][1])
+       for row in [1, 0, 2]}`)
+	checkError(err, "out of range")
+	require(globals["out"] == nil && globals["events"].String() == "[1, 2, 1, 3]", fmt.Sprint(globals, err))
+
+	globals, err = run(mark + `rows = [[1]]
+def touch():
+    mark(6, 0)
+    rows[0] = []
+    return True
+out = {len([x for x in rows]): touch() for row in rows}
+`)
+	checkError(err, "during iteration")
+	require(globals["out"] == nil && globals["events"].String() == "[6]" &&
+		globals["rows"].String() == "[[1]]", fmt.Sprint(globals, err))
+	require(globals["rows"].(*starlark.List).Append(starlark.None) == nil,
+		"failed head left the outer iterator active")
+	fmt.Println("PASS key/value failure precedence, residual effects, and enclosing guard unwind")
+
+	globals, err = run(`out = [[y for x in source if x or y for y in [2]] for source in [[1], [0]]]`)
+	require(err == nil && globals["out"].String() == "[[2], [2]]", fmt.Sprint(globals, err))
+	fmt.Println("PROFILE DIFFERENCE Go also retains comprehension locals across revisits to nested heads")
+}
+
 func main() {
 	checkLists()
 	checkDictionaries()
@@ -436,4 +501,5 @@ func main() {
 	checkDisplayAndIndexOperands()
 	checkSliceOperands()
 	checkClauseOperands()
+	checkHeads()
 }

@@ -15,6 +15,7 @@ open Silmaril.Isotope.LambdaSSA.Region
 open Silmaril.DeBruijn (lift liftN)
 open Silmaril.Isotope.LambdaSSA.Semantics (extend extend_rename)
 open scoped Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction
+open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.AlternateUnit
 
 def Same (Γ : VCtx (Ty Empty)) (r s : Region Empty) : Prop :=
   ∀ env, EnvTy Γ env → evalRegion r env = evalRegion s env

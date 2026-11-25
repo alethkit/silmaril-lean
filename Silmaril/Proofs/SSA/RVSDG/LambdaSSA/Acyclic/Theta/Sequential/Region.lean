@@ -107,7 +107,7 @@ private theorem split_local (external : List τ) :
       LabelValue.inject_succ i inside (show At rest i _ from inside),
       LabelValue.appendSplit, split_local]
 
-private theorem split_external (external : List τ) :
+theorem split_external (external : List τ) :
     (locals : List τ) → (i : Nat) → {Z : τ} →
     (outside : At (locals ++ external) (i + locals.length) Z) →
     (inside : At external i Z) → (x : TyDen Z) →
@@ -312,6 +312,62 @@ private theorem flat_denotes :
   · exact dispatch s
 
 open Isotope.LambdaSSA.Semantics.Agreement (RegionCoherent)
+
+theorem region_entry (s : Loop Φ A B K E D) {Γ : List τ} {gate : Isotope.LambdaSSA.Region Φ}
+    (typing : Isotope.LambdaSSA.Region.HasType Γ gate (Theta.Labels s))
+    {action : Env Γ → m (LabelDen (Theta.Labels s))}
+    (entryDenotes : RegionDenotes (m := m) ε typing action)
+    (choose : Env Γ → m (LabelDen [E,D] ⊕ TyDen A))
+    (entrySplit : ∀ env, (action env >>= fun x => pure (LabelValue.appendSplit _ _ x)) =
+      (choose env >>= fun branch => pure (splitEntry s branch)))
+    (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m)) (env : Env Γ) :
+    Region.denote (ε := ε) (m := m) (.cfg (Theta.localTypes s) typing
+      (fun i => (Theta.blockAt s i).typing Γ)) env =
+      choose env >>= fun
+        | .inl external => pure external
+        | .inr header => Region.denote (ε := ε) (m := m) (Theta.regionTyping s) (PUnit.unit, header) := by
+  let collect {Δ : List τ} (p : Env Δ × FiniteLabelDen (Theta.localTypes s)) :=
+    blockAction (ε := ε) (m := m) siteValue (Theta.blockAt s p.2.1) p.2.2
+  have blocks (Δ : List τ) :
+      ∀ i, RegionDenotes (m := m) ε ((Theta.blockAt s i).typing Δ)
+        (fun env => blockAction (ε := ε) siteValue (Theta.blockAt s i) env.2) :=
+    fun i => block_denotes (Theta.blockAt s i)
+  have collective (Δ : List τ) : CollectiveDenotes Δ (Theta.localTypes s) [E,D]
+      (fun i env => blockAction (ε := ε) siteValue (Theta.blockAt s i) env.2) collect :=
+    ⟨fun _ _ _ => rfl⟩
+  let start := localSite (Theta.localTypes s) [E,D] 0
+  let step : LabelDen (List.ofFn (Theta.localTypes s)) →
+      m (LabelDen [E,D] ⊕ LabelDen (List.ofFn (Theta.localTypes s))) :=
+    fun current => collect (env, labelDenToFinite _ current) >>= fun next =>
+      pure (LabelValue.appendSplit _ _ next)
+  let run : LabelDen [E,D] ⊕ LabelDen (List.ofFn (Theta.localTypes s)) → m (LabelDen [E,D]) :=
+    Sum.elim pure (iter step)
+  have plain (x : TyDen A) : Region.denote (ε := ε) (m := m) (Theta.regionTyping s) (PUnit.unit, x) =
+      run (splitEntry s (.inr x)) := by
+    rw [TwoBlock.regionDenote_eq_of coherent (RegionDenotes.cfg _ _
+      (branch_denotes (m := m) (ε := ε) (Γ := []) start) (blocks [A]) (collective [A]))]
+    simp only [cfgDenotation, pure_bind, binaryCoproductIso_hom_labelAppendSplit]
+    change _ = run (LabelValue.appendSplit (List.ofFn (Theta.localTypes s)) [E,D] (siteValue start x))
+    cases LabelValue.appendSplit (List.ofFn (Theta.localTypes s)) [E,D] (siteValue start x) <;> rfl
+  have selected := RegionDenotes.cfg (Γ := Γ) (R := Theta.localTypes s) (L := [E,D])
+    typing (fun i => (Theta.blockAt s i).typing Γ) entryDenotes (blocks Γ) (collective Γ)
+  rw [TwoBlock.regionDenote_eq_of coherent selected]
+  simp only [cfgDenotation, binaryCoproductIso_hom_labelAppendSplit]
+  calc
+    _ = (action env >>= fun x => run (LabelValue.appendSplit _ _ x)) := by
+      congr 1
+      funext target
+      cases LabelValue.appendSplit (List.ofFn (Theta.localTypes s)) [E,D] target <;> rfl
+    _ = ((action env >>= fun x => pure (LabelValue.appendSplit _ _ x)) >>= run) := by
+      simp only [bind_assoc, pure_bind]
+    _ = _ := by
+      rw [entrySplit env]
+      simp only [bind_assoc, pure_bind]
+      congr 1
+      funext result
+      cases result with
+      | inl => rfl
+      | inr x => exact (plain x).symm
 
 theorem region_sequential
     (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m)) (env : Env [A]) :

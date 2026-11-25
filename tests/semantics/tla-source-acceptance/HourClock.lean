@@ -1,8 +1,11 @@
 module
 
 import Silmaril.Logic.Temporal.TLA.DataBridge.Thms
+import Silmaril.Logic.Temporal.TLA.DataElab.Endpoints.Thms
+import all Silmaril.Logic.Temporal.TLA.DataElab.Endpoints.Defs
 public import Silmaril.Logic.Temporal.TLA.DataElab.Tagged.Thms
 import all Silmaril.Logic.Temporal.TLA.DataElab.Defs
+meta import Silmaril.Logic.Temporal.TLA.DataElab.Endpoints.Thms
 meta import Silmaril.Logic.Temporal.TLA.DataElab.Tagged.Thms
 meta import Silmaril.Logic.Temporal.TLA.Resolution.Levels.Defs
 meta import Silmaril.Logic.Temporal.TLA.Surface.Parser.Defs
@@ -14,6 +17,7 @@ public meta import Lean
 namespace Silmaril.Logic.Temporal.TLA.SourceAcceptance.HourClock
 
 open Resolution Data.Tagged
+open DataElab
 open DataElab.Tagged (Policy NumericPrimitive numericSignature)
 
 private meta abbrev clockModule : ModuleId := "HourClock"
@@ -22,17 +26,25 @@ private meta abbrev naturalsModule : ModuleId := "Naturals"
 private meta abbrev clockSite (path : Path) : Site := ⟨clockModule, path⟩
 private meta abbrev hrId : BindingId := .declared (clockSite [.unit 0, .member 0])
 private meta abbrev initialId : BindingId := .declared (clockSite [.unit 1])
+private meta abbrev nextId : BindingId := .declared (clockSite [.unit 2])
 private meta abbrev naturalsId (member : Nat) : BindingId := .declared ⟨naturalsModule, [.member member]⟩
 private meta abbrev intervalId : BindingId := naturalsId 0
+private meta abbrev additionId : BindingId := naturalsId 1
 
 private meta def numericTable (id : BindingId) : Option NumericPrimitive :=
-  if id = intervalId then some .interval else none
+  if id = intervalId then some .interval
+  else if id = additionId then some .add
+  else none
 
 private meta abbrev fixtureSignature := numericSignature numericTable
 
 meta section
 
 open Lean
+
+private def externalLevels : Levels.ExternalLevels :=
+  let binary : Levels.ExternalSignature := ⟨.constant, [⟨.action, true⟩, ⟨.action, true⟩]⟩
+  [(intervalId, binary), (additionId, binary)]
 
 private def naturalsDeclaration (source : Surface.Module) (index : Nat) (symbol : String) :
     Except String SignatureDecl := do
@@ -60,9 +72,7 @@ private def checkedSource (clockText naturalsText : String) : Except String Chec
     [(clockModule, .parsed clock [("Naturals", naturalsModule)]),
       (naturalsModule, .signature naturals.name [] [interval, addition])] clockModule).mapError
       (fun e => s!"resolution: {reprStr e}")
-  let binary : Levels.ExternalSignature := ⟨.constant, [⟨.action, true⟩, ⟨.action, true⟩]⟩
-  let levels ← (Levels.check registry [(intervalId, binary), (naturalsId 1, binary)]).mapError
-    (fun e => s!"levels: {reprStr e}")
+  let levels ← (Levels.check registry externalLevels).mapError (fun e => s!"levels: {reprStr e}")
   let expected : List (String × Nat × Levels.Level) :=
     [("HCini", 1, .state), ("HCnxt", 2, .action), ("HC", 3, .temporal), ("THEOREM", 4, .temporal)]
   for (name, index, level) in expected do
@@ -76,6 +86,14 @@ private def checkedSource (clockText naturalsText : String) : Except String Chec
     (root.referenceAt hourSite).map (·.target) = some hrId ∧
     (root.referenceAt rangeSite).map (·.target) = some intervalId do
     throw "unexpected HCini declaration or reference identities"
+  let primeSite := [.unit 2, .body, .operand 0]
+  let addSite := [.unit 2, .body, .operand 1, .operand 1]
+  unless (root.bindingAt (.ident "HCnxt")).map (·.id) = some nextId ∧
+    (root.referenceAt primeSite).map (·.target) = some (.builtin (.symbol .postfix "'")) ∧
+    (root.referenceAt (primeSite ++ [.operand 0])).map (·.target) = some hrId ∧
+    (root.referenceAt addSite).map (·.target) = some additionId ∧
+    (root.referenceAt (addSite ++ [.operand 0])).map (·.target) = some hrId do
+    throw "unexpected HCnxt declaration or reference identities"
   return registry
 
 private def loadSource : IO CheckedRegistry := do
@@ -104,6 +122,12 @@ private partial def quoteTerm (term : DataElab.Term fixtureSignature) :
   match term with
   | .flexible id => return node ``DataElab.Term.flexible #[toExpr id]
   | .numeral n => return node ``DataElab.Term.numeral #[toExpr n]
+  | .prime site operand =>
+    return node ``DataElab.Term.prime #[toExpr site, ← quoteTerm operand]
+  | .eq negated left right =>
+    return node ``DataElab.Term.eq #[toExpr negated, ← quoteTerm left, ← quoteTerm right]
+  | .ite condition yes no =>
+    return node ``DataElab.Term.ite #[← quoteTerm condition, ← quoteTerm yes, ← quoteTerm no]
   | .mem negated element set =>
     return node ``DataElab.Term.mem #[toExpr negated, ← quoteTerm element, ← quoteTerm set]
   | .external id arity _ args =>
@@ -116,20 +140,30 @@ private partial def quoteTerm (term : DataElab.Term fixtureSignature) :
     return node ``DataElab.Term.external #[key, toExpr arity, admitted, values]
   | _ => throwError "unexpected term in lowered HCini: {reprStr term}"
 
-private def emitInitial : Elab.Term.TermElabM Lean.Expr := do
+private def quoteChecked (constructor : Lean.Name) (term : DataElab.Term fixtureSignature) :
+    Elab.Term.TermElabM Lean.Expr := do
+  let quoted ← quoteTerm term
+  let valid ← Meta.mkEqRefl (toExpr true)
+  return mkApp3 (mkConst constructor) (mkConst ``fixtureSignature) quoted valid
+
+private def emitSelections : Elab.Term.TermElabM Lean.Expr := do
   let registry ← loadSource
-  let checked ← match DataElab.lowerDefinition registry fixtureSignature 16 initialId with
+  let initial ← match Endpoints.lowerState registry externalLevels fixtureSignature 16 initialId with
     | .ok expression => pure expression
     | .error diagnostic => throwError "HCini lowering: {reprStr diagnostic}"
-  let term ← quoteTerm checked.term
-  let valid ← Meta.mkEqRefl (toExpr true)
+  let next ← match Endpoints.lowerAction registry externalLevels fixtureSignature 16 nextId with
+    | .ok action => pure action
+    | .error diagnostic => throwError "HCnxt lowering: {reprStr diagnostic}"
+  let state ← quoteChecked ``DataElab.CheckedExpr.mk initial.term
+  let action ← quoteChecked ``Endpoints.CheckedAction.mk next.term
   logInfo "HourClock levels: HCini state, HCnxt action, HC temporal, anonymous THEOREM temporal"
-  return mkApp3 (mkConst ``DataElab.CheckedExpr.mk) (mkConst ``fixtureSignature) term valid
+  Meta.mkAppM ``Prod.mk #[state, action]
 
 end
 
-private noncomputable def checkedInitial : DataElab.CheckedExpr fixtureSignature := by_elab
-  emitInitial
+private noncomputable def checked :
+    DataElab.CheckedExpr fixtureSignature × Endpoints.CheckedAction fixtureSignature := by_elab
+  emitSelections
 
 private abbrev ClockValue := Value.{0}
 private abbrev ClockName := ULift.{1} BindingId
@@ -146,7 +180,7 @@ private def valuation (ρ : RigidEnv) (s : ClockState) : DataElab.Valuation Cloc
 private noncomputable def initial (policy : Policy.{0}) :
     DataBridge.StatePredicate ClockValue ClockScope :=
   fun ρ s => policy.booleans.holds
-    (checkedInitial.eval policy.operations policy.booleans (policy.external numericTable) (valuation ρ s))
+    (checked.1.eval policy.operations policy.booleans (policy.external numericTable) (valuation ρ s))
 
 private noncomputable def initialFormula (policy : Policy.{0}) :
     General.Formula (DataBridge.Carrier ClockValue) ClockScope :=
@@ -162,7 +196,7 @@ private theorem hcini_holds_iff (policy : Policy.{0}) (ρ : RigidEnv) (σ : Beha
     (initialFormula policy).Holds ρ σ i ↔
       ∃ n : Int, hour (σ i) = Value.integer n ∧ 1 ≤ n ∧ n ≤ 12 := by
   rw [initialFormula, DataBridge.state_holds]
-  simp only [initial, checkedInitial, DataElab.CheckedExpr.eval, DataElab.Term.eval,
+  simp only [initial, checked, DataElab.CheckedExpr.eval, DataElab.Term.eval,
     DataElab.Term.evalList, Bool.false_eq_true, ite_false, policy.numeral_eq,
     DataElab.Booleans.holds_ofProp, policy.mem_value, valuation, hour]
   rw [policy.external_apply numericTable intervalSelected]
@@ -174,6 +208,44 @@ example (policy : Policy.{0}) (ρ : RigidEnv) (σ : Behavior ClockState) (i : Na
     (h : hour (σ i) = Value.integer 1) : (initialFormula policy).Holds ρ σ i :=
   (hcini_holds_iff policy ρ σ i).mpr ⟨1, h, by decide, by decide⟩
 
+private theorem additionSelected : numericTable additionId = some .add := by
+  simp [numericTable]
+
+private def endpointValuation (ρ : RigidEnv) (s t : ClockState) :
+    Endpoints.EndpointValuation ClockValue :=
+  let source := valuation ρ s
+  ⟨source.rigid, source.flexible, (valuation ρ t).flexible⟩
+
+private noncomputable def next (policy : Policy.{0}) :
+    General.Action (DataBridge.Carrier ClockValue) ClockScope :=
+  fun ρ s t => policy.booleans.holds
+    (checked.2.eval policy.operations policy.booleans (policy.external numericTable)
+      (endpointValuation ρ s t))
+
+open Classical in
+/-- The primed read uses the target. The IF guard and addition use the source. -/
+private theorem hcnxt_iff (policy : Policy.{0}) (ρ : RigidEnv) (s t : ClockState) :
+    next policy ρ s t ↔ hour t =
+      (if hour s = Value.integer 12 then Value.integer 1
+       else Value.add policy.numeric (hour s) (Value.integer 1)) := by
+  have guard (p : Prop) : policy.booleans.IsBoolean (policy.booleans.ofProp p) := by
+    by_cases h : p <;> simp [DataElab.Booleans.IsBoolean, h]
+  simp only [next, checked, Endpoints.CheckedAction.eval, DataElab.Term.eval,
+    DataElab.Term.evalList, Bool.false_eq_true, ite_false, ite_true,
+    policy.numeral_eq, guard, DataElab.Booleans.holds_ofProp, endpointValuation, valuation, hour]
+  rw [policy.external_apply numericTable additionSelected]
+  simp only [policy.add_apply, ite_not, hrId, clockSite]
+  rfl
+
+open Classical in
+private theorem hcnxt_integer_iff (policy : Policy.{0}) (ρ : RigidEnv) (s t : ClockState)
+    (n : Int) (source : hour s = Value.integer n) :
+    next policy ρ s t ↔ hour t = Value.integer (if n = 12 then 1 else n + 1) := by
+  rw [hcnxt_iff, source]
+  by_cases h : n = 12 <;> simp [Value.integer_injective.eq_iff, h]
+
 #print axioms hcini_holds_iff
+#print axioms hcnxt_iff
+#print axioms hcnxt_integer_iff
 
 end Silmaril.Logic.Temporal.TLA.SourceAcceptance.HourClock

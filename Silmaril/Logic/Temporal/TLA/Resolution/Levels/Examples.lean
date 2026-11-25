@@ -185,6 +185,66 @@ private def hourClock : Bool := Id.run do
     (result.operatorAt (declared [.unit 4])).isNone
 
 #guard hourClock
+
+private def orderedUpdates : Bool := Id.run do
+  let some resolved := resolveText
+    "CONSTANT f\nVARIABLE v\n\
+     Update == [f EXCEPT !.a = [@ EXCEPT ![@, v].b = @], !.other = LET Read == @ IN Read]\n\
+     Spare == v"
+    | return false
+  let some mod := resolved.moduleAt "root" | return false
+  let outer := [.unit 2, .body, .update 0]
+  let inner := outer ++ [.body, .update 0]
+  let next := [.unit 2, .body, .update 1]
+  let atBase := outer ++ [.body, .operand 0]
+  let atIndex := inner ++ [.updateComponent 0, .argument 0]
+  let atInner := inner ++ [.body]
+  let atNext := next ++ [.body, .letDecl 0, .body]
+  let bindsAt (use binder : Path) :=
+    mod.referenceAt use = some ⟨declared binder, .application⟩ &&
+      (resolved.findBinding (declared binder)).any (fun binding => binding.kind = .oldValue)
+  let .ok checked := check resolved | return false
+  return bindsAt atBase outer && bindsAt atIndex outer && bindsAt atInner inner &&
+    bindsAt atNext next && (mod.bindingAt (.ident "@")).isNone &&
+    checked.expressionAt (site atBase) = some (.fixed .constant) &&
+    checked.expressionAt (site atIndex) = some (.fixed .constant) &&
+    checked.expressionAt (site atInner) = some (.fixed .state) &&
+    checked.expressionAt (site atNext) = some (.fixed .state) &&
+    bodyHas checked 2 .state && bodyHas checked 3 .state
+
+#guard orderedUpdates
+
+#guard match checkText
+    "VARIABLE v\nF(i) == [[a |-> TRUE] EXCEPT ![i] = @']\nGood == F(v)" with
+  | some (.ok checked) =>
+    (checked.operatorAt (declared [.unit 1])).any (fun summary =>
+      summary.maxArgumentLevels == [.state]) &&
+    bodyHas checked 2 .action
+  | _ => false
+
+#guard failsAt "VARIABLE v\nP == [[TRUE |-> FALSE] EXCEPT ![v'] = @']"
+  [.unit 1, .body, .update 0, .body, .operand 0] [.unit 1, .body, .update 0, .body, .operand 0]
+  (.atMost (.fixed .action) .state)
+#guard failsAt "VARIABLE v\nP == [[a |-> FALSE] EXCEPT !.a = v', !.a = @']"
+  [.unit 1, .body, .update 1, .body, .operand 0] [.unit 1, .body, .update 1, .body, .operand 0]
+  (.atMost (.fixed .action) .state)
+#guard failsAt "VARIABLE v\nP == [[a |-> FALSE] EXCEPT !.a = []v]"
+  [.unit 1, .body, .update 0, .body] [.unit 1, .body, .update 0, .body]
+  (.atMost (.fixed .temporal) .action)
+#guard failsAt "VARIABLE v\nP == [a : []v]" [.unit 1, .body, .field 0] [.unit 1, .body, .field 0]
+  (.atMost (.fixed .temporal) .action)
+
+#guard match checkText "VARIABLE v\nWeak == WF_v(v')\nStrong == SF_v(v)\nL == v ~> []v" with
+  | some (.ok checked) => [1, 2, 3].all fun unit => bodyHas checked unit .temporal
+  | _ => false
+
+#guard failsAt "VARIABLE v\nP == WF_(v')(TRUE)" [.unit 1, .body, .operand 0]
+  [.unit 1, .body, .operand 0] (.atMost (.fixed .action) .state)
+#guard failsAt "VARIABLE v\nP == SF_v([]v)" [.unit 1, .body, .operand 1]
+  [.unit 1, .body, .operand 1] (.atMost (.fixed .temporal) .action)
+#guard failsAt "VARIABLE v\nF(p) == TRUE ~> p\nBad == F(v')" [.unit 2, .body]
+  [.unit 1, .body, .operand 1] (.nonAction (.fixed .action))
+
 #guard (resolveText "THEOREM FALSE OBVIOUS").isNone
 #guard (resolveText "THEOREM T == TRUE").isNone
 #guard (resolveText "I == INSTANCE Library").isNone

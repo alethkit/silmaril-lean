@@ -202,8 +202,14 @@ private def rootImports (names : List Ident) (links : ImportMap) : ModuleId × M
 #guard rejects "A == LET RECURSIVE F(_) F(x) == F(x) IN F(TRUE)" [.unit 0, .body, .letDecl 0]
   (.unsupported .recursive)
 #guard rejects "F[x \\in {TRUE}] == x" [.unit 0] (.unsupported .functionDefinition)
-#guard rejects "A == [f EXCEPT ![TRUE] = @]" [.unit 0, .body] (.unsupported .except)
+#guard rejects "A == [f EXCEPT ![TRUE] = @]" [.unit 0, .body, .operand 0] (.unknownName (.ident "f"))
+#guard rejects "A == @" [.unit 0, .body] .oldValueOutOfScope
+#guard rejects "A == [@ EXCEPT !.a = TRUE]" [.unit 0, .body, .operand 0] .oldValueOutOfScope
+#guard rejects "CONSTANT f\nA == [f EXCEPT !.a = @, ![@] = TRUE]"
+  [.unit 1, .body, .update 1, .updateComponent 0, .argument 0] .oldValueOutOfScope
 #guard rejects "A == []TRUE" [.unit 0, .body] (.unsupported .actionOrTemporal)
+#guard rejects "A == TRUE ~> TRUE" [.unit 0, .body] (.unsupported .actionOrTemporal)
+#guard rejects "A == WF_(TRUE)(TRUE)" [.unit 0, .body] (.unsupported .actionOrTemporal)
 
 #guard match resolve [("root", .parsed ⟨"Root", [], [.variables []]⟩ [])] "root" with
   | .error error => error = ⟨⟨"root", [.unit 0]⟩, .malformed "empty VARIABLE declaration"⟩

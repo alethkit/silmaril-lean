@@ -10,6 +10,25 @@ namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run
 theorem seed_lookup (globals : Core.Module.Globals) (heap : Core.Closure.Heap) (name : String) :
     (seed globals heap).globals name = (globals.lookup name).map embed := rfl
 
+theorem evaluate_conditionalResult {scope : Source.Scope} (session : Core.Module.Functions.Session)
+    (operand : Operand scope) : evaluate session operand.conditionalResult = evaluate session operand := by
+  cases operand with
+  | boolean value => cases value <;> rfl
+  | _ => rfl
+
+theorem advance_conditionalAssign {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (name : Source.Name)
+    (reference : GlobalReference scope name) (selected : Operand scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.scalar (.assign name reference selected.conditionalResult) :: rest)) =
+      advance table (.ready session (.scalar (.assign name reference selected) :: rest)) := by
+  simp only [advance, evaluate_conditionalResult]
+
+theorem advance_conditionalAssert {scope : Source.Scope} (table : Core.Closure.Executor.CodeTable)
+    (session : Core.Module.Functions.Session) (selected : Operand scope) (rest : List (Instruction scope)) :
+    advance table (.ready session (.scalar (.assertion selected.conditionalResult) :: rest)) =
+      advance table (.ready session (.scalar (.assertion selected) :: rest)) := by
+  simp only [advance, assertOperand, evaluate_conditionalResult]
+
 /-- Scalar actions emit a prefix of scalar instructions and consume no code
 keys. Both runners receive the same instructions and linked rows. -/
 theorem lowerInstructions_scalarPrefix {scope : Source.Scope} (tree : Source.ScopeTree) (key : Nat)

@@ -81,6 +81,8 @@ inductive Step where
   | argument (index : Nat)
   | operand (index : Nat)
   | field (index : Nat)
+  | update (index : Nat)
+  | updateComponent (index : Nat)
   | arm (index : Nat)
   | other
   | bound (index : Nat)
@@ -107,7 +109,7 @@ inductive BindingId where
   deriving DecidableEq, Repr
 
 inductive BindingKind where
-  | builtin | constant | variable | operator | formal | rigid | instanceNamespace
+  | builtin | constant | variable | operator | formal | rigid | instanceNamespace | oldValue
   deriving DecidableEq, Repr
 
 structure Binding where
@@ -171,7 +173,7 @@ structure InstancePlan where
 inductive Unsupported where
   | instantiation | submodule | recursive | functionDefinition
   | assumption | theoremDecl | proofDirective | proofReference
-  | qualifiedReference | labeledExpression | actionOrTemporal | except
+  | qualifiedReference | labeledExpression | actionOrTemporal
   | operatorSubstitution | instanceParameter | instanceTheorem | letInstance
   | instanceSignature
   deriving DecidableEq, Repr
@@ -186,6 +188,7 @@ inductive DiagnosticKind where
   | conflictingImport (name : Name) (first second : BindingId)
   | conflictingName (name : Name) (previous : BindingId)
   | unknownName (name : Name)
+  | oldValueOutOfScope
   | arityMismatch (name : Name) (expected actual : Nat)
   | expectedExpression
   | incompleteInstanceName (name : Name)

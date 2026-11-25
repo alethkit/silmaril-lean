@@ -31,7 +31,13 @@ the selected actions in source order before the remaining module.
 Literal Boolean assertions in an arm lower to the equivalent integer truth
 tests. Both runners use their existing transitions, preserving writes before
 a failing assertion or lookup and skipping later statements on failure.
-Conditional expressions have a separate source form.
+
+Scalar conditional expressions accept the same literal guards. The checker
+validates both operands in the analyzed module scope and emits only the
+selected operand. A selected Boolean literal uses the existing Boolean
+result of equality with `True`. The resulting value retains its Boolean
+type in ordinary and seeded execution. Other operands keep their existing
+value and failure semantics. The unselected operand performs no lookup.
 
 The regression emits Lean from Python source and verifies the global
 access witnesses, action order and the diagnostic for an assertion

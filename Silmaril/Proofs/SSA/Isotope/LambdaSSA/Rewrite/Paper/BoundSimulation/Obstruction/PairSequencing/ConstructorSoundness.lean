@@ -15,6 +15,7 @@ open Paper.UnaryReturn.Beta.Constructors
 open Silmaril.Isotope.LambdaSSA.Semantics (extend)
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer (Env EnvTy Val Result)
 open scoped Paper.BoundSimulation.Obstruction
+open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.CanonicalUnit
 
 private theorem sequence_pair (a b : Tm Empty) (env : Env) :
     evalRegionWith false (returnOnce (.pair a b)) env =

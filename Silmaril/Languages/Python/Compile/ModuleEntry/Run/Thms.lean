@@ -13,6 +13,12 @@ theorem global_read {scope : Source.Scope} {name : Source.Name} (reference : Glo
 theorem global_write {scope : Source.Scope} {name : Source.Name} (reference : GlobalReference scope name)
     (value : Operand scope) : statement (.assign name reference value) = .assignGlobal name (expression value) := rfl
 
+theorem eval_conditionalResult {scope : Source.Scope} (globals : Core.Module.Globals) (operand : Operand scope) :
+    (expression operand.conditionalResult).eval globals = (expression operand).eval globals := by
+  cases operand with
+  | boolean value => cases value <;> rfl
+  | _ => rfl
+
 theorem Compiled.starts_with {source : Source.Module} (compiled : Compiled source) :
     compiled.entry.start = .running compiled.initial (compiled.checked.actions.map statement) := rfl
 

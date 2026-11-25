@@ -94,8 +94,8 @@ path as function assignments, then use the ordinary publication rules.
 The normalized `CompExpr` adapter allows comprehensions in call operands,
 conditional and short-circuit operands, collection displays, and index
 and slice reads within return values and single-name assignment RHSs.
-The first and later iterables and filters of a comprehension use the
-same broader placement grammar. The heads still use ordinary expressions.
+The first and later iterables and filters and the heads of a comprehension
+use the same broader placement grammar.
 Both selected and skipped AST positions are resolved before execution.
 The emitted body evaluates only reached operands, preserves their order
 and keeps prior shared heap effects on failure.

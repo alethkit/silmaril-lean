@@ -23,6 +23,10 @@ def Tail.headValue {Yield Operand : Type} : Tail Yield Operand → Yield
   | .yield value => value
   | .filter _ rest | .forIn _ _ rest => rest.headValue
 
+theorem Tail.headValueSize {Yield Operand : Type} [SizeOf Yield] [SizeOf Operand]
+    (tail : Tail Yield Operand) : sizeOf tail.headValue < sizeOf tail := by
+  induction tail <;> simp_all only [headValue, Tail.yield.sizeOf_spec, Tail.filter.sizeOf_spec, Tail.forIn.sizeOf_spec] <;> omega
+
 theorem Tail.clauseOperandSize {Yield Operand : Type} [SizeOf Yield] [SizeOf Operand]
     (tail : Tail Yield Operand) {operand : Operand} (member : operand ∈ tail.clauseOperands) :
     sizeOf operand < sizeOf tail := by
@@ -83,28 +87,35 @@ def stageLowered (start : Nat) : Stage := fun target expr =>
   let lowered := Lowering.lower expr scratch (start + 1)
   .assignScoped target [] (.seq lowered.code (.returnExpr (.atom (.read (.bound scratch)))))
 
-def Tail.compileClauses {Yield Operand : Type} (emit : Yield → Body) (tail : Tail Yield Operand)
+/-- The head code sits at the end of the reached clause path. -/
+def Tail.compileClauses {Yield Operand : Type} (head : Body) (tail : Tail Yield Operand)
     (stage : (operand : Operand) → operand ∈ tail.clauseOperands → Body) : Body :=
   match tail with
-  | .yield value => emit value
+  | .yield _ => head
   | .filter test rest =>
     .seq (stage test (by simp [clauseOperands]))
       (.branch (.read (.bound operandSlot))
-        (rest.compileClauses emit fun operand member => stage operand (List.mem_cons_of_mem _ member))
+        (rest.compileClauses head fun operand member => stage operand (List.mem_cons_of_mem _ member))
         (.total (.atomic .pass)))
   | .forIn target iterable rest =>
     .seq (stage iterable (by simp [clauseOperands]))
       (.forIn target (.read (.bound operandSlot))
-        (rest.compileClauses emit fun operand member => stage operand (List.mem_cons_of_mem _ member)))
+        (rest.compileClauses head fun operand member => stage operand (List.mem_cons_of_mem _ member)))
 
 def Tail.compileWith {Yield : Type} (stage : Stage) (emit : Yield → Body) (tail : Tail Yield) : Body :=
-  tail.compileClauses emit fun operand _ => stage operandSlot operand
+  tail.compileClauses (emit tail.headValue) fun operand _ => stage operandSlot operand
+
+def appendYield (element : Body) : Body :=
+  .seq element appendResult
+
+def putYield (key value : Body) : Body :=
+  .seq key (.seq value putResult)
 
 def listYield (stage : Stage) (value : Lowering.Expr) : Body :=
-  .seq (stage operandSlot value) appendResult
+  appendYield (stage operandSlot value)
 
 def dictYield (stage : Stage) (entry : Lowering.Expr × Lowering.Expr) : Body :=
-  .seq (stage keySlot entry.1) (.seq (stage operandSlot entry.2) putResult)
+  putYield (stage keySlot entry.1) (stage operandSlot entry.2)
 
 def Tail.compile (stage : Stage) (tail : Tail) : Body :=
   tail.compileWith stage (listYield stage)

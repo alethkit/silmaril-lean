@@ -220,19 +220,19 @@ private theorem tail {program : Program} {available : List DeclarationId} {Yield
       (loop target (ih fun expr member => admitted expr (List.mem_cons_of_mem _ member)))
 
 theorem clauses_exact {program : Program} {available : List DeclarationId} {Yield Operand : Type}
-    (clauses : Tail Yield Operand) (sourceHead loweredHead : Yield → Body)
+    (clauses : Tail Yield Operand) {sourceHead loweredHead : Body}
     (source lowered : (operand : Operand) → operand ∈ clauses.clauseOperands → Body)
-    (head : Exact program available (sourceHead clauses.headValue) (loweredHead clauses.headValue))
+    (head : Exact program available sourceHead loweredHead)
     (related : ∀ operand member, Exact program available (source operand member) (lowered operand member)) :
     Exact program available (clauses.compileClauses sourceHead source) (clauses.compileClauses loweredHead lowered) := by
   induction clauses with
   | yield value => exact head
   | filter test rest ih =>
     exact seq (related test (by simp [Tail.clauseOperands]))
-      (filter (ih _ _ head (fun operand member => related operand (List.mem_cons_of_mem _ member))))
+      (filter (ih _ _ (fun operand member => related operand (List.mem_cons_of_mem _ member))))
   | forIn target iterable rest ih =>
     exact seq (related iterable (by simp [Tail.clauseOperands]))
-      (loop target (ih _ _ head (fun operand member => related operand (List.mem_cons_of_mem _ member))))
+      (loop target (ih _ _ (fun operand member => related operand (List.mem_cons_of_mem _ member))))
 
 theorem scopedBodies_exact {program : Program} {available : List DeclarationId}
     (target : Binding) (privateSlots locals : List Binding) (first : LoopTarget)
@@ -253,16 +253,27 @@ theorem scopedBodies_exact {program : Program} {available : List DeclarationId}
   exact scopeBody target _ reserved
     (seq initialEq (seq outer (seq (scopeBody resultSlot locals localSafe (seq (loop first rest) result)) result)))
 
+theorem appendYield_exact {program : Program} {available : List DeclarationId}
+    {element element' : Body} (related : Exact program available element element') :
+    Exact program available (appendYield element) (appendYield element') :=
+  seq related append
+
+theorem putYield_exact {program : Program} {available : List DeclarationId}
+    {key key' value value' : Body}
+    (keys : Exact program available key key') (values : Exact program available value value') :
+    Exact program available (putYield key value) (putYield key' value') :=
+  seq keys (seq values put)
+
 theorem listYield_exact {program : Program} {available : List DeclarationId}
     {value : Languages.Starlark.Functions.Lowering.Expr} (admitted : Admitted value) (start : Nat) :
     Exact program available (listYield Body.assignExpr value) (listYield (stageLowered start) value) :=
-  seq (stage admitted operandSlot start) append
+  appendYield_exact (stage admitted operandSlot start)
 
 theorem dictYield_exact {program : Program} {available : List DeclarationId}
     {key value : Languages.Starlark.Functions.Lowering.Expr}
     (keyAdmitted : Admitted key) (valueAdmitted : Admitted value) (start : Nat) :
     Exact program available (dictYield Body.assignExpr (key, value)) (dictYield (stageLowered start) (key, value)) :=
-  seq (stage keyAdmitted keySlot start) (seq (stage valueAdmitted operandSlot start) put)
+  putYield_exact (stage keyAdmitted keySlot start) (stage valueAdmitted operandSlot start)
 
 theorem list_exact {program : Program} {available : List DeclarationId}
     (comp : ListComp) (target : Binding) (start : Nat)
