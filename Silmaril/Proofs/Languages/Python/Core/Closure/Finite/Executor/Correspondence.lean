@@ -13,9 +13,10 @@ namespace Silmaril.Proofs.Languages.Python.Core.Closure.Finite.Executor
 open Silmaril.Languages.Python.Core.Closure
 open Silmaril.Languages.Python.Core.Closure.Finite
 open Silmaril.Languages.Python.Core.Closure.Finite.Executor
-open Silmaril.Languages.Python.Core.Closure.Executor (Continuation Event FreevarsFailure GlobalLookup Stack evalCallIn)
+open Silmaril.Languages.Python.Core.Closure.Executor
+  (Continuation Event GlobalLookup MetadataFailure MetadataField Stack evalCallIn)
 open Silmaril.Languages.Python.Core.Closure.Executor renaming advanceIn → coreAdvance,
-  fail → coreFail, failDispatch → coreFailDispatch, failFreevars → coreFailFreevars, resumeStore → coreResumeStore,
+  fail → coreFail, failDispatch → coreFailDispatch, failMetadata → coreFailMetadata, resumeStore → coreResumeStore,
   enter → coreEnter, runPrefixIn → coreRunPrefix, stepIn_iff → coreStepIff,
   State → CoreState, Body → CoreBody
 open Semantics.Operational
@@ -32,8 +33,9 @@ private theorem failDispatch_project (heap : HeapTable) (stack : Stack)
   | missingCode key => rfl
   | layoutMismatch expected actual => rfl
 
-private theorem failFreevars_project (heap : HeapTable) (stack : Stack) (error : FreevarsFailure) :
-    (failFreevars heap stack error).project = coreFailFreevars heap.project stack error := by
+private theorem failMetadata_project (field : MetadataField) (heap : HeapTable) (stack : Stack)
+    (error : MetadataFailure) :
+    (failMetadata field heap stack error).project = coreFailMetadata field heap.project stack error := by
   cases error with
   | read failure => exact fail_project heap stack failure
   | code failure => exact failDispatch_project heap stack failure
@@ -77,7 +79,12 @@ theorem advanceIn_project (rows : CodeRows) (globals : GlobalLookup) (source : S
       simp only [advanceIn, coreAdvance, State.project, Option.map_some]
       cases test.evalIn rows.project globals environment.heap.project environment.frame with
       | ok passes => cases passes <;> rfl
-      | error failure => exact congrArg some (failFreevars_project environment.heap stack failure)
+      | error failure => exact congrArg some (failMetadata_project .freevars environment.heap stack failure)
+    | assertCellvars test next =>
+      simp only [advanceIn, coreAdvance, State.project, Option.map_some]
+      cases test.evalIn rows.project globals environment.heap.project environment.frame with
+      | ok passes => cases passes <;> rfl
+      | error failure => exact congrArg some (failMetadata_project .cellvars environment.heap stack failure)
     | callTo destination callee arguments next =>
       simp only [advanceIn, coreAdvance, State.project, Option.map_some]
       cases evalCallIn globals environment.heap.project environment.frame callee arguments with

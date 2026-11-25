@@ -26,7 +26,8 @@ theorem Compiled.resolve_entry {source : Source.Module} (compiled : Compiled sou
       resolve compiled.table compiled.entry = .ok
         { parameters := compiled.sourceBody.parameters
           body := target
-          freevars := (Link.link compiled.sourceBody).entryFreeVars } :=
+          freevars := (Link.link compiled.sourceBody).entryFreeVars
+          cellvars := (Link.link compiled.sourceBody).entryCellVars } :=
   Proofs.Languages.Python.Compile.Closure.Run.resolve_entry compiled
 
 theorem Compiled.resolve_reference {source : Source.Module} (compiled : Compiled source)
@@ -36,7 +37,10 @@ theorem Compiled.resolve_reference {source : Source.Module} (compiled : Compiled
       resolve (Link.link compiled.sourceBody).table ref = .ok definition ∧
       Translation definition.body target ∧
       resolve compiled.table ref = .ok
-        { parameters := definition.parameters, body := target, freevars := definition.freevars } :=
+        { parameters := definition.parameters
+          body := target
+          freevars := definition.freevars
+          cellvars := definition.cellvars } :=
   Proofs.Languages.Python.Compile.Closure.Run.resolve_reference compiled emitted
 
 theorem run_path {source : Source.Module} {compiled : Compiled source} {arguments : List Value}

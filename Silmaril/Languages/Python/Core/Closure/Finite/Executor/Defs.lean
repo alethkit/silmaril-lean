@@ -9,7 +9,7 @@ public import Silmaril.Languages.Python.Core.Closure.Finite.Dispatch.Defs
 
 namespace Silmaril.Languages.Python.Core.Closure.Finite.Executor
 
-open Closure.Executor (Event Fault FreevarsFailure GlobalLookup Stack)
+open Closure.Executor (Event Fault GlobalLookup MetadataFailure MetadataField Stack)
 
 abbrev CodeRows := Dispatch.CodeRows Closure.Executor.Body
 
@@ -50,11 +50,13 @@ def failDispatch (heap : HeapTable) (stack : Stack) : Closure.Dispatch.Failure �
   | .missingCode key => fault heap stack (.missingCode key)
   | .layoutMismatch expected actual => fault heap stack (.layoutMismatch expected actual)
 
-def failFreevars (heap : HeapTable) (stack : Stack) : FreevarsFailure → Transition
+def failMetadata (field : MetadataField) (heap : HeapTable) (stack : Stack) : MetadataFailure → Transition
   | .read failure => fail heap stack failure
   | .code failure => failDispatch heap stack failure
-  | .unprofiled ref => fault heap stack (.unprofiledFreevars ref)
-  | .nonFunction => fault heap stack .unsupportedFreevarsReceiver
+  | .unprofiled ref => fault heap stack (field.unprofiledFault ref)
+  | .nonFunction => fault heap stack field.nonFunctionFault
+
+abbrev failFreevars := failMetadata .freevars
 
 def resumeStore {layout : Layout} (source : Snapshot layout) (destination : Slot layout)
     (value : Value) (body : Closure.Executor.Body layout) (stack : Stack) : Transition :=
@@ -87,6 +89,11 @@ def advanceIn (rows : CodeRows) (globals : GlobalLookup) : State → Option Tran
     | .ok true => (none, .running source next stack)
     | .ok false => (none, .delivering source.heap stack (.error .assertionError))
     | .error error => failFreevars source.heap stack error
+  | .running source (.assertCellvars test next) stack =>
+    some <| match test.evalIn rows.project globals source.heap.project source.frame with
+    | .ok true => (none, .running source next stack)
+    | .ok false => (none, .delivering source.heap stack (.error .assertionError))
+    | .error error => failMetadata .cellvars source.heap stack error
   | .running source (.callTo destination callee arguments next) stack =>
     some <| match Closure.Executor.evalCallIn globals source.heap.project source.frame callee arguments with
     | .error error => fail source.heap stack error

@@ -119,7 +119,17 @@ receivers stop at the distinct unsupported boundaries labeled
 reference retains its missing-key or layout-mismatch fault. The receiver
 read's error or fault takes precedence. `Executor.readFreevars_iff` ties
 success to a checked code row containing the returned tuple. Source supplies
-the admissible lexical metadata. This operation covers `co_freevars` only.
+the admissible lexical metadata.
+
+`Executor.Body.assertCellvars` tests non-membership in the same checked
+row's separate `Dispatch.Definition.cellvars` field. The linker supplies
+the version-neutral owned-cell tuple in its checked order, including
+`some []` for a profiled empty tuple. The assertion uses the same
+receiver read, reference validation, and exact code-point comparison
+as the free-variable check. `unprofiledCellvars` and
+`unsupportedCellvarsReceiver` record the two unsupported boundaries for
+this field. `Executor.readCellvars_iff` identifies the checked definition
+that supplies the tuple.
 [Python code objects](https://docs.python.org/release/3.12.13/reference/datamodel.html#code-objects)
 
 The executor shares the frame and heap APIs with the compiler. Call entry
@@ -169,4 +179,5 @@ lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/
 lake build --wfail +Silmaril.Languages.Python.Core.Closure.Executor.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Executor.lean
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Freevars.lean
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Cellvars.lean
 ```
