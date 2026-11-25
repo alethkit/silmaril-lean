@@ -38,6 +38,7 @@ inductive Operand (layout : Layout) where
   | read (slot : Slot layout)
   | readGlobal (name : String)
   | eqInt (left : NameRead layout) (right : Int)
+  | addInt (left right : Operand layout)
   | closure (code : CodeRef) (select : Fin code.layout.captures → CaptureSlot layout)
 
 inductive Destination (layout : Layout) where
@@ -195,6 +196,9 @@ def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout)
   | .read slot => frame.read heap slot
   | .readGlobal name => (NameRead.global name).evalIn globals heap frame
   | .eqInt left right => (left.evalIn globals heap frame).map fun value => .bool (value.equalInt right)
+  | .addInt left right =>
+    (left.evalIn globals heap frame).bind fun lhs =>
+      (right.evalIn globals heap frame).bind lhs.addInt
   | .closure code select => .ok (.function (frame.closure code select))
 
 def evalArgumentsIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) :
@@ -312,6 +316,17 @@ inductive EvaluatesIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layo
   | eqInt {left : NameRead layout} {right result} :
       EvaluatesIn globals heap frame left.operand result →
       EvaluatesIn globals heap frame (.eqInt left right) (result.map fun value => .bool (value.equalInt right))
+  | addLeftError {left right error} :
+      EvaluatesIn globals heap frame left (.error error) →
+      EvaluatesIn globals heap frame (.addInt left right) (.error error)
+  | addRightError {left right value error} :
+      EvaluatesIn globals heap frame left (.ok value) →
+      EvaluatesIn globals heap frame right (.error error) →
+      EvaluatesIn globals heap frame (.addInt left right) (.error error)
+  | addValues {left right lhs rhs} :
+      EvaluatesIn globals heap frame left (.ok lhs) →
+      EvaluatesIn globals heap frame right (.ok rhs) →
+      EvaluatesIn globals heap frame (.addInt left right) (lhs.addInt rhs)
   | closure (code : CodeRef) (select : Fin code.layout.captures → CaptureSlot layout) :
       EvaluatesIn globals heap frame (.closure code select) (.ok (.function (frame.closure code select)))
 

@@ -58,7 +58,7 @@ private def detail : AssertionArgument → String
 private def raised : Raised → String
   | .assertionError argument => "AssertionError:" ++ detail argument
   | .runtime (.nameError name) => "NameError:" ++ name
-  | .runtime .notCallable => "TypeError"
+  | .runtime .notCallable | .runtime .additionTypeError => "TypeError"
   | .runtime _ => "unexpected runtime error"
 
 private def resultBinding : Option Value → String
@@ -132,6 +132,21 @@ private def ordinaryOutcome (source : Source.Module) : Option (String × Option 
     | some (.int value) => some (result, some value)
     | _ => none
   | _ => none
+
+private def additionEvidence (source : Source.Module) (profile : String) (succeeds : Bool) : Bool := Id.run do
+  let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
+  let space := initial profile
+  let run := Compile.ModuleEntry.Functions.Run.Seeded.run space compiled
+  let some (.function fn) := run.residual.lookupGlobal "probe" | return false
+  let [call] := run.calls | return false
+  let some (.int cell) := run.heap.contents 0 | return false
+  let space := if succeeds then space.bindGlobal "increment" (.int 1) else space
+  let expected := (space.bindGlobal "probe" (.function fn)).bindGlobal "result" (.int 5)
+  let expected := if succeeds then expected.bindGlobal "after" (.int 9) else expected
+  let expectedResult := if succeeds then .ok (.int 6) else .error (.raised (.runtime .additionTypeError))
+  return run.residual.moduleGlobals == expected.moduleGlobals && run.residual.builtins == expected.builtins &&
+    run.heap.next == 1 && cell == 5 &&
+    call.callee == "probe" && call.observation.result == expectedResult && call.observation.caught.isNone
 
 private def equalityBeforeAssertNot (source : Source.Module) : Bool :=
   match Compile.ModuleEntry.Functions.Run.compile source with
@@ -273,6 +288,18 @@ def probe(value):
     read()
     assert value == 4
 probe(**{"value": %d})
+after = 9
+"""
+
+ADDITION = """def probe():
+    def read():
+        return result
+    result = 4
+    result = result + 1
+    saved = read()
+    return saved + %s
+result = 5
+probe()
 after = 9
 """
 
@@ -1027,6 +1054,19 @@ if __name__ == "__main__":
                 check += f"\n#guard adjacentKeywordEvidence pythonSource {json.dumps(profile)} {value}"
                 shared["check_lean"](lean_path, LEAN + check, extra_imports=IMPORTS)
                 observations[f"adjacent_keyword_{profile}_{value}"] = expected
+        for profile in ("empty", "builtin", "preamble"):
+            for operand, succeeds in (("increment", True), ("probe", False)):
+                source = ADDITION % operand
+                if succeeds:
+                    source = "increment = 1\n" + source
+                residual = {"result": 5, "after": 9, "increment": 1} if succeeds else {"result": 5}
+                expected = ["normal", "int:5", "int:9"] if succeeds else ["TypeError", "int:5", "absent"]
+                assert cpython(source, profile, expected_globals=residual, expected_functions=("probe",)) == expected
+                shared["emit"](source_path, lean_path, source)
+                check = guard_observation(profile, expected)
+                check += f"\n#guard additionEvidence pythonSource {json.dumps(profile)} {str(succeeds).lower()}"
+                shared["check_lean"](lean_path, LEAN + check, extra_imports=IMPORTS)
+                observations[f"closure_addition_{profile}_{succeeds}"] = expected
         shared["emit"](source_path, lean_path, "def probe(value): pass\nprobe(4)\nafter = 9\n")
         shared["check_lean"](lean_path, LEAN + guard_observation("empty", ["unsupported", "absent", "absent"]),
                              extra_imports=IMPORTS)

@@ -90,6 +90,7 @@ inductive RuntimeError where
   | nameError (name : String)
   | positionalArity (expected actual : Nat)
   | notCallable
+  | additionTypeError
   | assertionError
   | arithmetic (error : Exception)
   deriving DecidableEq, Repr
@@ -99,6 +100,20 @@ inductive Failure where
   | defined (error : RuntimeError)
   | danglingCell (identity : CellId)
   deriving DecidableEq, Repr
+
+/-- Integer-like values in the closed closure value profile. -/
+def Value.asInt? : Value → Option Int
+  | .int value => some value
+  | .bool false => some 0
+  | .bool true => some 1
+  | .none | .function _ => Option.none
+
+/-- Add already evaluated operands. The modeled nonnumeric values are
+plain functions and None, without custom numeric methods. -/
+def Value.addInt (left right : Value) : Except Failure Value :=
+  match left.asInt?, right.asInt? with
+  | some lhs, some rhs => ((BinOp.add.eval lhs rhs).map .int).mapError (.defined ∘ .arithmetic)
+  | _, _ => .error (.defined .additionTypeError)
 
 abbrev Result := Except RuntimeError Value
 
