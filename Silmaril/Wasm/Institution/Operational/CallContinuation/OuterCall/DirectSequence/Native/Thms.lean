@@ -19,6 +19,14 @@ open Execution.Runtime (Frame)
 open Wasm.Numerics (Profile)
 open Wasm.SingleThreaded.Det (noHost)
 
+theorem core_body_expression (p : Program) :
+    Core.expression p.coreFunc.body = StraightLine.Sequence.coreCode p.site.body (.running [] p.code) :=
+  Proofs.Core.body_expression p
+
+theorem lime_body_expression (p : Program) :
+    Wasm.Lime1.Execution.expression p.limeFunc.body = StraightLine.Sequence.limeCode p.site.body (.running [] p.code) :=
+  Proofs.Lime1.body_expression p
+
 theorem guard_to_lime {H : Type} {s : Wasm.V1.Execution.Store H} {caller : Frame} {p : Program}
     (g : V1Guard s caller p) : LimeGuard (s.mapCode Wasm.V1.Func.toLime) caller p :=
   Proofs.guard_to_lime g

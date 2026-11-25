@@ -54,7 +54,7 @@ private theorem label_result {site : Site} {q : Sequence.State site.body} {out :
     · obtain ⟨rfl, rfl⟩ := not_not.mp unfinished
       exact ⟨.trap, .trap, Nested.lime_label_result pop⟩
 
-private theorem body_expression (p : Program) :
+theorem body_expression (p : Program) :
     expression p.limeFunc.body = Sequence.limeCode p.site.body (.running [] p.code) := by
   change (p.body limeSource).map Execution.Runtime.AdminInstr.source = p.body limeSyntax
   simp only [Program.body, List.map_map]

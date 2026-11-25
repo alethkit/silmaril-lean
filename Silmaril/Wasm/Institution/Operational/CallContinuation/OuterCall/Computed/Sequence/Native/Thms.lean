@@ -24,6 +24,18 @@ theorem core_frame_forCall (m : ModuleInst) (args : List Value) (locals : List N
       (⟨args ++ locals.map Value.zero, m⟩ : Frame).toCore :=
   Proofs.Core.frame_forCall m args locals
 
+theorem wasm_entry_context_iff {H : Type} {P : Profile} {s : Core.Store H} {caller : Frame}
+    {address : FuncAddr} {ty : Wasm.V1.FuncType} {m : Execution.Runtime.ModuleInst} {fn : Wasm.Func}
+    {saved args : List Value} {rest : List Core.Admin} {dst : Core.Config H}
+    (allocated : s.funcs[address.value]? = some ⟨ty.toDefType, m.toCore, .wasm fn⟩)
+    (typed : args.map Value.type = ty.params) :
+    Core.Step P noHost
+      ⟨s, caller.toCore, coreValues (saved ++ args) ++ .ref (.func address.value) :: .callRefType ty.toDefType :: rest⟩ dst ↔
+      dst = ⟨s, caller.toCore, coreValues saved ++ .frame ty.results.length
+        (Core.Frame.forCall m.toCore (args.map Value.toCore) fn.locals)
+        [.label ty.results.length [] (Core.expression fn.body)] :: rest⟩ :=
+  Proofs.Core.wasm_entry_context_iff allocated typed
+
 theorem wasm_entry_iff {H : Type} {P : Profile} {s : Core.Store H} {caller : Frame}
     {address : FuncAddr} {ty : Wasm.V1.FuncType} {m : Execution.Runtime.ModuleInst} {fn : Wasm.Func}
     {args : List Value} {dst : Core.Config H}

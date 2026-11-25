@@ -63,6 +63,22 @@ private theorem Front.ordinary {H : Type} {s : Store H} {f : Frame} {vs : List V
   | nop => exact (notNop rfl).elim
   | bubble => exact (notTrap rfl).elim
 
+theorem invoke_strip_suffix {H : Type} {s : Store H} {f : Frame} {a : FuncAddr}
+    {stack : List Value} {rest : List Admin} {dst : Config H}
+    (step : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .invoke a :: rest⟩ dst) :
+    ∃ mid, Step CallFrame.limeNoHost ⟨s, f, values stack ++ [.invoke a]⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, mid.code ++ rest⟩ :=
+  (front step (.invoke a) rfl).ordinary (by simp) (by simp)
+
+theorem frame_context_inv {H : Type} {s : Store H} {f inside : Frame} {n : Nat}
+    {saved : List Value} {code rest : List Admin} {dst : Config H}
+    (step : Step CallFrame.limeNoHost ⟨s, f, values saved ++ .frame n inside code :: rest⟩ dst) :
+    ∃ mid, Step CallFrame.limeNoHost ⟨s, f, [.frame n inside code]⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, values saved ++ mid.code ++ rest⟩ := by
+  obtain ⟨mid, step, eq⟩ := (front step (.frame n inside code) rfl).ordinary (by simp) (by simp)
+  obtain ⟨localStep, isolated, rfl⟩ := CallFrame.lime_frame_prefix_inv step
+  exact ⟨localStep, isolated, eq⟩
+
 theorem active_strip {H : Type} {s : Store H} {caller : Frame}
     {addr : FuncAddr} {fn : CallFrame.Callee} {a : CallFrame.State} {dst : Config H}
     {suffix : List Admin} (live : Active a) (step : Step CallFrame.limeNoHost (⟨s, caller, CallFrame.limeCode addr fn a ++ suffix⟩) dst) :

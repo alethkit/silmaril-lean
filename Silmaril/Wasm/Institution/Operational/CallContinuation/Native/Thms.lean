@@ -89,6 +89,22 @@ theorem core_run_iff (allocated : s.funcs[addr.value]? = some fn.coreInstance)
 
 end core
 
+open Wasm.Lime1.Execution in
+theorem lime_invoke_strip_suffix {H : Type} {s : Store H} {f : Frame} {a : FuncAddr}
+    {stack : List Value} {rest : List Admin} {dst : Config H}
+    (step : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .invoke a :: rest⟩ dst) :
+    ∃ mid, Step CallFrame.limeNoHost ⟨s, f, values stack ++ [.invoke a]⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, mid.code ++ rest⟩ :=
+  Proofs.Lime1.invoke_strip_suffix step
+
+open Wasm.Lime1.Execution in
+theorem lime_frame_context_inv {H : Type} {s : Store H} {f inside : Frame} {n : Nat}
+    {saved : List Value} {code rest : List Admin} {dst : Config H}
+    (step : Step CallFrame.limeNoHost ⟨s, f, values saved ++ .frame n inside code :: rest⟩ dst) :
+    ∃ mid, Step CallFrame.limeNoHost ⟨s, f, [.frame n inside code]⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, values saved ++ mid.code ++ rest⟩ :=
+  Proofs.Lime1.frame_context_inv step
+
 /-- A live Lime1 callee step leaves the caller's pending instructions unchanged. -/
 theorem lime_active_strip {H : Type} {s : Wasm.Lime1.Execution.Store H} {caller : Frame}
     {addr : FuncAddr} {fn : CallFrame.Callee} {a : CallFrame.State} {dst : Wasm.Lime1.Execution.Config H}

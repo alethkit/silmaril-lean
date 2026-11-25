@@ -59,7 +59,7 @@ private theorem label_result {site : Site} {q : Sequence.State site.body} {out :
     · obtain ⟨rfl, rfl⟩ := not_not.mp unfinished
       exact ⟨.trap, .trap, Nested.core_label_result pop⟩
 
-private theorem body_expression (p : Program) :
+theorem body_expression (p : Program) :
     expression p.coreFunc.body = Sequence.coreCode p.site.body (.running [] p.code) := by
   change (p.body coreSource).map Admin.plain = p.body coreSyntax
   simp only [Program.body, List.map_map]
