@@ -237,6 +237,40 @@ theorem packedArrow_op_proof {n : Nat} {β : BoundCtx S.Ty n}
   exact eta.symm.trans (seq.trans (.let₁ (.refl p)
     (.ax (.structural (.letEta _)) (.let₁ r .newest) r)))
 
+theorem packedArrow_inl_proof {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β a A) :
+    packedArrow (S := S) (HasType.inl (B := B) h) =
+      packedArrow h ≫ injl (of A) (of B) := by
+  let argument := packedTyping (S := S) h
+  let injection := HasType.inl (B := B) argument
+  let left := HasType.inl (B := B)
+    (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := .snoc .nil (packType β)) (A := A))
+  let right := HasType.inr (A := A)
+    (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := .snoc .nil (packType β)) (A := B))
+  let split := HasType.case injection left right
+  apply Quotient.sound
+  exact (Eqv.ax (.structural (.caseEta (pureEff := S.pureEff) _)) split injection).symm.trans
+    (Eqv.ax (.structural (.caseBetaL _ _ _)) split (.let₁ argument left))
+
+theorem packedArrow_inr_proof {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β a B) :
+    packedArrow (S := S) (HasType.inr (A := A) h) =
+      packedArrow h ≫ injr (of A) (of B) := by
+  let argument := packedTyping (S := S) h
+  let injection := HasType.inr (A := A) argument
+  let left := HasType.inl (B := B)
+    (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := .snoc .nil (packType β)) (A := A))
+  let right := HasType.inr (A := A)
+    (HasType.newest (Φ := S.Instr) (Γ := (Ctx.nil : Ctx Empty S.Ty))
+      (β := .snoc .nil (packType β)) (A := B))
+  let split := HasType.case injection left right
+  apply Quotient.sound
+  exact (Eqv.ax (.structural (.caseEta (pureEff := S.pureEff) _)) split injection).symm.trans
+    (Eqv.ax (.structural (.caseBetaR _ _ _)) split (.let₁ argument right))
+
 theorem packedSubst_comp_proof {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
     {σ : Fin n → Tm Empty S.Instr m}
     (s : PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff) β γ σ)

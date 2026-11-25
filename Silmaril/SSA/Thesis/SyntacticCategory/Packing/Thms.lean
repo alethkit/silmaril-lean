@@ -79,6 +79,20 @@ theorem packedArrow_let1 {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
       pairArrows (𝟙 (of (packType β))) (packedArrow ha) ≫ packedArrow hb :=
   packedArrow_let1_proof ha hb
 
+/-- A packed left injection is postcomposition with the syntactic injection. -/
+theorem packedArrow_inl {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β a A) :
+    packedArrow (S := S) (HasType.inl (B := B) h) =
+      packedArrow h ≫ injl (of A) (of B) :=
+  packedArrow_inl_proof h
+
+/-- A packed right injection is postcomposition with the syntactic injection. -/
+theorem packedArrow_inr {n : Nat} {β : BoundCtx S.Ty n} {A B : S.Ty}
+    {a : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β a B) :
+    packedArrow (S := S) (HasType.inr (A := A) h) =
+      packedArrow h ≫ injr (of A) (of B) :=
+  packedArrow_inr_proof h
+
 /-- Substituting pure terms in a typed term is precomposition by their
 packed context arrow. -/
 theorem packedSubst_comp {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
