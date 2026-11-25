@@ -65,7 +65,7 @@ The executable interfaces have different proved contracts:
 | Interface | What it computes | Current guarantee |
 | --- | --- | --- |
 | `L1.Exercises.searchConfig` | One step with a printable derivation tree | Each returned tree proves its resulting `L1.Step` via `StepTree.toStep` |
-| `L2.runFuel` | Substitution-based CBV/CBN reduction, bounded by a number of transitions | CBV agrees with `L2.Step` on all configurations. CBN has checked exercise results |
+| `L2.runFuel` | Substitution-based CBV/CBN reduction, bounded by a number of transitions | CBV and CBN implement `L2.Step` and `L2.NameStep` respectively on all configurations |
 | `L2.evalClosureFuel` | CBV evaluation with lexical and recursive closures, bounded by evaluation depth | Proven agreement with the substitution interpreter on lexical-scope, recursion and store-effect examples; no general simulation theorem yet |
 
 `L2.Config.reduce_value_iff_step` identifies each successful CBV reducer call
@@ -75,6 +75,13 @@ certifies a finite trace to any returned configuration, including a stuck
 configuration on untyped input. Under the safety assumptions above,
 `L2.runFuel_value_returns_typed_value` gives a value of the original type and
 preserves closedness and store coverage.
+
+For call-by-name, `L2.Config.reduce_name_iff_step` and
+`L2.Config.reduce_name_eq_none_iff_terminal` give the corresponding results
+for `L2.NameStep`. `L2.runFuel_name_returns_terminal` certifies a finite
+`L2.NameSteps` trace to a `L2.NameTerminal` configuration.
+`L2.runFuel_name_returns_typed_value` gives the typed-value guarantee for CBN
+under the same closedness and store coverage assumptions.
 
 `runFuel` returns `some c` when its reducer has no next step. `none` records insufficient
 transition fuel. A particular fuel-exhaustion equation is not an infinite-run
