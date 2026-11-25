@@ -277,8 +277,8 @@ comprehensions in return values and single-name assignment RHSs. Its
 recursive nodes include calls, conditional tests and arms, and both
 operands of `and` and `or`. A call's callee, positional operands, named
 operands, and optional `*` and `**` operands all admit the placement
-grammar. Ordinary leaves and comprehension clause operands retain the
-existing resolved expression grammar.
+grammar. Ordinary leaves and comprehension heads retain the existing
+resolved expression grammar.
 [Pinned comprehensions][comprehensions] · [Pinned conditionals][conditional] · [Pinned logical operators][logical-ops]
 
 The placement compiler emits a checked body at the point the value is
@@ -361,13 +361,44 @@ bindings, which the Go fixture cannot observe. The existing slice value
 and integer profiles still govern the final operation.
 [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
 
-Comprehensions in clause operands, defaults and other statement
-operands remain open. Call shapes and spread value domains follow the
-[existing argument profile](#argument-binding). Field and subscript
-assignment targets remain outside this placement profile. The existing
-quotation still accepts ordinary slices and ordinary operand and pattern
-ASTs. A comprehension-containing slice uses the separate normalized
-`CompExpr.slice` node.
+In both list and dictionary comprehensions, each iterable and filter
+can contain a comprehension. Resolution uses the enclosing lexical
+environment for the first iterable. Every name introduced by a
+generator belongs to the new block for later iterables, filters and the
+head, including forward reads that can be uninitialized. A nested
+comprehension's first iterable resolves in its own enclosing
+environment, which may be the surrounding comprehension block.
+[Pinned lexical scope][names] · [Go resolution][go-comp-resolve]
+
+Evaluation allocates the accumulator and evaluates the first iterable
+before allocating target slots or acquiring the first cursor.
+A later iterable or filter runs only when reached by the surrounding
+cursor and filters. A false filter skips the remaining clauses on that
+iteration. A failing operand keeps earlier effects and skips the
+remaining clauses. The existing cursor machinery unwinds guards on
+both exits. If a nested operand iterates an alias already guarded by
+the enclosing comprehension, completing the nested iterator leaves the
+outer guard active.
+[Go clause compilation][go-comp-compile] · [Go iterator cleanup][go-loop-cleanup]
+
+The exact assignment and return theorems now cover nested clause
+operands, including the residual heap and guard stack on failure.
+`first_iterable_failure` states the failure boundary before the first
+cursor and target scope. The source theorem shares the resolver.
+The differential fixtures cover capture and shadowing, forward
+uninitialized reads, short circuiting, same-alias guard lifetimes and
+nested unwind. Lean still starts with fresh locals for each evaluation.
+Go can keep their prior values across visits in one activation.
+[Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
+
+Inline comprehensions in a list comprehension's element expression
+or a dictionary comprehension's key or value expression remain open. Defaults and other statement
+operands also remain open. Call shapes and spread value domains follow
+the [existing argument profile](#argument-binding). Field and subscript
+assignment targets remain outside this placement profile. Quotation
+supplies ordinary operands, heads and pattern ASTs. The broader
+iterable and filter placement uses separate normalized
+`CompExpr.listClauses` and `CompExpr.dictClauses` nodes.
 
 ## Direct denotation of resolved expressions
 

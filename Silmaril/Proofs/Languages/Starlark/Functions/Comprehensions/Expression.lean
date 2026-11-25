@@ -152,6 +152,22 @@ theorem expression_exact (program : Program) (available : List DeclarationId)
   | plain admitted => exact stage admitted target start
   | list outer inner locals => exact list_exact _ target start outer inner locals
   | dict outer inner locals => exact dict_exact _ target start outer inner locals
+  | @listClauses locals first iterable rest outer clauses head safe =>
+    apply scopedBodies_exact target [] locals first (stage (.atom (.list .empty)) resultSlot start)
+      (expression_exact program available iterable outer operandSlot start) (by simp) safe
+    apply clauses_exact
+    · exact listYield_exact head start
+    · intro operand member
+      have := rest.clauseOperandSize member
+      exact expression_exact program available operand (clauses operand member) operandSlot start
+  | @dictClauses locals first iterable rest outer clauses key value safe =>
+    apply scopedBodies_exact target [keySlot] locals first (stage (.atom (.dict .noEntries)) resultSlot start)
+      (expression_exact program available iterable outer operandSlot start) (by simpa using keyVisible) safe
+    apply clauses_exact
+    · exact dictYield_exact key value start
+    · intro operand member
+      have := rest.clauseOperandSize member
+      exact expression_exact program available operand (clauses operand member) operandSlot start
   | listDisplay elements | tupleDisplay elements =>
     unfold compileSequence
     apply scope_exact target
@@ -372,5 +388,21 @@ theorem slice_order (program : Program) (available : List DeclarationId)
   rw [compileSequence, denoteBody]
   change completeCall state (some target) (denoteBody program available (stageArguments 0 _ _) state) = _
   simp only [stageArguments, sequenceMeaning, List.map_cons, List.map_nil, List.foldr_cons, List.foldr_nil] <;> rfl
+
+theorem first_iterable_failure (program : Program) (available : List DeclarationId)
+    (target : Binding) (privateSlots locals : List Binding) (first : LoopTarget)
+    (initial iterable rest : Body) (state ready stopped : State) (error : Error)
+    (allocated : denoteBody program available initial
+      ((resultSlot :: operandSlot :: privateSlots).foldl State.allocateSlot state) = .ok .next ready)
+    (failed : denoteBody program available iterable ready = .error error stopped) :
+    denoteBody program available (compileScopedWith target privateSlots locals first initial iterable rest) state =
+      .error error (restoreCaller state stopped) := by
+  rw [compileScopedWith, denoteBody]
+  change completeCall state (some target) (denoteBody program available (.seq _ _)
+    ((resultSlot :: operandSlot :: privateSlots).foldl State.allocateSlot state)) = _
+  rw [sequenceDenotation, allocated]
+  change completeCall state (some target) (denoteBody program available (.seq _ _) ready) = _
+  rw [sequenceDenotation, failed]
+  rfl
 
 end Silmaril.Proofs.Languages.Starlark.Functions.Comprehensions

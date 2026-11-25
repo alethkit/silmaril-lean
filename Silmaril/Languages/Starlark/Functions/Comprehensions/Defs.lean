@@ -9,10 +9,32 @@ namespace Silmaril.Languages.Starlark.Functions.Comprehensions
 open Lists.Iteration (LoopTarget)
 
 /-- The required first generator is stored separately from the remaining clauses. -/
-inductive Tail (Yield : Type := Lowering.Expr) where
+inductive Tail (Yield : Type := Lowering.Expr) (Operand : Type := Lowering.Expr) where
   | yield (value : Yield)
-  | filter (test : Lowering.Expr) (rest : Tail Yield)
-  | forIn (target : LoopTarget) (iterable : Lowering.Expr) (rest : Tail Yield)
+  | filter (test : Operand) (rest : Tail Yield Operand)
+  | forIn (target : LoopTarget) (iterable : Operand) (rest : Tail Yield Operand)
+
+def Tail.clauseOperands {Yield Operand : Type} : Tail Yield Operand → List Operand
+  | .yield _ => []
+  | .filter test rest => test :: rest.clauseOperands
+  | .forIn _ iterable rest => iterable :: rest.clauseOperands
+
+def Tail.headValue {Yield Operand : Type} : Tail Yield Operand → Yield
+  | .yield value => value
+  | .filter _ rest | .forIn _ _ rest => rest.headValue
+
+theorem Tail.clauseOperandSize {Yield Operand : Type} [SizeOf Yield] [SizeOf Operand]
+    (tail : Tail Yield Operand) {operand : Operand} (member : operand ∈ tail.clauseOperands) :
+    sizeOf operand < sizeOf tail := by
+  induction tail with
+  | yield => simp [clauseOperands] at member
+  | filter test rest ih | forIn _ test rest ih =>
+    simp only [clauseOperands, List.mem_cons] at member
+    rcases member with rfl | member
+    · simp <;> omega
+    · have := ih member
+      simp
+      omega
 
 def Tail.operandsWith {Yield : Type} (operands : Yield → List Lowering.Expr) :
     Tail Yield → List Lowering.Expr
@@ -61,28 +83,45 @@ def stageLowered (start : Nat) : Stage := fun target expr =>
   let lowered := Lowering.lower expr scratch (start + 1)
   .assignScoped target [] (.seq lowered.code (.returnExpr (.atom (.read (.bound scratch)))))
 
-def Tail.compileWith {Yield : Type} (stage : Stage) (emit : Yield → Body) : Tail Yield → Body
+def Tail.compileClauses {Yield Operand : Type} (emit : Yield → Body) (tail : Tail Yield Operand)
+    (stage : (operand : Operand) → operand ∈ tail.clauseOperands → Body) : Body :=
+  match tail with
   | .yield value => emit value
   | .filter test rest =>
-    .seq (stage operandSlot test)
-      (.branch (.read (.bound operandSlot)) (rest.compileWith stage emit) (.total (.atomic .pass)))
+    .seq (stage test (by simp [clauseOperands]))
+      (.branch (.read (.bound operandSlot))
+        (rest.compileClauses emit fun operand member => stage operand (List.mem_cons_of_mem _ member))
+        (.total (.atomic .pass)))
   | .forIn target iterable rest =>
-    .seq (stage operandSlot iterable)
-      (.forIn target (.read (.bound operandSlot)) (rest.compileWith stage emit))
+    .seq (stage iterable (by simp [clauseOperands]))
+      (.forIn target (.read (.bound operandSlot))
+        (rest.compileClauses emit fun operand member => stage operand (List.mem_cons_of_mem _ member)))
+
+def Tail.compileWith {Yield : Type} (stage : Stage) (emit : Yield → Body) (tail : Tail Yield) : Body :=
+  tail.compileClauses emit fun operand _ => stage operandSlot operand
+
+def listYield (stage : Stage) (value : Lowering.Expr) : Body :=
+  .seq (stage operandSlot value) appendResult
+
+def dictYield (stage : Stage) (entry : Lowering.Expr × Lowering.Expr) : Body :=
+  .seq (stage keySlot entry.1) (.seq (stage operandSlot entry.2) putResult)
 
 def Tail.compile (stage : Stage) (tail : Tail) : Body :=
-  tail.compileWith stage fun value => .seq (stage operandSlot value) appendResult
+  tail.compileWith stage (listYield stage)
 
-/-- The accumulator exists while the first iterable evaluates in the enclosing
-scope. Install the comprehension's lexical slots only after that evaluation. -/
+/-- Allocate the accumulator, run the first iterable in the enclosing scope,
+then install the comprehension's lexical slots and enter the first cursor. -/
+def compileScopedWith (target : Binding) (privateSlots locals : List Binding) (first : LoopTarget)
+    (initial iterable rest : Body) : Body :=
+  .assignScoped target (resultSlot :: operandSlot :: privateSlots)
+    (.seq initial (.seq iterable
+      (.seq (.assignScoped resultSlot locals
+        (.seq (.forIn first (.read (.bound operandSlot)) rest) returnResult))
+        returnResult)))
+
 def compileScoped (target : Binding) (privateSlots locals : List Binding) (first : LoopTarget)
     (initial iterable : Lowering.Expr) (stage : Stage) (rest : Body) : Body :=
-  .assignScoped target (resultSlot :: operandSlot :: privateSlots)
-    (.seq (stage resultSlot initial)
-      (.seq (stage operandSlot iterable)
-        (.seq (.assignScoped resultSlot locals
-          (.seq (.forIn first (.read (.bound operandSlot)) rest) returnResult))
-          returnResult)))
+  compileScopedWith target privateSlots locals first (stage resultSlot initial) (stage operandSlot iterable) rest
 
 def ListComp.compile (comp : ListComp) (target : Binding) (stage : Stage) : Body :=
   compileScoped target [] comp.locals comp.target (.atom (.list .empty)) comp.iterable stage
@@ -90,8 +129,7 @@ def ListComp.compile (comp : ListComp) (target : Binding) (stage : Stage) : Body
 
 def DictComp.compile (comp : DictComp) (target : Binding) (stage : Stage) : Body :=
   compileScoped target [keySlot] comp.locals comp.target (.atom (.dict .noEntries)) comp.iterable stage
-    (comp.rest.compileWith stage fun (key, value) =>
-      .seq (stage keySlot key) (.seq (stage operandSlot value) putResult))
+    (comp.rest.compileWith stage (dictYield stage))
 
 def ListComp.body (comp : ListComp) (target : Binding) : Body :=
   comp.compile target Body.assignExpr

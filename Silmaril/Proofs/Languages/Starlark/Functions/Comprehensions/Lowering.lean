@@ -30,7 +30,7 @@ private theorem operandVisible : ¬ Scratch 0 operandSlot := by
   have := congrArg Binding.scope same
   contradiction
 
-private theorem keyVisible : ¬ Scratch 0 keySlot := by
+theorem keyVisible : ¬ Scratch 0 keySlot := by
   rintro ⟨index, _, same⟩
   have := congrArg Binding.scope same
   contradiction
@@ -219,15 +219,30 @@ private theorem tail {program : Program} {available : List DeclarationId} {Yield
     exact seq (stage (admitted iterable (by simp [Tail.operandsWith])) operandSlot start)
       (loop target (ih fun expr member => admitted expr (List.mem_cons_of_mem _ member)))
 
-private theorem scoped_exact {program : Program} {available : List DeclarationId}
+theorem clauses_exact {program : Program} {available : List DeclarationId} {Yield Operand : Type}
+    (clauses : Tail Yield Operand) (sourceHead loweredHead : Yield → Body)
+    (source lowered : (operand : Operand) → operand ∈ clauses.clauseOperands → Body)
+    (head : Exact program available (sourceHead clauses.headValue) (loweredHead clauses.headValue))
+    (related : ∀ operand member, Exact program available (source operand member) (lowered operand member)) :
+    Exact program available (clauses.compileClauses sourceHead source) (clauses.compileClauses loweredHead lowered) := by
+  induction clauses with
+  | yield value => exact head
+  | filter test rest ih =>
+    exact seq (related test (by simp [Tail.clauseOperands]))
+      (filter (ih _ _ head (fun operand member => related operand (List.mem_cons_of_mem _ member))))
+  | forIn target iterable rest ih =>
+    exact seq (related iterable (by simp [Tail.clauseOperands]))
+      (loop target (ih _ _ head (fun operand member => related operand (List.mem_cons_of_mem _ member))))
+
+theorem scopedBodies_exact {program : Program} {available : List DeclarationId}
     (target : Binding) (privateSlots locals : List Binding) (first : LoopTarget)
-    {initial iterable : Languages.Starlark.Functions.Lowering.Expr} {source lowered : Body}
-    (initialAdmitted : Admitted initial) (outer : Admitted iterable) (start : Nat)
+    {initial initial' iterable iterable' source lowered : Body}
+    (initialEq : Exact program available initial initial') (outer : Exact program available iterable iterable')
     (privateSafe : ∀ name ∈ privateSlots, ¬ Scratch 0 name)
     (localSafe : ∀ name ∈ locals, ¬ Scratch 0 name)
     (rest : Exact program available source lowered) :
-    Exact program available (compileScoped target privateSlots locals first initial iterable Body.assignExpr source)
-      (compileScoped target privateSlots locals first initial iterable (stageLowered start) lowered) := by
+    Exact program available (compileScopedWith target privateSlots locals first initial iterable source)
+      (compileScopedWith target privateSlots locals first initial' iterable' lowered) := by
   have reserved : ∀ name ∈ resultSlot :: operandSlot :: privateSlots, ¬ Scratch 0 name := by
     intro name member
     simp only [List.mem_cons] at member
@@ -236,9 +251,18 @@ private theorem scoped_exact {program : Program} {available : List DeclarationId
     · exact operandVisible
     · exact privateSafe _ member
   exact scopeBody target _ reserved
-    (seq (stage initialAdmitted resultSlot start)
-      (seq (stage outer operandSlot start)
-        (seq (scopeBody resultSlot locals localSafe (seq (loop first rest) result)) result)))
+    (seq initialEq (seq outer (seq (scopeBody resultSlot locals localSafe (seq (loop first rest) result)) result)))
+
+theorem listYield_exact {program : Program} {available : List DeclarationId}
+    {value : Languages.Starlark.Functions.Lowering.Expr} (admitted : Admitted value) (start : Nat) :
+    Exact program available (listYield Body.assignExpr value) (listYield (stageLowered start) value) :=
+  seq (stage admitted operandSlot start) append
+
+theorem dictYield_exact {program : Program} {available : List DeclarationId}
+    {key value : Languages.Starlark.Functions.Lowering.Expr}
+    (keyAdmitted : Admitted key) (valueAdmitted : Admitted value) (start : Nat) :
+    Exact program available (dictYield Body.assignExpr (key, value)) (dictYield (stageLowered start) (key, value)) :=
+  seq (stage keyAdmitted keySlot start) (seq (stage valueAdmitted operandSlot start) put)
 
 theorem list_exact {program : Program} {available : List DeclarationId}
     (comp : ListComp) (target : Binding) (start : Nat)
@@ -246,24 +270,21 @@ theorem list_exact {program : Program} {available : List DeclarationId}
     (locals : ∀ name ∈ comp.locals, ¬ Scratch 0 name) :
     Exact program available (comp.body target) (comp.lower target start) := by
   have rest := tail (program := program) (available := available) start comp.rest (fun value => [value])
-    (fun value => .seq (.assignExpr operandSlot value) appendResult)
-    (fun value => .seq (stageLowered start operandSlot value) appendResult)
-    (fun value admit => seq (stage (admit value (by simp)) operandSlot start) append) inner
-  exact scoped_exact target [] comp.locals comp.target (.atom (.list .empty)) outer start
-    (by simp) locals rest
+    (listYield Body.assignExpr) (listYield (stageLowered start))
+    (fun value admit => listYield_exact (admit value (by simp)) start) inner
+  exact scopedBodies_exact target [] comp.locals comp.target
+    (stage (.atom (.list .empty)) resultSlot start) (stage outer operandSlot start) (by simp) locals rest
 
 theorem dict_exact {program : Program} {available : List DeclarationId}
     (comp : DictComp) (target : Binding) (start : Nat)
     (outer : Admitted comp.iterable) (inner : ∀ expr ∈ comp.operands, Admitted expr)
     (locals : ∀ name ∈ comp.locals, ¬ Scratch 0 name) :
     Exact program available (comp.body target) (comp.lower target start) := by
-  let emit := fun (stage : Stage) (key, value) =>
-    Body.seq (stage keySlot key) (.seq (stage operandSlot value) putResult)
   have rest := tail (program := program) (available := available) start comp.rest
-    (fun (key, value) => [key, value]) (emit Body.assignExpr) (emit (stageLowered start))
-    (fun (key, value) admit => seq (stage (admit key (by simp)) keySlot start)
-      (seq (stage (admit value (by simp)) operandSlot start) put)) inner
-  exact scoped_exact target [keySlot] comp.locals comp.target (.atom (.dict .noEntries)) outer start
+    (fun (key, value) => [key, value]) (dictYield Body.assignExpr) (dictYield (stageLowered start))
+    (fun (key, value) admit => dictYield_exact (admit key (by simp)) (admit value (by simp)) start) inner
+  exact scopedBodies_exact target [keySlot] comp.locals comp.target
+    (stage (.atom (.dict .noEntries)) resultSlot start) (stage outer operandSlot start)
     (by simpa using keyVisible) locals rest
 
 

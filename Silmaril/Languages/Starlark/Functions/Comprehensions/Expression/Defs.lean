@@ -12,6 +12,12 @@ inductive Expression where
   | plain (value : Lowering.Expr)
   | list (comp : ListComp)
   | dict (comp : DictComp)
+  /-- Clause operands can contain comprehensions. The element stays in the ordinary grammar. -/
+  | listClauses (locals : List Binding) (target : Lists.Iteration.LoopTarget)
+      (iterable : Expression) (rest : Tail Lowering.Expr Expression)
+  /-- Clause operands can contain comprehensions. The key and value stay ordinary. -/
+  | dictClauses (locals : List Binding) (target : Lists.Iteration.LoopTarget)
+      (iterable : Expression) (rest : Tail (Lowering.Expr × Lowering.Expr) Expression)
   | listDisplay (elements : List Expression)
   | tupleDisplay (elements : List Expression)
   | dictDisplay (entries : List (Expression × Expression))
@@ -116,6 +122,18 @@ def Expression.compile (stages : ExpressionStages) (expr : Expression) (target :
   | .plain value => stages.plain target value
   | .list comp => stages.list comp target
   | .dict comp => stages.dict comp target
+  | .listClauses locals first iterable rest =>
+    compileScopedWith target [] locals first (stages.plain resultSlot (.atom (.list .empty)))
+      (iterable.compile stages operandSlot)
+      (rest.compileClauses (listYield stages.plain) fun operand member =>
+        have := rest.clauseOperandSize member
+        operand.compile stages operandSlot)
+  | .dictClauses locals first iterable rest =>
+    compileScopedWith target [keySlot] locals first (stages.plain resultSlot (.atom (.dict .noEntries)))
+      (iterable.compile stages operandSlot)
+      (rest.compileClauses (dictYield stages.plain) fun operand member =>
+        have := rest.clauseOperandSize member
+        operand.compile stages operandSlot)
   | .listDisplay elements =>
     compileSequence target (.list ∘ operandList) (elements.attach.map fun element =>
       have := List.sizeOf_lt_of_mem element.property

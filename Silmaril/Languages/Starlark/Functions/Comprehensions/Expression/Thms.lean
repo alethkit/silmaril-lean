@@ -170,4 +170,17 @@ theorem slice_order (program : Program) (available : List DeclarationId)
       completeCall state (some target) (execute state) :=
   Proofs.Languages.Starlark.Functions.Comprehensions.slice_order program available target receiver start stop stride state
 
+/-- A failing first iterable leaves its effects and restores the caller.
+The comprehension's lexical targets and first cursor are entered only after success. -/
+theorem first_iterable_failure (program : Program) (available : List DeclarationId)
+    (target : Binding) (privateSlots locals : List Binding) (first : Lists.Iteration.LoopTarget)
+    (initial iterable rest : Body) (state ready stopped : Lists.State) (error : Lists.Error)
+    (allocated : denoteBody program available initial
+      ((resultSlot :: operandSlot :: privateSlots).foldl Lists.State.allocateSlot state) = .ok .next ready)
+    (failed : denoteBody program available iterable ready = .error error stopped) :
+    denoteBody program available (compileScopedWith target privateSlots locals first initial iterable rest) state =
+      .error error (restoreCaller state stopped) :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.first_iterable_failure
+    program available target privateSlots locals first initial iterable rest state ready stopped error allocated failed
+
 end Silmaril.Languages.Starlark.Functions.Comprehensions
