@@ -155,9 +155,11 @@ private theorem termTokens_spellable {term : RawExpr} (h : NamesOk term) :
 
 /-- The complete byte parser recovers every canonically printed source AST. -/
 theorem parse_print (term : SourceExpr) : parse (print term) = some term.val := by
-  unfold parse print readWhole Cambridge.Concrete.readWhole
+  unfold parse print
   rw [tokenize_render _ (termTokens_spellable term.property)]
-  simp (discharger := omega) [readGroup_tokens, readExpr_tokens, finishGroup]
+  apply readWithPrecedence_of_grouped
+  simpa only [List.append_nil] using
+    readExpr_tokens term.val ((termTokens term.val).length + 1) [] (by omega)
 
 theorem parseResolved_print (term : SourceExpr) :
     parseResolved (print term) = some (term.val.resolve []) := by
@@ -171,9 +173,11 @@ theorem print_injective : Function.Injective print := by
 theorem parses_print (term : SourceExpr) : Parses (print term) term.val := parse_print term
 
 theorem parseType_printType (type : Ty) : parseType (printType type) = some type := by
-  unfold parseType printType readWhole Cambridge.Concrete.readWhole
+  unfold parseType printType
   rw [tokenize_render _ (typeTokens_spellable type)]
-  simp (discharger := omega) [readType, readType_tokens]
+  apply readWithPrecedence_of_grouped
+  simpa only [List.append_nil] using
+    readType_tokens type ((typeTokens type).length + 1) [] (by omega)
 
 theorem printType_injective : Function.Injective printType := by
   intro left right h

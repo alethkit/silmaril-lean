@@ -62,9 +62,9 @@ and malformed decimal payloads. Empty records are valid.
 
 The proofs are over proper S-expression and JSON values. The regressions
 also exercise text conversion with the existing S-expression reader and
-printer and Lean’s JSON reader and printer. Ordinary ungrouped concrete
-precedence for L1–L3 remains a separate follow-up.
-[Grouped L1/L2 syntax](cambridge-concrete.md) · [Grouped L3 syntax](cambridge-l3-concrete.md)
+printer and Lean’s JSON reader and printer. The source byte grammar is
+documented separately.
+[L1/L2 concrete syntax](cambridge-concrete.md) · [L3 concrete syntax](cambridge-l3-concrete.md)
 
 ```sh
 lake build --wfail +Silmaril.Courses.Cambridge.AstCodec.Examples
