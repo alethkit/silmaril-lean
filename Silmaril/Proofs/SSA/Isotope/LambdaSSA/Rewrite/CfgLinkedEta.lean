@@ -102,7 +102,9 @@ theorem cfg_linked_eta_common {n : Nat} {Γ : VCtx τ} {L : LCtx τ} {entry : Re
     (he : Region.HasType Γ entry (List.ofFn R ++ L))
     (hb : ∀ i, Region.HasType (R i :: Γ) (blocks i) (List.ofFn R ++ L)) :
     ∃ ht : Region.HasType Γ (entry.linkExits (List.ofFn R ++ L) (Region.cfgEntryContinuations blocks)) L,
-      ∃ f, RegionDenotes J M (.cfg R he hb) f ∧ RegionDenotes J M ht f := by
+      ∃ f, ∃ k : J.obj (ctxObj M Γ ⊗ labelObj M (List.ofFn R ++ L)) ⟶ J.obj (labelObj M L),
+        RegionDenotes J M (.cfg R he hb) f ∧ RegionDenotes J M ht f ∧
+          ContinuationDenotes J M (Region.cfgEntryContinuations blocks) k := by
   let E := ctxObj M Γ
   let B := labelObj M L
   cases n with
@@ -124,7 +126,7 @@ theorem cfg_linked_eta_common {n : Nat} {Γ : VCtx τ} {L : LCtx τ} {entry : Re
     obtain ⟨_, d⟩ := df.linkExits J M hk
     rw [Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind,
       extend_snd J (FreydCategory.CentralUnit.unit_central (J := J))] at d
-    exact ⟨_, f, .cfgZero he hb df, d⟩
+    exact ⟨_, f, _, .cfgZero he hb df, d, hk⟩
   | succ n =>
     obtain ⟨f, df⟩ := regionDenotes_exists J M he
     let fb (i : Fin (n + 1)) := denoteRegion J M (hb i)
@@ -138,6 +140,6 @@ theorem cfg_linked_eta_common {n : Nat} {Γ : VCtx τ} {L : LCtx τ} {entry : Re
       (f ≫ J.map (labelAppendSplit M (List.ofFn R) L)) (J.map (snd E B)) _) at h
     simp only [caseWithContext, Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind,
       extend_post_map, MonoidalCategory.id_tensorHom, Category.assoc] at h
-    exact ⟨_, _, h, by simpa only [Category.assoc] using d⟩
+    exact ⟨_, _, _, h, by simpa only [Category.assoc] using d, hk⟩
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite
