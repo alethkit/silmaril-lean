@@ -45,7 +45,7 @@ def base (f : I → E) : Wiring σ I E :=
 
 /-- The input state emits the generator's label. Its children return at the
 corresponding argument ports in order. -/
-def generator (a : σ.Symbol) : Wiring σ Arity.one (Arity.ofNat (σ.arity a)) where
+abbrev generator (a : σ.Symbol) : Wiring σ Arity.one (Arity.ofNat (σ.arity a)) where
   states := Arity.one.sum (Arity.ofNat (σ.arity a))
   entry := Sum.inl
   row
@@ -53,7 +53,7 @@ def generator (a : σ.Symbol) : Wiring σ Arity.one (Arity.ofNat (σ.arity a)) w
     | .inr i => .head (.exit i)
 
 /-- Pairing forms the disjoint union of the state sets. -/
-def pair (f : Wiring σ I E) (g : Wiring σ J E) : Wiring σ (I.sum J) E where
+abbrev pair (f : Wiring σ I E) (g : Wiring σ J E) : Wiring σ (I.sum J) E where
   states := f.states.sum g.states
   entry := Sum.map f.entry g.entry
   row
@@ -61,7 +61,7 @@ def pair (f : Wiring σ I E) (g : Wiring σ J E) : Wiring σ (I.sum J) E where
     | .inr s => (g.row s).connect Sum.inr (fun e => .head (.exit e))
 
 /-- Composition connects the first graph's exits to the second graph's entries. -/
-def comp (f : Wiring σ I J) (g : Wiring σ J E) : Wiring σ I E where
+abbrev comp (f : Wiring σ I J) (g : Wiring σ J E) : Wiring σ I E where
   states := f.states.sum g.states
   entry i := .inl (f.entry i)
   row
