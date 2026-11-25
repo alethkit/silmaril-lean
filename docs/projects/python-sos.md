@@ -267,7 +267,7 @@ singletons). Unions of singleton result behaviours can violate determinism.
 Concrete well-formed Python profiles and chosen rule schemas therefore need
 their own closure proofs. All sets of rules over a fixed carrier form a
 complete lattice by rule inclusion, but least derivability is merely monotone
-for that order. If one system has fact `a) and another has `a ⇒ b`, their
+for that order. If one system has fact `a` and another has `a ⇒ b`, their
 union derives the new `b`. If two systems derive `b` via disjoint rules,
 their rule intersection can lose that common consequence. For a single fixed
 positive theory, closed predicates form a lattice with intersections and
