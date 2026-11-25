@@ -60,7 +60,7 @@ private theorem valueFamily_lift {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → Re
       exact .br rfl (.var rfl)
   | succ ℓ => exact valueBranches_renameLabels (hσ hi) (Silmaril.Isotope.SSA.Ren.wk K D)
 
-private theorem valueFamily_append {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → Region Φ}
+theorem valueFamily_append {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → Region Φ}
     (hσ : LSubst.ValueFamily Γ L K σ) (Ξ : LCtx τ) :
     LSubst.ValueFamily Γ (Ξ ++ L) (Ξ ++ K) (liftLSubstN Ξ.length σ) := by
   induction Ξ with
