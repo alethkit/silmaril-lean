@@ -24,7 +24,7 @@ local notation "Obj" => ofType (τ := τ) (Φ := Φ)
 local infixr:70 " ×ₜ " => product
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem tensorSequence_comp_of_interchange {A B C D E F : τ}
+theorem tensorSequence_comp_of_interchange {A B C D E F : τ}
     (f : Obj A ⟶ Obj C) (g : Obj B ⟶ Obj D) (h : Obj C ⟶ Obj E) (k : Obj D ⟶ Obj F)
     (swap : whiskerLeft (Obj C) g ≫ whiskerRight h (Obj D) =
       whiskerRight h (Obj B) ≫ whiskerLeft (Obj E) g) :

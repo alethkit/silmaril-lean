@@ -17,6 +17,14 @@ variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 local notation "Obj" => ofType (τ := τ) (Φ := Φ)
 local infixr:70 " ×ₜ " => product
 
+/-- The sequential tensor preserves a composite across the indicated interchange square. -/
+theorem tensorSequence_comp_of_interchange {A B C D E F : τ}
+    (f : Obj A ⟶ Obj C) (g : Obj B ⟶ Obj D) (h : Obj C ⟶ Obj E) (k : Obj D ⟶ Obj F)
+    (swap : whiskerLeft (Obj C) g ≫ whiskerRight h (Obj D) =
+      whiskerRight h (Obj B) ≫ whiskerLeft (Obj E) g) :
+    tensorSequence (f ≫ h) (g ≫ k) = tensorSequence f g ≫ tensorSequence h k :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.ProductShuffle.tensorSequence_comp_of_interchange f g h k swap
+
 /-- Copying a product is the two factor diagonals followed by the guarded shuffle. -/
 theorem diagonal_tensorSequence (A B : τ) :
     tensorSequence (diagonalArrow (Φ := Φ) A) (diagonalArrow B) ≫ middleFour A A B B =
