@@ -489,6 +489,16 @@ def validity (bytes : Option ByteArray) : Json :=
         ("note", jstr "Silmaril.Wasm.Tools.Validate.check with wasm-tools' default features (check_ok_iff: equal to the specification validator)")]
     | .error e => jobj [("status", jstr "rejected"), ("note", jstr (reprStr e))]
 
+def bodyJson (m : Module) (mctx : Option Validation.Context) (sl : String) (idx : Nat)
+    (name : Option String) (f : Func) : Json :=
+  let segOf (b : Cfg.BlockId) := (Cfg.lookup f.body b).map (·.instrs)
+  let typing := match mctx.bind (Typing.funcContext? · f) with
+    | some (Cf, _) => (Cfg.bodyIfaces Cf f.body).filterMap fun x =>
+        (Typing.ifaceJson segOf x).map fun j => ((x.id.seq, x.id.idx), j)
+    | none => []
+  let kt := kernelTables.lookup s!"{sl}/{idx}"
+  jobj [("idx", jnat idx), ("wat", jstr (funcWat m idx name f)), ("cfg", cfgJson f.body typing kt)]
+
 /-- Process a core module (decoded `m`, bytes if any, source WAT if any). -/
 def doModule (id title : String) (src : Source) (m : Module) (bytes : Option ByteArray)
     (srcWat : Option String := none) : M Unit := do
@@ -535,13 +545,7 @@ def doModule (id title : String) (src : Source) (m : Module) (bytes : Option Byt
   let mctx := Typing.moduleContext? m
   let cfgs := m.funcs.zipIdx.map fun (f, k) =>
     let idx := nImp + k
-    let segOf (b : Cfg.BlockId) := (Cfg.lookup f.body b).map (·.instrs)
-    let typing := match mctx.bind (Typing.funcContext? · f) with
-      | some (Cf, _) => (Cfg.bodyIfaces Cf f.body).filterMap fun x =>
-          (Typing.ifaceJson segOf x).map fun j => ((x.id.seq, x.id.idx), j)
-      | none => []
-    let kt := kernelTables.lookup s!"{sl}/{idx}"
-    jobj [("idx", jnat idx), ("wat", jstr (funcWat m idx (nameOf idx) f)), ("cfg", cfgJson f.body typing kt)]
+    bodyJson m mctx sl idx (nameOf idx) f
   -- files
   if let some b := bytes then writeFile s!"wasm/blob/{sl}.wasm" b
   let watNote ← match bytes with
@@ -748,10 +752,114 @@ def sha256Hex (b : ByteArray) : String :=
     let h := (Nat.toDigits 16 x.toNat)
     String.ofList (if h.length < 2 then '0' :: h else h))
 
-def run (artifactsPath outDir : String) : IO UInt32 := do
+/-! ## Pinned SQLite reactor inventory -/
+
+-- These are annotations on Wasm slots, with absolute spans including the body size LEB.
+-- check-sqlite-reactor.py compares each span and symbol against the pinned build's link map.
+def reactorAnnotationHash : String := "8932b867f5dbf0ad4e07f090cda52cf291829b3d51368cbd509b7c00be819c57"
+
+def reactorNames : List (Nat × (String × Nat × Nat)) := [
+  (231, ("sqlite3GetVarint32", 107791, 180)),
+  (434, ("sqlite3GetVarint", 185629, 404)),
+  (530, ("sqlite3PutVarint", 229748, 79)),
+  (547, ("putVarint64", 233934, 218))]
+
+def reactorEvidence (file declaration : String) : Json := jobj [
+  ("path", jstr s!"tools/sqlite-wasm/{file}"), ("declaration", jstr declaration),
+  ("revision", jstr "8503340de5d0d00daf3d6da6ea25317b0c5d00de")]
+
+def reactorSlotEvidence : List (Nat × Json) := [
+  (289, reactorEvidence "VersionCheck.lean" "SqliteWasm.version_exec"),
+  (434, reactorEvidence "GetVarintOneByte.lean" "SqliteWasm.getVarint_oneByte"),
+  (530, reactorEvidence "PutVarintCheck.lean" "SqliteWasm.putVarint_oneByte")]
+
+def reactorDetailSlots : List Nat := [25, 231, 289, 434, 530, 547]
+
+def writeReactor (path : String) (version hash : String) (bytes : ByteArray) (m : Module) : M Unit := do
+  let id := "sqlite.wasi.preview1.reactor"
+  let sl := s!"{id}.{hash}"
+  let annotated := hash == reactorAnnotationHash
+  let src : Source := {
+    kind := "pinned", name := id, sha256 := some hash
+    path := some "tools/sqlite-wasm/reactor.json"
+    doc := "Stripped WASI Preview 1 reactor. SHA-256 checked before decoding."
+  }
+  let imports := m.imports.filterMap fun imp => match imp.type with
+    | .func ty => some (imp, ty.value.val)
+    | _ => none
+  let exportName (idx : Nat) := (m.exports.find? fun e => exportKind e.index == ("func", idx)).map (·.name)
+  let mut functions : Array Json := #[]
+  let mut index : Array Json := #[]
+  let mut unsupported := 0
+  let mut details := 0
+  for ((imp, ty), idx) in imports.zipIdx do
+    functions := functions.push (jobj [
+      ("idx", jnat idx), ("imported", Json.bool true), ("import", jstr s!"{imp.moduleName}/{imp.name}"),
+      ("sig", jstr (sigText m ty)), ("export", (exportName idx).elim Json.null jstr)])
+  let mctx := Typing.moduleContext? m
+  for (f, ordinal) in m.funcs.zipIdx do
+    let idx := imports.length + ordinal
+    let name := exportName idx
+    let cName := if annotated then reactorNames.lookup idx else none
+    let flow := Cfg.blockCfg f.body
+    let bad := flow.any fun (_, ts) => ts.contains .invalid
+    let instructions := (allInstrs f.body).length
+    let detail := annotated && !bad && reactorDetailSlots.contains idx && decide (instructions ≤ 600)
+    if bad then unsupported := unsupported + 1
+    if detail then
+      details := details + 1
+      let body := bodyJson m mctx sl idx (name.orElse fun _ => cName.map (·.1)) f
+      writeText s!"wasm/f/{sl}/{idx}.json" body.compress
+    functions := functions.push (jobj ([
+      ("idx", jnat idx), ("imported", Json.bool false), ("export", name.elim Json.null jstr),
+      ("sig", jstr (sigText m f.type.value.val)), ("locals", jnat f.locals.length),
+      ("instrs", jnat instructions), ("blocks", jnat flow.length),
+      ("flow", jstr (if bad then "unsupported" else "built")), ("detail", Json.bool detail)] ++
+      (match cName with
+      | some (symbol, offset, size) => [("cName", jobj [("name", jstr symbol),
+          ("codeOffset", jnat offset), ("codeBytes", jnat size)])]
+      | none => []) ++ (if annotated then (reactorSlotEvidence.lookup idx).toList.map ("leanEvidence", ·) else [])))
+    index := index.push (jarr [jstr sl, jnat idx, (name.orElse fun _ => cName.map (·.1)).elim Json.null jstr,
+      name.elim Json.null jstr, jnat flow.length])
+  let summary := jobj [("id", jstr sl), ("slug", jstr sl), ("title", jstr s!"SQLite {version} WASI reactor"),
+    ("kind", jstr "module"), ("source", sourceJson src), ("size", jnat bytes.size),
+    ("imports", jnat m.imports.length), ("exports", jnat m.exports.length),
+    ("funcs", jnat functions.size), ("defined", jnat m.funcs.length)]
+  let coverage := jobj [("functionImports", jnat imports.length), ("defined", jnat m.funcs.length),
+    ("bodyDecodeFailures", jnat 0), ("flowBuilt", jnat (m.funcs.length - unsupported)),
+    ("flowUnsupported", jnat unsupported), ("detailPublished", jnat details),
+    ("detailOmitted", jnat (m.funcs.length - details))]
+  let full := jobj ([("summary", summary), ("hasBlob", Json.bool true),
+    ("watNote", jstr "no WAT for the whole module in this pilot"), ("coverage", coverage),
+    ("functions", Json.arr functions), ("exports", jarr (m.exports.map fun e =>
+      let (kind, idx) := exportKind e.index
+      jobj [("name", jstr e.name), ("kind", jstr kind), ("idx", jnat idx)]))] ++
+    if annotated then [("decodeEvidence", reactorEvidence "whole-module/WholeModule.lean" "SqliteWasm.originalDecode")] else [])
+  writeFile s!"wasm/blob/{sl}.wasm" bytes
+  writeText s!"wasm/m/{sl}.json" full.compress
+  modify fun o => { o with modules := o.modules.push summary, functions := o.functions ++ index }
+  IO.println s!"SQLite reactor {path}: {functions.size} slots, {m.funcs.length - unsupported} flow CFGs, {unsupported} unsupported, {details} details"
+
+def loadReactor (root : System.FilePath) (path : String) : IO (String × String × ByteArray × Module) := do
+  let manifest ← IO.ofExcept (Json.parse (← IO.FS.readFile (root / "tools/sqlite-wasm/reactor.json")))
+  let schema ← IO.ofExcept (manifest.getObjValAs? Nat "schema_version")
+  let profile ← IO.ofExcept (manifest.getObjValAs? String "profile")
+  let version ← IO.ofExcept (manifest.getObjValAs? String "sqlite_version")
+  let hash ← IO.ofExcept (manifest.getObjValAs? String "artifact_sha256")
+  unless schema == 1 && profile == "wasi-preview1-reactor" do
+    throw (IO.userError "Expected the SQLite WASI reactor manifest v1")
+  let bytes ← IO.FS.readBinFile path
+  unless sha256Hex bytes == hash do
+    throw (IO.userError "SQLite reactor SHA-256 differs from reactor.json")
+  match Binary.Core.Decode.decodeModule bytes with
+  | .ok m => return (version, hash, bytes, m)
+  | .error e => throw (IO.userError s!"1 SQLite reactor module decode failure; function counts unavailable: {e}")
+
+def run (artifactsPath outDir : String) (reactorPath : Option String := none) : IO UInt32 := do
   let text ← IO.FS.readFile artifactsPath
   let root := (System.FilePath.mk artifactsPath).parent.bind (·.parent) |>.getD "."
   let arts := readArtifacts text
+  let reactor ← reactorPath.mapM (loadReactor root)
   -- the Lean example modules, encoded once
   let leans := leanExamples.map fun (id, title, m, decl) =>
     let bytes := match Binaryen.Exe.encodeModule? m with
@@ -794,6 +902,8 @@ def run (artifactsPath outDir : String) : IO UInt32 := do
                         "reaches this AST only through a decoding certificate (a value's .is problem)" }
         | none => { kind := "lean", name := decl, sha256 := sha, doc := lean ++ "not registered in artifacts.toml" }
       doModule id title src m bytes
+    if let some (version, hash, bytes, m) := reactor then
+      writeReactor (reactorPath.getD "") version hash bytes m
   let ((), out) ← act.run {}
   let index := jobj [("components", jarr out.components.toList), ("modules", jarr out.modules.toList)]
   let files := out.files.push ("wasm/index.json", index.compress.toUTF8)
@@ -810,4 +920,5 @@ end WasmPages
 def main (args : List String) : IO UInt32 :=
   match args with
   | [a, o] => WasmPages.run a o
-  | _ => do IO.eprintln "usage: wasm-pages ARTIFACTS.toml OUTDIR"; return 2
+  | [a, o, "--sqlite-reactor", path] => WasmPages.run a o (some path)
+  | _ => do IO.eprintln "usage: wasm-pages ARTIFACTS.toml OUTDIR [--sqlite-reactor REACTOR.wasm]"; return 2
