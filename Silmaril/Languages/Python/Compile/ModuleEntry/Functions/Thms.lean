@@ -11,6 +11,12 @@ theorem Positional.length {scope : Source.Scope} {sources targets}
   | .nil => rfl
   | .cons _ tail => congrArg Nat.succ (Positional.length tail)
 
+theorem CallArguments.length {scope : Source.Scope} {sources targets}
+    (translated : CallArguments scope sources targets) : targets.length = sources.length :=
+  match translated with
+  | .nil => rfl
+  | .cons _ tail => congrArg Nat.succ (CallArguments.length tail)
+
 theorem global_read_resolved {scope : Source.Scope} {name : Source.Name}
     (global : Compile.Closure.Body.GlobalRead scope name) :
     scope.access name = some .implicitGlobal ∨ scope.access name = some .declaredGlobal :=

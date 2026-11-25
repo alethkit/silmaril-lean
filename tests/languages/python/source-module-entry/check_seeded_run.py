@@ -108,6 +108,8 @@ FIXTURES = (
      ["AssertionError:text:did not raise exception", "absent", "absent"]),
     ("unsupported", "builtin", "require_error(AssertionError, AssertionError)\n",
      ["unsupported", "absent", "absent"]),
+    ("nested_call", "empty", "result = 5\nouter(inner(1))\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
 )
 
 
@@ -197,6 +199,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     shared = runpy.run_path(str(Path(__file__).resolve().parent.parent / "source-scope/check_intake.py"))
     observations = {}
+    lean_only = []
     upstream = None
     with tempfile.TemporaryDirectory() as tmp:
         source_path = Path(tmp) / "Example.py"
@@ -207,10 +210,12 @@ if __name__ == "__main__":
             if name == "empty":
                 check += "\n" + AUDIT
             shared["check_lean"](lean_path, LEAN + check, extra_imports=IMPORTS)
-            if name != "unsupported":
+            if expected[0] == "unsupported":
+                lean_only.append(name)
+            else:
                 assert cpython(source, profile) == expected, name
             observations[name] = expected
         if args.upstream is not None:
             upstream = replay_upstream(args.upstream, shared, source_path, lean_path)
     print(json.dumps({"cpython": sys.version.split()[0], "observations": observations,
-                      "lean_only": ["unsupported"], "upstream": upstream}))
+                      "lean_only": lean_only, "upstream": upstream}))
