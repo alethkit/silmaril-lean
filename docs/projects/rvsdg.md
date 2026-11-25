@@ -1,5 +1,9 @@
 # Regionalized value state dependence graphs
 
+The [standalone θ extension](rvsdg-theta.md) covers the whole-region loop and its
+fresh-iteration firing semantics. The milestones below cover integrating θ as a
+vertex in general RVSDG regions.
+
 `Silmaril.SSA.RVSDG` formalizes the typed acyclic fragment with simple nodes
 and multi-way γ nodes from Reissmann, Meyer, Bahmann and Själander,
 *RVSDG: An Intermediate Representation for Optimizing Compilers* (2020).
