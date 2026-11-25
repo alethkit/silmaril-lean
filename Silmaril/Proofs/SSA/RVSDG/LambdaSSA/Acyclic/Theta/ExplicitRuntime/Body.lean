@@ -14,7 +14,7 @@ open OrderedTheta (carried results carriedData resultData pack point)
 open OrderedRuntime.Structured
 open TwoBlock.TwoExit (callCase Pure)
 open LinearChain.Wiring (newest)
-open Wiring (Code Tail emit)
+open Wiring (Code Tail emit eval WireValues)
 
 set_option backward.isDefEq.respectTransparency false
 set_option backward.isDefEq.respectTransparency.types false
@@ -25,18 +25,12 @@ variable {τ Φ ε σ : Type u} [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] [B
   [Isotope.Subtyping τ] [TypeModel.{u,u} τ] [InstructionModel Φ τ ε (StateT σ Part.{u})]
 variable {A B X Y S : τ}
 
-abbrev WireValues := RuntimeValues (TyDen (τ := τ)) σ
 variable {args ins out outs : Ports (OrderedRuntime.Structured.Ty τ)}
 variable {past : List (Ports (OrderedRuntime.Structured.Ty τ))}
 variable {a : Data args} {o : Data outs}
 variable {live : Origin (Threaded args) past runtime}
 
 local notation "readWire" => OrderedRuntime.Structured.readOrigin (F := WireValues (τ := τ) (σ := σ))
-
-@[expose] noncomputable def eval (code : Code Φ a o live) (entry : Tuple (WireValues (τ := τ) (σ := σ)) (Threaded args))
-    (locals : Locals (WireValues (τ := τ) (σ := σ)) past) :
-    Part (Tuple (WireValues (τ := τ) (σ := σ)) (Threaded outs)) :=
-  code.2.1.denoteOpenWith (wireModel (ε := ε) (σ := σ)) entry locals
 
 omit [TypeFormers τ] [Isotope.Subtyping τ] [TypeModel τ] in
 @[simp] theorem read_newest {F : OrderedRuntime.Structured.Ty τ → Type u}

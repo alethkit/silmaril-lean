@@ -6,7 +6,6 @@ public import Silmaril.SSA.RVSDG.NestedTheta.Thms
 public import Silmaril.SSA.RVSDG.NestedTheta.Partial.Thms
 public import Silmaril.SSA.RVSDG.NestedTheta.ExplicitRuntime.Partial.Endpoints.Thms
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Conditional.Source
-import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Body
 
 public section
 
@@ -17,7 +16,7 @@ open Isotope.LambdaSSA.Semantics.Monadic (LabelDen Env)
 open Isotope.LambdaSSA.Semantics.Agreement (RegionCoherent)
 open OrderedTheta (carried carriedData resultData results point pack)
 open OrderedRuntime.Structured (RuntimeValues Threaded encode decode read_cons read_appended)
-open ExplicitRuntime.Proofs (eval eval_primitive eval_choice eval_finish read_newest read_nextRuntime)
+open ExplicitRuntime.Wiring (eval eval_primitive eval_choice eval_finish read_newest read_nextRuntime)
 open TwoBlock.TwoExit (Carrier ExitCode callCase enter finish exitLabel)
 open TwoBlock.TwoExit.ExplicitRuntime (exitPayload)
 open NestedTheta (Term Kind Node)

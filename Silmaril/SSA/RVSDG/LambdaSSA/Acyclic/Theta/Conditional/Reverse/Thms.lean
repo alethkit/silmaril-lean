@@ -36,4 +36,11 @@ theorem raise_returns_iff (w : Decomposition g B K)
         Part.some (label, final) :=
   (raise w).2.region_returns_iff coherent env label initial final
 
+theorem raise_undefined_iff (w : Decomposition g B K)
+    (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := StateT σ Part.{u}))
+    (env : Env [A]) (initial : σ) :
+    observe (ε := ε) g env.2 initial = Part.none ↔
+      (Region.denote (ε := ε) (m := StateT σ Part.{u}) (raise w).2.typing env).run initial = Part.none :=
+  (raise w).2.region_undefined_iff coherent env initial
+
 end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Conditional.Reverse

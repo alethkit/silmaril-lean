@@ -20,6 +20,7 @@ open NestedTheta (stepWith)
 open TwoBlock.TwoExit (Carrier Route ExitCode Pure headerPorts armPorts routeResult callCase enter finish exitLabel)
 open TwoBlock.TwoExit.ExplicitRuntime (exitPayload)
 open LinearChain.Wiring (newest)
+open Wiring (eval WireValues)
 
 set_option backward.isDefEq.respectTransparency false
 set_option backward.isDefEq.respectTransparency.types false
