@@ -85,10 +85,9 @@ noncomputable def liftLower : (assemble m).NullarySlide (Fin.castAdd R v) where
 theorem liftLower_atHeight {h : ℝ} (hh : h ∈ Set.Icc s.bottom s.top) :
     (liftLower m s).atHeight (halfHeight 0 h) (lower_interval s hh) =
       assemble (matchAtLowerHeight m s hh) := by
-  apply diagram_eq_of_data
-  all_goals try rfl
-  case vy =>
-    funext j
+  refine diagram_eq_of_data (vx := rfl) (vy := ?_) (g := rfl)
+    (lab := ?_) (st := ?_) (fn := ?_) (point := ?_) (input := HEq.rfl) (output := HEq.rfl)
+  · funext j
     induction j using Fin.addCases with
     | left u =>
       by_cases eq : u = v
@@ -105,25 +104,21 @@ theorem liftLower_atHeight {h : ℝ} (hh : h ∈ Set.Icc s.bottom s.top) :
         (Proofs.ProgressiveGluing.left_ne_right v u).symm]
       exact (height_right (lower := lower) (upper := upper) u).trans
         (height_right (lower := s.atHeight h hh) (upper := upper) u).symm
-  case lab =>
-    funext z
+  · funext z
     let e := numbering lower upper
     change wireLabel (lower := lower) (e.symm z) =
       wireLabel (lower := s.atHeight h hh) (e.symm z)
     rcases e.symm z with w | (w | w) <;> rfl
-  case st =>
-    funext z
+  · funext z
     let e := numbering lower upper
     change wireStart (lower := lower) (e.symm z) =
       wireStart (lower := s.atHeight h hh) (e.symm z)
     rcases e.symm z with w | (w | w) <;> rfl
-  case fn =>
-    funext z
+  · funext z
     let e := numbering lower upper
     change wireFinish m (e.symm z) = wireFinish (matchAtLowerHeight m s hh) (e.symm z)
     rcases e.symm z with w | (w | w) <;> rfl
-  case point =>
-    funext z
+  · funext z
     let e := numbering lower upper
     change jointX m (e.symm z) = jointX (matchAtLowerHeight m s hh) (e.symm z)
     rcases e.symm z with w | (w | w) <;> rfl

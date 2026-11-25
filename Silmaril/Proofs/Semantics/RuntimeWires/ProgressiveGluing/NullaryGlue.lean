@@ -107,10 +107,9 @@ theorem diagram_eq_of_data {V W : ℕ} {p q : Diagram S V W .point}
 theorem liftUpper_atHeight {h : ℝ} (hh : h ∈ Set.Icc s.bottom s.top) :
     (liftUpper m s).atHeight (halfHeight 1 h) (upper_interval s hh) =
       assemble (matchAtUpperHeight m s hh) := by
-  apply diagram_eq_of_data
-  all_goals try rfl
-  case vy =>
-    funext j
+  refine diagram_eq_of_data (vx := rfl) (vy := ?_) (g := rfl)
+    (lab := ?_) (st := ?_) (fn := ?_) (point := ?_) (input := HEq.rfl) (output := HEq.rfl)
+  · funext j
     induction j using Fin.addCases with
     | left u =>
       rw [(liftUpper m s).stationary_height (upper_interval s hh) (Proofs.ProgressiveGluing.left_ne_right u v)]
@@ -126,25 +125,21 @@ theorem liftUpper_atHeight {h : ℝ} (hh : h ∈ Set.Icc s.bottom s.top) :
         change gluedHeight lower upper (Fin.natAdd L u) =
           gluedHeight lower (s.atHeight h hh) (Fin.natAdd L u)
         rw [height_right, height_right, s.stationary_height hh eq]
-  case lab =>
-    funext z
+  · funext z
     let e := numbering lower upper
     change wireLabel (upper := upper) (e.symm z) =
       wireLabel (upper := s.atHeight h hh) (e.symm z)
     rcases e.symm z with w | (w | w) <;> rfl
-  case st =>
-    funext z
+  · funext z
     let e := numbering lower upper
     change wireStart (upper := upper) (e.symm z) =
       wireStart (upper := s.atHeight h hh) (e.symm z)
     rcases e.symm z with w | (w | w) <;> rfl
-  case fn =>
-    funext z
+  · funext z
     let e := numbering lower upper
     change wireFinish m (e.symm z) = wireFinish (matchAtUpperHeight m s hh) (e.symm z)
     rcases e.symm z with w | (w | w) <;> rfl
-  case point =>
-    funext z
+  · funext z
     let e := numbering lower upper
     change jointX m (e.symm z) = jointX (matchAtUpperHeight m s hh) (e.symm z)
     rcases e.symm z with w | (w | w) <;> rfl
