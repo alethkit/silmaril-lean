@@ -132,18 +132,6 @@ private inductive CollectedTree where
 private def recordName (names : List Name) (name : Name) : List Name :=
   if names.contains name then names else name :: names
 
-mutual
-  private def readExpr (names : List Name) : Expr → List Name
-    | .name name => recordName names name
-    | .binary _ left right => readExpr (readExpr names left) right
-    | .call callee arguments => readExprs (readExpr names callee) arguments
-    | .integer _ | .boolean _ | .none_ => names
-
-  private def readExprs (names : List Name) : List Expr → List Name
-    | [] => names
-    | expr :: rest => readExprs (readExpr names expr) rest
-end
-
 private def collectDirective (block : BlockContext) (directive : Directive)
     (name : Name) : Except Diagnostic BlockContext := do
   if block.parameters.contains name then
@@ -166,9 +154,9 @@ private structure Collecting where
   context : BlockContext
   childrenRev : List CollectedTree := []
 
-private def Collecting.use (block : Collecting) (expr : Expr) : Collecting :=
-  let read := readExpr block.context.read expr
-  let read := if block.context.kind == .function && read.contains "super" then
+private def Collecting.readName (block : Collecting) (name : Name) : Collecting :=
+  let read := recordName block.context.read name
+  let read := if block.context.kind == .function && name == "super" then
     recordName read "__class__"
   else read
   { block with context := { block.context with read } }
@@ -183,15 +171,23 @@ private def Collecting.addChild (block child : Collecting) : Collecting :=
   let collected := CollectedTree.block child.context child.childrenRev.reverse
   { block with childrenRev := collected :: block.childrenRev }
 
+private def functionContext (path : BlockPath)
+    (parameters : List Parameter) : Except Diagnostic BlockContext := do
+  let names ← parameters.foldlM (init := []) fun names parameter => do
+    if names.contains parameter.name then
+      throw ⟨path, .duplicateParameter parameter.name⟩
+    return parameter.name :: names
+  return { path, kind := .function, parameters := names.reverse }
+
 mutual
   private def collect (block : Collecting) : List Stmt → Except Diagnostic Collecting
     | [] => .ok block
     | stmt :: rest => do collect (← collectStmt block stmt) rest
 
   private def collectStmt (block : Collecting) : Stmt → Except Diagnostic Collecting
-    | .assign target value => .ok ((block.use value).bindName target)
+    | .assign target value => do return (← collectExpr block value).bindName target
     | .delete target => .ok (block.bindName target)
-    | .expression value | .return_ (some value) => .ok (block.use value)
+    | .expression value | .return_ (some value) => collectExpr block value
     | .pass | .return_ none => .ok block
     | .globalDecl names => do
       let context ← names.foldlM (fun ctx name => collectDirective ctx .global_ name) block.context
@@ -200,22 +196,36 @@ mutual
       let context ← names.foldlM (fun ctx name => collectDirective ctx .nonlocal_ name) block.context
       return { block with context }
     | .if_ condition body otherwise | .while_ condition body otherwise => do
-      collect (← collect (block.use condition) body) otherwise
-    | .functionDef name parameters body => do
-      let childPath := block.childPath
-      let parameterNames ← parameters.foldlM (init := []) fun names parameter => do
-        if names.contains parameter.name then
-          throw ⟨childPath, .duplicateParameter parameter.name⟩
-        return parameter.name :: names
-      let outer := parameters.foldl (init := block) fun acc parameter =>
-        parameter.defaultValue.elim acc acc.use
-      let context := { path := childPath, kind := .function, parameters := parameterNames.reverse }
+      collect (← collect (← collectExpr block condition) body) otherwise
+    | .functionDef name parameters body decorators => do
+      let outer ← collectExprs (← collectDefaults block parameters) decorators
+      let context ← functionContext outer.childPath parameters
       let nested ← collect { context } body
       return (outer.bindName name).addChild nested
-    | .classDef name bases body => do
-      let outer := bases.foldl Collecting.use block
-      let nested ← collect { context := { path := block.childPath, kind := .class_ } } body
+    | .classDef name bases body decorators => do
+      let outer ← collectExprs (← collectExprs block decorators) bases
+      let nested ← collect { context := { path := outer.childPath, kind := .class_ } } body
       return (outer.bindName name).addChild nested
+
+  private def collectExpr (block : Collecting) : Expr → Except Diagnostic Collecting
+    | .name name => .ok (block.readName name)
+    | .binary _ left right => do collectExpr (← collectExpr block left) right
+    | .call callee arguments => do collectExprs (← collectExpr block callee) arguments
+    | .lambda parameters body => do
+      let outer ← collectDefaults block parameters
+      let context ← functionContext outer.childPath parameters
+      let nested ← collectExpr { context } body
+      return outer.addChild nested
+    | .integer _ | .boolean _ | .none_ => .ok block
+
+  private def collectExprs (block : Collecting) : List Expr → Except Diagnostic Collecting
+    | [] => .ok block
+    | expr :: rest => do collectExprs (← collectExpr block expr) rest
+
+  private def collectDefaults (block : Collecting) : List Parameter → Except Diagnostic Collecting
+    | [] => .ok block
+    | ⟨_, none⟩ :: rest => collectDefaults block rest
+    | ⟨_, some expr⟩ :: rest => do collectDefaults (← collectExpr block expr) rest
 end
 
 private def BlockContext.mentionedNames (block : BlockContext) : List Name :=
