@@ -106,7 +106,7 @@ def effect {scope : Scope} (space : Namespace) : Instruction scope → Effect
     ⟨((lowerScalarOperand operand).eval space #v[]).map fun value => some (name, value), []⟩
   | .scalar (.assertion operand) =>
     ⟨(((lowerScalarOperand operand).eval space #v[]).bind assertTruth).map fun _ => none, []⟩
-  | .publish .. => ⟨.error .unsupported, []⟩
+  | .publish .. | .assertNot _ => ⟨.error .unsupported, []⟩
   | .call destination name arguments =>
     let event := observeNamedCall space name arguments
     ⟨event.observation.result.bind (acceptCall destination), [event]⟩

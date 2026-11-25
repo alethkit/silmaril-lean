@@ -22,6 +22,7 @@ inductive Argument where
 
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | assertNot (condition : Operand scope)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
   | nestedCall (destination : Core.Module.Functions.Destination) (name : String) (arguments : List Argument)
@@ -54,6 +55,9 @@ def lowerInstructions {scope : Scope} (next : Nat) : List (Functions.Action scop
   | .scalar action :: rest => do
     let (instructions, blocks) ← lowerInstructions next rest
     return (.scalar action :: instructions, blocks)
+  | .assertNot condition :: rest => do
+    let (instructions, blocks) ← lowerInstructions next rest
+    return (.assertNot condition :: instructions, blocks)
   | .call target name _ operands :: rest => do
     let some arguments := operands.mapM callOperand? | throw .callOperand
     let (instructions, blocks) ← lowerInstructions next rest
@@ -150,6 +154,14 @@ inductive State (scope : Scope) where
   | calling (invocation : Invocation) (remaining : List (Instruction scope))
   | finished (session : Session) (completion : Completion)
 
+def assertOperand {scope : Scope} (session : Session) (operand : Operand scope)
+    (expectedTruth : Bool) (remaining : List (Instruction scope)) : State scope :=
+  match evaluate session operand with
+  | .ok value =>
+    if Core.Module.Functions.truth value = expectedTruth then .ready session remaining
+    else .finished session .assertionError
+  | .error error => .finished session error
+
 def advance {scope : Scope} (table : CodeTable) : State scope → List Event × State scope
   | .finished session completion => ([], .finished session completion)
   | .ready session [] => ([], .finished session .normal)
@@ -158,10 +170,8 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
     | .scalar (.assign name _ operand) => ([], match evaluate session operand with
       | .ok value => .ready (session.bindGlobal name value) rest
       | .error error => .finished session error)
-    | .scalar (.assertion operand) => ([], match evaluate session operand with
-      | .ok value =>
-        if Core.Module.Functions.truth value then .ready session rest else .finished session .assertionError
-      | .error error => .finished session error)
+    | .scalar (.assertion operand) => ([], assertOperand session operand true rest)
+    | .assertNot operand => ([], assertOperand session operand false rest)
     | .publish name function => ([], match session.publish table name function with
       | .ok updated => .ready updated rest
       | .error fault => .finished session (.codeFault fault))

@@ -57,6 +57,26 @@ kept = 4
 assert quiet()
 kept = 9
 """, "AssertionError", ".assertionError", None, 4),
+    ("negated_scalar", """assert not (7 == 8)
+assert not 0
+observed = 42
+assert not 1
+kept = 9
+""", "AssertionError", ".assertionError", 42, None),
+    ("negated_none", """def quiet():
+    pass
+observed = quiet()
+assert not observed
+kept = 4
+""", "normal", ".normal", None, 4),
+    ("negated_lookup_order", """observed = 5
+assert not (missing_left == missing_right)
+kept = 9
+""", "NameError", '.raised (.nameError "missing_left")', 5, None),
+    ("negated_division_error", """kept = 5
+assert not (1 // 0)
+observed = 3
+""", "ZeroDivisionError", ".raised (.arithmetic .zeroDivisionError)", None, 5),
     ("nested_assignment", """def identity(value):
     return value
 def select(first, second, third):
@@ -147,7 +167,7 @@ missing = None
 try:
     with open(sys.argv[1], encoding="utf-8") as source:
         exec(compile(source.read(), sys.argv[1], "exec", optimize=0), namespace)
-except (AssertionError, NameError, TypeError) as error:
+except (AssertionError, NameError, TypeError, ZeroDivisionError) as error:
     completion = type(error).__name__
     if isinstance(error, NameError):
         missing = error.name
@@ -181,7 +201,7 @@ if __name__ == "__main__":
             )
             name_error = re.fullmatch(r'\.raised \(\.nameError "([^"]+)"\)', lean)
             missing = name_error.group(1) if name_error else None
-            bound_none = name == "implicit_none_binding"
+            bound_none = name in {"implicit_none_binding", "negated_none"}
             assert json.loads(result.stdout) == [completion, missing, observed, kept, bound_none], (name, result.stdout)
             assert result.stderr == "", (name, result.stderr)
             test = f"\n#guard observe pythonSource == some ({lean}, {optional(observed)}, {optional(kept)}, {json.dumps(bound_none)})\n"
@@ -196,6 +216,9 @@ if __name__ == "__main__":
 #guard (match compile pythonSource with | .error .callOperand => true | _ => false)
 """, extra_imports=imports)
         for source, error in (
+            ("assert not f()", ".source (.scalar .expressionProfile)"),
+            ("assert not (left is right)", ".source (.scalar .expressionProfile)"),
+            ('assert not 0, "message"', ".source (.scalar .assertionMessage)"),
             ("outer(inner(child(1)))", ".source (.scalar .expressionProfile)"),
             ("outer(inner(value=1))", ".source (.scalar .expressionProfile)"),
             ("outer(inner(*values))", ".source (.scalar .expressionProfile)"),
