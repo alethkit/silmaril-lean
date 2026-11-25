@@ -88,7 +88,38 @@ private theorem directOfPrepared {H : Type} {s runtime : Store H} {m : Module}
   simp only [prepared, segments]
 
 /-- Ordinary direct preparation for the pinned reactor and its typed import fixture, including
-segment application and the two startup memory words. -/
+segment application, the two startup memory words, and the allocated globals. -/
+theorem reactorDirectPreparationWithGlobals :
+    ∃ before allocated runtime frame mem,
+      prepareDirect? evalConst? reactorTypedImports sqlite reactorImportAddrs =
+        some (runtime, frame, none) ∧
+      allocModule? before sqlite reactorImportAddrs [.i32 126112, .i32 0]
+        [.null] [reactorElementRefs] = some (allocated, frame.module) ∧
+      runtime.funcs = allocated.funcs ∧ frame.module.funcs[25]? = some 25 ∧
+      runtime.global? frame ⟨1⟩ =
+        some (before.globals.length + 1, ⟨⟨.const, .i32⟩, .i32 0⟩) ∧
+      runtime.mem? frame ⟨0⟩ = some (before.mems.length, mem) ∧
+      mem.bytes.size = 131072 ∧
+      Memory.load mem.bytes 59328 4 = some 0 ∧ Memory.load mem.bytes 59892 4 = some 0 ∧
+      runtime.globals = allocated.globals := by
+  obtain ⟨before, c, prepared, entry, frameShape, alloc⟩ := preparedAllocation
+  obtain ⟨runtime, mem, segments, functions, global, mapped, size, flag, word, sameGlobals⟩ :=
+    reactorAllocatedSegmentsWithGlobals alloc
+  have segs : initSegments? evalConst? c.store c.frame sqlite = some (runtime, c.frame) := by
+    rw [frameShape]
+    exact segments
+  have direct := directOfPrepared prepared segs
+  have g : runtime.global? c.frame ⟨1⟩ =
+      some (before.globals.length + 1, ⟨⟨.const, .i32⟩, .i32 0⟩) := by
+    rw [frameShape]
+    exact global
+  have m : runtime.mem? c.frame ⟨0⟩ = some (before.mems.length, mem) := by
+    rw [frameShape]
+    exact mapped
+  exact ⟨before, c.store, runtime, c.frame, mem, direct, alloc, functions,
+    entry, g, m, size, flag, word, sameGlobals⟩
+
+/-- Ordinary preparation with the existing memory and linkage witnesses. -/
 theorem reactorDirectPreparation :
     ∃ before allocated runtime frame mem,
       prepareDirect? evalConst? reactorTypedImports sqlite reactorImportAddrs =
@@ -101,22 +132,12 @@ theorem reactorDirectPreparation :
       runtime.mem? frame ⟨0⟩ = some (before.mems.length, mem) ∧
       mem.bytes.size = 131072 ∧
       Memory.load mem.bytes 59328 4 = some 0 ∧ Memory.load mem.bytes 59892 4 = some 0 := by
-  obtain ⟨before, c, prepared, entry, frameShape, alloc⟩ := preparedAllocation
-  obtain ⟨runtime, mem, segments, functions, global, mapped, size, flag, word⟩ :=
-    reactorAllocatedSegments alloc
-  have segs : initSegments? evalConst? c.store c.frame sqlite = some (runtime, c.frame) := by
-    rw [frameShape]
-    exact segments
-  have direct := directOfPrepared prepared segs
-  have g : runtime.global? c.frame ⟨1⟩ =
-      some (before.globals.length + 1, ⟨⟨.const, .i32⟩, .i32 0⟩) := by
-    rw [frameShape]
-    exact global
-  have m : runtime.mem? c.frame ⟨0⟩ = some (before.mems.length, mem) := by
-    rw [frameShape]
-    exact mapped
-  exact ⟨before, c.store, runtime, c.frame, mem, direct, alloc, functions, entry, g, m, size, flag, word⟩
+  obtain ⟨before, allocated, runtime, frame, mem, prepared, alloc, functions,
+    entry, global, mapped, size, flag, word, _⟩ := reactorDirectPreparationWithGlobals
+  exact ⟨before, allocated, runtime, frame, mem, prepared, alloc, functions,
+    entry, global, mapped, size, flag, word⟩
 
+#print axioms reactorDirectPreparationWithGlobals
 #print axioms reactorDirectPreparation
 
 end SqliteWasm
