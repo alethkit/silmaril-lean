@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Proofs.Languages.Starlark.Functions.Lowering.Atoms
+public import Silmaril.Proofs.Languages.Starlark.Functions.Lowering.Application
 public import Silmaril.Languages.Starlark.Functions.Builtins.Thms
 
 public section
@@ -89,10 +90,6 @@ private theorem starStarFrame (starStar : Option Value) : FrameAction (expandSta
 private theorem expand_frame (args : EvaluatedArguments) : FrameIndependent args.expand :=
   frameBind (starStarFrame _).1 fun keys =>
     frameBind (starFrame _).1 fun values => framePure (Actual.mk (args.positional ++ values) (args.keywords ++ keys))
-
-private theorem expands_eq {s : State} {args : EvaluatedArguments} {out : Outcome Actual}
-    (h : Expands args s out) : args.expand s = out := by
-  cases h <;> simp_all [EvaluatedArguments.expand, bind, EStateM.bind, pure, EStateM.pure]
 
 private theorem star_state (star : Option Value) (s : State) :
     finishState (expandStar star s) = s := by
