@@ -78,16 +78,48 @@ also checks a stuck write after a successful update and a diverging loop.
 [Institution and reduct](../../Silmaril/Courses/Cambridge/L1/EffectfulDenotational/Institution.lean) ·
 [Checked examples](../../Silmaril/Courses/Cambridge/DenotationalSemantics/L1EffectfulExamples.lean)
 
-### Next slices
+## L1 in LetIter
 
-LetIter can serve as a typed target for this command fragment once a lowering
-is proved. Its proof-relevant `denoteClosed` takes a typed derivation and an
-`InstructionModel`. Encode reads and writes as typed effectful instructions,
-then use the `.iter` typing rule for the loop. `categorical_denote_eq` connects
-its direct monadic denotation to the associated Kleisli denotation. A separate
-proof must relate those instructions and the lowering to the checked
-effectful L1 denotation.
+`L1.LetIter.lower` consumes an original `L1.HasType Γ e T` judgment and
+produces a LetIter term with its proof-relevant typing derivation. This covers
+all L1 typing rules. It interprets integers as integers, `skip` as unit, and
+Booleans as a sum of two units. Reads and writes are typed instructions over
+the same L1 computation monad. LetIter pairs evaluate arithmetic operands,
+`let₁` sequences commands, `case` selects a branch, and `iter` implements
+while. The loop has a unit argument because the monad threads the L1 store.
+[Lowering](../../Silmaril/Courses/Cambridge/L1/LetIter/Lowering.lean) ·
+[Instruction model](../../Silmaril/Courses/Cambridge/L1/LetIter/Model.lean)
+
+```mermaid
+flowchart LR
+  A["Well-typed L1 expression"] -->|lower| B["Typed LetIter term"]
+  B -->|denoteOfType| C["Existing LetIter Kleisli arrow"]
+  C -->|Evaluate at the empty environment and decode| D["Effectful L1 computation"]
+  A -->|L1 denotation| D
+  D -->|Finite return iff| E["L1 operational may return"]
+```
+
+`evalLower_agrees` proves agreement with the direct LetIter interpretation.
+The loop case uses Elgot naturality to decode a typed unit exit as L1's `skip`.
+`evaluate_agrees` uses the library's `categorical_denote_eq` to close the
+diagram in the existing Kleisli model of
+`ExceptT Unit (StateT L1.Store Part)`. The equality holds for arbitrary initial
+stores, including holes. `return_iff` gives agreement with the existing
+L1 finite may observation, including the complete final store. `error_iff`
+identifies finite errors with reachable stuck configurations and preserves
+their stores. `diverges_iff` identifies undefined computations with infinite
+L1 reductions. The checked countdown from `2` to `0` connects an explicit L1
+reduction path to the categorical result. The examples also check a missing
+store location and a loop with an infinite reduction. The translation
+requires L1 typing and uses this particular Kleisli model.
+[Commuting theorems](../../Silmaril/Courses/Cambridge/L1/LetIter/Thms.lean) ·
+[Examples](../../Silmaril/Courses/Cambridge/DenotationalSemantics/L1LetIterExamples.lean) ·
 [LetIter soundness API](../../Silmaril/SSA/Isotope/LetIter/Thms.lean)
+
+To check the course, including the regressions, run
+`lake build --wfail +Silmaril.Courses.Cambridge.DenotationalSemantics`.
+
+### Next slices
 
 L2 shares L1's store. Extend the deterministic state model with lexical
 closures and a call-by-value application interpretation. `L2.RuntimeValue`
@@ -104,6 +136,9 @@ with concrete allocated names. A state can have a returning branch and also
 an infinite or stuck branch. Must termination, infinite behaviour, and any
 quotient by location renaming need separate proofs. [Nondeterministic iteration](../../Silmaril/Semantics/ElgotMonads/Thms.lean) ·
 [L3 operational observation contract](../projects/operational-institutions.md#cambridge-l3)
+
+Specification-format institutions need a representation of configurations and
+sentences and a proof that interpretation preserves satisfaction.
 
 ## Part II course index
 
