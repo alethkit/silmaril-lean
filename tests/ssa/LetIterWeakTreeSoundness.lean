@@ -2,7 +2,7 @@ module
 
 import Silmaril.Semantics.ITree.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Case.Thms
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.DecisionTree.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.DecisionTree.Reorder.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -761,5 +761,94 @@ theorem nested_case_distinguishes_payloads :
     ((Response.DecisionTree.endpoint_reflection sig pureDecisionCtx strict p q hp hq ht hs).mp h)⟩
 
 end EffectfulDecisionTree
+
+section ReorderedDecisionTree
+
+open Response.DecisionTree (Shape Program)
+
+abbrev Γmix : EffectCtx T Fx :=
+  [(Ty.coprod inputSort inputSort, ⊥), (outputSort, ⊥), (Ty.coprod inputSort inputSort, ⊥)]
+abbrev Γhead := SumSplit.branchCtx Γmix 0 inputSort
+abbrev Γtail := SumSplit.branchCtx Γmix 2 inputSort
+
+abbrev headNext : Fin Γhead.length := ⟨2, by decide⟩
+abbrev tailNext : Fin Γtail.length := ⟨0, by decide⟩
+abbrev headArm : Shape Γhead := .split headNext rfl (finalShape false) (finalShape false)
+abbrev tailArm : Shape Γtail := .split tailNext rfl (finalShape false) (finalShape false)
+abbrev headFirst : Shape Γmix := .split 0 rfl headArm headArm
+abbrev tailFirst : Shape Γmix := .split 2 rfl tailArm tailArm
+
+abbrev twice (rev : Bool) : Response.Flatten.Program sig (decisionSlots false) true :=
+  if rev then
+    .let1 (probeLater false) (.request Prim.read (fun _ =>
+      Tree.var (S := sig) (sorts := Response.extendSorts true (decisionSlots false)) 1))
+  else
+    .let1 probeEarlier (.request Prim.read (fun _ =>
+      Tree.var (S := sig) (sorts := Response.extendSorts true (decisionSlots false)) 3))
+
+private theorem twice_typed (rev : Bool) : Response.Flatten.Program.WellTyped sig strict (twice rev) := by
+  cases rev <;> exact ⟨⟨le_rfl, fun _ => trivial⟩, ⟨le_rfl, fun _ => trivial⟩⟩
+
+abbrev headProgram (a : Bool) : Program sig true headArm :=
+  .split headNext (.leaf (twice a)) (.leaf (twice (!a)))
+abbrev tailProgram (b : Bool) : Program sig true tailArm :=
+  .split tailNext (.leaf (twice b)) (.leaf (twice (!b)))
+abbrev pqHead : Program sig true headFirst := .split 0 (headProgram false) (headProgram true)
+abbrev pqTail : Program sig true tailFirst := .split 2 (tailProgram false) (tailProgram true)
+
+private theorem mixPure : Γmix.Pure := by unfold EffectCtx.Pure; decide
+private theorem headTyped : Program.WellTyped sig strict pqHead :=
+  ⟨⟨twice_typed false, twice_typed true⟩, ⟨twice_typed true, twice_typed false⟩⟩
+private theorem tailTyped : Program.WellTyped sig strict pqTail :=
+  ⟨⟨twice_typed false, twice_typed true⟩, ⟨twice_typed true, twice_typed false⟩⟩
+
+private def requests : Expr Prim → Option (Nat × Nat)
+  | .let₁ (.op .read (.pair (.var i) .unit)) (.op .read (.pair (.var j) .unit)) =>
+      some (i, j - 1)
+  | _ => none
+
+-- Inspect the actual two requests after both splits, including removal of the
+-- first response binder from the second request's index.
+example : requests (twice false).source = some (0, 2) := rfl
+example : requests (twice true).source = some (2, 0) := rfl
+
+private theorem mixedEqv : Eqv Γmix outputSort strict pqHead.source pqTail.source := by
+  have wp := Response.DecisionTree.source_wf sig mixPure strict pqHead headTyped
+  have wq := Response.DecisionTree.source_wf sig mixPure strict pqTail tailTyped
+  have hΓ : Γhead.Pure := SumSplit.branchCtx_pure mixPure 0 inputSort
+  have wh (a : Bool) : Wf Γhead (headProgram a).source outputSort strict :=
+    Response.DecisionTree.source_wf sig hΓ strict (headProgram a)
+      ⟨twice_typed a, twice_typed (!a)⟩
+  have eL := SumSplit.caseArms_left (Γ := Γmix) (i := 0) rfl rfl (wh false) (wh true)
+  have eR := SumSplit.caseArms_right (Γ := Γmix) (i := 0) rfl rfl (wh false) (wh true)
+  have hLeaf (rev : Bool) :
+      Wf (SumSplit.branchCtx Γhead 2 inputSort) (twice rev).source outputSort strict :=
+    source_wf sig (SumSplit.branchCtx_pure hΓ headNext inputSort) (leafSlots_typed false)
+      strict (twice rev) (twice_typed rev)
+  have hL0 := SumSplit.caseArms_left (i := tailNext) rfl rfl (hLeaf false) (hLeaf true)
+  have hR0 := SumSplit.caseArms_right (i := tailNext) rfl rfl (hLeaf false) (hLeaf true)
+  have hL1 := SumSplit.caseArms_left (i := tailNext) rfl rfl (hLeaf true) (hLeaf false)
+  have hR1 := SumSplit.caseArms_right (i := tailNext) rfl rfl (hLeaf true) (hLeaf false)
+  refine (SumSplit.eqv_iff_specializations (i := 0) rfl rfl wp wq).mpr ⟨?_, ?_⟩
+  · refine eL.trans ?_
+    exact (SumSplit.caseArms_eqv_iff headNext rfl rfl (hLeaf false) (hLeaf true)
+      hL0.endpoints_wf.1 hL1.endpoints_wf.1).mpr ⟨hL0.symm, hL1.symm⟩
+  · refine eR.trans ?_
+    exact (SumSplit.caseArms_eqv_iff headNext rfl rfl (hLeaf true) (hLeaf false)
+      hR0.endpoints_wf.1 hR1.endpoints_wf.1).mpr ⟨hR0.symm, hR1.symm⟩
+
+/-- Opposite test orders agree at the strict bound. Both the native equality
+and its mixed-shape reflection are checked on these concrete programs. -/
+example : ∃ t s : Tm Empty Prim Γmix.length,
+    pqHead.source.toLetIter Γmix.length = some t ∧ pqTail.source.toLetIter Γmix.length = some s ∧
+    AbortEquiv (⊥ : Fx) Γ₀ Γmix.toBoundCtx t s outputSort ∧
+    Eqv Γmix outputSort strict pqHead.source pqTail.source := by
+  obtain ⟨t, ht, _⟩ := mixedEqv.endpoints_wf.1.toLetIter
+  obtain ⟨s, hs, _⟩ := mixedEqv.endpoints_wf.2.toLetIter
+  have hn := mixedEqv.toLetIter ht hs
+  exact ⟨t, s, ht, hs, hn, (Response.DecisionTree.Reorder.endpoint_reflection sig mixPure
+    strict pqHead pqTail headTyped tailTyped ht hs).mp hn⟩
+
+end ReorderedDecisionTree
 
 end LetIterResponseSingleCall
