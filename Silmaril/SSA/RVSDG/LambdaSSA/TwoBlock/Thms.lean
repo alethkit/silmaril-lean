@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.Model.Defs
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.TwoBlock.Region
+import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.TwoBlock.Iteration
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.TwoBlock.Graph
 
 /-! # Soundness of both translation fibres -/
@@ -23,6 +24,24 @@ variable {m : Type u → Type u} [Monad m] [LawfulMonad m] [Iterate m] [LawfulEl
   [InstructionModel Φ τ ε m]
 variable {A B : τ} {r : Region Φ} {g : Loop Φ A}
 
+omit [InstructionModel Φ τ ε m] in
+/-- Group a visit to a header and its optional body, with either block able
+to return into the same external result type. -/
+theorem group_labels {X Y E : Type u} (head : X → m (E ⊕ Y)) (body : Y → m (E ⊕ X))
+    (start : X) :
+    iter (labelStepWithExits head body) (.inl start) =
+      iter (fun x => head x >>= Sum.elim (pure ∘ Sum.inl) body) start :=
+  Proofs.collapseWithExits head body _ (fun _ => rfl) start
+
+/-- Coherence identifies a structural proof at the CFG boundary with the
+chosen denotation, for any external label context. -/
+theorem regionDenote_eq_of
+    (coherent : Isotope.LambdaSSA.Semantics.Agreement.RegionCoherent
+      (τ := τ) (Φ := Φ) (ε := ε) (m := m))
+    {L : List τ} {h : Region.HasType [A] r L} {f : Env [A] → m (LabelDen L)}
+    (denotation : RegionDenotes (m := m) ε h f) : Region.denote (ε := ε) (m := m) h = f :=
+  Proofs.chosen_eq coherent denotation
+
 /-- Any translation witness yields a structural CFG denotation using the
 ordered RVSDG result at the original typed exit boundary. -/
 theorem Related.preserves (rel : Related A B r g) :
@@ -37,7 +56,7 @@ theorem Related.chosenDenote_eq (rel : Related A B r g)
     (coherent : Isotope.LambdaSSA.Semantics.Agreement.RegionCoherent
       (τ := τ) (Φ := Φ) (ε := ε) (m := m)) :
     Region.denote (ε := ε) (m := m) rel.typing = denote (ε := ε) (m := m) g :=
-  Proofs.chosen_eq coherent rel.preserves
+  regionDenote_eq_of coherent rel.preserves
 
 /-- The CFG and numbered RVSDG loop compute the same iteration grouped at
 the header boundary. Equality is of computations, including state when present. -/
