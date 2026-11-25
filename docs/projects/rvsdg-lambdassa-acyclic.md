@@ -19,12 +19,12 @@ the join payload.
 
 The RVSDG compiler emits a numbered term with scoped γ children. A sequence
 wires the first result into the next computation. A classifier emits a sum
-and the matching `Fin 2` selector. Each γ arm starts with a pure unpack of the
-matching summand, then executes its own translated subtree. The sum is
+and the matching `Fin 2` selector. The first instruction in each γ arm reads
+the matching summand using an input routing annotation. The sum is
 necessary because the numbered γ syntax gives both arms the same input port
 signature. In the categorical interpretation of the admitted terms, a
 coproduct injection represents the matched tag and payload together, so
-copairing supplies the selected arm's typed input. Each effectful vertex
+copairing supplies the selected arm's typed input. Each primitive vertex
 represents exactly one source instruction.
 [Numbered γ compiler](../../Silmaril/SSA/RVSDG/LambdaSSA/Acyclic/Lowering/Defs.lean)
 

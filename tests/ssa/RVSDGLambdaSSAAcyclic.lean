@@ -71,8 +71,7 @@ private def shape : {args : Ports (Lowering.Ty Ty)} →
 
 -- Three top-level vertices. The first outer arm has the only nested γ.
 example : shape (lower nested).2 =
-    [.node [], .node [[.node [], .node [], .node [[.node [], .node []], [.node [], .node []]]],
-      [.node [], .node []]], .node []] := rfl
+    [.node [], .node [[.node [], .node [[.node []], [.node []]]], [.node []]], .node []] := rfl
 
 section Categorical
 

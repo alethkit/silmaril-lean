@@ -15,14 +15,18 @@ universe u
 variable {τ Φ : Type u} [TypeFormers τ] [HasTy Φ τ]
 variable {A B X Y : τ}
 
-/-- Classifiers emit the sum and its matching binary selector. The two
-unpack operations are guarded by γ and have no source instruction. -/
+/-- A γ arm reads its payload from the matching summand. The first instruction carries this input routing annotation. -/
+inductive Input {τ : Type u} [TypeFormers τ] : τ → τ → Type u where
+  | direct {A : τ} : Input A A
+  | left {X Y : τ} : Input (Silmaril.coprod X Y) X
+  | right {X Y : τ} : Input (Silmaril.coprod X Y) Y
+
+/-- Each primitive vertex executes one source instruction. A classifier also
+emits the tag for its sum result. -/
 inductive Opcode (Φ : Type u) [HasTy Φ τ] : Dialect.{u,u} τ PUnit where
-  | call {A B : τ} : TwoBlock.Instruction Φ A B → Opcode Φ (carried A) (carried B)
-  | classify {A X Y : τ} : TwoBlock.Instruction Φ A (Silmaril.coprod X Y) →
-      Opcode Φ (carried A) (results (Silmaril.coprod X Y))
-  | unpackLeft {X Y : τ} : Opcode Φ (carried (Silmaril.coprod X Y)) (carried X)
-  | unpackRight {X Y : τ} : Opcode Φ (carried (Silmaril.coprod X Y)) (carried Y)
+  | call {S A B : τ} : Input S A → TwoBlock.Instruction Φ A B → Opcode Φ (carried S) (carried B)
+  | classify {S A X Y : τ} : Input S A → TwoBlock.Instruction Φ A (Silmaril.coprod X Y) →
+      Opcode Φ (carried S) (results (Silmaril.coprod X Y))
 
 namespace Lowering
 
@@ -73,24 +77,25 @@ def emitChoice (left : Code Φ (carried (Silmaril.coprod X Y)) [] B)
 /-- Continuation-based wiring composes sequences in the same region. Each
 choice creates two fresh child regions, so child wires never refer to parents. -/
 def emit : {A B : τ} → Body Φ A B → {args : Ports (Ty τ)} →
-    {past : List (Ports (Ty τ))} → {Z : τ} →
-    Payload args past A → Tail Φ args B Z → Code Φ args past Z
-  | _, _, .instruction op, _, _, _, input, next =>
-    emitSimple (.call op) input (next _ (lastPort .head))
-  | _, _, .sequence first last, _, _, _, input, next =>
-    emit first input (fun _ output => emit last output next)
-  | _, _, .choice op l r, _, _, _, input, next =>
-    let left := emitSimple .unpackLeft (.arg .head) (emit l (lastPort .head) finish)
-    let right := emitSimple .unpackRight (.arg .head) (emit r (lastPort .head) finish)
-    emitSimple (.classify op) input
+    {past : List (Ports (Ty τ))} → {S Z : τ} →
+    Input S A → Payload args past S → Tail Φ args B Z → Code Φ args past Z
+  | _, _, .instruction op, _, _, _, _, route, input, next =>
+    emitSimple (.call route op) input (next _ (lastPort .head))
+  | _, _, .sequence first last, _, _, _, _, route, input, next =>
+    emit first route input (fun _ output => emit last .direct output next)
+  | _, _, .choice op l r, _, _, _, _, route, input, next =>
+    let left := emit l .left (.arg .head) finish
+    let right := emit r .right (.arg .head) finish
+    emitSimple (.classify route op) input
       (emitChoice left right (lastPort .head) (lastPort (.tail .head)) (next _ (lastPort .head)))
+
 
 end Lowering
 
 abbrev RVBody (Φ : Type u) [HasTy Φ τ] (A B : τ) := Lowering.Code Φ (carried A) [] B
 
 def lower (body : Body Φ A B) : RVBody Φ A B :=
-  Lowering.emit body (.arg .head) Lowering.finish
+  Lowering.emit body .direct (.arg .head) Lowering.finish
 
 /-- Admission identifies the actual nested γ term and its numbered wiring. -/
 inductive Form (A B : τ) : RVBody Φ A B → Type u where
