@@ -26,6 +26,8 @@ inductive TopCode where
   | addIndexExpr (receiver subscript rhs : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
   | define (name : String) (id : DeclarationId)
+  | defineWithDefaults (name : String) (id : DeclarationId)
+      (defaults : List (Binding × Comprehensions.Expression))
   | call (target : Option Binding) (callee : Lists.Expr) (arguments : Arguments)
 
 def TopCode.body : TopCode → Body
@@ -39,6 +41,8 @@ def TopCode.body : TopCode → Body
   | .addIndexExpr receiver subscript rhs => .addIndexExpr receiver subscript rhs
   | .evalExpr value => .evalExpr value
   | .define name id => .define (globalSlot name) id
+  | .defineWithDefaults name id defaults =>
+    Comprehensions.definitionWithDefaults Comprehensions.directStages (globalSlot name) id defaults
   | .call target callee arguments => .call target callee arguments
 
 structure Import where

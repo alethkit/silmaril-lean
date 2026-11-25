@@ -6,7 +6,7 @@ public import Silmaril.Languages.Starlark.Functions.Comprehensions.Defs
 
 namespace Silmaril.Languages.Starlark.Functions.Comprehensions
 
-/-- Comprehensions in the checked return and name-assignment profile.
+/-- Comprehensions in checked returns, name assignments and parameter defaults.
 The existing expression grammar supplies ordinary leaves. -/
 inductive Expression where
   | plain (value : Lowering.Expr)
@@ -211,5 +211,18 @@ def Expression.lower (expr : Expression) (target : Binding) (start : Nat := 0) :
 call restores its caller frame, including any private return binding. -/
 def Expression.returnCode (expr : Expression) (stages : ExpressionStages) : Body :=
   .seq (expr.compile stages expressionSlot) (returnSaved expressionSlot)
+
+/-- The declaration's optional parameter reads its staged value from this binding. -/
+def defaultSlot (parameter : Binding) : Binding :=
+  ⟨.global, "$comp-default:" ++ parameter.name⟩
+
+/-- Stage defaults in declaration order in the defining frame. The declaration
+reads the saved values via `defaultSlot` when installing the closure. The outer
+scope drops the staging bindings on either exit and commits only the closure. -/
+def definitionWithDefaults (stages : ExpressionStages) (target : Binding) (id : DeclarationId)
+    (defaults : List (Binding × Expression)) : Body :=
+  .assignScoped target [] (defaults.foldr
+    (fun (parameter, expr) rest => .seq (expr.compile stages (defaultSlot parameter)) rest)
+    (.seq (.define expressionSlot id) (returnSaved expressionSlot)))
 
 end Silmaril.Languages.Starlark.Functions.Comprehensions

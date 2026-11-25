@@ -263,6 +263,33 @@ theorem return_exact (program : Program) (available : List DeclarationId)
   (seq_agrees (expression_exact program available expr admitted expressionSlot start)
     (rest := returnSaved expressionSlot) (rest' := returnSaved expressionSlot) (fun _ _ => rfl) state free).symm
 
+theorem definition_defaults_exact (program : Program) (available : List DeclarationId)
+    (target : Binding) (id : DeclarationId) (defaults : List (Binding × Expression))
+    (admitted : ∀ item ∈ defaults, item.2.Admitted) (start : Nat) :
+    Exact program available (definitionWithDefaults directStages target id defaults)
+      (definitionWithDefaults (loweredStages start) target id defaults) := by
+  unfold definitionWithDefaults
+  apply scope_exact target
+  induction defaults with
+  | nil => exact fun _ _ => rfl
+  | cons item rest ih =>
+    exact seq_agrees
+      (expression_exact program available item.2 (admitted item (by simp)) (defaultSlot item.1) start)
+      (ih (fun default member => admitted default (List.mem_cons_of_mem _ member)))
+
+theorem definition_default_failure (program : Program) (available : List DeclarationId)
+    (stages : ExpressionStages) (target parameter : Binding) (id : DeclarationId) (expr : Expression)
+    (rest : List (Binding × Expression)) (state failed : State) (error : Error)
+    (ran : denoteBody program available (expr.compile stages (defaultSlot parameter)) state =
+      .error error failed) :
+    denoteBody program available (definitionWithDefaults stages target id ((parameter, expr) :: rest)) state =
+      .error error (restoreCaller state failed) := by
+  rw [definitionWithDefaults, denoteBody]
+  change completeCall state (some target)
+    (denoteBody program available (.seq _ _) state) = _
+  rw [sequenceDenotation, ran]
+  rfl
+
 theorem logical_skips (program : Program) (available : List DeclarationId) (stages : ExpressionStages)
     (op : LogicalOp) (left right : Expression) (target : Binding) (state next : State)
     (value : Value) (flag : Bool)

@@ -11,17 +11,6 @@ open Functions
 open Functions.Lowering.Resolve (Context resolveTracked)
 open Lists.Iteration (LoopTarget)
 
-structure SourceParameter where
-  name : String
-  defaultExpr : Option Lowering.Resolve.SourceExpr := none
-
-/-- The parser or AST producer has separated the parameter classes. -/
-structure SourceSignature where
-  positional : List SourceParameter := []
-  keywordOnly : List SourceParameter := []
-  varargs : Option String := none
-  kwargs : Option String := none
-
 /-- Additional clauses with an element expression or a key/value pair. -/
 inductive CompTail (Yield : Type) (Operand : Type := Lowering.Resolve.SourceExpr) where
   | yield (value : Yield)
@@ -96,6 +85,19 @@ inductive CompExpr where
       (keywords : List (String × CompExpr)) (star starStar : Option CompExpr)
   | branch (test yes no : CompExpr)
   | logical (op : LogicalOp) (left right : CompExpr)
+
+instance : Coe Lowering.Resolve.SourceExpr CompExpr := ⟨.plain⟩
+
+structure SourceParameter where
+  name : String
+  defaultExpr : Option CompExpr := none
+
+/-- The AST producer has separated the parameter classes. -/
+structure SourceSignature where
+  positional : List SourceParameter := []
+  keywordOnly : List SourceParameter := []
+  varargs : Option String := none
+  kwargs : Option String := none
 
 /-- Admitted function statements. -/
 inductive Statement where
@@ -381,14 +383,28 @@ private def resolveAddIndex {α : Type} (context : Context)
   let (rhs, rhsReads) ← readExpr context rhs
   return (emit receiver subscript rhs, reads ++ rhsReads)
 
-private def readParameter (context : Context) (parameter : SourceParameter) :
-    Build (Functions.Parameter × List Binding) := do
+private structure ResolvedParameter where
+  slot : Binding
+  value : Option Comprehensions.Expression
+  reads : List Binding
+
+private def readParameter (context : Context) (parameter : SourceParameter) : Build ResolvedParameter := do
   let slot := fileSlot parameter.name
   match parameter.defaultExpr with
-  | none => return (⟨slot, none⟩, [])
+  | none => return ⟨slot, none, []⟩
   | some expression =>
-    let (value, reads) ← readExpr context expression
-    return (⟨slot, some value⟩, reads)
+    let (value, reads) ← compileCompExpr context expression
+    return ⟨slot, some value, reads⟩
+
+private def ResolvedParameter.plain (parameter : ResolvedParameter) : Option Functions.Parameter :=
+  match parameter.value with
+  | none => some ⟨parameter.slot, none⟩
+  | some (.plain expression) => some ⟨parameter.slot, some expression⟩
+  | some _ => none
+
+private def ResolvedParameter.staged (parameter : ResolvedParameter) : Functions.Parameter :=
+  ⟨parameter.slot, parameter.value.map fun _ =>
+    .atom (Comprehensions.readSaved (Comprehensions.defaultSlot parameter.slot))⟩
 
 private structure ResolvedBody where
   code : Body
@@ -399,10 +415,19 @@ private def captureNames (owned : List String) (reads : List Binding) : List Fre
     fun binding => ⟨binding, binding⟩
 
 private def compileDefinition (parent : Context) (parameters : SourceSignature) (locals : List String)
-    (compile : Context → Build ResolvedBody) : Build (DeclarationId × List Binding) := do
+    (compile : Context → Build ResolvedBody) :
+    Build (DeclarationId × Option (List (Binding × Comprehensions.Expression)) × List Binding) := do
   let positional ← parameters.positional.mapM (readParameter parent)
   let keywords ← parameters.keywordOnly.mapM (readParameter parent)
-  let signature : Functions.Signature := ⟨positional.map Prod.fst, keywords.map Prod.fst,
+  let named := positional ++ keywords
+  let (positionalSlots, keywordSlots, stagedDefaults) :=
+    match positional.mapM ResolvedParameter.plain, keywords.mapM ResolvedParameter.plain with
+    | some ps, some ks => (ps, ks, none)
+    | _, _ =>
+      (positional.map ResolvedParameter.staged, keywords.map ResolvedParameter.staged,
+        some (named.filterMap fun parameter => parameter.value.map (parameter.slot, ·)))
+  let signature : Functions.Signature :=
+    ⟨positionalSlots, keywordSlots,
     parameters.varargs.map fileSlot, parameters.kwargs.map fileSlot⟩
   let parameterNames := signature.slots.map Binding.name
   let locals := locals.eraseDups.filter (!parameterNames.contains ·)
@@ -412,7 +437,7 @@ private def compileDefinition (parent : Context) (parameters : SourceSignature) 
   let program ← get
   set (program.push ⟨signature, locals.map fileSlot, captures, body.code⟩)
   -- A child needs its captures when it is defined. Its defaults also read the parent.
-  return (program.size, (positional ++ keywords).flatMap Prod.snd ++ captures.map FreeName.source)
+  return (program.size, stagedDefaults, named.flatMap ResolvedParameter.reads ++ captures.map FreeName.source)
 
 private def compileBody (context : Context) : Statement → Build ResolvedBody
   | .pass => pure ⟨.total (.atomic .pass), []⟩
@@ -470,9 +495,12 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
   | .continueLoop => pure ⟨.continueLoop, []⟩
   | .define name signature body => do
     let locals ← monadLift body.localNames
-    let (id, reads) ←
+    let (id, defaults, reads) ←
       compileDefinition context signature locals (fun inner => compileBody inner body)
-    return ⟨.define (fileSlot name) id, reads⟩
+    let target := fileSlot name
+    let code := defaults.elim (.define target id)
+      (Comprehensions.definitionWithDefaults Comprehensions.directStages target id)
+    return ⟨code, reads⟩
 termination_by structural statement => statement
 
 private def compileCommand (context : Context) : Command → Build Modules.Command
@@ -503,9 +531,9 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     return .exec (.evalExpr value)
   | .define name signature body => do
     let locals ← monadLift body.localNames
-    let (id, _) ←
+    let (id, defaults, _) ←
       compileDefinition context signature locals (fun inner => compileBody inner body)
-    return .exec (.define name id)
+    return .exec (defaults.elim (.define name id) (.defineWithDefaults name id))
   | .load label imports =>
     if imports.isEmpty then throw (.emptyLoad label) else pure (.load label imports)
 
