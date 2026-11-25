@@ -20,7 +20,7 @@ structure Interface (Φ : Type v) (Γ : VCtx τ) where
 @[expose] def familySetoid (Γ : VCtx τ) (L K : LCtx τ) :
     Setoid (ContinuationFamily (Φ := Φ) Γ L K) where
   r σ υ := ∀ ⦃i A⦄, At L i A → Eqv (A :: Γ) (σ.val i) (υ.val i) K
-  iseqv := ⟨fun σ _ _ hi => .cfgEta (.native (.base (.refl (σ.property hi).hasType))),
+  iseqv := ⟨fun σ _ _ hi => Eqv.refl (σ.property hi).hasType,
     fun h _ _ hi => (h hi).symm, fun h h' _ _ hi => (h hi).trans (h' hi)⟩
 
 /-- Pointwise paper classes of exactly typed continuation families with

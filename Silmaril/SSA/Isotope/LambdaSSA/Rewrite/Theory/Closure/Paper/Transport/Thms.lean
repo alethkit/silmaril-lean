@@ -14,13 +14,6 @@ namespace Silmaril.Isotope.LambdaSSA.Region.Paper
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
-/-- A typed variable renaming preserves the paper relation, including the
-recursive simulation premise. -/
-theorem Eqv.renameVars {Γ Δ : VCtx τ} {L : LCtx τ} {r s : Region Φ}
-    (h : Eqv Γ r s L) {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ) :
-    Eqv Δ (r.renameVars ρ) (s.renameVars ρ) L :=
-  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.Transport.eqv_renameVars h hρ
-
 /-- Compose pointwise equivalent continuation families. Changing the first
 family requires constructor-valued branches on both of its representatives. -/
 theorem compLSubst_congr {Γ : VCtx τ} {L K P : LCtx τ} {σ σ' υ υ' : Nat → Region Φ}
