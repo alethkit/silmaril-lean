@@ -19,6 +19,10 @@ theorem eval_conditionalResult {scope : Source.Scope} (globals : Core.Module.Glo
   | boolean value => cases value <;> rfl
   | _ => rfl
 
+theorem eval_booleanResult {scope : Source.Scope} (globals : Core.Module.Globals) (value : Bool) :
+    (expression (Operand.booleanResult (scope := scope) value)).eval globals = .ok (.bool value) :=
+  eval_conditionalResult globals (.boolean value)
+
 theorem Compiled.starts_with {source : Source.Module} (compiled : Compiled source) :
     compiled.entry.start = .running compiled.initial (compiled.checked.actions.map statement) := rfl
 

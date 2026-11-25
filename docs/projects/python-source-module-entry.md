@@ -39,6 +39,13 @@ result of equality with `True`. The resulting value retains its Boolean
 type in ordinary and seeded execution. Other operands keep their existing
 value and failure semantics. The unselected operand performs no lookup.
 
+The scalar checker folds single tuple equality and membership comparisons
+over flat tuples of exact Boolean or signed integer literals. Equality uses
+the tuple lengths and corresponding scalar values. Membership tests tuple
+elements in order using the same scalar equality, including Boolean and
+integer equality at zero and one. The checked operand emits a Boolean
+through scalar equality and performs no runtime lookup or allocation.
+
 The regression emits Lean from Python source and verifies the global
 access witnesses, action order and the diagnostic for an assertion
 message.
