@@ -65,4 +65,12 @@ inductive Expression.Admitted : Expression → Prop where
   | logical {op : LogicalOp} {left right : Expression} :
       left.Admitted → right.Admitted → Expression.Admitted (.logical op left right)
 
+/-- The checked lowering assumptions for store operands apply at every leaf. -/
+inductive AssignmentPattern.Admitted : AssignmentPattern → Prop where
+  | name (binding : Binding) : AssignmentPattern.Admitted (.name binding)
+  | subscript {receiver index : Lowering.Expr} :
+      Lowering.Admitted receiver → Lowering.Admitted index → AssignmentPattern.Admitted (.subscript receiver index)
+  | sequence {children : List AssignmentPattern} :
+      (∀ child ∈ children, AssignmentPattern.Admitted child) → AssignmentPattern.Admitted (.sequence children)
+
 end Silmaril.Languages.Starlark.Functions.Comprehensions

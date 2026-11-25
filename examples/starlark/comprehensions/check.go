@@ -594,6 +594,58 @@ out = f(4)
 	fmt.Println("PASS pattern mismatch keeps earlier writes, failed RHS writes no leaf, and guards unwind")
 }
 
+func checkMixedTargets() {
+	const mark = `events = []
+def mark(tag, value):
+    events.append(tag)
+    return value
+`
+	g, err := run(mark + `alias = [7]
+table = {"old": 8}
+def f(x):
+    (x, [mark(2, x)[mark(3, 0)], table[mark(4, "new")]]) = [x for x in mark(1, [alias, [9, 10]])]
+    return x[0]
+result = f(None)
+row = [10, 20]
+([mark(6, row)[mark(7, 1)], saved], out) = [x for x in mark(5, [row, 12])]
+`)
+	require(err == nil && g["events"].String() == "[1, 2, 3, 4, 5, 6, 7]" &&
+		g["result"].String() == "9" && g["alias"].String() == "[9]" &&
+		g["table"].String() == `{"old": 8, "new": 10}` && g["row"].String() == "[10, 10]" &&
+		g["saved"].String() == "20" && g["out"].String() == "12", fmt.Sprint(g, err))
+	fmt.Println("PASS mixed targets see earlier name writes and snapshot each node before visiting its leaves")
+
+	const setup = `xs = [7]
+alias = xs
+rows = [[0]]
+`
+	const target = `(a, mark(2, alias)[mark(3, 0)], [b, mark(4, alias)[mark(5, 8)]], mark(6, alias)[mark(7, 0)])`
+	const badReceiver = `(a, mark(2, alias)[mark(3, 0)], [b, mark(4, [])[0][mark(5, 8)]], mark(6, alias)[mark(7, 0)])`
+	const good = `[x for x in mark(1, [5, 9, [10, 11], 12])]`
+	for _, tc := range []struct {
+		target, rhs, message, trace, first, second, alias string
+	}{
+		{target, `[[][0] for row in mark(1, rows) for x in row]`, "out of range", "[1]", "", "", "[7]"},
+		{target, `[x for x in mark(1, [5, 9, [10], 12])]`, "too few values to unpack", "[1, 2, 3]", "5", "", "[9]"},
+		{target, good, "out of range", "[1, 2, 3, 4, 5]", "5", "10", "[9]"},
+		{badReceiver, good, "out of range", "[1, 2, 3, 4]", "5", "10", "[9]"},
+	} {
+		g, err = run(mark + setup + tc.target + " = " + tc.rhs + "\nmark(99, 0)")
+		checkError(err, tc.message)
+		require(g["events"].String() == tc.trace && g["xs"] == g["alias"] && g["alias"].String() == tc.alias,
+			fmt.Sprint(g, err))
+		for name, want := range map[string]string{"a": tc.first, "b": tc.second} {
+			value := g[name]
+			require((value == nil && want == "") || (value != nil && value.String() == want), fmt.Sprint(g, err))
+		}
+		outer := g["rows"].(*starlark.List)
+		inner := outer.Index(0).(*starlark.List)
+		require(outer.Append(starlark.None) == nil && inner.Append(starlark.None) == nil,
+			"failed RHS or target left a comprehension guard active")
+	}
+	fmt.Println("PASS failed RHS skips all leaves, and later unpack, receiver and store errors keep earlier writes")
+}
+
 func main() {
 	checkLists()
 	checkDictionaries()
@@ -605,4 +657,5 @@ func main() {
 	checkHeads()
 	checkDefaults()
 	checkPatternAssignment()
+	checkMixedTargets()
 }

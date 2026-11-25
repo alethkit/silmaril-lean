@@ -170,21 +170,36 @@ private def resolveTarget (slot : String → Binding) (unsupported : Error) :
     return (.sequence (children.map Prod.fst), children.flatMap Prod.snd)
   | _ => throw unsupported
 
+private def parseAssignmentPattern (slot : String → Binding) :
+    Lowering.Resolve.SourceExpr →
+      Except Error (Comprehensions.AssignmentPattern Lowering.Resolve.SourceExpr × List String)
+  | .scalar (.read name) => pure (.name (slot name), [name])
+  | .index receiver index => pure (.subscript receiver index, [])
+  | .list elements | .tuple elements => do
+    let children ← elements.attach.mapM fun ⟨expr, member⟩ => do
+      have := List.sizeOf_lt_of_mem member
+      parseAssignmentPattern slot expr
+    return (.sequence (children.map Prod.fst), children.flatMap Prod.snd)
+  | _ => throw .unsupportedAssignmentTarget
+
 /-- Collect the module's lexical scope, including every valid pattern leaf.
 Command elaboration rejects invalid targets. -/
 def globalNames (commands : List Command) : List String :=
   commands.flatMap fun
     | .assign name _ | .assignListComp name _ | .assignDictComp name _
     | .assignCompExpr name _ | .define name .. => [name]
-    | .assignTarget target _ | .assignTargetCompExpr target _ =>
+    | .assignTarget target _ =>
       ((resolveTarget globalSlot .unsupportedAssignmentTarget target).toOption.map Prod.snd).getD []
+    | .assignTargetCompExpr target _ =>
+      ((parseAssignmentPattern globalSlot target).toOption.map Prod.snd).getD []
     | .setIndex .. | .setIndexCompExpr .. | .addIndex .. | .addIndexCompExpr .. | .eval _ | .load .. => []
 
 private def Statement.localNames : Statement → Except Error (List String)
   | .assign name _ | .assignListComp name _ | .assignDictComp name _
   | .assignCompExpr name _ | .addNameCompExpr name _ | .define name .. => pure [name]
-  | .assignTarget target _ | .assignTargetCompExpr target _ =>
+  | .assignTarget target _ =>
     return (← resolveTarget fileSlot .unsupportedAssignmentTarget target).2
+  | .assignTargetCompExpr target _ => return (← parseAssignmentPattern fileSlot target).2
   | .seq first rest | .branch _ first rest => return (← first.localNames) ++ (← rest.localNames)
   | .forIn target _ body => return target :: (← body.localNames)
   | .forInTarget target _ body =>
@@ -378,6 +393,34 @@ private def resolveSubscript (context : Context) (receiver subscript : Lowering.
   let (subscript, subscriptReads) ← readExpr context subscript
   return (receiver, subscript, receiverReads ++ subscriptReads)
 
+private def resolveAssignmentOperands (context : Context) :
+    Comprehensions.AssignmentPattern Lowering.Resolve.SourceExpr →
+      Build (Comprehensions.AssignmentPattern × List Binding)
+  | .name binding => pure (.name binding, [])
+  | .subscript receiver index => do
+    let (receiver, index, reads) ← resolveSubscript context receiver index
+    return (.subscript receiver index, reads)
+  | .sequence children => do
+    let children ← children.attach.mapM fun ⟨child, member⟩ => do
+      have := List.sizeOf_lt_of_mem member
+      resolveAssignmentOperands context child
+    return (.sequence (children.map Prod.fst), children.flatMap Prod.snd)
+
+private def compileCompAssignment {α : Type} (context : Context) (slot : String → Binding)
+    (target : Lowering.Resolve.SourceExpr) (rhs : CompExpr)
+    (names : LoopTarget → Comprehensions.Expression → α)
+    (stores : Comprehensions.AssignmentPattern → Comprehensions.Expression → α) :
+    Build (α × List Binding) := do
+  match resolveTarget slot .unsupportedAssignmentTarget target with
+  | .ok (target, _) =>
+    let (rhs, reads) ← compileCompExpr context rhs
+    return (names target rhs, reads)
+  | .error _ =>
+    let (pattern, _) ← monadLift (parseAssignmentPattern slot target)
+    let (rhs, rhsReads) ← compileCompExpr context rhs
+    let (pattern, targetReads) ← resolveAssignmentOperands context pattern
+    return (stores pattern rhs, rhsReads ++ targetReads)
+
 private def resolveSetIndex {α : Type} (context : Context)
     (receiver subscript rhs : Lowering.Resolve.SourceExpr)
     (emit : Lowering.Expr → Lowering.Expr → Lowering.Expr → α) : Build (α × List Binding) := do
@@ -476,9 +519,10 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let (rhs, reads) ← readExpr context rhs
     return ⟨.assignTargetExpr target rhs, reads⟩
   | .assignTargetCompExpr target rhs => do
-    let (target, _) ← monadLift (resolveTarget fileSlot .unsupportedAssignmentTarget target)
-    let (rhs, reads) ← compileCompExpr context rhs
-    return ⟨rhs.assignTargetCode target Comprehensions.directStages, reads⟩
+    let (code, reads) ← compileCompAssignment context fileSlot target rhs
+      (fun target rhs => rhs.assignTargetCode target Comprehensions.directStages)
+      (fun target rhs => Comprehensions.assignPatternCode target rhs Comprehensions.directStages)
+    return ⟨code, reads⟩
   | .assignListComp name comp => do
     let (comp, reads) ← compileComp context comp.target comp.iterable comp.rest readExpr Comprehensions.ListComp.mk
     return ⟨comp.body (fileSlot name), reads⟩
@@ -554,9 +598,9 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     let (rhs, _) ← readExpr context rhs
     return .exec (.assignTargetExpr target rhs)
   | .assignTargetCompExpr target rhs => do
-    let (target, _) ← monadLift (resolveTarget globalSlot .unsupportedAssignmentTarget target)
-    let (rhs, _) ← compileCompExpr context rhs
-    return .exec (.assignTargetCompExpr target rhs)
+    let (code, _) ← compileCompAssignment context globalSlot target rhs
+      TopCode.assignTargetCompExpr TopCode.assignPatternCompExpr
+    return .exec code
   | .assignListComp name comp => do
     let (comp, _) ← compileComp context comp.target comp.iterable comp.rest readExpr Comprehensions.ListComp.mk
     return .exec (.assignListComp name comp)

@@ -218,6 +218,16 @@ def Expression.assignTargetCode (expr : Expression) (target : Lists.Iteration.Lo
     (stages : ExpressionStages) : Body :=
   .assignTargetScoped target (expr.returnCode stages)
 
+/-- A standalone assignment target. The loop and comprehension binders
+continue to use lexical name patterns. -/
+inductive AssignmentPattern (Operand : Type := Lowering.Expr) where
+  | name (binding : Binding)
+  | subscript (receiver index : Operand)
+  | sequence (children : List (AssignmentPattern Operand))
+
+def patternSlot (depth index : Nat) : Binding :=
+  ⟨.global, "$assignment:" ++ toString depth ++ ":" ++ toString index⟩
+
 /-- Stage the RHS, receiver and subscript in source execution order.
 The ordinary store reads only the saved values in the resulting heap. -/
 def setIndexCode (receiver subscript rhs : Expression) (stages : ExpressionStages) : Body :=
@@ -226,6 +236,36 @@ def setIndexCode (receiver subscript rhs : Expression) (stages : ExpressionStage
     (.seq (receiver.compile stages (argumentSlot 1))
       (.seq (subscript.compile stages (argumentSlot 2))
         (.setIndexExpr (saved 1) (saved 2) (saved 0)))))
+
+mutual
+/-- Unpack each node to saved child values before visiting any child.
+Each store evaluates its own receiver and index when reached. -/
+def AssignmentPattern.code (stages : ExpressionStages) (saved : Binding) (depth : Nat) :
+    AssignmentPattern → Body
+  | .name binding => .assignExpr binding (.atom (readSaved saved))
+  | .subscript receiver index => setIndexCode (.plain receiver) (.plain index) (.plain (.atom (readSaved saved))) stages
+  | .sequence children =>
+    let slots := (List.range children.length).map (patternSlot depth)
+    .withTemporaryBindings slots (.seq
+      (.assignTargetExpr (.unpack slots) (.atom (readSaved saved)))
+      (AssignmentPattern.childCode stages depth 0 children))
+termination_by pattern => sizeOf pattern
+decreasing_by simp_wf <;> omega
+
+def AssignmentPattern.childCode (stages : ExpressionStages) (depth index : Nat) :
+    List AssignmentPattern → Body
+  | [] => .total (.atomic .pass)
+  | first :: rest => .seq (first.code stages (patternSlot depth index) (depth + 1))
+    (childCode stages depth (index + 1) rest)
+termination_by children => sizeOf children
+decreasing_by all_goals (simp_wf; omega)
+end
+
+/-- Evaluate the comprehension-bearing RHS once, then visit the full
+pattern. Temporary bindings are removed without rolling back leaf writes. -/
+def assignPatternCode (pattern : AssignmentPattern) (rhs : Expression) (stages : ExpressionStages) : Body :=
+  let saved := patternSlot 0 0
+  .withTemporaryBindings [saved] (.seq (rhs.compile stages saved) (pattern.code stages saved 1))
 
 /-- The saved receiver and raw index determine the old-value read before the RHS. -/
 def readIndexForAdd : Body :=
