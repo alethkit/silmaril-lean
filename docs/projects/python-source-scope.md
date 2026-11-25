@@ -17,6 +17,11 @@ they forward. The module and explicit global declarations are enclosing
 lookup barriers. An unbound `nonlocal`, a declaration following a use or
 binding, and a parameter/declaration collision produce distinct diagnostics.
 
+Each block also exposes name occurrences in traversal order, including
+repeated uses. An occurrence is addressed by the block path and its ordinal.
+Each entry carries its usage, resolved access and a proof that looking up
+the same name in that block returns that access.
+
 Class bases are read in the enclosing block. Class bodies distinguish
 namespace lookup from free access to an enclosing cell. Method lookup skips
 the ordinary class namespace, including its global declarations, while

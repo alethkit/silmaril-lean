@@ -25,4 +25,8 @@ theorem enclosingBinding_classCell (parent : BlockContext) (outer : List BlockCo
     enclosingBinding "__class__" (parent :: outer) = some parent.path := by
   simp [enclosingBinding, BlockContext.lookupBarrier, BlockContext.binds, kind]
 
+theorem Scope.occurrence_access (scope : Scope) (entry : ResolvedOccurrence scope.accesses) :
+    scope.access entry.occurrence.name = some entry.access :=
+  entry.lookup_eq
+
 end Silmaril.Languages.Python.Source
