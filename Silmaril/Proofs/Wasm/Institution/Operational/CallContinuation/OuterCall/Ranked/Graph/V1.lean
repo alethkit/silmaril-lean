@@ -498,7 +498,7 @@ theorem reflect_lime_step {H : Type} {s : Store H} {program : Program} (checked 
     ∃ mid, Step CallFrame.v1NoHost (v1Config s caller target a) mid ∧ mid.toLime = dst := by
   rw [config_to_lime s caller target a supported] at step
   obtain ⟨out, move, rfl⟩ := (Lime1.step_iff (Bool.and_eq_true_iff.mp checked).1
-    (allocations_to_lime checked allocated) target.address rfl root ready).mp step
+    (allocations_to_lime checked allocated) root ready).mp step
   exact ⟨_, sound checked allocated target.address rfl root ready supported move, config_to_lime s caller target out (edge_v1 checked target.address root.found move supported)⟩
 
 theorem step_iff {H : Type} {s : Store H} {program : Program} (checked : program.checkV1 = true)
@@ -511,7 +511,7 @@ theorem step_iff {H : Type} {s : Store H} {program : Program} (checked : program
     have mapped := step.toLime (target := CallFrame.limeNoHost) (fun _ _ _ _ h => h)
     rw [config_to_lime s caller target a supported] at mapped
     obtain ⟨out, move, eq⟩ := (Lime1.step_iff (Bool.and_eq_true_iff.mp checked).1
-      (allocations_to_lime checked allocated) target.address rfl root ready).mp mapped
+      (allocations_to_lime checked allocated) root ready).mp mapped
     exact ⟨out, move, CallContinuation.config_toLime_injective H (eq.trans (config_to_lime s caller target out (edge_v1 checked target.address root.found move supported)).symm)⟩
   · rintro ⟨out, move, rfl⟩
     exact sound checked allocated target.address rfl root ready supported move

@@ -210,6 +210,17 @@ def Program.table (program : Program) : Table :=
 def Program.check (program : Program) : Bool :=
   program.table.check && program.functions.all (fun slot => (slot.map Function.check).getD true)
 
+def Program.checkLinkedFunction (program : Program) (fn : Function) : Bool :=
+  fn.check && fn.targets.all fun target =>
+    match program.lookup target.address with
+    | none => false
+    | some callee => decide (callee.declaration = target.declaration ∧
+        fn.declaration.module.funcs[target.index.toNat]? = some target.address)
+
+/-- Check numeric bodies and exact direct links without a static rank restriction. -/
+def Program.checkDirect (program : Program) : Bool :=
+  program.functions.all fun slot => (slot.map program.checkLinkedFunction).getD true
+
 /-- V1 requires unindexed source throughout and at most one function result. -/
 def Program.checkV1 (program : Program) : Bool :=
   program.check && program.functions.all (fun slot =>
@@ -538,5 +549,23 @@ noncomputable def Program.Edge (program : Program) (checked : program.check = tr
 
 abbrev Program.Runs (program : Program) (checked : program.check = true) (address : FuncAddr) :=
   Relation.ReflTransGen (program.Edge checked address)
+
+/-- Interpret one step by descending through the currently suspended calls.
+Only an already present child phase can be stepped recursively. A step may
+create a new frame, so this measure places no bound on a run. -/
+noncomputable def Program.FrameEdgeAt (program : Program) (address : FuncAddr) (kind : LabelKind)
+    (source target : Phase) : Prop :=
+  (InvImage.wf (sizeOf : Phase → Nat) Nat.lt_wfRel.wf).fix
+    (C := fun _ => FuncAddr → LabelKind → Phase → Prop)
+    (fun phase lower owner label next =>
+      ∃ fn, program.lookup owner = some fn ∧
+        Layer fn (fun child x y => ∃ smaller : sizeOf x < sizeOf phase,
+          lower x smaller child.address .exit y) phase next label) source address kind target
+
+abbrev Program.FrameEdge (program : Program) (address : FuncAddr) :=
+  program.FrameEdgeAt address .exit
+
+abbrev Program.FrameRuns (program : Program) (address : FuncAddr) :=
+  Relation.ReflTransGen (program.FrameEdge address)
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph

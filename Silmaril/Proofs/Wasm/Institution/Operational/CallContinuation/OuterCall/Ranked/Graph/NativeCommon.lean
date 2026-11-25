@@ -130,6 +130,41 @@ theorem render_block {A : Type} (ops : Syntax A)
     | trap => exact ⟨locals, _, rfl, by simp only [Phase.afterBlock, Phase.renderAt, Body.render,
       Nested.resultCode, List.append_assoc, List.singleton_append]⟩
 
+private theorem run_correspondence {C : Type} {edge : Phase → Phase → Prop}
+    (admitted : Phase → Prop) (admittedStep : ∀ {a b}, admitted a → edge a b → admitted b)
+    (render : Phase → C) (native : C → C → Prop)
+    (invariant : Phase → Prop)
+    (preserved : ∀ {a b}, edge a b → invariant a → invariant b)
+    (one : ∀ {a b}, admitted a → invariant a → (native (render a) b ↔
+      ∃ out, edge a out ∧ b = render out))
+    {a : Phase} {b : C} (ready : admitted a) (supported : invariant a) :
+    Relation.ReflTransGen native (render a) b ↔
+      ∃ out, Relation.ReflTransGen edge a out ∧ admitted out ∧ b = render out := by
+  constructor
+  · intro run
+    have trace : ∃ out, Relation.ReflTransGen edge a out ∧ admitted out ∧
+        invariant out ∧ b = render out := by
+      induction run with
+      | refl => exact ⟨a, .refl, ready, supported, rfl⟩
+      | tail _ step ih =>
+        obtain ⟨_, path, admitted, compatible, rfl⟩ := ih
+        obtain ⟨out, edge, rfl⟩ := (one admitted compatible).mp step
+        exact ⟨out, path.tail edge, admittedStep admitted edge,
+          preserved edge compatible, rfl⟩
+    obtain ⟨out, path, admitted, _, rfl⟩ := trace
+    exact ⟨out, path, admitted, rfl⟩
+  · rintro ⟨out, run, readyOut, rfl⟩
+    clear readyOut
+    have trace : Relation.ReflTransGen native (render a) (render out) ∧
+        admitted out ∧ invariant out := by
+      induction run with
+      | refl => exact ⟨.refl, ready, supported⟩
+      | tail _ edge ih =>
+        obtain ⟨path, admitted, compatible⟩ := ih
+        exact ⟨path.tail ((one admitted compatible).mpr ⟨_, edge, rfl⟩),
+          admittedStep admitted edge, preserved edge compatible⟩
+    exact trace.1
+
 theorem run_iff_of_invariant {C : Type} {program : Program} {checked : program.check = true}
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
     (render : Phase → C) (native : C → C → Prop)
@@ -139,31 +174,9 @@ theorem run_iff_of_invariant {C : Type} {program : Program} {checked : program.c
       ∃ out, program.Edge checked address a out ∧ b = render out))
     {a : Phase} {b : C} (ready : Admitted program fn a) (supported : invariant a) :
     Relation.ReflTransGen native (render a) b ↔
-      ∃ out, program.Runs checked address a out ∧ Admitted program fn out ∧ b = render out := by
-  constructor
-  · intro run
-    have trace : ∃ out, program.Runs checked address a out ∧ Admitted program fn out ∧
-        invariant out ∧ b = render out := by
-      induction run with
-      | refl => exact ⟨a, .refl, ready, supported, rfl⟩
-      | tail _ step ih =>
-        obtain ⟨_, path, admitted, compatible, rfl⟩ := ih
-        obtain ⟨out, edge, rfl⟩ := (one admitted compatible).mp step
-        exact ⟨out, path.tail edge, program.admitted_step checked found admitted edge,
-          preserved edge compatible, rfl⟩
-    obtain ⟨out, path, admitted, _, rfl⟩ := trace
-    exact ⟨out, path, admitted, rfl⟩
-  · rintro ⟨out, run, readyOut, rfl⟩
-    clear readyOut
-    have trace : Relation.ReflTransGen native (render a) (render out) ∧
-        Admitted program fn out ∧ invariant out := by
-      induction run with
-      | refl => exact ⟨.refl, ready, supported⟩
-      | tail _ edge ih =>
-        obtain ⟨path, admitted, compatible⟩ := ih
-        exact ⟨path.tail ((one admitted compatible).mpr ⟨_, edge, rfl⟩),
-          program.admitted_step checked found admitted edge, preserved edge compatible⟩
-    exact trace.1
+      ∃ out, program.Runs checked address a out ∧ Admitted program fn out ∧ b = render out :=
+  run_correspondence (Admitted program fn) (Program.admitted_step checked found)
+    render native invariant preserved one ready supported
 
 theorem run_iff {C : Type} {program : Program} {checked : program.check = true}
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
@@ -175,5 +188,16 @@ theorem run_iff {C : Type} {program : Program} {checked : program.check = true}
       ∃ out, program.Runs checked address a out ∧ Admitted program fn out ∧ b = render out :=
   run_iff_of_invariant found render native (fun _ => True) (fun _ _ => trivial)
     (fun admitted _ => one admitted) ready trivial
+
+theorem frame_run_iff {C : Type} {program : Program} (checked : program.checkDirect = true)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
+    (render : Phase → C) (native : C → C → Prop)
+    (one : ∀ {a b}, Admitted program fn a → (native (render a) b ↔
+      ∃ out, program.FrameEdge address a out ∧ b = render out))
+    {a : Phase} {b : C} (ready : Admitted program fn a) :
+    Relation.ReflTransGen native (render a) b ↔
+      ∃ out, program.FrameRuns address a out ∧ Admitted program fn out ∧ b = render out :=
+  run_correspondence (Admitted program fn) (Program.frame_admitted_step checked found)
+    render native (fun _ => True) (fun _ _ => trivial) (fun guard _ => one guard) ready trivial
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Proofs

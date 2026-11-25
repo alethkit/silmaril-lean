@@ -226,8 +226,28 @@ guards.
 V1 rejects indexed syntax even after unconditional exits and in unselected
 arms. Its native readback theorems take an explicit syntax premise on the
 starting phase, which permits applying them to intermediate configurations.
-Recursive calls, indirect and host calls, store mutation, and whole-module
-validation remain outside the ranked graph.
+
+## Checked recursive direct calls
+
+The Core and Lime1 frame judgments use the same typed bodies and exact
+allocated declarations as the ranked graph. The direct-call checker still
+checks that each source index resolves to its declared allocated target and
+that the target agrees with the callee's declaration. It accepts self-edges and
+other correctly linked cycles. The original ranked checker requires strict
+descent on every registered edge, and the new frame judgment is equivalent to
+the ranked judgment on that domain. V1 continues to use the ranked checker.
+
+The single-step proof descends through the active child of the finite source
+configuration. Entering a call can increase the number of frames. Exact
+successor and finite endpoint readback therefore apply without a bound on call
+depth or a termination premise. There is no execution fuel or corresponding
+trap case. The fixed-function regressions cover a base-case return to saved
+caller operands and locals, a propagated `unreachable` trap that bypasses the
+continuation, and reachable prefixes at every finite depth for a function that
+always calls itself. The generic theorem uses exact allocation and typing for
+every function in the admitted graph. Indirect and host calls, mutable stores,
+whole-module validation, and infinite-run correspondence are separate.
+[Native graph theorems](../../Silmaril/Wasm/Institution/Operational/CallContinuation/OuterCall/Ranked/Graph/Native/Thms.lean)
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have
