@@ -2,7 +2,9 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.PartialDefs
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGraph.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveNullarySlide.Thms
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.PartialCuts
+import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.NullaryGlueLower
 
 public section
 
@@ -163,5 +165,79 @@ theorem cut_lower {h : ℝ} {ws : List (Fin A)} (below : h < 1) (cut : lower.Ord
 theorem cut_upper {h : ℝ} {ws : List (Fin B)} (above : 0 < h) (cut : upper.OrderedCut h ws) :
     m.glue.OrderedCut (halfHeight 1 h) (ws.map m.upperId) :=
   Proofs.PartialGluing.cut_upper m above cut
+
+section NullarySlide
+
+variable {v : Fin R} (move : upper.NullarySlide v)
+
+/-- The original matching, read at the upper slide frame. The lower
+operand, the cap coordinates, and the matched wire IDs are fixed. -/
+def matchAtUpper {h : ℝ} (hh : h ∈ Set.Icc move.bottom move.top) :
+    lower.PartialVerticalMatch (move.atHeight h hh) :=
+  Proofs.PartialGluing.matchAtUpperHeight m move hh
+
+theorem matchAtUpper_contact {h : ℝ} (hh : h ∈ Set.Icc move.bottom move.top) :
+    (m.matchAtUpper move hh).contact = m.contact := by rfl
+
+theorem matchAtUpper_ids {h : ℝ} (hh : h ∈ Set.Icc move.bottom move.top) (a : Fin A) (b : Fin B) :
+    lowerId (lower := lower) (upper := (move.atHeight h hh)) a =
+      lowerId (lower := lower) (upper := upper) a ∧
+    (m.matchAtUpper move hh).upperId b = m.upperId b := by
+  exact ⟨rfl, rfl⟩
+
+/-- Lift a nullary slide through a fixed lower attachment. -/
+noncomputable def liftUpperSlide : m.glue.NullarySlide (Fin.natAdd L v) :=
+  Proofs.PartialGluing.liftUpper m move
+
+theorem liftUpperSlide_bottom : (m.liftUpperSlide move).bottom = halfHeight 1 move.bottom := by rfl
+
+theorem liftUpperSlide_top : (m.liftUpperSlide move).top = halfHeight 1 move.top := by rfl
+
+theorem liftUpperSlide_heightAt (t : Diagram.NullarySlide.Time) :
+    (m.liftUpperSlide move).heightAt t = halfHeight 1 (move.heightAt t) :=
+  Proofs.PartialGluing.liftUpper_heightAt m move t
+
+/-- The lifted frames are the actual glued drawings of the original frames. -/
+theorem liftUpperSlide_frame (t : Diagram.NullarySlide.Time) :
+    (m.liftUpperSlide move).frame t = (m.matchAtUpper move (move.height_mem t)).glue :=
+  Proofs.PartialGluing.liftUpper_frame m move t
+
+end NullarySlide
+
+section NullarySlideLower
+
+variable {v : Fin L} (move : lower.NullarySlide v)
+
+/-- The original matching, read at the lower slide frame. -/
+def matchAtLower {h : ℝ} (hh : h ∈ Set.Icc move.bottom move.top) :
+    (move.atHeight h hh).PartialVerticalMatch upper :=
+  Proofs.PartialGluing.matchAtLowerHeight m move hh
+
+theorem matchAtLower_contact {h : ℝ} (hh : h ∈ Set.Icc move.bottom move.top) :
+    (m.matchAtLower move hh).contact = m.contact := by rfl
+
+theorem matchAtLower_ids {h : ℝ} (hh : h ∈ Set.Icc move.bottom move.top) (a : Fin A) (b : Fin B) :
+    lowerId (lower := (move.atHeight h hh)) (upper := upper) a =
+      lowerId (lower := lower) (upper := upper) a ∧
+    (m.matchAtLower move hh).upperId b = m.upperId b := by
+  exact ⟨rfl, rfl⟩
+
+/-- Lift a nullary slide through a fixed upper attachment. -/
+noncomputable def liftLowerSlide : m.glue.NullarySlide (Fin.castAdd R v) :=
+  Proofs.PartialGluing.liftLower m move
+
+theorem liftLowerSlide_bottom : (m.liftLowerSlide move).bottom = halfHeight 0 move.bottom := by rfl
+
+theorem liftLowerSlide_top : (m.liftLowerSlide move).top = halfHeight 0 move.top := by rfl
+
+theorem liftLowerSlide_heightAt (t : Diagram.NullarySlide.Time) :
+    (m.liftLowerSlide move).heightAt t = halfHeight 0 (move.heightAt t) :=
+  Proofs.PartialGluing.liftLower_heightAt m move t
+
+theorem liftLowerSlide_frame (t : Diagram.NullarySlide.Time) :
+    (m.liftLowerSlide move).frame t = (m.matchAtLower move (move.height_mem t)).glue :=
+  Proofs.PartialGluing.liftLower_frame m move t
+
+end NullarySlideLower
 
 end Silmaril.RuntimeWires.ProgressiveGraph.Diagram.PartialVerticalMatch
