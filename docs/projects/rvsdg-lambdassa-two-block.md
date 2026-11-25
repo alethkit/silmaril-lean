@@ -39,12 +39,35 @@ covers the stated two-block CFG with one exit and the fixed corresponding
 γ/θ graph. Broader CFG lowering remains separate.
 [Fixture](../../tests/ssa/RVSDGLambdaSSATwoBlock.lean)
 
+## Explicit runtime wires
+
+The explicit elaboration appends one token port at each region boundary
+and assigns each binding its numbered producer position. The header
+hands its returned token to γ, which passes it to the selected arm. The
+exit arm carries the token through a pure operation. The body arm uses
+it to invoke the second instruction. The θ decision sends the returned
+token with the payload to feedback or to the exit. The constructed
+`graphChecked` witness enforces this wiring, including after graph
+numbering. [Elaboration](../../Silmaril/SSA/RVSDG/LambdaSSA/TwoBlock/ExplicitRuntime/Defs.lean)
+
+Erasure retains the numbered positions with unit slots at the former
+token ports. At the exit, removing the unit slot gives the ordered
+target's `StateT σ Part` result, including its final state.
+`PrimitiveAgreement` requires the partial model to lift each total
+`StateM` instruction with its returned state intact. The explicit
+execution and the coherent LambdaSSA `Region.denote` have the same
+finite observations for every admitted translation witness. A second
+fixture entry starts at state 32 and exits in one header activation
+with token 65, detecting any execution of the body effect on that
+path. [Agreement](../../Silmaril/SSA/RVSDG/LambdaSSA/TwoBlock/ExplicitRuntime/Thms.lean)
+[Fixture](../../tests/ssa/RVSDGLambdaSSATwoBlock.lean)
+
 ## Reproduce
 
 ```sh
-lake build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.Thms
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.Thms
-lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.Thms
+lake build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.ExplicitRuntime.Thms
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.ExplicitRuntime.Thms
+lake env leanchecker Silmaril.SSA.RVSDG.LambdaSSA.TwoBlock.ExplicitRuntime.Thms
 ```
 
 ## Sources
