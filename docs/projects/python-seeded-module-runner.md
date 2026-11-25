@@ -64,23 +64,31 @@ zero-parameter ordinary function. The resolved descriptor must occur in
 the same run's successful-publication ledger. The callee comes from the
 current module-first lookup, so rebinding and aliasing follow that lookup.
 The call uses the same ordinary preparation, namespace projection and
-heap as the callback path. Direct calls with positional arguments,
-result bindings or assertion destinations stay in the closed dispatcher.
+heap as the callback path.
 
-A nested module call reads its outer callee first. A direct zero-argument
-call in its argument list can use the same published ordinary
-zero-parameter selector. The runner passes that result to the outer call
-and carries the reached heap to later arguments. One receipt records
-each settled argument call. A later error preserves earlier receipts
-and the reached heap. A faulted or live argument contributes no settled
-receipt. The outer callee remains in the closed dispatcher.
+A flat factory assignment uses a published function with zero positional
+slots or one positional slot supplied with an integer. Its checked body
+returns a closure created in a private local, either directly or through
+at most two local wrapper calls. The runner reads the live callee and
+evaluates the arguments before invoking it. A successful closure result
+writes the module destination and records the exact descriptor and
+reached heap. Its captures keep the original cell identities.
 
-A direct call discards a successful result and records it in one receipt
-with an empty caught field. Defined errors and seed-only operand lookups
-retain the current bindings and skip the tail. The latter yield unsupported.
-A faulted or live executor state preserves the exact residual heap and
-yields `directCallFault` or `directCallFuelExhausted` with no settled
-receipt. The default limit is 1000 ordinary transitions per invocation.
+A nested module call saves its outer callee before evaluating arguments.
+A direct zero-argument argument call can use the published selector.
+When the saved outer callee is the integer equality helper and its result
+is discarded, an argument can also call a closure saved by a factory
+assignment in this run with one integer. The ordinary invocation uses
+the live namespace and the saved closure's cells. The runner carries the
+reached heap and any settled receipt to later arguments and then invokes
+the saved helper through the closed dispatcher.
+
+A settled call records one receipt with an empty caught field. Defined
+errors and seed-only operand lookups retain the current bindings and skip
+the tail. The latter yield unsupported. A faulted or live executor state
+preserves the exact residual heap and yields `directCallFault` or
+`directCallFuelExhausted` with no settled receipt. The default limit is
+1000 ordinary transitions per invocation.
 
 A module `co_varnames` assertion reads the current receiver once using
 the seeded module-first resolver. A module binding masks the builtin

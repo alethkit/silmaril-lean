@@ -36,7 +36,7 @@ theorem run_preserves_builtins {source : Source.Module} (space : Namespace) (com
     (heap : Heap := .empty) (fuel : Nat := 1000) :
     (run space compiled heap fuel).residual.builtins = space.builtins :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.preserves_builtins
-    space compiled.instructions ⟨compiled.table, heap, fuel, []⟩
+    space compiled.instructions { table := compiled.table, heap, fuel }
 
 theorem evaluateScalar_conditionalResult {scope : Source.Scope} (space : Namespace)
     (equalityOperand : Bool) (operand : ModuleEntry.Operand scope) :
@@ -222,6 +222,29 @@ theorem effect_assertVarNames {scope : Source.Scope} (space : Namespace) (contex
 
 /-- The guarded call follows the ordinary executor state. A settled
 call contributes one receipt, with heap and tail behavior from that state. -/
+theorem run_factory {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name target : String} {closure : Function} {arguments operands : List Core.Module.Functions.Operand}
+    {values : List Value} {rest : List (Instruction scope)}
+    (resolved : Core.Module.SeededCall.resolveCall space #v[] (.global name)
+      (arguments.map lowerCallOperand) = .ok (.function closure, values))
+    (profile : factoryOperands values = some operands)
+    (admitted : context.acceptsFactory closure operands.length = true) :
+    runInstructionsIn space context (.call (.bindGlobal target) name arguments :: rest) =
+      match ordinaryCall space context closure operands with
+      | .finished heap (.ok (.function result)) =>
+        let tail := runInstructionsIn (space.bindGlobal target (.function result))
+          { context with heap, escaped := result :: context.escaped } rest
+        { tail with calls := ⟨name, ⟨.ok (.function result), none⟩⟩ :: tail.calls }
+      | .finished heap (.ok _) =>
+        ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], heap⟩
+      | .finished heap (.error error) =>
+        let failure := callbackError space error
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+      | .running heap .. | .delivering heap .. | .receiving heap .. =>
+        ⟨space, .error .directCallFuelExhausted, [], heap⟩ :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.run_factory resolved profile admitted
+
 theorem run_adjacentKeywordDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {closure : Function} {value : Int} {rest : List (Instruction scope)}
     (found : space.lookupGlobal name = some (.function closure))
@@ -254,17 +277,29 @@ theorem observeArgumentIn_published {space : Namespace} {context : CallContext}
     Core.Module.SeededCall.Operand.evalList, Except.bind, Except.map, found, invokeFlatCall, admitted]
   rfl
 
-theorem observeArgumentsIn_stop {space : Namespace} {context : CallContext}
+theorem observeArgumentIn_escaped {space : Namespace} {context : CallContext}
+    {name : String} {closure : Function} {value : Int} {arguments : List Core.Module.Functions.Operand}
+    (resolved : Core.Module.SeededCall.resolveCall space #v[] (.global name)
+      (arguments.map lowerCallOperand) = .ok (.function closure, [.int value]))
+    (admitted : context.acceptsEscapedArgument closure = true) :
+    observeArgumentIn space context (.call name arguments) true =
+      match observeDirectCall space (ordinaryCall space context closure [.literal (.int value)]) with
+      | (.ok observed, heap) => (observed.result.mapError .ofCall, [⟨name, observed⟩], heap)
+      | (.error error, heap) => (.error error, [], heap) := by
+  simp only [observeArgumentIn, resolved, admitted, Bool.and_self, ite_true]
+  cases observeDirectCall space (ordinaryCall space context closure [.literal (.int value)]); rfl
+
+theorem observeArgumentsIn_stop {space : Namespace} {context : CallContext} {allowEscaped : Bool}
     {argument : Argument} {rest : List Argument} {error : ModuleFailure} {calls : List CallEvent} {heap : Heap}
-    (failed : observeArgumentIn space context argument = (.error error, calls, heap)) :
-    observeArgumentsIn space context (argument :: rest) = (.error error, calls, heap) := by
+    (failed : observeArgumentIn space context argument allowEscaped = (.error error, calls, heap)) :
+    observeArgumentsIn space context (argument :: rest) allowEscaped = (.error error, calls, heap) := by
   simp [observeArgumentsIn, failed]
 
-theorem observeArgumentsIn_next {space : Namespace} {context : CallContext}
+theorem observeArgumentsIn_next {space : Namespace} {context : CallContext} {allowEscaped : Bool}
     {argument : Argument} {rest : List Argument} {value : Value} {calls : List CallEvent} {heap : Heap}
-    (first : observeArgumentIn space context argument = (.ok value, calls, heap)) :
-    observeArgumentsIn space context (argument :: rest) =
-      let (values, later, residual) := observeArgumentsIn space { context with heap } rest
+    (first : observeArgumentIn space context argument allowEscaped = (.ok value, calls, heap)) :
+    observeArgumentsIn space context (argument :: rest) allowEscaped =
+      let (values, later, residual) := observeArgumentsIn space { context with heap } rest allowEscaped
       (values.map (value :: ·), calls ++ later, residual) := by
   simp [observeArgumentsIn, first]
 
@@ -279,7 +314,8 @@ theorem observeNestedCallIn_failedArguments {space : Namespace} {context : CallC
     {destination : Core.Module.Functions.Destination} {name : String} {callee : Value}
     {arguments : List Argument} {error : ModuleFailure} {calls : List CallEvent} {heap : Heap}
     (found : space.lookupGlobal name = some callee)
-    (failed : observeArgumentsIn space context arguments = (.error error, calls, heap)) :
+    (failed : observeArgumentsIn space context arguments (allowsEscapedArgument destination callee) =
+      (.error error, calls, heap)) :
     observeNestedCallIn space context destination name arguments = (⟨.error error, calls⟩, heap) := by
   simp [observeNestedCallIn, found, failed]
 

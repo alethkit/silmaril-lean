@@ -94,6 +94,36 @@ theorem run_directDiscard_unsupported {scope : Source.Scope} {space : Namespace}
     Core.Module.SeededCall.Operand.eval, found, Core.Module.SeededCall.Operand.evalList,
     Except.bind, Except.map, Except.mapError, invokeFlatCall, rejected, acceptObservation, ModuleFailure.ofCall]
 
+theorem run_factory {scope : Source.Scope} {space : Namespace} {context : CallContext}
+    {name target : String} {closure : Function} {arguments operands : List Core.Module.Functions.Operand}
+    {values : List Value} {rest : List (Instruction scope)}
+    (resolved : Core.Module.SeededCall.resolveCall space #v[] (.global name)
+      (arguments.map lowerCallOperand) = .ok (.function closure, values))
+    (profile : factoryOperands values = some operands)
+    (admitted : context.acceptsFactory closure operands.length = true) :
+    runInstructionsIn space context (.call (.bindGlobal target) name arguments :: rest) =
+      match ordinaryCall space context closure operands with
+      | .finished heap (.ok (.function result)) =>
+        let tail := runInstructionsIn (space.bindGlobal target (.function result))
+          { context with heap, escaped := result :: context.escaped } rest
+        { tail with calls := ⟨name, ⟨.ok (.function result), none⟩⟩ :: tail.calls }
+      | .finished heap (.ok _) =>
+        ⟨space, .error .unsupported, [⟨name, ⟨.error .unsupported, none⟩⟩], heap⟩
+      | .finished heap (.error error) =>
+        let failure := callbackError space error
+        ⟨space, .error (.ofCall failure), [⟨name, ⟨.error failure, none⟩⟩], heap⟩
+      | .faulted heap _ fault => ⟨space, .error (.directCallFault fault), [], heap⟩
+      | .running heap .. | .delivering heap .. | .receiving heap .. =>
+        ⟨space, .error .directCallFuelExhausted, [], heap⟩ := by
+  simp only [runInstructionsIn, effect, resolved, invokeFlatCall, profile, admitted, ite_true]
+  generalize ordinaryCall space context closure operands = state
+  cases state with
+  | finished heap result =>
+    cases result with
+    | ok value => cases value <;> rfl
+    | error error => rfl
+  | _ => rfl
+
 theorem run_adjacentKeywordDiscard {scope : Source.Scope} {space : Namespace} {context : CallContext}
     {name : String} {closure : Function} {value : Int} {rest : List (Instruction scope)}
     (found : space.lookupGlobal name = some (.function closure))
