@@ -49,6 +49,17 @@ def legacyBoolCallableSeed (placement : SeedPlacement) : Namespace :=
   | .builtin => { seed with builtins := identity :: builtins }
   | .preamble => { seed with moduleGlobals := identity :: seed.moduleGlobals, builtins := builtins }
 
+/-- Opt into the Boolean identity helper and the three stock
+`isinstance` cases. The existing `int` descriptor also names the type. -/
+def legacyBoolIsinstanceSeed (placement : SeedPlacement) : Namespace :=
+  let seed := legacySeed placement
+  let identity := ("___assertIs", Value.helper .assertIs)
+  let stock : Bindings := [("isinstance", .builtin .isinstance), ("bool", .builtin .bool), ("int", .builtin .int)]
+  let builtins := stock ++ seed.builtins
+  match placement with
+  | .builtin => { seed with builtins := identity :: builtins }
+  | .preamble => { seed with moduleGlobals := identity :: seed.moduleGlobals, builtins := builtins }
+
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
   | .literal (.int value) => .literal (.int value)

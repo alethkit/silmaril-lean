@@ -48,6 +48,17 @@ with the ordered Boolean pair. Other identity operands are unsupported.
 `invoke_callable_len`, `invoke_callable_int`, and `invoke_assertIs_bool`
 state the exact results.
 
+The Boolean-instance projection supplies stock `isinstance`, `bool`
+and `int` descriptors and reuses the Boolean identity helper. The class
+positions are matched by the resolved stock descriptor, so aliases keep
+their meaning after rebinding. Exact Booleans produce `True` against
+either type. Exact integers produce `False` against `bool`.
+`invoke_isinstance_bool_bool`, `invoke_isinstance_bool_int` and
+`invoke_isinstance_int_bool` state these three cases. Other pairs,
+including exact integers against `int` and non-type class operands,
+are unsupported in this profile. Direct `bool` calls are unsupported.
+The `int` descriptor retains its existing Boolean conversion.
+
 The call model covers the closed helper descriptors and known non-callable
 values in this value domain. Object equality, constructing an exception
 instance by calling its class, arbitrary function callbacks, generalized

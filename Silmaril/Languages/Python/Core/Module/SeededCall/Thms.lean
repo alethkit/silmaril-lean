@@ -47,6 +47,18 @@ theorem invoke_callable_int (integer : Int) :
     invoke (.builtin .callable) [.int integer] = .ok (.bool false) :=
   invoke_iff.mpr (.callable .integer)
 
+theorem invoke_isinstance_bool_bool (value : Bool) :
+    invoke (.builtin .isinstance) [.bool value, .builtin .bool] = .ok (.bool true) :=
+  invoke_iff.mpr (.isinstance .boolAgainstBool)
+
+theorem invoke_isinstance_bool_int (value : Bool) :
+    invoke (.builtin .isinstance) [.bool value, .builtin .int] = .ok (.bool true) :=
+  invoke_iff.mpr (.isinstance .boolAgainstInt)
+
+theorem invoke_isinstance_int_bool (value : Int) :
+    invoke (.builtin .isinstance) [.int value, .builtin .bool] = .ok (.bool false) :=
+  invoke_iff.mpr (.isinstance .intAgainstBool)
+
 theorem invoke_assertIs_bool (left right : Bool) :
     invoke (.helper .assertIs) [.bool left, .bool right] =
       if BoolIdentity.ofBool left = BoolIdentity.ofBool right then .ok .none

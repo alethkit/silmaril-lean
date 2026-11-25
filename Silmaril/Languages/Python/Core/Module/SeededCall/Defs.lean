@@ -53,8 +53,10 @@ inductive Helper where
 
 inductive Builtin where
   | int
+  | bool
   | callable
   | len
+  | isinstance
   deriving DecidableEq, Repr
 
 inductive Value where
@@ -146,12 +148,23 @@ def CallableProbe.result : CallableProbe → Bool
   | .len => true
   | .integer => false
 
+/-- The three value and stock type pairs used by the restricted instance check. -/
+inductive InstanceProbe where
+  | boolAgainstBool
+  | boolAgainstInt
+  | intAgainstBool
+
+def InstanceProbe.result : InstanceProbe → Bool
+  | .boolAgainstBool | .boolAgainstInt => true
+  | .intAgainstBool => false
+
 /-- Decoding identifies the admitted typed call shapes. In particular,
 calling an exception class would construct an object outside this profile. -/
 inductive Request (arity : Nat) where
   | compare (left right : Int)
   | intFromBool (value : Bool)
   | callable (probe : CallableProbe)
+  | isinstance (probe : InstanceProbe)
   | boolIdentity (left right : Bool)
   | distinctIntBool
   | expect (expectation : Expectation) (callback : Value) (arguments : List Value)
@@ -165,6 +178,9 @@ def Request.decode (callee : Value) (arguments : List Value) : Request arguments
   | .builtin .int, [.bool value] => .intFromBool value
   | .builtin .callable, [.builtin .len] => .callable .len
   | .builtin .callable, [.int _] => .callable .integer
+  | .builtin .isinstance, [.bool _, .builtin .bool] => .isinstance .boolAgainstBool
+  | .builtin .isinstance, [.bool _, .builtin .int] => .isinstance .boolAgainstInt
+  | .builtin .isinstance, [.int _, .builtin .bool] => .isinstance .intAgainstBool
   | .helper .assertIs, [.bool left, .bool right] => .boolIdentity left right
   | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>
@@ -180,6 +196,7 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
     if left = right then .ok .none else .error (.raised (.assertionError (.integerPair left right)))
   | .intFromBool value => .ok (.int (Int.ofNat value.toNat))
   | .callable probe => .ok (.bool probe.result)
+  | .isinstance probe => .ok (.bool probe.result)
   | .boolIdentity left right =>
     if BoolIdentity.ofBool left = BoolIdentity.ofBool right then .ok .none
     else .error (.raised (.assertionError (.booleanPair left right)))
@@ -199,6 +216,8 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
       Executes (arity := arity) (.intFromBool value) (.ok (.int (Int.ofNat value.toNat)))
   | callable {arity : Nat} (probe : CallableProbe) :
       Executes (arity := arity) (.callable probe) (.ok (.bool probe.result))
+  | isinstance {arity : Nat} (probe : InstanceProbe) :
+      Executes (arity := arity) (.isinstance probe) (.ok (.bool probe.result))
   | sameBool {arity : Nat} (left right : Bool)
       (same : BoolIdentity.ofBool left = BoolIdentity.ofBool right) :
       Executes (arity := arity) (.boolIdentity left right) (.ok .none)

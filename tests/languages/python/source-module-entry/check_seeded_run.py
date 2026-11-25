@@ -43,6 +43,8 @@ private def initial (profile : String) : Namespace :=
   | "legacy_bool_int_preamble" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolIntSeed .preamble
   | "legacy_bool_callable_builtin" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolCallableSeed .builtin
   | "legacy_bool_callable_preamble" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolCallableSeed .preamble
+  | "legacy_bool_isinstance_builtin" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolIsinstanceSeed .builtin
+  | "legacy_bool_isinstance_preamble" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolIsinstanceSeed .preamble
   | _ => .empty
 
 private def detail : AssertionArgument → String
@@ -169,6 +171,8 @@ AUDIT = """
 UPSTREAM_REVISION = "b7ff99372dd24845cf84e58c96b877f15764b276"
 BOOL_INT_PROFILES = ("legacy_bool_int_builtin", "legacy_bool_int_preamble")
 BOOL_CALLABLE_PROFILES = ("legacy_bool_callable_builtin", "legacy_bool_callable_preamble")
+BOOL_ISINSTANCE_PROFILES = ("legacy_bool_isinstance_builtin", "legacy_bool_isinstance_preamble")
+OPT_IN_PROFILES = (*BOOL_INT_PROFILES, *BOOL_CALLABLE_PROFILES, *BOOL_ISINSTANCE_PROFILES)
 UPSTREAM_CASE = "tests/python/programs/original/lambda-py/python-reference/exceptions/assertion-error.py"
 UPSTREAM_SHA256 = "822abc163f457af8784c41c08cef152ecbb1266bb9704197292944386bc3dd79"
 UPSTREAM_BOOL_DIR = "tests/python/programs/original/lambda-py/python-reference/bool"
@@ -388,6 +392,41 @@ after = 9
      ["unsupported", "int:5", "absent"]),
     ("len_direct", "legacy_bool_callable_preamble", "result = 5\nresult = len(1)\nafter = 9\n",
      ["unsupported", "int:5", "absent"]),
+    ("isinstance_type_aliases", "legacy_bool_isinstance_builtin", """saved_bool = bool
+saved_int = int
+int = saved_bool
+converted = saved_int(False)
+result = isinstance(converted, int)
+___assertIs(result, False)
+___assertIs(isinstance(True, saved_int), True)
+after = 9
+""", ["normal", "bool:False", "int:9"]),
+    ("isinstance_shadow", "legacy_bool_isinstance_preamble", """result = 5
+isinstance = 7
+result = isinstance(True, bool)
+after = 9
+""", ["TypeError", "int:5", "absent"]),
+    ("isinstance_missing_type", "legacy_bool_isinstance_builtin", """result = 5
+___assertIs(isinstance(True, missing_type), missing_argument)
+after = 9
+""", ["NameError:missing_type", "int:5", "absent"]),
+    ("isinstance_argument_order", "legacy_bool_isinstance_preamble", """result = 5
+___assertIs(isinstance(False, int), missing_argument)
+after = 9
+""", ["NameError:missing_argument", "int:5", "absent"]),
+    ("isinstance_distinct", "legacy_bool_isinstance_builtin", """result = 5
+___assertIs(isinstance(1, bool), True)
+after = 9
+""", ["AssertionError:bool-pair:false:true", "int:5", "absent"]),
+    ("isinstance_shadowed_type", "legacy_bool_isinstance_preamble", """result = 5
+bool = 7
+result = isinstance(True, bool)
+after = 9
+""", ["unsupported", "int:5", "absent"]),
+    ("isinstance_int_int", "legacy_bool_isinstance_builtin", "result = 5\nresult = isinstance(1, int)\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
+    ("bool_direct", "legacy_bool_isinstance_preamble", "result = 5\nresult = bool(1)\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
 )
 
 NESTED_CALL_NAMES = {
@@ -403,9 +442,13 @@ NESTED_CALL_NAMES = {
     "assert_is_shadow": ["callable", "___assertIs"],
     "assert_is_argument_order": ["callable"],
     "assert_is_distinct": ["callable", "___assertIs"],
+    "isinstance_type_aliases": ["saved_int", "isinstance", "___assertIs", "isinstance", "___assertIs"],
+    "isinstance_missing_type": ["isinstance"],
+    "isinstance_argument_order": ["isinstance"],
+    "isinstance_distinct": ["isinstance", "___assertIs"],
 }
 
-CALLABLE_FIXTURE_BINDINGS = {
+EXACT_FIXTURE_BINDINGS = {
     "callable_len_alias": '[("after", .int 9), ("result", .bool true), ("len", .int 7), ("saved_len", .builtin .len)]',
     "callable_shadow": '[("callable", .int 7), ("result", .int 5)]',
     "assert_is_shadow": '[("___assertIs", .int 7), ("result", .int 5)]',
@@ -414,6 +457,22 @@ CALLABLE_FIXTURE_BINDINGS = {
     "assert_is_mixed": '[("result", .int 5)]',
     "callable_bool": '[("result", .int 5)]',
     "len_direct": '[("result", .int 5)]',
+    "isinstance_type_aliases": (
+        '[("after", .int 9), ("result", .bool false), ("converted", .int 0),'
+        ' ("int", .builtin .bool), ("saved_int", .builtin .int), ("saved_bool", .builtin .bool)]'
+    ),
+    "isinstance_shadow": '[("isinstance", .int 7), ("result", .int 5)]',
+    "isinstance_missing_type": '[("result", .int 5)]',
+    "isinstance_argument_order": '[("result", .int 5)]',
+    "isinstance_distinct": '[("result", .int 5)]',
+    "isinstance_shadowed_type": '[("bool", .int 7), ("result", .int 5)]',
+    "isinstance_int_int": '[("result", .int 5)]',
+    "bool_direct": '[("result", .int 5)]',
+}
+
+CPYTHON_FIXTURE_BINDINGS = {
+    "isinstance_type_aliases": {"after": 9, "result": False, "converted": 0,
+                               "int": bool, "saved_int": int, "saved_bool": bool},
 }
 
 
@@ -444,6 +503,8 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
     profile = profile.removeprefix("bool_int_")
     bool_callable = profile.startswith("bool_callable_")
     profile = profile.removeprefix("bool_callable_")
+    bool_isinstance = profile.startswith("bool_isinstance_")
+    profile = profile.removeprefix("bool_isinstance_")
     caught = []
 
     def compare_ints(left, right):
@@ -477,6 +538,9 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
         helpers["___assertIsNot"] = assert_is_not
     if bool_callable:
         classes.update(callable=callable, len=len)
+    if bool_isinstance:
+        classes.update(isinstance=isinstance, bool=bool, int=int)
+    if bool_callable or bool_isinstance:
         helpers["___assertIs"] = assert_is
     if profile == "builtin":
         namespace = {"__builtins__": classes | helpers}
@@ -582,9 +646,35 @@ def replay_upstream_nested(checkout, shared, source_path, lean_path):
                     '("___assertIs", .none), ("callable", .bool false), ("___assertIs", .none)]'
                 )
             callable_projection[profile] = {"completion": completion, "calls": calls, "user_bindings": {}}
+        isinstance_projection = {}
+        instance_results = [True, True, True, True, False, False]
+        for profile in BOOL_ISINSTANCE_PROFILES:
+            completion, calls = {
+                "bool-callable.py": ("NameError:callable", ["callable"]),
+                "bool-int.py": ("NameError:___assertIsNot", ["int", "___assertEqual"]),
+                "bool-isinstance.py": ("normal", ["isinstance", "___assertIs"] * len(instance_results)),
+            }[filename]
+            expected = [completion, "absent", "absent"]
+            assert cpython(source, profile, expected_globals={}) == expected, (path, profile)
+            name = json.dumps(profile)
+            guards.extend((
+                guard_observation(profile, expected),
+                f"#guard exactGlobals pythonSource {name}",
+                f"#guard callNames pythonSource {name} == some {json.dumps(calls)}",
+            ))
+            observation = {"completion": completion, "calls": calls, "user_bindings": {}}
+            if completion == "normal":
+                call_values = [
+                    entry for value in instance_results
+                    for entry in (f'("isinstance", .bool {str(value).lower()})', '("___assertIs", .none)')
+                ]
+                guards.append(f"#guard callValues pythonSource {name} = some [{', '.join(call_values)}]")
+                observation["returns"] = [result for value in instance_results for result in (value, None)]
+            isinstance_projection[profile] = observation
         shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
         rows.append({"path": path, "sha256": sha256, "completions": completions,
-                     "bool_int_projection": projection, "bool_callable_projection": callable_projection})
+                     "bool_int_projection": projection, "bool_callable_projection": callable_projection,
+                     "bool_isinstance_projection": isinstance_projection})
     return rows
 
 
@@ -603,7 +693,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         guards = [f'#guard ordinaryOutcome pythonSource == some ("normal", {x})']
         if path == UPSTREAM_ASSERT_NOT_CASE:
             guards.append("#guard equalityBeforeAssertNot pythonSource")
-        for profile in ("empty", "legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES, *BOOL_CALLABLE_PROFILES):
+        for profile in ("empty", "legacy_builtin", "legacy_preamble", *OPT_IN_PROFILES):
             expected = ["normal", "absent", "absent"]
             assert cpython(source, profile, expected_globals=bindings) == expected, (path, profile)
             name = json.dumps(profile)
@@ -622,7 +712,7 @@ def replay_upstream_publication(checkout, shared, source_path, lean_path):
     shared["emit"](source_path, lean_path, source)
     guards = ['#guard ordinaryOutcome pythonSource == some ("NameError:___assertRaises", none)']
     observations = {}
-    for profile in ("empty", "legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES, *BOOL_CALLABLE_PROFILES):
+    for profile in ("empty", "legacy_builtin", "legacy_preamble", *OPT_IN_PROFILES):
         empty = profile == "empty"
         cpython_expected = (["NameError:___assertRaises", "absent", "absent"] if empty
                              else ["normal", "absent", "absent", "AssertionError:empty"])
@@ -652,7 +742,7 @@ def replay_upstream(checkout, shared, source_path, lean_path):
 #guard exactGlobals pythonSource "empty"
 """
     assert cpython(source, "empty", expected_globals={}) == ["NameError:___assertRaises", "absent", "absent"]
-    for profile in ("legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES, *BOOL_CALLABLE_PROFILES):
+    for profile in ("legacy_builtin", "legacy_preamble", *OPT_IN_PROFILES):
         expected = ["normal", "absent", "absent", "AssertionError:pair:1:2"]
         assert cpython(source, profile, expected_globals={}) == expected, profile
         name = json.dumps(profile)
@@ -691,15 +781,15 @@ if __name__ == "__main__":
             check = guard_observation(profile, expected)
             if name in NESTED_CALL_NAMES:
                 check += f"\n#guard callNames pythonSource {json.dumps(profile)} == some {json.dumps(NESTED_CALL_NAMES[name])}"
-            if name in CALLABLE_FIXTURE_BINDINGS:
-                check += f"\n#guard exactGlobals pythonSource {json.dumps(profile)} {CALLABLE_FIXTURE_BINDINGS[name]}"
+            if name in EXACT_FIXTURE_BINDINGS:
+                check += f"\n#guard exactGlobals pythonSource {json.dumps(profile)} {EXACT_FIXTURE_BINDINGS[name]}"
             if name == "empty":
                 check += "\n" + AUDIT
             shared["check_lean"](lean_path, LEAN + check, extra_imports=IMPORTS)
             if expected[0] == "unsupported":
                 lean_only.append(name)
             else:
-                assert cpython(source, profile) == expected, name
+                assert cpython(source, profile, expected_globals=CPYTHON_FIXTURE_BINDINGS.get(name)) == expected, name
             observations[name] = expected
         if args.upstream is not None:
             upstream = replay_upstream(args.upstream, shared, source_path, lean_path)
