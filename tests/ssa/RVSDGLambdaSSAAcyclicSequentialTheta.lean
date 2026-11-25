@@ -1,6 +1,7 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Wires.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Wires.Reverse.Thms
+import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Defs
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Tests
@@ -200,5 +201,109 @@ example (coherent : Coherent) :
     (Region.denote (ε := Bool) (m := Runtime) lowered.2.typing (PUnit.unit, (0 : Nat))).run [] =
       Part.none :=
   (lowered.2.region_undefined_iff coherent (PUnit.unit, (0 : Nat)) []).mp graphNoHandoff
+
+section Reverse
+
+open OrderedTheta (carried carriedData resultData)
+open OrderedRuntime.Structured (Threaded runtimePort nextRuntime)
+open TwoBlock.TwoExit (Carrier ExitCode Route armPorts headerPorts)
+open LinearChain.Wiring (newest)
+open NestedTheta.ExplicitRuntime (thetaNode)
+
+private def handBody {A B K E D : Ty}
+    (head : TwoBlock.Instruction Op A (Silmaril.coprod E B))
+    (body : TwoBlock.Instruction Op B K) (join : TwoBlock.Instruction Op K (Silmaril.coprod D A)) :
+    ExplicitRuntime.Wiring.Code (past := []) Op (carriedData (Carrier A E D)) (resultData (Carrier A E D))
+      (.arg (runtimePort (carried (Carrier A E D)))) :=
+  let ports := headerPorts B E D
+  let arms := ExplicitRuntime.Wiring.armData A B E D
+  let guarded : ExplicitRuntime.Wiring.Code (past := []) Op arms (resultData (Carrier A E D))
+      (.arg (runtimePort (armPorts A B E D))) :=
+    ExplicitRuntime.Wiring.primitive (carriedData (Silmaril.coprod (ExitCode E D) B)) (carriedData K)
+      (.effect (.acyclic (.call (.right (X := ExitCode E D)) body))) (.arg _)
+      (.cons (.arg (.tail .head)) .nil)
+      (ExplicitRuntime.Wiring.primitive (carriedData K) (resultData _) (.effect (.join join))
+        (nextRuntime [] (carried K)) (.cons (newest .head []) .nil)
+        (ExplicitRuntime.Wiring.finishStep [Threaded (carried K)]))
+  ExplicitRuntime.Wiring.primitive (past := []) (carriedData _) (resultData (Route B E D))
+    (.effect (.header head)) (.arg _) (.cons (.arg .head) .nil)
+    (ExplicitRuntime.Wiring.choice arms (resultData _) ExplicitRuntime.Wiring.exitArm guarded
+      (newest .head []) (nextRuntime [] ports)
+      (.cons (.arg .head) (.cons (newest (.tail .head) []) .nil))
+      (ExplicitRuntime.Wiring.finishStep [Threaded ports]))
+
+private def firstHeader : TwoBlock.Instruction Op number (Silmaril.coprod number number) :=
+  ⟨.enterFirst, rfl, rfl⟩
+private def firstBody : TwoBlock.Instruction Op number number := ⟨.bodyFirst, rfl, rfl⟩
+private def firstJoin : TwoBlock.Instruction Op number (Silmaril.coprod number number) :=
+  ⟨.joinFirst, rfl, rfl⟩
+private def secondHeader : TwoBlock.Instruction Op number (Silmaril.coprod number number) :=
+  ⟨.enterSecond, rfl, rfl⟩
+private def secondBody : TwoBlock.Instruction Op number pair := ⟨.bodySecond, rfl, rfl⟩
+private def secondJoin : TwoBlock.Instruction Op pair (Silmaril.coprod pair number) :=
+  ⟨.joinSecond, rfl, rfl⟩
+
+-- Assemble both numbered θ children and the enclosing vertices directly.
+-- In the malformed variant θ₂ bypasses the link's token result while
+-- still reading the link's payload.
+private def manualTerm (bypass : Bool) : Wires.Reverse.ClosedTerm Op number number number pair :=
+  let fp := Wires.FirstPorts number number
+  let sp := Wires.SecondPorts number number pair
+  let beforeLink := [Threaded fp]
+  let afterLink := beforeLink ++ [Threaded sp]
+  let a := handBody (D := number) firstHeader firstBody firstJoin
+  let b := handBody (D := pair) secondHeader secondBody secondJoin
+  .bind (thetaNode (.arg (runtimePort fp)) (.cons (.arg .head) .nil) a.1)
+      (fun _ => (Wires.liftChecked a.2.2).1) <|
+    .bind (.ofBase (OrderedRuntime.Structured.primitiveNode (nextRuntime [] fp)
+          (carriedData _) (carriedData _) (.effect .link) (.cons (newest .head []) .nil)))
+        (fun i => i.elim0) <|
+      .bind (thetaNode (if bypass then .output (0 : Fin 2) (.tail .head) else nextRuntime beforeLink sp)
+          (.cons (newest .head beforeLink) .nil) b.1)
+        (fun _ => (Wires.liftChecked b.2.2).1) <|
+        .ret (OrderedRuntime.Structured.withRuntime (nextRuntime afterLink sp)
+          (.cons (newest .head afterLink) .nil))
+
+private def manualGraph (bypass : Bool) : Wires.Graph Op number number number pair :=
+  (manualTerm bypass).toGraph
+
+private def decomposition : Wires.Reverse.Decomposition (manualGraph false) number number number pair where
+  checked := (Wires.code spec).2.collect
+  labels := ([.header firstHeader, .gamma [[.headerExit], [.call firstBody, .join firstJoin]]],
+    [.header secondHeader, .gamma [[.headerExit], [.call secondBody, .join secondJoin]]])
+  shape := by rfl
+  view := ⟨.loop firstHeader (.call firstBody) firstJoin, .loop secondHeader (.call secondBody) secondJoin⟩
+  wiring := by rfl
+
+private def recovered := Wires.Reverse.raise decomposition
+
+example : recovered.1 = region spec := rfl
+
+example : (Wires.Reverse.raise (Wires.Reverse.canonical spec)).1 = region spec :=
+  Wires.Reverse.raise_canonical spec
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (2 : Nat))).run [] =
+      Part.some (exit2, finalToken) := by
+  apply (Wires.Reverse.raise_returns_iff decomposition coherent (PUnit.unit, (2 : Nat)) exit2 [] finalToken).mp
+  exact (NestedTheta.Partial.observe_eq_some _ _ _ _).mp graphDone
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recovered.2.typing (PUnit.unit, (0 : Nat))).run [] =
+      Part.none :=
+  (Wires.Reverse.raise_undefined_iff decomposition coherent (PUnit.unit, (0 : Nat)) []).mp graphNoHandoff
+
+-- The two graphs have the same typed labels. The full wiring certificate
+-- rejects the stale token edge at the second θ.
+example : Wires.Reverse.read (manualGraph true).toTerm = Wires.Reverse.read (manualGraph false).toTerm := rfl
+
+example : ¬ Nonempty (Wires.Reverse.Decomposition (manualGraph true) number number number pair) := by
+  rintro ⟨d⟩
+  have edge := congrArg (fun g : Wires.Graph Op number number number pair =>
+    (g.nodes (2 : Fin 3)).inputs.addresses) d.wiring
+  change [Address.output 1 0, Address.output 1 1] = [Address.output 1 0, Address.output 0 1] at edge
+  cases edge
+
+end Reverse
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Tests
