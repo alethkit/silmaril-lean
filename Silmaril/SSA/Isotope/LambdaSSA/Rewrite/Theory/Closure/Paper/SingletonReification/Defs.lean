@@ -71,7 +71,9 @@ inductive LoopFree : {X D : τ} → {r : Region Φ} → ValueBranches [X] r [D] 
         ValueBranches [X] (.cfg p 0 blocks) [D])
 
 /-- The primitive comparison premises for loop-free singleton reification.
-Product extensionality is used only between pure-return arrows. -/
+The product and pure-return fields are available for compatibility. The
+producer-based reification proof uses the single-bind return comparison for
+constructor branches and the diagonal. -/
 structure ModelComparisons : Prop where
   unit (X : τ) : reindexHom J M objIso (J.map (unitMap M X)) =
     ofRegion (τ := τ) (.br (ℓ := 0) (A := Silmaril.unit) rfl (.unit (Γ := [X])))

@@ -45,6 +45,12 @@ theorem extend_map [FreydCategory J] {R A : V} (p : R ⟶ A) :
     extend J (J.map p) = J.map (CartesianMonoidalCategory.lift (𝟙 R) p) :=
   extend_map_proof J p
 
+/-- Left-to-right evaluation of two value arrows is their Cartesian pairing. -/
+theorem pair_maps_eq_map_lift [FreydCategory J] {R A B : V} (f : R ⟶ A) (g : R ⟶ B) :
+    ProofRelevant.Semantics.Categorical.pair J (J.map f) (J.map g) =
+      J.map (CartesianMonoidalCategory.lift f g) :=
+  pair_maps_eq_map_lift_proof J f g
+
 /-- A shared tensor comparison makes the transported value diagonal central. -/
 theorem duplicate_central_of_tensor_eqToIso [FreydCategory J] (E : V)
     (h : J.obj E ⊗ J.obj E = J.obj (E ⊗ E))
