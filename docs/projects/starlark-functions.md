@@ -277,8 +277,7 @@ comprehensions in return values and single-name assignment RHSs. Its
 recursive nodes include calls, conditional tests and arms, and both
 operands of `and` and `or`. A call's callee, positional operands, named
 operands, and optional `*` and `**` operands all admit the placement
-grammar. Ordinary leaves and comprehension heads retain the existing
-resolved expression grammar.
+grammar. Ordinary leaves retain the existing resolved expression grammar.
 [Pinned comprehensions][comprehensions] · [Pinned conditionals][conditional] · [Pinned logical operators][logical-ops]
 
 The placement compiler emits a checked body at the point the value is
@@ -391,14 +390,37 @@ nested unwind. Lean still starts with fresh locals for each evaluation.
 Go can keep their prior values across visits in one activation.
 [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
 
-Inline comprehensions in a list comprehension's element expression
-or a dictionary comprehension's key or value expression remain open. Defaults and other statement
-operands also remain open. Call shapes and spread value domains follow
-the [existing argument profile](#argument-binding). Field and subscript
-assignment targets remain outside this placement profile. Quotation
-supplies ordinary operands, heads and pattern ASTs. The broader
-iterable and filter placement uses separate normalized
-`CompExpr.listClauses` and `CompExpr.dictClauses` nodes.
+A list comprehension's head element and a dictionary comprehension's
+head key and value also accept the placement grammar. The head runs only
+when all clauses have accepted a combination of bindings. Nested heads
+resolve in that comprehension block and install their own locals.
+Dictionary heads evaluate the key and then the value, and only then
+check the key and insert or overwrite the entry in its original position.
+A value error therefore takes precedence over an unhashable key, and a
+failed key skips the value. These updates use the shared comprehension
+accumulator path. Dictionary displays keep their duplicate-key rejection.
+[Go head compilation][go-comp-compile] · [Go update dispatch][go-dict-run]
+
+`dict_yield_order` gives the key, value and update sequence.
+The exact assignment and return correspondences cover nested heads.
+Comprehension locals are restored and the prior iterator stack is
+preserved on success and failure. A failing head leaves earlier effects
+and accumulator entries in the Lean heap and leaves the assignment
+destination untouched. The pinned
+Go fixtures compare effects and errors and check that guarded aliases
+can be mutated after failure. Lean additionally compares the private
+accumulator and frame. The fresh-local difference with Go also applies
+when a nested head site is revisited within one outer comprehension.
+[Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
+
+The normalized `CompExpr.listComprehension` and
+`CompExpr.dictComprehension` forms accept recursive operands in clauses
+and heads. The plain-head forms remain available. Quotation supplies
+ordinary leaves and pattern ASTs. The recursive comprehension nodes
+are constructed separately. Defaults and other statement operands
+remain outside this placement boundary, as do field and subscript
+assignment targets. Call shapes and spread value domains follow the
+[existing argument profile](#argument-binding).
 
 ## Direct denotation of resolved expressions
 
