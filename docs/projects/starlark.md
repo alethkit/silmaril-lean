@@ -1,5 +1,8 @@
 # Scalar Starlark semantics
 
+The collections API adds a resolved list slice with a shared heap and reachable
+freezing. [Starlark list store](starlark-lists.md)
+
 The dialect is the **Starlark core language** specified by the Bazel team in the
 [Starlark Language Specification][spec] at commit
 `c0af0ea03dc90d3bbc021394b693e6957cc15030` (2026-02-06). The SHA-256 of the raw

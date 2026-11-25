@@ -85,6 +85,7 @@ check:
 .PHONY: check-runtime check-integrations
 check-runtime:
 	$(MAKE) process-gates
+	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.% +Silmaril.Proofs.SSA.RVSDG.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDG.lean)
 	$(if $(filter sqlite_file_format_compatibility,$(CHECK_TARGETS)),bash tests/formats/sqlite-tranche/run.sh)
 	$(if $(filter sqlite_lean,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Cli.Spec.LeanSqliteShell.Thms && $(PYTHON) -I tests/formats/sqlite-shell/check.py)
 	$(if $(filter sqlite_image_lean,$(CHECK_TARGETS)),$(LAKE) build --wfail sqlite_lean sqlite_write_profile_tests && $(PYTHON) -I tests/formats/sqlite-shell/check.py --writer)
@@ -163,6 +164,7 @@ check-integrations:
 	$(if $(filter Silmaril +Silmaril.Semantics.Operational.Program.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DwarningAsError=true tests/semantics/operational-program/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Languages.Python.Core.Thms,$(CHECK_TARGETS)),$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Logic.Operational.Machines.Thms +Silmaril.X86.OperationalInstitution.Thms +Silmaril.Wasm.Institution.Operational.Thms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Logic.Operational.Machines.Thms +Silmaril.X86.OperationalInstitution.Thms +Silmaril.Wasm.Institution.Operational.Thms && $(LAKE) env lean -DwarningAsError=true tests/semantics/operational-institutions/Regression.lean)
+	$(if $(filter Silmaril +Silmaril.Wasm.Institution.Operational.Division.% +Silmaril.Proofs.Wasm.Institution.Operational.Division.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Wasm.Institution.Operational.Division.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/wasm/guarded-division-sos/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Semantics.SOS.% +Silmaril.Proofs.Semantics.SOS.% +Silmaril.Logic.Operational.SOS.% +Silmaril.Proofs.Logic.Operational.SOS.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Logic.Operational.SOS.Thms +Silmaril.Logic.Operational.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/semantics/sos/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.Logic.Operational.SOS.Marked.% +Silmaril.Proofs.Logic.Operational.SOS.Marked.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.Logic.Operational.SOS.Marked.Policy.Thms +Silmaril.Logic.Operational.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true --run tests/semantics/sos-marked/Regression.lean)
 	$(if $(filter Silmaril +Silmaril.RiscV.OperationalInstitution.LPS.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.RiscV.OperationalInstitution.LPS.Thms +Silmaril.X86.OperationalInstitution.Thms +Silmaril.Wasm.Institution.Operational.Thms && $(LAKE) env lean -DwarningAsError=true tests/semantics/rv64-operational/Regression.lean)

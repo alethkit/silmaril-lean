@@ -111,6 +111,7 @@ inductive Directive where
 
 inductive ScopeError where
   | duplicateParameter (name : Name)
+  | lambdaParameterAnnotation (name : Name)
   | parameterDirective (name : Name) (directive : Directive)
   | conflictingDirectives (name : Name)
   | readBeforeDirective (name : Name) (directive : Directive)
@@ -118,6 +119,12 @@ inductive ScopeError where
   | nonlocalInModule (name : Name)
   | unboundNonlocal (name : Name)
   | starImport
+  | unsupportedExpression (form : UnsupportedExpr)
+  deriving BEq, DecidableEq, Repr
+
+inductive AnnotationMode where
+  | eager
+  | deferred
   deriving BEq, DecidableEq, Repr
 
 structure Diagnostic where
@@ -153,6 +160,7 @@ private def collectDirective (block : BlockContext) (directive : Directive)
 
 private structure Collecting where
   context : BlockContext
+  annotationMode : AnnotationMode
   childrenRev : List CollectedTree := []
 
 private def Collecting.readName (block : Collecting) (name : Name) : Collecting :=
@@ -167,6 +175,9 @@ private def Collecting.bindName (block : Collecting) (name : Name) : Collecting 
 
 private def Collecting.childPath (block : Collecting) : BlockPath :=
   block.context.path ++ [block.childrenRev.length]
+
+private def Collecting.startChild (block : Collecting) (context : BlockContext) : Collecting :=
+  { context, annotationMode := block.annotationMode }
 
 private def Collecting.addChild (block child : Collecting) : Collecting :=
   let collected := CollectedTree.block child.context child.childrenRev.reverse
@@ -214,37 +225,86 @@ mutual
       let afterHandlers ← collectHandlers (← collect block body) handlers
       collect (← collect afterHandlers otherwise) cleanup
     | .importFrom _ _ names => names.foldlM Collecting.importName block
-    | .functionDef name parameters body decorators => do
-      let outer ← collectExprs (← collectDefaults block parameters) decorators
+    | .functionDef name parameters body decorators returnAnnotation => do
+      let outer ← collectDefaults block parameters
+      let outer ← if block.annotationMode == .eager then do
+        collectOptional (← collectAnnotations outer parameters) returnAnnotation
+      else pure outer
+      let outer ← collectExprs outer decorators
       let context ← functionContext outer.childPath parameters
-      let nested ← collect { context } body
+      let nested ← collect (outer.startChild context) body
       return (outer.bindName name).addChild nested
-    | .classDef name bases body decorators => do
+    | .classDef name bases body decorators keywords => do
       let outer ← collectExprs (← collectExprs block decorators) bases
-      let nested ← collect { context := { path := outer.childPath, kind := .class_ } } body
+      let outer ← collectClassKeywords outer keywords
+      let nested ← collect (outer.startChild { path := outer.childPath, kind := .class_ }) body
       return (outer.bindName name).addChild nested
 
   private def collectExpr (block : Collecting) : Expr → Except Diagnostic Collecting
     | .name name => .ok (block.readName name)
+    | .list_ elements | .tuple elements | .booleanOp _ elements => collectExprs block elements
+    | .dictionary entries => do collectDictValues (← collectDictKeys block entries) entries
+    | .unary _ operand => collectExpr block operand
     | .binary _ left right => do collectExpr (← collectExpr block left) right
+    | .conditional condition consequent alternate => do
+      collectExpr (← collectExpr (← collectExpr block condition) consequent) alternate
+    | .comparison left rest => do collectComparands (← collectExpr block left) rest
     | .call callee arguments => do collectExprs (← collectExpr block callee) arguments
+    | .callWith callee arguments => do collectArguments (← collectExpr block callee) arguments
     | .attribute receiver _ => collectExpr block receiver
     | .subscript receiver index => do collectExpr (← collectExpr block receiver) index
+    | .slice receiver lower upper stride => do
+      let block ← collectExpr block receiver
+      collectOptional (← collectOptional (← collectOptional block lower) upper) stride
+    | .yield_ value => collectOptional block value
     | .lambda parameters body => do
       let outer ← collectDefaults block parameters
       let context ← functionContext outer.childPath parameters
-      let nested ← collectExpr { context } body
+      if let some annotated := parameters.find? (·.annotation.isSome) then
+        throw ⟨context.path, .lambdaParameterAnnotation annotated.name⟩
+      let nested ← collectExpr (outer.startChild context) body
       return outer.addChild nested
-    | .integer _ | .boolean _ | .none_ => .ok block
+    | .integer _ | .floatBits _ | .text _ | .boolean _ | .none_ | .ellipsis => .ok block
+    | .unsupported form => .error ⟨block.context.path, .unsupportedExpression form⟩
 
   private def collectExprs (block : Collecting) : List Expr → Except Diagnostic Collecting
     | [] => .ok block
     | expr :: rest => do collectExprs (← collectExpr block expr) rest
 
+  private def collectDictKeys (block : Collecting) :
+      List (Option Expr × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (key, _) :: rest => do collectDictKeys (← collectOptional block key) rest
+
+  private def collectDictValues (block : Collecting) :
+      List (Option Expr × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (_, value) :: rest => do collectDictValues (← collectExpr block value) rest
+
+  private def collectComparands (block : Collecting) :
+      List (Comparison × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (_, value) :: rest => do collectComparands (← collectExpr block value) rest
+
+  private def collectArguments (block : Collecting) :
+      List (ArgumentKind × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (_, value) :: rest => do collectArguments (← collectExpr block value) rest
+
+  private def collectClassKeywords (block : Collecting) :
+      List (Option Name × Expr) → Except Diagnostic Collecting
+    | [] => .ok block
+    | (_, value) :: rest => do collectClassKeywords (← collectExpr block value) rest
+
   private def collectDefaults (block : Collecting) : List Parameter → Except Diagnostic Collecting
     | [] => .ok block
-    | ⟨_, none⟩ :: rest => collectDefaults block rest
-    | ⟨_, some expr⟩ :: rest => do collectDefaults (← collectExpr block expr) rest
+    | ⟨_, defaultValue, _, _⟩ :: rest => do
+      collectDefaults (← collectOptional block defaultValue) rest
+
+  private def collectAnnotations (block : Collecting) : List Parameter → Except Diagnostic Collecting
+    | [] => .ok block
+    | ⟨_, _, _, annotation⟩ :: rest => do
+      collectAnnotations (← collectOptional block annotation) rest
 
   private def collectOptional (block : Collecting) : Option Expr → Except Diagnostic Collecting
     | none => .ok block
@@ -310,8 +370,9 @@ mutual
 end
 
 /-- Analyze lexical bindings and closure origins for a constructor-level module. -/
-public def analyze (source : Module) : Except Diagnostic ScopeTree := do
-  let moduleBlock ← collect { context := { path := [], kind := .module_ } } source.body
+public def analyze (source : Module) (annotationMode : AnnotationMode := .eager) :
+    Except Diagnostic ScopeTree := do
+  let moduleBlock ← collect { context := { path := [], kind := .module_ }, annotationMode } source.body
   resolve [] (.block moduleBlock.context moduleBlock.childrenRev.reverse)
 
 end Silmaril.Languages.Python.Source
