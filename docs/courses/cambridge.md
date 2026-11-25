@@ -11,6 +11,9 @@ reusable foundations sit beneath it, and other library regions do not import it.
 | Denotational Semantics, Part II | Domains and fixed points; IMP; PCF semantics and adequacy; failure of full abstraction for PCF and full abstraction with parallel-or | [Denotational semantics](cambridge-denotational.md) |
 | Optimising Compilers, Part II | Three-address flowgraphs; dataflow analysis and scoped optimization proofs; institution models and verified-pass adapters; exercise sheets 1–4 | [Optimising compilers](cambridge-optimising.md) |
 
+Chapter 7 of Semantics of Programming Languages has a separate guide for
+[shared-store concurrency](cambridge-concurrency.md).
+
 The guides distinguish proved results, executable examples, conditional
 interfaces and discussion exercises. This collection follows selected course
 materials; it does not cover the whole Cambridge curriculum.
@@ -31,6 +34,7 @@ For a smaller starting point:
 lake build Silmaril.Courses.Cambridge.L1.Course
 lake build Silmaril.Courses.Cambridge.L2.Course
 lake build Silmaril.Courses.Cambridge.L3.Course
+lake build Silmaril.Courses.Cambridge.Concurrency.Course
 lake build Silmaril.Courses.Cambridge.DenotationalSemantics
 lake build Silmaril.Courses.Cambridge.OptimisingCompilers.Course
 ```
