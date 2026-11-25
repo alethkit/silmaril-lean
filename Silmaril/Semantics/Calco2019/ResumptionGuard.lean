@@ -43,5 +43,10 @@ def iterateResumption {X Y : C} (f : X ⟶ R.obj (P.sum Y X))
     (hf : M.ResumptionGuard R (Y := Y) (Z := X) f) : X ⟶ R.obj Y :=
   R.solve P (M.diamond R f hf)
 
+/-- Postprocess a successful return and keep recursive calls in the right summand. -/
+def naturalityBody {X Y Z : C} (f : X ⟶ R.obj (P.sum Y X)) (g : Y ⟶ R.obj Z) :
+    X ⟶ R.obj (P.sum Z X) :=
+  f ≫ R.extend P (P.desc (g ≫ (R.monad P).map P.inl) (P.inr ≫ R.unit (P.sum Z X)))
+
 end ParametrizedGuardedElgotMonad
 end Silmaril.Calco2019
