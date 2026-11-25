@@ -1,6 +1,7 @@
 module
 
 import Silmaril.Semantics.ITree.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.SingleCall.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -208,3 +209,111 @@ theorem strict_bound_abort (S : Type 1) (step : S → S) (b : Bool) :
     exact observe_stop_bind S b _
 
 end LetIterWeakTreeSoundness
+
+namespace LetIterResponseSingleCall
+
+open Silmaril.Isotope.LetIter.PaperExpression.Source.FreeTree
+
+inductive Prim where
+  | next
+  | read
+
+abbrev Fx := Bool × Bool
+abbrev strict : Fx := (true, false)
+abbrev T := Ty Bool
+abbrev inputSort : T := .base false
+abbrev outputSort : T := .base true
+
+/-- Both calls have one argument. The read returns a different sort. -/
+abbrev sig : Signature Bool Prim :=
+  ⟨fun _ => 1, fun _ _ => false, fun | .next => false | .read => true⟩
+
+local instance : HasTy Prim T := sig.endpoints
+local instance : HasEff Prim Fx := ⟨fun | .next => ⊥ | .read => strict⟩
+local instance : EffectIteration Fx := EffectIteration.complete Fx
+
+abbrev Γ : EffectCtx T Fx := [(outputSort, ⊥), (inputSort, ⊥)]
+abbrev sorts : Fin Γ.length → Bool := Fin.cases true (fun _ => false)
+abbrev Γ' : EffectCtx T Fx := (outputSort, ⊥) :: Γ
+abbrev sorts' : Fin Γ'.length → Bool := Fin.cases true sorts
+abbrev Γ₀ := (Ctx.nil : Ctx Empty T)
+
+theorem ctx_pure : Γ.Pure := by
+  unfold EffectCtx.Pure
+  decide
+
+theorem slots_typed : ∀ i : Fin Γ.length, (Γ.get i).1 = .base (sorts i) := by
+  intro i
+  refine Fin.cases rfl (fun j => ?_) i
+  rw [Fin.eq_zero j]
+  rfl
+
+theorem extended_slots_typed : ∀ i : Fin Γ'.length, (Γ'.get i).1 = .base (sorts' i) :=
+  fun i => Fin.cases (motive := fun j => (Γ'.get j).1 = .base (sorts' j)) rfl slots_typed i
+
+abbrev args : (i : Fin (sig.arity Prim.read)) → Tree sig sorts (sig.arg Prim.read i) :=
+  fun _ => .op Prim.next (fun _ => .var 1)
+
+theorem args_pure : ∀ i, DeclaredPure (ε := Fx) sig (args i) :=
+  fun _ => ⟨rfl, fun _ => trivial⟩
+
+theorem read_not_pure : ¬ IsPure (⊥ : Fx) Prim.read := by
+  change strict ≠ (⊥ : Fx)
+  decide
+
+theorem strict_bound : (⊥ : Fx) < strict ∧ strict < ⊤ :=
+  ⟨lt_of_le_of_ne bot_le (by decide), lt_of_le_of_ne le_top (by decide)⟩
+
+abbrev request : Tree sig sorts true := .op Prim.read args
+abbrev receive : Expr Prim := .var 0
+abbrev ignoreResponse : Expr Prim := .var 1
+abbrev receiveThroughLet : Expr Prim := .let₁ (.var 0) (.var 0)
+
+theorem receive_wf : Wf Γ' receive outputSort (⊥ : Fx) := .var 0 le_rfl
+theorem ignore_wf : Wf Γ' ignoreResponse outputSort (⊥ : Fx) := .var 1 le_rfl
+theorem receive_let_wf : Wf Γ' receiveThroughLet outputSort (⊥ : Fx) :=
+  .let₁ receive_wf (.var 0 le_rfl)
+
+/-- The same normalized request distinguishes returning its response from
+returning the existing variable of the same result sort. -/
+theorem response_differs_from_ambient :
+    ¬ AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx (.let₁ request.native (.bv 0))
+      (.let₁ request.native (.bv 1)) outputSort := by
+  intro h
+  have he := Response.SingleCall.continuation_eqv sig ctx_pure slots_typed args args_pure
+    read_not_pure strict le_rfl receive_wf ignore_wf (t := .bv 0) (s := .bv 1) rfl rfl h
+  let x : Tree sig sorts' true := .var 0
+  let y : Tree sig sorts' true := .var 1
+  have hΓ' : Γ'.Pure := by unfold EffectCtx.Pure; decide
+  have eqTrees := (source_eqv_iff sig x y trivial trivial hΓ' extended_slots_typed strict).mp he
+  let index {a : Bool} (z : Tree sig sorts' a) : Option Nat := match z with
+    | .var i => some i.val
+    | .op _ _ => none
+  exact (by decide : (some 0 : Option Nat) ≠ some 1) (congrArg index eqTrees)
+
+theorem response_differs_from_ambient_at_bound :
+    ¬ Eqv Γ outputSort strict (.let₁ request.source receive)
+      (.let₁ request.source ignoreResponse) := by
+  intro h
+  exact response_differs_from_ambient (h.toLetIter rfl rfl)
+
+/-- A let in the continuation is normalized automatically at the original bound. -/
+theorem let_in_continuation :
+    AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx (.let₁ request.native (.let₁ (.bv 0) (.bv 0)))
+      (.let₁ request.native (.bv 0)) outputSort ↔
+    Eqv Γ outputSort strict (.let₁ request.source receiveThroughLet)
+      (.let₁ request.source receive) :=
+  Response.SingleCall.endpoint_reflection sig ctx_pure slots_typed args args_pure
+    read_not_pure strict le_rfl receive_let_wf receive_wf rfl rfl
+
+example : Eqv Γ outputSort strict (.let₁ request.source receiveThroughLet)
+    (.let₁ request.source receive) := by
+  have ht : Wf Γ request.source outputSort strict :=
+    .op (f := Prim.read) le_rfl
+      (.pair (.op (f := Prim.next) bot_le (.pair (.var 1 bot_le) (.unit _ _))) (.unit _ _))
+  obtain ⟨t, hl, htyped⟩ := ht.toLetIter
+  have he : t = request.native := Option.some.inj (hl.symm.trans rfl)
+  subst t
+  exact let_in_continuation.mp (.equiv (.let₁ (.refl htyped.1) (Equiv.letEta .bv)))
+
+end LetIterResponseSingleCall
