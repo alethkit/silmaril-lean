@@ -38,6 +38,25 @@ instance : Category.{max u v} (Computations G) where
   comp_id f := Category.comp_id f
   assoc f g h := Category.assoc f g h
 
+/-- View the chosen leftmost component as its arrow in the runtime category. -/
+def inRuntime (G : EffectfulPolygraph.{u,v}) : Computations G ⥤ Runtime G where
+  obj := boundary
+  map f := f
+
+/-- Recover the coherent family of components from a leftmost computation. -/
+noncomputable def cliqueHom {A B : Computations G} (f : A ⟶ B) :
+    Clique.Hom (braidClique A.word) (braidClique B.word) :=
+  (leftmostEquiv A.word B.word).symm f
+
+theorem cliqueHom_leftmost {A B : Computations G} (f : A ⟶ B) :
+    (cliqueHom f).app 0 0 = f :=
+  (leftmostEquiv_apply (cliqueHom f)).symm.trans ((leftmostEquiv A.word B.word).apply_symm_apply f)
+
+/-- The runtime input and output of an effect are both on the left. -/
+def effect (e : G.effect.Edge) :
+    (⟨G.effect.source e⟩ : Computations G) ⟶ ⟨G.effect.target e⟩ :=
+  Diagram.Presented.ofTerm (Diagram.gen (S := signature G) (.effect e))
+
 /-- Tensor objects by concatenating the value words. -/
 def concat (A B : Computations G) : Computations G :=
   ⟨A.word ++ B.word⟩
