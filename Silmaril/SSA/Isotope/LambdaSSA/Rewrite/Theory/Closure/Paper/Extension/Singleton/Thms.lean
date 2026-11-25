@@ -5,7 +5,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Catego
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonExtension
 
-/-! # Exact arrows and left whiskering in an extended singleton quotient -/
+/-! # Exact arrows and whiskering in an extended singleton quotient -/
 
 public section
 
@@ -44,5 +44,20 @@ theorem homRel_whiskerLeft (X : Paper.TypeCategory (τ := τ) Φ)
 theorem whiskerLeft_map {X Y Z : Paper.TypeCategory (τ := τ) Φ} (f : Y ⟶ Z) :
     (whiskerLeftFunctor Seed ((projection Seed).obj X)).map ((projection Seed).map f) =
       (projection Seed).map (Paper.TypeCategory.whiskerLeft X f) := rfl
+
+theorem whiskerRight_map_congr (X : Paper.TypeCategory (τ := τ) Φ)
+    {Y Z : Paper.TypeCategory (τ := τ) Φ} {f g : Y ⟶ Z} (h : homRel Seed f g) :
+    (projection Seed).map (Paper.TypeCategory.whiskerRight f X) =
+      (projection Seed).map (Paper.TypeCategory.whiskerRight g X) :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonExtension.whiskerRight_map_congr X h
+
+/-- Right whiskering descends by the guarded braid and left-whiskering congruence. -/
+@[expose] def whiskerRightFunctor (X : TypeCategory Seed) : TypeCategory Seed ⥤ TypeCategory Seed :=
+  CategoryTheory.Quotient.lift (homRel Seed) (Paper.TypeCategory.whiskerRightFunctor X.as ⋙ projection Seed)
+    (fun _ _ _ _ h => whiskerRight_map_congr Seed X.as h)
+
+theorem whiskerRight_map {X Y Z : Paper.TypeCategory (τ := τ) Φ} (f : Y ⟶ Z) :
+    (whiskerRightFunctor Seed ((projection Seed).obj X)).map ((projection Seed).map f) =
+      (projection Seed).map (Paper.TypeCategory.whiskerRight f X) := rfl
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton

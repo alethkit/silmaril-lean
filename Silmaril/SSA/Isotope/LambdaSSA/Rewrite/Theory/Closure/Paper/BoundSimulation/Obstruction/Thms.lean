@@ -44,4 +44,18 @@ theorem unit_eta_fails :
     ¬ Paper.Eqv [(Ty.unit : Ty Empty)] (.br 0 (.unit : Tm Empty)) (.br 0 (.var 0)) [Ty.unit] :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.unit_eta_fails
 
+/-- The first guarded projection is inequivalent to this projection term's return in default Paper. -/
+theorem fst_return_fails :
+    ¬ Paper.Eqv [(Ty.product Ty.unit Ty.unit : Ty Empty)]
+      (.let₁ (.let₂ (.var 0) (.var 1)) (.br 0 (.var 0)) : Region Empty)
+      (.let₂ (.var 0) (.br 0 (.var 1))) [Ty.unit] :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.fst_return_fails
+
+/-- The second guarded projection is inequivalent to this projection term's return in default Paper. -/
+theorem snd_return_fails :
+    ¬ Paper.Eqv [(Ty.product Ty.unit Ty.unit : Ty Empty)]
+      (.let₁ (.let₂ (.var 0) (.var 0)) (.br 0 (.var 0)) : Region Empty)
+      (.let₂ (.var 0) (.br 0 (.var 0))) [Ty.unit] :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.snd_return_fails
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction
