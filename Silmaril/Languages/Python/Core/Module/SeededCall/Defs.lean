@@ -162,11 +162,16 @@ def Operand.evalList {slots : Nat} (space : Namespace) (locals : Locals slots) :
   | operand :: rest =>
     (operand.eval space locals).bind fun value => (evalList space locals rest).map (value :: ·)
 
+def resolveCall {slots : Nat} (space : Namespace) (locals : Locals slots)
+    (callee : Operand slots) (arguments : List (Operand slots)) :
+    Except Failure (Value × List Value) :=
+  (callee.eval space locals).bind fun function =>
+    (Operand.evalList space locals arguments).map (function, ·)
+
 /-- Resolve the callable, then resolve positional operands in order. Calls
 and their supported callback do not write either namespace. -/
 def run {slots : Nat} (space : Namespace) (locals : Locals slots)
     (callee : Operand slots) (arguments : List (Operand slots)) : Result :=
-  (callee.eval space locals).bind fun function =>
-    (Operand.evalList space locals arguments).bind (invoke function)
+  (resolveCall space locals callee arguments).bind fun (function, values) => invoke function values
 
 end Silmaril.Languages.Python.Core.Module.SeededCall
