@@ -5,8 +5,7 @@ public import Init
 /-! # Python source syntax for module, function and class scope
 
 This fragment starts at constructor data. Names have no resolved access
-annotations. Function parameters are positional, with optional defaults
-evaluated in the defining block.
+annotations. Parameter syntax retains its kind, default and optional annotation.
 -/
 
 @[expose] public section
@@ -39,6 +38,10 @@ inductive ArgumentKind where
   | positional | keyword (name : Name) | unpackIterable | unpackMapping
   deriving Repr
 
+inductive ParameterKind where
+  | positionalOnly | positionalOrKeyword | varPositional | keywordOnly | varKeyword
+  deriving Repr
+
 mutual
   inductive Expr where
     | name (identifier : Name)
@@ -69,6 +72,8 @@ mutual
   structure Parameter where
     name : Name
     defaultValue : Option Expr := none
+    kind : ParameterKind := .positionalOrKeyword
+    annotation : Option Expr := none
     deriving Repr
 end
 
@@ -106,9 +111,9 @@ mutual
     | try_ (body : List Stmt) (handlers : List ExceptHandler) (otherwise cleanup : List Stmt)
     | importFrom (modulePath : List Name) (level : Nat) (names : List ImportName)
     | functionDef (name : Name) (parameters : List Parameter) (body : List Stmt)
-        (decorators : List Expr := [])
+        (decorators : List Expr := []) (returnAnnotation : Option Expr := none)
     | classDef (name : Name) (bases : List Expr) (body : List Stmt)
-        (decorators : List Expr := [])
+        (decorators : List Expr := []) (keywords : List (Option Name × Expr) := [])
     deriving Repr
 
   structure ExceptHandler where
