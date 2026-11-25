@@ -82,6 +82,97 @@ events = []
 	fmt.Println("DIALECT pinned Go rejects frozen list keys")
 }
 
+func sliceOperands() {
+	const setup = `def note(marker, value):
+    events.append(marker)
+    return value
+events = []
+`
+	g, err := initSource(setup + `out = note(1, events)[note(2, None):note(3, None):note(4, -2)]`)
+	require(err == nil && g["out"].String() == "[4, 2]" && g["events"].String() == "[1, 2, 3, 4]" &&
+		g["out"] != g["events"], fmt.Sprint(err))
+	fmt.Println("PASS slice operands run once, in source order, before taking the slice of the mutated receiver")
+
+	for _, test := range []struct{ expr, want string }{
+		{`[0, 1, 2, 3, 4][:]`, "[0, 1, 2, 3, 4]"},
+		{`[0, 1, 2, 3, 4][-4:-1:2]`, "[1, 3]"},
+		{`[0, 1, 2, 3, 4][100:-100:-2]`, "[4, 2, 0]"},
+		{`(0, 1, 2, 3, 4)[::-2]`, "(4, 2, 0)"},
+		{`(0, 1, 2, 3, 4)[None:None:None]`, "(0, 1, 2, 3, 4)"},
+		{`(0, 1, 2, 3, 4)[:-1:-1]`, "()"},
+		{`[0, 1, 2, 3, 4][-100::-1]`, "[]"},
+		{`[][::-1]`, "[]"},
+	} {
+		g, err := initSource("out = " + test.expr)
+		require(err == nil && g["out"].String() == test.want, test.expr+": "+fmt.Sprint(err))
+	}
+	fmt.Println("PASS omitted and None bounds, negative bounds and stride, and empty results")
+
+	for _, test := range []struct{ expr, trace, message string }{
+		{`len(note(1, 9))[note(2, None):note(3, None):note(4, 1)]`, "[1]", "has no len"},
+		{`note(1, events)[len(note(2, 9)):note(3, None):note(4, 1)]`, "[1, 2]", "has no len"},
+		{`note(1, 42)[note(2, True):len(note(3, 9)):note(4, 0)]`, "[1, 2, 3]", "has no len"},
+		{`note(1, events)[note(2, True):note(3, True):len(note(4, 9))]`, "[1, 2, 3, 4]", "has no len"},
+		{`note(1, 42)[note(2, True):note(3, True):note(4, 0)]`, "[1, 2, 3, 4]", "invalid slice operand"},
+		{`note(1, events)[note(2, True):note(3, True):note(4, True)]`, "[1, 2, 3, 4]", "invalid slice step"},
+		{`note(1, events)[note(2, True):note(3, True):note(4, 0)]`, "[1, 2, 3, 4]", "zero is not a valid slice step"},
+		{`note(1, events)[note(2, True):note(3, True):note(4, None)]`, "[1, 2, 3, 4]", "invalid start index"},
+		{`note(1, events)[note(2, None):note(3, True):note(4, -1)]`, "[1, 2, 3, 4]", "invalid end index"},
+	} {
+		g, err := initSource(setup + "out = " + test.expr + "\nnote(99, None)")
+		require(err != nil && strings.Contains(err.Error(), test.message), test.expr+": "+fmt.Sprint(err))
+		require(g["out"] == nil && g["events"].String() == test.trace, test.expr)
+	}
+	fmt.Println("PASS a failed operand skips the rest, and validation checks receiver, stride, start and stop")
+
+	g, err = initSource(`def pick(value):
+    return value
+inner = [7]
+items = [inner, [8]]
+def driver():
+    return pick(items)[pick(None)::pick(-1)]
+out = driver()
+inner[0] = 42
+out[0] = None
+shared = out[1][0]
+untouched = items[1][0]
+tupleKey = {(0, 1, 2)[pick(1):] : 9}[(1, 2)]
+`)
+	require(err == nil && g["out"] != g["items"] && g["out"].(*starlark.List).Index(1) == g["inner"] &&
+		g["shared"].String() == "42" && g["untouched"].String() == "8" && g["tupleKey"].String() == "9", fmt.Sprint(err))
+	fmt.Println("PASS list slices are shallow copies and sliced tuples remain usable as dictionary keys")
+
+	_, err = initSource(`out = [0, 1, 2][-100000000000:100000000000:100000000000]`)
+	require(err != nil && strings.Contains(err.Error(), "invalid slice step"), fmt.Sprint(err))
+	fmt.Println("DIALECT pinned Go rejects a stride outside signed 32 bits")
+
+	g, err = initSource(setup + `out = note(1, "aé🙂z")[note(2, 1):note(3, -1):note(4, None)]
+size = len(out)
+reverse = "aéz"[::-3]
+empty = "é"[1:1]`)
+	require(err == nil && g["out"] == starlark.String("é🙂") && g["size"].String() == "6" &&
+		g["reverse"] == starlark.String("za") && g["empty"] == starlark.String("") &&
+		g["events"].String() == "[1, 2, 3, 4]", fmt.Sprint(err))
+	fmt.Println("PASS string slices count UTF-8 bytes, including a valid reverse stride and an empty result")
+
+	g, err = initSource(setup + `out = note(1, "aé🙂z")[note(2, 1):note(3, 2):note(4, None)]
+reverse = "é"[::-1]
+index = "é"[0]`)
+	require(err == nil && g["out"] == starlark.String("\xc3") && g["reverse"] == starlark.String("\xa9\xc3") &&
+		g["index"] == starlark.String("\xc3") && g["events"].String() == "[1, 2, 3, 4]", fmt.Sprint(err))
+	fmt.Println("DIALECT pinned Go preserves malformed UTF-8 from a split, reversal or single-byte index")
+
+	for _, test := range []struct{ expr, message string }{
+		{`note(1, "é")[note(2, 0):note(3, 1):len(note(4, 9))]`, "has no len"},
+		{`note(1, "é")[note(2, 0):note(3, 1):note(4, 0)]`, "zero is not a valid slice step"},
+	} {
+		g, err := initSource(setup + "out = " + test.expr)
+		require(err != nil && strings.Contains(err.Error(), test.message), fmt.Sprint(err))
+		require(g["out"] == nil && g["events"].String() == "[1, 2, 3, 4]", test.expr)
+	}
+	fmt.Println("PASS string slice operand and stride failures retain earlier effects")
+}
+
 func main() {
 	g, err := initSource(`def mark(events, value):
     events.append(value)
@@ -241,4 +332,5 @@ out = driver()`)
 	fmt.Println("PASS an effectful condition runs once and only the chosen branch mutates")
 
 	collectionOperands()
+	sliceOperands()
 }

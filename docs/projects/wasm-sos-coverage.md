@@ -35,9 +35,9 @@ allocation premises.
 The [ranked graph judgment](../../Silmaril/Wasm/Institution/Operational/CallContinuation/OuterCall/Ranked/Graph/Thms.lean)
 interprets one typed activation at a time by well-founded recursion on resolved
 targets. The graph checker derives the target table from each body and checks
-the typed operand prefix, read-only local reads, integer binary operations,
-direct calls, and normal fallthrough. The judgment also covers unreachable and
-partial trap discards. Exact active-call inversion identifies the child's step
+the typed operand prefix, local reads and writes, integer binary operations,
+direct calls, function-body return, and normal fallthrough. The judgment also
+covers unreachable and partial trap discards. Exact active-call inversion identifies the child's step
 and the caller's unchanged continuation. Finite runs preserve typing and the
 descending chain of entered frames. The four-frame fixtures cover return and
 propagated trap. A separate arity check enforces V1's zero-or-one-result rule.
@@ -52,8 +52,29 @@ retain the declared mixed-width result order. The native fixtures pass through f
 simultaneous frames before returning to the original caller or propagating a trap,
 including separate discards of pending code and saved operands.
 
-The graph fragment excludes recursion, indirect and host calls, explicit return,
-unrestricted control flow, state updates, and whole-module validation.
+The graph composes the existing [numeric local SOS](../../Silmaril/Wasm/Institution/Operational/Locals/Native/Thms.lean)
+with ranked calls. Each entered frame carries its current numeric locals,
+initialized from arguments and default locals. The checker validates the
+slot type for both writes. `local.set` consumes its operand. `local.tee` duplicates the operand and schedules a
+set, leaving the write visible as a separate native successor. On return, the
+caller resumes with its saved locals and operands. On a trap, pending writes
+are discarded as the frames unwind. Regressions check modified child values,
+isolation of both local vectors, and caller restoration in all three dialects.
+
+An explicit function-body `return` checks that the top operands match the declared
+result types and arity. Its label step discards pending callee instructions. Its
+frame step discards operands below the results and restores the suspended caller's
+locals, operand prefix, and continuation. Core and Lime1 preserve mixed-width
+result order. V1 retains the graph-wide zero-or-one-result guard. The nested
+regressions check both exits, an observable resumed continuation, and a trap in
+the same caller context. Stack checking ends at `return`. The table still checks
+every declared call target in the body. See the public reduction rules for
+[Wasm 1.0](../../specs/spectec/src/specification/wasm-1.0/8-reduction.spectec#L135)
+and [Wasm 3.0](../../specs/spectec/src/specification/wasm-3.0/4.3-execution.instructions.spectec#L230).
+
+The graph fragment excludes return through additional structured labels,
+recursion, indirect and host calls, unrestricted control flow, store mutation,
+and whole-module validation.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have

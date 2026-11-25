@@ -179,4 +179,160 @@ private def pairs : List (Expr × Expr) := [
   | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.int 22)))
   | _ => false
 
+private def omitted : Expr := .atom (.scalar .none)
+
+private def onlyEventsList (state : Lists.State) : Bool :=
+  state.heap.toList.countP (fun cell => match cell.contents with
+    | .list _ => true
+    | _ => false) == 1
+
+-- The slice reads after the bound effects, including those on its own receiver.
+#guard
+  let expression := Expr.slice (note 1 (.atom (read events))) (note 2 omitted)
+    (note 3 omitted) (note 4 (integer (-2)))
+  let target : Binding := ⟨.global, "out"⟩
+  match execute expression, run program (.seq setup (lower expression target 5).code) root with
+  | .ok (.list address) direct, .ok .next lowered =>
+    observed direct [1, 2, 3, 4] && observed lowered [1, 2, 3, 4] &&
+      decide ((direct.bindingValue events).toOption ≠ some (.list address) ∧
+        direct.heap[address]? = some ⟨.list (integers [4, 2]), false⟩ ∧
+        lowered.heap = direct.heap ∧ (lowered.bindingValue target).toOption = some (.list address))
+  | _, _ => false
+
+#guard
+  let slice := fun start stop stride => (Lists.sliceElements (integers [0, 1, 2, 3, 4]) start stop stride).toOption
+  let noneValue : Lists.Value := .scalar .none
+  let intValue := fun i => Lists.Value.scalar (.int i)
+  decide (slice (intValue (-4)) (intValue (-1)) (intValue 2) = some (integers [1, 3]) ∧
+    slice (intValue 100) (intValue (-100)) (intValue (-2)) = some (integers [4, 2, 0]) ∧
+    slice noneValue (intValue (-1)) (intValue (-1)) = some [] ∧
+    slice (intValue (-100)) noneValue (intValue (-1)) = some [] ∧
+    slice (intValue (-100000000000)) (intValue 100000000000) (intValue 100000000000) = some (integers [0]) ∧
+    (Lists.sliceElements ([] : List Lists.Value) noneValue noneValue (intValue (-1))).toOption = some [])
+
+-- Empty slices still allocate mutable list cells, even when read from a frozen source.
+#guard
+  let source : Lists.Cell := ⟨.list (integers [7]), true⟩
+  let state : Lists.State := { heap := #[source] }
+  match Lists.readSlice (.list 0) (.scalar .none) (.scalar (.int 0)) (.scalar .none) state with
+  | .ok (.list address) next =>
+    decide (address = 1 ∧ next.heap = #[source, ⟨.list [], false⟩])
+  | _ => false
+
+-- A failure in a bound skips later operands and the allocation. The lowered destination stays unbound.
+#guard
+  let expression := Expr.slice (note 1 (.atom (read events))) (length (note 2 (integer 9)))
+    (note 3 omitted) (note 4 (integer 1))
+  let target : Binding := ⟨.global, "out"⟩
+  match execute expression, run program (.seq setup (lower expression target 5).code) root with
+  | .error (.builtinType .len (.scalar (.int 9))) direct, .error (.builtinType .len (.scalar (.int 9))) lowered =>
+    observed direct [1, 2] && observed lowered [1, 2] &&
+      onlyEventsList direct && decide (lowered.heap = direct.heap) &&
+      match lowered.bindingValue target with
+      | .error (.uninitialized binding) => binding == target
+      | _ => false
+  | _, _ => false
+
+-- A later operand failure takes precedence over receiver or bound validation.
+#guard
+  let bad := Expr.atom (.scalar (.bool true))
+  match execute (.slice (note 1 (integer 42)) (note 2 bad) (length (note 3 (integer 9)))
+      (note 4 (integer 0))) with
+  | .error (.builtinType .len (.scalar (.int 9))) state => observed state [1, 2, 3] && onlyEventsList state
+  | _ => false
+
+-- Validation waits for the operands. Receiver, stride, start and stop are then checked in order.
+#guard
+  let readEvents := Expr.atom (read events)
+  let bad := Expr.atom (.scalar (.bool true))
+  let failed := fun receiver start stop stride expected =>
+    match execute (.slice (note 1 receiver) (note 2 start) (note 3 stop) (note 4 stride)) with
+    | .error error state => error == expected && observed state [1, 2, 3, 4] && onlyEventsList state
+    | _ => false
+  failed (integer 42) bad bad (integer 0) .sliceTarget &&
+    failed readEvents bad bad bad (.sliceStrideType (.scalar (.bool true))) &&
+    failed readEvents bad bad (integer 0) .zeroSliceStride &&
+    failed readEvents bad bad omitted (.sliceStartType (.scalar (.bool true))) &&
+    failed readEvents omitted bad omitted (.sliceStopType (.scalar (.bool true)))
+
+-- A normalized function returns a fresh outer list whose nested values still alias the original.
+#guard
+  let commands : List Modules.Resolve.Command := [
+    .define "pick" { positional := [⟨"value", none⟩] } (.ret (some starlark%[value])),
+    .assign "inner" starlark%[[7]], .assign "items" starlark%[[inner, [8]]],
+    .define "driver" {} (.ret (some starlark%[pick(items)[pick(None) :: pick(-1)]])),
+    .assign "out" starlark%[driver()],
+    .setIndex starlark%[inner] starlark%[0] starlark%[42],
+    .setIndex starlark%[out] starlark%[0] starlark%[None],
+    .assign "shared" starlark%[out[1][0]], .assign "untouched" starlark%[items[1][0]],
+    .assign "tupleKey" starlark%[{(0, 1, 2)[pick(1):] : 9}[(1, 2)]]]
+  match Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.ok published state) =>
+    match published.exports.lookup "inner", published.exports.lookup "items", published.exports.lookup "out" with
+    | some (.list inner), some (.list items), some (.list out) =>
+      decide (items ≠ out ∧ state.heap[out]? = some ⟨.list [.scalar .none, .list inner], true⟩ ∧
+        published.exports.lookup "shared" = some (.scalar (.int 42)) ∧
+        published.exports.lookup "untouched" = some (.scalar (.int 8)) ∧
+        published.exports.lookup "tupleKey" = some (.scalar (.int 9)))
+    | _, _, _ => false
+  | _ => false
+
+-- Slicing selects UTF-8 bytes, then checks that the selected byte sequence is valid.
+#guard
+  let check := fun expression expected => match execute expression with
+    | .ok (.string text) _ => text == expected
+    | _ => false
+  check (.slice (string "aé🙂z") (integer 1) (integer (-1)) omitted) "é🙂" &&
+    check (.slice (string "aéz") omitted omitted (integer (-3))) "za" &&
+    check (.slice (string "banana") (integer 4) omitted (integer (-2))) "nnb" &&
+    check (.slice (string "é") (integer 1) (integer 1) omitted) ""
+
+#guard
+  let slice := Expr.slice (string "é")
+  let invalid := fun expression => match execute expression with
+    | .error .invalidSliceUTF8 _ => true
+    | _ => false
+  invalid (slice (integer 0) (integer 1) omitted) &&
+    invalid (slice omitted omitted (integer (-1)))
+
+-- All operand effects survive UTF-8 validation failure. Lowering skips the destination write.
+#guard
+  let expression := Expr.slice (note 1 (string "aé🙂z")) (note 2 (integer 1))
+    (note 3 (integer 2)) (note 4 omitted)
+  let target : Binding := ⟨.global, "out"⟩
+  match execute expression, run program (.seq setup (lower expression target 5).code) root with
+  | .error .invalidSliceUTF8 direct, .error .invalidSliceUTF8 lowered =>
+    observed direct [1, 2, 3, 4] && observed lowered [1, 2, 3, 4] &&
+      decide (lowered.heap = direct.heap) &&
+      match lowered.bindingValue target with
+      | .error (.uninitialized binding) => binding == target
+      | _ => false
+  | _, _ => false
+
+-- A later evaluation or bound validation error takes precedence over decoding.
+#guard
+  let receiver := note 1 (string "é")
+  let start := note 2 (integer 0)
+  let stop := note 3 (integer 1)
+  match execute (.slice receiver start stop (length (note 4 (integer 9)))),
+      execute (.slice receiver start stop (note 4 (integer 0))) with
+  | .error (.builtinType .len (.scalar (.int 9))) first, .error .zeroSliceStride second =>
+    observed first [1, 2, 3, 4] && observed second [1, 2, 3, 4]
+  | _, _ => false
+
+-- A string result uses no heap cell, and the existing len observes the selected byte count.
+#guard
+  let initial : Lists.State := { iterators := [0], heap := #[⟨.list [], false⟩] }
+  let commands : List Modules.Resolve.Command := [
+    .define "pick" { positional := [⟨"value", none⟩] } (.ret (some starlark%[value])),
+    .define "take" {} (.ret (some starlark%[pick("aé🙂z")[pick(1):pick(-1)]])),
+    .assign "out" starlark%[take()], .assign "size" starlark%[len(out)]]
+  match Lists.readSlice (.string "aé🙂z") (.scalar (.int 1)) (.scalar (.int (-1))) (.scalar .none) initial,
+      Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.string "é🙂") next, .ok (.ok published _) =>
+    decide (next.heap = initial.heap ∧ next.iterators = initial.iterators ∧
+      published.exports.lookup "out" = some (.string "é🙂") ∧
+      published.exports.lookup "size" = some (.scalar (.int 6)))
+  | _, _ => false
+
 end Silmaril.Languages.Starlark.Functions.Lowering

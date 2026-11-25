@@ -2,7 +2,8 @@ module
 
 public import Silmaril.Formats.Sqlite.File.WriteProfile.Checked.Defs
 import Silmaril.Formats.Sqlite.File.WriteProfile.Thms
-import Silmaril.Formats.Sqlite.File.WriteProfile.TablePage.Thms
+import Silmaril.Formats.Sqlite.File.WriteProfile.TablePage.Amount.Thms
+import Silmaril.Formats.Sqlite.Varint.Normal.Thms
 import Silmaril.Formats.Sqlite.TableLeaf.Subview.Thms
 
 public section
@@ -113,6 +114,56 @@ private theorem checked_encode_raw {snapshot : Snapshot} {bytes : Bytes}
         exact encoded
       next => cases accepted
 
+theorem checked_encode_selected_amount_physical {snapshot : Snapshot} {bytes : Bytes}
+    (slot : Nat) (key amount : Int64)
+    (accepted : Checked.encode snapshot = .ok bytes)
+    (selected : snapshot.orderedRows[slot]? = some ⟨key, amount⟩) :
+    let cells := snapshot.orderedRows.map
+      (fun row => (⟨row.id, Record.Write.amount row.amount⟩ : BTree.LeafWrite.Cell))
+    let serialized := cells.map BTree.LeafWrite.Cell.bytes
+    let view := File.View.ofBytes bytes
+    let offset := File.Write.pageSize - serialized.flatten.length + (serialized.take slot).flatten.length
+    let extent := 1 + (Varint.encode key.toUInt64).toList.length + 11
+    ∃ page, tablePage snapshot = .ok page ∧
+      ∃ image, File.parse? bytes = some image ∧
+      ∃ tableView, image.page? 2 = some tableView ∧
+        tableView.materialize = Bytes.ofList page ∧
+        tableView.be? (8 + 2 * slot) 2 = some offset ∧
+        TableLeaf.cell? view (512 + offset) =
+          some ⟨key, Bytes.ofList (Record.Write.amount amount),
+            512 + offset, 512 + offset + extent⟩ ∧
+        (TableLeaf.cell? view (512 + offset)).bind TableLeaf.row? =
+          some (key.toInt, [.integer (key), .integer amount]) := by
+  let cells := snapshot.orderedRows.map
+    (fun row => (⟨row.id, Record.Write.amount row.amount⟩ : BTree.LeafWrite.Cell))
+  let serialized := cells.map BTree.LeafWrite.Cell.bytes
+  let view := File.View.ofBytes bytes
+  let offset := File.Write.pageSize - serialized.flatten.length + (serialized.take slot).flatten.length
+  let extent := 1 + (Varint.encode key.toUInt64).toList.length + 11
+  obtain ⟨page, pageRead, tableView, slice, exactPage⟩ :=
+    encode_table_view (checked_encode_raw accepted)
+  obtain ⟨pointer, cellRead, rowRead⟩ := tablePage_selected_amount slot key amount pageRead selected
+  have tablePtr : tableView.be? (8 + 2 * slot) 2 = some offset := by
+    rw [← be?_materialize, exactPage]
+    exact pointer
+  let cell : TableLeaf.Cell :=
+    ⟨key, Bytes.ofList (Record.Write.amount amount), offset, offset + extent⟩
+  have copied : TableLeaf.cell? (File.View.ofBytes tableView.materialize) offset = some cell := by
+    rw [exactPage]
+    exact cellRead
+  have direct := TableLeaf.cell?_materialized_shift view tableView 512 512 offset slice cell copied
+  have directResult : TableLeaf.cell? view (512 + offset) =
+      some ⟨key, Bytes.ofList (Record.Write.amount amount),
+        512 + offset, 512 + offset + extent⟩ := by
+    simpa [cell, Nat.add_assoc] using direct
+  obtain ⟨image, parsed, pageEq⟩ := checked_root_page accepted
+  refine ⟨page, pageRead, image, parsed, tableView, pageEq.trans slice, exactPage,
+    tablePtr, directResult, ?_⟩
+  change (TableLeaf.cell? view (512 + offset)).bind TableLeaf.row? = _
+  rw [directResult]
+  rw [cellRead] at rowRead
+  exact rowRead
+
 theorem checked_encode_selected_row_physical {snapshot : Snapshot} {bytes : Bytes}
     (slot rowid : Nat) (small : rowid < 128) (amount : Int64)
     (accepted : Checked.encode snapshot = .ok bytes)
@@ -132,33 +183,18 @@ theorem checked_encode_selected_row_physical {snapshot : Snapshot} {bytes : Byte
             512 + offset, 512 + offset + 13⟩ ∧
         (TableLeaf.cell? view (512 + offset)).bind TableLeaf.row? =
           some ((rowid : Int), [.integer (Int64.ofNat rowid), .integer amount]) := by
-  let cells := snapshot.orderedRows.map
-    (fun row => (⟨row.id, Record.Write.amount row.amount⟩ : BTree.LeafWrite.Cell))
-  let serialized := cells.map BTree.LeafWrite.Cell.bytes
-  let view := File.View.ofBytes bytes
-  let offset := File.Write.pageSize - serialized.flatten.length + (serialized.take slot).flatten.length
-  obtain ⟨page, pageRead, tableView, slice, exactPage⟩ :=
-    encode_table_view (checked_encode_raw accepted)
-  obtain ⟨pointer, cellRead, rowRead⟩ := tablePage_selected_row slot rowid small amount pageRead selected
-  have tablePtr : tableView.be? (8 + 2 * slot) 2 = some offset := by
-    rw [← be?_materialize, exactPage]
-    exact pointer
-  let cell : TableLeaf.Cell :=
-    ⟨Int64.ofNat rowid, Bytes.ofList (Record.Write.amount amount), offset, offset + 13⟩
-  have copied : TableLeaf.cell? (File.View.ofBytes tableView.materialize) offset = some cell := by
-    rw [exactPage]
-    exact cellRead
-  have direct := TableLeaf.cell?_materialized_shift view tableView 512 512 offset slice cell copied
-  have directResult : TableLeaf.cell? view (512 + offset) =
-      some ⟨Int64.ofNat rowid, Bytes.ofList (Record.Write.amount amount),
-        512 + offset, 512 + offset + 13⟩ := by
-    simpa [cell, Nat.add_assoc] using direct
-  obtain ⟨image, parsed, pageEq⟩ := checked_root_page accepted
-  refine ⟨page, pageRead, image, parsed, tableView, pageEq.trans slice, exactPage,
-    tablePtr, directResult, ?_⟩
-  change (TableLeaf.cell? view (512 + offset)).bind TableLeaf.row? = _
-  rw [directResult]
-  rw [cellRead] at rowRead
-  exact rowRead
+  have keyValue : (Int64.ofNat rowid).toUInt64.toNat = rowid := by
+    change (UInt64.ofNat rowid).toNat = rowid
+    rw [UInt64.toNat_ofNat', Nat.mod_eq_of_lt (by omega : rowid < 2 ^ 64)]
+  have keyWidth := Varint.encode_width_normal (Int64.ofNat rowid).toUInt64 1
+    (by decide) (by decide) (Or.inl rfl) (by
+      rw [keyValue]
+      exact small)
+  simp at keyWidth
+  have signed : (Int64.ofNat rowid).toInt = (rowid : Int) := by
+    rw [← Int64.ofInt_eq_ofNat]
+    exact Int64.toInt_ofInt_of_le (by omega) (by omega)
+  simpa [keyWidth, signed, Nat.add_assoc] using
+    checked_encode_selected_amount_physical slot (Int64.ofNat rowid) amount accepted selected
 
 end Silmaril.Proofs.Formats.Sqlite.WriteProfile.Image

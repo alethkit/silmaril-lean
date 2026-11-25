@@ -15,6 +15,13 @@ variable {V S : Type u} {Op : Dialect.{u, v} (ValueSort V S) S}
 variable {m : Machine.{u, v, w} Op} {ports final : Ports (Ty V S)}
 variable {micro : Nat → State m final} {begin : Nat}
 
+/-- A job observed at an evaluation state either returns later to its
+saved frame or stays live there on this stream. -/
+theorem return_or_live {job : Job m ports} {frame : Stack m ports final}
+    (entered : micro begin = .eval job frame) :
+    (∃ stop, begin < stop ∧ Feedback.atReturn frame (micro stop)) ∨ LiveFrom micro begin frame :=
+  Proofs.return_or_live entered
+
 /-- Finite adequacy and progress delimit any supplied infinite trace
 whose starting job has no independent finite return. -/
 theorem live_of_no_return (steps : ∀ i, Step (micro i) (micro (i + 1)))

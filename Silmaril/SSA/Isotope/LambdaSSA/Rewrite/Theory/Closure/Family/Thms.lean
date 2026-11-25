@@ -30,6 +30,19 @@ theorem LSubst.ValueFamily.append {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → R
     LSubst.ValueFamily Γ (R ++ L) (R ++ K) (liftLSubstN R.length σ) :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.valueFamily_append hσ R
 
+/-- Typed variable renaming retains constructor-valued branch arguments. -/
+theorem ValueBranches.renameVars {Γ Δ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    (hr : ValueBranches Γ r L) {ρ : Nat → Nat} (hρ : Ren Γ Δ ρ) :
+    ValueBranches Δ (r.renameVars ρ) L :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.valueBranches_renameVars hr hρ
+
+/-- Replacing the exits of a value-branch region by value-branch continuations
+preserves value branches. -/
+theorem ValueBranches.lsubst {Γ : VCtx τ} {L K : LCtx τ} {r : Region Φ}
+    (hr : ValueBranches Γ r L) {σ : Nat → Region Φ} (hσ : LSubst.ValueFamily Γ L K σ) :
+    ValueBranches Γ (r.lsubst σ) K :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.valueBranches_lsubst hr hσ
+
 theorem LSubst.ValueFamily.comp {Γ : VCtx τ} {L K P : LCtx τ} {σ υ : Nat → Region Φ}
     (hσ : LSubst.ValueFamily Γ L K σ) (hυ : LSubst.ValueFamily Γ K P υ) :
     LSubst.ValueFamily Γ L P (compLSubst σ υ) :=

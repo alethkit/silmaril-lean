@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Defs
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Thms
+import Mathlib.Data.Nat.Find
 
 public section
 
@@ -226,5 +227,33 @@ theorem return_before_live {other : Ports (Ty V S)} {micro : Nat → State m fin
     (fun i _ => lives (finish + i) (Nat.le_add_right _ _))
   rw [Nat.add_sub_of_le afterFinish, returned] at inside
   exact lives stop afterFinish (returned ▸ return_at_floor inside (by omega))
+
+private theorem delimited_slice {micro : Nat → State m final} (steps : ∀ i, Step (micro i) (micro (i + 1)))
+    (frame : Stack m current final) (i count : Nat)
+    (within : ∀ offset, offset < count → ¬ Feedback.atReturn frame (micro (i + offset))) :
+    ReflTransGen (Feedback.InsideStep frame) (micro i) (micro (i + count)) := by
+  induction count with
+  | zero => exact .refl
+  | succ count ih =>
+    exact (ih fun offset smaller => within offset (by omega)).tail
+      ⟨steps (i + count), within count (Nat.lt_succ_self _)⟩
+
+theorem first_return_before {micro : Nat → State m final} {begin finish : Nat} (steps : ∀ i, Step (micro i) (micro (i + 1)))
+    {job : Job m current} {frame : Stack m current final} (entered : micro begin = .eval job frame) :
+    (∃ stop, begin ≤ stop ∧ stop < finish ∧ ∃ value,
+      micro stop = .returned value frame ∧ Returns m job value) ∨ (∀ i, begin ≤ i → i < finish → ¬ atReturn frame (micro i)) := by
+  classical
+  by_cases found : ∃ offset, begin + offset < finish ∧ Feedback.atReturn frame (micro (begin + offset))
+  · let offset := Nat.find found
+    obtain ⟨inTime, value, returned⟩ := Nat.find_spec found
+    have path := delimited_slice steps frame begin offset
+      (fun j smaller observed => Nat.find_min found smaller ⟨by omega, observed⟩)
+    rw [entered, returned] at path
+    exact .inl ⟨begin + offset, Nat.le_add_right _ _, inTime, value, returned,
+      (returns_iff_delimited frame).mpr path⟩
+  · refine .inr (fun i lower upper observed => found ⟨i - begin, ?_, ?_⟩)
+    · simpa only [Nat.add_sub_of_le lower] using upper
+    · simpa only [Nat.add_sub_of_le lower] using observed
+
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback.Proofs

@@ -160,10 +160,61 @@ private theorem spine {a b : List Val} {op last : Admin} {tail : List Admin}
   have head := congrArg fnv eq
   simpa [List.append_assoc, fnv_cons_of_none noOp, fnv_cons_of_none noLast] using head
 
-private theorem return_stuck {H : Type} {P : Profile} {s : Store H} {f : Frame}
-    {vs : List Val} {target : Config H} (step : Step P noHost ⟨s, f, vals vs ++ [.plain .return_]⟩ target) :
-    False :=
-  (not_step_blocked step (W := vs) (e := .plain .return_) (rest := []) (by simp)) (.inr (.inl rfl))
+theorem return_stuck {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {vs : List Val} {tail : List Admin} {target : Config H}
+    (step : Step P noHost ⟨s, f, vals vs ++ .plain .return_ :: tail⟩ target) : False :=
+  (not_step_blocked step (W := vs) (e := .plain .return_) (rest := tail)
+    (by simp [fnv_cons_of_none (a := .plain .return_) rfl])) (.inr (.inl rfl))
+
+theorem return_label_result {n : Nat} {stack : List Val} {tail out : List Admin}
+    (pop : LabelExit n [] (vals stack ++ .plain .return_ :: tail) out) :
+    out = vals stack ++ [.plain .return_] := by
+  generalize shape : vals stack ++ .plain .return_ :: tail = code at pop
+  have head := congrArg fnv shape
+  simp only [fnv_vals_append, fnv_cons_of_none (a := .plain .return_) rfl] at head
+  cases pop with
+  | vals => simp at head
+  | brZero | brSucc => simp [List.append_assoc, fnv_cons_of_none (a := .plain (.br _)) rfl] at head
+  | ret =>
+    have stackEq := congrArg Prod.fst head
+    simp only [List.append_assoc, List.singleton_append, fnv_vals_append,
+      fnv_cons_of_none (a := .plain .return_) rfl, List.append_nil] at stackEq
+    rw [stackEq]
+  | returnCall kind =>
+    simp [fnv_cons_of_none (Admin.val?_of_isReturnCallRef kind)] at head
+    exact (show ¬ (Admin.plain .return_).IsReturnCallRef from by simp [Admin.IsReturnCallRef])
+      (head.2.1 ▸ kind) |>.elim
+  | throw => simp [throwing, fnv_cons_of_none (a := .plain .throwRef) rfl] at head
+  | trap => simp at head
+
+theorem return_frame_iff {H : Type} {P : Profile} {s : Store H} {outer inner : Frame}
+    {n : Nat} {extra results : List Val} {dst : Config H} (arity : results.length = n) :
+    Step P noHost ⟨s, outer, [.frame n inner (vals (extra ++ results) ++ [.plain .return_])]⟩ dst ↔
+      dst = ⟨s, outer, vals results⟩ := by
+  constructor
+  · intro step
+    rcases step.frame_inv with ⟨_, _, _, inside, _⟩ | ⟨_, pop, rfl⟩
+    · exact (return_stuck inside).elim
+    generalize shape : vals (extra ++ results) ++ [Admin.plain .return_] = code at pop
+    have head := congrArg fnv shape
+    simp only [fnv_vals_append, fnv_cons_of_none (a := .plain .return_) rfl] at head
+    cases pop with
+    | vals => simp at head
+    | @ret oldExtra oldResults rest count =>
+      rw [← vals_append] at shape
+      have stack := (spine (op := .plain .return_) (last := .plain .return_) rfl rfl shape.symm).1
+      obtain ⟨_, rfl⟩ := returned_suffix stack (count.trans arity.symm)
+      rfl
+    | trap => simp at head
+    | throw => simp [throwing, fnv_cons_of_none (a := .plain .throwRef) rfl] at head
+    | returnCallNull kind | returnCallAddr kind _ _ _ =>
+      have seen := congrArg (fun is => (fnv is).2) shape
+      simp [List.append_assoc, fnv_cons_of_none (Admin.val?_of_isReturnCallRef kind)] at seen
+      exact (show ¬ (Admin.plain .return_).IsReturnCallRef from by simp [Admin.IsReturnCallRef])
+        (seen.1 ▸ kind) |>.elim
+  · rintro rfl
+    simpa only [vals_append, List.append_nil] using
+      (Step.returnFrame (s := s) (f := outer) (fi := inner) (vs' := extra) (rest := []) arity)
 
 private theorem exit_inner_stuck {H : Type} {P : Profile} {s : Store H} {f : Frame}
     {ready : Exit} {dst : Config H} (h : Step P noHost ⟨s, f, coreExit ready⟩ dst) : False := by

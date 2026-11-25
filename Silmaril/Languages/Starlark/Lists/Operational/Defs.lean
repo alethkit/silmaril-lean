@@ -43,6 +43,8 @@ inductive Eval : {α : Type} → State → Code α → Outcome α → Prop where
       Eval s (.index receiver index) (Outcome.resume out (readIndex value))
   | indexReceiverError {s t : State} {receiver index : Expr} {error : Error} :
       Eval s receiver (.error error t) → Eval s (.index receiver index) (.error error t)
+  | slice {s : State} {operands : Code (List Value)} {out : Outcome (List Value)} :
+      Eval s operands out → Eval s (.slice operands) (Outcome.resume out readSliceOperands)
   | append {s t : State} {receiver argument : Expr} {address : Address} {out : Outcome Value} :
       Eval s receiver (.ok (.list address) t) → Eval t argument out →
       Eval s (.append receiver argument) (Outcome.resume out (appendAt address))
