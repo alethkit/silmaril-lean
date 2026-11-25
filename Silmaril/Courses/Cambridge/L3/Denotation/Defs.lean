@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Courses.Cambridge.L3.Store
+public import Silmaril.Courses.Cambridge.L3.Metatheory.SubstitutionAlgebra
 public import Silmaril.Semantics.ElgotMonads.Defs
 
 /-! # Compositional may denotation for Cambridge L3 data and references
@@ -22,6 +22,11 @@ open scoped Silmaril.Elgot.Nondet
 a store read. There is no observation of a function's behaviour in this fragment. -/
 inductive Fragment : Expr → Prop where
   | value {e : Expr} : IsValue e → Fragment e
+  | bvar (i : Nat) : Fragment (.bvar i)
+  | letE {A : Ty} {value body : Expr} :
+      Fragment value → Fragment body → Fragment (.letE A value body)
+  | matchSum {e left right : Expr} {A B : Ty} :
+      Fragment e → Fragment left → Fragment right → Fragment (.matchSum e A left B right)
   | binary {a b : Expr} {op : Op} : Fragment a → Fragment b → Fragment (.binary a op b)
   | cond {c a b : Expr} : Fragment c → Fragment a → Fragment b → Fragment (.cond c a b)
   | seq {a b : Expr} : Fragment a → Fragment b → Fragment (.seq a b)
@@ -134,30 +139,90 @@ def whileBody (test body : Computation Value) (_ : Unit) : Computation (Value �
 def whileLoop (test body : Computation Value) : Computation Value :=
   Silmaril.Elgot.iter (whileBody test body) ()
 
+/-- An open index remains a variable when quoting an opaque function value.
+Looking up an open index as an expression has no return. -/
+inductive Binding where
+  | index (index : Nat)
+  | value (value : Value)
+
+abbrev Environment := Nat → Binding
+
+def Binding.expr : Binding → Expr
+  | .index i => .bvar i
+  | .value v => v.val
+
+def Binding.denote : Binding → Computation Value
+  | .index _ => fail
+  | .value v => pure v
+
+def Environment.empty : Environment := Binding.index
+
+def Environment.substitution (env : Environment) : Nat → Expr :=
+  fun i => (env i).expr
+
+def Environment.closeValue (env : Environment) (v : Value) : Value :=
+  ⟨v.val.subst env.substitution, v.property.subst env.substitution⟩
+
+def Environment.extend (env : Environment) (v : Value) : Environment
+  | 0 => .value v
+  | i + 1 => env i
+
+def Binding.shift : Binding → Binding
+  | .index i => .index (i + 1)
+  | .value v => .value ⟨v.val.rename Nat.succ, v.property.rename Nat.succ⟩
+
+def Environment.lift (env : Environment) : Environment
+  | 0 => .index 0
+  | i + 1 => (env i).shift
+
+def Environment.compose (inner outer : Environment) : Environment := fun i =>
+  match inner i with
+  | .index j => outer j
+  | .value v => .value (outer.closeValue v)
+
+def splitSum (v : Value) (left right : Value → Computation Value) : Computation Value :=
+  match v with
+  | ⟨.inl e _, h⟩ => left ⟨e, by cases h with | inl ready => exact ready⟩
+  | ⟨.inr e _, h⟩ => right ⟨e, by cases h with | inr ready => exact ready⟩
+  | _ => fail
+
 /-- Structural interpretation of the original L3 expression. `Fragment`
 specifies the supported expressions in the correspondence theorems. -/
-def denote : Expr → Computation Value
+def denoteWith (env : Environment) : Expr → Computation Value
   | .int n => pure (integer n)
   | .bool b => pure (boolean b)
   | .skip => pure unit
   | .loc a => pure (address a)
-  | .lam A body => pure ⟨.lam A body, .lam A body⟩
-  | .binary a op b => denote a >>= fun v => denote b >>= binary op v
-  | .cond c a b => denote c >>= fun v => branch v (denote a) (denote b)
-  | .seq a b => denote a >>= fun v => sequence v (denote b)
-  | .loop c b => whileLoop (denote c) (denote b)
-  | .pair a b => denote a >>= fun v => denote b >>= fun w => pure (pair v w)
-  | .fst e => denote e >>= first
-  | .snd e => denote e >>= second
-  | .inl e T => denote e >>= fun v => pure (injectLeft v T)
-  | .inr e T => denote e >>= fun v => pure (injectRight v T)
+  | .bvar i => (env i).denote
+  | .lam A body => pure (env.closeValue ⟨.lam A body, .lam A body⟩)
+  | .binary a op b => denoteWith env a >>= fun v => denoteWith env b >>= binary op v
+  | .cond c a b =>
+      denoteWith env c >>= fun v => branch v (denoteWith env a) (denoteWith env b)
+  | .seq a b => denoteWith env a >>= fun v => sequence v (denoteWith env b)
+  | .loop c b => whileLoop (denoteWith env c) (denoteWith env b)
+  | .pair a b => denoteWith env a >>= fun v => denoteWith env b >>= fun w => pure (pair v w)
+  | .fst e => denoteWith env e >>= first
+  | .snd e => denoteWith env e >>= second
+  | .inl e T => denoteWith env e >>= fun v => pure (injectLeft v T)
+  | .inr e T => denoteWith env e >>= fun v => pure (injectRight v T)
   | .record labels es =>
-      fields (fun i => denote (es i)) >>= fun vs => pure (record labels vs)
-  | .project e label => denote e >>= fun v => field v label
-  | .ref e => denote e >>= allocate
-  | .deref e => denote e >>= read
-  | .assign lhs rhs => denote lhs >>= fun v => assign v (denote rhs)
+      fields (fun i => denoteWith env (es i)) >>= fun vs => pure (record labels vs)
+  | .project e label => denoteWith env e >>= fun v => field v label
+  | .ref e => denoteWith env e >>= allocate
+  | .deref e => denoteWith env e >>= read
+  | .assign lhs rhs =>
+      denoteWith env lhs >>= fun v => assign v (denoteWith env rhs)
+  | .letE _ value body =>
+      denoteWith env value >>= fun v => denoteWith (env.extend v) body
+  | .matchSum e _ left _ right =>
+      denoteWith env e >>= fun v => splitSum v
+        (fun argument => denoteWith (env.extend argument) left)
+        (fun argument => denoteWith (env.extend argument) right)
   | _ => fail
+termination_by structural e => e
+
+/-- Closed-source interpretation. -/
+def denote (e : Expr) : Computation Value := denoteWith Environment.empty e
 
 /-- Data observations are indexed by the original L3 type, retaining the
 labels and types of all record fields. -/

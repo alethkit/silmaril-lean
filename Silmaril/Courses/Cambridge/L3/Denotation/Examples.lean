@@ -1,7 +1,8 @@
 module
 
-import Silmaril.Courses.Cambridge.L3.Denotation
+import Silmaril.Courses.Cambridge.L3.DenotationalInstitution
 import Silmaril.Courses.Cambridge.L3.Examples
+import Mathlib.Data.Fin.VecNotation
 
 /-! # Checked L3 denotational observations -/
 
@@ -58,7 +59,7 @@ private theorem read_new_cell (s : Store) (a : Loc) (fresh : a ∉ s) :
   change Returns (denote (.ref (.int 42)) >>= read) s (integer 42) (s.insert a (integer 42))
   apply (returns_bind _ _ _ _ _).mpr
   refine ⟨address a, s.insert a (integer 42), ?_, ?_⟩
-  · simp only [denote, pure_bind]
+  · simp only [denote, denoteWith, pure_bind]
     exact ⟨a, fresh, rfl⟩
   · change (s.insert a (integer 42)).lookup a = some (integer 42) ∧ _
     exact ⟨by simp, rfl⟩
@@ -75,7 +76,7 @@ example :
 -- Allocation cannot return an address that was already in the input store.
 example (s t : Store) (a : Loc) (present : a ∈ s) :
     ¬ Returns (denote (.ref (.int 42))) s (address a) t := by
-  simp only [denote, pure_bind]
+  simp only [denote, denoteWith, pure_bind]
   intro returned
   change ∃ b, b ∉ s ∧ (address a, t) = (address b, s.insert b (integer 42)) at returned
   obtain ⟨b, fresh, equal⟩ := returned
@@ -135,5 +136,93 @@ example (a : Loc) (fresh : a ∉ flagStore) :
   refine .head (.seqStep (.seqStep writeStep)) (.head (.seqStep .seqSkip) ?_)
   refine .head (.seqStep clearStep) (.head .seqSkip ?_)
   exact .head .while (.head (.ifStep (.derefValue flagOff)) (.single .ifFalse))
+
+private theorem rightCaseFragment : Fragment L3.Examples.sumProgram :=
+  .matchSum (.value (.inr (.bool true))) (.bvar 0)
+    (.cond (.bvar 0) (.fst (.value (.pair (.int 5) (.bool false)))) (.value (.int 0)))
+
+example : DataType.int.Observes L3.Examples.sumProgram ∅ 5 ∅ :=
+  (adequate_data rightCaseFragment).mpr L3.Examples.sumProgram_trace
+
+/-- The left branch has the payload at index 0 and the outer cell at index 1.
+The right branch would allocate a second cell if selected. -/
+private def lexicalWrite : Expr :=
+  .letE (.ref .int) (.ref (.int 5))
+    (.matchSum (.inl (.int 12) (.sum .int .unit)) .int
+      (.seq (.assign (.bvar 1) (.bvar 0)) (.deref (.bvar 1)))
+      .unit (.deref (.ref (.int 99))))
+
+private theorem lexicalWrite_fragment : Fragment lexicalWrite :=
+  .letE (.ref (.value (.int 5)))
+    (.matchSum (.value (.inl (.int 12)))
+      (.seq (.assign (.bvar 1) (.bvar 0)) (.deref (.bvar 1)))
+      (.deref (.ref (.value (.int 99)))))
+
+example : HasType ∅ .empty lexicalWrite .int :=
+  .letE (.ref (.int 5))
+    (.matchSum (.inl (.int 12))
+      (.seq (.assign (.bvar rfl) (.bvar rfl)) (.deref (.bvar rfl)))
+      (.deref (.ref (.int 99))))
+
+private theorem lexicalWrite_returns (s : Store) (a : Loc) (fresh : a ∉ s) :
+    DataType.int.Observes lexicalWrite s 12 (s.insert a (integer 12)) := by
+  unfold DataType.Observes denote
+  rw [lexicalWrite, denoteWith]
+  apply (returns_bind _ _ _ _ _).mpr
+  refine ⟨address a, s.insert a (integer 5), ?_, ?_⟩
+  · simp only [denoteWith, pure_bind]
+    exact ⟨a, fresh, rfl⟩
+  · simp only [denoteWith, pure_bind, splitSum, injectLeft, Environment.extend,
+      Binding.denote, assign, address]
+    apply (returns_bind _ _ _ _ _).mpr
+    refine ⟨unit, s.insert a (integer 12), ?_, ?_⟩
+    · change a ∈ s.insert a (integer 5) ∧
+        (unit, s.insert a (integer 12)) = (unit, (s.insert a (integer 5)).insert a (integer 12))
+      simp
+    · change (s.insert a (integer 12)).lookup a = some (integer 12) ∧ _
+      exact ⟨by simp, rfl⟩
+
+private def lexicalSource : Config := ⟨lexicalWrite, ∅⟩
+
+private def lexicalTarget (a : Loc) : Config := ⟨.int 12, (∅ : Store).insert a (integer 12)⟩
+
+private abbrev lexicalContext : StepSpecification.Context := ⟨.l3, 3⟩
+
+private def lexicalCatalogue : StepSpecification.Catalogue lexicalContext :=
+  ![lexicalSource, lexicalTarget 0, lexicalTarget 1]
+
+private def lexicalClaims : ReturnSpecification.Sentence lexicalContext :=
+  [.mayReturn 0, .mayReturnTo 0 1, .mayReturnTo 0 2]
+
+-- The catalogue institution distinguishes the concrete final stores for the same typed answer.
+example : ReturnSpecification.Holds lexicalContext lexicalCatalogue lexicalClaims ∧
+    lexicalTarget 0 ≠ lexicalTarget 1 := by
+  have observes (a : Loc) : DenotationalInstitution.observesReturn lexicalSource (lexicalTarget a) :=
+    ⟨integer 12, rfl, lexicalWrite_returns ∅ a Finmap.notMem_empty⟩
+  refine ⟨(DenotationalInstitution.holds_iff lexicalCatalogue lexicalClaims ?_).mpr ?_, ?_⟩
+  · intro claim member
+    simp only [lexicalClaims, List.mem_cons, List.not_mem_nil, or_false] at member
+    rcases member with rfl | rfl | rfl <;> exact lexicalWrite_fragment
+  · intro claim member
+    simp only [lexicalClaims, List.mem_cons, List.not_mem_nil, or_false] at member
+    rcases member with rfl | rfl | rfl
+    · exact ⟨lexicalTarget 0, observes 0⟩
+    · exact observes 0
+    · exact observes 1
+  · intro equal
+    have lookup := congrArg (fun c : Config => c.store.lookup 0) equal
+    simp [lexicalTarget, Finmap.lookup_insert_of_ne] at lookup
+
+private def capturesOuter : Expr :=
+  .letE .int (.int 7) (.ref (.lam .int (.binary (.bvar 1) .add (.bvar 0))))
+
+private def captured : Value :=
+  ⟨.lam .int (.binary (.int 7) .add (.bvar 0)), .lam _ _⟩
+
+-- Quoting an opaque function captures the lexical value and preserves its parameter binder.
+example (s : Store) (a : Loc) (fresh : a ∉ s) :
+    Returns (denote capturesOuter) s (address a) (s.insert a captured) := by
+  simp only [denote, capturesOuter, denoteWith, pure_bind]
+  exact ⟨a, fresh, rfl⟩
 
 end Silmaril.Courses.Cambridge.L3.Denotation.Examples
