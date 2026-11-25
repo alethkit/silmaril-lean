@@ -137,4 +137,13 @@ instance valuesCartesianMonoidal (S : Sig.{u}) : CartesianMonoidalCategory (Valu
   CartesianMonoidalCategory.ofChosenFiniteProducts ⟨_, valueUnitIsTerminal S⟩ fun A B =>
     ⟨_, valueFanIsLimit A B⟩
 
+/-- Cartesian pairing in the value category has the indicated syntax representative. -/
+theorem valueLift_hom {X A B : ValueCat S} (f : X ⟶ A) (g : X ⟶ B) :
+    (CartesianMonoidalCategory.lift f g).hom = pairArrows f.hom g.hom := by rfl
+
+/-- Pairing two pure representatives preserves purity. -/
+theorem isPureMor_pairArrows {X A B : SynCat S} {f : X ⟶ A} {g : X ⟶ B}
+    (hf : IsPureMor f) (hg : IsPureMor g) : IsPureMor (pairArrows f g) :=
+  isPureMor_pairArrows_proof hf hg
+
 end Silmaril.Thesis.LambdaIter.Syn.SynCat
