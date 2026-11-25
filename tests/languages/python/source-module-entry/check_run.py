@@ -34,6 +34,24 @@ after = 2
 assert result == -3
 assert True == 1
 """, {}, {"result": -3}, "normal", ".normal", 2),
+    ("literal_sequence_indexing", """result = [-7, 4, 9][-3]
+assert (8, -7)[0] == 8
+""", {}, {"result": -7}, "normal", ".normal", 2),
+    ("indexed_assertion_failure", """before = 1
+assert (2, 4)[-1] == 2
+after = 2
+""", {}, {"before": 1, "after": None}, "AssertionError", ".raised .assertionError", 2),
+)
+
+UNSUPPORTED_INDEXING = (
+    "result = [7][1]\n",
+    "result = (7,)[-2]\n",
+    "result = [][0]\n",
+    "result = [7][True]\n",
+    "index = 0\nresult = [7][index]\n",
+    "value = 7\nresult = [value][0]\n",
+    "result = [7, 1 // 0][0]\n",
+    "result = [7][:1]\n",
 )
 
 CPYTHON = """
@@ -64,6 +82,11 @@ private def observation (source : Module) (bindings : List (String × Core.Modul
   match state with
   | .finished final => some (final.completion, names.map final.globals.lookup, log.length)
   | .running .. => none
+
+private def unsupportedIndex (source : Module) : Bool :=
+  match Compile.ModuleEntry.check source with
+  | .error .expressionProfile => true
+  | _ => false
 """
 
 
@@ -102,4 +125,7 @@ if __name__ == "__main__":
                 test += "#print axioms Compiled.finishes_iff\n#print axioms Compiled.run_finishes\n"
             shared["check_lean"](lean_file, LEAN + test, extra_imports=imports)
             observations[name] = {"completion": completion, "globals": namespace, "visible_core_labels": events}
+        for source in UNSUPPORTED_INDEXING:
+            shared["emit"](python_file, lean_file, source)
+            shared["check_lean"](lean_file, LEAN + "#guard unsupportedIndex pythonSource\n", extra_imports=imports)
     print(json.dumps({"cpython": sys.version.split()[0], "observations": observations}))

@@ -14,6 +14,12 @@ operations to the module runtime, which gives the initialized store and
 execution outcomes.
 [Definitions and translation laws](../../Silmaril/Languages/Python/Compile/ModuleEntry/Thms.lean)
 
+A list or tuple of signed integer literals can be indexed by a signed
+integer literal. The checker adjusts a negative index once by the
+sequence length and lowers a successful lookup to an integer operand.
+All elements must be integer literals. Out-of-bounds indices, slices,
+and dynamic receivers or indices are outside the profile.
+
 The regression emits Lean from Python source and verifies the global
 access witnesses, action order and the diagnostic for an assertion
 message.

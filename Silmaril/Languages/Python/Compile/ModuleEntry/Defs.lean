@@ -35,11 +35,32 @@ inductive Operand (scope : Scope) where
   | read (name : Name) (reference : GlobalReference scope name)
   | binary (op : BinaryOp) (left right : Operand scope)
 
+def integerLiteral? : Expr → Option Int
+  | .integer value => some value
+  | .unary .negative (.integer value) => some (-value)
+  | _ => none
+
+def literalSequence? : Expr → Option (List Int)
+  | .list_ elements | .tuple elements => elements.mapM integerLiteral?
+  | _ => none
+
+/-- A negative index counts once from the end of the literal sequence. -/
+def literalIndex? (values : List Int) (index : Int) : Option Int :=
+  let offset := if index < 0 then (values.length : Int) + index else index
+  if offset < 0 then none else values[offset.toNat]?
+
+def literalSubscript? (source index : Expr) : Option Int := do
+  let values ← literalSequence? source
+  let position ← integerLiteral? index
+  literalIndex? values position
+
 inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop where
   | integer (value : Int) : OperandTranslation scope (.integer value) (.integer value)
   | boolean (value : Bool) : OperandTranslation scope (.boolean value) (.boolean value)
   | negativeInteger (value : Int) :
       OperandTranslation scope (.unary .negative (.integer value)) (.integer (-value))
+  | literalSubscript {source index value} (selected : literalSubscript? source index = some value) :
+      OperandTranslation scope (.subscript source index) (.integer value)
   | read (name : Name) (reference : GlobalReference scope name) :
       OperandTranslation scope (.name name) (.read name reference)
   | add {left right lhs rhs} (first : OperandTranslation scope left lhs)
@@ -69,6 +90,10 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
   | .integer value => .ok ⟨.integer value, .integer value⟩
   | .boolean value => .ok ⟨.boolean value, .boolean value⟩
   | .unary .negative (.integer value) => .ok ⟨.integer (-value), .negativeInteger value⟩
+  | .subscript source index =>
+    match selected : literalSubscript? source index with
+    | some value => .ok ⟨.integer value, .literalSubscript selected⟩
+    | none => .error .expressionProfile
   | .name name => do
     let some reference := globalReference? scope name | throw (.unresolvedGlobal name)
     return ⟨.read name reference, .read name reference⟩
