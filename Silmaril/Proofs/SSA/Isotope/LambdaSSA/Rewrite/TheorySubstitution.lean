@@ -26,7 +26,7 @@ theorem branchValue_rename {Γ Δ : VCtx τ} {a : Tm Φ} {A : τ}
   | inl _ ih => exact .inl ih
   | inr _ ih => exact .inr ih
 
-private theorem liftValues {Γ Δ : VCtx τ} {σ : Nat → Tm Φ}
+theorem liftValues {Γ Δ : VCtx τ} {σ : Nat → Tm Φ}
     (hσ : ∀ ⦃i A⦄, At Γ i A → Tm.BranchValue Δ (σ i) A) (B : τ) :
     ∀ ⦃i A⦄, At (B :: Γ) i A → Tm.BranchValue (B :: Δ) (Tm.liftSubst σ i) A := by
   intro i A hi
@@ -38,7 +38,7 @@ private theorem liftValues {Γ Δ : VCtx τ} {σ : Nat → Tm Φ}
 
 variable [HasTy Φ τ]
 
-private theorem valuesTyped {Γ Δ : VCtx τ} {σ : Nat → Tm Φ}
+theorem valuesTyped {Γ Δ : VCtx τ} {σ : Nat → Tm Φ}
     (hσ : ∀ ⦃i A⦄, At Γ i A → Tm.BranchValue Δ (σ i) A) :
     Tm.Subst.HasType Γ Δ σ :=
   fun _ _ hi => (hσ hi).hasType

@@ -37,11 +37,19 @@ def valueEmptyIsInitial (S : Sig.{u}) :
 instance valuesHasInitial (S : Sig.{u}) : HasInitial (ValueCat S) :=
   (valueEmptyIsInitial S).hasInitial
 
+/-- The left syntactic injection has a pure representative. -/
+theorem isPureMor_injl (A B : SynCat S) : IsPureMor (injl A B) :=
+  isPureMor_injl_proof A B
+
+/-- The right syntactic injection has a pure representative. -/
+theorem isPureMor_injr (A B : SynCat S) : IsPureMor (injr A B) :=
+  isPureMor_injr_proof A B
+
 /-- The two syntax injections have pure representatives. -/
-def valueCofan (A B : ValueCat S) : BinaryCofan A B :=
+@[expose] def valueCofan (A B : ValueCat S) : BinaryCofan A B :=
   BinaryCofan.mk (P := ⟨cop A.obj B.obj⟩)
-    ⟨injl A.obj B.obj, isPureMor_injl_proof _ _⟩
-    ⟨injr A.obj B.obj, isPureMor_injr_proof _ _⟩
+    ⟨injl A.obj B.obj, isPureMor_injl _ _⟩
+    ⟨injr A.obj B.obj, isPureMor_injr _ _⟩
 
 /-- Copairing two pure representatives gives a pure representative of the copairing. -/
 def valueCofanIsColimit (A B : ValueCat S) : IsColimit (valueCofan A B) :=
@@ -136,5 +144,14 @@ def valueFanIsLimit (A B : ValueCat S) : IsLimit (valueFan A B) :=
 instance valuesCartesianMonoidal (S : Sig.{u}) : CartesianMonoidalCategory (ValueCat S) :=
   CartesianMonoidalCategory.ofChosenFiniteProducts ⟨_, valueUnitIsTerminal S⟩ fun A B =>
     ⟨_, valueFanIsLimit A B⟩
+
+/-- Cartesian pairing in the value category has the indicated syntax representative. -/
+theorem valueLift_hom {X A B : ValueCat S} (f : X ⟶ A) (g : X ⟶ B) :
+    (CartesianMonoidalCategory.lift f g).hom = pairArrows f.hom g.hom := by rfl
+
+/-- Pairing two pure representatives preserves purity. -/
+theorem isPureMor_pairArrows {X A B : SynCat S} {f : X ⟶ A} {g : X ⟶ B}
+    (hf : IsPureMor f) (hg : IsPureMor g) : IsPureMor (pairArrows f g) :=
+  isPureMor_pairArrows_proof hf hg
 
 end Silmaril.Thesis.LambdaIter.Syn.SynCat

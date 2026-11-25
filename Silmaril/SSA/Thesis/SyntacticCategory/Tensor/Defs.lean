@@ -75,4 +75,16 @@ def tensorRight (R : SynCat S) {A B : SynCat S} (f : A ⟶ B) :
     productObj A R ⟶ productObj B R :=
   (tensorSwap A R).hom ≫ tensorLeft R f ≫ (tensorSwap B R).inv
 
+/-- The tensor unit of the syntactic computation category is the syntax unit type. -/
+def tensorUnit (S : Sig.{u}) : SynCat S :=
+  of (unit : S.Ty)
+
+/-- The pure Cartesian left unitor viewed in the computation category. -/
+def tensorLeftUnitor (A : SynCat S) : productObj (tensorUnit S) A ≅ A :=
+  (values S).mapIso (MonoidalCategoryStruct.leftUnitor (⟨A⟩ : ValueCat S))
+
+/-- The pure Cartesian right unitor viewed in the computation category. -/
+def tensorRightUnitor (A : SynCat S) : productObj A (tensorUnit S) ≅ A :=
+  (values S).mapIso (MonoidalCategoryStruct.rightUnitor (⟨A⟩ : ValueCat S))
+
 end Silmaril.Thesis.LambdaIter.Syn.SynCat

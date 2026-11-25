@@ -6,19 +6,28 @@ The model interprets a fragment of the L3 language in §5.5 of Peter Sewell's
 [Course notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=78) ·
 [Bibliography](../../references.bib)
 
-Import `Silmaril.Courses.Cambridge.L3.Denotation`, also available through
-`Silmaril.Courses.Cambridge.L3.Course`.
+Import `Silmaril.Courses.Cambridge.L3.Denotation` for the model and
+`Silmaril.Courses.Cambridge.L3.DenotationalInstitution` for the observation
+adapter. Both are available through `Silmaril.Courses.Cambridge.L3.Course`.
 
 ## Model and agreement
 
 `Fragment` admits existing values, integer arithmetic and comparison,
-conditionals, sequencing, while loops, pairs and both projections, both sum injections,
-ordered records and label projection, allocation, dereference, and assignment.
-It uses the original L3 expressions, types and stores. Function values can
-be carried or stored as opaque values. Sum elimination, binding, function
-application, and recursive functions are beyond this slice.
+conditionals, sequencing, loops, strict `let`, bound indices, products and
+both projections, both sum injections, case analysis, ordered records and
+label projection, allocation, dereference, and assignment. It uses the
+original L3 expressions, types and stores. Function values are opaque.
+Executing a function application or a recursive-function declaration is
+outside this fragment.
 
-`denote` gives each expression a `StateT L3.Store SetM L3.Value` computation.
+`denoteWith` interprets an expression in a lexical environment using
+`StateT L3.Store SetM L3.Value`. `denote` starts with the empty environment.
+A `let` first evaluates its binding and then extends the environment for its
+body. A sum match evaluates the scrutinee, then extends the selected
+branch's environment with the payload. Quoting an opaque lambda closes its
+body over the environment by capture-avoiding substitution. The
+`denote_beta` equation identifies environment extension with the source
+beta step.
 The clauses use the denotations of the operands. Record collection links the
 return store of each field to the input store of the next field, in label
 order. A value returns itself and the input store. Allocation returns every
@@ -33,7 +42,8 @@ carry a different allocation choice.
 | Theorem | Contract |
 | --- | --- |
 | `adequate` | A value and final store belong to the denotation exactly when the original direct rules have a finite trace to that configuration. |
-| `typed_return` | For a closed, typed source and matching store, every denotational return has the original type under a location typing that extends the original one. The final store has that typing. |
+| `adequateWith` | The same exact agreement holds for the operand after instantiating it with the lexical environment. |
+| `typed_return`, `typed_returnWith` | A typed source with a matching store and, for lexical evaluation, typed bindings returns the original type under an extended location typing. The final store has that typing. |
 | `adequate_data` | The exact return theorem at typed data observations, with concrete final stores. |
 | `data_return` | Every return of a typed data program can be observed at its declared data type. |
 
@@ -61,13 +71,35 @@ a cell before clearing its guard.
 [Proofs](../../Silmaril/Courses/Cambridge/L3/Denotation.lean) ·
 [Examples](../../Silmaril/Courses/Cambridge/L3/Denotation/Examples.lean)
 
+## Institution observations
+
+The adapter interprets the catalogue institution's `may-return` and
+`may-return-to` claims by the denotation. `DenotationalInstitution.holds_iff`
+applies to a conjunction when the source of every claim is in `Fragment`.
+The existential form ranges over all complete returned configurations.
+The named form checks both the value expression and the final store.
+`observed_data_iff` specializes the named observation to typed data. A
+checked example allocates in a strict `let`, uses its saved address
+inside a sum branch, and satisfies two named claims for the same integer
+with different final stores.
+[Institution adapter](../../Silmaril/Courses/Cambridge/L3/DenotationalInstitution.lean) ·
+[May-return specification](cambridge-return-specification.md)
+
 ## Higher-order store and games
 
 L3 can save a function in a cell, replace it, and later call through that
 cell. A compositional model for open terms must account for how a context can
 call a returned function and how aliasing and private allocations affect
 later calls. The function-cell example exercises the corresponding direct
-rules. [L3 function cell](../../Silmaril/Courses/Cambridge/L3/Examples.lean)
+rules. Lexical quotation accounts for the captured values in an opaque
+stored function. The call-depth extension proves exact finite-return and
+final-store adequacy for admitted chains of nested tail applications.
+The checked example loads a closure from a cell and then invokes its
+captured helper. Each callee retains every fresh choice in the current
+store. Recursive declarations and unrestricted re-entry through aliases
+or cycles remain outside the checked scope.
+[Stored closure and nested-call denotations](cambridge-l3-single-call.md) ·
+[L3 function cell](../../Silmaril/Courses/Cambridge/L3/Examples.lean)
 
 Abramsky, Honda and McCusker give a fully abstract game model of an
 ML-style language with general references. It relaxes behavioural

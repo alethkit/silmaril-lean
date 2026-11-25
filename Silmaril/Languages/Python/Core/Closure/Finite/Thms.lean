@@ -30,6 +30,11 @@ theorem HeapTable.write_project (table : HeapTable) (identity : CellId) (value :
     (table.write identity value).map HeapTable.project = table.project.write identity value :=
   Proofs.Languages.Python.Core.Closure.Finite.write_project table identity value
 
+theorem Snapshot.write_project (source : Snapshot layout) (slot : Slot layout) (value : Value) :
+    (source.write slot value).map Snapshot.project =
+      source.frame.write source.heap.project slot value :=
+  Proofs.Languages.Python.Core.Closure.Finite.snapshot_write_project source slot value
+
 theorem Snapshot.execute_project (source : Snapshot layout) (request : Request layout) :
     let next := source.execute request
     (next.1, next.2.project) = Finite.execute source.project request :=

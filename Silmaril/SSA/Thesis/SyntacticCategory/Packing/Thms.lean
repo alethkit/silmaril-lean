@@ -67,4 +67,15 @@ theorem packedSubst_isPureMor {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx 
     IsPureMor (packedSubst s) :=
   packedSubst_isPureMor_proof s
 
+/-- The pure substitution used by packing preserves syntactic purity. -/
+theorem packedTerm_pure {n : Nat} (β : BoundCtx S.Ty n) {t : Tm Empty S.Instr n}
+    (hp : Pure S.pureEff t) : Pure S.pureEff (packedTerm β t) :=
+  packedTerm_pure_proof β hp
+
+/-- Packing a pure term uses pure projections and preserves purity. -/
+theorem packedArrow_isPureMor {n : Nat} {β : BoundCtx S.Ty n} {A : S.Ty}
+    {t : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β t A) (hp : Pure S.pureEff t) :
+    IsPureMor (packedArrow h) :=
+  packedArrow_isPureMor_proof h hp
+
 end Silmaril.Thesis.LambdaIter.Syn.SynCat
