@@ -245,6 +245,32 @@ private theorem regionDenotes_subst {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     refine ⟨.cfg R he' hb', ?_⟩
     simpa only [body', split, MonoidalCategory.id_tensorHom] using RegionDenotes.cfg he' hb' de' db' dc'
 
+/-- Add a captured variable below the region's current argument. -/
+theorem regionDenotes_weakenCapture {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ} {A B : τ}
+    {hr : Region.HasType (A :: Γ) r L} {f : J.obj (ctxObj M (A :: Γ)) ⟶ J.obj (labelObj M L)}
+    (d : RegionDenotes J M hr f) :
+    RegionDenotes J M (hr.renameVars ((Silmaril.Isotope.SSA.Ren.wk Γ B).lift A))
+      (J.map (fst (ctxObj M Γ) (M.obj B) ▷ M.obj A) ≫ f) := by
+  let wk := Silmaril.Isotope.SSA.Ren.wk Γ B
+  let k := fst (ctxObj M Γ) (M.obj B)
+  have hk := renameLookup_lift M wk (k := k)
+    (fun _ _ h => (lookup_succ M (B := B) h).symm) A
+  have hσ : SubstDenotes J M (Φ := Φ) (Γ := A :: Γ) (Δ := A :: B :: Γ) (Tm.var ∘ lift Nat.succ)
+      (k ▷ M.obj A) := by
+    intro i T hi
+    refine ⟨.var ((wk.lift A) hi), ?_⟩
+    rw [hk hi]
+    exact .var ((wk.lift A) hi)
+  obtain ⟨_, ds⟩ := regionDenotes_subst J M d hσ
+  have transport {s : Region Φ} (eq : r.substVars (Tm.var ∘ lift Nat.succ) = s)
+      {ht : Region.HasType (A :: B :: Γ) (r.substVars (Tm.var ∘ lift Nat.succ)) L}
+      (dt : RegionDenotes J M ht (J.map (k ▷ M.obj A) ≫ f))
+      (hs : Region.HasType (A :: B :: Γ) s L) :
+      RegionDenotes J M hs (J.map (k ▷ M.obj A) ≫ f) := by
+    cases eq
+    exact dt
+  exact transport (Region.renameVars_eq_substVars r _).symm ds _
+
 theorem regionDenotes_substValue_proof {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
     {a : Tm Φ} {A : τ} {hr : Region.HasType (A :: Γ) r L}
     {f : J.obj (ctxObj M (A :: Γ)) ⟶ J.obj (labelObj M L)}
