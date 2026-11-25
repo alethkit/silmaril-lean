@@ -75,6 +75,7 @@ theorem block_observations
   | afterApplication _ _ _ _ _ _ _ _ sites _ _ => exact ⟨rfl, sites, rfl⟩
   | suffix _ sites _ _ => exact ⟨rfl, sites, rfl⟩
   | atCall _ _ _ _ _ _ ih => exact ⟨congrArg (Location.callSite _) ih.1, ih.2⟩
+  | atArm _ _ _ _ ih => exact ⟨congrArg (Location.atArm _ _) ih.1, ih.2⟩
   | atPrimitive _ _ related _ _ => exact ⟨rfl, .same related, rfl⟩
   | later _ _ _ ih => exact ih
 
@@ -142,6 +143,12 @@ theorem block_evals
     have ranR := Eval.call ((open_lambda right captR argsR).symm ▸ ih.2)
     exact ⟨.bindBlocked (node := applicationVertex fn inputs) (application_eval selectedL ranL),
       .bindBlocked (node := applicationVertex fn inputs) (application_eval selectedR ranR)⟩
+  | @atArm _ _ _ _ _ _ _ _ _ sigsL sigsR armsL armsR _ _ _ _ _ _ _ _ _ _ _ _ stopL stopR
+      inputs selectedL selectedR _ ih =>
+    cases stopL
+    cases stopR
+    exact ⟨.bindBlocked (node := vertex inputs sigsL) (selectedL.symm ▸ Eval.gamma (cs := sigsL) (children := armsL) ih.1),
+      .bindBlocked (node := vertex inputs sigsR) (selectedR.symm ▸ Eval.gamma (cs := sigsR) (children := armsR) ih.2)⟩
   | @atPrimitive _ _ _ _ _ _ _ _ _ _ entryL entryR localsL localsR store opcode inputs _ undefinedL undefinedR =>
     exact ⟨.bindBlocked (node := primitiveVertex opcode inputs)
         (.primitiveBlocked (primitiveSite opcode (inputs.read entryL localsL)) store undefinedL),
@@ -151,7 +158,29 @@ theorem block_evals
 
 end ScopedBlock
 
-private theorem selected_tuple {valuesL valuesR : Tuple m.Val (.control (extra + 2) :: entry)}
+theorem continue_pair
+    {past : List (Ports (Ty V S))} {head : Ports (Ty V S)}
+    {nodeL nodeR : NestedTheta.Node (Instruction Op) args past head}
+    {childrenL : Bodies nodeL.kind nodeL.childSigs} {childrenR : Bodies nodeR.kind nodeR.childSigs}
+    {restL : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsL outs}
+    {restR : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsR outs}
+    {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+    {valueL valueR : Tuple m.Val head} {store middle : σ}
+    (firstL : Eval primitives (.node nodeL.kind nodeL.childSigs childrenL (nodeL.inputs.read entryL localsL))
+      store (.returned valueL middle))
+    (firstR : Eval primitives (.node nodeR.kind nodeR.childSigs childrenR (nodeR.inputs.read entryR localsR))
+      store (.returned valueR middle))
+    (tail : ScopedRegionPair primitives ids mapping restL restR entryL entryR
+      (localsL.snoc valueL) (localsR.snoc valueR) middle) :
+    ScopedRegionPair primitives ids mapping (.bind nodeL childrenL restL) (.bind nodeR childrenR restR)
+      entryL entryR localsL localsR store := by
+  cases tail with
+  | returned values restL restR => exact .returned values (.bind firstL restL) (.bind firstR restR)
+  | blocked stopped => exact .blocked (.later firstL firstR stopped)
+  | productive run =>
+    exact .productive (productive_map run (fun ran => ⟨_, .later firstL ran⟩) (fun ran => ⟨_, .later firstR ran⟩))
+
+theorem selected_tuple {valuesL valuesR : Tuple m.Val (.control (extra + 2) :: entry)}
     (related : TupleRelated m ids valuesL valuesR) :
     ∃ tag nextL nextR, valuesL = .cons (.control tag) nextL ∧ valuesR = .cons (.control tag) nextR ∧
       TupleRelated m ids nextL nextR := by
@@ -159,6 +188,40 @@ private theorem selected_tuple {valuesL valuesR : Tuple m.Val (.control (extra +
   | cons head tail =>
     cases head with
     | control tag => exact ⟨tag, _, _, rfl, rfl, tail⟩
+
+
+/-- Execute only the selected arms. A completed arm feeds the same
+binding continuation used by ranked calls and primitives. -/
+theorem gamma_scoped
+    {past : List (Ports (Ty V S))} {tailL tailR : List (Ports (Ty V S))}
+    {childSigsL childSigsR : Fin (extra + 2) → List (Ports (Ty V S))}
+    {armsL : (i : Fin (extra + 2)) → NestedTheta.Term (Instruction Op) entry [] (childSigsL i) returned}
+    {armsR : (i : Fin (extra + 2)) → NestedTheta.Term (Instruction Op) entry [] (childSigsR i) returned}
+    {restL : NestedTheta.Term (Instruction Op) args (past ++ [returned]) tailL outs}
+    {restR : NestedTheta.Term (Instruction Op) args (past ++ [returned]) tailR outs}
+    {localsL localsR : Locals m.Val past} {tag : Fin (extra + 2)} {nextL nextR : Tuple m.Val entry}
+    (inputs : Wires args past (.control (extra + 2) :: entry))
+    (selectL : inputs.read inputL localsL = .cons (.control tag) nextL)
+    (selectR : inputs.read inputR localsR = .cons (.control tag) nextR)
+    (arm : RegionPair primitives ids (mapping.child past.length tag.val) (armsL tag) (armsR tag) nextL nextR store)
+    (resume : ∀ {valueL valueR : Tuple m.Val returned}, TupleRelated m ids valueL valueR → ∀ middle,
+      ScopedRegionPair primitives ids mapping restL restR inputL inputR (localsL.snoc valueL) (localsR.snoc valueR) middle) :
+    ScopedRegionPair primitives ids mapping (bindGamma inputs armsL restL) (bindGamma inputs armsR restR)
+      inputL inputR localsL localsR store := by
+  cases arm with
+  | returned values ranL ranR =>
+    exact continue_pair (nodeL := vertex inputs childSigsL) (nodeR := vertex inputs childSigsR)
+      (selectL.symm ▸ Eval.gamma (cs := childSigsL) (children := armsL) ranL)
+      (selectR.symm ▸ Eval.gamma (cs := childSigsR) (children := armsR) ranR) (resume values _)
+  | blocked stopped => exact .blocked (.atArm inputs selectL selectR stopped)
+  | productive run =>
+    refine .productive (productive_map run ?_ ?_)
+    · intro target pending reached
+      refine ⟨.bind restL inputL localsL pending, .inside (node := vertex inputs childSigsL) ?_⟩
+      exact selectL.symm ▸ Feedback.Reaches.gamma (cs := childSigsL) (children := armsL) reached
+    · intro target pending reached
+      refine ⟨.bind restR inputR localsR pending, .inside (node := vertex inputs childSigsR) ?_⟩
+      exact selectR.symm ▸ Feedback.Reaches.gamma (cs := childSigsR) (children := armsR) reached
 
 /-- γ congruence uses the related selector to choose a single pair of arms.
 All three outcomes keep the enclosing frame or resume its wiring suffix. -/
@@ -173,23 +236,9 @@ theorem gamma
     RegionPair primitives ids mapping (code inputs armsL outputs) (code inputs armsR outputs) inputL inputR store := by
   obtain ⟨tag, nextL, nextR, selectL, selectR, values⟩ :=
     selected_tuple (read_same related LocalsRelated.empty inputs)
-  cases arms tag values with
-  | @returned _ _ finalStore paired ranL ranR =>
-    have locals := LocalsRelated.empty.snoc (fun _ _ same => same) rfl paired
-    refine .returned (finalStore := finalStore) (read_same related locals outputs)
-      (.bind (node := vertex inputs childSigsL) ?_ (.ret outputs _ _ _))
-      (.bind (node := vertex inputs childSigsR) ?_ (.ret outputs _ _ _))
-    · exact selectL.symm ▸ Eval.gamma (cs := childSigsL) (children := armsL) ranL
-    · exact selectR.symm ▸ Eval.gamma (cs := childSigsR) (children := armsR) ranR
-  | blocked stopped => exact .blocked (.gamma inputs outputs selectL selectR stopped)
-  | productive run =>
-    refine .productive (productive_map run ?_ ?_)
-    · intro target pending reached
-      refine ⟨.bind (past := []) (.ret outputs) inputL PUnit.unit pending, .inside (node := vertex inputs childSigsL) ?_⟩
-      exact selectL.symm ▸ Feedback.Reaches.gamma (cs := childSigsL) (children := armsL) reached
-    · intro target pending reached
-      refine ⟨.bind (past := []) (.ret outputs) inputR PUnit.unit pending, .inside (node := vertex inputs childSigsR) ?_⟩
-      exact selectR.symm ▸ Feedback.Reaches.gamma (cs := childSigsR) (children := armsR) reached
+  exact gamma_scoped (restL := .ret outputs) (restR := .ret outputs) inputs selectL selectR (arms tag values)
+    (fun paired finalStore => .returned (finalStore := finalStore) (Local.aligned_read related (.snoc .empty paired) outputs)
+      (.ret outputs _ _ _) (.ret outputs _ _ _))
 
 private theorem initial_restart {body : LoopBody Op carried sigsL}
     (initial : Wires args [] carried) (outputs : Wires args [carried] outs) (input : Tuple m.Val args) (store : σ) :

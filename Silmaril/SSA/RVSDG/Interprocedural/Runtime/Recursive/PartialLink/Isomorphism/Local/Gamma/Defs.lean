@@ -21,10 +21,19 @@ variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)} {ids : GlobalRel}
 variable {args outs entry returned carried params : Ports (Ty V S)} {extra : Nat}
 variable {sigs sigsL sigsR : List (Ports (Ty V S))}
 
-abbrev vertex (inputs : Wires args [] (.control (extra + 2) :: entry))
+abbrev vertex {past : List (Ports (Ty V S))} (inputs : Wires args past (.control (extra + 2) :: entry))
     (sigs : Fin (extra + 2) → List (Ports (Ty V S))) :
-    NestedTheta.Node (Instruction Op) args [] returned :=
+    NestedTheta.Node (Instruction Op) args past returned :=
   ⟨_, .base (.gamma extra), inputs, sigs⟩
+
+/-- Enter the selected γ arm with fresh locals, then bind its result in the parent suffix. -/
+abbrev bindGamma {past : List (Ports (Ty V S))}
+    (inputs : Wires args past (.control (extra + 2) :: entry))
+    {sigs : Fin (extra + 2) → List (Ports (Ty V S))}
+    (arms : (i : Fin (extra + 2)) → NestedTheta.Term (Instruction Op) entry [] (sigs i) returned)
+    (suffix : NestedTheta.Term (Instruction Op) args (past ++ [returned]) sigsL outs) :
+    NestedTheta.Term (Instruction Op) args past (returned :: sigsL) outs :=
+  .bind (vertex inputs sigs) arms suffix
 
 /-- A single γ followed by its typed result wiring. The suffix may read
 the original region arguments as well as the selected arm's outputs. -/
@@ -32,7 +41,7 @@ abbrev code (inputs : Wires args [] (.control (extra + 2) :: entry))
     {sigs : Fin (extra + 2) → List (Ports (Ty V S))}
     (arms : (i : Fin (extra + 2)) → NestedTheta.Term (Instruction Op) entry [] (sigs i) returned)
     (outputs : Wires args [returned] outs) : NestedTheta.Term (Instruction Op) args [] [returned] outs :=
-  .bind (vertex inputs sigs) arms (.ret outputs)
+  bindGamma inputs arms (.ret outputs)
 
 abbrev applicationVertex {past : List (Ports (Ty V S))} (fn : Function V S)
     (inputs : Wires args past (fn.port :: fn.args)) : NestedTheta.Node (Instruction Op) args past fn.results :=
@@ -121,6 +130,7 @@ inductive Location where
   | application (inner : Location)
   | suffix (inner : Local.Location)
   | callSite (vertex : Nat) (inner : Location)
+  | atArm (vertex arm : Nat) (inner : Location)
   deriving DecidableEq, Repr
 
 def Location.rename (mapping : Renaming) : Location → Location
@@ -131,6 +141,7 @@ def Location.rename (mapping : Renaming) : Location → Location
   | .application inner => .application (inner.rename mapping)
   | .suffix inner => .suffix (Renaming.identity.location inner)
   | .callSite vertex inner => .callSite vertex (inner.rename (mapping.child vertex 0))
+  | .atArm vertex arm inner => .atArm vertex arm (inner.rename (mapping.child vertex arm))
 
 /-- Finite γ/θ trees over ordered acyclic graphs. Each structural binding
 uses common typed input and output wiring. Only the selected γ arm is
@@ -323,6 +334,25 @@ inductive ScopedBlockPair (primitives : Primitives m σ) (ids : GlobalRel) :
       entryL entryR localsL localsR store (.callSite past.length locL) (.callSite past.length locR)
       ⟨stopL.site, .bind suffixL entryL localsL stopL.pending, stopL.store⟩
       ⟨stopR.site, .bind suffixR entryR localsR stopR.pending, stopR.store⟩
+| atArm {args entry returned outs : Ports (Ty V S)} {extra : Nat} {map : Renaming}
+      {past tailL tailR : List (Ports (Ty V S))}
+      {sigsL sigsR : Fin (extra + 2) → List (Ports (Ty V S))}
+      {armsL : (i : Fin (extra + 2)) → NestedTheta.Term (Instruction Op) entry [] (sigsL i) returned}
+      {armsR : (i : Fin (extra + 2)) → NestedTheta.Term (Instruction Op) entry [] (sigsR i) returned}
+      {suffixL : NestedTheta.Term (Instruction Op) args (past ++ [returned]) tailL outs}
+      {suffixR : NestedTheta.Term (Instruction Op) args (past ++ [returned]) tailR outs}
+      {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
+      {inputL inputR : Tuple m.Val entry} {store : σ}
+      {tag : Fin (extra + 2)} {locL locR : Location} {stopL stopR : Block m σ returned}
+      (inputs : Wires args past (.control (extra + 2) :: entry))
+      (selectL : inputs.read entryL localsL = .cons (.control tag) inputL)
+      (selectR : inputs.read entryR localsR = .cons (.control tag) inputR)
+      (selected : ScopedBlockPair primitives ids (map.child past.length tag.val) (armsL tag) (armsR tag)
+        inputL inputR PUnit.unit PUnit.unit store locL locR stopL stopR) :
+    ScopedBlockPair primitives ids map (bindGamma inputs armsL suffixL) (bindGamma inputs armsR suffixR)
+      entryL entryR localsL localsR store (.atArm past.length tag.val locL) (.atArm past.length tag.val locR)
+      ⟨stopL.site, .bind suffixL entryL localsL stopL.pending, stopL.store⟩
+      ⟨stopR.site, .bind suffixR entryR localsR stopR.pending, stopR.store⟩
   | atPrimitive {args outs ins head : Ports (Ty V S)} {map : Renaming}
       {past sigsL sigsR : List (Ports (Ty V S))}
       {suffixL : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsL outs}
@@ -476,10 +506,24 @@ def capturePort {context : Ports (Ty V S)} {t : Ty V S} :
   | .head => .head
   | .tail port => .tail (capturePort port)
 
-/-- A finite ordered spine. Call sites select a known closure from the
-capture ports. Arguments and suffixes use the full current wire scope.
-The callee has smaller rank, and the continuation has the same rank and
-a strictly smaller plan derivation. Leaves may also use call-free γ/θ. -/
+/-- Read the selected ordered captures from the parent closure. -/
+def projectCaptures {F : Ty V S → Type w} {context childContext : Ports (Ty V S)}
+    (captures : Tuple F context) (ports : Tuple (Port context) childContext) : Tuple F childContext :=
+  ports.map (fun _ port => captures.get port)
+
+/-- The actual γ boundary orders the selector, chosen capture ports and ordinary operands.
+Only the statically routed capture prefix is available for selecting a call target. -/
+def armInputs {context childContext childArgs : Ports (Ty V S)} {past : List (Ports (Ty V S))}
+    (selector : Origin (context ++ params) past (.control (extra + 2)))
+    (ports : Tuple (Port context) childContext)
+    (arguments : Wires (context ++ params) past childArgs) :
+    Wires (context ++ params) past (.control (extra + 2) :: (childContext ++ childArgs)) :=
+  .cons selector (prependContext arguments (ports.map (fun _ port => .arg (capturePort port))))
+
+/-- An ordered region of primitive bindings, static calls and selected γ arms.
+Callees decrease rank. Arm and suffix plans decrease structurally at the same rank.
+Call targets come from captures, including capture ports explicitly routed into an arm.
+Leaves may also use call-free γ/θ. -/
 inductive RankedPlan (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
     Nat → Renaming → {context params outs : Ports (Ty V S)} →
     {past sigsL sigsR : List (Ports (Ty V S))} → Tuple m.Val context → Tuple m.Val context →
@@ -522,6 +566,23 @@ inductive RankedPlan (m : Machine.{u, v, w} Op) (ids : GlobalRel) :
       (opcode : Op ins head) (inputs : Wires (context ++ params) past ins)
       (suffix : RankedPlan m ids rank map capturesL capturesR suffixL suffixR) :
     RankedPlan m ids rank map capturesL capturesR (bindPrimitive opcode inputs suffixL) (bindPrimitive opcode inputs suffixR)
+
+| gamma {rank extra : Nat} {map : Renaming} {context params childContext childArgs returned outs : Ports (Ty V S)}
+      {past tailL tailR : List (Ports (Ty V S))} {capturesL capturesR : Tuple m.Val context}
+      {sigsL sigsR : Fin (extra + 2) → List (Ports (Ty V S))}
+      {armsL : (i : Fin (extra + 2)) → NestedTheta.Term (Instruction Op) (childContext ++ childArgs) [] (sigsL i) returned}
+      {armsR : (i : Fin (extra + 2)) → NestedTheta.Term (Instruction Op) (childContext ++ childArgs) [] (sigsR i) returned}
+      {suffixL : NestedTheta.Term (Instruction Op) (context ++ params) (past ++ [returned]) tailL outs}
+      {suffixR : NestedTheta.Term (Instruction Op) (context ++ params) (past ++ [returned]) tailR outs}
+      (selector : Origin (context ++ params) past (.control (extra + 2)))
+      (ports : Tuple (Port context) childContext)
+      (arguments : Wires (context ++ params) past childArgs)
+      (arms : ∀ i, RankedPlan m ids rank (map.child past.length i.val)
+        (projectCaptures capturesL ports) (projectCaptures capturesR ports) (armsL i) (armsR i))
+      (suffix : RankedPlan m ids rank map capturesL capturesR suffixL suffixR) :
+    RankedPlan m ids rank map capturesL capturesR
+      (bindGamma (armInputs selector ports arguments) armsL suffixL)
+      (bindGamma (armInputs selector ports arguments) armsR suffixR)
 
 inductive ScheduledLambda (m : Machine.{u, v, w} Op) (ids : GlobalRel) (mapping : Renaming)
     (params outs : Ports (Ty V S)) :

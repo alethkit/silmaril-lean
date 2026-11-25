@@ -1348,4 +1348,183 @@ private theorem sequentialRegression :
 
 end SequentialCalls
 
+section SelectedArmCall
+
+private abbrev guardedFn : Function Unit Unit := ⟨outerCarry, results⟩
+private abbrev guardedCaptures : Ports T := [calleeFn.port]
+private abbrev guardedPorts : Ports T := guardedCaptures ++ outerCarry
+
+private def guardedSelector : Origin guardedPorts [] (.control 2) := .arg (.tail .head)
+
+private def captureWiring : Tuple (Port guardedCaptures) guardedCaptures := .cons .head .nil
+
+private def guardedArgs : Wires guardedPorts [] carried :=
+  .cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil)
+
+private abbrev guardedInputs : Wires guardedPorts [] (.control 2 :: callerPorts) :=
+  Gamma.armInputs guardedSelector captureWiring guardedArgs
+
+private def bypassWires : Wires callerPorts [] results :=
+  .cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail .head))) .nil)
+
+private def guardedSigs : Fin 2 → List (Ports T) := Fin.cases [calleeFn.results] (fun _ => [])
+
+private def guardedArms (tag : Fin 2) :
+    NestedTheta.Term (Instruction Op) callerPorts [] (guardedSigs tag) results :=
+  Fin.cases (motive := fun i => NestedTheta.Term (Instruction Op) callerPorts [] (guardedSigs i) results)
+    callerCode (fun _ => .ret bypassWires) tag
+
+private def guardedResultWires : Wires guardedPorts [results] results :=
+  .cons (.output (0 : Fin 1) .head) (.cons (.output (0 : Fin 1) (.tail .head)) .nil)
+
+private abbrev guardedSuffix := effectSuffix 7 guardedResultWires
+
+private abbrev guardedCode := Gamma.bindGamma guardedInputs guardedArms (embed guardedSuffix)
+
+private def callArmMap : Renaming := .region (Equiv.refl _) (fun _ _ => innerMap)
+private def guardedMap : Renaming := .region (Equiv.refl _) (fun _ arm => if arm = 0 then callArmMap else .identity)
+
+private def guardedCapture (body : Gamma.LoopBody Op outerCarry [carried]) : Tuple machine.Val guardedCaptures :=
+  .cons (calleeValue body) .nil
+
+private def guardedProgram (body : Gamma.LoopBody Op outerCarry [carried]) :
+    OmegaTerm Op moduleImports [guardedFn.port] [[calleeFn.port], [guardedFn.port]] :=
+  ⟨.bind (.lambda ⟨moduleImports, .cons (.arg .head) .nil, [carried], body⟩) <|
+    .bind (.lambda ⟨guardedCaptures, .cons (.output (0 : Fin 1) .head) .nil, [results, results], guardedCode⟩) <|
+    .ret (.cons (.output (1 : Fin 2) .head) .nil)⟩
+
+private def guardedLambda (body : Gamma.LoopBody Op outerCarry [carried]) : machine.Val guardedFn.port :=
+  .closure (guardedCapture body) guardedCode.toGraph
+
+private theorem guardedLinks (body : Gamma.LoopBody Op outerCarry [carried]) :
+    Links primitives 17 (guardedProgram body).toGraph imported 20 (.linked (.cons (guardedLambda body) .nil) 20) :=
+  .bind (values := .cons (calleeValue body) .nil) (middle := 20) rfl
+    (.bind (values := .cons (guardedLambda body) .nil) (middle := 20) rfl (.ret _ _ _ _))
+
+private def guardedSource (body : Gamma.LoopBody Op outerCarry [carried]) (tag : Fin 2) (n : Nat) :
+    Config machine Nat results :=
+  ⟨Continuation.start (.call (guardedLambda body) (input tag 0 n)), 20⟩
+
+private theorem guardedPlan :
+    Gamma.RankedPlan machine Eq 1 guardedMap (guardedCapture innerL) (guardedCapture innerR) guardedCode guardedCode := by
+  have callee : Gamma.RankedPlan machine Eq 0 innerMap imported imported innerL innerR := .body admitted
+  have calls : Gamma.RankedPlan machine Eq 1 callArmMap (guardedCapture innerL) (guardedCapture innerR)
+      (guardedArms 0) (guardedArms 0) :=
+    .call (context := guardedCaptures) (params := carried) (fn := calleeFn) .head rfl rfl
+      (.cons (.control 0) .nil) callArguments (by decide) callee
+      (.suffix (context := guardedCaptures) (params := carried) (past := [calleeFn.results])
+        (left := .ret callSuffix) (right := .ret callSuffix) (.ret callSuffix callSuffix rfl))
+  have bypass : Gamma.RankedPlan machine Eq 1 .identity (guardedCapture innerL) (guardedCapture innerR)
+      (guardedArms 1) (guardedArms 1) :=
+    .suffix (context := guardedCaptures) (params := carried) (past := [])
+      (left := .ret bypassWires) (right := .ret bypassWires) (.ret bypassWires bypassWires rfl)
+  exact .gamma (context := guardedCaptures) (params := outerCarry) (extra := 0) (past := [])
+    guardedSelector captureWiring guardedArgs (two calls bypass)
+    (.suffix (context := guardedCaptures) (params := outerCarry) (past := [results])
+      (finishSchedule 7 guardedResultWires rfl))
+
+private theorem guardedDispatch (tag : Fin 2) (n : Nat) :
+    Gamma.CallPair primitives Eq guardedMap results (guardedSource innerL tag n) (guardedSource innerR tag n) := by
+  have caller := NestedTheta.Graph.Isomorphic.refl guardedCode.toGraph
+  let positions : Fin 2 ≃ Fin 2 := Equiv.refl _
+  have iso : (guardedProgram innerL).toGraph.RenumberedBy (guardedProgram innerR).toGraph positions :=
+    ⟨two (.lambda ⟨⟨rfl, rfl⟩, innerIso⟩) (.lambda ⟨⟨rfl, rfl⟩, caller⟩), rfl⟩
+  have schedule : Ordered Op (renameVertex positions) moduleImports [guardedFn.port]
+      (guardedProgram innerL).toGraph.toTerm.region (guardedProgram innerR).toGraph.toTerm.region := by
+    rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+    exact .bind rfl (.lambda ⟨⟨rfl, rfl⟩, innerIso⟩) (.bind rfl (.lambda ⟨⟨rfl, rfl⟩, caller⟩) (.ret _ _))
+  let req (body : Gamma.LoopBody Op outerCarry [carried]) :=
+    request (m := machine) 17 (guardedProgram body).toGraph imported .head (input tag 0 n) 20
+  have paired : Gamma.DispatchPair primitives Eq (renameVertex positions) guardedMap results
+      ((req innerL).start primitives) ((req innerR).start primitives) :=
+    Gamma.link_then_invoke respects iso schedule (fun i => by simp [renameVertex, positions])
+      (.cons (.control 0) .nil) .head (.cons (.control tag) (carry_related 0 n)) 20 (by
+        intro _ _ _ linkedL linkedR _
+        cases outcome_unique linkedL (guardedLinks innerL)
+        cases outcome_unique linkedR (guardedLinks innerR)
+        exact .sequence (.cons (.closure (.cons (.control 0) .nil) innerIso) .nil) guardedPlan)
+  rw [start_linked (request := req innerL) (guardedLinks innerL),
+    start_linked (request := req innerR) (guardedLinks innerR)] at paired
+  cases paired with
+  | invoked calls => exact calls
+
+private def guardedEntry (body : Gamma.LoopBody Op outerCarry [carried]) (tag : Fin 2) (n : Nat) :
+    Tuple machine.Val guardedPorts :=
+  prependContext (input tag 0 n) (guardedCapture body)
+
+private theorem openGuarded (body : Gamma.LoopBody Op outerCarry [carried]) (tag : Fin 2) (n : Nat) :
+    Job.openClosure machine (guardedLambda body) (input tag 0 n) = .region guardedCode (guardedEntry body tag n) PUnit.unit :=
+  congrArg (fun code => Job.region (m := machine) (past := []) code (guardedEntry body tag n) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph guardedCode)
+
+private theorem guardedReturn (body : Gamma.LoopBody Op outerCarry [carried]) (tag : Fin 2) (n : Nat)
+    {value : Tuple machine.Val results} {middle : Nat}
+    (ran : Eval primitives (.region (guardedArms tag) (callerInput body 0 n) PUnit.unit) 20 (.returned value middle)) :
+    TerminalPath primitives (guardedSource body tag n) ⟨.returned value .halt, 2 * middle + 7⟩ := by
+  have resumes := finishEval (wires := guardedResultWires) 7 (guardedEntry body tag n) value middle
+  have reads : guardedResultWires.read (guardedEntry body tag n) (Locals.snoc (past := []) PUnit.unit value) = value := by
+    cases value with
+    | cons first tail =>
+      cases tail with
+      | cons second tail => cases tail; rfl
+  dsimp only at resumes
+  rw [reads] at resumes
+  have evaluates : Eval primitives (.region guardedCode (guardedEntry body tag n) PUnit.unit) 20
+      (.returned value (2 * middle + 7)) :=
+    .bind (node := Gamma.vertex guardedInputs guardedSigs) (.gamma (tag := tag) ran) resumes
+  have called := Eval.call ((openGuarded body tag n).symm ▸ evaluates)
+  exact ⟨called.steps .halt, fun _ stepped => _root_.Part.notMem_none _ stepped⟩
+
+private theorem selectedReturns (body : Gamma.LoopBody Op outerCarry [carried])
+    (ran : Eval primitives (.region body (input 0 0 2) PUnit.unit) 20
+      (.returned (.cons (.control 0) (input 0 0 3)) 23)) :
+    TerminalPath primitives (guardedSource body 0 2) ⟨.returned (output 3 2) .halt, 53⟩ :=
+  guardedReturn body 0 2 (value := output 3 2) (middle := 23)
+    (.bind (node := Gamma.applicationVertex calleeFn callInputs) (value := .cons (.control 0) (input 0 0 3))
+      (middle := 23) (.apply (fn := calleeFn) (.call ((openCallee body 0 2).symm ▸ ran))) (.ret callSuffix _ _ _))
+
+private def guardedStop (body : Gamma.LoopBody Op outerCarry [carried])
+    (stop : Gamma.Block machine Nat results) : Gamma.Block machine Nat results :=
+  ⟨stop.site, .bind (past := []) (embed guardedSuffix) (guardedEntry body 0 0) PUnit.unit stop.pending, stop.store⟩
+
+private theorem guardedBlock :
+    Gamma.BlockPair primitives Eq guardedMap guardedCode guardedCode (guardedEntry innerL 0 0) (guardedEntry innerR 0 0)
+      20 (.atArm 0 0 (.callSite 0 (.theta (.here 1)))) (.atArm 0 0 (.callSite 0 (.theta (.here 0))))
+      (guardedStop innerL (callerStop innerL (stopped left pendingL)))
+      (guardedStop innerR (callerStop innerR (stopped right pendingR))) := by
+  have inCall : Gamma.BlockPair primitives Eq callArmMap callerCode callerCode
+      (callerInput innerL 0 0) (callerInput innerR 0 0) 20
+      (.callSite 0 (.theta (.here 1))) (.callSite 0 (.theta (.here 0)))
+      (callerStop innerL (stopped left pendingL)) (callerStop innerR (stopped right pendingR)) :=
+    .atCall (map := callArmMap) callInputs (.ret callSuffix) (.ret callSuffix) rfl rfl blockedActivation
+  exact .atArm (map := guardedMap) (armsL := guardedArms) (armsR := guardedArms) (tag := 0) guardedInputs rfl rfl inCall
+
+private theorem guardedBlockPath (body : Gamma.LoopBody Op outerCarry [carried]) {stop : Gamma.Block machine Nat results}
+    (ran : Eval primitives (.region guardedCode (guardedEntry body 0 0) PUnit.unit) 20 stop.outcome) :
+    TerminalPath primitives (guardedSource body 0 0) (stop.outcome.atStack .halt) := by
+  cases stop
+  have called := Eval.call ((openGuarded body 0 0).symm ▸ ran)
+  exact ⟨called.steps .halt, fun _ => (called.blocks .halt).no_step⟩
+
+/-- The bypass skips the failing callee and resumes the γ suffix at 20.
+The selected returning call resumes it at 23. The selected block retains
+both bindings, with operand 1 at relocated primitive address 1 or 0. -/
+private theorem selectedArmRegression :
+    Gamma.CallPair primitives Eq guardedMap results (guardedSource innerL 0 0) (guardedSource innerR 0 0) ∧
+    Gamma.CallPair primitives Eq guardedMap results (guardedSource innerL 1 0) (guardedSource innerR 1 0) ∧
+    Gamma.CallPair primitives Eq guardedMap results (guardedSource innerL 0 2) (guardedSource innerR 0 2) ∧
+    TerminalPath primitives (guardedSource innerL 1 0) ⟨.returned (output 0 0) .halt, 47⟩ ∧
+    TerminalPath primitives (guardedSource innerR 1 0) ⟨.returned (output 0 0) .halt, 47⟩ ∧
+    TerminalPath primitives (guardedSource innerL 0 2) ⟨.returned (output 3 2) .halt, 53⟩ ∧
+    TerminalPath primitives (guardedSource innerR 0 2) ⟨.returned (output 3 2) .halt, 53⟩ ∧
+    TerminalPath primitives (guardedSource innerL 0 0) ((guardedStop innerL (callerStop innerL (stopped left pendingL))).outcome.atStack .halt) ∧
+    TerminalPath primitives (guardedSource innerR 0 0) ((guardedStop innerR (callerStop innerR (stopped right pendingR))).outcome.atStack .halt) :=
+  let ran := completedInner 0 0 2 20 (_root_.Part.mem_some _)
+  ⟨guardedDispatch 0 0, guardedDispatch 1 0, guardedDispatch 0 2,
+    guardedReturn innerL 1 0 (.ret bypassWires _ _ _), guardedReturn innerR 1 0 (.ret bypassWires _ _ _),
+    selectedReturns innerL ran.1, selectedReturns innerR ran.2,
+    guardedBlockPath innerL guardedBlock.evals.1, guardedBlockPath innerR guardedBlock.evals.2⟩
+
+end SelectedArmCall
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.NestedLoop.Tests

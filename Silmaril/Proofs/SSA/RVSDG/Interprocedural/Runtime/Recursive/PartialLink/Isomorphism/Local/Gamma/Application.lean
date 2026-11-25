@@ -5,6 +5,7 @@ import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.I
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Regions
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Environments
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
 
 public section
 
@@ -140,27 +141,35 @@ private theorem get_capture {t : Ty V S} {context params : Ports (Ty V S)}
   | head => cases captures; rfl
   | tail port ih => cases captures with | cons _ rest => exact ih rest
 
-private theorem continue_pair
-    {past : List (Ports (Ty V S))} {head : Ports (Ty V S)}
-    {nodeL nodeR : NestedTheta.Node (Instruction Op) args past head}
-    {childrenL : Bodies nodeL.kind nodeL.childSigs} {childrenR : Bodies nodeR.kind nodeR.childSigs}
-    {restL : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsL outs}
-    {restR : NestedTheta.Term (Instruction Op) args (past ++ [head]) sigsR outs}
-    {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
-    {valueL valueR : Tuple m.Val head} {store middle : σ}
-    (firstL : Eval primitives (.node nodeL.kind nodeL.childSigs childrenL (nodeL.inputs.read entryL localsL))
-      store (.returned valueL middle))
-    (firstR : Eval primitives (.node nodeR.kind nodeR.childSigs childrenR (nodeR.inputs.read entryR localsR))
-      store (.returned valueR middle))
-    (tail : ScopedRegionPair primitives ids mapping restL restR entryL entryR
-      (localsL.snoc valueL) (localsR.snoc valueR) middle) :
-    ScopedRegionPair primitives ids mapping (.bind nodeL childrenL restL) (.bind nodeR childrenR restR)
-      entryL entryR localsL localsR store := by
-  cases tail with
-  | returned values restL restR => exact .returned values (.bind firstL restL) (.bind firstR restR)
-  | blocked stopped => exact .blocked (.later firstL firstR stopped)
-  | productive run =>
-    exact .productive (productive_map run (fun ran => ⟨_, .later firstL ran⟩) (fun ran => ⟨_, .later firstR ran⟩))
+private theorem project_related {context childContext : Ports (Ty V S)} {capL capR : Tuple m.Val context}
+    (captured : TupleRelated m ids capL capR) (ports : Tuple (Port context) childContext) :
+    TupleRelated m ids (projectCaptures capL ports) (projectCaptures capR ports) := by
+  induction ports with
+  | nil => exact .nil
+  | cons port _ ih => exact .cons (captured.get port) ih
+
+private theorem read_projected {context params childContext childArgs : Ports (Ty V S)}
+    {past : List (Ports (Ty V S))} (captures : Tuple m.Val context) (paramsIn : Tuple m.Val params)
+    (locals : Locals m.Val past) (ports : Tuple (Port context) childContext)
+    (arguments : Wires (context ++ params) past childArgs) :
+    Wires.read (prependContext arguments (ports.map (fun _ port => .arg (capturePort port))))
+        (prependContext paramsIn captures) locals =
+      prependContext (arguments.read (prependContext paramsIn captures) locals) (projectCaptures captures ports) := by
+  induction ports with
+  | nil => rfl
+  | cons port rest ih =>
+    exact congrArg₂ Tuple.cons (get_capture port captures paramsIn) ih
+
+private theorem read_arm_input {context params childContext childArgs : Ports (Ty V S)}
+    {past : List (Ports (Ty V S))} {extra : Nat} {tag : Fin (extra + 2)}
+    (captures : Tuple m.Val context) (paramsIn : Tuple m.Val params) (locals : Locals m.Val past)
+    (selector : Origin (context ++ params) past (.control (extra + 2)))
+    (ports : Tuple (Port context) childContext) (arguments : Wires (context ++ params) past childArgs)
+    (selected : ((Wires.read (.cons selector .nil) (prependContext paramsIn captures) locals).get .head) = .control tag) :
+    (armInputs selector ports arguments).read (prependContext paramsIn captures) locals =
+      .cons (.control tag)
+        (prependContext (arguments.read (prependContext paramsIn captures) locals) (projectCaptures captures ports)) :=
+  congrArg₂ Tuple.cons selected (read_projected captures paramsIn locals ports arguments)
 
 private theorem bind_pair
     {past : List (Ports (Ty V S))} {tailL tailR : List (Ports (Ty V S))}
@@ -252,5 +261,16 @@ theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : Li
   | primitive opcode wires _ suffixIH =>
     exact primitive_pair respects opcode wires (Local.aligned_read (prepend_related captures arguments) locals wires)
       store (fun values middle => suffixIH captures arguments (locals.snoc values) middle)
+
+  | @gamma _ _ _ _ _ _ _ _ _ _ _ _ capL capR _ _ _ _ restL restR selector ports wires _ _ armIH suffixIH =>
+    have entries := prepend_related captures arguments
+    obtain ⟨tag, _, _, selectL, selectR, _⟩ := selected_tuple (Local.aligned_read entries locals (.cons selector .nil))
+    have captured := project_related captures ports
+    have operands := Local.aligned_read entries locals wires
+    exact gamma_scoped (restL := restL) (restR := restR) (armInputs selector ports wires)
+      (read_arm_input capL argsL localsL selector ports wires (congrArg (fun v => v.get .head) selectL))
+      (read_arm_input capR argsR localsR selector ports wires (congrArg (fun v => v.get .head) selectR))
+      (armIH tag captured operands .empty store)
+      (fun values middle => suffixIH captures arguments (locals.snoc values) middle)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs
