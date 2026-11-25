@@ -26,6 +26,12 @@ repeated uses. An occurrence is addressed by the block path and its ordinal.
 Each entry carries its usage, resolved access and a proof that looking up
 the same name in that block returns that access.
 
+`collectLexical` exposes the source-collected block tree and its ordered
+name occurrences. `inferLexical` resolves that tree and certifies that
+`ScopeTree.lexical` recovers it exactly. The
+`analyze_preserves_lexical` theorem gives the same guarantee through
+the combined entry point, including block metadata and sibling order.
+
 Class bases are read in the enclosing block. Class bodies distinguish
 namespace lookup from free access to an enclosing cell. Method lookup skips
 the ordinary class namespace, including its global declarations, while
