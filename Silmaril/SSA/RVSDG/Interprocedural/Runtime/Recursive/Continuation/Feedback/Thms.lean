@@ -99,4 +99,20 @@ theorem return_before_live {other : Ports (Ty V S)} {micro : Nat → State m fin
     ∃ i, begin < i ∧ i < finish ∧ atReturn frame (micro i) :=
   Proofs.return_before_live steps ordered entered selected lives returns
 
+/-- Replay a finite sequence of independent feedback iterations. -/
+theorem iterations_steps (completed : ReflTransGen (Iteration body) input next)
+    (stack : Stack m carried final) :
+    ReflTransGen Step (restart body stack input) (restart body stack next) :=
+  Proofs.iterations_steps completed stack
+
+/-- Recover an independent return at the first return to the given
+frame before the bound, or delimit the interval without a return. -/
+theorem first_return_before {micro : Nat → State m final} {begin finish : Nat}
+    (steps : ∀ i, Step (micro i) (micro (i + 1)))
+    {job : Job m ports} {frame : Stack m ports final} (entered : micro begin = .eval job frame) :
+    (∃ stop, begin ≤ stop ∧ stop < finish ∧ ∃ value,
+      micro stop = .returned value frame ∧ Returns m job value) ∨
+      (∀ i, begin ≤ i → i < finish → ¬ atReturn frame (micro i)) :=
+  Proofs.first_return_before steps entered
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Feedback
