@@ -91,9 +91,11 @@ its incoming state intact.
 
 ## Iteration and control
 
-A loop evaluates its iterable once, captures its finite sequence, and acquires
-an iterator for the address. Lists and tuples iterate over elements and
-dictionaries iterate over insertion-ordered keys. List edits and dictionary
+A loop evaluates its iterable once. Lists and tuples capture their elements
+and dictionaries capture their insertion-ordered keys. These collections
+register their addresses on the iterator stack. A range uses a cursor
+with its current integer, stride and remaining count. It has no heap address
+to guard and produces elements on demand. List edits and dictionary
 writes reject an active mutable address, so the guard applies through all
 aliases. The frozen check retains priority over the active check. List
 index validation precedes the write guard. Dictionary writes check
@@ -102,14 +104,16 @@ has one entry per active iterator, including repeated entries for the same
 object. Continue retains the entry until loop exit. Exhaustion, break, return
 and error release the entry while retaining effects already performed. Nested
 loops restore their incoming stack. The suite evaluator recurses on syntax
-and its iterator recurses over the captured finite sequence. Neither takes
+and the shared cursor evaluator recurses on the remaining count. Neither takes
 execution fuel or bounds nesting.
 [Iteration][iteration] · [For statements][for] · [Break and continue][break]
 
 `eval_iff_denote` and `runs_iff_denoteSuite` prove exact agreement between the
 respective denotations and independent big-step rules on success and failure,
-including the resulting state. The rules share lexical and heap primitives
-and independently order their premises. `iterators_denoteSuite` proves
+including the resulting state. `cursor_eq_of_runs` and `cursor_runs_denote`
+provide both directions of cursor agreement. The rules share cursor advancement
+and lexical and heap primitives, and independently order their premises.
+`iterators_denoteSuite` proves
 restoration of the original iterator stack for every suite exit.
 `editCell_iterating` states the active-iterator mutation guard.
 [Expression rules](../../Silmaril/Languages/Starlark/Lists/Operational/Defs.lean) · [Suite rules](../../Silmaril/Languages/Starlark/Lists/Iteration/Operational/Defs.lean) · [Suite theorems](../../Silmaril/Languages/Starlark/Lists/Iteration/Thms.lean)

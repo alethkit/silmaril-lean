@@ -816,4 +816,26 @@ theorem preserves {program : Program} {available : List DeclarationId} {state : 
     rw [model] at after
     exact ⟨final, ran, StateMatch.back after (Nat.zero_le _)⟩
 
+theorem stage_preserves {program : Program} {available : List DeclarationId} {state : State}
+    {expression : Languages.Starlark.Functions.Lowering.Expr} {out : Outcome Value}
+    (ran : Evaluates program available state expression out)
+    (free : ScratchFree state) (start : Nat) :
+    let code := (lower expression (temporary start) (start + 1)).code
+    match out with
+    | .ok value s => ∃ final, denoteBody program available code state = .ok .next final ∧
+        StateMatch 0 s final ∧ denote (scratchRead start) final = .ok value final
+    | .error error s => ∃ final, denoteBody program available code state = .error error final ∧
+        StateMatch 0 s final := by
+  have semantics := simulates ran
+  have same : StateMatch 0 state state := ⟨rfl, rfl, rfl, fun _ _ => rfl⟩
+  cases out with
+  | ok value s =>
+    obtain ⟨final, evaluated, related, stored⟩ := save_ok semantics start same free
+    have matched := reboundBack same semantics.1 related
+    exact ⟨final, evaluated, matched,
+      read_temp (StateMatch.free matched (scopeFree semantics.1 free)) start stored⟩
+  | error error s =>
+    obtain ⟨final, evaluated, related⟩ := save_error semantics start same free
+    exact ⟨final, evaluated, reboundBack same semantics.1 related⟩
+
 end Silmaril.Proofs.Languages.Starlark.Functions.Lowering

@@ -61,8 +61,9 @@ argument-signature and module-failure differences remain recorded in their
 guides.
 [Strings][strings] · [Pinned Go built-ins][go-library] · [Arguments](starlark-functions.md#argument-binding) · [Modules](starlark-modules.md)
 
-The range constructor supports exact integers. Range iteration and
-conversion to lists and tuples remain open, along with additional
+The range constructor supports exact integers and function-body loops
+consume range elements lazily. Range conversion to lists and tuples
+remains open, along with additional
 collection or iterable types such as bytes, sets and iterable views,
 floats and host values. The other pinned universal
 functions are `abs`, `any`, `all`, `bytes`, `dict`, `dir`,

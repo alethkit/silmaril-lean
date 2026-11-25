@@ -110,23 +110,32 @@ to ordered calls and temporary slots.
 
 `Body.forInExpr` evaluates a resolved iterable expression once in the
 current frame. The operand may invoke a closure and mutate the collection
-it returns. A successful operand supplies the value for the snapshot and
-guard acquisition. An operand failure propagates its effects with
+it returns. A successful operand supplies the value for iterator acquisition.
+An operand failure propagates its effects with
 no loop target write or new guard.
 
 `Body.forInExpr`, the call-free `Body.forIn`, and collection suites share
-the same acquisition, finite snapshot and cleanup denotation for list,
-tuple and dictionary operands. Each iteration writes its target binding
-before running the body. A callee shares heap identities and active
+the same cursor and cleanup semantics for list, tuple, dictionary and
+range operands. Each iteration writes its target binding before running
+the body. A callee shares heap identities and active
 iterators with its caller, so the guard covers mutations through aliases.
 The loop restores the guard stack left by operand evaluation on every
 exit, including return and error.
 
+`range` yields its current exact integer and advances by the descriptor's
+stride. The remaining count bounds the cursor recursion. This works for
+descending and sliced ranges and needs no enumerated sequence, heap guard
+or execution fuel. The Lean fixtures break and return after the first
+element of a range of length `10^24`. The pinned Go cursor advances an
+offset and uses host `int` arithmetic. The common-profile fixtures exit
+early from a billion-element range and check empty and sliced ranges,
+operand effects, and cleanup after a nested failure.
+[Pinned for statements][for-stmts] · [Pinned range spec][range] · [Go range iterator][go-range-iterator] · [Pinned Go fixtures](../../examples/starlark/call-loops/check.go)
+
 `runChecked` validates calls in the operand and checks break and continue
 in each declaration's own lexical loop context, including unreachable
 code. `exec_iff_denoteBody` covers the exact result or error, frame, heap
-and iterator stack. The finite item list bounds iteration and the
-available declaration set bounds live calls.
+and iterator stack. The available declaration set bounds live calls.
 [Native loop agreement and cleanup](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Native loop fixtures](../../Silmaril/Languages/Starlark/Functions/NativeLoopChecks.lean) · [Collection loops](starlark-lists.md#iteration-and-control)
 
 ## Direct denotation of resolved expressions
@@ -244,7 +253,7 @@ The new built-in rules and subscript primitive compose with
 `evaluates_iff_denoteExpr` and `lower_preserves` for exact outcomes and
 state after scratch projection. Normalized source and Lean quotation use
 ordinary calls and subscripts. Range truth, length and type are available.
-Range iteration and spreading, conversions to lists and tuples, comparison,
+Range spreading, conversions to lists and tuples, comparison,
 membership and formatting remain open.
 [Pinned range spec][range] · [Pinned subscripts][subscript] · [Go range construction and indexing][go-range] · [Go index validation][go-index] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
@@ -446,6 +455,15 @@ supplies a visible, writable destination to observe the returned value.
 Lean and pinned Go fixtures cover a failing nested keyword operand,
 competing expansion errors and a duplicate keyword introduced by `**`.
 
+`lowerForIn` stages the iterable in a scratch binding before the shared
+loop reads it. `lowerForIn_preserves` relates native and staged loops on
+every outcome after projecting scratch bindings. Given an independent
+operand evaluation and a scratch-free entry state, the theorem requires
+that the pair of supplied bodies preserve the same projection at each
+related body entry. The cursor transports that premise through binder
+writes, continuation and cleanup.
+[Loop lowering theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean)
+
 Native module assignments and expression statements use the direct denotation.
 Static validation of repeated explicit keywords stays with the checked entry points.
 Supported iterable, mapping and callable values are those of the
@@ -563,6 +581,8 @@ extend this profile. Host callable effects remain open.
 [go-dict-run]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L486
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
 [range]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#range
+[for-stmts]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#for-statements
+[go-range-iterator]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L951-L964
 [go-range]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L827-L879
 [go-range-slice]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L881-L891
 [go-index-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1334-L1338

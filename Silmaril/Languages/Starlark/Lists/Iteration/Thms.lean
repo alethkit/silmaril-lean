@@ -22,6 +22,20 @@ theorem truth_finishState (value : Value) (state : State) :
     finishState (truth value state) = state :=
   Proofs.Languages.Starlark.Lists.Iteration.truth_finishState value state
 
+/-- Cursor stepping agrees with iteration denotation when body outcomes agree. -/
+theorem cursor_eq_of_runs {body : State → Outcome Flow → Prop} {meaning : Meaning Flow}
+    {target : Binding} {cursor : Cursor} {state : State} {out : Outcome Flow}
+    (bodyEq : ∀ s result, body s result → meaning s = result)
+    (ran : CursorRuns body target cursor state out) :
+    denoteCursor target meaning cursor state = out :=
+  Proofs.Languages.Starlark.Lists.Iteration.cursor_eq_of_runs bodyEq ran
+
+/-- Cursor iteration has a derivation given a derivation for each body outcome. -/
+theorem cursor_runs_denote (body : State → Outcome Flow → Prop) (meaning : Meaning Flow)
+    (bodyRuns : ∀ s, body s (meaning s)) (target : Binding) (cursor : Cursor) (state : State) :
+    CursorRuns body target cursor state (denoteCursor target meaning cursor state) :=
+  Proofs.Languages.Starlark.Lists.Iteration.cursor_runs_denote body meaning bodyRuns target cursor state
+
 /-- The suite denotation agrees with the independent rules on exact outcomes. -/
 theorem runs_iff_denoteSuite {depth : Nat} (code : Suite depth) (state : State)
     (out : Outcome Flow) : Runs state (.suite code) out ↔ denoteSuite code state = out :=
