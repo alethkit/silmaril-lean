@@ -68,6 +68,12 @@ nested instructions within its [closed call profile](python-seeded-module-runner
 The CPython regression checks
 result placement, lookup and argument error order, and residual bindings.
 The Lean regression also checks the call-entry order across a live prefix.
+The ordinary module runner also accepts a message-free `assert not test`
+when `test` is an existing module operand. It evaluates the operand once,
+propagates evaluation errors, and succeeds exactly when the result is
+false by the ordinary truth rule. This includes a name bound to a
+returned `None`. The closed seeded runner reports this instruction as
+unsupported.
 [Module-call runner](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Run/Thms.lean)
 
 ```sh

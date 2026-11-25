@@ -138,6 +138,7 @@ def lowerCallArguments (scope : Scope) : (source : List (Source.ArgumentKind × 
 
 inductive Action (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
+  | assertNot (condition : Operand scope)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
       (parameters : Core.Closure.Parameters (frameLayout child.scope)) (code : Code (frameLayout child.scope))
   | call (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
@@ -150,6 +151,10 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
   | scalar {index statement rest actions tail}
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
+  | assertNot {index condition operand rest tail}
+      (translated : OperandTranslation tree.scope condition operand)
+      (remaining : Translation tree index rest tail) :
+      Translation tree index (.assert_ (.unary .not_ condition) none :: rest) (.assertNot operand :: tail)
   | call {index statement rest target name arguments destination reference values tail}
       (site : CallSite statement target name arguments) (result : destination.placement = target)
       (operandOrder : Positional tree.scope arguments values) (remaining : Translation tree index rest tail) :
@@ -189,6 +194,10 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
           .define located scopeMatches.1 scopeMatches.2 parameters.property.1 parameters.property.2
             code.property tail.property⟩
       else throw (.functionScope path)
+  | .assert_ (.unary .not_ condition) none :: rest => do
+    let operand ← (lowerOperand tree.scope condition).mapError .scalar
+    let tail ← lowerPlan tree index rest
+    return ⟨.assertNot operand.val :: tail.val, .assertNot operand.property tail.property⟩
   | statement :: rest => do
     if let some ⟨(target, name, arguments), site⟩ := callSite? statement then
       let destination ← lowerDestination tree.scope target
