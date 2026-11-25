@@ -5,7 +5,7 @@ Import `Silmaril.Logic.Temporal.TLA.DataElab.Defs`. Parse with
 then call `DataElab.lowerDefinition registry signature maxDepth id` on a
 resolved, nullary source operator. Resolve the operator's declaration ID
 through the root's final scope when selecting an entry by name. Use
-`checked.eval model booleans external valuation` for its value in one
+`checked.eval ops booleans external valuation` for its value in one
 state. Use `booleans.holds` on that value when a caller needs a proposition.
 
 [Lowering API](../../Silmaril/Logic/Temporal/TLA/DataElab/Defs.lean) ·
@@ -47,10 +47,14 @@ level and modal-dependency summaries before any modal evaluation is admitted.
 
 ## Values and admitted syntax
 
-- `Data.Model` interprets enumeration, filtering, one-identifier set images,
-  membership, rigid quantifiers, and bounded and unbounded CHOOSE. Quantifiers
-  support multiple plain names and groups. All bounded domains are lowered in
-  the incoming scope. Equality is Lean equality on the common carrier.
+- `DataOperations` supplies membership, enumeration, separation, images, and
+  a fixed `Data.ChoicePolicy`. `DataOperations.ofModel model` adapts the
+  pure-set `Data.Model` and inherits its laws on the entire carrier. The
+  evaluator itself requires no set extensionality. Set images bind one
+  identifier. Rigid quantifiers support multiple plain names and groups. All bounded domains are lowered in the
+  incoming scope. Bounded quantifiers and bounded CHOOSE restrict witnesses
+  through the supplied membership operation. Equality is Lean equality on
+  the common carrier. [Pure-set model](tla-data.md)
 - `Booleans` provides TRUE and FALSE, a predicate interpretation with laws for
   those two values, and a policy for invalid operands. Equality, inequality,
   membership, nonmembership, and rigid quantification return the Boolean
@@ -69,6 +73,15 @@ level and modal-dependency summaries before any modal evaluation is admitted.
   for argument lists of that arity. A caller may parameterize a result over
   that contract explicitly. The API assigns no standard-module semantics
   by name.
+
+The tagged carrier has set extensionality for recognized set values. A tagged
+adapter can supply its checked membership and enumeration operations, and
+test set recognition before separation and image. It must supply explicit
+results for unrecognized bounds, for which the usual set-formation laws are
+conditional. With tagged membership, an unrecognized bound has no members.
+A bounded existential is then false, a bounded universal is vacuous, and a
+bounded CHOOSE uses the choice policy's no-witness result. The tagged adapter
+is a separate increment. [Tagged values](tla-tagged-values.md)
 
 Literals, tuple binders, multi-binder images, CASE, functions, records, tuples,
 and other collection syntax require future clauses. This entry point produces
@@ -89,10 +102,12 @@ The fixture runs the existing parser and resolver, then lowers selected
 definitions from two in-memory source modules and one signature module. The
 test elaborator quotes the resulting terms as ordinary Lean data. The kernel
 checks the witness-scope and external-admission proofs and equations for the
-resulting denotations over a general model and valuation. The fixture exercises
-home-module lookup, forwarding and LET capture, repeated expansion of the same
-binder, set image and filtering, rigid quantification, CHOOSE, and a proved
-external implementation. Guards check prime, unsupported tuples, depth
+resulting denotations over the pure-set adapter and arbitrary valuations. A
+separate equation checks that image uses an interpretation's supplied policy
+on an unrecognized bound. The fixture exercises home-module lookup,
+forwarding and LET capture, repeated expansion of the same binder, set image
+and filtering, rigid quantification, CHOOSE, and a proved external
+implementation. Guards check prime, unsupported tuples, depth
 exhaustion, wrong arity, and a same-named external from a different module ID.
 The parser and resolver run during elaboration, so this fixture does not
 constitute a general source adequacy theorem.

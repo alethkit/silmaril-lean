@@ -55,9 +55,9 @@ structure CheckedExpr (signature : ExternalSignature) where
 /-- Interpret a checked expression at one valuation. Witness reads use the slots
 introduced by enclosing binders. No state transition is inferred here. -/
 @[expose] noncomputable def CheckedExpr.eval {V : Type u} {signature : ExternalSignature}
-    (expression : CheckedExpr signature) (M : Data.Model V) (B : Booleans V)
+    (expression : CheckedExpr signature) (ops : DataOperations V) (B : Booleans V)
     (external : ExternalInterpretation V signature) (valuation : Valuation V) : V :=
-  expression.term.eval M B external valuation (fun _ => M.empty)
+  expression.term.eval ops B external valuation (fun _ => ops.enum [])
 
 end
 
