@@ -88,6 +88,75 @@ def HasLiteralTargets (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [A.ty]
     (A.inj i ≫ branch ha = D.inj j ∨ A.inj i ≫ branch ha = D.literal j) →
     ∃ o : Sum B.Row D.Row, rows j = output B D o
 
+/-- A row either forwards its input unit or emits literal unit. -/
+inductive Payload where
+  | forward
+  | literal
+
+def Payload.term : Payload → Tm Empty
+  | .forward => .var 0
+  | .literal => .unit
+
+theorem Payload.value (p : Payload) : Tm.BranchValue [(Ty.unit : Ty Empty)] p.term .unit :=
+  match p with
+  | .forward => .var (i := 0) rfl
+  | .literal => .unit
+
+/-- Apply the output payload choice after the input payload choice. -/
+def Payload.then (input : Payload) : Payload → Payload
+  | .forward => input
+  | .literal => .literal
+
+/-- A tagged row arrow with a choice of unit payload. -/
+noncomputable def Shape.emit (A : Shape) (i : A.Row) (p : Payload) : obj .unit ⟶ obj A.ty :=
+  branch (A.tagValue i p.value)
+
+/-- A code specifies an exit or recurrence tag and its payload choice. -/
+structure OutputCode (B A : Shape) where
+  tag : Sum B.Row A.Row
+  payload : Payload
+
+noncomputable def outputWithPayload (B A : Shape) (o : OutputCode B A) :
+    obj .unit ⟶ obj B.ty ⨿ obj A.ty :=
+  (Shape.sum B A).emit o.tag o.payload ≫ (sumIso B.ty A.ty).hom
+
+noncomputable def stepWithPayload (B A : Shape) (rows : A.Row → OutputCode B A) :
+    obj A.ty ⟶ obj B.ty ⨿ obj A.ty :=
+  A.table (outputWithPayload B A ∘ rows)
+
+/-- The target table has a coded output on the image of the constructor state map. -/
+def HasTargetOutputs (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [A.ty] a D.ty)
+    (rows : D.Row → (obj .unit ⟶ obj B.ty ⨿ obj D.ty)) : Prop :=
+  ∀ (i : A.Row) (j : D.Row) (p : Payload),
+    A.inj i ≫ branch ha = D.emit j p →
+    ∃ o : OutputCode B D, rows j = outputWithPayload B D o
+
+namespace Forwarding
+
+abbrev source : Shape := .sum .unit .unit
+abbrev target : Shape := .sum source .unit
+abbrev result : Shape := .unit
+
+/-- Embed the source state while retaining its unit payload. -/
+def update : Tm Empty := .inl (.let₁ (.var 0) (.var 0))
+
+theorem normalizes : UnaryReturn.Beta.Constructors.Normalizes [source.ty] update (.inl (.var 0))
+    target.ty :=
+  .inl (.ofBeta (.let₁ (.value (.var (i := 0) rfl)) (.value (.var (i := 0) rfl))))
+
+/-- The left state recurs to the right state, which exits with its input payload. -/
+def sourceRows : source.Row → OutputCode result source
+  | .inl () => ⟨.inr (.inr ()), .forward⟩
+  | .inr () => ⟨.inl (), .forward⟩
+
+/-- The chosen payload applies to the exit from the embedded right state. -/
+def targetRows (exitPayload : Payload) : target.Row → OutputCode result target
+  | .inl (.inl ()) => ⟨.inr (.inl (.inr ())), .forward⟩
+  | .inl (.inr ()) => ⟨.inl (), exitPayload⟩
+  | .inr () => ⟨.inl (), .literal⟩
+
+end Forwarding
+
 namespace Collapse
 
 abbrev source : Shape := .sum .unit .unit

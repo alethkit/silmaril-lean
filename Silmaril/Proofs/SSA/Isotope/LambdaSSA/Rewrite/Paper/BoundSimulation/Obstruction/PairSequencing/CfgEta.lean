@@ -14,14 +14,18 @@ open Silmaril Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.Lambd
 open Silmaril.DeBruijn (lift liftN)
 open Silmaril.Isotope.LambdaSSA.Semantics (extend extend_rename)
 open scoped Paper.BoundSimulation.Obstruction
-open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.CanonicalUnit
-open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer (Env EnvTy Val ValTy Result ResultTy cfgRun
+open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer
+  (UnitPayloadPolicy Env EnvTy Val ValTy Result ResultTy cfgRun
   cfgRun_out cfgRun_local cfgRun_fault cfgRun_diverges cfgRun_congr cfgRun_shiftOut mapOut shiftOut)
 
 variable {markPairLet : Bool}
 
 local notation "evalTerm" => evalTermWith markPairLet
 local notation "evalRegion" => evalRegionWith markPairLet
+
+set_option linter.concreteInstances false
+
+variable [UnitPayloadPolicy]
 
 def SameWith (markPairLet : Bool) (Γ : VCtx (Ty Empty)) (r s : Region Empty) : Prop :=
   ∀ env, EnvTy Γ env → evalRegionWith markPairLet r env = evalRegionWith markPairLet s env

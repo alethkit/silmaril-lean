@@ -14,8 +14,8 @@ open Silmaril Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.Lambd
 open Silmaril.DeBruijn (lift liftN)
 open Silmaril.Isotope.LambdaSSA.Semantics (extend extend_rename)
 open scoped Paper.BoundSimulation.Obstruction
-open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.CanonicalUnit
-open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer (Env EnvTy Val ValTy Result ResultTy Frame FrameTy cfgRun
+open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer
+  (UnitPayloadPolicy Env EnvTy Val ValTy Result ResultTy Frame FrameTy cfgRun
   cfgRun_mapOut finish enter step mapOut mapTerminal shiftOut insideMap enter_insideMap
   finish_mapTerminalOn step_typed enter_typed mapOut_liftN liftLSubstN_local liftLSubstN_out)
 
@@ -72,6 +72,10 @@ theorem mapOut_liftLSubstN (n : Nat) (σ : Nat → Region Empty) (env : Env) (r 
       rfl
   | diverges => rfl
   | fault => rfl
+
+set_option linter.concreteInstances false
+
+variable [UnitPayloadPolicy]
 
 theorem evalRegion_lsubst {Γ : VCtx (Ty Empty)} {r : Region Empty} {L : LCtx (Ty Empty)}
     (hr : ValueBranches Γ r L) {env : Env} (h : EnvTy Γ env) (σ : Nat → Region Empty) :

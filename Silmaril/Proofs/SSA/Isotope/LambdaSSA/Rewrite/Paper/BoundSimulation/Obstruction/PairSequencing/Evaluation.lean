@@ -17,8 +17,8 @@ open Silmaril Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.Lambd
 open Silmaril.DeBruijn (lift liftN)
 open Silmaril.Isotope.LambdaSSA.Semantics (extend extend_rename)
 open scoped Paper.BoundSimulation.Obstruction
-open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.CanonicalUnit
-open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer (Env EnvTy Val ValTy Result ResultTy cfgRun
+open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer
+  (UnitPayloadPolicy Env EnvTy Val ValTy Result ResultTy cfgRun
   cfgRun_typed)
 
 def startsLet : Tm Empty → Bool
@@ -209,6 +209,11 @@ theorem RealizesWith.single {env : Env} {t : Tm Empty} {v : Val} (h : evalTerm t
   | zero => exact ⟨h, ht⟩
   | succ i => exact ⟨rfl, rfl⟩
 
+-- Replay the same observer with either unit payload policy.
+set_option linter.concreteInstances false
+
+variable [UnitPayloadPolicy]
+
 theorem evalTerm_typed {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
     (ht : Tm.HasType Γ t A) {env : Env} (h : EnvTy Γ env) {v : Val}
     (he : evalTerm t env = some v) : ValTy v A := by
@@ -317,6 +322,7 @@ def RealizesOnWith (markPairLet : Bool) (Γ : VCtx (Ty Empty)) (env env' : Env) 
 
 local notation "RealizesOn" => RealizesOnWith markPairLet
 
+omit [UnitPayloadPolicy] in
 theorem RealizesOnWith.lift {Γ : VCtx (Ty Empty)} {env env' : Env} {θ : Nat → Tm Empty}
     (h : RealizesOn Γ env env' θ) (A : Ty Empty) (v : Val) :
     RealizesOn (A :: Γ) (extend env v) (extend env' v) (Tm.liftSubst θ) := by
@@ -330,6 +336,7 @@ theorem RealizesOnWith.lift {Γ : VCtx (Ty Empty)} {env env' : Env} {θ : Nat �
     rw [startsLet_rename]
     exact h i B hi
 
+omit [UnitPayloadPolicy] in
 theorem evalTerm_substOn {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
     (ht : Tm.HasType Γ t A) {env env' : Env} {θ : Nat → Tm Empty}
     (h : RealizesOn Γ env env' θ) : evalTerm (t.subst θ) env = evalTerm t env' := by
@@ -361,6 +368,7 @@ theorem evalTerm_substOn {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
     | some v => cases v <;> first | rfl | exact il (h.lift A _) | exact ir (h.lift B _)
   | abort => rfl
 
+omit [UnitPayloadPolicy] in
 theorem evalRegion_substOn {Γ : VCtx (Ty Empty)} {r : Region Empty} {L : LCtx (Ty Empty)}
     (hr : HasType Γ r L) {env env' : Env} {θ : Nat → Tm Empty}
     (h : RealizesOn Γ env env' θ) : evalRegion (r.substVars θ) env = evalRegion r env' := by
