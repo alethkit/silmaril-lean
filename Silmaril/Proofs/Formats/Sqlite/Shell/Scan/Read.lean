@@ -89,24 +89,33 @@ private theorem scan_remaining (table : Vdbe.Table) (remaining : List (Int × Li
     refine ⟨final, run, halted, ?_⟩
     simpa [List.append_assoc] using emitted
 
-private theorem render_rows (rows : List Row) :
-    ((rows.map Row.entry).map Prod.snd).mapM (fun row =>
+private theorem render_rows (columns : List Shell.Column) (rows : List Row) :
+    (rows.map fun row => (Row.entry row).2).mapM (fun row =>
       match row with
-      | [.integer id, .integer amount] => (pure [id.toInt, amount.toInt] : Except String (List Int))
+      | [.integer id, .integer amount] =>
+        pure (columns.map fun column => match column with
+          | .id => id.toInt
+          | .amount => amount.toInt)
       | _ => throw "unexpected VM row") =
-      .ok (rows.map fun row => [row.id.toInt, row.amount.toInt]) := by
+      (.ok (rows.map fun row => columns.map fun column => match column with
+        | .id => row.id.toInt
+        | .amount => row.amount.toInt) : Except String (List (List Int))) := by
   induction rows with
   | nil => rfl
   | cons row rest ih =>
-    simp only [List.map_cons, List.mapM_cons, Row.entry]
+    simp only [List.map_cons, List.mapM_cons]
     rw [ih]
     rfl
 
-/-- The default two-column scan runs the existing VM program to completion
-and returns exactly the ordered rows of the supported snapshot. -/
-theorem execute_scan (snapshot : Snapshot) :
-    Shell.execute snapshot.readTable { columns := [.id, .amount] } =
-      .ok ⟨["id", "amount"], snapshot.orderedRows.map fun row => [row.id.toInt, row.amount.toInt]⟩ := by
+theorem execute_scan_query (snapshot : Snapshot) (query : Shell.Query)
+    (unfiltered : query.key = none) :
+    let ordered := if query.descending then snapshot.orderedRows.reverse else snapshot.orderedRows
+    let selected := (ordered.drop query.offset).take (query.limit.getD ordered.length)
+    Shell.execute snapshot.readTable query =
+      .ok ⟨query.columns.map Shell.Column.name, selected.map fun row =>
+        query.columns.map fun column => match column with
+          | .id => row.id.toInt
+          | .amount => row.amount.toInt⟩ := by
   let table := snapshot.readTable
   have entries : table.entries = snapshot.orderedRows.map Row.entry := rfl
   have shape : ∀ entry ∈ table.entries, ∃ first second, entry.2 = [first, second] := by
@@ -122,9 +131,17 @@ theorem execute_scan (snapshot : Snapshot) :
     rw [fuel, enter_scan]
     exact run
   simp at programRun
-  change Shell.execute table { columns := [.id, .amount] } = _
-  simp [Shell.execute, programRun, halted, Shell.Column.name]
-  rw [emitted, entries, List.nil_append]
-  exact render_rows snapshot.orderedRows
+  change Shell.execute table query = _
+  simp [Shell.execute, unfiltered, programRun, halted]
+  rw [emitted, entries, List.nil_append, List.map_map]
+  cases query.descending <;>
+    simp only [Bool.false_eq_true, ↓reduceIte, List.length_map, ← List.map_reverse,
+      ← List.map_drop, ← List.map_take, Function.comp_def]
+  all_goals exact render_rows query.columns _
+
+theorem execute_scan (snapshot : Snapshot) :
+    Shell.execute snapshot.readTable { columns := [.id, .amount] } =
+      .ok ⟨["id", "amount"], snapshot.orderedRows.map fun row => [row.id.toInt, row.amount.toInt]⟩ := by
+  simpa [Shell.Column.name] using execute_scan_query snapshot { columns := [.id, .amount] } rfl
 
 end Silmaril.Proofs.Formats.Sqlite.Shell.Scan
