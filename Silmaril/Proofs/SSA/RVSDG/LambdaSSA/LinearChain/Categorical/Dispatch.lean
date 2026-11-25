@@ -1,7 +1,6 @@
 module
 
-public import Mathlib.CategoryTheory.Limits.Preserves.Shapes.Products
-public import Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.Defs
+public import Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.Dispatcher.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Categorical.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Labels.Thms
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.Context
@@ -18,7 +17,7 @@ open scoped MonoidalCategory
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
   (Denotes RegionDenotes CollectiveDenotes ctxObj labelObj labelInject
     finiteLabelObj finiteLabelInject labelObjToFinite labelAppendSplit
-    labelObjToFinite_local)
+    labelObjToFinite_local labelAppendSplit_local labelAppendSplit_exit)
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical
   (caseWithContext contextualLoop splitMapCoprod)
@@ -40,11 +39,8 @@ variable {V : Type v} {C : Type w} [Category.{h} V] [Category.{k} C]
 variable (M : TypeModel τ V) [InstructionModel J M Φ]
 variable {A B X Y D : τ} {tail L Γ : List τ}
 
-noncomputable def siteArrow (s : Site L X) : M.obj X ⟶ labelObj M L :=
-  labelInject M s.index s.typing
-
 omit [FreydCategory.CentralUnit J] in
-private theorem call_denotes (p : TwoBlock.Instruction Φ X Y) :
+theorem call_denotes (p : TwoBlock.Instruction Φ X Y) :
     Denotes J M (p.typing Γ) (J.map (snd (ctxObj M Γ) (M.obj X)) ≫ call J M p) := by
   obtain ⟨op, input, output⟩ := p
   subst X
@@ -56,11 +52,7 @@ private theorem call_denotes (p : TwoBlock.Instruction Φ X Y) :
     .op dh
   simpa [call] using d
 
-noncomputable def caseArrow (p : TwoBlock.Instruction Φ A (Silmaril.coprod X Y))
-    (left : Site L X) (right : Site L Y) : J.obj (M.obj A) ⟶ J.obj (labelObj M L) :=
-  choice J M p ≫ coprod.desc (J.map (siteArrow M left)) (J.map (siteArrow M right))
-
-private theorem case_denotes (p : TwoBlock.Instruction Φ A (Silmaril.coprod X Y))
+theorem case_denotes (p : TwoBlock.Instruction Φ A (Silmaril.coprod X Y))
     (left : Site L X) (right : Site L Y) :
     RegionDenotes J M
       (.case (p.typing Γ) (.br left.typing (.var (i := 0) rfl)) (.br right.typing (.var (i := 0) rfl)))
@@ -120,15 +112,6 @@ private theorem body_denotes
       exact d
     · exact ih (fun j => sites j.succ) j
 
-/-- Construct a coproduct dispatch arrow from the preserved finite coproduct. -/
-noncomputable def dispatch {n : Nat} (R : Fin n → τ) {T : C}
-    (f : ∀ i, J.obj (M.obj (R i)) ⟶ T) : J.obj (finiteLabelObj M R) ⟶ T :=
-  let objs : Fin n → V := fun i => M.obj (R i)
-  letI : PreservesColimitsOfShape (Discrete (Fin n)) J := PreservesFiniteCoproducts.preserves n
-  let comparison : J.obj (finiteLabelObj M R) ≅ ∐ fun i => J.obj (objs i) :=
-    PreservesCoproduct.iso J objs
-  comparison.hom ≫ Limits.Sigma.desc f
-
 omit [FreydCategory.CentralUnit J] in
 @[reassoc] theorem dispatch_at {n : Nat} (R : Fin n → τ) {T : C}
     (f : ∀ i, J.obj (M.obj (R i)) ⟶ T) (i : Fin n) :
@@ -140,10 +123,6 @@ omit [FreydCategory.CentralUnit J] in
   have leg : Sigma.ι (fun i => J.obj (objs i)) i ≫ (PreservesCoproduct.iso J objs).inv =
       J.map (Sigma.ι objs i) := by rw [PreservesCoproduct.inv_hom, ι_comp_sigmaComparison]
   rw [← leg, Category.assoc, Iso.inv_hom_id_assoc, Sigma.ι_comp_desc]
-
-noncomputable def localInject {n : Nat} (R : Fin n → τ) (i : Fin n) :
-    M.obj (R i) ⟶ labelObj M (List.ofFn R) :=
-  labelInject M i (by simp [Isotope.SSA.At, i.isLt])
 
 omit [FreydCategory.CentralUnit J] in
 theorem local_ext {n : Nat} (R : Fin n → τ) {T : C}
@@ -193,30 +172,63 @@ private theorem blocks_denote {E : τ} (s : Blocks Φ A B E D tail)
   · exact case_denotes J M s.header _ _
   · exact body_denotes J M _ _ s.body _ j
 
-/-- The loop obtained by splitting the actual LambdaSSA dispatcher's outputs.
-The entry projection and initial label precede iteration. -/
-noncomputable def cfgStep {E : τ} (s : Blocks Φ A B E D tail) :
-    J.obj (labelObj M (List.ofFn (localTypes A B tail))) ⟶
-      J.obj (labelObj M [E, D]) ⨿ J.obj (labelObj M (List.ofFn (localTypes A B tail))) :=
-  let R := localTypes A B tail
-  J.map (labelObjToFinite M R) ≫ dispatch J M R (blockArrows J M s) ≫
-    J.map (labelAppendSplit M (List.ofFn R) [E,D]) ≫ splitMapCoprod J _ _
+omit [FreydCategory.CentralUnit J] in
+theorem cfgStepOf_at {n : Nat} (R : Fin n → τ) (L : List τ)
+    (arrows : ∀ i, J.obj (M.obj (R i)) ⟶ J.obj (labelObj M (List.ofFn R ++ L))) (i : Fin n) :
+    J.map (localInject M R i) ≫ cfgStepOf J M R L arrows = arrows i ≫ decodeLabels J M R L := by
+  unfold cfgStepOf
+  rw [← J.map_comp_assoc, localInject, labelObjToFinite_local, dispatch_at_assoc]
 
-theorem cfg_denotes {E : τ} (s : Blocks Φ A B E D tail) :
-    RegionDenotes J M (regionTyping s)
-      (J.map (snd (𝟙_ V) (M.obj A)) ≫ J.map (localInject M (localTypes A B tail) 0) ≫
-        iterate (cfgStep J M s)) := by
-  let R := localTypes A B tail
+omit [FreydCategory.CentralUnit J] in
+theorem decode_local {n : Nat} (R : Fin n → τ) (L : List τ) (i : Fin n) :
+    J.map (siteArrow M (localSite R L i)) ≫ decodeLabels J M R L =
+      J.map (localInject M R i) ≫ coprod.inr := by
+  change J.map (labelInject M i (localSite R L i).typing) ≫
+    J.map (labelAppendSplit M (List.ofFn R) L) ≫ splitMapCoprod J _ _ = _
+  have eq : labelInject M i (localSite R L i).typing ≫
+      labelAppendSplit M (List.ofFn R) L = localInject M R i ≫ coprod.inr :=
+    labelAppendSplit_local M R L i _ _
+  rw [← J.map_comp_assoc, eq, J.map_comp, Category.assoc, split_inr]
+
+omit [FreydCategory.CentralUnit J] in
+theorem decode_exit {n : Nat} (R : Fin n → τ) (L : List τ) (i : Fin L.length)
+    (atExit : Isotope.SSA.At L i (L.get i)) :
+    J.map (siteArrow M (externalSite R L i)) ≫ decodeLabels J M R L =
+      J.map (labelInject M i atExit) ≫ coprod.inl := by
+  have eidx : (externalSite R L i).index = n + i.val := by simp [externalSite, Nat.add_comm]
+  have h := (externalSite R L i).typing
+  rw [eidx] at h
+  have inj : siteArrow M (externalSite R L i) = labelInject M _ h := by
+    unfold siteArrow
+    congr
+  unfold decodeLabels
+  rw [inj, ← J.map_comp_assoc, labelAppendSplit_exit, J.map_comp, Category.assoc, split_inl]
+
+/-- The dispatcher of the linear fragment. -/
+noncomputable def cfgStep {E : τ} (s : Blocks Φ A B E D tail) :=
+  cfgStepOf J M (localTypes A B tail) [E,D] (blockArrows J M s)
+
+theorem payload_cfg_denotes {n : Nat} (R : Fin (n + 1) → τ) (i : Fin (n + 1))
+    {entry : Isotope.LambdaSSA.Region Φ} {blocks : Fin (n + 1) → Isotope.LambdaSSA.Region Φ}
+    (he : Isotope.LambdaSSA.Region.HasType Γ entry (List.ofFn R ++ L))
+    (hb : ∀ j, Isotope.LambdaSSA.Region.HasType (R j :: Γ) (blocks j) (List.ofFn R ++ L))
+    (fe : J.obj (ctxObj M Γ) ⟶ J.obj (M.obj (R i)))
+    (de : RegionDenotes J M he (fe ≫ J.map (siteArrow M (localSite R L i))))
+    (arrows : ∀ j, J.obj (M.obj (R j)) ⟶ J.obj (labelObj M (List.ofFn R ++ L)))
+    (db : ∀ j, RegionDenotes J M (hb j)
+      (J.map (snd (ctxObj M Γ) (M.obj (R j))) ≫ arrows j)) :
+    RegionDenotes J M (.cfg R he hb)
+      (fe ≫ J.map (localInject M R i) ≫ iterate (cfgStepOf J M R L arrows)) := by
   let I := labelObj M (List.ofFn R)
-  let O := labelObj M [E,D]
+  let O := labelObj M L
   let F := finiteLabelObj M R
-  let G := ctxObj M [A]
-  let k := labelAppendSplit M (List.ofFn R) [E,D]
-  let entry := localSite R [E,D] 0
-  let f := dispatch J M R (blockArrows J M s)
+  let G := ctxObj M Γ
+  let k := labelAppendSplit M (List.ofFn R) L
+  let entry := localSite R L i
+  let f := dispatch J M R arrows
   let p := J.map (snd G F) ≫ f
-  have collective : CollectiveDenotes J M [A] R [E,D]
-      (fun i => J.map (snd G (M.obj (R i))) ≫ blockArrows J M s i) p := by
+  have collective : CollectiveDenotes J M Γ R L
+      (fun i => J.map (snd G (M.obj (R i))) ≫ arrows i) p := by
     constructor
     intro i
     change J.map ((𝟙 G) ⊗ₘ finiteLabelInject M R i) ≫ (J.map (snd G F) ≫ f) = _
@@ -224,17 +236,14 @@ theorem cfg_denotes {E : τ} (s : Blocks Φ A B E D tail) :
       J.map_comp_assoc]
     dsimp only [f]
     rw [dispatch_at]
-  have var : Denotes J M (Isotope.LambdaSSA.Tm.HasType.var (Φ := Φ) (Γ := [A]) (i := 0) rfl)
-      (J.map (snd (𝟙_ V) (M.obj A))) := .var (i := 0) rfl
-  have de := RegionDenotes.br (h := entry.typing) var
-  have den := RegionDenotes.cfg _ _ de (blocks_denote J M s) collective
-  change RegionDenotes J M (regionTyping s)
+  have den := RegionDenotes.cfg he hb de db collective
+  change RegionDenotes J M (.cfg R he hb)
     (caseWithContext J
-      ((J.map (snd (𝟙_ V) (M.obj A)) ≫ J.map (siteArrow M entry)) ≫ J.map k)
+      ((fe ≫ J.map (siteArrow M entry)) ≫ J.map k)
       (J.map (snd G O))
       (contextualLoop J (J.map ((𝟙 G) ⊗ₘ labelObjToFinite M R) ≫ p ≫ J.map k))) at den
-  have entrySplit : siteArrow M entry ≫ k = localInject M R 0 ≫ coprod.inr :=
-    Silmaril.Isotope.LambdaSSA.Semantics.Categorical.labelAppendSplit_local M R [E,D] 0 _ _
+  have entrySplit : siteArrow M entry ≫ k = localInject M R i ≫ coprod.inr :=
+    Silmaril.Isotope.LambdaSSA.Semantics.Categorical.labelAppendSplit_local M R L i _ _
   have body : J.map ((𝟙 G) ⊗ₘ labelObjToFinite M R) ≫ p ≫ J.map k =
       J.map (snd G I) ≫ (J.map (labelObjToFinite M R) ≫ f ≫ J.map k) := by
     dsimp only [p]
@@ -242,28 +251,38 @@ theorem cfg_denotes {E : τ} (s : Blocks Φ A B E D tail) :
       CartesianMonoidalCategory.whiskerLeft_snd, J.map_comp_assoc]
   rw [body, loop_project] at den
   have simplifyEntry :
-      (J.map (snd (𝟙_ V) (M.obj A)) ≫ J.map (siteArrow M entry)) ≫ J.map k =
-        (J.map (snd (𝟙_ V) (M.obj A)) ≫ J.map (localInject M R 0)) ≫
+      (fe ≫ J.map (siteArrow M entry)) ≫ J.map k =
+        (fe ≫ J.map (localInject M R i)) ≫
           J.map (coprod.inr : I ⟶ O ⨿ I) := by
     rw [Category.assoc, ← J.map_comp, entrySplit, J.map_comp, Category.assoc]
   rw [simplifyEntry] at den
   let initial : J.obj G ⟶ J.obj I :=
-    J.map (snd (𝟙_ V) (M.obj A)) ≫ J.map (localInject M R 0)
+    fe ≫ J.map (localInject M R i)
   have finish : iterate ((J.map (labelObjToFinite M R) ≫ f ≫ J.map k) ≫ splitMapCoprod J O I) =
-      iterate (cfgStep J M s) := by
+      iterate (cfgStepOf J M R L arrows) := by
     change iterate ((J.map (labelObjToFinite M R) ≫ f ≫ J.map k) ≫ splitMapCoprod J O I) =
       iterate (J.map (labelObjToFinite M R) ≫ f ≫ J.map k ≫ splitMapCoprod J O I)
     rw [Category.assoc, Category.assoc]
   rw [finish] at den
   have collapse : caseWithContext J (initial ≫ J.map (coprod.inr : I ⟶ O ⨿ I))
-      (J.map (snd G O)) (J.map (snd G I) ≫ iterate (cfgStep J M s)) =
-      initial ≫ iterate (cfgStep J M s) := by
+      (J.map (snd G O)) (J.map (snd G I) ≫ iterate (cfgStepOf J M R L arrows)) =
+      initial ≫ iterate (cfgStepOf J M R L arrows) := by
     have branch := case_project J (initial ≫ J.map (coprod.inr : I ⟶ O ⨿ I))
-      (𝟙 (J.obj O)) (iterate (cfgStep J M s))
+      (𝟙 (J.obj O)) (iterate (cfgStepOf J M R L arrows))
     rw [Category.comp_id] at branch
     rw [branch]
     rw [Category.assoc, split_inr_assoc J O I, coprod.inr_desc]
   rw [collapse] at den
   simpa only [initial, Category.assoc] using den
+
+theorem cfg_denotes {E : τ} (s : Blocks Φ A B E D tail) :
+    RegionDenotes J M (regionTyping s)
+      (J.map (snd (𝟙_ V) (M.obj A)) ≫ J.map (localInject M (localTypes A B tail) 0) ≫
+        iterate (cfgStep J M s)) := by
+  let R := localTypes A B tail
+  have var : Denotes J M (Isotope.LambdaSSA.Tm.HasType.var (Φ := Φ) (Γ := [A]) (i := 0) rfl)
+      (J.map (snd (𝟙_ V) (M.obj A))) := .var (i := 0) rfl
+  exact payload_cfg_denotes J M R 0 _ (blockTyping s) _
+    (RegionDenotes.br (h := (localSite R [E,D] 0).typing) var) (blockArrows J M s) (blocks_denote J M s)
 
 end Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.Proofs
