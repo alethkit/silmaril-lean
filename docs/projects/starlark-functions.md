@@ -8,7 +8,7 @@ The core dialect follows the Bazel team's specification at revision
 ## Resolved input
 
 `Silmaril.Languages.Starlark.Functions.Thms` exposes function definitions,
-positional calls with required parameters, sequencing, conditionals and the
+calls, sequencing, conditionals and the
 existing total collection suites. Calls in expression position lower to calls
 with fresh destination slots. The current collection suites can be lifted as
 single blocks, including their local loops, writes and returns. Lifting
@@ -56,10 +56,48 @@ addresses are internal to the Lean model. The Go checks observe values,
 aliasing, recursion rejection and heap effects through the host API.
 [Operational rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean)
 
+## Argument binding
+
+A resolved signature has positional-or-named parameters, keyword-only
+parameters, and optional `*args` and `**kwargs` slots. Default expressions
+evaluate left to right in the defining activation. Each new closure stores
+their values once, and publication freezes them through the same heap
+reachability rules as captured cells. Filling an omitted argument uses the
+stored value, so mutable defaults share identity across calls.
+
+The resolved call form represents positions, named operands, at most one
+`*`, and at most one final `**`. All operand expressions evaluate left to right
+before expansion. The supported `*` sources are lists, tuples and dictionary
+keys. The supported `**` source is a dictionary with string keys. Expansion
+preserves dictionary insertion order. When both expansions are invalid the
+Go profile checks `**` first, after both operand expressions have run. A
+call checks re-entry before binding parameters.
+
+Binding checks positional overflow, assigns keywords in appearance order,
+and fills omitted parameters from defaults. It reports duplicate assignment,
+unexpected keywords and the missing required names. Fresh tuple and
+dictionary packs are allocated only after successful binding. They enter
+the activation by reference just like the other argument values. String
+values support literal content, truth and key comparison in this profile.
+Other string operations and additional star iterables remain open.
+
+`runChecked` validates all normalized parameter lists and call sites before
+executing, including unreachable call sites. It rejects duplicate parameter
+names and repeated explicit keywords. The ordering of positional parameters
+and expansion sites is enforced by their representation. A required
+positional parameter cannot follow one with a default. The pinned prose
+requires an optional keyword-only parameter after a bare `*`. The pinned
+Go implementation accepts a required-only keyword signature, which the
+fixture records as a difference. The caller still supplies lexical resolution
+and valid identifier spellings, and lowers call expressions within operands
+to ordered calls and temporary slots.
+[Argument binding](../../Silmaril/Languages/Starlark/Functions/Arguments/Defs.lean) · [Functions][functions] · [Definitions][defs]
+
 ## Checks and next increment
 
 ```sh
-lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks
+lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
+  +Silmaril.Languages.Starlark.Functions.Arguments.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -72,9 +110,9 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixture")
 ```
 
-Defaults, named and keyword-only parameters, variadic argument packs, and
-call-side expansion remain the next increment. Full module initialization and
-loading, built-ins and host callable effects also remain open.
+Module initialization and loading, built-ins, and host callable effects
+remain open. Calls in collection loop bodies and direct source lowering
+remain outside the current normalized input.
 
 [functions]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#functions
 [names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-binding-and-variables

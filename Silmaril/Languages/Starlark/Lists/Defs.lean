@@ -15,11 +15,12 @@ inductive Value where
   | tuple (address : Address)
   | dict (address : Address)
   | function (address : Address)
+  | string (text : String)
   deriving DecidableEq, Repr
 
 def Value.address? : Value → Option Address
   | .list address | .tuple address | .dict address | .function address => some address
-  | .scalar _ => none
+  | .scalar _ | .string _ => none
 
 /-- Canonical key encoding for tagged scalars and well-bracketed tuples. -/
 inductive KeyPart where
@@ -27,6 +28,7 @@ inductive KeyPart where
   | openTuple
   | closeTuple
   | function (address : Address)
+  | string (text : String)
   deriving DecidableEq, BEq, Repr
 
 abbrev Key := List KeyPart
@@ -47,6 +49,7 @@ structure Capture where
 structure Closure where
   declaration : Nat
   captures : List Capture
+  defaults : List (Binding × Value)
   deriving DecidableEq, Repr
 
 inductive Contents where
@@ -61,8 +64,10 @@ def Contents.children : Contents → List Address
   | .list elements | .tuple elements _ => elements.filterMap Value.address?
   | .dict entries => (entries.flatMap fun entry => [entry.key, entry.value]).filterMap Value.address?
   | .binding value => value.toList.filterMap Value.address?
-  | .function closure => closure.captures.filterMap fun capture =>
-      if capture.localCell then some capture.address else none
+  | .function closure =>
+    (closure.captures.filterMap fun capture =>
+      if capture.localCell then some capture.address else none) ++
+    (closure.defaults.filterMap fun (_, value) => value.address?)
 
 def Contents.sameMutableKind : Contents → Contents → Bool
   | .list _, .list _ | .dict _, .dict _ => true
@@ -110,6 +115,12 @@ inductive Error where
   | notCallable
   | arity (expected supplied : Nat)
   | recursiveCall (declaration : Nat)
+  | invalidStar
+  | invalidStarStar
+  | keywordMustBeString (key : Value)
+  | unexpectedKeyword (name : String)
+  | multipleArgumentValues (name : String)
+  | missingArguments (names : List String)
   deriving DecidableEq, Repr
 
 abbrev Outcome := EStateM.Result Error State
@@ -203,6 +214,7 @@ def State.keyOf (state : State) (value : Value) : Except Error Key :=
     | some _ => .error (.wrongCellKind address)
   | .list _ | .dict _ => .error (.unhashableKey value)
   | .function address => .ok [.function address]
+  | .string text => .ok [.string text]
 
 def allocateTuple (elements : List Value) : Meaning Value := fun state =>
   let key := (elements.mapM fun value => (state.keyOf value).toOption).map
@@ -259,7 +271,7 @@ def readDict (address : Address) (key : Value) : Meaning Value := do
 
 def readIndex (receiver index : Value) : Meaning Value :=
   match receiver with
-  | .scalar _ | .function _ => throw .indexTarget
+  | .scalar _ | .function _ | .string _ => throw .indexTarget
   | .list address => listElements address >>= fun elements => readSequence elements index
   | .tuple address => tupleElements address >>= fun elements => readSequence elements index
   | .dict address => readDict address index
@@ -294,7 +306,7 @@ def writeDict (address : Address) (key value : Value) : Meaning Unit :=
 
 def writeIndex (receiver index value : Value) : Meaning Unit :=
   match receiver with
-  | .scalar _ | .tuple _ | .function _ => throw .assignmentTarget
+  | .scalar _ | .tuple _ | .function _ | .string _ => throw .assignmentTarget
   | .list address =>
     updateCell address fun elements => do
       let i ← normalizeIndex elements.length index
@@ -309,6 +321,7 @@ def appendAt (address : Address) (value : Value) : Meaning Value := do
 expressions and statements share a structural recursion principle. -/
 inductive Code : Type → Type where
   | scalar (value : Starlark.Value) : Code Value
+  | string (text : String) : Code Value
   | read (ref : Ref) : Code Value
   | list (elements : Code (List Value)) : Code Value
   | tuple (elements : Code (List Value)) : Code Value

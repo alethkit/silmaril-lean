@@ -28,6 +28,7 @@ theorem eval_denote {α : Type} (code : Code α) (state : State) :
     Eval state code (denote code state) := by
   induction code generalizing state with
   | scalar => exact .scalar
+  | string => exact .string
   | read => exact .read
   | list elements ih => simpa [denote, runBind] using Eval.list (ih state)
   | tuple elements ih => simpa [denote, runBind] using Eval.tuple (ih state)
@@ -81,6 +82,9 @@ theorem eval_denote {α : Type} (code : Code α) (state : State) :
         rw [denote, runBind, h]
         exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
       | function address =>
+        rw [denote, runBind, h]
+        exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
+      | string text =>
         rw [denote, runBind, h]
         exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
   | pass => exact .pass

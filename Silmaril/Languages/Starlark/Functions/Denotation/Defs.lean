@@ -22,9 +22,10 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
   | .branch test yes no =>
     Outcome.resume (Outcome.resume (denote test state) truth) fun flag next =>
       if flag then denoteBody program available yes next else denoteBody program available no next
-  | .define target id => define program target id state
+  | .define target id =>
+    Outcome.resume (denote (defaultOperands program id) state) (define program target id)
   | .call target callee arguments =>
-    match Outcome.resume (denote (.cons callee arguments) state) (prepare program available) with
+    match Outcome.resume (denote (Arguments.operands callee arguments) state) (prepare program available arguments) with
     | .error error next => .error error next
     | .ok plan next =>
       completeCall state target (denoteBody program (withoutDeclaration available plan.id) plan.body next)
@@ -39,5 +40,11 @@ decreasing_by
 Install the root block's slots before entry when they can be captured. -/
 def run (program : Program) (body : Body) (state : State := {}) : Outcome Flow :=
   denoteBody program (List.range program.size) body state
+
+/-- Reject malformed resolved signatures and explicit duplicate keywords before running. -/
+def runChecked (program : Program) (body : Body) (state : State := {}) :
+    Except CallStaticError (Outcome Flow) := do
+  validate program body
+  return run program body state
 
 end Silmaril.Languages.Starlark.Functions

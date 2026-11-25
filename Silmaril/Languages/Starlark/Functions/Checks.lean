@@ -24,7 +24,7 @@ private def values (exprs : List Lists.Expr) : Code (List Lists.Value) :=
 private def list (exprs : List Lists.Expr) : Lists.Expr := .list (values exprs)
 private def tuple (exprs : List Lists.Expr) : Lists.Expr := .tuple (values exprs)
 private def call (dst callee : String) (args : List Lists.Expr := []) : Body :=
-  .call (some (loc dst)) (read callee) (values args)
+  .call (some (loc dst)) (read callee) { positional := args }
 private def set (name : String) (value : Lists.Expr) : Body :=
   .total (.atomic (.assign (loc name) value))
 private def ret (value : Lists.Expr) : Body := .total (.ret value)
@@ -35,11 +35,14 @@ private def result {α : Type} : Outcome α → Except Error α
   | .ok a _ => .ok a
   | .error e _ => .error e
 
+private def required (slots : List Binding) : Signature :=
+  { positional := slots.map fun slot => ⟨slot, none⟩ }
+
 private def getters : Program := #[
-  ⟨[loc "x"], [loc "get", loc "before"], [], body
+  ⟨required [loc "x"], [loc "get", loc "before"], [], body
     [.define (loc "get") 1, call "before" "get", set "x" (int 2),
      ret (tuple [read "before", read "get"])]⟩,
-  ⟨[], [], [⟨loc "x", loc "x"⟩], ret (read "x")⟩]
+  ⟨required [], [], [⟨loc "x", loc "x"⟩], ret (read "x")⟩]
 
 -- The first call sees the original value. An escaped closure sees the later write.
 #guard
@@ -54,7 +57,7 @@ private def getters : Program := #[
     (finishState outcome).slots (loc "x") = none
 
 private def moduleReader : Program :=
-  #[⟨[], [], [⟨glob "x", glob "x"⟩], ret (.read (.bound (glob "x")))⟩]
+  #[⟨required [], [], [⟨glob "x", glob "x"⟩], ret (.read (.bound (glob "x")))⟩]
 
 -- The capture acquires the declared slot even before the module initializes it.
 #guard
@@ -67,10 +70,10 @@ private def moduleReader : Program :=
     (finishState ok).bindingValue (loc "out") = .ok (.scalar (.int 42))
 
 private def reentry : Program := #[
-  ⟨[loc "other"], [loc "f"], [], body [.define (loc "f") 1, ret (read "f")]⟩,
-  ⟨[loc "x"], [loc "out"], [⟨loc "other", loc "other"⟩],
+  ⟨required [loc "other"], [loc "f"], [], body [.define (loc "f") 1, ret (read "f")]⟩,
+  ⟨required [loc "x"], [loc "out"], [⟨loc "other", loc "other"⟩],
     body [call "out" "other" [read "x"], ret (read "out")]⟩,
-  ⟨[loc "x"], [], [], ret (read "x")⟩]
+  ⟨required [loc "x"], [], [], ret (read "x")⟩]
 
 -- a and b are different closure objects of declaration 1.
 #guard
@@ -81,7 +84,7 @@ private def reentry : Program := #[
     (finishState final).bindingValue (loc "a") ≠ (finishState final).bindingValue (loc "b") ∧
     (finishState final).slots (loc "x") = none
 
-private def sideEffect : Program := #[⟨[loc "xs"], [], [], .total (.seq
+private def sideEffect : Program := #[⟨required [loc "xs"], [], [], .total (.seq
   (.atomic (.eval (.append (read "xs") (int 7))))
   (.ret (.index (read "xs") (int 12))))⟩]
 
@@ -94,9 +97,9 @@ private def sideEffect : Program := #[⟨[loc "xs"], [], [], .total (.seq
     result (Lists.denote (.index (read "container") (int 0)) state) = .ok (.scalar (.int 7))
 
 private def makers : Program := #[
-  ⟨[], [loc "xs", loc "appender"], [], body [set "xs" (list []),
+  ⟨required [], [loc "xs", loc "appender"], [], body [set "xs" (list []),
     .define (loc "appender") 1, ret (read "appender")]⟩,
-  ⟨[], [], [⟨loc "xs", loc "xs"⟩],
+  ⟨required [], [], [⟨loc "xs", loc "xs"⟩],
     .total (.atomic (.eval (.append (read "xs") (int 1))))⟩]
 
 #guard

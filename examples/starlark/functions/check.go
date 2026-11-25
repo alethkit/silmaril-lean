@@ -93,8 +93,63 @@ f = factory()`)
 	fmt.Println("PASS effects survive failure and freezing follows captured cells")
 }
 
+func checkArguments() {
+	g, err := run(`def f(a, b=2, *rest, c, d=4, **kw):
+    return (a, b, rest, c, d, kw)
+out = f(1, c=5, y=9, *[3, 7], **{"z": 8})`)
+	require(err == nil && g["out"].String() == `(1, 3, (7,), 5, 4, {"y": 9, "z": 8})`,
+		"positional, keyword-only or packed arguments")
+	prefix := "def f(a, b=2, *rest, c, d=4, **kw): pass\n"
+	for _, test := range []struct{ call, error string }{
+		{"f(1)", "missing 1 argument (c)"},
+		{"f(1, a=2)", `multiple values for parameter "a"`},
+		{`f(1, c=2, **{"c": 3})`, `multiple values for parameter "c"`},
+		{`f(x=2, **{"x": 3})`, `multiple values for parameter "x"`},
+		{"f(*1)", "argument after * must be iterable"},
+		{"f(**[])", "argument after ** must be a mapping"},
+		{"f(*1, **{3: 7})", "keywords must be strings"},
+		{"f(c=1, c=2)", "keyword argument"},
+	} {
+		_, err := run(prefix + test.call)
+		checkError(err, test.error)
+	}
+	_, err = run(`def f(a, *, b=2, c): pass
+f(1, 2)`)
+	checkError(err, "accepts 1 positional argument")
+	_, err = run(`def f(a, *, b=2, c): pass
+f(1, other=2)`)
+	checkError(err, "unexpected keyword argument")
+	g, err = run(prefix + `events = []
+f(events.append(1), c=events.append(2), *[events.append(3)], **{3: events.append(4)})`)
+	checkError(err, "keywords must be strings")
+	require(g["events"].String() == "[1, 2, 3, 4]", "operand effects must precede expansion errors")
+	fmt.Println("PASS complete argument packs, operand ordering, and argument errors")
+}
+
+func checkDefaults() {
+	g, err := run(`counter = []
+def f(xs=[], stamp=counter.append(4)):
+    xs.append(1)
+    return xs
+a = f()
+b = f()`)
+	require(err == nil && g["a"] == g["b"] && g["b"].String() == "[1, 1]" &&
+		g["counter"].String() == "[4]", "defaults did not run once or were copied")
+	g["f"].Freeze()
+	_, err = starlark.Call(&starlark.Thread{Name: "frozen defaults"}, g["f"], nil, nil)
+	checkError(err, "frozen list")
+	fmt.Println("PASS definition-time defaults share identity and freeze with their function")
+
+	g, err = run(`def f(*, x): return x
+out = f(x=3)`)
+	require(err == nil && g["out"].String() == "3", "unexpected pinned Go bare-star rule")
+	fmt.Println("NOTE pinned Go accepts required-only bare-star signatures, unlike the pinned prose")
+}
+
 func main() {
 	checkClosure()
 	checkReentry()
 	checkStoreAndFreeze()
+	checkArguments()
+	checkDefaults()
 }
