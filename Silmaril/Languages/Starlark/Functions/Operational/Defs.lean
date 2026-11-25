@@ -26,6 +26,10 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       ExecExpr program available s value out →
       Exec program available s (.assignExpr target value)
         (Outcome.resume out fun result next => .ok .next (next.write target result))
+  | evalExpr {available : List DeclarationId} {s : State} {value : Lowering.Expr}
+      {out : Outcome Lists.Value} :
+      ExecExpr program available s value out →
+      Exec program available s (.evalExpr value) (Outcome.resume out fun _ => pure .next)
   | seq {available : List DeclarationId} {s t : State} {first rest : Body} {out : Outcome Flow} :
       Exec program available s first (.ok .next t) → Exec program available t rest out →
       Exec program available s (.seq first rest) out

@@ -96,6 +96,9 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
   | assignExpr target value =>
     rw [denoteBody]
     exact .assignExpr (exprRun value)
+  | evalExpr value =>
+    rw [denoteBody]
+    exact .evalExpr (exprRun value)
   | seq first rest =>
     rw [denoteBody]
     have firstRun := exec_denote program available first state

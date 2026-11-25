@@ -15,11 +15,12 @@ abbrev DeclarationId := Nat
 def withoutDeclaration (available : List DeclarationId) (id : DeclarationId) : List DeclarationId :=
   available.filter (· != id)
 
-/-- Resolved function code with direct expression operands. -/
+/-- Resolved body code with direct expression operands. -/
 inductive Body where
   | total (code : Suite 0)
   | returnExpr (value : Lowering.Expr)
   | assignExpr (target : Binding) (value : Lowering.Expr)
+  | evalExpr (value : Lowering.Expr)
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
   | branchExpr (test : Lowering.Expr) (yes no : Body)
@@ -136,7 +137,7 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
   | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate
-  | .returnExpr value | .assignExpr _ value => value.validateCalls
+  | .returnExpr value | .assignExpr _ value | .evalExpr value => value.validateCalls
   | .define .. | .total _ => pure ()
 
 def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false
