@@ -3,7 +3,7 @@ module
 import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.DirectSequence.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.DirectSequence.Enclosing.Framed.Native.Thms
-import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.DirectSequence.Enclosing.Framed.Source.Native.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Native.Thms
 
 open Silmaril.Wasm
 open Silmaril.Wasm.Execution
@@ -73,17 +73,30 @@ private theorem firstInvokes (fn : CallFrame.Callee) (count : fn.params.length =
   exact (Relation.ReflTransGen.single load).tail
     (fact (.resolve (firstId fn) saved [i32 5] (later fn) count.symm))
 
-private theorem firstReturned :
-    Runs (site firstCallee) (.running saved (code firstCallee))
+private def entered (fn : CallFrame.Callee) : State (site fn) :=
+  .active (firstId fn) (.label saved [i32 5] (.code fn.program)) (later fn)
+
+private theorem firstEnters (fn : CallFrame.Callee) (count : fn.params.length = 1) (locals : fn.locals = []) :
+    Runs (site fn) (.running saved (code fn)) (entered fn) := by
+  have enter := (firstInvokes fn count).tail (call (by trivial) (CallFrame.fact (.enter saved [i32 5] count.symm)))
+  simpa [entered, attach, Site.target, site, firstId, CallFrame.Callee.init, locals] using enter
+
+private theorem firstReturns :
+    Runs (site firstCallee) (entered firstCallee)
       (.running (saved ++ [i32 7]) (later firstCallee)) := by
-  have entry := (firstInvokes firstCallee rfl).tail (call (by trivial) (CallFrame.fact (.enter saved [i32 5] rfl)))
-  have pop := entry.tail (call (by trivial) (CallFrame.fact (.labelReturn saved [i32 5] [i32 7])))
+  have pop := Relation.ReflTransGen.single
+    (call (i := firstId firstCallee) (rest := later firstCallee) (by trivial)
+      (CallFrame.fact (.labelReturn saved [i32 5] [i32 7])))
   exact pop.tail (call (by trivial) (CallFrame.fact (.frameReturn saved [i32 5] [] [i32 7] rfl)))
+
+private theorem resolveSecond : Edge (site firstCallee) (.running (saved ++ [i32 7]) (later firstCallee))
+    (.active (secondId firstCallee) (.invoke saved [i32 7]) (continuation firstCallee)) :=
+  fact (.resolve (secondId firstCallee) saved [i32 7] (continuation firstCallee) rfl)
 
 private theorem secondInvokes :
     Runs (site firstCallee) (.running saved (code firstCallee))
       (.active (secondId firstCallee) (.invoke saved [i32 7]) (continuation firstCallee)) :=
-  firstReturned.tail (fact (.resolve (secondId firstCallee) saved [i32 7] (continuation firstCallee) rfl))
+  ((firstEnters firstCallee rfl rfl).trans firstReturns).tail resolveSecond
 
 private theorem secondReturns {s : Site} (i : s.TargetId) (declared : (s.target i).callee = secondCallee)
     (below : List Value) (arg : Value) (rest : List (Op s)) :
@@ -100,18 +113,22 @@ private theorem secondReturns {s : Site} (i : s.TargetId) (declared : (s.target 
     exact CallFrame.fact (.frameValues below [arg] [arg] rfl)
   exact label.tail (call (by trivial) pop)
 
-private theorem normalPath : Runs (site firstCallee) (.running saved (code firstCallee)) (.running [i32 17] []) := by
-  have returned := secondInvokes.trans (secondReturns (secondId firstCallee) rfl saved (i32 7) (continuation firstCallee))
+private theorem normalAfterEntry : Runs (site firstCallee) (entered firstCallee) (.running [i32 17] []) := by
+  have returned := (firstReturns.tail resolveSecond).trans (secondReturns (secondId firstCallee) rfl saved (i32 7) (continuation firstCallee))
   have load := returned.tail (fact (.numeric (.get rfl)))
   have mul : intBinOp .i32 .mul 7 2 = .ok 14 := rfl
   have product := load.tail (fact (.numeric (.bin (stack := saved) mul)))
   have add : intBinOp .i32 .add 3 14 = .ok 17 := rfl
   exact product.tail (fact (.numeric (.bin (stack := []) add)))
 
-private theorem firstTrapped :
-    Runs (site trappingCallee) (.running saved (code trappingCallee)) (.trapped saved (later trappingCallee)) := by
-  have entry := (firstInvokes trappingCallee rfl).tail (call (by trivial) (CallFrame.fact (.enter saved [i32 5] rfl)))
-  have raises := entry.tail (call (by trivial) (CallFrame.fact (.unreachable saved [i32 5])))
+private theorem normalPath : Runs (site firstCallee) (.running saved (code firstCallee)) (.running [i32 17] []) :=
+  (firstEnters firstCallee rfl rfl).trans normalAfterEntry
+
+private theorem firstRaises :
+    Runs (site trappingCallee) (entered trappingCallee) (.trapped saved (later trappingCallee)) := by
+  have raises := Relation.ReflTransGen.single
+    (call (i := firstId trappingCallee) (rest := later trappingCallee) (by trivial)
+      (CallFrame.fact (.unreachable saved [i32 5])))
   have label := raises.tail (call (by trivial) (CallFrame.fact (.labelTrap saved [i32 5])))
   exact label.tail (call (by trivial) (CallFrame.fact (.frameTrap saved [i32 5])))
 
@@ -119,9 +136,12 @@ private theorem dropSecond : Edge (site trappingCallee) (.trapped saved (later t
     (.trapped saved (continuation trappingCallee)) :=
   fact (.discard (.cut saved [] [Op.call (secondId trappingCallee)] (continuation trappingCallee) (.inr (by simp))))
 
-private theorem trapPath : Runs (site trappingCallee) (.running saved (code trappingCallee)) (.trapped [] []) :=
-  (firstTrapped.tail dropSecond).tail
+private theorem trapAfterEntry : Runs (site trappingCallee) (entered trappingCallee) (.trapped [] []) :=
+  (firstRaises.tail dropSecond).tail
     (fact (.discard (.cut [] saved (continuation trappingCallee) [] (.inl (by simp [saved])))))
+
+private theorem trapPath : Runs (site trappingCallee) (.running saved (code trappingCallee)) (.trapped [] []) :=
+  (firstEnters trappingCallee rfl rfl).trans trapAfterEntry
 
 example : V1.Execution.Steps CallFrame.v1NoHost (v1Config (store firstCallee) (site firstCallee)
     (.running saved (code firstCallee))) ⟨store firstCallee, caller, [.source (.intConst .i32 17)]⟩ :=
@@ -209,6 +229,13 @@ private theorem fromCall (fn : CallFrame.Callee) {target : State (site fn)}
   have load : Edge (site fn) (.running [] ((outer fn).code)) (.running saved (code fn)) :=
     fact (.numeric (.get rfl))
   exact enter.trans (DirectSequence.label_run ((Relation.ReflTransGen.single load).trans bodyRun))
+
+private theorem outerFinishes (fn : CallFrame.Callee) {a b : State (outer fn).site.body}
+    {r : Nested.Result} (body : Runs (outer fn).site.body a b) (finished : DirectSequence.Finished _ b r)
+    (arity : DirectSequence.ResultArity (outer fn).site r) :
+    DirectSequence.Runs (outer fn) (.label a) (.done r) :=
+  ((DirectSequence.label_run body).tail (DirectSequence.fact (.leaveLabel finished))).tail
+    (DirectSequence.fact (.leaveFrame r arity))
 
 private theorem outerNormal : DirectSequence.Runs (outer firstCallee) .call (.done (.values [i32 17])) :=
   ((fromCall firstCallee normalPath).tail (DirectSequence.fact (.leaveLabel (.values _)))).tail
@@ -390,12 +417,18 @@ private theorem callResolved :
       (.continuation (.active continuationTarget (.invoke [i32 11] [i32 17]) afterCall)) :=
   callRestored.tail (Enclosing.resume (fact (.resolve continuationTarget [i32 11] [i32 17] afterCall rfl)))
 
-private theorem callContinued :
-    Enclosing.Runs enclosingCall (outer firstCallee) (.active .call) (.resume [i32 28] []) := by
-  have returned := callResolved.trans (Enclosing.resume_run
+private theorem resumeAfterResolve {a : Enclosing.State enclosingCall (outer firstCallee).site}
+    (resolved : Enclosing.Runs enclosingCall (outer firstCallee) a
+      (.continuation (.active continuationTarget (.invoke [i32 11] [i32 17]) afterCall))) :
+    Enclosing.Runs enclosingCall (outer firstCallee) a (.resume [i32 28] []) := by
+  have returned := resolved.trans (Enclosing.resume_run
     (secondReturns continuationTarget rfl [i32 11] (i32 17) afterCall))
   have add : intBinOp .i32 .add 11 17 = .ok 28 := rfl
   exact returned.tail (Enclosing.resume (fact (.numeric (.bin (stack := []) add))))
+
+private theorem callContinued :
+    Enclosing.Runs enclosingCall (outer firstCallee) (.active .call) (.resume [i32 28] []) :=
+  resumeAfterResolve callResolved
 
 private theorem discardContinuationCall :
     Enclosing.Edge enclosingCall (outer trappingCallee) (.trapped enclosingCall.saved enclosingCall.continuation)
@@ -405,11 +438,16 @@ private theorem discardContinuationCall :
     Prefix.Discard.cut enclosingCall.saved [] ([.call continuationTarget] : List (Op callSequence)) afterCall
       (.inr (by simp))
 
-private theorem callTrap :
-    Enclosing.Runs enclosingCall (outer trappingCallee) (.active .call) (.trapped [] []) := by
-  have unwind := Enclosing.invoke_run (ctx := enclosingCall) outerTrap
-  exact (unwind.tail discardContinuationCall).tail (Enclosing.resume (fact (.discard
+private theorem unwindAfterTrap {a : Enclosing.State enclosingCall (outer trappingCallee).site}
+    (unwind : Enclosing.Runs enclosingCall (outer trappingCallee) a
+      (.trapped enclosingCall.saved enclosingCall.continuation)) :
+    Enclosing.Runs enclosingCall (outer trappingCallee) a (.trapped [] []) :=
+  (unwind.tail discardContinuationCall).tail (Enclosing.resume (fact (.discard
     (.cut [] enclosingCall.saved afterCall [] (.inl (by decide))))))
+
+private theorem callTrap :
+    Enclosing.Runs enclosingCall (outer trappingCallee) (.active .call) (.trapped [] []) :=
+  unwindAfterTrap (Enclosing.invoke_run outerTrap)
 
 example : V1.Execution.Steps CallFrame.v1NoHost
     (Enclosing.v1Config (outerStore firstCallee) enclosingCall (outer firstCallee).site (.active .call))
@@ -579,11 +617,66 @@ private theorem sourceGuard (fn : CallFrame.Callee)
     Source.V1Guard (sourceStore fn (sourceCall fn)) sourceCaller (sourceCall fn) :=
   ⟨⟨⟨rfl, rfl⟩, rfl⟩, rfl, Nat.le_refl 1, extendedGuard fn (sourceCall fn) g⟩
 
-private theorem sourceSuccess : Source.Runs (sourceCall firstCallee) .call (.framed (.done (.values [i32 28]))) :=
-  Source.enter_run framedSuccess
+private def rankTable (fn : CallFrame.Callee) (call : Source.Invocation) (innerRank : Nat) : Ranked.Table :=
+  let inner := call.body.invocation.site.callTarget
+  ⟨[some ⟨(Ranked.leafTarget ⟨⟨0⟩, ⟨0⟩, fn⟩).declaration, 0, []⟩,
+    some ⟨(Ranked.leafTarget ⟨⟨1⟩, ⟨1⟩, secondCallee⟩).declaration, 0, []⟩,
+    some ⟨inner.declaration, innerRank, call.body.invocation.site.targets.map Ranked.leafTarget⟩,
+    some ⟨call.target.declaration, 2, inner :: call.body.targets.map Ranked.leafTarget⟩]⟩
 
-private theorem sourceTrap : Source.Runs (sourceCall trappingCallee) .call (.framed (.done .trap)) :=
-  Source.enter_run framedTrap
+private theorem successRanks : (rankTable firstCallee (sourceCall firstCallee) 1).checkInvocation
+    (sourceCall firstCallee) = true := rfl
+
+private theorem trapRanks : (rankTable trappingCallee (sourceCall trappingCallee) 1).checkInvocation
+    (sourceCall trappingCallee) = true := rfl
+
+example : (rankTable firstCallee (sourceCall firstCallee) 2).check = false := rfl
+example : (rankTable firstCallee (sourceCall firstCallee) 3).check = false := rfl
+
+-- The generic graph checker can accept missing edges. The body check rejects
+-- that same table when the actual checked code has a call at the missing edge.
+private def omittedTargets : Ranked.Table :=
+  ⟨(rankTable firstCallee (sourceCall firstCallee) 1).entries.modify 2
+    (Option.map fun entry => { entry with targets := [] })⟩
+
+example : omittedTargets.check = true := rfl
+example : omittedTargets.checkInvocation (sourceCall firstCallee) = false := rfl
+
+private def nestedEntry (fn : CallFrame.Callee) : Source.State (sourceCall fn) :=
+  .framed (.label (.active (.label (entered fn))))
+
+private theorem reachesNested (fn : CallFrame.Callee) (count : fn.params.length = 1) (locals : fn.locals = []) :
+    Source.Runs (sourceCall fn) .call (nestedEntry fn) :=
+  Source.enter_run (Framed.label_run (Enclosing.invoke_run (fromCall fn (firstEnters fn count locals))))
+
+example : Ranked.frames (nestedEntry firstCallee) = [⟨3⟩, ⟨2⟩, ⟨0⟩] := rfl
+
+example : ([2, 1, 0] : List Nat).IsChain (fun caller callee => callee < caller) := by
+  have outer := List.isChain_cons_cons.mp (Ranked.Table.ranks_of_check successRanks (nestedEntry firstCallee))
+  have inner := List.isChain_cons_cons.mp outer.2
+  exact List.isChain_cons_cons.mpr ⟨outer.1, List.isChain_cons_cons.mpr ⟨inner.1, .singleton _⟩⟩
+
+private theorem nestedReturns : Source.Runs (sourceCall firstCallee) (nestedEntry firstCallee)
+    (.framed (.done (.values [i32 28]))) := by
+  have outerReturned := outerFinishes firstCallee normalAfterEntry (.values _) rfl
+  have resumed := Enclosing.invoke_run (ctx := enclosingCall) outerReturned
+  have resolved := resumed.tail (Enclosing.resume (fact (.resolve continuationTarget [i32 11] [i32 17] afterCall rfl)))
+  exact Source.framed_run (Framed.finish_run (resumeAfterResolve resolved) (.values _) rfl)
+
+private theorem nestedUnwinds : Source.Runs (sourceCall trappingCallee) (nestedEntry trappingCallee)
+    (.framed (.done .trap)) := by
+  have outerUnwound := outerFinishes trappingCallee trapAfterEntry .trap trivial
+  have unwound := unwindAfterTrap (Enclosing.invoke_run outerUnwound)
+  exact Source.framed_run (Framed.finish_run unwound .trap trivial)
+
+example : V1.Execution.Steps CallFrame.v1NoHost
+    (Source.v1Config (sourceStore firstCallee (sourceCall firstCallee)) sourceCaller (sourceCall firstCallee) .call)
+    (Source.v1Config (sourceStore firstCallee (sourceCall firstCallee)) sourceCaller (sourceCall firstCallee)
+      (nestedEntry firstCallee)) :=
+  (Ranked.v1_run_iff successRanks (sourceGuard firstCallee (enclosingCallGuard firstCallee regularGuard))
+    (a := .call) trivial).mpr
+    ⟨_, reachesNested firstCallee rfl rfl, ⟨trivial, ⟨trivial, ⟨rfl, rfl⟩, rfl⟩⟩, rfl,
+      Ranked.Table.nesting_of_check successRanks _⟩
 
 example : V1.Execution.Step CallFrame.v1NoHost
     (Source.v1Config (sourceStore firstCallee (sourceCall firstCallee)) sourceCaller (sourceCall firstCallee) .invoke)
@@ -595,8 +688,9 @@ example : V1.Execution.Step CallFrame.v1NoHost
 example : V1.Execution.Steps CallFrame.v1NoHost
     ⟨sourceStore firstCallee (sourceCall firstCallee), sourceCaller, [.source (.intConst .i32 99), .source (.call ⟨0⟩)]⟩
     ⟨sourceStore firstCallee (sourceCall firstCallee), sourceCaller, [.source (.intConst .i32 28)]⟩ :=
-  (Source.v1_run_iff (sourceGuard firstCallee (enclosingCallGuard firstCallee regularGuard))
-    (a := .call) trivial).mpr ⟨_, sourceSuccess, rfl, rfl⟩
+  (Ranked.v1_run_iff successRanks (sourceGuard firstCallee (enclosingCallGuard firstCallee regularGuard))
+    (a := .call) trivial).mpr
+    ⟨_, (reachesNested firstCallee rfl rfl).trans nestedReturns, rfl, rfl, .nil⟩
 
 example : Core.Steps Profile.spec noHost
     (Source.v1Config (sourceStore trappingCallee (sourceCall trappingCallee))
@@ -605,7 +699,8 @@ example : Core.Steps Profile.spec noHost
       sourceCaller.toCore, [.trap]⟩ := by
   have g := Source.guard_to_lime (sourceGuard trappingCallee (enclosingCallGuard trappingCallee failingGuard))
   rw [Source.v1_to_lime, Source.lime_to_core g]
-  exact (Source.core_run_iff (Source.guard_to_core g) (a := .call) trivial).mpr ⟨_, sourceTrap, trivial, rfl⟩
+  exact (Ranked.core_run_iff trapRanks (Source.guard_to_core g) (a := .call) trivial).mpr
+    ⟨_, (reachesNested trappingCallee rfl rfl).trans nestedUnwinds, trivial, rfl, .nil⟩
 
 private theorem sourceManyGuard :
     Source.LimeGuard ((sourceStore firstCallee sourceMany).mapCode V1.Func.toLime) sourceCaller sourceMany := by
@@ -615,15 +710,25 @@ private theorem sourceManyGuard :
       base.continuation.resolves, base.continuation.allocated⟩⟩
   exact ⟨⟨⟨rfl, rfl⟩, rfl⟩, rfl, Enclosing.guard_to_lime (extendedGuard firstCallee sourceMany body)⟩
 
+private theorem sourceManyRun : Source.Runs sourceMany .call
+    (.framed (.done (.values [Value.int .i64 11, i32 17]))) :=
+  Source.enter_run (Framed.finish_run (Enclosing.invoke_run (ctx := twoResults) outerNormal) (.values _) rfl)
+
 example : Lime1.Execution.Steps CallFrame.limeNoHost
     ⟨(sourceStore firstCallee sourceMany).mapCode V1.Func.toLime, sourceCaller,
       [.source (.intConst .i32 99), .source (.call ⟨0⟩)]⟩
     ⟨(sourceStore firstCallee sourceMany).mapCode V1.Func.toLime, sourceCaller,
-      [.source (.intConst .i64 11), .source (.intConst .i32 17)]⟩ := by
-  have body := Framed.finish_run (Enclosing.invoke_run (ctx := twoResults) outerNormal)
-    (.values [Value.int .i64 11, i32 17]) rfl
-  exact (Source.lime_run_iff sourceManyGuard (a := .call) trivial).mpr
-    ⟨_, Source.enter_run body, rfl, rfl⟩
+      [.source (.intConst .i64 11), .source (.intConst .i32 17)]⟩ :=
+  (Ranked.lime_run_iff (table := rankTable firstCallee sourceMany 1) rfl sourceManyGuard (a := .call) trivial).mpr
+    ⟨_, sourceManyRun, rfl, rfl, .nil⟩
+
+example : Core.Steps Profile.spec noHost
+    ⟨((sourceStore firstCallee sourceMany).mapCode V1.Func.toLime).toCore, sourceCaller.toCore,
+      [.plain (.intConst .i32 99), .plain (.call ⟨0⟩)]⟩
+    ⟨((sourceStore firstCallee sourceMany).mapCode V1.Func.toLime).toCore, sourceCaller.toCore,
+      [.plain (.intConst .i64 11), .plain (.intConst .i32 17)]⟩ :=
+  (Ranked.core_run_iff (table := rankTable firstCallee sourceMany 1) rfl (Source.guard_to_core sourceManyGuard)
+    (a := .call) trivial).mpr ⟨_, sourceManyRun, rfl, rfl, .nil⟩
 
 example {s : V1.Execution.Store Unit} : ¬ Source.V1Guard s sourceCaller sourceMany := by
   intro g
