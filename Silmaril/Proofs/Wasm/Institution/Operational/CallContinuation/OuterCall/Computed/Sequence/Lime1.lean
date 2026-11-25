@@ -35,7 +35,7 @@ private theorem enter_iff {H : Type} {s : Store H} {caller : Frame} {site : Site
   rw [body_expression] at h
   exact h
 
-private theorem op_stays {types : List Wasm.Lime1.FuncType} {n : Nat}
+theorem op_stays {types : List Wasm.Lime1.FuncType} {n : Nat}
     {stack : List Value} {op : Prefix.Op} {tail out : List Admin}
     (h : PureStep types [.label n [] (values stack ++ Prefix.emit limeSyntax op :: tail)] out) : False := by
   cases op <;> exact label_stays rfl (by simp [Prefix.emit, limeSyntax]) (by simp [Prefix.emit, limeSyntax])

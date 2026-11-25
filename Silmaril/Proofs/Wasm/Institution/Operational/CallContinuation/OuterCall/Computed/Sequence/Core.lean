@@ -5,6 +5,7 @@ public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.C
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Thms
 public import Silmaril.Wasm.SingleThreaded.Determinism.Head
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 import Silmaril.Wasm.Execution.Core.Inversion.Thms
 import Silmaril.Wasm.Execution.Core.Sim.Context
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Core
@@ -21,13 +22,11 @@ open Wasm.Numerics (Profile)
 open Wasm.Validation (Expand Ty)
 open Computed.Proofs.Core (core_func lift_body read_body label_stays call_iff)
 
-private theorem frame_init (site : Site) :
-    Frame.forCall site.outerModule.toCore (site.args.map Value.toCore) site.coreFunc.locals = site.frame.toCore := by
-  simp only [Frame.forCall, Site.coreFunc, Site.frame, Execution.Runtime.Frame.toCore,
-    List.map_append, List.map_map]
+theorem frame_init (site : Site) :
+    Frame.forCall site.outerModule.toCore (site.args.map Value.toCore)
+      (site.locals.map Wasm.V1.ValType.toCore) = site.frame.toCore := by
+  simp only [Frame.forCall, Site.frame, Execution.Runtime.Frame.toCore, List.map_append, List.map_map]
   congr 2
-  change (site.locals.map Wasm.V1.ValType.toCore).map _ = _
-  rw [List.map_map]
   apply List.map_congr_left
   intro t _
   cases t <;> rfl
@@ -42,29 +41,42 @@ private theorem body_expression (site : Site) :
   | arg op => cases op <;> rfl
   | call | nop => rfl
 
+/-- A resolved Wasm call with exactly the declared numeric arguments enters the
+callee frame with its typed results, default locals, and full source body. -/
+theorem wasm_entry_iff {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runtime.Frame}
+    {address : FuncAddr} {ty : Wasm.V1.FuncType} {m : Execution.Runtime.ModuleInst} {fn : Wasm.Func}
+    {args : List Value} {dst : Config H}
+    (allocated : s.funcs[address.value]? = some ⟨ty.toDefType, m.toCore, .wasm fn⟩)
+    (typed : args.map Value.type = ty.params) :
+    Step P noHost ⟨s, caller.toCore, coreValues args ++ [.ref (.func address.value), .callRefType ty.toDefType]⟩ dst ↔
+      dst = ⟨s, caller.toCore, [.frame ty.results.length
+        (Frame.forCall m.toCore (args.map Value.toCore) fn.locals)
+        [.label ty.results.length [] (expression fn.body)]]⟩ := by
+  have sig : Expand ty.toDefType (.func (Ty.ofList (ty.params.map Ty.num))
+      (Ty.ofList (ty.results.map Ty.num))) :=
+    Expand.iff.mpr (Wasm.V1.FuncType.toDefType_expand _)
+  have count : (args.map Value.toCore).length = (Ty.ofList (ty.params.map Ty.num)).length := by
+    simpa [Ty.length_ofList] using congrArg List.length typed
+  constructor
+  · intro h
+    have next := Step.callRef_wasm_inv_exact (r := .callRefType ty.toDefType)
+      (code := fn) (by trivial) allocated rfl sig count h
+    simpa only [Ty.length_ofList, List.length_map] using next
+  · rintro rfl
+    have next := Step.callRefFunc (P := P) (host := noHost) (s := s) (f := caller.toCore)
+      (c := .callRefType ty.toDefType) trivial allocated sig count rfl
+    simpa only [Ty.length_ofList, List.length_map] using next
+
 private theorem enter_iff {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runtime.Frame}
     {site : Site} {dst : Config H} (g : CoreGuard s caller site) :
     Step P noHost (coreConfig s caller site .invoke) dst ↔ dst = coreConfig s caller site (.args [] site.prefixCode) := by
-  have sig : Expand site.type.toDefType (.func (Ty.ofList (site.params.map Ty.num))
-      (Ty.ofList (site.inner.result.toList.map Ty.num))) :=
-    Expand.iff.mpr (Wasm.V1.FuncType.toDefType_expand _)
-  have count : (site.args.map Value.toCore).length = (Ty.ofList (site.params.map Ty.num)).length := by
-    simpa [Ty.length_ofList] using congrArg List.length g.typed.outerArgs
-  have target : (⟨s, caller.toCore, [.frame (Ty.ofList (site.inner.result.toList.map Ty.num)).length
-      (Frame.forCall site.outerModule.toCore (site.args.map Value.toCore) site.coreFunc.locals)
-      [.label (Ty.ofList (site.inner.result.toList.map Ty.num)).length [] (expression site.coreFunc.body)]]⟩ :
-        Config H) = coreConfig s caller site (.args [] site.prefixCode) := by
-    rw [frame_init, Ty.length_ofList, List.length_map, body_expression]
-    rfl
-  constructor
-  · intro h
-    exact (Step.callRef_wasm_inv_exact (r := .callRefType site.type.toDefType)
-      (code := site.coreFunc) (by trivial) g.outerAlloc rfl sig count h).trans target
-  · rintro rfl
-    rw [← target]
-    exact .callRefFunc (c := .callRefType site.type.toDefType) trivial g.outerAlloc sig count rfl
+  have enter := wasm_entry_iff (P := P) (caller := caller) (dst := dst) g.outerAlloc g.typed.outerArgs
+  have init := frame_init site
+  change Frame.forCall site.outerModule.toCore (site.args.map Value.toCore) site.coreFunc.locals = _ at init
+  rw [init, body_expression] at enter
+  exact enter
 
-private theorem op_stays {n : Nat} {stack : List Value} {op : Prefix.Op} {tail out : List Admin}
+theorem op_stays {n : Nat} {stack : List Value} {op : Prefix.Op} {tail out : List Admin}
     (h : LabelExit n [] (coreValues stack ++ Prefix.emit coreSyntax op :: tail) out) : False := by
   cases op <;> exact label_stays rfl (by simp [Prefix.emit, coreSyntax]) (by simp [Prefix.emit, coreSyntax])
     (by simp [Prefix.emit, coreSyntax, Admin.IsReturnCallRef]) (by simp [Prefix.emit, coreSyntax])
