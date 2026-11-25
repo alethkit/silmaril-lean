@@ -3,6 +3,7 @@ module
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.Premonoidal.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapReadout.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.Associator.Contacts
@@ -924,6 +925,25 @@ example :
     (CentralRecoordination.horizontal .right shifted_types (17 / 24),
       CentralRecoordination.horizontal .right shifted_types (1 / 6)) = (17 / 24, 1 / 3) := by
   convert slide_coordinates .right using 1 <;> norm_num [ActiveStrip.place, ActiveStrip.opposite]
+
+/-- Independent cuts read the same sheet before and after bending the wire. -/
+example (s : (fixedFrame beginning).drawing.LayerSweep)
+    (t : activeFrame.drawing.LayerSweep) :
+    (fixedFrame beginning).readSheetAt s = activeFrame.readSheetAt t :=
+  FixedDrawing.readSheetAt_comparison shearEndpoint s t
+
+/-- The bend followed by interpolation from x = 1/3 to x = 2/3
+reads as the typed identity sheet. -/
+example :
+    (FixedCap.toSliced signature).map (bentMap halfway ≫ FixedCap.recoordinate shifted_types) =
+      Sliced.SeamHom.ofSheet ((Sliced.Sheet.empty (S := signature) capObject.types).reindex
+        rfl shifted_types) := by
+  have bend : (FixedCap.toSliced signature).map (bentMap halfway) =
+      𝟙 ((FixedCap.toSliced signature).obj capObject) := by
+    exact (FixedCap.toSliced_drawings (a := capObject) (b := capObject) (fixedFrame halfway)).trans
+      (congrArg Sliced.SeamHom.ofSheet ((fixedFrame halfway).readSheet_vertexFree rfl rfl))
+  rw [Functor.map_comp, bend, Category.id_comp]
+  exact FixedCap.toSliced_recoordinate shifted_types
 
 end
 
