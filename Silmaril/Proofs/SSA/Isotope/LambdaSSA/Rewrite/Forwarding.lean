@@ -20,7 +20,7 @@ open Silmaril.DeBruijn (lift)
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v}
 
-private theorem forwardLiftVars {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → Region Φ}
+theorem forwardLiftVars {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → Region Φ}
     (hσ : LSubst.Forwards Γ L K σ) (D : τ) :
     LSubst.Forwards (D :: Γ) L K (liftLSubstVars σ) := by
   intro ℓ A hℓ
