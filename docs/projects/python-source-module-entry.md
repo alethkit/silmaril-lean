@@ -97,6 +97,18 @@ positional executor with that integer. The seeded selector requires a
 published function with one slot and records the ordinary completion
 and reached heap. The call's result is discarded.
 
+An undecorated module function can have one keyword-only parameter with
+an integer literal default when its body is a single message-free assertion
+comparing that parameter to an integer literal. The checked linked entry
+retains the literal and accepts zero positional arguments. After the
+ordinary binder accepts omission, a store initializes the parameter's
+local slot without touching the heap. A call through an alias uses its
+function's own saved literal. Seeded discard uses its existing published
+zero-argument selector and settlement rule. Explicit positional values
+fail ordinary arity checking. Explicit keyword arguments, dynamic
+defaults, and introspection of these defaulted definitions are outside
+this profile.
+
 Deeper argument nesting, arithmetic call operands, and keyword or
 unpacked arguments outside the adjacent discard shape are rejected. The seeded runner supports these
 nested instructions within its [closed call profile](python-seeded-module-runner.md).

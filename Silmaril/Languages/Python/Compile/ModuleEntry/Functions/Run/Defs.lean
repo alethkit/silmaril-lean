@@ -53,6 +53,13 @@ def destination {scope : Scope} : Functions.Destination scope → Core.Module.Fu
   | .store name _ => .bindGlobal name
   | .assertion => .assert
 
+/-- The literal belongs to the function's linked entry. The zero-positional
+binder must succeed before this store initializes the keyword-only local. -/
+def initializeKeywordDefault {layout : Layout} (code : Compile.Closure.Body.Code layout) :
+    Option (Fin layout.locals × Int) → Compile.Closure.Body.Code layout
+  | none => code
+  | some (slot, value) => .assign (.local slot) (.integer value) code
+
 def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : List (Functions.Action scope) →
     Except CompileError (List (Instruction scope) × List Compile.Closure.Link.Block)
   | [] => .ok ([], [])
@@ -76,15 +83,18 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
     let some arguments := operands.mapM callArgument? | throw .callOperand
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.nestedCall (destination target) name arguments :: instructions, blocks)
-  | .define name _ child parameters code :: rest => do
+  | .define name _ child parameters code keywordDefault :: rest => do
     let layout := frameLayout child.scope
     if captures : layout.captures = 0 then
-      let nested := Compile.Closure.Link.linkBody (next + 1) tree code
+      let nested := Compile.Closure.Link.linkBody (next + 1) tree (initializeKeywordDefault code keywordDefault)
       let (instructions, blocks) ← lowerInstructions tree (next + 1 + nested.children.length) rest
       let root : Compile.Closure.Link.Block :=
         ⟨child.scope.context.path, ⟨layout, { parameters, body := nested.code }⟩⟩
+      let profiled := match keywordDefault with
+        | none => ((root.withFreeVars tree).withCellVars tree).withCodeNames tree
+        | some _ => root
       return (.publish name ⟨⟨next, layout⟩, captures⟩ :: instructions,
-        ((root.withFreeVars tree).withCellVars tree).withCodeNames tree :: (nested.children ++ blocks))
+        profiled :: (nested.children ++ blocks))
     else throw (.incomingCaptures child.scope.context.path)
 
 structure Compiled (source : Source.Module) where
