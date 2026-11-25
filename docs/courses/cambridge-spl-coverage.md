@@ -89,11 +89,11 @@ external Tripos revision questions remain separate.
 
 ### Subtyping and objects
 
-[Official exercise text, p. 87](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=87)
+[Official exercise text, pp. 87–88](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=87)
 
 | Exercise | Coverage |
 | --- | --- |
-| **32** Four subtyping derivations | **Partial.** `Subtyping.Examples.missing_p` proves the relevant negative subtyping obligation for (3), without a checked whole-expression untypability theorem for that exact term. `Subtyping.Examples.reorderedArgumentFunction_typed` checks (4). Exact derivations are missing for (1)'s nested singleton coerced to `{p:{}}` or (2)'s `x.q.p` lambda. Generic `nested_record_depth` and projection rules are available. [Subtyping examples][subex] · [L3 derivations][subl3ex] |
+| **32** Four subtyping cases | **Checked.** `nestedSingleton_typed` derives (1)'s `{p:{}}`; `nestedProjectionFunction_typed` derives (2)'s `x.q.p` lambda; `missingFieldArgumentFunction_untypable` rules out every type for the whole lambda in (3); `reorderedArgumentFunction_typed` checks (4). [L3 derivations][subl3ex] |
 | **33** Both unsafe reference variances | **Checked.** `covarianceProgram_typed`, `contravarianceProgram_typed`, their `*_trace` lemmas, and `missingField_stuck`. [Reference examples][subref] |
 | **34** Sum subtyping | **Checked.** `Subty.sum`, `L3Subty.sum_inv` and `widenedSumMatch_typed` / `widenedSumMatch_trace`. [Rules][subrules] · [L3 derivations][subl3ex] |
 | **35** Typing for let and let rec with subtyping | **Checked.** The `Subtyping.Typing` let/let-rec constructors use extended typing in the premises, with `Typing.sub`. [Judgment][subtyping] |
@@ -198,7 +198,6 @@ external Tripos revision questions remain separate.
 [sexpb]: cambridge-sexp-bytes.md
 [stepguide]: cambridge-step-specification.md
 [sub]: ../../Silmaril/Courses/Cambridge/Subtyping
-[subex]: ../../Silmaril/Courses/Cambridge/Subtyping/Examples.lean
 [subguide]: cambridge-subtyping.md
 [subl3ex]: ../../Silmaril/Courses/Cambridge/Subtyping/L3Examples.lean
 [subref]: ../../Silmaril/Courses/Cambridge/Subtyping/ReferenceExamples.lean
