@@ -22,6 +22,9 @@ variable {A B K E D : τ}
 noncomputable def canonical (s : Loop Φ A B K E D) : Decomposition (graph s) B K :=
   Proofs.canonical s
 
+theorem canonical_decode (s : Loop Φ A B K E D) : (canonical s).view.decode = s :=
+  Proofs.canonical_decode s
+
 theorem raise_canonical_source (s : Loop Φ A B K E D) : (raise (canonical s)).1 = region s :=
   Proofs.raise_canonical_source s
 

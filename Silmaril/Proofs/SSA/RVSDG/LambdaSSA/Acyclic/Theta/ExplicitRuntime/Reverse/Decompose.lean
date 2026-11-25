@@ -105,6 +105,9 @@ private theorem loopView_decode (s : Loop Φ A B K E D) : (loopView s).decode = 
 def canonical (s : Loop Φ A B K E D) : Decomposition (graph s) B K :=
   ⟨graphChecked s, loopView s, congrArg graph (loopView_decode s)⟩
 
+theorem canonical_decode (s : Loop Φ A B K E D) : (canonical s).view.decode = s :=
+  loopView_decode s
+
 theorem raise_canonical_source (s : Loop Φ A B K E D) : (raise (canonical s)).1 = region s :=
   congrArg region (loopView_decode s)
 
