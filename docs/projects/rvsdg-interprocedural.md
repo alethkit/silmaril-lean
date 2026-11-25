@@ -71,15 +71,12 @@ the mutual recursion arguments and exports.
 
 ## Semantic boundary
 
-These are graph and boundary-binding interfaces. Call target resolution,
-initializer admissibility and execution, linking, and the recursive
-closure fixed point are subsequent semantic obligations. A call
-semantics can first give a resolution relation from callable colours to
-closures, then define finite invocation using `Closure.enter` and the
-body execution relation. A φ semantics must provide a recursive tuple
-whose callable components resolve to the corresponding λ closures
-entered under that very tuple. The acyclicity theorem here applies to
-physical capture edges and leaves recursive calls to that semantics.
+The [first operational slice](rvsdg-module-linking.md) links φ-free
+modules and invokes the linked closures. A φ semantics must provide a
+recursive tuple whose callable components resolve to the corresponding λ
+closures entered under that very tuple. The acyclicity theorem here
+applies to physical capture edges and leaves recursive calls to that
+semantics.
 
 ## Reproduce
 
