@@ -256,6 +256,20 @@ private def levelError (root lib : String) (position : Site) (cause : Levels.Dia
   (site "root" [.unit 1])
   (.instanceReplay (site "library" [.unit 1, .body]) (.unsupported .instanceImplicitBinding))
 
+#guard levelError "VARIABLE v\nINSTANCE Lib WITH x <- v"
+  "VARIABLE x\nFair == WF_x(x' = x)"
+  (site "root" [.unit 1])
+  (.instanceReplay (site "library" [.unit 1, .body]) (.unsupported .instanceImplicitBinding))
+
+#guard match run "VARIABLE v\nI == INSTANCE Lib WITH C <- v'\nJ == INSTANCE Lib WITH C <- TRUE\n\
+    A == I!Out\nB == J!Out"
+    "CONSTANT C\nOut == [[a |-> C] EXCEPT !.a = @]" with
+  | some (.ok answer) =>
+    bodyLevel answer "root" 3 .action && bodyLevel answer "root" 4 .constant &&
+    answer.levels.expressionAt (site "library" [.unit 1, .body, .update 0, .body]) =
+      some (.fixed .constant)
+  | _ => false
+
 private def localReplay (root inner : String) (leafBody : String := "Unused == C /\\ x") :
     Option (Except Diagnostic CheckedInstances) := do
   let leaf ← parsed "leaf" "Leaf" s!"CONSTANT C\nVARIABLE x\n{leafBody}"

@@ -95,10 +95,10 @@ end
 
 private def levelSyntaxOperators : List Name :=
   [.symbol .prefix "ENABLED", .symbol .prefix "UNCHANGED", .symbol .prefix "[]",
-   .symbol .prefix "<>"]
+   .symbol .prefix "<>", .symbol .infix "~>"]
 
 private def deferredOperators : List Name :=
-  [.symbol .infix "\\cdot", .symbol .infix "~>", .symbol .infix "-+->"]
+  [.symbol .infix "\\cdot", .symbol .infix "-+->"]
 
 /-- Named built-ins recognized by the pinned SANY frontend. Structural syntax
 such as IF, records and junction lists has its own Surface constructors. -/
@@ -306,20 +306,21 @@ private def resolveQualified (profile : Profile) (visit : Scope → Site → Exp
 private instance : Inhabited (ModuleM Unit) := ⟨pure ()⟩
 
 -- Every recursive visit descends into a child of the current Surface expression.
-private partial def resolveExpr (profile : Profile) (scope : Scope) (site : Site) (expr : Expr) :
-    ModuleM Unit := do
-  let visit := resolveExpr profile scope
+private partial def resolveExprIn (profile : Profile) (oldValue : Option BindingId)
+    (scope : Scope) (site : Site) (expr : Expr) : ModuleM Unit := do
+  let descend := resolveExprIn profile oldValue
+  let visit := descend scope
   let operands (items : List Expr) : ModuleM Unit :=
     items.zipIdx.forM fun (item, index) => visit (site.child (.operand index)) item
   let apply (op : Symbol) (args : List Expr) :=
-    resolveApplication profile (resolveExpr profile) scope site (Name.ofSymbol op)
+    resolveApplication profile descend scope site (Name.ofSymbol op)
       (args.map .expr) .operand
   match expr with
   | .ref (.step _) _ _ => throw (diagnostic site (.unsupported .proofReference))
   | .ref (.operator name) args (selector :: rest) =>
-    resolveQualified profile (resolveExpr profile) scope site name args (selector :: rest)
+    resolveQualified profile descend scope site name args (selector :: rest)
   | .ref (.operator name) args [] =>
-    resolveApplication profile (resolveExpr profile) scope site (Name.ofOperator name) args .argument
+    resolveApplication profile descend scope site (Name.ofOperator name) args .argument
   | .literal _ => pure ()
   | .prefix op arg => apply (.prefix op) [arg]
   | .infix op left right => apply (.infix op) [left, right]
@@ -347,25 +348,25 @@ private partial def resolveExpr (profile : Profile) (scope : Scope) (site : Site
         let unsupported := if profile = .instanceSyntax then Unsupported.letInstance else .instantiation
         throw (diagnostic declSite (.unsupported unsupported))
       | .definition definition =>
-        resolveDefinitionWith (resolveExpr profile) current declSite definition true
+        resolveDefinitionWith descend current declSite definition true
       | .recursive _ => throw (diagnostic declSite (.unsupported .recursive))
-    resolveExpr profile inner (site.child .body) body
+    descend inner (site.child .body) body
   | .rigidQuant _ binders body =>
     let inner ← match binders with
       | .unbounded names => bindNames scope site names
       | .bounded groups => resolveBounds visit scope site groups
-    resolveExpr profile inner (site.child .body) body
+    descend inner (site.child .body) body
   | .choose pattern domain predicate =>
     domain.forM (visit (site.child .domain))
     let inner ← bindNames scope site (patternNames pattern)
-    resolveExpr profile inner (site.child .body) predicate
+    descend inner (site.child .body) predicate
   | .setFilter pattern domain predicate =>
     visit (site.child .domain) domain
     let inner ← bindNames scope site (patternNames pattern)
-    resolveExpr profile inner (site.child .body) predicate
+    descend inner (site.child .body) predicate
   | .setMap body bounds | .function bounds body =>
     let inner ← resolveBounds visit scope site bounds
-    resolveExpr profile inner (site.child .body) body
+    descend inner (site.child .body) body
   | .setEnum items | .tuple items => operands items
   | .functionSet domain range => operands [domain, range]
   | .index fn args =>
@@ -374,13 +375,36 @@ private partial def resolveExpr (profile : Profile) (scope : Scope) (site : Site
   | .record fields | .recordSet fields =>
     fields.zipIdx.forM fun (field, index) => visit (site.child (.field index)) field.value
   | .field record _ => operands [record]
-  | .except .. | .oldValue => throw (diagnostic site (.unsupported .except))
+  | .except base updates =>
+    requireNonempty site "empty EXCEPT clause list" updates
+    visit (site.child (.operand 0)) base
+    for (update, index) in updates.zipIdx do
+      let clause := site.child (.update index)
+      requireNonempty clause "empty EXCEPT path" update.path
+      for (component, part) in update.path.zipIdx do
+        if let .index args := component then
+          let position := clause.child (.updateComponent part)
+          requireNonempty position "empty EXCEPT index argument list" args
+          for (arg, argIndex) in args.zipIdx do
+            visit (position.child (.argument argIndex)) arg
+      let binding ← declare [] clause (.ident "@") .oldValue [] true
+      resolveExprIn profile (some binding.id) scope (clause.child .body) update.value
+  | .oldValue =>
+    let some id := oldValue | throw (diagnostic site .oldValueOutOfScope)
+    modify fun state =>
+      { state with references := (site.path, ⟨id, .application⟩) :: state.references }
   | .action _ body subscript =>
     if profile = .core then throw (diagnostic site (.unsupported .actionOrTemporal))
     operands [body, subscript]
-  | .fairness .. | .temporalQuant .. =>
+  | .fairness _ subscript action =>
+    if profile = .core then throw (diagnostic site (.unsupported .actionOrTemporal))
+    operands [subscript, action]
+  | .temporalQuant .. =>
     throw (diagnostic site (.unsupported .actionOrTemporal))
   | .labeled .. => throw (diagnostic site (.unsupported .labeledExpression))
+
+private def resolveExpr (profile : Profile) : Scope → Site → Expr → ModuleM Unit :=
+  resolveExprIn profile none
 
 private def moduleParameter (binding : Binding) : Bool :=
   binding.kind = .constant || binding.kind = .variable

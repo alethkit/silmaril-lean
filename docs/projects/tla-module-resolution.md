@@ -89,18 +89,22 @@ conventions are as follows.
 | Bounded groups in quantifiers, set maps and function constructors | `.bound i, .domain` and `.bound i, .binder j`, with `.body` for the expression |
 | Unbounded quantifiers, CHOOSE and set filters | `.binder i`, `.domain` when present, and `.body` |
 | CASE and records | `.arm i, .operand 0` for a CASE condition, `.arm i, .operand 1` for its value, `.other` for OTHER, and `.field i` for a record entry’s value |
+| EXCEPT | `.operand 0` for the base, `.update i` for the clause binding, `.update i, .body` for the right-hand side, and `.update i, .updateComponent j, .argument k` for an index argument |
 | Other child expressions | `.operand i` in Surface order, with the function at `.operand 0` in an index expression |
 
 This preserves literals, fields, binder grouping, formal declarations and
 operator spellings as represented by Surface, along with the original
 expression and unit structure. Paths and declared IDs are specific to a given
 tree and registry. Diagnostics use module and path coordinates because Surface
-does not store byte spans.
+does not store byte spans. An `@` occurrence is a reference to its enclosing
+clause's `.oldValue` binding. The base and selectors of a nested EXCEPT see
+the surrounding binding. Each right-hand side introduces its own binding.
+See [the ACP_SB handoff](tla-acp-sb-resolution.md) for the level rules.
 
 ## Boundaries and checks
 
-INSTANCE and WITH, selectors, submodules, RECURSIVE, proof-step references,
-labels, EXCEPT and `@`, temporal syntax and other action syntax, and
+In the core profile, INSTANCE and WITH, selectors, submodules, RECURSIVE,
+proof-step references, labels, temporal syntax and other action syntax, and
 function-definition units such as `F[x \in S] == e` return explicit unsupported
 diagnostics. Anonymous function constructors such as `[x \in S |-> e]` are
 name-checked. ASSUME, THEOREM and proof directives are also rejected at this
