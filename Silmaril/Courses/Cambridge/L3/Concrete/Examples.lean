@@ -1,7 +1,7 @@
 module
 
-import Silmaril.Courses.Cambridge.L3.Concrete.Grammar
-meta import Silmaril.Courses.Cambridge.L3.Concrete.Grammar
+import Silmaril.Courses.Cambridge.L3.Concrete.Exact
+meta import Silmaril.Courses.Cambridge.L3.Concrete.Exact
 import Silmaril.Courses.Cambridge.L2.Concrete.Grammar
 meta import Silmaril.Courses.Cambridge.L2.Concrete.Grammar
 
@@ -198,5 +198,53 @@ private def sampleType : SourceType :=
 #guard (parse "{p=1+2,p=3}".toUTF8).isNone
 #guard (parse "{p=1+2}.l0".toUTF8).isNone
 #guard (parse "r.if".toUTF8).isNone
+
+-- A fixed spelling choice for §5.2's examples. Scope never changes the class.
+private def exampleClasses : Exact.Classifier
+  | "p" | "q" | "r" => .label
+  | _ => .variable
+
+#guard match Exact.parseResolved exampleClasses "fun x:{q:bool,p:int} → x.p".toUTF8 with
+  | some (.lam (.record labels _) (.project (.bvar 0) "p")) => labels.names == ["q", "p"]
+  | _ => false
+#guard (Exact.parse exampleClasses "fun x:int → fun x:int → ({p=x}, {p=3})".toUTF8).isSome
+#guard (Exact.parse exampleClasses
+  "let rec f:{p:int}→int=(fun x:{p:int}→x.p) in f {p=7}".toUTF8).isSome
+#guard (Exact.parse exampleClasses
+  "match x with inl (y:{p:int}) → y.p | inr (z:int) → z".toUTF8).isSome
+#guard (Exact.parseType exampleClasses "{q:bool,p:{p:int}}".toUTF8).isSome
+
+-- §5.2, p. 73 excludes the variable spelling from the field position.
+#guard (parse "(fun x:int → {x = 3})".toUTF8).isSome
+#guard (Exact.parse exampleClasses "(fun x:int → {x = 3})".toUTF8).isNone
+#guard (Exact.parse exampleClasses "{x = 3}".toUTF8).isNone
+#guard (Exact.parse exampleClasses "x".toUTF8).isSome
+#guard (Exact.parse exampleClasses "p".toUTF8).isNone
+#guard (Exact.parse (fun name => if name == "x" then .label else .variable)
+  "fun p:int → {x=p}".toUTF8).isSome
+#guard (Exact.parse exampleClasses "x.x".toUTF8).isNone
+#guard (Exact.parse exampleClasses "fun x:{p:{x:int}} → x".toUTF8).isNone
+#guard (Exact.parse exampleClasses "let p:int = 1 in skip".toUTF8).isNone
+#guard (Exact.parse exampleClasses
+  "let rec f:int→int=(fun p:int→1) in f 0".toUTF8).isNone
+#guard (Exact.parse exampleClasses
+  "match x with inl (y:int) → y | inr (p:int) → 0".toUTF8).isNone
+#guard (Exact.parse exampleClasses "(inr 3 : {x:int} + int)".toUTF8).isNone
+#guard (Exact.parseType exampleClasses "{x:int}".toUTF8).isNone
+#guard (Exact.parseType exampleClasses "{p:int,p:bool}".toUTF8).isNone
+#guard (Exact.parse exampleClasses (ByteArray.mk #[0x78, 0xc0, 0xaf])).isNone
+
+private def exactTerm : Exact.SourceExpr exampleClasses :=
+  ⟨sampleTerm.val, sampleTerm.property, by decide⟩
+
+private def exactType : Exact.SourceType exampleClasses :=
+  ⟨sampleType.val, sampleType.property, by decide⟩
+
+#guard (Exact.print exactTerm).data == (print sampleTerm).data
+#guard (Exact.parse exampleClasses (Exact.print exactTerm)).map termTokens ==
+  some (termTokens exactTerm.val)
+#guard (Exact.printType exactType).data == (printType sampleType).data
+#guard (Exact.parseType exampleClasses (Exact.printType exactType)).map typeTokens ==
+  some (typeTokens exactType.val)
 
 end Silmaril.Courses.Cambridge.L3.Concrete

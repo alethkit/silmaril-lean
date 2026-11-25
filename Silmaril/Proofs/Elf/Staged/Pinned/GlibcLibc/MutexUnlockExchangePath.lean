@@ -213,6 +213,30 @@ private theorem private_select {initial : MState} {kind : BitVec 32} {value : By
   rw [run_add, picks]
   exact branch
 
+theorem private_threaded_exchange_with_rbp {initial : MState} {kind : BitVec 32}
+    (rip : initial.core.rip = 0xa1b7a)
+    (loaded : Loaded initial.memory 0xa1b7a selectBytes)
+    (clearLoaded : Loaded initial.memory 0xa1ba0 clearBytes)
+    (kindRead : loadN initial.memory (initial.core.read .rdi + 16#64) 4 =
+      some (kind.setWidth 64))
+    (privateKind : kind &&& 128#32 = 0)
+    (threadRead : loadN initial.memory 0x20c040 1 = some 0#64) :
+    ∃ final, run Atomic9.step 6 initial = some final ∧ final.core.rip = 0xa1ba2 ∧
+      final.core.read .rax = 0#64 ∧ final.core.read .rdi = initial.core.read .rdi ∧
+      final.core.read .rbp = initial.core.read .rbp ∧
+      final.memory = initial.memory := by
+  let selected : MState := ⟨threadResult (maskCore initial.core kind) 0#8, initial.memory⟩
+  let final : MState := ⟨clearCore selected.core, selected.memory⟩
+  have picks : run Atomic9.step 5 initial = some selected :=
+    private_select rip loaded kindRead privateKind threadRead
+  have clear : Atomic9.step selected = some final := clear_to_exchange rfl clearLoaded
+  refine ⟨final, ?_, rfl, rfl, rfl, rfl, rfl⟩
+  change run Atomic9.step (5 + 1) initial = some final
+  rw [run_add, picks]
+  change run Atomic9.step 1 selected = some final
+  rw [run_succ, clear]
+  rfl
+
 theorem private_threaded_exchange {initial : MState} {kind : BitVec 32}
     (rip : initial.core.rip = 0xa1b7a)
     (loaded : Loaded initial.memory 0xa1b7a selectBytes)
@@ -224,17 +248,9 @@ theorem private_threaded_exchange {initial : MState} {kind : BitVec 32}
     ∃ final, run Atomic9.step 6 initial = some final ∧ final.core.rip = 0xa1ba2 ∧
       final.core.read .rax = 0#64 ∧ final.core.read .rdi = initial.core.read .rdi ∧
       final.memory = initial.memory := by
-  let selected : MState := ⟨threadResult (maskCore initial.core kind) 0#8, initial.memory⟩
-  let final : MState := ⟨clearCore selected.core, selected.memory⟩
-  have picks : run Atomic9.step 5 initial = some selected :=
-    private_select rip loaded kindRead privateKind threadRead
-  have clear : Atomic9.step selected = some final := clear_to_exchange rfl clearLoaded
-  refine ⟨final, ?_, rfl, rfl, rfl, rfl⟩
-  change run Atomic9.step (5 + 1) initial = some final
-  rw [run_add, picks]
-  change run Atomic9.step 1 selected = some final
-  rw [run_succ, clear]
-  rfl
+  obtain ⟨final, path, endpoint, zero, rdi, _, memory⟩ :=
+    private_threaded_exchange_with_rbp rip loaded clearLoaded kindRead privateKind threadRead
+  exact ⟨final, path, endpoint, zero, rdi, memory⟩
 
 theorem private_single_thread_fallthrough {initial : MState} {kind : BitVec 32} {value : Byte}
     (rip : initial.core.rip = 0xa1b7a)
