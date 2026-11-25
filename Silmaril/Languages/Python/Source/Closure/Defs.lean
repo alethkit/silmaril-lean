@@ -22,6 +22,13 @@ inductive Slot (parent : Scope) (capture : Capture) where
   | forwarded (index : Fin parent.captures.length)
       (origin : capture.origin ≠ parent.context.path) (lookup : parent.captures[index] = capture)
 
+def Slot.cell {Cell : Type} {parent : Scope} {capture : Capture}
+    (slot : Slot parent capture) (owned : Fin parent.cells.length → Cell)
+    (incoming : Fin parent.captures.length → Cell) : Cell :=
+  match slot with
+  | .owned index _ _ => owned index
+  | .forwarded index _ _ => incoming index
+
 def Slot.find? (parent : Scope) (capture : Capture) : Option (Slot parent capture) :=
   if owner : capture.origin = parent.context.path then
     let selected := parent.cells.findFinIdx? (fun name => decide (name = capture.name))
@@ -42,6 +49,12 @@ structure Entry (parent : Scope) where
 structure Layout (parent : Scope) (captures : List Capture) where
   entries : List (Entry parent)
   inOrder : entries.map Entry.capture = captures
+
+/-- Read the child's capture vector from the parent's existing cell identities. -/
+def Layout.cells {Cell : Type} {parent : Scope} {captures : List Capture}
+    (layout : Layout parent captures) (owned : Fin parent.cells.length → Cell)
+    (incoming : Fin parent.captures.length → Cell) : List Cell :=
+  layout.entries.map (fun entry => entry.slot.cell owned incoming)
 
 /-- Locate parent slots for the capture vector of a child scope. -/
 def layout? (parent : Scope) : (captures : List Capture) → Option (Layout parent captures)

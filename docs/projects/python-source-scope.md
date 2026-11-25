@@ -70,6 +70,8 @@ contains a bounded index into the parent's cells. A forwarded capture
 contains a bounded index into the parent's incoming captures. The slot
 witness records the lexical origin and the name or capture found at that
 index. The output follows the child's capture order.
+`Layout.cells` reads the child's ordered cell identities from the chosen
+parent slots, with its length certified against the child's capture vector.
 
 The checker succeeds exactly when every capture is available in its
 corresponding parent slot family. The regression analyzes three nested

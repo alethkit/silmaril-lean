@@ -14,4 +14,10 @@ theorem layout_iff (parent : Scope) (captures : List Capture) :
     (layout? parent captures).isSome ↔ ∀ capture ∈ captures, Available parent capture :=
   Proofs.Languages.Python.Source.Closure.layout_iff parent captures
 
+theorem Layout.cells_length {Cell : Type} {parent : Scope} {captures : List Capture}
+    (layout : Layout parent captures) (owned : Fin parent.cells.length → Cell)
+    (incoming : Fin parent.captures.length → Cell) :
+    (layout.cells owned incoming).length = captures.length := by
+  simpa [Layout.cells] using congrArg List.length layout.inOrder
+
 end Silmaril.Languages.Python.Source.Closure
