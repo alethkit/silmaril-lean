@@ -33,7 +33,6 @@ For a smaller starting point:
 ```sh
 lake build Silmaril.Courses.Cambridge.L1.Course
 lake build Silmaril.Courses.Cambridge.L2.Course
-lake build Silmaril.Courses.Cambridge.Subtyping
 lake build Silmaril.Courses.Cambridge.DenotationalSemantics
 lake build Silmaril.Courses.Cambridge.OptimisingCompilers.Course
 ```
