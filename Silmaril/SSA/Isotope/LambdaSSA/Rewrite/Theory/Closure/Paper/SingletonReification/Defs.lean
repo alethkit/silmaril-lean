@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.PackedBody.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.BinaryLet.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedCase.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedCase.Distributor.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Values.Thms
@@ -44,13 +45,20 @@ variable
   {ε : Type w} [HasEff Φ ε] (pe : ε)
 
 /-- A loop-free singleton representative built by exposing each retained
-body on a packed pair. Scrutinee terms retain their original typing. -/
+body on a packed record. Scrutinee terms retain their original typing.
+A binary-let node carries the comparison between its two guarded return forms. -/
 inductive LoopFree : {X D : τ} → {r : Region Φ} → ValueBranches [X] r [D] → Prop where
   | branch {X D : τ} {a : Tm Φ} (ha : Tm.BranchValue [X] a D) :
       LoopFree (.br (ℓ := 0) rfl ha)
   | let₁ {X A D : τ} {a : Tm Φ} {p : Region Φ}
       (ha : Tm.HasType [X] a A) {hp : ValueBranches [Silmaril.product X A] p [D]}
       (body : LoopFree hp) : LoopFree (.let₁ ha (applyPacked_typed hp))
+  | let₂ {X A B D : τ} {a : Tm Φ} {p : Region Φ}
+      (ha : Tm.HasType [X] a (Silmaril.product A B))
+      {hp : ValueBranches [Silmaril.product X (Silmaril.product A B)] p [D]}
+      (producer : Paper.Eqv [X] (BinaryLet.returnPair a) (Paper.RetainedLet.returnOnce a)
+        [Silmaril.product A B])
+      (body : LoopFree hp) : LoopFree (.let₂ ha (BinaryLet.applyPackedPair_typed hp))
   | case {X A B D : τ} {a : Tm Φ} {p q : Region Φ}
       (ha : Tm.HasType [X] a (Silmaril.coprod A B))
       {hp : ValueBranches [Silmaril.product X A] p [D]}

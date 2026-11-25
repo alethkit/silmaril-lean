@@ -55,4 +55,36 @@ theorem compare_of_eqv (cmp : ModelComparisons J M objIso pe)
     reindexHom J M objIso (denoteSingletonRegion J M hs.hasType) = ofRegion (τ := τ) hs :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReification.compare_of_eqv J M objIso pe cmp shared hs h e
 
+section BinaryLet
+
+open Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.BinaryLet
+
+variable {A B : τ} {a : Tm Φ} {p : Region Φ}
+
+/-- Under the existing single-bind return comparison, agreement on the
+guarded binary producer is equivalent to the displayed Paper equation. -/
+theorem returnPair_comparison_iff (cmp : ModelComparisons J M objIso pe)
+    (ha : Tm.HasType [X] a (Silmaril.product A B)) :
+    (reindexHom J M objIso (denoteSingletonRegion J M (returnPair_typed ha).hasType) =
+      ofRegion (τ := τ) (returnPair_typed ha)) ↔
+      Paper.Eqv [X] (returnPair a) (Paper.RetainedLet.returnOnce a) [Silmaril.product A B] :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReification.returnPair_comparison_iff
+    J M objIso pe cmp ha
+
+/-- Reify literal binary let from the packed body comparison. The guarded
+binary producer is compared at its original scrutinee, using the displayed
+equation. The retained input and both components use a right-associated
+record. -/
+theorem compare_let₂ (cmp : ModelComparisons J M objIso pe)
+    (ha : Tm.HasType [X] a (Silmaril.product A B))
+    (hp : ValueBranches [Silmaril.product X (Silmaril.product A B)] p [D])
+    (hProducer : Paper.Eqv [X] (returnPair a) (Paper.RetainedLet.returnOnce a) [Silmaril.product A B])
+    (hBody : reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) = ofRegion (τ := τ) hp) :
+    reindexHom J M objIso (denoteSingletonRegion J M (.let₂ ha (applyPackedPair_typed hp).hasType)) =
+      ofRegion (τ := τ) (.let₂ ha (applyPackedPair_typed hp)) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonReification.compare_let₂
+    J M objIso pe cmp ha hp hProducer hBody
+
+end BinaryLet
+
 end Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification

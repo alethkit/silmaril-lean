@@ -149,6 +149,7 @@ open CfgEta.TypeCategory.Retained (packedDistributor packedCopair distributorReg
 open CfgEta.TypeCategory.ConstructorReification (inlMap inrMap)
 open CfgEta.TypeCategory (caseValueBranches seqValueBranches)
 open Paper.RetainedLet (unpackBody_typed)
+open Region.Paper.SingletonReification.BinaryLet
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
 
@@ -266,6 +267,21 @@ private theorem compare_let (ha : Tm.HasType [X] a A)
   apply (ofRegion_eq_iff _ _).2
   exact literal_let ha (applyPacked_typed hp).hasType
 
+set_option backward.isDefEq.respectTransparency false in
+include copy whisker in
+private theorem compare_literal_let₂ (ha : Tm.HasType [X] a (Silmaril.product A B))
+    (hp : ValueBranches [Silmaril.product X (Silmaril.product A B)] p [D])
+    (hf : reindexHom J M objIso (denoteSingletonRegion J M (returnPair_typed ha).hasType) =
+      ofRegion (τ := τ) (returnPair_typed ha))
+    (hg : reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) = ofRegion (τ := τ) hp) :
+    reindexHom J M objIso (denoteSingletonRegion J M (.let₂ ha (applyPackedPair_typed hp).hasType)) =
+      ofRegion (τ := τ) (.let₂ ha (applyPackedPair_typed hp)) := by
+  rw [denote_literal_let₂ J M ha hp, ← Category.assoc, transport_comp,
+    extend_compare J M objIso (copy X) whisker, hf, hg, whiskerLeft_ofRegion]
+  let h := seqValueBranches (diagonal_typed (Φ := Φ) X) (whiskerLeftRegion_typed X (returnPair_typed ha))
+  rw [ofRegion_comp _ _ h, ofRegion_comp h hp (seqValueBranches h hp)]
+  exact (ofRegion_eq_iff _ _).2 (literal_let₂ ha hp)
+
 variable
   (inl : ∀ A B : τ, reindexHom J M objIso (J.map (inlMap M A B)) = (sumCofan (Φ := Φ) A B).inl)
   (inr : ∀ A B : τ, reindexHom J M objIso (J.map (inrMap M A B)) = (sumCofan (Φ := Φ) A B).inr)
@@ -333,6 +349,10 @@ private theorem compare_loopFree {r : Region Φ} {hr : ValueBranches [X] r [D]} 
   induction h with
   | branch ha => exact constructorReturn ha
   | let₁ ha _ ih => exact compare_let J M objIso copy whisker ha _ (producerReturn ha) ih
+  | let₂ ha producer _ ih =>
+    apply compare_literal_let₂ J M objIso copy whisker ha _ ?_ ih
+    rw [returnPair_denotation J M ha, producerReturn ha]
+    exact ((ofRegion_eq_iff (returnPair_typed ha) (returnOnce_typed ha)).2 producer).symm
   | case ha _ _ ihl ihr =>
     exact compare_case J M objIso copy whisker inl inr distributor ha _ _ (sumReturn ha) ihl ihr
   | @cfgZero X D p hp _ blocks ih =>
@@ -612,6 +632,36 @@ theorem compare_of_eqv (cmp : ModelComparisons J M objIso pe)
     unfold denoteSingletonRegion
     rw [e.sound J M shared hs.hasType hr.hasType]
   rw [hd, compare J M objIso pe cmp h, (ofRegion_eq_iff hs hr).2 e]
+
+section BinaryLet
+
+open Region.Paper.SingletonReification.BinaryLet
+
+variable {A B : τ} {a : Tm Φ} {p : Region Φ}
+
+set_option backward.isDefEq.respectTransparency false in
+theorem returnPair_comparison_iff (cmp : ModelComparisons J M objIso pe)
+    (ha : Tm.HasType [X] a (Silmaril.product A B)) :
+    (reindexHom J M objIso (denoteSingletonRegion J M (returnPair_typed ha).hasType) =
+      ofRegion (τ := τ) (returnPair_typed ha)) ↔
+      Paper.Eqv [X] (returnPair a) (Paper.RetainedLet.returnOnce a) [Silmaril.product A B] := by
+  rw [returnPair_denotation J M ha, cmp.producer ha]
+  exact eq_comm.trans (ofRegion_eq_iff (returnPair_typed ha) (returnOnce_typed ha))
+
+set_option backward.isDefEq.respectTransparency false in
+theorem compare_let₂ (cmp : ModelComparisons J M objIso pe)
+    (ha : Tm.HasType [X] a (Silmaril.product A B))
+    (hp : ValueBranches [Silmaril.product X (Silmaril.product A B)] p [D])
+    (hProducer : Paper.Eqv [X] (returnPair a) (Paper.RetainedLet.returnOnce a) [Silmaril.product A B])
+    (hBody : reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) = ofRegion (τ := τ) hp) :
+    reindexHom J M objIso (denoteSingletonRegion J M (.let₂ ha (applyPackedPair_typed hp).hasType)) =
+      ofRegion (τ := τ) (.let₂ ha (applyPackedPair_typed hp)) := by
+  have hPair := (returnPair_comparison_iff J M objIso pe cmp ha).2 hProducer
+  exact compare_literal_let₂ J M objIso
+    (fun X => compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd cmp.imagePure cmp.projectionExtensionality)
+    (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f) ha hp hPair hBody
+
+end BinaryLet
 
 end Assembly
 
