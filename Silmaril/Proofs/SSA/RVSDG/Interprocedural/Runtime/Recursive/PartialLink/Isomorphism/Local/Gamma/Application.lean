@@ -7,6 +7,7 @@ import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.I
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Thms
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Captures
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Choice
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Family
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
 
 public section
@@ -262,6 +263,95 @@ private theorem loop_for_captures {bodyContext bodyParams : Ports (Ty V S)} {pas
   rw [carryL, carryR] at inputs ⊢
   exact observe (related_arguments inputs) current.store
 
+/-- Dispatch the currently carried closure and replay the actual γ in
+the application continuation. The callee map uses the current member. -/
+private theorem family_body_pair {context carry : Ports (Ty V S)} {fn : Function V S} {extra : Nat}
+    (ports : Fin (extra + 2) → Port context fn.port)
+    (arguments : Wires (context ++ FamilyArgs fn extra carry) [] fn.args)
+    (select : Origin (context ++ FamilyArgs fn extra carry) [fn.results] (.control (extra + 2)))
+    (feedback : Origin (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] (.control 2))
+    (ordinary : Wires (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] carry)
+    {capL capR : Tuple m.Val context} {inputL inputR : Tuple m.Val carry} {store : σ}
+    (captures : TupleRelated m ids capL capR) (tag : Fin (extra + 2)) (inputs : TupleRelated m ids inputL inputR)
+    (target : CallTarget m fn)
+    (originL : capL.get (ports tag) = target.valueL) (originR : capR.get (ports tag) = target.valueR)
+    (observe : ∀ {argsL argsR : Tuple m.Val fn.args}, TupleRelated m ids argsL argsR →
+      RegionPair primitives ids (mapping.child 0 tag.val) target.left target.right
+        (prependContext argsL target.capturesL) (prependContext argsR target.capturesR) store) :
+    RegionPair primitives ids mapping (familyBody fn ports arguments select feedback ordinary)
+      (familyBody fn ports arguments select feedback ordinary)
+      (familyValue ports capL tag inputL) (familyValue ports capR tag inputR) store := by
+  let entryL := familyValue ports capL tag inputL
+  let entryR := familyValue ports capR tag inputR
+  let wiring := familyApplicationInputs fn arguments
+  have entries := family_related (ports := ports) captures tag inputs
+  have operands := Local.aligned_read entries .empty arguments
+  have readL : wiring.read entryL PUnit.unit = .cons target.valueL (arguments.read entryL PUnit.unit) :=
+    (family_application_read arguments capL tag inputL).trans
+      (congrArg (fun value => Tuple.cons value (arguments.read entryL PUnit.unit)) originL)
+  have readR : wiring.read entryR PUnit.unit = .cons target.valueR (arguments.read entryR PUnit.unit) :=
+    (family_application_read arguments capR tag inputR).trans
+      (congrArg (fun value => Tuple.cons value (arguments.read entryR PUnit.unit)) originR)
+  refine bind_pair (some tag.val) wiring readL readR (observe operands) ?_
+  intro valueL valueR values middle
+  let outputs := familyOutputs fn select feedback ordinary
+  have params := TupleRelated.cons (.control tag) (.cons (captures.get (ports tag)) inputs)
+  have locals := AlignedLocals.snoc .empty values
+  refine choose_pair (restL := .ret outputs) (restR := .ret outputs) select ports captures params locals ?_
+  intro next
+  exact .returned (Local.aligned_read entries (locals.snoc (.cons (captures.get (ports next)) .nil)) outputs)
+    (.ret outputs _ _ middle) (.ret outputs _ _ middle)
+
+private theorem switch_theta_pair {context params carry outs : Ports (Ty V S)} {fn : Function V S} {extra : Nat}
+    {past tailL tailR : List (Ports (Ty V S))}
+    {restL : NestedTheta.Term (Instruction Op) (context ++ params)
+      ((past ++ [[fn.port]]) ++ [context ++ FamilyArgs fn extra carry]) tailL outs}
+    {restR : NestedTheta.Term (Instruction Op) (context ++ params)
+      ((past ++ [[fn.port]]) ++ [context ++ FamilyArgs fn extra carry]) tailR outs}
+    {capL capR : Tuple m.Val context} {inputL inputR : Tuple m.Val params}
+    {localsL localsR : Locals m.Val past} {store : σ}
+    (selector : Origin (context ++ params) past (.control (extra + 2)))
+    (ports : Fin (extra + 2) → Port context fn.port)
+    (initial : Wires (context ++ params) (past ++ [[fn.port]]) carry)
+    (arguments : Wires (context ++ FamilyArgs fn extra carry) [] fn.args)
+    (select : Origin (context ++ FamilyArgs fn extra carry) [fn.results] (.control (extra + 2)))
+    (feedback : Origin (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] (.control 2))
+    (ordinary : Wires (context ++ FamilyArgs fn extra carry) [fn.results, [fn.port]] carry)
+    (family : Fin (extra + 2) → CallTarget m fn)
+    (originL : ∀ tag, capL.get (ports tag) = (family tag).valueL)
+    (originR : ∀ tag, capR.get (ports tag) = (family tag).valueR)
+    (captures : TupleRelated m ids capL capR) (inputs : TupleRelated m ids inputL inputR)
+    (locals : AlignedLocals m ids localsL localsR)
+    (observe : ∀ tag {argsL argsR : Tuple m.Val fn.args}, TupleRelated m ids argsL argsR → ∀ middle,
+      RegionPair primitives ids ((mapping.child (past ++ [[fn.port]]).length 0).child 0 tag.val)
+        (family tag).left (family tag).right
+        (prependContext argsL (family tag).capturesL) (prependContext argsR (family tag).capturesR) middle)
+    (resume : ∀ {scopeL scopeR : Locals m.Val ((past ++ [[fn.port]]) ++ [context ++ FamilyArgs fn extra carry])},
+      AlignedLocals m ids scopeL scopeR → ∀ middle,
+      ScopedRegionPair primitives ids mapping restL restR
+        (prependContext inputL capL) (prependContext inputR capR) scopeL scopeR middle) :
+    ScopedRegionPair primitives ids mapping
+      (switchTheta fn selector ports initial (familyBody fn ports arguments select feedback ordinary) restL)
+      (switchTheta fn selector ports initial (familyBody fn ports arguments select feedback ordinary) restR)
+      (prependContext inputL capL) (prependContext inputR capR) localsL localsR store := by
+  let body := familyBody (Op := Op) fn ports arguments select feedback ordinary
+  let wiring := familyWires fn selector initial
+  refine choose_pair_with_tag (restL := bindTheta wiring body restL) (restR := bindTheta wiring body restR)
+    selector ports captures inputs locals ?_
+  intro first guardL guardR
+  have joined := locals.snoc (.cons (captures.get (ports first)) .nil)
+  refine loop_scoped wiring (Local.aligned_read (prepend_related captures inputs) joined wiring) ?_
+    (fun values middle => resume (joined.snoc values) middle)
+  intro current completed
+  have start := family_pair
+    (Local.aligned_read (prepend_related captures inputs) joined wiring)
+    ⟨first, _, family_wires_read (ports := ports) selector initial capL inputL localsL first guardL⟩
+    ⟨first, _, family_wires_read (ports := ports) selector initial capR inputR localsR first guardR⟩
+  obtain ⟨tag, _, _, argumentsRelated, sameL, sameR⟩ := family_pair_restarts start completed
+  rw [sameL, sameR]
+  exact family_body_pair ports arguments select feedback ordinary captures tag argumentsRelated (family tag)
+    (originL tag) (originR tag) (fun {_ _} related => observe tag related current.store)
+
 theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     {capturesL capturesR : Tuple m.Val context}
     {left : NestedTheta.Term (Instruction Op) (context ++ params) past sigsL outs}
@@ -354,5 +444,12 @@ theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : Li
       ⟨_, startL⟩ ⟨_, startR⟩ fixedL fixedR
       (fun {_ _} inputs middle => bodyIH tag (.cons capture .nil) inputs .empty middle)
       (fun values middle => suffixIH captures arguments (joined.snoc values) middle)
+
+  | @switchTheta _ _ _ _ _ _ _ _ _ _ _ _ _ restL restR
+      selector ports initial wires select feedback ordinary family _ originL originR captured _ _ _ calleeIH suffixIH =>
+    exact switch_theta_pair (restL := restL) (restR := restR) selector ports initial wires select feedback ordinary
+      family originL originR captures arguments locals
+      (fun tag {_ _} related middle => calleeIH tag (captured tag) related .empty middle)
+      (fun scope middle => suffixIH captures arguments scope middle)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs
