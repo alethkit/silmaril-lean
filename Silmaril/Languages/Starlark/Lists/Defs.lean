@@ -9,18 +9,35 @@ namespace Silmaril.Languages.Starlark.Lists
 /-- An index in the shared heap. Allocation appends a fresh cell. -/
 abbrev Address := Nat
 
+/-- Universal callables supported by the resolved shared-store profile. -/
+inductive Builtin where
+  | bool | len | type | list | tuple
+  deriving DecidableEq, BEq, Repr
+
+def Builtin.name : Builtin → String
+  | .bool => "bool"
+  | .len => "len"
+  | .type => "type"
+  | .list => "list"
+  | .tuple => "tuple"
+
+/-- Resolve a name after lexical lookup has ruled out a shadowing binding. -/
+def Builtin.resolve (name : String) : Option Builtin :=
+  ([.bool, .len, .type, .list, .tuple] : List Builtin).find? (fun id => id.name == name)
+
 inductive Value where
   | scalar (value : Starlark.Value)
   | list (address : Address)
   | tuple (address : Address)
   | dict (address : Address)
   | function (address : Address)
+  | builtin (id : Builtin)
   | string (text : String)
   deriving DecidableEq, Repr
 
 def Value.address? : Value → Option Address
   | .list address | .tuple address | .dict address | .function address => some address
-  | .scalar _ | .string _ => none
+  | .scalar _ | .builtin _ | .string _ => none
 
 /-- Canonical key encoding for tagged scalars and well-bracketed tuples. -/
 inductive KeyPart where
@@ -28,6 +45,7 @@ inductive KeyPart where
   | openTuple
   | closeTuple
   | function (address : Address)
+  | builtin (id : Builtin)
   | string (text : String)
   deriving DecidableEq, BEq, Repr
 
@@ -121,6 +139,9 @@ inductive Error where
   | unexpectedKeyword (name : String)
   | multipleArgumentValues (name : String)
   | missingArguments (names : List String)
+  | builtinArity (id : Builtin) (minimum maximum supplied : Nat)
+  | builtinKeyword (id : Builtin) (name : String)
+  | builtinType (id : Builtin) (value : Value)
   deriving DecidableEq, Repr
 
 abbrev Outcome := EStateM.Result Error State
@@ -214,6 +235,7 @@ def State.keyOf (state : State) (value : Value) : Except Error Key :=
     | some _ => .error (.wrongCellKind address)
   | .list _ | .dict _ => .error (.unhashableKey value)
   | .function address => .ok [.function address]
+  | .builtin id => .ok [.builtin id]
   | .string text => .ok [.string text]
 
 def allocateTuple (elements : List Value) : Meaning Value := fun state =>
@@ -271,7 +293,7 @@ def readDict (address : Address) (key : Value) : Meaning Value := do
 
 def readIndex (receiver index : Value) : Meaning Value :=
   match receiver with
-  | .scalar _ | .function _ | .string _ => throw .indexTarget
+  | .scalar _ | .function _ | .builtin _ | .string _ => throw .indexTarget
   | .list address => listElements address >>= fun elements => readSequence elements index
   | .tuple address => tupleElements address >>= fun elements => readSequence elements index
   | .dict address => readDict address index
@@ -306,7 +328,7 @@ def writeDict (address : Address) (key value : Value) : Meaning Unit :=
 
 def writeIndex (receiver index value : Value) : Meaning Unit :=
   match receiver with
-  | .scalar _ | .tuple _ | .function _ | .string _ => throw .assignmentTarget
+  | .scalar _ | .tuple _ | .function _ | .builtin _ | .string _ => throw .assignmentTarget
   | .list address =>
     updateCell address fun elements => do
       let i ← normalizeIndex elements.length index
@@ -321,6 +343,7 @@ def appendAt (address : Address) (value : Value) : Meaning Value := do
 expressions and statements share a structural recursion principle. -/
 inductive Code : Type → Type where
   | scalar (value : Starlark.Value) : Code Value
+  | builtin (id : Builtin) : Code Value
   | string (text : String) : Code Value
   | read (ref : Ref) : Code Value
   | list (elements : Code (List Value)) : Code Value

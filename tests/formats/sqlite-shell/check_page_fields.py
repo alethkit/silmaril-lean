@@ -25,7 +25,7 @@ def read_varint(page, offset):
     return value * 256 + page[offset + 8], offset + 9
 
 
-def check_leaf(page, base, expected_count):
+def check_leaf(page, base, expected_count, writer_order):
     assert page[base] == 13 and page[base + 7] == 0
     assert page[base + 1:base + 3] == b"\x00\x00"
     count = int.from_bytes(page[base + 3:base + 5], "big")
@@ -36,19 +36,20 @@ def check_leaf(page, base, expected_count):
     assert len(set(pointers)) == count
     assert all(content <= pointer < PAGE_SIZE for pointer in pointers)
     cursor = content
-    for pointer in sorted(pointers):
+    physical_order = pointers if writer_order else sorted(pointers)
+    for pointer in physical_order:
         assert pointer == cursor
         payload_size, key = read_varint(page, pointer)
         _, payload = read_varint(page, key)
         cursor = max(pointer + 4, payload + payload_size)
     assert cursor == PAGE_SIZE
-    return content - pointers_end
+    return content - pointers_end, pointers
 
 
-def check_page_fields(image, expected_count):
+def check_page_fields(image, expected_count, writer_order):
     assert image[16:18] == b"\x02\x00"
-    check_leaf(image[:PAGE_SIZE], 100, 1)
-    return check_leaf(image[PAGE_SIZE:], 0, expected_count)
+    check_leaf(image[:PAGE_SIZE], 100, 1, writer_order)
+    return check_leaf(image[PAGE_SIZE:], 0, expected_count, writer_order)
 
 
 def check_rejected_images(native, path, image, count):
@@ -60,6 +61,11 @@ def check_rejected_images(native, path, image, count):
         for field, offset, invalid in fields:
             damaged = image[:offset] + invalid + image[offset + 2:]
             cases.append((f"{label}-out-of-range-{field}", damaged, "malformed"))
+    if count >= 2:
+        first_pointer = PAGE_SIZE + 8
+        swapped = (image[:first_pointer] + image[first_pointer + 2:first_pointer + 4] +
+                   image[first_pointer:first_pointer + 2] + image[first_pointer + 4:])
+        cases.append(("table-swapped-pointers", swapped, "malformed"))
     for name, damaged, reason in cases:
         corrupted = path.with_name(f"{path.stem}-{name}.sqlite")
         corrupted.write_bytes(damaged)
@@ -84,11 +90,15 @@ def main():
             successful(create(lean_path, *row_arguments(entries)))
             for path in (native_path, lean_path):
                 image = check_image(native, path, entries)
-                unused = check_page_fields(image, len(entries))
+                unused, pointers = check_page_fields(image, len(entries), path == lean_path)
                 if path == lean_path and name == "capacity":
                     assert unused == 0
+                    # Slot 9 follows eight 13-byte cells and one 14-byte cell.
+                    assert pointers[1] - pointers[0] == 13
+                    assert pointers[9] - pointers[8] == 14
+                    assert pointers[9] == pointers[0] + 8 * 13 + 14
                 check_rejected_images(native, path, image, len(entries))
-    print("Both readers reopened valid images. Stock integrity and both packed-leaf headers passed.")
+    print("Both readers reopened valid images. Stock integrity and packed-leaf pointer checks passed.")
     print("Lean rejected the damaged images, and stock integrity_check flagged them.")
 
 

@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LetIter.Counterexample.Defs
 import Silmaril.SSA.Isotope.Bridge.Defs
+import Silmaril.SSA.Isotope.LetIter.Categorical.LetEta.Thms
 import Silmaril.Semantics.ElgotMonads.Thms
 import Mathlib.GroupTheory.Perm.Basic
 
@@ -208,6 +209,20 @@ theorem closedLetEtaUnsound_proof : ¬ ClosedLetEtaSound := by
   let _ : StrongElgotFreydCategory J := twistedElgot swap01
   let _ : InstructionModel J typesModel PUnit.{1} := emit swap12
   exact (exact_letEta_can_fail effect_changes).2 (sound J typesModel primitive)
+
+/-- The same comparison used in the old soundness counterexample fails the
+central-unit refinement. -/
+private theorem twistedWriterUnitNotCentral :
+    let _ : StrongElgotFreydCategory J := twistedElgot swap01
+    let _ : FreydCategory J := twistedFreyd swap01
+    ¬ FreydCategory.CentralUnit J := by
+  let _ : StrongElgotFreydCategory J := twistedElgot swap01
+  let _ : FreydCategory J := twistedFreyd swap01
+  let _ : InstructionModel J typesModel PUnit.{1} := emit swap12
+  change ¬ FreydCategory.CentralUnit J
+  intro h
+  exact (exact_letEta_can_fail effect_changes).2
+    (denote_let_eta J typesModel h.unit_central primitive)
 
 end ExactLet
 
