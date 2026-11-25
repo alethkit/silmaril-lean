@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGraph.Thms
+import Silmaril.Semantics.RuntimeWires.ProgressiveSweep.Thms
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
@@ -175,5 +176,48 @@ example : creation.afterWires = [0, 1] ∧ scalar.beforeWires = scalar.afterWire
 noncomputable example :
     Sliced.Sheet signature (creation.beforeWires.map drawing.label) (deletion.afterWires.map drawing.label) :=
   creation.prependAtSeam scalar (scalar.prependAtSeam deletion (deletion.prepend (.empty _)))
+
+private theorem vertex_order : drawing.vertexOrder = Equiv.refl (Fin 3) := by
+  unfold Diagram.vertexOrder
+  apply Tuple.sort_eq_refl_iff_monotone.mpr
+  intro i j hij
+  fin_cases i <;> fin_cases j <;> norm_num [drawing, vertexHeight] at *
+
+/-- The sweep finds the midpoint between creation and the isolated scalar. -/
+example : drawing.cutHeight 1 = (3 / 8 : ℝ) := by
+  simp only [Diagram.cutHeight, Diagram.landmark, vertex_order]
+  change (drawing.vertexHeight 0 + drawing.vertexHeight 1) / 2 = _
+  norm_num [drawing, vertexHeight]
+
+/-- Read back the original internal wire and the boundary-to-boundary wire. -/
+example :
+    drawing.sweep.readStart 1 = some 0 ∧
+    drawing.sweep.readFinish 1 = some 2 ∧
+    drawing.sweep.readStart 0 = none ∧
+    drawing.sweep.readFinish 0 = none := by
+  simp [Diagram.Sweep.readStart_eq, Diagram.Sweep.readFinish_eq, drawing, start, finish]
+
+/-- The internal wire appears at exactly the two cuts on either side of the scalar. -/
+example : drawing.sweep.wireCuts 1 = {1, 2} := by
+  ext i
+  simp only [Diagram.Sweep.wireCuts, Finset.mem_filter, Finset.mem_univ, true_and,
+    Diagram.Sweep.wire_span]
+  have startRank : (drawing.startIndex 1).val = 1 := by
+    rw [Diagram.startIndex, show drawing.start 1 = some 0 from rfl]
+    change (drawing.vertexOrder.symm 0).val + 1 = 1
+    rw [vertex_order]
+    rfl
+  have finishRank : (drawing.finishIndex 1).val = 3 := by
+    rw [Diagram.finishIndex, show drawing.finish 1 = some 2 from rfl]
+    change (drawing.vertexOrder.symm 2).val + 1 = 3
+    rw [vertex_order]
+    rfl
+  rw [startRank, finishRank]
+  fin_cases i <;> decide
+
+/-- In the vertex-free case the schedule uses just the midpoint of the caps. -/
+example (d : Diagram signature 0 2) : d.cutHeight 0 = (1 / 2 : ℝ) := by
+  change ((0 : ℝ) + 1) / 2 = _
+  norm_num
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveGraph.Regression
