@@ -69,23 +69,29 @@ def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.
 def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Module.SeededCall.Operand 0
   | .read name _ => .global name
   | .integer value => .literal (.int value)
+  | .none_ => .literal .none
   | .boolean _ | .binary .. => .unsupported
 
 def scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
-  | .none | .exceptionClass _ | .helper _ | .builtin _ | .function _ => none
+  | .none => some .none
+  | .exceptionClass _ | .helper _ | .builtin _ | .function _ => none
 
-/-- Boolean literals are admitted inside equality. The resulting Boolean
+/-- Boolean literals are admitted inside equality and inequality. The resulting Boolean
 can be bound as a value. Other compound operands use the existing boundary. -/
 def evaluateScalar {scope : Scope} (space : Namespace) (equalityOperand : Bool) :
     ModuleEntry.Operand scope → Result
-  | .binary .equal left right => do
-    let first ← evaluateScalar space true left
-    let second ← evaluateScalar space true right
-    let some first := scalar? first | throw .unsupported
-    let some second := scalar? second | throw .unsupported
-    return .bool (first.equal second)
+  | .binary operator left right =>
+    match operator with
+    | .equal | .notEqual => do
+      let first ← evaluateScalar space true left
+      let second ← evaluateScalar space true right
+      let some first := scalar? first | throw .unsupported
+      let some second := scalar? second | throw .unsupported
+      let same := first.equal second
+      return .bool (match operator with | .notEqual => !same | _ => same)
+    | _ => .error .unsupported
   | .boolean value =>
     if equalityOperand then .ok (.bool value) else .error .unsupported
   | operand => (lowerScalarOperand operand).eval space #v[]

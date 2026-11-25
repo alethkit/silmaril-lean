@@ -113,6 +113,21 @@ after = 9
 result = (0 or -2) == (missing + (1 // 0))
 after = 9
 """, {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
+    ("none_scalar_rebind", """result = None
+assert result == None
+assert result != 0
+result = 3
+assert None != result
+assert False == 0
+""", {}, {"result": 3}, "normal", ".normal", 3),
+    ("none_right_read_failure", """result = 7
+result = None != missing
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
+    ("none_arithmetic_read_precedes_profile", """result = 7
+result = None + missing
+after = 9
+""", {}, {"result": 7, "after": None}, "NameError", '.raised (.nameError "missing")', 2),
 )
 
 UNSUPPORTED_INDEXING = (
@@ -158,9 +173,11 @@ REJECTED_BRANCHES = (
     ("result = True or (5 / 0)\n", ".expressionProfile"),
     ("assert (missing,)\n", ".expressionProfile"),
     ("assert [probe()]\n", ".expressionProfile"),
-    ("result = None\n", ".expressionProfile"),
     ("result = (1,)\n", ".expressionProfile"),
     ("assert [()]\n", ".expressionProfile"),
+    ("result = 1 is 1\n", ".expressionProfile"),
+    ('result = "same" is "same"\n', ".expressionProfile"),
+    ("result = False is not None\n", ".expressionProfile"),
 )
 
 CPYTHON = """

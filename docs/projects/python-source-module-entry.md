@@ -63,6 +63,15 @@ also test `None` or a flat literal list or tuple whose elements pass
 the same scalar check. These tests use only falsity or emptiness and
 emit no container value.
 
+`None` can also be bound, read and copied as a module value. It has its
+own tag and is false in a truth test. Scalar `==` and `!=` evaluate
+their operands from left to right. Two `None` values compare equal, and
+`None` compares unequal to an integer or Boolean. The integer
+projection used by arithmetic and closed numeric chains applies to
+integers and Booleans. Reached scalar arithmetic on `None` stops at the
+arithmetic profile boundary. Object identity requires separate evidence
+about the objects compared.
+
 The regression emits Lean from Python source and verifies the global
 access witnesses, action order and the diagnostic for an assertion
 message.

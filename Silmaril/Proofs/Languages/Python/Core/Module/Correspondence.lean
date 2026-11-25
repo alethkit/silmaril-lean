@@ -13,17 +13,25 @@ open Semantics.Operational
 private theorem operator_eq {op : Operator} {left right : Value} {result : Evaluated}
     (rule : op.Eval left right result) : op.eval left right = result := by
   cases rule with
-  | arithmetic rule => simp only [Operator.eval, Languages.Python.Core.BinOp.eval_iff.mpr rule]
-  | equal same => simp [Operator.eval, Value.equal, same]
-  | unequal different => simp [Operator.eval, Value.equal, different]
+  | arithmetic left right rule =>
+    simp [Operator.eval, left, right, Languages.Python.Core.BinOp.eval_iff.mpr rule]
+  | unsupportedLeft left => simp [Operator.eval, left]
+  | unsupportedRight left right => simp [Operator.eval, left, right]
+  | equal same => simp [Operator.eval, same]
+  | notEqual same => simp [Operator.eval, same]
 
 private theorem operator_rule (op : Operator) (left right : Value) : op.Eval left right (op.eval left right) := by
   cases op with
-  | arithmetic op => exact .arithmetic (Languages.Python.Core.BinOp.eval_iff.mp rfl)
-  | equal =>
-    by_cases same : left.asInt = right.asInt
-    · simpa [Operator.eval, Value.equal, same] using Operator.Eval.equal same
-    · simpa [Operator.eval, Value.equal, same] using Operator.Eval.unequal same
+  | arithmetic op =>
+    cases first : left.asInt? with
+    | none => simpa [Operator.eval, first] using Operator.Eval.unsupportedLeft first
+    | some a =>
+      cases second : right.asInt? with
+      | none => simpa [Operator.eval, first, second] using Operator.Eval.unsupportedRight first second
+      | some b => simpa [Operator.eval, first, second] using
+          Operator.Eval.arithmetic first second (Languages.Python.Core.BinOp.eval_iff.mp (rfl : op.eval a b = _))
+  | equal => exact .equal rfl
+  | notEqual => exact .notEqual rfl
 
 variable {globals : Globals} {expression : Expr} {result : Evaluated}
 

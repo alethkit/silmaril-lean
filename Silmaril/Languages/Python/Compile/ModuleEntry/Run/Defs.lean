@@ -14,10 +14,12 @@ def operator : BinaryOp → Core.Module.Operator
   | .add => .arithmetic .add
   | .floorDiv => .arithmetic .floorDiv
   | .equal => .equal
+  | .notEqual => .notEqual
 
 def expression {scope : Scope} : Operand scope → Core.Module.Expr
   | .integer value => .literal (.int value)
   | .boolean value => .literal (.bool value)
+  | .none_ => .literal .none
   | .read name _ => .readGlobal name
   | .binary op left right => .binary (operator op) (expression left) (expression right)
 
