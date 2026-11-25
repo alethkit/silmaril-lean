@@ -42,47 +42,6 @@ private theorem wrap_exact {a b : Config H}
   rw [wrap_step_iff stays]
   simp only [step, exists_eq_left]
 
-private def pending : Indirect.Phase → Prop
-  | .start | .lookup | .cast _ | .call _ => True
-  | _ => False
-
-private theorem lookup_stays {site : Indirect.Site} {selector : BitVec 32}
-    {stack : List Value} {rest : List Admin} {phase : Indirect.Phase} (h : pending phase)
-    (n : Nat) (out : List Admin) : ¬ LabelExit n [] (coreValues stack ++ site.coreCode selector phase ++ rest) out := by
-  let vs := stack.map Value.toCore
-  cases phase with
-  | start =>
-    intro pop
-    apply Computed.core_label_stays (stack := vs ++ [Val.i32 selector])
-      (head := .plain (.callIndirect tableIndex site.typeIndex)) (rest := rest)
-      rfl (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp)
-    simpa only [coreValues, List.append_assoc, Site.coreCode, vals, List.map_append, List.map_singleton,
-      List.cons_append, List.nil_append, constI32] using pop
-  | lookup =>
-    intro pop
-    apply Computed.core_label_stays (stack := vs ++ [Val.i32 selector])
-      (head := .plain (.tableGet tableIndex)) (rest := site.coreCast :: site.coreCall :: rest)
-      rfl (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp)
-    simpa only [coreValues, List.append_assoc, Site.coreCode, vals, List.map_append, List.map_singleton,
-      List.cons_append, List.nil_append, constI32] using pop
-  | cast entry =>
-    intro pop
-    apply Computed.core_label_stays (stack := vs ++ [.ref (coreRef entry)])
-      (head := site.coreCast) (rest := site.coreCall :: rest)
-      rfl (by simp [Site.coreCast]) (by simp [Site.coreCast])
-      (by simp [Site.coreCast, Admin.IsReturnCallRef]) (by simp [Site.coreCast]) (by simp [Site.coreCast])
-    simpa only [coreValues, List.append_assoc, Site.coreCode, vals, List.map_append, List.map_singleton,
-      List.cons_append, List.nil_append, Val.toAdmin] using pop
-  | call entry =>
-    intro pop
-    apply Computed.core_label_stays (stack := vs ++ [.ref (coreRef entry)])
-      (head := site.coreCall) (rest := rest)
-      rfl (by simp [Site.coreCall]) (by simp [Site.coreCall])
-      (by simp [Site.coreCall, Admin.IsReturnCallRef]) (by simp [Site.coreCall]) (by simp [Site.coreCall])
-    simpa only [coreValues, List.append_assoc, Site.coreCode, vals, List.map_append, List.map_singleton,
-      List.cons_append, List.nil_append, Val.toAdmin] using pop
-  | boundsTrap | mismatchTrap | nullTrap => exact h.elim
-
 theorem resolution_prefix_exact {site : Indirect.Site} {caller : Runtime.Frame} {out : Outcome}
     {selector : BitVec 32} {stack : List Value} {addr : Nat}
     (checked : site.check program caller = true) (allocated : program.CoreAllocated s)
@@ -93,7 +52,7 @@ theorem resolution_prefix_exact {site : Indirect.Site} {caller : Runtime.Frame} 
         dst = cont.coreWrap outer (Indirect.coreConfig s caller site selector stack (cont.code.map Graph.coreEmit) b)) := by
   have chain := Indirect.core_trace_exact (P := P) (stack := stack) (rest := cont.code.map Graph.coreEmit)
     checked allocated tableFound resolved
-  have live (a : Indirect.Phase) (mem : a ∈ (out.coreTrace).dropLast) : pending a := by
+  have live (a : Indirect.Phase) (mem : a ∈ (out.coreTrace).dropLast) : a.Pending := by
     cases out <;>
       simp only [Outcome.coreTrace, List.cons_append, List.nil_append, List.dropLast_cons_cons, List.dropLast_singleton,
         List.mem_cons, List.not_mem_nil, or_false] at mem <;>
@@ -102,7 +61,7 @@ theorem resolution_prefix_exact {site : Indirect.Site} {caller : Runtime.Frame} 
     (cont.code.map Graph.coreEmit) a)
   apply (List.isChain_map (R := fun a b : Config H => ∀ dst, Step P noHost a dst ↔ dst = b) render).mp
   exact map_chain render chain (fun a mem b exactStep => wrap_exact (cont := cont) (outer := outer)
-    (fun out => lookup_stays (live a mem) _ out) exactStep)
+    (fun out => Indirect.core_lookup_stays (live a mem) _ out) exactStep)
 
 theorem prefix_exact (checked : call.Checked program) (allocated : program.CoreAllocated s)
     {addr : Nat} (tableFound : s.table? call.caller.toCore tableIndex = some (addr, call.site.table.toCore)) :
@@ -114,10 +73,10 @@ theorem prefix_exact (checked : call.Checked program) (allocated : program.CoreA
   change a ∈ [inner .start, inner .lookup, inner (.cast (some call.address)), inner (.call (some call.address))] at mem
   simp only [List.mem_cons, List.not_mem_nil, or_false] at mem
   rcases mem with rfl | rfl | rfl | rfl
-  · exact wrap_exact (fun out => lookup_stays (phase := .start) trivial _ out) exactStep
-  · exact wrap_exact (fun out => lookup_stays (phase := .lookup) trivial _ out) exactStep
-  · exact wrap_exact (fun out => lookup_stays (phase := .cast (some call.address)) trivial _ out) exactStep
-  · exact wrap_exact (fun out => lookup_stays (phase := .call (some call.address)) trivial _ out) exactStep
+  · exact wrap_exact (fun out => Indirect.core_lookup_stays (phase := .start) trivial _ out) exactStep
+  · exact wrap_exact (fun out => Indirect.core_lookup_stays (phase := .lookup) trivial _ out) exactStep
+  · exact wrap_exact (fun out => Indirect.core_lookup_stays (phase := .cast (some call.address)) trivial _ out) exactStep
+  · exact wrap_exact (fun out => Indirect.core_lookup_stays (phase := .call (some call.address)) trivial _ out) exactStep
 
 private theorem handoff (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
     (result : Nested.Result) :

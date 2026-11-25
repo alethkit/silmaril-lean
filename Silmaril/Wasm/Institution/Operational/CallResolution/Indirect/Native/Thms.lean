@@ -4,6 +4,8 @@ public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Nati
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Thms
 public import Silmaril.Wasm.SingleThreaded.Determinism.Head
 public import Silmaril.Wasm.Institution.Operational.CallFrame.Native.Defs
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
+public import Silmaril.Wasm.Lime1.Execution.Callout
 import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.Core
 import Silmaril.Proofs.Wasm.Institution.Operational.CallResolution.Indirect.Lime1
 
@@ -15,6 +17,25 @@ open Execution.Runtime (Frame Value)
 open Execution
 open CallContinuation.OuterCall.Ranked.Graph (Program Function)
 open SingleThreaded.Det (noHost)
+
+/-- A pending indirect operation reduces within an entered empty-continuation label. -/
+theorem core_lookup_stays {site : Site} {selector : BitVec 32} {stack : List Value}
+    {rest : List Core.Admin} {phase : Phase} (pending : phase.Pending)
+    (n : Nat) (out : List Core.Admin) :
+    ¬ Core.LabelExit n [] (Core.vals (stack.map Value.toCore) ++ site.coreCode selector phase ++ rest) out :=
+  Proofs.Core.lookup_stays pending n out
+
+open Wasm.Lime1.Execution in
+theorem lime_lookup_stays {H : Type} {s : Store H} {site : Site} {caller : Frame}
+    {selector : BitVec 32} {stack : List Value} {rest : List Admin} (n : Nat) (out : List Admin) :
+    ¬ PureStep caller.module.types [.label n [] (limeSource s caller site selector stack rest).code] out :=
+  Proofs.Lime1.lookup_stays n out
+
+open Wasm.Lime1.Execution in
+theorem lime_invoke_stays {H : Type} {s : Store H} {addr : Runtime.FuncAddr} {caller : Frame}
+    {stack : List Value} {rest : List Admin} (n : Nat) (out : List Admin) :
+    ¬ PureStep caller.module.types [.label n [] (limeResolved s caller stack rest (.resolved addr)).code] out :=
+  Proofs.Lime1.invoke_stays n out
 
 /-- Each adjacent pair is exactly one native step, with arbitrary preserved
 numeric operands and pending instructions. Stops at a pending successful

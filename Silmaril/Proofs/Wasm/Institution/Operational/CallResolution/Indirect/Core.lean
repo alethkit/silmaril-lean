@@ -3,10 +3,12 @@ module
 public import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Native.Defs
 import Silmaril.Wasm.Institution.Operational.CallResolution.Indirect.Thms
 public import Silmaril.Wasm.SingleThreaded.Determinism.Head
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 import Silmaril.Wasm.Execution.Core.Inversion.Thms
 import Silmaril.Wasm.Execution.Core.Sim.Context
 import Silmaril.Wasm.Validation.Subtyping.Check
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Sequence.Native.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Thms
 
 @[expose] public section
 
@@ -19,6 +21,45 @@ open Wasm.SingleThreaded.Det (famOf noHost)
 open Wasm.Validation
 
 variable {H : Type} {P : Numerics.Profile} {s : Store H}
+
+open CallContinuation.OuterCall (coreValues) in
+open CallContinuation.OuterCall.Computed in
+theorem lookup_stays {site : Indirect.Site} {selector : BitVec 32}
+    {stack : List Value} {rest : List Admin} {phase : Indirect.Phase} (h : phase.Pending)
+    (n : Nat) (out : List Admin) : ¬ LabelExit n [] (coreValues stack ++ site.coreCode selector phase ++ rest) out := by
+  let vs := stack.map Value.toCore
+  cases phase with
+  | start =>
+    intro pop
+    apply core_label_stays (stack := vs ++ [Val.i32 selector])
+      (head := .plain (.callIndirect tableIndex site.typeIndex)) (rest := rest)
+      rfl (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp)
+    simpa only [coreValues, List.append_assoc, Site.coreCode, vals, List.map_append, List.map_singleton,
+      List.cons_append, List.nil_append, constI32] using pop
+  | lookup =>
+    intro pop
+    apply core_label_stays (stack := vs ++ [Val.i32 selector])
+      (head := .plain (.tableGet tableIndex)) (rest := site.coreCast :: site.coreCall :: rest)
+      rfl (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp)
+    simpa only [coreValues, List.append_assoc, Site.coreCode, vals, List.map_append, List.map_singleton,
+      List.cons_append, List.nil_append, constI32] using pop
+  | cast entry =>
+    intro pop
+    apply core_label_stays (stack := vs ++ [.ref (coreRef entry)])
+      (head := site.coreCast) (rest := site.coreCall :: rest)
+      rfl (by simp [Site.coreCast]) (by simp [Site.coreCast])
+      (by simp [Site.coreCast, Admin.IsReturnCallRef]) (by simp [Site.coreCast]) (by simp [Site.coreCast])
+    simpa only [coreValues, List.append_assoc, Site.coreCode, vals, List.map_append, List.map_singleton,
+      List.cons_append, List.nil_append, Val.toAdmin] using pop
+  | call entry =>
+    intro pop
+    apply core_label_stays (stack := vs ++ [.ref (coreRef entry)])
+      (head := site.coreCall) (rest := rest)
+      rfl (by simp [Site.coreCall]) (by simp [Site.coreCall])
+      (by simp [Site.coreCall, Admin.IsReturnCallRef]) (by simp [Site.coreCall]) (by simp [Site.coreCall])
+    simpa only [coreValues, List.append_assoc, Site.coreCode, vals, List.map_append, List.map_singleton,
+      List.cons_append, List.nil_append, Val.toAdmin] using pop
+  | boundsTrap | mismatchTrap | nullTrap => exact h.elim
 
 private theorem one_operand {stack : List Val} {head operand op : Admin}
     (eq : vals stack ++ [head] = [operand, op]) :

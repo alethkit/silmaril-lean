@@ -40,17 +40,6 @@ private theorem wrap_exact {a b : Config H}
   rw [wrap_step_iff stays]
   simp only [step, exists_eq_left]
 
-private theorem lookup_stays {site : Indirect.Site} {caller : Frame} {selector : BitVec 32}
-    {stack : List Value} {rest : List Admin} (n : Nat) (out : List Admin) :
-    ¬ PureStep caller.module.types [.label n [] (limeSource s caller site selector stack rest).code] out :=
-  Computed.lime_label_stays (head := .source (.callIndirect site.typeIndex)) rfl
-    (by simp) (by simp) (by simp)
-
-private theorem invoke_stays {addr : Execution.Runtime.FuncAddr} {caller : Frame}
-    {stack : List Value} {rest : List Admin} (n : Nat) (out : List Admin) :
-    ¬ PureStep caller.module.types [.label n [] (limeResolved s caller stack rest (.resolved addr)).code] out :=
-  Computed.lime_label_stays (head := .invoke addr) rfl (by simp) (by simp) (by simp)
-
 theorem resolution_step_iff {site : Indirect.Site} {caller : Frame} {selector : BitVec 32}
     {stack : List Value} {out : Outcome} {dst : Config H}
     (checked : site.check program caller = true) (allocated : program.LimeAllocated s)
@@ -58,7 +47,7 @@ theorem resolution_step_iff {site : Indirect.Site} {caller : Frame} {selector : 
     Step CallFrame.limeNoHost
       (cont.limeWrap outer (limeSource s caller site selector stack (cont.code.map Graph.limeEmit))) dst ↔
       dst = cont.limeWrap outer (limeResolved s caller stack (cont.code.map Graph.limeEmit) out) :=
-  wrap_exact (fun out => lookup_stays _ out) (fun _ => Indirect.lime_step_iff checked allocated tableFound resolved) dst
+  wrap_exact (fun out => Indirect.lime_lookup_stays _ out) (fun _ => Indirect.lime_step_iff checked allocated tableFound resolved) dst
 
 theorem prefix_exact (checked : call.Checked program) (allocated : program.LimeAllocated s)
     (tableFound : frameTable s call.caller = some call.site.table) :
@@ -69,8 +58,8 @@ theorem prefix_exact (checked : call.Checked program) (allocated : program.LimeA
     limeResolved s call.caller (call.saved ++ call.args) (cont.code.map Graph.limeEmit) (.resolved call.address)] at mem
   simp only [List.mem_cons, List.not_mem_nil, or_false] at mem
   rcases mem with rfl | rfl
-  · exact wrap_exact (fun out => lookup_stays _ out) exactStep
-  · exact wrap_exact (fun out => invoke_stays _ out) exactStep
+  · exact wrap_exact (fun out => Indirect.lime_lookup_stays _ out) exactStep
+  · exact wrap_exact (fun out => Indirect.lime_invoke_stays _ out) exactStep
 
 private theorem handoff (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
     (result : Nested.Result) :
