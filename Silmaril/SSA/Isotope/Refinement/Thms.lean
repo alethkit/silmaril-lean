@@ -12,11 +12,12 @@ public import Silmaril.Raw.SSA.Isotope.Refinement.Models.Denotation.Directed
 public import Silmaril.Raw.SSA.Isotope.Refinement.Models.Denotation.IterationNaturalityBody
 public import Silmaril.Raw.SSA.Isotope.Refinement.Models.Denotation.IterationCoaction
 public import Silmaril.SSA.Isotope.Refinement.Models.Soundness.Thms
+public import Silmaril.SSA.Isotope.Refinement.Models.Initiality.Thms
 
 /-!
 # Quantitative refinement calculus, its operation models and categorical denotation
 
-Re-exports the Raw quantitative refinement development and its categorical soundness; see
+Re-exports the Raw quantitative refinement development and its categorical theorems; see
 `docs/projects/ssa.md`.
 Checked results, by name (namespace `Silmaril.Isotope.Refinement`):
 
@@ -38,4 +39,10 @@ Checked results, by name (namespace `Silmaril.Isotope.Refinement`):
 * Categorical soundness for arbitrary quantitative contexts
   (`Models.Denotation.{seq,case,iter}_validates_refines`) and typing witness coherence
   (`Models.Denotation.{seq,case,iter}WitnessCoherent`).
+* Categorical initiality of the native quotients over each fixed signature
+  (`Models.Interpretation.free{Seq,Case,Iter}ModelIsInitial`), and in the full subcategory of
+  models of a formed rewrite system closed under renaming and pure substitution
+  (`Models.Interpretation.{seq,case,iter}IsInitial`).
+* Categorical refinement and equation completeness for singleton-input judgments
+  (`Models.Interpretation.{seq,case,iter}_{refines,equates}_iff_models`).
 -/
