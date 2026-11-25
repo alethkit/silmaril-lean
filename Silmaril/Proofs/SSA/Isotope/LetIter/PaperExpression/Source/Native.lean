@@ -10,7 +10,7 @@ universe u v w
 
 namespace Silmaril.Isotope.LetIter.PaperExpression.Source.NativeProofs
 
-open LocallyNameless (Tm HasType HasTypeEffect Pure Equiv AbortEquiv Refinement)
+open LocallyNameless (Tm HasType HasTypeEffect Pure PureTypedSubst Equiv AbortEquiv Refinement)
 
 variable {τ : Type u} {Φ : Type v} {ε : Type w}
   [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε]
@@ -147,5 +147,26 @@ theorem eqv_toLetIter {t s : Tm Empty Φ Γ.length} (h : Eqv Γ A e a b)
     AbortEquiv (⊥ : ε) Γ₀ Γ.toBoundCtx t s A := by
   obtain ⟨_, _, ht, hs, h⟩ := lower_eqv h
   exact Option.some.inj (ht.symm.trans hl) ▸ Option.some.inj (hs.symm.trans hr) ▸ h
+
+/-- A typed source substitution from a bottom-annotated context lowers to a
+pure native substitution. The existing native preservation theorem applies to
+the entire derivation of the original equality. -/
+theorem native_subst {Δ : EffectCtx τ ε} (hΓ : Γ.Pure)
+    {σ : Nat → Expr Φ} {C : τ}
+    {t s : Tm Empty Φ Γ.length}
+    (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s)
+    (hn : AbortEquiv (⊥ : ε) (.nil : Ctx Empty τ) Γ.toBoundCtx t s C)
+    (hσ : ∀ i : Fin Γ.length, Wf Δ (σ i.val) (Γ.get i).1 (Γ.get i).2) :
+    ∃ t' s' : Tm Empty Φ Δ.length,
+      (a.subst σ).toLetIter Δ.length = some t' ∧
+      (b.subst σ).toLetIter Δ.length = some s' ∧
+      AbortEquiv (⊥ : ε) (.nil : Ctx Empty τ) Δ.toBoundCtx t' s' C := by
+  classical
+  have hw (i : Fin Γ.length) : Wf Δ (σ i.val) (Γ.get i).1 (⊥ : ε) := hΓ i ▸ hσ i
+  choose θ hθ htyped using fun i => (hw i).toLetIter
+  have sub : PureTypedSubst (⊥ : ε) (.nil : Ctx Empty τ) Γ.toBoundCtx Δ.toBoundCtx θ :=
+    ⟨fun i => (EffectCtx.get_toBoundCtx Γ i).symm ▸ (htyped i).1,
+      fun i => (hw i).pure_toLetIter (hθ i)⟩
+  exact ⟨_, _, Expr.toLetIter_subst ht hθ, Expr.toLetIter_subst hs hθ, hn.bsubst sub⟩
 
 end Silmaril.Isotope.LetIter.PaperExpression.Source.NativeProofs
