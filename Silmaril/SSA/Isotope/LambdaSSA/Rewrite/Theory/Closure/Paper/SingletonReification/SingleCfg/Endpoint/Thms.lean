@@ -24,6 +24,11 @@ theorem capturePair_typed :
 
 variable [HasTy Φ τ]
 
+/-- At a singleton input, a substitution depends only on the image of slot zero. -/
+theorem singleton_subst {P : τ} {L : LCtx τ} {r : Region Φ} (hr : HasType [P] r L)
+    {θ υ : Nat → Tm Φ} (h : θ 0 = υ 0) : r.substVars θ = r.substVars υ :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingleCfgEndpoint.singleton_subst hr h
+
 /-- The carried block has one input and two exits with the original outward type. -/
 theorem carryBlock_typed {p : Region Φ} (hp : ValueBranches [S, X] p [S, D]) :
     ValueBranches [Silmaril.product X S] (carryBlock p) [Silmaril.product X S, D] :=
