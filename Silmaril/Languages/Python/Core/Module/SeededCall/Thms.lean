@@ -39,4 +39,20 @@ theorem invoke_assertIsNot_int_bool (integer : Int) (truth : Bool) :
     invoke (.helper .assertIsNot) [.int integer, .bool truth] = .ok .none :=
   invoke_iff.mpr .distinctIntBool
 
+theorem invoke_callable_len :
+    invoke (.builtin .callable) [.builtin .len] = .ok (.bool true) :=
+  invoke_iff.mpr (.callable .len)
+
+theorem invoke_callable_int (integer : Int) :
+    invoke (.builtin .callable) [.int integer] = .ok (.bool false) :=
+  invoke_iff.mpr (.callable .integer)
+
+theorem invoke_assertIs_bool (left right : Bool) :
+    invoke (.helper .assertIs) [.bool left, .bool right] =
+      if BoolIdentity.ofBool left = BoolIdentity.ofBool right then .ok .none
+      else .error (.raised (.assertionError (.booleanPair left right))) := by
+  split
+  · exact invoke_iff.mpr (.sameBool left right ‹_›)
+  · exact invoke_iff.mpr (.distinctBool left right ‹_›)
+
 end Silmaril.Languages.Python.Core.Module.SeededCall

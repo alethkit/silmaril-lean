@@ -40,7 +40,15 @@ private theorem unique {arity : Nat} {request : Request arity} {first second : R
     cases right with
     | equal _ _ same => contradiction
     | unequal => rfl
-  | intFromBool | distinctIntBool => cases right; rfl
+  | intFromBool | callable | distinctIntBool => cases right; rfl
+  | sameBool left right same =>
+    cases right with
+    | sameBool => rfl
+    | distinctBool _ _ different => contradiction
+  | distinctBool left right different =>
+    cases right with
+    | sameBool _ _ same => contradiction
+    | distinctBool => rfl
   | expected callback handled ih =>
     cases right with
     | expected other delivered =>
@@ -66,6 +74,16 @@ private theorem computed (callee : Value) (arguments : List Value) :
     | intFromBool value =>
       rw [invoke, decoded]
       exact .intFromBool value
+    | callable probe =>
+      rw [invoke, decoded]
+      exact .callable probe
+    | boolIdentity left right =>
+      rw [invoke, decoded]
+      by_cases same : BoolIdentity.ofBool left = BoolIdentity.ofBool right
+      · simp [same]
+        exact .sameBool _ _ same
+      · simp [same]
+        exact .distinctBool _ _ same
     | distinctIntBool =>
       rw [invoke, decoded]
       exact .distinctIntBool

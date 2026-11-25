@@ -48,7 +48,7 @@ must have zero positional parameters and receive zero arguments.
 The runner uses the ordinary call and delivery path with the current
 module-first namespace and shared heap. Integers, Booleans, `None`, and
 ordinary functions can cross the lookup boundary. A read of a seed-only
-class or helper is unsupported, including when the expectation would
+class, helper or builtin descriptor is unsupported, including when the expectation would
 have caught a genuinely missing name.
 
 After a matching defined exception, the helper returns `None` and records
@@ -63,8 +63,8 @@ the seeded profile. The closed dispatcher still handles closed callbacks.
 
 `Observation.calls` records evaluated argument calls in order, then the
 settled outer receipt. A missing outer name emits no nested-call receipts.
-Each receipt carries the result and any caught error, including the typed
-integer-pair payload on a closed assertion and the empty payload on an
+Each receipt carries the result and any caught error, including typed
+integer-pair and Boolean-pair payloads on closed assertions and the empty payload on an
 ordinary assertion. Executor faults and exhausted prefixes emit no
 settled helper receipt.
 
@@ -134,9 +134,16 @@ In both Boolean-integer placements, `bool-int.py` completes normally
 in Lean and CPython with no changes to user bindings. Lean records eight
 calls in order, including the exact integer conversion results and
 `None` from each assertion helper. The other two rows still raise
-`NameError` for `___assertIs` in those projected namespaces. Their
-inner `callable` and `isinstance` operations require separate contracts.
-The CPython full-preamble outcomes are recorded separately.
+`NameError` for `___assertIs` in those projected namespaces.
+
+`legacyBoolCallableSeed` independently extends `legacySeed` with
+`___assertIs` in the selected harness namespace and stock `callable`
+and `len` in builtin fallback. `bool-callable.py` completes normally
+in both placements with no changes to user bindings. Its four receipts
+carry `True`, `None`, `False`, and `None` in order. In this projection,
+`bool-int.py` reaches the missing `int` and `bool-isinstance.py`
+reaches the missing `isinstance`. The separate CPython full-preamble
+run with stock builtins completes `bool-callable.py` quietly.
 [Pinned Boolean cases](https://github.com/koehlma/rigorous/tree/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/lambda-py/python-reference/bool)
 
 The two pinned scalar equality rows now complete normally in the ordinary
@@ -169,5 +176,5 @@ the two missing-exception diagnostics. Nested-call fixtures check
 callee and argument error precedence, receipt order, assertion delivery,
 and residual bindings. Unsupported fixtures run only in Lean. The
 optional upstream check validates the revision and raw-file hashes
-before emitting the same inputs under the three namespace configurations.
+before emitting the same inputs under the empty, legacy and opt-in projections.
 [Fixtures](../../tests/languages/python/source-module-entry/check_seeded_run.py)
