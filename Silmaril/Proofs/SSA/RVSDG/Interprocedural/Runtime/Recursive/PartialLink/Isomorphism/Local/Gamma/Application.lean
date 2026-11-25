@@ -6,6 +6,8 @@ import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.I
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Environments
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Thms
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Captures
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Choice
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Thms
 
 public section
 
@@ -153,10 +155,10 @@ private theorem bind_pair
     {restR : NestedTheta.Term (Instruction Op) args (past ++ [fn.results]) tailR outs}
     {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
     {capL capR : Tuple m.Val captured} {argsL argsR : Tuple m.Val fn.args} {store : σ}
-    (inputs : Wires args past (fn.port :: fn.args))
+    (arm : Option Nat) (inputs : Wires args past (fn.port :: fn.args))
     (selectL : inputs.read entryL localsL = .cons (.closure capL left.toGraph) argsL)
     (selectR : inputs.read entryR localsR = .cons (.closure capR right.toGraph) argsR)
-    (callee : RegionPair primitives ids (mapping.child past.length 0) left right
+    (callee : RegionPair primitives ids (mapping.child past.length (arm.getD 0)) left right
       (prependContext argsL capL) (prependContext argsR capR) store)
     (resume : ∀ {valueL valueR : Tuple m.Val fn.results}, TupleRelated m ids valueL valueR → ∀ middle,
       ScopedRegionPair primitives ids mapping restL restR entryL entryR
@@ -170,7 +172,10 @@ private theorem bind_pair
     exact continue_pair (nodeL := applicationVertex fn inputs) (nodeR := applicationVertex fn inputs)
       (application_eval selectL (.call (openL.symm ▸ ranL))) (application_eval selectR (.call (openR.symm ▸ ranR)))
       (resume values _)
-  | blocked stopped => exact .blocked (.atCall inputs restL restR selectL selectR stopped)
+  | blocked stopped =>
+    cases arm with
+    | none => exact .blocked (.atCall inputs restL restR selectL selectR stopped)
+    | some tag => exact .blocked (.atChosenCall tag inputs restL restR selectL selectR stopped)
   | productive run =>
     refine .productive (productive_map run ?_ ?_)
     · intro target pending reached
@@ -227,7 +232,7 @@ theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : Li
     have operands := Local.aligned_read (prepend_related captures arguments) locals wires
     have readL := (get_capture port capL argsL).trans selectedL
     have readR := (get_capture port capR argsR).trans selectedR
-    exact bind_pair (.cons (.arg (capturePort port)) wires)
+    exact bind_pair none (.cons (.arg (capturePort port)) wires)
       (congrArg (fun callee => Tuple.cons callee (wires.read (prependContext argsL capL) localsL)) readL)
       (congrArg (fun callee => Tuple.cons callee (wires.read (prependContext argsR capR) localsR)) readR)
       (calleeIH captured operands .empty store)
@@ -263,5 +268,25 @@ theorem ranked_regions {rank : Nat} {context params : Ports (Ty V S)} {past : Li
       exact bodyIH captured (related_arguments related) .empty current.store
     · intro valueL valueR values middle
       exact suffixIH captures arguments (locals.snoc values) middle
+
+  | @choose _ _ map _ _ _ fn past _ _ capL capR restL restR selector ports wires family _ originL originR captured
+      _ _ _ calleeIH suffixIH =>
+    refine choose_pair (restL := bindApplication fn (joinedInputs fn wires) restL)
+      (restR := bindApplication fn (joinedInputs fn wires) restR) selector ports captures arguments locals ?_
+    intro tag
+    let valueL := capL.get (ports tag)
+    let valueR := capR.get (ports tag)
+    let appL := localsL.snoc (.cons valueL .nil)
+    let appR := localsR.snoc (.cons valueR .nil)
+    have related : ValueRelated m ids valueL valueR := captures.get (ports tag)
+    have joined := locals.snoc (TupleRelated.cons related .nil)
+    have operands := Local.aligned_read (prepend_related captures arguments) joined wires
+    have selectedL := (joined_read wires (prependContext argsL capL) localsL valueL).trans
+      (congrArg (fun callee => Tuple.cons callee (wires.read (prependContext argsL capL) appL)) (originL tag))
+    have selectedR := (joined_read wires (prependContext argsR capR) localsR valueR).trans
+      (congrArg (fun callee => Tuple.cons callee (wires.read (prependContext argsR capR) appR)) (originR tag))
+    exact bind_pair (mapping := map) (some tag.val) (joinedInputs fn wires) selectedL selectedR
+      (calleeIH tag (captured tag) operands .empty store)
+      (fun values middle => suffixIH captures arguments (joined.snoc values) middle)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs

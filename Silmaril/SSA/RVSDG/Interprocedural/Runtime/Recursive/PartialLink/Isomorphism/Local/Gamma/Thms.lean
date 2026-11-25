@@ -6,6 +6,7 @@ import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.I
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Regions
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Dispatch
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Application
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Choice
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Resumption
 
 public section
@@ -277,8 +278,18 @@ theorem call_plan_regions {rank : Nat} {context : Ports (Ty V S)}
         RegionPair primitives ids mapping left right (prependContext argsL capturesL) (prependContext argsR capturesR) store :=
   Proofs.call_plan_regions plan respects
 
+/-- The application after a chooser reads the bound callable and the
+ordinary argument wires in the extended caller scope. -/
+theorem joinedInputs_read {past : List (Ports (Ty V S))}
+    (arguments : Wires args (past ++ [[fn.port]]) fn.args)
+    (entry : Tuple m.Val args) (locals : Locals m.Val past) (callee : m.Val fn.port) :
+    (joinedInputs fn arguments).read entry (locals.snoc (.cons callee .nil)) =
+      .cons callee (arguments.read entry (locals.snoc (.cons callee .nil))) :=
+  Proofs.joined_read arguments entry locals callee
+
 /-- Pair the actual execution of ordered static calls, primitive bindings,
-selected γ arms and θ bodies with preserved capture wires. Each call enters a lower-ranked body. Its suffix
+selected γ arms, θ bodies with preserved capture wires, and finite
+callable choosers. Each call enters a lower-ranked body. Its suffix
 consumes one binding of the caller plan and keeps the caller's scope. -/
 theorem ranked_regions {rank : Nat} {context : Ports (Ty V S)} {past : List (Ports (Ty V S))}
     {capturesL capturesR : Tuple m.Val context}

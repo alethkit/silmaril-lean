@@ -1764,4 +1764,235 @@ private theorem rankedThetaRegression :
 
 end RankedThetaCall
 
+section JoinedCallChoice
+
+private abbrev choiceFn : Function Unit Unit := ⟨outerCarry, results⟩
+private abbrev choiceCaptures : Ports T := [loopCalleeFn.port, loopCalleeFn.port]
+private abbrev choiceEntryPorts : Ports T := choiceCaptures ++ outerCarry
+
+private def firstOperands : Wires carried [] results :=
+  .cons (.arg (.tail .head)) (.cons (.arg (.tail .head)) .nil)
+
+private def firstResults : Wires carried [results] bodyResults :=
+  .cons (.arg .head) (.cons (.arg .head) (.cons (.output (0 : Fin 1) .head) .nil))
+
+private abbrev firstChoice : Gamma.LoopBody Op carried [results] :=
+  Gamma.bindPrimitive (Op.finish 7) firstOperands (.ret firstResults)
+
+private def choiceSelector : Origin choiceEntryPorts [] (.control 2) := .arg (.tail (.tail .head))
+
+private def choicePorts (tag : Fin 2) : Port choiceCaptures loopCalleeFn.port :=
+  Fin.cases .head (fun _ => .tail .head) tag
+
+private def choiceArguments : Wires choiceEntryPorts [[loopCalleeFn.port]] carried :=
+  .cons (.arg (.tail (.tail (.tail .head))))
+    (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil)
+
+private def choiceOutputs : Wires choiceEntryPorts [[loopCalleeFn.port], bodyResults] results :=
+  .cons (.output (1 : Fin 2) (.tail (.tail .head)))
+    (.cons (.arg (.tail (.tail (.tail (.tail .head))))) .nil)
+
+private abbrev choiceApplication := Gamma.joinedInputs (past := []) loopCalleeFn choiceArguments
+
+private abbrev choiceSuffix : NestedTheta.Term (Instruction Op) choiceEntryPorts [[loopCalleeFn.port], bodyResults] [] results :=
+  .ret choiceOutputs
+
+private abbrev afterChoice := Gamma.bindApplication loopCalleeFn choiceApplication choiceSuffix
+
+private abbrev choiceCode :=
+  Gamma.chooseApplication (past := []) loopCalleeFn choiceSelector choicePorts choiceArguments choiceSuffix
+
+private abbrev choiceVertex := Gamma.vertex (returned := [loopCalleeFn.port]) (Op := Op)
+  (Gamma.chooserInputs choiceSelector) (fun _ => [])
+
+private def choiceMap : Renaming :=
+  .region (Equiv.refl _) (fun _ arm => if arm = 1 then numbering else .identity)
+
+private def choiceFamily (tag : Fin 2) : Gamma.CallTarget machine loopCalleeFn :=
+  Fin.cases ⟨[], [results], [results], .nil, .nil, firstChoice, firstChoice⟩
+    (fun _ => ⟨[], [[], bodyResults], [bodyResults, []], .nil, .nil, leafL, leafR⟩) tag
+
+private def choiceValues {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :
+    Tuple machine.Val choiceCaptures :=
+  .cons (leafValue firstChoice) (.cons (leafValue leaf) .nil)
+
+private def choiceClosure {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) : machine.Val choiceFn.port :=
+  .closure (choiceValues leaf) choiceCode.toGraph
+
+private def choiceProgram {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :
+    OmegaTerm Op [] [choiceFn.port] [[loopCalleeFn.port], [loopCalleeFn.port], [choiceFn.port]] :=
+  ⟨.bind (.lambda ⟨[], .nil, [results], firstChoice⟩) <|
+    .bind (.lambda ⟨[], .nil, sigs, leaf⟩) <|
+    .bind (.lambda ⟨choiceCaptures, .cons (.output (0 : Fin 2) .head) (.cons (.output (1 : Fin 2) .head) .nil),
+      [[loopCalleeFn.port], bodyResults], choiceCode⟩) <|
+    .ret (.cons (.output (2 : Fin 3) .head) .nil)⟩
+
+private theorem choiceLinks {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :
+    Links primitives 17 (choiceProgram leaf).toGraph .nil 23 (.linked (.cons (choiceClosure leaf) .nil) 23) :=
+  .bind (values := .cons (leafValue firstChoice) .nil) (middle := 23) rfl
+    (.bind (values := .cons (leafValue leaf) .nil) (middle := 23) rfl
+      (.bind (values := .cons (choiceClosure leaf) .nil) (middle := 23) rfl (.ret _ _ _ _)))
+
+private def choiceSource {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (tag : Fin 2) (n : Nat) :
+    Config machine Nat results :=
+  ⟨Continuation.start (.call (choiceClosure leaf) (input tag 0 n)), 23⟩
+
+private theorem choicePlan :
+    Gamma.RankedPlan machine Eq 1 choiceMap (choiceValues leafL) (choiceValues leafR) choiceCode choiceCode := by
+  have first : Gamma.RankedPlan machine Eq 0 .identity (context := []) (params := carried)
+      .nil .nil firstChoice firstChoice :=
+    .primitive (context := []) (params := carried) (past := []) (Op.finish 7) firstOperands
+      (.suffix (context := []) (params := carried) (past := [results]) (left := .ret firstResults)
+        (right := .ret firstResults) (.ret firstResults firstResults rfl))
+  have second : Gamma.RankedPlan machine Eq 0 numbering (context := []) (params := carried)
+      .nil .nil leafL leafR :=
+    .body (.acyclic ordered)
+  exact .choose (context := choiceCaptures) (params := outerCarry) (past := []) (fn := loopCalleeFn) (extra := 0)
+    choiceSelector choicePorts choiceArguments choiceFamily (fun _ => 0) (two rfl rfl) (two rfl rfl)
+    (two .nil .nil) (fun _ => by decide) (two first second)
+    (.suffix (context := choiceCaptures) (params := outerCarry) (past := [[loopCalleeFn.port], bodyResults])
+      (left := .ret choiceOutputs) (right := .ret choiceOutputs) (.ret choiceOutputs choiceOutputs rfl))
+
+private theorem choiceDispatch (tag : Fin 2) (n : Nat) :
+    Gamma.CallPair primitives Eq choiceMap results (choiceSource leafL tag n) (choiceSource leafR tag n) := by
+  have first := NestedTheta.Graph.Isomorphic.refl firstChoice.toGraph
+  have caller := NestedTheta.Graph.Isomorphic.refl choiceCode.toGraph
+  let positions : Fin 3 ≃ Fin 3 := Equiv.refl _
+  have iso : (choiceProgram leafL).toGraph.RenumberedBy (choiceProgram leafR).toGraph positions :=
+    ⟨Fin.cases (.lambda ⟨⟨rfl, rfl⟩, first⟩)
+      (two (.lambda ⟨⟨rfl, rfl⟩, embeddedIso⟩) (.lambda ⟨⟨rfl, rfl⟩, caller⟩)), rfl⟩
+  have schedule : Ordered Op (renameVertex positions) [] [choiceFn.port]
+      (choiceProgram leafL).toGraph.toTerm.region (choiceProgram leafR).toGraph.toTerm.region := by
+    rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+    exact .bind rfl (.lambda ⟨⟨rfl, rfl⟩, first⟩)
+      (.bind rfl (.lambda ⟨⟨rfl, rfl⟩, embeddedIso⟩) (.bind rfl (.lambda ⟨⟨rfl, rfl⟩, caller⟩) (.ret _ _)))
+  let req {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :=
+    request (m := machine) 17 (choiceProgram leaf).toGraph .nil .head (input tag 0 n) 23
+  have paired : Gamma.DispatchPair primitives Eq (renameVertex positions) choiceMap results
+      ((req leafL).start primitives) ((req leafR).start primitives) :=
+    Gamma.link_then_invoke respects iso schedule (fun i => by simp [renameVertex, positions]) .nil .head
+      (.cons (.control tag) (carry_related 0 n)) 23 (by
+        intro _ _ _ linkedL linkedR _
+        cases outcome_unique linkedL (choiceLinks leafL)
+        cases outcome_unique linkedR (choiceLinks leafR)
+        exact .sequence (.cons (.closure .nil first) (.cons (.closure .nil embeddedIso) .nil)) choicePlan)
+  rw [start_linked (request := req leafL) (choiceLinks leafL),
+    start_linked (request := req leafR) (choiceLinks leafR)] at paired
+  cases paired with
+  | invoked calls => exact calls
+
+private def choiceEntry {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (tag : Fin 2) (n : Nat) :
+    Tuple machine.Val choiceEntryPorts :=
+  prependContext (input tag 0 n) (choiceValues leaf)
+
+private def selectedValue {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (tag : Fin 2) :
+    machine.Val loopCalleeFn.port :=
+  (choiceValues leaf).get (choicePorts tag)
+
+private abbrev selectedLocal {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (tag : Fin 2) :
+    Locals machine.Val [[loopCalleeFn.port]] :=
+  Locals.snoc (past := []) PUnit.unit (.cons (selectedValue leaf tag) .nil)
+
+private theorem openChoice {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (tag : Fin 2) (n : Nat) :
+    Job.openClosure machine (choiceClosure leaf) (input tag 0 n) = .region choiceCode (choiceEntry leaf tag n) PUnit.unit :=
+  congrArg (fun code => Job.region (m := machine) (past := []) code (choiceEntry leaf tag n) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph choiceCode)
+
+private theorem chooseEval {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (tag : Fin 2) (n : Nat) :
+    Eval primitives (.node choiceVertex.kind choiceVertex.childSigs (Gamma.chooserArms choicePorts)
+      (choiceVertex.inputs.read (choiceEntry leaf tag n) PUnit.unit)) 23
+      (.returned (.cons (selectedValue leaf tag) .nil) 23) :=
+  .gamma (tag := tag) (.ret (past := []) (.cons (.arg (choicePorts tag)) .nil) (choiceValues leaf) PUnit.unit 23)
+
+private def dispatchedChoice {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (tag : Fin 2) (n : Nat) :
+    Config machine Nat results :=
+  ⟨.eval (.call (selectedValue leaf tag) (carry 0 n))
+    (.resume choiceSuffix (choiceEntry leaf tag n) (selectedLocal leaf tag) .halt), 23⟩
+
+/-- The real application dispatch reads the γ output in its bound local. -/
+private theorem reachesSelectedCall {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (tag : Fin 2) (n : Nat) :
+    ReflTransGen (Step primitives) (choiceSource leaf tag n) (dispatchedChoice leaf tag n) := by
+  have entry : Step primitives (choiceSource leaf tag n) ⟨.eval (.region choiceCode (choiceEntry leaf tag n) PUnit.unit) .halt, 23⟩ := by
+    apply Step.of_next_some
+    change _root_.Part.some (Config.mk (.eval (Job.openClosure machine (choiceClosure leaf) (input tag 0 n)) .halt) 23) = _
+    rw [openChoice]
+  let parent := Continuation.Stack.resume (past := []) afterChoice (choiceEntry leaf tag n) PUnit.unit .halt
+  have entered : Step primitives ⟨.eval (.region choiceCode (choiceEntry leaf tag n) PUnit.unit) .halt, 23⟩
+      ⟨.eval (.node choiceVertex.kind choiceVertex.childSigs (Gamma.chooserArms choicePorts)
+        (choiceVertex.inputs.read (choiceEntry leaf tag n) PUnit.unit)) parent, 23⟩ :=
+    .of_next_some rfl
+  have selected := ((chooseEval leaf tag n).steps parent).head entered
+  exact (((selected.head entry).tail (.of_next_some rfl)).tail (.of_next_some rfl)).tail (.of_next_some rfl)
+
+private theorem invokeLeaf {sigs : List (Ports T)} {leaf : Gamma.LoopBody Op carried sigs}
+    {n : Nat} {outcome : Continuation.Partial.Outcome machine Nat bodyResults}
+    (body : Eval primitives (.region leaf (carry 0 n) PUnit.unit) 23 outcome) :
+    Eval primitives (.call (leafValue leaf) (carry 0 n)) 23 outcome := by
+  have opened : Job.openClosure machine (leafValue leaf) (carry 0 n) = .region leaf (carry 0 n) PUnit.unit :=
+    congrArg (fun code => Job.region (m := machine) (past := []) code (carry 0 n) PUnit.unit)
+      (NestedTheta.Term.toTerm_toGraph leaf)
+  exact .call (opened.symm ▸ body)
+
+private theorem firstChoiceReturns :
+    Eval primitives (.region firstChoice (carry 0 2) PUnit.unit) 23 (.returned (bodyOut 0 0 2) 53) :=
+  .bind (node := Gamma.primitiveVertex (Op.finish 7) firstOperands) (value := output 2 2) (middle := 53)
+    (.primitive (Gamma.primitiveSite (Op.finish 7) (output 2 2)) (_root_.Part.mem_some _)) (.ret firstResults _ _ _)
+
+private theorem choiceReturns {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (arm tag : Fin 2)
+    (outStore value : Nat)
+    (called : Eval primitives (.call (selectedValue leaf arm) (carry 0 2)) 23 (.returned (bodyOut tag 0 value) outStore)) :
+    TerminalPath primitives (choiceSource leaf arm 2) ⟨.returned (output value 2) .halt, outStore⟩ := by
+  have whole : Eval primitives (.region choiceCode (choiceEntry leaf arm 2) PUnit.unit) 23
+      (.returned (output value 2) outStore) :=
+    .bind (node := choiceVertex) (chooseEval leaf arm 2)
+      (.bind (node := Gamma.applicationVertex loopCalleeFn choiceApplication)
+        (value := bodyOut tag 0 value) (middle := outStore) (.apply (fn := loopCalleeFn) called) (.ret choiceOutputs _ _ _))
+  have executed := Eval.call ((openChoice leaf arm 2).symm ▸ whole)
+  exact ⟨executed.steps .halt, fun _ h => _root_.Part.notMem_none _ h⟩
+
+private def choiceStop {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (pending : Pending machine bodyResults bodyResults) : Gamma.Block machine Nat results :=
+  ⟨advanceSite 0 1, .bind choiceSuffix (choiceEntry leaf 1 1) (selectedLocal leaf 1) pending, 23⟩
+
+private theorem choiceBlock :
+    Gamma.BlockPair primitives Eq choiceMap choiceCode choiceCode (choiceEntry leafL 1 1) (choiceEntry leafR 1 1) 23
+      (.chosenCall 1 1 (.acyclic (.here 1))) (.chosenCall 1 1 (.acyclic (.here 0)))
+      (choiceStop leafL pendingL) (choiceStop leafR pendingR) := by
+  have blocked : Gamma.BlockPair primitives Eq numbering leafL leafR (carry 0 1) (carry 0 1) 23
+      (.acyclic (.here 1)) (.acyclic (.here 0)) ⟨advanceSite 0 1, pendingL, 23⟩ ⟨advanceSite 0 1, pendingR, 23⟩ :=
+    .acyclic (.here 1) (.same (carry_related 0 1)) blockedL blockedR
+  exact .later (nodeL := choiceVertex) (nodeR := choiceVertex) (chooseEval leafL 1 1) (chooseEval leafR 1 1)
+    (.atChosenCall (map := choiceMap) (fn := loopCalleeFn) (captured := []) (left := leafL) (right := leafR)
+      (captL := .nil) (captR := .nil) (stopL := ⟨advanceSite 0 1, pendingL, 23⟩)
+      (stopR := ⟨advanceSite 0 1, pendingR, 23⟩) 1 choiceApplication choiceSuffix choiceSuffix rfl rfl blocked)
+
+private theorem choiceBlockPath {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    {stop : Gamma.Block machine Nat results}
+    (ran : Eval primitives (.region choiceCode (choiceEntry leaf 1 1) PUnit.unit) 23 stop.outcome) :
+    TerminalPath primitives (choiceSource leaf 1 1) (stop.outcome.atStack .halt) := by
+  cases stop
+  have called := Eval.call ((openChoice leaf 1 1).symm ▸ ran)
+  exact ⟨called.steps .halt, fun _ => (called.blocks .halt).no_step⟩
+
+/-- Both choices run as real calls after the join. The relocated block
+keeps the application frame and the joined callable in its saved scope. -/
+private theorem joinedChoiceRegression :
+    (∀ tag, Gamma.CallPair primitives Eq choiceMap results (choiceSource leafL tag 2) (choiceSource leafR tag 2)) ∧
+    (∀ tag, ReflTransGen (Step primitives) (choiceSource leafL tag 2) (dispatchedChoice leafL tag 2)) ∧
+    (∀ tag, ReflTransGen (Step primitives) (choiceSource leafR tag 2) (dispatchedChoice leafR tag 2)) ∧
+    TerminalPath primitives (choiceSource leafL 0 2) ⟨.returned (output 2 2) .halt, 53⟩ ∧
+    TerminalPath primitives (choiceSource leafR 0 2) ⟨.returned (output 2 2) .halt, 53⟩ ∧
+    TerminalPath primitives (choiceSource leafL 1 2) ⟨.returned (output 3 2) .halt, 26⟩ ∧
+    TerminalPath primitives (choiceSource leafR 1 2) ⟨.returned (output 3 2) .halt, 26⟩ ∧
+    Gamma.CallPair primitives Eq choiceMap results (choiceSource leafL 1 1) (choiceSource leafR 1 1) ∧
+    TerminalPath primitives (choiceSource leafL 1 1) ((choiceStop leafL pendingL).outcome.atStack .halt) ∧
+    TerminalPath primitives (choiceSource leafR 1 1) ((choiceStop leafR pendingR).outcome.atStack .halt) :=
+  ⟨fun tag => choiceDispatch tag 2, fun tag => reachesSelectedCall leafL tag 2, fun tag => reachesSelectedCall leafR tag 2,
+    choiceReturns leafL 0 0 53 2 (invokeLeaf firstChoiceReturns), choiceReturns leafR 0 0 53 2 (invokeLeaf firstChoiceReturns),
+    choiceReturns leafL 1 0 26 3 (invokeLeaf (bodyReturnsL 0 2 23 (_root_.Part.mem_some _))),
+    choiceReturns leafR 1 0 26 3 (invokeLeaf (bodyReturnsR 0 2 23 (_root_.Part.mem_some _))), choiceDispatch 1 1,
+    choiceBlockPath leafL choiceBlock.evals.1, choiceBlockPath leafR choiceBlock.evals.2⟩
+
+end JoinedCallChoice
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.NestedLoop.Tests

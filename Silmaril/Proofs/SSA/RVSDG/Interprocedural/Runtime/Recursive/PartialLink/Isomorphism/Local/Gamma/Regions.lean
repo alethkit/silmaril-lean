@@ -76,6 +76,7 @@ theorem block_observations
   | afterApplication _ _ _ _ _ _ _ _ sites _ _ => exact ⟨rfl, sites, rfl⟩
   | suffix _ sites _ _ => exact ⟨rfl, sites, rfl⟩
   | atCall _ _ _ _ _ _ ih => exact ⟨congrArg (Location.callSite _) ih.1, ih.2⟩
+  | atChosenCall arm _ _ _ _ _ _ ih => exact ⟨congrArg (Location.chosenCall _ arm) ih.1, ih.2⟩
   | atArm _ _ _ _ ih => exact ⟨congrArg (Location.atArm _ _) ih.1, ih.2⟩
   | atLoop _ _ _ _ _ _ ih => exact ⟨congrArg (Location.atLoop _) ih.1, ih.2⟩
   | atPrimitive _ _ related _ _ => exact ⟨rfl, .same related, rfl⟩
@@ -139,6 +140,14 @@ theorem block_evals
   | suffix _ _ ranL ranR => exact ⟨ranL.eval, ranR.eval⟩
   | @atCall _ _ _ fn _ _ _ _ _ _ left right captL captR _ _ _ _ argsL argsR _ _ _ stopL stopR
       inputs _ _ selectedL selectedR _ ih =>
+    cases stopL
+    cases stopR
+    have ranL := Eval.call ((open_lambda left captL argsL).symm ▸ ih.1)
+    have ranR := Eval.call ((open_lambda right captR argsR).symm ▸ ih.2)
+    exact ⟨.bindBlocked (node := applicationVertex fn inputs) (application_eval selectedL ranL),
+      .bindBlocked (node := applicationVertex fn inputs) (application_eval selectedR ranR)⟩
+  | @atChosenCall _ _ _ fn _ _ _ _ _ _ left right captL captR _ _ _ _ argsL argsR _ _ _ stopL stopR
+      _ inputs _ _ selectedL selectedR _ ih =>
     cases stopL
     cases stopR
     have ranL := Eval.call ((open_lambda left captL argsL).symm ▸ ih.1)

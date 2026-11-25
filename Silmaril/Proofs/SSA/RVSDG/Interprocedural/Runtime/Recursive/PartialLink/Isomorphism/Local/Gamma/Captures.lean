@@ -50,7 +50,7 @@ private theorem map_map {Ty : Type u} {F : Ty → Type v} {G : Ty → Type w} {H
   | nil => rfl
   | cons x xs ih => exact congrArg (Tuple.cons (g _ (f _ x))) ih
 
-private theorem project_identity {context : Ports (Ty V S)} (caps : Tuple m.Val context) :
+theorem project_identity {context : Ports (Ty V S)} (caps : Tuple m.Val context) :
     projectCaptures caps (NestedTheta.identityPorts context) = caps := by
   induction caps with
   | nil => rfl
