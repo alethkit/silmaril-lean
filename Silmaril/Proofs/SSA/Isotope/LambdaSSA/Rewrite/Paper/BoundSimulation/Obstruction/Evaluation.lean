@@ -163,6 +163,8 @@ theorem Realizes.single {env : Env} {t : Tm Empty} {v : Val} (h : evalTerm t env
 
 inductive ValTy : Val → Ty Empty → Prop where
   | unit : ValTy .unit .unit
+  /-- An additional unit payload for tests of equations that would require unit canonicity. -/
+  | alternateUnit : ValTy (.inl .unit) .unit
   | pair {a b : Val} {A B : Ty Empty} :
       ValTy a A → ValTy b B → ValTy (.pair a b) (.product A B)
   | inl {a : Val} {A B : Ty Empty} : ValTy a A → ValTy (.inl a) (.coprod A B)

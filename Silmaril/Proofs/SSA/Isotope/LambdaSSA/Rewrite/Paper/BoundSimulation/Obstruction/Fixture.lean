@@ -112,4 +112,17 @@ theorem categorical_uniformity_fails :
   rw [evalRepeat] at e
   cases e
 
+theorem unit_eta_fails :
+    ¬ Paper.Eqv [(Ty.unit : Ty Empty)] (.br 0 (.unit : Tm Empty)) (.br 0 (.var 0)) [Ty.unit] := by
+  intro eq
+  let env : Env := fun _ => .inl .unit
+  have henv : EnvTy [(Ty.unit : Ty Empty)] env := by
+    intro i A hi
+    cases i with
+    | zero => cases Option.some.inj hi; exact .alternateUnit
+    | succ i => simp [At] at hi
+  have observed := paper_same eq env henv
+  change Result.jump 0 .unit = Result.jump 0 (.inl .unit) at observed
+  cases observed
+
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction
