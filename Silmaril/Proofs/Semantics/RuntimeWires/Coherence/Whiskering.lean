@@ -56,6 +56,34 @@ theorem splitLeft_inv (A B : Computations G) :
       (.of_eq (splitRight_inv A B)))
   exact e.trans ((SameArrow.cast_comp _).trans (SameArrow.comp_cast _))
 
+theorem crossingWord_singleton (x : G.Obj) : σ [x] = crossing x := by
+  apply Iso.ext
+  have hr := (whiskerRight_unit (crossing x).hom).eq
+  have hn : (σ []).hom = 𝟙 R := crossing_nil.eq
+  calc
+    _ = ((crossing x).hom ▷ V []) ≫ V [x] ◁ (σ []).hom :=
+      (crossing_cons x []).eq.trans (SameArrow.join_eq rfl)
+    _ = _ := by erw [hr, hn, whiskerLeft_id, Category.comp_id]
+
+theorem splitLeft_singleton_hom (x : G.Obj) (B : Computations G) :
+    ((Computations.mk [x]).splitLeft B).hom = (crossing x).hom ▷ V B.word := by
+  have h := (splitLeft_hom (Computations.mk [x]) B).eq
+  change _ = (σ [x]).hom ▷ V B.word at h
+  rwa [crossingWord_singleton] at h
+
+theorem splitLeft_singleton_inv (x : G.Obj) (B : Computations G) :
+    ((Computations.mk [x]).splitLeft B).inv = (crossing x).inv ▷ V B.word := by
+  have h := (splitLeft_inv (Computations.mk [x]) B).eq
+  change _ = (σ [x]).inv ▷ V B.word at h
+  rwa [crossingWord_singleton] at h
+
+theorem splitLeft_singleton_empty (x : G.Obj) :
+    ((Computations.mk [x]).splitLeft (Computations.mk [])).hom = (crossing x).hom := by
+  have h := (splitLeft_hom (Computations.mk [x]) (Computations.mk [])).eq
+  change _ = (σ [x]).hom ▷ V [] at h
+  rw [crossingWord_singleton] at h
+  exact h.trans (whiskerRight_unit (crossing x).hom).eq
+
 theorem right_normal {A B : Computations G} (f : A ⟶ B) (C : Computations G) :
     (show (A.concat C).boundary ⟶ (B.concat C).boundary from f ▷ C) ≈ₐ
       (show A.boundary ⟶ B.boundary from f) ▷ V C.word := by

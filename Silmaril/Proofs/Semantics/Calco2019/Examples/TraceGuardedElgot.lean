@@ -106,7 +106,7 @@ theorem laws_run (f : X → NonemptyTrace A (Y ⊕ X)) (hf : (guard A).holds f) 
   unfold laws
   rfl
 
-theorem canonical_not_least (a : A) : ¬ greatestTrace (traceLoop a) ≤ finiteSolution a := by
+theorem canonical_not_least (a : A) : ¬ greatestTrace (traceLoop.{u, 0} a) ≤ finiteSolution a := by
   intro h
   have hinf : Sum.inr (fun _ => a) ∈ productiveSolution a () := Or.inl rfl
   have hle : productiveSolution a ≤ greatestTrace (traceLoop a) :=
@@ -114,12 +114,16 @@ theorem canonical_not_least (a : A) : ¬ greatestTrace (traceLoop a) ≤ finiteS
   obtain ⟨_, hfalse⟩ := h () (hle () hinf)
   cases hfalse
 
-theorem productive_not_unique (a : Type) (letter : a) : ¬ (guard a).HasUniqueFixpoints := by
-  let f (x : Unit) : NonemptyTrace a (Unit ⊕ Unit) :=
-    ⟨traceLoop letter x, ⟨.inl ([], .inl ()), Or.inl rfl⟩⟩
-  let p (x : Unit) : NonemptyTrace a Unit := ⟨finiteSolution letter x, (solutions_nonempty letter x).1⟩
-  let q (x : Unit) : NonemptyTrace a Unit := ⟨productiveSolution letter x, (solutions_nonempty letter x).2⟩
-  have fix (g : Unit → NonemptyTrace a Unit)
+theorem productive_not_unique (letter : A) : ¬ (guard A).HasUniqueFixpoints := by
+  -- The singleton state and result must live in the Kleisli category's universe.
+  let S := PUnit.{u + 1}
+  let f (x : S) : NonemptyTrace A (S ⊕ S) :=
+    ⟨traceLoop letter x, ⟨.inl ([], .inl PUnit.unit), Or.inl rfl⟩⟩
+  let p (x : S) : NonemptyTrace A S :=
+    ⟨finiteSolution letter x, (solutions_nonempty letter x).1⟩
+  let q (x : S) : NonemptyTrace A S :=
+    ⟨productiveSolution letter x, (solutions_nonempty letter x).2⟩
+  have fix (g : S → NonemptyTrace A S)
       (hg : traceStep (traceLoop letter) (fun x => (g x).1) = fun x => (g x).1) :
       f >=> Sum.elim pure g = g := by
     funext x

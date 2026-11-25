@@ -110,7 +110,7 @@ theorem eq_freeze_of_freezes {heap after : Heap} {roots : List Address}
 theorem keyOf_freeze (state : State) (roots : List Value) (value : Value) :
     (state.freeze roots).keyOf value = state.keyOf value := by
   cases value with
-  | scalar | list | dict | function | string => rfl
+  | scalar | list | dict | function | builtin | string | range => rfl
   | tuple address =>
     let rootAddresses := roots.filterMap Value.address?
     have h := freezes_freeze state.heap rootAddresses

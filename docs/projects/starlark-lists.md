@@ -14,13 +14,15 @@ denotation and operational rules. Resolved expressions cover three families.
 - Scalar values `None`, Booleans and exact integers, with resolved binding reads.
 - List, tuple and dictionary displays, with arbitrary nesting. The compiler-facing
   dictionary entry spine builds from earlier entries to later entries.
-- Subscript reads from lists, tuples and dictionaries, and the one-argument
+- Subscript reads from lists, tuples, dictionaries, ranges and valid UTF-8 strings,
+  slice reads from lists, tuples, ranges and valid UTF-8 strings, and the one-argument
   list method `append`.
 
 The statement forms are name and subscript assignment, evaluation for effects,
 `pass`, and sequencing. `Lists.Iteration.Thms` adds function-body conditionals,
-single-name `for` over these three container types, `break`, `continue` and
-`return`. A bare return lowers to the scalar value `None`. The suite index
+`for` over lists, tuples, dictionaries and ranges, `break`, `continue` and
+`return`. Loop targets can be names or nested tuple/list patterns of names.
+A bare return lowers to the scalar value `None`. The suite index
 counts lexical loop depth and rules out unscoped `break` and `continue`.
 Callers supply resolved binding slots and enforce source rules such as
 single-assignment globals and function-only control. The scalar entry points
@@ -90,9 +92,11 @@ its incoming state intact.
 
 ## Iteration and control
 
-A loop evaluates its iterable once, captures its finite sequence, and acquires
-an iterator for the address. Lists and tuples iterate over elements and
-dictionaries iterate over insertion-ordered keys. List edits and dictionary
+A loop evaluates its iterable once. Lists and tuples capture their elements
+and dictionaries capture their insertion-ordered keys. These collections
+register their addresses on the iterator stack. A range uses a cursor
+with its current integer, stride and remaining count. It has no heap address
+to guard and produces elements on demand. List edits and dictionary
 writes reject an active mutable address, so the guard applies through all
 aliases. The frozen check retains priority over the active check. List
 index validation precedes the write guard. Dictionary writes check
@@ -101,14 +105,16 @@ has one entry per active iterator, including repeated entries for the same
 object. Continue retains the entry until loop exit. Exhaustion, break, return
 and error release the entry while retaining effects already performed. Nested
 loops restore their incoming stack. The suite evaluator recurses on syntax
-and its iterator recurses over the captured finite sequence. Neither takes
+and the shared cursor evaluator recurses on the remaining count. Neither takes
 execution fuel or bounds nesting.
 [Iteration][iteration] · [For statements][for] · [Break and continue][break]
 
 `eval_iff_denote` and `runs_iff_denoteSuite` prove exact agreement between the
 respective denotations and independent big-step rules on success and failure,
-including the resulting state. The rules share lexical and heap primitives
-and independently order their premises. `iterators_denoteSuite` proves
+including the resulting state. `cursor_eq_of_runs` and `cursor_runs_denote`
+provide both directions of cursor agreement. The rules share cursor advancement
+and lexical and heap primitives, and independently order their premises.
+`iterators_denoteSuite` proves
 restoration of the original iterator stack for every suite exit.
 `editCell_iterating` states the active-iterator mutation guard.
 [Expression rules](../../Silmaril/Languages/Starlark/Lists/Operational/Defs.lean) · [Suite rules](../../Silmaril/Languages/Starlark/Lists/Iteration/Operational/Defs.lean) · [Suite theorems](../../Silmaril/Languages/Starlark/Lists/Iteration/Thms.lean)
@@ -147,18 +153,21 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 - **Functions.** User function objects, lexical cells, calls
   and declaration-based recursion checks extend this store. The call profile
   includes definition-time defaults, keyword-only parameters and both
-  argument expansions. Calls inside collection loops and source lowering
-  remain open.
+  argument expansions and calls inside collection loops. Resolved nested
+  call lowering covers call-free collection atoms, with general embedding
+  into collection expressions still open.
   [Lexical calls](starlark-functions.md) · [Functions][functions]
-- **Collection operations.** General equality and ordering, `len`, `hash`,
-  concatenation, slicing, comprehensions, other methods, augmented assignment,
-  destructuring, and other iterable types remain open. The supported
+- **Collection operations.** General equality and ordering, `hash`,
+  concatenation, slicing of bytes, other methods, augmented forms beyond
+  [integer subscript `+=`](starlark-functions.md#integer-augmented-subscript-assignment),
+  destructuring with subscript or field leaves,
+  general comprehension expression positions,
+  and other iterable types remain open. The supported
   collection truth tests apply in the resolved suite conditional.
-- **Module initialization and loading.** Run each module with its own lexical
-  frame and host thread context. Select all global roots on successful
-  publication, including private globals, and preserve heap identities in
-  the loader cache. Export validation, dependency cycles, load failure and
-  host policies remain open. [Module execution][modules] · [Load statements][loading]
+- **Module initialization and loading.** The finite manifest loads modules
+  in their own lexical frames, freezes successful publication roots and
+  preserves heap identities in the cache. Effectful host resolution and
+  concurrency remain open. [Module loader](starlark-modules.md) · [Module execution][modules]
 - **Source front end.** Parsing, shared Python and Starlark syntax resolution,
   and the Lean quotation macro remain open.
 

@@ -1,0 +1,55 @@
+module
+
+public import Silmaril.Languages.Python.Core.Closure.Executor.Defs
+import Silmaril.Proofs.Languages.Python.Core.Closure.Executor.Correspondence
+
+public section
+
+namespace Silmaril.Languages.Python.Core.Closure.Executor
+
+theorem readFreevars_iff {table : CodeTable} {fn : Function} {names : List String} :
+    readFreevars table (.function fn) = .ok names ↔
+      ∃ definition, Dispatch.Resolves table fn.code definition ∧ definition.freevars = some names :=
+  Proofs.Languages.Python.Core.Closure.Executor.readFreevars_iff
+
+theorem readCellvars_iff {table : CodeTable} {fn : Function} {names : List String} :
+    readCellvars table (.function fn) = .ok names ↔
+      ∃ definition, Dispatch.Resolves table fn.code definition ∧ definition.cellvars = some names :=
+  Proofs.Languages.Python.Core.Closure.Executor.readCellvars_iff
+
+theorem readCodeNames_iff {table : CodeTable} {fn : Function} {names : List String} :
+    readCodeNames table (.function fn) = .ok names ↔
+      ∃ definition, Dispatch.Resolves table fn.code definition ∧
+        definition.codeNames = some ⟨.cpython3135ExecOptimize0, names⟩ :=
+  Proofs.Languages.Python.Core.Closure.Executor.readCodeNames_iff
+
+theorem stepIn_iff {table : CodeTable} {globals : GlobalLookup} {source target : State} {label : Option Event} :
+    StepIn table globals source label target ↔ advanceIn table globals source = some (label, target) :=
+  ⟨Proofs.Languages.Python.Core.Closure.Executor.advance_of_step,
+    Proofs.Languages.Python.Core.Closure.Executor.step_of_advance⟩
+
+theorem step_iff {table : CodeTable} {source target : State} {label : Option Event} :
+    Step table source label target ↔ advance table source = some (label, target) :=
+  stepIn_iff
+
+theorem step_deterministic {table : CodeTable} {source left right : State} {a b : Option Event}
+    (first : Step table source a left) (second : Step table source b right) : (a, left) = (b, right) :=
+  Option.some.inj ((step_iff.mp first).symm.trans (step_iff.mp second))
+
+theorem runIn_path (table : CodeTable) (globals : GlobalLookup) (fuel : Nat) (source : State) :
+    (labelledIn table globals).Path source
+      (runPrefixIn table globals fuel source).1 (runPrefixIn table globals fuel source).2 :=
+  Proofs.Languages.Python.Core.Closure.Executor.run_path table globals fuel source
+
+theorem run_path (table : CodeTable) (fuel : Nat) (source : State) :
+    (labelled table).Path source (runPrefix table fuel source).1 (runPrefix table fuel source).2 :=
+  runIn_path table emptyGlobals fuel source
+
+/-- Return and defined-error delivery recover the exact suspended frame,
+continuation and older stack with the residual heap. -/
+theorem delivers_saved (table : CodeTable) (residual : Heap) (caller : Call.Saved Continuation)
+    (older : Stack) (result : Result) :
+    advance table (.delivering residual (caller :: older) result) =
+      some (some (.resume result), .receiving residual caller older result) := rfl
+
+end Silmaril.Languages.Python.Core.Closure.Executor

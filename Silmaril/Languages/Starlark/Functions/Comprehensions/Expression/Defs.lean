@@ -1,0 +1,308 @@
+module
+
+public import Silmaril.Languages.Starlark.Functions.Comprehensions.Defs
+
+@[expose] public section
+
+namespace Silmaril.Languages.Starlark.Functions.Comprehensions
+
+/-- Comprehensions in checked returns, assignments and parameter defaults.
+The existing expression grammar supplies ordinary leaves. -/
+inductive Expression where
+  | plain (value : Lowering.Expr)
+  | list (comp : ListComp)
+  | dict (comp : DictComp)
+  /-- Clause operands can contain comprehensions. The element stays in the ordinary grammar. -/
+  | listClauses (locals : List Binding) (target : Lists.Iteration.LoopTarget)
+      (iterable : Expression) (rest : Tail Lowering.Expr Expression)
+  /-- Clause operands can contain comprehensions. The key and value stay ordinary. -/
+  | dictClauses (locals : List Binding) (target : Lists.Iteration.LoopTarget)
+      (iterable : Expression) (rest : Tail (Lowering.Expr × Lowering.Expr) Expression)
+  | listComprehension (locals : List Binding) (target : Lists.Iteration.LoopTarget)
+      (iterable : Expression) (rest : Tail Expression Expression)
+  | dictComprehension (locals : List Binding) (target : Lists.Iteration.LoopTarget)
+      (iterable : Expression) (rest : Tail (Expression × Expression) Expression)
+  | listDisplay (elements : List Expression)
+  | tupleDisplay (elements : List Expression)
+  | dictDisplay (entries : List (Expression × Expression))
+  | index (receiver subscript : Expression)
+  /-- Omitted source bounds resolve to a plain `None` operand. -/
+  | slice (receiver start stop stride : Expression)
+  | callPos (callee : Lowering.Expr) (arguments : List Expression)
+  /-- Positional operands, then named operands, then at most one of each spread. -/
+  | call (callee : Expression) (positional : List Expression)
+      (keywords : List (String × Expression)) (star starStar : Option Expression)
+  | branch (test yes no : Expression)
+  | logical (op : LogicalOp) (left right : Expression)
+
+theorem sliceOperandSize {receiver start stop stride operand : Expression}
+    (member : operand ∈ [receiver, start, stop, stride]) :
+    sizeOf operand < sizeOf (Expression.slice receiver start stop stride) := by
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl <;> simp <;> omega
+
+theorem callOperandSize (callee : Expression) (positional : List Expression)
+    (keywords : List (String × Expression)) (star starStar : Option Expression) {part : Expression}
+    (member : part ∈ Lowering.argumentExprs positional keywords star starStar) :
+    sizeOf part < sizeOf (.call callee positional keywords star starStar : Expression) := by
+  simp only [Lowering.argumentExprs, List.mem_append] at member
+  rcases member with ((pos | named) | spread) | mapping
+  · have := List.sizeOf_lt_of_mem pos
+    simp
+    omega
+  · obtain ⟨⟨name, value⟩, inKeywords, rfl⟩ := List.mem_map.mp named
+    have := List.sizeOf_lt_of_mem inKeywords
+    simp at this ⊢
+    omega
+  · obtain rfl := Option.mem_toList.mp spread
+    simp
+    omega
+  · obtain rfl := Option.mem_toList.mp mapping
+    simp
+    omega
+
+def expressionSlot : Binding := ⟨.global, "$comp-expression"⟩
+
+def argumentSlot (index : Nat) : Binding := ⟨.global, "$comp-argument" ++ toString index⟩
+
+def readSaved (name : Binding) : Lists.Expr := .read (.bound name)
+
+def returnSaved (name : Binding) : Body := .returnExpr (.atom (readSaved name))
+
+/-- Evaluate each operand into its own saved binding before the final operation.
+The containing expression scope restores these bindings on both exits. -/
+def stageArguments (index : Nat) (arguments : List (Binding → Body))
+    (dispatch : List Lists.Expr → Body) : Body :=
+  match arguments with
+  | [] => dispatch []
+  | argument :: rest =>
+    .seq (argument (argumentSlot index))
+      (stageArguments (index + 1) rest fun saved => dispatch (readSaved (argumentSlot index) :: saved))
+
+/-- Stage the operands, then evaluate the final operation over the saved values. -/
+def compileSequence (target : Binding) (finish : List Lists.Expr → Lists.Expr)
+    (elements : List (Binding → Body)) : Body :=
+  .assignScoped target [] (stageArguments 0 elements fun saved => .returnExpr (.atom (finish saved)))
+
+/-- Stage the key and then the value before inserting one pair. -/
+def stageDisplayEntry (key value : Binding → Body) (rest : Body) : Body :=
+  .seq (key (argumentSlot 0)) (.seq (value (argumentSlot 1))
+    (.seq (.insertDictEntry expressionSlot (argumentSlot 0) (argumentSlot 1)) rest))
+
+/-- Allocate before the first pair, then validate each pair before starting the next. -/
+def compileDictDisplay (target : Binding) (entries : List ((Binding → Body) × (Binding → Body))) : Body :=
+  .assignScoped target [] (.seq (.assignExpr expressionSlot (.atom (.dict .noEntries)))
+    (entries.foldr (fun (key, value) rest => stageDisplayEntry key value rest) (returnSaved expressionSlot)))
+
+/-- Select the existing indexing primitive only after the receiver and index have run. -/
+def compileIndex (target : Binding) (receiver subscript : Binding → Body) : Body :=
+  .assignScoped target [] (.seq (receiver (argumentSlot 0)) (.seq (subscript (argumentSlot 1))
+    (.returnExpr (.atom (.index (readSaved (argumentSlot 0)) (readSaved (argumentSlot 1)))))))
+
+/-- Only the final body operation expands arguments or prepares a call.
+Its operands read the saved values using the regular argument shape. -/
+def compileCall (target : Binding) (callee : Body) (shape : ArgumentShape)
+    (operands : List (Binding → Body)) : Body :=
+  .assignScoped target [] (.seq callee
+    (stageArguments 1 operands fun saved =>
+      .seq (.call (some expressionSlot) (readSaved (argumentSlot 0)) (Lowering.fillArguments shape saved))
+        (returnSaved expressionSlot)))
+
+/-- Choose direct operands or reuse the existing scratch lowerers, without
+changing the expression site at which any operand runs. -/
+structure ExpressionStages where
+  plain : Stage
+  list : ListComp → Binding → Body
+  dict : DictComp → Binding → Body
+
+def directStages : ExpressionStages :=
+  ⟨Body.assignExpr, ListComp.body, DictComp.body⟩
+
+def loweredStages (start : Nat) : ExpressionStages :=
+  ⟨stageLowered start, fun comp target => comp.lower target start, fun comp target => comp.lower target start⟩
+
+def Expression.compile (stages : ExpressionStages) (expr : Expression) (target : Binding) : Body :=
+  match expr with
+  | .plain value => stages.plain target value
+  | .list comp => stages.list comp target
+  | .dict comp => stages.dict comp target
+  | .listClauses locals first iterable rest =>
+    compileScopedWith target [] locals first (stages.plain resultSlot (.atom (.list .empty)))
+      (iterable.compile stages operandSlot)
+      (rest.compileClauses (listYield stages.plain rest.headValue) fun operand member =>
+        have := rest.clauseOperandSize member
+        operand.compile stages operandSlot)
+  | .dictClauses locals first iterable rest =>
+    compileScopedWith target [keySlot] locals first (stages.plain resultSlot (.atom (.dict .noEntries)))
+      (iterable.compile stages operandSlot)
+      (rest.compileClauses (dictYield stages.plain rest.headValue) fun operand member =>
+        have := rest.clauseOperandSize member
+        operand.compile stages operandSlot)
+  | .listComprehension locals first iterable rest =>
+    have headSize := rest.headValueSize
+    let head := appendYield (rest.headValue.compile stages operandSlot)
+    compileScopedWith target [] locals first (stages.plain resultSlot (.atom (.list .empty)))
+      (iterable.compile stages operandSlot)
+      (rest.compileClauses head fun operand member =>
+        have := rest.clauseOperandSize member
+        operand.compile stages operandSlot)
+  | .dictComprehension locals first iterable rest =>
+    have headSize := rest.headValueSize
+    have pairSize : sizeOf rest.headValue = 1 + sizeOf rest.headValue.1 + sizeOf rest.headValue.2 := by
+      cases rest.headValue <;> rfl
+    let head := putYield (rest.headValue.1.compile stages keySlot) (rest.headValue.2.compile stages operandSlot)
+    compileScopedWith target [keySlot] locals first (stages.plain resultSlot (.atom (.dict .noEntries)))
+      (iterable.compile stages operandSlot)
+      (rest.compileClauses head fun operand member =>
+        have := rest.clauseOperandSize member
+        operand.compile stages operandSlot)
+  | .listDisplay elements =>
+    compileSequence target (.list ∘ operandList) (elements.attach.map fun element =>
+      have := List.sizeOf_lt_of_mem element.property
+      element.val.compile stages)
+  | .tupleDisplay elements =>
+    compileSequence target (.tuple ∘ operandList) (elements.attach.map fun element =>
+      have := List.sizeOf_lt_of_mem element.property
+      element.val.compile stages)
+  | .dictDisplay entries =>
+    compileDictDisplay target (entries.attach.map fun ⟨(key, value), member⟩ =>
+      have := (Lowering.entrySize member).1
+      have := (Lowering.entrySize member).2
+      (key.compile stages, value.compile stages))
+  | .index receiver subscript =>
+    compileIndex target (receiver.compile stages) (subscript.compile stages)
+  | .slice receiver start stop stride =>
+    compileSequence target (.slice ∘ operandList) ([receiver, start, stop, stride].attach.map fun operand =>
+      have := sliceOperandSize operand.property
+      operand.val.compile stages)
+  | .callPos callee arguments =>
+    let operands := arguments.attach.map fun arg =>
+      have := List.sizeOf_lt_of_mem arg.property
+      arg.val.compile stages
+    compileCall target (stages.plain (argumentSlot 0) callee) ⟨arguments.length, [], false, false⟩ operands
+  | .call callee positional keywords star starStar =>
+    let operands := (Lowering.argumentExprs positional keywords star starStar).attach.map fun arg =>
+      have := callOperandSize callee positional keywords star starStar arg.property
+      arg.val.compile stages
+    compileCall target (callee.compile stages (argumentSlot 0))
+      (Lowering.argumentShape positional keywords star starStar) operands
+  | .branch test yes no =>
+    .assignScoped target [] (.seq (test.compile stages expressionSlot)
+      (.branch (readSaved expressionSlot)
+        (.seq (yes.compile stages expressionSlot) (returnSaved expressionSlot))
+        (.seq (no.compile stages expressionSlot) (returnSaved expressionSlot))))
+  | .logical op left right =>
+    let takeRight := Body.seq (right.compile stages expressionSlot) (returnSaved expressionSlot)
+    let keepLeft := returnSaved expressionSlot
+    let next := match op with
+      | .and => Body.branch (readSaved expressionSlot) takeRight keepLeft
+      | .or => Body.branch (readSaved expressionSlot) keepLeft takeRight
+    .assignScoped target [] (.seq (left.compile stages expressionSlot) next)
+termination_by sizeOf expr
+decreasing_by all_goals first | assumption | (simp_wf; omega)
+
+def Expression.body (expr : Expression) (target : Binding) : Body :=
+  expr.compile directStages target
+
+def Expression.lower (expr : Expression) (target : Binding) (start : Nat := 0) : Body :=
+  expr.compile (loweredStages start) target
+
+/-- Pass the staged value to the ordinary return transition. The enclosing
+call restores its caller frame, including any private return binding. -/
+def Expression.returnCode (expr : Expression) (stages : ExpressionStages) : Body :=
+  .seq (expr.compile stages expressionSlot) (returnSaved expressionSlot)
+
+/-- Evaluate the RHS once, then apply the existing pattern binder in the
+restored frame. Partial target writes survive a later binder error. -/
+def Expression.assignTargetCode (expr : Expression) (target : Lists.Iteration.LoopTarget)
+    (stages : ExpressionStages) : Body :=
+  .assignTargetScoped target (expr.returnCode stages)
+
+/-- A standalone assignment target. The loop and comprehension binders
+continue to use lexical name patterns. -/
+inductive AssignmentPattern (Operand : Type := Lowering.Expr) where
+  | name (binding : Binding)
+  | subscript (receiver index : Operand)
+  | sequence (children : List (AssignmentPattern Operand))
+
+def patternSlot (depth index : Nat) : Binding :=
+  ⟨.global, "$assignment:" ++ toString depth ++ ":" ++ toString index⟩
+
+/-- Stage the RHS, receiver and subscript in source execution order.
+The ordinary store reads only the saved values in the resulting heap. -/
+def setIndexCode (receiver subscript rhs : Expression) (stages : ExpressionStages) : Body :=
+  let saved := fun index => Lowering.Expr.atom (readSaved (argumentSlot index))
+  .evalScoped (.seq (rhs.compile stages (argumentSlot 0))
+    (.seq (receiver.compile stages (argumentSlot 1))
+      (.seq (subscript.compile stages (argumentSlot 2))
+        (.setIndexExpr (saved 1) (saved 2) (saved 0)))))
+
+mutual
+/-- Unpack each node to saved child values before visiting any child.
+Each store evaluates its own receiver and index when reached. -/
+def AssignmentPattern.code (stages : ExpressionStages) (saved : Binding) (depth : Nat) :
+    AssignmentPattern → Body
+  | .name binding => .assignExpr binding (.atom (readSaved saved))
+  | .subscript receiver index => setIndexCode (.plain receiver) (.plain index) (.plain (.atom (readSaved saved))) stages
+  | .sequence children =>
+    let slots := (List.range children.length).map (patternSlot depth)
+    .withTemporaryBindings slots (.seq
+      (.assignTargetExpr (.unpack slots) (.atom (readSaved saved)))
+      (AssignmentPattern.childCode stages depth 0 children))
+termination_by pattern => sizeOf pattern
+decreasing_by simp_wf <;> omega
+
+def AssignmentPattern.childCode (stages : ExpressionStages) (depth index : Nat) :
+    List AssignmentPattern → Body
+  | [] => .total (.atomic .pass)
+  | first :: rest => .seq (first.code stages (patternSlot depth index) (depth + 1))
+    (childCode stages depth (index + 1) rest)
+termination_by children => sizeOf children
+decreasing_by all_goals (simp_wf; omega)
+end
+
+/-- Evaluate the comprehension-bearing RHS once, then visit the full
+pattern. Temporary bindings are removed without rolling back leaf writes. -/
+def assignPatternCode (pattern : AssignmentPattern) (rhs : Expression) (stages : ExpressionStages) : Body :=
+  let saved := patternSlot 0 0
+  .withTemporaryBindings [saved] (.seq (rhs.compile stages saved) (pattern.code stages saved 1))
+
+/-- The saved receiver and raw index determine the old-value read before the RHS. -/
+def readIndexForAdd : Body :=
+  .assignExpr (argumentSlot 2) (.atom (.index (readSaved (argumentSlot 0)) (readSaved (argumentSlot 1))))
+
+/-- Add the saved old value and RHS, then run the ordinary store on the sum. -/
+def writeIndexSum : Body :=
+  let saved := fun index => Lowering.Expr.atom (readSaved (argumentSlot index))
+  .seq (.assignIntegerAdd (argumentSlot 2) (argumentSlot 2) (argumentSlot 3))
+    (.setIndexExpr (saved 0) (saved 1) (saved 2))
+
+/-- Read the old value before starting the RHS. Write the sum through the
+same receiver identity and raw subscript in the resulting heap. -/
+def addIndexCode (receiver subscript rhs : Expression) (stages : ExpressionStages) : Body :=
+  .evalScoped (.seq (receiver.compile stages (argumentSlot 0))
+    (.seq (subscript.compile stages (argumentSlot 1))
+      (.seq readIndexForAdd
+        (.seq (rhs.compile stages (argumentSlot 3)) writeIndexSum))))
+
+/-- Use the same integer addition for a lexical name and commit only its sum. -/
+def addNameCode (target : Binding) (rhs : Expression) (stages : ExpressionStages) : Body :=
+  .assignScoped target [] (.seq (.assignExpr (argumentSlot 0) (.atom (readSaved target)))
+    (.seq (rhs.compile stages (argumentSlot 1))
+      (.seq (.assignIntegerAdd (argumentSlot 0) (argumentSlot 0) (argumentSlot 1))
+        (returnSaved (argumentSlot 0)))))
+
+/-- The declaration's optional parameter reads its staged value from this binding. -/
+def defaultSlot (parameter : Binding) : Binding :=
+  ⟨.global, "$comp-default:" ++ parameter.name⟩
+
+/-- Stage defaults in declaration order in the defining frame. The declaration
+reads the saved values via `defaultSlot` when installing the closure. The outer
+scope drops the staging bindings on either exit and commits only the closure. -/
+def definitionWithDefaults (stages : ExpressionStages) (target : Binding) (id : DeclarationId)
+    (defaults : List (Binding × Expression)) : Body :=
+  .assignScoped target [] (defaults.foldr
+    (fun (parameter, expr) rest => .seq (expr.compile stages (defaultSlot parameter)) rest)
+    (.seq (.define expressionSlot id) (returnSaved expressionSlot)))
+
+end Silmaril.Languages.Starlark.Functions.Comprehensions

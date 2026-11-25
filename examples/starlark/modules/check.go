@@ -15,6 +15,44 @@ func require(ok bool, message string) {
 	}
 }
 
+func nativeExpressions() {
+	const setup = `events = []
+def note(marker, value):
+    events.append(marker)
+    return value
+`
+	published, err := starlark.ExecFileOptions(&syntax.FileOptions{},
+		&starlark.Thread{Name: "native expressions"}, "native.star", setup+`def use(xs=note(1, [])):
+    xs.append(9)
+    return xs
+seed = note(2, [[]])
+note(3, len(seed)) if seed else note(99, 0)
+out = note(4, seed) or note(99, 0)
+`, nil)
+	require(err == nil, fmt.Sprint(err))
+	require(published["events"].String() == "[1, 2, 3, 4]", "unexpected module expression order")
+	root := published["out"].(*starlark.List)
+	child := root.Index(0).(*starlark.List)
+	require(published["seed"] == root, "assignment must retain the original list identity")
+	for _, list := range []*starlark.List{root, child} {
+		err := list.Append(starlark.None)
+		require(err != nil && strings.Contains(err.Error(), "frozen list"), fmt.Sprint(err))
+	}
+	_, err = starlark.Call(&starlark.Thread{Name: "after publication"}, published["use"], nil, nil)
+	require(err != nil && strings.Contains(err.Error(), "frozen list"), fmt.Sprint(err))
+	fmt.Println("PASS native module order, branch selection, export aliases, and transitive freeze")
+
+	// Observe partial globals and effects before a host chooses whether to freeze them.
+	_, program, err := starlark.SourceProgramOptions(&syntax.FileOptions{}, "failure.star", setup+`out = len(note(1, 9))
+note(99, 0)
+`, func(string) bool { return false })
+	require(err == nil, fmt.Sprint(err))
+	partial, err := program.Init(&starlark.Thread{Name: "failing module"}, nil)
+	require(err != nil && strings.Contains(err.Error(), "has no len"), fmt.Sprint(err))
+	require(partial["out"] == nil && partial["events"].String() == "[1]", "failure must preserve effects without assigning out")
+	fmt.Println("PASS native module assignment failure preserves earlier effects and skips later statements")
+}
+
 func main() {
 	provider, err := starlark.ExecFileOptions(&syntax.FileOptions{},
 		&starlark.Thread{Name: "provider"}, "a.star", `def read():
@@ -56,4 +94,5 @@ x = 2`)
 	_, err = initConsumer(`load("missing", "read")`)
 	require(err != nil && strings.Contains(err.Error(), "unavailable module"), fmt.Sprint(err))
 	fmt.Println("PASS private import, name collision, absent export, and host module failures")
+	nativeExpressions()
 }

@@ -6,12 +6,23 @@ public import Silmaril.Languages.Starlark.Lists.Denotation.Defs
 
 namespace Silmaril.Languages.Starlark.Lists.Iteration
 
+/-- A name or a tuple/list pattern whose leaves are lexical bindings. -/
+inductive LoopTarget where
+  | name (binding : Binding)
+  | sequence (children : List LoopTarget)
+
+/-- Build a flat pattern from resolved names. -/
+abbrev LoopTarget.unpack (bindings : List Binding) : LoopTarget :=
+  .sequence (bindings.map .name)
+
+instance : Coe Binding LoopTarget := ⟨LoopTarget.name⟩
+
 /-- Resolved function suites. The index counts lexically enclosing loops. -/
 inductive Suite : Nat → Type where
   | atomic {depth : Nat} (stmt : Stmt) : Suite depth
   | seq {depth : Nat} (first rest : Suite depth) : Suite depth
   | branch {depth : Nat} (test : Expr) (yes no : Suite depth) : Suite depth
-  | forIn {depth : Nat} (target : Binding) (iterable : Expr)
+  | forIn {depth : Nat} (target : LoopTarget) (iterable : Expr)
       (body : Suite (depth + 1)) : Suite depth
   | breakLoop {depth : Nat} : Suite (depth + 1)
   | continueLoop {depth : Nat} : Suite (depth + 1)
@@ -38,28 +49,116 @@ def pushIterator (state : State) (address : Address) : State :=
 
 def truth : Value → Meaning Bool
   | .scalar value => pure value.truth
-  | .function _ => pure true
+  | .function _ | .builtin _ => pure true
   | .string text => pure (!text.isEmpty)
+  | .range span => pure (span.length != 0)
   | .list address => (fun elements => !elements.isEmpty) <$> listElements address
   | .tuple address => (fun elements => !elements.isEmpty) <$> tupleElements address
   | .dict address => (fun entries => !entries.isEmpty) <$> dictEntries address
 
 def iterationSource : Value → Meaning (Address × List Value)
-  | .scalar _ | .function _ | .string _ => throw .notIterable
+  | .scalar _ | .function _ | .builtin _ | .string _ | .range _ => throw .notIterable
   | .list address => (fun elements => (address, elements)) <$> listElements address
   | .tuple address => (fun elements => (address, elements)) <$> tupleElements address
   | .dict address => (fun entries => (address, entries.map Entry.key)) <$> dictEntries address
 
-/-- Interpret the finite sequence captured on iterator acquisition.
-The body's meaning is available before the recursion over elements begins. -/
-def denoteItems (target : Binding) (body : Meaning Flow) : List Value → Meaning Flow
-  | [], state => .ok .next state
-  | value :: rest, state =>
-    match body (state.write target value) with
-    | .ok .next next | .ok .continueLoop next => denoteItems target body rest next
+/-- An acquired collection snapshot or an exact arithmetic range cursor. -/
+inductive Cursor where
+  | items (remaining : List Value)
+  | range (current step : Int) (remaining : Nat)
+
+def Cursor.ofRange (span : RangeValue) : Cursor :=
+  .range span.start span.step span.length
+
+def Cursor.remaining : Cursor → Nat
+  | .items values => values.length
+  | .range _ _ count => count
+
+def Cursor.advance : Cursor → Option (Value × Cursor)
+  | .items [] | .range _ _ 0 => none
+  | .items (value :: rest) => some (value, .items rest)
+  | .range current step (count + 1) =>
+    some (.scalar (.int current), .range (current + step) step count)
+
+theorem Cursor.advance_remaining {cursor next : Cursor} {value : Value}
+    (step : cursor.advance = some (value, next)) : next.remaining + 1 = cursor.remaining := by
+  cases cursor with
+  | items values => cases values <;> simp [Cursor.advance] at step <;> simp [← step.2, Cursor.remaining]
+  | range current stride count => cases count <;> simp [Cursor.advance] at step <;> simp [← step.2, Cursor.remaining]
+
+theorem Cursor.advance_decreases {cursor next : Cursor} {value : Value}
+    (step : cursor.advance = some (value, next)) : next.remaining < cursor.remaining :=
+  Cursor.advance_remaining step ▸ Nat.lt_succ_self _
+
+/-- Collect the cursor in yield order for operations that materialize an iterable. -/
+def Cursor.collect (cursor : Cursor) : List Value := go cursor []
+where
+  go (cursor : Cursor) (reversed : List Value) : List Value :=
+    match _step : cursor.advance with
+    | none => reversed.reverse
+    | some (value, rest) => go rest (value :: reversed)
+  termination_by cursor.remaining
+  decreasing_by exact Cursor.advance_decreases _step
+
+/-- Ranges need no heap guard. Other iterables keep the existing snapshot and guard. -/
+def acquireIterator : Value → Meaning (Option Address × Cursor)
+  | .range span => pure (none, .ofRange span)
+  | value => (fun (address, items) => (some address, .items items)) <$> iterationSource value
+
+def enterIterator (state : State) : Option Address → State
+  | none => state
+  | some address => pushIterator state address
+
+/-- Read the elements of one pattern node, checking arity before collection. -/
+def unpackValue (arity : Nat) (value : Value) (state : State) : Outcome (List Value) :=
+  match acquireIterator value state with
+  | .error error next => .error (if error = .notIterable then .unpackTarget value else error) next
+  | .ok (_, cursor) next =>
+    if cursor.remaining = arity then .ok cursor.collect next
+    else .error (.unpackArity arity cursor.remaining) next
+
+mutual
+/-- Check each sequence node before its children. A failed child keeps the
+writes performed by its earlier siblings. -/
+def bindTarget : LoopTarget → Value → Meaning Unit
+  | .name binding, value, state => .ok () (state.write binding value)
+  | .sequence children, value, state =>
+    Outcome.resume (unpackValue children.length value state) (bindTargets children)
+termination_by target _ _ => sizeOf target
+decreasing_by simp_wf <;> omega
+
+/-- Bind paired children left to right, stopping at the first error.
+The enclosing unpack has already checked that the two lengths match. -/
+def bindTargets : List LoopTarget → List Value → Meaning Unit
+  | [], _, state => .ok () state
+  | _ :: _, [], state => .ok () state
+  | target :: rest, value :: values, state =>
+    Outcome.resume (bindTarget target value state) (fun () => bindTargets rest values)
+termination_by targets _ _ => sizeOf targets
+decreasing_by all_goals (simp_wf <;> omega)
+end
+
+/-- Consume one item, advancing only if the body permits another iteration. -/
+def denoteCursor (target : LoopTarget) (body : Meaning Flow) (cursor : Cursor) (state : State) : Outcome Flow :=
+  match _step : cursor.advance with
+  | none => .ok .next state
+  | some (value, rest) =>
+    match Outcome.resume (bindTarget target value state) (fun () => body) with
+    | .ok .next next | .ok .continueLoop next => denoteCursor target body rest next
     | .ok .breakLoop next => .ok .next next
     | .ok (.returned result) next => .ok (.returned result) next
     | .error error next => .error error next
+termination_by cursor.remaining
+decreasing_by all_goals exact Cursor.advance_decreases _step
+
+abbrev denoteItems (target : Binding) (body : Meaning Flow) (items : List Value) : Meaning Flow :=
+  denoteCursor target body (.items items)
+
+/-- Acquire an iterator from a completed operand, run its cursor,
+and restore the previous guard stack on every exit. -/
+def denoteForIn (target : LoopTarget) (body : Meaning Flow) (operand : Outcome Value) : Outcome Flow :=
+  Outcome.resume (Outcome.resume operand acquireIterator) fun (guard, cursor) next =>
+    restoreIterators next.iterators (denoteCursor target body cursor (enterIterator next guard))
 
 def denoteSuite {depth : Nat} : Suite depth → Meaning Flow
   | .atomic stmt, state => Outcome.resume (denote stmt state) fun () => pure .next
@@ -71,9 +170,7 @@ def denoteSuite {depth : Nat} : Suite depth → Meaning Flow
     Outcome.resume (Outcome.resume (denote test state) truth) fun test =>
       if test then denoteSuite yes else denoteSuite no
   | .forIn target iterable body, state =>
-    Outcome.resume (Outcome.resume (denote iterable state) iterationSource) fun (address, elements) next =>
-      restoreIterators next.iterators
-        (denoteItems target (denoteSuite body) elements (pushIterator next address))
+    denoteForIn target (denoteSuite body) (denote iterable state)
   | .breakLoop, state => .ok .breakLoop state
   | .continueLoop, state => .ok .continueLoop state
   | .ret value, state => Outcome.resume (denote value state) fun result => pure (.returned result)

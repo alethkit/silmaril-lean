@@ -26,7 +26,7 @@ private theorem command_run (program : Program) (host : Catalog) (command : Comm
   | exec code => exact .exec ((exec_iff_denoteBody _ _ _ _ _).mpr rfl)
   | load label imports => exact .load
 
-private theorem eq_commands_of_run {program : Program} {host : Catalog} {s : State}
+theorem eq_commands_of_run {program : Program} {host : Catalog} {s : State}
     {commands : List Command} {out : Result Unit} (h : Runs program host s commands out) :
     runCommands program host commands s = out := by
   induction h with
@@ -36,7 +36,7 @@ private theorem eq_commands_of_run {program : Program} {host : Catalog} {s : Sta
     exact ih
   | failed h => rw [runCommands, eq_command_of_exec h]
 
-private theorem commands_run (program : Program) (host : Catalog) (commands : List Command)
+theorem commands_run (program : Program) (host : Catalog) (commands : List Command)
     (s : State) : Runs program host s commands (runCommands program host commands s) := by
   induction commands generalizing s with
   | nil => exact .done

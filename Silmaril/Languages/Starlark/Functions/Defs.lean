@@ -1,25 +1,51 @@
 module
 
-public import Silmaril.Languages.Starlark.Functions.Arguments.Defs
+public import Silmaril.Languages.Starlark.Functions.Builtins.Defs
+public import Silmaril.Languages.Starlark.Functions.Lowering.Syntax.Defs
 
 @[expose] public section
 
 namespace Silmaril.Languages.Starlark.Functions
 
 open Lists
-open Lists.Iteration (Flow Suite denoteSuite truth)
+open Lists.Iteration (Flow Suite LoopTarget denoteSuite truth)
 
 abbrev DeclarationId := Nat
 
 def withoutDeclaration (available : List DeclarationId) (id : DeclarationId) : List DeclarationId :=
   available.filter (· != id)
 
-/-- Resolved function code. Calls in expressions are lowered to calls with a
-destination slot and subsequent uses of that slot. -/
+/-- Resolved body code with direct expression operands. -/
 inductive Body where
   | total (code : Suite 0)
+  | returnExpr (value : Lowering.Expr)
+  | assignExpr (target : Binding) (value : Lowering.Expr)
+  | assignTargetExpr (target : LoopTarget) (value : Lowering.Expr)
+  /-- Install fresh lexical locals, restore the frame on either exit, and commit
+  the scoped body’s return value on success. The heap and guard effects survive. -/
+  | assignScoped (target : Binding) (locals : List Binding) (body : Body)
+  /-- Evaluate scoped RHS code, restore the caller's frame, then bind its
+  returned value. Target writes are outside the RHS scope. -/
+  | assignTargetScoped (target : LoopTarget) (rhs : Body)
+  | setIndexExpr (receiver subscript rhs : Lowering.Expr)
+  | addIndexExpr (receiver subscript rhs : Lowering.Expr)
+  /-- Add two saved values using the integer augmented-assignment profile. -/
+  | assignIntegerAdd (target left right : Binding)
+  | evalExpr (value : Lowering.Expr)
+  /-- Execute scoped code for effects. Discard its result and restore the
+  caller's bindings and slots on either exit. -/
+  | evalScoped (body : Body)
+  /-- Shadow selected bindings without allocating cells. Restore only those
+  bindings on exit, preserving writes to all other names. -/
+  | withTemporaryBindings (names : List Binding) (body : Body)
+  | insertDictEntry (receiver key value : Binding)
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
+  | branchExpr (test : Lowering.Expr) (yes no : Body)
+  | forIn (target : LoopTarget) (iterable : Lists.Expr) (body : Body)
+  | forInExpr (target : LoopTarget) (iterable : Lowering.Expr) (body : Body)
+  | breakLoop
+  | continueLoop
   | define (target : Binding) (declaration : DeclarationId)
   | call (target : Option Binding) (callee : Lists.Expr) (arguments : Arguments)
 
@@ -43,9 +69,8 @@ def captureName (state : State) (name : FreeName) : Except Error Capture :=
   | some (.owned address) => .ok ⟨name.target, address, name.source.scope == .local⟩
   | some (.captured address localCell) => .ok ⟨name.target, address, localCell⟩
 
-def defaultOperands (program : Program) (id : DeclarationId) : Code (List Lists.Value) :=
-  operandList ((program[id]?.toList.flatMap fun declaration =>
-    declaration.signature.defaulted.map Prod.snd))
+def defaultOperands (program : Program) (id : DeclarationId) : List Lowering.Expr :=
+  program[id]?.toList.flatMap fun declaration => declaration.signature.defaulted.map Prod.snd
 
 def define (program : Program) (target : Binding) (id : DeclarationId)
     (defaults : List Lists.Value) : Meaning Flow :=
@@ -83,45 +108,116 @@ structure Prepared (available : List DeclarationId) where
   permitted : id ∈ available
   body : Body
 
+inductive CallPlan (available : List DeclarationId) where
+  | closure (prepared : Prepared available)
+  | builtin (id : Builtin) (actual : Actual)
+
+def prepareExpanded (program : Program) (available : List DeclarationId) (actual : Actual) :
+    Lists.Value → Meaning (CallPlan available)
+  | .builtin id => pure (.builtin id actual)
+  | .function address => do
+    let closure ← getClosure address
+    match program[closure.declaration]? with
+    | none => throw (.unknownDeclaration closure.declaration)
+    | some declaration =>
+      if h : closure.declaration ∈ available then do
+        let bound ← fromExcept (bindArguments declaration.signature closure.defaults actual)
+        let assigned ← packArgs declaration.signature bound
+        fun state =>
+          .ok (.closure ⟨closure.declaration, h, declaration.body⟩)
+            (activate state declaration closure.captures assigned)
+      else throw (.recursiveCall closure.declaration)
+  | _ => throw .notCallable
+
 /-- Expand evaluated operands before callability, then check re-entry before binding. -/
 def prepare (program : Program) (available : List DeclarationId) (arguments : Arguments) :
-    List Lists.Value → Meaning (Prepared available)
+    List Lists.Value → Meaning (CallPlan available)
   | callee :: operands => do
     let actual ← arguments.expand operands
-    match callee with
-    | .function address =>
-      let closure ← getClosure address
-      match program[closure.declaration]? with
-      | none => throw (.unknownDeclaration closure.declaration)
-      | some declaration =>
-        if h : closure.declaration ∈ available then do
-          let bound ← fromExcept (bindArguments declaration.signature closure.defaults actual)
-          let assigned ← packArgs declaration.signature bound
-          fun state =>
-            .ok ⟨closure.declaration, h, declaration.body⟩
-              (activate state declaration closure.captures assigned)
-        else throw (.recursiveCall closure.declaration)
-    | _ => throw .notCallable
+    prepareExpanded program available actual callee
   | [] => throw .notCallable
 
-def Body.validateCalls : Body → Except CallStaticError Unit
+def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .seq first rest => do
-    first.validateCalls
-    rest.validateCalls
+    first.validateIn inLoop
+    rest.validateIn inLoop
   | .branch _ yes no => do
-    yes.validateCalls
-    no.validateCalls
+    yes.validateIn inLoop
+    no.validateIn inLoop
+  | .branchExpr test yes no => do
+    test.validateCalls
+    yes.validateIn inLoop
+    no.validateIn inLoop
+  | .forIn _ _ body => body.validateIn true
+  | .forInExpr _ iterable body => do
+    iterable.validateCalls
+    body.validateIn true
+  | .assignScoped _ _ body | .assignTargetScoped _ body | .evalScoped body => body.validateIn false
+  | .withTemporaryBindings _ body => body.validateIn inLoop
+  | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
+  | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate
-  | .define .. | .total _ => pure ()
+  | .returnExpr value | .assignExpr _ value | .assignTargetExpr _ value | .evalExpr value => value.validateCalls
+  | .setIndexExpr receiver subscript rhs => do
+    rhs.validateCalls
+    receiver.validateCalls
+    subscript.validateCalls
+  | .addIndexExpr receiver subscript rhs => do
+    receiver.validateCalls
+    subscript.validateCalls
+    rhs.validateCalls
+  | .define .. | .assignIntegerAdd .. | .insertDictEntry .. | .total _ => pure ()
+
+def Body.validateCalls (body : Body) : Except CallStaticError Unit := body.validateIn false
 
 def validate (program : Program) (body : Body) : Except CallStaticError Unit := do
   for declaration in program do
     declaration.signature.validate
+    for (_, value) in declaration.signature.defaulted do
+      value.validateCalls
     declaration.body.validateCalls
   body.validateCalls
 
 def restoreCaller (caller state : State) : State :=
   { state with slots := caller.slots, bindings := caller.bindings }
+
+def enterTemporaryBindings (names : List Binding) (state : State) : State :=
+  { state with
+    slots := fun name => if names.contains name then none else state.slots name
+    bindings := fun name => if names.contains name then none else state.bindings name }
+
+def restoreTemporaryBindings (names : List Binding) (caller : State) (out : Outcome Flow) : Outcome Flow :=
+  let restore := fun (state : State) => { state with
+    slots := fun name => if names.contains name then caller.slots name else state.slots name
+    bindings := fun name => if names.contains name then caller.bindings name else state.bindings name }
+  match out with
+  | .ok signal state => .ok signal (restore state)
+  | .error error state => .error error (restore state)
+
+/-- The integer `+=` profile uses the scalar addition operation. -/
+def applyIntegerAdd (left right : Lists.Value) : Except Error Lists.Value :=
+  match left, right with
+  | .scalar (.int lhs), .scalar (.int rhs) =>
+    ((Starlark.applyBinary .add (.int lhs) (.int rhs)).map Lists.Value.scalar).mapError fun _ =>
+      .integerAddType left right
+  | _, _ => .error (.integerAddType left right)
+
+def assignIntegerAdd (target left right : Binding) : Meaning Flow := do
+  let left ← fun state : State => state.read (.bound left)
+  let right ← fun state : State => state.read (.bound right)
+  let sum ← fromExcept (applyIntegerAdd left right)
+  fun state => .ok .next (state.write target sum)
+
+/-- Insert a dictionary display entry after lowering has staged both operands. -/
+def insertDictEntry (receiver key value : Binding) : Meaning Flow := do
+  let dictionary ← fun state : State => state.read (.bound receiver)
+  let key ← fun state : State => state.read (.bound key)
+  let value ← fun state : State => state.read (.bound value)
+  insertDisplayEntry dictionary key value
+  pure .next
+
+def writeCallResult (target : Option Binding) (value : Lists.Value) : Meaning Flow :=
+  fun state => .ok .next (target.elim state fun binding => state.write binding value)
 
 def completeCall (caller : State) (target : Option Binding) : Outcome Flow → Outcome Flow
   | .error error state => .error error (restoreCaller caller state)
@@ -129,7 +225,6 @@ def completeCall (caller : State) (target : Option Binding) : Outcome Flow → O
     let value := match flow with
       | .returned result => result
       | _ => .scalar .none
-    let state := restoreCaller caller state
-    .ok .next (target.elim state fun binding => state.write binding value)
+    writeCallResult target value (restoreCaller caller state)
 
 end Silmaril.Languages.Starlark.Functions

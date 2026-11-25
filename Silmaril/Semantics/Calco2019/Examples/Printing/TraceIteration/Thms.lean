@@ -38,13 +38,14 @@ noncomputable def productiveElgot (A : Type u) : GuardedElgotMonad typeCoproduct
   TypeKleisli.assemble (productiveLaws A)
 
 /-- The chosen solution for the separating equation exceeds the finite-only fixpoint. -/
-theorem canonical_not_least (a : A) : ¬ greatestTrace (traceLoop a) ≤ finiteSolution a :=
+theorem canonical_not_least (a : A) : ¬ greatestTrace (traceLoop.{u, 0} a) ≤ finiteSolution a :=
   ProductiveProofs.canonical_not_least a
 
-/-- A nonempty alphabet admits the separating guarded loop with two fixpoints. -/
-theorem productive_not_iterative {A : Type} (a : A) :
+/-- At any universe, a letter supplies a loop guarded by the nonempty-word
+predicate with distinct finite-only and productive fixpoints. -/
+theorem productive_not_iterative (a : A) :
     ¬ (TypeKleisli.categoricalGuard (productiveGuard A)).Iterative := by
   rw [TypeKleisli.iterative_iff]
-  exact ProductiveProofs.productive_not_unique A a
+  exact ProductiveProofs.productive_not_unique a
 
 end Silmaril.Calco2019.Examples.Printing

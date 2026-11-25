@@ -8,14 +8,48 @@ namespace Silmaril.Proofs.Languages.Python.Compile.Closure.Body
 open Silmaril.Languages.Python
 open Silmaril.Languages.Python.Compile.Closure.Body
 
+theorem ordinary {tree : Source.ScopeTree} {start : Nat} {source : List Source.Stmt}
+    {code : Code (Compile.Closure.frameLayout tree.scope)} (translated : Translation tree start source code) :
+    tree.scope.context.containsYield = false := by
+  induction translated with
+  | ret clear _ _ | fallthrough clear _ => exact clear
+  | assign _ _ _ _ tail | assert _ _ tail | pass _ tail | nonlocal _ tail | global _ tail => exact tail
+  | assertBoolean _ tail | assertEqInt _ _ tail | assertFreeVars _ _ _ tail
+  | assertCellVars _ _ _ tail | assertCodeNames _ _ _ tail | discardCall _ _ _ tail => exact tail
+  | closure _ _ _ _ _ _ _ _ _ _ tail => exact tail
+
+theorem ordinaryChild {tree : Source.ScopeTree} {start : Nat} {source : List Source.Stmt}
+    {code : Code (Compile.Closure.frameLayout tree.scope)} (translated : Translation tree start source code)
+    {emittedPath : Source.BlockPath} (member : emittedPath ∈ code.childPaths) :
+    ∃ relative block, tree.atPath relative = some block ∧
+      emittedPath = tree.scope.context.path ++ relative ∧ block.context.containsYield = false := by
+  induction translated with
+  | ret | fallthrough => simp [Code.childPaths] at member
+  | assign _ _ _ _ tail | assert _ _ tail | pass _ tail | nonlocal _ tail | global _ tail =>
+    exact tail member
+  | assertBoolean _ tail | assertEqInt _ _ tail | assertFreeVars _ _ _ tail
+  | assertCellVars _ _ _ tail | assertCodeNames _ _ _ tail | discardCall _ _ _ tail => exact tail member
+  | @closure tree start name declaration body rest slot child params code next found path _ _ _ _ _
+      childTranslation _ childOrdinary nextOrdinary =>
+    simp only [Code.childPaths, List.mem_cons, List.mem_append] at member
+    rcases member with direct | inner | later
+    · exact ⟨[start], child.scope, by simp [Source.ScopeTree.atPath, found], direct,
+        ordinary childTranslation⟩
+    · obtain ⟨relative, block, located, emitted, clear⟩ := childOrdinary inner
+      refine ⟨start :: relative, block, ?_, ?_, clear⟩
+      · simpa [Source.ScopeTree.atPath, found] using located
+      · simpa only [path, List.append_assoc, List.singleton_append] using emitted
+    · exact nextOrdinary later
+
 theorem childPaths {tree : Source.ScopeTree} {start : Nat} {source : List Source.Stmt}
     {code : Code (Compile.Closure.frameLayout tree.scope)} (translated : Translation tree start source code) :
     code.childPaths.Nodup ∧ ∀ path ∈ code.childPaths,
       ∃ index suffix, start ≤ index ∧ path = tree.scope.context.path ++ index :: suffix := by
   induction translated with
-  | ret => simp [Code.childPaths]
-  | assign _ _ _ _ tail => exact tail
-  | nonlocal _ tail => exact tail
+  | ret | fallthrough => simp [Code.childPaths]
+  | assign _ _ _ _ tail | assert _ _ tail | assertBoolean _ tail | assertEqInt _ _ tail
+  | assertFreeVars _ _ _ tail | assertCellVars _ _ _ tail | assertCodeNames _ _ _ tail | discardCall _ _ _ tail => exact tail
+  | pass _ tail | nonlocal _ tail | global _ tail => exact tail
   | @closure tree start name declaration body rest slot child params code next _ path _ _ _ _ _ _ _ inner tail =>
     let parent := tree.scope.context.path
     have nestedPath {nested : Source.BlockPath} (member : nested ∈ code.childPaths) :

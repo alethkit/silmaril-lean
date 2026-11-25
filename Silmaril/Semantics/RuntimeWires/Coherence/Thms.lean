@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.Coherence.Defs
 import Silmaril.Proofs.Semantics.RuntimeWires.Coherence.Premonoidal
+import Silmaril.Proofs.Semantics.RuntimeWires.Coherence.Whiskering
 
 @[expose] public section
 
@@ -32,5 +33,43 @@ instance premonoidal {G : EffectfulPolygraph.{u,v}} : PremonoidalCategory (Compu
   rightUnitor_naturality := by exact Computation.naturality_rightUnitor
   pentagon := by exact Computation.pentagon
   triangle := by exact Computation.triangle
+
+variable {G : EffectfulPolygraph.{u,v}}
+
+/-- The empty value word acts by the left unit law. -/
+theorem whiskerLeft_nil {A B : Computations G} (f : A ⟶ B) :
+    (whiskerLeft (Computations.mk [])).map f = f :=
+  (Proofs.RuntimeCoherence.left_unit f).eq
+
+/-- For a singleton prefix, the associator's word transports are
+definitionally identities. -/
+theorem whiskerLeft_cons (x : G.Obj) (w : List G.Obj) {A B : Computations G} (f : A ⟶ B) :
+    (whiskerLeft (Computations.mk (x :: w))).map f =
+      (whiskerLeft (Computations.mk [x])).map ((whiskerLeft (Computations.mk w)).map f) :=
+  (Proofs.RuntimeCoherence.left_left (Computations.mk [x]) (Computations.mk w) f).eq
+
+/-- Right whiskering only changes the grouping of the cap word. -/
+theorem splitRight_eqToIso (A B : Computations G)
+    (h : (A.concat B).boundary = A.boundary ⊗ valueWord B.word) :
+    A.splitRight B = eqToIso h := by
+  apply Iso.ext
+  exact splitRight_hom A B
+
+/-- The incoming crossing acts as the identity on the trailing value word. -/
+theorem splitLeft_singleton_hom (x : G.Obj) (B : Computations G) :
+    ((Computations.mk [x]).splitLeft B).hom = (crossing x).hom ▷ valueWord B.word :=
+  Proofs.RuntimeCoherence.splitLeft_singleton_hom x B
+
+/-- The outgoing crossing acts as the identity on the trailing value word. -/
+theorem splitLeft_singleton_inv (x : G.Obj) (B : Computations G) :
+    ((Computations.mk [x]).splitLeft B).inv = (crossing x).inv ▷ valueWord B.word :=
+  Proofs.RuntimeCoherence.splitLeft_singleton_inv x B
+
+/-- The left split for an effect with no value ports and a single idle
+value is exactly the elementary crossing of the runtime. -/
+theorem splitLeft_singleton_empty (x : G.Obj) :
+    (Computations.mk [x]).splitLeft (Computations.mk []) = crossing x := by
+  apply Iso.ext
+  exact Proofs.RuntimeCoherence.splitLeft_singleton_empty x
 
 end Silmaril.RuntimeWires.Presentation.Computations

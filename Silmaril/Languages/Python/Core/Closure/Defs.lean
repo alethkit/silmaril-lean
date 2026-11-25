@@ -54,7 +54,7 @@ structure CodeRef where
 structure Function where
   code : CodeRef
   captures : Vector CellId code.layout.captures
-  deriving Repr
+  deriving DecidableEq, Repr
 
 /-- Import a compiler-produced capture list in its existing order. -/
 def Function.ofCaptureList (code : CodeRef) (captures : List CellId)
@@ -62,9 +62,24 @@ def Function.ofCaptureList (code : CodeRef) (captures : List CellId)
   ⟨code, ⟨captures.toArray, by simpa using size⟩⟩
 
 inductive Value where
+  | none
   | int (value : Int)
+  | bool (value : Bool)
   | function (value : Function)
   deriving Repr
+
+def Value.truth : Value → Bool
+  | .none => false
+  | .int value => decide (value ≠ 0)
+  | .bool value => value
+  | .function _ => true
+
+/-- Compare a value in this closed closure profile with an integer literal. -/
+def Value.equalInt : Value → Int → Bool
+  | .int value, right => decide (value = right)
+  | .bool false, right => decide (0 = right)
+  | .bool true, right => decide (1 = right)
+  | .none, _ | .function _, _ => false
 
 /-- Python-level errors carried across frames. An unbound incoming capture
 corresponds to `NameError`; an unbound local or owned cell to `UnboundLocalError`. -/
@@ -72,8 +87,11 @@ inductive RuntimeError where
   | unboundLocal (slot : Nat)
   | unboundOwned (slot : Nat)
   | unboundCapture (slot : Nat)
+  | nameError (name : String)
   | positionalArity (expected actual : Nat)
   | notCallable
+  | additionTypeError
+  | assertionError
   | arithmetic (error : Exception)
   deriving DecidableEq, Repr
 
@@ -82,6 +100,20 @@ inductive Failure where
   | defined (error : RuntimeError)
   | danglingCell (identity : CellId)
   deriving DecidableEq, Repr
+
+/-- Integer-like values in the closed closure value profile. -/
+def Value.asInt? : Value → Option Int
+  | .int value => some value
+  | .bool false => some 0
+  | .bool true => some 1
+  | .none | .function _ => Option.none
+
+/-- Add already evaluated operands. The modeled nonnumeric values are
+plain functions and None, without custom numeric methods. -/
+def Value.addInt (left right : Value) : Except Failure Value :=
+  match left.asInt?, right.asInt? with
+  | some lhs, some rhs => ((BinOp.add.eval lhs rhs).map .int).mapError (.defined ∘ .arithmetic)
+  | _, _ => .error (.defined .additionTypeError)
 
 abbrev Result := Except RuntimeError Value
 

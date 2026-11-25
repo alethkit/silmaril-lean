@@ -65,6 +65,14 @@ def packedArrow {n : Nat} {β : BoundCtx S.Ty n} {t : Tm Empty S.Instr n} {A : S
     (h : HasType S.Instr Ctx.nil β t A) : of (packType β) ⟶ of A :=
   mk (packedTyping h)
 
+/-- A pure typed substitution gives an arrow from the packed target context
+to the packed source context by forming the tuple of its images. -/
+def packedSubst {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx S.Ty m}
+    {σ : Fin n → Tm Empty S.Instr m}
+    (s : PureTypedSubst (Γ := Ctx.nil) (pureEff := S.pureEff) β γ σ) :
+    of (packType γ) ⟶ of (packType β) :=
+  packedArrow ((packTermTyping β).bsubst s.typed)
+
 /-- Open a one-variable term with the tuple of all bound variables. -/
 def unpackedTerm {n : Nat} (β : BoundCtx S.Ty n) (t : Tm Empty S.Instr 1) :
     Tm Empty S.Instr n :=

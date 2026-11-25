@@ -11,6 +11,7 @@ the state left by the preceding premise. A failed premise retains its state. -/
 inductive Eval : {α : Type} → State → Code α → Outcome α → Prop where
   | scalar {s : State} {value : Starlark.Value} :
       Eval s (.scalar value) (.ok (.scalar value) s)
+  | builtin {s : State} {id : Builtin} : Eval s (.builtin id) (.ok (.builtin id) s)
   | string {s : State} {text : String} : Eval s (.string text) (.ok (.string text) s)
   | read {s : State} {ref : Ref} : Eval s (.read ref) (s.read ref)
   | list {s : State} {elements : Code (List Value)} {out : Outcome (List Value)} :
@@ -42,6 +43,8 @@ inductive Eval : {α : Type} → State → Code α → Outcome α → Prop where
       Eval s (.index receiver index) (Outcome.resume out (readIndex value))
   | indexReceiverError {s t : State} {receiver index : Expr} {error : Error} :
       Eval s receiver (.error error t) → Eval s (.index receiver index) (.error error t)
+  | slice {s : State} {operands : Code (List Value)} {out : Outcome (List Value)} :
+      Eval s operands out → Eval s (.slice operands) (Outcome.resume out readSliceOperands)
   | append {s t : State} {receiver argument : Expr} {address : Address} {out : Outcome Value} :
       Eval s receiver (.ok (.list address) t) → Eval t argument out →
       Eval s (.append receiver argument) (Outcome.resume out (appendAt address))

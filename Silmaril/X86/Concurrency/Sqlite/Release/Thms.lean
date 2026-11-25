@@ -35,6 +35,48 @@ theorem sc_release_witness :
         Layer.behaviors .control (releaseInput 0 0 0) :=
   Silmaril.Proofs.X86.Concurrency.Sqlite.Release.sc_release_witness
 
+/-- The issuer’s forwarded value at a byte avoided by all pending peer
+stores changes only by its own issued events. Silent FIFO propagation can
+occur before and after every event. -/
+theorem owner_trace_view {initial final : XState Nat} {events : List (XEvent Nat)} {owner address : Nat}
+    (trace : Tso.Execution XWeakStep initial events final)
+    (actors : ∀ event ∈ events, event.thread = owner)
+    (confined : PeerBuffersAvoid initial owner address) :
+    viewMem final owner address =
+      events.foldl (fun before event => byteEffect event address before) (viewMem initial owner address) ∧
+      PeerBuffersAvoid final owner address :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.owner_trace_view trace actors confined
+
+/-- At a byte avoided by initially pending peer stores and by every issued
+peer write, the issuer's forwarded byte is the fold of its own labels.
+Both issued peer events and silent propagation preserve confinement there. -/
+theorem confined_interleaving_view {initial final : XState Nat} {events : List (XEvent Nat)}
+    {owner address : Nat}
+    (path : Tso.Execution XWeakStep initial events final)
+    (confined : PeerBuffersAvoid initial owner address)
+    (disjoint : ∀ event ∈ events, event.thread ≠ owner → byteEffect event address none = none) :
+    viewMem final owner address =
+      (events.filter (fun event => event.thread == owner)).foldl
+        (fun before event => byteEffect event address before) (viewMem initial owner address) ∧
+      PeerBuffersAvoid final owner address :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.confined_interleaving_view path confined disjoint
+
+/-- If the last issuer label is a locked RMW, its buffer remains empty
+through all trailing peer steps. At a peer-confined byte, the final backing
+value equals the initial issuer view updated by the issuer's labels. -/
+theorem interleaving_last_rmw_backing {initial final : XState Nat}
+    {events : List (XEvent Nat)} {owner address base : Nat} {old new : List Byte}
+    (path : Tso.Execution XWeakStep initial events final)
+    (confined : PeerBuffersAvoid initial owner address)
+    (disjoint : ∀ event ∈ events, event.thread ≠ owner → byteEffect event address none = none)
+    (last : (events.filter (fun event => event.thread == owner)).getLast? =
+      some (.rmw owner base old new)) :
+    final.buffer owner = [] ∧
+      final.memory address =
+        (events.filter (fun event => event.thread == owner)).foldl
+          (fun before event => byteEffect event address before) (viewMem initial owner address) :=
+  Silmaril.Proofs.X86.Concurrency.Sqlite.Release.interleaving_last_rmw_backing path confined disjoint last
+
 /-- Release publishes the owner’s forwarded payload when peers have no pending writes to it. -/
 theorem release_publishes {s t : XState Nat} {tid lock payload : Nat}
     (separate : payload ≠ lock) (confined : PeerBuffersAvoid s tid payload)

@@ -126,6 +126,101 @@ f(events.append(1), c=events.append(2), *[events.append(3)], **{3: events.append
 	fmt.Println("PASS complete argument packs, operand ordering, and argument errors")
 }
 
+func checkRangeSpread() {
+	const setup = `def note(label, value):
+    events.append(label)
+    return value
+def pack(a=7, *rest, tag="default"):
+    events.append(5)
+    return (a, rest, tag)
+events = []
+`
+	g, err := run(setup + `empty = pack(*range(0))
+descending = pack(*range(10, 3, -2))
+mixed = note(0, pack)(note(1, 9), tag=note(2, "mixed"), *note(3, range(10, 3, -2)[::-2]))`)
+	require(err == nil, fmt.Sprint(err))
+	require(g["empty"].String() == `(7, (), "default")` &&
+		g["descending"].String() == `(10, (8, 6, 4), "default")` &&
+		g["mixed"].String() == `(9, (4, 8), "mixed")` &&
+		g["events"].String() == "[5, 5, 0, 1, 2, 3, 5]", fmt.Sprint(g))
+	fmt.Println("PASS empty, descending and sliced range spreads preserve positional order and evaluate once")
+
+	for _, tc := range []struct{ call, want, effects string }{
+		{`pack(a=note(1, 9), *note(2, range(1)), **note(3, []))`, "argument after ** must be a mapping", "[1, 2, 3]"},
+		{`pack(a=note(1, 9), *note(2, range(1)), **note(3, {}))`, `multiple values for parameter "a"`, "[1, 2, 3]"},
+		{`pack(a=note(1, 9), *len(note(2, 8)), **note(3, {}))`, "has no len", "[1, 2]"},
+		{`pack(a=note(1, 9), *range(note(2, 0), 4, 0), **note(3, []))`, "step argument must not be zero", "[1, 2]"},
+	} {
+		g, err := run(setup + "out = [99]\nout[0] = " + tc.call)
+		checkError(err, tc.want)
+		require(g["out"].String() == "[99]" && g["events"].String() == tc.effects, fmt.Sprint(g))
+	}
+	fmt.Println("PASS operand failure skips later operands and mapping validation precedes binding")
+}
+
+func checkDestructuring() {
+	g, err := run(`def f(x):
+    def rhs():
+        events.append(x)
+        return (8, [9, x])
+    (x, [x, y]) = rhs()
+    return (x, y)
+def init():
+    events.append(1)
+    return ([7], (2, 3))
+events = []
+out = f(4)
+payload, [count, _private] = init()`)
+	require(err == nil && g["out"].String() == "(9, 4)" && g["events"].String() == "[4, 1]" &&
+		g["payload"].String() == "[7]" && g["count"].String() == "2", fmt.Sprint(g, err))
+	fmt.Println("PASS standalone nested targets evaluate RHS once and bind locals and globals in order")
+
+	const setup = `def note(value):
+    events.append(1)
+    return value
+events = []
+`
+	g, err = run(setup + `(a, [b, c], d) = note((5, [6], 7))
+events.append(99)`)
+	checkError(err, "too few values to unpack")
+	require(g["events"].String() == "[1]" && g["a"].String() == "5" && g["b"] == nil &&
+		g["c"] == nil && g["d"] == nil, fmt.Sprint(g))
+
+	const driver = `saved = []
+def f():
+    a = 90
+    b = 91
+    c = 92
+    d = 93
+    def read():
+        return (a, b, c, d)
+    saved.append(read)
+`
+	for _, tc := range []struct{ rhs, want, bindings string }{
+		{"note((5, [6], 7))", "too few values to unpack", "(5, 91, 92, 93)"},
+		{"len(note(9))", "has no len", "(90, 91, 92, 93)"},
+	} {
+		g, err := run(setup + driver + "    (a, [b, c], d) = " + tc.rhs + "\nf()")
+		checkError(err, tc.want)
+		read := g["saved"].(*starlark.List).Index(0)
+		value, err := starlark.Call(&starlark.Thread{Name: "observe assignment"}, read, nil, nil)
+		require(err == nil && value.String() == tc.bindings && g["events"].String() == "[1]", fmt.Sprint(g, value, err))
+	}
+	fmt.Println("PASS a later mismatch preserves prior sibling writes and a failed RHS writes no target")
+
+	_, err = run("out = b\na, [b, c] = (1, [2, 3])")
+	checkError(err, "global variable b referenced before assignment")
+	_, err = run("x = 4\ndef f():\n    a, [x] = (1, [x])\nf()")
+	checkError(err, "local variable x referenced before assignment")
+	_, err = run("(x, [x]) = (1, [2])")
+	checkError(err, "cannot reassign global x")
+	_, err = run("x = 1\n(y, [x]) = (1, [2])")
+	checkError(err, "cannot reassign global x")
+	_, err = run("load(\"dep\", x=\"provided\")\n(y, [x]) = (1, [2])")
+	checkError(err, "cannot reassign local x")
+	fmt.Println("PASS full-block name resolution and static single-assignment checks for module patterns")
+}
+
 func checkDefaults() {
 	g, err := run(`counter = []
 def f(xs=[], stamp=counter.append(4)):
@@ -146,10 +241,47 @@ out = f(x=3)`)
 	fmt.Println("NOTE pinned Go accepts required-only bare-star signatures, unlike the pinned prose")
 }
 
+func checkNativeDefaults() {
+	const record = `events = []
+def record(marker, value):
+    events.append(marker)
+    return value
+`
+	g, err := run(record + `def factory(seed):
+    def inner(xs=record(seed, []), *, stamp=record(2, 2)):
+        xs.append(stamp)
+        return xs
+    return inner
+f = factory(1)
+a = f()
+b = f()
+`)
+	require(err == nil && g["a"] == g["b"] && g["b"].String() == "[2, 2]" && g["events"].String() == "[1, 2]",
+		"native defaults must use the defining frame, run in order once, and be reused")
+	g["f"].Freeze()
+	_, err = starlark.Call(&starlark.Thread{Name: "frozen native defaults"}, g["f"], nil, nil)
+	checkError(err, "frozen list")
+	fmt.Println("PASS native positional and keyword-only defaults run once in the defining frame and freeze with the closure")
+
+	g, err = run(record + `def factory(seed):
+    def inner(xs=record(seed, []), *, stamp=len(record(2, 9)), later=record(3, 3)):
+        pass
+    return inner
+f = factory(1)
+`)
+	checkError(err, "has no len")
+	require(g["f"] == nil && g["events"].String() == "[1, 2]",
+		"definition failure must preserve earlier effects and skip later defaults")
+	fmt.Println("PASS a failed default retains effects and stops later defaults and closure delivery")
+}
+
 func main() {
 	checkClosure()
 	checkReentry()
 	checkStoreAndFreeze()
 	checkArguments()
+	checkRangeSpread()
+	checkDestructuring()
 	checkDefaults()
+	checkNativeDefaults()
 }

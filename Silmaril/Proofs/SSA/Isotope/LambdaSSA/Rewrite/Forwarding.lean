@@ -53,7 +53,7 @@ private theorem forwardBlocks {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → Regio
     LSubst.Forwards Γ (List.ofFn R ++ L) (List.ofFn R ++ K) (liftLSubstN n σ) := by
   simpa only [List.length_ofFn] using forwardAppend hσ (List.ofFn R)
 
-private theorem liftAtLocal (σ : Nat → Region Φ) {ℓ n : Nat} (h : ℓ < n) :
+theorem liftAtLocal (σ : Nat → Region Φ) {ℓ n : Nat} (h : ℓ < n) :
     liftLSubstN n σ ℓ = labelId ℓ := by
   induction n generalizing ℓ with
   | zero => exact (Nat.not_lt_zero _ h).elim
@@ -65,7 +65,7 @@ private theorem liftAtLocal (σ : Nat → Region Φ) {ℓ n : Nat} (h : ℓ < n)
           rw [ih (Nat.lt_of_succ_lt_succ h)]
           rfl
 
-private theorem liftAtExit (σ : Nat → Region Φ) (n ℓ : Nat) :
+theorem liftAtExit (σ : Nat → Region Φ) (n ℓ : Nat) :
     liftLSubstN n σ (n + ℓ) = (σ ℓ).renameLabels (fun j => n + j) := by
   induction n with
   | zero =>

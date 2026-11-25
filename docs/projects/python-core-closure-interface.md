@@ -58,10 +58,120 @@ defined outcomes in `Result`.
 [Call theorems](../../Silmaril/Languages/Python/Core/Closure/Call/Thms.lean)
 · [Binding and delivery regression](../../tests/languages/python/closure-runtime/Call.lean)
 
-Call entry takes a resolved function and its parameter layout. The surrounding
-machine supplies code-table lookup and validation, callee body execution and
-the resumed continuation. Keyword arguments, defaults, variadic binding and
-exception-handler execution require additional profiles.
+## Checked code-table dispatch
+
+`Core.Closure.Dispatch.CodeTable` indexes entries by the numeric code key.
+Each entry associates a frame layout with the body and positional parameters
+for that layout. `Dispatch.resolve` checks the closure's expected layout and
+`Dispatch.dispatch` binds already-evaluated positional values. The result
+contains the exact typed body and the entered frame and stack required to
+start executing it. `Dispatch.dispatch_iff` characterizes successful
+dispatch through table membership, capture liveness and the ordered
+`Call.Writes` relation.
+
+Missing code, mismatched layouts and dangling cells indicate invalid runtime
+references. An integer callee and a positional arity mismatch produce defined
+Python errors. The definition's body family is a parameter of dispatch.
+[Dispatch definitions](../../Silmaril/Languages/Python/Core/Closure/Dispatch/Defs.lean)
+· [Dispatch regression](../../tests/languages/python/closure-runtime/Dispatch.lean)
+
+## Fixed positional body execution
+
+`Core.Closure.Executor` instantiates the code table with layout-indexed bodies.
+The supported instructions store a value, call with positional arguments,
+assert an operand, or return. `Body.callTo` chooses `Destination.store slot`
+or `Destination.discard`. `Body.call` abbreviates the store form. Operands are values, bounded
+slot reads, ambient global reads and closure creation with a bounded capture
+map. The callee is evaluated before its arguments, which are evaluated from
+left to right before dispatch.
+
+An assertion evaluates its operand in the current frame. A truthy value
+continues silently. A false value raises the payload-free
+`RuntimeError.assertionError` and skips the remaining body, with the heap
+as it stood when the assertion was reached. Operand errors or faults follow
+their existing paths before truth is tested. `Value.truth` is shared by
+body assertions and the existing module call destination. The body
+instruction covers enabled, message-free assertions.
+[Python assert statement](https://docs.python.org/release/3.12.13/reference/simple_stmts.html#the-assert-statement)
+· [Truth value testing](https://docs.python.org/release/3.12.13/library/stdtypes.html#truth-value-testing)
+
+`Executor.Operand.eqInt` compares one `NameRead.slot` or
+`NameRead.global` against an integer literal. The result is Boolean.
+Integers compare by value, and the two Booleans compare as zero and one.
+`None` and modeled functions compare false against an integer.
+The read's defined error or fault propagates before comparison.
+Equality for general operands and custom equality methods are outside
+this profile.
+[Python comparisons](https://docs.python.org/release/3.12.13/reference/expressions.html#value-comparisons)
+
+`Executor.Body.assertFreevars` tests membership or non-membership of a
+literal's exact code points in a function's profiled `co_freevars` tuple.
+`FreevarsTest.receiver` selects one bounded slot or ambient global read.
+The resulting function's existing reference selects the immutable
+`Dispatch.Definition.freevars` field after code key and layout validation.
+Reading the tuple leaves the heap, frame, function value and capture cells
+unchanged. The test compares the `List UInt32` literal with each recorded
+name's code points. A failed match raises the usual empty assertion error.
+
+`some []` records a profiled empty tuple. Absent metadata and nonfunction
+receivers stop at the distinct unsupported boundaries labeled
+`unprofiledFreevars` and `unsupportedFreevarsReceiver`. A malformed code
+reference retains its missing-key or layout-mismatch fault. The receiver
+read's error or fault takes precedence. `Executor.readFreevars_iff` ties
+success to a checked code row containing the returned tuple. Source supplies
+the admissible lexical metadata.
+
+`Executor.Body.assertCellvars` tests non-membership in the same checked
+row's separate `Dispatch.Definition.cellvars` field. The linker supplies
+the version-neutral owned-cell tuple in its checked order, including
+`some []` for a profiled empty tuple. The assertion uses the same
+receiver read, reference validation, and exact code-point comparison
+as the free-variable check. `unprofiledCellvars` and
+`unsupportedCellvarsReceiver` record the two unsupported boundaries for
+this field. `Executor.readCellvars_iff` identifies the checked definition
+that supplies the tuple.
+[Python code objects](https://docs.python.org/release/3.12.13/reference/datamodel.html#code-objects)
+
+`Executor.Body.assertCodeNames` tests positive membership in the immutable
+`Dispatch.Definition.codeNames` tuple for the current receiver's checked
+code key and layout. The assertion selects CPython 3.13.5 in `exec` mode
+with `optimize=0`. It compares the original `List UInt32` needle with the
+stored names' exact code points. A match continues with the same frame,
+heap and stack. A miss on a profiled tuple, including an explicit empty
+tuple, delivers the defined empty assertion error. The CPython 3.7.3 tag
+records evidence and produces `wrongCodeNamesProfile` at this executor
+boundary. Absent data yields `unprofiledCodeNames`, and a nonfunction
+receiver yields `unsupportedCodeNamesReceiver`. Receiver lookup errors
+and invalid references follow the existing typed paths.
+`Executor.readCodeNames_iff` ties a successful read to the matching tag
+and tuple on the resolved definition.
+
+The executor shares the frame and heap APIs with the compiler. Call entry
+starts the selected body with its initialized frame. Return or an uncaught
+defined error reaches a receiving state with the exact saved caller,
+continuation and older stack, and the callee's residual heap. A successful
+return to a store destination writes the result slot. `StepIn.receiveDiscard`
+silently resumes the saved frame and body with the residual heap and older
+stack, leaving the result unused. A defined error skips the saved body and
+continues unwinding. Invalid runtime references stop in a
+separate fault state. The trace records entry, delivery, completion and
+fault labels. Primitive reads and writes use the existing frame operations.
+
+`Executor.step_iff` proves both directions of correspondence between the
+selector and the rules, including argument evaluation and dispatch
+rejection. `Executor.run_path` relates each fuel-bounded execution to a
+labelled path with the same residual state. Fuel counts transitions.
+The code table may contain recursive calls. The fragment has a finite
+instruction sequence per body and guarantees termination of each selector
+invocation and bounded prefix. It makes no global termination claim.
+
+This syntax covers explicit returns and uncaught errors. Branches, loops,
+arithmetic operands, global writes, keyword and variadic arguments, defaults,
+exception handlers, cleanup, generators and host operations require
+additional runtime profiles.
+[Executor definitions](../../Silmaril/Languages/Python/Core/Closure/Executor/Defs.lean)
+· [Executor theorems](../../Silmaril/Languages/Python/Core/Closure/Executor/Thms.lean)
+· [Executor regression](../../tests/languages/python/closure-runtime/Executor.lean)
 
 The public baseline is the Python 3.12.13 language reference. The Data model
 HTML has SHA-256 `c300d0904a1a03abd7752308eacffbdf7364d95d45f8e52d60076f38a21f763e`.
@@ -78,4 +188,10 @@ lake build --wfail +Silmaril.Languages.Python.Core.Closure.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Regression.lean
 lake build --wfail +Silmaril.Languages.Python.Core.Closure.Call.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Call.lean
+lake build --wfail +Silmaril.Languages.Python.Core.Closure.Dispatch.Thms
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Dispatch.lean
+lake build --wfail +Silmaril.Languages.Python.Core.Closure.Executor.Thms
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Executor.lean
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Freevars.lean
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Cellvars.lean
 ```

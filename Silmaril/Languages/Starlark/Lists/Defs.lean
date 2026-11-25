@@ -9,18 +9,59 @@ namespace Silmaril.Languages.Starlark.Lists
 /-- An index in the shared heap. Allocation appends a fresh cell. -/
 abbrev Address := Nat
 
+/-- Universal callables supported by the resolved shared-store profile. -/
+inductive Builtin where
+  | bool | len | type | list | tuple | range
+  deriving DecidableEq, BEq, Repr
+
+def Builtin.name : Builtin → String
+  | .bool => "bool"
+  | .len => "len"
+  | .type => "type"
+  | .list => "list"
+  | .tuple => "tuple"
+  | .range => "range"
+
+/-- Resolve a name after lexical lookup has ruled out a shadowing binding. -/
+def Builtin.resolve (name : String) : Option Builtin :=
+  ([.bool, .len, .type, .list, .tuple, .range] : List Builtin).find? (fun id => id.name == name)
+
+/-- A checked immutable range, represented without an element list or heap cell. -/
+structure RangeValue where
+  start : Int
+  stop : Int
+  step : Int
+  nonzero : step ≠ 0
+  deriving DecidableEq, Repr
+
+/-- Number of stride steps before the exclusive stop, using exact integers. -/
+def RangeValue.length (span : RangeValue) : Nat :=
+  let distance := if span.step > 0 then span.stop - span.start else span.start - span.stop
+  if distance ≤ 0 then 0 else (distance.toNat - 1) / span.step.natAbs + 1
+
+/-- Apply the range's affine map. This also maps exclusive slice endpoints. -/
+def RangeValue.atOffset (span : RangeValue) (offset : Int) : Int :=
+  span.start + offset * span.step
+
+/-- Compose a range with its normalized slice offsets without enumerating either. -/
+def RangeValue.slice (span offsets : RangeValue) : RangeValue :=
+  ⟨span.atOffset offsets.start, span.atOffset offsets.stop, offsets.step * span.step,
+    Int.mul_ne_zero offsets.nonzero span.nonzero⟩
+
 inductive Value where
   | scalar (value : Starlark.Value)
   | list (address : Address)
   | tuple (address : Address)
   | dict (address : Address)
   | function (address : Address)
+  | builtin (id : Builtin)
   | string (text : String)
+  | range (span : RangeValue)
   deriving DecidableEq, Repr
 
 def Value.address? : Value → Option Address
   | .list address | .tuple address | .dict address | .function address => some address
-  | .scalar _ | .string _ => none
+  | .scalar _ | .builtin _ | .string _ | .range _ => none
 
 /-- Canonical key encoding for tagged scalars and well-bracketed tuples. -/
 inductive KeyPart where
@@ -28,6 +69,7 @@ inductive KeyPart where
   | openTuple
   | closeTuple
   | function (address : Address)
+  | builtin (id : Builtin)
   | string (text : String)
   deriving DecidableEq, BEq, Repr
 
@@ -101,11 +143,22 @@ inductive Error where
   | indexTarget
   | indexType
   | indexRange (index : Int) (length : Nat)
+  | invalidIndexUTF8
+  | sliceTarget
+  | sliceStartType (value : Value)
+  | sliceStopType (value : Value)
+  | sliceStrideType (value : Value)
+  | zeroSliceStride
+  | zeroRangeStep
+  | invalidSliceUTF8
   | assignmentTarget
+  | integerAddType (left right : Value)
   | appendTarget
   | frozen (address : Address)
   | activeIteration (address : Address)
   | notIterable
+  | unpackTarget (value : Value)
+  | unpackArity (expected supplied : Nat)
   | wrongCellKind (address : Address)
   | unhashableKey (value : Value)
   | missingKey (key : Value)
@@ -121,6 +174,9 @@ inductive Error where
   | unexpectedKeyword (name : String)
   | multipleArgumentValues (name : String)
   | missingArguments (names : List String)
+  | builtinArity (id : Builtin) (minimum maximum supplied : Nat)
+  | builtinKeyword (id : Builtin) (name : String)
+  | builtinType (id : Builtin) (value : Value)
   deriving DecidableEq, Repr
 
 abbrev Outcome := EStateM.Result Error State
@@ -212,8 +268,9 @@ def State.keyOf (state : State) (value : Value) : Except Error Key :=
     | some ⟨.tuple _ (some key), _⟩ => .ok key
     | some ⟨.tuple _ none, _⟩ => .error (.unhashableKey value)
     | some _ => .error (.wrongCellKind address)
-  | .list _ | .dict _ => .error (.unhashableKey value)
+  | .list _ | .dict _ | .range _ => .error (.unhashableKey value)
   | .function address => .ok [.function address]
+  | .builtin id => .ok [.builtin id]
   | .string text => .ok [.string text]
 
 def allocateTuple (elements : List Value) : Meaning Value := fun state =>
@@ -243,10 +300,13 @@ def addDisplayEntry (entries : List Entry) (key value : Value) : Meaning (List E
       if (findEntry keyCode entries).isSome then .error (.duplicateKey key) state
       else .ok (entries ++ [⟨key, keyCode, value⟩]) state
 
-/-- List indexes range from `-length` through `length - 1`. -/
+def offsetIndex (length index : Int) : Int :=
+  if index < 0 then length + index else index
+
+/-- Sequence indexes range from `-length` through `length - 1`. -/
 def normalizeIndex (length : Nat) : Value → Except Error (Fin length)
   | .scalar (.int index) =>
-    let offset := if index < 0 then (length : Int) + index else index
+    let offset := offsetIndex length index
     if h : 0 ≤ offset ∧ offset.toNat < length then .ok ⟨offset.toNat, h.2⟩
     else .error (.indexRange index length)
   | _ => .error .indexType
@@ -254,6 +314,12 @@ def normalizeIndex (length : Nat) : Value → Except Error (Fin length)
 def fromExcept {α : Type} : Except Error α → Meaning α
   | .ok value => pure value
   | .error error => throw error
+
+/-- The string profile only admits well-formed UTF-8. -/
+def decodeString (bytes : ByteArray) (invalid : Error) : Except Error Value :=
+  match String.fromUTF8? bytes with
+  | some text => .ok (.string text)
+  | none => .error invalid
 
 def readSequence (elements : List Value) (index : Value) : Meaning Value := do
   let i ← fromExcept (normalizeIndex elements.length index)
@@ -271,10 +337,78 @@ def readDict (address : Address) (key : Value) : Meaning Value := do
 
 def readIndex (receiver index : Value) : Meaning Value :=
   match receiver with
-  | .scalar _ | .function _ | .string _ => throw .indexTarget
+  | .scalar _ | .function _ | .builtin _ => throw .indexTarget
+  | .string text => fromExcept do
+    let bytes := text.toUTF8
+    let offset ← normalizeIndex bytes.size index
+    decodeString ⟨#[bytes[offset.val]'(offset.isLt)]⟩ .invalidIndexUTF8
+  | .range span => fromExcept do
+    let offset ← normalizeIndex span.length index
+    pure (.scalar (.int (span.atOffset offset.val)))
   | .list address => listElements address >>= fun elements => readSequence elements index
   | .tuple address => tupleElements address >>= fun elements => readSequence elements index
   | .dict address => readDict address index
+
+def sliceInteger (typeError : Value → Error) : Value → Except Error (Option Int)
+  | .scalar .none => .ok none
+  | .scalar (.int i) => .ok (some i)
+  | value => .error (typeError value)
+
+def sliceBound (length low high default : Int) (bound : Option Int) : Int :=
+  match bound with
+  | none => default
+  | some index => max low (min high (offsetIndex length index))
+
+/-- Check stride, start and stop in that order and normalize them in index space. -/
+def normalizeSlice (length : Nat) (start stop stride : Value) : Except Error RangeValue := do
+  let step := (← sliceInteger .sliceStrideType stride).getD 1
+  if zero : step = 0 then throw .zeroSliceStride
+  else
+    let lo ← sliceInteger .sliceStartType start
+    let hi ← sliceInteger .sliceStopType stop
+    let n : Int := length
+    if step > 0 then
+      return ⟨sliceBound n 0 n 0 lo, sliceBound n 0 n n hi, step, zero⟩
+    else
+      return ⟨sliceBound n (-1) (n - 1) (n - 1) lo, sliceBound n (-1) (n - 1) (-1) hi, step, zero⟩
+
+/-- Visit the input in index order, returning selected elements in stride order. -/
+def sliceElements {α : Type} (elements : List α) (start stop stride : Value) : Except Error (List α) := do
+  let offsets ← normalizeSlice elements.length start stop stride
+  if offsets.step > 0 then
+    return elements.zipIdx.filterMap fun (value, i) =>
+      let index : Int := i
+      if offsets.start ≤ index ∧ index < offsets.stop ∧ (index - offsets.start) % offsets.step = 0
+      then some value else none
+  else
+    return (elements.zipIdx.filterMap fun (value, i) =>
+      let index : Int := i
+      if offsets.stop < index ∧ index ≤ offsets.start ∧ (offsets.start - index) % (-offsets.step) = 0
+      then some value else none).reverse
+
+/-- Read a slice after all operands have run. Lists and tuples get a fresh
+shallow copy. Strings validate the selected UTF-8 bytes. Ranges compose descriptors. -/
+def readSlice (receiver start stop stride : Value) : Meaning Value :=
+  match receiver with
+  | .list address => do
+    let elements ← listElements address
+    allocate (← fromExcept (sliceElements elements start stop stride))
+  | .tuple address => do
+    let elements ← tupleElements address
+    allocateTuple (← fromExcept (sliceElements elements start stop stride))
+  | .string text => fromExcept do
+    let bytes ← sliceElements text.toUTF8.toList start stop stride
+    decodeString bytes.toByteArray .invalidSliceUTF8
+  | .range span => fromExcept do
+    let offsets ← normalizeSlice span.length start stop stride
+    pure (.range (span.slice offsets))
+  | _ => throw .sliceTarget
+
+/-- Lowered slices supply four values in evaluation order, with `None` for
+omitted bounds. A malformed operand spine has no slice target. -/
+def readSliceOperands : List Value → Meaning Value
+  | [receiver, start, stop, stride] => readSlice receiver start stop stride
+  | _ => throw .sliceTarget
 
 /-- Check mutability before applying a same-kind edit to the current cell. -/
 def editCell (address : Address) (edit : Contents → Except Error Contents) : Meaning Unit := do
@@ -304,9 +438,19 @@ def writeDict (address : Address) (key value : Value) : Meaning Unit :=
       return .dict (putEntry ⟨key, keyCode, value⟩ entries)
     | _ => .error (.wrongCellKind address)) state
 
+/-- Insert one pair into the dictionary under construction. A duplicate leaves
+the accepted prefix intact. Key checks and insertion order match `addDisplayEntry`. -/
+def insertDisplayEntry (receiver key value : Value) : Meaning Unit :=
+  match receiver with
+  | .dict address => do
+    let entries ← dictEntries address
+    let extended ← addDisplayEntry entries key value
+    editCell address fun _ => .ok (.dict extended)
+  | _ => throw .assignmentTarget
+
 def writeIndex (receiver index value : Value) : Meaning Unit :=
   match receiver with
-  | .scalar _ | .tuple _ | .function _ | .string _ => throw .assignmentTarget
+  | .scalar _ | .tuple _ | .function _ | .builtin _ | .string _ | .range _ => throw .assignmentTarget
   | .list address =>
     updateCell address fun elements => do
       let i ← normalizeIndex elements.length index
@@ -321,6 +465,7 @@ def appendAt (address : Address) (value : Value) : Meaning Value := do
 expressions and statements share a structural recursion principle. -/
 inductive Code : Type → Type where
   | scalar (value : Starlark.Value) : Code Value
+  | builtin (id : Builtin) : Code Value
   | string (text : String) : Code Value
   | read (ref : Ref) : Code Value
   | list (elements : Code (List Value)) : Code Value
@@ -332,6 +477,7 @@ inductive Code : Type → Type where
   | empty : Code (List Value)
   | cons (head : Code Value) (tail : Code (List Value)) : Code (List Value)
   | index (receiver index : Code Value) : Code Value
+  | slice (operands : Code (List Value)) : Code Value
   | append (receiver argument : Code Value) : Code Value
   | pass : Code Unit
   | eval (expr : Code Value) : Code Unit

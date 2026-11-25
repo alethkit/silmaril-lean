@@ -8,11 +8,22 @@ propositions. Import
 [`Silmaril.Logic.Temporal.TLA.General.Institution.Thms`](../../Silmaril/Logic/Temporal/TLA/General/Institution/Thms.lean)
 for the room functor and satisfaction condition.
 
+For named TLA+ source trees, import
+[`Silmaril.Logic.Temporal.TLA.Surface.Defs`](../../Silmaril/Logic/Temporal/TLA/Surface/Defs.lean)
+and use the namespace `Silmaril.Logic.Temporal.TLA.Surface`. See
+[TLA+ surface syntax](#tla-surface-syntax) for its grammar coverage.
+
 The reference is Leslie Lamport's *The Temporal Logic of Actions*,
 §§5.3–5.6 and Fig. 4 for Simple TLA, §§2.6–2.7 for rigid variables and enabling,
 §8.2, equation (49) and Fig. 9 for General TLA, and §8.3.2 for refinement mappings.
 *Specifying Systems*, §§8.1, 8.3, 8.8 and 16.2.4, provides the specification and
-fairness conventions. [Paper](https://lamport.azurewebsites.net/pubs/lamport-actions.pdf)
+fairness conventions. The reference audit maps Figures 4, 5 and 9 to Lean
+definitions and theorems and lists the outstanding obligations. Import
+`Silmaril.Logic.Temporal.TLA.Rules.Thms` for semantic quantifier rules and
+auxiliary-state refinement.
+[Lamport reference audit](tla-lamport-audit.md)
+· [Rule statements](../../Silmaril/Logic/Temporal/TLA/Rules/Thms.lean)
+· [Paper](https://lamport.azurewebsites.net/pubs/lamport-actions.pdf)
 · [Book](https://lamport.azurewebsites.net/tla/book-21-07-04.pdf)
 
 ## Typed Simple TLA
@@ -211,23 +222,94 @@ lift successors, and any extension to scoped substitution would need
 semantics and laws under binders. Changes of sorts or carriers would also
 need their own reindexing semantics.
 
-## Handoff to the TLA+ abstract syntax and codec
+## TLA+ surface syntax
 
-First define a structural TLA+ AST for an explicit fragment and elaborate
-it into `General.Expr`, `Action`, `StatePred` and `Formula` over checked
-scopes. The standalone leaves contain Lean functions, so the AST needs
-its own representation of terms, actions and binding. Track rigid and
-flexible declarations, sorts, and bound names during elaboration. Give
-priming and `ENABLED` their action and state levels, respectively, and
-use `Formula.existsFlex` for temporal hiding. On the supported renamings,
-check that elaborating a renamed formula agrees with the room's sentence
-map, including under binders.
+`Surface.Module` is the compilation-unit tree, with public constructors for
+its units, expressions and proofs. The grammar inventory follows SANY at
+`bc1b506bdcad80bb518bf3776a9161c34ff0fc4c` (the JavaCC file's SHA-256 is
+`bfc981f31c205333f478b773ab108159b5e2d339b659d33b0f920d56ebf4253d`).
+Lamport's *Specifying Systems*, Chapters 8 and 16, supplies the specification
+notation and language reference. The TLA+ Version 2 notes cover later proof
+and subexpression forms. [Pinned SANY grammar](https://github.com/tlaplus/tlaplus/blob/bc1b506bdcad80bb518bf3776a9161c34ff0fc4c/tlatools/org.lamport.tlatools/javacc/tla%2B.jj)
+· [Specifying Systems](https://lamport.azurewebsites.net/tla/book-21-07-04.pdf)
+· [TLA+ Version 2](https://lamport.azurewebsites.net/tla/tla2.html)
 
-Then define an S-expression encoding of the structural AST and prove
-decode-after-encode on the supported AST. Specify the accepted forms and
-how malformed inputs are rejected. Keep that round trip independent of
-the later parser for concrete TLA+ text. Concrete parsing and Quint
-integration follow the AST and codec.
+| SANY productions | Surface representation |
+| --- | --- |
+| `CompilationUnit`, `Module`, `BeginModule`, `EndModule`, `Extends`, `Body` | `Module` keeps its name, ordered `EXTENDS` names and ordered `ModuleUnit`s, including nested modules. |
+| `VariableDeclaration`, `ParamDeclaration`, `ParamSubDecl`, `Recursive`, `ConstantDeclarationItems`, `IdentDecl`, `SomeFixDecl` | Variable groups, constants and recursive signatures. `OperatorDecl` keeps identifier arities and symbolic fixity. |
+| `OperatorOrFunctionDefinition`, `IdentLHS`, `PrefixLHS`, `InfixLHS`, `PostfixLHS` | `Definition` keeps `LOCAL` and separates operator heads, bounded function heads and named instance heads. Identifier heads can bind operator parameters. |
+| `Instance`, `Instantiation`, `Substitution`, `LetIn`, `LetDefinitions` | Unnamed and named instances share ordered `WITH` substitutions. `LetDecl` retains the interleaving of definitions and `RECURSIVE` declarations. |
+| `PrimitiveExp`, `OpArgs`, `OpSuite`, `OpOrExpr`, `Lambda`, `BangExt`, `StructOp`, `NoOpExtension` | `Expr.ref` keeps its identifier, symbolic operator or proof-step head, its arguments and its ordered bang segments. Each named segment has its own arguments. `Selector` covers named segments, `!(args)`, `!n`, `!<<`, `!>>`, `!:` and `!@`. `OpArg` keeps expression-shaped arguments, bare symbolic operators and `LAMBDA`. |
+| `Expression`, `ExtendableExpr`, `OpenExpression`, `ParenthesesExpression`, `ParenExpr`, `OpenStart`, operator token classes | Prefix, infix and postfix applications have fixed operand counts. A Cartesian product chain retains its ordered factors. Nesting retains the grouping of applications and of product chains. Expression labels retain their parameter names. |
+| `String`, `Number`, `Identifier` | Decoded strings, natural numerals, exact decimal whole parts and fractional digits, and unresolved identifier text. |
+| `SomeQuant`, `SomeTQuant`, `QuantBound`, `IdentifierTuple`, `UnboundOrBoundChoose`, `MaybeBound` | Bounded and unbounded rigid quantification, unbounded temporal quantification, and bounded and unbounded `CHOOSE`. Shared domains, bound identifier groups, and tuple patterns remain distinct. |
+| `BraceCases`, `SBracketCases`, `TupleOrAction`, `FieldVal`, `FieldSet`, `ExceptSpec`, `ExceptComponent` | Set enumeration, filtering and mapping, bounded functions, function sets, tuple construction, records and record sets, indexing and field selection. `EXCEPT` holds ordered updates with ordered index/field components, and bare `@` has its own node. `f[i,j]`, `f[<<i,j>>]` and `F(i,j)` have distinct shapes. |
+| `ReducedExpression`, `FairnessExpr`, action alternatives of `TupleOrAction` and `SBracketCases`, prefix/infix/postfix productions | Square and angle action brackets retain body and subscript. WF and SF retain observation and action. Prime, `ENABLED`, `UNCHANGED`, always, eventually, action composition, leads-to and guarantees have dedicated operator constructors. |
+| `IfThenElse`, `Case`, `CaseArm`, `OtherArm`, `Junctions`, `DisjList`, `ConjList`, `JuncItem` | Conditionals, ordered CASE arms and optional OTHER, and ordered conjunction/disjunction lists. A junction list remains distinct from a binary infix tree. |
+| `Assumption`, `Theorem`, `AssumeProve`, `NewSymb` | Optional theorem and assumption names. Statements keep expression goals, nested and labeled ASSUME/PROVE, the mode of each keyword, and NEW variable, bounded constant or level-qualified operator hypotheses. |
+| `Proof`, `UseOrHideOrBy`, `StepStartToken`, `Step`, `QEDStep` | Proof omission, explicit OMITTED, OBVIOUS, BY and ordered hierarchical proofs with a dedicated closing QED and its optional proof. Citations keep facts and DEF lists, expression and MODULE entries, and ONLY for USE and BY. Step headers retain numeric or relative levels and optional names. |
+| `DefStep`, `HaveStep`, `TakeStep`, `WitnessStep`, `PickStep`, `CaseStep`, `AssertStep` and the INSTANCE and USE/HIDE step alternatives | `StepBody` records each form, including SUFFICES, and carries a child proof on assertion, SUFFICES, PICK and CASE. TAKE and PICK retain binder groups, and WITNESS retains its expression list for later interpretation. |
+
+The tree omits the ignored `Prelude` pragma, source ranges, comments, module
+rules made of dashes or equals signs, separators, indentation, redundant
+parentheses, and optional proof punctuation and markers such as PROOF and
+DEFINE. It normalizes synonymous declaration and theorem keywords,
+numeral bases, string escapes, and the dedicated operator spellings.
+Other symbolic operators retain their spelling and fixity. The usual
+identifier and parameter-list forms of labels are represented. The broader
+JavaCC label lookahead can accept nonidentifier heads or parameters before
+semantic checking. The action bracket represents a single body and the
+decimal form represents decimal digits. The grammar's permissive shared
+bracket and numeral productions can also admit apparent action operand
+lists or base-prefixed decimal pieces outside these forms.
+
+The tree types enforce operand counts for fixed arity operators, a separate
+QED for each hierarchical proof, and the distinction between a bounded
+function head and an operator head. They leave nonempty-list requirements,
+identifier and literal lexing, reserved symbols, precedence, admissible
+action subscripts, proof-level consistency and other concrete syntax checks
+to the parser or a validation layer. For example, one can construct an
+empty `EXCEPT` update list or an empty `BY` citation list. A later semantic
+pass must resolve operators, labels, selectors, step references and module
+instances, check arities and substitutions, establish binding and `@` scope,
+check ASSUME/PROVE modes and TLA+ expression levels, and interpret proof
+obligations. Position maps and diagnostics can accompany a tree externally.
+The native [source parser](tla-parser.md) produces these trees from TLA+
+modules and expressions. Its coverage table describes the supported syntax and
+the remaining productions. The [source elaborator](tla-elaborator.md) checks
+scalar state predicates and actions as well as temporal conjunctions with
+bracket modalities and WF/SF clauses. The [source import path](tla-quint-import.md)
+connects both stages on intact Quint exports and a temporal example. TLC
+configuration, PlusCal translation and proof checking are separate work.
+
+### Checked surface examples
+
+The examples pair TLA+ source with handwritten Lean trees for a bounded FIFO
+queue with weak fairness and a hierarchical proof, and a dispatcher with a
+nested worker module, parameterized instantiation and record updates.
+Lean also checks focused examples for labels and selectors, operator
+arguments, LET with RECURSIVE, temporal binding, and nested SUFFICES.
+Lean checks the AST constructors and shape. SANY can process the TLA+
+source independently. [Surface examples](../../Silmaril/Logic/Temporal/TLA/Surface/Examples.lean)
+
+~~~sh
+lake build --wfail +Silmaril.Logic.Temporal.TLA.Surface.Defs \
+  +Silmaril.Logic.Temporal.TLA.Surface.Examples
+~~~
+
+### Versioned S-expression codec
+
+The [version 1 wire schema](tla-surface-sexp.md) covers the entire Surface AST
+and includes the positional field types for every constructor. The
+`Silmaril.ProofFormats.TLA.SurfaceSExp.Thms` header exposes the module and
+expression APIs and their tree, text and UTF-8 byte round trips. Successful
+decoding implies that re-encoding reproduces the exact S-expression tree.
+
+~~~sh
+lake build --wfail +Silmaril.ProofFormats.TLA.SurfaceSExp.Thms \
+  +Silmaril.ProofFormats.TLA.SurfaceSExp.Examples
+~~~
 
 ## Checked examples and coverage
 
@@ -254,7 +336,7 @@ lake build --wfail +Silmaril.Logic.Temporal.TLA.Thms +Silmaril.Logic.Temporal.TL
 
 | Area | Formalized | Remaining |
 | --- | --- | --- |
-| Terms and actions | Typed variable lookup, denotational expressions and actions, rigid existential quantification, explicit state-level `ENABLED` | First-order expression and action ASTs, elaboration, and general capture-avoiding term substitution |
+| Terms and actions | Typed variable lookup, denotational expressions and actions, rigid existential quantification, explicit state-level `ENABLED`, and scalar source elaboration | Wider source elaboration and general capture-avoiding term substitution |
 | Temporal formulas | Typed Simple and General TLA syntax and semantics, rigid and flexible quantifiers, whole-state stutter invariance, and scoped reindexing | A derivation calculus with the syntactic substitution rules of Fig. 9, machine closure, completeness results, and a Lean comparison with a separate stutter-reduction operator |
-| Specifications | Simple TLA fairness, invariant and progress rules, and semantic state-map refinement | General refinement substitution and auxiliary-variable theorems |
-| Integration | The General TLA room functor and satisfaction condition for fixed carriers | TLA+ AST, S-expression codec, concrete parser, and Quint integration |
+| Specifications | Simple TLA fairness, invariant and progress rules, semantic state-map refinement, and source elaboration of bracket and fairness conjunctions | Wider temporal source elaboration, general refinement substitution and auxiliary-variable theorems |
+| Integration | The General TLA room functor and satisfaction condition for fixed carriers, a named TLA+ surface AST with a verified S-expression codec and native parser including hierarchical proofs and step references, and bounded checks of two pinned Quint imports | SANY source compatibility gaps, wider elaboration, and general exporter correctness |

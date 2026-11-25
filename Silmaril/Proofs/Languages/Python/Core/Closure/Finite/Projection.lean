@@ -58,18 +58,25 @@ theorem write_project (table : HeapTable) (identity : CellId) (value : Value) :
 
 variable {layout : Layout}
 
-private theorem writeCell_project (source : Snapshot layout) (identity : CellId) (value : Value) :
-    let next := source.writeCell identity value
-    (next.1, next.2.project) =
-      match source.frame.writeCell source.heap.project identity value with
-      | .ok next => (.write (.ok ()), next)
-      | .error failure => (.write (.error failure), source.project) := by
+private theorem bindCell_project (source : Snapshot layout) (identity : CellId) (value : Value) :
+    (source.bindCell identity value).map Snapshot.project =
+      source.frame.writeCell source.heap.project identity value := by
   have agrees := write_project source.heap identity value
   cases written : source.heap.write identity value with
-  | none => simp [written] at agrees
-            simp [Snapshot.writeCell, Frame.writeCell, written, ← agrees]
-  | some heap => simp [written] at agrees
-                 simp [Snapshot.writeCell, Frame.writeCell, written, ← agrees, Snapshot.project]
+  | none =>
+    simp [written] at agrees
+    simp [Snapshot.bindCell, Frame.writeCell, written, ← agrees, Except.map]
+  | some heap =>
+    simp [written] at agrees
+    simp [Snapshot.bindCell, Frame.writeCell, written, ← agrees, Except.map, Snapshot.project]
+
+theorem snapshot_write_project (source : Snapshot layout) (slot : Slot layout) (value : Value) :
+    (source.write slot value).map Snapshot.project =
+      source.frame.write source.heap.project slot value := by
+  cases slot with
+  | «local» index => rfl
+  | owned index => exact bindCell_project source (source.frame.owned index) value
+  | capture index => exact bindCell_project source (source.frame.captures index) value
 
 theorem execute_project (source : Snapshot layout) (request : Request layout) :
     let next := source.execute request
@@ -77,10 +84,12 @@ theorem execute_project (source : Snapshot layout) (request : Request layout) :
   cases request with
   | read slot => rfl
   | write slot value =>
-    cases slot with
-    | «local» index => rfl
-    | owned index => exact writeCell_project source (source.frame.owned index) value
-    | capture index => exact writeCell_project source (source.frame.captures index) value
+    have agrees := snapshot_write_project source slot value
+    change _ = (match source.frame.write source.heap.project slot value with
+      | .ok next => (Response.write (.ok ()), next)
+      | .error failure => (Response.write (.error failure), source.project))
+    rw [← agrees]
+    cases written : source.write slot value <;> simp [Snapshot.execute, Snapshot.reportWrite, written, Except.map]
   | fresh captures =>
     change (Response.fresh, ((source.heap.reserve layout.owned).project,
         (Frame.fresh source.heap.project captures).2)) = (Response.fresh, Frame.fresh source.heap.project captures)
