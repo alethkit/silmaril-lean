@@ -146,6 +146,7 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.NestedTheta.% +Silmaril.Proofs.SSA.RVSDG.NestedTheta.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedTheta.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.% +Silmaril.Proofs.SSA.RVSDG.Interprocedural.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGInterprocedural.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.Terms.% +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Terms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Terms.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGInterproceduralTerms.lean)
+	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.Runtime.% +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Linking +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Invocation,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGModuleLinking.lean)
 
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)
