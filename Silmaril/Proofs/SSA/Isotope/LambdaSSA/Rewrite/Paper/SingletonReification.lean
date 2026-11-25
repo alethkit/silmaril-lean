@@ -69,7 +69,7 @@ private theorem lookup0 {Γ : VCtx τ} {D : τ} :
   rfl
 
 set_option backward.isDefEq.respectTransparency false in
-private theorem denote_applyPacked (hp : ValueBranches [Silmaril.product X A] p [D]) :
+@[reassoc] theorem denote_applyPacked (hp : ValueBranches [Silmaril.product X A] p [D]) :
     denoteRegion J M (applyPacked_typed hp).hasType ≫ J.map (singletonLabelPayload M D) =
       J.map (((λ_ (M.obj X)).hom ▷ M.obj A) ≫ (M.productIso X A).inv) ≫
         denoteSingletonRegion J M hp.hasType := by
