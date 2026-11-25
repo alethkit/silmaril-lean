@@ -82,6 +82,7 @@ private theorem starFrame (star : Option Value) : FrameAction (expandStar star) 
     | list => exact actionList _
     | tuple => exact actionTuple _
     | dict => exact actionMap _ (actionDict _)
+    | range => exact actionPure _
     | _ => exact actionThrow _
 
 private theorem starStarFrame (starStar : Option Value) : FrameAction (expandStarStar starStar) := by
@@ -141,13 +142,13 @@ private theorem expands_state {s : State} {args : EvaluatedArguments} {out : Out
     have first := starStar_state args.starStar s
     have last := star_state args.star next
     rw [read] at first
-    rw [failed] at last
+    rw [(expandsStar_iff_expandStar _ _ _).mp failed] at last
     exact last.trans first
   | @success keys values next final read succeeded =>
     have first := starStar_state args.starStar s
     have last := star_state args.star next
     rw [read] at first
-    rw [succeeded] at last
+    rw [(expandsStar_iff_expandStar _ _ _).mp succeeded] at last
     exact last.trans first
 
 private theorem prepare_frame (program : Program) (available : List DeclarationId)

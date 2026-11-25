@@ -10,6 +10,11 @@ namespace Silmaril.Languages.Starlark.Functions.Lowering
 
 open Lists (State Outcome)
 
+/-- Positional spread rules agree on the yielded values or error and exact state. -/
+theorem expandsStar_iff_expandStar (state : State) (star : Option Lists.Value)
+    (out : Outcome (List Lists.Value)) : ExpandsStar state star out ↔ expandStar star state = out :=
+  Proofs.Languages.Starlark.Functions.Expressions.expandsStar_iff_expandStar state star out
+
 /-- Operational expansion and executable expansion give the same outcome. -/
 theorem expands_eq {state : State} {args : EvaluatedArguments} {out : Outcome Actual}
     (ran : Expands args state out) : args.expand state = out :=

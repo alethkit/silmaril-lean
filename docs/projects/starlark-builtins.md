@@ -84,8 +84,8 @@ argument-signature and module-failure differences remain recorded in their
 guides.
 [Strings][strings] · [Pinned Go built-ins][go-library] · [Arguments](starlark-functions.md#argument-binding) · [Modules](starlark-modules.md)
 
-Range spreading and loop destructuring remain separate. Additional
-value types include bytes, sets and iterable views,
+Calls can [spread ranges as positional arguments](starlark-functions.md#argument-binding).
+Loop destructuring remains open. Additional value types include bytes, sets and iterable views,
 floats and host values. The other pinned universal
 functions are `abs`, `any`, `all`, `bytes`, `dict`, `dir`,
 `enumerate`, `fail`, `float`, `getattr`, `hasattr`, `hash`, `int`,
