@@ -180,6 +180,38 @@ outside this adapter. The preservation theorem starts at the resulting
 resolved tree.
 [Resolver](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Defs.lean) · [End-to-end Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Checks.lean)
 
+## Quoting an expression in Lean
+
+`starlark%[...]` constructs a `Lowering.Resolve.SourceExpr` in a Lean file.
+It accepts grouped expressions, simple ASCII identifiers, decimal integer
+literals with optional minus, plain double-quoted strings, nested calls,
+conditionals and operand-valued `and` and `or`. Calls accept positional
+and named arguments followed by optional `*` and `**`, with an optional
+trailing comma. Quoted names are strings in the AST. The resolver still
+uses the caller's Starlark lexical context.
+
+```lean
+module
+
+import Silmaril.Languages.Starlark.Functions.Lowering.Quote.Defs
+
+open Silmaril.Languages.Starlark.Functions.Lowering
+open scoped Silmaril.Languages.Starlark.Functions.Lowering.Quote
+
+def exampleExpression : Resolve.SourceExpr :=
+  starlark%[(len(*items, **keywords) or len(9)) if True else len(9)]
+```
+
+The quotation uses Lean's lexer. It rejects unsupported literal spellings,
+list displays, subscripts, binary `+`, duplicate explicit keywords and
+invalid argument ordering with source ranges. Other forms outside its
+grammar get Lean parser diagnostics. Arbitrary Starlark text, statements,
+the full identifier and string lexical grammar, and locations on resolver
+errors remain outside this entry point. The quotation and resolver have
+separate regression checks. The lowering preservation theorem continues
+to start with a resolved expression.
+[Quotation](../../Silmaril/Languages/Starlark/Functions/Lowering/Quote/Defs.lean) · [Quotation-to-execution and diagnostic fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Quote/Checks.lean)
+
 ## Checks and extensions
 
 ```sh
@@ -188,7 +220,8 @@ lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.LoopChecks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Checks \
   +Silmaril.Languages.Starlark.Functions.Lowering.PreservationChecks \
-  +Silmaril.Languages.Starlark.Functions.Lowering.Resolve.Checks
+  +Silmaril.Languages.Starlark.Functions.Lowering.Resolve.Checks \
+  +Silmaril.Languages.Starlark.Functions.Lowering.Quote.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
