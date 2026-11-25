@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Defs
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Feedback
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.SingleTheta.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Thms
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Environments
@@ -11,6 +12,7 @@ namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomo
 
 open Continuation.Partial
 open Continuation.Descent (Pending)
+open SingleTheta (Carries)
 open Isomorphism.Invocation (loopVertex)
 open Isomorphism.Proofs (LocalsRelated read_same)
 
@@ -33,6 +35,7 @@ theorem block_observations
   | acyclic _ sites _ _ => exact ⟨rfl, sites, rfl⟩
   | theta _ _ _ _ _ _ _ sites _ _ => exact ⟨rfl, sites, rfl⟩
   | gamma _ _ _ _ _ ih => exact ⟨congrArg (Location.gamma _) ih.1, ih.2⟩
+  | loop _ _ _ _ _ _ _ ih => exact ⟨congrArg Location.loop ih.1, ih.2⟩
 
 theorem block_evals
     (stopped : BlockPair primitives ids mapping left right inputL inputR store locL locR stopL stopR) :
@@ -57,6 +60,17 @@ theorem block_evals
     refine ⟨.bindBlocked (node := vertex inputs sigsL) ?_, .bindBlocked (node := vertex inputs sigsR) ?_⟩
     · exact selectedL.symm ▸ Eval.gamma (cs := sigsL) (children := armsL) childL
     · exact selectedR.symm ▸ Eval.gamma (cs := sigsR) (children := armsR) childR
+
+  | @loop _ _ _ sigsL sigsR _ _ _ _ _ _ _ _ _ _ stopL stopR
+      initial outputs startsL startsR startsStore completed _ ih =>
+    cases stopL
+    cases stopR
+    have ran := rewind completed ⟨Eval.loopBlocked ih.1, Eval.loopBlocked ih.2⟩
+    obtain ⟨ranL, ranR⟩ := ran
+    rw [startsL, startsStore] at ranL
+    rw [startsR, startsStore] at ranR
+    exact ⟨.bindBlocked (node := loopVertex initial sigsL) (.theta ranL),
+      .bindBlocked (node := loopVertex initial sigsR) (.theta ranR)⟩
 
 private theorem selected_tuple {valuesL valuesR : Tuple m.Val (.control (extra + 2) :: entry)}
     (related : TupleRelated m ids valuesL valuesR) :
@@ -90,60 +104,77 @@ theorem gamma
     · exact selectR.symm ▸ Eval.gamma (cs := childSigsR) (children := armsR) ranR
   | blocked stopped => exact .blocked (.gamma inputs outputs selectL selectR stopped)
   | productive run =>
-    cases run with
-    | @reached _ _ _ _ _ _ pendingL pendingR paired ranL ranR =>
-      refine .productive (.reached
-        (pendingL := .bind (past := []) (.ret outputs) inputL PUnit.unit pendingL)
-        (pendingR := .bind (past := []) (.ret outputs) inputR PUnit.unit pendingR)
-        paired (.inside (node := vertex inputs childSigsL) ?_) (.inside (node := vertex inputs childSigsR) ?_))
-      · exact selectL.symm ▸ Feedback.Reaches.gamma (cs := childSigsL) (children := armsL) ranL
-      · exact selectR.symm ▸ Feedback.Reaches.gamma (cs := childSigsR) (children := armsR) ranR
+    refine .productive (productive_map run ?_ ?_)
+    · intro target pending reached
+      refine ⟨.bind (past := []) (.ret outputs) inputL PUnit.unit pending, .inside (node := vertex inputs childSigsL) ?_⟩
+      exact selectL.symm ▸ Feedback.Reaches.gamma (cs := childSigsL) (children := armsL) reached
+    · intro target pending reached
+      refine ⟨.bind (past := []) (.ret outputs) inputR PUnit.unit pending, .inside (node := vertex inputs childSigsR) ?_⟩
+      exact selectR.symm ▸ Feedback.Reaches.gamma (cs := childSigsR) (children := armsR) reached
 
-private theorem enter_theta {body : SingleTheta.Body Op carried sigsL}
+private theorem initial_restart {body : LoopBody Op carried sigsL}
     (initial : Wires args [] carried) (outputs : Wires args [carried] outs) (input : Tuple m.Val args) (store : σ) :
-    Feedback.Reaches primitives (.region (SingleTheta.code initial body outputs) input PUnit.unit) store
-      ⟨carried, sigsL, embed body.toTerm, (initial.read input PUnit.unit, store)⟩
+    Feedback.Reaches primitives (.region (loopCode initial body outputs) input PUnit.unit) store
+      ⟨carried, sigsL, body, (initial.read input PUnit.unit, store)⟩
       (.bind (past := []) (.ret outputs) input PUnit.unit .empty) :=
   .inside (node := loopVertex initial sigsL)
     (.theta (.restart (input := (initial.read input PUnit.unit, store))
       (current := (initial.read input PUnit.unit, store)) .refl))
 
-private theorem theta {bodyL : SingleTheta.Body Op carried sigsL} {bodyR : SingleTheta.Body Op carried sigsR}
+/-- Compose θ with any paired observation of its fresh body activations. -/
+theorem loop {bodyL : LoopBody Op carried sigsL} {bodyR : LoopBody Op carried sigsR}
     (initial : Wires args [] carried) (outputs : Wires args [carried] outs)
-    (admitted : OrderedGraph (mapping.child 0 0) bodyL bodyR)
-    (respects : ActionsRespect primitives ids) (inputs : TupleRelated m ids inputL inputR) (store : σ) :
-    RegionPair primitives ids mapping (SingleTheta.code initial bodyL outputs)
-      (SingleTheta.code initial bodyR outputs) inputL inputR store := by
-  let first : SingleTheta.Carries m ids σ carried :=
+    (observe : ∀ {nextL nextR : Tuple m.Val carried}, TupleRelated m ids nextL nextR → ∀ store,
+      RegionPair primitives ids (mapping.child 0 0) bodyL bodyR nextL nextR store)
+    (inputs : TupleRelated m ids inputL inputR) (store : σ) :
+    RegionPair primitives ids mapping (loopCode initial bodyL outputs)
+      (loopCode initial bodyR outputs) inputL inputR store := by
+  let first : Carries m ids σ carried :=
     ⟨initial.read inputL PUnit.unit, initial.read inputR PUnit.unit,
       read_same inputs LocalsRelated.empty initial, store⟩
-  rcases SingleTheta.loop_observations admitted respects first with ⟨_, _, finished⟩ | productive
-  · have ran := finished.eval
-    obtain ⟨current, completed, terminal⟩ := finished
-    cases terminal with
-    | @exited _ _ _ finalStore _ values _ _ =>
+  cases classify (fun current => observe current.related current.store) first with
+  | outer live =>
+    exact .productive (.feedback live (initial_restart initial outputs inputL store)
+      (initial_restart initial outputs inputR store))
+  | activation completed observed =>
+    cases observed with
+    | @exited _ _ _ finalStore exits values ranL ranR =>
+      have ran := rewind completed ⟨Eval.stop ranL exits, Eval.stop ranR exits⟩
       have locals := LocalsRelated.empty.snoc (fun _ _ same => same) rfl values
       exact .returned (finalStore := finalStore) (read_same inputs locals outputs)
         (.bind (node := loopVertex initial sigsL) (.theta ran.1) (.ret outputs _ _ _))
         (.bind (node := loopVertex initial sigsR) (.theta ran.2) (.ret outputs _ _ _))
-    | blocked location sites firstL firstR =>
-      exact .blocked (.theta initial outputs rfl rfl rfl completed location sites firstL firstR)
-  · exact .productive (.reached productive
-      (enter_theta initial outputs inputL store) (enter_theta initial outputs inputR store))
+    | blocked stopped =>
+      exact .blocked (.loop initial outputs rfl rfl rfl completed stopped)
+    | inner live =>
+      refine .productive (productive_map live ?_ ?_)
+      · intro target pending reached
+        exact ⟨.bind (past := []) (.ret outputs) inputL PUnit.unit (.loop bodyL pending),
+          .inside (node := loopVertex initial sigsL) (.theta (.iteration (left_completed completed) reached))⟩
+      · intro target pending reached
+        exact ⟨.bind (past := []) (.ret outputs) inputR PUnit.unit (.loop bodyR pending),
+          .inside (node := loopVertex initial sigsR) (.theta (.iteration (right_completed completed) reached))⟩
+
+private theorem acyclic {bodyL : Graph Op args [] sigsL outs} {bodyR : Graph Op args [] sigsR outs}
+    (admitted : OrderedGraph mapping bodyL bodyR) (respects : ActionsRespect primitives ids)
+    (inputs : TupleRelated m ids inputL inputR) (store : σ) :
+    RegionPair primitives ids mapping (embed bodyL.toTerm) (embed bodyR.toTerm) inputL inputR store := by
+  obtain ⟨_, _, paired⟩ := Local.graph_evaluate admitted respects inputs store
+  cases paired with
+  | returned values ranL ranR => exact .returned values ranL ranR
+  | blocked location sites ranL ranR => exact .blocked (.acyclic location sites ranL ranR)
 
 theorem regions (admitted : CodePair Op mapping left right) (respects : ActionsRespect primitives ids)
     (inputs : TupleRelated m ids inputL inputR) (store : σ) :
     RegionPair primitives ids mapping left right inputL inputR store := by
   induction admitted generalizing store with
-  | acyclic admitted =>
-    obtain ⟨_, _, paired⟩ := Local.graph_evaluate admitted respects inputs store
-    cases paired with
-    | returned values ranL ranR => exact .returned values ranL ranR
-    | blocked location sites ranL ranR => exact .blocked (.acyclic location sites ranL ranR)
-  | theta initial outputs _ admitted => exact theta initial outputs admitted respects inputs store
+  | acyclic admitted => exact acyclic admitted respects inputs store
+  | theta initial outputs _ admitted =>
+    exact loop initial outputs (fun related store => acyclic admitted respects related store) inputs store
   | gamma wiring outputs _ _ children =>
     exact gamma wiring outputs (by
       intro tag _ _ paired
       exact children tag paired store) inputs
+  | loop initial outputs _ _ body => exact loop initial outputs body inputs store
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs

@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Defs
 
-/-! A θ with ordered γ/single-θ code in each activation. -/
+/-! Outer θ observations using the shared ordered γ/θ activation pairing. -/
 
 @[expose] public section
 
@@ -20,48 +20,29 @@ variable {args carried outs : Ports (Ty V S)}
 variable {sigs sigsL sigsR : List (Ports (Ty V S))}
 
 abbrev Body (Op : Dialect.{u, v} (ValueSort V S) S) (carried : Ports (Ty V S))
-    (sigs : List (Ports (Ty V S))) :=
-  NestedTheta.Term (Instruction Op) carried [] sigs (Theta.BodyResults carried)
+    (sigs : List (Ports (Ty V S))) := Gamma.LoopBody Op carried sigs
 
-/-- An outer θ with a wiring suffix. Its activation is scoped in fresh
-locals, and the suffix also has access to the original arguments. -/
 abbrev code (initial : Wires args [] carried) (body : Body Op carried sigs)
-    (outputs : Wires args [carried] outs) :
-    NestedTheta.Term (Instruction Op) args [] [carried] outs :=
-  .bind (Isomorphism.Invocation.loopVertex initial sigs) (fun _ => body) (.ret outputs)
+    (outputs : Wires args [carried] outs) := Gamma.loopCode initial body outputs
 
-/-- A positive outer iteration requires a whole successful activation on
-each side, including any inner θ, followed by the actual feedback edge. -/
-def IterationPair (primitives : Primitives m σ) (left : Body Op carried sigsL) (right : Body Op carried sigsR)
-    (input next : Carries m ids σ carried) : Prop :=
-  Feedback.Iteration primitives left (input.left, input.store) (next.left, next.store) ∧
-  Feedback.Iteration primitives right (input.right, input.store) (next.right, next.store)
+abbrev IterationPair (primitives : Primitives m σ) (left : Body Op carried sigsL) (right : Body Op carried sigsR)
+    (input next : Carries m ids σ carried) := Gamma.IterationPair primitives left right input next
 
-/-- An activation that does not select outer feedback. An inner run is
-witnessed by the selected arm's productive feedback certificate. -/
-inductive Activation (primitives : Primitives m σ) (mapping : Renaming)
+abbrev Activation (primitives : Primitives m σ) (mapping : Renaming)
     (left : Body Op carried sigsL) (right : Body Op carried sigsR)
-    (input : Carries m ids σ carried) : Prop where
-  | exited {tag : m.Val (.control 2)} {outL outR : Tuple m.Val carried} {store : σ}
-      (exits : (tag.selector.val == 1) = false)
-      (values : TupleRelated m ids outL outR)
-      (ranL : Eval primitives (.region left input.left PUnit.unit) input.store (.returned (.cons tag outL) store))
-      (ranR : Eval primitives (.region right input.right PUnit.unit) input.store (.returned (.cons tag outR) store))
-  | blocked {locL locR : Gamma.Location} {stopL stopR : Gamma.Block m σ (Theta.BodyResults carried)}
-      (stopped : Gamma.BlockPair primitives ids mapping left right input.left input.right input.store locL locR stopL stopR)
-  | inner (live : Gamma.ProductivePair primitives ids (.region left input.left PUnit.unit)
-      (.region right input.right PUnit.unit) input.store)
+    (input : Carries m ids σ carried) := Gamma.Activation primitives mapping left right input
 
-/-- The observed loop either reaches an exit, block or productive inner
-activation after completed outer restarts, or keeps completing outer
-activations forever. The prefix and stream use the same carried relation. -/
-inductive LoopPair (primitives : Primitives m σ) (mapping : Renaming)
+namespace Activation
+export Gamma.Activation (exited blocked inner)
+end Activation
+
+abbrev LoopPair (primitives : Primitives m σ) (mapping : Renaming)
     (left : Body Op carried sigsL) (right : Body Op carried sigsR)
-    (input : Carries m ids σ carried) : Prop where
-  | activation {current : Carries m ids σ carried}
-      (completed : ReflTransGen (IterationPair primitives left right) input current)
-      (observed : Activation primitives mapping left right current)
-  | outer (live : InfiniteTrace (IterationPair primitives left right) input)
+    (input : Carries m ids σ carried) := Gamma.LoopPair primitives mapping left right input
+
+namespace LoopPair
+export Gamma.LoopPair (activation outer)
+end LoopPair
 
 /-- Wrap the selected block in its actual saved outer loop and suffix. -/
 def blockOutcome (body : Body Op carried sigs) (outputs : Wires args [carried] outs)

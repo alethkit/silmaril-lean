@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Defs
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Feedback
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Regions
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Thms
@@ -24,24 +25,6 @@ variable {m : Machine.{u, v, w} Op} {σ : Type (max u v w)} {ids : GlobalRel}
 variable {primitives : Primitives m σ} {mapping : Renaming}
 variable {args outs params results finalL finalR : Ports (Ty V S)}
 variable {sigs sigsL sigsR : List (Ports (Ty V S))}
-
-theorem productive_infinite {jobL jobR : Job m outs} {store : σ}
-    (run : ProductivePair primitives ids jobL jobR store)
-    (frameL : Continuation.Stack m outs finalL) (frameR : Continuation.Stack m outs finalR) :
-    InfiniteTrace (Step primitives) ⟨.eval jobL frameL, store⟩ ∧
-    InfiniteTrace (Step primitives) ⟨.eval jobR frameR, store⟩ := by
-  cases run with
-  | @reached carried sigsL sigsR left right input pendingL pendingR paired reachedL reachedR =>
-    have liveL : Feedback.Run primitives (embed left.toTerm) (input.left, input.store) :=
-      InfiniteTrace.map (R := SingleTheta.FeedbackPair primitives left right)
-        (S := Feedback.Iteration primitives (embed left.toTerm))
-        (fun current => (current.left, current.store)) (fun _ _ step => step.1) paired
-    have liveR : Feedback.Run primitives (embed right.toTerm) (input.right, input.store) :=
-      InfiniteTrace.map (R := SingleTheta.FeedbackPair primitives left right)
-        (S := Feedback.Iteration primitives (embed right.toTerm))
-        (fun current => (current.right, current.store)) (fun _ _ step => step.2) paired
-    exact ⟨InfiniteTrace.of_steps (reachedL.steps frameL) (liveL.infinite (pendingL.push frameL)),
-      InfiniteTrace.of_steps (reachedR.steps frameR) (liveR.infinite (pendingR.push frameR))⟩
 
 private theorem prepend_related {context : Ports (Ty V S)}
     {capturesL capturesR : Tuple m.Val context} {argsL argsR : Tuple m.Val params}
@@ -90,9 +73,8 @@ theorem calls (respects : ActionsRespect primitives ids)
       exact .blocked stopped (terminal_of_eval (.call (actualL.symm ▸ ranL)))
         (terminal_of_eval (.call (actualR.symm ▸ ranR)))
     | productive run =>
-      cases run with
-      | reached paired ranL ranR =>
-        exact .productive (.reached paired (.call (actualL.symm ▸ ranL)) (.call (actualR.symm ▸ ranR)))
+      exact .productive (productive_map run (fun ran => ⟨_, .call (actualL.symm ▸ ran)⟩)
+        (fun ran => ⟨_, .call (actualR.symm ▸ ran)⟩))
 
 private theorem terminal_excludes_infinite {source : Config m σ outs}
     {outcome : Continuation.Partial.Outcome m σ outs}

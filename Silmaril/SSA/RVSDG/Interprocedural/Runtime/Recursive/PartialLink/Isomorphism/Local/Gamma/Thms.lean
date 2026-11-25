@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Defs
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Feedback
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Regions
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Dispatch
 
@@ -10,6 +11,8 @@ namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomo
 
 open Continuation.Partial
 open Isomorphism.Invocation (request)
+open SingleTheta (Carries)
+open Relation (ReflTransGen TransGen)
 
 universe u v w
 
@@ -51,6 +54,62 @@ theorem gamma
     (related : TupleRelated m ids inputL inputR) :
     RegionPair primitives ids mapping (code inputs armsL outputs) (code inputs armsR outputs) inputL inputR store :=
   Proofs.gamma inputs outputs arms related
+
+/-- A depth-independent θ congruence over observers of fresh activations.
+Each related selector either exits or restarts with its full carry. The
+chosen block or productive child keeps the θ and saved suffix frames. -/
+theorem loop {carried : Ports (Ty V S)} {bodyL : LoopBody Op carried sigsL} {bodyR : LoopBody Op carried sigsR}
+    (initial : Wires args [] carried) (outputs : Wires args [carried] outs)
+    (observe : ∀ {nextL nextR : Tuple m.Val carried}, TupleRelated m ids nextL nextR → ∀ store,
+      RegionPair primitives ids (mapping.child 0 0) bodyL bodyR nextL nextR store)
+    (inputs : TupleRelated m ids inputL inputR) (store : σ) :
+    RegionPair primitives ids mapping (loopCode initial bodyL outputs)
+      (loopCode initial bodyR outputs) inputL inputR store :=
+  Proofs.loop initial outputs observe inputs store
+
+section Feedback
+
+variable {carried : Ports (Ty V S)} {bodyL : LoopBody Op carried sigsL} {bodyR : LoopBody Op carried sigsR}
+variable {first current next : Carries m ids σ carried}
+
+/-- Distinguish an exit, block or productive child after finite feedback
+from a stream of completed feedback iterations. Each successor comes
+from paired activation evaluation. -/
+theorem loop_observations
+    (observe : ∀ input : Carries m ids σ carried,
+      RegionPair primitives ids mapping bodyL bodyR input.left input.right input.store)
+    (first : Carries m ids σ carried) : LoopPair primitives mapping bodyL bodyR first :=
+  Proofs.classify observe first
+
+/-- Every pair of completed activations gives two positive segments with
+unchanged parent frames and the exact next carried tuple and store. -/
+theorem IterationPair.steps (paired : IterationPair primitives bodyL bodyR first next)
+    (parentL : Continuation.Stack m carried finalL) (parentR : Continuation.Stack m carried finalR) :
+    TransGen (Step primitives) ((Feedback.Restart.mk carried sigsL bodyL (first.left, first.store)).config parentL)
+      ((Feedback.Restart.mk carried sigsL bodyL (next.left, next.store)).config parentL) ∧
+    TransGen (Step primitives) ((Feedback.Restart.mk carried sigsR bodyR (first.right, first.store)).config parentR)
+      ((Feedback.Restart.mk carried sigsR bodyR (next.right, next.store)).config parentR) :=
+  Proofs.iteration_steps paired parentL parentR
+
+theorem IterationPair.replay
+    {outcomeL outcomeR : Continuation.Partial.Outcome m σ carried}
+    (completed : ReflTransGen (IterationPair primitives bodyL bodyR) first current)
+    (later : Eval primitives (.iteration bodyL current.left) current.store outcomeL ∧
+      Eval primitives (.iteration bodyR current.right) current.store outcomeR) :
+    Eval primitives (.iteration bodyL first.left) first.store outcomeL ∧
+    Eval primitives (.iteration bodyR first.right) first.store outcomeR :=
+  Proofs.rewind completed later
+
+theorem IterationPair.completed (completed : ReflTransGen (IterationPair primitives bodyL bodyR) first current) :
+    ReflTransGen (Feedback.Iteration primitives bodyL) (first.left, first.store) (current.left, current.store) ∧
+    ReflTransGen (Feedback.Iteration primitives bodyR) (first.right, first.store) (current.right, current.store) :=
+  ⟨Proofs.left_completed completed, Proofs.right_completed completed⟩
+
+theorem IterationPair.runs (live : InfiniteTrace (IterationPair primitives bodyL bodyR) first) :
+    Feedback.Run primitives bodyL (first.left, first.store) ∧ Feedback.Run primitives bodyR (first.right, first.store) :=
+  Proofs.outer_runs live
+
+end Feedback
 
 theorem regions (admitted : CodePair Op mapping left right) (respects : ActionsRespect primitives ids)
     (inputs : TupleRelated m ids inputL inputR) (store : σ) :

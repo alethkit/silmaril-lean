@@ -492,4 +492,257 @@ private theorem blockedCalls :
       ((blockOutcome innerR outputs (input 0 0 0) (stopped right pendingR)).atStack .halt) :=
   ⟨replayBlock blockedActivation.evals.1, replayBlock blockedActivation.evals.2⟩
 
+section DepthThree
+
+private abbrev deepCarry : Ports T := .control 2 :: outerCarry
+private abbrev deepFn : Function Unit Unit := ⟨deepCarry, results⟩
+
+private def middleInitial : Wires deepCarry [] outerCarry :=
+  .cons (.arg (.tail .head))
+    (.cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil))
+
+private def middleOutputs : Wires deepCarry [outerCarry] (Theta.BodyResults deepCarry) :=
+  .cons (.arg .head) (.cons (.arg .head) (.cons (.output (0 : Fin 1) .head)
+    (.cons (.output (0 : Fin 1) (.tail .head))
+      (.cons (.output (0 : Fin 1) (.tail (.tail .head))) .nil))))
+
+private def deepInitial : Wires deepCarry [] deepCarry :=
+  .cons (.arg .head) (.cons (.arg (.tail .head))
+    (.cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil)))
+
+private def deepOutputs : Wires deepCarry [deepCarry] results :=
+  .cons (.output (0 : Fin 1) (.tail (.tail (.tail .head))))
+    (.cons (.arg (.tail (.tail (.tail .head)))) .nil)
+
+private abbrev middleL : Gamma.LoopBody Op deepCarry [outerCarry] := Gamma.loopCode middleInitial innerL middleOutputs
+private abbrev middleR : Gamma.LoopBody Op deepCarry [outerCarry] := Gamma.loopCode middleInitial innerR middleOutputs
+private abbrev deepL := Gamma.loopCode deepInitial middleL deepOutputs
+private abbrev deepR := Gamma.loopCode deepInitial middleR deepOutputs
+private def deepMap : Renaming := .region (Equiv.refl _) (fun _ _ => outerMap)
+
+private theorem deepCode : Gamma.CodePair Op deepMap deepL deepR :=
+  .loop deepInitial deepOutputs rfl <|
+    .loop middleInitial middleOutputs rfl <|
+      .loop innerInitial innerOutputs rfl (.acyclic ordered)
+
+private theorem unchangedAddresses {args users : Ports T} {past : List (Ports T)}
+    (wires : Wires args past users) :
+    wires.addresses.map (Address.rename (renameVertex (Equiv.refl (Fin 1)))) = wires.addresses := by
+  induction wires with
+  | nil => rfl
+  | cons origin _ ih =>
+    cases origin <;> simp [Wires.addresses, Origin.address, Address.rename, renameVertex, ih]
+    intro equal
+    exact equal.symm
+
+private theorem thetaIso {args loopPorts outs : Ports T} {sigsL sigsR : List (Ports T)}
+    {left : Gamma.LoopBody Op loopPorts sigsL} {right : Gamma.LoopBody Op loopPorts sigsR}
+    (body : NestedTheta.Graph.Isomorphic (Instruction Op) left.toGraph right.toGraph)
+    (initial : Wires args [] loopPorts) (suffix : Wires args [loopPorts] outs) :
+    NestedTheta.Graph.Isomorphic (Instruction Op)
+      (Gamma.loopCode initial left suffix).toGraph (Gamma.loopCode initial right suffix).toGraph := by
+  refine .intro rfl rfl (Equiv.refl _) (fun i => Fin.cases rfl (fun j => j.elim0) i)
+    (fun i => Fin.cases (unchangedAddresses initial) (fun j => j.elim0) i) (unchangedAddresses suffix) ?_
+  intro i
+  exact Fin.cases (fun _ => body) (fun j => j.elim0) i
+
+private theorem deepIso : NestedTheta.Graph.Isomorphic (Instruction Op) deepL.toGraph deepR.toGraph :=
+  thetaIso (thetaIso innerIso middleInitial middleOutputs) deepInitial deepOutputs
+
+private abbrev DeepLambda := NestedTheta.Term (Instruction Op) deepCarry [] [deepCarry] results
+
+private def deepUnit (body : DeepLambda) : OmegaTerm Op [] [deepFn.port] [[deepFn.port]] :=
+  ⟨.bind (.lambda ⟨[], .nil, [deepCarry], body⟩) (.ret (.cons (.output (0 : Fin 1) .head) .nil))⟩
+
+private def deepCallee (body : DeepLambda) : machine.Val deepFn.port :=
+  .closure (.nil : Tuple machine.Val []) body.toGraph
+
+private theorem deepLinks (body : DeepLambda) :
+    Links primitives 17 (deepUnit body).toGraph .nil 20 (.linked (.cons (deepCallee body) .nil) 20) :=
+  .bind (values := .cons (deepCallee body) .nil) (middle := 20) rfl (.ret _ _ _ _)
+
+private def deepInput (outer inner mode : Fin 2) (n : Nat) : Tuple machine.Val deepCarry :=
+  .cons (.control outer) (input inner mode n)
+
+private def deepSource (body : DeepLambda) (args : Tuple machine.Val deepCarry) : Config machine Nat results :=
+  ⟨Continuation.start (.call (deepCallee body) args), 20⟩
+
+private theorem deepDispatch (outer inner mode : Fin 2) (n : Nat) :
+    Gamma.CallPair primitives Eq deepMap results
+      (deepSource deepL (deepInput outer inner mode n)) (deepSource deepR (deepInput outer inner mode n)) := by
+  have iso : (deepUnit deepL).toGraph.RenumberedBy (deepUnit deepR).toGraph modulePositions :=
+    ⟨fun i => Fin.cases (.lambda ⟨⟨rfl, rfl⟩, deepIso⟩) (fun j => j.elim0) i, rfl⟩
+  have schedule : Ordered Op (renameVertex modulePositions) [] [deepFn.port]
+      (deepUnit deepL).toGraph.toTerm.region (deepUnit deepR).toGraph.toTerm.region := by
+    rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+    exact .bind rfl (.lambda ⟨⟨rfl, rfl⟩, deepIso⟩) (.ret _ _)
+  let args := deepInput outer inner mode n
+  have paired := Gamma.link_then_invoke (mapping := deepMap) respects iso schedule
+    (fun i => by simp [renameVertex, modulePositions]) .nil .head
+    (.cons (.control outer) (.cons (.control inner) (carry_related mode n))) 20
+    (unitL := 17) (unitR := 17) (by
+      intro _ _ _ linkedL linkedR _
+      cases outcome_unique linkedL (deepLinks deepL)
+      cases outcome_unique linkedR (deepLinks deepR)
+      exact .closure .nil deepCode)
+  change Gamma.DispatchPair primitives Eq (renameVertex modulePositions) deepMap results
+    ((request 17 (deepUnit deepL).toGraph .nil .head args 20).start primitives)
+    ((request 17 (deepUnit deepR).toGraph .nil .head args 20).start primitives) at paired
+  rw [start_linked (request := request 17 (deepUnit deepL).toGraph .nil .head args 20) (deepLinks deepL),
+    start_linked (request := request 17 (deepUnit deepR).toGraph .nil .head args 20) (deepLinks deepR)] at paired
+  cases paired with
+  | invoked calls => exact calls
+
+private theorem openDeep (body : DeepLambda) (args : Tuple machine.Val deepCarry) :
+    Job.openClosure machine (deepCallee body) args = .region body args PUnit.unit :=
+  congrArg (fun term => Job.region (m := machine) (past := []) term args PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph body)
+
+private theorem deepCallEval {body : DeepLambda} {args : Tuple machine.Val deepCarry}
+    {outcome : Continuation.Partial.Outcome machine Nat results}
+    (ran : Eval primitives (.region body args PUnit.unit) 20 outcome) :
+    Eval primitives (.call (deepCallee body) args) 20 outcome :=
+  .call ((openDeep body args).symm ▸ ran)
+
+private theorem deepRoute {sigs : List (Ports T)} {body : Gamma.LoopBody Op deepCarry sigs}
+    {args : Tuple machine.Val deepCarry} {target : Feedback.Restart machine Nat}
+    {pending : Pending machine target.carried deepCarry}
+    (reached : Feedback.Reaches primitives (.iteration body args) 20 target pending) :
+    Feedback.Reaches primitives (.call (deepCallee (Gamma.loopCode deepInitial body deepOutputs)) args) 20 target
+      (.bind (past := []) (.ret deepOutputs) args PUnit.unit pending) := by
+  apply Feedback.Reaches.call
+  rw [openDeep]
+  have initial : deepInitial.read args PUnit.unit = args := by
+    cases args with
+    | cons _ tail =>
+      cases tail with
+      | cons _ tail =>
+        cases tail with
+        | cons _ tail =>
+          cases tail with
+          | cons _ tail => cases tail; rfl
+  refine .inside (node := Isomorphism.Invocation.loopVertex deepInitial sigs) ?_
+  change Feedback.Reaches primitives (.node (.theta deepCarry) (fun _ => sigs) (fun _ => body)
+    (deepInitial.read args PUnit.unit)) 20 target pending
+  rw [initial]
+  exact .theta reached
+
+private theorem middleReturns (outer : Fin 2) (n store : Nat)
+    (defined : (bodyOut 0 0 (n + 1), store + 3) ∈ action 0 n store) :
+    Eval primitives (.region middleL (deepInput outer 0 0 n) PUnit.unit) store
+      (.returned (.cons (.control outer) (deepInput outer 0 0 (n + 1))) (store + 3)) ∧
+    Eval primitives (.region middleR (deepInput outer 0 0 n) PUnit.unit) store
+      (.returned (.cons (.control outer) (deepInput outer 0 0 (n + 1))) (store + 3)) :=
+  let ran := completedInner 0 0 n store defined
+  ⟨.bind (node := Isomorphism.Invocation.loopVertex middleInitial [carried])
+      (.theta (.stop ran.1 rfl)) (.ret middleOutputs _ _ _),
+    .bind (node := Isomorphism.Invocation.loopVertex middleInitial [carried])
+      (.theta (.stop ran.2 rfl)) (.ret middleOutputs _ _ _)⟩
+
+private theorem deepExit :
+    TerminalPath primitives (deepSource deepL (deepInput 0 0 0 2)) ⟨.returned (output 3 2) .halt, 23⟩ ∧
+    TerminalPath primitives (deepSource deepR (deepInput 0 0 0 2)) ⟨.returned (output 3 2) .halt, 23⟩ := by
+  have ran := middleReturns 0 2 20 (_root_.Part.mem_some _)
+  have left : Eval primitives (.region deepL (deepInput 0 0 0 2) PUnit.unit) 20 (.returned (output 3 2) 23) :=
+    .bind (node := Isomorphism.Invocation.loopVertex deepInitial [outerCarry])
+      (.theta (.stop ran.1 rfl)) (.ret deepOutputs _ _ _)
+  have right : Eval primitives (.region deepR (deepInput 0 0 0 2) PUnit.unit) 20 (.returned (output 3 2) 23) :=
+    .bind (node := Isomorphism.Invocation.loopVertex deepInitial [outerCarry])
+      (.theta (.stop ran.2 rfl)) (.ret deepOutputs _ _ _)
+  exact ⟨⟨(deepCallEval left).steps .halt, fun _ stepped => _root_.Part.notMem_none _ stepped⟩,
+    ⟨(deepCallEval right).steps .halt, fun _ stepped => _root_.Part.notMem_none _ stepped⟩⟩
+
+/-- The third-level call completes one middle restart and then enters
+productive innermost feedback, leaving both outer loops pending. -/
+private theorem deepInnerCall : InfiniteTrace (Step primitives) (deepSource deepR (deepInput 0 1 1 0)) := by
+  apply (deepDispatch 0 1 1 0).infinite_iff.mp
+  let args := deepInput 0 1 1 0
+  let target : Feedback.Restart machine Nat := ⟨carried, [[], bodyResults], embed left.toTerm, (carry 1 1, 23)⟩
+  let savedMiddle : Pending machine carried (Theta.BodyResults deepCarry) :=
+    .bind (past := []) (.ret middleOutputs) args PUnit.unit (.loop innerL innerPending)
+  have middle : Feedback.Reaches primitives (.region middleL args PUnit.unit) 20 target savedMiddle :=
+    .inside (node := Isomorphism.Invocation.loopVertex middleInitial [carried])
+      (.theta (.iteration (current := (input 1 1 1, 23)) (.single outerOnce.1) innerEnteredL))
+  have outer : Feedback.Reaches primitives (.iteration middleL args) 20 target (.loop middleL savedMiddle) :=
+    .iteration (current := (args, 20)) .refl middle
+  have run : Feedback.Run primitives (embed left.toTerm) target.input :=
+    InfiniteTrace.map (R := FeedbackPair primitives left right) (S := Feedback.Iteration primitives (embed left.toTerm))
+      (fun current => (current.left, current.store)) (fun _ _ h => h.1) innerStream
+  have productive : Feedback.Productive primitives (.call (deepCallee deepL) args) 20 :=
+    ⟨target, _, deepRoute outer, run⟩
+  exact productive.infinite .halt
+
+private def deepAt (outer inner mode : Fin 2) (n store : Nat) : Carries machine Eq Nat deepCarry :=
+  ⟨deepInput outer inner mode n, deepInput outer inner mode n,
+    .cons (.control outer) (.cons (.control inner) (carry_related mode n)), store⟩
+
+private theorem deepOuterStream :
+    InfiniteTrace (Gamma.IterationPair primitives middleL middleR) (deepAt 1 0 0 2 20) := by
+  refine ⟨fun n => deepAt 1 0 0 (n + 2) (20 + 3 * n), rfl, ?_⟩
+  intro n
+  have sameStore : 20 + 3 * (n + 1) = 20 + 3 * n + 3 := by omega
+  change Gamma.IterationPair primitives middleL middleR (deepAt 1 0 0 (n + 2) (20 + 3 * n))
+    (deepAt 1 0 0 ((n + 1) + 2) (20 + 3 * (n + 1)))
+  rw [sameStore]
+  have defined : (bodyOut 0 0 (n + 2 + 1), 20 + 3 * n + 3) ∈ action 0 (n + 2) (20 + 3 * n) := by
+    have notOne : n + 2 ≠ 1 := by omega
+    have notZero : n + 2 ≠ 0 := by omega
+    unfold action
+    rw [ite_eq_right (by decide : ¬ (0 : Fin 2).val = 1), ite_eq_right notOne, ite_eq_right notZero]
+    exact _root_.Part.mem_some _
+  obtain ⟨ranL, ranR⟩ := middleReturns 1 (n + 2) (20 + 3 * n) defined
+  exact ⟨⟨.control 1, ranL, rfl⟩, ⟨.control 1, ranR, rfl⟩⟩
+
+/-- Successive top-level restarts finish both inner levels. Start on
+the right linked graph and use the reverse direction of transport. -/
+private theorem deepOuterCall : InfiniteTrace (Step primitives) (deepSource deepL (deepInput 1 0 0 2)) := by
+  apply (deepDispatch 1 0 0 2).infinite_iff.mpr
+  let args := deepInput 1 0 0 2
+  let target : Feedback.Restart machine Nat := ⟨deepCarry, [outerCarry], middleR, (args, 20)⟩
+  have arrived : Feedback.Reaches primitives (.iteration middleR args) 20 target .empty :=
+    .restart (input := target.input) (current := target.input) .refl
+  have productive : Feedback.Productive primitives (.call (deepCallee deepR) args) 20 :=
+    ⟨target, _, deepRoute arrived, (Gamma.IterationPair.runs deepOuterStream).2⟩
+  exact productive.infinite .halt
+
+private def wrapBlock {args loopPorts outs : Ports T} {sigs : List (Ports T)}
+    (body : Gamma.LoopBody Op loopPorts sigs) (suffix : Wires args [loopPorts] outs) (entry : Tuple machine.Val args)
+    (stop : Gamma.Block machine Nat (Theta.BodyResults loopPorts)) : Gamma.Block machine Nat outs :=
+  ⟨stop.site, .bind (past := []) (.ret suffix) entry PUnit.unit (.loop body stop.pending), stop.store⟩
+
+private abbrev middleStopL := wrapBlock innerL middleOutputs (deepInput 0 0 0 0) (stopped left pendingL)
+private abbrev middleStopR := wrapBlock innerR middleOutputs (deepInput 0 0 0 0) (stopped right pendingR)
+private abbrev deepStopL := wrapBlock middleL deepOutputs (deepInput 0 0 0 0) middleStopL
+private abbrev deepStopR := wrapBlock middleR deepOutputs (deepInput 0 0 0 0) middleStopR
+private def deepLocation (site : Nat) : Gamma.Location := .loop (.loop (.loop (.acyclic (.here site))))
+
+private theorem deepBlocked :
+    Gamma.BlockPair primitives Eq deepMap deepL deepR (deepInput 0 0 0 0) (deepInput 0 0 0 0) 20
+      (deepLocation 1) (deepLocation 0) deepStopL deepStopR := by
+  have base : Gamma.BlockPair primitives Eq numbering (embed left.toTerm) (embed right.toTerm)
+      (carry 0 1) (carry 0 1) 23 (.acyclic (.here 1)) (.acyclic (.here 0))
+      ⟨advanceSite 0 1, pendingL, 23⟩ ⟨advanceSite 0 1, pendingR, 23⟩ :=
+    .acyclic (.here 1) (.same (carry_related 0 1)) blockedL blockedR
+  have inner : Gamma.BlockPair primitives Eq innerMap innerL innerR (input 0 0 0) (input 0 0 0) 20
+      (.loop (.acyclic (.here 1))) (.loop (.acyclic (.here 0))) (stopped left pendingL) (stopped right pendingR) :=
+    .loop (map := innerMap) (first := atCarry 0 0 20) (current := atCarry 0 1 23) innerInitial innerOutputs rfl rfl rfl
+      (.single (feedback 0 0 20 (_root_.Part.mem_some _))) base
+  have middle : Gamma.BlockPair primitives Eq outerMap middleL middleR (deepInput 0 0 0 0) (deepInput 0 0 0 0) 20
+      (.loop (.loop (.acyclic (.here 1)))) (.loop (.loop (.acyclic (.here 0)))) middleStopL middleStopR :=
+    .loop (map := outerMap) (first := outerInput 0 0 0 20) (current := outerInput 0 0 0 20) middleInitial middleOutputs rfl rfl rfl .refl inner
+  exact .loop (map := deepMap) (first := deepAt 0 0 0 0 20) (current := deepAt 0 0 0 0 20) deepInitial deepOutputs rfl rfl rfl .refl middle
+
+/-- All three live θ frames and their suffixes survive the relocated
+block. Both machine endpoints retain the exact attempted store 23. -/
+private theorem deepBlockedCalls :
+    TerminalPath primitives (deepSource deepL (deepInput 0 0 0 0)) (deepStopL.outcome.atStack .halt) ∧
+    TerminalPath primitives (deepSource deepR (deepInput 0 0 0 0)) (deepStopR.outcome.atStack .halt) := by
+  obtain ⟨ranL, ranR⟩ := deepBlocked.evals
+  have callL := deepCallEval ranL
+  have callR := deepCallEval ranR
+  exact ⟨⟨callL.steps .halt, fun _ => (callL.blocks .halt).no_step⟩,
+    ⟨callR.steps .halt, fun _ => (callR.blocks .halt).no_step⟩⟩
+
+end DepthThree
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.NestedLoop.Tests
