@@ -194,9 +194,21 @@ recursive checkpoint has state wire `9`, store `22`, and two distinct
 pending state-changing suffix frames.
 [Replay theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/CallDescent/Thms.lean)
 
-The theorem starts from a supplied descent certificate over totally
-linked calls. Extraction from arbitrary infinite partial-machine runs
-and partial module initialization are separate milestones.
+The finite interval theorem also recovers a prefix from observed
+microsteps using only steps within that finite interval. The caller
+must stay live through the interval, and every call entered between
+the opened caller and the selected deeper entry
+must return to its own frame before that endpoint. First returns are
+reflected with their exact tuples and stores. The recovered prefix
+selects the observed callable and arguments and reconstructs the
+entire live stack. The linked regression computes 15 machine steps.
+The helper enters at step 6 and returns at step 12. At step 15 the
+recursive call is still poised to open, with state wire `8`, store
+`21`, and the caller's state-changing suffix pending.
+
+Infinite replay starts from a supplied certificate over totally linked
+calls. Extraction from arbitrary infinite partial-machine runs and
+partial module initialization are separate milestones.
 
 ## Productive θ feedback
 

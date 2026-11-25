@@ -1,5 +1,6 @@
 module
 
+import Mathlib.Tactic.IntervalCases
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Feedback.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
@@ -415,5 +416,78 @@ example : ∃ (micro : Nat → Config machine Nat answer) (indices : Nat → Nat
     micro (indices 2) = (descentEntry 9 22).config ((descentPending 8).push ((descentPending 7).push .halt)) := by
   obtain ⟨micro, indices, checked⟩ := descentRun.checkpoints descentHalt
   exact ⟨micro, indices, checked, checked.atEntry 2⟩
+
+-- Compute the finite interval from the machine, with an Option presentation
+-- of these concrete primitive actions for executable fixture stepping.
+private def fixtureAction {ins outs : Ports T} (opcode : Op ins outs)
+    (input : Tuple machine.Val ins) (store : Nat) : Option (Tuple machine.Val outs × Nat) :=
+  match opcode with
+  | .tick => some (machine.primitive .tick input, store + 1)
+  | .undefined => none
+
+private theorem fixtureAction_eq {ins outs : Ports T} (opcode : Op ins outs)
+    (input : Tuple machine.Val ins) (store : Nat) :
+    _root_.Part.ofOption (fixtureAction opcode input store) = (primitives.step opcode input).run store := by
+  cases opcode <;> rfl
+
+private def fixtureNext (source : Config machine Nat answer) : Option (Config machine Nat answer) :=
+  match selectedPrimitive source.control with
+  | some active =>
+    (fixtureAction active.site.opcode active.site.input source.store).map
+      fun (output, store) => ⟨.returned output active.stack, store⟩
+  | none => source.control.next.map fun next => ⟨next, source.store⟩
+
+private theorem fixtureNext_eq (source : Config machine Nat answer) :
+    _root_.Part.ofOption (fixtureNext source) = source.next primitives := by
+  unfold fixtureNext Config.next
+  cases selectedPrimitive source.control with
+  | none => rfl
+  | some active =>
+    have map_eq {A B : Type} (result : Option A) (f : A → B) :
+        _root_.Part.ofOption (result.map f) = (_root_.Part.ofOption result).map f := by
+      cases result with
+      | none => exact (_root_.Part.map_none f).symm
+      | some => rfl
+    rw [map_eq, fixtureAction_eq]
+
+-- The opened region is normalized once by the closure-opening equation.
+-- Every later configuration is obtained by the fixture's actual next function.
+private def descentTrace : Nat → Config machine Nat answer
+  | 0 => (descentEntry 7 20).config .halt
+  | 1 => ⟨.eval (.region descentBody (descentInputs 7) PUnit.unit) .halt, 20⟩
+  | n + 2 => (fixtureNext (descentTrace (n + 1))).getD (descentTrace (n + 1))
+
+private theorem descentTraceSteps (i : Nat) (before : i < 15) :
+    Step primitives (descentTrace i) (descentTrace (i + 1)) := by
+  apply Step.of_next_some
+  rw [← fixtureNext_eq]
+  have picked : fixtureNext (descentTrace i) = some (descentTrace (i + 1)) := by
+    interval_cases i <;> try rfl
+    change some (Config.mk (.eval (Job.openClosure machine descentCallee (args 0 7)) .halt) 20) =
+      some (Config.mk (.eval (.region descentBody (descentInputs 7) PUnit.unit) .halt) 20)
+    rw [descentOpened]
+  rw [picked]
+  rfl
+
+private theorem descentTraceLive :
+    Descent.BeforeReturn (fun i => (descentTrace i).control) 1 15 (.halt : Stack machine answer answer) := by
+  intro i later before
+  rintro ⟨value, returned⟩
+  interval_cases i <;> cases returned
+
+private theorem descentTraceEarlier : Descent.EarlierCallsReturn (fun i => (descentTrace i).control) 1 15 := by
+  intro i later before params results callee arguments stack entered
+  interval_cases i <;> try (solve | cases entered)
+  cases entered
+  exact ⟨12, by decide, by decide, _, rfl⟩
+
+private theorem descentTraceNext :
+    descentTrace 15 = (descentEntry 8 21).config ((descentPending 7).push .halt) := rfl
+
+example : ∃ pending, CallDescent.Prefix primitives (descentEntry 7 20).call.openBody 20 (descentEntry 8 21) pending ∧
+    pending.push (.halt : Stack machine answer answer) = (descentPending 7).push .halt :=
+  CallDescent.entry_of_interval (fun i _ before => descentTraceSteps i before)
+    (show descentTrace 0 = (descentEntry 7 20).config .halt from rfl)
+    descentTraceNext (by decide) descentTraceLive descentTraceEarlier
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Tests
