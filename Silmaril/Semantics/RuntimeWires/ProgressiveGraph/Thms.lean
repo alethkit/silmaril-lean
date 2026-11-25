@@ -25,6 +25,14 @@ theorem regular_trace {h : ℝ} (reg : d.Regular h) {wires : List (Fin W)}
     d.wireTrace ∩ {p | p.2 = h} = {p | p.2 = h ∧ p.1 ∈ wires.map (fun w => d.x w h)} :=
   Proofs.ProgressiveGraph.regular_trace d reg cut
 
+/-- Two strands with no common point on a closed height interval retain
+their horizontal order from one end to the other. -/
+theorem order_across {a b : ℝ} {w z : Fin W}
+    (cover : ∀ h ∈ Set.uIcc a b, d.covers w h ∧ d.covers z h)
+    (separate : ∀ h ∈ Set.uIcc a b, d.x w h ≠ d.x z h)
+    (ordered : d.x w a < d.x z a) : d.x w b < d.x z b :=
+  Proofs.ProgressiveGraph.order_transport d cover separate ordered
+
 /-- An isolated vertex changes exactly its contiguous block of wires.
 The unchanged parts keep the same wire indices in the same order,
 including when either or both incident blocks are empty. -/
