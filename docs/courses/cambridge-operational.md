@@ -157,6 +157,27 @@ first field is projected, and two distinct successors of one allocation.
 It also checks branch scope and stuck configurations with an unallocated
 dereference or an integer as the assignment target.
 
+### Exercise designs (§5.6)
+
+Exercises 29 and 30 on p. 82 of the [12 February 2026 notes][l3-exercises]
+ask for language designs. Their Lean modules are part of `L3.Course`.
+
+| Exercise | Design and checks |
+| --- | --- |
+| 29, labelled variants | Nonempty ordered rows have distinct labels and a payload type per label. Injection resolves a label and evaluates its payload in CBV order. An exhaustive match binds the selected payload and checks every branch at a common result type. The elaboration into L3 sums and strict `let` preserves typing, lifts payload and scrutinee steps, and reaches the selected branch by capture-avoiding substitution. A three-label example selects the Boolean branch and returns `42`. |
+| 30, ML-style exceptions | A local CBV language fixes a set of payload-free tags and has functions, strict `let`, conditionals and recursive functions. It embeds closed core L3 computations over the existing store. A raise can appear at any result type, and a protected expression and its recovery have the same type. Evaluation unwinds one frame at a time. The first matching handler runs its recovery outside that handler, with the current store. The checked examples cover nested matching handlers, a raised application argument, and a recursive call that writes `7`, raises, and is caught and re-raised before the outer handler reads `7`. |
+
+The variant design uses its labels before lowering into sums. The exception
+design uses fixed tags and embedded core computations. Exception-aware
+closures belong to the exercise language, and the store contains core L3
+values.
+
+[Variant rules and proofs](../../Silmaril/Courses/Cambridge/L3/Exercises/LabelledVariants.lean) ·
+[Exception rules](../../Silmaril/Courses/Cambridge/L3/Exercises/Exceptions.lean) ·
+[Exception traces](../../Silmaril/Courses/Cambridge/L3/Exercises/ExceptionExamples.lean)
+
+[l3-exercises]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=82
+
 ### Evaluation contexts (§5.4)
 
 `L3.EvaluationContexts` gives the one-hole context grammar, plugging,
