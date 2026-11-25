@@ -24,6 +24,22 @@ variable {α Φ : Type u} (S : Signature α Φ) {c : α} {n : Nat} {slots : Fin 
 theorem lowers (p : Sequence S c slots) : p.source.toLetIter n = some p.native :=
   Proofs.lowers S p
 
+/-- A typed event extension preserves reflection of finite atomic sequences if
+its labels still distinguish all atomic requests. -/
+theorem eq_of_denoteWith_eq
+    {E : {m : Nat} → (Fin m → α) → Type (u + 1) → Type (u + 1)}
+    (event : ∀ {m} (modelSlots : Fin m → α) (f : Φ),
+      Args S modelSlots f → E modelSlots (Tree S modelSlots (S.out f)))
+    (label : ∀ {m} (modelSlots : Fin m → α) {X}, E modelSlots X → Option (Request S modelSlots))
+    (hlabel : ∀ {m} (modelSlots : Fin m → α) (f : Φ) (args : Args S modelSlots f),
+      label modelSlots (event modelSlots f args) = some ⟨f, args⟩)
+    {p q : Sequence S c slots}
+    (h : ∀ {m : Nat} (modelSlots : Fin m → α)
+      (vars : (i : Fin n) → Tree S modelSlots (slots i)),
+      denoteWith S modelSlots (event modelSlots) p vars =
+        denoteWith S modelSlots (event modelSlots) q vars) : p = q :=
+  Proofs.eq_of_denoteWith_eq S event label hlabel h
+
 /-- A canonical variable valuation identifies each request, and arbitrary
 valuations let equality be specialized to the variables of the next scope. -/
 theorem eq_of_denote_eq {p q : Sequence S c slots}

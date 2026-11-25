@@ -48,14 +48,21 @@ def WellTyped (e : ε) : {n : Nat} → {slots : Fin n → α} → Sequence S c s
 
 variable {m : Nat} (modelSlots : Fin m → α)
 
-/-- Evaluate the normalized sequence in the response model at a sorted valuation. -/
-noncomputable def denote : {n : Nat} → {slots : Fin n → α} →
-    Sequence S c slots → ((i : Fin n) → Tree S modelSlots (slots i)) →
-      ITree.Tree (Event S modelSlots) (Atom S modelSlots c)
+/-- Interpret atomic requests through a response-type-preserving event injection. -/
+noncomputable def denoteWith {E : Type (u + 1) → Type (u + 1)}
+    (event : (f : Φ) → Args S modelSlots f → E (Tree S modelSlots (S.out f))) :
+    {n : Nat} → {slots : Fin n → α} → Sequence S c slots →
+      ((i : Fin n) → Tree S modelSlots (slots i)) → ITree.Tree E (Atom S modelSlots c)
   | _, _, .ret p, vars => ITree.ret ⟨p.interpret S (Tree S modelSlots) Tree.op vars⟩
   | _, _, .call f args next, vars =>
-      ITree.vis (.call f (fun i => (args i).interpret S (Tree S modelSlots) Tree.op vars))
-        (fun r => denote next (extendValues S modelSlots r vars))
+      ITree.vis (event f (fun i => (args i).interpret S (Tree S modelSlots) Tree.op vars))
+        (fun r => denoteWith event next (extendValues S modelSlots r vars))
+
+/-- Evaluate the normalized sequence in the response model at a sorted valuation. -/
+noncomputable def denote {n : Nat} {slots : Fin n → α}
+    (p : Sequence S c slots) (vars : (i : Fin n) → Tree S modelSlots (slots i)) :
+    ITree.Tree (Event S modelSlots) (Atom S modelSlots c) :=
+  denoteWith S modelSlots Event.call p vars
 
 end Sequence
 

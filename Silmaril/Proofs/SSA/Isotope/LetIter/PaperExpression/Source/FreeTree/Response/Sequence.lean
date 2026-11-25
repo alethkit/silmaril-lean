@@ -25,12 +25,18 @@ public theorem lowers (p : Sequence S c slots) : p.source.toLetIter n = some p.n
     simp only [Sequence.source, Sequence.native, Expr.toLetIter,
       tree_lowers S, ih, Option.bind_some, Option.map_some]
 
-/-- Semantic equality is tested at the canonical variables to recover each
-request, then at valuations extended by the next fresh response. -/
-public theorem eq_of_denote_eq {p q : Sequence S c slots}
+public theorem eq_of_denoteWith_eq
+    {E : {m : Nat} → (Fin m → α) → Type (u + 1) → Type (u + 1)}
+    (event : ∀ {m} (modelSlots : Fin m → α) (f : Φ),
+      Args S modelSlots f → E modelSlots (Tree S modelSlots (S.out f)))
+    (label : ∀ {m} (modelSlots : Fin m → α) {X}, E modelSlots X → Option (Request S modelSlots))
+    (hlabel : ∀ {m} (modelSlots : Fin m → α) (f : Φ) (args : Args S modelSlots f),
+      label modelSlots (event modelSlots f args) = some ⟨f, args⟩)
+    {p q : Sequence S c slots}
     (h : ∀ {m : Nat} (modelSlots : Fin m → α)
       (vars : (i : Fin n) → Tree S modelSlots (slots i)),
-      Sequence.denote S modelSlots p vars = Sequence.denote S modelSlots q vars) : p = q := by
+      denoteWith S modelSlots (event modelSlots) p vars =
+        denoteWith S modelSlots (event modelSlots) q vars) : p = q := by
   induction p with
   | @ret size ambient p =>
     cases q with
@@ -44,8 +50,11 @@ public theorem eq_of_denote_eq {p q : Sequence S c slots}
     cases q with
     | ret q => exact (ITree.ret_ne_vis _ _ _ (h ambient Tree.var).symm).elim
     | call g args' next' =>
-      have hh := recover_request S ambient (h ambient Tree.var)
-      simp only [SingleCall.interpret_vars] at hh
+      have hh := congrArg (fun t => (ITree.out t).map (fun
+        | .ret _ => none
+        | .vis e _ => label ambient e)) (h ambient Tree.var)
+      simp only [denoteWith, ITree.out_vis, Part.map_some, Part.some_inj,
+        hlabel, Option.some.injEq, SingleCall.interpret_vars] at hh
       have hfg := congrArg Sigma.fst hh
       change f = g at hfg
       subst g
@@ -55,12 +64,24 @@ public theorem eq_of_denote_eq {p q : Sequence S c slots}
       apply ih
       intro m modelSlots vars
       let rest := fun i : Fin size => vars i.succ
-      have htail := recover_response S modelSlots (h modelSlots rest) (vars 0)
+      have htail := congrFun ((ITree.vis_inj (event modelSlots f (fun i =>
+        (args i).interpret S (Tree S modelSlots) Tree.op rest)) _ _).mp (h modelSlots rest)) (vars 0)
       have hv : extendValues S modelSlots (vars 0) rest = vars := by
         funext i
         exact Fin.cases rfl (fun _ => rfl) i
-      exact (congrArg (fun vals => Sequence.denote S modelSlots next vals =
-        Sequence.denote S modelSlots next' vals) hv).mp htail
+      exact (congrArg (fun vals => denoteWith S modelSlots (event modelSlots) next vals =
+        denoteWith S modelSlots (event modelSlots) next' vals) hv).mp htail
+
+private def atomicLabel {m : Nat} (modelSlots : Fin m → α) {X : Type (u + 1)} :
+    Event S modelSlots X → Option (Request S modelSlots)
+  | .call f args => some ⟨f, args⟩
+
+public theorem eq_of_denote_eq {p q : Sequence S c slots}
+    (h : ∀ {m : Nat} (modelSlots : Fin m → α)
+      (vars : (i : Fin n) → Tree S modelSlots (slots i)),
+      Sequence.denote S modelSlots p vars = Sequence.denote S modelSlots q vars) : p = q :=
+  eq_of_denoteWith_eq S (E := fun slots => Event S slots) (fun _ => Event.call)
+    (atomicLabel S) (fun _ _ _ => rfl) h
 
 section Typed
 
@@ -134,7 +155,7 @@ private theorem eval_aux (e : ε) (p : Sequence S c slots) (hp : Sequence.WellTy
     change (d.denote D M (fun x => x.elim) ρ >>= fun r =>
       d'.denote D M (fun x => x.elim) (ρ.snoc r)) = _
     rw [hd vars, ITree.vis_bind]
-    simp only [Sequence.denote]
+    simp only [Sequence.denote, Sequence.denoteWith]
     apply (ITree.vis_inj (Event.call f (fun i =>
       (args i).interpret S (Tree S modelSlots) Tree.op vars)) _ _).mpr
     funext r
