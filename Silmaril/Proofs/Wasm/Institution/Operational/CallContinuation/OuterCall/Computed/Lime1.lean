@@ -21,6 +21,7 @@ private inductive Focus : Wasm.Lime1.Instr → Prop where
   | get (i : LocalIdx) : Focus (.localGet i)
   | bin (t : IntType) (op : IntBinOp) : Focus (.intBinOp t op)
   | call (i : FuncIdx) : Focus (.call i)
+  | unreachable : Focus .unreachable
 
 private theorem Focus.nonvalue {op : Wasm.Lime1.Instr} (h : Focus op) :
     asValue? (AdminInstr.source op) = none := by cases h <;> rfl
@@ -35,6 +36,7 @@ private inductive Redex (f : Frame) : Wasm.Lime1.Instr → List Value → List A
       Redex f (.intBinOp t op) [.int t x, .int t y] [.trap]
   | call {i : FuncIdx} {a : FuncAddr} (found : f.module.funcs[i.toNat]? = some a) :
       Redex f (.call i) [] [.invoke a]
+  | unreachable : Redex f .unreachable [] [.trap]
 
 private theorem redex_shape {stack used : List Value} {op i : Wasm.Lime1.Instr} {rest : List Admin}
     (focus : Focus op) (source : values stack ++ .source op :: rest = values used ++ [.source i])
@@ -81,6 +83,9 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
     | intBinaryTrap t oper x y e err =>
       obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [.int t x, .int t y]) focus source.symm rfl
       exact ⟨[], _, _, rfl, .trap err, rfl⟩
+    | unreachable =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := []) focus source.symm rfl
+      exact ⟨[], [], _, rfl, .unreachable, rfl⟩
     | _ =>
       simp only [List.append_assoc, List.singleton_append, first_prefix, first_value] at firstEq
       first
@@ -98,6 +103,19 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
       | simp [first, asValue?] at firstEq
         subst op
         cases focus
+
+theorem unreachable_iff {H : Type} {s : Store H} {f : Frame}
+    {stack : List Value} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source .unreachable :: rest⟩ dst ↔
+      dst = ⟨s, f, values stack ++ .trap :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨saved, _, _, split, head, eq⟩ := read_front move .unreachable rfl
+    cases head with
+    | unreachable => simpa [split] using eq
+  · rintro rfl
+    simpa only [List.append_assoc, List.singleton_append] using
+      Step.context (Step.pure (host := CallFrame.limeNoHost) s f PureStep.unreachable) stack rest
 
 @[local simp] private theorem values_one (v : Value) : values [v] = [value v] := rfl
 
