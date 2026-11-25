@@ -56,7 +56,7 @@ theorem Op.emitList_selected {A : Type} (codec : CodeSyntax A) (condition : BitV
   split <;> rfl
 
 theorem Op.map_br_if {A : Type} (emit : Op → A) (condition : BitVec 32)
-    (depth : LabelIdx) (result : Option NumType) (rest : List Op) :
+    (depth : LabelIdx) (result : List NumType) (rest : List Op) :
     (if condition = 0 then rest else .br depth result :: rest).map emit =
       (if condition = 0 then [] else [emit (.br depth result)]) ++ rest.map emit := by
   split <;> rfl

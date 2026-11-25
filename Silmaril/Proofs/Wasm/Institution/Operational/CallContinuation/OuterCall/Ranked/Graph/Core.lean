@@ -311,7 +311,7 @@ private theorem label_frame_iff {H : Type} {P : Profile} {s : Store H} {outer in
 private theorem branch_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program}
     (checked : program.check = true) {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
     (found : program.lookup target.address = some fn) {fallthrough : List NumType} {enclosing : EnclosingLabels}
-    {locals stack : List Value} {depth : LabelIdx} {result : Option NumType} {rest : List Op}
+    {locals stack : List Value} {depth : LabelIdx} {result : List NumType} {rest : List Op}
     (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing) {dst : Config H} :
     native P (coreAt s caller target fallthrough.length (.label locals (.running stack (.br depth result :: rest)))) dst ↔
       ∃ out, program.Edge checked target.address (.label locals (.running stack (.br depth result :: rest))) out ∧
@@ -329,7 +329,7 @@ private theorem branch_step_iff {H : Type} {P : Profile} {s : Store H} {program 
     rcases invert.mp move with ⟨extra, payload, split, size, here, rfl⟩ | ⟨outer, rfl⟩
     · obtain ⟨extraValues, payloadValues, rfl, rfl, rfl⟩ := List.map_eq_append_iff.mp split
       obtain rfl : depth = ⟨0⟩ := Idx.toNat_injective here
-      have arity : payloadValues.length = result.toList.length := by
+      have arity : payloadValues.length = result.length := by
         simpa only [List.length_map, branch_here_result (checked_branch typed).1] using size
       exact ⟨_, rule.mpr (.branchHere locals extraValues payloadValues result rest arity), rfl⟩
     · exact ⟨_, rule.mpr (.branchOuter locals stack depth result rest outer), rfl⟩

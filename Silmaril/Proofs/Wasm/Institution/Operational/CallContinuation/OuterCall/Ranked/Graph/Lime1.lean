@@ -287,7 +287,7 @@ private theorem label_frame_iff {H : Type} {s : Store H} {outer inner : Frame}
 private theorem branch_step_iff {H : Type} {s : Store H} {program : Program}
     (checked : program.check = true) {caller : Frame} {target : CallTarget} {fn : Function}
     (found : program.lookup target.address = some fn) {fallthrough : List NumType} {enclosing : EnclosingLabels}
-    {locals stack : List Value} {depth : LabelIdx} {result : Option NumType} {rest : List Op}
+    {locals stack : List Value} {depth : LabelIdx} {result : List NumType} {rest : List Op}
     (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing) {dst : Config H} :
     native (limeAt s caller target fallthrough.length (.label locals (.running stack (.br depth result :: rest)))) dst ↔
       ∃ out, program.Edge checked target.address (.label locals (.running stack (.br depth result :: rest))) out ∧
