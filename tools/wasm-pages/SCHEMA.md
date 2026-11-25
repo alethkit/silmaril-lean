@@ -152,7 +152,8 @@ apply only to the reviewed digest.
   checked source declarations.
 - Optional `llvmReceipt` on the module has `wasmSha256`, `bitcodeSha256`,
   and `symbols`, an object keyed by decimal Wasm slot. It projects the
-  landed build receipt for matching reactor bytes and defined slots. A
-  selected row must agree with the decoded export or the linker-map alias
-  and Code span. The renderer links to the receipt at the page's source
+  landed build receipt for matching reactor bytes and defined slots. Every
+  selected row must match the Code frame's absolute offset and length,
+  including the size prefix, and the decoded export or linker-map alias.
+  The renderer links to the receipt at the page's source
   revision and shows its early bitcode symbol and digest as build provenance.

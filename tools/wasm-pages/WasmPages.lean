@@ -3,6 +3,7 @@ import Silmaril.Wasm.Binary.Core.Decode
 import Silmaril.Wasm.Tools.Text.Defs
 import Silmaril.Wasm.Tools.Validate.Defs
 import Silmaril.Wasm.Tools.Features.Defs
+import Silmaril.Wasm.Tools.FastFrame.Defs
 import Silmaril.Wasm.Tools.Gen.Cmd.Print.Defs
 import Silmaril.Wasm.Component.Binary.Defs
 import Silmaril.Wasm.Component.Binary.Encode.Defs
@@ -811,11 +812,28 @@ def loadReactorLlvmReceipt (root : System.FilePath) (hash : String) : IO (Option
   try return (readReactorLlvmReceipt (← IO.FS.readFile file) hash).toOption
   catch _ => return none
 
+/-- Absolute Code spans, including each original size prefix, in defined-function order. -/
+def reactorCodeSpans (bytes : ByteArray) (funcCount : Nat) : Option (Array (Nat × Nat)) := do
+  let sections ← Tools.FastFrame.splitAt bytes bytes.size bytes.size 8
+  let [code] := sections.filter (·.id == 10) | none
+  let (count, start) ← Tools.FastFrame.readUNAt bytes code.cend 32 code.cstart
+  unless count == funcCount do failure
+  let mut cursor := start
+  let mut spans := #[]
+  for _ in [:count] do
+    let (size, body) ← Tools.FastFrame.readUNAt bytes code.cend 32 cursor
+    let stop := body + size
+    unless stop ≤ code.cend do failure
+    spans := spans.push (cursor, stop - cursor)
+    cursor := stop
+  if cursor == code.cend then some spans else none
+
 def ReactorLlvmReceipt.symbol? (receipt : ReactorLlvmReceipt) (idx : Nat) (exportName : Option String)
-    (cName : Option (String × Nat × Nat)) : Option String :=
+    (cName : Option (String × Nat × Nat)) (span : Nat × Nat) : Option String :=
   match (receipt.symbols.filter (·.wasmSlot == idx)).toList with
   | [row] =>
-    if cName == some (row.symbol, row.codeOffset, row.codeBytes) || exportName == some row.symbol then
+    if span == (row.codeOffset, row.codeBytes) &&
+        (cName == some (row.symbol, row.codeOffset, row.codeBytes) || exportName == some row.symbol) then
       some row.symbol
     else none
   | _ => none
@@ -834,6 +852,7 @@ def writeReactor (path : String) (version hash : String) (bytes : ByteArray) (m 
     | .func ty => some (imp, ty.value.val)
     | _ => none
   let exportName (idx : Nat) := (m.exports.find? fun e => exportKind e.index == ("func", idx)).map (·.name)
+  let codeSpans := llvm.bind fun _ => reactorCodeSpans bytes m.funcs.length
   let mut functions : Array Json := #[]
   let mut index : Array Json := #[]
   let mut llvmSymbols : List (String × Json) := []
@@ -848,7 +867,8 @@ def writeReactor (path : String) (version hash : String) (bytes : ByteArray) (m 
     let idx := imports.length + ordinal
     let name := exportName idx
     let cName := if annotated then reactorNames.lookup idx else none
-    if let some symbol := llvm.bind (·.symbol? idx name cName) then
+    if let some symbol := (codeSpans.bind (·[ordinal]?)).bind fun span =>
+        llvm.bind (·.symbol? idx name cName span) then
       llvmSymbols := (toString idx, jstr symbol) :: llvmSymbols
     let flow := Cfg.blockCfg f.body
     let bad := flow.any fun (_, ts) => ts.contains .invalid

@@ -40,6 +40,19 @@ try {
     fs.mkdirSync(shots, { recursive: true });
     await page.screenshot({ path: path.join(shots, name + ".png") });
   };
+  const checkLlvmLink = async (slot, symbol) => {
+    const llvm = page.getByRole("link", { name: "LLVM build provenance" });
+    const source = JSON.parse((await page.locator("#source-meta").textContent()) || "null");
+    const hasReceipt = inventory.llvmReceipt?.symbols?.[slot] === symbol;
+    const expected = process.env[`SQLITE_REACTOR_LLVM_${slot}`];
+    if (expected) assert.equal(hasReceipt ? "present" : "absent", expected);
+    assert.equal(await llvm.count(), source && hasReceipt ? 1 : 0);
+    if (source && hasReceipt) {
+      assert.equal(await llvm.getAttribute("href"),
+        `${source.repo}/blob/${source.rev}/tools/sqlite-wasm/llvm-provenance/receipt.json`);
+      assert.ok((await page.locator("#main").innerText()).includes(`early bitcode symbol ${symbol}`));
+    }
+  };
 
   await page.goto(`${base}#/wasm`);
   await page.locator("#wfq").fill("sqlite3_libversion_number");
@@ -50,6 +63,7 @@ try {
   await result.click();
   await page.locator("#wcy").waitFor();
   assert.match(await page.locator("#main").innerText(), /SqliteWasm\.version_exec/);
+  await checkLlvmLink(289, "sqlite3_libversion_number");
   assert.deepEqual(details, [`/wasm/f/${slug}/289.json`]);
 
   const openModule = async () => {
@@ -88,17 +102,7 @@ try {
   await openSlot("530");
   await page.locator("#wcy").waitFor();
   assert.equal(await page.getByRole("link", { name: "SqliteWasm.putVarint_oneByte" }).count(), 1);
-  const llvm = page.getByRole("link", { name: "LLVM build provenance" });
-  const source = JSON.parse((await page.locator("#source-meta").textContent()) || "null");
-  const hasReceipt = inventory.llvmReceipt?.symbols?.[530] === "sqlite3PutVarint";
-  const expectLlvm = process.env.SQLITE_REACTOR_LLVM_530;
-  if (expectLlvm) assert.equal(hasReceipt ? "present" : "absent", expectLlvm);
-  assert.equal(await llvm.count(), source && hasReceipt ? 1 : 0);
-  if (source && hasReceipt) {
-    assert.equal(await llvm.getAttribute("href"),
-      `${source.repo}/blob/${source.rev}/tools/sqlite-wasm/llvm-provenance/receipt.json`);
-    assert.match(await page.locator("#main").innerText(), /early bitcode symbol sqlite3PutVarint/);
-  }
+  await checkLlvmLink(530, "sqlite3PutVarint");
   const effects = await page.locator("#main dt").filter({ hasText: /^effect marks$/ })
     .evaluate((term) => term.nextElementSibling.textContent.split(", "));
   assert.deepEqual(new Set(effects), new Set(["may-trap", "call"]));
