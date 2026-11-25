@@ -20,6 +20,7 @@ inductive Body where
   | total (code : Suite 0)
   | returnExpr (value : Lowering.Expr)
   | assignExpr (target : Binding) (value : Lowering.Expr)
+  | assignTargetExpr (target : LoopTarget) (value : Lowering.Expr)
   | setIndexExpr (receiver subscript rhs : Lowering.Expr)
   | addIndexExpr (receiver subscript rhs : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
@@ -140,7 +141,7 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
   | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate
-  | .returnExpr value | .assignExpr _ value | .evalExpr value => value.validateCalls
+  | .returnExpr value | .assignExpr _ value | .assignTargetExpr _ value | .evalExpr value => value.validateCalls
   | .setIndexExpr receiver subscript rhs => do
     rhs.validateCalls
     receiver.validateCalls

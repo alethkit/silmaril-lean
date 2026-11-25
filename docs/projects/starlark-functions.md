@@ -188,8 +188,8 @@ check, and `bindsTarget_failure_state` gives the full failure guarantee
 for flat targets. The binder composes with `exec_iff_denoteBody` and
 `runs_iff_denoteSuite`. `lowerForIn_preserves` transports the binder's heap,
 slots and visible writes through scratch projection before it uses the
-existing body premise. Subscript and field leaves, standalone
-destructuring assignments and comprehension targets remain open.
+existing body premise. Subscript and field leaves and comprehension
+targets remain open. Standalone pattern assignments use the same binder.
 [Binder and cursor theorems](../../Silmaril/Languages/Starlark/Lists/Iteration/Thms.lean) · [Lowering theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean) · [Source loop validation](starlark-modules.md#resolving-module-declarations)
 
 ## Direct denotation of resolved expressions
@@ -423,8 +423,31 @@ expression-position theorems in the denotation header expose that agreement
 without the compiler's scratch projection.
 
 Module commands reuse native assignment and expression statements, including
-direct collection displays, subscript and slice reads, and both subscript assignment forms below.
+direct collection displays, subscript and slice reads, and the assignment forms below.
 [Body rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean) · [Native position agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Assignment and conditional fixtures](../../Silmaril/Languages/Starlark/Functions/NativeBodyChecks.lean) · [Return fixtures](../../Silmaril/Languages/Starlark/Functions/NativeReturnChecks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
+
+### Standalone pattern assignment
+
+`Body.assignTargetExpr` evaluates the RHS once in the current frame, before
+any target write. It then uses the nested tuple/list binder. A failed RHS
+retains its effects and skips binding. After a successful RHS, each node
+checks its own item and arity before writing children left to right. A later
+child failure keeps earlier sibling writes. The same rules apply to the
+lexical name leaves in checked functions and the global leaves in checked
+module commands. Repeated function names write the same slot in order.
+Module validation rejects duplicate globals, including repeats in one
+pattern, before execution.
+[Pinned assignments][assignments] · [Pinned lexical rules][names] · [Go RHS before target][go-assignment] · [Go global binding][go-bind-global]
+
+`exec_assignTargetExpr_iff_denoteExpr` composes independent RHS and binder
+rules with the direct denotation. `lowerAssignTarget_preserves` proves that
+staging the RHS in a scratch binding preserves success and both kinds of
+failure, including the exact heap, slots, iterator stack, and visible
+bindings. Checked module commands use the direct body evaluator and the
+existing initialization and publication rules. This slice admits name
+leaves in ordinary assignment. Comprehension targets, subscript or field
+leaves inside patterns, and augmented pattern assignment are separate.
+[Native and lowered fixtures](../../Silmaril/Languages/Starlark/Functions/NativeBodyChecks.lean) · [Source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean) · [Pinned Go fixtures](../../examples/starlark/functions/check.go)
 
 ### Simple subscript assignment
 
@@ -641,6 +664,8 @@ extend this profile. Host callable effects remain open.
 [assignments]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#assignments
 [go-for-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1172-L1192
 [go-unpack-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1247-L1293
+[go-assignment]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1092-L1099
+[go-bind-global]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L314-L347
 [go-unpack]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L508-L533
 [go-loop-cleanup]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L102-L113
 [go-range-iterator]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L951-L964

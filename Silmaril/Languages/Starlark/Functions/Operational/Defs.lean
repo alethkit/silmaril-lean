@@ -9,7 +9,8 @@ public section
 namespace Silmaril.Languages.Starlark.Functions
 
 open Lists
-open Lists.Iteration (Flow Suite Runs Cursor CursorRuns LoopTarget truth acquireIterator restoreIterators enterIterator)
+open Lists.Iteration
+  (Flow Suite Runs Cursor CursorRuns LoopTarget BindsTarget truth acquireIterator restoreIterators enterIterator)
 
 mutual
 /-- Big-step rules over the available declarations. The same declaration may
@@ -26,6 +27,14 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       ExecExpr program available s value out →
       Exec program available s (.assignExpr target value)
         (Outcome.resume out fun result next => .ok .next (next.write target result))
+  | assignTargetExpr {available : List DeclarationId} {s t : State} {target : LoopTarget}
+      {rhs : Lowering.Expr} {value : Lists.Value} {out : Outcome Unit} :
+      ExecExpr program available s rhs (.ok value t) → BindsTarget t value target out →
+      Exec program available s (.assignTargetExpr target rhs) (Outcome.resume out fun () => pure .next)
+  | assignTargetExprRhsError {available : List DeclarationId} {s t : State} {target : LoopTarget}
+      {rhs : Lowering.Expr} {error : Error} :
+      ExecExpr program available s rhs (.error error t) →
+      Exec program available s (.assignTargetExpr target rhs) (.error error t)
   | setIndexExpr {available : List DeclarationId} {s t u : State}
       {receiver subscript rhs : Lowering.Expr} {value target : Lists.Value} {out : Outcome Lists.Value} :
       ExecExpr program available s rhs (.ok value t) →

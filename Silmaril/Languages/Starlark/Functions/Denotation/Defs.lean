@@ -7,7 +7,7 @@ public import Silmaril.Languages.Starlark.Functions.Expressions.Denotation.Defs
 namespace Silmaril.Languages.Starlark.Functions
 
 open Lists
-open Lists.Iteration (Flow denoteSuite truth denoteForIn)
+open Lists.Iteration (Flow denoteSuite truth denoteForIn bindTarget)
 
 /-- Structural evaluation within a frame and strict descent through the
 finite set of declarations not on the call stack on invocation. -/
@@ -21,6 +21,9 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
   | .returnExpr value => Outcome.resume (evalExpr value state) (fun result => pure (.returned result))
   | .assignExpr target value =>
     Outcome.resume (evalExpr value state) (fun result next => .ok .next (next.write target result))
+  | .assignTargetExpr target value =>
+    Outcome.resume (evalExpr value state) fun result next =>
+      Outcome.resume (bindTarget target result next) fun () => pure .next
   | .setIndexExpr receiver subscript rhs =>
     Outcome.resume (evalExpr rhs state) fun value next =>
       Outcome.resume (evalExpr receiver next) fun target next =>

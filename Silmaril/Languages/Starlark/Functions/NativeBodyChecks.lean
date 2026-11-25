@@ -1,6 +1,8 @@
 module
 
 import Silmaril.Languages.Starlark.Functions.Thms
+import Silmaril.Languages.Starlark.Functions.Lowering.Defs
+meta import Silmaril.Languages.Starlark.Functions.Lowering.Defs
 meta import Silmaril.Languages.Starlark.Functions.Denotation.Defs
 meta import Silmaril.Languages.Starlark.Functions.Lowering.Syntax.Defs
 meta import Silmaril.Languages.Starlark.Lists.Defs
@@ -25,8 +27,8 @@ private def visit (value : Int) : Lowering.Expr :=
 
 private def failure : Lowering.Expr := .callPos (.atom (.builtin .len)) [visit 1]
 
-private def execute (body : Body) :=
-  let initial := ([events, destination].foldl Lists.State.allocateSlot {}).write
+private def execute (body : Body) (locals : List Binding := []) :=
+  let initial := (([events, destination] ++ locals).foldl Lists.State.allocateSlot {}).write
     destination (.scalar (.int 7))
   let setup := Body.seq (.total (.atomic (.assign events (.list .empty)))) (.define mark 0)
   runChecked program (.seq setup body) initial
@@ -76,5 +78,34 @@ private def checkedBranch (condition chosen : Int) : Bool :=
   match execute (.branchExpr (.atom (int 1)) (.total (.atomic .pass)) .breakLoop) with
   | .error .breakOutsideLoop => true
   | _ => false
+
+-- The final RHS read still sees the old destination. Both writes to it occur
+-- after evaluating the RHS, and the later write wins.
+#guard
+  let other : Binding := ⟨.local, "other"⟩
+  let target : Lists.Iteration.LoopTarget := .sequence [.name destination, .unpack [destination, other]]
+  let rhs : Lowering.Expr := .tuple [visit 1, .list [visit 2, .atom (read destination)]]
+  match execute (.assignTargetExpr target rhs) [other],
+      execute (Lowering.lowerAssignTarget target rhs).code [other] with
+  | .ok (.ok .next direct), .ok (.ok .next lowered) =>
+    observed direct [1, 2] 2 && observed lowered [1, 2] 2 &&
+      decide ((direct.bindingValue other).toOption = some (.scalar (.int 7)) ∧ direct.heap = lowered.heap)
+  | _, _ => false
+
+-- A failed RHS reaches no target. A failed nested node keeps the earlier
+-- sibling's write. The staged code retains the same heap and error in both cases.
+#guard
+  let other : Binding := ⟨.local, "other"⟩
+  let target : Lists.Iteration.LoopTarget := .sequence [.name destination, .unpack [destination, other]]
+  let check := fun rhs expected trace output =>
+    match execute (.assignTargetExpr target rhs) [other],
+        execute (Lowering.lowerAssignTarget target rhs).code [other] with
+    | .ok (.error error direct), .ok (.error loweredError lowered) =>
+      error == expected && loweredError == expected &&
+        observed direct trace output && observed lowered trace output &&
+        (direct.bindingValue other).toOption.isNone && decide (direct.heap = lowered.heap)
+    | _, _ => false
+  check failure (.builtinType .len (.scalar (.int 1))) [1] 7 &&
+    check (.tuple [visit 1, .list [visit 2]]) (.unpackArity 2 1) [1, 2] 1
 
 end Silmaril.Languages.Starlark.Functions

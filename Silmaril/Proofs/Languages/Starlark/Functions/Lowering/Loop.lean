@@ -93,6 +93,42 @@ termination_by sizeOf targets
 decreasing_by all_goals (simp_wf <;> omega)
 end
 
+theorem preservesAssignTarget {program : Program} {available : List DeclarationId} {state : State}
+    {rhs : Languages.Starlark.Functions.Lowering.Expr} {out : Outcome Value}
+    (ran : Evaluates program available state rhs out) (free : ScratchFree state)
+    (target : LoopTarget) (start : Nat) :
+    OutcomeMatch 0 (denoteBody program available (.assignTargetExpr target rhs) state)
+      (denoteBody program available (lowerAssignTarget target rhs start).code state) := by
+  have staged := stage_preserves ran free start
+  rw [denoteBody]
+  change OutcomeMatch 0 (Outcome.resume (denoteExpr program available rhs state) fun value next =>
+    Outcome.resume (bindTarget target value next) fun () => pure Flow.next) _
+  rw [denoteExpr_eq_of_evaluates ran]
+  simp only [lowerAssignTarget]
+  cases out with
+  | error error s =>
+    obtain ⟨final, evaluated, similar⟩ := staged
+    rw [denoteBody, evaluated]
+    exact .error similar
+  | ok value s =>
+    obtain ⟨final, evaluated, similar, saved⟩ := staged
+    rw [denoteBody, evaluated]
+    change OutcomeMatch 0 _ (denoteBody program available
+      (.assignTargetExpr target (.atom (.read (.bound (temporary start))))) final)
+    rw [denoteBody]
+    change OutcomeMatch 0 _
+      (Outcome.resume (denoteExpr program available (.atom (scratchRead start)) final) fun result next =>
+        Outcome.resume (bindTarget target result next) fun () => pure Flow.next)
+    have readBack : denoteExpr program available (.atom (scratchRead start)) final = .ok value final := by
+      unfold denoteExpr
+      rw [denoteExprWith.eq_def]
+      exact saved
+    rw [readBack]
+    change OutcomeMatch 0
+      (Outcome.resume (bindTarget target value s) fun () => pure Flow.next)
+      (Outcome.resume (bindTarget target value final) fun () => pure Flow.next)
+    exact resumeMatch (bindTargetMatch target value similar) (fun () _ _ related => .ok related)
+
 private theorem cursorMatch (sourceBody loweredBody : Meaning Flow)
     (bodyMatch : ∀ s t, StateMatch 0 s t → OutcomeMatch 0 (sourceBody s) (loweredBody t))
     (target : LoopTarget) (cursor : Cursor) (s t : State) (same : StateMatch 0 s t) :

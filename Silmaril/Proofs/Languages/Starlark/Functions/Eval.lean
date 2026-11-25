@@ -16,7 +16,7 @@ open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists
 open Silmaril.Languages.Starlark.Lists.Iteration
   (Flow Runs Cursor LoopTarget runs_iff_denoteSuite truth acquireIterator enterIterator denoteCursor denoteForIn
-    cursor_eq_of_runs cursor_runs_denote)
+    cursor_eq_of_runs cursor_runs_denote bindTarget bindsTarget_iff_bindTarget)
 
 private theorem branch_apply (program : Program) (available : List DeclarationId)
     (flag : Bool) (yes no : Body) (state : State) :
@@ -42,6 +42,10 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
     exact Lowering.denoteExprsWith_eq_of_evaluatesMany eq ran
   case runs _ ran eq =>
     exact cursor_eq_of_runs eq ran
+  case assignTargetExpr _ assigned evaluated =>
+    simp only [denoteBody, evaluated, Outcome.resume, (bindsTarget_iff_bindTarget _ _ _ _).mp assigned]
+  case assignTargetExprRhsError _ evaluated =>
+    simp only [denoteBody, evaluated, Outcome.resume]
   all_goals
     (try have evaluated := (eval_iff_denote _ _ _).mp (by assumption)) <;>
     (try have total := (runs_iff_denoteSuite _ _ _).mp (by assumption)) <;>
@@ -88,6 +92,16 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
   | assignExpr target value =>
     rw [denoteBody]
     exact .assignExpr (exprRun value state)
+  | assignTargetExpr target rhs =>
+    rw [denoteBody]
+    change Exec program available state (.assignTargetExpr target rhs)
+      (Outcome.resume (evalExpr rhs state) fun value next =>
+        Outcome.resume (bindTarget target value next) fun () => pure .next)
+    have rhsRun := exprRun rhs state
+    cases evaluated : evalExpr rhs state with
+    | error error next => exact .assignTargetExprRhsError (evaluated ▸ rhsRun)
+    | ok value next =>
+      exact .assignTargetExpr (evaluated ▸ rhsRun) ((bindsTarget_iff_bindTarget _ _ _ _).mpr rfl)
   | setIndexExpr receiver subscript rhs =>
     rw [denoteBody]
     change Exec program available state (.setIndexExpr receiver subscript rhs)

@@ -26,6 +26,7 @@ structure SourceSignature where
 inductive Statement where
   | pass
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
+  | assignTarget (target rhs : Lowering.Resolve.SourceExpr)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
@@ -41,6 +42,7 @@ inductive Statement where
 /-- Admitted module commands, in execution order. -/
 inductive Command where
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
+  | assignTarget (target rhs : Lowering.Resolve.SourceExpr)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
@@ -52,16 +54,12 @@ inductive Error where
   | validation (error : Modules.Error)
   | emptyLoad (label : String)
   | unsupportedLoopTarget
+  | unsupportedAssignmentTarget
   deriving DecidableEq, Repr
 
 structure ResolvedModule where
   program : Program
   source : Modules.Source
-
-def globalNames (commands : List Command) : List String :=
-  commands.filterMap fun
-    | .assign name _ | .define name .. => some name
-    | .setIndex .. | .addIndex .. | .eval _ | .load .. => none
 
 def fileNames (commands : List Command) : List String :=
   commands.flatMap fun
@@ -70,20 +68,32 @@ def fileNames (commands : List Command) : List String :=
 
 /-- Tuple and list spellings share the same resolved sequence target.
 The normalized input supplies valid identifier spellings. -/
-private def resolveTarget : Lowering.Resolve.SourceExpr → Except Error (LoopTarget × List String)
-  | .scalar (.read name) => pure (.name (fileSlot name), [name])
+private def resolveTarget (slot : String → Binding) (unsupported : Error) :
+    Lowering.Resolve.SourceExpr → Except Error (LoopTarget × List String)
+  | .scalar (.read name) => pure (.name (slot name), [name])
   | .list elements | .tuple elements => do
     let children ← elements.attach.mapM fun ⟨expr, member⟩ => do
       have := List.sizeOf_lt_of_mem member
-      resolveTarget expr
+      resolveTarget slot unsupported expr
     return (.sequence (children.map Prod.fst), children.flatMap Prod.snd)
-  | _ => throw .unsupportedLoopTarget
+  | _ => throw unsupported
+
+/-- Collect the module's lexical scope, including every valid pattern leaf.
+Command elaboration rejects invalid targets. -/
+def globalNames (commands : List Command) : List String :=
+  commands.flatMap fun
+    | .assign name _ | .define name .. => [name]
+    | .assignTarget target _ =>
+      ((resolveTarget globalSlot .unsupportedAssignmentTarget target).toOption.map Prod.snd).getD []
+    | .setIndex .. | .addIndex .. | .eval _ | .load .. => []
 
 private def Statement.localNames : Statement → Except Error (List String)
   | .assign name _ | .define name .. => pure [name]
+  | .assignTarget target _ => return (← resolveTarget fileSlot .unsupportedAssignmentTarget target).2
   | .seq first rest | .branch _ first rest => return (← first.localNames) ++ (← rest.localNames)
   | .forIn target _ body => return target :: (← body.localNames)
-  | .forInTarget target _ body => return (← resolveTarget target).2 ++ (← body.localNames)
+  | .forInTarget target _ body =>
+    return (← resolveTarget fileSlot .unsupportedLoopTarget target).2 ++ (← body.localNames)
   | .pass | .setIndex .. | .addIndex .. | .eval _ | .ret _ | .breakLoop | .continueLoop => pure []
 
 private abbrev Build := StateT Program (Except Error)
@@ -150,6 +160,10 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
   | .assign name value => do
     let (value, reads) ← readExpr context value
     return ⟨.assignExpr (fileSlot name) value, reads⟩
+  | .assignTarget target rhs => do
+    let (target, _) ← monadLift (resolveTarget fileSlot .unsupportedAssignmentTarget target)
+    let (rhs, reads) ← readExpr context rhs
+    return ⟨.assignTargetExpr target rhs, reads⟩
   | .setIndex receiver subscript rhs => do
     let (code, reads) ← resolveSetIndex context receiver subscript rhs Body.setIndexExpr
     return ⟨code, reads⟩
@@ -177,7 +191,7 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let body ← compileBody context body
     return ⟨.forInExpr (fileSlot target) iterable body.code, reads ++ body.reads⟩
   | .forInTarget target iterable body => do
-    let (target, _) ← monadLift (resolveTarget target)
+    let (target, _) ← monadLift (resolveTarget fileSlot .unsupportedLoopTarget target)
     let (iterable, reads) ← readExpr context iterable
     let body ← compileBody context body
     return ⟨.forInExpr target iterable body.code, reads ++ body.reads⟩
@@ -194,6 +208,10 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
   | .assign name value => do
     let (value, _) ← readExpr context value
     return .exec (.assignExpr name value)
+  | .assignTarget target rhs => do
+    let (target, _) ← monadLift (resolveTarget globalSlot .unsupportedAssignmentTarget target)
+    let (rhs, _) ← readExpr context rhs
+    return .exec (.assignTargetExpr target rhs)
   | .setIndex receiver subscript rhs => do
     let (code, _) ← resolveSetIndex context receiver subscript rhs TopCode.setIndexExpr
     return .exec code
