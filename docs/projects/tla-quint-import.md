@@ -1,10 +1,10 @@
-# Import Quint exports into General TLA
+# Import TLA+ source and Quint exports
 
 The [import header](../../Silmaril/Logic/Temporal/TLA/Import/Defs.lean)
-reads complete TLA+ source through the native parser and scalar elaborator.
+reads complete TLA+ source through the native parser and elaborator.
 The caller supplies the flexible variable sorts, standard library identities,
-and names of the initial and step operators. Every declaration is checked
-before the two operators are selected.
+and names of the operators to select. The importer checks every declaration
+before selecting the initial and step operators or a temporal definition.
 
 ## Export and import a module
 
@@ -62,6 +62,28 @@ definition bodies, the definition name. The `initial` and `step` cases
 identify the selected operator and the reason it could not be used.
 [Parser diagnostics](tla-parser.md) · [Elaboration fragment](tla-elaborator.md)
 
+## Import a temporal specification
+
+Select a nullary temporal definition such as `Spec == Init /\ [][Next]_vars`
+with `Import.importTemporal signature libraries "Spec" source`. The returned
+`Elaborator.TemporalFormula` uses the same typed states and can be interpreted
+with `checked.toFormula signature.noRigid`. `Import.Diagnostic.temporal`
+reports selection failures. Bad clause bodies, including primed subscripts or
+temporal operands passed as actions, fail elaboration in the enclosing
+definition. The raw import API can still select `Init` and `Next` from this
+module.
+
+The original [Intermittent fixture](../../tests/semantics/tla-quint/Intermittent.tla)
+uses `ready` and `done` as Boolean variables. Its checked infinite behavior
+changes `ready` at each instant and keeps `done` false. The `done` bracket
+admits that behavior. The raw action and full-state bracket both reject the
+first transition. The raw action has a visible successor at every even
+instant and none at odd instants, so the behavior satisfies WF and violates
+SF. The tests compare the parser output to the complete surface tree used by
+the Lean proofs and exercise direct source import and rejection cases.
+[Temporal regressions](../../tests/semantics/tla-quint/Temporal.lean) ·
+[Temporal elaboration rules](tla-elaborator.md#temporal-definitions)
+
 ## Bounded checks and stuttering
 
 ```sh
@@ -70,10 +92,10 @@ make tla-import-check
 
 This target runs in `make check` for the TLA+ import path. With the pinned
 Lean toolchain and Lake dependencies in place, it needs no Node, Java, or
-network access. It checks the original fixture and oracle hashes, reads the
-export bytes directly, and compares the complete initial set and raw
-relation on the supplied state lists. Oracle columns follow `variables`
-and map to the imported scope by name.
+network access. It runs the temporal regressions, checks the original Quint
+fixture and oracle hashes, reads the export bytes directly, and compares the
+complete initial set and raw relation on the supplied state lists. Oracle
+columns follow `variables` and map to the imported scope by name.
 
 | Fixture | Initial candidates | Ordered pairs | Accepted initial states | Accepted raw pairs |
 | --- | ---: | ---: | ---: | ---: |
@@ -89,10 +111,9 @@ counter has no raw successor at `2`. A separate check calls
 `2 → 2`. [Kernel adequacy](tla-semantic-kernel.md) ·
 [Regression harness](../../tests/semantics/tla-quint/Import.lean)
 
-The exact bounded comparisons cover these two pinned exports. The source
-fragment accepts scalar state predicates and raw actions. Temporal
-specifications, action brackets in source, fairness, user libraries,
-composite values, and proof checking remain outside this import path.
-The checks leave general exporter correctness, reverse translation,
-unbounded graph equivalence, and temporal equivalence open.
+The exact bounded comparisons cover the raw relations of the two pinned
+exports. User libraries, general composite values and proof checking remain
+outside this import path. The checks leave general exporter correctness,
+reverse translation, unbounded graph equivalence, and Quint temporal
+equivalence open.
 [Syntax coverage](tla-parser.md) · [Semantic coverage](tla-elaborator.md)

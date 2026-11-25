@@ -171,9 +171,10 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.% +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiveDescent.lean)
 
 tla-import-check:
-	$(LAKE) build --wfail +Silmaril.Logic.Temporal.TLA.Import.Defs +Silmaril.Logic.Temporal.TLA.Kernel.Thms
+	$(LAKE) build --wfail +Silmaril.Logic.Temporal.TLA.Import.Defs +Silmaril.Logic.Temporal.TLA.Kernel.Thms +Silmaril.Logic.Temporal.TLA.Elaborator.Thms +Silmaril.ProofFormats.TLA.SurfaceSExp.Defs
 	cd tests/semantics/tla-quint && sha256sum -c SHA256SUMS
 	$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true --run tests/semantics/tla-quint/Import.lean
+	$(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/semantics/tla-quint/Temporal.lean
 
 check-integrations:
 	$(if $(filter ci_cerberus_genuine_oracle,$(CHECK_TARGETS)),$(MAKE) cerberus-oracle)

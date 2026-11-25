@@ -3,7 +3,7 @@ module
 public import Silmaril.Logic.Temporal.TLA.Elaborator.Defs
 public import Silmaril.Logic.Temporal.TLA.Surface.Parser.Defs
 
-/-! # Import scalar TLA+ state and step predicates from concrete source -/
+/-! # Import TLA+ state predicates, raw steps and temporal formulas from source -/
 
 public section
 
@@ -32,6 +32,7 @@ inductive Diagnostic where
   | elaborate (cause : Elaborator.Diagnostic)
   | initial (name : Surface.Ident) (cause : Elaborator.Diagnostic)
   | step (name : Surface.Ident) (cause : Elaborator.Diagnostic)
+  | temporal (name : Surface.Ident) (cause : Elaborator.Diagnostic)
 
 /-- Use `initial.toStatePred` and `step.toAction` for the General TLA
 denotations and `profile.signature.noRigid` for the outer rigid environment. -/
@@ -39,15 +40,28 @@ structure StateAction (signature : Elaborator.Signature) where
   initial : Kernel.StatePredicate signature.scope
   step : Kernel.StepPredicate signature.scope
 
+private def checkModule (signature : Elaborator.Signature)
+    (libraries : List Elaborator.StandardModule) (source : String) :
+    Except Diagnostic (Elaborator.CheckedModule signature) := do
+  let parsed ← (Surface.Parser.parseModule source).mapError .parse
+  (Elaborator.elaborate libraries signature parsed).mapError .elaborate
+
 /-- Parse the entire module and check all declarations before selecting the
 initial predicate and raw step. `:=` has the pinned Apalache equality meaning
 when imported. A client can add a bracket explicitly with `step.bracket`. -/
 def importModule (profile : Profile) (source : String) :
     Except Diagnostic (StateAction profile.signature) := do
-  let parsed ← (Surface.Parser.parseModule source).mapError .parse
-  let checked ← (Elaborator.elaborate profile.libraries profile.signature parsed).mapError .elaborate
+  let checked ← checkModule profile.signature profile.libraries source
   let initial ← (checked.statePredicate profile.initial).mapError (.initial profile.initial)
   let step ← (checked.stepPredicate profile.step).mapError (.step profile.step)
   return ⟨initial, step⟩
+
+/-- Parse and check the entire module, then select a named temporal operator.
+Call `toFormula signature.noRigid` on the result for its TLA semantics. -/
+def importTemporal (signature : Elaborator.Signature) (libraries : List Elaborator.StandardModule)
+    (name : Surface.Ident) (source : String) :
+    Except Diagnostic (Elaborator.TemporalFormula signature.scope) := do
+  let checked ← checkModule signature libraries source
+  (checked.temporalFormula name).mapError (.temporal name)
 
 end Silmaril.Logic.Temporal.TLA.Import

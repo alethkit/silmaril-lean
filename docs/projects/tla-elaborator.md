@@ -1,15 +1,18 @@
-# Scalar TLA+ surface elaborator
+# Scalar and temporal TLA+ surface elaboration
 
 Import [`Silmaril.Logic.Temporal.TLA.Elaborator.Thms`](../../Silmaril/Logic/Temporal/TLA/Elaborator/Thms.lean).
 `Elaborator.elaborate` takes a `Surface.Module`, an explicit list of available
 standard-module identities, and a `Signature` giving the sort of every
 `VARIABLE`. It returns a checked module or a `Diagnostic`. On a checked
-module, select a nullary Boolean operator by its case-sensitive name.
+module, select a nullary operator by its case-sensitive name.
 
 - `statePredicate` accepts constant and state-level bodies. `stepPredicate`
   also accepts action-level bodies and reads state-level bodies at the source.
 - `stateDenotation` and `actionDenotation` return the corresponding General
   TLA denotations. Kernel predicates also provide executable decisions.
+- `temporalFormula` selects a checked temporal operator. Call
+  `toFormula signature.noRigid` for its standalone TLA formula on the same
+  typed valuations.
 - `signature.scope` indexes a state coordinate by its name and a proof that
   `signature.lookup name = some sort`. `signature.noRigid` supplies the empty
   outer rigid environment. Literal-set witnesses extend that environment
@@ -39,15 +42,46 @@ lexically valid identifiers and the AST shapes in its grammar contract.
 Unsupported forms include `ASSUME`, `CONSTANT`, `RECURSIVE`, `INSTANCE`,
 submodules, proof units, parameterized and symbolic definitions, qualified and
 higher-order references, `LET`, strings, decimals, nonliteral or empty
-quantifier domains, other quantifier forms, and composite values such as
-functions, sequences and records. `EXCEPT`, `@`, `ENABLED`, `UNCHANGED`,
-action brackets, temporal operators and fairness are also outside the fragment.
+quantifier domains, other quantifier forms, functions, first-class tuples,
+sequences and records. `EXCEPT`, `@`, `ENABLED` and `UNCHANGED` are also outside
+the source fragment.
 
 `:=` denotes a constraint on one fixed pair of valuations. For example,
 `x' := y /\ y' := x` reads both right-hand sides at the source. A coordinate
-omitted from the action is unconstrained at the target. The step predicate is
-raw. Clients can add bracket stuttering explicitly with
-`Kernel.Predicate.bracket` and choose the observation that it compares.
+omitted from the action is unconstrained at the target. Selecting a step
+predicate always returns its raw relation. Clients can construct a decidable
+bracket with `Kernel.Predicate.bracket` given their own observation.
+
+## Temporal definitions
+
+`Spec == Init /\ [][Next]_vars` is checked compositionally. The checker
+also accepts explicit `WF_vars(Next)` and `SF_vars(Next)`, including repeated
+clauses and clauses with distinct actions or observations. The names are
+ordinary nullary references in declaration order. They can refer to `LOCAL`
+operators within the module. `Init` and `Next` need no special spelling.
+
+| Surface form | Rule |
+|---|---|
+| `[][A]_e` | `A` must be a scalar Boolean expression of at most action level. A state predicate used as `A` reads the source. Each consecutive pair must satisfy the raw action or preserve `e`. |
+| `WF_e(A)` and `SF_e(A)` | Same action and observation checks as for `[][A]_e`. Apply standalone TLA WF or SF to that raw action and that observation. A visible step satisfies `A` and changes `e`. Enabledness asks whether there is such a target anywhere in the typed state space. |
+| `e` in a subscript | A checked scalar expression of at most state level, or a nonempty flat tuple of such expressions. A nullary definition such as `vars == <<x, y>>` can name the tuple. Tuple equality compares every component in order, including mixed `Int` and `Bool` components. A tuple listing every variable observes the full state. |
+| Boolean conjunction and aliases | Binary conjunction and conjunction lists can compose temporal expressions and scalar state predicates. A state predicate in a formula reads the current instant. A raw action in a temporal conjunction is rejected. A nullary alias preserves the referenced value's level. |
+
+Each bracket or fairness clause uses the subscript written on that occurrence.
+Omitting a coordinate from a subscript allows a bracket step that changes it
+while preserving the observation. Fairness is introduced only by explicit WF
+and SF clauses. The semantic characterizations expose observation equality in
+bracket steps, eventual continuous visible enablement for WF, and recurrent
+visible enablement for SF. [TLA definitions](tla.md) ·
+[Elaborator theorems](../../Silmaril/Logic/Temporal/TLA/Elaborator/Thms.lean)
+
+The temporal fragment ends at these constructors and aliases. Bare brackets,
+angle actions, `[]` over another form, `<>`, temporal disjunction, negation,
+implication and temporal quantification are rejected. Scalar comparisons,
+primes, conditionals and quantifiers cannot embed temporal or tuple values.
+The next widening can add new checked formula constructors and lower them to
+TLA in `TemporalFormula.toFormula`. It must preserve the scalar level checks
+at actions and observations.
 
 ## Resolving imports
 
@@ -118,7 +152,7 @@ lake build --wfail +Silmaril.Logic.Temporal.TLA.Elaborator.Thms \
 ```
 
 [Lean regressions](../../Silmaril/Logic/Temporal/TLA/Elaborator/Examples.lean)
-cover AST-to-denotation behavior and rejection cases. The
-[Quint import guide](tla-quint-import.md) connects the native parser to this
-elaborator on intact export files. General TLA+ source-language correctness
-and specifications with fairness are outside these results.
+cover scalar AST-to-denotation behavior and rejection cases. The
+[source import guide](tla-quint-import.md) covers the native parser path on
+intact Quint export files and a checked temporal example. General TLA+
+source-language correctness remains open.

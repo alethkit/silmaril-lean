@@ -190,8 +190,8 @@ example : diagnostic (check [defn "P" (.rigidQuant .exists
     some (.inDefinition "P" (.typeMismatch .bool .int)) := by decide
 example : diagnostic (check [defn "P" (.action .square (ref "TRUE") (nat 0))]) =
     some (.inDefinition "P" (.unsupportedExpression "action bracket")) := by decide
-example : diagnostic (check [defn "P" (.fairness .weak (nat 0) (ref "TRUE"))]) =
-    some (.inDefinition "P" (.unsupportedExpression "fairness")) := by decide
+example : diagnostic (check [defn "P" (.fairness .weak (prime (nat 0)) (ref "TRUE"))]) =
+    some (.inDefinition "P" .actionInObservation) := by decide
 example : diagnostic (check [defn "P" (bin ":=" (nat 1) .oldValue)] [] ["Apalache"]) =
     some (.inDefinition "P" (.unsupportedExpression "EXCEPT or @")) := by decide
 example : diagnostic (check [defn "Init" (ref "TRUE"), .assumption none (ref "FALSE")]) =
