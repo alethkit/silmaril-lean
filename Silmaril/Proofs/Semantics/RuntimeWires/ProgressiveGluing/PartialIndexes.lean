@@ -86,20 +86,19 @@ theorem fromLower_eq_fromUpper {a : Fin A} {b : Fin B} :
   · rintro ⟨w, rfl, rfl⟩
     exact (fromLower_shared w).trans (fromUpper_shared m w).symm
 
-def wireStart : WireId lower upper → Option (Fin (L + R))
-  | .inl w => (lower.start w.val).map (Fin.castAdd R)
-  | .inr (.inl w) => (lower.start w.val).map (Fin.castAdd R)
-  | .inr (.inr w) => (upper.start w.val).map (Fin.natAdd L)
+def wireStart : WireId lower upper → Option (Fin (L + R)) :=
+  Sum.elim (fun w => (lower.start w.val).map (Fin.castAdd R))
+    (Sum.elim (fun w => (lower.start w.val).map (Fin.castAdd R))
+      (fun w => (upper.start w.val).map (Fin.natAdd L)))
 
-def wireFinish : WireId lower upper → Option (Fin (L + R))
-  | .inl w => (lower.finish w.val).map (Fin.castAdd R)
-  | .inr (.inl w) => (upper.finish (m.contact w).val).map (Fin.natAdd L)
-  | .inr (.inr w) => (upper.finish w.val).map (Fin.natAdd L)
+def wireFinish : WireId lower upper → Option (Fin (L + R)) :=
+  Sum.elim (fun w => (lower.finish w.val).map (Fin.castAdd R))
+    (Sum.elim (fun w => (upper.finish (m.contact w).val).map (Fin.natAdd L))
+      (fun w => (upper.finish w.val).map (Fin.natAdd L)))
 
-def wireLabel : WireId lower upper → O
-  | .inl w => lower.label w.val
-  | .inr (.inl w) => lower.label w.val
-  | .inr (.inr w) => upper.label w.val
+def wireLabel : WireId lower upper → O :=
+  Sum.elim (fun w => lower.label w.val)
+    (Sum.elim (fun w => lower.label w.val) (fun w => upper.label w.val))
 
 theorem label_fromLower (w : Fin A) : wireLabel (fromLower (lower := lower) (upper := upper) w) = lower.label w := by
   unfold fromLower
