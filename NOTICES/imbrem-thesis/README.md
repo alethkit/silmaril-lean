@@ -1,6 +1,6 @@
 # imbrem/thesis
 
-The Raw modules under `Silmaril/Raw/SSA/Thesis/` (71 modules) are ports of the Lean formalisation in
+The Raw modules under `Silmaril/Raw/SSA/Thesis/` (76 modules) are ports of the Lean formalisation in
 [imbrem/thesis](https://github.com/imbrem/thesis) by Jad Ghalayini, at commit
 `69a8126f2d3eb6d32050e0bd9511251b33dbcea7`, subdirectory `formalization/thesis` (source
 namespace `Isotope`, here `Silmaril.Thesis`). The thesis repository is dedicated to the public
@@ -52,6 +52,7 @@ were repaired where the newer Mathlib required it. Each file reproduces the sour
 | `Isotope/LambdaIter/Models/Monadic/Model.lean` | `Silmaril.Raw.SSA.Thesis.LambdaIter.Models.Monadic.Model` |
 | `Isotope/LambdaIter/Models/Monadic/Soundness.lean` | `Silmaril.Raw.SSA.Thesis.LambdaIter.Models.Monadic.Soundness` |
 | `Isotope/LambdaIter/Models/Setoid.lean` | `Silmaril.Raw.SSA.Thesis.LambdaIter.Models.Setoid` |
+| `Isotope/LambdaIter/Models/Syn{Category,Coproduct,Iteration,Uniformity,Elgot}.lean` | `Silmaril.Raw.SSA.Thesis.LambdaIter.Models.Syn{Category,Coproduct,Iteration,Uniformity,Elgot}` |
 | `Isotope/LambdaIter/Models/Syntax.lean` | `Silmaril.Raw.SSA.Thesis.LambdaIter.Models.Syntax` |
 | `Isotope/LambdaIter/Named/Alpha.lean` | `Silmaril.Raw.SSA.Thesis.LambdaIter.Named.Alpha` |
 | `Isotope/LambdaIter/Named/Defs.lean` | `Silmaril.Raw.SSA.Thesis.LambdaIter.Named.Defs` |

@@ -182,6 +182,16 @@ Thesis Kleisli model (`Silmaril.SSA.Thesis.Kleisli.Thms`), for a lawful Elgot mo
 `uniqueHomKleisli`/`kleisli_initial` (exactly one algebra morphism from `Syn S`
 into the Kleisli model, computing the denotation); `uniqueHomKleisliPart` at `Part`.
 
+Thesis syntactic category (`Silmaril.SSA.Thesis.SyntacticCategory.Thms`).
+`Syn.SynCat S` has the signature's types as objects and one-variable
+terms modulo `Eqv` as arrows. It has binary coproducts and satisfies
+fixpoint, naturality and codiagonal for iteration, in both the syntax
+and Mathlib coproduct presentations. The syntactic pure-arrow predicate
+is existence of a pure representative, and `iterate_uniformity` holds
+along those arrows. `elgotCategory_of_hasFiniteCoproducts` assumes finite
+coproducts. The existence of an initial object, the Cartesian structure of
+the value category and iteration strength remain open.
+
 Quantitative refinement (`Silmaril.SSA.Isotope.Refinement.Thms`, namespace
 `Silmaril.Isotope.Refinement`): `Models.syntaxIsInitial`, `Models.fold_unique`,
 `Models.syntacticModelIsInitial`, `Models.orderedSyntacticModelIsInitial`,

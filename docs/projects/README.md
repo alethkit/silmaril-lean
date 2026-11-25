@@ -42,6 +42,7 @@
 | SQLite VFS-file read | Typed `xRead` request and handler law; verified dispatch at one call site in the pinned x86-64 SQLite ELF | [SQLite VFS-file read](sqlite-vfs-read.md) |
 | SQLite file control | Source-derived Lean port of one locked VFS forwarding branch, with trace refinement and a pinned C probe | [SQLite file control](sqlite-control.md) |
 | Abstract SQLite VFS | Dependent read-only and bounded read-write file contracts, with concrete byte backings and container machine traces | [Abstract SQLite VFS](sqlite-vfs.md) |
+| Starlark | Scalar AST, lexical resolution, and agreement between the denotation and big-step rules for exact integers, control and errors | [Starlark](starlark.md) |
 | Languages | Named languages over typed domains (bytes, Unicode, numbers, trees): Lean definitions, formats, interpreted Wasm artifacts, set operations, regular expressions over monoids, measure restrictions; the standard membership, inclusion, equality and bound problems; the explorer's Languages page | [Languages](languages.md) |
 | Modal logics | Normal modal K, the modal μ-calculus (vectorial and finite-vector fixed points, substitution), PDL, CTL, reachability logic over matching-logic fixed points, and Wasm step observations as a modal logic: institutions with the comorphisms between them | [Modal logics](logic-modal.md) |
 | First-order LFP, e-graphs and definite programs | First-order logic with least fixed points and its Boolean fragment, the egg and egglog core logics with named sources and the functional first-order graph institution, definite programs and their translation to first-order logic | [LFP and e-graphs](logic-lfp-egg.md) |
@@ -56,7 +57,7 @@
 | Type theories | Extensional and intensional MLTT (W-types, indexed and mutual inductives, set models), λΠ-modulo (LF) presentations and native encodings, and the calculus of inductive constructions, as institutions | [Type theories](logic-type-theory.md) |
 | The logic graph | Registries of institutions, comorphisms, morphisms, rooms and corridors over the library's Lean declarations (types and edge endpoints checked by Lean, facts with their axioms), an audit of what the registry omits, the pinned Hets logic graph the records relate to, and the explorer's graph, table, registry and coverage pages | [Logic graph](logic-graph.md) |
 | Consequence systems | Named consequence relations `Γ ⊢ φ` (`Ax → C → Prop`): Lean definitions, unions, intersections, differences and erasures of witness systems (types of derivations); the standard problems — member judgments, universality, context-universality and deriving a chosen `ff` (kept apart), soundness and completeness for a target, translations that preserve or reflect consequence; the explorer's Systems page | [Consequence systems](consequence-systems.md) |
-| Cambridge courses | L1/L2 semantics, domains and PCF, optimising compilers and exercises | [Courses](../courses/cambridge.md) |
+| Cambridge courses | L1–L3 semantics, domains and PCF, optimising compilers and exercises | [Courses](../courses/cambridge.md) |
 | x86-64 emulators in Wasm | x86-64 simulators written in WebAssembly (`x86-g.wat`, `x86-m.wat`, tested against the host CPU), the `Sim` region's simulations and transfer theorems, the certified G translator from an x86-64 register fragment to Wasm methods with its instantiated module, System V wrapper and dispatch loops, the first proofs about the shipped simulator code, and the `wasm-sim` harness that reduces x86 problems to Wasm problems | [Simulators in Wasm](wasm-sim.md), [ABI](wasm-sim-abi.md), [reduction](wasm-sim-reduction.md) |
 | x86-64 machines and processes | User-mode machines (`Ext` to `Str9`, `Sse9`, `Atomic9`), function contracts, segment VCs, block certificates, a separation logic, the loose specification and x86 institution, static linking, memory models, the ELF ladder proofs, and the process slice | [x86 machines](../x86.md), [x86 processes](x86.md) |
 | Command-line interfaces | Argument grammars with a derived, proved front end; behaviour specifications with refinement and composition; Lean CLI programs and a test harness; the CLI institution | [CLI](cli.md) |
@@ -88,4 +89,5 @@ and compilers. Each will arrive with a guide and examples as it joins the librar
 
 The [Python SOS proposal](python-sos.md) describes a first core semantics slice,
 its operational institution, and the coverage and refinement proofs for
-feature-restricted profiles.
+feature-restricted profiles. The [implementation and acceptance plan](python-sos-acceptance.md)
+tracks the remaining Python, SOS and Wasm proof boundaries.

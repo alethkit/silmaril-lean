@@ -1,25 +1,26 @@
-# Operational semantics: L1 and L2
+# Operational semantics for L1, L2 and L3
 
-These developments follow chapters 1–4 of Peter Sewell's *Semantics of
-Programming Languages* notes for Cambridge Part IB, 2025–26. The course is a
-self-contained leaf of the library: its proofs stay near the definitions and
-exercise statements, and other library topics do not import it.
+These developments follow chapters 1–5 of Peter Sewell's *Semantics of
+Programming Languages* notes for Cambridge Part IB, 2025–26, dated
+12 February 2026. The course is a self-contained library leaf. Its proofs stay
+near the definitions and exercise statements.
 
 ```sh
-lake build Silmaril.Courses.Cambridge.L1.Course \
-  Silmaril.Courses.Cambridge.L2.Course
+lake build --wfail Silmaril.Courses.Cambridge.L1.Course \
+  Silmaril.Courses.Cambridge.L2.Course Silmaril.Courses.Cambridge.L3.Course
 ```
 
-The smaller `L1` and `L2` imports expose the language interfaces.
-`L1.Course` and `L2.Course` add the metatheory and exercise developments.
+The smaller `L1`, `L2` and `L3` imports expose the language interfaces.
+Their `.Course` imports add metatheory and checked derivations.
 All module names below start with `Silmaril.Courses.Cambridge.`.
 
 | Language | Features | Main proved results |
 | --- | --- | --- |
 | `L1` | Integers, Booleans, conditionals, finite integer stores, assignment, sequencing and loops | Determinacy; decidable sound and complete type inference; type uniqueness; progress, preservation and safety over every finite reachable trace |
 | `L2` | L1 plus functions, application, strict `let` and recursive functions | Capture-avoiding substitution; decidable sound and complete type inference; type uniqueness; preservation of typing, closedness and allocated locations; progress for closed well-typed expressions |
+| `L3` | L2 control and functions, plus products, sums, ordered records and allocatable references | Typed substitution, progress, preservation with store growth, finite-trace safety and a counterexample to determinacy |
 
-## Stores and safety assumptions
+## L1 and L2 stores and safety assumptions
 
 Stores are finite partial maps from location names to integers. Locations are
 opaque strings, and assignment updates an already allocated location; the
@@ -48,7 +49,7 @@ L2 keeps named source syntax in `RawExpr`. Resolution maps bound occurrences
 to de Bruijn indices while retaining free names. `AlphaEq` is equality of the
 resolved syntax; examples distinguish harmless binder renaming from capture.
 
-## Evaluation strategies and executable examples
+## L1 and L2 evaluation strategies and executable examples
 
 L2 has call-by-value (`Step`), call-by-name (`NameStep`) and a broader full-beta
 relation (`BetaStep`). Call-by-value and call-by-name steps embed in
@@ -93,8 +94,50 @@ result. Revised assignment typing restores preservation. A factorial-shaped
 program is defined and typed; its general factorial input/output correctness
 is not proved in this slice. L2's first-order exercise defines saturated
 multiargument calls and proves that a partial call is untypable.
+The L1 and L2 formalizations give Lean models of the abstract languages. Their
+executable checks cover the Lean interpreters above.
 
-The notes are cited as `sewell2026semantics` in `references.bib`; their exact
-artifact hash is recorded there. The formalization uses finite maps and
-de Bruijn binders rather than asserting correctness of the accompanying
-OCaml, Java or SML implementations.
+## L3 data and mutable references
+
+`L3.NamedSyntax` implements the named grammar from §5.5, p. 78. Its
+`RawExpr.resolve` maps bound variables to de Bruijn indices, including the
+separate binders of sum branches. Both the expression and type models retain
+record label order and require distinct labels. A record's field positions
+index its expressions or types.
+
+`L3.Step` implements the direct small-step rules of §5.5, pp. 78–80.
+Pairs, records and applications evaluate left to right. Record projection
+requires a record of values. The right side of assignment can step once
+the left side is a location, as in the direct rule (assign2).
+`L3.Store` is a finite partial map from location names to values, including
+functions and locations. Natural numbers represent the location names.
+Allocation may choose any name outside the store's domain. L3 has no
+expression for comparing locations.
+
+`L3.HasType` implements the rules on pp. 80–82. The location environment
+records the contents type of each reference. `L3.StoreTyped` requires exact
+agreement of the location and store domains and checks each stored value
+against its location's contents type in the shared location environment.
+The safety results use an empty variable environment for the expression
+and stored values, so location literals can appear at runtime alongside
+closed function values.
+
+| Result | Public name |
+| --- | --- |
+| Capture-avoiding typed substitution | `L3.HasType.subst`, `L3.HasType.beta` |
+| Progress (Theorem 23) | `L3.progress` |
+| Preservation under a location environment that agrees on all old locations (Theorem 24, Exercise 28) | `L3.preservation` |
+| Safety over every reachable finite trace (Theorem 25) | `L3.safety` |
+
+`L3.Examples` checks a function stored and replaced through a reference, a
+sum match with a product projection, the ordered writes of a record whose
+first field is projected, and two distinct successors of one allocation.
+It also checks branch scope and stuck configurations with an unallocated
+dereference or an integer as the assignment target.
+
+This slice leaves the separate evaluation-context presentation and
+Theorem 26 (§5.4), executable type inference and reduction, the byte
+grammar and codecs, and institution and denotational models for later work.
+
+The [course notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf)
+are pinned as `sewell2026semantics` in [the bibliography](../../references.bib).
