@@ -37,10 +37,10 @@ private theorem activation (input : Carries m ids σ carried)
         | false => exact .inl (.exited (tag := .control tag) selected values ranL ranR)
         | true => exact .inr ⟨⟨_, _, values, store⟩, ⟨_, ranL, selected⟩, ⟨_, ranR, selected⟩⟩
 
-theorem classify
-    (observe : ∀ input : Carries m ids σ carried,
+theorem classify_reachable (first : Carries m ids σ carried)
+    (observe : ∀ input, ReflTransGen (IterationPair primitives left right) first input →
       RegionPair primitives ids mapping left right input.left input.right input.store)
-    (first : Carries m ids σ carried) : LoopPair primitives mapping left right first := by
+    : LoopPair primitives mapping left right first := by
   classical
   by_cases reached : ∃ current, ReflTransGen (IterationPair primitives left right) first current ∧
       Activation primitives mapping left right current
@@ -49,9 +49,15 @@ theorem classify
   · apply LoopPair.outer
     apply InfiniteTrace.coinduct (ReflTransGen (IterationPair primitives left right) first) ?_ .refl
     intro current completed
-    rcases activation current (observe current) with stopped | ⟨next, continued⟩
+    rcases activation current (observe current completed) with stopped | ⟨next, continued⟩
     · exact False.elim (reached ⟨current, completed, stopped⟩)
     · exact ⟨next, continued, completed.tail continued⟩
+
+theorem classify
+    (observe : ∀ input : Carries m ids σ carried,
+      RegionPair primitives ids mapping left right input.left input.right input.store)
+    (first : Carries m ids σ carried) : LoopPair primitives mapping left right first :=
+  classify_reachable first (fun input _ => observe input)
 
 theorem rewind (completed : ReflTransGen (IterationPair primitives left right) first current)
     (later : Eval primitives (.iteration left current.left) current.store outcomeL ∧

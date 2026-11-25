@@ -1527,4 +1527,241 @@ private theorem selectedArmRegression :
 
 end SelectedArmCall
 
+section RankedThetaCall
+
+private abbrev loopCalleeFn : Function Unit Unit := ⟨carried, bodyResults⟩
+private abbrev loopCallerFn : Function Unit Unit := ⟨outerCarry, results⟩
+private abbrev loopCaptures : Ports T := [loopCalleeFn.port]
+private abbrev rankedCarry : Ports T := loopCaptures ++ outerCarry
+
+private def loopCapturePorts : Tuple (Port loopCaptures) loopCaptures := .cons .head .nil
+
+private def loopArguments : Wires rankedCarry [] outerCarry :=
+  .cons (.arg (.tail .head)) (.cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil))
+
+private abbrev rankedInitial : Wires rankedCarry [] rankedCarry :=
+  Gamma.captureInputs loopCapturePorts loopArguments
+
+private def loopCallArgs : Wires rankedCarry [] carried :=
+  .cons (.arg (.tail (.tail .head))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil)
+
+private abbrev loopCallInputs : Wires rankedCarry [] (loopCalleeFn.port :: carried) :=
+  .cons (.arg (Gamma.capturePort (params := outerCarry) (.head : Port loopCaptures loopCalleeFn.port))) loopCallArgs
+
+private def flowSelector : Origin rankedCarry [bodyResults] (.control 2) := .arg (.tail .head)
+
+private def nextArguments : Wires rankedCarry [bodyResults] outerCarry :=
+  .cons (.output (0 : Fin 1) .head)
+    (.cons (.output (0 : Fin 1) (.tail .head)) (.cons (.output (0 : Fin 1) (.tail (.tail .head))) .nil))
+
+private abbrev rankedBodyOutputs : Wires rankedCarry [bodyResults] (Theta.BodyResults rankedCarry) :=
+  Gamma.loopOutputs (context := loopCaptures) (params := outerCarry) flowSelector nextArguments
+
+private abbrev rankedBody : Gamma.LoopBody Op rankedCarry [bodyResults] :=
+  Gamma.bindApplication loopCalleeFn loopCallInputs (.ret rankedBodyOutputs)
+
+private def rankedExitWires : Wires rankedCarry [rankedCarry] results :=
+  .cons (.output (0 : Fin 1) (.tail (.tail (.tail .head)))) (.cons (.arg (.tail (.tail (.tail .head)))) .nil)
+
+private abbrev rankedLoopSuffix := effectSuffix 7 rankedExitWires
+private abbrev rankedLoopCode := Gamma.bindTheta rankedInitial rankedBody (embed rankedLoopSuffix)
+
+private def bodyMap : Renaming := .region (Equiv.refl _) (fun _ _ => numbering)
+private def rankedLoopMap : Renaming := .region (Equiv.refl _) (fun _ _ => bodyMap)
+
+private abbrev leafL := embed left.toTerm
+private abbrev leafR := embed right.toTerm
+
+private def leafValue {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) : machine.Val loopCalleeFn.port :=
+  .closure .nil leaf.toGraph
+
+private def loopCaptureValues {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :
+    Tuple machine.Val loopCaptures :=
+  .cons (leafValue leaf) .nil
+
+private def rankedLoopValue {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) : machine.Val loopCallerFn.port :=
+  .closure (loopCaptureValues leaf) rankedLoopCode.toGraph
+
+private def rankedLoopProgram {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :
+    OmegaTerm Op [] [loopCallerFn.port] [[loopCalleeFn.port], [loopCallerFn.port]] :=
+  ⟨.bind (.lambda ⟨[], .nil, sigs, leaf⟩) <|
+    .bind (.lambda ⟨loopCaptures, .cons (.output (0 : Fin 1) .head) .nil, [rankedCarry, results], rankedLoopCode⟩) <|
+    .ret (.cons (.output (1 : Fin 2) .head) .nil)⟩
+
+private theorem rankedLoopLinks {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :
+    Links primitives 17 (rankedLoopProgram leaf).toGraph .nil 20 (.linked (.cons (rankedLoopValue leaf) .nil) 20) :=
+  .bind (values := .cons (leafValue leaf) .nil) (middle := 20) rfl
+    (.bind (values := .cons (rankedLoopValue leaf) .nil) (middle := 20) rfl (.ret _ _ _ _))
+
+private def rankedLoopSource {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (n : Nat) :
+    Config machine Nat results :=
+  ⟨Continuation.start (.call (rankedLoopValue leaf) (input 1 0 n)), 20⟩
+
+private theorem rankedLoopPlan :
+    Gamma.RankedPlan machine Eq 1 rankedLoopMap (loopCaptureValues leafL) (loopCaptureValues leafR)
+      rankedLoopCode rankedLoopCode := by
+  have callee : Gamma.RankedPlan machine Eq 0 numbering (context := []) (params := carried)
+      .nil .nil leafL leafR :=
+    .body (.acyclic ordered)
+  have body : Gamma.RankedPlan machine Eq 1 bodyMap (loopCaptureValues leafL) (loopCaptureValues leafR)
+      rankedBody rankedBody :=
+    .call (context := loopCaptures) (params := outerCarry) (fn := loopCalleeFn) .head rfl rfl
+      .nil loopCallArgs (by decide) callee
+      (.suffix (context := loopCaptures) (params := outerCarry) (past := [bodyResults])
+        (left := .ret rankedBodyOutputs) (right := .ret rankedBodyOutputs)
+        (.ret rankedBodyOutputs rankedBodyOutputs rfl))
+  have fixed : Gamma.PreservesLoopCaptures Op loopCaptures outerCarry rankedBody :=
+    .bind (.ret flowSelector nextArguments)
+  exact .theta (context := loopCaptures) (params := outerCarry) (past := []) loopCapturePorts loopArguments body fixed fixed
+    (.suffix (context := loopCaptures) (params := outerCarry) (past := [rankedCarry])
+      (finishSchedule 7 rankedExitWires rfl))
+
+private theorem rankedThetaDispatch (n : Nat) :
+    Gamma.CallPair primitives Eq rankedLoopMap results (rankedLoopSource leafL n) (rankedLoopSource leafR n) := by
+  have caller := NestedTheta.Graph.Isomorphic.refl rankedLoopCode.toGraph
+  let positions : Fin 2 ≃ Fin 2 := Equiv.refl _
+  have iso : (rankedLoopProgram leafL).toGraph.RenumberedBy (rankedLoopProgram leafR).toGraph positions :=
+    ⟨two (.lambda ⟨⟨rfl, rfl⟩, embeddedIso⟩) (.lambda ⟨⟨rfl, rfl⟩, caller⟩), rfl⟩
+  have schedule : Ordered Op (renameVertex positions) [] [loopCallerFn.port]
+      (rankedLoopProgram leafL).toGraph.toTerm.region (rankedLoopProgram leafR).toGraph.toTerm.region := by
+    rw [OmegaTerm.toTerm_toGraph, OmegaTerm.toTerm_toGraph]
+    exact .bind rfl (.lambda ⟨⟨rfl, rfl⟩, embeddedIso⟩) (.bind rfl (.lambda ⟨⟨rfl, rfl⟩, caller⟩) (.ret _ _))
+  let req {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) :=
+    request (m := machine) 17 (rankedLoopProgram leaf).toGraph .nil .head (input 1 0 n) 20
+  have paired : Gamma.DispatchPair primitives Eq (renameVertex positions) rankedLoopMap results
+      ((req leafL).start primitives) ((req leafR).start primitives) :=
+    Gamma.link_then_invoke respects iso schedule (fun i => by simp [renameVertex, positions])
+      .nil .head (.cons (.control 1) (carry_related 0 n)) 20 (by
+        intro _ _ _ linkedL linkedR _
+        cases outcome_unique linkedL (rankedLoopLinks leafL)
+        cases outcome_unique linkedR (rankedLoopLinks leafR)
+        exact .sequence (.cons (.closure .nil embeddedIso) .nil) rankedLoopPlan)
+  rw [start_linked (request := req leafL) (rankedLoopLinks leafL),
+    start_linked (request := req leafR) (rankedLoopLinks leafR)] at paired
+  cases paired with
+  | invoked calls => exact calls
+
+private def rankedCarryValue {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (selector : Fin 2) (n : Nat) : Tuple machine.Val rankedCarry :=
+  prependContext (input selector 0 n) (loopCaptureValues leaf)
+
+private theorem openRankedLoop {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) (n : Nat) :
+    Job.openClosure machine (rankedLoopValue leaf) (input 1 0 n) =
+      .region rankedLoopCode (rankedCarryValue leaf 1 n) PUnit.unit :=
+  congrArg (fun code => Job.region (m := machine) (past := []) code (rankedCarryValue leaf 1 n) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph rankedLoopCode)
+
+private theorem rankedBodyReturns {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (flag tag : Fin 2) (n store : Nat)
+    (ran : Eval primitives (.region leaf (carry 0 n) PUnit.unit) store
+      (.returned (bodyOut tag 0 (n + 1)) (store + 3))) :
+    Eval primitives (.region rankedBody (rankedCarryValue leaf flag n) PUnit.unit) store
+      (.returned (.cons (.control flag) (rankedCarryValue leaf tag (n + 1))) (store + 3)) := by
+  have opened : Job.openClosure machine (leafValue leaf) (carry 0 n) = .region leaf (carry 0 n) PUnit.unit :=
+    congrArg (fun code => Job.region (m := machine) (past := []) code (carry 0 n) PUnit.unit)
+      (NestedTheta.Term.toTerm_toGraph leaf)
+  exact .bind (node := Gamma.applicationVertex loopCalleeFn loopCallInputs) (value := bodyOut tag 0 (n + 1))
+    (middle := store + 3) (.apply (fn := loopCalleeFn) (.call (opened.symm ▸ ran))) (.ret rankedBodyOutputs _ _ _)
+
+private def secondActivation {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs) : Config machine Nat results :=
+  (Feedback.Restart.mk rankedCarry [bodyResults] rankedBody (rankedCarryValue leaf 0 3, 23)).config
+    (.resume (past := []) (embed rankedLoopSuffix) (rankedCarryValue leaf 1 2) PUnit.unit .halt)
+
+/-- The first successful call restarts the real θ at the returned tuple
+and store. The parent suffix remains saved beneath the fresh activation. -/
+private theorem rankedThetaRestart {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (first : Eval primitives (.region leaf (carry 0 2) PUnit.unit) 20 (.returned (bodyOut 0 0 3) 23)) :
+    ReflTransGen (Step primitives) (rankedLoopSource leaf 2) (secondActivation leaf) := by
+  let target : Feedback.Restart machine Nat := ⟨rankedCarry, [bodyResults], rankedBody, (rankedCarryValue leaf 0 3, 23)⟩
+  let pending : Pending machine rankedCarry results :=
+    .bind (past := []) (embed rankedLoopSuffix) (rankedCarryValue leaf 1 2) PUnit.unit .empty
+  have firstIteration : Feedback.Iteration primitives rankedBody (rankedCarryValue leaf 1 2, 20) target.input :=
+    ⟨.control 1, rankedBodyReturns leaf 1 0 2 20 first, rfl⟩
+  have entered : Feedback.Reaches primitives (.region rankedLoopCode (rankedCarryValue leaf 1 2) PUnit.unit)
+      20 target pending :=
+    .inside (node := Gamma.thetaVertex rankedInitial [bodyResults])
+      (.theta (.restart (current := target.input) (.single firstIteration)))
+  have reached : Feedback.Reaches primitives (.call (rankedLoopValue leaf) (input 1 0 2)) 20 target pending :=
+    .call ((openRankedLoop leaf 2).symm ▸ entered)
+  exact reached.steps .halt
+
+private theorem rankedThetaReturns {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (first : Eval primitives (.region leaf (carry 0 2) PUnit.unit) 20 (.returned (bodyOut 0 0 3) 23))
+    (second : Eval primitives (.region leaf (carry 0 3) PUnit.unit) 23 (.returned (bodyOut 0 0 4) 26)) :
+    TerminalPath primitives (rankedLoopSource leaf 2) ⟨.returned (output 4 2) .halt, 59⟩ := by
+  have loop : Eval primitives (.iteration rankedBody (rankedCarryValue leaf 1 2)) 20
+      (.returned (rankedCarryValue leaf 0 4) 26) :=
+    .again (rankedBodyReturns leaf 1 0 2 20 first) rfl (.stop (rankedBodyReturns leaf 0 0 3 23 second) rfl)
+  have whole : Eval primitives (.region rankedLoopCode (rankedCarryValue leaf 1 2) PUnit.unit) 20
+      (.returned (output 4 2) 59) :=
+    .bind (node := Gamma.thetaVertex rankedInitial [bodyResults]) (.theta loop)
+      (finishEval (wires := rankedExitWires) 7 (rankedCarryValue leaf 1 2) (rankedCarryValue leaf 0 4) 26)
+  have called := Eval.call ((openRankedLoop leaf 2).symm ▸ whole)
+  exact ⟨called.steps .halt, fun _ stepped => _root_.Part.notMem_none _ stepped⟩
+
+private def rankedAt (flag : Fin 2) (n store : Nat) : Carries machine Eq Nat rankedCarry :=
+  ⟨rankedCarryValue leafL flag n, rankedCarryValue leafR flag n,
+    .cons (.closure .nil embeddedIso) (.cons (.control flag) (carry_related 0 n)), store⟩
+
+private theorem rankedOnce :
+    Gamma.IterationPair primitives rankedBody rankedBody (rankedAt 1 0 20) (rankedAt 1 1 23) :=
+  ⟨⟨.control 1, rankedBodyReturns leafL 1 1 0 20 (bodyReturnsL 0 0 20 (_root_.Part.mem_some _)), rfl⟩,
+    ⟨.control 1, rankedBodyReturns leafR 1 1 0 20 (bodyReturnsR 0 0 20 (_root_.Part.mem_some _)), rfl⟩⟩
+
+private def rankedBodyStop {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (pending : Pending machine bodyResults bodyResults) : Gamma.Block machine Nat (Theta.BodyResults rankedCarry) :=
+  ⟨advanceSite 0 1, .bind (past := []) (.ret rankedBodyOutputs) (rankedCarryValue leaf 1 1) PUnit.unit pending, 23⟩
+
+private def rankedLoopStop {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    (stop : Gamma.Block machine Nat (Theta.BodyResults rankedCarry)) : Gamma.Block machine Nat results :=
+  ⟨stop.site, .bind (past := []) (embed rankedLoopSuffix) (rankedCarryValue leaf 1 0) PUnit.unit
+    (.loop rankedBody stop.pending), stop.store⟩
+
+private theorem rankedThetaBlock :
+    Gamma.BlockPair primitives Eq rankedLoopMap rankedLoopCode rankedLoopCode
+      (rankedCarryValue leafL 1 0) (rankedCarryValue leafR 1 0) 20
+      (.atLoop 0 (.callSite 0 (.acyclic (.here 1)))) (.atLoop 0 (.callSite 0 (.acyclic (.here 0))))
+      (rankedLoopStop leafL (rankedBodyStop leafL pendingL)) (rankedLoopStop leafR (rankedBodyStop leafR pendingR)) := by
+  have leaf : Gamma.BlockPair primitives Eq numbering leafL leafR (carry 0 1) (carry 0 1) 23
+      (.acyclic (.here 1)) (.acyclic (.here 0)) ⟨advanceSite 0 1, pendingL, 23⟩ ⟨advanceSite 0 1, pendingR, 23⟩ :=
+    .acyclic (.here 1) (.same (carry_related 0 1)) blockedL blockedR
+  have inBody : Gamma.BlockPair primitives Eq bodyMap rankedBody rankedBody
+      (rankedCarryValue leafL 1 1) (rankedCarryValue leafR 1 1) 23
+      (.callSite 0 (.acyclic (.here 1))) (.callSite 0 (.acyclic (.here 0)))
+      (rankedBodyStop leafL pendingL) (rankedBodyStop leafR pendingR) :=
+    .atCall (map := bodyMap) (fn := loopCalleeFn) (captured := []) (left := leafL) (right := leafR) (captL := .nil) (captR := .nil)
+      (argsL := carry 0 1) (argsR := carry 0 1)
+      (stopL := ⟨advanceSite 0 1, pendingL, 23⟩) (stopR := ⟨advanceSite 0 1, pendingR, 23⟩)
+      loopCallInputs (.ret rankedBodyOutputs) (.ret rankedBodyOutputs) rfl rfl leaf
+  exact .atLoop (map := rankedLoopMap) rankedInitial rfl rfl rfl (.single rankedOnce) inBody
+
+private theorem rankedThetaBlockPath {sigs : List (Ports T)} (leaf : Gamma.LoopBody Op carried sigs)
+    {stop : Gamma.Block machine Nat results}
+    (ran : Eval primitives (.region rankedLoopCode (rankedCarryValue leaf 1 0) PUnit.unit) 20 stop.outcome) :
+    TerminalPath primitives (rankedLoopSource leaf 0) (stop.outcome.atStack .halt) := by
+  cases stop
+  have called := Eval.call ((openRankedLoop leaf 0).symm ▸ ran)
+  exact ⟨called.steps .halt, fun _ => (called.blocks .halt).no_step⟩
+
+/-- On both linked exports the first call feeds the next activation.
+The second call either exits through the saved suffix or blocks while
+the body call and θ bindings remain live. -/
+private theorem rankedThetaRegression :
+    Gamma.CallPair primitives Eq rankedLoopMap results (rankedLoopSource leafL 2) (rankedLoopSource leafR 2) ∧
+    Gamma.CallPair primitives Eq rankedLoopMap results (rankedLoopSource leafL 0) (rankedLoopSource leafR 0) ∧
+    ReflTransGen (Step primitives) (rankedLoopSource leafL 2) (secondActivation leafL) ∧
+    ReflTransGen (Step primitives) (rankedLoopSource leafR 2) (secondActivation leafR) ∧
+    TerminalPath primitives (rankedLoopSource leafL 2) ⟨.returned (output 4 2) .halt, 59⟩ ∧
+    TerminalPath primitives (rankedLoopSource leafR 2) ⟨.returned (output 4 2) .halt, 59⟩ ∧
+    TerminalPath primitives (rankedLoopSource leafL 0) ((rankedLoopStop leafL (rankedBodyStop leafL pendingL)).outcome.atStack .halt) ∧
+    TerminalPath primitives (rankedLoopSource leafR 0) ((rankedLoopStop leafR (rankedBodyStop leafR pendingR)).outcome.atStack .halt) :=
+  ⟨rankedThetaDispatch 2, rankedThetaDispatch 0,
+    rankedThetaRestart leafL (bodyReturnsL 0 2 20 (_root_.Part.mem_some _)),
+    rankedThetaRestart leafR (bodyReturnsR 0 2 20 (_root_.Part.mem_some _)),
+    rankedThetaReturns leafL (bodyReturnsL 0 2 20 (_root_.Part.mem_some _)) (bodyReturnsL 0 3 23 (_root_.Part.mem_some _)),
+    rankedThetaReturns leafR (bodyReturnsR 0 2 20 (_root_.Part.mem_some _)) (bodyReturnsR 0 3 23 (_root_.Part.mem_some _)),
+    rankedThetaBlockPath leafL rankedThetaBlock.evals.1, rankedThetaBlockPath leafR rankedThetaBlock.evals.2⟩
+
+end RankedThetaCall
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.NestedLoop.Tests
