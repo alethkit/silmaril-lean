@@ -149,6 +149,7 @@ check-runtime:
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Theta.% +Silmaril.Proofs.SSA.RVSDG.Theta.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Theta.Thms +Silmaril.SSA.RVSDG.Theta.Petri.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGTheta.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.NestedTheta.% +Silmaril.Proofs.SSA.RVSDG.NestedTheta.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedTheta.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.% +Silmaril.Proofs.SSA.RVSDG.Interprocedural.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGInterprocedural.lean)
+	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.% +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Isomorphism.%,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Isomorphism.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGInterproceduralIsomorphism.lean)
 	$(if $(filter Silmaril +Silmaril.SSA.RVSDG.Interprocedural.Terms.% +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Terms,$(CHECK_TARGETS)),$(LAKE) build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Terms.Thms && $(LAKE) env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGInterproceduralTerms.lean)
 
 check-integrations:
