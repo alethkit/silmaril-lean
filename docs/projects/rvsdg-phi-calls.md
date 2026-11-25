@@ -52,3 +52,43 @@ lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGPhiCalls.lean
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Thms'
 ```
+
+## Typed continuations for non-tail calls
+
+The continuation machine steps the existing runtime jobs and the actual
+body of each resolved closure or φ member. At a binding, the stack saves
+the typed remainder of the region, its entry tuple, and its current
+locals. The node reads its operands in that scope. An application opens
+the callee with fresh locals, and γ enters only its selected child. When
+the result arrives, the machine appends the entire typed tuple to the
+saved locals before running the remainder. The caller's earlier wires
+and the callee's returned ports can both feed later nodes.
+[Machine definitions](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Defs.lean)
+
+Every completed trace gives an independent `Returns` derivation.
+Conversely, induction on `Returns` constructs the steps to completion
+or to unsupported control. At each step, the invariant interprets the
+active job and each pending suffix with the existing judgment. An
+admitted start has no reachable unsupported state. The theorem
+`completes_iff` characterizes completion as finite return with
+admission, and `completes_call_iff_invoke` relates admitted calls to a
+successful call of the actual bounded evaluator. Primitives, applications,
+and selected γ regions are supported. Encountered θ nodes and standalone
+iteration jobs stop as unsupported. The theorem concerns finite returns.
+[Adequacy API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Thms.lean)
+
+The linked φ regression descends twice before a base call. An exact
+intermediate configuration contains both non-tail application frames,
+including the saved state before each callee runs. The prefixes append
+`1` to state, the base appends `2`, and each suffix appends `3` and the
+length of its own saved prefix state. The final tuple is data `12` and
+state `[1, 1, 2, 3, 2, 3, 1]`. Both the stack machine and the existing
+bounded evaluator return it. A separate returning θ job checks the
+unsupported outcome.
+[Continuation fixture](../../tests/ssa/RVSDGRecursiveContinuations.lean)
+
+```sh
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Thms
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiveContinuations.lean
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Thms'
+```
