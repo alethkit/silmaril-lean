@@ -40,6 +40,13 @@ theorem pair_pure_left_eqv {n : Nat} {β : LocallyNameless.BoundCtx S.Ty n} {A B
       (.pair a b) (.let₁ b (.pair a.lift (.bv 0))) (tensor A B) :=
   pair_pure_left ha hb hp
 
+/-- Sequential pairing evaluates the first computation before the second.
+The second computation reads the original input. -/
+theorem pairArrows_seq {X A B : SynCat S} (f : X ⟶ A) (g : X ⟶ B) :
+    pairArrows f g =
+      pairArrows (𝟙 X) f ≫ pairArrows (second X A) (first X A ≫ g) :=
+  pairArrows_seq_proof f g
+
 /-- On a pure pair, the computation acts on its second component. -/
 theorem tensorLeft_pair {X R A B : SynCat S} {a : X ⟶ R} {b : X ⟶ A}
     (ha : IsPureMor a) (hb : IsPureMor b) (f : A ⟶ B) :
