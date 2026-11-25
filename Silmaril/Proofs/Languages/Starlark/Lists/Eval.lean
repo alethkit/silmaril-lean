@@ -28,6 +28,7 @@ theorem eval_denote {α : Type} (code : Code α) (state : State) :
     Eval state code (denote code state) := by
   induction code generalizing state with
   | scalar => exact .scalar
+  | builtin => exact .builtin
   | string => exact .string
   | read => exact .read
   | list elements ih => simpa [denote, runBind] using Eval.list (ih state)
@@ -69,24 +70,12 @@ theorem eval_denote {α : Type} (code : Code α) (state : State) :
         Eval.appendReceiverError (argument := argument) (h ▸ ihReceiver state)
     | ok value next =>
       cases value with
-      | scalar value =>
+      | scalar | tuple | dict | function | builtin | string =>
         rw [denote, runBind, h]
         exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
       | list address =>
         simpa [denote, runBind, Outcome.resume, h] using
           Eval.append (h ▸ ihReceiver state) (ihArgument next)
-      | tuple address =>
-        rw [denote, runBind, h]
-        exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
-      | dict address =>
-        rw [denote, runBind, h]
-        exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
-      | function address =>
-        rw [denote, runBind, h]
-        exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
-      | string text =>
-        rw [denote, runBind, h]
-        exact Eval.appendTargetError (h ▸ ihReceiver state) (by intro _ equality; cases equality)
   | pass => exact .pass
   | eval expr ih => simpa [denote, runBind] using Eval.eval (ih state)
   | assign binding rhs ih => simpa [denote, runBind] using Eval.assign (binding := binding) (ih state)

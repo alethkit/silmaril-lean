@@ -33,7 +33,7 @@ structure NodeLabel (Op : Dialect.{u, v} V S) where
   outs : Ports (PortType V S)
   kind : Kind Op ins outs
 
-def NodeLabel.arity (label : NodeLabel Op) : Nat := label.kind.arity
+abbrev NodeLabel.arity (label : NodeLabel Op) : Nat := label.kind.arity
 
 def Node.label {args outs : Ports (PortType V S)} {past : List (Ports (PortType V S))}
     (node : Node Op args past outs) : NodeLabel Op :=

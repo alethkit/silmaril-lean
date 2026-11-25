@@ -26,6 +26,12 @@ repeated uses. An occurrence is addressed by the block path and its ordinal.
 Each entry carries its usage, resolved access and a proof that looking up
 the same name in that block returns that access.
 
+`collectLexical` exposes the source-collected block tree and its ordered
+name occurrences. `inferLexical` resolves that tree and certifies that
+`ScopeTree.lexical` recovers it exactly. The
+`analyze_preserves_lexical` theorem gives the same guarantee through
+the combined entry point, including block metadata and sibling order.
+
 Class bases are read in the enclosing block. Class bodies distinguish
 namespace lookup from free access to an enclosing cell. Method lookup skips
 the ordinary class namespace, including its global declarations, while
@@ -38,6 +44,12 @@ are visited in the defining block. Child paths follow traversal order.
 Function defaults precede annotations and decorators. Class decorators
 precede bases and keyword values. The caller selects eager or deferred
 annotation traversal. Lambda parameter annotations are rejected.
+
+Each collected block records whether its own lexical traversal visited a
+`yield` expression, including in an unreachable branch. Nested function
+and lambda bodies record their own yields. A yield in a nested function's
+default belongs to the defining block. This metadata is available for
+generator detection independently of the rules for generator execution.
 
 Destructuring and loop targets bind their names in the current block.
 Attribute and subscript targets read their operands. Exception-handler
@@ -103,6 +115,18 @@ preorder list of code paths has no duplicates for code-table linking. The
 regression parses Python source and checks a nonlocal write through two
 nested call sites. Code-table linking and execution are subsequent stages.
 
+Ordinary body lowering checks `containsYield` and reports
+`unsupportedGenerator` with the block's lexical path. The standalone
+closure compiler and module-function planner check a top-level function's
+parameters before lowering its body. A top-level generator with a default
+parameter therefore reports `parameterProfile`. For a nested definition in
+an ordinary body, the child's yield check precedes its parameter check, so
+the same declaration reports `unsupportedGenerator` at the child path.
+`Translation.ordinary` certifies the admitted entry block, and
+`Translation.ordinaryChild` certifies each child path emitted by an
+admitted body. Generator suspension and resumption require a runtime profile
+with that behavior.
+
 ## Source intake
 
 The AST emitter takes an external CPython AST and writes a Lean module
@@ -138,6 +162,9 @@ make check CHECK_TARGETS=+Silmaril.Languages.Python.Source.Scope.Thms
 - Python 3.7.17, §6.14, SHA-256
   `53021dbaf574df1726e3eb15dba1915b8dd7c2c4e06a26bf1782bddd13cb15bd`.
   [Lambdas](https://docs.python.org/release/3.7.17/reference/expressions.html#lambdas)
+- Python 3.7.17, §6.2.9, SHA-256
+  `53021dbaf574df1726e3eb15dba1915b8dd7c2c4e06a26bf1782bddd13cb15bd`.
+  [Yield expressions](https://docs.python.org/release/3.7.17/reference/expressions.html#yield-expressions)
 - Python 3.13.5, SHA-256
   `6dba22a6c0f7b3eaf4d413343554182c27653b7d6e134b9a6c36f6ff711b2d4b`.
   [CPython AST and feature version](https://docs.python.org/release/3.13.5/library/ast.html#ast.parse)

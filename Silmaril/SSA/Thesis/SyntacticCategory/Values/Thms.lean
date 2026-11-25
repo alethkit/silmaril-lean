@@ -37,11 +37,19 @@ def valueEmptyIsInitial (S : Sig.{u}) :
 instance valuesHasInitial (S : Sig.{u}) : HasInitial (ValueCat S) :=
   (valueEmptyIsInitial S).hasInitial
 
+/-- The left syntactic injection has a pure representative. -/
+theorem isPureMor_injl (A B : SynCat S) : IsPureMor (injl A B) :=
+  isPureMor_injl_proof A B
+
+/-- The right syntactic injection has a pure representative. -/
+theorem isPureMor_injr (A B : SynCat S) : IsPureMor (injr A B) :=
+  isPureMor_injr_proof A B
+
 /-- The two syntax injections have pure representatives. -/
-def valueCofan (A B : ValueCat S) : BinaryCofan A B :=
+@[expose] def valueCofan (A B : ValueCat S) : BinaryCofan A B :=
   BinaryCofan.mk (P := ⟨cop A.obj B.obj⟩)
-    ⟨injl A.obj B.obj, isPureMor_injl_proof _ _⟩
-    ⟨injr A.obj B.obj, isPureMor_injr_proof _ _⟩
+    ⟨injl A.obj B.obj, isPureMor_injl _ _⟩
+    ⟨injr A.obj B.obj, isPureMor_injr _ _⟩
 
 /-- Copairing two pure representatives gives a pure representative of the copairing. -/
 def valueCofanIsColimit (A B : ValueCat S) : IsColimit (valueCofan A B) :=
@@ -105,11 +113,19 @@ theorem pair_projections_eta {n : Nat} {β : BoundCtx S.Ty n}
     Eqv S.pureEff Ctx.nil β (.pair (.let₂ p (.bv 1)) (.let₂ p (.bv 0))) p (tensor A B) :=
   pair_projections_eta_proof h hp
 
+/-- First projection has a syntactically pure representative. -/
+theorem isPureMor_first (A B : SynCat S) : IsPureMor (first A B) :=
+  isPureMor_first_proof A B
+
+/-- Second projection has a syntactically pure representative. -/
+theorem isPureMor_second (A B : SynCat S) : IsPureMor (second A B) :=
+  isPureMor_second_proof A B
+
 /-- The syntactic projections are value morphisms. -/
-def valueFan (A B : ValueCat S) : BinaryFan A B :=
+@[expose] def valueFan (A B : ValueCat S) : BinaryFan A B :=
   BinaryFan.mk (P := ⟨productObj A.obj B.obj⟩)
-    ⟨first A.obj B.obj, isPureMor_first_proof _ _⟩
-    ⟨second A.obj B.obj, isPureMor_second_proof _ _⟩
+    ⟨first A.obj B.obj, isPureMor_first _ _⟩
+    ⟨second A.obj B.obj, isPureMor_second _ _⟩
 
 /-- Pairing of pure terms gives the universal arrow into the syntactic product. -/
 def valueFanIsLimit (A B : ValueCat S) : IsLimit (valueFan A B) :=
@@ -128,5 +144,14 @@ def valueFanIsLimit (A B : ValueCat S) : IsLimit (valueFan A B) :=
 instance valuesCartesianMonoidal (S : Sig.{u}) : CartesianMonoidalCategory (ValueCat S) :=
   CartesianMonoidalCategory.ofChosenFiniteProducts ⟨_, valueUnitIsTerminal S⟩ fun A B =>
     ⟨_, valueFanIsLimit A B⟩
+
+/-- Cartesian pairing in the value category has the indicated syntax representative. -/
+theorem valueLift_hom {X A B : ValueCat S} (f : X ⟶ A) (g : X ⟶ B) :
+    (CartesianMonoidalCategory.lift f g).hom = pairArrows f.hom g.hom := by rfl
+
+/-- Pairing two pure representatives preserves purity. -/
+theorem isPureMor_pairArrows {X A B : SynCat S} {f : X ⟶ A} {g : X ⟶ B}
+    (hf : IsPureMor f) (hg : IsPureMor g) : IsPureMor (pairArrows f g) :=
+  isPureMor_pairArrows_proof hf hg
 
 end Silmaril.Thesis.LambdaIter.Syn.SynCat

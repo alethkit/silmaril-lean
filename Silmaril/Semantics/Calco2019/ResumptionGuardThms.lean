@@ -9,6 +9,23 @@ public section
 
 universe u v
 
+namespace Silmaril.Calco2019.ParametrizedMonad.Guards
+
+open CategoryTheory
+
+variable {C : Type u} [Category.{v} C] {P : Coproducts C} {M : ParametrizedMonad C}
+  (G : M.Guards P) (R : FinalResumptions M)
+
+/-- The first-observation guard inherits all three guard laws from the parameter family. -/
+@[expose]
+def resumptionGuardedness : MonadGuardedness P (R.monad P) where
+  guarded f := G.observedGuard R f
+  trivial f := by exact Proofs.observedGuard_trivial G R f
+  parallel hf hg := by exact Proofs.observedGuard_parallel G R hf hg
+  compose h hf hg := by exact Proofs.observedGuard_compose G R h hf hg
+
+end Silmaril.Calco2019.ParametrizedMonad.Guards
+
 namespace Silmaril.Calco2019.ParametrizedGuardedElgotMonad
 
 open CategoryTheory
@@ -17,11 +34,9 @@ variable {C : Type u} [Category.{v} C] {P : Coproducts C}
   (M : ParametrizedGuardedElgotMonad P) (R : FinalResumptions M.toParametrizedMonad)
 
 /-- The inherited guardedness of the resumption monad, with the axioms of Definition 6. -/
-def resumptionGuardedness : MonadGuardedness P (R.monad P) where
-  guarded f := M.observedGuard R f
-  trivial f := Proofs.observedGuard_trivial M R f
-  parallel hf hg := Proofs.observedGuard_parallel M R hf hg
-  compose h hf hg := Proofs.observedGuard_compose M R h hf hg
+@[expose]
+def resumptionGuardedness : MonadGuardedness P (R.monad P) :=
+  M.toGuards.resumptionGuardedness R
 
 theorem resumptionGuardedness_iff {X Y Z : Kleisli (R.monad P)}
     (f : X ⟶ (P.kleisli (R.monad P)).sum Y Z) :

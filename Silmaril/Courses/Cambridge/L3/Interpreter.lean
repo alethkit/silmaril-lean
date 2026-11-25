@@ -443,6 +443,101 @@ theorem Config.reduce_exists_iff_step_exists {before : Config} :
     | none => exact (reduce_eq_none_iff_terminal.mp result after step).elim
     | some next => exact ⟨next, rfl⟩
 
+/-- A fuel budget counts selected transitions. A terminal configuration
+can be reported even at zero fuel. -/
+inductive FuelResult where
+  | returned (value : Value) (store : Store)
+  | stuck (config : Config)
+  | outOfFuel (config : Config)
+
+@[no_expose] def runFuel : Nat → Config → FuelResult
+  | fuel, config =>
+      match classify config.store config.expr with
+      | .value ready => .returned ⟨config.expr, ready⟩ config.store
+      | .stuck _ => .stuck config
+      | .step next _ =>
+          match fuel with
+          | 0 => .outOfFuel config
+          | n + 1 => runFuel n next
+
+/-- A trace of exactly the indicated number of executable transitions. -/
+inductive SelectedSteps : Nat → Config → Config → Prop where
+  | refl (initial : Config) : SelectedSteps 0 initial initial
+  | head {n : Nat} {initial next final : Config}
+      (step : initial.reduce = some next) (rest : SelectedSteps n next final) :
+      SelectedSteps (n + 1) initial final
+
+theorem SelectedSteps.toSteps {n : Nat} {initial final : Config}
+    (trace : SelectedSteps n initial final) : Steps initial final := by
+  induction trace with
+  | refl => exact .refl
+  | head selected _ ih => exact ih.head (Config.reduce_sound selected)
+
+def FuelResult.Spec (fuel : Nat) (initial : Config) : FuelResult → Prop
+  | .returned value store =>
+      ∃ n ≤ fuel, SelectedSteps n initial ⟨value.val, store⟩
+  | .stuck config => (∃ n ≤ fuel, SelectedSteps n initial config) ∧ Stuck config
+  | .outOfFuel config => SelectedSteps fuel initial config ∧ ∃ next, Step config next
+
+theorem runFuel_spec (fuel : Nat) (initial : Config) :
+    (runFuel fuel initial).Spec fuel initial := by
+  induction fuel generalizing initial with
+  | zero =>
+      rw [runFuel]
+      split
+      · exact ⟨0, Nat.le_refl _, .refl _⟩
+      · exact ⟨⟨0, Nat.le_refl _, .refl _⟩, by assumption⟩
+      · exact ⟨.refl _, _, by assumption⟩
+  | succ n ih =>
+      rw [runFuel]
+      split
+      · exact ⟨0, Nat.zero_le _, .refl _⟩
+      · exact ⟨⟨0, Nat.zero_le _, .refl _⟩, by assumption⟩
+      · rename_i next valid selected
+        have edge : initial.reduce = some next := by simp [Config.reduce, selected]
+        change (runFuel n next).Spec (n + 1) initial
+        have rest := ih next
+        cases result : runFuel n next with
+        | returned value store =>
+            rw [result] at rest
+            obtain ⟨k, bound, trace⟩ := rest
+            exact ⟨k + 1, Nat.succ_le_succ bound, trace.head edge⟩
+        | stuck config =>
+            rw [result] at rest
+            obtain ⟨⟨k, bound, trace⟩, blocked⟩ := rest
+            exact ⟨⟨k + 1, Nat.succ_le_succ bound, trace.head edge⟩, blocked⟩
+        | outOfFuel config =>
+            rw [result] at rest
+            exact ⟨rest.1.head edge, rest.2⟩
+
+/-- A finite selected trace ending in a value is reproduced by any
+sufficient fuel budget, using the reducer's allocation policy. -/
+theorem SelectedSteps.runFuel_returned {n fuel : Nat} {initial : Config} {v : Value} {s : Store}
+    (trace : SelectedSteps n initial ⟨v.val, s⟩) (bound : n ≤ fuel) :
+    runFuel fuel initial = .returned v s := by
+  generalize target : (⟨v.val, s⟩ : Config) = final at trace
+  induction trace generalizing fuel with
+  | refl config =>
+      subst config
+      rw [runFuel]
+      split
+      · rfl
+      · exact False.elim ((show Stuck ⟨v.val, s⟩ from by assumption).1 v.property)
+      · exact False.elim (v.property.no_step (by assumption))
+  | @head n initial next final selected _ ih =>
+      cases fuel with
+      | zero => exact (Nat.not_succ_le_zero _ bound).elim
+      | succ fuel =>
+          rw [runFuel]
+          unfold Config.reduce at selected
+          split at selected
+          · rename_i found valid chosen
+            cases selected
+            rw [chosen]
+            exact ih (Nat.le_of_succ_le_succ bound) target
+          · contradiction
+          · contradiction
+
 -- Both addresses are legal in the direct rules. Executable allocation chooses 1.
 example : Config.reduce ⟨.ref (.int 0), ∅⟩ =
     some ⟨.loc 1, (∅ : Store).insert 1 ⟨.int 0, .int 0⟩⟩ := rfl

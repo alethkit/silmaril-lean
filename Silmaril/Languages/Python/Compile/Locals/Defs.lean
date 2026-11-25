@@ -6,7 +6,7 @@ public import Silmaril.Languages.Python.Source.Scope.Defs
 /-! # Lowering one Python integer-local frame
 
 The module contains one undecorated, parameterless function. Its core
-artifact consists of scalar local assignments followed by a return.
+artifact consists of scalar local assignments, terminal branches and returns.
 Names are accepted only with the analyzed block's local access and a
 matching slot witness.
 -/
@@ -50,33 +50,68 @@ def operator? : (op : Source.BinaryOperator) → Option {target // OperatorTrans
   | .floorDiv => some ⟨.floorDiv, .floorDiv⟩
   | _ => none
 
-inductive RhsTranslation (scope : Source.Scope) :
-    Source.Expr → Core.Locals.Rhs (localNames scope).length → Prop where
-  | integer (value : Int) : RhsTranslation scope (.integer value) (.arithmetic (.int value))
-  | name (name : Source.Name) (address : Address scope name) :
-      RhsTranslation scope (.name name) (.read address.index)
-  | binary {op : Source.BinaryOperator} {targetOp : Core.BinOp}
-      {left right : Source.Expr} {lhs rhs : Core.Locals.Rhs (localNames scope).length}
-      (operator : OperatorTranslation op targetOp)
-      (leftTranslation : RhsTranslation scope left lhs)
-      (rightTranslation : RhsTranslation scope right rhs) :
-      RhsTranslation scope (.binary op left right) (.binary targetOp lhs rhs)
+def logicalOperator : Source.BooleanOperator → Core.Locals.LogicalOp
+  | .and_ => .and
+  | .or_ => .or
 
-def lowerRhs (scope : Source.Scope) : (source : Source.Expr) →
-    Except Error {target // RhsTranslation scope source target}
-  | .integer value => .ok ⟨.arithmetic (.int value), .integer value⟩
-  | .name name =>
-    match address? scope name with
-    | none => .error (.unresolvedLocal name)
-    | some address => .ok ⟨.read address.index, .name name address⟩
-  | .binary op left right =>
-    match operator? op with
-    | none => .error .expressionShape
-    | some ⟨targetOp, operator⟩ => do
-      let lhs ← lowerRhs scope left
-      let rhs ← lowerRhs scope right
-      return ⟨.binary targetOp lhs.val rhs.val, .binary operator lhs.property rhs.property⟩
-  | _ => .error .expressionShape
+mutual
+  inductive RhsTranslation (scope : Source.Scope) :
+      Source.Expr → Core.Locals.Rhs (localNames scope).length → Prop where
+    | integer (value : Int) : RhsTranslation scope (.integer value) (.arithmetic (.int value))
+    | name (name : Source.Name) (address : Address scope name) :
+        RhsTranslation scope (.name name) (.read address.index)
+    | binary {op : Source.BinaryOperator} {targetOp : Core.BinOp}
+        {left right : Source.Expr} {lhs rhs : Core.Locals.Rhs (localNames scope).length}
+        (operator : OperatorTranslation op targetOp)
+        (leftTranslation : RhsTranslation scope left lhs)
+        (rightTranslation : RhsTranslation scope right rhs) :
+        RhsTranslation scope (.binary op left right) (.binary targetOp lhs rhs)
+    | logical {op : Source.BooleanOperator} {first second rest target}
+        (translated : OperandsTranslation scope op (first :: second :: rest) target) :
+        RhsTranslation scope (.booleanOp op (first :: second :: rest)) target
+
+  inductive OperandsTranslation (scope : Source.Scope) :
+      Source.BooleanOperator → List Source.Expr → Core.Locals.Rhs (localNames scope).length → Prop where
+    | last {op source target} (translated : RhsTranslation scope source target) :
+        OperandsTranslation scope op [source] target
+    | next {op first second rest lhs rhs} (head : RhsTranslation scope first lhs)
+        (tail : OperandsTranslation scope op (second :: rest) rhs) :
+        OperandsTranslation scope op (first :: second :: rest) (.logical (logicalOperator op) lhs rhs)
+end
+
+mutual
+  def lowerRhs (scope : Source.Scope) : (source : Source.Expr) →
+      Except Error {target // RhsTranslation scope source target}
+    | .integer value => .ok ⟨.arithmetic (.int value), .integer value⟩
+    | .name name =>
+      match address? scope name with
+      | none => .error (.unresolvedLocal name)
+      | some address => .ok ⟨.read address.index, .name name address⟩
+    | .binary op left right =>
+      match operator? op with
+      | none => .error .expressionShape
+      | some ⟨targetOp, operator⟩ => do
+        let lhs ← lowerRhs scope left
+        let rhs ← lowerRhs scope right
+        return ⟨.binary targetOp lhs.val rhs.val, .binary operator lhs.property rhs.property⟩
+    | .booleanOp op (first :: second :: rest) => do
+      let lowered ← lowerOperands scope op (first :: second :: rest)
+      return ⟨lowered.val, .logical lowered.property⟩
+    | _ => .error .expressionShape
+  termination_by source => sizeOf source
+
+  def lowerOperands (scope : Source.Scope) (op : Source.BooleanOperator) :
+      (sources : List Source.Expr) → Except Error {target // OperandsTranslation scope op sources target}
+    | [] => .error .expressionShape
+    | [source] => do
+      let lowered ← lowerRhs scope source
+      return ⟨lowered.val, .last lowered.property⟩
+    | first :: second :: rest => do
+      let lhs ← lowerRhs scope first
+      let rhs ← lowerOperands scope op (second :: rest)
+      return ⟨.logical (logicalOperator op) lhs.val rhs.val, .next lhs.property rhs.property⟩
+  termination_by sources => sizeOf sources
+end
 
 inductive Assignment : Source.Stmt → Source.Name → Source.Expr → Prop where
   | scalar (name : Source.Name) (value : Source.Expr) : Assignment (.assign name value) name value
@@ -100,12 +135,22 @@ inductive BodyTranslation (scope : Source.Scope) :
       (assignment : Assignment statement name value) (address : Address scope name)
       (translated : RhsTranslation scope value rhs) (remaining : BodyTranslation scope rest next) :
       BodyTranslation scope (statement :: rest) (.assign address.index rhs next)
+  | branch {condition yes no test yesCode noCode}
+      (translated : RhsTranslation scope condition test)
+      (thenBranch : BodyTranslation scope yes yesCode) (elseBranch : BodyTranslation scope no noCode) :
+      BodyTranslation scope [.if_ condition yes no] (.branch test yesCode noCode)
 
 def lowerBody (scope : Source.Scope) : (body : List Source.Stmt) →
     Except Error {code // BodyTranslation scope body code}
   | [.return_ (some value)] => do
     let rhs ← lowerRhs scope value
     return ⟨.ret rhs.val, .ret rhs.property⟩
+  | [.if_ condition yes no] => do
+    let test ← lowerRhs scope condition
+    let thenBranch ← lowerBody scope yes
+    let elseBranch ← lowerBody scope no
+    return ⟨.branch test.val thenBranch.val elseBranch.val,
+      .branch test.property thenBranch.property elseBranch.property⟩
   | statement :: rest =>
     match assignment? statement with
     | none => .error .bodyShape
@@ -118,6 +163,7 @@ def lowerBody (scope : Source.Scope) : (body : List Source.Stmt) →
         return ⟨.assign address.index rhs.val tail.val,
           .assign assignment address rhs.property tail.property⟩
   | [] => .error .bodyShape
+termination_by body => sizeOf body
 
 structure Compiled (source : Source.Module) where
   name : Source.Name

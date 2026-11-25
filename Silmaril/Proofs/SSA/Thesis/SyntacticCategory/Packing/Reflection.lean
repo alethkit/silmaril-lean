@@ -188,4 +188,13 @@ theorem packedSubst_isPureMor_proof {n m : Nat} {β : BoundCtx S.Ty n} {γ : Bou
   ⟨_, packedTyping ((packTermTyping β).bsubst s.typed),
     ((packTermPure β).bsubst s.pure).bsubst (packingSubst γ).pure, rfl⟩
 
+theorem packedTerm_pure_proof {n : Nat} (β : BoundCtx S.Ty n) {t : Tm Empty S.Instr n}
+    (hp : Pure S.pureEff t) : Pure S.pureEff (packedTerm β t) :=
+  hp.bsubst (packingSubst β).pure
+
+theorem packedArrow_isPureMor_proof {n : Nat} {β : BoundCtx S.Ty n} {A : S.Ty}
+    {t : Tm Empty S.Instr n} (h : HasType S.Instr Ctx.nil β t A) (hp : Pure S.pureEff t) :
+    IsPureMor (packedArrow h) :=
+  ⟨_, packedTyping h, packedTerm_pure_proof β hp, rfl⟩
+
 end Silmaril.Thesis.LambdaIter.Syn.SynCat

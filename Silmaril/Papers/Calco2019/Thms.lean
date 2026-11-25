@@ -4,7 +4,8 @@ public import Silmaril.Papers.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
 public import Silmaril.Semantics.Calco2019.InductiveResumption.Free.Thms
-public import Silmaril.Semantics.Calco2019.Maybe.Thms
+public import Silmaril.Semantics.Calco2019.Maybe.Resumption.Thms
+public import Silmaril.Semantics.Calco2019.Maybe.Hyperextensive.Iteration.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
 public import Silmaril.Semantics.Calco2019.VacuousThms
 public import Silmaril.Semantics.Calco2019.ExceptionResumption.Specializations
@@ -18,6 +19,32 @@ universe u v u' v'
 namespace Silmaril.Papers.Calco2019
 
 open CategoryTheory CategoryTheory.Limits Silmaril.Calco2019
+
+/-- Section 1.3. On Set, Maybe resumptions freely add the operations of the
+endofunctor in the category of total Elgot monads. -/
+theorem maybeResumption_freeOn {H : Type u ⥤ Type u}
+    (R : FinalResumptions (Exception.parametrizedElgot Maybe.Types.elgot.{u} H).toParametrizedMonad)
+    (S : Maybe.TotalElgot (typeCoproducts : Coproducts (Type u)))
+    (σ : H ⟶ (S.obj.monad : Type u ⥤ Type u)) :
+    ∃! k : (⟨(Exception.parametrizedElgot Maybe.Types.elgot H).resumptionElgotMonad R,
+        Exception.resumption_isElgot Maybe.Types.elgot H R Maybe.Types.elgot_total⟩ :
+          Maybe.TotalElgot typeCoproducts) ⟶ S,
+      Exception.suspension Maybe.Types.elgot H R ≫ k.hom.hom.toNatTrans = σ :=
+  Maybe.resumption_freeOn Maybe.Types.elgot_total R Maybe.Types.initial S σ
+
+/-- Section 1.3. On a hyperextensive category, Maybe resumptions freely add
+the operations of the endofunctor among total Elgot monads. -/
+theorem hyperextensiveMaybeResumption_freeOn {C : Type u} [Category.{v} C] [Maybe.Hyperextensive C]
+    {P : Coproducts C} {E : C} (terminal : IsTerminal E) {H : C ⥤ C}
+    (R : FinalResumptions (Exception.parametrizedElgot (Maybe.hyperextensiveElgot (P := P)
+      terminal) H).toParametrizedMonad)
+    (S : Maybe.TotalElgot P) (σ : H ⟶ (S.obj.monad : C ⥤ C)) :
+    ∃! k : (⟨(Exception.parametrizedElgot (Maybe.hyperextensiveElgot terminal) H).resumptionElgotMonad R,
+        Exception.resumption_isElgot (Maybe.hyperextensiveElgot terminal) H R
+          (Maybe.hyperextensiveElgot_total terminal)⟩ : Maybe.TotalElgot P) ⟶ S,
+      Exception.suspension (Maybe.hyperextensiveElgot terminal) H R ≫ k.hom.hom.toNatTrans = σ :=
+  Maybe.resumption_freeOn (Maybe.hyperextensiveElgot_total terminal) R
+    (Maybe.hyperextensiveInitial terminal) S σ
 
 section InductiveResumptions
 

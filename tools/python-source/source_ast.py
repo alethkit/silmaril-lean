@@ -177,7 +177,7 @@ def handler(node):
 
 
 def import_name(alias):
-    return f"{{ member := {quote(alias.name)}, alias := {option(alias.asname, quote)} }}"
+    return f"{{ member := {quote(alias.name)}, «alias» := {option(alias.asname, quote)} }}"
 
 
 def statement(node):

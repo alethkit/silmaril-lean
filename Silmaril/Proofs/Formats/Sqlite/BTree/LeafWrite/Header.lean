@@ -66,4 +66,72 @@ theorem layout_header_fields {leading page : List UInt8} {cells : List (List UIn
       simpa [after, content, used] using field
   next => cases accepted
 
+private theorem offsets_prefix (start : Nat) (cells : List (List UInt8)) (slot : Nat)
+    (within : slot < cells.length) :
+    (BTree.LeafWrite.offsets start cells)[slot]? = some (start + (cells.take slot).flatten.length) := by
+  induction cells generalizing start slot with
+  | nil => simp at within
+  | cons cell tail ih =>
+    cases slot with
+    | zero => simp [BTree.LeafWrite.offsets]
+    | succ index =>
+      have bound : index < tail.length := by simpa using within
+      simp only [BTree.LeafWrite.offsets, List.getElem?_cons_succ, List.take_succ_cons]
+      rw [ih (start + cell.length) index bound]
+      simp [Nat.add_assoc]
+
+private theorem read_pointer (before after : List UInt8) (pointers : List Nat)
+    (slot value : Nat) (atSlot : pointers[slot]? = some value) (fits : value < 256 ^ 2) :
+    (File.View.ofBytes (Bytes.ofList (before ++ (pointers.flatMap (File.Write.be 2) ++ after)))).be?
+      (before.length + 2 * slot) 2 = some value := by
+  induction pointers generalizing before slot with
+  | nil => simp at atSlot
+  | cons pointer tail ih =>
+    cases slot with
+    | zero =>
+      simp only [List.getElem?_cons_zero, Option.some.injEq] at atSlot
+      subst pointer
+      simpa [List.flatMap_cons, List.append_assoc] using
+        read_field before (tail.flatMap (File.Write.be 2) ++ after) value fits
+    | succ index =>
+      simp only [List.getElem?_cons_succ] at atSlot
+      have field := ih (before ++ File.Write.be 2 pointer) index atSlot
+      have indexEq : (before ++ File.Write.be 2 pointer).length + 2 * index =
+          before.length + 2 * (index + 1) := by
+        simp
+        omega
+      rw [indexEq] at field
+      simpa [List.flatMap_cons, List.append_assoc] using field
+
+theorem layout_pointer {leading page : List UInt8} {cells : List (List UInt8)} (slot : Nat)
+    (accepted : BTree.LeafWrite.layout leading cells = .ok page) (within : slot < cells.length) :
+    let view := File.View.ofBytes (Bytes.ofList page)
+    view.be? (leading.length + 8 + 2 * slot) 2 =
+      some (File.Write.pageSize - cells.flatten.length + (cells.take slot).flatten.length) := by
+  simp only [BTree.LeafWrite.layout] at accepted
+  split at accepted
+  next capacity =>
+    cases accepted
+    let content := File.Write.pageSize - cells.flatten.length
+    let used := leading.length + 8 + 2 * cells.length
+    let before := leading ++ [13, 0, 0] ++ File.Write.be 2 cells.length ++ File.Write.be 2 content ++ [0]
+    let after := List.replicate (content - used) 0 ++ cells.flatten
+    let offset := content + (cells.take slot).flatten.length
+    have bound : (cells.take slot).flatten.length ≤ cells.flatten.length := by
+      have split : cells.flatten = (cells.take slot).flatten ++ (cells.drop slot).flatten := by
+        rw [← List.flatten_append, List.take_append_drop]
+      rw [split, List.length_append]
+      omega
+    have fits : offset < 256 ^ 2 := by
+      unfold File.Write.pageSize at capacity
+      dsimp [offset, content, File.Write.pageSize]
+      omega
+    have field := read_pointer before after (BTree.LeafWrite.offsets content cells) slot offset
+      (offsets_prefix content cells slot within) fits
+    have beforeLength : before.length = leading.length + 8 := by
+      simp [before]
+    rw [beforeLength] at field
+    simpa [before, after, offset, content, used] using field
+  next => cases accepted
+
 end Silmaril.Proofs.Formats.Sqlite.BTree.LeafWrite

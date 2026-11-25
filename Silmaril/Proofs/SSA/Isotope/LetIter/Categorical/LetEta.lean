@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.Isotope.LetIter.Categorical.Thms
+import Silmaril.Semantics.Categories.Freyd.CentralUnit.Thms
 
 public section
 
@@ -21,34 +22,16 @@ variable {V : Type u₁} {C : Type u₂}
   (J : V ⥤ C)
 
 local notation "U" => Functor.StrongPremonoidal.unitIso (J := J)
-local notation "T" => Functor.StrongPremonoidal.tensorIso (J := J)
 
 section Freyd
 
 variable [FreydCategory J]
 
-@[reassoc]
-private theorem map_snd (R A : V) :
-    (T R A).hom ≫ J.map (snd R A) =
-      (J.map (toUnit R) ≫ (U).inv) ▷ J.obj A ≫ (λ_ (J.obj A)).hom := by
-  rw [← CartesianMonoidalCategory.whiskerRight_toUnit_comp_leftUnitor_hom,
-    J.map_comp, ← Category.assoc, ← Functor.StrongPremonoidal.tensor_naturality_left,
-    Category.assoc, comp_whiskerRight, Category.assoc]
-  have e := Functor.StrongPremonoidal.left_unitality (J := J) A
-  rw [← e, ← comp_whiskerRight_assoc (U).inv (U).hom, (U).inv_hom_id]
-  simp
-
 private theorem extend_snd (h : IsCentral (U).hom) {R A : V}
     (f : J.obj R ⟶ J.obj A) :
     extend J f ≫ J.map (snd R A) = f := by
-  have central := (FreydCategory.image_central J (toUnit R)).comp (IsCentral.inv U h)
-  have slide := central.1 f
-  change (J.map (toUnit R) ≫ (U).inv) ▷ J.obj R ≫ 𝟙_ C ◁ f =
-    J.obj R ◁ f ≫ (J.map (toUnit R) ≫ (U).inv) ▷ J.obj A at slide
   simp only [extend, leftTensor, id_whiskerRight, Category.id_comp, Category.assoc]
-  rw [map_snd, ← Category.assoc _ _ ((λ_ (J.obj A)).hom), ← slide,
-    Category.assoc, leftUnitor_naturality, ← map_snd_assoc]
-  rw [Iso.inv_hom_id_assoc, ← J.map_comp_assoc]
+  rw [FreydCategory.whiskerLeft_snd_of_unit_central J h, ← J.map_comp_assoc]
   simp [duplicate]
 
 end Freyd
