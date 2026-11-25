@@ -144,7 +144,7 @@ open Isotope.LambdaSSA.Semantics.Categorical (ofMonadicTypeModel ofMonadicInstru
 /-- Identify the structural result with the chosen SSA denotation using
 coherence of the induced Kleisli model. -/
 theorem chosen_eq (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m := m))
-    {r : Region Φ} {h : Region.HasType [A] r [A]} {f : Env [A] → m (LabelDen [A])}
+    {r : Region Φ} {L : List τ} {h : Region.HasType [A] r L} {f : Env [A] → m (LabelDen L)}
     (d : RegionDenotes (m := m) ε h f) : Region.denote (ε := ε) (m := m) h = f := by
   let _ := ofMonadicInstructionModel (τ := τ) (Φ := Φ) (ε := ε) (m := m)
   let J := typeJ (m := m)
@@ -156,7 +156,7 @@ theorem chosen_eq (coherent : RegionCoherent (τ := τ) (Φ := Φ) (ε := ε) (m
   funext env
   have encoded := (congrFun hF env).symm.trans
     ((congrArg (fun F => F.of (envToCategorical env)) eq).trans (congrFun hG env))
-  let decode := fun x => (pure ((LabelValue.categoricalEquiv [A]).symm x) : m (LabelDen [A]))
+  let decode := fun x => (pure ((LabelValue.categoricalEquiv L).symm x) : m (LabelDen L))
   simpa only [decode, bind_assoc, pure_bind, Equiv.symm_apply_apply, bind_pure] using
     congrArg (fun result => result >>= decode) encoded
 

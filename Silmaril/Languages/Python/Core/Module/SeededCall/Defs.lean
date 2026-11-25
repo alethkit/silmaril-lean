@@ -30,7 +30,7 @@ inductive Raised where
   deriving DecidableEq, Repr
 
 def Raised.classify : Raised → ExceptionClass
-  | .assertionError _ => .assertionError
+  | .assertionError _ | .runtime .assertionError => .assertionError
   | .runtime (.unboundLocal _) | .runtime (.unboundOwned _) => .unboundLocalError
   | .runtime (.unboundCapture _) | .runtime (.nameError _) => .nameError
   | .runtime (.positionalArity ..) | .runtime .notCallable => .typeError

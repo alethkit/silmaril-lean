@@ -18,6 +18,12 @@ universe u
 variable {τ Φ ε : Type u} [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] [Bot ε]
   [Isotope.Subtyping τ] [TypeModel.{u,u} τ]
 variable {m : Type u → Type u} [Monad m] [InstructionModel Φ τ ε m]
+/-- Dispatch a CFG label where both blocks can produce an external result. -/
+def labelStepWithExits {X Y E : Type u} (head : X → m (E ⊕ Y)) (body : Y → m (E ⊕ X)) :
+    X ⊕ Y → m (E ⊕ (X ⊕ Y))
+  | .inl x => head x >>= fun r => pure (Sum.map id Sum.inr r)
+  | .inr y => body y >>= fun r => pure (Sum.map id Sum.inl r)
+
 variable {A B C : τ}
 
 /-- Apply the instruction at its declared source and target boundaries. -/

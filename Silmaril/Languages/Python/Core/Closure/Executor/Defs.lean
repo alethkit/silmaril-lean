@@ -25,6 +25,7 @@ resuming the remaining body. -/
 inductive Body (layout : Layout) where
   | ret (value : Operand layout)
   | store (destination : Slot layout) (value : Operand layout) (next : Body layout)
+  | assert (test : Operand layout) (next : Body layout)
   | call (destination : Slot layout) (callee : Operand layout)
       (arguments : List (Operand layout)) (next : Body layout)
 
@@ -107,6 +108,12 @@ def advanceIn (table : CodeTable) (globals : GlobalLookup) : State → Option Tr
   | .running heap frame (.store destination operand next) stack =>
     some <| match operand.evalIn globals heap frame with
     | .ok value => resumeStore heap frame destination value next stack
+    | .error error => fail heap stack error
+  | .running heap frame (.assert test next) stack =>
+    some <| match test.evalIn globals heap frame with
+    | .ok value =>
+      if value.truth then (none, .running heap frame next stack)
+      else (none, .delivering heap stack (.error .assertionError))
     | .error error => fail heap stack error
   | .running heap frame (.call destination callee arguments next) stack =>
     some <| match evalCallIn globals heap frame callee arguments with
@@ -209,6 +216,17 @@ inductive StepIn (table : CodeTable) (globals : GlobalLookup) : State → Option
   | storeError {heap stack layout} {frame : Frame layout} {destination operand next error} :
       EvaluatesIn globals heap frame operand (.error error) →
       StepIn table globals (.running heap frame (.store destination operand next) stack)
+        (fail heap stack error).1 (fail heap stack error).2
+  | assertTrue {heap stack layout} {frame : Frame layout} {test next value} :
+      EvaluatesIn globals heap frame test (.ok value) → value.truth = true →
+      StepIn table globals (.running heap frame (.assert test next) stack) none (.running heap frame next stack)
+  | assertFalse {heap stack layout} {frame : Frame layout} {test next value} :
+      EvaluatesIn globals heap frame test (.ok value) → value.truth = false →
+      StepIn table globals (.running heap frame (.assert test next) stack) none
+        (.delivering heap stack (.error .assertionError))
+  | assertError {heap stack layout} {frame : Frame layout} {test next error} :
+      EvaluatesIn globals heap frame test (.error error) →
+      StepIn table globals (.running heap frame (.assert test next) stack)
         (fail heap stack error).1 (fail heap stack error).2
   | call {heap stack layout} {frame : Frame layout} {destination callee arguments next value values active} :
       InputsIn globals heap frame callee arguments (.ok (value, values)) →

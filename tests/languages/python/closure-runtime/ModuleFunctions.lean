@@ -65,6 +65,19 @@ example : (match invoke (sessionAfterPublish.bindGlobal "x" (.bool false)) .asse
       residual.globals "x" = some (.bool false) ∧ residual.heap.lookup ⟨0⟩ = some (some (.int 0))
     | _ => False) := ⟨rfl, rfl⟩
 
+private def assertionBodyResult : Option Observation :=
+  let session := sessionAfterPublish.bindGlobal "x" (.bool false)
+  let assertionTable : Executor.CodeTable := fun key => if key = top.ref.key then
+    some ⟨top.ref.layout, { definition with body := .assert (.readGlobal "x") definition.body }⟩
+    else none
+  let invocation := session.prepareCall (.bindGlobal "result") (.readGlobal "f") [.literal (.int 7)]
+  (invocation.runPrefix assertionTable 16).2.finish?
+
+example : (match assertionBodyResult with
+    | some ⟨.raised .assertionError, residual⟩ =>
+      residual.globals "result" = some (.int 99) ∧ residual.heap.lookup ⟨0⟩ = some (some (.int 7))
+    | _ => False) := ⟨rfl, rfl⟩
+
 example : (match invoke (sessionAfterPublish.bindGlobal "x" .none)
       (.bindGlobal "result") [.literal (.int 0)] with
     | some ⟨.returned .none, residual⟩ =>
