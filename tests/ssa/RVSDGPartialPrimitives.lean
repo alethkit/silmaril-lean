@@ -174,6 +174,43 @@ example : ReflTransGen (Step primitives) ⟨start (entry 1), 20⟩ stopped ∧
   have path := blockRoot.steps (Stack.halt : Stack machine answer answer)
   exact ⟨path, blocked, blocked.result_none, fun _ => blocked.no_step, no_infinite_of_reaches_blocked path blocked⟩
 
+-- Take concrete machine steps without using either Eval derivation above.
+private theorem stepThen {source next target : Config machine Nat answer}
+    (picked : source.next primitives = _root_.Part.some next)
+    (later : ReflTransGen (Step primitives) next target) : ReflTransGen (Step primitives) source target := by
+  apply later.head
+  change next ∈ source.next primitives
+  rw [picked]
+  exact _root_.Part.mem_some _
+
+private theorem callThen {callee : machine.Val callable} {arguments : Tuple machine.Val fn.args}
+    {body : Job machine answer} {stack : Stack machine answer answer}
+    {store : Nat} {target : Config machine Nat answer}
+    (opened : Job.openClosure machine callee arguments = body)
+    (later : ReflTransGen (Step primitives) ⟨.eval body stack, store⟩ target) :
+    ReflTransGen (Step primitives) ⟨.eval (.call callee arguments) stack, store⟩ target := by
+  subst body
+  exact stepThen rfl later
+
+example : Eval primitives (entry 0) 20 (.returned (stateValue 8) 21) := by
+  apply returns_iff_path.mpr
+  refine callThen (openedDriver 0) ?_
+  iterate 8 refine stepThen rfl ?_
+  refine callThen (openedMember 0 8) ?_
+  iterate 10 refine stepThen rfl ?_
+  exact .refl
+
+example : ∃ site pending, Eval primitives (entry 1) 20 (.blocked site pending 21) ∧
+    stopped.control = .eval site.job (pending.push .halt) := by
+  apply (blocked_iff_path (target := stopped)).mpr
+  constructor
+  · refine callThen (openedDriver 1) ?_
+    iterate 8 refine stepThen rfl ?_
+    refine callThen (openedMember 1 8) ?_
+    iterate 3 refine stepThen rfl ?_
+    exact .refl
+  · exact ⟨⟨undefinedSite 8, savedFrames.push .halt⟩, rfl, rfl⟩
+
 example : Eval (Primitives.liftTotal machine Nat) (entry 0) 20 (.returned (stateValue 8) 20) := by
   have returned : Recursive.Returns machine (entry 0) (stateValue 8) :=
     (Recursive.call_iff machine driver (args 0 7) (stateValue 8)).2 ⟨1, 2, by cbv⟩

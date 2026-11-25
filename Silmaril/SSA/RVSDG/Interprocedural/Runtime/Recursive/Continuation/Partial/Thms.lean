@@ -4,6 +4,7 @@ public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Thms
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Machine
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Evaluation
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Reflection
 
 public section
 
@@ -67,5 +68,22 @@ theorem eval_liftTotal_iff {value : Tuple m.Val ports} {finalStore : σ} :
     Eval (Primitives.liftTotal m σ) job store (.returned value finalStore) ↔
       Recursive.Returns m job value ∧ store = finalStore :=
   Proofs.eval_liftTotal
+
+/-- From a fresh entry with an empty stack, finite machine completion is
+equivalent to independent evaluation with the same typed tuple and store. -/
+theorem returns_iff_path {job : Job m final} {value : Tuple m.Val final} {finalStore : σ} :
+    Eval primitives job store (.returned value finalStore) ↔
+      Relation.ReflTransGen (Step primitives) ⟨start job, store⟩ ⟨.returned value .halt, finalStore⟩ :=
+  ⟨fun ran => ran.steps .halt, Proofs.reflect_return⟩
+
+/-- A finite path to a selected undefined primitive yields an independent
+blocking derivation whose input, store and entire live stack reconstruct
+that endpoint. The endpoint has no successor, so no path can pass an
+earlier undefined primitive on its way there. -/
+theorem blocked_iff_path {job : Job m final} :
+    (∃ site pending, Eval primitives job store (.blocked site pending target.store) ∧
+      target.control = .eval site.job (pending.push .halt)) ↔
+      Relation.ReflTransGen (Step primitives) ⟨start job, store⟩ target ∧ target.Blocked primitives :=
+  Proofs.blocked_iff_path
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial
