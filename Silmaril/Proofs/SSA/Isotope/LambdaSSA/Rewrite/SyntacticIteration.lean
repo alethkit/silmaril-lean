@@ -1,7 +1,9 @@
 module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Category.Syntax.Iteration.Defs
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgCase.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ValueFamilies
+import Silmaril.Raw.SSA.Isotope.LambdaSSA.Substitution
 
 /-! # Exact typing and one-step unfolding for syntactic type iteration -/
 
@@ -15,7 +17,8 @@ open CategoryTheory
 open Silmaril.Isotope.LambdaSSA
 open Silmaril.Isotope.LambdaSSA.Region
 open Silmaril.Isotope.SSA (Ren)
-open SyntacticCategory (iterate iterateRegion iterationBody iterationDispatch_valueBranches ofRegion)
+open SyntacticCategory (iterate iterateRegion iterationBody iterationDispatch
+  iterationDispatch_valueBranches ofRegion)
 open Silmaril.DeBruijn (lift)
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ] {Γ : VCtx τ}
@@ -55,6 +58,43 @@ theorem iterateRegion_unfold (hr : ValueBranches (A :: Γ) r [Silmaril.coprod B 
     SubstitutionEquiv (A :: Γ) (iterateRegion A r)
       (.cfg (iterationBody r) 1 (fun _ => (iterationBody r).renameVars (lift Nat.succ))) [B] :=
   (iterationBody_valueFamily hr).feedbackRegion_unfold 0
+
+theorem iterationDispatch_cfg (hr : ValueBranches (A :: Γ) r [Silmaril.coprod B A]) :
+    SubstitutionEquiv (Silmaril.coprod B A :: Γ)
+      (.cfg iterationDispatch 1 (fun _ => (iterationBody r).renameVars (lift Nat.succ)))
+      (.case (.var 0) (.br 0 (.var 0)) ((iterateRegion A r).renameVars (lift Nat.succ))) [B] := by
+  let S := Silmaril.coprod B A
+  let R : Fin 1 → τ := fun _ => A
+  let blocks : Fin 1 → Region Φ := fun _ => (iterationBody r).renameVars (lift Nat.succ)
+  have hb (i : Fin 1) : HasType (R i :: S :: Γ) (blocks i) (List.ofFn R ++ [B]) :=
+    (iterationBody_valueBranches hr).hasType.renameVars ((Ren.wk Γ S).lift A)
+  have hl : HasType (B :: S :: Γ) (.br 1 (.var 0) : Region Φ) (List.ofFn R ++ [B]) :=
+    .br rfl (.var rfl)
+  have hs : HasType (A :: S :: Γ) (.br 0 (.var 0) : Region Φ) (List.ofFn R ++ [B]) :=
+    .br rfl (.var rfl)
+  have push := SubstitutionEquiv.cfg_caseValue R
+    (Tm.BranchValue.var (Φ := Φ) (Γ := S :: Γ) (i := 0) (A := S) rfl) hl hs hb
+  have hx (i : Fin 1) : HasType (R i :: B :: S :: Γ)
+      ((blocks i).renameVars (lift Nat.succ)) (List.ofFn R ++ [B]) :=
+    (hb i).renameVars ((Ren.wk (S :: Γ) B).lift A)
+  have hy (i : Fin 1) : HasType (R i :: A :: S :: Γ)
+      ((blocks i).renameVars (lift Nat.succ)) (List.ofFn R ++ [B]) :=
+    (hb i).renameVars ((Ren.wk (S :: Γ) A).lift A)
+  refine push.trans (.case (.var rfl)
+    (.base (.entry (.cfgBrExit R (ℓ := 0) rfl (.var rfl) hx))) ?_)
+  have hrename : (iterateRegion A r).renameVars (lift Nat.succ) =
+      .cfg (.br 0 (.var 0)) 1 (fun i => (blocks i).renameVars (lift Nat.succ)) := by
+    simp only [iterateRegion, feedbackRegion, cfgEntryContinuations, renameVars, Tm.rename,
+      renameVars_comp, blocks]
+    congr 1
+    funext i
+    congr 1
+    funext j
+    cases j with
+    | zero => rfl
+    | succ j => cases j <;> rfl
+  rw [hrename]
+  exact .base (.refl (.cfg R hs hy))
 
 theorem iterateRegion_return {b : Tm Φ} (hb : Tm.BranchValue (A :: Γ) b B) :
     SubstitutionEquiv (A :: Γ) (iterateRegion A (.br 0 (.inl b))) (.br 0 b) [B] := by
