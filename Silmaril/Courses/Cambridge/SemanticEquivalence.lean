@@ -5,6 +5,7 @@ public import Silmaril.Courses.Cambridge.SemanticEquivalence.StoreObservations
 public import Silmaril.Courses.Cambridge.SemanticEquivalence.Laws
 public import Silmaril.Courses.Cambridge.SemanticEquivalence.Disjoint
 public import Silmaril.Courses.Cambridge.SemanticEquivalence.L3Examples
+public import Silmaril.Courses.Cambridge.SemanticEquivalence.StatefulFunctions
 
 /-! # Cambridge Semantics chapter 8
 
