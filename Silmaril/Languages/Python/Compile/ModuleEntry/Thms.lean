@@ -6,14 +6,14 @@ import Silmaril.Proofs.Languages.Python.Compile.ModuleEntry.Correspondence
 public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry
 
-theorem ScalarComparison.chain_iff (left : Core.Module.Value) (links : List (ScalarComparison × Core.Module.Value))
+theorem ScalarComparison.chain_iff (left : Int) (links : List (ScalarComparison × Int))
     (value : Bool) : ScalarComparison.chain left links = value ↔ ScalarComparison.EvaluatesChain left links value :=
   Proofs.Languages.Python.Compile.ModuleEntry.chain_iff left links value
 
 theorem literalComparisonChain_iff (left : Source.Expr) (first second : Source.Comparison × Source.Expr)
     (rest : List (Source.Comparison × Source.Expr)) (result : Bool) :
     literalComparisonChain? left (first :: second :: rest) = some result ↔
-      ∃ initial links, scalarLiteral? left = some initial ∧
+      ∃ initial links, numericLiteral? left = some initial ∧
         (first :: second :: rest).mapM literalComparisonLink? = some links ∧
         ScalarComparison.EvaluatesChain initial links result :=
   Proofs.Languages.Python.Compile.ModuleEntry.literalComparisonChain_iff left first second rest result

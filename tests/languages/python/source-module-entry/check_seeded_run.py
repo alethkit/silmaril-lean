@@ -120,7 +120,7 @@ private def adjacentKeywordEvidence (source : Source.Module) (profile : String) 
     outcome.residual.moduleGlobals == residual.moduleGlobals &&
     outcome.heap.next == 1 && retained == value
 
-private def ordinaryOutcome (source : Source.Module) : Option (String × Option Int) := do
+private def ordinaryOutcome (source : Source.Module) (observed : String := "x") : Option (String × Option Int) := do
   let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
   match (Compile.ModuleEntry.Functions.Run.runPrefix compiled.table 1000 compiled.start).2 with
   | .finished session completion =>
@@ -128,7 +128,7 @@ private def ordinaryOutcome (source : Source.Module) : Option (String × Option 
       | .normal => "normal"
       | .raised (.nameError name) => "NameError:" ++ name
       | _ => "unexpected completion"
-    match session.globals "x" with
+    match session.globals observed with
     | none => some (result, none)
     | some (.int value) => some (result, some value)
     | _ => none
@@ -259,6 +259,8 @@ UPSTREAM_LITERAL_TRUTH = (
     ("tests/python/programs/original/k-python/programs/testbools4.py",
      "456ec02381e7ba09f3b8a9ebd330d537b39d114cb405608c64a2343f143249d5"),
 )
+UPSTREAM_NONE_VALUE_CASE = "tests/python/programs/original/lambda-py/python-reference/types/address-of-none.py"
+UPSTREAM_NONE_VALUE_SHA256 = "6915793674cc89745a2cc378a00b71f42051087d0fe3d8fdf3787900031d9ca4"
 UPSTREAM_SCALAR_WARNINGS = {
     UPSTREAM_LITERAL_TRUTH[0][0]: (
         ("SyntaxWarning", 2, "assertion is always true, perhaps remove parentheses?"),
@@ -554,6 +556,30 @@ after = 9
 result = (0 or -2) == (missing == later)
 after = 9
 """, ["NameError:missing", "int:7", "absent"]),
+    ("none_value_tags", "empty", """result = None
+alias = result
+assert alias == None
+assert result != False
+assert not result
+after = result != 0
+assert not (False != 0)
+""", ["normal", "None", "bool:True"]),
+    ("none_value_left_lookup", "legacy_builtin", """result = None
+result = missing_first != missing_second
+after = 9
+""", ["NameError:missing_first", "None", "absent"]),
+    ("none_value_right_lookup", "legacy_preamble", """result = None
+result = result != missing_right
+after = 9
+""", ["NameError:missing_right", "None", "absent"]),
+    ("none_value_arithmetic_profile", "empty", """result = None
+result = result + 1
+after = 9
+""", ["unsupported", "None", "absent"]),
+    ("none_value_failed_assertion", "empty", """result = None
+assert result != None
+after = 9
+""", ["AssertionError:empty", "None", "absent"]),
     ("bool_int_false", "legacy_bool_int_builtin", """result = int(False)
 ___assertEqual(result, 0)
 ___assertIsNot(result, False)
@@ -654,6 +680,11 @@ after = 9
 )
 
 NESTED_CALL_NAMES = {
+    "none_value_tags": [],
+    "none_value_left_lookup": [],
+    "none_value_right_lookup": [],
+    "none_value_arithmetic_profile": [],
+    "none_value_failed_assertion": [],
     "literal_truth_selected_types": ["___assertIs"],
     "literal_truth_falsy_selected": [],
     "literal_truth_failed_assertion": [],
@@ -695,6 +726,11 @@ NESTED_CALL_NAMES = {
 }
 
 EXACT_FIXTURE_BINDINGS = {
+    "none_value_tags": '[("after", .bool true), ("alias", .none), ("result", .none)]',
+    "none_value_left_lookup": '[("result", .none)]',
+    "none_value_right_lookup": '[("result", .none)]',
+    "none_value_arithmetic_profile": '[("result", .none)]',
+    "none_value_failed_assertion": '[("result", .none)]',
     "literal_truth_selected_types": '[("after", .int 9), ("result", .bool true)]',
     "literal_truth_falsy_selected": '[("after", .int 5), ("result", .bool false)]',
     "literal_truth_failed_assertion": '[("result", .int 7)]',
@@ -735,6 +771,7 @@ EXACT_FIXTURE_BINDINGS = {
 }
 
 CPYTHON_FIXTURE_BINDINGS = {
+    "none_value_tags": {"result": None, "alias": None, "after": True},
     "literal_if_order": {"result": 7, "kept": 7, "after": 7},
     "literal_if_failure": {"result": 7},
     "literal_if_missing": {"result": 7},
@@ -957,6 +994,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         (UPSTREAM_ASSERT_NOT_CASE, UPSTREAM_ASSERT_NOT_SHA256, {}),
         (UPSTREAM_LITERAL_IF_CASE, UPSTREAM_LITERAL_IF_SHA256, {}),
         (UPSTREAM_CONDITIONAL_EXPR_CASE, UPSTREAM_CONDITIONAL_EXPR_SHA256, {}),
+        (UPSTREAM_NONE_VALUE_CASE, UPSTREAM_NONE_VALUE_SHA256, {"ret": 3}),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_NO_OP),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_INDEXING),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_TUPLE_COMPARISONS),
@@ -966,9 +1004,11 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
     for path, sha256, bindings in cases:
         source = pinned_source(checkout, path, sha256)
         shared["emit"](source_path, lean_path, source)
-        x = "some 5" if bindings else "none"
-        seeded_bindings = '[("x", .int 5)]' if bindings else "[]"
-        guards = [f'#guard ordinaryOutcome pythonSource == some ("normal", {x})']
+        assert len(bindings) <= 1
+        observed, value = next(iter(bindings.items()), ("x", None))
+        expected_binding = "none" if value is None else f"some {value}"
+        seeded_bindings = "[]" if value is None else f"[({json.dumps(observed)}, .int {value})]"
+        guards = [f'#guard ordinaryOutcome pythonSource {json.dumps(observed)} == some ("normal", {expected_binding})']
         if path == UPSTREAM_ASSERT_NOT_CASE:
             guards.append("#guard equalityBeforeAssertNot pythonSource")
         syntax_warnings = UPSTREAM_SCALAR_WARNINGS.get(path, ())

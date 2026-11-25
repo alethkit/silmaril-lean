@@ -61,6 +61,16 @@ theorem evaluateScalar_scalarResult {scope : Source.Scope} (space : Namespace) (
   cases value with
   | int value => rfl
   | bool value => exact evaluateScalar_booleanResult space equalityOperand value
+  | none => rfl
+
+theorem evaluateScalar_notEqual {scope : Source.Scope} (space : Namespace) (context : Bool)
+    (left right : ModuleEntry.Operand scope) :
+    evaluateScalar space context (.binary .notEqual left right) = (do
+      let first ← evaluateScalar space true left
+      let second ← evaluateScalar space true right
+      let some first := scalar? first | throw .unsupported
+      let some second := scalar? second | throw .unsupported
+      return .bool (!first.equal second)) := rfl
 
 theorem effect_scalarResultAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (value : Core.Module.Value) :

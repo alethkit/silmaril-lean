@@ -42,7 +42,7 @@ def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Function
   | .integer value => some (.literal (.int value))
   | .boolean value => some (.literal (.bool value))
   | .read name _ => some (.readGlobal name)
-  | .binary .. => none
+  | .none_ | .binary .. => none
 
 def callArgument? {scope : Scope} : CallArgument scope → Option Argument
   | .scalar operand => (callOperand? operand).map .scalar
@@ -117,6 +117,7 @@ def compile (source : Source.Module) : Except CompileError (Compiled source) := 
 def embed : Core.Module.Value → Value
   | .int value => .int value
   | .bool value => .bool value
+  | .none => .none
 
 def seed (globals : Core.Module.Globals) (heap : Heap := .empty) : Session :=
   ⟨fun name => (globals.lookup name).map embed, heap⟩
@@ -135,11 +136,13 @@ inductive Completion where
 def scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
-  | .none | .function _ => none
+  | .none => some .none
+  | .function _ => none
 
 def evaluate {scope : Scope} (session : Session) : Operand scope → Except Completion Value
   | .integer value => .ok (.int value)
   | .boolean value => .ok (.bool value)
+  | .none_ => .ok .none
   | .read name _ =>
     match session.globals name with
     | some value => .ok value
@@ -154,6 +157,7 @@ def evaluate {scope : Scope} (session : Session) : Operand scope → Except Comp
     | .error (.arithmetic error) => .error (.raised (.arithmetic error))
     | .error (.nameError name) => .error (.raised (.nameError name))
     | .error .assertionError => .error .assertionError
+    | .error .unsupportedArithmetic => .error .scalarProfile
 
 def Argument.emit {layout : Layout} (destination : Slot layout) (next : Body layout) :
     Argument → Body layout

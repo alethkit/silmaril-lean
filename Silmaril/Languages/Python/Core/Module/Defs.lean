@@ -16,19 +16,28 @@ abbrev GlobalName := String
 inductive Value where
   | int (value : Int)
   | bool (value : Bool)
+  | none
   deriving DecidableEq, Repr
 
-def Value.asInt : Value → Int
-  | .int value => value
-  | .bool false => 0
-  | .bool true => 1
+def Value.asInt? : Value → Option Int
+  | .int value => some value
+  | .bool false => some 0
+  | .bool true => some 1
+  | .none => Option.none
 
-def Value.equal (left right : Value) : Bool :=
-  decide (left.asInt = right.asInt)
+/-- Numeric equality compares the integer projections. The singleton
+`None` is the only nonnumeric value in this profile. -/
+def Value.equal : Value → Value → Bool
+  | .none, .none => true
+  | left, right =>
+    match left.asInt?, right.asInt? with
+    | some first, some second => decide (first = second)
+    | _, _ => false
 
 def Value.truth : Value → Bool
   | .int value => decide (value ≠ 0)
   | .bool value => value
+  | .none => false
 
 /-- The initial namespace is supplied by the caller. Reads have no implicit
 builtin or import fallback. -/
@@ -48,6 +57,7 @@ inductive Error where
   | nameError (name : GlobalName)
   | assertionError
   | arithmetic (error : Core.Exception)
+  | unsupportedArithmetic
   deriving DecidableEq, Repr
 
 abbrev Evaluated := Except Error Value
@@ -55,21 +65,29 @@ abbrev Evaluated := Except Error Value
 inductive Operator where
   | arithmetic (op : Core.BinOp)
   | equal
+  | notEqual
   deriving DecidableEq, Repr
 
 def Operator.eval : Operator → Value → Value → Evaluated
-  | .arithmetic op, left, right =>
-    ((op.eval left.asInt right.asInt).map .int).mapError .arithmetic
+  | .arithmetic op, left, right => do
+    let some first := left.asInt? | .error .unsupportedArithmetic
+    let some second := right.asInt? | .error .unsupportedArithmetic
+    ((op.eval first second).map .int).mapError .arithmetic
   | .equal, left, right => .ok (.bool (left.equal right))
+  | .notEqual, left, right => .ok (.bool (!left.equal right))
 
 inductive Operator.Eval : Operator → Value → Value → Evaluated → Prop where
-  | arithmetic {op left right result} :
-      op.Eval left.asInt right.asInt result →
+  | arithmetic {op left right first second result} :
+      left.asInt? = some first → right.asInt? = some second → op.Eval first second result →
       Eval (.arithmetic op) left right ((result.map .int).mapError .arithmetic)
-  | equal {left right : Value} (same : left.asInt = right.asInt) :
-      Eval .equal left right (.ok (.bool true))
-  | unequal {left right : Value} (different : left.asInt ≠ right.asInt) :
-      Eval .equal left right (.ok (.bool false))
+  | unsupportedLeft {op left right} : left.asInt? = none →
+      Eval (.arithmetic op) left right (.error .unsupportedArithmetic)
+  | unsupportedRight {op left right first} : left.asInt? = some first → right.asInt? = none →
+      Eval (.arithmetic op) left right (.error .unsupportedArithmetic)
+  | equal {left right : Value} {same : Bool} (checked : left.equal right = same) :
+      Eval .equal left right (.ok (.bool same))
+  | notEqual {left right : Value} {same : Bool} (checked : left.equal right = same) :
+      Eval .notEqual left right (.ok (.bool (!same)))
 
 inductive Expr where
   | literal (value : Value)
