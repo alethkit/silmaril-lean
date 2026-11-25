@@ -22,16 +22,27 @@ structure SourceSignature where
   varargs : Option String := none
   kwargs : Option String := none
 
-/-- Additional clauses and the element expression of an admitted list comprehension. -/
-inductive ListCompTail where
-  | yield (value : Lowering.Resolve.SourceExpr)
-  | filter (test : Lowering.Resolve.SourceExpr) (rest : ListCompTail)
-  | forIn (target iterable : Lowering.Resolve.SourceExpr) (rest : ListCompTail)
+/-- Additional clauses with an element expression or a key/value pair. -/
+inductive CompTail (Yield : Type) where
+  | yield (value : Yield)
+  | filter (test : Lowering.Resolve.SourceExpr) (rest : CompTail Yield)
+  | forIn (target iterable : Lowering.Resolve.SourceExpr) (rest : CompTail Yield)
+
+abbrev ListCompTail := CompTail Lowering.Resolve.SourceExpr
+
+namespace ListCompTail
+export CompTail (yield filter forIn)
+end ListCompTail
 
 structure ListComp where
   target : Lowering.Resolve.SourceExpr
   iterable : Lowering.Resolve.SourceExpr
   rest : ListCompTail
+
+structure DictComp where
+  target : Lowering.Resolve.SourceExpr
+  iterable : Lowering.Resolve.SourceExpr
+  rest : CompTail (Lowering.Resolve.SourceExpr × Lowering.Resolve.SourceExpr)
 
 /-- Admitted function statements. -/
 inductive Statement where
@@ -39,6 +50,7 @@ inductive Statement where
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
   | assignTarget (target rhs : Lowering.Resolve.SourceExpr)
   | assignListComp (name : String) (comp : ListComp)
+  | assignDictComp (name : String) (comp : DictComp)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
@@ -56,6 +68,7 @@ inductive Command where
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
   | assignTarget (target rhs : Lowering.Resolve.SourceExpr)
   | assignListComp (name : String) (comp : ListComp)
+  | assignDictComp (name : String) (comp : DictComp)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
@@ -96,13 +109,13 @@ private def resolveTarget (slot : String → Binding) (unsupported : Error) :
 Command elaboration rejects invalid targets. -/
 def globalNames (commands : List Command) : List String :=
   commands.flatMap fun
-    | .assign name _ | .assignListComp name _ | .define name .. => [name]
+    | .assign name _ | .assignListComp name _ | .assignDictComp name _ | .define name .. => [name]
     | .assignTarget target _ =>
       ((resolveTarget globalSlot .unsupportedAssignmentTarget target).toOption.map Prod.snd).getD []
     | .setIndex .. | .addIndex .. | .eval _ | .load .. => []
 
 private def Statement.localNames : Statement → Except Error (List String)
-  | .assign name _ | .assignListComp name _ | .define name .. => pure [name]
+  | .assign name _ | .assignListComp name _ | .assignDictComp name _ | .define name .. => pure [name]
   | .assignTarget target _ => return (← resolveTarget fileSlot .unsupportedAssignmentTarget target).2
   | .seq first rest | .branch _ first rest => return (← first.localNames) ++ (← rest.localNames)
   | .forIn target _ body => return target :: (← body.localNames)
@@ -116,37 +129,47 @@ private def readExpr (context : Context) (expression : Lowering.Resolve.SourceEx
     Build (Lowering.Expr × List Binding) :=
   monadLift ((resolveTracked context expression).mapError Error.expression)
 
-private def listCompTarget :=
+private def compTarget :=
   resolveTarget fileSlot .unsupportedComprehensionTarget
 
-private def ListCompTail.names : ListCompTail → Except Error (List String)
+private def CompTail.names {Yield : Type} : CompTail Yield → Except Error (List String)
   | .yield _ => pure []
   | .filter _ rest => rest.names
-  | .forIn target _ rest => return (← listCompTarget target).2 ++ (← rest.names)
+  | .forIn target _ rest => return (← compTarget target).2 ++ (← rest.names)
 
-private def compileListCompTail (context : Context) :
-    ListCompTail → Build (Comprehensions.Tail × List Binding)
+private def compileCompTail {Source Resolved : Type} (context : Context)
+    (readYield : Context → Source → Build (Resolved × List Binding)) :
+    CompTail Source → Build (Comprehensions.Tail Resolved × List Binding)
   | .yield value => do
-    let (value, reads) ← readExpr context value
+    let (value, reads) ← readYield context value
     return (.yield value, reads)
   | .filter test rest => do
     let (test, reads) ← readExpr context test
-    let (rest, restReads) ← compileListCompTail context rest
+    let (rest, restReads) ← compileCompTail context readYield rest
     return (.filter test rest, reads ++ restReads)
   | .forIn target iterable rest => do
-    let (target, _) ← monadLift (listCompTarget target)
+    let (target, _) ← monadLift (compTarget target)
     let (iterable, reads) ← readExpr context iterable
-    let (rest, restReads) ← compileListCompTail context rest
+    let (rest, restReads) ← compileCompTail context readYield rest
     return (.forIn target iterable rest, reads ++ restReads)
 
-private def compileListComp (context : Context) (comp : ListComp) :
-    Build (Comprehensions.ListComp × List Binding) := do
-  let (target, firstNames) ← monadLift (listCompTarget comp.target)
-  let names := (firstNames ++ (← monadLift comp.rest.names)).eraseDups
+private def compileComp {Source Resolved Comp : Type} (context : Context)
+    (pattern operand : Lowering.Resolve.SourceExpr) (clauses : CompTail Source)
+    (readYield : Context → Source → Build (Resolved × List Binding))
+    (emit : List Binding → LoopTarget → Lowering.Expr → Comprehensions.Tail Resolved → Comp) :
+    Build (Comp × List Binding) := do
+  let (target, firstNames) ← monadLift (compTarget pattern)
+  let names := (firstNames ++ (← monadLift clauses.names)).eraseDups
   let locals := names.map fileSlot
-  let (iterable, outerReads) ← readExpr context comp.iterable
-  let (rest, innerReads) ← compileListCompTail { context with locals := names ++ context.locals } comp.rest
-  return (⟨locals, target, iterable, rest⟩, outerReads ++ innerReads.filter (!locals.contains ·))
+  let (iterable, outerReads) ← readExpr context operand
+  let (rest, innerReads) ← compileCompTail { context with locals := names ++ context.locals } readYield clauses
+  return (emit locals target iterable rest, outerReads ++ innerReads.filter (!locals.contains ·))
+
+private def readEntry (context : Context) (entry : Lowering.Resolve.SourceExpr × Lowering.Resolve.SourceExpr) :
+    Build ((Lowering.Expr × Lowering.Expr) × List Binding) := do
+  let (key, keyReads) ← readExpr context entry.1
+  let (value, valueReads) ← readExpr context entry.2
+  return ((key, value), keyReads ++ valueReads)
 
 private def resolveSubscript (context : Context) (receiver subscript : Lowering.Resolve.SourceExpr) :
     Build (Lowering.Expr × Lowering.Expr × List Binding) := do
@@ -211,7 +234,10 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
     let (rhs, reads) ← readExpr context rhs
     return ⟨.assignTargetExpr target rhs, reads⟩
   | .assignListComp name comp => do
-    let (comp, reads) ← compileListComp context comp
+    let (comp, reads) ← compileComp context comp.target comp.iterable comp.rest readExpr Comprehensions.ListComp.mk
+    return ⟨comp.body (fileSlot name), reads⟩
+  | .assignDictComp name comp => do
+    let (comp, reads) ← compileComp context comp.target comp.iterable comp.rest readEntry Comprehensions.DictComp.mk
     return ⟨comp.body (fileSlot name), reads⟩
   | .setIndex receiver subscript rhs => do
     let (code, reads) ← resolveSetIndex context receiver subscript rhs Body.setIndexExpr
@@ -262,8 +288,11 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
     let (rhs, _) ← readExpr context rhs
     return .exec (.assignTargetExpr target rhs)
   | .assignListComp name comp => do
-    let (comp, _) ← compileListComp context comp
+    let (comp, _) ← compileComp context comp.target comp.iterable comp.rest readExpr Comprehensions.ListComp.mk
     return .exec (.assignListComp name comp)
+  | .assignDictComp name comp => do
+    let (comp, _) ← compileComp context comp.target comp.iterable comp.rest readEntry Comprehensions.DictComp.mk
+    return .exec (.assignDictComp name comp)
   | .setIndex receiver subscript rhs => do
     let (code, _) ← resolveSetIndex context receiver subscript rhs TopCode.setIndexExpr
     return .exec code

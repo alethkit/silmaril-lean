@@ -160,7 +160,7 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 - **Collection operations.** General equality and ordering, `hash`,
   concatenation, slicing of bytes, other methods, augmented forms beyond
   [integer subscript `+=`](starlark-functions.md#integer-augmented-subscript-assignment),
-  destructuring with subscript or field leaves, dictionary comprehensions,
+  destructuring with subscript or field leaves,
   general comprehension expression positions,
   and other iterable types remain open. The supported
   collection truth tests apply in the resolved suite conditional.
