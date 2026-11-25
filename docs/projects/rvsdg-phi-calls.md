@@ -191,18 +191,26 @@ entry checkpoints in one actual continuation stream. Each checkpoint
 keeps the exact stack obtained by pushing the newly pending bindings on
 the previous stack. `Run.stack_grows` proves that each opened caller
 contributes at least one saved frame. Earlier completed jobs can use
-calls and θ, while the path to the designated application goes through
-ordinary bindings and selected γ arms.
+calls and θ. The selected path can go through ordinary bindings,
+selected γ arms, and θ bodies that are still active.
 
-`entry_of_interval` recovers a prefix and its exact saved stack from two
-entries on an actual continuation stream. The caller must remain live
-throughout the interval. Every call or θ activation begun within the
-interval must return to its own saved stack before the selected entry.
-These first-entry conditions allow earlier returning calls and exclude
-skipping a still-open intermediate activation. The proof uses each
-binding's first return and the finite delimited correspondence. The
-result concerns unbounded nesting of calls. Infinite θ feedback and
-descent along a still-open θ body use separate semantics.
+Under θ, the prefix records a finite sequence of completed feedback
+iterations, including the empty sequence. Each iteration uses a
+finite `Returns` derivation and its feedback selector. The full
+carried tuple feeds the next fresh body. The selected call leaves
+the θ frame in its original position among the pending bindings.
+
+`entry_of_theta_interval` recovers a prefix and its exact saved stack
+from two entries on an actual continuation stream. The caller must
+remain live and each intervening call must return to its own stack
+before the selected entry. The proof uses the first return of each
+completed binding or θ body to recover its independent derivation and
+the observed feedback. A θ activation may still be open at the selected
+call. The existing `entry_of_interval` statement keeps its stronger
+premise that intervening θ activations have also returned. These
+results concern unbounded call nesting after finite feedback in each
+prefix. Infinite sequences of completed θ feedback use the separate
+feedback theorems.
 [Definitions](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Descent/Defs.lean) ·
 [Proof statements](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Descent/Thms.lean)
 
@@ -212,6 +220,14 @@ the helper's value and state, then calls the other member before running
 a nonempty suffix. At microstep 28 the active callable is the first
 member again, with data `32`, state `[1, 10, 1, 20]`, and both distinct
 suffixes pending with their own saved locals.
+
+A second linked φ fixture starts each activation with a θ body that
+feeds back once, appending `7` to the state. The restarted body adds
+`8` before it enters a non-tail recursive call in the selected γ arm.
+The regression checks fresh locals after restart and the ordered
+stack at step 42. It contains both θ frames and six saved binding
+frames, with argument state `[7, 8, 7, 8]`. The fixture also checks
+the empty feedback prefix and reflects the first active-θ call interval.
 [Linked fixture](../../tests/ssa/RVSDGRecursiveDescent.lean)
 
 ```sh

@@ -149,6 +149,16 @@ def EarlierJobsReturn (micro : Nat → State m final) (begin finish : Nat) : Pro
       micro i = .eval job stack → JobBoundary job →
       ∃ j, i < j ∧ j < finish ∧ Feedback.atReturn stack (micro j)
 
+/-- Earlier calls have returned to their own frames. A θ started before
+the selected call may still be active. -/
+def EarlierCallsReturn (micro : Nat → State m final) (begin finish : Nat) : Prop :=
+  ∀ i, begin ≤ i → i < finish →
+    ∀ {params results : Ports (Ty V S)}
+      (callee : m.Val (.value (.function params results))) (arguments : Tuple m.Val params)
+      (stack : Stack m results final),
+      micro i = .eval (.call callee arguments) stack →
+      ∃ j, i < j ∧ j < finish ∧ Feedback.atReturn stack (micro j)
+
 /-- The enclosing activation has yet to return at the selected call. -/
 def BeforeReturn (micro : Nat → State m final) (begin finish : Nat)
     (stack : Stack m ports final) : Prop :=

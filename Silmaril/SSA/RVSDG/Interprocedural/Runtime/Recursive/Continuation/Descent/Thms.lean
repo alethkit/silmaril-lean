@@ -58,6 +58,20 @@ theorem entry_of_interval {micro : Nat → State m final} {begin finish : Nat}
     (rising : begin < finish) (live : BeforeReturn micro (begin + 1) finish stack)
     (earlier : EarlierJobsReturn micro (begin + 1) finish) :
     ∃ pending, Prefix m caller.openBody next pending ∧ pending.push stack = nextStack :=
-  Proofs.entry_of_interval steps atCaller atCallee rising live earlier
+  Proofs.entry_of_theta_interval steps atCaller atCallee rising live
+    (fun i lower upper {_ _} callee args frame entered => earlier i lower upper (.call callee args) frame entered trivial)
+
+/-- Recover the independent prefix even when θ is still active at the
+selected call. The first returns of completed body iterations recover
+their carried tuples and feedback selectors. Earlier calls must have
+returned before the checkpoint, and the caller remains live. -/
+theorem entry_of_theta_interval {micro : Nat → State m final} {begin finish : Nat}
+    (steps : ∀ i, Step (micro i) (micro (i + 1)))
+    {caller : Entry m} {stack : Stack m caller.results final} {nextStack : Stack m next.results final}
+    (atCaller : micro begin = caller.state stack) (atCallee : micro finish = next.state nextStack)
+    (rising : begin < finish) (live : BeforeReturn micro (begin + 1) finish stack)
+    (earlier : EarlierCallsReturn micro (begin + 1) finish) :
+    ∃ pending, Prefix m caller.openBody next pending ∧ pending.push stack = nextStack :=
+  Proofs.entry_of_theta_interval steps atCaller atCallee rising live earlier
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Descent
