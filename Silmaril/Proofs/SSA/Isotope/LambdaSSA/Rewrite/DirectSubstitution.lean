@@ -3,8 +3,11 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Direct.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Soundness.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Thms
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.LocalLabels.Thms
+public import Silmaril.Semantics.Categories.Freyd.CentralUnit.Defs
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Combinators
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ContinuationBind
+import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ContinuationCfg
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.EnvironmentNaturality
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution
 
@@ -86,28 +89,41 @@ theorem composeContinuations_restrict {Γ : VCtx τ} {L K H : LCtx τ}
   simp only [composeContinuations, MonoidalCategory.tensorHom_id]
   rw [← bind_pre_map, ← J.map_comp_assoc, proj]
 
-theorem noLocalBlocks_lsubst
+theorem pureBranches_of_values {Γ : VCtx τ} {L : LCtx τ} {r : Region Φ}
+    (values : Region.ValueBranches Γ r L) : PureBranches J M Γ r L := by
+  induction values with
+  | br h ha =>
+    obtain ⟨_, da⟩ := ha.denotes_map J M
+    exact .br h da
+  | let₁ ha _ ih => exact .let₁ ha ih
+  | let₂ ha _ ih => exact .let₂ ha ih
+  | case ha _ _ ihl ihr => exact .case ha ihl ihr
+  | cfg R _ _ ihe ihb => exact .cfg R ihe ihb
+
+private theorem lsubst_of_noLocalBlocks_or_sharedTensor
     (copyCentral : ∀ E : V, IsCentral (J.map (duplicate E) ≫
       (Functor.StrongPremonoidal.tensorIso (J := J) E E).inv))
     {Γ : VCtx τ} {L K : LCtx τ} {r : Region Φ}
-    (values : Region.ValueBranches Γ r L) (noBlocks : r.NoLocalBlocks) {σ : Nat → Region Φ}
+    (values : PureBranches J M Γ r L)
+    (model : r.NoLocalBlocks ∨ (FreydCategory.CentralUnit J ∧
+      ∀ E X : V, ∃ h : J.obj E ⊗ J.obj X = J.obj (E ⊗ X),
+        Functor.StrongPremonoidal.tensorIso (J := J) E X = eqToIso h)) {σ : Nat → Region Φ}
     {k : J.obj (ctxObj M Γ ⊗ labelObj M L) ⟶ J.obj (labelObj M K)}
     (d : ContinuationDenotes J M σ k) :
     ∃ (hr : Region.HasType Γ r L) (ht : Region.HasType Γ (r.lsubst σ) K), ∃ f,
       RegionDenotes J M hr f ∧ RegionDenotes J M ht (bindArrow J f k) := by
   induction values generalizing K σ with
-  | br h ha =>
-    obtain ⟨_, da⟩ := ha.denotes_map J M
+  | br h da =>
     obtain ⟨ht, dt⟩ := regionDenotes_branch_lsubst J M d da h
     exact ⟨_, ht, _, .br da, dt⟩
   | let₁ ha _ ih =>
-    obtain ⟨hr, ht, _, dr, dt⟩ := ih noBlocks (continuation_weakenCapture J M d _)
+    obtain ⟨hr, ht, _, dr, dt⟩ := ih model (continuation_weakenCapture J M d _)
     let da := denote_spec J M ha
     refine ⟨.let₁ ha hr, .let₁ ha ht, _, .let₁ da dr, ?_⟩
     rw [bind_assoc_capture J (copyCentral _)]
     exact .let₁ da dt
   | let₂ ha _ ih =>
-    obtain ⟨hr, ht, _, dr, dt⟩ := ih noBlocks
+    obtain ⟨hr, ht, _, dr, dt⟩ := ih model
       (continuation_weakenCapture J M (continuation_weakenCapture J M d _) _)
     let da := denote_spec J M ha
     refine ⟨.let₂ ha hr, .let₂ ha ht, _, .let₂ da dr, ?_⟩
@@ -121,18 +137,70 @@ theorem noLocalBlocks_lsubst
     simp only [J.map_comp_assoc, MonoidalCategory.comp_whiskerRight]
     simpa only [Region.lsubst, ctxObj, MonoidalCategory.id_tensorHom, ctxPairIso, Iso.symm_hom] using RegionDenotes.let₂ da dt
   | case ha _ _ ihl ihr =>
-    obtain ⟨hl, hlt, _, dl, dlt⟩ := ihl noBlocks.1 (continuation_weakenCapture J M d _)
-    obtain ⟨hr, hrt, _, dr, drt⟩ := ihr noBlocks.2 (continuation_weakenCapture J M d _)
+    obtain ⟨hl, hlt, _, dl, dlt⟩ := ihl (model.imp (fun h => h.1) id) (continuation_weakenCapture J M d _)
+    obtain ⟨hr, hrt, _, dr, drt⟩ := ihr (model.imp (fun h => h.2) id) (continuation_weakenCapture J M d _)
     let da := denote_spec J M ha
     refine ⟨.case ha hl hr, .case ha hlt hrt, _, .case da dl dr, ?_⟩
     rw [bind_case_capture J (copyCentral _)]
     exact .case da dlt drt
-  | cfg R _ _ ihe _ =>
-    obtain ⟨hn, he⟩ := noBlocks
-    subst hn
-    obtain ⟨hr, ht, _, dr, dt⟩ := ihe he d
-    exact ⟨.cfg R hr (fun i => i.elim0), .cfg R ht (fun i => i.elim0), _,
-      .cfgZero (R := R) hr (fun i => i.elim0) dr, .cfgZero (R := R) (L := K) ht (fun i => i.elim0) dt⟩
+  | @cfg n Γ entry L blocks R he hb ihe ihb =>
+    cases n with
+    | zero =>
+      obtain ⟨hr, ht, _, dr, dt⟩ := ihe (model.imp (fun h => h.2) id) d
+      exact ⟨.cfg R hr (fun i => i.elim0), .cfg R ht (fun i => i.elim0), _,
+        .cfgZero (R := R) hr (fun i => i.elim0) dr, .cfgZero (R := R) (L := K) ht (fun i => i.elim0) dt⟩
+    | succ n =>
+      rcases model with noBlocks | ⟨hu, shared⟩
+      · exact (Nat.succ_ne_zero n noBlocks.1).elim
+      let _ : FreydCategory.CentralUnit J := hu
+      let lifted := liftLocalLabels J M (List.ofFn R) k
+      have hd := d.liftLocalLabels J M R
+      obtain ⟨he, he', fe, de, de'⟩ := ihe (Or.inr ⟨hu, shared⟩) hd
+      choose hb hb' fb db using fun i => ihb i (Or.inr ⟨hu, shared⟩)
+        (continuation_weakenCapture J M hd (R i))
+      obtain ⟨collective, dc⟩ := collectiveDenotes_exists_succ J M n Γ R L fb
+      have dc' := dc.bindContinuation J M R lifted
+      refine ⟨.cfg R he hb, .cfg R he' hb', _, .cfg he hb de (fun i => (db i).1) dc, ?_⟩
+      rw [← cfg_bindContinuation J M R fe collective k (copyCentral _) (shared _ _)]
+      exact RegionDenotes.cfg he' hb' de' (fun i => (db i).2) dc'
+
+theorem noLocalBlocks_lsubst
+    (copyCentral : ∀ E : V, IsCentral (J.map (duplicate E) ≫
+      (Functor.StrongPremonoidal.tensorIso (J := J) E E).inv))
+    {Γ : VCtx τ} {L K : LCtx τ} {r : Region Φ}
+    (values : Region.ValueBranches Γ r L) (noBlocks : r.NoLocalBlocks) {σ : Nat → Region Φ}
+    {k : J.obj (ctxObj M Γ ⊗ labelObj M L) ⟶ J.obj (labelObj M K)}
+    (d : ContinuationDenotes J M σ k) :
+    ∃ (hr : Region.HasType Γ r L) (ht : Region.HasType Γ (r.lsubst σ) K), ∃ f,
+      RegionDenotes J M hr f ∧ RegionDenotes J M ht (bindArrow J f k) :=
+  lsubst_of_noLocalBlocks_or_sharedTensor J M copyCentral (pureBranches_of_values J M values)
+    (Or.inl noBlocks) d
+
+omit [SymmetricPremonoidalCategory C] [HasFiniteCoproducts C]
+  [DistributivePremonoidalCategory C] [Iteration C] [ElgotCategory C] in
+private theorem equalityIso_inv_central {X Y : C} (e : X = Y) : IsCentral (eqToIso e).inv := by
+  subst Y
+  exact isCentral_id _
+
+private theorem copyCentral_of_shared
+    (shared : ∀ E X : V, ∃ h : J.obj E ⊗ J.obj X = J.obj (E ⊗ X),
+      Functor.StrongPremonoidal.tensorIso (J := J) E X = eqToIso h) (E : V) :
+    IsCentral (J.map (duplicate E) ≫ (Functor.StrongPremonoidal.tensorIso (J := J) E E).inv) := by
+  obtain ⟨h, eq⟩ := shared E E
+  rw [eq]
+  exact (FreydCategory.image_central J _).comp (equalityIso_inv_central h)
+
+theorem lsubst_sharedTensor [FreydCategory.CentralUnit J]
+    (shared : ∀ E X : V, ∃ h : J.obj E ⊗ J.obj X = J.obj (E ⊗ X),
+      Functor.StrongPremonoidal.tensorIso (J := J) E X = eqToIso h)
+    {Γ : VCtx τ} {L K : LCtx τ} {r : Region Φ}
+    (values : PureBranches J M Γ r L) {σ : Nat → Region Φ}
+    {k : J.obj (ctxObj M Γ ⊗ labelObj M L) ⟶ J.obj (labelObj M K)}
+    (d : ContinuationDenotes J M σ k) :
+    ∃ (hr : Region.HasType Γ r L) (ht : Region.HasType Γ (r.lsubst σ) K), ∃ f,
+      RegionDenotes J M hr f ∧ RegionDenotes J M ht (bindArrow J f k) :=
+  lsubst_of_noLocalBlocks_or_sharedTensor J M (copyCentral_of_shared J shared) values
+    (Or.inr ⟨inferInstance, shared⟩) d
 
 theorem composeContinuations_noLocalBlocks
     (copyCentral : ∀ E : V, IsCentral (J.map (duplicate E) ≫
@@ -149,6 +217,27 @@ theorem composeContinuations_noLocalBlocks
   intro i A h
   obtain ⟨hr, df⟩ := dFirst h
   obtain ⟨_, ht, _, ds, dt⟩ := noLocalBlocks_lsubst J M copyCentral (values h) (noBlocks h)
+    (continuation_weakenCapture J M dAfter A)
+  have eq := RegionTypingCoherent.denotes_eq (h := hr) ds df
+  refine ⟨ht, ?_⟩
+  rw [MonoidalCategory.id_tensorHom, composeContinuations_restrict]
+  simp only [MonoidalCategory.id_tensorHom] at eq
+  exact eq ▸ dt
+
+theorem composeContinuations_sharedTensor [FreydCategory.CentralUnit J]
+    (shared : ∀ E X : V, ∃ h : J.obj E ⊗ J.obj X = J.obj (E ⊗ X),
+      Functor.StrongPremonoidal.tensorIso (J := J) E X = eqToIso h)
+    [RegionTypingCoherent (Φ := Φ) J M]
+    {Γ : VCtx τ} {L K H : LCtx τ} {σ υ : Nat → Region Φ}
+    {first : J.obj (ctxObj M Γ ⊗ labelObj M L) ⟶ J.obj (labelObj M K)}
+    {after : J.obj (ctxObj M Γ ⊗ labelObj M K) ⟶ J.obj (labelObj M H)}
+    (dFirst : ContinuationDenotes J M σ first) (dAfter : ContinuationDenotes J M υ after)
+    (values : ∀ ⦃i A⦄, At L i A → PureBranches J M (A :: Γ) (σ i) K) :
+    ContinuationDenotes J M (Region.compLSubst σ υ)
+      (composeContinuations J M (Γ := Γ) (L := L) (K := K) (H := H) first after) := by
+  intro i A h
+  obtain ⟨hr, df⟩ := dFirst h
+  obtain ⟨_, ht, _, ds, dt⟩ := lsubst_sharedTensor J M shared (values h)
     (continuation_weakenCapture J M dAfter A)
   have eq := RegionTypingCoherent.denotes_eq (h := hr) ds df
   refine ⟨ht, ?_⟩
