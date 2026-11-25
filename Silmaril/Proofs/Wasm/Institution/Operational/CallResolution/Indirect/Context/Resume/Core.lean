@@ -102,18 +102,43 @@ theorem entry_iff (checked : call.Checked program)
       (rest := cont.code.map Graph.coreEmit) allocated checked.found checked.resolved checked.typed) dst
   exact entry.trans (by rw [Context.Proofs.Core.entered_config]; rfl)
 
+private theorem plug_code (blocks : List Block) (saved : List Value) (body : Graph.Body)
+    (cfg : Config H) (code : cfg.code = body.render Graph.coreAdmin) :
+    (Context.coreNest (Block.scopes blocks saved) cfg).code =
+      (Block.plug blocks saved body).render Graph.coreAdmin := by
+  induction blocks generalizing saved with
+  | nil => exact code
+  | cons block rest ih =>
+    exact congrArg (fun code => coreValues saved ++
+      .label block.result.toList.length [] code :: block.tail.map Graph.coreEmit) (ih [])
+
+
 private theorem handoff (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
     (result : Nested.Result) :
     cont.coreConfig call s outer (.callee (.done result)) =
       cont.coreConfig call s outer (.caller (cont.resume call.caller call.saved result)) := by
-  cases scope : cont.block <;> cases result <;> simp only [Continuation.coreConfig, Continuation.coreSiteWrap, Continuation.coreWrap,
-    Continuation.scopes, Continuation.plug, scope, Option.toList, List.map_cons, List.map_nil,
-    Context.coreNest, List.foldr_nil, List.foldr_cons, Invocation.coreCallee,
-    Graph.coreConfig, Graph.Phase.render, Graph.Phase.renderAt, Graph.coreAdmin, Continuation.resume, Continuation.deliver,
-    Continuation.target, Graph.currentFrame, Graph.LabelKind.arity, Graph.LabelKind.cont,
-    Graph.Body.render, Nested.resultCode, coreValues, vals_append, List.map_append,
-    List.append_assoc, List.singleton_append]
-  all_goals rw [← continuation.module_eq]
+  let returned := call.coreCallee s (cont.code.map Graph.coreEmit) (.done result)
+  have code : returned.code = (cont.deliver call.saved result).render Graph.coreAdmin := by
+    cases result <;> simp [returned, Invocation.coreCallee, Continuation.deliver,
+      Graph.Phase.render, Graph.Phase.renderAt, Graph.coreAdmin, Graph.Body.render,
+      Nested.resultCode, coreValues, vals_append, List.map_append, List.append_assoc]
+  have source := plug_code cont.blocks cont.owner.initial (cont.deliver call.saved result) returned code
+  have same (scopes : List (Blocks.Context.Scope Graph.Op)) :
+      (Context.coreNest scopes returned).store = s ∧
+      (Context.coreNest scopes returned).frame = call.caller.toCore := by
+    induction scopes with
+    | nil => exact ⟨rfl, rfl⟩
+    | cons _ _ ih => exact ih
+  obtain ⟨store, frame⟩ := same cont.scopes
+  change cont.coreWrap outer (Context.coreNest cont.scopes returned) = _
+  unfold Continuation.coreWrap
+  rw [store, frame]
+  change (Context.coreNest cont.scopes returned).code = _ at source
+  rw [source]
+  simp only [Continuation.coreConfig, Continuation.resume, Continuation.plug, Continuation.target,
+    Graph.coreConfig, Graph.Phase.render, Graph.Phase.renderAt, Graph.coreAdmin,
+    Graph.LabelKind.arity, Graph.LabelKind.cont, Graph.currentFrame]
+  rw [← continuation.module_eq]
 
 private theorem callee_step (checked : call.Checked program) (allocated : program.CoreLinksAllocated s)
     {a : Graph.Phase} {dst : Config H} (ready : Graph.Admitted program call.callee a) (live : a.LabelOutcome) :

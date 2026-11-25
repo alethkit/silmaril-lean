@@ -13,6 +13,19 @@ open CallContinuation.OuterCall.Ranked
 open CallContinuation.OuterCall.Computed
 open Execution.Runtime (Frame Value)
 
+private theorem plug_admitted {program : Graph.Program} {fn : Graph.Function}
+    {locals : List Value} {body : Graph.Body} (blocks : List Block) (saved : List Value)
+    (fallthrough : List NumType) (enclosing : Graph.EnclosingLabels)
+    (checked : Block.check fn blocks saved fallthrough enclosing = true)
+    (inside : let types := Block.context blocks fallthrough enclosing
+      Graph.AdmittedAt program fn types.1 types.2 (.label locals body)) :
+    Graph.AdmittedAt program fn fallthrough enclosing (.label locals (Block.plug blocks saved body)) := by
+  induction blocks generalizing saved fallthrough enclosing with
+  | nil => exact inside
+  | cons block rest ih =>
+    have ⟨inner, tail⟩ := Bool.and_eq_true_iff.mp checked
+    exact .block (ih [] block.result.toList (fallthrough :: enclosing) inner inside) tail
+
 theorem resume_admitted {cont : Continuation} {program : Graph.Program} {caller : Frame}
     {saved : List Value} {results : List NumType} {result : Nested.Result}
     (checked : cont.Checked program caller saved results)
@@ -26,16 +39,7 @@ theorem resume_admitted {cont : Continuation} {program : Graph.Program} {caller 
       apply Graph.AdmittedAt.running checked.locals_typed
       simpa only [Graph.Function.WellTyped, Prefix.stackTypes, List.map_append, List.reverse_append, typed]
         using checked.tail_typed
-  cases scope : cont.block with
-  | none =>
-    simpa [Continuation.resume, Continuation.plug, Continuation.fallthrough, Continuation.enclosing, scope]
-      using localBody
-  | some block =>
-    unfold Continuation.resume Continuation.plug
-    rw [scope]
-    apply Graph.AdmittedAt.block
-    · simpa [Continuation.fallthrough, Continuation.enclosing, Graph.branchTargets, Graph.LabelKind.inputs, scope] using localBody
-    · simpa [Continuation.blockCheck, scope] using checked.block_typed
+  exact plug_admitted cont.blocks cont.owner.initial cont.owner.declaration.results [] checked.block_typed localBody
 
 private def Ready (program : Graph.Program) (call : Invocation) (cont : Continuation) : Phase → Prop
   | .callee a => Graph.Admitted program call.callee a ∧ Context.Proofs.Entered a

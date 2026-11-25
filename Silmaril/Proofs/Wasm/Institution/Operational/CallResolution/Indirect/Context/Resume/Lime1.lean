@@ -84,17 +84,43 @@ theorem entry_iff (checked : call.Checked program)
       (rest := cont.code.map Graph.limeEmit) allocated checked.found checked.resolved checked.typed) dst
   exact entry.trans (by rw [Context.Proofs.Lime1.entered_config]; rfl)
 
+private theorem plug_code (blocks : List Block) (saved : List Value) (body : Graph.Body)
+    (cfg : Config H) (code : cfg.code = body.render Graph.limeAdmin) :
+    (Context.limeNest (Block.scopes blocks saved) cfg).code =
+      (Block.plug blocks saved body).render Graph.limeAdmin := by
+  induction blocks generalizing saved with
+  | nil => exact code
+  | cons block rest ih =>
+    exact congrArg (fun code => values saved ++
+      .label block.result.toList.length [] code :: block.tail.map Graph.limeEmit) (ih [])
+
+
 private theorem handoff (continuation : cont.Checked program call.caller call.saved call.site.signature.results)
     (result : Nested.Result) :
     cont.limeConfig call s outer (.callee (.done result)) =
       cont.limeConfig call s outer (.caller (cont.resume call.caller call.saved result)) := by
-  cases scope : cont.block <;> cases result <;> simp only [Continuation.limeConfig, Continuation.limeSiteWrap, Continuation.limeWrap,
-    Continuation.scopes, Continuation.plug, scope, Option.toList, List.map_cons, List.map_nil,
-    Context.limeNest, List.foldr_nil, List.foldr_cons, Invocation.limeCallee,
-    Graph.limeConfig, Graph.Phase.render, Graph.Phase.renderAt, Graph.limeAdmin, Continuation.resume, Continuation.deliver,
-    Continuation.target, Graph.currentFrame, Graph.LabelKind.arity, Graph.LabelKind.cont,
-    Graph.Body.render, Nested.resultCode, values, List.map_append, List.append_assoc, List.singleton_append]
-  all_goals rw [← continuation.module_eq]
+  let returned := call.limeCallee s (cont.code.map Graph.limeEmit) (.done result)
+  have code : returned.code = (cont.deliver call.saved result).render Graph.limeAdmin := by
+    cases result <;> simp [returned, Invocation.limeCallee, Continuation.deliver,
+      Graph.Phase.render, Graph.Phase.renderAt, Graph.limeAdmin, Graph.Body.render,
+      Nested.resultCode, values, List.map_append, List.append_assoc]
+  have source := plug_code cont.blocks cont.owner.initial (cont.deliver call.saved result) returned code
+  have same (scopes : List (Blocks.Context.Scope Graph.Op)) :
+      (Context.limeNest scopes returned).store = s ∧
+      (Context.limeNest scopes returned).frame = call.caller := by
+    induction scopes with
+    | nil => exact ⟨rfl, rfl⟩
+    | cons _ _ ih => exact ih
+  obtain ⟨store, frame⟩ := same cont.scopes
+  change cont.limeWrap outer (Context.limeNest cont.scopes returned) = _
+  unfold Continuation.limeWrap
+  rw [store, frame]
+  change (Context.limeNest cont.scopes returned).code = _ at source
+  rw [source]
+  simp only [Continuation.limeConfig, Continuation.resume, Continuation.plug, Continuation.target,
+    Graph.limeConfig, Graph.Phase.render, Graph.Phase.renderAt, Graph.limeAdmin,
+    Graph.LabelKind.arity, Graph.LabelKind.cont, Graph.currentFrame]
+  rw [← continuation.module_eq]
 
 private theorem callee_step (checked : call.Checked program) (allocated : program.LimeLinksAllocated s)
     {a : Graph.Phase} {dst : Config H} (ready : Graph.Admitted program call.callee a) (live : a.LabelOutcome) :

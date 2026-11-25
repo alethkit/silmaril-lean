@@ -17,14 +17,18 @@ open CallContinuation.OuterCall.Computed
 open Wasm.Lime1.Execution (values)
 open Wasm.SingleThreaded.Det (noHost)
 
-def coreNest {H : Type} (scopes : List (Blocks.Context.Scope Graph.Op)) (cfg : Core.Config H) : Core.Config H :=
+def coreNestWith {A H : Type} (emit : A → Core.Admin) (scopes : List (Blocks.Context.Scope A)) (cfg : Core.Config H) : Core.Config H :=
   scopes.foldr (fun scope inner => ⟨inner.store, inner.frame, Core.vals (scope.saved.map Value.toCore) ++
-    .label scope.arity [] inner.code :: scope.rest.map Graph.coreEmit⟩) cfg
+    .label scope.arity [] inner.code :: scope.rest.map emit⟩) cfg
 
-def limeNest {H : Type} (scopes : List (Blocks.Context.Scope Graph.Op)) (cfg : Wasm.Lime1.Execution.Config H) :
+abbrev coreNest {H : Type} := @coreNestWith Graph.Op H Graph.coreEmit
+
+def limeNestWith {A H : Type} (emit : A → Wasm.Lime1.Execution.Admin) (scopes : List (Blocks.Context.Scope A)) (cfg : Wasm.Lime1.Execution.Config H) :
     Wasm.Lime1.Execution.Config H :=
   scopes.foldr (fun scope inner => ⟨inner.store, inner.frame, Wasm.Lime1.Execution.values scope.saved ++
-    .label scope.arity [] inner.code :: scope.rest.map Graph.limeEmit⟩) cfg
+    .label scope.arity [] inner.code :: scope.rest.map emit⟩) cfg
+
+abbrev limeNest {H : Type} := @limeNestWith Graph.Op H Graph.limeEmit
 
 /-- Data shared by the two native readings of one indirect invocation. -/
 structure Invocation where
