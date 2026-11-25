@@ -63,8 +63,7 @@ def PreservesLoop {U V : Comp} [HasFiniteCoproducts Comp] [Iteration Comp]
 /-- An impossible payload can feed back to itself at any outward type. -/
 theorem emptyExit_typed (D : τ) :
     ValueBranches [Silmaril.empty] (unpackExits ([] : LCtx τ) : Region Φ) [D] :=
-  .cfg (fun _ : Fin 1 => Silmaril.empty) (.br (ℓ := 0) rfl (.var (i := 0) rfl))
-    (fun _ => .br (ℓ := 0) rfl (.var (i := 0) rfl))
+  emptyRegion_typed D
 
 /-- Convert the packed list of two exits to the exact return-or-repeat sum. -/
 noncomputable def exitSumArrow (S D : τ) :

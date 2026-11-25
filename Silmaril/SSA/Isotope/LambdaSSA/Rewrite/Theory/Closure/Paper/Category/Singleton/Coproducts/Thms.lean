@@ -2,6 +2,8 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Coproducts.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Coproducts.Thms
+public import Mathlib.CategoryTheory.Limits.Shapes.IsTerminal
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Thms
 import Mathlib.CategoryTheory.Limits.Preserves.Shapes.BinaryProducts
 
 /-! # Binary coproducts in the paper singleton category -/
@@ -48,5 +50,18 @@ theorem sumCofan_inr (A B : τ) :
     (sumCofan (Φ := Φ) A B).inr =
       ofRegion (r := .br 0 (.inr (.var 0))) (.br rfl (.inr (.var rfl))) :=
   InducedCategory.hom_ext (congrArg fromNative.map (ContinuationContext.appendInr_sumTag A B))
+
+set_option backward.isDefEq.respectTransparency false in
+/-- A typed impossible input makes all arrows out of the empty type agree. -/
+theorem emptyHom_ext {Y : TypeCategory (τ := τ) Φ}
+    (f g : ofType (Silmaril.empty : τ) ⟶ Y) : f = g := by
+  obtain ⟨_, hf, rfl⟩ := exists_ofRegion f
+  obtain ⟨_, hg, rfl⟩ := exists_ofRegion g
+  exact (ofRegion_eq_iff _ _).2 (.cfgEta (.native (.initial (.var (i := 0) rfl) hf.hasType hg.hasType)))
+
+/-- The guarded decoder supplies an initial object in the Paper singleton category. -/
+noncomputable def emptyIsInitial : IsInitial (ofType (Φ := Φ) (Silmaril.empty : τ)) :=
+  IsInitial.ofUniqueHom (fun Y => ofRegion (emptyRegion_typed (show τ from Y)))
+    (fun _ f => emptyHom_ext f _)
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory
