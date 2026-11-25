@@ -18,7 +18,25 @@ open FixedCap (middleLeftDrawing middleRightDrawing middleAssociator_types
 open CapClasses (compare_trans compare_symm compare_id)
 
 universe u v
-variable {O : Type u} {S : Signature.{u,v} O} (A C : FixedCap S) {B D : FixedCap S}
+variable {O : Type u} {S : Signature.{u,v} O}
+
+section Composites
+
+variable {a b a' b' : FixedCap S}
+variable (p : FixedDrawing S a.profile b.profile) (q : FixedDrawing S a'.profile b'.profile)
+variable (ha : a.types = a'.types) (hb : b.types = b'.types)
+
+/-- Align the active slabs using the two geometric unit comparisons,
+then apply the common framed transport to the actual composites. -/
+def compareComposites (h : CoreTransport horizontal p q) :
+    (p.thenDo (shift hb)).drawing.CapComparison ((shift ha).thenDo q).drawing :=
+  compare_trans (FixedDrawing.thenDo_comparison (p.compareLeftUnit a.inside) (compare_id (shift hb).drawing))
+    (compare_trans (framedComparison p q ha hb h)
+      (compare_symm (((shift ha).thenDo q).compareRightUnit b'.inside)))
+
+end Composites
+
+variable (A C : FixedCap S) {B D : FixedCap S}
 
 theorem left_map (p : FixedDrawing S B.profile D.profile) :
     (middleWhiskerLeft A C).map (FixedCap.ofDrawing p) =
@@ -41,13 +59,9 @@ def compare (p : FixedDrawing S B.profile D.profile) :
       ((shift (middleAssociator_types A B C)).thenDo (middleRightDrawing A C p)).drawing := by
   let l := middleLeftDrawing A C p
   let r := middleRightDrawing A C p
-  let lower := shift (middleAssociator_types A B C)
-  let upper := shift (middleAssociator_types A D C)
   have h : CoreTransport horizontal l r := by
     exact coreTransport A C p
-  exact compare_trans (FixedDrawing.thenDo_comparison (l.compareLeftUnit _) (compare_id upper.drawing))
-    (compare_trans (framedComparison l r (middleAssociator_types A B C) (middleAssociator_types A D C) h)
-      (compare_symm ((lower.thenDo r).compareRightUnit _)))
+  exact compareComposites l r (middleAssociator_types A B C) (middleAssociator_types A D C) h
 
 theorem naturality (f : B ⟶ D) :
     (middleWhiskerLeft A C).map f ≫ (middleAssociatorComponent A D C).hom =

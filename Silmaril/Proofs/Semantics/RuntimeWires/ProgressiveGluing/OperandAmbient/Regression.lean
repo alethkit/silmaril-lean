@@ -2,11 +2,12 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.MiddleAssociator.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.OuterAssociator.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.Associator.Contacts
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.MiddleAssociator.Core
+import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.OuterAssociator.Core
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
@@ -770,5 +771,76 @@ example :
       (FixedCap.middleAssociator idleCap shiftedCap).hom.app capObject ≫
         (FixedCap.middleWhiskerRight idleCap shiftedCap).map bentShiftMap :=
   (FixedCap.middleAssociator idleCap shiftedCap).hom.naturality bentShiftMap
+
+private noncomputable abbrev nestedOuterX (side : ActiveStrip) (near far : FixedCap signature)
+    (w : OuterAssociator.WireNames near far bentShift) : ℝ :=
+  (OuterAssociator.nested side near far bentShift).drawing.x
+    (OuterAssociator.nestedNames side near far bentShift w) (1 / 8)
+
+private noncomputable abbrev groupedOuterX (side : ActiveStrip) (near far : FixedCap signature)
+    (w : OuterAssociator.WireNames near far bentShift) : ℝ :=
+  (OuterAssociator.grouped side near far bentShift).drawing.x
+    (OuterAssociator.groupedNames side near far bentShift w) (1 / 8)
+
+private theorem outer_bend (side : ActiveStrip) (near far : FixedCap signature) :
+    (nestedOuterX side near far (.inl assocWire), groupedOuterX side near far (.inl assocWire)) =
+      (side.place (side.place (5 / 12)), side.place (5 / 12)) :=
+  Prod.ext
+    ((congrArg Prod.snd (OuterAssociator.nested_data side near far bentShift (.inl assocWire) (1 / 8))).trans
+      (congrArg (fun x => side.place (side.place x)) bentShift_tip))
+    ((congrArg Prod.snd (OuterAssociator.grouped_data side near far bentShift (.inl assocWire) (1 / 8))).trans
+      (congrArg side.place bentShift_tip))
+
+/-- The left active strand expands from the first quarter to the left half. -/
+example :
+    (nestedOuterX .left idleCap shiftedCap (.inl assocWire),
+      groupedOuterX .left idleCap shiftedCap (.inl assocWire)) = (5 / 48, 5 / 24) :=
+  (outer_bend .left idleCap shiftedCap).trans (by norm_num [ActiveStrip.place])
+
+/-- The right active strand moves from the right half to the last quarter. -/
+example :
+    (groupedOuterX .right shiftedCap idleCap (.inl assocWire),
+      nestedOuterX .right shiftedCap idleCap (.inl assocWire)) = (17 / 24, 41 / 48) :=
+  (congrArg Prod.swap (outer_bend .right shiftedCap idleCap)).trans (by norm_num [ActiveStrip.place, Prod.swap])
+
+example :
+    (nestedOuterX .left idleCap shiftedCap (.inr (.inl (0 : Fin 2))),
+      groupedOuterX .left idleCap shiftedCap (.inr (.inr (0 : Fin 1)))) = (5 / 16, 11 / 12) := by
+  refine Prod.ext ?_ ?_
+  · exact (congrArg Prod.snd (OuterAssociator.nested_data .left idleCap shiftedCap bentShift
+      (.inr (.inl (0 : Fin 2))) (1 / 8))).trans (by
+        change ActiveStrip.left.place (ActiveStrip.right.place (1 / 4)) = _
+        norm_num [ActiveStrip.place])
+  · exact (congrArg Prod.snd (OuterAssociator.grouped_data .left idleCap shiftedCap bentShift
+      (.inr (.inr (0 : Fin 1))) (1 / 8))).trans (by
+        change ActiveStrip.right.place (ActiveStrip.right.place (2 / 3)) = _
+        norm_num [ActiveStrip.place])
+
+example :
+    (groupedOuterX .right shiftedCap idleCap (.inr (.inr (0 : Fin 2))),
+      nestedOuterX .right shiftedCap idleCap (.inr (.inl (0 : Fin 1)))) = (1 / 16, 2 / 3) := by
+  refine Prod.ext ?_ ?_
+  · exact (congrArg Prod.snd (OuterAssociator.grouped_data .right shiftedCap idleCap bentShift
+      (.inr (.inr (0 : Fin 2))) (1 / 8))).trans (by
+        change ActiveStrip.left.place (ActiveStrip.left.place (1 / 4)) = _
+        norm_num [ActiveStrip.place])
+  · exact (congrArg Prod.snd (OuterAssociator.nested_data .right shiftedCap idleCap bentShift
+      (.inr (.inl (0 : Fin 1))) (1 / 8))).trans (by
+        change ActiveStrip.right.place (ActiveStrip.left.place (2 / 3)) = _
+        norm_num [ActiveStrip.place])
+
+example :
+    (ActiveStrip.left.nestedWhisker idleCap shiftedCap).map bentShiftMap ≫
+        (FixedCap.leftAssociator idleCap shiftedCap).hom.app shiftedCap =
+      (FixedCap.leftAssociator idleCap shiftedCap).hom.app capObject ≫
+        (ActiveStrip.left.groupedWhisker idleCap shiftedCap).map bentShiftMap :=
+  (FixedCap.leftAssociator idleCap shiftedCap).hom.naturality bentShiftMap
+
+example :
+    (ActiveStrip.right.groupedWhisker shiftedCap idleCap).map bentShiftMap ≫
+        (FixedCap.rightAssociator idleCap shiftedCap).hom.app shiftedCap =
+      (FixedCap.rightAssociator idleCap shiftedCap).hom.app capObject ≫
+        (ActiveStrip.right.nestedWhisker shiftedCap idleCap).map bentShiftMap :=
+  (FixedCap.rightAssociator idleCap shiftedCap).hom.naturality bentShiftMap
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
