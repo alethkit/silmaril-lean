@@ -28,6 +28,13 @@ predicate. `satisfaction` gives both directions across this translation.
 course step closures ending in values.
 [Lean institution](../../Silmaril/Courses/Cambridge/ReturnSpecification/Institution.lean)
 
+For L2, `DenotationalInstitution.holds_iff` preserves and reflects
+catalogue satisfaction in the relational CBV denotation. It applies to
+all L2 configurations with the empty lexical environment, including
+function results reified as lambda expressions. The `L2` context selects
+CBV. Call by name has a separate operational relation and reducer.
+[L2 scope and catalogue examples](cambridge-l2-denotational.md#return-catalogue)
+
 ## JSON and structural S-expressions
 
 The return format uses the envelope `cambridge-may-return-spec-v1`.
