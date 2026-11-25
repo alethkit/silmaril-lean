@@ -33,4 +33,18 @@ theorem enclosingBinding_eq_some_iff (name : Name) (outer : List BlockContext) (
       | nearest barrier binds => simp [enclosingBinding, barrier, binds]
       | outside barrier binds found => simpa [enclosingBinding, barrier, binds] using ih.mpr found
 
+theorem analyze_preserves_lexical {source : Module} {annotations : AnnotationMode}
+    {nonlocals : NonlocalPolicy} {tree : ScopeTree}
+    (checked : analyze source annotations nonlocals = .ok tree) :
+    collectLexical source annotations = .ok tree.lexical := by
+  cases collected : collectLexical source annotations with
+  | error diagnostic => simp [analyze, collected, Except.bind] at checked
+  | ok lexical =>
+    cases resolved : inferLexical lexical nonlocals with
+    | error diagnostic => simp [analyze, collected, Except.bind, resolved, Except.map] at checked
+    | ok result =>
+      have same : result.val = tree := by
+        simpa [analyze, collected, Except.bind, resolved, Except.map] using checked
+      rw [← same, result.property]
+
 end Silmaril.Proofs.Languages.Python.Source.Scope

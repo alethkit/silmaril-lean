@@ -4,6 +4,8 @@ These developments follow chapters 1–5 of Peter Sewell's *Semantics of
 Programming Languages* notes for Cambridge Part IB, 2025–26, dated
 12 February 2026. The course is a self-contained library leaf. Its proofs stay
 near the definitions and exercise statements.
+The [chapter and exercise checklist](cambridge-spl-coverage.md) maps the
+full Part IB notes to checked results and open items.
 
 ```sh
 lake build --wfail Silmaril.Courses.Cambridge.L1.Course \
@@ -65,11 +67,25 @@ The executable interfaces have different proved contracts:
 | Interface | What it computes | Current guarantee |
 | --- | --- | --- |
 | `L1.Exercises.searchConfig` | One step with a printable derivation tree | Each returned tree proves its resulting `L1.Step` via `StepTree.toStep` |
-| `L2.runFuel` | Substitution-based CBV/CBN reduction, bounded by a number of transitions | Concrete exercise programs have proved results; no general reducer-to-`Step` correctness theorem yet |
+| `L2.runFuel` | Substitution-based CBV/CBN reduction, bounded by a number of transitions | CBV and CBN implement `L2.Step` and `L2.NameStep` respectively on all configurations |
 | `L2.evalClosureFuel` | CBV evaluation with lexical and recursive closures, bounded by evaluation depth | Proven agreement with the substitution interpreter on lexical-scope, recursion and store-effect examples; no general simulation theorem yet |
 
-`runFuel` returns `some c` when its reducer has no next step, which can mean a
-value or a stuck configuration on untyped input. `none` records insufficient
+`L2.Config.reduce_value_iff_step` identifies each successful CBV reducer call
+with a `Step`. `L2.Config.reduce_value_eq_none_iff_terminal` identifies failure
+to step with relational terminality. `L2.runFuel_value_returns_terminal`
+certifies a finite trace to any returned configuration, including a stuck
+configuration on untyped input. Under the safety assumptions above,
+`L2.runFuel_value_returns_typed_value` gives a value of the original type and
+preserves closedness and store coverage.
+
+For call-by-name, `L2.Config.reduce_name_iff_step` and
+`L2.Config.reduce_name_eq_none_iff_terminal` give the corresponding results
+for `L2.NameStep`. `L2.runFuel_name_returns_terminal` certifies a finite
+`L2.NameSteps` trace to a `L2.NameTerminal` configuration.
+`L2.runFuel_name_returns_typed_value` gives the typed-value guarantee for CBN
+under the same closedness and store coverage assumptions.
+
+`runFuel` returns `some c` when its reducer has no next step. `none` records insufficient
 transition fuel. A particular fuel-exhaustion equation is not an infinite-run
 proof. The closure interpreter's `none` also covers invalid operations or
 missing variables; `evalClosureGround` additionally rejects function results.
@@ -101,6 +117,9 @@ The L1 and L2 formalizations give Lean models of the abstract languages. Their
 executable checks cover the Lean interpreters above.
 
 ## L3 data and mutable references
+
+The [L3 concrete syntax guide](cambridge-l3-concrete.md) describes the UTF-8
+grammar, precedence rules, canonical printers and checked byte round-trips.
 
 `L3.NamedSyntax` implements the named grammar from §5.5, p. 78. Its
 `RawExpr.resolve` maps bound variables to de Bruijn indices, including the
@@ -138,6 +157,27 @@ first field is projected, and two distinct successors of one allocation.
 It also checks branch scope and stuck configurations with an unallocated
 dereference or an integer as the assignment target.
 
+### Exercise designs (§5.6)
+
+Exercises 29 and 30 on p. 82 of the [12 February 2026 notes][l3-exercises]
+ask for language designs. Their Lean modules are part of `L3.Course`.
+
+| Exercise | Design and checks |
+| --- | --- |
+| 29, labelled variants | Nonempty ordered rows have distinct labels and a payload type per label. Injection resolves a label and evaluates its payload in CBV order. An exhaustive match binds the selected payload and checks every branch at a common result type. The elaboration into L3 sums and strict `let` preserves typing, lifts payload and scrutinee steps, and reaches the selected branch by capture-avoiding substitution. A three-label example selects the Boolean branch and returns `42`. |
+| 30, ML-style exceptions | A local CBV language fixes a set of payload-free tags and has functions, strict `let`, conditionals and recursive functions. It embeds closed core L3 computations over the existing store. A raise can appear at any result type, and a protected expression and its recovery have the same type. Evaluation unwinds one frame at a time. The first matching handler runs its recovery outside that handler, with the current store. The checked examples cover nested matching handlers, a raised application argument, and a recursive call that writes `7`, raises, and is caught and re-raised before the outer handler reads `7`. |
+
+The variant design uses its labels before lowering into sums. The exception
+design uses fixed tags and embedded core computations. Exception-aware
+closures belong to the exercise language, and the store contains core L3
+values.
+
+[Variant rules and proofs](../../Silmaril/Courses/Cambridge/L3/Exercises/LabelledVariants.lean) ·
+[Exception rules](../../Silmaril/Courses/Cambridge/L3/Exercises/Exceptions.lean) ·
+[Exception traces](../../Silmaril/Courses/Cambridge/L3/Exercises/ExceptionExamples.lean)
+
+[l3-exercises]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=82
+
 ### Evaluation contexts (§5.4)
 
 `L3.EvaluationContexts` gives the one-hole context grammar, plugging,
@@ -158,8 +198,34 @@ typed sources.
 | Theorem 26 for the printed contexts on typed source expressions | `L3.contextStep_iff_step_of_hasType` |
 | Theorem 26 on arbitrary configurations with the (assign2) location premise | `L3.locationContextStep_iff_step` |
 
-Executable type inference and reduction, the byte grammar and codecs, and
-denotational models remain follow-up work.
+### Executable reduction (§5.5)
+
+`L3.Config.reduce` selects one direct step when a successor exists. For an
+allocation, `L3.Store.freshAddress` chooses one above the maximum allocated
+address, using 1 for an empty store. The record reducer inspects fields in
+source order and stops at the first non-value, even if that field is stuck.
+Executable regressions check intermediate record writes, projection by label,
+a stuck first field, and allocation in empty and nonempty stores.
+
+| Result | Public name |
+| --- | --- |
+| The selected address is outside the current domain | `L3.Store.freshAddress_not_mem` |
+| Every selected edge satisfies the direct rules | `L3.Config.reduce_sound` |
+| The reducer stops exactly on configurations without a direct successor | `L3.Config.reduce_eq_none_iff_terminal` |
+| Some executable successor exists exactly when some relational successor exists | `L3.Config.reduce_exists_iff_step_exists` |
+
+Successor existence allows a single executable choice even when the relation
+admits several. For example, allocating in the empty store may choose 0 in
+the relation, while the reducer chooses 1. The operational institution below
+continues to observe the original relation.
+
+The Exercise 31 workflow connects UTF-8 source and a checked initial store
+to fuel-bounded evaluation. [L3 checked evaluation](cambridge-l3-evaluation.md)
+
+The data and reference denotation has checked finite may adequacy on its
+stated fragment. Named and resolved terms and expression types have structural
+codecs. [L3 denotation](cambridge-l3-denotation.md) ·
+[AST codec guide](cambridge-ast-codecs.md)
 
 The [course notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf)
 are pinned as `sewell2026semantics` in [the bibliography](../../references.bib).
@@ -171,4 +237,5 @@ call-by-value L2 step models and the direct L3 step model over their original
 configurations. Finite returns observe reachable values with their final
 stores. L3 retains each fresh location choice.
 [L1 and L2 observation contract](../projects/operational-institutions.md#cambridge-l1-and-l2) ·
-[L3 observation contract](../projects/operational-institutions.md#cambridge-l3)
+[L3 observation contract](../projects/operational-institutions.md#cambridge-l3) ·
+[Step specifications](cambridge-step-specification.md)
