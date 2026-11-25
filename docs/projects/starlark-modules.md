@@ -18,9 +18,9 @@ and loads with named aliases use the same lifecycle. Temporary slots used
 by call lowering and file-local imports remain outside the export list.
 
 The entry point assumes resolved bindings, the list of declared globals,
-single assignment of explicit globals, and legal load identifiers. Source
-declaration collection, scope resolution and checking binding occurrences
-against that scope remain separate work.
+single assignment of explicit globals, and legal load identifiers. The
+[source adapter](#resolving-module-declarations) collects the scopes for an
+admitted normalized AST.
 [Definitions](../../Silmaril/Languages/Starlark/Modules/Defs.lean)
 
 The host supplies a pure catalog of already published modules. It determines
@@ -52,6 +52,75 @@ denotation share validation, namespace entry, the pure catalog contract,
 and publication or failure restoration. Calls start with the finite linked
 declaration table and remove the active declaration on descent.
 [Operational rules](../../Silmaril/Languages/Starlark/Modules/Operational/Defs.lean) · [Theorem header](../../Silmaril/Languages/Starlark/Modules/Thms.lean)
+
+## Resolving module declarations
+
+`Modules.Resolve.resolve` takes normalized source commands and returns a
+checked `Modules.Source` and linked declaration table. Module commands cover
+single-name assignment, expression statements, `def` and named `load`
+imports. Function bodies add nested `def`, sequencing, `if`, `pass` and
+`return`. Signatures represent the positional, keyword-only, `*args` and
+`**kwargs` classes used by the existing binder. Operands use the
+[existing source expression profile][source-expressions], including the Lean
+expression quotation.
+
+The resolver collects globals and load aliases across the file, and
+parameters and assigned names across each function body. A lexical binding
+shadows outer names throughout its block. Undefined names fail statically
+even in skipped code. A forward reference resolves to the slot but fails
+dynamically if read before its assignment or load. Duplicate module bindings
+and load/global collisions are rejected before execution.
+
+Defaults resolve in the enclosing scope. Function bodies use the function's
+own parameters and locals, and each declaration captures the free slots its
+body or nested definitions need. A definition passes those slots through any
+intervening function. The evaluator runs defaults when it executes the
+definition command and installs the closure only after they succeed.
+[Name binding in the pinned spec][names] · [Resolver](../../Silmaril/Languages/Starlark/Modules/Resolve/Defs.lean)
+
+```lean
+module
+
+import Silmaril.Languages.Starlark.Modules.Resolve.Defs
+import Silmaril.Languages.Starlark.Functions.Lowering.Quote.Defs
+
+open Silmaril.Languages.Starlark.Modules.Resolve
+open scoped Silmaril.Languages.Starlark.Functions.Lowering.Quote
+
+def exampleModule : List Command := [
+  .assign "seed" starlark%["definition scope"],
+  .define "pick" { positional := [⟨"seed", some starlark%[seed]⟩] }
+    (.ret (some starlark%[seed])),
+  .assign "out" starlark%[pick()]]
+
+def exampleResult := runModule exampleModule (fun _ => none) {}
+```
+
+This module exports `out = "definition scope"`. `runModule` reports
+elaboration errors separately from runtime errors and uses the resolved
+module initialization and publication rules. Supply the existing linked
+table when catalog values can contain closures. Resolving another module
+appends declarations and preserves the IDs already in that table. To use
+the finite loader, clients assemble the manifest and link its resolved
+sources to one table.
+
+`checked_of_resolve` states exactly which checked source and declaration
+table successful elaboration produces, including the globals in source order
+and absence of compiler scratch slots. `initializes_iff_runModule` composes
+the elaboration result with the resolved operational theorem. It compares
+static rejection, execution outcomes, publication and the exact residual
+state. This correspondence shares the elaborator and starts at a normalized
+AST with legal identifier spellings. An independent source binding relation
+and text parsing remain open. Function loops,
+compound targets, lambdas, comprehensions and collection display or
+subscript operands remain outside this source fragment.
+[Theorem header](../../Silmaril/Languages/Starlark/Modules/Resolve/Thms.lean) · [Lean source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean)
+
+Pinned Starlark-Go checks cover static and dynamic name errors, captures,
+defaults and load alias visibility. Go rejects the load-then-global collision
+and accepts the global-then-load order. The Lean adapter follows the
+Bazel-team spec and rejects both.
+[Pinned Go comparison](../../examples/starlark/scope/check.go) · [Name binding in the pinned spec][names]
 
 ## Finite-manifest loader
 
@@ -109,7 +178,8 @@ heap and absence of publication on failure under the pinned prose policy.
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
   +Silmaril.Languages.Starlark.Modules.ExpressionChecks \
-  +Silmaril.Languages.Starlark.Modules.Loader.Checks
+  +Silmaril.Languages.Starlark.Modules.Loader.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.Checks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -119,10 +189,13 @@ fixtures="$(pwd)/examples/starlark"
 oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
-(cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go")
+(cd "$oracle" && go run "$fixtures/modules/check.go" && go run "$fixtures/loader/check.go" &&
+  go run "$fixtures/scope/check.go")
 ```
 
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution
 [loading]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#load-statements
 [expressions]: starlark-functions.md#direct-denotation-of-resolved-expressions
+[source-expressions]: starlark-functions.md#resolving-a-normalized-expression
+[names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-binding-and-variables
 [go]: https://github.com/google/starlark-go/tree/4f4267fb140d1e8b91c9bce55cee2f809e8840dd

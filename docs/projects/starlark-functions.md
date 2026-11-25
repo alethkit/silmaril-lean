@@ -227,9 +227,9 @@ supplies a visible, writable destination to observe the returned value.
 Lean and pinned Go fixtures cover a failing nested keyword operand,
 competing expansion errors and a duplicate keyword introduced by `**`.
 
-Calls inside collection display and subscript atoms and native
-module-level expression statements and assignment operands remain open. Static
-validation of repeated explicit keywords stays with `runChecked`.
+Calls inside collection display and subscript atoms remain open. Native
+module assignments and expression statements use the direct denotation.
+Static validation of repeated explicit keywords stays with the checked entry points.
 Supported iterable, mapping and callable values are those of the
 shared-store call profile above.
 [Preservation theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean) · [Independent source rules](../../Silmaril/Languages/Starlark/Functions/Lowering/Source/Defs.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/PreservationChecks.lean) · [Go fixtures](../../examples/starlark/nested-expressions/check.go)
@@ -256,10 +256,12 @@ Starlark text.
 
 This entry point takes normalized AST input and relies on the caller for
 valid identifier tokens, the set of lexical bindings and allocated frame
-slots. Text parsing, source locations, automatic scope collection for
-call-aware blocks, and collection, subscript and attribute syntax remain
-outside this adapter. The preservation theorem starts at the resulting
-resolved tree.
+slots. `resolveTracked` also returns the lexical slots read during resolution.
+The [module adapter](starlark-modules.md#resolving-module-declarations)
+collects scopes and uses those reads for closure captures. Text parsing,
+source locations, and collection, subscript and attribute syntax remain
+outside the expression adapter. The preservation theorem starts at the
+resulting resolved tree.
 [Resolver](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Defs.lean) · [End-to-end Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Checks.lean)
 
 ## Quoting an expression in Lean
