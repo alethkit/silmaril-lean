@@ -50,9 +50,27 @@ with no direct use, default scope, and rejected declarations.
 
 The scope profile follows Python 3.7 lexical binding and declaration rules.
 Deleting a name counts as binding it for scope analysis. This entry point
-accepts constructor data and checks the represented scope rules. Text parsing,
-full syntax validation, compilation, and runtime name
-lookup are later boundaries.
+accepts constructor data and checks the represented scope rules. Full syntax
+validation, compilation, and runtime name lookup have separate contracts.
+
+## Source intake
+
+The AST emitter takes an external CPython AST and writes a Lean module
+defining `pythonSource`. It runs under Python 3.10 or later and requests
+`feature_version=(3, 7)`. That option uses the host parser's best-effort
+grammar profile. The scope proofs begin at the Lean constructors.
+
+```sh
+python3 -I tools/python-source/source_ast.py example.py --output /tmp/Example.lean
+lake env lean -DwarningAsError=true /tmp/Example.lean
+```
+
+The emitter preserves source text as code points and floating literals as
+the host AST's binary64 bits. Constructors for known unsupported forms
+remain visible to Lean's scope diagnostics. Other unsupported nodes
+produce an error before an output file is written. The intake regression
+feeds actual Python through the emitter and runs scope checks on the
+resulting Lean constructors.
 
 ```sh
 make check CHECK_TARGETS=+Silmaril.Languages.Python.Source.Scope.Thms
@@ -70,3 +88,6 @@ make check CHECK_TARGETS=+Silmaril.Languages.Python.Source.Scope.Thms
 - Python 3.7.17, §6.14, SHA-256
   `53021dbaf574df1726e3eb15dba1915b8dd7c2c4e06a26bf1782bddd13cb15bd`.
   [Lambdas](https://docs.python.org/release/3.7.17/reference/expressions.html#lambdas)
+- Python 3.13.5, SHA-256
+  `6dba22a6c0f7b3eaf4d413343554182c27653b7d6e134b9a6c36f6ff711b2d4b`.
+  [CPython AST and feature version](https://docs.python.org/release/3.13.5/library/ast.html#ast.parse)
