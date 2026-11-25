@@ -25,6 +25,7 @@ private inductive Focus : Wasm.Lime1.Instr → Prop where
   | call (i : FuncIdx) : Focus (.call i)
   | unreachable : Focus .unreachable
   | block (bt : Wasm.Lime1.BlockType) (code : Wasm.Lime1.Expr) : Focus (.block bt code)
+  | if_ (bt : Wasm.Lime1.BlockType) (thenBody elseBody : Wasm.Lime1.Expr) : Focus (.if_ bt thenBody elseBody)
   | set (i : LocalIdx) : Focus (.localSet i)
   | tee (i : LocalIdx) : Focus (.localTee i)
 
@@ -50,6 +51,9 @@ private inductive Redex (f : Frame) : Wasm.Lime1.Instr → List Value → Frame 
   | block {bt : Wasm.Lime1.BlockType} {code : Wasm.Lime1.Expr} {ft : Wasm.Lime1.FuncType} {vs : List Value}
       (resolved : blockType? f.module.types bt = some ft) (arity : vs.length = ft.params.length) :
       Redex f (.block bt code) vs f [.label ft.results.length [] (values vs ++ expression code)]
+  | if_ {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr} {condition : BitVec 32} :
+      Redex f (.if_ bt thenBody elseBody) [Value.int .i32 condition] f
+        [.source (.block bt (if condition = 0 then elseBody else thenBody))]
 
 private theorem redex_shape {stack used : List Value} {op i : Wasm.Lime1.Instr} {rest : List Admin}
     (focus : Focus op) (source : values stack ++ .source op :: rest = values used ++ [.source i])
@@ -105,6 +109,12 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
     | unreachable =>
       obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := []) focus source.symm rfl
       exact ⟨[], [], _, _, rfl, .unreachable, rfl⟩
+    | ifZero bt thenBody elseBody =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 0]) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .if_, rfl⟩
+    | ifNonzero bt thenBody elseBody condition nonzero =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 condition]) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .if_, by rw [ite_eq_right nonzero]; rfl⟩
     | block bt code ft resolved vs arity =>
       obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := vs) focus source.symm rfl
       exact ⟨[], _, _, _, rfl, .block resolved arity, rfl⟩
@@ -180,6 +190,42 @@ theorem block_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
   · rintro rfl
     simpa only [List.append_assoc, List.singleton_append] using
       Step.context ((Blocks.lime_entry_iff (host := CallFrame.limeNoHost)).mpr rfl) stack rest
+
+theorem if_iff {H : Type} {s : Store H} {f : Frame}
+    {saved : List Value} {condition : BitVec 32} {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr}
+    {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 condition]) ++ .source (.if_ bt thenBody elseBody) :: rest⟩ dst ↔
+      dst = ⟨s, f, values saved ++ .source (.block bt (if condition = 0 then elseBody else thenBody)) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, _, _, _, split, head, eq⟩ := read_front move (.if_ bt thenBody elseBody) rfl
+    cases head with
+    | if_ =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      simpa using eq
+  · rintro rfl
+    have source : values (saved ++ [Value.int .i32 condition]) ++ AdminInstr.source (.if_ bt thenBody elseBody) :: rest =
+        values saved ++ ([value (Value.int .i32 condition), AdminInstr.source (.if_ bt thenBody elseBody)] ++ rest) := by
+      rw [values_append, List.append_assoc]
+      rfl
+    rw [source]
+    have wrap {after : Wasm.Lime1.Expr} (move : PureStep f.module.types
+        [value (Value.int .i32 condition), .source (.if_ bt thenBody elseBody)]
+        [.source (.block bt after)]) :
+        Step CallFrame.limeNoHost
+          ⟨s, f, values saved ++ ([value (Value.int .i32 condition), .source (.if_ bt thenBody elseBody)] ++ rest)⟩
+          ⟨s, f, values saved ++ .source (.block bt after) :: rest⟩ := by
+      have step := Step.context (Step.pure (host := CallFrame.limeNoHost) s f move) saved rest
+      simp only [List.append_assoc, List.cons_append, List.nil_append] at step ⊢
+      exact step
+    by_cases zero : condition = 0
+    · rw [ite_eq_left zero]
+      subst condition
+      exact wrap (.ifZero bt thenBody elseBody)
+    · rw [ite_eq_right zero]
+      exact wrap (.ifNonzero bt thenBody elseBody condition zero)
 
 @[local simp] private theorem values_one (v : Value) : values [v] = [value v] := rfl
 

@@ -28,7 +28,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | return_ | unreachable => rfl
+    | set | tee | call | block | if_ | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.v1Func.body = (Body.running fn.initial fn.code).render v1Admin := by
@@ -103,6 +103,23 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
       (tail := rest.map v1Admin.emit)).mpr ⟨answer, reduce, by cases answer <;> rfl⟩
   case localSet write => exact lift_label (set_sound write)
   case localTee write => exact lift_label (tee_sound write)
+  case ifSelect locals saved condition result thenBody elseBody rest =>
+    apply lift_label
+    let left := Op.emitList v1CodeSyntax thenBody
+    let right := Op.emitList v1CodeSyntax elseBody
+    have choose : PureStep [value (Value.int .i32 condition), .source (.if_ result left right)]
+        [.source (.block result (if condition = 0 then right else left))] := by
+      by_cases zero : condition = 0
+      · rw [ite_eq_left zero]
+        subst condition
+        exact .ifZero result left right
+      · rw [ite_eq_right zero]
+        exact .ifNonzero result left right condition zero
+    have move := Step.context (Step.pure (host := CallFrame.v1NoHost) s
+      (currentFrame target.declaration locals) choose) saved (rest.map v1Admin.emit)
+    simpa only [Body.render, v1Admin, v1Emit, Op.emit, v1CodeSyntax, Op.emitList_selected,
+      List.map_cons, values, List.map_append, List.map_nil, List.append_assoc, List.cons_append, List.nil_append,
+      left, right] using move
   case blockEnter locals saved result code rest =>
     apply lift_label
     have move := (Blocks.v1_entry_iff (host := CallFrame.v1NoHost) (s := s)
@@ -227,6 +244,12 @@ private theorem emit_to_lime (op : Op) :
       .block (Blocks.limeType result) (Op.emitList limeCodeSyntax code)
     rw [Wasm.V1.Instr.toLime, Wasm.V1.Expr.toLime_eq_map, emit_list_to_lime]
     cases result <;> rfl
+  | if_ result thenBody elseBody =>
+    change Wasm.V1.Instr.toLime (.if_ result (Op.emitList v1CodeSyntax thenBody)
+        (Op.emitList v1CodeSyntax elseBody)) =
+      .if_ (Blocks.limeType result) (Op.emitList limeCodeSyntax thenBody) (Op.emitList limeCodeSyntax elseBody)
+    rw [Wasm.V1.Instr.toLime, Wasm.V1.Expr.toLime_eq_map, Wasm.V1.Expr.toLime_eq_map, emit_list_to_lime, emit_list_to_lime]
+    cases result <;> rfl
 
 private theorem emit_list_to_lime (code : List Op) :
     (Op.emitList v1CodeSyntax code).map Wasm.V1.Instr.toLime = Op.emitList limeCodeSyntax code := by
@@ -261,7 +284,7 @@ private theorem rest_to_lime (rest : List Op) :
   intro op _
   cases op with
   | numeric op => cases op <;> rfl
-  | set | tee | call | block | return_ | unreachable =>
+  | set | tee | call | block | if_ | return_ | unreachable =>
     exact congrArg AdminInstr.source (emit_to_lime _)
 
 mutual

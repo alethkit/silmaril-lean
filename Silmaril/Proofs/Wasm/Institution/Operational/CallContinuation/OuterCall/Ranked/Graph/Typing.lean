@@ -129,6 +129,24 @@ private theorem trap_exit_guard {program : Program} {fn : Function} {fallthrough
     locals.map Value.type = fn.localTypes := by
   cases ready with | exit locals _ => exact locals
 
+theorem split_if {fn : Function} {fallthrough : List NumType} {stack : List Value}
+    {result : Option NumType} {thenBody elseBody rest : List Op}
+    (typed : fn.WellTyped stack (.if_ result thenBody elseBody :: rest) fallthrough) :
+    ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] := by
+  cases stack using List.reverseRecOn with
+  | nil => simp [Function.WellTyped, checkCode, checkOp, Prefix.stackTypes] at typed
+  | append_singleton saved v =>
+    rcases v with ⟨type, bits⟩
+    unfold Function.WellTyped at typed
+    rw [stack_types_append] at typed
+    change checkCode _ _ _ _ (type :: Prefix.stackTypes saved) _ = true at typed
+    cases type with
+    | float kind => simp [checkCode, checkOp] at typed
+    | int kind =>
+      cases kind with
+      | i32 => exact ⟨saved, bits, rfl⟩
+      | i64 => simp [checkCode, checkOp] at typed
+
 theorem admitted_step {program : Program} (checked : program.check = true) (address : FuncAddr) :
     ∀ {fn a b fallthrough}, program.lookup address = some fn → AdmittedAt program fn fallthrough a →
       program.Edge checked address a b → AdmittedAt program fn fallthrough b := by
@@ -156,6 +174,18 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
     | localTee _ =>
       cases ready with
       | running typed body => exact .running typed (tee_preserves body)
+    | ifSelect locals saved condition result thenBody elseBody rest =>
+      cases ready with
+      | running typed body =>
+        unfold Function.WellTyped at body
+        rw [stack_types_append] at body
+        change checkCode _ _ _ _ (.int .i32 :: Prefix.stackTypes saved) _ = true at body
+        simp only [checkCode, checkOp, Bool.and_eq_true_iff] at body
+        apply AdmittedAt.running typed
+        simp only [Function.WellTyped, checkCode, checkOp, Bool.and_eq_true_iff]
+        split
+        · exact ⟨body.1.2, body.2⟩
+        · exact ⟨body.1.1, body.2⟩
     | blockEnter locals saved result code rest =>
       cases ready with
       | running typed body =>

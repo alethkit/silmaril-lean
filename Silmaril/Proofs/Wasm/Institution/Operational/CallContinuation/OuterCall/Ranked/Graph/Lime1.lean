@@ -34,7 +34,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | return_ | unreachable => rfl
+    | set | tee | call | block | if_ | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.limeFunc.body = (Body.running fn.initial fn.code).render limeAdmin := by
@@ -132,6 +132,11 @@ private theorem running_stays {types : List Wasm.Lime1.FuncType} {n : Nat} {v : 
   | tee idx =>
     exact Computed.lime_label_stays (head := .source (.localTee idx)) rfl (by simp) (by simp) (by simp) pop
   | call t => exact Computed.lime_label_stays (head := .source (.call t.index)) rfl (by simp) (by simp) (by simp) pop
+  | if_ result thenBody elseBody =>
+    exact Computed.lime_label_stays (head := limeAdmin.emit (.if_ result thenBody elseBody)) rfl
+      (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
+      (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
+      (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax]) pop
   | block result body =>
     exact Computed.lime_label_stays (head := limeAdmin.emit (.block result body)) rfl
       (by simp [limeAdmin, limeEmit, Op.emit, limeCodeSyntax])
@@ -397,6 +402,17 @@ private theorem region_step_iff {H : Type} {s : Store H} {program : Program} (ch
             exact ⟨_, rule.mpr (.dispatch locals saved operands child rest used count), eq.trans (by
               simp only [limeAt, Phase.renderAt, Body.render, limeAdmin, values_append, n,
                 List.append_assoc, List.singleton_append])⟩
+          | if_ result thenBody elseBody =>
+            obtain ⟨saved, condition, rfl⟩ := Function.split_if codeTyped
+            have select := (Computed.lime_if_iff (s := s) (f := currentFrame target.declaration locals)
+              (bt := Blocks.limeType result) (saved := saved) (condition := condition)
+              (thenBody := Op.emitList limeCodeSyntax thenBody)
+              (elseBody := Op.emitList limeCodeSyntax elseBody) (rest := rest.map limeAdmin.emit)).mp inner
+            subst mid
+            refine ⟨_, rule.mpr (.ifSelect locals saved condition result thenBody elseBody rest), ?_⟩
+            exact eq.trans (by
+              simp only [limeAt, Phase.renderAt, Body.render, limeAdmin, limeEmit, Op.emit,
+                limeCodeSyntax, Function.comp_def, Op.emitList_selected, List.map_cons, n])
           | block result body =>
             have enter := (Computed.lime_block_iff (result := result)
               (body := Op.emitList limeCodeSyntax body) (stack := stack) (rest := rest.map limeAdmin.emit)).mp inner
@@ -425,6 +441,15 @@ private theorem region_step_iff {H : Type} {s : Store H} {program : Program} (ch
             apply lift_label
             simpa only [Body.render, Phase.render, Phase.renderAt, limeAdmin, limeEmit, Op.emit, limeCodeSyntax, Sequence.limeSource, Function.comp_def, values_append, List.map_cons, List.append_assoc, List.singleton_append] using
               (Computed.lime_direct_call_iff (stack := saved ++ operands) (tail := rest.map limeAdmin.emit) h).mpr rfl
+          | @ifSelect locals saved condition result thenBody elseBody rest =>
+            apply lift_label
+            have select := (Computed.lime_if_iff (s := s) (f := currentFrame target.declaration locals)
+              (bt := Blocks.limeType result) (saved := saved)
+              (condition := condition)
+              (thenBody := Op.emitList limeCodeSyntax thenBody)
+              (elseBody := Op.emitList limeCodeSyntax elseBody) (rest := rest.map limeAdmin.emit)).mpr rfl
+            simpa only [Body.render, limeAdmin, limeEmit, Op.emit, limeCodeSyntax, Function.comp_def,
+              Op.emitList_selected, List.map_cons, List.map_append, List.map_nil] using select
           | blockEnter =>
             rename_i result body
             apply lift_label

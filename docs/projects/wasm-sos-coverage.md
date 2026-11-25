@@ -36,9 +36,10 @@ The [ranked graph judgment](../../Silmaril/Wasm/Institution/Operational/CallCont
 interprets one typed activation at a time by well-founded recursion on resolved
 targets. The graph checker derives the target table from each body and checks
 the typed operand prefix, local reads and writes, integer binary operations,
-direct calls, unindexed scalar blocks, explicit return, and normal fallthrough. The judgment also
-covers unreachable and partial trap discards. Exact active-call inversion identifies the child's step
-and the caller's unchanged continuation. Finite runs preserve typing and the
+direct calls, unindexed scalar blocks and conditionals, explicit return, and
+normal fallthrough. The judgment also covers unreachable and partial trap
+discards. Exact active-call inversion identifies the child's step and the
+caller's unchanged continuation. Finite runs preserve typing and the
 descending chain of entered frames. The four-frame fixtures cover return and
 propagated trap. A separate arity check enforces V1's zero-or-one-result rule.
 
@@ -96,6 +97,17 @@ suffix. Traps can discard pending code and operands in stages before leaving
 each label. The graph's exact native successor and finite endpoint theorems cover
 all these stages in Core, Lime1, and V1 under the existing allocation, rank,
 and dialect guards.
+
+The ranked checker also admits scalar `if`/`else` with an `i32` condition.
+It checks both arms against the same optional fallthrough type, carries the
+enclosing function's return types into each, and includes direct calls from
+both arms in the rank table. The selection step consumes the condition and
+leaves a source block for the chosen arm with the saved operands and pending
+code intact. The block rules then handle entry, calls, fallthrough, return, and
+trap propagation. Exact native successor and finite endpoint readback cover
+selection and all subsequent steps in Core, Lime1, and V1. Fixtures exercise
+both arms, a ranked child call, explicit return through nested labels, and a
+child trap that bypasses the saved continuation.
 
 The graph fragment excludes block parameters and multiple block results,
 loops, branches, recursion, indirect and host calls, store mutation, and

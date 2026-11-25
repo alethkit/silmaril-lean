@@ -793,4 +793,174 @@ example (early traps : Bool) : V1.Execution.Steps CallFrame.v1NoHost
   (v1_run_iff (blockV1Checked early traps) (v1Allocated _) (blockRoot early traps) (.call rfl)).mpr
     ⟨_, blockRun early traps, blockResultTyped early traps, rfl⟩
 
+
+private def conditionValue (takeThen : Bool) : BitVec 32 := if takeThen then 1 else 0
+
+private def thenArm (early traps : Bool) : List Op :=
+  if early then skipped else blockHead traps
+
+private def elseArm (early : Bool) : List Op :=
+  if early then [.block none (readArg :: .return_ :: skipped)] ++ skipped else [readArg, readArg, add]
+
+private def ifResultType (early : Bool) : Option NumType := if early then wideBlock else scalarBlock
+private def ifRest (early : Bool) : List Op := if early then skipped else [add]
+
+private def ifCaller (takeThen early traps : Bool) : Function :=
+  ⟨declaration [⟨0⟩], 1, blockSaved ++ [i32 (conditionValue takeThen)],
+    .if_ (ifResultType early) (thenArm early traps) (elseArm early) :: ifRest early⟩
+
+private def ifGraph (takeThen early traps : Bool) : Program :=
+  ⟨[some (leaf traps), some (ifCaller takeThen early traps)]⟩
+
+private theorem ifChecked (takeThen early traps : Bool) : (ifGraph takeThen early traps).check = true := by
+  cases takeThen <;> cases early <;> cases traps <;> rfl
+
+private theorem ifV1Checked (takeThen early traps : Bool) : (ifGraph takeThen early traps).checkV1 = true := by
+  cases takeThen <;> cases early <;> cases traps <;> rfl
+
+-- Check even an untaken arm, including its stack and call rank.
+example : ({ ifCaller true false false with
+    code := [.if_ scalarBlock (thenArm false false) [], add] }).check = false := rfl
+
+example : ({ ifCaller true false false with initial := blockSaved ++ [Value.int .i64 1] }).check = false := rfl
+
+example : (Program.mk [some (leaf false), some
+    { ifCaller false false false with rank := 0 }]).check = false := rfl
+
+private abbrev IfLayer (takeThen early traps : Bool) :=
+  Layer (ifCaller takeThen early traps)
+    (fun target => (ifGraph takeThen early traps).Edge (ifChecked takeThen early traps) target.address)
+
+private theorem ifEdge {takeThen early traps : Bool} {a b : Phase} (h : IfLayer takeThen early traps a b) :
+    (ifGraph takeThen early traps).Edge (ifChecked takeThen early traps) ⟨1⟩ a b :=
+  ((ifGraph takeThen early traps).edge_iff (ifChecked takeThen early traps)
+    (fn := ifCaller takeThen early traps) rfl).mpr h
+
+private def ifSource (takeThen early traps : Bool) : Phase :=
+  .label input (.running (ifCaller takeThen early traps).initial (ifCaller takeThen early traps).code)
+
+private def ifSelected (takeThen early traps : Bool) : Phase :=
+  .label input (.running blockSaved (.block (ifResultType early)
+    (if takeThen then thenArm early traps else elseArm early) :: ifRest early))
+
+private theorem ifSelectEdge (takeThen early traps : Bool) :
+    (ifGraph takeThen early traps).Edge (ifChecked takeThen early traps) ⟨1⟩
+      (ifSource takeThen early traps) (ifSelected takeThen early traps) := by
+  cases takeThen <;> exact ifEdge (.ifSelect input blockSaved (conditionValue _) (ifResultType early)
+    (thenArm early traps) (elseArm early) (ifRest early))
+
+private theorem ifStart (takeThen early traps : Bool) :
+    (ifGraph takeThen early traps).Runs (ifChecked takeThen early traps) ⟨1⟩ (.call input)
+      (.label input (.block blockSaved (ifResultType early)
+        (.running [] (if takeThen then thenArm early traps else elseArm early)) (ifRest early))) := by
+  have resolve := Relation.ReflTransGen.single
+    (ifEdge (takeThen := takeThen) (early := early) (traps := traps) (.resolve input))
+  have entered := resolve.tail (ifEdge (.enter input rfl))
+  exact (entered.tail (ifSelectEdge takeThen early traps)).tail
+    (ifEdge (.blockEnter input blockSaved (ifResultType early)
+      (if takeThen then thenArm early traps else elseArm early) (ifRest early)))
+
+private def armOutcome (traps : Bool) : Nested.Result := if traps then .trap else .values input
+
+private theorem thenCall (traps : Bool) :
+    (ifGraph true false traps).Runs (ifChecked true false traps) ⟨1⟩ (.call input)
+      (.label input (.block blockSaved scalarBlock (.attach [] (blockTarget traps) [] (.done (armOutcome traps))) [add])) := by
+  let p := ifGraph true false traps
+  let checked := ifChecked true false traps
+  have used : blockTarget traps ∈ (ifCaller true false traps).targets := by
+    simp [Function.targets, ifCaller, thenArm, elseArm, blockHead, codeTargets, Op.targets]
+  have get := (ifStart true false traps).tail
+    (ifEdge (.blockStep blockSaved scalarBlock [add] (.numeric (.get (i := ⟨0⟩) (stack := []) (v := i32 7) rfl))))
+  have atChild := get.tail (ifEdge (.blockStep blockSaved scalarBlock [add]
+    (.dispatch input [] input (blockTarget traps) [] used rfl)))
+  have child {a b : Phase} (move : Layer (leaf traps) (fun t => p.Edge checked t.address) a b) :
+      p.Edge checked ⟨0⟩ a b :=
+    (p.edge_iff checked (fn := leaf traps) rfl).mpr move
+  have lift {a b : Phase} (live : a.Active) (move : p.Edge checked ⟨0⟩ a b) :
+      p.Edge checked ⟨1⟩ (.label input (.block blockSaved scalarBlock (.active [] (blockTarget traps) a []) [add]))
+        ((.label input (Body.attach [] (blockTarget traps) [] b) : Phase).afterBlock blockSaved scalarBlock [add]) :=
+    ifEdge (.blockStep blockSaved scalarBlock [add] (.child input [] (blockTarget traps) [] used live move))
+  have entered := atChild.tail (lift (a := .invoke input) trivial (child (.enter input rfl)))
+  cases traps
+  · have got := entered.tail (lift (a := .label input (.running [] [readArg])) trivial
+      (child (.numeric (.get (i := ⟨0⟩) (stack := []) (v := i32 7) rfl))))
+    have left := got.tail (lift (a := .label input (.running input [])) trivial (child (.leaveValues input input)))
+    exact left.tail (lift (a := .exit input (.values input)) trivial (child (.leaveFrame input (.values input) rfl)))
+  · have trapped := entered.tail (lift (a := .label input (.running [] skipped)) trivial
+      (child (.unreachable input [] [])))
+    have left := trapped.tail (lift (a := .label input (.trapped [] [])) trivial (child (.leaveTrap input)))
+    exact left.tail (lift (a := .exit input .trap) trivial (child (.leaveFrame input .trap trivial)))
+
+private theorem ifFinish {takeThen : Bool} {v answer : BitVec 32}
+    (run : (ifGraph takeThen false false).Runs (ifChecked takeThen false false) ⟨1⟩ (.call input)
+      (.label input (.block blockSaved scalarBlock (.running [i32 v] []) [add])))
+    (sum : Numerics.intBinOp .i32 .add 3 v = .ok answer) :
+    (ifGraph takeThen false false).Runs (ifChecked takeThen false false) ⟨1⟩ (.call input) (.done (.values [i32 answer])) := by
+  have resumed := run.tail (ifEdge (.blockStep blockSaved scalarBlock [add] (.leaveValues input [i32 v])))
+  have added := resumed.tail (ifEdge (.numeric (.bin (stack := []) sum)))
+  exact (added.tail (ifEdge (.leaveValues input [i32 answer]))).tail
+    (ifEdge (.leaveFrame input (.values [i32 answer]) rfl))
+
+private theorem ifThenRun :
+    (ifGraph true false false).Runs (ifChecked true false false) ⟨1⟩ (.call input) (.done (.values [i32 10])) :=
+  ifFinish (thenCall false) rfl
+
+private theorem ifElseRun :
+    (ifGraph false false false).Runs (ifChecked false false false) ⟨1⟩ (.call input) (.done (.values [i32 17])) := by
+  have get := (ifStart false false false).tail (ifEdge (.blockStep blockSaved scalarBlock [add]
+    (.numeric (.get (i := ⟨0⟩) (stack := []) (v := i32 7) rfl))))
+  have getAgain := get.tail (ifEdge (.blockStep blockSaved scalarBlock [add]
+    (.numeric (.get (i := ⟨0⟩) (stack := input) (v := i32 7) rfl))))
+  have sum : Numerics.intBinOp .i32 .add 7 7 = .ok 14 := rfl
+  exact ifFinish (getAgain.tail (ifEdge (.blockStep blockSaved scalarBlock [add] (.numeric (.bin (stack := []) sum))))) rfl
+
+private theorem ifReturnRun :
+    (ifGraph false true false).Runs (ifChecked false true false) ⟨1⟩ (.call input) (.done (.values input)) := by
+  have enter := (ifStart false true false).tail (ifEdge (.blockStep blockSaved wideBlock skipped
+    (.blockEnter input [] none (readArg :: .return_ :: skipped) skipped)))
+  have get := enter.tail (ifEdge (.blockStep blockSaved wideBlock skipped (.blockStep [] none skipped
+    (.numeric (.get (i := ⟨0⟩) (stack := []) (v := i32 7) rfl)))))
+  have crossInner := get.tail (ifEdge (.blockStep blockSaved wideBlock skipped (.blockStep [] none skipped
+    (.returnLabel input input skipped))))
+  have crossArm := crossInner.tail (ifEdge (.blockStep blockSaved wideBlock skipped (.returnLabel input input skipped)))
+  have crossFunction := crossArm.tail (ifEdge (.returnLabel input (blockSaved ++ input) skipped))
+  exact crossFunction.tail (ifEdge (.returnFrame input blockSaved input rfl))
+
+private theorem ifTrapRun :
+    (ifGraph true false true).Runs (ifChecked true false true) ⟨1⟩ (.call input) (.done .trap) := by
+  have propagate := (thenCall true).tail (ifEdge (.blockStep blockSaved scalarBlock [add] (.leaveTrap input)))
+  have discard := propagate.tail (ifEdge (.discard (.cut [] blockSaved [add] [] (.inl (by simp [blockSaved])))))
+  exact (discard.tail (ifEdge (.leaveTrap input))).tail (ifEdge (.leaveFrame input .trap trivial))
+
+private def ifRootTarget (takeThen early traps : Bool) : CallTarget :=
+  ⟨⟨0⟩, ⟨1⟩, (ifCaller takeThen early traps).declaration⟩
+
+private theorem ifRoot (takeThen early traps : Bool) : Root (ifGraph takeThen early traps) (callerFrame ⟨1⟩)
+    (ifRootTarget takeThen early traps) (ifCaller takeThen early traps) :=
+  ⟨rfl, rfl, rfl⟩
+
+private theorem ifNative {takeThen early traps : Bool} {result : Nested.Result}
+    (run : (ifGraph takeThen early traps).Runs (ifChecked takeThen early traps) ⟨1⟩ (.call input) (.done result)) :
+    let p := ifGraph takeThen early traps
+    let caller := callerFrame ⟨1⟩
+    let target := ifRootTarget takeThen early traps
+    Execution.Core.Steps Numerics.Profile.spec SingleThreaded.Det.noHost
+      (coreConfig (coreStore p) caller target (.call input)) (coreConfig (coreStore p) caller target (.done result)) ∧
+    Lime1.Execution.Steps CallFrame.limeNoHost
+      (limeConfig (limeStore p) caller target (.call input)) (limeConfig (limeStore p) caller target (.done result)) ∧
+    V1.Execution.Steps CallFrame.v1NoHost
+      (v1Config (v1Store p) caller target (.call input)) (v1Config (v1Store p) caller target (.done result)) := by
+  have checked := ifChecked takeThen early traps
+  have root := ifRoot takeThen early traps
+  have ready : Admitted (ifGraph takeThen early traps) (ifCaller takeThen early traps) (.call input) := .call rfl
+  have endpoint := Program.admitted_run checked root.found ready run
+  exact ⟨(core_run_iff checked (coreAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
+    (lime_run_iff checked (limeAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
+    (v1_run_iff (ifV1Checked takeThen early traps) (v1Allocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩⟩
+
+example := ifNative ifThenRun
+example := ifNative ifElseRun
+example := ifNative ifReturnRun
+example := ifNative ifTrapRun
+
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph
