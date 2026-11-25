@@ -55,4 +55,14 @@ theorem run_path {source : Source.Module} {compiled : Compiled source} {argument
     simpa [run, started] using observed
   simpa only [exactRun] using Core.Closure.Executor.run_path compiled.table fuel initial
 
+/-- After successful call delivery, the returned value occupies the
+private local and the remaining body returns that value. -/
+theorem returnedLocalCall_resume {layout : Layout} (heap : Core.Closure.Heap)
+    (frame : Core.Closure.Frame layout) (slot : Fin layout.locals) (value : Value)
+    (stack : Core.Closure.Executor.Stack) :
+    Core.Closure.Executor.resumeStore heap frame (.local slot) value (.ret (.read (.local slot))) stack =
+      (none, .running heap
+        { frame with locals := fun query => if query = slot then some value else frame.locals query }
+        (.ret (.read (.local slot))) stack) := rfl
+
 end Silmaril.Languages.Python.Compile.Closure.Run

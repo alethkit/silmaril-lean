@@ -69,6 +69,11 @@ inductive Translation {layout : Layout} :
     Link.Code layout → Core.Closure.Executor.Body layout → Prop where
   | ret {source target} (value : OperandTranslation source target) :
       Translation (.ret source) (.ret target)
+  /-- A final call through an ordinary local can reuse that local after
+  the callee has finished. The local is outside the shared cell heap. -/
+  | retLocalCall {slot arguments operands} (translated : ArgumentsTranslation arguments operands) :
+      Translation (.ret (.call (.read (.local slot)) arguments))
+        (.call (.local slot) (.read (.local slot)) operands (.ret (.read (.local slot))))
   | assert {source target rest next}
       (test : OperandTranslation source target) (tail : Translation rest next) :
       Translation (.assert source rest) (.assert target next)
@@ -97,6 +102,10 @@ inductive Translation {layout : Layout} :
 
 def lowerCode {layout : Layout} : (code : Link.Code layout) →
     Option {target // Translation code target}
+  | .ret (.call (.read (.local slot)) arguments) => do
+    let operands ← arguments? arguments
+    return ⟨.call (.local slot) (.read (.local slot)) operands.val (.ret (.read (.local slot))),
+      .retLocalCall operands.property⟩
   | .ret expression => do
     let operand ← operand? expression
     return ⟨.ret operand.val, .ret operand.property⟩

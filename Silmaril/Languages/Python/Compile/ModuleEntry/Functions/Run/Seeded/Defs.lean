@@ -282,6 +282,51 @@ def observeNestedCall (space : Namespace) (destination : Core.Module.Functions.D
       ⟨(observed.result.bind (acceptCall destination)).mapError ModuleFailure.ofCall,
         calls ++ [⟨name, observed⟩]⟩
 
+/-- A module argument can use the existing published zero-argument
+invocation. Its returned value supplies the argument and its heap is
+carried to the next argument. The closed call path handles other values. -/
+def observeArgumentIn (space : Namespace) (context : CallContext) :
+    Argument → Except ModuleFailure Value × List CallEvent × Heap
+  | .scalar operand =>
+    (((lowerCallOperand operand).eval space #v[]).mapError .ofCall, [], context.heap)
+  | .call name arguments =>
+    let outcome : Except ModuleFailure CallObservation × Heap :=
+      match Core.Module.SeededCall.resolveCall space #v[] (.global name) (arguments.map lowerCallOperand) with
+      | .error error => (.ok ⟨.error error, none⟩, context.heap)
+      | .ok (callee, values) =>
+        match callee, values with
+        | .function _, [] => invokeFlatCall space context .discard callee values
+        | _, _ => (.ok (Core.Module.SeededCall.invokeObserved callee values), context.heap)
+    match outcome with
+    | (.ok observed, heap) => (observed.result.mapError .ofCall, [⟨name, observed⟩], heap)
+    | (.error error, heap) => (.error error, [], heap)
+
+def observeArgumentsIn (space : Namespace) (context : CallContext) :
+    List Argument → Except ModuleFailure (List Value) × List CallEvent × Heap
+  | [] => (.ok [], [], context.heap)
+  | argument :: rest =>
+    let (result, calls, heap) := observeArgumentIn space context argument
+    match result with
+    | .error error => (.error error, calls, heap)
+    | .ok value =>
+      let (values, later, residual) := observeArgumentsIn space { context with heap } rest
+      (values.map (value :: ·), calls ++ later, residual)
+
+/-- Read the outer callee before the arguments and retain the heap reached
+even when an ordinary argument faults or has yet to settle. -/
+def observeNestedCallIn (space : Namespace) (context : CallContext)
+    (destination : Core.Module.Functions.Destination) (name : String)
+    (arguments : List Argument) : Effect × Heap :=
+  match space.lookupGlobal name with
+  | none => (⟨.error (.raised (.runtime (.nameError name))), []⟩, context.heap)
+  | some callee =>
+    let (values, calls, heap) := observeArgumentsIn space context arguments
+    match values with
+    | .error error => (⟨.error error, calls⟩, heap)
+    | .ok values =>
+      let observed := acceptObservation destination name (Core.Module.SeededCall.invokeObserved callee values)
+      ({ observed with calls := calls ++ observed.calls }, heap)
+
 inductive EvaluatesArguments (space : Namespace) :
     List Argument → Except Failure (List Value) → List CallEvent → Prop where
   | nil : EvaluatesArguments space [] (.ok []) []
@@ -334,7 +379,7 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
     match invokeAdjacentKeywordDiscard space context name value with
     | (.ok observed, heap) => (acceptObservation .discard name observed, heap)
     | (.error error, heap) => (⟨.error error, []⟩, heap)
-  | .nestedCall destination name arguments => (observeNestedCall space destination name arguments, context.heap)
+  | .nestedCall destination name arguments => observeNestedCallIn space context destination name arguments
 
 structure Observation where
   residual : Namespace

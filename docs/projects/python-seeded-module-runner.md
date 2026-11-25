@@ -65,8 +65,15 @@ the same run's successful-publication ledger. The callee comes from the
 current module-first lookup, so rebinding and aliasing follow that lookup.
 The call uses the same ordinary preparation, namespace projection and
 heap as the callback path. Direct calls with positional arguments,
-result bindings, assertion destinations or nested module-call operands
-stay in the closed dispatcher.
+result bindings or assertion destinations stay in the closed dispatcher.
+
+A nested module call reads its outer callee first. A direct zero-argument
+call in its argument list can use the same published ordinary
+zero-parameter selector. The runner passes that result to the outer call
+and carries the reached heap to later arguments. One receipt records
+each settled argument call. A later error preserves earlier receipts
+and the reached heap. A faulted or live argument contributes no settled
+receipt. The outer callee remains in the closed dispatcher.
 
 A direct call discards a successful result and records it in one receipt
 with an empty caught field. Defined errors and seed-only operand lookups
