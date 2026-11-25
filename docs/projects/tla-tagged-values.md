@@ -51,9 +51,9 @@ valuations and steps. It is used for unsupported operand shapes in the
 numeric slice and for nonpositive modulus divisors. It is independent of
 `CHOOSE`'s no-witness policy. This slice does not model ProtoReals or
 claim that the book leaves all of these inputs unconstrained in every
-module. Native source resolution, prime, function graph operations and
-the interpretation of function-derived tuples, records and strings are
-separate layers.
+module. [Functions and derived collections](tla-functions.md) use this
+same carrier and policy. Native source resolution and prime are separate
+layers.
 
 The [examples](../../Silmaril/Logic/Temporal/TLA/Data/Tagged/Scalars/Examples.lean)
 cover membership for numerals, intervals, signed integers and mixed

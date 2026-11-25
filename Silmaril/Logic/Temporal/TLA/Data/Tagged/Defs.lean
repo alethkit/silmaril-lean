@@ -25,13 +25,15 @@ structure SetData where
   codes : ZFSet.{u}
 
 inductive Kind where
-  | set | integer | boolean
+  | set | integer | boolean | function | character
   deriving DecidableEq
 
 def Kind.index : Kind → Nat
   | .set => 0
   | .integer => 1
   | .boolean => 2
+  | .function => 3
+  | .character => 4
 
 /-- Natural-number codes used inside tags and scalar payloads. -/
 def natCode : Nat → ZFSet.{u}
@@ -82,7 +84,7 @@ noncomputable def SetData.powerset (s : SetData.{u}) : SetData.{u} :=
 
 /-- Operations that can use a model-fixed interpretation on unspecified inputs. -/
 inductive Operation where
-  | add | modulo | le | interval
+  | add | modulo | le | interval | domain | apply | update
   deriving DecidableEq
 
 /-- Fix one policy across valuations and steps. It receives the operation and its operands. -/
