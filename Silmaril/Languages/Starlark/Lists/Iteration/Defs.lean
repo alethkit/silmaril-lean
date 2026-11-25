@@ -40,32 +40,81 @@ def truth : Value → Meaning Bool
   | .scalar value => pure value.truth
   | .function _ | .builtin _ => pure true
   | .string text => pure (!text.isEmpty)
+  | .range span => pure (span.length != 0)
   | .list address => (fun elements => !elements.isEmpty) <$> listElements address
   | .tuple address => (fun elements => !elements.isEmpty) <$> tupleElements address
   | .dict address => (fun entries => !entries.isEmpty) <$> dictEntries address
 
 def iterationSource : Value → Meaning (Address × List Value)
-  | .scalar _ | .function _ | .builtin _ | .string _ => throw .notIterable
+  | .scalar _ | .function _ | .builtin _ | .string _ | .range _ => throw .notIterable
   | .list address => (fun elements => (address, elements)) <$> listElements address
   | .tuple address => (fun elements => (address, elements)) <$> tupleElements address
   | .dict address => (fun entries => (address, entries.map Entry.key)) <$> dictEntries address
 
-/-- Interpret the finite sequence captured on iterator acquisition.
-The body's meaning is available before the recursion over elements begins. -/
-def denoteItems (target : Binding) (body : Meaning Flow) : List Value → Meaning Flow
-  | [], state => .ok .next state
-  | value :: rest, state =>
+/-- An acquired collection snapshot or an exact arithmetic range cursor. -/
+inductive Cursor where
+  | items (remaining : List Value)
+  | range (current step : Int) (remaining : Nat)
+
+def Cursor.ofRange (span : RangeValue) : Cursor :=
+  .range span.start span.step span.length
+
+def Cursor.remaining : Cursor → Nat
+  | .items values => values.length
+  | .range _ _ count => count
+
+def Cursor.advance : Cursor → Option (Value × Cursor)
+  | .items [] | .range _ _ 0 => none
+  | .items (value :: rest) => some (value, .items rest)
+  | .range current step (count + 1) =>
+    some (.scalar (.int current), .range (current + step) step count)
+
+theorem Cursor.advance_decreases {cursor next : Cursor} {value : Value}
+    (step : cursor.advance = some (value, next)) : next.remaining < cursor.remaining := by
+  cases cursor with
+  | items values => cases values <;> simp [Cursor.advance] at step <;> simp [← step.2, Cursor.remaining]
+  | range current stride count => cases count <;> simp [Cursor.advance] at step <;> simp [← step.2, Cursor.remaining]
+
+/-- Collect the cursor in yield order for operations that materialize an iterable. -/
+def Cursor.collect (cursor : Cursor) : List Value := go cursor []
+where
+  go (cursor : Cursor) (reversed : List Value) : List Value :=
+    match _step : cursor.advance with
+    | none => reversed.reverse
+    | some (value, rest) => go rest (value :: reversed)
+  termination_by cursor.remaining
+  decreasing_by exact Cursor.advance_decreases _step
+
+/-- Ranges need no heap guard. Other iterables keep the existing snapshot and guard. -/
+def acquireIterator : Value → Meaning (Option Address × Cursor)
+  | .range span => pure (none, .ofRange span)
+  | value => (fun (address, items) => (some address, .items items)) <$> iterationSource value
+
+def enterIterator (state : State) : Option Address → State
+  | none => state
+  | some address => pushIterator state address
+
+/-- Consume one item, advancing only if the body permits another iteration. -/
+def denoteCursor (target : Binding) (body : Meaning Flow) (cursor : Cursor) (state : State) : Outcome Flow :=
+  match _step : cursor.advance with
+  | none => .ok .next state
+  | some (value, rest) =>
     match body (state.write target value) with
-    | .ok .next next | .ok .continueLoop next => denoteItems target body rest next
+    | .ok .next next | .ok .continueLoop next => denoteCursor target body rest next
     | .ok .breakLoop next => .ok .next next
     | .ok (.returned result) next => .ok (.returned result) next
     | .error error next => .error error next
+termination_by cursor.remaining
+decreasing_by all_goals exact Cursor.advance_decreases _step
 
-/-- Acquire an iterator from a completed operand, run its finite snapshot,
+abbrev denoteItems (target : Binding) (body : Meaning Flow) (items : List Value) : Meaning Flow :=
+  denoteCursor target body (.items items)
+
+/-- Acquire an iterator from a completed operand, run its cursor,
 and restore the previous guard stack on every exit. -/
 def denoteForIn (target : Binding) (body : Meaning Flow) (operand : Outcome Value) : Outcome Flow :=
-  Outcome.resume (Outcome.resume operand iterationSource) fun (address, items) next =>
-    restoreIterators next.iterators (denoteItems target body items (pushIterator next address))
+  Outcome.resume (Outcome.resume operand acquireIterator) fun (guard, cursor) next =>
+    restoreIterators next.iterators (denoteCursor target body cursor (enterIterator next guard))
 
 def denoteSuite {depth : Nat} : Suite depth → Meaning Flow
   | .atomic stmt, state => Outcome.resume (denote stmt state) fun () => pure .next

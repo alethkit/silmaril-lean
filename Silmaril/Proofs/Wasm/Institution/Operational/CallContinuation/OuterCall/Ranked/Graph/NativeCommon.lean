@@ -10,12 +10,12 @@ namespace Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranke
 open Execution.Runtime (FuncAddr Frame Value)
 open Computed
 
-theorem split_call {fn : Function} {stack : List Value} {target : CallTarget} {rest : List Op}
-    (typed : fn.WellTyped stack (.call target :: rest)) :
+theorem split_call {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value} {target : CallTarget} {rest : List Op}
+    (typed : fn.WellTyped stack (.call target :: rest) fallthrough enclosing) :
     ∃ saved operands, stack = saved ++ operands ∧ target ∈ fn.targets ∧
       operands.length = target.declaration.params.length := by
   unfold Function.WellTyped at typed
-  simp only [checkCode, Bool.and_eq_true_iff, decide_eq_true_eq] at typed
+  simp only [checkCode, checkOp, Bool.and_eq_true_iff, decide_eq_true_eq] at typed
   obtain ⟨⟨used, shape⟩, _⟩ := typed
   have length : min target.declaration.params.length stack.length = target.declaration.params.length := by
     simpa [Prefix.stackTypes] using congrArg List.length shape
@@ -42,8 +42,36 @@ theorem render_attach {A : Type} {ops : Syntax A}
     (Body.attach saved target rest child).render ops =
       ops.values saved ++ child.render ops target ++ rest.map ops.emit := by
   cases child with
-  | done result => cases result <;> simp [Body.attach, Body.render, Phase.render, Nested.resultCode, append]
+  | done result => cases result <;> simp [Body.attach, Body.render, Phase.render, Phase.renderAt, Nested.resultCode, append]
   | _ => rfl
+
+theorem render_block {A : Type} (ops : Syntax A)
+    (append : ∀ xs ys, ops.values (xs ++ ys) = ops.values xs ++ ops.values ys)
+    (ret : ops.emit .return_ = ops.ret) (target : CallTarget) (n : Nat)
+    (saved : List Value) (result : Option NumType) (rest : List Op)
+    (next : Phase) (outcome : next.LabelOutcome) :
+    ∃ locals code, next.renderAt ops target result.toList.length =
+        [ops.frame result.toList.length (currentFrame target.declaration locals) code] ∧
+      (next.afterBlock saved result rest).renderAt ops target n =
+        [ops.frame n (currentFrame target.declaration locals)
+          [ops.label n (ops.values saved ++ code ++ rest.map ops.emit)]] := by
+  cases next with
+  | call | invoke | done => cases outcome
+  | label locals body =>
+    exact ⟨locals, _, rfl, by simp only [Phase.afterBlock, Phase.renderAt, Body.render,
+      List.append_assoc, List.singleton_append]⟩
+  | branching locals stack depth result =>
+    exact ⟨locals, _, rfl, by
+      simp [Phase.afterBlock, Phase.renderAt, Body.render, append, List.append_assoc]⟩
+  | returning locals stack =>
+    exact ⟨locals, _, rfl, by
+      simp [Phase.afterBlock, Phase.renderAt, Body.render, append, ret, List.append_assoc]⟩
+  | exit locals result =>
+    cases result with
+    | values => exact ⟨locals, _, rfl, by simp [Phase.afterBlock, Phase.renderAt, Body.render,
+        Nested.resultCode, append, List.append_assoc]⟩
+    | trap => exact ⟨locals, _, rfl, by simp only [Phase.afterBlock, Phase.renderAt, Body.render,
+      Nested.resultCode, List.append_assoc, List.singleton_append]⟩
 
 theorem run_iff {C : Type} {program : Program} {checked : program.check = true}
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)

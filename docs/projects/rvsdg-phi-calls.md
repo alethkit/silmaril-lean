@@ -101,6 +101,103 @@ lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiv
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Thms'
 ```
 
+## Partial primitive actions
+
+The partial continuation machine adds a store `σ` to the existing
+typed control state. Primitive meanings are `StateT σ Part` actions on
+typed tuples. A successful action supplies the next tuple and store.
+The explicit RVSDG state ports remain part of those tuples. Structural
+steps preserve the ambient store and use the existing control, stack,
+closure resolution, γ selection and θ restart rules. Linking still
+uses the existing total linker, including its δ initializers. The
+partial actions apply during invocation.
+[Shared state model](../../Silmaril/SSA/RVSDG/NestedTheta/OrderedState/Defs.lean)
+
+A selected primitive with an undefined result has its own
+`Config.Blocked` observation. It retains the attempted primitive,
+typed input, current store and pending stack. The blocked state
+has neither a successor nor a returned result. Determinism also
+rules out an infinite control run from any configuration that
+takes a finite path to that blocked state. This is a statement
+about an observed selection on a finite path. The primitive
+action's `Part.none` by itself expresses undefinedness.
+
+The independent finite `Eval` judgment and finite machine paths agree
+in both directions from a fresh entry, including an invocation of a
+linked export. A return has the same full typed tuple and store. A
+blocking derivation reconstructs the selected primitive, its typed
+input and store, and every live frame at the endpoint. Because there
+is no transition out of a block, a path to that endpoint cannot have
+passed an earlier block. The canonical total lift recovers the
+original control steps and finite `Returns` exactly, with a constant
+extra store.
+[Public theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Thms.lean)
+
+The linked λ/φ fixture calls a selected γ arm from an active θ body.
+A preceding primitive updates the explicit state from `7` to `8`
+and the store from `20` to `21`. Tag `0` skips the undefined arm and
+returns the updated tuple. Tag `1` blocks at that arm's primitive
+with both updates visible and all five pending frames intact.
+The regression computes both finite paths directly from machine steps
+and reflects them into the independent judgment.
+[Linked fixture](../../Silmaril/Proofs/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Regression.lean)
+
+```sh
+lake build --wfail +Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Regression
+make check CHECK_TARGETS='+Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Regression'
+```
+
+### Productive feedback with partial actions
+
+The [partial feedback judgment](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Feedback/Defs.lean)
+pairs the carried tuple with the ambient store. Each iteration starts
+with fresh locals, derives a successful finite evaluation of the actual
+θ body, and selects feedback. Replay takes a nonempty segment to the next
+restart with the same parent frame and the exact new tuple and store.
+
+A finite route to the selected θ uses the syntax-directed reaching
+rules for completed bindings, selected γ arms, opened calls, and
+nested θ bodies. Completed work uses successful partial evaluation.
+Each active binding or enclosing loop saves its typed pending frame.
+A route followed by an infinite sequence of successful feedback
+iterations yields a productive microstep trace from the linked
+entry. The certificate covers one live θ with infinitely many
+returning body activations. Nonreturning bodies and general infinite
+call descent are separate cases.
+
+In the linked fixture, one interpretation permits every selected action
+and both the state wire and store increase on each restart. Setting a
+cutoff of `23` leaves two completed feedback iterations and blocks in
+the third body at state wire `10`, store `23`, with all five frames
+live. Finite reflection recovers the exact blocked observation, and
+determinism excludes an infinite trace from that blocked run's entry.
+[Replay theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/Feedback/Thms.lean)
+
+### Nested call descent with partial actions
+
+A [partial call prefix](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/CallDescent/Defs.lean)
+starts in an opened caller and stops at its selected application.
+Earlier bindings, including returning calls, use successful
+`Partial.Eval` derivations and thread the ambient store. A prefix may
+follow a selected γ arm or enter a live θ body after finitely many
+successful feedback iterations. The selected call receives the full
+typed argument tuple and current store. Its caller's saved suffix,
+entry tuple, and local tuples stay in the ordered pending stack.
+
+An independent infinite descent specifies these prefixes at successive
+call entries. Replay produces one actual microstep stream with strictly
+increasing positions for the entries and strictly growing live stacks.
+Each position matches the exact callable, arguments, store, and stack
+from the certificate. The linked regression completes a helper call in
+each activation before making a non-tail recursive call. Its second
+recursive checkpoint has state wire `9`, store `22`, and two distinct
+pending state-changing suffix frames.
+[Replay theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Partial/CallDescent/Thms.lean)
+
+The theorem starts from a supplied descent certificate over totally
+linked calls. Extraction from arbitrary infinite partial-machine runs
+and partial module initialization are separate milestones.
+
 ## Productive θ feedback
 
 A feedback iteration consists of a finite `Returns` derivation for

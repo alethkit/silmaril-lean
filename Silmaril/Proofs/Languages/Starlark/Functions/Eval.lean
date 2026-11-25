@@ -15,7 +15,8 @@ open Silmaril.Languages.Starlark (Binding)
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists
 open Silmaril.Languages.Starlark.Lists.Iteration
-  (Flow Runs runs_iff_denoteSuite truth iterationSource denoteItems denoteForIn)
+  (Flow Runs Cursor runs_iff_denoteSuite truth acquireIterator enterIterator denoteCursor denoteForIn
+    cursor_eq_of_runs cursor_runs_denote)
 
 private theorem branch_apply (program : Program) (available : List DeclarationId)
     (flag : Bool) (yes no : Body) (state : State) :
@@ -27,8 +28,8 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
     {body : Body} {out : Outcome Flow} (h : Exec program available state body out) :
     denoteBody program available body state = out := by
   induction h using Exec.rec
-    (motive_2 := fun available target body items state out _ =>
-      denoteItems target (denoteBody program available body) items state = out)
+    (motive_2 := fun available target body cursor state out _ =>
+      denoteCursor target (denoteBody program available body) cursor state = out)
     (motive_3 := fun available state expression out _ =>
       Lowering.denoteExprWith program available (fun plan =>
         denoteBody program (withoutDeclaration available plan.id) plan.body) expression state = out)
@@ -39,11 +40,13 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
     exact Lowering.denoteExprWith_eq_of_evaluates eq ran
   case evaluatesMany calls ran eq =>
     exact Lowering.denoteExprsWith_eq_of_evaluatesMany eq ran
+  case runs _ ran eq =>
+    exact cursor_eq_of_runs eq ran
   all_goals
     (try have evaluated := (eval_iff_denote _ _ _).mp (by assumption)) <;>
     (try have total := (runs_iff_denoteSuite _ _ _).mp (by assumption)) <;>
     (try have invoked := (Builtins.invokes_iff_invoke _ _ _ _).mp (by assumption)) <;>
-    simp_all [denoteBody, denoteForIn, denoteItems, Outcome.resume]
+    simp_all [denoteBody, denoteForIn, Outcome.resume]
   case seqStop signal _ _ _ =>
     cases signal <;> simp_all <;> rfl
   case branch =>
@@ -53,24 +56,13 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
     rw [branch_apply]
     assumption
 
-private theorem exec_items (program : Program) (available : List DeclarationId) (target : Binding)
+private theorem exec_cursor (program : Program) (available : List DeclarationId) (target : Binding)
     (body : Body) (meaning : Meaning Flow)
-    (runBody : ∀ s, Exec program available s body (meaning s)) (items : List Value)
+    (runBody : ∀ s, Exec program available s body (meaning s)) (cursor : Cursor)
     (state : State) :
-    ExecItems program available target body items state (denoteItems target meaning items state) := by
-  induction items generalizing state with
-  | nil => exact .done
-  | cons value rest ih =>
-    rw [denoteItems]
-    have ran := runBody (state.write target value)
-    cases h : meaning (state.write target value) with
-    | error error next => exact .failed (h ▸ ran)
-    | ok flow next =>
-      cases flow with
-      | next => exact .next (h ▸ ran) (ih next)
-      | continueLoop => exact .continueLoop (h ▸ ran) (ih next)
-      | breakLoop => exact .breakLoop (h ▸ ran)
-      | returned result => exact .returned (h ▸ ran)
+    ExecCursor program available target body cursor state (denoteCursor target meaning cursor state) :=
+  .runs (bodyRuns := fun s out => meaning s = out) (fun s _ eq => eq ▸ runBody s)
+    (cursor_runs_denote _ meaning (fun _ => rfl) target cursor state)
 
 theorem exec_denote (program : Program) (available : List DeclarationId) (body : Body)
     (state : State) : Exec program available state body (denoteBody program available body state) := by
@@ -176,24 +168,24 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
     rw [denoteBody]
     unfold denoteForIn
     have evaluated := (eval_iff_denote iterable state _).mpr rfl
-    cases h : Outcome.resume (denote iterable state) iterationSource with
+    cases h : Outcome.resume (denote iterable state) acquireIterator with
     | error error next => exact .forError evaluated h
     | ok source next =>
-      obtain ⟨address, items⟩ := source
-      exact .forIn evaluated h (exec_items program available target body (denoteBody program available body)
-        (exec_denote program available body) items _)
+      obtain ⟨guard, cursor⟩ := source
+      exact .forIn evaluated h (exec_cursor program available target body (denoteBody program available body)
+        (exec_denote program available body) cursor (enterIterator next guard))
   | forInExpr target iterable body =>
     rw [denoteBody]
     change Exec program available state (.forInExpr target iterable body)
       (denoteForIn target (denoteBody program available body)
         (Lowering.denoteExprWith program available execute iterable state))
     unfold denoteForIn
-    cases h : Outcome.resume (Lowering.denoteExprWith program available execute iterable state) iterationSource with
+    cases h : Outcome.resume (Lowering.denoteExprWith program available execute iterable state) acquireIterator with
     | error error next => exact .forInExprError (exprRun iterable state) h
     | ok source next =>
-      obtain ⟨address, items⟩ := source
-      exact .forInExpr (exprRun iterable state) h (exec_items program available target body
-        (denoteBody program available body) (exec_denote program available body) items _)
+      obtain ⟨guard, cursor⟩ := source
+      exact .forInExpr (exprRun iterable state) h (exec_cursor program available target body
+        (denoteBody program available body) (exec_denote program available body) cursor (enterIterator next guard))
   | breakLoop =>
     rw [denoteBody]
     exact .breakLoop

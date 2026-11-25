@@ -16,6 +16,11 @@ open CategoryTheory
 variable {τ : Type v} [TypeFormers τ] {Φ : Type u} [HasTy Φ τ]
   {Γ : VCtx τ} {B : τ} {a : Tm Φ}
 
+/-- Lowering a returned expression commutes with renaming its free variables. -/
+theorem returnRegion_rename (a : Tm Φ) (ρ : Nat → Nat) :
+    returnRegion (a.rename ρ) = (returnRegion a).renameVars ρ :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Values.returnRegion_rename a ρ
+
 /-- A typed returning expression gives a region with only value branches. -/
 theorem returnRegion_typed (h : Tm.HasType Γ a B) : ValueBranches Γ (returnRegion a) [B] :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.CfgEta.Values.returnRegion_typed h

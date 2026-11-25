@@ -104,6 +104,34 @@ Equality for general operands and custom equality methods are outside
 this profile.
 [Python comparisons](https://docs.python.org/release/3.12.13/reference/expressions.html#value-comparisons)
 
+`Executor.Body.assertFreevars` tests membership or non-membership of a
+literal's exact code points in a function's profiled `co_freevars` tuple.
+`FreevarsTest.receiver` selects one bounded slot or ambient global read.
+The resulting function's existing reference selects the immutable
+`Dispatch.Definition.freevars` field after code key and layout validation.
+Reading the tuple leaves the heap, frame, function value and capture cells
+unchanged. The test compares the `List UInt32` literal with each recorded
+name's code points. A failed match raises the usual empty assertion error.
+
+`some []` records a profiled empty tuple. Absent metadata and nonfunction
+receivers stop at the distinct unsupported boundaries labeled
+`unprofiledFreevars` and `unsupportedFreevarsReceiver`. A malformed code
+reference retains its missing-key or layout-mismatch fault. The receiver
+read's error or fault takes precedence. `Executor.readFreevars_iff` ties
+success to a checked code row containing the returned tuple. Source supplies
+the admissible lexical metadata.
+
+`Executor.Body.assertCellvars` tests non-membership in the same checked
+row's separate `Dispatch.Definition.cellvars` field. The linker supplies
+the version-neutral owned-cell tuple in its checked order, including
+`some []` for a profiled empty tuple. The assertion uses the same
+receiver read, reference validation, and exact code-point comparison
+as the free-variable check. `unprofiledCellvars` and
+`unsupportedCellvarsReceiver` record the two unsupported boundaries for
+this field. `Executor.readCellvars_iff` identifies the checked definition
+that supplies the tuple.
+[Python code objects](https://docs.python.org/release/3.12.13/reference/datamodel.html#code-objects)
+
 The executor shares the frame and heap APIs with the compiler. Call entry
 starts the selected body with its initialized frame. Return or an uncaught
 defined error reaches a receiving state with the exact saved caller,
@@ -150,4 +178,6 @@ lake build --wfail +Silmaril.Languages.Python.Core.Closure.Dispatch.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Dispatch.lean
 lake build --wfail +Silmaril.Languages.Python.Core.Closure.Executor.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Executor.lean
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Freevars.lean
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/languages/python/closure-runtime/Cellvars.lean
 ```

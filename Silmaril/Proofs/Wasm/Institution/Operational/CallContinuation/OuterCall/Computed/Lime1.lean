@@ -5,6 +5,8 @@ public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Nati
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Rules
 public import Silmaril.Wasm.Lime1.Execution.Callout
+public import Silmaril.Wasm.Institution.Operational.Blocks.Native.Defs
+import Silmaril.Wasm.Institution.Operational.Blocks.Native.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Lime1Head
 import Silmaril.Wasm.Institution.Operational.CallFrame.Native.Thms
 
@@ -22,6 +24,10 @@ private inductive Focus : Wasm.Lime1.Instr → Prop where
   | bin (t : IntType) (op : IntBinOp) : Focus (.intBinOp t op)
   | call (i : FuncIdx) : Focus (.call i)
   | unreachable : Focus .unreachable
+  | block (bt : Wasm.Lime1.BlockType) (code : Wasm.Lime1.Expr) : Focus (.block bt code)
+  | if_ (bt : Wasm.Lime1.BlockType) (thenBody elseBody : Wasm.Lime1.Expr) : Focus (.if_ bt thenBody elseBody)
+  | brIf (depth : LabelIdx) : Focus (.brIf depth)
+  | brTable (depths : List LabelIdx) (fallback : LabelIdx) : Focus (.brTable depths fallback)
   | set (i : LocalIdx) : Focus (.localSet i)
   | tee (i : LocalIdx) : Focus (.localTee i)
 
@@ -44,6 +50,18 @@ private inductive Redex (f : Frame) : Wasm.Lime1.Instr → List Value → Frame 
       Redex f (.localSet i) [v] { f with locals := f.locals.set i.toNat v } []
   | tee {i : LocalIdx} {v : Value} :
       Redex f (.localTee i) [v] f [value v, value v, .source (.localSet i)]
+  | block {bt : Wasm.Lime1.BlockType} {code : Wasm.Lime1.Expr} {ft : Wasm.Lime1.FuncType} {vs : List Value}
+      (resolved : blockType? f.module.types bt = some ft) (arity : vs.length = ft.params.length) :
+      Redex f (.block bt code) vs f [.label ft.results.length [] (values vs ++ expression code)]
+  | if_ {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr} {condition : BitVec 32} :
+      Redex f (.if_ bt thenBody elseBody) [Value.int .i32 condition] f
+        [.source (.block bt (if condition = 0 then elseBody else thenBody))]
+  | brIf {depth : LabelIdx} {condition : BitVec 32} :
+      Redex f (.brIf depth) [Value.int .i32 condition] f
+        (if condition = 0 then [] else [.source (.br depth)])
+  | brTable {depths : List LabelIdx} {fallback : LabelIdx} {selector : BitVec 32} :
+      Redex f (.brTable depths fallback) [Value.int .i32 selector] f
+        [.source (.br (depths[selector.toNat]?.getD fallback))]
 
 private theorem redex_shape {stack used : List Value} {op i : Wasm.Lime1.Instr} {rest : List Admin}
     (focus : Focus op) (source : values stack ++ .source op :: rest = values used ++ [.source i])
@@ -99,6 +117,24 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
     | unreachable =>
       obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := []) focus source.symm rfl
       exact ⟨[], [], _, _, rfl, .unreachable, rfl⟩
+    | ifZero bt thenBody elseBody =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 0]) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .if_, rfl⟩
+    | ifNonzero bt thenBody elseBody condition nonzero =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 condition]) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .if_, by rw [ite_eq_right nonzero]; rfl⟩
+    | brIfZero depth =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 0]) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .brIf, rfl⟩
+    | brIfNonzero depth condition nonzero =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 condition]) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .brIf, by rw [ite_eq_right nonzero]; rfl⟩
+    | brTable depths fallback selector =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := [Value.int .i32 selector]) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .brTable, rfl⟩
+    | block bt code ft resolved vs arity =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := vs) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .block resolved arity, rfl⟩
     | _ =>
       simp only [List.append_assoc, List.singleton_append, first_prefix, first_value] at firstEq
       first
@@ -151,6 +187,109 @@ theorem unreachable_iff {H : Type} {s : Store H} {f : Frame}
   · rintro rfl
     simpa only [List.append_assoc, List.singleton_append] using
       Step.context (Step.pure (host := CallFrame.limeNoHost) s f PureStep.unreachable) stack rest
+
+theorem block_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+    {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.block (Blocks.limeType result) body) :: rest⟩ dst ↔
+      dst = ⟨s, f, values stack ++ .label result.toList.length [] (expression body) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨saved, used, _, _, split, head, eq⟩ := read_front move (.block _ _) rfl
+    cases head with
+    | block resolved arity =>
+      have lookup : blockType? f.module.types (Blocks.limeType result) = some ⟨[], result.toList⟩ := by
+        cases result <;> rfl
+      rw [lookup] at resolved
+      cases resolved
+      have empty : used = [] := List.eq_nil_of_length_eq_zero arity
+      subst used
+      simpa [values, split] using eq
+  · rintro rfl
+    simpa only [List.append_assoc, List.singleton_append] using
+      Step.context ((Blocks.lime_entry_iff (host := CallFrame.limeNoHost)).mpr rfl) stack rest
+
+theorem if_iff {H : Type} {s : Store H} {f : Frame}
+    {saved : List Value} {condition : BitVec 32} {bt : Wasm.Lime1.BlockType} {thenBody elseBody : Wasm.Lime1.Expr}
+    {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 condition]) ++ .source (.if_ bt thenBody elseBody) :: rest⟩ dst ↔
+      dst = ⟨s, f, values saved ++ .source (.block bt (if condition = 0 then elseBody else thenBody)) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, _, _, _, split, head, eq⟩ := read_front move (.if_ bt thenBody elseBody) rfl
+    cases head with
+    | if_ =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      simpa using eq
+  · rintro rfl
+    have source : values (saved ++ [Value.int .i32 condition]) ++ AdminInstr.source (.if_ bt thenBody elseBody) :: rest =
+        values saved ++ ([value (Value.int .i32 condition), AdminInstr.source (.if_ bt thenBody elseBody)] ++ rest) := by
+      rw [values_append, List.append_assoc]
+      rfl
+    rw [source]
+    have wrap {after : Wasm.Lime1.Expr} (move : PureStep f.module.types
+        [value (Value.int .i32 condition), .source (.if_ bt thenBody elseBody)]
+        [.source (.block bt after)]) :
+        Step CallFrame.limeNoHost
+          ⟨s, f, values saved ++ ([value (Value.int .i32 condition), .source (.if_ bt thenBody elseBody)] ++ rest)⟩
+          ⟨s, f, values saved ++ .source (.block bt after) :: rest⟩ := by
+      have step := Step.context (Step.pure (host := CallFrame.limeNoHost) s f move) saved rest
+      simp only [List.append_assoc, List.cons_append, List.nil_append] at step ⊢
+      exact step
+    by_cases zero : condition = 0
+    · rw [ite_eq_left zero]
+      subst condition
+      exact wrap (.ifZero bt thenBody elseBody)
+    · rw [ite_eq_right zero]
+      exact wrap (.ifNonzero bt thenBody elseBody condition zero)
+
+theorem br_if_iff {H : Type} {s : Store H} {f : Frame}
+    {saved : List Value} {condition : BitVec 32} {depth : LabelIdx} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 condition]) ++ .source (.brIf depth) :: rest⟩ dst ↔
+      dst = ⟨s, f, values saved ++ (if condition = 0 then [] else [.source (.br depth)]) ++ rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, _, _, _, split, head, eq⟩ := read_front move (.brIf depth) rfl
+    cases head with
+    | brIf =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      exact eq
+  · rintro rfl
+    have branch : PureStep f.module.types [value (Value.int .i32 condition), .source (.brIf depth)]
+        (if condition = 0 then [] else [.source (.br depth)]) := by
+      by_cases zero : condition = 0
+      · rw [ite_eq_left zero]
+        subst condition
+        exact .brIfZero depth
+      · rw [ite_eq_right zero]
+        exact .brIfNonzero depth condition zero
+    have step := Step.context (Step.pure (host := CallFrame.limeNoHost) s f branch) saved rest
+    simp only [values, List.map_append, List.map_cons, List.map_nil, List.append_assoc,
+      List.cons_append, List.nil_append] at step ⊢
+    exact step
+
+theorem br_table_iff {H : Type} {s : Store H} {f : Frame}
+    {saved : List Value} {selector : BitVec 32} {depths : List LabelIdx} {fallback : LabelIdx}
+    {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost
+      ⟨s, f, values (saved ++ [Value.int .i32 selector]) ++ .source (.brTable depths fallback) :: rest⟩ dst ↔
+      dst = ⟨s, f, values saved ++ .source (.br (depths[selector.toNat]?.getD fallback)) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨kept, _, _, _, split, head, eq⟩ := read_front move (.brTable depths fallback) rfl
+    cases head with
+    | brTable =>
+      obtain ⟨rfl, equal⟩ := List.append_inj' split rfl
+      cases equal
+      simpa only [List.append_assoc, List.singleton_append] using eq
+  · rintro rfl
+    have move := Step.context (Step.pure (host := CallFrame.limeNoHost) s f
+      (.brTable depths fallback selector)) saved rest
+    simpa only [values, List.map_append, List.map_cons, List.map_nil, List.append_assoc,
+      List.cons_append, List.nil_append] using move
 
 @[local simp] private theorem values_one (v : Value) : values [v] = [value v] := rfl
 

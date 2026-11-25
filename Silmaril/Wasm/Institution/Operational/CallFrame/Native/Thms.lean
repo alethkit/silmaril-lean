@@ -85,6 +85,15 @@ theorem lime_frame_prefix_inv {H : Type} {s : Store H} {f inside : Frame} {n : N
   Proofs.Lime1.frame_prefix_inv h
 
 open Wasm.Lime1.Execution in
+theorem lime_label_prefix_cases {f : Frame} {n : Nat} {saved : List Execution.Runtime.Value}
+    {code : List Admin} {dst : Config H}
+    (step : Step limeNoHost ⟨s, f, values saved ++ [.label n [] code]⟩ dst) :
+    (∃ mid, Step limeNoHost ⟨s, f, code⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, values saved ++ [.label n [] mid.code]⟩) ∨
+    ∃ out, PureStep f.module.types [.label n [] code] out ∧ dst = ⟨s, f, values saved ++ out⟩ :=
+  Proofs.Lime1.label_prefix_cases step
+
+open Wasm.Lime1.Execution in
 theorem lime_invoke_wasm_prefix_iff {ty : Wasm.Lime1.FuncType} {m : Execution.Runtime.ModuleInst}
     {fnCode : Wasm.Lime1.Func} {saved args : List Execution.Runtime.Value} {dst : Config H}
     (allocated : s.funcs[address.value]? = some (.wasm ty m fnCode)) (count : args.length = ty.params.length) :

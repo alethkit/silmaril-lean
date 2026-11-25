@@ -117,18 +117,18 @@ private theorem nested_cannot_exit {types : List Wasm.Lime1.FuncType} {n m : Nat
       simp [first, asValue?] at outerHead
 
 private theorem label_br_readback {types : List Wasm.Lime1.FuncType} {n : Nat}
-    {l : LabelIdx} {vs : List Value} {out : List Admin}
-    (h : PureStep types [.label n [] (values vs ++ [.source (.br l)])] out) :
+    {l : LabelIdx} {vs : List Value} {rest out : List Admin}
+    (h : PureStep types [.label n [] (values vs ++ .source (.br l) :: rest)] out) :
     (∃ below payload, vs = below ++ payload ∧ payload.length = n ∧ l.toNat = 0 ∧ out = values payload) ∨
       (l.toNat ≠ 0 ∧ out = values vs ++ [.source (.br (lowerLabel l))]) := by
-  generalize eq : ([.label n [] (values vs ++ [.source (.br l)])] : List Admin) = before at h
+  generalize eq : ([.label n [] (values vs ++ .source (.br l) :: rest)] : List Admin) = before at h
   have outerHead := congrArg first eq
   cases h <;> try simp only [List.cons.injEq, and_true, AdminInstr.label.injEq] at eq
   case labelBranch n' cont extra payload tail len =>
     obtain ⟨rfl, rfl, code⟩ := eq
     rw [List.append_assoc, List.singleton_append, ← values_append] at code
     have decoded := congrArg splitValues code
-    rw [split_values vs [] rfl, split_values (extra ++ payload) tail rfl] at decoded
+    rw [split_values vs rest rfl, split_values (extra ++ payload) tail rfl] at decoded
     obtain ⟨stackEq, branchEq⟩ := Prod.mk.inj decoded
     cases (List.cons.inj branchEq).1
     exact .inl ⟨extra, payload, stackEq, len, rfl, by simp [expression]⟩
@@ -136,7 +136,7 @@ private theorem label_br_readback {types : List Wasm.Lime1.FuncType} {n : Nat}
     obtain ⟨rfl, rfl, code⟩ := eq
     rw [List.append_assoc, List.singleton_append] at code
     have decoded := congrArg splitValues code
-    rw [split_values vs [] rfl, split_values stack tail rfl] at decoded
+    rw [split_values vs rest rfl, split_values stack tail rfl] at decoded
     obtain ⟨rfl, branchEq⟩ := Prod.mk.inj decoded
     cases (List.cons.inj branchEq).1
     exact .inr ⟨pos, rfl⟩
@@ -147,6 +147,27 @@ private theorem label_br_readback {types : List Wasm.Lime1.FuncType} {n : Nat}
         simp [first, asValue?] at head
     | (try simp only [List.append_assoc, List.singleton_append, first_prefix, first_value] at outerHead)
       simp [first, asValue?] at outerHead
+
+theorem label_br_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {n : Nat} {depth : LabelIdx} {stack : List Value} {rest : List Admin} {dst : Config H} :
+    Step host ⟨s, f, [.label n [] (values stack ++ .source (.br depth) :: rest)]⟩ dst ↔
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
+        dst = ⟨s, f, values payload⟩) ∨
+      (0 < depth.toNat ∧ dst = ⟨s, f, values stack ++ [.source (.br (lowerLabel depth))]⟩) := by
+  constructor
+  · intro step
+    cases label_inv step rfl with
+    | inside move => exact (br_stuck move (l := depth) (by rw [first_prefix, first_head _ rfl])).elim
+    | pure pop =>
+      rcases label_br_readback pop with ⟨extra, payload, split, size, here, rfl⟩ | ⟨outer, rfl⟩
+      · exact .inl ⟨extra, payload, split, size, here, rfl⟩
+      · exact .inr ⟨Nat.pos_of_ne_zero outer, rfl⟩
+  · rintro (⟨extra, payload, rfl, size, here, rfl⟩ | ⟨outer, rfl⟩)
+    · obtain rfl : depth = ⟨0⟩ := Idx.toNat_injective here
+      simpa only [values_append, List.append_assoc, List.singleton_append, expression, List.map_nil, List.append_nil] using
+        (Step.pure (host := host) s f (.labelBranch n [] extra payload rest size))
+    · simpa only [List.append_assoc, List.singleton_append] using
+        (Step.pure (host := host) s f (.labelBranchOuter n [] stack rest depth (Nat.ne_of_gt outer)))
 
 theorem sound {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
     {ty : Option NumType} {a b : State} (edge : Edge ty a b) :

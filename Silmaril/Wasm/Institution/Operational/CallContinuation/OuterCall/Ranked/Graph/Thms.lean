@@ -74,6 +74,35 @@ theorem Program.linked_target {program : Program} (checked : program.check = tru
       fn.declaration.module.funcs[target.index.toNat]? = some target.address :=
   Proofs.linked_target checked found used
 
+theorem Function.split_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
+    {result : Option NumType} {thenBody elseBody rest : List Op}
+    (typed : fn.WellTyped stack (.if_ result thenBody elseBody :: rest) fallthrough enclosing) :
+    ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] :=
+  Proofs.split_if typed
+
+theorem Function.split_br_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
+    {result : List NumType} {depth : LabelIdx} {rest : List Op}
+    (typed : fn.WellTyped stack (.brIf depth result :: rest) fallthrough enclosing) :
+    ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] :=
+  Proofs.split_br_if typed
+
+theorem Function.split_br_table {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
+    {result : List NumType} {depths : List LabelIdx} {fallback : LabelIdx} {rest : List Op}
+    (typed : fn.WellTyped stack (.brTable depths fallback result :: rest) fallthrough enclosing) :
+    ∃ (saved : List Value) (selector : BitVec 32), stack = saved ++ [Value.int .i32 selector] :=
+  Proofs.split_br_table typed
+
+theorem checked_branch {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
+    {stack : List Value} {depth : LabelIdx} {result : List NumType} {rest : List Op}
+    (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing) :
+    (branchTargets fallthrough enclosing)[depth.toNat]? = some result ∧ SuffixTyped result stack :=
+  Proofs.checked_branch typed
+
+theorem branch_here_result {fallthrough : List NumType} {enclosing : EnclosingLabels} {result : List NumType}
+    (found : (branchTargets fallthrough enclosing)[(⟨0⟩ : LabelIdx).toNat]? = some result) :
+    fallthrough = result :=
+  Proofs.branch_here_result found
+
 theorem Program.admitted_step {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} {a b : Phase} (found : program.lookup address = some fn)
     (ready : Admitted program fn a) (move : program.Edge checked address a b) : Admitted program fn b :=

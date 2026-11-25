@@ -18,6 +18,16 @@ inductive NameRead (layout : Layout) where
   | slot (slot : Slot layout)
   | global (name : String)
 
+structure FreevarsTest (layout : Layout) where
+  receiver : NameRead layout
+  needle : List UInt32
+  expected : Bool
+
+/-- Check that a literal is absent from the receiver's profiled cell tuple. -/
+structure CellvarsTest (layout : Layout) where
+  receiver : NameRead layout
+  needle : List UInt32
+
 inductive Operand (layout : Layout) where
   | literal (value : Value)
   | read (slot : Slot layout)
@@ -35,6 +45,8 @@ inductive Body (layout : Layout) where
   | ret (value : Operand layout)
   | store (destination : Slot layout) (value : Operand layout) (next : Body layout)
   | assert (test : Operand layout) (next : Body layout)
+  | assertFreevars (test : FreevarsTest layout) (next : Body layout)
+  | assertCellvars (test : CellvarsTest layout) (next : Body layout)
   | callTo (destination : Destination layout) (callee : Operand layout)
       (arguments : List (Operand layout)) (next : Body layout)
 
@@ -54,7 +66,41 @@ inductive Fault where
   | danglingCell (identity : CellId)
   | missingCode (key : Nat)
   | layoutMismatch (expected actual : Layout)
+  | unprofiledFreevars (ref : CodeRef)
+  | unsupportedFreevarsReceiver
+  | unprofiledCellvars (ref : CodeRef)
+  | unsupportedCellvarsReceiver
   deriving DecidableEq, Repr
+
+inductive FreevarsFailure where
+  | read (failure : Failure)
+  | code (failure : Dispatch.Failure)
+  | unprofiled (ref : CodeRef)
+  | nonFunction
+  deriving DecidableEq, Repr
+
+/-- Tuple reads share failure categories. The selected field determines the
+unsupported fault reported by the assertion. -/
+abbrev MetadataFailure := FreevarsFailure
+
+inductive MetadataField where
+  | freevars
+  | cellvars
+
+def MetadataField.select {layout : Layout} (field : MetadataField)
+    (definition : Dispatch.Definition Body layout) : Option (List String) :=
+  match field with
+  | .freevars => definition.freevars
+  | .cellvars => definition.cellvars
+
+def MetadataField.unprofiledFault (field : MetadataField) (ref : CodeRef) : Fault :=
+  match field with
+  | .freevars => .unprofiledFreevars ref
+  | .cellvars => .unprofiledCellvars ref
+
+def MetadataField.nonFunctionFault : MetadataField → Fault
+  | .freevars => .unsupportedFreevarsReceiver
+  | .cellvars => .unsupportedCellvarsReceiver
 
 inductive State where
   | running (heap : Heap) {layout : Layout} (frame : Frame layout) (body : Body layout) (stack : Stack)
@@ -85,6 +131,37 @@ def NameRead.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout
     | some value => .ok value
     | none => .error (.defined (.nameError name))
 
+/-- Resolve the current function's checked definition. Its captured cells
+do not participate in this read. -/
+def readMetadata (field : MetadataField) (table : CodeTable) : Value → Except MetadataFailure (List String)
+  | .function fn =>
+    match Dispatch.resolve table fn.code with
+    | .error failure => .error (.code failure)
+    | .ok definition =>
+      match field.select definition with
+      | some names => .ok names
+      | none => .error (.unprofiled fn.code)
+  | .int _ | .bool _ | .none => .error .nonFunction
+
+abbrev readFreevars := readMetadata .freevars
+abbrev readCellvars := readMetadata .cellvars
+
+def MetadataField.evalIn (field : MetadataField) (receiver : NameRead layout) (needle : List UInt32)
+    (expected : Bool) (table : CodeTable) (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) :
+    Except MetadataFailure Bool := do
+  let value ← (receiver.evalIn globals heap frame).mapError FreevarsFailure.read
+  let names ← readMetadata field table value
+  let found := names.any fun name => name.toList.map Char.val == needle
+  return found == expected
+
+def FreevarsTest.evalIn (test : FreevarsTest layout) (table : CodeTable) (globals : GlobalLookup)
+    (heap : Heap) (frame : Frame layout) : Except FreevarsFailure Bool :=
+  MetadataField.freevars.evalIn test.receiver test.needle test.expected table globals heap frame
+
+def CellvarsTest.evalIn (test : CellvarsTest layout) (table : CodeTable) (globals : GlobalLookup)
+    (heap : Heap) (frame : Frame layout) : Except MetadataFailure Bool :=
+  MetadataField.cellvars.evalIn test.receiver test.needle false table globals heap frame
+
 def Operand.evalIn (globals : GlobalLookup) (heap : Heap) (frame : Frame layout) : Operand layout → Except Failure Value
   | .literal value => .ok value
   | .read slot => frame.read heap slot
@@ -114,6 +191,15 @@ def failDispatch (heap : Heap) (stack : Stack) : Dispatch.Failure → Transition
   | .missingCode key => fault heap stack (.missingCode key)
   | .layoutMismatch expected actual => fault heap stack (.layoutMismatch expected actual)
 
+def failMetadata (field : MetadataField) (heap : Heap) (stack : Stack) : MetadataFailure → Transition
+  | .read failure => fail heap stack failure
+  | .code failure => failDispatch heap stack failure
+  | .unprofiled ref => fault heap stack (field.unprofiledFault ref)
+  | .nonFunction => fault heap stack field.nonFunctionFault
+
+abbrev failFreevars := failMetadata .freevars
+abbrev failCellvars := failMetadata .cellvars
+
 def resumeStore (heap : Heap) (frame : Frame layout) (destination : Slot layout)
     (value : Value) (body : Body layout) (stack : Stack) : Transition :=
   match frame.write heap destination value with
@@ -139,6 +225,16 @@ def advanceIn (table : CodeTable) (globals : GlobalLookup) : State → Option Tr
       if value.truth then (none, .running heap frame next stack)
       else (none, .delivering heap stack (.error .assertionError))
     | .error error => fail heap stack error
+  | .running heap frame (.assertFreevars test next) stack =>
+    some <| match test.evalIn table globals heap frame with
+    | .ok true => (none, .running heap frame next stack)
+    | .ok false => (none, .delivering heap stack (.error .assertionError))
+    | .error error => failFreevars heap stack error
+  | .running heap frame (.assertCellvars test next) stack =>
+    some <| match test.evalIn table globals heap frame with
+    | .ok true => (none, .running heap frame next stack)
+    | .ok false => (none, .delivering heap stack (.error .assertionError))
+    | .error error => failCellvars heap stack error
   | .running heap frame (.callTo destination callee arguments next) stack =>
     some <| match evalCallIn globals heap frame callee arguments with
     | .error error => fail heap stack error
@@ -257,6 +353,30 @@ inductive StepIn (table : CodeTable) (globals : GlobalLookup) : State → Option
       EvaluatesIn globals heap frame test (.error error) →
       StepIn table globals (.running heap frame (.assert test next) stack)
         (fail heap stack error).1 (fail heap stack error).2
+  | assertFreevarsTrue {heap stack layout} {frame : Frame layout} {test next} :
+      test.evalIn table globals heap frame = .ok true →
+      StepIn table globals (.running heap frame (.assertFreevars test next) stack)
+        none (.running heap frame next stack)
+  | assertFreevarsFalse {heap stack layout} {frame : Frame layout} {test next} :
+      test.evalIn table globals heap frame = .ok false →
+      StepIn table globals (.running heap frame (.assertFreevars test next) stack)
+        none (.delivering heap stack (.error .assertionError))
+  | assertFreevarsError {heap stack layout} {frame : Frame layout} {test next error} :
+      test.evalIn table globals heap frame = .error error →
+      StepIn table globals (.running heap frame (.assertFreevars test next) stack)
+        (failFreevars heap stack error).1 (failFreevars heap stack error).2
+  | assertCellvarsTrue {heap stack layout} {frame : Frame layout} {test next} :
+      test.evalIn table globals heap frame = .ok true →
+      StepIn table globals (.running heap frame (.assertCellvars test next) stack)
+        none (.running heap frame next stack)
+  | assertCellvarsFalse {heap stack layout} {frame : Frame layout} {test next} :
+      test.evalIn table globals heap frame = .ok false →
+      StepIn table globals (.running heap frame (.assertCellvars test next) stack)
+        none (.delivering heap stack (.error .assertionError))
+  | assertCellvarsError {heap stack layout} {frame : Frame layout} {test next error} :
+      test.evalIn table globals heap frame = .error error →
+      StepIn table globals (.running heap frame (.assertCellvars test next) stack)
+        (failCellvars heap stack error).1 (failCellvars heap stack error).2
   | call {heap stack layout} {frame : Frame layout} {destination callee arguments next value values active} :
       InputsIn globals heap frame callee arguments (.ok (value, values)) →
       Dispatch.Dispatches table values heap ⟨layout, frame, ⟨destination, next⟩⟩ stack value active →

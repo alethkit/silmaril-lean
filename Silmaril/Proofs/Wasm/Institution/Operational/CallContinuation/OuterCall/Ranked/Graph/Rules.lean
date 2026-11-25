@@ -26,16 +26,25 @@ theorem target_resolved {program : Program} (checked : program.check = true)
 theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase → Prop} {a b : Phase}
     (map : ∀ target ∈ fn.targets, ∀ {c d}, r₁ target c d → r₂ target c d)
     (step : Layer fn r₁ a b) : Layer fn r₂ a b := by
-  cases step with
+  induction step with
   | resolve args => exact .resolve args
   | enter args typed => exact .enter args typed
   | numeric step => exact .numeric step
   | localSet write => exact .localSet write
   | localTee write => exact .localTee write
+  | ifSelect locals saved condition result thenBody elseBody rest =>
+    exact .ifSelect locals saved condition result thenBody elseBody rest
+  | blockEnter locals saved result body rest => exact .blockEnter locals saved result body rest
+  | blockStep saved result rest _ ih => exact .blockStep saved result rest ih
   | unreachable args stack rest => exact .unreachable args stack rest
   | dispatch locals saved operands target rest used count => exact .dispatch locals saved operands target rest used count
   | child locals saved target rest used live step => exact .child locals saved target rest used live (map target used step)
   | discard step => exact .discard step
+  | branchIf locals stack condition depth result rest => exact .branchIf locals stack condition depth result rest
+  | branchTable locals stack selector depths fallback result rest =>
+    exact .branchTable locals stack selector depths fallback result rest
+  | branchHere locals extra values result rest arity => exact .branchHere locals extra values result rest arity
+  | branchOuter locals stack depth result rest outer => exact .branchOuter locals stack depth result rest outer
   | returnLabel locals stack rest => exact .returnLabel locals stack rest
   | returnFrame locals extra results arity => exact .returnFrame locals extra results arity
   | leaveValues args stack => exact .leaveValues args stack
@@ -65,6 +74,17 @@ theorem edge_iff {program : Program} (checked : program.check = true)
   · intro step
     exact ⟨fn, found, map_child (fun _ used _ _ edge => ⟨target_resolved checked found used, edge⟩) step⟩
 
+theorem label_outcome {fn : Function} {childStep : CallTarget → Phase → Phase → Prop}
+    {a b : Phase} (step : Layer fn childStep a b) :
+    (∃ locals inner, a = .label locals inner) → b.LabelOutcome := by
+  induction step with
+  | @blockStep locals saved result rest inner next step ih =>
+    intro _
+    have valid := ih ⟨_, _, rfl⟩
+    cases next <;> simp_all [Phase.afterBlock, Phase.LabelOutcome]
+    case exit result => cases result <;> trivial
+  | _ => simp [Phase.LabelOutcome]
+
 theorem active_iff {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
     {target : CallTarget} (used : target ∈ fn.targets) {a : Phase} (live : a.Active)
@@ -79,6 +99,19 @@ theorem active_iff {program : Program} (checked : program.check = true)
   · rintro ⟨out, step, rfl⟩
     exact .child locals saved target rest used live step
 
+theorem block_iff {program : Program} (checked : program.check = true)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)
+    {locals saved : List Value} {result : Option NumType} {inner : Body} {rest : List Op} {out : Phase} :
+    program.Edge checked address (.label locals (.block saved result inner rest)) out ↔
+      ∃ next, program.Edge checked address (.label locals inner) next ∧ out = next.afterBlock saved result rest := by
+  rw [edge_iff checked found]
+  constructor
+  · intro step
+    cases step with
+    | blockStep _ _ _ step => exact ⟨_, (edge_iff checked found).mpr step, rfl⟩
+  · rintro ⟨next, step, rfl⟩
+    exact .blockStep saved result rest ((edge_iff checked found).mp step)
+
 private theorem source_active {program : Program} {checked : program.check = true}
     {address : FuncAddr} {a b : Phase} (ready : ∀ args, a ≠ .call args)
     (edge : program.Edge checked address a b) : a.Active := by
@@ -91,7 +124,12 @@ theorem not_call {program : Program} {checked : program.check = true}
     {address : FuncAddr} {a b : Phase} (edge : program.Edge checked address a b) (args : List Value) :
     b ≠ .call args := by
   obtain ⟨_, _, step⟩ := (unfold_edge checked address a b).mp edge
-  cases step <;> simp
+  cases step with
+  | @blockStep locals saved result rest inner next step =>
+    have outcome := label_outcome step ⟨_, _, rfl⟩
+    cases next <;> simp_all [Phase.LabelOutcome, Phase.afterBlock]
+    case exit result => cases result <;> simp
+  | _ => simp
 
 theorem lift_child {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn)

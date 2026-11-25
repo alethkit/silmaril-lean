@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Starlark.Functions.Lowering.Source.Defs
 public import Silmaril.Languages.Starlark.Functions.Denotation.Defs
 import Silmaril.Proofs.Languages.Starlark.Functions.Lowering.Preservation
+import Silmaril.Proofs.Languages.Starlark.Functions.Lowering.Loop
 
 public section
 
@@ -28,6 +29,19 @@ theorem lower_preserves {program : Program} {available : List DeclarationId} {st
         denoteBody program available (lower expression destination start).code state = .error error targetState ∧
         StateMatch 0 s targetState :=
   Proofs.Languages.Starlark.Functions.Lowering.preserves ran free destination visible start
+
+/-- Stage the iterable once, then use the shared cursor. A body that preserves
+the scratch projection on every entry gives a loop that preserves it on every exit. -/
+theorem lowerForIn_preserves {program : Program} {available : List DeclarationId} {state : State}
+    {iterable : Expr} {out : Outcome Lists.Value}
+    (ran : Evaluates program available state iterable out) (free : ScratchFree state)
+    (target : Binding) (sourceBody loweredBody : Body)
+    (bodyMatch : ∀ s t, StateMatch 0 s t → OutcomeMatch 0
+      (denoteBody program available sourceBody s) (denoteBody program available loweredBody t))
+    (start : Nat := 0) :
+    OutcomeMatch 0 (denoteBody program available (.forInExpr target iterable sourceBody) state)
+      (denoteBody program available (lowerForIn target iterable loweredBody start).code state) :=
+  Proofs.Languages.Starlark.Functions.Lowering.preservesForIn ran free target sourceBody loweredBody bodyMatch start
 
 /-- Projection preserves lookup on visible names, including uninitialized reads. -/
 theorem StateMatch.bindingValue_eq {i : Nat} {s t : State} (h : StateMatch i s t) {name : Binding}

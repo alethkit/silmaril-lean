@@ -456,6 +456,23 @@ theorem frame_prefix_inv {H : Type} {s : Store H} {f inside : Frame} {n : Nat}
     subst kept
     exact ⟨_, .pure s f ordinary, rfl⟩
 
+theorem label_prefix_cases {H : Type} {s : Store H} {f : Frame} {n : Nat}
+    {saved : List Value} {code : List Admin} {dst : Config H}
+    (step : Step limeNoHost ⟨s, f, values saved ++ [.label n [] code]⟩ dst) :
+    (∃ mid, Step limeNoHost ⟨s, f, code⟩ mid ∧
+      dst = ⟨mid.store, mid.frame, values saved ++ [.label n [] mid.code]⟩) ∨
+    ∃ out, PureStep f.module.types [.label n [] code] out ∧ dst = ⟨s, f, values saved ++ out⟩ := by
+  obtain ⟨kept, used, mid, stackEq, head, rfl⟩ := split step (.label n [] code) rfl
+  cases head with
+  | label inner =>
+    rw [List.append_nil] at stackEq
+    exact .inl ⟨_, inner, by rw [stackEq]⟩
+  | pure ordinary =>
+    have zero : used = [] := by cases pure_focus ordinary (.label n [] code) <;> rfl
+    subst used
+    rw [List.append_nil] at stackEq
+    exact .inr ⟨_, ordinary, by rw [stackEq]⟩
+
 theorem invoke_wasm_prefix_iff {H : Type} {s : Store H} {caller : Frame}
     {i : FuncAddr} {saved args : List Value} {ty : Wasm.Lime1.FuncType}
     {m : ModuleInst} {fn : Wasm.Lime1.Func} {dst : Config H}
