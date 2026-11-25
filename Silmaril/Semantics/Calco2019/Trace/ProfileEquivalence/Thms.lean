@@ -55,4 +55,29 @@ noncomputable def conwayEquiv [HasInitial K] : G.Conway ≃ {T : G.FourInterface
   left_inv F := Proofs.Feedback.conway_of_profile_feedback initialIsInitial F _
   right_inv T := Subtype.ext (Proofs.Feedback.profile_ext (fun hf => ofConway_run T.val T.property hf))
 
+/-- In the converse, the dagger traces the duplicated body with initial
+external marked ports. Any initial object gives the same arrow. -/
+theorem conway_iterate [HasInitial K] {I X Y : K} (i : IsInitial I)
+    (T : G.FourInterfaceTrace) (laws : T.Lawful) (f : X ⟶ P.sum Y X) (hf : G.guarded f) :
+    (T.conway laws).iterate f hf = Feedback.iterate (T.toFeedback i) f hf := by
+  change Feedback.iterate (T.toFeedback initialIsInitial) f hf = _
+  exact congrArg (fun tr : G.Feedback => Feedback.iterate tr f hf)
+    (toFeedback_eq_of_initial initialIsInitial i T laws.tighten)
+
+@[simp]
+theorem conway_ofConway [HasInitial K] (F : G.Conway) :
+    (ofConway F).conway (lawful_ofConway F) = F :=
+  (conwayEquiv (G := G)).left_inv F
+
+@[simp]
+theorem ofConway_conway [HasInitial K] (T : G.FourInterfaceTrace) (laws : T.Lawful) :
+    ofConway (T.conway laws) = T :=
+  congrArg Subtype.val ((conwayEquiv (G := G)).right_inv ⟨T, laws⟩)
+
+@[simp]
+theorem conwayEquiv_symm_conway [HasInitial K] (T : {T : G.FourInterfaceTrace // T.Lawful}) :
+    conwayEquiv.symm T = T.val.conway T.property := by
+  unfold conwayEquiv
+  rfl
+
 end Silmaril.Calco2019.Guardedness.FourInterfaceTrace

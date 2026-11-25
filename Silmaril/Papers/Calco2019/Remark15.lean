@@ -7,8 +7,7 @@ public import Silmaril.Semantics.Calco2019.Trace.ProfileVanishing.Thms
 public import Silmaril.Semantics.Calco2019.Trace.Equivalence.Thms
 public import Silmaril.Semantics.Calco2019.Trace.Automata.Thms
 public import Silmaril.Semantics.Calco2019.Trace.ProfileSliding.Thms
-public import Silmaril.Semantics.Calco2019.Trace.ProfileEquivalence.Thms
-public import Silmaril.Semantics.Calco2019.Trace.Total.Thms
+public import Silmaril.Semantics.Calco2019.Trace.Compatibility.Thms
 public import Silmaril.Semantics.Calco2019.Trace.PointedCpo.Thms
 public import Silmaril.Semantics.Calco2019.Trace.CounterSemiring.Witness.Thms
 public import Silmaril.Semantics.Calco2019.Trace.CounterSemiring.Independence.Thms
