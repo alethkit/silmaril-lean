@@ -32,6 +32,24 @@ Conjecture 32 fails when the prefix sets a location from `0` to `1`
 and the guard reads that location. The two orderings return different
 integers and leave the same final store.
 
+## L3 contextual equivalence
+
+`L3.ContextualEquiv` implements Definition 33 using the core L3 typing
+and small-step relations. General syntactic contexts include holes under
+binders, inside record fields, and in either match branch. Plugging a
+named phrase precedes scope resolution, so a context can bind names in
+the phrase. The observation starts from the empty store once both
+plugged phrases have closed unit typing. They must either both have
+infinite runs or both have finite runs to `skip`, with independent
+final stores. Reflexivity follows from L3 safety. Contextual closure
+follows from composition of contexts.
+
+Exercise 43 represents the assignable reference as the free name `l`.
+The distinguishing context allocates a cell, binds `l`, and reads it
+after executing the hole. The read selects termination for the assignment
+of zero and an infinite loop for the assignment of one. The proof
+rules out the opposite outcome for every allowed fresh address.
+
 ## Chapter coverage
 
 | Notes | Checked in this slice | Remaining |
@@ -41,7 +59,7 @@ integers and leave the same final store.
 | Slides 263–264, Theorem 29 and Exercise 41 | Congruence for all ten context forms and for nested contexts. | |
 | Slides 266–267, Conjectures 30–32 | Sequencing associativity and distribution over the selected conditional branch (30–31). Counterexample to moving a prefix after the guard (32). Slide 255's fourth candidate preserves order and is proved. Determinacy makes the value-and-store observation single-valued. | |
 | Slide 268 and Exercise 42 | Sequencing commutes for disjoint typing environments. | |
-| §8.1, Definition 33 and Exercise 43 | | L3 contextual equivalence using closed unit contexts and termination observations. Construct the distinguishing context for the two assignments. |
+| §8.1, Definition 33 and Exercise 43 | L3 contextual equivalence using closing unit contexts, reflexivity, symmetry, closure under context composition, and the checked distinguishing context for the two assignments. | |
 
 The restored-store example uses addition of `-1` for subtraction of one,
 as L1’s operator grammar contains addition and comparison.
