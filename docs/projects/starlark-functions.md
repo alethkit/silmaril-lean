@@ -188,8 +188,8 @@ check, and `bindsTarget_failure_state` gives the full failure guarantee
 for flat targets. The binder composes with `exec_iff_denoteBody` and
 `runs_iff_denoteSuite`. `lowerForIn_preserves` transports the binder's heap,
 slots and visible writes through scratch projection before it uses the
-existing body premise. Standalone pattern assignments and the list
-comprehension assignment profile also use this binder. Subscript and field
+existing body premise. Standalone pattern assignments and list and dictionary
+comprehension assignments also use this binder. Subscript and field
 leaves remain open.
 [Binder and cursor theorems](../../Silmaril/Languages/Starlark/Lists/Iteration/Thms.lean) · [Lowering theorem](../../Silmaril/Languages/Starlark/Functions/Lowering/Thms.lean) · [Source loop validation](starlark-modules.md#resolving-module-declarations)
 
@@ -240,12 +240,38 @@ guard release through `Program.Init`. Lean also inspects the retained
 comprehension slots in its residual heap.
 [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
 
-General comprehension expression positions and dictionary accumulators
-remain open. The pinned Go dict comprehension evaluates key then value
-and overwrites an earlier key, so it needs a separate accumulator path
-from duplicate-rejecting dictionary displays. Subscript and field target
-leaves remain outside the name-pattern profile.
-[Go key/value emission][go-comp-compile]
+## Dictionary comprehension assignment
+
+Function and module dictionaries use the same scoped generators, name
+patterns, filters and fresh-local policy as list comprehensions. A fresh
+dictionary is allocated before the outer iterable. At each accepted
+combination of bindings, the key expression runs once, then the value runs
+once, then the ordinary dictionary write checks hashability and inserts the
+pair. A key expression error skips the value. A value expression error takes
+precedence over an unhashable key. Failure keeps prior operand effects and
+the accepted dictionary prefix in the heap, releases active iterator guards
+and leaves the destination untouched.
+[Pinned comprehensions][comprehensions] · [Pinned dictionaries][dictionaries] · [Go key/value emission][go-comp-compile]
+
+A repeated key replaces only its value, retaining the original key object
+and its insertion position. This path uses indexed dictionary assignment.
+Dictionary displays keep their duplicate-key rejection. The Go reference
+emits `SETDICT` after both operands for comprehensions, and its table
+updates an existing entry in place. Both runtimes use their existing
+hashability rules for the supported key domain.
+[Go insertion dispatch][go-dict-run] · [Go insertion order][go-comp-put] · [Lean insertion theorem](../../Silmaril/Languages/Starlark/Lists/Thms.lean)
+
+`Comprehensions.dict_exec_iff_denote` gives exact native correspondence
+through the independent scoped, loop, binder, expression and indexed
+assignment rules. `Comprehensions.dict_lower_preserves` covers every
+operand including the key and value. It uses the same admission and
+scratch slot conditions as the list theorem and compares the exact outcome
+and final state after restoring scratch. The source theorem shares the
+elaborator. Successful module initialization freezes the reachable result.
+[Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/DictComprehensionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
+
+General expression positions and subscript or field target leaves remain
+outside the comprehension profile.
 
 ## Direct denotation of resolved expressions
 
@@ -749,3 +775,5 @@ extend this profile. Host callable effects remain open.
 [comprehensions]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#comprehensions
 [go-comp-resolve]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/resolve/resolve.go#L686-L708
 [go-comp-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1745-L1804
+[dictionaries]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#dictionaries
+[go-comp-put]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L78-L150

@@ -140,6 +140,19 @@ private theorem editAction (address : Address) (edit : Contents → Except Error
         · exact ⟨rfl, rfl⟩
         · split <;> exact ⟨rfl, rfl⟩
 
+theorem writeIndexScope (receiver index value : Value) : KeepsScope (writeIndex receiver index value) := by
+  cases receiver with
+  | list address =>
+    unfold writeIndex updateCell
+    apply scopeBind (actionList address).2
+    intro elements
+    exact scopeBind (actionExcept _).2 fun _ => (editAction _ _).2
+  | dict address =>
+    unfold writeIndex writeDict
+    intro state
+    exact (editAction address _).2 state
+  | _ => exact scopeThrow _
+
 theorem actionInsertDisplayEntry (receiver key value : Value) :
     FrameAction (insertDisplayEntry receiver key value) := by
   cases receiver with

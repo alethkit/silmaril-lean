@@ -20,6 +20,7 @@ inductive TopCode where
   | assignExpr (name : String) (value : Lowering.Expr)
   | assignTargetExpr (target : Iteration.LoopTarget) (value : Lowering.Expr)
   | assignListComp (name : String) (comp : Comprehensions.ListComp)
+  | assignDictComp (name : String) (comp : Comprehensions.DictComp)
   | setIndexExpr (receiver subscript rhs : Lowering.Expr)
   | addIndexExpr (receiver subscript rhs : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
@@ -31,6 +32,7 @@ def TopCode.body : TopCode → Body
   | .assignExpr name value => .assignExpr (globalSlot name) value
   | .assignTargetExpr target value => .assignTargetExpr target value
   | .assignListComp name comp => comp.body (globalSlot name)
+  | .assignDictComp name comp => comp.body (globalSlot name)
   | .setIndexExpr receiver subscript rhs => .setIndexExpr receiver subscript rhs
   | .addIndexExpr receiver subscript rhs => .addIndexExpr receiver subscript rhs
   | .evalExpr value => .evalExpr value

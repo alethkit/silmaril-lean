@@ -33,4 +33,24 @@ theorem lower_preserves (program : Program) (available : List DeclarationId)
   Proofs.Languages.Starlark.Functions.Comprehensions.lower_preserves
     program available comp target state start outer inner locals free
 
+/-- Exact agreement with the independent body rules, including errors from
+the key expression, value expression or final dictionary write. -/
+theorem dict_exec_iff_denote (program : Program) (available : List DeclarationId)
+    (comp : DictComp) (target : Binding) (state : State) (out : Outcome Flow) :
+    Exec program available state (comp.body target) out ↔
+      denoteBody program available (comp.body target) state = out :=
+  exec_iff_denoteBody _ _ _ _ _
+
+/-- Lowering all dictionary comprehension operands preserves the exact heap,
+result or error, visible bindings and restored iterator guards. -/
+theorem dict_lower_preserves (program : Program) (available : List DeclarationId)
+    (comp : DictComp) (target : Binding) (state : State) (start : Nat := 0)
+    (outer : Lowering.Admitted comp.iterable) (inner : ∀ expr ∈ comp.operands, Lowering.Admitted expr)
+    (locals : ∀ name ∈ comp.locals, ¬ Lowering.Scratch 0 name)
+    (free : Lowering.ScratchFree state) :
+    denoteBody program available (comp.lower target start) state =
+      denoteBody program available (comp.body target) state :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.dict_lower_preserves
+    program available comp target state start outer inner locals free
+
 end Silmaril.Languages.Starlark.Functions.Comprehensions
