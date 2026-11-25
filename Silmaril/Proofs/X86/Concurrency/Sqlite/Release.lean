@@ -217,6 +217,153 @@ theorem owner_trace_view {initial final : XState Nat} {events : List (XEvent Nat
       ih (fun event member => actors event (List.mem_cons_of_mem _ member)) safe
     exact ⟨by rw [last, List.foldl_cons, affected], lastSafe⟩
 
+private theorem peer_issue_view {initial final : XState Nat} {event : XEvent Nat} {owner address : Nat}
+    (step : XStep initial event final) (peer : event.thread ≠ owner)
+    (disjoint : byteEffect event address none = none)
+    (confined : PeerBuffersAvoid initial owner address) :
+    viewMem final owner address = viewMem initial owner address ∧
+      PeerBuffersAvoid final owner address := by
+  cases step with
+  | load => exact ⟨rfl, confined⟩
+  | fence => exact ⟨rfl, confined⟩
+  | rmw tid base old bytes empty read len =>
+    have unchanged : entryByte base bytes address = none := by
+      simpa [byteEffect] using disjoint
+    exact ⟨by simp [viewMem, writeMem, unchanged], confined⟩
+  | store tid base bytes =>
+    have actor : tid ≠ owner := peer
+    have unchanged : entryByte base bytes address = none := by
+      simpa [byteEffect] using disjoint
+    refine ⟨by simp [viewMem, enqueue, Function.update_of_ne (Ne.symm actor)], ?_⟩
+    intro who notOwner entry member
+    by_cases same : who = tid
+    · subst who
+      simp only [enqueue, Function.update_self, List.mem_append, List.mem_singleton] at member
+      rcases member with old | rfl
+      · exact confined tid notOwner entry old
+      · exact unchanged
+    · exact confined who notOwner entry (by
+        simpa [enqueue, Function.update_of_ne same] using member)
+
+private theorem peer_step_view {initial final : XState Nat} {event : XEvent Nat} {owner address : Nat}
+    (step : XWeakStep initial event final) (peer : event.thread ≠ owner)
+    (disjoint : byteEffect event address none = none)
+    (confined : PeerBuffersAvoid initial owner address) :
+    viewMem final owner address = viewMem initial owner address ∧
+      PeerBuffersAvoid final owner address := by
+  obtain ⟨_, _, before, issued, after⟩ := step
+  obtain ⟨prior, safe⟩ := flushes_preserve_view before confined
+  obtain ⟨effect, safeIssue⟩ := peer_issue_view issued peer disjoint safe
+  obtain ⟨view, safeFinal⟩ := flushes_preserve_view after safeIssue
+  exact ⟨view.trans (effect.trans prior), safeFinal⟩
+
+theorem confined_interleaving_view {initial final : XState Nat} {events : List (XEvent Nat)}
+    {owner address : Nat}
+    (path : Tso.Execution XWeakStep initial events final)
+    (confined : PeerBuffersAvoid initial owner address)
+    (disjoint : ∀ event ∈ events, event.thread ≠ owner → byteEffect event address none = none) :
+    viewMem final owner address =
+      (events.filter (fun event => event.thread == owner)).foldl
+        (fun before event => byteEffect event address before) (viewMem initial owner address) ∧
+      PeerBuffersAvoid final owner address := by
+  induction path with
+  | nil _ => exact ⟨rfl, confined⟩
+  | @cons current next final event rest step tail ih =>
+    have later : ∀ e ∈ rest, e.thread ≠ owner → byteEffect e address none = none :=
+      fun e member peer => disjoint e (List.mem_cons_of_mem _ member) peer
+    by_cases own : event.thread = owner
+    · obtain ⟨one, safe⟩ := owner_step_view step own confined
+      obtain ⟨restView, safeFinal⟩ := ih safe later
+      refine ⟨?_, safeFinal⟩
+      rw [restView, one]
+      simp [own]
+    · obtain ⟨unchanged, safe⟩ :=
+        peer_step_view step own (disjoint event List.mem_cons_self own) confined
+      obtain ⟨restView, safeFinal⟩ := ih safe later
+      refine ⟨?_, safeFinal⟩
+      rw [restView, unchanged]
+      simp [beq_eq_false_iff_ne.mpr own]
+
+private theorem flushes_preserve_empty {s t : XState Nat} {thread : Nat}
+    (steps : XFlushes s t) (empty : s.buffer thread = []) : t.buffer thread = [] := by
+  induction steps with
+  | refl => exact empty
+  | tail _ last ih =>
+    cases last with
+    | head who base bytes rest oldest =>
+      by_cases same : thread = who
+      · subst who
+        rw [ih] at oldest
+        cases oldest
+      · simpa [Function.update_of_ne same] using ih
+
+private theorem peer_trace_preserves_empty {s t : XState Nat} {thread : Nat}
+    {events : List (XEvent Nat)}
+    (path : Tso.Execution XWeakStep s events t)
+    (peers : ∀ event ∈ events, event.thread ≠ thread) (empty : s.buffer thread = []) :
+    t.buffer thread = [] := by
+  induction path with
+  | nil => exact empty
+  | @cons s next final event rest step tail ih =>
+    obtain ⟨_, _, before, issued, after⟩ := step
+    have pre := flushes_preserve_empty before empty
+    have post := by
+      have peer := peers event List.mem_cons_self
+      cases issued with
+      | load => exact flushes_preserve_empty after pre
+      | fence => exact flushes_preserve_empty after pre
+      | rmw => exact flushes_preserve_empty after pre
+      | store tid base bytes =>
+        have actor : tid ≠ thread := peer
+        apply flushes_preserve_empty after
+        simpa [enqueue, Function.update_of_ne (Ne.symm actor)] using pre
+    exact ih (fun e member => peers e (List.mem_cons_of_mem _ member)) post
+
+private theorem interleaving_last_owner_rmw_empty {s t : XState Nat} {owner base : Nat}
+    {old new : List Byte} {events : List (XEvent Nat)}
+    (path : Tso.Execution XWeakStep s events t)
+    (last : (events.filter (fun event => event.thread == owner)).getLast? =
+      some (.rmw owner base old new)) :
+    t.buffer owner = [] := by
+  induction path with
+  | nil => simp at last
+  | @cons s next final event rest step tail ih =>
+    by_cases own : event.thread = owner
+    · have projected :
+          (event :: rest.filter (fun e => e.thread == owner)).getLast? =
+            some (.rmw owner base old new) := by
+        simpa [own] using last
+      cases filtered : rest.filter (fun e => e.thread == owner) with
+      | nil =>
+        have eq : event = .rmw owner base old new := by
+          simpa [filtered] using projected
+        subst event
+        have peers : ∀ e ∈ rest, e.thread ≠ owner := by
+          intro e member
+          have neq := List.filter_eq_nil_iff.mp filtered e member
+          exact beq_eq_false_iff_ne.mp (Bool.eq_false_iff.mpr neq)
+        exact peer_trace_preserves_empty tail peers (weak_rmw_empty step)
+      | cons first remaining =>
+        apply ih
+        simpa [filtered] using projected
+    · apply ih
+      simpa [beq_eq_false_iff_ne.mpr own] using last
+
+theorem interleaving_last_rmw_backing {initial final : XState Nat}
+    {events : List (XEvent Nat)} {owner address base : Nat} {old new : List Byte}
+    (path : Tso.Execution XWeakStep initial events final)
+    (confined : PeerBuffersAvoid initial owner address)
+    (disjoint : ∀ event ∈ events, event.thread ≠ owner → byteEffect event address none = none)
+    (last : (events.filter (fun event => event.thread == owner)).getLast? =
+      some (.rmw owner base old new)) :
+    final.buffer owner = [] ∧
+      final.memory address =
+        (events.filter (fun event => event.thread == owner)).foldl
+          (fun before event => byteEffect event address before) (viewMem initial owner address) := by
+  have empty := interleaving_last_owner_rmw_empty path last
+  have view := (confined_interleaving_view path confined disjoint).1
+  exact ⟨empty, by simpa [viewMem, empty, readBufByte] using view⟩
+
 theorem release_publishes {s t : XState Nat} {tid lock payload : Nat}
     (separate : payload ≠ lock) (confined : PeerBuffersAvoid s tid payload)
     (releases : XWeakStep s (releaseEvent tid lock) t) :
