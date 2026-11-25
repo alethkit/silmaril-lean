@@ -45,7 +45,12 @@ instance (expected actual : ExceptionClass) : Decidable (expected.catches actual
 
 inductive Helper where
   | assertEqual
+  | assertIsNot
   | assertRaises (onReturn : AssertionArgument)
+  deriving DecidableEq, Repr
+
+inductive Builtin where
+  | int
   deriving DecidableEq, Repr
 
 inductive Value where
@@ -54,6 +59,7 @@ inductive Value where
   | none
   | exceptionClass (kind : ExceptionClass)
   | helper (callable : Helper)
+  | builtin (callable : Builtin)
   | function (closure : Core.Closure.Function)
   deriving DecidableEq, Repr
 
@@ -121,6 +127,8 @@ inductive Delivers (expectation : Expectation) : Result → Result → Prop wher
 calling an exception class would construct an object outside this profile. -/
 inductive Request (arity : Nat) where
   | compare (left right : Int)
+  | intFromBool (value : Bool)
+  | distinctIntBool
   | expect (expectation : Expectation) (callback : Value) (arguments : List Value)
       (shorter : arguments.length < arity)
   | nonCallable
@@ -129,6 +137,8 @@ inductive Request (arity : Nat) where
 def Request.decode (callee : Value) (arguments : List Value) : Request arguments.length :=
   match callee, arguments with
   | .helper .assertEqual, [.int left, .int right] => .compare left right
+  | .builtin .int, [.bool value] => .intFromBool value
+  | .helper .assertIsNot, [.int _, .bool _] | .helper .assertIsNot, [.bool _, .int _] => .distinctIntBool
   | .helper (.assertRaises onReturn), .exceptionClass expected :: callback :: arguments =>
     .expect ⟨expected, onReturn⟩ callback arguments (by simp only [List.length_cons]; omega)
   | .none, _ | .int _, _ | .bool _, _ => .nonCallable
@@ -140,6 +150,8 @@ def invoke (callee : Value) (arguments : List Value) : Result :=
   match Request.decode callee arguments with
   | .compare left right =>
     if left = right then .ok .none else .error (.raised (.assertionError (.integerPair left right)))
+  | .intFromBool value => .ok (.int (Int.ofNat value.toNat))
+  | .distinctIntBool => .ok .none
   | .expect expectation callback args _shorter =>
     expectation.deliver (invoke callback args)
   | .nonCallable => .error (.raised (.runtime .notCallable))
@@ -151,6 +163,9 @@ inductive Executes : {arity : Nat} → Request arity → Result → Prop where
       Executes (arity := arity) (.compare left right) (.ok .none)
   | unequal {arity : Nat} (left right : Int) (different : left ≠ right) :
       Executes (arity := arity) (.compare left right) (.error (.raised (.assertionError (.integerPair left right))))
+  | intFromBool {arity : Nat} (value : Bool) :
+      Executes (arity := arity) (.intFromBool value) (.ok (.int (Int.ofNat value.toNat)))
+  | distinctIntBool {arity : Nat} : Executes (arity := arity) .distinctIntBool (.ok .none)
   | expected {arity : Nat} {expectation : Expectation} {callback : Value} {arguments : List Value}
       {shorter : arguments.length < arity} {inner outer : Result} :
       Executes (Request.decode callback arguments) inner → Delivers expectation inner outer →
