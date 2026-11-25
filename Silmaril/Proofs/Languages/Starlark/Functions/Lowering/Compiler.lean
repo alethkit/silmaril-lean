@@ -95,6 +95,15 @@ private theorem advances_emit (expr : Expr) (target : Binding) :
     refine advances_bind (advances_stage (advances_emit subscript)) ?_
     rintro ⟨_, _⟩
     exact advances_pure _
+  | slice receiver start stop stride =>
+    rw [emit]
+    apply advances_bind
+    · apply advances_many
+      intro operand _
+      have := sliceOperandSize operand.property
+      exact advances_stage (advances_emit operand.val)
+    · intro _
+      exact advances_pure _
   | branch test yes no =>
     rw [emit]
     refine advances_bind (advances_stage (advances_emit test)) fun saved => ?_
@@ -216,6 +225,19 @@ theorem emit_index (receiver subscript : Expr) (target : Binding) (start : Nat) 
     (parts.map Prod.fst).foldr Body.seq (assign target (.index (scratchRead start) (scratchRead next))) := by
   rw [emit]
   simp only [stages_cons]
+  rfl
+
+theorem emit_slice (receiver start stop stride : Expr) (target : Binding) (base : Nat) :
+    ((emit (.slice receiver start stop stride) target).run base).1 =
+    let parts := ((stages [receiver, start, stop, stride]).run base).1
+    (parts.map Prod.fst).foldr Body.seq (assign target (.slice (operandList (parts.map Prod.snd)))) := by
+  rw [emit]
+  let operands := [receiver, start, stop, stride]
+  let stageOne := fun expr : Expr => stage (emit expr)
+  change ((operands.attach.mapM (stageOne ∘ Subtype.val) >>= _) base).1 = _
+  rw [← List.mapM_map]
+  change ((operands.attach.unattach.mapM stageOne >>= _) base).1 = _
+  rw [List.unattach_attach]
   rfl
 
 theorem emit_call (callee : Expr) (positional : List Expr) (keywords : List (String × Expr))

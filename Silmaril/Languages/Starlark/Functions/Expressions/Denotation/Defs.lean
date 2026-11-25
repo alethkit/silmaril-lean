@@ -69,6 +69,11 @@ def denoteExprWith (program : Program) (available : List DeclarationId)
   | .index receiver subscript => fun state =>
     Outcome.resume (denoteExprWith program available bodyMeaning receiver state) fun value next =>
       Outcome.resume (denoteExprWith program available bodyMeaning subscript next) (Lists.readIndex value)
+  | .slice receiver start stop stride => fun state =>
+    let values := [receiver, start, stop, stride].attach.mapM fun operand => do
+      have := sliceOperandSize operand.property
+      denoteExprWith program available bodyMeaning operand.val
+    Outcome.resume (values state) Lists.readSliceOperands
   | .call callee positional keywords star starStar => do
     let callable ← denoteExprWith program available bodyMeaning callee
     let values ← (argumentExprs positional keywords star starStar).attach.mapM fun operand => do

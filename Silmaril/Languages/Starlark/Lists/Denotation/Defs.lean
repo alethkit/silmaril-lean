@@ -31,6 +31,8 @@ def denote {α : Type} : Code α → Meaning α
   | .index receiver index => do
     let value ← denote receiver
     readIndex value (← denote index)
+  | .slice operands => do
+    readSliceOperands (← denote operands)
   | .append receiver argument => do
     match ← denote receiver with
     | .list address => appendAt address (← denote argument)

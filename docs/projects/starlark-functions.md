@@ -133,7 +133,7 @@ available declaration set bounds live calls.
 
 `Lowering.denoteExpr` maps a resolved expression and state to a value or
 dynamic error with its final state. It interprets call-free collection
-atoms, list, tuple and dictionary displays, subscript reads, nested calls with positional,
+atoms, list, tuple and dictionary displays, subscript and slice reads, nested calls with positional,
 keyword, `*` and `**` operands, conditionals and operand-valued `and` and
 `or`. A call evaluates the callee and operands from left to right, then
 expands and binds the arguments.
@@ -189,10 +189,42 @@ after freezing.
 
 Subscript reads accept lists, tuples and dictionaries already supported by
 the shared store. Sequence reads use exact integers and allow negative
-indices. String and byte indexing and slices remain open. Go also supports
+indices. String and byte indexing remain open. Go also supports
 additional indexable types and checks
 sequence indices through a signed 32-bit conversion.
 [List expressions in the pinned spec][list-expr] · [Tuples in the pinned spec][tuple-expr] · [Subscripts in the pinned spec][subscript] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
+
+### List and tuple slice reads
+
+`Expr.slice` evaluates the receiver, start, stop and stride once, from left
+to right. The first operand evaluation failure skips the rest and retains
+its effects. After all four succeed, the evaluator reads the receiver in the
+resulting heap, then validates the stride, start and stop in that order.
+An unsupported receiver takes precedence over invalid bound values. A zero
+stride takes precedence over start and stop type errors. This validation
+order follows pinned Go.
+
+Omitted bounds elaborate to `None` and explicit `None` has the same runtime
+meaning. The default stride is 1. Negative bounds offset by the current
+length. The signed stride determines the defaults and clamp interval.
+The stop is exclusive in either direction, so an omitted stop in a reverse
+slice differs from an explicit `-1`. Lean uses exact integers, including
+bounds and strides beyond Go's signed 32-bit conversion.
+
+A successful slice allocates a fresh outer collection of the receiver's
+kind, even when the result is empty. Element values are copied shallowly,
+so mutable elements retain their identities. A list result starts mutable.
+Tuple allocation recomputes the structural key from the selected elements.
+The heap model allocates a tuple cell even for unit stride, where Go can
+reuse part of the backing array of the immutable tuple.
+
+The operational rule uses ordered operand derivations and shares the
+value-level selection and allocation primitive with the denotation.
+`evaluates_iff_denoteExpr` compares the exact outcome and state.
+`lower_preserves` covers slice reads after projecting direct scratch bindings.
+The normalized resolver and Lean quotation admit `xs[a:b:s]` with optional
+bounds. Strings, bytes and ranges need their own slice semantics.
+[Pinned slice spec][slice-expr] · [Go compilation][go-slice-compile] · [Go validation][go-slice-eval] · [Go list slice][go-list-slice] · [Go tuple slice][go-tuple-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ## Native expression positions
 
@@ -224,7 +256,7 @@ expression-position theorems in the denotation header expose that agreement
 without the compiler's scratch projection.
 
 Module commands reuse native assignment and expression statements, including
-direct collection displays, subscript reads, and both subscript assignment forms below.
+direct collection displays, subscript and slice reads, and both subscript assignment forms below.
 [Body rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean) · [Native position agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Assignment and conditional fixtures](../../Silmaril/Languages/Starlark/Functions/NativeBodyChecks.lean) · [Return fixtures](../../Silmaril/Languages/Starlark/Functions/NativeReturnChecks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
 
 ### Simple subscript assignment
@@ -272,7 +304,7 @@ function and module statements expose `addIndex receiver subscript rhs`
 without introducing a lexical binding. Successful writes cover existing
 list elements and dictionary entries. Operand pairs outside integer addition
 report `integerAddType` in this profile. Other augmented operators, name
-and field targets, slices, and Go's in-place list addition remain open.
+and field targets, and Go's in-place list addition remain open.
 [Augmented assignments in the pinned spec][augmented] · [Go compilation][go-augmented] · [Go operator dispatch][go-inplace-add] · [Go write dispatch][go-write] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/NativeSubscriptChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
 
 ## Nested expression lowering
@@ -283,7 +315,7 @@ including call-free operands, before the final call. Positional, keyword,
 `*` and `**` operands stay in source order. Expansion and argument errors
 still use the call semantics. The compiler places branch work inside the
 selected branch and skips its destination write if the operand fails. List
-and tuple displays and subscript reads stage their operands before the final
+and tuple displays, subscript reads and slice reads stage their operands before the final
 collection operation. Dictionary lowering stages a key and value, checks and
 inserts the pair into the dictionary, then continues with the next pair.
 
@@ -295,7 +327,7 @@ ranges disjoint. The emitted code can be placed inside a function loop.
 
 `lower_preserves` relates an independent source evaluation to
 `denoteBody` of the emitted code. The proved fragment includes call-free
-atoms, list, tuple and dictionary displays, subscript reads, nested calls with positional, keyword,
+atoms, list, tuple and dictionary displays, subscript and slice reads, nested calls with positional, keyword,
 `*` and `**` operands, conditionals and short-circuit operations. The source rules evaluate the
 callee first, then operands left to right, stopping at the first evaluation
 error. Only after all operands succeed do they expand the mapping and then
@@ -344,7 +376,7 @@ valid identifier tokens, the set of lexical bindings and allocated frame
 slots. `resolveTracked` also returns the lexical slots read during resolution.
 The [module adapter](starlark-modules.md#resolving-module-declarations)
 collects scopes and uses those reads for closure captures. Text parsing,
-source locations, slices and attribute syntax
+source locations and attribute syntax
 remain outside the expression adapter. The preservation theorem starts at
 the resulting resolved tree.
 [Resolver](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Defs.lean) · [End-to-end Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Lowering/Resolve/Checks.lean)
@@ -354,7 +386,7 @@ the resulting resolved tree.
 `starlark%[...]` constructs a `Lowering.Resolve.SourceExpr` in a Lean file.
 It accepts grouped expressions, simple ASCII identifiers, decimal integer
 literals with optional minus, plain double-quoted strings, list and dictionary displays, parenthesized tuples,
-single-expression subscripts, nested calls, conditionals and operand-valued
+single-expression subscripts, slices, nested calls, conditionals and operand-valued
 `and` and `or`. Calls accept positional
 and named arguments followed by optional `*` and `**`, with an optional
 trailing comma. Quoted names are strings in the AST. The resolver still
@@ -428,6 +460,11 @@ extend this profile. Host callable effects remain open.
 [go-dict-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1371-L1380
 [go-dict-run]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L486
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
+[slice-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#slice-expressions
+[go-slice-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1340-L1358
+[go-slice-eval]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L1266-L1381
+[go-list-slice]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L992-L1004
+[go-tuple-slice]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go#L1131-L1142
 [assignments]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#assignments
 [augmented]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#augmented-assignments
 [go-assign]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1247-L1272

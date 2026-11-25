@@ -104,6 +104,18 @@ private theorem keeps_readIndex (receiver index : Value) : Preserves (readIndex 
     · rfl
     · split <;> rfl
 
+private theorem keeps_slice (operands : List Value) : Preserves (readSliceOperands operands) := by
+  unfold readSliceOperands
+  split
+  next receiver start stop stride =>
+    cases receiver with
+    | list | tuple =>
+      rw [readSlice]
+      exact keeps_bind (keeps_project _ _) fun _ =>
+        keeps_bind (keeps_except _) fun _ _ => rfl
+    | _ => exact keeps_throw _
+  next => exact keeps_throw _
+
 private theorem keeps_writeIndex (receiver index value : Value) :
     Preserves (writeIndex receiver index value) := by
   cases receiver with
@@ -161,6 +173,9 @@ private theorem keeps_code {α : Type} (code : Code α) : Preserves (denote code
   | index receiver index ihReceiver ihIndex =>
     rw [denote]
     exact keeps_bind ihReceiver fun value => keeps_bind ihIndex (keeps_readIndex value)
+  | slice operands ih =>
+    rw [denote]
+    exact keeps_bind ih keeps_slice
   | append receiver argument ihReceiver ihArgument =>
     rw [denote]
     apply keeps_bind ihReceiver
