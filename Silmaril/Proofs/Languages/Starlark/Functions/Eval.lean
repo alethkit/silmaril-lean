@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Starlark.Functions.Denotation.Defs
 public import Silmaril.Languages.Starlark.Functions.Operational.Defs
+public import Silmaril.Languages.Starlark.Functions.Builtins.Thms
 public import Silmaril.Languages.Starlark.Lists.Thms
 public import Silmaril.Languages.Starlark.Lists.Iteration.Thms
 
@@ -25,6 +26,7 @@ theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {
   induction h <;>
     (try have evaluated := (eval_iff_denote _ _ _).mp (by assumption)) <;>
     (try have total := (runs_iff_denoteSuite _ _ _).mp (by assumption)) <;>
+    (try have invoked := (Builtins.invokes_iff_invoke _ _ _ _).mp (by assumption)) <;>
     simp_all [denoteBody, Outcome.resume]
   case seqStop signal _ _ _ =>
     cases signal <;> simp_all <;> rfl
@@ -67,7 +69,11 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
     cases h : Outcome.resume (denote (Arguments.operands callee arguments) state) (prepare program available arguments) with
     | error error next => exact .callError evaluated h
     | ok plan next =>
-      exact .call evaluated h (exec_denote program (withoutDeclaration available plan.id) plan.body next)
+      cases plan with
+      | closure plan =>
+        exact .call evaluated h (exec_denote program (withoutDeclaration available plan.id) plan.body next)
+      | builtin id actual =>
+        exact .callBuiltin evaluated h ((Builtins.invokes_iff_invoke _ _ _ _).mpr rfl)
 termination_by (available.length, sizeOf body)
 decreasing_by
   all_goals first

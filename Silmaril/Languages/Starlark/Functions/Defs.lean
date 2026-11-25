@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Languages.Starlark.Functions.Arguments.Defs
+public import Silmaril.Languages.Starlark.Functions.Builtins.Defs
 
 @[expose] public section
 
@@ -83,12 +83,17 @@ structure Prepared (available : List DeclarationId) where
   permitted : id ∈ available
   body : Body
 
+inductive CallPlan (available : List DeclarationId) where
+  | closure (prepared : Prepared available)
+  | builtin (id : Builtin) (actual : Actual)
+
 /-- Expand evaluated operands before callability, then check re-entry before binding. -/
 def prepare (program : Program) (available : List DeclarationId) (arguments : Arguments) :
-    List Lists.Value → Meaning (Prepared available)
+    List Lists.Value → Meaning (CallPlan available)
   | callee :: operands => do
     let actual ← arguments.expand operands
     match callee with
+    | .builtin id => pure (.builtin id actual)
     | .function address =>
       let closure ← getClosure address
       match program[closure.declaration]? with
@@ -98,7 +103,7 @@ def prepare (program : Program) (available : List DeclarationId) (arguments : Ar
           let bound ← fromExcept (bindArguments declaration.signature closure.defaults actual)
           let assigned ← packArgs declaration.signature bound
           fun state =>
-            .ok ⟨closure.declaration, h, declaration.body⟩
+            .ok (.closure ⟨closure.declaration, h, declaration.body⟩)
               (activate state declaration closure.captures assigned)
         else throw (.recursiveCall closure.declaration)
     | _ => throw .notCallable
@@ -123,13 +128,15 @@ def validate (program : Program) (body : Body) : Except CallStaticError Unit := 
 def restoreCaller (caller state : State) : State :=
   { state with slots := caller.slots, bindings := caller.bindings }
 
+def writeCallResult (target : Option Binding) (value : Lists.Value) : Meaning Flow :=
+  fun state => .ok .next (target.elim state fun binding => state.write binding value)
+
 def completeCall (caller : State) (target : Option Binding) : Outcome Flow → Outcome Flow
   | .error error state => .error error (restoreCaller caller state)
   | .ok flow state =>
     let value := match flow with
       | .returned result => result
       | _ => .scalar .none
-    let state := restoreCaller caller state
-    .ok .next (target.elim state fun binding => state.write binding value)
+    writeCallResult target value (restoreCaller caller state)
 
 end Silmaril.Languages.Starlark.Functions

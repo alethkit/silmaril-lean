@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Languages.Starlark.Functions.Defs
+public import Silmaril.Languages.Starlark.Functions.Builtins.Operational.Defs
 public import Silmaril.Languages.Starlark.Lists.Iteration.Operational.Defs
 
 public section
@@ -41,9 +42,17 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {callee : Lists.Expr} {arguments : Arguments} {operands : Outcome (List Lists.Value)}
       {plan : Prepared available} {out : Outcome Flow} :
       Eval s (Arguments.operands callee arguments) operands →
-      Outcome.resume operands (prepare program available arguments) = .ok plan t →
+      Outcome.resume operands (prepare program available arguments) = .ok (.closure plan) t →
       Exec program (withoutDeclaration available plan.id) t plan.body out →
       Exec program available s (.call target callee arguments) (completeCall s target out)
+  | callBuiltin {available : List DeclarationId} {s t : State} {target : Option Binding}
+      {callee : Lists.Expr} {arguments : Arguments} {operands : Outcome (List Lists.Value)}
+      {id : Builtin} {actual : Actual} {out : Outcome Lists.Value} :
+      Eval s (Arguments.operands callee arguments) operands →
+      Outcome.resume operands (prepare program available arguments) = .ok (.builtin id actual) t →
+      Builtins.Invokes t id actual out →
+      Exec program available s (.call target callee arguments)
+        (Outcome.resume out (writeCallResult target))
   | callError {available : List DeclarationId} {s t : State} {target : Option Binding}
       {callee : Lists.Expr} {arguments : Arguments} {operands : Outcome (List Lists.Value)}
       {error : Error} :

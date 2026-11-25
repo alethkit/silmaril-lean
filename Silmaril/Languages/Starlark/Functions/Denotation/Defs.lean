@@ -27,8 +27,10 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
   | .call target callee arguments =>
     match Outcome.resume (denote (Arguments.operands callee arguments) state) (prepare program available arguments) with
     | .error error next => .error error next
-    | .ok plan next =>
+    | .ok (.closure plan) next =>
       completeCall state target (denoteBody program (withoutDeclaration available plan.id) plan.body next)
+    | .ok (.builtin id actual) next =>
+      Outcome.resume (Builtins.invoke id actual next) (writeCallResult target)
 termination_by (available.length, sizeOf body)
 decreasing_by
   all_goals first

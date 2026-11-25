@@ -53,6 +53,7 @@ public import Silmaril.Calculi
 public import Silmaril.Languages.Starlark.Thms
 public import Silmaril.Languages.Starlark.Lists.Thms
 public import Silmaril.Languages.Starlark.Lists.Iteration.Thms
+public import Silmaril.Languages.Starlark.Functions.Builtins.Thms
 public import Silmaril.Languages.Starlark.Functions.Thms
 public import Silmaril.Languages.Starlark.Modules.Thms
 
