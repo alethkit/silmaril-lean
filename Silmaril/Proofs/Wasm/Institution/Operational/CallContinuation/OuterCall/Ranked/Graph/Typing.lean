@@ -50,6 +50,41 @@ theorem linked_target {program : Program} (checked : program.check = true)
     have same : body.entry = callee := by simpa [h] using lookup
     exact ⟨body, rfl, (congrArg Entry.declaration same).trans declared, resolves⟩
 
+private theorem direct_function {program : Program} (checked : program.checkDirect = true)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) :
+    program.checkLinkedFunction fn = true :=
+  List.all_eq_true.mp checked (some fn) (lookup_mem found)
+
+theorem check_direct_function {program : Program} (checked : program.checkDirect = true)
+    {address : FuncAddr} {fn : Function} (found : program.lookup address = some fn) : fn.check = true :=
+  (Bool.and_eq_true_iff.mp (direct_function checked found)).1
+
+theorem linked_direct_target {program : Program} (checked : program.checkDirect = true)
+    {address : FuncAddr} {fn : Function} {target : CallTarget}
+    (found : program.lookup address = some fn) (used : target ∈ fn.targets) :
+    ∃ callee, program.lookup target.address = some callee ∧ callee.declaration = target.declaration ∧
+      fn.declaration.module.funcs[target.index.toNat]? = some target.address := by
+  have links := (Bool.and_eq_true_iff.mp (direct_function checked found)).2
+  have valid := List.all_eq_true.mp links target used
+  cases existsCallee : program.lookup target.address with
+  | none => simp [existsCallee] at valid
+  | some callee =>
+    exact ⟨callee, rfl, by simpa [existsCallee] using valid⟩
+
+theorem check_direct_of_ranked {program : Program} (checked : program.check = true) :
+    program.checkDirect = true := by
+  apply List.all_eq_true.mpr
+  rintro (_ | fn) member
+  · rfl
+  · obtain ⟨index, bound, slot⟩ := List.mem_iff_getElem.mp member
+    have found : program.lookup ⟨index⟩ = some fn := by
+      simp [Program.lookup, List.getElem?_eq_getElem bound, slot]
+    apply Bool.and_eq_true_iff.mpr
+    refine ⟨check_function checked found, List.all_eq_true.mpr ?_⟩
+    intro target used
+    obtain ⟨callee, lookup, declared, resolves⟩ := linked_target checked found used
+    simp [lookup, declared, resolves]
+
 private theorem stack_types_append (below above : List Value) :
     Prefix.stackTypes (below ++ above) = Prefix.stackTypes above ++ Prefix.stackTypes below := by
   simp [Prefix.stackTypes]
@@ -238,18 +273,23 @@ theorem branch_here_result {fallthrough : List NumType} {enclosing : EnclosingLa
   change some (kind.inputs fallthrough) = some result at found
   exact Option.some.inj found
 
-theorem admitted_step {program : Program} (checked : program.check = true) (address : FuncAddr) :
-    ∀ {fn a b fallthrough enclosing kind}, program.lookup address = some fn → AdmittedAt program fn fallthrough enclosing a kind →
-      program.EdgeAt checked address kind a b → AdmittedAt program fn fallthrough enclosing b kind := by
-  induction address using (program.table.wellFounded (Program.rankCheck checked)).induction with
-  | h address ih =>
-    intro fn a b fallthrough enclosing kind found ready move
-    have step := (edge_iff checked found).mp move
+theorem frame_admitted_step {program : Program} (checked : program.checkDirect = true) (size : Nat) :
+    ∀ {address fn a b fallthrough enclosing kind}, sizeOf a = size →
+      program.lookup address = some fn → AdmittedAt program fn fallthrough enclosing a kind →
+      program.FrameEdgeAt address kind a b → AdmittedAt program fn fallthrough enclosing b kind := by
+  induction size using Nat.strong_induction_on with
+  | ind size ih =>
+    intro address fn a b fallthrough enclosing kind sizeEq found ready move
+    obtain ⟨callee, lookup, step⟩ := unfold_frame_edge.mp move
+    have same := Option.some.inj (lookup.symm.trans found)
+    subst callee
+    rw [sizeEq] at step
+    clear move sizeEq
     induction step generalizing fallthrough enclosing with
     | resolve args => cases ready with | call typed => exact .invoke typed
     | enter args typed =>
       cases ready
-      exact .running (init_local_types typed) (check_function checked found)
+      exact .running (init_local_types typed) (check_direct_function checked found)
     | numeric step =>
       cases ready with
       | running typed body =>
@@ -295,7 +335,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
       cases ready with
       | block inside resume =>
         have outcome := label_outcome step ⟨_, _, rfl⟩
-        have after := bodyIH inside ((edge_iff checked found).mpr step)
+        have after := bodyIH inside
         cases next with
         | label => exact .block after resume
         | branching =>
@@ -330,7 +370,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
       cases ready with
       | indexedBlock inside resume =>
         have outcome := label_outcome step ⟨_, _, rfl⟩
-        have after := bodyIH inside ((edge_iff checked found).mpr step)
+        have after := bodyIH inside
         cases next with
         | label => exact .indexedBlock after resume
         | branching =>
@@ -363,7 +403,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
       cases ready with
       | loop inside originalTyped resume =>
         have outcome := label_outcome step ⟨_, _, rfl⟩
-        have after := bodyIH inside ((edge_iff checked found).mpr step)
+        have after := bodyIH inside
         cases next with
         | label => exact .loop after originalTyped resume
         | branching =>
@@ -405,7 +445,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
       cases ready with
       | indexedLoop inside resolved originalTyped resume =>
         have outcome := label_outcome step ⟨_, _, rfl⟩
-        have after := bodyIH inside ((edge_iff checked found).mpr step)
+        have after := bodyIH inside
         cases next with
         | label => exact .indexedLoop after resolved originalTyped resume
         | branching =>
@@ -440,16 +480,17 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
     | dispatch args saved operands target rest used count =>
       cases ready with
       | running typed body =>
-        obtain ⟨callee, calleeFound, declared, _⟩ := linked_target checked found used
+        obtain ⟨callee, calleeFound, declared, _⟩ := linked_direct_target checked found used
         obtain ⟨callArgs, resume⟩ := args_check count body
         exact .active typed used calleeFound declared trivial (.invoke (callArgs.trans (congrArg Declaration.params declared).symm)) resume
     | child args saved target rest used live step =>
       cases ready with
       | active typed _ childFound declared _ childReady resume =>
-        have next := ih target.address (target_resolved checked found used) childFound childReady step
+        obtain ⟨smaller, childStep⟩ := step
+        have next := ih _ smaller rfl childFound childReady childStep
         cases next with
         | call newArgs =>
-          exact (not_call step _ rfl).elim
+          exact (frame_not_call childStep _ rfl).elim
         | invoke newArgs => exact .active typed used childFound declared trivial (.invoke newArgs) resume
         | running newArgs body => exact .active typed used childFound declared trivial (.running newArgs body) resume
         | active newArgs edge alloc same live ready body =>
@@ -517,6 +558,13 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
       cases ready with | running typed body => exact .exit typed (result_of_nil body)
     | leaveTrap args => cases ready with | trapped typed => exact .exit typed trivial
     | leaveFrame args result typed => exact .done typed
+
+theorem admitted_step {program : Program} (checked : program.check = true) (address : FuncAddr)
+    {fn a b fallthrough enclosing kind} (found : program.lookup address = some fn)
+    (ready : AdmittedAt program fn fallthrough enclosing a kind) (move : program.EdgeAt checked address kind a b) :
+    AdmittedAt program fn fallthrough enclosing b kind :=
+  frame_admitted_step (check_direct_of_ranked checked) _ rfl found ready
+    ((frame_edge_iff_ranked checked address).mpr move)
 
 theorem nesting_of_admitted {program : Program} (checked : program.check = true)
     {address : FuncAddr} {fn : Function} {phase : Phase} {fallthrough : List NumType} {enclosing : EnclosingLabels} {kind : LabelKind}

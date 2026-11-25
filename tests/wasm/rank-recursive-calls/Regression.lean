@@ -2039,4 +2039,158 @@ example := checkedIndexedRun returnLoopChecked returnLoopRoot (.call (args := []
 
 end IndexedBlocks
 
+section SelfRecursion
+
+private def selfDecl : Declaration :=
+  ⟨{ types := [⟨[int32], [int32]⟩], funcs := [⟨0⟩] }, ⟨0⟩, [int32], [int32], [int32]⟩
+private def selfTarget : CallTarget := ⟨⟨0⟩, ⟨0⟩, selfDecl⟩
+private def selfBase (traps : Bool) : List Op :=
+  if traps then [.unreachable] else [readLocal ⟨0⟩, .return_]
+private def selfResume : List Op := [add, readLocal ⟨0⟩, add]
+private def selfRecurse : List Op := [readLocal ⟨0⟩, readLocal ⟨1⟩, .call selfTarget] ++ selfResume
+private def selfFn (traps : Bool) : Function :=
+  ⟨selfDecl, 0, [], [readLocal ⟨0⟩, .if_ none [] (selfBase traps)] ++ selfRecurse⟩
+private def selfProgram (traps : Bool) : Program := ⟨[some (selfFn traps)]⟩
+private def selfLocals (flag : BitVec 32) : List Value := [i32 flag, i32 0]
+private theorem selfChecked (traps : Bool) : (selfProgram traps).checkDirect = true := by cases traps <;> rfl
+private theorem selfRoot (traps : Bool) : Root (selfProgram traps) (callerFrame ⟨0⟩) selfTarget (selfFn traps) := ⟨rfl, rfl, rfl⟩
+
+example : (selfProgram false).check = false := rfl
+example : (selfProgram false).checkV1 = false := rfl
+example : (⟨[some { selfFn false with declaration := { selfDecl with module := {} } }]⟩ : Program).checkDirect = false := rfl
+example : (⟨[some { selfFn false with code := [.call selfTarget] }]⟩ : Program).checkDirect = false := rfl
+
+private theorem selfEdge {traps : Bool} {a b : Phase}
+    (step : Layer (selfFn traps) (fun t => (selfProgram traps).FrameEdge t.address) a b) :
+    (selfProgram traps).FrameEdge ⟨0⟩ a b :=
+  ((selfProgram traps).frameEdge_iff (selfRoot traps).found).mpr step
+
+private theorem selfSelect (traps : Bool) (flag : BitVec 32) :
+    (selfProgram traps).FrameRuns ⟨0⟩ (.invoke [i32 flag])
+      (.label (selfLocals flag) (.running [] (.block none (if flag = 0 then selfBase traps else []) :: selfRecurse))) := by
+  have entered := Relation.ReflTransGen.single (selfEdge (traps := traps) (.enter [i32 flag] rfl))
+  have cond := entered.tail (selfEdge (.numeric (locals := selfLocals flag)
+    (rest := .if_ none [] (selfBase traps) :: selfRecurse) (.get (stack := []) (i := ⟨0⟩) (v := i32 flag) rfl)))
+  exact cond.tail (selfEdge (.ifSelect (selfLocals flag) [] flag none [] (selfBase traps) selfRecurse))
+
+private theorem selfPreparingCall (traps : Bool) :
+    (selfProgram traps).FrameRuns ⟨0⟩ (.call [i32 7])
+      (.label (selfLocals 7) (.running [i32 7, i32 0] (.call selfTarget :: selfResume))) := by
+  have selected := (Relation.ReflTransGen.single (selfEdge (traps := traps) (.resolve [i32 7]))).trans (selfSelect traps 7)
+  have nonzero : (7 : BitVec 32) ≠ 0 := by decide
+  simp only [ite_eq_right nonzero] at selected
+  have inArm := selected.tail (selfEdge (.blockEnter (selfLocals 7) [] none [] selfRecurse))
+  have left := inArm.tail (selfEdge (.blockStep [] none selfRecurse (.leaveValues (selfLocals 7) [])))
+  have kept := left.tail (selfEdge (.numeric (locals := selfLocals 7)
+    (rest := readLocal ⟨1⟩ :: .call selfTarget :: selfResume)
+    (.get (stack := []) (i := ⟨0⟩) (v := i32 7) rfl)))
+  exact kept.tail (selfEdge (.numeric (locals := selfLocals 7) (rest := .call selfTarget :: selfResume)
+    (.get (stack := [i32 7]) (i := ⟨1⟩) (v := i32 0) rfl)))
+
+private theorem selfBaseReturns :
+    (selfProgram false).FrameRuns ⟨0⟩ (.invoke [i32 0]) (.done (.values [i32 0])) := by
+  have inArm := (selfSelect false 0).tail (selfEdge (.blockEnter (selfLocals 0) [] none (selfBase false) selfRecurse))
+  have value := inArm.tail (selfEdge (.blockStep [] none selfRecurse
+    (.numeric (locals := selfLocals 0) (rest := [.return_]) (.get (stack := []) (i := ⟨0⟩) (v := i32 0) rfl))))
+  have crossed := value.tail (selfEdge (.blockStep [] none selfRecurse (.returnLabel (selfLocals 0) [i32 0] [])))
+  exact (crossed.tail (selfEdge (.returnLabel (selfLocals 0) [i32 0] selfRecurse))).tail
+    (selfEdge (.returnFrame (selfLocals 0) [] [i32 0] rfl))
+
+private theorem selfBaseTraps :
+    (selfProgram true).FrameRuns ⟨0⟩ (.invoke [i32 0]) (.done .trap) := by
+  have inArm := (selfSelect true 0).tail (selfEdge (.blockEnter (selfLocals 0) [] none (selfBase true) selfRecurse))
+  have trap := inArm.tail (selfEdge (.blockStep [] none selfRecurse (.unreachable (selfLocals 0) [] [])))
+  have crossed := trap.tail (selfEdge (.blockStep [] none selfRecurse (.leaveTrap (selfLocals 0))))
+  have discard := crossed.tail (selfEdge (.discard (.cut [] [] selfRecurse [] (.inr (by simp [selfRecurse])))))
+  exact (discard.tail (selfEdge (.leaveTrap (selfLocals 0)))).tail (selfEdge (.leaveFrame (selfLocals 0) .trap trivial))
+
+private theorem selfUsed (traps : Bool) : selfTarget ∈ (selfFn traps).targets := by
+  cases traps <;> simp [selfFn, selfBase, selfRecurse, selfResume, Function.targets, codeTargets, Op.targets, readLocal, add]
+
+private theorem selfDeliver {traps : Bool} {result : Nested.Result}
+    (child : (selfProgram traps).FrameRuns ⟨0⟩ (.invoke [i32 0]) (.done result)) :
+    (selfProgram traps).FrameRuns ⟨0⟩ (.call [i32 7])
+      (.label (selfLocals 7) (Body.attach [i32 7] selfTarget selfResume (.done result))) :=
+  (selfPreparingCall traps).trans
+    (Program.frame_compose_call (selfRoot traps).found (selfUsed traps)
+      (locals := selfLocals 7) (saved := [i32 7]) (operands := [i32 0]) (rest := selfResume) rfl child)
+
+-- The first add uses the saved operand. The second uses the restored local.
+private theorem selfReturns :
+    (selfProgram false).FrameRuns ⟨0⟩ (.call [i32 7]) (.done (.values [i32 14])) := by
+  have summed := (selfDeliver selfBaseReturns).tail (selfEdge (.numeric (rest := [readLocal ⟨0⟩, add])
+    (.bin (stack := []) (show Numerics.intBinOp .i32 .add 7 0 = .ok 7 from rfl))))
+  have restored := summed.tail (selfEdge (.numeric (locals := selfLocals 7) (rest := [add])
+    (.get (stack := [i32 7]) (i := ⟨0⟩) (v := i32 7) rfl)))
+  have result := restored.tail (selfEdge (.numeric (rest := [])
+    (.bin (stack := []) (show Numerics.intBinOp .i32 .add 7 7 = .ok 14 from rfl))))
+  exact (result.tail (selfEdge (.leaveValues (selfLocals 7) [i32 14]))).tail
+    (selfEdge (.leaveFrame (selfLocals 7) (.values [i32 14]) rfl))
+
+private theorem selfTraps :
+    (selfProgram true).FrameRuns ⟨0⟩ (.call [i32 7]) (.done .trap) := by
+  have discard := (selfDeliver selfBaseTraps).tail (selfEdge
+    (.discard (.cut [] [i32 7] selfResume [] (.inl (by simp)))))
+  exact (discard.tail (selfEdge (.leaveTrap (selfLocals 7)))).tail (selfEdge (.leaveFrame (selfLocals 7) .trap trivial))
+
+private theorem checkedFrameRun {program : Program} {caller : Execution.Runtime.Frame}
+    {target : CallTarget} {fn : Function} {start out : Phase} (checked : program.checkDirect = true)
+    (root : Root program caller target fn) (ready : Admitted program fn start)
+    (run : program.FrameRuns target.address start out) :
+    Execution.Core.Steps Numerics.Profile.spec SingleThreaded.Det.noHost
+      (coreConfig (coreStore program) caller target start) (coreConfig (coreStore program) caller target out) ∧
+    Lime1.Execution.Steps CallFrame.limeNoHost
+      (limeConfig (limeStore program) caller target start) (limeConfig (limeStore program) caller target out) := by
+  have endpoint := Program.frame_admitted_run checked root.found ready run
+  exact ⟨(core_frame_run_iff checked (coreAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
+    (lime_frame_run_iff checked (limeAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩⟩
+
+example := checkedFrameRun (selfChecked false) (selfRoot false) (.call (args := [i32 7]) rfl) (selfDeliver selfBaseReturns)
+example := checkedFrameRun (selfChecked false) (selfRoot false) (.call (args := [i32 7]) rfl) selfReturns
+example := checkedFrameRun (selfChecked true) (selfRoot true) (.call (args := [i32 7]) rfl) selfTraps
+
+private def foreverDecl : Declaration := ⟨{ types := [⟨[], []⟩], funcs := [⟨0⟩] }, ⟨0⟩, [], [], []⟩
+private def foreverSelf : CallTarget := ⟨⟨0⟩, ⟨0⟩, foreverDecl⟩
+private def foreverSelfFn : Function := ⟨foreverDecl, 0, [], [.call foreverSelf]⟩
+private def foreverSelfProgram : Program := ⟨[some foreverSelfFn]⟩
+private theorem foreverSelfRoot : Root foreverSelfProgram (callerFrame ⟨0⟩) foreverSelf foreverSelfFn := ⟨rfl, rfl, rfl⟩
+private theorem foreverSelfChecked : foreverSelfProgram.checkDirect = true := rfl
+
+private def deepSelf : Nat → Phase
+  | 0 => .label [] (.running [] [.call foreverSelf])
+  | n + 1 => .label [] (.active [] foreverSelf (deepSelf n) [])
+
+private theorem deepSelf_active (n : Nat) : (deepSelf n).Active := by cases n <;> trivial
+private theorem foreverUsed : foreverSelf ∈ foreverSelfFn.targets := by
+  simp [foreverSelfFn, Function.targets, codeTargets, Op.targets]
+
+private theorem deeperSelf (n : Nat) : foreverSelfProgram.FrameRuns ⟨0⟩ (deepSelf n) (deepSelf (n + 1)) := by
+  induction n with
+  | zero =>
+    have rule {a b : Phase} := (foreverSelfProgram.frameEdge_iff (a := a) (b := b) foreverSelfRoot.found).mpr
+    exact (Relation.ReflTransGen.single (rule (.dispatch [] [] [] foreverSelf [] foreverUsed rfl))).tail
+      (rule (.child [] [] foreverSelf [] (a := .invoke []) (b := deepSelf 0)
+        foreverUsed (by trivial) (rule (.enter [] rfl))))
+  | succ n ih =>
+    exact Program.frame_lift_child foreverSelfRoot.found foreverUsed (deepSelf_active n)
+      (locals := []) (saved := []) (rest := []) ih
+
+private theorem deepPrefix (n : Nat) : foreverSelfProgram.FrameRuns ⟨0⟩ (.call []) (deepSelf n) := by
+  induction n with
+  | zero =>
+    have rule {a b : Phase} := (foreverSelfProgram.frameEdge_iff (a := a) (b := b) foreverSelfRoot.found).mpr
+    exact (Relation.ReflTransGen.single (rule (.resolve []))).tail (rule (.enter [] rfl))
+  | succ n ih => exact ih.trans (deeperSelf n)
+
+example (n : Nat) : ((deepSelf n).frames ⟨0⟩).length = n + 1 := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    change ((deepSelf n).frames (⟨0⟩ : FuncAddr)).length + 1 = n + 1 + 1
+    rw [ih]
+
+example (n : Nat) := checkedFrameRun foreverSelfChecked foreverSelfRoot (.call (args := []) rfl) (deepPrefix n)
+
+end SelfRecursion
+
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph

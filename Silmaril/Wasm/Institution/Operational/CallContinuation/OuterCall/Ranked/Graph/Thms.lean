@@ -151,4 +151,54 @@ theorem Program.nesting_of_admitted {program : Program} (checked : program.check
     (ready : Admitted program fn phase) : program.table.Nesting (phase.frames address) :=
   Proofs.nesting_of_admitted checked found ready
 
+theorem Program.check_direct_of_ranked {program : Program} (checked : program.check = true) :
+    program.checkDirect = true :=
+  Proofs.check_direct_of_ranked checked
+
+/-- Exact local rules for a single step through the current source configuration. -/
+theorem Program.frameEdgeAt_iff {program : Program} {address : FuncAddr} {fn : Function} {a b : Phase}
+    {kind : LabelKind} (found : program.lookup address = some fn) :
+    program.FrameEdgeAt address kind a b ↔ Layer fn (fun target => program.FrameEdge target.address) a b kind :=
+  Proofs.frame_edge_iff found
+
+theorem Program.frameEdge_iff {program : Program} {address : FuncAddr} {fn : Function} {a b : Phase}
+    (found : program.lookup address = some fn) :
+    program.FrameEdge address a b ↔ Layer fn (fun target => program.FrameEdge target.address) a b :=
+  program.frameEdgeAt_iff found
+
+theorem Program.frameEdgeAt_iff_ranked {program : Program} (checked : program.check = true)
+    {address : FuncAddr} {kind : LabelKind} {a b : Phase} :
+    program.FrameEdgeAt address kind a b ↔ program.EdgeAt checked address kind a b :=
+  Proofs.frame_edge_iff_ranked checked address
+
+theorem Program.frame_admitted_step {program : Program} (checked : program.checkDirect = true)
+    {address : FuncAddr} {fn : Function} {a b : Phase} (found : program.lookup address = some fn)
+    (ready : Admitted program fn a) (move : program.FrameEdge address a b) : Admitted program fn b :=
+  Proofs.frame_admitted_step checked _ rfl found ready move
+
+theorem Program.frame_admitted_run {program : Program} (checked : program.checkDirect = true)
+    {address : FuncAddr} {fn : Function} {a b : Phase} (found : program.lookup address = some fn)
+    (ready : Admitted program fn a) (run : program.FrameRuns address a b) : Admitted program fn b := by
+  induction run with
+  | refl => exact ready
+  | tail _ move ih => exact program.frame_admitted_step checked found ih move
+
+theorem Program.frame_lift_child {program : Program} {address : FuncAddr} {fn : Function}
+    (found : program.lookup address = some fn) {target : CallTarget} (used : target ∈ fn.targets)
+    {a b : Phase} (live : a.Active) {locals saved : List Value} {rest : List Op}
+    (run : program.FrameRuns target.address a b) :
+    program.FrameRuns address (.label locals (.active saved target a rest))
+      (.label locals (Body.attach saved target rest b)) :=
+  Proofs.frame_lift_child found used live run
+
+theorem Program.frame_compose_call {program : Program} {address : FuncAddr} {fn : Function}
+    (found : program.lookup address = some fn) {target : CallTarget} (used : target ∈ fn.targets)
+    {locals saved operands : List Value} {rest : List Op}
+    (count : operands.length = target.declaration.params.length) {result : Nested.Result}
+    (run : program.FrameRuns target.address (.invoke operands) (.done result)) :
+    program.FrameRuns address (.label locals (.running (saved ++ operands) (.call target :: rest)))
+      (.label locals (Body.attach saved target rest (.done result))) :=
+  (Relation.ReflTransGen.single ((program.frameEdge_iff found).mpr
+    (.dispatch locals saved operands target rest used count))).trans (program.frame_lift_child found used (by trivial) run)
+
 end Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph

@@ -6,6 +6,7 @@ public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.R
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Context
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.NativeCommon
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Rules
+import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Ranked.Graph.Typing
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Locals.Native.Thms
 import Silmaril.Wasm.Institution.Operational.Blocks.Native.Thms
@@ -198,16 +199,16 @@ private theorem running_stays {n : Nat} {cont : List Instr} {v : List Value} {op
     exact Computed.core_label_stays (head := .plain .unreachable) rfl
       (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp) pop
 
-private theorem active_entered_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.check = true) (n : Nat) {kind : LabelKind}
+private theorem active_entered_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (n : Nat) {kind : LabelKind}
     {caller : Runtime.Frame} {root target : CallTarget} {fn : Function}
     (found : program.lookup root.address = some fn) (used : target ∈ fn.targets)
     {locals saved : List Value} {rest : List Op} {child : Phase} (live : child.Active)
     {k : Nat} {f : Frame} {code : List Admin} (rendered : child.render coreAdmin target = [.frame k f code])
     (childStep : ∀ {dst}, native P (coreConfig s (currentFrame root.declaration locals) target child) dst ↔
-      ∃ out, program.Edge checked target.address child out ∧ dst = coreConfig s (currentFrame root.declaration locals) target out)
+      ∃ out, program.FrameEdge target.address child out ∧ dst = coreConfig s (currentFrame root.declaration locals) target out)
     {dst : Config H} :
     native P (coreAt s caller root n (.label locals (.active saved target child rest)) kind) dst ↔
-      ∃ out, program.EdgeAt checked root.address kind (.label locals (.active saved target child rest)) out ∧
+      ∃ out, program.FrameEdgeAt root.address kind (.label locals (.active saved target child rest)) out ∧
         dst = coreAt s caller root n out kind := by
   have ctx : native P (coreAt s caller root n (.label locals (.active saved target child rest)) kind) dst ↔
       ∃ mid, native P (coreConfig s (currentFrame root.declaration locals) target child) mid ∧
@@ -225,12 +226,12 @@ private theorem active_entered_iff {H : Type} {P : Profile} {s : Store H} {progr
   · rintro ⟨mid, move, rfl⟩
     obtain ⟨out, childEdge, rfl⟩ := childStep.mp move
     refine ⟨.label locals (Body.attach saved target rest out),
-      (program.activeAt_iff checked found used live (kind := kind)).mpr ⟨out, childEdge, rfl⟩, ?_⟩
+      (frame_active_iff found used live (kind := kind)).mpr ⟨out, childEdge, rfl⟩, ?_⟩
     change _ = (⟨s, caller.toCore, [.frame n _ [.label (kind.arity n) (kind.cont coreCodeSyntax) ((Body.attach saved target rest out).render coreAdmin)]]⟩ : Config H)
     rw [attach_code]
     rfl
   · rintro ⟨out, move, rfl⟩
-    obtain ⟨childOut, childEdge, rfl⟩ := (program.activeAt_iff checked found used live (kind := kind)).mp move
+    obtain ⟨childOut, childEdge, rfl⟩ := (frame_active_iff found used live (kind := kind)).mp move
     refine ⟨_, childStep.mpr ⟨childOut, childEdge, rfl⟩, ?_⟩
     change (⟨s, caller.toCore, [.frame n _ [.label (kind.arity n) (kind.cont coreCodeSyntax) ((Body.attach saved target rest childOut).render coreAdmin)]]⟩ : Config H) = _
     rw [attach_code]
@@ -250,14 +251,14 @@ private theorem under_label_iff {H : Type} {P : Profile} {s : Store H} {caller :
   · rintro ⟨⟨_, _, _⟩, move, rfl⟩
     exact .ctxtFrame (.ctxtLabel move)
 
-private theorem pending_child_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.check = true) (n : Nat) {kind : LabelKind}
+private theorem pending_child_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (n : Nat) {kind : LabelKind}
     (allocated : program.CoreAllocated s) {caller : Runtime.Frame} {root target : CallTarget} {fn callee : Function}
     (found : program.lookup root.address = some fn) (used : target ∈ fn.targets)
     (childFound : program.lookup target.address = some callee) (declared : callee.declaration = target.declaration)
     {locals saved operands : List Value} {rest : List Op} (typed : operands.map Value.type = callee.declaration.params)
     {dst : Config H} :
     native P (coreAt s caller root n (.label locals (.active saved target (.invoke operands) rest)) kind) dst ↔
-      ∃ out, program.EdgeAt checked root.address kind (.label locals (.active saved target (.invoke operands) rest)) out ∧
+      ∃ out, program.FrameEdgeAt root.address kind (.label locals (.active saved target (.invoke operands) rest)) out ∧
         dst = coreAt s caller root n out kind := by
   let head := Admin.callRefType target.declaration.type.toDefType
   let ref := Val.ref (.func target.address.value)
@@ -286,12 +287,12 @@ private theorem pending_child_iff {H : Type} {P : Profile} {s : Store H} {progra
   constructor
   · rintro ⟨mid, move, eq⟩
     obtain rfl := entry.mp move
-    refine ⟨_, (program.activeAt_iff checked found used live (kind := kind)).mpr
-      ⟨_, (program.edge_iff checked childFound).mpr (.enter operands typed), rfl⟩, ?_⟩
+    refine ⟨_, (frame_active_iff found used live (kind := kind)).mpr
+      ⟨_, (frame_edge_iff childFound (kind := .exit)).mpr (.enter operands typed), rfl⟩, ?_⟩
     exact eq
   · rintro ⟨out, edge, rfl⟩
-    obtain ⟨childOut, step, rfl⟩ := (program.activeAt_iff checked found used live (kind := kind)).mp edge
-    cases (program.edge_iff checked childFound).mp step with
+    obtain ⟨childOut, step, rfl⟩ := (frame_active_iff found used live (kind := kind)).mp edge
+    cases (frame_edge_iff childFound (kind := .exit)).mp step with
     | enter _ _ => exact ⟨_, entry.mpr rfl, rfl⟩
 
 private theorem trapped_not_final {n : Nat} {cont : List Instr} {stack : List Value} {rest : List Op}
@@ -339,18 +340,18 @@ private theorem label_frame_iff {H : Type} {P : Profile} {s : Store H} {outer in
     exact .ctxtFrame move
 
 private theorem branch_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program}
-    (checked : program.check = true) {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
+    {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
     (found : program.lookup target.address = some fn) {fallthrough : List NumType} {enclosing : EnclosingLabels}
     {kind : LabelKind} {locals stack : List Value} {depth : LabelIdx} {result : List NumType} {rest : List Op}
     (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing kind) {dst : Config H} :
     native P (coreAt s caller target fallthrough.length (.label locals (.running stack (.br depth result :: rest))) kind) dst ↔
-      ∃ out, program.EdgeAt checked target.address kind (.label locals (.running stack (.br depth result :: rest))) out ∧
+      ∃ out, program.FrameEdgeAt target.address kind (.label locals (.running stack (.br depth result :: rest))) out ∧
         dst = coreAt s caller target fallthrough.length out kind := by
   let n := fallthrough.length
   change native P (inFrame caller.toCore n ⟨s, (currentFrame target.declaration locals).toCore,
     [.label (kind.arity n) (kind.cont coreCodeSyntax) (coreValues stack ++ .plain (.br depth) :: rest.map coreAdmin.emit)]⟩) dst ↔ _
   rw [label_frame_iff]
-  have rule {a b : Phase} := program.edgeAt_iff checked (a := a) (b := b) (kind := kind) found
+  have rule {a b : Phase} := frame_edge_iff (a := a) (b := b) (kind := kind) found
   have invert {mid : Config H} := BranchExit.core_label_br_cont_iff (P := P) (s := s)
     (f := (currentFrame target.declaration locals).toCore) (stack := stack.map Value.toCore)
     (n := kind.arity n) (cont := kind.cont coreCodeSyntax) (depth := depth) (rest := rest.map coreAdmin.emit) (dst := mid)
@@ -385,19 +386,19 @@ private theorem branch_step_iff {H : Type} {P : Profile} {s : Store H} {program 
       exact ⟨_, invert.mpr (.inr ⟨outer, rfl⟩), rfl⟩
 
 private theorem block_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program}
-    (checked : program.check = true) {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
+    {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
     (found : program.lookup target.address = some fn) {n : Nat} {kind innerKind : LabelKind} {locals saved : List Value} {result : Option NumType}
     {inner : Body} {rest : List Op}
     (compatible : ∀ r original, innerKind = .loop r original → r = result)
-    (edgeView : ∀ {out}, program.EdgeAt checked target.address kind (.label locals (inner.underLabel saved result rest innerKind)) out ↔
-      ∃ next, program.EdgeAt checked target.address innerKind (.label locals inner) next ∧
+    (edgeView : ∀ {out}, program.FrameEdgeAt target.address kind (.label locals (inner.underLabel saved result rest innerKind)) out ↔
+      ∃ next, program.FrameEdgeAt target.address innerKind (.label locals inner) next ∧
         out = next.afterBlock saved result rest innerKind)
     (inside : ∀ {dst}, native P (coreAt s caller target (innerKind.results result).length (.label locals inner) innerKind) dst ↔
-      ∃ next, program.EdgeAt checked target.address innerKind (.label locals inner) next ∧
+      ∃ next, program.FrameEdgeAt target.address innerKind (.label locals inner) next ∧
         dst = coreAt s caller target (innerKind.results result).length next innerKind)
     {dst : Config H} :
     native P (coreAt s caller target n (.label locals (inner.underLabel saved result rest innerKind)) kind) dst ↔
-      ∃ out, program.EdgeAt checked target.address kind (.label locals (inner.underLabel saved result rest innerKind)) out ∧
+      ∃ out, program.FrameEdgeAt target.address kind (.label locals (inner.underLabel saved result rest innerKind)) out ∧
         dst = coreAt s caller target n out kind := by
   let k := (innerKind.results result).length
   let code := coreValues saved ++ (.label (innerKind.arity k) (innerKind.cont coreCodeSyntax) (inner.render coreAdmin) : Admin) :: rest.map coreAdmin.emit
@@ -410,9 +411,9 @@ private theorem block_step_iff {H : Type} {P : Profile} {s : Store H} {program :
     rw [coreAt, Phase.renderAt, render_under_label coreAdmin saved result rest innerKind compatible]
     rfl
   rw [shape, under_label_iff stays]
-  have render {next} (edge : program.EdgeAt checked target.address innerKind (.label locals inner) next) :=
+  have render {next} (edge : program.FrameEdgeAt target.address innerKind (.label locals inner) next) :=
     render_block coreAdmin values_append rfl target n saved result rest kind innerKind compatible next
-      (label_outcome ((edge_iff checked found).mp edge) ⟨_, _, rfl⟩)
+      (label_outcome ((frame_edge_iff found).mp edge) ⟨_, _, rfl⟩)
   constructor
   · rintro ⟨mid, move, rfl⟩
     obtain ⟨branch, step, rfl⟩ := (sequence_label_iff (saved := saved)).mp move
@@ -494,25 +495,26 @@ private theorem indexed_loop_entry_iff {H : Type} {P : Profile} {s : Store H} {d
     exact ⟨(saved.map Value.toCore), (args.map Value.toCore), _, _, List.map_append, lookup, by simpa using arity,
       by simpa using eq⟩
 
-private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.check = true)
+private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.checkDirect = true)
     (allocated : program.CoreAllocated s) {caller : Runtime.Frame} {target : CallTarget} {fn : Function}
     (root : Root program caller target fn)
-    (descend : ∀ child ∈ fn.targets, ∀ {parent callee q dst},
+    {bound : Nat}
+    (descend : ∀ child, ∀ {parent callee q dst}, sizeOf q < bound →
       Root program parent child callee → Admitted program callee q →
       (native P (coreConfig s parent child q) dst ↔
-        ∃ out, program.Edge checked child.address q out ∧ dst = coreConfig s parent child out))
-    (size : Nat) : ∀ {body locals fallthrough enclosing kind dst}, sizeOf body = size →
+        ∃ out, program.FrameEdge child.address q out ∧ dst = coreConfig s parent child out))
+    (size : Nat) : ∀ {body locals fallthrough enclosing kind dst}, sizeOf body = size → size < bound →
       AdmittedAt program fn fallthrough enclosing (.label locals body) kind →
       (native P (coreAt s caller target fallthrough.length (.label locals body) kind) dst ↔
-        ∃ out, program.EdgeAt checked target.address kind (.label locals body) out ∧
+        ∃ out, program.FrameEdgeAt target.address kind (.label locals body) out ∧
           dst = coreAt s caller target fallthrough.length out kind) := by
   induction size using Nat.strong_induction_on with
   | ind size ih =>
-    intro body locals fallthrough enclosing kind dst sizeEq ready
+    intro body locals fallthrough enclosing kind dst sizeEq within ready
     let n := fallthrough.length
     let k := kind.arity n
     let cont := kind.cont coreCodeSyntax
-    have rule {a b : Phase} := program.edgeAt_iff checked (a := a) (b := b) (kind := kind) root.found
+    have rule {a b : Phase} := frame_edge_iff (a := a) (b := b) (kind := kind) root.found
     cases ready with
     | @running _ _ _ _ locals stack rest typed codeTyped =>
       cases rest with
@@ -537,7 +539,7 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
       | cons op rest =>
         by_cases isBranch : ∃ depth result, op = .br depth result
         · obtain ⟨depth, result, rfl⟩ := isBranch
-          exact branch_step_iff (P := P) checked root.found codeTyped
+          exact branch_step_iff (P := P) root.found codeTyped
         have notBranch depth result (eq : op = .br depth result) : False := isBranch ⟨_, _, eq⟩
         by_cases isReturn : op = .return_
         case pos =>
@@ -578,7 +580,7 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
             exact ⟨_, rule.mpr (.localTee write), eq⟩
           | call child =>
             obtain ⟨saved, operands, rfl, used, count⟩ := split_call codeTyped
-            obtain ⟨callee, childFound, declared, resolves⟩ := program.linked_target checked root.found used
+            obtain ⟨callee, childFound, declared, resolves⟩ := linked_direct_target checked root.found used
             have h : (currentFrame target.declaration locals).module.funcs[child.index.toNat]? = some child.address := by
               simpa only [currentFrame, ← root.declared] using resolves
             have call := (Computed.core_direct_call_iff (stack := saved ++ operands)
@@ -693,7 +695,7 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
           | @localTee _ locals saved i value rest write =>
             exact lift_label (tee_sound write)
           | dispatch _ saved operands child rest used count =>
-            obtain ⟨callee, childFound, declared, resolves⟩ := program.linked_target checked root.found used
+            obtain ⟨callee, childFound, declared, resolves⟩ := linked_direct_target checked root.found used
             have h : (currentFrame target.declaration locals).module.funcs[child.index.toNat]? = some child.address := by
               simpa only [currentFrame, ← root.declared] using resolves
             have signature : (callee.coreInstance (H := H)).type = child.declaration.type.toDefType :=
@@ -762,17 +764,21 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
           | unreachable =>
             exact lift_label (Computed.core_unreachable_iff.mpr rfl)
     | @active _ _ _ _ locals saved child q rest callee typed used childFound declared live childReady resume =>
-      obtain ⟨_, _, _, resolves⟩ := program.linked_target checked root.found used
+      obtain ⟨_, _, _, resolves⟩ := linked_direct_target checked root.found used
       have childResolves : child.Resolves (currentFrame target.declaration locals) := by
         simpa only [CallTarget.Resolves, currentFrame, ← root.declared] using resolves
-      have childStep {next : Config H} := descend child used
+      have smaller : sizeOf q < size := by
+        rw [← sizeEq]
+        simp only [Body.active.sizeOf_spec]
+        omega
+      have childStep {next : Config H} := descend child (smaller.trans within)
         (dst := next) ⟨childFound, declared, childResolves⟩ childReady
       cases q with
       | call | branching | restart | indexedRestart | done => cases live
       | invoke operands =>
         cases childReady with
-        | invoke localsTyped => exact pending_child_iff checked n allocated root.found used childFound declared localsTyped
-      | label | returning | exit => exact active_entered_iff checked n root.found used live rfl childStep
+        | invoke localsTyped => exact pending_child_iff n allocated root.found used childFound declared localsTyped
+      | label | returning | exit => exact active_entered_iff n root.found used live rfl childStep
     | @trapped _ _ _ _ locals saved rest typed =>
       constructor
       · intro move
@@ -787,48 +793,51 @@ private theorem region_step_iff {H : Type} {P : Profile} {s : Store H} {program 
         | leaveTrap => exact .ctxtFrame .trapLabel
     | @block _ _ _ _ locals saved result inside rest innerTyped resume =>
       have smaller : sizeOf inside < size := by rw [← sizeEq]; simp [Body.block.sizeOf_spec]; omega
-      exact block_step_iff checked root.found (P := P) (n := n) (innerKind := .exit)
-        (by simp) (block_iff checked root.found) (fun {dst} =>
-          ih (sizeOf inside) smaller (dst := dst) rfl innerTyped)
+      exact block_step_iff root.found (P := P) (n := n) (innerKind := .exit)
+        (by simp) (block_iff root.found) (fun {dst} =>
+          ih (sizeOf inside) smaller (dst := dst) rfl (smaller.trans within) innerTyped)
     | @indexedBlock _ _ _ _ locals saved signature inside rest innerTyped resume =>
       have smaller : sizeOf inside < size := by rw [← sizeEq]; simp [Body.indexedBlock.sizeOf_spec]; omega
-      exact block_step_iff checked root.found (P := P) (n := n) (result := none) (innerKind := .indexed signature)
-        (by simp) (indexed_block_iff checked root.found) (fun {dst} =>
-          ih (sizeOf inside) smaller (dst := dst) rfl innerTyped)
+      exact block_step_iff root.found (P := P) (n := n) (result := none) (innerKind := .indexed signature)
+        (by simp) (indexed_block_iff root.found) (fun {dst} =>
+          ih (sizeOf inside) smaller (dst := dst) rfl (smaller.trans within) innerTyped)
     | @loop _ _ _ _ locals saved result original inside rest innerTyped _ resume =>
       have smaller : sizeOf inside < size := by rw [← sizeEq]; simp [Body.loop.sizeOf_spec]; omega
-      exact block_step_iff checked root.found (P := P) (n := n) (innerKind := .loop result original)
-        (fun _ _ eq => (LabelKind.loop.inj eq).1.symm) (loop_iff checked root.found) (fun {dst} =>
-          ih (sizeOf inside) smaller (dst := dst) rfl innerTyped)
+      exact block_step_iff root.found (P := P) (n := n) (innerKind := .loop result original)
+        (fun _ _ eq => (LabelKind.loop.inj eq).1.symm) (loop_iff root.found) (fun {dst} =>
+          ih (sizeOf inside) smaller (dst := dst) rfl (smaller.trans within) innerTyped)
     | @indexedLoop _ _ _ _ locals saved index signature original inside rest innerTyped _ _ resume =>
       have smaller : sizeOf inside < size := by rw [← sizeEq]; simp [Body.indexedLoop.sizeOf_spec]; omega
-      exact block_step_iff checked root.found (P := P) (n := n) (innerKind := .indexedLoop index signature original)
-        (fun _ _ eq => by cases eq) (indexed_loop_iff checked root.found) (fun {dst} =>
-          ih (sizeOf inside) smaller (dst := dst) rfl innerTyped)
+      exact block_step_iff root.found (P := P) (n := n) (innerKind := .indexedLoop index signature original)
+        (fun _ _ eq => by cases eq) (indexed_loop_iff root.found) (fun {dst} =>
+          ih (sizeOf inside) smaller (dst := dst) rfl (smaller.trans within) innerTyped)
 
-theorem step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.check = true)
-    (allocated : program.CoreAllocated s) (address : FuncAddr) :
-    ∀ {caller target fn a dst}, (addr : target.address = address) →
+theorem frame_step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (checked : program.checkDirect = true)
+    (allocated : program.CoreAllocated s) (size : Nat) :
+    ∀ {caller target fn a dst}, sizeOf a = size →
       Root program caller target fn → Admitted program fn a →
       (Step P noHost (coreConfig s caller target a) dst ↔
-        ∃ out, program.Edge checked target.address a out ∧ dst = coreConfig s caller target out) := by
-  induction address using (program.table.wellFounded (Program.rankCheck checked)).induction with
-  | h address ih =>
-    intro caller target fn a dst addr root ready
-    subst address
-    have rule {a b : Phase} := program.edge_iff checked (a := a) (b := b) root.found
+        ∃ out, program.FrameEdge target.address a out ∧ dst = coreConfig s caller target out) := by
+  induction size using Nat.strong_induction_on with
+  | ind size ih =>
+    intro caller target fn a dst sizeEq root ready
+    have rule {a b : Phase} := frame_edge_iff (a := a) (b := b) (kind := .exit) root.found
     have callLookup : caller.module.funcs[target.index.toNat]? = some target.address := root.resolves
     have alloc := allocated _ _ root.found
     have coreType : (fn.coreInstance (H := H)).type = target.declaration.type.toDefType :=
       congrArg (fun d => d.type.toDefType) root.declared
-    have descend child (used : child ∈ fn.targets) {parent callee q dst} (childRoot : Root program parent child callee)
-        (childReady : Admitted program callee q) :=
-      ih child.address (program.target_resolved checked root.found used) (dst := dst) rfl childRoot childReady
-    have region {locals body} (ok : Admitted program fn (.label locals body)) :
+    have descend child {parent callee q dst} (smaller : sizeOf q < size)
+        (childRoot : Root program parent child callee) (childReady : Admitted program callee q) :=
+      ih (sizeOf q) smaller (dst := dst) rfl childRoot childReady
+    have region {locals body} (eq : sizeOf (Phase.label locals body) = size)
+        (ok : Admitted program fn (.label locals body)) :
         native P (coreConfig s caller target (.label locals body)) dst ↔
-          ∃ out, program.Edge checked target.address (.label locals body) out ∧ dst = coreConfig s caller target out := by
-      simpa only [coreConfig, coreAt, Phase.render, Program.Edge, root.declared] using
-        region_step_iff (P := P) checked allocated root descend (sizeOf body) (dst := dst) rfl ok
+          ∃ out, program.FrameEdge target.address (.label locals body) out ∧ dst = coreConfig s caller target out := by
+      have bound : sizeOf body < size := by
+        simp only [Phase.label.sizeOf_spec] at eq
+        omega
+      simpa only [coreConfig, coreAt, Phase.render, root.declared] using
+        region_step_iff (P := P) checked allocated root descend (sizeOf body) (dst := dst) rfl bound ok
     cases ready with
     | @call _ args typed =>
       have move {next : Config H} := Computed.core_direct_call_iff (s := s) (P := P) (stack := args)
@@ -857,13 +866,13 @@ theorem step_iff {H : Type} {P : Profile} {s : Store H} {program : Program} (che
               [.ref (.func target.address.value), .callRefType target.declaration.type.toDefType]⟩
             ⟨s, caller.toCore, (Phase.label (fn.declaration.frame args).locals (.running fn.initial fn.code)).render coreAdmin target⟩
           simpa only [coreValues, vals, List.map_nil, List.nil_append, List.append_nil] using move.mpr rfl
-    | running typed code => exact region (.running typed code)
-    | active typed used found declared live ready resume => exact region (.active typed used found declared live ready resume)
-    | block inside resume => exact region (.block inside resume)
-    | indexedBlock inside resume => exact region (.indexedBlock inside resume)
-    | indexedLoop inside resolved original resume => exact region (.indexedLoop inside resolved original resume)
-    | loop inside original resume => exact region (.loop inside original resume)
-    | trapped typed => exact region (.trapped typed)
+    | running typed code => exact region sizeEq (.running typed code)
+    | active typed used found declared live ready resume => exact region sizeEq (.active typed used found declared live ready resume)
+    | block inside resume => exact region sizeEq (.block inside resume)
+    | indexedBlock inside resume => exact region sizeEq (.indexedBlock inside resume)
+    | indexedLoop inside resolved original resume => exact region sizeEq (.indexedLoop inside resolved original resume)
+    | loop inside original resume => exact region sizeEq (.loop inside original resume)
+    | trapped typed => exact region sizeEq (.trapped typed)
     | @returning _ _ _ _ locals stack typed returnTyped =>
       constructor
       · intro move

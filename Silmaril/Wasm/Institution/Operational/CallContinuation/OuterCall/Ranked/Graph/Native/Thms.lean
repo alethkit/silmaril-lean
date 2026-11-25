@@ -60,13 +60,26 @@ section Core
 variable {H : Type} {P : Profile} {s : Core.Store H} {program : Program}
   {caller : Frame} {target : CallTarget} {fn : Function}
 
-/-- Decode any native Core successor of a guarded graph phase, including
-administrative steps inside any number of entered children. -/
+/-- Exact native successors under dynamic frame descent, including recursive calls
+to a checked, allocated direct target. -/
+theorem core_frame_step_iff (checked : program.checkDirect = true) (allocated : program.CoreAllocated s)
+    (root : Root program caller target fn) {a : Phase} {b : Core.Config H} (ready : Admitted program fn a) :
+    Core.Step P noHost (coreConfig s caller target a) b ↔
+      ∃ out, program.FrameEdge target.address a out ∧ b = coreConfig s caller target out :=
+  Proofs.Core.frame_step_iff checked allocated _ rfl root ready
+
+theorem core_frame_run_iff (checked : program.checkDirect = true) (allocated : program.CoreAllocated s)
+    (root : Root program caller target fn) {a : Phase} {b : Core.Config H} (ready : Admitted program fn a) :
+    Core.Steps P noHost (coreConfig s caller target a) b ↔
+      ∃ out, program.FrameRuns target.address a out ∧ Admitted program fn out ∧ b = coreConfig s caller target out :=
+  Proofs.frame_run_iff checked root.found (coreConfig s caller target) _ (fun h => core_frame_step_iff checked allocated root h) ready
+
 theorem core_step_iff (checked : program.check = true) (allocated : program.CoreAllocated s)
     (root : Root program caller target fn) {a : Phase} {b : Core.Config H} (ready : Admitted program fn a) :
     Core.Step P noHost (coreConfig s caller target a) b ↔
       ∃ out, program.Edge checked target.address a out ∧ b = coreConfig s caller target out :=
-  Proofs.Core.step_iff checked allocated target.address rfl root ready
+  (core_frame_step_iff (Program.check_direct_of_ranked checked) allocated root ready).trans (by
+    simp only [Program.FrameEdge, Program.Edge, Program.frameEdgeAt_iff_ranked checked])
 
 theorem core_run_iff (checked : program.check = true) (allocated : program.CoreAllocated s)
     (root : Root program caller target fn) {a : Phase} {b : Core.Config H} (ready : Admitted program fn a) :
@@ -81,11 +94,23 @@ section Lime1
 variable {H : Type} {s : Wasm.Lime1.Execution.Store H} {program : Program}
   {caller : Frame} {target : CallTarget} {fn : Function}
 
+theorem lime_frame_step_iff (checked : program.checkDirect = true) (allocated : program.LimeAllocated s)
+    (root : Root program caller target fn) {a : Phase} {b : Wasm.Lime1.Execution.Config H} (ready : Admitted program fn a) :
+    Wasm.Lime1.Execution.Step CallFrame.limeNoHost (limeConfig s caller target a) b ↔
+      ∃ out, program.FrameEdge target.address a out ∧ b = limeConfig s caller target out :=
+  Proofs.Lime1.frame_step_iff checked allocated _ rfl root ready
+
+theorem lime_frame_run_iff (checked : program.checkDirect = true) (allocated : program.LimeAllocated s)
+    (root : Root program caller target fn) {a : Phase} {b : Wasm.Lime1.Execution.Config H} (ready : Admitted program fn a) :
+    Wasm.Lime1.Execution.Steps CallFrame.limeNoHost (limeConfig s caller target a) b ↔
+      ∃ out, program.FrameRuns target.address a out ∧ Admitted program fn out ∧ b = limeConfig s caller target out :=
+  Proofs.frame_run_iff checked root.found (limeConfig s caller target) _ (fun h => lime_frame_step_iff checked allocated root h) ready
+
 theorem lime_step_iff (checked : program.check = true) (allocated : program.LimeAllocated s)
     (root : Root program caller target fn) {a : Phase} {b : Wasm.Lime1.Execution.Config H} (ready : Admitted program fn a) :
     Wasm.Lime1.Execution.Step CallFrame.limeNoHost (limeConfig s caller target a) b ↔
       ∃ out, program.Edge checked target.address a out ∧ b = limeConfig s caller target out :=
-  Proofs.Lime1.step_iff checked allocated target.address rfl root ready
+  Proofs.Lime1.step_iff checked allocated root ready
 
 theorem lime_run_iff (checked : program.check = true) (allocated : program.LimeAllocated s)
     (root : Root program caller target fn) {a : Phase} {b : Wasm.Lime1.Execution.Config H} (ready : Admitted program fn a) :
