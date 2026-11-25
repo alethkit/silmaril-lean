@@ -43,6 +43,31 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       {receiver subscript rhs : Lowering.Expr} {error : Error} :
       ExecExpr program available s rhs (.error error t) →
       Exec program available s (.setIndexExpr receiver subscript rhs) (.error error t)
+  | addIndexExpr {available : List DeclarationId} {s t u v : State}
+      {receiver subscript rhs : Lowering.Expr} {target index previous : Lists.Value} {out : Outcome Lists.Value} :
+      ExecExpr program available s receiver (.ok target t) →
+      ExecExpr program available t subscript (.ok index u) →
+      readIndex target index u = .ok previous v →
+      ExecExpr program available v rhs out →
+      Exec program available s (.addIndexExpr receiver subscript rhs)
+        (Outcome.resume out fun value next =>
+          Outcome.resume (fromExcept (applyIntegerAdd previous value) next) fun sum next =>
+            Outcome.resume (writeIndex target index sum next) fun _ => pure .next)
+  | addIndexExprReadError {available : List DeclarationId} {s t u v : State}
+      {receiver subscript rhs : Lowering.Expr} {target index : Lists.Value} {error : Error} :
+      ExecExpr program available s receiver (.ok target t) →
+      ExecExpr program available t subscript (.ok index u) →
+      readIndex target index u = .error error v →
+      Exec program available s (.addIndexExpr receiver subscript rhs) (.error error v)
+  | addIndexExprSubscriptError {available : List DeclarationId} {s t u : State}
+      {receiver subscript rhs : Lowering.Expr} {target : Lists.Value} {error : Error} :
+      ExecExpr program available s receiver (.ok target t) →
+      ExecExpr program available t subscript (.error error u) →
+      Exec program available s (.addIndexExpr receiver subscript rhs) (.error error u)
+  | addIndexExprReceiverError {available : List DeclarationId} {s t : State}
+      {receiver subscript rhs : Lowering.Expr} {error : Error} :
+      ExecExpr program available s receiver (.error error t) →
+      Exec program available s (.addIndexExpr receiver subscript rhs) (.error error t)
   | evalExpr {available : List DeclarationId} {s : State} {value : Lowering.Expr}
       {out : Outcome Lists.Value} :
       ExecExpr program available s value out →

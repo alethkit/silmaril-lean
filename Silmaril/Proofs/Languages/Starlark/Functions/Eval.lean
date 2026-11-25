@@ -112,6 +112,28 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
       cases selected : evalExpr receiver next with
       | error error last => exact .setIndexExprReceiverError (evaluated ▸ rhsRun) (selected ▸ receiverRun)
       | ok target last => exact .setIndexExpr (evaluated ▸ rhsRun) (selected ▸ receiverRun) (exprRun subscript last)
+  | addIndexExpr receiver subscript rhs =>
+    rw [denoteBody]
+    change Exec program available state (.addIndexExpr receiver subscript rhs)
+      (Outcome.resume (evalExpr receiver state) fun target next =>
+        Outcome.resume (evalExpr subscript next) fun index next =>
+          Outcome.resume (readIndex target index next) fun previous next =>
+            Outcome.resume (evalExpr rhs next) fun value next =>
+              Outcome.resume (fromExcept (applyIntegerAdd previous value) next) fun sum next =>
+                Outcome.resume (writeIndex target index sum next) fun _ => pure .next)
+    have receiverRun := exprRun receiver state
+    cases selected : evalExpr receiver state with
+    | error error next => exact .addIndexExprReceiverError (selected ▸ receiverRun)
+    | ok target next =>
+      simp only [Outcome.resume]
+      have subscriptRun := exprRun subscript next
+      cases indexed : evalExpr subscript next with
+      | error error last => exact .addIndexExprSubscriptError (selected ▸ receiverRun) (indexed ▸ subscriptRun)
+      | ok index last =>
+        dsimp only
+        cases read : readIndex target index last with
+        | error error stopped => exact .addIndexExprReadError (selected ▸ receiverRun) (indexed ▸ subscriptRun) read
+        | ok previous ready => exact .addIndexExpr (selected ▸ receiverRun) (indexed ▸ subscriptRun) read (exprRun rhs ready)
   | evalExpr value =>
     rw [denoteBody]
     exact .evalExpr (exprRun value state)

@@ -58,6 +58,19 @@ theorem exec_setIndexExpr_iff_denoteExpr (program : Program) (available : List D
             Outcome.resume (Lists.writeIndex target index value next) fun _ => pure .next) = out := by
   rw [exec_iff_denoteBody, denoteBody]
 
+/-- Integer `+=` reads the saved target before the RHS and writes the sum
+through the same receiver and subscript in the resulting state. -/
+theorem exec_addIndexExpr_iff_denoteExpr (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expr) (state : State) (out : Outcome Flow) :
+    Exec program available state (.addIndexExpr receiver subscript rhs) out ↔
+      (Outcome.resume (denoteExpr program available receiver state) fun target next =>
+        Outcome.resume (denoteExpr program available subscript next) fun index next =>
+          Outcome.resume (Lists.readIndex target index next) fun previous next =>
+            Outcome.resume (denoteExpr program available rhs next) fun value next =>
+              Outcome.resume (Lists.fromExcept (applyIntegerAdd previous value) next) fun sum next =>
+                Outcome.resume (Lists.writeIndex target index sum next) fun _ => pure .next) = out := by
+  rw [exec_iff_denoteBody, denoteBody]
+
 /-- A successful test selects one body in its resulting state. Errors propagate with their state. -/
 theorem exec_branchExpr_iff_denoteExpr (program : Program) (available : List DeclarationId)
     (test : Expr) (yes no : Body) (state : State) (out : Outcome Flow) :
