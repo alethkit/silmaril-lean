@@ -1,7 +1,7 @@
 module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.ThreeBlock.Thms
-import Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Wires.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.State.Thms
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.ThreeBlock.Tests
@@ -186,13 +186,15 @@ private theorem chainBodyStep :
   change (Sum.inl bodyLabel, 136) ∈ (chainBody (2, 10)).run 19
   simp [chainBody, instruction, labelResult, bodyLabel]
 
-example : LinearChain.returns (ε := Bool) chainLowered.1 (0 : Nat) 2 (.inl (5 : Nat)) 5 := by
+private theorem chainHeaderWire :
+    LinearChain.returns (ε := Bool) chainLowered.1 (0 : Nat) 2 (.inl (5 : Nat)) 5 := by
   apply (chainLowered.2.returns_iff (ε := Bool) (PUnit.unit, (0 : Nat)) (.inl (5 : Nat)) 2 5).mp
   change (iter chainRounds 0).run 2 = _
   rw [Silmaril.Elgot.StateT.run_iter, Part.eq_some_iff, Silmaril.Elgot.Part.mem_iter_iff]
   exact .done chainHeaderStep
 
-example : LinearChain.returns (ε := Bool) chainLowered.1 (1 : Nat) 0 bodyLabel 136 := by
+private theorem chainBodyWire :
+    LinearChain.returns (ε := Bool) chainLowered.1 (1 : Nat) 0 bodyLabel 136 := by
   apply (chainLowered.2.returns_iff (ε := Bool) (PUnit.unit, (1 : Nat)) bodyLabel 0 136).mp
   change (iter chainRounds 1).run 0 = _
   rw [Silmaril.Elgot.StateT.run_iter, Part.eq_some_iff, Silmaril.Elgot.Part.mem_iter_iff]
@@ -254,5 +256,34 @@ example : LinearChain.returns (ε := Bool) longerLowered.1 (0 : Nat) 0 (.inl (1 
     InstructionModel.denote, instruction, Silmaril.Elgot.StateT.body, Silmaril.Elgot.StateT.distribute,
     TypeModel.coprodEquiv, StateT.run_bind, Part.bind_eq_bind, Part.bind_some]
   exact Part.mem_some_iff.mpr rfl
+
+-- The categorical reading through the shared Kleisli inclusion observes the
+-- same two labels, feedback path, and final state as the explicit graph.
+private abbrev Coherent := Isotope.LambdaSSA.Semantics.Agreement.RegionCoherent
+  (τ := Code) (Φ := Opcode) (ε := Bool) (m := StateT Nat Part)
+
+example (coherent : Coherent) :
+    (LinearChain.Categorical.denoteState (ε := Bool) chainSpec (PUnit.unit, (1 : Nat))).run 0 =
+      Part.some (LabelValue.categoricalEquiv [number, pair] bodyLabel, 136) := by
+  exact (LinearChain.Categorical.state_returns_iff (ε := Bool) chainLowered.2 coherent
+    (PUnit.unit, (1 : Nat)) bodyLabel 0 136).mpr chainBodyWire
+
+example (coherent : Coherent) :
+    (LinearChain.Categorical.denoteState (ε := Bool) chainSpec (PUnit.unit, (0 : Nat))).run 2 =
+      Part.some (LabelValue.categoricalEquiv [number, pair] (.inl (5 : Nat)), 5) :=
+  (LinearChain.Categorical.state_returns_iff (ε := Bool) chainLowered.2 coherent
+    (PUnit.unit, (0 : Nat)) (.inl (5 : Nat)) 2 5).mpr chainHeaderWire
+
+example (coherent : Coherent) :
+    (LinearChain.Categorical.denoteState (ε := Bool) longerSpec (PUnit.unit, (1 : Nat))).run 0 =
+      Part.none := by
+  let input : Env [number] := (PUnit.unit, (1 : Nat))
+  have agreed := LinearChain.Categorical.denoteState_eq (ε := Bool) longerLowered.2 coherent input
+  change LinearChain.Categorical.denoteState (ε := Bool) longerSpec input = _ at agreed
+  change (LinearChain.Categorical.denoteState (ε := Bool) longerSpec input).run 0 = _
+  rw [agreed, StateT.run_bind]
+  have run : (Region.denote (ε := Bool) (m := StateT Nat Part) longerLowered.2.typing input).run 0 =
+      Part.none := (congrArg (fun k => (k input).run 0) (LinearChain.chosenDenote_eq longerSpec coherent)).trans blocked
+  rw [run, Part.bind_eq_bind, Part.bind_none]
 
 end Silmaril.SSA.RVSDG.LambdaSSA.ThreeBlock.Tests
