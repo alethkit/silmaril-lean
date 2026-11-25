@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Languages.Starlark.Functions.Denotation.Defs
 public import Silmaril.Languages.Starlark.Functions.Operational.Defs
+public import Silmaril.Languages.Starlark.Functions.Builtins.Thms
 public import Silmaril.Languages.Starlark.Lists.Thms
 public import Silmaril.Languages.Starlark.Lists.Iteration.Thms
 
@@ -9,9 +10,11 @@ public section
 
 namespace Silmaril.Proofs.Languages.Starlark.Functions
 
+open Silmaril.Languages.Starlark (Binding)
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Lists
-open Silmaril.Languages.Starlark.Lists.Iteration (Flow Runs runs_iff_denoteSuite truth)
+open Silmaril.Languages.Starlark.Lists.Iteration
+  (Flow Runs runs_iff_denoteSuite truth iterationSource denoteItems)
 
 private theorem branch_apply (program : Program) (available : List DeclarationId)
     (flag : Bool) (yes no : Body) (state : State) :
@@ -22,15 +25,37 @@ private theorem branch_apply (program : Program) (available : List DeclarationId
 theorem denote_eq_of_exec {program : Program} {available : List DeclarationId} {state : State}
     {body : Body} {out : Outcome Flow} (h : Exec program available state body out) :
     denoteBody program available body state = out := by
-  induction h <;>
+  induction h using Exec.rec
+    (motive_2 := fun available target body items state out _ =>
+      denoteItems target (denoteBody program available body) items state = out) <;>
     (try have evaluated := (eval_iff_denote _ _ _).mp (by assumption)) <;>
     (try have total := (runs_iff_denoteSuite _ _ _).mp (by assumption)) <;>
-    simp_all [denoteBody, Outcome.resume]
+    (try have invoked := (Builtins.invokes_iff_invoke _ _ _ _).mp (by assumption)) <;>
+    simp_all [denoteBody, denoteItems, Outcome.resume]
   case seqStop signal _ _ _ =>
     cases signal <;> simp_all <;> rfl
   case branch =>
     rw [branch_apply]
     assumption
+
+private theorem exec_items (program : Program) (available : List DeclarationId) (target : Binding)
+    (body : Body) (meaning : Meaning Flow)
+    (runBody : ∀ s, Exec program available s body (meaning s)) (items : List Value)
+    (state : State) :
+    ExecItems program available target body items state (denoteItems target meaning items state) := by
+  induction items generalizing state with
+  | nil => exact .done
+  | cons value rest ih =>
+    rw [denoteItems]
+    have ran := runBody (state.write target value)
+    cases h : meaning (state.write target value) with
+    | error error next => exact .failed (h ▸ ran)
+    | ok flow next =>
+      cases flow with
+      | next => exact .next (h ▸ ran) (ih next)
+      | continueLoop => exact .continueLoop (h ▸ ran) (ih next)
+      | breakLoop => exact .breakLoop (h ▸ ran)
+      | returned result => exact .returned (h ▸ ran)
 
 theorem exec_denote (program : Program) (available : List DeclarationId) (body : Body)
     (state : State) : Exec program available state body (denoteBody program available body state) := by
@@ -58,6 +83,21 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
       cases flag
       · exact .branch evaluated h (exec_denote program available no next)
       · exact .branch evaluated h (exec_denote program available yes next)
+  | forIn target iterable body =>
+    rw [denoteBody]
+    have evaluated := (eval_iff_denote iterable state _).mpr rfl
+    cases h : Outcome.resume (denote iterable state) iterationSource with
+    | error error next => exact .forError evaluated h
+    | ok source next =>
+      obtain ⟨address, items⟩ := source
+      exact .forIn evaluated h (exec_items program available target body (denoteBody program available body)
+        (exec_denote program available body) items _)
+  | breakLoop =>
+    rw [denoteBody]
+    exact .breakLoop
+  | continueLoop =>
+    rw [denoteBody]
+    exact .continueLoop
   | define target id =>
     rw [denoteBody]
     exact .define ((eval_iff_denote _ _ _).mpr rfl)
@@ -67,7 +107,11 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
     cases h : Outcome.resume (denote (Arguments.operands callee arguments) state) (prepare program available arguments) with
     | error error next => exact .callError evaluated h
     | ok plan next =>
-      exact .call evaluated h (exec_denote program (withoutDeclaration available plan.id) plan.body next)
+      cases plan with
+      | closure plan =>
+        exact .call evaluated h (exec_denote program (withoutDeclaration available plan.id) plan.body next)
+      | builtin id actual =>
+        exact .callBuiltin evaluated h ((Builtins.invokes_iff_invoke _ _ _ _).mpr rfl)
 termination_by (available.length, sizeOf body)
 decreasing_by
   all_goals first

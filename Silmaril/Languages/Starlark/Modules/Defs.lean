@@ -76,9 +76,8 @@ def validateSource (program : Program) (source : Source) : Except Error Unit := 
   for command in source.commands do
     command.validate
 
-def importsFrom (host : Catalog) (label : String) (imports : List Import) :
+def importsOf (published : Published) (label : String) (imports : List Import) :
     Except Error (List (Binding × Lists.Value)) := do
-  let some published := host label | throw (.unavailableModule label)
   imports.mapM fun item => do
     if !isPublic item.exportedName then
       throw (.privateImport item.exportedName)
@@ -86,11 +85,20 @@ def importsFrom (host : Catalog) (label : String) (imports : List Import) :
       throw (.missingExport label item.exportedName)
     return (fileSlot item.localName, value)
 
-def loadFrom (host : Catalog) (label : String) (imports : List Import) (state : State) :
+def importsFrom (host : Catalog) (label : String) (imports : List Import) :
+    Except Error (List (Binding × Lists.Value)) := do
+  let some published := host label | throw (.unavailableModule label)
+  importsOf published label imports
+
+def bindImports (resolved : Except Error (List (Binding × Lists.Value))) (state : State) :
     Result Unit :=
-  match importsFrom host label imports with
+  match resolved with
   | .error error => .error error state
   | .ok entries => .ok () (entries.foldl (fun s (slot, value) => s.write slot value) state)
+
+def loadFrom (host : Catalog) (label : String) (imports : List Import) (state : State) :
+    Result Unit :=
+  bindImports (importsFrom host label imports) state
 
 def afterCode : Outcome Iteration.Flow → Result Unit
   | .ok _ state => .ok () state
@@ -121,14 +129,17 @@ def globalValues (source : Source) (state : State) : List (String × Lists.Value
 def restoreThread (caller state : State) : State :=
   { restoreCaller caller state with iterators := caller.iterators }
 
+def publish (source : Source) (state : State) : Published × State :=
+  let globals := globalValues source state
+  (⟨globals.filter (fun (name, _) => isPublic name)⟩, state.freeze (globals.map Prod.snd))
+
 /-- Freeze all global values on successful publication, including private
 ones. File-local names never become exports. -/
 def finish (source : Source) (caller : State) : Result Unit → Result Published
   | .error error state => .error error (restoreThread caller state)
   | .ok () state =>
-    let globals := globalValues source state
-    let frozen := state.freeze (globals.map Prod.snd)
-    .ok ⟨globals.filter (fun (name, _) => isPublic name)⟩ (restoreThread caller frozen)
+    let (published, frozen) := publish source state
+    .ok published (restoreThread caller frozen)
 
 def initializeModule (program : Program) (host : Catalog) (source : Source) (caller : State) :
     Result Published :=

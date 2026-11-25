@@ -4,6 +4,8 @@ These developments follow chapters 1–5 of Peter Sewell's *Semantics of
 Programming Languages* notes for Cambridge Part IB, 2025–26, dated
 12 February 2026. The course is a self-contained library leaf. Its proofs stay
 near the definitions and exercise statements.
+The [chapter and exercise checklist](cambridge-spl-coverage.md) maps the
+full Part IB notes to checked results and open items.
 
 ```sh
 lake build --wfail Silmaril.Courses.Cambridge.L1.Course \

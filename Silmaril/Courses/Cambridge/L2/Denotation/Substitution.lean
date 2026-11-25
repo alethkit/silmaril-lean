@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Courses.Cambridge.L2.Substitution
+public import Silmaril.Courses.Cambridge.L2.Reduction
 
 /-! # Closing a lambda body and then taking a beta step -/
 
@@ -63,5 +63,41 @@ theorem beta_after_subst (body argument : Expr) (σ : Nat → Expr) :
   | succ =>
     rw [Expr.liftSubst, subst_rename]
     exact Expr.subst_id _
+
+/-- The first step of applying the syntactic recursive closure installs its
+recursive binder. The shifted function code returns to its original level. -/
+theorem recClosure_body_beta (A B : Ty) (body argument : Expr) :
+    (Expr.letRecFun A B (body.rename (DeBruijn.liftN 2 Nat.succ))
+      (body.rename swapFirstTwo)).beta argument =
+      .letRecFun A B body
+        ((body.rename swapFirstTwo).subst (Expr.liftSubst (extendSubst argument Expr.bvar))) := by
+  change Expr.letRecFun A B
+    ((body.rename (DeBruijn.liftN 2 Nat.succ)).subst
+      (Expr.liftSubst (Expr.liftSubst (extendSubst argument Expr.bvar)))) _ = _
+  congr 1
+  rw [subst_rename]
+  convert Expr.subst_id body using 2
+  funext i
+  cases i with
+  | zero => rfl
+  | succ i => cases i <;> rfl
+
+/-- Entering the renewed recursive binding and the parameter in the source
+closure agrees with extending the saved environment by both values. -/
+theorem recClosure_enter (body argument self : Expr) (σ : Nat → Expr) :
+    ((((body.subst (Expr.liftSubst (Expr.liftSubst σ))).rename swapFirstTwo).subst
+      (Expr.liftSubst (extendSubst argument Expr.bvar))).beta self) =
+      body.subst (extendSubst argument (extendSubst self σ)) := by
+  rw [beta_after_subst, subst_rename, subst_comp]
+  congr 1
+  funext i
+  cases i with
+  | zero => rfl
+  | succ i =>
+    cases i with
+    | zero => rfl
+    | succ i =>
+      simp only [Expr.liftSubst, Expr.rename_comp, subst_rename]
+      exact Expr.subst_id _
 
 end Silmaril.Courses.Cambridge.L2.PureDenotation
