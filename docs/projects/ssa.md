@@ -146,6 +146,14 @@ categorical soundness there. It assumes matching type formers, instruction
 types and effects, and the thesis model laws and typing coherence. The existing
 algebraic completeness theorem ranges over operation algebras of the presentation.
 
+Exact categorical LetIter soundness has a model-interface obstruction.
+`Silmaril.SSA.Isotope.LetIter.Counterexample.Thms` exhibits a strong Elgot
+Freyd model admitted by the current interface in which closed let-η changes
+the denotation. The model uses a writer effect in the structural unit and
+tensor isomorphisms. The paper's Freyd interface instead takes the
+computation unit and tensor as Cartesian structure in the pure wide
+subcategory. [The Denotational Semantics of SSA, Definition 5.3](https://arxiv.org/abs/2411.09347)
+
 λSSA categorical semantics (`Silmaril.Isotope.LambdaSSA.Semantics.Categorical`).
 `denote_spec` and `denoteRegion_spec` witness the expression and region graphs
 at every exactly typed input. Expression models are distributive Freyd
