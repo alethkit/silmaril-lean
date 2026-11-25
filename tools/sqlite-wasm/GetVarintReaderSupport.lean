@@ -335,4 +335,60 @@ theorem fifthPending (first second third fourth fifth : UInt8)
   unfold advanceWord pendingWord
   rw [appendAfterContinuation, cleared]
 
+/-- The quoted reader appends a full byte after eight continuation octets. -/
+@[expose] def finishWord (acc : BitVec 64) (next : UInt8) : BitVec 64 :=
+  ((acc <<< 8) ||| next.toBitVec.setWidth 64) ^^^ 32768#64
+
+private theorem finishArithmetic (acc : BitVec 64) (next : UInt8)
+    (fits : acc.toNat < 2 ^ 56) :
+    (finishWord acc next).toNat = (acc ^^^ 128#64).toNat * 256 + next.toNat := by
+  have byte := next.toNat_lt
+  unfold finishWord
+  rw [BitVec.toNat_xor, BitVec.toNat_or, BitVec.toNat_shiftLeft,
+    BitVec.toNat_setWidth_of_le (by decide), UInt8.toNat_toBitVec, Nat.shiftLeft_eq,
+    Nat.mod_eq_of_lt (show acc.toNat * 2 ^ 8 < 2 ^ 64 by omega), BitVec.toNat_xor]
+  let word := ((acc.toNat * 256) ||| next.toNat) ^^^ 32768
+  change word = (acc.toNat ^^^ 128) * 256 + next.toNat
+  have low : word % 256 = next.toNat := by
+    change word % 2 ^ 8 = next.toNat
+    unfold word
+    rw [Nat.xor_mod_two_pow, Nat.or_mod_two_pow]
+    have aligned : acc.toNat * 256 % 2 ^ 8 = 0 := by omega
+    rw [aligned, Nat.mod_eq_of_lt byte]
+    simp
+  have high : word / 256 = acc.toNat ^^^ 128 := by
+    change word / 2 ^ 8 = acc.toNat ^^^ 128
+    unfold word
+    rw [Nat.xor_div_two_pow, Nat.or_div_two_pow]
+    have aligned : acc.toNat * 256 / 2 ^ 8 = acc.toNat := by omega
+    rw [aligned, Nat.div_eq_of_lt byte]
+    simp
+  omega
+
+/-- Finalize the pending eighth digit and append all eight bits of the ninth octet. -/
+theorem finishPending (digits : Nat) (last next : UInt8)
+    (fits : digits < 2 ^ 49) (continues : 128 ≤ last.toNat) :
+    (finishWord (pendingWord digits last) next).toNat =
+      (digits * 128 + last.toNat % 128) * 256 + next.toNat := by
+  have prefixNat : (BitVec.ofNat 64 digits).toNat = digits := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+  have byteBound := last.toNat_lt
+  have octet := maskByte last
+  have rawFit : (pendingWord digits last).toNat < 2 ^ 56 := by
+    unfold pendingWord
+    rw [BitVec.toNat_xor]
+    apply Nat.xor_lt_two_pow
+    · rw [BitVec.toNat_shiftLeft, Nat.shiftLeft_eq, prefixNat,
+        Nat.mod_eq_of_lt (show digits * 2 ^ 7 < 2 ^ 64 by omega)]
+      omega
+    · rw [octet]
+      omega
+  have clearedOctet : (octetWord last ^^^ 128#64).toNat = last.toNat % 128 := by
+    rw [clearContinuation _ (by rwa [octet]) (by rwa [octet]), octet]
+  have cleared : (pendingWord digits last ^^^ 128#64).toNat = digits * 128 + last.toNat % 128 := by
+    unfold pendingWord
+    rw [BitVec.xor_assoc, appendDigit _ _ (by rw [prefixNat]; omega) (by rw [clearedOctet]; omega),
+      prefixNat, clearedOctet]
+  rw [finishArithmetic _ _ rawFit, cleared]
+
 end SqliteWasm.GetVarintReaderSupport

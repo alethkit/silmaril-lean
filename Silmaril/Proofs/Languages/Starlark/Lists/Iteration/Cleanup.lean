@@ -6,6 +6,7 @@ public section
 
 namespace Silmaril.Proofs.Languages.Starlark.Lists.Iteration
 
+open Silmaril.Languages.Starlark (Binding)
 open Silmaril.Languages.Starlark.Lists
 open Silmaril.Languages.Starlark.Lists.Iteration
 
@@ -206,6 +207,14 @@ private theorem restore_stack (stack : List Address) (out : Outcome Flow) :
     (finishState (restoreIterators stack out)).iterators = stack := by
   cases out <;> rfl
 
+theorem iterators_denoteForIn (target : Binding) (body : Meaning Flow) (operand : Outcome Value) :
+    (finishState (denoteForIn target body operand)).iterators = (finishState operand).iterators := by
+  unfold denoteForIn
+  refine (resume_preserves (Outcome.resume operand iterationSource) _ ?_).trans
+    (resume_preserves _ _ keeps_source)
+  rintro ⟨address, elements⟩ next
+  exact restore_stack _ _
+
 theorem iterators_denoteSuite {depth : Nat} (code : Suite depth) (state : State) :
     (finishState (denoteSuite code state)).iterators = state.iterators := by
   induction code generalizing state with
@@ -227,12 +236,8 @@ theorem iterators_denoteSuite {depth : Nat} (code : Suite depth) (state : State)
       · exact ihNo
       · exact ihYes
   | forIn target iterable body _ =>
-    rw [denoteSuite]
-    refine (resume_preserves (Outcome.resume (denote iterable state) iterationSource) _ ?_).trans
-      ((resume_preserves _ _ keeps_source).trans (keeps_code iterable state))
-    intro pair next
-    obtain ⟨address, elements⟩ := pair
-    exact restore_stack _ _
+    rw [denoteSuite, iterators_denoteForIn]
+    exact keeps_code iterable state
   | breakLoop => rfl
   | continueLoop => rfl
   | ret value =>

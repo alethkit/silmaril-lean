@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +15,7 @@ assert.ok(reactor, "pinned reactor is listed in Wasm Explorer");
 const { slug } = reactor;
 assert.equal(slug, `sqlite.wasi.preview1.reactor.${reactor.source.sha256}`);
 const inventory = JSON.parse(fs.readFileSync(path.join(site, "wasm", "m", `${slug}.json`)));
+const receiptPath = "tools/sqlite-wasm/llvm-provenance/receipt.json";
 const port = 8790 + process.pid % 400;
 const base = `http://127.0.0.1:${port}/index.html`;
 const server = spawn("python3", ["-I", fileURLToPath(new URL("pages_server.py", import.meta.url)),
@@ -29,11 +30,13 @@ try {
   const localChrome = "/opt/ms-playwright/chromium-1248/chrome-linux64/chrome";
   browser = await chromium.launch({ executablePath: process.env.CHROME || (fs.existsSync(localChrome) ? localChrome : undefined) });
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
-  const details = [], errors = [];
+  const details = [], reactorRequests = [], receiptRequests = [], errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("request", (r) => {
     const part = new URL(r.url()).pathname;
     if (part.startsWith(`/wasm/f/${slug}/`)) details.push(part);
+    if (part.includes(slug)) reactorRequests.push(part);
+    if (part.endsWith(`/${receiptPath}`)) receiptRequests.push(r.url());
   });
   const shot = async (name) => {
     if (!shots) return;
@@ -46,11 +49,14 @@ try {
     const hasReceipt = inventory.llvmReceipt?.symbols?.[slot] === symbol;
     const expected = process.env[`SQLITE_REACTOR_LLVM_${slot}`];
     if (expected) assert.equal(hasReceipt ? "present" : "absent", expected);
+    if (expected === "present") assert.ok(source, "a positive receipt check needs a pinned site source");
     assert.equal(await llvm.count(), source && hasReceipt ? 1 : 0);
     if (source && hasReceipt) {
       assert.equal(await llvm.getAttribute("href"),
-        `${source.repo}/blob/${source.rev}/tools/sqlite-wasm/llvm-provenance/receipt.json`);
-      assert.ok((await page.locator("#main").innerText()).includes(`early bitcode symbol ${symbol}`));
+        `${source.repo}/blob/${source.rev}/${receiptPath}`);
+      const text = await page.locator("#main").innerText();
+      assert.ok(text.includes(`early bitcode symbol ${symbol}`));
+      assert.ok(text.includes(inventory.llvmReceipt.bitcodeSha256));
     }
   };
 
@@ -60,6 +66,8 @@ try {
   await result.waitFor();
   assert.equal(await result.getAttribute("href"), `#/wasm-func/${slug}/289`);
   assert.deepEqual(details, []);
+  assert.deepEqual(reactorRequests, []);
+  assert.deepEqual(receiptRequests, []);
   await result.click();
   await page.locator("#wcy").waitFor();
   assert.match(await page.locator("#main").innerText(), /SqliteWasm\.version_exec/);
@@ -135,6 +143,33 @@ try {
   assert.equal(await empty.locator("#wlegend [data-c=flow]").innerText(), "0");
   assert.equal(await empty.locator("#main .err").count(), 0);
   await empty.close();
+
+  // Use the exact Git blob for the pinned outbound URL so this click can be tested offline.
+  assert.deepEqual(receiptRequests, []);
+  const source = JSON.parse((await page.locator("#source-meta").textContent()) || "null");
+  const receiptSlot = [530, 289].find((slot) => inventory.llvmReceipt?.symbols?.[slot]);
+  if (source && receiptSlot !== undefined) {
+    const url = `${source.repo}/blob/${source.rev}/${receiptPath}`;
+    const checkout = fileURLToPath(new URL("../../../../", import.meta.url));
+    const body = execFileSync("git", ["-C", checkout, "show", `${source.rev}:${receiptPath}`], { encoding: "utf8" });
+    await page.route(url, (route) => route.fulfill({ contentType: "application/json", body }));
+    await page.goto(`${base}#/wasm-func/${slug}/${receiptSlot}`);
+    const link = page.getByRole("link", { name: "LLVM build provenance" });
+    const [response] = await Promise.all([page.waitForResponse((r) => r.url() === url), link.click()]);
+    await page.waitForURL(url);
+    const receipt = await response.json();
+    assert.equal(receipt.stages["sqlite3.wasm"].sha256, reactor.source.sha256);
+    assert.equal(receipt.stages["sqlite3.bc"].sha256, inventory.llvmReceipt.bitcodeSha256);
+    const rows = receipt.symbols.filter((row) => row.wasmSlot === receiptSlot);
+    assert.deepEqual(rows.map((row) => row.symbol), [inventory.llvmReceipt.symbols[receiptSlot]]);
+    const alias = inventory.functions[receiptSlot].cName;
+    if (alias) {
+      assert.equal(rows[0].codeOffset, alias.codeOffset);
+      assert.equal(rows[0].codeBytes, alias.codeBytes);
+    }
+    assert.deepEqual(receiptRequests, [url]);
+    console.log(`Opened the pinned LLVM receipt for slot ${receiptSlot} and checked both artifact digests.`);
+  }
   assert.deepEqual(errors, []);
   console.log("SQLite reactor search, lazy CFGs, effect marks, and provenance-preserving detail errors passed.");
 } finally {

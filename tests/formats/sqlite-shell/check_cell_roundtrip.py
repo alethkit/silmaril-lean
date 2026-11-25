@@ -7,7 +7,9 @@ from check import (
     row_arguments, run, successful,
 )
 
-ENTRIES = [(0, -(2**63)), (1, 2**63 - 1), (126, -129), (127, 0), (128, 1)]
+ENTRIES = [(0, -(2**63)), (1, 2**63 - 1), (126, -129), (127, 0), (128, 1),
+           (16383, -1), (16384, 128)]
+MULTIBYTE_ROWIDS = {128: b"\x81\x00", 16383: b"\xff\x7f", 16384: b"\x81\x80\x00"}
 PAGE_SIZE = 512
 
 
@@ -24,13 +26,13 @@ def check_cells(image, lean_created):
         assert 8 + 2 * count <= start < PAGE_SIZE
         payload_size = page[start]
         assert 3 <= payload_size < 127
-        rowid_bytes = bytes([rowid]) if rowid < 128 else b"\x81\x00"
+        rowid_bytes = bytes([rowid]) if rowid < 128 else MULTIBYTE_ROWIDS[rowid]
         payload_at = start + 1 + len(rowid_bytes)
         assert page[start + 1:payload_at] == rowid_bytes
         if lean_created:
             expected = b"\x03\x00\x06" + amount.to_bytes(8, "big", signed=True)
             assert payload_size == len(expected) == 11
-            assert stops[start] - start == (13 if rowid < 128 else 14)
+            assert stops[start] - start == 1 + len(rowid_bytes) + len(expected)
             assert page[payload_at:stops[start]] == expected
     return PAGE_SIZE + min(starts)
 

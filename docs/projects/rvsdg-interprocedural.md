@@ -44,22 +44,46 @@ values check positional closure binding alongside the typed graph checks.
 [Scoping theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Thms.lean) ·
 [Fixture](../../tests/ssa/RVSDGInterprocedural.lean)
 
+## Inductive presentation and graph correspondence
+
+`ModuleTerm` is a sequence of typed λ, δ and φ bindings followed by
+the export tuple. A let extends the local scope with its declared output
+ports. `OmegaTerm` binds the entire region at the import signature,
+with an empty local prefix. For λ and δ, the bodies use the existing
+inductive region syntax. Inside φ, `Definitions` is an inductive list of
+typed λ definitions whose scopes are indexed by member position. All
+recursion arguments are available at every definition, while physical
+outputs are available only after their bindings.
+
+The translations use the existing `Lambda`, `Delta`, `Phi` and `Omega`
+graphs. The graph-to-term direction walks the body tables in number order
+and the φ table in member order. The converse collects the bindings into
+those tables. Lean proves both round trips for each of the four forms,
+at the given numbering. Capture wires, φ member positions, and module
+result wires are preserved exactly. These are syntactic equalities.
+[Definitions](../../Silmaril/SSA/RVSDG/Interprocedural/Terms/Defs.lean) ·
+[Theorems](../../Silmaril/SSA/RVSDG/Interprocedural/Terms/Thms.lean)
+
+The [term fixture](../../tests/ssa/RVSDGInterproceduralTerms.lean) authors
+a translation unit as inductive bindings, checks its numbered graph table,
+round-trips both presentations, and checks the translated endpoints for
+the mutual recursion arguments and exports.
+
 ## Semantic boundary
 
-These are graph and boundary-binding interfaces. Call target resolution,
-initializer admissibility and execution, linking, and the recursive
-closure fixed point are subsequent semantic obligations. A call
-semantics can first give a resolution relation from callable colours to
-closures, then define finite invocation using `Closure.enter` and the
-body execution relation. A φ semantics must provide a recursive tuple
-whose callable components resolve to the corresponding λ closures
-entered under that very tuple. The acyclicity theorem here applies to
-physical capture edges and leaves recursive calls to that semantics.
+The [first operational slice](rvsdg-module-linking.md) links φ-free
+modules and invokes the linked closures. A φ semantics must provide a
+recursive tuple whose callable components resolve to the corresponding λ
+closures entered under that very tuple. The acyclicity theorem here
+applies to physical capture edges and leaves recursive calls to that
+semantics.
 
 ## Reproduce
 
 ```sh
 lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGInterprocedural.lean
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.Interprocedural.Thms
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Terms.Thms
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGInterproceduralTerms.lean
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.Interprocedural.Terms.Thms
 ```
