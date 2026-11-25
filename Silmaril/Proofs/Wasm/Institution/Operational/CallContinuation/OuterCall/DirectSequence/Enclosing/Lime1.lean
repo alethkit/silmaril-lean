@@ -71,7 +71,7 @@ private theorem active_strip {H : Type} {s : Store H} {ctx : Context} {p : Progr
         values_append, List.append_assoc, List.singleton_append] using step
     have eq := (Computed.lime_direct_call_iff g.resolves).mp focused
     refine ⟨_, DirectSequence.lime_sound g (DirectSequence.fact .resolve), ?_⟩
-    simpa only [DirectSequence.limeConfig, DirectSequence.limeCode, DirectSequence.render,
+    simpa only [DirectSequence.limeConfig, DirectSequence.limeCode, DirectSequence.render, Site.callTarget,
       values_append, List.append_assoc, List.cons_append, List.nil_append] using eq
   | invoke =>
     have step : Step CallFrame.limeNoHost
@@ -80,7 +80,7 @@ private theorem active_strip {H : Type} {s : Store H} {ctx : Context} {p : Progr
         values_append, List.append_assoc, List.cons_append, List.nil_append] using step
     obtain ⟨mid, step, eq⟩ := CallContinuation.lime_invoke_strip_suffix step
     have count : p.site.args.length = p.site.type.params.length := by
-      simpa [Site.type] using congrArg List.length g.typed.args
+      simpa [Site.type, Site.callTarget, Declaration.type] using congrArg List.length g.typed.args
     have enter := (CallFrame.lime_invoke_wasm_prefix_iff (saved := ctx.saved) g.allocated count).mp step
     rw [DirectSequence.lime_body_expression] at enter
     refine ⟨_, DirectSequence.lime_sound g (DirectSequence.fact .enter), ?_⟩

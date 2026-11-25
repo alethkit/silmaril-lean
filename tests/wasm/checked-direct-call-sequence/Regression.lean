@@ -3,6 +3,7 @@ module
 import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.DirectSequence.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.DirectSequence.Enclosing.Framed.Native.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.DirectSequence.Enclosing.Framed.Source.Native.Thms
 
 open Silmaril.Wasm
 open Silmaril.Wasm.Execution
@@ -171,7 +172,7 @@ example : ¬ Admitted (site firstCallee) (.running [] [.call (firstId firstCalle
 
 open OuterCall
 
-private def parent : Frame := ⟨[i32 99], { funcs := [⟨2⟩] }⟩
+private def parent : Frame := ⟨[i32 99, i32 0], { funcs := [⟨2⟩] }⟩
 
 private def outerSite (fn : CallFrame.Callee) : DirectSequence.Site :=
   ⟨⟨0⟩, ⟨2⟩, [i32 5, i32 2, i32 3], caller.module, ⟨0⟩,
@@ -540,5 +541,93 @@ example : ¬ Framed.Admitted (ctx := twoResults) (site := (outer firstCallee).si
   intro wrongOrder
   change [int32, NumType.int .i64] = [NumType.int .i64, int32] at wrongOrder
   cases wrongOrder
+
+open DirectSequence.Enclosing.Framed
+
+private def sourceCaller : Frame := { recipient with module := { funcs := [⟨3⟩] } }
+
+private def sourceDecl (results : List NumType) : Declaration :=
+  ⟨callParent.module, ⟨0⟩, [int32], [int32], results⟩
+
+private def sourceCall (fn : CallFrame.Callee) : Source.Invocation :=
+  ⟨⟨⟨0⟩, ⟨3⟩, sourceDecl [int32]⟩,
+    ⟨outer fn, [i32 11], callSequence.targets, [.call continuationTarget, .numeric (.bin .i32 .add)]⟩, [i32 99]⟩
+
+private def sourceMany : Source.Invocation :=
+  ⟨⟨⟨0⟩, ⟨3⟩, sourceDecl [.int .i64, int32]⟩,
+    ⟨outer firstCallee, [Value.int .i64 11], callSequence.targets, []⟩, [i32 99]⟩
+
+private def sourceStore (fn : CallFrame.Callee) (invocation : Source.Invocation) : V1.Execution.Store Unit :=
+  { outerStore fn with funcs := (outerStore fn).funcs ++
+    [.wasm invocation.target.declaration.type invocation.target.declaration.module invocation.body.v1Func] }
+
+private theorem extendedGuard (fn : CallFrame.Callee) (invocation : Source.Invocation) {ctx : Enclosing.Context}
+    (g : Enclosing.V1Guard (outerStore fn) ctx (outer fn)) :
+    Enclosing.V1Guard (sourceStore fn invocation) ctx (outer fn) := by
+  have keep {addr : Nat} {value : Execution.Runtime.FuncInst V1.Func Unit}
+      (found : (outerStore fn).funcs[addr]? = some value) : (sourceStore fn invocation).funcs[addr]? = some value := by
+    change ((outerStore fn).funcs ++ _)[addr]? = _
+    rw [List.getElem?_append_left (List.getElem?_eq_some_iff.mp found).1, found]
+  exact ⟨⟨g.invocation.toLookups, keep g.invocation.allocated,
+    ⟨g.invocation.body.readOnly, g.invocation.body.typed, g.invocation.body.resolves,
+      fun i => keep (g.invocation.body.allocated i)⟩⟩,
+    ⟨g.continuation.readOnly, g.continuation.typed, g.continuation.resolves,
+      fun i => keep (g.continuation.allocated i)⟩⟩
+
+private theorem sourceGuard (fn : CallFrame.Callee)
+    (g : Enclosing.V1Guard (outerStore fn) enclosingCall (outer fn)) :
+    Source.V1Guard (sourceStore fn (sourceCall fn)) sourceCaller (sourceCall fn) :=
+  ⟨⟨⟨rfl, rfl⟩, rfl⟩, rfl, Nat.le_refl 1, extendedGuard fn (sourceCall fn) g⟩
+
+private theorem sourceSuccess : Source.Runs (sourceCall firstCallee) .call (.framed (.done (.values [i32 28]))) :=
+  Source.enter_run framedSuccess
+
+private theorem sourceTrap : Source.Runs (sourceCall trappingCallee) .call (.framed (.done .trap)) :=
+  Source.enter_run framedTrap
+
+example : V1.Execution.Step CallFrame.v1NoHost
+    (Source.v1Config (sourceStore firstCallee (sourceCall firstCallee)) sourceCaller (sourceCall firstCallee) .invoke)
+    ⟨sourceStore firstCallee (sourceCall firstCallee), sourceCaller, [.frame 1 callParent [.label 1 []
+      [.source (.intConst .i32 11), .source (.intConst .i32 5), .source (.intConst .i32 2), .source (.intConst .i32 3),
+        .source (.call ⟨0⟩), .source (.call ⟨1⟩), .source (.intBinOp .i32 .add)]]]⟩ :=
+  Source.v1_sound (sourceGuard firstCallee (enclosingCallGuard firstCallee regularGuard)) (Source.fact .enter)
+
+example : V1.Execution.Steps CallFrame.v1NoHost
+    ⟨sourceStore firstCallee (sourceCall firstCallee), sourceCaller, [.source (.intConst .i32 99), .source (.call ⟨0⟩)]⟩
+    ⟨sourceStore firstCallee (sourceCall firstCallee), sourceCaller, [.source (.intConst .i32 28)]⟩ :=
+  (Source.v1_run_iff (sourceGuard firstCallee (enclosingCallGuard firstCallee regularGuard))
+    (a := .call) trivial).mpr ⟨_, sourceSuccess, rfl, rfl⟩
+
+example : Core.Steps Profile.spec noHost
+    (Source.v1Config (sourceStore trappingCallee (sourceCall trappingCallee))
+      sourceCaller (sourceCall trappingCallee) .call).toLime.toCore
+    ⟨((sourceStore trappingCallee (sourceCall trappingCallee)).mapCode V1.Func.toLime).toCore,
+      sourceCaller.toCore, [.trap]⟩ := by
+  have g := Source.guard_to_lime (sourceGuard trappingCallee (enclosingCallGuard trappingCallee failingGuard))
+  rw [Source.v1_to_lime, Source.lime_to_core g]
+  exact (Source.core_run_iff (Source.guard_to_core g) (a := .call) trivial).mpr ⟨_, sourceTrap, trivial, rfl⟩
+
+private theorem sourceManyGuard :
+    Source.LimeGuard ((sourceStore firstCallee sourceMany).mapCode V1.Func.toLime) sourceCaller sourceMany := by
+  have base := enclosingCallGuard firstCallee regularGuard
+  have body : Enclosing.V1Guard (outerStore firstCallee) twoResults (outer firstCallee) :=
+    ⟨base.invocation, ⟨base.continuation.readOnly, base.continuation.typed,
+      base.continuation.resolves, base.continuation.allocated⟩⟩
+  exact ⟨⟨⟨rfl, rfl⟩, rfl⟩, rfl, Enclosing.guard_to_lime (extendedGuard firstCallee sourceMany body)⟩
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    ⟨(sourceStore firstCallee sourceMany).mapCode V1.Func.toLime, sourceCaller,
+      [.source (.intConst .i32 99), .source (.call ⟨0⟩)]⟩
+    ⟨(sourceStore firstCallee sourceMany).mapCode V1.Func.toLime, sourceCaller,
+      [.source (.intConst .i64 11), .source (.intConst .i32 17)]⟩ := by
+  have body := Framed.finish_run (Enclosing.invoke_run (ctx := twoResults) outerNormal)
+    (.values [Value.int .i64 11, i32 17]) rfl
+  exact (Source.lime_run_iff sourceManyGuard (a := .call) trivial).mpr
+    ⟨_, Source.enter_run body, rfl, rfl⟩
+
+example {s : V1.Execution.Store Unit} : ¬ Source.V1Guard s sourceCaller sourceMany := by
+  intro g
+  have scalar : 2 ≤ 1 := g.scalarResult
+  omega
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence

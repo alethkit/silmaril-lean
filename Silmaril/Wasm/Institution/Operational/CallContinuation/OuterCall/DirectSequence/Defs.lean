@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Defs
+public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Declaration.Defs
 
 @[expose] public section
 
@@ -24,7 +25,10 @@ structure Site where
   result : Option NumType
   targets : List Sequence.Target
 
-def Site.frame (site : Site) : Frame := ⟨site.args ++ site.locals.map Value.zero, site.module⟩
+def Site.callTarget (site : Site) : CallTarget :=
+  ⟨site.index, site.address, ⟨site.module, site.typeIndex, site.params, site.locals, site.result.toList⟩⟩
+
+def Site.frame (site : Site) : Frame := site.callTarget.declaration.frame site.args
 def Site.arity (site : Site) : Nat := site.result.toList.length
 def Site.body (site : Site) : Sequence.Site := ⟨site.frame, site.targets, site.result.toList⟩
 

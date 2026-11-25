@@ -38,12 +38,12 @@ theorem sound {H : Type} {s : Store H} {caller : Frame} {p : Program} {a b : Sta
     cases move with
     | resolve =>
       simpa only [v1Config, v1Code, render, List.append_nil] using
-        Step.context (Step.call (host := CallFrame.v1NoHost) s caller _ _ g.resolves) p.site.args []
+        Step.context (Step.call (host := CallFrame.v1NoHost) s caller p.site.index p.site.address g.resolves) p.site.args []
     | enter =>
       have count : p.site.args.length = p.site.type.params.length := by
-        simpa [Site.type] using congrArg List.length g.typed.args
+        simpa [Site.type, Site.callTarget, Declaration.type] using congrArg List.length g.typed.args
       have result : p.site.type.results.length ≤ 1 := by
-        cases p.site.result <;> simp [Site.type]
+        cases p.site.result <;> simp [Site.type, Site.callTarget, Declaration.type]
       have step := Step.invokeWasm (host := CallFrame.v1NoHost) s caller _ _ _ _ p.site.args g.allocated count result
       rw [body_expression] at step
       exact step
