@@ -33,7 +33,8 @@ const KERNEL_CFG = {
   "silmaril.wasm.examples.rust_door/5": "silmaril.wasm.blockcfg.rust_door.enter",
 };
 function sourceDl(s, size) {
-  const rows = [["kind", s.kind], ["name", s.name], ["registered CID (BLAKE3)", s.cid], ["registered SHA-256", s.sha256],
+  const shaLabel = s.kind === "pinned" ? "pinned SHA-256" : "registered SHA-256";
+  const rows = [["kind", s.kind], ["name", s.name], ["registered CID (BLAKE3)", s.cid], [shaLabel, s.sha256],
     ["path", s.path], ["size", size == null ? null : size + " B"], ["note", s.doc]];
   return "<dl>" + rows.filter(([, v]) => v != null && v !== "").map(([k, v]) => `<dt>${esc(k)}</dt><dd>${
     k === "registered CID (BLAKE3)" ? `<a href="${href("artifact", v)}">${esc(v)}</a>` : esc(v)}</dd>`).join("") + "</dl>";
@@ -194,7 +195,52 @@ function crumbs(ix, parentId) {
   }
   return out.length ? `<p>inside ${out.join(" › ")}</p>` : "";
 }
-function fname(f) { return f.display || f.name || (f.imported ? f.import : `func ${f.idx}`); }
+function fname(f) { return f.display || f.name || f.export || f.cName?.name || (f.imported ? f.import : `func ${f.idx}`); }
+
+function reactorEvidence(e) {
+  if (!e || !/^[0-9a-f]{40}$/.test(e.revision) || !/^tools\/sqlite-wasm\/(?:[\w-]+\/)*[\w-]+\.lean$/.test(e.path)) return "";
+  return `<p>Lean statement: <a href="https://github.com/hiloopai/silmaril-lean/blob/${e.revision}/${e.path}"><code>${esc(e.declaration)}</code></a></p>`;
+}
+
+function reactorFunctionFacts(f, source) {
+  let h = `<p>Wasm slot ${esc(f.idx)} · <code>${esc(source.sha256)}</code></p>`;
+  if (f.cName) h += `<p>C symbol <code>${esc(f.cName.name)}</code> from the pinned build’s linker map. ` +
+    `Framed Code body: byte ${esc(f.cName.codeOffset)}, ${esc(f.cName.codeBytes)} bytes.</p>`;
+  return h + reactorEvidence(f.leanEvidence);
+}
+
+function reactorModulePage(m, h) {
+  const s = m.summary, c = m.coverage;
+  h += reactorEvidence(m.decodeEvidence);
+  h += `<h3>Function coverage</h3><p>${esc(s.funcs)} slots · ${esc(c.functionImports)} imported · ${esc(c.defined)} defined.</p>` +
+    `<p>${esc(c.bodyDecodeFailures)} body decode failures · ${esc(c.flowBuilt)} syntactic flow CFGs built · ` +
+    `${esc(c.flowUnsupported)} with unsupported targets · ${esc(c.detailPublished)} detailed · ${esc(c.detailOmitted)} detail omitted.</p>` +
+    `<p class="muted">${esc(SYNTAX_CFG)} Whole-module runtime validation and call-graph extraction were skipped for this pilot.</p>`;
+  h += `<h3>Functions</h3><div class="controls"><label>Find function <input id="reactor-function-query" type="search" ` +
+    `placeholder="slot, export, C name, or import"></label> <span id="reactor-function-count" role="status"></span></div>` +
+    '<div id="reactor-functions"></div>';
+  h += '<h3>Exports</h3>' + simpleTable(m.exports, [["name", (e) => `<code>${esc(e.name)}</code>`],
+    ["kind", (e) => esc(e.kind)], ["index", (e) => e.kind === "func" ? flink(s.slug, Number(e.idx), String(e.idx)) : esc(e.idx)]]);
+  const init = () => {
+    wireSha(s.slug);
+    const query = $("#reactor-function-query");
+    const display = () => {
+      const q = query.value.trim().toLowerCase();
+      const rows = m.functions.filter((f) => /^\d+$/.test(q) ? f.idx === Number(q) :
+        !q || [f.export, f.cName?.name, f.import, f.imported ? "imported" : "defined"].some((n) => n?.toLowerCase().includes(q)));
+      $("#reactor-function-count").textContent = `${rows.length} of ${m.functions.length} slots` +
+        (rows.length > 100 ? " (first 100 shown)" : "");
+      $("#reactor-functions").innerHTML = simpleTable(rows.slice(0, 100), [["slot", (f) => esc(f.idx)],
+        ["function", (f) => flink(s.slug, Number(f.idx), fname(f))], ["kind", (f) => f.imported ? "import" : "definition"],
+        ["signature", (f) => `<code>${esc(f.sig)}</code>`], ["CFG", (f) => f.detail ? "detail available" :
+          f.flow === "unsupported" ? "unsupported target" : f.flow === "built" ? "flow only" : "import"]]);
+    };
+    query.addEventListener("input", display);
+    display();
+  };
+  return { html: h, init, dispose: disposeWcy };
+}
+
 async function wasmModulePage(slug, ctx) {
   let m, ix;
   try { [m, ix] = await Promise.all([wasmJson(`m/${slug}.json`), wasmJson("index.json")]); } catch (e) { return wasmMissing(e); }
@@ -204,6 +250,7 @@ async function wasmModulePage(slug, ctx) {
   h += sourceDl(s.source, s.size) + filesBlock(s.slug, m);
   h += await sections("wasm-module", await wasmSubject(s, ctx), ctx);
   if (m.unsupported) return { html: h + `<p class="err">Unsupported: ${esc(m.unsupported)}</p>`, init: () => wireSha(s.slug) };
+  if (m.coverage) return reactorModulePage(m, h);
   const v = m.validity;
   h += `<p>validation: <b>${esc(v.status)}</b> ${v.status === "valid" || v.status === "rejected" ? runBadge(v.note) : `<span class="muted">${esc(v.note)}</span>`}</p>`;
   const nCalls = m.calls.length, unknown = m.calls.filter((c) => typeof c[1] === "string").length;
@@ -269,9 +316,22 @@ async function wasmFuncPage(arg) {
   const slug = am[1], idx = Number(am[2]), askedVariant = am[3] || null, focusId = am[4] || null;
   let m, ix;
   try { [m, ix] = await Promise.all([wasmJson(`m/${slug}.json`), wasmJson("index.json")]); } catch (e) { return wasmMissing(e); }
-  const f = m.functions[idx], body = (m.bodies || []).find((b) => b.idx === idx);
-  if (!f || !body) return `<p class="err">no defined function ${esc(idx)} in ${esc(slug)}</p>`;
-  const s = m.summary, top = body.cfg;
+  const f = m.functions?.[idx], s = m.summary;
+  if (!f) return `<p class="err">no function ${esc(idx)} in ${esc(slug)}</p>`;
+  let body = (m.bodies || []).find((b) => b.idx === idx);
+  if (m.coverage) {
+    let h = `<h2>${kindTag("function")} <code>${esc(fname(f))}</code> · ${wlink("module", s.slug, s.title)}</h2>` +
+      reactorFunctionFacts(f, s.source);
+    if (!f.detail) return h + `<p>Signature <code>${esc(f.sig)}</code></p>` +
+      (f.imported ? "<p>Imported function. Its implementation is outside this module.</p>" :
+        f.flow === "unsupported" ? "<p>The syntactic flow CFG contains an unsupported target.</p>" :
+          "<p>Syntactic flow was extracted. Detailed CFG was omitted from this pilot.</p>");
+    try { body = await wasmJson(`f/${encodeURIComponent(s.slug)}/${idx}.json`); }
+    catch (e) { return h + wasmMissing(e); }
+    if (body.idx !== idx || !body.cfg) return h + '<p class="err">Function detail does not match this slot.</p>';
+  }
+  if (!body) return `<p class="err">no defined function ${esc(idx)} in ${esc(slug)}</p>`;
+  const top = body.cfg;
   // Graph variants (issue #231): the top-level graph is the explicit-sink model unless `model` says
   // otherwise; `variants` are other graphs of the same body, `default` names the one shown first.
   // Nothing here derives a variant: each is drawn exactly as the page data gives it.
@@ -306,12 +366,15 @@ async function wasmFuncPage(arg) {
   const legacy = vname === "top" && cfg.model === "explicit-sink";
   let h = `<h2>${kindTag("function")} <code>${esc(fname(f))}</code> <span class="muted">(function ${idx} of ${wlink("module", s.slug, s.title)})</span></h2>`;
   h += crumbs(ix, s.source.parent);
+  if (m.coverage) h += reactorFunctionFacts(f, s.source);
   h += "<dl>" + [["symbol", f.display ? f.name + " (demangled above by wasm-tools demangle in Lean)" : null], ["signature", f.sig], ["export", f.export], ["locals", f.locals], ["instructions", f.instrs], ["basic blocks", f.blocks],
     ["effect marks", (f.effects || []).join(", ") || "none"]].filter(([, v]) => v != null).map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join("") + "</dl>";
-  const callers = m.calls.filter((c) => c[1] === idx).map((c) => c[0]), callees = m.calls.filter((c) => c[0] === idx);
-  h += `<p>calls: ${callees.length ? callees.map(([, b, kind, n]) => typeof b === "string" ? `<span class="prov prov-gen">${esc(b)}</span>` :
+  if (!m.coverage) {
+    const callers = m.calls.filter((c) => c[1] === idx).map((c) => c[0]), callees = m.calls.filter((c) => c[0] === idx);
+    h += `<p>calls: ${callees.length ? callees.map(([, b, kind, n]) => typeof b === "string" ? `<span class="prov prov-gen">${esc(b)}</span>` :
     (m.functions[b].imported ? `<code>${esc(m.functions[b].import)}</code>` : flink(s.slug, b, fname(m.functions[b]))) + (kind !== "direct" ? ` (${esc(kind)})` : "") + (n > 1 ? ` ×${n}` : "")).join(", ") : "none"}` +
     ` · called by: ${callers.length ? callers.map((a) => flink(s.slug, a, fname(m.functions[a]))).join(", ") : "no call instruction in this module"} <span class="muted">(syntactic)</span></p>`;
+  }
   const kc = legacy ? KERNEL_CFG[`${s.slug}/${idx}`] : null;
   // The edges as written by wasm-pages: `flow` edges are Cfg.Edge (blockCfg), `effect` edges are
   // the "may" edges of Cfg.EffectEdge. Every edge stays in `E`, whatever is drawn: the inspector,
@@ -418,7 +481,8 @@ async function wasmFuncPage(arg) {
     '<kbd>↓</kbd>/<kbd>↑</kbd> first successor/predecessor, <kbd>e</kbd> draw all may-edges, <kbd>+</kbd>/<kbd>−</kbd> zoom, <kbd>0</kbd> fit, <kbd>Esc</kbd> clear. ' +
     'Selecting a block updates the address bar to a direct link.</p>';
   h += `<h2>WAT</h2><p class="muted">printed from the decoded AST by Silmaril's printer (Silmaril.Wasm.Tools.Gen.Cmd.Print) ${runBadge()}</p><pre class="code">${esc(body.wat)}</pre>`;
-  h += `<h2>Semantics (statements, not decided facts)</h2><ul class="muted">` +
+  if (m.coverage) h += '<p class="muted">The CFG records syntactic control and effect marks. Consult the linked Lean statements for their specific hypotheses and conclusions.</p>';
+  else h += `<h2>Semantics (statements, not decided facts)</h2><ul class="muted">` +
     "<li>This function's behaviours are those of the Core 3.0 semantics. <code>Silmaril.Wasm.Abstract.WasmFunRef</code> " +
     "(address, profile, host) is its projection to an abstract function, proved to preserve and reflect equal behaviours " +
     "(<code>preserves_behEq</code>, <code>reflects_behEq</code>) and trap ≈ divergence (<code>preserves_trapDivEq</code>, " +
