@@ -15,6 +15,10 @@ integer result without invoking the compiler or the Core runner.
 
 - `compile_iff` characterizes successful compilation by scope acceptance
   and the translation judgment.
+- `rejects_iff` characterizes each reported diagnostic. A scope diagnostic
+  retains the analyzer's exact result. Module shape requires scope
+  acceptance, and expression shape requires a valid outer function shape
+  for which the translation judgment has no witness.
 - `returns_exists` gives a source result for every compiled body.
 - `initial` authorizes entry to the compiled body in the addition profile.
 - `observes_iff` identifies the Core return observations with source results.
