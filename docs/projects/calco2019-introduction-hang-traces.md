@@ -14,8 +14,9 @@ execution contributes exactly the letters at positions witnessed by some
 finite prefix, as checked by `chunkAt_some`. Empty step words are allowed.
 `silent_loop_hangs` checks the finite hang of a loop that emits no letters.
 `runs_nonempty` and `iterate_fixpoint` give a total operator on nonempty
-trace sets and its unfolding equation. The remaining complete Elgot laws
-are naturality, codiagonal, and pure uniformity.
+trace sets and its unfolding equation. `iterate_naturality` and
+`iterate_uniformity` check preservation of result continuations and pure
+state comparisons. Codiagonal remains open.
 
 ```sh
 lake build --wfail +Silmaril.Papers.Calco2019.Examples.PrintingHangTraces
