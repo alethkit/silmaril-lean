@@ -134,4 +134,9 @@ theorem assertNot_operand_failure {scope : Source.Scope} {space : Namespace} {co
     effect space context (.assertNot operand) = (⟨.error (.ofCall error), []⟩, context.heap) :=
   by simp [effect, assertOperand, failed, Except.bind, Except.map, Except.mapError]
 
+theorem effect_assertVarNames {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (receiver : String) (needle : List UInt32) :
+    effect space context (.assertVarNames receiver needle : Instruction scope) =
+      (⟨(checkVarNames space context.table receiver needle).map fun _ => none, []⟩, context.heap) := rfl
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded

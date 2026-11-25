@@ -76,6 +76,7 @@ private def inspect (source : Source.Module) (profile : String) : Option (List S
     | .error (.raised error) => raised error
     | .error .unsupported => "unsupported"
     | .error (.publicationFault _) => "publication fault"
+    | .error (.varNamesFault _) => "varnames code fault"
     | .error (.callbackFault _) => "callback fault"
     | .error .callbackFuelExhausted => "callback fuel exhausted"
     | .error (.directCallFault _) => "direct call fault"

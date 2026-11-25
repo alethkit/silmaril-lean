@@ -75,6 +75,18 @@ A faulted or live executor state preserves the exact residual heap and
 yields `directCallFault` or `directCallFuelExhausted` with no settled
 receipt. The default limit is 1000 ordinary transitions per invocation.
 
+A module `co_varnames` assertion reads the current receiver once using
+the seeded module-first resolver. A module binding masks the builtin
+even when the module value cannot be inspected. The assertion shares
+the ordinary checked CPython 3.13.5 tuple and exact code-point
+comparison. False membership, including in an explicit empty tuple,
+raises an empty `AssertionError`. A missing receiver raises
+`NameError`, an unprofiled tuple or receiver is unsupported,
+and an invalid code key or layout gives a metadata dispatch fault.
+The step carries forward the namespace, heap and earlier receipts
+without a call receipt of its own.
+
+
 `Observation.calls` records evaluated argument calls in order, then the
 settled outer receipt. A missing outer name emits no nested-call receipts.
 Each receipt carries the result and any caught error, including typed

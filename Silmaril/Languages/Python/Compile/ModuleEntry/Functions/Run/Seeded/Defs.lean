@@ -118,6 +118,7 @@ inductive ModuleFailure where
   | raised (error : Raised)
   | unsupported
   | publicationFault (error : Core.Closure.Dispatch.Failure)
+  | varNamesFault (error : Core.Closure.Dispatch.Failure)
   | callbackFault (fault : Fault)
   | callbackFuelExhausted
   | directCallFault (fault : Fault)
@@ -283,6 +284,17 @@ def assertOperand {scope : Scope} (space : Namespace) (operand : ModuleEntry.Ope
   let checked := (evaluateScalar space false operand).bind (assertTruthAs expected)
   ⟨(checked.map fun _ => none).mapError ModuleFailure.ofCall, []⟩
 
+/-- Resolve once in the live seeded namespace. A masking module value
+remains the receiver even when its type is outside the ordinary profile. -/
+def checkVarNames (space : Namespace) (table : CodeTable) (receiver : String)
+    (needle : List UInt32) : Except ModuleFailure Unit := do
+  let some value := space.lookupGlobal receiver | throw (.raised (.runtime (.nameError receiver)))
+  let some ordinary := ordinaryValue? value | throw .unsupported
+  let member ← (Run.varNamesMembership table ordinary needle).mapError fun
+    | .unsupportedReceiver | .unprofiled _ => .unsupported
+    | .code error => .varNamesFault error
+  (assertTruth (.bool member)).mapError ModuleFailure.ofCall
+
 def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruction : Instruction scope) :
     Effect × Heap :=
   match instruction with
@@ -291,7 +303,8 @@ def effect {scope : Scope} (space : Namespace) (context : CallContext) (instruct
       []⟩, context.heap)
   | .scalar (.assertion operand) => (assertOperand space operand true, context.heap)
   | .assertNot operand => (assertOperand space operand false, context.heap)
-  | .assertVarNames .. => (⟨.error .unsupported, []⟩, context.heap)
+  | .assertVarNames receiver needle =>
+    (⟨(checkVarNames space context.table receiver needle).map fun _ => none, []⟩, context.heap)
   | .publish name function =>
     let resolved := Core.Closure.Dispatch.resolve context.table function.ref
     (⟨(resolved.map fun _ => some (name, .function function.closure)).mapError .publicationFault, []⟩, context.heap)
