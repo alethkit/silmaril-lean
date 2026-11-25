@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Categorical.Defs
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Thms
 public import Silmaril.SSA.RVSDG.LambdaSSA.LinearChain.Categorical.Dispatcher.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Packing.Categorical.Defs
 import Silmaril.Proofs.SSA.RVSDG.LambdaSSA.Acyclic.Categorical.Fold
@@ -37,23 +38,6 @@ variable {V : Type v} {C : Type w} [Category.{h} V] [Category.{k} C]
 
 variable {A B : τ} {L R : List τ} {T : C}
 
-private theorem local_index (code : Extension Φ L R) (i : Fin code.locals.length) :
-    (code.local i).index = i.val := by
-  induction code with
-  | empty => exact i.elim0
-  | push prev b ih =>
-    refine Fin.cases ?_ (fun j => ?_) i
-    · rfl
-    · exact congrArg (· + 1) (ih j)
-
-private theorem lift_index (code : Extension Φ L R) (s : Site L B) :
-    (code.lift s).index = s.index + code.locals.length := by
-  induction code with
-  | empty => rfl
-  | push prev b ih =>
-    change (prev.lift s).index + 1 = s.index + (prev.locals.length + 1)
-    rw [ih, Nat.add_assoc]
-
 omit [TypeFormers τ] in
 private theorem site_eq {X : τ} {S : List τ} {left right : Site S X} (eq : left.index = right.index) :
     left = right := by
@@ -62,21 +46,9 @@ private theorem site_eq {X : τ} {S : List τ} {left right : Site S X} (eq : lef
   cases eq
   rfl
 
-private theorem solves_of_blocks (code : Extension Φ L R) (arrows : LabelArrows J M R T)
-    (hb : ∀ i, arrows _ (code.local i) = blockArrow J M arrows (code.block i)) :
-    Solves J M code arrows := by
-  induction code with
-  | empty => trivial
-  | push prev b ih =>
-    refine ⟨?_, ?_⟩
-    · exact (hb ⟨0, by simp [Extension.locals]⟩).trans (blockArrow_rename J M b _ _)
-    · apply ih
-      intro i
-      exact (hb i.succ).trans (blockArrow_rename J M (prev.block i) _ _)
-
 variable [FreydCategory.CentralUnit J]
 
-private theorem block_denotes (b : Block Φ L A) (Γ : List τ) :
+theorem block_denotes (b : Block Φ L A) (Γ : List τ) :
     RegionDenotes J M (b.typing Γ)
       (J.map (snd (ctxObj M Γ) (M.obj A)) ≫
         blockArrow J M (fun _ s => J.map (siteArrow M s)) b) := by
@@ -98,7 +70,7 @@ omit [FreydCategory.CentralUnit J] in
 private theorem value_local (p : Compiled Φ L A) (i : Fin (p.rest.locals.length + 1)) :
     solvedArrows J M p _ (p.code.local i) =
       J.map (localInject M p.localTypes i) ≫ iterate (cfgStep J M p) := by
-  have h : p.site (p.code.local i) = localSite p.localTypes L i := site_eq (local_index p.code i)
+  have h : p.site (p.code.local i) = localSite p.localTypes L i := site_eq (p.code.local_index i)
   rw [solvedArrows, h, boundary, ← Category.assoc, decode_local, Category.assoc, coprod.inr_desc]
 
 omit [FreydCategory.CentralUnit J] in
@@ -124,7 +96,7 @@ private theorem value_exit (p : Compiled Φ [B] A) :
     apply site_eq
     simp only [Compiled.site, externalSite, List.length_ofFn, Fin.val_zero, Nat.zero_add]
     change (p.code.lift (headSite B [])).index = p.code.locals.length
-    simpa only [headSite, Nat.zero_add] using lift_index p.code (headSite B [])
+    simpa only [headSite, Nat.zero_add] using p.code.lift_index (headSite B [])
   rw [solvedArrows, h, boundary, ← Category.assoc, decode_exit J M p.localTypes [B] (0 : Fin 1) rfl,
     Category.assoc, coprod.inl_desc, Category.comp_id]
   rfl

@@ -33,6 +33,18 @@ theorem blockArrow_post (b : Block Φ L A) (arrows : LabelArrows J M L T) (k : T
     blockArrow J M arrows b ≫ k = blockArrow J M (fun X p => arrows X p ≫ k) b := by
   cases b <;> simp only [blockArrow, Category.assoc, coprod.desc_comp]
 
+theorem solves_of_blocks (code : Extension Φ L R) (arrows : LabelArrows J M R T)
+    (hb : ∀ i, arrows _ (code.local i) = blockArrow J M arrows (code.block i)) :
+    Solves J M code arrows := by
+  induction code with
+  | empty => trivial
+  | push prev b ih =>
+    refine ⟨?_, ?_⟩
+    · exact (hb ⟨0, by simp [Extension.locals]⟩).trans (blockArrow_rename J M b _ _)
+    · apply ih
+      intro i
+      exact (hb i.succ).trans (blockArrow_rename J M (prev.block i) _ _)
+
 private theorem lift_then (first : Extension Φ L R) (next : Extension Φ R S) (p : Site L A) :
     (first.then next).lift p = next.lift (first.lift p) := by
   induction next with
