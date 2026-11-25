@@ -181,6 +181,6 @@ if __name__ == "__main__":
         ):
             shared["emit"](source_file, lean_file, source + "\n")
             shared["check_lean"](lean_file, LEAN + f"""
-#guard (match compile pythonSource with | .error {error} => true | _ => false)
+#guard (match compile pythonSource with | .error ({error}) => true | _ => false)
 """, extra_imports=imports)
     print(json.dumps({"cpython": sys.version.split()[0], "observations": observations}))
