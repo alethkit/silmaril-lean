@@ -2,7 +2,8 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalComparison.Thms
+import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FinCases
@@ -548,5 +549,75 @@ example :
   change ActiveStrip.left.place (ActiveStrip.left.place (1 / 3)) ≠
     ActiveStrip.left.place (1 / 3)
   norm_num [ActiveStrip.place]
+
+private noncomputable def shearEndpoint :
+    (fixedFrame beginning).drawing.CapComparison activeFrame.drawing :=
+  ProgressiveGraph.Diagram.CapComparison.ofMotion motion halfway
+
+private noncomputable def liftedShear (s : ActiveStrip) :=
+  s.comparePlacement (a := capObject) (b := capObject) idleCap shearEndpoint
+
+/-- The original comparison crosses the preimage of the right wall of
+the left strip. -/
+example : shearEndpoint.map.plane (1, 1 / 2) = (13 / 12, 1 / 2) := by
+  change ((1 : ℝ) + displacement halfway (1 / 2), (1 / 2 : ℝ)) = _
+  norm_num [displacement, tent, halfway]
+
+private theorem lifted_midpoint (s : ActiveStrip) :
+    (liftedShear s).map.plane (s.place (1 / 3), 1 / 2) = (s.place (5 / 12), 1 / 2) := by
+  have cover : (fixedFrame beginning).drawing.covers (0 : Fin 1) (1 / 2) := by
+    change (1 / 2 : ℝ) ∈ Set.Icc 0 1
+    norm_num [Set.mem_Icc]
+  have step := s.comparison_active_point (a := capObject) (b := capObject)
+    idleCap shearEndpoint (0 : Fin 1) cover
+  have x : (fixedFrame beginning).drawing.x (0 : Fin 1) (1 / 2) = 1 / 3 :=
+    initial_x 0 (1 / 2)
+  have moved : shearEndpoint.map.plane (1 / 3, 1 / 2) = (5 / 12, 1 / 2) := by
+    change ((1 / 3 : ℝ) + displacement halfway (1 / 2), (1 / 2 : ℝ)) = _
+    norm_num [displacement, tent, halfway]
+  rw [x, moved] at step
+  exact step
+
+example : (liftedShear .left).map.plane (1 / 6, 1 / 2) = (5 / 24, 1 / 2) := by
+  have step := lifted_midpoint .left
+  norm_num [ActiveStrip.place] at step ⊢
+  exact step
+
+example : (liftedShear .right).map.plane.symm (17 / 24, 1 / 2) = (2 / 3, 1 / 2) := by
+  have step : (liftedShear .right).map.plane (2 / 3, 1 / 2) = (17 / 24, 1 / 2) := by
+    have moved := lifted_midpoint .right
+    norm_num [ActiveStrip.place] at moved ⊢
+    exact moved
+  rw [← step, Homeomorph.symm_apply_apply]
+
+private theorem idle_fixed (s : ActiveStrip) (i : Fin 2) :
+    (liftedShear s).map.plane (s.opposite.place (idleCap.profile.x i), 1 / 2) =
+      (s.opposite.place (idleCap.profile.x i), 1 / 2) :=
+  s.comparison_idle_point (a := capObject) (b := capObject) idleCap shearEndpoint i (1 / 2)
+
+example :
+    ((liftedShear .left).map.plane (5 / 8, 1 / 2), (liftedShear .left).map.plane (7 / 8, 1 / 2)) =
+      ((5 / 8, 1 / 2), (7 / 8, 1 / 2)) := by
+  have x₀ : ActiveStrip.left.opposite.place (idleCap.profile.x (0 : Fin 2)) = 5 / 8 := by
+    change (1 + 1 / 4 : ℝ) / 2 = _
+    norm_num
+  have x₁ : ActiveStrip.left.opposite.place (idleCap.profile.x (1 : Fin 2)) = 7 / 8 := by
+    change (1 + 3 / 4 : ℝ) / 2 = _
+    norm_num
+  have first := idle_fixed .left (0 : Fin 2)
+  have second := idle_fixed .left (1 : Fin 2)
+  rw [x₀] at first
+  rw [x₁] at second
+  exact Prod.ext first second
+
+example : (liftedShear .left).map.plane (1 / 2, 1 / 2) = (1 / 2, 1 / 2) :=
+  ActiveStrip.left.comparison_exterior (a := capObject) (b := capObject) idleCap shearEndpoint
+    (1 / 2, 1 / 2) (.inr (by norm_num [ActiveStrip.place]))
+
+example (s : ActiveStrip) :
+    s.placeClass (a := capObject) (b := capObject) idleCap (CapClass.ofDrawing (fixedFrame beginning)) =
+      s.placeClass (a := capObject) (b := capObject) idleCap (CapClass.ofDrawing activeFrame) :=
+  congrArg (s.placeClass (a := capObject) (b := capObject) idleCap)
+    (CapClass.sound (bend_equivalent halfway))
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
