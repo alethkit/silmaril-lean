@@ -81,9 +81,11 @@ A profiled empty tuple gives a false assertion. Missing metadata and
 non-function receivers give distinct module profile stops. An unbound
 name raises `NameError`, and invalid code references keep their
 dispatch faults. The instruction preserves earlier bindings and heap
-effects and skips the tail on failure. The seeded runner stops at this
-instruction as unsupported, retaining its namespace, heap and any
-earlier call receipts.
+effects and skips the tail on failure. The seeded runner uses the same
+tuple evaluator after one module-first lookup. The namespace, heap and
+earlier call receipts are preserved, and the metadata instruction emits
+no receipt. Unprofiled tuples and unsupported receiver values stop in
+the seeded unsupported profile.
 
 Successful lowering retains the source translation and preserves the
 definition, layout and parameter destinations at every emitted code key.

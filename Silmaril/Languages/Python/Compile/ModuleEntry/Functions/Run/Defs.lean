@@ -172,15 +172,30 @@ def assertOperand {scope : Scope} (session : Session) (operand : Operand scope)
     else .finished session .assertionError
   | .error error => .finished session error
 
+inductive VarNamesFailure where
+  | unsupportedReceiver
+  | unprofiled (ref : CodeRef)
+  | code (error : Core.Closure.Dispatch.Failure)
+
+/-- Test the checked tuple of an already resolved receiver. Namespace lookup
+and assertion completion belong to the calling module runner. -/
+def varNamesMembership (table : CodeTable) (value : Value)
+    (needle : List UInt32) : Except VarNamesFailure Bool := do
+  let .function function := value | throw .unsupportedReceiver
+  let definition ← (Core.Closure.Dispatch.resolve table function.code).mapError .code
+  let some names := definition.varnames | throw (.unprofiled function.code)
+  return names.any (fun name => name.toList.map Char.val == needle)
+
 /-- Inspect the code of the current module binding without calling it.
 This profile uses the ordinary module namespace with no builtin fallback. -/
 def checkVarNames (table : CodeTable) (session : Session) (receiver : String)
     (needle : List UInt32) : Except Completion Unit := do
   let some value := session.globals receiver | throw (.raised (.nameError receiver))
-  let .function function := value | throw .unsupportedVarNamesReceiver
-  let definition ← (Core.Closure.Dispatch.resolve table function.code).mapError .codeFault
-  let some names := definition.varnames | throw (.unprofiledVarNames function.code)
-  unless names.any (fun name => name.toList.map Char.val == needle) do throw .assertionError
+  let member ← (varNamesMembership table value needle).mapError fun
+    | .unsupportedReceiver => .unsupportedVarNamesReceiver
+    | .unprofiled ref => .unprofiledVarNames ref
+    | .code error => .codeFault error
+  unless member do throw .assertionError
 
 def advance {scope : Scope} (table : CodeTable) : State scope → List Event × State scope
   | .finished session completion => ([], .finished session completion)

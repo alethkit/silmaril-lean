@@ -71,7 +71,7 @@ IMPORTS = ("import Batteries.Data.Except",) + tuple(
         "Compile.Closure.Link.Defs",
         "Compile.ModuleEntry.Functions.Defs",
         "Compile.ModuleEntry.Functions.Run.Thms",
-        "Compile.ModuleEntry.Functions.Run.Seeded.Defs",
+        "Compile.ModuleEntry.Functions.Run.Seeded.Thms",
         "Core.Closure.Dispatch.Defs",
         "Core.Closure.Defs",
         "Core.Module.SeededCall.Defs",
@@ -122,6 +122,25 @@ private def ordinary (source : Module) : Bool := Id.run do
 
 #guard liveReads pythonSource
 #guard ordinary pythonSource
+private def seededLookup (source : Module) : Bool := Id.run do
+  let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
+  let .publish "probe" probe :: _ := compiled.instructions | return false
+  let some stale := compiled.entries[1]? | return false
+  let check := Compile.ModuleEntry.Functions.Run.Seeded.checkVarNames
+  let needle := [108, 97, 116, 101, 114]
+  return [Core.Module.SeededCall.Namespace.empty,
+    Compile.ModuleEntry.Functions.Run.Seeded.legacySeed .builtin,
+    Compile.ModuleEntry.Functions.Run.Seeded.legacySeed .preamble].all fun seed =>
+    let name := "seeded_metadata_target"
+    let provided := { seed with builtins := (name, .function probe.closure) :: seed.builtins }
+    check provided compiled.table name needle == .ok () &&
+    check (provided.bindGlobal name .none) compiled.table name needle == .error .unsupported &&
+    check (provided.bindGlobal name (.builtin .int)) compiled.table name needle == .error .unsupported &&
+    check provided (fun _ => none) name needle == .error (.varNamesFault (.missingCode probe.ref.key)) &&
+    check provided (fun _ => some stale) name needle ==
+      .error (.varNamesFault (.layoutMismatch probe.ref.layout stale.layout))
+
+#guard seededLookup pythonSource
 #print axioms Compile.ModuleEntry.Functions.Run.advance_assertVarNames
 """
 
@@ -143,17 +162,17 @@ open Silmaril.Languages.Python.Compile.ModuleEntry.Functions
 
 CASES = (
     ("def target(): pass", 'assert "missing" in target.__code__.co_varnames',
-     "AssertionError", ".assertionError"),
+     "AssertionError", ".assertionError", "(.raised (.assertionError .empty))"),
     ("", 'assert "x" in unbound.__code__.co_varnames',
-     "NameError", '(.raised (.nameError "unbound"))'),
+     "NameError", '(.raised (.nameError "unbound"))', '(.raised (.runtime (.nameError "unbound")))'),
     ("target = 9", 'assert "x" in target.__code__.co_varnames',
-     "AttributeError", ".unsupportedVarNamesReceiver"),
+     "AttributeError", ".unsupportedVarNamesReceiver", ".unsupported"),
     ("def target(parameter): return parameter", 'assert "parameter" in target.__code__.co_varnames',
-     "normal", "(.unprofiledVarNames ⟨0, ⟨1, 0, 0⟩⟩)"),
+     "normal", "(.unprofiledVarNames ⟨0, ⟨1, 0, 0⟩⟩)", ".unsupported"),
     ("def target():\n    \U00010400 = 1\n"
      'assert "\\U00010400" in target.__code__.co_varnames',
      r'assert "\ud801\udc00" in target.__code__.co_varnames',
-     "AssertionError", ".assertionError"),
+     "AssertionError", ".assertionError", "(.raised (.assertionError .empty))"),
 )
 
 CPYTHON_COMPLETION = """
@@ -187,23 +206,68 @@ private def completion (source : Module) : Option Completion := do
 """
 
 SEEDED_LEAN = """
-open Silmaril.Languages.Python
-open Compile.ModuleEntry.Functions.Run
-
-private def seededBoundary (source : Module) : Bool := Id.run do
+private def seededFailure (source : Module) (expected : Seeded.ModuleFailure) : Bool := Id.run do
   let .ok compiled := compile source | return false
-  let some (.publish "target" published) := compiled.instructions.head? | return false
   let some heap := (Core.Closure.Heap.empty.reserve 1).write ⟨0⟩ (.int 9) | return false
-  [Core.Module.SeededCall.Namespace.empty, Seeded.legacySeed .builtin, Seeded.legacySeed .preamble].all
+  return [Core.Module.SeededCall.Namespace.empty, Seeded.legacySeed .builtin, Seeded.legacySeed .preamble].all
     fun space => Id.run do
       let result := Seeded.run space compiled heap
       let some (some (.int 9)) := result.heap.lookup ⟨0⟩ | return false
-      let expected := (space.bindGlobal "target" (.function published.closure)).bindGlobal "before" (.int 5)
-      return result.completion == .error .unsupported && result.calls.isEmpty &&
-        result.heap.next == 1 && result.residual.builtins == expected.builtins &&
+      return result.completion == .error expected && result.calls.isEmpty &&
+        result.heap.next == 1 && result.residual.builtins == space.builtins &&
+        Core.Module.SeededCall.lookupBinding result.residual.moduleGlobals "before" == some (.int 5) &&
+        (Core.Module.SeededCall.lookupBinding result.residual.moduleGlobals "tail").isNone
+"""
+
+RETAINED = """def entry():
+    retained = 7
+    def child():
+        assert retained == 7
+    child()
+
+def original():
+    old = 1
+
+def replacement():
+    pass
+
+target = original
+alias = target
+entry()
+assert "old" in target.__code__.co_varnames
+target = replacement
+assert "old" in alias.__code__.co_varnames
+before = 5
+assert "old" in target.__code__.co_varnames
+tail = 6
+"""
+
+RETAINED_LEAN = """
+open Silmaril.Languages.Python
+open Compile.ModuleEntry.Functions.Run
+
+private def retained (source : Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let .publish "entry" entry :: .publish "original" original :: .publish "replacement" replacement :: _ :=
+    compiled.instructions | return false
+  return [Core.Module.SeededCall.Namespace.empty, Seeded.legacySeed .builtin, Seeded.legacySeed .preamble].all
+    fun space => Id.run do
+      let result := Seeded.run space compiled
+      let [receipt] := result.calls | return false
+      let some (some (.int 7)) := result.heap.lookup ⟨0⟩ | return false
+      let expected := space.bindGlobal "entry" (.function entry.closure)
+      let expected := expected.bindGlobal "original" (.function original.closure)
+      let expected := expected.bindGlobal "replacement" (.function replacement.closure)
+      let expected := expected.bindGlobal "alias" (.function original.closure)
+      let expected := expected.bindGlobal "target" (.function replacement.closure)
+      let expected := expected.bindGlobal "before" (.int 5)
+      return result.completion == .error (.raised (.assertionError .empty)) && result.heap.next == 1 &&
+        receipt.callee == "entry" && receipt.observation.result == .ok .none &&
+        receipt.observation.caught.isNone && result.residual.builtins == expected.builtins &&
         result.residual.moduleGlobals == expected.moduleGlobals
 
-#guard seededBoundary pythonSource
+#guard retained pythonSource
+#print axioms Compile.ModuleEntry.Functions.Run.Seeded.effect_assertVarNames
 """
 
 
@@ -228,7 +292,7 @@ if __name__ == "__main__":
         shared["check_lean"](destination, lean, extra_imports=IMPORTS)
         shared["emit"](source, destination, EXACT_NEEDLE)
         shared["check_lean"](destination, NEEDLE_LEAN, extra_imports=IMPORTS)
-        for setup, statement, cpython, lean_outcome in CASES:
+        for setup, statement, cpython, lean_outcome, seeded_outcome in CASES:
             fixture = f"{setup}\nbefore = 5\n{statement}\ntail = 6\n"
             shared["emit"](source, destination, fixture)
             result = subprocess.run([sys.executable, "-I", "-c", CPYTHON_COMPLETION, str(source)],
@@ -237,9 +301,15 @@ if __name__ == "__main__":
             if version == "3.13.5":
                 assert json.loads(result.stdout) == [cpython, 5, 6 if cpython == "normal" else None]
             lean = COMPLETION_LEAN + f"\n#guard completion pythonSource == some {lean_outcome}\n"
-            if setup == "def target(): pass":
-                lean += SEEDED_LEAN
+            lean += SEEDED_LEAN + f"\n#guard seededFailure pythonSource {seeded_outcome}\n"
             shared["check_lean"](destination, lean, extra_imports=IMPORTS)
+        shared["emit"](source, destination, RETAINED)
+        result = subprocess.run([sys.executable, "-I", "-c", CPYTHON_COMPLETION, str(source)],
+                                check=True, text=True, capture_output=True, timeout=10)
+        assert result.stderr == ""
+        if version == "3.13.5":
+            assert json.loads(result.stdout) == ["AssertionError", 5, None]
+        shared["check_lean"](destination, RETAINED_LEAN, extra_imports=IMPORTS)
         for statement, diagnostic in (
             ('assert "x" not in inspect.__code__.co_varnames', ".expressionProfile"),
             ('assert "x" in inspect().__code__.co_varnames', ".expressionProfile"),
