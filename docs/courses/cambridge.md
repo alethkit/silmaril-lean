@@ -47,6 +47,9 @@ Import one of these modules in Lean to explore a course. The smaller `L1`, `L2` 
 metatheory and checked examples. Every course module is also checked by
 `make library`.
 
+The [AST codecs guide](cambridge-ast-codecs.md) documents the shared
+S-expression and JSON schema for L1, L2 and L3.
+
 ## How it fits together
 
 ```mermaid

@@ -13,36 +13,19 @@ variable {α β : Type}
 theorem recordEntries_map (labels : RecordLabels) (fields : labels.Index → α) (f : α → β) :
     (recordEntries labels fields).map (fun (label, value) => (label, f value)) =
       recordEntries labels (fun i => f (fields i)) := by
-  simp [recordEntries, List.map_ofFn, Function.comp_def]
+  simp [RecordLabels.entries, List.map_ofFn, Function.comp_def]
 
 theorem mem_recordEntries {labels : RecordLabels} {fields : labels.Index → α} {entry : Label × α} :
     entry ∈ recordEntries labels fields ↔ ∃ i, (labels.label i, fields i) = entry :=
   List.mem_ofFn
 
 theorem recordEntries_labels (labels : RecordLabels) (fields : labels.Index → α) :
-    (recordEntries labels fields).map Prod.fst = labels.names := by
-  simp [recordEntries, List.map_ofFn, Function.comp_def, RecordLabels.label, List.get_eq_getElem]
-
-private theorem finFunction_heq {m n : Nat} (h : m = n)
-    (f : Fin m → α) (g : Fin n → α)
-    (hfg : ∀ i : Fin m, f i = g ⟨i.val, h ▸ i.isLt⟩) : HEq f g := by
-  subst n
-  exact heq_of_eq (funext hfg)
+    (recordEntries labels fields).map Prod.fst = labels.names :=
+  RecordLabels.entries_labels labels fields
 
 theorem buildFields_recordEntries (labels : RecordLabels) (fields : labels.Index → α) :
-    buildFields (recordEntries labels fields) = some ⟨labels, fields⟩ := by
-  have names := recordEntries_labels labels fields
-  unfold buildFields
-  simp only [recordEntries_labels, dite_eq_left labels.distinct]
-  apply congrArg some
-  apply Sigma.ext
-  · cases labels with
-    | mk names' distinct =>
-      change _ = RecordLabels.mk names' distinct
-      simpa only [RecordLabels.mk.injEq] using names
-  · apply finFunction_heq (congrArg List.length names)
-    intro i
-    simp [recordEntries]
+    buildFields (recordEntries labels fields) = some ⟨labels, fields⟩ :=
+  RecordLabels.ofEntries_entries labels fields
 
 private theorem fieldsTokens_cons_cons (separator : Punct) (label : Label)
     (value : List Token) (next : Label × List Token) (rest : List (Label × List Token)) :
@@ -154,7 +137,7 @@ theorem readRecord_print_bounded (make : (labels : RecordLabels) → (labels.Ind
       some (make labels fields, suffix) := by
   apply readRecord_print
   · have count := fields_length separator (recordEntries labels (fun i => write (fields i)))
-    simpa only [recordEntries, List.length_ofFn] using (Nat.le_trans count h)
+    simpa only [recordEntries, RecordLabels.entries, List.length_ofFn] using (Nat.le_trans count h)
   · intro i tail
     apply hread
     apply Nat.le_trans _ h
