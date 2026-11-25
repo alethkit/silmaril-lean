@@ -57,7 +57,7 @@ declaration table and remove the active declaration on descent.
 
 `Modules.Resolve.resolve` takes normalized source commands and returns a
 checked `Modules.Source` and linked declaration table. Module commands cover
-single-name assignment, expression statements, `def` and named `load`
+single-name and [simple subscript assignment][subscript-assignment], expression statements, `def` and named `load`
 imports. Function bodies add nested `def`, sequencing, `if`, `pass` and
 `return`, as well as single-name `for` loops with `break` and `continue`.
 Signatures represent the positional, keyword-only, `*args` and
@@ -123,8 +123,7 @@ static rejection, execution outcomes, publication and the exact residual
 state. This correspondence shares the elaborator and starts at a normalized
 AST with legal identifier spellings. An independent source binding relation
 and text parsing remain open. Compound targets, lambdas, comprehensions,
-slices and subscript assignment remain outside
-this source fragment.
+slices and augmented assignment remain outside this source fragment.
 [Theorem header](../../Silmaril/Languages/Starlark/Modules/Resolve/Thms.lean) · [Lean source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean)
 
 Pinned Starlark-Go checks cover static and dynamic name errors, captures,
@@ -209,6 +208,7 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [loading]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#load-statements
 [expressions]: starlark-functions.md#direct-denotation-of-resolved-expressions
 [source-expressions]: starlark-functions.md#resolving-a-normalized-expression
+[subscript-assignment]: starlark-functions.md#simple-subscript-assignment
 [names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-binding-and-variables
 [loops]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#for-statements
 [go]: https://github.com/google/starlark-go/tree/4f4267fb140d1e8b91c9bce55cee2f809e8840dd

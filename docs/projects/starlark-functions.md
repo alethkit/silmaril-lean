@@ -189,8 +189,8 @@ after freezing.
 
 Subscript reads accept lists, tuples and dictionaries already supported by
 the shared store. Sequence reads use exact integers and allow negative
-indices. String and byte indexing, slices and subscript writes with call-aware
-operands remain open. Go also supports additional indexable types and checks
+indices. String and byte indexing and slices remain open. Go also supports
+additional indexable types and checks
 sequence indices through a signed 32-bit conversion.
 [List expressions in the pinned spec][list-expr] · [Tuples in the pinned spec][tuple-expr] · [Subscripts in the pinned spec][subscript] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
@@ -224,8 +224,30 @@ expression-position theorems in the denotation header expose that agreement
 without the compiler's scratch projection.
 
 Module commands reuse native assignment and expression statements, including
-direct collection displays and subscript reads.
+direct collection displays, subscript reads, and simple subscript assignment.
 [Body rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean) · [Native position agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Assignment and conditional fixtures](../../Silmaril/Languages/Starlark/Functions/NativeBodyChecks.lean) · [Return fixtures](../../Silmaril/Languages/Starlark/Functions/NativeReturnChecks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
+
+### Simple subscript assignment
+
+`Body.setIndexExpr` evaluates the RHS, then the receiver, then the subscript,
+once each. It applies `Lists.writeIndex` to the heap produced by those three
+operands. An operand error retains its state and skips all later work. The
+independent rules and direct denotation agree on the exact `next` or error
+outcome and residual frame, heap and iterator stack. Closure calls use the
+same finite declaration descent as other native expression positions.
+
+The list write checks index type and bounds against the current length before
+the freeze or iterator guard. A dictionary write checks those guards before
+hashing the key. These competing-error orders match pinned Go. The Lean list
+index is an exact integer. Go converts it to signed 32 bits before the bounds
+check. Successful writes are visible through aliases. Dictionary replacement
+keeps the entry's position, and a new key goes at the end.
+
+Normalized function and module statements expose `setIndex receiver subscript rhs`.
+The three expressions can use the existing quotation. A subscript assignment
+creates no lexical binding. Augmented assignment, slice and compound targets,
+and user-defined item assignment remain open.
+[Assignments in the pinned spec][assignments] · [Go assignment compilation][go-assign] · [Go write dispatch][go-write] · [Go dictionary checks][go-dict-write] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/NativeSubscriptChecks.lean) · [Pinned Go fixtures](../../examples/starlark/subscript-assignment/check.go)
 
 ## Nested expression lowering
 
@@ -343,6 +365,7 @@ lake build --wfail +Silmaril.Languages.Starlark.Functions.Checks \
   +Silmaril.Languages.Starlark.Functions.NativeDefaultsChecks \
   +Silmaril.Languages.Starlark.Functions.NativeReturnChecks \
   +Silmaril.Languages.Starlark.Functions.NativeLoopChecks \
+  +Silmaril.Languages.Starlark.Functions.NativeSubscriptChecks \
   +Silmaril.Languages.Starlark.Functions.Expressions.CollectionChecks \
   +Silmaril.Languages.Starlark.Functions.LoopChecks \
   +Silmaril.Languages.Starlark.Functions.Lowering.Checks \
@@ -360,7 +383,7 @@ oracle="$(mktemp -d)"
 git clone https://github.com/google/starlark-go.git "$oracle"
 git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 (cd "$oracle" && go run "$fixtures/functions/check.go" && go run "$fixtures/call-loops/check.go" \
-  && go run "$fixtures/nested-expressions/check.go")
+  && go run "$fixtures/nested-expressions/check.go" && go run "$fixtures/subscript-assignment/check.go")
 ```
 
 Module initialization, prepublished imports and five universal built-ins
@@ -379,4 +402,8 @@ extend this profile. Host callable effects remain open.
 [go-dict-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1371-L1380
 [go-dict-run]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L486
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
+[assignments]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#assignments
+[go-assign]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1247-L1272
+[go-write]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L719-L746
+[go-dict-write]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L78-L88
 [go-function]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/value.go

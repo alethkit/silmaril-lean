@@ -26,6 +26,23 @@ inductive Exec (program : Program) : List DeclarationId → State → Body → O
       ExecExpr program available s value out →
       Exec program available s (.assignExpr target value)
         (Outcome.resume out fun result next => .ok .next (next.write target result))
+  | setIndexExpr {available : List DeclarationId} {s t u : State}
+      {receiver subscript rhs : Lowering.Expr} {value target : Lists.Value} {out : Outcome Lists.Value} :
+      ExecExpr program available s rhs (.ok value t) →
+      ExecExpr program available t receiver (.ok target u) →
+      ExecExpr program available u subscript out →
+      Exec program available s (.setIndexExpr receiver subscript rhs)
+        (Outcome.resume out fun index next =>
+          Outcome.resume (writeIndex target index value next) fun _ => pure .next)
+  | setIndexExprReceiverError {available : List DeclarationId} {s t u : State}
+      {receiver subscript rhs : Lowering.Expr} {value : Lists.Value} {error : Error} :
+      ExecExpr program available s rhs (.ok value t) →
+      ExecExpr program available t receiver (.error error u) →
+      Exec program available s (.setIndexExpr receiver subscript rhs) (.error error u)
+  | setIndexExprRhsError {available : List DeclarationId} {s t : State}
+      {receiver subscript rhs : Lowering.Expr} {error : Error} :
+      ExecExpr program available s rhs (.error error t) →
+      Exec program available s (.setIndexExpr receiver subscript rhs) (.error error t)
   | evalExpr {available : List DeclarationId} {s : State} {value : Lowering.Expr}
       {out : Outcome Lists.Value} :
       ExecExpr program available s value out →

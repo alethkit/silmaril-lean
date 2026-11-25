@@ -47,6 +47,17 @@ theorem exec_assignExpr_iff_denoteExpr (program : Program) (available : List Dec
         (fun value next => .ok .next (next.write target value)) = out := by
   rw [exec_iff_denoteBody, denoteBody]
 
+/-- A subscript write evaluates RHS, receiver and subscript in order, then
+applies the shared write primitive to the exact state left by the operands. -/
+theorem exec_setIndexExpr_iff_denoteExpr (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expr) (state : State) (out : Outcome Flow) :
+    Exec program available state (.setIndexExpr receiver subscript rhs) out ↔
+      (Outcome.resume (denoteExpr program available rhs state) fun value next =>
+        Outcome.resume (denoteExpr program available receiver next) fun target next =>
+          Outcome.resume (denoteExpr program available subscript next) fun index next =>
+            Outcome.resume (Lists.writeIndex target index value next) fun _ => pure .next) = out := by
+  rw [exec_iff_denoteBody, denoteBody]
+
 /-- A successful test selects one body in its resulting state. Errors propagate with their state. -/
 theorem exec_branchExpr_iff_denoteExpr (program : Program) (available : List DeclarationId)
     (test : Expr) (yes no : Body) (state : State) (out : Outcome Flow) :

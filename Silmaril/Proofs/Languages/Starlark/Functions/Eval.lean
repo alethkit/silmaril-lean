@@ -81,24 +81,40 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
       (eq : calls plan next result) :
       Exec program (withoutDeclaration available plan.id) next plan.body result :=
     eq ▸ exec_denote program (withoutDeclaration available plan.id) plan.body next
-  have exprRun (expression : Lowering.Expr) :
-      ExecExpr program available state expression
-        (Lowering.denoteExprWith program available execute expression state) := by
+  let evalExpr := Lowering.denoteExprWith program available execute
+  have exprRun (expression : Lowering.Expr) (start : State) :
+      ExecExpr program available start expression (evalExpr expression start) := by
     exact .evaluates callRun (Lowering.evaluatesWith_denote program available calls execute
-      (fun _ _ => rfl) (Lowering.admits_all_atoms expression) state)
+      (fun _ _ => rfl) (Lowering.admits_all_atoms expression) start)
   cases body with
   | total code =>
     rw [denoteBody]
     exact .total ((runs_iff_denoteSuite _ _ _).mpr rfl)
   | returnExpr value =>
     rw [denoteBody]
-    exact .returnExpr (exprRun value)
+    exact .returnExpr (exprRun value state)
   | assignExpr target value =>
     rw [denoteBody]
-    exact .assignExpr (exprRun value)
+    exact .assignExpr (exprRun value state)
+  | setIndexExpr receiver subscript rhs =>
+    rw [denoteBody]
+    change Exec program available state (.setIndexExpr receiver subscript rhs)
+      (Outcome.resume (evalExpr rhs state) fun value next =>
+        Outcome.resume (evalExpr receiver next) fun target next =>
+          Outcome.resume (evalExpr subscript next) fun index next =>
+            Outcome.resume (writeIndex target index value next) fun _ => pure .next)
+    have rhsRun := exprRun rhs state
+    cases evaluated : evalExpr rhs state with
+    | error error next => exact .setIndexExprRhsError (evaluated ▸ rhsRun)
+    | ok value next =>
+      simp only [Outcome.resume]
+      have receiverRun := exprRun receiver next
+      cases selected : evalExpr receiver next with
+      | error error last => exact .setIndexExprReceiverError (evaluated ▸ rhsRun) (selected ▸ receiverRun)
+      | ok target last => exact .setIndexExpr (evaluated ▸ rhsRun) (selected ▸ receiverRun) (exprRun subscript last)
   | evalExpr value =>
     rw [denoteBody]
-    exact .evalExpr (exprRun value)
+    exact .evalExpr (exprRun value state)
   | insertDictEntry receiver key value =>
     rw [denoteBody]
     exact .insertDictEntry
@@ -129,11 +145,11 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
         (fun flag next => if flag then denoteBody program available yes next
           else denoteBody program available no next))
     cases h : Outcome.resume (Lowering.denoteExprWith program available execute test state) truth with
-    | error error next => exact .branchExprError (exprRun test) h
+    | error error next => exact .branchExprError (exprRun test state) h
     | ok flag next =>
       cases flag
-      · exact .branchExpr (exprRun test) h (exec_denote program available no next)
-      · exact .branchExpr (exprRun test) h (exec_denote program available yes next)
+      · exact .branchExpr (exprRun test state) h (exec_denote program available no next)
+      · exact .branchExpr (exprRun test state) h (exec_denote program available yes next)
   | forIn target iterable body =>
     rw [denoteBody]
     unfold denoteForIn
@@ -151,10 +167,10 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
         (Lowering.denoteExprWith program available execute iterable state))
     unfold denoteForIn
     cases h : Outcome.resume (Lowering.denoteExprWith program available execute iterable state) iterationSource with
-    | error error next => exact .forInExprError (exprRun iterable) h
+    | error error next => exact .forInExprError (exprRun iterable state) h
     | ok source next =>
       obtain ⟨address, items⟩ := source
-      exact .forInExpr (exprRun iterable) h (exec_items program available target body
+      exact .forInExpr (exprRun iterable state) h (exec_items program available target body
         (denoteBody program available body) (exec_denote program available body) items _)
   | breakLoop =>
     rw [denoteBody]

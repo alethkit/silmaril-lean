@@ -21,6 +21,11 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
   | .returnExpr value => Outcome.resume (evalExpr value state) (fun result => pure (.returned result))
   | .assignExpr target value =>
     Outcome.resume (evalExpr value state) (fun result next => .ok .next (next.write target result))
+  | .setIndexExpr receiver subscript rhs =>
+    Outcome.resume (evalExpr rhs state) fun value next =>
+      Outcome.resume (evalExpr receiver next) fun target next =>
+        Outcome.resume (evalExpr subscript next) fun index next =>
+          Outcome.resume (writeIndex target index value next) fun _ => pure .next
   | .evalExpr value => Outcome.resume (evalExpr value state) (fun _ => pure .next)
   | .insertDictEntry receiver key value => insertDictEntry receiver key value state
   | .seq first rest =>

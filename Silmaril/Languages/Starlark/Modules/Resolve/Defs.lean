@@ -25,6 +25,7 @@ structure SourceSignature where
 inductive Statement where
   | pass
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
+  | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
   | ret (value : Option Lowering.Resolve.SourceExpr)
   | seq (first rest : Statement)
@@ -37,6 +38,7 @@ inductive Statement where
 /-- Admitted module commands, in execution order. -/
 inductive Command where
   | assign (name : String) (value : Lowering.Resolve.SourceExpr)
+  | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
   | define (name : String) (signature : SourceSignature) (body : Statement)
   | load (label : String) (imports : List Modules.Import)
@@ -54,7 +56,7 @@ structure ResolvedModule where
 def globalNames (commands : List Command) : List String :=
   commands.filterMap fun
     | .assign name _ | .define name .. => some name
-    | .eval _ | .load .. => none
+    | .setIndex .. | .eval _ | .load .. => none
 
 def fileNames (commands : List Command) : List String :=
   commands.flatMap fun
@@ -65,13 +67,21 @@ private def Statement.localNames : Statement → List String
   | .assign name _ | .define name .. => [name]
   | .seq first rest | .branch _ first rest => first.localNames ++ rest.localNames
   | .forIn target _ body => target :: body.localNames
-  | .pass | .eval _ | .ret _ | .breakLoop | .continueLoop => []
+  | .pass | .setIndex .. | .eval _ | .ret _ | .breakLoop | .continueLoop => []
 
 private abbrev Build := StateT Program (Except Error)
 
 private def readExpr (context : Context) (expression : Lowering.Resolve.SourceExpr) :
     Build (Lowering.Expr × List Binding) :=
   monadLift ((resolveTracked context expression).mapError Error.expression)
+
+private def resolveSetIndex {α : Type} (context : Context)
+    (receiver subscript rhs : Lowering.Resolve.SourceExpr)
+    (emit : Lowering.Expr → Lowering.Expr → Lowering.Expr → α) : Build (α × List Binding) := do
+  let (rhs, rhsReads) ← readExpr context rhs
+  let (receiver, receiverReads) ← readExpr context receiver
+  let (subscript, subscriptReads) ← readExpr context subscript
+  return (emit receiver subscript rhs, rhsReads ++ receiverReads ++ subscriptReads)
 
 private def readParameter (context : Context) (parameter : SourceParameter) :
     Build (Functions.Parameter × List Binding) := do
@@ -111,6 +121,9 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
   | .assign name value => do
     let (value, reads) ← readExpr context value
     return ⟨.assignExpr (fileSlot name) value, reads⟩
+  | .setIndex receiver subscript rhs => do
+    let (code, reads) ← resolveSetIndex context receiver subscript rhs Body.setIndexExpr
+    return ⟨code, reads⟩
   | .eval value => do
     let (value, reads) ← readExpr context value
     return ⟨.evalExpr value, reads⟩
@@ -143,6 +156,9 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
   | .assign name value => do
     let (value, _) ← readExpr context value
     return .exec (.assignExpr name value)
+  | .setIndex receiver subscript rhs => do
+    let (code, _) ← resolveSetIndex context receiver subscript rhs TopCode.setIndexExpr
+    return .exec code
   | .eval value => do
     let (value, _) ← readExpr context value
     return .exec (.evalExpr value)
