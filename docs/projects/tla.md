@@ -17,7 +17,13 @@ The reference is Leslie Lamport's *The Temporal Logic of Actions*,
 §§5.3–5.6 and Fig. 4 for Simple TLA, §§2.6–2.7 for rigid variables and enabling,
 §8.2, equation (49) and Fig. 9 for General TLA, and §8.3.2 for refinement mappings.
 *Specifying Systems*, §§8.1, 8.3, 8.8 and 16.2.4, provides the specification and
-fairness conventions. [Paper](https://lamport.azurewebsites.net/pubs/lamport-actions.pdf)
+fairness conventions. The reference audit maps Figures 4, 5 and 9 to Lean
+definitions and theorems and lists the outstanding obligations. Import
+`Silmaril.Logic.Temporal.TLA.Rules.Thms` for semantic quantifier rules and
+auxiliary-state refinement.
+[Lamport reference audit](tla-lamport-audit.md)
+· [Rule statements](../../Silmaril/Logic/Temporal/TLA/Rules/Thms.lean)
+· [Paper](https://lamport.azurewebsites.net/pubs/lamport-actions.pdf)
 · [Book](https://lamport.azurewebsites.net/tla/book-21-07-04.pdf)
 
 ## Typed Simple TLA
