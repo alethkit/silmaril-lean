@@ -15,8 +15,8 @@ open Silmaril Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.Lambd
 open Silmaril.DeBruijn (lift liftN)
 open Silmaril.Isotope.LambdaSSA.Semantics (extend extend_rename)
 open scoped Paper.BoundSimulation.Obstruction
-open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.CanonicalUnit
-open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer (Env EnvTy Val ValTy Result ResultTy cfgRun one onState
+open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer
+  (UnitPayloadPolicy Env EnvTy Val ValTy Result ResultTy cfgRun one onState
   mergeFeedback one_codiagonal one_eq_of_runs run_simulation mapOut mapOut_congr)
 
 variable {markPairLet : Bool}
@@ -42,6 +42,10 @@ theorem observes_collapse {e p : Region Empty} (env : Env) :
   funext w
   exact evalRegion_renameVars p (extend_rename (ρ := Nat.succ) (fun _ => rfl) w)
 
+
+set_option linter.concreteInstances false
+
+variable [UnitPayloadPolicy]
 
 theorem mapOut_localMap {Γ : VCtx (Ty Empty)} {A D : Ty Empty} {a : Tm Empty}
     (ha : Tm.BranchValue (A :: Γ) a D) {env : Env} (he : EnvTy Γ env)

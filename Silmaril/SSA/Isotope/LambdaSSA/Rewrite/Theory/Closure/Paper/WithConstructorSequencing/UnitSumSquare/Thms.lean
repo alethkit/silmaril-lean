@@ -59,6 +59,57 @@ theorem iterate_uniformity (B A D : Shape) {t c : Tm Empty}
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.iterate_uniformity
     B A D hc p q hq hf hg comm
 
+/-- The observer distinguishes both the result tag and the unit payload choice. -/
+theorem separate_payload_output (B A : Shape) {i j : OutputCode B A}
+    (h : projection.map (outputWithPayload B A i) = projection.map (outputWithPayload B A j)) :
+    i = j :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.separate_payload_output B A h
+
+/-- Compare the composed square arms after restriction to their source rows.
+A row may forward the input or emit literal unit. -/
+theorem reflect_payload_square (B A D : Shape) {a : Tm Empty} (ha : Tm.BranchValue [A.ty] a D.ty)
+    (p : A.Row → OutputCode B A) (q : D.Row → (obj .unit ⟶ obj B.ty ⨿ obj D.ty))
+    (hq : HasTargetOutputs B A D ha q)
+    (comm : projection.map (stepWithPayload B A p ≫ coprod.map (𝟙 (obj B.ty)) (branch ha)) =
+      projection.map (branch ha ≫ D.table q)) :
+    stepWithPayload B A p ≫ coprod.map (𝟙 (obj B.ty)) (branch ha) = branch ha ≫ D.table q :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.reflect_payload_square
+    B A D ha p q hq comm
+
+/-- A projected square for guarded arrows with coded table representatives
+gives uniformity for the original bind-first update. -/
+theorem iterate_payload_uniformity (B A D : Shape) {t c : Tm Empty}
+    (hc : Normalizes [A.ty] t c D.ty)
+    (p : A.Row → OutputCode B A) (q : D.Row → (obj .unit ⟶ obj B.ty ⨿ obj D.ty))
+    (hq : HasTargetOutputs B A D hc.typed.2 q)
+    {f : obj A.ty ⟶ obj B.ty ⨿ obj A.ty} {g : obj D.ty ⟶ obj B.ty ⨿ obj D.ty}
+    (hf : projection.map f = projection.map (stepWithPayload B A p))
+    (hg : projection.map g = projection.map (D.table q))
+    (comm : projection.map (f ≫ coprod.map (𝟙 (obj B.ty)) (boundReturn hc.typed.1)) =
+      projection.map (boundReturn hc.typed.1 ≫ g)) :
+    projection.map (iterate f) =
+      projection.map (boundReturn hc.typed.1) ≫ projection.map (iterate g) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.iterate_payload_uniformity
+    B A D hc p q hq hf hg comm
+
+namespace Forwarding
+
+/-- The example forwards the payload through one recurrence and the outward exit. -/
+theorem iterate_forwarding :
+    projection.map (iterate (stepWithPayload result source sourceRows)) =
+      projection.map (boundReturn normalizes.typed.1) ≫
+        projection.map (iterate (stepWithPayload result target (targetRows .forward))) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.Forwarding.iterate_forwarding
+
+/-- Replacing the target's forwarded exit payload by unit breaks the projected square. -/
+theorem literal_square_fails :
+    projection.map (stepWithPayload result source sourceRows ≫
+      coprod.map (𝟙 (obj result.ty)) (boundReturn normalizes.typed.1)) ≠
+      projection.map (boundReturn normalizes.typed.1 ≫ stepWithPayload result target (targetRows .literal)) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumSquare.Forwarding.literal_square_fails
+
+end Forwarding
+
 namespace Collapse
 
 /-- The constructor map sends two distinct injections to the same arrow. -/
