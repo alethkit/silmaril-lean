@@ -37,6 +37,12 @@ theorem cut_lap_forwards_iff {B A : Shape} (p : A.Row → OutputCode B A) (mark 
       ∀ k, (p ((Cycles.Mixed.successor (fun v => (p v).tag))^[k] i)).payload = .forward :=
   Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumPayloadCycles.cut_lap_forwards_iff p mark h
 
+/-- A bounded run has the same exit tag after changing only the payload actions. -/
+theorem run_same_tag {B A : Shape} {p q : A.Row → OutputCode B A}
+    (same : ∀ i, (p i).tag = (q i).tag) {n : Nat} {i : A.Row} {o : StateCode B}
+    (hq : run q n i = some o) : ∃ mode, run p n i = some ⟨o.tag, mode⟩ :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.WithConstructorSequencing.UnitSumPayloadCycles.run_same_tag same hq
+
 /-- A singleton loop has the same iteration for either payload choice. -/
 theorem iterate_selfStep (B : Shape) (m : Payload) :
     iterate (selfStep B m) = iterate (coprod.inr : obj .unit ⟶ obj B.ty ⨿ obj .unit) :=
