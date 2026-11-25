@@ -15,6 +15,7 @@ structure Declaration where
   params : List NumType
   locals : List NumType
   results : List NumType
+  deriving DecidableEq
 
 def Declaration.type (decl : Declaration) : Wasm.V1.FuncType := ⟨decl.params, decl.results⟩
 
@@ -27,6 +28,7 @@ structure CallTarget where
   index : FuncIdx
   address : FuncAddr
   declaration : Declaration
+  deriving DecidableEq
 
 def CallTarget.Resolves (target : CallTarget) (caller : Frame) : Prop :=
   caller.module.funcs[target.index.toNat]? = some target.address
