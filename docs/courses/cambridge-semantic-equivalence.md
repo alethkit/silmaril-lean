@@ -50,12 +50,70 @@ after executing the hole. The read selects termination for the assignment
 of zero and an infinite loop for the assignment of one. The proof
 rules out the opposite outcome for every allowed fresh address.
 
+## Slide 256 stateful functions
+
+The two closed `int → int` functions allocate a private cell initially
+holding zero. One adds each input to its cell and returns the contents.
+The other subtracts each input and returns the negated contents. The
+slide uses subtraction. Core L3 has addition and comparison, so the
+fixture implements negation as a recursive core function that moves its
+integer argument toward zero. `negate_returns_iff` proves its exact
+result for every integer while retaining the input store.
+[Slide 256][notes]
+
+`counter_returns_iff` characterizes all initialization returns from any
+initial store. Every fresh address is permitted. `call_returns_iff`
+proves the complete response and store for an integer call when the
+cell holds the signed running total. In either representation the
+response is the updated total, and the final store retains every other
+binding. `counter_not_diverges` and `call_not_diverges` rule out an
+infinite trace for initialization and for calls in this protocol.
+
+`session_iff` characterizes every finite interaction formed by
+initializing once and calling that closure with a list of integer
+values. Both functions produce the same list of running sums. The
+final private cells hold opposite totals at their chosen addresses.
+`responses_agree` proves equality of the observable response lists
+over the allocation choices. The proof observes exactly these finite
+call sessions. Definition 33 would also require agreement in arbitrary
+closing unit contexts, including contexts that store and pass the
+function or interleave several instances.
+[Checked fixture][stateful]
+
+## Slides 257–258 pointer equality
+
+Slide 257 compares two references of the same contents type by address.
+Slide 258 allocates two private zero cells, `x` and `y`, in each function.
+Both functions return `y` on a successful test and `x` otherwise. The
+test compares the argument with `x` in `f` and with `y` in `g`.
+[Slides 257–258][pointers]
+
+The typed client binds the function once, calls it on a third fresh cell,
+then calls it again on the first result. It compares the two results
+by address. Both first calls return `x`. The second call returns `y`
+for `f` and `x` for `g`. `probe_returns_iff` proves the resulting
+`false` and `true` observations for every initial store and every
+permitted fresh triple. Its converse realizes every such triple and
+records the final store with the three zero cells inserted.
+
+`observe_typed` checks a closing unit context around the probe.
+`observe_returns_iff` gives its exact finite unit returns with `g` and
+rules out any return with `f`. The false result selects the ordinary
+L3 loop, and `f_selects_loop` proves the loop's infinite core trace in
+the store left by each probe. The fixture gives a separation by this
+specific context in a local call-by-value fragment with pointer equality.
+It uses relational finite returns and delegates closed unit branches to
+core L3. Core syntax, reduction and Definition 33 retain their existing
+scope. The fixture establishes no correspondence for arbitrary contexts
+in a full extension of L3. [Checked fixture][pointerfixture]
+
 ## Chapter coverage
 
 | Notes | Checked in this slice | Remaining |
 | --- | --- | --- |
 | Slides 252–255, 259–262 and 265 | Typed L1 equivalence and its equivalence laws, arithmetic and store-sensitive examples, and the three store-reading contexts. The integer case uses a separate typed scratch location. | |
-| Slides 256–258 | | Stateful-function examples and the example with the temporary pointer-equality extension. |
+| Slide 256 | Exact initialization and integer-call sessions for both stateful functions, with every fresh choice and the signed final stores. | Contextual equivalence under Definition 33. |
+| Slides 257–258 | Same-type address equality, checked examples and separation by a closing unit context for all fresh choices, in a local fragment. | |
 | Slides 263–264, Theorem 29 and Exercise 41 | Congruence for all ten context forms and for nested contexts. | |
 | Slides 266–267, Conjectures 30–32 | Sequencing associativity and distribution over the selected conditional branch (30–31). Counterexample to moving a prefix after the guard (32). Slide 255's fourth candidate preserves order and is proved. Determinacy makes the value-and-store observation single-valued. | |
 | Slide 268 and Exercise 42 | Sequencing commutes for disjoint typing environments. | |
@@ -66,3 +124,6 @@ as L1’s operator grammar contains addition and comparison.
 
 [notes]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=98
 [bib]: ../../references.bib
+[stateful]: ../../Silmaril/Courses/Cambridge/SemanticEquivalence/StatefulFunctions.lean
+[pointers]: https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf#page=99
+[pointerfixture]: ../../Silmaril/Courses/Cambridge/SemanticEquivalence/PointerEquality.lean

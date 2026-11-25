@@ -188,7 +188,7 @@ private theorem typeTokens_spelled {type : Ty} (h : TypeNamesOk type) :
   | record labels fields ih =>
     simp only [typeTokens, tokensSpelled_cons, spell_punct, true_and]
     exact recordTokens_spelled .colon labels _ (fun i => ⟨(h i).1, ih i (h i).2⟩)
-  | _ => simp_all [typeTokens, TypeNamesOk]
+  | _ => simp_all [typeTokens, TypeNamesOk, TypeNames]
 
 private theorem termTokens_spelled {term : RawExpr} (h : NamesOk term) :
     TokensSpelled (termTokens term) := by
@@ -196,11 +196,11 @@ private theorem termTokens_spelled {term : RawExpr} (h : NamesOk term) :
   | int n => cases n <;> simp [termTokens]
   | bool b => cases b <;> simp [termTokens]
   | binary _ op _ _ _ =>
-    cases op <;> simp_all [termTokens, NamesOk, operator]
+    cases op <;> simp_all [termTokens, NamesOk, ExprNames, operator]
   | record labels fields ih =>
     simp only [termTokens, tokensSpelled_cons, spell_punct, true_and]
     exact recordTokens_spelled .equals labels _ (fun i => ⟨(h i).1, ih i (h i).2⟩)
-  | _ => simp_all [termTokens, branchTokens, NamesOk, typeTokens_spelled]
+  | _ => simp_all [termTokens, branchTokens, NamesOk, ExprNames, typeTokens_spelled]
 
 theorem parse_print (term : SourceExpr) : parse (print term) = some term.val := by
   unfold parse print

@@ -1,0 +1,91 @@
+module
+
+public import Silmaril.SSA.Isotope.LetIter.Categorical.Substitution.Thms
+import Silmaril.Proofs.SSA.Isotope.LetIter.Categorical.Sequencing
+
+/-! # Sequencing in categorical LetIter -/
+
+public section
+
+universe u v w u₁ u₂ v₁ v₂
+
+namespace Silmaril.Isotope.LetIter.Semantics.Categorical
+
+open CategoryTheory CategoryTheory.Limits CartesianMonoidalCategory
+open Silmaril.Isotope.LetIter.LocallyNameless
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (contextualLoop)
+
+variable {τ : Type u} [TypeFormers τ] {ν : Type w} [DecidableEq ν]
+  {Φ : Type v} [HasTy Φ τ] {Γ : Ctx ν τ}
+  {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
+  [CartesianMonoidalCategory V] [SymmetricCategory V]
+  [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
+  [HasFiniteCoproducts V] [HasFiniteCoproducts C]
+  [DistributiveTensor V] [DistributivePremonoidalCategory C]
+  [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
+  (M : TypeModel τ V) [InstructionModel J M Φ]
+
+/-- Binding an operation is equivalent to first binding its argument, then applying the operation. -/
+theorem denote_bind_op {n : Nat} {β : BoundCtx τ n} {f : Φ}
+    {a : Tm ν Φ n} {c : Tm ν Φ (n + 1)} {B : τ}
+    (da : Derivation Φ Γ β a (instrSrc f))
+    (dc : Derivation Φ Γ (.snoc β (instrTrg f)) c B) :
+    denote J M (.let₁ (.op (f := f) da) dc) =
+      denote J M (.let₁ da (.let₁ (.op (f := f) (.bv (ι := 0)))
+        (dc.rename (TypedRenaming.underBinder β (instrSrc f) (instrTrg f))))) :=
+  denote_bind_op_proof J M da dc
+
+/-- Iteration may first bind its initial state and then iterate from the bound value. -/
+theorem denote_iter_bind {n : Nat} {β : BoundCtx τ n}
+    {a : Tm ν Φ n} {b : Tm ν Φ (n + 1)} {A B : τ}
+    (da : Derivation Φ Γ β a A)
+    (db : Derivation Φ Γ (.snoc β A) b (coprod B A)) :
+    denote J M (.iter da db) =
+      denote J M (.let₁ da (.iter (.bv (ι := 0))
+        (db.rename (TypedRenaming.underBinder β A A)))) :=
+  denote_iter_bind_proof J M da db
+
+/-- A case scrutinee can be bound before branching on the newest variable. -/
+theorem denote_bind_case {n : Nat} {β : BoundCtx τ n}
+    {e : Tm ν Φ n} {l r : Tm ν Φ (n + 1)} {A B D : τ}
+    (de : Derivation Φ Γ β e (coprod A B))
+    (dl : Derivation Φ Γ (.snoc β A) l D) (dr : Derivation Φ Γ (.snoc β B) r D) :
+    denote J M (.case de dl dr) =
+      denote J M (.let₁ de (.case (.bv (ι := 0))
+        (dl.rename (TypedRenaming.underBinder β (coprod A B) A))
+        (dr.rename (TypedRenaming.underBinder β (coprod A B) B)))) :=
+  denote_bind_case_proof J M de dl dr
+
+/-- A product scrutinee can be bound before destructuring the newest variable. -/
+theorem denote_bind_pair {n : Nat} {β : BoundCtx τ n}
+    {a : Tm ν Φ n} {c : Tm ν Φ (n + 2)} {A B D : τ}
+    (da : Derivation Φ Γ β a (product A B))
+    (dc : Derivation Φ Γ (.snoc (.snoc β A) B) c D) :
+    denote J M (.let₂ da dc) =
+      denote J M (.let₁ da (.let₂ (.bv (ι := 0))
+        (dc.rename (TypedRenaming.underTwoBinders β (product A B) A B)))) :=
+  denote_bind_pair_proof J M da dc
+
+/-- The exact iteration fixpoint unfolds one body step and recurs only on the right branch. -/
+theorem denote_iter_fixpoint {n : Nat} {β : BoundCtx τ n}
+    {a : Tm ν Φ n} {b : Tm ν Φ (n + 1)} {A B : τ}
+    (da : Derivation Φ Γ β a A)
+    (db : Derivation Φ Γ (.snoc β A) b (coprod B A)) :
+    denote J M (.iter da db) =
+      denote J M (.let₁ da (.case db (.bv (ι := 0))
+        (.iter (.bv (ι := 0))
+          ((db.rename (TypedRenaming.underBinder β A A)).rename
+            (TypedRenaming.underBinder (.snoc β A) A A))))) :=
+  denote_iter_fixpoint_proof J M da db
+
+/-- Starting a loop at the newest bound variable recovers its contextual loop arrow. -/
+theorem denote_iter_newest {n : Nat} {β : BoundCtx τ n}
+    {b : Tm ν Φ (n + 1)} {A B : τ}
+    (db : Derivation Φ Γ (.snoc β A) b (coprod B A)) :
+    J.map (envSnocIso M Γ β A).hom ≫ denote J M (.iter (.bv (ι := 0))
+      (db.rename (TypedRenaming.underBinder β A A))) =
+      contextualLoop J (J.map (envSnocIso M Γ β A).hom ≫ denote J M db ≫
+        J.map (M.coprodIso B A).hom) :=
+  denote_iter_newest_proof J M db
+
+end Silmaril.Isotope.LetIter.Semantics.Categorical
