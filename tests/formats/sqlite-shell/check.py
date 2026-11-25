@@ -216,6 +216,35 @@ def check_frontend(native, directory, database):
     assert output.read_bytes() == original
 
 
+def check_amount_widths(native, directory):
+    amounts = [(0, 8), (1, 9), (-1, 1)]
+    for bits, narrow, wide in [(7, 1, 2), (15, 2, 3), (23, 3, 4), (31, 4, 5), (47, 5, 6)]:
+        cutoff = 2**bits
+        amounts.extend([(-cutoff - 1, wide), (-cutoff, narrow),
+                        (cutoff - 1, narrow), (cutoff, wide)])
+    amounts.extend([(-(2**63), 6), (2**63 - 1, 6)])
+    entries = [(key, amount) for key, (amount, _) in enumerate(amounts)]
+    native_path = directory / "amount-native.sqlite"
+    lean_path = directory / "amount-lean.sqlite"
+    values = ",".join(f"({key},{amount})" for key, amount in entries)
+    successful(native(native_path, f"PRAGMA page_size=512; {SCHEMA}; "
+                      f"INSERT INTO sample VALUES {values}; VACUUM;"))
+    successful(create(lean_path, *row_arguments(entries)))
+
+    for path, serials in [(native_path, [serial for _, serial in amounts]), (lean_path, [6] * len(entries))]:
+        image = check_image(native, path, entries)
+        base = 512
+        assert image[base] == 13 and int.from_bytes(image[base + 3:base + 5], "big") == len(entries)
+        for key, serial in enumerate(serials):
+            pointer = base + 8 + 2 * key
+            cell = base + int.from_bytes(image[pointer:pointer + 2], "big")
+            # The controlled payload lengths and rowids occupy one byte each.
+            assert image[cell] < 128 and image[cell + 1] == key
+            header = image[cell + 2:cell + 5]
+            assert header == bytes((3, 0, serial)), (path, entries[key], serial, header)
+    print("Both readers matched signed amount cutoffs and extrema across native serial widths.")
+
+
 def main():
     with tempfile.TemporaryDirectory() as temp:
         directory = Path(temp)
@@ -226,6 +255,7 @@ def main():
                           "(9223372036854775807,0),(1,9); VACUUM;"))
         before = database.read_bytes()
         check_frontend(native, directory, database)
+        check_amount_widths(native, directory)
 
         queries = [
             ("SELECT id, amount FROM sample ORDER BY id;", ["id", "amount"]),
