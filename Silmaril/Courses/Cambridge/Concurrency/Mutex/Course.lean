@@ -1,9 +1,10 @@
 module
 
 public import Silmaril.Courses.Cambridge.Concurrency.Mutex.Examples
+public import Silmaril.Courses.Cambridge.Concurrency.Mutex.OrderedTwoPhase.Examples
 
 /-! # Cambridge chapter 7 mutexes and labelled semantics
 
-This slice follows pp. 92–96, including both operational presentations and
-Theorem 27. Source `sewell2026semantics` in `references.bib`.
+Pages 92–97 give both operational presentations, Theorem 27, and ordered
+two-phase locking. Source `sewell2026semantics` in `references.bib`.
 -/
