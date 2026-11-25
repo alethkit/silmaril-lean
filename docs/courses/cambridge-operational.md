@@ -136,6 +136,15 @@ functions and locations. Natural numbers represent the location names.
 Allocation may choose any name outside the store's domain. L3 has no
 expression for comparing locations.
 
+The [reference worked examples][reference-examples] check p. 75 of the
+pinned notes. From an empty store, `(ref 0, ref 0)` can return exactly
+the pairs of distinct addresses, each pointing to a zero. Slide 197's
+function stores itself in a cell and recurses by dereferencing that cell.
+The typed program returns `6` for any fresh address, and the final
+store is well typed at the resulting location environment.
+
+[reference-examples]: ../../Silmaril/Courses/Cambridge/L3/Exercises/ReferenceWorkedExamples.lean
+
 `L3.HasType` implements the rules on pp. 80–82. The location environment
 records the contents type of each reference. `L3.StoreTyped` requires exact
 agreement of the location and store domains and checks each stored value

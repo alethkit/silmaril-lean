@@ -15,6 +15,7 @@ public import Silmaril.Courses.Cambridge.L3.Metatheory.ContextEquivalence
 public import Silmaril.Courses.Cambridge.L3.Examples
 public import Silmaril.Courses.Cambridge.L3.Exercises.LabelledVariants
 public import Silmaril.Courses.Cambridge.L3.Exercises.ExceptionExamples
+public import Silmaril.Courses.Cambridge.L3.Exercises.ReferenceWorkedExamples
 public import Silmaril.Courses.Cambridge.L3.ResolvedCodec
 public import Silmaril.Courses.Cambridge.L3.Interpreter
 public import Silmaril.Courses.Cambridge.L3.Evaluation
