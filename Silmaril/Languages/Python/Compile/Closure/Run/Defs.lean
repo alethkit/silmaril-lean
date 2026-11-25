@@ -62,6 +62,9 @@ inductive Translation {layout : Layout} :
   | assert {source target rest next}
       (test : OperandTranslation source target) (tail : Translation rest next) :
       Translation (.assert source rest) (.assert target next)
+  | discardCall {callee function rest next}
+      (calleeTranslation : OperandTranslation callee function) (tail : Translation rest next) :
+      Translation (.discardCall callee rest) (.callTo .discard function [] next)
   | assign {slot source target rest next}
       (value : OperandTranslation source target) (tail : Translation rest next) :
       Translation (.assign slot source rest) (.store slot target next)
@@ -81,6 +84,10 @@ def lowerCode {layout : Layout} : (code : Link.Code layout) →
     let operand ← operand? test
     let tail ← lowerCode rest
     return ⟨.assert operand.val tail.val, .assert operand.property tail.property⟩
+  | .discardCall callee rest => do
+    let function ← operand? callee
+    let tail ← lowerCode rest
+    return ⟨.callTo .discard function.val [] tail.val, .discardCall function.property tail.property⟩
   | .assign slot (.call callee arguments) rest => do
     let function ← operand? callee
     let operands ← arguments? arguments

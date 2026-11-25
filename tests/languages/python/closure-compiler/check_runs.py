@@ -34,6 +34,33 @@ FIXTURES = (
     result = inner(seed)
     return result
 """, "return None", ["enter", "resume None", "complete None"]),
+    ("body_discard_call_paths", """def outer(seed):
+    def write():
+        nonlocal seed
+        seed = 41
+        return 99
+    keep = 7
+    write()
+    assert keep == 7
+    def read():
+        return seed
+    result = read()
+    return result
+""", "return 41", ["enter", "resume", "enter", "resume", "complete"]),
+    ("body_discard_call_error", """def outer(seed):
+    def child():
+        nonlocal seed
+        seed = 41
+        assert False
+        return seed
+    child()
+    seed = 99
+    return seed
+""", "AssertionError", ["enter", "resume AssertionError", "complete AssertionError"]),
+    ("body_discard_call_noncallable", """def outer(seed):
+    seed()
+    return seed
+""", "TypeError noncallable", ["complete"]),
     ("body_assert_child_path", """def outer(seed):
     assert seed
     def child(value):
@@ -239,6 +266,20 @@ if __name__ == "__main__":
                 extra = '#guard observation pythonSource 2 == ("return 5", ["complete"])\n'
             elif name == "implicit_none":
                 extra = '#guard observation pythonSource 2 == ("return None", ["complete None"])\n'
+            elif name == "body_discard_call_paths":
+                extra = """
+#guard (match compile pythonSource with
+  | .ok compiled =>
+    compiled.sourceBody.paths == [[0], [0, 0], [0, 1]] &&
+      match compiled.table compiled.entry.key with
+      | some entry => match entry.definition.body with
+        | .store _ _ (.store _ _ (.callTo .discard (.read _) [] _)) => true
+        | _ => false
+      | none => false
+  | .error _ => false)
+"""
+            elif name == "body_discard_call_error":
+                extra = "#guard retainedAssertionWrite pythonSource\n"
             elif name == "body_assert_child_path":
                 extra = """
 #guard (match compile pythonSource with
@@ -315,6 +356,12 @@ if __name__ == "__main__":
             extra_imports=imports, capture_output=True,
         )
         for source, diagnostic in (
+            ("def outer(seed): seed(5)", ".frontend .bodyShape"),
+            ("def outer(seed): seed(value=5)", ".frontend .bodyShape"),
+            ("def outer(seed): seed(*())", ".frontend .bodyShape"),
+            ('def outer(seed): seed(**{})', ".frontend .bodyShape"),
+            ("def outer(seed): seed.attribute()", ".frontend .bodyShape"),
+            ("def outer(seed): seed()()", ".frontend .bodyShape"),
             ("def outer(seed): assert seed + 1", ".bodyProfile [0]"),
             ("def outer(seed): assert seed()", ".bodyProfile [0]"),
             ("def outer(seed): assert seed == True", ".frontend .expressionShape"),

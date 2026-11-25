@@ -12,6 +12,13 @@ the existing executor return with a literal `None` operand. A nested
 call writes that value to its destination before resuming the caller.
 Bare `return` and explicit `None` syntax remain outside this source profile.
 
+A standalone zero-argument call to a resolved name uses the executor's
+discard destination. The caller resumes with its saved frame and the
+callee's residual heap. The call preserves the lexical child index.
+For these statements the compiler requires an empty argument list and a
+bare name callee. The module-function runner also allows resolved global
+reads, which use the current module binding at invocation.
+
 Message-free body assertions lower to the existing executor assertion
 when the test passes the ordinary runner operand check. They preserve
 the continuation's lexical child paths and code keys. The executor
