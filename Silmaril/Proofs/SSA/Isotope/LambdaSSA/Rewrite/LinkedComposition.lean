@@ -2,7 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Categorical.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Composition.Defs
-import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.ValueSubstitution
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Continuations.Direct.Thms
 import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.EnvironmentNaturality
 
 /-! # Categorical composition of linked continuation families -/
@@ -30,20 +30,6 @@ variable {V : Type u₁} {C : Type u₂}
   {τ : Type u₃} [TypeFormers τ] (M : TypeModel τ V)
   {Φ : Type u₄} [HasTy Φ τ] [InstructionModel J M Φ]
 
-set_option backward.isDefEq.respectTransparency false in
-theorem continuationDenotes_liftVars {Γ : VCtx τ} {L K : LCtx τ}
-    {σ : Nat → Region Φ} {k : J.obj (ctxObj M Γ ⊗ labelObj M L) ⟶ J.obj (labelObj M K)}
-    (hk : ContinuationDenotes J M σ k) (A : τ) :
-    ContinuationDenotes J M (Γ := A :: Γ) (L := L) (K := K) (Region.liftLSubstVars σ)
-      (J.map (fst (ctxObj M Γ) (M.obj A) ▷ labelObj M L) ≫ k) := by
-  intro i B hi
-  obtain ⟨h, d⟩ := hk hi
-  have w := regionDenotes_weakenCapture J M (B := A) d
-  refine ⟨h.renameVars ((Silmaril.Isotope.SSA.Ren.wk Γ A).lift B), ?_⟩
-  simp only [MonoidalCategory.id_tensorHom] at w ⊢
-  rw [← J.map_comp_assoc, MonoidalCategory.whisker_exchange, J.map_comp_assoc]
-  exact w
-
 variable [FreydCategory.CentralUnit J]
 
 set_option backward.isDefEq.respectTransparency false in
@@ -56,7 +42,7 @@ theorem continuationDenotes_linkComp {Γ : VCtx τ} {L K H : LCtx τ}
       (composeContinuations J M (Γ := Γ) (L := L) (K := K) (H := H) first after) := by
   intro i A hi
   obtain ⟨_, d⟩ := df hi
-  have dw := continuationDenotes_liftVars J M dg A
+  have dw := dg.weakenCapture J M A
   obtain ⟨hs, ds⟩ := d.linkExits J M dw
   change Region.HasType (A :: Γ) (Region.linkCompLSubst K σ υ i) H at hs
   refine ⟨hs, ?_⟩

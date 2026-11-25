@@ -279,6 +279,25 @@ open Silmaril.Languages.Python.Compile.Closure.Body
 open Silmaril.Languages.Python.Compile.Closure.Body
 #guard (match compile pythonSource with | .error .argumentProfile => true | _ => false)
 """, extra_imports=imports)
+        generator_cases = (
+            ("def outer():\n    if False: yield 1\n    return 2\n", [0]),
+            ("def outer():\n    def child():\n        yield 1\n    return 2\n", [0, 0]),
+            ("def outer():\n    def child(value=0): yield value\n    return 2\n", [0, 0]),
+            ("def outer():\n    def child(value=(yield 1)): return value\n    return 2\n", [0]),
+        )
+        for text, rejected_path in generator_cases:
+            emit(source, destination, text)
+            check_lean(destination, f"""
+open Silmaril.Languages.Python.Compile.Closure.Body
+#guard (match compile pythonSource with
+  | .error (.unsupportedGenerator path) => path == {rejected_path}
+  | _ => false)
+""", extra_imports=imports)
+        emit(source, destination, "def outer(value=0): yield value\n")
+        check_lean(destination, """
+open Silmaril.Languages.Python.Compile.Closure.Body
+#guard (match compile pythonSource with | .error .parameterProfile => true | _ => false)
+""", extra_imports=imports)
 
 
 if __name__ == "__main__":

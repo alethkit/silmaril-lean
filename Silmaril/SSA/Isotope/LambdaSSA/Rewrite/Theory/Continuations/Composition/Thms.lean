@@ -47,7 +47,6 @@ namespace Semantics.Categorical
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
-open CategoryTheory.CartesianMonoidalCategory (fst)
 
 variable {V : Type u₁} {C : Type u₂}
   [Category.{v₁} V] [Category.{v₂} C]
@@ -58,15 +57,6 @@ variable {V : Type u₁} {C : Type u₂}
   [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
   {τ : Type u₃} [TypeFormers τ] (M : TypeModel τ V)
   {Φ : Type u₄} [HasTy Φ τ] [InstructionModel J M Φ]
-
-/-- Weakening a continuation beneath a new capture precomposes with the pure
-projection that forgets the capture and keeps the label payload. -/
-theorem ContinuationDenotes.liftVars {Γ : VCtx τ} {L K : LCtx τ}
-    {σ : Nat → Region Φ} {k : J.obj (ctxObj M Γ ⊗ labelObj M L) ⟶ J.obj (labelObj M K)}
-    (hk : ContinuationDenotes J M σ k) (A : τ) :
-    ContinuationDenotes J M (Γ := A :: Γ) (L := L) (K := K) (Region.liftLSubstVars σ)
-      (J.map (fst (ctxObj M Γ) (M.obj A) ▷ labelObj M L) ≫ k) :=
-  Proofs.SSA.Isotope.LambdaSSA.Rewrite.continuationDenotes_liftVars J M hk A
 
 variable [FreydCategory.CentralUnit J]
 

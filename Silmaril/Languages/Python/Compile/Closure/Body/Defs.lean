@@ -10,11 +10,12 @@ analyzed path, distinct parameter destinations and ordered capture
 operands so a code linker can choose the numeric key.
 -/
 
-@[expose] public section
 namespace Silmaril.Languages.Python.Compile.Closure.Body
 
 open Source (BlockPath Name Scope ScopeTree)
 open Core.Closure (CaptureSlot Parameters Slot)
+
+@[expose] public section
 
 inductive GlobalRead (scope : Scope) (name : Name) : Prop where
   | implicit (access : scope.access name = some .implicitGlobal)
@@ -32,6 +33,7 @@ inductive Error where
   | scope (diagnostic : Source.Diagnostic)
   | moduleShape
   | bodyShape
+  | unsupportedGenerator (path : BlockPath)
   | expressionShape
   | argumentProfile
   | unresolvedName (name : Name)
@@ -175,7 +177,8 @@ def assignment? : (source : Source.Stmt) →
 
 inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
     Code (frameLayout tree.scope) → Prop where
-  | ret {tree index source target} (complete : index = tree.children.length)
+  | ret {tree index source target} (ordinary : tree.scope.context.containsYield = false)
+      (complete : index = tree.children.length)
       (value : ExprTranslation tree.scope source target) :
       Translation tree index [.return_ (some source)] (.ret target)
   | assign {tree index statement name source rest slot target next}
@@ -199,19 +202,21 @@ inductive Translation : (tree : ScopeTree) → Nat → List Source.Stmt →
         (.closure slot (tree.scope.context.path ++ [index]) (frameLayout child.scope) parameters
           (captureOperands captures) code next)
 
-def lowerBodyWith (tree : ScopeTree) (allowGlobals : Bool) (childIndex : Nat) : (body : List Source.Stmt) →
+private def lowerOrdinaryBody (tree : ScopeTree) (allowGlobals : Bool)
+    (ordinary : tree.scope.context.containsYield = false) (childIndex : Nat) :
+    (body : List Source.Stmt) →
     Except Error {target // Translation tree childIndex body target}
   | [.return_ (some value)] => do
     if complete : childIndex = tree.children.length then
       let target ← lowerExprWith tree.scope allowGlobals value
-      return ⟨.ret target.val, .ret complete target.property⟩
+      return ⟨.ret target.val, .ret ordinary complete target.property⟩
     else throw (.scopeTree tree.scope.context.path)
   | .nonlocalDecl _ :: rest => do
-    let tail ← lowerBodyWith tree allowGlobals childIndex rest
+    let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨tail.val, .nonlocal tail.property⟩
   | .globalDecl _ :: rest => do
     unless allowGlobals do throw .bodyShape
-    let tail ← lowerBodyWith tree allowGlobals childIndex rest
+    let tail ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨tail.val, .global tail.property⟩
   | .functionDef name declaration body [] none :: rest => do
     let path := tree.scope.context.path ++ [childIndex]
@@ -219,11 +224,14 @@ def lowerBodyWith (tree : ScopeTree) (allowGlobals : Bool) (childIndex : Nat) : 
     | none => throw (.scopeTree path)
     | some child =>
       if scopeMatches : child.scope.context.path = path ∧ child.scope.context.kind = .function then
+        let childOrdinary ← if clear : child.scope.context.containsYield = false then
+          pure (PLift.up clear)
+        else throw (.unsupportedGenerator path)
         let destination ← lowerSlot tree.scope name
         let parameterSlots ← checkParameters child.scope declaration
         let some captures := Source.Closure.layout? tree.scope child.scope.captures | throw (.captureLayout path)
-        let code ← lowerBodyWith child allowGlobals 0 body
-        let next ← lowerBodyWith tree allowGlobals (childIndex + 1) rest
+        let code ← lowerOrdinaryBody child allowGlobals childOrdinary.down 0 body
+        let next ← lowerOrdinaryBody tree allowGlobals ordinary (childIndex + 1) rest
         return ⟨.closure destination.val path (frameLayout child.scope) parameterSlots.val
           (captureOperands captures) code.val next.val,
           .closure found scopeMatches.1 scopeMatches.2 destination.property parameterSlots.property.1
@@ -233,11 +241,21 @@ def lowerBodyWith (tree : ScopeTree) (allowGlobals : Bool) (childIndex : Nat) : 
     let some ⟨(name, value), assignment⟩ := assignment? statement | throw .bodyShape
     let destination ← lowerSlot tree.scope name
     let target ← lowerExprWith tree.scope allowGlobals value
-    let next ← lowerBodyWith tree allowGlobals childIndex rest
+    let next ← lowerOrdinaryBody tree allowGlobals ordinary childIndex rest
     return ⟨.assign destination.val target.val next.val,
       .assign assignment destination.property target.property next.property⟩
   | [] => .error .bodyShape
 termination_by body => sizeOf body
+
+end
+
+public def lowerBodyWith (tree : ScopeTree) (allowGlobals : Bool) (childIndex : Nat)
+    (body : List Source.Stmt) : Except Error {target // Translation tree childIndex body target} :=
+  if ordinary : tree.scope.context.containsYield = false then
+    lowerOrdinaryBody tree allowGlobals ordinary childIndex body
+  else .error (.unsupportedGenerator tree.scope.context.path)
+
+@[expose] public section
 
 def lowerBody (tree : ScopeTree) := lowerBodyWith tree false
 
@@ -270,5 +288,7 @@ def compile (source : Source.Module) : Except Error (Compiled source) :=
       return ⟨name, declaration, body, shape, entry, tree, analyzed, located, parameters.val,
         parameters.property.1, parameters.property.2, code.val, code.property⟩
     | _, _ => .error .moduleShape
+
+end
 
 end Silmaril.Languages.Python.Compile.Closure.Body

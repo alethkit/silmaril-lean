@@ -76,7 +76,7 @@ private theorem dispatcherFamily_denotes {n : Nat} {Γ : VCtx τ} {L : LCtx τ}
   have hb' (k : Fin (n + 1)) := (hb k).renameVars (wk.lift (R k))
   have db' (k : Fin (n + 1)) : RegionDenotes J M (hb' k)
       (J.map (projection ▷ M.obj (R k)) ≫ fb k) :=
-    regionDenotes_weakenCapture J M (db k)
+    regionDenotes_weakenCapture_proof J M A (db k)
   have he : Region.HasType (A :: Γ) (.br i (.var 0) : Region Φ) (List.ofFn R ++ L) :=
     .br hi (.var rfl)
   have dEntry : RegionDenotes J M he (J.map (snd E (M.obj A)) ≫ J.map j) :=

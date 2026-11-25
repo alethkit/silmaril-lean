@@ -81,3 +81,16 @@ read(value=1)
         shared["check_lean"](generated, LEAN + """
 #guard (match check pythonSource with | .error .argumentProfile => true | _ => false)
 """, extra_imports=IMPORTS)
+        generator_cases = (
+            ("def gen():\n    if False: yield 1\n    return 2\n", "(.unsupportedGenerator [0])"),
+            ("def gen(value=0): yield value\n", ".parameterProfile"),
+            ("def outer():\n    def gen(value=0): yield value\n    return 2\n",
+             "(.unsupportedGenerator [0, 0])"),
+        )
+        for function, diagnostic in generator_cases:
+            shared["emit"](source, generated, "seed = 1\n" + function)
+            shared["check_lean"](generated, LEAN + f"""
+#guard (match check pythonSource with
+  | .error (.functionBody {diagnostic}) => true
+  | _ => false)
+""", extra_imports=IMPORTS)

@@ -115,6 +115,18 @@ preorder list of code paths has no duplicates for code-table linking. The
 regression parses Python source and checks a nonlocal write through two
 nested call sites. Code-table linking and execution are subsequent stages.
 
+Ordinary body lowering checks `containsYield` and reports
+`unsupportedGenerator` with the block's lexical path. The standalone
+closure compiler and module-function planner check a top-level function's
+parameters before lowering its body. A top-level generator with a default
+parameter therefore reports `parameterProfile`. For a nested definition in
+an ordinary body, the child's yield check precedes its parameter check, so
+the same declaration reports `unsupportedGenerator` at the child path.
+`Translation.ordinary` certifies the admitted entry block, and
+`Translation.ordinaryChild` certifies each child path emitted by an
+admitted body. Generator suspension and resumption require a runtime profile
+with that behavior.
+
 ## Source intake
 
 The AST emitter takes an external CPython AST and writes a Lean module
