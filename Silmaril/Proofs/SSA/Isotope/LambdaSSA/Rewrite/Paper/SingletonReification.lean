@@ -269,6 +269,17 @@ private theorem compare_let (ha : Tm.HasType [X] a A)
 
 set_option backward.isDefEq.respectTransparency false in
 include copy whisker in
+private theorem factor_literal_let₂ (ha : Tm.HasType [X] a (Silmaril.product A B))
+    (hp : ValueBranches [Silmaril.product X (Silmaril.product A B)] p [D]) :
+    reindexHom J M objIso (denoteSingletonRegion J M (.let₂ ha (applyPackedPair_typed hp).hasType)) =
+      (ofRegion (τ := τ) (diagonal_typed X) ≫ whiskerLeft (ofType (Φ := Φ) X)
+        (reindexHom J M objIso (denoteSingletonRegion J M (returnPair_typed ha).hasType))) ≫
+        reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) := by
+  rw [denote_literal_let₂ J M ha hp, ← Category.assoc, transport_comp,
+    extend_compare J M objIso (copy X) whisker]
+
+set_option backward.isDefEq.respectTransparency false in
+include copy whisker in
 private theorem compare_literal_let₂ (ha : Tm.HasType [X] a (Silmaril.product A B))
     (hp : ValueBranches [Silmaril.product X (Silmaril.product A B)] p [D])
     (hf : reindexHom J M objIso (denoteSingletonRegion J M (returnPair_typed ha).hasType) =
@@ -276,8 +287,7 @@ private theorem compare_literal_let₂ (ha : Tm.HasType [X] a (Silmaril.product 
     (hg : reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) = ofRegion (τ := τ) hp) :
     reindexHom J M objIso (denoteSingletonRegion J M (.let₂ ha (applyPackedPair_typed hp).hasType)) =
       ofRegion (τ := τ) (.let₂ ha (applyPackedPair_typed hp)) := by
-  rw [denote_literal_let₂ J M ha hp, ← Category.assoc, transport_comp,
-    extend_compare J M objIso (copy X) whisker, hf, hg, whiskerLeft_ofRegion]
+  rw [factor_literal_let₂ J M objIso copy whisker ha hp, hf, hg, whiskerLeft_ofRegion]
   let h := seqValueBranches (diagonal_typed (Φ := Φ) X) (whiskerLeftRegion_typed X (returnPair_typed ha))
   rw [ofRegion_comp _ _ h, ofRegion_comp h hp (seqValueBranches h hp)]
   exact (ofRegion_eq_iff _ _).2 (literal_let₂ ha hp)
@@ -638,6 +648,20 @@ section BinaryLet
 open Region.Paper.SingletonReification.BinaryLet
 
 variable {A B : τ} {a : Tm Φ} {p : Region Φ}
+
+set_option backward.isDefEq.respectTransparency false in
+/-- Factor the interpreted binary let through the single-bind producer and the interpreted packed body. -/
+theorem factor_let₂ (cmp : ModelComparisons J M objIso pe)
+    (ha : Tm.HasType [X] a (Silmaril.product A B))
+    (hp : ValueBranches [Silmaril.product X (Silmaril.product A B)] p [D]) :
+    reindexHom J M objIso (denoteSingletonRegion J M (.let₂ ha (applyPackedPair_typed hp).hasType)) =
+      (ofRegion (τ := τ) (Paper.RetainedLet.diagonal_typed X) ≫ whiskerLeft (ofType (Φ := Φ) X)
+        (ofRegion (τ := τ) (returnOnce_typed ha))) ≫
+        reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) := by
+  have hCopy := fun X => compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd
+    cmp.imagePure cmp.projectionExtensionality
+  rw [factor_literal_let₂ J M objIso hCopy (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f)
+    ha hp, returnPair_denotation J M ha, cmp.producer ha]
 
 set_option backward.isDefEq.respectTransparency false in
 theorem returnPair_comparison_iff (cmp : ModelComparisons J M objIso pe)
