@@ -54,6 +54,15 @@ value becomes the next comparison's left value. The first false comparison
 ends the scan. The result uses the same Boolean operand as a folded tuple
 comparison, with no runtime lookup, call, or allocation.
 
+Closed `and` and `or` operands are Boolean or integer literals. The
+checker validates every operand, then selects a value in order. `and`
+stops at the first false value and `or` at the first true value, with
+the last value used when the scan reaches the end. The emitted result
+retains its integer or Boolean tag. A closed `not` or assertion can
+also test `None` or a flat literal list or tuple whose elements pass
+the same scalar check. These tests use only falsity or emptiness and
+emit no container value.
+
 The regression emits Lean from Python source and verifies the global
 access witnesses, action order and the diagnostic for an assertion
 message.

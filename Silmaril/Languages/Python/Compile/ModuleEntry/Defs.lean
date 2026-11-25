@@ -13,7 +13,7 @@ the analyzed access. The plan is independent of a runtime store.
 @[expose] public section
 namespace Silmaril.Languages.Python.Compile.ModuleEntry
 
-open Source (Access Comparison Expr Name Scope ScopeTree Stmt)
+open Source (Access BooleanOperator Comparison Expr Name Scope ScopeTree Stmt)
 
 structure GlobalReference (scope : Scope) (name : Name) where
   access : Access
@@ -118,6 +118,48 @@ def scalarTuple? : Expr → Option (List Core.Module.Value)
   | .tuple elements => elements.mapM scalarLiteral?
   | _ => none
 
+/-- These literals can be used for truth tests without representing a container
+or `None` as a scalar runtime value. Every element must pass the literal check. -/
+def nonScalarLiteralTruth? : Expr → Option Bool
+  | .none_ => some false
+  | .tuple elements | .list_ elements => do
+    let values ← elements.mapM scalarLiteral?
+    return !values.isEmpty
+  | _ => none
+
+def literalNegation? (source : Expr) : Option Bool :=
+  match scalarLiteral? source with
+  | some value => some (!value.truth)
+  | none => (nonScalarLiteralTruth? source).map (! ·)
+
+def continuesSelection (operator : BooleanOperator) (value : Core.Module.Value) : Bool :=
+  match operator with
+  | .and_ => value.truth
+  | .or_ => !value.truth
+
+/-- A connective returns an operand value, with its original type. -/
+def selectScalar (operator : BooleanOperator) (value : Core.Module.Value) :
+    List Core.Module.Value → Core.Module.Value
+  | [] => value
+  | next :: rest =>
+    if continuesSelection operator value then selectScalar operator next rest else value
+
+inductive SelectsScalar (operator : BooleanOperator) :
+    Core.Module.Value → List Core.Module.Value → Core.Module.Value → Prop where
+  | last (value : Core.Module.Value) : SelectsScalar operator value [] value
+  | stop {value next rest} (stopped : continuesSelection operator value = false) :
+      SelectsScalar operator value (next :: rest) value
+  | next {value next rest result} (continued : continuesSelection operator value = true)
+      (tail : SelectsScalar operator next rest result) :
+      SelectsScalar operator value (next :: rest) result
+
+def literalBooleanOp? (operator : BooleanOperator) : List Expr → Option Core.Module.Value
+  | first :: second :: rest => do
+    let value ← scalarLiteral? first
+    let values ← (second :: rest).mapM scalarLiteral?
+    return selectScalar operator value values
+  | _ => none
+
 def literalTupleMember? (left right : Expr) : Option Bool := do
   let needle ← scalarLiteral? left
   let elements ← scalarTuple? right
@@ -138,6 +180,10 @@ def literalTupleComparison? (left : Expr) (operator : Comparison) (right : Expr)
 /-- Deliver a computed Boolean through the existing typed scalar equality. -/
 def Operand.booleanResult {scope : Scope} (value : Bool) : Operand scope :=
   .binary .equal (.boolean value) (.boolean true)
+
+def Operand.scalarResult {scope : Scope} : Core.Module.Value → Operand scope
+  | .int value => .integer value
+  | .bool value => .booleanResult value
 
 def Operand.conditionalResult {scope : Scope} : Operand scope → Operand scope
   | .boolean value => .booleanResult value
@@ -167,6 +213,10 @@ inductive OperandTranslation (scope : Scope) : Expr → Operand scope → Prop w
   | literalComparisonChain {left first second rest value}
       (checked : literalComparisonChain? left (first :: second :: rest) = some value) :
       OperandTranslation scope (.comparison left (first :: second :: rest)) (.booleanResult value)
+  | literalNegation {source value} (checked : literalNegation? source = some value) :
+      OperandTranslation scope (.unary .not_ source) (.booleanResult value)
+  | literalBooleanOp {operator operands value} (checked : literalBooleanOp? operator operands = some value) :
+      OperandTranslation scope (.booleanOp operator operands) (.scalarResult value)
   | literalConditional {condition yes no decision lhs rhs}
       (guard : literalGuard? condition = some decision)
       (positive : OperandTranslation scope yes lhs) (negative : OperandTranslation scope no rhs) :
@@ -190,6 +240,14 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
   | .integer value => .ok ⟨.integer value, .integer value⟩
   | .boolean value => .ok ⟨.boolean value, .boolean value⟩
   | .unary .negative (.integer value) => .ok ⟨.integer (-value), .negativeInteger value⟩
+  | .unary .not_ operand =>
+    match folded : literalNegation? operand with
+    | some value => .ok ⟨.booleanResult value, .literalNegation folded⟩
+    | none => .error .expressionProfile
+  | .booleanOp operator operands =>
+    match folded : literalBooleanOp? operator operands with
+    | some value => .ok ⟨.scalarResult value, .literalBooleanOp folded⟩
+    | none => .error .expressionProfile
   | .subscript source index =>
     match selected : literalSubscript? source index with
     | some value => .ok ⟨.integer value, .literalSubscript selected⟩
@@ -230,6 +288,17 @@ def lowerOperand (scope : Scope) : (source : Expr) → Except Error {value // Op
   | _ => .error .expressionProfile
 termination_by source => sizeOf source
 
+inductive TestTranslation (scope : Scope) : Expr → Operand scope → Prop where
+  | operand {source value} (translated : OperandTranslation scope source value) :
+      TestTranslation scope source value
+  | literalTruth {source value} (checked : nonScalarLiteralTruth? source = some value) :
+      TestTranslation scope source (.booleanResult value)
+
+def lowerTest (scope : Scope) (source : Expr) : Except Error {value // TestTranslation scope source value} :=
+  match checked : nonScalarLiteralTruth? source with
+  | some value => .ok ⟨.booleanResult value, .literalTruth checked⟩
+  | none => (lowerOperand scope source).map fun operand => ⟨operand.val, .operand operand.property⟩
+
 inductive Binding : Stmt → Name → Expr → Prop where
   | direct (name : Name) (value : Expr) : Binding (.assign name value) name value
   | singleton (name : Name) (value : Expr) : Binding (.assignTargets [.name name] value) name value
@@ -258,7 +327,7 @@ inductive Translation (scope : Scope) : List Stmt → List (Action scope) → Pr
       (operand : OperandTranslation scope expression value) (tail : Translation scope rest next) :
       Translation scope (statement :: rest) (.assign name reference value :: next)
   | assertion {expression test rest next}
-      (operand : OperandTranslation scope expression test) (tail : Translation scope rest next) :
+      (operand : TestTranslation scope expression test) (tail : Translation scope rest next) :
       Translation scope (.assert_ expression none :: rest) (.assertion test :: next)
   | globals {names rest next} (tail : Translation scope rest next) :
       Translation scope (.globalDecl names :: rest) next
@@ -276,7 +345,7 @@ def lowerStatements (scope : Scope) : (body : List Stmt) →
     Except Error {actions // Translation scope body actions}
   | [] => .ok ⟨[], .done⟩
   | .assert_ condition none :: body => do
-    let test ← lowerOperand scope condition
+    let test ← lowerTest scope condition
     let tail ← lowerStatements scope body
     return ⟨.assertion test.val :: tail.val, .assertion test.property tail.property⟩
   | .assert_ _ (some _) :: _ => .error .assertionMessage

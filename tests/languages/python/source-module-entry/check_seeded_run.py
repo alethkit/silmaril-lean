@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 from types import FunctionType
+import warnings
 
 
 IMPORTS = (
@@ -237,6 +238,17 @@ UPSTREAM_LITERAL_COMPARISON_CHAINS = (
     ("tests/python/programs/original/k-python/programs/testintegers4.py",
      "afb92835ef43e62344db39336dce513243bb89d31021c839cfd4519772b1ddb2"),
 )
+UPSTREAM_LITERAL_TRUTH = (
+    ("tests/python/programs/original/k-python/programs/testbools3.py",
+     "f1c6cf0c91765eb1244c876fa19649c0ae53c257c12fb16c7ff9f4ac8e5a9dba"),
+    ("tests/python/programs/original/k-python/programs/testbools4.py",
+     "456ec02381e7ba09f3b8a9ebd330d537b39d114cb405608c64a2343f143249d5"),
+)
+UPSTREAM_SCALAR_WARNINGS = {
+    UPSTREAM_LITERAL_TRUTH[0][0]: (
+        ("SyntaxWarning", 2, "assertion is always true, perhaps remove parentheses?"),
+    ),
+}
 UPSTREAM_LITERAL_INDEXING = (
     ("tests/python/programs/original/k-python/programs/testlists2.py",
      "7f4fdac9762c64a4355649bab7aeba840c94512eb11831621d60660ce7aa644e"),
@@ -497,6 +509,24 @@ after = 9
 result = (0 < 2 > 1) == (missing == later)
 after = 9
 """, ["NameError:missing", "int:7", "absent"]),
+    ("literal_truth_selected_types", "legacy_bool_callable_builtin", """result = 0 or True
+after = True and -2 and 9
+___assertIs(result, True)
+assert [False]
+assert not None
+""", ["normal", "bool:True", "int:9"]),
+    ("literal_truth_falsy_selected", "empty", """result = False and 7
+after = 5 or False
+assert not ()
+""", ["normal", "bool:False", "int:5"]),
+    ("literal_truth_failed_assertion", "empty", """result = 7
+assert []
+after = 9
+""", ["AssertionError:empty", "int:7", "absent"]),
+    ("literal_truth_failure_order", "legacy_preamble", """result = 7
+result = (0 or -2) == (missing == later)
+after = 9
+""", ["NameError:missing", "int:7", "absent"]),
     ("bool_int_false", "legacy_bool_int_builtin", """result = int(False)
 ___assertEqual(result, 0)
 ___assertIsNot(result, False)
@@ -597,6 +627,10 @@ after = 9
 )
 
 NESTED_CALL_NAMES = {
+    "literal_truth_selected_types": ["___assertIs"],
+    "literal_truth_falsy_selected": [],
+    "literal_truth_failed_assertion": [],
+    "literal_truth_failure_order": [],
     "literal_chain_typed_bindings": ["___assertIs", "___assertIs"],
     "literal_chain_failed_assertion": [],
     "literal_chain_failure_order": [],
@@ -634,6 +668,10 @@ NESTED_CALL_NAMES = {
 }
 
 EXACT_FIXTURE_BINDINGS = {
+    "literal_truth_selected_types": '[("after", .int 9), ("result", .bool true)]',
+    "literal_truth_falsy_selected": '[("after", .int 5), ("result", .bool false)]',
+    "literal_truth_failed_assertion": '[("result", .int 7)]',
+    "literal_truth_failure_order": '[("result", .int 7)]',
     "literal_chain_typed_bindings": '[("after", .bool false), ("result", .bool true)]',
     "literal_chain_failed_assertion": '[("result", .int 7)]',
     "literal_chain_failure_order": '[("result", .int 7)]',
@@ -698,7 +736,7 @@ def exception_observation(error):
     return assertion(error)
 
 
-def cpython(source, profile, *, expected_globals=None, expected_functions=()):
+def cpython(source, profile, *, expected_globals=None, expected_functions=(), expected_warnings=()):
     legacy = profile.startswith("legacy_")
     profile = profile.removeprefix("legacy_")
     bool_int = profile.startswith("bool_int_")
@@ -753,8 +791,13 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
     initial = namespace.copy()
     completion = "normal"
     with redirect_stdout(StringIO()) as stdout, redirect_stderr(StringIO()) as stderr:
+        with warnings.catch_warnings(record=True) as emitted:
+            warnings.simplefilter("always")
+            unit = compile(source, "<seeded fixture>", "exec", dont_inherit=True, optimize=0)
+        actual_warnings = tuple((w.category.__name__, w.lineno, str(w.message)) for w in emitted)
+        assert actual_warnings == expected_warnings, actual_warnings
         try:
-            exec(compile(source, "<seeded fixture>", "exec", dont_inherit=True, optimize=0), namespace)
+            exec(unit, namespace)
         except (NameError, TypeError, AssertionError) as error:
             completion = exception_observation(error)
     assert not stdout.getvalue() and not stderr.getvalue()
@@ -891,6 +934,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_INDEXING),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_TUPLE_COMPARISONS),
         *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_COMPARISON_CHAINS),
+        *((path, sha256, {}) for path, sha256 in UPSTREAM_LITERAL_TRUTH),
     )
     for path, sha256, bindings in cases:
         source = pinned_source(checkout, path, sha256)
@@ -900,9 +944,11 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         guards = [f'#guard ordinaryOutcome pythonSource == some ("normal", {x})']
         if path == UPSTREAM_ASSERT_NOT_CASE:
             guards.append("#guard equalityBeforeAssertNot pythonSource")
+        syntax_warnings = UPSTREAM_SCALAR_WARNINGS.get(path, ())
         for profile in ("empty", "legacy_builtin", "legacy_preamble", *OPT_IN_PROFILES):
             expected = ["normal", "absent", "absent"]
-            assert cpython(source, profile, expected_globals=bindings) == expected, (path, profile)
+            assert cpython(source, profile, expected_globals=bindings,
+                           expected_warnings=syntax_warnings) == expected, (path, profile)
             name = json.dumps(profile)
             guards.extend((
                 guard_observation(profile, expected),
@@ -910,7 +956,10 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
                 f"#guard callNames pythonSource {name} == some []",
             ))
         shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
-        rows.append({"path": path, "sha256": sha256, "all_profiles": "normal", "user_bindings": bindings})
+        row = {"path": path, "sha256": sha256, "all_profiles": "normal", "user_bindings": bindings}
+        if syntax_warnings:
+            row["cpython_compile_warnings"] = syntax_warnings
+        rows.append(row)
     return rows
 
 

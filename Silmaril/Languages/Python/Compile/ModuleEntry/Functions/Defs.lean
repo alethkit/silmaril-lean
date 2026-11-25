@@ -213,7 +213,7 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (first : ModuleEntry.Translation tree.scope [statement] actions) (remaining : Translation tree index rest tail) :
       Translation tree index (statement :: rest) (actions.map .scalar ++ tail)
   | assertNot {index condition operand rest tail}
-      (translated : OperandTranslation tree.scope condition operand)
+      (translated : TestTranslation tree.scope condition operand)
       (remaining : Translation tree index rest tail) :
       Translation tree index (.assert_ (.unary .not_ condition) none :: rest) (.assertNot operand :: tail)
   | assertVarNames {index receiver needle rest tail} (reference : GlobalReference tree.scope receiver)
@@ -297,7 +297,7 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     let tail ← lowerPlan tree index rest
     return ⟨.assertVarNames receiver reference needle :: tail.val, .assertVarNames reference tail.property⟩
   | .assert_ (.unary .not_ condition) none :: rest => do
-    let operand ← (lowerOperand tree.scope condition).mapError .scalar
+    let operand ← (lowerTest tree.scope condition).mapError .scalar
     let tail ← lowerPlan tree index rest
     return ⟨.assertNot operand.val :: tail.val, .assertNot operand.property tail.property⟩
   | statement :: rest => do

@@ -54,6 +54,45 @@ theorem evaluateScalar_booleanResult {scope : Source.Scope} (space : Namespace)
       .ok (.bool value) :=
   evaluateScalar_conditionalResult space equalityOperand (.boolean value)
 
+theorem evaluateScalar_scalarResult {scope : Source.Scope} (space : Namespace) (equalityOperand : Bool)
+    (value : Core.Module.Value) :
+    evaluateScalar space equalityOperand (ModuleEntry.Operand.scalarResult (scope := scope) value) =
+      .ok (seededValue (Run.embed value)) := by
+  cases value with
+  | int value => rfl
+  | bool value => exact evaluateScalar_booleanResult space equalityOperand value
+
+theorem effect_scalarResultAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (value : Core.Module.Value) :
+    effect space context (.scalar (.assign name reference (.scalarResult value))) =
+      (⟨.ok (some (name, seededValue (Run.embed value))), []⟩, context.heap) := by
+  simp only [effect, evaluateScalar_scalarResult]
+  rfl
+
+theorem truth_scalar {value : Core.Module.Value} : truth (seededValue (Run.embed value)) = value.truth := by
+  cases value <;> rfl
+
+theorem assertOperand_scalarResult {scope : Source.Scope} (space : Namespace) (value : Core.Module.Value)
+    (expected : Bool) :
+    assertOperand space (ModuleEntry.Operand.scalarResult (scope := scope) value) expected =
+      ⟨if value.truth = expected then .ok none else .error (.raised (.assertionError .empty)), []⟩ := by
+  simp only [assertOperand, evaluateScalar_scalarResult, Except.bind, assertTruthAs, truth_scalar]
+  split <;> rfl
+
+theorem run_scalarResultAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (value : Core.Module.Value)
+    (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.scalar (.assign name reference (.scalarResult value)) :: rest) =
+      runInstructionsIn (space.bindGlobal name (seededValue (Run.embed value))) context rest := by
+  simp [runInstructionsIn, effect_scalarResultAssign]
+
+theorem run_scalarResultAssert {scope : Source.Scope} (space : Namespace) (context : CallContext)
+    (value : Core.Module.Value) (rest : List (Instruction scope)) :
+    runInstructionsIn space context (.scalar (.assertion (.scalarResult value)) :: rest) =
+      if value.truth then runInstructionsIn space context rest
+      else ⟨space, .error (.raised (.assertionError .empty)), [], context.heap⟩ := by
+  by_cases h : value.truth <;> simp [runInstructionsIn, effect, assertOperand_scalarResult, h]
+
 theorem effect_conditionalAssign {scope : Source.Scope} (space : Namespace) (context : CallContext)
     (name : Source.Name) (reference : ModuleEntry.GlobalReference scope name) (selected : ModuleEntry.Operand scope) :
     effect space context (.scalar (.assign name reference selected.conditionalResult)) =
