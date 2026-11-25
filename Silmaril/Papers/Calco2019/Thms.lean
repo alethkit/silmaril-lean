@@ -3,7 +3,7 @@ module
 public import Silmaril.Papers.Calco2019.Defs
 public import Silmaril.Semantics.Calco2019.Thms
 public import Silmaril.Semantics.Calco2019.ResumptionThms
-public import Silmaril.Semantics.Calco2019.ResumptionGuardThms
+public import Silmaril.Semantics.Calco2019.ResumptionConway
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
@@ -157,6 +157,18 @@ theorem theorem25_naturality {Z : C} (f : X ⟶ R.obj (P.sum Y X)) (g : Y ⟶ R.
     M.iterateResumption R (M.naturalityBody R f g) (M.naturalityBody_guarded R f g hf) =
       M.iterateResumption R f hf ≫ R.extend P g :=
   M.iterateResumption_naturality R f g hf
+
+/-- Theorem 25. The resumption monad is guarded Elgot, with the uniquely
+characterized solution on every guarded loop. -/
+theorem theorem25 (f : Kleisli.mk (R.monad P) X ⟶ Kleisli.mk (R.monad P) (P.sum Y X))
+    (hf : (M.resumptionElgotMonad R).guard.guarded
+      (Y := Kleisli.mk (R.monad P) Y) (Z := Kleisli.mk (R.monad P) X) f) :
+    (M.resumptionElgotMonad R).monad = R.monad P ∧
+      R.IsSolution P (M.diamond R f.of ((M.resumptionGuardedness_iff R f).mp hf))
+        ((M.resumptionElgotMonad R).iteration.iterate f hf).of ∧
+      ∀ g, R.IsSolution P (M.diamond R f.of ((M.resumptionGuardedness_iff R f).mp hf)) g →
+        g = ((M.resumptionElgotMonad R).iteration.iterate f hf).of :=
+  ⟨rfl, M.iterateResumption_characterization R f.of ((M.resumptionGuardedness_iff R f).mp hf)⟩
 
 end GuardedResumptions
 end Silmaril.Papers.Calco2019
