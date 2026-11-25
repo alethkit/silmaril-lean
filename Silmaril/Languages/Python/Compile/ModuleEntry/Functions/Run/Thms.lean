@@ -71,4 +71,31 @@ theorem runPrefix_append {scope : Source.Scope} (table : Core.Closure.Executor.C
     runPrefix table (first + second) initial = (log ++ tail, residual) :=
   Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.runPrefix_append table first second initial
 
+/-- The saved literal is part of the linked function and consumes no code key. -/
+theorem link_keywordDefault {layout : Core.Closure.Layout} (key : Nat) (tree : Source.ScopeTree)
+    (code : Compile.Closure.Body.Code layout) (slot : Fin layout.locals) (value : Int) :
+    Compile.Closure.Link.linkBody key tree (initializeKeywordDefault code (some (slot, value))) =
+      let linked := Compile.Closure.Link.linkBody key tree code
+      ⟨.assign (.local slot) (.integer value) linked.code, linked.children⟩ := rfl
+
+/-- Omission passes the zero-positional binder. An explicit positional value
+fails arity checking before the default store. -/
+theorem keywordDefault_bind {layout : Core.Closure.Layout}
+    (before : Core.Closure.Heap × Core.Closure.Frame layout)
+    (value : Core.Closure.Value) (rest : List Core.Closure.Value) :
+    Core.Closure.Call.bindPositional ⟨[], .nil⟩ [] before = .ok before ∧
+      Core.Closure.Call.bindPositional ⟨[], .nil⟩ (value :: rest) before =
+        .error (.defined (.positionalArity 0 (rest.length + 1))) := ⟨rfl, rfl⟩
+
+/-- Installing the saved literal changes only its frame local. -/
+theorem advance_keywordDefault {layout : Core.Closure.Layout} (table : Core.Closure.Executor.CodeTable)
+    (globals : Core.Closure.Executor.GlobalLookup) (heap : Core.Closure.Heap)
+    (frame : Core.Closure.Frame layout) (slot : Fin layout.locals) (value : Int)
+    (body : Core.Closure.Executor.Body layout) (stack : Core.Closure.Executor.Stack) :
+    Core.Closure.Executor.advanceIn table globals
+        (.running heap frame (.store (.local slot) (.literal (.int value)) body) stack) =
+      some (none, .running heap
+        { frame with locals := fun query => if query = slot then some (.int value) else frame.locals query }
+        body stack) := rfl
+
 end Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run

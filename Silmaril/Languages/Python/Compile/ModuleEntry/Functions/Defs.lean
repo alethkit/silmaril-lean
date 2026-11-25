@@ -162,6 +162,25 @@ def adjacentKeywordDiscard? (name : Name) :
     else none
   | _, _ => none
 
+/-- The initial default profile has one literal keyword-only default and
+one message-free equality assertion using that parameter. -/
+inductive LiteralKeywordDefault (parameter : Name) (value : Int) :
+    List Source.Parameter → List Source.Stmt → Prop where
+  | assertion (expected : Int) :
+      LiteralKeywordDefault parameter value [⟨parameter, some (.integer value), .keywordOnly, none⟩]
+        [.assert_ (.comparison (.name parameter) [(.eq, .integer expected)]) none]
+
+def literalKeywordDefault? : (declaration : List Source.Parameter) → (body : List Source.Stmt) →
+    Option {binding : Name × Int // LiteralKeywordDefault binding.1 binding.2 declaration body}
+  | [⟨parameter, some (.integer value), .keywordOnly, none⟩],
+      [.assert_ (.comparison (.name name) [(.eq, .integer expected)]) none] =>
+    if same : name = parameter then
+      some ⟨(parameter, value), by
+        subst name
+        exact .assertion expected⟩
+    else none
+  | _, _ => none
+
 /-- The ordinary definition checks used with or without an adjacent call. -/
 structure DefinitionTranslation (tree : ScopeTree) (index : Nat) (declaration : List Source.Parameter)
     (body : List Source.Stmt) (child : ScopeTree) (parameters : Core.Closure.Parameters (frameLayout child.scope))
@@ -181,6 +200,7 @@ inductive Action (scope : Scope) where
   | assertVarNames (receiver : Name) (reference : GlobalReference scope receiver) (needle : List UInt32)
   | define (name : Name) (reference : GlobalReference scope name) (child : ScopeTree)
       (parameters : Core.Closure.Parameters (frameLayout child.scope)) (code : Code (frameLayout child.scope))
+      (keywordDefault : Option (Fin (frameLayout child.scope).locals × Int) := none)
   | call (destination : Destination scope) (name : Name) (reference : GlobalReference scope name)
       (arguments : List (Operand scope))
   | adjacentKeywordDiscard (name : Name) (reference : GlobalReference scope name) (value : Int)
@@ -215,6 +235,16 @@ inductive Translation (tree : ScopeTree) : Nat → List Source.Stmt → List (Ac
       (remaining : Translation tree (index + 1) rest tail) :
       Translation tree index (.functionDef name declaration body [] none :: rest)
         (.define name reference child parameters code :: tail)
+  | defineLiteralKeywordDefault {index name declaration body rest child reference parameter slot value code tail}
+      (located : tree.children[index]? = some child)
+      (path : child.scope.context.path = tree.scope.context.path ++ [index])
+      (kind : child.scope.context.kind = .function)
+      (shape : LiteralKeywordDefault parameter value declaration body)
+      (binding : Compile.Closure.SlotTranslation child.scope parameter (.local slot))
+      (functionBody : Compile.Closure.Body.Translation child 0 body code)
+      (remaining : Translation tree (index + 1) rest tail) :
+      Translation tree index (.functionDef name declaration body [] none :: rest)
+        (.define name reference child ⟨[], .nil⟩ code (some (slot, value)) :: tail)
   | defineThenKeywordDiscard {index name declaration body statement rest child reference parameters code value tail}
       (definition : DefinitionTranslation tree index declaration body child parameters code)
       (call : AdjacentKeywordDiscard name declaration statement value)
@@ -234,6 +264,16 @@ def lowerPlan (tree : ScopeTree) (index : Nat) : (source : List Source.Stmt) →
     | some child =>
       if scopeMatches : child.scope.context.path = path ∧ child.scope.context.kind = .function then
         let some reference := globalReference? tree.scope name | throw (.unresolvedGlobal name)
+        if let some checked := literalKeywordDefault? declaration body then
+          let destination ← (Compile.Closure.Body.lowerSlot child.scope checked.val.1).mapError .functionBody
+          match bound : destination.val with
+          | .local slot =>
+            let code ← (Compile.Closure.Body.lowerBodyWith child true 0 body).mapError .functionBody
+            let tail ← lowerPlan tree (index + 1) rest
+            return ⟨.define name reference child ⟨[], .nil⟩ code.val (some (slot, checked.val.2)) :: tail.val,
+              .defineLiteralKeywordDefault located scopeMatches.1 scopeMatches.2 checked.property
+                (bound ▸ destination.property) code.property tail.property⟩
+          | _ => throw (.functionBody .parameterProfile)
         let parameters ← (Compile.Closure.Body.checkParameters child.scope declaration).mapError .functionBody
         let code ← (Compile.Closure.Body.lowerBodyWith child true 0 body).mapError .functionBody
         let definition : DefinitionTranslation tree index declaration body child parameters.val code.val :=
