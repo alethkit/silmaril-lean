@@ -28,7 +28,7 @@ private theorem distributes_injective :
     revert tag
     exact Fin.cases rfl (Fin.cases rfl (fun i => i.elim0))
 
-private theorem step_mem
+theorem step_mem
     (body : Tuple (Values value) carried → StateT σ _root_.Part (Tuple (Values value) (Theta.BodyResults carried)))
     (input output : Configuration value σ carried) (again : Bool) :
     (if again then .inr output else .inl output) ∈ Silmaril.Elgot.StateT.body (stepWith body) input ↔

@@ -19,6 +19,16 @@ variable {V : Type u} {P E : Dialect.{u, v} V PUnit.{u + 1}} {σ : Type (max u w
 variable {args outs : Ports (Ty V)} {past sigs : List (Ports (Ty V))}
 variable (m : Structured.Model P E (StateM σ))
 
+/-- The Elgot feedback step routes the body tag and preserves the state
+returned by that body. This law also applies to partial body computations. -/
+theorem mem_routedStep {value : V → Type (max u w)} {carried : Ports (Ty V)}
+    (body : Tuple (Values value) carried →
+      StateT σ _root_.Part (Tuple (Values value) (Theta.BodyResults carried)))
+    (input output : Configuration value σ carried) (again : Bool) :
+    (if again then .inr output else .inl output) ∈ Silmaril.Elgot.StateT.body (stepWith body) input ↔
+      tagged again output ∈ (body input.1).run input.2 :=
+  Proofs.step_mem body input output again
+
 /-- At any prefix, a finite observation includes the entire output tuple and final state. -/
 theorem mem_denoteOpen (t : Term (Instruction P E) args past sigs outs)
     (input : Tuple (Values m.value) args) (locals : Locals (Values m.value) past)
