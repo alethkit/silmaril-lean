@@ -192,10 +192,10 @@ theorem result_stuck {H : Type} {s : Store H} {f : Frame} {r : Result} {b : Conf
       | inl ne => exact ne removed
       | inr ne => exact ne cut
 
-theorem label_result {types : List Wasm.Lime1.FuncType} {arity : Nat} {r : Result} {out : List Admin}
-    (pop : PureStep types [.label arity [] (resultCode values .trap r)] out) :
+theorem label_result {types : List Wasm.Lime1.FuncType} {arity : Nat} {cont : Wasm.Lime1.Expr} {r : Result} {out : List Admin}
+    (pop : PureStep types [.label arity cont (resultCode values .trap r)] out) :
     out = resultCode values .trap r := by
-  generalize eq : ([.label arity [] (resultCode values .trap r)] : List Admin) = before at pop
+  generalize eq : ([.label arity cont (resultCode values .trap r)] : List Admin) = before at pop
   cases pop with
   | labelDone n cont vs =>
     have body := (AdminInstr.label.inj (List.cons.inj eq).1).2.2

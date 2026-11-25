@@ -36,6 +36,25 @@ theorem lime_label_br_iff {H : Type} {host : HostSemantics H} {s : Store H} {f :
       (0 < depth.toNat ∧ dst = ⟨s, f, values stack ++ [.source (.br (lowerLabel depth))]⟩) :=
   Proofs.Lime1.label_br_iff
 
+/-- A branch to this label runs its continuation after the payload. A branch
+crossing the label only lowers its depth. -/
+theorem core_label_br_cont_iff {H : Type} {P : Numerics.Profile} {s : Core.Store H} {f : Core.Frame}
+    {n : Nat} {cont : List Instr} {depth : LabelIdx} {stack : List Core.Val} {rest : List Core.Admin} {dst : Core.Config H} :
+    Core.Step P SingleThreaded.Det.noHost ⟨s, f, [.label n cont (Core.vals stack ++ .plain (.br depth) :: rest)]⟩ dst ↔
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
+        dst = ⟨s, f, Core.vals payload ++ Core.expression cont⟩) ∨
+      (0 < depth.toNat ∧ dst = ⟨s, f, Core.vals stack ++ [.plain (.br (Core.labelPred depth))]⟩) :=
+  Proofs.core_label_br_cont_iff
+
+open Wasm.Lime1.Execution in
+theorem lime_label_br_cont_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {n : Nat} {cont : Wasm.Lime1.Expr} {depth : LabelIdx} {stack : List Value} {rest : List Admin} {dst : Config H} :
+    Step host ⟨s, f, [.label n cont (values stack ++ .source (.br depth) :: rest)]⟩ dst ↔
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
+        dst = ⟨s, f, values payload ++ expression cont⟩) ∨
+      (0 < depth.toNat ∧ dst = ⟨s, f, values stack ++ [.source (.br (lowerLabel depth))]⟩) :=
+  Proofs.Lime1.label_br_cont_iff
+
 section v1
 variable {H : Type} {host : Wasm.V1.Execution.HostSemantics H}
   {s : Wasm.V1.Execution.Store H} {f : Frame} {ty : Option NumType}

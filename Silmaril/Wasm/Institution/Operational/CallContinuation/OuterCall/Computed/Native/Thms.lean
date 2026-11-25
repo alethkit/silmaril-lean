@@ -75,6 +75,13 @@ theorem lime_block_iff {H : Type} {s : Store H} {f : Frame} {result : Option Num
       dst = ⟨s, f, values stack ++ .label result.toList.length [] (expression body) :: rest⟩ :=
   Proofs.Lime1.block_iff
 
+open Wasm.Lime1.Execution in
+theorem lime_loop_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+    {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.loop (Blocks.limeType result) body) :: rest⟩ dst ↔
+      dst = ⟨s, f, values stack ++ .label 0 [.loop (Blocks.limeType result) body] (expression body) :: rest⟩ :=
+  Proofs.Lime1.loop_iff
+
 /-- Conditional selection consumes the last i32 operand and preserves the
 surrounding code. Entering the selected block is a separate native step. -/
 theorem core_if_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Core.Frame}

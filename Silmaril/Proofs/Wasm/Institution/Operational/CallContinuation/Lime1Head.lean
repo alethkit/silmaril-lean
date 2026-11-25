@@ -13,7 +13,7 @@ open Execution.Runtime (Frame Value AdminInstr FuncAddr)
 inductive Focus : Admin → Prop where
   | invoke (a : FuncAddr) : Focus (.invoke a)
   | frame (n : Nat) (f : Frame) (body : List Admin) : Focus (.frame n f body)
-  | label (n : Nat) (body : List Admin) : Focus (.label n [] body)
+  | label (n : Nat) (cont : Wasm.Lime1.Expr) (body : List Admin) : Focus (.label n cont body)
   | nop : Focus (.source .nop)
   | trap : Focus .trap
 

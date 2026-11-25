@@ -152,6 +152,24 @@ zero-or-one-result guard still applies. Fixtures cover direct function
 branches, conditional and table branches crossing a block, resumption of
 a caller, and rejection of a depth that would reach the caller's labels.
 
+[Native scalar loop inversion](../../Silmaril/Wasm/Institution/Operational/Loops/Native/Thms.lean)
+covers unindexed zero-parameter entry, depth-zero restart, and value/trap
+exit in Core, Lime1, and V1. Entry saves the outside operands and code.
+The label's branch arity is zero even with a scalar fallthrough result.
+A depth-zero branch drops the iteration's operands and pending instructions,
+then reinstates the original loop instruction for a separate entry step.
+Value fallthrough and trap exit skip that restart continuation. See the
+[Wasm 1.0 reduction rules](../../specs/spectec/src/specification/wasm-1.0/8-reduction.spectec#L67)
+and [Wasm 3.0 loop entry](../../specs/spectec/src/specification/wasm-3.0/4.3-execution.instructions.spectec#L80).
+[Native fixtures](../../tests/wasm/scalar-loop-native/Regression.lean)
+check that exactly two configurations are reachable by finite prefixes of a typed self-loop
+and a scalar loop that restarts once, then resumes its saved continuation.
+The ranked SOS still needs a label invariant with separate branch input,
+fallthrough result, and function return types. A restart must restore the
+original body with the current activation's locals and have its own step
+before re-entry. Call rank can continue to bound call nesting, while
+finite trace induction handles loop iterations.
+
 The graph fragment excludes block parameters and multiple block results,
 loops and loop back-edges, recursion, indirect and host calls, store mutation,
 and whole-module validation.

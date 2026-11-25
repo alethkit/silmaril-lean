@@ -456,19 +456,19 @@ theorem frame_prefix_inv {H : Type} {s : Store H} {f inside : Frame} {n : Nat}
     subst kept
     exact ⟨_, .pure s f ordinary, rfl⟩
 
-theorem label_prefix_cases {H : Type} {s : Store H} {f : Frame} {n : Nat}
+theorem label_prefix_cases {H : Type} {s : Store H} {f : Frame} {n : Nat} {cont : Wasm.Lime1.Expr}
     {saved : List Value} {code : List Admin} {dst : Config H}
-    (step : Step limeNoHost ⟨s, f, values saved ++ [.label n [] code]⟩ dst) :
+    (step : Step limeNoHost ⟨s, f, values saved ++ [.label n cont code]⟩ dst) :
     (∃ mid, Step limeNoHost ⟨s, f, code⟩ mid ∧
-      dst = ⟨mid.store, mid.frame, values saved ++ [.label n [] mid.code]⟩) ∨
-    ∃ out, PureStep f.module.types [.label n [] code] out ∧ dst = ⟨s, f, values saved ++ out⟩ := by
-  obtain ⟨kept, used, mid, stackEq, head, rfl⟩ := split step (.label n [] code) rfl
+      dst = ⟨mid.store, mid.frame, values saved ++ [.label n cont mid.code]⟩) ∨
+    ∃ out, PureStep f.module.types [.label n cont code] out ∧ dst = ⟨s, f, values saved ++ out⟩ := by
+  obtain ⟨kept, used, mid, stackEq, head, rfl⟩ := split step (.label n cont code) rfl
   cases head with
   | label inner =>
     rw [List.append_nil] at stackEq
     exact .inl ⟨_, inner, by rw [stackEq]⟩
   | pure ordinary =>
-    have zero : used = [] := by cases pure_focus ordinary (.label n [] code) <;> rfl
+    have zero : used = [] := by cases pure_focus ordinary (.label n cont code) <;> rfl
     subst used
     rw [List.append_nil] at stackEq
     exact .inr ⟨_, ordinary, by rw [stackEq]⟩

@@ -18,22 +18,22 @@ open Execution.Runtime (Value)
 open Wasm.Numerics (Profile)
 open Wasm.SingleThreaded.Det (noHost)
 
-theorem label_iff {H : Type} {P : Profile} {s : Store H} {f : Frame} {n : Nat}
+theorem label_iff {H : Type} {P : Profile} {s : Store H} {f : Frame} {n : Nat} {cont : List Instr}
     {saved : List Val} {body rest : List Admin} {dst : Config H} :
-    Step P noHost ⟨s, f, vals saved ++ .label n [] body :: rest⟩ dst ↔
+    Step P noHost ⟨s, f, vals saved ++ .label n cont body :: rest⟩ dst ↔
       (∃ mid, Step P noHost ⟨s, f, body⟩ mid ∧
-        dst = ⟨mid.store, mid.frame, vals saved ++ .label n [] mid.code :: rest⟩) ∨
-      ∃ out, LabelExit n [] body out ∧ dst = ⟨s, f, vals saved ++ out ++ rest⟩ := by
+        dst = ⟨mid.store, mid.frame, vals saved ++ .label n cont mid.code :: rest⟩) ∨
+      ∃ out, LabelExit n cont body out ∧ dst = ⟨s, f, vals saved ++ out ++ rest⟩ := by
   constructor
   · intro step
-    obtain ⟨mid, move, rfl⟩ := Step.ctx_in_seq (X := .label n [] body) (by simp [Admin.IsCtx]) step
+    obtain ⟨mid, move, rfl⟩ := Step.ctx_in_seq (X := .label n cont body) (by simp [Admin.IsCtx]) step
     rcases move.label_inv with ⟨_, _, _, h, rfl⟩ | ⟨out, pop, rfl⟩
     · exact .inl ⟨_, h, by simp only [List.append_assoc, List.singleton_append]⟩
     · exact .inr ⟨out, pop, rfl⟩
   · rintro (⟨⟨_, _, _⟩, move, rfl⟩ | ⟨out, pop, rfl⟩)
     · simpa only [List.append_assoc, List.singleton_append] using
-        Sim.Step.vals_left (Sim.Step.append_right (.ctxtLabel (n := n) (cont := []) move) rest) saved
-    · have move : Step P noHost ⟨s, f, [.label n [] body]⟩ ⟨s, f, out⟩ := by
+        Sim.Step.vals_left (Sim.Step.append_right (.ctxtLabel (n := n) (cont := cont) move) rest) saved
+    · have move : Step P noHost ⟨s, f, [.label n cont body]⟩ ⟨s, f, out⟩ := by
         cases pop with
         | vals => exact .labelVals
         | brZero idx count => exact .brLabelZero idx count

@@ -63,15 +63,15 @@ private theorem br_stuck {H : Type} {host : HostSemantics H} {a b : Config H}
     simp [first, asValue?] at eq
 
 private inductive LabelStep {H : Type} (host : HostSemantics H) (s : Store H) (f : Frame)
-    (n : Nat) (body : List Admin) : Config H → Prop where
-  | pure {out} (h : PureStep f.module.types [.label n [] body] out) :
-      LabelStep host s f n body ⟨s, f, out⟩
+    (n : Nat) (cont : Wasm.Lime1.Expr) (body : List Admin) : Config H → Prop where
+  | pure {out} (h : PureStep f.module.types [.label n cont body] out) :
+      LabelStep host s f n cont body ⟨s, f, out⟩
   | inside {target} (h : Step host ⟨s, f, body⟩ target) :
-      LabelStep host s f n body ⟨target.store, target.frame, [.label n [] target.code]⟩
+      LabelStep host s f n cont body ⟨target.store, target.frame, [.label n cont target.code]⟩
 
 private theorem label_inv {H : Type} {host : HostSemantics H} {a b : Config H}
-    (step : Step host a b) {n : Nat} {body : List Admin} (eq : a.code = [.label n [] body]) :
-    LabelStep host a.store a.frame n body b := by
+    (step : Step host a b) {n : Nat} {cont : Wasm.Lime1.Expr} {body : List Admin} (eq : a.code = [.label n cont body]) :
+    LabelStep host a.store a.frame n cont body b := by
   induction step with
   | pure s f h => exact .pure (eq ▸ h)
   | label h j cont _ =>
@@ -116,12 +116,12 @@ private theorem nested_cannot_exit {types : List Wasm.Lime1.FuncType} {n m : Nat
     | (try simp only [List.append_assoc, List.singleton_append, first_prefix, first_value] at outerHead)
       simp [first, asValue?] at outerHead
 
-private theorem label_br_readback {types : List Wasm.Lime1.FuncType} {n : Nat}
+private theorem label_br_readback {types : List Wasm.Lime1.FuncType} {n : Nat} {cont : Wasm.Lime1.Expr}
     {l : LabelIdx} {vs : List Value} {rest out : List Admin}
-    (h : PureStep types [.label n [] (values vs ++ .source (.br l) :: rest)] out) :
-    (∃ below payload, vs = below ++ payload ∧ payload.length = n ∧ l.toNat = 0 ∧ out = values payload) ∨
+    (h : PureStep types [.label n cont (values vs ++ .source (.br l) :: rest)] out) :
+    (∃ below payload, vs = below ++ payload ∧ payload.length = n ∧ l.toNat = 0 ∧ out = values payload ++ expression cont) ∨
       (l.toNat ≠ 0 ∧ out = values vs ++ [.source (.br (lowerLabel l))]) := by
-  generalize eq : ([.label n [] (values vs ++ .source (.br l) :: rest)] : List Admin) = before at h
+  generalize eq : ([.label n cont (values vs ++ .source (.br l) :: rest)] : List Admin) = before at h
   have outerHead := congrArg first eq
   cases h <;> try simp only [List.cons.injEq, and_true, AdminInstr.label.injEq] at eq
   case labelBranch n' cont extra payload tail len =>
@@ -131,7 +131,7 @@ private theorem label_br_readback {types : List Wasm.Lime1.FuncType} {n : Nat}
     rw [split_values vs rest rfl, split_values (extra ++ payload) tail rfl] at decoded
     obtain ⟨stackEq, branchEq⟩ := Prod.mk.inj decoded
     cases (List.cons.inj branchEq).1
-    exact .inl ⟨extra, payload, stackEq, len, rfl, by simp [expression]⟩
+    exact .inl ⟨extra, payload, stackEq, len, rfl, rfl⟩
   case labelBranchOuter n' cont stack tail l' pos =>
     obtain ⟨rfl, rfl, code⟩ := eq
     rw [List.append_assoc, List.singleton_append] at code
@@ -148,11 +148,11 @@ private theorem label_br_readback {types : List Wasm.Lime1.FuncType} {n : Nat}
     | (try simp only [List.append_assoc, List.singleton_append, first_prefix, first_value] at outerHead)
       simp [first, asValue?] at outerHead
 
-theorem label_br_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
-    {n : Nat} {depth : LabelIdx} {stack : List Value} {rest : List Admin} {dst : Config H} :
-    Step host ⟨s, f, [.label n [] (values stack ++ .source (.br depth) :: rest)]⟩ dst ↔
+theorem label_br_cont_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {n : Nat} {cont : Wasm.Lime1.Expr} {depth : LabelIdx} {stack : List Value} {rest : List Admin} {dst : Config H} :
+    Step host ⟨s, f, [.label n cont (values stack ++ .source (.br depth) :: rest)]⟩ dst ↔
       (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
-        dst = ⟨s, f, values payload⟩) ∨
+        dst = ⟨s, f, values payload ++ expression cont⟩) ∨
       (0 < depth.toNat ∧ dst = ⟨s, f, values stack ++ [.source (.br (lowerLabel depth))]⟩) := by
   constructor
   · intro step
@@ -164,10 +164,19 @@ theorem label_br_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Fram
       · exact .inr ⟨Nat.pos_of_ne_zero outer, rfl⟩
   · rintro (⟨extra, payload, rfl, size, here, rfl⟩ | ⟨outer, rfl⟩)
     · obtain rfl : depth = ⟨0⟩ := Idx.toNat_injective here
-      simpa only [values_append, List.append_assoc, List.singleton_append, expression, List.map_nil, List.append_nil] using
-        (Step.pure (host := host) s f (.labelBranch n [] extra payload rest size))
+      simpa only [values_append, List.append_assoc, List.singleton_append] using
+        (Step.pure (host := host) s f (.labelBranch n cont extra payload rest size))
     · simpa only [List.append_assoc, List.singleton_append] using
-        (Step.pure (host := host) s f (.labelBranchOuter n [] stack rest depth (Nat.ne_of_gt outer)))
+        (Step.pure (host := host) s f (.labelBranchOuter n cont stack rest depth (Nat.ne_of_gt outer)))
+
+theorem label_br_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {n : Nat} {depth : LabelIdx} {stack : List Value} {rest : List Admin} {dst : Config H} :
+    Step host ⟨s, f, [.label n [] (values stack ++ .source (.br depth) :: rest)]⟩ dst ↔
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
+        dst = ⟨s, f, values payload⟩) ∨
+      (0 < depth.toNat ∧ dst = ⟨s, f, values stack ++ [.source (.br (lowerLabel depth))]⟩) := by
+  simpa only [expression, List.map_nil, List.append_nil] using
+    (label_br_cont_iff (cont := []) (s := s) (f := f) (dst := dst))
 
 theorem sound {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
     {ty : Option NumType} {a b : State} (edge : Edge ty a b) :
@@ -194,13 +203,13 @@ theorem readback {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
     cases label_inv step rfl with
     | inside h => exact (br_stuck h (by rw [first_prefix]; rfl)).elim
     | pure h =>
-      rcases label_br_readback h with ⟨extra, keep, items, len, _, rfl⟩ | ⟨bad, _⟩
+      rcases label_br_readback (cont := []) h with ⟨extra, keep, items, len, _, rfl⟩ | ⟨bad, _⟩
       · have typed : payload.map Value.type = ty.toList := guard
         have plen : payload.length = ty.toList.length := by simpa using congrArg List.length typed
         have sizes := congrArg List.length items
         simp only [List.length_append, len, plen] at sizes
         have eq := List.append_inj_right items (Nat.add_right_cancel sizes)
-        exact ⟨.done payload, fact (.finish below payload typed), by rw [← eq]; rfl⟩
+        exact ⟨.done payload, fact (.finish below payload typed), by rw [← eq]; simp [limeConfig, limeCode, expression]⟩
       · exact (bad rfl).elim
   | nested n below payload =>
     cases label_inv step rfl with
@@ -209,7 +218,7 @@ theorem readback {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
       cases label_inv outerStep rfl with
       | inside branchStep => exact (br_stuck branchStep (by rw [first_prefix]; rfl)).elim
       | pure innerExit =>
-        rcases label_br_readback innerExit with ⟨_, _, _, _, bad, _⟩ | ⟨_, rfl⟩
+        rcases label_br_readback (cont := []) innerExit with ⟨_, _, _, _, bad, _⟩ | ⟨_, rfl⟩
         · contradiction
         · exact ⟨.outer below payload, fact (.cross n below payload), rfl⟩
 

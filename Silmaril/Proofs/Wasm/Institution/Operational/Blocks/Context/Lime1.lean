@@ -13,16 +13,16 @@ namespace Silmaril.Wasm.Institution.Operational.Blocks.Context.Proofs.Lime1
 open Wasm.Lime1.Execution
 open Execution.Runtime (Frame Value)
 
-theorem label_iff {H : Type} {s : Store H} {f : Frame} {n : Nat}
+theorem label_iff {H : Type} {s : Store H} {f : Frame} {n : Nat} {cont : Wasm.Lime1.Expr}
     {saved : List Value} {body rest : List Admin} {dst : Config H} :
-    Step CallFrame.limeNoHost ⟨s, f, values saved ++ .label n [] body :: rest⟩ dst ↔
+    Step CallFrame.limeNoHost ⟨s, f, values saved ++ .label n cont body :: rest⟩ dst ↔
       (∃ mid, Step CallFrame.limeNoHost ⟨s, f, body⟩ mid ∧
-        dst = ⟨mid.store, mid.frame, values saved ++ .label n [] mid.code :: rest⟩) ∨
-      ∃ out, PureStep f.module.types [.label n [] body] out ∧ dst = ⟨s, f, values saved ++ out ++ rest⟩ := by
+        dst = ⟨mid.store, mid.frame, values saved ++ .label n cont mid.code :: rest⟩) ∨
+      ∃ out, PureStep f.module.types [.label n cont body] out ∧ dst = ⟨s, f, values saved ++ out ++ rest⟩ := by
   constructor
   · exact CallContinuation.lime_label_context_cases
   · rintro (⟨⟨_, _, _⟩, move, rfl⟩ | ⟨out, pop, rfl⟩)
-    · simpa only [List.append_assoc, List.singleton_append] using Step.context (.label move n []) saved rest
+    · simpa only [List.append_assoc, List.singleton_append] using Step.context (.label move n cont) saved rest
     · simpa only [List.append_assoc, List.singleton_append] using
         Step.context (Step.pure (host := CallFrame.limeNoHost) s f pop) saved rest
 
