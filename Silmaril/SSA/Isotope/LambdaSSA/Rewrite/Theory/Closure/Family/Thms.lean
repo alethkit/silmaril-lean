@@ -18,6 +18,12 @@ theorem LSubst.ValueFamily.id (Γ : VCtx τ) (L : LCtx τ) :
     LSubst.ValueFamily (Φ := Φ) Γ L L labelId :=
   fun _ _ h => .br h (.var rfl)
 
+/-- Weaken the captures of a continuation family while keeping its payload binder. -/
+theorem LSubst.ValueFamily.liftVars {Γ : VCtx τ} {L K : LCtx τ} {σ : Nat → Region Φ}
+    (hσ : LSubst.ValueFamily Γ L K σ) (A : τ) :
+    LSubst.ValueFamily (A :: Γ) L K (liftLSubstVars σ) :=
+  Proofs.SSA.Isotope.LambdaSSA.Rewrite.valueFamily_liftVars hσ A
+
 theorem LSubst.ValueFamily.comp {Γ : VCtx τ} {L K P : LCtx τ} {σ υ : Nat → Region Φ}
     (hσ : LSubst.ValueFamily Γ L K σ) (hυ : LSubst.ValueFamily Γ K P υ) :
     LSubst.ValueFamily Γ L P (compLSubst σ υ) :=
