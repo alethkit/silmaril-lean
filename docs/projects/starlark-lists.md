@@ -64,20 +64,50 @@ cell with the incoming state intact. These are theorems about the resolved
 list model.
 [Operational rules](../../Silmaril/Languages/Starlark/Lists/Operational/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Lists/Thms.lean)
 
+## List iteration and function-body control
+
+`Lists.Iteration.Thms` exposes resolved function suites with the existing list
+statements, sequencing, scalar and list truth tests, single-name `for` over
+lists, `break`, `continue` and `return`. Callers lower a bare return to the
+scalar value `None`. The suite index counts lexical loop depth and rules out
+unscoped `break` and `continue`. There is no function call or module wrapper in
+this entry point. Loop targets already refer to caller-resolved binding slots.
+
+Each loop evaluates the iterable once, captures the list's finite elements and
+acquires an iterator for its heap address. The body denotation is defined by
+structural recursion on syntax, and iteration recurses structurally on that
+finite list. There is no bound on nesting and no execution fuel parameter.
+Both append and indexed assignment check the address for an active iterator,
+so the check also applies through every alias. The state carries one stack
+entry per active iterator, including repeated entries for the same list.
+
+`runs_iff_denoteSuite` relates the executable suite semantics and independent
+big-step rules in both directions. `iterators_denoteSuite` proves exact
+restoration of the incoming stack on any result, including errors. The loop
+releases its own entry on exhaustion, break, return, or error. Continue keeps
+the entry until the loop exits. Cleanup preserves the state effects already
+performed. `updateCell_iterating` states the guard for a valid edit on an
+active mutable cell. The frozen check retains priority over the active check.
+[Iteration][iteration] · [Suite definitions](../../Silmaril/Languages/Starlark/Lists/Iteration/Defs.lean) · [Rules](../../Silmaril/Languages/Starlark/Lists/Iteration/Operational/Defs.lean) · [Theorems](../../Silmaril/Languages/Starlark/Lists/Iteration/Thms.lean)
+
 ## Reproduction
 
 Run the scalar and collection checks with the pinned Lean toolchain.
 
 ```sh
-lake build --wfail +Silmaril.Languages.Starlark.Checks +Silmaril.Languages.Starlark.Lists.Checks
+lake build --wfail +Silmaril.Languages.Starlark.Checks +Silmaril.Languages.Starlark.Lists.Checks \
+  +Silmaril.Languages.Starlark.Lists.Iteration.Checks
 ```
 
 The kernel-checked collection cases cover fresh and shared addresses, negative
 and ill-typed indexes, error order and state retention, transitive freeze,
 self-cycles and mutual cycles, and mutation attempts through frozen aliases.
+The loop checks include nested iterators on the same address, retained effects,
+and cleanup after normal completion, break, return, and failure.
 The corresponding Go checks use `Program.Init` to observe source evaluation
-before publication, then call the host's `Freeze` on a selected root. The
-reference is starlark-go at commit `4f4267fb140d1e8b91c9bce55cee2f809e8840dd`
+before publication, then call the host's `Freeze` on a selected root. Go loop cases call a function with host-owned mutable lists. A host append after
+an error tests cleanup, which cannot be observed by catching an error inside
+Starlark. The reference is starlark-go at commit `4f4267fb140d1e8b91c9bce55cee2f809e8840dd`
 with the default syntax options. The huge-index case compares failure only
 because the Go implementation reports its 32-bit index conversion limit.
 [Lean fixtures](../../Silmaril/Languages/Starlark/Lists/Checks.lean) · [Go fixtures](../../examples/starlark/list-store/check.go) · [Pinned oracle][go]
@@ -95,12 +125,9 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 
 ## Remaining work
 
-- **Iteration.** Add resolved function-body `for` over a list, loop-target
-  binding, `break` and `continue`. Track active iterators by heap address so
-  both mutation primitives can enforce the restriction through aliases.
-  Prove iterator release on normal completion, loop exit and error. Extend
-  the same discipline to later return and comprehension rules. This is the
-  next list-store increment. [Iteration][iteration]
+- **Other iterables.** Extend loops to tuples, dictionary keys, and the other
+  iterable types. Destructuring loop targets and comprehension iteration
+  remain open. [Iteration][iteration]
 - **Collection operations and keys.** List equality and ordering, truth,
   length, concatenation, slicing, comprehensions, augmented assignment, and
   the other list methods remain open. Add tuple and dict cells at addresses

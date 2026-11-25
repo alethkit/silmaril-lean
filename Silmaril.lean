@@ -52,6 +52,7 @@ public import Silmaril.ProofFormats
 public import Silmaril.Calculi
 public import Silmaril.Languages.Starlark.Thms
 public import Silmaril.Languages.Starlark.Lists.Thms
+public import Silmaril.Languages.Starlark.Lists.Iteration.Thms
 
 -- SSA calculi, λRTL and the SSA-form machine RTL (docs/projects/ssa.md).
 public import Silmaril.Calculi.Dataflow.Thms
