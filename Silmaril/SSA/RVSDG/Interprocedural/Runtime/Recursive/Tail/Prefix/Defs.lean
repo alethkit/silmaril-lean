@@ -80,6 +80,10 @@ def Step (m : Machine.{u, v, w} Op) (source target : Activation m outs) : Prop :
 def Diverges (m : Machine.{u, v, w} Op) (initial : Activation m outs) : Prop :=
   InfiniteTrace (Step m) initial
 
+/-- Every call entry reachable from this activation is handled by the prefix rules. -/
+def SupportedFrom (m : Machine.{u, v, w} Op) (initial : Activation m outs) : Prop :=
+  ∀ next, Relation.ReflTransGen (Step m) initial next → inspect m next ≠ .unsupported
+
 /-- Declarative local execution up to a return or a tail call. These rules use
 the program's typed operands and have no rule for unsupported control. -/
 inductive Executes (m : Machine.{u, v, w} Op) :

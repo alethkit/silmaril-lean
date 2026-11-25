@@ -193,4 +193,17 @@ theorem diverges_no_return {a : Activation m outs} (infinite : Diverges m a) (ou
   rw [exhausted loops depth a infinite] at succeeds
   cases succeeds
 
+theorem diverges_of_supported_no_return {a : Activation m outs}
+    (supported : SupportedFrom m a) (noReturn : ∀ out, ¬ Returns m a.job out) :
+    Diverges m a := by
+  apply InfiniteTrace.coinduct
+    (fun b => Relation.ReflTransGen (Step m) a b ∧ ∀ out, ¬ Returns m b.job out) ?_ ⟨.refl, noReturn⟩
+  rintro b ⟨trace, noReturn⟩
+  cases seen : inspect m b with
+  | unsupported => exact False.elim (supported b trace seen)
+  | returned out => exact False.elim (noReturn out ((returned_iff seen).2 rfl))
+  | enter next =>
+    exact ⟨next, seen, trace.tail seen, fun out returns =>
+      noReturn out ((step_returns_iff seen out).2 returns)⟩
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Tail.Prefix.Proofs

@@ -65,4 +65,10 @@ theorem diverges_no_return (infinite : Diverges m a) (output : Tuple m.Val outs)
     ¬ Returns m a.job output :=
   Proofs.diverges_no_return infinite output
 
+/-- On the supported reachable slice, lack of a finite return gives an actual infinite run.
+The support hypothesis rules out a finite stop at an unsupported instruction. -/
+theorem diverges_of_supported_no_return (supported : SupportedFrom m a)
+    (noReturn : ∀ out, ¬ Returns m a.job out) : Diverges m a :=
+  Proofs.diverges_of_supported_no_return supported noReturn
+
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Tail.Prefix

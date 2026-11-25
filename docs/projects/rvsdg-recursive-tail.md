@@ -53,3 +53,56 @@ lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursiveTail.lean
 make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.Thms +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Thms'
 ```
+
+## Straight-line primitive prefixes
+
+The prefix machine shares the same activation and outcome types. It
+decodes the actual resolved graph and visits the bindings in its numbering.
+Each total primitive reads its typed operands from the entry tuple and
+the current locals, and appends one result tuple. This includes state
+ports and supports independent bindings and repeated reads of a wire.
+A region can return any well-typed result wiring after its primitives.
+A final γ or application must forward its entire result tuple in order.
+Only the selected γ arm is visited, with fresh locals. A call target
+contains the new argument tuple, including any state, and begins its
+own body on the next transition. θ, non-tail applications and non-tail
+γ vertices remain unsupported.
+[Prefix definitions](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Tail/Prefix/Defs.lean)
+
+The separate `Executes` judgment derives local execution to a return
+or a tail call. The inspector agrees in both directions on these
+outcomes. The infinite trace theorem matches every edge with the
+declarative call-entry rule and conversely. `step_invoke` uses exactly
+one unit of the actual evaluator's call bound for the entire local
+prefix. `trace_returns_iff` relates the independent finite return
+judgment at either end of a finite path, including the full returned
+tuple. An unsupported outcome has no enabled transition.
+[Correspondence](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Tail/Prefix/Thms.lean)
+
+The linked renumbering theorem uses the existing typed isomorphism,
+recursive linker, and finite-return transport. It applies when no
+reachable activation is unsupported under either numbering. The proof
+constructs an infinite trace on the other side using actual outgoing
+call steps. It makes no claim about matching the two traces at each
+index. In particular, a valid topological renumbering can move an
+unused primitive after a γ or a call, outside the recognized tail
+shape. Unconditional inspection transport for multiple-vertex bodies
+would need a recognizer and proof that handle such schedules.
+φ member slots stay fixed.
+[Linked productivity](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Isomorphism/Tail/Prefix/Thms.lean)
+
+The linked recursive fixture increments a state wire before γ and
+uses a child-local primitive result as an argument of the recursive
+application. Each call in its infinite mode takes state `n` to
+`n + 1`. Its terminating mode takes two transitions and returns data
+7 and state 3, matching the real evaluator at call depth 3. The
+fixture also swaps the module's independent δ and φ vertices and
+checks linked productivity. A non-tail call demonstrates the
+unsupported outcome and still returns in the full evaluator.
+[Prefix regression](../../tests/ssa/RVSDGRecursivePrimitivePrefix.lean)
+
+```sh
+lake build --wfail +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.Prefix.Thms
+lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGRecursivePrimitivePrefix.lean
+make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.Prefix.Thms +Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.Thms'
+```
