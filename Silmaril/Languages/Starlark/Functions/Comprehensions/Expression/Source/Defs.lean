@@ -28,6 +28,9 @@ inductive Expression.Admitted : Expression → Prop where
       Expression.Admitted (.dictDisplay entries)
   | index {receiver subscript : Expression} :
       receiver.Admitted → subscript.Admitted → Expression.Admitted (.index receiver subscript)
+  | slice {receiver start stop stride : Expression} :
+      (∀ operand ∈ [receiver, start, stop, stride], operand.Admitted) →
+      Expression.Admitted (.slice receiver start stop stride)
   | callPos {callee : Lowering.Expr} {arguments : List Expression} :
       Lowering.Admitted callee → (∀ arg ∈ arguments, arg.Admitted) →
       Expression.Admitted (.callPos callee arguments)

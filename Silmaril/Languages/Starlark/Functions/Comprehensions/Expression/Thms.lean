@@ -155,4 +155,19 @@ theorem index_order (program : Program) (available : List DeclarationId)
           | signal => pure signal) :=
   Proofs.Languages.Starlark.Functions.Comprehensions.index_order program available target receiver subscript state
 
+/-- Evaluate the receiver, start, stop and stride before reading a slice.
+The first failed stage keeps its effects and skips every later stage. -/
+theorem slice_order (program : Program) (available : List DeclarationId)
+    (target : Binding) (receiver start stop stride : Binding → Body) (state : State) :
+    let saved := [0, 1, 2, 3].map fun index => readSaved (argumentSlot index)
+    let readback := denoteBody program available (.returnExpr (.atom (.slice (operandList saved))))
+    let stages := [receiver (argumentSlot 0), start (argumentSlot 1),
+      stop (argumentSlot 2), stride (argumentSlot 3)].map (denoteBody program available)
+    let execute := stages.foldr (fun operand rest next => Outcome.resume (operand next) fun
+      | .next => rest
+      | signal => pure signal) readback
+    denoteBody program available (compileSequence target (.slice ∘ operandList) [receiver, start, stop, stride]) state =
+      completeCall state (some target) (execute state) :=
+  Proofs.Languages.Starlark.Functions.Comprehensions.slice_order program available target receiver start stop stride state
+
 end Silmaril.Languages.Starlark.Functions.Comprehensions

@@ -54,6 +54,7 @@ inductive CompExpr where
   | tupleDisplay (elements : List CompExpr)
   | dictDisplay (entries : List (CompExpr × CompExpr))
   | index (receiver subscript : CompExpr)
+  | slice (receiver : CompExpr) (start stop stride : Option CompExpr)
   | callPos (callee : Lowering.Resolve.SourceExpr) (arguments : List CompExpr)
   /-- Argument groups are already in valid source order. -/
   | call (callee : CompExpr) (positional : List CompExpr)
@@ -226,6 +227,21 @@ private def compileCompExpr (context : Context) :
     let (receiver, receiverReads) ← compileCompExpr context receiver
     let (subscript, subscriptReads) ← compileCompExpr context subscript
     return (.index receiver subscript, receiverReads ++ subscriptReads)
+  | .slice receiver start stop stride => do
+    let (receiver, receiverReads) ← compileCompExpr context receiver
+    let start ← start.attach.mapM fun ⟨operand, member⟩ => do
+      have smaller : sizeOf operand < sizeOf start := by simp [Option.mem_def.mp member]
+      compileCompExpr context operand
+    let stop ← stop.attach.mapM fun ⟨operand, member⟩ => do
+      have smaller : sizeOf operand < sizeOf stop := by simp [Option.mem_def.mp member]
+      compileCompExpr context operand
+    let stride ← stride.attach.mapM fun ⟨operand, member⟩ => do
+      have smaller : sizeOf operand < sizeOf stride := by simp [Option.mem_def.mp member]
+      compileCompExpr context operand
+    let omitted := Comprehensions.Expression.plain (.atom (.scalar .none))
+    return (.slice receiver ((start.map Prod.fst).getD omitted) ((stop.map Prod.fst).getD omitted)
+      ((stride.map Prod.fst).getD omitted),
+      receiverReads ++ (start.toList ++ stop.toList ++ stride.toList).flatMap Prod.snd)
   | .callPos callee arguments => do
     let (callee, calleeReads) ← readExpr context callee
     let compiled ← arguments.attach.mapM fun argument => do

@@ -340,12 +340,34 @@ The exact assignment and return correspondence covers the new cases
 with the same admission assumptions.
 [Pinned subscripts][subscript] · [Go index compilation][go-index-compile] · [Go validation][go-index] · [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean)
 
-Comprehensions in slice operands, comprehension clauses, defaults and
-other statement operands remain open. Call shapes and spread value
-domains follow the [existing argument profile](#argument-binding).
-Field and subscript assignment targets remain outside this placement
-profile. Quotation supplies ordinary operands and pattern ASTs. The
-normalized comprehension and placement nodes are constructed separately.
+Slice placements accept the receiver and all present start, stop and
+stride expressions. The normalized source records missing bounds as
+`none`. Resolution fills those positions with pure Starlark `None`
+operands. Present operands run once in receiver, start, stop and stride
+order. Validation then checks the receiver kind, checks the stride and
+rejects zero, and checks start before stop. A failure in any operand
+takes precedence over that validation and skips all remaining operands.
+The existing slice operation supplies the defaults, including the
+distinction between an omitted stop and an explicit `-1` with a negative
+stride.
+[Pinned slices][slice-expr] · [Go operand compilation][go-slice-compile] · [Go slice validation][go-slice-eval]
+
+`slice_order` states the four staging steps and the final shared read.
+The assignment and return correspondence covers the exact caller
+bindings, heap and iterator guards for direct and scratch-lowered
+execution. The Go fixtures compare returned values, effects, errors and
+guard release. Lean also checks private heap allocations and restored
+bindings, which the Go fixture cannot observe. The existing slice value
+and integer profiles still govern the final operation.
+[Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
+
+Comprehensions in clause operands, defaults and other statement
+operands remain open. Call shapes and spread value domains follow the
+[existing argument profile](#argument-binding). Field and subscript
+assignment targets remain outside this placement profile. The existing
+quotation still accepts ordinary slices and ordinary operand and pattern
+ASTs. A comprehension-containing slice uses the separate normalized
+`CompExpr.slice` node.
 
 ## Direct denotation of resolved expressions
 

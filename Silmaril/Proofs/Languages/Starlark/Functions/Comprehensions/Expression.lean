@@ -179,6 +179,13 @@ theorem expression_exact (program : Program) (available : List DeclarationId)
     apply scope_exact target
     exact seq_agrees (expression_exact program available _ receiver (argumentSlot 0) start)
       (seq_agrees (expression_exact program available _ subscript (argumentSlot 1) start) (fun _ _ => rfl))
+  | slice operands =>
+    unfold compileSequence
+    apply scope_exact target
+    apply argument_agrees
+    intro item _ destination
+    have := Silmaril.Languages.Starlark.Functions.Comprehensions.sliceOperandSize item.property
+    exact expression_exact program available item.val (operands _ item.property) destination start
   | callPos callee arguments =>
     unfold compileCall
     apply scope_exact target
@@ -349,5 +356,21 @@ theorem index_order (program : Program) (available : List DeclarationId)
   rw [compileIndex, denoteBody]
   change completeCall state (some target) (denoteBody program available (.seq _ _) state) = _
   simp only [sequenceMeaning] <;> rfl
+
+theorem slice_order (program : Program) (available : List DeclarationId)
+    (target : Binding) (receiver start stop stride : Binding → Body) (state : State) :
+    let saved := [0, 1, 2, 3].map fun index => readSaved (argumentSlot index)
+    let readback := denoteBody program available (.returnExpr (.atom (.slice (operandList saved))))
+    let stages := [receiver (argumentSlot 0), start (argumentSlot 1),
+      stop (argumentSlot 2), stride (argumentSlot 3)].map (denoteBody program available)
+    let execute := stages.foldr (fun operand rest next => Outcome.resume (operand next) fun
+      | .next => rest
+      | signal => pure signal) readback
+    denoteBody program available (compileSequence target (.slice ∘ operandList) [receiver, start, stop, stride]) state =
+      completeCall state (some target) (execute state) := by
+  dsimp only
+  rw [compileSequence, denoteBody]
+  change completeCall state (some target) (denoteBody program available (stageArguments 0 _ _) state) = _
+  simp only [stageArguments, sequenceMeaning, List.map_cons, List.map_nil, List.foldr_cons, List.foldr_nil] <;> rfl
 
 end Silmaril.Proofs.Languages.Starlark.Functions.Comprehensions

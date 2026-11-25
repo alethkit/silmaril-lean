@@ -300,10 +300,78 @@ out = example()
 	fmt.Println("PASS display pair and indexing error precedence, residual effects, and iterator unwind")
 }
 
+func checkSliceOperands() {
+	const mark = `events = []
+def mark(tag, value):
+    events.append(tag)
+    return value
+`
+	globals, err := run(mark + `def example():
+    return [x for x in mark(1, [0, 1, 2, 3, 4])][
+        len([x for x in mark(2, [0, 0, 0, 0])]):
+        len([x for x in mark(3, [])]):
+        (-2 if [x for x in mark(4, [True])] else len(1))
+    ]
+out = example()
+`)
+	require(err == nil && globals["out"].String() == "[4, 2]" &&
+		globals["events"].String() == "[1, 2, 3, 4]", fmt.Sprint(globals, err))
+
+	globals, err = run(mark + `items = (
+    [x for x in mark(1, [0, 1, 2])][::-1],
+    (3, 4, 5)[len([x for x in mark(2, [0])]):],
+    range(5)[:(None if [x for x in mark(3, [True])] else len(1)):-2],
+    [x for x in mark(4, [0, 1, 2])][:-1:-1],
+)
+out = (items[0], items[1], list(items[2]), items[3])
+`)
+	require(err == nil && globals["out"].String() == "([2, 1, 0], (4, 5), [4, 2, 0], [])" &&
+		globals["events"].String() == "[1, 2, 3, 4]", fmt.Sprint(globals, err))
+	fmt.Println("PASS comprehension slice order, reverse strides, and omitted or explicit bounds")
+
+	const rows = `rows = [[("a", [4]), ([], [5])]]
+`
+	const failed = `{mark(4, k): mark(5, v) for row in mark(3, rows) for (k, [v]) in row}`
+	const receiver = `mark(1, 0)`
+	const lower = `len([x for x in mark(2, [])])`
+	const upper = `len([x for x in mark(6, [])])`
+	const listReceiver = `[x for x in mark(1, [0, 1])]`
+	const badLower = `[x for x in mark(2, [])]`
+	const badUpper = `[x for x in mark(3, [])]`
+	const zero = `len([x for x in mark(4, [])])`
+	const badStep = `[x for x in mark(4, [])]`
+	const negative = `mark(4, -1)`
+	for _, tc := range []struct {
+		receiver, lower, upper, step string
+		errorPart, events            string
+	}{
+		{failed, lower, upper, "mark(7, 0)", "unhashable type: list", "[3, 4, 5, 4, 5]"},
+		{receiver, failed, upper, "mark(7, 0)", "unhashable type: list", "[1, 3, 4, 5, 4, 5]"},
+		{receiver, lower, failed, "mark(7, 0)", "unhashable type: list", "[1, 2, 3, 4, 5, 4, 5]"},
+		{receiver, lower, upper, failed, "unhashable type: list", "[1, 2, 6, 3, 4, 5, 4, 5]"},
+		{receiver, badLower, badUpper, zero, "invalid slice operand", "[1, 2, 3, 4]"},
+		{listReceiver, badLower, badUpper, zero, "zero is not a valid slice step", "[1, 2, 3, 4]"},
+		{listReceiver, badLower, badUpper, badStep, "invalid slice step", "[1, 2, 3, 4]"},
+		{listReceiver, badLower, badUpper, negative, "invalid start index", "[1, 2, 3, 4]"},
+		{listReceiver, lower, badUpper, negative, "invalid end index", "[1, 2, 3, 4]"},
+	} {
+		expression := fmt.Sprintf("(%s)[%s:%s:%s]", tc.receiver, tc.lower, tc.upper, tc.step)
+		globals, err = run(mark + rows + "out = " + expression)
+		checkError(err, tc.errorPart)
+		require(globals["out"] == nil && globals["events"].String() == tc.events, fmt.Sprint(globals, err))
+		outer := globals["rows"].(*starlark.List)
+		inner := outer.Index(0).(*starlark.List)
+		require(outer.Append(starlark.None) == nil && inner.Append(starlark.None) == nil,
+			"failed slice operand left a comprehension iterator active")
+	}
+	fmt.Println("PASS slice operand failures, guard cleanup, and receiver/step/start/stop precedence")
+}
+
 func main() {
 	checkLists()
 	checkDictionaries()
 	checkExpressionPositions()
 	checkCallOperands()
 	checkDisplayAndIndexOperands()
+	checkSliceOperands()
 }

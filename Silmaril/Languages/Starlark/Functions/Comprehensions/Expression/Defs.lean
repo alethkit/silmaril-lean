@@ -16,12 +16,20 @@ inductive Expression where
   | tupleDisplay (elements : List Expression)
   | dictDisplay (entries : List (Expression × Expression))
   | index (receiver subscript : Expression)
+  /-- Omitted source bounds resolve to a plain `None` operand. -/
+  | slice (receiver start stop stride : Expression)
   | callPos (callee : Lowering.Expr) (arguments : List Expression)
   /-- Positional operands, then named operands, then at most one of each spread. -/
   | call (callee : Expression) (positional : List Expression)
       (keywords : List (String × Expression)) (star starStar : Option Expression)
   | branch (test yes no : Expression)
   | logical (op : LogicalOp) (left right : Expression)
+
+theorem sliceOperandSize {receiver start stop stride operand : Expression}
+    (member : operand ∈ [receiver, start, stop, stride]) :
+    sizeOf operand < sizeOf (Expression.slice receiver start stop stride) := by
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl | rfl <;> simp <;> omega
 
 theorem callOperandSize (callee : Expression) (positional : List Expression)
     (keywords : List (String × Expression)) (star starStar : Option Expression) {part : Expression}
@@ -61,7 +69,7 @@ def stageArguments (index : Nat) (arguments : List (Binding → Body))
     .seq (argument (argumentSlot index))
       (stageArguments (index + 1) rest fun saved => dispatch (readSaved (argumentSlot index) :: saved))
 
-/-- Lists and tuples allocate only after every element has succeeded. -/
+/-- Stage the operands, then evaluate the final operation over the saved values. -/
 def compileSequence (target : Binding) (finish : List Lists.Expr → Lists.Expr)
     (elements : List (Binding → Body)) : Body :=
   .assignScoped target [] (stageArguments 0 elements fun saved => .returnExpr (.atom (finish saved)))
@@ -123,6 +131,10 @@ def Expression.compile (stages : ExpressionStages) (expr : Expression) (target :
       (key.compile stages, value.compile stages))
   | .index receiver subscript =>
     compileIndex target (receiver.compile stages) (subscript.compile stages)
+  | .slice receiver start stop stride =>
+    compileSequence target (.slice ∘ operandList) ([receiver, start, stop, stride].attach.map fun operand =>
+      have := sliceOperandSize operand.property
+      operand.val.compile stages)
   | .callPos callee arguments =>
     let operands := arguments.attach.map fun arg =>
       have := List.sizeOf_lt_of_mem arg.property
