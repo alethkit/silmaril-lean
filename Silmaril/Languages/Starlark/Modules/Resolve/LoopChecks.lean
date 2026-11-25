@@ -1,0 +1,91 @@
+module
+
+import Silmaril.Languages.Starlark.Modules.Resolve.Thms
+import Silmaril.Languages.Starlark.Functions.Lowering.Quote.Defs
+meta import Silmaril.Languages.Starlark.Modules.Resolve.Defs
+meta import Silmaril.Languages.Starlark.Functions.Lowering.Resolve.Defs
+meta import Silmaril.Languages.Starlark.Modules.Defs
+
+namespace Silmaril.Languages.Starlark.Modules.Resolve
+
+open scoped Functions.Lowering.Quote
+
+private def noImports : Catalog := fun _ => none
+
+private def lists : Command := .define "items" { varargs := some "values" }
+  (.ret (some starlark%[list(values)]))
+
+private def callBody (body : Statement) : List Command :=
+  [lists, .define "run" {} body, .assign "out" starlark%[run()]]
+
+-- A loop target shadows the global throughout the function, including the operand.
+-- Neither a pre-loop read nor an empty iteration initializes the target.
+#guard
+  let unbound := fun body =>
+    match runModule (.assign "x" starlark%[list()] :: callBody body) noImports {} with
+    | .ok (.error (.runtime (.uninitialized binding)) _) => binding == fileSlot "x"
+    | _ => false
+  unbound (.seq (.eval starlark%[x]) (.forIn "x" starlark%[items(7)] .pass)) &&
+    unbound (.forIn "x" starlark%[x] .pass) &&
+    unbound (.seq (.forIn "x" starlark%[items()] .pass) (.ret (some starlark%[x])))
+
+-- Iteration writes the parameter's existing slot and an empty loop leaves it intact.
+#guard
+  let last : Command := .define "last" { positional := [⟨"x", none⟩], varargs := some "values" }
+    (.seq (.forIn "x" starlark%[values] .pass) (.ret (some starlark%[x])))
+  let commands := [last, .assign "nonempty" starlark%[last(99, 1, 2)], .assign "empty" starlark%[last(99)]]
+  match runModule commands noImports {} with
+  | .ok (.ok published _) =>
+    decide (published.exports.lookup "nonempty" = some (.scalar (.int 2))) &&
+      decide (published.exports.lookup "empty" = some (.scalar (.int 99)))
+  | _ => false
+
+-- A closure defined earlier captures the slot allocated for the later target.
+#guard
+  let body : Statement := .seq (.define "read" {} (.ret (some starlark%[x])))
+    (.seq (.forIn "x" starlark%[items(3, 4)] .pass) (.ret (some starlark%[read()])))
+  match runModule (callBody body) noImports {} with
+  | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.int 4)))
+  | _ => false
+
+-- `continue` skips the rest of the iteration. The inner `break` leaves the outer loop active.
+#guard
+  let inner : Statement := .forIn "y" starlark%[items(False, True)]
+    (.seq (.branch starlark%[y] .breakLoop .continueLoop) (.eval starlark%[len(9)]))
+  let body : Statement := .seq (.forIn "x" starlark%[items(10, 20)] inner)
+    (.ret (some starlark%[x if y else len(9)]))
+  match runModule (callBody body) noImports {} with
+  | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.int 20)))
+  | _ => false
+
+#guard
+  let loop : Statement := .forIn "x" starlark%[items(7, 8)] (.ret (some starlark%[x]))
+  match runModule (callBody (.seq loop (.eval starlark%[len(9)]))) noImports {} with
+  | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.int 7)))
+  | _ => false
+
+-- Check iterator cleanup at the command boundary, before module restoration.
+#guard
+  let commands := callBody (.forIn "x" starlark%[items(7)] (.eval starlark%[len(x)]))
+  match resolve commands with
+  | .ok resolved =>
+    let entered := enter resolved.source {}
+    match runCommands resolved.program noImports resolved.source.commands entered with
+    | .error (.runtime (.builtinType .len (.scalar (.int 7)))) state =>
+      state.iterators.isEmpty &&
+      match state.bindingValue (globalSlot "out") with
+      | .error (.uninitialized binding) => binding == globalSlot "out"
+      | _ => false
+    | _ => false
+  | _ => false
+
+-- Skipped branches are checked. A nested definition starts its own loop-control scope.
+#guard
+  let rejected := fun body error => match runModule (callBody body) noImports {} with
+    | .error (.validation (.syntax actual)) => actual == error
+    | _ => false
+  rejected (.branch starlark%[False] .breakLoop .pass) .breakOutsideLoop &&
+    rejected (.forIn "x" starlark%[items()]
+      (.define "nested" {} .continueLoop)) .continueOutsideLoop
+
+end Silmaril.Languages.Starlark.Modules.Resolve

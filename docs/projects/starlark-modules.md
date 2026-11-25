@@ -59,7 +59,8 @@ declaration table and remove the active declaration on descent.
 checked `Modules.Source` and linked declaration table. Module commands cover
 single-name assignment, expression statements, `def` and named `load`
 imports. Function bodies add nested `def`, sequencing, `if`, `pass` and
-`return`. Signatures represent the positional, keyword-only, `*args` and
+`return`, as well as single-name `for` loops with `break` and `continue`.
+Signatures represent the positional, keyword-only, `*args` and
 `**kwargs` classes used by the existing binder. Operands use the
 [existing source expression profile][source-expressions], including the Lean
 expression quotation.
@@ -70,6 +71,16 @@ shadows outer names throughout its block. Undefined names fail statically
 even in skipped code. A forward reference resolves to the slot but fails
 dynamically if read before its assignment or load. Duplicate module bindings
 and load/global collisions are rejected before execution.
+
+A loop target belongs to the whole function block. The resolver collects
+the target before resolving the iterable and body in that block. Thus
+`for x in x` reads the function's `x` before any iteration writes it. The
+last assignment to the target is visible after the loop, and an empty
+loop performs no target write. Loops emit `Body.forInExpr` and use
+the existing validation of `break` and `continue` in each function, including
+skipped code and nested definitions. The module command type admits only
+top-level forms permitted in this profile.
+[For statements in the pinned spec][loops] · [Resolved loops](starlark-functions.md#calls-inside-loops) · [Source loop fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/LoopChecks.lean)
 
 Defaults resolve in the enclosing scope. Function bodies use the function's
 own parameters and locals, and each declaration captures the free slots its
@@ -111,14 +122,13 @@ the elaboration result with the resolved operational theorem. It compares
 static rejection, execution outcomes, publication and the exact residual
 state. This correspondence shares the elaborator and starts at a normalized
 AST with legal identifier spellings. An independent source binding relation
-and text parsing remain open. Function loops,
-compound targets, lambdas, comprehensions and collection display or
-subscript operands remain outside this source fragment.
+and text parsing remain open. Compound targets, lambdas, comprehensions,
+collection displays and subscripts remain outside this source fragment.
 [Theorem header](../../Silmaril/Languages/Starlark/Modules/Resolve/Thms.lean) · [Lean source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean)
 
 Pinned Starlark-Go checks cover static and dynamic name errors, captures,
-defaults and load alias visibility. Go rejects the load-then-global collision
-and accepts the global-then-load order. The Lean adapter follows the
+defaults, load aliases, and loop scope and control. Go rejects the
+load-then-global collision and accepts the global-then-load order. The Lean adapter follows the
 Bazel-team spec and rejects both.
 [Pinned Go comparison](../../examples/starlark/scope/check.go) · [Name binding in the pinned spec][names]
 
@@ -179,7 +189,8 @@ heap and absence of publication on failure under the pinned prose policy.
 lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
   +Silmaril.Languages.Starlark.Modules.ExpressionChecks \
   +Silmaril.Languages.Starlark.Modules.Loader.Checks \
-  +Silmaril.Languages.Starlark.Modules.Resolve.Checks
+  +Silmaril.Languages.Starlark.Modules.Resolve.Checks \
+  +Silmaril.Languages.Starlark.Modules.Resolve.LoopChecks
 ```
 
 Use Go 1.25 or newer and run from the repository root.
@@ -198,4 +209,5 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 [expressions]: starlark-functions.md#direct-denotation-of-resolved-expressions
 [source-expressions]: starlark-functions.md#resolving-a-normalized-expression
 [names]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#name-binding-and-variables
+[loops]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#for-statements
 [go]: https://github.com/google/starlark-go/tree/4f4267fb140d1e8b91c9bce55cee2f809e8840dd
