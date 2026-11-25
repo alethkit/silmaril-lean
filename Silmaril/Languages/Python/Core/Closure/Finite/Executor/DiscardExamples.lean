@@ -23,7 +23,7 @@ private def callee : Value := .function (frame.closure ref selected)
 
 private def code (body : Closure.Executor.Body calleeLayout) : CodeRows :=
   (∅ : CodeRows).insert ref.key
-    ⟨calleeLayout, ⟨⟨[.local 0], by decide⟩, .store (.capture 0) (.read (.local 0)) body⟩⟩
+    ⟨calleeLayout, { parameters := ⟨[.local 0], by decide⟩, body := .store (.capture 0) (.read (.local 0)) body }⟩
 
 private def start : State :=
   .running ⟨heap, frame⟩ (.callTo .discard (.closure ref selected) [.literal (.int 7)] next) []

@@ -108,6 +108,7 @@ def expandStar : Option Lists.Value → Meaning (List Lists.Value)
   | some (.list address) => listElements address
   | some (.tuple address) => tupleElements address
   | some (.dict address) => (List.map Entry.key) <$> dictEntries address
+  | some (.range span) => pure (Iteration.Cursor.ofRange span).collect
   | some _ => throw .invalidStar
 
 def expandStarStar : Option Lists.Value → Meaning (List (String × Lists.Value))

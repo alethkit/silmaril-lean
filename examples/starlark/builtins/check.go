@@ -88,8 +88,43 @@ len(events.append(1), events.append(2), ignored=events.append(3))`)
 	fmt.Println("PASS arity, keyword and type errors preserve preceding argument effects")
 }
 
+func checkRangeConstructors() {
+	g, err := run(`def note(label, value):
+    events.append(label)
+    return value
+events = []
+span = range(10, 3, -2)
+xs = list(note(1, span))
+ys = tuple(note(2, span[::-2]))
+xs.append(0)
+out = (list(range(0)), tuple(range(3, 1)), xs, ys, {ys: "sliced"}[(4, 8)], span[-1])`)
+	require(err == nil, fmt.Sprint(err))
+	want := `([], (), [10, 8, 6, 4, 0], (4, 8), "sliced", 4)`
+	require(g["out"].String() == want && g["events"].String() == "[1, 2]", fmt.Sprint(g))
+	fmt.Println("PASS empty, descending and sliced range materialization, mutability and tuple keys")
+
+	const setup = `def note(label, value):
+    events.append(label)
+    return value
+events = []
+out = [99]
+`
+	for _, tc := range []struct{ call, want, effects string }{
+		{"list(note(1, range(4)), note(2, 0), ignored=note(3, 0))", "unexpected keyword arguments", "[1, 2, 3]"},
+		{"tuple(note(1, 9), note(2, range(4)))", "want at most 1", "[1, 2]"},
+		{"list(note(1, 9))", "want iterable", "[1]"},
+		{"list(note(1, range(4)), len(note(2, 9)), note(3, range(4)))", "has no len", "[1, 2]"},
+	} {
+		g, err := run(setup + "out[0] = " + tc.call)
+		checkError(err, tc.want)
+		require(g["out"].String() == "[99]" && g["events"].String() == tc.effects, fmt.Sprint(g))
+	}
+	fmt.Println("PASS operand failures precede constructor checks, then keyword, arity and type")
+}
+
 func main() {
 	checkValues()
 	checkCopy()
 	checkFailure()
+	checkRangeConstructors()
 }

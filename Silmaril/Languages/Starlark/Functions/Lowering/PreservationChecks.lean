@@ -47,8 +47,9 @@ private theorem lenMark_fails {s t : State} {n : Int}
   refine Evaluates.call (keywords := []) (star := none) (starStar := none)
     (t := t) (values := [.builtin .len, .scalar .none]) ?_ ?_
   · exact .cons (.atom (.builtin _) .builtin) (.cons runs .empty)
-  · exact .expanded (.success rfl rfl)
-      (.builtin rfl (.lenCollection (by intro text equal; cases equal) (.invalid (by intro h; cases h))))
+  · exact .expanded (.success rfl .empty)
+      (.builtin rfl (.lenCollection (by intro _ equal; cases equal) (by intro _ equal; cases equal)
+        (.invalid (by intro h; cases h))))
 
 private theorem nested_fails :
     Evaluates #[] [] input nestedFailure (.error (.builtinType .len (.scalar .none)) afterAppend) :=
@@ -172,7 +173,8 @@ private theorem invalidIterable_runs :
     (values := [.builtin .len, .scalar .none, .dict 1]) ?_ ?_
   · exact .cons (.atom (.builtin _) .builtin) (.cons mark_runs
       (.cons (.atom (.dict .noEntries) (Lists.Eval.dict (Lists.Eval.noEntries (s := afterAppend)))) .empty))
-  · exact .expansionError (.spreadError (keys := []) (next := marked input [1] [emptyMapCell]) rfl rfl)
+  · exact .expansionError (.spreadError (keys := []) (next := marked input [1] [emptyMapCell])
+      rfl (.invalid (by simp [Builtins.IsCollection])))
 
 example : ∃ final,
     denoteBody #[] [] (lower invalidIterable destination).code input = .error .invalidStar final ∧
@@ -216,7 +218,7 @@ private theorem duplicateName_runs :
       (.cons (.atom (mark_safe 1) first)
         (.cons (.atom (.dict (.entry .noEntries (.string _) (mark_safe 2))) mapping) .empty))
   · exact .expanded (.success (next := duplicateFinal) (final := duplicateFinal)
-      (keys := [("x", .scalar .none)]) (values := []) rfl rfl) (.reject rfl)
+      (keys := [("x", .scalar .none)]) (values := []) rfl .empty) (.reject rfl)
 
 example :
     denoteExpr program [0] duplicateName functionInput = .error (.multipleArgumentValues "x") duplicateFinal :=
@@ -231,5 +233,25 @@ example : ∃ final,
     destination (global_visible "out")
   exact ⟨final, ran, related.heap.symm, StateMatch.bindingValue_eq related (global_visible "events"),
     StateMatch.bindingValue_eq related (global_visible "out")⟩
+
+private def spanName : Binding := ⟨.global, "span"⟩
+private def span : Lists.RangeValue := ⟨9, 8, -1, by decide⟩
+private def spanInput : State := input.write spanName (.range span)
+private def rangeCall : Expr :=
+  .call (.atom (.builtin .type)) [] [] (some (.atom (.read (.bound spanName)))) none
+
+-- This derivation uses the cursor rules for the positional spread.
+private theorem rangeCall_runs :
+    Evaluates #[] [] spanInput rangeCall (.ok (.string "int") spanInput) := by
+  refine .call (t := spanInput) (values := [.builtin .type, .range span]) ?_ ?_
+  · exact .cons (.atom (.builtin _) .builtin)
+      (.cons (.atom (.bound (global_visible "span")) .read) .empty)
+  · exact .expanded (.success (keys := []) (values := [.scalar (.int 9)]) rfl
+      (.range (.next rfl (.done rfl)))) (.builtin rfl .type)
+
+example : ∃ final,
+    denoteBody #[] [] (lower rangeCall destination).code spanInput = .ok .next final ∧
+    StateMatch 0 (spanInput.write destination (.string "int")) final := by
+  exact lower_preserves rangeCall_runs (by intro _; rfl) destination (global_visible "out")
 
 end Silmaril.Languages.Starlark.Functions.Lowering

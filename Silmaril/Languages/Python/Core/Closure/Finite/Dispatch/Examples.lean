@@ -15,7 +15,7 @@ open Silmaril.Languages.Python.Core.Closure.Finite.Dispatch
 private abbrev calleeLayout : Layout := ⟨0, 1, 1⟩
 private abbrev callerLayout : Layout := ⟨0, 0, 1⟩
 private def definition : Silmaril.Languages.Python.Core.Closure.Dispatch.Definition Slot calleeLayout :=
-  ⟨⟨[.owned 0], by decide⟩, .capture 0⟩
+  { parameters := ⟨[.owned 0], by decide⟩, body := .capture 0 }
 private def rows : CodeRows Slot := (∅ : CodeRows Slot).insert 1 ⟨calleeLayout, definition⟩
 private def fn : Function := Function.ofCaptureList ⟨1, calleeLayout⟩ [⟨0⟩] rfl
 private def caller : Call.Saved (fun _ => Nat) :=

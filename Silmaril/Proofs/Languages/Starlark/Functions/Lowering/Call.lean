@@ -38,6 +38,7 @@ private theorem builtinAction (id : Builtin) (actual : Actual) :
     | list => exact actionMap Prod.snd (actionMap _ (actionList _))
     | tuple => exact actionMap Prod.snd (actionMap _ (actionTuple _))
     | dict => exact actionMap Prod.snd (actionMap _ (actionDict _))
+    | range => exact actionPure _
     | _ => exact actionThrow _
   obtain ⟨positional, keywords⟩ := actual
   unfold Builtins.invoke
@@ -52,9 +53,11 @@ private theorem builtinAction (id : Builtin) (actual : Actual) :
       · exact actionThrow _
       · exact actionAllocate _
       · exact actionAllocateTuple _
+      · exact actionThrow _
     | cons value rest =>
       cases rest with
-      | cons => exact actionThrow _
+      | cons =>
+        cases id <;> first | exact actionThrow _ | exact actionExcept _
       | nil =>
         cases id with
         | bool => exact actionMap _ (truthAction value)
@@ -63,6 +66,7 @@ private theorem builtinAction (id : Builtin) (actual : Actual) :
         | type => exact actionPure _
         | list => exact actionBind (itemsAction _ _) actionAllocate
         | tuple => exact actionBind (itemsAction _ _) actionAllocateTuple
+        | range => exact actionExcept _
 
 private def transportPlan (bindings : Binding → Option Value) {available : List DeclarationId} :
     Outcome (CallPlan available) → Outcome (CallPlan available)
@@ -78,6 +82,7 @@ private theorem starFrame (star : Option Value) : FrameAction (expandStar star) 
     | list => exact actionList _
     | tuple => exact actionTuple _
     | dict => exact actionMap _ (actionDict _)
+    | range => exact actionPure _
     | _ => exact actionThrow _
 
 private theorem starStarFrame (starStar : Option Value) : FrameAction (expandStarStar starStar) := by
@@ -137,13 +142,13 @@ private theorem expands_state {s : State} {args : EvaluatedArguments} {out : Out
     have first := starStar_state args.starStar s
     have last := star_state args.star next
     rw [read] at first
-    rw [failed] at last
+    rw [(expandsStar_iff_expandStar _ _ _).mp failed] at last
     exact last.trans first
   | @success keys values next final read succeeded =>
     have first := starStar_state args.starStar s
     have last := star_state args.star next
     rw [read] at first
-    rw [succeeded] at last
+    rw [(expandsStar_iff_expandStar _ _ _).mp succeeded] at last
     exact last.trans first
 
 private theorem prepare_frame (program : Program) (available : List DeclarationId)

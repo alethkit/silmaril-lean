@@ -7,13 +7,34 @@ import Silmaril.Proofs.Wasm.Institution.Operational.BranchExit.V1
 import Silmaril.Proofs.Wasm.Institution.Operational.BranchExit.Lime1
 import Silmaril.Proofs.Wasm.Institution.Operational.BranchExit.Core
 import Silmaril.Proofs.Wasm.Institution.Operational.BranchExit.Transport
+public import Silmaril.Wasm.SingleThreaded.Determinism.Head
 
 @[expose] public section
 
 namespace Silmaril.Wasm.Institution.Operational.BranchExit
 
 open Execution
-open Execution.Runtime (Frame)
+open Execution.Runtime (Frame Value)
+
+/-- Exact branch reduction under a label with an empty continuation. At depth
+zero it keeps the result suffix. At positive depth it preserves the operands
+and lowers the depth. Both rules discard the pending instructions inside the label. -/
+theorem core_label_br_iff {H : Type} {P : Numerics.Profile} {s : Core.Store H} {f : Core.Frame}
+    {n : Nat} {depth : LabelIdx} {stack : List Core.Val} {rest : List Core.Admin} {dst : Core.Config H} :
+    Core.Step P SingleThreaded.Det.noHost ⟨s, f, [.label n [] (Core.vals stack ++ .plain (.br depth) :: rest)]⟩ dst ↔
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
+        dst = ⟨s, f, Core.vals payload⟩) ∨
+      (0 < depth.toNat ∧ dst = ⟨s, f, Core.vals stack ++ [.plain (.br (Core.labelPred depth))]⟩) :=
+  Proofs.core_label_br_iff
+
+open Wasm.Lime1.Execution in
+theorem lime_label_br_iff {H : Type} {host : HostSemantics H} {s : Store H} {f : Frame}
+    {n : Nat} {depth : LabelIdx} {stack : List Value} {rest : List Admin} {dst : Config H} :
+    Step host ⟨s, f, [.label n [] (values stack ++ .source (.br depth) :: rest)]⟩ dst ↔
+      (∃ extra payload, stack = extra ++ payload ∧ payload.length = n ∧ depth.toNat = 0 ∧
+        dst = ⟨s, f, values payload⟩) ∨
+      (0 < depth.toNat ∧ dst = ⟨s, f, values stack ++ [.source (.br (lowerLabel depth))]⟩) :=
+  Proofs.Lime1.label_br_iff
 
 section v1
 variable {H : Type} {host : Wasm.V1.Execution.HostSemantics H}

@@ -33,6 +33,18 @@ compare unequal to an integer. Calls, arithmetic, chained comparisons and
 user-defined equality are outside this profile. In a module invocation, a
 failed body assertion is raised as `AssertionError`.
 
+The ordinary body profile also accepts message-free literal-string membership
+and non-membership assertions against `name.__code__.co_freevars`. The linker
+attaches the sorted names of the checked lexical captures, including forwarded
+captures, to the layout-matched code definition. The executor compares the
+literal code points with that tuple after reading the current name. An alias
+uses the same code reference and cells. This metadata profile covers ordinary
+function paths with distinct ASCII capture identifiers and excludes class paths
+and synthetic `super` and `__class__` captures. A nonfunction receiver or
+unprofiled definition gives a distinct executor fault. The source profile
+admits this assertion form only, so other code metadata attributes remain
+compiler rejections.
+
 Successful lowering retains the source translation and preserves the
 definition, layout and parameter destinations at every emitted code key.
 Body lowering succeeds exactly when the independent translation judgment
