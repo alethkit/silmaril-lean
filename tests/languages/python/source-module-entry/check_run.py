@@ -66,7 +66,7 @@ after = 9
     ("literal_if_no_else", """if 0:
     bad = 1
 result = 2
-""", {}, {"result": 2, "bad": None}, "normal", ".normal", 1),
+""", {}, {"result": 2, "bad": None}, "normal", ".normal", 2),
 )
 
 UNSUPPORTED_INDEXING = (
