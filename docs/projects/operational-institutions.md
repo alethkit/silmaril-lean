@@ -99,13 +99,31 @@ from the semantics, and this adapter supplies no sentences for those
 properties, divergence, or typing. [L1 return correspondence](../../Silmaril/Courses/Cambridge/L1/OperationalInstitution.lean) ·
 [L2 return correspondence](../../Silmaril/Courses/Cambridge/L2/OperationalInstitution.lean)
 
-`ofLTS` can package a future L3 LTS directly, and `valueSemantics` accepts a
+`ofLTS` packages a CSLib transition system, and `valueSemantics` accepts a
 course-specific value predicate for unit-labelled systems. A denotational
 comparison can use the exact finite-return theorem as its operational side.
 A specification-format adapter can target the same edge sentences once it
 defines how documents name configurations and establishes satisfaction for
 that translation. Those adapters and correspondence proofs are follow-up
 work. [Shared entry points](../../Silmaril/Courses/Cambridge/OperationalInstitution/Basic.lean)
+
+## Cambridge L3
+
+The CSLib wrapper uses the direct L3 `Step` relation verbatim. Each state is
+the original `L3.Config` with its expression and a finite partial store of
+L3 values. Locations are concrete natural numbers. Every fresh location gives
+its own permitted allocation edge, and the model keeps the inserted binding
+in the target store. `sat_iff` identifies satisfaction with the direct rules,
+and `steps_iff_reachable` identifies finite CSLib reachability with `L3.Steps`.
+[L3 adapter](../../Silmaril/Courses/Cambridge/L3/OperationalInstitution.lean)
+
+The sentence logic consists of atomic positive edge claims `(s, (), t)` with
+one unit label per step. A return is a separate `OpSem.May` observation. It
+witnesses a finite run to an `L3.IsValue` expression and reports that expression
+with the full final store. Concrete fresh names remain visible, even when two
+runs return the same expression. The view supplies no trap outcomes. Must
+observations, divergence, and equivalence up to location renaming require
+separate proof obligations. [Finite return correspondence](../../Silmaril/Courses/Cambridge/L3/OperationalInstitution.lean)
 
 ## Checks
 
@@ -124,7 +142,10 @@ Wasm and x86 adapters.
 The Cambridge build checks L1 assignment, dereference at a fixed store,
 and a missing location. It also checks an L2 run that dereferences the
 argument before beta reduction and returns the value with the final store.
-[Cambridge examples](../../Silmaril/Courses/Cambridge/OperationalInstitution/Examples.lean)
+The L3 examples rule out allocating at an occupied location and check two
+runs of `!(ref 42)` that reach the same integer with distinct final stores.
+[L1 and L2 examples](../../Silmaril/Courses/Cambridge/OperationalInstitution/Examples.lean) ·
+[L3 examples](../../Silmaril/Courses/Cambridge/OperationalInstitution/L3Examples.lean)
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.Courses.Cambridge.OperationalInstitution'
