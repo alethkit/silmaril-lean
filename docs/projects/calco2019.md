@@ -82,15 +82,33 @@ Kleisli coproducts come from the left adjoint of the Kleisli adjunction.
   `Fixpoints.Uniform J`, using the state reindexing from the chosen
   cofan and the hypothesis that every route preserves its fibers.
   `automatonIdentity` uses the fold. The finite surjective specialization
-  used for the usual equational schema is `FiniteCopowers.CommutativeIdentities`.
-  [Uniformity instances][automata] · [Finite schema][schema]
+  is `FiniteCopowers.CommutativeIdentities`. For a surjection `p : S → T`,
+  a body `f : Xᵀ ⟶ Y + Xˢ`, and routes `rᵢ : S → S` with
+  `p ∘ rᵢ = p`, `routedBody` takes the `p i` row of `f` and
+  redirects its recursive outputs by `rᵢ`. Its solution is
+  `reindex p ≫ (f ≫ map (𝟙 Y) (reindex p))†`.
+  `FiniteCopowers.commutative_of_uniform` proves this formula by the
+  change-of-state square. [Uniformity instances][automata] · [Finite schema][schema] · [Bloom–Ésik][iteration-theories]
 - `PointedModel.commutative` proves standard-model validity by strict
-  finite reindexing. `SortedTerm.validInPointedDomains_iff` identifies
+  finite reindexing. `FiniteCopowers.binaryCycle_of_commutative` takes
+  `S = Bool`, `T = Unit`, and `rᵢ(j) = !i`. The proof uses Conway
+  uniformity along the canonical state isomorphisms. The resulting
+  equation is
+  `(binaryCycleBody f)† = [𝟙 X, 𝟙 X] ≫ f†`.
+  `PointedModel.binaryCycleIdentity` proves the same categorical
+  equation for standard least-fixed-point iteration.
+  `FiniteMatrix.oneBody_fails_binaryCycle` evaluates the two sides
+  to distinct values, `both` and `overflow`, at a matrix entry.
+  `FiniteMatrix.conway_fails_commutative` thereby refutes the
+  finite commutative schema on the checked copowers of its one-state
+  object. Its Conway operator comes from the verified finite-matrix
+  trace. [Standard model][pointed] · [Binary instance and independence][schema-independence] · [Finite-matrix trace][matrix-trace] · [Simpson–Plotkin][fixed-point-axioms]
+- `SortedTerm.validInPointedDomains_iff` identifies
   the equations valid in the pointed ω-cpo models with those valid in
   total Conway models satisfying the finite schema. The proof goes
   through graph compilation, jump normalization, and the finite
-  ranked-system separator. `FiniteMatrix.conway_fails_binaryCycle`
-  supplies the categorical incompleteness witness. [Standard model][pointed] · [Completeness][complete] · [Countermodel][independence]
+  ranked-system separator. The standard-model-to-Conway implication
+  is uniform in the universe of the target category. [Completeness][complete] · [Bernátsky–Ésik, §5][free-conway]
 
 ## Introductory results and scope
 
@@ -123,6 +141,9 @@ lake build --wfail \
 [paper]: https://doi.org/10.4230/LIPIcs.CALCO.2019.13
 [pdf]: https://drops.dagstuhl.de/storage/00lipics/lipics-vol139-calco2019/LIPIcs.CALCO.2019.13/LIPIcs.CALCO.2019.13.pdf
 [guarded-traces]: https://doi.org/10.1007/978-3-319-89366-2_17
+[iteration-theories]: https://doi.org/10.1007/978-3-642-78034-9
+[fixed-point-axioms]: https://doi.org/10.1109/LICS.2000.855753
+[free-conway]: https://www.numdam.org/item/ITA_1998__32_1-3_35_0/
 [defs]: ../../Silmaril/Papers/Calco2019/Defs.lean
 [thms]: ../../Silmaril/Papers/Calco2019/Thms.lean
 [free]: ../../Silmaril/Semantics/Calco2019/FreeExtensions.lean
@@ -143,7 +164,8 @@ lake build --wfail \
 [schema]: ../../Silmaril/Semantics/Calco2019/Trace/IterationTheory/Commutative/Defs.lean
 [pointed]: ../../Silmaril/Semantics/Calco2019/Trace/IterationTheory/PointedModel/Thms.lean
 [complete]: ../../Silmaril/Semantics/Calco2019/Trace/IterationTheory/SortedTerms/Thms.lean
-[independence]: ../../Silmaril/Semantics/Calco2019/Trace/CounterSemiring/Independence/Thms.lean
+[schema-independence]: ../../Silmaril/Semantics/Calco2019/Trace/IterationTheory/Independence/Thms.lean
+[matrix-trace]: ../../Silmaril/Semantics/Calco2019/Trace/CounterSemiring/MatrixTrace/Thms.lean
 [poly]: ../../Silmaril/Papers/Calco2019/Examples/PolynomialExtension.lean
 [figure]: ../../Silmaril/Papers/Calco2019/Figure1.lean
 [maybe]: ../../Silmaril/Semantics/Calco2019/Maybe/Hyperextensive/Iteration/Thms.lean
