@@ -10,7 +10,7 @@ public import Silmaril.Semantics.Calco2019.Trace.ProfileSliding.Thms
 public import Silmaril.Semantics.Calco2019.Trace.ProfileEquivalence.Thms
 public import Silmaril.Semantics.Calco2019.Trace.Total.Thms
 public import Silmaril.Semantics.Calco2019.Trace.PointedCpo.Thms
-public import Silmaril.Semantics.Calco2019.Trace.CounterSemiring.Network.Thms
+public import Silmaril.Semantics.Calco2019.Trace.CounterSemiring.Witness.Thms
 
 /-! # CALCO 2019 Article 13, Remark 15
 
