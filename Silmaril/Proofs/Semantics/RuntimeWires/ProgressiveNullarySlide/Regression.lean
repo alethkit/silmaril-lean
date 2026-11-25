@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Semantics.RuntimeWires.ProgressiveNullarySlide.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveNullaryCrossing.Thms
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
 import Mathlib.Tactic.Linarith
@@ -312,5 +312,36 @@ example : Sheet.SeamEquivalent
     exact split
   exact .trans _ (.cons tiedRow (.empty _)) _
     (.symm _ _ (.rel _ _ (.split early _))) (.rel _ _ (.split late _))
+
+private noncomputable def crossing : slide.Crossing 1 where
+  lowerCut := 1 / 8
+  earlyCut := 3 / 8
+  lateCut := 5 / 8
+  upperCut := 7 / 8
+  horizontal := by norm_num [drawing, vertexX]
+  lower_inside := by norm_num
+  lower_bottom := by norm_num [slide]
+  bottom_early := by norm_num [slide]
+  early_other := by norm_num [drawing, height]
+  other_late := by norm_num [drawing, height]
+  late_top := by norm_num [slide]
+  top_upper := by norm_num [slide]
+  upper_inside := by norm_num
+  «only» := by intro v _; fin_cases v <;> simp
+
+/-- The generic comparison applies to the same four independently checked
+event slices, with the exact cap wire lists from the original fixture. -/
+example : ∃ r : crossing.Readback,
+    r.early = ⟨earlyScalar, earlyUnary⟩ ∧ r.late = ⟨lateUnary, lateScalar⟩ ∧
+    r.tie.inputWires = [0, 1] ∧ r.tie.outputWires = [0, 2] ∧
+    Sheet.SeamEquivalent r.earlySheet r.lateSheet := by
+  obtain ⟨r⟩ := crossing.exists_readback
+  have early : r.early = ⟨earlyScalar, earlyUnary⟩ := r.early.unique _
+  have late : r.late = ⟨lateUnary, lateScalar⟩ := r.late.unique _
+  refine ⟨r, early, late, ?_, ?_, r.seam⟩
+  · rw [← r.early_input, early]
+    rfl
+  · rw [← r.late_output, late]
+    rfl
 
 end Silmaril.RuntimeWires.Proofs.ProgressiveNullarySlide.Regression
