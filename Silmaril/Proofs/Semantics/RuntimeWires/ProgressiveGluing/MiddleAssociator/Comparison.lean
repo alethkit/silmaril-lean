@@ -28,11 +28,16 @@ variable (ha : a.types = a'.types) (hb : b.types = b'.types)
 
 /-- Align the active slabs using the two geometric unit comparisons,
 then apply the common framed transport to the actual composites. -/
-def compareComposites (h : CoreTransport horizontal p q) :
+def comparePlacedComposites {g : ℝ → ℝ} (hg : StrictMono g) (h : CoreTransport g p q)
+    (map : CapHomeomorph) (track : FollowsTracks g map) :
     (p.thenDo (shift hb)).drawing.CapComparison ((shift ha).thenDo q).drawing :=
   compare_trans (FixedDrawing.thenDo_comparison (p.compareLeftUnit a.inside) (compare_id (shift hb).drawing))
-    (compare_trans (framedComparison p q ha hb h)
+    (compare_trans (framedComparison p q ha hb hg h map track)
       (compare_symm (((shift ha).thenDo q).compareRightUnit b'.inside)))
+
+def compareComposites (h : CoreTransport horizontal p q) :
+    (p.thenDo (shift hb)).drawing.CapComparison ((shift ha).thenDo q).drawing :=
+  comparePlacedComposites p q ha hb horizontal_strict h ambient ambient_track
 
 end Composites
 
