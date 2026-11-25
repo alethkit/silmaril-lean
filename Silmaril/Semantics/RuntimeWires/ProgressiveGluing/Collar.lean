@@ -64,6 +64,8 @@ noncomputable def glue :
     ProgressiveGraph.Diagram S (L + R) (PartialVerticalMatch.wireCount m.lowerJoin.glue upper) .point :=
   Proofs.ProgressiveGluing.glueCollar m
 
+theorem glue_eq_upperJoin : m.glue = m.upperJoin.glue := by rfl
+
 /-- Renaming through both splices identifies the two original contact IDs. -/
 theorem glue_matches_contact (w : PartialVerticalMatch.Contact lower) :
     PartialVerticalMatch.lowerId (upper := upper)
