@@ -2,7 +2,7 @@ module
 
 import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.DirectSequence.Native.Thms
-import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.DirectSequence.Enclosing.Native.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.DirectSequence.Enclosing.Framed.Native.Thms
 
 open Silmaril.Wasm
 open Silmaril.Wasm.Execution
@@ -466,5 +466,79 @@ example {target : Core.Config Unit}
     (a := callTrapStart) ⟨trivial, trivial⟩).mp path
   exact ⟨phase, Enclosing.trap_bypasses (.active (.label _ _) trivial) run,
     by rw [Enclosing.v1_to_lime, Enclosing.lime_to_core g, eq]⟩
+
+open DirectSequence.Enclosing
+
+private def recipient : Frame := ⟨[i32 41], {}⟩
+
+private theorem framedSuccess :
+    Framed.Runs enclosingCall (outer firstCallee) (.label (.active .call)) (.done (.values [i32 28])) :=
+  Framed.finish_run callContinued (.values _) rfl
+
+private theorem framedTrap :
+    Framed.Runs enclosingCall (outer trappingCallee) (.label (.active .call)) (.done .trap) :=
+  Framed.finish_run callTrap .trap trivial
+
+example : V1.Execution.Steps CallFrame.v1NoHost
+    (Framed.v1Config (outerStore firstCallee) recipient enclosingCall (outer firstCallee).site (.label (.active .call)))
+    ⟨outerStore firstCallee, recipient, [.frame 1 callParent [.source (.intConst .i32 28)]]⟩ := by
+  have atExit := (Framed.label_run callContinued).tail (Framed.fact (.leaveLabel (.values [i32 28])))
+  exact (Framed.v1_run_iff (enclosingCallGuard firstCallee regularGuard) (enclosingCallTyped firstCallee)
+    (a := .label (.active .call)) ⟨trivial, trivial⟩).mpr ⟨_, atExit, rfl, rfl⟩
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (Framed.v1Config (outerStore firstCallee) recipient enclosingCall (outer firstCallee).site (.label (.active .call))).toLime
+    ⟨(outerStore firstCallee).mapCode V1.Func.toLime, recipient, [.source (.intConst .i32 28)]⟩ := by
+  rw [Framed.v1_to_lime]
+  have g := Enclosing.guard_to_lime (enclosingCallGuard firstCallee regularGuard)
+  exact (Framed.lime_run_iff g (enclosingCallTyped firstCallee)
+    (a := .label (.active .call)) ⟨trivial, trivial⟩).mpr ⟨_, framedSuccess, rfl, rfl⟩
+
+example : Core.Steps Profile.spec noHost
+    (Framed.v1Config (outerStore trappingCallee) recipient enclosingCall (outer trappingCallee).site
+      (.label (.active .call))).toLime.toCore
+    ⟨((outerStore trappingCallee).mapCode V1.Func.toLime).toCore, recipient.toCore, [.trap]⟩ := by
+  have g := Enclosing.guard_to_lime (enclosingCallGuard trappingCallee failingGuard)
+  rw [Framed.v1_to_lime, Framed.lime_to_core recipient g]
+  exact (Framed.core_run_iff (Enclosing.guard_to_core g) (enclosingCallTyped trappingCallee)
+    (a := .label (.active .call)) ⟨trivial, trivial⟩).mpr ⟨_, framedTrap, trivial, rfl⟩
+
+example {target : Core.Config Unit}
+    (path : Core.Steps Profile.spec noHost
+      (Framed.v1Config (outerStore trappingCallee) recipient enclosingCall (outer trappingCallee).site
+        (.label callTrapStart)).toLime.toCore target) :
+    ∃ phase, Framed.Unwinding enclosingCall (outer trappingCallee).site phase ∧
+      target = (Framed.v1Config (outerStore trappingCallee) recipient enclosingCall
+        (outer trappingCallee).site phase).toLime.toCore := by
+  have g := Enclosing.guard_to_lime (enclosingCallGuard trappingCallee failingGuard)
+  rw [Framed.v1_to_lime, Framed.lime_to_core recipient g] at path
+  obtain ⟨phase, run, _, eq⟩ := (Framed.core_run_iff (Enclosing.guard_to_core g) (enclosingCallTyped trappingCallee)
+    (a := .label callTrapStart) ⟨trivial, trivial⟩).mp path
+  exact ⟨phase, Framed.trap_unwinds (.label (.active (.label _ _) trivial)) run,
+    by rw [Framed.v1_to_lime, Framed.lime_to_core recipient g, eq]⟩
+
+private def twoResults : Enclosing.Context :=
+  ⟨{ callSequence with results := [.int .i64, int32] }, [Value.int .i64 11], []⟩
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (Framed.limeConfig ((outerStore firstCallee).mapCode V1.Func.toLime) recipient twoResults
+      (outer firstCallee).site (.label (.active .call)))
+    ⟨(outerStore firstCallee).mapCode V1.Func.toLime, recipient,
+      [.source (.intConst .i64 11), .source (.intConst .i32 17)]⟩ := by
+  have guarded := Enclosing.guard_to_lime (enclosingCallGuard firstCallee regularGuard)
+  have g : Enclosing.LimeGuard ((outerStore firstCallee).mapCode V1.Func.toLime) twoResults (outer firstCallee) :=
+    ⟨guarded.invocation, ⟨guarded.continuation.readOnly, guarded.continuation.typed,
+      guarded.continuation.resolves, guarded.continuation.allocated⟩⟩
+  have typed : twoResults.Typed (outer firstCallee) := rfl
+  have path := Framed.finish_run (Enclosing.invoke_run (ctx := twoResults) outerNormal)
+    (.values [Value.int .i64 11, i32 17]) rfl
+  exact (Framed.lime_run_iff g typed (a := .label (.active .call)) ⟨trivial, trivial⟩).mpr
+    ⟨_, path, rfl, rfl⟩
+
+example : ¬ Framed.Admitted (ctx := twoResults) (site := (outer firstCallee).site)
+    (.exit (.values [i32 17, Value.int .i64 11])) := by
+  intro wrongOrder
+  change [int32, NumType.int .i64] = [NumType.int .i64, int32] at wrongOrder
+  cases wrongOrder
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence

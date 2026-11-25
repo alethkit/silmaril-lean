@@ -22,43 +22,6 @@ open StraightLine
 open Computed (coreSyntax)
 open Computed.Sequence (coreSource)
 
-private abbrev emit {site : Sequence.Site} := Sequence.emit (site := site) coreSyntax
-
-private theorem label_result {site : Site} {q : Sequence.State site.body} {out : List Admin}
-    (ready : Sequence.Admitted site.body q) (pop : LabelExit site.arity [] (Sequence.coreCode site.body q) out) :
-    ∃ result, Finished site q result ∧ out = Nested.resultCode coreValues .trap result := by
-  cases q with
-  | active i callee rest =>
-    exact (StraightLine.core_active_label_stays ready.1 pop).elim
-  | running stack rest =>
-    cases rest with
-    | nil =>
-      have h : LabelExit site.arity [] (Nested.resultCode coreValues .trap (.values stack)) out := by
-        simpa only [Sequence.coreCode, Sequence.render, List.map_nil, List.append_nil, Nested.resultCode] using pop
-      exact ⟨.values stack, .values stack, Nested.core_label_result h⟩
-    | cons op rest =>
-      cases op with
-      | numeric op =>
-        have h := pop
-        change LabelExit site.arity [] ((coreValues stack ++ emit (.numeric op) :: rest.map emit)) out at h
-        cases op <;> exact (Computed.core_label_stays (stack := stack.map Value.toCore) rfl (by simp [emit, Sequence.emit, Computed.Prefix.emit, coreSyntax])
-          (by simp [emit, Sequence.emit, Computed.Prefix.emit, coreSyntax]) (by simp [emit, Sequence.emit, Computed.Prefix.emit, coreSyntax, Admin.IsReturnCallRef])
-          (by simp [emit, Sequence.emit, Computed.Prefix.emit, coreSyntax]) (by simp [emit, Sequence.emit, Computed.Prefix.emit, coreSyntax]) h).elim
-      | call i =>
-        have h := pop
-        change LabelExit site.arity [] ((coreValues stack ++ emit (.call i) :: rest.map emit)) out at h
-        exact (Computed.core_label_stays (stack := stack.map Value.toCore) (head := .plain (.call (site.body.target i).index))
-          rfl (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp) (by simp) h).elim
-  | trapped stack rest =>
-    by_cases unfinished : ¬ (stack = [] ∧ rest = [])
-    · have h := pop
-      change LabelExit site.arity [] ((coreValues stack ++ .trap :: rest.map emit)) out at h
-      exact (Computed.core_label_stays (stack := stack.map Value.toCore) (head := .trap)
-        rfl (by simp) (by simp) (by simp [Admin.IsReturnCallRef]) (by simp)
-        (fun _ => by simpa using not_and_or.mp unfinished) h).elim
-    · obtain ⟨rfl, rfl⟩ := not_not.mp unfinished
-      exact ⟨.trap, .trap, Nested.core_label_result pop⟩
-
 theorem body_expression (p : Program) :
     expression p.coreFunc.body = Sequence.coreCode p.site.body (.running [] p.code) := by
   change (p.body coreSource).map Admin.plain = p.body coreSyntax
@@ -113,8 +76,8 @@ theorem readback {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runt
     rcases Computed.core_body_step_cases step with ⟨mid, move, eq⟩ | ⟨_, pop, eq⟩
     · obtain ⟨out, edge, rfl⟩ := (Sequence.core_step_iff g.body ready).mp move
       exact ⟨.label out, underLabel edge, eq⟩
-    · obtain ⟨result, finished, rfl⟩ := label_result ready pop
-      exact ⟨.exit result, fact (.leaveLabel finished), eq⟩
+    · obtain ⟨result, finished, rfl⟩ := Sequence.core_label_result ready pop
+      exact ⟨.exit result, fact (.leaveLabel (by cases finished <;> constructor)), eq⟩
   | exit result =>
     exact ⟨.done result, fact (.leaveFrame result (result_arity ready)), Nested.core_frame_result (caller := caller) step⟩
   | done result => exact (Nested.core_result_stuck step).elim

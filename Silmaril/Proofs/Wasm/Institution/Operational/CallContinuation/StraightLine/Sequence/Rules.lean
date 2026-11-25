@@ -110,6 +110,21 @@ private theorem attached_typed {site : Site} {i : site.TargetId} {a b : CallFram
     simpa [attach, Admitted, ResumeTyped, CallFrame.State.saved, WellTyped, Prefix.stackTypes,
       List.map_append, List.reverse_append, typed] using resume
 
+theorem finished_typed {site : Site} {q : State site} {r : Nested.Result}
+    (finished : Finished site q r) (ready : Admitted site q) : ResultTyped site r := by
+  cases finished with
+  | values stack =>
+    change some (Prefix.stackTypes stack) = some site.results.reverse at ready
+    exact List.reverse_injective (Option.some.inj ready)
+  | trap => trivial
+
+theorem result_arity {site : Site} {r : Nested.Result} (typed : ResultTyped site r) : ResultArity site r := by
+  cases r with
+  | values stack =>
+    change stack.map Value.type = site.results at typed
+    simpa [ResultArity] using congrArg List.length typed
+  | trap => trivial
+
 theorem closed {site : Site} (guard : site.TypedTargets) {a b : State site}
     (ready : Admitted site a) (edge : Edge site a b) : Admitted site b := by
   cases invert edge with
