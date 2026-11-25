@@ -1,5 +1,6 @@
 module
 
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.CallDescent.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Feedback.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 
@@ -315,5 +316,104 @@ example : ¬ InfiniteTrace (Step (feedbackPrimitives cutoff)) ⟨start (entry 1)
 
 example : ¬ Feedback.Productive (feedbackPrimitives cutoff) (entry 1) 20 :=
   fun productive => productive.no_block .halt cutoffObserved.1 cutoffObserved.2
+
+-- A linked φ member finishes a call to its captured helper and then
+-- recursively calls itself with a state-changing suffix still pending.
+private abbrev recursionArgs := callable :: callable :: fn.args
+
+private def descendTickNode : NestedTheta.Node (Instruction Op) recursionArgs [] answer :=
+  ⟨answer, .base (.simple (.primitive .tick)), .cons (.arg (.tail (.tail (.tail .head)))) .nil,
+    fun i => i.elim0⟩
+
+private def helperNode : NestedTheta.Node (Instruction Op) recursionArgs [answer] answer :=
+  ⟨carried, .base (.simple (.apply fn)), .cons (.arg (.tail .head)) (.cons (.arg (.tail (.tail .head)))
+    (.cons (.output (0 : Fin 1) .head) .nil)), fun i => i.elim0⟩
+
+private def descendNode : NestedTheta.Node (Instruction Op) recursionArgs [answer, answer] answer :=
+  ⟨carried, .base (.simple (.apply fn)), .cons (.arg .head) (.cons (.arg (.tail (.tail .head)))
+    (.cons (.output (1 : Fin 2) .head) .nil)), fun i => i.elim0⟩
+
+private def suffixTickNode : NestedTheta.Node (Instruction Op) recursionArgs [answer, answer, answer] answer :=
+  ⟨answer, .base (.simple (.primitive .tick)), .cons (.output (2 : Fin 3) .head) .nil, fun i => i.elim0⟩
+
+private def descentSuffix :
+    NestedTheta.Term (Instruction Op) recursionArgs [answer, answer, answer] [answer] answer :=
+  .bind suffixTickNode (fun i => i.elim0) (.ret (.cons (.output (3 : Fin 4) .head) .nil))
+
+private def descentBody :
+    NestedTheta.Term (Instruction Op) recursionArgs [] [answer, answer, answer, answer] answer :=
+  .bind descendTickNode (fun i => i.elim0) <| .bind helperNode (fun i => i.elim0) <|
+    .bind descendNode (fun i => i.elim0) descentSuffix
+
+private def descentMember : LambdaTerm Op [callable, callable] [] fn :=
+  ⟨[callable, callable], .cons (.arg (.tail .head)) (.cons (.arg .head) .nil),
+    [answer, answer, answer, answer], descentBody⟩
+
+private def descentGroup : PhiTerm Op [] [[callable]] [fn] :=
+  ⟨[callable], .cons (.output (0 : Fin 1) .head) .nil, .cons descentMember .nil⟩
+
+private def descentModule : OmegaTerm Op [] [callable, callable] [[callable], [callable]] :=
+  ⟨.bind (.phi group) <| .bind (.phi descentGroup) <|
+    .ret (.cons (.output (0 : Fin 2) .head) (.cons (.output (1 : Fin 2) .head) .nil))⟩
+
+private def descentExports : Tuple machine.Val [callable, callable] :=
+  Recursive.linkGraph machine 51 descentModule.toGraph .nil
+
+private def descentHelper : machine.Val callable := descentExports.get .head
+private def descentCallee : machine.Val callable := descentExports.get (.tail .head)
+
+private def descentInputs (wire : Nat) : Tuple machine.Val recursionArgs :=
+  .cons descentCallee (.cons descentHelper (args 0 wire))
+
+private theorem descentHelperOpened (wire : Nat) :
+    Job.openClosure machine descentHelper (args 0 wire) = .region memberBody (args 0 wire) PUnit.unit :=
+  congrArg (fun term => Job.region (m := machine) (past := []) term (args 0 wire) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph memberBody)
+
+private theorem descentOpened (wire : Nat) :
+    Job.openClosure machine descentCallee (args 0 wire) = .region descentBody (descentInputs wire) PUnit.unit :=
+  congrArg (fun term => Job.region (m := machine) (past := []) term (descentInputs wire) PUnit.unit)
+    (NestedTheta.Term.toTerm_toGraph descentBody)
+
+private theorem descentHelperReturns (wire store : Nat) :
+    Eval primitives (.call descentHelper (args 0 wire)) store (.returned (stateValue wire) store) := by
+  refine .call ?_
+  rw [descentHelperOpened]
+  exact .bind (node := gammaNode) (.gamma (tag := (0 : Fin 2)) (.ret _ _ _ _)) (.ret _ _ _ _)
+
+private def descentEntry (wire store : Nat) : CallDescent.Entry machine Nat :=
+  ⟨⟨answer, ⟨fn.args, descentCallee, args 0 wire⟩⟩, store⟩
+
+private def descentPending (wire : Nat) : Descent.Pending machine answer answer :=
+  .bind (past := [answer, answer]) descentSuffix (descentInputs wire)
+    (stateValue (wire + 1), (stateValue (wire + 1), PUnit.unit)) .empty
+
+private theorem descentPrefix (wire store : Nat) :
+    CallDescent.Prefix primitives (descentEntry wire store).call.openBody store
+      (descentEntry (wire + 1) (store + 1)) (descentPending wire) := by
+  change CallDescent.Prefix primitives (Job.openClosure machine descentCallee (args 0 wire)) store _ _
+  rw [descentOpened]
+  refine .later (node := descendTickNode) (.primitive { tickSite with input := stateValue wire }
+    (_root_.Part.mem_some _)) ?_
+  refine .later (node := helperNode) (.apply (fn := fn) (descentHelperReturns (wire + 1) (store + 1))) ?_
+  exact .inside (node := descendNode) (.apply (fn := fn) descentCallee (args 0 (wire + 1)) (store + 1))
+
+private def descentRun : CallDescent.Run primitives where
+  entry n := descentEntry (7 + n) (20 + n)
+  pending n := descentPending (7 + n)
+  reaches n := descentPrefix (7 + n) (20 + n)
+
+private def descentHalt : Stack machine (descentRun.entry 0).call.results answer := .halt
+
+example : InfiniteTrace (Step primitives) ⟨start (.call descentCallee (args 0 7)), 20⟩ :=
+  descentRun.infinite descentHalt
+
+-- The second selected recursive call sees two distinct live suffix frames.
+-- Each earlier activation completed a helper call and kept its updated local.
+example : ∃ (micro : Nat → Config machine Nat answer) (indices : Nat → Nat),
+    CallDescent.Checkpoints descentRun descentHalt micro indices ∧
+    micro (indices 2) = (descentEntry 9 22).config ((descentPending 8).push ((descentPending 7).push .halt)) := by
+  obtain ⟨micro, indices, checked⟩ := descentRun.checkpoints descentHalt
+  exact ⟨micro, indices, checked, checked.atEntry 2⟩
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.Partial.Tests
