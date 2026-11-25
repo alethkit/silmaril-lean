@@ -4,6 +4,7 @@ import Silmaril.Semantics.ITree.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Case.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.DecisionTree.Reorder.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.SumCall.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Response.Mixed.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Kleisli.Thms
 import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
 
@@ -929,6 +930,76 @@ example : AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx
     Eqv Γ outputSort strict (sumProgram true).source (sumProgram false).source :=
   Response.SumCall.endpoint_reflection sig sumSig outerVisible ctx_pure slots_typed strict
     (sumProgram true) (sumProgram false) (sumTyped true) (sumTyped false)
+
+section ResponseDependentRequest
+
+abbrev afterRead := extendSorts false sorts
+
+abbrev subsequentArgs (fromReply : Bool) : SumArgs sig sumSig afterRead () :=
+  if fromReply then fun _ => .var 0 else fun _ => .var 2
+
+abbrev mixedProgram (fromReply : Bool) : Response.Mixed.Program sig sumSig true sorts :=
+  .atom Prim.readOther (fun _ => .var 0)
+    (.sum () (subsequentArgs fromReply)
+      (.atom Prim.read (fun _ => .var 0) (.ret (.var 0)))
+      (.atom Prim.readOther (fun _ => .var 0)
+        (.atom Prim.readAlt (fun _ => .var 0) (.ret (.var 0)))))
+
+private theorem mixedTyped (fromReply : Bool) :
+    Response.Mixed.Program.WellTyped sig sumSig strict (mixedProgram fromReply) := by
+  have hAlt : ¬ IsPure (⊥ : Fx) Prim.readAlt := by
+    change strict ≠ (⊥ : Fx)
+    decide
+  have hArgs : ∀ i, DeclaredPure (ε := Fx) sig (subsequentArgs fromReply i) := by
+    cases fromReply <;> exact fun _ => trivial
+  exact ⟨fun _ => trivial, read_other_not_pure, le_rfl, hArgs, le_rfl,
+    ⟨fun _ => trivial, read_not_pure, le_rfl, trivial⟩,
+    ⟨fun _ => trivial, read_other_not_pure, le_rfl, fun _ => trivial, hAlt, le_rfl, trivial⟩⟩
+
+/-- The second visible request uses the actual first reply as its argument.
+The response tag of that request then chooses the next request. -/
+example :
+    ∃ d : Derivation (Prim ⊕ Unit) Γ₀ Γ.toBoundCtx (mixedProgram true).native outputSort,
+    ∃ k : Tree sig sorts false →
+        ITree.Tree (Response.SumCall.Event sig sumSig sorts) (Atom sig sorts true),
+      d.denote (Ty.denote (Atom sig sorts)) (Response.SumCall.instructions (ε := Fx) sig sumSig sorts)
+          (fun x => x.elim) (Response.variableEnv sig sorts slots_typed Tree.var) =
+          ITree.vis (.atom Prim.readOther (fun _ => Tree.var 0)) k ∧
+      ∀ reply, ∃ branch : SumResponse sig sumSig sorts () →
+          ITree.Tree (Response.SumCall.Event sig sumSig sorts) (Atom sig sorts true),
+        k reply = ITree.vis (.sum () (fun _ => reply)) branch ∧
+        (∀ a, branch (.inl a) = ITree.vis (.atom Prim.read (fun _ => a)) (fun b => ITree.ret ⟨b⟩)) ∧
+        (∀ a, branch (.inr a) = ITree.vis (.atom Prim.readOther (fun _ => a)) (fun b =>
+          ITree.vis (.atom Prim.readAlt (fun _ => b)) (fun c => ITree.ret ⟨c⟩))) := by
+  obtain ⟨d, hd⟩ := Response.Mixed.eval_exists sig sumSig sorts slots_typed strict
+    (mixedProgram true) (mixedTyped true)
+  exact ⟨d, _, (hd Tree.var).trans rfl, fun _ => ⟨_, rfl, fun _ => rfl, fun _ => rfl⟩⟩
+
+private def treeSlot {n : Nat} {ss : Fin n → Bool} {a : Bool} : Tree sig ss a → Option Nat
+  | .var i => some i.val
+  | .op _ _ => none
+
+private def sumArgSlot : Response.Mixed.Program sig sumSig true sorts → Option Nat
+  | .atom _ _ (.sum _ args _ _) => treeSlot (args 0)
+  | _ => none
+
+private theorem reply_distinguished :
+    ¬ AbortEquiv (⊥ : Fx) Γ₀ Γ.toBoundCtx (mixedProgram true).native
+      (mixedProgram false).native outputSort := by
+  intro h
+  have he := Response.Mixed.native_eq_implies_eq sig sumSig outerVisible slots_typed strict
+    (mixedProgram true) (mixedProgram false) (mixedTyped true) (mixedTyped false) h
+  have hslots : (some 0 : Option Nat) = some 2 := congrArg sumArgSlot he
+  cases hslots
+
+/-- Replacing the response by an ambient variable of the same sort changes
+the source class at the same strict bound. -/
+example : ¬ Eqv Γ outputSort strict (mixedProgram true).source (mixedProgram false).source := by
+  intro he
+  exact reply_distinguished ((Response.Mixed.endpoint_reflection sig sumSig outerVisible ctx_pure
+    slots_typed strict (mixedProgram true) (mixedProgram false) (mixedTyped true) (mixedTyped false)).mpr he)
+
+end ResponseDependentRequest
 
 end EffectfulSumScrutinee
 
