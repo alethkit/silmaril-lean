@@ -47,16 +47,49 @@ contains another θ. The test exercises both selectors and different
 sufficient iteration bounds.
 [Fixture](../../tests/ssa/RVSDGNestedTheta.lean)
 
-## Categorical and Petri hooks
+## Categorical interpretation
 
-The categorical θ constructor can use the existing selector coproduct at
-`K₂ ⊗ X`. Route port zero's zero tag to the return summand and its one tag
-to the feedback summand of `X ⨿ X`, then apply Elgot iteration in the
-computation category. `Kind.Exec` supplies the finite-return criterion
-for an adequacy theorem with a specified categorical observation. Its
-body relation is at the carried interface, with ambient wires captured
-by the surrounding binder. The primitive/γ denotation can retain its
-existing domain.
+The Kleisli interpretation keeps entry and producer tuples in the Cartesian
+value category of types. Pure wires can project, duplicate and discard these
+values, including state snapshots. A let reads the typed wires, runs the node
+once, and passes the retained scope and appended result to its continuation.
+Each child opens a fresh scope on its entry tuple. Primitives are the pure
+images of the total operations of a runtime model. The selector and payload
+form the finite coproduct of one payload type per tag, so a γ uses the
+Kleisli copair by indexing the arm with the tag. The branch's computation
+runs before the continuation. [Definitions](../../Silmaril/SSA/RVSDG/NestedTheta/Categorical/Defs.lean)
+
+A θ first computes its recursively interpreted body, then sends tag zero
+to the left return summand and tag one to the right feedback summand. The
+chosen Kleisli coproduct is compared to the ordinary sum before applying
+the repository's iteration operator. `iterate_stepArrow` identifies this
+categorical iteration with the operation in the fold. The fold takes a
+lawful monad on types with an iteration operation, and the Elgot laws apply
+when the monad supplies them. The categorical interpretation of a numbered
+graph uses its typed table decoder, so the syntactic round trip proves
+agreement with the term arrow at fixed numbering. The Elgot conventions use
+Ghalayini and Krishnaswami, *The Denotational Semantics of SSA* (2024),
+arXiv:2411.09347v1, §§5.1 and 5.3. The versioned PDF SHA-256 is
+`5194f35c8375fc1c2ffd88d62bdf1c19d961894d1cc518ad68b5bb673b4f4114`.
+[Theorems](../../Silmaril/SSA/RVSDG/NestedTheta/Categorical/Thms.lean) · [PDF](https://arxiv.org/pdf/2411.09347v1)
+
+In deterministic `Part`, membership in the denotation is equivalent to
+`Term.Exec`, including at an open binding prefix. The proof uses `Part`'s
+finite iteration derivation for each θ, relates its stop and restart
+premises to complete child derivations, and composes the node and its
+continuation by the membership rule for bind. The result applies without a
+nesting limit. A graph's partial return is exactly the output of its typed
+decoder's unbounded derivation and thus of its direct evaluator at some
+sufficient fuel. The fixture checks finite returns through nested θ and γ,
+including a successful selection with an unselected arm that has no finite
+return. Selecting that arm instead yields `Part.none`.
+
+`Part.none` characterizes the absence of any finite return. A single fuel
+failure leaves open whether greater fuel succeeds. An infinite sequence of
+completed outer iterations also cannot account for an inner call with no
+return. A general infinite-execution characterization, the ordered runtime
+interpretation of nested regions, a general premonoidal adapter, and a
+nested-region institution remain separate from this adequacy theorem.
 
 The [nested firing semantics](rvsdg-nested-petri.md) proves the
 finite-completion equivalence against the unbounded term relation. It
@@ -65,9 +98,10 @@ uses explicit child activations and fresh θ re-entry, including under γ.
 ## Reproduce
 
 ```sh
-lake build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Thms
+lake build --wfail +Silmaril.SSA.RVSDG.NestedTheta.Categorical.Thms
 lake env lean -DautoImplicit=false -DwarningAsError=true tests/ssa/RVSDGNestedTheta.lean
-make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.NestedTheta.Thms
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.NestedTheta.Categorical.Thms
+lake env leanchecker Silmaril.SSA.RVSDG.NestedTheta.Categorical.Thms
 ```
 
 The [interprocedural graph interfaces](rvsdg-interprocedural.md) use these
