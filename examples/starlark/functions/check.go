@@ -126,6 +126,38 @@ f(events.append(1), c=events.append(2), *[events.append(3)], **{3: events.append
 	fmt.Println("PASS complete argument packs, operand ordering, and argument errors")
 }
 
+func checkRangeSpread() {
+	const setup = `def note(label, value):
+    events.append(label)
+    return value
+def pack(a=7, *rest, tag="default"):
+    events.append(5)
+    return (a, rest, tag)
+events = []
+`
+	g, err := run(setup + `empty = pack(*range(0))
+descending = pack(*range(10, 3, -2))
+mixed = note(0, pack)(note(1, 9), tag=note(2, "mixed"), *note(3, range(10, 3, -2)[::-2]))`)
+	require(err == nil, fmt.Sprint(err))
+	require(g["empty"].String() == `(7, (), "default")` &&
+		g["descending"].String() == `(10, (8, 6, 4), "default")` &&
+		g["mixed"].String() == `(9, (4, 8), "mixed")` &&
+		g["events"].String() == "[5, 5, 0, 1, 2, 3, 5]", fmt.Sprint(g))
+	fmt.Println("PASS empty, descending and sliced range spreads preserve positional order and evaluate once")
+
+	for _, tc := range []struct{ call, want, effects string }{
+		{`pack(a=note(1, 9), *note(2, range(1)), **note(3, []))`, "argument after ** must be a mapping", "[1, 2, 3]"},
+		{`pack(a=note(1, 9), *note(2, range(1)), **note(3, {}))`, `multiple values for parameter "a"`, "[1, 2, 3]"},
+		{`pack(a=note(1, 9), *len(note(2, 8)), **note(3, {}))`, "has no len", "[1, 2]"},
+		{`pack(a=note(1, 9), *range(note(2, 0), 4, 0), **note(3, []))`, "step argument must not be zero", "[1, 2]"},
+	} {
+		g, err := run(setup + "out = [99]\nout[0] = " + tc.call)
+		checkError(err, tc.want)
+		require(g["out"].String() == "[99]" && g["events"].String() == tc.effects, fmt.Sprint(g))
+	}
+	fmt.Println("PASS operand failure skips later operands and mapping validation precedes binding")
+}
+
 func checkDefaults() {
 	g, err := run(`counter = []
 def f(xs=[], stamp=counter.append(4)):
@@ -185,6 +217,7 @@ func main() {
 	checkReentry()
 	checkStoreAndFreeze()
 	checkArguments()
+	checkRangeSpread()
 	checkDefaults()
 	checkNativeDefaults()
 }

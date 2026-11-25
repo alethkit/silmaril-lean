@@ -8,13 +8,25 @@ public import Silmaril.Languages.Starlark.Lists.Operational.Defs
 
 namespace Silmaril.Languages.Starlark.Functions.Lowering
 
-open Lists (State Outcome)
-open Lists.Iteration (Flow truth)
+open Lists (State Outcome Address Entry RangeValue listElements tupleElements dictEntries)
+open Lists.Iteration (Cursor CursorCollects Flow truth)
 
 /-- The closure premises are indexed by the prepared declaration and its
 permission to call from the current declaration set. -/
 abbrev ClosureRuns (available : List DeclarationId) :=
   Prepared available → State → Outcome Flow → Prop
+
+/-- Positional spreading reads ordered elements without allocating a language value. -/
+inductive ExpandsStar (state : State) : Option Lists.Value → Outcome (List Lists.Value) → Prop where
+  | empty : ExpandsStar state none (.ok [] state)
+  | list (address : Address) : ExpandsStar state (some (.list address)) (listElements address state)
+  | tuple (address : Address) : ExpandsStar state (some (.tuple address)) (tupleElements address state)
+  | dict (address : Address) : ExpandsStar state (some (.dict address))
+      (Outcome.resume (dictEntries address state) fun entries => pure (entries.map Entry.key))
+  | range {span : RangeValue} {values : List Lists.Value} :
+      CursorCollects (Cursor.ofRange span) values → ExpandsStar state (some (.range span)) (.ok values state)
+  | invalid {value : Lists.Value} : ¬ Builtins.IsCollection value →
+      ExpandsStar state (some value) (.error .invalidStar state)
 
 /-- Expansion runs only after all operands have evaluated. The pinned
 profile checks the mapping before the iterable. -/
@@ -24,11 +36,11 @@ inductive Expands (args : EvaluatedArguments) (state : State) : Outcome Actual �
       Expands args state (.error error next)
   | spreadError {keys : List (String × Lists.Value)} {next final : State} {error : Lists.Error} :
       expandStarStar args.starStar state = .ok keys next →
-      expandStar args.star next = .error error final →
+      ExpandsStar next args.star (.error error final) →
       Expands args state (.error error final)
   | success {keys : List (String × Lists.Value)} {values : List Lists.Value} {next final : State} :
       expandStarStar args.starStar state = .ok keys next →
-      expandStar args.star next = .ok values final →
+      ExpandsStar next args.star (.ok values final) →
       Expands args state (.ok ⟨args.positional ++ values, args.keywords ++ keys⟩ final)
 
 /-- Dispatch shares value-level call preparation, including argument binding,

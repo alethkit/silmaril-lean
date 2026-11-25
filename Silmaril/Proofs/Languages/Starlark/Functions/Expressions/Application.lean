@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Starlark.Functions.Builtins.Thms
 public import Silmaril.Languages.Starlark.Functions.Expressions.Denotation.Defs
 public import Silmaril.Languages.Starlark.Functions.Expressions.Operational.Defs
+import Silmaril.Languages.Starlark.Lists.Iteration.Thms
 
 public section
 
@@ -11,11 +12,42 @@ namespace Silmaril.Proofs.Languages.Starlark.Functions.Expressions
 open Silmaril.Languages.Starlark.Functions
 open Silmaril.Languages.Starlark.Functions.Lowering
 open Silmaril.Languages.Starlark.Lists
-open Silmaril.Languages.Starlark.Lists.Iteration (Flow)
+open Silmaril.Languages.Starlark.Lists.Iteration (Flow cursorCollects_iff_collect)
+
+private theorem expandStar_eq {state : State} {star : Option Value} {out : Outcome (List Value)}
+    (ran : ExpandsStar state star out) : expandStar star state = out := by
+  cases ran with
+  | dict address =>
+    cases read : dictEntries address state <;>
+      simp [expandStar, Functor.map, EStateM.map, Outcome.resume, read] <;> rfl
+  | range yields =>
+    exact congrArg (fun values => EStateM.Result.ok values state) ((cursorCollects_iff_collect _ _).mp yields)
+  | @invalid value unsupported => cases value <;> simp_all [Builtins.IsCollection] <;> rfl
+  | _ => rfl
+
+private theorem expandsStar_denote (state : State) (star : Option Value) :
+    ExpandsStar state star (expandStar star state) := by
+  cases star with
+  | none => exact .empty
+  | some value =>
+    cases value with
+    | list address => exact .list address
+    | tuple address => exact .tuple address
+    | dict address => exact (expandStar_eq (.dict address)).symm ▸ .dict address
+    | range => exact .range ((cursorCollects_iff_collect _ _).mpr rfl)
+    | _ => exact .invalid (by simp [Builtins.IsCollection])
+
+theorem expandsStar_iff_expandStar (state : State) (star : Option Value) (out : Outcome (List Value)) :
+    ExpandsStar state star out ↔ expandStar star state = out :=
+  ⟨expandStar_eq, fun equal => equal ▸ expandsStar_denote state star⟩
 
 theorem expands_eq {state : State} {args : EvaluatedArguments} {out : Outcome Actual}
     (h : Expands args state out) : args.expand state = out := by
-  cases h <;> simp_all [EvaluatedArguments.expand, bind, EStateM.bind, pure, EStateM.pure]
+  cases h with
+  | mappingError mapping =>
+    simp [EvaluatedArguments.expand, mapping, bind, EStateM.bind]
+  | spreadError mapping spread | success mapping spread =>
+    simp [EvaluatedArguments.expand, mapping, expandStar_eq spread, bind, EStateM.bind, pure, EStateM.pure]
 
 private theorem expands_denote (state : State) (args : EvaluatedArguments) :
     Expands args state (args.expand state) := by
@@ -26,8 +58,8 @@ private theorem expands_denote (state : State) (args : EvaluatedArguments) :
   | ok keys next =>
     dsimp only
     cases spread : expandStar args.star next with
-    | error error final => exact .spreadError mapping spread
-    | ok values final => exact .success mapping spread
+    | error error final => exact .spreadError mapping (spread ▸ expandsStar_denote next args.star)
+    | ok values final => exact .success mapping (spread ▸ expandsStar_denote next args.star)
 
 private theorem dispatch_eq {program : Program} {available : List DeclarationId} {state : State}
     {callee : Value} {actual : Actual} {out : Outcome Value}

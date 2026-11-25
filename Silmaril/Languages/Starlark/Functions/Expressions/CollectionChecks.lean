@@ -624,4 +624,38 @@ private def rangeExpr (args : List Expr) : Expr := .callPos (.atom (.builtin .ra
       published.exports.lookup "lookup" = some (.string "sliced"))
   | _ => false
 
+-- Both operands run before mapping validation. A valid mapping exposes the
+-- arity error. If evaluating the range fails, the mapping operand is skipped.
+#guard
+  let destination : Binding := ⟨.global, "out"⟩
+  let initial := root.write destination (.scalar (.int 99))
+  let span := rangeExpr [integer 5, integer 1, integer (-2)]
+  let check := fun rangeOperand mapping expected trace =>
+    let expression := Expr.call (note 0 (.atom (.builtin .type))) [] []
+      (some rangeOperand) (some (note 2 mapping))
+    match execute expression, run program (.seq setup (lower expression destination 5).code) initial with
+    | .error error direct, .error loweredError lowered =>
+      error == expected && loweredError == expected && observed direct trace &&
+        decide (direct.heap = lowered.heap ∧ direct.iterators = lowered.iterators ∧
+          (lowered.bindingValue destination).toOption = some (.scalar (.int 99)))
+    | _, _ => false
+  check (note 1 span) (.list []) .invalidStarStar [0, 1, 2] &&
+    check (note 1 span) (.dict []) (.builtinArity .type 1 1 2) [0, 1, 2] &&
+    check (rangeExpr [note 1 (integer 0), integer 4, integer 0]) (.list []) .zeroRangeStep [0, 1]
+
+#guard
+  let pack : Modules.Resolve.Command := .define "pack"
+    { positional := [⟨"a", some starlark%[7]⟩], varargs := some "rest"
+      keywordOnly := [⟨"tag", some starlark%["default"]⟩] }
+    (.ret (some starlark%[(a, rest, tag)]))
+  let commands : List Modules.Resolve.Command := [pack,
+    .assign "empty" starlark%[{(7, (), "default"): True}[pack(*range(0))]],
+    .assign "descending" starlark%[{(10, (8, 6, 4), "default"): True}[pack(*range(10, 3, -2))]],
+    .assign "mixed" starlark%[{(9, (4, 8), "mixed"): True}[pack(9, tag="mixed", *range(10, 3, -2)[::-2])]]]
+  match Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.ok published _) =>
+    ["empty", "descending", "mixed"].all fun name =>
+      decide (published.exports.lookup name = some (.scalar (.bool true)))
+  | _ => false
+
 end Silmaril.Languages.Starlark.Functions.Lowering

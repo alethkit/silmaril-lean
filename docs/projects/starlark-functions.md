@@ -80,11 +80,31 @@ binding with the executable core.
 
 The resolved call form represents positions, named operands, at most one
 `*`, and at most one final `**`. All operand expressions evaluate left to right
-before expansion. The supported `*` sources are lists, tuples and dictionary
-keys. The supported `**` source is a dictionary with string keys. Expansion
+before expansion. The supported `*` sources are lists, tuples, dictionary
+keys and checked ranges. The supported `**` source is a dictionary with string keys. Expansion
 preserves dictionary insertion order. When both expansions are invalid the
 Go profile checks `**` first, after both operand expressions have run. A
 call checks re-entry before binding parameters.
+
+The pinned Bazel prose illustrates positional spreading with lists and
+describes ranges as iterable, leaving range spreading unspecified.
+Pinned Go calls `Iterate` on the `*` value and appends each yielded element,
+so the Go-compatible profile accepts ranges, including slices. The shared
+cursor collects the range in yield order after explicit positional arguments.
+This materializes the argument sequence in host memory with exact integers
+and leaves the language heap and iterator stack alone. Closure activation and
+argument packs still use the existing allocation rules after successful
+binding.
+[Pinned functions][functions] · [Pinned ranges][range] · [Go operand ordering][go-call-compile] · [Go expansion and dispatch][go-call-expand]
+
+The independent `ExpandsStar` range rule uses `CursorCollects`.
+`expandsStar_iff_expandStar` proves exact agreement on yields or errors and
+state. The rule composes with `evaluates_iff_denoteExpr` and `lower_preserves`
+through the existing resolved call profile. The existing quotation and
+resolver already admit a range-producing operand after `*`. Fixtures cover
+mixed arguments, empty, descending and sliced ranges, operand effects, and
+mapping validation before binding.
+[Expansion theorem](../../Silmaril/Languages/Starlark/Functions/Expressions/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/functions/check.go)
 
 Binding checks positional overflow, assigns keywords in appearance order,
 and fills omitted parameters from defaults. It reports duplicate assignment,
@@ -254,8 +274,9 @@ The new built-in rules and subscript primitive compose with
 state after scratch projection. Normalized source and Lean quotation use
 ordinary calls and subscripts. Range truth, length and type are available.
 The `list` and `tuple` built-ins materialize ranges through the same cursor
-as loops. Range spreading, comparison, membership and formatting remain open.
-[Range materialization](starlark-builtins.md#materializing-ranges)
+as loops, and `*` materializes their elements as positional arguments.
+Range comparison, membership and formatting remain open.
+[Range materialization](starlark-builtins.md#materializing-ranges) · [Argument binding](#argument-binding)
 [Pinned range spec][range] · [Pinned subscripts][subscript] · [Go range construction and indexing][go-range] · [Go index validation][go-index] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ### List and tuple slice reads
@@ -584,6 +605,8 @@ extend this profile. Host callable effects remain open.
 [range]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#range
 [for-stmts]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#for-statements
 [go-range-iterator]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L951-L964
+[go-call-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1650-L1728
+[go-call-expand]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L298-L382
 [go-range]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L827-L879
 [go-range-slice]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/library.go#L881-L891
 [go-index-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1334-L1338
