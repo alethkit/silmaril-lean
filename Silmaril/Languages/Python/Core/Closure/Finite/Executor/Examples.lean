@@ -65,12 +65,34 @@ private def propagate : Closure.Executor.State := .delivering residual.project [
 private theorem deliveryRun :
     (semantic table.project).Execution deliver.project [some (.resume result), none]
       propagate [deliver.project, receive, propagate] :=
-  .stepL (Closure.Executor.Step.resume _ caller [older] result)
-    (.stepL (Closure.Executor.Step.receiveError _ caller [older] (.unboundLocal 1)) (.refl _))
+  .stepL (Closure.Executor.StepIn.resume _ caller [older] result)
+    (.stepL (Closure.Executor.StepIn.receiveError _ caller [older] (.unboundLocal 1)) (.refl _))
 
 example : ∃ final states,
     (presented table).Execution deliver [some (.resume result), none] final states ∧
       states.map State.project = [deliver.project, receive, propagate] ∧ final.project = propagate :=
   execution_readback deliveryRun
+
+private def globals : Closure.Executor.GlobalLookup := fun name =>
+  if name = "argument" then some (.int 11) else none
+
+private def startGlobal : State :=
+  .running ⟨heap, frame⟩
+    (.call output (.closure ref (fun _ => .owned 0)) [.readGlobal "argument"] rest) []
+
+#guard
+  match runPrefixIn (code (.read (.capture 0))) globals 12 startGlobal with
+  | ([.enter _, .resume (.ok (.int 11)), .complete (.ok (.int 11))], .finished residual (.ok (.int 11))) =>
+    match residual.rows.lookup 0 with
+    | some (.int 11) => true
+    | _ => false
+  | _ => false
+
+example : advanceIn table Closure.Executor.emptyGlobals startGlobal =
+    some (none, .delivering heap [] (.error (.nameError "argument"))) := rfl
+
+example (value : Bool) : advanceIn table globals
+    (.running ⟨heap, frame⟩ (.call output (.literal (.bool value)) [] rest) [older]) =
+    some (none, .delivering heap [older] (.error .notCallable)) := rfl
 
 end Silmaril.Languages.Python.Core.Closure.Finite.Executor
