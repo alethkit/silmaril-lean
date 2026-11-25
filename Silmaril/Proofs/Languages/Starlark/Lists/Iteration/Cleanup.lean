@@ -88,7 +88,8 @@ private theorem keeps_readSequence (elements : List Value) (index : Value) :
 
 private theorem keeps_readIndex (receiver index : Value) : Preserves (readIndex receiver index) := by
   cases receiver with
-  | scalar | function | builtin | string => exact keeps_throw _
+  | scalar | function | builtin => exact keeps_throw _
+  | string => exact keeps_except _
   | list =>
     rw [readIndex]
     exact keeps_bind (keeps_project _ _) (keeps_readSequence · index)

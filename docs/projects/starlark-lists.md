@@ -14,8 +14,9 @@ denotation and operational rules. Resolved expressions cover three families.
 - Scalar values `None`, Booleans and exact integers, with resolved binding reads.
 - List, tuple and dictionary displays, with arbitrary nesting. The compiler-facing
   dictionary entry spine builds from earlier entries to later entries.
-- Subscript reads from lists, tuples and dictionaries, slice reads from lists,
-  tuples and valid UTF-8 strings, and the one-argument list method `append`.
+- Subscript reads from lists, tuples, dictionaries and valid UTF-8 strings,
+  slice reads from lists, tuples and valid UTF-8 strings, and the one-argument
+  list method `append`.
 
 The statement forms are name and subscript assignment, evaluation for effects,
 `pass`, and sequencing. `Lists.Iteration.Thms` adds function-body conditionals,

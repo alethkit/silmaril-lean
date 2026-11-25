@@ -173,6 +173,48 @@ index = "é"[0]`)
 	fmt.Println("PASS string slice operand and stride failures retain earlier effects")
 }
 
+func stringIndexOperands() {
+	const setup = `def note(marker, value):
+    events.append(marker)
+    return value
+events = []
+`
+	for _, test := range []struct{ expr, want string }{
+		{`"abc"[1]`, "b"},
+		{`"abc"[-1]`, "c"},
+		{`"aé🙂z"[-8]`, "a"},
+		{`"aé🙂z"[7]`, "z"},
+		{`"aé🙂z"[1]`, "\xc3"},
+		{`"aé🙂z"[-6]`, "\xa9"},
+	} {
+		g, err := initSource("out = " + test.expr)
+		require(err == nil && g["out"] == starlark.String(test.want), test.expr+": "+fmt.Sprint(err))
+	}
+	fmt.Println("PASS ASCII and negative byte indexing; DIALECT pinned Go retains an isolated lead or continuation byte")
+
+	g, err := initSource(setup + `out = note(1, "éz")[note(2, -1)]`)
+	require(err == nil && g["out"] == starlark.String("z") && g["events"].String() == "[1, 2]", fmt.Sprint(err))
+	g, err = initSource(setup + `out = note(1, "éz")[note(2, 0)]`)
+	require(err == nil && g["out"] == starlark.String("\xc3") && g["events"].String() == "[1, 2]", fmt.Sprint(err))
+	fmt.Println("PASS string index receiver and operand evaluate once, including for a malformed result")
+
+	for _, test := range []struct{ expr, trace, message string }{
+		{`len(note(1, 9))[note(2, True)]`, "[1]", "has no len"},
+		{`note(1, 42)[len(note(2, 9))]`, "[1, 2]", "has no len"},
+		{`note(1, 42)[note(2, True)]`, "[1, 2]", "unhandled index operation"},
+		{`note(1, "é")[note(2, True)]`, "[1, 2]", "string index: got bool, want int"},
+		{`note(1, "aé🙂z")[note(2, 8)]`, "[1, 2]", "string index 8 out of range [-8:7]"},
+		{`note(1, "aé🙂z")[note(2, -9)]`, "[1, 2]", "string index -9 out of range [-8:7]"},
+		{`note(1, "aé🙂z")[note(2, 2147483648)]`, "[1, 2]", "string index: 2147483648 out of range"},
+		{`note(1, "")[note(2, 0)]`, "[1, 2]", "out of range: empty string"},
+	} {
+		g, err := initSource(setup + "out = " + test.expr + "\nnote(99, None)")
+		require(err != nil && strings.Contains(err.Error(), test.message), test.expr+": "+fmt.Sprint(err))
+		require(g["out"] == nil && g["events"].String() == test.trace, test.expr)
+	}
+	fmt.Println("PASS string index operand, receiver, index type and bounds errors in evaluation order")
+}
+
 func main() {
 	g, err := initSource(`def mark(events, value):
     events.append(value)
@@ -333,4 +375,5 @@ out = driver()`)
 
 	collectionOperands()
 	sliceOperands()
+	stringIndexOperands()
 }

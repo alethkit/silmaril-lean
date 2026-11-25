@@ -74,7 +74,8 @@ private theorem readSequenceAction (values : List Value) (index : Value) :
 
 theorem indexAction (receiver index : Value) : FrameAction (readIndex receiver index) := by
   cases receiver with
-  | scalar | builtin | function | string => exact actionThrow _
+  | scalar | builtin | function => exact actionThrow _
+  | string => exact actionExcept _
   | list => exact actionBind (actionList _) (readSequenceAction · index)
   | tuple => exact actionBind (actionTuple _) (readSequenceAction · index)
   | dict address =>

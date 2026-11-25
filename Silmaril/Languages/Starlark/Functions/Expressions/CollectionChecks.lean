@@ -335,4 +335,67 @@ private def onlyEventsList (state : Lists.State) : Bool :=
       published.exports.lookup "size" = some (.scalar (.int 6)))
   | _, _ => false
 
+-- The first and last bytes of a multibyte string can still be ASCII.
+#guard
+  let initial : Lists.State := { iterators := [0], heap := #[⟨.list [], false⟩] }
+  let check := fun text index expected =>
+    match Lists.readIndex (.string text) (.scalar (.int index)) initial with
+    | .ok (.string value) next =>
+      value == expected && decide (next.heap = initial.heap ∧ next.iterators = initial.iterators)
+    | _ => false
+  check "abc" 1 "b" && check "abc" (-1) "c" &&
+    check "aé🙂z" (-8) "a" && check "aé🙂z" 7 "z"
+
+#guard
+  let check := fun text index expected =>
+    match execute (.index (string text) index) with
+    | .error error _ => error == expected
+    | _ => false
+  check "aé🙂z" (integer 1) .invalidIndexUTF8 &&
+    check "aé🙂z" (integer (-6)) .invalidIndexUTF8 &&
+    check "aé🙂z" (integer 8) (.indexRange 8 8) &&
+    check "aé🙂z" (integer (-9)) (.indexRange (-9) 8) &&
+    check "aé🙂z" (integer 2147483648) (.indexRange 2147483648 8) &&
+    check "" (integer 0) (.indexRange 0 0)
+
+-- Successful and malformed one-byte reads both preserve preceding call effects.
+#guard
+  let target : Binding := ⟨.global, "out"⟩
+  let check := fun subscript =>
+    let expression := Expr.index (note 1 (string "éz")) (note 2 (integer subscript))
+    let initial := root.write target (.string "old")
+    (execute expression, run program (.seq setup (lower expression target 5).code) initial)
+  match check (-1), check 0 with
+  | (.ok (.string "z") success, .ok .next loweredSuccess),
+    (.error .invalidIndexUTF8 failure, .error .invalidIndexUTF8 loweredFailure) =>
+    observed success [1, 2] && observed failure [1, 2] &&
+      observed loweredSuccess [1, 2] && observed loweredFailure [1, 2] &&
+      decide (success.heap = loweredSuccess.heap ∧ failure.heap = loweredFailure.heap ∧
+        (loweredSuccess.bindingValue target).toOption = some (.string "z") ∧
+        (loweredFailure.bindingValue target).toOption = some (.string "old"))
+  | _, _ => false
+
+-- Receiver and index evaluation precede dispatch. Dispatch precedes index type checking.
+#guard
+  let bad := Expr.atom (.scalar (.bool true))
+  let failed := fun receiver index expected trace =>
+    match execute (.index receiver index) with
+    | .error error state => error == expected && observed state trace
+    | _ => false
+  let badCall := fun marker => length (note marker (integer 9))
+  let callError := Lists.Error.builtinType .len (.scalar (.int 9))
+  failed (badCall 1) (note 2 bad) callError [1] &&
+    failed (note 1 (integer 42)) (badCall 2) callError [1, 2] &&
+    failed (note 1 (integer 42)) (note 2 bad) .indexTarget [1, 2] &&
+    failed (note 1 (string "é")) (note 2 bad) .indexType [1, 2]
+
+#guard
+  let commands : List Modules.Resolve.Command := [
+    .define "pick" { positional := [⟨"value", none⟩] } (.ret (some starlark%[value])),
+    .define "last" {} (.ret (some starlark%[pick("aé🙂z")[pick(-1)]])),
+    .assign "out" starlark%[last()]]
+  match Modules.Resolve.runModule commands (fun _ => none) {} with
+  | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.string "z"))
+  | _ => false
+
 end Silmaril.Languages.Starlark.Functions.Lowering

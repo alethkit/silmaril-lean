@@ -187,12 +187,35 @@ shared Lean key policy and pinned Go reject list and dictionary keys even
 after freezing.
 [Dictionary expressions in the pinned spec][dict-expr] · [Hashing in the pinned spec][hashing] · [Go compiler][go-dict-compile] · [Go interpreter][go-dict-run]
 
-Subscript reads accept lists, tuples and dictionaries already supported by
-the shared store. Sequence reads use exact integers and allow negative
-indices. String and byte indexing remain open. Go also supports
-additional indexable types and checks
-sequence indices through a signed 32-bit conversion.
+Subscript reads accept lists, tuples, dictionaries and strings. Sequence
+reads use exact integers and allow negative indices. Go supports
+additional indexable types and checks sequence indices through a signed
+32-bit conversion. Byte indexing remains open.
 [List expressions in the pinned spec][list-expr] · [Tuples in the pinned spec][tuple-expr] · [Subscripts in the pinned spec][subscript] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
+
+### String subscript reads
+
+The receiver and index evaluate once in that order. A receiver evaluation
+error skips the index, and an index evaluation error takes precedence over
+receiver and index validation. Both operand effects survive a validation
+error. The receiver kind determines whether to apply integer indexing.
+For strings, the evaluator checks the index type and bounds against the UTF-8
+byte length before selecting the byte. Negative indices offset from that
+byte length. A successful read returns a one-byte string, with no heap
+allocation.
+
+The pinned spec allows an implementation to disallow operations that
+produce invalid Unicode. In this valid UTF-8 profile, selecting an isolated
+lead or continuation byte raises `invalidIndexUTF8`. Pinned Go preserves
+that byte in a string. For example, `"éz"[0]` produces raw byte `c3` in Go
+and errors in Lean, while `"éz"[-1]` yields `"z"` in both.
+
+The existing subscript rule and direct denotation share this primitive.
+`evaluates_iff_denoteExpr` covers exact outcomes and residual state.
+`lower_preserves` covers the emitted index expression after scratch
+projection, including keeping the destination binding on failure. The
+normalized source and Lean quotation use the existing `receiver[index]` form.
+[Pinned strings][strings] · [Pinned subscripts][subscript] · [Go operand compilation][go-index-compile] · [Go validation][go-index] · [Go byte indexing][go-string-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ### List and tuple slice reads
 
@@ -242,8 +265,7 @@ This is the pinned spec's 8-bit profile that disallows invalid Unicode
 encodings. Pinned Go accepts the malformed bytes from a split sequence or
 byte reversal as a string. For example, `"é"[:1]` yields the byte `c3` in
 Go and raises `invalidSliceUTF8` in Lean. `"aé🙂z"[1:-1]` yields
-`"é🙂"` in both. String subscript reads and the distinct `bytes` value
-type remain open.
+`"é🙂"` in both. The distinct `bytes` value type remains open.
 [Pinned strings][strings] · [Pinned slice spec][slice-expr] · [Go string indexing and slicing][go-string-slice] · [Lean fixtures](../../Silmaril/Languages/Starlark/Functions/Expressions/CollectionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/nested-expressions/check.go)
 
 ## Native expression positions
@@ -480,6 +502,8 @@ extend this profile. Host callable effects remain open.
 [go-dict-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1371-L1380
 [go-dict-run]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/interp.go#L469-L486
 [subscript]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#subscript-expressions
+[go-index-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1334-L1338
+[go-index]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/eval.go#L681-L717
 [slice-expr]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#slice-expressions
 [strings]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#strings
 [go-slice-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1340-L1358
