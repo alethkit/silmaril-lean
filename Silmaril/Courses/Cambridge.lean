@@ -2,6 +2,7 @@ module
 
 public import Silmaril.Courses.Cambridge.L1.Course
 public import Silmaril.Courses.Cambridge.L2.Course
+public import Silmaril.Courses.Cambridge.L2.Denotational
 public import Silmaril.Courses.Cambridge.L3.Course
 public import Silmaril.Courses.Cambridge.Subtyping
 public import Silmaril.Courses.Cambridge.SemanticEquivalence

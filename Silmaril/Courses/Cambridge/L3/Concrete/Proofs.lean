@@ -203,9 +203,11 @@ private theorem termTokens_spelled {term : RawExpr} (h : NamesOk term) :
   | _ => simp_all [termTokens, branchTokens, NamesOk, typeTokens_spelled]
 
 theorem parse_print (term : SourceExpr) : parse (print term) = some term.val := by
-  unfold parse print readWhole
+  unfold parse print
   rw [lex_renderL3 _ (termTokens_spelled term.property)]
-  simp (discharger := omega) [readGroup_tokens, readExpr_tokens, finishExpr]
+  apply readWithPrecedence_of_grouped
+  simpa only [List.append_nil] using
+    readExpr_tokens term.val ((termTokens term.val).length + 1) [] (by omega)
 
 theorem parses_print (term : SourceExpr) : Parses (print term) term.val := parse_print term
 
@@ -219,9 +221,11 @@ theorem print_injective : Function.Injective print := by
   exact Option.some.inj ((parse_print left).symm.trans ((congrArg parse h).trans (parse_print right)))
 
 theorem parseType_printType (type : SourceType) : parseType (printType type) = some type.val := by
-  unfold parseType printType readWhole
+  unfold parseType printType
   rw [lex_renderL3 _ (typeTokens_spelled type.property)]
-  simp (discharger := omega) [readType, readType_tokens, finishType]
+  apply readWithPrecedence_of_grouped
+  simpa only [List.append_nil] using
+    readType_tokens type.val ((typeTokens type.val).length + 1) [] (by omega)
 
 theorem printType_injective : Function.Injective printType := by
   intro left right h

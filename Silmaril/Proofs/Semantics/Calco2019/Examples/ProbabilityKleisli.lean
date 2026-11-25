@@ -17,7 +17,7 @@ set_option backward.isDefEq.respectTransparency false
 set_option backward.isDefEq.respectTransparency.types false
 
 local notation "T" => ofTypeMonad PMF
-local notation "P" => typeCoproducts.kleisli T
+local notation "K" => typeCoproducts.kleisli T
 local notation "J" => Kleisli.Adjunction.toKleisli T
 
 variable {A B C D : Type u}
@@ -45,22 +45,22 @@ private theorem comp_pure (f : A → PMF B) (h : B → C) :
   rfl
 
 private theorem desc (f : A → PMF C) (g : B → PMF C) :
-    (P).desc (arrow f) (arrow g) = arrow (Sum.elim f g) := by
-  apply (P).hom_ext
-  · rw [(P).inl_desc]
+    (K).desc (arrow f) (arrow g) = arrow (Sum.elim f g) := by
+  apply (K).hom_ext
+  · rw [(K).inl_desc]
     exact (pure_comp Sum.inl (Sum.elim f g)).symm
-  · rw [(P).inr_desc]
+  · rw [(K).inr_desc]
     exact (pure_comp Sum.inr (Sum.elim f g)).symm
 
 private theorem map_pure (f : A → C) (g : B → D) :
-    (P).map (pureArrow f) (pureArrow g) = pureArrow (Sum.map f g) := by
+    (K).map (pureArrow f) (pureArrow g) = pureArrow (Sum.map f g) := by
   unfold Coproducts.map
-  apply (P).hom_ext
-  · rw [(P).inl_desc]
+  apply (K).hom_ext
+  · rw [(K).inl_desc]
     change (J).map (↾f) ≫ (J).map (↾Sum.inl) = (J).map (↾Sum.inl) ≫ (J).map (↾(Sum.map f g))
     rw [← (J).map_comp, ← (J).map_comp]
     rfl
-  · rw [(P).inr_desc]
+  · rw [(K).inr_desc]
     change (J).map (↾g) ≫ (J).map (↾Sum.inr) = (J).map (↾Sum.inr) ≫ (J).map (↾(Sum.map f g))
     rw [← (J).map_comp, ← (J).map_comp]
     rfl
@@ -87,7 +87,7 @@ noncomputable def pmfGuard : MonadGuardedness typeCoproducts.{u} T where
     obtain ⟨D⟩ := W
     let f' : A → PMF (C ⊕ D) := f.of
     let g' : B → PMF (C ⊕ D) := g.of
-    change Guarded (fun x => ((P).desc (arrow f') (arrow g')).of x)
+    change Guarded (fun x => ((K).desc (arrow f') (arrow g')).of x)
     rw [desc]
     change Guarded (Sum.elim f' g')
     intro x
@@ -103,7 +103,7 @@ noncomputable def pmfGuard : MonadGuardedness typeCoproducts.{u} T where
     let f' : A → PMF (B ⊕ C) := f.of
     let g' : B → PMF (D ⊕ E) := g.of
     let h' : C → PMF (D ⊕ E) := h.of
-    change Guarded (fun x => (arrow f' ≫ (P).desc (arrow g') (arrow h')).of x)
+    change Guarded (fun x => (arrow f' ≫ (K).desc (arrow g') (arrow h')).of x)
     rw [desc, comp]
     intro a
     obtain ⟨b, hb⟩ := hf a
@@ -129,8 +129,43 @@ private theorem step_bind (f : A → PMF (B ⊕ A)) (g : A → PMF B) (x : A) (y
   · intro b hb
     rw [PMF.pure_apply_of_ne b y (Ne.symm hb), mul_zero]
 
+theorem pmf_fixpoint_iff (f : A → PMF (B ⊕ A)) (g : A → PMF B) :
+    Guardedness.IsFixpoint (P := K) (computation PMF f) (computation PMF g) ↔
+      step f (fun x y => g x y) = fun x y => g x y := by
+  change (arrow f ≫ (K).desc (arrow PMF.pure) (arrow g) = arrow g) ↔ _
+  rw [desc, comp]
+  constructor
+  · intro h
+    funext x y
+    rw [step_bind]
+    exact congrArg (fun q => (show PMF B from q.of x) y) h
+  · intro h
+    apply Kleisli.hom_ext
+    apply ConcreteCategory.coe_ext
+    funext x
+    apply PMF.ext
+    intro y
+    exact (step_bind f g x y).symm.trans (congrFun (congrFun h x) y)
+
+theorem normalized_pmf_counterexample :
+    ¬ Guardedness.IsFixpoint (P := K) (computation PMF (chain coloredExit))
+      (computation PMF (normalized (chain coloredExit) (chain_guarded coloredExit))) := by
+  intro h
+  have h₀ := congrFun (congrFun ((pmf_fixpoint_iff _ _).mp h) 0) false
+  simp only [normalized_apply] at h₀
+  exact normalized_not_fixpoint h₀
+
+theorem normalized_pmf_fixpoint_of_mass_one (f : A → PMF (B ⊕ A)) (hf : Guarded f)
+    (hm : ∀ x, mass (least f) x = 1) :
+    Guardedness.IsFixpoint (P := K) (computation PMF f) (computation PMF (normalized f hf)) := by
+  apply (pmf_fixpoint_iff _ _).mpr
+  have h : (fun x y => normalized f hf x y) = least f := by
+    funext x y
+    simp [normalizedWeight, hm x]
+  rw [h, least_fixpoint]
+
 private theorem iterate_congr (I : pmfGuard.{u}.Conway)
-    {X Y : Kleisli T} {f g : X ⟶ (P).sum Y X} (h : f = g)
+    {X Y : Kleisli T} {f g : X ⟶ (K).sum Y X} (h : f = g)
     (hf : pmfGuard.guarded f) (hg : pmfGuard.guarded g) :
     I.iterate f hf = I.iterate g hg := by
   subst g
@@ -143,17 +178,12 @@ theorem no_conway_uniform (I : pmfGuard.{0}.Conway)
   have hid : pureArrow (id : ℕ → ℕ) = 𝟙 (Kleisli.mk T ℕ) := (J).map_id ℕ
   let N : NatIteration := {
     run
-    fixpoint := fun f hf => by
-      have h := I.fixpoint (arrow f) ((guarded_iff f).mpr hf)
-      change arrow f ≫ (P).desc (arrow PMF.pure) (arrow (run f hf)) = arrow (run f hf) at h
-      rw [desc, comp] at h
-      funext x y
-      rw [step_bind]
-      exact congrArg (fun q => (show PMF ℕ from q.of x) y) h
+    fixpoint := fun f hf => (pmf_fixpoint_iff f (run f hf)).mp
+      (I.fixpoint (arrow f) ((guarded_iff f).mpr hf))
     naturality := fun f g hf hg h comm x => by
-      have hmap : arrow f ≫ (P).map (pureArrow h) (𝟙 _) = arrow g := by
+      have hmap : arrow f ≫ (K).map (pureArrow h) (𝟙 _) = arrow g := by
         rw [← hid]
-        change arrow f ≫ (P).map (pureArrow h) (pureArrow id) = arrow g
+        change arrow f ≫ (K).map (pureArrow h) (pureArrow id) = arrow g
         rw [map_pure, comp_pure]
         exact congrArg arrow (funext comm)
       have hguard := (guarded_iff g).mpr hg
@@ -164,9 +194,9 @@ theorem no_conway_uniform (I : pmfGuard.{0}.Conway)
       rw [comp_pure] at law
       exact congrArg (fun q => q.of x) law.symm
     uniformity := fun f g hf hg h comm x => by
-      have hmap : pureArrow h ≫ arrow g = arrow f ≫ (P).map (𝟙 _) (pureArrow h) := by
+      have hmap : pureArrow h ≫ arrow g = arrow f ≫ (K).map (𝟙 _) (pureArrow h) := by
         rw [← hid]
-        change pureArrow h ≫ arrow g = arrow f ≫ (P).map (pureArrow id) (pureArrow h)
+        change pureArrow h ≫ arrow g = arrow f ≫ (K).map (pureArrow id) (pureArrow h)
         rw [map_pure, pure_comp, comp_pure]
         exact congrArg arrow (funext comm).symm
       have law := hu (arrow g) (arrow f) (↾h) ((guarded_iff g).mpr hg)
@@ -176,5 +206,12 @@ theorem no_conway_uniform (I : pmfGuard.{0}.Conway)
       exact congrArg (fun q => q.of x) law.symm
   }
   exact no_nat_iteration.false N
+
+theorem no_total_fixpoints (F : (Guardedness.greatest (typeCoproducts.kleisli
+    (ofTypeMonad PMF.{0}))).Fixpoints) : False := by
+  let loop : Unit → PMF (Empty ⊕ Unit) := fun x => PMF.pure (.inr x)
+  let p : PMF Empty := (F.iterate (computation PMF loop) True.intro).of ()
+  have h := p.tsum_coe
+  simp at h
 
 end Silmaril.Calco2019.Examples.Probability.KleisliProofs

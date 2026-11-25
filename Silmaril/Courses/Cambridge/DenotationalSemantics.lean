@@ -9,7 +9,9 @@ public import Silmaril.Courses.Cambridge.DenotationalSemantics.LeastFixedPoints
 public import Silmaril.Courses.Cambridge.DenotationalSemantics.PCF
 public import Silmaril.Courses.Cambridge.DenotationalSemantics.ScottInduction
 public import Silmaril.Courses.Cambridge.L1.DenotationalInstitution
+public import Silmaril.Courses.Cambridge.L1.EffectfulDenotational.Institution
 import Silmaril.Courses.Cambridge.DenotationalSemantics.L1Examples
+import Silmaril.Courses.Cambridge.DenotationalSemantics.L1EffectfulExamples
 
 /-! # Cambridge Part II Denotational Semantics
 
@@ -36,8 +38,8 @@ and the contextual preorder. Its supporting library proves finite-projection
 density and definability. The source's later discussions of dI-domain models,
 Loader's theorem and game models remain background to this index.
 
-The companion L1 adapter interprets read-only expressions from the Part IB
-course and proves agreement with its operational finite observations.
+The companion L1 adapters interpret Part IB expressions. The effectful
+denotation agrees with finite returns, stuck states, and infinite reduction.
 
 See `docs/courses/cambridge.md` for build commands and a guide to the course
 and reusable APIs.

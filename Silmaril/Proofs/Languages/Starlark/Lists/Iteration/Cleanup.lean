@@ -87,7 +87,7 @@ private theorem keeps_readSequence (elements : List Value) (index : Value) :
 
 private theorem keeps_readIndex (receiver index : Value) : Preserves (readIndex receiver index) := by
   cases receiver with
-  | scalar => exact keeps_throw _
+  | scalar | function | string => exact keeps_throw _
   | list =>
     rw [readIndex]
     exact keeps_bind (keeps_project _ _) (keeps_readSequence · index)
@@ -106,7 +106,7 @@ private theorem keeps_readIndex (receiver index : Value) : Preserves (readIndex 
 private theorem keeps_writeIndex (receiver index value : Value) :
     Preserves (writeIndex receiver index value) := by
   cases receiver with
-  | scalar | tuple => exact keeps_throw _
+  | scalar | tuple | function | string => exact keeps_throw _
   | list =>
     rw [writeIndex]
     exact keeps_update _ _
@@ -131,7 +131,7 @@ private theorem keeps_displayEntry (entries : List Entry) (key value : Value) :
 
 private theorem keeps_code {α : Type} (code : Code α) : Preserves (denote code) := by
   induction code with
-  | scalar => exact keeps_pure _
+  | scalar | string => exact keeps_pure _
   | read ref =>
     intro state
     cases ref with
@@ -165,7 +165,7 @@ private theorem keeps_code {α : Type} (code : Code α) : Preserves (denote code
     apply keeps_bind ihReceiver
     intro value
     cases value with
-    | scalar | tuple | dict => exact keeps_throw _
+    | scalar | tuple | dict | function | string => exact keeps_throw _
     | list address => exact keeps_bind ihArgument (keeps_append address)
   | pass => exact keeps_pure _
   | eval expr ih =>
@@ -173,7 +173,13 @@ private theorem keeps_code {α : Type} (code : Code α) : Preserves (denote code
     exact keeps_bind ih fun _ => keeps_pure _
   | assign binding rhs ih =>
     rw [denote]
-    exact keeps_bind ih fun _ _ => rfl
+    apply keeps_bind ih
+    intro value state
+    simp only [bindValue, finishState, State.write]
+    split
+    · rfl
+    · rfl
+    · split <;> rfl
   | setIndex receiver index rhs ihReceiver ihIndex ihRhs =>
     rw [denote]
     exact keeps_bind ihRhs fun value => keeps_bind ihReceiver fun dst =>
@@ -184,14 +190,14 @@ private theorem keeps_code {α : Type} (code : Code α) : Preserves (denote code
 
 private theorem keeps_truth (value : Value) : Preserves (truth value) := by
   cases value with
-  | scalar => exact keeps_pure _
+  | scalar | function | string => exact keeps_pure _
   | list | tuple | dict =>
     rw [truth]
     exact keeps_map _ (keeps_project _ _)
 
 private theorem keeps_source (value : Value) : Preserves (iterationSource value) := by
   cases value with
-  | scalar => exact keeps_throw _
+  | scalar | function | string => exact keeps_throw _
   | list | tuple | dict =>
     rw [iterationSource]
     exact keeps_map _ (keeps_project _ _)

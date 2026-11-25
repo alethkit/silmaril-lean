@@ -39,27 +39,54 @@ examples change the input store, reject a changed return store, and reach
 stuck after selecting a missing read. [Institution](../../Silmaril/Courses/Cambridge/L1/DenotationalInstitution.lean) ·
 [Examples](../../Silmaril/Courses/Cambridge/DenotationalSemantics/L1Examples.lean)
 
-### Effects and iteration
+## Effectful L1
 
-For L1 commands, `ExceptT Unit (StateT L1.Store Part)` has the existing lawful
-Elgot instances and exposes a finite stuck tag alongside the final store.
-Use `Store.update` for an assignment to an allocated location and monadic
-bind for sequencing. In `Silmaril.Elgot.iter`, a while body evaluates the
-guard, returns `Sum.inl ()` on false, or executes the command body and
-returns `Sum.inr ()` on true. `Silmaril.Elgot.StateT.run_iter` threads the
-store through this body, and `Silmaril.Elgot.Part.mem_iter_iff` gives the
-finite-iteration proof principle. The extension needs operational
-correspondences for both success and explicit stuck outcomes. Infinite
-reduction requires its own argument, for example via `InfiniteTrace`, before
-interpreting undefined `Part` computations as divergence. [Iteration laws](../../Silmaril/Semantics/ElgotMonads/Thms.lean) ·
-[Infinite traces](../../Silmaril/Foundations/InfiniteTrace.lean)
+`EffectfulDenotational.denote` interprets the entire L1 expression grammar
+compositionally in `ExceptT Unit (StateT L1.Store Part)`. Reads and writes
+use `Store.lookup` and `Store.update`. The original evaluation order matters
+on untyped input too. A binary operator evaluates its right operand after
+any left value and checks the operand shapes once both have returned.
+Sequencing runs its second expression after a `skip` result.
+[Structural denotation](../../Silmaril/Courses/Cambridge/L1/EffectfulDenotational/Defs.lean)
+
+A while iteration evaluates the guard in the current store. A false guard
+returns `Sum.inl .skip`. A true guard runs the body and requests another
+iteration with `Sum.inr ()` when the body returns `skip`. The existing Elgot
+transformer instances thread the store and propagate finite errors.
+The fixed-point law validates the original unfolding rule. For the converse
+proof, `Silmaril.Elgot.Part.mem_iter_iff` supplies a finite derivation of any
+result of the transformed iteration. [Iteration laws](../../Silmaril/Semantics/ElgotMonads/Thms.lean)
+
+| Denotational observation | Checked operational correspondence |
+| --- | --- |
+| `(.ok v, s')` is a member of the denotation | `return_iff` gives a finite run to the value `v` in store `s'`. |
+| `(.error (), s')` is a member of the denotation | `error_iff` gives a finite run to a stuck expression in store `s'`. |
+| The `Part` is undefined | `diverges_iff` gives an `InfiniteTrace` of actual L1 steps. |
+
+All three correspondences are bidirectional. The divergence proof uses
+L1 determinacy and the fact that a terminal configuration has a defined
+outcome. A finite stuck result retains the store, including writes that
+preceded the failure. [Adequacy proofs](../../Silmaril/Courses/Cambridge/L1/EffectfulDenotational/Thms.lean)
+
+The existing `atomicInstitution` now also has a model of full L1 return
+sentences. Its satisfaction relation agrees with `L1.OperationalInstitution`
+finite may returns, and its reduct along inclusion of the read-only sentences
+is the earlier read-only model. Stuckness and divergence are expressed by the
+semantic theorems above. The regression checks three loop iterations which
+update a counter and an accumulator, then return `6` with counter `0`. It
+also checks a stuck write after a successful update and a diverging loop.
+[Institution and reduct](../../Silmaril/Courses/Cambridge/L1/EffectfulDenotational/Institution.lean) ·
+[Checked examples](../../Silmaril/Courses/Cambridge/DenotationalSemantics/L1EffectfulExamples.lean)
+
+### Next slices
 
 LetIter can serve as a typed target for this command fragment once a lowering
 is proved. Its proof-relevant `denoteClosed` takes a typed derivation and an
 `InstructionModel`. Encode reads and writes as typed effectful instructions,
 then use the `.iter` typing rule for the loop. `categorical_denote_eq` connects
 its direct monadic denotation to the associated Kleisli denotation. A separate
-proof must relate those instructions and the lowering to `L1.Step`.
+proof must relate those instructions and the lowering to the checked
+effectful L1 denotation.
 [LetIter soundness API](../../Silmaril/SSA/Isotope/LetIter/Thms.lean)
 
 L2 shares L1's store. Extend the deterministic state model with lexical

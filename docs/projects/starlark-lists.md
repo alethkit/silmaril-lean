@@ -144,11 +144,12 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 
 ## Remaining work
 
-- **Calls and closures.** Add user function objects, declaration identity,
-  lexical capture of binding cells, positional calls and returns in the shared
-  heap. Freezing must follow captured cells and defaults, and execution must
-  check the core recursion restriction. Full argument binding remains a
-  separate obligation. [Functions][functions]
+- **Functions.** User function objects, lexical cells, calls
+  and declaration-based recursion checks extend this store. The call profile
+  includes definition-time defaults, keyword-only parameters and both
+  argument expansions. Calls inside collection loops and source lowering
+  remain open.
+  [Lexical calls](starlark-functions.md) · [Functions][functions]
 - **Collection operations.** General equality and ordering, `len`, `hash`,
   concatenation, slicing, comprehensions, other methods, augmented assignment,
   destructuring, and other iterable types remain open. The supported

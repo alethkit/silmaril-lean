@@ -12,7 +12,9 @@ lake build --wfail Silmaril.Courses.Cambridge.Concurrency.Course
 Import `Silmaril.Courses.Cambridge.Concurrency` for the first interleaving
 language. The `.Course` module adds metatheory, checked examples, and the
 mutex extension. For the mutex language, Theorem 27, and ordered locking, import
-`Silmaril.Courses.Cambridge.Concurrency.Mutex.Course`.
+`Silmaril.Courses.Cambridge.Concurrency.Mutex.Course`. The separate
+`Silmaril.Courses.Cambridge.Concurrency.UnixThreads.Course` import gives the
+Exercise 40 extension.
 
 ## Rules and checked behavior
 
@@ -71,6 +73,24 @@ and the two-lock deadlock on p. 93. The deadlock reaches a terminal
 configuration with both acquisitions still pending. The same expression
 has type `proc` under the two location declarations.
 
+### Exercise 37 and the C&DS comparison
+
+The 2025–26 C&DS slides describe a read-and-set acquisition loop and a
+clear operation. `Mutex.Comparison.acquire_iff` and `release_iff` prove
+that successful operations on this bit are exactly the projections of
+the SPL lock and unlock steps onto the selected mutex. Both release
+rules clear the bit from either prior state. On a held lock,
+`held_attempts` checks the C&DS retry and failed `trylock` outcomes
+alongside the blocked SPL command. [Read-and-set, lecture 1 slide 33](https://www.cl.cam.ac.uk/teaching/2526/ConcDisSys/conc-sys-slides.pdf#page=33) · [POSIX example, lecture 4 slide 23](https://www.cl.cam.ac.uk/teaching/2526/ConcDisSys/conc-sys-slides.pdf#page=96)
+
+The comparison projects to one Boolean. C&DS uses a spin loop for the
+read-and-set implementation and also presents blocking POSIX acquisition
+and a nonblocking `trylock` call. The Java example permits reentry by the
+same thread. SPL instead has an actor-independent test of the held bit,
+so the same waiting rule applies to every acquisition of a held mutex.
+The pinned slide deck is recorded as `cambridge2025concurrent` in the
+bibliography. [Java example, lecture 4 slide 27](https://www.cl.cam.ac.uk/teaching/2526/ConcDisSys/conc-sys-slides.pdf#page=100) · [Bibliography](../../references.bib)
+
 ## Ordered two-phase locking
 
 `Mutex.OrderedTwoPhase.Layout` fixes a bijection from locations to mutex
@@ -112,6 +132,29 @@ failure when the indicated condition is dropped.
 | Complete acquisitions before releasing | `two_phase_necessary` shows a nonserializable three-cell result even though each access is protected and the locks are acquired in order. |
 | Acquire locks in increasing order | `increasing_order_necessary` shows the two opposing lock orders deadlocking. |
 
+## Exercise 40 and Unix-style threads
+
+`UnixThreads.Command` combines L1 commands with lightweight thread
+creation, join, and asynchronous integer channels. This is a design for
+the exercise. The first thread has ID 0. `fork` creates a thread with
+the next fresh ID, puts that ID into a shared integer cell, and resumes
+the parent. `join` reads an ID from such a cell and waits for that
+thread's completion. A successful join removes the completed thread.
+
+All threads use the same finite L1 store. An ordinary command follows
+`L1.Step` until it produces `skip`. A send reads a shared cell and appends
+its integer to a named FIFO. A receive waits for a queued integer, takes
+the head, and writes it to an allocated cell. A global step is labelled
+with the chosen thread's ID. This models an abstract thread scheduler
+and unbounded queues for the exercise. [Thread IDs and join, C&DS lecture 1 slide 12](https://www.cl.cam.ac.uk/teaching/2526/ConcDisSys/conc-sys-slides.pdf#page=12) · [Asynchronous messaging, lecture 6 slide 10](https://www.cl.cam.ac.uk/teaching/2526/ConcDisSys/conc-sys-slides.pdf#page=144)
+
+`Step.preserves_wellFormed` and `trace_preserves_wellFormed` preserve
+command typing, store coverage, and the bound on allocated IDs. The
+counter is monotone. `receive_waits` and `join_waits` give the corresponding
+blocking conditions for a scheduled thread. The checked fork/send/receive/join
+trace transfers a value computed by an L1 child command and reaps the child.
+A separate trace checks FIFO order on two queued integers.
+
 ## Chapter 7 coverage
 
 | Syllabus item | Notes | Coverage |
@@ -120,9 +163,9 @@ failure when the indicated condition is dropped.
 | Simple mutexes | pp. 92–93 | Boolean mutex state, direct rules, typing, blocking and the two-lock deadlock |
 | Thread-local labelled semantics | pp. 94–96, Theorem 27 | Labelled expression steps and state effects, with a proof of coincidence with the global rules |
 | Ordered two-phase locking | p. 97 | Trace discipline, serializability and deadlock freedom defined in Lean |
-| Exercise 37 | §7.1, p. 97 | Lean checks blocked acquisition and release of an available mutex. The comparison with Concurrent and Distributed Systems remains a follow-up. |
+| Exercise 37 | §7.1, p. 97 | Bit-level lock and unlock correspondence with the pinned C&DS slides, plus the checked retry, nonblocking attempt, and SPL waiting distinction. |
 | Exercise 38 | §7.1, p. 97 | All four necessity examples are checked, including every serial prefix in the serializability cases. |
 | Exercise 39 | §7.1, p. 97 | Counterexample for the printed store quantifier. The covered-store variant remains open here. |
-| Exercise 40 | §7.1, p. 97 | Follow-up for the Unix-like thread extension and communication |
+| Exercise 40 | §7.1, p. 97 | Unix-style identified threads with fork and join, shared memory and asynchronous FIFO channels, with preservation and checked traces. |
 
 The interleaving semantics allows any enabled scheduling choice.

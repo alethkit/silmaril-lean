@@ -78,6 +78,31 @@ corresponding parent slot family. The regression analyzes three nested
 functions and checks their interleaved owned and forwarded slots. It
 also checks rejection when the selected scope lacks a required slot.
 
+The [source frame layout](../../Silmaril/Languages/Python/Source/Closure/Frame/Thms.lean)
+lists ordinary local names separately from owned cells and forwarded
+captures. The parameter checker emits distinct, bounded local-or-owned
+destinations. Mapping destination names back gives the original parameter
+order. The capture entries are also available as a vector indexed by the
+child's capture count.
+
+The [Core lowering](../../Silmaril/Languages/Python/Compile/Closure/Thms.lean)
+assigns distinct slot families to ordinary locals, owned cells and forwarded
+captures. Parameter destinations keep declaration order. A nested closure
+selects the same parent cell identity at each capture index as the source
+layout. The regression constructs both versions of the Core closure and
+reads a parent's subsequent write through the child's capture.
+
+The [closure body compiler](../../Silmaril/Languages/Python/Compile/Closure/Body/Thms.lean)
+accepts one top-level function containing nested function definitions,
+single-name assignments and nonlocal declarations, with a final value return
+in each function. Expressions cover integers, addition, names and positional
+calls. Each successful result carries the analyzed source tree and a
+translation derivation. Child code carries the analyzed path, ordered
+parameter destinations and capture operands. The compiler proves its
+preorder list of code paths has no duplicates for code-table linking. The
+regression parses Python source and checks a nonlocal write through two
+nested call sites. Code-table linking and execution are subsequent stages.
+
 ## Source intake
 
 The AST emitter takes an external CPython AST and writes a Lean module

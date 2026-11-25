@@ -134,4 +134,69 @@ private def sampleType : SourceType :=
 -- L3-only words remain ordinary L2 names.
 #guard L2.Concrete.parse "fun ref:int→ref".toUTF8 = some (.lam "ref" .int (.var "ref"))
 
+-- Sewell pp. 69–71, explicitly paired products and ascribed sums.
+#guard (parseType "int ∗ int ∗ int".toUTF8).isNone
+#guard match parseType "int ∗ (int ∗ int)".toUTF8, parseType "(int ∗ int) ∗ int".toUTF8 with
+  | some (.prod .int (.prod .int .int)), some (.prod (.prod .int .int) .int) => true
+  | _, _ => false
+#guard (parse "1, 2".toUTF8).isNone
+#guard (parse "(1, 2, 3)".toUTF8).isNone
+#guard match parse "(1+2, 3≥4)".toUTF8 with
+  | some (.pair (.binary (.int 1) .add (.int 2)) (.binary (.int 3) .ge (.int 4))) => true
+  | _ => false
+#guard match parse "inl 3:int + bool".toUTF8, parse "inl 3:int + int".toUTF8 with
+  | some (.inl (.int 3) (.sum .int .bool)), some (.inl (.int 3) (.sum .int .int)) => true
+  | _, _ => false
+
+#guard match parseResolved
+    "match inl 3:int+bool with inl (x:int) → x+1 | inr (y:bool) → if y then 2 else 0".toUTF8 with
+  | some (.matchSum (.inl (.int 3) (.sum .int .bool)) .int (.binary (.bvar 0) .add (.int 1))
+      .bool (.cond (.bvar 0) (.int 2) (.int 0))) => true
+  | _ => false
+#guard match parseResolved
+    ("match a with inl (x:int) → match b with inl (y:int) → x + y | inr (z:int) → z" ++
+      " | inr (w:int) → w").toUTF8 with
+  | some (.matchSum (.fvar "a") .int
+      (.matchSum (.fvar "b") .int (.binary (.bvar 1) .add (.bvar 0)) .int (.bvar 0))
+      .int (.bvar 0)) => true
+  | _ => false
+#guard (parse "match x with inl (y:int) → y + 1 | inr (z:int) z".toUTF8).isNone
+
+-- Sewell pp. 73–74, projection of a literal and a ref parameter.
+#guard match parse "{p=17,q=true}.p".toUTF8 with
+  | some (.project (.record labels _) "p") => labels.names == ["p", "q"]
+  | _ => false
+#guard match parse "fun x:int ref → !x".toUTF8 with
+  | some (.lam "x" (.ref .int) (.deref (.var "x"))) => true
+  | _ => false
+
+-- Sewell p. 75, storing a function that calls through its own reference.
+#guard match parse
+    ("let x:(int → int) ref = ref(fun z:int → z) in " ++
+      "(x := (fun z:int → if z ≥ 1 then z + ((!x) (z + −1)) else 0); (!x) 3)").toUTF8 with
+  | some (.letE "x" (.ref (.arr .int .int)) (.ref (.lam "z" .int (.var "z")))
+      (.seq (.assign (.var "x") (.lam "z" .int (.cond (.binary (.var "z") .ge (.int 1))
+        (.binary (.var "z") .add (.app (.deref (.var "x")) (.binary (.var "z") .add (.int (-1)))))
+        (.int 0)))) (.app (.deref (.var "x")) (.int 3)))) => true
+  | _ => false
+
+#guard match parseType "int ref ∗ bool + unit → int → bool".toUTF8 with
+  | some (.arr (.sum (.prod (.ref .int) .bool) .unit) (.arr .int .bool)) => true
+  | _ => false
+#guard match parse "f r.p.q (ref 0)".toUTF8 with
+  | some (.app (.app (.var "f") (.project (.project (.var "r") "p") "q")) (.ref (.int 0))) => true
+  | _ => false
+#guard match parse "fst r.p".toUTF8 with
+  | some (.project (.fst (.var "r")) "p") => true
+  | _ => false
+#guard match parse "r := !r + 1; !r".toUTF8 with
+  | some (.seq (.assign (.var "r") (.binary (.deref (.var "r")) .add (.int 1))) (.deref (.var "r"))) =>
+    true
+  | _ => false
+#guard (parse "r := s := 1".toUTF8).isNone
+#guard (parseType "int + bool + unit".toUTF8).isNone
+#guard (parse "{p=1+2,p=3}".toUTF8).isNone
+#guard (parse "{p=1+2}.l0".toUTF8).isNone
+#guard (parse "r.if".toUTF8).isNone
+
 end Silmaril.Courses.Cambridge.L3.Concrete

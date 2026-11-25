@@ -1,5 +1,6 @@
 module
 
+public import Silmaril.Courses.Cambridge.L2.Concrete.Precedence
 public import Silmaril.Courses.Cambridge.Concrete.Lexer
 public import Silmaril.Courses.Cambridge.L2.Syntax
 
@@ -123,8 +124,11 @@ def readExpr : Nat → List Token → Option (RawExpr × List Token)
 
 abbrev readWhole {α : Type} := @Silmaril.Courses.Cambridge.Concrete.readWhole α
 
-def parse (bytes : ByteArray) : Option RawExpr := tokenize bytes >>= readWhole readExpr
-def parseType (bytes : ByteArray) : Option Ty := tokenize bytes >>= readWhole readType
+def parse (bytes : ByteArray) : Option RawExpr :=
+  tokenize bytes >>= readWithPrecedence readExpr Precedence.readExpr
+
+def parseType (bytes : ByteArray) : Option Ty :=
+  tokenize bytes >>= readWithPrecedence readType Precedence.readType
 
 /-- Source binding is interpreted by the course's existing resolver.
 Free variables are retained. There is no input spelling for de Bruijn indices. -/
