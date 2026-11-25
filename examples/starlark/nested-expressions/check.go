@@ -269,6 +269,52 @@ events = []
 	fmt.Println("DIALECT pinned 64-bit Go bounds constructor and index operands and can overflow range length")
 }
 
+func rangeSliceOperands() {
+	for _, test := range []struct{ body, want string }{
+		{`r = range(10, 1, -2)[::-2]
+out = (len(r), r[0], r[-1], type(r))`, `(3, 2, 10, "range")`},
+		{`r = range(2, 30, 3)[1:10:3][None::-2]
+out = (len(r), r[0], r[-1])`, "(2, 23, 5)"},
+		{`out = (len(range(6)[:-1:-1]), len(range(6)[4:1][::-1]), len(range(0)[::-1]))`, "(0, 0, 0)"},
+	} {
+		g, err := initSource(test.body)
+		require(err == nil && g["out"].String() == test.want, test.body+": "+fmt.Sprint(err))
+	}
+	fmt.Println("PASS empty, descending, and nested range slices preserve range type and indexed values")
+
+	const setup = `def note(marker, value):
+    events.append(marker)
+    return value
+events = []
+`
+	g, err := initSource(setup + `r = note(1, range(10))[note(2, 1):note(3, 8):note(4, 3)]
+out = (len(r), r[0], r[-1])`)
+	require(err == nil && g["out"].String() == "(3, 1, 7)" && g["events"].String() == "[1, 2, 3, 4]", fmt.Sprint(err))
+	for _, test := range []struct{ expr, trace, message string }{
+		{`note(1, range(10))[note(2, True):len(note(3, 9)):note(4, 0)]`, "[1, 2, 3]", "has no len"},
+		{`note(1, range(10))[note(2, True):note(3, True):note(4, True)]`, "[1, 2, 3, 4]", "invalid slice step"},
+		{`note(1, range(10))[note(2, True):note(3, True):note(4, 0)]`, "[1, 2, 3, 4]", "zero is not a valid slice step"},
+		{`note(1, range(10))[note(2, True):note(3, True):note(4, None)]`, "[1, 2, 3, 4]", "invalid start index"},
+		{`note(1, range(10))[note(2, None):note(3, True):note(4, -1)]`, "[1, 2, 3, 4]", "invalid end index"},
+		{`note(1, range(10))[note(2, -100000000000):note(3, 100000000000):note(4, 100000000000)]`, "[1, 2, 3, 4]", "invalid slice step"},
+		{`note(1, range(10))[note(2, -100000000000):note(3, 100000000000)]`, "[1, 2, 3]", "invalid start index"},
+		{`note(1, range(10))[note(2, 0):note(3, 100000000000)]`, "[1, 2, 3]", "invalid end index"},
+	} {
+		g, err := initSource(setup + "out = " + test.expr + "\nnote(99, None)")
+		require(err != nil && strings.Contains(err.Error(), test.message), test.expr+": "+fmt.Sprint(err))
+		require(g["out"] == nil && g["events"].String() == test.trace, test.expr)
+	}
+	fmt.Println("PASS range slice effects and validation order, including Go's 32-bit slice operand checks")
+
+	if strconv.IntSize != 64 {
+		return
+	}
+	g, err = initSource(`out = (len(range(0, 9223372036854775807, 4611686018427387904)[:1:2]),
+            len(range(9223372036854775806, 9223372036854775807, 2)[:]))`)
+	require(err == nil && g["out"].String() == "(0, 0)", fmt.Sprint(err))
+	fmt.Println("DIALECT pinned 64-bit Go wraparound can make nonempty stride and endpoint compositions empty")
+}
+
 func main() {
 	g, err := initSource(`def mark(events, value):
     events.append(value)
@@ -431,4 +477,5 @@ out = driver()`)
 	sliceOperands()
 	stringIndexOperands()
 	rangeIndexOperands()
+	rangeSliceOperands()
 }

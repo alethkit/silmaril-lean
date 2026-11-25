@@ -114,7 +114,7 @@ private theorem keeps_slice (operands : List Value) : Preserves (readSliceOperan
       rw [readSlice]
       exact keeps_bind (keeps_project _ _) fun _ =>
         keeps_bind (keeps_except _) fun _ _ => rfl
-    | string => exact keeps_except _
+    | string | range => exact keeps_except _
     | _ => exact keeps_throw _
   next => exact keeps_throw _
 

@@ -39,6 +39,15 @@ def RangeValue.length (span : RangeValue) : Nat :=
   let distance := if span.step > 0 then span.stop - span.start else span.start - span.stop
   if distance ≤ 0 then 0 else (distance.toNat - 1) / span.step.natAbs + 1
 
+/-- Apply the range's affine map. This also maps exclusive slice endpoints. -/
+def RangeValue.atOffset (span : RangeValue) (offset : Int) : Int :=
+  span.start + offset * span.step
+
+/-- Compose a range with its normalized slice offsets without enumerating either. -/
+def RangeValue.slice (span offsets : RangeValue) : RangeValue :=
+  ⟨span.atOffset offsets.start, span.atOffset offsets.stop, offsets.step * span.step,
+    Int.mul_ne_zero offsets.nonzero span.nonzero⟩
+
 inductive Value where
   | scalar (value : Starlark.Value)
   | list (address : Address)
@@ -333,7 +342,7 @@ def readIndex (receiver index : Value) : Meaning Value :=
     decodeString ⟨#[bytes[offset.val]'(offset.isLt)]⟩ .invalidIndexUTF8
   | .range span => fromExcept do
     let offset ← normalizeIndex span.length index
-    pure (.scalar (.int (span.start + (offset.val : Int) * span.step)))
+    pure (.scalar (.int (span.atOffset offset.val)))
   | .list address => listElements address >>= fun elements => readSequence elements index
   | .tuple address => tupleElements address >>= fun elements => readSequence elements index
   | .dict address => readDict address index
@@ -348,29 +357,35 @@ def sliceBound (length low high default : Int) (bound : Option Int) : Int :=
   | none => default
   | some index => max low (min high (offsetIndex length index))
 
-/-- Select the elements of a slice using exact integer bounds and stride.
-Visit the input in index order, returning selected elements in stride order. -/
-def sliceElements {α : Type} (elements : List α) (start stop stride : Value) : Except Error (List α) := do
+/-- Check stride, start and stop in that order and normalize them in index space. -/
+def normalizeSlice (length : Nat) (start stop stride : Value) : Except Error RangeValue := do
   let step := (← sliceInteger .sliceStrideType stride).getD 1
-  if step = 0 then throw .zeroSliceStride
-  let lo ← sliceInteger .sliceStartType start
-  let hi ← sliceInteger .sliceStopType stop
-  let length : Int := elements.length
-  if step > 0 then
-    let first := sliceBound length 0 length 0 lo
-    let last := sliceBound length 0 length length hi
+  if zero : step = 0 then throw .zeroSliceStride
+  else
+    let lo ← sliceInteger .sliceStartType start
+    let hi ← sliceInteger .sliceStopType stop
+    let n : Int := length
+    if step > 0 then
+      return ⟨sliceBound n 0 n 0 lo, sliceBound n 0 n n hi, step, zero⟩
+    else
+      return ⟨sliceBound n (-1) (n - 1) (n - 1) lo, sliceBound n (-1) (n - 1) (-1) hi, step, zero⟩
+
+/-- Visit the input in index order, returning selected elements in stride order. -/
+def sliceElements {α : Type} (elements : List α) (start stop stride : Value) : Except Error (List α) := do
+  let offsets ← normalizeSlice elements.length start stop stride
+  if offsets.step > 0 then
     return elements.zipIdx.filterMap fun (value, i) =>
       let index : Int := i
-      if first ≤ index ∧ index < last ∧ (index - first) % step = 0 then some value else none
+      if offsets.start ≤ index ∧ index < offsets.stop ∧ (index - offsets.start) % offsets.step = 0
+      then some value else none
   else
-    let first := sliceBound length (-1) (length - 1) (length - 1) lo
-    let last := sliceBound length (-1) (length - 1) (-1) hi
     return (elements.zipIdx.filterMap fun (value, i) =>
       let index : Int := i
-      if last < index ∧ index ≤ first ∧ (first - index) % (-step) = 0 then some value else none).reverse
+      if offsets.stop < index ∧ index ≤ offsets.start ∧ (offsets.start - index) % (-offsets.step) = 0
+      then some value else none).reverse
 
-/-- Read a slice after all operands have run. Collections get a fresh shallow
-copy. Strings use byte offsets and reject results that are invalid UTF-8. -/
+/-- Read a slice after all operands have run. Lists and tuples get a fresh
+shallow copy. Strings validate the selected UTF-8 bytes. Ranges compose descriptors. -/
 def readSlice (receiver start stop stride : Value) : Meaning Value :=
   match receiver with
   | .list address => do
@@ -382,6 +397,9 @@ def readSlice (receiver start stop stride : Value) : Meaning Value :=
   | .string text => fromExcept do
     let bytes ← sliceElements text.toUTF8.toList start stop stride
     decodeString bytes.toByteArray .invalidSliceUTF8
+  | .range span => fromExcept do
+    let offsets ← normalizeSlice span.length start stop stride
+    pure (.range (span.slice offsets))
   | _ => throw .sliceTarget
 
 /-- Lowered slices supply four values in evaluation order, with `None` for
