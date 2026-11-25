@@ -15,6 +15,9 @@ The guides distinguish proved results, executable examples, conditional
 interfaces and discussion exercises. This collection follows selected course
 materials; it does not cover the whole Cambridge curriculum.
 
+The operational semantics course also has a standalone
+[structural subtyping](cambridge-subtyping.md) slice for chapter 6.
+
 ## Check the courses
 
 Use the repository's [development environment](../development.md), or install
@@ -30,6 +33,7 @@ For a smaller starting point:
 ```sh
 lake build Silmaril.Courses.Cambridge.L1.Course
 lake build Silmaril.Courses.Cambridge.L2.Course
+lake build Silmaril.Courses.Cambridge.Subtyping
 lake build Silmaril.Courses.Cambridge.DenotationalSemantics
 lake build Silmaril.Courses.Cambridge.OptimisingCompilers.Course
 ```
