@@ -39,6 +39,8 @@ private def initial (profile : String) : Namespace :=
   | "preamble" => ⟨helpers (.text "did not raise exception"), classes⟩
   | "legacy_builtin" => Compile.ModuleEntry.Functions.Run.Seeded.legacySeed .builtin
   | "legacy_preamble" => Compile.ModuleEntry.Functions.Run.Seeded.legacySeed .preamble
+  | "legacy_bool_int_builtin" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolIntSeed .builtin
+  | "legacy_bool_int_preamble" => Compile.ModuleEntry.Functions.Run.Seeded.legacyBoolIntSeed .preamble
   | _ => .empty
 
 private def detail : AssertionArgument → String
@@ -76,6 +78,13 @@ private def inspect (source : Source.Module) (profile : String) : Option (List S
 private def callNames (source : Source.Module) (profile : String) : Option (List String) := do
   let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
   return (Compile.ModuleEntry.Functions.Run.Seeded.run (initial profile) compiled).calls.map (·.callee)
+
+private def callValues (source : Source.Module) (profile : String) : Option (List (String × Value)) := do
+  let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
+  let calls := (Compile.ModuleEntry.Functions.Run.Seeded.run (initial profile) compiled).calls
+  calls.mapM fun call => do
+    let value ← call.observation.result.toOption
+    return (call.callee, value)
 
 private def exactGlobals (source : Source.Module) (profile : String) (bindings : Bindings := []) : Bool :=
   match Compile.ModuleEntry.Functions.Run.compile source with
@@ -155,6 +164,7 @@ AUDIT = """
 """
 
 UPSTREAM_REVISION = "b7ff99372dd24845cf84e58c96b877f15764b276"
+BOOL_INT_PROFILES = ("legacy_bool_int_builtin", "legacy_bool_int_preamble")
 UPSTREAM_CASE = "tests/python/programs/original/lambda-py/python-reference/exceptions/assertion-error.py"
 UPSTREAM_SHA256 = "822abc163f457af8784c41c08cef152ecbb1266bb9704197292944386bc3dd79"
 UPSTREAM_BOOL_DIR = "tests/python/programs/original/lambda-py/python-reference/bool"
@@ -312,6 +322,37 @@ require_error(TypeError, callback)
     assert 0
 callback()
 """, ["unsupported", "absent", "absent"]),
+    ("bool_int_false", "legacy_bool_int_builtin", """result = int(False)
+___assertEqual(result, 0)
+___assertIsNot(result, False)
+after = 9
+""", ["normal", "int:0", "int:9"]),
+    ("bool_int_true", "legacy_bool_int_preamble", """result = int(True)
+___assertEqual(result, 1)
+___assertIsNot(True, result)
+after = 9
+""", ["normal", "int:1", "int:9"]),
+    ("bool_int_shadow", "legacy_bool_int_builtin", """result = 5
+int = 7
+result = int(False)
+after = 9
+""", ["TypeError", "int:5", "absent"]),
+    ("bool_int_argument_order", "legacy_bool_int_preamble", """result = 5
+___assertIsNot(int(True), missing)
+after = 9
+""", ["NameError:missing", "int:5", "absent"]),
+    ("bool_int_defined_assertion", "legacy_bool_int_builtin", """result = 5
+___assertEqual(int(True), 0)
+after = 9
+""", ["AssertionError:pair:1:0", "int:5", "absent"]),
+    ("bool_int_other_conversion", "legacy_bool_int_builtin", "result = 5\nresult = int(1)\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
+    ("bool_int_other_identity", "legacy_bool_int_preamble", "result = 5\n___assertIsNot(1, 0)\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
+    ("bool_int_ordinary_read", "legacy_bool_int_builtin", """def callback():
+    assert int
+___assertRaises(AssertionError, callback)
+""", ["unsupported", "absent", "absent"]),
 )
 
 NESTED_CALL_NAMES = {
@@ -321,6 +362,8 @@ NESTED_CALL_NAMES = {
     "nested_missing_argument": ["compare_ints"],
     "nested_assertion": ["compare_ints", "require_error"],
     "nested_unsupported": ["AssertionError"],
+    "bool_int_argument_order": ["int"],
+    "bool_int_defined_assertion": ["int", "___assertEqual"],
 }
 
 
@@ -345,11 +388,16 @@ def exception_observation(error):
 def cpython(source, profile, *, expected_globals=None, expected_functions=()):
     legacy = profile.startswith("legacy_")
     profile = profile.removeprefix("legacy_")
+    bool_int = profile.startswith("bool_int_")
+    profile = profile.removeprefix("bool_int_")
     caught = []
 
     def compare_ints(left, right):
         if left != right:
             raise AssertionError((left, right))
+
+    def assert_is_not(left, right):
+        assert left is not right, (left, right)
 
     def require_error(expected, callback, *arguments):
         try:
@@ -367,6 +415,9 @@ def cpython(source, profile, *, expected_globals=None, expected_functions=()):
     else:
         helpers = {"require_error": require_error, "compare_ints": compare_ints}
         classes = {"AssertionError": AssertionError, "TypeError": TypeError, "NameError": NameError}
+    if bool_int:
+        classes["int"] = int
+        helpers["___assertIsNot"] = assert_is_not
     if profile == "builtin":
         namespace = {"__builtins__": classes | helpers}
     elif profile == "preamble":
@@ -432,8 +483,26 @@ def replay_upstream_nested(checkout, shared, source_path, lean_path):
                 f"#guard exactGlobals pythonSource {name}",
             ))
             completions[profile] = expected[0]
+        projection = {}
+        for profile in BOOL_INT_PROFILES:
+            completion = "normal" if filename == "bool-int.py" else "NameError:___assertIs"
+            expected = [completion, "absent", "absent"]
+            assert cpython(source, profile, expected_globals={}) == expected, (path, profile)
+            name = json.dumps(profile)
+            guards.extend((guard_observation(profile, expected), f"#guard exactGlobals pythonSource {name}"))
+            if completion == "normal":
+                call_values = [
+                    '("int", .int 0)', '("___assertEqual", .none)',
+                    '("int", .int 0)', '("___assertIsNot", .none)',
+                    '("int", .int 1)', '("___assertEqual", .none)',
+                    '("int", .int 1)', '("___assertIsNot", .none)',
+                ]
+                guards.append(f"#guard callValues pythonSource {name} = some [{', '.join(call_values)}]")
+            else:
+                guards.append(f"#guard callNames pythonSource {name} == some []")
+            projection[profile] = completion
         shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
-        rows.append({"path": path, "sha256": sha256, "completions": completions})
+        rows.append({"path": path, "sha256": sha256, "completions": completions, "bool_int_projection": projection})
     return rows
 
 
@@ -452,7 +521,7 @@ def replay_upstream_scalars(checkout, shared, source_path, lean_path):
         guards = [f'#guard ordinaryOutcome pythonSource == some ("normal", {x})']
         if path == UPSTREAM_ASSERT_NOT_CASE:
             guards.append("#guard equalityBeforeAssertNot pythonSource")
-        for profile in ("empty", "legacy_builtin", "legacy_preamble"):
+        for profile in ("empty", "legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES):
             expected = ["normal", "absent", "absent"]
             assert cpython(source, profile, expected_globals=bindings) == expected, (path, profile)
             name = json.dumps(profile)
@@ -471,7 +540,7 @@ def replay_upstream_publication(checkout, shared, source_path, lean_path):
     shared["emit"](source_path, lean_path, source)
     guards = ['#guard ordinaryOutcome pythonSource == some ("NameError:___assertRaises", none)']
     observations = {}
-    for profile in ("empty", "legacy_builtin", "legacy_preamble"):
+    for profile in ("empty", "legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES):
         empty = profile == "empty"
         cpython_expected = (["NameError:___assertRaises", "absent", "absent"] if empty
                              else ["normal", "absent", "absent", "AssertionError:empty"])
@@ -495,20 +564,23 @@ def replay_upstream(checkout, shared, source_path, lean_path):
     assert revision == UPSTREAM_REVISION, revision
     source = pinned_source(checkout, UPSTREAM_CASE, UPSTREAM_SHA256)
     shared["emit"](source_path, lean_path, source)
-    shared["check_lean"](lean_path, LEAN + """
+    guards = """
 #guard ordinaryOutcome pythonSource == some ("NameError:___assertRaises", none)
 #guard inspect pythonSource "empty" == some ["NameError:___assertRaises", "absent", "absent"]
-#guard inspect pythonSource "legacy_builtin" == some ["normal", "absent", "absent", "AssertionError:pair:1:2"]
-#guard inspect pythonSource "legacy_preamble" == some ["normal", "absent", "absent", "AssertionError:pair:1:2"]
-#guard singleNoneReturn pythonSource "legacy_builtin"
-#guard singleNoneReturn pythonSource "legacy_preamble"
 #guard exactGlobals pythonSource "empty"
-#guard exactGlobals pythonSource "legacy_builtin"
-#guard exactGlobals pythonSource "legacy_preamble"
-""", extra_imports=IMPORTS)
+"""
     assert cpython(source, "empty", expected_globals={}) == ["NameError:___assertRaises", "absent", "absent"]
-    for profile in ("legacy_builtin", "legacy_preamble"):
-        assert cpython(source, profile, expected_globals={}) == ["normal", "absent", "absent", "AssertionError:pair:1:2"]
+    for profile in ("legacy_builtin", "legacy_preamble", *BOOL_INT_PROFILES):
+        expected = ["normal", "absent", "absent", "AssertionError:pair:1:2"]
+        assert cpython(source, profile, expected_globals={}) == expected, profile
+        name = json.dumps(profile)
+        guards += "\n".join((
+            guard_observation(profile, expected),
+            f"#guard singleNoneReturn pythonSource {name}",
+            f"#guard exactGlobals pythonSource {name}",
+            "",
+        ))
+    shared["check_lean"](lean_path, LEAN + guards, extra_imports=IMPORTS)
     return {
         "revision": revision,
         "sha256": UPSTREAM_SHA256,

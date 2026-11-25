@@ -18,8 +18,8 @@ inductive SeedPlacement where
   | builtin
   | preamble
 
-/-- Only this explicit profile supplies harness entries. In either placement,
-the class token is a builtin and the helpers use the chosen namespace. -/
+/-- The exception-helper projection uses the selected namespace for harness
+entries and builtin fallback for the class token. -/
 def legacySeed (placement : SeedPlacement) : Namespace :=
   let classes : Bindings := [("AssertionError", .exceptionClass .assertionError)]
   let helpers (diagnostic : AssertionArgument) : Bindings :=
@@ -28,9 +28,21 @@ def legacySeed (placement : SeedPlacement) : Namespace :=
   | .builtin => ⟨[], classes ++ helpers .empty⟩
   | .preamble => ⟨helpers (.text "did not raise exception"), classes⟩
 
+/-- Extend the legacy projection with the typed Boolean-to-integer call
+and the mixed integer/Boolean identity assertion. The stock builtin uses
+builtin fallback in either harness placement. -/
+def legacyBoolIntSeed (placement : SeedPlacement) : Namespace :=
+  let seed := legacySeed placement
+  let comparison := ("___assertIsNot", Value.helper .assertIsNot)
+  let builtins := ("int", Value.builtin .int) :: seed.builtins
+  match placement with
+  | .builtin => { seed with builtins := comparison :: builtins }
+  | .preamble => { seed with moduleGlobals := comparison :: seed.moduleGlobals, builtins := builtins }
+
 def lowerCallOperand : Core.Module.Functions.Operand → Core.Module.SeededCall.Operand 0
   | .readGlobal name => .global name
   | .literal (.int value) => .literal (.int value)
+  | .literal (.bool value) => .literal (.bool value)
   | .literal _ => .unsupported
 
 def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Module.SeededCall.Operand 0
@@ -41,7 +53,7 @@ def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Modu
 def scalar? : Value → Option Core.Module.Value
   | .int value => some (.int value)
   | .bool value => some (.bool value)
-  | .none | .exceptionClass _ | .helper _ | .function _ => none
+  | .none | .exceptionClass _ | .helper _ | .builtin _ | .function _ => none
 
 /-- Boolean literals are admitted inside equality. The resulting Boolean
 can be bound as a value. Other compound operands use the existing boundary. -/
@@ -61,7 +73,7 @@ def truth : Value → Bool
   | .int value => decide (value ≠ 0)
   | .bool value => value
   | .none => false
-  | .exceptionClass _ | .helper _ => true
+  | .exceptionClass _ | .helper _ | .builtin _ => true
   | .function closure => (Core.Closure.Value.function closure).truth
 
 def assertTruthAs (expected : Bool) (value : Value) : Except Failure Unit :=
@@ -102,7 +114,7 @@ def ordinaryValue? : Value → Option Core.Closure.Value
   | .bool value => some (.bool value)
   | .none => some .none
   | .function closure => some (.function closure)
-  | .exceptionClass _ | .helper _ => none
+  | .exceptionClass _ | .helper _ | .builtin _ => none
 
 def seededValue : Core.Closure.Value → Value
   | .int value => .int value
