@@ -51,6 +51,9 @@ provides its own label table, queried when that module executes a load.
 Distinct labels that resolve to the same ID share one successful
 initialization and the published values retain their heap identities.
 The table uses the first matching label when entries repeat.
+The linked declaration table is supplied up front and its signatures and
+bodies are checked by the shared module validator. Each source's own
+commands, allocations and publication are processed on demand.
 [Loader definitions](../../Silmaril/Languages/Starlark/Modules/Loader/Defs.lean)
 
 - A missing label reports the requester and label. An ID outside the

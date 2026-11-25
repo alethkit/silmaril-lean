@@ -147,8 +147,9 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 - **Functions.** User function objects, lexical cells, calls
   and declaration-based recursion checks extend this store. The call profile
   includes definition-time defaults, keyword-only parameters and both
-  argument expansions and calls inside collection loops. Source lowering
-  remains open.
+  argument expansions and calls inside collection loops. Resolved nested
+  call lowering covers call-free collection atoms, with general embedding
+  into collection expressions still open.
   [Lexical calls](starlark-functions.md) · [Functions][functions]
 - **Collection operations.** General equality and ordering, `hash`,
   concatenation, slicing, comprehensions, other methods, augmented assignment,
