@@ -21,8 +21,7 @@ theorem trace_eq {A B U : K} {f g : P.sum A U ⟶ P.sum B U} (e : f = g)
 private theorem map_id_id (B U : K) : P.map (𝟙 B) (𝟙 U) = 𝟙 (P.sum B U) := by
   simp [Coproducts.map]
 
-include laws
-theorem onBranches_entry {A A' B U : K} (a : A' ⟶ A)
+private theorem onBranches_entry {A A' B U : K} (ht : Feedback.Tightening trace) (a : A' ⟶ A)
     (entry : A ⟶ P.sum B U) (body : U ⟶ P.sum B U) (hb : G.guarded body) :
     Feedback.onBranches trace (a ≫ entry) body hb =
       a ≫ Feedback.onBranches trace entry body hb := by
@@ -30,8 +29,9 @@ theorem onBranches_entry {A A' B U : K} (a : A' ⟶ A)
   have hf : G.FeedbackGuard f := by simpa [FeedbackGuard, f] using hb
   have e : tighten f a (𝟙 B) = P.desc (a ≫ entry) body := by
     simp [tighten, f, P.map_desc, map_id_id]
-  exact (trace_eq e.symm _ (tighten_feedbackGuard f a (𝟙 B) hf)).trans (by simpa [f, Feedback.onBranches] using laws.tighten f a (𝟙 B) hf)
+  exact (trace_eq e.symm _ (tighten_feedbackGuard f a (𝟙 B) hf)).trans (by simpa [f, Feedback.onBranches] using ht f a (𝟙 B) hf)
 
+include laws in
 theorem onBranches_result {A B B' U : K} (b : B ⟶ B')
     (entry : A ⟶ P.sum B U) (body : U ⟶ P.sum B U) (hb : G.guarded body) :
     Feedback.onBranches trace (entry ≫ P.map b (𝟙 U))
@@ -43,7 +43,8 @@ theorem onBranches_result {A B B' U : K} (b : B ⟶ B')
     simp [tighten, f, map_id_id]
   exact (trace_eq e.symm _ (tighten_feedbackGuard f (𝟙 A) b hf)).trans (by simpa [f, Feedback.onBranches] using laws.tighten f (𝟙 A) b hf)
 
-theorem onBranches_immediate {I B U : K} (i : IsInitial I) (body : U ⟶ P.sum B U)
+private theorem onBranches_immediate {I B U : K} (i : IsInitial I)
+    (ht : Feedback.Tightening trace) (hs : Feedback.Superposition trace) (body : U ⟶ P.sum B U)
     (hb : G.guarded body) :
     Feedback.onBranches trace (P.inl : B ⟶ P.sum B U) body hb = 𝟙 B := by
   let f := P.desc (i.to (P.sum B U)) body
@@ -56,10 +57,14 @@ theorem onBranches_immediate {I B U : K} (i : IsInitial I) (body : U ⟶ P.sum B
     · simp [tighten, g, superpose, f, fold, Coproducts.map]
     · simp [tighten, g, superpose, f, fold, Coproducts.map]
   refine (trace_eq e.symm _ (tighten_feedbackGuard g P.inr fold hg)).trans ?_
-  rw [laws.tighten g P.inr fold hg, laws.superpose f (𝟙 B) hf]
+  refine (ht g P.inr fold hg).trans ?_
+  have eq : trace g hg = P.map (trace f hf) (𝟙 B) := hs f (𝟙 B) hf
+  change P.inr ≫ trace g hg ≫ fold = 𝟙 B
+  rw [eq]
   simp [Coproducts.map, fold]
 
-theorem onBranches_enterState {B U : K} (body : U ⟶ P.sum B U) (hb : G.guarded body) :
+include laws in
+private theorem onBranches_enterState {B U : K} (body : U ⟶ P.sum B U) (hb : G.guarded body) :
     Feedback.onBranches trace (P.inr : U ⟶ P.sum B U) body hb =
       Feedback.iterate trace body hb := by
   let f := P.desc (P.inr : U ⟶ P.sum B U) P.inr
@@ -71,24 +76,36 @@ theorem onBranches_enterState {B U : K} (body : U ⟶ P.sum B U) (hb : G.guarded
   exact (trace_eq d.symm _ _).trans
     ((laws.slide f body guard).symm.trans (trace_eq e _ _))
 
-theorem onBranches_formula [HasInitial K] {A B U : K} (entry : A ⟶ P.sum B U)
+theorem onBranches_formula_ofRouting {I A B U : K} (i : IsInitial I)
+    (ht : Feedback.Tightening trace) (hs : Feedback.Superposition trace)
+    (enter : ∀ {B U : K} (body : U ⟶ P.sum B U) (hb : G.guarded body),
+      Feedback.onBranches trace P.inr body hb = Feedback.iterate trace body hb)
+    (entry : A ⟶ P.sum B U)
     (body : U ⟶ P.sum B U) (hb : G.guarded body) :
     Feedback.onBranches trace entry body hb =
       entry ≫ P.desc (𝟙 B) (Feedback.iterate trace body hb) := by
   let f := Feedback.onBranches trace (𝟙 (P.sum B U)) body hb
   have e : Feedback.onBranches trace entry body hb = entry ≫ f := by
-    simpa [f] using onBranches_entry laws entry (𝟙 (P.sum B U)) body hb
+    simpa [f] using onBranches_entry ht entry (𝟙 (P.sum B U)) body hb
   refine e.trans (congrArg (entry ≫ ·) ?_)
   apply P.hom_ext
-  · have a := onBranches_entry laws (P.inl : B ⟶ P.sum B U) (𝟙 (P.sum B U)) body hb
+  · have a := onBranches_entry ht (P.inl : B ⟶ P.sum B U) (𝟙 (P.sum B U)) body hb
     rw [P.inl_desc]
     exact (by simpa [f] using a.symm :
       P.inl ≫ f = Feedback.onBranches trace P.inl body hb).trans
-        (onBranches_immediate laws initialIsInitial body hb)
-  · have a := onBranches_entry laws (P.inr : U ⟶ P.sum B U) (𝟙 (P.sum B U)) body hb
+        (onBranches_immediate i ht hs body hb)
+  · have a := onBranches_entry ht (P.inr : U ⟶ P.sum B U) (𝟙 (P.sum B U)) body hb
     rw [P.inr_desc]
     exact (by simpa [f] using a.symm :
-      P.inr ≫ f = Feedback.onBranches trace P.inr body hb).trans (onBranches_enterState laws body hb)
+      P.inr ≫ f = Feedback.onBranches trace P.inr body hb).trans (enter body hb)
+
+include laws
+
+theorem onBranches_formula [HasInitial K] {A B U : K} (entry : A ⟶ P.sum B U)
+    (body : U ⟶ P.sum B U) (hb : G.guarded body) :
+    Feedback.onBranches trace entry body hb = entry ≫ P.desc (𝟙 B) (Feedback.iterate trace body hb) :=
+  onBranches_formula_ofRouting initialIsInitial laws.tighten laws.superpose
+    (onBranches_enterState laws) entry body hb
 
 theorem feedback_fixpoint [HasInitial K] {U B : K} (f : U ⟶ P.sum B U) (hf : G.guarded f) :
     IsFixpoint f (Feedback.iterate trace f hf) :=
