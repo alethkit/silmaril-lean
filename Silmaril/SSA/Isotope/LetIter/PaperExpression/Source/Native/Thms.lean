@@ -50,4 +50,18 @@ theorem Eqv.toLetIter_at_bound (a b : TypedExpr Φ Γ A e) (h : Eqv Γ A e a.val
   exact ⟨Option.some.inj (ht.symm.trans hl) ▸ hta, Option.some.inj (hs.symm.trans hr) ▸ hsb,
     h.toLetIter hl hr⟩
 
+/-- A typed source substitution from a bottom-annotated context lowers to a
+pure native substitution. The existing native preservation theorem applies to
+the entire derivation of the original equality. -/
+theorem native_subst {Δ : EffectCtx τ ε} (hΓ : Γ.Pure)
+    {σ : Nat → Expr Φ} {C : τ}
+    (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s)
+    (hn : AbortEquiv (⊥ : ε) (.nil : Ctx Empty τ) Γ.toBoundCtx t s C)
+    (hσ : ∀ i : Fin Γ.length, Wf Δ (σ i.val) (Γ.get i).1 (Γ.get i).2) :
+    ∃ t' s' : Tm Empty Φ Δ.length,
+      (a.subst σ).toLetIter Δ.length = some t' ∧
+      (b.subst σ).toLetIter Δ.length = some s' ∧
+      AbortEquiv (⊥ : ε) (.nil : Ctx Empty τ) Δ.toBoundCtx t' s' C :=
+  NativeProofs.native_subst hΓ ht hs hn hσ
+
 end Silmaril.Isotope.LetIter.PaperExpression.Source

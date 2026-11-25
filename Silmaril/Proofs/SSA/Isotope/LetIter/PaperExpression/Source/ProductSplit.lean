@@ -2,8 +2,10 @@ module
 
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.ProductSplit.Defs
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit.Thms
 import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit
-import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit.FreeTree
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.Native.Thms
+import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit.Thms
 import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.Equations
 
 /-! # Reconstructing an expression after splitting a pure product slot -/
@@ -128,7 +130,7 @@ public theorem native_split (i : Fin Γ.length) (hΓ : Γ.Pure) (hty : (Γ.get i
       (split i a).toLetIter (splitCtx Γ i A B).length = some t' ∧
       (split i b).toLetIter (splitCtx Γ i A B).length = some s' ∧
       AbortEquiv (⊥ : ε) (.nil : Ctx Empty τ) (splitCtx Γ i A B).toBoundCtx t' s' C :=
-  SumSplit.TreeProofs.native_subst hΓ ht hs h (split_typed i hty (hΓ i))
+  Source.native_subst hΓ ht hs h (split_typed i hty (hΓ i))
 
 end Native
 

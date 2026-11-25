@@ -4,7 +4,6 @@ public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit.FreeT
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.FreeTree.Thms
 public import Silmaril.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit.Thms
 public import Silmaril.Proofs.SSA.Isotope.LetIter.PaperExpression.Source.SumSplit
-import Silmaril.SSA.Isotope.LetIter.PaperExpression.Substitution.Thms
 
 /-! # Reflection after splitting one source sum slot -/
 
@@ -17,34 +16,6 @@ open Silmaril.Isotope.LetIter.PaperExpression.Source
 namespace Silmaril.Isotope.LetIter.PaperExpression.Source.SumSplit.TreeProofs
 
 universe u v w
-
-section Native
-
-variable {τ : Type u} {Φ : Type v} {ε : Type w}
-  [TypeFormers τ] [HasTy Φ τ] [HasEff Φ ε] [SemilatticeSup ε] [OrderBot ε] [EffectIteration ε]
-
-/-- A typed source substitution from a bottom-annotated context lowers to a
-pure native substitution. The existing native preservation theorem applies to
-the entire derivation of the original equality. -/
-public theorem native_subst {Γ Δ : EffectCtx τ ε} (hΓ : Γ.Pure)
-    {a b : Expr Φ} {σ : Nat → Expr Φ} {C : τ}
-    {t s : Tm Empty Φ Γ.length}
-    (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s)
-    (hn : AbortEquiv (⊥ : ε) (.nil : Ctx Empty τ) Γ.toBoundCtx t s C)
-    (hσ : Source.Proofs.TypedSubst Δ Γ σ) :
-    ∃ t' s' : Tm Empty Φ Δ.length,
-      (a.subst σ).toLetIter Δ.length = some t' ∧
-      (b.subst σ).toLetIter Δ.length = some s' ∧
-      AbortEquiv (⊥ : ε) (.nil : Ctx Empty τ) Δ.toBoundCtx t' s' C := by
-  classical
-  have hw (i : Fin Γ.length) : Wf Δ (σ i.val) (Γ.get i).1 (⊥ : ε) := hΓ i ▸ hσ i
-  choose θ hθ htyped using fun i => (hw i).toLetIter
-  have sub : PureTypedSubst (⊥ : ε) (.nil : Ctx Empty τ) Γ.toBoundCtx Δ.toBoundCtx θ :=
-    ⟨fun i => (EffectCtx.get_toBoundCtx Γ i).symm ▸ (htyped i).1,
-      fun i => (hw i).pure_toLetIter (hθ i)⟩
-  exact ⟨_, _, Expr.toLetIter_subst ht hθ, Expr.toLetIter_subst hs hθ, hn.bsubst sub⟩
-
-end Native
 
 section Trees
 
