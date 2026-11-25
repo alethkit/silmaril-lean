@@ -15,7 +15,7 @@ open Silmaril.Languages.Starlark.Lists
 open Silmaril.Languages.Starlark.Lists.Iteration
 open Silmaril.Proofs.Languages.Starlark.Functions.Lowering
 
-private abbrev Exact (program : Program) (available : List DeclarationId) (source lowered : Body) :=
+abbrev Exact (program : Program) (available : List DeclarationId) (source lowered : Body) :=
   ∀ state, ScratchFree state →
     denoteBody program available source state = denoteBody program available lowered state ∧
     (finishState (denoteBody program available source state)).slots = state.slots
@@ -35,7 +35,7 @@ private theorem keyVisible : ¬ Scratch 0 keySlot := by
   have := congrArg Binding.scope same
   contradiction
 
-private theorem stage {program : Program} {available : List DeclarationId}
+theorem stage {program : Program} {available : List DeclarationId}
     {expr : Languages.Starlark.Functions.Lowering.Expr} (admitted : Admitted expr)
     (target : Binding) (start : Nat) :
     Exact program available (.assignExpr target expr) (stageLowered start target expr) := by
@@ -43,7 +43,7 @@ private theorem stage {program : Program} {available : List DeclarationId}
   have ran := (evaluates_iff_denoteExpr program available admitted state _).mpr rfl
   exact ⟨(scopedStage_preserves ran free target start).symm, assignExpr_slots ran target⟩
 
-private theorem seq {program : Program} {available : List DeclarationId}
+theorem seq {program : Program} {available : List DeclarationId}
     {first first' rest rest' : Body}
     (firstEq : Exact program available first first') (restEq : Exact program available rest rest') :
     Exact program available (.seq first rest) (.seq first' rest') := by
@@ -240,32 +240,48 @@ private theorem scoped_exact {program : Program} {available : List DeclarationId
       (seq (stage outer operandSlot start)
         (seq (scopeBody resultSlot locals localSafe (seq (loop first rest) result)) result)))
 
-theorem lower_preserves (program : Program) (available : List DeclarationId)
-    (comp : ListComp) (target : Binding) (state : State) (start : Nat)
+theorem list_exact {program : Program} {available : List DeclarationId}
+    (comp : ListComp) (target : Binding) (start : Nat)
     (outer : Admitted comp.iterable) (inner : ∀ expr ∈ comp.rest.operands, Admitted expr)
-    (locals : ∀ name ∈ comp.locals, ¬ Scratch 0 name) (free : ScratchFree state) :
-    denoteBody program available (comp.lower target start) state =
-      denoteBody program available (comp.body target) state := by
+    (locals : ∀ name ∈ comp.locals, ¬ Scratch 0 name) :
+    Exact program available (comp.body target) (comp.lower target start) := by
   have rest := tail (program := program) (available := available) start comp.rest (fun value => [value])
     (fun value => .seq (.assignExpr operandSlot value) appendResult)
     (fun value => .seq (stageLowered start operandSlot value) appendResult)
     (fun value admit => seq (stage (admit value (by simp)) operandSlot start) append) inner
-  exact ((scoped_exact target [] comp.locals comp.target (.atom (.list .empty)) outer start
-    (by simp) locals rest) state free).1.symm
+  exact scoped_exact target [] comp.locals comp.target (.atom (.list .empty)) outer start
+    (by simp) locals rest
 
-theorem dict_lower_preserves (program : Program) (available : List DeclarationId)
-    (comp : DictComp) (target : Binding) (state : State) (start : Nat)
+theorem dict_exact {program : Program} {available : List DeclarationId}
+    (comp : DictComp) (target : Binding) (start : Nat)
     (outer : Admitted comp.iterable) (inner : ∀ expr ∈ comp.operands, Admitted expr)
-    (locals : ∀ name ∈ comp.locals, ¬ Scratch 0 name) (free : ScratchFree state) :
-    denoteBody program available (comp.lower target start) state =
-      denoteBody program available (comp.body target) state := by
+    (locals : ∀ name ∈ comp.locals, ¬ Scratch 0 name) :
+    Exact program available (comp.body target) (comp.lower target start) := by
   let emit := fun (stage : Stage) (key, value) =>
     Body.seq (stage keySlot key) (.seq (stage operandSlot value) putResult)
   have rest := tail (program := program) (available := available) start comp.rest
     (fun (key, value) => [key, value]) (emit Body.assignExpr) (emit (stageLowered start))
     (fun (key, value) admit => seq (stage (admit key (by simp)) keySlot start)
       (seq (stage (admit value (by simp)) operandSlot start) put)) inner
-  exact ((scoped_exact target [keySlot] comp.locals comp.target (.atom (.dict .noEntries)) outer start
-    (by simpa using keyVisible) locals rest) state free).1.symm
+  exact scoped_exact target [keySlot] comp.locals comp.target (.atom (.dict .noEntries)) outer start
+    (by simpa using keyVisible) locals rest
+
+
+
+theorem lower_preserves (program : Program) (available : List DeclarationId)
+    (comp : ListComp) (target : Binding) (state : State) (start : Nat)
+    (outer : Admitted comp.iterable) (inner : ∀ expr ∈ comp.rest.operands, Admitted expr)
+    (locals : ∀ name ∈ comp.locals, ¬ Scratch 0 name) (free : ScratchFree state) :
+    denoteBody program available (comp.lower target start) state =
+      denoteBody program available (comp.body target) state :=
+  ((list_exact comp target start outer inner locals) state free).1.symm
+
+theorem dict_lower_preserves (program : Program) (available : List DeclarationId)
+    (comp : DictComp) (target : Binding) (state : State) (start : Nat)
+    (outer : Admitted comp.iterable) (inner : ∀ expr ∈ comp.operands, Admitted expr)
+    (locals : ∀ name ∈ comp.locals, ¬ Scratch 0 name) (free : ScratchFree state) :
+    denoteBody program available (comp.lower target start) state =
+      denoteBody program available (comp.body target) state :=
+  ((dict_exact comp target start outer inner locals) state free).1.symm
 
 end Silmaril.Proofs.Languages.Starlark.Functions.Comprehensions

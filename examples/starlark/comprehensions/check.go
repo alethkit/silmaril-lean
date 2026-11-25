@@ -130,7 +130,59 @@ out = run()`)
 	fmt.Println("PROFILE DIFFERENCE Go also retains dictionary comprehension locals across visits")
 }
 
+func checkExpressionPositions() {
+	const mark = `events = []
+def mark(tag, value):
+    events.append(tag)
+    return value
+`
+	globals, err := run(mark + `def sink(xs, d, last):
+    return mark(9, (xs[0], d["a"], last))
+def pick():
+    return mark(1, sink)
+def run():
+    return pick()(
+        [mark(3, x) for x in mark(2, [4])] or [x for x in mark(99, len(1))],
+        {mark(5, k): mark(6, v) for (k, [v]) in mark(4, [("a", [10])])} if True else [x for x in mark(99, len(1))],
+        len(mark(8, range(11))),
+    )
+out = run()
+`)
+	require(err == nil && globals["out"].String() == "(4, 10, 11)" &&
+		globals["events"].String() == "[1, 2, 3, 4, 5, 6, 8, 9]", fmt.Sprint(globals, err))
+	fmt.Println("PASS comprehension arguments inside a return, callee/argument order, and skipped branches")
+
+	const calls = `rows = [[("a", [4]), ([], [5])]]
+def sink(*args):
+    return mark(7, args)
+`
+	const arguments = `(
+    [x for x in mark(2, [])],
+    {mark(4, k): mark(5, v) for row in mark(3, rows) for (k, [v]) in row},
+    mark(6, 0),
+)
+`
+	for _, tc := range []struct {
+		callee    string
+		errorPart string
+		events    string
+	}{
+		{`mark(1, sink)`, "unhashable type: list", "[1, 2, 3, 4, 5, 4, 5]"},
+		{`mark(1, [])[1]`, "out of range", "[1]"},
+	} {
+		globals, err = run(mark + calls + "out = " + tc.callee + arguments)
+		checkError(err, tc.errorPart)
+		require(globals["out"] == nil && globals["events"].String() == tc.events, fmt.Sprint(globals, err))
+		outer := globals["rows"].(*starlark.List)
+		inner := outer.Index(0).(*starlark.List)
+		require(outer.Append(starlark.None) == nil && inner.Append(starlark.None) == nil,
+			"expression-position failure left an active iterator")
+	}
+	fmt.Println("PASS failed callee or comprehension skips later arguments and dispatch, retaining effects")
+}
+
 func main() {
 	checkLists()
 	checkDictionaries()
+	checkExpressionPositions()
 }

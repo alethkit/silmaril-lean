@@ -91,6 +91,13 @@ commands enter the same body
 path as function assignments, then use the ordinary publication rules.
 [List comprehension semantics](starlark-functions.md#list-comprehension-assignment) · [Dictionary comprehension semantics](starlark-functions.md#dictionary-comprehension-assignment)
 
+The normalized `CompExpr` adapter also allows comprehensions under calls,
+conditional and short-circuit operators within return values and
+single-name assignment RHSs. Both selected and skipped AST positions are
+resolved before execution. The emitted body evaluates only the selected
+paths and keeps prior shared heap effects on failure.
+[Expression placement](starlark-functions.md#comprehensions-in-checked-expression-positions)
+
 A loop target belongs to the whole function block. The resolver collects
 all target names before resolving the iterable and body in that block. Thus
 `for x in x` reads the function's `x` before any iteration writes it. The
@@ -145,9 +152,9 @@ the elaboration result with the resolved operational theorem. It compares
 static rejection, execution outcomes, publication and the exact residual
 state. This correspondence shares the elaborator and starts at a normalized
 AST with legal identifier spellings. An independent source binding relation
-and text parsing remain open. Lambdas, comprehension forms beyond
-assignment of list or dictionary comprehensions to a name, subscript or field leaves in patterns,
-and other augmented assignment forms remain outside this source fragment.
+and text parsing remain open. Lambdas, general comprehension
+expression positions, subscript or field leaves in patterns, and other
+augmented assignment forms remain outside this source fragment.
 The pinned Starlark spec rejects slice assignment targets.
 [Theorem header](../../Silmaril/Languages/Starlark/Modules/Resolve/Thms.lean) · [Lean source fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/Checks.lean)
 
