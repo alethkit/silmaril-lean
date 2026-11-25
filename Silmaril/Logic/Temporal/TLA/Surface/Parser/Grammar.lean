@@ -194,19 +194,20 @@ private def nameListEnd (first : Nat) : ParseM Nat := do
     offset := offset + 2
   return offset
 
-/-- Look ahead through a paired delimiter without consuming it. The caller has
-already found the opener at the supplied offset. -/
-private def afterDelimiter (offset : Nat) (openers closers : List String) :
+/-- Find the matching closer or a stopping token at the outermost depth.
+Start at the first token after the opener. -/
+private def delimiterAt (first : Nat) (openers closers : List String) (stops : List String := []) :
     ParseM (Option Nat) := do
   let mut depth := 1
-  let mut next := offset + 1
+  let mut next := first
   while depth > 0 do
     let token ← peek next
     if token.kind == .eof || token.kind == .endModule then return none
+    if depth == 1 && token.isOneOf stops then return some next
     if token.isOneOf openers then depth := depth + 1
     if token.isOneOf closers then depth := depth - 1
     next := next + 1
-  return some next
+  return some (next - 1)
 
 private def membership := ["\\in", "∈"]
 private def definitionMark := ["==", "≜"]
@@ -222,18 +223,18 @@ private def startsDefinition (ahead : Nat := 0) : ParseM Bool := do
   if next.postfix.isSome then return ← sees definitionMark (ahead + 2)
   if next.infix.isSome then
     return (← peek (ahead + 2)).kind == .ident && (← sees definitionMark (ahead + 3))
-  let after ← if next.isOneOf ["("] then afterDelimiter (ahead + 1) ["("] [")"]
-    else if next.isOneOf ["["] then afterDelimiter (ahead + 1) ["["] ["]", "]_"]
+  let close ← if next.isOneOf ["("] then delimiterAt (ahead + 2) ["("] [")"]
+    else if next.isOneOf ["["] then delimiterAt (ahead + 2) ["["] ["]", "]_"]
     else pure none
-  if let some offset := after then return ← sees definitionMark offset
+  if let some offset := close then return ← sees definitionMark (offset + 1)
   return false
 
 private def startsBound : ParseM Bool := do
   -- SANY's matchFcnConst commits on a tuple followed by membership.
   -- The tuple's contents are checked later by IdentifierTuple.
   if ← sees ["<<", "⟨"] then
-    if let some offset ← afterDelimiter 0 ["<<", "⟨"] [">>", "⟩"] then
-      return ← sees membership offset
+    if let some offset ← delimiterAt 1 ["<<", "⟨"] [">>", "⟩"] then
+      return ← sees membership (offset + 1)
     return false
   if (← peek).kind == .ident then return ← sees membership (← nameListEnd 0)
   return false
@@ -323,12 +324,6 @@ private partial def operand (parent : Option Pending) : ParseM ParsedExpr := do
   let token ← peek
   if !(← inItem token) then failAt token "expected an expression to the right of the junction marker"
   else if let some op := token.prefix then
-    if token.text == "-" then
-      if let some left := parent then
-        -- SANY's mixfix '-' cannot follow an already stronger pending operator.
-        if left.op.low > op.high then
-          failAt token s!"precedence conflict between {left.token.text} and unary -. Use parentheses"
-            .precedence
     let _ ← takeToken
     let value ← operand (some ⟨token, op⟩)
     extend parent (.single (.prefix (op.prefixOp token.text) value.finish))
@@ -338,21 +333,12 @@ private partial def operand (parent : Option Pending) : ParseM ParsedExpr := do
     let name ← ident
     let parameters ← if ← accept ["("] then delimited [")"] (commaList ident) else pure []
     let _ ← expectOne labelMark
-    let start ← peek
-    let body ← operand none
-    if let (some left, .single value) := (parent, body) then
-      -- A label cannot change the binding of the operator at the root of its body.
-      let root := match value with
-        | .infix (.symbol spelling) .. => lookupOperator spelling
-        | .infix .compose .. => lookupOperator "\\cdot"
-        | .infix .leadsTo .. => lookupOperator "~>"
-        | .infix .guarantees .. => lookupOperator "-+->"
-        | .postfix .prime _ => lookupOperator "'"
-        | .postfix (.symbol spelling) _ => lookupOperator spelling
-        | _ => none
-      if let some op := root then
-        if left.op.high ≥ op.low then
-          failAt start "label changes operator grouping. Use parentheses" .precedence
+    -- The label covers the complete body, with the same grouping the body
+    -- would have in the enclosing expression without the label.
+    let body ← operand parent
+    let next ← peek
+    if (← inItem next) && (next.infix.isSome || next.postfix.isSome) then
+      failAt next "label changes operator grouping. Use parentheses" .precedence
     return .single (.labeled ⟨name, parameters⟩ body.finish)
   else if token.isOneOf ["IF", "CASE", "LET", "CHOOSE", "\\A", "\\forall", "∀",
       "\\E", "\\exists", "∃", "\\AA", "\\EE"] then
@@ -370,7 +356,6 @@ private partial def extend (parent : Option Pending) (left : ParsedExpr) : Parse
     extend parent (.single (.field left.finish (← fieldName)))
   else if next.isOneOf ["["] then
     let _ ← takeToken
-    if ← startsBound then failHere "parenthesize a membership expression used as an index"
     let args ← delimited ["]"] (commaList expression)
     extend parent (.single (.index left.finish args))
   else if let some op := next.postfix then
@@ -537,13 +522,18 @@ private partial def fieldEntry (marker : List String) (nameParser : ParseM Ident
   return ⟨name, ← expression⟩
 
 private partial def bracket : ParseM Expr := do
+  let mapsTo := ["|->", "↦"]
   if ← startsBound then
-    let bounds ← commaList bound
-    let _ ← expectOne ["|->", "↦"]
-    return .function bounds (← delimited ["]"] expression)
-  if (← peek).isFieldName && (← sees ["|->", "↦"] 1) then
-    let first ← fieldEntry ["|->", "↦"] fieldName
-    return .record (← delimited ["]"] (commaTail first (fieldEntry ["|->", "↦"] ident)))
+    -- A membership test can also start an action or a function set. Only
+    -- a mapping arrow belonging to this bracket commits to function bounds.
+    if let some offset ← delimiterAt 0 ["["] ["]", "]_"] mapsTo then
+      if ← sees mapsTo offset then
+        let bounds ← commaList bound
+        let _ ← expectOne mapsTo
+        return .function bounds (← delimited ["]"] expression)
+  if (← peek).isFieldName && (← sees mapsTo 1) then
+    let first ← fieldEntry mapsTo fieldName
+    return .record (← delimited ["]"] (commaTail first (fieldEntry mapsTo ident)))
   if (← peek).kind == .ident && (← sees [":"] 1) then
     return .recordSet (← delimited ["]"] (commaList (fieldEntry [":"] ident)))
   let base ← expression
