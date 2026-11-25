@@ -25,6 +25,23 @@ structure Primitive (V : Type u) (arity : Nat) where
 abbrev ExternalInterpretation (V : Type u) (signature : ExternalSignature) :=
   (id : BindingId) → (arity : Nat) → signature id = some arity → Primitive V arity
 
+/-- Operations required by data evaluation. Adapters own the laws for these
+operations, including the results on values outside their set representation. -/
+structure DataOperations (V : Type u) where
+  mem : V → V → Prop
+  enum : List V → V
+  sep : V → (V → Prop) → V
+  image : V → (V → V) → V
+  choice : Data.ChoicePolicy V
+
+/-- Use the pure-set interpretation and its fixed choice policy. -/
+def DataOperations.ofModel {V : Type u} (model : Data.Model V) : DataOperations V where
+  mem := model.mem
+  enum := model.enum
+  sep := model.sep
+  image := model.image
+  choice := model.choice
+
 inductive Logic where
   | and | or | implies | equiv
   deriving DecidableEq, Repr
@@ -157,7 +174,7 @@ open Classical
 
 mutual
 
-noncomputable def Term.eval (M : Data.Model V) (B : Booleans V)
+noncomputable def Term.eval (ops : DataOperations V) (B : Booleans V)
     (external : ExternalInterpretation V signature) (valuation : Valuation V)
     (term : Term signature) (witnesses : Nat → V) : V :=
   let truth := fun negated (p : Prop) => B.ofProp (if negated then ¬p else p)
@@ -166,23 +183,23 @@ noncomputable def Term.eval (M : Data.Model V) (B : Booleans V)
   | .flexible id => valuation.flexible id
   | .witness slot => witnesses slot
   | .boolean value => if value then B.trueValue else B.falseValue
-  | .booleanSet => M.enum [B.trueValue, B.falseValue]
+  | .booleanSet => ops.enum [B.trueValue, B.falseValue]
   | .eq negated left right =>
-    let l := eval M B external valuation left witnesses
-    let r := eval M B external valuation right witnesses
+    let l := eval ops B external valuation left witnesses
+    let r := eval ops B external valuation right witnesses
     truth negated (l = r)
   | .mem negated element set =>
-    truth negated (M.mem (eval M B external valuation element witnesses)
-      (eval M B external valuation set witnesses))
+    truth negated (ops.mem (eval ops B external valuation element witnesses)
+      (eval ops B external valuation set witnesses))
   | .not arg =>
-    let value := eval M B external valuation arg witnesses
+    let value := eval ops B external valuation arg witnesses
     if B.IsBoolean value then B.ofProp (¬B.holds value) else B.invalid .negation [value]
   | .logic op left right =>
-    let l := eval M B external valuation left witnesses
-    let r := eval M B external valuation right witnesses
+    let l := eval ops B external valuation left witnesses
+    let r := eval ops B external valuation right witnesses
     op.eval B l r
   | .junction kind args =>
-    let values := evalList M B external valuation args witnesses
+    let values := evalList ops B external valuation args witnesses
     let (absorbing, identity) := match kind with
       | .conjunction => (B.falseValue, B.trueValue)
       | .disjunction => (B.trueValue, B.falseValue)
@@ -190,42 +207,48 @@ noncomputable def Term.eval (M : Data.Model V) (B : Booleans V)
     else if ∀ value ∈ values, B.IsBoolean value then identity
     else B.invalid (.junction kind) values
   | .ite condition yes no =>
-    let value := eval M B external valuation condition witnesses
-    let consequent := eval M B external valuation yes witnesses
-    let alternative := eval M B external valuation no witnesses
+    let value := eval ops B external valuation condition witnesses
+    let consequent := eval ops B external valuation yes witnesses
+    let alternative := eval ops B external valuation no witnesses
     if B.IsBoolean value then
       if B.holds value then consequent else alternative
     else B.invalid .conditional [value, consequent, alternative]
-  | .enum items => M.enum (evalList M B external valuation items witnesses)
+  | .enum items => ops.enum (evalList ops B external valuation items witnesses)
   | .filter slot bound body =>
-    M.sep (eval M B external valuation bound witnesses)
-      (fun x => B.holds (eval M B external valuation body (withWitness witnesses slot x)))
+    ops.sep (eval ops B external valuation bound witnesses)
+      (fun x => B.holds (eval ops B external valuation body (withWitness witnesses slot x)))
   | .image slot bound body =>
-    M.image (eval M B external valuation bound witnesses)
-      (fun x => eval M B external valuation body (withWitness witnesses slot x))
+    ops.image (eval ops B external valuation bound witnesses)
+      (fun x => eval ops B external valuation body (withWitness witnesses slot x))
   | .quant kind slot bound body =>
-    let predicate := fun x => B.holds (eval M B external valuation body (withWitness witnesses slot x))
+    let predicate := fun x => B.holds (eval ops B external valuation body (withWitness witnesses slot x))
     B.ofProp (match kind, bound with
-      | .exists, none => M.existsValue predicate
-      | .forall, none => M.forallValue predicate
-      | .exists, some domain => M.existsIn (eval M B external valuation domain witnesses) predicate
-      | .forall, some domain => M.forallIn (eval M B external valuation domain witnesses) predicate)
+      | .exists, none => ∃ x, predicate x
+      | .forall, none => ∀ x, predicate x
+      | .exists, some domain =>
+        let set := eval ops B external valuation domain witnesses
+        ∃ x, ops.mem x set ∧ predicate x
+      | .forall, some domain =>
+        let set := eval ops B external valuation domain witnesses
+        ∀ x, ops.mem x set → predicate x)
   | .choose slot bound body =>
-    let predicate := fun x => B.holds (eval M B external valuation body (withWitness witnesses slot x))
+    let predicate := fun x => B.holds (eval ops B external valuation body (withWitness witnesses slot x))
     match bound with
-    | none => M.choose predicate
-    | some domain => M.chooseIn (eval M B external valuation domain witnesses) predicate
+    | none => ops.choice.choose predicate
+    | some domain =>
+      let set := eval ops B external valuation domain witnesses
+      ops.choice.choose (fun x => ops.mem x set ∧ predicate x)
   | .external id arity admitted args =>
-    (external id arity admitted).apply (evalList M B external valuation args witnesses)
+    (external id arity admitted).apply (evalList ops B external valuation args witnesses)
 termination_by structural term
 
-noncomputable def Term.evalList (M : Data.Model V) (B : Booleans V)
+noncomputable def Term.evalList (ops : DataOperations V) (B : Booleans V)
     (external : ExternalInterpretation V signature) (valuation : Valuation V)
     (terms : List (Term signature)) (witnesses : Nat → V) : List V :=
   match terms with
   | [] => []
   | item :: rest =>
-    eval M B external valuation item witnesses :: evalList M B external valuation rest witnesses
+    eval ops B external valuation item witnesses :: evalList ops B external valuation rest witnesses
 termination_by structural terms
 
 end
