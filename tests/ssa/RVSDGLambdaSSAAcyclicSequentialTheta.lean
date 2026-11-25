@@ -1,6 +1,9 @@
 module
 
 import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Categorical.Wires.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Flat.Observations.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Conditional.Reverse.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.ExplicitRuntime.Reverse.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Isomorphism.Defs
 import Silmaril.Raw.SSA.Isotope.Semantics.Model
 
@@ -22,11 +25,12 @@ private abbrev pair : Ty := .product number number
 private abbrev Value := Silmaril.Ty.denote (fun _ : Unit => Nat)
 private abbrev Runtime := StateT (List Nat) Part
 
-private inductive Op | enterFirst | bodyFirst | joinFirst | enterSecond | bodySecond | joinSecond
+private inductive Op | gate | enterFirst | bodyFirst | joinFirst | enterSecond | bodySecond | joinSecond
 
 local instance : HasTy Op Ty :=
   ⟨(fun | .joinSecond => pair | _ => number),
    (fun
+    | .gate => TwoBlock.TwoExit.Carrier number number number
     | .enterFirst | .joinFirst | .enterSecond => .coprod number number
     | .bodyFirst => number
     | .bodySecond => pair
@@ -51,6 +55,9 @@ local instance : TypeModel Ty where
 local instance : HasEff Op Bool := ⟨fun _ => true⟩
 
 private def instruction : (op : Op) → Value (instrSrc op) → Runtime (Value (instrTrg op))
+  | .gate, n => StateT.mk fun token =>
+    if (show Nat from n) = 99 then Part.none
+    else Part.some (if (show Nat from n) = 0 then .inl (.inr (1 : Nat)) else .inr n, token ++ [9])
   | .enterFirst, n => StateT.mk fun token => Part.some (.inr n, token ++ [1])
   | .bodyFirst, n => StateT.mk fun token => Part.some (n, token ++ [2])
   | .joinFirst, n => StateT.mk fun token =>
@@ -317,5 +324,86 @@ example : ¬ Nonempty (Wires.Reverse.Decomposition (manualGraph true) number num
   cases edge
 
 end Reverse
+
+namespace FlatLink
+
+private def guarded : Conditional.Guarded Op number number number number number number :=
+  ⟨⟨.gate, rfl, rfl⟩, spec.first⟩
+
+private def linked := Flat.link (Flat.Fragment.guarded guarded) (Flat.Fragment.loop spec.second)
+private def guardedToken : List Nat := [9] ++ afterFirst
+private def guardedFinal : List Nat := [9] ++ finalToken
+private def guardedExit : LabelDen [number,pair] := .inr (.inl ((3 : Nat), (11 : Nat)))
+
+private theorem firstGuardedRun : (iter first 2).run [9] = Part.some (middle, guardedToken) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  refine .more (a' := (1, [9,1,2,3])) ?_ (.done ?_)
+  all_goals
+    simp [Elgot.StateT.body, first, ExplicitRuntime.round, spec, ExplicitRuntime.bodyAction,
+      callCase_run, call_run, instruction, StateT.run_bind, StateT.run_pure, Part.bind_eq_bind,
+      Part.bind_some, Part.pure_eq_some, Elgot.StateT.distribute, Function.comp_def, middle, guardedToken, afterFirst]
+
+private theorem secondGuardedRun : (iter second 1).run guardedToken = Part.some (guardedExit, guardedFinal) := by
+  rw [Elgot.StateT.run_iter, Part.eq_some_iff, Elgot.Part.mem_iter_iff]
+  refine .more (a' := (3, [9] ++ afterSecondFeedback)) ?_ (.done ?_)
+  all_goals
+    simp [Elgot.StateT.body, second, ExplicitRuntime.round, spec, ExplicitRuntime.bodyAction,
+      callCase_run, call_run, instruction, StateT.run_bind, StateT.run_pure, Part.bind_eq_bind,
+      Part.bind_some, Part.pure_eq_some, Elgot.StateT.distribute, Function.comp_def,
+      guardedToken, guardedExit, guardedFinal, afterFirst, afterSecondFeedback, finalToken]
+
+private theorem gateEnters :
+    (Conditional.gateAction (ε := Bool) (m := Runtime) guarded (2 : Nat)).run [] =
+      Part.some (.inr (2 : Nat), [9]) := by
+  simp [Conditional.gateAction, guarded, callCase_run, instruction]
+
+private theorem gateUndefined :
+    (Conditional.gateAction (ε := Bool) (m := Runtime) guarded (99 : Nat)).run [] = Part.none := by
+  simp [Conditional.gateAction, guarded, callCase_run, instruction]
+
+private theorem guardedReturns :
+    Conditional.returns (ε := Bool) (Conditional.graph guarded) (2 : Nat) [] middle guardedToken := by
+  apply (NestedTheta.Partial.observe_eq_some _ _ _ _).mp
+  change Conditional.observe (ε := Bool) (Conditional.graph guarded) (2 : Nat) [] = _
+  rw [Conditional.graph_observe, StateT.run_bind, Part.bind_eq_bind, gateEnters, Part.bind_some]
+  change Part.map _ ((iter first 2).run [9]) = _
+  rw [firstGuardedRun]
+  rfl
+
+private theorem consumerReturns :
+    ExplicitRuntime.returns (ε := Bool) (ExplicitRuntime.graph spec.second)
+      (merge middle) guardedToken guardedExit guardedFinal := by
+  apply (NestedTheta.Partial.observe_eq_some _ _ _ _).mp
+  change ExplicitRuntime.observe (ε := Bool) (ExplicitRuntime.graph spec.second) (1 : Nat) guardedToken = _
+  rw [ExplicitRuntime.graph_observe]
+  change Part.map _ ((iter second 1).run guardedToken) = _
+  rw [secondGuardedRun]
+  rfl
+
+-- Both loops take feedback. The consumer reads the prefix added by the gate
+-- and producer, so reversing the effects or resetting the token changes the result.
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) linked.typing (PUnit.unit, (2 : Nat))).run [] =
+      Part.some (guardedExit, guardedFinal) :=
+  (Flat.guarded_loop_returns_iff guarded spec.second coherent (PUnit.unit, (2 : Nat))
+    guardedExit [] guardedFinal).mpr ⟨middle, guardedToken, guardedReturns, consumerReturns⟩
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) linked.typing (PUnit.unit, (99 : Nat))).run [] =
+      Part.none := by
+  rw [Flat.denote_link _ _ coherent, Flat.Fragment.guarded_denote, Conditional.region_gate _ coherent]
+  simp only [StateT.run_bind, Part.bind_eq_bind, gateUndefined, Part.bind_none]
+
+private noncomputable def recoveredLink :=
+  Flat.recover (Conditional.Reverse.canonical guarded) (ExplicitRuntime.Reverse.canonical spec.second)
+
+example (coherent : Coherent) :
+    (Region.denote (ε := Bool) (m := Runtime) recoveredLink.typing (PUnit.unit, (2 : Nat))).run [] =
+      Part.some (guardedExit, guardedFinal) :=
+  (Flat.recover_returns_iff (Conditional.Reverse.canonical guarded)
+    (ExplicitRuntime.Reverse.canonical spec.second) coherent (PUnit.unit, (2 : Nat))
+    guardedExit [] guardedFinal).mpr ⟨middle, guardedToken, guardedReturns, consumerReturns⟩
+
+end FlatLink
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Acyclic.Theta.Sequential.Tests
