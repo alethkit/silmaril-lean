@@ -14,16 +14,16 @@ private theorem operator_eq {op : Operator} {left right : Value} {result : Evalu
     (rule : op.Eval left right result) : op.eval left right = result := by
   cases rule with
   | arithmetic rule => simp only [Operator.eval, Languages.Python.Core.BinOp.eval_iff.mpr rule]
-  | equal same => simp [Operator.eval, same]
-  | unequal different => simp [Operator.eval, different]
+  | equal same => simp [Operator.eval, Value.equal, same]
+  | unequal different => simp [Operator.eval, Value.equal, different]
 
 private theorem operator_rule (op : Operator) (left right : Value) : op.Eval left right (op.eval left right) := by
   cases op with
   | arithmetic op => exact .arithmetic (Languages.Python.Core.BinOp.eval_iff.mp rfl)
   | equal =>
     by_cases same : left.asInt = right.asInt
-    · simpa [Operator.eval, same] using Operator.Eval.equal same
-    · simpa [Operator.eval, same] using Operator.Eval.unequal same
+    · simpa [Operator.eval, Value.equal, same] using Operator.Eval.equal same
+    · simpa [Operator.eval, Value.equal, same] using Operator.Eval.unequal same
 
 variable {globals : Globals} {expression : Expr} {result : Evaluated}
 

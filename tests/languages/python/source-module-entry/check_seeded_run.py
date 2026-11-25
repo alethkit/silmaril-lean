@@ -55,6 +55,7 @@ private def resultBinding : Option Value → String
   | none => "absent"
   | some .none => "None"
   | some (.int value) => s!"int:{value}"
+  | some (.bool value) => if value then "bool:True" else "bool:False"
   | _ => "unexpected binding"
 
 private def inspect (source : Source.Module) (profile : String) : Option (List String) := do
@@ -71,12 +72,27 @@ private def callNames (source : Source.Module) (profile : String) : Option (List
   let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
   return (Compile.ModuleEntry.Functions.Run.Seeded.run (initial profile) compiled).calls.map (·.callee)
 
-private def globalsUnchanged (source : Source.Module) (profile : String) : Bool :=
+private def exactGlobals (source : Source.Module) (profile : String) (bindings : Bindings := []) : Bool :=
   match Compile.ModuleEntry.Functions.Run.compile source with
   | .error _ => false
   | .ok compiled =>
     let space := initial profile
-    (Compile.ModuleEntry.Functions.Run.Seeded.run space compiled).residual.moduleGlobals == space.moduleGlobals
+    (Compile.ModuleEntry.Functions.Run.Seeded.run space compiled).residual.moduleGlobals ==
+      bindings ++ space.moduleGlobals
+
+private def ordinaryOutcome (source : Source.Module) : Option (String × Option Int) := do
+  let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
+  match (Compile.ModuleEntry.Functions.Run.runPrefix compiled.table 1000 compiled.start).2 with
+  | .finished session completion =>
+    let result := match completion with
+      | .normal => "normal"
+      | .raised (.nameError name) => "NameError:" ++ name
+      | _ => "unexpected completion"
+    match session.globals "x" with
+    | none => some (result, none)
+    | some (.int value) => some (result, some value)
+    | _ => none
+  | _ => none
 
 private def equalityBeforeAssertNot (source : Source.Module) : Bool :=
   match Compile.ModuleEntry.Functions.Run.compile source with
@@ -113,6 +129,16 @@ UPSTREAM_SHA256 = "822abc163f457af8784c41c08cef152ecbb1266bb9704197292944386bc3d
 UPSTREAM_BOOL_DIR = "tests/python/programs/original/lambda-py/python-reference/bool"
 UPSTREAM_ASSERT_NOT_CASE = "tests/python/programs/original/k-python/programs/testintegers1.py"
 UPSTREAM_ASSERT_NOT_SHA256 = "295e494847f164f28f922f9eeb34a7344a199f51bb759eb043f88f06a1a31d61"
+UPSTREAM_ASSIGN_CASE = "tests/python/programs/original/k-python/programs/testassign1.py"
+UPSTREAM_ASSIGN_SHA256 = "7fc33245631f77c0dcfd63277f906b580c6034c487b189cc1f32dc4872efed63"
+UPSTREAM_NO_OP = (
+    ("tests/python/programs/original/k-python/programs/testpass.py",
+     "9f56e761d79bfdb34304a012586cb04d16b435ef6130091a97702e559260a2f2"),
+    ("tests/python/programs/original/lambda-py/modules/test_as/empty.py",
+     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("tests/python/programs/original/lambda-py/modules/test_as/__init__.py",
+     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+)
 UPSTREAM_NESTED = (
     ("bool-callable.py", "8ec834148893367fc4ffe9a5645ea4a954293eb20a8188552e46b6dea4df4766",
      "___assertIs", "___assertIs", []),
@@ -178,7 +204,24 @@ after = 9
      ["NameError:missing", "int:5", "absent"]),
     ("assert_not_shadow", "builtin", "compare_ints = 0\nassert not compare_ints\nafter = 9\n",
      ["normal", "absent", "int:9"]),
-    ("assert_not_unsupported", "empty", "result = 5\nassert not (1 == 2)\nafter = 9\n",
+    ("equality_true", "empty", """result = True == 1
+assert result
+assert (result == True) == 1
+after = 9
+""", ["normal", "bool:True", "int:9"]),
+    ("equality_false", "empty", "result = False == -1\nassert not result\nafter = 9\n",
+     ["normal", "bool:False", "int:9"]),
+    ("equality_failed_assertion", "empty", "result = 5\nassert 1 == -1\nafter = 9\n",
+     ["AssertionError:empty", "int:5", "absent"]),
+    ("equality_missing_left", "empty", "result = 5\nresult = missing_left == missing_right\nafter = 9\n",
+     ["NameError:missing_left", "int:5", "absent"]),
+    ("equality_missing_right", "builtin", "result = 5\nresult = compare_ints == missing_right\nafter = 9\n",
+     ["NameError:missing_right", "int:5", "absent"]),
+    ("equality_unsupported_domain", "builtin", "result = 5\nresult = compare_ints == 1\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
+    ("equality_unsupported_arithmetic", "empty", "result = 5\nassert not (1 + 2 == 4)\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
+    ("standalone_boolean_unsupported", "empty", "result = 5\nassert not False\nafter = 9\n",
      ["unsupported", "int:5", "absent"]),
 )
 
@@ -202,7 +245,7 @@ def assertion(error):
     return "AssertionError:text:" + argument
 
 
-def cpython(source, profile, *, preserve_globals=False):
+def cpython(source, profile, *, expected_globals=None):
     legacy = profile.startswith("legacy_")
     profile = profile.removeprefix("legacy_")
     caught = []
@@ -245,14 +288,16 @@ def cpython(source, profile, *, preserve_globals=False):
         except AssertionError as error:
             completion = assertion(error)
     assert not stdout.getvalue() and not stderr.getvalue()
-    if preserve_globals:
-        assert namespace == initial
+    if expected_globals is not None:
+        assert namespace == initial | expected_globals
     bindings = []
     for name in ("result", "after"):
         if name not in namespace:
             bindings.append("absent")
         elif namespace[name] is None:
             bindings.append("None")
+        elif type(namespace[name]) is bool:
+            bindings.append(f"bool:{namespace[name]}")
         else:
             assert type(namespace[name]) is int
             bindings.append(f"int:{namespace[name]}")
@@ -275,7 +320,7 @@ def replay_upstream_nested(checkout, shared, source_path, lean_path):
         path = f"{UPSTREAM_BOOL_DIR}/{filename}"
         source = pinned_source(checkout, path, sha256)
         shared["emit"](source_path, lean_path, source)
-        guards = []
+        guards = [f'#guard ordinaryOutcome pythonSource == some ("NameError:{empty_name}", none)']
         completions = {}
         for profile, missing_name, calls in (
             ("empty", empty_name, []),
@@ -283,12 +328,12 @@ def replay_upstream_nested(checkout, shared, source_path, lean_path):
             ("legacy_preamble", seeded_name, seeded_calls),
         ):
             expected = ["NameError:" + missing_name, "absent", "absent"]
-            assert cpython(source, profile, preserve_globals=True) == expected, (path, profile)
+            assert cpython(source, profile, expected_globals={}) == expected, (path, profile)
             name = json.dumps(profile)
             guards.extend((
                 guard_observation(profile, expected),
                 f"#guard callNames pythonSource {name} == some {json.dumps(calls)}",
-                f"#guard globalsUnchanged pythonSource {name}",
+                f"#guard exactGlobals pythonSource {name}",
             ))
             completions[profile] = expected[0]
         shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
@@ -296,20 +341,33 @@ def replay_upstream_nested(checkout, shared, source_path, lean_path):
     return rows
 
 
-def replay_upstream_assert_not(checkout, shared, source_path, lean_path):
-    source = pinned_source(checkout, UPSTREAM_ASSERT_NOT_CASE, UPSTREAM_ASSERT_NOT_SHA256)
-    shared["emit"](source_path, lean_path, source)
-    guards = ["#guard equalityBeforeAssertNot pythonSource"]
-    for profile in ("empty", "legacy_builtin", "legacy_preamble"):
-        assert cpython(source, profile, preserve_globals=True) == ["normal", "absent", "absent"]
-        guards.extend((
-            guard_observation(profile, ["unsupported", "absent", "absent"]),
-            f"#guard globalsUnchanged pythonSource {json.dumps(profile)}",
-            f"#guard callNames pythonSource {json.dumps(profile)} == some []",
-        ))
-    shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
-    return {"path": UPSTREAM_ASSERT_NOT_CASE, "sha256": UPSTREAM_ASSERT_NOT_SHA256,
-            "cpython": "normal", "seeded": "unsupported at the first scalar equality"}
+def replay_upstream_scalars(checkout, shared, source_path, lean_path):
+    rows = []
+    cases = (
+        (UPSTREAM_ASSIGN_CASE, UPSTREAM_ASSIGN_SHA256, {"x": 5}),
+        (UPSTREAM_ASSERT_NOT_CASE, UPSTREAM_ASSERT_NOT_SHA256, {}),
+        *((path, sha256, {}) for path, sha256 in UPSTREAM_NO_OP),
+    )
+    for path, sha256, bindings in cases:
+        source = pinned_source(checkout, path, sha256)
+        shared["emit"](source_path, lean_path, source)
+        x = "some 5" if bindings else "none"
+        seeded_bindings = '[("x", .int 5)]' if bindings else "[]"
+        guards = [f'#guard ordinaryOutcome pythonSource == some ("normal", {x})']
+        if path == UPSTREAM_ASSERT_NOT_CASE:
+            guards.append("#guard equalityBeforeAssertNot pythonSource")
+        for profile in ("empty", "legacy_builtin", "legacy_preamble"):
+            expected = ["normal", "absent", "absent"]
+            assert cpython(source, profile, expected_globals=bindings) == expected, (path, profile)
+            name = json.dumps(profile)
+            guards.extend((
+                guard_observation(profile, expected),
+                f"#guard exactGlobals pythonSource {name} {seeded_bindings}",
+                f"#guard callNames pythonSource {name} == some []",
+            ))
+        shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
+        rows.append({"path": path, "sha256": sha256, "all_profiles": "normal", "user_bindings": bindings})
+    return rows
 
 
 def replay_upstream(checkout, shared, source_path, lean_path):
@@ -320,15 +378,19 @@ def replay_upstream(checkout, shared, source_path, lean_path):
     source = pinned_source(checkout, UPSTREAM_CASE, UPSTREAM_SHA256)
     shared["emit"](source_path, lean_path, source)
     shared["check_lean"](lean_path, LEAN + """
+#guard ordinaryOutcome pythonSource == some ("NameError:___assertRaises", none)
 #guard inspect pythonSource "empty" == some ["NameError:___assertRaises", "absent", "absent"]
 #guard inspect pythonSource "legacy_builtin" == some ["normal", "absent", "absent", "AssertionError:pair:1:2"]
 #guard inspect pythonSource "legacy_preamble" == some ["normal", "absent", "absent", "AssertionError:pair:1:2"]
 #guard singleNoneReturn pythonSource "legacy_builtin"
 #guard singleNoneReturn pythonSource "legacy_preamble"
+#guard exactGlobals pythonSource "empty"
+#guard exactGlobals pythonSource "legacy_builtin"
+#guard exactGlobals pythonSource "legacy_preamble"
 """, extra_imports=IMPORTS)
-    assert cpython(source, "empty", preserve_globals=True) == ["NameError:___assertRaises", "absent", "absent"]
+    assert cpython(source, "empty", expected_globals={}) == ["NameError:___assertRaises", "absent", "absent"]
     for profile in ("legacy_builtin", "legacy_preamble"):
-        assert cpython(source, profile, preserve_globals=True) == ["normal", "absent", "absent", "AssertionError:pair:1:2"]
+        assert cpython(source, profile, expected_globals={}) == ["normal", "absent", "absent", "AssertionError:pair:1:2"]
     return {
         "revision": revision,
         "sha256": UPSTREAM_SHA256,
@@ -336,7 +398,7 @@ def replay_upstream(checkout, shared, source_path, lean_path):
         "builtin": "normal, None, caught AssertionError((1, 2))",
         "preamble_projection": "normal, None, caught AssertionError((1, 2))",
         "nested": replay_upstream_nested(checkout, shared, source_path, lean_path),
-        "assert_not": replay_upstream_assert_not(checkout, shared, source_path, lean_path),
+        "scalars": replay_upstream_scalars(checkout, shared, source_path, lean_path),
     }
 
 
