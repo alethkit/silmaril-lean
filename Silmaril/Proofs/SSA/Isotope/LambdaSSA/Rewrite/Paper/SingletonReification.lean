@@ -7,6 +7,7 @@ public import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Naturality.Thms
 public import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Retained.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Iteration.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Product.Producer.Thms
 
 /-! # Loop-free singleton reification in the Paper quotient -/
 
@@ -19,30 +20,11 @@ open Silmaril.DeBruijn (lift)
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Paper.PackedBody (applyPacked applyPacked_typed unpack_applyPacked)
+open Silmaril.Isotope.LetIter.Semantics.Categorical (pair_maps_eq_map_lift)
 open Paper.SingletonReification
 open CfgEta.TypeCategory (whiskerLeftRegion_typed)
 
 universe u v w u₁ u₂ u₃ v₁ v₂ v₃
-
-section PurePair
-
-open Silmaril.Isotope.LetIter.Semantics.Categorical (extend_map)
-open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (retainedContext)
-
-variable {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
-  [CartesianMonoidalCategory V] [SymmetricCategory V]
-  [PremonoidalCategory C] [SymmetricPremonoidalCategory C] (J : V ⥤ C) [FreydCategory J]
-
-private theorem pure_pair {E F G : V} (f : E ⟶ F) (g : E ⟶ G) :
-    Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.pair J (J.map f) (J.map g) =
-      J.map (CartesianMonoidalCategory.lift f g) := by
-  simp only [Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.pair,
-    Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical.bind, retainedContext,
-    extend_map, ← J.map_comp]
-  congr 1
-  apply CartesianMonoidalCategory.hom_ext <;> simp
-
-end PurePair
 
 section Semantics
 
@@ -92,7 +74,7 @@ set_option backward.isDefEq.respectTransparency false in
       (Tm.HasType.pair (.var (rfl : At [A, X] 1 X)) (.var (rfl : At [A, X] 0 A)) :
         Tm.HasType [A, X] (.pair (.var 1) (.var 0) : Tm Φ) P)
       (J.map pack) := by
-    simpa only [pure_pair, e, ← J.map_comp, pack] using hpack
+    simpa only [pair_maps_eq_map_lift, e, ← J.map_comp, pack] using hpack
   let t : Tm Φ := .pair (.var 1) (.var 0)
   let hpX := hp.hasType.renameVars ((Ren.wk ([] : VCtx τ) X).lift P)
   let hpXA := hpX.renameVars ((Ren.wk [X] A).lift P)
@@ -472,159 +454,6 @@ end Model
 
 end Regions
 
-open CategoryTheory CategoryTheory.Limits CartesianMonoidalCategory
-open scoped MonoidalCategory
-open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
-open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
-open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (duplicate)
-open Paper.TypeCategory
-open Paper.RetainedCase (reindexHom)
-open Paper.RetainedLet (diagonal_typed)
-open CfgEta.TypeCategory (productFstBranches productSndBranches returnRegion_branchValue seqValueBranches)
-open CfgEta.TypeCategory.ConstructorReification (unitMap fstMap sndMap inlMap inrMap)
-
-section Constructors
-
-variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
-  {V : Type u₃} [Category.{v₃} V] [CartesianMonoidalCategory V] [HasFiniteCoproducts V]
-  (J : V ⥤ Paper.TypeCategory (τ := τ) Φ) (M : TypeModel τ V)
-  (objIso : ∀ T : τ, J.obj (M.obj T) ≅ ofType (Φ := Φ) T)
-  {X A B : τ}
-  {ε : Type w} [HasEff Φ ε] (pe : ε)
-
-private abbrev branch {a : Tm Φ} (ha : Tm.BranchValue [X] a A) :
-    ofType (Φ := Φ) X ⟶ ofType A :=
-  ofRegion (τ := τ) (.br (ℓ := 0) rfl ha)
-
-private theorem branch_pure {a : Tm Φ} (ha : Tm.BranchValue [X] a A) :
-    PureReturn pe (branch ha) := by
-  have h : returnTerm ha.hasType = branch ha :=
-    (ofRegion_eq_iff _ _).2 (.cfgEta (.native (.base (returnRegion_branchValue ha))))
-  rw [← h]
-  apply pureReturn_returnTerm
-  clear h
-  induction ha <;> constructor <;> assumption
-
-variable
-  (fstAgrees : ∀ A B : τ, reindexHom J M objIso (J.map (fstMap M A B)) =
-    ofRegion (τ := τ) (productFstBranches A B))
-  (sndAgrees : ∀ A B : τ, reindexHom J M objIso (J.map (sndMap M A B)) =
-    ofRegion (τ := τ) (productSndBranches A B))
-  (imagePure : ∀ {X A : τ} (f : M.obj X ⟶ M.obj A),
-    PureReturn pe (reindexHom J M objIso (J.map f)))
-  (projectionExtensionality : ∀ {X A B : τ}
-    {f g : ofType (Φ := Φ) X ⟶ ofType (Silmaril.product A B)},
-    PureReturn pe f → PureReturn pe g →
-    f ≫ ofRegion (τ := τ) (productFstBranches A B) = g ≫ ofRegion (τ := τ) (productFstBranches A B) →
-    f ≫ ofRegion (τ := τ) (productSndBranches A B) = g ≫ ofRegion (τ := τ) (productSndBranches A B) → f = g)
-
-set_option backward.isDefEq.respectTransparency false in
-include fstAgrees sndAgrees imagePure projectionExtensionality in
-private theorem compare_pair {a b : Tm Φ} (ha : Tm.BranchValue [X] a A)
-    (hb : Tm.BranchValue [X] b B) (f : M.obj X ⟶ M.obj A) (g : M.obj X ⟶ M.obj B)
-    (hf : reindexHom J M objIso (J.map f) = branch ha)
-    (hg : reindexHom J M objIso (J.map g) = branch hb) :
-    reindexHom J M objIso (J.map (CartesianMonoidalCategory.lift f g ≫ (M.productIso A B).inv)) =
-      branch (.pair ha hb) := by
-  apply projectionExtensionality (imagePure _) (branch_pure pe (.pair ha hb))
-  · rw [← fstAgrees, ← transport_comp, ← J.map_comp]
-    simp only [fstMap, Category.assoc, Iso.inv_hom_id_assoc, CartesianMonoidalCategory.lift_fst, hf]
-    have e : Paper.Eqv [X] (.let₂ (.pair a b) (.br 0 (.var 1))) (.br 0 a) [A] :=
-      .productBeta (.let₂Beta ha hb (.br (rfl : At [A] 0 A) (.var (i := 1) rfl)))
-    rw [← fstMap, fstAgrees A B]
-    let hp := productFstBranches (Φ := Φ) A B
-    let hb' : ValueBranches [X] (.br 0 (.pair a b)) [Silmaril.product A B] := .br rfl (.pair ha hb)
-    rw [ofRegion_comp hb' hp (seqValueBranches hb' hp)]
-    exact (ofRegion_eq_iff _ _).2 (Paper.Eqv.symm e)
-  · rw [← sndAgrees, ← transport_comp, ← J.map_comp]
-    simp only [sndMap, Category.assoc, Iso.inv_hom_id_assoc, CartesianMonoidalCategory.lift_snd, hg]
-    have e : Paper.Eqv [X] (.let₂ (.pair a b) (.br 0 (.var 0))) (.br 0 b) [B] :=
-      .productBeta (.let₂Beta ha hb (.br (rfl : At [B] 0 B) (.var (i := 0) rfl)))
-    rw [← sndMap, sndAgrees A B]
-    let hp := productSndBranches (Φ := Φ) A B
-    let hb' : ValueBranches [X] (.br 0 (.pair a b)) [Silmaril.product A B] := .br rfl (.pair ha hb)
-    rw [ofRegion_comp hb' hp (seqValueBranches hb' hp)]
-    exact (ofRegion_eq_iff _ _).2 (Paper.Eqv.symm e)
-
-set_option backward.isDefEq.respectTransparency false in
-include fstAgrees sndAgrees imagePure projectionExtensionality in
-private theorem compare_diagonal :
-    reindexHom J M objIso (J.map (duplicate (M.obj X) ≫ (M.productIso X X).inv)) =
-      ofRegion (τ := τ) (diagonal_typed X) := by
-  have h : reindexHom J M objIso (J.map (𝟙 (M.obj X))) =
-      branch (.var rfl : Tm.BranchValue [X] (.var 0 : Tm Φ) X) := by
-    change _ = ofRegion (r := .br 0 (.var 0)) _
-    rw [ofRegion_id]
-    simp [reindexHom]
-  exact compare_pair J M objIso pe fstAgrees sndAgrees imagePure projectionExtensionality
-    (.var rfl) (.var rfl) _ _ h h
-
-variable
-  (unitAgrees : ∀ X : τ, reindexHom J M objIso (J.map (unitMap M X)) =
-    ofRegion (τ := τ) (.br (ℓ := 0) (A := Silmaril.unit) rfl (.unit (Γ := [X]))))
-  (inlAgrees : ∀ A B : τ, reindexHom J M objIso (J.map (inlMap M A B)) =
-    (sumCofan (Φ := Φ) A B).inl)
-  (inrAgrees : ∀ A B : τ, reindexHom J M objIso (J.map (inrMap M A B)) =
-    (sumCofan (Φ := Φ) A B).inr)
-variable [SymmetricCategory V]
-  [PremonoidalCategory (Paper.TypeCategory (τ := τ) Φ)]
-  [SymmetricPremonoidalCategory (Paper.TypeCategory (τ := τ) Φ)]
-  [HasFiniteCoproducts (Paper.TypeCategory (τ := τ) Φ)]
-  [DistributiveTensor V] [DistributivePremonoidalCategory (Paper.TypeCategory (τ := τ) Φ)]
-  [DistributiveFreydCategory J] [InstructionModel J M Φ]
-
-set_option backward.isDefEq.respectTransparency false in
-include unitAgrees fstAgrees sndAgrees inlAgrees inrAgrees imagePure projectionExtensionality in
-private theorem compare_constructor_graph {a : Tm Φ} (ha : Tm.BranchValue [X] a A) :
-    ∃ f : ctxObj M [X] ⟶ M.obj A, Denotes J M ha.hasType (J.map f) ∧
-      reindexHom J M objIso (J.map (((λ_ (M.obj X)).inv : M.obj X ⟶ ctxObj M [X]) ≫ f)) =
-        branch ha := by
-  induction ha with
-  | @var i A hi =>
-    cases i with
-    | zero =>
-      have e : X = A := Option.some.inj hi
-      subst A
-      refine ⟨_, Denotes.var hi, ?_⟩
-      have e : lookup M 0 hi = (λ_ (M.obj X)).hom := by
-        change snd (𝟙_ V) (M.obj X) = _
-        rw [CartesianMonoidalCategory.leftUnitor_hom]
-      change _ = ofRegion (r := .br 0 (.var 0)) _
-      rw [e, Iso.inv_hom_id, ofRegion_id]
-      simp [reindexHom]
-    | succ i => simp [At] at hi
-  | unit =>
-    refine ⟨CartesianMonoidalCategory.toUnit (ctxObj M [X]) ≫ M.unitIso.inv, Denotes.unit, ?_⟩
-    have e : ((λ_ (M.obj X)).inv : M.obj X ⟶ ctxObj M [X]) ≫
-        CartesianMonoidalCategory.toUnit (ctxObj M [X]) = CartesianMonoidalCategory.toUnit (M.obj X) :=
-      Subsingleton.elim _ _
-    calc
-      _ = reindexHom J M objIso (J.map (unitMap M X)) := by
-        unfold unitMap
-        rw [← Category.assoc, e]
-      _ = _ := unitAgrees X
-  | @pair a A b B ha hb iha ihb =>
-    obtain ⟨f, df, hf⟩ := iha
-    obtain ⟨g, dg, hg⟩ := ihb
-    refine ⟨CartesianMonoidalCategory.lift f g ≫ (M.productIso A B).inv, ?_, ?_⟩
-    · simpa only [pure_pair, ← J.map_comp] using Denotes.pair df dg
-    · rw [← Category.assoc, CartesianMonoidalCategory.comp_lift]
-      exact compare_pair J M objIso pe fstAgrees sndAgrees imagePure projectionExtensionality ha hb _ _ hf hg
-  | @inl a A B ha iha =>
-    obtain ⟨f, df, hf⟩ := iha
-    refine ⟨f ≫ inlMap M A B, ?_, ?_⟩
-    · simpa only [inlMap, J.map_comp] using Denotes.inl (B := B) df
-    · rw [← Category.assoc, J.map_comp, transport_comp, hf, inlAgrees, sumCofan_inl]
-      rfl
-  | @inr b B A hb ihb =>
-    obtain ⟨g, dg, hg⟩ := ihb
-    refine ⟨g ≫ inrMap M A B, ?_, ?_⟩
-    · simpa only [inrMap, J.map_comp] using Denotes.inr (A := A) dg
-    · rw [← Category.assoc, J.map_comp, transport_comp, hg, inrAgrees, sumCofan_inr]
-      rfl
-
-end Constructors
-
 section Assembly
 
 open CategoryTheory CategoryTheory.Limits
@@ -633,10 +462,8 @@ open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (retainLeft)
 open Paper.TypeCategory
-open Paper.RetainedLet (returnOnce_typed)
+open Paper.RetainedLet (diagonal_typed returnOnce_typed)
 open Paper.RetainedCase (reindexHom returnSum_typed)
-open CfgEta.TypeCategory (productFstBranches productSndBranches)
-open CfgEta.TypeCategory.ConstructorReification (unitMap fstMap sndMap inlMap inrMap)
 
 variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
   {V : Type u₃} [Category.{v₃} V] [CartesianMonoidalCategory V] [SymmetricCategory V]
@@ -656,18 +483,22 @@ variable
 variable [FreydCategory.CentralUnit J] [RegionTypingCoherent (Φ := Φ) J M]
   {X D : τ} {r : Region Φ} {hr : ValueBranches [X] r [D]}
 
+omit [FreydCategory.CentralUnit J] [RegionTypingCoherent (Φ := Φ) J M] in
+private theorem compare_diagonal (cmp : ModelComparisons J M objIso pe) (X : τ) :
+    reindexHom J M objIso (J.map (packedDiagonal M X)) =
+      ofRegion (diagonal_typed (Φ := Φ) X) :=
+  compare_duplicate_of_producer J M objIso X (cmp.producer (.pair (.var rfl) (.var rfl)))
+
 set_option backward.isDefEq.respectTransparency false in
 theorem compare (cmp : ModelComparisons J M objIso pe) (h : LoopFree hr) :
     reindexHom J M objIso (denoteSingletonRegion J M hr.hasType) = ofRegion (τ := τ) hr := by
   apply compare_loopFree J M objIso
-    (fun X => compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd cmp.imagePure cmp.projectionExtensionality)
+    (compare_diagonal J M objIso pe cmp)
     (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f) cmp.inl cmp.inr
     (fun _ _ _ => compare_distributor J M objIso (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f) cmp.inl cmp.inr)
     ?_ (fun {_ _ _} ha => cmp.producer ha) (fun {_ _ _ _} ha => cmp.sumProducer ha) h
   intro X A a ha
-  obtain ⟨f, df, hf⟩ := compare_constructor_graph J M objIso pe cmp.fst cmp.snd
-    cmp.imagePure cmp.projectionExtensionality cmp.unit cmp.inl cmp.inr ha
-  simpa only [denoteSingletonRegion_br J M df, J.map_comp] using hf
+  exact compare_branch_of_producer J M objIso ha (cmp.producer ha.hasType)
 
 theorem compare_of_eqv (cmp : ModelComparisons J M objIso pe)
     (shared : ∀ E S : V, ∃ h : J.obj E ⊗ J.obj S = J.obj (E ⊗ S),
@@ -680,7 +511,6 @@ theorem compare_of_eqv (cmp : ModelComparisons J M objIso pe)
   rw [hd, compare J M objIso pe cmp h, (ofRegion_eq_iff hs hr).2 e]
 
 open CfgEta.TypeCategory.Retained (packedCopair distributorRegion_typed)
-open Paper.RetainedLet (diagonal_typed)
 
 set_option backward.isDefEq.respectTransparency false in
 theorem factor_let₁ (cmp : ModelComparisons J M objIso pe)
@@ -691,7 +521,7 @@ theorem factor_let₁ (cmp : ModelComparisons J M objIso pe)
         (ofRegion (τ := τ) (returnOnce_typed ha))) ≫
         reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) :=
   factor_literal_let₁ J M objIso
-    (fun X => compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd cmp.imagePure cmp.projectionExtensionality)
+    (compare_diagonal J M objIso pe cmp)
     (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f) ha hp (cmp.producer ha)
 
 set_option backward.isDefEq.respectTransparency false in
@@ -707,7 +537,7 @@ theorem factor_case (cmp : ModelComparisons J M objIso pe)
       reindexHom J M objIso (packedCopair J M
         (denoteSingletonRegion J M hp.hasType) (denoteSingletonRegion J M hq.hasType)) :=
   factor_literal_case J M objIso
-    (fun X => compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd cmp.imagePure cmp.projectionExtensionality)
+    (compare_diagonal J M objIso pe cmp)
     (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f)
     (fun _ _ _ => compare_distributor J M objIso
       (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f) cmp.inl cmp.inr)
@@ -731,7 +561,7 @@ theorem factor_dispatch (cmp : ModelComparisons J M objIso pe) {A B : τ}
         coprod.desc (reindexHom J M objIso g) (reindexHom J M objIso h) := by
   obtain ⟨_, hg, eg⟩ := exists_ofRegion (reindexHom J M objIso g)
   obtain ⟨_, hh, eh⟩ := exists_ofRegion (reindexHom J M objIso h)
-  have copy := compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd cmp.imagePure cmp.projectionExtensionality
+  have copy := compare_diagonal J M objIso pe cmp X
   have whisker := fun {Y E F} f => cmp.whisker (Y := Y) (A := E) (B := F) f
   rw [case_factor, transport_comp, transport_comp, extend_compare J M objIso copy whisker,
     compare_distributor J M objIso whisker cmp.inl cmp.inr,
@@ -752,8 +582,7 @@ theorem factor_let₂ (cmp : ModelComparisons J M objIso pe)
       (ofRegion (τ := τ) (Paper.RetainedLet.diagonal_typed X) ≫ whiskerLeft (ofType (Φ := Φ) X)
         (ofRegion (τ := τ) (returnOnce_typed ha))) ≫
         reindexHom J M objIso (denoteSingletonRegion J M hp.hasType) := by
-  have hCopy := fun X => compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd
-    cmp.imagePure cmp.projectionExtensionality
+  have hCopy := compare_diagonal J M objIso pe cmp
   rw [factor_literal_let₂ J M objIso hCopy (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f)
     ha hp, returnPair_denotation J M ha, cmp.producer ha]
 
@@ -776,7 +605,7 @@ theorem compare_let₂ (cmp : ModelComparisons J M objIso pe)
       ofRegion (τ := τ) (.let₂ ha (applyPackedPair_typed hp)) := by
   have hPair := (returnPair_comparison_iff J M objIso pe cmp ha).2 hProducer
   exact compare_literal_let₂ J M objIso
-    (fun X => compare_diagonal (X := X) J M objIso pe cmp.fst cmp.snd cmp.imagePure cmp.projectionExtensionality)
+    (compare_diagonal J M objIso pe cmp)
     (fun {Y A B} f => cmp.whisker (Y := Y) (A := A) (B := B) f) ha hp hPair hBody
 
 end BinaryLet

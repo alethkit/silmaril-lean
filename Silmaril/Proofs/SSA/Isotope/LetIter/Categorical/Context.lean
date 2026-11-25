@@ -57,6 +57,13 @@ theorem extend_map_proof [FreydCategory J] {R A : V} (p : R ⟶ A) :
   · simp [duplicate]
   · simp [duplicate]
 
+theorem pair_maps_eq_map_lift_proof [FreydCategory J] {R A B : V} (f : R ⟶ A) (g : R ⟶ B) :
+    ProofRelevant.Semantics.Categorical.pair J (J.map f) (J.map g) = J.map (lift f g) := by
+  simp only [ProofRelevant.Semantics.Categorical.pair, ProofRelevant.Semantics.Categorical.bind,
+    ProofRelevant.Semantics.Categorical.retainedContext, extend_map_proof, ← J.map_comp]
+  congr 1
+  apply hom_ext <;> simp
+
 theorem duplicate_central_of_tensor_eqToIso_proof [FreydCategory J] (E : V)
     (h : J.obj E ⊗ J.obj E = J.obj (E ⊗ E))
     (shared : Functor.StrongPremonoidal.tensorIso (J := J) E E = eqToIso h) :
