@@ -85,6 +85,17 @@ with different final stores.
 [Institution adapter](../../Silmaril/Courses/Cambridge/L3/DenotationalInstitution.lean) ·
 [May-return specification](cambridge-return-specification.md)
 
+`DenotationalInstitution.CallDepth.holds_iff` uses the same registered
+observer and catalogue for the call-depth denotation. The caller supplies
+a depth and let mode and proves admission of every claim's source at
+that depth and mode with the empty lexical environment. The theorem
+preserves and reflects both claim forms, including the complete store
+for each named destination. In sequenced mode at depth one, the
+let-bound example satisfies a sentence naming two permitted allocation
+stores. A separate claim with the right integer and the cell's old
+contents is false.
+[Checked sentences](../../Silmaril/Courses/Cambridge/L3/DenotationalInstitution/CallDepthExamples.lean)
+
 ## Higher-order store and games
 
 L3 can save a function in a cell, replace it, and later call through that
