@@ -54,7 +54,7 @@ variable {α Φ : Type u} (S : FreeTree.Signature α Φ)
 variable {Γ : EffectCtx (Ty α) ε} {e : ε} {A B C : α}
   {a b : Expr Φ} {t s : Tm Empty Φ Γ.length}
 
-theorem eqv_of_native_of_tree_normal_forms
+public theorem eqv_of_native_of_tree_normal_forms
     {sorts : Fin Γ.length → α} [DecidableEq α] (hΓ : Γ.Pure)
     (hslots : ∀ i, (Γ.get i).1 = .base (sorts i))
     (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s)

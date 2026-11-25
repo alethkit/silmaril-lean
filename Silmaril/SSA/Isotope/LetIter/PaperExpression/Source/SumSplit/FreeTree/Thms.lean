@@ -22,6 +22,19 @@ variable {α Φ : Type u} (S : FreeTree.Signature α Φ)
 variable {Γ : EffectCtx (Ty α) ε} {e : ε} {A B C : α}
   {a b : Expr Φ} {t s : Tm Empty Φ Γ.length}
 
+/-- Two supplied free-tree normal forms suffice to reflect a native equality
+in a pure atomic context. -/
+theorem eqv_of_native_of_tree_normal_forms
+    {sorts : Fin Γ.length → α} [DecidableEq α] (hΓ : Γ.Pure)
+    (hslots : ∀ i, (Γ.get i).1 = .base (sorts i))
+    (ht : a.toLetIter Γ.length = some t) (hs : b.toLetIter Γ.length = some s)
+    (hn : letI := S.endpoints
+      AbortEquiv (⊥ : ε) (.nil : Ctx Empty (Ty α)) Γ.toBoundCtx t s (.base C))
+    (h₁ : NormalizesToTree S Γ sorts e C a) (h₂ : NormalizesToTree S Γ sorts e C b) :
+    letI := S.endpoints
+    Eqv Γ (.base C) e a b :=
+  TreeProofs.eqv_of_native_of_tree_normal_forms S hΓ hslots ht hs hn h₁ h₂
+
 /-- Reflect arbitrary native equality of the open endpoints, given a pure
 free-tree normal form for each of their two source specializations. -/
 theorem endpoint_reflection [DecidableEq α]

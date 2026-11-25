@@ -75,7 +75,7 @@ theorem sourceTuple_wf {k : Nat} {as : Fin k → α} {xs : Fin k → Expr Φ} {e
   | zero => exact .unit _ _
   | succ k ih => exact .pair (h 0) (ih fun i => h i.succ)
 
-theorem tree_wf {a : α} (t : Tree S sorts a) (hp : DeclaredPure (ε := ε) S t)
+public theorem tree_wf {a : α} (t : Tree S sorts a) (hp : DeclaredPure (ε := ε) S t)
     (hΓ : Γ.Pure) (hs : ∀ i, (Γ.get i).1 = .base (sorts i)) (e : ε) :
     @Wf _ _ _ _ S.endpoints _ _ _ Γ t.source (.base a) e := by
   let instr := S.endpoints
