@@ -45,6 +45,40 @@ the whole translated store.
 [Operational theorems](../../Silmaril/Courses/Cambridge/L2ToL3/Thms.lean) ·
 [Checked examples](../../Silmaril/Courses/Cambridge/L2ToL3/Examples.lean)
 
+## Typed finite-return satisfaction
+
+The return institution adapter admits the existing `may-return` and
+`may-return-to` claims when the L2 starting expression has a CBV typing
+derivation. It uses the existing conjunction fragment. The embedding maps
+the complete starting configuration and any named destination, including
+both stores. A proposed destination can be any L2 configuration.
+
+```mermaid
+flowchart LR
+    A["Conjunction over typed L2 sources"] -->|Translate claims| B["Conjunction over L3 configurations"]
+    A -->|Restricted L2 observer| T["Same satisfaction proposition"]
+    B -->|Registered L3 observer| T
+```
+
+`ReturnInstitution.reduct` identifies the pulled-back registered L3
+observer with the restricted registered L2 observer. `satisfaction`
+gives both directions for every conjunction. For a `may-return` claim,
+the L3 witness ranges over all L3 configurations; #2510's reflection
+theorem puts any witness from this source back in the image.
+`holds_iff` applies the same comparison to named catalogues. Slot numbers
+stay fixed, catalogue entries are embedded, and only the source slots
+used by the sentence need typing.
+[Adapter](../../Silmaril/Courses/Cambridge/L2ToL3/ReturnInstitution.lean) ·
+[Existing return logic](cambridge-return-specification.md)
+
+The checked conjunction asks for a return and names the let-rec example's
+exact return with its updated store. A second claim proposes the same
+integer with the wrong final store and is false in the transported observer.
+The comparison concerns the registered CBV observers from typed image
+sources. Arbitrary L3 models, untyped starts, CBN, and programs that
+allocate fresh L3 addresses are outside this comparison.
+[Sentence examples](../../Silmaril/Courses/Cambridge/L2ToL3/Examples.lean)
+
 ## Canonical resolved-term bytes
 
 ```mermaid

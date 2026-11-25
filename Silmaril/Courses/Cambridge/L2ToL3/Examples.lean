@@ -1,6 +1,7 @@
 module
 
-import Silmaril.Courses.Cambridge.L2ToL3.Thms
+import Silmaril.Courses.Cambridge.L2ToL3.ReturnInstitution
+import Mathlib.Data.Fin.VecNotation
 import Silmaril.Courses.Cambridge.L2ToL3.Bytes
 
 open Silmaril.Courses.Cambridge
@@ -53,3 +54,48 @@ example :
       some (expr unicodeLayout counter) := by
   rw [sexpBytes_encode]
   exact SExpBytes.decode_encode _ _
+
+section ReturnSentences
+
+open ReturnSpecification
+open StepSpecification (Catalogue Context)
+
+private abbrev returnContext : Context := ⟨.l2, 3⟩
+private def returns : Catalogue returnContext :=
+  ![⟨counter, initial⟩, ⟨.int 7, final⟩, ⟨.int 7, initial⟩]
+
+private def transported : Catalogue ⟨.l3, 3⟩ := config unicodeLayout ∘ returns
+
+private def good : Sentence returnContext := [.mayReturn 0, .mayReturnTo 0 1]
+private def wrongStore : Sentence returnContext := [.mayReturnTo 1 2]
+
+example : Holds ⟨.l3, 3⟩ transported good := by
+  refine (ReturnInstitution.holds_iff unicodeLayout returns good ?_).2 ?_
+  · intro claim member
+    have either : claim = .mayReturn 0 ∨ claim = .mayReturnTo 0 1 := by
+      simpa [good] using member
+    rcases either with rfl | rfl <;> exact ⟨ctx, .int, counter_typed⟩
+  · apply (ReturnSpecification.holds_iff _ _ _).2
+    intro claim member
+    have either : claim = .mayReturn 0 ∨ claim = .mayReturnTo 0 1 := by
+      simpa [good] using member
+    rcases either with rfl | rfl
+    · exact ⟨returns 1, counter_run, .int 7⟩
+    · exact ⟨counter_run, .int 7⟩
+
+-- The same returned integer with a different proposed final store fails in both observers.
+example : ¬ Holds ⟨.l3, 3⟩ transported wrongStore := by
+  intro observed
+  have held := (ReturnInstitution.holds_iff unicodeLayout returns wrongStore (by
+    intro claim member
+    obtain rfl := List.mem_singleton.mp member
+    exact ⟨ctx, .int, .int 7⟩)).1 observed
+  have returned := (ReturnSpecification.holds_iff _ _ _).1 held
+    (.mayReturnTo 1 2) (by simp [wrongStore])
+  have path : L2.Steps ⟨.int 7, final⟩ ⟨.int 7, initial⟩ := returned.1
+  rcases path.cases_head with equal | ⟨_, move, _⟩
+  · have lookup := congrArg (fun c : L2.Config => L1.Store.lookup c.store "λ") equal
+    simp [final, initial] at lookup
+  · cases move
+
+end ReturnSentences
