@@ -140,9 +140,21 @@ V1 have exact native successor and finite endpoint readback. Fixtures cover
 indexed and default targets, the all-ones selector, empty tables, and invalid
 unselected targets.
 
+The same branch checker and rules cover the implicit function label. Each
+call starts a fresh label scope with the function's declared result list.
+Blocks and conditionals add their own scalar result types as inner labels.
+A branch to the function label keeps the ordered result suffix, drops its
+pending instructions, and leaves the callee frame holding those results.
+A separate frame step returns the values to the saved caller. Exact native
+successor and finite endpoint readback cover both steps in Core, Lime1,
+and V1. Core and Lime1 admit mixed-width result lists. V1's graph-wide
+zero-or-one-result guard still applies. Fixtures cover direct function
+branches, conditional and table branches crossing a block, resumption of
+a caller, and rejection of a depth that would reach the caller's labels.
+
 The graph fragment excludes block parameters and multiple block results,
-branches to a function label, loops and loop back-edges, recursion, indirect and host calls, store mutation, and
-whole-module validation.
+loops and loop back-edges, recursion, indirect and host calls, store mutation,
+and whole-module validation.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have

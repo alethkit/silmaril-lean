@@ -115,10 +115,10 @@ private theorem suffix_prefix {types : List NumType} {stack saved : List Value}
   simpa only [SuffixTyped, stack_types_append, List.take_append_of_le_length enough] using typed
 
 private theorem branching_guard {program : Program} {fn : Function} {fallthrough : List NumType}
-    {enclosing : EnclosingLabels} {locals stack : List Value} {depth : LabelIdx} {result : Option NumType}
+    {enclosing : EnclosingLabels} {locals stack : List Value} {depth : LabelIdx} {result : List NumType}
     (ready : AdmittedAt program fn fallthrough enclosing (.branching locals stack depth result)) :
-    locals.map Value.type = fn.localTypes ∧ (enclosing.getD [])[depth.toNat]? = some result.toList ∧
-      SuffixTyped result.toList stack := by
+    locals.map Value.type = fn.localTypes ∧ enclosing[depth.toNat]? = some result ∧
+      SuffixTyped result stack := by
   cases ready with | branching typed target payload => exact ⟨typed, target, payload⟩
 
 private theorem returning_guard {program : Program} {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
@@ -160,21 +160,21 @@ theorem split_if {fn : Function} {fallthrough : List NumType} {enclosing : Enclo
   simpa only [Function.WellTyped, checkCode, checkOp] using typed
 
 theorem split_br_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
-    {result : Option NumType} {depth : LabelIdx} {rest : List Op}
+    {result : List NumType} {depth : LabelIdx} {rest : List Op}
     (typed : fn.WellTyped stack (.brIf depth result :: rest) fallthrough enclosing) :
     ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] := by
   apply split_condition
   simpa only [Function.WellTyped, checkCode, checkOp] using typed
 
 theorem split_br_table {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {stack : List Value}
-    {result : Option NumType} {depths : List LabelIdx} {fallback : LabelIdx} {rest : List Op}
+    {result : List NumType} {depths : List LabelIdx} {fallback : LabelIdx} {rest : List Op}
     (typed : fn.WellTyped stack (.brTable depths fallback result :: rest) fallthrough enclosing) :
     ∃ (saved : List Value) (selector : BitVec 32), stack = saved ++ [Value.int .i32 selector] := by
   apply split_condition
   simpa only [Function.WellTyped, checkCode, checkOp] using typed
 
 private theorem check_selected_branch {labels : List (List NumType)} {stack : List NumType}
-    {depths : List LabelIdx} {fallback : LabelIdx} {result : Option NumType}
+    {depths : List LabelIdx} {fallback : LabelIdx} {result : List NumType}
     (fallbackOK : checkBranch labels stack fallback result = true)
     (entriesOK : (depths.all fun depth => checkBranch labels stack depth result) = true)
     (index : Nat) :
@@ -184,19 +184,16 @@ private theorem check_selected_branch {labels : List (List NumType)} {stack : Li
   | some depth => exact List.all_eq_true.mp entriesOK depth (List.mem_of_getElem? found)
 
 theorem checked_branch {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
-    {stack : List Value} {depth : LabelIdx} {result : Option NumType} {rest : List Op}
+    {stack : List Value} {depth : LabelIdx} {result : List NumType} {rest : List Op}
     (typed : fn.WellTyped stack (.br depth result :: rest) fallthrough enclosing) :
-    (branchTargets fallthrough enclosing)[depth.toNat]? = some result.toList ∧ SuffixTyped result.toList stack := by
+    (branchTargets fallthrough enclosing)[depth.toNat]? = some result ∧ SuffixTyped result stack := by
   simpa only [Function.WellTyped, checkCode, checkOp, checkBranch, decide_eq_true_eq, SuffixTyped] using typed
 
-theorem branch_here_result {fallthrough : List NumType} {enclosing : EnclosingLabels} {result : Option NumType}
-    (found : (branchTargets fallthrough enclosing)[(⟨0⟩ : LabelIdx).toNat]? = some result.toList) :
-    fallthrough = result.toList := by
-  cases enclosing with
-  | none => simp [branchTargets] at found
-  | some labels =>
-    change (fallthrough :: labels)[0]? = some result.toList at found
-    exact Option.some.inj found
+theorem branch_here_result {fallthrough : List NumType} {enclosing : EnclosingLabels} {result : List NumType}
+    (found : (branchTargets fallthrough enclosing)[(⟨0⟩ : LabelIdx).toNat]? = some result) :
+    fallthrough = result := by
+  change some fallthrough = some result at found
+  exact Option.some.inj found
 
 theorem admitted_step {program : Program} (checked : program.check = true) (address : FuncAddr) :
     ∀ {fn a b fallthrough enclosing}, program.lookup address = some fn → AdmittedAt program fn fallthrough enclosing a →
@@ -253,7 +250,7 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
         | branching =>
           obtain ⟨typed, target, payload⟩ := branching_guard after
           exact .running typed (by
-            simpa only [Function.WellTyped, checkCode, checkOp, checkBranch, decide_eq_true_eq, SuffixTyped, Option.getD_some] using
+            simpa only [Function.WellTyped, checkCode, checkOp, checkBranch, decide_eq_true_eq, SuffixTyped] using
               And.intro target (suffix_prefix (saved := saved) payload))
         | returning =>
           obtain ⟨typed, out⟩ := returning_guard after
@@ -328,13 +325,10 @@ theorem admitted_step {program : Program} (checked : program.check = true) (addr
       cases ready with
       | running typed body =>
         obtain ⟨target, payload⟩ := checked_branch body
-        cases enclosing with
-        | none => simp [branchTargets] at target
-        | some labels =>
-          obtain ⟨index, eq⟩ := Nat.exists_eq_succ_of_ne_zero (Nat.ne_of_gt outer)
-          refine .branching typed ?_ payload
-          change labels[depth.toNat - 1]? = some result.toList
-          simpa [eq] using (show (fallthrough :: labels)[depth.toNat]? = _ from target)
+        obtain ⟨index, eq⟩ := Nat.exists_eq_succ_of_ne_zero (Nat.ne_of_gt outer)
+        refine .branching typed ?_ payload
+        change enclosing[depth.toNat - 1]? = some result
+        simpa [branchTargets, eq] using target
     | returnLabel _ _ _ =>
       cases ready with | running typed body => exact .returning typed (return_of_code body)
     | returnFrame _ _ _ arity =>
