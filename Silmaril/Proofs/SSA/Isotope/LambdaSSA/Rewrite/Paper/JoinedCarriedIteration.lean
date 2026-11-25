@@ -4,6 +4,7 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithPr
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Assembly.Model.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Endpoint.Realization.Reification.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Product.Swap.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedCase.Distributor.Chosen.Thms
 
 /-! # One-block actual carried reification in the joined quotient -/
 
@@ -19,16 +20,19 @@ open scoped MonoidalCategory
 open scoped Paper.WithProjectionReturnsAndUnitEta.Reification
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.WithProjectionReturnsAndUnitEta.Reification
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton (TypeCategory projection ofType ofRegion ofRegion_eq_iff
-  sumIso whiskerRight whiskerLeft whiskerRight_map whiskerLeft_map diagonalArrow iterateSum_map)
-open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification (denoteSingleton_firstTerm packedWhiskerRight)
-open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg (guardedCfg_typed realizePackedStep_typed retagPacked_typed
-  duplicateCapture_arrow duplicateCapture_typed realizePackedStep_arrow canonicalRegion_eq_guardedCfg_realize)
-open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg.Model (reindexHom carrier carriedStep capturePrefix
+  sumIso whiskerRight whiskerLeft whiskerRight_map whiskerLeft_map diagonalArrow iterateSum_map
+  sumCofan whiskerLeftFunctor sumCofan_inl_sumIso_hom sumCofan_inr_sumIso_hom)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification (denoteSingleton_firstTerm packedWhiskerRight packedWhiskerLeft)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg
+  (guardedCfg_typed realizePackedStep_typed retagPacked_typed duplicateCapture_arrow retagPacked_distributor
+    duplicateCapture_typed realizePackedStep_arrow canonicalRegion_eq_guardedCfg_realize exitSum exitDecoder_typed)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg.Model (reindexHom carrier carriedStep capturePrefix carriedRoute carriedRoute_factor reindexCoprod_of_injections
   carriedStep_factor_retained packedPair_id_right packedTensorIso
   reindexRetainLeft_tensorIso reindexPackedWhiskerRight_tensorIso)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.RetainedLet (returnOnce_typed)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory (productFstBranches)
-open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.ConstructorReification (fstMap)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.Retained (packedDistributor)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.ConstructorReification (fstMap inlMap inrMap)
 open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.WithProjectionReturns (fstTerm)
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel contextualStep)
@@ -116,6 +120,39 @@ theorem reindexRetainLeft_of_tensorIso {R A B : τ} (f : J.obj (M.obj A) ⟶ J.o
   rw [← Category.assoc (J.obj (M.obj R) ◁ f), swap]
   simp only [Category.assoc]
   rw [cancel, PremonoidalCategory.whiskerLeft_comp]
+
+
+set_option backward.isDefEq.respectTransparency false in
+theorem carriedRoute_of_distributor_injections (X S D : τ)
+    (outputInl :
+      reindexHom J M objIso (J.map (inlMap M (product X D) (product X S))) =
+        (sumCofan (Seed) (product X D) (product X S)).inl)
+    (outputInr :
+      reindexHom J M objIso (J.map (inrMap M (product X D) (product X S))) =
+        (sumCofan (Seed) (product X D) (product X S)).inr)
+    (decoder :
+      reindexHom J M objIso (J.map (packedWhiskerLeft M X _ _ (exitSum M S D))) =
+        whiskerLeft (Seed) (Obj X) (Lit (exitDecoder_typed S D)))
+    (inputInl :
+      (whiskerLeftFunctor (Seed) (Obj X)).map (sumCofan (Seed) D S).inl ≫
+          reindexHom J M objIso (J.map (packedDistributor M X D S)) =
+        (sumCofan (Seed) (product X D) (product X S)).inl)
+    (inputInr :
+      (whiskerLeftFunctor (Seed) (Obj X)).map (sumCofan (Seed) D S).inr ≫
+          reindexHom J M objIso (J.map (packedDistributor M X D S)) =
+        (sumCofan (Seed) (product X D) (product X S)).inr) :
+    carriedRoute J M objIso X S D =
+      Lit (retagPacked_typed X S D) ≫ (sumIso (Seed) (product X D) (product X S)).hom := by
+  let outputs := sumIso (Seed) (product X D) (product X S)
+  have distributor := (Paper.RetainedCase.Chosen.projectedDistributor_eq_iff (Seed) X D S _).2 ⟨inputInl, inputInr⟩
+  have output := reindexCoprod_of_injections J M objIso (product X D) (product X S) outputs
+    (by simpa only [outputs, sumCofan_inl_sumIso_hom] using congrArg (· ≫ outputs.hom) outputInl)
+    (by simpa only [outputs, sumCofan_inr_sumIso_hom] using congrArg (· ≫ outputs.hom) outputInr)
+  refine (carriedRoute_factor J M objIso X S D outputs output).trans ?_
+  refine (congrArg₂ (fun d g => d ≫ g ≫ outputs.hom) decoder distributor).trans ?_
+  have h := congrArg (fun f => (F).map f ≫ outputs.hom)
+    (retagPacked_distributor (Φ := Φ) X S D)
+  simpa only [Functor.map_comp, ← whiskerLeft_map, Category.assoc] using! h
 
 end Retained
 

@@ -13,11 +13,13 @@ open Silmaril Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
 open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel)
-open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (retainLeft)
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (retainLeft splitMapCoprod)
 
 universe u u₁ u₂ v₁ v₂
 variable {τ : Type u} [TypeFormers τ]
-open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification (packedPair packedDiagonal packedWhiskerRight)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification (packedPair packedDiagonal packedWhiskerRight packedWhiskerLeft)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.Retained (packedDistributor)
+open _root_.Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory.ConstructorReification (inlMap inrMap)
 
 section Prefix
 
@@ -62,5 +64,30 @@ theorem carriedStep_factor_retained
           retainLeft J (R := M.obj X) b ≫ J.map (M.productIso X (packedExitType [S, D])).inv) ≫
         carriedRoute J M objIso X S D :=
   Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CarriedModel.carriedStep_factor_retained J M objIso b
+
+/-- Compare the interpreted exact sum with the chosen coproduct by its two injections. -/
+theorem reindexCoprod_of_injections (A B : τ) (output : obj (coprod A B) ≅ obj A ⨿ obj B)
+    (left : reindexHom J M objIso (J.map (inlMap M A B)) ≫ output.hom = coprod.inl)
+    (right : reindexHom J M objIso (J.map (inrMap M A B)) ≫ output.hom = coprod.inr) :
+    J.map (M.coprodIso A B).inv ≫ (objIso (coprod A B)).hom ≫ output.hom =
+      splitMapCoprod J (M.obj A) (M.obj B) ≫ coprod.map (objIso A).hom (objIso B).hom :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CarriedModel.reindexCoprod_of_injections
+    J M objIso A B output left right
+
+/-- Factor the carried route through the retained exit decoder and packed distributor. -/
+theorem carriedRoute_factor (X S D : τ)
+    (output : obj (coprod (product X D) (product X S)) ≅ obj (product X D) ⨿ obj (product X S))
+    (output_agrees :
+      J.map (M.coprodIso (product X D) (product X S)).inv ≫
+        (objIso (coprod (product X D) (product X S))).hom ≫ output.hom =
+      splitMapCoprod J (M.obj (product X D)) (M.obj (product X S)) ≫
+        coprod.map (objIso (product X D)).hom (objIso (product X S)).hom) :
+    let K := packedExitType [S, D]
+    let U := coprod D S
+    Model.carriedRoute J M objIso X S D =
+      reindexHom J M objIso (J.map (packedWhiskerLeft M X K U (exitSum M S D))) ≫
+      reindexHom J M objIso (J.map (packedDistributor M X D S)) ≫
+      output.hom :=
+  Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.CarriedModel.carriedRoute_factor J M objIso X S D output output_agrees
 
 end Silmaril.Isotope.LambdaSSA.Region.Paper.SingletonReification.SingleCfg.Model

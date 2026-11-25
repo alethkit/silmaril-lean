@@ -2,6 +2,7 @@ module
 
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Endpoint.Realization.Factor.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.RetainedCase.Distributor.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.SingleCfg.Assembly.Model.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.SingletonReification.Thms
 import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Dispatcher.Singleton.Thms
 import Silmaril.SSA.Isotope.LetIter.Categorical.Context.Iteration.Thms
@@ -113,16 +114,34 @@ end RouteSyntax
 section RouteComparison
 
 open Silmaril.Isotope.LambdaSSA.Semantics.Categorical
-open SingletonDispatcher (route_inl route_inr)
-open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel routeEnvironment)
+open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical (retainLeft splitMapCoprod)
 open Paper.SingletonReification (ModelComparisons packedWhiskerLeft)
 open Paper.RetainedCase (reindexHom)
 open Paper.TypeCategory (ofType ofRegion sumIso sumCofan_inl_sumIso_hom sumCofan_inr_sumIso_hom)
-open CfgEta.TypeCategory.Retained (packedDistributor)
-open CfgEta.TypeCategory.ConstructorReification (inlMap inrMap)
 
 universe u v u₁ v₁ w u₂ v₂
+
+section RouteArrow
+
+variable {τ : Type u} [TypeFormers τ] {Φ : Type v} [HasTy Φ τ]
+
+theorem retagPacked_distributor (X S D : τ) :
+    Paper.TypeCategory.whiskerLeft (ofType (Φ := Φ) X)
+      (ofRegion (τ := τ) (exitDecoder_typed (Φ := Φ) S D)) ≫
+      ofRegion (τ := τ) (distributorRegion_typed X D S) =
+    ofRegion (τ := τ) (retagPacked_typed (Φ := Φ) X S D) := by
+  rw [Paper.TypeCategory.whiskerLeft_ofRegion]
+  let hSeq := CfgEta.TypeCategory.seqValueBranches
+    (CfgEta.TypeCategory.whiskerLeftRegion_typed X (exitDecoder_typed (Φ := Φ) S D))
+    (distributorRegion_typed X D S)
+  have e := (Paper.TypeCategory.ofRegion_eq_iff hSeq (retagPacked_typed X S D)).2
+    (retag_distribute (Φ := Φ) X S D)
+  exact (Paper.TypeCategory.ofRegion_comp
+    (CfgEta.TypeCategory.whiskerLeftRegion_typed X (exitDecoder_typed (Φ := Φ) S D))
+    (distributorRegion_typed X D S) hSeq).trans e
+
+end RouteArrow
 
 section Natural
 
@@ -130,49 +149,6 @@ variable {V : Type u₁} {C : Type u₂} [Category.{v₁} V] [Category.{v₂} C]
   [CartesianMonoidalCategory V] [SymmetricCategory V] [PremonoidalCategory C] [SymmetricPremonoidalCategory C]
   [HasFiniteCoproducts V] [HasFiniteCoproducts C] [DistributiveTensor V] [DistributivePremonoidalCategory C]
   [Iteration C] [ElgotCategory C] (J : V ⥤ C) [StrongElgotFreydCategory J]
-
-set_option backward.isDefEq.respectTransparency false in
-private theorem route_tensor_map {E F L R L' R' : V}
-    (e : E ⟶ F) (l : L ⟶ L') (r : R ⟶ R') :
-    routeEnvironment J E L R ≫ coprod.map (J.map (e ⊗ₘ l)) (J.map (e ⊗ₘ r)) =
-      J.map (e ⊗ₘ coprod.map l r) ≫ routeEnvironment J F L' R' := by
-  let route := routeEnvironment J E L R
-  have : IsIso route := by dsimp only [route, routeEnvironment, splitMapCoprod]; infer_instance
-  have hl : coprod.inl ≫ inv route = J.map (E ◁ (coprod.inl : L ⟶ L ⨿ R)) := by
-    rw [← route_inl J, Category.assoc, IsIso.hom_inv_id, Category.comp_id]
-  have hr : coprod.inr ≫ inv route = J.map (E ◁ (coprod.inr : R ⟶ L ⨿ R)) := by
-    rw [← route_inr J, Category.assoc, IsIso.hom_inv_id, Category.comp_id]
-  -- Test the square on the two injections of the original retained sum.
-  apply (cancel_epi (inv route)).mp
-  change inv route ≫ route ≫ _ = _
-  rw [IsIso.inv_hom_id_assoc]
-  apply coprod.hom_ext
-  · rw [coprod.inl_map, reassoc_of% hl, ← J.map_comp_assoc]
-    have eq : (E ◁ (coprod.inl : L ⟶ L ⨿ R)) ≫ (e ⊗ₘ coprod.map l r) =
-        (e ⊗ₘ l) ≫ (F ◁ (coprod.inl : L' ⟶ L' ⨿ R')) := by
-      simp only [MonoidalCategory.tensorHom_def', Category.assoc]
-      rw [← MonoidalCategory.whiskerLeft_comp_assoc, coprod.inl_map, MonoidalCategory.whiskerLeft_comp_assoc,
-        MonoidalCategory.whisker_exchange e (coprod.inl : L' ⟶ L' ⨿ R')]
-    rw [eq, J.map_comp_assoc, route_inl J]
-  · rw [coprod.inr_map, reassoc_of% hr, ← J.map_comp_assoc]
-    have eq : (E ◁ (coprod.inr : R ⟶ L ⨿ R)) ≫ (e ⊗ₘ coprod.map l r) =
-        (e ⊗ₘ r) ≫ (F ◁ (coprod.inr : R' ⟶ L' ⨿ R')) := by
-      simp only [MonoidalCategory.tensorHom_def', Category.assoc]
-      rw [← MonoidalCategory.whiskerLeft_comp_assoc, coprod.inr_map, MonoidalCategory.whiskerLeft_comp_assoc,
-        MonoidalCategory.whisker_exchange e (coprod.inr : R' ⟶ L' ⨿ R')]
-    rw [eq, J.map_comp_assoc, route_inr J]
-
-set_option backward.isDefEq.respectTransparency false in
-@[reassoc] private theorem map_split {A B C D : V} (f : A ⟶ C) (g : B ⟶ D) :
-    splitMapCoprod J A B ≫ coprod.map (J.map f) (J.map g) =
-      J.map (coprod.map f g) ≫ splitMapCoprod J C D := by
-  apply (cancel_epi (coprodComparison J A B)).mp
-  simp only [splitMapCoprod, IsIso.hom_inv_id_assoc]
-  apply coprod.hom_ext
-  · rw [coprod.inl_map, inl_coprodComparison_assoc, ← J.map_comp_assoc, coprod.inl_map,
-      J.map_comp_assoc, map_inl_inv_coprodComparison]
-  · rw [coprod.inr_map, inr_coprodComparison_assoc, ← J.map_comp_assoc, coprod.inr_map,
-      J.map_comp_assoc, map_inr_inv_coprodComparison]
 
 private theorem retain_map {E A B : V} (f : A ⟶ B) :
     retainLeft J (R := E) (J.map f) = J.map (E ◁ f) := by
@@ -191,83 +167,17 @@ variable [PremonoidalCategory Comp] [SymmetricPremonoidalCategory Comp]
   [Iteration Comp] [ElgotCategory Comp] (J : V ⥤ Comp) [StrongElgotFreydCategory J]
   (M : TypeModel τ V) (objIso : ∀ A : τ, J.obj (M.obj A) ≅ ofType (Φ := Φ) A)
 
-set_option backward.isDefEq.respectTransparency false in
-private theorem carriedRoute_value (X S D : τ) :
-    let K := packedExitType [S, D]
-    carriedRoute J M objIso X S D =
-      (objIso (product X K)).inv ≫
-      J.map ((M.productIso X K).hom ≫
-        M.obj X ◁ (exitSum M S D ≫ (M.coprodIso D S).hom)) ≫
-      routeEnvironment J (M.obj X) (M.obj D) (M.obj S) ≫
-      coprod.map (J.map (M.productIso X D).inv ≫ (objIso (product X D)).hom)
-        (J.map (M.productIso X S).inv ≫ (objIso (product X S)).hom) := by
-  let K := packedExitType [S, D]
-  let E := ctxObj M [X]
-  let e : E ≅ M.obj X := λ_ (M.obj X)
-  let l := labelPayloadIso M D
-  let r := labelPayloadIso M S
-  let f := unpackLabel M [S, D] ≫ labelAppendSplit M [S] [D]
-  dsimp only [carriedRoute]
-  change (objIso (product X K)).inv ≫ J.map (M.productIso X K).hom ≫
-    J.map (e.inv ▷ M.obj K) ≫ retainLeft J (R := E) (J.map f) ≫
-    routeEnvironment J E _ _ ≫ coprod.map (paperCarrier J M objIso X D).hom (paperCarrier J M objIso X S).hom = _
-  -- Each output comparison strips the singleton label and the unit before packing.
-  have arm (A : τ) : (paperCarrier J M objIso X A).hom =
-      J.map (e.hom ⊗ₘ (labelPayloadIso M A).hom) ≫
-        (J.map (M.productIso X A).inv ≫ (objIso (product X A)).hom) := by
-    simp only [paperCarrier, carriedIso, Iso.trans_hom, Functor.mapIso_hom,
-      MonoidalCategory.whiskerRightIso_hom, MonoidalCategory.whiskerLeftIso_hom, Iso.symm_hom,
-      MonoidalCategory.tensorHom_def', J.map_comp_assoc]
-    rfl
-  rw [retain_map, arm D, arm S, ← coprod.map_map, ← Category.assoc (routeEnvironment J E _ _),
-    route_tensor_map J]
-  simp only [Category.assoc, ← J.map_comp_assoc, MonoidalCategory.tensorHom_def']
-  congr 1
-  congr 1
-  congr 1
-  simp only [exitSum, Category.assoc, Iso.inv_hom_id, Category.comp_id]
-  rw [← Category.assoc (unpackLabel M [S, D]) (labelAppendSplit M [S] [D])]
-  change (M.productIso X K).hom ≫ e.inv ▷ M.obj K ≫ E ◁ f ≫
-      E ◁ coprod.map l.hom r.hom ≫ e.hom ▷ (M.obj D ⨿ M.obj S) =
-    (M.productIso X K).hom ≫ M.obj X ◁ (f ≫ coprod.map l.hom r.hom)
-  rw [← MonoidalCategory.whiskerLeft_comp_assoc, ← MonoidalCategory.whisker_exchange_assoc e.inv,
-    ← MonoidalCategory.comp_whiskerRight, Iso.inv_hom_id, MonoidalCategory.id_whiskerRight,
-    Category.comp_id]
-
 variable [InstructionModel J M Φ] {ε : Type w} [HasEff Φ ε] {pe : ε}
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem exact_sum_compare (cmp : ModelComparisons J M objIso pe) (A B : τ) :
     J.map (M.coprodIso A B).inv ≫ (objIso (coprod A B)).hom ≫ (sumIso A B).hom =
       splitMapCoprod J (M.obj A) (M.obj B) ≫ coprod.map (objIso A).hom (objIso B).hom := by
-  apply (cancel_epi (coprodComparison J (M.obj A) (M.obj B))).mp
-  simp only [splitMapCoprod, IsIso.hom_inv_id_assoc]
-  apply coprod.hom_ext
-  · rw [inl_coprodComparison_assoc, ← J.map_comp_assoc, coprod.inl_map]
-    have h := congrArg (fun f => (objIso A).hom ≫ f ≫ (sumIso (Φ := Φ) A B).hom) (cmp.inl A B)
-    simpa only [inlMap, reindexHom, Category.assoc, Iso.hom_inv_id_assoc,
-      sumCofan_inl_sumIso_hom] using h
-  · rw [inr_coprodComparison_assoc, ← J.map_comp_assoc, coprod.inr_map]
-    have h := congrArg (fun f => (objIso B).hom ≫ f ≫ (sumIso (Φ := Φ) A B).hom) (cmp.inr A B)
-    simpa only [inrMap, reindexHom, Category.assoc, Iso.hom_inv_id_assoc,
-      sumCofan_inr_sumIso_hom] using h
-
-set_option backward.isDefEq.respectTransparency false in
-private theorem carriedRoute_factor (cmp : ModelComparisons J M objIso pe) (X S D : τ) :
-    let K := packedExitType [S, D]
-    let U := coprod D S
-    carriedRoute J M objIso X S D =
-      reindexHom J M objIso (J.map (packedWhiskerLeft M X K U (exitSum M S D))) ≫
-      reindexHom J M objIso (J.map (packedDistributor M X D S)) ≫
-      (sumIso (product X D) (product X S)).hom := by
-  rw [carriedRoute_value]
-  simp only [reindexHom, Category.assoc, Iso.hom_inv_id_assoc]
-  dsimp only [packedWhiskerLeft, packedDistributor]
-  simp only [J.map_comp, Category.assoc]
-  rw [exact_sum_compare J M objIso cmp (product X D) (product X S)]
-  simp only [← J.map_comp_assoc, Iso.inv_hom_id_assoc]
-  simp only [routeEnvironment, MonoidalCategory.whiskerLeft_comp, J.map_comp, Category.assoc]
-  rw [← map_split_assoc J, coprod.map_map]
+  apply Model.reindexCoprod_of_injections J M objIso A B (sumIso A B)
+  · simpa only [Model.reindexHom, reindexHom, sumCofan_inl_sumIso_hom] using
+      congrArg (fun f => f ≫ (sumIso (Φ := Φ) A B).hom) (cmp.inl A B)
+  · simpa only [Model.reindexHom, reindexHom, sumCofan_inr_sumIso_hom] using
+      congrArg (fun f => f ≫ (sumIso (Φ := Φ) A B).hom) (cmp.inr A B)
 
 set_option backward.isDefEq.respectTransparency false in
 theorem carriedRoute_compare (cmp : ModelComparisons J M objIso pe) (X S D : τ) :
@@ -276,20 +186,13 @@ theorem carriedRoute_compare (cmp : ModelComparisons J M objIso pe) (X S D : τ)
   have h := cmp.whisker (Y := X) (J.map (exitSum M S D))
   rw [retain_map] at h
   simp only [← J.map_comp] at h
-  change reindexHom J M objIso (J.map (packedWhiskerLeft M X _ _ (exitSum M S D))) = _ at h
-  rw [carriedRoute_factor J M objIso cmp, h, exitSum_compare J M objIso pe cmp,
-    Paper.SingletonReification.distributor_compare J M objIso pe cmp, exitSum_ofRegion,
-    Paper.TypeCategory.whiskerLeft_ofRegion]
-  let hSeq := CfgEta.TypeCategory.seqValueBranches
-    (CfgEta.TypeCategory.whiskerLeftRegion_typed X (exitDecoder_typed (Φ := Φ) S D))
-    (distributorRegion_typed X D S)
-  have e := (Paper.TypeCategory.ofRegion_eq_iff hSeq (retagPacked_typed X S D)).2
-    (retag_distribute (Φ := Φ) X S D)
-  have fact := (Paper.TypeCategory.ofRegion_comp
-    (CfgEta.TypeCategory.whiskerLeftRegion_typed X (exitDecoder_typed (Φ := Φ) S D))
-    (distributorRegion_typed X D S) hSeq).trans e
-  simpa only [Category.assoc] using congrArg
-    (fun f => f ≫ (sumIso (Φ := Φ) (product X D) (product X S)).hom) fact
+  change Model.reindexHom J M objIso (J.map (packedWhiskerLeft M X _ _ (exitSum M S D))) = _ at h
+  have distributor := Paper.SingletonReification.distributor_compare J M objIso pe cmp X D S
+  change Model.reindexHom J M objIso (J.map (CfgEta.TypeCategory.Retained.packedDistributor M X D S)) = _
+    at distributor
+  change Model.carriedRoute J M objIso X S D = _
+  rw [Model.carriedRoute_factor J M objIso X S D _ (exact_sum_compare J M objIso cmp _ _), h, distributor,
+    exitSum_compare J M objIso pe cmp, exitSum_ofRegion, ← Category.assoc, retagPacked_distributor]
 
 end RouteComparison
 
