@@ -1,6 +1,7 @@
 module
 
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Isomorphism.Tail.Prefix.Thms
+import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Continuation.TailCall.Thms
 import Silmaril.SSA.RVSDG.NestedTheta.Thms
 
 namespace Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Tail.Prefix.Tests
@@ -285,5 +286,55 @@ private theorem unsupported : inspect machine outOfSlice = .unsupported := by
 example : ¬ Diverges machine outOfSlice := unsupported_no_divergence unsupported
 
 example : outOfSlice.run 0 4 = some (answer 0) := by cbv
+
+private def savedFrames (n : Nat) (outer : Continuation.Stack machine results results) :
+    Continuation.Stack machine results results :=
+  let copied : Tuple machine.Val [word] := .cons (.data (7 : Nat)) .nil
+  let bumped : Tuple machine.Val bumpResult :=
+    .cons (.control (1 : Fin 2)) (.cons (.state (n + 1)) .nil)
+  .resume (past := [[word]]) (.ret (forwarding bodyArgs [[word]] results)) (entry 1 (n + 1))
+    (copied, PUnit.unit)
+    (.resume (past := [[word], bumpResult]) (.ret (forwarding bodyArgs [[word], bumpResult] results))
+      (entry 1 n) (copied, bumped, PUnit.unit) outer)
+
+open Continuation.TailCall (callState) in
+example : Continuation.State.runFor 14 (callState (start 1 0) .halt) =
+    callState (start 1 1) (savedFrames 0 .halt) := by cbv
+
+open Continuation.TailCall (callState) in
+example : Continuation.State.runFor 28 (callState (start 1 0) .halt) =
+    callState (start 1 2) (savedFrames 1 (savedFrames 0 .halt)) := by cbv
+
+open Continuation.TailCall (callState IsCall) in
+example : ∃ (framesAt : Nat → Continuation.Stack machine results results)
+    (micro : Nat → Continuation.State machine results) (indices : Nat → Nat),
+    framesAt 0 = .halt ∧ indices 0 = 0 ∧
+    (∀ n, Continuation.Step (micro n) (micro (n + 1))) ∧
+    (∀ n, indices n < indices (n + 1)) ∧
+    (∀ n, micro (indices n) = callState (start 1 n) (framesAt n)) ∧
+    (∀ n j, indices n < j → j < indices (n + 1) → ¬ IsCall (micro j)) ∧
+    ∀ n, Step machine (start 1 n) (start 1 (n + 1)) := by
+  obtain ⟨framesAt, empty, forwards, segments⟩ :=
+    Continuation.TailCall.stream_segments (start 1) advance (.base (base := .halt))
+  obtain ⟨micro, indices, first, edges, rising, hits, inside⟩ :=
+    Continuation.TailCall.segments_microsteps (fun n => callState (start 1 n) (framesAt n)) segments
+  have sliced := Continuation.TailCall.microsteps_segments micro indices edges rising
+    (fun n => (hits n).symm ▸ True.intro) inside
+  have tailSegments (n : Nat) : Continuation.TailCall.CallSegment
+      (callState (start 1 n) (framesAt n)) (callState (start 1 (n + 1)) (framesAt (n + 1))) :=
+    (hits n) ▸ (hits (n + 1)) ▸ sliced n
+  have admitted (n : Nat) : inspect machine (start 1 n) ≠ .unsupported := by
+    rw [show inspect machine (start 1 n) = .enter (start 1 (n + 1)) from advance n]
+    simp
+  exact ⟨framesAt, micro, indices, empty, first, edges, rising, hits, inside,
+    Continuation.TailCall.steps_of_segments (start 1) framesAt forwards admitted tailSegments⟩
+
+open Continuation.TailCall (callState CallSegment) in
+example (next : Activation machine results) (parked : Continuation.Stack machine results results) :
+    ¬ CallSegment (callState (start 0 2) .halt) (callState next parked) := by
+  intro segment
+  have admitted : inspect machine (start 0 2) ≠ .unsupported := by rw [finished]; simp
+  have entered := Continuation.TailCall.step_of_segment .base admitted segment
+  cases finished.symm.trans entered
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Tail.Prefix.Tests
