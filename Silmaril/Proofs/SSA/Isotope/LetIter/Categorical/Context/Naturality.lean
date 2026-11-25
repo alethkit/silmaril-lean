@@ -360,7 +360,7 @@ private theorem capture_liftExit {E A B D : V}
     rw [reassoc_of% hr, coprod.inr_map, Category.id_comp]
     exact distributeMap_inr J E D B
 
-private theorem route_tensor_comparison (E A B : V) :
+theorem route_tensor_comparison_proof (E A B : V) :
     routeEnvironment J E A B =
       (Functor.StrongPremonoidal.tensorIso (J := J) E (A ⨿ B)).inv ≫
         (J.obj E ◁ splitMapCoprod J A B) ≫
@@ -663,7 +663,7 @@ theorem retainLeft_iterate_shared {E X Y : V}
   let g := (J.obj E ◁ f) ≫ δ
   have step : retainLeft J (R := E) body ≫ routeEnvironment J E Y X =
       (t E X).inv ≫ g ≫ Limits.coprod.map (t E Y).hom (t E X).hom := by
-    rw [route_tensor_comparison]
+    rw [route_tensor_comparison_proof]
     simp only [retainLeft, leftTensor, id_whiskerRight, Category.id_comp, Category.assoc,
       Iso.hom_inv_id_assoc, g, f, t, δ, whiskerLeft_comp]
   have reindex :

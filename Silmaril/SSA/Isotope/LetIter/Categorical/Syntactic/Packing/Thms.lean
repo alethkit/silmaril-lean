@@ -12,7 +12,7 @@ universe u
 
 namespace Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic
 
-open CategoryTheory
+open CategoryTheory CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LetIter.LocallyNameless (Derivation Tm)
 open Silmaril.Thesis.LambdaIter.LocallyNameless (HasType)
@@ -152,5 +152,38 @@ theorem packedNative_let2_eq_packedArrow (pe : ε)
     packedNative pe (.let₂ d e) =
       packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (.let₂ ha hb) := by
   rw [packedNative_let2 pe d e, packedArrow_let2 ha hb, ih₁, ih₂]
+
+/-- Packed case analysis retains the input and sends it into the selected branch. -/
+theorem packedNative_case (pe : ε) {n : Nat} {β : BoundCtx τ n}
+    {t : Tm Empty Φ n} {l r : Tm Empty Φ (n + 1)} {A B D : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t (Silmaril.coprod A B))
+    (dl : Derivation Φ (Ctx.nil : Ctx Empty τ) (β.snoc A) l D)
+    (dr : Derivation Φ (Ctx.nil : Ctx Empty τ) (β.snoc B) r D) :
+    let S := signature (τ := τ) (Φ := Φ) pe
+    let X := of (S := S) (packType (Bridge.BoundCtx.toThesis β))
+    packedNative pe (.case d dl dr) = pairArrows (𝟙 X) (packedNative pe d) ≫
+      contextSumSplit X (of A) (of B) ≫ coprod.desc (packedNative pe dl) (packedNative pe dr) :=
+  PackingProofs.packedNative_case pe d dl dr
+
+set_option backward.isDefEq.respectTransparency false in
+set_option backward.isDefEq.respectTransparency.types false in
+/-- Reifying a scrutinee and both branches reifies their case expression. -/
+theorem packedNative_case_eq_packedArrow (pe : ε) {n : Nat} {β : BoundCtx τ n}
+    {t : Tm Empty Φ n} {l r : Tm Empty Φ (n + 1)} {A B D : τ}
+    (d : Derivation Φ (Ctx.nil : Ctx Empty τ) β t (Silmaril.coprod A B))
+    (dl : Derivation Φ (Ctx.nil : Ctx Empty τ) (β.snoc A) l D)
+    (dr : Derivation Φ (Ctx.nil : Ctx Empty τ) (β.snoc B) r D)
+    (ht : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (Bridge.BoundCtx.toThesis β) (Bridge.toThesis t) (Silmaril.coprod A B))
+    (hl : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (.snoc (Bridge.BoundCtx.toThesis β) A) (Bridge.toThesis l) D)
+    (hr : HasType (signature (τ := τ) (Φ := Φ) pe).Instr
+      .nil (.snoc (Bridge.BoundCtx.toThesis β) B) (Bridge.toThesis r) D)
+    (iht : packedNative pe d = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) ht)
+    (ihl : packedNative pe dl = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) hl)
+    (ihr : packedNative pe dr = packedArrow (S := signature (τ := τ) (Φ := Φ) pe) hr) :
+    packedNative pe (.case d dl dr) =
+      packedArrow (S := signature (τ := τ) (Φ := Φ) pe) (.case ht hl hr) := by
+  rw [packedNative_case pe d dl dr, packedArrow_case ht hl hr, iht, ihl, ihr]
 
 end Silmaril.Isotope.LetIter.Semantics.Categorical.Syntactic

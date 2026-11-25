@@ -127,6 +127,10 @@ theorem packedSubst_isPureMor {n m : Nat} {β : BoundCtx S.Ty n} {γ : BoundCtx 
     IsPureMor (packedSubst s) :=
   packedSubst_isPureMor_proof s
 
+/-- The tuple of all bound variables is syntactically pure. -/
+theorem packTerm_pure {n : Nat} (β : BoundCtx S.Ty n) : Pure S.pureEff (packTerm β) :=
+  packTerm_pure_proof β
+
 /-- The pure substitution used by packing preserves syntactic purity. -/
 theorem packedTerm_pure {n : Nat} (β : BoundCtx S.Ty n) {t : Tm Empty S.Instr n}
     (hp : Pure S.pureEff t) : Pure S.pureEff (packedTerm β t) :=
