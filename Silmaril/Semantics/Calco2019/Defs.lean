@@ -99,6 +99,21 @@ noncomputable def kleisli (T : CategoryTheory.Monad K) : Coproducts (Kleisli T) 
 
 end Coproducts
 
+/-- A functor preserving the two specified injections into each chosen coproduct. -/
+structure PreservesSelectedCoproducts {C : Type u} {K : Type u'} [Category.{v} C]
+    [Category.{v'} K] (P : Coproducts C) (Q : Coproducts K) (J : C ⥤ K) : Prop where
+  sum_eq (X Y : C) : J.obj (P.sum X Y) = Q.sum (J.obj X) (J.obj Y)
+  inl (X Y : C) : J.map (P.inl (X := X) (Y := Y)) ≫ eqToHom (sum_eq X Y) = Q.inl
+  inr (X Y : C) : J.map (P.inr (X := X) (Y := Y)) ≫ eqToHom (sum_eq X Y) = Q.inr
+
+/-- The pure embedding preserves the chosen inherited coproducts. -/
+theorem Coproducts.kleisliPreservesSelected {C : Type u} [Category.{v} C]
+    (P : Coproducts C) (T : CategoryTheory.Monad C) :
+    PreservesSelectedCoproducts P (P.kleisli T) (Kleisli.Adjunction.toKleisli T) where
+  sum_eq _ _ := rfl
+  inl _ _ := Category.comp_id _
+  inr _ _ := Category.comp_id _
+
 /-- Definition 6. Guardedness in a selected right summand. -/
 structure Guardedness {K : Type u} [Category.{v} K] (P : Coproducts K) where
   guarded {X Y Z : K} : (X ⟶ P.sum Y Z) → Prop
@@ -169,6 +184,21 @@ def Fixpoints.Uniform (F : G.Fixpoints) {C : Type u'} [Category.{v'} C] (J : C �
     (hf : G.guarded f) (hg : G.guarded g),
     J.map h ≫ f = g ≫ P.map (𝟙 Y) (J.map h) →
     J.map h ≫ F.iterate f hf = F.iterate g hg
+
+variable {G} in
+/-- Uniformity for a single change of state in the computation category. -/
+def Fixpoints.UniformAt (F : G.Fixpoints) {X Z : K} (h : Z ⟶ X) : Prop :=
+  ∀ {Y : K} (f : X ⟶ P.sum Y X) (g : Z ⟶ P.sum Y Z)
+    (hf : G.guarded f) (hg : G.guarded g),
+    h ≫ f = g ≫ P.map (𝟙 Y) h → h ≫ F.iterate f hf = F.iterate g hg
+
+variable {G} in
+/-- Structural changes of state used in the derivation of dinaturality. -/
+structure Fixpoints.CoproductUniformity (F : G.Fixpoints) : Prop where
+  inl {X Z : K} : F.UniformAt (P.inl (X := X) (Y := Z))
+  inr {X Z : K} : F.UniformAt (P.inr (X := X) (Y := Z))
+  swap {X Z : K} : F.UniformAt (P.swap (X := X) (Y := Z))
+  fold (X : K) : F.UniformAt (P.desc (𝟙 X) (𝟙 X))
 
 /-- The total guardedness of Proposition 9(1). -/
 def greatest (P : Coproducts K) : Guardedness P where
