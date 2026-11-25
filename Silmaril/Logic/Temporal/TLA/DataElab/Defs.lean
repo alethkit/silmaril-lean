@@ -1,6 +1,6 @@
 module
 
-public import Silmaril.Logic.Temporal.TLA.DataElab.Semantics
+public import Silmaril.Logic.Temporal.TLA.DataElab.Instances.Replay
 
 /-!
 # Checked lowering for TLA+ data expressions
@@ -12,7 +12,7 @@ See `docs/projects/tla-data-elab.md` for the supported surface and contracts.
 
 namespace Silmaril.Logic.Temporal.TLA.DataElab
 
-open Resolution
+open Resolution Instances
 
 universe u
 
@@ -40,6 +40,7 @@ inductive DiagnosticKind where
   | duplicateField (name : String)
   | primeRequiresLevels
   | nestedPrime (inner : Site)
+  | instanceReplay (kind : Replay.DiagnosticKind)
   | expansionLimit
   | invalidExpansion
   deriving DecidableEq, Repr
@@ -86,6 +87,17 @@ private abbrev Context (signature : ExternalSignature) (fragment : Fragment) :=
 
 private abbrev Visit (signature : ExternalSignature) (fragment : Fragment) :=
   Context signature fragment → Site → Surface.Expr → LowerM (Term signature fragment)
+
+private abbrev GlobalApply (signature : ExternalSignature) (fragment : Fragment) :=
+  Site → Binding → List (Local signature fragment) → LowerM (Term signature fragment)
+
+private inductive Request (signature : ExternalSignature) (fragment : Fragment) where
+  | expression (expr : Surface.Expr)
+  | invoke (binding : Binding) (args : List (Local signature fragment))
+
+private def expressionBindings (frame : Replay.Frame signature fragment) :
+    Context signature fragment :=
+  frame.map fun (id, term) => (id, .expression term)
 
 private def declarationId (site : Site) (step : Step) : BindingId := .declared (site.child step)
 
@@ -174,16 +186,18 @@ private def applyGlobal (registry : CheckedRegistry) (visit : Visit signature fr
         applyClosure visit home body [] args
     | _ => fail site (.missingLexicalBinding binding.id)
 
-private def applyBinding (registry : CheckedRegistry) (visit : Visit signature fragment)
-    (locals : Context signature fragment) (site : Site) (binding : Binding)
-    (args : List (Local signature fragment)) :
-    LowerM (Term signature fragment) :=
+private def applyBinding (visit : Visit signature fragment) (global : GlobalApply signature fragment)
+    (frame : Replay.Frame signature fragment) (locals : Context signature fragment) (site : Site)
+    (binding : Binding) (args : List (Local signature fragment)) : LowerM (Term signature fragment) :=
   match locals.lookup binding.id with
   | some (.expression term) =>
     if args.isEmpty then pure term else fail site (.invalidApplication binding.id)
   | some (.closure home body captured) => applyClosure visit home body captured args
-  | some (.named target) => applyGlobal registry visit site target args
-  | none => applyGlobal registry visit site binding args
+  | some (.named target) => global site target args
+  | none =>
+    match frame.lookup binding.id with
+    | some term => if args.isEmpty then pure term else fail site (.invalidApplication binding.id)
+    | none => global site binding args
 
 private def lowerActual (registry : CheckedRegistry) (visit : Visit signature fragment)
     (locals : Context signature fragment) (site : Site) (slot : Slot) (arg : Surface.OpArg) :
@@ -201,13 +215,14 @@ private def lowerActual (registry : CheckedRegistry) (visit : Visit signature fr
       return .named binding
 
 private def lowerApplication (registry : CheckedRegistry) (visit : Visit signature fragment)
-    (locals : Context signature fragment) (site : Site) (args : List Surface.OpArg) (child : Nat → Step)
+    (global : GlobalApply signature fragment) (frame : Replay.Frame signature fragment)
+    (locals : Context signature fragment) (site : Site) (args : List (Site × Surface.OpArg))
     (allowPrime : Bool) : LowerM (Term signature fragment) := do
   let binding ← useBinding registry site .application allowPrime
   unless args.length = binding.slots.length do fail site (.invalidApplication binding.id)
-  let actuals ← (binding.slots.zip args).zipIdx.mapM fun ((slot, arg), i) =>
-    lowerActual registry visit locals (site.child (child i)) slot arg
-  applyBinding registry visit locals site binding actuals
+  let actuals ← (binding.slots.zip args).mapM fun (slot, argSite, arg) =>
+    lowerActual registry visit locals argSite slot arg
+  applyBinding visit global frame locals site binding actuals
 
 private def bindWitness (site : Site) (index : Nat) (locals : Context signature fragment) :
     LowerM (Nat × Context signature fragment) := do
@@ -260,20 +275,45 @@ private def lowerQuant (visit : Visit signature fragment) (locals : Context sign
   let result ← visit inner (site.child .body) body
   return reversed.foldl (fun term (slot, domain) => .quant kind slot domain term) result
 
-private def lower (registry : CheckedRegistry) (fragment : Fragment) (allowPrime : Bool) (fuel : Nat)
-    (locals : Context signature fragment)
-    (site : Site) (expr : Surface.Expr) : LowerM (Term signature fragment) := do
+private def lower (registry : CheckedRegistry) (fragment : Fragment)
+    (allowPrime allowInstances : Bool) (fuel : Nat) (frame : Replay.Frame signature fragment)
+    (locals : Context signature fragment) (site : Site) (request : Request signature fragment) :
+    LowerM (Term signature fragment) := do
   match fuel with
   | 0 => fail site .expansionLimit
   | remaining + 1 =>
-    let visit := lower registry fragment allowPrime remaining
+    let descend := lower registry fragment allowPrime allowInstances remaining
+    let visit : Visit signature fragment := fun context origin expr =>
+      descend frame context origin (.expression expr)
+    let global : GlobalApply signature fragment := fun origin binding args => do
+      if allowInstances then
+        if let some (plan, member) := registry.instanceMemberAt binding.id then
+          let actuals ← expressionArgs origin binding.id args
+          let step ← Replay.prepare registry origin plan member actuals
+            (fun problem => fail problem.site (.instanceReplay problem.kind))
+            (fun formals rhs expr => visit (expressionBindings formals) rhs expr)
+            (fun formals rhs target =>
+              descend frame (expressionBindings formals) rhs (.invoke target []))
+          return ← descend step.frame [] origin (.invoke step.home (step.arguments.map .expression))
+      applyGlobal registry visit origin binding args
+    if let .invoke binding args := request then
+      return ← applyBinding visit global frame locals site binding args
+    let .expression expr := request | fail site .invalidExpansion
     let operands := fun (items : List Surface.Expr) =>
       items.zipIdx.mapM fun (item, i) => visit locals (site.child (.operand i)) item
-    let symbolic := fun args =>
-      lowerApplication registry visit locals site (args.map Surface.OpArg.expr) .operand allowPrime
+    let apply :=
+      fun args => lowerApplication registry visit global frame locals site args allowPrime
+    let arguments := fun (args : List Surface.OpArg) (child : Nat → Step) =>
+      args.zipIdx.map fun (arg, i) => (site.child (child i), arg)
+    let symbolic := fun args => apply (arguments (args.map Surface.OpArg.expr) .operand)
     let unsupported := fun form => fail site (.unsupported form)
     match expr with
-    | .ref (.operator _) args [] => lowerApplication registry visit locals site args .argument allowPrime
+    | .ref (.operator _) args [] => apply (arguments args .argument)
+    | .ref (.operator head) args selectors =>
+      unless allowInstances do fail site (.unsupported .proofOrQualifiedReference)
+      let some (_, parts) := qualifiedCall site head args selectors
+        | unsupported .proofOrQualifiedReference
+      apply (qualifiedArguments parts)
     | .ref .. => unsupported .proofOrQualifiedReference
     | .prefix _ arg | .postfix _ arg => symbolic [arg]
     | .infix _ left right => symbolic [left, right]
@@ -351,9 +391,10 @@ private def definitionBody (registry : CheckedRegistry) (id : BindingId) :
   return (home, body)
 
 private def lowerBody (registry : CheckedRegistry) (signature : ExternalSignature)
-    (fragment : Fragment) (allowPrime : Bool) (maxDepth : Nat) (home : Site) (body : Surface.Expr) :
-    Except Diagnostic (CheckedExpr signature fragment) := do
-  let (term, _) ← (lower registry fragment allowPrime maxDepth [] (home.child .body) body).run 0
+    (fragment : Fragment) (allowPrime : Bool) (maxDepth : Nat) (home : Site) (body : Surface.Expr)
+    (allowInstances : Bool := false) : Except Diagnostic (CheckedExpr signature fragment) := do
+  let (term, _) ← (lower registry fragment allowPrime allowInstances maxDepth [] [] (home.child .body)
+    (.expression body)).run 0
   if valid : term.isWellFormed [] = true then
     return ⟨term, valid⟩
   else
