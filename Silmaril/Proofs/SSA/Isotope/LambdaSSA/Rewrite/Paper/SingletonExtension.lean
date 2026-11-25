@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Singleton.Defs
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Extension.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Tensor.Thms
+import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.Category.Singleton.Tensor.Braid.Thms
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.CfgEta.Category.Iteration.Defs
 
 /-! # Singleton composition and whiskering preserve extended equations -/
@@ -14,7 +15,7 @@ universe u v
 namespace Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonExtension
 
 open Silmaril.Isotope.LambdaSSA Silmaril.Isotope.LambdaSSA.Region
-open Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton (homRel)
+open Silmaril.Isotope.LambdaSSA.Region.Paper.Extension.Singleton (homRel projection)
 open Silmaril.Isotope.LambdaSSA.Region.Paper.TypeCategory
 open Silmaril.Isotope.LambdaSSA.Region.CfgEta.TypeCategory
   (seqValueBranches singletonValueFamily whiskerLeftRegion whiskerLeftRegion_typed)
@@ -102,5 +103,20 @@ theorem whiskerLeft_congr (X : Paper.TypeCategory (τ := τ) Φ)
   obtain ⟨_, _, hr, hs, rfl, rfl, e⟩ := h
   rw [whiskerLeft_ofRegion, whiskerLeft_ofRegion]
   exact (homRel_ofRegion_iff _ _).2 (left_region (show τ from X) e hr hs)
+
+set_option backward.isDefEq.respectTransparency false in
+theorem whiskerRight_map_congr (X : Paper.TypeCategory (τ := τ) Φ)
+    {Y Z : Paper.TypeCategory (τ := τ) Φ} {f g : Y ⟶ Z} (h : homRel Seed f g) :
+    (projection Seed).map (whiskerRight f X) = (projection Seed).map (whiskerRight g X) := by
+  let Q := projection Seed
+  have left : Q.map (whiskerLeft X f) = Q.map (whiskerLeft X g) :=
+    CategoryTheory.Quotient.sound (homRel Seed) (whiskerLeft_congr X h)
+  let swap := braidIso (Φ := Φ) (show τ from Z) (show τ from X)
+  apply (cancel_mono (Q.mapIso swap).hom).mp
+  change Q.map (whiskerRight f X) ≫ Q.map swap.hom =
+    Q.map (whiskerRight g X) ≫ Q.map swap.hom
+  change Q.map (whiskerRight f X) ≫ Q.map (braid (show τ from Z) (show τ from X)) =
+    Q.map (whiskerRight g X) ≫ Q.map (braid (show τ from Z) (show τ from X))
+  rw [← Q.map_comp, ← Q.map_comp, whiskerRight_braid, whiskerRight_braid, Q.map_comp, Q.map_comp, left]
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.SingletonExtension

@@ -6,8 +6,8 @@ public import Silmaril.SSA.Isotope.LambdaSSA.Thms
 
 /-! # Typed observations for the separation model
 
-Term-level unary let reports a fault. Region-level unary let still sequences
-its scrutinee and body. Every constructor value evaluates successfully on a
+Term-level lets report a fault. Region-level lets still sequence their
+scrutinee and body. Every constructor value evaluates successfully on a
 typed environment, and successful jumps carry values at their label types.
 -/
 
@@ -23,7 +23,7 @@ open scoped Silmaril.Isotope.LambdaSSA.Region.Paper.BoundSimulation.Obstruction
 
 abbrev Env := Nat → Val
 
-/-- Observe a term with a distinguished fault at term-level unary let. -/
+/-- Observe a term with a distinguished fault at term-level lets. -/
 def evalTerm : Tm Empty → Env → Option Val
   | .var i, env => some (env i)
   | .op p _, _ => p.elim
@@ -33,9 +33,7 @@ def evalTerm : Tm Empty → Env → Option Val
       let v ← evalTerm x env
       let w ← evalTerm y env
       pure (.pair v w)
-  | .let₂ x t, env => do
-      let .pair v w ← evalTerm x env | none
-      evalTerm t (extend (extend env v) w)
+  | .let₂ _ _, _ => none
   | .inl x, env => (evalTerm x env).map Value.inl
   | .inr x, env => (evalTerm x env).map Value.inr
   | .case x l r, env => match evalTerm x env with
@@ -68,13 +66,7 @@ theorem evalTerm_rename (t : Tm Empty) {env env' : Env} {ρ : Nat → Nat}
   | let₁ _ _ _ _ => rfl
   | pair _ _ ix iy => simp only [Tm.rename, evalTerm, ix h, iy h]
   | unit => rfl
-  | let₂ x t ix it =>
-    simp only [Tm.rename, evalTerm, ix h]
-    cases evalTerm x env with
-    | none => rfl
-    | some v =>
-      cases v <;> try rfl
-      exact it (extend_rename (extend_rename h _) _)
+  | let₂ => rfl
   | inl _ ix => simp only [Tm.rename, evalTerm, ix h]
   | inr _ ix => simp only [Tm.rename, evalTerm, ix h]
   | case x l r ix il ir =>
@@ -106,13 +98,7 @@ theorem evalTerm_subst (t : Tm Empty) {env env' : Env} {θ : Nat → Tm Empty}
   | let₁ _ _ _ _ => rfl
   | pair _ _ ix iy => simp only [Tm.subst, evalTerm, ix h, iy h]
   | unit => rfl
-  | let₂ x t ix it =>
-    simp only [Tm.subst, evalTerm, ix h]
-    cases evalTerm x env' with
-    | none => rfl
-    | some v =>
-      cases v <;> try rfl
-      exact it ((h.lift _).lift _)
+  | let₂ => rfl
   | inl _ ix => simp only [Tm.subst, evalTerm, ix h]
   | inr _ ix => simp only [Tm.subst, evalTerm, ix h]
   | case x l r ix il ir =>
@@ -198,12 +184,7 @@ theorem evalTerm_typed {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
         subst v
         exact .pair (ix h hx) (iy h hy)
   | unit => cases Option.some.inj he; exact .unit
-  | @let₂ _ a _ _ _ _ _ _ ix it =>
-    cases hx : evalTerm a env with
-    | none => simp [evalTerm, hx] at he
-    | some x =>
-      cases ix h hx with
-      | pair ha hb => exact it ((h.extend ha).extend hb) (by simpa [evalTerm, hx] using he)
+  | let₂ => cases he
   | @inl _ a _ _ _ it =>
     cases hx : evalTerm a env with
     | none => simp [evalTerm, hx] at he
@@ -381,13 +362,7 @@ theorem evalTerm_substOn {Γ : VCtx (Ty Empty)} {t : Tm Empty} {A : Ty Empty}
   | let₁ => rfl
   | pair _ _ ix iy => simp only [Tm.subst, evalTerm, ix h, iy h]
   | unit => rfl
-  | @let₂ _ a b A B _ _ _ ix it =>
-    simp only [Tm.subst, evalTerm, ix h]
-    cases evalTerm a env' with
-    | none => rfl
-    | some v =>
-      cases v <;> try rfl
-      exact it ((h.lift A _).lift B _)
+  | let₂ => rfl
   | inl _ it => simp only [Tm.subst, evalTerm, it h]
   | inr _ it => simp only [Tm.subst, evalTerm, it h]
   | @case _ a _ _ A B _ _ _ _ ix il ir =>

@@ -125,4 +125,31 @@ theorem unit_eta_fails :
   change Result.jump 0 .unit = Result.jump 0 (.inl .unit) at observed
   cases observed
 
+private theorem projection_return_fails (i : Nat) (hi : i = 0 ∨ i = 1) :
+    ¬ Paper.Eqv [(Ty.product Ty.unit Ty.unit : Ty Empty)]
+      (.let₁ (.let₂ (.var 0) (.var i)) (.br 0 (.var 0)) : Region Empty)
+      (.let₂ (.var 0) (.br 0 (.var i))) [Ty.unit] := by
+  intro eq
+  let env : Env := fun _ => .pair .unit .unit
+  have henv : EnvTy [(Ty.product Ty.unit Ty.unit : Ty Empty)] env := by
+    intro j A hj
+    cases j with
+    | zero => cases Option.some.inj hj; exact .pair .unit .unit
+    | succ j => simp [At] at hj
+  have obs := paper_same eq env henv
+  rcases hi with rfl | rfl <;>
+    change Result.fault = Result.jump 0 .unit at obs <;> cases obs
+
+theorem fst_return_fails :
+    ¬ Paper.Eqv [(Ty.product Ty.unit Ty.unit : Ty Empty)]
+      (.let₁ (.let₂ (.var 0) (.var 1)) (.br 0 (.var 0)) : Region Empty)
+      (.let₂ (.var 0) (.br 0 (.var 1))) [Ty.unit] :=
+  projection_return_fails 1 (.inr rfl)
+
+theorem snd_return_fails :
+    ¬ Paper.Eqv [(Ty.product Ty.unit Ty.unit : Ty Empty)]
+      (.let₁ (.let₂ (.var 0) (.var 0)) (.br 0 (.var 0)) : Region Empty)
+      (.let₂ (.var 0) (.br 0 (.var 0))) [Ty.unit] :=
+  projection_return_fails 0 (.inl rfl)
+
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction
