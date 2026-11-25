@@ -32,15 +32,26 @@ theorem cursorCollects_length {cursor : Cursor} {values : List Value}
     (ran : CursorCollects cursor values) : values.length = cursor.remaining :=
   Proofs.Languages.Starlark.Lists.Iteration.cursorCollects_length ran
 
-/-- The flat target rules determine the exact writes or error and final state. -/
+/-- A successful node unpack supplies exactly one value per child. -/
+theorem unpacksValue_length {s t : State} {value : Value} {arity : Nat} {values : List Value}
+    (ran : UnpacksValue s value arity (.ok values t)) : values.length = arity := by
+  cases ran with
+  | items _ size yields => exact (cursorCollects_length yields).trans size
+
+/-- The target rules determine the exact writes or error and final state. -/
 theorem bindsTarget_iff_bindTarget (state : State) (value : Value) (target : LoopTarget)
     (out : Outcome Unit) : BindsTarget state value target out ↔ bindTarget target value state = out :=
   ⟨Proofs.Languages.Starlark.Lists.Iteration.bindTarget_eq_of_binds,
     fun same => same ▸ Proofs.Languages.Starlark.Lists.Iteration.bindsTarget_bindTarget state value target⟩
 
-/-- A target error preserves the complete state at entry to the binding. -/
-theorem bindsTarget_failure_state {s final : State} {value : Value} {target : LoopTarget}
-    {error : Error} (ran : BindsTarget s value target (.error error final)) : final = s :=
+/-- An error checking a node's item preserves that node's incoming state. -/
+theorem unpackValue_failure_state {s final : State} {value : Value} {arity : Nat}
+    {error : Error} (ran : UnpacksValue s value arity (.error error final)) : final = s :=
+  Proofs.Languages.Starlark.Lists.Iteration.unpackValue_failure_state ran
+
+/-- A flat pattern still preserves its complete incoming state on failure. -/
+theorem bindsTarget_failure_state {s final : State} {value : Value} {bindings : List Binding}
+    {error : Error} (ran : BindsTarget s value (.unpack bindings) (.error error final)) : final = s :=
   Proofs.Languages.Starlark.Lists.Iteration.bindsTarget_failure_state ran
 
 /-- Cursor stepping agrees with iteration denotation when body outcomes agree. -/

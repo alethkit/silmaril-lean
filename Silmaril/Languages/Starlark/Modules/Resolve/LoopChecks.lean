@@ -2,6 +2,7 @@ module
 
 import Silmaril.Languages.Starlark.Modules.Resolve.Thms
 import Silmaril.Languages.Starlark.Functions.Lowering.Quote.Defs
+meta import Silmaril.Languages.Starlark.Functions.Lowering.Denotation.Defs
 meta import Silmaril.Languages.Starlark.Modules.Resolve.Defs
 meta import Silmaril.Languages.Starlark.Functions.Lowering.Resolve.Defs
 meta import Silmaril.Languages.Starlark.Modules.Defs
@@ -122,13 +123,51 @@ private def callBody (body : Statement) : List Command :=
   | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.bool true)))
   | _ => false
 
--- Reject target forms outside the flat identifier profile statically,
+-- Reject target forms outside the name-leaf profile statically,
 -- including when the loop is unreachable or its iterable is empty.
 #guard
   let reject := fun target => match runModule (callBody
     (.branch starlark%[False] (.forInTarget target starlark%[[]] .pass) .pass)) noImports {} with
     | .error .unsupportedLoopTarget => true
     | _ => false
-  reject starlark%[(x, [y])] && reject starlark%[[x, 1]] && reject starlark%[[x, xs[0]]]
+  reject starlark%[(x, [y, 1])] && reject starlark%[[(x, xs[0]), y]] &&
+    reject starlark%[(x, [len(y)])]
+
+#guard
+  let loop := Statement.forInTarget starlark%[[x, (x, [x, y])]]
+    starlark%[[[1, (2, range(3, 5))]]] (.ret (some starlark%[{(3, 4): True}[(x, y)]]))
+  match runModule (callBody loop) noImports {} with
+  | .ok (.ok published _) => decide (published.exports.lookup "out" = some (.scalar (.bool true)))
+  | _ => false
+
+#guard
+  let loop := Statement.forInTarget starlark%[(x, [y, z])] starlark%[z] .pass
+  match runModule (.assign "z" starlark%[[]] :: callBody loop) noImports {} with
+  | .ok (.error (.runtime (.uninitialized name)) _) => name == fileSlot "z"
+  | _ => false
+
+-- The failed call leaves a closure that can read its escaped target slots.
+-- The second row wrote a before the nested mismatch, and skipped its body.
+#guard
+  let loop := Statement.forInTarget starlark%[(a, [b, c], d)] starlark%[rows]
+    (.setIndex starlark%[seen] starlark%[0] starlark%[a])
+  let body := Statement.seq (.define "read" {} (.ret (some starlark%[(a, b, c, d)])))
+    (.seq (.setIndex starlark%[saved] starlark%[0] starlark%[read]) loop)
+  let commands : List Command := [.assign "rows" starlark%[[[1, [2, 3], 4], [5, [6], 7]]],
+    .assign "seen" starlark%[[0]], .assign "saved" starlark%[[None]],
+    .define "run" {} body, .eval starlark%[run()]]
+  match resolve commands with
+  | .ok resolved =>
+    match runCommands resolved.program noImports resolved.source.commands (enter resolved.source {}) with
+    | .error (.runtime (.unpackArity 2 1)) state =>
+      match Functions.Lowering.Resolve.resolveTracked { globals := globalNames commands }
+        starlark%[{(5, 2, 3, 4): seen[0]}[saved[0]()]] with
+      | .ok (observe, _) =>
+        match Functions.Lowering.denoteExpr resolved.program (List.range resolved.program.size) observe state with
+        | .ok (.scalar (.int 1)) final => state.iterators.isEmpty && final.iterators.isEmpty
+        | _ => false
+      | _ => false
+    | _ => false
+  | _ => false
 
 end Silmaril.Languages.Starlark.Modules.Resolve

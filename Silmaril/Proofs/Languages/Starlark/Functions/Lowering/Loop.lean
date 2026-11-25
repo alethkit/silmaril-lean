@@ -35,38 +35,63 @@ private theorem restoreMatch {source lowered : Outcome Flow} (same : OutcomeMatc
   | ok related => exact .ok ⟨related.heap, stack, related.slots, related.bindings⟩
   | error related => exact .error ⟨related.heap, stack, related.slots, related.bindings⟩
 
-private theorem writeBindingsMatch {s t : State} (same : StateMatch 0 s t)
-    (assignments : List (Binding × Value)) :
-    StateMatch 0 (writeBindings s assignments) (writeBindings t assignments) := by
-  induction assignments generalizing s t with
-  | nil => exact same
-  | cons assignment rest ih =>
-    obtain ⟨name, value⟩ := assignment
-    exact ih (StateMatch.write same name value)
+private theorem resumeMatch {α β : Type} {source lowered : Outcome α}
+    {sourceNext loweredNext : α → Meaning β} (same : OutcomeMatch 0 source lowered)
+    (next : ∀ value {s t}, StateMatch 0 s t → OutcomeMatch 0 (sourceNext value s) (loweredNext value t)) :
+    OutcomeMatch 0 (Outcome.resume source sourceNext) (Outcome.resume lowered loweredNext) := by
+  cases same with
+  | ok related => exact next _ related
+  | error related => exact .error related
 
+private theorem unpackValueMatch (arity : Nat) (value : Value) {s t : State}
+    (same : StateMatch 0 s t) : OutcomeMatch 0 (unpackValue arity value s) (unpackValue arity value t) := by
+  have acquired := frameRun (acquireAction value).1 same
+  have kept := (acquireAction value).2 s
+  simp only [unpackValue]
+  rw [acquired]
+  cases read : acquireIterator value s with
+  | error error next =>
+    rw [read] at kept
+    exact .error (scopeTransport same kept)
+  | ok iterator next =>
+    rw [read] at kept
+    obtain ⟨_, cursor⟩ := iterator
+    have related := scopeTransport same kept
+    change StateMatch 0 next (rebind next t.bindings) at related
+    by_cases size : cursor.remaining = arity
+    · simpa [mapFrame, size] using OutcomeMatch.ok (value := cursor.collect) related
+    · simpa [mapFrame, size] using OutcomeMatch.error
+        (error := .unpackArity arity cursor.remaining) related
+
+mutual
 private theorem bindTargetMatch (target : LoopTarget) (value : Value) {s t : State}
     (same : StateMatch 0 s t) : OutcomeMatch 0 (bindTarget target value s) (bindTarget target value t) := by
   cases target with
-  | name name => exact .ok (StateMatch.write same name value)
-  | unpack bindings =>
-    have acquired := frameRun (acquireAction value).1 same
-    have kept := (acquireAction value).2 s
+  | name name =>
     simp only [bindTarget]
-    rw [acquired]
-    cases read : acquireIterator value s with
-    | error error next =>
-      rw [read] at kept
-      exact .error (scopeTransport same kept)
-    | ok iterator next =>
-      rw [read] at kept
-      obtain ⟨_, cursor⟩ := iterator
-      have related := scopeTransport same kept
-      change StateMatch 0 next (rebind next t.bindings) at related
-      by_cases size : cursor.remaining = bindings.length
-      · simpa [mapFrame, size] using OutcomeMatch.ok (value := ())
-          (writeBindingsMatch related (bindings.zip cursor.collect))
-      · simpa [mapFrame, size] using OutcomeMatch.error
-          (error := .unpackArity bindings.length cursor.remaining) related
+    exact .ok (StateMatch.write same name value)
+  | sequence children =>
+    simp only [bindTarget]
+    exact resumeMatch (unpackValueMatch children.length value same)
+      (fun values _ _ related => bindTargetsMatch children values related)
+termination_by sizeOf target
+decreasing_by simp_wf <;> omega
+
+private theorem bindTargetsMatch (targets : List LoopTarget) (values : List Value) {s t : State}
+    (same : StateMatch 0 s t) : OutcomeMatch 0 (bindTargets targets values s) (bindTargets targets values t) := by
+  cases targets with
+  | nil => simp only [bindTargets]; exact .ok same
+  | cons target rest =>
+    cases values with
+    | nil => simp only [bindTargets]; exact .ok same
+    | cons value values =>
+      rw [bindTargets.eq_def (target :: rest) (value :: values) s,
+        bindTargets.eq_def (target :: rest) (value :: values) t]
+      exact resumeMatch (bindTargetMatch target value same)
+        (fun _ _ _ related => bindTargetsMatch rest values related)
+termination_by sizeOf targets
+decreasing_by all_goals (simp_wf <;> omega)
+end
 
 private theorem cursorMatch (sourceBody loweredBody : Meaning Flow)
     (bodyMatch : ∀ s t, StateMatch 0 s t → OutcomeMatch 0 (sourceBody s) (loweredBody t))

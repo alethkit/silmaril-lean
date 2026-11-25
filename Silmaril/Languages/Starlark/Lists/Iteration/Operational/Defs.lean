@@ -14,29 +14,47 @@ inductive CursorCollects : Cursor → List Value → Prop where
       cursor.advance = some (value, rest) → CursorCollects rest tail →
       CursorCollects cursor (value :: tail)
 
-inductive WritesBindings : State → List (Binding × Value) → State → Prop where
-  | done (s : State) : WritesBindings s [] s
-  | next {s final : State} {binding : Binding} {value : Value} {rest : List (Binding × Value)} :
-      WritesBindings (s.write binding value) rest final →
-      WritesBindings s ((binding, value) :: rest) final
-
-/-- Unpack and validate an item before any writes to a flat target. -/
-inductive BindsTarget (s : State) (value : Value) : LoopTarget → Outcome Unit → Prop where
-  | name (binding : Binding) : BindsTarget s value (.name binding) (.ok () (s.write binding value))
-  | unpack {bindings : List Binding} {values : List Value} {guard : Option Address}
-      {cursor : Cursor} {t final : State} :
-      acquireIterator value s = .ok (guard, cursor) t → cursor.remaining = bindings.length →
-      CursorCollects cursor values → WritesBindings t (bindings.zip values) final →
-      BindsTarget s value (.unpack bindings) (.ok () final)
-  | arity {bindings : List Binding} {guard : Option Address} {cursor : Cursor} {t : State} :
-      acquireIterator value s = .ok (guard, cursor) t → cursor.remaining ≠ bindings.length →
-      BindsTarget s value (.unpack bindings) (.error (.unpackArity bindings.length cursor.remaining) t)
-  | nonIterable (bindings : List Binding) {t : State} :
+/-- Validate and read the elements of one sequence node. -/
+inductive UnpacksValue (s : State) (value : Value) (arity : Nat) : Outcome (List Value) → Prop where
+  | items {values : List Value} {guard : Option Address} {cursor : Cursor} {t : State} :
+      acquireIterator value s = .ok (guard, cursor) t → cursor.remaining = arity →
+      CursorCollects cursor values → UnpacksValue s value arity (.ok values t)
+  | arity {guard : Option Address} {cursor : Cursor} {t : State} :
+      acquireIterator value s = .ok (guard, cursor) t → cursor.remaining ≠ arity →
+      UnpacksValue s value arity (.error (.unpackArity arity cursor.remaining) t)
+  | nonIterable {t : State} :
       acquireIterator value s = .error .notIterable t →
-      BindsTarget s value (.unpack bindings) (.error (.unpackTarget value) t)
-  | readError (bindings : List Binding) {error : Error} {t : State} :
+      UnpacksValue s value arity (.error (.unpackTarget value) t)
+  | readError {error : Error} {t : State} :
       acquireIterator value s = .error error t → error ≠ .notIterable →
-      BindsTarget s value (.unpack bindings) (.error error t)
+      UnpacksValue s value arity (.error error t)
+
+mutual
+/-- An unpack failure stops at that node. Child errors propagate their residual writes. -/
+inductive BindsTarget : State → Value → LoopTarget → Outcome Unit → Prop where
+  | name (s : State) (value : Value) (binding : Binding) :
+      BindsTarget s value (.name binding) (.ok () (s.write binding value))
+  | sequence {s t : State} {value : Value} {children : List LoopTarget} {values : List Value}
+      {out : Outcome Unit} :
+      UnpacksValue s value children.length (.ok values t) → BindsTargets t children values out →
+      BindsTarget s value (.sequence children) out
+  | unpackError {s t : State} {value : Value} {children : List LoopTarget} {error : Error} :
+      UnpacksValue s value children.length (.error error t) →
+      BindsTarget s value (.sequence children) (.error error t)
+
+/-- Assign paired children in order after their parent has checked the arity. -/
+inductive BindsTargets : State → List LoopTarget → List Value → Outcome Unit → Prop where
+  | noTargets (s : State) (values : List Value) : BindsTargets s [] values (.ok () s)
+  | noValues (s : State) (targets : List LoopTarget) : BindsTargets s targets [] (.ok () s)
+  | next {s t : State} {target : LoopTarget} {rest : List LoopTarget} {value : Value}
+      {values : List Value} {out : Outcome Unit} :
+      BindsTarget s value target (.ok () t) → BindsTargets t rest values out →
+      BindsTargets s (target :: rest) (value :: values) out
+  | failed {s t : State} {target : LoopTarget} {rest : List LoopTarget} {value : Value}
+      {values : List Value} {error : Error} :
+      BindsTarget s value target (.error error t) →
+      BindsTargets s (target :: rest) (value :: values) (.error error t)
+end
 
 /-- Step rules shared by the suite and checked-body loop judgments. -/
 inductive CursorRuns (body : State → Outcome Flow → Prop) (target : LoopTarget) :

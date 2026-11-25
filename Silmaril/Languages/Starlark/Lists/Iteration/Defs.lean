@@ -6,10 +6,14 @@ public import Silmaril.Languages.Starlark.Lists.Denotation.Defs
 
 namespace Silmaril.Languages.Starlark.Lists.Iteration
 
-/-- A name or a flat tuple/list pattern made up of lexical bindings. -/
+/-- A name or a tuple/list pattern whose leaves are lexical bindings. -/
 inductive LoopTarget where
   | name (binding : Binding)
-  | unpack (bindings : List Binding)
+  | sequence (children : List LoopTarget)
+
+/-- Build a flat pattern from resolved names. -/
+abbrev LoopTarget.unpack (bindings : List Binding) : LoopTarget :=
+  .sequence (bindings.map .name)
 
 instance : Coe Binding LoopTarget := ⟨LoopTarget.name⟩
 
@@ -105,22 +109,34 @@ def enterIterator (state : State) : Option Address → State
   | none => state
   | some address => pushIterator state address
 
-/-- Pair each binding with its checked value and write from left to right. -/
-def writeBindings (state : State) (assignments : List (Binding × Value)) : State :=
-  assignments.foldl (fun next (binding, value) => next.write binding value) state
+/-- Read the elements of one pattern node, checking arity before collection. -/
+def unpackValue (arity : Nat) (value : Value) (state : State) : Outcome (List Value) :=
+  match acquireIterator value state with
+  | .error error next => .error (if error = .notIterable then .unpackTarget value else error) next
+  | .ok (_, cursor) next =>
+    if cursor.remaining = arity then .ok cursor.collect next
+    else .error (.unpackArity arity cursor.remaining) next
 
-/-- A flat pattern checks the full arity before its first write. Collection
-reads have no callbacks, so unpacking needs no temporary iterator guard. -/
-def bindTarget (target : LoopTarget) (value : Value) (state : State) : Outcome Unit :=
-  match target with
-  | .name binding => .ok () (state.write binding value)
-  | .unpack bindings =>
-    match acquireIterator value state with
-    | .error error next => .error (if error = .notIterable then .unpackTarget value else error) next
-    | .ok (_, cursor) next =>
-      if cursor.remaining = bindings.length then
-        .ok () (writeBindings next (bindings.zip cursor.collect))
-      else .error (.unpackArity bindings.length cursor.remaining) next
+mutual
+/-- Check each sequence node before its children. A failed child keeps the
+writes performed by its earlier siblings. -/
+def bindTarget : LoopTarget → Value → Meaning Unit
+  | .name binding, value, state => .ok () (state.write binding value)
+  | .sequence children, value, state =>
+    Outcome.resume (unpackValue children.length value state) (bindTargets children)
+termination_by target _ _ => sizeOf target
+decreasing_by simp_wf <;> omega
+
+/-- Bind paired children left to right, stopping at the first error.
+The enclosing unpack has already checked that the two lengths match. -/
+def bindTargets : List LoopTarget → List Value → Meaning Unit
+  | [], _, state => .ok () state
+  | _ :: _, [], state => .ok () state
+  | target :: rest, value :: values, state =>
+    Outcome.resume (bindTarget target value state) (fun () => bindTargets rest values)
+termination_by targets _ _ => sizeOf targets
+decreasing_by all_goals (simp_wf <;> omega)
+end
 
 /-- Consume one item, advancing only if the body permits another iteration. -/
 def denoteCursor (target : LoopTarget) (body : Meaning Flow) (cursor : Cursor) (state : State) : Outcome Flow :=

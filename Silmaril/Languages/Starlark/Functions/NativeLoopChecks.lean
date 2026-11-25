@@ -186,4 +186,27 @@ private def hasInt (state : Lists.State) (name : String) (expected : Int) : Bool
   check (range [10^24]) (.unpackArity 2 (10^24)) &&
     check (.atom (int 9)) (.unpackTarget (.scalar (.int 9)))
 
+-- A child mismatch keeps writes to earlier siblings in the same iteration.
+-- The two matched heaps include the partially updated owned cells.
+#guard
+  let target : Lists.Iteration.LoopTarget := .sequence [
+    .name (slot "x"), .unpack [slot "y", slot "z"], .name (slot "w")]
+  let atom := fun n => Lowering.Expr.atom (int n)
+  let first := Lowering.Expr.tuple [atom 1, .list [atom 2, atom 3], atom 4]
+  let check := fun middle error x =>
+    let operand := Lowering.Expr.logical .and iterable (.list [first, middle, first])
+    let owned := ["x", "y", "z", "w"]
+    match execute (.forInExpr target operand visit) owned,
+        execute (Lowering.lowerForIn target operand visit).code owned with
+    | .ok (.error nativeError final), .ok (.error loweredError lowered) =>
+      nativeError == error && loweredError == error &&
+        final.iterators == [0] && lowered.iterators == [0] &&
+        hasInt final "x" x && hasInt final "y" 2 && hasInt final "z" 3 && hasInt final "w" 4 &&
+        hasList final "seen" [1] && hasList final "xs" [1, 2, 3] &&
+        decide (final.heap = lowered.heap)
+    | _, _ => false
+  check (.list [atom 5, .list [atom 6], atom 7]) (.unpackArity 2 1) 5 &&
+    check (.list [atom 5, .list [atom 6, atom 7]]) (.unpackArity 3 2) 1 &&
+    check (.list [atom 5, range [10^24], atom 7]) (.unpackArity 2 (10^24)) 5
+
 end Silmaril.Languages.Starlark.Functions
