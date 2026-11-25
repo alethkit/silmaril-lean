@@ -14,7 +14,9 @@ private def top : TopFunction :=
   ⟨⟨11, ⟨0, 0, 0⟩⟩, rfl⟩
 
 private def table : CodeTable :=
-  fun key => if key = 11 then some ⟨top.ref.layout, ⟨⟨[], by decide⟩, .ret (.literal .none)⟩⟩ else none
+  fun key => if key = 11 then
+    some ⟨top.ref.layout, { parameters := ⟨[], by decide⟩, body := .ret (.literal .none) }⟩
+  else none
 
 private def initial : Namespace :=
   ⟨[("kept", .int 5)], [("f", .helper .assertEqual), ("AssertionError", .exceptionClass .assertionError)]⟩

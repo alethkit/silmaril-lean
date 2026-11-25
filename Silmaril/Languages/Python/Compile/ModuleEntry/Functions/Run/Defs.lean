@@ -71,7 +71,8 @@ def lowerInstructions {scope : Scope} (next : Nat) : List (Functions.Action scop
     if captures : layout.captures = 0 then
       let nested := Compile.Closure.Link.linkBody (next + 1) code
       let (instructions, blocks) ← lowerInstructions (next + 1 + nested.children.length) rest
-      let root : Compile.Closure.Link.Block := ⟨child.scope.context.path, ⟨layout, ⟨parameters, nested.code⟩⟩⟩
+      let root : Compile.Closure.Link.Block :=
+        ⟨child.scope.context.path, ⟨layout, { parameters, body := nested.code }⟩⟩
       return (.publish name ⟨⟨next, layout⟩, captures⟩ :: instructions, root :: (nested.children ++ blocks))
     else throw (.incomingCaptures child.scope.context.path)
 

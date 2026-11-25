@@ -23,7 +23,7 @@ theorem lower_rejected_iff {layout : Layout} (source : Link.Code layout) :
 theorem Compiled.resolve_entry {source : Source.Module} (compiled : Compiled source) :
     ∃ target : Core.Closure.Executor.Body compiled.entry.layout,
       Translation (Link.linkBody 1 compiled.sourceBody.code).code target ∧
-      resolve compiled.table compiled.entry = .ok ⟨compiled.sourceBody.parameters, target⟩ :=
+      resolve compiled.table compiled.entry = .ok { parameters := compiled.sourceBody.parameters, body := target } :=
   Proofs.Languages.Python.Compile.Closure.Run.resolve_entry compiled
 
 theorem Compiled.resolve_reference {source : Source.Module} (compiled : Compiled source)
@@ -32,7 +32,8 @@ theorem Compiled.resolve_reference {source : Source.Module} (compiled : Compiled
     ∃ (definition : Definition Link.Code ref.layout) (target : Core.Closure.Executor.Body ref.layout),
       resolve (Link.link compiled.sourceBody).table ref = .ok definition ∧
       Translation definition.body target ∧
-      resolve compiled.table ref = .ok ⟨definition.parameters, target⟩ :=
+      resolve compiled.table ref = .ok
+        { parameters := definition.parameters, body := target, freevars := definition.freevars } :=
   Proofs.Languages.Python.Compile.Closure.Run.resolve_reference compiled emitted
 
 theorem run_path {source : Source.Module} {compiled : Compiled source} {arguments : List Value}

@@ -53,7 +53,7 @@ def linkBody {layout : Layout} (first : Nat) : Body.Code layout → LinkedBody l
   | .closure slot path childLayout parameters captures child rest =>
     let nested := linkBody (first + 1) child
     let tail := linkBody (first + 1 + nested.children.length) rest
-    let entry : Entry Code := ⟨childLayout, ⟨parameters, nested.code⟩⟩
+    let entry : Entry Code := ⟨childLayout, { parameters, body := nested.code }⟩
     ⟨.closure slot path ⟨first, childLayout⟩ captures tail.code,
       ⟨path, entry⟩ :: (nested.children ++ tail.children)⟩
 
@@ -70,7 +70,7 @@ def Program.references (program : Program) : List (BlockPath × CodeRef) :=
 def link {source : Source.Module} (compiled : Body.Compiled source) : Program :=
   let layout := frameLayout compiled.tree.scope
   let root := linkBody 1 compiled.code
-  ⟨⟨0, layout⟩, ⟨compiled.tree.scope.context.path, ⟨layout, ⟨compiled.parameters, root.code⟩⟩⟩ ::
-    root.children⟩
+  let entry : Entry Code := ⟨layout, { parameters := compiled.parameters, body := root.code }⟩
+  ⟨⟨0, layout⟩, ⟨compiled.tree.scope.context.path, entry⟩ :: root.children⟩
 
 end Silmaril.Languages.Python.Compile.Closure.Link

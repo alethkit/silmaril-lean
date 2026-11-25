@@ -9,7 +9,7 @@ namespace Silmaril.Proofs.Languages.Python.Compile.Closure.Run
 open Silmaril.Languages.Python
 open Silmaril.Languages.Python.Compile.Closure
 open Compile.Closure.Run (ArgumentsTranslation Compiled ExecutorEntry OperandTranslation TableTranslation Translation
-  arguments? lowerCode operand?)
+  arguments? executorEntry lowerCode operand?)
 open Core.Closure (Layout)
 open Core.Closure.Executor (Operand)
 open Core.Closure.Dispatch (Definition resolve resolve_iff)
@@ -52,7 +52,7 @@ theorem table_entry {blocks : List Link.Block} {entries : List ExecutorEntry}
     (translation : TableTranslation blocks entries) {key : Nat} {block : Link.Block}
     (found : blocks[key]? = some block) :
     ∃ body, Translation block.entry.definition.body body ∧
-      entries[key]? = some ⟨block.entry.layout, ⟨block.entry.definition.parameters, body⟩⟩ := by
+      entries[key]? = some (executorEntry block body) := by
   induction translation generalizing key with
   | nil => simp at found
   | @cons first body rest targets head tail ih =>
@@ -66,7 +66,7 @@ theorem table_entry {blocks : List Link.Block} {entries : List ExecutorEntry}
 theorem resolve_entry {source : Source.Module} (compiled : Compiled source) :
     ∃ target : Core.Closure.Executor.Body compiled.entry.layout,
       Translation (Link.linkBody 1 compiled.sourceBody.code).code target ∧
-      resolve compiled.table compiled.entry = .ok ⟨compiled.sourceBody.parameters, target⟩ := by
+      resolve compiled.table compiled.entry = .ok { parameters := compiled.sourceBody.parameters, body := target } := by
   obtain ⟨target, translated, lookup⟩ := table_entry compiled.lowered (key := 0) rfl
   exact ⟨target, translated, resolve_iff.mpr lookup⟩
 
@@ -76,7 +76,8 @@ theorem resolve_reference {source : Source.Module} (compiled : Compiled source)
     ∃ (definition : Definition Link.Code ref.layout) (target : Core.Closure.Executor.Body ref.layout),
       resolve (Link.link compiled.sourceBody).table ref = .ok definition ∧
       Translation definition.body target ∧
-      resolve compiled.table ref = .ok ⟨definition.parameters, target⟩ := by
+      resolve compiled.table ref = .ok
+        { parameters := definition.parameters, body := target, freevars := definition.freevars } := by
   obtain ⟨definition, original, resolved⟩ := Link.resolve_reference compiled.sourceBody emitted
   obtain ⟨target, translated, lookup⟩ := table_entry compiled.lowered original
   exact ⟨definition, target, resolved, translated, resolve_iff.mpr lookup⟩

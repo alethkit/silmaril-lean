@@ -29,7 +29,9 @@ private def ref : CodeRef := ⟨17, calleeLayout⟩
 
 private def code (result : Closure.Executor.Operand calleeLayout) : CodeRows :=
   (∅ : CodeRows).insert ref.key
-    ⟨calleeLayout, ⟨⟨[.local 0], by decide⟩, .store (.capture 0) (.read (.local 0)) (.ret result)⟩⟩
+    ⟨calleeLayout, {
+      parameters := ⟨[.local 0], by decide⟩
+      body := .store (.capture 0) (.read (.local 0)) (.ret result) }⟩
 
 private def start : State :=
   .running ⟨heap, frame⟩ (.call output (.closure ref (fun _ => .owned 0)) [.literal (.int 7)] rest) [older]
