@@ -16,16 +16,8 @@ theorem lowerInstructions_scalarPrefix {scope : Source.Scope} (tree : Source.Sco
     (actions : List (ModuleEntry.Action scope)) (rest : List (Functions.Action scope)) :
     lowerInstructions tree key (actions.map .scalar ++ rest) =
       (lowerInstructions tree key rest).map fun (instructions, rows) =>
-        (actions.map .scalar ++ instructions, rows) := by
-  induction actions with
-  | nil =>
-    simp only [List.map_nil, List.nil_append]
-    cases lowerInstructions tree key rest with
-    | error _ => rfl
-    | ok result => cases result; rfl
-  | cons action actions ih =>
-    simp only [List.map_cons, List.cons_append, lowerInstructions, ih]
-    cases lowerInstructions tree key rest <;> rfl
+        (actions.map .scalar ++ instructions, rows) :=
+  Proofs.Languages.Python.Compile.ModuleEntry.Functions.Run.lowerInstructions_scalarPrefix tree key actions rest
 
 theorem invoke_current_globals {scope : Source.Scope} (session : Core.Module.Functions.Session)
     (table : Core.Closure.Executor.CodeTable) (target : Core.Module.Functions.Destination)
