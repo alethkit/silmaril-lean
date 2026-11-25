@@ -113,6 +113,9 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
   | assignScoped target locals code =>
     rw [denoteBody]
     exact .assignScoped (exec_denote program available code (locals.foldl State.allocateSlot state))
+  | evalScoped code =>
+    rw [denoteBody]
+    exact .evalScoped (exec_denote program available code state)
   | assignTargetScoped target rhs =>
     rw [denoteBody]
     have rhsRun := exec_denote program available rhs state
@@ -247,7 +250,7 @@ theorem exec_denote (program : Program) (available : List DeclarationId) (body :
 termination_by (available.length, sizeOf body)
 decreasing_by
   all_goals first
-    | apply Prod.Lex.right; simp_wf; omega
+    | apply Prod.Lex.right <;> simp_wf <;> omega
     | apply Prod.Lex.left
       exact List.length_filter_lt_length_iff_exists.mpr ⟨plan.id, plan.permitted, by simp⟩
 

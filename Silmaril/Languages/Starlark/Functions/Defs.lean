@@ -30,6 +30,9 @@ inductive Body where
   | setIndexExpr (receiver subscript rhs : Lowering.Expr)
   | addIndexExpr (receiver subscript rhs : Lowering.Expr)
   | evalExpr (value : Lowering.Expr)
+  /-- Execute scoped code for effects. Discard its result and restore the
+  caller's bindings and slots on either exit. -/
+  | evalScoped (body : Body)
   | insertDictEntry (receiver key value : Binding)
   | seq (first rest : Body)
   | branch (test : Lists.Expr) (yes no : Body)
@@ -144,7 +147,7 @@ def Body.validateIn (inLoop : Bool) : Body → Except CallStaticError Unit
   | .forInExpr _ iterable body => do
     iterable.validateCalls
     body.validateIn true
-  | .assignScoped _ _ body | .assignTargetScoped _ body => body.validateIn false
+  | .assignScoped _ _ body | .assignTargetScoped _ body | .evalScoped body => body.validateIn false
   | .breakLoop => if inLoop then pure () else throw .breakOutsideLoop
   | .continueLoop => if inLoop then pure () else throw .continueOutsideLoop
   | .call _ _ arguments => arguments.validate

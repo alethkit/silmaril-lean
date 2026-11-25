@@ -273,6 +273,32 @@ theorem assign_target_exact (program : Program) (available : List DeclarationId)
     denoteBody.eq_def program available (.assignTargetScoped target _)]
   exact congrArg (completeTargetAssignment state target) (return_exact program available expr admitted state free start)
 
+theorem set_index_exact (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (receiverAdmitted : receiver.Admitted)
+    (subscriptAdmitted : subscript.Admitted) (rhsAdmitted : rhs.Admitted)
+    (state : State) (free : ScratchFree state) (start : Nat) :
+    denoteBody program available (setIndexCode receiver subscript rhs (loweredStages start)) state =
+      denoteBody program available (setIndexCode receiver subscript rhs directStages) state := by
+  unfold setIndexCode
+  rw [denoteBody.eq_def program available (.evalScoped _),
+    denoteBody.eq_def program available (.evalScoped _)]
+  apply congrArg (completeCall state none)
+  symm
+  exact seq_agrees (expression_exact program available rhs rhsAdmitted (argumentSlot 0) start)
+    (seq_agrees (expression_exact program available receiver receiverAdmitted (argumentSlot 1) start)
+      (seq_agrees (expression_exact program available subscript subscriptAdmitted (argumentSlot 2) start)
+        (fun _ _ => rfl))) state free
+
+theorem set_index_rhs_failure (program : Program) (available : List DeclarationId)
+    (receiver subscript rhs : Expression) (stages : ExpressionStages) (state failed : State) (error : Error)
+    (ran : denoteBody program available (rhs.compile stages (argumentSlot 0)) state = .error error failed) :
+    denoteBody program available (setIndexCode receiver subscript rhs stages) state =
+      .error error (restoreCaller state failed) := by
+  rw [setIndexCode, denoteBody]
+  change completeCall state none (denoteBody program available (.seq _ _) state) = _
+  rw [sequenceDenotation, ran]
+  rfl
+
 theorem definition_defaults_exact (program : Program) (available : List DeclarationId)
     (target : Binding) (id : DeclarationId) (defaults : List (Binding × Expression))
     (admitted : ∀ item ∈ defaults, item.2.Admitted) (start : Nat) :

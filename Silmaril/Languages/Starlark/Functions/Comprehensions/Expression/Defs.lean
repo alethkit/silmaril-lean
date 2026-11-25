@@ -218,6 +218,15 @@ def Expression.assignTargetCode (expr : Expression) (target : Lists.Iteration.Lo
     (stages : ExpressionStages) : Body :=
   .assignTargetScoped target (expr.returnCode stages)
 
+/-- Stage the RHS, receiver and subscript in source execution order.
+The ordinary store reads only the saved values in the resulting heap. -/
+def setIndexCode (receiver subscript rhs : Expression) (stages : ExpressionStages) : Body :=
+  let saved := fun index => Lowering.Expr.atom (readSaved (argumentSlot index))
+  .evalScoped (.seq (rhs.compile stages (argumentSlot 0))
+    (.seq (receiver.compile stages (argumentSlot 1))
+      (.seq (subscript.compile stages (argumentSlot 2))
+        (.setIndexExpr (saved 1) (saved 2) (saved 0)))))
+
 /-- The declaration's optional parameter reads its staged value from this binding. -/
 def defaultSlot (parameter : Binding) : Binding :=
   ⟨.global, "$comp-default:" ++ parameter.name⟩

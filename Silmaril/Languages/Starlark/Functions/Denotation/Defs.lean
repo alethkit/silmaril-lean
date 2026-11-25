@@ -50,6 +50,7 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
             Outcome.resume (fromExcept (applyIntegerAdd previous value) next) fun sum next =>
               Outcome.resume (writeIndex target index sum next) fun _ => pure .next
   | .evalExpr value => Outcome.resume (evalExpr value state) (fun _ => pure .next)
+  | .evalScoped code => completeCall state none (denoteBody program available code state)
   | .insertDictEntry receiver key value => insertDictEntry receiver key value state
   | .seq first rest =>
     Outcome.resume (denoteBody program available first state) fun
@@ -79,7 +80,7 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
 termination_by (available.length, sizeOf body)
 decreasing_by
   all_goals first
-    | apply Prod.Lex.right; simp_wf; omega
+    | apply Prod.Lex.right <;> simp_wf <;> omega
     | apply Prod.Lex.left
       exact List.length_filter_lt_length_iff_exists.mpr ⟨plan.id, plan.permitted, by simp⟩
 
