@@ -14,7 +14,7 @@ universe u v
 
 variable {O : Type u} {S : Signature.{u,v} O} {L R A B C : ℕ}
 
-private theorem cells_joinRows {n : ℕ} (word : Fin (n + 1) → List O)
+theorem cells_joinRows {n : ℕ} (word : Fin (n + 1) → List O)
     (row : ∀ i : Fin n, Row S (word i.castSucc) (word i.succ)) :
     (ProgressiveGraph.Diagram.Sweep.joinRows word row).cells = List.ofFn (fun i => (row i).cells) := by
   induction n with
@@ -30,7 +30,7 @@ private theorem cells_joinRows {n : ℕ} (word : Fin (n + 1) → List O)
         congrArg (List.cons (row 0).cells) (ih (word ∘ Fin.succ) (fun i => row i.succ))
       _ = _ := (List.ofFn_succ (f := fun i : Fin (n + 1) => (row i).cells)).symm
 
-private theorem cells_thenDo {A B C : List O} (p : Sheet S A B) (q : Sheet S B C) :
+theorem cells_thenDo {A B C : List O} (p : Sheet S A B) (q : Sheet S B C) :
     (p.thenDo q).cells = p.cells ++ q.cells := by
   induction p with
   | empty => simp only [Sheet.thenDo, Sheet.cells_empty, List.nil_append]
