@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Check the staged module co_varnames source profile against CPython."""
+"""Check module co_varnames compilation and execution against CPython."""
 
 import json
 from pathlib import Path
@@ -64,13 +64,17 @@ print(json.dumps([sys.version.split()[0], [names for child in children for names
 EXPECTED = [["later", "first", "nested"], ["child_local"], ["new"], [], ["value"], ["captured"], []]
 EMITTED = ["later", "first", "later", "later", "first", "nested", "later", "first"]
 
-IMPORTS = tuple(
+IMPORTS = ("import Batteries.Data.Except",) + tuple(
     f"{prefix} Silmaril.Languages.Python.{module}"
     for module in (
         "Compile.Closure.VarNames.Defs",
         "Compile.Closure.Link.Defs",
         "Compile.ModuleEntry.Functions.Defs",
-        "Compile.ModuleEntry.Functions.Run.Defs",
+        "Compile.ModuleEntry.Functions.Run.Thms",
+        "Compile.ModuleEntry.Functions.Run.Seeded.Defs",
+        "Core.Closure.Dispatch.Defs",
+        "Core.Closure.Defs",
+        "Core.Module.SeededCall.Defs",
     )
     for prefix in ("import", "meta import")
 )
@@ -82,15 +86,13 @@ open Compile.ModuleEntry.Functions
 
 private def observations (source : Module) :
     Option (List (Option (List String)) × List String × Bool) := do
-  let checked ← (check source).toOption
-  let leading := checked.actions.takeWhile fun action =>
-    match action with | .assertVarNames .. => false | _ => true
-  let (_, blocks) ← (Compile.ModuleEntry.Functions.Run.lowerInstructions checked.tree 0 leading).toOption
+  let compiled ← (Compile.ModuleEntry.Functions.Run.compile source).toOption
+  let blocks := compiled.linked
   let root ← blocks[0]?
-  let evidence ← VarNames.checked? checked.tree blocks ⟨0, root.entry.layout⟩
-  let tuples := blocks.zipIdx |>.map fun (block, key) =>
-    (VarNames.checked? checked.tree blocks ⟨key, block.entry.layout⟩).map (·.tuple)
-  let wrongLayout := VarNames.checked? checked.tree blocks ⟨0, ⟨0, 0, 0⟩⟩
+  let evidence ← VarNames.checked? compiled.checked.tree blocks ⟨0, root.entry.layout⟩
+  let tuples := compiled.entries.map (·.definition.varnames)
+  unless tuples == blocks.map (·.entry.definition.varnames) do none
+  let wrongLayout := VarNames.checked? compiled.checked.tree blocks ⟨0, ⟨0, 0, 0⟩⟩
   return (tuples, evidence.emittedNames, wrongLayout.isNone)
 
 private def liveReads (source : Module) : Bool :=
@@ -104,10 +106,23 @@ private def liveReads (source : Module) : Bool :=
     | _ => false
   | .error _ => false
 
+private def ordinary (source : Module) : Bool := Id.run do
+  let .ok compiled := Compile.ModuleEntry.Functions.Run.compile source | return false
+  let (log, .finished session .normal) :=
+    Compile.ModuleEntry.Functions.Run.runPrefix compiled.table 64 compiled.start | return false
+  let some (.function old) := session.globals "alias" | return false
+  let some (.function current) := session.globals "probe" | return false
+  let some stale := compiled.entries[1]? | return false
+  let check := Compile.ModuleEntry.Functions.Run.checkVarNames
+  return log.isEmpty && old.code.key == 0 && current.code.key == 2 &&
+    check (fun _ => none) session "alias" [108, 97, 116, 101, 114] ==
+      .error (.codeFault (.missingCode old.code.key)) &&
+    check (fun _ => some stale) session "alias" [108, 97, 116, 101, 114] ==
+      .error (.codeFault (.layoutMismatch old.code.layout stale.layout))
+
 #guard liveReads pythonSource
-#guard (match Compile.ModuleEntry.Functions.Run.compile pythonSource with
-  | .error .varNamesRuntimePending => true
-  | _ => false)
+#guard ordinary pythonSource
+#print axioms Compile.ModuleEntry.Functions.Run.advance_assertVarNames
 """
 
 EXACT_NEEDLE = r'''def inspect():
@@ -123,6 +138,72 @@ open Silmaril.Languages.Python.Compile.ModuleEntry.Functions
     | [.define "inspect" .., .assertVarNames "inspect" _ [55296]] => true
     | _ => false
   | .error _ => false)
+"""
+
+
+CASES = (
+    ("def target(): pass", 'assert "missing" in target.__code__.co_varnames',
+     "AssertionError", ".assertionError"),
+    ("", 'assert "x" in unbound.__code__.co_varnames',
+     "NameError", '(.raised (.nameError "unbound"))'),
+    ("target = 9", 'assert "x" in target.__code__.co_varnames',
+     "AttributeError", ".unsupportedVarNamesReceiver"),
+    ("def target(parameter): return parameter", 'assert "parameter" in target.__code__.co_varnames',
+     "normal", "(.unprofiledVarNames ⟨0, ⟨1, 0, 0⟩⟩)"),
+    ("def target():\n    \U00010400 = 1\n"
+     'assert "\\U00010400" in target.__code__.co_varnames',
+     r'assert "\ud801\udc00" in target.__code__.co_varnames',
+     "AssertionError", ".assertionError"),
+)
+
+CPYTHON_COMPLETION = """
+import json
+import sys
+
+space = {'__builtins__': {}}
+with open(sys.argv[1], 'rb') as source:
+    unit = compile(source.read(), sys.argv[1], 'exec', dont_inherit=True, optimize=0)
+try:
+    exec(unit, space)
+    completion = 'normal'
+except (AssertionError, NameError, AttributeError) as error:
+    completion = type(error).__name__
+print(json.dumps([completion, space.get('before'), space.get('tail')]))
+"""
+
+COMPLETION_LEAN = """
+open Silmaril.Languages.Python
+open Compile.ModuleEntry.Functions.Run
+
+private def completion (source : Module) : Option Completion := do
+  let compiled ← (compile source).toOption
+  let heap ← (Core.Closure.Heap.empty.reserve 1).write ⟨0⟩ (.int 9)
+  let initial := State.ready (seed .empty heap) compiled.instructions
+  let (log, .finished session result) := runPrefix compiled.table 64 initial | none
+  let some (.int 5) := session.globals "before" | none
+  let some (some (.int 9)) := session.heap.lookup ⟨0⟩ | none
+  if log.isEmpty && (session.globals "tail").isNone && session.heap.next == 1 then some result
+  else none
+"""
+
+SEEDED_LEAN = """
+open Silmaril.Languages.Python
+open Compile.ModuleEntry.Functions.Run
+
+private def seededBoundary (source : Module) : Bool := Id.run do
+  let .ok compiled := compile source | return false
+  let some (.publish "target" published) := compiled.instructions.head? | return false
+  let some heap := (Core.Closure.Heap.empty.reserve 1).write ⟨0⟩ (.int 9) | return false
+  [Core.Module.SeededCall.Namespace.empty, Seeded.legacySeed .builtin, Seeded.legacySeed .preamble].all
+    fun space => Id.run do
+      let result := Seeded.run space compiled heap
+      let some (some (.int 9)) := result.heap.lookup ⟨0⟩ | return false
+      let expected := (space.bindGlobal "target" (.function published.closure)).bindGlobal "before" (.int 5)
+      return result.completion == .error .unsupported && result.calls.isEmpty &&
+        result.heap.next == 1 && result.residual.builtins == expected.builtins &&
+        result.residual.moduleGlobals == expected.moduleGlobals
+
+#guard seededBoundary pythonSource
 """
 
 
@@ -147,6 +228,18 @@ if __name__ == "__main__":
         shared["check_lean"](destination, lean, extra_imports=IMPORTS)
         shared["emit"](source, destination, EXACT_NEEDLE)
         shared["check_lean"](destination, NEEDLE_LEAN, extra_imports=IMPORTS)
+        for setup, statement, cpython, lean_outcome in CASES:
+            fixture = f"{setup}\nbefore = 5\n{statement}\ntail = 6\n"
+            shared["emit"](source, destination, fixture)
+            result = subprocess.run([sys.executable, "-I", "-c", CPYTHON_COMPLETION, str(source)],
+                                    check=True, text=True, capture_output=True, timeout=10)
+            assert result.stderr == ""
+            if version == "3.13.5":
+                assert json.loads(result.stdout) == [cpython, 5, 6 if cpython == "normal" else None]
+            lean = COMPLETION_LEAN + f"\n#guard completion pythonSource == some {lean_outcome}\n"
+            if setup == "def target(): pass":
+                lean += SEEDED_LEAN
+            shared["check_lean"](destination, lean, extra_imports=IMPORTS)
         for statement, diagnostic in (
             ('assert "x" not in inspect.__code__.co_varnames', ".expressionProfile"),
             ('assert "x" in inspect().__code__.co_varnames', ".expressionProfile"),

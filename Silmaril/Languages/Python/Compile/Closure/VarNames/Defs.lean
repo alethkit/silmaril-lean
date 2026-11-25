@@ -88,4 +88,10 @@ def checked? (tree : ScopeTree) (blocks : List Link.Block) (ref : CodeRef) :
       else none
     else none
 
+/-- Attach the optional tuple to each checked row at its existing code key. -/
+def attach (tree : ScopeTree) (blocks : List Link.Block) : List Link.Block :=
+  blocks.zipIdx.map fun (block, key) =>
+    { block with entry := { block.entry with definition := { block.entry.definition with
+      varnames := (checked? tree blocks ⟨key, block.entry.layout⟩).map (·.tuple) } } }
+
 end Silmaril.Languages.Python.Compile.Closure.VarNames

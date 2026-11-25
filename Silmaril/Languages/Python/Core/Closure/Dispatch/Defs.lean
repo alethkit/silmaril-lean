@@ -28,6 +28,8 @@ structure Definition (Body : Layout → Type) (layout : Layout) where
   cellvars : Option (List String) := none
   /-- Exact `co_names` tuple for the code's stated compiler profile. -/
   codeNames : Option ProfiledCodeNames := none
+  /-- Exact profiled CPython 3.13.5 fast-local tuple for a module code read. -/
+  varnames : Option (List String) := none
 
 structure Entry (Body : Layout → Type) where
   layout : Layout

@@ -74,8 +74,16 @@ loads and stores in emission order, including the store of a nested
 definition into its parent. Each nested body has a separate tuple.
 This evidence covers CPython 3.13.5 in `exec` mode at optimization level
 zero for the checked straight-line profile with no parameters, owned
-cells, or incoming captures. The module assertion has a dedicated
-compiler diagnostic until executor integration is available.
+cells, or incoming captures. The module runner reads the current
+binding once and resolves that function's code key and layout. It
+checks exact code-point membership without invoking the function.
+A profiled empty tuple gives a false assertion. Missing metadata and
+non-function receivers give distinct module profile stops. An unbound
+name raises `NameError`, and invalid code references keep their
+dispatch faults. The instruction preserves earlier bindings and heap
+effects and skips the tail on failure. The seeded runner stops at this
+instruction as unsupported, retaining its namespace, heap and any
+earlier call receipts.
 
 Successful lowering retains the source translation and preserves the
 definition, layout and parameter destinations at every emitted code key.

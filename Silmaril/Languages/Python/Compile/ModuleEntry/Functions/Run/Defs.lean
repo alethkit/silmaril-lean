@@ -3,6 +3,7 @@ module
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Defs
 public import Silmaril.Languages.Python.Compile.ModuleEntry.Run.Defs
 public import Silmaril.Languages.Python.Compile.Closure.Run.Defs
+public import Silmaril.Languages.Python.Compile.Closure.VarNames.Defs
 public import Silmaril.Languages.Python.Core.Module.Functions.Defs
 
 /-! # Run lowered module bindings and calls -/
@@ -12,7 +13,7 @@ namespace Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run
 
 open Source (Scope)
 open Compile.Closure (frameLayout)
-open Core.Closure (Frame Heap Layout RuntimeError Slot Value)
+open Core.Closure (CodeRef Frame Heap Layout RuntimeError Slot Value)
 open Core.Closure.Executor (Body CodeTable Event)
 open Core.Module.Functions (Invocation Session TopFunction)
 
@@ -23,6 +24,7 @@ inductive Argument where
 inductive Instruction (scope : Scope) where
   | scalar (action : ModuleEntry.Action scope)
   | assertNot (condition : Operand scope)
+  | assertVarNames (receiver : String) (needle : List UInt32)
   | publish (name : String) (function : TopFunction)
   | call (destination : Core.Module.Functions.Destination) (name : String) (operands : List Core.Module.Functions.Operand)
   | nestedCall (destination : Core.Module.Functions.Destination) (name : String) (arguments : List Argument)
@@ -32,7 +34,6 @@ inductive CompileError where
   | incomingCaptures (path : Source.BlockPath)
   | functionBody (error : Compile.Closure.Run.Error)
   | callOperand
-  | varNamesRuntimePending
   deriving Repr
 
 def callOperand? {scope : Scope} : Operand scope → Option Core.Module.Functions.Operand
@@ -59,7 +60,9 @@ def lowerInstructions {scope : Scope} (tree : Source.ScopeTree) (next : Nat) : L
   | .assertNot condition :: rest => do
     let (instructions, blocks) ← lowerInstructions tree next rest
     return (.assertNot condition :: instructions, blocks)
-  | .assertVarNames _ _ _ :: _ => .error .varNamesRuntimePending
+  | .assertVarNames receiver _ needle :: rest => do
+    let (instructions, blocks) ← lowerInstructions tree next rest
+    return (.assertVarNames receiver needle :: instructions, blocks)
   | .call target name _ operands :: rest => do
     let some arguments := operands.mapM callOperand? | throw .callOperand
     let (instructions, blocks) ← lowerInstructions tree next rest
@@ -91,7 +94,8 @@ def Compiled.table {source : Source.Module} (compiled : Compiled source) : CodeT
 
 def compile (source : Source.Module) : Except CompileError (Compiled source) := do
   let checked ← (Functions.check source).mapError .source
-  let (instructions, linked) ← lowerInstructions checked.tree 0 checked.actions
+  let (instructions, blocks) ← lowerInstructions checked.tree 0 checked.actions
+  let linked := Compile.Closure.VarNames.attach checked.tree blocks
   let table ← (Compile.Closure.Run.lowerTable linked).mapError .functionBody
   return ⟨checked, instructions, linked, table.val, table.property⟩
 
@@ -109,6 +113,8 @@ inductive Completion where
   | codeFault (error : Core.Closure.Dispatch.Failure)
   | executorFault (error : Core.Closure.Executor.Fault)
   | scalarProfile
+  | unprofiledVarNames (ref : CodeRef)
+  | unsupportedVarNamesReceiver
   deriving DecidableEq, Repr
 
 def scalar? : Value → Option Core.Module.Value
@@ -166,6 +172,16 @@ def assertOperand {scope : Scope} (session : Session) (operand : Operand scope)
     else .finished session .assertionError
   | .error error => .finished session error
 
+/-- Inspect the code of the current module binding without calling it.
+This profile uses the ordinary module namespace with no builtin fallback. -/
+def checkVarNames (table : CodeTable) (session : Session) (receiver : String)
+    (needle : List UInt32) : Except Completion Unit := do
+  let some value := session.globals receiver | throw (.raised (.nameError receiver))
+  let .function function := value | throw .unsupportedVarNamesReceiver
+  let definition ← (Core.Closure.Dispatch.resolve table function.code).mapError .codeFault
+  let some names := definition.varnames | throw (.unprofiledVarNames function.code)
+  unless names.any (fun name => name.toList.map Char.val == needle) do throw .assertionError
+
 def advance {scope : Scope} (table : CodeTable) : State scope → List Event × State scope
   | .finished session completion => ([], .finished session completion)
   | .ready session [] => ([], .finished session .normal)
@@ -176,6 +192,9 @@ def advance {scope : Scope} (table : CodeTable) : State scope → List Event × 
       | .error error => .finished session error)
     | .scalar (.assertion operand) => ([], assertOperand session operand true rest)
     | .assertNot operand => ([], assertOperand session operand false rest)
+    | .assertVarNames receiver needle => ([], match checkVarNames table session receiver needle with
+      | .ok () => .ready session rest
+      | .error completion => .finished session completion)
     | .publish name function => ([], match session.publish table name function with
       | .ok updated => .ready updated rest
       | .error fault => .finished session (.codeFault fault))

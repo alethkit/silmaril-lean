@@ -93,7 +93,8 @@ theorem resolve_reference {source : Source.Module} (compiled : Compiled source)
           body := target
           freevars := definition.freevars
           cellvars := definition.cellvars
-          codeNames := definition.codeNames } := by
+          codeNames := definition.codeNames
+          varnames := definition.varnames } := by
   obtain ⟨definition, original, resolved⟩ := Link.resolve_reference compiled.sourceBody emitted
   obtain ⟨target, translated, lookup⟩ := table_entry compiled.lowered original
   exact ⟨definition, target, resolved, translated, resolve_iff.mpr lookup⟩
