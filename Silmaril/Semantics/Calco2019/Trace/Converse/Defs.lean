@@ -22,16 +22,24 @@ def onBranches (trace : G.Feedback) {A B U : K}
     rw [P.inr_desc]
     exact guard)
 
+/-- Ordinary feedback is natural in its external interfaces. -/
+abbrev Tightening (trace : G.Feedback) : Prop :=
+  ∀ {A B U A' B' : K} (f : P.sum A U ⟶ P.sum B U)
+    (a : A' ⟶ A) (b : B ⟶ B') (hf : G.FeedbackGuard f),
+    trace (Guardedness.tighten f a b) (tighten_feedbackGuard f a b hf) = a ≫ trace f hf ≫ b
+
+/-- Ordinary feedback leaves an independent map unchanged. -/
+abbrev Superposition (trace : G.Feedback) : Prop :=
+  ∀ {A B U A' B' : K} (f : P.sum A U ⟶ P.sum B U)
+    (g : A' ⟶ B') (hf : G.FeedbackGuard f),
+    trace (Guardedness.superpose f g) (superpose_feedbackGuard f g hf) =
+      P.map (trace f hf) g
+
 /-- Tightening, superposition and shared-result sliding for coproduct feedback.
 The unit and two-state vanishing laws can be imposed separately. -/
 structure LocalLaws (trace : G.Feedback) : Prop where
-  tighten {A B U A' B' : K} (f : P.sum A U ⟶ P.sum B U)
-    (a : A' ⟶ A) (b : B ⟶ B') (hf : G.FeedbackGuard f) :
-    trace (Guardedness.tighten f a b) (tighten_feedbackGuard f a b hf) = a ≫ trace f hf ≫ b
-  superpose {A B U A' B' : K} (f : P.sum A U ⟶ P.sum B U)
-    (g : A' ⟶ B') (hf : G.FeedbackGuard f) :
-    trace (Guardedness.superpose f g) (superpose_feedbackGuard f g hf) =
-      P.map (trace f hf) g
+  tighten : Tightening trace
+  superpose : Superposition trace
   slide {A B U V : K} (f : P.sum A U ⟶ P.sum B V) (h : V ⟶ P.sum B U)
     (guard : G.guarded (P.inr ≫ f) ∨ G.guarded h) :
     trace (slideAfter f h) (slideAfter_guard f h guard) =
