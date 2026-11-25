@@ -2,10 +2,11 @@ module
 
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CollarCombined.Thms
 public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.FixedCapCategory.Thms
-public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.EmptyWhiskering.Thms
+public import Silmaril.Semantics.RuntimeWires.ProgressiveGluing.MiddleAssociator.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.CapClasses.Thms
 import all Silmaril.Semantics.RuntimeWires.ProgressiveGluing.HorizontalPlacement.Thms
 import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.Associator.Contacts
+import Silmaril.Proofs.Semantics.RuntimeWires.ProgressiveGluing.MiddleAssociator.Core
 import Mathlib.Data.Fin.VecNotation
 import Mathlib.Tactic.FinCases
 import Mathlib.Tactic.FunProp
@@ -682,7 +683,7 @@ example : capObject.profile.x (0 : Fin 1) ≠ shiftedCap.profile.x (0 : Fin 1) :
   change (1 / 3 : ℝ) ≠ 2 / 3
   norm_num
 
-example :
+private theorem bentShift_tip :
     bentShift.drawing.x (bentShift.input (0 : Fin 1)).val (1 / 8) = 5 / 12 := by
   let m := activeFrame.matching shiftedDrawing
   have id : (bentShift.input (0 : Fin 1)).val = CollarAssociator.leftWire m (0 : Fin 1) :=
@@ -714,5 +715,60 @@ example :
       (ActiveStrip.right.emptyWhiskerIso (S := signature)).hom.app capObject ≫
         (emptyWhiskering .right).map bentShiftMap :=
   (ActiveStrip.right.emptyWhiskerIso (S := signature)).hom.naturality bentShiftMap
+
+private noncomputable abbrev assocWire :=
+  (bentShift.input (0 : Fin 1)).val
+
+private noncomputable abbrev assocSourceX (w :
+    MiddleAssociator.WireNames idleCap shiftedCap bentShift) : ℝ :=
+  (MiddleAssociator.leftCore idleCap shiftedCap bentShift).drawing.x
+    (MiddleAssociator.leftNames idleCap shiftedCap bentShift w) (1 / 8)
+
+private noncomputable abbrev assocTargetX (w :
+    MiddleAssociator.WireNames idleCap shiftedCap bentShift) : ℝ :=
+  (MiddleAssociator.rightCore idleCap shiftedCap bentShift).drawing.x
+    (MiddleAssociator.rightNames idleCap shiftedCap bentShift w) (1 / 8)
+
+/-- In left-to-right geometric order, sample both idle blocks and the bend. -/
+example :
+    (assocSourceX (.inr (.inl (0 : Fin 2))), assocSourceX (.inl assocWire),
+      assocSourceX (.inr (.inr (0 : Fin 1)))) = (1 / 16, 17 / 48, 5 / 6) := by
+  refine Prod.ext ?_ (Prod.ext ?_ ?_)
+  · exact (congrArg Prod.snd (MiddleAssociator.left_wireData idleCap shiftedCap bentShift
+      (.inr (.inl (0 : Fin 2))) (1 / 8))).trans (by
+        change ActiveStrip.left.place (ActiveStrip.left.place (1 / 4)) = _
+        norm_num [ActiveStrip.place])
+  · exact (congrArg Prod.snd (MiddleAssociator.left_wireData idleCap shiftedCap bentShift
+      (.inl assocWire) (1 / 8))).trans
+      ((congrArg (fun x => ActiveStrip.left.place (ActiveStrip.right.place x)) bentShift_tip).trans
+        (by norm_num [ActiveStrip.place]))
+  · exact (congrArg Prod.snd (MiddleAssociator.left_wireData idleCap shiftedCap bentShift
+      (.inr (.inr (0 : Fin 1))) (1 / 8))).trans (by
+        change ActiveStrip.right.place (2 / 3) = _
+        norm_num [ActiveStrip.place])
+
+example :
+    (assocTargetX (.inr (.inl (0 : Fin 2))), assocTargetX (.inl assocWire),
+      assocTargetX (.inr (.inr (0 : Fin 1)))) = (1 / 8, 29 / 48, 11 / 12) := by
+  refine Prod.ext ?_ (Prod.ext ?_ ?_)
+  · exact (congrArg Prod.snd (MiddleAssociator.right_wireData idleCap shiftedCap bentShift
+      (.inr (.inl (0 : Fin 2))) (1 / 8))).trans (by
+        change ActiveStrip.left.place (1 / 4) = _
+        norm_num [ActiveStrip.place])
+  · exact (congrArg Prod.snd (MiddleAssociator.right_wireData idleCap shiftedCap bentShift
+      (.inl assocWire) (1 / 8))).trans
+      ((congrArg (fun x => ActiveStrip.right.place (ActiveStrip.left.place x)) bentShift_tip).trans
+        (by norm_num [ActiveStrip.place]))
+  · exact (congrArg Prod.snd (MiddleAssociator.right_wireData idleCap shiftedCap bentShift
+      (.inr (.inr (0 : Fin 1))) (1 / 8))).trans (by
+        change ActiveStrip.right.place (ActiveStrip.right.place (2 / 3)) = _
+        norm_num [ActiveStrip.place])
+
+example :
+    (FixedCap.middleWhiskerLeft idleCap shiftedCap).map bentShiftMap ≫
+        (FixedCap.middleAssociator idleCap shiftedCap).hom.app shiftedCap =
+      (FixedCap.middleAssociator idleCap shiftedCap).hom.app capObject ≫
+        (FixedCap.middleWhiskerRight idleCap shiftedCap).map bentShiftMap :=
+  (FixedCap.middleAssociator idleCap shiftedCap).hom.naturality bentShiftMap
 
 end Silmaril.RuntimeWires.Proofs.OperandAmbient.Regression
