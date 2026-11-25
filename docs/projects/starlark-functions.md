@@ -270,8 +270,43 @@ and final state after restoring scratch. The source theorem shares the
 elaborator. Successful module initialization freezes the reachable result.
 [Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/DictComprehensionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
 
-General expression positions and subscript or field target leaves remain
-outside the comprehension profile.
+## Comprehensions in checked expression positions
+
+The normalized `CompExpr` grammar admits list and dictionary
+comprehensions in return values and single-name assignment RHSs. Its
+recursive nodes are positional call arguments, conditional tests and arms,
+and both operands of `and` and `or`. Ordinary leaves, call callees and
+comprehension clause operands retain the existing resolved expression
+grammar. The original list and dictionary assignment forms still work.
+[Pinned comprehensions][comprehensions] · [Pinned conditionals][conditional] · [Pinned logical operators][logical-ops]
+
+The placement compiler emits a checked body at the point the value is
+needed. A call evaluates its callee once, stages its positional operands
+left to right, then dispatches using the saved values. A prior failure
+skips the remaining stages. Conditions execute one arm. A short circuit
+returns the saved left operand with its effects. The scoped expression
+bodies restore their private staging bindings on exit. They reuse the
+existing comprehension accumulator, nested name binder, fresh locals and
+iterator cleanup. Call termination retains the finite declaration guard.
+[Go expression and argument compilation][go-call-compile]
+
+The correspondence uses the independent checked body rules over the
+emitted direct code. `Expression.lower_preserves` compares the exact
+outcome, frame, heap and guards with scratch lowering, and
+`Expression.exec_return_iff_lowered` gives the analogous return
+correspondence. Separate equations state conditional selection, short
+circuiting, callee failure and positional sequencing. The proofs start
+with resolved expression placement and use the existing admission and
+scratch-slot assumptions. The normalized source correspondence shares its
+elaborator.
+[Theorems](../../Silmaril/Languages/Starlark/Functions/Comprehensions/Expression/Thms.lean) · [Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Resolve/CompExpressionChecks.lean) · [Pinned Go fixtures](../../examples/starlark/comprehensions/check.go)
+
+Comprehensions in keyword or spread arguments, callee expressions,
+collections and subscripts, comprehension clause operands, defaults and
+other statement operands remain open. Field and subscript pattern leaves
+remain outside this profile. Quotation supplies ordinary operands and
+pattern ASTs. The normalized comprehension and placement nodes are
+constructed separately.
 
 ## Direct denotation of resolved expressions
 
@@ -777,3 +812,5 @@ extend this profile. Host callable effects remain open.
 [go-comp-compile]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/internal/compile/compile.go#L1745-L1804
 [dictionaries]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#dictionaries
 [go-comp-put]: https://github.com/google/starlark-go/blob/4f4267fb140d1e8b91c9bce55cee2f809e8840dd/starlark/hashtable.go#L78-L150
+[conditional]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#conditional-expressions
+[logical-ops]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#or-and-and

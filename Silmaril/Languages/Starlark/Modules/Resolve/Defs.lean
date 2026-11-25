@@ -44,6 +44,16 @@ structure DictComp where
   iterable : Lowering.Resolve.SourceExpr
   rest : CompTail (Lowering.Resolve.SourceExpr × Lowering.Resolve.SourceExpr)
 
+/-- Normalized expression positions that admit comprehension plans. Quotation
+of the ordinary expression leaves continues to use the existing grammar. -/
+inductive CompExpr where
+  | plain (value : Lowering.Resolve.SourceExpr)
+  | list (comp : ListComp)
+  | dict (comp : DictComp)
+  | callPos (callee : Lowering.Resolve.SourceExpr) (arguments : List CompExpr)
+  | branch (test yes no : CompExpr)
+  | logical (op : LogicalOp) (left right : CompExpr)
+
 /-- Admitted function statements. -/
 inductive Statement where
   | pass
@@ -51,10 +61,12 @@ inductive Statement where
   | assignTarget (target rhs : Lowering.Resolve.SourceExpr)
   | assignListComp (name : String) (comp : ListComp)
   | assignDictComp (name : String) (comp : DictComp)
+  | assignCompExpr (name : String) (expr : CompExpr)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
   | ret (value : Option Lowering.Resolve.SourceExpr)
+  | retCompExpr (value : CompExpr)
   | seq (first rest : Statement)
   | branch (test : Lowering.Resolve.SourceExpr) (yes no : Statement)
   | forIn (target : String) (iterable : Lowering.Resolve.SourceExpr) (body : Statement)
@@ -69,6 +81,7 @@ inductive Command where
   | assignTarget (target rhs : Lowering.Resolve.SourceExpr)
   | assignListComp (name : String) (comp : ListComp)
   | assignDictComp (name : String) (comp : DictComp)
+  | assignCompExpr (name : String) (expr : CompExpr)
   | setIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | addIndex (receiver subscript rhs : Lowering.Resolve.SourceExpr)
   | eval (value : Lowering.Resolve.SourceExpr)
@@ -109,19 +122,21 @@ private def resolveTarget (slot : String → Binding) (unsupported : Error) :
 Command elaboration rejects invalid targets. -/
 def globalNames (commands : List Command) : List String :=
   commands.flatMap fun
-    | .assign name _ | .assignListComp name _ | .assignDictComp name _ | .define name .. => [name]
+    | .assign name _ | .assignListComp name _ | .assignDictComp name _
+    | .assignCompExpr name _ | .define name .. => [name]
     | .assignTarget target _ =>
       ((resolveTarget globalSlot .unsupportedAssignmentTarget target).toOption.map Prod.snd).getD []
     | .setIndex .. | .addIndex .. | .eval _ | .load .. => []
 
 private def Statement.localNames : Statement → Except Error (List String)
-  | .assign name _ | .assignListComp name _ | .assignDictComp name _ | .define name .. => pure [name]
+  | .assign name _ | .assignListComp name _ | .assignDictComp name _
+  | .assignCompExpr name _ | .define name .. => pure [name]
   | .assignTarget target _ => return (← resolveTarget fileSlot .unsupportedAssignmentTarget target).2
   | .seq first rest | .branch _ first rest => return (← first.localNames) ++ (← rest.localNames)
   | .forIn target _ body => return target :: (← body.localNames)
   | .forInTarget target _ body =>
     return (← resolveTarget fileSlot .unsupportedLoopTarget target).2 ++ (← body.localNames)
-  | .pass | .setIndex .. | .addIndex .. | .eval _ | .ret _ | .breakLoop | .continueLoop => pure []
+  | .pass | .setIndex .. | .addIndex .. | .eval _ | .ret _ | .retCompExpr _ | .breakLoop | .continueLoop => pure []
 
 private abbrev Build := StateT Program (Except Error)
 
@@ -170,6 +185,35 @@ private def readEntry (context : Context) (entry : Lowering.Resolve.SourceExpr �
   let (key, keyReads) ← readExpr context entry.1
   let (value, valueReads) ← readExpr context entry.2
   return ((key, value), keyReads ++ valueReads)
+
+private def compileCompExpr (context : Context) :
+    CompExpr → Build (Comprehensions.Expression × List Binding)
+  | .plain expression => do
+    let (value, reads) ← readExpr context expression
+    return (.plain value, reads)
+  | .list comp => do
+    let (plan, reads) ← compileComp context comp.target comp.iterable comp.rest readExpr Comprehensions.ListComp.mk
+    return (.list plan, reads)
+  | .dict comp => do
+    let (plan, reads) ← compileComp context comp.target comp.iterable comp.rest readEntry Comprehensions.DictComp.mk
+    return (.dict plan, reads)
+  | .callPos callee arguments => do
+    let (callee, calleeReads) ← readExpr context callee
+    let compiled ← arguments.attach.mapM fun argument => do
+      have := List.sizeOf_lt_of_mem argument.property
+      compileCompExpr context argument.val
+    return (.callPos callee (compiled.map Prod.fst), calleeReads ++ compiled.flatMap Prod.snd)
+  | .branch test yes no => do
+    let (test, tests) ← compileCompExpr context test
+    let (yes, yesReads) ← compileCompExpr context yes
+    let (no, noReads) ← compileCompExpr context no
+    return (.branch test yes no, tests ++ yesReads ++ noReads)
+  | .logical op left right => do
+    let (left, leftReads) ← compileCompExpr context left
+    let (right, rightReads) ← compileCompExpr context right
+    return (.logical op left right, leftReads ++ rightReads)
+termination_by expr => sizeOf expr
+decreasing_by all_goals first | assumption | (simp_wf; omega)
 
 private def resolveSubscript (context : Context) (receiver subscript : Lowering.Resolve.SourceExpr) :
     Build (Lowering.Expr × Lowering.Expr × List Binding) := do
@@ -239,6 +283,9 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
   | .assignDictComp name comp => do
     let (comp, reads) ← compileComp context comp.target comp.iterable comp.rest readEntry Comprehensions.DictComp.mk
     return ⟨comp.body (fileSlot name), reads⟩
+  | .assignCompExpr name expr => do
+    let (expr, reads) ← compileCompExpr context expr
+    return ⟨expr.body (fileSlot name), reads⟩
   | .setIndex receiver subscript rhs => do
     let (code, reads) ← resolveSetIndex context receiver subscript rhs Body.setIndexExpr
     return ⟨code, reads⟩
@@ -252,6 +299,9 @@ private def compileBody (context : Context) : Statement → Build ResolvedBody
   | .ret (some value) => do
     let (value, reads) ← readExpr context value
     return ⟨.returnExpr value, reads⟩
+  | .retCompExpr expr => do
+    let (expr, reads) ← compileCompExpr context expr
+    return ⟨expr.returnCode Comprehensions.directStages, reads⟩
   | .seq first rest => do
     let first ← compileBody context first
     let rest ← compileBody context rest
@@ -293,6 +343,9 @@ private def compileCommand (context : Context) : Command → Build Modules.Comma
   | .assignDictComp name comp => do
     let (comp, _) ← compileComp context comp.target comp.iterable comp.rest readEntry Comprehensions.DictComp.mk
     return .exec (.assignDictComp name comp)
+  | .assignCompExpr name expr => do
+    let (expr, _) ← compileCompExpr context expr
+    return .exec (.assignCompExpr name expr)
   | .setIndex receiver subscript rhs => do
     let (code, _) ← resolveSetIndex context receiver subscript rhs TopCode.setIndexExpr
     return .exec code
