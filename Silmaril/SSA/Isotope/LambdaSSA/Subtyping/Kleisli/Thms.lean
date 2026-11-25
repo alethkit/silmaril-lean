@@ -13,6 +13,8 @@ namespace Silmaril.Isotope.LambdaSSA.Subtyping.Semantics.Agreement
 
 open CategoryTheory Silmaril.Elgot
 open Silmaril.Isotope.LetIter.ProofRelevant.Semantics
+open Silmaril.Isotope.LetIter.ProofRelevant.Semantics.Categorical
+  (typeJ ofTypeModel ofInstructionModel)
 open LambdaSSA.Semantics.Agreement (envToCategorical)
 
 variable {τ : Type u} [TypeFormers τ] [Silmaril.Isotope.Subtyping τ] [TypeModel.{u, v} τ]
@@ -37,5 +39,17 @@ theorem denoteRegion_agrees [Iterate m] [LawfulElgotMonad m]
       (Monadic.denoteRegion (ε := ε) (m := m) h ρ >>= fun x =>
         pure (LambdaSSA.Semantics.Monadic.LabelValue.categoricalEquiv L x)) :=
   denoteRegion_agrees_proof coherent h ρ
+
+/-- The subtyped region derivation determines the categorical witness, so the
+two denotations agree for each fixed derivation. -/
+theorem denoteRegion_agrees_of_derivation [Iterate m] [LawfulElgotMonad m]
+    {Γ : VCtx τ} {region : Region Φ} {L : LCtx τ}
+    (h : Region.HasType Γ region L) (ρ : Monadic.Env Γ) :
+    (categoricalRegionDenote (ε := ε) (m := m) h).of (envToCategorical ρ) =
+      (Monadic.denoteRegion (ε := ε) (m := m) h ρ >>= fun x =>
+        pure (LambdaSSA.Semantics.Monadic.LabelValue.categoricalEquiv L x)) :=
+  denoteRegion_agrees (by
+    let := ofInstructionModel (τ := τ) (Φ := Φ) (ε := ε) (m := m)
+    exact Categorical.regionTypingCoherent (typeJ (m := m)) (ofTypeModel (τ := τ))) h ρ
 
 end Silmaril.Isotope.LambdaSSA.Subtyping.Semantics.Agreement
