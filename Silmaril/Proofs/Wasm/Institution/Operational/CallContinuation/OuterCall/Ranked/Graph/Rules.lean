@@ -34,6 +34,8 @@ theorem map_child {fn : Function} {r₁ r₂ : CallTarget → Phase → Phase �
   | localTee write => exact .localTee write
   | ifSelect locals saved condition result thenBody elseBody rest =>
     exact .ifSelect locals saved condition result thenBody elseBody rest
+  | indexedIfSelect locals operands condition index signature thenBody elseBody rest =>
+    exact .indexedIfSelect locals operands condition index signature thenBody elseBody rest
   | blockEnter locals saved result body rest => exact .blockEnter locals saved result body rest
   | blockStep saved result rest _ ih => exact .blockStep saved result rest ih
   | indexedBlockEnter locals saved args index signature body rest resolved typed =>

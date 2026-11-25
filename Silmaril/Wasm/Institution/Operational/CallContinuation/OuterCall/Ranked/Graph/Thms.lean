@@ -94,6 +94,23 @@ theorem Function.split_if {fn : Function} {fallthrough : List NumType} {enclosin
     ∃ (saved : List Value) (condition : BitVec 32), stack = saved ++ [Value.int .i32 condition] :=
   Proofs.split_if typed
 
+theorem Function.split_indexed_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
+    {kind : LabelKind} {stack : List Value} {index : TypeIdx} {signature : Wasm.V1.FuncType}
+    {thenBody elseBody rest : List Op}
+    (typed : fn.WellTyped stack (.indexedIf index signature thenBody elseBody :: rest) fallthrough enclosing kind) :
+    ∃ (operands : List Value) (condition : BitVec 32), stack = operands ++ [Value.int .i32 condition] :=
+  Proofs.split_indexed_if typed
+
+/-- Each arm checks as an indexed block under the same operands and continuation. -/
+theorem Function.indexed_if_arms {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels}
+    {kind : LabelKind} {operands : List Value} {condition : BitVec 32} {index : TypeIdx}
+    {signature : Wasm.V1.FuncType} {thenBody elseBody rest : List Op}
+    (typed : fn.WellTyped (operands ++ [Value.int .i32 condition])
+      (.indexedIf index signature thenBody elseBody :: rest) fallthrough enclosing kind) :
+    fn.WellTyped operands (.indexedBlock index signature thenBody :: rest) fallthrough enclosing kind ∧
+    fn.WellTyped operands (.indexedBlock index signature elseBody :: rest) fallthrough enclosing kind :=
+  Proofs.indexed_if_arms typed
+
 theorem Function.split_br_if {fn : Function} {fallthrough : List NumType} {enclosing : EnclosingLabels} {kind : LabelKind} {stack : List Value}
     {result : List NumType} {depth : LabelIdx} {rest : List Op}
     (typed : fn.WellTyped stack (.brIf depth result :: rest) fallthrough enclosing kind) :

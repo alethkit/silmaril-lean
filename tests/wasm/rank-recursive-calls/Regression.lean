@@ -1747,8 +1747,8 @@ example : ({ mixedCallee with code := [.indexedBlock indexedType mixedSig []] })
 example : ({ mixedCallee with code := [.indexedBlock indexedType mixedSig [.br ⟨0⟩ [wide, int32]]] }).check = false := rfl
 
 -- An unexecuted suffix and an unselected arm must still fit V1 source syntax.
-private def skippedIndexed (code : List Op) : Program :=
-  ⟨[some ⟨⟨{ types := [⟨[], []⟩] }, ⟨0⟩, [], [], []⟩, 0, [], code⟩]⟩
+private def skippedIndexed (code : List Op) (initial : List Value := []) : Program :=
+  ⟨[some ⟨⟨{ types := [⟨[], []⟩] }, ⟨0⟩, [], [], []⟩, 0, initial, code⟩]⟩
 
 private def skippedBlock : Op := .indexedBlock ⟨0⟩ ⟨[], []⟩ []
 
@@ -1757,44 +1757,54 @@ example : (skippedIndexed [.unreachable, skippedBlock]).checkV1 = false := rfl
 example : (skippedIndexed [.block none [.return_, skippedBlock]]).checkV1 = false := rfl
 example : (skippedIndexed [.unreachable, .if_ none [] [skippedBlock]]).checkV1 = false := rfl
 
-private theorem mixedLeafRule {a b : Phase}
-    (step : Layer mixedCallee (fun t => mixedGraph.Edge mixedChecked t.address) a b) :
-    mixedGraph.Edge mixedChecked ⟨0⟩ a b :=
-  (mixedGraph.edge_iff mixedChecked (fn := mixedCallee) rfl).mpr step
+private theorem mixedLeafFinish {program : Program} {fn : Function} (checked : program.check = true)
+    (found : program.lookup ⟨0⟩ = some fn) (tail : List Op)
+    (leave : Layer fn (fun t => program.Edge checked t.address)
+      (.label afterMixed (.running mixedResults tail)) (.exit afterMixed (.values mixedResults)) (.indexed mixedSig))
+    (typed : fn.ResultTyped (.values mixedResults)) :
+    program.Runs checked ⟨0⟩ (.label beforeMixed (.indexedBlock [] mixedSig (.running mixedArgs (flatBody ++ tail)) []))
+      (.done (.values mixedResults)) := by
+  have rule {a b : Phase} := (program.edge_iff checked (a := a) (b := b) found).mpr
+  have setNarrow := Relation.ReflTransGen.single (rule (.indexedBlockStep [] mixedSig []
+    (.localSet (saved := [wideVal 11]) (rest := [.set wideLocal, readLocal narrowLocal, readLocal wideLocal] ++ tail)
+      (Locals.fact (.set beforeMixed narrowLocal (i32 7) (by decide))))))
+  have setWide := setNarrow.tail (rule (.indexedBlockStep [] mixedSig []
+    (.localSet (saved := []) (rest := [readLocal narrowLocal, readLocal wideLocal] ++ tail)
+      (Locals.fact (.set (mixedArgs ++ [i32 7, wideVal 0]) wideLocal (wideVal 11) (by decide))))))
+  have first := setWide.tail (rule (.indexedBlockStep [] mixedSig []
+    (.numeric (locals := afterMixed) (rest := readLocal wideLocal :: tail)
+      (.get (stack := []) (i := narrowLocal) (v := i32 7) rfl))))
+  have second := first.tail (rule (.indexedBlockStep [] mixedSig []
+    (.numeric (locals := afterMixed) (rest := tail) (.get (stack := [i32 7]) (i := wideLocal)
+      (v := wideVal 11) rfl))))
+  have completed := second.tail (rule (.indexedBlockStep [] mixedSig [] leave))
+  exact (completed.tail (rule (.leaveValues afterMixed mixedResults))).tail
+    (rule (.leaveFrame afterMixed (.values mixedResults) typed))
 
 private theorem mixedLeafRun : mixedGraph.Runs mixedChecked ⟨0⟩ (.invoke mixedArgs) (.done (.values mixedResults)) := by
-  have entered := (Relation.ReflTransGen.single (mixedLeafRule (.enter mixedArgs rfl))).tail
-    (mixedLeafRule (.indexedBlockEnter beforeMixed [] mixedArgs indexedType mixedSig flatBody [] rfl rfl))
-  have setNarrow := entered.tail (mixedLeafRule (.indexedBlockStep [] mixedSig []
-    (.localSet (saved := [wideVal 11]) (rest := [.set wideLocal, readLocal narrowLocal, readLocal wideLocal])
-      (Locals.fact (.set beforeMixed narrowLocal (i32 7) (by decide))))))
-  have setWide := setNarrow.tail (mixedLeafRule (.indexedBlockStep [] mixedSig []
-    (.localSet (saved := []) (rest := [readLocal narrowLocal, readLocal wideLocal])
-      (Locals.fact (.set (mixedArgs ++ [i32 7, wideVal 0]) wideLocal (wideVal 11) (by decide))))))
-  have first := setWide.tail (mixedLeafRule (.indexedBlockStep [] mixedSig []
-    (.numeric (locals := afterMixed) (rest := [readLocal wideLocal])
-      (.get (stack := []) (i := narrowLocal) (v := i32 7) rfl))))
-  have second := first.tail (mixedLeafRule (.indexedBlockStep [] mixedSig []
-    (.numeric (locals := afterMixed) (rest := []) (.get (stack := [i32 7]) (i := wideLocal)
-      (v := wideVal 11) rfl))))
-  have leave := second.tail (mixedLeafRule (.indexedBlockStep [] mixedSig [] (.leaveValues afterMixed mixedResults)))
-  exact (leave.tail (mixedLeafRule (.leaveValues afterMixed mixedResults))).tail
-    (mixedLeafRule (.leaveFrame afterMixed (.values mixedResults) rfl))
+  have found : mixedGraph.lookup ⟨0⟩ = some mixedCallee := rfl
+  have rule {a b : Phase} := (mixedGraph.edge_iff mixedChecked (a := a) (b := b) found).mpr
+  have entered := (Relation.ReflTransGen.single (rule (.enter mixedArgs rfl))).tail
+    (rule (.indexedBlockEnter beforeMixed [] mixedArgs indexedType mixedSig flatBody [] rfl rfl))
+  exact entered.trans (mixedLeafFinish mixedChecked found [] (.leaveValues afterMixed mixedResults) rfl)
 
-private theorem mixedResume :
-    mixedGraph.Runs mixedChecked ⟨1⟩ (.call []) (.label [wideVal 0] (.running ([i32 9] ++ mixedResults) mixedTail)) := by
-  have rule {a b : Phase} := (mixedGraph.edge_iff mixedChecked (address := ⟨1⟩)
-    (fn := mixedCaller) (a := a) (b := b) rfl).mpr
+private abbrev mixedResumed : Phase := .label [wideVal 0] (.running ([i32 9] ++ mixedResults) mixedTail)
+
+private theorem mixedResume {program : Program} (checked : program.check = true)
+    (found : program.lookup ⟨1⟩ = some mixedCaller)
+    (child : program.Runs checked ⟨0⟩ (.invoke mixedArgs) (.done (.values mixedResults))) :
+    program.Runs checked ⟨1⟩ (.call []) mixedResumed := by
+  have rule {a b : Phase} := (program.edge_iff checked (a := a) (b := b) found).mpr
   have start := (Relation.ReflTransGen.single (rule (.resolve []))).tail (rule (.enter [] rfl))
-  exact start.trans (Program.compose_call mixedChecked (address := ⟨1⟩) (fn := mixedCaller) (target := mixedTarget)
-    (locals := [wideVal 0]) (saved := [i32 9]) (rest := mixedTail) rfl
-    (by simp [mixedCaller, Function.targets, codeTargets, Op.targets, mixedTail, readLocal, add]) rfl mixedLeafRun)
+  exact start.trans (Program.compose_call checked (target := mixedTarget)
+    (locals := [wideVal 0]) (saved := [i32 9]) (rest := mixedTail) found
+    (by simp [mixedCaller, Function.targets, codeTargets, Op.targets, mixedTail, readLocal, add]) rfl child)
 
-private theorem mixedFinish :
-    mixedGraph.Runs mixedChecked ⟨1⟩ (.call []) (.done (.values [i32 16, wideVal 11])) := by
-  have rule {a b : Phase} := (mixedGraph.edge_iff mixedChecked (address := ⟨1⟩)
-    (fn := mixedCaller) (a := a) (b := b) rfl).mpr
-  have set := mixedResume.tail (rule (.localSet (saved := [i32 9, i32 7]) (rest := [add, readLocal ⟨0⟩])
+private theorem mixedFinish {program : Program} (checked : program.check = true)
+    (found : program.lookup ⟨1⟩ = some mixedCaller) (resume : program.Runs checked ⟨1⟩ (.call []) mixedResumed) :
+    program.Runs checked ⟨1⟩ (.call []) (.done (.values [i32 16, wideVal 11])) := by
+  have rule {a b : Phase} := (program.edge_iff checked (a := a) (b := b) found).mpr
+  have set := resume.tail (rule (.localSet (saved := [i32 9, i32 7]) (rest := [add, readLocal ⟨0⟩])
     (Locals.fact (.set [wideVal 0] ⟨0⟩ (wideVal 11) (by decide)))))
   have added := set.tail (rule (.numeric (rest := [readLocal ⟨0⟩]) (.bin (stack := [])
     (show Numerics.intBinOp .i32 .add 9 7 = .ok 16 from rfl))))
@@ -1815,8 +1825,85 @@ private theorem checkedIndexedRun {program : Program} {caller : Execution.Runtim
   exact ⟨(core_run_iff checked (coreAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩,
     (lime_run_iff checked (limeAllocated _) root ready).mpr ⟨_, run, endpoint, rfl⟩⟩
 
-example := checkedIndexedRun mixedChecked mixedRoot (.call (args := []) rfl) mixedResume
-example := checkedIndexedRun mixedChecked mixedRoot (.call (args := []) rfl) mixedFinish
+example := checkedIndexedRun mixedChecked mixedRoot (.call (args := []) rfl) (mixedResume mixedChecked rfl mixedLeafRun)
+example := checkedIndexedRun mixedChecked mixedRoot (.call (args := []) rfl)
+  (mixedFinish mixedChecked rfl (mixedResume mixedChecked rfl mixedLeafRun))
+
+private def mixedBranch : List Op := [.br ⟨0⟩ mixedSig.results]
+private def mixedIf : Op := .indexedIf indexedType mixedSig flatBody (flatBody ++ mixedBranch)
+private def mixedIfCallee (condition : BitVec 32) : Function :=
+  { mixedCallee with initial := mixedArgs ++ [i32 condition], code := [mixedIf] }
+private def mixedIfGraph (condition : BitVec 32) : Program := ⟨[some (mixedIfCallee condition), some mixedCaller]⟩
+private theorem mixedIfChecked (condition : BitVec 32) : (mixedIfGraph condition).check = true := rfl
+private theorem mixedIfRoot (condition : BitVec 32) :
+    Root (mixedIfGraph condition) (callerFrame ⟨1⟩) mixedRootTarget mixedCaller := ⟨rfl, rfl, rfl⟩
+
+-- Both arms are checked, even when the initial condition is a known constant.
+example : ({ mixedIfCallee 1 with code := [.indexedIf indexedType mixedSig flatBody []] }).check = false := rfl
+example : ({ mixedIfCallee 0 with code := [.indexedIf indexedType mixedSig [] flatBody] }).check = false := rfl
+example : ({ mixedIfCallee 1 with code := [.indexedIf ⟨0⟩ mixedSig flatBody flatBody] }).check = false := rfl
+example : ({ mixedIfCallee 1 with code := [.indexedIf ⟨2⟩ mixedSig flatBody flatBody] }).check = false := rfl
+example : ({ mixedIfCallee 1 with initial := [i32 7, wideVal 11, i32 1] }).check = false := rfl
+example : ({ mixedIfCallee 1 with initial := [i32 1] ++ mixedArgs }).check = false := rfl
+example : ({ mixedIfCallee 1 with initial := mixedArgs ++ [wideVal 1] }).check = false := rfl
+
+private def scalarIndexedIf : Op := .indexedIf ⟨0⟩ ⟨[], []⟩ [] []
+example : (skippedIndexed [scalarIndexedIf] [i32 0]).check = true := rfl
+example : (skippedIndexed [scalarIndexedIf] [i32 0]).checkV1 = false := rfl
+example : (skippedIndexed [.unreachable, scalarIndexedIf]).checkV1 = false := rfl
+example : (skippedIndexed [.if_ none [] [.unreachable, scalarIndexedIf]] [i32 1]).check = true := rfl
+example : (skippedIndexed [.if_ none [] [.unreachable, scalarIndexedIf]] [i32 1]).checkV1 = false := rfl
+
+private abbrev mixedIfSource (condition : BitVec 32) : Phase :=
+  .label beforeMixed (.running (mixedArgs ++ [i32 condition]) [mixedIf])
+
+private abbrev mixedIfSelected (condition : BitVec 32) : Phase :=
+  .label beforeMixed (.running mixedArgs
+    [.indexedBlock indexedType mixedSig (if condition = 0 then flatBody ++ mixedBranch else flatBody)])
+
+private theorem mixedIfSelect (condition : BitVec 32) :
+    (mixedIfGraph condition).Edge (mixedIfChecked condition) ⟨0⟩ (mixedIfSource condition) (mixedIfSelected condition) :=
+  ((mixedIfGraph condition).edge_iff (mixedIfChecked condition) (fn := mixedIfCallee condition) rfl).mpr
+    (.indexedIfSelect beforeMixed mixedArgs condition indexedType mixedSig flatBody (flatBody ++ mixedBranch) [])
+
+example (condition : BitVec 32) :
+    Execution.Core.Step Numerics.Profile.spec SingleThreaded.Det.noHost
+      (coreConfig (coreStore (mixedIfGraph condition)) (callerFrame ⟨0⟩) mixedTarget (mixedIfSource condition))
+      (coreConfig (coreStore (mixedIfGraph condition)) (callerFrame ⟨0⟩) mixedTarget (mixedIfSelected condition)) ∧
+    Lime1.Execution.Step CallFrame.limeNoHost
+      (limeConfig (limeStore (mixedIfGraph condition)) (callerFrame ⟨0⟩) mixedTarget (mixedIfSource condition))
+      (limeConfig (limeStore (mixedIfGraph condition)) (callerFrame ⟨0⟩) mixedTarget (mixedIfSelected condition)) := by
+  have checked := mixedIfChecked condition
+  have root : Root (mixedIfGraph condition) (callerFrame ⟨0⟩) mixedTarget (mixedIfCallee condition) := ⟨rfl, rfl, rfl⟩
+  have ready : Admitted (mixedIfGraph condition) (mixedIfCallee condition) (mixedIfSource condition) := .running rfl rfl
+  exact ⟨(core_step_iff checked (coreAllocated _) root ready).mpr ⟨_, mixedIfSelect condition, rfl⟩,
+    (lime_step_iff checked (limeAllocated _) root ready).mpr ⟨_, mixedIfSelect condition, rfl⟩⟩
+
+private theorem mixedIfLeafRun (condition : BitVec 32) :
+    (mixedIfGraph condition).Runs (mixedIfChecked condition) ⟨0⟩ (.invoke mixedArgs) (.done (.values mixedResults)) := by
+  have found : (mixedIfGraph condition).lookup ⟨0⟩ = some (mixedIfCallee condition) := rfl
+  have rule {a b : Phase} := ((mixedIfGraph condition).edge_iff (mixedIfChecked condition) (a := a) (b := b) found).mpr
+  have selected := (Relation.ReflTransGen.single (rule (.enter mixedArgs rfl))).tail (mixedIfSelect condition)
+  by_cases zero : condition = 0
+  · simp only [mixedIfSelected, ite_eq_left zero] at selected
+    have entered := selected.tail (rule (.indexedBlockEnter beforeMixed [] mixedArgs indexedType mixedSig
+      (flatBody ++ mixedBranch) [] rfl rfl))
+    exact entered.trans (mixedLeafFinish (mixedIfChecked condition) found mixedBranch
+      (.branchHere (kind := .indexed mixedSig) afterMixed [] mixedResults mixedSig.results [] rfl) rfl)
+  · simp only [mixedIfSelected, ite_eq_right zero] at selected
+    have entered := selected.tail (rule (.indexedBlockEnter beforeMixed [] mixedArgs indexedType mixedSig flatBody [] rfl rfl))
+    exact entered.trans (mixedLeafFinish (mixedIfChecked condition) found [] (.leaveValues afterMixed mixedResults) rfl)
+
+-- Both arms return [i32 7, i64 11]. The caller resumes with its i32 9
+-- prefix and original locals, then consumes the two delivered operands.
+private theorem mixedIfResume (condition : BitVec 32) :
+    (mixedIfGraph condition).Runs (mixedIfChecked condition) ⟨1⟩ (.call []) mixedResumed :=
+  mixedResume (mixedIfChecked condition) rfl (mixedIfLeafRun condition)
+
+example := checkedIndexedRun (mixedIfChecked 1) (mixedIfRoot 1) (.call (args := []) rfl) (mixedIfResume 1)
+example := checkedIndexedRun (mixedIfChecked 0) (mixedIfRoot 0) (.call (args := []) rfl) (mixedIfResume 0)
+example (condition : BitVec 32) := checkedIndexedRun (mixedIfChecked condition) (mixedIfRoot condition)
+  (.call (args := []) rfl) (mixedFinish (mixedIfChecked condition) rfl (mixedIfResume condition))
 
 end IndexedBlocks
 

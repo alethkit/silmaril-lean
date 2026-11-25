@@ -31,7 +31,7 @@ private theorem code_expression (code : List Op) :
     rw [ih]
     cases op with
     | numeric op => cases op <;> rfl
-    | set | tee | call | block | indexedBlock | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
+    | set | tee | call | block | indexedBlock | indexedIf | loop | if_ | br | brIf | brTable | return_ | unreachable => rfl
 
 private theorem expression_code (fn : Function) :
     expression fn.v1Func.body = (Body.running fn.initial fn.code).render v1Admin := by
@@ -168,6 +168,8 @@ private theorem region_sound {H : Type} {s : Store H} {program : Program} (check
   case blockStep locals saved result rest inner next step ih =>
     cases ready with
     | block ready _ => exact lift_nested (by simp) (label_outcome step ⟨_, _, rfl⟩) (ih ready ⟨_, _, rfl⟩ ((Bool.and_eq_true_iff.mp supported).1))
+  case indexedIfSelect =>
+    contradiction
   case indexedBlockEnter =>
     simp [Phase.supportsV1, Body.supportsV1, codeV1, Op.supportsV1] at supported
   case indexedBlockStep =>
@@ -327,7 +329,7 @@ private theorem emit_to_lime (op : Op) (supported : op.supportsV1 = true) :
   cases op with
   | numeric op => cases op <;> rfl
   | set | tee | call | br | brIf | brTable | return_ | unreachable => rfl
-  | indexedBlock => contradiction
+  | indexedBlock | indexedIf => contradiction
   | block result code =>
     change Wasm.V1.Instr.toLime (.block result (Op.emitList v1CodeSyntax code)) =
       .block (Blocks.limeType result) (Op.emitList limeCodeSyntax code)
