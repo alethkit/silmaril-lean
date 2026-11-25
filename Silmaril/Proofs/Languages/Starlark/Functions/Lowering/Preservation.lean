@@ -163,6 +163,13 @@ private theorem saved_read {limit : Nat} {s : State} {reads : List Languages.Sta
     rw [ih]
     rfl
 
+private theorem saved_head {limit : Nat} {s : State} {read : Languages.Starlark.Lists.Expr}
+    {reads : List Languages.Starlark.Lists.Expr} {value : Value} {values : List Value}
+    (saved : Saved limit s (read :: reads) (value :: values)) (free : ScratchFree s) :
+    denote read s = .ok value s ∧ Saved limit s reads values := by
+  cases saved with
+  | cons _ stored tail => exact ⟨read_temp free _ stored, tail⟩
+
 private def SimulatesMany (program : Program) (available : List DeclarationId) (s : State)
     (expressions : List SourceExpr) (out : Outcome (List Value)) : Prop :=
   SameScope (finishState out) s ∧
@@ -293,6 +300,76 @@ private theorem simCall {program : Program} {available : List DeclarationId}
     exact ⟨_, ran, continueMatch related final⟩
   | ok value final =>
     exact ⟨_, ran, StateMatch.write (continueMatch related final) target value⟩
+
+private theorem simCollectionError {program : Program} {available : List DeclarationId}
+    {s u : State} {expression : SourceExpr} {operands : List SourceExpr} {error : Error}
+    (ih : SimulatesMany program available s operands (.error error u))
+    (compiled : ∀ start target, ∃ rest, ((emit expression target).run start).1 =
+      (((stages operands).run start).1.map Prod.fst).foldr Body.seq rest) :
+    Simulates program available s expression (.error error u) := by
+  refine ⟨ih.1, ?_⟩
+  intro start target t same free _
+  obtain ⟨final, after, step⟩ := ih.2 start t same free
+  obtain ⟨rest, emitted⟩ := compiled start target
+  refine ⟨final, ?_, after⟩
+  rw [evaluate, emitted, step]
+
+private theorem simCollection {program : Program} {available : List DeclarationId}
+    {s u : State} {expression : SourceExpr} {operands : List SourceExpr} {values : List Value}
+    {operation : Meaning Value} (ih : SimulatesMany program available s operands (.ok values u))
+    (action : FrameAction operation)
+    (resultExpr : Nat → List Languages.Starlark.Lists.Expr → Languages.Starlark.Lists.Expr)
+    (compiled : ∀ start target, ((emit expression target).run start).1 =
+      let parts := ((stages operands).run start).1
+      (parts.map Prod.fst).foldr Body.seq (assign target (resultExpr start (parts.map Prod.snd))))
+    (readResult : ∀ start w, ScratchFree w →
+      let collected := (stages operands).run start
+      let reads := collected.1.map Prod.snd
+      Saved collected.2 w reads values → denote (resultExpr start reads) w = operation w) :
+    Simulates program available s expression (operation u) := by
+  refine ⟨scopeTrans (action.2 u) ih.1, ?_⟩
+  intro start target t same free _
+  obtain ⟨w, related, saved, step⟩ := ih.2 start t same free
+  have sameU : StateMatch 0 u w := reboundBack same ih.1 related
+  have freeW := StateMatch.free sameU (scopeFree ih.1 free)
+  have ran : evaluate program available expression target start t =
+      commit target (mapFrame (rebind · w.bindings) (operation u)) := by
+    rw [evaluate, compiled, step, assign_eq, readResult start w freeW saved, frameRun action.1 sameU]
+  generalize operation u = out at ran ⊢
+  cases out with
+  | error error final => exact ⟨_, ran, continueMatch related final⟩
+  | ok value final => exact ⟨_, ran, StateMatch.write (continueMatch related final) target value⟩
+
+private theorem simList {program : Program} {available : List DeclarationId}
+    {s : State} {elements : List SourceExpr} {out : Outcome (List Value)}
+    (ih : SimulatesMany program available s elements out) :
+    Simulates program available s (.list elements) (Outcome.resume out allocate) := by
+  cases out with
+  | error => exact simCollectionError ih (fun start target => ⟨_, emit_list elements target start⟩)
+  | ok values state =>
+    change Simulates program available s (.list elements) (allocate values state)
+    refine simCollection (operation := allocate values) ih (actionAllocate values)
+      (fun _ reads => .list (operandList reads))
+      (fun start target => emit_list elements target start) ?_
+    intro start w free
+    dsimp only
+    intro saved
+    simp only [denote, bind, EStateM.bind, saved_read saved free]
+
+private theorem simIndex {program : Program} {available : List DeclarationId}
+    {s u : State} {receiver subscript : SourceExpr} {value index : Value}
+    (ih : SimulatesMany program available s [receiver, subscript] (.ok [value, index] u)) :
+    Simulates program available s (.index receiver subscript) (readIndex value index u) := by
+  refine simCollection ih (indexAction value index)
+    (fun start _ => .index (scratchRead start) (scratchRead ((emit receiver (temporary start)).run (start + 1)).2))
+    (fun start target => emit_index receiver subscript target start) ?_
+  intro start w free
+  dsimp only
+  intro saved
+  simp only [stages_cons, List.map_cons] at saved
+  obtain ⟨readReceiver, rest⟩ := saved_head saved free
+  obtain ⟨readSubscript, _⟩ := saved_head rest free
+  simp only [denote, bind, EStateM.bind, readReceiver, readSubscript]
 
 private theorem combine {start next : Nat} {s t w final : State}
     (first : StateMatch start (rebind s t.bindings) w) (le : start ≤ next)
@@ -494,6 +571,17 @@ private theorem simulates {program : Program} {available : List DeclarationId}
   induction ran using Evaluates.rec
     (motive_2 := fun state expressions result _ => SimulatesMany program available state expressions result) with
   | atom safe eval => exact simAtom safe eval
+  | list _ ih => exact simList ih
+  | @index _ _ receiver subscript _ out _ _ receiverIH subscriptIH =>
+    cases out with
+    | error error final =>
+      exact simCollectionError (simManyTail receiverIH (simManyHeadError subscriptIH))
+        (fun start target => ⟨_, emit_index receiver subscript target start⟩)
+    | ok value final =>
+      exact simIndex (simManyTail receiverIH (simManyTail subscriptIH (simManyNil _ _ final)))
+  | @indexReceiverError _ _ receiver subscript _ _ ih =>
+    exact simCollectionError (simManyHeadError ih)
+      (fun start target => ⟨_, emit_index receiver subscript target start⟩)
   | call _ applied ih => exact simCall ih applied
   | callError _ ih => exact simCallError ih
   | branch _ checked _ test selected => exact simBranch test checked selected

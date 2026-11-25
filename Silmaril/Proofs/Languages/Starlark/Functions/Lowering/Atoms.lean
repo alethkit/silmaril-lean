@@ -72,7 +72,7 @@ private theorem readSequenceAction (values : List Value) (index : Value) :
   unfold readSequence
   exact actionBind (actionExcept _) fun _ => actionPure _
 
-private theorem indexAction (receiver index : Value) : FrameAction (readIndex receiver index) := by
+theorem indexAction (receiver index : Value) : FrameAction (readIndex receiver index) := by
   cases receiver with
   | scalar | builtin | function | string => exact actionThrow _
   | list => exact actionBind (actionList _) (readSequenceAction · index)

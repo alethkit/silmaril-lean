@@ -35,6 +35,15 @@ structure Lowered where
 @[expose] def emit (expression : Expr) (target : Binding) : StateM Nat Body :=
   match expression with
   | .atom value => pure (assign target value)
+  | .list elements => do
+    let parts ← elements.attach.mapM fun element => do
+      have := List.sizeOf_lt_of_mem element.property
+      stage (emit element.val)
+    return (parts.map Prod.fst).foldr Body.seq (assign target (.list (operandList (parts.map Prod.snd))))
+  | .index receiver subscript => do
+    let (first, value) ← stage (emit receiver)
+    let (second, index) ← stage (emit subscript)
+    return .seq first (.seq second (assign target (.index value index)))
   | .call callee positional keywords star starStar => do
     let (before, callable) ← stage (emit callee)
     let parts ← (argumentExprs positional keywords star starStar).attach.mapM fun part => do

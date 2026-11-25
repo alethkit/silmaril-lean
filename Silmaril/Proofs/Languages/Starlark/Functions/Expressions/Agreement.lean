@@ -14,6 +14,26 @@ open Silmaril.Languages.Starlark.Functions.Lowering
 open Silmaril.Languages.Starlark.Lists
 open Silmaril.Languages.Starlark.Lists.Iteration (truth truth_finishState)
 
+private theorem denote_list (program : Program) (available : List DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (state : State) (elements : List Lowering.Expr) :
+    denoteExprWith program available bodyMeaning (.list elements) state =
+      Outcome.resume (elements.mapM (denoteExprWith program available bodyMeaning) state) allocate := by
+  let meaning := denoteExprWith program available bodyMeaning
+  have traverse : elements.attach.mapM (meaning ∘ Subtype.val) = elements.mapM meaning := by
+    rw [← List.mapM_map]
+    change elements.attach.unattach.mapM meaning = _
+    rw [List.unattach_attach]
+  rw [denoteExprWith]
+  change Outcome.resume (elements.attach.mapM (meaning ∘ Subtype.val) state) allocate = _
+  rw [traverse]
+
+private theorem denote_index (program : Program) (available : List DeclarationId)
+    (bodyMeaning : ClosureMeaning available) (state : State) (receiver subscript : Lowering.Expr) :
+    denoteExprWith program available bodyMeaning (.index receiver subscript) state =
+      Outcome.resume (denoteExprWith program available bodyMeaning receiver state) (fun value next =>
+        Outcome.resume (denoteExprWith program available bodyMeaning subscript next) (readIndex value)) := by
+  rw [denoteExprWith]
+
 private theorem denote_call (program : Program) (available : List DeclarationId)
     (bodyMeaning : ClosureMeaning available) (state : State)
     (callee : Lowering.Expr) (positional : List Lowering.Expr) (keywords : List (String × Lowering.Expr))
@@ -71,6 +91,10 @@ theorem denote_eq_of_evaluates {program : Program} {available : List Declaration
     (motive_2 := fun state expressions out _ =>
       expressions.mapM (denoteExprWith program available bodyMeaning) state = out) with
   | atom safe ran => rw [denoteExprWith]; exact (eval_iff_denote _ _ _).mp ran
+  | list ran ih => rw [denote_list, ih]
+  | index receiver subscript receiverIH subscriptIH =>
+    simp only [denote_index, receiverIH, Outcome.resume, subscriptIH]
+  | indexReceiverError ran ih => simp only [denote_index, ih, Outcome.resume]
   | call operands applied ih =>
     rw [denote_call, ih, Outcome.resume]
     exact application_eq closureEq applied
@@ -156,6 +180,15 @@ theorem evaluates_denote (program : Program) (available : List DeclarationId)
   | atom safe =>
     rw [denoteExprWith]
     exact .atom safe ((eval_iff_denote _ _ _).mpr rfl)
+  | @list elements all ih =>
+    rw [denote_list]
+    exact .list (operands_denote program available calls bodyMeaning elements ih state)
+  | @index receiver subscript _ _ receiverIH subscriptIH =>
+    rw [denote_index]
+    have ran := receiverIH state
+    cases tested : denoteExprWith program available bodyMeaning receiver state with
+    | error error next => exact .indexReceiverError (tested ▸ ran)
+    | ok value next => exact .index (tested ▸ ran) (subscriptIH next)
   | @call callee positional keywords star starStar all ih =>
     rw [denote_call]
     let operands := sourceOperands callee positional keywords star starStar
@@ -231,6 +264,12 @@ theorem denote_atom_operands (program : Program) (available : List DeclarationId
 theorem admits_all_atoms (expression : Lowering.Expr) : AdmittedWith (fun _ => True) expression := by
   cases expression with
   | atom => exact .atom trivial
+  | list elements =>
+    refine .list ?_
+    intro element member
+    have := List.sizeOf_lt_of_mem member
+    exact admits_all_atoms element
+  | index receiver subscript => exact .index (admits_all_atoms receiver) (admits_all_atoms subscript)
   | logical op left right => exact .logical (admits_all_atoms left) (admits_all_atoms right)
   | branch test yes no =>
     exact .branch (admits_all_atoms test) (admits_all_atoms yes) (admits_all_atoms no)

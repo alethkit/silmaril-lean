@@ -12,6 +12,8 @@ constructor accepts existing scalar trees, subject to the checks below. -/
 inductive SourceExpr where
   | scalar (expression : Starlark.SourceExpr)
   | string (text : String)
+  | list (elements : List SourceExpr)
+  | index (receiver subscript : SourceExpr)
   | call (callee : SourceExpr) (positional : List SourceExpr)
       (keywords : List (String × SourceExpr)) (star starStar : Option SourceExpr)
   | conditional (test yes no : SourceExpr)
@@ -59,6 +61,13 @@ private def resolveScalar (context : Context) : Starlark.SourceExpr → Tracked 
 private def resolveExpr (context : Context) : SourceExpr → Tracked Expr
   | .scalar expression => resolveScalar context expression
   | .string text => pure (.atom (.string text))
+  | .list elements => do
+    let resolved ← elements.attach.mapM fun element => do
+      have := List.sizeOf_lt_of_mem element.property
+      resolveExpr context element.val
+    return .list resolved
+  | .index receiver subscript =>
+    return .index (← resolveExpr context receiver) (← resolveExpr context subscript)
   | .call callee positional keywords star starStar => do
     let callee ← resolveExpr context callee
     let positional ← positional.attach.mapM fun ⟨expression, member⟩ => do

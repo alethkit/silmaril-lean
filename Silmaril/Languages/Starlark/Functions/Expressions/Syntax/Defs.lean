@@ -6,10 +6,12 @@ public section
 
 namespace Silmaril.Languages.Starlark.Functions.Lowering
 
-/-- Resolved expressions that can nest calls, branch, or short-circuit.
+/-- Resolved expressions with nested calls and collection operands.
 An atom uses the existing call-free collection expression language. -/
 inductive Expr where
   | atom (expression : Lists.Expr)
+  | list (elements : List Expr)
+  | index (receiver subscript : Expr)
   | call (callee : Expr) (positional : List Expr) (keywords : List (String × Expr))
       (star starStar : Option Expr)
   | branch (test yes no : Expr)

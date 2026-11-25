@@ -40,6 +40,14 @@ prepared closure bodies to the supplied denotation. -/
 def denoteExprWith (program : Program) (available : List DeclarationId)
     (bodyMeaning : ClosureMeaning available) : Expr → Meaning Lists.Value
   | .atom code => Lists.denote code
+  | .list elements => fun state =>
+    let values := elements.attach.mapM fun element => do
+      have := List.sizeOf_lt_of_mem element.property
+      denoteExprWith program available bodyMeaning element.val
+    Outcome.resume (values state) Lists.allocate
+  | .index receiver subscript => fun state =>
+    Outcome.resume (denoteExprWith program available bodyMeaning receiver state) fun value next =>
+      Outcome.resume (denoteExprWith program available bodyMeaning subscript next) (Lists.readIndex value)
   | .call callee positional keywords star starStar => do
     let callable ← denoteExprWith program available bodyMeaning callee
     let values ← (argumentExprs positional keywords star starStar).attach.mapM fun operand => do

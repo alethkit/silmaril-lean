@@ -17,6 +17,8 @@ syntax:max num : starlarkExpr
 syntax:max str : starlarkExpr
 syntax:max "(" starlarkExpr ")" : starlarkExpr
 syntax:max starlarkExpr:max "(" starlarkArg,*,? ")" : starlarkExpr
+syntax:max starlarkExpr:max "[" starlarkExpr "]" : starlarkExpr
+syntax:max "[" starlarkExpr,*,? "]" : starlarkExpr
 syntax:75 "-" starlarkExpr:75 : starlarkExpr
 scoped syntax:30 starlarkExpr:30 " and " starlarkExpr:31 : starlarkExpr
 scoped syntax:25 starlarkExpr:25 " or " starlarkExpr:26 : starlarkExpr
@@ -27,10 +29,8 @@ syntax "*" starlarkExpr : starlarkArg
 syntax ident " = " starlarkExpr : starlarkArg
 syntax starlarkExpr : starlarkArg
 
--- Recognize common unadmitted forms to point to the relevant token.
+-- Recognize binary addition to point to the unadmitted operator.
 syntax:60 starlarkExpr:60 " + " starlarkExpr:61 : starlarkExpr
-syntax:max starlarkExpr:max "[" starlarkExpr "]" : starlarkExpr
-syntax:max "[" starlarkExpr,*,? "]" : starlarkExpr
 
 /-- Quote one expression as a normalized, unresolved `Resolve.SourceExpr` term. -/
 scoped syntax "starlark%[" starlarkExpr "]" : term
@@ -112,6 +112,11 @@ private meta def quoteExpr (expression : TSyntax `starlarkExpr) : MacroM (TSynta
     checkDecimal literal
     `(Resolve.SourceExpr.scalar (.int (-$literal)))
   | `(starlarkExpr| $callee($args,*)) => quoteCall callee args.getElems
+  | `(starlarkExpr| $receiver[$subscript]) =>
+    `(Resolve.SourceExpr.index starlark%[$receiver] starlark%[$subscript])
+  | `(starlarkExpr| [$elements,*]) => do
+    let quoted ← elements.getElems.mapM fun element => `(starlark%[$element])
+    `(Resolve.SourceExpr.list [$[$quoted],*])
   | `(starlarkExpr| $left and $right) =>
     `(Resolve.SourceExpr.logical .and starlark%[$left] starlark%[$right])
   | `(starlarkExpr| $left or $right) =>
@@ -120,10 +125,6 @@ private meta def quoteExpr (expression : TSyntax `starlarkExpr) : MacroM (TSynta
     `(Resolve.SourceExpr.conditional starlark%[$test] starlark%[$yes] starlark%[$no])
   | `(starlarkExpr| $_ + $_) =>
     Macro.throwErrorAt expression.raw[1] "binary '+' is outside the Starlark expression quotation"
-  | `(starlarkExpr| $_[$_]) =>
-    Macro.throwErrorAt expression.raw[1] "subscripts are outside the Starlark expression quotation"
-  | `(starlarkExpr| [$_args,*]) =>
-    Macro.throwErrorAt expression.raw[0] "list displays are outside the Starlark expression quotation"
   | _ => Macro.throwErrorAt expression "unsupported Starlark expression"
 
 macro_rules
