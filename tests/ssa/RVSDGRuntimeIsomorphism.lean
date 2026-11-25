@@ -205,6 +205,35 @@ example (depth : Nat) : RunRelated machine ids (call moduleL depth) (call module
   exportedCall_related compatible 17 17 0 depth modulesIso (fun i _ => allocatedIds i)
     (.cons (.data _) .nil) (.tail .head) (.cons (.state _) .nil)
 
+private def importWires : Wires [address, callable] [] [callable] :=
+  .cons (.arg (.tail .head)) .nil
+
+private def client : OmegaTerm Op [callable] [callable] [[callable]] :=
+  let adapter : LambdaTerm Op [callable] [] fn :=
+    ⟨[callable], .cons (.arg .head) .nil, [returned], wrap.body⟩
+  ⟨.bind (.lambda adapter) (.ret (.cons (.output (0 : Fin 1) .head) .nil))⟩
+
+private theorem clientIso : client.toGraph.RenumberedBy client.toGraph (Equiv.refl _) :=
+  (client.renumberedBy_toGraph_iff client (Equiv.refl _)).2
+    ⟨Fin.cases (.lambda ⟨⟨rfl, rfl⟩, wrapperIso.2⟩) (fun i => i.elim0), rfl⟩
+
+private def clientCall (provider : OmegaTerm Op [word] [address, callable] sigs) (depth : Nat) :
+    Option (Tuple machine.Val returned) := do
+  let provided ← linkGraph machine 17 provider.toGraph seed
+  let exports ← linkGraph machine 18 client.toGraph (wireImports machine importWires provided)
+  invoke machine 0 depth (exports.get .head) input
+
+example (depth : Nat) : RunRelated machine ids (clientCall moduleL depth) (clientCall moduleR depth) :=
+  exportedCall_withImports_related compatible 18 18 0 depth
+    (linkGraph_related compatible 17 17 modulesIso (fun i _ => allocatedIds i) (.cons (.data _) .nil))
+    importWires clientIso (Fin.cases (fun impossible => impossible.elim) (fun i => i.elim0))
+    .head (.cons (.state _) .nil)
+
+example : clientCall moduleL 2 = none := by cbv
+example : clientCall moduleR 2 = none := by cbv
+example : clientCall moduleL 3 = some answer := by cbv
+example : clientCall moduleR 3 = some answer := by cbv
+
 private abbrev loopTick {past : List (Ports T)} :
     NestedTheta.Node (Instruction Op) [st] past feedback :=
   ⟨[st], .base (.simple (.primitive .loopTick)), .cons (.arg .head) .nil, fun j => j.elim0⟩

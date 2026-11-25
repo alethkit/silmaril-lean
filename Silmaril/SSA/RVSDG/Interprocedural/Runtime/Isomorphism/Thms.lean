@@ -20,6 +20,13 @@ theorem TupleRelated.get {left right : Tuple m.Val outs} (paired : TupleRelated 
     {t : Ty V S} (port : Port outs t) : ValueRelated m ids (left.get port) (right.get port) :=
   Isomorphism.Proofs.get_related paired port
 
+/-- Explicit import wires preserve the provider's related colours, including
+repeated reads of an export port. -/
+theorem wireImports_related (wires : Wires outs [] args) {left right : Tuple m.Val outs}
+    (exports : TupleRelated m ids left right) :
+    TupleRelated m ids (wireImports m wires left) (wireImports m wires right) :=
+  Isomorphism.Proofs.wireImports_related wires exports
+
 theorem RunRelated.some_left {left : Tuple m.Val outs} {right : Option (Tuple m.Val outs')}
     (paired : RunRelated m ids (some left) right) :
     ∃ output, right = some output ∧ TupleRelated m ids left output := by
@@ -72,5 +79,29 @@ theorem exportedCall_related (respects : PrimitivesRespect m ids) (unitL unitR l
       ((linkGraph m unitR right importsR).bind (fun exports => invoke m loops calls (exports.get port) inR)) :=
   Isomorphism.Proofs.bind_related (linkGraph_related respects unitL unitR iso allocated imports)
     (fun _ _ exports => invoke_related respects loops calls (exports.get port) inputs)
+
+/-- Resolve a client's ordered imports from related provider runs, link the
+client, and invoke its export at the same typed port on both sides. -/
+theorem exportedCall_withImports_related (respects : PrimitivesRespect m ids)
+    (unitL unitR loops calls : Nat) {provided : Ports (Ty V S)}
+    {providerL providerR : Option (Tuple m.Val provided)} (providers : RunRelated m ids providerL providerR)
+    (wires : Wires provided [] args)
+    {left : Omega Op args outs sigs} {right : Omega Op args outs sigs'}
+    {rename : Fin sigs.length ≃ Fin sigs'.length} (iso : left.RenumberedBy right rename)
+    (allocated : ∀ i, Allocates (left.region.vertices i) → ids (unitL, i.val) (unitR, (rename i).val))
+    {params results : Ports (Ty V S)} (port : Port outs (.value (.function params results)))
+    {inL inR : Tuple m.Val params} (inputs : TupleRelated m ids inL inR) :
+    RunRelated m ids
+      (do
+        let providerExports ← providerL
+        let exports ← linkGraph m unitL left (wireImports m wires providerExports)
+        invoke m loops calls (exports.get port) inL)
+      (do
+        let providerExports ← providerR
+        let exports ← linkGraph m unitR right (wireImports m wires providerExports)
+        invoke m loops calls (exports.get port) inR) :=
+  Isomorphism.Proofs.bind_related providers (fun _ _ exports =>
+    exportedCall_related respects unitL unitR loops calls iso allocated
+      (wireImports_related wires exports) port inputs)
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime

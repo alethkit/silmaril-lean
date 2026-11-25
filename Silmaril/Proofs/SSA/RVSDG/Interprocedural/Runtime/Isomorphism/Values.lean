@@ -101,6 +101,16 @@ theorem get_related {x y : Tuple m.Val ports} (pair : TupleRelated m ids x y)
   cases tags with
   | some related => cases related with | tagged values => exact values
 
+theorem wireImports_related (wires : Wires ports [] args) {left right : Tuple m.Val ports}
+    (exports : TupleRelated m ids left right) :
+    TupleRelated m ids (wireImports m wires left) (wireImports m wires right) := by
+  induction wires with
+  | nil => exact .nil
+  | cons wire rest ih =>
+    cases wire with
+    | arg port => exact .cons (get_related exports port) ih
+    | output vertex port => exact vertex.elim0
+
 private theorem collect_related {R : Sigma m.Val → Sigma m.Val → Prop} {xs ys : List (Option (Sigma m.Val))}
     (pair : List.Forall₂ (Option.Rel R) xs ys) :
     Option.Rel (List.Forall₂ R) (xs.mapM id) (ys.mapM id) := by

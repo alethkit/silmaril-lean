@@ -34,7 +34,11 @@ contain φ, this linker rejects both. Recursive φ environments are
 outside this theorem. `invoke_related` compares calls at the same
 call-depth and per-θ bounds, including selected γ arms and finite
 θ execution. `exportedCall_related` composes the actual linker with
-invocation at the same typed export port. Bound exhaustion leaves
+invocation at the same typed export port. `wireImports_related` transports
+ordered import wiring, including fan-out. `exportedCall_withImports_related`
+consumes related results from linking a provider, wires the client's
+imports, links the client, and invokes its export. It covers supplied
+typed import wiring between translation units. Bound exhaustion leaves
 divergence undecided.
 
 The fixture swaps two independent global allocations and two independent
@@ -43,6 +47,9 @@ vertices inside a λ body. The exported wrapper captures and calls that
 exhaust at depth one and return data 42 and state 51 at depth two.
 A second fixture renumbers a θ body and verifies the same bound
 exhaustion and carried-state return across two body activations.
+A separate client imports the provider's exported wrapper, captures it
+and calls it from its own export. This path exhausts at depth two and
+returns data 42 and state 51 at depth three in both numberings.
 [Fixture](../../tests/ssa/RVSDGRuntimeIsomorphism.lean)
 
 ```sh
