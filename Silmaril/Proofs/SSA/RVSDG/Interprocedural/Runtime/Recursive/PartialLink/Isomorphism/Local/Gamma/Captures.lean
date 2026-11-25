@@ -123,6 +123,21 @@ theorem feedback_captures {context params : Ports (Ty V S)} {sigs : List (Ports 
     obtain ⟨_, next, carried⟩ := returned_captures fixed caps input ran
     exact ⟨next, congrArg (fun | .cons _ carry => carry) carried⟩
 
+/-- The same captures are present in a successful body result after
+any finite sequence of completed feedback steps. -/
+theorem returned_captures_after_feedback {context params : Ports (Ty V S)} {sigs : List (Ports (Ty V S))}
+    {body : LoopBody Op (context ++ params) sigs} {first current : Tuple m.Val (context ++ params) × σ}
+    {tag : m.Val (.control 2)} {value : Tuple m.Val (context ++ params)} {store : σ}
+    (fixed : PreservesLoopCaptures Op context params body) (caps : Tuple m.Val context)
+    (initial : ∃ input, first.1 = prependContext input caps)
+    (completed : ReflTransGen (Feedback.Iteration primitives body) first current)
+    (ran : Eval primitives (.region body current.1 PUnit.unit) current.2 (.returned (.cons tag value) store)) :
+    ∃ next, value = prependContext next caps := by
+  obtain ⟨input, same⟩ := feedback_captures fixed caps initial completed
+  rw [same] at ran
+  obtain ⟨_, next, carried⟩ := returned_captures fixed caps input ran
+  exact ⟨next, congrArg (fun | .cons _ carry => carry) carried⟩
+
 theorem related_arguments {context params : Ports (Ty V S)} {capsL capsR : Tuple m.Val context}
     {inputL inputR : Tuple m.Val params}
     (related : TupleRelated m ids (prependContext inputL capsL) (prependContext inputR capsR)) :

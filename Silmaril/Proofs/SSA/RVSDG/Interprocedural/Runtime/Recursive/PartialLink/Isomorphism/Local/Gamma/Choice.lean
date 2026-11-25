@@ -3,6 +3,7 @@ module
 public import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Defs
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Captures
 import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Regions
+import Silmaril.Proofs.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Feedback
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Thms
 import Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.Tail.Prefix.Thms
 
@@ -104,7 +105,7 @@ theorem prefix_pair {args outs : Ports (Ty V S)} {fn : Function V S}
     {entryL entryR : Tuple m.Val args} {localsL localsR : Locals m.Val past}
     {valueL valueR : m.Val fn.port} {store : σ}
     (respects : ActionsRespect primitives ids) (route : ChoicePrefix Op args fn past final steps)
-    (source : Origin args past fn.port)
+    (ordered : route.Ordered mapping) (source : Origin args past fn.port)
     (entries : TupleRelated m ids entryL entryR) (locals : AlignedLocals m ids localsL localsR)
     (callable : ValueRelated m ids valueL valueR)
     (liveL : wireValue source entryL localsL = valueL) (liveR : wireValue source entryR localsR = valueR)
@@ -117,7 +118,7 @@ theorem prefix_pair {args outs : Ports (Ty V S)} {fn : Function V S}
   | done => exact resume store locals liveL liveR
   | primitive opcode inputs route ih =>
     exact primitive_pair respects opcode inputs (Local.aligned_read entries locals inputs) store
-      (fun values middle => ih (store := middle) (extendOrigin source _) (locals.snoc values)
+      (fun values middle => ih (store := middle) ordered (extendOrigin source _) (locals.snoc values)
         ((extended_origin_read source entryL localsL _).trans liveL)
         ((extended_origin_read source entryR localsR _).trans liveR) resume)
   | @forward _ _ _ extra selector route ih =>
@@ -136,7 +137,32 @@ theorem prefix_pair {args outs : Ports (Ty V S)} {fn : Function V S}
         (.ret (past := []) (.cons (.arg .head) .nil) (.cons valueL .nil) PUnit.unit store))
       (selectedR.symm ▸ Eval.gamma (children := arms)
         (.ret (past := []) (.cons (.arg .head) .nil) (.cons valueR .nil) PUnit.unit store))
-      (ih (joinedOrigin fn) (locals.snoc (.cons callable .nil))
+      (ih ordered (joinedOrigin fn) (locals.snoc (.cons callable .nil))
         (joined_origin_read entryL localsL valueL) (joined_origin_read entryR localsR valueR) resume)
+
+  | @theta past _ _ _ carry initial body fixed route ih =>
+    obtain ⟨_, scheduled, ordered⟩ := ordered
+    let wiring := Tuple.cons source initial
+    have initialL : ∃ input, Wires.read wiring entryL localsL = prependContext input (.cons valueL .nil) :=
+      ⟨initial.read entryL localsL, congrArg (fun value => Tuple.cons value (initial.read entryL localsL)) liveL⟩
+    have initialR : ∃ input, Wires.read wiring entryR localsR = prependContext input (.cons valueR .nil) :=
+      ⟨initial.read entryR localsR, congrArg (fun value => Tuple.cons value (initial.read entryR localsR)) liveR⟩
+    refine loop_scoped_with_exit (bodyL := body) (bodyR := body) wiring (Local.aligned_read entries locals wiring) ?_ ?_
+    · intro current _
+      exact regions scheduled respects current.related current.store
+    · intro current tag resultL resultR middle completed ranL ranR values
+      obtain ⟨nextL, sameL⟩ := returned_captures_after_feedback fixed (.cons valueL .nil) initialL
+        (left_completed completed) ranL
+      obtain ⟨nextR, sameR⟩ := returned_captures_after_feedback fixed (.cons valueR .nil) initialR
+        (right_completed completed) ranR
+      have readL : wireValue (loopOrigin fn carry) entryL (localsL.snoc resultL) = valueL := by
+        rw [sameL]
+        exact congrArg (fun (tuple : Tuple m.Val (fn.port :: carry)) => tuple.get .head)
+          (Tail.Prefix.read_forwarding entryL localsL (.cons valueL nextL))
+      have readR : wireValue (loopOrigin fn carry) entryR (localsR.snoc resultR) = valueR := by
+        rw [sameR]
+        exact congrArg (fun (tuple : Tuple m.Val (fn.port :: carry)) => tuple.get .head)
+          (Tail.Prefix.read_forwarding entryR localsR (.cons valueR nextR))
+      exact ih (store := middle) ordered (loopOrigin fn carry) (locals.snoc values) readL readR resume
 
 end Silmaril.SSA.RVSDG.Interprocedural.Runtime.Recursive.PartialLink.Isomorphism.Local.Gamma.Proofs
