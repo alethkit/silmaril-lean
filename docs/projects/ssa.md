@@ -69,7 +69,7 @@ bridge relates the two.
 | Thesis initiality | `Silmaril.SSA.Thesis.Thms` | re-exports the Raw port of the thesis λiter and λcase (`Silmaril.Raw.SSA.Thesis`): `Syn.isInitial` in `Alg S`, equational completeness |
 | Thesis categorical models | `Silmaril.SSA.Thesis.Categorical.Thms` | λiter derivations denoted in strong Elgot Freyd categories, `Alg.ofCategorical`, initiality into those models, non-vacuity of `Alg S` |
 | Thesis Kleisli model | `Silmaril.SSA.Thesis.Kleisli.Thms` | the Kleisli category of a lawful Elgot monad as a λiter model: `TypingCoherent` and `LawfulModel` instances, initiality into it, and the instance at `Part` |
-| Quantitative refinement | `Silmaril.SSA.Isotope.Refinement.Thms` | re-exports the Raw quantitative refinement calculus (`Silmaril.Raw.SSA.Isotope.Refinement`): usage-annotated typing, refinement theories, initiality among algebraic and ordered models, completeness, categorical interpretation in seq/case/iter models |
+| Quantitative refinement | `Silmaril.SSA.Isotope.Refinement.Thms` | usage-annotated typing, rewrite theories, ordered constructor models, and strict categorical models of letseq, letcase and letiter |
 | Let-iter bridge | `Silmaril.SSA.Isotope.Bridge.{Defs,Thms}` | term and context translations between `Silmaril.Isotope.LetIter` and the thesis λiter, preservation of typing, axioms and equivalence, agreement of the two completeness theorems |
 | Dataflow | `Silmaril.Calculi.Dataflow.{Defs,Thms}` | round-robin (Gauss–Seidel) iteration over `Silmaril.Semantics.Dataflow` equation systems |
 
@@ -191,6 +191,31 @@ completeness `Models.{refinement,mutual_refinement,equation}_iff_all_models`,
 `Theory.{refinement,equational}Functor`, and the categorical interpretation
 `Models.Denotation.denote{Seq,Case,Iter}` with `fold_unique`.
 
+The quantitative categorical results use the free types `Ty α` and a fixed
+instruction signature. Their objects are sequential ordered symmetric
+premonoidal models, distributive branching models, and iterative models with
+strong directed Conway iteration, respectively. Morphisms preserve the chosen
+structure strictly.
+
+- `Models.Denotation.{seq,case,iter}WitnessCoherent` and
+  `{seq,case,iter}_validates_refines` give typing witness coherence and
+  soundness for every quantitative context. The iterative result covers
+  effectful directed uniformity.
+- `Models.Interpretation.free{Seq,Case,Iter}ModelIsInitial` gives the free
+  native singleton-term quotient's initiality. `{seq,case,iter}IsInitial`
+  gives initiality for a formed `RewriteSystem` closed under quantitative
+  renaming and native pure substitution. The initiality categories place
+  homs in the instruction universe.
+- `Models.Interpretation.{seq,case,iter}_{refines,equates}_iff_models` gives
+  completeness for terms with one input `Syntactic.input A`. The native
+  presented models validate their rewrite systems in arbitrary contexts.
+
+These declarations correspond to the quantitative refinement development at
+source revision `cc9b669ac91832336c04eac000dbc9cf34913bd9`, under
+`Models/Denotation`, `Models/Syntactic` and `Models/Interpretation`.
+The λSSA categorical semantics above treats the general multi-exit region
+judgment, whose codomain is a finite coproduct of exit types.
+
 Bridge (`Silmaril.SSA.Isotope.Bridge.Thms`), under the explicit compatibility
 hypotheses `TypeCompat`, `InstrCompat`, `EffCompat` (each discharged by `rfl` for
 the canonical instances): `hasType_iff`, `pure_iff`, `coreAxiom_iff` (the same 19
@@ -234,7 +259,8 @@ coalgebra, guarded iteration and free-extension property remains open.
 | Proof-relevant LetIter typed equations in the associated Kleisli model | proved under a lawful Elgot monad and the typed instruction model |
 | Exact LetIter equations translated to thesis categorical models | proved under signature compatibility, typing coherence and lawful model hypotheses |
 | Exactly typed λSSA expressions and nested CFG regions have structural categorical denotations | proved, with uniqueness under the corresponding coherence class |
-| Soundness and initiality of the categorical refinement models in this library | open |
+| Quantitative categorical soundness and initiality | proved for letseq, letcase and letiter over the fixed signature |
+| Quantitative categorical completeness | proved for singleton-input refinement and equations |
 | Bridge: typing, axioms, equivalence, completeness agreement | proved under `TypeCompat`, `InstrCompat`, `EffCompat` |
 | A translation of models between the Isotope equational models and `Alg S`; equivalence of the model categories; bridges for let-seq and let-case | open |
 | The paper's "syntax is the initial distributive Elgot category" | open |
