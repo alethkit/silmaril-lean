@@ -80,6 +80,40 @@ theorem lime_unreachable_iff {H : Type} {s : Store H} {f : Frame}
       dst = ⟨s, f, values stack ++ .trap :: rest⟩ :=
   Proofs.Lime1.unreachable_iff
 
+open Core in
+theorem core_set_read {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    {stack : List Value} {index : LocalIdx} {rest : List Admin} {dst : Config H}
+    (move : Step P noHost ⟨s, f.toCore, coreValues stack ++ .plain (.localSet index) :: rest⟩ dst) :
+    ∃ saved v next, stack = saved ++ [v] ∧ Locals.Edge ⟨f.locals, [.value v, .set index]⟩ ⟨next, []⟩ ∧
+      dst = ⟨s, (⟨next, f.module⟩ : Execution.Runtime.Frame).toCore, coreValues saved ++ rest⟩ :=
+  Proofs.Core.set_read move
+
+open Core in
+theorem core_tee_read {H : Type} {P : Profile} {s : Store H} {f : Execution.Runtime.Frame}
+    {stack : List Value} {index : LocalIdx} {rest : List Admin} {dst : Config H}
+    (move : Step P noHost ⟨s, f.toCore, coreValues stack ++ .plain (.localTee index) :: rest⟩ dst) :
+    ∃ saved v, stack = saved ++ [v] ∧
+      Locals.Edge ⟨f.locals, [.value v, .tee index]⟩ ⟨f.locals, [.value v, .value v, .set index]⟩ ∧
+      dst = ⟨s, f.toCore, coreValues (saved ++ [v, v]) ++ .plain (.localSet index) :: rest⟩ :=
+  Proofs.Core.tee_read move
+
+open Wasm.Lime1.Execution in
+theorem lime_set_read {H : Type} {s : Store H} {f : Frame} {stack : List Value} {index : LocalIdx}
+    {rest : List Admin} {dst : Config H}
+    (move : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.localSet index) :: rest⟩ dst) :
+    ∃ saved v next, stack = saved ++ [v] ∧ Locals.Edge ⟨f.locals, [.value v, .set index]⟩ ⟨next, []⟩ ∧
+      dst = ⟨s, ⟨next, f.module⟩, values saved ++ rest⟩ :=
+  Proofs.Lime1.set_read move
+
+open Wasm.Lime1.Execution in
+theorem lime_tee_read {H : Type} {s : Store H} {f : Frame} {stack : List Value} {index : LocalIdx}
+    {rest : List Admin} {dst : Config H}
+    (move : Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.localTee index) :: rest⟩ dst) :
+    ∃ saved v, stack = saved ++ [v] ∧
+      Locals.Edge ⟨f.locals, [.value v, .tee index]⟩ ⟨f.locals, [.value v, .value v, .set index]⟩ ∧
+      dst = ⟨s, f, values (saved ++ [v, v]) ++ .source (.localSet index) :: rest⟩ :=
+  Proofs.Lime1.tee_read move
+
 theorem guard_to_lime {H : Type} {s : Wasm.V1.Execution.Store H} {caller : Frame} {site : Site}
     (g : V1Guard s caller site) : LimeGuard (s.mapCode Wasm.V1.Func.toLime) caller site :=
   Proofs.guard_to_lime g

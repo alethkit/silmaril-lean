@@ -35,7 +35,7 @@ allocation premises.
 The [ranked graph judgment](../../Silmaril/Wasm/Institution/Operational/CallContinuation/OuterCall/Ranked/Graph/Thms.lean)
 interprets one typed activation at a time by well-founded recursion on resolved
 targets. The graph checker derives the target table from each body and checks
-the typed operand prefix, read-only local reads, integer binary operations,
+the typed operand prefix, local reads and writes, integer binary operations,
 direct calls, and normal fallthrough. The judgment also covers unreachable and
 partial trap discards. Exact active-call inversion identifies the child's step
 and the caller's unchanged continuation. Finite runs preserve typing and the
@@ -52,8 +52,17 @@ retain the declared mixed-width result order. The native fixtures pass through f
 simultaneous frames before returning to the original caller or propagating a trap,
 including separate discards of pending code and saved operands.
 
+The graph composes the existing [numeric local SOS](../../Silmaril/Wasm/Institution/Operational/Locals/Native/Thms.lean)
+with ranked calls. Each entered frame carries its current numeric locals,
+initialized from arguments and default locals. The checker validates the
+slot type for both writes. `local.set` consumes its operand. `local.tee` duplicates the operand and schedules a
+set, leaving the write visible as a separate native successor. On return, the
+caller resumes with its saved locals and operands. On a trap, pending writes
+are discarded as the frames unwind. Regressions check modified child values,
+isolation of both local vectors, and caller restoration in all three dialects.
+
 The graph fragment excludes recursion, indirect and host calls, explicit return,
-unrestricted control flow, state updates, and whole-module validation.
+unrestricted control flow, store mutation, and whole-module validation.
 
 The shared legacy baseline uses the native public Wasm V1 and Lime1 relations.
 Lime1-specific multi-value and bulk-memory cases and newer Core features have
