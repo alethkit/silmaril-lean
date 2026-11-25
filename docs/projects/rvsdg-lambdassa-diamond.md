@@ -33,14 +33,16 @@ and region typing coherence gives equality with `denoteRegion`.
 [Theorems](../../Silmaril/SSA/RVSDG/LambdaSSA/Diamond/Categorical/Thms.lean)
 
 This result interprets implicit effects for the admitted five-block
-shape. The numbered physical-token admission and adequacy of this
-shape are outside its scope. The partial-state regression checks
+shape. The [numbered physical-token extension](rvsdg-lambdassa-diamond-explicit-runtime.md)
+adds admission and finite-return adequacy for the same shape. The
+partial-state regression checks
 the full loop through the shared Kleisli interpretation. The
 join exit returns payload `(2,3)` and state `[1,2,3,4]`, recording the
 header, classifier, selected left arm, and join in order. A feedback
 run next takes the header exit with payload `4` and state
-`[1,2,3,4,1]`. The right arm is undefined and is skipped in both
-successful runs. Selecting it gives no finite observation.
+`[1,2,3,4,1]`. The right arm is undefined at the tokens in both
+successful runs and is skipped. Selecting it without the initial
+marker gives no finite observation.
 [Fixture](../../tests/ssa/RVSDGLambdaSSADiamond.lean)
 
 ## Reproduce
