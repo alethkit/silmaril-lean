@@ -1,6 +1,7 @@
 module
 
 public import Silmaril.Wasm.Execution.Core.Inversion.Defs
+public import Silmaril.Wasm.Institution.Operational.Blocks.Native.Defs
 public import Silmaril.Wasm.Lime1.Execution.Callout
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Thms
@@ -66,6 +67,13 @@ theorem lime_direct_call_iff {H : Type} {s : Wasm.Lime1.Execution.Store H} {f : 
       ⟨s, f, Wasm.Lime1.Execution.values stack ++ .source (.call i) :: tail⟩ dst ↔
       dst = ⟨s, f, Wasm.Lime1.Execution.values stack ++ .invoke addr :: tail⟩ :=
   Proofs.Lime1.call_iff lookup
+
+open Wasm.Lime1.Execution in
+theorem lime_block_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+    {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.block (Blocks.limeType result) body) :: rest⟩ dst ↔
+      dst = ⟨s, f, values stack ++ .label result.toList.length [] (expression body) :: rest⟩ :=
+  Proofs.Lime1.block_iff
 
 theorem core_unreachable_iff {H : Type} {P : Profile} {s : Core.Store H} {f : Core.Frame}
     {stack : List Core.Val} {rest : List Core.Admin} {dst : Core.Config H} :

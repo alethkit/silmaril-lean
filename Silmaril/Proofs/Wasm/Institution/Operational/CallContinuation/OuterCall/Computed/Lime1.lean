@@ -5,6 +5,8 @@ public import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Nati
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Rules
 public import Silmaril.Wasm.Lime1.Execution.Callout
+public import Silmaril.Wasm.Institution.Operational.Blocks.Native.Defs
+import Silmaril.Wasm.Institution.Operational.Blocks.Native.Thms
 import Silmaril.Proofs.Wasm.Institution.Operational.CallContinuation.Lime1Head
 import Silmaril.Wasm.Institution.Operational.CallFrame.Native.Thms
 
@@ -22,6 +24,7 @@ private inductive Focus : Wasm.Lime1.Instr → Prop where
   | bin (t : IntType) (op : IntBinOp) : Focus (.intBinOp t op)
   | call (i : FuncIdx) : Focus (.call i)
   | unreachable : Focus .unreachable
+  | block (bt : Wasm.Lime1.BlockType) (code : Wasm.Lime1.Expr) : Focus (.block bt code)
   | set (i : LocalIdx) : Focus (.localSet i)
   | tee (i : LocalIdx) : Focus (.localTee i)
 
@@ -44,6 +47,9 @@ private inductive Redex (f : Frame) : Wasm.Lime1.Instr → List Value → Frame 
       Redex f (.localSet i) [v] { f with locals := f.locals.set i.toNat v } []
   | tee {i : LocalIdx} {v : Value} :
       Redex f (.localTee i) [v] f [value v, value v, .source (.localSet i)]
+  | block {bt : Wasm.Lime1.BlockType} {code : Wasm.Lime1.Expr} {ft : Wasm.Lime1.FuncType} {vs : List Value}
+      (resolved : blockType? f.module.types bt = some ft) (arity : vs.length = ft.params.length) :
+      Redex f (.block bt code) vs f [.label ft.results.length [] (values vs ++ expression code)]
 
 private theorem redex_shape {stack used : List Value} {op i : Wasm.Lime1.Instr} {rest : List Admin}
     (focus : Focus op) (source : values stack ++ .source op :: rest = values used ++ [.source i])
@@ -99,6 +105,9 @@ private theorem read_front {H : Type} {src dst : Config H} (step : Step CallFram
     | unreachable =>
       obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := []) focus source.symm rfl
       exact ⟨[], [], _, _, rfl, .unreachable, rfl⟩
+    | block bt code ft resolved vs arity =>
+      obtain ⟨rfl, rfl, rfl⟩ := redex_shape (used := vs) focus source.symm rfl
+      exact ⟨[], _, _, _, rfl, .block resolved arity, rfl⟩
     | _ =>
       simp only [List.append_assoc, List.singleton_append, first_prefix, first_value] at firstEq
       first
@@ -151,6 +160,26 @@ theorem unreachable_iff {H : Type} {s : Store H} {f : Frame}
   · rintro rfl
     simpa only [List.append_assoc, List.singleton_append] using
       Step.context (Step.pure (host := CallFrame.limeNoHost) s f PureStep.unreachable) stack rest
+
+theorem block_iff {H : Type} {s : Store H} {f : Frame} {result : Option NumType}
+    {stack : List Value} {body : Wasm.Lime1.Expr} {rest : List Admin} {dst : Config H} :
+    Step CallFrame.limeNoHost ⟨s, f, values stack ++ .source (.block (Blocks.limeType result) body) :: rest⟩ dst ↔
+      dst = ⟨s, f, values stack ++ .label result.toList.length [] (expression body) :: rest⟩ := by
+  constructor
+  · intro move
+    obtain ⟨saved, used, _, _, split, head, eq⟩ := read_front move (.block _ _) rfl
+    cases head with
+    | block resolved arity =>
+      have lookup : blockType? f.module.types (Blocks.limeType result) = some ⟨[], result.toList⟩ := by
+        cases result <;> rfl
+      rw [lookup] at resolved
+      cases resolved
+      have empty : used = [] := List.eq_nil_of_length_eq_zero arity
+      subst used
+      simpa [values, split] using eq
+  · rintro rfl
+    simpa only [List.append_assoc, List.singleton_append] using
+      Step.context ((Blocks.lime_entry_iff (host := CallFrame.limeNoHost)).mpr rfl) stack rest
 
 @[local simp] private theorem values_one (v : Value) : values [v] = [value v] := rfl
 

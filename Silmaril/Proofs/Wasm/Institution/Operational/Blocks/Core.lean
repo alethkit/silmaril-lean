@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.Blocks.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.Blocks.Thms
 public import Silmaril.Wasm.Institution.Operational.Locals.Native.Thms
+import Silmaril.Wasm.Execution.Core.Sim.Context
 
 @[expose] public section
 
@@ -54,13 +55,15 @@ private theorem singleton_head {H : Type} {P : Profile} {s : Store H} {f : Frame
       rw [first] at eq <;> simp_all
 
 private theorem head_block {H : Type} {P : Profile} {s : Store H} {f : Frame}
-    {result : Option NumType} {body : List Instr} {b : Config H}
-    (head : Head P s f [] (.plain (.block (coreType result) body)) b) :
-    b = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ := by
+    {result : Option NumType} {body : List Instr} {b : Config H} {args : List Val}
+    (head : Head P s f args (.plain (.block (coreType result) body)) b) :
+    args = [] ∧ b = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ := by
   cases head with
   | block found arity =>
     rw [resolve] at found
     cases found
+    have empty := List.eq_nil_of_length_eq_zero arity
+    subst args
     simp [vals]
   | _ =>
     first
@@ -80,10 +83,32 @@ theorem core_entry_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
       dst = ⟨s, f, [.label result.toList.length [] (expression body)]⟩ := by
   constructor
   · intro step
-    exact head_block (singleton_head step rfl (by simp) (by simp))
+    exact (head_block (singleton_head step rfl (by simp) (by simp))).2
   · rintro rfl
     simpa only [vals, List.map_nil, List.nil_append, List.length_map] using
       Step.block (P := P) (host := noHost) (s := s) (body := body) (vs := []) (resolve f.module result) rfl
+
+theorem core_context_entry_iff {H : Type} {P : Profile} {s : Store H} {f : Frame}
+    {result : Option NumType} {body : List Instr} {saved : List Val} {rest : List Admin} {dst : Config H} :
+    Step P noHost ⟨s, f, vals saved ++ .plain (.block (coreType result) body) :: rest⟩ dst ↔
+      dst = ⟨s, f, vals saved ++ .label result.toList.length [] (expression body) :: rest⟩ := by
+  constructor
+  · intro move
+    let head := Admin.plain (.block (coreType result) body)
+    have first : fnv (vals saved ++ head :: rest) = (saved, head :: rest) := by
+      simp [head, fnv_cons_of_none (a := head) rfl]
+    rcases Silmaril.Wasm.SingleThreaded.Det.Step.decomp move with h | bubble
+    · obtain ⟨kept, args, op, tail, next, eq, _, step, rfl⟩ := fnv_headDec h
+      rw [first] at eq
+      obtain ⟨shape, same⟩ := Prod.mk.inj eq
+      obtain ⟨rfl, rfl⟩ := List.cons.inj same
+      obtain ⟨rfl, rfl⟩ := head_block step
+      simp [shape]
+    · obtain ⟨_, _, _, _, _, ⟨eq, _, _⟩ | ⟨_, eq, _, _⟩⟩ := fnv_bubble bubble <;>
+        rw [first] at eq <;> simp [head] at eq
+  · rintro rfl
+    simpa only [List.append_assoc, List.singleton_append] using
+      Sim.Step.vals_left (Sim.Step.append_right (core_entry_iff.mpr rfl) rest) saved
 
 private theorem head_label {H : Type} {P : Profile} {s : Store H} {m : ModuleInst}
     {result : Option NumType} {a : Locals.State} {b : Config H}
