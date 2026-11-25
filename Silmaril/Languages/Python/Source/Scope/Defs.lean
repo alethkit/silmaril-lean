@@ -282,6 +282,7 @@ mutual
     | .comparison left rest => do collectComparands (← collectExpr block left) rest
     | .call callee arguments => do collectExprs (← collectExpr block callee) arguments
     | .callWith callee arguments => do collectArguments (← collectExpr block callee) arguments
+    | .starred value => collectExpr block value
     | .attribute receiver _ => collectExpr block receiver
     | .subscript receiver index => do collectExpr (← collectExpr block receiver) index
     | .slice receiver lower upper stride => do

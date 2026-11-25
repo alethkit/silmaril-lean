@@ -49,7 +49,7 @@ def outer(seed):
     λ = "\ud800"
     rate = 1.0
     count = 5
-    class C(metaclass=Meta):
+    class C(*bases, metaclass=Meta):
         def method(self, *, key: Type = alias):
             return lambda: key
     return C
@@ -60,6 +60,8 @@ def outer(seed):
         assert '.name "λ"' in generated, generated
         check_lean(destination, """
 #guard ((analyze pythonSource).toOption.bind (·.atPath [0])).bind (·.access "Meta") ==
+  some .implicitGlobal
+#guard ((analyze pythonSource).toOption.bind (·.atPath [0])).bind (·.access "bases") ==
   some .implicitGlobal
 #guard ((analyze pythonSource).toOption.bind (·.atPath [0])).bind (·.access "λ") ==
   some .local
