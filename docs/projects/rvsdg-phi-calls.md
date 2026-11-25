@@ -62,19 +62,20 @@ locals. The node reads its operands in that scope. An application opens
 the callee with fresh locals, and γ enters only its selected child. When
 the result arrives, the machine appends the entire typed tuple to the
 saved locals before running the remainder. The caller's earlier wires
-and the callee's returned ports can both feed later nodes.
+and the callee's returned ports can both feed later nodes. A θ loop
+frame keeps this enclosing continuation. Each body starts with empty
+locals and takes the carried tuple as its input. Selector `1` feeds
+back the carried ports to a fresh body activation. Selector `0` returns
+those ports to the enclosing binding, which resumes the saved suffix.
 [Machine definitions](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Defs.lean)
 
-Every completed trace gives an independent `Returns` derivation.
-Conversely, induction on `Returns` constructs the steps to completion
-or to unsupported control. At each step, the invariant interprets the
-active job and each pending suffix with the existing judgment. An
-admitted start has no reachable unsupported state. The theorem
-`completes_iff` characterizes completion as finite return with
-admission, and `completes_call_iff_invoke` relates admitted calls to a
-successful call of the actual bounded evaluator. Primitives, applications,
-and selected γ regions are supported. Encountered θ nodes and standalone
-iteration jobs stop as unsupported. The theorem concerns finite returns.
+At each step the proof invariant interprets the active job and each
+pending frame with the independent `Returns` judgment. Induction on
+`Returns` constructs a completed trace, using both the stopping and
+continuing θ rules. The theorem `completes_iff_returns` gives both
+directions for all existing jobs, including θ. The real bounded
+evaluator agrees on the same full tuple through `Recursive.call_iff`.
+The theorem concerns finite returns.
 [Adequacy API](../../Silmaril/SSA/RVSDG/Interprocedural/Runtime/Recursive/Continuation/Thms.lean)
 
 The linked φ regression descends twice before a base call. An exact
@@ -83,8 +84,15 @@ including the saved state before each callee runs. The prefixes append
 `1` to state, the base appends `2`, and each suffix appends `3` and the
 length of its own saved prefix state. The final tuple is data `12` and
 state `[1, 1, 2, 3, 2, 3, 1]`. Both the stack machine and the existing
-bounded evaluator return it. A separate returning θ job checks the
-unsupported outcome.
+bounded evaluator return it.
+
+A second module links a λ that captures the φ member and calls it from
+inside θ. The fixture checks that the second body starts with empty
+locals and the fed-back tuple. It then checks that exit returns the
+carried tuple to the same parent continuation. The final state
+`[1, 4, 2, 5, 4, 2, 6, 3, 1]` records the parent prefix, both body and
+callee activations, feedback, exit, and the resumed suffix. The
+bounded evaluator agrees and exhausts with only one allowed iteration.
 [Continuation fixture](../../tests/ssa/RVSDGRecursiveContinuations.lean)
 
 ```sh

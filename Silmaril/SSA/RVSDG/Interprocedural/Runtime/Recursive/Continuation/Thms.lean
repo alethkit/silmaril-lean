@@ -57,8 +57,7 @@ theorem admitted_of_completes {state : State m outs} (_completed : Completes sta
 
 theorem completes_iff :
     Completes (start job) output ↔ Returns m job output ∧ Admitted (start job) :=
-  ⟨fun completed => ⟨completes_sound completed, admitted_of_completes completed⟩,
-    fun ⟨returned, _⟩ => completes_of_returns returned⟩
+  completes_iff_returns.trans (and_iff_left (admitted_all (start job))).symm
 
 /-- For a supported call, completion agrees with every finite return of the
 real interpreter, including all value and state ports. -/

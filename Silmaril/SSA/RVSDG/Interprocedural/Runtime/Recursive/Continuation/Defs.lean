@@ -79,8 +79,7 @@ def Step (source target : State m outs) : Prop :=
 def State.Unsupported (state : State m outs) : Prop :=
   state.next = none ∧ state.result = none
 
-/-- The run stays within the supported control fragment. This condition
-only constrains selected γ arms and actual linked callees. -/
+/-- Reachable states avoid incomplete termination. -/
 def Admitted (state : State m outs) : Prop :=
   ∀ reached, Relation.ReflTransGen Step state reached → ¬ reached.Unsupported
 

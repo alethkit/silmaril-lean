@@ -167,10 +167,12 @@ private def postLoop : NestedTheta.Node (Instruction Op) bodyArgs [[state], body
     .cons (.output (1 : Fin 2) (.tail .head)) (.cons (.output (1 : Fin 2) (.tail (.tail .head)))
       (.cons (.output (0 : Fin 2) .head) .nil)), fun i => i.elim0⟩
 
+private def driverSuffix : NestedTheta.Term (Instruction Op) bodyArgs [[state], bodyArgs] [results] results :=
+  .bind postLoop (fun i => i.elim0) <|
+    .ret (.cons (.output (2 : Fin 3) .head) (.cons (.output (2 : Fin 3) (.tail .head)) .nil))
+
 private def driverBody : NestedTheta.Term (Instruction Op) bodyArgs [] [[state], bodyArgs, results] results :=
-  .bind prefixNode (fun i => i.elim0) <| .bind loopNode (fun _ => loopBody) <|
-    .bind postLoop (fun i => i.elim0) <|
-      .ret (.cons (.output (2 : Fin 3) .head) (.cons (.output (2 : Fin 3) (.tail .head)) .nil))
+  .bind prefixNode (fun i => i.elim0) (.bind loopNode (fun _ => loopBody) driverSuffix)
 
 private def driver : LambdaTerm Op [] [[callable]] fn :=
   ⟨[callable], .cons (.output (0 : Fin 1) .head) .nil, [[state], bodyArgs, results], driverBody⟩
@@ -182,6 +184,20 @@ private def linkedDriver : machine.Val callable :=
   (Recursive.linkGraph machine 19 loopModule.toGraph .nil).get .head
 
 private def loopJob : Job machine results := .call linkedDriver (arguments 2 [])
+
+private def waitingParent : Stack machine bodyArgs results :=
+  .resume (past := [[state]]) driverSuffix.toGraph.toTerm (.cons callee (arguments 2 []))
+    (.cons (.state ([1] : List Nat)) .nil, PUnit.unit) .halt
+
+-- The feedback step starts a second body with empty locals and retains
+-- the original parent continuation.
+example : State.runFor 31 (start loopJob) =
+    .eval (.region loopBody.toGraph.toTerm (.cons callee (arguments 1 [1, 4, 2, 5])) PUnit.unit)
+      (.loop loopBody.toGraph.toTerm waitingParent) := by cbv
+
+-- Exit hands the carried tuple to the same parent, discarding the tag.
+example : State.runFor 54 (start loopJob) =
+    .returned (.cons callee (arguments 0 [1, 4, 2, 5, 4, 2, 6])) waitingParent := by cbv
 
 private def loopExpected : Tuple machine.Val results :=
   .cons (.data (1 : Nat)) (.cons (.state ([1, 4, 2, 5, 4, 2, 6, 3, 1] : List Nat)) .nil)
