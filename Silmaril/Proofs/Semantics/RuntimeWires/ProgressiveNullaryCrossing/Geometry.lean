@@ -14,30 +14,50 @@ universe u v
 
 variable {O : Type u} {S : Signature.{u,v} O} {V W : ℕ}
 variable {d : Diagram S V W .point} {moved other : Fin V} {s : d.NullarySlide moved}
-variable (c : s.Crossing other)
+variable {side : NullarySlide.Side} (c : s.Crossing other side)
 
 include c in
-theorem different : other ≠ moved :=
-  fun eq => c.horizontal.ne (congrArg d.vertexX eq.symm)
+theorem different : other ≠ moved := by
+  intro same
+  subst other
+  have h := c.horizontal
+  cases side <;> exact lt_irrefl _ h
 
 include c in
 theorem height_other {h : ℝ} (hw : h ∈ Set.Icc s.bottom s.top) :
     (s.atHeight h hw).vertexHeight other = d.vertexHeight other :=
   s.stationary_height hw (different c)
 
-theorem tied_pair : c.tied.IsolatesPair moved other c.lowerCut c.upperCut := by
-  have moved_height : c.tied.vertexHeight moved = d.vertexHeight other := s.moved_height _
-  refine ⟨(height_other c _).trans moved_height.symm, c.horizontal, c.lower_inside,
+theorem center_height_left :
+    c.tied.vertexHeight (side.leftVertex moved other) = d.vertexHeight other := by
+  cases side
+  · exact s.moved_height _
+  · exact height_other c _
+
+theorem center_height_right :
+    c.tied.vertexHeight (side.rightVertex moved other) = d.vertexHeight other := by
+  cases side
+  · exact height_other c _
+  · exact s.moved_height _
+
+theorem tied_pair :
+    c.tied.IsolatesPair (side.leftVertex moved other) (side.rightVertex moved other)
+      c.lowerCut c.upperCut := by
+  refine ⟨(center_height_right c).trans (center_height_left c).symm, c.horizontal, c.lower_inside,
     ?_, ?_, c.upper_inside, ?_⟩
-  · rw [moved_height]
+  · rw [center_height_left c]
     exact c.lower_bottom.trans (c.bottom_early.trans c.early_other)
-  · rw [moved_height]
+  · rw [center_height_left c]
     exact c.other_late.trans (c.late_top.trans c.top_upper)
   · intro j band
-    by_cases eq : j = moved
-    · exact Or.inl eq
-    · apply c.only
-      rwa [show c.tied.vertexHeight j = d.vertexHeight j from s.stationary_height _ eq] at band
+    have only : j = moved ∨ j = other := by
+      by_cases eq : j = moved
+      · exact Or.inl eq
+      · apply c.only
+        rwa [show c.tied.vertexHeight j = d.vertexHeight j from s.stationary_height _ eq] at band
+    cases side
+    · exact only
+    · exact only.symm
 
 private theorem atHeight_eq {a b : ℝ} (ha : a ∈ Set.Icc s.bottom s.top)
     (hb : b ∈ Set.Icc s.bottom s.top) (same : a = b) : s.atHeight a ha = s.atHeight b hb := by
@@ -45,11 +65,9 @@ private theorem atHeight_eq {a b : ℝ} (ha : a ∈ Set.Icc s.bottom s.top)
   rfl
 
 theorem tied_frame : ∃ t, s.frame t = c.tied := by
-  obtain ⟨t, pair, _⟩ := s.isolated_crossing c.horizontal
-    ⟨c.bottom_early.trans c.early_other, c.other_late.trans c.late_top⟩
-    c.lower_inside c.lower_bottom c.top_upper c.upper_inside c.only
-  have atCenter : s.heightAt t = d.vertexHeight other :=
-    (s.moved_height (s.height_mem t)).symm.trans (pair.same_height.symm.trans (height_other c _))
+  obtain ⟨t, atCenter⟩ := s.hits_height
+    (show d.vertexHeight other ∈ Set.Icc s.bottom s.top from
+      ⟨(c.bottom_early.trans c.early_other).le, (c.other_late.trans c.late_top).le⟩)
   exact ⟨t, atHeight_eq (s.height_mem t) _ atCenter⟩
 
 private theorem exclude {h : ℝ} (valid : h ∈ Set.Icc s.bottom s.top)
@@ -119,7 +137,7 @@ private theorem endpoint_cases (cap : ℝ) (outside : cap < c.lowerCut ∨ c.upp
     by_cases high : c.upperCut < c.tied.vertexHeight j
     · exact Or.inr (Or.inr high)
     · exact Or.inr (Or.inl (((tied_pair c).toLayer.only_height j
-        ⟨le_of_not_gt low, le_of_not_gt high⟩).trans (s.moved_height _)))
+        ⟨le_of_not_gt low, le_of_not_gt high⟩).trans (center_height_left c)))
 
 private theorem lower_cases (w : Fin W) : c.tied.lower w < c.lowerCut ∨
     c.tied.lower w = d.vertexHeight other ∨ c.upperCut < c.tied.lower w :=

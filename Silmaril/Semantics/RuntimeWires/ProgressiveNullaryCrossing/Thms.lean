@@ -21,7 +21,7 @@ theorem TwoEventSlice.unique {d : ProgressiveGraph.Diagram S V W .point} {i j : 
 namespace NullarySlide.Crossing
 
 variable {d : ProgressiveGraph.Diagram S V W .point} {moved other : Fin V}
-variable {s : d.NullarySlide moved} (c : s.Crossing other)
+variable {s : d.NullarySlide moved} {side : NullarySlide.Side} (c : s.Crossing other side)
 
 /-- The tied drawing is a frame of the continuous slide. -/
 theorem tied_frame : ∃ t, s.frame t = c.tied :=
