@@ -68,51 +68,59 @@ private theorem pack_mono (A B : τ) : Mono (packStepExits (Φ := Φ) A B) :=
     simpa only [Category.assoc, pack_unpack, Category.comp_id] using
       congrArg (fun f => f ≫ unpack (Φ := Φ) A B) h⟩
 
-variable {A B D : τ} {t : Tm Φ} {p q : Region Φ}
+variable {A B D : τ} {p q r : Region Φ}
 
-private def localChange (B : τ) (ht : Tm.HasType [A] t D) :
+private theorem widenReturn (hr : ValueBranches [A] r [D]) : ValueBranches [A] r [D, B] := by
+  have labels : LSubst.ValueFamily [A] [D] [D, B] (labelId : Nat → Region Φ) := by
+    intro i T hi
+    cases i with
+    | zero => exact .br hi (.var (i := 0) rfl)
+    | succ i => simp [At] at hi
+  simpa only [lsubst_labelId] using hr.lsubst labels
+
+private def localChange (B : τ) (hr : ValueBranches [A] r [D]) :
     (N).obj ((single A).append (single B)) ⟶
       (N).obj ((single D).append (single B)) :=
-  toHom (Φ := Φ) (Γ := []) ⟨boundLocalMap t, by
+  toHom (Φ := Φ) (Γ := []) ⟨regionLocalMap r, by
     intro i T hi
     change At [A, B] i T at hi
     cases i with
     | zero =>
       cases Option.some.inj hi
-      exact .let₁ ht (.br (ℓ := 0) rfl (.var (i := 0) rfl))
+      exact widenReturn hr
     | succ i => exact .br (ℓ := i + 1) hi (.var (i := 0) rfl)⟩
 
 @[reassoc]
-private theorem localChange_repeat (ht : Tm.HasType [A] t D) :
-    (N).map ((single A).appendInl (single B)) ≫ localChange B ht =
-      (F).map (boundReturn ht) ≫ (N).map ((single D).appendInl (single B)) := by
+private theorem localChange_repeat (hr : ValueBranches [A] r [D]) :
+    (N).map ((single A).appendInl (single B)) ≫ localChange B hr =
+      (F).map (ofRegion hr) ≫ (N).map ((single D).appendInl (single B)) := by
   apply (toHom_eq_iff (Φ := Φ) (Γ := [])).mpr
   intro i T hi
   change At [A] i T at hi
   cases i with
   | zero =>
     cases Option.some.inj hi
-    change Paper.Eqv [A] (compLSubst labelId (boundLocalMap t) 0)
-      (compLSubst (fun _ => (Region.br 0 t).bindBranchArguments) labelId 0) [D, B]
+    change Paper.Eqv [A] (compLSubst labelId (regionLocalMap r) 0)
+      (compLSubst (fun _ => r) labelId 0) [D, B]
     rw [compLSubst_id_left, compLSubst_id_right]
-    exact .refl (.let₁ ht (.br (ℓ := 0) rfl (.var (i := 0) rfl)))
+    exact .refl (widenReturn (B := B) hr).hasType
   | succ i => simp [At] at hi
 
 @[reassoc]
-private theorem localChange_outward (ht : Tm.HasType [A] t D) :
-    (N).map ((single A).appendInr (single B)) ≫ localChange B ht =
+private theorem localChange_outward (hr : ValueBranches [A] r [D]) :
+    (N).map ((single A).appendInr (single B)) ≫ localChange B hr =
       (N).map ((single D).appendInr (single B)) := by
   apply (toHom_eq_iff (Φ := Φ) (Γ := [])).mpr
   intro i T hi
   change At [B] i T at hi
-  change Paper.Eqv [T] (compLSubst labelId (boundLocalMap t) (1 + i))
+  change Paper.Eqv [T] (compLSubst labelId (regionLocalMap r) (1 + i))
     (labelId (1 + i)) [D, B]
   rw [compLSubst_id_left, Nat.one_add]
   exact .refl (.br (ℓ := i + 1) hi (.var (i := 0) rfl))
 
-private theorem pack_localChange (ht : Tm.HasType [A] t D) :
-    packStepExits A B ≫ (F).map (coprod.map (𝟙 (ofType B)) (boundReturn ht)) =
-      localChange B ht ≫ packStepExits D B := by
+private theorem pack_localChange (hr : ValueBranches [A] r [D]) :
+    packStepExits A B ≫ (F).map (coprod.map (𝟙 (ofType B)) (ofRegion hr)) =
+      localChange B hr ≫ packStepExits D B := by
   apply append_hom_ext (single A) (single B)
   · rw [pack_repeat_assoc, ← (F).map_comp, coprod.inr_map, (F).map_comp, localChange_repeat_assoc,
       pack_repeat]
@@ -120,17 +128,17 @@ private theorem pack_localChange (ht : Tm.HasType [A] t D) :
       localChange_outward_assoc, pack_outward]
 
 private theorem arrow_square_iff (hp : ValueBranches [A] p [A, B])
-    (hq : ValueBranches [D] q [D, B]) (ht : Tm.HasType [A] t D) :
-    stepArrow hp ≫ coprod.map (𝟙 (ofType B)) (boundReturn ht) =
-        boundReturn ht ≫ stepArrow hq ↔
-      Paper.singletonArrow hp ≫ localChange B ht = (F).map (boundReturn ht) ≫ Paper.singletonArrow hq := by
-  have left : (F).map (stepArrow hp ≫ coprod.map (𝟙 (ofType B)) (boundReturn ht)) =
-      (Paper.singletonArrow hp ≫ localChange B ht) ≫ packStepExits D B := by
+    (hq : ValueBranches [D] q [D, B]) (hr : ValueBranches [A] r [D]) :
+    stepArrow hp ≫ coprod.map (𝟙 (ofType B)) (ofRegion hr) =
+        ofRegion hr ≫ stepArrow hq ↔
+      Paper.singletonArrow hp ≫ localChange B hr = (F).map (ofRegion hr) ≫ Paper.singletonArrow hq := by
+  have left : (F).map (stepArrow hp ≫ coprod.map (𝟙 (ofType B)) (ofRegion hr)) =
+      (Paper.singletonArrow hp ≫ localChange B hr) ≫ packStepExits D B := by
     rw [(F).map_comp]
     change (Paper.singletonArrow hp ≫ packStepExits A B) ≫ _ = _
     rw [Category.assoc, pack_localChange, Category.assoc]
-  have right : (F).map (boundReturn ht ≫ stepArrow hq) =
-      ((F).map (boundReturn ht) ≫ Paper.singletonArrow hq) ≫ packStepExits D B := by
+  have right : (F).map (ofRegion hr ≫ stepArrow hq) =
+      ((F).map (ofRegion hr) ≫ Paper.singletonArrow hq) ≫ packStepExits D B := by
     rw [(F).map_comp]
     exact (Category.assoc _ _ _).symm
   let : Mono (packStepExits (Φ := Φ) D B) := pack_mono D B
@@ -142,13 +150,13 @@ private theorem arrow_square_iff (hp : ValueBranches [A] p [A, B])
     apply (F).map_injective
     rw [left, right, square]
 
-theorem ordinary_square_iff (hp : ValueBranches [A] p [A, B])
-    (hq : ValueBranches [D] q [D, B]) (ht : Tm.HasType [A] t D) :
-    stepArrow hp ≫ coprod.map (𝟙 (ofType B)) (boundReturn ht) =
-        boundReturn ht ≫ stepArrow hq ↔
-      Paper.Eqv [A] (p.lsubst (liftLSubstVars (boundLocalMap t)))
-        ((Region.br 0 t).bindBranchArguments.lsubst (liftLSubstVars (fun _ => q))) [D, B] := by
-  rw [arrow_square_iff hp hq ht]
+theorem ordinary_square_of_region_iff (hp : ValueBranches [A] p [A, B])
+    (hq : ValueBranches [D] q [D, B]) (hr : ValueBranches [A] r [D]) :
+    stepArrow hp ≫ coprod.map (𝟙 (ofType B)) (ofRegion hr) =
+        ofRegion hr ≫ stepArrow hq ↔
+      Paper.Eqv [A] (p.lsubst (liftLSubstVars (regionLocalMap r)))
+        (r.lsubst (liftLSubstVars (fun _ => q))) [D, B] := by
+  rw [arrow_square_iff hp hq hr]
   constructor
   · intro sq
     exact (toHom_eq_iff (Φ := Φ) (Γ := [])).mp sq (i := 0) (A := A) rfl

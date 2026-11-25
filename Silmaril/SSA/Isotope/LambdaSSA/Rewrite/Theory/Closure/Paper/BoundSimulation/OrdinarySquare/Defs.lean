@@ -36,6 +36,12 @@ noncomputable def stepArrow (hp : ValueBranches [A] p [A, B]) :
     ofType (Φ := Φ) A ⟶ ofType B ⨿ ofType A :=
   InducedCategory.homMk (Paper.singletonArrow hp ≫ packStepExits A B)
 
+/-- Run a guarded singleton state change at feedback label zero, forwarding
+each outward exit with its original index. -/
+def regionLocalMap (r : Region Φ) : Nat → Region Φ
+  | 0 => r
+  | i + 1 => labelId (i + 1)
+
 /-- Bind the state expression once before taking the singleton exit. -/
 def boundReturn (ht : Tm.HasType [A] t D) : ofType (Φ := Φ) A ⟶ ofType D :=
   ofRegion (Paper.RetainedLet.returnOnce_typed ht)
