@@ -1,7 +1,6 @@
 module
 
-import Silmaril.SSA.RVSDG.LambdaSSA.Thms
-import Silmaril.SSA.RVSDG.LambdaSSA.Selector.Thms
+import Silmaril.SSA.RVSDG.LambdaSSA.Gamma.Thms
 import Mathlib.CategoryTheory.Limits.Types.Coproducts
 
 namespace Silmaril.SSA.RVSDG.LambdaSSA.Tests
@@ -117,5 +116,37 @@ example (i : Fin 3) :
     selectorTag types 2 i ≫ (selectorIso types Categorical.typeSelectors 2).hom =
       Categorical.typeSelectors.tag i :=
   selectorIso_tag types Categorical.typeSelectors 2 i
+
+private abbrev payload : List T := [word, word, word]
+
+private def pick : Fin 3 → Port payload word :=
+  Fin.cases (.tail (.tail .head)) (Fin.cases .head (fun _ => .tail .head))
+
+private def caseExpr : Tm Instr :=
+  .case (.var 0) (.var 4) (.case (.var 0) (.var 3) (.var 4))
+
+private def caseAdmission : GammaSSAForm 1 caseExpr payload word := ⟨pick, rfl⟩
+
+private def caseGraph : GammaGraph Instr 1 payload word := (lowerGammaGraph caseAdmission).1
+
+example : Tm.HasType (selectorType 2 :: payload) caseExpr word :=
+  (lowerGammaGraph caseAdmission).2.typing
+
+private def gammaForm : GammaRVForm 1 caseGraph.toTerm := by
+  refine ⟨pick, ?_⟩
+  change gammaTerm 1 pick = (gammaTerm 1 pick).toGraph.toTerm
+  exact (Term.toTerm_toGraph _).symm
+
+example : Tm.HasType (selectorType 2 :: payload) (raiseGammaGraph caseGraph gammaForm).1 word :=
+  (raiseGammaGraph caseGraph gammaForm).2.typing
+
+example : caseGraph.denote (valueModel types Categorical.typeSelectors primitive)
+    (⟨(0 : Fin 3)⟩, (10 : Nat), (20 : Nat), (30 : Nat), PUnit.unit) = ((30 : Nat), PUnit.unit) := rfl
+
+example : caseGraph.denote (valueModel types Categorical.typeSelectors primitive)
+    (⟨(1 : Fin 3)⟩, (10 : Nat), (20 : Nat), (30 : Nat), PUnit.unit) = ((10 : Nat), PUnit.unit) := rfl
+
+example : caseGraph.denote (valueModel types Categorical.typeSelectors primitive)
+    (⟨(2 : Fin 3)⟩, (10 : Nat), (20 : Nat), (30 : Nat), PUnit.unit) = ((20 : Nat), PUnit.unit) := rfl
 
 end Silmaril.SSA.RVSDG.LambdaSSA.Tests

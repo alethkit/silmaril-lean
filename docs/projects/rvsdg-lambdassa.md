@@ -1,7 +1,7 @@
 # Typed λSSA ↔ RVSDG correspondence
 
-The first translation fragment uses the repository's `Silmaril.Isotope.LambdaSSA.Tm`
-and `Tm.HasType`. An admitted open expression is a sequence of
+The translation fragments use the repository's `Silmaril.Isotope.LambdaSSA.Tm`
+and `Tm.HasType`. An admitted straight-line expression is a sequence of
 `let₁ (op f (var i))` bindings ending in `var j`. Each instruction has one
 typed argument and one typed result. A type code denotes one port, so a
 dialect can use a product type as a single operand or result. The fragment's
@@ -39,7 +39,7 @@ the standard chosen λSSA denotation. The proof covers the acyclic rules of
 the interface, so a strong Elgot Freyd model can instantiate it without using
 iteration.
 
-## Multiway selector boundary
+## Scoped terminal γ
 
 A λSSA selector for `n + 1` arms is a right-associated sum of `n + 1`
 copies of unit. `selectorLiteral` constructs a typed tag in actual λSSA
@@ -52,26 +52,46 @@ that the canonical isomorphism preserves each arm number. The types instance
 of the RVSDG model uses `ULift (Fin (n + 1))`.
 [Selector encoding][selector]
 
-The bidirectional theorem in this increment covers unary straight-line
-bindings and variable returns. Multiway γ needs a separate relation rule
-that lowers a left-first spine of λSSA cases, sends each arm an explicit
-ordered capture tuple, and closes the unit payload binder. This increment
-checks the selector boundary. It leaves case-spine lowering, arbitrary
-expressions, state ports, multiple exits, CFG restructuring, ordered effects
-and iteration open. The following institution work can use the typed
-correspondence as the syntax layer and the graph soundness theorem at the
+The scoped switch has one selector input and an ordered payload context
+`Γ`. For each arm, an indexed `Port Γ A` specifies the payload position
+returned at the common result type `A`. The λSSA expression is a left-first
+case spine starting from de Bruijn index zero. Each left arm returns the
+corresponding original payload variable. Each right arm cases on the newly
+bound suffix selector, until the final unit tag returns its payload variable.
+The arm positions are shifted through the binders and can never name a
+selector or unit introduced by the case spine.
+
+On the RVSDG side, the root has exactly one γ node whose first input is the
+control port and whose remaining inputs are all payload arguments in order.
+Every child is a fresh region with zero vertices and one result wire sourced
+from its selected payload argument. The root returns the γ result. This
+admission rule is syntactic and keeps the selector distinct even if its
+λSSA type code coincides with a payload type. The `lowerGammaGraph` and
+`raiseGammaGraph` fibres both use `GammaGraphRelated`.
+
+`GammaGraphRelated.sound` applies to any relation witness. The proof uses
+λSSA's contextual case combinator, the distributive law that carries the
+payload into the selected branch, and the coproduct property of the tagged
+RVSDG payload to cover all inputs. `GammaGraphRelated.denote_eq` identifies
+the chosen denotation under `TypingCoherent`. [Terminal γ theorems][gamma]
+
+The two slices admit open expressions. They leave computed selectors,
+instructions inside γ arms, composition of γ with straight-line bindings,
+arbitrary expression normalization, state ports, multiple exits, CFG
+restructuring, ordered effects and iteration open. A dialect institution can
+use these typed syntax relations and the graph soundness theorems at the
 model boundary.
 
 ## Reproduce
 
 ```sh
-lake build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.Thms +Silmaril.SSA.RVSDG.LambdaSSA.Selector.Thms
-make check CHECK_TARGETS='+Silmaril.SSA.RVSDG.LambdaSSA.Thms +Silmaril.SSA.RVSDG.LambdaSSA.Selector.Thms'
+lake build --wfail +Silmaril.SSA.RVSDG.LambdaSSA.Gamma.Thms
+make check CHECK_TARGETS=+Silmaril.SSA.RVSDG.LambdaSSA.Gamma.Thms
 ```
 
 The fixture uses two distinct base types, an argument wire, an output shared
-by two instructions, and a return from an older binding. It also checks
-the ordered selector encoding at arity three. [Fixture][fixture]
+by two instructions, and a return from an older binding. The switch fixture translates a concrete λSSA case spine and checks
+all three γ results in deliberately permuted payload order. [Fixture][fixture]
 
 The exact studied versions and PDF SHA-256 digests of Reissmann et al.,
 *RVSDG: An Intermediate Representation for Optimizing Compilers* (2020),
@@ -82,5 +102,6 @@ are pinned in the categorical milestone. The relevant passages are RVSDG
 
 [defs]: ../../Silmaril/SSA/RVSDG/LambdaSSA/Defs.lean
 [thms]: ../../Silmaril/SSA/RVSDG/LambdaSSA/Thms.lean
+[gamma]: ../../Silmaril/SSA/RVSDG/LambdaSSA/Gamma/Thms.lean
 [selector]: ../../Silmaril/SSA/RVSDG/LambdaSSA/Selector/Thms.lean
 [fixture]: ../../tests/ssa/RVSDGLambdaSSA.lean

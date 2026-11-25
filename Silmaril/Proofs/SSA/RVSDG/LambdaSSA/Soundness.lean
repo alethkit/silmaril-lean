@@ -107,10 +107,17 @@ private theorem comp_gather {X Y : D} (f : X ⟶ Y) (Γ : List τ)
     rw [CartesianMonoidalCategory.comp_lift, ih]
     rfl
 
-private theorem context_lookup (s : Scope root past Γ) (p : Port Γ A) :
+theorem context_lookup (s : Scope root past Γ) (p : Port Γ A) :
     s.contextMap M sel prim ≫ lookup M (index p) (index_at p) =
       Categorical.readOrigin (valueModel M sel prim) (s.origin p) :=
   gather_lookup M p _
+
+set_option backward.isDefEq.respectTransparency false in
+theorem entry_lookup (p : Port Γ A) :
+    entryMap M Γ sel prim ≫ lookup M (index p) (index_at p) =
+      Categorical.project (valueModel M sel prim) (inputPort p) := by
+  rw [entryMap, Category.assoc, context_lookup]
+  simp [Scope.origin, Categorical.readOrigin, Categorical.Model.locals]
 
 set_option backward.isDefEq.respectTransparency false in
 private theorem context_step (s : Scope root past Γ) (B : τ) :

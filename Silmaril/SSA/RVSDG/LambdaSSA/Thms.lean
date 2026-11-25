@@ -14,7 +14,7 @@ namespace Silmaril.SSA.RVSDG.LambdaSSA
 open CategoryTheory CategoryTheory.Category CategoryTheory.Limits
 open scoped MonoidalCategory
 open Silmaril.Isotope.LambdaSSA (Tm)
-open Silmaril.Isotope.LambdaSSA.Semantics.Categorical (ctxObj Denotes TypingCoherent denote)
+open Silmaril.Isotope.LambdaSSA.Semantics.Categorical (ctxObj lookup Denotes TypingCoherent denote)
 open Silmaril.Isotope.LetIter.Semantics.Categorical (TypeModel InstructionModel)
 
 universe u v d h c k
@@ -35,6 +35,13 @@ variable [TypeFormers τ] {D : Type d} [Category.{h} D] [CartesianMonoidalCatego
   [PremonoidalCategory C] [SymmetricPremonoidalCategory C] [HasFiniteCoproducts C]
   [DistributiveTensor D] [DistributivePremonoidalCategory C]
   (J : D ⥤ C) [DistributiveFreydCategory J] [InstructionModel J M Φ]
+
+omit [SymmetricCategory D] [DistributiveTensor D] in
+/-- The input context map carries each typed projection to its RVSDG port. -/
+theorem entryMap_lookup (p : Port Γ A) :
+    entryMap M Γ sel prim ≫ lookup M (index p) (index_at p) =
+      Categorical.project (valueModel M sel prim) (inputPort p) :=
+  Proofs.entry_lookup M sel prim p
 
 /-- Every correspondence witness produces an actual λSSA denotation in the
 Freyd semantics. At the open boundary it agrees with the RVSDG value arrow
