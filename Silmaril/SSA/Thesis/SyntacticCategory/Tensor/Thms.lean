@@ -30,6 +30,12 @@ theorem tensorLeft_isPureMor (R : SynCat S) {A B : SynCat S} {f : A ⟶ B}
     (hf : IsPureMor f) : IsPureMor (tensorLeft R f) :=
   tensorLeft_isPureMor_proof R hf
 
+/-- On a pure pair, the computation acts on its second component. -/
+theorem tensorLeft_pair {X R A B : SynCat S} {a : X ⟶ R} {b : X ⟶ A}
+    (ha : IsPureMor a) (hb : IsPureMor b) (f : A ⟶ B) :
+    pairArrows a b ≫ tensorLeft R f = pairArrows a (b ≫ f) :=
+  tensorLeft_pair_proof ha hb f
+
 /-- Tensoring on the right preserves the computation identity. -/
 @[simp] theorem tensorRight_id (R A : SynCat S) :
     tensorRight R (𝟙 A) = 𝟙 (productObj A R) := by
