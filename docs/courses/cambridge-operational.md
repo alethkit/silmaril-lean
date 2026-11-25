@@ -102,6 +102,9 @@ executable checks cover the Lean interpreters above.
 
 ## L3 data and mutable references
 
+The [L3 concrete syntax guide](cambridge-l3-concrete.md) describes the grouped
+UTF-8 grammar, canonical printers and checked byte round-trips.
+
 `L3.NamedSyntax` implements the named grammar from §5.5, p. 78. Its
 `RawExpr.resolve` maps bound variables to de Bruijn indices, including the
 separate binders of sum branches. Both the expression and type models retain
@@ -158,8 +161,8 @@ typed sources.
 | Theorem 26 for the printed contexts on typed source expressions | `L3.contextStep_iff_step_of_hasType` |
 | Theorem 26 on arbitrary configurations with the (assign2) location premise | `L3.locationContextStep_iff_step` |
 
-Executable type inference and reduction, the byte grammar and codecs, and
-denotational models remain follow-up work.
+Executable type inference and reduction, ordinary ungrouped precedence syntax,
+interchange codecs, and denotational models remain follow-up work.
 
 The [course notes](https://www.cl.cam.ac.uk/teaching/2526/Semantics/notes.pdf)
 are pinned as `sewell2026semantics` in [the bibliography](../../references.bib).
