@@ -33,6 +33,15 @@ def CompTail.operands {Yield Operand : Type} : CompTail Yield Operand → List O
   | .filter test rest => test :: rest.operands
   | .forIn _ iterable rest => iterable :: rest.operands
 
+def CompTail.headValue {Yield Operand : Type} : CompTail Yield Operand → Yield
+  | .yield value => value
+  | .filter _ rest | .forIn _ _ rest => rest.headValue
+
+private theorem CompTail.headValueSize {Yield Operand : Type} [SizeOf Yield] [SizeOf Operand]
+    (tail : CompTail Yield Operand) : sizeOf tail.headValue < sizeOf tail := by
+  induction tail <;> simp_all only [headValue, CompTail.yield.sizeOf_spec,
+    CompTail.filter.sizeOf_spec, CompTail.forIn.sizeOf_spec] <;> omega
+
 private theorem CompTail.operandSize {Yield Operand : Type} [SizeOf Yield] [SizeOf Operand]
     (tail : CompTail Yield Operand) {operand : Operand} (member : operand ∈ tail.operands) :
     sizeOf operand < sizeOf tail := by
@@ -72,6 +81,10 @@ inductive CompExpr where
       (rest : CompTail Lowering.Resolve.SourceExpr CompExpr)
   | dictClauses (target : Lowering.Resolve.SourceExpr) (iterable : CompExpr)
       (rest : CompTail (Lowering.Resolve.SourceExpr × Lowering.Resolve.SourceExpr) CompExpr)
+  | listComprehension (target : Lowering.Resolve.SourceExpr) (iterable : CompExpr)
+      (rest : CompTail CompExpr CompExpr)
+  | dictComprehension (target : Lowering.Resolve.SourceExpr) (iterable : CompExpr)
+      (rest : CompTail (CompExpr × CompExpr) CompExpr)
   | listDisplay (elements : List CompExpr)
   | tupleDisplay (elements : List CompExpr)
   | dictDisplay (entries : List (CompExpr × CompExpr))
@@ -183,23 +196,22 @@ private def CompTail.names {Yield Operand : Type} : CompTail Yield Operand → E
   | .forIn target _ rest => return (← compTarget target).2 ++ (← rest.names)
 
 private def compileCompTail {Source Resolved Operand ResolvedOperand : Type}
-    (context : Context) (readYield : Context → Source → Build (Resolved × List Binding))
-    (tail : CompTail Source Operand)
+    (tail : CompTail Source Operand) (readHead : Build (Resolved × List Binding))
     (readOperand : (operand : Operand) → operand ∈ tail.operands → Build (ResolvedOperand × List Binding)) :
     Build (Comprehensions.Tail Resolved ResolvedOperand × List Binding) :=
   match tail with
-  | .yield value => do
-    let (value, reads) ← readYield context value
+  | .yield _ => do
+    let (value, reads) ← readHead
     return (.yield value, reads)
   | .filter test rest => do
     let (test, reads) ← readOperand test (by simp [CompTail.operands])
-    let (rest, restReads) ← compileCompTail context readYield rest
+    let (rest, restReads) ← compileCompTail rest readHead
       (fun operand member => readOperand operand (List.mem_cons_of_mem _ member))
     return (.filter test rest, reads ++ restReads)
   | .forIn target iterable rest => do
     let (target, _) ← monadLift (compTarget target)
     let (iterable, reads) ← readOperand iterable (by simp [CompTail.operands])
-    let (rest, restReads) ← compileCompTail context readYield rest
+    let (rest, restReads) ← compileCompTail rest readHead
       (fun operand member => readOperand operand (List.mem_cons_of_mem _ member))
     return (.forIn target iterable rest, reads ++ restReads)
 
@@ -208,7 +220,7 @@ private def compileCompWith {Source Resolved Operand ResolvedOperand Comp : Type
     (readFirst : Context → Build (ResolvedOperand × List Binding))
     (readOperand : Context → (operand : Operand) → operand ∈ clauses.operands →
       Build (ResolvedOperand × List Binding))
-    (readYield : Context → Source → Build (Resolved × List Binding))
+    (readHead : Context → Build (Resolved × List Binding))
     (emit : List Binding → LoopTarget → ResolvedOperand → Comprehensions.Tail Resolved ResolvedOperand → Comp) :
     Build (Comp × List Binding) := do
   let (target, firstNames) ← monadLift (compTarget pattern)
@@ -216,7 +228,7 @@ private def compileCompWith {Source Resolved Operand ResolvedOperand Comp : Type
   let locals := names.map fileSlot
   let (iterable, outerReads) ← readFirst context
   let inner := { context with locals := names ++ context.locals }
-  let (rest, innerReads) ← compileCompTail inner readYield clauses (readOperand inner)
+  let (rest, innerReads) ← compileCompTail clauses (readHead inner) (readOperand inner)
   return (emit locals target iterable rest, outerReads ++ innerReads.filter (!locals.contains ·))
 
 private def compileComp {Source Resolved Comp : Type} (context : Context)
@@ -225,7 +237,7 @@ private def compileComp {Source Resolved Comp : Type} (context : Context)
     (emit : List Binding → LoopTarget → Lowering.Expr → Comprehensions.Tail Resolved → Comp) :
     Build (Comp × List Binding) :=
   compileCompWith context pattern clauses (fun inner => readExpr inner operand)
-    (fun inner expr _ => readExpr inner expr) readYield emit
+    (fun inner expr _ => readExpr inner expr) (fun inner => readYield inner clauses.headValue) emit
 
 private def readEntry (context : Context) (entry : Lowering.Resolve.SourceExpr × Lowering.Resolve.SourceExpr) :
     Build ((Lowering.Expr × Lowering.Expr) × List Binding) := do
@@ -249,13 +261,33 @@ private def compileCompExpr (context : Context) :
       (fun inner operand member =>
         have := rest.operandSize member
         compileCompExpr inner operand)
-      readExpr Comprehensions.Expression.listClauses
+      (fun inner => readExpr inner rest.headValue) Comprehensions.Expression.listClauses
   | .dictClauses target iterable rest =>
     compileCompWith context target rest (fun outer => compileCompExpr outer iterable)
       (fun inner operand member =>
         have := rest.operandSize member
         compileCompExpr inner operand)
-      readEntry Comprehensions.Expression.dictClauses
+      (fun inner => readEntry inner rest.headValue) Comprehensions.Expression.dictClauses
+  | .listComprehension target iterable rest =>
+    have headSize := rest.headValueSize
+    compileCompWith context target rest (fun outer => compileCompExpr outer iterable)
+      (fun inner operand member =>
+        have := rest.operandSize member
+        compileCompExpr inner operand)
+      (fun inner => compileCompExpr inner rest.headValue) Comprehensions.Expression.listComprehension
+  | .dictComprehension target iterable rest =>
+    have headSize := rest.headValueSize
+    have pairSize : sizeOf rest.headValue = 1 + sizeOf rest.headValue.1 + sizeOf rest.headValue.2 := by
+      cases rest.headValue <;> rfl
+    compileCompWith context target rest (fun outer => compileCompExpr outer iterable)
+      (fun inner operand member =>
+        have := rest.operandSize member
+        compileCompExpr inner operand)
+      (fun inner => do
+        let (key, keyReads) ← compileCompExpr inner rest.headValue.1
+        let (value, valueReads) ← compileCompExpr inner rest.headValue.2
+        return ((key, value), keyReads ++ valueReads))
+      Comprehensions.Expression.dictComprehension
   | .listDisplay elements => do
     let elements ← elements.attach.mapM fun element => do
       have := List.sizeOf_lt_of_mem element.property

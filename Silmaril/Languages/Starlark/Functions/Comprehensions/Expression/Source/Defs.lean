@@ -30,6 +30,17 @@ inductive Expression.Admitted : Expression → Prop where
       Lowering.Admitted rest.headValue.1 → Lowering.Admitted rest.headValue.2 →
       (∀ name ∈ locals, ¬ Scratch 0 name) →
       Expression.Admitted (.dictClauses locals target iterable rest)
+  | listComprehension {locals : List Binding} {target : Lists.Iteration.LoopTarget}
+      {iterable : Expression} {rest : Tail Expression Expression} :
+      iterable.Admitted → (∀ operand ∈ rest.clauseOperands, operand.Admitted) →
+      rest.headValue.Admitted → (∀ name ∈ locals, ¬ Scratch 0 name) →
+      Expression.Admitted (.listComprehension locals target iterable rest)
+  | dictComprehension {locals : List Binding} {target : Lists.Iteration.LoopTarget}
+      {iterable : Expression} {rest : Tail (Expression × Expression) Expression} :
+      iterable.Admitted → (∀ operand ∈ rest.clauseOperands, operand.Admitted) →
+      rest.headValue.1.Admitted → rest.headValue.2.Admitted →
+      (∀ name ∈ locals, ¬ Scratch 0 name) →
+      Expression.Admitted (.dictComprehension locals target iterable rest)
   | listDisplay {elements : List Expression} :
       (∀ element ∈ elements, element.Admitted) → Expression.Admitted (.listDisplay elements)
   | tupleDisplay {elements : List Expression} :

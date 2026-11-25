@@ -503,4 +503,109 @@ private def isUnhashableList : Lists.Error → Bool
       | .ok (.list address) => before.heap[address]? == final.heap[address]?
       | _ => false)
 
+-- A false filter skips the nested head. Its inner first iterable sees
+-- the outer comprehension x, and the enclosing parameter survives.
+#guard
+  let element := CompExpr.listComprehension starlark%[x] (.plain starlark%[mark(1, [x])])
+    (.yield (.plain starlark%[mark(2, x)]))
+  let result := CompExpr.listComprehension starlark%[x] (.plain starlark%[x])
+    (.filter (.plain starlark%[x]) (.yield element))
+  let commands := logCommands ++
+    [.define "run" { positional := [⟨"x", none⟩] }
+      (.seq (.assignCompExpr "result" result) (.ret (some starlark%[(len(x), result)]))),
+     .assign "out" starlark%[run([0, 4, 5])],
+     .assign "ok" starlark%[{(3, 2, 4, 5): True}[(out[0], len(out[1]), out[1][0][0], out[1][1][0])]]]
+  match runModule commands noImports {} with
+  | .ok (.ok published state) =>
+    published.exports.lookup "ok" == some (.scalar (.bool true)) &&
+      match published.exports.lookup "events" with
+      | some (.list address) => eventsMatch state address [1, 2, 1, 2, 0, 0, 0, 0]
+      | _ => false
+  | _ => false
+
+-- The nested key and value run in order. A repeated comprehension key
+-- overwrites its value without moving it in iteration order.
+#guard
+  let key := lengthOf (collect starlark%[mark(1, width)])
+  let value := CompExpr.dictComprehension starlark%[x] (.plain starlark%[mark(2, [n])])
+    (.yield (.plain starlark%["n"], .plain starlark%[x]))
+  let rows := CompExpr.plain starlark%[[([0], 40), ([0, 0], 50), ([0], 60), ([], 0)]]
+  let result := CompExpr.dictComprehension starlark%[(width, n)] rows
+    (.filter (.plain starlark%[n]) (.yield (key, value)))
+  let commands := logCommands ++
+    [.define "run" {} (.retCompExpr result), .assign "out" starlark%[run()],
+     .assign "keys" starlark%[list(out)],
+     .assign "ok" starlark%[{(1, 2, 60, 50): True}[(keys[0], keys[1], out[1]["n"], out[2]["n"])]]]
+  match runModule commands noImports {} with
+  | .ok (.ok published state) =>
+    published.exports.lookup "ok" == some (.scalar (.bool true)) &&
+      match published.exports.lookup "events" with
+      | some (.list address) => eventsMatch state address [1, 2, 1, 2, 1, 2, 0, 0]
+      | _ => false
+  | _ => false
+
+-- A failure in the nested list head or dictionary key releases the
+-- nested and enclosing guards. A failed key skips the value entirely.
+#guard
+  let rows := CompExpr.plain starlark%[rows]
+  let expected := [3, 4, 5, 4, 5, 0, 0, 0]
+  checkPlacementFailure (.listComprehension starlark%[row] rows (.yield failedArgument))
+      isUnhashableList expected &&
+    checkPlacementFailure (.dictComprehension starlark%[row] rows
+      (.yield (failedArgument, collect starlark%[mark(1, [7])]))) isUnhashableList expected
+
+-- A value error wins over hashability of the already evaluated key.
+#guard
+  let key := collect starlark%[mark(1, [])]
+  let atHead := fun value => CompExpr.dictComprehension starlark%[row] (.plain starlark%[rows])
+    (.yield (key, value))
+  let value := CompExpr.index (collect starlark%[mark(2, [])]) (.plain starlark%[1])
+  let events := [1, 2, 0, 0, 0, 0, 0, 0]
+  checkPlacementFailure (atHead value) (· == .indexRange 1 0) events &&
+    checkPlacementFailure (atHead (collect starlark%[mark(2, [9])])) isUnhashableList events
+
+-- A failed value for a repeated key retains the earlier pair in the
+-- private accumulator. The later item is skipped.
+#guard
+  let key := lengthOf (collect starlark%[mark(1, [row])])
+  let value := CompExpr.branch (.plain starlark%[row]) (collect starlark%[mark(2, [row])])
+    (.index (collect starlark%[mark(3, [])]) (.plain starlark%[1]))
+  checkPlacementFailure
+    (.dictComprehension starlark%[row] (.plain starlark%[[1, 0, 2]]) (.yield (key, value)))
+    (· == .indexRange 1 0) [1, 2, 1, 3, 0, 0, 0, 0]
+    (fun before final =>
+      match final.heap[before.heap.size + 3]?.map Cell.contents with
+      | some (.dict [entry]) =>
+        entry.key == intValue 1 &&
+          match entry.value with
+          | .list address => final.heap[address]?.map Cell.contents == some (.list [intValue 1])
+          | _ => false
+      | _ => false)
+
+-- Completing a nested key over the same list keeps the enclosing
+-- guard active while the value tries to mutate the list.
+#guard
+  let expression := CompExpr.dictComprehension starlark%[row] (.plain starlark%[rows])
+    (.yield (lengthOf (collect starlark%[rows]), .plain starlark%[touch()]))
+  let commands := logCommands ++
+    [.assign "rows" starlark%[[[1]]],
+     .define "touch" {} (.seq (.eval starlark%[mark(6, 0)])
+       (.seq (.setIndex starlark%[rows] starlark%[0] starlark%[[]]) (.ret (some starlark%[True])))),
+     .assignCompExpr "out" expression]
+  checkAssignmentFailure commands (fun | .activeIteration _ => true | _ => false) [6, 0, 0, 0, 0, 0, 0, 0]
+    (fun before final =>
+      match before.bindingValue (globalSlot "rows") with
+      | .ok (.list address) => before.heap[address]? == final.heap[address]?
+      | _ => false)
+
+-- Each nested head evaluation gets fresh slots even at the same site.
+#guard
+  let nested := CompExpr.listClauses starlark%[x] (.plain starlark%[source])
+    (.filter (.plain starlark%[x or y])
+      (.forIn starlark%[y] (.plain starlark%[[2]]) (.yield starlark%[y])))
+  let result := CompExpr.listComprehension starlark%[source] (.plain starlark%[[[1], [0]]]) (.yield nested)
+  match runModule [.assignCompExpr "out" result] noImports {} with
+  | .ok (.error (.runtime (.uninitialized name)) state) => name == fileSlot "y" && state.iterators.isEmpty
+  | _ => false
+
 end Silmaril.Languages.Starlark.Modules.Resolve

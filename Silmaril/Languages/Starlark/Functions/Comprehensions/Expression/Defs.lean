@@ -18,6 +18,10 @@ inductive Expression where
   /-- Clause operands can contain comprehensions. The key and value stay ordinary. -/
   | dictClauses (locals : List Binding) (target : Lists.Iteration.LoopTarget)
       (iterable : Expression) (rest : Tail (Lowering.Expr × Lowering.Expr) Expression)
+  | listComprehension (locals : List Binding) (target : Lists.Iteration.LoopTarget)
+      (iterable : Expression) (rest : Tail Expression Expression)
+  | dictComprehension (locals : List Binding) (target : Lists.Iteration.LoopTarget)
+      (iterable : Expression) (rest : Tail (Expression × Expression) Expression)
   | listDisplay (elements : List Expression)
   | tupleDisplay (elements : List Expression)
   | dictDisplay (entries : List (Expression × Expression))
@@ -125,13 +129,31 @@ def Expression.compile (stages : ExpressionStages) (expr : Expression) (target :
   | .listClauses locals first iterable rest =>
     compileScopedWith target [] locals first (stages.plain resultSlot (.atom (.list .empty)))
       (iterable.compile stages operandSlot)
-      (rest.compileClauses (listYield stages.plain) fun operand member =>
+      (rest.compileClauses (listYield stages.plain rest.headValue) fun operand member =>
         have := rest.clauseOperandSize member
         operand.compile stages operandSlot)
   | .dictClauses locals first iterable rest =>
     compileScopedWith target [keySlot] locals first (stages.plain resultSlot (.atom (.dict .noEntries)))
       (iterable.compile stages operandSlot)
-      (rest.compileClauses (dictYield stages.plain) fun operand member =>
+      (rest.compileClauses (dictYield stages.plain rest.headValue) fun operand member =>
+        have := rest.clauseOperandSize member
+        operand.compile stages operandSlot)
+  | .listComprehension locals first iterable rest =>
+    have headSize := rest.headValueSize
+    let head := appendYield (rest.headValue.compile stages operandSlot)
+    compileScopedWith target [] locals first (stages.plain resultSlot (.atom (.list .empty)))
+      (iterable.compile stages operandSlot)
+      (rest.compileClauses head fun operand member =>
+        have := rest.clauseOperandSize member
+        operand.compile stages operandSlot)
+  | .dictComprehension locals first iterable rest =>
+    have headSize := rest.headValueSize
+    have pairSize : sizeOf rest.headValue = 1 + sizeOf rest.headValue.1 + sizeOf rest.headValue.2 := by
+      cases rest.headValue <;> rfl
+    let head := putYield (rest.headValue.1.compile stages keySlot) (rest.headValue.2.compile stages operandSlot)
+    compileScopedWith target [keySlot] locals first (stages.plain resultSlot (.atom (.dict .noEntries)))
+      (iterable.compile stages operandSlot)
+      (rest.compileClauses head fun operand member =>
         have := rest.clauseOperandSize member
         operand.compile stages operandSlot)
   | .listDisplay elements =>
