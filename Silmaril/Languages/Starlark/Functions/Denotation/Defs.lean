@@ -21,6 +21,7 @@ def denoteBody (program : Program) (available : List DeclarationId) (body : Body
   | .returnExpr value => Outcome.resume (evalExpr value state) (fun result => pure (.returned result))
   | .assignExpr target value =>
     Outcome.resume (evalExpr value state) (fun result next => .ok .next (next.write target result))
+  | .evalExpr value => Outcome.resume (evalExpr value state) (fun _ => pure .next)
   | .seq first rest =>
     Outcome.resume (denoteBody program available first state) fun
       | .next => denoteBody program available rest

@@ -161,10 +161,11 @@ scratch projection when compiling the same expression.
 
 ## Native expression positions
 
-`Body.returnExpr`, `Body.assignExpr`, `Body.branchExpr` and `Body.forInExpr`
+`Body.returnExpr`, `Body.assignExpr`, `Body.evalExpr`, `Body.branchExpr` and `Body.forInExpr`
 evaluate a resolved expression in the current frame. A successful return operand produces the
 return signal. Assignment writes its destination with the existing binding
-semantics after the right-hand side succeeds. A successful test is converted
+semantics after the right-hand side succeeds. An expression statement discards
+its successful result and keeps the resulting state. A successful test is converted
 to truth and selects one body in the resulting state. An operand or truth
 error propagates with its residual state.
 
@@ -187,10 +188,8 @@ the exact result or error and final frame, heap and iterator stack. The
 expression-position theorems in the denotation header expose that agreement
 without the compiler's scratch projection.
 
-Module commands still use the separate call-free atomic and
-destination-based call forms. Collection displays and subscripts use
-call-free atoms as well. The coverage guide records the remaining integration
-obligations.
+Module commands reuse native assignment and expression statements. Collection
+displays and subscripts still use call-free atoms.
 [Body rules](../../Silmaril/Languages/Starlark/Functions/Operational/Defs.lean) · [Native position agreement](../../Silmaril/Languages/Starlark/Functions/Lowering/Denotation/Thms.lean) · [Assignment and conditional fixtures](../../Silmaril/Languages/Starlark/Functions/NativeBodyChecks.lean) · [Return fixtures](../../Silmaril/Languages/Starlark/Functions/NativeReturnChecks.lean) · [Coverage obligations](starlark.md#coverage-obligations)
 
 ## Nested expression lowering

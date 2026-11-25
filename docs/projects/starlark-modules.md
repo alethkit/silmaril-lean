@@ -8,12 +8,19 @@ The profile follows the Bazel-team core specification at
 `Silmaril.Languages.Starlark.Modules.Thms` exposes the resolved entry point
 `initializeModule`. It checks argument-list legality and conflicting global
 and file names before allocating slots. It executes top-level commands in
-order. The supported commands are collection assignments and expression
-statements, resolved definitions and calls, and load statements with named
-aliases. Function-only control lives within declarations. Clients supply
-declared globals and resolved assignments, including single assignment of
-explicit globals and legal load identifiers. Temporary slots used by call
-lowering and file-local imports remain outside the global export list.
+order. `TopCode.assignExpr` writes one global after evaluating a resolved RHS,
+and `TopCode.evalExpr` evaluates a resolved expression and discards the value.
+Both admit nested calls with keyword and spread operands, conditional
+expressions, and short-circuit operators in the [direct expression profile][expressions].
+Runtime errors retain operand effects without writing the assignment target
+or running later commands. Existing atomic commands, definitions, calls,
+and loads with named aliases use the same lifecycle. Temporary slots used
+by call lowering and file-local imports remain outside the export list.
+
+The entry point assumes resolved bindings, the list of declared globals,
+single assignment of explicit globals, and legal load identifiers. Source
+declaration collection, scope resolution and checking binding occurrences
+against that scope remain separate work.
 [Definitions](../../Silmaril/Languages/Starlark/Modules/Defs.lean)
 
 The host supplies a pure catalog of already published modules. It determines
@@ -34,12 +41,16 @@ A caller supplies both the initial heap and any prepublished imports.
 The heap may retain unreachable allocations.
 [Module execution][modules] · [Reachable freezing](starlark-lists.md#reachable-freezing)
 
-`initializes_iff_initialize` proves exact agreement with independent
-command-sequencing and initialization rules on publication, failure and final
-state. Core top-level commands use the existing independent function and
-collection judgments. The rules use the same host catalog contract as the
-denotation. The finite-manifest loader adds on-demand initialization to
-this shared publication model.
+`runs_iff_runCommands` proves exact agreement before publication, including
+the module and file namespace and the shared heap at the first failure.
+`initializes_iff_initialize` extends agreement through the publication
+boundary, comparing the export table or error and the entire residual
+state after restoring the caller. Both proofs compose independent command
+sequencing with `Exec`; its native expression rules derive calls and callee
+bodies independently of the direct denotation. The module rules and
+denotation share validation, namespace entry, the pure catalog contract,
+and publication or failure restoration. Calls start with the finite linked
+declaration table and remove the active declaration on descent.
 [Operational rules](../../Silmaril/Languages/Starlark/Modules/Operational/Defs.lean) · [Theorem header](../../Silmaril/Languages/Starlark/Modules/Thms.lean)
 
 ## Finite-manifest loader
@@ -85,17 +96,19 @@ Go convenience wrapper freezes a partial mapping even on failure.
 [Lean loader fixtures](../../Silmaril/Languages/Starlark/Modules/Loader/Checks.lean) · [Go loader fixtures](../../examples/starlark/loader/check.go)
 
 The Lean fixtures cover cross-module captures, private freezing, file-local
-aliases, validation, missing exports and rollback of the scope on failure
-while retaining prior effects. The pinned Go fixtures compare successful
-publication, import observations and failure categories. They use Go's
-`ExecFileOptions` success path for publication. The Lean-only failure fixture
-asserts the absence of a publication freeze after failure, following the
-prose spec. Go's convenience wrapper also freezes the partial global mapping
-on error.
-[Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Checks.lean) · [Go fixtures](../../examples/starlark/modules/check.go) · [Pinned starlark-go][go]
+aliases, validation, missing exports and failure restoration. The native
+fixtures check source order, skipped branches, absent assignment after an
+effectful error, and the freeze of exported aliases, their nested values and
+reachable function defaults. The pinned Go fixtures compare successful
+publication through `ExecFileOptions` and observe failure effects through
+`Program.Init`. Go's convenience wrapper also freezes the partial global
+mapping on error. The Lean failure and loader fixtures check the shared
+heap and absence of publication on failure under the pinned prose policy.
+[Lean fixtures](../../Silmaril/Languages/Starlark/Modules/Checks.lean) · [Native fixtures](../../Silmaril/Languages/Starlark/Modules/ExpressionChecks.lean) · [Go fixtures](../../examples/starlark/modules/check.go) · [Pinned starlark-go][go]
 
 ```sh
 lake build --wfail +Silmaril.Languages.Starlark.Modules.Checks \
+  +Silmaril.Languages.Starlark.Modules.ExpressionChecks \
   +Silmaril.Languages.Starlark.Modules.Loader.Checks
 ```
 
@@ -111,4 +124,5 @@ git -C "$oracle" checkout --detach 4f4267fb140d1e8b91c9bce55cee2f809e8840dd
 
 [modules]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#module-execution
 [loading]: https://github.com/bazelbuild/starlark/blob/c0af0ea03dc90d3bbc021394b693e6957cc15030/spec.md#load-statements
+[expressions]: starlark-functions.md#direct-denotation-of-resolved-expressions
 [go]: https://github.com/google/starlark-go/tree/4f4267fb140d1e8b91c9bce55cee2f809e8840dd

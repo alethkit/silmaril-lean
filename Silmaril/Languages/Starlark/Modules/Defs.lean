@@ -16,11 +16,15 @@ def fileSlot (name : String) : Binding := ⟨.local, name⟩
 /-- Top-level executable commands lack the function-only control constructs. -/
 inductive TopCode where
   | atomic (code : Lists.Stmt)
+  | assignExpr (name : String) (value : Lowering.Expr)
+  | evalExpr (value : Lowering.Expr)
   | define (name : String) (id : DeclarationId)
   | call (target : Option Binding) (callee : Lists.Expr) (arguments : Arguments)
 
 def TopCode.body : TopCode → Body
   | .atomic code => .total (.atomic code)
+  | .assignExpr name value => .assignExpr (globalSlot name) value
+  | .evalExpr value => .evalExpr value
   | .define name id => .define (globalSlot name) id
   | .call target callee arguments => .call target callee arguments
 
