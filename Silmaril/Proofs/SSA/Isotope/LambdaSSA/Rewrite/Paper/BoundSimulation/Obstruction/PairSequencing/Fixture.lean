@@ -2,6 +2,8 @@ module
 
 public import Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Soundness
 public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.UnaryReturn.Beta.Constructors.Example.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithProjectionReturns.Defs
+public import Silmaril.SSA.Isotope.LambdaSSA.Rewrite.Theory.Closure.Paper.WithUnitEta.Defs
 
 /-! # The pair sequence and mixed update have distinct observations
 -/
@@ -14,6 +16,7 @@ open Silmaril Silmaril.Isotope Silmaril.Isotope.LambdaSSA Silmaril.Isotope.Lambd
 open Silmaril.DeBruijn (lift liftN)
 open Silmaril.Isotope.LambdaSSA.Semantics (extend extend_rename)
 open scoped Paper.BoundSimulation.Obstruction
+open scoped Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer.CanonicalUnit
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.Observer (Env EnvTy Result)
 open Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing.Observer (extended_same)
 
@@ -52,6 +55,36 @@ theorem mixed_state_fails :
   intro h
   have obs := extended_same (markPairLet := true) h env env_typed
   change Result.fault = .jump 0 (.inl (.pair (.inl .unit) (.inl .unit))) at obs
+  cases obs
+
+open CfgEta.TypeCategory (returnRegion)
+
+private theorem projection_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+    (h : Paper.WithProjectionReturns.Step Γ r s L) : Observer.SameWith true Γ r s := by
+  cases h <;> intro env _ <;> cases hx : env 0 <;>
+    simp [returnRegion, Observer.evalRegionWith, Observer.evalTermWith, hx, extend]
+
+private theorem unit_same {Γ L : List (Ty Empty)} {r s : Region Empty}
+    (h : Paper.WithUnitEta.Step Γ r s L) : Observer.SameWith true Γ r s := by
+  cases h
+  intro env he
+  have ht := he (rfl : At [Ty.unit] 0 (Ty.unit : Ty Empty))
+  have hu : env 0 = .unit := ht.eq_unit rfl
+  simp [Observer.evalRegionWith, Observer.evalTermWith, hu]
+
+/-- The witness uses variable and unary-let expressions inside a pair. Both
+the projection-return and unit seeds preserve its separating observation. -/
+theorem lowered_pure_pair_discard_fails :
+    ¬ Paper.Extension.Eqv
+      (fun Γ r s L => Paper.WithProjectionReturns.Step Γ r s L ∨ Paper.WithUnitEta.Step Γ r s L)
+      [source]
+      (compLSubst (fun _ => returnRegion (.pair (.let₁ (.var 0) (.var 0)) (.var 0) : Tm Empty))
+        (fun _ => .br 0 .unit) 0)
+      (.br 0 .unit) [Ty.unit] := by
+  intro h
+  have same := Observer.extension_same (markPairLet := true) (fun h => h.elim projection_same unit_same) h
+  have obs := same env env_typed
+  change Result.fault = .jump 0 .unit at obs
   cases obs
 
 end Silmaril.Proofs.SSA.Isotope.LambdaSSA.Rewrite.Paper.BoundSimulation.Obstruction.PairSequencing
