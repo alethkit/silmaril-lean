@@ -1,6 +1,7 @@
 module
 
 import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence.Native.Thms
+import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.DirectSequence.Native.Thms
 
 open Silmaril.Wasm
 open Silmaril.Wasm.Execution
@@ -19,7 +20,7 @@ private abbrev int32 := NumType.int .i32
 private def firstCallee : CallFrame.Callee := ⟨{}, ⟨0⟩, [int32], [], some int32, .ret [i32 7]⟩
 private def trappingCallee : CallFrame.Callee := { firstCallee with program := .unreachable }
 private def secondCallee : CallFrame.Callee := ⟨{}, ⟨0⟩, [int32], [], some int32, .locals [.get ⟨0⟩]⟩
-private def caller : Frame := ⟨[i32 5, i32 2], { funcs := [⟨0⟩, ⟨1⟩] }⟩
+private def caller : Frame := ⟨[i32 5, i32 2, i32 3, i32 0], { funcs := [⟨0⟩, ⟨1⟩] }⟩
 private def saved : List Value := [i32 3]
 
 private def site (fn : CallFrame.Callee) : Site :=
@@ -154,5 +155,86 @@ example : ¬ Admitted (site firstCallee) (.running [] [.call (firstId firstCalle
   intro ready
   change (none : Option (List NumType)) = some [int32] at ready
   cases ready
+
+open OuterCall
+
+private def parent : Frame := ⟨[i32 99], { funcs := [⟨2⟩] }⟩
+
+private def outerSite (fn : CallFrame.Callee) : DirectSequence.Site :=
+  ⟨⟨0⟩, ⟨2⟩, [i32 5, i32 2, i32 3], caller.module, ⟨0⟩,
+    [int32, int32, int32], [int32], some int32, (site fn).targets⟩
+
+private def outer (fn : CallFrame.Callee) : DirectSequence.Program :=
+  ⟨outerSite fn, .numeric (.get ⟨2⟩) :: code fn⟩
+
+private def outerStore (fn : CallFrame.Callee) : V1.Execution.Store Unit :=
+  { store fn with funcs := (store fn).funcs ++
+    [.wasm (outerSite fn).type (outerSite fn).module (outer fn).v1Func] }
+
+private theorem outerGuard (fn : CallFrame.Callee) (g : V1Guard (store fn) (site fn)) (typed : DirectSequence.Typed (outer fn)) :
+    DirectSequence.V1Guard (outerStore fn) parent (outer fn) := by
+  refine ⟨⟨typed, rfl⟩, rfl, ⟨g.readOnly, g.typed, g.resolves, ?_⟩⟩
+  intro i
+  have allocated := g.allocated i
+  have bound : ((site fn).target i).address.value < (store fn).funcs.length :=
+    List.getElem?_eq_some_iff.mp allocated |>.1
+  change ((store fn).funcs ++ _)[((site fn).target i).address.value]? = _
+  rwa [List.getElem?_append_left bound]
+
+private theorem regularGuard : DirectSequence.V1Guard (outerStore firstCallee) parent (outer firstCallee) :=
+  outerGuard firstCallee (registered firstCallee rfl trivial) ⟨rfl, rfl, by decide⟩
+
+private theorem failingGuard : DirectSequence.V1Guard (outerStore trappingCallee) parent (outer trappingCallee) :=
+  outerGuard trappingCallee (registered trappingCallee trivial trivial) ⟨rfl, rfl, by decide⟩
+
+private theorem fromCall (fn : CallFrame.Callee) {target : State (site fn)}
+    (bodyRun : Runs (site fn) (.running saved (code fn)) target) :
+    DirectSequence.Runs (outer fn) .call (.label target) := by
+  have resolve : DirectSequence.Edge (outer fn) .call .invoke := DirectSequence.fact .resolve
+  have enter := (Relation.ReflTransGen.single resolve).tail (DirectSequence.fact .enter)
+  have load : Edge (site fn) (.running [] ((outer fn).code)) (.running saved (code fn)) :=
+    fact (.numeric (.get rfl))
+  exact enter.trans (DirectSequence.label_run ((Relation.ReflTransGen.single load).trans bodyRun))
+
+private theorem outerNormal : DirectSequence.Runs (outer firstCallee) .call (.done (.values [i32 17])) :=
+  ((fromCall firstCallee normalPath).tail (DirectSequence.fact (.leaveLabel (.values _)))).tail
+    (DirectSequence.fact (.leaveFrame (.values [i32 17]) rfl))
+
+private theorem outerTrap : DirectSequence.Runs (outer trappingCallee) .call (.done .trap) :=
+  ((fromCall trappingCallee trapPath).tail (DirectSequence.fact (.leaveLabel .trap))).tail
+    (DirectSequence.fact (.leaveFrame .trap trivial))
+
+example : V1.Execution.Steps CallFrame.v1NoHost
+    ⟨outerStore firstCallee, parent, V1.Execution.values (outerSite firstCallee).args ++ [.source (.call ⟨0⟩)]⟩
+    ⟨outerStore firstCallee, parent, [.source (.intConst .i32 17)]⟩ :=
+  (DirectSequence.v1_run_iff regularGuard (a := .call) trivial).mpr ⟨_, outerNormal, rfl, rfl⟩
+
+example : Lime1.Execution.Steps CallFrame.limeNoHost
+    (DirectSequence.v1Config (outerStore firstCallee) parent (outer firstCallee).site .call).toLime
+    ⟨(outerStore firstCallee).mapCode V1.Func.toLime, parent, [.source (.intConst .i32 17)]⟩ := by
+  rw [DirectSequence.v1_to_lime]
+  exact (DirectSequence.lime_run_iff (DirectSequence.guard_to_lime regularGuard) (a := .call) trivial).mpr
+    ⟨_, outerNormal, rfl, rfl⟩
+
+example : Core.Steps Profile.spec noHost
+    (DirectSequence.v1Config (outerStore trappingCallee) parent (outer trappingCallee).site .call).toLime.toCore
+    ⟨((outerStore trappingCallee).mapCode V1.Func.toLime).toCore, parent.toCore, [.trap]⟩ := by
+  have g := DirectSequence.guard_to_lime failingGuard
+  rw [DirectSequence.v1_to_lime, DirectSequence.lime_to_core g]
+  exact (DirectSequence.core_run_iff (DirectSequence.guard_to_core g) (a := .call) trivial).mpr
+    ⟨_, outerTrap, trivial, rfl⟩
+
+example {target : Core.Config Unit}
+    (path : Core.Steps Profile.spec noHost
+      (DirectSequence.v1Config (outerStore trappingCallee) parent (outer trappingCallee).site
+        (.label (.trapped saved (later trappingCallee)))).toLime.toCore target) :
+    ∃ phase, DirectSequence.Unwinding (outer trappingCallee).site phase ∧
+      target = (DirectSequence.v1Config (outerStore trappingCallee) parent (outer trappingCallee).site phase).toLime.toCore := by
+  have g := DirectSequence.guard_to_lime failingGuard
+  rw [DirectSequence.v1_to_lime, DirectSequence.lime_to_core g] at path
+  obtain ⟨phase, run, _, read⟩ := (DirectSequence.core_run_iff (p := outer trappingCallee) (DirectSequence.guard_to_core g)
+    (a := .label (.trapped saved (later trappingCallee))) trivial).mp path
+  exact ⟨phase, DirectSequence.trap_bypasses (.label _ _) run,
+    by rw [DirectSequence.v1_to_lime, DirectSequence.lime_to_core g, read]⟩
 
 end Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Sequence

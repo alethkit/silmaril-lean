@@ -172,7 +172,7 @@ private theorem frame_pop {types : List Wasm.Lime1.FuncType} {n : Nat} {f : Fram
     have last := congrArg List.getLast? eq
     simp [values, List.getLast?_append] at last
 
-private theorem result_stuck {H : Type} {s : Store H} {f : Frame} {r : Result} {b : Config H}
+theorem result_stuck {H : Type} {s : Store H} {f : Frame} {r : Result} {b : Config H}
     (step : Step CallFrame.limeNoHost ⟨s, f, resultCode values .trap r⟩ b) : False := by
   cases r with
   | values stack =>
@@ -191,6 +191,37 @@ private theorem result_stuck {H : Type} {s : Store H} {f : Frame} {r : Result} {
       cases nz with
       | inl ne => exact ne removed
       | inr ne => exact ne cut
+
+theorem label_result {types : List Wasm.Lime1.FuncType} {arity : Nat} {r : Result} {out : List Admin}
+    (pop : PureStep types [.label arity [] (resultCode values .trap r)] out) :
+    out = resultCode values .trap r := by
+  generalize eq : ([.label arity [] (resultCode values .trap r)] : List Admin) = before at pop
+  cases pop with
+  | labelDone n cont vs =>
+    have body := (AdminInstr.label.inj (List.cons.inj eq).1).2.2
+    exact body.symm
+  | labelTrap n cont =>
+    have body := (AdminInstr.label.inj (List.cons.inj eq).1).2.2
+    exact body.symm
+  | labelBranch | labelBranchOuter | labelReturn =>
+    have body := (AdminInstr.label.inj (List.cons.inj eq).1).2.2
+    have seen := congrArg first body
+    cases r <;>
+      simp only [resultCode, List.append_assoc, List.singleton_append, first_prefix, first_values] at seen <;>
+      simp [first, asValue?] at seen
+  | trapValues | trapTail =>
+    have len := congrArg List.length eq
+    simp [values] at len
+  | _ =>
+    have last := congrArg List.getLast? eq
+    simp [values, List.getLast?_append] at last
+
+theorem frame_result {H : Type} {s : Store H} {caller outer : Frame} {arity : Nat} {r : Result}
+    {dst : Config H} (step : Step CallFrame.limeNoHost ⟨s, caller, [.frame arity outer (resultCode values .trap r)]⟩ dst) :
+    dst = ⟨s, caller, resultCode values .trap r⟩ := by
+  cases wrapper_step step rfl trivial with
+  | frame inner => exact (result_stuck inner).elim
+  | pure pop => rw [(frame_pop pop).2]
 
 theorem readback {H : Type} {s : Store H} {caller outer : Frame}
     {addr : FuncAddr} {fn : CallFrame.Callee} {arity : Nat}

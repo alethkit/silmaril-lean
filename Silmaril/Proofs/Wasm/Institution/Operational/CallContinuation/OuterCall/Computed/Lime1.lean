@@ -272,18 +272,28 @@ theorem lift_body {H : Type} {s s' : Store H} {caller inner inner' : Frame}
       ⟨s', caller, [.frame n inner' [.label n [] b]]⟩ :=
   .frame (.label h n []) n caller
 
+theorem body_step_cases {H : Type} {s : Store H} {caller inner : Frame} {n : Nat}
+    {body : List Admin} {dst : Config H}
+    (h : Step CallFrame.limeNoHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
+    (∃ mid : Config H, Step CallFrame.limeNoHost ⟨s, inner, body⟩ mid ∧
+      dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] mid.code]]⟩) ∨
+    ∃ out, PureStep inner.module.types [.label n [] body] out ∧ dst = ⟨s, caller, [.frame n inner out]⟩ := by
+  cases wrapper_step h rfl trivial with
+  | pure pop => exact (frame_label_stays pop).elim
+  | frame step =>
+    cases wrapper_step step rfl trivial with
+    | pure pop => exact .inr ⟨_, pop, rfl⟩
+    | label innerStep => exact .inl ⟨_, innerStep, rfl⟩
+
 theorem read_body {H : Type} {s : Store H} {caller inner : Frame} {n : Nat}
     {body : List Admin} {dst : Config H}
     (stays : ∀ {out}, PureStep inner.module.types [.label n [] body] out → False)
     (h : Step CallFrame.limeNoHost ⟨s, caller, [.frame n inner [.label n [] body]]⟩ dst) :
     ∃ mid : Config H, Step CallFrame.limeNoHost ⟨s, inner, body⟩ mid ∧
       dst = ⟨mid.store, caller, [.frame n mid.frame [.label n [] mid.code]]⟩ := by
-  cases wrapper_step h rfl trivial with
-  | pure pop => exact (frame_label_stays pop).elim
-  | frame step =>
-    cases wrapper_step step rfl trivial with
-    | pure pop => exact (stays pop).elim
-    | label innerStep => exact ⟨_, innerStep, rfl⟩
+  rcases body_step_cases h with body | ⟨_, pop, _⟩
+  · exact body
+  · exact (stays pop).elim
 
 private theorem trap_step {H : Type} {s : Store H} {f : Frame} {i : FuncIdx} {dst : Config H}
     (h : Step CallFrame.limeNoHost ⟨s, f, [.trap, .source (.call i), .source .nop]⟩ dst) :

@@ -48,24 +48,25 @@ private theorem after_code (site : Site) (rest : List Prefix.Op) (ans : Prefix.O
   | values => exact resumed_code _ _ _
   | trap => exact trapped_code _ _ _
 
-private theorem active_stays {site : Site} {q : CallFrame.State} (live : Active q) {out : List Admin}
-    (h : PureStep site.outer.module.types [.label site.arity [] (limeBody site (.active q))] out) : False := by
+theorem active_label_stays {addr : Execution.Runtime.FuncAddr} {fn : CallFrame.Callee}
+    {types : List Wasm.Lime1.FuncType} {arity : Nat} {q : CallFrame.State} {suffix out : List Admin}
+    (live : Active q) (h : PureStep types [.label arity [] (CallFrame.limeCode addr fn q ++ suffix)] out) : False := by
   have preserve {stack : List Value} {op : Admin}
       (nonvalue : asValue? op = none) (notBr : ∀ i, op ≠ .source (.br i))
       (notRet : op ≠ .source .return_) (notTrap : op ≠ .trap)
-      (code : limeBody site (.active q) = values stack ++ [op] ++ site.continuation.map emit) : False := by
+      (code : CallFrame.limeCode addr fn q ++ suffix = values stack ++ [op] ++ suffix) : False := by
     rw [code, List.append_assoc, List.singleton_append] at h
     exact label_stays nonvalue notBr notRet (fun eq => (notTrap eq).elim) h
   cases q with
   | invoke saved args =>
-    exact preserve (stack := saved ++ args) (op := .invoke site.address) rfl (by simp) (by simp) (by simp) rfl
+    exact preserve (stack := saved ++ args) (op := .invoke addr) rfl (by simp) (by simp) (by simp) rfl
   | label saved ls body =>
     exact preserve
-      (stack := saved) (op := .frame site.callee.arity (site.callee.frame ls) [.label site.callee.arity [] (CallFrame.legacyBody Locals.limeInstr .return_ .unreachable body)])
+      (stack := saved) (op := .frame fn.arity (fn.frame ls) [.label fn.arity [] (CallFrame.legacyBody Locals.limeInstr .return_ .unreachable body)])
       rfl (by simp) (by simp) (by simp) rfl
   | exit saved ls ready =>
     exact preserve
-      (stack := saved) (op := .frame site.callee.arity (site.callee.frame ls) (CallFrame.legacyExit value .return_ ready))
+      (stack := saved) (op := .frame fn.arity (fn.frame ls) (CallFrame.legacyExit value .return_ ready))
       rfl (by simp) (by simp) (by simp) rfl
   | returned | trapped => exact live.elim
 
@@ -134,7 +135,7 @@ theorem readback {H : Type} {s : Store H} {caller : Frame} {site : Site}
   cases a with
   | call saved args => exact ⟨_, fact (.resolve saved args), (resolve_iff g).mp step⟩
   | active q =>
-    obtain ⟨mid, inner, eq⟩ := read_body (active_stays ready.1) step
+    obtain ⟨mid, inner, eq⟩ := read_body (active_label_stays ready.1) step
     obtain ⟨mid', move, rfl⟩ := CallContinuation.Proofs.Lime1.active_strip ready.1 inner
     obtain ⟨out, edge, rfl⟩ := (CallFrame.lime_step_iff g.allocated ready.2.1).mp move
     exact ⟨attach site out, call ready.1 edge, eq.trans (by rw [limeConfig, attach_code]; rfl)⟩

@@ -3,6 +3,7 @@ module
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Native.Defs
 public import Silmaril.Wasm.Institution.Operational.CallContinuation.StraightLine.Thms
 public import Silmaril.Wasm.SingleThreaded.Determinism.Head
+public import Silmaril.Wasm.Execution.Core.Inversion.Defs
 import Silmaril.Wasm.Institution.Operational.CallContinuation.OuterCall.Computed.Prefix.Native.Thms
 import Silmaril.Wasm.Institution.Operational.CallContinuation.Nested.Native.Thms
 import Silmaril.Wasm.Execution.Core.Sim.Context
@@ -52,30 +53,31 @@ private theorem after_code (site : Site) (rest : List Prefix.Op) (ans : Prefix.O
   | values => exact resumed_code _ _ _
   | trap => exact trapped_code _ _ _
 
-private theorem active_stays {site : Site} {q : CallFrame.State} (live : Active q) {out : List Admin}
-    (h : LabelExit site.arity [] (coreBody site (.active q)) out) : False := by
+theorem active_label_stays {addr : Execution.Runtime.FuncAddr} {fn : CallFrame.Callee}
+    {arity : Nat} {q : CallFrame.State} {suffix out : List Admin} (live : Active q)
+    (h : LabelExit arity [] (CallFrame.coreCode addr fn q ++ suffix) out) : False := by
   cases q with
   | invoke saved args =>
-    let rf := Val.ref (.func site.address.value)
-    let instr := Admin.callRefType site.callee.type.toDefType
-    have code : coreBody site (.active (.invoke saved args)) =
-        vals ((saved ++ args).map Value.toCore ++ [rf]) ++ instr :: site.continuation.map emit := by
-      simp only [coreBody, renderBody, CallFrame.coreCode, vals_append, List.append_assoc, List.cons_append,
+    let rf := Val.ref (.func addr.value)
+    let instr := Admin.callRefType fn.type.toDefType
+    have code : CallFrame.coreCode addr fn (.invoke saved args) ++ suffix =
+        vals ((saved ++ args).map Value.toCore ++ [rf]) ++ instr :: suffix := by
+      simp only [CallFrame.coreCode, vals_append, List.append_assoc, List.cons_append,
         List.nil_append]
       rfl
     rw [code] at h
     exact label_stays (head := instr) rfl (by simp [instr]) (by simp [instr])
       (by simp [instr, Admin.IsReturnCallRef]) (by simp [instr]) (by simp [instr]) h
   | label saved ls body =>
-    let op := Admin.frame site.callee.arity (site.callee.frame ls).toCore
-      [.label site.callee.arity [] (CallFrame.coreBody body)]
-    change LabelExit site.arity [] (coreValues saved ++ [op] ++ site.continuation.map emit) out at h
+    let op := Admin.frame fn.arity (fn.frame ls).toCore
+      [.label fn.arity [] (CallFrame.coreBody body)]
+    change LabelExit arity [] (coreValues saved ++ [op] ++ suffix) out at h
     rw [List.append_assoc, List.singleton_append] at h
     exact label_stays rfl (by simp [op]) (by simp [op]) (by simp [op, Admin.IsReturnCallRef])
       (by simp [op]) (by simp [op]) h
   | exit saved ls ready =>
-    let op := Admin.frame site.callee.arity (site.callee.frame ls).toCore (CallFrame.coreExit ready)
-    change LabelExit site.arity [] (coreValues saved ++ [op] ++ site.continuation.map emit) out at h
+    let op := Admin.frame fn.arity (fn.frame ls).toCore (CallFrame.coreExit ready)
+    change LabelExit arity [] (coreValues saved ++ [op] ++ suffix) out at h
     rw [List.append_assoc, List.singleton_append] at h
     exact label_stays rfl (by simp [op]) (by simp [op]) (by simp [op, Admin.IsReturnCallRef])
       (by simp [op]) (by simp [op]) h
@@ -144,7 +146,7 @@ theorem readback {H : Type} {P : Profile} {s : Store H} {caller : Execution.Runt
   cases a with
   | call saved args => exact ⟨_, fact (.resolve saved args), (resolve_iff g).mp step⟩
   | active q =>
-    obtain ⟨mid, inner, eq⟩ := read_body (active_stays ready.1) step
+    obtain ⟨mid, inner, eq⟩ := read_body (active_label_stays ready.1) step
     obtain ⟨mid', move, rfl⟩ := CallContinuation.Proofs.active_strip g.allocated ready.1 inner
     obtain ⟨out, edge, rfl⟩ := (CallFrame.core_step_iff g.allocated ready.2.1).mp move
     exact ⟨attach site out, call ready.1 edge, eq.trans (by rw [coreConfig, attach_code]; rfl)⟩
