@@ -158,18 +158,6 @@ private theorem delayed_body_generators (X : C) :
   rw [Category.assoc, R.out_roll, Category.comp_id] at h
   simpa only [Category.assoc, R.out_roll, Category.comp_id] using h
 
-private theorem map_extension {Q S : CategoryTheory.Monad C} (m : Q ⟶ S)
-    {X Y : C} (g : X ⟶ Q.obj Y) :
-    (Q.map g ≫ Q.μ.app Y) ≫ m.app Y =
-      m.app X ≫ S.map (g ≫ m.app Y) ≫ S.μ.app Y := by
-  rw [Category.assoc, m.app_μ]
-  calc
-    Q.map g ≫ (Q.map (m.app Y) ≫ m.app (S.obj Y)) ≫ S.μ.app Y =
-        Q.map (g ≫ m.app Y) ≫ m.app (S.obj Y) ≫ S.μ.app Y := by
-      simp only [Functor.map_comp, Category.assoc]
-    _ = _ := by
-      rw [m.toNatTrans.naturality_assoc]
-
 theorem mediator_unique [HasInitial C] {S : GuardedElgotMonad P}
     (ξ : GuardedElgotMonadHom P T S) (σ : GuardedTransformation H S)
     (m : GuardedElgotMonadHom P ((parametrizedElgot T H).resumptionElgotMonad R) S)

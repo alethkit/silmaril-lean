@@ -6,6 +6,7 @@ public import Silmaril.Semantics.Calco2019.ResumptionThms
 public import Silmaril.Semantics.Calco2019.ResumptionConway
 public import Silmaril.Semantics.Calco2019.VacuousThms
 public import Silmaril.Semantics.Calco2019.ExceptionResumption.Interpretation.Uniqueness
+public import Silmaril.Semantics.Calco2019.ExceptionResumption.Interpretation.Multiplication
 
 /-! # Numbered results for CALCO 2019, Article 13 -/
 
