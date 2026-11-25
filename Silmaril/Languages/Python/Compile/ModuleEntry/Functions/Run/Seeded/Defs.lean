@@ -36,9 +36,15 @@ def lowerScalarOperand {scope : Scope} : ModuleEntry.Operand scope → Core.Modu
   | .integer value => .literal (.int value)
   | .boolean _ | .binary .. => .unsupported
 
-def assertTruth : Value → Except Failure Unit
-  | .int 0 | .none => .error (.raised (.assertionError .empty))
-  | _ => .ok ()
+def truth : Value → Bool
+  | .int value => decide (value ≠ 0)
+  | .none => false
+  | .exceptionClass _ | .helper _ => true
+
+def assertTruthAs (expected : Bool) (value : Value) : Except Failure Unit :=
+  if truth value = expected then .ok () else .error (.raised (.assertionError .empty))
+
+def assertTruth : Value → Except Failure Unit := assertTruthAs true
 
 def acceptCall (destination : Core.Module.Functions.Destination) (value : Value) :
     Except Failure (Option (String × Value)) :=
@@ -101,12 +107,17 @@ inductive EvaluatesArguments (space : Namespace) :
       (tail : EvaluatesArguments space rest values later) :
       EvaluatesArguments space (argument :: rest) (values.map (value :: ·)) (calls ++ later)
 
+def assertOperand {scope : Scope} (space : Namespace) (operand : ModuleEntry.Operand scope)
+    (expected : Bool) : Effect :=
+  let checked := ((lowerScalarOperand operand).eval space #v[]).bind (assertTruthAs expected)
+  ⟨checked.map fun _ => none, []⟩
+
 def effect {scope : Scope} (space : Namespace) : Instruction scope → Effect
   | .scalar (.assign name _ operand) =>
     ⟨((lowerScalarOperand operand).eval space #v[]).map fun value => some (name, value), []⟩
-  | .scalar (.assertion operand) =>
-    ⟨(((lowerScalarOperand operand).eval space #v[]).bind assertTruth).map fun _ => none, []⟩
-  | .publish .. | .assertNot _ => ⟨.error .unsupported, []⟩
+  | .scalar (.assertion operand) => assertOperand space operand true
+  | .assertNot operand => assertOperand space operand false
+  | .publish .. => ⟨.error .unsupported, []⟩
   | .call destination name arguments =>
     let event := observeNamedCall space name arguments
     ⟨event.observation.result.bind (acceptCall destination), [event]⟩

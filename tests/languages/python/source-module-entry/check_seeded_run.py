@@ -78,6 +78,14 @@ private def globalsUnchanged (source : Source.Module) (profile : String) : Bool 
     let space := initial profile
     (Compile.ModuleEntry.Functions.Run.Seeded.run space compiled).residual.moduleGlobals == space.moduleGlobals
 
+private def equalityBeforeAssertNot (source : Source.Module) : Bool :=
+  match Compile.ModuleEntry.Functions.Run.compile source with
+  | .ok compiled =>
+    match compiled.instructions with
+    | [.scalar (.assertion (.binary .equal ..)), .assertNot (.binary .equal ..)] => true
+    | _ => false
+  | .error _ => false
+
 private def singleNoneReturn (source : Source.Module) (profile : String) : Bool :=
   match Compile.ModuleEntry.Functions.Run.compile source with
   | .error _ => false
@@ -92,6 +100,7 @@ private def singleNoneReturn (source : Source.Module) (profile : String) : Bool 
 AUDIT = """
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.run_preserves_builtins
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.failing_instruction
+#print axioms Compile.ModuleEntry.Functions.Run.Seeded.assertNot_operand_failure
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.observeArguments_iff
 #print axioms Compile.ModuleEntry.Functions.Run.Seeded.observeNestedCall_failedArguments
 #print axioms runObserved_result
@@ -102,6 +111,8 @@ UPSTREAM_REVISION = "b7ff99372dd24845cf84e58c96b877f15764b276"
 UPSTREAM_CASE = "tests/python/programs/original/lambda-py/python-reference/exceptions/assertion-error.py"
 UPSTREAM_SHA256 = "822abc163f457af8784c41c08cef152ecbb1266bb9704197292944386bc3dd79"
 UPSTREAM_BOOL_DIR = "tests/python/programs/original/lambda-py/python-reference/bool"
+UPSTREAM_ASSERT_NOT_CASE = "tests/python/programs/original/k-python/programs/testintegers1.py"
+UPSTREAM_ASSERT_NOT_SHA256 = "295e494847f164f28f922f9eeb34a7344a199f51bb759eb043f88f06a1a31d61"
 UPSTREAM_NESTED = (
     ("bool-callable.py", "8ec834148893367fc4ffe9a5645ea4a954293eb20a8188552e46b6dea4df4766",
      "___assertIs", "___assertIs", []),
@@ -155,6 +166,20 @@ after = 9
 result = require_error(AssertionError, AssertionError())
 after = 9
 """, ["unsupported", "int:5", "absent"]),
+    ("assert_not_zero", "empty", "result = 0\nassert not 0\nassert not result\nafter = 9\n",
+     ["normal", "int:0", "int:9"]),
+    ("assert_not_none", "builtin", """result = require_error(AssertionError, compare_ints, 1, 2)
+assert not result
+after = 9
+""", ["normal", "None", "int:9", "AssertionError:pair:1:2"]),
+    ("assert_not_truthy", "empty", "result = 5\nassert not -2\nafter = 9\n",
+     ["AssertionError:empty", "int:5", "absent"]),
+    ("assert_not_missing", "empty", "result = 5\nassert not missing\nafter = 9\n",
+     ["NameError:missing", "int:5", "absent"]),
+    ("assert_not_shadow", "builtin", "compare_ints = 0\nassert not compare_ints\nafter = 9\n",
+     ["normal", "absent", "int:9"]),
+    ("assert_not_unsupported", "empty", "result = 5\nassert not (1 == 2)\nafter = 9\n",
+     ["unsupported", "int:5", "absent"]),
 )
 
 NESTED_CALL_NAMES = {
@@ -271,6 +296,22 @@ def replay_upstream_nested(checkout, shared, source_path, lean_path):
     return rows
 
 
+def replay_upstream_assert_not(checkout, shared, source_path, lean_path):
+    source = pinned_source(checkout, UPSTREAM_ASSERT_NOT_CASE, UPSTREAM_ASSERT_NOT_SHA256)
+    shared["emit"](source_path, lean_path, source)
+    guards = ["#guard equalityBeforeAssertNot pythonSource"]
+    for profile in ("empty", "legacy_builtin", "legacy_preamble"):
+        assert cpython(source, profile, preserve_globals=True) == ["normal", "absent", "absent"]
+        guards.extend((
+            guard_observation(profile, ["unsupported", "absent", "absent"]),
+            f"#guard globalsUnchanged pythonSource {json.dumps(profile)}",
+            f"#guard callNames pythonSource {json.dumps(profile)} == some []",
+        ))
+    shared["check_lean"](lean_path, LEAN + "\n".join(guards), extra_imports=IMPORTS)
+    return {"path": UPSTREAM_ASSERT_NOT_CASE, "sha256": UPSTREAM_ASSERT_NOT_SHA256,
+            "cpython": "normal", "seeded": "unsupported at the first scalar equality"}
+
+
 def replay_upstream(checkout, shared, source_path, lean_path):
     revision = subprocess.check_output(
         ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
@@ -295,6 +336,7 @@ def replay_upstream(checkout, shared, source_path, lean_path):
         "builtin": "normal, None, caught AssertionError((1, 2))",
         "preamble_projection": "normal, None, caught AssertionError((1, 2))",
         "nested": replay_upstream_nested(checkout, shared, source_path, lean_path),
+        "assert_not": replay_upstream_assert_not(checkout, shared, source_path, lean_path),
     }
 
 

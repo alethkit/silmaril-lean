@@ -72,8 +72,8 @@ The ordinary module runner also accepts a message-free `assert not test`
 when `test` is an existing module operand. It evaluates the operand once,
 propagates evaluation errors, and succeeds exactly when the result is
 false by the ordinary truth rule. This includes a name bound to a
-returned `None`. The closed seeded runner reports this instruction as
-unsupported.
+returned `None`. The seeded runner also handles this instruction for
+its existing [seeded operands](python-seeded-module-runner.md).
 [Module-call runner](../../Silmaril/Languages/Python/Compile/ModuleEntry/Functions/Run/Thms.lean)
 
 ```sh

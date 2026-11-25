@@ -18,6 +18,13 @@ value only after every argument returns. An instruction failure keeps
 its incoming module bindings and skips the remaining instructions.
 [Python evaluation order](https://docs.python.org/release/3.12.13/reference/expressions.html#evaluation-order)
 
+For message-free `assert not test`, the seeded runner uses the same
+integer literal and global name operands as a positive assertion.
+It evaluates the operand once, then checks for a false value. A
+failed operand read keeps its defined error, and a truthy operand
+raises an empty `AssertionError`. Both paths preserve earlier module
+bindings. Compound operands such as scalar equality remain unsupported.
+
 The runner handles the checked stream at module instruction granularity.
 User function publication, ordinary closure callbacks, arithmetic
 operands, boolean literals, and constructing exception instances lie
@@ -89,6 +96,14 @@ does not model the `int`, `callable`, or `isinstance` calls or the Boolean
 and type operands used by these rows. The restricted-namespace errors
 are separate from normal completion under the full preamble.
 [Pinned Boolean cases](https://github.com/koehlma/rigorous/tree/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/lambda-py/python-reference/bool)
+
+The pinned `testintegers1.py` row admits the guarded negated assertion
+in the ordinary compiler. CPython completes normally under all three
+restricted namespaces. The seeded runner stops at the first positive
+scalar equality assertion with `unsupported`, unchanged module
+bindings, and an empty call trace. The negated assertion is later in the
+same instruction stream.
+[Pinned equality row](https://github.com/koehlma/rigorous/blob/b7ff99372dd24845cf84e58c96b877f15764b276/tests/python/programs/original/k-python/programs/testintegers1.py)
 
 ```sh
 make check CHECK_TARGETS='+Silmaril.Languages.Python.Compile.ModuleEntry.Functions.Run.Seeded.Thms +Silmaril.Languages.Python.Core.Module.SeededCall.Observation.Thms'
